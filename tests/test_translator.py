@@ -63,3 +63,15 @@ def test_api_key_sets_authorization_header():
     t = Translator(base_url="http://test", model="m", api_key="sk-123", client=client)
     t.to_zh("hi")
     assert captured["auth"] == "Bearer sk-123"
+
+
+def test_default_client_construction_with_api_key():
+    t = Translator(base_url="http://myserver", model="m", api_key="sk-abc")
+    assert t._client.headers["authorization"] == "Bearer sk-abc"
+    assert str(t._client.base_url).rstrip("/") == "http://myserver"
+    assert t._client.timeout.read == 10.0
+
+
+def test_default_client_construction_without_api_key():
+    t = Translator(base_url="http://myserver", model="m")
+    assert "authorization" not in t._client.headers
