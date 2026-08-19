@@ -19,12 +19,14 @@ class InputBox:
         self._entry: tk.Entry | None = None
         self._status: tk.Label | None = None
         self._target_hwnd: int | None = None
+        self._session = 0
 
     def show(self) -> None:
         if self._win is not None:  # 已開著就聚焦
             self._win.lift()
             self._entry.focus_force()
             return
+        self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
         self._win = tk.Toplevel(self._root)
         self._win.title("翻譯輸入")
@@ -48,6 +50,7 @@ class InputBox:
             self._win = None
             self._entry = None
             self._status = None
+            self._session += 1
 
     def _on_enter(self, _event) -> None:
         text = self._entry.get().strip()
@@ -56,22 +59,27 @@ class InputBox:
         self._entry.configure(state="disabled")
         self._status.configure(text="翻譯中…", fg="#9a9aa8")
         hwnd = self._target_hwnd
-        threading.Thread(target=self._worker, args=(text, hwnd), daemon=True).start()
+        session = self._session
+        threading.Thread(target=self._worker, args=(text, hwnd, session), daemon=True).start()
 
-    def _worker(self, text: str, hwnd: int | None) -> None:
+    def _worker(self, text: str, hwnd: int | None, session: int) -> None:
         try:
             english = self._translate(text)
         except Exception as exc:
-            self._queue.put(lambda: self._show_error(f"翻譯失敗:{exc}"))
+            self._queue.put(lambda: self._show_error(f"翻譯失敗:{exc}", session))
             return
-        self._queue.put(lambda: self._finish(english, hwnd))
+        self._queue.put(lambda: self._finish(english, hwnd, session))
 
-    def _show_error(self, message: str) -> None:
+    def _show_error(self, message: str, session: int) -> None:
+        if session != self._session:
+            return  # stale/cancelled
         if self._entry is None:
             return
         self._entry.configure(state="normal")
         self._status.configure(text=message, fg="#ff5f5f")
 
-    def _finish(self, english: str, hwnd: int | None) -> None:
+    def _finish(self, english: str, hwnd: int | None, session: int) -> None:
+        if session != self._session:
+            return  # stale/cancelled
         self.close()
         self._on_translated(english, hwnd)
