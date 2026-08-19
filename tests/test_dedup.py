@@ -40,3 +40,25 @@ def test_seen_set_is_bounded():
     d.new_lines(["line one hello", "line two world", "line three again"])
     # "line one hello" 已被擠出視窗,重新出現時視為新行
     assert d.new_lines(["line one hello"]) == ["line one hello"]
+
+
+def test_forget_makes_line_new_again():
+    d = LineDeduper()
+    d.new_lines(["hello there"])
+    d.forget(["hello there"])
+    assert d.new_lines(["hello there"]) == ["hello there"]
+
+
+def test_forget_unseen_line_is_noop():
+    d = LineDeduper()
+    d.new_lines(["hello there"])
+    d.forget(["never seen this line"])
+    # 原本已見過的行不受影響,仍視為重複
+    assert d.new_lines(["hello there"]) == []
+
+
+def test_forget_only_removes_listed_lines():
+    d = LineDeduper()
+    d.new_lines(["line a", "line b"])
+    d.forget(["line a"])
+    assert d.new_lines(["line a", "line b"]) == ["line a"]

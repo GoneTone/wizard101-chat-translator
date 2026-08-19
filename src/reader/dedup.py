@@ -23,3 +23,12 @@ class LineDeduper:
             self._seen.append(line)
             fresh.append(line)
         return fresh
+
+    def forget(self, lines: list[str]) -> None:
+        """把指定行從已見集合移除,讓它們下次可再被視為新行(例如翻譯失敗需要重試)。"""
+        to_forget = set(lines)
+        if not to_forget:
+            return
+        remaining = [line for line in self._seen if line not in to_forget]
+        self._seen.clear()
+        self._seen.extend(remaining)

@@ -3,7 +3,6 @@ import argparse
 import queue
 import sys
 import threading
-import time
 import tkinter as tk
 from pathlib import Path
 
@@ -32,27 +31,54 @@ def game_window_hidden() -> bool:
     return bool(hwnd) and bool(win32gui.IsIconic(hwnd))
 
 
+def drain_ui_queue(ui_queue: queue.Queue) -> None:
+    """依序取出並執行 ui_queue 裡的回呼;單一回呼拋錯不影響其餘回呼或呼叫端。"""
+    while True:
+        try:
+            callback = ui_queue.get_nowait()
+        except queue.Empty:
+            break
+        try:
+            callback()
+        except Exception as exc:  # 避免單一 UI 回呼失敗就讓整個 pump 迴圈停擺
+            print(f"[ui] 回呼失敗:{exc}", file=sys.stderr)
+
+
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
     deduper = LineDeduper()
     backoff_index = 0
     while not stop.is_set():
         interval = cfg["poll_interval"]
+        translated_ok = False
+        went_offline = False
         try:
             if not game_window_hidden():
                 img = grab_region(cfg["chat_region"])
-                for line in deduper.new_lines(recognize_lines(img)):
-                    translated = translator.to_zh(line)
+                lines = deduper.new_lines(recognize_lines(img))
+                for idx, line in enumerate(lines):
+                    try:
+                        translated = translator.to_zh(line)
+                    except httpx.HTTPError:
+                        # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
+                        # 避免離線期間的訊息被 dedup 永久吃掉。
+                        deduper.forget(lines[idx:])
+                        went_offline = True
+                        break
+                    translated_ok = True
                     ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
-                if backoff_index:
-                    backoff_index = 0
-                    ui_queue.put(overlay.clear_error)
-        except httpx.HTTPError:
+        except Exception as exc:  # OCR/截圖偶發錯誤:略過該輪,不讓執行緒死掉
+            print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
+
+        if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
             ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線,重試中…"))
-        except Exception as exc:  # OCR/截圖偶發錯誤:略過該輪,不讓執行緒死掉
-            print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
+        elif translated_ok and backoff_index:
+            # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
+            backoff_index = 0
+            ui_queue.put(overlay.clear_error)
+
         stop.wait(interval)
 
 
@@ -71,7 +97,7 @@ def main() -> None:
         print(f"聊天框區域已存檔:{region}")
 
     if not cfg["api"]["model"]:
-        sys.exit("請先把 config.example.json 複製為 config.json,填入 api.base_url 與 api.model。")
+        sys.exit("請編輯 config.json 填入 api.base_url 與 api.model(格式參考 config.example.json)。")
 
     translator = Translator(**cfg["api"])
     ui_queue: queue.Queue = queue.Queue()
@@ -96,11 +122,7 @@ def main() -> None:
                      daemon=True).start()
 
     def pump() -> None:
-        while True:
-            try:
-                ui_queue.get_nowait()()
-            except queue.Empty:
-                break
+        drain_ui_queue(ui_queue)
         overlay.prune()
         root.after(50, pump)
 
