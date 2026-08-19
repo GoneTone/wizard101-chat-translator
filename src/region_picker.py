@@ -26,16 +26,17 @@ def pick_region() -> dict | None:
         fill="white", font=("Microsoft JhengHei", 16),
     )
 
-    state: dict = {"start": None, "rect": None, "result": None}
+    state: dict = {"start": None, "start_canvas": None, "rect": None, "result": None}
 
     def on_press(e):
         state["start"] = (e.x_root, e.y_root)
+        state["start_canvas"] = (e.x, e.y)
         state["rect"] = canvas.create_rectangle(e.x, e.y, e.x, e.y, outline="#00d0ff", width=2)
 
     def on_drag(e):
         if state["rect"] is not None:
-            x0, y0 = state["start"]
-            canvas.coords(state["rect"], x0, y0, e.x_root, e.y_root)
+            cx0, cy0 = state["start_canvas"]
+            canvas.coords(state["rect"], cx0, cy0, e.x, e.y)
 
     def on_release(e):
         if state["start"] is not None:
