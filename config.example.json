@@ -1,0 +1,12 @@
+{
+  "api": {
+    "base_url": "http://127.0.0.1:8000",
+    "model": "your-model-name",
+    "api_key": ""
+  },
+  "chat_region": null,
+  "poll_interval": 1.5,
+  "fade_seconds": 180,
+  "hotkey": "ctrl+space",
+  "overlay_position": {"x": null, "y": null}
+}
