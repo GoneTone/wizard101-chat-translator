@@ -24,7 +24,9 @@ class OverlayWindow:
         self._win.attributes("-topmost", True)
         self._win.attributes("-alpha", 0.85)
         self._win.configure(bg=BG)
-        self._win.geometry(f"+{x or 40}+{y or 40}")
+        pos_x = x if x is not None else 40
+        pos_y = y if y is not None else 40
+        self._win.geometry(f"+{pos_x}+{pos_y}")
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(fill="both", expand=True, padx=6, pady=4)
         self._win.update_idletasks()

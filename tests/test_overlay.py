@@ -38,3 +38,10 @@ def test_error_banner_toggle(root):
     assert ov.error_text() == "⚠ 翻譯伺服器離線"
     ov.clear_error()
     assert ov.error_text() is None
+
+
+def test_explicit_zero_position_is_honored(root):
+    ov = OverlayWindow(root, x=0, y=0)
+    ov._win.update_idletasks()
+    geom = ov._win.geometry()
+    assert geom.endswith("+0+0"), f"Expected geometry to end with '+0+0', got {geom}"
