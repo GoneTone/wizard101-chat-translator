@@ -1,16 +1,4 @@
-import tkinter as tk
-
-import pytest
-
 from src.reader.overlay import OverlayWindow
-
-
-@pytest.fixture(scope="module")
-def root():
-    r = tk.Tk()
-    r.withdraw()
-    yield r
-    r.destroy()
 
 
 def test_add_message_appends_and_caps_at_max(root):

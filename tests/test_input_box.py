@@ -1,17 +1,7 @@
 import queue
 import tkinter as tk
 
-import pytest
-
 from src.composer.input_box import InputBox
-
-
-@pytest.fixture(scope="module")
-def root():
-    r = tk.Tk()
-    r.withdraw()
-    yield r
-    r.destroy()
 
 
 def test_stale_session_discarded_on_cancel(root):
