@@ -5,7 +5,7 @@ import pytest
 from src.reader.overlay import OverlayWindow
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def root():
     r = tk.Tk()
     r.withdraw()
