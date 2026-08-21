@@ -79,6 +79,27 @@ exe 靜態反組譯 + 純讀 pointer scan + 網路 handler 追蹤,共同證實:
 可行的最佳成果是 pointer scan 找到的**固定入口**(ControlRichEdit @RVA `0x33b0fc0`),
 能提升定位穩定性(不必全記憶體掃描),但內容仍是渲染文字。
 
+## ControlRichEdit 富文字模型調查 — 2026-08-21(選項 A)
+
+嘗試從固定入口 ControlRichEdit(RVA `0x33b0fc0`)解析出乾淨的可視窗行列表。結果:
+- 它的欄位是多個 vector,元素是 **PropertyClass window 物件**(嵌 `GetClassName`/`HasParent`/`Parent` 反射方法名)—— 是**整棵 UI window 子樹**,不是訊息行。
+- `+0xa0` 的 12 元素不是聊天行,是各種 UI 控件(`BrightnessControlWindow`/`ControlFreeChat`/`BadgeFilter`/`Pip Conversion`…)。
+- 訊息文字被拆散成 `+0x1c8` 的**排版 run 碎片** + 字元級 glyph/run 物件,沒有「一行 → 一則訊息文字」的乾淨映射。
+- 要重組需逐 run/glyph 讀字元碼、依行/順序拼接、還原 sender/markup —— 極高成本,且成果仍是渲染文字(重複訊息身分問題不變)。
+
+**結論:富文字模型重組的成本與收益不成比例**,相對現有活文件版(讀渲染 markup 文字)沒有實質優勢。停在此。
+
+## 全部逆向路線總結(2026-08-21)
+
+| 路線 | 結果 |
+|------|------|
+| exe 靜態反組譯(RTTI/屬性系統) | ChatHistory 等類別無 vtable;走 PropertyClass 框架,無固定偏移直達容器 |
+| 純讀 pointer scan(自寫工具,不需除錯器) | 秒找 .data 固定入口 ControlRichEdit,但其內容是渲染碎片,非乾淨容器 |
+| 網路層 handler 追蹤 | handler 名/欄位無直接引用,走 dispatch 框架;sender 以 `<link;GID>` 內嵌渲染文字 |
+| ControlRichEdit 富文字模型 | 多層 window 樹 + run 碎片,重組成本不成比例 |
+
+**最終定論:Wizard101 聊天在持久記憶體只以「渲染標記文字」存在,無帶身分/順序/時間戳的乾淨結構化容器。這是記憶體本質,四條獨立路線一致證實。務實最佳解 = 現行純讀 markup 文字方案(commit 64b874e)。**
+
 ## 現行實作(未走上述路線)
 
 `src/reader/mem_reader.py`:純讀 `ReadProcessMemory` 掃描聊天標記文字、定錨「活文件」、翻譯尾端新增行。對不同內容的訊息可靠、閒置不冒舊;弱點是「快速連續發送完全相同的短語」可能漏(渲染層無訊息身分,內容無法區分)。
