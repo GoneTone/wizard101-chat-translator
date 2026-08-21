@@ -204,7 +204,8 @@ def _read_clamped(h, addr: int, need: int) -> bytes:
 # 富文字文件」(位址穩定、每有新訊息尾端就地成長);此外每次重繪還會產生大量
 # 一次性渲染快照(新位址誕生、舊位址殘留成垃圾)—— 快照不可信,只有活文件可信。
 _GROUP_GAP = 4000            # 同一份文件內相鄰標記的最大位址間隔(bytes)
-_MIN_GROUP_MARKERS = 2       # 少於這個標記數的群不視為文件/視窗
+_MIN_GROUP_MARKERS = 1       # 單行群也納入 —— 空聊天室只有一句時文件才看得到
+_NEW_DOC_BASELINE = 2        # 定錨時基準 ≤ 這個行數視為全新文件,連基準行一起補翻
 _DOC_MARGIN = 256 * 1024     # 定錨輪詢時,文件長度之外多讀的餘量(容納成長與頭部修剪)
 _MAX_DOC_READ = 8 * 1024 * 1024
 _UNANCHOR_FAILS = 2          # 連續對不齊幾輪視為文件已搬移/釋放 → 重新探索
@@ -380,11 +381,11 @@ class LiveChatReader:
                 continue
             appended = align_append(list(old[1]), list(lines))
             if appended and (best is None or len(lines) > len(best[2])):
-                best = (addr, nbytes, list(lines), appended)
+                best = (addr, nbytes, list(lines), appended, list(old[1]))
         if best is None:
             return []
         known_tail = self._lines
-        self._addr, self._bytes, self._lines, appended = best
+        self._addr, self._bytes, self._lines, appended, baseline = best
         self._snapshot = None
         self._fails = 0
         self._idle = 0
@@ -392,4 +393,8 @@ class LiveChatReader:
             after = after_last_tail(self._lines, known_tail)
             if after is not None:
                 return self._trim_emitted_overlap(after)
+        if len(baseline) <= _NEW_DOC_BASELINE:
+            # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
+            # 搬移的舊文件基準必然很長,不會走到這裡。
+            return self._trim_emitted_overlap(baseline + appended)
         return self._trim_emitted_overlap(appended)
