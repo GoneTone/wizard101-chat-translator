@@ -59,6 +59,26 @@ ImageBase(靜態)= `0x140000000`。以下位址標 **RVA**(執行時 = 模組基
 **pointer scan 的價值**:證明能純讀找到 .data 穩定入口(ControlRichEdit @RVA `0x33b0fc0`),
 可用來取代「全記憶體掃描找聊天」→ 解決定位卡住/乒乓/殭屍/掃描慢;但內容仍是渲染碎片,訊息身分問題是記憶體本質限制,非演算法可解。
 
+## 網路層調查 — 2026-08-21
+
+找到聊天 handler 名字串:`HandleChatFail`、`HandleChatCommandReply`、`HandleChatCommandTell`,
+及聊天訊息欄位 `senderId`、`ChannelID`。但這些字串**沒有任何 lea 或指標引用** ——
+它們透過 KingsIsle 的訊息 dispatch 框架**間接**呼叫(和屬性系統一樣,靠 hash/索引 dispatch,
+非直接引用),追下去又是框架黑洞。
+
+且動態掃描揭示關鍵事實:sender 資訊以 `<link;GID:191965934…,發送者,2>` 形式**內嵌在渲染標記文字裡**
+(GID = 發送者的全域唯一 ID),連同 text、`<color>`、`<center>` 都在同一個 wstring。
+
+## 三管齊下的最終結論
+
+exe 靜態反組譯 + 純讀 pointer scan + 網路 handler 追蹤,共同證實:
+**Wizard101 的聊天訊息在持久記憶體裡只以「渲染標記文字」存在**(含 `<link;GID;發送者>` + text + 樣式標記),
+**沒有**帶訊息身分 / 順序 / 時間戳的結構化容器可供純讀取得。這是記憶體佈局的本質,
+不是演算法或工具能繞過的 —— 「快速連續發送的完全相同訊息無法區分」是資訊層面的硬限制。
+
+可行的最佳成果是 pointer scan 找到的**固定入口**(ControlRichEdit @RVA `0x33b0fc0`),
+能提升定位穩定性(不必全記憶體掃描),但內容仍是渲染文字。
+
 ## 現行實作(未走上述路線)
 
 `src/reader/mem_reader.py`:純讀 `ReadProcessMemory` 掃描聊天標記文字、定錨「活文件」、翻譯尾端新增行。對不同內容的訊息可靠、閒置不冒舊;弱點是「快速連續發送完全相同的短語」可能漏(渲染層無訊息身分,內容無法區分)。
