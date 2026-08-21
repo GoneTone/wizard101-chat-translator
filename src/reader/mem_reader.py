@@ -20,34 +20,20 @@ _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
 _MAX_LINE_BYTES = 1400
 
 
-# 遊戲表情符號:訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌,轉成對應 emoji 顯示。
+# 遊戲表情符號:訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌,保留成 :名稱: 文字
+# (不轉成 emoji,只保留表情本身,避免整行只有表情時被去光而消失)。
 _EMOTE_TAG = re.compile(r"<image;Emoticons/([^.;>]+)\.dds[^>]*>", re.IGNORECASE)
-_EMOJI_BY_NAME = {
-    "smile": "🙂", "big_smile": "😃", "laugh": "😆", "laughter": "😂",
-    "wink": "😉", "frown": "🙁", "sad": "😢", "cry": "😢", "streamcrying": "😭",
-    "shocked": "😲", "confused": "😕", "angry": "😠", "mad": "😠", "cool": "😎",
-    "tongue_stick_out": "😛", "grin": "😁", "sleep": "😴", "kiss": "😘",
-    "heart": "❤️", "brokenheart": "💔", "broken_heart": "💔",
-    "eyes": "👀", "battle_eye": "👁️", "battle_sun": "☀️", "battle_moon": "🌙",
-    "battle_star": "⭐", "school_death": "💀", "school_fire": "🔥",
-    "school_ice": "❄️", "school_storm": "⚡", "school_life": "🌿",
-    "school_myth": "🐍", "school_balance": "⚖️", "teacup": "🍵",
-    "transgender": "⚧️", "thumbsup": "👍", "thumbs_up": "👍", "star": "⭐",
-    "moon": "🌙", "sun": "☀️", "music": "🎵", "ghost": "👻", "crown": "👑",
-    "skull": "💀", "flower": "🌸", "rainbow": "🌈", "pizza": "🍕",
-    "cake": "🎂", "clap": "👏", "wave": "👋", "fire": "🔥",
-}
 
 
 def _emote_to_char(m: re.Match) -> str:
     name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
     if not re.fullmatch(r"[a-z0-9_]+", name):
         return ""  # 撕裂的標記(名稱夾入雜字):丟棄該表情,保留整行其餘內容
-    return _EMOJI_BY_NAME.get(name, f":{name}:")  # 沒對應的以 :名稱: 顯示
+    return f":{name}:"  # 保留成 :名稱: 文字
 
 
 def clean(text: str) -> str:
-    """表情標記轉 emoji,去掉 <color;..> <image;..> </color> 等標記,
+    """表情標記保留成 :名稱:,去掉 <color;..> <image;..> </color> 等標記,
     還原玩家實際打出的 &lt; &gt; &amp; 實體,壓縮空白。"""
     text = _EMOTE_TAG.sub(_emote_to_char, text)
     text = _TAG.sub("", text)
