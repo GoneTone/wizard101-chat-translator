@@ -66,8 +66,13 @@ def test_appended_handles_repeats():
     assert appended_lines(["x", "y", "np"], ["y", "np", "np"]) == ["np"]
 
 
-def test_appended_fallback_when_no_overlap():
-    assert appended_lines(["a", "b"], ["x", "y", "z"]) == ["x", "y", "z"]
+def test_appended_no_overlap_returns_empty():
+    # 對不齊(視窗劇烈變動)→ 不翻,只重新對齊,避免整窗爆量重譯
+    assert appended_lines(["a", "b"], ["x", "y", "z"]) == []
+
+
+def test_appended_empty_prev_returns_empty():
+    assert appended_lines([], ["a", "b"]) == []
 
 
 # --- reader_loop ---
@@ -122,7 +127,7 @@ def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
     cfg = {"poll_interval": 0.01}
     tr = OneBadTranslator()
     ov = FakeOverlay()
-    reads = [[], ["[A] a", "[B] bad", "[C] c"]]
+    reads = [["[Z] base"], ["[Z] base", "[A] a", "[B] bad", "[C] c"]]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == ["[A] a", "[B] bad", "[C] c"]
     assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]
@@ -144,7 +149,7 @@ def test_failed_line_retried_after_recovery(monkeypatch):
     cfg = {"poll_interval": 0.01}
     tr = FlakyTranslator()
     ov = FakeOverlay()
-    reads = [[], ["[X] x"], ["[X] x"]]
+    reads = [["[Z] base"], ["[Z] base", "[X] x"], ["[Z] base", "[X] x"]]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == 2
     assert ov.messages == [("[X] x", "譯:[X] x")]

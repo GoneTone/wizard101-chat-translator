@@ -35,13 +35,17 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def appended_lines(prev_window: list[str], cur_window: list[str]) -> list[str]:
     """可視視窗滾動後、結尾新增的行(對應遊戲聊天室新出現的訊息,含重複、依序)。
-    視窗會從前端捨棄舊行、後端接上新行;找最小 k 使『prev 去掉前 k 行』正好是 cur 的前綴
-    (對齊滾動),回傳 cur 尾端多出來的行。完全對不上(一次捲太多)時整個 cur 當作全新。"""
-    for k in range(len(prev_window) + 1):
+    視窗從前端捨棄舊行、後端接上新行;找最短的『prev 去掉前 k 行(非空)』正好是 cur 的前綴
+    (對齊滾動),回傳 cur 尾端多出來的行。
+    對不齊(視窗劇烈變動、或全掃/快掃取到不同副本)時回傳空 —— 只重新對齊、絕不整窗重譯,
+    以免把整個可視視窗當成新訊息爆量冒出來。"""
+    if not prev_window:
+        return []
+    for k in range(len(prev_window)):  # 只接受非空重疊,避免「空重疊」誤判整窗皆新
         overlap = prev_window[k:]
         if cur_window[:len(overlap)] == overlap:
             return cur_window[len(overlap):]
-    return list(cur_window)
+    return []
 
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
