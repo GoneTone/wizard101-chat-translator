@@ -393,3 +393,43 @@ def test_idle_verify_recovers_from_zombie_anchor():
         assert r.read_new() == []                 # 殘骸靜止,一直「監聽中」沒反應
     assert r.read_new() == ["[E] e", "[F] f"]     # 閒置驗證:找到延伸內容 → 補翻
     assert moved in r._addrs and DOC not in r._addrs
+
+
+# --- 插入式文件(依頻道分節、訊息插中段、尾端不動) ---
+def test_inserted_lines_detects_mid_insertion():
+    from src.reader.mem_reader import inserted_lines
+    old = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
+    new = ["[A] a", "[B] b", "[你] Test", "[C] c", "[D] d", "[E] e"]
+    assert inserted_lines(old, new) == ["[你] Test"]
+
+
+def test_inserted_lines_trim_only_returns_empty():
+    from src.reader.mem_reader import inserted_lines
+    old = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
+    assert inserted_lines(old, old[1:]) == []
+
+
+def test_inserted_lines_dissimilar_returns_none():
+    from src.reader.mem_reader import inserted_lines
+    assert inserted_lines(["[A] a", "[B] b"], ["[X] x", "[Y] y", "[Z] z"]) is None
+
+
+def test_inserted_lines_dedupes_section_copies():
+    from src.reader.mem_reader import inserted_lines
+    old = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e", "[F] f"]
+    new = ["[A] a", "[你] hi", "[B] b", "[C] c", "[D] d", "[你] hi", "[E] e", "[F] f"]
+    assert inserted_lines(old, new) == ["[你] hi"]  # 同批的節副本只取一次
+
+
+def test_insert_mode_doc_anchors_and_streams():
+    # 安靜模式:沒有附加式文件,只有一份「中段插入」的聊天總文件 → 也要能定錨並即時翻
+    r = FakeLive()
+    base = ["[A] a", "[B] b", "[C] c", "[D] d", "[伊莱杰] np"]
+    r.mem = {DOC: list(base)}
+    r.read_new()                                       # 全掃 1:建快照
+    r.mem[DOC] = base[:2] + ["[你] Test"] + base[2:]   # 訊息插中段,尾端不動
+    assert r.read_new() == ["[你] Test"]               # 插入式定錨 + 補翻
+    assert DOC in r._addrs
+    cur = r.mem[DOC]
+    r.mem[DOC] = cur[:3] + ["[你] zxqv123"] + cur[3:]  # 定錨後又一則中段插入
+    assert r.read_new() == ["[你] zxqv123"]            # 輪詢用整份差分即時翻

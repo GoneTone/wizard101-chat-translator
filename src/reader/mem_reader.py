@@ -8,6 +8,7 @@
 """
 import ctypes
 import ctypes.wintypes as wt
+import difflib
 import re
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
@@ -253,6 +254,38 @@ def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | Non
     return None
 
 
+def inserted_lines(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
+    """整份文件比對:回傳 cur 相對 prev 的『插入行』(依文件順序,批內去重)。
+    對應「插入式」聊天總文件 —— 依頻道分節、新訊息插在所屬節的中段、尾端不動,
+    尾端附加對齊(align_append)對它永遠失敗。相似度不足(不是同一份文件的演進)
+    回傳 None;只有刪除/修剪回傳 []。
+    批內去重:同一則訊息可能同時插入多個節(重複副本),同批相同行只取一次;
+    真實的重複訊息因分屬不同輪差分,仍會分次輸出。"""
+    if not prev_lines or not cur_lines:
+        return None
+    sm = difflib.SequenceMatcher(None, prev_lines, cur_lines, autojunk=False)
+    if sm.quick_ratio() < 0.6 or sm.ratio() < 0.6:
+        return None
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
+        if tag in ("insert", "replace"):
+            for ln in cur_lines[j1:j2]:
+                if ln not in seen:
+                    seen.add(ln)
+                    out.append(ln)
+    return out
+
+
+def doc_diff(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
+    """活文件差分:先試尾端附加對齊(附加式文件,精確且保留重複);
+    失敗再試整份插入比對(插入式文件)。都不像同一份文件回傳 None。"""
+    appended = align_append(prev_lines, cur_lines)
+    if appended is not None:
+        return appended
+    return inserted_lines(prev_lines, cur_lines)
+
+
 def after_last_tail(doc: list[str], tail: list[str]) -> list[str] | None:
     """在 doc 中找 tail(或其較短字尾)最後一次出現的位置,回傳其後的行;找不到回傳 None。
     重定錨時用:已知尾行之後的內容 = 錨定空窗期漏掉的訊息,補翻不漏不重。"""
@@ -345,9 +378,9 @@ class LiveChatReader:
         for addr in list(self._addrs):
             aligned = None
             for a2, nbytes, lines in self._poll_groups(h, addr):
-                appended = align_append(self._lines, lines)
-                if appended is not None and (aligned is None or len(lines) > len(aligned[2])):
-                    aligned = (a2, nbytes, lines, appended)
+                diffed = doc_diff(self._lines, lines)
+                if diffed is not None and (aligned is None or len(lines) > len(aligned[2])):
+                    aligned = (a2, nbytes, lines, diffed)
             if aligned is None:
                 # 此副本已被搬移/覆寫成殭屍:計次,連續兩輪就淘汰(其他副本照常供訊息)
                 self._addrs[addr] = self._addrs[addr] + 1
@@ -382,7 +415,7 @@ class LiveChatReader:
         best = None
         current: list[tuple[int, int]] = []
         for addr, nbytes, lines in groups:
-            appended = align_append(self._lines, lines)
+            appended = doc_diff(self._lines, lines)
             if appended is None:
                 continue
             if appended:
@@ -437,18 +470,22 @@ class LiveChatReader:
             if old is None or old[1] == lines:
                 continue
             appended = align_append(list(old[1]), list(lines))
+            is_append = appended is not None
+            if appended is None:
+                appended = inserted_lines(list(old[1]), list(lines))  # 插入式文件
             if appended and (best is None or len(lines) > len(best[2])):
-                best = (addr, nbytes, list(lines), appended, list(old[1]))
+                best = (addr, nbytes, list(lines), appended, list(old[1]), is_append)
         if best is not None:
             known_tail = self._lines
-            addr, nbytes, lines, appended, baseline = best
+            addr, nbytes, lines, appended, baseline, is_append = best
             self._anchor_to(addr, nbytes, lines,
                             [a for a, (_, ls) in snap.items() if list(ls) == lines])
-            if known_tail:
+            if is_append and known_tail:
+                # 尾行補翻只適用附加式文件;插入式(依頻道分節)找尾行會誤補其他節的舊行
                 after = after_last_tail(self._lines, known_tail)
                 if after is not None:
                     return self._trim_emitted_overlap(after)
-            if len(baseline) <= _NEW_DOC_BASELINE:
+            if is_append and len(baseline) <= _NEW_DOC_BASELINE:
                 # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
                 # 搬移的舊文件基準必然很長,不會走到這裡。
                 return self._trim_emitted_overlap(baseline + appended)
