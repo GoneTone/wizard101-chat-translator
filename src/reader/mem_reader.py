@@ -13,6 +13,9 @@ wizwalker 靠 root-window hook 定位 `chatLog` 控件(穩定、有序、含他�
 import asyncio
 import os
 import re
+import sys
+
+from src.reader import hook_state
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
 
@@ -101,6 +104,15 @@ def detect_install_path() -> str | None:
     return None
 
 
+def _pid_alive(pid: int) -> bool:
+    """PID 是否仍在執行(供清掉殘留狀態檔);判斷不了就當活著,不誤刪。"""
+    try:
+        import win32process
+        return pid in win32process.EnumProcesses()
+    except Exception:
+        return True
+
+
 class WizChatReader:
     """透過 wizwalker 讀 `chatLog` 全文,回傳每輪新增的玩家聊天行。
 
@@ -116,6 +128,7 @@ class WizChatReader:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._handler = None
         self._client = None
+        self._pid = 0
 
     @property
     def anchored(self) -> bool:
@@ -168,6 +181,9 @@ class WizChatReader:
             self._teardown()
             raise GameNotRunning(f"找不到 {self.process_name}")
         self._client = clients[0]
+        self._pid = self._client.process_id
+        hook_state.sweep(_pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
+        self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook(免重開遊戲)
         try:
             # 只啟讀聊天所需的 root_window hook(不啟 player/duel/quest 等),
             # 注入最小化、且不受是否在世界內等遊戲狀態影響。
@@ -176,17 +192,65 @@ class WizChatReader:
             self._teardown()
             raise GameNotRunning(f"無法掛入遊戲（{exc}）") from exc
         self._connected = True
+        self._save_hook_state(self._pid)      # 掛入成功 → 存還原狀態,供下次髒退出修復
 
     def _run(self, coro):
         return self._loop.run_until_complete(coro)
 
+    def _module_base(self) -> int:
+        try:
+            return self._client._pymem.base_address
+        except Exception:
+            return self._client.hook_handler.process.base_address
+
+    def _repair_leaked_hooks(self, pid: int) -> None:
+        """若偵測到上次對同一 process 髒退出遺留的 hook,把原始 bytes 寫回(等同 unhook)。
+        module base 不符(PID 被重用給別的程序)則視為過期、不套用,只刪檔。"""
+        saved_base, ops = hook_state.load_state(pid)
+        if not ops:
+            return
+        try:
+            match = saved_base == self._module_base()
+        except Exception:
+            match = False
+        if match:
+            for addr, original in ops:
+                try:
+                    self._run(self._client.hook_handler.write_bytes(addr, original))
+                except Exception:
+                    pass
+            print(f"[reader] 已修復上次遺留的 hook（{len(ops)} 處），免重開遊戲", file=sys.stderr)
+        hook_state.clear_state(pid)  # 套用或過期,一律刪除
+
+    def _save_hook_state(self, pid: int) -> None:
+        """把 unhook 所需狀態(autobot 原始 prologue + 每個 hook 的 jump 原碼)存檔。"""
+        h = self._client.hook_handler
+        ops: list[tuple[int, bytes]] = []
+        addr = getattr(h, "_autobot_address", None)
+        obytes = getattr(h, "_original_autobot_bytes", None)
+        if addr and obytes:
+            ops.append((addr, bytes(obytes)))
+        for hook in getattr(h, "_active_hooks", {}).values():
+            ja = getattr(hook, "jump_address", None)
+            jb = getattr(hook, "jump_original_bytecode", None)
+            if ja and jb:
+                ops.append((ja, bytes(jb)))
+        try:
+            hook_state.save_state(pid, self._module_base(), ops)
+        except Exception:
+            pass
+
     def _teardown(self) -> None:
         """關閉 wizwalker 連線與事件迴圈,回到未連線狀態(下次 read_new 會重連)。"""
+        unhooked = False
         try:
             if self._handler is not None and self._loop is not None:
                 self._loop.run_until_complete(self._handler.close())
+                unhooked = True
         except Exception:
             pass
+        if unhooked and self._pid:
+            hook_state.clear_state(self._pid)  # 已乾淨 unhook → 無遺留,清除還原狀態
         try:
             if self._loop is not None:
                 self._loop.close()

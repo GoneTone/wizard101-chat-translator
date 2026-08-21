@@ -60,8 +60,9 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成繁體中文疊�
 - 收訊延遲約 `poll_interval` + 翻譯時間
 - 依賴 wizwalker 的記憶體 pattern:遊戲改版後 pattern 可能失效(掛入時報
   `PatternFailed`),需等 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑 `uv sync`
-- 正常用 **Ctrl+C 結束會自動解除 hook**,可重複執行。但若程式被**強制結束**
-  (工作管理員 kill、當機)或同一 client 反覆掛入/卸載多次,遊戲內殘留的 hook 可能
-  無法完整還原,下次掛入會報 `PatternFailed` —— 此時**重開遊戲客戶端**即可
+- Ctrl+C 結束會自動解除 hook。即使被**強制結束**(工作管理員 kill、當機)遺留了
+  hook,下次啟動也會**自動修復**(把遺留的原始 bytes 寫回、等同補做 unhook)、免重開
+  遊戲——修復狀態存於 `%LOCALAPPDATA%\wiz101-chat-translator\`,依 PID + 模組基址比對,
+  只對同一個仍在執行的遊戲程序套用。僅「狀態檔遺失的舊遺留」才需重開遊戲一次。
 - 翻玩家發言(**含自己的 `[你]` 發言**與他人發言);系統訊息(掉寶/經驗/升等)與遊戲除錯行不翻
 - wizwalker 掛入與全域熱鍵(keyboard 套件)在部分環境需以**系統管理員**身分執行
