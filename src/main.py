@@ -153,9 +153,16 @@ def main() -> None:
     pump()
     try:
         root.mainloop()
+    except KeyboardInterrupt:
+        pass  # Ctrl+C:安靜結束,不印 traceback
     finally:
         stop.set()
         keyboard.unhook_all()
+        try:
+            root.destroy()
+        except Exception:
+            pass
+        print("已結束。")
 
 
 if __name__ == "__main__":
