@@ -39,21 +39,15 @@ def _wrap(inner: str) -> bytes:
     return u16(f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> {inner} </color>")
 
 
-def test_extract_rejects_binary_garbage_copy():
-    # 破損副本:開頭合法但中間夾二進位(替換字元 U+FFFD、指標痕跡碼位)
-    assert extract_lines(_wrap("[Luc] for all th�Ƞ耀 and drama")) == []
-    assert extract_lines(_wrap("[Jin] can gift me a paٲᅨ ls")) == []
+def test_extract_keeps_message_with_brackets_and_symbols():
+    # 訊息真的含 [] <> 等符號也不能誤擋(過濾器已移除,只驗格式)
+    assert extract_lines(_wrap("[Amy] use [fire] then [storm]")) == ["[Amy] use [fire] then [storm]"]
 
 
-def test_extract_rejects_merged_two_messages():
-    # 兩則被併在一起(跨越 </color>):含第二個發送者括號
-    merged = "[伊莎贝拉] can anyone gift me a potion [达科塔 暗影血统] 不是"
-    assert extract_lines(_wrap(merged)) == []
-
-
-def test_extract_rejects_leftover_markup_fragment():
-    assert extract_lines(_wrap("[Han] yeah i did to color> foo")) == []
-    assert extract_lines(_wrap("[Han] i hear you &gt; and more")) == []
+def test_clean_unescapes_player_typed_entities():
+    # 玩家打的 < > & 在記憶體存成 HTML 實體,顯示時要還原
+    assert extract_lines(_wrap("[Han] i hear you &gt; and more")) == ["[Han] i hear you > and more"]
+    assert extract_lines(_wrap("[Amy] a &lt;3 b &amp; c")) == ["[Amy] a <3 b & c"]
 
 
 def test_extract_keeps_clean_cjk_sender():
@@ -271,10 +265,10 @@ def test_extract_keeps_astral_emoji_text():
     assert extract_lines(_wrap("[Amy] nice 😂👀")) == ["[Amy] nice 😂👀"]
 
 
-def test_extract_rejects_torn_emoticon_tag():
-    # 撕裂副本:表情名稱夾入雜字(讀取瞬間被改寫)→ 整行視為破損拒絕
-    torn = "[莫格瑞姆 霜冻] <image;Emoticons/E䍸儱牴耀cons_Laugh.dds;24;24;FFFFFFFF>"
-    assert extract_lines(_wrap(torn)) == []
+def test_extract_torn_emoticon_dropped_but_line_kept():
+    # 撕裂副本:表情名稱夾入雜字 → 丟棄該表情,行其餘內容保留
+    torn = "[莫格瑞姆 霜冻] ok <image;Emoticons/E䍸儱牴耀cons_Laugh.dds;24;24;FFFFFFFF>"
+    assert extract_lines(_wrap(torn)) == ["[莫格瑞姆 霜冻] ok"]
 
 
 def test_extract_keeps_pure_emoticon_message():

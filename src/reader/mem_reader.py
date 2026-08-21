@@ -17,25 +17,7 @@ MARKER = "<color;FFFFFF><image;Art/Art_Chat".encode("utf-16-le")
 CLOSE = "</color>".encode("utf-16-le")
 _TAG = re.compile(r"<[^>]*>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
-# 破損副本的二進位痕跡:替換字元、IPA/修飾/組合符、私有區、特殊區、代理對。
-# 正常英文/中文聊天不會用到這些;含任一即視為破損,整行拒絕(乾淨副本仍會通過)。
-_GARBAGE = re.compile(
-    "[\x00-\x08\x0b-\x1f\x7f-\x9fɐ-˿̀-ͯ"
-    "-￰-￿\ud800-\udfff]"
-)
-# 白名單:只允許聊天實際會用到的字元(ASCII、CJK、全形、常用標點、BMP emoji)。
-# 版面/渲染緩衝的破損副本會夾入其他區塊的字元(指標位元組被當成雜字),含任一即拒絕。
-_NON_CHAT = re.compile(
-    "[^\x20-\x7e -⁯←-⇿☀-➿⬀-⯿"
-    "　-〿㐀-䶿一-鿿＀-￯️‍🀀-🫿]"
-)
-# 版面緩衝殘留的標記碎片:角括號、HTML 實體、.dds/FFFFFF/color> 等
-_MARKUP = re.compile(r"[<>]|&(?:gt|lt|amp);|\.dds|FFFFFF|color>")
-# 兩則訊息被併在一起(跨越 </color> 邊界):第一個 ] 之後還出現 [(第二個發送者)
-_DOUBLE_SENDER = re.compile(r"\].*\[")
-
 _MAX_LINE_BYTES = 1400
-_MAX_LINE_CHARS = 300
 
 
 # 遊戲表情符號:訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌,轉成對應 emoji 顯示。
@@ -60,14 +42,17 @@ _EMOJI_BY_NAME = {
 def _emote_to_char(m: re.Match) -> str:
     name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
     if not re.fullmatch(r"[a-z0-9_]+", name):
-        return "<torn>"  # 撕裂的標記(名稱夾入雜字):留下角括號讓整行被 _MARKUP 拒絕
+        return ""  # 撕裂的標記(名稱夾入雜字):丟棄該表情,保留整行其餘內容
     return _EMOJI_BY_NAME.get(name, f":{name}:")  # 沒對應的以 :名稱: 顯示
 
 
 def clean(text: str) -> str:
-    """表情標記轉 emoji,再去掉 <color;..> <image;..> </color> 等標記,壓縮空白。"""
+    """表情標記轉 emoji,去掉 <color;..> <image;..> </color> 等標記,
+    還原玩家實際打出的 &lt; &gt; &amp; 實體,壓縮空白。"""
     text = _EMOTE_TAG.sub(_emote_to_char, text)
-    return " ".join(_TAG.sub("", text).replace("\x00", " ").split())
+    text = _TAG.sub("", text)
+    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return " ".join(text.replace("\x00", " ").split())
 
 
 def extract_lines(blob: bytes, dedup: bool = True) -> list[str]:
@@ -86,9 +71,7 @@ def extract_lines(blob: bytes, dedup: bool = True) -> list[str]:
         if end < 0:
             continue
         txt = clean(blob[j:end].decode("utf-16-le", "replace"))
-        if (_VALID.match(txt) and len(txt) <= _MAX_LINE_CHARS
-                and not _NON_CHAT.search(txt) and not _MARKUP.search(txt)
-                and not _DOUBLE_SENDER.search(txt) and not (dedup and txt in seen)):
+        if _VALID.match(txt) and not (dedup and txt in seen):
             seen.add(txt)
             out.append(txt)
     return out
