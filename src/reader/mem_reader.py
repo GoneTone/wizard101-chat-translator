@@ -269,36 +269,92 @@ def most_common_window(groups: list[tuple[int, ...]]) -> list[str]:
     return list(counts.most_common(1)[0][0])
 
 
+def windows_in_blob(blob: bytes) -> list[tuple[str, ...]]:
+    """在單一區域 blob 內,把聊天標記依間隔分群,回傳每個『小群』的有序聊天行 tuple
+    (保留重複)。大群(凍結歷史)略過。"""
+    marks = []
+    k = blob.find(MARKER)
+    while k >= 0:
+        marks.append(k)
+        k = blob.find(MARKER, k + 1)
+    out: list[tuple[str, ...]] = []
+    group: list[int] = []
+    for m in marks:
+        if group and m - group[-1] > _GROUP_GAP:
+            if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
+                seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
+                out.append(tuple(extract_lines(seg, dedup=False)))
+            group = []
+        group.append(m)
+    if group and _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
+        seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
+        out.append(tuple(extract_lines(seg, dedup=False)))
+    return out
+
+
+_FULL_EVERY = 12  # 每幾輪做一次完整全掃(重新定位視窗所在區域)
+
+
+class VisibleReader:
+    """讀可視聊天視窗。全掃記住『含視窗的記憶體區域』,之後只重掃那幾塊(快),
+    每 _FULL_EVERY 輪(或快掃讀不到)再完整全掃校正。"""
+
+    def __init__(self, process_name: str = PROCESS_NAME):
+        self.process_name = process_name
+        self._bases: list[int] = []      # 上次找到視窗的區域 base
+        self._since_full = _FULL_EVERY
+
+    def _open(self):
+        pid = _find_pid(self.process_name)
+        if not pid:
+            raise GameNotRunning(f"找不到 {self.process_name}")
+        h = _k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+        if not h:
+            raise GameNotRunning(f"無法開啟 {self.process_name}(可能需要系統管理員權限)")
+        return h
+
+    def _full(self, h):
+        """完整全掃:回傳 (視窗, 含視窗的區域 base 清單)。"""
+        windows: list[tuple[str, ...]] = []
+        bases: list[int] = []
+        for base, blob in _iter_regions(h):
+            wins = windows_in_blob(blob)
+            if wins:
+                windows.extend(wins)
+                bases.append(base)
+        return most_common_window(windows), bases
+
+    def _fast(self, h):
+        """只重掃快取的區域(視窗副本所在),回傳當前視窗。"""
+        windows: list[tuple[str, ...]] = []
+        for base in self._bases:
+            windows.extend(windows_in_blob(_read_region_at(h, base)))
+        return most_common_window(windows)
+
+    def read(self) -> list[str]:
+        h = self._open()
+        try:
+            if self._bases and self._since_full < _FULL_EVERY:
+                win = self._fast(h)
+                self._since_full += 1
+                if win:
+                    return win
+            win, bases = self._full(h)
+            if bases:
+                self._bases = bases
+            self._since_full = 0
+            return win
+        finally:
+            _k32.CloseHandle(h)
+
+
+_visible_reader: VisibleReader | None = None
+
+
 def read_visible_chat(process_name: str = PROCESS_NAME) -> list[str]:
     """讀取遊戲聊天室的『可視視窗』(最近數則、依時間順序,含重複)。
-    找不到遊戲丟 GameNotRunning;找不到聊天回傳 []。"""
-    pid = _find_pid(process_name)
-    if not pid:
-        raise GameNotRunning(f"找不到 {process_name}")
-    h = _k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
-    if not h:
-        raise GameNotRunning(f"無法開啟 {process_name}(可能需要系統管理員權限)")
-    try:
-        marks: list[int] = []
-        for base, blob in _iter_regions(h):
-            k = blob.find(MARKER)
-            while k >= 0:
-                marks.append(base + k)
-                k = blob.find(MARKER, k + 1)
-        marks.sort()
-
-        windows: list[tuple[str, ...]] = []
-        group: list[int] = []
-        for a in marks:
-            if group and a - group[-1] > _GROUP_GAP:
-                if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:  # 只抽小群,略過凍結大群(快)
-                    windows.append(tuple(extract_lines(
-                        _read(h, group[0], group[-1] - group[0] + 2000), dedup=False)))
-                group = []
-            group.append(a)
-        if group and _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
-            windows.append(tuple(extract_lines(
-                _read(h, group[0], group[-1] - group[0] + 2000), dedup=False)))
-        return most_common_window(windows)
-    finally:
-        _k32.CloseHandle(h)
+    以模組單例維持區域快取(平時快掃、定期全掃)。找不到遊戲丟 GameNotRunning。"""
+    global _visible_reader
+    if _visible_reader is None or _visible_reader.process_name != process_name:
+        _visible_reader = VisibleReader(process_name)
+    return _visible_reader.read()

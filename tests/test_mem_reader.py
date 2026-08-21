@@ -145,3 +145,12 @@ def test_extract_lines_no_dedup_keeps_repeats():
     blob = u16(a + a)
     assert extract_lines(blob, dedup=False) == ["[A] hi", "[A] hi"]
     assert extract_lines(blob, dedup=True) == ["[A] hi"]
+
+
+def test_windows_in_blob_extracts_small_group_with_repeats():
+    from src.reader.mem_reader import windows_in_blob
+    a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
+    b = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [B] yo </color>"
+    blob = u16(a + b + a)  # 同一小群、含重複的 hi
+    wins = windows_in_blob(blob)
+    assert wins == [("[A] hi", "[B] yo", "[A] hi")]
