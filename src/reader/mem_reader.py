@@ -301,25 +301,31 @@ def after_last_tail(doc: list[str], tail: list[str]) -> list[str] | None:
     return None
 
 
-class LiveChatReader:
-    """定錨『活聊天文件』並回傳每輪新增的聊天行。
+_MIN_DOC_LINES = 2      # 候選聊天文件至少幾行(排除單行碎片)
+_TAIL_FP = 12           # 尾指紋行數:用文件最後 N 行在下一份文件裡定位「已處理到哪」
+_MAX_CATCHUP = 40       # 單次最多輸出幾行:超過視為對到殭屍舊內容,只重新同步不輸出
+_FULL_EVERY_DOC = 25    # 快取位址最多連用幾輪就強制全掃校正
 
-    未定錨:每次呼叫做一次全掃並與上一次全掃比對 —— 同位址、內容以附加方式成長的
-    群 = 活文件;取最長者定錨,以已知尾行對齊補翻空窗期訊息。
-    已定錨:同時追蹤文件的「所有同步副本」位址,每輪逐一輕量輪詢(各 ~10ms)取最新
-    對齊結果 —— 單一副本被搬移/釋放成殭屍時,其他活副本無縫接手,不會卡在殘骸上。
-    全部副本都對不齊 → 解除定錨重新探索;錨點長期無變化 → 驗證掃描:找到延伸我們
-    內容的文件就當場重定錨並補翻(單次掃描完成,不必等下一次成長)。"""
+
+class LiveChatReader:
+    """讀遊戲聊天並回傳每輪新增的聊天行。
+
+    逆向結論(2026-08-21 指標/雙緩衝探針):遊戲把聊天渲染成多份文件(完整歷史 +
+    可視視窗 + 一次性快照),每次更新整份複製到新位址(雙緩衝乒乓),舊副本凍結成殭屍;
+    沒有可從固定位址到達的穩定指標,且同時存在的多份文件尾端各有對方沒有的行 ——
+    追單一文件會在多份之間乒乓、反覆冒出彼此差異。
+
+    因此改用『全域多重集合』:把當前記憶體所有聊天文件的行取聯集(每行取最大出現次數)
+    當狀態。新訊息 = 這次聯集比上次『多出來』的行(依最長文件的順序展開,含重複)。
+    這對乒乓/搬家/殭屍天生免疫 —— 那些行早在聯集裡,最大次數不會憑空增加;
+    只有真的新訊息會讓某行的全域最大次數 +1。基準只增不減,舊訊息永不重播。"""
 
     def __init__(self, process_name: str = PROCESS_NAME):
         self.process_name = process_name
-        self._addrs: dict[int, int] = {}  # 錨點副本位址 → 連續對不齊次數;空 = 未定錨
-        self._bytes = 0               # 文件位元組長度估計
-        self._lines: list[str] = []   # 文件目前內容;未定錨時為最後已知尾行
-        self._snapshot: dict[int, tuple[int, tuple[str, ...]]] | None = None
-        self._seen_texts: set[str] | None = None  # 探索期已見過的行文字(新穎性比對)
-        self._emitted: list[str] = []  # 最近已輸出的行(換錨時做重疊裁剪防重播)
-        self._idle = 0
+        self._counts: Counter | None = None  # 全域每行最大出現次數(基準);None = 未初始化
+        self._addrs: list[int] = []    # 快取的聊天文件位址(乒乓副本)
+        self._bytes = 0                # 文件位元組長度估計(決定快取讀取量)
+        self._since_full = _FULL_EVERY_DOC
 
     # --- 可在測試中覆寫的接縫 ---
     def _open(self):
@@ -334,185 +340,84 @@ class LiveChatReader:
     def _close(self, handle):
         _k32.CloseHandle(handle)
 
-    def _scan_groups(self, h):
-        """全掃:yield (絕對位址, 位元組長, 行tuple)。"""
+    def _full_docs(self, h):
+        """全掃(慢):回傳所有候選聊天文件 [(位址, 位元組長, 行list), ...]。"""
+        out = []
         for base, blob in _iter_regions(h):
             for start, end, lines in groups_in_blob(blob):
-                yield base + start, end - start, tuple(lines)
+                if len(lines) >= _MIN_DOC_LINES:
+                    out.append((base + start, end - start, lines))
+        return out
 
-    def _poll_groups(self, h, addr: int):
-        """讀某個錨點副本附近:回傳 [(絕對位址, 位元組長, 行list), ...]。"""
+    def _cached_docs(self, h):
+        """只讀快取位址(快):回傳那些位址附近的候選聊天文件。"""
+        out = []
         need = min(self._bytes + _DOC_MARGIN, _MAX_DOC_READ)
-        blob = _read_clamped(h, addr, need)
-        return [(addr + start, end - start, lines)
-                for start, end, lines in groups_in_blob(blob)]
+        for addr in self._addrs:
+            blob = _read_clamped(h, addr, need)
+            for start, end, lines in groups_in_blob(blob):
+                if len(lines) >= _MIN_DOC_LINES:
+                    out.append((addr + start, end - start, lines))
+        return out
 
     # --- 主流程 ---
     @property
     def anchored(self) -> bool:
-        """是否已定錨活聊天文件(未定錨時每輪為全掃探索,較慢)。"""
-        return bool(self._addrs)
+        """是否已建立基準(第一次全掃後即為 True)。"""
+        return self._counts is not None
 
     def read_new(self) -> list[str]:
         """回傳自上次呼叫後新增的聊天行(依序、含重複);無新訊息回傳 []。
         找不到遊戲丟 GameNotRunning。"""
         h = self._open()
         try:
-            new_lines = self._poll_doc(h) if self._addrs else self._discover(h)
+            if self._counts is not None and self._addrs and self._since_full < _FULL_EVERY_DOC:
+                self._since_full += 1
+                return self._emit(self._cached_docs(h), refresh_addrs=False)
+            self._since_full = 0
+            return self._emit(self._full_docs(h), refresh_addrs=True)  # 首次/校正:全掃
         finally:
             self._close(h)
-        if new_lines:
-            self._emitted = (self._emitted + new_lines)[-_EMITTED_KEEP:]
-        return new_lines
 
-    def _trim_emitted_overlap(self, lines: list[str]) -> list[str]:
-        """換錨(探索/重定錨)時的保險:輸出開頭若與『最近已輸出的行』尾端重疊,裁掉重疊段。
-        活文件與同樣就地更新的渲染快取行集合略有差異,換錨對不上尾行時 fallback 可能
-        重播剛輸出過的行 —— 用已輸出串流裁剪掉。已定錨的正常輪詢是精確自我差分,
-        不套用(以免吃掉真實的連續重複訊息)。"""
-        for k in range(min(len(lines), len(self._emitted)), 0, -1):
-            if self._emitted[len(self._emitted) - k:] == lines[:k]:
-                return lines[k:]
-        return lines
+    @staticmethod
+    def _union(docs) -> Counter:
+        """所有文件的行聯集:每行取跨文件的最大出現次數。"""
+        u: Counter = Counter()
+        for _addr, _nbytes, lines in docs:
+            c = Counter(lines)
+            for ln, n in c.items():
+                if n > u[ln]:
+                    u[ln] = n
+        return u
 
-    def _poll_doc(self, h) -> list[str]:
-        best = None
-        for addr in list(self._addrs):
-            aligned = None
-            for a2, nbytes, lines in self._poll_groups(h, addr):
-                diffed = doc_diff(self._lines, lines)
-                if diffed is not None and (aligned is None or len(lines) > len(aligned[2])):
-                    aligned = (a2, nbytes, lines, diffed)
-            if aligned is None:
-                # 此副本已被搬移/覆寫成殭屍:計次,連續兩輪就淘汰(其他副本照常供訊息)
-                self._addrs[addr] = self._addrs[addr] + 1
-                if self._addrs[addr] >= _UNANCHOR_FAILS:
-                    del self._addrs[addr]
-                continue
-            if aligned[0] != addr:  # 群起點因頭部修剪前移:更新位址鍵
-                del self._addrs[addr]
-            self._addrs[aligned[0]] = 0
-            if best is None or len(aligned[2]) > len(best[2]):
-                best = aligned
-        if best is None:
-            if not self._addrs:
-                self._unanchor()
+    def _emit(self, docs, refresh_addrs: bool) -> list[str]:
+        if refresh_addrs and docs:
+            self._addrs = self._twin_addrs(docs)
+            self._bytes = max(nb for _a, nb, _l in docs)
+
+        u = self._union(docs)
+        if self._counts is None:      # 首次:既有內容當基準,不輸出
+            self._counts = u
             return []
-        _, self._bytes, self._lines, appended = best
-        if appended:
-            self._idle = 0
-        else:
-            self._idle += 1
-            if self._idle >= _IDLE_RECHECK_POLLS:
-                self._idle = 0
-                return self._verify_anchor(h)  # 錨點太久沒動靜:驗證是否已成殘骸
-        return appended
-
-    def _verify_anchor(self, h) -> list[str]:
-        """驗證掃描(單次全掃):錨點長期無變化時,確認世界上是否有「延伸我們內容」的
-        文件 —— 有就當場重定錨並補翻(錨點是殘骸、真文件已搬走的情況);
-        沒有就一律解錨回探索。不能用「找得到與我們內容相等的群」自我肯定 ——
-        殭屍錨點自己永遠相等,真的活文件結構可能與殭屍完全對不上,
-        自肯定會讓工具永遠卡在殭屍上「監聽中」卻收不到任何訊息。"""
-        groups = [(addr, nbytes, list(lines))
-                  for addr, nbytes, lines in self._scan_groups(h) if lines]
-        best = None
-        for addr, nbytes, lines in groups:
-            appended = align_append(self._lines, lines)
-            is_append = appended is not None
-            if appended is None:
-                appended = inserted_lines(self._lines, lines)
-            if not appended:
-                continue
-            if best is None or (is_append, len(lines)) > (best[4], len(best[2])):
-                best = (addr, nbytes, lines, appended, is_append)
-        if best is not None:  # 有文件比我們新 → 錨點是殘骸,搬過去並補翻
-            self._anchor_to(best[0], best[1], best[2],
-                            [a for a, _, ls in groups if ls == best[2]])
-            if not best[4] and len(best[3]) > _MAX_INSERT_CATCHUP:
-                return []  # 插入式補翻超量 = 快取跳躍,只重新同步
-            return self._trim_emitted_overlap(best[3])
-        self._unanchor()  # 世界上沒有比我們新的文件:回探索用兩掃比對重新找活文件
-        return []
-
-    def _anchor_to(self, addr: int, nbytes: int, lines: list[str],
-                   twin_addrs: list[int]) -> None:
-        self._addrs = {addr: 0}
-        for a in twin_addrs[:_MAX_ANCHORS]:
-            self._addrs[a] = 0
-        self._bytes = nbytes
-        self._lines = lines
-        self._snapshot = None
-        self._seen_texts = None
-        self._idle = 0
-
-    def _unanchor(self) -> None:
-        self._lines = self._lines[-8:]  # 保留尾行,重定錨時對齊用
-        self._addrs = {}
-        self._bytes = 0
-        self._idle = 0
-        self._snapshot = None
-        self._seen_texts = None
-
-    def _discover(self, h) -> list[str]:
-        snap: dict[int, tuple[int, tuple[str, ...]]] = {}
-        for addr, nbytes, lines in self._scan_groups(h):
-            if lines:
-                snap[addr] = (nbytes, lines)
-        prev, self._snapshot = self._snapshot, snap
-        if prev is None:
-            # 第一掃:所有既有內容視為歷史(不翻),當作新穎性比對基準
-            self._seen_texts = {ln for _, lines in snap.values() for ln in lines}
-            self._seen_texts.update(self._emitted)
+        delta = u - self._counts      # 多重集合正差 = 這次多出來的行
+        self._counts |= u             # 基準取聯集(只增不減,舊訊息永不重播)
+        if not delta:
             return []
-        best = None
-        for addr, (nbytes, lines) in snap.items():
-            old = prev.get(addr)
-            if old is None or old[1] == lines:
-                continue
-            appended = align_append(list(old[1]), list(lines))
-            is_append = appended is not None
-            if appended is None:
-                appended = inserted_lines(list(old[1]), list(lines))  # 插入式文件
-            if appended and (best is None
-                             or (is_append, len(lines)) > (best[5], len(best[2]))):
-                best = (addr, nbytes, list(lines), appended, list(old[1]), is_append)
-        if best is not None:
-            known_tail = self._lines
-            addr, nbytes, lines, appended, baseline, is_append = best
-            self._anchor_to(addr, nbytes, lines,
-                            [a for a, (_, ls) in snap.items() if list(ls) == lines])
-            if is_append and known_tail:
-                # 尾行補翻只適用附加式文件;插入式(依頻道分節)找尾行會誤補其他節的舊行
-                after = after_last_tail(self._lines, known_tail)
-                if after is not None:
-                    return self._trim_emitted_overlap(after)
-            if is_append and len(baseline) <= _NEW_DOC_BASELINE:
-                # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
-                # 搬移的舊文件基準必然很長,不會走到這裡。
-                return self._trim_emitted_overlap(baseline + appended)
-            if not is_append and len(appended) > _MAX_INSERT_CATCHUP:
-                # 插入式候選一次冒出太多行 = 停滯快取被改寫成現況(內容是舊訊息),
-                # 只定錨重新同步,不把累積的舊行當新訊息輸出。
-                return []
-            return self._trim_emitted_overlap(appended)
-        return self._novel_lines(snap)
 
-    def _novel_lines(self, snap) -> list[str]:
-        """探索期的新穎性路徑:還沒有可定錨的成長,但這次全掃出現了上次沒有的新文字
-        = 剛到達的訊息(例:空聊天室的第一句),立刻翻、不必等文件成長。
-        防垃圾:新文字必須出現在至少 2 個緩衝(真訊息立刻被渲染成多份副本;
-        撕裂的破損副本內容各不相同,永遠只有 1 份)。"""
-        counts: dict[str, int] = {}
-        for _, lines in snap.values():
-            for ln in set(lines):
-                counts[ln] = counts.get(ln, 0) + 1
-        novel = {ln for ln, c in counts.items()
-                 if c >= 2 and ln not in self._seen_texts}
-        self._seen_texts.update(ln for ln, c in counts.items() if c >= 2)
-        if not novel:
-            return []
-        # 從「含最多新行的最長群」依序取出,保持時間順序
-        best_lines = max((list(lines) for _, lines in snap.values()),
-                         key=lambda ls: (sum(1 for ln in set(ls) if ln in novel), len(ls)))
-        return self._trim_emitted_overlap([ln for ln in best_lines if ln in novel])
+        # 依最長文件的行順序展開 delta(≈時間序;含重複)
+        longest = max(docs, key=lambda d: len(d[2]))[2] if docs else []
+        need = dict(delta)
+        out: list[str] = []
+        for ln in longest:
+            if need.get(ln, 0) > 0:
+                out.append(ln)
+                need[ln] -= 1
+        for ln, n in need.items():    # 不在最長文件裡的(罕見)補在後面
+            out.extend([ln] * n)
+        if len(out) > _MAX_CATCHUP:
+            return []  # 一次冒出太多 = 啟動/大跳,基準已更新,不倒一堆舊訊息
+        return out
+
+    def _twin_addrs(self, docs) -> list[int]:
+        """最長的幾份文件位址(乒乓活副本 + 殭屍),供下輪快取讀取(聯集自然涵蓋)。"""
+        return [a for a, _, _ in sorted(docs, key=lambda d: -len(d[2]))[:_MAX_ANCHORS]]

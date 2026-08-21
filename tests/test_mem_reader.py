@@ -145,97 +145,6 @@ def test_after_last_tail_none_when_absent():
 
 
 # --- LiveChatReader(以假掃描驗證定錨/輪詢/重定錨流程) ---
-class FakeLive(LiveChatReader):
-    """以假記憶體(dict: addr -> lines)取代真實掃描。"""
-
-    def __init__(self):
-        super().__init__()
-        self.mem: dict[int, list[str]] = {}
-        self.scans = 0
-        self.polls = 0
-
-    def _open(self):
-        return 1
-
-    def _close(self, handle):
-        pass
-
-    def _scan_groups(self, h):
-        self.scans += 1
-        for addr, lines in self.mem.items():
-            yield addr, len(lines) * 100, tuple(lines)
-
-    def _poll_groups(self, h, addr):
-        self.polls += 1
-        if addr in self.mem:  # 模擬「讀該錨點附近」:只有該位址在讀取範圍內
-            return [(addr, len(self.mem[addr]) * 100, list(self.mem[addr]))]
-        return []
-
-
-DOC = 0x1000
-SNAPSHOT = 0x9000
-
-
-def test_discovery_anchors_to_growing_doc_and_emits_growth():
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"], SNAPSHOT: ["[Z] old", "[Z] older"]}
-    assert r.read_new() == []            # 第一次全掃:只建快照
-    r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d"]   # 活文件成長;快照靜止
-    assert r.read_new() == ["[D] d"]     # 第二次全掃:偵測成長、定錨、補翻
-    assert DOC in r._addrs
-
-
-def test_anchored_poll_emits_appended_including_repeats():
-    r = FakeLive()
-    r.mem = {DOC: ["[A] hi"] * 3}
-    r.read_new()
-    r.mem[DOC] = ["[A] hi"] * 4
-    assert r.read_new() == ["[A] hi"]    # 定錨(成長 1 行)
-    r.mem[DOC] = ["[A] hi"] * 6
-    assert r.read_new() == ["[A] hi", "[A] hi"]  # 已定錨輪詢:重複照實回報
-    assert r.scans == 2                  # 之後不再全掃
-    assert r.polls == 1
-
-
-def test_static_snapshots_never_emit():
-    r = FakeLive()
-    r.mem = {SNAPSHOT: ["[Z] old", "[Z] older"]}
-    assert r.read_new() == []
-    assert r.read_new() == []            # 快照靜止 → 永不定錨、永不輸出
-
-
-def test_doc_relocation_reanchors_without_loss_or_duplication():
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[X] x"]}
-    r.read_new()
-    r.mem[DOC] = ["[A] a", "[B] b", "[X] x", "[C] c"]
-    assert r.read_new() == ["[C] c"]     # 定錨
-    # 文件被搬到新位址(舊位址消失),且搬家期間又多了兩行
-    del r.mem[DOC]
-    new_addr = 0x5000
-    r.mem[new_addr] = ["[A] a", "[B] b", "[X] x", "[C] c", "[D] d", "[E] e"]
-    assert r.read_new() == []            # 對不齊 1
-    assert r.read_new() == []            # 對不齊 2 → 解除定錨
-    assert r._addrs == {}
-    assert r.read_new() == []            # 探索全掃 1(建快照)
-    r.mem[new_addr] = r.mem[new_addr] + ["[F] f"]  # 新位址繼續成長
-    got = r.read_new()                   # 探索全掃 2:定錨新位址,從已知尾行後補翻
-    assert got == ["[D] d", "[E] e", "[F] f"]
-    assert new_addr in r._addrs
-
-
-def test_head_trim_scroll_absorbed():
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"]}
-    r.read_new()
-    r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d"]
-    assert r.read_new() == ["[D] d"]
-    # 達容量上限:頭部被修剪 + 尾端附加(捲動)
-    r.mem[DOC] = ["[C] c", "[D] d", "[E] e"]
-    assert r.read_new() == ["[E] e"]
-
-
-# --- 遊戲表情符號(內嵌 <image;Emoticons/..> 標記 → emoji) ---
 def test_clean_converts_emoticon_tag_to_emoji():
     raw = ("<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
            "<link;GID:123,Lars,2>[Lars]</link> fire first then "
@@ -275,127 +184,6 @@ def test_extract_keeps_pure_emoticon_message():
     assert extract_lines(_wrap(pure)) == ["[Lars] 😉"]
 
 
-def test_reanchor_across_entities_does_not_replay_emitted():
-    # 重啟後換錨情境:先錨在 A(渲染快取)輸出了 m;A 消失、尾行在新文件裡對不上
-    # → fallback 走「兩次全掃的差分」也會算出 m —— 必須被已輸出重疊裁剪掉,不能重播。
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[X] x"]}
-    r.read_new()                                  # 探索全掃 1
-    r.mem[DOC] = ["[A] a", "[B] b", "[X] x", "[M] m"]
-    assert r.read_new() == ["[M] m"]              # 定錨 + 輸出 m
-    del r.mem[DOC]                                # 錨點實體消失
-    assert r.read_new() == []                     # 對不齊 1
-    assert r.read_new() == []                     # 對不齊 2 → 解錨
-    r._lines = ["[Z] not-in-any-doc"]             # 模擬跨實體行集合差異:尾行對不上
-    new_addr = 0x7000
-    r.mem[new_addr] = ["[Q] q", "[R] r", "[S] s"]
-    assert r.read_new() == []                     # 探索全掃 1(建快照)
-    r.mem[new_addr] = ["[Q] q", "[R] r", "[S] s", "[M] m"]  # 新實體的差分又是 m(舊訊息)
-    assert r.read_new() == []                     # 已輸出過 → 裁掉,不重播
-    assert new_addr in r._addrs                    # 但仍完成定錨
-    r.mem[new_addr] = ["[Q] q", "[R] r", "[S] s", "[M] m", "[N] n"]
-    assert r.read_new() == ["[N] n"]              # 之後的新訊息照常輸出
-
-
-def test_anchored_poll_repeats_not_affected_by_emitted_guard():
-    # 已定錨的正常輪詢不套用裁剪:真實的連續重複訊息要照實輸出
-    r = FakeLive()
-    r.mem = {DOC: ["[A] hi"] * 3}
-    r.read_new()
-    r.mem[DOC] = ["[A] hi"] * 4
-    assert r.read_new() == ["[A] hi"]             # 定錨
-    r.mem[DOC] = ["[A] hi"] * 5
-    assert r.read_new() == ["[A] hi"]             # 又一則相同訊息 → 照常輸出
-
-
-def test_fresh_chat_first_messages_all_translated():
-    # 空聊天室:第一句出現(基準)、第二句到達 → 定錨並「連第一句一起」補翻
-    r = FakeLive()
-    r.mem = {}
-    assert r.read_new() == []                       # 全掃 1:空
-    r.mem[DOC] = ["[A] first"]
-    assert r.read_new() == []                       # 新位址、無前次內容 → 還不能定錨
-    r.mem[DOC] = ["[A] first", "[B] second"]
-    assert r.read_new() == ["[A] first", "[B] second"]  # 成長 → 定錨,基準行一起補翻
-    assert DOC in r._addrs
-    r.mem[DOC] = ["[A] first", "[B] second", "[C] third"]
-    assert r.read_new() == ["[C] third"]            # 之後正常輪詢
-
-
-def test_relocated_long_doc_does_not_dump_baseline():
-    # 搬移的舊文件(基準很長)不能把整份歷史當新訊息倒出來
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[C] c", "[D] d"]}
-    r.read_new()                                    # 全掃 1(建快照)
-    r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
-    assert r.read_new() == ["[E] e"]                # 基準 4 行 > 門檻 → 只翻新增
-
-
-SNAP2 = 0xB000
-
-
-def test_first_message_in_empty_chat_translated_without_growth():
-    # 需求:空聊天室的「第一句」不等第二句、下一次掃描就翻。
-    # 真訊息會立刻被渲染成多份副本(文件 + 快照)→ 新文字出現在 >=2 個緩衝即翻。
-    r = FakeLive()
-    r.mem = {}
-    assert r.read_new() == []                        # 全掃 1:空,建基準
-    r.mem[DOC] = ["[A] first"]
-    r.mem[SNAP2] = ["[A] first"]                     # 同訊息的渲染副本
-    assert r.read_new() == ["[A] first"]             # 沒有成長也翻(新穎性)
-    r.mem[DOC] = ["[A] first", "[B] second"]
-    r.mem[SNAP2] = ["[A] first", "[B] second"]
-    assert r.read_new() == ["[B] second"]            # 成長 → 定錨;first 不重複
-    assert DOC in r._addrs
-
-
-def test_single_copy_garbage_not_emitted_by_novelty():
-    # 撕裂垃圾每份內容都不同,只會出現在 1 個緩衝 → 新穎性路徑不放行
-    r = FakeLive()
-    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"]}
-    r.read_new()                                     # 建基準
-    r.mem[0xC000] = ["[Luc] torn�garbage line"]      # 單份新內容
-    assert r.read_new() == []
-
-
-TWIN = 0xD000
-
-
-def test_twin_failover_keeps_messages_flowing():
-    # 定錨到雙副本;其中一個變殭屍(靜止殘骸),另一個照常成長 → 訊息不中斷
-    r = FakeLive()
-    base = ["[A] a", "[B] b", "[C] c"]
-    r.mem = {DOC: list(base), TWIN: list(base)}
-    r.read_new()
-    r.mem[DOC] = base + ["[D] d"]
-    r.mem[TWIN] = base + ["[D] d"]
-    assert r.read_new() == ["[D] d"]              # 定錨,雙副本都被記住
-    assert DOC in r._addrs and TWIN in r._addrs
-    r.mem[TWIN] = base + ["[D] d", "[E] e"]       # DOC 從此凍結成殭屍;TWIN 繼續活
-    assert r.read_new() == ["[E] e"]              # 靠 TWIN 無縫供訊息
-    r.mem[TWIN] = base + ["[D] d", "[E] e", "[F] f"]
-    assert r.read_new() == ["[F] f"]
-
-
-def test_idle_verify_recovers_from_zombie_anchor():
-    # 「打字沒反應、狀態卻是監聽中」的場景:錨點全是殘骸,真文件已搬走且持續成長。
-    # 閒置驗證掃描應當場重定錨並一次補翻漏掉的訊息。
-    import src.reader.mem_reader as mr
-    r = FakeLive()
-    base = ["[A] a", "[B] b", "[C] c"]
-    r.mem = {DOC: list(base)}
-    r.read_new()
-    r.mem[DOC] = base + ["[D] d"]
-    assert r.read_new() == ["[D] d"]              # 定錨
-    moved = 0xE000                                # 文件搬走並繼續成長;殘骸凍結在 DOC
-    r.mem[moved] = base + ["[D] d", "[E] e", "[F] f"]
-    for _ in range(mr._IDLE_RECHECK_POLLS - 1):
-        assert r.read_new() == []                 # 殘骸靜止,一直「監聽中」沒反應
-    assert r.read_new() == ["[E] e", "[F] f"]     # 閒置驗證:找到延伸內容 → 補翻
-    assert moved in r._addrs and DOC not in r._addrs
-
-
-# --- 插入式文件(依頻道分節、訊息插中段、尾端不動) ---
 def test_inserted_lines_detects_mid_insertion():
     from src.reader.mem_reader import inserted_lines
     old = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
@@ -421,20 +209,6 @@ def test_inserted_lines_dedupes_section_copies():
     assert inserted_lines(old, new) == ["[你] hi"]  # 同批的節副本只取一次
 
 
-def test_insert_mode_doc_anchors_and_streams():
-    # 安靜模式:沒有附加式文件,只有一份「中段插入」的聊天總文件 → 也要能定錨並即時翻
-    r = FakeLive()
-    base = ["[A] a", "[B] b", "[C] c", "[D] d", "[伊莱杰] np"]
-    r.mem = {DOC: list(base)}
-    r.read_new()                                       # 全掃 1:建快照
-    r.mem[DOC] = base[:2] + ["[你] Test"] + base[2:]   # 訊息插中段,尾端不動
-    assert r.read_new() == ["[你] Test"]               # 插入式定錨 + 補翻
-    assert DOC in r._addrs
-    cur = r.mem[DOC]
-    r.mem[DOC] = cur[:3] + ["[你] zxqv123"] + cur[3:]  # 定錨後又一則中段插入
-    assert r.read_new() == ["[你] zxqv123"]            # 輪詢用整份差分即時翻
-
-
 def test_inserted_lines_reflow_or_move_not_new():
     from src.reader.mem_reader import inserted_lines
     # 分節文件重繪:整段搬動/重排,行數量不變 → 不是新訊息(冒舊訊息回歸測試)
@@ -443,54 +217,128 @@ def test_inserted_lines_reflow_or_move_not_new():
     assert inserted_lines(old, moved) == []
 
 
-def test_insert_anchor_catchup_capped():
-    # 停滯快取被改寫成現況:一次冒出大量「新增」= 累積的舊訊息 → 只定錨不輸出
-    import src.reader.mem_reader as mr
+
+
+# --- LiveChatReader:尾指紋追蹤最長純附加歷史 ---
+class FakeLive(LiveChatReader):
+    """以假記憶體(dict: addr -> lines)取代真實掃描,驗證尾指紋定位/搬家/殭屍。"""
+
+    def __init__(self):
+        super().__init__()
+        self.mem: dict[int, list[str]] = {}
+        self.full_scans = 0
+        self.cached_scans = 0
+
+    def _open(self):
+        return 1
+
+    def _close(self, handle):
+        pass
+
+    def _full_docs(self, h):
+        self.full_scans += 1
+        return [(a, len(l) * 100, list(l)) for a, l in self.mem.items()
+                if len(l) >= 2]
+
+    def _cached_docs(self, h):
+        self.cached_scans += 1
+        return [(a, len(self.mem[a]) * 100, list(self.mem[a]))
+                for a in self._addrs if a in self.mem and len(self.mem[a]) >= 2]
+
+
+DOC = 0x1000
+TWIN = 0x2000
+SNAPSHOT = 0x9000
+
+
+def _hist(n, extra=()):
+    return [f"[A] m{i}" for i in range(n)] + list(extra)
+
+
+def test_startup_syncs_without_emitting_history():
     r = FakeLive()
-    base = [f"[A] old{i}" for i in range(20)]
-    r.mem = {DOC: list(base)}
-    r.read_new()
-    jumped = base + [f"[B] later{i}" for i in range(mr._MAX_INSERT_CATCHUP + 3)]
-    jumped = jumped[:3] + jumped[20:] + jumped[3:20]  # 打亂使其走插入式路徑
-    r.mem[DOC] = jumped
-    assert r.read_new() == []          # 超過上限 → 不把舊訊息倒出來
-    assert DOC in r._addrs             # 但已定錨重新同步
-    cur = r.mem[DOC]
-    r.mem[DOC] = cur[:5] + ["[你] new"] + cur[5:]
-    assert r.read_new() == ["[你] new"]  # 之後正常
+    r.mem = {DOC: _hist(30)}
+    assert r.read_new() == []            # 首次:既有歷史當基準,不翻
+    assert r.anchored and r._counts["[A] m0"] == 1   # 基準已建立
 
 
-def test_discovery_prefers_append_doc_over_insert_doc():
-    # 兩種文件同時成長時,優先錨定「附加式」(精確、支援重複)
+def test_appended_message_emitted_including_repeats():
     r = FakeLive()
-    append_doc, insert_doc = 0x3000, 0x4000
-    a = ["[A] a", "[B] b", "[C] c"]
-    big = [f"[H] h{i}" for i in range(10)]
-    r.mem = {append_doc: list(a), insert_doc: list(big)}
+    r.mem = {DOC: _hist(30)}
     r.read_new()
-    r.mem[append_doc] = a + ["[M] m"]
-    r.mem[insert_doc] = big[:5] + ["[M] m"] + big[5:]
-    assert r.read_new() == ["[M] m"]
-    assert append_doc in r._addrs and insert_doc not in r._addrs
+    r.mem[DOC] = _hist(30) + ["[B] hi"]
+    assert r.read_new() == ["[B] hi"]
+    r.mem[DOC] = _hist(30) + ["[B] hi", "[B] hi"]     # 重複同一句
+    assert r.read_new() == ["[B] hi"]
+    r.mem[DOC] = _hist(30) + ["[B] hi", "[B] hi", "[B] hi"]
+    assert r.read_new() == ["[B] hi"]                 # 每則重複都翻
 
 
-def test_idle_verify_unanchors_when_nothing_extends_us():
-    # 殭屍自肯定回歸:驗證掃描只找得到「與我們相等」的群(= 殭屍自己)時,
-    # 不能自我肯定續留 —— 必須解錨回探索,否則永遠監聽中卻收不到訊息
-    import src.reader.mem_reader as mr
+def test_spam_same_line_many_times():
     r = FakeLive()
-    base = ["[A] a", "[B] b", "[C] c"]
-    r.mem = {DOC: list(base)}
+    r.mem = {DOC: ["[你] Test"] * 20}
     r.read_new()
-    r.mem[DOC] = base + ["[D] d"]
-    assert r.read_new() == ["[D] d"]                  # 定錨
-    # 真文件換到與殭屍結構完全對不上的新形態(新視窗文件),殭屍凍結
-    fresh = 0xF000
-    r.mem[fresh] = ["[X] x", "[Y] y", "[W] w"]
-    for _ in range(mr._IDLE_RECHECK_POLLS - 1):
+    for _ in range(3):
+        r.mem[DOC] = r.mem[DOC] + ["[你] Test"]
+        assert r.read_new() == ["[你] Test"]          # 狂洗同一句也逐則偵測
+
+
+def test_relocation_pingpong_tracks_new_only():
+    # 雙緩衝乒乓:兩份副本都在,輪流被更新成最新;另一份殘留成殭屍。
+    r = FakeLive()
+    base = _hist(30)
+    r.mem = {DOC: list(base), TWIN: list(base)}       # 雙緩衝
+    r.read_new()
+    r.mem[TWIN] = base + ["[B] one"]                  # TWIN 更新為最新;DOC 殭屍
+    assert r.read_new() == ["[B] one"]
+    r.mem[DOC] = base + ["[B] one", "[B] two"]        # DOC 更新為最新;TWIN 殭屍
+    assert r.read_new() == ["[B] two"]                # 只翻新的,不因乒乓重播
+
+
+def test_zombie_never_re_emits():
+    # 殭屍(較舊副本)一直存在也不會冒舊訊息:多重集合差為空
+    r = FakeLive()
+    base = _hist(30)
+    r.mem = {DOC: list(base), TWIN: list(base)}
+    r.read_new()
+    r.mem[TWIN] = base + ["[B] new"]                  # 活文件在 TWIN;DOC 殭屍
+    assert r.read_new() == ["[B] new"]
+    for _ in range(3):                                # 無新訊息 → 空,不重播殭屍舊內容
         assert r.read_new() == []
-    assert r.read_new() == []                         # 驗證:無延伸 → 解錨
-    assert r._addrs == {}                             # 回探索
-    assert r.read_new() == []                         # 探索全掃 1(建快照)
-    r.mem[fresh] = ["[X] x", "[Y] y", "[W] w", "[Z] z"]
-    assert r.read_new() == ["[Z] z"]                  # 新文件成長 → 重定錨、恢復翻譯
+
+
+def test_cached_path_updates_and_full_scan_corrects(monkeypatch):
+    import src.reader.mem_reader as mr
+    monkeypatch.setattr(mr, "_FULL_EVERY_DOC", 3)
+    r = FakeLive()
+    base = _hist(30)
+    r.mem = {DOC: list(base)}
+    r.read_new()                                  # 全掃,快取 DOC
+    r.mem[DOC] = base + ["[B] a"]
+    assert r.read_new() == ["[B] a"]              # 快取路徑:同位址更新
+    assert r.cached_scans >= 1
+    # 搬到全新位址(快取讀不到);定期全掃(_FULL_EVERY_DOC=3 輪)會校正抓到
+    fresh = 0x5000
+    r.mem[fresh] = base + ["[B] a", "[B] b"]
+    del r.mem[DOC]
+    got = []
+    for _ in range(4):
+        got += r.read_new()
+    assert got == ["[B] b"]                       # 全掃校正後補上,不漏不重
+    assert fresh in r._addrs
+
+
+def test_big_jump_syncs_without_dumping():
+    # 一次冒出超過上限的行(對到殭屍後的大量舊內容)→ 只重新同步,不倒舊訊息
+    r = FakeLive()
+    r.mem = {DOC: _hist(30)}
+    r.read_new()
+    r.mem[DOC] = _hist(30) + [f"[B] x{i}" for i in range(mr_max_catchup() + 5)]
+    assert r.read_new() == []                     # 超量 → 同步不輸出
+    r.mem[DOC] = r.mem[DOC] + ["[C] after"]
+    assert r.read_new() == ["[C] after"]          # 之後恢復正常
+
+
+def mr_max_catchup():
+    import src.reader.mem_reader as mr
+    return mr._MAX_CATCHUP
