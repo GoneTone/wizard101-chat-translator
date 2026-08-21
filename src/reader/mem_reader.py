@@ -301,29 +301,33 @@ def after_last_tail(doc: list[str], tail: list[str]) -> list[str] | None:
     return None
 
 
-_MIN_DOC_LINES = 2      # 候選聊天文件至少幾行(排除單行碎片)
-_TAIL_FP = 12           # 尾指紋行數:用文件最後 N 行在下一份文件裡定位「已處理到哪」
-_MAX_CATCHUP = 40       # 單次最多輸出幾行:超過視為對到殭屍舊內容,只重新同步不輸出
+_MIN_WIN = 5            # 可視窗最少幾行(排除碎片)
+_MAX_WIN = 200          # 可視窗最多幾行(排除 1000+ 的完整歷史大文件)
+_MAX_CATCHUP = 40       # 單次最多輸出幾行:超過視為對到過期快照,只重新同步不輸出
 _FULL_EVERY_DOC = 25    # 快取位址最多連用幾輪就強制全掃校正
 
 
+def _senders(lines) -> int:
+    """一份文件裡的不同發送者數(用來認出『所有人聊天可視窗』,排除只含自己的小 buffer)。"""
+    return len({l.split("]", 1)[0] for l in lines if "]" in l})
+
+
 class LiveChatReader:
-    """讀遊戲聊天並回傳每輪新增的聊天行。
+    """讀遊戲『聊天可視窗』並回傳每輪新增的聊天行。
 
-    逆向結論(2026-08-21 指標/雙緩衝探針):遊戲把聊天渲染成多份文件(完整歷史 +
-    可視視窗 + 一次性快照),每次更新整份複製到新位址(雙緩衝乒乓),舊副本凍結成殭屍;
-    沒有可從固定位址到達的穩定指標,且同時存在的多份文件尾端各有對方沒有的行 ——
-    追單一文件會在多份之間乒乓、反覆冒出彼此差異。
+    逆向結論(2026-08-21 探針):遊戲把聊天渲染成多份文件(完整歷史 + 可視視窗 + 快照),
+    每次更新整份複製到新位址(雙緩衝乒乓),舊副本凍結。聊天可視窗是遊戲聊天框實際顯示的
+    最近數十行(含所有發送者),是『滾動有序』的:新訊息從底部進、舊的從頂部出。
 
-    因此改用『全域多重集合』:把當前記憶體所有聊天文件的行取聯集(每行取最大出現次數)
-    當狀態。新訊息 = 這次聯集比上次『多出來』的行(依最長文件的順序展開,含重複)。
-    這對乒乓/搬家/殭屍天生免疫 —— 那些行早在聯集裡,最大次數不會憑空增加;
-    只有真的新訊息會讓某行的全域最大次數 +1。基準只增不減,舊訊息永不重播。"""
+    追這個可視窗:每輪找 align_append 能延續上次視窗的候選(滾動對齊),取其尾端新增行。
+    可視窗有序 → 過期快照/舊副本相對當前視窗是『倒退』,對齊自然失敗被排除,不會像
+    無序的歷史文件那樣在多份間乒乓;重複訊息會讓視窗尾端真的多一行,逐則偵測得到。
+    首次以『發送者最多樣的最長候選』認出可視窗(排除只含自己的小回顯 buffer)。"""
 
     def __init__(self, process_name: str = PROCESS_NAME):
         self.process_name = process_name
-        self._counts: Counter | None = None  # 全域每行最大出現次數(基準);None = 未初始化
-        self._addrs: list[int] = []    # 快取的聊天文件位址(乒乓副本)
+        self._win: list[str] | None = None  # 目前追蹤的可視窗行序列;None = 未初始化
+        self._addrs: list[int] = []    # 快取的可視窗文件位址(乒乓副本)
         self._bytes = 0                # 文件位元組長度估計(決定快取讀取量)
         self._since_full = _FULL_EVERY_DOC
 
@@ -341,83 +345,100 @@ class LiveChatReader:
         _k32.CloseHandle(handle)
 
     def _full_docs(self, h):
-        """全掃(慢):回傳所有候選聊天文件 [(位址, 位元組長, 行list), ...]。"""
+        """全掃(慢):回傳所有可視窗大小的候選 [(位址, 位元組長, 行list), ...]。"""
         out = []
         for base, blob in _iter_regions(h):
             for start, end, lines in groups_in_blob(blob):
-                if len(lines) >= _MIN_DOC_LINES:
+                if _MIN_WIN <= len(lines) <= _MAX_WIN:
                     out.append((base + start, end - start, lines))
         return out
 
     def _cached_docs(self, h):
-        """只讀快取位址(快):回傳那些位址附近的候選聊天文件。"""
+        """只讀快取位址(快):回傳那些位址附近的可視窗候選。"""
         out = []
         need = min(self._bytes + _DOC_MARGIN, _MAX_DOC_READ)
         for addr in self._addrs:
             blob = _read_clamped(h, addr, need)
             for start, end, lines in groups_in_blob(blob):
-                if len(lines) >= _MIN_DOC_LINES:
+                if _MIN_WIN <= len(lines) <= _MAX_WIN:
                     out.append((addr + start, end - start, lines))
         return out
 
     # --- 主流程 ---
     @property
     def anchored(self) -> bool:
-        """是否已建立基準(第一次全掃後即為 True)。"""
-        return self._counts is not None
+        """是否已認出可視窗。"""
+        return self._win is not None
 
     def read_new(self) -> list[str]:
         """回傳自上次呼叫後新增的聊天行(依序、含重複);無新訊息回傳 []。
         找不到遊戲丟 GameNotRunning。"""
         h = self._open()
         try:
-            if self._counts is not None and self._addrs and self._since_full < _FULL_EVERY_DOC:
-                self._since_full += 1
-                return self._emit(self._cached_docs(h), refresh_addrs=False)
+            if self._win is not None and self._addrs and self._since_full < _FULL_EVERY_DOC:
+                docs = self._cached_docs(h)
+                if any(align_append(self._win, l) is not None for _, _, l in docs):
+                    self._since_full += 1
+                    return self._emit(docs, refresh_addrs=False)
             self._since_full = 0
-            return self._emit(self._full_docs(h), refresh_addrs=True)  # 首次/校正:全掃
+            return self._emit(self._full_docs(h), refresh_addrs=True)  # 首次/搬家/校正:全掃
         finally:
             self._close(h)
 
     @staticmethod
-    def _union(docs) -> Counter:
-        """所有文件的行聯集:每行取跨文件的最大出現次數。"""
-        u: Counter = Counter()
-        for _addr, _nbytes, lines in docs:
-            c = Counter(lines)
-            for ln, n in c.items():
-                if n > u[ln]:
-                    u[ln] = n
-        return u
+    def _pick_window(docs):
+        """認出聊天可視窗:發送者最多樣、其次最長的候選(排除只含自己的小 buffer)。"""
+        best = None
+        for addr, nbytes, lines in docs:
+            key = (_senders(lines), len(lines))
+            if best is None or key > best[0]:
+                best = (key, addr, nbytes, lines)
+        return best  # (key, addr, nbytes, lines) 或 None
 
     def _emit(self, docs, refresh_addrs: bool) -> list[str]:
-        if refresh_addrs and docs:
-            self._addrs = self._twin_addrs(docs)
-            self._bytes = max(nb for _a, nb, _l in docs)
-
-        u = self._union(docs)
-        if self._counts is None:      # 首次:既有內容當基準,不輸出
-            self._counts = u
-            return []
-        delta = u - self._counts      # 多重集合正差 = 這次多出來的行
-        self._counts |= u             # 基準取聯集(只增不減,舊訊息永不重播)
-        if not delta:
+        if self._win is None:
+            # 首次:認出可視窗當基準,不輸出既有內容
+            picked = self._pick_window(docs)
+            if picked:
+                self._win = list(picked[3])
+                if refresh_addrs:
+                    self._addrs = self._twin_addrs(docs)
+                    self._bytes = picked[2]
             return []
 
-        # 依最長文件的行順序展開 delta(≈時間序;含重複)
-        longest = max(docs, key=lambda d: len(d[2]))[2] if docs else []
-        need = dict(delta)
-        out: list[str] = []
-        for ln in longest:
-            if need.get(ln, 0) > 0:
-                out.append(ln)
-                need[ln] -= 1
-        for ln, n in need.items():    # 不在最長文件裡的(罕見)補在後面
-            out.extend([ln] * n)
-        if len(out) > _MAX_CATCHUP:
-            return []  # 一次冒出太多 = 啟動/大跳,基準已更新,不倒一堆舊訊息
-        return out
+        # 找滾動延續當前視窗的候選:取最完整(最新)的那份。
+        best = None  # (lines, new, nbytes)
+        for addr, nbytes, lines in docs:
+            new = align_append(self._win, lines)
+            if new is None:
+                continue  # 過期快照/舊副本(倒退)→ 對齊失敗,排除
+            if best is None or len(lines) > len(best[0]):
+                best = (lines, new, nbytes)
 
-    def _twin_addrs(self, docs) -> list[int]:
-        """最長的幾份文件位址(乒乓活副本 + 殭屍),供下輪快取讀取(聯集自然涵蓋)。"""
-        return [a for a, _, _ in sorted(docs, key=lambda d: -len(d[2]))[:_MAX_ANCHORS]]
+        if best is None:
+            # 沒有延續當前視窗的(視窗被整批換掉/搬到不同大小)→ 重新認視窗,不輸出
+            picked = self._pick_window(docs)
+            if picked:
+                self._win = list(picked[3])
+                if refresh_addrs:
+                    self._addrs = self._twin_addrs(docs)
+                    self._bytes = picked[2]
+            return []
+
+        lines, new, nbytes = best
+        if refresh_addrs:
+            self._addrs = self._twin_addrs(docs, self._win)
+            self._bytes = nbytes
+        self._win = list(lines)
+        if len(new) > _MAX_CATCHUP:
+            return []  # 一次冒出太多 = 對到大跳,只重新同步不倒舊訊息
+        return new
+
+    def _twin_addrs(self, docs, win=None) -> list[int]:
+        """快取的可視窗副本位址:延續 win 的(乒乓副本);win 未給時取發送者多樣的幾份。"""
+        if win is not None:
+            addrs = [a for a, _, l in docs if align_append(win, l) is not None]
+            if addrs:
+                return addrs[:_MAX_ANCHORS]
+        return [a for a, _, _ in sorted(
+            docs, key=lambda d: (_senders(d[2]), len(d[2])), reverse=True)[:_MAX_ANCHORS]]
