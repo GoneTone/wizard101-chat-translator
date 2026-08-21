@@ -26,8 +26,8 @@ _GARBAGE = re.compile(
 # 白名單:只允許聊天實際會用到的字元(ASCII、CJK、全形、常用標點、BMP emoji)。
 # 版面/渲染緩衝的破損副本會夾入其他區塊的字元(指標位元組被當成雜字),含任一即拒絕。
 _NON_CHAT = re.compile(
-    "[^\x20-\x7e -⁯←-⇿☀-➿"
-    "　-〿㐀-䶿一-鿿＀-￯️‍]"
+    "[^\x20-\x7e -⁯←-⇿☀-➿⬀-⯿"
+    "　-〿㐀-䶿一-鿿＀-￯️‍🀀-🫿]"
 )
 # 版面緩衝殘留的標記碎片:角括號、HTML 實體、.dds/FFFFFF/color> 等
 _MARKUP = re.compile(r"[<>]|&(?:gt|lt|amp);|\.dds|FFFFFF|color>")
@@ -38,8 +38,33 @@ _MAX_LINE_BYTES = 1400
 _MAX_LINE_CHARS = 300
 
 
+# 遊戲表情符號:訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌,轉成對應 emoji 顯示。
+_EMOTE_TAG = re.compile(r"<image;Emoticons/([^.;>]+)\.dds[^>]*>", re.IGNORECASE)
+_EMOJI_BY_NAME = {
+    "smile": "🙂", "big_smile": "😃", "laugh": "😆", "laughter": "😂",
+    "wink": "😉", "frown": "🙁", "sad": "😢", "cry": "😢", "streamcrying": "😭",
+    "shocked": "😲", "confused": "😕", "angry": "😠", "mad": "😠", "cool": "😎",
+    "tongue_stick_out": "😛", "grin": "😁", "sleep": "😴", "kiss": "😘",
+    "heart": "❤️", "brokenheart": "💔", "broken_heart": "💔",
+    "eyes": "👀", "battle_eye": "👁️", "battle_sun": "☀️", "battle_moon": "🌙",
+    "battle_star": "⭐", "school_death": "💀", "school_fire": "🔥",
+    "school_ice": "❄️", "school_storm": "⚡", "school_life": "🌿",
+    "school_myth": "🐍", "school_balance": "⚖️", "teacup": "🍵",
+    "transgender": "⚧️", "thumbsup": "👍", "thumbs_up": "👍", "star": "⭐",
+    "moon": "🌙", "sun": "☀️", "music": "🎵", "ghost": "👻", "crown": "👑",
+    "skull": "💀", "flower": "🌸", "rainbow": "🌈", "pizza": "🍕",
+    "cake": "🎂", "clap": "👏", "wave": "👋", "fire": "🔥",
+}
+
+
+def _emote_to_char(m: re.Match) -> str:
+    name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
+    return _EMOJI_BY_NAME.get(name, f":{name}:")  # 沒對應的以 :名稱: 顯示
+
+
 def clean(text: str) -> str:
-    """去掉 <color;..> <image;..> </color> 等標記,壓縮空白。"""
+    """表情標記轉 emoji,再去掉 <color;..> <image;..> </color> 等標記,壓縮空白。"""
+    text = _EMOTE_TAG.sub(_emote_to_char, text)
     return " ".join(_TAG.sub("", text).replace("\x00", " ").split())
 
 

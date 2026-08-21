@@ -240,3 +240,32 @@ def test_head_trim_scroll_absorbed():
     # 達容量上限:頭部被修剪 + 尾端附加(捲動)
     r.mem[DOC] = ["[C] c", "[D] d", "[E] e"]
     assert r.read_new() == ["[E] e"]
+
+
+# --- 遊戲表情符號(內嵌 <image;Emoticons/..> 標記 → emoji) ---
+def test_clean_converts_emoticon_tag_to_emoji():
+    raw = ("<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
+           "<link;GID:123,Lars,2>[Lars]</link> fire first then "
+           "<image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>")
+    assert clean(raw) == "[Lars] fire first then 😂"
+
+
+def test_clean_converts_prefixed_emoticon_names():
+    assert clean("<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF>") == "❤️"
+    assert clean("<image;Emoticons/Emoticons_School_Death.dds;24;24;FFFFFFFF>") == "💀"
+    assert clean("<image;Emoticons/Eyes001.dds;24;24;FFFFFFFF>") == "👀"
+    assert clean("<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>") == "🍵"
+
+
+def test_clean_unknown_emoticon_falls_back_to_name():
+    assert clean("<image;Emoticons/Zebra042.dds;24;24;FFFFFFFF>") == ":zebra:"
+
+
+def test_extract_keeps_line_with_emoji():
+    line = ("<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [Lars] ty king "
+            "<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>")
+    assert extract_lines(u16(line)) == ["[Lars] ty king ❤️"]
+
+
+def test_extract_keeps_astral_emoji_text():
+    assert extract_lines(_wrap("[Amy] nice 😂👀")) == ["[Amy] nice 😂👀"]
