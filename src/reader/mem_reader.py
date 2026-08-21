@@ -59,6 +59,8 @@ _EMOJI_BY_NAME = {
 
 def _emote_to_char(m: re.Match) -> str:
     name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
+    if not re.fullmatch(r"[a-z0-9_]+", name):
+        return "<torn>"  # 撕裂的標記(名稱夾入雜字):留下角括號讓整行被 _MARKUP 拒絕
     return _EMOJI_BY_NAME.get(name, f":{name}:")  # 沒對應的以 :名稱: 顯示
 
 

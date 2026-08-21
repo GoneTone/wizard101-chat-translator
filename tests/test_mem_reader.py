@@ -269,3 +269,14 @@ def test_extract_keeps_line_with_emoji():
 
 def test_extract_keeps_astral_emoji_text():
     assert extract_lines(_wrap("[Amy] nice 😂👀")) == ["[Amy] nice 😂👀"]
+
+
+def test_extract_rejects_torn_emoticon_tag():
+    # 撕裂副本:表情名稱夾入雜字(讀取瞬間被改寫)→ 整行視為破損拒絕
+    torn = "[莫格瑞姆 霜冻] <image;Emoticons/E䍸儱牴耀cons_Laugh.dds;24;24;FFFFFFFF>"
+    assert extract_lines(_wrap(torn)) == []
+
+
+def test_extract_keeps_pure_emoticon_message():
+    pure = "[Lars] <image;Emoticons/Emoticons_Wink.dds;24;24;FFFFFFFF>"
+    assert extract_lines(_wrap(pure)) == ["[Lars] 😉"]
