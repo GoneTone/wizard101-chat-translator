@@ -84,7 +84,7 @@ def test_banner_set_while_offline_and_cleared_only_after_success(monkeypatch):
 
     run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
 
-    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
+    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
     assert overlay.clears == 1
 
 
@@ -120,7 +120,7 @@ def test_batch_remainder_is_forgotten_and_retried_after_recovery(monkeypatch):
         ("line two", "譯:line two"),
         ("line three", "譯:line three"),
     ]
-    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
+    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
     assert overlay.clears == 1
 
 
@@ -161,22 +161,36 @@ def test_startup_translates_only_tail_of_backlog(monkeypatch):
     translator = OkTranslator()
     overlay = FakeOverlay()
 
-    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息 → 翻
+    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息首次出現(未穩定);
+    # 掃3:兩句新訊息連續第二次 → 穩定 → 翻譯
     new = ["[P] newA", "[P] newB"]
-    reads = [backlog, backlog + new]
+    reads = [backlog, backlog + new, backlog + new]
     run_scripted(cfg, translator, overlay, reads, monkeypatch)
 
+    # 啟動翻 backlog 最後 10 句;之後翻穩定出現的兩句新訊息
     assert translator.calls == backlog[-10:] + new
 
 
-def test_new_message_translated_next_scan(monkeypatch):
-    # 啟動後,任何沒看過的新行下一次掃描就翻;既有歷史(啟動已標記看過)不重翻
+def test_transient_lines_not_translated_only_stable_ones(monkeypatch):
     cfg = {"poll_interval": 0.01, "startup_tail": 0}
     translator = OkTranslator()
     overlay = FakeOverlay()
-    reads = [["[A] one"], ["[A] one", "[B] two"], ["[A] one", "[B] two", "[C] three"]]
+
+    # 掃1:啟動基準([A] 標記看過,不翻)
+    # 掃2:[B] 首次出現(尚未穩定,不翻)
+    # 掃3:[B] 連續第二次出現 → 穩定 → 翻譯
+    # 掃4:[X] 暫時垃圾出現一次(不穩定,不翻)
+    # 掃5:[X] 消失 → 永遠不翻
+    reads = [
+        ["[A] one"],
+        ["[A] one", "[B] two"],
+        ["[A] one", "[B] two"],
+        ["[A] one", "[B] two", "[X] junk"],
+        ["[A] one", "[B] two"],
+    ]
     run_scripted(cfg, translator, overlay, reads, monkeypatch)
-    assert translator.calls == ["[B] two", "[C] three"]
+
+    assert translator.calls == ["[B] two"]  # 只翻穩定的 B;A 為啟動歷史、X 為暫時垃圾
 
 
 def test_startup_tail_smaller_than_backlog_translates_all(monkeypatch):
@@ -218,26 +232,5 @@ def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
         except queue.Empty:
             break
 
-    assert overlay.errors == ["⚠ 找不到遊戲程序，等待中…"]  # 只顯示一次
+    assert overlay.errors == ["⚠ 找不到遊戲程序,等待中…"]  # 只顯示一次
     assert overlay.messages == []
-
-
-class OneBadTranslator:
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def to_zh(self, text):
-        self.calls.append(text)
-        if text == "[B] bad":
-            raise ValueError("模型回傳非預期格式")
-        return f"譯:{text}"
-
-
-def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
-    # 單行翻譯拋非 HTTP 例外時,只跳過該行,reader 不死、後續行照翻
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}
-    tr = OneBadTranslator()
-    ov = FakeOverlay()
-    run_cycles(cfg, tr, ov, ["[A] a", "[B] bad", "[C] c"], stop_after_cycle=1, monkeypatch=monkeypatch)
-    assert tr.calls == ["[A] a", "[B] bad", "[C] c"]  # 三行都嘗試
-    assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]  # bad 被跳過

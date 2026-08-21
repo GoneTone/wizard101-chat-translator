@@ -17,6 +17,12 @@ MARKER = "<color;FFFFFF><image;Art/Art_Chat".encode("utf-16-le")
 CLOSE = "</color>".encode("utf-16-le")
 _TAG = re.compile(r"<[^>]*>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
+# 破損副本的二進位痕跡:替換字元、IPA/修飾/組合符、私有區、特殊區、代理對。
+# 正常英文/中文聊天不會用到這些;含任一即視為破損,整行拒絕(乾淨副本仍會通過)。
+_GARBAGE = re.compile(
+    "[\x00-\x08\x0b-\x1f\x7f-\x9fɐ-˿̀-ͯ"
+    "-￰-￿\ud800-\udfff]"
+)
 # 白名單:只允許聊天實際會用到的字元(ASCII、CJK、全形、常用標點、BMP emoji)。
 # 版面/渲染緩衝的破損副本會夾入其他區塊的字元(指標位元組被當成雜字),含任一即拒絕。
 _NON_CHAT = re.compile(
@@ -177,8 +183,6 @@ class ChatReader:
         self.process_name = process_name
         self.full_scan_every = full_scan_every
         self._hot: list[int] = []
-        self._prev_full_hot: set[int] = set()  # 上一次全掃時的熱區
-        self.last_absorb: list[str] = []  # 本輪「新出現區塊」的既有內容(應吸收不翻)
         self._since_full = full_scan_every  # 讓第一次讀取一定是全掃
 
     # --- 可在測試中覆寫的接縫 ---
@@ -195,43 +199,32 @@ class ChatReader:
         _k32.CloseHandle(handle)
 
     def _full_scan(self, handle):
-        """回傳 (聊天行, 有命中的區域 base 清單, 應吸收的行)。
-        「應吸收的行」= 只出現在『這次全掃才新變熱』區塊的行 —— 那是剛被載入的既有歷史,
-        非新訊息(新訊息接在既有活躍緩衝後,屬舊熱區),應標記看過而不翻譯。"""
+        """回傳 (聊天行, 有命中的區域 base 清單)。"""
         out: list[str] = []
         seen: set[str] = set()
         hot: list[int] = []
-        old_lines: set[str] = set()
-        new_lines: set[str] = set()
         for base, blob in _iter_regions(handle):
             found = extract_lines(blob)
-            if not found:
-                continue
-            hot.append(base)
-            bucket = new_lines if base not in self._prev_full_hot else old_lines
-            for line in found:
-                if line not in seen:
-                    seen.add(line)
-                    out.append(line)
-                bucket.add(line)
-        absorb = [line for line in out if line in new_lines and line not in old_lines]
-        self._prev_full_hot = set(hot)
-        return out, hot, absorb
+            if found:
+                hot.append(base)
+                for line in found:
+                    if line not in seen:
+                        seen.add(line)
+                        out.append(line)
+        return out, hot
 
     def _hot_scan(self, handle):
         return _dedup(extract_lines(_read_region_at(handle, base)) for base in self._hot)
 
     def read(self) -> list[str]:
-        """回傳當前所有聊天行(全域去重,保留出現順序)。找不到遊戲丟 GameNotRunning。
-        本輪應吸收(標記看過不翻)的行另存於 self.last_absorb。"""
+        """回傳當前所有聊天行(全域去重,保留出現順序)。找不到遊戲丟 GameNotRunning。"""
         handle = self._open()
         try:
             if self._since_full >= self.full_scan_every or not self._hot:
-                lines, self._hot, self.last_absorb = self._full_scan(handle)
+                lines, self._hot = self._full_scan(handle)
                 self._since_full = 1
             else:
                 lines = self._hot_scan(handle)
-                self.last_absorb = []
                 self._since_full += 1
             return lines
         finally:
@@ -242,15 +235,8 @@ _default_reader: ChatReader | None = None
 
 
 def read_chat_lines(process_name: str = PROCESS_NAME) -> list[str]:
-    """便利函式:每輪都做完整全掃。
-    最新訊息會出現在「新配置的小緩衝(新記憶體區塊)」,熱區快取的熱掃會漏讀它們,
-    故一律全掃(較慢但抓得到最新)。"""
+    """便利函式:以模組單例 ChatReader 讀取(維持熱區狀態)。"""
     global _default_reader
     if _default_reader is None or _default_reader.process_name != process_name:
-        _default_reader = ChatReader(process_name, full_scan_every=1)
+        _default_reader = ChatReader(process_name)
     return _default_reader.read()
-
-
-def last_absorbed() -> list[str]:
-    """上一次 read_chat_lines() 判定為「應吸收」(既有歷史、標記看過不翻)的行。"""
-    return list(_default_reader.last_absorb) if _default_reader else []

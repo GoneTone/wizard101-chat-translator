@@ -40,6 +40,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
     # 記憶體讀取是精確的(不像 OCR 有雜訊),且每次全掃回傳當前全部聊天行,
     # 故用「精確比對、不設上限」的去重:看過的行永不重現,不會因視窗淘汰而重譯。
     deduper = LineDeduper(max_seen=None, similarity=1.0)
+    prev_scan: set[str] = set()  # 上一輪掃到的行,供穩定性過濾
     backoff_index = 0
     game_missing = False
     first_scan = True
@@ -53,11 +54,11 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         except GameNotRunning:
             if not game_missing:
                 game_missing = True
-                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序，等待中…"))
+                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序,等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 掃描偶發錯誤:略過該輪,不讓執行緒死掉
-            print(f"[reader] 略過此輪：{exc}", file=sys.stderr)
+            print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
             stop.wait(interval)
             continue
 
@@ -66,41 +67,42 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             ui_queue.put(overlay.clear_error)
 
         if first_scan:
-            # 啟動:把既有歷史全部標記為看過、不翻譯(startup_tail>0 則翻尾端 N 句)。
+            # 啟動時記憶體裡已有整段歷史聊天,但掃描順序不等於時間順序,無法可靠挑出「最新 N 句」。
+            # 預設 startup_tail=0:把既有歷史全部標記為看過、不翻譯,只翻啟動後的新訊息。
             first_scan = False
             seen_all = deduper.new_lines(current)
             tail = cfg.get("startup_tail", STARTUP_TAIL_DEFAULT)
             lines = seen_all[-tail:] if tail > 0 else []
         else:
-            # 之後:精確去重,翻任何「沒看過」的行(新訊息 1 次掃描就翻)。
-            lines = deduper.new_lines(current)
+            # 穩定性過濾:只翻「這輪與上輪都出現」的行。記憶體裡有大量暫時性/破損的渲染副本
+            # 會忽有忽無,只出現一次就不翻;正式聊天記錄會穩定跨輪存在,第二輪掃到即翻。
+            stable = [line for line in current if line in prev_scan]
+            lines = deduper.new_lines(stable)
+        prev_scan = set(current)
 
         for idx, line in enumerate(lines):
             try:
                 translated = translator.to_zh(line)
             except httpx.HTTPError:
-                # 伺服器離線:這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
+                # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
                 # 避免離線期間的訊息被 dedup 永久吃掉。
                 deduper.forget(lines[idx:])
                 went_offline = True
                 break
-            except Exception as exc:
-                # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,絕不讓 reader 執行緒死掉。
-                print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
-                continue
             translated_ok = True
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
 
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
-            ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線，重試中…"))
+            ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線,重試中…"))
         elif translated_ok and backoff_index:
             # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
             backoff_index = 0
             ui_queue.put(overlay.clear_error)
 
         stop.wait(interval)
+
 
 
 def main() -> None:
