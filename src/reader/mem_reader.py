@@ -269,39 +269,43 @@ def most_common_window(groups: list[tuple[int, ...]]) -> list[str]:
     return list(counts.most_common(1)[0][0])
 
 
-def windows_in_blob(blob: bytes) -> list[tuple[str, ...]]:
-    """在單一區域 blob 內,把聊天標記依間隔分群,回傳每個『小群』的有序聊天行 tuple
-    (保留重複)。大群(凍結歷史)略過。"""
+def windows_in_blob(blob: bytes) -> list[tuple[int, tuple[str, ...]]]:
+    """在單一 blob 內,把聊天標記依間隔分群,回傳每個『小群』的 (群起始 offset, 有序聊天行 tuple)。
+    保留重複;大群(凍結歷史)略過。"""
     marks = []
     k = blob.find(MARKER)
     while k >= 0:
         marks.append(k)
         k = blob.find(MARKER, k + 1)
-    out: list[tuple[str, ...]] = []
+    out: list[tuple[int, tuple[str, ...]]] = []
     group: list[int] = []
+
+    def flush():
+        if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
+            seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
+            out.append((group[0], tuple(extract_lines(seg, dedup=False))))
+
     for m in marks:
         if group and m - group[-1] > _GROUP_GAP:
-            if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
-                seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
-                out.append(tuple(extract_lines(seg, dedup=False)))
+            flush()
             group = []
         group.append(m)
-    if group and _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
-        seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
-        out.append(tuple(extract_lines(seg, dedup=False)))
+    if group:
+        flush()
     return out
 
 
-_FULL_EVERY = 12  # 每幾輪做一次完整全掃(重新定位視窗所在區域)
+_FULL_EVERY = 30       # 安全網:最多每幾輪全掃一次(平時靠快掃失敗才觸發全掃)
+_CHUNK = 48000         # 快掃時每個視窗位址附近讀取的位元組數(視窗 ≤ ~18KB)
 
 
 class VisibleReader:
-    """讀可視聊天視窗。全掃記住『含視窗的記憶體區域』,之後只重掃那幾塊(快),
-    每 _FULL_EVERY 輪(或快掃讀不到)再完整全掃校正。"""
+    """讀可視聊天視窗。全掃記住『視窗副本的位址』,之後每輪只讀那些位址附近的一小塊(很快);
+    快掃讀不到(視窗搬家)或每 _FULL_EVERY 輪(安全網)才完整全掃重新定位。"""
 
     def __init__(self, process_name: str = PROCESS_NAME):
         self.process_name = process_name
-        self._bases: list[int] = []      # 上次找到視窗的區域 base
+        self._addrs: list[int] = []      # 上次找到視窗副本的絕對位址
         self._since_full = _FULL_EVERY
 
     def _open(self):
@@ -314,34 +318,34 @@ class VisibleReader:
         return h
 
     def _full(self, h):
-        """完整全掃:回傳 (視窗, 含視窗的區域 base 清單)。"""
+        """完整全掃(慢):回傳 (視窗, 視窗副本的絕對位址清單)。"""
         windows: list[tuple[str, ...]] = []
-        bases: list[int] = []
+        addrs: list[int] = []
         for base, blob in _iter_regions(h):
-            wins = windows_in_blob(blob)
-            if wins:
-                windows.extend(wins)
-                bases.append(base)
-        return most_common_window(windows), bases
+            for off, win in windows_in_blob(blob):
+                windows.append(win)
+                addrs.append(base + off)
+        return most_common_window(windows), addrs[:80]
 
     def _fast(self, h):
-        """只重掃快取的區域(視窗副本所在),回傳當前視窗。"""
+        """只讀快取位址附近的小塊(很快),回傳當前視窗。"""
         windows: list[tuple[str, ...]] = []
-        for base in self._bases:
-            windows.extend(windows_in_blob(_read_region_at(h, base)))
+        for addr in self._addrs:
+            for _off, win in windows_in_blob(_read(h, addr, _CHUNK)):
+                windows.append(win)
         return most_common_window(windows)
 
     def read(self) -> list[str]:
         h = self._open()
         try:
-            if self._bases and self._since_full < _FULL_EVERY:
+            if self._addrs and self._since_full < _FULL_EVERY:
                 win = self._fast(h)
                 self._since_full += 1
                 if win:
-                    return win
-            win, bases = self._full(h)
-            if bases:
-                self._bases = bases
+                    return win  # 快掃成功 → 用它,不全掃
+            win, addrs = self._full(h)  # 首次 / 快掃讀不到 / 到安全網 → 全掃重新定位
+            if addrs:
+                self._addrs = addrs
             self._since_full = 0
             return win
         finally:

@@ -5,8 +5,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG: dict = {
     "api": {"base_url": "http://127.0.0.1:8000", "model": "", "api_key": ""},
-    "poll_interval": 1.0,
-    "startup_tail": 0,
+    "poll_interval": 0.4,    # 收訊輪詢間隔(秒);快掃很便宜,可設小一點更即時
     "fade_seconds": 0,       # <=0:訊息永不依時間淡出(可滾動看歷史)
     "max_messages": 200,     # 視窗保留的訊息則數上限,超過移除最舊
     "hotkey": "ctrl+space",

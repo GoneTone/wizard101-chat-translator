@@ -153,4 +153,4 @@ def test_windows_in_blob_extracts_small_group_with_repeats():
     b = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [B] yo </color>"
     blob = u16(a + b + a)  # 同一小群、含重複的 hi
     wins = windows_in_blob(blob)
-    assert wins == [("[A] hi", "[B] yo", "[A] hi")]
+    assert wins == [(0, ("[A] hi", "[B] yo", "[A] hi"))]
