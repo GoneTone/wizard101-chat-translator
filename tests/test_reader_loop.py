@@ -1,6 +1,5 @@
-"""reader_loop 行為:記憶體收訊 → 去重 → 翻譯 → overlay。
-離線恢復:翻譯失敗的行(與同批未試的行)下一輪重新嘗試,橫幅只在還在離線時顯示,
-只有真的翻譯成功過才清除橫幅、重置退避;找不到遊戲時顯示對應橫幅並重試。"""
+"""reader_loop 行為:逐輪比對(這輪有、上輪沒有 = 新訊息)→ 翻譯 → overlay。
+啟動當輪只記錄既有、不翻;離線時未試的行不併入 prev,下輪重試;找不到遊戲顯示橫幅。"""
 import queue
 import threading
 
@@ -27,112 +26,6 @@ class FakeOverlay:
         self.clears += 1
 
 
-def run_cycles(cfg, translator, overlay, lines, stop_after_cycle, monkeypatch):
-    """跑 reader_loop 到第 stop_after_cycle 輪就停;每輪 read_chat_lines 回傳 lines。
-    跑完把 ui_queue 回呼全部執行掉(模擬 pump())。"""
-    ui_queue: queue.Queue = queue.Queue()
-    stop = threading.Event()
-    count = {"n": 0}
-
-    def fake_read(process_name="WizardGraphicalClient.exe"):
-        count["n"] += 1
-        if count["n"] >= stop_after_cycle:
-            stop.set()
-        return list(lines)
-
-    monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
-    reader_loop(cfg, translator, overlay, ui_queue, stop)
-
-    while True:
-        try:
-            ui_queue.get_nowait()()
-        except queue.Empty:
-            break
-    return overlay
-
-
-class FlakyTranslator:
-    """第一次呼叫拋 HTTPError(模擬伺服器離線),之後成功。"""
-
-    def __init__(self):
-        self.calls = 0
-
-    def to_zh(self, text):
-        self.calls += 1
-        if self.calls == 1:
-            raise httpx.HTTPError("offline")
-        return f"譯:{text}"
-
-
-def test_failed_line_is_retranslated_after_recovery(monkeypatch):
-    monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = FlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    assert translator.calls == 2
-    assert overlay.messages == [("hello there", "譯:hello there")]
-
-
-def test_banner_set_while_offline_and_cleared_only_after_success(monkeypatch):
-    monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = FlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
-    assert overlay.clears == 1
-
-
-class BatchFlakyTranslator:
-    """整批第一行失敗一次(模擬離線),之後全部成功。驗證同批未試的行也一起重試。"""
-
-    def __init__(self):
-        self.calls: list[str] = []
-        self._failed_once = False
-
-    def to_zh(self, text):
-        self.calls.append(text)
-        if not self._failed_once:
-            self._failed_once = True
-            raise httpx.HTTPError("offline")
-        return f"譯:{text}"
-
-
-def test_batch_remainder_is_forgotten_and_retried_after_recovery(monkeypatch):
-    monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = BatchFlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["line one", "line two", "line three"],
-               stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    # 第一輪只試了 "line one" 就失敗,整批(含未試的 line two/three)下一輪重新嘗試,
-    # 三行最後都成功翻譯,沒有任何一行被永久漏掉。
-    assert translator.calls == ["line one", "line one", "line two", "line three"]
-    assert overlay.messages == [
-        ("line one", "譯:line one"),
-        ("line two", "譯:line two"),
-        ("line three", "譯:line three"),
-    ]
-    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
-    assert overlay.clears == 1
-
-
-class OkTranslator:
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def to_zh(self, text):
-        self.calls.append(text)
-        return f"譯:{text}"
-
-
 def run_scripted(cfg, translator, overlay, reads, monkeypatch):
     """每輪 read_chat_lines 依序回傳 reads[i];跑完 len(reads) 輪後停止。"""
     ui_queue: queue.Queue = queue.Queue()
@@ -148,6 +41,10 @@ def run_scripted(cfg, translator, overlay, reads, monkeypatch):
 
     monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
     reader_loop(cfg, translator, overlay, ui_queue, stop)
+    _drain(ui_queue)
+
+
+def _drain(ui_queue):
     while True:
         try:
             ui_queue.get_nowait()()
@@ -155,53 +52,88 @@ def run_scripted(cfg, translator, overlay, reads, monkeypatch):
             break
 
 
-def test_startup_translates_only_tail_of_backlog(monkeypatch):
-    backlog = [f"[P] msg{i:02d}" for i in range(25)]
-    cfg = {"poll_interval": 0.01, "startup_tail": 10}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
+class OkTranslator:
+    def __init__(self):
+        self.calls: list[str] = []
 
-    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息首次出現(未穩定);
-    # 掃3:兩句新訊息連續第二次 → 穩定 → 翻譯
-    new = ["[P] newA", "[P] newB"]
-    reads = [backlog, backlog + new, backlog + new]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch)
-
-    # 啟動翻 backlog 最後 10 句;之後翻穩定出現的兩句新訊息
-    assert translator.calls == backlog[-10:] + new
+    def to_zh(self, text):
+        self.calls.append(text)
+        return f"譯:{text}"
 
 
-def test_transient_lines_not_translated_only_stable_ones(monkeypatch):
-    cfg = {"poll_interval": 0.01, "startup_tail": 0}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-
-    # 掃1:啟動基準([A] 標記看過,不翻)
-    # 掃2:[B] 首次出現(尚未穩定,不翻)
-    # 掃3:[B] 連續第二次出現 → 穩定 → 翻譯
-    # 掃4:[X] 暫時垃圾出現一次(不穩定,不翻)
-    # 掃5:[X] 消失 → 永遠不翻
-    reads = [
-        ["[A] one"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two", "[X] junk"],
-        ["[A] one", "[B] two"],
-    ]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch)
-
-    assert translator.calls == ["[B] two"]  # 只翻穩定的 B;A 為啟動歷史、X 為暫時垃圾
+def test_startup_does_not_translate_existing(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    run_scripted(cfg, tr, ov, [["[A] a", "[B] b"]], monkeypatch)
+    assert tr.calls == []  # 啟動當輪不翻既有
 
 
-def test_startup_tail_smaller_than_backlog_translates_all(monkeypatch):
-    backlog = ["[P] a", "[P] b", "[P] c"]
-    cfg = {"poll_interval": 0.01, "startup_tail": 10}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
+def test_new_lines_translated_each_scan(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    # 掃1 基準;掃2 [C] 新出現 → 翻;掃3 [D] 新出現 → 翻;[A][B][C] 不重翻
+    reads = [["[A] a", "[B] b"], ["[A] a", "[B] b", "[C] c"], ["[A] a", "[B] b", "[C] c", "[D] d"]]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[C] c", "[D] d"]
+    assert ov.messages == [("[C] c", "譯:[C] c"), ("[D] d", "譯:[D] d")]
 
-    run_scripted(cfg, translator, overlay, [backlog], monkeypatch)
 
-    assert translator.calls == backlog  # backlog 不足 10 句時全翻
+def test_line_that_disappears_then_returns_is_retranslated(monkeypatch):
+    # 逐輪比對:一行消失後又出現會被視為新行(這是「偶爾冒舊訊息」的取捨)
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    reads = [["[A] a"], ["[A] a", "[B] b"], ["[A] a"], ["[A] a", "[B] b"]]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[B] b", "[B] b"]  # 出現、消失、再出現 → 翻兩次
+
+
+class OneBadTranslator:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def to_zh(self, text):
+        self.calls.append(text)
+        if text == "[B] bad":
+            raise ValueError("模型回傳非預期格式")
+        return f"譯:{text}"
+
+
+def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    tr = OneBadTranslator()
+    ov = FakeOverlay()
+    reads = [[], ["[A] a", "[B] bad", "[C] c"]]  # 掃1 空基準;掃2 三行新出現
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[A] a", "[B] bad", "[C] c"]  # 三行都嘗試
+    assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]  # bad 被跳過
+
+
+class FlakyTranslator:
+    def __init__(self):
+        self.calls = 0
+
+    def to_zh(self, text):
+        self.calls += 1
+        if self.calls == 1:
+            raise httpx.HTTPError("offline")
+        return f"譯:{text}"
+
+
+def test_failed_line_retried_after_recovery(monkeypatch):
+    monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
+    cfg = {"poll_interval": 0.01}
+    tr = FlakyTranslator()
+    ov = FakeOverlay()
+    # 掃1 空基準;掃2 [X] 新出現→翻譯失敗(離線);掃3 [X] 仍在→重試成功
+    reads = [[], ["[X] x"], ["[X] x"]]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == 2
+    assert ov.messages == [("[X] x", "譯:[X] x")]
+    assert ov.errors == ["⚠ 翻譯伺服器離線,重試中…"]
+    assert ov.clears == 1
 
 
 class NeverTranslator:
@@ -209,10 +141,10 @@ class NeverTranslator:
         raise AssertionError("找不到遊戲時不應嘗試翻譯")
 
 
-def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
+def test_game_not_running_shows_banner_once(monkeypatch):
     monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    overlay = FakeOverlay()
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     count = {"n": 0}
@@ -224,13 +156,7 @@ def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
         raise GameNotRunning("no game")
 
     monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
-    reader_loop(cfg, NeverTranslator(), overlay, ui_queue, stop)
-
-    while True:
-        try:
-            ui_queue.get_nowait()()
-        except queue.Empty:
-            break
-
-    assert overlay.errors == ["⚠ 找不到遊戲程序,等待中…"]  # 只顯示一次
-    assert overlay.messages == []
+    reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
+    _drain(ui_queue)
+    assert ov.errors == ["⚠ 找不到遊戲程序,等待中…"]
+    assert ov.messages == []

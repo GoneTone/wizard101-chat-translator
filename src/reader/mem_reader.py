@@ -235,8 +235,10 @@ _default_reader: ChatReader | None = None
 
 
 def read_chat_lines(process_name: str = PROCESS_NAME) -> list[str]:
-    """便利函式:以模組單例 ChatReader 讀取(維持熱區狀態)。"""
+    """便利函式:每輪都做完整全掃(回傳當前全部聊天行)。
+    逐輪比對需要每輪都是完整集合;熱區快取的子集掃描會讓行忽有忽無而狂重譯,故一律全掃。
+    最新訊息也可能落在新配置的小記憶體區塊,熱掃會漏讀,全掃才抓得到。"""
     global _default_reader
     if _default_reader is None or _default_reader.process_name != process_name:
-        _default_reader = ChatReader(process_name)
+        _default_reader = ChatReader(process_name, full_scan_every=1)
     return _default_reader.read()
