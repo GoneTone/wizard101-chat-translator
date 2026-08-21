@@ -280,3 +280,36 @@ def test_extract_rejects_torn_emoticon_tag():
 def test_extract_keeps_pure_emoticon_message():
     pure = "[Lars] <image;Emoticons/Emoticons_Wink.dds;24;24;FFFFFFFF>"
     assert extract_lines(_wrap(pure)) == ["[Lars] 😉"]
+
+
+def test_reanchor_across_entities_does_not_replay_emitted():
+    # 重啟後換錨情境:先錨在 A(渲染快取)輸出了 m;A 消失、尾行在新文件裡對不上
+    # → fallback 走「兩次全掃的差分」也會算出 m —— 必須被已輸出重疊裁剪掉,不能重播。
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b"]}
+    r.read_new()                                  # 探索全掃 1
+    r.mem[DOC] = ["[A] a", "[B] b", "[M] m"]
+    assert r.read_new() == ["[M] m"]              # 定錨 + 輸出 m
+    del r.mem[DOC]                                # 錨點實體消失
+    assert r.read_new() == []                     # 對不齊 1
+    assert r.read_new() == []                     # 對不齊 2 → 解錨
+    r._lines = ["[Z] not-in-any-doc"]             # 模擬跨實體行集合差異:尾行對不上
+    new_addr = 0x7000
+    r.mem[new_addr] = ["[Q] q"]
+    assert r.read_new() == []                     # 探索全掃 1(建快照)
+    r.mem[new_addr] = ["[Q] q", "[M] m"]          # 新實體的差分又是 m(其實是舊訊息)
+    assert r.read_new() == []                     # 已輸出過 → 裁掉,不重播
+    assert r._addr == new_addr                    # 但仍完成定錨
+    r.mem[new_addr] = ["[Q] q", "[M] m", "[N] n"]
+    assert r.read_new() == ["[N] n"]              # 之後的新訊息照常輸出
+
+
+def test_anchored_poll_repeats_not_affected_by_emitted_guard():
+    # 已定錨的正常輪詢不套用裁剪:真實的連續重複訊息要照實輸出
+    r = FakeLive()
+    r.mem = {DOC: ["[A] hi", "[A] hi"]}
+    r.read_new()
+    r.mem[DOC] = ["[A] hi"] * 3
+    assert r.read_new() == ["[A] hi"]             # 定錨
+    r.mem[DOC] = ["[A] hi"] * 4
+    assert r.read_new() == ["[A] hi"]             # 又一則相同訊息 → 照常輸出

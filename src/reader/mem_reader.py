@@ -226,6 +226,7 @@ _DOC_MARGIN = 256 * 1024     # 定錨輪詢時,文件長度之外多讀的餘量
 _MAX_DOC_READ = 8 * 1024 * 1024
 _UNANCHOR_FAILS = 2          # 連續對不齊幾輪視為文件已搬移/釋放 → 重新探索
 _IDLE_RECHECK_POLLS = 150    # 文件太久無變化(可能是殘影)→ 重新探索驗證(0.4s 輪 ≈ 60s)
+_EMITTED_KEEP = 50           # 記住最近已輸出的行數(換錨時做重疊裁剪防重播)
 
 
 def groups_in_blob(blob: bytes) -> list[tuple[int, int, list[str]]]:
@@ -294,6 +295,7 @@ class LiveChatReader:
         self._bytes = 0               # 文件位元組長度估計
         self._lines: list[str] = []   # 文件目前內容;未定錨時為最後已知尾行
         self._snapshot: dict[int, tuple[int, tuple[str, ...]]] | None = None
+        self._emitted: list[str] = []  # 最近已輸出的行(換錨時做重疊裁剪防重播)
         self._fails = 0
         self._idle = 0
 
@@ -334,9 +336,22 @@ class LiveChatReader:
         找不到遊戲丟 GameNotRunning。"""
         h = self._open()
         try:
-            return self._poll_doc(h) if self._addr else self._discover(h)
+            new_lines = self._poll_doc(h) if self._addr else self._discover(h)
         finally:
             self._close(h)
+        if new_lines:
+            self._emitted = (self._emitted + new_lines)[-_EMITTED_KEEP:]
+        return new_lines
+
+    def _trim_emitted_overlap(self, lines: list[str]) -> list[str]:
+        """換錨(探索/重定錨)時的保險:輸出開頭若與『最近已輸出的行』尾端重疊,裁掉重疊段。
+        活文件與同樣就地更新的渲染快取行集合略有差異,換錨對不上尾行時 fallback 可能
+        重播剛輸出過的行 —— 用已輸出串流裁剪掉。已定錨的正常輪詢是精確自我差分,
+        不套用(以免吃掉真實的連續重複訊息)。"""
+        for k in range(min(len(lines), len(self._emitted)), 0, -1):
+            if self._emitted[len(self._emitted) - k:] == lines[:k]:
+                return lines[k:]
+        return lines
 
     def _poll_doc(self, h) -> list[str]:
         best = None
@@ -393,5 +408,5 @@ class LiveChatReader:
         if known_tail:
             after = after_last_tail(self._lines, known_tail)
             if after is not None:
-                return after
-        return appended
+                return self._trim_emitted_overlap(after)
+        return self._trim_emitted_overlap(appended)
