@@ -3,5 +3,3 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
-scripts/last_capture.png
-scripts/last_capture_bw.png

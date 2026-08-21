@@ -5,11 +5,11 @@ from pathlib import Path
 
 DEFAULT_CONFIG: dict = {
     "api": {"base_url": "http://127.0.0.1:8000", "model": "", "api_key": ""},
-    "chat_region": None,
-    "poll_interval": 1.5,
+    "poll_interval": 1.0,
+    "startup_tail": 0,
     "fade_seconds": 180,
     "hotkey": "ctrl+space",
-    "overlay_position": {"x": None, "y": None},
+    "overlay": {"x": None, "y": None, "width": 460, "height": 300},
 }
 
 

@@ -42,6 +42,28 @@ def test_seen_set_is_bounded():
     assert d.new_lines(["line one hello"]) == ["line one hello"]
 
 
+def test_exact_unbounded_never_re_emits():
+    # 記憶體讀取模式:精確比對、不設上限 —— 看過的行永不重現(即使幾百行)
+    d = LineDeduper(max_seen=None, similarity=1.0)
+    lines = [f"[P] m{i}" for i in range(300)]
+    assert d.new_lines(lines) == lines
+    assert d.new_lines(lines) == []
+
+
+def test_exact_mode_is_exact_not_fuzzy():
+    d = LineDeduper(max_seen=None, similarity=1.0)
+    d.new_lines(["[P] hello world"])
+    # 精確模式:差一字元即視為不同(不像模糊模式會吸收)
+    assert d.new_lines(["[P] hello worla"]) == ["[P] hello worla"]
+
+
+def test_exact_forget_allows_retry():
+    d = LineDeduper(max_seen=None, similarity=1.0)
+    d.new_lines(["[P] a", "[P] b"])
+    d.forget(["[P] a"])
+    assert d.new_lines(["[P] a", "[P] b"]) == ["[P] a"]
+
+
 def test_forget_makes_line_new_again():
     d = LineDeduper()
     d.new_lines(["hello there"])

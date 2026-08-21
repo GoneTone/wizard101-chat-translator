@@ -4,9 +4,9 @@
     "model": "your-model-name",
     "api_key": ""
   },
-  "chat_region": null,
-  "poll_interval": 1.5,
+  "poll_interval": 1.0,
+  "startup_tail": 0,
   "fade_seconds": 180,
   "hotkey": "ctrl+space",
-  "overlay_position": {"x": null, "y": null}
+  "overlay": {"x": null, "y": null, "width": 460, "height": 300}
 }

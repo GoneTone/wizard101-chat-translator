@@ -23,6 +23,9 @@ def test_load_merges_partial_file_with_defaults(tmp_path: Path):
 def test_save_then_load_roundtrip(tmp_path: Path):
     p = tmp_path / "config.json"
     cfg = load_config(p)
-    cfg["chat_region"] = {"left": 10, "top": 20, "width": 300, "height": 150}
+    cfg["overlay_position"] = {"x": 100, "y": 200}
+    cfg["poll_interval"] = 6.5
     save_config(p, cfg)
-    assert load_config(p)["chat_region"] == {"left": 10, "top": 20, "width": 300, "height": 150}
+    reloaded = load_config(p)
+    assert reloaded["overlay_position"] == {"x": 100, "y": 200}
+    assert reloaded["poll_interval"] == 6.5

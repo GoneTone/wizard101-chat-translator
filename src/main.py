@@ -1,5 +1,4 @@
-"""進入點:reader 執行緒 + 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
-import argparse
+"""進入點:reader 執行緒(記憶體收訊)+ 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
 import queue
 import sys
 import threading
@@ -8,27 +7,19 @@ from pathlib import Path
 
 import httpx
 import keyboard
-import win32gui
 
 from src.composer.input_box import InputBox
 from src.composer.paste import paste_into_window, set_clipboard
 from src.config import load_config, save_config
-from src.reader.capture import grab_region
 from src.reader.dedup import LineDeduper
-from src.reader.ocr import recognize_lines
+from src.reader.mem_reader import GameNotRunning, read_chat_lines
 from src.reader.overlay import OverlayWindow
-from src.region_picker import pick_region
 from src.translator import Translator
 
 CONFIG_PATH = Path("config.json")
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
-GAME_WINDOW_TITLE = "Wizard101"
-
-
-def game_window_hidden() -> bool:
-    """遊戲視窗最小化時回傳 True(暫停截圖)。找不到視窗時不暫停,照常截圖。"""
-    hwnd = win32gui.FindWindow(None, GAME_WINDOW_TITLE)
-    return bool(hwnd) and bool(win32gui.IsIconic(hwnd))
+GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
+STARTUP_TAIL_DEFAULT = 0  # 啟動時翻譯幾句既有歷史聊天(預設 0:只翻啟動後的新訊息)
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -46,29 +37,60 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    deduper = LineDeduper()
+    # 記憶體讀取是精確的(不像 OCR 有雜訊),且每次全掃回傳當前全部聊天行,
+    # 故用「精確比對、不設上限」的去重:看過的行永不重現,不會因視窗淘汰而重譯。
+    deduper = LineDeduper(max_seen=None, similarity=1.0)
+    prev_scan: set[str] = set()  # 上一輪掃到的行,供穩定性過濾
     backoff_index = 0
+    game_missing = False
+    first_scan = True
     while not stop.is_set():
         interval = cfg["poll_interval"]
         translated_ok = False
         went_offline = False
+
         try:
-            if not game_window_hidden():
-                img = grab_region(cfg["chat_region"])
-                lines = deduper.new_lines(recognize_lines(img))
-                for idx, line in enumerate(lines):
-                    try:
-                        translated = translator.to_zh(line)
-                    except httpx.HTTPError:
-                        # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
-                        # 避免離線期間的訊息被 dedup 永久吃掉。
-                        deduper.forget(lines[idx:])
-                        went_offline = True
-                        break
-                    translated_ok = True
-                    ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
-        except Exception as exc:  # OCR/截圖偶發錯誤:略過該輪,不讓執行緒死掉
+            current = read_chat_lines()
+        except GameNotRunning:
+            if not game_missing:
+                game_missing = True
+                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序,等待中…"))
+            stop.wait(GAME_MISSING_INTERVAL)
+            continue
+        except Exception as exc:  # 掃描偶發錯誤:略過該輪,不讓執行緒死掉
             print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
+            stop.wait(interval)
+            continue
+
+        if game_missing:
+            game_missing = False
+            ui_queue.put(overlay.clear_error)
+
+        if first_scan:
+            # 啟動時記憶體裡已有整段歷史聊天,但掃描順序不等於時間順序,無法可靠挑出「最新 N 句」。
+            # 預設 startup_tail=0:把既有歷史全部標記為看過、不翻譯,只翻啟動後的新訊息。
+            first_scan = False
+            seen_all = deduper.new_lines(current)
+            tail = cfg.get("startup_tail", STARTUP_TAIL_DEFAULT)
+            lines = seen_all[-tail:] if tail > 0 else []
+        else:
+            # 穩定性過濾:只翻「這輪與上輪都出現」的行。記憶體裡有大量暫時性/破損的渲染副本
+            # 會忽有忽無,只出現一次就不翻;正式聊天記錄會穩定跨輪存在,第二輪掃到即翻。
+            stable = [line for line in current if line in prev_scan]
+            lines = deduper.new_lines(stable)
+        prev_scan = set(current)
+
+        for idx, line in enumerate(lines):
+            try:
+                translated = translator.to_zh(line)
+            except httpx.HTTPError:
+                # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
+                # 避免離線期間的訊息被 dedup 永久吃掉。
+                deduper.forget(lines[idx:])
+                went_offline = True
+                break
+            translated_ok = True
+            ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
 
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
@@ -83,19 +105,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Wiz101 聊天翻譯助手")
-    parser.add_argument("--pick-region", action="store_true", help="重新框選聊天框區域")
-    args = parser.parse_args()
-
     cfg = load_config(CONFIG_PATH)
-    if args.pick_region or not cfg["chat_region"]:
-        region = pick_region()
-        if region is None:
-            sys.exit("已取消框選,離開。")
-        cfg["chat_region"] = region
-        save_config(CONFIG_PATH, cfg)
-        print(f"聊天框區域已存檔:{region}")
-
     if not cfg["api"]["model"]:
         sys.exit("請編輯 config.json 填入 api.base_url 與 api.model(格式參考 config.example.json)。")
 
@@ -104,10 +114,18 @@ def main() -> None:
 
     root = tk.Tk()
     root.withdraw()
+
+    ov = cfg["overlay"]
+
+    def save_geometry(x: int, y: int, w: int, h: int) -> None:
+        cfg["overlay"] = {"x": x, "y": y, "width": w, "height": h}
+        save_config(CONFIG_PATH, cfg)
+
     overlay = OverlayWindow(
         root,
-        x=cfg["overlay_position"]["x"], y=cfg["overlay_position"]["y"],
+        x=ov["x"], y=ov["y"], width=ov["width"], height=ov["height"],
         fade_seconds=cfg["fade_seconds"],
+        on_geometry_change=save_geometry,
     )
 
     def on_translated(english: str, hwnd: int | None) -> None:
