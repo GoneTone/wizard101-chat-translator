@@ -8,8 +8,8 @@
 """
 import ctypes
 import ctypes.wintypes as wt
-import difflib
 import re
+from collections import Counter
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
 
@@ -212,6 +212,7 @@ _MAX_DOC_READ = 8 * 1024 * 1024
 _UNANCHOR_FAILS = 2          # 副本連續對不齊幾輪視為已搬移/釋放 → 淘汰該副本
 _MAX_ANCHORS = 8             # 同時追蹤的文件副本位址上限(每輪各輪詢一次,~10ms/個)
 _IDLE_RECHECK_POLLS = 75     # 錨點太久無變化(可能全是殘骸)→ 驗證掃描(0.4s 輪 ≈ 30s)
+_MAX_INSERT_CATCHUP = 8      # 插入式定錨/驗證單次補翻上限:超過視為快取跳躍(舊訊息),只重新同步
 _EMITTED_KEEP = 50           # 記住最近已輸出的行數(換錨時做重疊裁剪防重播)
 
 
@@ -255,25 +256,26 @@ def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | Non
 
 
 def inserted_lines(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """整份文件比對:回傳 cur 相對 prev 的『插入行』(依文件順序,批內去重)。
-    對應「插入式」聊天總文件 —— 依頻道分節、新訊息插在所屬節的中段、尾端不動,
-    尾端附加對齊(align_append)對它永遠失敗。相似度不足(不是同一份文件的演進)
-    回傳 None;只有刪除/修剪回傳 []。
-    批內去重:同一則訊息可能同時插入多個節(重複副本),同批相同行只取一次;
-    真實的重複訊息因分屬不同輪差分,仍會分次輸出。"""
+    """插入式文件差分(多重集合):回傳 cur 比 prev『多出現』的行,照 cur 位置順序、
+    每種行最多一次。對應依頻道分節的聊天總文件 —— 新訊息插中段、尾端不動。
+    用出現次數而非逐位置比對:分節文件重繪常把整段搬動/重排,位置式差分會把
+    搬家的舊行誤判成新增(冒舊訊息);行數量不變的移動在這裡天然不算新訊息。
+    批內去重:同一則訊息可能同時插入多個節,同批相同行只取一次;真實重複訊息
+    分屬不同輪差分,仍會分次輸出。相似度不足回傳 None;無新增回傳 []。"""
     if not prev_lines or not cur_lines:
         return None
-    sm = difflib.SequenceMatcher(None, prev_lines, cur_lines, autojunk=False)
-    if sm.quick_ratio() < 0.6 or sm.ratio() < 0.6:
+    prev_counts = Counter(prev_lines)
+    shared = sum((prev_counts & Counter(cur_lines)).values())
+    if shared < 0.6 * max(len(prev_lines), len(cur_lines)):
         return None
     out: list[str] = []
-    seen: set[str] = set()
-    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
-        if tag in ("insert", "replace"):
-            for ln in cur_lines[j1:j2]:
-                if ln not in seen:
-                    seen.add(ln)
-                    out.append(ln)
+    emitted: set[str] = set()
+    seen: Counter = Counter()
+    for ln in cur_lines:
+        seen[ln] += 1
+        if seen[ln] > prev_counts[ln] and ln not in emitted:
+            emitted.add(ln)
+            out.append(ln)
     return out
 
 
@@ -415,17 +417,22 @@ class LiveChatReader:
         best = None
         current: list[tuple[int, int]] = []
         for addr, nbytes, lines in groups:
-            appended = doc_diff(self._lines, lines)
+            appended = align_append(self._lines, lines)
+            is_append = appended is not None
+            if appended is None:
+                appended = inserted_lines(self._lines, lines)
             if appended is None:
                 continue
             if appended:
-                if best is None or len(lines) > len(best[2]):
-                    best = (addr, nbytes, lines, appended)
+                if best is None or (is_append, len(lines)) > (best[4], len(best[2])):
+                    best = (addr, nbytes, lines, appended, is_append)
             else:
                 current.append((addr, nbytes))
         if best is not None:  # 有文件比我們新 → 錨點是殘骸,搬過去並補翻
             self._anchor_to(best[0], best[1], best[2],
                             [a for a, _, ls in groups if ls == best[2]])
+            if not best[4] and len(best[3]) > _MAX_INSERT_CATCHUP:
+                return []  # 插入式補翻超量 = 快取跳躍,只重新同步
             return self._trim_emitted_overlap(best[3])
         if current:  # 內容仍是最新:刷新副本位址(重新抓齊雙胞胎)
             self._addrs = {a: 0 for a, _ in current[:_MAX_ANCHORS]}
@@ -473,7 +480,8 @@ class LiveChatReader:
             is_append = appended is not None
             if appended is None:
                 appended = inserted_lines(list(old[1]), list(lines))  # 插入式文件
-            if appended and (best is None or len(lines) > len(best[2])):
+            if appended and (best is None
+                             or (is_append, len(lines)) > (best[5], len(best[2]))):
                 best = (addr, nbytes, list(lines), appended, list(old[1]), is_append)
         if best is not None:
             known_tail = self._lines
@@ -489,6 +497,10 @@ class LiveChatReader:
                 # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
                 # 搬移的舊文件基準必然很長,不會走到這裡。
                 return self._trim_emitted_overlap(baseline + appended)
+            if not is_append and len(appended) > _MAX_INSERT_CATCHUP:
+                # 插入式候選一次冒出太多行 = 停滯快取被改寫成現況(內容是舊訊息),
+                # 只定錨重新同步,不把累積的舊行當新訊息輸出。
+                return []
             return self._trim_emitted_overlap(appended)
         return self._novel_lines(snap)
 

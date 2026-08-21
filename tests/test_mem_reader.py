@@ -433,3 +433,42 @@ def test_insert_mode_doc_anchors_and_streams():
     cur = r.mem[DOC]
     r.mem[DOC] = cur[:3] + ["[你] zxqv123"] + cur[3:]  # 定錨後又一則中段插入
     assert r.read_new() == ["[你] zxqv123"]            # 輪詢用整份差分即時翻
+
+
+def test_inserted_lines_reflow_or_move_not_new():
+    from src.reader.mem_reader import inserted_lines
+    # 分節文件重繪:整段搬動/重排,行數量不變 → 不是新訊息(冒舊訊息回歸測試)
+    old = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
+    moved = ["[C] c", "[D] d", "[E] e", "[A] a", "[B] b"]
+    assert inserted_lines(old, moved) == []
+
+
+def test_insert_anchor_catchup_capped():
+    # 停滯快取被改寫成現況:一次冒出大量「新增」= 累積的舊訊息 → 只定錨不輸出
+    import src.reader.mem_reader as mr
+    r = FakeLive()
+    base = [f"[A] old{i}" for i in range(20)]
+    r.mem = {DOC: list(base)}
+    r.read_new()
+    jumped = base + [f"[B] later{i}" for i in range(mr._MAX_INSERT_CATCHUP + 3)]
+    jumped = jumped[:3] + jumped[20:] + jumped[3:20]  # 打亂使其走插入式路徑
+    r.mem[DOC] = jumped
+    assert r.read_new() == []          # 超過上限 → 不把舊訊息倒出來
+    assert DOC in r._addrs             # 但已定錨重新同步
+    cur = r.mem[DOC]
+    r.mem[DOC] = cur[:5] + ["[你] new"] + cur[5:]
+    assert r.read_new() == ["[你] new"]  # 之後正常
+
+
+def test_discovery_prefers_append_doc_over_insert_doc():
+    # 兩種文件同時成長時,優先錨定「附加式」(精確、支援重複)
+    r = FakeLive()
+    append_doc, insert_doc = 0x3000, 0x4000
+    a = ["[A] a", "[B] b", "[C] c"]
+    big = [f"[H] h{i}" for i in range(10)]
+    r.mem = {append_doc: list(a), insert_doc: list(big)}
+    r.read_new()
+    r.mem[append_doc] = a + ["[M] m"]
+    r.mem[insert_doc] = big[:5] + ["[M] m"] + big[5:]
+    assert r.read_new() == ["[M] m"]
+    assert append_doc in r._addrs and insert_doc not in r._addrs
