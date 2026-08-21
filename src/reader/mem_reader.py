@@ -259,14 +259,31 @@ def _read(h, addr: int, n: int) -> bytes:
     return b""
 
 
-def most_common_window(groups: list[tuple[int, ...]]) -> list[str]:
-    """從各小群的『有序聊天行 tuple』中,回傳出現最多份的那個(= 當前可視視窗)。
-    可視聊天在記憶體被渲染成很多份相同副本;最常見的小群內容即遊戲當前顯示的內容。"""
+def collapse_repeated_copies(win: tuple) -> tuple:
+    """相鄰的視窗副本偶爾被分群合併成一群,內容變成整個視窗連續重複 2、3 次。
+    找最小週期 p(>=2)摺回單份。整窗同一句(週期 1)不摺 —— 那可能是真實洗版。"""
+    n = len(win)
+    if n and win == win[:1] * n:
+        return win
+    for p in range(2, n // 2 + 1):
+        if n % p == 0 and win == win[:p] * (n // p):
+            return win[:p]
+    return win
+
+
+def ranked_windows(groups: list[tuple[str, ...]]) -> list[list[str]]:
+    """把各小群的『有序聊天行 tuple』依出現份數排序,回傳候選視窗清單(最多份在前)。
+    記憶體裡混著即時副本與過期快照,份數多不保證即時 —— 由呼叫端用
+    『與上一輪視窗的滾動連續性』挑正確的那個。"""
     from collections import Counter
-    counts: Counter = Counter(g for g in groups if g)
-    if not counts:
-        return []
-    return list(counts.most_common(1)[0][0])
+    counts: Counter = Counter(collapse_repeated_copies(g) for g in groups if g)
+    return [list(w) for w, _ in counts.most_common()]
+
+
+def most_common_window(groups: list[tuple[str, ...]]) -> list[str]:
+    """出現最多份的小群內容(候選第一名);僅在沒有上一輪視窗可對齊時當起始錨點。"""
+    ranked = ranked_windows(groups)
+    return ranked[0] if ranked else []
 
 
 def windows_in_blob(blob: bytes) -> list[tuple[int, tuple[str, ...]]]:
@@ -318,36 +335,36 @@ class VisibleReader:
         return h
 
     def _full(self, h):
-        """完整全掃(慢):回傳 (視窗, 視窗副本的絕對位址清單)。"""
+        """完整全掃(慢):回傳 (候選視窗清單, 視窗副本的絕對位址清單)。"""
         windows: list[tuple[str, ...]] = []
         addrs: list[int] = []
         for base, blob in _iter_regions(h):
             for off, win in windows_in_blob(blob):
                 windows.append(win)
                 addrs.append(base + off)
-        return most_common_window(windows), addrs[:80]
+        return ranked_windows(windows), addrs[:80]
 
     def _fast(self, h):
-        """只讀快取位址附近的小塊(很快),回傳當前視窗。"""
+        """只讀快取位址附近的小塊(很快),回傳候選視窗清單。"""
         windows: list[tuple[str, ...]] = []
         for addr in self._addrs:
             for _off, win in windows_in_blob(_read(h, addr, _CHUNK)):
                 windows.append(win)
-        return most_common_window(windows)
+        return ranked_windows(windows)
 
-    def read(self) -> list[str]:
+    def read(self) -> list[list[str]]:
         h = self._open()
         try:
             if self._addrs and self._since_full < _FULL_EVERY:
-                win = self._fast(h)
+                cands = self._fast(h)
                 self._since_full += 1
-                if win:
-                    return win  # 快掃成功 → 用它,不全掃
-            win, addrs = self._full(h)  # 首次 / 快掃讀不到 / 到安全網 → 全掃重新定位
+                if cands:
+                    return cands  # 快掃成功 → 用它,不全掃
+            cands, addrs = self._full(h)  # 首次 / 快掃讀不到 / 到安全網 → 全掃重新定位
             if addrs:
                 self._addrs = addrs
             self._since_full = 0
-            return win
+            return cands
         finally:
             _k32.CloseHandle(h)
 
@@ -355,9 +372,10 @@ class VisibleReader:
 _visible_reader: VisibleReader | None = None
 
 
-def read_visible_chat(process_name: str = PROCESS_NAME) -> list[str]:
-    """讀取遊戲聊天室的『可視視窗』(最近數則、依時間順序,含重複)。
-    以模組單例維持區域快取(平時快掃、定期全掃)。找不到遊戲丟 GameNotRunning。"""
+def read_visible_windows(process_name: str = PROCESS_NAME) -> list[list[str]]:
+    """讀取遊戲聊天可視視窗的『候選清單』(依副本份數排序,各含重複、依時間順序)。
+    候選裡混著即時副本與過期快照;呼叫端以滾動連續性挑正確的。
+    以模組單例維持位址快取(平時快掃、必要時全掃)。找不到遊戲丟 GameNotRunning。"""
     global _visible_reader
     if _visible_reader is None or _visible_reader.process_name != process_name:
         _visible_reader = VisibleReader(process_name)

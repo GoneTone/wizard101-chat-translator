@@ -1,12 +1,12 @@
-"""reader_loop 行為:讀可視聊天視窗 → 結尾新增偵測(含重複、依序)→ 翻譯 → overlay。
-啟動只記錄視窗、不翻;離線時失敗那行下輪重試;找不到遊戲顯示橫幅。"""
+"""reader_loop 行為:讀可視視窗候選 → 連續性選擇 → 結尾新增偵測(含重複、依序)→ 翻譯 → overlay。
+啟動只定錨、不翻;過期快照對不齊被排除、不冒舊訊息;離線時失敗那行下輪重試;找不到遊戲顯示橫幅。"""
 import queue
 import threading
 
 import httpx
 
 import src.main as main_module
-from src.main import appended_lines, reader_loop
+from src.main import appended_lines, choose_window, reader_loop
 from src.reader.mem_reader import GameNotRunning
 
 
@@ -27,19 +27,23 @@ class FakeOverlay:
 
 
 def run_scripted(cfg, translator, overlay, reads, monkeypatch):
-    """每輪 read_visible_chat 依序回傳 reads[i](各為一個視窗行清單);跑完停止。"""
+    """每輪 read_visible_windows 依序回傳 reads[i]。
+    reads[i] 為單一視窗(list[str],自動包成一個候選)或候選清單(list[list[str]])。"""
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     count = {"n": 0}
 
-    def fake_win(process_name="WizardGraphicalClient.exe"):
+    def fake_windows(process_name="WizardGraphicalClient.exe"):
         i = count["n"]
         count["n"] += 1
         if count["n"] >= len(reads):
             stop.set()
-        return list(reads[i])
+        r = reads[i]
+        if not r:
+            return []
+        return [list(w) for w in r] if isinstance(r[0], list) else [list(r)]
 
-    monkeypatch.setattr(main_module, "read_visible_chat", fake_win)
+    monkeypatch.setattr(main_module, "read_visible_windows", fake_windows)
     reader_loop(cfg, translator, overlay, ui_queue, stop)
     _drain(ui_queue)
 
@@ -73,6 +77,27 @@ def test_appended_no_overlap_returns_empty():
 
 def test_appended_empty_prev_returns_empty():
     assert appended_lines([], ["a", "b"]) == []
+
+
+# --- choose_window 連續性選擇 ---
+def test_choose_window_skips_stale_snapshot():
+    # 候選第一名是過期快照(缺最新訊息、對不齊)→ 應改選對齊的即時副本
+    prev = ["a", "b", "m"]
+    stale = ["x", "a", "b"]          # 舊內容,對不齊
+    live = ["b", "m", "n"]           # 滾動連續,新增 n
+    assert choose_window(prev, [stale, live]) == (live, ["n"])
+
+
+def test_choose_window_prefers_most_advanced_aligned():
+    # 多個對齊者(有的還沒更新到最新)→ 取新增最多的那個
+    prev = ["a", "b"]
+    behind = ["a", "b"]              # 尚未更新
+    ahead = ["a", "b", "c", "d"]     # 已含最新
+    assert choose_window(prev, [behind, ahead]) == (ahead, ["c", "d"])
+
+
+def test_choose_window_none_when_all_misaligned():
+    assert choose_window(["a", "b"], [["x", "y"], ["z", "w"]]) is None
 
 
 # --- reader_loop ---
@@ -110,6 +135,36 @@ def test_repeated_message_is_translated_again(monkeypatch):
     reads = [["[A] hi"], ["[A] hi", "[A] hi"], ["[A] hi", "[A] hi", "[A] hi"]]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == ["[A] hi", "[A] hi"]  # 第二、三次的重複都翻
+
+
+def test_stale_flip_does_not_reemit_or_pollute_anchor(monkeypatch):
+    # 症狀回歸:某輪候選第一名是過期快照 → 不能翻舊訊息,錨點也不能被拉回過去
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    reads = [
+        [["a", "b", "m"]],                       # 定錨
+        [["x", "a", "b"], ["b", "m", "n"]],      # 過期快照排第一 → 仍應選即時副本,翻 n
+        [["a", "b"]],                            # 這輪只掃到過期快照 → 對不齊,不翻(不冒 a/b)
+        [["m", "n", "o"]],                       # 回到即時 → 只翻 o(不重翻 m/n)
+    ]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["n", "o"]
+
+
+def test_reanchor_after_persistent_misalignment(monkeypatch):
+    # 連續 REANCHOR_AFTER 輪全對不齊 → 重新定錨(不翻),之後恢復正常偵測
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    reads = [
+        [["a", "b"]],            # 定錨
+        [["p", "q"]],            # 對不齊 1(不翻)
+        [["p", "q"]],            # 對不齊 2 → 重新定錨到 p,q(不翻)
+        [["p", "q", "r"]],       # 對齊 → 翻 r
+    ]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["r"]
 
 
 class OneBadTranslator:
@@ -170,13 +225,13 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     stop = threading.Event()
     count = {"n": 0}
 
-    def fake_win(process_name="WizardGraphicalClient.exe"):
+    def fake_windows(process_name="WizardGraphicalClient.exe"):
         count["n"] += 1
         if count["n"] >= 2:
             stop.set()
         raise GameNotRunning("no game")
 
-    monkeypatch.setattr(main_module, "read_visible_chat", fake_win)
+    monkeypatch.setattr(main_module, "read_visible_windows", fake_windows)
     reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
     _drain(ui_queue)
     assert ov.errors == ["⚠ 找不到遊戲程序,等待中…"]

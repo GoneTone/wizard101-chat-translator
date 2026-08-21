@@ -140,6 +140,27 @@ def test_most_common_window_empty():
     assert most_common_window([]) == []
 
 
+def test_ranked_windows_orders_by_count():
+    from src.reader.mem_reader import ranked_windows
+    groups = [("a", "b"), ("a", "b", "c"), ("a", "b", "c"), ("x", "y")]
+    assert ranked_windows(groups)[0] == ["a", "b", "c"]
+    assert len(ranked_windows(groups)) == 3
+
+
+def test_collapse_repeated_copies_folds_doubled_window():
+    from src.reader.mem_reader import collapse_repeated_copies
+    # 兩份視窗副本被合併成一群 → 摺回單份
+    assert collapse_repeated_copies(("a", "b", "m", "a", "b", "m")) == ("a", "b", "m")
+    assert collapse_repeated_copies(("a", "b", "a", "b", "a", "b")) == ("a", "b")
+
+
+def test_collapse_repeated_copies_keeps_real_spam():
+    from src.reader.mem_reader import collapse_repeated_copies
+    # 整窗同一句(週期 1)= 可能是真實洗版,不摺
+    assert collapse_repeated_copies(("hi", "hi", "hi", "hi")) == ("hi", "hi", "hi", "hi")
+    assert collapse_repeated_copies(("a", "b", "c")) == ("a", "b", "c")
+
+
 def test_extract_lines_no_dedup_keeps_repeats():
     a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
     blob = u16(a + a)
