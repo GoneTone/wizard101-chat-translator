@@ -208,8 +208,9 @@ _MIN_GROUP_MARKERS = 1       # 單行群也納入 —— 空聊天室只有一�
 _NEW_DOC_BASELINE = 2        # 定錨時基準 ≤ 這個行數視為全新文件,連基準行一起補翻
 _DOC_MARGIN = 256 * 1024     # 定錨輪詢時,文件長度之外多讀的餘量(容納成長與頭部修剪)
 _MAX_DOC_READ = 8 * 1024 * 1024
-_UNANCHOR_FAILS = 2          # 連續對不齊幾輪視為文件已搬移/釋放 → 重新探索
-_IDLE_RECHECK_POLLS = 150    # 文件太久無變化(可能是殘影)→ 重新探索驗證(0.4s 輪 ≈ 60s)
+_UNANCHOR_FAILS = 2          # 副本連續對不齊幾輪視為已搬移/釋放 → 淘汰該副本
+_MAX_ANCHORS = 8             # 同時追蹤的文件副本位址上限(每輪各輪詢一次,~10ms/個)
+_IDLE_RECHECK_POLLS = 75     # 錨點太久無變化(可能全是殘骸)→ 驗證掃描(0.4s 輪 ≈ 30s)
 _EMITTED_KEEP = 50           # 記住最近已輸出的行數(換錨時做重疊裁剪防重播)
 
 
@@ -270,18 +271,19 @@ class LiveChatReader:
 
     未定錨:每次呼叫做一次全掃並與上一次全掃比對 —— 同位址、內容以附加方式成長的
     群 = 活文件;取最長者定錨,以已知尾行對齊補翻空窗期訊息。
-    已定錨:每輪只讀文件位址附近(便宜、近即時),對文件自身做尾端差分。
-    文件搬移/釋放(連續對不齊)或長期無變化(可能為殘影)→ 解除定錨重新探索。"""
+    已定錨:同時追蹤文件的「所有同步副本」位址,每輪逐一輕量輪詢(各 ~10ms)取最新
+    對齊結果 —— 單一副本被搬移/釋放成殭屍時,其他活副本無縫接手,不會卡在殘骸上。
+    全部副本都對不齊 → 解除定錨重新探索;錨點長期無變化 → 驗證掃描:找到延伸我們
+    內容的文件就當場重定錨並補翻(單次掃描完成,不必等下一次成長)。"""
 
     def __init__(self, process_name: str = PROCESS_NAME):
         self.process_name = process_name
-        self._addr = 0                # 0 = 未定錨
+        self._addrs: dict[int, int] = {}  # 錨點副本位址 → 連續對不齊次數;空 = 未定錨
         self._bytes = 0               # 文件位元組長度估計
         self._lines: list[str] = []   # 文件目前內容;未定錨時為最後已知尾行
         self._snapshot: dict[int, tuple[int, tuple[str, ...]]] | None = None
         self._seen_texts: set[str] | None = None  # 探索期已見過的行文字(新穎性比對)
         self._emitted: list[str] = []  # 最近已輸出的行(換錨時做重疊裁剪防重播)
-        self._fails = 0
         self._idle = 0
 
     # --- 可在測試中覆寫的接縫 ---
@@ -303,25 +305,25 @@ class LiveChatReader:
             for start, end, lines in groups_in_blob(blob):
                 yield base + start, end - start, tuple(lines)
 
-    def _poll_groups(self, h):
-        """讀錨點附近:回傳 [(絕對位址, 位元組長, 行list), ...]。"""
+    def _poll_groups(self, h, addr: int):
+        """讀某個錨點副本附近:回傳 [(絕對位址, 位元組長, 行list), ...]。"""
         need = min(self._bytes + _DOC_MARGIN, _MAX_DOC_READ)
-        blob = _read_clamped(h, self._addr, need)
-        return [(self._addr + start, end - start, lines)
+        blob = _read_clamped(h, addr, need)
+        return [(addr + start, end - start, lines)
                 for start, end, lines in groups_in_blob(blob)]
 
     # --- 主流程 ---
     @property
     def anchored(self) -> bool:
         """是否已定錨活聊天文件(未定錨時每輪為全掃探索,較慢)。"""
-        return self._addr != 0
+        return bool(self._addrs)
 
     def read_new(self) -> list[str]:
         """回傳自上次呼叫後新增的聊天行(依序、含重複);無新訊息回傳 []。
         找不到遊戲丟 GameNotRunning。"""
         h = self._open()
         try:
-            new_lines = self._poll_doc(h) if self._addr else self._discover(h)
+            new_lines = self._poll_doc(h) if self._addrs else self._discover(h)
         finally:
             self._close(h)
         if new_lines:
@@ -340,30 +342,80 @@ class LiveChatReader:
 
     def _poll_doc(self, h) -> list[str]:
         best = None
-        for addr, nbytes, lines in self._poll_groups(h):
-            appended = align_append(self._lines, lines)
-            if appended is not None and (best is None or len(lines) > len(best[2])):
-                best = (addr, nbytes, lines, appended)
+        for addr in list(self._addrs):
+            aligned = None
+            for a2, nbytes, lines in self._poll_groups(h, addr):
+                appended = align_append(self._lines, lines)
+                if appended is not None and (aligned is None or len(lines) > len(aligned[2])):
+                    aligned = (a2, nbytes, lines, appended)
+            if aligned is None:
+                # 此副本已被搬移/覆寫成殭屍:計次,連續兩輪就淘汰(其他副本照常供訊息)
+                self._addrs[addr] = self._addrs[addr] + 1
+                if self._addrs[addr] >= _UNANCHOR_FAILS:
+                    del self._addrs[addr]
+                continue
+            if aligned[0] != addr:  # 群起點因頭部修剪前移:更新位址鍵
+                del self._addrs[addr]
+            self._addrs[aligned[0]] = 0
+            if best is None or len(aligned[2]) > len(best[2]):
+                best = aligned
         if best is None:
-            self._fails += 1
-            if self._fails >= _UNANCHOR_FAILS:
+            if not self._addrs:
                 self._unanchor()
             return []
-        self._addr, self._bytes, self._lines, appended = best
-        self._fails = 0
+        _, self._bytes, self._lines, appended = best
         if appended:
             self._idle = 0
         else:
             self._idle += 1
             if self._idle >= _IDLE_RECHECK_POLLS:
-                self._unanchor()  # 可能是已死文件的殘影;重探索驗證(尾行保留,不漏不重)
+                self._idle = 0
+                return self._verify_anchor(h)  # 錨點太久沒動靜:驗證是否已成殘骸
         return appended
+
+    def _verify_anchor(self, h) -> list[str]:
+        """驗證掃描(單次全掃):錨點長期無變化時,確認世界上是否有「延伸我們內容」的
+        文件 —— 有就當場重定錨並補翻(錨點是殘骸、真文件已搬走的情況);內容仍是最新
+        就重新蒐集同步副本位址;完全對不上才解錨重探索。"""
+        groups = [(addr, nbytes, list(lines))
+                  for addr, nbytes, lines in self._scan_groups(h) if lines]
+        best = None
+        current: list[tuple[int, int]] = []
+        for addr, nbytes, lines in groups:
+            appended = align_append(self._lines, lines)
+            if appended is None:
+                continue
+            if appended:
+                if best is None or len(lines) > len(best[2]):
+                    best = (addr, nbytes, lines, appended)
+            else:
+                current.append((addr, nbytes))
+        if best is not None:  # 有文件比我們新 → 錨點是殘骸,搬過去並補翻
+            self._anchor_to(best[0], best[1], best[2],
+                            [a for a, _, ls in groups if ls == best[2]])
+            return self._trim_emitted_overlap(best[3])
+        if current:  # 內容仍是最新:刷新副本位址(重新抓齊雙胞胎)
+            self._addrs = {a: 0 for a, _ in current[:_MAX_ANCHORS]}
+            self._bytes = max(n for _, n in current)
+            return []
+        self._unanchor()
+        return []
+
+    def _anchor_to(self, addr: int, nbytes: int, lines: list[str],
+                   twin_addrs: list[int]) -> None:
+        self._addrs = {addr: 0}
+        for a in twin_addrs[:_MAX_ANCHORS]:
+            self._addrs[a] = 0
+        self._bytes = nbytes
+        self._lines = lines
+        self._snapshot = None
+        self._seen_texts = None
+        self._idle = 0
 
     def _unanchor(self) -> None:
         self._lines = self._lines[-8:]  # 保留尾行,重定錨時對齊用
-        self._addr = 0
+        self._addrs = {}
         self._bytes = 0
-        self._fails = 0
         self._idle = 0
         self._snapshot = None
         self._seen_texts = None
@@ -389,11 +441,9 @@ class LiveChatReader:
                 best = (addr, nbytes, list(lines), appended, list(old[1]))
         if best is not None:
             known_tail = self._lines
-            self._addr, self._bytes, self._lines, appended, baseline = best
-            self._snapshot = None
-            self._seen_texts = None
-            self._fails = 0
-            self._idle = 0
+            addr, nbytes, lines, appended, baseline = best
+            self._anchor_to(addr, nbytes, lines,
+                            [a for a, (_, ls) in snap.items() if list(ls) == lines])
             if known_tail:
                 after = after_last_tail(self._lines, known_tail)
                 if after is not None:
