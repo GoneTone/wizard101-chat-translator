@@ -12,7 +12,7 @@ from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import load_config, save_config
 from src.reader.dedup import LineDeduper
-from src.reader.mem_reader import GameNotRunning, read_ordered_tail
+from src.reader.mem_reader import GameNotRunning, last_absorbed, read_chat_lines
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
@@ -35,34 +35,22 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             print(f"[ui] 回呼失敗：{exc}", file=sys.stderr)
 
 
-def appended_lines(prev_tail: list[str], cur_tail: list[str]) -> list[str] | None:
-    """本輪尾段中、上輪尾段最後一行(錨點)之後的行 = 新增訊息。
-    錨點找不到(捲太快/剛啟動)回傳 None,由呼叫端改用備援(沒看過的行)。"""
-    if not prev_tail:
-        return None
-    anchor = prev_tail[-1]
-    for i in range(len(cur_tail) - 1, -1, -1):
-        if cur_tail[i] == anchor:
-            return cur_tail[i + 1:]
-    return None
-
-
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    # 讀「最完整聊天文件」的有序尾段;新訊息接在結尾。以「結尾新增偵測」判斷新訊息:
-    # 上輪尾段的最後一行為錨點,本輪尾段中該錨點之後的行即為新訊息(依序、不冒舊訊息)。
-    # deduper(精確、不設上限)為備援:錨點捲出視窗時改用「沒看過的行」。
+    # 記憶體讀取是精確的(不像 OCR 有雜訊),且每次全掃回傳當前全部聊天行,
+    # 故用「精確比對、不設上限」的去重:看過的行永不重現,不會因視窗淘汰而重譯。
     deduper = LineDeduper(max_seen=None, similarity=1.0)
-    last_tail: list[str] | None = None
+    prev_scan: set[str] = set()  # 上一輪掃到的行,供穩定性過濾
     backoff_index = 0
     game_missing = False
+    first_scan = True
     while not stop.is_set():
         interval = cfg["poll_interval"]
         translated_ok = False
         went_offline = False
 
         try:
-            current = read_ordered_tail()
+            current = read_chat_lines()
         except GameNotRunning:
             if not game_missing:
                 game_missing = True
@@ -78,30 +66,35 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             game_missing = False
             ui_queue.put(overlay.clear_error)
 
-        if last_tail is None:
-            # 啟動:既有歷史全標記看過;startup_tail>0 時翻「有序尾段的最後 N 句」(現在順序正確)。
-            deduper.new_lines(current)
+        # 全掃若發現「新變熱的記憶體區塊」,那是剛載入的既有歷史(非新訊息):標記看過、不翻,
+        # 避免舊訊息在沒人講話時被當成新的冒出來。
+        deduper.new_lines(last_absorbed())
+
+        if first_scan:
+            # 啟動時記憶體裡已有整段歷史聊天,但掃描順序不等於時間順序,無法可靠挑出「最新 N 句」。
+            # 預設 startup_tail=0:把既有歷史全部標記為看過、不翻譯,只翻啟動後的新訊息。
+            first_scan = False
+            seen_all = deduper.new_lines(current)
             tail = cfg.get("startup_tail", STARTUP_TAIL_DEFAULT)
-            lines = current[-tail:] if tail > 0 else []
+            lines = seen_all[-tail:] if tail > 0 else []
         else:
-            appended = appended_lines(last_tail, current)
-            candidates = appended if appended is not None else current
-            lines = deduper.new_lines(candidates)  # 過濾看過的 + 標記,備援去重
+            # 穩定性過濾:只翻「這輪與上輪都出現」的行。記憶體裡有大量暫時性/破損的渲染副本
+            # 會忽有忽無,只出現一次就不翻;正式聊天記錄會穩定跨輪存在,第二輪掃到即翻。
+            stable = [line for line in current if line in prev_scan]
+            lines = deduper.new_lines(stable)
+        prev_scan = set(current)
 
         for idx, line in enumerate(lines):
             try:
                 translated = translator.to_zh(line)
             except httpx.HTTPError:
-                # 這行與這批剩下未試的行放回「未見過」;last_tail 不前進,下輪重新偵測重試。
+                # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
+                # 避免離線期間的訊息被 dedup 永久吃掉。
                 deduper.forget(lines[idx:])
                 went_offline = True
                 break
             translated_ok = True
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
-
-        # 只有全部翻完(沒離線)才推進錨點;離線時保留舊錨點,讓失敗的行下輪重試。
-        if not went_offline:
-            last_tail = current
 
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
