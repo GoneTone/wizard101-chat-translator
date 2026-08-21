@@ -235,10 +235,68 @@ _default_reader: ChatReader | None = None
 
 
 def read_chat_lines(process_name: str = PROCESS_NAME) -> list[str]:
-    """便利函式:每輪都做完整全掃(回傳當前全部聊天行)。
-    逐輪比對需要每輪都是完整集合;熱區快取的子集掃描會讓行忽有忽無而狂重譯,故一律全掃。
-    最新訊息也可能落在新配置的小記憶體區塊,熱掃會漏讀,全掃才抓得到。"""
+    """便利函式:每輪都做完整全掃(回傳當前全部聊天行)。"""
     global _default_reader
     if _default_reader is None or _default_reader.process_name != process_name:
         _default_reader = ChatReader(process_name, full_scan_every=1)
     return _default_reader.read()
+
+
+# --- 可視聊天視窗(對應遊戲聊天室) ---
+_GROUP_GAP = 4000          # 同一份聊天文件內相鄰標記的最大位址間隔(bytes)
+_MIN_MARKERS = 2           # 可視視窗至少幾則
+_MAX_MARKERS = 120         # 上限:排除 900+ 行的凍結歷史大群(它們不含最新訊息)
+
+
+def _read(h, addr: int, n: int) -> bytes:
+    buf = (ctypes.c_char * n)()
+    got = _c_size_t(0)
+    if _k32.ReadProcessMemory(h, _c_void_p(addr), ctypes.cast(buf, _c_void_p),
+                              n, ctypes.byref(got)) and got.value:
+        return bytes(buf[:got.value])
+    return b""
+
+
+def most_common_window(groups: list[tuple[int, ...]]) -> list[str]:
+    """從各小群的『有序聊天行 tuple』中,回傳出現最多份的那個(= 當前可視視窗)。
+    可視聊天在記憶體被渲染成很多份相同副本;最常見的小群內容即遊戲當前顯示的內容。"""
+    from collections import Counter
+    counts: Counter = Counter(g for g in groups if g)
+    if not counts:
+        return []
+    return list(counts.most_common(1)[0][0])
+
+
+def read_visible_chat(process_name: str = PROCESS_NAME) -> list[str]:
+    """讀取遊戲聊天室的『可視視窗』(最近數則、依時間順序,含重複)。
+    找不到遊戲丟 GameNotRunning;找不到聊天回傳 []。"""
+    pid = _find_pid(process_name)
+    if not pid:
+        raise GameNotRunning(f"找不到 {process_name}")
+    h = _k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
+    if not h:
+        raise GameNotRunning(f"無法開啟 {process_name}(可能需要系統管理員權限)")
+    try:
+        marks: list[int] = []
+        for base, blob in _iter_regions(h):
+            k = blob.find(MARKER)
+            while k >= 0:
+                marks.append(base + k)
+                k = blob.find(MARKER, k + 1)
+        marks.sort()
+
+        windows: list[tuple[str, ...]] = []
+        group: list[int] = []
+        for a in marks:
+            if group and a - group[-1] > _GROUP_GAP:
+                if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:  # 只抽小群,略過凍結大群(快)
+                    windows.append(tuple(extract_lines(
+                        _read(h, group[0], group[-1] - group[0] + 2000))))
+                group = []
+            group.append(a)
+        if group and _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
+            windows.append(tuple(extract_lines(
+                _read(h, group[0], group[-1] - group[0] + 2000))))
+        return most_common_window(windows)
+    finally:
+        _k32.CloseHandle(h)

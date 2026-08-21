@@ -126,3 +126,15 @@ def test_empty_hot_regions_forces_full_scan():
     for _ in range(3):
         r.read()
     assert r.hot_calls == 0
+
+
+def test_most_common_window_picks_most_duplicated():
+    from src.reader.mem_reader import most_common_window
+    groups = [("a", "b"), ("a", "b", "c"), ("a", "b", "c"), ("a", "b", "c"), ("x",)]
+    # 出現最多份的小群內容 = 當前可視視窗
+    assert most_common_window(groups) == ["a", "b", "c"]
+
+
+def test_most_common_window_empty():
+    from src.reader.mem_reader import most_common_window
+    assert most_common_window([]) == []

@@ -11,7 +11,7 @@ import keyboard
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import load_config, save_config
-from src.reader.mem_reader import GameNotRunning, read_chat_lines
+from src.reader.mem_reader import GameNotRunning, read_visible_chat
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
@@ -33,20 +33,30 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             print(f"[ui] 回呼失敗：{exc}", file=sys.stderr)
 
 
+def appended_lines(prev_window: list[str], cur_window: list[str]) -> list[str]:
+    """可視視窗滾動後、結尾新增的行(對應遊戲聊天室新出現的訊息,含重複、依序)。
+    視窗會從前端捨棄舊行、後端接上新行;找最小 k 使『prev 去掉前 k 行』正好是 cur 的前綴
+    (對齊滾動),回傳 cur 尾端多出來的行。完全對不上(一次捲太多)時整個 cur 當作全新。"""
+    for k in range(len(prev_window) + 1):
+        overlap = prev_window[k:]
+        if cur_window[:len(overlap)] == overlap:
+            return cur_window[len(overlap):]
+    return list(cur_window)
+
+
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    # 逐輪比對:新訊息 = 「這輪掃到、上一輪沒有」的行。啟動當輪只記錄既有、不翻。
-    prev: set[str] = set()  # 上一輪掃到的行
+    # 讀「可視聊天視窗」(對應遊戲聊天室),翻它結尾新增的行 —— 含重複、依序、不去重。
+    prev_window: list[str] | None = None
     backoff_index = 0
     game_missing = False
-    first_scan = True
     while not stop.is_set():
         interval = cfg["poll_interval"]
         translated_ok = False
         went_offline = False
 
         try:
-            current = read_chat_lines()
+            window = read_visible_chat()
         except GameNotRunning:
             if not game_missing:
                 game_missing = True
@@ -62,30 +72,34 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             game_missing = False
             ui_queue.put(overlay.clear_error)
 
-        cur_set = set(current)
-        if first_scan:
-            first_scan = False
-            lines = []  # 啟動:只記錄既有,不翻
+        if prev_window is None:
+            lines = []  # 啟動:只記錄可視內容,不翻既有
         else:
-            lines = [line for line in current if line not in prev]  # 新出現的行
+            lines = appended_lines(prev_window, window)  # 結尾新增的行
 
-        untried: set[str] = set()
+        translated_count = 0
         for idx, line in enumerate(lines):
             try:
                 translated = translator.to_zh(line)
             except httpx.HTTPError:
-                # 伺服器離線:這行與這批剩下未試的行不併入 prev,下一輪重新嘗試。
-                untried = set(lines[idx:])
                 went_offline = True
                 break
             except Exception as exc:
                 # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,不讓 reader 執行緒死掉。
                 print(f"[translate] 略過此行({exc}):{line}", file=sys.stderr)
+                translated_count += 1
                 continue
             translated_ok = True
+            translated_count += 1
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
 
-        prev = cur_set - untried  # 未試的行排除在外,下一輪會再被視為新行
+        # 推進錨點(appended_lines 只看 prev_window[-1]):
+        # 正常→推進到本輪視窗;離線且有翻成功→錨點推進到最後一則成功的,失敗那行下輪重試;
+        # 離線且一則都沒成功→維持原錨點,整批下輪重試。
+        if not went_offline:
+            prev_window = window
+        elif translated_count > 0:
+            prev_window = [lines[translated_count - 1]]
 
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
