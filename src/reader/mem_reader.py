@@ -196,6 +196,8 @@ _MAX_DOC_READ = 8 * 1024 * 1024
 _UNANCHOR_FAILS = 2          # 連續對不齊幾輪視為文件已搬移/釋放 → 重新探索
 _IDLE_RECHECK_POLLS = 150    # 文件太久無變化(可能是殘影)→ 重新探索驗證(0.4s 輪 ≈ 60s)
 _EMITTED_KEEP = 50           # 記住最近已輸出的行數(換錨時做重疊裁剪防重播)
+_RELOCATE_TAIL = 8           # 重定位用的尾段指紋行數(對頭部修剪 robust)
+_MAX_CATCHUP = 60            # 單輪補翻上限;超過視為文件被替換/凍結歷史佔據,只同步不輸出(擋冒舊訊息)
 
 
 def groups_in_blob(blob: bytes) -> list[tuple[int, int, list[str]]]:
@@ -308,6 +310,10 @@ class LiveChatReader:
             new_lines = self._poll_doc(h) if self._addr else self._discover(h)
         finally:
             self._close(h)
+        if len(new_lines) > _MAX_CATCHUP:
+            # 一輪冒出幾百則 = 錨點被凍結歷史大文件/記憶體重用佔據,差分誤配。
+            # 狀態(錨點、尾行)已同步,只丟棄這批輸出,避免把一堆舊訊息當新訊息冒出來。
+            return []
         if new_lines:
             self._emitted = (self._emitted + new_lines)[-_EMITTED_KEEP:]
         return new_lines
@@ -329,9 +335,10 @@ class LiveChatReader:
             if appended is not None and (best is None or len(lines) > len(best[2])):
                 best = (addr, nbytes, lines, appended)
         if best is None:
+            # 錨點附近讀不到延續文件 = 文件已搬家。容忍偶發毛刺,連續數輪才重定位。
             self._fails += 1
             if self._fails >= _UNANCHOR_FAILS:
-                self._unanchor()
+                return self._relocate(h)   # 單輪全掃無縫換錨,取代慢速的解錨→兩輪探索
             return []
         self._addr, self._bytes, self._lines, appended = best
         self._fails = 0
@@ -340,8 +347,33 @@ class LiveChatReader:
         else:
             self._idle += 1
             if self._idle >= _IDLE_RECHECK_POLLS:
-                self._unanchor()  # 可能是已死文件的殘影;重探索驗證(尾行保留,不漏不重)
+                # 太久無變化:可能錨點已成殭屍、活文件搬到他處。單輪驗證換錨(不解錨、不卡)。
+                self._idle = 0
+                return self._relocate(h)
         return appended
+
+    def _relocate(self, h) -> list[str]:
+        """搬家/殭屍時的單輪重定位:全掃一次,以『尾段指紋』找延續目前文件的最長文件。
+        用最後幾行(after_last_tail)而非整份前綴(align_append)定位 —— 搬家時頭部常被修剪,
+        前綴會對不上,但尾段(最新幾行)不會被修剪,所以尾段之後就是新訊息,對搬家/修剪 robust。
+        含尾段且其後有新行 → 無縫換錨補新行;只有殭屍(其後無新行)則保持;
+        完全找不到含尾段的文件才真正解錨回首次探索。"""
+        tail = self._lines[-_RELOCATE_TAIL:]
+        if not tail:
+            self._unanchor()
+            return []
+        best = None
+        for addr, nbytes, lines in self._scan_groups(h):
+            after = after_last_tail(list(lines), tail)
+            if after is not None and (best is None or len(lines) > len(best[2])):
+                best = (addr, nbytes, list(lines), after)
+        if best is None:
+            self._unanchor()
+            return []
+        self._addr, self._bytes, self._lines, after = best
+        self._fails = 0
+        self._idle = 0
+        return self._trim_emitted_overlap(after)
 
     def _unanchor(self) -> None:
         self._lines = self._lines[-8:]  # 保留尾行,重定錨時對齊用

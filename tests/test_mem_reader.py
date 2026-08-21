@@ -205,24 +205,22 @@ def test_static_snapshots_never_emit():
     assert r.read_new() == []            # 快照靜止 → 永不定錨、永不輸出
 
 
-def test_doc_relocation_reanchors_without_loss_or_duplication():
+def test_doc_relocation_reanchors_single_scan_without_loss():
     r = FakeLive()
     r.mem = {DOC: ["[A] a", "[B] b"]}
     r.read_new()
     r.mem[DOC] = ["[A] a", "[B] b", "[C] c"]
     assert r.read_new() == ["[C] c"]     # 定錨
-    # 文件被搬到新位址(舊位址消失),且搬家期間又多了兩行
+    scans0 = r.scans
+    # 文件搬到新位址(舊位址消失),且搬家期間又多了兩行
     del r.mem[DOC]
     new_addr = 0x5000
     r.mem[new_addr] = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
-    assert r.read_new() == []            # 對不齊 1
-    assert r.read_new() == []            # 對不齊 2 → 解除定錨
-    assert r._addr == 0
-    assert r.read_new() == []            # 探索全掃 1(建快照)
-    r.mem[new_addr] = r.mem[new_addr] + ["[F] f"]  # 新位址繼續成長
-    got = r.read_new()                   # 探索全掃 2:定錨新位址,從已知尾行後補翻
-    assert got == ["[D] d", "[E] e", "[F] f"]
+    assert r.read_new() == []            # 對不齊 1(容忍偶發毛刺,不立即全掃)
+    got = r.read_new()                   # 對不齊 2 → 單輪全掃重定位,無縫換錨補新行
+    assert got == ["[D] d", "[E] e"]     # 一次就補上,不丟不重
     assert r._addr == new_addr
+    assert r.scans - scans0 == 1         # 只用一次全掃(不是解錨後的兩輪探索)
 
 
 def test_head_trim_scroll_absorbed():
@@ -304,3 +302,19 @@ def test_anchored_poll_repeats_not_affected_by_emitted_guard():
     assert r.read_new() == ["[A] hi"]             # 定錨
     r.mem[DOC] = ["[A] hi"] * 4
     assert r.read_new() == ["[A] hi"]             # 又一則相同訊息 → 照常輸出
+
+
+def test_catchup_cap_suppresses_giant_burst():
+    # 錨點被凍結歷史大文件/記憶體重用佔據 → 差分誤配冒出幾百則 → 應丟棄不冒舊訊息
+    import src.reader.mem_reader as _mr
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"]}
+    r.read_new()
+    r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d"]
+    assert r.read_new() == ["[D] d"]                 # 正常少量補翻照常
+    # 同位址突然被一大份不同文件佔據(仍以尾行對得齊,但補翻量爆量)
+    big = ["[A] a", "[B] b", "[C] c", "[D] d"] + [f"[X] old{i}" for i in range(_mr._MAX_CATCHUP + 20)]
+    r.mem[DOC] = big
+    assert r.read_new() == []                         # 超過上限 → 丟棄,不冒一堆舊訊息
+    r.mem[DOC] = big + ["[N] new"]
+    assert r.read_new() == ["[N] new"]                # 之後正常
