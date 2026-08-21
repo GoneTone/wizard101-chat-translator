@@ -3,6 +3,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from collections import deque
 from pathlib import Path
 
 import httpx
@@ -11,14 +12,13 @@ import keyboard
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import load_config, save_config
-from src.reader.mem_reader import GameNotRunning, read_visible_windows
+from src.reader.mem_reader import GameNotRunning, LiveChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
 CONFIG_PATH = Path("config.json")
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
-REANCHOR_AFTER = 2           # 連續幾輪所有候選都對不齊後,重新定錨(不翻)
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -34,43 +34,12 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             print(f"[ui] 回呼失敗：{exc}", file=sys.stderr)
 
 
-def align_append(prev_window: list[str], cur_window: list[str]) -> list[str] | None:
-    """視窗滾動對齊:找最短的『prev 去掉前 k 行(非空)』正好是 cur 的前綴,
-    回傳 cur 尾端多出來的行(= 新訊息,含重複、依序);對不齊回傳 None。
-    過期快照(缺最新訊息的舊內容)必然對不齊 → 呼叫端據此排除它,錨點不被污染。"""
-    if not prev_window:
-        return None
-    for k in range(len(prev_window)):  # 只接受非空重疊,避免「空重疊」誤判整窗皆新
-        overlap = prev_window[k:]
-        if cur_window[:len(overlap)] == overlap:
-            return cur_window[len(overlap):]
-    return None
-
-
-def appended_lines(prev_window: list[str], cur_window: list[str]) -> list[str]:
-    """可視視窗結尾新增的行;對不齊時回傳空(不整窗重譯)。"""
-    appended = align_append(prev_window, cur_window)
-    return [] if appended is None else appended
-
-
-def choose_window(prev_window: list[str],
-                  candidates: list[list[str]]) -> tuple[list[str], list[str]] | None:
-    """從候選視窗中挑「與上一輪滾動連續」的那個,回傳 (選中的視窗, 新增的行)。
-    過期快照對不齊會被排除;多個對齊者取新增最多的(= 最即時的副本)。
-    全部對不齊回傳 None(該輪不翻,由呼叫端決定何時重新定錨)。"""
-    best: tuple[list[str], list[str]] | None = None
-    for cand in candidates:
-        appended = align_append(prev_window, cand)
-        if appended is not None and (best is None or len(appended) > len(best[1])):
-            best = (cand, appended)
-    return best
-
-
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    # 讀「可視聊天視窗」候選,以滾動連續性挑正確副本,翻結尾新增的行 —— 含重複、依序、不去重。
-    prev_window: list[str] | None = None
-    misaligned_polls = 0
+    # 定錨遊戲的「活聊天文件」,每輪讀新增的行(依序、含重複)→ 翻譯 → overlay。
+    # 翻譯失敗/離線的行留在 pending,下輪從中斷處續翻,不漏不重。
+    reader = LiveChatReader()
+    pending: deque[str] = deque()
     backoff_index = 0
     game_missing = False
     while not stop.is_set():
@@ -79,7 +48,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         went_offline = False
 
         try:
-            candidates = read_visible_windows()
+            pending.extend(reader.read_new())
         except GameNotRunning:
             if not game_missing:
                 game_missing = True
@@ -95,48 +64,21 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             game_missing = False
             ui_queue.put(overlay.clear_error)
 
-        chosen: list[str] | None = None
-        lines: list[str] = []
-        if prev_window is None:
-            if candidates:
-                prev_window = candidates[0]  # 啟動:只定錨,不翻既有
-        else:
-            best = choose_window(prev_window, candidates)
-            if best is not None:
-                chosen, lines = best
-                misaligned_polls = 0
-            elif candidates:
-                # 沒有任何候選能與上一輪對齊(視窗劇烈變動/錨點失效):
-                # 該輪不翻;連續對不齊幾輪後重新定錨(仍不翻),避免卡死。
-                misaligned_polls += 1
-                if misaligned_polls >= REANCHOR_AFTER:
-                    prev_window = candidates[0]
-                    misaligned_polls = 0
-
-        translated_count = 0
-        for idx, line in enumerate(lines):
+        while pending:
+            line = pending[0]
             try:
                 translated = translator.to_zh(line)
             except httpx.HTTPError:
-                went_offline = True
+                went_offline = True  # line 留在 pending,下輪重試
                 break
             except Exception as exc:
                 # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,不讓 reader 執行緒死掉。
                 print(f"[translate] 略過此行({exc}):{line}", file=sys.stderr)
-                translated_count += 1
+                pending.popleft()
                 continue
             translated_ok = True
-            translated_count += 1
+            pending.popleft()
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
-
-        # 推進錨點:只在選到「連續」的視窗時推進 —— 過期快照永遠推不動錨點。
-        # 離線且有翻成功→錨點縮到最後一則成功的行,失敗那行下輪重試;
-        # 離線且一則都沒成功→維持原錨點,整批下輪重試。
-        if not went_offline:
-            if chosen is not None:
-                prev_window = chosen
-        elif translated_count > 0:
-            prev_window = [lines[translated_count - 1]]
 
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]

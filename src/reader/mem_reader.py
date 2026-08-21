@@ -166,26 +166,109 @@ def _read_region_at(h, addr: int) -> bytes:
     return b""
 
 
-def _dedup(chunks) -> list[str]:
-    out: list[str] = []
-    seen: set[str] = set()
-    for lines in chunks:
-        for line in lines:
-            if line not in seen:
-                seen.add(line)
-                out.append(line)
+def _read(h, addr: int, n: int) -> bytes:
+    buf = (ctypes.c_char * n)()
+    got = _c_size_t(0)
+    if _k32.ReadProcessMemory(h, _c_void_p(addr), ctypes.cast(buf, _c_void_p),
+                              n, ctypes.byref(got)) and got.value:
+        return bytes(buf[:got.value])
+    return b""
+
+
+def _read_clamped(h, addr: int, need: int) -> bytes:
+    """從 addr 讀最多 need bytes,但不跨出所在區域(跨區域讀取會整批失敗)。"""
+    mbi = _MBI()
+    if not _k32.VirtualQueryEx(h, _c_void_p(addr), _c_void_p(ctypes.addressof(mbi)),
+                               ctypes.sizeof(mbi)):
+        return b""
+    readable = (mbi.State == MEM_COMMIT and not (mbi.Protect & PAGE_GUARD)
+                and mbi.Protect not in (0, PAGE_NOACCESS))
+    if not readable:
+        return b""
+    end = mbi.BaseAddress + mbi.RegionSize
+    return _read(h, addr, min(need, end - addr))
+
+
+# --- 活聊天文件(遊戲聊天視窗的資料來源) ---
+# 逆向結論(2026-08-21 生命週期探針):遊戲把聊天視窗內容維護成「一份就地附加的
+# 富文字文件」(位址穩定、每有新訊息尾端就地成長);此外每次重繪還會產生大量
+# 一次性渲染快照(新位址誕生、舊位址殘留成垃圾)—— 快照不可信,只有活文件可信。
+_GROUP_GAP = 4000            # 同一份文件內相鄰標記的最大位址間隔(bytes)
+_MIN_GROUP_MARKERS = 2       # 少於這個標記數的群不視為文件/視窗
+_DOC_MARGIN = 256 * 1024     # 定錨輪詢時,文件長度之外多讀的餘量(容納成長與頭部修剪)
+_MAX_DOC_READ = 8 * 1024 * 1024
+_UNANCHOR_FAILS = 2          # 連續對不齊幾輪視為文件已搬移/釋放 → 重新探索
+_IDLE_RECHECK_POLLS = 150    # 文件太久無變化(可能是殘影)→ 重新探索驗證(0.4s 輪 ≈ 60s)
+
+
+def groups_in_blob(blob: bytes) -> list[tuple[int, int, list[str]]]:
+    """把 blob 內的聊天標記依間隔分群,回傳每群的 (起始 offset, 結尾 offset, 有序聊天行)。
+    保留重複,不設群大小上限(活文件可達數百行)。"""
+    marks = []
+    k = blob.find(MARKER)
+    while k >= 0:
+        marks.append(k)
+        k = blob.find(MARKER, k + 1)
+    out: list[tuple[int, int, list[str]]] = []
+    group: list[int] = []
+
+    def flush():
+        if len(group) >= _MIN_GROUP_MARKERS:
+            end = group[-1] + _MAX_LINE_BYTES
+            out.append((group[0], end, extract_lines(blob[group[0]:end], dedup=False)))
+
+    for m in marks:
+        if group and m - group[-1] > _GROUP_GAP:
+            flush()
+            group = []
+        group.append(m)
+    if group:
+        flush()
     return out
 
 
-class ChatReader:
-    """有狀態的聊天讀取器:全掃記住「出現過聊天的區域」,之後只重掃那些熱區(快),
-    每 full_scan_every 輪(或熱區為空時)做一次完整全掃自我修正。"""
+def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
+    """附加/捲動對齊:找最短的『prev 去掉前 k 行(非空)』正好是 cur 的前綴,
+    回傳 cur 尾端多出來的行(新訊息,含重複、依序);對不齊回傳 None。
+    活文件平時純附加(k=0 必中,無歧義);達容量上限修剪頭部時 k>0 吸收捲動。"""
+    if not prev_lines:
+        return None
+    for k in range(len(prev_lines)):
+        overlap = prev_lines[k:]
+        if cur_lines[:len(overlap)] == overlap:
+            return cur_lines[len(overlap):]
+    return None
 
-    def __init__(self, process_name: str = PROCESS_NAME, full_scan_every: int = 10):
+
+def after_last_tail(doc: list[str], tail: list[str]) -> list[str] | None:
+    """在 doc 中找 tail(或其較短字尾)最後一次出現的位置,回傳其後的行;找不到回傳 None。
+    重定錨時用:已知尾行之後的內容 = 錨定空窗期漏掉的訊息,補翻不漏不重。"""
+    for probe in (tail, tail[-3:], tail[-1:]):
+        if not probe:
+            continue
+        n = len(probe)
+        for i in range(len(doc) - n, -1, -1):
+            if doc[i:i + n] == probe:
+                return doc[i + n:]
+    return None
+
+
+class LiveChatReader:
+    """定錨『活聊天文件』並回傳每輪新增的聊天行。
+
+    未定錨:每次呼叫做一次全掃並與上一次全掃比對 —— 同位址、內容以附加方式成長的
+    群 = 活文件;取最長者定錨,以已知尾行對齊補翻空窗期訊息。
+    已定錨:每輪只讀文件位址附近(便宜、近即時),對文件自身做尾端差分。
+    文件搬移/釋放(連續對不齊)或長期無變化(可能為殘影)→ 解除定錨重新探索。"""
+
+    def __init__(self, process_name: str = PROCESS_NAME):
         self.process_name = process_name
-        self.full_scan_every = full_scan_every
-        self._hot: list[int] = []
-        self._since_full = full_scan_every  # 讓第一次讀取一定是全掃
+        self._addr = 0                # 0 = 未定錨
+        self._bytes = 0               # 文件位元組長度估計
+        self._lines: list[str] = []   # 文件目前內容;未定錨時為最後已知尾行
+        self._snapshot: dict[int, tuple[int, tuple[str, ...]]] | None = None
+        self._fails = 0
+        self._idle = 0
 
     # --- 可在測試中覆寫的接縫 ---
     def _open(self):
@@ -200,183 +283,83 @@ class ChatReader:
     def _close(self, handle):
         _k32.CloseHandle(handle)
 
-    def _full_scan(self, handle):
-        """回傳 (聊天行, 有命中的區域 base 清單)。"""
-        out: list[str] = []
-        seen: set[str] = set()
-        hot: list[int] = []
-        for base, blob in _iter_regions(handle):
-            found = extract_lines(blob)
-            if found:
-                hot.append(base)
-                for line in found:
-                    if line not in seen:
-                        seen.add(line)
-                        out.append(line)
-        return out, hot
-
-    def _hot_scan(self, handle):
-        return _dedup(extract_lines(_read_region_at(handle, base)) for base in self._hot)
-
-    def read(self) -> list[str]:
-        """回傳當前所有聊天行(全域去重,保留出現順序)。找不到遊戲丟 GameNotRunning。"""
-        handle = self._open()
-        try:
-            if self._since_full >= self.full_scan_every or not self._hot:
-                lines, self._hot = self._full_scan(handle)
-                self._since_full = 1
-            else:
-                lines = self._hot_scan(handle)
-                self._since_full += 1
-            return lines
-        finally:
-            self._close(handle)
-
-
-_default_reader: ChatReader | None = None
-
-
-def read_chat_lines(process_name: str = PROCESS_NAME) -> list[str]:
-    """便利函式:每輪都做完整全掃(回傳當前全部聊天行)。"""
-    global _default_reader
-    if _default_reader is None or _default_reader.process_name != process_name:
-        _default_reader = ChatReader(process_name, full_scan_every=1)
-    return _default_reader.read()
-
-
-# --- 可視聊天視窗(對應遊戲聊天室) ---
-_GROUP_GAP = 4000          # 同一份聊天文件內相鄰標記的最大位址間隔(bytes)
-_MIN_MARKERS = 2           # 可視視窗至少幾則
-_MAX_MARKERS = 120         # 上限:排除 900+ 行的凍結歷史大群(它們不含最新訊息)
-
-
-def _read(h, addr: int, n: int) -> bytes:
-    buf = (ctypes.c_char * n)()
-    got = _c_size_t(0)
-    if _k32.ReadProcessMemory(h, _c_void_p(addr), ctypes.cast(buf, _c_void_p),
-                              n, ctypes.byref(got)) and got.value:
-        return bytes(buf[:got.value])
-    return b""
-
-
-def collapse_repeated_copies(win: tuple) -> tuple:
-    """相鄰的視窗副本偶爾被分群合併成一群,內容變成整個視窗連續重複 2、3 次。
-    找最小週期 p(>=2)摺回單份。整窗同一句(週期 1)不摺 —— 那可能是真實洗版。"""
-    n = len(win)
-    if n and win == win[:1] * n:
-        return win
-    for p in range(2, n // 2 + 1):
-        if n % p == 0 and win == win[:p] * (n // p):
-            return win[:p]
-    return win
-
-
-def ranked_windows(groups: list[tuple[str, ...]]) -> list[list[str]]:
-    """把各小群的『有序聊天行 tuple』依出現份數排序,回傳候選視窗清單(最多份在前)。
-    記憶體裡混著即時副本與過期快照,份數多不保證即時 —— 由呼叫端用
-    『與上一輪視窗的滾動連續性』挑正確的那個。"""
-    from collections import Counter
-    counts: Counter = Counter(collapse_repeated_copies(g) for g in groups if g)
-    return [list(w) for w, _ in counts.most_common()]
-
-
-def most_common_window(groups: list[tuple[str, ...]]) -> list[str]:
-    """出現最多份的小群內容(候選第一名);僅在沒有上一輪視窗可對齊時當起始錨點。"""
-    ranked = ranked_windows(groups)
-    return ranked[0] if ranked else []
-
-
-def windows_in_blob(blob: bytes) -> list[tuple[int, tuple[str, ...]]]:
-    """在單一 blob 內,把聊天標記依間隔分群,回傳每個『小群』的 (群起始 offset, 有序聊天行 tuple)。
-    保留重複;大群(凍結歷史)略過。"""
-    marks = []
-    k = blob.find(MARKER)
-    while k >= 0:
-        marks.append(k)
-        k = blob.find(MARKER, k + 1)
-    out: list[tuple[int, tuple[str, ...]]] = []
-    group: list[int] = []
-
-    def flush():
-        if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
-            seg = blob[group[0]:group[-1] + _MAX_LINE_BYTES]
-            out.append((group[0], tuple(extract_lines(seg, dedup=False))))
-
-    for m in marks:
-        if group and m - group[-1] > _GROUP_GAP:
-            flush()
-            group = []
-        group.append(m)
-    if group:
-        flush()
-    return out
-
-
-_FULL_EVERY = 30       # 安全網:最多每幾輪全掃一次(平時靠快掃失敗才觸發全掃)
-_CHUNK = 48000         # 快掃時每個視窗位址附近讀取的位元組數(視窗 ≤ ~18KB)
-
-
-class VisibleReader:
-    """讀可視聊天視窗。全掃記住『視窗副本的位址』,之後每輪只讀那些位址附近的一小塊(很快);
-    快掃讀不到(視窗搬家)或每 _FULL_EVERY 輪(安全網)才完整全掃重新定位。"""
-
-    def __init__(self, process_name: str = PROCESS_NAME):
-        self.process_name = process_name
-        self._addrs: list[int] = []      # 上次找到視窗副本的絕對位址
-        self._since_full = _FULL_EVERY
-
-    def _open(self):
-        pid = _find_pid(self.process_name)
-        if not pid:
-            raise GameNotRunning(f"找不到 {self.process_name}")
-        h = _k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
-        if not h:
-            raise GameNotRunning(f"無法開啟 {self.process_name}(可能需要系統管理員權限)")
-        return h
-
-    def _full(self, h):
-        """完整全掃(慢):回傳 (候選視窗清單, 視窗副本的絕對位址清單)。"""
-        windows: list[tuple[str, ...]] = []
-        addrs: list[int] = []
+    def _scan_groups(self, h):
+        """全掃:yield (絕對位址, 位元組長, 行tuple)。"""
         for base, blob in _iter_regions(h):
-            for off, win in windows_in_blob(blob):
-                windows.append(win)
-                addrs.append(base + off)
-        return ranked_windows(windows), addrs[:80]
+            for start, end, lines in groups_in_blob(blob):
+                yield base + start, end - start, tuple(lines)
 
-    def _fast(self, h):
-        """只讀快取位址附近的小塊(很快),回傳候選視窗清單。"""
-        windows: list[tuple[str, ...]] = []
-        for addr in self._addrs:
-            for _off, win in windows_in_blob(_read(h, addr, _CHUNK)):
-                windows.append(win)
-        return ranked_windows(windows)
+    def _poll_groups(self, h):
+        """讀錨點附近:回傳 [(絕對位址, 位元組長, 行list), ...]。"""
+        need = min(self._bytes + _DOC_MARGIN, _MAX_DOC_READ)
+        blob = _read_clamped(h, self._addr, need)
+        return [(self._addr + start, end - start, lines)
+                for start, end, lines in groups_in_blob(blob)]
 
-    def read(self) -> list[list[str]]:
+    # --- 主流程 ---
+    def read_new(self) -> list[str]:
+        """回傳自上次呼叫後新增的聊天行(依序、含重複);無新訊息回傳 []。
+        找不到遊戲丟 GameNotRunning。"""
         h = self._open()
         try:
-            if self._addrs and self._since_full < _FULL_EVERY:
-                cands = self._fast(h)
-                self._since_full += 1
-                if cands:
-                    return cands  # 快掃成功 → 用它,不全掃
-            cands, addrs = self._full(h)  # 首次 / 快掃讀不到 / 到安全網 → 全掃重新定位
-            if addrs:
-                self._addrs = addrs
-            self._since_full = 0
-            return cands
+            return self._poll_doc(h) if self._addr else self._discover(h)
         finally:
-            _k32.CloseHandle(h)
+            self._close(h)
 
+    def _poll_doc(self, h) -> list[str]:
+        best = None
+        for addr, nbytes, lines in self._poll_groups(h):
+            appended = align_append(self._lines, lines)
+            if appended is not None and (best is None or len(lines) > len(best[2])):
+                best = (addr, nbytes, lines, appended)
+        if best is None:
+            self._fails += 1
+            if self._fails >= _UNANCHOR_FAILS:
+                self._unanchor()
+            return []
+        self._addr, self._bytes, self._lines, appended = best
+        self._fails = 0
+        if appended:
+            self._idle = 0
+        else:
+            self._idle += 1
+            if self._idle >= _IDLE_RECHECK_POLLS:
+                self._unanchor()  # 可能是已死文件的殘影;重探索驗證(尾行保留,不漏不重)
+        return appended
 
-_visible_reader: VisibleReader | None = None
+    def _unanchor(self) -> None:
+        self._lines = self._lines[-8:]  # 保留尾行,重定錨時對齊用
+        self._addr = 0
+        self._bytes = 0
+        self._fails = 0
+        self._idle = 0
+        self._snapshot = None
 
-
-def read_visible_windows(process_name: str = PROCESS_NAME) -> list[list[str]]:
-    """讀取遊戲聊天可視視窗的『候選清單』(依副本份數排序,各含重複、依時間順序)。
-    候選裡混著即時副本與過期快照;呼叫端以滾動連續性挑正確的。
-    以模組單例維持位址快取(平時快掃、必要時全掃)。找不到遊戲丟 GameNotRunning。"""
-    global _visible_reader
-    if _visible_reader is None or _visible_reader.process_name != process_name:
-        _visible_reader = VisibleReader(process_name)
-    return _visible_reader.read()
+    def _discover(self, h) -> list[str]:
+        snap: dict[int, tuple[int, tuple[str, ...]]] = {}
+        for addr, nbytes, lines in self._scan_groups(h):
+            if lines:
+                snap[addr] = (nbytes, lines)
+        prev, self._snapshot = self._snapshot, snap
+        if prev is None:
+            return []
+        best = None
+        for addr, (nbytes, lines) in snap.items():
+            old = prev.get(addr)
+            if old is None or old[1] == lines:
+                continue
+            appended = align_append(list(old[1]), list(lines))
+            if appended and (best is None or len(lines) > len(best[2])):
+                best = (addr, nbytes, list(lines), appended)
+        if best is None:
+            return []
+        known_tail = self._lines
+        self._addr, self._bytes, self._lines, appended = best
+        self._snapshot = None
+        self._fails = 0
+        self._idle = 0
+        if known_tail:
+            after = after_last_tail(self._lines, known_tail)
+            if after is not None:
+                return after
+        return appended

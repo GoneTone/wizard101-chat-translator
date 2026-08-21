@@ -1,4 +1,7 @@
-from src.reader.mem_reader import ChatReader, clean, extract_lines
+from src.reader.mem_reader import (
+    LiveChatReader, after_last_tail, align_append, clean, extract_lines,
+    groups_in_blob,
+)
 
 
 def u16(s: str) -> bytes:
@@ -70,19 +73,91 @@ def test_extract_dedups_within_blob():
     assert extract_lines(u16(SAY + " " + SAY)) == ["[Wolf] hello world"]
 
 
+def test_extract_no_dedup_keeps_repeats():
+    a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
+    blob = u16(a + a)
+    assert extract_lines(blob, dedup=False) == ["[A] hi", "[A] hi"]
+    assert extract_lines(blob, dedup=True) == ["[A] hi"]
+
+
 def test_extract_multiple_distinct_lines_in_order():
     a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] first </color>"
     b = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [B] second </color>"
     assert extract_lines(u16(a + b)) == ["[A] first", "[B] second"]
 
 
-class _FakeReader(ChatReader):
-    """以假掃描替換真實記憶體存取,驗證全掃/熱掃的排程。"""
+# --- groups_in_blob ---
+def _say(inner: str) -> str:
+    return f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> {inner} </color>"
 
-    def __init__(self, **kw):
-        super().__init__(**kw)
-        self.full_calls = 0
-        self.hot_calls = 0
+
+def test_groups_in_blob_keeps_repeats_in_order():
+    blob = u16(_say("[A] hi") + _say("[B] yo") + _say("[A] hi"))
+    groups = groups_in_blob(blob)
+    assert len(groups) == 1
+    start, end, lines = groups[0]
+    assert lines == ["[A] hi", "[B] yo", "[A] hi"]
+    assert start == 0 and end > start
+
+
+def test_groups_in_blob_splits_on_gap():
+    gap = b"\x00" * 8000  # 超過 _GROUP_GAP → 分成兩群
+    blob = u16(_say("[A] one") + _say("[A] two")) + gap + u16(_say("[B] three") + _say("[B] four"))
+    groups = groups_in_blob(blob)
+    assert [g[2] for g in groups] == [["[A] one", "[A] two"], ["[B] three", "[B] four"]]
+
+
+def test_groups_in_blob_drops_single_marker_group():
+    blob = u16(_say("[A] alone"))
+    assert groups_in_blob(blob) == []
+
+
+# --- align_append ---
+def test_align_pure_append():
+    assert align_append(["a", "b"], ["a", "b", "c", "d"]) == ["c", "d"]
+
+
+def test_align_scroll_and_append():
+    assert align_append(["a", "b", "c"], ["b", "c", "d"]) == ["d"]
+
+
+def test_align_unchanged():
+    assert align_append(["a", "b"], ["a", "b"]) == []
+
+
+def test_align_repeats_detected():
+    assert align_append(["x", "np"], ["x", "np", "np"]) == ["np"]
+
+
+def test_align_misaligned_returns_none():
+    assert align_append(["a", "b"], ["x", "y"]) is None
+    assert align_append([], ["a"]) is None
+
+
+# --- after_last_tail ---
+def test_after_last_tail_finds_last_occurrence():
+    doc = ["a", "b", "a", "b", "c"]
+    assert after_last_tail(doc, ["a", "b"]) == ["c"]
+
+
+def test_after_last_tail_falls_back_to_shorter_suffix():
+    doc = ["x", "y", "z"]
+    assert after_last_tail(doc, ["q", "y"]) == ["z"]  # 全尾不中 → 用最後 1 行
+
+
+def test_after_last_tail_none_when_absent():
+    assert after_last_tail(["x", "y"], ["q"]) is None
+
+
+# --- LiveChatReader(以假掃描驗證定錨/輪詢/重定錨流程) ---
+class FakeLive(LiveChatReader):
+    """以假記憶體(dict: addr -> lines)取代真實掃描。"""
+
+    def __init__(self):
+        super().__init__()
+        self.mem: dict[int, list[str]] = {}
+        self.scans = 0
+        self.polls = 0
 
     def _open(self):
         return 1
@@ -90,88 +165,78 @@ class _FakeReader(ChatReader):
     def _close(self, handle):
         pass
 
-    def _full_scan(self, handle):
-        self.full_calls += 1
-        return [f"full{self.full_calls}"], [0x1000, 0x2000]  # 假熱區
+    def _scan_groups(self, h):
+        self.scans += 1
+        for addr, lines in self.mem.items():
+            yield addr, len(lines) * 100, tuple(lines)
 
-    def _hot_scan(self, handle):
-        self.hot_calls += 1
-        return [f"hot{self.hot_calls}"]
-
-
-def test_first_read_is_full_scan_and_caches_hot_regions():
-    r = _FakeReader(full_scan_every=3)
-    assert r.read() == ["full1"]
-    assert r.full_calls == 1 and r.hot_calls == 0
-    assert r._hot == [0x1000, 0x2000]
+    def _poll_groups(self, h):
+        self.polls += 1
+        out = []
+        for addr, lines in self.mem.items():
+            if addr == self._addr:  # 模擬「讀錨點附近」:只有錨點位址在讀取範圍內
+                out.append((addr, len(lines) * 100, list(lines)))
+        return out
 
 
-def test_hot_scan_used_between_full_scans():
-    r = _FakeReader(full_scan_every=3)
-    modes = []
-    for _ in range(7):
-        before_full = r.full_calls
-        r.read()
-        modes.append("full" if r.full_calls > before_full else "hot")
-    # 第1次全掃(熱區空)→ 熱,熱 → 第4次到期全掃 → 熱,熱 → 第7次全掃
-    assert modes == ["full", "hot", "hot", "full", "hot", "hot", "full"]
-    assert r.full_calls == 3 and r.hot_calls == 4
+DOC = 0x1000
+SNAPSHOT = 0x9000
 
 
-def test_empty_hot_regions_forces_full_scan():
-    r = _FakeReader(full_scan_every=100)
-    r._full_scan = lambda h: ([], [])  # 全掃找不到聊天 → 熱區保持空
-    r.full_calls = 0
-    # 熱區一直空,即使未到 full_scan_every 也應每次都全掃(而非熱掃)
-    for _ in range(3):
-        r.read()
-    assert r.hot_calls == 0
+def test_discovery_anchors_to_growing_doc_and_emits_growth():
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b"], SNAPSHOT: ["[Z] old", "[Z] older"]}
+    assert r.read_new() == []            # 第一次全掃:只建快照
+    r.mem[DOC] = ["[A] a", "[B] b", "[C] c"]   # 活文件成長;快照靜止
+    assert r.read_new() == ["[C] c"]     # 第二次全掃:偵測成長、定錨、補翻
+    assert r._addr == DOC
 
 
-def test_most_common_window_picks_most_duplicated():
-    from src.reader.mem_reader import most_common_window
-    groups = [("a", "b"), ("a", "b", "c"), ("a", "b", "c"), ("a", "b", "c"), ("x",)]
-    # 出現最多份的小群內容 = 當前可視視窗
-    assert most_common_window(groups) == ["a", "b", "c"]
+def test_anchored_poll_emits_appended_including_repeats():
+    r = FakeLive()
+    r.mem = {DOC: ["[A] hi"] * 2}
+    r.read_new()
+    r.mem[DOC] = ["[A] hi"] * 3
+    assert r.read_new() == ["[A] hi"]    # 定錨(成長 1 行)
+    r.mem[DOC] = ["[A] hi"] * 5
+    assert r.read_new() == ["[A] hi", "[A] hi"]  # 已定錨輪詢:重複照實回報
+    assert r.scans == 2                  # 之後不再全掃
+    assert r.polls == 1
 
 
-def test_most_common_window_empty():
-    from src.reader.mem_reader import most_common_window
-    assert most_common_window([]) == []
+def test_static_snapshots_never_emit():
+    r = FakeLive()
+    r.mem = {SNAPSHOT: ["[Z] old", "[Z] older"]}
+    assert r.read_new() == []
+    assert r.read_new() == []            # 快照靜止 → 永不定錨、永不輸出
 
 
-def test_ranked_windows_orders_by_count():
-    from src.reader.mem_reader import ranked_windows
-    groups = [("a", "b"), ("a", "b", "c"), ("a", "b", "c"), ("x", "y")]
-    assert ranked_windows(groups)[0] == ["a", "b", "c"]
-    assert len(ranked_windows(groups)) == 3
+def test_doc_relocation_reanchors_without_loss_or_duplication():
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b"]}
+    r.read_new()
+    r.mem[DOC] = ["[A] a", "[B] b", "[C] c"]
+    assert r.read_new() == ["[C] c"]     # 定錨
+    # 文件被搬到新位址(舊位址消失),且搬家期間又多了兩行
+    del r.mem[DOC]
+    new_addr = 0x5000
+    r.mem[new_addr] = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
+    assert r.read_new() == []            # 對不齊 1
+    assert r.read_new() == []            # 對不齊 2 → 解除定錨
+    assert r._addr == 0
+    assert r.read_new() == []            # 探索全掃 1(建快照)
+    r.mem[new_addr] = r.mem[new_addr] + ["[F] f"]  # 新位址繼續成長
+    got = r.read_new()                   # 探索全掃 2:定錨新位址,從已知尾行後補翻
+    assert got == ["[D] d", "[E] e", "[F] f"]
+    assert r._addr == new_addr
 
 
-def test_collapse_repeated_copies_folds_doubled_window():
-    from src.reader.mem_reader import collapse_repeated_copies
-    # 兩份視窗副本被合併成一群 → 摺回單份
-    assert collapse_repeated_copies(("a", "b", "m", "a", "b", "m")) == ("a", "b", "m")
-    assert collapse_repeated_copies(("a", "b", "a", "b", "a", "b")) == ("a", "b")
-
-
-def test_collapse_repeated_copies_keeps_real_spam():
-    from src.reader.mem_reader import collapse_repeated_copies
-    # 整窗同一句(週期 1)= 可能是真實洗版,不摺
-    assert collapse_repeated_copies(("hi", "hi", "hi", "hi")) == ("hi", "hi", "hi", "hi")
-    assert collapse_repeated_copies(("a", "b", "c")) == ("a", "b", "c")
-
-
-def test_extract_lines_no_dedup_keeps_repeats():
-    a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
-    blob = u16(a + a)
-    assert extract_lines(blob, dedup=False) == ["[A] hi", "[A] hi"]
-    assert extract_lines(blob, dedup=True) == ["[A] hi"]
-
-
-def test_windows_in_blob_extracts_small_group_with_repeats():
-    from src.reader.mem_reader import windows_in_blob
-    a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
-    b = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [B] yo </color>"
-    blob = u16(a + b + a)  # 同一小群、含重複的 hi
-    wins = windows_in_blob(blob)
-    assert wins == [(0, ("[A] hi", "[B] yo", "[A] hi"))]
+def test_head_trim_scroll_absorbed():
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"]}
+    r.read_new()
+    r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d"]
+    assert r.read_new() == ["[D] d"]
+    # 達容量上限:頭部被修剪 + 尾端附加(捲動)
+    r.mem[DOC] = ["[C] c", "[D] d", "[E] e"]
+    assert r.read_new() == ["[E] e"]
