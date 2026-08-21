@@ -20,6 +20,14 @@ CONFIG_PATH = Path("config.json")
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
 
+# overlay 標題列狀態指示:(文字, 顏色)
+STATUS = {
+    "locating": ("● 定位聊天資料中…", "#e0b050"),
+    "listening": ("● 監聽中", "#7dc87d"),
+    "translating": ("● 翻譯中…", "#6fa8dc"),
+    "waiting_game": ("● 等待遊戲中…", "#9a9aa8"),
+}
+
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
     """依序取出並執行 ui_queue 裡的回呼;單一回呼拋錯不影響其餘回呼或呼叫端。"""
@@ -42,14 +50,27 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
     pending: deque[str] = deque()
     backoff_index = 0
     game_missing = False
+    last_status: str | None = None
+
+    def set_status(key: str) -> None:
+        nonlocal last_status
+        if key == last_status:
+            return
+        last_status = key
+        text, color = STATUS[key]
+        ui_queue.put(lambda: overlay.set_status(text, color))
+
     while not stop.is_set():
         interval = cfg["poll_interval"]
         translated_ok = False
         went_offline = False
 
+        # 讀取前先亮狀態:未定錨的探索全掃要數秒,期間讓使用者知道在定位
+        set_status("listening" if reader.anchored else "locating")
         try:
             pending.extend(reader.read_new())
         except GameNotRunning:
+            set_status("waiting_game")
             if not game_missing:
                 game_missing = True
                 ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序,等待中…"))
@@ -64,6 +85,8 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             game_missing = False
             ui_queue.put(overlay.clear_error)
 
+        if pending:
+            set_status("translating")
         while pending:
             line = pending[0]
             try:
@@ -84,10 +107,13 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
             ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線,重試中…"))
-        elif translated_ok and backoff_index:
-            # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
-            backoff_index = 0
-            ui_queue.put(overlay.clear_error)
+            # 狀態維持「翻譯中…」:pending 還有行等著重試
+        else:
+            set_status("listening" if reader.anchored else "locating")
+            if translated_ok and backoff_index:
+                # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
+                backoff_index = 0
+                ui_queue.put(overlay.clear_error)
 
         stop.wait(interval)
 

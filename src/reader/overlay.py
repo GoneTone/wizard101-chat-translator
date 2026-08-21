@@ -68,7 +68,10 @@ class OverlayWindow:
         label = tk.Label(bar, text="≡  Wizard101 翻譯", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
-        for w in (bar, label):
+        self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
+                                      font=("Microsoft JhengHei", 8), anchor="e")
+        self._status_label.pack(side="right", padx=6)
+        for w in (bar, label, self._status_label):
             w.bind("<ButtonPress-1>", self._move_start)
             w.bind("<B1-Motion>", self._move_drag)
             w.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
@@ -176,6 +179,10 @@ class OverlayWindow:
                 keep.append(entry)
         self._messages = keep
 
+    def set_status(self, text: str, color: str = FG_BAR) -> None:
+        """更新標題列右側的狀態指示(如「● 監聽中」);text 為空即隱藏。"""
+        self._status_label.configure(text=text, fg=color)
+
     def set_error(self, text: str) -> None:
         self.clear_error()
         self._error_label = tk.Label(self._frame, text=text, bg=BG, fg=FG_ERROR,
@@ -194,3 +201,6 @@ class OverlayWindow:
 
     def error_text(self) -> str | None:
         return self._error_label.cget("text") if self._error_label else None
+
+    def status_text(self) -> str:
+        return self._status_label.cget("text")

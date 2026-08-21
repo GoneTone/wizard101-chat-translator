@@ -15,6 +15,7 @@ class FakeOverlay:
         self.messages: list[tuple[str, str]] = []
         self.errors: list[str] = []
         self.clears = 0
+        self.statuses: list[str] = []
 
     def add_message(self, original, translated):
         self.messages.append((original, translated))
@@ -25,13 +26,17 @@ class FakeOverlay:
     def clear_error(self):
         self.clears += 1
 
+    def set_status(self, text, color=None):
+        self.statuses.append(text)
+
 
 class FakeReader:
     """依序回傳 reads[i](每輪新增的行清單);跑完設 stop。GameNotRunning 以例外物件表示。"""
 
-    def __init__(self, reads, stop):
+    def __init__(self, reads, stop, anchored=True):
         self.reads = reads
         self.stop = stop
+        self.anchored = anchored
         self.n = 0
 
     def read_new(self):
@@ -127,6 +132,28 @@ def test_failed_line_stays_pending_and_retried(monkeypatch):
     assert ov.clears == 1
 
 
+def test_status_transitions(monkeypatch):
+    # 監聽 →(有新訊息)翻譯中 → 監聽
+    cfg = {"poll_interval": 0.01}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    reads = [[], ["[A] a"], []]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert ov.statuses == ["● 監聽中", "● 翻譯中…", "● 監聽中"]
+
+
+def test_status_locating_when_not_anchored(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "LiveChatReader",
+                        lambda: FakeReader([[], []], stop, anchored=False))
+    reader_loop(cfg, OkTranslator(), ov, ui_queue, stop)
+    _drain(ui_queue)
+    assert ov.statuses == ["● 定位聊天資料中…"]  # 狀態未變不重複發
+
+
 class NeverTranslator:
     def to_zh(self, text):
         raise AssertionError("找不到遊戲時不應嘗試翻譯")
@@ -145,3 +172,4 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     _drain(ui_queue)
     assert ov.errors == ["⚠ 找不到遊戲程序,等待中…"]
     assert ov.messages == []
+    assert "● 等待遊戲中…" in ov.statuses

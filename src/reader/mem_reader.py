@@ -297,6 +297,11 @@ class LiveChatReader:
                 for start, end, lines in groups_in_blob(blob)]
 
     # --- 主流程 ---
+    @property
+    def anchored(self) -> bool:
+        """是否已定錨活聊天文件(未定錨時每輪為全掃探索,較慢)。"""
+        return self._addr != 0
+
     def read_new(self) -> list[str]:
         """回傳自上次呼叫後新增的聊天行(依序、含重複);無新訊息回傳 []。
         找不到遊戲丟 GameNotRunning。"""
