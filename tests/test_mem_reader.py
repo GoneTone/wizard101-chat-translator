@@ -138,3 +138,10 @@ def test_most_common_window_picks_most_duplicated():
 def test_most_common_window_empty():
     from src.reader.mem_reader import most_common_window
     assert most_common_window([]) == []
+
+
+def test_extract_lines_no_dedup_keeps_repeats():
+    a = "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>"
+    blob = u16(a + a)
+    assert extract_lines(blob, dedup=False) == ["[A] hi", "[A] hi"]
+    assert extract_lines(blob, dedup=True) == ["[A] hi"]

@@ -43,8 +43,10 @@ def clean(text: str) -> str:
     return " ".join(_TAG.sub("", text).replace("\x00", " ").split())
 
 
-def extract_lines(blob: bytes) -> list[str]:
-    """在一段記憶體 blob 中,依聊天簽章抽出乾淨聊天行(blob 內去重,保留出現順序)。"""
+def extract_lines(blob: bytes, dedup: bool = True) -> list[str]:
+    """在一段記憶體 blob 中,依聊天簽章抽出乾淨聊天行,保留出現順序。
+    dedup=True:blob 內去重(掃全記憶體時用,避免大量重複副本)。
+    dedup=False:保留重複(讀可視視窗時用,同一句連續出現要照實保留)。"""
     out: list[str] = []
     seen: set[str] = set()
     s = 0
@@ -59,7 +61,7 @@ def extract_lines(blob: bytes) -> list[str]:
         txt = clean(blob[j:end].decode("utf-16-le", "replace"))
         if (_VALID.match(txt) and len(txt) <= _MAX_LINE_CHARS
                 and not _NON_CHAT.search(txt) and not _MARKUP.search(txt)
-                and not _DOUBLE_SENDER.search(txt) and txt not in seen):
+                and not _DOUBLE_SENDER.search(txt) and not (dedup and txt in seen)):
             seen.add(txt)
             out.append(txt)
     return out
@@ -291,12 +293,12 @@ def read_visible_chat(process_name: str = PROCESS_NAME) -> list[str]:
             if group and a - group[-1] > _GROUP_GAP:
                 if _MIN_MARKERS <= len(group) <= _MAX_MARKERS:  # 只抽小群,略過凍結大群(快)
                     windows.append(tuple(extract_lines(
-                        _read(h, group[0], group[-1] - group[0] + 2000))))
+                        _read(h, group[0], group[-1] - group[0] + 2000), dedup=False)))
                 group = []
             group.append(a)
         if group and _MIN_MARKERS <= len(group) <= _MAX_MARKERS:
             windows.append(tuple(extract_lines(
-                _read(h, group[0], group[-1] - group[0] + 2000))))
+                _read(h, group[0], group[-1] - group[0] + 2000), dedup=False)))
         return most_common_window(windows)
     finally:
         _k32.CloseHandle(h)
