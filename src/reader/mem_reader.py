@@ -177,6 +177,8 @@ class ChatReader:
         self.process_name = process_name
         self.full_scan_every = full_scan_every
         self._hot: list[int] = []
+        self._prev_full_hot: set[int] = set()  # 上一次全掃時的熱區
+        self.last_absorb: list[str] = []  # 本輪「新出現區塊」的既有內容(應吸收不翻)
         self._since_full = full_scan_every  # 讓第一次讀取一定是全掃
 
     # --- 可在測試中覆寫的接縫 ---
@@ -193,32 +195,43 @@ class ChatReader:
         _k32.CloseHandle(handle)
 
     def _full_scan(self, handle):
-        """回傳 (聊天行, 有命中的區域 base 清單)。"""
+        """回傳 (聊天行, 有命中的區域 base 清單, 應吸收的行)。
+        「應吸收的行」= 只出現在『這次全掃才新變熱』區塊的行 —— 那是剛被載入的既有歷史,
+        非新訊息(新訊息接在既有活躍緩衝後,屬舊熱區),應標記看過而不翻譯。"""
         out: list[str] = []
         seen: set[str] = set()
         hot: list[int] = []
+        old_lines: set[str] = set()
+        new_lines: set[str] = set()
         for base, blob in _iter_regions(handle):
             found = extract_lines(blob)
-            if found:
-                hot.append(base)
-                for line in found:
-                    if line not in seen:
-                        seen.add(line)
-                        out.append(line)
-        return out, hot
+            if not found:
+                continue
+            hot.append(base)
+            bucket = new_lines if base not in self._prev_full_hot else old_lines
+            for line in found:
+                if line not in seen:
+                    seen.add(line)
+                    out.append(line)
+                bucket.add(line)
+        absorb = [line for line in out if line in new_lines and line not in old_lines]
+        self._prev_full_hot = set(hot)
+        return out, hot, absorb
 
     def _hot_scan(self, handle):
         return _dedup(extract_lines(_read_region_at(handle, base)) for base in self._hot)
 
     def read(self) -> list[str]:
-        """回傳當前所有聊天行(全域去重,保留出現順序)。找不到遊戲丟 GameNotRunning。"""
+        """回傳當前所有聊天行(全域去重,保留出現順序)。找不到遊戲丟 GameNotRunning。
+        本輪應吸收(標記看過不翻)的行另存於 self.last_absorb。"""
         handle = self._open()
         try:
             if self._since_full >= self.full_scan_every or not self._hot:
-                lines, self._hot = self._full_scan(handle)
+                lines, self._hot, self.last_absorb = self._full_scan(handle)
                 self._since_full = 1
             else:
                 lines = self._hot_scan(handle)
+                self.last_absorb = []
                 self._since_full += 1
             return lines
         finally:
@@ -234,3 +247,8 @@ def read_chat_lines(process_name: str = PROCESS_NAME) -> list[str]:
     if _default_reader is None or _default_reader.process_name != process_name:
         _default_reader = ChatReader(process_name)
     return _default_reader.read()
+
+
+def last_absorbed() -> list[str]:
+    """上一次 read_chat_lines() 判定為「應吸收」(既有歷史、標記看過不翻)的行。"""
+    return list(_default_reader.last_absorb) if _default_reader else []

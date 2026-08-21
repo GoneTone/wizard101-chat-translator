@@ -92,7 +92,7 @@ class _FakeReader(ChatReader):
 
     def _full_scan(self, handle):
         self.full_calls += 1
-        return [f"full{self.full_calls}"], [0x1000, 0x2000]  # 假熱區
+        return [f"full{self.full_calls}"], [0x1000, 0x2000], []  # (行, 熱區, 吸收)
 
     def _hot_scan(self, handle):
         self.hot_calls += 1
@@ -118,9 +118,28 @@ def test_hot_scan_used_between_full_scans():
     assert r.full_calls == 3 and r.hot_calls == 4
 
 
+def test_full_scan_absorbs_only_newly_hot_region_lines(monkeypatch):
+    import src.reader.mem_reader as mr
+
+    r = mr.ChatReader()
+    # 首次全掃:prev_full_hot 空 → 兩個區域都算「新出現」→ 全部吸收
+    monkeypatch.setattr(mr, "_iter_regions",
+                        lambda h: iter([(100, _wrap("[A] one")), (200, _wrap("[A] two"))]))
+    out, hot, absorb = r._full_scan(object())
+    assert set(hot) == {100, 200}
+    assert set(absorb) == {"[A] one", "[A] two"}
+
+    # 下次全掃:100 仍在(舊熱區),300 為新出現區塊 → 只吸收 300 的行
+    monkeypatch.setattr(mr, "_iter_regions",
+                        lambda h: iter([(100, _wrap("[A] one")), (300, _wrap("[A] three"))]))
+    out2, hot2, absorb2 = r._full_scan(object())
+    assert set(hot2) == {100, 300}
+    assert absorb2 == ["[A] three"]  # 100 屬舊熱區不吸收
+
+
 def test_empty_hot_regions_forces_full_scan():
     r = _FakeReader(full_scan_every=100)
-    r._full_scan = lambda h: ([], [])  # 全掃找不到聊天 → 熱區保持空
+    r._full_scan = lambda h: ([], [], [])  # 全掃找不到聊天 → 熱區保持空
     r.full_calls = 0
     # 熱區一直空,即使未到 full_scan_every 也應每次都全掃(而非熱掃)
     for _ in range(3):
