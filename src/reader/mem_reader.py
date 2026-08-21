@@ -277,7 +277,7 @@ class LiveChatReader:
             raise GameNotRunning(f"找不到 {self.process_name}")
         h = _k32.OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, False, pid)
         if not h:
-            raise GameNotRunning(f"無法開啟 {self.process_name}(可能需要系統管理員權限)")
+            raise GameNotRunning(f"無法開啟 {self.process_name}（可能需要系統管理員權限）")
         return h
 
     def _close(self, handle):

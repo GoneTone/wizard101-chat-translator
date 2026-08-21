@@ -1,4 +1,6 @@
 """共用翻譯 client:打自架的 OpenAI 相容 /v1/chat/completions。"""
+import re
+
 import httpx
 
 ZH_SYSTEM = (
@@ -6,8 +8,27 @@ ZH_SYSTEM = (
     "請把「訊息內容」完整翻成自然、口語的繁體中文（台灣用語）：整句都要翻成中文，"
     "不要保留任何英文單字，遊戲術語、咒語名、地名、物品名一律翻成中文；"
     "僅真正無法翻譯的專有名稱可原樣保留。開頭的「[發送者]」原樣保留、不要翻譯或改動。"
+    "標點符號一律使用台灣慣用的全形標點（，。？！：；、「」……）。"
     "只輸出「[發送者] 中文譯文」，不要附加任何解說、拼音或原文。"
 )
+
+# 中文語境判定:CJK 統一表意文字、CJK 標點(、。「」等)、全形標點
+_CJK = "　-〿一-鿿！-～…"
+_HALF_TO_FULL = {",": "，", "!": "！", "?": "？", ";": "；", ":": "："}
+
+
+def normalize_zh_punct(text: str) -> str:
+    """把「緊跟在中文之後」的半形標點轉成全形（台灣慣例）。
+    模型不一定每次都用全形，故輸出後再做一次確定性修正。
+    只在中文語境轉換，不動英文片段、數字（1,000）、表情符號（:)）與網址。"""
+    out = re.sub(rf"(?<=[{_CJK}])\.{{3,}}", "……", text)
+    out = re.sub(rf"(?<=[{_CJK}])\.(?=$|\s|[{_CJK}])", "。", out)
+    for half, full in _HALF_TO_FULL.items():
+        out = re.sub(rf"(?<=[{_CJK}]){re.escape(half)}", full, out)
+    out = re.sub(rf"\((?=[{_CJK}])", "（", out)
+    out = re.sub(rf"(?<=[{_CJK}])\)", "）", out)
+    return out
+
 
 EN_SYSTEM = (
     "You translate a player's Traditional Chinese chat messages into casual, short "
@@ -40,7 +61,7 @@ class Translator:
         return resp.json()["choices"][0]["message"]["content"].strip()
 
     def to_zh(self, text: str) -> str:
-        return self._chat(ZH_SYSTEM, text)
+        return normalize_zh_punct(self._chat(ZH_SYSTEM, text))
 
     def to_en(self, text: str) -> str:
         return self._chat(EN_SYSTEM, text)

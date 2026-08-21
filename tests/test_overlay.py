@@ -86,7 +86,7 @@ def test_geometry_change_callback_fires_on_manual_apply(root):
 def test_set_status_updates_bar_label(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     assert ov.status_text() == ""
-    ov.set_status("● 監聽中", "#7dc87d")
-    assert ov.status_text() == "● 監聽中"
-    ov.set_status("● 翻譯中…", "#6fa8dc")
-    assert ov.status_text() == "● 翻譯中…"
+    ov.set_status("●  監聽中", "#7dc87d")
+    assert ov.status_text() == "●  監聽中"
+    ov.set_status("●  翻譯中…", "#6fa8dc")
+    assert ov.status_text() == "●  翻譯中…"

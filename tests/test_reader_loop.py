@@ -128,7 +128,7 @@ def test_failed_line_stays_pending_and_retried(monkeypatch):
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == 2                      # 第一次離線,第二輪重試同一行
     assert ov.messages == [("[X] x", "譯:[X] x")]
-    assert ov.errors == ["⚠ 翻譯伺服器離線,重試中…"]
+    assert ov.errors == ["⚠  翻譯伺服器離線，重試中…"]
     assert ov.clears == 1
 
 
@@ -139,7 +139,7 @@ def test_status_transitions(monkeypatch):
     ov = FakeOverlay()
     reads = [[], ["[A] a"], []]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert ov.statuses == ["● 監聽中", "● 翻譯中…", "● 監聽中"]
+    assert ov.statuses == ["●  監聽中", "●  翻譯中…", "●  監聽中"]
 
 
 def test_status_locating_when_not_anchored(monkeypatch):
@@ -151,7 +151,7 @@ def test_status_locating_when_not_anchored(monkeypatch):
                         lambda: FakeReader([[], []], stop, anchored=False))
     reader_loop(cfg, OkTranslator(), ov, ui_queue, stop)
     _drain(ui_queue)
-    assert ov.statuses == ["● 定位聊天資料中…"]  # 狀態未變不重複發
+    assert ov.statuses == ["●  定位聊天資料中…"]  # 狀態未變不重複發
 
 
 class NeverTranslator:
@@ -170,6 +170,6 @@ def test_game_not_running_shows_banner_once(monkeypatch):
                         lambda: FakeReader(reads, stop))
     reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
     _drain(ui_queue)
-    assert ov.errors == ["⚠ 找不到遊戲程序,等待中…"]
+    assert ov.errors == ["⚠  找不到遊戲程序，等待中…"]
     assert ov.messages == []
-    assert "● 等待遊戲中…" in ov.statuses
+    assert "●  等待遊戲中…" in ov.statuses

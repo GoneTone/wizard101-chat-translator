@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from src.translator import EN_SYSTEM, ZH_SYSTEM, Translator
+from src.translator import EN_SYSTEM, ZH_SYSTEM, Translator, normalize_zh_punct
 
 
 def make_translator(handler) -> Translator:
@@ -25,7 +25,7 @@ def test_to_zh_sends_model_and_system_prompt_and_returns_stripped():
         return ok_response("  你好,朋友!  ")
 
     t = make_translator(handler)
-    assert t.to_zh("hello friend!") == "你好,朋友!"
+    assert t.to_zh("hello friend!") == "你好，朋友！"  # strip + 標點正規化
     assert captured["url"].endswith("/v1/chat/completions")
     assert captured["body"]["model"] == "test-model"
     assert captured["body"]["messages"][0] == {"role": "system", "content": ZH_SYSTEM}
@@ -75,3 +75,33 @@ def test_default_client_construction_with_api_key():
 def test_default_client_construction_without_api_key():
     t = Translator(base_url="http://myserver", model="m")
     assert "authorization" not in t._client.headers
+
+
+# --- normalize_zh_punct:譯文標點正規化(台灣全形慣例) ---
+def test_normalize_converts_halfwidth_after_cjk():
+    assert normalize_zh_punct("[A] 你好,朋友!要組隊嗎?") == "[A] 你好，朋友！要組隊嗎？"
+    assert normalize_zh_punct("[A] 等等:先補血;再上") == "[A] 等等：先補血；再上"
+
+
+def test_normalize_converts_period_and_ellipsis():
+    assert normalize_zh_punct("[A] 好.") == "[A] 好。"
+    assert normalize_zh_punct("[A] 讓我想想...") == "[A] 讓我想想……"
+
+
+def test_normalize_converts_parens_around_cjk():
+    assert normalize_zh_punct("[A] 走吧(快點)") == "[A] 走吧（快點）"
+
+
+def test_normalize_keeps_english_numbers_emoticons():
+    assert normalize_zh_punct("[A] hi, friend!") == "[A] hi, friend!"
+    assert normalize_zh_punct("[A] 賣 1,000 金幣") == "[A] 賣 1,000 金幣"
+    assert normalize_zh_punct("[A] 好喔 :)") == "[A] 好喔 :)"
+    assert normalize_zh_punct("[A] 版本 3.5 出了") == "[A] 版本 3.5 出了"
+
+
+def test_to_zh_applies_normalization():
+    transport = httpx.MockTransport(
+        lambda req: ok_response("[A] 你好,世界!"))
+    client = httpx.Client(base_url="http://test", transport=transport)
+    t = Translator(base_url="http://test", model="m", client=client)
+    assert t.to_zh("[A] hello, world!") == "[A] 你好，世界！"

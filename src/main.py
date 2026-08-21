@@ -22,10 +22,10 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
 
 # overlay 標題列狀態指示:(文字, 顏色)
 STATUS = {
-    "locating": ("● 定位聊天資料中…", "#e0b050"),
-    "listening": ("● 監聽中", "#7dc87d"),
-    "translating": ("● 翻譯中…", "#6fa8dc"),
-    "waiting_game": ("● 等待遊戲中…", "#9a9aa8"),
+    "locating": ("●  定位聊天資料中…", "#e0b050"),
+    "listening": ("●  監聽中", "#7dc87d"),
+    "translating": ("●  翻譯中…", "#6fa8dc"),
+    "waiting_game": ("●  等待遊戲中…", "#9a9aa8"),
 }
 
 
@@ -73,11 +73,11 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             set_status("waiting_game")
             if not game_missing:
                 game_missing = True
-                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序,等待中…"))
+                ui_queue.put(lambda: overlay.set_error("⚠  找不到遊戲程序，等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 掃描偶發錯誤:略過該輪,不讓執行緒死掉
-            print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
+            print(f"[reader] 略過此輪：{exc}", file=sys.stderr)
             stop.wait(interval)
             continue
 
@@ -96,7 +96,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 break
             except Exception as exc:
                 # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,不讓 reader 執行緒死掉。
-                print(f"[translate] 略過此行({exc}):{line}", file=sys.stderr)
+                print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
                 pending.popleft()
                 continue
             translated_ok = True
@@ -106,7 +106,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
-            ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線,重試中…"))
+            ui_queue.put(lambda: overlay.set_error("⚠  翻譯伺服器離線，重試中…"))
             # 狀態維持「翻譯中…」:pending 還有行等著重試
         else:
             set_status("listening" if reader.anchored else "locating")
