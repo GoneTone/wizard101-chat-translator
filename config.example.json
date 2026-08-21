@@ -10,5 +10,6 @@
   "max_messages": 200,
   "hotkey": "ctrl+space",
   "type_delay": 0.02,
-  "overlay": {"x": null, "y": null, "width": 460, "height": 300}
+  "overlay": {"x": null, "y": null, "width": 460, "height": 300},
+  "input_position": {"x": null, "y": null}
 }

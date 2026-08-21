@@ -132,7 +132,12 @@ def main() -> None:
     def on_translated(english: str, hwnd: int | None) -> None:
         type_into_window(hwnd, english, delay=cfg["type_delay"])
 
-    input_box = InputBox(root, translator.to_en, ui_queue, on_translated)
+    def save_input_position(x: int, y: int) -> None:
+        cfg["input_position"] = {"x": x, "y": y}
+        save_config(CONFIG_PATH, cfg)
+
+    input_box = InputBox(root, translator.to_en, ui_queue, on_translated,
+                         position=cfg["input_position"], on_move=save_input_position)
     keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 
     stop = threading.Event()

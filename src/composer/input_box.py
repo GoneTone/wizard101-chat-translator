@@ -10,11 +10,14 @@ FG = "#f2f2f7"
 
 
 class InputBox:
-    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
+    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated,
+                 position: dict | None = None, on_move=None):
         self._root = root
         self._translate = translate_fn
         self._queue = ui_queue
         self._on_translated = on_translated
+        self._pos = position or {"x": None, "y": None}
+        self._on_move = on_move
         self._win: tk.Toplevel | None = None
         self._entry: tk.Entry | None = None
         self._status: tk.Label | None = None
@@ -32,7 +35,9 @@ class InputBox:
         self._win.title("翻譯輸入")
         self._win.attributes("-topmost", True)
         self._win.configure(bg=BG)
-        self._win.geometry("460x84+200+200")
+        px = self._pos["x"] if self._pos.get("x") is not None else 200
+        py = self._pos["y"] if self._pos.get("y") is not None else 200
+        self._win.geometry(f"460x84+{px}+{py}")
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=("Microsoft JhengHei", 12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
@@ -46,11 +51,22 @@ class InputBox:
 
     def close(self) -> None:
         if self._win is not None:
+            self._remember_position()
             self._win.destroy()
             self._win = None
             self._entry = None
             self._status = None
             self._session += 1
+
+    def _remember_position(self) -> None:
+        """記住輸入框目前位置,供下次開啟還原(關閉前呼叫)。"""
+        try:
+            x, y = self._win.winfo_x(), self._win.winfo_y()
+        except Exception:
+            return
+        self._pos = {"x": x, "y": y}
+        if self._on_move is not None:
+            self._on_move(x, y)
 
     def _on_enter(self, _event) -> None:
         text = self._entry.get().strip()

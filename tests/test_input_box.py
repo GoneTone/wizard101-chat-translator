@@ -150,3 +150,23 @@ def test_worker_failure_error_callback_runs(root):
     callback()  # 修正前此處會 NameError: name 'exc' is not defined
 
     assert box._status.cget("text").startswith("翻譯失敗")
+
+
+def test_input_box_restores_saved_position(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
+                   position={"x": 321, "y": 210})
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.geometry().startswith("460x84+321+210")
+    box.close()
+
+
+def test_input_box_saves_position_on_close(root):
+    saved = []
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
+                   position={"x": 150, "y": 160}, on_move=lambda x, y: saved.append((x, y)))
+    box.show()
+    box._win.update_idletasks()
+    box.close()
+    assert len(saved) == 1
+    assert all(isinstance(v, int) for v in saved[0])
