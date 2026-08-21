@@ -234,3 +234,24 @@ def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
 
     assert overlay.errors == ["⚠ 找不到遊戲程序，等待中…"]  # 只顯示一次
     assert overlay.messages == []
+
+
+class OneBadTranslator:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def to_zh(self, text):
+        self.calls.append(text)
+        if text == "[B] bad":
+            raise ValueError("模型回傳非預期格式")
+        return f"譯:{text}"
+
+
+def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
+    # 單行翻譯拋非 HTTP 例外時,只跳過該行,reader 不死、後續行照翻
+    cfg = {"poll_interval": 0.01, "startup_tail": 100}
+    tr = OneBadTranslator()
+    ov = FakeOverlay()
+    run_cycles(cfg, tr, ov, ["[A] a", "[B] bad", "[C] c"], stop_after_cycle=1, monkeypatch=monkeypatch)
+    assert tr.calls == ["[A] a", "[B] bad", "[C] c"]  # 三行都嘗試
+    assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]  # bad 被跳過

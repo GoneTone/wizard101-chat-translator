@@ -84,11 +84,15 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             try:
                 translated = translator.to_zh(line)
             except httpx.HTTPError:
-                # 這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
+                # 伺服器離線:這行與這批剩下未試的行都放回「未見過」,下一輪重新嘗試翻譯,
                 # 避免離線期間的訊息被 dedup 永久吃掉。
                 deduper.forget(lines[idx:])
                 went_offline = True
                 break
+            except Exception as exc:
+                # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,絕不讓 reader 執行緒死掉。
+                print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
+                continue
             translated_ok = True
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
 
