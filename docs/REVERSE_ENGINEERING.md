@@ -100,6 +100,28 @@ exe 靜態反組譯 + 純讀 pointer scan + 網路 handler 追蹤,共同證實:
 
 **最終定論:Wizard101 聊天在持久記憶體只以「渲染標記文字」存在,無帶身分/順序/時間戳的乾淨結構化容器。這是記憶體本質,四條獨立路線一致證實。務實最佳解 = 現行純讀 markup 文字方案(commit 64b874e)。**
 
+## 網路協議定義(可讀!)+ Frida hook 路線 — 2026-08-22
+
+**重大發現:聊天封包的協議定義是可讀的 XML,在 `Data/GameData/Root.wad`**(KIWAD v1, 172812 檔)。
+解開 `GameMessages.xml`,聊天訊息(Server→Client)欄位分開、乾淨:
+- `MSG_CHANNELCHAT`(頻道/世界聊天): `SourceName`(STR 發送者)、`SourceID`(GID 唯一ID)、`Message`(WSTR 內容)、TargetID、Filter、Flags
+- `MSG_DIRECTEDCHAT`(私聊): SourceName、SourceID、Message(WSTR)、TargetID、Filter
+- `MSG_RADIALCHAT`(範圍): SourceName、SourceID、Message(STR)、Filter
+即封包層 sender/text 是分開的;客戶端 handler 收到後才格式化成 markup 存記憶體顯示。
+解 WAD:`scripts/dump_chat_protocol.py`(KIWAD header 5+4+4,檔案表 off/usz/csz/comp/crc/nlen,zlib)。
+
+**Frida hook 可行但找不到聊天框正確入口**(`scripts/frida_*.py`):
+- Frida attach 成功,反作弊沒擋,能逐則即時攔截。
+- pointer scan 落到的 `ControlRichEdit`(RVA 0x33b0fc0)是**通用文字控件**(物品數量/植物資訊/自己訊息預覽 `<center>text</center>`),**不是聊天框**。
+- hook 該類全部 90 個 vtable method(vtable RVA 0x29dd4f8)+ 過濾 Art_Chat → **別人的聊天完全不經過此類任何 method**。
+- 底層 `memmove`/`memcpy` hook 會**拖垮/崩潰遊戲**(高頻),不可用。
+- 純讀找別人聊天行(含 Art_Chat + `<link;GID>[名]`)的持有物件 → 又是散落渲染副本,無乾淨控件容器。
+- DML handler 走數字 order dispatch,handler 名字串(`MSG_ChannelChat`)零引用,dispatch 核心一直定位不到。
+
+**六路線最終定論**(exe 反組譯 / pointer scan / 網路協議 / Frida vtable / memcpy trace / 控件反查):
+聊天顯示層在 KI 自訂 window 框架裡**沒有單一可攔截的乾淨入口**;持久記憶體只有散落渲染文字。
+唯一乾淨資料在**網路封包層**(MSG_CHANNELCHAT),要取需 hook DML dispatch 核心(未定位)或解密封包 —— 投報比極低。務實最佳解仍為現行純讀 markup 方案(commit 64b874e)。
+
 ## 現行實作(未走上述路線)
 
 `src/reader/mem_reader.py`:純讀 `ReadProcessMemory` 掃描聊天標記文字、定錨「活文件」、翻譯尾端新增行。對不同內容的訊息可靠、閒置不冒舊;弱點是「快速連續發送完全相同的短語」可能漏(渲染層無訊息身分,內容無法區分)。
