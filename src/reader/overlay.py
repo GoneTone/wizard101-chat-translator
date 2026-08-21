@@ -165,6 +165,8 @@ class OverlayWindow:
             self._canvas.yview_moveto(1.0)
 
     def prune(self, now: float | None = None) -> None:
+        if self._fade <= 0:
+            return  # fade_seconds <= 0:永不依時間清除訊息(可滾動看歷史)
         cutoff = (now if now is not None else time.time()) - self._fade
         keep = []
         for entry in self._messages:

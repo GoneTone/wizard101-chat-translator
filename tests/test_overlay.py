@@ -48,6 +48,15 @@ def test_prune_removes_expired(root):
     assert ov.visible_messages() == [("new", "新")]
 
 
+def test_no_fade_when_fade_seconds_zero(root):
+    # fade_seconds=0:永不依時間清除
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("a", "甲", now=100.0)
+    ov.add_message("b", "乙", now=105.0)
+    ov.prune(now=1_000_000.0)  # 很久之後
+    assert ov.visible_messages() == [("a", "甲"), ("b", "乙")]
+
+
 def test_error_banner_toggle(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     assert ov.error_text() is None

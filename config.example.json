@@ -6,7 +6,8 @@
   },
   "poll_interval": 1.0,
   "startup_tail": 0,
-  "fade_seconds": 180,
+  "fade_seconds": 0,
+  "max_messages": 200,
   "hotkey": "ctrl+space",
   "overlay": {"x": null, "y": null, "width": 460, "height": 300}
 }

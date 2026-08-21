@@ -124,6 +124,7 @@ def main() -> None:
     overlay = OverlayWindow(
         root,
         x=ov["x"], y=ov["y"], width=ov["width"], height=ov["height"],
+        max_messages=cfg["max_messages"],
         fade_seconds=cfg["fade_seconds"],
         on_geometry_change=save_geometry,
     )
