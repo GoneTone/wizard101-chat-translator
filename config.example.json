@@ -2,7 +2,8 @@
   "api": {
     "base_url": "http://127.0.0.1:8000",
     "model": "your-model-name",
-    "api_key": ""
+    "api_key": "",
+    "thinking": false
   },
   "poll_interval": 0.4,
   "fade_seconds": 0,

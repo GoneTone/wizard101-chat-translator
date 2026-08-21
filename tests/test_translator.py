@@ -44,6 +44,46 @@ def test_to_en_uses_english_system_prompt():
     assert captured["body"]["messages"][0] == {"role": "system", "content": EN_SYSTEM}
 
 
+def test_thinking_true_default_omits_disable_params():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return ok_response("x")
+
+    make_translator(handler).to_zh("hi")  # 預設 thinking=True
+    for k in ("reasoning_effort", "chat_template_kwargs", "think", "enable_thinking"):
+        assert k not in captured["body"]
+
+
+def test_thinking_false_adds_disable_params():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return ok_response("x")
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(base_url="http://test", transport=transport)
+    Translator(base_url="http://test", model="m", thinking=False, client=client).to_en("哈囉")
+    b = captured["body"]
+    assert b["reasoning_effort"] == "none"
+    assert b["chat_template_kwargs"] == {"enable_thinking": False}
+    assert b["think"] is False
+    assert b["enable_thinking"] is False
+
+
+def test_strips_think_block_from_zh_output():
+    t = make_translator(lambda req: ok_response("<think>先想想怎麼翻</think>\n你好，世界"))
+    assert t.to_zh("hi") == "你好，世界"
+
+
+def test_strips_think_block_from_en_output():
+    transport = httpx.MockTransport(lambda req: ok_response("<think>reasoning here</think>hello there"))
+    client = httpx.Client(base_url="http://test", transport=transport)
+    assert Translator(base_url="http://test", model="m", client=client).to_en("嗨") == "hello there"
+
+
 def test_server_error_raises_http_error():
     t = make_translator(lambda req: httpx.Response(500, text="boom"))
     with pytest.raises(httpx.HTTPError):

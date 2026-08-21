@@ -47,6 +47,7 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成繁體中文疊�
 | 欄位 | 說明 |
 |------|------|
 | `api.base_url` / `api.model` / `api.api_key` | 自架 OpenAI 相容 API |
+| `api.thinking` | 模型是否啟用思考/reasoning(預設 `false`:關閉思考,併入常見後端的停用參數 `reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等)。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何,譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯,回報後可移除 |
 | `poll_interval` | 輪詢間隔秒數(預設 0.4)。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
 | `game_path` | 遊戲根目錄(含 `Bin\`、`Data\` 的那層);`null`(預設)= 自動偵測執行中的遊戲程序路徑。自動偵測失敗才需手動填(如非標準安裝) |
 | `fade_seconds` | overlay 訊息淡出秒數(預設 0:永不淡出,靠滾動看歷史;>0 才會定時清除) |
