@@ -486,11 +486,11 @@ def test_idle_verify_unanchors_when_nothing_extends_us():
     assert r.read_new() == ["[D] d"]                  # 定錨
     # 真文件換到與殭屍結構完全對不上的新形態(新視窗文件),殭屍凍結
     fresh = 0xF000
-    r.mem[fresh] = ["[X] x", "[Y] y"]
+    r.mem[fresh] = ["[X] x", "[Y] y", "[W] w"]
     for _ in range(mr._IDLE_RECHECK_POLLS - 1):
         assert r.read_new() == []
     assert r.read_new() == []                         # 驗證:無延伸 → 解錨
     assert r._addrs == {}                             # 回探索
     assert r.read_new() == []                         # 探索全掃 1(建快照)
-    r.mem[fresh] = ["[X] x", "[Y] y", "[Z] z"]
+    r.mem[fresh] = ["[X] x", "[Y] y", "[W] w", "[Z] z"]
     assert r.read_new() == ["[Z] z"]                  # 新文件成長 → 重定錨、恢復翻譯
