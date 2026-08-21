@@ -4,11 +4,11 @@
     "model": "your-model-name",
     "api_key": ""
   },
-  "poll_interval": 1.0,
-  "startup_tail": 0,
+  "poll_interval": 0.4,
   "fade_seconds": 0,
   "max_messages": 200,
   "hotkey": "ctrl+space",
+  "game_path": null,
   "type_delay": 0.02,
   "overlay": {"x": null, "y": null, "width": 460, "height": 300},
   "input_position": {"x": null, "y": null}

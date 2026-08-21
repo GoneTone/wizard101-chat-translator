@@ -1,4 +1,4 @@
-"""進入點:reader 執行緒(記憶體收訊)+ 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
+"""進入點:reader 執行緒(wizwalker 收訊)+ 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
 import queue
 import sys
 import threading
@@ -12,7 +12,7 @@ import keyboard
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import load_config, save_config
-from src.reader.mem_reader import GameNotRunning, LiveChatReader
+from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
@@ -22,7 +22,7 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
 
 # overlay 標題列狀態指示:(文字, 顏色)
 STATUS = {
-    "locating": ("●  定位聊天資料中…", "#e0b050"),
+    "locating": ("●  連線遊戲中…", "#e0b050"),
     "listening": ("●  監聽中", "#7dc87d"),
     "translating": ("●  翻譯中…", "#6fa8dc"),
     "waiting_game": ("●  等待遊戲中…", "#9a9aa8"),
@@ -44,9 +44,9 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    # 定錨遊戲的「活聊天文件」,每輪讀新增的行(依序、含重複)→ 翻譯 → overlay。
+    # 透過 wizwalker 讀遊戲聊天記錄,每輪讀新增的行(依序、含重複)→ 翻譯 → overlay。
     # 翻譯失敗/離線的行留在 pending,下輪從中斷處續翻,不漏不重。
-    reader = LiveChatReader()
+    reader = WizChatReader(game_path=cfg.get("game_path"))
     pending: deque[str] = deque()
     backoff_index = 0
     game_missing = False
@@ -65,7 +65,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         translated_ok = False
         went_offline = False
 
-        # 讀取前先亮狀態:未定錨的探索全掃要數秒,期間讓使用者知道在定位
+        # 讀取前先亮狀態:首輪要連上遊戲並掛入 hook,期間讓使用者知道在連線
         set_status("listening" if reader.anchored else "locating")
         try:
             pending.extend(reader.read_new())
@@ -73,10 +73,10 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             set_status("waiting_game")
             if not game_missing:
                 game_missing = True
-                ui_queue.put(lambda: overlay.set_error("⚠  找不到遊戲程序，等待中…"))
+                ui_queue.put(lambda: overlay.set_error("⚠  遊戲未就緒／連線中斷，等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
-        except Exception as exc:  # 掃描偶發錯誤:略過該輪,不讓執行緒死掉
+        except Exception as exc:  # 收訊偶發錯誤:略過該輪,不讓執行緒死掉
             print(f"[reader] 略過此輪：{exc}", file=sys.stderr)
             stop.wait(interval)
             continue
@@ -117,6 +117,8 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
         stop.wait(interval)
 
+    reader.close()  # 停止:解除 wizwalker hook、關閉連線
+
 
 
 def main() -> None:
@@ -156,8 +158,9 @@ def main() -> None:
     keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 
     stop = threading.Event()
-    threading.Thread(target=reader_loop, args=(cfg, translator, overlay, ui_queue, stop),
-                     daemon=True).start()
+    reader_thread = threading.Thread(
+        target=reader_loop, args=(cfg, translator, overlay, ui_queue, stop), daemon=True)
+    reader_thread.start()
 
     def pump() -> None:
         drain_ui_queue(ui_queue)
@@ -173,6 +176,9 @@ def main() -> None:
     finally:
         stop.set()
         keyboard.unhook_all()
+        # 等 reader 執行緒跑完 reader.close()(解除 wizwalker hook、還原遊戲記憶體)再退出;
+        # 否則 daemon 執行緒會被直接砍掉,hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
+        reader_thread.join(timeout=8)
         try:
             root.destroy()
         except Exception:

@@ -3,26 +3,37 @@
 Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成繁體中文疊加顯示(保留原文);
 熱鍵輸入繁中自動翻成英文,逐字**自動鍵入**遊戲聊天欄(遊戲不支援貼上;**不會自動送出**,自己確認後按 Enter)。
 
-收訊採**記憶體純讀**:掃描遊戲程序記憶體、以聊天標記簽章抽出文字 —
-100% 準確(無 OCR 辨識誤差)、只 `ReadProcessMemory`,不注入、不改寫、不攔封包。
+收訊透過 [wizwalker](https://codeberg.org/LaurenzNotHere/wizwalker) 掛入遊戲、
+直接讀聊天顯示控件(`chatLog`)的全文:100% 準確(無 OCR 辨識誤差)、
+訊息有序、含他人與自己的發言及發送者身分,不攔封包。
 
 ## ⚠ 重要:封號風險
 
-讀取遊戲記憶體**違反 Wizard101 服務條款**(不分讀或寫)。本工具只做純讀、
-不注入不改寫,風險較低,但**仍可能導致帳號被停權,請自行斟酌**。
+本工具靠 wizwalker **掛入(注入)遊戲程序** —— 為了讀聊天控件,它會
+`WriteProcessMemory` 寫入 code cave 並建立執行緒下 hook(**非純讀**)。
+這**違反 Wizard101 服務條款**,比單純讀取更具侵入性、**封號風險更高**,
+**可能導致帳號被停權,請自行斟酌**。
 
 ## 安裝
 
-1. Python 3.11+(Windows)
-2. `pip install httpx keyboard pywin32`
-3. 複製 `config.example.json` 為 `config.json`,填入自架 AI 伺服器的
+以 [uv](https://docs.astral.sh/uv/) 管理隔離環境(Windows,Python 3.11+):
+
+1. `uv sync` —— 建立 `.venv` 並依 `pyproject.toml` 裝好所有相依
+   (含收訊用的 wizwalker;已於 `[tool.uv.sources]` 指向有跟進最新 client
+   pattern 的 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker),
+   官方 PyPI 版 pattern 過舊、對不上現行 client)
+2. 複製 `config.example.json` 為 `config.json`,填入自架 AI 伺服器的
    `api.base_url` 與 `api.model`(OpenAI 相容 `/v1/chat/completions`)
+
+> 遊戲改版導致掛入報 `PatternFailed` 時,更新 fork 後重跑 `uv sync`(或
+> `uv lock --upgrade-package wizwalker`)取得新 pattern。
 
 ## 使用
 
 1. 開啟並登入 Wizard101 到遊戲世界內
-2. `python -m src.main`
-   - 若出現「無法開啟遊戲程序」,以**系統管理員**身分開終端再執行(記憶體讀取常需要)
+2. `uv run run.py`(等同 `uv run python -m src.main`)
+   - 若狀態一直停在「連線遊戲中…」或顯示「遊戲未就緒／連線中斷」,以**系統管理員**身分開終端再執行(wizwalker 掛入常需要)
+   - 若掛入時報 `PatternFailed`:遊戲已改版、pattern 過舊,更新 fork 後重跑 `uv sync`
 3. 聊天出現訊息 → 疊加視窗顯示「原文 + 繁中」(最新在最下,可向上滾動看歷史;預設不自動清除)
    - 視窗固定大小、可互動:**拖曳頂端標題列移動、拖右下角把手縮放**,位置與大小自動存檔
    - 注意:視窗不再滑鼠穿透,它蓋住的那塊區域點擊不會傳到遊戲
@@ -36,8 +47,8 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成繁體中文疊�
 | 欄位 | 說明 |
 |------|------|
 | `api.base_url` / `api.model` / `api.api_key` | 自架 OpenAI 相容 API |
-| `poll_interval` | 輪詢間隔秒數(預設 1.0)。熱區快取:平時只重掃出現過聊天的區域(快),每隔數輪做一次完整全掃自我修正 |
-| `startup_tail` | 啟動時翻譯幾句既有歷史聊天(預設 0:只翻啟動後的新訊息)。注意:記憶體掃描順序不等於時間順序,設 >0 時取到的是掃描尾端、不保證是最新的幾句 |
+| `poll_interval` | 輪詢間隔秒數(預設 0.4)。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
+| `game_path` | 遊戲根目錄(含 `Bin\`、`Data\` 的那層);`null`(預設)= 自動偵測執行中的遊戲程序路徑。自動偵測失敗才需手動填(如非標準安裝) |
 | `fade_seconds` | overlay 訊息淡出秒數(預設 0:永不淡出,靠滾動看歷史;>0 才會定時清除) |
 | `max_messages` | 視窗保留的訊息則數上限(預設 200),超過移除最舊 |
 | `hotkey` | 呼出輸入框的熱鍵(預設 `ctrl+space`) |
@@ -46,8 +57,11 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成繁體中文疊�
 ## 已知限制
 
 - 遊戲聊天白名單:非白名單英文詞可能被遊戲過濾,任何翻譯工具都繞不過
-- 收訊靠熱區快取:常見情況延遲約 `poll_interval` + 翻譯時間;每隔數輪的完整全掃約需數秒
-- 收訊依賴聊天標記格式;遊戲若改動聊天渲染標記,需更新 `src/reader/mem_reader.py`
-  的 `MARKER` 簽章(通常一行,非重做逆向)
-- 目前針對 Say 頻道(白字)驗證;其他頻道若用不同顏色/圖示,需擴充簽章變體
-- 全域熱鍵(keyboard 套件)在部分環境需以系統管理員身分執行
+- 收訊延遲約 `poll_interval` + 翻譯時間
+- 依賴 wizwalker 的記憶體 pattern:遊戲改版後 pattern 可能失效(掛入時報
+  `PatternFailed`),需等 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑 `uv sync`
+- 正常用 **Ctrl+C 結束會自動解除 hook**,可重複執行。但若程式被**強制結束**
+  (工作管理員 kill、當機)或同一 client 反覆掛入/卸載多次,遊戲內殘留的 hook 可能
+  無法完整還原,下次掛入會報 `PatternFailed` —— 此時**重開遊戲客戶端**即可
+- 翻玩家發言(**含自己的 `[你]` 發言**與他人發言);系統訊息(掉寶/經驗/升等)與遊戲除錯行不翻
+- wizwalker 掛入與全域熱鍵(keyboard 套件)在部分環境需以**系統管理員**身分執行

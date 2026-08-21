@@ -1,13 +1,25 @@
 [project]
 name = "wiz101-chat-translator"
 version = "0.1.0"
-description = "Wizard101 聊天 AI 翻譯助手(記憶體收訊翻繁中、熱鍵輸入翻英文)"
+description = "Wizard101 聊天 AI 翻譯助手(wizwalker 收訊翻繁中、熱鍵輸入翻英文)"
 requires-python = ">=3.11"
 dependencies = [
     "httpx",
     "keyboard",
     "pywin32",
+    "wizwalker",
 ]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.uv]
+package = false  # 從原始碼跑(python -m src.main),不需建置安裝本專案
+
+[tool.uv.sources]
+# 收訊靠 wizwalker 掛入遊戲、讀聊天顯示控件。須用有跟進最新 client pattern 的
+# LaurenzNotHere fork(官方 PyPI 版 pattern 過舊,對不上現行 client)。
+wizwalker = { git = "https://codeberg.org/LaurenzNotHere/wizwalker.git", branch = "development" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

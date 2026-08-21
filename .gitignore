@@ -3,5 +3,3 @@
 .venv/
 __pycache__/
 config.json
-scripts/*.jsonl
-scripts/*.log

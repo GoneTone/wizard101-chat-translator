@@ -1,4 +1,4 @@
-"""reader_loop 行為:LiveChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
+"""reader_loop 行為:WizChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
 離線時失敗行留在 pending 下輪續翻;找不到遊戲顯示橫幅;非 HTTP 錯誤跳過該行。"""
 import queue
 import threading
@@ -49,12 +49,15 @@ class FakeReader:
             raise r
         return list(r)
 
+    def close(self):
+        pass
+
 
 def run_scripted(cfg, translator, overlay, reads, monkeypatch):
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "LiveChatReader",
-                        lambda: FakeReader(reads, stop))
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, translator, overlay, ui_queue, stop)
     _drain(ui_queue)
 
@@ -147,11 +150,11 @@ def test_status_locating_when_not_anchored(monkeypatch):
     ov = FakeOverlay()
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "LiveChatReader",
-                        lambda: FakeReader([[], []], stop, anchored=False))
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: FakeReader([[], []], stop, anchored=False))
     reader_loop(cfg, OkTranslator(), ov, ui_queue, stop)
     _drain(ui_queue)
-    assert ov.statuses == ["●  定位聊天資料中…"]  # 狀態未變不重複發
+    assert ov.statuses == ["●  連線遊戲中…"]  # 狀態未變不重複發
 
 
 class NeverTranslator:
@@ -166,10 +169,10 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     reads = [GameNotRunning("no game"), GameNotRunning("no game")]
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "LiveChatReader",
-                        lambda: FakeReader(reads, stop))
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
     _drain(ui_queue)
-    assert ov.errors == ["⚠  找不到遊戲程序，等待中…"]
+    assert ov.errors == ["⚠  遊戲未就緒／連線中斷，等待中…"]
     assert ov.messages == []
     assert "●  等待遊戲中…" in ov.statuses
