@@ -279,6 +279,7 @@ class LiveChatReader:
         self._bytes = 0               # 文件位元組長度估計
         self._lines: list[str] = []   # 文件目前內容;未定錨時為最後已知尾行
         self._snapshot: dict[int, tuple[int, tuple[str, ...]]] | None = None
+        self._seen_texts: set[str] | None = None  # 探索期已見過的行文字(新穎性比對)
         self._emitted: list[str] = []  # 最近已輸出的行(換錨時做重疊裁剪防重播)
         self._fails = 0
         self._idle = 0
@@ -365,6 +366,7 @@ class LiveChatReader:
         self._fails = 0
         self._idle = 0
         self._snapshot = None
+        self._seen_texts = None
 
     def _discover(self, h) -> list[str]:
         snap: dict[int, tuple[int, tuple[str, ...]]] = {}
@@ -373,6 +375,9 @@ class LiveChatReader:
                 snap[addr] = (nbytes, lines)
         prev, self._snapshot = self._snapshot, snap
         if prev is None:
+            # 第一掃:所有既有內容視為歷史(不翻),當作新穎性比對基準
+            self._seen_texts = {ln for _, lines in snap.values() for ln in lines}
+            self._seen_texts.update(self._emitted)
             return []
         best = None
         for addr, (nbytes, lines) in snap.items():
@@ -382,19 +387,39 @@ class LiveChatReader:
             appended = align_append(list(old[1]), list(lines))
             if appended and (best is None or len(lines) > len(best[2])):
                 best = (addr, nbytes, list(lines), appended, list(old[1]))
-        if best is None:
+        if best is not None:
+            known_tail = self._lines
+            self._addr, self._bytes, self._lines, appended, baseline = best
+            self._snapshot = None
+            self._seen_texts = None
+            self._fails = 0
+            self._idle = 0
+            if known_tail:
+                after = after_last_tail(self._lines, known_tail)
+                if after is not None:
+                    return self._trim_emitted_overlap(after)
+            if len(baseline) <= _NEW_DOC_BASELINE:
+                # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
+                # 搬移的舊文件基準必然很長,不會走到這裡。
+                return self._trim_emitted_overlap(baseline + appended)
+            return self._trim_emitted_overlap(appended)
+        return self._novel_lines(snap)
+
+    def _novel_lines(self, snap) -> list[str]:
+        """探索期的新穎性路徑:還沒有可定錨的成長,但這次全掃出現了上次沒有的新文字
+        = 剛到達的訊息(例:空聊天室的第一句),立刻翻、不必等文件成長。
+        防垃圾:新文字必須出現在至少 2 個緩衝(真訊息立刻被渲染成多份副本;
+        撕裂的破損副本內容各不相同,永遠只有 1 份)。"""
+        counts: dict[str, int] = {}
+        for _, lines in snap.values():
+            for ln in set(lines):
+                counts[ln] = counts.get(ln, 0) + 1
+        novel = {ln for ln, c in counts.items()
+                 if c >= 2 and ln not in self._seen_texts}
+        self._seen_texts.update(ln for ln, c in counts.items() if c >= 2)
+        if not novel:
             return []
-        known_tail = self._lines
-        self._addr, self._bytes, self._lines, appended, baseline = best
-        self._snapshot = None
-        self._fails = 0
-        self._idle = 0
-        if known_tail:
-            after = after_last_tail(self._lines, known_tail)
-            if after is not None:
-                return self._trim_emitted_overlap(after)
-        if len(baseline) <= _NEW_DOC_BASELINE:
-            # 全新文件(空聊天室的頭幾句):基準行也是剛出現的訊息,一起補翻。
-            # 搬移的舊文件基準必然很長,不會走到這裡。
-            return self._trim_emitted_overlap(baseline + appended)
-        return self._trim_emitted_overlap(appended)
+        # 從「含最多新行的最長群」依序取出,保持時間順序
+        best_lines = max((list(lines) for _, lines in snap.values()),
+                         key=lambda ls: (sum(1 for ln in set(ls) if ln in novel), len(ls)))
+        return self._trim_emitted_overlap([ln for ln in best_lines if ln in novel])

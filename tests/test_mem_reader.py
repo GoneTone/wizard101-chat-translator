@@ -331,3 +331,30 @@ def test_relocated_long_doc_does_not_dump_baseline():
     r.read_new()                                    # 全掃 1(建快照)
     r.mem[DOC] = ["[A] a", "[B] b", "[C] c", "[D] d", "[E] e"]
     assert r.read_new() == ["[E] e"]                # 基準 4 行 > 門檻 → 只翻新增
+
+
+SNAP2 = 0xB000
+
+
+def test_first_message_in_empty_chat_translated_without_growth():
+    # 需求:空聊天室的「第一句」不等第二句、下一次掃描就翻。
+    # 真訊息會立刻被渲染成多份副本(文件 + 快照)→ 新文字出現在 >=2 個緩衝即翻。
+    r = FakeLive()
+    r.mem = {}
+    assert r.read_new() == []                        # 全掃 1:空,建基準
+    r.mem[DOC] = ["[A] first"]
+    r.mem[SNAP2] = ["[A] first"]                     # 同訊息的渲染副本
+    assert r.read_new() == ["[A] first"]             # 沒有成長也翻(新穎性)
+    r.mem[DOC] = ["[A] first", "[B] second"]
+    r.mem[SNAP2] = ["[A] first", "[B] second"]
+    assert r.read_new() == ["[B] second"]            # 成長 → 定錨;first 不重複
+    assert r._addr == DOC
+
+
+def test_single_copy_garbage_not_emitted_by_novelty():
+    # 撕裂垃圾每份內容都不同,只會出現在 1 個緩衝 → 新穎性路徑不放行
+    r = FakeLive()
+    r.mem = {DOC: ["[A] a", "[B] b", "[C] c"]}
+    r.read_new()                                     # 建基準
+    r.mem[0xC000] = ["[Luc] torn�garbage line"]      # 單份新內容
+    assert r.read_new() == []
