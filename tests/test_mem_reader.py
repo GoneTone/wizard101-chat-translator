@@ -472,3 +472,25 @@ def test_discovery_prefers_append_doc_over_insert_doc():
     r.mem[insert_doc] = big[:5] + ["[M] m"] + big[5:]
     assert r.read_new() == ["[M] m"]
     assert append_doc in r._addrs and insert_doc not in r._addrs
+
+
+def test_idle_verify_unanchors_when_nothing_extends_us():
+    # 殭屍自肯定回歸:驗證掃描只找得到「與我們相等」的群(= 殭屍自己)時,
+    # 不能自我肯定續留 —— 必須解錨回探索,否則永遠監聽中卻收不到訊息
+    import src.reader.mem_reader as mr
+    r = FakeLive()
+    base = ["[A] a", "[B] b", "[C] c"]
+    r.mem = {DOC: list(base)}
+    r.read_new()
+    r.mem[DOC] = base + ["[D] d"]
+    assert r.read_new() == ["[D] d"]                  # 定錨
+    # 真文件換到與殭屍結構完全對不上的新形態(新視窗文件),殭屍凍結
+    fresh = 0xF000
+    r.mem[fresh] = ["[X] x", "[Y] y"]
+    for _ in range(mr._IDLE_RECHECK_POLLS - 1):
+        assert r.read_new() == []
+    assert r.read_new() == []                         # 驗證:無延伸 → 解錨
+    assert r._addrs == {}                             # 回探索
+    assert r.read_new() == []                         # 探索全掃 1(建快照)
+    r.mem[fresh] = ["[X] x", "[Y] y", "[Z] z"]
+    assert r.read_new() == ["[Z] z"]                  # 新文件成長 → 重定錨、恢復翻譯

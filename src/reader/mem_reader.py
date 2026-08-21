@@ -410,35 +410,29 @@ class LiveChatReader:
 
     def _verify_anchor(self, h) -> list[str]:
         """驗證掃描(單次全掃):錨點長期無變化時,確認世界上是否有「延伸我們內容」的
-        文件 —— 有就當場重定錨並補翻(錨點是殘骸、真文件已搬走的情況);內容仍是最新
-        就重新蒐集同步副本位址;完全對不上才解錨重探索。"""
+        文件 —— 有就當場重定錨並補翻(錨點是殘骸、真文件已搬走的情況);
+        沒有就一律解錨回探索。不能用「找得到與我們內容相等的群」自我肯定 ——
+        殭屍錨點自己永遠相等,真的活文件結構可能與殭屍完全對不上,
+        自肯定會讓工具永遠卡在殭屍上「監聽中」卻收不到任何訊息。"""
         groups = [(addr, nbytes, list(lines))
                   for addr, nbytes, lines in self._scan_groups(h) if lines]
         best = None
-        current: list[tuple[int, int]] = []
         for addr, nbytes, lines in groups:
             appended = align_append(self._lines, lines)
             is_append = appended is not None
             if appended is None:
                 appended = inserted_lines(self._lines, lines)
-            if appended is None:
+            if not appended:
                 continue
-            if appended:
-                if best is None or (is_append, len(lines)) > (best[4], len(best[2])):
-                    best = (addr, nbytes, lines, appended, is_append)
-            else:
-                current.append((addr, nbytes))
+            if best is None or (is_append, len(lines)) > (best[4], len(best[2])):
+                best = (addr, nbytes, lines, appended, is_append)
         if best is not None:  # 有文件比我們新 → 錨點是殘骸,搬過去並補翻
             self._anchor_to(best[0], best[1], best[2],
                             [a for a, _, ls in groups if ls == best[2]])
             if not best[4] and len(best[3]) > _MAX_INSERT_CATCHUP:
                 return []  # 插入式補翻超量 = 快取跳躍,只重新同步
             return self._trim_emitted_overlap(best[3])
-        if current:  # 內容仍是最新:刷新副本位址(重新抓齊雙胞胎)
-            self._addrs = {a: 0 for a, _ in current[:_MAX_ANCHORS]}
-            self._bytes = max(n for _, n in current)
-            return []
-        self._unanchor()
+        self._unanchor()  # 世界上沒有比我們新的文件:回探索用兩掃比對重新找活文件
         return []
 
     def _anchor_to(self, addr: int, nbytes: int, lines: list[str],

@@ -1,0 +1,14 @@
+[  42.6s] CHANGED @2693d2f9900 968->969
+[  42.6s] BORN @269010a5970 n=11 tail='[你] Test'
+[  42.6s] BORN @268ad8cfba0 n=1 tail='[你] Test'
+[  42.6s] BORN @268bc11d470 n=22 tail='[你] Test'
+[  47.7s] CHANGED @269010a5970 11->12
+[  47.7s] CHANGED @2693d2f9900 969->969
+[  47.7s] BORN @26936e1e870 n=1 tail='[你] 1'
+[  52.7s] CHANGED @2693d2f9900 969->969
+[  52.7s] BORN @268a44a68e0 n=12 tail='[你] 1'
+[  52.7s] BORN @268a44a3d00 n=12 tail='[你] 1'
+[  58.2s] CHANGED @269010a5970 12->13
+[  58.2s] BORN @269241ccb20 n=13 tail='[你] asdf456'
+[  58.2s] BORN @269241c9c40 n=13 tail='[你] asdf456'
+done 29 scans
