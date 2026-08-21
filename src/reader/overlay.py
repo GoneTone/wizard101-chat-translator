@@ -99,6 +99,11 @@ class OverlayWindow:
         self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._on_wheel))
         self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
 
+        # 空狀態提示:沒有任何訊息時,把目前狀態大字顯示在視窗正中間
+        self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
+                                     font=("Microsoft JhengHei", 11))
+        self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+
         # 右下角縮放把手
         grip = tk.Frame(self._win, bg=GRIP, width=_GRIP_SIZE, height=_GRIP_SIZE,
                         cursor="size_nw_se")
@@ -162,6 +167,7 @@ class OverlayWindow:
             _, _, _, old_row = self._messages.pop(0)
             old_row.destroy()
 
+        self._refresh_placeholder()
         self._canvas.update_idletasks()
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         if stick:
@@ -178,10 +184,21 @@ class OverlayWindow:
             else:
                 keep.append(entry)
         self._messages = keep
+        self._refresh_placeholder()
 
     def set_status(self, text: str, color: str = FG_BAR) -> None:
-        """更新標題列右側的狀態指示(如「● 監聽中」);text 為空即隱藏。"""
+        """更新狀態指示:標題列右側小字;視窗還沒有任何訊息時,同步大字置中顯示。"""
         self._status_label.configure(text=text, fg=color)
+        self._placeholder.configure(text=text, fg=color)
+        self._refresh_placeholder()
+
+    def _refresh_placeholder(self) -> None:
+        """沒有訊息 → 置中顯示狀態;有訊息 → 收掉,讓位給訊息列表。"""
+        if self._messages:
+            self._placeholder.place_forget()
+        else:
+            self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+            self._placeholder.lift()
 
     def set_error(self, text: str) -> None:
         self.clear_error()
@@ -204,3 +221,6 @@ class OverlayWindow:
 
     def status_text(self) -> str:
         return self._status_label.cget("text")
+
+    def placeholder_visible(self) -> bool:
+        return self._placeholder.winfo_manager() == "place"

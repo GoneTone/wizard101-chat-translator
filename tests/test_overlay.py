@@ -90,3 +90,14 @@ def test_set_status_updates_bar_label(root):
     assert ov.status_text() == "●  監聽中"
     ov.set_status("●  翻譯中…", "#6fa8dc")
     assert ov.status_text() == "●  翻譯中…"
+
+
+def test_placeholder_centered_when_empty_hidden_after_message(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+    ov.set_status("●  定位聊天資料中…", "#e0b050")
+    assert ov.placeholder_visible() is True          # 沒訊息 → 置中顯示狀態
+    assert ov.status_text() == "●  定位聊天資料中…"
+    ov.add_message("[A] hi", "譯文")
+    assert ov.placeholder_visible() is False         # 有訊息 → 收掉
+    ov.set_status("●  監聽中", "#7dc87d")
+    assert ov.placeholder_visible() is False         # 有訊息時更新狀態也不重現
