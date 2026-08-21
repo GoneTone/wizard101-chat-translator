@@ -9,7 +9,7 @@ import httpx
 import keyboard
 
 from src.composer.input_box import InputBox
-from src.composer.paste import paste_into_window, set_clipboard
+from src.composer.paste import type_into_window
 from src.config import load_config, save_config
 from src.reader.dedup import LineDeduper
 from src.reader.mem_reader import GameNotRunning, read_chat_lines
@@ -130,8 +130,7 @@ def main() -> None:
     )
 
     def on_translated(english: str, hwnd: int | None) -> None:
-        set_clipboard(english)
-        paste_into_window(hwnd)
+        type_into_window(hwnd, english, delay=cfg["type_delay"])
 
     input_box = InputBox(root, translator.to_en, ui_queue, on_translated)
     keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
