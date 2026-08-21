@@ -1,4 +1,4 @@
-from src.reader.mem_reader import ChatReader, clean, extract_lines
+from src.reader.mem_reader import ChatReader, clean, extract_lines, largest_group
 
 
 def u16(s: str) -> bytes:
@@ -145,3 +145,13 @@ def test_empty_hot_regions_forces_full_scan():
     for _ in range(3):
         r.read()
     assert r.hot_calls == 0
+
+
+def test_largest_group_picks_densest_cluster():
+    marks = [0, 100, 200, 10000, 10100, 20000, 20100, 20200, 20300]
+    assert largest_group(marks, gap=1000) == (20000, 20300)
+
+
+def test_largest_group_empty_and_single():
+    assert largest_group([]) is None
+    assert largest_group([500]) == (500, 500)

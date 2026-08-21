@@ -1,13 +1,12 @@
-"""reader_loop 行為:記憶體收訊 → 去重 → 翻譯 → overlay。
-離線恢復:翻譯失敗的行(與同批未試的行)下一輪重新嘗試,橫幅只在還在離線時顯示,
-只有真的翻譯成功過才清除橫幅、重置退避;找不到遊戲時顯示對應橫幅並重試。"""
+"""reader_loop 行為:讀「有序尾段」→ 結尾新增偵測 → 翻譯 → overlay。
+只翻接在結尾的新訊息(舊訊息在別處重現不冒出);離線時失敗的行下輪重試,橫幅正確。"""
 import queue
 import threading
 
 import httpx
 
 import src.main as main_module
-from src.main import reader_loop
+from src.main import appended_lines, reader_loop
 from src.reader.mem_reader import GameNotRunning
 
 
@@ -28,32 +27,129 @@ class FakeOverlay:
 
 
 def run_cycles(cfg, translator, overlay, lines, stop_after_cycle, monkeypatch):
-    """跑 reader_loop 到第 stop_after_cycle 輪就停;每輪 read_chat_lines 回傳 lines。
-    跑完把 ui_queue 回呼全部執行掉(模擬 pump())。"""
+    """每輪 read_ordered_tail 回傳同一個 lines;跑到第 stop_after_cycle 輪停。"""
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     count = {"n": 0}
 
-    def fake_read(process_name="WizardGraphicalClient.exe"):
+    def fake_tail(process_name="WizardGraphicalClient.exe", tail=80):
         count["n"] += 1
         if count["n"] >= stop_after_cycle:
             stop.set()
         return list(lines)
 
-    monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
+    monkeypatch.setattr(main_module, "read_ordered_tail", fake_tail)
     reader_loop(cfg, translator, overlay, ui_queue, stop)
+    _drain(ui_queue)
+    return overlay
 
+
+def run_scripted(cfg, translator, overlay, reads, monkeypatch):
+    """每輪 read_ordered_tail 依序回傳 reads[i];跑完 len(reads) 輪後停。"""
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    count = {"n": 0}
+
+    def fake_tail(process_name="WizardGraphicalClient.exe", tail=80):
+        i = count["n"]
+        count["n"] += 1
+        if count["n"] >= len(reads):
+            stop.set()
+        return list(reads[i])
+
+    monkeypatch.setattr(main_module, "read_ordered_tail", fake_tail)
+    reader_loop(cfg, translator, overlay, ui_queue, stop)
+    _drain(ui_queue)
+
+
+def _drain(ui_queue):
     while True:
         try:
             ui_queue.get_nowait()()
         except queue.Empty:
             break
-    return overlay
 
 
+# --- appended_lines 純函式 ---
+def test_appended_lines_returns_after_anchor():
+    assert appended_lines(["a", "b", "c"], ["a", "b", "c", "d", "e"]) == ["d", "e"]
+
+
+def test_appended_lines_none_when_anchor_absent():
+    assert appended_lines(["a", "b", "c"], ["x", "y", "z"]) is None
+
+
+def test_appended_lines_empty_when_no_new():
+    assert appended_lines(["a", "b"], ["a", "b"]) == []
+
+
+def test_appended_lines_ignores_prefix_changes():
+    # 舊訊息在前面重現、但結尾錨點不變 → 沒有新增
+    assert appended_lines(["a", "b", "c"], ["old", "a", "b", "c"]) == []
+
+
+# --- 結尾新增偵測 ---
+class OkTranslator:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def to_zh(self, text):
+        self.calls.append(text)
+        return f"譯:{text}"
+
+
+def test_only_appended_messages_translated(monkeypatch):
+    cfg = {"poll_interval": 0.01, "startup_tail": 0}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    reads = [["[A] a", "[B] b"], ["[A] a", "[B] b", "[C] c"], ["[A] a", "[B] b", "[C] c", "[D] d"]]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[C] c", "[D] d"]  # 啟動不翻,之後只翻結尾新增
+
+
+def test_old_message_resurfacing_not_translated(monkeypatch):
+    cfg = {"poll_interval": 0.01, "startup_tail": 0}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    # 掃3:一則舊訊息 X 在前面重現,但結尾錨點 [D] d 不變 → 不翻 X
+    reads = [
+        ["[A] a", "[B] b"],
+        ["[A] a", "[B] b", "[D] d"],
+        ["[X] old", "[A] a", "[B] b", "[D] d"],
+    ]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[D] d"]
+
+
+def test_anchor_lost_falls_back_to_seen_diff(monkeypatch):
+    cfg = {"poll_interval": 0.01, "startup_tail": 0}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    # 掃2 尾段全換(捲太快,錨點消失)→ 備援:翻沒看過的行
+    reads = [["[A] a", "[B] b"], ["[X] x", "[Y] y"]]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[X] x", "[Y] y"]
+
+
+def test_startup_translates_ordered_tail(monkeypatch):
+    cfg = {"poll_interval": 0.01, "startup_tail": 3}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    backlog = [f"[P] m{i:02d}" for i in range(10)]
+    run_scripted(cfg, tr, ov, [backlog], monkeypatch)
+    assert tr.calls == backlog[-3:]  # 有序尾段的最後 3 句(正確的最新)
+
+
+def test_startup_tail_zero_translates_nothing(monkeypatch):
+    cfg = {"poll_interval": 0.01, "startup_tail": 0}
+    tr = OkTranslator()
+    ov = FakeOverlay()
+    run_scripted(cfg, tr, ov, [["[A] a", "[B] b", "[C] c"]], monkeypatch)
+    assert tr.calls == []
+
+
+# --- 離線恢復 ---
 class FlakyTranslator:
-    """第一次呼叫拋 HTTPError(模擬伺服器離線),之後成功。"""
-
     def __init__(self):
         self.calls = 0
 
@@ -66,31 +162,25 @@ class FlakyTranslator:
 
 def test_failed_line_is_retranslated_after_recovery(monkeypatch):
     monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = FlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    assert translator.calls == 2
-    assert overlay.messages == [("hello there", "譯:hello there")]
+    cfg = {"poll_interval": 0.01, "startup_tail": 100}
+    tr = FlakyTranslator()
+    ov = FakeOverlay()
+    run_cycles(cfg, tr, ov, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
+    assert tr.calls == 2
+    assert ov.messages == [("hello there", "譯:hello there")]
 
 
 def test_banner_set_while_offline_and_cleared_only_after_success(monkeypatch):
     monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = FlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
-    assert overlay.clears == 1
+    cfg = {"poll_interval": 0.01, "startup_tail": 100}
+    tr = FlakyTranslator()
+    ov = FakeOverlay()
+    run_cycles(cfg, tr, ov, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
+    assert ov.errors == ["⚠ 翻譯伺服器離線，重試中…"]
+    assert ov.clears == 1
 
 
 class BatchFlakyTranslator:
-    """整批第一行失敗一次(模擬離線),之後全部成功。驗證同批未試的行也一起重試。"""
-
     def __init__(self):
         self.calls: list[str] = []
         self._failed_once = False
@@ -103,120 +193,20 @@ class BatchFlakyTranslator:
         return f"譯:{text}"
 
 
-def test_batch_remainder_is_forgotten_and_retried_after_recovery(monkeypatch):
+def test_batch_remainder_is_retried_after_recovery(monkeypatch):
     monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    translator = BatchFlakyTranslator()
-    overlay = FakeOverlay()
-
-    run_cycles(cfg, translator, overlay, ["line one", "line two", "line three"],
+    cfg = {"poll_interval": 0.01, "startup_tail": 100}
+    tr = BatchFlakyTranslator()
+    ov = FakeOverlay()
+    run_cycles(cfg, tr, ov, ["line one", "line two", "line three"],
                stop_after_cycle=2, monkeypatch=monkeypatch)
-
-    # 第一輪只試了 "line one" 就失敗,整批(含未試的 line two/three)下一輪重新嘗試,
-    # 三行最後都成功翻譯,沒有任何一行被永久漏掉。
-    assert translator.calls == ["line one", "line one", "line two", "line three"]
-    assert overlay.messages == [
+    # 第一輪 line one 失敗 → 整批下輪重試,三行最後都翻到
+    assert tr.calls == ["line one", "line one", "line two", "line three"]
+    assert ov.messages == [
         ("line one", "譯:line one"),
         ("line two", "譯:line two"),
         ("line three", "譯:line three"),
     ]
-    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
-    assert overlay.clears == 1
-
-
-class OkTranslator:
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def to_zh(self, text):
-        self.calls.append(text)
-        return f"譯:{text}"
-
-
-def run_scripted(cfg, translator, overlay, reads, monkeypatch, absorbs=None):
-    """每輪 read_chat_lines 依序回傳 reads[i](last_absorbed 回傳 absorbs[i]);
-    跑完 len(reads) 輪後停止。"""
-    ui_queue: queue.Queue = queue.Queue()
-    stop = threading.Event()
-    count = {"n": 0}
-
-    def fake_read(process_name="WizardGraphicalClient.exe"):
-        i = count["n"]
-        count["n"] += 1
-        if count["n"] >= len(reads):
-            stop.set()
-        return list(reads[i])
-
-    monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
-    monkeypatch.setattr(main_module, "last_absorbed",
-                        lambda: list(absorbs[count["n"] - 1]) if absorbs else [])
-    reader_loop(cfg, translator, overlay, ui_queue, stop)
-    while True:
-        try:
-            ui_queue.get_nowait()()
-        except queue.Empty:
-            break
-
-
-def test_startup_translates_only_tail_of_backlog(monkeypatch):
-    backlog = [f"[P] msg{i:02d}" for i in range(25)]
-    cfg = {"poll_interval": 0.01, "startup_tail": 10}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-
-    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息首次出現(未穩定);
-    # 掃3:兩句新訊息連續第二次 → 穩定 → 翻譯
-    new = ["[P] newA", "[P] newB"]
-    reads = [backlog, backlog + new, backlog + new]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch)
-
-    # 啟動翻 backlog 最後 10 句;之後翻穩定出現的兩句新訊息
-    assert translator.calls == backlog[-10:] + new
-
-
-def test_transient_lines_not_translated_only_stable_ones(monkeypatch):
-    cfg = {"poll_interval": 0.01, "startup_tail": 0}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-
-    # 掃1:啟動基準([A] 標記看過,不翻)
-    # 掃2:[B] 首次出現(尚未穩定,不翻)
-    # 掃3:[B] 連續第二次出現 → 穩定 → 翻譯
-    # 掃4:[X] 暫時垃圾出現一次(不穩定,不翻)
-    # 掃5:[X] 消失 → 永遠不翻
-    reads = [
-        ["[A] one"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two", "[X] junk"],
-        ["[A] one", "[B] two"],
-    ]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch)
-
-    assert translator.calls == ["[B] two"]  # 只翻穩定的 B;A 為啟動歷史、X 為暫時垃圾
-
-
-def test_absorbed_lines_are_not_translated(monkeypatch):
-    # 被判定為「新出現區塊的既有內容」的行(last_absorbed)應標記看過、永不翻譯,
-    # 即使它穩定跨輪出現(對照 test_transient:未吸收時穩定行會被翻)。
-    cfg = {"poll_interval": 0.01, "startup_tail": 0}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-    reads = [["[A] one"], ["[A] one", "[B] two"], ["[A] one", "[B] two"]]
-    absorbs = [[], ["[B] two"], ["[B] two"]]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch, absorbs=absorbs)
-    assert translator.calls == []
-
-
-def test_startup_tail_smaller_than_backlog_translates_all(monkeypatch):
-    backlog = ["[P] a", "[P] b", "[P] c"]
-    cfg = {"poll_interval": 0.01, "startup_tail": 10}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-
-    run_scripted(cfg, translator, overlay, [backlog], monkeypatch)
-
-    assert translator.calls == backlog  # backlog 不足 10 句時全翻
 
 
 class NeverTranslator:
@@ -224,28 +214,22 @@ class NeverTranslator:
         raise AssertionError("找不到遊戲時不應嘗試翻譯")
 
 
-def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
+def test_game_not_running_shows_banner_once(monkeypatch):
     monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01, "startup_tail": 100}  # 首輪照翻(非測啟動抑制)
-    overlay = FakeOverlay()
+    cfg = {"poll_interval": 0.01, "startup_tail": 0}
+    ov = FakeOverlay()
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     count = {"n": 0}
 
-    def fake_read(process_name="WizardGraphicalClient.exe"):
+    def fake_tail(process_name="WizardGraphicalClient.exe", tail=80):
         count["n"] += 1
         if count["n"] >= 2:
             stop.set()
         raise GameNotRunning("no game")
 
-    monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
-    reader_loop(cfg, NeverTranslator(), overlay, ui_queue, stop)
-
-    while True:
-        try:
-            ui_queue.get_nowait()()
-        except queue.Empty:
-            break
-
-    assert overlay.errors == ["⚠ 找不到遊戲程序，等待中…"]  # 只顯示一次
-    assert overlay.messages == []
+    monkeypatch.setattr(main_module, "read_ordered_tail", fake_tail)
+    reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
+    _drain(ui_queue)
+    assert ov.errors == ["⚠ 找不到遊戲程序，等待中…"]
+    assert ov.messages == []
