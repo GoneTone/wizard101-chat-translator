@@ -40,6 +40,25 @@ ImageBase(靜態)= `0x140000000`。以下位址標 **RVA**(執行時 = 模組基
 2. 對「渲染上下文」或「屬性擁有者」做 Cheat Engine pointer scan(從已知聊天字串位址往回掃指標),找跨重啟穩定的 `模組基址 + 偏移 → …` 路徑。
 3. 找到容器後,確認元素佈局(sender/text 偏移),即可讀有序訊息,達成重複、即時、與遊戲完全一致。
 
+## 動態逆向(純讀 pointer scan,不需除錯器) — 2026-08-21
+
+用純讀 `ReadProcessMemory` + numpy 寫了多層反向 pointer scanner(`scripts/ptrscan.py`),
+從一則獨特訊息字串反向追指標鏈到模組固定區。**方法成功,秒級找到穩定入口:**
+
+- 打獨特訊息 `QZX99WIZ`,depth 1 就找到 4 條「.data 全域 → 訊息」路徑:
+  - `模組基址+0x333cfa8 / +0x333db38 / +0x33631d8` → **同一個 .data 靜態物件**(RVA `0x33b0fc0`)+0x1c8
+  - `模組基址+0x3363198` → 一則渲染訊息 wstring(+0x2)
+- RVA `0x33b0fc0` 的靜態物件經 RTTI/字串確認是 **ControlRichEdit**(遊戲聊天顯示控件單例)。
+  其 +0x1c8 是顯示文字,但**是排版用的碎片 run**(以 `\x00` 分隔、部分重疊,如 "building"/"lding"/"ilding"),不是乾淨的一則一項。
+- ControlRichEdit 沒有乾淨的 `vector<std::wstring>` 行陣列;訊息 wstring(如 `<center>QZX99WIZ`、`<color;…>[sender] text</color>`)散在 heap。
+
+**決定性結論:** 遊戲**顯示**的聊天在記憶體就是**渲染標記文字**(`<color>`/`<center>`/`<link>`/`[sender]` 全混在 wstring 裡),
+**沒有**分離 sender/text、帶順序/時間戳的乾淨結構化容器。ChatInfo/ChatHistory 類別存在但不以乾淨欄位形式持有顯示訊息(可能僅用於網路/序列化)。
+這從根本解釋了為何「重複的相同訊息無法用內容區分」——記憶體裡本來就沒存訊息身分。
+
+**pointer scan 的價值**:證明能純讀找到 .data 穩定入口(ControlRichEdit @RVA `0x33b0fc0`),
+可用來取代「全記憶體掃描找聊天」→ 解決定位卡住/乒乓/殭屍/掃描慢;但內容仍是渲染碎片,訊息身分問題是記憶體本質限制,非演算法可解。
+
 ## 現行實作(未走上述路線)
 
 `src/reader/mem_reader.py`:純讀 `ReadProcessMemory` 掃描聊天標記文字、定錨「活文件」、翻譯尾端新增行。對不同內容的訊息可靠、閒置不冒舊;弱點是「快速連續發送完全相同的短語」可能漏(渲染層無訊息身分,內容無法區分)。
