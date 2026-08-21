@@ -17,12 +17,6 @@ MARKER = "<color;FFFFFF><image;Art/Art_Chat".encode("utf-16-le")
 CLOSE = "</color>".encode("utf-16-le")
 _TAG = re.compile(r"<[^>]*>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
-# 破損副本的二進位痕跡:替換字元、IPA/修飾/組合符、私有區、特殊區、代理對。
-# 正常英文/中文聊天不會用到這些;含任一即視為破損,整行拒絕(乾淨副本仍會通過)。
-_GARBAGE = re.compile(
-    "[\x00-\x08\x0b-\x1f\x7f-\x9fɐ-˿̀-ͯ"
-    "-￰-￿\ud800-\udfff]"
-)
 # 白名單:只允許聊天實際會用到的字元(ASCII、CJK、全形、常用標點、BMP emoji)。
 # 版面/渲染緩衝的破損副本會夾入其他區塊的字元(指標位元組被當成雜字),含任一即拒絕。
 _NON_CHAT = re.compile(

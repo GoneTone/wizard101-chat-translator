@@ -66,7 +66,9 @@ class InputBox:
         try:
             english = self._translate(text)
         except Exception as exc:
-            self._queue.put(lambda: self._show_error(f"翻譯失敗:{exc}", session))
+            # 先把訊息綁成區域變數:lambda 延後在主執行緒執行,屆時 except 的 exc 已被刪除
+            msg = f"翻譯失敗:{exc}"
+            self._queue.put(lambda: self._show_error(msg, session))
             return
         self._queue.put(lambda: self._finish(english, hwnd, session))
 
