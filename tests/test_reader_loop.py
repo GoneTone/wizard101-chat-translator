@@ -161,36 +161,22 @@ def test_startup_translates_only_tail_of_backlog(monkeypatch):
     translator = OkTranslator()
     overlay = FakeOverlay()
 
-    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息首次出現(未穩定);
-    # 掃3:兩句新訊息連續第二次 → 穩定 → 翻譯
+    # 掃1:整段 backlog(啟動翻最後 10 句);掃2:兩句新訊息 → 翻
     new = ["[P] newA", "[P] newB"]
-    reads = [backlog, backlog + new, backlog + new]
+    reads = [backlog, backlog + new]
     run_scripted(cfg, translator, overlay, reads, monkeypatch)
 
-    # 啟動翻 backlog 最後 10 句;之後翻穩定出現的兩句新訊息
     assert translator.calls == backlog[-10:] + new
 
 
-def test_transient_lines_not_translated_only_stable_ones(monkeypatch):
+def test_new_message_translated_next_scan(monkeypatch):
+    # 啟動後,任何沒看過的新行下一次掃描就翻;既有歷史(啟動已標記看過)不重翻
     cfg = {"poll_interval": 0.01, "startup_tail": 0}
     translator = OkTranslator()
     overlay = FakeOverlay()
-
-    # 掃1:啟動基準([A] 標記看過,不翻)
-    # 掃2:[B] 首次出現(尚未穩定,不翻)
-    # 掃3:[B] 連續第二次出現 → 穩定 → 翻譯
-    # 掃4:[X] 暫時垃圾出現一次(不穩定,不翻)
-    # 掃5:[X] 消失 → 永遠不翻
-    reads = [
-        ["[A] one"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two"],
-        ["[A] one", "[B] two", "[X] junk"],
-        ["[A] one", "[B] two"],
-    ]
+    reads = [["[A] one"], ["[A] one", "[B] two"], ["[A] one", "[B] two", "[C] three"]]
     run_scripted(cfg, translator, overlay, reads, monkeypatch)
-
-    assert translator.calls == ["[B] two"]  # 只翻穩定的 B;A 為啟動歷史、X 為暫時垃圾
+    assert translator.calls == ["[B] two", "[C] three"]
 
 
 def test_startup_tail_smaller_than_backlog_translates_all(monkeypatch):
