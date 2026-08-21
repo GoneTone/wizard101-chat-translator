@@ -12,7 +12,7 @@ from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import load_config, save_config
 from src.reader.dedup import LineDeduper
-from src.reader.mem_reader import GameNotRunning, last_absorbed, read_chat_lines
+from src.reader.mem_reader import GameNotRunning, read_chat_lines
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
@@ -65,10 +65,6 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         if game_missing:
             game_missing = False
             ui_queue.put(overlay.clear_error)
-
-        # 全掃若發現「新變熱的記憶體區塊」,那是剛載入的既有歷史(非新訊息):標記看過、不翻,
-        # 避免舊訊息在沒人講話時被當成新的冒出來。
-        deduper.new_lines(last_absorbed())
 
         if first_scan:
             # 啟動時記憶體裡已有整段歷史聊天,但掃描順序不等於時間順序,無法可靠挑出「最新 N 句」。

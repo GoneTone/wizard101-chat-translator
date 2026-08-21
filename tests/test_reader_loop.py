@@ -133,9 +133,8 @@ class OkTranslator:
         return f"譯:{text}"
 
 
-def run_scripted(cfg, translator, overlay, reads, monkeypatch, absorbs=None):
-    """每輪 read_chat_lines 依序回傳 reads[i](last_absorbed 回傳 absorbs[i]);
-    跑完 len(reads) 輪後停止。"""
+def run_scripted(cfg, translator, overlay, reads, monkeypatch):
+    """每輪 read_chat_lines 依序回傳 reads[i];跑完 len(reads) 輪後停止。"""
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     count = {"n": 0}
@@ -148,8 +147,6 @@ def run_scripted(cfg, translator, overlay, reads, monkeypatch, absorbs=None):
         return list(reads[i])
 
     monkeypatch.setattr(main_module, "read_chat_lines", fake_read)
-    monkeypatch.setattr(main_module, "last_absorbed",
-                        lambda: list(absorbs[count["n"] - 1]) if absorbs else [])
     reader_loop(cfg, translator, overlay, ui_queue, stop)
     while True:
         try:
@@ -194,18 +191,6 @@ def test_transient_lines_not_translated_only_stable_ones(monkeypatch):
     run_scripted(cfg, translator, overlay, reads, monkeypatch)
 
     assert translator.calls == ["[B] two"]  # 只翻穩定的 B;A 為啟動歷史、X 為暫時垃圾
-
-
-def test_absorbed_lines_are_not_translated(monkeypatch):
-    # 被判定為「新出現區塊的既有內容」的行(last_absorbed)應標記看過、永不翻譯,
-    # 即使它穩定跨輪出現(對照 test_transient:未吸收時穩定行會被翻)。
-    cfg = {"poll_interval": 0.01, "startup_tail": 0}
-    translator = OkTranslator()
-    overlay = FakeOverlay()
-    reads = [["[A] one"], ["[A] one", "[B] two"], ["[A] one", "[B] two"]]
-    absorbs = [[], ["[B] two"], ["[B] two"]]
-    run_scripted(cfg, translator, overlay, reads, monkeypatch, absorbs=absorbs)
-    assert translator.calls == []
 
 
 def test_startup_tail_smaller_than_backlog_translates_all(monkeypatch):
