@@ -84,7 +84,7 @@ def test_banner_set_while_offline_and_cleared_only_after_success(monkeypatch):
 
     run_cycles(cfg, translator, overlay, ["hello there"], stop_after_cycle=2, monkeypatch=monkeypatch)
 
-    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
+    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
     assert overlay.clears == 1
 
 
@@ -120,7 +120,7 @@ def test_batch_remainder_is_forgotten_and_retried_after_recovery(monkeypatch):
         ("line two", "譯:line two"),
         ("line three", "譯:line three"),
     ]
-    assert overlay.errors == ["⚠ 翻譯伺服器離線,重試中…"]
+    assert overlay.errors == ["⚠ 翻譯伺服器離線，重試中…"]
     assert overlay.clears == 1
 
 
@@ -232,5 +232,5 @@ def test_game_not_running_shows_banner_once_and_retries(monkeypatch):
         except queue.Empty:
             break
 
-    assert overlay.errors == ["⚠ 找不到遊戲程序,等待中…"]  # 只顯示一次
+    assert overlay.errors == ["⚠ 找不到遊戲程序，等待中…"]  # 只顯示一次
     assert overlay.messages == []

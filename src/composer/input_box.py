@@ -41,7 +41,7 @@ class InputBox:
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=("Microsoft JhengHei", 12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
-        self._status = tk.Label(self._win, text="打繁中,Enter 翻譯並貼進遊戲(不會自動送出),Esc 關閉",
+        self._status = tk.Label(self._win, text="打繁中，Enter 翻譯並輸入遊戲（不會自動送出），Esc 關閉",
                                 bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9), anchor="w")
         self._status.pack(fill="x", padx=8)
         self._entry.bind("<Return>", self._on_enter)
@@ -83,7 +83,7 @@ class InputBox:
             english = self._translate(text)
         except Exception as exc:
             # 先把訊息綁成區域變數:lambda 延後在主執行緒執行,屆時 except 的 exc 已被刪除
-            msg = f"翻譯失敗:{exc}"
+            msg = f"翻譯失敗：{exc}"
             self._queue.put(lambda: self._show_error(msg, session))
             return
         self._queue.put(lambda: self._finish(english, hwnd, session))

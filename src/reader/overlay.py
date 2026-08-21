@@ -65,7 +65,7 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        label = tk.Label(bar, text="≡  Wiz101 翻譯", bg=BAR, fg=FG_BAR,
+        label = tk.Label(bar, text="≡  Wizard101 翻譯", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
         for w in (bar, label):

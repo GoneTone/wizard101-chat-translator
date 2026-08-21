@@ -32,7 +32,7 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
         try:
             callback()
         except Exception as exc:  # 避免單一 UI 回呼失敗就讓整個 pump 迴圈停擺
-            print(f"[ui] 回呼失敗:{exc}", file=sys.stderr)
+            print(f"[ui] 回呼失敗：{exc}", file=sys.stderr)
 
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
@@ -54,11 +54,11 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         except GameNotRunning:
             if not game_missing:
                 game_missing = True
-                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序,等待中…"))
+                ui_queue.put(lambda: overlay.set_error("⚠ 找不到遊戲程序，等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 掃描偶發錯誤:略過該輪,不讓執行緒死掉
-            print(f"[reader] 略過此輪:{exc}", file=sys.stderr)
+            print(f"[reader] 略過此輪：{exc}", file=sys.stderr)
             stop.wait(interval)
             continue
 
@@ -95,7 +95,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         if went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
-            ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線,重試中…"))
+            ui_queue.put(lambda: overlay.set_error("⚠ 翻譯伺服器離線，重試中…"))
         elif translated_ok and backoff_index:
             # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
             backoff_index = 0
@@ -107,7 +107,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 def main() -> None:
     cfg = load_config(CONFIG_PATH)
     if not cfg["api"]["model"]:
-        sys.exit("請編輯 config.json 填入 api.base_url 與 api.model(格式參考 config.example.json)。")
+        sys.exit("請編輯 config.json 填入 api.base_url 與 api.model（格式參考 config.example.json）。")
 
     translator = Translator(**cfg["api"])
     ui_queue: queue.Queue = queue.Queue()
@@ -149,7 +149,7 @@ def main() -> None:
         overlay.prune()
         root.after(50, pump)
 
-    print(f"執行中:熱鍵 {cfg['hotkey']} 呼出輸入框;Ctrl+C 結束。")
+    print(f"執行中：熱鍵 {cfg['hotkey']} 呼出輸入框；Ctrl+C 結束。")
     pump()
     try:
         root.mainloop()
