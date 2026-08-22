@@ -1,7 +1,7 @@
 """fields 純邏輯測試：表單驗證、錯誤文案、熱鍵字串。"""
 from src.translator import TranslatorConfigError, TranslatorOffline
 from src.ui.fields import (
-    PROVIDERS, friendly_error, hotkey_from_event, validate_api_form,
+    PROVIDERS, ApiFields, friendly_error, hotkey_from_event, validate_api_form,
 )
 
 
@@ -44,3 +44,38 @@ def test_hotkey_from_event():
     assert hotkey_from_event("F8", 0) == "f8"
     assert hotkey_from_event("x", 0x4 | 0x20000) == "ctrl+alt+x"
     assert hotkey_from_event("Control_L", 0x4) is None  # 純修飾鍵不成立
+
+
+def _initial(provider="openai", model="", base_url="", thinking=False):
+    return {"provider": provider, "api_key": "", "model": model,
+            "base_url": base_url, "thinking": thinking}
+
+
+def test_switch_provider_resets_model_not_in_new_list(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    fields._provider.set("claude")
+    fields._rebuild_fields()
+    assert fields.get_values()["model"] == PROVIDERS["claude"].models[0]
+
+
+def test_switch_provider_keeps_model_if_still_valid(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-terra"))
+    fields._provider.set("openai")
+    fields._rebuild_fields()
+    assert fields.get_values()["model"] == "gpt-5.6-terra"
+
+
+def test_switch_to_custom_keeps_users_model_input(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    fields._provider.set("custom")
+    fields._rebuild_fields()
+    assert fields.get_values()["model"] == "gpt-5.6-sol"  # custom 不清空使用者原輸入
+
+
+def test_switch_provider_clears_test_result_label(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    fields._show_test_result(True, "連線成功　範例：hi")
+    assert fields._test_result.cget("text") != ""
+    fields._provider.set("claude")
+    fields._rebuild_fields()
+    assert fields._test_result.cget("text") == ""

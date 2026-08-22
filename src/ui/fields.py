@@ -86,6 +86,7 @@ class ApiFields(ttk.Frame):
         self._on_change = on_change
         self.test_passed = False
         self._queue: queue.Queue = queue.Queue()  # 測試結果由背景執行緒送回主執行緒
+        self._last_provider = initial["provider"]
         self._provider = tk.StringVar(value=initial["provider"])
         self._api_key = tk.StringVar(value=initial["api_key"])
         self._model = tk.StringVar(value=initial["model"])
@@ -137,6 +138,10 @@ class ApiFields(ttk.Frame):
     def _rebuild_fields(self) -> None:
         for w in self._fields.winfo_children():
             w.destroy()
+        provider_changed = self._provider.get() != self._last_provider
+        if provider_changed:
+            # 切換服務商後，上一家的「連線成功」殘留字樣不該繼續顯示。
+            self._test_result.configure(text="")
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
             self._labeled_entry("伺服器網址", self._base_url)
@@ -144,6 +149,7 @@ class ApiFields(ttk.Frame):
             self._labeled_entry("API 金鑰（選填）", self._api_key, secret=True)
             ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
                             variable=self._thinking).pack(anchor="w", pady=2)
+            # custom 分支不清空模型欄：使用者原輸入（含跨服務商切回時）都保留。
         else:
             self._labeled_entry("API 金鑰", self._api_key, secret=True)
             row = ttk.Frame(self._fields)
@@ -151,7 +157,10 @@ class ApiFields(ttk.Frame):
             ttk.Label(row, text="模型").pack(side="left")
             combo = ttk.Combobox(row, textvariable=self._model, values=prov.models)
             combo.pack(side="left", fill="x", expand=True, padx=(8, 0))
-            if not self._model.get():
+            # 切換服務商後模型欄若殘留上一家的模型 ID（不在新清單內），改填新服務商預設模型；
+            # 模型欄原本是空的（如精靈初始狀態）也一併補上預設值。
+            if (provider_changed and self._model.get() not in prov.models) \
+                    or not self._model.get():
                 self._model.set(prov.models[0])
             if self._provider.get() == "claude":
                 ttk.Label(self._fields, text=CLAUDE_MODEL_HINT,
@@ -160,6 +169,7 @@ class ApiFields(ttk.Frame):
                              cursor="hand2")
             link.pack(anchor="w", pady=(2, 0))
             link.bind("<Button-1>", lambda e: webbrowser.open(prov.key_url))
+        self._last_provider = self._provider.get()
         self._invalidate_test()
         if self._on_change:
             self._on_change()
