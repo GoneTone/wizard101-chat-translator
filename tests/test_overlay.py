@@ -19,6 +19,24 @@ def test_is_click_beyond_threshold_is_drag():
     assert is_click(0, -8) is False
 
 
+def test_resize_updates_existing_message_wraplength(root):
+    # 視窗縮小後，既有訊息的換行寬度要跟著更新，否則文字右緣被切掉
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    ov.set_error("錯誤橫幅")
+
+    class FakeEvent:
+        width = 240
+
+    ov._on_canvas_configure(FakeEvent())
+    expected = max(80, 240 - 12)
+    for _, _, _, row in ov._messages:
+        for child in row.winfo_children():
+            assert child.cget("wraplength") == expected
+    assert ov._error_label.cget("wraplength") == expected
+
+
 def test_minimize_counts_unread_and_expand_resets(root):
     ov = OverlayWindow(root, x=0, y=0, max_messages=10, fade_seconds=0)
     ov.add_message("m0", "t0")

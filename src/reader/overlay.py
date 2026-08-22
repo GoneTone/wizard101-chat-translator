@@ -340,6 +340,12 @@ class OverlayWindow:
         # 內層寬度跟著畫布寬，文字才會依視窗寬換行
         self._canvas.itemconfigure(self._inner_id, width=e.width)
         self._wrap = max(80, e.width - 12)
+        # 既有訊息與錯誤橫幅的換行寬度也要同步更新，否則縮小視窗後右緣被切
+        for _, _, _, row in self._messages:
+            for child in row.winfo_children():
+                child.configure(wraplength=self._wrap)
+        if self._error_label is not None:
+            self._error_label.configure(wraplength=self._wrap)
 
     def _on_wheel(self, e) -> None:
         self._canvas.yview_scroll(int(-e.delta / 120), "units")

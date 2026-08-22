@@ -51,6 +51,7 @@ class InputBox:
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)
+        self._fit_height()
         self._force_focus()
 
     def _force_focus(self) -> None:
@@ -121,8 +122,13 @@ class InputBox:
             return
         self._entry.configure(state="normal")
         self._status.configure(text=message, fg="#ff5f5f")
-        # 錯誤訊息可能換行成多行：加高視窗避免被下緣切掉（位置不動）
-        self._win.geometry("460x128")
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        """依內容自動調整視窗高度（位置不動）：提示／錯誤文字換行行數會隨
+        DPI 縮放與訊息長度變動，固定高度會把文字切在下緣。"""
+        self._win.update_idletasks()
+        self._win.geometry(f"460x{max(84, self._win.winfo_reqheight())}")
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
