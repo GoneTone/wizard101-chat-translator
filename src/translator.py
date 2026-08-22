@@ -62,6 +62,9 @@ _DISABLE_THINKING = {
     "enable_thinking": False,                          # 部分伺服器吃頂層
 }
 
+# OpenAI 官方端點對未知欄位嚴格回 400，只能帶它自己認得的停用參數。
+_DISABLE_THINKING_OPENAI = {"reasoning_effort": "none"}
+
 _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 
@@ -93,7 +96,9 @@ class _OpenAICompatClient:
     """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。"""
 
     def __init__(self, base_url: str, model: str, api_key: str = "",
-                 thinking: bool = True, timeout: float = _TIMEOUT, client=None):
+                 thinking: bool = True, timeout: float = _TIMEOUT, client=None,
+                 disable_params: dict = _DISABLE_THINKING):
+        self._disable_params = disable_params
         if client is not None:
             self._client = client
         else:
@@ -112,7 +117,7 @@ class _OpenAICompatClient:
             "temperature": 0,
         }
         if not self._thinking:
-            body.update(_DISABLE_THINKING)
+            body.update(self._disable_params)
         try:
             resp = self._client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
@@ -158,9 +163,10 @@ def _build_client(provider: str, base_url: str, model: str, api_key: str,
     if provider == "claude":
         return _ClaudeClient(model=model, api_key=api_key, timeout=timeout, client=client)
     if provider == "openai":
-        base_url = OPENAI_BASE_URL
-        # 官方端點不吃自架後端專用的思考停用參數（未知欄位會 400）；thinking=False 僅 custom 適用。
-        thinking = True
+        # 官方端點固定 base_url，且只帶它認得的停用參數（自架後端那組未知欄位會 400）。
+        return _OpenAICompatClient(base_url=OPENAI_BASE_URL, model=model, api_key=api_key,
+                                   thinking=thinking, timeout=timeout, client=client,
+                                   disable_params=_DISABLE_THINKING_OPENAI)
     return _OpenAICompatClient(base_url=base_url, model=model, api_key=api_key,
                                thinking=thinking, timeout=timeout, client=client)
 
