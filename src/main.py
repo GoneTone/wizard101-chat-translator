@@ -9,7 +9,7 @@ import keyboard
 
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import CONFIG_PATH, load_config, save_config
+from src.config import CONFIG_PATH, is_configured, load_config, save_config
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator, TranslatorConfigError, TranslatorOffline
@@ -130,14 +130,19 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
 def main() -> None:
     cfg = load_config(CONFIG_PATH)
-    if not cfg["api"]["model"]:
-        sys.exit("請編輯 config.json 填入 api.base_url 與 api.model（格式參考 config.example.json）。")
-
-    translator = Translator(**cfg["api"], target_language=cfg["target_language"])
-    ui_queue: queue.Queue = queue.Queue()
 
     root = tk.Tk()
     root.withdraw()
+
+    if not is_configured(cfg):
+        from src.ui.wizard import run_wizard
+        if not run_wizard(root, cfg):
+            root.destroy()
+            return  # 使用者取消首次設定
+        save_config(CONFIG_PATH, cfg)
+
+    translator = Translator(**cfg["api"], target_language=cfg["target_language"])
+    ui_queue: queue.Queue = queue.Queue()
 
     ov = cfg["overlay"]
 
