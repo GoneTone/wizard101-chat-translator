@@ -1,11 +1,24 @@
-"""config.json 讀寫;缺漏欄位以 DEFAULT_CONFIG 補齊。"""
+"""config.json 讀寫；缺漏欄位以 DEFAULT_CONFIG 補齊。"""
 import copy
 import json
+import sys
 from pathlib import Path
 
+
+def app_dir() -> Path:
+    """應用程式目錄：config.json 與 log 的存放處。
+    打包執行(frozen)時為 exe 所在目錄；開發時為專案根目錄。"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent.parent
+
+
+CONFIG_PATH = app_dir() / "config.json"
+
 DEFAULT_CONFIG: dict = {
-    "api": {"base_url": "http://127.0.0.1:8000", "model": "", "api_key": "", "thinking": False},
-    "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言(人讀名稱,直接帶入提示詞);發話固定翻英文
+    "api": {"provider": "openai", "base_url": "http://127.0.0.1:8000",
+            "model": "", "api_key": "", "thinking": False},
+    "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言(人讀名稱，直接帶入提示詞)；發話固定翻英文
     "poll_interval": 0.4,    # 收訊輪詢間隔(秒);快掃很便宜,可設小一點更即時
     "fade_seconds": 0,       # <=0:訊息永不依時間淡出(可滾動看歷史)
     "max_messages": 200,     # 視窗保留的訊息則數上限,超過移除最舊
@@ -31,8 +44,21 @@ def load_config(path: Path) -> dict:
     if not path.exists():
         return copy.deepcopy(DEFAULT_CONFIG)
     data = json.loads(path.read_text(encoding="utf-8"))
+    # 舊版 config 沒有 provider 欄位：一律視為自訂端點，原設定不動
+    if isinstance(data.get("api"), dict) and "provider" not in data["api"]:
+        data["api"]["provider"] = "custom"
     return _merge(DEFAULT_CONFIG, data)
 
 
 def save_config(path: Path, cfg: dict) -> None:
     path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def is_configured(cfg: dict) -> bool:
+    """API 設定是否完整（不完整 → 啟動時進首次設定精靈）。"""
+    api = cfg["api"]
+    if not api["model"]:
+        return False
+    if api["provider"] in ("openai", "claude"):
+        return bool(api["api_key"])
+    return bool(api["base_url"])

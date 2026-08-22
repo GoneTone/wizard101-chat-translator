@@ -4,19 +4,17 @@ import sys
 import threading
 import tkinter as tk
 from collections import deque
-from pathlib import Path
 
 import httpx
 import keyboard
 
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import load_config, save_config
+from src.config import CONFIG_PATH, load_config, save_config
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator
 
-CONFIG_PATH = Path("config.json")
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
 
