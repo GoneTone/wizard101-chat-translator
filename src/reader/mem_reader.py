@@ -159,6 +159,7 @@ class WizChatReader:
         if not self._synced:
             self._prev = cur        # 首次連上:記錄現況(含既有歷史),不回吐
             self._synced = True
+            print(f"[reader] baseline established (lines={len(cur)})", file=sys.stderr)
             return []
         if not cur:
             return []               # 空讀(傳送/轉場暫態清空)→ 保留基準、忽略,不重譯
@@ -220,6 +221,7 @@ class WizChatReader:
             self._teardown()
             raise GameNotRunning(f"無法掛入遊戲（{exc}）") from exc
         self._connected = True
+        print(f"[reader] attached to game (pid={self._pid})", file=sys.stderr)
         self._save_hook_state(self._pid)      # 掛入成功 → 存還原狀態,供下次髒退出修復
 
     def _run(self, coro):

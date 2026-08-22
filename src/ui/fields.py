@@ -1,6 +1,7 @@
 """精靈與設定視窗共用的欄位元件與純邏輯：
 服務商選擇、API 欄位、測試連線、熱鍵捕捉、語言選擇。"""
 import queue
+import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -214,8 +215,12 @@ class ApiFields(ttk.Frame):
         try:
             sample = test_translate(api, target_language)
         except Exception as exc:
+            print(f"[settings] test connection failed (provider={api['provider']}, "
+                  f"model={api['model']}): {exc}", file=sys.stderr)
             self._queue.put((False, friendly_error(exc)))
             return
+        print(f"[settings] test connection ok (provider={api['provider']}, "
+              f"model={api['model']})", file=sys.stderr)
         self._queue.put((True, f"連線成功　範例：{sample}"))
 
     def _poll_result(self) -> None:

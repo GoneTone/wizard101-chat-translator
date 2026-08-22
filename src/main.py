@@ -49,7 +49,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
     reader = WizChatReader(game_path=cfg.get("game_path"))
     pending: deque[str] = deque()
     backoff_index = 0
-    error_banner = False
+    error_state: str | None = None  # None／"offline"／"config":供橫幅清除與轉換時記 log
     game_missing = False
     last_status: str | None = None
 
@@ -71,10 +71,11 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         set_status("listening" if reader.anchored else "locating")
         try:
             pending.extend(reader.read_new())
-        except GameNotRunning:
+        except GameNotRunning as exc:
             set_status("waiting_game")
             if not game_missing:
                 game_missing = True
+                print(f"[reader] game not ready: {exc}", file=sys.stderr)
                 ui_queue.put(lambda: overlay.set_error("⚠  遊戲未就緒／連線中斷，等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
@@ -85,6 +86,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
         if game_missing:
             game_missing = False
+            print("[reader] game back, resuming", file=sys.stderr)
             ui_queue.put(overlay.clear_error)
 
         if pending:
@@ -93,11 +95,13 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             line = pending[0]
             try:
                 translated = translator.translate_incoming(line)
-            except TranslatorOffline:
+            except TranslatorOffline as exc:
                 went_offline = True  # line 留在 pending，下輪重試
+                offline_exc = exc
                 break
-            except TranslatorConfigError:
+            except TranslatorConfigError as exc:
                 config_error = True  # 設定錯誤：行留在 pending，等使用者修正後自動恢復
+                config_exc = exc
                 break
             except Exception as exc:
                 # 其他翻譯錯誤（如模型回傳非預期格式）：印出、跳過這行，不讓 reader 執行緒死掉。
@@ -110,20 +114,27 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
         if config_error:
             interval = CONFIG_ERROR_INTERVAL
-            error_banner = True
+            if error_state != "config":
+                print(f"[translate] config error (status={config_exc.status}), "
+                      f"waiting for user to fix settings", file=sys.stderr)
+            error_state = "config"
             ui_queue.put(lambda: overlay.set_error("⚠  API 設定有誤，請開啟設定（⚙）檢查"))
         elif went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
-            error_banner = True
+            if error_state != "offline":
+                print(f"[translate] provider offline: {offline_exc}; retrying with backoff "
+                      f"(pending={len(pending)})", file=sys.stderr)
+            error_state = "offline"
             ui_queue.put(lambda: overlay.set_error("⚠  翻譯伺服器離線，重試中…"))
             # 狀態維持「翻譯中…」：pending 還有行等著重試
         else:
             set_status("listening" if reader.anchored else "locating")
-            if translated_ok and error_banner:
+            if translated_ok and error_state is not None:
                 # 真的翻譯成功 → 伺服器/設定已恢復，清橫幅並重置退避
-                error_banner = False
+                error_state = None
                 backoff_index = 0
+                print("[translate] recovered, error banner cleared", file=sys.stderr)
                 ui_queue.put(overlay.clear_error)
 
         stop.wait(interval)
@@ -151,10 +162,19 @@ def main() -> None:
 
     if not is_configured(cfg):
         from src.ui.wizard import run_wizard
+        print("[app] config incomplete, launching first-run wizard", file=sys.stderr)
         if not run_wizard(root, cfg):
+            print("[app] wizard cancelled, exiting", file=sys.stderr)
             root.destroy()
             return  # 使用者取消首次設定
+        print("[app] wizard completed, config saved", file=sys.stderr)
         save_config(CONFIG_PATH, cfg)
+
+    # 啟動摘要:回報問題時第一眼掌握環境;金鑰絕不記錄
+    print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+          f"provider={cfg['api']['provider']}, model={cfg['api']['model']}, "
+          f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
+          f"poll_interval={cfg['poll_interval']}", file=sys.stderr)
 
     translator = Translator(**cfg["api"], target_language=cfg["target_language"])
     ui_queue: queue.Queue = queue.Queue()
@@ -194,6 +214,8 @@ def main() -> None:
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
+        print(f"[settings] applied; provider={cfg['api']['provider']}, "
+              f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}", file=sys.stderr)
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings)
 
@@ -214,6 +236,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass  # Ctrl+C:安靜結束,不印 traceback
     finally:
+        print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
         stop.set()
         keyboard.unhook_all()
         # 等 reader 執行緒跑完 reader.close()(解除 wizwalker hook、還原遊戲記憶體)再退出;
