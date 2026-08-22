@@ -1,7 +1,7 @@
 """fields 純邏輯測試：表單驗證、錯誤文案、熱鍵字串。"""
 from src.translator import TranslatorConfigError, TranslatorOffline
 from src.ui.fields import (
-    PROVIDERS, ApiFields, friendly_error, hotkey_from_event, validate_api_form,
+    PROVIDERS, ApiFields, friendly_error, validate_api_form,
 )
 
 
@@ -39,11 +39,6 @@ def test_friendly_error_messages():
     assert "連線" in friendly_error(TranslatorOffline("refused"))
 
 
-def test_hotkey_from_event():
-    assert hotkey_from_event("space", 0x4) == "ctrl+space"
-    assert hotkey_from_event("F8", 0) == "f8"
-    assert hotkey_from_event("x", 0x4 | 0x20000) == "ctrl+alt+x"
-    assert hotkey_from_event("Control_L", 0x4) is None  # 純修飾鍵不成立
 
 
 def _initial(provider="openai", model="", base_url="", thinking=False):

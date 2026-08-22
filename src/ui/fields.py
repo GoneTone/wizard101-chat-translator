@@ -5,6 +5,8 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
+
+import keyboard
 from dataclasses import dataclass, field
 from tkinter import ttk
 
@@ -61,24 +63,6 @@ def friendly_error(exc: Exception) -> str:
     return f"發生錯誤：{exc}"
 
 
-_MOD_KEYSYMS = {"Control_L", "Control_R", "Shift_L", "Shift_R",
-                "Alt_L", "Alt_R", "Win_L", "Win_R"}
-
-
-def hotkey_from_event(keysym: str, state: int) -> str | None:
-    """tkinter 按鍵事件 → keyboard 套件格式的熱鍵字串（如「ctrl+alt+x」）。
-    只按到修飾鍵本身時回 None（組合尚未完成）。"""
-    if keysym in _MOD_KEYSYMS:
-        return None
-    parts = []
-    if state & 0x4:
-        parts.append("ctrl")
-    if state & 0x20000:  # Windows 的 Alt 位元
-        parts.append("alt")
-    if state & 0x1:
-        parts.append("shift")
-    parts.append(keysym.lower())
-    return "+".join(parts)
 
 
 class ApiFields(ttk.Frame):
@@ -248,14 +232,19 @@ class ApiFields(ttk.Frame):
 
 
 class HotkeyField(ttk.Frame):
-    """熱鍵欄位：顯示目前值，點「更改」進入捕捉模式，按下組合鍵即設定。"""
+    """熱鍵欄位：顯示目前值，點「更改」後按下組合鍵即設定（Esc 取消）。
+    捕捉用 keyboard 套件的低階鍵盤鉤子而非 tk 事件：Ctrl+Space 等組合會先被
+    輸入法（IME）或系統攔截、tk 收不到；低階鉤子在 IME 之前就能看到按鍵，
+    且與實際註冊熱鍵走同一條路——捕捉得到就保證註冊得到。"""
 
     def __init__(self, parent, initial: str):
         super().__init__(parent)
         self._value = initial
+        self._queue: queue.Queue = queue.Queue()
+        self._capturing = False
         self._label = ttk.Label(self, text=initial)
         self._label.pack(side="left")
-        self._btn = ttk.Button(self, text="更改", width=6, command=self._capture)
+        self._btn = ttk.Button(self, text="更改", width=14, command=self._capture)
         self._btn.pack(side="left", padx=8)
 
     def value(self) -> str:
@@ -266,26 +255,37 @@ class HotkeyField(ttk.Frame):
         self._label.configure(text=s)
 
     def _capture(self) -> None:
-        self._btn.configure(text="請按鍵…（Esc 取消）", state="disabled")
-        top = self.winfo_toplevel()
-        top.grab_set()
-        binding = top.bind("<Key>", lambda e: self._on_key(e, top), add="+")
-        self._binding = binding
-
-    def _on_key(self, event, top) -> None:
-        if event.keysym == "Escape":
-            self._end_capture(top)  # Esc＝取消捕捉，維持原熱鍵
+        if self._capturing:
             return
-        combo = hotkey_from_event(event.keysym, event.state)
-        if combo is None:
-            return  # 只按到修飾鍵，等組合完成
-        self.set_value(combo)
-        self._end_capture(top)
+        self._capturing = True
+        self._btn.configure(text="請按鍵…（Esc 取消）", state="disabled")
+        threading.Thread(target=self._capture_worker, daemon=True).start()
+        self._poll_capture()
 
-    def _end_capture(self, top) -> None:
-        top.unbind("<Key>", self._binding)
-        top.grab_release()
+    def _capture_worker(self) -> None:
+        try:
+            combo = keyboard.read_hotkey(suppress=False)
+        except Exception as exc:
+            print(f"[settings] hotkey capture failed: {exc}", file=sys.stderr)
+            combo = None
+        self._queue.put(combo)
+
+    def _poll_capture(self) -> None:
+        # 與測試連線同模式:worker 只放 queue,主執行緒輪詢取用(tk 跨執行緒不安全)
+        try:
+            if not self.winfo_exists():
+                return  # 捕捉期間視窗被關閉:結果丟棄
+        except tk.TclError:
+            return
+        try:
+            combo = self._queue.get_nowait()
+        except queue.Empty:
+            self.after(100, self._poll_capture)
+            return
+        self._capturing = False
         self._btn.configure(text="更改", state="normal")
+        if combo and combo != "esc":
+            self.set_value(combo)
 
 
 class LanguageField(ttk.Frame):
