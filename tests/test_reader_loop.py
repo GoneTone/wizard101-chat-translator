@@ -3,11 +3,10 @@
 import queue
 import threading
 
-import httpx
-
 import src.main as main_module
 from src.main import reader_loop
 from src.reader.mem_reader import GameNotRunning
+from src.translator import TranslatorConfigError, TranslatorOffline
 
 
 class FakeOverlay:
@@ -118,7 +117,7 @@ class FlakyTranslator:
     def translate_incoming(self, text):
         self.calls += 1
         if self.calls == 1:
-            raise httpx.HTTPError("offline")
+            raise TranslatorOffline("offline")
         return f"譯:{text}"
 
 
@@ -132,6 +131,29 @@ def test_failed_line_stays_pending_and_retried(monkeypatch):
     assert tr.calls == 2                      # 第一次離線,第二輪重試同一行
     assert ov.messages == [("[X] x", "譯:[X] x")]
     assert ov.errors == ["⚠  翻譯伺服器離線，重試中…"]
+    assert ov.clears == 1
+
+
+class ConfigErrorTranslator:
+    def __init__(self):
+        self.calls = 0
+
+    def translate_incoming(self, text):
+        self.calls += 1
+        if self.calls == 1:
+            raise TranslatorConfigError("bad key", status=401)
+        return f"譯:{text}"
+
+
+def test_config_error_line_stays_pending_and_retried(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    tr = ConfigErrorTranslator()
+    ov = FakeOverlay()
+    reads = [["[X] x"], [], []]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == 2                      # 第一次設定錯誤，第二輪重試同一行
+    assert ov.messages == [("[X] x", "譯:[X] x")]
+    assert ov.errors == ["⚠  API 設定有誤，請開啟設定（⚙）檢查"]
     assert ov.clears == 1
 
 

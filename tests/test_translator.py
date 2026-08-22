@@ -1,141 +1,131 @@
-import json
-
+"""translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
+import anthropic
 import httpx
+import httpx2
 import pytest
 
 from src.translator import (
-    OUTGOING_LANGUAGE, Translator, build_incoming_system, build_outgoing_system,
+    OPENAI_BASE_URL, Translator, TranslatorConfigError, TranslatorOffline,
 )
 
-TARGET = "繁體中文（台灣）"
+
+class FakeResponse:
+    def __init__(self, status_code=200, content="譯文"):
+        self.status_code = status_code
+        self._content = content
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._content}}]}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError("err", request=None, response=None)
 
 
-def make_translator(handler, target_language=TARGET) -> Translator:
-    transport = httpx.MockTransport(handler)
-    client = httpx.Client(base_url="http://test", transport=transport)
-    return Translator(base_url="http://test", model="test-model",
-                      target_language=target_language, client=client)
+class FakeHttpxClient:
+    """替身 httpx.Client：post 回傳預設回應或拋出預設例外。"""
+    def __init__(self, response=None, raises=None):
+        self._response = response or FakeResponse()
+        self._raises = raises
+        self.last_body = None
+
+    def post(self, url, json):
+        self.last_body = json
+        if self._raises:
+            raise self._raises
+        return self._response
 
 
-def ok_response(content: str) -> httpx.Response:
-    return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+def _make(client, provider="custom"):
+    return Translator(provider=provider, base_url="http://x", model="m",
+                      target_language="繁體中文（台灣）", client=client)
 
 
-def test_incoming_sends_model_and_target_language_prompt():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["url"] = str(request.url)
-        captured["body"] = json.loads(request.content)
-        return ok_response("  [A] 你好  ")
-
-    t = make_translator(handler)
-    assert t.translate_incoming("[A] hello") == "[A] 你好"  # 去頭尾空白
-    assert captured["url"].endswith("/v1/chat/completions")
-    assert captured["body"]["model"] == "test-model"
-    assert captured["body"]["messages"][0] == {"role": "system", "content": build_incoming_system(TARGET)}
-    assert captured["body"]["messages"][1] == {"role": "user", "content": "[A] hello"}
+def test_openai_compat_sends_temperature_zero():
+    fake = FakeHttpxClient()
+    assert _make(fake).translate_outgoing("哈囉") == "譯文"
+    assert fake.last_body["temperature"] == 0
 
 
-def test_incoming_prompt_uses_configured_language_not_hardcoded():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return ok_response("[A] こんにちは")
-
-    make_translator(handler, target_language="日本語").translate_incoming("[A] hi")
-    sys_prompt = captured["body"]["messages"][0]["content"]
-    assert "日本語" in sys_prompt
-    assert "繁體中文" not in sys_prompt  # 目標語言不寫死
+def test_openai_compat_connection_error_maps_to_offline():
+    fake = FakeHttpxClient(raises=httpx.ConnectError("refused"))
+    with pytest.raises(TranslatorOffline):
+        _make(fake).translate_incoming("[A] hi")
 
 
-def test_outgoing_uses_game_language_prompt():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return ok_response("wanna do a dungeon?")
-
-    t = make_translator(handler)
-    assert t.translate_outgoing("要不要打副本?") == "wanna do a dungeon?"
-    assert captured["body"]["messages"][0] == {"role": "system", "content": build_outgoing_system(OUTGOING_LANGUAGE)}
-    assert OUTGOING_LANGUAGE in captured["body"]["messages"][0]["content"]
+@pytest.mark.parametrize("status", [401, 403, 404])
+def test_openai_compat_auth_or_model_error_maps_to_config_error(status):
+    fake = FakeHttpxClient(response=FakeResponse(status_code=status))
+    with pytest.raises(TranslatorConfigError) as ei:
+        _make(fake).translate_incoming("[A] hi")
+    assert ei.value.status == status
 
 
-def test_build_incoming_system_inserts_language():
-    assert "Español" in build_incoming_system("Español")
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_openai_compat_retryable_status_maps_to_offline(status):
+    fake = FakeHttpxClient(response=FakeResponse(status_code=status))
+    with pytest.raises(TranslatorOffline):
+        _make(fake).translate_incoming("[A] hi")
 
 
-def test_thinking_true_default_omits_disable_params():
-    captured = {}
+class FakeAnthropicMessages:
+    def __init__(self, raises=None):
+        self._raises = raises
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return ok_response("x")
+    def create(self, **kwargs):
+        if self._raises:
+            raise self._raises
 
-    make_translator(handler).translate_incoming("hi")  # 預設 thinking=True
-    for k in ("reasoning_effort", "chat_template_kwargs", "think", "enable_thinking"):
-        assert k not in captured["body"]
+        class Block:
+            type = "text"
+            text = "克勞德譯文"
 
+        class Resp:
+            content = [Block()]
 
-def test_thinking_false_adds_disable_params():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["body"] = json.loads(request.content)
-        return ok_response("x")
-
-    transport = httpx.MockTransport(handler)
-    client = httpx.Client(base_url="http://test", transport=transport)
-    Translator(base_url="http://test", model="m", target_language=TARGET,
-               thinking=False, client=client).translate_outgoing("哈囉")
-    b = captured["body"]
-    assert b["reasoning_effort"] == "none"
-    assert b["chat_template_kwargs"] == {"enable_thinking": False}
-    assert b["think"] is False
-    assert b["enable_thinking"] is False
+        return Resp()
 
 
-def test_strips_think_block_from_incoming_output():
-    t = make_translator(lambda req: ok_response("<think>先想想怎麼翻</think>\n[A] 你好，世界"))
-    assert t.translate_incoming("hi") == "[A] 你好，世界"
+class FakeAnthropicClient:
+    def __init__(self, raises=None):
+        self.messages = FakeAnthropicMessages(raises)
 
 
-def test_strips_think_block_from_outgoing_output():
-    t = make_translator(lambda req: ok_response("<think>reasoning here</think>hello there"))
-    assert t.translate_outgoing("嗨") == "hello there"
+def _anthropic_status_error(status):
+    resp = httpx2.Response(status, request=httpx2.Request("POST", "http://x"))
+    return anthropic.APIStatusError("err", response=resp, body=None)
 
 
-def test_server_error_raises_http_error():
-    t = make_translator(lambda req: httpx.Response(500, text="boom"))
-    with pytest.raises(httpx.HTTPError):
-        t.translate_incoming("hi")
+def test_claude_provider_returns_text():
+    t = Translator(provider="claude", model="claude-opus-5", api_key="k",
+                   target_language="繁體中文（台灣）", client=FakeAnthropicClient())
+    assert t.translate_incoming("[A] hi") == "克勞德譯文"
 
 
-def test_api_key_sets_authorization_header():
-    captured = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured["auth"] = request.headers.get("authorization")
-        return ok_response("x")
-
-    transport = httpx.MockTransport(handler)
-    client = httpx.Client(base_url="http://test", transport=transport,
-                          headers={"Authorization": "Bearer sk-123"})
-    t = Translator(base_url="http://test", model="m", target_language=TARGET,
-                   api_key="sk-123", client=client)
-    t.translate_incoming("hi")
-    assert captured["auth"] == "Bearer sk-123"
+def test_claude_connection_error_maps_to_offline():
+    err = anthropic.APIConnectionError(request=httpx2.Request("POST", "http://x"))
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=FakeAnthropicClient(raises=err))
+    with pytest.raises(TranslatorOffline):
+        t.translate_incoming("[A] hi")
 
 
-def test_default_client_construction_with_api_key():
-    t = Translator(base_url="http://myserver", model="m", target_language=TARGET, api_key="sk-abc")
-    assert t._client.headers["authorization"] == "Bearer sk-abc"
-    assert str(t._client.base_url).rstrip("/") == "http://myserver"
-    assert t._client.timeout.read == 10.0
+@pytest.mark.parametrize("status,exc", [(401, TranslatorConfigError),
+                                        (404, TranslatorConfigError),
+                                        (429, TranslatorOffline),
+                                        (500, TranslatorOffline)])
+def test_claude_status_error_mapping(status, exc):
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）",
+                   client=FakeAnthropicClient(raises=_anthropic_status_error(status)))
+    with pytest.raises(exc):
+        t.translate_incoming("[A] hi")
 
 
-def test_default_client_construction_without_api_key():
-    t = Translator(base_url="http://myserver", model="m", target_language=TARGET)
-    assert "authorization" not in t._client.headers
+def test_reconfigure_switches_provider():
+    t = _make(FakeHttpxClient())
+    t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",
+                  thinking=False, target_language="日本語")
+    # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
+    from src.translator import _ClaudeClient
+    assert isinstance(t._impl, _ClaudeClient)

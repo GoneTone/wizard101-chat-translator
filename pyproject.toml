@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Wizard101 聊天 AI 翻譯助手(wizwalker 收訊翻繁中、熱鍵輸入翻英文)"
 requires-python = ">=3.11"
 dependencies = [
+    "anthropic>=1.0.0",
     "httpx",
     "keyboard",
     "pywin32",

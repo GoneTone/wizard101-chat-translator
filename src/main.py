@@ -5,7 +5,6 @@ import threading
 import tkinter as tk
 from collections import deque
 
-import httpx
 import keyboard
 
 from src.composer.input_box import InputBox
@@ -13,10 +12,11 @@ from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, load_config, save_config
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
-from src.translator import Translator
+from src.translator import Translator, TranslatorConfigError, TranslatorOffline
 
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
+CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復
 
 # overlay 標題列狀態指示:(文字, 顏色)
 STATUS = {
@@ -47,6 +47,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
     reader = WizChatReader(game_path=cfg.get("game_path"))
     pending: deque[str] = deque()
     backoff_index = 0
+    error_banner = False
     game_missing = False
     last_status: str | None = None
 
@@ -62,6 +63,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         interval = cfg["poll_interval"]
         translated_ok = False
         went_offline = False
+        config_error = False
 
         # 讀取前先亮狀態:首輪要連上遊戲並掛入 hook,期間讓使用者知道在連線
         set_status("listening" if reader.anchored else "locating")
@@ -89,11 +91,13 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             line = pending[0]
             try:
                 translated = translator.translate_incoming(line)
-            except httpx.HTTPError:
-                went_offline = True  # line 留在 pending,下輪重試
+            except TranslatorOffline:
+                went_offline = True  # line 留在 pending，下輪重試
+                break
+            except TranslatorConfigError:
+                config_error = True  # 設定錯誤：行留在 pending，等使用者修正後自動恢復
                 break
             except Exception as exc:
-                # 其他翻譯錯誤(如模型回傳非預期格式):印出、跳過這行,不讓 reader 執行緒死掉。
                 print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
                 pending.popleft()
                 continue
@@ -101,15 +105,20 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             pending.popleft()
             ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
 
-        if went_offline:
+        if config_error:
+            interval = CONFIG_ERROR_INTERVAL
+            error_banner = True
+            ui_queue.put(lambda: overlay.set_error("⚠  API 設定有誤，請開啟設定（⚙）檢查"))
+        elif went_offline:
             interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
             backoff_index += 1
+            error_banner = True
             ui_queue.put(lambda: overlay.set_error("⚠  翻譯伺服器離線，重試中…"))
-            # 狀態維持「翻譯中…」:pending 還有行等著重試
         else:
             set_status("listening" if reader.anchored else "locating")
-            if translated_ok and backoff_index:
-                # 只有真的翻譯成功過,才代表伺服器已恢復,清除離線橫幅並重置退避。
+            if translated_ok and error_banner:
+                # 真的翻譯成功 → 伺服器/設定已恢復，清橫幅並重置退避
+                error_banner = False
                 backoff_index = 0
                 ui_queue.put(overlay.clear_error)
 

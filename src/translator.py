@@ -1,4 +1,4 @@
-"""共用翻譯 client:打自架的 OpenAI 相容 /v1/chat/completions。
+"""共用翻譯 client：依設定的 provider 選擇後端（OpenAI 相容 /v1/chat/completions 或 Claude /v1/messages）。
 
 收訊:來源語言自動判斷 → 翻成使用者設定的目標語言(target_language)。
 發話:來源語言自動判斷 → 翻成遊戲聊天語言(OUTGOING_LANGUAGE,固定)。
@@ -6,6 +6,7 @@
 """
 import re
 
+import anthropic
 import httpx
 
 # 發話固定翻成的語言(遊戲聊天使用的語言);為固定產品設定,不進 config。
@@ -70,39 +71,124 @@ def strip_think(text: str) -> str:
     return _THINK_BLOCK.sub("", text)
 
 
-class Translator:
-    def __init__(self, base_url: str, model: str, *, target_language: str,
-                 api_key: str = "", thinking: bool = True,
-                 timeout: float = 10.0, client: httpx.Client | None = None):
+OPENAI_BASE_URL = "https://api.openai.com"  # ChatGPT preset 固定官方端點
+_TIMEOUT = 60.0
+_CLAUDE_MAX_TOKENS = 1024
+TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
+
+
+class TranslatorOffline(Exception):
+    """可重試的翻譯失敗：連線失敗、逾時、429、5xx。"""
+
+
+class TranslatorConfigError(Exception):
+    """不可重試的設定錯誤：金鑰無效（401/403）、模型不存在（404）。"""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+
+class _OpenAICompatClient:
+    """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。"""
+
+    def __init__(self, base_url: str, model: str, api_key: str = "",
+                 thinking: bool = True, timeout: float = _TIMEOUT, client=None):
         if client is not None:
             self._client = client
         else:
             headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
             self._client = httpx.Client(base_url=base_url, headers=headers, timeout=timeout)
         self._model = model
-        self._target_language = target_language
         self._thinking = thinking
 
-    def _chat(self, system: str, text: str) -> str:
+    def chat(self, system: str, text: str) -> str:
         body = {
             "model": self._model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": text},
             ],
-            "temperature": 0.3,
+            "temperature": 0,
         }
         if not self._thinking:
-            body.update(_DISABLE_THINKING)  # 預設 thinking=True:body 不帶任何思考相關參數
-        resp = self._client.post("/v1/chat/completions", json=body)
+            body.update(_DISABLE_THINKING)
+        try:
+            resp = self._client.post("/v1/chat/completions", json=body)
+        except httpx.HTTPError as exc:
+            raise TranslatorOffline(str(exc)) from exc
+        if resp.status_code in (401, 403, 404):
+            raise TranslatorConfigError(f"HTTP {resp.status_code}", status=resp.status_code)
+        if resp.status_code == 429 or resp.status_code >= 500:
+            raise TranslatorOffline(f"HTTP {resp.status_code}")
         resp.raise_for_status()
         content = resp.json()["choices"][0]["message"]["content"]
         return strip_think(content).strip()
 
+
+class _ClaudeClient:
+    """Claude 官方 API（anthropic SDK）：打 /v1/messages。
+    Claude 5 系不接受 temperature（會 400），thinking 用預設（adaptive），皆不帶。"""
+
+    def __init__(self, model: str, api_key: str, timeout: float = _TIMEOUT, client=None):
+        self._client = client if client is not None else anthropic.Anthropic(
+            api_key=api_key, timeout=timeout)
+        self._model = model
+
+    def chat(self, system: str, text: str) -> str:
+        try:
+            resp = self._client.messages.create(
+                model=self._model, max_tokens=_CLAUDE_MAX_TOKENS,
+                system=system, messages=[{"role": "user", "content": text}])
+        except anthropic.APIConnectionError as exc:
+            raise TranslatorOffline(str(exc)) from exc
+        except anthropic.APIStatusError as exc:
+            code = exc.status_code
+            if code in (401, 403, 404):
+                raise TranslatorConfigError(f"HTTP {code}", status=code) from exc
+            if code == 429 or code >= 500:
+                raise TranslatorOffline(f"HTTP {code}") from exc
+            raise
+        content = "".join(b.text for b in resp.content if b.type == "text")
+        return strip_think(content).strip()
+
+
+def _build_client(provider: str, base_url: str, model: str, api_key: str,
+                  thinking: bool, timeout: float, client):
+    if provider == "claude":
+        return _ClaudeClient(model=model, api_key=api_key, timeout=timeout, client=client)
+    if provider == "openai":
+        base_url = OPENAI_BASE_URL
+    return _OpenAICompatClient(base_url=base_url, model=model, api_key=api_key,
+                               thinking=thinking, timeout=timeout, client=client)
+
+
+class Translator:
+    """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。"""
+
+    def __init__(self, *, provider: str = "custom", base_url: str = "", model: str = "",
+                 api_key: str = "", thinking: bool = True, target_language: str,
+                 timeout: float = _TIMEOUT, client=None):
+        self._impl = _build_client(provider, base_url, model, api_key, thinking,
+                                   timeout, client)
+        self._target_language = target_language
+
+    def reconfigure(self, *, provider: str, base_url: str, model: str, api_key: str,
+                    thinking: bool, target_language: str) -> None:
+        """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。"""
+        self._impl = _build_client(provider, base_url, model, api_key, thinking,
+                                   _TIMEOUT, None)
+        self._target_language = target_language
+
     def translate_incoming(self, text: str) -> str:
-        """收訊:把遊戲聊天(任何語言)翻成使用者設定的目標語言。"""
-        return self._chat(build_incoming_system(self._target_language), text)
+        """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。"""
+        return self._impl.chat(build_incoming_system(self._target_language), text)
 
     def translate_outgoing(self, text: str) -> str:
-        """發話:把玩家輸入(任何語言)翻成遊戲聊天語言(固定)。"""
-        return self._chat(build_outgoing_system(OUTGOING_LANGUAGE), text)
+        """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。"""
+        return self._impl.chat(build_outgoing_system(OUTGOING_LANGUAGE), text)
+
+
+def test_translate(api: dict, target_language: str) -> str:
+    """測試連線：用表單當下的 api 設定實際翻一句固定文字，與正式翻譯同一條路。"""
+    return Translator(**api, target_language=target_language).translate_incoming(TEST_SAMPLE)
