@@ -24,8 +24,9 @@ MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
-_BUBBLE_SIZE = 56
-_BUBBLE_ALPHA = 0.85  # 泡泡半透明，與 overlay 的視覺風格一致
+_OVERLAY_ALPHA = 0.80  # overlay 本體透明度
+_BUBBLE_SIZE = 64
+_BUBBLE_ALPHA = 0.80  # 泡泡半透明，與 overlay 的視覺風格一致
 _CLICK_THRESHOLD = 5
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 
@@ -96,7 +97,7 @@ class OverlayWindow:
         self._win = tk.Toplevel(root)
         self._win.overrideredirect(True)
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", 0.88)
+        self._win.attributes("-alpha", _OVERLAY_ALPHA)
         self._win.configure(bg=BG)
         px = x if x is not None else 40
         py = y if y is not None else 40
@@ -170,7 +171,7 @@ class OverlayWindow:
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
-        _enable_taskbar_button(self._win, alpha=0.88)
+        _enable_taskbar_button(self._win, alpha=_OVERLAY_ALPHA)
 
     # --- 縮小成泡泡 ---
     @property
@@ -209,7 +210,7 @@ class OverlayWindow:
             self._bubble = None
         self._win.deiconify()
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", 0.88)
+        self._win.attributes("-alpha", _OVERLAY_ALPHA)
 
     def _show_bubble(self) -> None:
         b = tk.Toplevel(self._win)
