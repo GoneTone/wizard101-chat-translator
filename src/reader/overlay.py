@@ -199,6 +199,7 @@ class OverlayWindow:
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
         _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
+        self._backdrop.lower(self._win)  # 疊序保險：底板永遠壓在文字層之下
 
     # --- 縮小成泡泡 ---
     @property
@@ -241,6 +242,7 @@ class OverlayWindow:
         self._backdrop.attributes("-alpha", self._alpha)
         self._win.deiconify()
         self._win.attributes("-topmost", True)
+        self._backdrop.lower(self._win)  # 疊序保險：底板永遠壓在文字層之下
 
     def _show_bubble(self) -> None:
         b = tk.Toplevel(self._win)
