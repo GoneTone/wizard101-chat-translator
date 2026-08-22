@@ -51,15 +51,21 @@ class SetupWizard:
         self._next_btn.pack(side="right")
 
         # 跨步驟保留的欄位元件（建一次，切步驟時搬進／搬出 body）
-        self._api_fields = ApiFields(self._body, cfg["api"], on_change=self._refresh_nav)
+        self._api_fields = ApiFields(self._body, cfg["api"], on_change=self._on_api_change)
         self._language = LanguageField(self._body, cfg["target_language"])
         self._hotkey = HotkeyField(self._body, cfg["hotkey"])
         self._show_step()
 
     # --- 導航 ---
     def _show_step(self) -> None:
+        # 跨步驟保留的元件只收起來；每步臨時建立的說明文字等直接銷毀，
+        # 避免來回導航時在 body 底下累積孤兒 widget。
+        persistent = {self._api_fields, self._language, self._hotkey}
         for w in self._body.winfo_children():
-            w.pack_forget()
+            if w in persistent:
+                w.pack_forget()
+            else:
+                w.destroy()
         self._indicator.configure(
             text="  ".join("●" if i <= self._step else "○" for i in range(4)))
         self._title.configure(text=_TITLES[self._step])
@@ -89,6 +95,11 @@ class SetupWizard:
             self._next_btn.configure(text="下一步")
         self._back_btn.configure(
             state="normal" if self._step > STEP_WELCOME else "disabled")
+        self._refresh_nav()
+
+    def _on_api_change(self) -> None:
+        # API 欄位有任何變動就取消先前的「略過測試」：改過設定應重新測試（或再次明示略過）。
+        self._skip_test = False
         self._refresh_nav()
 
     def _refresh_nav(self) -> None:

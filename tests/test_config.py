@@ -51,6 +51,14 @@ def test_load_old_config_without_provider_migrates_to_custom(tmp_path):
     assert cfg["api"]["provider"] == "custom"  # 舊使用者的自架端點設定原封不動繼續用
 
 
+def test_load_config_with_existing_provider_is_untouched(tmp_path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"api": {"provider": "claude", "model": "claude-opus-5"}}),
+                 encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg["api"]["provider"] == "claude"  # 已有 provider 的設定不套遷移
+
+
 def test_load_config_without_api_block_keeps_default_provider(tmp_path):
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"hotkey": "f8"}), encoding="utf-8")

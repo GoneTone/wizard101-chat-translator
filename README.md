@@ -88,7 +88,7 @@ uv run pyinstaller build.spec --noconfirm
 | `api.provider` | 翻譯服務商：`openai`（ChatGPT）、`claude`（Anthropic）、`custom`（自訂 OpenAI 相容端點，需自行架設，填 `api.base_url`） |
 | `api.base_url` / `api.model` / `api.api_key` | `provider` 為 `custom` 時使用 `base_url`（自架 OpenAI 相容 API，`/v1/chat/completions`）；`openai`／`claude` 則固定用官方端點，只需 `model` 與 `api_key` |
 | `target_language` | 收訊翻成的目標語言(人讀名稱,直接帶入提示詞),例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |
-| `api.thinking` | 模型是否啟用思考/reasoning(預設 `false`:關閉思考,併入常見後端的停用參數 `reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等)。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何,譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯,回報後可移除 |
+| `api.thinking` | 模型是否啟用思考/reasoning（預設 `false`：關閉思考）。ChatGPT 官方端點只送它認得的 `reasoning_effort: "none"`；自訂端點併入常見後端的停用參數（`reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等）；Claude 不適用此欄（維持模型預設 adaptive）。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何，譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯，回報後可移除 |
 | `poll_interval` | 輪詢間隔秒數(預設 0.4)。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
 | `game_path` | 遊戲根目錄(含 `Bin\`、`Data\` 的那層);`null`(預設)= 自動偵測執行中的遊戲程序路徑。自動偵測失敗才需手動填(如非標準安裝) |
 | `fade_seconds` | overlay 訊息淡出秒數(預設 0:永不淡出,靠滾動看歷史;>0 才會定時清除) |
@@ -104,7 +104,7 @@ uv run pyinstaller build.spec --noconfirm
   `PatternFailed`),需等 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑 `uv sync`
 - Ctrl+C 結束會自動解除 hook。即使被**強制結束**(工作管理員 kill、當機)遺留了
   hook,下次啟動也會**自動修復**(把遺留的原始 bytes 寫回、等同補做 unhook)、免重開
-  遊戲——修復狀態存於 `%LOCALAPPDATA%\wiz101-chat-translator\`,依 PID + 模組基址比對,
+  遊戲——修復狀態存於 `%LOCALAPPDATA%\wizard101-chat-translator\`,依 PID + 模組基址比對,
   只對同一個仍在執行的遊戲程序套用。僅「狀態檔遺失的舊遺留」才需重開遊戲一次。
 - 翻玩家發言(**含自己的 `[你]` 發言**與他人發言);系統訊息(掉寶/經驗/升等)與遊戲除錯行不翻
 - wizwalker 掛入與全域熱鍵(keyboard 套件)在部分環境需以**系統管理員**身分執行

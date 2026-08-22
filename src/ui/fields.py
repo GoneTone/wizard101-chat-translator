@@ -52,7 +52,9 @@ def friendly_error(exc: Exception) -> str:
     if isinstance(exc, TranslatorConfigError):
         if exc.status in (401, 403):
             return "金鑰無效或過期，請確認 API 金鑰"
-        return "找不到模型，請確認模型名稱"
+        if exc.status == 404:
+            return "找不到模型，請確認模型名稱"
+        return f"API 設定有誤（HTTP {exc.status}），請檢查各欄位"
     if isinstance(exc, TranslatorOffline):
         return "無法連線到伺服器，請檢查網址與網路"
     return f"發生錯誤：{exc}"
@@ -165,6 +167,11 @@ class ApiFields(ttk.Frame):
             if self._provider.get() == "claude":
                 ttk.Label(self._fields, text=CLAUDE_MODEL_HINT,
                           foreground="#888888").pack(anchor="w")
+            if self._provider.get() == "openai":
+                # ChatGPT 官方端點也可關思考（只送 reasoning_effort，見 translator）；
+                # Claude 維持模型預設（adaptive），不提供開關。
+                ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
+                                variable=self._thinking).pack(anchor="w", pady=2)
             link = ttk.Label(self._fields, text="取得金鑰 ↗", foreground="#4a7ddc",
                              cursor="hand2")
             link.pack(anchor="w", pady=(2, 0))
@@ -214,6 +221,11 @@ class ApiFields(ttk.Frame):
     def _poll_result(self) -> None:
         # tkinter 的 after 不保證跨執行緒安全：worker 只放 queue，主執行緒輪詢取用
         try:
+            if not self.winfo_exists():
+                return  # 測試進行中視窗被關閉：停止輪詢，結果丟棄
+        except tk.TclError:
+            return
+        try:
             ok, message = self._queue.get_nowait()
         except queue.Empty:
             self.after(100, self._poll_result)
@@ -249,17 +261,23 @@ class HotkeyField(ttk.Frame):
         self._label.configure(text=s)
 
     def _capture(self) -> None:
-        self._btn.configure(text="請按鍵…", state="disabled")
+        self._btn.configure(text="請按鍵…（Esc 取消）", state="disabled")
         top = self.winfo_toplevel()
         top.grab_set()
         binding = top.bind("<Key>", lambda e: self._on_key(e, top), add="+")
         self._binding = binding
 
     def _on_key(self, event, top) -> None:
+        if event.keysym == "Escape":
+            self._end_capture(top)  # Esc＝取消捕捉，維持原熱鍵
+            return
         combo = hotkey_from_event(event.keysym, event.state)
         if combo is None:
             return  # 只按到修飾鍵，等組合完成
         self.set_value(combo)
+        self._end_capture(top)
+
+    def _end_capture(self, top) -> None:
         top.unbind("<Key>", self._binding)
         top.grab_release()
         self._btn.configure(text="更改", state="normal")

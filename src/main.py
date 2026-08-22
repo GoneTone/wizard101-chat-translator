@@ -14,6 +14,7 @@ from src.config import CONFIG_PATH, app_dir, is_configured, load_config, save_co
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator, TranslatorConfigError, TranslatorOffline
+from src.ui.settings import SettingsWindow
 
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
@@ -99,6 +100,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 config_error = True  # 設定錯誤：行留在 pending，等使用者修正後自動恢復
                 break
             except Exception as exc:
+                # 其他翻譯錯誤（如模型回傳非預期格式）：印出、跳過這行，不讓 reader 執行緒死掉。
                 print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
                 pending.popleft()
                 continue
@@ -115,6 +117,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             backoff_index += 1
             error_banner = True
             ui_queue.put(lambda: overlay.set_error("⚠  翻譯伺服器離線，重試中…"))
+            # 狀態維持「翻譯中…」：pending 還有行等著重試
         else:
             set_status("listening" if reader.anchored else "locating")
             if translated_ok and error_banner:
@@ -191,7 +194,6 @@ def main() -> None:
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
 
-    from src.ui.settings import SettingsWindow
     settings = SettingsWindow(root, cfg, on_save=apply_settings)
 
     stop = threading.Event()
