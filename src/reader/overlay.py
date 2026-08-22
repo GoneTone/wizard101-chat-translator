@@ -91,7 +91,7 @@ class OverlayWindow:
                  max_messages: int = 50, fade_seconds: int = 180,
                  on_geometry_change=None, on_settings=None, on_close=None,
                  bubble_position: dict | None = None, on_bubble_move=None,
-                 alpha: float = 0.84):
+                 alpha: float = 0.80):
         self._max = max_messages
         self._fade = fade_seconds
         self._alpha = alpha

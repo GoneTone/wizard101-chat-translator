@@ -44,7 +44,7 @@ class SettingsWindow:
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
         self._win.title(f"{APP_NAME} — 設定")
-        self._win.geometry("560x520")
+        self._win.geometry("640x560")
         self._win.attributes("-topmost", True)
 
         nb = ttk.Notebook(self._win)
@@ -112,7 +112,8 @@ class SettingsWindow:
                   command=on_slide, length=160).pack(side="left")
         value_label.pack(side="left", padx=(6, 0))
         ttk.Label(row, text=f"即時預覽，小＝更透明（預設 {DEFAULT_CONFIG['overlay_alpha']}）",
-                  foreground="#888888").pack(side="left", padx=8)
+                  foreground="#888888", wraplength=280,
+                  justify="left").pack(side="left", padx=8)
         return var
 
     def _cancel(self) -> None:
@@ -131,7 +132,8 @@ class SettingsWindow:
         ttk.Spinbox(row, textvariable=var, from_=lo, to=hi, increment=step,
                     width=8).pack(side="left")
         ttk.Label(row, text=f"{hint}（範圍 {lo}–{hi}，預設 {DEFAULT_CONFIG[key]}）",
-                  foreground="#888888").pack(side="left", padx=8)
+                  foreground="#888888", wraplength=380,
+                  justify="left").pack(side="left", padx=8)
         return var
 
     def _browse_game_path(self) -> None:

@@ -28,7 +28,7 @@ DEFAULT_CONFIG: dict = {
     "hotkey": "ctrl+space",
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）
     "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒），遊戲漏字就調大
-    "overlay_alpha": 0.84,   # 視窗不透明度（overlay 本體與泡泡），小＝更透明
+    "overlay_alpha": 0.80,   # 視窗不透明度（半透明底板與泡泡），小＝更透明
     "overlay": {"x": None, "y": None, "width": 460, "height": 300},
     "input_position": {"x": None, "y": None},  # 翻譯輸入框位置（拖曳後記住）
     "bubble_position": {"x": None, "y": None},  # 縮小泡泡位置（拖曳後記住；null＝overlay 右上角）
