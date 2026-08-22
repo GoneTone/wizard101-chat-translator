@@ -2,8 +2,12 @@
 顯示原文 + 譯文(最新在最下,可向上滾動看歷史)。
 捲動定位:在底部時新訊息自動跟到最底;向上捲看歷史時不會被硬拉回底部。
 不滑鼠穿透 —— 視窗永遠可互動。"""
+import sys
 import time
 import tkinter as tk
+
+import win32con
+import win32gui
 
 BG = "#101018"
 BAR = "#23233a"
@@ -123,6 +127,27 @@ class OverlayWindow:
         grip.bind("<ButtonPress-1>", self._resize_start)
         grip.bind("<B1-Motion>", self._resize_drag)
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
+
+        self._win.title("Wizard101 聊天翻譯")  # 工作列按鈕顯示的名稱
+        self._add_taskbar_button()
+
+    def _add_taskbar_button(self) -> None:
+        """讓無邊框視窗出現在工作列與 Alt+Tab。
+        overrideredirect 視窗預設拿不到工作列按鈕,把 WS_EX_APPWINDOW 加進
+        extended style 即可;需 withdraw→deiconify 一次讓樣式生效,
+        之後重設 topmost/alpha(重新顯示會掉)。失敗只是少個按鈕,不影響功能。"""
+        try:
+            self._win.update_idletasks()
+            hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)  # GA_ROOT
+            style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+            style = (style & ~win32con.WS_EX_TOOLWINDOW) | win32con.WS_EX_APPWINDOW
+            win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
+            self._win.withdraw()
+            self._win.deiconify()
+            self._win.attributes("-topmost", True)
+            self._win.attributes("-alpha", 0.88)
+        except Exception as exc:
+            print(f"[ui] taskbar button setup failed: {exc}", file=sys.stderr)
 
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:
