@@ -33,7 +33,7 @@ def test_save_then_load_roundtrip(tmp_path: Path):
 
 
 def test_app_dir_dev_mode_is_project_root():
-    # 開發模式(非 frozen)：專案根目錄(pyproject.toml 所在)
+    # 開發模式（非 frozen）：專案根目錄（pyproject.toml 所在）
     assert (app_dir() / "pyproject.toml").exists()
 
 
