@@ -116,9 +116,10 @@ def _pid_alive(pid: int) -> bool:
 class WizChatReader:
     """透過 wizwalker 讀 `chatLog` 全文,回傳每輪新增的玩家聊天行。
 
-    首次讀取只記錄現況、不回吐既有歷史(只翻啟動後的新訊息)。之後每輪讀完整聊天記錄,
+    首次連上只記錄現況、不回吐既有歷史(只翻之後的新訊息)。之後每輪讀完整聊天記錄,
     與上輪做尾端差分(align_append)取新增行;重複訊息因逐行保留不會漏。
-    對不齊(聊天被大量清除/跳動)→ 靜默重新同步,不重播、不洗版。"""
+    空讀(傳送/轉場時聊天暫態清空)保留基準、忽略,避免填回同樣歷史時重譯;
+    與基準對不齊(relog/清空成全新內容)則視為新訊息輸出。"""
 
     def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME):
         self.process_name = process_name
@@ -145,12 +146,15 @@ class WizChatReader:
             self._prev = cur        # 首次連上:記錄現況(含既有歷史),不回吐
             self._synced = True
             return []
-        if not self._prev:
-            self._prev = cur        # 基準是空的(空聊天室)→ 現在出現的行全是新訊息
-            return cur
+        if not cur:
+            return []               # 空讀(傳送/轉場暫態清空)→ 保留基準、忽略,不重譯
         appended = align_append(self._prev, cur)
+        if appended is None:
+            # 與基準對不齊 → 聊天已重置(relog/清空成全新內容),cur 全部視為新訊息
+            self._prev = cur
+            return cur
         self._prev = cur
-        return appended or []        # 對不齊(None)→ 重新同步,本輪不輸出
+        return appended             # 正常延續(無新增時為 [])
 
     def _read_chatlog_text(self) -> str:
         """讀所有 `chatLog` 控件的全文並串接;連線中斷則丟 GameNotRunning。"""

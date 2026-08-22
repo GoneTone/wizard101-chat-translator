@@ -197,15 +197,31 @@ def test_system_and_debug_never_emitted():
     assert r.read_new() == ["[B] real"]
 
 
-def test_misalignment_resyncs_without_flood():
+def test_hard_reset_emits_new_content():
+    # 聊天被重置成全新內容(如 relog)→ 新內容視為新訊息輸出,之後正常延續
     r = FakeWiz([
         _log(_say(1, "A", "one")),
-        _log(_say(9, "Z", "totally different buffer")),  # 對不齊 → 重新同步
-        _log(_say(9, "Z", "totally different buffer"), _say(9, "Z", "next")),
+        _log(_say(9, "Z", "fresh")),                       # 對不齊 → 全新內容
+        _log(_say(9, "Z", "fresh"), _say(9, "Z", "next")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == []                 # 對不齊:本輪不輸出、不洗版
-    assert r.read_new() == ["[Z] next"]       # 已重新同步,之後正常
+    assert r.read_new() == ["[Z] fresh"]
+    assert r.read_new() == ["[Z] next"]
+
+
+def test_transient_empty_does_not_retranslate_on_refill():
+    # 傳送/轉場時聊天暫態讀成空,之後又填回同樣歷史 → 不可重複翻譯
+    hist = _log(_say(1, "A", "a"), _say(2, "B", "b"))
+    r = FakeWiz([
+        hist,                                              # sync 基準
+        "",                                                # 轉場暫態:空讀
+        hist,                                              # 填回同樣歷史
+        _log(_say(1, "A", "a"), _say(2, "B", "b"), _say(3, "C", "c")),
+    ])
+    assert r.read_new() == []          # sync
+    assert r.read_new() == []          # 空讀:忽略,保留基準
+    assert r.read_new() == []          # 填回同樣歷史:不重譯
+    assert r.read_new() == ["[C] c"]   # 之後新訊息照常
 
 
 def test_first_message_after_empty_chat_is_emitted():
