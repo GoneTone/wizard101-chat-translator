@@ -235,7 +235,7 @@ def main() -> None:
         overlay.prune()
         root.after(50, pump)
 
-    print(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit with Ctrl+C or the overlay ✕")
+    print(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit via the overlay ✕")
     pump()
     try:
         root.mainloop()
