@@ -7,7 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[],  # spike 發現缺模組時補在這裡，並註明原因
-    excludedimports=[],
+    excludes=[],
 )
 pyz = PYZ(a.pure)
 exe = EXE(

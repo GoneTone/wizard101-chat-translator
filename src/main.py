@@ -1,4 +1,5 @@
 """進入點:reader 執行緒(wizwalker 收訊)+ 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
+import os
 import queue
 import sys
 import threading
@@ -132,7 +133,12 @@ def main() -> None:
     if getattr(sys, "frozen", False):
         # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
         # 使用者回報問題時附上此檔即可（每次啟動覆寫，只留本次紀錄）
-        log = open(app_dir() / "app.log", "w", encoding="utf-8", buffering=1)
+        try:
+            log = open(app_dir() / "app.log", "w", encoding="utf-8", buffering=1)
+        except OSError:
+            # exe 所在資料夾沒有寫入權限時開檔會拋例外；windowed 模式沒有主控台可看錯誤，
+            # 退回丟棄輸出而非讓程式在使用者看不到任何訊息的情況下當掉。
+            log = open(os.devnull, "w", encoding="utf-8")
         sys.stdout = sys.stderr = log
 
     cfg = load_config(CONFIG_PATH)
@@ -176,7 +182,7 @@ def main() -> None:
                          position=cfg["input_position"], on_move=save_input_position)
     hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 
-    def apply_settings(game_path_changed: bool) -> None:
+    def apply_settings() -> None:
         nonlocal hotkey_handle
         save_config(CONFIG_PATH, cfg)
         translator.reconfigure(**cfg["api"], target_language=cfg["target_language"])

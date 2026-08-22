@@ -14,7 +14,7 @@ _ADVANCED_LIMITS = {
 
 
 def clamp_advanced(values: dict) -> dict:
-    """把進階數值夾在合理範圍，避免填出爆炸值。"""
+    """就地把進階數值夾在合理範圍（直接修改傳入的 dict）並回傳同一個 dict，避免填出爆炸值。"""
     for key, (lo, hi) in _ADVANCED_LIMITS.items():
         values[key] = min(hi, max(lo, values[key]))
     return values
@@ -138,7 +138,7 @@ class SettingsWindow:
         cfg.update(advanced)
         cfg["game_path"] = self._game_path.get().strip() or None
         game_path_changed = cfg["game_path"] != old_game_path
-        self._on_save(game_path_changed)
+        self._on_save()
         if game_path_changed:
             messagebox.showinfo("提示", "遊戲路徑將於下次啟動生效", parent=self._win)
         self._win.destroy()

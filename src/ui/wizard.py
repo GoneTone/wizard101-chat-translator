@@ -29,7 +29,10 @@ class SetupWizard:
 
         self._win = tk.Toplevel(root)
         self._win.title("Wizard101 聊天翻譯助手 — 首次設定")
-        self._win.geometry("520x420")
+        win_w, win_h = 520, 420
+        x = (self._win.winfo_screenwidth() - win_w) // 2
+        y = (self._win.winfo_screenheight() - win_h) // 2
+        self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(False, False)
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
