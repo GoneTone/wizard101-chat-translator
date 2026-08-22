@@ -95,6 +95,7 @@ uv run pyinstaller build.spec --noconfirm
 | `fade_seconds` | overlay 訊息淡出秒數（預設 0：永不淡出，靠滾動看歷史；>0 才會定時清除） |
 | `max_messages` | 視窗保留的訊息則數上限（預設 200），超過移除最舊 |
 | `hotkey` | 呼出輸入框的熱鍵（預設 `ctrl+space`） |
+| `auto_show_input` | 遊戲開啟聊天輸入框時自動呼出翻譯輸入、關閉時自動收回（預設 `true`；熱鍵仍可用） |
 | `overlay_alpha` | 視窗不透明度（半透明底板與縮小泡泡，預設 `0.80`，範圍 0.3–1.0；文字恆為不透明），小＝更透明 |
 | `overlay` | 疊加視窗 `{x, y, width, height}`;`x/y` 為 `null` 用預設位置。拖曳標題列可移動、拖右下角可縮放，調整後自動存回此處 |
 

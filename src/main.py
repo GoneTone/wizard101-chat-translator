@@ -43,7 +43,8 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
-                ui_queue: queue.Queue, stop: threading.Event) -> None:
+                ui_queue: queue.Queue, stop: threading.Event,
+                on_input_open=None, on_input_close=None) -> None:
     # 透過 wizwalker 讀遊戲聊天記錄，每輪讀新增的行（依序、含重複）→ 翻譯 → overlay。
     # 翻譯失敗/離線的行留在 pending，下輪從中斷處續翻，不漏不重。
     reader = WizChatReader(game_path=cfg.get("game_path"))
@@ -51,6 +52,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
     backoff_index = 0
     error_state: str | None = None  # None／"offline"／"config"：供橫幅清除與轉換時記 log
     game_missing = False
+    game_input_open = False  # 遊戲聊天輸入框狀態：邊緣觸發自動呼出／收回翻譯輸入
     last_status: str | None = None
 
     def set_status(key: str) -> None:
@@ -77,6 +79,10 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 game_missing = True
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
                 ui_queue.put(lambda: overlay.set_error("⚠  遊戲未就緒／連線中斷，等待中…"))
+            if game_input_open:
+                game_input_open = False  # 遊戲斷線＝輸入框已不存在,同步收回
+                if on_input_close is not None:
+                    on_input_close()
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
@@ -136,6 +142,18 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 backoff_index = 0
                 print("[translate] recovered, error banner cleared", file=sys.stderr)
                 ui_queue.put(overlay.clear_error)
+
+        # 遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回
+        if on_input_open is not None and cfg.get("auto_show_input", True):
+            now_open = reader.input_open()
+            if now_open != game_input_open:
+                game_input_open = now_open
+                print(f"[reader] game chat input {'opened' if now_open else 'closed'}",
+                      file=sys.stderr)
+                if now_open:
+                    on_input_open()
+                elif on_input_close is not None:
+                    on_input_close()
 
         stop.wait(interval)
 
@@ -230,7 +248,10 @@ def main() -> None:
 
     stop = threading.Event()
     reader_thread = threading.Thread(
-        target=reader_loop, args=(cfg, translator, overlay, ui_queue, stop), daemon=True)
+        target=reader_loop, args=(cfg, translator, overlay, ui_queue, stop),
+        kwargs={"on_input_open": lambda: ui_queue.put(input_box.show),
+                "on_input_close": lambda: ui_queue.put(input_box.close)},
+        daemon=True)
     reader_thread.start()
 
     def pump() -> None:
@@ -248,7 +269,7 @@ def main() -> None:
         print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
         stop.set()
         keyboard.unhook_all()
-        # 等 reader 執行緒跑完 reader.close（）（解除 wizwalker hook、還原遊戲記憶體）再退出；
+        # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
         # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
         reader_thread.join(timeout=8)
         try:

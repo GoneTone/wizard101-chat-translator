@@ -180,6 +180,46 @@ def test_status_locating_when_not_anchored(monkeypatch):
     assert ov.statuses == ["●  連線遊戲中…"]  # 狀態未變不重複發
 
 
+class InputFakeReader(FakeReader):
+    """加上腳本化的遊戲輸入框開關狀態（每輪一個值）。"""
+
+    def __init__(self, reads, stop, input_states):
+        super().__init__(reads, stop)
+        self.input_states = input_states
+
+    def input_open(self):
+        # read_new 已把 self.n 遞增，本輪狀態用 n-1 對應
+        return self.input_states[min(self.n - 1, len(self.input_states) - 1)]
+
+
+def _run_with_input(cfg, reads, input_states, monkeypatch):
+    events = []
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: InputFakeReader(reads, stop, input_states))
+    reader_loop(cfg, OkTranslator(), FakeOverlay(), ui_queue, stop,
+                on_input_open=lambda: events.append("open"),
+                on_input_close=lambda: events.append("close"))
+    _drain(ui_queue)
+    return events
+
+
+def test_game_input_edge_triggers_open_and_close(monkeypatch):
+    # 只在「關→開」與「開→關」的邊緣各觸發一次，持續開著不重複觸發
+    cfg = {"poll_interval": 0.01, "auto_show_input": True}
+    events = _run_with_input(cfg, [[], [], [], [], []],
+                             [False, True, True, False, False], monkeypatch)
+    assert events == ["open", "close"]
+
+
+def test_game_input_detection_disabled_by_config(monkeypatch):
+    cfg = {"poll_interval": 0.01, "auto_show_input": False}
+    events = _run_with_input(cfg, [[], [], []],
+                             [False, True, False], monkeypatch)
+    assert events == []
+
+
 class NeverTranslator:
     def translate_incoming(self, text):
         raise AssertionError("找不到遊戲時不應嘗試翻譯")

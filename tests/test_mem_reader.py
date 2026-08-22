@@ -232,6 +232,57 @@ def test_hard_reset_emits_new_content():
     assert r.read_new() == ["[Z] next"]
 
 
+def test_input_open_caches_node_and_refinds_after_failure():
+    import asyncio
+
+    class FakeNode:
+        def __init__(self):
+            self.visible = True
+            self.fail = False
+
+        async def is_visible(self):
+            if self.fail:
+                raise RuntimeError("stale node")
+            return self.visible
+
+    class FakeRoot:
+        def __init__(self, node):
+            self.node = node
+            self.searches = 0
+
+        async def get_windows_with_name(self, name):
+            self.searches += 1
+            return [self.node]
+
+    class FakeClient:
+        def __init__(self, node):
+            self.root_window = FakeRoot(node)
+
+    node = FakeNode()
+    r = WizChatReader()
+    r._connected = True
+    r._loop = asyncio.new_event_loop()
+    r._client = FakeClient(node)
+    try:
+        assert r.input_open() is True
+        node.visible = False
+        assert r.input_open() is False
+        assert r._client.root_window.searches == 1  # 節點已快取，不重搜整棵樹
+        node.fail = True
+        assert r.input_open() is False              # 節點失效 → 視為關閉
+        node.fail = False
+        node.visible = True
+        assert r.input_open() is True               # 下一輪自動重找
+        assert r._client.root_window.searches == 2
+    finally:
+        r._loop.close()
+
+
+def test_input_open_false_when_not_connected():
+    r = WizChatReader()
+    assert r.input_open() is False
+
+
 def test_node_count_change_rebaselines_without_emitting():
     # chatLog 節點數量變動（UI 事件生出/收掉控件）→ 串接結構改變無法歸因新舊：
     # 靜默重建基準、不回吐；之後恢復正常差分

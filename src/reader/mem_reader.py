@@ -18,6 +18,7 @@ import sys
 from src.reader import hook_state
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
+INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
 
 
 class GameNotRunning(Exception):
@@ -162,6 +163,7 @@ class WizChatReader:
         self._handler = None
         self._client = None
         self._pid = 0
+        self._edit_node = None  # chatEditContainer 節點快取（input_open 用）
 
     @property
     def anchored(self) -> bool:
@@ -209,6 +211,29 @@ class WizChatReader:
             return cur
         self._prev = cur
         return appended             # 正常延續（無新增時為 []）
+
+    def input_open(self) -> bool:
+        """遊戲聊天輸入框目前是否開啟；未連上或讀取失敗一律視為關閉。
+        節點快取：首次全樹搜尋一次，之後每輪只讀一個可見性旗標；節點失效自動重找。"""
+        if not self._connected:
+            return False
+        try:
+            return self._run(self._input_open_async())
+        except Exception:
+            self._edit_node = None
+            return False
+
+    async def _input_open_async(self) -> bool:
+        if self._edit_node is None:
+            nodes = await self._client.root_window.get_windows_with_name(INPUT_CONTAINER)
+            if not nodes:
+                return False
+            self._edit_node = nodes[0]
+        try:
+            return await self._edit_node.is_visible()
+        except Exception:
+            self._edit_node = None  # 控件被遊戲重建：下一輪重找
+            return False
 
     def _read_chatlog_texts(self) -> list[str]:
         """讀所有 `chatLog` 控件的全文（每節點一個字串）；連線中斷則丟 GameNotRunning。"""
@@ -323,6 +348,7 @@ class WizChatReader:
         self._loop = None
         self._handler = None
         self._client = None
+        self._edit_node = None
         self._connected = False
 
     def close(self) -> None:

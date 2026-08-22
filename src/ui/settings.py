@@ -66,6 +66,9 @@ class SettingsWindow:
         ttk.Label(basic, text="呼出輸入框的熱鍵").pack(anchor="w")
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
+        self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
+        ttk.Checkbutton(basic, text="遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）",
+                        variable=self._auto_input).pack(anchor="w", pady=(10, 0))
 
         # --- 進階 ---
         adv = ttk.Frame(nb, padding=12)
@@ -163,6 +166,7 @@ class SettingsWindow:
         cfg["api"] = api
         cfg["target_language"] = self._language.value()
         cfg["hotkey"] = self._hotkey.value()
+        cfg["auto_show_input"] = self._auto_input.get()
         cfg.update(advanced)
         cfg["game_path"] = self._game_path.get().strip() or None
         game_path_changed = cfg["game_path"] != old_game_path
