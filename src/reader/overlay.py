@@ -94,10 +94,21 @@ class OverlayWindow:
         self._wrap = self._w - 40
         self._drag = (0, 0, 0, 0)
 
-        self._win = tk.Toplevel(root)
+        # 雙層視窗:tk 的 -alpha 是整窗生效、無法只透背景,故拆兩層——
+        # 下層 backdrop 承擔半透明底板(透明度設定作用於此),
+        # 上層本體以 -transparentcolor 把背景色挖空,文字與控制項保持完全不透明。
+        # 本體由 backdrop 擁有(owned window),Windows 保證永遠疊在其上。
+        self._backdrop = tk.Toplevel(root)
+        self._backdrop.overrideredirect(True)
+        self._backdrop.attributes("-topmost", True)
+        self._backdrop.attributes("-alpha", self._alpha)
+        self._backdrop.configure(bg=BG)
+        self._backdrop.bind("<MouseWheel>", self._on_wheel)  # 透明區的滾輪落在底板,轉發捲動
+
+        self._win = tk.Toplevel(self._backdrop)
         self._win.overrideredirect(True)
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", self._alpha)
+        self._win.attributes("-transparentcolor", BG)
         self._win.configure(bg=BG)
         px = x if x is not None else 40
         py = y if y is not None else 40
@@ -171,7 +182,7 @@ class OverlayWindow:
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
-        _enable_taskbar_button(self._win, alpha=self._alpha)
+        _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
 
     # --- 縮小成泡泡 ---
     @property
@@ -197,6 +208,7 @@ class OverlayWindow:
         self._minimized = True
         self._unread = 0
         self._win.withdraw()
+        self._backdrop.withdraw()
         self._show_bubble()
 
     def expand(self) -> None:
@@ -208,9 +220,11 @@ class OverlayWindow:
         if self._bubble is not None:
             self._bubble.destroy()
             self._bubble = None
+        self._backdrop.deiconify()
+        self._backdrop.attributes("-topmost", True)
+        self._backdrop.attributes("-alpha", self._alpha)
         self._win.deiconify()
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", self._alpha)
 
     def _show_bubble(self) -> None:
         b = tk.Toplevel(self._win)
@@ -267,9 +281,9 @@ class OverlayWindow:
             self._on_bubble_move(self._bubble_pos["x"], self._bubble_pos["y"])
 
     def set_alpha(self, alpha: float) -> None:
-        """套用新的視窗不透明度（overlay 本體與泡泡即時生效）。"""
+        """套用新的視窗不透明度（半透明底板與泡泡即時生效；文字層恆為不透明）。"""
         self._alpha = alpha
-        self._win.attributes("-alpha", alpha)
+        self._backdrop.attributes("-alpha", alpha)
         if self._bubble is not None:
             self._bubble.attributes("-alpha", alpha)
 
@@ -284,6 +298,7 @@ class OverlayWindow:
         self._w, self._h = w, h
         self._wrap = w - 40
         self._win.geometry(f"{w}x{h}+{x}+{y}")
+        self._backdrop.geometry(f"{w}x{h}+{x}+{y}")
 
     def _emit_geometry(self) -> None:
         if self._on_geometry_change is None:
@@ -307,6 +322,7 @@ class OverlayWindow:
         sx, sy, ox, oy = self._drag
         nx, ny = moved_to(ox, oy, e.x_root - sx, e.y_root - sy)
         self._win.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
+        self._backdrop.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
 
     def _resize_start(self, e) -> None:
         self._drag = (e.x_root, e.y_root, self._w, self._h)
@@ -315,7 +331,9 @@ class OverlayWindow:
         sx, sy, ow, oh = self._drag
         nw, nh = resized_to(ow, oh, e.x_root - sx, e.y_root - sy, MIN_WIDTH, MIN_HEIGHT)
         self._w, self._h = nw, nh
-        self._win.geometry(f"{nw}x{nh}+{self._win.winfo_x()}+{self._win.winfo_y()}")
+        geometry = f"{nw}x{nh}+{self._win.winfo_x()}+{self._win.winfo_y()}"
+        self._win.geometry(geometry)
+        self._backdrop.geometry(geometry)
 
     # --- 訊息 ---
     def add_message(self, original: str, translated: str, now: float | None = None) -> None:

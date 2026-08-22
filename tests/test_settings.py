@@ -30,13 +30,24 @@ def test_overlay_set_limits_trims_messages(root):
     assert ov.visible_messages()[0] == ("o2", "t2")  # 移除最舊
 
 
-def test_overlay_set_alpha_applies_to_window_and_bubble(root):
+def test_overlay_set_alpha_applies_to_backdrop_and_bubble(root):
+    # 雙層視窗：透明度只套在底板（backdrop）與泡泡，文字層（_win）維持不透明
     ov = OverlayWindow(root, x=0, y=0, max_messages=5, fade_seconds=0, alpha=0.84)
     ov.minimize()
     ov.set_alpha(0.5)
-    assert float(ov._win.attributes("-alpha")) == 0.5
+    assert float(ov._backdrop.attributes("-alpha")) == 0.5
+    assert float(ov._win.attributes("-alpha")) == 1.0
     assert float(ov._bubble.attributes("-alpha")) == 0.5
     ov.expand()
+
+
+def test_overlay_backdrop_follows_geometry(root):
+    ov = OverlayWindow(root, x=30, y=40, width=460, height=300,
+                       max_messages=5, fade_seconds=0)
+    ov._apply_geometry(120, 90, 400, 250)
+    root.update()
+    assert (ov._backdrop.winfo_x(), ov._backdrop.winfo_y()) == (120, 90)
+    assert (ov._backdrop.winfo_width(), ov._backdrop.winfo_height()) == (400, 250)
 
 
 def _vars(root, poll=0.4, fade=0, max_msgs=200, type_delay=0.02, alpha=0.84):
