@@ -24,7 +24,8 @@ MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
-_BUBBLE_SIZE = 44
+_BUBBLE_SIZE = 56
+_BUBBLE_ALPHA = 0.85  # 泡泡半透明，與 overlay 的視覺風格一致
 _CLICK_THRESHOLD = 5
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 
@@ -215,20 +216,29 @@ class OverlayWindow:
         b.overrideredirect(True)
         b.attributes("-topmost", True)
         b.attributes("-transparentcolor", _TRANSPARENT)
+        b.attributes("-alpha", _BUBBLE_ALPHA)
         b.configure(bg=_TRANSPARENT)
         b.geometry(f"{_BUBBLE_SIZE}x{_BUBBLE_SIZE}"
                    f"+{self._bubble_pos['x']}+{self._bubble_pos['y']}")
         c = tk.Canvas(b, width=_BUBBLE_SIZE, height=_BUBBLE_SIZE,
                       bg=_TRANSPARENT, highlightthickness=0)
         c.pack()
+
+        def px(f: float) -> int:
+            return round(_BUBBLE_SIZE * f)  # 圖示座標按泡泡尺寸等比縮放
+
         c.create_oval(2, 2, _BUBBLE_SIZE - 2, _BUBBLE_SIZE - 2,
                       fill=BAR, outline=GRIP, width=2)
         # 圖示：兩個交疊的對話泡泡（翻譯意象），Canvas 直接繪製、不依賴圖檔
-        c.create_oval(10, 13, 26, 26, outline=FG_TRANSLATED, width=2)
-        c.create_polygon(14, 25, 19, 25, 12, 31, fill=FG_TRANSLATED)
-        c.create_oval(21, 20, 35, 32, outline=FG_ORIGINAL, width=2)
-        self._badge = c.create_text(_BUBBLE_SIZE - 10, 9, text="", fill="#ff9090",
-                                    font=("Microsoft JhengHei", 8, "bold"))
+        c.create_oval(px(0.23), px(0.30), px(0.59), px(0.59),
+                      outline=FG_TRANSLATED, width=2)
+        c.create_polygon(px(0.32), px(0.57), px(0.43), px(0.57), px(0.27), px(0.70),
+                         fill=FG_TRANSLATED)
+        c.create_oval(px(0.48), px(0.45), px(0.80), px(0.73),
+                      outline=FG_ORIGINAL, width=2)
+        self._badge = c.create_text(_BUBBLE_SIZE - px(0.23), px(0.20), text="",
+                                    fill="#ff9090",
+                                    font=("Microsoft JhengHei", 9, "bold"))
         c.bind("<ButtonPress-1>", self._bubble_press)
         c.bind("<B1-Motion>", self._bubble_drag)
         c.bind("<ButtonRelease-1>", self._bubble_release)
