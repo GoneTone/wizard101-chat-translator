@@ -30,7 +30,7 @@ class SetupWizard:
 
         self._win = tk.Toplevel(root)
         self._win.title(f"{APP_NAME} — 首次設定")
-        win_w, win_h = 520, 420
+        win_w, win_h = 540, 460
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")

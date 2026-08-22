@@ -45,7 +45,8 @@ class InputBox:
                                font=("Microsoft JhengHei", 12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
         self._status = tk.Label(self._win, text="輸入訊息，Enter 翻譯並輸入遊戲（不會自動送出），Esc 關閉",
-                                bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9), anchor="w")
+                                bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9),
+                                anchor="w", justify="left", wraplength=436)
         self._status.pack(fill="x", padx=8)
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
@@ -120,6 +121,8 @@ class InputBox:
             return
         self._entry.configure(state="normal")
         self._status.configure(text=message, fg="#ff5f5f")
+        # 錯誤訊息可能換行成多行：加高視窗避免被下緣切掉（位置不動）
+        self._win.geometry("460x128")
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
