@@ -74,7 +74,7 @@ class OkTranslator:
     def __init__(self):
         self.calls: list[str] = []
 
-    def to_zh(self, text):
+    def translate_incoming(self, text):
         self.calls.append(text)
         return f"譯:{text}"
 
@@ -94,7 +94,7 @@ class OneBadTranslator:
     def __init__(self):
         self.calls: list[str] = []
 
-    def to_zh(self, text):
+    def translate_incoming(self, text):
         self.calls.append(text)
         if text == "[B] bad":
             raise ValueError("模型回傳非預期格式")
@@ -115,7 +115,7 @@ class FlakyTranslator:
     def __init__(self):
         self.calls = 0
 
-    def to_zh(self, text):
+    def translate_incoming(self, text):
         self.calls += 1
         if self.calls == 1:
             raise httpx.HTTPError("offline")
@@ -158,7 +158,7 @@ def test_status_locating_when_not_anchored(monkeypatch):
 
 
 class NeverTranslator:
-    def to_zh(self, text):
+    def translate_incoming(self, text):
         raise AssertionError("找不到遊戲時不應嘗試翻譯")
 
 

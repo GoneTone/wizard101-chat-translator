@@ -90,7 +90,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         while pending:
             line = pending[0]
             try:
-                translated = translator.to_zh(line)
+                translated = translator.translate_incoming(line)
             except httpx.HTTPError:
                 went_offline = True  # line 留在 pending,下輪重試
                 break
@@ -126,7 +126,7 @@ def main() -> None:
     if not cfg["api"]["model"]:
         sys.exit("請編輯 config.json 填入 api.base_url 與 api.model（格式參考 config.example.json）。")
 
-    translator = Translator(**cfg["api"])
+    translator = Translator(**cfg["api"], target_language=cfg["target_language"])
     ui_queue: queue.Queue = queue.Queue()
 
     root = tk.Tk()
@@ -146,14 +146,14 @@ def main() -> None:
         on_geometry_change=save_geometry,
     )
 
-    def on_translated(english: str, hwnd: int | None) -> None:
-        type_into_window(hwnd, english, delay=cfg["type_delay"])
+    def on_translated(translated: str, hwnd: int | None) -> None:
+        type_into_window(hwnd, translated, delay=cfg["type_delay"])
 
     def save_input_position(x: int, y: int) -> None:
         cfg["input_position"] = {"x": x, "y": y}
         save_config(CONFIG_PATH, cfg)
 
-    input_box = InputBox(root, translator.to_en, ui_queue, on_translated,
+    input_box = InputBox(root, translator.translate_outgoing, ui_queue, on_translated,
                          position=cfg["input_position"], on_move=save_input_position)
     keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 

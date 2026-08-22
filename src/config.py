@@ -5,6 +5,7 @@ from pathlib import Path
 
 DEFAULT_CONFIG: dict = {
     "api": {"base_url": "http://127.0.0.1:8000", "model": "", "api_key": "", "thinking": False},
+    "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言(人讀名稱,直接帶入提示詞);發話固定翻英文
     "poll_interval": 0.4,    # 收訊輪詢間隔(秒);快掃很便宜,可設小一點更即時
     "fade_seconds": 0,       # <=0:訊息永不依時間淡出(可滾動看歷史)
     "max_messages": 200,     # 視窗保留的訊息則數上限,超過移除最舊
