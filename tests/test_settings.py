@@ -1,6 +1,8 @@
 """設定視窗純邏輯與 overlay set_limits 測試。"""
+import tkinter as tk
+
 from src.reader.overlay import OverlayWindow
-from src.ui.settings import clamp_advanced
+from src.ui.settings import clamp_advanced, parse_advanced_values
 
 
 def test_clamp_advanced_limits_ranges():
@@ -22,3 +24,29 @@ def test_overlay_set_limits_trims_messages(root):
     ov.set_limits(max_messages=3, fade_seconds=0)
     assert len(ov.visible_messages()) == 3
     assert ov.visible_messages()[0] == ("o2", "t2")  # 移除最舊
+
+
+def test_parse_advanced_values_returns_error_on_non_numeric_input(root):
+    poll = tk.DoubleVar(root, value=0.4)
+    fade = tk.IntVar(root, value=0)
+    max_msgs = tk.IntVar(root, value=200)
+    type_delay = tk.DoubleVar(root, value=0.02)
+    poll.set("abc")  # 模擬使用者在 Spinbox 手動鍵入非數字
+
+    values, error = parse_advanced_values(poll, fade, max_msgs, type_delay)
+
+    assert values is None
+    assert error == "進階數值格式錯誤，請輸入數字"
+
+
+def test_parse_advanced_values_clamps_valid_numeric_input(root):
+    poll = tk.DoubleVar(root, value=0.01)
+    fade = tk.IntVar(root, value=-5)
+    max_msgs = tk.IntVar(root, value=99999)
+    type_delay = tk.DoubleVar(root, value=9.0)
+
+    values, error = parse_advanced_values(poll, fade, max_msgs, type_delay)
+
+    assert error is None
+    assert values == {"poll_interval": 0.1, "fade_seconds": 0,
+                       "max_messages": 1000, "type_delay": 0.5}

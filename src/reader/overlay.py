@@ -68,14 +68,15 @@ class OverlayWindow:
         label = tk.Label(bar, text="≡  Wizard101 翻譯", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
+        # 狀態字先 pack(side="right")占最外側；齒輪後 pack 才會落在狀態字左邊。
+        self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
+                                      font=("Microsoft JhengHei", 8), anchor="e")
+        self._status_label.pack(side="right", padx=6)
         if on_settings is not None:
             gear = tk.Label(bar, text="⚙", bg=BAR, fg=FG_BAR,
                             font=("Microsoft JhengHei", 9), cursor="hand2")
             gear.pack(side="right", padx=(0, 2))
             gear.bind("<Button-1>", lambda e: on_settings())
-        self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
-                                      font=("Microsoft JhengHei", 8), anchor="e")
-        self._status_label.pack(side="right", padx=6)
         for w in (bar, label, self._status_label):
             w.bind("<ButtonPress-1>", self._move_start)
             w.bind("<B1-Motion>", self._move_drag)

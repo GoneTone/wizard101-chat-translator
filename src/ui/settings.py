@@ -20,6 +20,24 @@ def clamp_advanced(values: dict) -> dict:
     return values
 
 
+def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
+                          ) -> tuple[dict | None, str | None]:
+    """讀取並轉型四個進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
+    `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
+    統一在此攔截並回傳 `(None, 錯誤訊息)`，讓呼叫端走既有表單錯誤提示、
+    不讓 cfg 被寫到一半。成功則回傳 `(clamp_advanced(...), None)`。"""
+    try:
+        values = clamp_advanced({
+            "poll_interval": float(poll_var.get()),
+            "fade_seconds": int(fade_var.get()),
+            "max_messages": int(max_messages_var.get()),
+            "type_delay": float(type_delay_var.get()),
+        })
+    except (tk.TclError, ValueError):
+        return None, "進階數值格式錯誤，請輸入數字"
+    return values, None
+
+
 class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
@@ -100,10 +118,15 @@ class SettingsWindow:
             self._game_path.set(chosen)
 
     def _save(self) -> None:
+        # 進階數值先解析：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
+        advanced, advanced_error = parse_advanced_values(
+            self._poll, self._fade, self._max_msgs, self._type_delay)
         api = self._api.get_values()
         errors = validate_api_form(api)
         if not self._language.value():
             errors.append("請選擇或輸入翻譯目標語言")
+        if advanced_error:
+            errors.append(advanced_error)
         if errors:
             messagebox.showwarning("設定不完整", "\n".join(errors), parent=self._win)
             return
@@ -112,12 +135,6 @@ class SettingsWindow:
         cfg["api"] = api
         cfg["target_language"] = self._language.value()
         cfg["hotkey"] = self._hotkey.value()
-        advanced = clamp_advanced({
-            "poll_interval": float(self._poll.get()),
-            "fade_seconds": int(self._fade.get()),
-            "max_messages": int(self._max_msgs.get()),
-            "type_delay": float(self._type_delay.get()),
-        })
         cfg.update(advanced)
         cfg["game_path"] = self._game_path.get().strip() or None
         game_path_changed = cfg["game_path"] != old_game_path
