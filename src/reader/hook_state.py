@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 
-APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wiz101-chat-translator"
+APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
 
 
 def _state_path(pid: int) -> Path:

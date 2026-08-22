@@ -1,4 +1,4 @@
-# Wiz101 聊天翻譯助手
+# Wizard101 聊天翻譯助手
 
 Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成**你設定的目標語言**疊加顯示(保留原文);
 熱鍵輸入(任何語言)自動翻成**英文**,逐字**自動鍵入**遊戲聊天欄(遊戲不支援貼上;**不會自動送出**,自己確認後按 Enter)。
@@ -15,7 +15,33 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成**你設定的目
 這**違反 Wizard101 服務條款**,比單純讀取更具侵入性、**封號風險更高**,
 **可能導致帳號被停權,請自行斟酌**。
 
-## 安裝
+## 一般使用者
+
+不需要 Python 環境,下載打包好的 exe 即可使用:
+
+1. 下載 `Wizard101ChatTranslator.exe`,放到任意資料夾(設定 `config.json`
+   與紀錄檔 `app.log` 都會存在 exe 同一個資料夾)
+2. 雙擊執行:
+   - 第一次執行(找不到 `config.json`)會跳出**首次設定精靈**:選翻譯服務 →
+     填金鑰 → 測試連線 → 完成,存好設定後自動進入主流程
+   - 之後每次啟動都直接進主流程,不會再跳精靈
+3. 開啟 Wizard101 並**登入進遊戲世界內**,疊加視窗才讀得到聊天訊息
+4. 想改設定(服務商、金鑰、目標語言、熱鍵…)時,點疊加視窗標題列的齒輪
+   (⚙)開啟設定視窗,存檔即套用,不必重開程式
+
+**防毒軟體誤判**:本工具會讀取遊戲聊天記憶體(掛入遊戲程序)並監聽全域熱鍵,
+行為模式與部分惡意程式相似,可能被防毒軟體標記或直接刪除/隔離,這是誤判,
+請自行評估風險後把程式加入防毒白名單。
+
+**系統管理員權限**:若 Wizard101 以**系統管理員**身分執行,本工具也必須以
+系統管理員身分執行(掛入遊戲程序需要對等或更高權限),否則會一直卡在
+「連線遊戲中…」。
+
+## 開發者
+
+以下為原始碼開發、除錯、打包用的流程。
+
+### 安裝
 
 以 [uv](https://docs.astral.sh/uv/) 管理隔離環境(Windows,Python 3.11+):
 
@@ -29,7 +55,17 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成**你設定的目
 > 遊戲改版導致掛入報 `PatternFailed` 時,更新 fork 後重跑 `uv sync`(或
 > `uv lock --upgrade-package wizwalker`)取得新 pattern。
 
-## 使用
+### 打包(exe)
+
+```
+uv run pyinstaller build.spec --noconfirm
+```
+
+產物在 `dist/Wizard101ChatTranslator.exe`,單一 windowed exe(無主控台黑窗)。
+分發時只需這個 exe;`config.json` 與 `app.log` 會在使用者第一次執行時自動建立
+在 exe 同一個資料夾(見上方「一般使用者」)。
+
+### 使用(從原始碼執行)
 
 1. 開啟並登入 Wizard101 到遊戲世界內
 2. `uv run run.py`(等同 `uv run python -m src.main`)
@@ -45,9 +81,12 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成**你設定的目
 
 ## 設定(config.json)
 
+> 這些欄位一般使用者也可透過疊加視窗的設定視窗(齒輪 ⚙)填寫,不必手改此檔。
+
 | 欄位 | 說明 |
 |------|------|
-| `api.base_url` / `api.model` / `api.api_key` | 自架 OpenAI 相容 API |
+| `api.provider` | 翻譯服務商:`openai`(ChatGPT)、`claude`(Anthropic)、`custom`(自訂 OpenAI 相容端點,需自行架設,填 `api.base_url`) |
+| `api.base_url` / `api.model` / `api.api_key` | `provider` 為 `custom` 時使用 `base_url`(自架 OpenAI 相容 API,`/v1/chat/completions`);`openai`／`claude` 則固定用官方端點,只需 `model` 與 `api_key` |
 | `target_language` | 收訊翻成的目標語言(人讀名稱,直接帶入提示詞),例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |
 | `api.thinking` | 模型是否啟用思考/reasoning(預設 `false`:關閉思考,併入常見後端的停用參數 `reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等)。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何,譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯,回報後可移除 |
 | `poll_interval` | 輪詢間隔秒數(預設 0.4)。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
@@ -65,7 +104,7 @@ Wizard101 聊天 AI 翻譯:讀取遊戲聊天訊息即時翻成**你設定的目
   `PatternFailed`),需等 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑 `uv sync`
 - Ctrl+C 結束會自動解除 hook。即使被**強制結束**(工作管理員 kill、當機)遺留了
   hook,下次啟動也會**自動修復**(把遺留的原始 bytes 寫回、等同補做 unhook)、免重開
-  遊戲——修復狀態存於 `%LOCALAPPDATA%\wiz101-chat-translator\`,依 PID + 模組基址比對,
+  遊戲——修復狀態存於 `%LOCALAPPDATA%\wizard101-chat-translator\`,依 PID + 模組基址比對,
   只對同一個仍在執行的遊戲程序套用。僅「狀態檔遺失的舊遺留」才需重開遊戲一次。
 - 翻玩家發言(**含自己的 `[你]` 發言**與他人發言);系統訊息(掉寶/經驗/升等)與遊戲除錯行不翻
 - wizwalker 掛入與全域熱鍵(keyboard 套件)在部分環境需以**系統管理員**身分執行

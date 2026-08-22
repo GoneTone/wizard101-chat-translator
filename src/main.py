@@ -9,7 +9,7 @@ import keyboard
 
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import CONFIG_PATH, is_configured, load_config, save_config
+from src.config import CONFIG_PATH, app_dir, is_configured, load_config, save_config
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
 from src.translator import Translator, TranslatorConfigError, TranslatorOffline
@@ -129,6 +129,12 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
 
 def main() -> None:
+    if getattr(sys, "frozen", False):
+        # windowed exe 沒有 stdout/stderr(為 None);全部導到 exe 旁的 app.log,
+        # 使用者回報問題時附上此檔即可(每次啟動覆寫,只留本次紀錄)
+        log = open(app_dir() / "app.log", "w", encoding="utf-8", buffering=1)
+        sys.stdout = sys.stderr = log
+
     cfg = load_config(CONFIG_PATH)
 
     root = tk.Tk()

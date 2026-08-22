@@ -1,5 +1,6 @@
 # build.spec —— PyInstaller 打包設定：單一 exe。
-# spike 階段 console=True 便於除錯；定稿（Task 7）改 console=False。
+# 定稿：console=False(windowed,無黑窗)；執行期輸出改導向 exe 旁的 app.log
+# (見 src/main.py 的 frozen 判斷),使用者回報問題附上該檔即可。
 a = Analysis(
     ["run.py"],
     pathex=[],
@@ -15,6 +16,6 @@ exe = EXE(
     a.binaries,
     a.datas,
     name="Wizard101ChatTranslator",
-    console=True,
+    console=False,
     upx=False,
 )
