@@ -44,7 +44,10 @@ class SettingsWindow:
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
         self._win.title(f"{APP_NAME} — 設定")
-        self._win.geometry("640x560")
+        win_w, win_h = 640, 560
+        x = (self._win.winfo_screenwidth() - win_w) // 2
+        y = (self._win.winfo_screenheight() - win_h) // 2
+        self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(False, False)  # 版面按固定尺寸配置，縮放會切到文字
         self._win.attributes("-topmost", True)
 
