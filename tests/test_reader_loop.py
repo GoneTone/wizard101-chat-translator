@@ -146,6 +146,7 @@ class ConfigErrorTranslator:
 
 
 def test_config_error_line_stays_pending_and_retried(monkeypatch):
+    monkeypatch.setattr(main_module, "CONFIG_ERROR_INTERVAL", 0.01)
     cfg = {"poll_interval": 0.01}
     tr = ConfigErrorTranslator()
     ov = FakeOverlay()
