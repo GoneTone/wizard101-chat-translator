@@ -24,6 +24,9 @@ MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
+_BUBBLE_SIZE = 44
+_CLICK_THRESHOLD = 5
+_TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 
 
 def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
@@ -43,14 +46,45 @@ def should_stick_to_bottom(view_bottom_fraction: float,
     return view_bottom_fraction >= threshold
 
 
+def is_click(dx: int, dy: int, threshold: int = _CLICK_THRESHOLD) -> bool:
+    """按下到放開的位移是否算點擊（否則視為拖曳）。"""
+    return abs(dx) < threshold and abs(dy) < threshold
+
+
+def _enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
+    """讓無邊框視窗出現在工作列與 Alt+Tab。
+    overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
+    extended style 即可；需 withdraw→deiconify 一次讓樣式生效，
+    之後重設 topmost（與 alpha，若有）。失敗只是少個按鈕，不影響功能。"""
+    try:
+        win.update_idletasks()
+        hwnd = win32gui.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
+        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        style = (style & ~win32con.WS_EX_TOOLWINDOW) | win32con.WS_EX_APPWINDOW
+        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
+        win.withdraw()
+        win.deiconify()
+        win.attributes("-topmost", True)
+        if alpha is not None:
+            win.attributes("-alpha", alpha)
+    except Exception as exc:
+        print(f"[ui] taskbar button setup failed: {exc}", file=sys.stderr)
+
+
 class OverlayWindow:
     def __init__(self, root: tk.Tk, x: int | None, y: int | None,
                  width: int = 460, height: int = 300,
                  max_messages: int = 50, fade_seconds: int = 180,
-                 on_geometry_change=None, on_settings=None, on_close=None):
+                 on_geometry_change=None, on_settings=None, on_close=None,
+                 bubble_position: dict | None = None, on_bubble_move=None):
         self._max = max_messages
         self._fade = fade_seconds
         self._on_geometry_change = on_geometry_change
+        self._on_bubble_move = on_bubble_move
+        self._bubble_pos = dict(bubble_position) if bubble_position else {"x": None, "y": None}
+        self._minimized = False
+        self._unread = 0
+        self._bubble: tk.Toplevel | None = None
         self._messages: list[tuple[float, str, str, tk.Frame]] = []
         self._error_label: tk.Label | None = None
         self._w = max(width, MIN_WIDTH)
@@ -81,6 +115,10 @@ class OverlayWindow:
                              font=("Microsoft JhengHei", 9), cursor="hand2")
             close.pack(side="right", padx=(0, 6))
             close.bind("<Button-1>", lambda e: on_close())
+        mini = tk.Label(bar, text="─", bg=BAR, fg=FG_BAR,
+                        font=("Microsoft JhengHei", 9), cursor="hand2")
+        mini.pack(side="right", padx=(0, 4))
+        mini.bind("<Button-1>", lambda e: self.minimize())
         if on_settings is not None:
             gear = tk.Label(bar, text="⚙", bg=BAR, fg=FG_BAR,
                             font=("Microsoft JhengHei", 9), cursor="hand2")
@@ -131,25 +169,97 @@ class OverlayWindow:
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
-        self._add_taskbar_button()
+        _enable_taskbar_button(self._win, alpha=0.88)
 
-    def _add_taskbar_button(self) -> None:
-        """讓無邊框視窗出現在工作列與 Alt+Tab。
-        overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
-        extended style 即可；需 withdraw→deiconify 一次讓樣式生效，
-        之後重設 topmost/alpha（重新顯示會掉）。失敗只是少個按鈕，不影響功能。"""
-        try:
-            self._win.update_idletasks()
-            hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)  # GA_ROOT
-            style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-            style = (style & ~win32con.WS_EX_TOOLWINDOW) | win32con.WS_EX_APPWINDOW
-            win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
-            self._win.withdraw()
-            self._win.deiconify()
-            self._win.attributes("-topmost", True)
-            self._win.attributes("-alpha", 0.88)
-        except Exception as exc:
-            print(f"[ui] taskbar button setup failed: {exc}", file=sys.stderr)
+    # --- 縮小成泡泡 ---
+    @property
+    def minimized(self) -> bool:
+        """是否處於縮小（泡泡）狀態。"""
+        return self._minimized
+
+    def unread_count(self) -> int:
+        """縮小期間累積的未讀訊息數（展開歸零）。"""
+        return self._unread
+
+    def minimize(self) -> None:
+        """縮小成浮動泡泡：隱藏本體（訊息照常累積），點泡泡展開、拖曳移動。"""
+        if self._minimized:
+            return
+        self._win.update_idletasks()
+        if self._bubble_pos.get("x") is None:
+            # 無記憶位置：預設出現在 overlay 右上角（縮小按鈕附近），視覺上「收進泡泡」
+            self._bubble_pos = {
+                "x": self._win.winfo_x() + self._win.winfo_width() - _BUBBLE_SIZE,
+                "y": self._win.winfo_y(),
+            }
+        self._minimized = True
+        self._unread = 0
+        self._win.withdraw()
+        self._show_bubble()
+
+    def expand(self) -> None:
+        """從泡泡展開回完整視窗，未讀歸零。"""
+        if not self._minimized:
+            return
+        self._minimized = False
+        self._unread = 0
+        if self._bubble is not None:
+            self._bubble.destroy()
+            self._bubble = None
+        self._win.deiconify()
+        self._win.attributes("-topmost", True)
+        self._win.attributes("-alpha", 0.88)
+
+    def _show_bubble(self) -> None:
+        b = tk.Toplevel(self._win)
+        b.overrideredirect(True)
+        b.attributes("-topmost", True)
+        b.attributes("-transparentcolor", _TRANSPARENT)
+        b.configure(bg=_TRANSPARENT)
+        b.geometry(f"{_BUBBLE_SIZE}x{_BUBBLE_SIZE}"
+                   f"+{self._bubble_pos['x']}+{self._bubble_pos['y']}")
+        c = tk.Canvas(b, width=_BUBBLE_SIZE, height=_BUBBLE_SIZE,
+                      bg=_TRANSPARENT, highlightthickness=0)
+        c.pack()
+        c.create_oval(2, 2, _BUBBLE_SIZE - 2, _BUBBLE_SIZE - 2,
+                      fill=BAR, outline=GRIP, width=2)
+        # 圖示：兩個交疊的對話泡泡（翻譯意象），Canvas 直接繪製、不依賴圖檔
+        c.create_oval(10, 13, 26, 26, outline=FG_TRANSLATED, width=2)
+        c.create_polygon(14, 25, 19, 25, 12, 31, fill=FG_TRANSLATED)
+        c.create_oval(21, 20, 35, 32, outline=FG_ORIGINAL, width=2)
+        self._badge = c.create_text(_BUBBLE_SIZE - 10, 9, text="", fill="#ff9090",
+                                    font=("Microsoft JhengHei", 8, "bold"))
+        c.bind("<ButtonPress-1>", self._bubble_press)
+        c.bind("<B1-Motion>", self._bubble_drag)
+        c.bind("<ButtonRelease-1>", self._bubble_release)
+        self._bubble = b
+        self._bubble_canvas = c
+        b.title(APP_NAME)
+        _enable_taskbar_button(b)
+
+    def _bubble_press(self, e) -> None:
+        self._bubble_drag_state = (e.x_root, e.y_root,
+                                   self._bubble.winfo_x(), self._bubble.winfo_y())
+
+    def _bubble_drag(self, e) -> None:
+        sx, sy, ox, oy = self._bubble_drag_state
+        nx, ny = moved_to(ox, oy, e.x_root - sx, e.y_root - sy)
+        self._bubble.geometry(f"+{nx}+{ny}")
+
+    def _bubble_release(self, e) -> None:
+        sx, sy, _, _ = self._bubble_drag_state
+        if is_click(e.x_root - sx, e.y_root - sy):
+            self.expand()
+            return
+        self._bubble_pos = {"x": self._bubble.winfo_x(), "y": self._bubble.winfo_y()}
+        if self._on_bubble_move is not None:
+            self._on_bubble_move(self._bubble_pos["x"], self._bubble_pos["y"])
+
+    def _update_badge(self) -> None:
+        if self._bubble is None:
+            return
+        text = "99+" if self._unread > 99 else (str(self._unread) if self._unread else "")
+        self._bubble_canvas.itemconfigure(self._badge, text=text)
 
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:
@@ -211,6 +321,9 @@ class OverlayWindow:
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         if stick:
             self._canvas.yview_moveto(1.0)
+        if self._minimized:
+            self._unread += 1
+            self._update_badge()
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""

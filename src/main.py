@@ -185,6 +185,10 @@ def main() -> None:
         cfg["overlay"] = {"x": x, "y": y, "width": w, "height": h}
         save_config(CONFIG_PATH, cfg)
 
+    def save_bubble_position(x: int, y: int) -> None:
+        cfg["bubble_position"] = {"x": x, "y": y}
+        save_config(CONFIG_PATH, cfg)
+
     overlay = OverlayWindow(
         root,
         x=ov["x"], y=ov["y"], width=ov["width"], height=ov["height"],
@@ -193,6 +197,8 @@ def main() -> None:
         on_geometry_change=save_geometry,
         on_settings=lambda: ui_queue.put(lambda: settings.open()),
         on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉（停 reader、解 hook）
+        bubble_position=cfg["bubble_position"],
+        on_bubble_move=save_bubble_position,
     )
 
     def on_translated(translated: str, hwnd: int | None) -> None:

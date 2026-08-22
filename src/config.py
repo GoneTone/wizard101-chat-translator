@@ -30,6 +30,7 @@ DEFAULT_CONFIG: dict = {
     "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒），遊戲漏字就調大
     "overlay": {"x": None, "y": None, "width": 460, "height": 300},
     "input_position": {"x": None, "y": None},  # 翻譯輸入框位置（拖曳後記住）
+    "bubble_position": {"x": None, "y": None},  # 縮小泡泡位置（拖曳後記住；null＝overlay 右上角）
 }
 
 

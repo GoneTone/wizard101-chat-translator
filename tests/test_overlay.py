@@ -2,10 +2,35 @@ from src.reader.overlay import (
     MIN_HEIGHT,
     MIN_WIDTH,
     OverlayWindow,
+    is_click,
     moved_to,
     resized_to,
     should_stick_to_bottom,
 )
+
+
+def test_is_click_within_threshold():
+    assert is_click(0, 0) is True
+    assert is_click(4, -3) is True   # 位移小於門檻＝點擊
+
+
+def test_is_click_beyond_threshold_is_drag():
+    assert is_click(6, 0) is False
+    assert is_click(0, -8) is False
+
+
+def test_minimize_counts_unread_and_expand_resets(root):
+    ov = OverlayWindow(root, x=0, y=0, max_messages=10, fade_seconds=0)
+    ov.add_message("m0", "t0")
+    ov.minimize()
+    assert ov.minimized
+    ov.add_message("m1", "t1")
+    ov.add_message("m2", "t2")
+    assert ov.unread_count() == 2      # 縮小期間累積未讀
+    ov.expand()
+    assert not ov.minimized
+    assert ov.unread_count() == 0      # 展開歸零
+    assert len(ov.visible_messages()) == 3  # 縮小期間的訊息沒有遺失
 
 
 def test_moved_to_adds_delta():
