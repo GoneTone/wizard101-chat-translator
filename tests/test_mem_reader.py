@@ -208,6 +208,30 @@ def test_misalignment_resyncs_without_flood():
     assert r.read_new() == ["[Z] next"]       # 已重新同步,之後正常
 
 
+def test_first_message_after_empty_chat_is_emitted():
+    # 空聊天室(登入後)→ 第一句就要抓到,不能被當成初始歷史跳過
+    r = FakeWiz([
+        "",                                          # 空聊天室
+        _log(_say(1, "A", "first")),                 # 第一句
+        _log(_say(1, "A", "first"), _say(2, "B", "second")),
+    ])
+    assert r.read_new() == []                        # 首次:空基準
+    assert r.read_new() == ["[A] first"]
+    assert r.read_new() == ["[B] second"]
+
+
+def test_message_after_chat_cleared_is_emitted():
+    # 有歷史 → 聊天被清空(relog) → 清空後第一句仍要抓到
+    r = FakeWiz([
+        _log(_say(1, "A", "old")),
+        "",                                          # 清空
+        _log(_say(1, "C", "fresh")),
+    ])
+    assert r.read_new() == []                        # 基準=[A old]
+    assert r.read_new() == []                        # 清空 → 對不齊 → 重新同步(基準變空)
+    assert r.read_new() == ["[C] fresh"]
+
+
 def test_read_failure_raises_game_not_running():
     r = FakeWiz([_log(_say(1, "A", "hi")), RuntimeError("process gone")])
     assert r.read_new() == []

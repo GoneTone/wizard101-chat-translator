@@ -124,6 +124,7 @@ class WizChatReader:
         self.process_name = process_name
         self._game_path = game_path
         self._prev: list[str] = []
+        self._synced = False          # 是否已建立初始基準(建立後才開始回報新增)
         self._connected = False
         self._loop: asyncio.AbstractEventLoop | None = None
         self._handler = None
@@ -140,12 +141,16 @@ class WizChatReader:
         找不到遊戲或連線中斷丟 GameNotRunning。"""
         text = self._read_chatlog_text()
         cur = lines_from_chatlog(text)
-        if not self._prev:
-            self._prev = cur       # 首次:記錄現況,不回吐歷史
+        if not self._synced:
+            self._prev = cur        # 首次連上:記錄現況(含既有歷史),不回吐
+            self._synced = True
             return []
+        if not self._prev:
+            self._prev = cur        # 基準是空的(空聊天室)→ 現在出現的行全是新訊息
+            return cur
         appended = align_append(self._prev, cur)
         self._prev = cur
-        return appended or []       # 對不齊(None)→ 重新同步,本輪不輸出
+        return appended or []        # 對不齊(None)→ 重新同步,本輪不輸出
 
     def _read_chatlog_text(self) -> str:
         """讀所有 `chatLog` 控件的全文並串接;連線中斷則丟 GameNotRunning。"""
