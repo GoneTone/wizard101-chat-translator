@@ -1,7 +1,7 @@
 """疊加視窗：無邊框、置頂、半透明、固定大小、可拖曳移動與縮放、可滾動。
 顯示原文 + 譯文（最新在最下，可向上滾動看歷史）。
 捲動定位：在底部時新訊息自動跟到最底；向上捲看歷史時不會被硬拉回底部。
-滑鼠穿透採混合式：文字／標題列／卷軸可互動，透明背景區點擊直達遊戲。"""
+不滑鼠穿透 —— 視窗蓋住的區域點擊不會傳到遊戲，視窗永遠可互動。"""
 import sys
 import time
 import tkinter as tk
@@ -51,18 +51,18 @@ def is_click(dx: int, dy: int, threshold: int = _CLICK_THRESHOLD) -> bool:
     return abs(dx) < threshold and abs(dy) < threshold
 
 
-def _make_click_through(win: tk.Toplevel) -> None:
-    """讓視窗完全滑鼠穿透：點擊／滾輪直達其下方的視窗（如遊戲）。
-    失敗只是背景區點不穿（行為退回攔截），不影響其他功能。"""
+def _make_non_activating(win: tk.Toplevel) -> None:
+    """讓視窗攔截滑鼠事件但點擊不奪焦點、不改變疊序（WS_EX_NOACTIVATE）。
+    用於底板：點到透明背景區不會穿到遊戲，也不會把底板抬到文字層之上。
+    失敗的後果是點擊底板可能改變疊序，另有 lower() 保險擋著。"""
     try:
         win.update_idletasks()
         hwnd = win32gui.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
         style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        style |= (win32con.WS_EX_TRANSPARENT | win32con.WS_EX_LAYERED
-                  | win32con.WS_EX_NOACTIVATE)
+        style |= win32con.WS_EX_NOACTIVATE
         win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
     except Exception as exc:
-        print(f"[ui] click-through setup failed: {exc}", file=sys.stderr)
+        print(f"[ui] non-activating setup failed: {exc}", file=sys.stderr)
 
 
 def _enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
@@ -117,9 +117,10 @@ class OverlayWindow:
         self._backdrop.attributes("-topmost", True)
         self._backdrop.attributes("-alpha", self._alpha)
         self._backdrop.configure(bg=BG)
-        # 底板完全滑鼠穿透:配合文字層的透明色鍵,點透明背景區＝直達遊戲;
-        # 滾輪在空白處也會進遊戲,捲動靠滑過文字或卷軸。
-        _make_click_through(self._backdrop)
+        # 底板攔截透明背景區的滑鼠事件(不穿透到遊戲),但點擊不奪焦點、不改疊序;
+        # 空白處的滾輪由底板轉發給訊息區捲動。
+        _make_non_activating(self._backdrop)
+        self._backdrop.bind("<MouseWheel>", self._on_wheel)
 
         self._win = tk.Toplevel(self._backdrop)
         self._win.overrideredirect(True)
