@@ -12,7 +12,10 @@ import json
 import os
 from pathlib import Path
 
-APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
+# 資料夾名刻意維持舊值、不隨產品改名為 Wizard101：這是既有 hook 狀態檔
+# (hookstate-{pid}.json) 的存放路徑，改名會讓舊路徑下的狀態檔孤兒化，
+# 「髒退出後遊戲仍在跑、期間升級本工具」的情境會因此多一次不必要的重開遊戲。
+APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wiz101-chat-translator"
 
 
 def _state_path(pid: int) -> Path:

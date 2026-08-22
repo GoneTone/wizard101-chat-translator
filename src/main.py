@@ -130,8 +130,8 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
 def main() -> None:
     if getattr(sys, "frozen", False):
-        # windowed exe 沒有 stdout/stderr(為 None);全部導到 exe 旁的 app.log,
-        # 使用者回報問題時附上此檔即可(每次啟動覆寫,只留本次紀錄)
+        # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
+        # 使用者回報問題時附上此檔即可（每次啟動覆寫，只留本次紀錄）
         log = open(app_dir() / "app.log", "w", encoding="utf-8", buffering=1)
         sys.stdout = sys.stderr = log
 
