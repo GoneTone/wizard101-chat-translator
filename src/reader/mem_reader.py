@@ -166,8 +166,8 @@ class WizChatReader:
         if appended is None:
             # 與基準完全無重疊 → 聊天已重置(relog/清空成全新內容),cur 全部視為新訊息。
             # 印記錄供事後查證:若此路徑在非 relog 情境被觸發,代表差分邏輯仍有漏洞。
-            print(f"[reader] 聊天記錄與基準無重疊，視為重置（{len(cur)} 行將重新翻譯）",
-                  file=sys.stderr)
+            print(f"[reader] chat log has no overlap with baseline, treating as reset "
+                  f"(lines={len(cur)} will be re-translated)", file=sys.stderr)
             self._prev = cur
             return cur
         self._prev = cur
@@ -247,7 +247,8 @@ class WizChatReader:
                     self._run(self._client.hook_handler.write_bytes(addr, original))
                 except Exception:
                     pass
-            print(f"[reader] 已修復上次遺留的 hook（{len(ops)} 處），免重開遊戲", file=sys.stderr)
+            print(f"[reader] repaired hooks leaked by previous dirty exit "
+                  f"(writes={len(ops)}, pid={pid}), no game restart needed", file=sys.stderr)
         hook_state.clear_state(pid)  # 套用或過期,一律刪除
 
     def _save_hook_state(self, pid: int) -> None:

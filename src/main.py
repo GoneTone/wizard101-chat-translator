@@ -39,7 +39,7 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
         try:
             callback()
         except Exception as exc:  # 避免單一 UI 回呼失敗就讓整個 pump 迴圈停擺
-            print(f"[ui] 回呼失敗：{exc}", file=sys.stderr)
+            print(f"[ui] callback failed: {exc}", file=sys.stderr)
 
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
@@ -79,7 +79,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤:略過該輪,不讓執行緒死掉
-            print(f"[reader] 略過此輪：{exc}", file=sys.stderr)
+            print(f"[reader] poll skipped: {exc}", file=sys.stderr)
             stop.wait(interval)
             continue
 
@@ -101,7 +101,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 break
             except Exception as exc:
                 # 其他翻譯錯誤（如模型回傳非預期格式）：印出、跳過這行，不讓 reader 執行緒死掉。
-                print(f"[translate] 略過此行（{exc}）：{line}", file=sys.stderr)
+                print(f"[translate] line skipped ({exc}): {line}", file=sys.stderr)
                 pending.popleft()
                 continue
             translated_ok = True
@@ -207,7 +207,7 @@ def main() -> None:
         overlay.prune()
         root.after(50, pump)
 
-    print(f"執行中：熱鍵 {cfg['hotkey']} 呼出輸入框；Ctrl+C 結束。")
+    print(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit with Ctrl+C or the overlay ✕")
     pump()
     try:
         root.mainloop()
@@ -223,7 +223,7 @@ def main() -> None:
             root.destroy()
         except Exception:
             pass
-        print("已結束。")
+        print("[app] shutdown complete")
 
 
 if __name__ == "__main__":

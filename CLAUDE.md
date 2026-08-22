@@ -8,6 +8,7 @@
 - **註解節制使用**：預設不寫實作層 `#` 註解；寫了就要有資訊增益。可寫的情境：(1) **WHY 不顯而易見**——隱藏限制、微妙 invariant、bug workaround、會讓讀者意外的行為；(2) **結構/段落導引**——在較長函式內標出段落意圖。判準：拿掉註解後讀者是否需要多花時間理解？需要 → 留，不需要 → 刪。反例：純粹重述下一行、檔頭路徑 banner、被註解掉的舊程式碼（直接刪）。
 - **模組與公開函式寫 docstring**：模組頂端與公開的 function／class 寫一段 `"""..."""` 說明其作用（沿用現有風格，如 `translator.py`／`mem_reader.py`）；簽名已自明的極簡函式可略。
 - **標點依語言慣例**：CJK 語境（繁體中文 (台灣)、日文等）一律用全形標點 `，。！？；：（）「」『』、──`，涵蓋註解、docstring、UI 文字、README、設計文件。英文／純程式碼語境維持半形 `. , ( ) ! ? : ;`。中英混排以**主語言**為準（中文句子內含英文短語，標點仍用全形）。
+- **新功能要埋 log**：實作新功能或修改既有邏輯時，在關鍵節點（wizwalker 掛入／讀取、hook 修復、翻譯 API 請求與錯誤分支、設定套用、重試／重置判定等）加 `print(..., file=sys.stderr)` 記錄——打包版的 stdout／stderr 會全數落入 exe 旁的 `app.log`。內容要帶足夠 context（行數、HTTP 狀態碼、provider、PID、例外訊息等）讓使用者匯出 `app.log` 後能直接定位問題，而不是 `"failed"` 這種沒有上下文的訊息。**log 訊息內容一律用英文**（方便搜尋、不受 locale 影響）：涵蓋所有寫進 stdout／stderr 的訊息字串（`key=value` 診斷欄位同理）；**唯獨程式碼註解／docstring 與 UI 顯示文字不受此條影響**——註解依「標點依語言慣例」用中文全形，overlay 橫幅／設定視窗／錯誤提示等使用者看得到的介面文字維持繁體中文。log 前綴對齊既有慣例（`[reader]`／`[translate]`／`[ui]` 等模組名）。**敏感資料（API 金鑰）絕不可寫入 log**。
 - **Commit message 用 conventional commits**：格式 `feat:`／`fix:`／`docs:`／`chore:`／`refactor:` 等，subject 簡潔；語言沿用 repo 既有 git 歷史慣例、保持一致。
 - **簡單改動免 spec**：純字串／提示詞小改、單檔 typo、單一 bug fix、純機械重構（重新命名、抽常數）、config 欄位增減等，可直接動手，不必走 brainstorming → spec → plan；使用者已自帶明確設計判斷（what + why）時同樣免 spec。需要走流程的判準：跨多檔影響架構、新增元件／資料流、驗收條件超過「pytest 全綠」的功能。
 - **優先用 `uv`**：本專案以 uv 管理環境（`pyproject.toml` + `uv.lock`）。相依裝好用 `uv sync`；執行用 `uv run run.py`（或 `uv run python -m src.main`）；測試用 `uv run pytest`。翻譯設定與 API 金鑰在 `config.json`（gitignore、不進版控）。
