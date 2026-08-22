@@ -159,6 +159,8 @@ def _build_client(provider: str, base_url: str, model: str, api_key: str,
         return _ClaudeClient(model=model, api_key=api_key, timeout=timeout, client=client)
     if provider == "openai":
         base_url = OPENAI_BASE_URL
+        # 官方端點不吃自架後端專用的思考停用參數（未知欄位會 400）；thinking=False 僅 custom 適用。
+        thinking = True
     return _OpenAICompatClient(base_url=base_url, model=model, api_key=api_key,
                                thinking=thinking, timeout=timeout, client=client)
 

@@ -122,6 +122,23 @@ def test_claude_status_error_mapping(status, exc):
         t.translate_incoming("[A] hi")
 
 
+def test_openai_provider_does_not_send_disable_thinking_params():
+    # openai provider 固定強制 thinking=True；即使呼叫端傳 thinking=False，
+    # 官方端點也不該收到任何自架後端專用的思考停用參數（未知欄位會 400）。
+    fake = FakeHttpxClient()
+    t = Translator(provider="openai", model="m", api_key="k", thinking=False,
+                   target_language="繁體中文（台灣）", client=fake)
+    t.translate_incoming("[A] hi")
+    for key in ("reasoning_effort", "chat_template_kwargs", "think", "enable_thinking"):
+        assert key not in fake.last_body
+
+
+def test_openai_provider_forces_official_base_url():
+    t = Translator(provider="openai", base_url="http://evil.example", model="m",
+                   api_key="k", target_language="繁體中文（台灣）")
+    assert str(t._impl._client.base_url) == OPENAI_BASE_URL
+
+
 def test_reconfigure_switches_provider():
     t = _make(FakeHttpxClient())
     t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",
