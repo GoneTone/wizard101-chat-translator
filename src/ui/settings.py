@@ -29,10 +29,11 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
 class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
-    def __init__(self, root: tk.Tk, cfg: dict, on_save):
+    def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None):
         self._root = root
         self._cfg = cfg
         self._on_save = on_save
+        self._on_alpha_preview = on_alpha_preview  # 拖滑桿即時套用透明度（預覽）
         self._win: tk.Toplevel | None = None
 
     def open(self) -> None:
@@ -73,8 +74,7 @@ class SettingsWindow:
                                     "max_messages", 10, "超過移除最舊")
         self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
                                       "type_delay", 0.01, "遊戲漏字就調大")
-        self._alpha_var = self._spin(adv, "視窗不透明度", cfg["overlay_alpha"],
-                                     "overlay_alpha", 0.02, "overlay 與泡泡，小＝更透明")
+        self._alpha_var = self._alpha_slider(adv, cfg["overlay_alpha"])
         path_row = ttk.Frame(adv)
         path_row.pack(fill="x", pady=(8, 0))
         ttk.Label(path_row, text="遊戲路徑", width=14).pack(side="left")
@@ -88,8 +88,38 @@ class SettingsWindow:
 
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
         btns.pack(side="bottom", fill="x")
-        ttk.Button(btns, text="取消", command=self._win.destroy).pack(side="right")
+        ttk.Button(btns, text="取消", command=self._cancel).pack(side="right")
         ttk.Button(btns, text="儲存", command=self._save).pack(side="right", padx=(0, 8))
+        self._win.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _alpha_slider(self, parent, initial: float) -> tk.DoubleVar:
+        """視窗不透明度滑桿：拖動即時預覽（套到 overlay 與泡泡），儲存才寫入設定。"""
+        lo, hi = ADVANCED_LIMITS["overlay_alpha"]
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="視窗不透明度", width=14).pack(side="left")
+        var = tk.DoubleVar(value=initial)
+        value_label = ttk.Label(row, text=f"{initial:.2f}", width=5)
+
+        def on_slide(raw: str) -> None:
+            v = round(float(raw), 2)
+            var.set(v)
+            value_label.configure(text=f"{v:.2f}")
+            if self._on_alpha_preview is not None:
+                self._on_alpha_preview(v)
+
+        ttk.Scale(row, from_=lo, to=hi, orient="horizontal", variable=var,
+                  command=on_slide, length=160).pack(side="left")
+        value_label.pack(side="left", padx=(6, 0))
+        ttk.Label(row, text=f"即時預覽，小＝更透明（預設 {DEFAULT_CONFIG['overlay_alpha']}）",
+                  foreground="#888888").pack(side="left", padx=8)
+        return var
+
+    def _cancel(self) -> None:
+        """取消／關窗：把預覽中的透明度還原為目前設定值。"""
+        if self._on_alpha_preview is not None:
+            self._on_alpha_preview(self._cfg["overlay_alpha"])
+        self._win.destroy()
 
     def _spin(self, parent, label, initial, key, step, hint):
         lo, hi = ADVANCED_LIMITS[key]

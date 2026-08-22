@@ -225,7 +225,8 @@ def main() -> None:
         print(f"[settings] applied; provider={cfg['api']['provider']}, "
               f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}", file=sys.stderr)
 
-    settings = SettingsWindow(root, cfg, on_save=apply_settings)
+    settings = SettingsWindow(root, cfg, on_save=apply_settings,
+                              on_alpha_preview=overlay.set_alpha)
 
     stop = threading.Event()
     reader_thread = threading.Thread(
