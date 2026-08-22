@@ -122,7 +122,9 @@ class OverlayWindow:
         _make_non_activating(self._backdrop)
         self._backdrop.bind("<MouseWheel>", self._on_wheel)
 
-        self._win = tk.Toplevel(self._backdrop)
+        # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
+        # 把 backdrop 一起抬起、反而蓋過文字層（實測）；OS 擁有關係於下方另設。
+        self._win = tk.Toplevel(root)
         self._win.overrideredirect(True)
         self._win.attributes("-topmost", True)
         self._win.attributes("-transparentcolor", BG)
@@ -200,7 +202,15 @@ class OverlayWindow:
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
         _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
-        self._backdrop.lower(self._win)  # 疊序保險：底板永遠壓在文字層之下
+        # 用 Win32 直接建立 OS 擁有關係：owned window 在 OS 層永遠疊在 owner 之上，
+        # 任何點擊／啟用都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
+        try:
+            win_hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)
+            bd_hwnd = win32gui.GetAncestor(self._backdrop.winfo_id(), 2)
+            win32gui.SetWindowLong(win_hwnd, win32con.GWL_HWNDPARENT, bd_hwnd)
+        except Exception as exc:
+            print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
+        self._backdrop.lower(self._win)  # 疊序保險：底板壓在文字層之下
 
     # --- 縮小成泡泡 ---
     @property
