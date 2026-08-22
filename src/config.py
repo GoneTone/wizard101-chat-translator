@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-APP_NAME = "Wizard101 對話翻譯助手"  # 應用程式顯示名稱:各視窗標題／工作列統一使用
+APP_NAME = "Wizard101 對話翻譯助手"  # 應用程式顯示名稱：各視窗標題／工作列統一使用
 
 
 def app_dir() -> Path:
@@ -22,12 +22,12 @@ DEFAULT_CONFIG: dict = {
     "api": {"provider": "openai", "base_url": "http://127.0.0.1:8000",
             "model": "", "api_key": "", "thinking": False},
     "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文
-    "poll_interval": 0.4,    # 收訊輪詢間隔（秒）;快掃很便宜,可設小一點更即時
-    "fade_seconds": 0,       # <=0:訊息永不依時間淡出（可滾動看歷史）
-    "max_messages": 200,     # 視窗保留的訊息則數上限,超過移除最舊
+    "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
+    "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
+    "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊
     "hotkey": "ctrl+space",
-    "game_path": None,       # 遊戲根目錄;null=自動偵測執行中的程序路徑（Steam 版需要）
-    "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒）,遊戲漏字就調大
+    "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）
+    "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒），遊戲漏字就調大
     "overlay": {"x": None, "y": None, "width": 460, "height": 300},
     "input_position": {"x": None, "y": None},  # 翻譯輸入框位置（拖曳後記住）
 }

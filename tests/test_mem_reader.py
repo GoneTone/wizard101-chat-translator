@@ -3,7 +3,7 @@ from src.reader.mem_reader import (
 )
 
 
-# --- clean:去標記 / 還原實體 / 表情 ---
+# --- clean：去標記 / 還原實體 / 表情 ---
 def test_clean_strips_markup_and_collapses_space():
     assert clean("<color;FFFFFF><image;Art/x.dds;24;24;FFFFFFFF> [你] hi there </color>") == "[你] hi there"
 
@@ -27,7 +27,7 @@ def test_clean_strips_emoticon_prefix_and_digits():
     assert clean("<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>") == ":teacup:"
 
 
-# --- lines_from_chatlog:從 chatLog 全文抽玩家發言 ---
+# --- lines_from_chatlog：從 chatLog 全文抽玩家發言 ---
 def _say(gid: int, name: str, text: str) -> str:
     return (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
             f"<link;GID:{gid},{name},2>[{name}]</link> {text} </color>")
@@ -38,7 +38,7 @@ def _system(text: str) -> str:
 
 
 def _own(text: str) -> str:
-    # 自己的發言:[你] 開頭,帶 Art_Chat 圖示但無 <link;GID>
+    # 自己的發言：[你] 開頭，帶 Art_Chat 圖示但無 <link;GID>
     return f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] {text} </color>"
 
 
@@ -52,14 +52,14 @@ def test_lines_keeps_cjk_sender_and_spaces():
 
 
 def test_lines_skips_system_messages():
-    # 系統訊息(無 <link;GID>)不翻:掉寶/經驗/升等
+    # 系統訊息（無 <link;GID>）不翻：掉寶/經驗/升等
     log = "\n".join([_say(1, "Amy", "hi"), _system("你獲得了 51 金幣！"),
                      _system("你現在等級 28！")])
     assert lines_from_chatlog(log) == ["[Amy] hi"]
 
 
 def test_lines_skips_debug_rows():
-    # 除錯 chatLog 節點的行([DBGL]/[STAT] 無 <link;GID>)不得誤入
+    # 除錯 chatLog 節點的行（[DBGL]/[STAT] 無 <link;GID>）不得誤入
     log = "\n".join(["[DBGL] HandleStatisticUpdate: new health 1783",
                      "[STAT] BuddyListManager::MSG_BuddyEntry Added",
                      _say(1, "Q", "back")])
@@ -67,7 +67,7 @@ def test_lines_skips_debug_rows():
 
 
 def test_lines_keeps_own_message():
-    # 自己的發言([你],無 link)也要收
+    # 自己的發言（[你]，無 link）也要收
     assert lines_from_chatlog(_own("zztest123")) == ["[你] zztest123"]
     assert lines_from_chatlog(_own("測試 訊息 :)")) == ["[你] 測試 訊息 :)"]
 
@@ -131,7 +131,7 @@ def test_align_mid_position_overlap_recovers():
     assert align_append(["a", "b"], ["x", "a", "b", "c"]) == ["c"]
 
 
-# --- WizChatReader:以假 chatLog 文字驗證差分流程(不需遊戲) ---
+# --- WizChatReader：以假 chatLog 文字驗證差分流程（不需遊戲） ---
 class FakeWiz(WizChatReader):
     """以腳本化的 chatLog 全文序列取代 wizwalker I/O。"""
 
@@ -156,7 +156,7 @@ def _log(*lines: str) -> str:
 
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
-    assert r.read_new() == []          # 首次:記錄現況,不回吐既有歷史
+    assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
 
 
 def test_appended_lines_emitted():
@@ -185,7 +185,7 @@ def test_head_trim_scroll_absorbed():
         _log(_say(1, "B", "b"), _say(1, "C", "c"), _say(1, "D", "d")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[D] d"]   # 頭部修剪 + 尾端附加(捲動)只吐新行
+    assert r.read_new() == ["[D] d"]   # 頭部修剪 + 尾端附加（捲動）只吐新行
 
 
 def test_own_message_emitted():
@@ -208,7 +208,7 @@ def test_system_and_debug_never_emitted():
 
 
 def test_hard_reset_emits_new_content():
-    # 聊天被重置成全新內容(如 relog)→ 新內容視為新訊息輸出,之後正常延續
+    # 聊天被重置成全新內容（如 relog）→ 新內容視為新訊息輸出，之後正常延續
     r = FakeWiz([
         _log(_say(1, "A", "one")),
         _log(_say(9, "Z", "fresh")),                       # 對不齊 → 全新內容
@@ -233,41 +233,41 @@ def test_read_torn_middle_does_not_flood_old_lines():
 
 
 def test_transient_empty_does_not_retranslate_on_refill():
-    # 傳送/轉場時聊天暫態讀成空,之後又填回同樣歷史 → 不可重複翻譯
+    # 傳送/轉場時聊天暫態讀成空，之後又填回同樣歷史 → 不可重複翻譯
     hist = _log(_say(1, "A", "a"), _say(2, "B", "b"))
     r = FakeWiz([
         hist,                                              # sync 基準
-        "",                                                # 轉場暫態:空讀
+        "",                                                # 轉場暫態：空讀
         hist,                                              # 填回同樣歷史
         _log(_say(1, "A", "a"), _say(2, "B", "b"), _say(3, "C", "c")),
     ])
     assert r.read_new() == []          # sync
-    assert r.read_new() == []          # 空讀:忽略,保留基準
-    assert r.read_new() == []          # 填回同樣歷史:不重譯
+    assert r.read_new() == []          # 空讀：忽略，保留基準
+    assert r.read_new() == []          # 填回同樣歷史：不重譯
     assert r.read_new() == ["[C] c"]   # 之後新訊息照常
 
 
 def test_first_message_after_empty_chat_is_emitted():
-    # 空聊天室(登入後)→ 第一句就要抓到,不能被當成初始歷史跳過
+    # 空聊天室（登入後）→ 第一句就要抓到，不能被當成初始歷史跳過
     r = FakeWiz([
         "",                                          # 空聊天室
         _log(_say(1, "A", "first")),                 # 第一句
         _log(_say(1, "A", "first"), _say(2, "B", "second")),
     ])
-    assert r.read_new() == []                        # 首次:空基準
+    assert r.read_new() == []                        # 首次：空基準
     assert r.read_new() == ["[A] first"]
     assert r.read_new() == ["[B] second"]
 
 
 def test_message_after_chat_cleared_is_emitted():
-    # 有歷史 → 聊天被清空(relog) → 清空後第一句仍要抓到
+    # 有歷史 → 聊天被清空（relog） → 清空後第一句仍要抓到
     r = FakeWiz([
         _log(_say(1, "A", "old")),
         "",                                          # 清空
         _log(_say(1, "C", "fresh")),
     ])
     assert r.read_new() == []                        # 基準=[A old]
-    assert r.read_new() == []                        # 清空 → 對不齊 → 重新同步(基準變空)
+    assert r.read_new() == []                        # 清空 → 對不齊 → 重新同步（基準變空）
     assert r.read_new() == ["[C] fresh"]
 
 

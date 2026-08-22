@@ -1,4 +1,4 @@
-"""進入點:reader 執行緒(wizwalker 收訊)+ 全域熱鍵 + tkinter 主迴圈(UI 事件經 ui_queue 序列化)。"""
+"""進入點：reader 執行緒（wizwalker 收訊）+ 全域熱鍵 + tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
 import os
 import queue
 import sys
@@ -16,11 +16,11 @@ from src.reader.overlay import OverlayWindow
 from src.translator import Translator, TranslatorConfigError, TranslatorOffline
 from src.ui.settings import SettingsWindow
 
-BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔(秒)
-GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔(秒)
+BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔（秒）
+GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復
 
-# overlay 標題列狀態指示:(文字, 顏色)
+# overlay 標題列狀態指示：（文字， 顏色）
 STATUS = {
     "locating": ("●  連線遊戲中…", "#e0b050"),
     "listening": ("●  監聽中", "#7dc87d"),
@@ -30,7 +30,7 @@ STATUS = {
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
-    """依序取出並執行 ui_queue 裡的回呼;單一回呼拋錯不影響其餘回呼或呼叫端。"""
+    """依序取出並執行 ui_queue 裡的回呼；單一回呼拋錯不影響其餘回呼或呼叫端。"""
     while True:
         try:
             callback = ui_queue.get_nowait()
@@ -44,12 +44,12 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue: queue.Queue, stop: threading.Event) -> None:
-    # 透過 wizwalker 讀遊戲聊天記錄,每輪讀新增的行(依序、含重複)→ 翻譯 → overlay。
-    # 翻譯失敗/離線的行留在 pending,下輪從中斷處續翻,不漏不重。
+    # 透過 wizwalker 讀遊戲聊天記錄，每輪讀新增的行（依序、含重複）→ 翻譯 → overlay。
+    # 翻譯失敗/離線的行留在 pending，下輪從中斷處續翻，不漏不重。
     reader = WizChatReader(game_path=cfg.get("game_path"))
     pending: deque[str] = deque()
     backoff_index = 0
-    error_state: str | None = None  # None／"offline"／"config":供橫幅清除與轉換時記 log
+    error_state: str | None = None  # None／"offline"／"config"：供橫幅清除與轉換時記 log
     game_missing = False
     last_status: str | None = None
 
@@ -67,7 +67,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         went_offline = False
         config_error = False
 
-        # 讀取前先亮狀態:首輪要連上遊戲並掛入 hook,期間讓使用者知道在連線
+        # 讀取前先亮狀態：首輪要連上遊戲並掛入 hook，期間讓使用者知道在連線
         set_status("listening" if reader.anchored else "locating")
         try:
             pending.extend(reader.read_new())
@@ -79,7 +79,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 ui_queue.put(lambda: overlay.set_error("⚠  遊戲未就緒／連線中斷，等待中…"))
             stop.wait(GAME_MISSING_INTERVAL)
             continue
-        except Exception as exc:  # 收訊偶發錯誤:略過該輪,不讓執行緒死掉
+        except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
             print(f"[reader] poll skipped: {exc}", file=sys.stderr)
             stop.wait(interval)
             continue
@@ -139,7 +139,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
         stop.wait(interval)
 
-    reader.close()  # 停止:解除 wizwalker hook、關閉連線
+    reader.close()  # 停止：解除 wizwalker hook、關閉連線
 
 
 
@@ -170,7 +170,7 @@ def main() -> None:
         print("[app] wizard completed, config saved", file=sys.stderr)
         save_config(CONFIG_PATH, cfg)
 
-    # 啟動摘要:回報問題時第一眼掌握環境;金鑰絕不記錄
+    # 啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄
     print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
           f"provider={cfg['api']['provider']}, model={cfg['api']['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
@@ -192,7 +192,7 @@ def main() -> None:
         fade_seconds=cfg["fade_seconds"],
         on_geometry_change=save_geometry,
         on_settings=lambda: ui_queue.put(lambda: settings.open()),
-        on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉(停 reader、解 hook)
+        on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉（停 reader、解 hook）
     )
 
     def on_translated(translated: str, hwnd: int | None) -> None:
@@ -234,13 +234,13 @@ def main() -> None:
     try:
         root.mainloop()
     except KeyboardInterrupt:
-        pass  # Ctrl+C:安靜結束,不印 traceback
+        pass  # Ctrl+C：安靜結束，不印 traceback
     finally:
         print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
         stop.set()
         keyboard.unhook_all()
-        # 等 reader 執行緒跑完 reader.close()(解除 wizwalker hook、還原遊戲記憶體)再退出;
-        # 否則 daemon 執行緒會被直接砍掉,hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
+        # 等 reader 執行緒跑完 reader.close（）（解除 wizwalker hook、還原遊戲記憶體）再退出；
+        # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
         reader_thread.join(timeout=8)
         try:
             root.destroy()

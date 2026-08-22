@@ -1,5 +1,5 @@
-"""reader_loop 行為:WizChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
-離線時失敗行留在 pending 下輪續翻;找不到遊戲顯示橫幅;非 HTTP 錯誤跳過該行。"""
+"""reader_loop 行為：WizChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
+離線時失敗行留在 pending 下輪續翻；找不到遊戲顯示橫幅；非 HTTP 錯誤跳過該行。"""
 import queue
 import threading
 
@@ -30,7 +30,7 @@ class FakeOverlay:
 
 
 class FakeReader:
-    """依序回傳 reads[i](每輪新增的行清單);跑完設 stop。GameNotRunning 以例外物件表示。"""
+    """依序回傳 reads[i]（每輪新增的行清單）；跑完設 stop。GameNotRunning 以例外物件表示。"""
 
     def __init__(self, reads, stop, anchored=True):
         self.reads = reads
@@ -128,7 +128,7 @@ def test_failed_line_stays_pending_and_retried(monkeypatch):
     ov = FakeOverlay()
     reads = [["[X] x"], [], []]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == 2                      # 第一次離線,第二輪重試同一行
+    assert tr.calls == 2                      # 第一次離線，第二輪重試同一行
     assert ov.messages == [("[X] x", "譯:[X] x")]
     assert ov.errors == ["⚠  翻譯伺服器離線，重試中…"]
     assert ov.clears == 1
@@ -159,7 +159,7 @@ def test_config_error_line_stays_pending_and_retried(monkeypatch):
 
 
 def test_status_transitions(monkeypatch):
-    # 監聽 →(有新訊息)翻譯中 → 監聽
+    # 監聽 →（有新訊息）翻譯中 → 監聽
     cfg = {"poll_interval": 0.01}
     tr = OkTranslator()
     ov = FakeOverlay()

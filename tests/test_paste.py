@@ -11,7 +11,7 @@ def test_type_into_window_types_text(monkeypatch):
 
 
 def test_type_into_window_never_sends_enter(monkeypatch):
-    # 自動鍵入絕不模擬 Enter:除了 keyboard.write,不應呼叫 keyboard.send / press_and_release
+    # 自動鍵入絕不模擬 Enter：除了 keyboard.write，不應呼叫 keyboard.send / press_and_release
     monkeypatch.setattr(paste.keyboard, "write", lambda text, delay=0: None)
     calls = []
     monkeypatch.setattr(paste.keyboard, "send", lambda *a, **k: calls.append(("send", a)))

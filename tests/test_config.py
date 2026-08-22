@@ -8,7 +8,7 @@ from src.config import DEFAULT_CONFIG, app_dir, is_configured, load_config, save
 def test_load_missing_file_returns_defaults(tmp_path: Path):
     cfg = load_config(tmp_path / "nope.json")
     assert cfg == DEFAULT_CONFIG
-    assert cfg is not DEFAULT_CONFIG  # 必須是副本,呼叫端改動不能污染預設值
+    assert cfg is not DEFAULT_CONFIG  # 必須是副本，呼叫端改動不能污染預設值
 
 
 def test_load_merges_partial_file_with_defaults(tmp_path: Path):

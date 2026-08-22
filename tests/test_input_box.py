@@ -131,7 +131,7 @@ def test_current_error_shown_on_error(root):
 
 
 def test_worker_failure_error_callback_runs(root):
-    """翻譯失敗時排入 queue 的錯誤回呼要能執行(不因 except 的 exc 出範圍而 NameError)。"""
+    """翻譯失敗時排入 queue 的錯誤回呼要能執行（不因 except 的 exc 出範圍而 NameError）。"""
     import httpx
 
     ui_queue = queue.Queue()
@@ -145,7 +145,7 @@ def test_worker_failure_error_callback_runs(root):
     box._status = tk.Label(box._win, text="original")
     session = box._session
 
-    box._worker("你好", None, session)  # 直接呼叫:走 except 分支、排入錯誤回呼
+    box._worker("你好", None, session)  # 直接呼叫：走 except 分支、排入錯誤回呼
     callback = ui_queue.get_nowait()
     callback()  # 修正前此處會 NameError: name 'exc' is not defined
 

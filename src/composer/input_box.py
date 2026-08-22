@@ -1,5 +1,5 @@
-"""熱鍵呼出的翻譯輸入框:打字(任何語言)→ Enter 翻成遊戲語言、Esc 關閉。
-翻譯跑背景執行緒,結果經 ui_queue 回主執行緒。"""
+"""熱鍵呼出的翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
+翻譯跑背景執行緒，結果經 ui_queue 回主執行緒。"""
 import ctypes
 import queue
 import threading
@@ -53,8 +53,8 @@ class InputBox:
         self._force_focus()
 
     def _force_focus(self) -> None:
-        """把輸入框搶到前景並對焦輸入欄。從全域熱鍵開啟時遊戲仍是前景視窗,
-        Windows 前景鎖會擋掉單純的 focus,故用 AttachThreadInput + SetForegroundWindow 奪取。"""
+        """把輸入框搶到前景並對焦輸入欄。從全域熱鍵開啟時遊戲仍是前景視窗，
+        Windows 前景鎖會擋掉單純的 focus，故用 AttachThreadInput + SetForegroundWindow 奪取。"""
         self._win.deiconify()
         self._win.lift()
         self._win.attributes("-topmost", True)
@@ -71,7 +71,7 @@ class InputBox:
             finally:
                 user32.AttachThreadInput(this_thread, fg_thread, False)
         except Exception:
-            pass  # 奪取前景失敗:仍有 topmost + focus_force,退回讓使用者點一下輸入框
+            pass  # 奪取前景失敗：仍有 topmost + focus_force，退回讓使用者點一下輸入框
         self._entry.focus_force()
 
     def close(self) -> None:
@@ -84,7 +84,7 @@ class InputBox:
             self._session += 1
 
     def _remember_position(self) -> None:
-        """記住輸入框目前位置,供下次開啟還原(關閉前呼叫)。"""
+        """記住輸入框目前位置，供下次開啟還原（關閉前呼叫）。"""
         try:
             x, y = self._win.winfo_x(), self._win.winfo_y()
         except Exception:
@@ -107,7 +107,7 @@ class InputBox:
         try:
             translated = self._translate(text)
         except Exception as exc:
-            # 先把訊息綁成區域變數:lambda 延後在主執行緒執行,屆時 except 的 exc 已被刪除
+            # 先把訊息綁成區域變數：lambda 延後在主執行緒執行，屆時 except 的 exc 已被刪除
             msg = f"翻譯失敗：{exc}"
             self._queue.put(lambda: self._show_error(msg, session))
             return

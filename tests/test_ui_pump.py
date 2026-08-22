@@ -1,4 +1,4 @@
-"""drain_ui_queue:單一回呼拋錯不能讓佇列裡其餘回呼被跳過,也不能讓例外往外傳。"""
+"""drain_ui_queue：單一回呼拋錯不能讓佇列裡其餘回呼被跳過，也不能讓例外往外傳。"""
 import queue
 
 from src.main import drain_ui_queue

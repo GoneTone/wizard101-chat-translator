@@ -1,20 +1,20 @@
 """共用翻譯 client：依設定的 provider 選擇後端（OpenAI 相容 /v1/chat/completions 或 Claude /v1/messages）。
 
-收訊:來源語言自動判斷 → 翻成使用者設定的目標語言(target_language)。
-發話:來源語言自動判斷 → 翻成遊戲聊天語言(OUTGOING_LANGUAGE,固定)。
-提示詞依語言參數動態建構,程式碼不綁定特定語言。
+收訊：來源語言自動判斷 → 翻成使用者設定的目標語言（target_language）。
+發話：來源語言自動判斷 → 翻成遊戲聊天語言（OUTGOING_LANGUAGE，固定）。
+提示詞依語言參數動態建構，程式碼不綁定特定語言。
 """
 import re
 
 import anthropic
 import httpx
 
-# 發話固定翻成的語言(遊戲聊天使用的語言);為固定產品設定,不進 config。
+# 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
 
 def build_incoming_system(target_language: str) -> str:
-    """建構收訊翻譯的 system 提示:把聊天內容翻成 target_language(來源語言自動判斷)。"""
+    """建構收訊翻譯的 system 提示：把聊天內容翻成 target_language（來源語言自動判斷）。"""
     return (
         f"你是一個專業的翻譯員，負責將線上遊戲 Wizard101 的聊天對話文本"
         f"（任何語言，自動判斷）流暢地翻譯為 {target_language}。輸入格式為「[發送者] 訊息內容」。遵循以下規則：\n"
@@ -35,7 +35,7 @@ def build_incoming_system(target_language: str) -> str:
 
 
 def build_outgoing_system(outgoing_language: str) -> str:
-    """建構發話翻譯的 system 提示:把玩家輸入(任何語言,自動判斷)翻成 outgoing_language。"""
+    """建構發話翻譯的 system 提示：把玩家輸入（任何語言，自動判斷）翻成 outgoing_language。"""
     return (
         f"你是一個專業的翻譯員，負責將玩家在線上遊戲 Wizard101 要發送的聊天訊息"
         f"（任何語言，自動判斷）流暢地翻譯為 {outgoing_language}。遵循以下規則：\n"
@@ -57,7 +57,7 @@ def build_outgoing_system(outgoing_language: str) -> str:
     )
 
 
-# thinking=False 時併入請求 body 的停用參數,涵蓋常見後端(伺服器通常忽略不認得的欄位)。
+# thinking=False 時併入請求 body 的停用參數，涵蓋常見後端（伺服器通常忽略不認得的欄位）。
 _DISABLE_THINKING = {
     "reasoning_effort": "none",                        # OpenAI o 系 / 相容
     "chat_template_kwargs": {"enable_thinking": False},  # vLLM / SGLang + Qwen3
@@ -72,8 +72,8 @@ _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 
 def strip_think(text: str) -> str:
-    """移除回應中的 <think>…</think> 推理區塊(reasoning 模型會把思考夾在 content 裡)。
-    無論是否啟用思考都套用,確保推理內容不會污染譯文。"""
+    """移除回應中的 <think>…</think> 推理區塊（reasoning 模型會把思考夾在 content 裡）。
+    無論是否啟用思考都套用，確保推理內容不會污染譯文。"""
     return _THINK_BLOCK.sub("", text)
 
 

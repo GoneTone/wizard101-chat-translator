@@ -11,7 +11,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
                           ) -> tuple[dict | None, str | None]:
     """讀取並轉型四個進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
     `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
-    統一在此攔截並回傳 `(None, 錯誤訊息)`，讓呼叫端走既有表單錯誤提示、
+    統一在此攔截並回傳 `（None， 錯誤訊息）`，讓呼叫端走既有表單錯誤提示、
     不讓 cfg 被寫到一半。成功則回傳 `(clamp_advanced(...), None)`。"""
     try:
         values = clamp_advanced({
@@ -26,7 +26,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
 
 
 class SettingsWindow:
-    """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
+    """設定視窗（單例）：open（） 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
     def __init__(self, root: tk.Tk, cfg: dict, on_save):
         self._root = root

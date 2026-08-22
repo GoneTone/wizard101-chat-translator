@@ -35,7 +35,7 @@ def test_add_message_appends_and_caps_at_max(root):
         ov.add_message(f"msg {i}", f"訊息 {i}")
     texts = ov.visible_messages()
     assert len(texts) == 3
-    # visible_messages 依時間順序(舊→新)回傳,保留最新 3 則
+    # visible_messages 依時間順序（舊→新）回傳，保留最新 3 則
     assert texts[-1] == ("msg 4", "訊息 4")
     assert texts[0] == ("msg 2", "訊息 2")
 
@@ -44,12 +44,12 @@ def test_prune_removes_expired(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=10)
     ov.add_message("old", "舊", now=100.0)
     ov.add_message("new", "新", now=105.0)
-    ov.prune(now=111.0)  # 100+10 < 111 過期;105+10 >= 111 保留
+    ov.prune(now=111.0)  # 100+10 < 111 過期；105+10 >= 111 保留
     assert ov.visible_messages() == [("new", "新")]
 
 
 def test_no_fade_when_fade_seconds_zero(root):
-    # fade_seconds=0:永不依時間清除
+    # fade_seconds=0：永不依時間清除
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("a", "甲", now=100.0)
     ov.add_message("b", "乙", now=105.0)

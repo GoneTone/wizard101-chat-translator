@@ -1,6 +1,6 @@
-"""疊加視窗:無邊框、置頂、半透明、固定大小、可拖曳移動與縮放、可滾動。
-顯示原文 + 譯文(最新在最下,可向上滾動看歷史)。
-捲動定位:在底部時新訊息自動跟到最底;向上捲看歷史時不會被硬拉回底部。
+"""疊加視窗：無邊框、置頂、半透明、固定大小、可拖曳移動與縮放、可滾動。
+顯示原文 + 譯文（最新在最下，可向上滾動看歷史）。
+捲動定位：在底部時新訊息自動跟到最底；向上捲看歷史時不會被硬拉回底部。
 不滑鼠穿透 —— 視窗永遠可互動。"""
 import sys
 import time
@@ -33,13 +33,13 @@ def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
 
 def resized_to(start_w: int, start_h: int, dx: int, dy: int,
                min_w: int, min_h: int) -> tuple[int, int]:
-    """拖曳縮放後的新寬高(不小於最小值)。"""
+    """拖曳縮放後的新寬高（不小於最小值）。"""
     return max(min_w, start_w + dx), max(min_h, start_h + dy)
 
 
 def should_stick_to_bottom(view_bottom_fraction: float,
                            threshold: float = _STICK_THRESHOLD) -> bool:
-    """視圖底緣接近最底時,新訊息應自動跟到底;使用者往上捲時則否。"""
+    """視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。"""
     return view_bottom_fraction >= threshold
 
 
@@ -67,15 +67,15 @@ class OverlayWindow:
         py = y if y is not None else 40
         self._apply_geometry(px, py, self._w, self._h)
 
-        # 標題列(可拖曳移動)
+        # 標題列（可拖曳移動）
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
         label = tk.Label(bar, text=f"≡  {APP_NAME}", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
-        # side="right" 先 pack 者占最外側:由右到左依序為 ✕、⚙、狀態字。
-        # overlay 是無邊框視窗、打包版沒有主控台,✕ 是唯一的正常關閉途徑。
+        # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
+        # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
                              font=("Microsoft JhengHei", 9), cursor="hand2")
@@ -94,7 +94,7 @@ class OverlayWindow:
             w.bind("<B1-Motion>", self._move_drag)
             w.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
-        # 內容區:錯誤橫幅(固定在下,不隨捲動)+ 可滾動訊息區
+        # 內容區：錯誤橫幅（固定在下，不隨捲動）+ 可滾動訊息區
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(side="top", fill="both", expand=True)
 
@@ -117,7 +117,7 @@ class OverlayWindow:
         self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._on_wheel))
         self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
 
-        # 空狀態提示:沒有任何訊息時,把目前狀態大字顯示在視窗正中間
+        # 空狀態提示：沒有任何訊息時，把目前狀態大字顯示在視窗正中間
         self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
                                      font=("Microsoft JhengHei", 11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
@@ -135,9 +135,9 @@ class OverlayWindow:
 
     def _add_taskbar_button(self) -> None:
         """讓無邊框視窗出現在工作列與 Alt+Tab。
-        overrideredirect 視窗預設拿不到工作列按鈕,把 WS_EX_APPWINDOW 加進
-        extended style 即可;需 withdraw→deiconify 一次讓樣式生效,
-        之後重設 topmost/alpha(重新顯示會掉)。失敗只是少個按鈕,不影響功能。"""
+        overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
+        extended style 即可；需 withdraw→deiconify 一次讓樣式生效，
+        之後重設 topmost/alpha（重新顯示會掉）。失敗只是少個按鈕，不影響功能。"""
         try:
             self._win.update_idletasks()
             hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)  # GA_ROOT
@@ -165,7 +165,7 @@ class OverlayWindow:
                                  self._win.winfo_width(), self._win.winfo_height())
 
     def _on_canvas_configure(self, e) -> None:
-        # 內層寬度跟著畫布寬,文字才會依視窗寬換行
+        # 內層寬度跟著畫布寬，文字才會依視窗寬換行
         self._canvas.itemconfigure(self._inner_id, width=e.width)
         self._wrap = max(80, e.width - 12)
 
@@ -223,7 +223,7 @@ class OverlayWindow:
 
     def prune(self, now: float | None = None) -> None:
         if self._fade <= 0:
-            return  # fade_seconds <= 0:永不依時間清除訊息(可滾動看歷史)
+            return  # fade_seconds <= 0：永不依時間清除訊息（可滾動看歷史）
         cutoff = (now if now is not None else time.time()) - self._fade
         keep = []
         for entry in self._messages:
@@ -235,13 +235,13 @@ class OverlayWindow:
         self._refresh_placeholder()
 
     def set_status(self, text: str, color: str = FG_BAR) -> None:
-        """更新狀態指示:標題列右側小字;視窗還沒有任何訊息時,同步大字置中顯示。"""
+        """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。"""
         self._status_label.configure(text=text, fg=color)
         self._placeholder.configure(text=text, fg=color)
         self._refresh_placeholder()
 
     def _refresh_placeholder(self) -> None:
-        """沒有訊息 → 置中顯示狀態;有訊息 → 收掉,讓位給訊息列表。"""
+        """沒有訊息 → 置中顯示狀態；有訊息 → 收掉，讓位給訊息列表。"""
         if self._messages:
             self._placeholder.place_forget()
         else:
