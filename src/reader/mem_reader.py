@@ -68,16 +68,30 @@ def lines_from_chatlog(text: str) -> list[str]:
     return out
 
 
+def _find_run(cur_lines: list[str], seq: list[str]) -> int | None:
+    """seq 以連續片段出現在 cur_lines 中的最早位置;找不到回傳 None。"""
+    n = len(seq)
+    for i in range(len(cur_lines) - n + 1):
+        if cur_lines[i:i + n] == seq:
+            return i
+    return None
+
+
 def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """附加/捲動對齊:找最短的『prev 去掉前 k 行』正好是 cur 的前綴,
-    回傳 cur 尾端多出來的行(新訊息,含重複、依序);對不齊回傳 None。
-    聊天記錄平時純附加(k=0 必中);達顯示上限修剪頭部時 k>0 吸收捲動。"""
+    """尾端差分:找最長的 prev 尾段 prev[k:],其以連續片段出現在 cur 的**任意位置**,
+    回傳該片段之後的行(新訊息,含重複、依序);prev 與 cur 完全無重疊回傳 None。
+
+    平時純附加(k=0、片段就在開頭)必中;達顯示上限修剪頭部時 k>0 吸收捲動。
+    片段允許落在任意位置是為了撕裂讀取:遊戲寫入中讀到的全文可能中段缺行/壞行,
+    prev 因此不再是 cur 的前綴——此時仍以尾段對回,只吐其後的新行,
+    避免把整份舊訊息當成新訊息重翻(人多訊息多時會觸發翻譯洪水與 timeout 螺旋)。"""
     if not prev_lines:
         return None
     for k in range(len(prev_lines)):
         overlap = prev_lines[k:]
-        if cur_lines[:len(overlap)] == overlap:
-            return cur_lines[len(overlap):]
+        idx = _find_run(cur_lines, overlap)
+        if idx is not None:
+            return cur_lines[idx + len(overlap):]
     return None
 
 
@@ -150,7 +164,10 @@ class WizChatReader:
             return []               # 空讀(傳送/轉場暫態清空)→ 保留基準、忽略,不重譯
         appended = align_append(self._prev, cur)
         if appended is None:
-            # 與基準對不齊 → 聊天已重置(relog/清空成全新內容),cur 全部視為新訊息
+            # 與基準完全無重疊 → 聊天已重置(relog/清空成全新內容),cur 全部視為新訊息。
+            # 印記錄供事後查證:若此路徑在非 relog 情境被觸發,代表差分邏輯仍有漏洞。
+            print(f"[reader] 聊天記錄與基準無重疊，視為重置（{len(cur)} 行將重新翻譯）",
+                  file=sys.stderr)
             self._prev = cur
             return cur
         self._prev = cur
@@ -171,7 +188,9 @@ class WizChatReader:
         async def _grab() -> str:
             nodes = await self._client.root_window.get_windows_with_name("chatLog")
             texts = [await n.maybe_text() for n in nodes]
-            return "\n".join(texts)
+            # 控件列舉順序不保證穩定:排序讓多個 chatLog 的串接結果確定,
+            # 避免順序飄移造成與上輪差分對不齊(誤判重置、重吐舊訊息)。
+            return "\n".join(sorted(texts))
 
         return self._run(_grab())
 

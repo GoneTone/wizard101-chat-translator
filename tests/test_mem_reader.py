@@ -121,6 +121,16 @@ def test_align_misaligned_returns_none():
     assert align_append([], ["a"]) is None
 
 
+def test_align_torn_middle_recovers_tail():
+    # 撕裂讀取：cur 中段缺一行，仍應以更短的尾段對齊、只回傳其後的新行
+    assert align_append(["a", "b", "c", "d"], ["a", "b", "d", "e"]) == ["e"]
+
+
+def test_align_mid_position_overlap_recovers():
+    # 重疊片段不在 cur 開頭（如多控件串接順序變化）也要能對齊，不整份重吐
+    assert align_append(["a", "b"], ["x", "a", "b", "c"]) == ["c"]
+
+
 # --- WizChatReader:以假 chatLog 文字驗證差分流程(不需遊戲) ---
 class FakeWiz(WizChatReader):
     """以腳本化的 chatLog 全文序列取代 wizwalker I/O。"""
@@ -207,6 +217,19 @@ def test_hard_reset_emits_new_content():
     assert r.read_new() == []
     assert r.read_new() == ["[Z] fresh"]
     assert r.read_new() == ["[Z] next"]
+
+
+def test_read_torn_middle_does_not_flood_old_lines():
+    # 人多時撕裂讀取（全文中段壞掉一行）不可把整份舊訊息當成新訊息重翻（洪水）
+    r = FakeWiz([
+        _log(_say(1, "A", "a"), _say(2, "B", "b"), _say(3, "C", "c"), _say(4, "D", "d")),
+        _log(_say(1, "A", "a"), _say(2, "B", "b"), _say(4, "D", "d")),  # 撕裂：缺 [C] c
+        _log(_say(1, "A", "a"), _say(2, "B", "b"), _say(3, "C", "c"), _say(4, "D", "d"),
+             _say(5, "E", "e")),                                        # 復原＋一行新訊息
+    ])
+    assert r.read_new() == []
+    assert r.read_new() == []            # 撕裂輪：以尾段對回，不重吐舊行
+    assert r.read_new() == ["[E] e"]     # 復原後只吐真正的新行
 
 
 def test_transient_empty_does_not_retranslate_on_refill():
