@@ -156,6 +156,7 @@ def main() -> None:
         max_messages=cfg["max_messages"],
         fade_seconds=cfg["fade_seconds"],
         on_geometry_change=save_geometry,
+        on_settings=lambda: ui_queue.put(lambda: settings.open()),
     )
 
     def on_translated(translated: str, hwnd: int | None) -> None:
@@ -167,7 +168,19 @@ def main() -> None:
 
     input_box = InputBox(root, translator.translate_outgoing, ui_queue, on_translated,
                          position=cfg["input_position"], on_move=save_input_position)
-    keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
+    hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
+
+    def apply_settings(game_path_changed: bool) -> None:
+        nonlocal hotkey_handle
+        save_config(CONFIG_PATH, cfg)
+        translator.reconfigure(**cfg["api"], target_language=cfg["target_language"])
+        keyboard.remove_hotkey(hotkey_handle)
+        hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
+                                            lambda: ui_queue.put(input_box.show))
+        overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
+
+    from src.ui.settings import SettingsWindow
+    settings = SettingsWindow(root, cfg, on_save=apply_settings)
 
     stop = threading.Event()
     reader_thread = threading.Thread(
