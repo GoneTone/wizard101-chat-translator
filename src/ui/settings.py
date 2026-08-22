@@ -7,8 +7,8 @@ from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
 
 
-def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
-                          ) -> tuple[dict | None, str | None]:
+def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
+                          alpha_var) -> tuple[dict | None, str | None]:
     """讀取並轉型四個進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
     `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
     統一在此攔截並回傳 `（None， 錯誤訊息）`，讓呼叫端走既有表單錯誤提示、
@@ -19,6 +19,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
             "fade_seconds": int(fade_var.get()),
             "max_messages": int(max_messages_var.get()),
             "type_delay": float(type_delay_var.get()),
+            "overlay_alpha": float(alpha_var.get()),
         })
     except (tk.TclError, ValueError):
         return None, "進階數值格式錯誤，請輸入數字"
@@ -26,7 +27,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
 
 
 class SettingsWindow:
-    """設定視窗（單例）：open（） 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
+    """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
     def __init__(self, root: tk.Tk, cfg: dict, on_save):
         self._root = root
@@ -72,6 +73,8 @@ class SettingsWindow:
                                     "max_messages", 10, "超過移除最舊")
         self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
                                       "type_delay", 0.01, "遊戲漏字就調大")
+        self._alpha_var = self._spin(adv, "視窗不透明度", cfg["overlay_alpha"],
+                                     "overlay_alpha", 0.02, "overlay 與泡泡，小＝更透明")
         path_row = ttk.Frame(adv)
         path_row.pack(fill="x", pady=(8, 0))
         ttk.Label(path_row, text="遊戲路徑", width=14).pack(side="left")
@@ -109,7 +112,7 @@ class SettingsWindow:
     def _save(self) -> None:
         # 進階數值先解析：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         advanced, advanced_error = parse_advanced_values(
-            self._poll, self._fade, self._max_msgs, self._type_delay)
+            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var)
         api = self._api.get_values()
         errors = validate_api_form(api)
         if not self._language.value():

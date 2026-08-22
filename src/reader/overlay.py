@@ -24,9 +24,7 @@ MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
-_OVERLAY_ALPHA = 0.84  # overlay 本體透明度
 _BUBBLE_SIZE = 64
-_BUBBLE_ALPHA = 0.84  # 泡泡半透明，與 overlay 的視覺風格一致
 _CLICK_THRESHOLD = 5
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 
@@ -78,9 +76,11 @@ class OverlayWindow:
                  width: int = 460, height: int = 300,
                  max_messages: int = 50, fade_seconds: int = 180,
                  on_geometry_change=None, on_settings=None, on_close=None,
-                 bubble_position: dict | None = None, on_bubble_move=None):
+                 bubble_position: dict | None = None, on_bubble_move=None,
+                 alpha: float = 0.84):
         self._max = max_messages
         self._fade = fade_seconds
+        self._alpha = alpha
         self._on_geometry_change = on_geometry_change
         self._on_bubble_move = on_bubble_move
         self._bubble_pos = dict(bubble_position) if bubble_position else {"x": None, "y": None}
@@ -97,7 +97,7 @@ class OverlayWindow:
         self._win = tk.Toplevel(root)
         self._win.overrideredirect(True)
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", _OVERLAY_ALPHA)
+        self._win.attributes("-alpha", self._alpha)
         self._win.configure(bg=BG)
         px = x if x is not None else 40
         py = y if y is not None else 40
@@ -171,7 +171,7 @@ class OverlayWindow:
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
-        _enable_taskbar_button(self._win, alpha=_OVERLAY_ALPHA)
+        _enable_taskbar_button(self._win, alpha=self._alpha)
 
     # --- 縮小成泡泡 ---
     @property
@@ -210,14 +210,14 @@ class OverlayWindow:
             self._bubble = None
         self._win.deiconify()
         self._win.attributes("-topmost", True)
-        self._win.attributes("-alpha", _OVERLAY_ALPHA)
+        self._win.attributes("-alpha", self._alpha)
 
     def _show_bubble(self) -> None:
         b = tk.Toplevel(self._win)
         b.overrideredirect(True)
         b.attributes("-topmost", True)
         b.attributes("-transparentcolor", _TRANSPARENT)
-        b.attributes("-alpha", _BUBBLE_ALPHA)
+        b.attributes("-alpha", self._alpha)
         b.configure(bg=_TRANSPARENT)
         b.geometry(f"{_BUBBLE_SIZE}x{_BUBBLE_SIZE}"
                    f"+{self._bubble_pos['x']}+{self._bubble_pos['y']}")
@@ -265,6 +265,13 @@ class OverlayWindow:
         self._bubble_pos = {"x": self._bubble.winfo_x(), "y": self._bubble.winfo_y()}
         if self._on_bubble_move is not None:
             self._on_bubble_move(self._bubble_pos["x"], self._bubble_pos["y"])
+
+    def set_alpha(self, alpha: float) -> None:
+        """套用新的視窗不透明度（overlay 本體與泡泡即時生效）。"""
+        self._alpha = alpha
+        self._win.attributes("-alpha", alpha)
+        if self._bubble is not None:
+            self._bubble.attributes("-alpha", alpha)
 
     def _update_badge(self) -> None:
         if self._bubble is None:

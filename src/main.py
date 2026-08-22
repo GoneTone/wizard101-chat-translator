@@ -199,6 +199,7 @@ def main() -> None:
         on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉（停 reader、解 hook）
         bubble_position=cfg["bubble_position"],
         on_bubble_move=save_bubble_position,
+        alpha=cfg["overlay_alpha"],
     )
 
     def on_translated(translated: str, hwnd: int | None) -> None:
@@ -220,6 +221,7 @@ def main() -> None:
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
+        overlay.set_alpha(cfg["overlay_alpha"])
         print(f"[settings] applied; provider={cfg['api']['provider']}, "
               f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}", file=sys.stderr)
 

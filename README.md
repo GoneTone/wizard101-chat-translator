@@ -95,6 +95,7 @@ uv run pyinstaller build.spec --noconfirm
 | `fade_seconds` | overlay 訊息淡出秒數（預設 0：永不淡出，靠滾動看歷史；>0 才會定時清除） |
 | `max_messages` | 視窗保留的訊息則數上限（預設 200），超過移除最舊 |
 | `hotkey` | 呼出輸入框的熱鍵（預設 `ctrl+space`） |
+| `overlay_alpha` | 視窗不透明度（overlay 本體與縮小泡泡，預設 `0.84`，範圍 0.3–1.0），小＝更透明 |
 | `overlay` | 疊加視窗 `{x, y, width, height}`;`x/y` 為 `null` 用預設位置。拖曳標題列可移動、拖右下角可縮放，調整後自動存回此處 |
 
 ## 已知限制
