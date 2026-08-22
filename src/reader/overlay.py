@@ -9,6 +9,8 @@ import tkinter as tk
 import win32con
 import win32gui
 
+from src.config import APP_NAME
+
 BG = "#101018"
 BAR = "#23233a"
 GRIP = "#3a3a55"
@@ -69,7 +71,7 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        label = tk.Label(bar, text="≡  Wizard101 翻譯", bg=BAR, fg=FG_BAR,
+        label = tk.Label(bar, text=f"≡  {APP_NAME}", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
         # side="right" 先 pack 者占最外側:由右到左依序為 ✕、⚙、狀態字。
@@ -128,7 +130,7 @@ class OverlayWindow:
         grip.bind("<B1-Motion>", self._resize_drag)
         grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
 
-        self._win.title("Wizard101 聊天翻譯")  # 工作列按鈕顯示的名稱
+        self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
         self._add_taskbar_button()
 
     def _add_taskbar_button(self) -> None:

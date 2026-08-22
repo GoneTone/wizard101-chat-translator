@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
+from src.config import APP_NAME
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
 
 STEP_WELCOME, STEP_API, STEP_TEST, STEP_DONE = 0, 1, 2, 3
@@ -28,7 +29,7 @@ class SetupWizard:
         self._skip_test = False
 
         self._win = tk.Toplevel(root)
-        self._win.title("Wizard101 聊天翻譯助手 — 首次設定")
+        self._win.title(f"{APP_NAME} — 首次設定")
         win_w, win_h = 520, 420
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2

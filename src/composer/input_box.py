@@ -7,6 +7,8 @@ import tkinter as tk
 
 import win32gui
 
+from src.config import APP_NAME
+
 BG = "#1a1a24"
 FG = "#f2f2f7"
 
@@ -33,7 +35,7 @@ class InputBox:
         self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
         self._win = tk.Toplevel(self._root)
-        self._win.title("翻譯輸入")
+        self._win.title(APP_NAME)
         self._win.attributes("-topmost", True)
         self._win.configure(bg=BG)
         px = self._pos["x"] if self._pos.get("x") is not None else 200

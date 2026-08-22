@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, clamp_advanced
+from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
 
 
@@ -41,7 +41,7 @@ class SettingsWindow:
             return
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
-        self._win.title("Wizard101 聊天翻譯助手 — 設定")
+        self._win.title(f"{APP_NAME} — 設定")
         self._win.geometry("560x520")
         self._win.attributes("-topmost", True)
 

@@ -5,6 +5,9 @@ import sys
 from pathlib import Path
 
 
+APP_NAME = "Wizard101 對話翻譯助手"  # 應用程式顯示名稱:各視窗標題／工作列統一使用
+
+
 def app_dir() -> Path:
     """應用程式目錄：config.json 與 log 的存放處。
     打包執行（frozen）時為 exe 所在目錄；開發時為專案根目錄。"""
