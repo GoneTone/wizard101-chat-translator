@@ -172,6 +172,7 @@ def main() -> None:
         fade_seconds=cfg["fade_seconds"],
         on_geometry_change=save_geometry,
         on_settings=lambda: ui_queue.put(lambda: settings.open()),
+        on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉(停 reader、解 hook)
     )
 
     def on_translated(translated: str, hwnd: int | None) -> None:

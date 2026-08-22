@@ -41,7 +41,7 @@ class OverlayWindow:
     def __init__(self, root: tk.Tk, x: int | None, y: int | None,
                  width: int = 460, height: int = 300,
                  max_messages: int = 50, fade_seconds: int = 180,
-                 on_geometry_change=None, on_settings=None):
+                 on_geometry_change=None, on_settings=None, on_close=None):
         self._max = max_messages
         self._fade = fade_seconds
         self._on_geometry_change = on_geometry_change
@@ -68,15 +68,21 @@ class OverlayWindow:
         label = tk.Label(bar, text="≡  Wizard101 翻譯", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
-        # 狀態字先 pack(side="right")占最外側；齒輪後 pack 才會落在狀態字左邊。
-        self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
-                                      font=("Microsoft JhengHei", 8), anchor="e")
-        self._status_label.pack(side="right", padx=6)
+        # side="right" 先 pack 者占最外側:由右到左依序為 ✕、⚙、狀態字。
+        # overlay 是無邊框視窗、打包版沒有主控台,✕ 是唯一的正常關閉途徑。
+        if on_close is not None:
+            close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
+                             font=("Microsoft JhengHei", 9), cursor="hand2")
+            close.pack(side="right", padx=(0, 6))
+            close.bind("<Button-1>", lambda e: on_close())
         if on_settings is not None:
             gear = tk.Label(bar, text="⚙", bg=BAR, fg=FG_BAR,
                             font=("Microsoft JhengHei", 9), cursor="hand2")
-            gear.pack(side="right", padx=(0, 2))
+            gear.pack(side="right", padx=(0, 4))
             gear.bind("<Button-1>", lambda e: on_settings())
+        self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
+                                      font=("Microsoft JhengHei", 8), anchor="e")
+        self._status_label.pack(side="right", padx=6)
         for w in (bar, label, self._status_label):
             w.bind("<ButtonPress-1>", self._move_start)
             w.bind("<B1-Motion>", self._move_drag)
