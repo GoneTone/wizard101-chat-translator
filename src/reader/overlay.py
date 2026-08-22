@@ -24,9 +24,9 @@ MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
-_OVERLAY_ALPHA = 0.80  # overlay 本體透明度
+_OVERLAY_ALPHA = 0.72  # overlay 本體透明度
 _BUBBLE_SIZE = 64
-_BUBBLE_ALPHA = 0.80  # 泡泡半透明，與 overlay 的視覺風格一致
+_BUBBLE_ALPHA = 0.72  # 泡泡半透明，與 overlay 的視覺風格一致
 _CLICK_THRESHOLD = 5
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 
