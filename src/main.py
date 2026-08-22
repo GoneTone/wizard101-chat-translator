@@ -5,6 +5,7 @@ import sys
 import threading
 import tkinter as tk
 from collections import deque
+from datetime import datetime, timedelta, timezone
 
 import keyboard
 
@@ -161,12 +162,63 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
 
 
 
+SESSION_HEADER_PREFIX = "===== session started "
+LOG_RETENTION_DAYS = 7        # app.log 保留天數（以 session 標頭日期判斷）
+_LOG_HARD_CAP = 5 * 1024 * 1024   # 異常灌爆保險絲：超過就先砍到尾端再清理
+_LOG_KEEP_TAIL = 1 * 1024 * 1024
+_HEADER_TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def session_header(now: datetime) -> str:
+    """app.log 的啟動分段標頭（UTC＋0）。"""
+    return f"{SESSION_HEADER_PREFIX}{now.strftime(_HEADER_TS_FORMAT)} ====="
+
+
+def trim_log_sessions(text: str, now: datetime) -> str:
+    """以 session 標頭把 log 切段，只保留 LOG_RETENTION_DAYS 內開始的段落。
+    無標頭的開頭內容（舊格式）與標頭解析失敗的段落一併視為過期丟棄。"""
+    cutoff = now - timedelta(days=LOG_RETENTION_DAYS)
+    keep: list[str] = []
+    keeping = False
+    for line in text.splitlines(keepends=True):
+        if line.startswith(SESSION_HEADER_PREFIX):
+            token = line[len(SESSION_HEADER_PREFIX):].split(" ")[0]
+            try:
+                ts = datetime.strptime(token, _HEADER_TS_FORMAT).replace(
+                    tzinfo=timezone.utc)
+            except ValueError:
+                keeping = False
+            else:
+                keeping = ts >= cutoff
+        if keeping:
+            keep.append(line)
+    return "".join(keep)
+
+
+def _prepare_log(path, now: datetime) -> None:
+    """開檔前清理過期段落；檔案異常肥大時先砍到尾端再清理，避免拖慢啟動。"""
+    if not path.exists():
+        return
+    raw = path.read_bytes()
+    if len(raw) > _LOG_HARD_CAP:
+        raw = raw[-_LOG_KEEP_TAIL:]
+    text = raw.decode("utf-8", errors="replace")
+    trimmed = trim_log_sessions(text, now)
+    if trimmed != text:
+        path.write_text(trimmed, encoding="utf-8")
+
+
 def main() -> None:
     if getattr(sys, "frozen", False):
         # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
-        # 使用者回報問題時附上此檔即可（每次啟動覆寫，只留本次紀錄）
+        # 使用者回報問題時附上此檔即可（附加模式、保留近 LOG_RETENTION_DAYS 天，
+        # 每次啟動寫一行 UTC 分段標頭）。
+        log_path = app_dir() / "app.log"
+        now = datetime.now(timezone.utc)
         try:
-            log = open(app_dir() / "app.log", "w", encoding="utf-8", buffering=1)
+            _prepare_log(log_path, now)
+            log = open(log_path, "a", encoding="utf-8", buffering=1)
+            log.write(session_header(now) + "\n")
         except OSError:
             # exe 所在資料夾沒有寫入權限時開檔會拋例外；windowed 模式沒有主控台可看錯誤，
             # 退回丟棄輸出而非讓程式在使用者看不到任何訊息的情況下當掉。
