@@ -19,6 +19,32 @@ FG_TRANSLATED = "#f2f2f7"
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"
 
+_OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比
+_OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
+                    (0, 1), (1, -1), (1, 0), (1, 1))
+_FONT_ORIGINAL = ("Microsoft JhengHei", 9)
+_FONT_TRANSLATED = ("Microsoft JhengHei", 11)
+
+
+def _fit_line_height(c: "tk.Canvas") -> None:
+    """把文字行 canvas 的高度縮放到剛好容納（換行後的）文字內容。"""
+    bbox = c.bbox("all")
+    if bbox:
+        c.configure(height=bbox[3] + 2)
+
+
+def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Canvas":
+    """字幕式描邊文字行：canvas 先畫八方向 1px 偏移的描邊副本、再疊本色——
+    Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
+    c = tk.Canvas(parent, bg=BG, highlightthickness=0, bd=0)
+    for dx, dy in _OUTLINE_OFFSETS:
+        c.create_text(2 + dx, 2 + dy, text=text, fill=_OUTLINE, font=font,
+                      anchor="nw", width=wrap, tags="txt")
+    c.create_text(2, 2, text=text, fill=fg, font=font, anchor="nw",
+                  width=wrap, tags="txt")  # 本色最後畫，疊在描邊之上
+    _fit_line_height(c)
+    return c
+
 MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
@@ -343,7 +369,8 @@ class OverlayWindow:
         # 既有訊息與錯誤橫幅的換行寬度也要同步更新，否則縮小視窗後右緣被切
         for _, _, _, row in self._messages:
             for child in row.winfo_children():
-                child.configure(wraplength=self._wrap)
+                child.itemconfigure("txt", width=self._wrap)
+                _fit_line_height(child)
         if self._error_label is not None:
             self._error_label.configure(wraplength=self._wrap)
 
@@ -375,12 +402,10 @@ class OverlayWindow:
         stick = should_stick_to_bottom(self._canvas.yview()[1])
 
         row = tk.Frame(self._inner, bg=BG)
-        tk.Label(row, text=original, bg=BG, fg=FG_ORIGINAL,
-                 font=("Microsoft JhengHei", 9), anchor="w", justify="left",
-                 wraplength=self._wrap).pack(fill="x")
-        tk.Label(row, text=translated, bg=BG, fg=FG_TRANSLATED,
-                 font=("Microsoft JhengHei", 11), anchor="w", justify="left",
-                 wraplength=self._wrap).pack(fill="x")
+        _outlined_line(row, original, FG_ORIGINAL, _FONT_ORIGINAL,
+                       self._wrap).pack(fill="x")
+        _outlined_line(row, translated, FG_TRANSLATED, _FONT_TRANSLATED,
+                       self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._messages.append((now if now is not None else time.time(), original, translated, row))
         while len(self._messages) > self._max:

@@ -33,7 +33,7 @@ def test_resize_updates_existing_message_wraplength(root):
     expected = max(80, 240 - 12)
     for _, _, _, row in ov._messages:
         for child in row.winfo_children():
-            assert child.cget("wraplength") == expected
+            assert int(float(child.itemcget("txt", "width"))) == expected
     assert ov._error_label.cget("wraplength") == expected
 
 
