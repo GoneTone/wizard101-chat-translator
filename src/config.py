@@ -30,6 +30,24 @@ DEFAULT_CONFIG: dict = {
 }
 
 
+# 進階數值的安全範圍：設定視窗的 Spinbox／提示文字與 load_config 共用同一份。
+ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
+    "poll_interval": (0.1, 5.0),
+    "fade_seconds": (0, 3600),
+    "max_messages": (10, 1000),
+    "type_delay": (0.0, 0.5),
+}
+
+
+def clamp_advanced(values: dict) -> dict:
+    """就地把進階數值夾在安全範圍（直接修改傳入的 dict）並回傳同一個 dict。
+    設定視窗儲存與 config.json 載入都經過這裡——手動編輯出界值
+    （如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
+    for key, (lo, hi) in ADVANCED_LIMITS.items():
+        values[key] = min(hi, max(lo, values[key]))
+    return values
+
+
 def _merge(base: dict, override: dict) -> dict:
     out = copy.deepcopy(base)
     for key, value in override.items():
@@ -47,7 +65,7 @@ def load_config(path: Path) -> dict:
     # 舊版 config 沒有 provider 欄位：一律視為自訂端點，原設定不動
     if isinstance(data.get("api"), dict) and "provider" not in data["api"]:
         data["api"]["provider"] = "custom"
-    return _merge(DEFAULT_CONFIG, data)
+    return clamp_advanced(_merge(DEFAULT_CONFIG, data))
 
 
 def save_config(path: Path, cfg: dict) -> None:

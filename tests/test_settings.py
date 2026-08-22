@@ -2,7 +2,8 @@
 import tkinter as tk
 
 from src.reader.overlay import OverlayWindow
-from src.ui.settings import clamp_advanced, parse_advanced_values
+from src.config import clamp_advanced
+from src.ui.settings import parse_advanced_values
 
 
 def test_clamp_advanced_limits_ranges():

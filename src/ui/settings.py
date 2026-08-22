@@ -3,21 +3,8 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
-
-_ADVANCED_LIMITS = {
-    "poll_interval": (0.1, 5.0),
-    "fade_seconds": (0, 3600),
-    "max_messages": (10, 1000),
-    "type_delay": (0.0, 0.5),
-}
-
-
-def clamp_advanced(values: dict) -> dict:
-    """就地把進階數值夾在合理範圍（直接修改傳入的 dict）並回傳同一個 dict，避免填出爆炸值。"""
-    for key, (lo, hi) in _ADVANCED_LIMITS.items():
-        values[key] = min(hi, max(lo, values[key]))
-    return values
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var
@@ -78,13 +65,13 @@ class SettingsWindow:
         adv = ttk.Frame(nb, padding=12)
         nb.add(adv, text="進階")
         self._poll = self._spin(adv, "輪詢間隔（秒）", cfg["poll_interval"],
-                                0.1, 5.0, 0.1, "收訊掃描頻率，小＝更即時")
+                                "poll_interval", 0.1, "收訊掃描頻率，小＝更即時")
         self._fade = self._spin(adv, "訊息淡出（秒）", cfg["fade_seconds"],
-                                0, 3600, 10, "0＝永不淡出，可滾動看歷史")
+                                "fade_seconds", 10, "0＝永不淡出，可滾動看歷史")
         self._max_msgs = self._spin(adv, "訊息保留上限", cfg["max_messages"],
-                                    10, 1000, 10, "超過移除最舊")
+                                    "max_messages", 10, "超過移除最舊")
         self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
-                                      0.0, 0.5, 0.01, "遊戲漏字就調大")
+                                      "type_delay", 0.01, "遊戲漏字就調大")
         path_row = ttk.Frame(adv)
         path_row.pack(fill="x", pady=(8, 0))
         ttk.Label(path_row, text="遊戲路徑", width=14).pack(side="left")
@@ -101,7 +88,8 @@ class SettingsWindow:
         ttk.Button(btns, text="取消", command=self._win.destroy).pack(side="right")
         ttk.Button(btns, text="儲存", command=self._save).pack(side="right", padx=(0, 8))
 
-    def _spin(self, parent, label, initial, lo, hi, step, hint):
+    def _spin(self, parent, label, initial, key, step, hint):
+        lo, hi = ADVANCED_LIMITS[key]
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
         ttk.Label(row, text=label, width=14).pack(side="left")
@@ -109,7 +97,8 @@ class SettingsWindow:
             else tk.IntVar(value=initial)
         ttk.Spinbox(row, textvariable=var, from_=lo, to=hi, increment=step,
                     width=8).pack(side="left")
-        ttk.Label(row, text=hint, foreground="#888888").pack(side="left", padx=8)
+        ttk.Label(row, text=f"{hint}（範圍 {lo}–{hi}，預設 {DEFAULT_CONFIG[key]}）",
+                  foreground="#888888").pack(side="left", padx=8)
         return var
 
     def _browse_game_path(self) -> None:

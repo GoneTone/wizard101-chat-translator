@@ -25,11 +25,11 @@ def test_save_then_load_roundtrip(tmp_path: Path):
     p = tmp_path / "config.json"
     cfg = load_config(p)
     cfg["overlay_position"] = {"x": 100, "y": 200}
-    cfg["poll_interval"] = 6.5
+    cfg["poll_interval"] = 2.5  # 範圍內的值：出界值的夾限行為由 clamp 測試專門驗證
     save_config(p, cfg)
     reloaded = load_config(p)
     assert reloaded["overlay_position"] == {"x": 100, "y": 200}
-    assert reloaded["poll_interval"] == 6.5
+    assert reloaded["poll_interval"] == 2.5
 
 
 def test_app_dir_dev_mode_is_project_root():
@@ -64,6 +64,18 @@ def test_load_config_without_api_block_keeps_default_provider(tmp_path):
     p.write_text(json.dumps({"hotkey": "f8"}), encoding="utf-8")
     cfg = load_config(p)
     assert cfg["api"]["provider"] == "openai"
+
+
+def test_load_clamps_out_of_range_advanced_values(tmp_path):
+    # 手改 config.json 填出界值（如 poll_interval=0 會變熱迴圈）→ 載入時拉回安全範圍
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"poll_interval": 0.001, "fade_seconds": -5,
+                             "max_messages": 99999, "type_delay": 9.0}), encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg["poll_interval"] == 0.1
+    assert cfg["fade_seconds"] == 0
+    assert cfg["max_messages"] == 1000
+    assert cfg["type_delay"] == 0.5
 
 
 def test_is_configured():
