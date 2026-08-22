@@ -11,7 +11,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pyinstaller>=6.22.2",
+    "pytest",
+]
 
 [tool.uv]
 package = false  # 從原始碼跑(python -m src.main),不需建置安裝本專案
