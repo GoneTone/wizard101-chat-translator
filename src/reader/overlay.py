@@ -12,9 +12,6 @@ import win32gui
 from src.config import APP_NAME
 
 BG = "#101018"
-# 文字底條:接近面板的深色但「不是」透明色鍵(BG),因此恆為不透明——
-# 透明度調再低,文字都壓在這條深色上,對比不受遊戲畫面影響。
-TEXT_BG = "#15151f"
 BAR = "#23233a"
 GRIP = "#3a3a55"
 FG_ORIGINAL = "#b8b8c6"
@@ -191,7 +188,7 @@ class OverlayWindow:
         self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
 
         # 空狀態提示：沒有任何訊息時，把目前狀態大字顯示在視窗正中間
-        self._placeholder = tk.Label(scroll_area, text="", bg=TEXT_BG, fg=FG_BAR,
+        self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
                                      font=("Microsoft JhengHei", 11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
@@ -378,13 +375,12 @@ class OverlayWindow:
         stick = should_stick_to_bottom(self._canvas.yview()[1])
 
         row = tk.Frame(self._inner, bg=BG)
-        # 底條只包住文字寬度(anchor w、不 fill):行與行的空隙維持半透明
-        tk.Label(row, text=original, bg=TEXT_BG, fg=FG_ORIGINAL,
+        tk.Label(row, text=original, bg=BG, fg=FG_ORIGINAL,
                  font=("Microsoft JhengHei", 9), anchor="w", justify="left",
-                 wraplength=self._wrap).pack(anchor="w")
-        tk.Label(row, text=translated, bg=TEXT_BG, fg=FG_TRANSLATED,
+                 wraplength=self._wrap).pack(fill="x")
+        tk.Label(row, text=translated, bg=BG, fg=FG_TRANSLATED,
                  font=("Microsoft JhengHei", 11), anchor="w", justify="left",
-                 wraplength=self._wrap).pack(anchor="w")
+                 wraplength=self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._messages.append((now if now is not None else time.time(), original, translated, row))
         while len(self._messages) > self._max:
@@ -438,7 +434,7 @@ class OverlayWindow:
 
     def set_error(self, text: str) -> None:
         self.clear_error()
-        self._error_label = tk.Label(self._frame, text=text, bg=TEXT_BG, fg=FG_ERROR,
+        self._error_label = tk.Label(self._frame, text=text, bg=BG, fg=FG_ERROR,
                                      font=("Microsoft JhengHei", 10, "bold"), anchor="w",
                                      wraplength=self._wrap)
         self._error_label.pack(side="bottom", fill="x", pady=2)
