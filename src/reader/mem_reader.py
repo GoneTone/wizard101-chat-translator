@@ -68,28 +68,44 @@ def lines_from_chatlog(text: str) -> list[str]:
     return out
 
 
-def _find_run(cur_lines: list[str], seq: list[str]) -> int | None:
-    """seq 以連續片段出現在 cur_lines 中的最早位置；找不到回傳 None。"""
+def _find_last_run(cur_lines: list[str], seq: list[str]) -> int | None:
+    """seq 以連續片段出現在 cur_lines 中的**最後**位置；找不到回傳 None。"""
     n = len(seq)
-    for i in range(len(cur_lines) - n + 1):
+    for i in range(len(cur_lines) - n, -1, -1):
         if cur_lines[i:i + n] == seq:
             return i
     return None
 
 
 def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """尾端差分：找最長的 prev 尾段 prev[k:]，其以連續片段出現在 cur 的**任意位置**,
-    回傳該片段之後的行（新訊息，含重複、依序）；prev 與 cur 完全無重疊回傳 None。
-
-    平時純附加（k=0、片段就在開頭）必中；達顯示上限修剪頭部時 k>0 吸收捲動。
-    片段允許落在任意位置是為了撕裂讀取：遊戲寫入中讀到的全文可能中段缺行/壞行，
-    prev 因此不再是 cur 的前綴——此時仍以尾段對回，只吐其後的新行，
-    避免把整份舊訊息當成新訊息重翻（人多訊息多時會觸發翻譯洪水與 timeout 螺旋）。"""
+    """附加/捲動對齊（快路徑）：找最短的「prev 去掉前 k 行」正好是 cur 的前綴，
+    回傳 cur 尾端多出來的行（新訊息，含重複、依序）；對不齊回傳 None。
+    聊天記錄平時純附加（k=0 必中）；達顯示上限修剪頭部時 k>0 吸收捲動。
+    對不齊時呼叫端改走 align_recover——本函式必須嚴格要求前綴，
+    否則「尾行與新行重複」（[hi]→[hi,hi]）會被誤判為無新增而漏訊。"""
     if not prev_lines:
         return None
     for k in range(len(prev_lines)):
         overlap = prev_lines[k:]
-        idx = _find_run(cur_lines, overlap)
+        if cur_lines[:len(overlap)] == overlap:
+            return cur_lines[len(overlap):]
+    return None
+
+
+def align_recover(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
+    """恢復對齊（align_append 對不齊時的退路）：找最長的 prev 尾段 prev[k:]，
+    其以連續片段出現在 cur 的**最後**位置，回傳該片段之後的行；
+    完全無重疊回傳 None（呼叫端視為聊天重置）。
+
+    走到這裡代表讀取異常——撕裂讀取（遊戲寫入中讀到中段缺行/壞行的全文）
+    或多 chatLog 串接結構變化。取「最後」位置是關鍵：聊天充滿重複行
+    （lol/gg 等），錨到較早的重複行會把其後整段舊訊息當新行重吐
+    （翻譯洪水＋timeout 螺旋）；錨到最後頂多漏掉少數重複的新行，代價小得多。"""
+    if not prev_lines:
+        return None
+    for k in range(len(prev_lines)):
+        overlap = prev_lines[k:]
+        idx = _find_last_run(cur_lines, overlap)
         if idx is not None:
             return cur_lines[idx + len(overlap):]
     return None
@@ -139,6 +155,7 @@ class WizChatReader:
         self.process_name = process_name
         self._game_path = game_path
         self._prev: list[str] = []
+        self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -154,16 +171,35 @@ class WizChatReader:
     def read_new(self) -> list[str]:
         """回傳自上次呼叫後新增的玩家聊天行（依序、含重複）；無新訊息回傳 []。
         找不到遊戲或連線中斷丟 GameNotRunning。"""
-        text = self._read_chatlog_text()
-        cur = lines_from_chatlog(text)
+        texts = self._read_chatlog_texts()
+        # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
+        cur = lines_from_chatlog("\n".join(sorted(texts)))
         if not self._synced:
             self._prev = cur        # 首次連上：記錄現況（含既有歷史），不回吐
+            self._node_count = len(texts)
             self._synced = True
-            print(f"[reader] baseline established (lines={len(cur)})", file=sys.stderr)
+            print(f"[reader] baseline established (lines={len(cur)}, "
+                  f"nodes={len(texts)})", file=sys.stderr)
             return []
         if not cur:
             return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+        if len(texts) != self._node_count:
+            # 節點數量變動（UI 事件生出/收掉 chatLog）→ 串接結構改變，無法歸因新舊：
+            # 靜默重建基準、不回吐，避免把其他節點的舊內容當成新訊息（洪水）
+            print(f"[reader] chatLog node count changed "
+                  f"({self._node_count}->{len(texts)}), re-baselining without emitting",
+                  file=sys.stderr)
+            self._node_count = len(texts)
+            self._prev = cur
+            return []
         appended = align_append(self._prev, cur)
+        if appended is None:
+            # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
+            appended = align_recover(self._prev, cur)
+            if appended is not None:
+                print(f"[reader] baseline misaligned, recovered via tail anchor "
+                      f"(prev={len(self._prev)}, cur={len(cur)}, "
+                      f"emitted={len(appended)})", file=sys.stderr)
         if appended is None:
             # 與基準完全無重疊 → 聊天已重置（relog/清空成全新內容），cur 全部視為新訊息。
             # 印記錄供事後查證：若此路徑在非 relog 情境被觸發，代表差分邏輯仍有漏洞。
@@ -174,24 +210,21 @@ class WizChatReader:
         self._prev = cur
         return appended             # 正常延續（無新增時為 []）
 
-    def _read_chatlog_text(self) -> str:
-        """讀所有 `chatLog` 控件的全文並串接；連線中斷則丟 GameNotRunning。"""
+    def _read_chatlog_texts(self) -> list[str]:
+        """讀所有 `chatLog` 控件的全文（每節點一個字串）；連線中斷則丟 GameNotRunning。"""
         if not self._connected:
             self._connect()
         try:
-            return self._grab_text()
+            return self._grab_texts()
         except Exception as exc:  # 遊戲關閉/文件釋放/記憶體讀取失敗 → 視為斷線，由上層重連
             self._teardown()
             raise GameNotRunning(f"讀取聊天失敗（可能已離開遊戲）：{exc}") from exc
 
-    # --- 與 wizwalker 的 I/O 接縫（測試中覆寫 _grab_text）---
-    def _grab_text(self) -> str:
-        async def _grab() -> str:
+    # --- 與 wizwalker 的 I/O 接縫（測試中覆寫 _grab_texts）---
+    def _grab_texts(self) -> list[str]:
+        async def _grab() -> list[str]:
             nodes = await self._client.root_window.get_windows_with_name("chatLog")
-            texts = [await n.maybe_text() for n in nodes]
-            # 控件列舉順序不保證穩定：排序讓多個 chatLog 的串接結果確定，
-            # 避免順序飄移造成與上輪差分對不齊（誤判重置、重吐舊訊息）。
-            return "\n".join(sorted(texts))
+            return [await n.maybe_text() for n in nodes]
 
         return self._run(_grab())
 

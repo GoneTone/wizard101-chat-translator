@@ -1,5 +1,6 @@
 from src.reader.mem_reader import (
-    GameNotRunning, WizChatReader, align_append, clean, lines_from_chatlog,
+    GameNotRunning, WizChatReader, align_append, align_recover, clean,
+    lines_from_chatlog,
 )
 
 
@@ -122,13 +123,25 @@ def test_align_misaligned_returns_none():
 
 
 def test_align_torn_middle_recovers_tail():
-    # 撕裂讀取：cur 中段缺一行，仍應以更短的尾段對齊、只回傳其後的新行
-    assert align_append(["a", "b", "c", "d"], ["a", "b", "d", "e"]) == ["e"]
+    # 撕裂讀取：cur 中段缺一行，恢復路徑以更短的尾段對齊、只回傳其後的新行
+    assert align_append(["a", "b", "c", "d"], ["a", "b", "d", "e"]) is None
+    assert align_recover(["a", "b", "c", "d"], ["a", "b", "d", "e"]) == ["e"]
 
 
 def test_align_mid_position_overlap_recovers():
-    # 重疊片段不在 cur 開頭（如多控件串接順序變化）也要能對齊，不整份重吐
-    assert align_append(["a", "b"], ["x", "a", "b", "c"]) == ["c"]
+    # 重疊片段不在 cur 開頭（如多控件串接結構變化）也要能對齊，不整份重吐
+    assert align_recover(["a", "b"], ["x", "a", "b", "c"]) == ["c"]
+
+
+def test_align_recover_anchors_at_last_occurrence():
+    # 聊天常見重複行（lol/gg）：恢復路徑必須錨定「最後」一次出現，
+    # 錨到較早的重複行會把其後整段舊訊息當新行重吐（洪水）
+    assert align_recover(["z", "x"], ["x", "old1", "old2", "x", "new"]) == ["new"]
+
+
+def test_align_recover_none_when_no_overlap():
+    assert align_recover(["a", "b"], ["x", "y"]) is None
+    assert align_recover([], ["a"]) is None
 
 
 # --- WizChatReader：以假 chatLog 文字驗證差分流程（不需遊戲） ---
@@ -141,13 +154,13 @@ class FakeWiz(WizChatReader):
         self.n = 0
         self._connected = True
 
-    def _grab_text(self) -> str:
+    def _grab_texts(self) -> list[str]:
         i = min(self.n, len(self.texts) - 1)
         self.n += 1
         t = self.texts[i]
         if isinstance(t, Exception):
             raise t
-        return t
+        return t if isinstance(t, list) else [t]  # 腳本給 list＝多個 chatLog 節點
 
 
 def _log(*lines: str) -> str:
@@ -217,6 +230,19 @@ def test_hard_reset_emits_new_content():
     assert r.read_new() == []
     assert r.read_new() == ["[Z] fresh"]
     assert r.read_new() == ["[Z] next"]
+
+
+def test_node_count_change_rebaselines_without_emitting():
+    # chatLog 節點數量變動（UI 事件生出/收掉控件）→ 串接結構改變無法歸因新舊：
+    # 靜默重建基準、不回吐；之後恢復正常差分
+    r = FakeWiz([
+        [_log(_say(1, "A", "a"))],
+        [_log(_say(1, "A", "a")), _log(_say(2, "B", "old"))],       # 節點 1→2
+        [_log(_say(1, "A", "a")), _log(_say(2, "B", "old"), _say(3, "C", "new"))],
+    ])
+    assert r.read_new() == []          # 基準
+    assert r.read_new() == []          # 節點數變動：重建基準、不吐 old
+    assert r.read_new() == ["[C] new"]  # 之後只吐真正的新行
 
 
 def test_read_torn_middle_does_not_flood_old_lines():
