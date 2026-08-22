@@ -45,6 +45,7 @@ class SettingsWindow:
         self._win = tk.Toplevel(self._root)
         self._win.title(f"{APP_NAME} — 設定")
         self._win.geometry("640x560")
+        self._win.resizable(False, False)  # 版面按固定尺寸配置，縮放會切到文字
         self._win.attributes("-topmost", True)
 
         nb = ttk.Notebook(self._win)

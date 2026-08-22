@@ -36,6 +36,7 @@ class InputBox:
         self._target_hwnd = win32gui.GetForegroundWindow()
         self._win = tk.Toplevel(self._root)
         self._win.title(APP_NAME)
+        self._win.resizable(False, False)  # 高度依內容自適應，手動縮放會切到文字
         self._win.attributes("-topmost", True)
         self._win.configure(bg=BG)
         px = self._pos["x"] if self._pos.get("x") is not None else 200
