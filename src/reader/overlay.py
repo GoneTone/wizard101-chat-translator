@@ -277,7 +277,8 @@ class OverlayWindow:
         self._scrollbar = ThinScrollbar(scroll_area, command=self._canvas.yview)
         self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
-        self._scrollbar.pack(side="right", fill="y")
+        # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
+        self._scrollbar.pack(side="right", fill="y", pady=(0, _GRIP_SIZE))
         self._canvas.pack(side="left", fill="both", expand=True)
         self._inner = tk.Frame(self._canvas, bg=BG)
         self._inner_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")

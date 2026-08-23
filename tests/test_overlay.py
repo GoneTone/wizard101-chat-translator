@@ -2,6 +2,7 @@ from src.reader.overlay import (
     MIN_HEIGHT,
     MIN_WIDTH,
     OverlayWindow,
+    _GRIP_SIZE,
     is_click,
     moved_to,
     resized_to,
@@ -151,6 +152,15 @@ def test_thumb_span_keeps_minimum_length_inside_track():
     assert thumb_span(0.0, 0.02, 200, min_thumb=20) == (0, 20)
     # 捲到最底且比例極小：撐到最短長度，但不可超出軌道下緣
     assert thumb_span(0.98, 1.0, 200, min_thumb=20) == (180, 200)
+
+
+def test_scrollbar_stops_above_resize_grip(root):
+    # 把手 place 在視窗右下角：捲軸鋪到底會被壓住，滑塊捲到底時尤其明顯
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+    ov._win.update_idletasks()
+    sb = ov._scrollbar
+    bottom = sb.winfo_rooty() - ov._win.winfo_rooty() + sb.winfo_height()
+    assert bottom <= ov._win.winfo_height() - _GRIP_SIZE
 
 
 def test_scroll_fraction_subtracts_grab_offset_and_clamps():
