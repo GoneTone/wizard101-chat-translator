@@ -13,6 +13,6 @@
   "hotkey": "ctrl+space",
   "game_path": null,
   "type_delay": 0.02,
-  "overlay": {"x": null, "y": null, "width": 460, "height": 300},
+  "overlay": {"x": null, "y": null, "width": 640, "height": 420},
   "input_position": {"x": null, "y": null}
 }

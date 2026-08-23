@@ -113,7 +113,7 @@ def _enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None
 
 class OverlayWindow:
     def __init__(self, root: tk.Tk, x: int | None, y: int | None,
-                 width: int = 460, height: int = 300,
+                 width: int = 640, height: int = 420,
                  max_messages: int = 50, fade_seconds: int = 180,
                  on_geometry_change=None, on_settings=None, on_close=None,
                  bubble_position: dict | None = None, on_bubble_move=None,
@@ -155,8 +155,9 @@ class OverlayWindow:
         self._win.attributes("-topmost", True)
         self._win.attributes("-transparentcolor", BG)
         self._win.configure(bg=BG)
-        px = x if x is not None else 40
-        py = y if y is not None else 40
+        # 未設定過位置（首次啟動）：擺螢幕正中央，比擺角落更容易被注意到
+        px = x if x is not None else (self._win.winfo_screenwidth() - self._w) // 2
+        py = y if y is not None else (self._win.winfo_screenheight() - self._h) // 2
         self._apply_geometry(px, py, self._w, self._h)
 
         # 標題列（可拖曳移動）
