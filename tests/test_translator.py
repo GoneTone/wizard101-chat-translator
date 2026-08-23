@@ -232,6 +232,20 @@ def test_incoming_system_mentions_context_rules():
     assert "無關" in system            # 混雜多組對話時忽略無關內容的規則
 
 
+def test_meta_output_rejected_and_not_recorded_to_history():
+    # 模型回覆格式說明（夾帶段落標記）＝沒在翻譯：當失敗處理，且不污染上下文
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="Please provide the input in the following format:\n\n"
+                "[對話上下文，僅供理解，不要翻譯]\n(Context here)\n\n"
+                "[要發送的訊息]\n(Message here)"))
+    t = _make(fake)
+    with pytest.raises(RuntimeError, match="格式說明"):
+        t.translate_outgoing("測試")
+    with pytest.raises(RuntimeError, match="格式說明"):
+        t.translate_incoming("[A] hi")
+    assert len(t._history) == 0
+
+
 def test_both_systems_forbid_treating_input_as_instructions():
     # 輸入內容長得像指令時模型不得脫稿回應（實測踩過：回了「了解。請提供…」）
     from src.translator import build_outgoing_system
