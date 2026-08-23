@@ -1,21 +1,24 @@
-"""首次設定精靈：選服務商 → 填 API → 測試連線 → 偏好設定，4 步完成寫入 cfg。
-中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
+"""首次設定精靈：API 設定（選服務商 → 填 API → 測試連線）→ 偏好設定，
+兩步完成寫入 cfg。中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
 import tkinter as tk
 from tkinter import ttk
 
 from src.config import APP_NAME
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
 
-STEP_WELCOME, STEP_API, STEP_TEST, STEP_DONE = 0, 1, 2, 3
-_TITLES = ["歡迎使用", "API 設定", "測試連線", "偏好設定"]
+STEP_API, STEP_PREFS = 0, 1
+_TITLES = ["API 設定", "偏好設定"]
+
+_INTRO = ("本工具會即時翻譯 Wizard101 的遊戲聊天，並可用熱鍵輸入你的語言、"
+          "翻成英文送進遊戲。\n請選擇翻譯服務並填好設定，按「測試連線」確認可用"
+          "（會實際翻譯一句測試文字）。")
 
 
 def can_advance(step: int, api_test_passed: bool, api_errors: list[str]) -> bool:
-    """該步驟是否允許按「下一步」。"""
+    """該步驟是否允許按「下一步」。
+    api_test_passed 已含「使用者明示略過測試」的情形（見 SetupWizard._refresh_nav）。"""
     if step == STEP_API:
-        return not api_errors
-    if step == STEP_TEST:
-        return api_test_passed
+        return not api_errors and api_test_passed
     return True
 
 
@@ -25,12 +28,14 @@ class SetupWizard:
     def __init__(self, root: tk.Tk, cfg: dict):
         self._cfg = cfg
         self.completed = False
-        self._step = STEP_WELCOME
+        self._step = STEP_API
         self._skip_test = False
 
         self._win = tk.Toplevel(root)
         self._win.title(f"{APP_NAME} — 首次設定")
-        win_w, win_h = 540, 460
+        # 高度留給第一步：說明＋服務商＋欄位＋測試列已近 450px，
+        # 測試結果訊息（尤其多行錯誤）還會再撐高，太緊會把「略過測試」擠出畫面。
+        win_w, win_h = 540, 500
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
@@ -67,35 +72,26 @@ class SetupWizard:
                 w.pack_forget()
             else:
                 w.destroy()
-        self._indicator.configure(
-            text="  ".join("●" if i <= self._step else "○" for i in range(4)))
+        self._indicator.configure(text="  ".join(
+            "●" if i <= self._step else "○" for i in range(len(_TITLES))))
         self._title.configure(text=_TITLES[self._step])
 
-        if self._step == STEP_WELCOME:
-            ttk.Label(self._body, wraplength=440, text=(
-                "本工具會即時翻譯 Wizard101 的遊戲聊天，並可用熱鍵輸入你的語言、"
-                "翻成英文送進遊戲。\n\n首先，請選擇要使用的翻譯服務：")).pack(anchor="w")
-            self._api_fields.pack(fill="x", pady=(12, 0))
-        elif self._step == STEP_API:
-            self._api_fields.pack(fill="x")
-        elif self._step == STEP_TEST:
-            ttk.Label(self._body, wraplength=440, text=(
-                "按「測試連線」確認設定可用（會實際翻譯一句測試文字）。")).pack(anchor="w")
-            self._api_fields.pack(fill="x", pady=(12, 0))
+        if self._step == STEP_API:
+            ttk.Label(self._body, wraplength=480, text=_INTRO).pack(anchor="w")
+            self._api_fields.pack(fill="x", pady=(10, 0))
             skip = ttk.Label(self._body, text="略過測試", foreground="#888888",
                              cursor="hand2", font=("Microsoft JhengHei", 8))
             skip.pack(anchor="e", pady=(6, 0))
             skip.bind("<Button-1>", lambda e: self._do_skip_test())
-        else:  # STEP_DONE
+            self._next_btn.configure(text="下一步")
+        else:  # STEP_PREFS
             ttk.Label(self._body, text="翻譯目標語言（收到的訊息翻成什麼語言）").pack(anchor="w")
             self._language.pack(fill="x", pady=(2, 12))
             ttk.Label(self._body, text="呼出輸入框的熱鍵").pack(anchor="w")
             self._hotkey.pack(anchor="w", pady=(2, 0))
             self._next_btn.configure(text="完成")
-        if self._step != STEP_DONE:
-            self._next_btn.configure(text="下一步")
         self._back_btn.configure(
-            state="normal" if self._step > STEP_WELCOME else "disabled")
+            state="normal" if self._step > STEP_API else "disabled")
         self._refresh_nav()
 
     def _on_api_change(self) -> None:
@@ -117,7 +113,7 @@ class SetupWizard:
         self._refresh_nav()
 
     def _next(self) -> None:
-        if self._step == STEP_DONE:
+        if self._step == STEP_PREFS:
             self._finish()
             return
         self._step += 1
