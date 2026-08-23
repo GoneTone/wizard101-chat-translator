@@ -1,16 +1,17 @@
 """熱鍵呼出的翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
 翻譯跑背景執行緒，結果經 ui_queue 回主執行緒。"""
-import ctypes
 import queue
 import threading
 import tkinter as tk
 
 import win32gui
 
+from src.composer.paste import force_foreground
 from src.config import APP_NAME
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
+GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
 
 
 class InputBox:
@@ -64,15 +65,7 @@ class InputBox:
         self._win.focus_force()
         try:
             self._win.update_idletasks()
-            hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)  # GA_ROOT
-            user32 = ctypes.windll.user32
-            fg_thread = user32.GetWindowThreadProcessId(win32gui.GetForegroundWindow(), None)
-            this_thread = ctypes.windll.kernel32.GetCurrentThreadId()
-            user32.AttachThreadInput(this_thread, fg_thread, True)
-            try:
-                user32.SetForegroundWindow(hwnd)
-            finally:
-                user32.AttachThreadInput(this_thread, fg_thread, False)
+            force_foreground(win32gui.GetAncestor(self._win.winfo_id(), 2))  # GA_ROOT
         except Exception:
             pass  # 奪取前景失敗：仍有 topmost + focus_force，退回讓使用者點一下輸入框
         self._entry.focus_force()
@@ -85,6 +78,8 @@ class InputBox:
             self._entry = None
             self._status = None
             self._session += 1
+            # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
+            force_foreground(self._target_hwnd)
 
     def _remember_position(self) -> None:
         """記住輸入框目前位置，供下次開啟還原（關閉前呼叫）。"""
@@ -135,5 +130,10 @@ class InputBox:
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
             return  # stale/cancelled
+        if len(translated) > GAME_INPUT_MAX_CHARS:
+            # 超過遊戲輸入上限：不鍵入、不關窗，讓使用者刪減原文後重送
+            self._show_error(f"譯文 {len(translated)} 字，超過遊戲上限 "
+                             f"{GAME_INPUT_MAX_CHARS} 字——請刪減或分段後重送", session)
+            return
         self.close()
         self._on_translated(translated, hwnd)

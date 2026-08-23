@@ -41,6 +41,38 @@ def test_stale_session_discarded_on_cancel(root):
     assert on_translated == [], "Stale result should be discarded"
 
 
+def test_finish_over_limit_keeps_window_and_blocks_send(root):
+    from src.composer.input_box import GAME_INPUT_MAX_CHARS
+    sent = []
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
+    box.show()
+    session = box._session
+    box._finish("x" * (GAME_INPUT_MAX_CHARS + 1), None, session)
+    assert box._win is not None          # 不關閉，讓使用者刪減重送
+    assert sent == []                    # 不鍵入遊戲
+    assert "超過" in box._status.cget("text")
+    assert str(box._entry.cget("state")) == "normal"  # 輸入欄恢復可編輯
+    box.close()
+
+
+def test_finish_within_limit_sends_and_closes(root):
+    from src.composer.input_box import GAME_INPUT_MAX_CHARS
+    sent = []
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
+    box.show()
+    box._finish("x" * GAME_INPUT_MAX_CHARS, None, box._session)
+    assert box._win is None
+    assert len(sent) == 1
+
+
+def test_close_with_stale_target_hwnd_does_not_crash(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._target_hwnd = 0x7FFFFFFF        # 已不存在的視窗
+    box.close()
+    assert box._win is None
+
+
 def test_enter_on_empty_input_closes_window(root):
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
     box.show()
