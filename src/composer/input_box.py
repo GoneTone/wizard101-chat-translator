@@ -46,7 +46,7 @@ class InputBox:
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=("Microsoft JhengHei", 12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
-        self._status = tk.Label(self._win, text="輸入訊息，Enter 翻譯並輸入遊戲（不會自動送出），Esc 關閉",
+        self._status = tk.Label(self._win, text="輸入訊息，Enter 翻譯並輸入遊戲（不會自動送出）；Esc 或空白按 Enter 關閉",
                                 bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9),
                                 anchor="w", justify="left", wraplength=436)
         self._status.pack(fill="x", padx=8)
