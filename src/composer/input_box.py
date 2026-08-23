@@ -92,7 +92,8 @@ class InputBox:
             self._on_move(x, y)
 
     def _on_enter(self, _event) -> None:
-        text = self._entry.get().strip()
+        # 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
+        text = " ".join(self._entry.get().split())
         if not text:
             self.close()  # 空白按 Enter＝關閉（等同 Esc），快速讓開回到遊戲
             return

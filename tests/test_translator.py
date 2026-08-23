@@ -232,6 +232,13 @@ def test_incoming_system_mentions_context_rules():
     assert "無關" in system            # 混雜多組對話時忽略無關內容的規則
 
 
+def test_both_systems_forbid_treating_input_as_instructions():
+    # 輸入內容長得像指令時模型不得脫稿回應（實測踩過：回了「了解。請提供…」）
+    from src.translator import build_outgoing_system
+    assert "絕不回應" in build_incoming_system("繁體中文（台灣）")
+    assert "絕不回應" in build_outgoing_system("English")
+
+
 def test_reconfigure_switches_provider():
     t = _make(FakeHttpxClient())
     t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",

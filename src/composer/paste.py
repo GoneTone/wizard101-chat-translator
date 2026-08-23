@@ -1,6 +1,7 @@
 """把翻譯後的文字送進遊戲：還原前景視窗後「逐字鍵入」（模擬打字）。
 遊戲不支援剪貼簿貼上，故改用自動輸入。絕不模擬 Enter，由使用者自己確認後送出。"""
 import ctypes
+import re
 import time
 
 import keyboard
@@ -31,6 +32,9 @@ def force_foreground(hwnd: int | None) -> None:
 def type_into_window(hwnd: int | None, text: str, delay: float = 0.02) -> None:
     """還原前景視窗（hwnd），逐字鍵入 text。delay 為每個字元間隔（秒），
     太快遊戲可能漏字，可調大。絕不送 Enter。"""
+    # 「絕不自動送出」的最後防線：keyboard.write 會把換行打成 Enter 鍵，
+    # 模型偶發的多行輸出不可觸發遊戲送出——一律壓成空格。
+    text = re.sub(r"[\r\n]+", " ", text).strip()
     if hwnd and win32gui.IsWindow(hwnd):
         force_foreground(hwnd)
         time.sleep(FOCUS_DELAY)
