@@ -5,7 +5,9 @@ from src.reader.overlay import (
     is_click,
     moved_to,
     resized_to,
+    scroll_fraction,
     should_stick_to_bottom,
+    thumb_span,
 )
 
 
@@ -133,6 +135,29 @@ def test_set_status_updates_bar_label(root):
     assert ov.status_text() == "●  監聽中"
     ov.set_status("●  翻譯中…", "#6fa8dc")
     assert ov.status_text() == "●  翻譯中…"
+
+
+def test_thumb_hidden_when_content_fits():
+    assert thumb_span(0.0, 1.0, 200) is None       # 全部可見＝不需捲軸
+    assert thumb_span(0.0, 0.5, 0) is None         # 軌道還沒有高度
+
+
+def test_thumb_span_follows_view_fraction():
+    assert thumb_span(0.0, 0.5, 200) == (0, 100)
+    assert thumb_span(0.5, 1.0, 200) == (100, 200)
+
+
+def test_thumb_span_keeps_minimum_length_inside_track():
+    assert thumb_span(0.0, 0.02, 200, min_thumb=20) == (0, 20)
+    # 捲到最底且比例極小：撐到最短長度，但不可超出軌道下緣
+    assert thumb_span(0.98, 1.0, 200, min_thumb=20) == (180, 200)
+
+
+def test_scroll_fraction_subtracts_grab_offset_and_clamps():
+    assert scroll_fraction(100, 0.0, 200) == 0.5
+    assert scroll_fraction(100, 0.25, 200) == 0.25  # 抓在滑塊中段：扣掉偏移
+    assert scroll_fraction(-50, 0.0, 200) == 0.0    # 拖出軌道上緣
+    assert scroll_fraction(400, 0.0, 200) == 1.0    # 拖出軌道下緣
 
 
 def test_placeholder_centered_when_empty_hidden_after_message(root):
