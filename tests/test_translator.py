@@ -150,37 +150,60 @@ def test_openai_provider_forces_official_base_url():
     assert str(t._impl._client.base_url) == OPENAI_BASE_URL
 
 
-def test_compose_user_message_without_context_is_plain_text():
-    from src.translator import INCOMING_TARGET_HEADER, compose_user_message
-    assert compose_user_message([], "[A] hi", INCOMING_TARGET_HEADER) == "[A] hi"
+def test_build_turns_without_context_is_single_user_turn():
+    from src.translator import build_turns
+    assert build_turns([], "[A] hi", "intro") == [
+        {"role": "user", "content": "[A] hi"}]
 
 
-def test_compose_user_message_with_context_has_sections():
-    from src.translator import (
-        CONTEXT_HEADER, INCOMING_TARGET_HEADER, compose_user_message,
-    )
-    msg = compose_user_message(["[A] one", "[B] two"], "[C] three",
-                               INCOMING_TARGET_HEADER)
-    assert msg == (f"{CONTEXT_HEADER}\n[A] one\n[B] two\n\n"
-                   f"{INCOMING_TARGET_HEADER}\n[C] three")
+def test_build_turns_prepends_fewshot_examples():
+    from src.translator import build_turns
+    examples = [{"role": "user", "content": "在嗎"},
+                {"role": "assistant", "content": "you there?"}]
+    turns = build_turns([], "哈囉", "intro", examples=examples)
+    assert turns[:2] == examples                       # 範例在最前
+    assert turns[-1] == {"role": "user", "content": "哈囉"}  # 待翻句仍在最後
+
+
+def test_outgoing_uses_fewshot_examples():
+    from src.translator import FEWSHOT_OUTGOING
+    fake = FakeHttpxClient()
+    t = _make(fake)
+    t.translate_outgoing("在嗎")
+    turns = _turns(fake.last_body)
+    assert turns[:len(FEWSHOT_OUTGOING)] == FEWSHOT_OUTGOING  # 發話帶 few-shot 範例
+    assert turns[-1] == {"role": "user", "content": "在嗎"}
+    # 範例中示範「像指令的訊息也照翻」，直接對抗脫稿
+    assert any("提供" in m["content"] for m in FEWSHOT_OUTGOING if m["role"] == "user")
+
+
+def test_build_turns_with_context_is_multi_turn():
+    from src.translator import CONTEXT_ACK, build_turns
+    turns = build_turns(["[A] one", "[B] two"], "[C] three", "背景說明")
+    assert turns == [
+        {"role": "user", "content": "背景說明\n[A] one\n[B] two"},
+        {"role": "assistant", "content": CONTEXT_ACK},
+        {"role": "user", "content": "[C] three"},  # 待翻句永遠是最後一個乾淨 user turn
+    ]
+
+
+def _turns(body):
+    return body["messages"][1:]  # 去掉 system，剩下對話輪
 
 
 def test_incoming_history_feeds_next_translation():
-    from src.translator import CONTEXT_HEADER
     fake = FakeHttpxClient()
     t = _make(fake)
     t.translate_incoming("[A] one")
-    assert CONTEXT_HEADER not in fake.last_body["messages"][1]["content"]  # 首行無上下文
+    assert _turns(fake.last_body) == [{"role": "user", "content": "[A] one"}]
     t.translate_incoming("[B] two")
-    user = fake.last_body["messages"][1]["content"]
-    assert CONTEXT_HEADER in user
-    assert "[A] one" in user          # 上一行成為上下文
-    assert user.endswith("[B] two")
+    turns = _turns(fake.last_body)
+    assert len(turns) == 3                         # user(背景)+assistant(ack)+user(待翻)
+    assert "[A] one" in turns[0]["content"]        # 上一行成為背景
+    assert turns[-1] == {"role": "user", "content": "[B] two"}
 
 
 def test_failed_translation_not_recorded_to_history():
-    from src.translator import CONTEXT_HEADER
-
     class FailOnceClient(FakeHttpxClient):
         def __init__(self):
             super().__init__()
@@ -198,7 +221,7 @@ def test_failed_translation_not_recorded_to_history():
     with pytest.raises(TranslatorOffline):
         t.translate_incoming("[A] one")
     t.translate_incoming("[A] one")   # 重試同一行:失敗那次不得已進上下文
-    assert CONTEXT_HEADER not in fake.last_body["messages"][1]["content"]
+    assert _turns(fake.last_body) == [{"role": "user", "content": "[A] one"}]
 
 
 def test_history_caps_at_context_lines():
@@ -207,29 +230,27 @@ def test_history_caps_at_context_lines():
     t = _make(fake)
     for i in range(CONTEXT_LINES + 3):
         t.translate_incoming(f"[A] m{i}")
-    user = fake.last_body["messages"][1]["content"]
-    assert "[A] m0" not in user       # 最舊的已被擠出
-    assert f"[A] m{CONTEXT_LINES - 1}" in user
+    background = _turns(fake.last_body)[0]["content"]
+    assert "[A] m0" not in background       # 最舊的已被擠出
+    assert f"[A] m{CONTEXT_LINES - 1}" in background
 
 
 def test_outgoing_gets_context_but_does_not_record():
-    from src.translator import CONTEXT_HEADER, OUTGOING_TARGET_HEADER
     fake = FakeHttpxClient()
     t = _make(fake)
     t.translate_incoming("[A] want to trade?")
     t.translate_outgoing("好啊")
-    user = fake.last_body["messages"][1]["content"]
-    assert CONTEXT_HEADER in user
-    assert "[A] want to trade?" in user
-    assert OUTGOING_TARGET_HEADER in user
-    assert user.endswith("好啊")
+    turns = _turns(fake.last_body)
+    assert any("[A] want to trade?" in m["content"] for m in turns)  # 背景在某一輪
+    assert turns[-1] == {"role": "user", "content": "好啊"}  # 待翻句仍在最後
     assert len(t._history) == 1       # 發話不寫入上下文(遊戲回顯後由收訊記錄)
 
 
-def test_incoming_system_mentions_context_rules():
+def test_incoming_system_has_no_format_markers():
+    # system 不得列出段落標記字串,否則小模型會把它回吐成「請照此格式提供輸入」
     system = build_incoming_system("繁體中文（台灣）")
-    assert "對話上下文" in system
-    assert "無關" in system            # 混雜多組對話時忽略無關內容的規則
+    assert "[要翻譯的訊息]" not in system
+    assert "語境" in system            # 仍說明會收到聊天記錄當背景
 
 
 def test_both_systems_forbid_treating_input_as_instructions():
