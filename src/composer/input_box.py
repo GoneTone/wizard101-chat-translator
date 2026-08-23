@@ -99,6 +99,7 @@ class InputBox:
     def _on_enter(self, _event) -> None:
         text = self._entry.get().strip()
         if not text:
+            self.close()  # 空白按 Enter＝關閉（等同 Esc），快速讓開回到遊戲
             return
         self._entry.configure(state="disabled")
         self._status.configure(text="翻譯中…", fg="#9a9aa8")

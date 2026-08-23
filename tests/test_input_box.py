@@ -41,6 +41,14 @@ def test_stale_session_discarded_on_cancel(root):
     assert on_translated == [], "Stale result should be discarded"
 
 
+def test_enter_on_empty_input_closes_window(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    assert box._win is not None
+    box._on_enter(None)          # 空白按 Enter → 關閉（等同 Esc）
+    assert box._win is None
+
+
 def test_non_cancelled_translation_succeeds(root):
     """Test that non-cancelled translations still call on_translated."""
     ui_queue = queue.Queue()
