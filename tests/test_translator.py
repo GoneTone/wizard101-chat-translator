@@ -165,16 +165,29 @@ def test_build_turns_prepends_fewshot_examples():
     assert turns[-1] == {"role": "user", "content": "哈囉"}  # 待翻句仍在最後
 
 
-def test_outgoing_uses_fewshot_examples():
+def test_outgoing_uses_fewshot_when_no_context():
     from src.translator import FEWSHOT_OUTGOING
     fake = FakeHttpxClient()
     t = _make(fake)
-    t.translate_outgoing("在嗎")
+    t.translate_outgoing("在嗎")   # 無背景上下文：帶 few-shot 強制翻譯模式
     turns = _turns(fake.last_body)
-    assert turns[:len(FEWSHOT_OUTGOING)] == FEWSHOT_OUTGOING  # 發話帶 few-shot 範例
+    assert turns[:len(FEWSHOT_OUTGOING)] == FEWSHOT_OUTGOING
     assert turns[-1] == {"role": "user", "content": "在嗎"}
     # 範例中示範「像指令的訊息也照翻」，直接對抗脫稿
     assert any("提供" in m["content"] for m in FEWSHOT_OUTGOING if m["role"] == "user")
+
+
+def test_outgoing_skips_fewshot_when_context_present():
+    # 有背景上下文時不加 few-shot：多輪結構已足夠,避免範例與背景 turn 交錯干擾弱模型
+    from src.translator import FEWSHOT_OUTGOING
+    fake = FakeHttpxClient()
+    t = _make(fake)
+    t.translate_incoming("[A] want to trade?")
+    t.translate_outgoing("好啊")
+    turns = _turns(fake.last_body)
+    assert turns[0] != FEWSHOT_OUTGOING[0]                 # 不以範例開頭
+    assert any("[A] want to trade?" in m["content"] for m in turns)  # 背景仍在
+    assert turns[-1] == {"role": "user", "content": "好啊"}
 
 
 def test_build_turns_with_context_is_multi_turn():

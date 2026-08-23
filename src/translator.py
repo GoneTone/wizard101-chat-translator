@@ -256,11 +256,14 @@ class Translator:
 
     def translate_outgoing(self, text: str) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定），附近期對話當上下文。
-        發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。"""
+        發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。
+        few-shot 只在無背景上下文時帶：有上下文時多輪結構已足夠，避免範例與
+        背景 turn 交錯干擾弱模型。"""
+        context = list(self._history)
         return self._impl.chat(
             build_outgoing_system(OUTGOING_LANGUAGE),
-            build_turns(list(self._history), text, CONTEXT_INTRO_OUTGOING,
-                        examples=FEWSHOT_OUTGOING))
+            build_turns(context, text, CONTEXT_INTRO_OUTGOING,
+                        examples=None if context else FEWSHOT_OUTGOING))
 
 
 def test_translate(api: dict, target_language: str) -> str:
