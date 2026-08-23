@@ -5,6 +5,7 @@
 提示詞依語言參數動態建構，程式碼不綁定特定語言。
 """
 import re
+from collections import deque
 
 import anthropic
 import httpx
@@ -12,24 +13,44 @@ import httpx
 # 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
+# 帶進提示詞的近期對話行數：短窗涵蓋眼前的對話線，避免遠處舊話題污染判斷。
+CONTEXT_LINES = 8
+CONTEXT_HEADER = "[對話上下文，僅供理解，不要翻譯]"
+INCOMING_TARGET_HEADER = "[要翻譯的訊息]"
+OUTGOING_TARGET_HEADER = "[要發送的訊息]"
+
+
+def compose_user_message(context: list[str], text: str, target_header: str) -> str:
+    """組出帶上下文的 user 訊息：無上下文時只送原文（維持最簡輸入）。"""
+    if not context:
+        return text
+    return (f"{CONTEXT_HEADER}\n" + "\n".join(context) + "\n\n"
+            f"{target_header}\n{text}")
+
 
 def build_incoming_system(target_language: str) -> str:
     """建構收訊翻譯的 system 提示：把聊天內容翻成 target_language（來源語言自動判斷）。"""
     return (
         f"你是一個專業的翻譯員，負責將線上遊戲 Wizard101 的聊天對話文本"
-        f"（任何語言，自動判斷）流暢地翻譯為 {target_language}。輸入格式為「[發送者] 訊息內容」。遵循以下規則：\n"
-        "1. 只翻譯「訊息內容」，開頭的「[發送者]」原樣保留、不要翻譯或改動。\n"
-        "2. 僅輸出「[發送者] 譯文」，禁止解釋或添加任何額外內容"
+        f"（任何語言，自動判斷）流暢地翻譯為 {target_language}。"
+        f"輸入分為「{CONTEXT_HEADER}」與「{INCOMING_TARGET_HEADER}」兩段"
+        "（無上下文時只有訊息本身），每行格式為「[發送者] 訊息內容」。遵循以下規則：\n"
+        f"1. 只翻譯「{INCOMING_TARGET_HEADER}」那一行；上下文僅供理解語意，"
+        "不要翻譯或輸出。上下文可能同時混雜多組不相干的對話，請先判斷要翻譯的"
+        "訊息屬於哪一組，與其無關的內容一律忽略、不得影響譯文。\n"
+        "2. 只翻譯「訊息內容」，開頭的「[發送者]」原樣保留、不要翻譯或改動。\n"
+        "3. 僅輸出「[發送者] 譯文」，禁止解釋或添加任何額外內容"
         "（如「以下是翻譯：」、「譯文如下：」等）。\n"
-        "3. 忠實傳達原文的意思與語氣，不要曲解或改變原意。\n"
-        f"4. 遊戲相關名詞（魔法名、地名、物品名、NPC 名等）翻成 {target_language}，並在譯名後"
+        "4. 忠實傳達原文的意思與語氣，不要曲解或改變原意；"
+        "語氣口語自然、貼近上下文對話的節奏。\n"
+        f"5. 遊戲相關名詞（魔法名、地名、物品名、NPC 名等）翻成 {target_language}，並在譯名後"
         "用半形括號附上英文原文，例如「火龍(Fire Dragon)」、「鱷魚國(Krokotopia)」；"
         "純代碼或確實無法翻譯的內容則保留原文。\n"
-        f"5. 網路及遊戲聊天的縮寫、俚語（如 lol、gg、brb、omg、ty、np 等）"
+        f"6. 網路及遊戲聊天的縮寫、俚語（如 lol、gg、brb、omg、ty、np 等）"
         f"請翻成 {target_language} 在地、口語的說法，不要保留原縮寫。\n"
-        "6. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
+        "7. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
         "請原樣保留在對應位置，不要翻譯或刪除。\n"
-        "7. 標點盡量貼近原文的標點風格（原文結尾沒有標點就盡量不加）；"
+        "8. 標點盡量貼近原文的標點風格（原文結尾沒有標點就盡量不加）；"
         f"需要標點時使用 {target_language} 慣用的樣式。"
     )
 
@@ -38,22 +59,29 @@ def build_outgoing_system(outgoing_language: str) -> str:
     """建構發話翻譯的 system 提示：把玩家輸入（任何語言，自動判斷）翻成 outgoing_language。"""
     return (
         f"你是一個專業的翻譯員，負責將玩家在線上遊戲 Wizard101 要發送的聊天訊息"
-        f"（任何語言，自動判斷）流暢地翻譯為 {outgoing_language}。遵循以下規則：\n"
-        "1. 僅輸出譯文，禁止解釋或添加任何額外內容"
+        f"（任何語言，自動判斷）流暢地翻譯為 {outgoing_language}。"
+        f"輸入可能附上「{CONTEXT_HEADER}」（其他玩家剛說的話），"
+        f"要翻譯的內容在「{OUTGOING_TARGET_HEADER}」段（無上下文時只有訊息本身）。"
+        "遵循以下規則：\n"
+        f"1. 只翻譯「{OUTGOING_TARGET_HEADER}」；上下文僅供理解對話情境"
+        "（例如判斷回覆的對象與語意），不要翻譯或輸出。上下文可能混雜多組不相干的"
+        "對話，與玩家訊息無關的內容一律忽略。\n"
+        "2. 僅輸出譯文，禁止解釋或添加任何額外內容"
         "（如「以下是翻譯：」、「譯文如下：」等）。\n"
-        "2. 忠實傳達原文的意思與語氣，不要改寫、曲解、增添或省略內容"
-        "（例如「我是台灣人」翻成「I'm Taiwanese」，而不是「I'm from Taiwan」）。\n"
-        f"3. 原文中**已經是 {outgoing_language}** 的片段，原樣保留、一字不改，"
+        "3. 忠實傳達原文的意思與語氣，不要改寫、曲解、增添或省略內容"
+        "（例如「我是台灣人」翻成「I'm Taiwanese」，而不是「I'm from Taiwan」）；"
+        "語氣口語自然、貼近上下文對話的節奏。\n"
+        f"4. 原文中**已經是 {outgoing_language}** 的片段，原樣保留、一字不改，"
         "不要改寫、潤飾或修正，只翻譯其餘部分，並維持各片段原本的順序"
         f"（例如原文夾雜的 {outgoing_language} 單字、短語或整句都照抄）。\n"
-        f"4. 用簡單、常見的 {outgoing_language} 字詞（遊戲聊天過濾器會擋掉罕見字），"
+        f"5. 用簡單、常見的 {outgoing_language} 字詞（遊戲聊天過濾器會擋掉罕見字），"
         "語氣口語自然、適合遊戲內聊天。\n"
-        f"5. 遊戲相關名詞（魔法名、地名、物品名、NPC 名等）使用遊戲內慣用的 {outgoing_language} "
+        f"6. 遊戲相關名詞（魔法名、地名、物品名、NPC 名等）使用遊戲內慣用的 {outgoing_language} "
         "名稱，不要另譯或加註。\n"
-        f"6. 網路及遊戲聊天的縮寫、俚語請翻成 {outgoing_language} 在地、口語的說法。\n"
-        "7. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
+        f"7. 網路及遊戲聊天的縮寫、俚語請翻成 {outgoing_language} 在地、口語的說法。\n"
+        "8. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
         "請原樣保留在對應位置，不要翻譯或刪除。\n"
-        "8. 盡量貼近原文的標點風格（例如原文句尾沒有句號，譯文結尾也盡量不加）。"
+        "9. 盡量貼近原文的標點風格（例如原文句尾沒有句號，譯文結尾也盡量不加）。"
     )
 
 
@@ -183,6 +211,8 @@ class Translator:
         self._impl = _build_client(provider, base_url, model, api_key, thinking,
                                    timeout, client)
         self._target_language = target_language
+        # 近期對話（原文行）：收訊/發話都帶進提示詞當上下文，翻譯成功才寫入
+        self._history: deque[str] = deque(maxlen=CONTEXT_LINES)
 
     def reconfigure(self, *, provider: str, base_url: str, model: str, api_key: str,
                     thinking: bool, target_language: str) -> None:
@@ -192,12 +222,19 @@ class Translator:
         self._target_language = target_language
 
     def translate_incoming(self, text: str) -> str:
-        """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。"""
-        return self._impl.chat(build_incoming_system(self._target_language), text)
+        """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言，附近期對話當上下文。"""
+        translated = self._impl.chat(
+            build_incoming_system(self._target_language),
+            compose_user_message(list(self._history), text, INCOMING_TARGET_HEADER))
+        self._history.append(text)  # 成功才記錄：失敗重試的行不會重複進上下文
+        return translated
 
     def translate_outgoing(self, text: str) -> str:
-        """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。"""
-        return self._impl.chat(build_outgoing_system(OUTGOING_LANGUAGE), text)
+        """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定），附近期對話當上下文。
+        發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。"""
+        return self._impl.chat(
+            build_outgoing_system(OUTGOING_LANGUAGE),
+            compose_user_message(list(self._history), text, OUTGOING_TARGET_HEADER))
 
 
 def test_translate(api: dict, target_language: str) -> str:

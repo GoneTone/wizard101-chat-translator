@@ -6,6 +6,7 @@ import pytest
 
 from src.translator import (
     OPENAI_BASE_URL, Translator, TranslatorConfigError, TranslatorOffline,
+    build_incoming_system,
 )
 
 
@@ -147,6 +148,88 @@ def test_openai_provider_forces_official_base_url():
     t = Translator(provider="openai", base_url="http://evil.example", model="m",
                    api_key="k", target_language="繁體中文（台灣）")
     assert str(t._impl._client.base_url) == OPENAI_BASE_URL
+
+
+def test_compose_user_message_without_context_is_plain_text():
+    from src.translator import INCOMING_TARGET_HEADER, compose_user_message
+    assert compose_user_message([], "[A] hi", INCOMING_TARGET_HEADER) == "[A] hi"
+
+
+def test_compose_user_message_with_context_has_sections():
+    from src.translator import (
+        CONTEXT_HEADER, INCOMING_TARGET_HEADER, compose_user_message,
+    )
+    msg = compose_user_message(["[A] one", "[B] two"], "[C] three",
+                               INCOMING_TARGET_HEADER)
+    assert msg == (f"{CONTEXT_HEADER}\n[A] one\n[B] two\n\n"
+                   f"{INCOMING_TARGET_HEADER}\n[C] three")
+
+
+def test_incoming_history_feeds_next_translation():
+    from src.translator import CONTEXT_HEADER
+    fake = FakeHttpxClient()
+    t = _make(fake)
+    t.translate_incoming("[A] one")
+    assert CONTEXT_HEADER not in fake.last_body["messages"][1]["content"]  # 首行無上下文
+    t.translate_incoming("[B] two")
+    user = fake.last_body["messages"][1]["content"]
+    assert CONTEXT_HEADER in user
+    assert "[A] one" in user          # 上一行成為上下文
+    assert user.endswith("[B] two")
+
+
+def test_failed_translation_not_recorded_to_history():
+    from src.translator import CONTEXT_HEADER
+
+    class FailOnceClient(FakeHttpxClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def post(self, url, json):
+            self.calls += 1
+            self.last_body = json
+            if self.calls == 1:
+                raise httpx.ConnectError("refused")
+            return self._response
+
+    fake = FailOnceClient()
+    t = _make(fake)
+    with pytest.raises(TranslatorOffline):
+        t.translate_incoming("[A] one")
+    t.translate_incoming("[A] one")   # 重試同一行:失敗那次不得已進上下文
+    assert CONTEXT_HEADER not in fake.last_body["messages"][1]["content"]
+
+
+def test_history_caps_at_context_lines():
+    from src.translator import CONTEXT_LINES
+    fake = FakeHttpxClient()
+    t = _make(fake)
+    for i in range(CONTEXT_LINES + 3):
+        t.translate_incoming(f"[A] m{i}")
+    user = fake.last_body["messages"][1]["content"]
+    assert "[A] m0" not in user       # 最舊的已被擠出
+    assert f"[A] m{CONTEXT_LINES - 1}" in user
+
+
+def test_outgoing_gets_context_but_does_not_record():
+    from src.translator import CONTEXT_HEADER, OUTGOING_TARGET_HEADER
+    fake = FakeHttpxClient()
+    t = _make(fake)
+    t.translate_incoming("[A] want to trade?")
+    t.translate_outgoing("好啊")
+    user = fake.last_body["messages"][1]["content"]
+    assert CONTEXT_HEADER in user
+    assert "[A] want to trade?" in user
+    assert OUTGOING_TARGET_HEADER in user
+    assert user.endswith("好啊")
+    assert len(t._history) == 1       # 發話不寫入上下文(遊戲回顯後由收訊記錄)
+
+
+def test_incoming_system_mentions_context_rules():
+    system = build_incoming_system("繁體中文（台灣）")
+    assert "對話上下文" in system
+    assert "無關" in system            # 混雜多組對話時忽略無關內容的規則
 
 
 def test_reconfigure_switches_provider():
