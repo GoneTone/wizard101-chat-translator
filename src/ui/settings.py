@@ -4,7 +4,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
-from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
+from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
+                           validate_api_form)
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
@@ -67,7 +68,7 @@ class SettingsWindow:
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
-        ttk.Checkbutton(basic, text="遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）",
+        ttk.Checkbutton(basic, text=AUTO_INPUT_LABEL,
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
 
         # --- 進階 ---

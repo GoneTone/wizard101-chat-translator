@@ -36,6 +36,13 @@ COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文", "日本語", "�
 
 CLAUDE_MODEL_HINT = "較快較省：claude-haiku-4-5"
 
+# 顯式換行：讓兩種視窗（寬度不同）都斷在分號後，不隨 wraplength 斷在詞中間
+THINKING_HINT = ("建議關閉：聊天多是短句，開啟會讓每則翻譯慢上數秒、也更耗用量；\n"
+                 "長句翻得不好時再開。")
+
+# 精靈與設定視窗共用同一句，避免兩邊文案走鐘
+AUTO_INPUT_LABEL = "遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）"
+
 
 def validate_api_form(api: dict) -> list[str]:
     """檢查 API 表單必填欄位，回傳錯誤訊息列表（空＝通過）。"""
@@ -134,8 +141,7 @@ class ApiFields(ttk.Frame):
             self._labeled_entry("伺服器網址", self._base_url)
             self._labeled_entry("模型名稱", self._model)
             self._labeled_entry("API 金鑰（選填）", self._api_key, secret=True)
-            ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
-                            variable=self._thinking).pack(anchor="w", pady=2)
+            self._thinking_row()
             # custom 分支不清空模型欄：使用者原輸入（含跨服務商切回時）都保留。
         else:
             self._labeled_entry("API 金鑰", self._api_key, secret=True)
@@ -155,8 +161,7 @@ class ApiFields(ttk.Frame):
             if self._provider.get() == "openai":
                 # ChatGPT 官方端點也可關思考（只送 reasoning_effort，見 translator）；
                 # Claude 維持模型預設（adaptive），不提供開關。
-                ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
-                                variable=self._thinking).pack(anchor="w", pady=2)
+                self._thinking_row()
             link = ttk.Label(self._fields, text="取得金鑰 ↗", foreground="#4a7ddc",
                              cursor="hand2")
             link.pack(anchor="w", pady=(2, 0))
@@ -165,6 +170,13 @@ class ApiFields(ttk.Frame):
         self._invalidate_test()
         if self._on_change:
             self._on_change()
+
+    def _thinking_row(self) -> None:
+        """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
+        ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
+                        variable=self._thinking).pack(anchor="w", pady=(2, 0))
+        ttk.Label(self._fields, text=THINKING_HINT, foreground="#888888",
+                  wraplength=440, justify="left").pack(anchor="w", padx=(20, 0))
 
     def _labeled_entry(self, label: str, var: tk.StringVar, secret: bool = False):
         row = ttk.Frame(self._fields)

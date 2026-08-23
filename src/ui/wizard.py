@@ -4,7 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.config import APP_NAME
-from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
+from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
+                           validate_api_form)
 
 STEP_API, STEP_PREFS = 0, 1
 _TITLES = ["API 設定", "偏好設定"]
@@ -33,9 +34,9 @@ class SetupWizard:
 
         self._win = tk.Toplevel(root)
         self._win.title(f"{APP_NAME} — 首次設定")
-        # 高度留給第一步：說明＋服務商＋欄位＋測試列已近 450px，
+        # 高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
         # 測試結果訊息（尤其多行錯誤）還會再撐高，太緊會把「略過測試」擠出畫面。
-        win_w, win_h = 540, 500
+        win_w, win_h = 540, 540
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
@@ -60,6 +61,7 @@ class SetupWizard:
         self._api_fields = ApiFields(self._body, cfg["api"], on_change=self._on_api_change)
         self._language = LanguageField(self._body, cfg["target_language"])
         self._hotkey = HotkeyField(self._body, cfg["hotkey"])
+        self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
         self._show_step()
 
     # --- 導航 ---
@@ -89,6 +91,8 @@ class SetupWizard:
             self._language.pack(fill="x", pady=(2, 12))
             ttk.Label(self._body, text="呼出輸入框的熱鍵").pack(anchor="w")
             self._hotkey.pack(anchor="w", pady=(2, 0))
+            ttk.Checkbutton(self._body, text=AUTO_INPUT_LABEL,
+                            variable=self._auto_input).pack(anchor="w", pady=(14, 0))
             self._next_btn.configure(text="完成")
         self._back_btn.configure(
             state="normal" if self._step > STEP_API else "disabled")
@@ -128,6 +132,7 @@ class SetupWizard:
         if self._language.value():
             self._cfg["target_language"] = self._language.value()
         self._cfg["hotkey"] = self._hotkey.value()
+        self._cfg["auto_show_input"] = self._auto_input.get()
         self.completed = True
         self._win.destroy()
 
