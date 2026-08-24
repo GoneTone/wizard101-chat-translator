@@ -190,7 +190,7 @@ class WizChatReader:
     def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME):
         self.process_name = process_name
         self._game_path = game_path
-        self._prev: list[ChatLine] = []
+        self._prev: list[str] = []  # 基準只存文字：顏色不參與差分（見 read_new）
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
@@ -211,8 +211,11 @@ class WizChatReader:
         texts = self._read_chatlog_texts()
         # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
         cur = lines_from_chatlog("\n".join(sorted(texts)))
+        # 差分只看文字：切頻道時 chatLog 會把同樣的訊息以該頻道顏色重新染色，
+        # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
+        cur_texts = [l.text for l in cur]
         if not self._synced:
-            self._prev = cur        # 首次連上：記錄現況（含既有歷史），不回吐
+            self._prev = cur_texts  # 首次連上：記錄現況（含既有歷史），不回吐
             self._node_count = len(texts)
             self._synced = True
             print(f"[reader] baseline established (lines={len(cur)}, "
@@ -227,15 +230,15 @@ class WizChatReader:
                   f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
                   f"re-baselining without emitting", file=sys.stderr)
             self._node_count = len(texts)
-            self._prev = cur
+            self._prev = cur_texts
             return []
         prev_len = len(self._prev)
         path = "append"
-        appended = align_append(self._prev, cur)
+        appended = align_append(self._prev, cur_texts)
         if appended is None:
             # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
             path = "recover"
-            appended = align_recover(self._prev, cur)
+            appended = align_recover(self._prev, cur_texts)
             if appended is not None:
                 print(f"[reader] baseline misaligned, recovered via tail anchor "
                       f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
@@ -244,11 +247,16 @@ class WizChatReader:
             # 與基準完全無重疊 → 聊天已重置（relog/清空成全新內容），cur 全部視為新訊息。
             # 印記錄供事後查證：若此路徑在非 relog 情境被觸發，代表差分邏輯仍有漏洞。
             path = "reset"
-            appended = cur
+            appended = cur_texts
+            # 帶頭尾樣本：事後才分得出是內容真的全新（relog）還是差分誤判（如另一視圖）
             print(f"[reader] chat log has no overlap with baseline, treating as reset "
-                  f"(lines={len(cur)})", file=sys.stderr)
-        self._prev = cur
-        return self._guard_burst(appended, path, prev_len, len(cur), texts)
+                  f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
+                  f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
+                  file=sys.stderr)
+        self._prev = cur_texts
+        # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
+        emitted = cur[len(cur) - len(appended):]
+        return self._guard_burst(emitted, path, prev_len, len(cur), texts)
 
     def _guard_burst(self, appended: list[ChatLine], path: str, prev_len: int,
                      cur_len: int, texts: list[str]) -> list[ChatLine]:

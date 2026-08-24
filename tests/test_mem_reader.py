@@ -196,6 +196,27 @@ def _log(*lines: str) -> str:
     return "\n".join(lines)
 
 
+def _say_colored(color: str, name: str, text: str) -> str:
+    return (f"<color;{color}><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
+            f"<link;GID:1,{name},2>[{name}]</link> {text} </color>")
+
+
+def test_channel_switch_recolor_does_not_reemit():
+    # 切頻道時 chatLog 會把同樣的訊息以該頻道的 <color;..> 重新染色：
+    # 對齊只看文字，重染色不得被判成「無重疊 → reset」而重吐舊訊息（重複翻譯）
+    r = FakeWiz([
+        _log(_say_colored("FFFFFF", "A", "hi"), _say_colored("FFFFFF", "B", "yo")),
+        _log(_say_colored("8080FF", "A", "hi"), _say_colored("8080FF", "B", "yo")),
+        _log(_say_colored("8080FF", "A", "hi"), _say_colored("8080FF", "B", "yo"),
+             _say_colored("8080FF", "B", "new")),
+    ])
+    assert r.read_new() == []              # 基準
+    assert r.read_new() == []              # 只是重染色：不得重吐
+    emitted = r.read_new()
+    assert _texts(emitted) == ["[B] new"]
+    assert emitted[0].color == "#8080ff"   # 新行帶「當前讀到」的顏色
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
