@@ -11,14 +11,19 @@ from src.translator import (
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, content="譯文", finish_reason="stop"):
+    def __init__(self, status_code=200, content="譯文", finish_reason="stop",
+                 completion_tokens=None):
         self.status_code = status_code
         self._content = content
         self._finish_reason = finish_reason
+        self._completion_tokens = completion_tokens
 
     def json(self):
-        return {"choices": [{"message": {"content": self._content},
+        data = {"choices": [{"message": {"content": self._content},
                              "finish_reason": self._finish_reason}]}
+        if self._completion_tokens is not None:
+            data["usage"] = {"completion_tokens": self._completion_tokens}
+        return data
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -144,9 +149,14 @@ def test_openai_compat_sends_max_tokens_by_thinking_mode():
 
 
 def test_openai_compat_truncated_output_maps_to_bad_output():
-    fake = FakeHttpxClient(response=FakeResponse(content="呃 呃 呃", finish_reason="length"))
-    with pytest.raises(TranslatorBadOutput):
+    fake = FakeHttpxClient(response=FakeResponse(content="呃 呃 呃", finish_reason="length",
+                                                 completion_tokens=7))
+    with pytest.raises(TranslatorBadOutput) as ei:
         _make(fake).translate_incoming("[A] am chick um chick")
+    # 診斷資訊要進得了 app.log：token 數與樣本用來分辨 repetition loop 與譯文真的過長
+    message = str(ei.value)
+    assert "completion_tokens=7" in message
+    assert "呃 呃 呃" in message
 
 
 def test_openai_compat_missing_finish_reason_is_accepted():

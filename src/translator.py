@@ -157,6 +157,18 @@ class TranslatorBadOutput(Exception):
     temperature=0 下重試必得同一結果，呼叫端應跳過該行而非留在佇列重試。"""
 
 
+_TRUNCATED_SAMPLE_CHARS = 80  # 截斷樣本長度：足以看出是不是同一個字重複
+
+
+def _truncated(max_tokens: int, completion_tokens, sample: str) -> TranslatorBadOutput:
+    """組出帶診斷資訊的截斷例外。樣本與 token 數是為了讓使用者從 app.log 就能分辨
+    「模型陷入 repetition loop」與「譯文真的過長、上限誤砍」，兩者的處置完全不同。"""
+    head = sample[:_TRUNCATED_SAMPLE_CHARS].replace("\n", " ")
+    return TranslatorBadOutput(
+        f"output truncated at max_tokens={max_tokens}, "
+        f"completion_tokens={completion_tokens}, sample={head!r}")
+
+
 class TranslatorConfigError(Exception):
     """不可重試的設定錯誤：金鑰無效（401/403）、模型不存在（404）。"""
 
@@ -199,11 +211,15 @@ class _OpenAICompatClient:
         if resp.status_code == 429 or resp.status_code >= 500:
             raise TranslatorOffline(f"HTTP {resp.status_code}")
         resp.raise_for_status()
-        choice = resp.json()["choices"][0]
+        data = resp.json()
+        choice = data["choices"][0]
+        content = choice["message"]["content"]
         # 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
         if choice.get("finish_reason") == "length":
-            raise TranslatorBadOutput(f"output truncated at max_tokens={max_tokens}")
-        return strip_think(choice["message"]["content"]).strip()
+            raise _truncated(max_tokens,
+                             (data.get("usage") or {}).get("completion_tokens"),
+                             content or "")
+        return strip_think(content).strip()
 
 
 class _ClaudeClient:
@@ -229,9 +245,11 @@ class _ClaudeClient:
             if code == 429 or code >= 500:
                 raise TranslatorOffline(f"HTTP {code}") from exc
             raise
-        if resp.stop_reason == "max_tokens":
-            raise TranslatorBadOutput(f"output truncated at max_tokens={_MAX_TOKENS_THINKING}")
         content = "".join(b.text for b in resp.content if b.type == "text")
+        if resp.stop_reason == "max_tokens":
+            usage = getattr(resp, "usage", None)
+            raise _truncated(_MAX_TOKENS_THINKING,
+                             getattr(usage, "output_tokens", None), content)
         return strip_think(content).strip()
 
 
