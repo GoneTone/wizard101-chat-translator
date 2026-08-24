@@ -346,6 +346,37 @@ def test_single_repeat_append_still_emitted():
     assert _texts(r.read_new()) == ["[A] lol"]
 
 
+def test_new_message_in_replacing_view_is_emitted_after_warmup():
+    # 實機 869：朋友視圖是單行「置換式」——每句新話取代整個視圖內容、與基準零重疊。
+    # 暖機期過後，reset 路徑必須吐出沒見過的行（真新訊息），不得一律吸收
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    reads = [main] * 12 + [_log(_own("Test1")), _log(_own("123"))]
+    r = FakeWiz(reads)
+    for _ in range(12):
+        assert r.read_new() == []                  # 基準＋暖機期（無新訊息）
+    assert _texts(r.read_new()) == ["[你] Test1"]  # 置換視圖的新話要翻
+    assert _texts(r.read_new()) == ["[你] 123"]    # 每一句都要翻
+
+
+def test_relog_fresh_content_emitted_after_warmup():
+    # relog 成全新內容：暖機期過後未見過的行照吐（回復 absorb 改動前的行為）
+    reads = [_log(_say(1, "A", "old"))] * 12 + [_log(_say(9, "Z", "fresh"))]
+    r = FakeWiz(reads)
+    for _ in range(12):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[Z] fresh"]
+
+
+def test_resurfaced_view_after_warmup_still_suppressed():
+    # 暖機期過後切分頁：重浮的歷史仍要被看過集合剔除、不重翻
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"))
+    friend = _log(_say(2, "F", "f1"))
+    reads = [full] * 12 + [friend, full, friend]
+    r = FakeWiz(reads)
+    for _ in range(15):
+        assert r.read_new() == []
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史

@@ -32,6 +32,11 @@ INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸
 MAX_NEW_LINES_PER_POLL = 100
 # 未達上限但異常大的批次：照吐，但留下診斷數據供事後判斷差分是否誤判
 LARGE_BATCH_LOG_THRESHOLD = 10
+# 基準建立後的暖機輪數：期間 reset（零重疊讀取）一律靜默吸收。啟動時基準與看過集合
+# 只蓋到當前分頁，其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都發生在前 1-3 輪）；
+# 暖機期過後 reset 恢復以看過集合過濾——單行置換式視圖（朋友視窗）的每句新話都走
+# reset，一律吸收會把真訊息吞掉（實測回歸）。
+RESET_WARMUP_POLLS = 10
 # 「看過集合」容量上限（行數，FIFO 淘汰最舊）。聊天分頁共用同一個 chatLog 控件
 # （實測無分頁狀態可讀），切分頁＝內容換成另一視圖，recover/reset 會把重新浮上來的
 # 歷史誤判成新訊息；每輪把讀到的行記進集合，慢路徑吐出前剔除集合裡已有的行。
@@ -229,6 +234,7 @@ class WizChatReader:
         self.process_name = process_name
         self._game_path = game_path
         self._prev: list[str] = []  # 基準只存文字：顏色不參與差分（見 read_new）
+        self._warmup_left = RESET_WARMUP_POLLS  # 剩餘暖機輪數（reset 吸收期）
         self._seen: set[str] = set()          # 近期讀過的行文字（各視圖聯集）
         self._seen_order: deque[str] = deque()  # 進入順序，供容量上限 FIFO 淘汰
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
@@ -264,6 +270,8 @@ class WizChatReader:
             return []
         if not cur:
             return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+        if self._warmup_left > 0:
+            self._warmup_left -= 1
         if len(texts) != self._node_count:
             # 節點數量變動（UI 事件生出/收掉 chatLog）→ 串接結構改變，無法歸因新舊：
             # 靜默重建基準、不回吐，避免把其他節點的舊內容當成新訊息（洪水）
@@ -286,20 +294,23 @@ class WizChatReader:
                       f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
                       f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
         if appended is None:
-            # 與基準完全無重疊 → 首次切到沒讀過的分頁視圖，或 relog 成全新內容。
-            # 兩者從內容無法區分，一律靜默吸收為新基準、不輸出——舊行為（全部視為
-            # 新訊息）會把「App 啟動後首次切分頁」的整份歷史當新訊息翻譯（啟動時
-            # 基準只蓋到當前分頁，看過集合也還沒見過其他分頁）。取捨：relog 後
-            # 第一批訊息不翻，下一則起由 append 快路徑恢復。
-            # 例外：基準為空（連上時聊天是空的）→ 第一則訊息是真新訊息，照吐。
+            # 與基準完全無重疊 → 首次切到沒讀過的分頁視圖、relog 成全新內容，
+            # 或單行置換式視圖（朋友視窗：每句新話取代整個視圖內容）的新訊息。
+            # 暖機期內（見 RESET_WARMUP_POLLS）一律靜默吸收——堵啟動盲區；
+            # 暖機期後照常輸出、交由下方看過集合過濾：沒見過的行（真新訊息）
+            # 照吐，重浮歷史剔除。基準為空（連上時聊天是空的）不受暖機限制。
             path = "reset"
-            if self._prev:
-                print(f"[reader] no overlap with baseline, absorbed as new view/reset "
+            if self._prev and self._warmup_left > 0:
+                print(f"[reader] no overlap with baseline during warmup, absorbed "
                       f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
                       f"prev_tail={self._prev[-1][:40]!r})", file=sys.stderr)
                 self._prev = cur_texts
                 self._remember(cur_texts)
                 return []
+            print(f"[reader] chat log has no overlap with baseline, treating as reset "
+                  f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
+                  f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
+                  file=sys.stderr)
             appended = cur_texts
         self._prev = cur_texts
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
