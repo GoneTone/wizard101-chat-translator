@@ -105,6 +105,27 @@ def test_lines_empty_when_no_player_chat():
     assert lines_from_chatlog("") == []
 
 
+# --- 非 Art_Chat 圖示的玩家頻道（房間等）：chat_balloon_* 前綴 ---
+def test_lines_keeps_house_channel_message_with_balloon_icon():
+    # 房間頻道實測 markup：圖示為 chat_balloon_Owner（房主）、頻道色 FFFF00
+    raw = ("<color;FFFF00><image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> "
+           "[你] Test1</color>")
+    assert lines_from_chatlog(raw) == [("[你] Test1", "#ffff00")]
+
+
+def test_lines_keeps_house_guest_variant():
+    raw = ("<color;FFFF00><image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> "
+           "<link;GID:9,Amy,2>[Amy]</link> hi house</color>")
+    assert lines_from_chatlog(raw) == [("[Amy] hi house", "#ffff00")]
+
+
+def test_lines_skips_debug_rows_without_icon():
+    # [DBGM]/[DBGL]/[STAT] 行無圖示：即使去標記後長得像聊天行也不得誤入
+    log = "\n".join(["[DBGM] MSG_SendBlob 114 CurrentZone 114</color>",
+                     "[DBGM] Loading housing blob: Type:Garden Objects:1</color>"])
+    assert lines_from_chatlog(log) == []
+
+
 # --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
 def test_lines_carry_game_color():
     line, = lines_from_chatlog(_say(1, "Wolf", "hello world"))

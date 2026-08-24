@@ -3,8 +3,9 @@
 聊天在記憶體/顯示層是帶標記的富文字，每則一行、以 `\n` 分隔：
     他人： <color;..><image;Art/Art_Chat_Say.dds;..> <link;GID:<id>,<名>,2>[<名>]</link> 內文 </color>
     自己： <color;..><image;Art/Art_Chat_Say.dds;..> [你] 內文 </color>          ← 無 <link;GID>
-玩家發言（他人與自己）都帶 Art_Chat 頻道圖示；系統訊息用 Art_Chat_System、除錯行無圖示，
-以此過濾出玩家發言，再去標記回傳乾淨的「[發送者] 內文」，
+玩家發言（他人與自己）都帶頻道圖示（Art_Chat_<頻道>，房間頻道為 chat_balloon_*）；
+系統訊息用 Art_Chat_System、除錯行無圖示，以此過濾出玩家發言，
+再去標記回傳乾淨的「[發送者] 內文」，
 連同行首 <color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
 
 wizwalker 靠 root-window hook 定位 `chatLog` 控件（穩定、有序、含他人訊息），
@@ -54,10 +55,14 @@ _TAG = re.compile(r"<[^>]*>")
 # 顏色標記的值為 6 位 RRGGBB 或 8 位 AARRGGBB（帶 alpha），顯示色一律取後 6 位
 _COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
-# 聊天頻道圖示：玩家發言（他人與自己）行都含 Art_Chat_<頻道>；系統訊息用 Art_Chat_System。
+# 聊天頻道圖示：玩家發言（他人與自己）行都帶頻道圖示——多數頻道是 Art_Chat_<頻道>，
+# 房間頻道實測是 chat_balloon_<Owner/Guest>；系統訊息用 Art_Chat_System。
 # 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
-_CHAT_IMG = "<image;Art/Art_Chat"
+_PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
+# 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
+_ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
+_warned_icons: set[str] = set()  # 每種未知圖示每次執行只警告一次，避免洗版
 
 # 遊戲表情符號：訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 ：名稱： 文字
 # （不轉成 emoji，只保留表情本身，避免整行只有表情時被去光而消失）。
@@ -90,16 +95,34 @@ def lines_from_chatlog(text: str) -> list[ChatLine]:
     """把 chatLog 控件全文（以 `\n` 分行的渲染 markup）解析成乾淨玩家聊天行
     （ChatLine：文字＋遊戲顯示色），保留順序與重複。
 
-    收玩家發言（含**自己**的 `[你]` 行與他人 `<link;GID>[名]` 行，兩者都帶 Art_Chat 頻道圖示）；
-    濾掉系統訊息（Art_Chat_System：掉寶/經驗/升等）與遊戲除錯行（[STAT]/[DBGL] 無 Art_Chat 圖示）。"""
+    收玩家發言（含**自己**的 `[你]` 行與他人 `<link;GID>[名]` 行，圖示前綴見
+    _PLAYER_IMG_PREFIXES）；濾掉系統訊息（Art_Chat_System：掉寶/經驗/升等）與
+    遊戲除錯行（[STAT]/[DBGL]/[DBGM] 無頻道圖示）。"""
     out: list[ChatLine] = []
     for raw in text.split("\n"):
-        if _CHAT_IMG not in raw or _SYSTEM_IMG in raw:
+        if _SYSTEM_IMG in raw:
+            continue
+        if not any(p in raw for p in _PLAYER_IMG_PREFIXES):
+            _warn_unknown_icon(raw)
             continue
         line = clean(raw)
         if _VALID.match(line):
             out.append(ChatLine(line, line_color(raw)))
     return out
+
+
+def _warn_unknown_icon(raw: str) -> None:
+    """帶 Art/ 圖示、格式像聊天行、但圖示不在白名單：每種圖示警告一次。
+    漏接頻道（如尚未取樣的組隊頻道）能直接從 app.log 讀到圖示名稱，免再探測。"""
+    m = _ANY_ART_IMG.search(raw)
+    if not m or m.group(1) in _warned_icons:
+        return
+    if not _VALID.match(clean(raw)):
+        return  # 格式不像聊天行（系統/除錯雜訊）：不值得警告
+    _warned_icons.add(m.group(1))
+    print(f"[reader] unrecognized chat icon {m.group(1)!r}, line dropped "
+          f"(add prefix to _PLAYER_IMG_PREFIXES if this is a player channel)",
+          file=sys.stderr)
 
 
 def node_sizes(texts: list[str]) -> list[int]:
