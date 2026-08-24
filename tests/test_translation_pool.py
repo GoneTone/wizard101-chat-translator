@@ -312,3 +312,83 @@ def test_backoff_gate_is_shared_across_workers():
             assert len(hits) >= 8       # 有持續重試
     finally:
         pool.shutdown(wait=True)
+
+
+def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
+    """回歸測試（review 發現）：N 個 worker 同時撞上剛開啟的閘門時，只能有一個
+    「回合」推進退避層級，不能因為同時失敗的 worker 數量而一次跳好幾階。
+
+    第二輪刻意卡住、由測試主動放行才能繼續，藉此確定斷言時機——不靠量測經過的
+    時間判斷是否已推進，避免時間相關的 flaky。"""
+    import src.translation_pool as pool_module
+    monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.05, 0.1, 0.2])
+    workers = 4
+    barrier = threading.Barrier(workers)
+    proceed_round_2 = threading.Event()
+
+    class BurstOffline:
+        def __init__(self):
+            self._count_lock = threading.Lock()
+            self.calls = 0
+
+        def translate_incoming(self, text, context):
+            with self._count_lock:
+                self.calls += 1
+                call_no = self.calls
+            if call_no <= workers:
+                barrier.wait(5.0)              # 逼所有 worker 真正同時進入第一輪失敗
+            else:
+                assert proceed_round_2.wait(5.0), "第二輪未如預期被放行"
+            raise TranslatorOffline("down")
+
+    tr = BurstOffline()
+    c = Collector()
+    pool = _pool(tr, c, workers=workers)
+    try:
+        for i in range(workers):
+            pool.submit(f"[A] m{i}", [], msg_id=i)
+
+        # 等所有 worker 都各自跑完第一輪、進入（並卡在）第二輪嘗試——
+        # 這保證每個 worker 自己的第一輪 _note_failure 都已經跑完。
+        deadline = time.monotonic() + 5.0
+        while tr.calls < workers * 2 and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert tr.calls == workers * 2
+
+        assert pool._backoff_index == 1        # 同一輪的並發失敗只能推進一層
+        assert pool.error_state == "offline"
+    finally:
+        proceed_round_2.set()
+        pool.shutdown(wait=True)
+
+
+def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
+    """回歸測試：burst 去重不能連帶讓「真正分開的多輪失敗」也不再逐階推進。
+    單一 worker 保證每次呼叫都是獨立一輪（前一輪的閘門必定已到期才會有下一次呼叫），
+    不會被誤判成同一輪的兄弟失敗。"""
+    import src.translation_pool as pool_module
+    monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.02, 0.04, 0.08])
+
+    class RecordingOffline:
+        def __init__(self, failures):
+            self._left = failures
+            self.observed_indices = []
+            self.pool = None  # 建 pool 後才補上
+
+        def translate_incoming(self, text, context):
+            if self._left > 0:
+                self._left -= 1
+                self.observed_indices.append(self.pool._backoff_index)
+                raise TranslatorOffline("down")
+            return "ok"
+
+    tr = RecordingOffline(failures=3)
+    c = Collector()
+    pool = _pool(tr, c, workers=1)
+    tr.pool = pool
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert c.wait_for(1)[1] == "ok"
+        assert tr.observed_indices == [0, 1, 2]   # 三輪各自獨立、逐階推進
+    finally:
+        pool.shutdown(wait=True)

@@ -140,15 +140,22 @@ class TranslationPool:
 
     def _note_failure(self, state: str, exc: Exception) -> None:
         """推進全域退避閘門並記錄狀態。閘門是全域的——伺服器離線本就是全域事實，
-        否則 N 個 worker 會以 N 倍速重打同一台掛掉的伺服器。"""
+        否則 N 個 worker 會以 N 倍速重打同一台掛掉的伺服器。
+
+        閘門若還沒到期，代表另一個 worker 已經替「這一輪」失敗推進過閘門與退避層級，
+        這次呼叫只是同一輪的兄弟失敗，沿用現有閘門即可——否則 N 個 worker 同時撞上
+        剛開啟的閘門，會把 backoff_index 一口氣推進 N 階，直接跳到封頂值，而不是
+        照 BACKOFF_STEPS 逐輪升級。"""
         with self._lock:
-            if state == "config":
-                delay = CONFIG_ERROR_INTERVAL
-            else:
-                steps = BACKOFF_STEPS
-                delay = steps[min(self._backoff_index, len(steps) - 1)]
-                self._backoff_index += 1
-            self._gate_until = time.monotonic() + delay
+            now = time.monotonic()
+            if now >= self._gate_until:
+                if state == "config":
+                    delay = CONFIG_ERROR_INTERVAL
+                else:
+                    steps = BACKOFF_STEPS
+                    delay = steps[min(self._backoff_index, len(steps) - 1)]
+                    self._backoff_index += 1
+                self._gate_until = now + delay
             changed = self._error_state != state
             self._error_state = state
         if changed:
