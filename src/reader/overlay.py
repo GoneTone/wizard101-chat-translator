@@ -18,7 +18,7 @@ GRIP = "#3a3a55"
 FG_ORIGINAL = "#b8b8c6"
 FG_TRANSLATED = "#f2f2f7"
 # 原文對譯文的調暗係數：原文是輔助資訊，壓暗到譯文之下讓視線先落在譯文上
-DIM_FACTOR = 0.58
+DIM_FACTOR = 0.67
 FG_PENDING = "#7f8393"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"
