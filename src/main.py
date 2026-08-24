@@ -23,7 +23,7 @@ from src.ui.settings import SettingsWindow
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔（秒）
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復
-BAD_OUTPUT_NOTICE = "⚠  翻譯失敗（模型輸出異常）"  # 譯文被截斷時代替譯文顯示
+TRANSLATE_FAILED_NOTICE = "⚠  翻譯失敗（已跳過此則）"  # 放棄該行時代替譯文顯示
 
 # overlay 標題列狀態指示：（文字， 顏色）
 STATUS = {
@@ -114,19 +114,16 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 config_error = True  # 設定錯誤：行留在 pending，等使用者修正後自動恢復
                 config_exc = exc
                 break
-            except TranslatorBadOutput as exc:
-                # 譯文被截斷（模型 repetition loop）：temperature=0 下重試必得同一結果，
-                # 留在 pending 只會每輪再燒一次生成時間並堵住後續訊息 → 跳過，但仍把
-                # 原文送上 overlay，讓使用者看得到這行說了什麼而不是無聲消失。
-                print(f"[translate] line dropped, bad model output ({exc}): {line}",
-                      file=sys.stderr)
-                pending.popleft()
-                ui_queue.put(lambda o=line: overlay.add_message(o, BAD_OUTPUT_NOTICE))
-                continue
             except Exception as exc:
-                # 其他翻譯錯誤（如模型回傳非預期格式）：印出、跳過這行，不讓 reader 執行緒死掉。
-                print(f"[translate] line skipped ({exc}): {line}", file=sys.stderr)
+                # 譯文被截斷（模型 repetition loop）或其他非 HTTP 錯誤（回傳格式異常等）：
+                # 兩者重試都無意義——temperature=0 下結果固定，留在 pending 只會每輪再燒一次
+                # 生成時間並堵住後續訊息。跳過該行，但仍把原文送上 overlay，讓使用者看得到
+                # 這行說了什麼，而不是無聲消失；細節（原因、原文）留在 app.log。
+                reason = ("bad model output" if isinstance(exc, TranslatorBadOutput)
+                          else "unexpected error")
+                print(f"[translate] line dropped, {reason} ({exc}): {line}", file=sys.stderr)
                 pending.popleft()
+                ui_queue.put(lambda o=line: overlay.add_message(o, TRANSLATE_FAILED_NOTICE))
                 continue
             translated_ok = True
             pending.popleft()

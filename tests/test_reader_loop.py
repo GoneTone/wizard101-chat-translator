@@ -1,5 +1,6 @@
 """reader_loop 行為：WizChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
-離線時失敗行留在 pending 下輪續翻；找不到遊戲顯示橫幅；非 HTTP 錯誤跳過該行。"""
+離線時失敗行留在 pending 下輪續翻；找不到遊戲顯示橫幅；重試無意義的錯誤跳過該行、
+但仍把原文送上 overlay。"""
 import queue
 import threading
 
@@ -109,7 +110,9 @@ def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
     reads = [["[A] a", "[B] bad", "[C] c"], []]
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == ["[A] a", "[B] bad", "[C] c"]
-    assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]
+    assert ov.messages == [("[A] a", "譯:[A] a"),
+                           ("[B] bad", main_module.TRANSLATE_FAILED_NOTICE),
+                           ("[C] c", "譯:[C] c")]
 
 
 class TruncatingTranslator:
@@ -133,7 +136,7 @@ def test_truncated_line_is_dropped_and_does_not_block_queue(monkeypatch):
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == ["[A] a", "[B] am chick um chick", "[C] c"]  # 只試一次，不重試
     assert ov.messages == [("[A] a", "譯:[A] a"),
-                           ("[B] am chick um chick", main_module.BAD_OUTPUT_NOTICE),
+                           ("[B] am chick um chick", main_module.TRANSLATE_FAILED_NOTICE),
                            ("[C] c", "譯:[C] c")]   # 原文仍看得到，後續行不被堵住
     assert ov.errors == []                          # 不是伺服器離線，不掛錯誤橫幅
 
