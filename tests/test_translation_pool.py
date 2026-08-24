@@ -113,3 +113,82 @@ def test_resize_keeps_pool_usable():
         assert c.wait_for(2)[2] == "譯:[A] after|ctx=0"
     finally:
         pool.shutdown(wait=True)
+
+
+def test_submit_survives_concurrent_resize():
+    """submit() 與 resize() 競速時：呼叫端不能看到例外，drain 後 in_flight 也要歸零
+    （回歸測試：修 review 找到的 submit/resize/shutdown 競速導致 RuntimeError 洩漏 in_flight）。"""
+    c = Collector()
+    pool = _pool(OkTranslator(), c, workers=2)
+    stop = threading.Event()
+    errors = []
+    submitted = []
+    submitted_lock = threading.Lock()
+
+    def submitter():
+        i = 0
+        while not stop.is_set() and i < 5000:
+            try:
+                pool.submit(f"[A] m{i}", [], msg_id=i)
+                with submitted_lock:
+                    submitted.append(i)
+            except Exception as exc:            # 核心斷言：submit() 不可對呼叫端拋例外
+                errors.append(exc)
+            i += 1
+
+    def resizer():
+        for w in (1, 3, 2, 4, 1, 2) * 50:
+            pool.resize(w)
+
+    try:
+        t_submit = threading.Thread(target=submitter)
+        t_resize = threading.Thread(target=resizer)
+        t_submit.start()
+        t_resize.start()
+        t_resize.join(5.0)
+        stop.set()
+        t_submit.join(5.0)
+        assert not t_submit.is_alive(), "submitter 執行緒逾時未結束"
+        assert not errors, f"submit() 對呼叫端拋出例外: {errors}"
+
+        with submitted_lock:
+            expected_ids = list(submitted)
+        got = c.wait_for(len(expected_ids))
+        assert set(got) == set(expected_ids)
+        assert pool.in_flight == 0
+    finally:
+        stop.set()
+        pool.shutdown(wait=True)
+
+
+def test_shutdown_cancels_queued_work_without_leaking_in_flight():
+    """shutdown() 對尚未開始執行、被 cancel_futures 取消的排隊工作，
+    也要讓 in_flight 歸零（回歸測試：cancel 掉的 work item 永遠不會經 _work 的
+    finally 遞減，之前會讓 in_flight 卡住、狀態指示永遠顯示『翻譯中…』）。"""
+    release = threading.Event()
+    started = threading.Event()
+
+    class SlowTranslator:
+        def translate_incoming(self, text, context):
+            started.set()
+            release.wait(5.0)
+            return "譯"
+
+    c = Collector()
+    pool = _pool(SlowTranslator(), c, workers=1)
+    try:
+        pool.submit("[A] running", [], msg_id=1)
+        assert started.wait(5.0)                        # 唯一的 worker 卡在第一則翻譯中
+        for i in range(2, 6):
+            pool.submit(f"[A] queued{i}", [], msg_id=i)  # 排隊中，worker 尚未取用
+        assert pool.in_flight == 5
+
+        pool.shutdown(wait=False)                        # cancel_futures 同步取消佇列中 4 則
+        assert pool.in_flight == 1                        # 只剩正在執行中的那一則
+
+        release.set()                                     # 放行卡住的那一則
+        assert c.wait_for(1) == {1: "譯"}
+        assert pool.in_flight == 0
+    finally:
+        release.set()
+        pool.shutdown(wait=True)

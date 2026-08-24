@@ -38,13 +38,34 @@ class TranslationPool:
         return None
 
     def submit(self, line: str, context: list[str], msg_id: int) -> None:
-        """提交一則翻譯。context 為提交當下的快照，重試時沿用同一份、不隨後續訊息漂移。"""
-        if self._stop.is_set():
-            return
+        """提交一則翻譯。context 為提交當下的快照，重試時沿用同一份、不隨後續訊息漂移。
+
+        「檢查 _stop → 讀取 executor → 呼叫 executor.submit()」整段都在 _lock 內完成，
+        與 resize()／shutdown() 交換／關閉 executor 的臨界區互斥；否則會出現 submit()
+        讀到即將被換掉的 executor、鎖外才真正送件，而 executor 已 shutdown 導致
+        RuntimeError 直接炸出呼叫端，且 in_flight 已加計卻永遠等不到 _work 遞減的競速。
+        """
         with self._lock:
+            if self._stop.is_set():
+                return
             self._in_flight += 1
-            executor = self._executor
-        executor.submit(self._work, line, context, msg_id)
+            try:
+                future = self._executor.submit(self._work, line, context, msg_id)
+            except RuntimeError:
+                # 理論上已被上面同一把鎖排除；留著防呆，避免未來重構重新打開競速窗口。
+                self._in_flight -= 1
+                print(f"[translate] submit rejected, executor already shut down: {line}",
+                      file=sys.stderr)
+                return
+        future.add_done_callback(self._on_future_done)
+
+    def _on_future_done(self, future) -> None:
+        """work item 若在真正開始執行前就被 shutdown(cancel_futures=True) 取消，
+        _work 永遠不會跑、它的 finally 也就不會遞減 in_flight——這裡補上那次遞減。
+        _work 正常完成（成功或例外）時 future 不是 cancelled 狀態，這裡不重複計數。"""
+        if future.cancelled():
+            with self._lock:
+                self._in_flight -= 1
 
     def resize(self, workers: int) -> None:
         """變更平行度。舊 executor 放生（手上的工作跑完仍會經 on_result 回報，
