@@ -122,7 +122,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             context.push(line)
             msg_id = next(msg_ids)
             ui_queue.put(lambda o=line, m=msg_id:
-                         overlay.add_message(o, PENDING_NOTICE, msg_id=m))
+                         overlay.add_message(o, PENDING_NOTICE, msg_id=m, pending=True))
             pool.submit(line, ctx, msg_id)
 
         set_banner(banner_for(game_missing, pool.error_state))

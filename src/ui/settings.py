@@ -84,7 +84,7 @@ class SettingsWindow:
                                     "max_messages", 10, "超過移除最舊")
         self._parallel = self._spin(adv, "同時翻譯則數", cfg["max_parallel_translations"],
                                     "max_parallel_translations", 1,
-                                    "1＝逐則排隊；大於 1 時卡住的訊息不會擋住後續")
+                                    "1＝逐則排隊；大於 1 同時翻多則，訊息密集時更快跟上")
         self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
                                       "type_delay", 0.01, "遊戲漏字就調大")
         self._alpha_var = self._alpha_slider(adv, cfg["overlay_alpha"])

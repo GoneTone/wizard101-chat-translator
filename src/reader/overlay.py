@@ -17,6 +17,7 @@ BAR = "#23233a"
 GRIP = "#3a3a55"
 FG_ORIGINAL = "#b8b8c6"
 FG_TRANSLATED = "#f2f2f7"
+FG_PENDING = "#7f8393"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"
 
@@ -41,8 +42,9 @@ def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Ca
     for dx, dy in _OUTLINE_OFFSETS:
         c.create_text(2 + dx, 2 + dy, text=text, fill=_OUTLINE, font=font,
                       anchor="nw", width=wrap, tags="txt")
+    # 本色最後畫，疊在描邊之上。額外掛 "fg" tag：改色時只動本色，描邊不能跟著變
     c.create_text(2, 2, text=text, fill=fg, font=font, anchor="nw",
-                  width=wrap, tags="txt")  # 本色最後畫，疊在描邊之上
+                  width=wrap, tags=("txt", "fg"))
     _fit_line_height(c)
     return c
 
@@ -487,14 +489,16 @@ class OverlayWindow:
 
     # --- 訊息 ---
     def add_message(self, original: str, translated: str, now: float | None = None,
-                    msg_id: int | None = None) -> None:
+                    msg_id: int | None = None, pending: bool = False) -> None:
+        """加入一則訊息。pending＝譯文欄位目前是佔位字樣，以較暗的顏色標示，
+        待 update_message 填入真正的譯文時才恢復正常顏色。"""
         stick = should_stick_to_bottom(self._canvas.yview()[1])
 
         row = tk.Frame(self._inner, bg=BG)
         _outlined_line(row, original, FG_ORIGINAL, _FONT_ORIGINAL,
                        self._wrap).pack(fill="x")
-        _outlined_line(row, translated, FG_TRANSLATED, _FONT_TRANSLATED,
-                       self._wrap).pack(fill="x")
+        _outlined_line(row, translated, FG_PENDING if pending else FG_TRANSLATED,
+                       _FONT_TRANSLATED, self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._messages.append(_Message(now if now is not None else time.time(),
                                        original, translated, row, msg_id))
@@ -519,6 +523,7 @@ class OverlayWindow:
             stick = should_stick_to_bottom(self._canvas.yview()[1])
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
             line.itemconfigure("txt", text=translated)
+            line.itemconfigure("fg", fill=FG_TRANSLATED)  # 脫離佔位狀態，恢復正常顏色
             _fit_line_height(line)
             self._messages[i] = m._replace(translated=translated)
             self._canvas.update_idletasks()

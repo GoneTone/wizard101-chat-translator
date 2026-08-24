@@ -191,6 +191,29 @@ def test_update_message_fills_translation_in_place(root):
     assert ov.visible_messages() == [("[A] one", "甲"), ("[B] two", "乙")]
 
 
+def _translation_fill(ov, index=0):
+    """取某則訊息譯文行的本色（"fg" tag 只掛在本色上，描邊不算）。"""
+    line = ov._messages[index].row.winfo_children()[1]
+    return line.itemcget(line.find_withtag("fg")[0], "fill")
+
+
+def test_pending_placeholder_uses_dimmer_colour_until_filled(root):
+    # 佔位期間譯文欄位要能一眼與已翻好的訊息區分，填入真正的譯文後恢復正常顏色
+    from src.reader.overlay import FG_PENDING, FG_TRANSLATED
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True)
+    assert _translation_fill(ov) == FG_PENDING
+    ov.update_message(1, "甲")
+    assert _translation_fill(ov) == FG_TRANSLATED
+
+
+def test_completed_message_is_not_dimmed(root):
+    from src.reader.overlay import FG_TRANSLATED
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲")          # 非佔位：直接就是完成品
+    assert _translation_fill(ov) == FG_TRANSLATED
+
+
 def test_update_message_ignores_unknown_id(root):
     # 佔位訊息可能已被 max_messages 擠掉或被 prune 清除：晚到的譯文安靜忽略，不得拋錯
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=1, fade_seconds=0)

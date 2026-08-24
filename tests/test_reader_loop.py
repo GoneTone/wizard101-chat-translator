@@ -24,12 +24,14 @@ class FakePool:
 class FakeOverlay:
     def __init__(self):
         self.messages: list[tuple[str, str]] = []
+        self.pending_flags: list[bool] = []
         self.errors: list[str] = []
         self.clears = 0
         self.statuses: list[str] = []
 
-    def add_message(self, original, translated, now=None, msg_id=None):
+    def add_message(self, original, translated, now=None, msg_id=None, pending=False):
         self.messages.append((original, translated))
+        self.pending_flags.append(pending)
 
     def update_message(self, msg_id, translated):
         pass
@@ -97,6 +99,7 @@ def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
                            ("[B] hi", PENDING_NOTICE)]
     assert [line for line, _, _ in pool.submitted] == ["[A] a", "[B] hi", "[B] hi"]
     assert [msg_id for _, _, msg_id in pool.submitted] == [1, 2, 3]
+    assert ov.pending_flags == [True, True, True]  # 佔位要標記，overlay 才會用較暗的顏色
 
 
 def test_context_advances_by_read_order_not_by_completion(monkeypatch):
