@@ -51,21 +51,21 @@ def _make(client, provider="custom"):
 
 def test_openai_compat_sends_temperature_zero():
     fake = FakeHttpxClient()
-    assert _make(fake).translate_outgoing("哈囉") == "譯文"
+    assert _make(fake).translate_outgoing("哈囉", []) == "譯文"
     assert fake.last_body["temperature"] == 0
 
 
 def test_openai_compat_connection_error_maps_to_offline():
     fake = FakeHttpxClient(raises=httpx.ConnectError("refused"))
     with pytest.raises(TranslatorOffline):
-        _make(fake).translate_incoming("[A] hi")
+        _make(fake).translate_incoming("[A] hi", [])
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])
 def test_openai_compat_auth_or_model_error_maps_to_config_error(status):
     fake = FakeHttpxClient(response=FakeResponse(status_code=status))
     with pytest.raises(TranslatorConfigError) as ei:
-        _make(fake).translate_incoming("[A] hi")
+        _make(fake).translate_incoming("[A] hi", [])
     assert ei.value.status == status
 
 
@@ -73,7 +73,7 @@ def test_openai_compat_auth_or_model_error_maps_to_config_error(status):
 def test_openai_compat_retryable_status_maps_to_offline(status):
     fake = FakeHttpxClient(response=FakeResponse(status_code=status))
     with pytest.raises(TranslatorOffline):
-        _make(fake).translate_incoming("[A] hi")
+        _make(fake).translate_incoming("[A] hi", [])
 
 
 class FakeAnthropicMessages:
@@ -112,7 +112,7 @@ def _anthropic_status_error(status):
 def test_claude_provider_returns_text():
     t = Translator(provider="claude", model="claude-opus-5", api_key="k",
                    target_language="繁體中文（台灣）", client=FakeAnthropicClient())
-    assert t.translate_incoming("[A] hi") == "克勞德譯文"
+    assert t.translate_incoming("[A] hi", []) == "克勞德譯文"
 
 
 def test_claude_connection_error_maps_to_offline():
@@ -120,7 +120,7 @@ def test_claude_connection_error_maps_to_offline():
     t = Translator(provider="claude", model="m", api_key="k",
                    target_language="繁體中文（台灣）", client=FakeAnthropicClient(raises=err))
     with pytest.raises(TranslatorOffline):
-        t.translate_incoming("[A] hi")
+        t.translate_incoming("[A] hi", [])
 
 
 @pytest.mark.parametrize("status,exc", [(401, TranslatorConfigError),
@@ -132,7 +132,7 @@ def test_claude_status_error_mapping(status, exc):
                    target_language="繁體中文（台灣）",
                    client=FakeAnthropicClient(raises=_anthropic_status_error(status)))
     with pytest.raises(exc):
-        t.translate_incoming("[A] hi")
+        t.translate_incoming("[A] hi", [])
 
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
@@ -140,11 +140,11 @@ def test_openai_compat_sends_max_tokens_by_thinking_mode():
     from src.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
-               target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi")
+               target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
     assert off.last_body["max_tokens"] == _MAX_TOKENS
     on = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=True,
-               target_language="繁體中文（台灣）", client=on).translate_incoming("[A] hi")
+               target_language="繁體中文（台灣）", client=on).translate_incoming("[A] hi", [])
     assert on.last_body["max_tokens"] == _MAX_TOKENS_THINKING
 
 
@@ -152,7 +152,7 @@ def test_openai_compat_truncated_output_maps_to_bad_output():
     fake = FakeHttpxClient(response=FakeResponse(content="呃 呃 呃", finish_reason="length",
                                                  completion_tokens=7))
     with pytest.raises(TranslatorBadOutput) as ei:
-        _make(fake).translate_incoming("[A] am chick um chick")
+        _make(fake).translate_incoming("[A] am chick um chick", [])
     # 診斷資訊要進得了 app.log：token 數與樣本用來分辨 repetition loop 與譯文真的過長
     message = str(ei.value)
     assert "completion_tokens=7" in message
@@ -162,35 +162,14 @@ def test_openai_compat_truncated_output_maps_to_bad_output():
 def test_openai_compat_missing_finish_reason_is_accepted():
     # 部分後端不回 finish_reason，不得因此誤判為截斷
     fake = FakeHttpxClient(response=FakeResponse(finish_reason=None))
-    assert _make(fake).translate_incoming("[A] hi") == "譯文"
-
-
-def test_truncated_output_not_recorded_to_history():
-    class TruncateOnceClient(FakeHttpxClient):
-        def __init__(self):
-            super().__init__()
-            self.calls = 0
-
-        def post(self, url, json):
-            self.calls += 1
-            self.last_body = json
-            if self.calls == 1:
-                return FakeResponse(content="呃 呃", finish_reason="length")
-            return self._response
-
-    fake = TruncateOnceClient()
-    t = _make(fake)
-    with pytest.raises(TranslatorBadOutput):
-        t.translate_incoming("[A] one")
-    t.translate_incoming("[B] two")
-    assert _turns(fake.last_body) == [{"role": "user", "content": "[B] two"}]
+    assert _make(fake).translate_incoming("[A] hi", []) == "譯文"
 
 
 def test_claude_sends_max_tokens():
     from src.translator import _MAX_TOKENS_THINKING
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
-               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi")
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
     assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_THINKING
 
 
@@ -199,7 +178,7 @@ def test_claude_truncated_output_maps_to_bad_output():
                    target_language="繁體中文（台灣）",
                    client=FakeAnthropicClient(stop_reason="max_tokens"))
     with pytest.raises(TranslatorBadOutput):
-        t.translate_incoming("[A] hi")
+        t.translate_incoming("[A] hi", [])
 
 
 def test_openai_provider_disables_thinking_with_official_param_only():
@@ -208,7 +187,7 @@ def test_openai_provider_disables_thinking_with_official_param_only():
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=False,
                    target_language="繁體中文（台灣）", client=fake)
-    t.translate_incoming("[A] hi")
+    t.translate_incoming("[A] hi", [])
     assert fake.last_body["reasoning_effort"] == "none"
     for key in ("chat_template_kwargs", "think", "enable_thinking"):
         assert key not in fake.last_body
@@ -218,7 +197,7 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=True,
                    target_language="繁體中文（台灣）", client=fake)
-    t.translate_incoming("[A] hi")
+    t.translate_incoming("[A] hi", [])
     for key in ("reasoning_effort", "chat_template_kwargs", "think", "enable_thinking"):
         assert key not in fake.last_body
 
@@ -247,25 +226,45 @@ def test_build_turns_prepends_fewshot_examples():
 def test_outgoing_uses_fewshot_when_no_context():
     from src.translator import FEWSHOT_OUTGOING
     fake = FakeHttpxClient()
-    t = _make(fake)
-    t.translate_outgoing("在嗎")   # 無背景上下文：帶 few-shot 強制翻譯模式
+    _make(fake).translate_outgoing("在嗎", [])   # 無背景上下文：帶 few-shot 強制翻譯模式
     turns = _turns(fake.last_body)
     assert turns[:len(FEWSHOT_OUTGOING)] == FEWSHOT_OUTGOING
     assert turns[-1] == {"role": "user", "content": "在嗎"}
-    # 範例中示範「像指令的訊息也照翻」，直接對抗脫稿
     assert any("提供" in m["content"] for m in FEWSHOT_OUTGOING if m["role"] == "user")
 
 
-def test_outgoing_skips_fewshot_when_context_present():
-    # 有背景上下文時不加 few-shot：多輪結構已足夠,避免範例與背景 turn 交錯干擾弱模型
-    from src.translator import FEWSHOT_OUTGOING
+def test_incoming_uses_given_context():
+    fake = FakeHttpxClient()
+    _make(fake).translate_incoming("[B] two", ["[A] one"])
+    turns = _turns(fake.last_body)
+    assert len(turns) == 3                      # user(背景)+assistant(ack)+user(待翻)
+    assert "[A] one" in turns[0]["content"]
+    assert turns[-1] == {"role": "user", "content": "[B] two"}
+
+
+def test_incoming_without_context_is_single_turn():
+    fake = FakeHttpxClient()
+    _make(fake).translate_incoming("[A] one", [])
+    assert _turns(fake.last_body) == [{"role": "user", "content": "[A] one"}]
+
+
+def test_translator_keeps_no_internal_history():
+    # 上下文改由呼叫端（ChatContext）維護：translator 連續翻兩則也不得自行累積
     fake = FakeHttpxClient()
     t = _make(fake)
-    t.translate_incoming("[A] want to trade?")
-    t.translate_outgoing("好啊")
+    t.translate_incoming("[A] one", [])
+    t.translate_incoming("[B] two", [])
+    assert _turns(fake.last_body) == [{"role": "user", "content": "[B] two"}]
+    assert not hasattr(t, "_history")
+
+
+def test_outgoing_uses_given_context_and_skips_fewshot():
+    from src.translator import FEWSHOT_OUTGOING
+    fake = FakeHttpxClient()
+    _make(fake).translate_outgoing("好啊", ["[A] want to trade?"])
     turns = _turns(fake.last_body)
-    assert turns[0] != FEWSHOT_OUTGOING[0]                 # 不以範例開頭
-    assert any("[A] want to trade?" in m["content"] for m in turns)  # 背景仍在
+    assert turns[0] != FEWSHOT_OUTGOING[0]                           # 有上下文就不加範例
+    assert any("[A] want to trade?" in m["content"] for m in turns)
     assert turns[-1] == {"role": "user", "content": "好啊"}
 
 
@@ -281,61 +280,6 @@ def test_build_turns_with_context_is_multi_turn():
 
 def _turns(body):
     return body["messages"][1:]  # 去掉 system，剩下對話輪
-
-
-def test_incoming_history_feeds_next_translation():
-    fake = FakeHttpxClient()
-    t = _make(fake)
-    t.translate_incoming("[A] one")
-    assert _turns(fake.last_body) == [{"role": "user", "content": "[A] one"}]
-    t.translate_incoming("[B] two")
-    turns = _turns(fake.last_body)
-    assert len(turns) == 3                         # user(背景)+assistant(ack)+user(待翻)
-    assert "[A] one" in turns[0]["content"]        # 上一行成為背景
-    assert turns[-1] == {"role": "user", "content": "[B] two"}
-
-
-def test_failed_translation_not_recorded_to_history():
-    class FailOnceClient(FakeHttpxClient):
-        def __init__(self):
-            super().__init__()
-            self.calls = 0
-
-        def post(self, url, json):
-            self.calls += 1
-            self.last_body = json
-            if self.calls == 1:
-                raise httpx.ConnectError("refused")
-            return self._response
-
-    fake = FailOnceClient()
-    t = _make(fake)
-    with pytest.raises(TranslatorOffline):
-        t.translate_incoming("[A] one")
-    t.translate_incoming("[A] one")   # 重試同一行:失敗那次不得已進上下文
-    assert _turns(fake.last_body) == [{"role": "user", "content": "[A] one"}]
-
-
-def test_history_caps_at_context_lines():
-    from src.translator import CONTEXT_LINES
-    fake = FakeHttpxClient()
-    t = _make(fake)
-    for i in range(CONTEXT_LINES + 3):
-        t.translate_incoming(f"[A] m{i}")
-    background = _turns(fake.last_body)[0]["content"]
-    assert "[A] m0" not in background       # 最舊的已被擠出
-    assert f"[A] m{CONTEXT_LINES - 1}" in background
-
-
-def test_outgoing_gets_context_but_does_not_record():
-    fake = FakeHttpxClient()
-    t = _make(fake)
-    t.translate_incoming("[A] want to trade?")
-    t.translate_outgoing("好啊")
-    turns = _turns(fake.last_body)
-    assert any("[A] want to trade?" in m["content"] for m in turns)  # 背景在某一輪
-    assert turns[-1] == {"role": "user", "content": "好啊"}  # 待翻句仍在最後
-    assert len(t._history) == 1       # 發話不寫入上下文(遊戲回顯後由收訊記錄)
 
 
 def test_incoming_system_has_no_format_markers():

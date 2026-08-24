@@ -6,9 +6,9 @@
 
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
 TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
+上下文由呼叫端提供（見 src/context.py）：本類別不持有狀態，可安全平行呼叫。
 """
 import re
-from collections import deque
 
 import anthropic
 import httpx
@@ -16,8 +16,6 @@ import httpx
 # 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
-# 帶進提示詞的近期對話行數：短窗涵蓋眼前的對話線，避免遠處舊話題污染判斷。
-CONTEXT_LINES = 8
 # 上下文以「多輪對話」而非段落標記傳遞：把背景聊天記錄當成前一輪 user 訊息、
 # 由 assistant 確認後，待翻句子才單獨成為最後一個乾淨的 user 輪。
 # 這樣 system prompt 不必列出任何 header 字串——小模型會把 header 回吐成
@@ -275,8 +273,6 @@ class Translator:
         self._impl = _build_client(provider, base_url, model, api_key, thinking,
                                    timeout, client)
         self._target_language = target_language
-        # 近期對話（原文行）：收訊/發話都帶進提示詞當上下文，翻譯成功才寫入
-        self._history: deque[str] = deque(maxlen=CONTEXT_LINES)
 
     def reconfigure(self, *, provider: str, base_url: str, model: str, api_key: str,
                     thinking: bool, target_language: str) -> None:
@@ -285,20 +281,18 @@ class Translator:
                                    _TIMEOUT, None)
         self._target_language = target_language
 
-    def translate_incoming(self, text: str) -> str:
-        """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言，附近期對話當上下文。"""
-        translated = self._impl.chat(
+    def translate_incoming(self, text: str, context: list[str]) -> str:
+        """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
+        context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
+        return self._impl.chat(
             build_incoming_system(self._target_language),
-            build_turns(list(self._history), text, CONTEXT_INTRO_INCOMING))
-        self._history.append(text)  # 成功才記錄：失敗重試的行不會重複進上下文
-        return translated
+            build_turns(context, text, CONTEXT_INTRO_INCOMING))
 
-    def translate_outgoing(self, text: str) -> str:
-        """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定），附近期對話當上下文。
+    def translate_outgoing(self, text: str, context: list[str]) -> str:
+        """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
         發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。
         few-shot 只在無背景上下文時帶：有上下文時多輪結構已足夠，避免範例與
         背景 turn 交錯干擾弱模型。"""
-        context = list(self._history)
         return self._impl.chat(
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
@@ -307,4 +301,4 @@ class Translator:
 
 def test_translate(api: dict, target_language: str) -> str:
     """測試連線：用表單當下的 api 設定實際翻一句固定文字，與正式翻譯同一條路。"""
-    return Translator(**api, target_language=target_language).translate_incoming(TEST_SAMPLE)
+    return Translator(**api, target_language=target_language).translate_incoming(TEST_SAMPLE, [])
