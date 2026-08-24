@@ -17,6 +17,8 @@ BAR = "#23233a"
 GRIP = "#3a3a55"
 FG_ORIGINAL = "#b8b8c6"
 FG_TRANSLATED = "#f2f2f7"
+# 原文對譯文的調暗係數：沿用預設配色 FG_ORIGINAL/FG_TRANSLATED 的亮度比（0xb8/0xf2）
+DIM_FACTOR = 0.76
 FG_PENDING = "#7f8393"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"
@@ -48,13 +50,21 @@ def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Ca
     _fit_line_height(c)
     return c
 
+def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
+    """把 `#rrggbb` 各通道乘上係數調暗——原文行用遊戲色的暗版，維持原文暗、譯文亮的層次。"""
+    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+    return f"#{round(r * factor):02x}{round(g * factor):02x}{round(b * factor):02x}"
+
+
 class _Message(NamedTuple):
-    """overlay 中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）。"""
+    """overlay 中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
+    color 為該則在遊戲內的顯示色（None＝退回預設配色）。"""
     ts: float
     original: str
     translated: str
     row: "tk.Frame"
     msg_id: int | None
+    color: str | None = None
 
 
 MIN_WIDTH = 200
@@ -489,19 +499,22 @@ class OverlayWindow:
 
     # --- 訊息 ---
     def add_message(self, original: str, translated: str, now: float | None = None,
-                    msg_id: int | None = None, pending: bool = False) -> None:
+                    msg_id: int | None = None, pending: bool = False,
+                    color: str | None = None) -> None:
         """加入一則訊息。pending＝譯文欄位目前是佔位字樣，以較暗的顏色標示，
-        待 update_message 填入真正的譯文時才恢復正常顏色。"""
+        待 update_message 填入真正的譯文時才恢復正常顏色。
+        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
         stick = should_stick_to_bottom(self._canvas.yview()[1])
 
         row = tk.Frame(self._inner, bg=BG)
-        _outlined_line(row, original, FG_ORIGINAL, _FONT_ORIGINAL,
-                       self._wrap).pack(fill="x")
-        _outlined_line(row, translated, FG_PENDING if pending else FG_TRANSLATED,
+        _outlined_line(row, original, dimmed(color) if color else FG_ORIGINAL,
+                       _FONT_ORIGINAL, self._wrap).pack(fill="x")
+        _outlined_line(row, translated,
+                       FG_PENDING if pending else (color or FG_TRANSLATED),
                        _FONT_TRANSLATED, self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._messages.append(_Message(now if now is not None else time.time(),
-                                       original, translated, row, msg_id))
+                                       original, translated, row, msg_id, color))
         while len(self._messages) > self._max:
             self._messages.pop(0).row.destroy()
 
@@ -523,7 +536,7 @@ class OverlayWindow:
             stick = should_stick_to_bottom(self._canvas.yview()[1])
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
             line.itemconfigure("txt", text=translated)
-            line.itemconfigure("fg", fill=FG_TRANSLATED)  # 脫離佔位狀態，恢復正常顏色
+            line.itemconfigure("fg", fill=m.color or FG_TRANSLATED)  # 脫離佔位，換回該則顏色
             _fit_line_height(line)
             self._messages[i] = m._replace(translated=translated)
             self._canvas.update_idletasks()

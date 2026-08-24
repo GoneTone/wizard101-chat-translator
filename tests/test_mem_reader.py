@@ -28,6 +28,11 @@ def test_clean_strips_emoticon_prefix_and_digits():
     assert clean("<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>") == ":teacup:"
 
 
+def _texts(lines):
+    """只比對文字內容（顏色另有專門測試）。"""
+    return [l.text for l in lines]
+
+
 # --- lines_from_chatlog：從 chatLog 全文抽玩家發言 ---
 def _say(gid: int, name: str, text: str) -> str:
     return (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
@@ -44,19 +49,19 @@ def _own(text: str) -> str:
 
 
 def test_lines_extracts_player_say_with_sender():
-    assert lines_from_chatlog(_say(1, "Wolf", "hello world")) == ["[Wolf] hello world"]
+    assert _texts(lines_from_chatlog(_say(1, "Wolf", "hello world"))) == ["[Wolf] hello world"]
 
 
 def test_lines_keeps_cjk_sender_and_spaces():
     log = _say(196751008724053815, "沃尔夫 亡灵骑兵", "wth")
-    assert lines_from_chatlog(log) == ["[沃尔夫 亡灵骑兵] wth"]
+    assert _texts(lines_from_chatlog(log)) == ["[沃尔夫 亡灵骑兵] wth"]
 
 
 def test_lines_skips_system_messages():
     # 系統訊息（無 <link;GID>）不翻：掉寶/經驗/升等
     log = "\n".join([_say(1, "Amy", "hi"), _system("你獲得了 51 金幣！"),
                      _system("你現在等級 28！")])
-    assert lines_from_chatlog(log) == ["[Amy] hi"]
+    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi"]
 
 
 def test_lines_skips_debug_rows():
@@ -64,40 +69,64 @@ def test_lines_skips_debug_rows():
     log = "\n".join(["[DBGL] HandleStatisticUpdate: new health 1783",
                      "[STAT] BuddyListManager::MSG_BuddyEntry Added",
                      _say(1, "Q", "back")])
-    assert lines_from_chatlog(log) == ["[Q] back"]
+    assert _texts(lines_from_chatlog(log)) == ["[Q] back"]
 
 
 def test_lines_keeps_own_message():
     # 自己的發言（[你]，無 link）也要收
-    assert lines_from_chatlog(_own("zztest123")) == ["[你] zztest123"]
-    assert lines_from_chatlog(_own("測試 訊息 :)")) == ["[你] 測試 訊息 :)"]
+    assert _texts(lines_from_chatlog(_own("zztest123"))) == ["[你] zztest123"]
+    assert _texts(lines_from_chatlog(_own("測試 訊息 :)"))) == ["[你] 測試 訊息 :)"]
 
 
 def test_lines_keeps_own_and_others_together():
     log = "\n".join([_say(1, "Amy", "hi"), _own("我回你"), _system("你獲得了 51 金幣！"),
                      "[STAT] noise", _say(2, "Bob", "yo")])
-    assert lines_from_chatlog(log) == ["[Amy] hi", "[你] 我回你", "[Bob] yo"]
+    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi", "[你] 我回你", "[Bob] yo"]
 
 
 def test_lines_preserves_order_and_repeats():
     log = "\n".join([_say(1, "A", "hi"), _say(2, "B", "yo"), _say(1, "A", "hi")])
-    assert lines_from_chatlog(log) == ["[A] hi", "[B] yo", "[A] hi"]
+    assert _texts(lines_from_chatlog(log)) == ["[A] hi", "[B] yo", "[A] hi"]
 
 
 def test_lines_keeps_emoticon_line():
     log = (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
            f"<link;GID:1,Lars,2>[Lars]</link> ty king "
            f"<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>")
-    assert lines_from_chatlog(log) == ["[Lars] ty king :heart:"]
+    assert _texts(lines_from_chatlog(log)) == ["[Lars] ty king :heart:"]
 
 
 def test_lines_keeps_astral_emoji_text():
-    assert lines_from_chatlog(_say(1, "Amy", "nice 😂👀")) == ["[Amy] nice 😂👀"]
+    assert _texts(lines_from_chatlog(_say(1, "Amy", "nice 😂👀"))) == ["[Amy] nice 😂👀"]
 
 
 def test_lines_empty_when_no_player_chat():
     assert lines_from_chatlog(_system("你獲得了 14 金幣！")) == []
     assert lines_from_chatlog("") == []
+
+
+# --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
+def test_lines_carry_game_color():
+    line, = lines_from_chatlog(_say(1, "Wolf", "hello world"))
+    assert line == ("[Wolf] hello world", "#ffffff")
+    assert line.text == "[Wolf] hello world"
+    assert line.color == "#ffffff"
+
+
+def test_lines_color_normalized_lowercase_hex():
+    raw = "<color;80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>"
+    assert lines_from_chatlog(raw) == [("[你] hi", "#80ff00")]
+
+
+def test_lines_color_takes_last_six_of_eight_digit_hex():
+    # 帶 alpha 的 AARRGGBB 形式：只取後 6 位當顯示色
+    raw = "<color;FF80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>"
+    assert lines_from_chatlog(raw) == [("[你] hi", "#80ff00")]
+
+
+def test_lines_color_missing_is_none():
+    raw = "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi"
+    assert lines_from_chatlog(raw) == [("[你] hi", None)]
 
 
 # --- align_append ---
@@ -178,7 +207,7 @@ def test_appended_lines_emitted():
         _log(_say(1, "A", "one"), _say(2, "B", "two"), _say(2, "B", "three")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[B] two", "[B] three"]
+    assert _texts(r.read_new()) == ["[B] two", "[B] three"]
 
 
 def test_repeats_preserved_across_polls():
@@ -188,8 +217,8 @@ def test_repeats_preserved_across_polls():
         _log(_say(1, "A", "hi"), _say(1, "A", "hi"), _say(1, "A", "hi")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[A] hi"]
-    assert r.read_new() == ["[A] hi"]
+    assert _texts(r.read_new()) == ["[A] hi"]
+    assert _texts(r.read_new()) == ["[A] hi"]
 
 
 def test_head_trim_scroll_absorbed():
@@ -198,7 +227,7 @@ def test_head_trim_scroll_absorbed():
         _log(_say(1, "B", "b"), _say(1, "C", "c"), _say(1, "D", "d")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[D] d"]   # 頭部修剪 + 尾端附加（捲動）只吐新行
+    assert _texts(r.read_new()) == ["[D] d"]   # 頭部修剪 + 尾端附加（捲動）只吐新行
 
 
 def test_own_message_emitted():
@@ -207,7 +236,7 @@ def test_own_message_emitted():
         _log(_say(1, "A", "hi"), _own("me too"), _say(2, "B", "yo")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[你] me too", "[B] yo"]
+    assert _texts(r.read_new()) == ["[你] me too", "[B] yo"]
 
 
 def test_system_and_debug_never_emitted():
@@ -217,7 +246,7 @@ def test_system_and_debug_never_emitted():
              "[DBGL] noise", _say(2, "B", "real")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[B] real"]
+    assert _texts(r.read_new()) == ["[B] real"]
 
 
 def test_hard_reset_emits_new_content():
@@ -228,8 +257,8 @@ def test_hard_reset_emits_new_content():
         _log(_say(9, "Z", "fresh"), _say(9, "Z", "next")),
     ])
     assert r.read_new() == []
-    assert r.read_new() == ["[Z] fresh"]
-    assert r.read_new() == ["[Z] next"]
+    assert _texts(r.read_new()) == ["[Z] fresh"]
+    assert _texts(r.read_new()) == ["[Z] next"]
 
 
 def test_input_open_caches_node_and_refinds_after_failure():
@@ -293,7 +322,7 @@ def test_node_count_change_rebaselines_without_emitting():
     ])
     assert r.read_new() == []          # 基準
     assert r.read_new() == []          # 節點數變動：重建基準、不吐 old
-    assert r.read_new() == ["[C] new"]  # 之後只吐真正的新行
+    assert _texts(r.read_new()) == ["[C] new"]  # 之後只吐真正的新行
 
 
 def test_read_torn_middle_does_not_flood_old_lines():
@@ -306,7 +335,7 @@ def test_read_torn_middle_does_not_flood_old_lines():
     ])
     assert r.read_new() == []
     assert r.read_new() == []            # 撕裂輪：以尾段對回，不重吐舊行
-    assert r.read_new() == ["[E] e"]     # 復原後只吐真正的新行
+    assert _texts(r.read_new()) == ["[E] e"]     # 復原後只吐真正的新行
 
 
 def test_transient_empty_does_not_retranslate_on_refill():
@@ -321,7 +350,7 @@ def test_transient_empty_does_not_retranslate_on_refill():
     assert r.read_new() == []          # sync
     assert r.read_new() == []          # 空讀：忽略，保留基準
     assert r.read_new() == []          # 填回同樣歷史：不重譯
-    assert r.read_new() == ["[C] c"]   # 之後新訊息照常
+    assert _texts(r.read_new()) == ["[C] c"]   # 之後新訊息照常
 
 
 def test_first_message_after_empty_chat_is_emitted():
@@ -332,8 +361,8 @@ def test_first_message_after_empty_chat_is_emitted():
         _log(_say(1, "A", "first"), _say(2, "B", "second")),
     ])
     assert r.read_new() == []                        # 首次：空基準
-    assert r.read_new() == ["[A] first"]
-    assert r.read_new() == ["[B] second"]
+    assert _texts(r.read_new()) == ["[A] first"]
+    assert _texts(r.read_new()) == ["[B] second"]
 
 
 def test_message_after_chat_cleared_is_emitted():
@@ -345,7 +374,7 @@ def test_message_after_chat_cleared_is_emitted():
     ])
     assert r.read_new() == []                        # 基準=[A old]
     assert r.read_new() == []                        # 清空 → 對不齊 → 重新同步（基準變空）
-    assert r.read_new() == ["[C] fresh"]
+    assert _texts(r.read_new()) == ["[C] fresh"]
 
 
 def _burst_lines(n: int) -> list[str]:
@@ -367,7 +396,7 @@ def test_implausible_burst_is_suppressed():
     ])
     assert r.read_new() == []
     assert r.read_new() == []                  # 洪水擋下
-    assert r.read_new() == ["[C] real"]        # 基準已重建，之後正常延續
+    assert _texts(r.read_new()) == ["[C] real"]        # 基準已重建，之後正常延續
 
 
 def test_burst_log_reports_per_node_sizes(capsys):

@@ -4,7 +4,8 @@
     他人： <color;..><image;Art/Art_Chat_Say.dds;..> <link;GID:<id>,<名>,2>[<名>]</link> 內文 </color>
     自己： <color;..><image;Art/Art_Chat_Say.dds;..> [你] 內文 </color>          ← 無 <link;GID>
 玩家發言（他人與自己）都帶 Art_Chat 頻道圖示；系統訊息用 Art_Chat_System、除錯行無圖示，
-以此過濾出玩家發言，再去標記回傳乾淨的「[發送者] 內文」。
+以此過濾出玩家發言，再去標記回傳乾淨的「[發送者] 內文」，
+連同行首 <color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
 
 wizwalker 靠 root-window hook 定位 `chatLog` 控件（穩定、有序、含他人訊息），
 取代舊的全記憶體掃描 + 活文件定錨。注意：wizwalker 為了 hook 會寫入遊戲程序記憶體
@@ -14,6 +15,7 @@ import asyncio
 import os
 import re
 import sys
+from typing import NamedTuple
 
 from src.reader import hook_state
 
@@ -35,7 +37,15 @@ class GameNotRunning(Exception):
 
 
 # --- 純函式：標記解析（可單元測試，不需遊戲）---
+class ChatLine(NamedTuple):
+    """一行乾淨的玩家聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。"""
+    text: str
+    color: str | None
+
+
 _TAG = re.compile(r"<[^>]*>")
+# 顏色標記的值為 6 位 RRGGBB 或 8 位 AARRGGBB（帶 alpha），顯示色一律取後 6 位
+_COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
 # 聊天頻道圖示：玩家發言（他人與自己）行都含 Art_Chat_<頻道>；系統訊息用 Art_Chat_System。
 # 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
@@ -63,18 +73,25 @@ def clean(text: str) -> str:
     return " ".join(text.replace("\x00", " ").split())
 
 
-def lines_from_chatlog(text: str) -> list[str]:
-    """把 chatLog 控件全文（以 `\n` 分行的渲染 markup）解析成乾淨玩家聊天行，保留順序與重複。
+def line_color(raw: str) -> str | None:
+    """從一行原始 markup 取遊戲顯示色（`#rrggbb` 小寫）；沒有顏色標記回傳 None。"""
+    m = _COLOR_TAG.search(raw)
+    return f"#{m.group(1)[-6:].lower()}" if m else None
+
+
+def lines_from_chatlog(text: str) -> list[ChatLine]:
+    """把 chatLog 控件全文（以 `\n` 分行的渲染 markup）解析成乾淨玩家聊天行
+    （ChatLine：文字＋遊戲顯示色），保留順序與重複。
 
     收玩家發言（含**自己**的 `[你]` 行與他人 `<link;GID>[名]` 行，兩者都帶 Art_Chat 頻道圖示）；
     濾掉系統訊息（Art_Chat_System：掉寶/經驗/升等）與遊戲除錯行（[STAT]/[DBGL] 無 Art_Chat 圖示）。"""
-    out: list[str] = []
+    out: list[ChatLine] = []
     for raw in text.split("\n"):
         if _CHAT_IMG not in raw or _SYSTEM_IMG in raw:
             continue
         line = clean(raw)
         if _VALID.match(line):
-            out.append(line)
+            out.append(ChatLine(line, line_color(raw)))
     return out
 
 
@@ -173,7 +190,7 @@ class WizChatReader:
     def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME):
         self.process_name = process_name
         self._game_path = game_path
-        self._prev: list[str] = []
+        self._prev: list[ChatLine] = []
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
@@ -188,7 +205,7 @@ class WizChatReader:
         """是否已連上並掛入遊戲（未連上時上層顯示『定位中』）。"""
         return self._connected
 
-    def read_new(self) -> list[str]:
+    def read_new(self) -> list[ChatLine]:
         """回傳自上次呼叫後新增的玩家聊天行（依序、含重複）；無新訊息回傳 []。
         找不到遊戲或連線中斷丟 GameNotRunning。"""
         texts = self._read_chatlog_texts()
@@ -233,8 +250,8 @@ class WizChatReader:
         self._prev = cur
         return self._guard_burst(appended, path, prev_len, len(cur), texts)
 
-    def _guard_burst(self, appended: list[str], path: str, prev_len: int,
-                     cur_len: int, texts: list[str]) -> list[str]:
+    def _guard_burst(self, appended: list[ChatLine], path: str, prev_len: int,
+                     cur_len: int, texts: list[str]) -> list[ChatLine]:
         """所有差分路徑的共同出口：擋下不可能為真的暴量新增（見 MAX_NEW_LINES_PER_POLL），
         並為接近上限的批次留下診斷數據。基準已在呼叫端更新，擋下即等同靜默重建基準。"""
         if len(appended) > MAX_NEW_LINES_PER_POLL:

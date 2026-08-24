@@ -6,7 +6,7 @@ import threading
 import src.main as main_module
 from src.context import ChatContext
 from src.main import PENDING_NOTICE, banner_for, reader_loop
-from src.reader.mem_reader import GameNotRunning
+from src.reader.mem_reader import ChatLine, GameNotRunning
 
 
 class FakePool:
@@ -25,13 +25,16 @@ class FakeOverlay:
     def __init__(self):
         self.messages: list[tuple[str, str]] = []
         self.pending_flags: list[bool] = []
+        self.colors: list[str | None] = []
         self.errors: list[str] = []
         self.clears = 0
         self.statuses: list[str] = []
 
-    def add_message(self, original, translated, now=None, msg_id=None, pending=False):
+    def add_message(self, original, translated, now=None, msg_id=None, pending=False,
+                    color=None):
         self.messages.append((original, translated))
         self.pending_flags.append(pending)
+        self.colors.append(color)
 
     def update_message(self, msg_id, translated):
         pass
@@ -63,7 +66,8 @@ class FakeReader:
         r = self.reads[i]
         if isinstance(r, Exception):
             raise r
-        return list(r)
+        # 真實 reader 回傳 ChatLine；腳本可寫純字串（無色）省事
+        return [l if isinstance(l, ChatLine) else ChatLine(l, None) for l in r]
 
     def close(self):
         pass
@@ -100,6 +104,18 @@ def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
     assert [line for line, _, _ in pool.submitted] == ["[A] a", "[B] hi", "[B] hi"]
     assert [msg_id for _, _, msg_id in pool.submitted] == [1, 2, 3]
     assert ov.pending_flags == [True, True, True]  # 佔位要標記，overlay 才會用較暗的顏色
+
+
+def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
+    # ChatLine 的顏色只進 overlay（對齊遊戲配色）；context 與翻譯只吃純文字
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    reads = [[ChatLine("[A] a", "#80ff00")], []]
+    pool, context = run_scripted(cfg, ov, reads, monkeypatch)
+    assert ov.messages == [("[A] a", PENDING_NOTICE)]
+    assert ov.colors == ["#80ff00"]
+    assert pool.submitted == [("[A] a", [], 1)]
+    assert context.snapshot() == ["[A] a"]
 
 
 def test_context_advances_by_read_order_not_by_completion(monkeypatch):

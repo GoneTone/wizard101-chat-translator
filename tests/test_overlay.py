@@ -214,6 +214,48 @@ def test_completed_message_is_not_dimmed(root):
     assert _translation_fill(ov) == FG_TRANSLATED
 
 
+def _original_fill(ov, index=0):
+    """取某則訊息原文行的本色（同 _translation_fill，取 row 第 0 個子件）。"""
+    line = ov._messages[index].row.winfo_children()[0]
+    return line.itemcget(line.find_withtag("fg")[0], "fill")
+
+
+def test_dimmed_scales_each_channel_toward_dark():
+    from src.reader.overlay import dimmed
+    assert dimmed("#ffffff") == "#c2c2c2"   # 各通道乘 0.76，對齊現行原文/譯文的亮度層次
+    assert dimmed("#80ff00") == "#61c200"
+    assert dimmed("#000000") == "#000000"
+
+
+def test_message_uses_game_color_translated_bright_original_dim(root):
+    # 譯文用遊戲聊天的顯示色，原文用同色調暗版——與遊戲內配色一眼對得上
+    from src.reader.overlay import dimmed
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲", color="#80ff00")
+    assert _translation_fill(ov) == "#80ff00"
+    assert _original_fill(ov) == dimmed("#80ff00")
+
+
+def test_pending_message_restores_game_color_on_update(root):
+    # 佔位期間仍用暗灰（語意＝還沒翻好），真譯文落地才換成遊戲色
+    from src.reader.overlay import FG_PENDING, dimmed
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True, color="#80ff00")
+    assert _translation_fill(ov) == FG_PENDING
+    assert _original_fill(ov) == dimmed("#80ff00")
+    ov.update_message(1, "甲")
+    assert _translation_fill(ov) == "#80ff00"
+
+
+def test_message_without_color_falls_back_to_default_palette(root):
+    # 讀不到遊戲色（理論上不會發生，防衛用）：維持現行預設配色
+    from src.reader.overlay import FG_ORIGINAL, FG_TRANSLATED
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲")
+    assert _translation_fill(ov) == FG_TRANSLATED
+    assert _original_fill(ov) == FG_ORIGINAL
+
+
 def test_update_message_ignores_unknown_id(root):
     # 佔位訊息可能已被 max_messages 擠掉或被 prune 清除：晚到的譯文安靜忽略，不得拋錯
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=1, fade_seconds=0)

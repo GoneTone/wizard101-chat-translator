@@ -119,11 +119,12 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
 
         for line in new_lines:
             ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
-            context.push(line)
+            context.push(line.text)
             msg_id = next(msg_ids)
-            ui_queue.put(lambda o=line, m=msg_id:
-                         overlay.add_message(o, PENDING_NOTICE, msg_id=m, pending=True))
-            pool.submit(line, ctx, msg_id)
+            ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
+                         overlay.add_message(o, PENDING_NOTICE, msg_id=m, pending=True,
+                                             color=c))
+            pool.submit(line.text, ctx, msg_id)
 
         set_banner(banner_for(game_missing, pool.error_state))
         if pool.in_flight:
