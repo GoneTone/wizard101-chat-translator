@@ -291,6 +291,19 @@ def test_suppression_survives_stable_stretch_on_one_view():
         assert r.read_new() == []
 
 
+def test_first_visit_to_unseen_view_absorbs_history_without_emitting():
+    # 啟動盲區：App 啟動時基準只蓋到當前分頁；首次切到另一個分頁時，
+    # 該視圖的整份歷史對看過集合是生面孔，reset 不得將其當新訊息輸出
+    house = _log(_say_colored("FFFF00", "H", "h1"), _say_colored("FFFF00", "H", "h2"))
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"), _say(1, "A", "m3"))
+    main2 = _log(_say(1, "A", "m1"), _say(2, "B", "m2"), _say(1, "A", "m3"),
+                 _say(2, "B", "m_new"))
+    r = FakeWiz([house, main, main2])
+    assert r.read_new() == []                      # 基準＝房間視圖
+    assert r.read_new() == []                      # 首次切到主視圖：歷史吸收、不吐
+    assert _texts(r.read_new()) == ["[B] m_new"]   # 之後的新訊息照常
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
@@ -344,15 +357,16 @@ def test_system_and_debug_never_emitted():
     assert _texts(r.read_new()) == ["[B] real"]
 
 
-def test_hard_reset_emits_new_content():
-    # 聊天被重置成全新內容（如 relog）→ 新內容視為新訊息輸出，之後正常延續
+def test_hard_reset_absorbs_then_resumes():
+    # 聊天被重置成全新內容（relog／首次切到沒見過的分頁）→ 靜默重建基準不輸出
+    # （取捨：relog 後第一批訊息不翻，換取切分頁不重翻整份歷史），之後正常延續
     r = FakeWiz([
         _log(_say(1, "A", "one")),
-        _log(_say(9, "Z", "fresh")),                       # 對不齊 → 全新內容
+        _log(_say(9, "Z", "fresh")),                       # 對不齊 → 吸收為新基準
         _log(_say(9, "Z", "fresh"), _say(9, "Z", "next")),
     ])
     assert r.read_new() == []
-    assert _texts(r.read_new()) == ["[Z] fresh"]
+    assert r.read_new() == []
     assert _texts(r.read_new()) == ["[Z] next"]
 
 
@@ -460,16 +474,19 @@ def test_first_message_after_empty_chat_is_emitted():
     assert _texts(r.read_new()) == ["[B] second"]
 
 
-def test_message_after_chat_cleared_is_emitted():
-    # 有歷史 → 聊天被清空（relog） → 清空後第一句仍要抓到
+def test_message_after_chat_cleared_absorbs_first_then_resumes():
+    # 有歷史 → 聊天被清空（relog）：清空後第一批吸收為新基準（見 reset 取捨），
+    # 其後訊息照常輸出
     r = FakeWiz([
         _log(_say(1, "A", "old")),
-        "",                                          # 清空
+        "",                                          # 清空（暫態：保留基準）
         _log(_say(1, "C", "fresh")),
+        _log(_say(1, "C", "fresh"), _say(1, "D", "next")),
     ])
     assert r.read_new() == []                        # 基準=[A old]
-    assert r.read_new() == []                        # 清空 → 對不齊 → 重新同步（基準變空）
-    assert _texts(r.read_new()) == ["[C] fresh"]
+    assert r.read_new() == []                        # 清空 → 忽略
+    assert r.read_new() == []                        # 對不齊 → 吸收為新基準
+    assert _texts(r.read_new()) == ["[D] next"]
 
 
 def _burst_lines(n: int) -> list[str]:

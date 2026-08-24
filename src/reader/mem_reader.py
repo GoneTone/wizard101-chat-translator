@@ -220,7 +220,8 @@ class WizChatReader:
     首次連上只記錄現況、不回吐既有歷史（只翻之後的新訊息）。之後每輪讀完整聊天記錄，
     與上輪做尾端差分（align_append）取新增行；重複訊息因逐行保留不會漏。
     空讀（傳送/轉場時聊天暫態清空）保留基準、忽略，避免填回同樣歷史時重譯；
-    與基準對不齊（relog/清空成全新內容）則視為新訊息輸出。
+    與基準完全對不齊（首次切到沒讀過的分頁視圖／relog）則靜默吸收為新基準、
+    不輸出（見 read_new 的 reset 分支說明）。
     所有路徑共用一道出口防線：單輪吐出超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊，
     不吐並重建基準（見該常數的說明）。"""
 
@@ -285,15 +286,21 @@ class WizChatReader:
                       f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
                       f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
         if appended is None:
-            # 與基準完全無重疊 → 聊天已重置（relog/清空成全新內容），cur 全部視為新訊息。
-            # 印記錄供事後查證：若此路徑在非 relog 情境被觸發，代表差分邏輯仍有漏洞。
+            # 與基準完全無重疊 → 首次切到沒讀過的分頁視圖，或 relog 成全新內容。
+            # 兩者從內容無法區分，一律靜默吸收為新基準、不輸出——舊行為（全部視為
+            # 新訊息）會把「App 啟動後首次切分頁」的整份歷史當新訊息翻譯（啟動時
+            # 基準只蓋到當前分頁，看過集合也還沒見過其他分頁）。取捨：relog 後
+            # 第一批訊息不翻，下一則起由 append 快路徑恢復。
+            # 例外：基準為空（連上時聊天是空的）→ 第一則訊息是真新訊息，照吐。
             path = "reset"
+            if self._prev:
+                print(f"[reader] no overlap with baseline, absorbed as new view/reset "
+                      f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
+                      f"prev_tail={self._prev[-1][:40]!r})", file=sys.stderr)
+                self._prev = cur_texts
+                self._remember(cur_texts)
+                return []
             appended = cur_texts
-            # 帶頭尾樣本：事後才分得出是內容真的全新（relog）還是差分誤判（如另一視圖）
-            print(f"[reader] chat log has no overlap with baseline, treating as reset "
-                  f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
-                  f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
-                  file=sys.stderr)
         self._prev = cur_texts
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
