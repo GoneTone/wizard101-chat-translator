@@ -517,6 +517,26 @@ def test_refill_after_long_empty_stays_silent():
         assert r.read_new() == []
 
 
+def test_same_text_resend_after_short_empty_is_emitted():
+    # 置換式視圖（朋友/私訊視窗只顯示最近一則）重打同一句：新內容與舊基準完全相同，
+    # align_append 會判「無變化」靜默吞掉。短暫清空即視基準過期 → 走 reset＋輸入框放行
+    reads = [_log(_own("Hi"))] * 8 + ["", ""] + [_log(_own("Hi"))]
+    inputs = [False] * 9 + [True, False]
+    r = FakeWiz(reads, inputs)
+    for _ in range(10):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] Hi"]
+
+
+def test_short_empty_refill_still_not_retranslated():
+    # 門檻降低後轉場短暫清空也走 reset：填回同樣歷史仍不得重譯（看過集合擋下）
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    reads = [main] * 8 + ["", ""] + [main, main]
+    r = FakeWiz(reads)
+    for _ in range(len(reads)):
+        assert r.read_new() == []
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
