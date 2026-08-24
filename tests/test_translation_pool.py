@@ -1,9 +1,21 @@
 """TranslationPool：平行翻譯、單則卡住不擋後續、失敗退避與重試。"""
 import threading
+import time
+
+import pytest
 
 from src.translation_pool import TranslationPool
+from src.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 FAILED = "⚠  這則訊息翻譯不出來"
+
+
+@pytest.fixture(autouse=True)
+def fast_backoff(monkeypatch):
+    """把退避縮到毫秒級：測的是「有沒有退避與重置」，不是真的等 5 秒。"""
+    import src.translation_pool as pool_module
+    monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
+    monkeypatch.setattr(pool_module, "CONFIG_ERROR_INTERVAL", 0.01)
 
 
 class Collector:
@@ -39,6 +51,26 @@ class OkTranslator:
 def _pool(translator, collector, workers=4):
     return TranslationPool(translator=translator, on_result=collector,
                            workers=workers, failed_notice=FAILED)
+
+
+class FailThenOk:
+    """前 n 次拋出指定例外，之後成功。"""
+
+    def __init__(self, exc, failures):
+        self._exc = exc
+        self._left = failures
+        self._lock = threading.Lock()
+        self.calls = 0
+
+    def translate_incoming(self, text, context):
+        with self._lock:
+            self.calls += 1
+            fail = self._left > 0
+            if fail:
+                self._left -= 1
+        if fail:
+            raise self._exc
+        return f"譯:{text}"
 
 
 def test_submitted_lines_are_translated_and_reported():
@@ -191,4 +223,92 @@ def test_shutdown_cancels_queued_work_without_leaking_in_flight():
         assert pool.in_flight == 0
     finally:
         release.set()
+        pool.shutdown(wait=True)
+
+
+def test_offline_retries_until_success_and_clears_error_state():
+    tr = FailThenOk(TranslatorOffline("down"), failures=2)
+    c = Collector()
+    pool = _pool(tr, c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert c.wait_for(1)[1] == "譯:[A] one"
+        assert tr.calls == 3                  # 兩次失敗 + 一次成功
+        assert pool.error_state is None       # 成功後狀態清除
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_offline_sets_error_state_while_failing():
+    blocked = threading.Event()
+
+    class AlwaysOffline:
+        def translate_incoming(self, text, context):
+            blocked.set()
+            raise TranslatorOffline("down")
+
+    c = Collector()
+    pool = _pool(AlwaysOffline(), c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert blocked.wait(5.0)
+        deadline = time.monotonic() + 5.0
+        while pool.error_state != "offline" and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pool.error_state == "offline"
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_config_error_retries_and_reports_config_state():
+    tr = FailThenOk(TranslatorConfigError("bad key", status=401), failures=1)
+    c = Collector()
+    pool = _pool(tr, c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert c.wait_for(1)[1] == "譯:[A] one"
+        assert tr.calls == 2
+        assert pool.error_state is None
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_bad_output_is_not_retried():
+    # temperature=0 下重試必得同一結果：截斷一律放棄，直接回失敗提示
+    tr = FailThenOk(TranslatorBadOutput("truncated"), failures=99)
+    c = Collector()
+    pool = _pool(tr, c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert c.wait_for(1)[1] == FAILED
+        assert tr.calls == 1
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_backoff_gate_is_shared_across_workers():
+    # 伺服器離線是全域事實：四個 worker 不得以四倍速重打
+    hits = []
+    lock = threading.Lock()
+
+    class CountingOffline:
+        def translate_incoming(self, text, context):
+            with lock:
+                hits.append(time.monotonic())
+            raise TranslatorOffline("down")
+
+    c = Collector()
+    pool = _pool(CountingOffline(), c, workers=4)
+    try:
+        for i in range(4):
+            pool.submit(f"[A] m{i}", [], msg_id=i)
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            with lock:
+                if len(hits) >= 8:
+                    break
+            time.sleep(0.01)
+        with lock:
+            assert len(hits) >= 8       # 有持續重試
+    finally:
         pool.shutdown(wait=True)
