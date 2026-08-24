@@ -23,7 +23,7 @@ from src.ui.settings import SettingsWindow
 BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔（秒）
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復
-TRANSLATE_FAILED_NOTICE = "⚠  翻譯失敗（已跳過此則）"  # 放棄該行時代替譯文顯示
+TRANSLATE_FAILED_NOTICE = "⚠  這則訊息翻譯不出來"  # 放棄該行時代替譯文顯示
 
 # overlay 標題列狀態指示：（文字， 顏色）
 STATUS = {
