@@ -168,7 +168,9 @@ def _truncated(max_tokens: int, completion_tokens, sample: str) -> TranslatorBad
 
 
 class TranslatorConfigError(Exception):
-    """不可重試的設定錯誤：金鑰無效（401/403）、模型不存在（404）。"""
+    """設定錯誤：金鑰無效（401/403）、模型不存在（404）。
+    可重試——pool 以固定的 CONFIG_ERROR_INTERVAL 間隔持續重試，
+    使用者於執行期間修正 config.json 後即自動恢復，不必重啟程式。"""
 
     def __init__(self, message: str, status: int | None = None):
         super().__init__(message)

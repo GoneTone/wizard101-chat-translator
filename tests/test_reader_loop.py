@@ -28,7 +28,7 @@ class FakeOverlay:
         self.clears = 0
         self.statuses: list[str] = []
 
-    def add_message(self, original, translated, msg_id=None):
+    def add_message(self, original, translated, now=None, msg_id=None):
         self.messages.append((original, translated))
 
     def update_message(self, msg_id, translated):
@@ -133,6 +133,37 @@ def test_status_shows_translating_while_pool_busy(monkeypatch):
     pool.in_flight = 2
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
     assert "●  翻譯中…" in ov.statuses
+
+
+class StatusFakeReader(FakeReader):
+    """依 poll 次數翻轉 pool.in_flight：模擬「送出翻譯後 pool 忙碌一輪、
+    隨後轉回閒置」，藉此驗證狀態指示會從翻譯中降回監聽中（而不是卡住）。
+    FakePool.in_flight 是純屬性，直接由這裡代替真正的 pool 翻轉。"""
+
+    def __init__(self, reads, stop, pool, busy_at):
+        super().__init__(reads, stop)
+        self._pool = pool
+        self._busy_at = busy_at
+
+    def read_new(self):
+        self._pool.in_flight = 1 if self.n == self._busy_at else 0
+        return super().read_new()
+
+
+def test_status_transitions(monkeypatch):
+    # 監聽 →（有新訊息、pool 忙碌）翻譯中 → 監聽：完整三段都要出現，
+    # 不能只停在「翻譯中」——回歸測試（重寫 reader_loop 時遺失的舊測試）。
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    pool = FakePool()
+    reads = [[], ["[A] a"], []]
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: StatusFakeReader(reads, stop, pool, busy_at=1))
+    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), pool)
+    _drain(ui_queue)
+    assert ov.statuses == ["●  監聽中", "●  翻譯中…", "●  監聽中"]
 
 
 def test_status_locating_when_not_anchored(monkeypatch):

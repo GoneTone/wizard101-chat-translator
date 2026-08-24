@@ -332,6 +332,12 @@ def main() -> None:
         except Exception:
             pass
         print("[app] shutdown complete")
+        # 翻譯 worker 執行緒非 daemon，逾時仍卡在 HTTP 請求中的話（最長 _TIMEOUT=60 秒）
+        # 一般 return 會讓直譯器在 concurrent.futures.thread._python_exit 卡住等它們
+        # join，使用者看到視窗已關、程式卻在工作管理員裡多留最多 60 秒——像當掉一樣。
+        # 該還原的都還原了（reader 執行緒已 join、hook 已解除、log 已寫完且線緩衝），
+        # 故直接砍行程；日後若想「修」回乾淨 return，請先確認上述 60 秒卡住已消失。
+        os._exit(0)
 
 
 if __name__ == "__main__":

@@ -94,11 +94,24 @@ class TranslationPool:
             executor = self._executor
         executor.shutdown(wait=wait, cancel_futures=True)
 
+    def _decrement_in_flight(self) -> None:
+        with self._lock:
+            self._in_flight -= 1
+
     def _work(self, line: str, context: list[str], msg_id: int) -> None:
-        # 單次呼叫至多一次 return（成功／不可重試失敗／閘門關閉時放棄），
-        # finally 因此每則工作恰好遞減一次 in_flight——與 _on_future_done
-        # 對 cancelled future 的遞減互斥（見模組層筆記）。
+        """單次呼叫至多一次 return（成功／不可重試失敗／閘門關閉時放棄）。
+
+        in_flight 在呼叫 on_result 之前遞減，而不是事後靠 finally 遞減——
+        否則從 on_result 回呼內讀 in_flight 會看到「這則其實已經有結果了」
+        卻還被算進行中，讓 in_flight 短暫多算一則、與其自身文件字面「已提交但
+        尚未回報結果的則數」不符。`decremented` 旗標防止這裡的提前遞減又被
+        finally 兜底重複扣一次；沒有呼叫 on_result 的路徑（迴圈正常跳出、
+        或 _wait_for_gate 因 stop 而放棄）則完全交給 finally 遞減，兩者互斥、
+        合計每則工作恰好遞減一次——與 _on_future_done 對「送出前就被
+        shutdown(cancel_futures=True) 取消」的 future 之遞減互斥（見模組層筆記）。
+        """
         attempts = 0
+        decremented = False
         try:
             while not self._stop.is_set():
                 if not self._wait_for_gate():
@@ -119,14 +132,18 @@ class TranslationPool:
                               else "unexpected error")
                     print(f"[translate] line dropped after {attempts} attempt(s), "
                           f"{reason} ({exc}): {line}", file=sys.stderr)
+                    self._decrement_in_flight()
+                    decremented = True
                     self._on_result(msg_id, self._failed_notice)
                     return
                 self._note_success()
+                self._decrement_in_flight()
+                decremented = True
                 self._on_result(msg_id, translated)
                 return
         finally:
-            with self._lock:
-                self._in_flight -= 1
+            if not decremented:
+                self._decrement_in_flight()
 
     def _wait_for_gate(self) -> bool:
         """等到退避閘門開啟；關閉中回傳 False。分段等待讓 shutdown 能及時打斷。"""
