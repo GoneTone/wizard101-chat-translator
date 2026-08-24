@@ -15,6 +15,7 @@ import asyncio
 import os
 import re
 import sys
+from collections import Counter, deque
 from typing import NamedTuple
 
 from src.reader import hook_state
@@ -30,6 +31,10 @@ INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸
 MAX_NEW_LINES_PER_POLL = 100
 # 未達上限但異常大的批次：照吐，但留下診斷數據供事後判斷差分是否誤判
 LARGE_BATCH_LOG_THRESHOLD = 10
+# 保留最近幾份被換掉的基準。聊天分頁共用同一個 chatLog 控件（實測無分頁狀態可讀），
+# 切分頁＝內容換成另一視圖，recover/reset 會把重新浮上來的歷史誤判成新訊息；
+# 退役基準是「這些行早就見過」的證據，吐出前先比對剔除。
+RETIRED_BASELINES = 4
 
 
 class GameNotRunning(Exception):
@@ -145,6 +150,23 @@ def align_recover(prev_lines: list[str], cur_lines: list[str]) -> list[str] | No
     return None
 
 
+def filter_resurfaced(emitted: list[ChatLine],
+                      retired: "deque[list[str]]") -> list[ChatLine]:
+    """剔除退役基準能解釋的行（＝視圖切換時重新浮上來的歷史），保留真正的新行。
+    以多重集合逐行消耗計數：同文字的行退役基準裡有幾份就最多剔幾份，
+    超出的（真的又有人說了一樣的話）照樣保留。"""
+    seen: Counter[str] = Counter()
+    for baseline in retired:
+        seen.update(baseline)
+    out: list[ChatLine] = []
+    for line in emitted:
+        if seen[line.text] > 0:
+            seen[line.text] -= 1
+        else:
+            out.append(line)
+    return out
+
+
 # --- 遊戲安裝路徑偵測（wizwalker 需要它讀 Data/GameData 的 WAD） ---
 def detect_install_path() -> str | None:
     """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
@@ -191,6 +213,7 @@ class WizChatReader:
         self.process_name = process_name
         self._game_path = game_path
         self._prev: list[str] = []  # 基準只存文字：顏色不參與差分（見 read_new）
+        self._retired: deque[list[str]] = deque(maxlen=RETIRED_BASELINES)
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
@@ -215,7 +238,7 @@ class WizChatReader:
         # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
         cur_texts = [l.text for l in cur]
         if not self._synced:
-            self._prev = cur_texts  # 首次連上：記錄現況（含既有歷史），不回吐
+            self._replace_baseline(cur_texts)  # 首次連上：記錄現況（含既有歷史），不回吐
             self._node_count = len(texts)
             self._synced = True
             print(f"[reader] baseline established (lines={len(cur)}, "
@@ -230,7 +253,7 @@ class WizChatReader:
                   f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
                   f"re-baselining without emitting", file=sys.stderr)
             self._node_count = len(texts)
-            self._prev = cur_texts
+            self._replace_baseline(cur_texts)
             return []
         prev_len = len(self._prev)
         path = "append"
@@ -253,10 +276,24 @@ class WizChatReader:
                   f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
                   f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
                   file=sys.stderr)
-        self._prev = cur_texts
+        self._replace_baseline(cur_texts)
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
+        # 慢路徑（視圖切換/異常讀取）才過濾：append 快路徑的正常重複發言不受影響
+        if path != "append" and emitted:
+            kept = filter_resurfaced(emitted, self._retired)
+            if len(kept) != len(emitted):
+                print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
+                      f"lines via {path} (kept={len(kept)}, "
+                      f"retired={len(self._retired)})", file=sys.stderr)
+            emitted = kept
         return self._guard_burst(emitted, path, prev_len, len(cur), texts)
+
+    def _replace_baseline(self, cur_texts: list[str]) -> None:
+        """換基準前把舊基準退役保留，供 filter_resurfaced 辨識重新浮上來的歷史。"""
+        if self._prev:
+            self._retired.append(self._prev)
+        self._prev = cur_texts
 
     def _guard_burst(self, appended: list[ChatLine], path: str, prev_len: int,
                      cur_len: int, texts: list[str]) -> list[ChatLine]:

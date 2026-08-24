@@ -1,6 +1,8 @@
+from collections import deque
+
 from src.reader.mem_reader import (
-    GameNotRunning, WizChatReader, align_append, align_recover, clean,
-    lines_from_chatlog,
+    ChatLine, GameNotRunning, WizChatReader, align_append, align_recover, clean,
+    filter_resurfaced, lines_from_chatlog,
 )
 
 
@@ -215,6 +217,51 @@ def test_channel_switch_recolor_does_not_reemit():
     emitted = r.read_new()
     assert _texts(emitted) == ["[B] new"]
     assert emitted[0].color == "#8080ff"   # 新行帶「當前讀到」的顏色
+
+
+def test_filtered_view_flap_does_not_reemit_history():
+    # 分頁過濾視圖與完整緩衝共用同一控件輪流出現（實測）：來回翻動不得重吐歷史。
+    # f1/f2 是朋友分頁訊息，完整視圖裡它們中間、之後夾著別的訊息。
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"),
+                _say(2, "F", "f2"), _say(1, "A", "m3"), _say(1, "A", "m4"))
+    friend = _log(_say(2, "F", "f1"), _say(2, "F", "f2"))
+    r = FakeWiz([full, friend, full, friend, full])
+    assert r.read_new() == []          # 基準＝完整視圖
+    assert r.read_new() == []          # 切到朋友分頁：內容是舊訊息子集，不得重吐
+    assert r.read_new() == []          # 切回完整視圖：中段錨定後的尾巴全是舊歷史，不得重吐
+    assert r.read_new() == []
+    assert r.read_new() == []
+
+
+def test_new_message_during_view_flap_is_emitted():
+    # 視圖翻動期間夾帶的真實新訊息要照吐，只剔除退役基準解釋得了的舊行
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"))
+    friend = _log(_say(2, "F", "f1"))
+    full2 = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"),
+                 _say(1, "A", "m_new"))
+    r = FakeWiz([full, friend, full2])
+    assert r.read_new() == []
+    assert r.read_new() == []              # 朋友分頁：舊子集
+    assert _texts(r.read_new()) == ["[A] m_new"]   # 切回時只吐真正的新行
+
+
+def test_message_sent_while_on_filtered_view_is_emitted():
+    # 停在朋友分頁時送出的新訊息：從朋友視圖的 append 快路徑照常吐出
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"))
+    friend = _log(_say(2, "F", "f1"))
+    friend2 = _log(_say(2, "F", "f1"), _say(2, "F", "f_new"))
+    r = FakeWiz([full, friend, friend2])
+    assert r.read_new() == []
+    assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[F] f_new"]
+
+
+def test_filter_resurfaced_keeps_repeats_beyond_retired_counts():
+    # 多重集合語意：退役基準裡有幾份就最多剔幾份，真的又說了一樣的話要保留
+    retired = deque([["[A] lol"]])
+    emitted = [ChatLine("[A] lol", None), ChatLine("[A] lol", None),
+               ChatLine("[B] new", None)]
+    assert filter_resurfaced(emitted, retired) == [("[A] lol", None), ("[B] new", None)]
 
 
 def test_first_read_skips_history():
