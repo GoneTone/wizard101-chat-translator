@@ -304,6 +304,48 @@ def test_first_visit_to_unseen_view_absorbs_history_without_emitting():
     assert _texts(r.read_new()) == ["[B] m_new"]   # 之後的新訊息照常
 
 
+def test_prefix_coincidence_append_burst_is_absorbed():
+    # 實機 811→812：朋友視圖 [Test] 恰為主視圖 [Test, ...] 的前綴，append 對齊「成功」
+    # 把主視圖其餘舊行當新增吐出。基準 1 行冒出 4 行＝不可能的人為速度 → 吸收
+    friend = _log(_own("Test"))
+    main = _log(_own("Test"), _say(1, "A", "m1"), _say(2, "B", "m2"),
+                _say(1, "A", "m3"), _say(2, "B", "m4"))
+    main2 = _log(_own("Test"), _say(1, "A", "m1"), _say(2, "B", "m2"),
+                 _say(1, "A", "m3"), _say(2, "B", "m4"), _say(1, "A", "m_new"))
+    r = FakeWiz([friend, main, main2])
+    assert r.read_new() == []                      # 基準＝朋友視圖（1 行）
+    assert r.read_new() == []                      # 前綴巧合暴增：吸收、不吐
+    assert _texts(r.read_new()) == ["[A] m_new"]   # 之後新訊息照常
+
+
+def test_all_seen_append_is_absorbed_as_view_resurface():
+    # 視圖 A ⊃ 視圖 B（B 為 A 的前綴子集）：B→A 的 append 吐出的行全在看過集合 → 吸收
+    full = _log(_own("f1"), _say(1, "A", "m1"), _say(2, "B", "m2"))
+    sub = _log(_own("f1"))
+    r = FakeWiz([full, sub, full, sub, full])
+    assert r.read_new() == []          # 基準＝完整視圖（m1/m2 進看過集合）
+    for _ in range(4):
+        assert r.read_new() == []      # 子集⇄完整來回：append 巧合全在集合裡，不吐
+
+
+def test_small_legit_burst_with_normal_baseline_still_emitted():
+    # 正常聊天流：基準夠長時的小批新增（未見過）照常吐出，不受防線影響
+    base = [_say(i, f"P{i}", f"line {i}") for i in range(8)]
+    r = FakeWiz([_log(*base),
+                 _log(*base, _say(9, "X", "burst1"), _say(9, "Y", "burst2"),
+                      _say(9, "Z", "burst3"))])
+    assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[X] burst1", "[Y] burst2", "[Z] burst3"]
+
+
+def test_single_repeat_append_still_emitted():
+    # 單行 append 永不過濾：重複的 lol/gg 是正常聊天，必須照吐
+    r = FakeWiz([_log(_say(1, "A", "lol")),
+                 _log(_say(1, "A", "lol"), _say(1, "A", "lol"))])
+    assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[A] lol"]
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
@@ -514,24 +556,26 @@ def test_implausible_burst_is_suppressed():
 def test_burst_log_reports_per_node_sizes(capsys):
     # 診斷 log 要看得出是哪個節點在灌入完整歷史（chatLog 有多個節點、內容量差一個數量級）
     from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
-    tail = _say(9, "Z", "lol")
+    base = [_say(1, "A", f"base{i}") for i in range(60)]
     old = _burst_lines(MAX_NEW_LINES_PER_POLL + 1)
     r = FakeWiz([
-        [_log(_say(1, "A", "a"), tail), ""],
-        [_log(tail, *old), ""],
+        [_log(*base), ""],
+        [_log(*base, *old), ""],
     ])
     assert r.read_new() == []
     assert r.read_new() == []
     err = capsys.readouterr().err
     assert "implausible burst suppressed" in err
-    assert f"sizes=[0, {MAX_NEW_LINES_PER_POLL + 2}]" in err
+    assert f"sizes=[0, {60 + MAX_NEW_LINES_PER_POLL + 1}]" in err
 
 
 def test_burst_within_limit_still_emitted():
-    # 上限是防洪水，不是限流：翻譯卡住時累積的正常批次仍要全數吐出
+    # 上限是防洪水，不是限流：基準已建立的聊天累積的正常大批次仍要全數吐出
+    # （基準要夠長：極短基準冒出大批次會被 append 視圖切換防線吸收，屬預期）
     from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
-    old = _burst_lines(MAX_NEW_LINES_PER_POLL)
-    r = FakeWiz([_log(_say(1, "A", "a")), _log(_say(1, "A", "a"), *old)])
+    base = [_say(1, "A", f"base{i}") for i in range(60)]
+    new_lines = _burst_lines(MAX_NEW_LINES_PER_POLL)
+    r = FakeWiz([_log(*base), _log(*base, *new_lines)])
     assert r.read_new() == []
     assert len(r.read_new()) == MAX_NEW_LINES_PER_POLL
 

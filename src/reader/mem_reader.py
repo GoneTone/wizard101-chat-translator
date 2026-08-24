@@ -304,9 +304,24 @@ class WizChatReader:
         self._prev = cur_texts
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
-        # 慢路徑（視圖切換/異常讀取）才過濾：append 快路徑的正常重複發言不受影響。
+        if path == "append":
+            # 巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被 append
+            # 誤判成「新增了 B 的其餘舊行」且不經過任何過濾（實機每次切分頁重翻的主因）。
+            # 單行 append（正常訊息與重複的 lol/gg）永不過濾。
+            if len(appended) >= 2 and all(t in self._seen for t in appended):
+                # 吐出的行全部見過 → 視圖重浮
+                print(f"[reader] append of {len(appended)} all-seen lines absorbed "
+                      f"as view resurface (prev={prev_len})", file=sys.stderr)
+                emitted = []
+            elif len(appended) >= 3 and len(appended) > 2 * prev_len:
+                # 一輪暴增超過基準兩倍 → 不可能的人為速度，判定為切到內容較多的視圖。
+                # 代價：聊天剛起步（基準 1-2 行）時 1 秒內連發 3 句會被吸收，下句恢復
+                print(f"[reader] implausible append burst absorbed as view switch "
+                      f"(appended={len(appended)}, prev={prev_len})", file=sys.stderr)
+                emitted = []
+        # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。
         # 過濾要在 _remember 之前——本輪剛出現的新行還不在集合裡，才吐得出來。
-        if path != "append" and emitted:
+        elif emitted:
             kept = filter_resurfaced(emitted, self._seen)
             if len(kept) != len(emitted):
                 print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
