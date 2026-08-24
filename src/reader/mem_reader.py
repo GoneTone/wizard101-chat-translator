@@ -274,20 +274,29 @@ class WizChatReader:
             self._warmup_left -= 1
         if not cur:
             return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+        node_added = False
         if len(texts) != self._node_count:
-            # 節點數量變動（UI 事件生出/收掉 chatLog）→ 串接結構改變，無法歸因新舊：
-            # 靜默重建基準、不回吐，避免把其他節點的舊內容當成新訊息（洪水）
-            print(f"[reader] chatLog node count changed "
+            if len(texts) < self._node_count:
+                # 節點減少（關閉私訊視窗等）：內容只會消失不會新增，靜默重建基準
+                print(f"[reader] chatLog node count decreased "
+                      f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
+                      f"re-baselining without emitting", file=sys.stderr)
+                self._node_count = len(texts)
+                self._prev = cur_texts
+                self._remember(cur_texts)
+                return []
+            # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，
+            # 不可盲目吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，
+            # 跳過對齊直接走 reset 語意：空基準照吐、暖機期吸收、其後看過集合過濾
+            print(f"[reader] chatLog node count increased "
                   f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
-                  f"re-baselining without emitting", file=sys.stderr)
+                  f"handling as reset", file=sys.stderr)
             self._node_count = len(texts)
-            self._prev = cur_texts
-            self._remember(cur_texts)
-            return []
+            node_added = True
         prev_len = len(self._prev)
         path = "append"
-        appended = align_append(self._prev, cur_texts)
-        if appended is None:
+        appended = None if node_added else align_append(self._prev, cur_texts)
+        if appended is None and not node_added:
             # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
             path = "recover"
             appended = align_recover(self._prev, cur_texts)

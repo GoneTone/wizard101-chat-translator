@@ -418,6 +418,44 @@ def test_warmup_expires_within_five_polls():
     assert _texts(r.read_new()) == ["[你] first after switch"]
 
 
+def test_first_whisper_message_emitted_when_chat_ui_materializes():
+    # 實機：掛入時 chatLog 尚不存在（nodes=0），開私訊送第一句時節點 0→2 出現，
+    # 舊的節點變動路徑把它連同基準一起吞掉。基準為空時新節點內容要照吐
+    r = FakeWiz([[], [_log(_own("whisper 1")), ""]])
+    assert r.read_new() == []                        # 基準：0 節點、空
+    assert _texts(r.read_new()) == ["[你] whisper 1"]
+
+
+def test_node_added_after_warmup_emits_unseen_lines():
+    # 暖機後開私訊視窗（節點增加）：新節點裡的新訊息要翻，主節點舊內容不重翻
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    reads = [[main]] * 7 + [[main, _log(_own("whisper 1"))]]
+    r = FakeWiz(reads)
+    for _ in range(7):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] whisper 1"]
+
+
+def test_node_added_with_only_seen_content_stays_silent():
+    # 節點增加但新節點內容全是看過的行（重浮）：不得重翻
+    main = _log(_say(1, "A", "m1"), _say(2, "F", "f1"))
+    reads = [[main]] * 7 + [[main, _log(_say(2, "F", "f1"))]]
+    r = FakeWiz(reads)
+    for _ in range(8):
+        assert r.read_new() == []
+
+
+def test_node_removed_stays_silent_then_resumes():
+    # 節點減少（關閉私訊視窗）：靜默重建，之後新訊息照常
+    main = _log(_say(1, "A", "m1"))
+    reads = [[main, _log(_own("w1"))], [main],
+             [_log(_say(1, "A", "m1"), _say(1, "A", "m2"))]]
+    r = FakeWiz(reads)
+    assert r.read_new() == []                    # 基準（2 節點）
+    assert r.read_new() == []                    # 節點減少：靜默
+    assert _texts(r.read_new()) == ["[A] m2"]    # 之後照常
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
