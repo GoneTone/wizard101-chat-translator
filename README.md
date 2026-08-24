@@ -108,6 +108,7 @@ uv run pyinstaller build.spec --noconfirm
 | `target_language` | 收訊翻成的目標語言（人讀名稱，直接帶入提示詞），例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |
 | `api.thinking` | 模型是否啟用思考/reasoning（預設 `false`：關閉思考）。ChatGPT 官方端點只送它認得的 `reasoning_effort: "none"`；自訂端點併入常見後端的停用參數（`reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等）；Claude 不適用此欄（維持模型預設 adaptive）。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何，譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯，回報後可移除 |
 | `poll_interval` | 輪詢間隔秒數（預設 0.4）。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
+| `max_parallel_translations` | 同時進行的收訊翻譯則數（1–8，預設 4）。1＝逐則排隊；大於 1 時單則卡住不會擋住後續 |
 | `game_path` | 遊戲根目錄（含 `Bin\`、`Data\` 的那層）；`null`（預設）＝自動偵測執行中的遊戲程序路徑。自動偵測失敗才需手動填（如非標準安裝） |
 | `fade_seconds` | overlay 訊息淡出秒數（預設 0：永不淡出，靠滾動看歷史；>0 才會定時清除） |
 | `max_messages` | 視窗保留的訊息則數上限（預設 200），超過移除最舊 |
