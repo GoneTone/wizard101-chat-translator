@@ -10,8 +10,8 @@ from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageFie
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
-                          alpha_var) -> tuple[dict | None, str | None]:
-    """讀取並轉型四個進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
+                          alpha_var, parallel_var) -> tuple[dict | None, str | None]:
+    """讀取並轉型進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
     `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
     統一在此攔截並回傳 `（None， 錯誤訊息）`，讓呼叫端走既有表單錯誤提示、
     不讓 cfg 被寫到一半。成功則回傳 `(clamp_advanced(...), None)`。"""
@@ -22,6 +22,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
             "max_messages": int(max_messages_var.get()),
             "type_delay": float(type_delay_var.get()),
             "overlay_alpha": float(alpha_var.get()),
+            "max_parallel_translations": int(parallel_var.get()),
         })
     except (tk.TclError, ValueError):
         return None, "進階數值格式錯誤，請輸入數字"
@@ -81,6 +82,9 @@ class SettingsWindow:
                                 "fade_seconds", 10, "0＝永不淡出，可滾動看歷史")
         self._max_msgs = self._spin(adv, "訊息保留上限", cfg["max_messages"],
                                     "max_messages", 10, "超過移除最舊")
+        self._parallel = self._spin(adv, "同時翻譯則數", cfg["max_parallel_translations"],
+                                    "max_parallel_translations", 1,
+                                    "1＝逐則排隊；大於 1 時卡住的訊息不會擋住後續")
         self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
                                       "type_delay", 0.01, "遊戲漏字就調大")
         self._alpha_var = self._alpha_slider(adv, cfg["overlay_alpha"])
@@ -154,7 +158,8 @@ class SettingsWindow:
     def _save(self) -> None:
         # 進階數值先解析：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         advanced, advanced_error = parse_advanced_values(
-            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var)
+            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
+            self._parallel)
         api = self._api.get_values()
         errors = validate_api_form(api)
         if not self._language.value():

@@ -25,6 +25,9 @@ DEFAULT_CONFIG: dict = {
     "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
     "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊
+    # 同時進行的收訊翻譯則數。實測 4 併發後幾乎無額外收益，只讓單則延遲更差；
+    # 設 1 等同逐則排隊（本功能之前的行為）。
+    "max_parallel_translations": 4,
     "hotkey": "ctrl+space",
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）
@@ -42,6 +45,7 @@ ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
     "poll_interval": (0.1, 5.0),
     "fade_seconds": (0, 3600),
     "max_messages": (10, 1000),
+    "max_parallel_translations": (1, 8),
     "type_delay": (0.0, 0.5),
     "overlay_alpha": (0.3, 1.0),
 }

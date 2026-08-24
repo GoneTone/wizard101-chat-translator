@@ -10,6 +10,7 @@
   "poll_interval": 0.4,
   "fade_seconds": 0,
   "max_messages": 200,
+  "max_parallel_translations": 4,
   "hotkey": "ctrl+space",
   "game_path": null,
   "type_delay": 0.02,

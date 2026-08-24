@@ -78,6 +78,25 @@ def test_load_clamps_out_of_range_advanced_values(tmp_path):
     assert cfg["type_delay"] == 0.5
 
 
+def test_parallel_translations_defaults_and_clamps(tmp_path):
+    from src.config import DEFAULT_CONFIG, clamp_advanced, load_config, save_config
+    assert DEFAULT_CONFIG["max_parallel_translations"] == 4
+    assert clamp_advanced({"max_parallel_translations": 99, **_others()})[
+        "max_parallel_translations"] == 8
+    assert clamp_advanced({"max_parallel_translations": 0, **_others()})[
+        "max_parallel_translations"] == 1
+    path = tmp_path / "config.json"
+    save_config(path, {"max_parallel_translations": 50})
+    assert load_config(path)["max_parallel_translations"] == 8
+
+
+def _others():
+    """clamp_advanced 會遍歷所有 ADVANCED_LIMITS 的鍵，補齊其餘欄位避免 KeyError。"""
+    from src.config import DEFAULT_CONFIG
+    return {k: DEFAULT_CONFIG[k] for k in
+            ("poll_interval", "fade_seconds", "max_messages", "type_delay", "overlay_alpha")}
+
+
 def test_is_configured():
     cfg = load_config(Path("nope.json"))
     assert not is_configured(cfg)  # model 空
