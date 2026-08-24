@@ -3,6 +3,9 @@
 收訊：來源語言自動判斷 → 翻成使用者設定的目標語言（target_language）。
 發話：來源語言自動判斷 → 翻成遊戲聊天語言（OUTGOING_LANGUAGE，固定）。
 提示詞依語言參數動態建構，程式碼不綁定特定語言。
+
+失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
+TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
 """
 import re
 from collections import deque
@@ -135,12 +138,23 @@ def strip_think(text: str) -> str:
 
 OPENAI_BASE_URL = "https://api.openai.com"  # ChatGPT preset 固定官方端點
 _TIMEOUT = 60.0
-_CLAUDE_MAX_TOKENS = 1024
+# 譯文長度上限。存在的理由不是省 token，而是防止模型 repetition loop 生成到吃穿 _TIMEOUT：
+# 實測 temperature=0 遇到原文本身重複（如「am chick um chick um chick」）會無限吐同一個字，
+# 放到 180 秒仍不收斂，於是整條收訊流程被誤判成「翻譯伺服器離線」並卡在該行重試。
+# 實測逼近遊戲單行上限、且塞滿要附英文原文的遊戲名詞的最壞譯文約 80 token，512 餘裕充足。
+_MAX_TOKENS = 512
+# 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
+_MAX_TOKENS_THINKING = 2048
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
 class TranslatorOffline(Exception):
     """可重試的翻譯失敗：連線失敗、逾時、429、5xx。"""
+
+
+class TranslatorBadOutput(Exception):
+    """不可重試的輸出異常：譯文在 max_tokens 被截斷（模型 repetition loop 或脫稿長篇）。
+    temperature=0 下重試必得同一結果，呼叫端應跳過該行而非留在佇列重試。"""
 
 
 class TranslatorConfigError(Exception):
@@ -167,10 +181,12 @@ class _OpenAICompatClient:
         self._thinking = thinking
 
     def chat(self, system: str, turns: list[dict]) -> str:
+        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
         body = {
             "model": self._model,
             "messages": [{"role": "system", "content": system}, *turns],
             "temperature": 0,
+            "max_tokens": max_tokens,
         }
         if not self._thinking:
             body.update(self._disable_params)
@@ -183,8 +199,11 @@ class _OpenAICompatClient:
         if resp.status_code == 429 or resp.status_code >= 500:
             raise TranslatorOffline(f"HTTP {resp.status_code}")
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        return strip_think(content).strip()
+        choice = resp.json()["choices"][0]
+        # 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
+        if choice.get("finish_reason") == "length":
+            raise TranslatorBadOutput(f"output truncated at max_tokens={max_tokens}")
+        return strip_think(choice["message"]["content"]).strip()
 
 
 class _ClaudeClient:
@@ -199,7 +218,7 @@ class _ClaudeClient:
     def chat(self, system: str, turns: list[dict]) -> str:
         try:
             resp = self._client.messages.create(
-                model=self._model, max_tokens=_CLAUDE_MAX_TOKENS,
+                model=self._model, max_tokens=_MAX_TOKENS_THINKING,
                 system=system, messages=turns)
         except anthropic.APIConnectionError as exc:
             raise TranslatorOffline(str(exc)) from exc
@@ -210,6 +229,8 @@ class _ClaudeClient:
             if code == 429 or code >= 500:
                 raise TranslatorOffline(f"HTTP {code}") from exc
             raise
+        if resp.stop_reason == "max_tokens":
+            raise TranslatorBadOutput(f"output truncated at max_tokens={_MAX_TOKENS_THINKING}")
         content = "".join(b.text for b in resp.content if b.type == "text")
         return strip_think(content).strip()
 

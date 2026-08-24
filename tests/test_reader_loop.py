@@ -6,7 +6,9 @@ import threading
 import src.main as main_module
 from src.main import reader_loop
 from src.reader.mem_reader import GameNotRunning
-from src.translator import TranslatorConfigError, TranslatorOffline
+from src.translator import (
+    TranslatorBadOutput, TranslatorConfigError, TranslatorOffline,
+)
 
 
 class FakeOverlay:
@@ -108,6 +110,32 @@ def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
     run_scripted(cfg, tr, ov, reads, monkeypatch)
     assert tr.calls == ["[A] a", "[B] bad", "[C] c"]
     assert ov.messages == [("[A] a", "譯:[A] a"), ("[C] c", "譯:[C] c")]
+
+
+class TruncatingTranslator:
+    """對特定行永遠回截斷（模型 repetition loop 的行為：temperature=0 重試必得同一結果）。"""
+
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def translate_incoming(self, text):
+        self.calls.append(text)
+        if text == "[B] am chick um chick":
+            raise TranslatorBadOutput("output truncated at max_tokens=512")
+        return f"譯:{text}"
+
+
+def test_truncated_line_is_dropped_and_does_not_block_queue(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    tr = TruncatingTranslator()
+    ov = FakeOverlay()
+    reads = [["[A] a", "[B] am chick um chick", "[C] c"], []]
+    run_scripted(cfg, tr, ov, reads, monkeypatch)
+    assert tr.calls == ["[A] a", "[B] am chick um chick", "[C] c"]  # 只試一次，不重試
+    assert ov.messages == [("[A] a", "譯:[A] a"),
+                           ("[B] am chick um chick", main_module.BAD_OUTPUT_NOTICE),
+                           ("[C] c", "譯:[C] c")]   # 原文仍看得到，後續行不被堵住
+    assert ov.errors == []                          # 不是伺服器離線，不掛錯誤橫幅
 
 
 class FlakyTranslator:

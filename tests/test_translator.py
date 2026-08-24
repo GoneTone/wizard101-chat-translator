@@ -5,18 +5,20 @@ import httpx2
 import pytest
 
 from src.translator import (
-    OPENAI_BASE_URL, Translator, TranslatorConfigError, TranslatorOffline,
-    build_incoming_system,
+    OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
+    TranslatorOffline, build_incoming_system,
 )
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, content="譯文"):
+    def __init__(self, status_code=200, content="譯文", finish_reason="stop"):
         self.status_code = status_code
         self._content = content
+        self._finish_reason = finish_reason
 
     def json(self):
-        return {"choices": [{"message": {"content": self._content}}]}
+        return {"choices": [{"message": {"content": self._content},
+                             "finish_reason": self._finish_reason}]}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -70,12 +72,16 @@ def test_openai_compat_retryable_status_maps_to_offline(status):
 
 
 class FakeAnthropicMessages:
-    def __init__(self, raises=None):
+    def __init__(self, raises=None, stop_reason="end_turn"):
         self._raises = raises
+        self._stop_reason = stop_reason
+        self.last_kwargs = None
 
     def create(self, **kwargs):
+        self.last_kwargs = kwargs
         if self._raises:
             raise self._raises
+        stop_reason = self._stop_reason
 
         class Block:
             type = "text"
@@ -84,12 +90,13 @@ class FakeAnthropicMessages:
         class Resp:
             content = [Block()]
 
+        Resp.stop_reason = stop_reason
         return Resp()
 
 
 class FakeAnthropicClient:
-    def __init__(self, raises=None):
-        self.messages = FakeAnthropicMessages(raises)
+    def __init__(self, raises=None, stop_reason="end_turn"):
+        self.messages = FakeAnthropicMessages(raises, stop_reason)
 
 
 def _anthropic_status_error(status):
@@ -120,6 +127,68 @@ def test_claude_status_error_mapping(status, exc):
                    target_language="繁體中文（台灣）",
                    client=FakeAnthropicClient(raises=_anthropic_status_error(status)))
     with pytest.raises(exc):
+        t.translate_incoming("[A] hi")
+
+
+def test_openai_compat_sends_max_tokens_by_thinking_mode():
+    # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
+    from src.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    off = FakeHttpxClient()
+    Translator(provider="custom", base_url="http://x", model="m", thinking=False,
+               target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi")
+    assert off.last_body["max_tokens"] == _MAX_TOKENS
+    on = FakeHttpxClient()
+    Translator(provider="custom", base_url="http://x", model="m", thinking=True,
+               target_language="繁體中文（台灣）", client=on).translate_incoming("[A] hi")
+    assert on.last_body["max_tokens"] == _MAX_TOKENS_THINKING
+
+
+def test_openai_compat_truncated_output_maps_to_bad_output():
+    fake = FakeHttpxClient(response=FakeResponse(content="呃 呃 呃", finish_reason="length"))
+    with pytest.raises(TranslatorBadOutput):
+        _make(fake).translate_incoming("[A] am chick um chick")
+
+
+def test_openai_compat_missing_finish_reason_is_accepted():
+    # 部分後端不回 finish_reason，不得因此誤判為截斷
+    fake = FakeHttpxClient(response=FakeResponse(finish_reason=None))
+    assert _make(fake).translate_incoming("[A] hi") == "譯文"
+
+
+def test_truncated_output_not_recorded_to_history():
+    class TruncateOnceClient(FakeHttpxClient):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def post(self, url, json):
+            self.calls += 1
+            self.last_body = json
+            if self.calls == 1:
+                return FakeResponse(content="呃 呃", finish_reason="length")
+            return self._response
+
+    fake = TruncateOnceClient()
+    t = _make(fake)
+    with pytest.raises(TranslatorBadOutput):
+        t.translate_incoming("[A] one")
+    t.translate_incoming("[B] two")
+    assert _turns(fake.last_body) == [{"role": "user", "content": "[B] two"}]
+
+
+def test_claude_sends_max_tokens():
+    from src.translator import _MAX_TOKENS_THINKING
+    fake = FakeAnthropicClient()
+    Translator(provider="claude", model="m", api_key="k",
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi")
+    assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_THINKING
+
+
+def test_claude_truncated_output_maps_to_bad_output():
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）",
+                   client=FakeAnthropicClient(stop_reason="max_tokens"))
+    with pytest.raises(TranslatorBadOutput):
         t.translate_incoming("[A] hi")
 
 
