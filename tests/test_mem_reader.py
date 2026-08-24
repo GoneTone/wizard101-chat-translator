@@ -1,5 +1,3 @@
-from collections import deque
-
 from src.reader.mem_reader import (
     ChatLine, GameNotRunning, WizChatReader, align_append, align_recover, clean,
     filter_resurfaced, lines_from_chatlog,
@@ -256,12 +254,20 @@ def test_message_sent_while_on_filtered_view_is_emitted():
     assert _texts(r.read_new()) == ["[F] f_new"]
 
 
-def test_filter_resurfaced_keeps_repeats_beyond_retired_counts():
-    # 多重集合語意：退役基準裡有幾份就最多剔幾份，真的又說了一樣的話要保留
-    retired = deque([["[A] lol"]])
-    emitted = [ChatLine("[A] lol", None), ChatLine("[A] lol", None),
-               ChatLine("[B] new", None)]
-    assert filter_resurfaced(emitted, retired) == [("[A] lol", None), ("[B] new", None)]
+def test_filter_resurfaced_drops_seen_and_keeps_new():
+    seen = {"[A] lol"}
+    emitted = [ChatLine("[A] lol", None), ChatLine("[B] new", None)]
+    assert filter_resurfaced(emitted, seen) == [("[B] new", None)]
+
+
+def test_suppression_survives_stable_stretch_on_one_view():
+    # 在同一視圖停留多輪後才切換：抑制證據不得被輪替沖掉（退役佇列會、看過集合不會）
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"),
+                _say(2, "F", "f2"), _say(1, "A", "m3"))
+    friend = _log(_say(2, "F", "f1"), _say(2, "F", "f2"))
+    r = FakeWiz([full] + [friend] * 6 + [full, friend, full])
+    for _ in range(10):
+        assert r.read_new() == []
 
 
 def test_first_read_skips_history():
