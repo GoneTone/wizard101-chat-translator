@@ -43,6 +43,10 @@ RESET_WARMUP_POLLS = 5
 # 不能改存「最近幾份基準」：append 快路徑每輪都在換基準，停留同一視圖幾輪
 # 就會把其他視圖的證據擠掉（實測破功），集合只受總量上限影響。
 SEEN_LINES_CAP = 10000
+# 輸入框關聯放行的有效輪數：使用者剛送出訊息時，遊戲輸入框必在前 1-2 輪內開啟過。
+# 登出再登入不會重啟程序、看過集合殘留舊 session 字樣，重打同一句（Test/lol 等）
+# 走 reset 會被誤判重浮吞掉；輸入框剛關閉＋視圖尾行同字＝剛送出的訊息，放行。
+INPUT_RELEASE_POLLS = 2
 
 
 class GameNotRunning(Exception):
@@ -237,6 +241,8 @@ class WizChatReader:
         self._warmup_left = RESET_WARMUP_POLLS  # 剩餘暖機輪數（reset 吸收期）
         self._seen: set[str] = set()          # 近期讀過的行文字（各視圖聯集）
         self._seen_order: deque[str] = deque()  # 進入順序，供容量上限 FIFO 淘汰
+        self._input_recent = 0     # 輸入框開啟後的剩餘關聯輪數（見 INPUT_RELEASE_POLLS）
+        self._input_was_open = False
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
@@ -255,6 +261,13 @@ class WizChatReader:
         """回傳自上次呼叫後新增的玩家聊天行（依序、含重複）；無新訊息回傳 []。
         找不到遊戲或連線中斷丟 GameNotRunning。"""
         texts = self._read_chatlog_texts()
+        # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
+        input_open_now = self.input_open()
+        if input_open_now or self._input_was_open:
+            self._input_recent = INPUT_RELEASE_POLLS
+        elif self._input_recent > 0:
+            self._input_recent -= 1
+        self._input_was_open = input_open_now
         # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
         cur = lines_from_chatlog("\n".join(sorted(texts)))
         # 差分只看文字：切頻道時 chatLog 會把同樣的訊息以該頻道顏色重新染色，
@@ -345,6 +358,14 @@ class WizChatReader:
         # 過濾要在 _remember 之前——本輪剛出現的新行還不在集合裡，才吐得出來。
         elif emitted:
             kept = filter_resurfaced(emitted, self._seen)
+            if (len(kept) != len(emitted) and self._input_recent > 0
+                    and (not kept or kept[-1] is not emitted[-1])):
+                # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
+                # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除
+                print(f"[reader] released tail line suppressed as resurfaced: input "
+                      f"closed recently, treating as a just-sent message via {path}",
+                      file=sys.stderr)
+                kept = kept + [emitted[-1]]
             if len(kept) != len(emitted):
                 print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
                       f"lines via {path} (kept={len(kept)}, "

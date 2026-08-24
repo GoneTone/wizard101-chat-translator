@@ -196,13 +196,17 @@ def test_align_recover_none_when_no_overlap():
 
 # --- WizChatReader：以假 chatLog 文字驗證差分流程（不需遊戲） ---
 class FakeWiz(WizChatReader):
-    """以腳本化的 chatLog 全文序列取代 wizwalker I/O。"""
+    """以腳本化的 chatLog 全文序列取代 wizwalker I/O。inputs＝每輪輸入框開關狀態。"""
 
-    def __init__(self, texts):
+    def __init__(self, texts, inputs=None):
         super().__init__()
         self.texts = texts
+        self.inputs = list(inputs or [])
         self.n = 0
         self._connected = True
+
+    def input_open(self):
+        return self.inputs.pop(0) if self.inputs else False
 
     def _grab_texts(self) -> list[str]:
         i = min(self.n, len(self.texts) - 1)
@@ -454,6 +458,41 @@ def test_node_removed_stays_silent_then_resumes():
     assert r.read_new() == []                    # 基準（2 節點）
     assert r.read_new() == []                    # 節點減少：靜默
     assert _texts(r.read_new()) == ["[A] m2"]    # 之後照常
+
+
+# --- 輸入框關聯放行：剛送出的訊息與近期舊訊息同字時不得被誤判重浮 ---
+def test_same_text_message_after_relogin_emitted_when_input_just_closed():
+    # 實機：登出再登入不重啟程序，看過集合殘留舊 session 字樣；登入後在朋友視窗
+    # 重打同一句（Test）走 reset 被誤判重浮吞掉。輸入框剛關閉＝使用者剛送出，
+    # 視圖尾行同字者關聯放行
+    main = _log(_say(1, "A", "m1"), _own("Test"), _say(2, "B", "m2"))
+    reads = [main] * 7 + [""] * 20 + [_log(_own("Test"))]
+    inputs = [False] * 26 + [True, False]      # 送出前一輪輸入框開啟
+    r = FakeWiz(reads, inputs)
+    for _ in range(27):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] Test"]
+
+
+def test_resurfaced_view_without_input_activity_stays_suppressed():
+    # 沒有輸入框活動的重浮（切分頁/視圖還原）：照樣攔住，不因放行機制而重翻
+    full = _log(_say(1, "A", "m1"), _say(2, "F", "f1"), _say(1, "A", "m2"))
+    friend = _log(_say(2, "F", "f1"))
+    reads = [full] * 7 + [friend, full, friend]
+    r = FakeWiz(reads)
+    for _ in range(10):
+        assert r.read_new() == []
+
+
+def test_correlated_release_only_frees_the_tail_line():
+    # 輸入框剛關閉時發生的視圖重浮：只放行尾行（剛送出的那句），其餘舊行照攔
+    full = _log(_say(1, "A", "m1"), _own("gg"), _say(1, "A", "m2"))
+    reads = [full] * 7 + [""] * 20 + [_log(_say(1, "A", "m1"), _own("gg"))]
+    inputs = [False] * 26 + [True, False]
+    r = FakeWiz(reads, inputs)
+    for _ in range(27):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] gg"]   # 尾行放行；[A] m1 仍被攔
 
 
 def test_first_read_skips_history():
