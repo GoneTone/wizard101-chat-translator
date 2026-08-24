@@ -47,6 +47,12 @@ SEEN_LINES_CAP = 10000
 # 登出再登入不會重啟程序、看過集合殘留舊 session 字樣，重打同一句（Test/lol 等）
 # 走 reset 會被誤判重浮吞掉；輸入框剛關閉＋視圖尾行同字＝剛送出的訊息，放行。
 INPUT_RELEASE_POLLS = 2
+# 連續空讀超過此輪數＝聊天被清空很久（登出/選角/超長載入），舊基準視為過期：
+# 恢復內容後不得再拿它做 append/recover 對齊——登出前尾行與登入後第一句同字時，
+# append 會誤判「無變化」把新句靜默吞掉（實測）。強制走 reset 語意，
+# 由看過集合（歷史灌回不重翻）與輸入框關聯放行（剛送出的同字句照翻）接手。
+# 傳送/轉場的暫態清空只有幾輪，不受影響。
+STALE_BASELINE_EMPTY_POLLS = 10
 
 
 class GameNotRunning(Exception):
@@ -243,6 +249,7 @@ class WizChatReader:
         self._seen_order: deque[str] = deque()  # 進入順序，供容量上限 FIFO 淘汰
         self._input_recent = 0     # 輸入框開啟後的剩餘關聯輪數（見 INPUT_RELEASE_POLLS）
         self._input_was_open = False
+        self._empty_streak = 0     # 連續空讀輪數（見 STALE_BASELINE_EMPTY_POLLS）
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
@@ -286,7 +293,13 @@ class WizChatReader:
         if self._warmup_left > 0:
             self._warmup_left -= 1
         if not cur:
+            self._empty_streak += 1
             return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+        baseline_stale = self._empty_streak >= STALE_BASELINE_EMPTY_POLLS
+        self._empty_streak = 0
+        if baseline_stale:
+            print(f"[reader] baseline stale after a long empty stretch, "
+                  f"handling as reset (lines={len(cur)})", file=sys.stderr)
         node_added = False
         if len(texts) != self._node_count:
             if len(texts) < self._node_count:
@@ -307,9 +320,10 @@ class WizChatReader:
             self._node_count = len(texts)
             node_added = True
         prev_len = len(self._prev)
+        force_reset = node_added or baseline_stale
         path = "append"
-        appended = None if node_added else align_append(self._prev, cur_texts)
-        if appended is None and not node_added:
+        appended = None if force_reset else align_append(self._prev, cur_texts)
+        if appended is None and not force_reset:
             # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
             path = "recover"
             appended = align_recover(self._prev, cur_texts)
