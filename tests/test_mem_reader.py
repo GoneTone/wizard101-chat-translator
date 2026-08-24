@@ -407,6 +407,17 @@ def test_reconnect_resets_session_state():
     assert _texts(r.read_new()) == ["[你] Test"]  # 同字的第一句不得被舊集合吞掉
 
 
+def test_warmup_expires_within_five_polls():
+    # 暖機縮短為 5 輪（0.4s poll 約 2 秒）：第 6 輪起 reset 的新訊息就要翻。
+    # 啟動盲區實測都在前 1-3 輪（視圖每輪輪播、看過集合幾輪內學完），5 輪已保守
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    reads = [main] * 6 + [_log(_own("first after switch"))]
+    r = FakeWiz(reads)
+    for _ in range(6):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] first after switch"]
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史
