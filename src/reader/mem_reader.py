@@ -20,6 +20,15 @@ from src.reader import hook_state
 PROCESS_NAME = "WizardGraphicalClient.exe"
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
 
+# 單輪 poll 的新增行數上限。實測 chatLog 會在「約 110 行的短清單」與「上千行的完整歷史」
+# 之間反覆跳動；只要歷史開頭那行碰巧等於基準尾行（聊天充滿 lol/gg 等重複短行），
+# align_append 就會把整段舊訊息當成新訊息回吐——而且它是唯一不印 log 的路徑，難以察覺。
+# 一輪只隔 poll_interval 秒，真實聊天不可能新增這麼多，超過即判定為差分誤對齊。
+# 這道防線套在所有路徑的共同出口，不只擋 align_append。
+MAX_NEW_LINES_PER_POLL = 100
+# 未達上限但異常大的批次：照吐，但留下診斷數據供事後判斷差分是否誤判
+LARGE_BATCH_LOG_THRESHOLD = 10
+
 
 class GameNotRunning(Exception):
     """找不到遊戲程序，或無法連上/掛入。"""
@@ -150,7 +159,9 @@ class WizChatReader:
     首次連上只記錄現況、不回吐既有歷史（只翻之後的新訊息）。之後每輪讀完整聊天記錄，
     與上輪做尾端差分（align_append）取新增行；重複訊息因逐行保留不會漏。
     空讀（傳送/轉場時聊天暫態清空）保留基準、忽略，避免填回同樣歷史時重譯；
-    與基準對不齊（relog/清空成全新內容）則視為新訊息輸出。"""
+    與基準對不齊（relog/清空成全新內容）則視為新訊息輸出。
+    所有路徑共用一道出口防線：單輪吐出超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊，
+    不吐並重建基準（見該常數的說明）。"""
 
     def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME):
         self.process_name = process_name
@@ -194,23 +205,40 @@ class WizChatReader:
             self._node_count = len(texts)
             self._prev = cur
             return []
+        prev_len = len(self._prev)
+        path = "append"
         appended = align_append(self._prev, cur)
         if appended is None:
             # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
+            path = "recover"
             appended = align_recover(self._prev, cur)
             if appended is not None:
                 print(f"[reader] baseline misaligned, recovered via tail anchor "
-                      f"(prev={len(self._prev)}, cur={len(cur)}, "
+                      f"(prev={prev_len}, cur={len(cur)}, "
                       f"emitted={len(appended)})", file=sys.stderr)
         if appended is None:
             # 與基準完全無重疊 → 聊天已重置（relog/清空成全新內容），cur 全部視為新訊息。
             # 印記錄供事後查證：若此路徑在非 relog 情境被觸發，代表差分邏輯仍有漏洞。
+            path = "reset"
+            appended = cur
             print(f"[reader] chat log has no overlap with baseline, treating as reset "
-                  f"(lines={len(cur)} will be re-translated)", file=sys.stderr)
-            self._prev = cur
-            return cur
+                  f"(lines={len(cur)})", file=sys.stderr)
         self._prev = cur
-        return appended             # 正常延續（無新增時為 []）
+        return self._guard_burst(appended, path, prev_len, len(cur), len(texts))
+
+    def _guard_burst(self, appended: list[str], path: str, prev_len: int,
+                     cur_len: int, nodes: int) -> list[str]:
+        """所有差分路徑的共同出口：擋下不可能為真的暴量新增（見 MAX_NEW_LINES_PER_POLL），
+        並為接近上限的批次留下診斷數據。基準已在呼叫端更新，擋下即等同靜默重建基準。"""
+        if len(appended) > MAX_NEW_LINES_PER_POLL:
+            print(f"[reader] implausible burst suppressed via {path}: {len(appended)} new "
+                  f"lines in one poll (prev={prev_len}, cur={cur_len}, nodes={nodes}); "
+                  f"re-baselined without emitting", file=sys.stderr)
+            return []
+        if len(appended) > LARGE_BATCH_LOG_THRESHOLD:
+            print(f"[reader] large batch via {path}: {len(appended)} lines "
+                  f"(prev={prev_len}, cur={cur_len}, nodes={nodes})", file=sys.stderr)
+        return appended
 
     def input_open(self) -> bool:
         """遊戲聊天輸入框目前是否開啟；未連上或讀取失敗一律視為關閉。
@@ -336,8 +364,12 @@ class WizChatReader:
             if self._handler is not None and self._loop is not None:
                 self._loop.run_until_complete(self._handler.close())
                 unhooked = True
-        except Exception:
-            pass
+        except Exception as exc:
+            # 解 hook 失敗：狀態檔會留著，下次啟動由 _repair_leaked_hooks 寫回原始 bytes。
+            # 過去這裡靜默吞掉，導致上層照樣印 shutdown complete，下次啟動才冒出
+            # 「repaired hooks leaked by previous dirty exit」而查不出原因。
+            print(f"[reader] unhook failed, leaving repair state for next launch: {exc}",
+                  file=sys.stderr)
         if unhooked and self._pid:
             hook_state.clear_state(self._pid)  # 已乾淨 unhook → 無遺留，清除還原狀態
         try:

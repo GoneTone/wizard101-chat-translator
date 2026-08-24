@@ -348,6 +348,37 @@ def test_message_after_chat_cleared_is_emitted():
     assert r.read_new() == ["[C] fresh"]
 
 
+def _burst_lines(n: int) -> list[str]:
+    return [_say(2, "B", f"old{i}") for i in range(n)]
+
+
+def test_implausible_burst_is_suppressed():
+    # 實測情境：chatLog 在「約 110 行的短清單」與「上千行的完整歷史」之間反覆跳動，
+    # 只要歷史開頭那行碰巧等於基準尾行（聊天充滿 lol/gg 等重複短行），align_append
+    # 就會把整段舊訊息當成新訊息且不印 log。一輪 poll 只隔 poll_interval 秒，
+    # 不可能新增這麼多行 → 一律不吐、靜默重建基準。
+    from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
+    tail = _say(9, "Z", "lol")
+    old = _burst_lines(MAX_NEW_LINES_PER_POLL + 1)
+    r = FakeWiz([
+        _log(_say(1, "A", "a"), tail),
+        _log(tail, *old),                      # 尾行對上歷史開頭 → 誤判整段為新訊息
+        _log(tail, *old, _say(3, "C", "real")),
+    ])
+    assert r.read_new() == []
+    assert r.read_new() == []                  # 洪水擋下
+    assert r.read_new() == ["[C] real"]        # 基準已重建，之後正常延續
+
+
+def test_burst_within_limit_still_emitted():
+    # 上限是防洪水，不是限流：翻譯卡住時累積的正常批次仍要全數吐出
+    from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
+    old = _burst_lines(MAX_NEW_LINES_PER_POLL)
+    r = FakeWiz([_log(_say(1, "A", "a")), _log(_say(1, "A", "a"), *old)])
+    assert r.read_new() == []
+    assert len(r.read_new()) == MAX_NEW_LINES_PER_POLL
+
+
 def test_read_failure_raises_game_not_running():
     r = FakeWiz([_log(_say(1, "A", "hi")), RuntimeError("process gone")])
     assert r.read_new() == []
