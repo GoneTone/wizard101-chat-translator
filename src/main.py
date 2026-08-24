@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import keyboard
 
+from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, app_dir, is_configured, load_config, save_config
@@ -224,6 +225,9 @@ def main() -> None:
             # 退回丟棄輸出而非讓程式在使用者看不到任何訊息的情況下當掉。
             log = open(os.devnull, "w", encoding="utf-8")
         sys.stdout = sys.stderr = log
+
+    # 版本先印：使用者回報問題時，app.log 分段標頭後第一行就看得到版本
+    print(f"[app] version={__version__}", file=sys.stderr)
 
     cfg = load_config(CONFIG_PATH)
 

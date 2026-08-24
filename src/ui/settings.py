@@ -3,6 +3,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from src import __version__
 from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
@@ -96,6 +97,7 @@ class SettingsWindow:
 
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
         btns.pack(side="bottom", fill="x")
+        ttk.Label(btns, text=f"v{__version__}", foreground="#888888").pack(side="left")
         ttk.Button(btns, text="取消", command=self._cancel).pack(side="right")
         ttk.Button(btns, text="儲存", command=self._save).pack(side="right", padx=(0, 8))
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)

@@ -19,7 +19,8 @@ Wizard101 聊天 AI 翻譯：讀取遊戲聊天訊息即時翻成**你設定的�
 
 不需要 Python 環境，下載打包好的 exe 即可使用：
 
-1. 下載 `Wizard101ChatTranslator.exe`，放到任意資料夾（設定 `config.json`
+1. 到 [Releases](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
+   下載 `Wizard101ChatTranslator.exe`，放到任意資料夾（設定 `config.json`
    與紀錄檔 `app.log` 都會存在 exe 同一個資料夾）
 2. 雙擊執行：
    - 第一次執行（找不到 `config.json`）會跳出**首次設定精靈**：第一步選翻譯服務、
@@ -65,6 +66,22 @@ uv run pyinstaller build.spec --noconfirm
 產物在 `dist/Wizard101ChatTranslator.exe`，單一 windowed exe（無主控台黑窗）。
 分發時只需這個 exe;`config.json` 與 `app.log` 會在使用者第一次執行時自動建立
 在 exe 同一個資料夾（見上方「一般使用者」）。
+
+### 放版
+
+版本號遵循 [SemVer](https://semver.org/lang/zh-TW/)，唯一真實來源是
+`src/__init__.py` 的 `__version__`（`pyproject.toml` 的 `version` 只是中繼資料，
+由 `tests/test_version.py` 釘住兩者一致）。0.x 期間 minor 版可含破壞性變更
+（例如 `config.json` 欄位改名），patch 版只修 bug。
+
+放一版的步驟：
+
+1. 同步改 `src/__init__.py` 與 `pyproject.toml` 的版本號
+2. `uv run pytest` 全綠
+3. `git commit -m "chore: release v0.2.0"`
+4. `git tag v0.2.0`（tag 一律 `v` 前綴）並推上 GitHub
+5. `uv run pyinstaller build.spec --noconfirm` 打包，在 GitHub 上以該 tag
+   建立 Release，把 `dist/Wizard101ChatTranslator.exe` 當作 asset 上傳
 
 ### 使用（從原始碼執行）
 
