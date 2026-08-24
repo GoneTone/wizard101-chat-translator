@@ -377,6 +377,36 @@ def test_resurfaced_view_after_warmup_still_suppressed():
         assert r.read_new() == []
 
 
+def test_first_message_per_channel_with_empty_chat_after_game_restart():
+    # 重開遊戲、聊天全空：暖機輪數必須含空讀（否則永不過期），
+    # 各頻道（視圖從空白冒出第一句）的第一句話都要翻
+    reads = [""] * 12 + [_log(_own("hello a")), _log(_own("hello b"))]
+    r = FakeWiz(reads)
+    for _ in range(12):
+        assert r.read_new() == []                    # 空聊天：基準空、暖機隨輪數過期
+    assert _texts(r.read_new()) == ["[你] hello a"]  # 第一個頻道的第一句
+    assert _texts(r.read_new()) == ["[你] hello b"]  # 另一頻道視圖的第一句
+
+
+def test_reconnect_resets_session_state():
+    # 遊戲重開（斷線重連）：基準/看過集合屬於上個 session，必須歸零——
+    # 否則新 session 第一句與舊訊息同字（Test 等常用字）會被誤判重浮而吞掉
+    reads = ([_log(_own("Test"))] * 12
+             + [RuntimeError("game closed")]
+             + ["", _log(_own("Test"))])
+    r = FakeWiz(reads)
+    for _ in range(12):
+        assert r.read_new() == []
+    try:
+        r.read_new()
+        assert False, "expected GameNotRunning"
+    except GameNotRunning:
+        pass
+    r._connected = True                          # 模擬重連成功
+    assert r.read_new() == []                    # 新 session：空聊天重建基準
+    assert _texts(r.read_new()) == ["[你] Test"]  # 同字的第一句不得被舊集合吞掉
+
+
 def test_first_read_skips_history():
     r = FakeWiz([_log(_say(1, "A", "old1"), _say(1, "A", "old2"))])
     assert r.read_new() == []          # 首次：記錄現況，不回吐既有歷史

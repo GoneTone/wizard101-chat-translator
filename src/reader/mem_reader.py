@@ -268,10 +268,12 @@ class WizChatReader:
             print(f"[reader] baseline established (lines={len(cur)}, "
                   f"nodes={len(texts)})", file=sys.stderr)
             return []
-        if not cur:
-            return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+        # 暖機以「輪數」計且含空讀：重開遊戲後聊天常長時間空白，若只數非空讀，
+        # 暖機永不過期，各頻道從空白冒出的第一句（走 reset）會被無限吸收
         if self._warmup_left > 0:
             self._warmup_left -= 1
+        if not cur:
+            return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
         if len(texts) != self._node_count:
             # 節點數量變動（UI 事件生出/收掉 chatLog）→ 串接結構改變，無法歸因新舊：
             # 靜默重建基準、不回吐，避免把其他節點的舊內容當成新訊息（洪水）
@@ -509,6 +511,15 @@ class WizChatReader:
         self._client = None
         self._edit_node = None
         self._connected = False
+        # 差分狀態屬於單一遊戲 session：斷線（多半是遊戲重開）後全部歸零。
+        # 沿用舊 session 的基準/看過集合，會把新 session 與舊訊息同字的第一句
+        # （Test/lol 等常用字）誤判為重浮歷史而吞掉。
+        self._prev = []
+        self._node_count = None
+        self._synced = False
+        self._seen.clear()
+        self._seen_order.clear()
+        self._warmup_left = RESET_WARMUP_POLLS
 
     def close(self) -> None:
         """停止時呼叫：解除 hook、關閉連線。"""
