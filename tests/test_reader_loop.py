@@ -1,15 +1,24 @@
-"""reader_loop 行為：WizChatReader.read_new() → pending 佇列 → 翻譯 → overlay。
-離線時失敗行留在 pending 下輪續翻；找不到遊戲顯示橫幅；重試無意義的錯誤跳過該行、
-但仍把原文送上 overlay。"""
+"""reader_loop 行為：WizChatReader.read_new() → 推進 context → overlay 佔位 → 提交 pool。
+翻譯本身與其重試改由 TranslationPool 負責（見 test_translation_pool.py）。"""
 import queue
 import threading
 
 import src.main as main_module
-from src.main import reader_loop
+from src.context import ChatContext
+from src.main import PENDING_NOTICE, banner_for, reader_loop
 from src.reader.mem_reader import GameNotRunning
-from src.translator import (
-    TranslatorBadOutput, TranslatorConfigError, TranslatorOffline,
-)
+
+
+class FakePool:
+    """記錄提交內容；error_state／in_flight 由測試直接設定。"""
+
+    def __init__(self):
+        self.submitted: list[tuple[str, list[str], int]] = []
+        self.error_state: str | None = None
+        self.in_flight = 0
+
+    def submit(self, line, context, msg_id):
+        self.submitted.append((line, list(context), msg_id))
 
 
 class FakeOverlay:
@@ -19,8 +28,11 @@ class FakeOverlay:
         self.clears = 0
         self.statuses: list[str] = []
 
-    def add_message(self, original, translated):
+    def add_message(self, original, translated, msg_id=None):
         self.messages.append((original, translated))
+
+    def update_message(self, msg_id, translated):
+        pass
 
     def set_error(self, text):
         self.errors.append(text)
@@ -55,13 +67,16 @@ class FakeReader:
         pass
 
 
-def run_scripted(cfg, translator, overlay, reads, monkeypatch):
+def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None):
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
+    pool = pool or FakePool()
+    context = context or ChatContext()
     monkeypatch.setattr(main_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, translator, overlay, ui_queue, stop)
+    reader_loop(cfg, overlay, ui_queue, stop, context, pool)
     _drain(ui_queue)
+    return pool, context
 
 
 def _drain(ui_queue):
@@ -72,131 +87,52 @@ def _drain(ui_queue):
             break
 
 
-class OkTranslator:
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def translate_incoming(self, text):
-        self.calls.append(text)
-        return f"譯:{text}"
-
-
-def test_new_lines_translated_in_order_including_repeats(monkeypatch):
+def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
     cfg = {"poll_interval": 0.01}
-    tr = OkTranslator()
     ov = FakeOverlay()
     reads = [[], ["[A] a"], ["[B] hi", "[B] hi"], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == ["[A] a", "[B] hi", "[B] hi"]
-    assert ov.messages == [("[A] a", "譯:[A] a"), ("[B] hi", "譯:[B] hi"),
-                           ("[B] hi", "譯:[B] hi")]
+    pool, _ = run_scripted(cfg, ov, reads, monkeypatch)
+    # overlay 依讀取順序先佔位（譯文位置為「翻譯中…」），順序不由翻譯完成先後決定
+    assert ov.messages == [("[A] a", PENDING_NOTICE), ("[B] hi", PENDING_NOTICE),
+                           ("[B] hi", PENDING_NOTICE)]
+    assert [line for line, _, _ in pool.submitted] == ["[A] a", "[B] hi", "[B] hi"]
+    assert [msg_id for _, _, msg_id in pool.submitted] == [1, 2, 3]
 
 
-class OneBadTranslator:
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def translate_incoming(self, text):
-        self.calls.append(text)
-        if text == "[B] bad":
-            raise ValueError("模型回傳非預期格式")
-        return f"譯:{text}"
-
-
-def test_non_http_error_skips_line_and_keeps_going(monkeypatch):
+def test_context_advances_by_read_order_not_by_completion(monkeypatch):
+    # 每則帶到的 context 是它「之前」的行——平行翻譯時同批訊息仍看得到彼此
     cfg = {"poll_interval": 0.01}
-    tr = OneBadTranslator()
-    ov = FakeOverlay()
-    reads = [["[A] a", "[B] bad", "[C] c"], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == ["[A] a", "[B] bad", "[C] c"]
-    assert ov.messages == [("[A] a", "譯:[A] a"),
-                           ("[B] bad", main_module.TRANSLATE_FAILED_NOTICE),
-                           ("[C] c", "譯:[C] c")]
+    reads = [["[A] one", "[B] two", "[C] three"], []]
+    pool, context = run_scripted(cfg, FakeOverlay(), reads, monkeypatch)
+    assert [ctx for _, ctx, _ in pool.submitted] == [
+        [], ["[A] one"], ["[A] one", "[B] two"]]
+    assert context.snapshot() == ["[A] one", "[B] two", "[C] three"]
 
 
-class TruncatingTranslator:
-    """對特定行永遠回截斷（模型 repetition loop 的行為：temperature=0 重試必得同一結果）。"""
-
-    def __init__(self):
-        self.calls: list[str] = []
-
-    def translate_incoming(self, text):
-        self.calls.append(text)
-        if text == "[B] am chick um chick":
-            raise TranslatorBadOutput("output truncated at max_tokens=512")
-        return f"譯:{text}"
-
-
-def test_truncated_line_is_dropped_and_does_not_block_queue(monkeypatch):
+def test_banner_follows_pool_error_state(monkeypatch):
     cfg = {"poll_interval": 0.01}
-    tr = TruncatingTranslator()
     ov = FakeOverlay()
-    reads = [["[A] a", "[B] am chick um chick", "[C] c"], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == ["[A] a", "[B] am chick um chick", "[C] c"]  # 只試一次，不重試
-    assert ov.messages == [("[A] a", "譯:[A] a"),
-                           ("[B] am chick um chick", main_module.TRANSLATE_FAILED_NOTICE),
-                           ("[C] c", "譯:[C] c")]   # 原文仍看得到，後續行不被堵住
-    assert ov.errors == []                          # 不是伺服器離線，不掛錯誤橫幅
+    pool = FakePool()
+    pool.error_state = "offline"
+    run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
+    assert ov.errors == [main_module.OFFLINE_NOTICE]
 
 
-class FlakyTranslator:
-    def __init__(self):
-        self.calls = 0
-
-    def translate_incoming(self, text):
-        self.calls += 1
-        if self.calls == 1:
-            raise TranslatorOffline("offline")
-        return f"譯:{text}"
+def test_banner_prefers_game_missing_over_translation_error():
+    # 連不上遊戲時翻譯狀態已無意義，橫幅顯示遊戲未就緒
+    assert banner_for(True, "offline") == main_module.GAME_MISSING_NOTICE
+    assert banner_for(False, "config") == main_module.CONFIG_ERROR_NOTICE
+    assert banner_for(False, "offline") == main_module.OFFLINE_NOTICE
+    assert banner_for(False, None) is None
 
 
-def test_failed_line_stays_pending_and_retried(monkeypatch):
-    monkeypatch.setattr(main_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
+def test_status_shows_translating_while_pool_busy(monkeypatch):
     cfg = {"poll_interval": 0.01}
-    tr = FlakyTranslator()
     ov = FakeOverlay()
-    reads = [["[X] x"], [], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == 2                      # 第一次離線，第二輪重試同一行
-    assert ov.messages == [("[X] x", "譯:[X] x")]
-    assert ov.errors == ["⚠  翻譯伺服器離線，重試中…"]
-    assert ov.clears == 1
-
-
-class ConfigErrorTranslator:
-    def __init__(self):
-        self.calls = 0
-
-    def translate_incoming(self, text):
-        self.calls += 1
-        if self.calls == 1:
-            raise TranslatorConfigError("bad key", status=401)
-        return f"譯:{text}"
-
-
-def test_config_error_line_stays_pending_and_retried(monkeypatch):
-    monkeypatch.setattr(main_module, "CONFIG_ERROR_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01}
-    tr = ConfigErrorTranslator()
-    ov = FakeOverlay()
-    reads = [["[X] x"], [], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert tr.calls == 2                      # 第一次設定錯誤，第二輪重試同一行
-    assert ov.messages == [("[X] x", "譯:[X] x")]
-    assert ov.errors == ["⚠  API 設定有誤，請開啟設定（⚙）檢查"]
-    assert ov.clears == 1
-
-
-def test_status_transitions(monkeypatch):
-    # 監聽 →（有新訊息）翻譯中 → 監聽
-    cfg = {"poll_interval": 0.01}
-    tr = OkTranslator()
-    ov = FakeOverlay()
-    reads = [[], ["[A] a"], []]
-    run_scripted(cfg, tr, ov, reads, monkeypatch)
-    assert ov.statuses == ["●  監聽中", "●  翻譯中…", "●  監聽中"]
+    pool = FakePool()
+    pool.in_flight = 2
+    run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
+    assert "●  翻譯中…" in ov.statuses
 
 
 def test_status_locating_when_not_anchored(monkeypatch):
@@ -206,7 +142,7 @@ def test_status_locating_when_not_anchored(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(main_module, "WizChatReader",
                         lambda **kw: FakeReader([[], []], stop, anchored=False))
-    reader_loop(cfg, OkTranslator(), ov, ui_queue, stop)
+    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
     assert ov.statuses == ["●  連線遊戲中…"]  # 狀態未變不重複發
 
@@ -229,7 +165,7 @@ def _run_with_input(cfg, reads, input_states, monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(main_module, "WizChatReader",
                         lambda **kw: InputFakeReader(reads, stop, input_states))
-    reader_loop(cfg, OkTranslator(), FakeOverlay(), ui_queue, stop,
+    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
                 on_input_open=lambda: events.append("open"),
                 on_input_close=lambda: events.append("close"))
     _drain(ui_queue)
@@ -251,11 +187,6 @@ def test_game_input_detection_disabled_by_config(monkeypatch):
     assert events == []
 
 
-class NeverTranslator:
-    def translate_incoming(self, text):
-        raise AssertionError("找不到遊戲時不應嘗試翻譯")
-
-
 def test_game_not_running_shows_banner_once(monkeypatch):
     monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
     cfg = {"poll_interval": 0.01}
@@ -265,8 +196,8 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(main_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, NeverTranslator(), ov, ui_queue, stop)
+    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.errors == ["⚠  遊戲未就緒／連線中斷，等待中…"]
+    assert ov.errors == [main_module.GAME_MISSING_NOTICE]
     assert ov.messages == []
     assert "●  等待遊戲中…" in ov.statuses

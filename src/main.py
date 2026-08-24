@@ -1,10 +1,10 @@
 """進入點：reader 執行緒（wizwalker 收訊）+ 全域熱鍵 + tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
+import itertools
 import os
 import queue
 import sys
 import threading
 import tkinter as tk
-from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import keyboard
@@ -13,17 +13,20 @@ from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, app_dir, is_configured, load_config, save_config
+from src.context import ChatContext
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.overlay import OverlayWindow
-from src.translator import (
-    Translator, TranslatorBadOutput, TranslatorConfigError, TranslatorOffline,
-)
+from src.translation_pool import TranslationPool
+from src.translator import Translator
 from src.ui.settings import SettingsWindow
 
-BACKOFF_STEPS = [5, 15, 30]  # 翻譯伺服器離線時的重試間隔（秒）
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
-CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復
-TRANSLATE_FAILED_NOTICE = "⚠  這則訊息翻譯不出來"  # 放棄該行時代替譯文顯示
+
+PENDING_NOTICE = "翻譯中…"                        # 佔位期間顯示於譯文位置
+TRANSLATE_FAILED_NOTICE = "⚠  這則訊息翻譯不出來"   # 放棄該行時代替譯文顯示
+GAME_MISSING_NOTICE = "⚠  遊戲未就緒／連線中斷，等待中…"
+OFFLINE_NOTICE = "⚠  翻譯伺服器離線，重試中…"
+CONFIG_ERROR_NOTICE = "⚠  API 設定有誤，請開啟設定（⚙）檢查"
 
 # overlay 標題列狀態指示：（文字， 顏色）
 STATUS = {
@@ -32,6 +35,18 @@ STATUS = {
     "translating": ("●  翻譯中…", "#6fa8dc"),
     "waiting_game": ("●  等待遊戲中…", "#9a9aa8"),
 }
+
+
+def banner_for(game_missing: bool, error_state: str | None) -> str | None:
+    """依目前狀況決定該顯示哪一條錯誤橫幅（None＝不顯示）。
+    遊戲未就緒優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。"""
+    if game_missing:
+        return GAME_MISSING_NOTICE
+    if error_state == "config":
+        return CONFIG_ERROR_NOTICE
+    if error_state == "offline":
+        return OFFLINE_NOTICE
+    return None
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -47,18 +62,17 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             print(f"[ui] callback failed: {exc}", file=sys.stderr)
 
 
-def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
-                ui_queue: queue.Queue, stop: threading.Event,
+def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
+                stop: threading.Event, context: ChatContext, pool: TranslationPool,
                 on_input_open=None, on_input_close=None) -> None:
-    # 透過 wizwalker 讀遊戲聊天記錄，每輪讀新增的行（依序、含重複）→ 翻譯 → overlay。
-    # 翻譯失敗/離線的行留在 pending，下輪從中斷處續翻，不漏不重。
+    # 讀遊戲聊天記錄 → 依序推進上下文、在 overlay 佔位 → 交給 pool 平行翻譯。
+    # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
     reader = WizChatReader(game_path=cfg.get("game_path"))
-    pending: deque[str] = deque()
-    backoff_index = 0
-    error_state: str | None = None  # None／"offline"／"config"：供橫幅清除與轉換時記 log
+    msg_ids = itertools.count(1)
     game_missing = False
-    game_input_open = False  # 遊戲聊天輸入框狀態：邊緣觸發自動呼出／收回翻譯輸入
+    game_input_open = False
     last_status: str | None = None
+    last_banner: str | None = None
 
     def set_status(key: str) -> None:
         nonlocal last_status
@@ -68,91 +82,54 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
         text, color = STATUS[key]
         ui_queue.put(lambda: overlay.set_status(text, color))
 
-    while not stop.is_set():
-        interval = cfg["poll_interval"]
-        translated_ok = False
-        went_offline = False
-        config_error = False
+    def set_banner(text: str | None) -> None:
+        nonlocal last_banner
+        if text == last_banner:
+            return
+        last_banner = text
+        if text is None:
+            ui_queue.put(overlay.clear_error)
+        else:
+            ui_queue.put(lambda t=text: overlay.set_error(t))
 
-        # 讀取前先亮狀態：首輪要連上遊戲並掛入 hook，期間讓使用者知道在連線
+    while not stop.is_set():
         set_status("listening" if reader.anchored else "locating")
         try:
-            pending.extend(reader.read_new())
+            new_lines = reader.read_new()
         except GameNotRunning as exc:
             set_status("waiting_game")
             if not game_missing:
                 game_missing = True
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
-                ui_queue.put(lambda: overlay.set_error("⚠  遊戲未就緒／連線中斷，等待中…"))
+            set_banner(banner_for(game_missing, pool.error_state))
             if game_input_open:
-                game_input_open = False  # 遊戲斷線＝輸入框已不存在,同步收回
+                game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
                 if on_input_close is not None:
                     on_input_close()
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
             print(f"[reader] poll skipped: {exc}", file=sys.stderr)
-            stop.wait(interval)
+            stop.wait(cfg["poll_interval"])
             continue
 
         if game_missing:
             game_missing = False
             print("[reader] game back, resuming", file=sys.stderr)
-            ui_queue.put(overlay.clear_error)
 
-        if pending:
+        for line in new_lines:
+            ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
+            context.push(line)
+            msg_id = next(msg_ids)
+            ui_queue.put(lambda o=line, m=msg_id:
+                         overlay.add_message(o, PENDING_NOTICE, msg_id=m))
+            pool.submit(line, ctx, msg_id)
+
+        set_banner(banner_for(game_missing, pool.error_state))
+        if pool.in_flight:
             set_status("translating")
-        while pending:
-            line = pending[0]
-            try:
-                translated = translator.translate_incoming(line)
-            except TranslatorOffline as exc:
-                went_offline = True  # line 留在 pending，下輪重試
-                offline_exc = exc
-                break
-            except TranslatorConfigError as exc:
-                config_error = True  # 設定錯誤：行留在 pending，等使用者修正後自動恢復
-                config_exc = exc
-                break
-            except Exception as exc:
-                # 譯文被截斷（模型 repetition loop）或其他非 HTTP 錯誤（回傳格式異常等）：
-                # 兩者重試都無意義——temperature=0 下結果固定，留在 pending 只會每輪再燒一次
-                # 生成時間並堵住後續訊息。跳過該行，但仍把原文送上 overlay，讓使用者看得到
-                # 這行說了什麼，而不是無聲消失；細節（原因、原文）留在 app.log。
-                reason = ("bad model output" if isinstance(exc, TranslatorBadOutput)
-                          else "unexpected error")
-                print(f"[translate] line dropped, {reason} ({exc}): {line}", file=sys.stderr)
-                pending.popleft()
-                ui_queue.put(lambda o=line: overlay.add_message(o, TRANSLATE_FAILED_NOTICE))
-                continue
-            translated_ok = True
-            pending.popleft()
-            ui_queue.put(lambda o=line, t=translated: overlay.add_message(o, t))
-
-        if config_error:
-            interval = CONFIG_ERROR_INTERVAL
-            if error_state != "config":
-                print(f"[translate] config error (status={config_exc.status}), "
-                      f"waiting for user to fix settings", file=sys.stderr)
-            error_state = "config"
-            ui_queue.put(lambda: overlay.set_error("⚠  API 設定有誤，請開啟設定（⚙）檢查"))
-        elif went_offline:
-            interval = BACKOFF_STEPS[min(backoff_index, len(BACKOFF_STEPS) - 1)]
-            backoff_index += 1
-            if error_state != "offline":
-                print(f"[translate] provider offline: {offline_exc}; retrying with backoff "
-                      f"(pending={len(pending)})", file=sys.stderr)
-            error_state = "offline"
-            ui_queue.put(lambda: overlay.set_error("⚠  翻譯伺服器離線，重試中…"))
-            # 狀態維持「翻譯中…」：pending 還有行等著重試
         else:
             set_status("listening" if reader.anchored else "locating")
-            if translated_ok and error_state is not None:
-                # 真的翻譯成功 → 伺服器/設定已恢復，清橫幅並重置退避
-                error_state = None
-                backoff_index = 0
-                print("[translate] recovered, error banner cleared", file=sys.stderr)
-                ui_queue.put(overlay.clear_error)
 
         # 遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回
         if on_input_open is not None and cfg.get("auto_show_input", True):
@@ -166,7 +143,7 @@ def reader_loop(cfg: dict, translator: Translator, overlay: OverlayWindow,
                 elif on_input_close is not None:
                     on_input_close()
 
-        stop.wait(interval)
+        stop.wait(cfg["poll_interval"])
 
     reader.close()  # 停止：解除 wizwalker hook、關閉連線
 
@@ -257,9 +234,11 @@ def main() -> None:
     print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
           f"provider={cfg['api']['provider']}, model={cfg['api']['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
-          f"poll_interval={cfg['poll_interval']}", file=sys.stderr)
+          f"poll_interval={cfg['poll_interval']}, "
+          f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
     translator = Translator(**cfg["api"], target_language=cfg["target_language"])
+    context = ChatContext()
     ui_queue: queue.Queue = queue.Queue()
 
     ov = cfg["overlay"]
@@ -285,6 +264,13 @@ def main() -> None:
         alpha=cfg["overlay_alpha"],
     )
 
+    pool = TranslationPool(
+        translator=translator,
+        on_result=lambda mid, text: ui_queue.put(
+            lambda: overlay.update_message(mid, text)),
+        workers=cfg["max_parallel_translations"],
+        failed_notice=TRANSLATE_FAILED_NOTICE)
+
     def on_translated(translated: str, hwnd: int | None) -> None:
         type_into_window(hwnd, translated, delay=cfg["type_delay"])
 
@@ -292,28 +278,31 @@ def main() -> None:
         cfg["input_position"] = {"x": x, "y": y}
         save_config(CONFIG_PATH, cfg)
 
-    input_box = InputBox(root, translator.translate_outgoing, ui_queue, on_translated,
-                         position=cfg["input_position"], on_move=save_input_position)
+    input_box = InputBox(root, lambda text: translator.translate_outgoing(
+        text, context.snapshot()), ui_queue, on_translated,
+        position=cfg["input_position"], on_move=save_input_position)
     hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 
     def apply_settings() -> None:
         nonlocal hotkey_handle
         save_config(CONFIG_PATH, cfg)
         translator.reconfigure(**cfg["api"], target_language=cfg["target_language"])
+        pool.resize(cfg["max_parallel_translations"])
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
         print(f"[settings] applied; provider={cfg['api']['provider']}, "
-              f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}", file=sys.stderr)
+              f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}, "
+              f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha)
 
     stop = threading.Event()
     reader_thread = threading.Thread(
-        target=reader_loop, args=(cfg, translator, overlay, ui_queue, stop),
+        target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
         kwargs={"on_input_open": lambda: ui_queue.put(input_box.show),
                 "on_input_close": lambda: ui_queue.put(input_box.close)},
         daemon=True)
@@ -333,6 +322,7 @@ def main() -> None:
     finally:
         print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
         stop.set()
+        pool.shutdown()
         keyboard.unhook_all()
         # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
         # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
