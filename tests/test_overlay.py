@@ -34,8 +34,8 @@ def test_resize_updates_existing_message_wraplength(root):
 
     ov._on_canvas_configure(FakeEvent())
     expected = max(80, 240 - 12)
-    for _, _, _, row in ov._messages:
-        for child in row.winfo_children():
+    for entry in ov._messages:
+        for child in entry.row.winfo_children():
             assert int(float(child.itemcget("txt", "width"))) == expected
     assert ov._error_label.cget("wraplength") == expected
 
@@ -179,3 +179,22 @@ def test_placeholder_centered_when_empty_hidden_after_message(root):
     assert ov.placeholder_visible() is False         # 有訊息 → 收掉
     ov.set_status("●  監聽中", "#7dc87d")
     assert ov.placeholder_visible() is False         # 有訊息時更新狀態也不重現
+
+
+def test_update_message_fills_translation_in_place(root):
+    # 佔位：訊息一讀到就先顯示原文，譯文稍後填入同一個位置（順序不因翻譯先後而變）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "翻譯中…", msg_id=1)
+    ov.add_message("[B] two", "翻譯中…", msg_id=2)
+    ov.update_message(2, "乙")          # 後到的先翻完
+    ov.update_message(1, "甲")
+    assert ov.visible_messages() == [("[A] one", "甲"), ("[B] two", "乙")]
+
+
+def test_update_message_ignores_unknown_id(root):
+    # 佔位訊息可能已被 max_messages 擠掉或被 prune 清除：晚到的譯文安靜忽略，不得拋錯
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=1, fade_seconds=0)
+    ov.add_message("[A] one", "翻譯中…", msg_id=1)
+    ov.add_message("[B] two", "翻譯中…", msg_id=2)   # 擠掉 msg_id=1
+    ov.update_message(1, "甲")
+    assert ov.visible_messages() == [("[B] two", "翻譯中…")]

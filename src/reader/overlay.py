@@ -5,6 +5,7 @@
 import sys
 import time
 import tkinter as tk
+from typing import NamedTuple
 
 import win32con
 import win32gui
@@ -44,6 +45,15 @@ def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Ca
                   width=wrap, tags="txt")  # 本色最後畫，疊在描邊之上
     _fit_line_height(c)
     return c
+
+class _Message(NamedTuple):
+    """overlay 中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）。"""
+    ts: float
+    original: str
+    translated: str
+    row: "tk.Frame"
+    msg_id: int | None
+
 
 MIN_WIDTH = 200
 MIN_HEIGHT = 90
@@ -203,7 +213,7 @@ class OverlayWindow:
         self._minimized = False
         self._unread = 0
         self._bubble: tk.Toplevel | None = None
-        self._messages: list[tuple[float, str, str, tk.Frame]] = []
+        self._messages: list[_Message] = []
         self._error_label: tk.Label | None = None
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
@@ -445,8 +455,8 @@ class OverlayWindow:
         self._canvas.itemconfigure(self._inner_id, width=e.width)
         self._wrap = max(80, e.width - 12)
         # 既有訊息與錯誤橫幅的換行寬度也要同步更新，否則縮小視窗後右緣被切
-        for _, _, _, row in self._messages:
-            for child in row.winfo_children():
+        for entry in self._messages:
+            for child in entry.row.winfo_children():
                 child.itemconfigure("txt", width=self._wrap)
                 _fit_line_height(child)
         if self._error_label is not None:
@@ -476,7 +486,8 @@ class OverlayWindow:
         self._backdrop.geometry(geometry)
 
     # --- 訊息 ---
-    def add_message(self, original: str, translated: str, now: float | None = None) -> None:
+    def add_message(self, original: str, translated: str, now: float | None = None,
+                    msg_id: int | None = None) -> None:
         stick = should_stick_to_bottom(self._canvas.yview()[1])
 
         row = tk.Frame(self._inner, bg=BG)
@@ -485,10 +496,10 @@ class OverlayWindow:
         _outlined_line(row, translated, FG_TRANSLATED, _FONT_TRANSLATED,
                        self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
-        self._messages.append((now if now is not None else time.time(), original, translated, row))
+        self._messages.append(_Message(now if now is not None else time.time(),
+                                       original, translated, row, msg_id))
         while len(self._messages) > self._max:
-            _, _, _, old_row = self._messages.pop(0)
-            old_row.destroy()
+            self._messages.pop(0).row.destroy()
 
         self._refresh_placeholder()
         self._canvas.update_idletasks()
@@ -499,13 +510,29 @@ class OverlayWindow:
             self._unread += 1
             self._update_badge()
 
+    def update_message(self, msg_id: int, translated: str) -> None:
+        """把某則佔位訊息的譯文就地填入（原文與位置不動）。
+        找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
+        for i, m in enumerate(self._messages):
+            if m.msg_id != msg_id:
+                continue
+            stick = should_stick_to_bottom(self._canvas.yview()[1])
+            line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
+            line.itemconfigure("txt", text=translated)
+            _fit_line_height(line)
+            self._messages[i] = m._replace(translated=translated)
+            self._canvas.update_idletasks()
+            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+            if stick:
+                self._canvas.yview_moveto(1.0)
+            return
+
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
         self._max = max_messages
         self._fade = fade_seconds
         while len(self._messages) > self._max:
-            _, _, _, old_row = self._messages.pop(0)
-            old_row.destroy()
+            self._messages.pop(0).row.destroy()
         self._refresh_placeholder()
 
     def prune(self, now: float | None = None) -> None:
@@ -514,8 +541,8 @@ class OverlayWindow:
         cutoff = (now if now is not None else time.time()) - self._fade
         keep = []
         for entry in self._messages:
-            if entry[0] <= cutoff:
-                entry[3].destroy()
+            if entry.ts <= cutoff:
+                entry.row.destroy()
             else:
                 keep.append(entry)
         self._messages = keep
@@ -549,7 +576,7 @@ class OverlayWindow:
 
     # --- 測試/除錯輔助 ---
     def visible_messages(self) -> list[tuple[str, str]]:
-        return [(orig, trans) for _, orig, trans, _ in self._messages]
+        return [(m.original, m.translated) for m in self._messages]
 
     def error_text(self) -> str | None:
         return self._error_label.cget("text") if self._error_label else None
