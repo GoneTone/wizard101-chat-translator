@@ -78,6 +78,13 @@ def lines_from_chatlog(text: str) -> list[str]:
     return out
 
 
+def node_sizes(texts: list[str]) -> list[int]:
+    """各 chatLog 節點各自的玩家聊天行數，依串接時的排序。診斷用：看得出是哪個節點
+    在灌入完整歷史，以及 sorted 的名次有沒有翻轉（翻轉時同一組節點的順序會對調）。
+    只在要印診斷 log 時呼叫——每輪都算等於把解析成本翻倍。"""
+    return [len(lines_from_chatlog(t)) for t in sorted(texts)]
+
+
 def _find_last_run(cur_lines: list[str], seq: list[str]) -> int | None:
     """seq 以連續片段出現在 cur_lines 中的**最後**位置；找不到回傳 None。"""
     n = len(seq)
@@ -200,8 +207,8 @@ class WizChatReader:
             # 節點數量變動（UI 事件生出/收掉 chatLog）→ 串接結構改變，無法歸因新舊：
             # 靜默重建基準、不回吐，避免把其他節點的舊內容當成新訊息（洪水）
             print(f"[reader] chatLog node count changed "
-                  f"({self._node_count}->{len(texts)}), re-baselining without emitting",
-                  file=sys.stderr)
+                  f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
+                  f"re-baselining without emitting", file=sys.stderr)
             self._node_count = len(texts)
             self._prev = cur
             return []
@@ -214,8 +221,8 @@ class WizChatReader:
             appended = align_recover(self._prev, cur)
             if appended is not None:
                 print(f"[reader] baseline misaligned, recovered via tail anchor "
-                      f"(prev={prev_len}, cur={len(cur)}, "
-                      f"emitted={len(appended)})", file=sys.stderr)
+                      f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
+                      f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
         if appended is None:
             # 與基準完全無重疊 → 聊天已重置（relog/清空成全新內容），cur 全部視為新訊息。
             # 印記錄供事後查證：若此路徑在非 relog 情境被觸發，代表差分邏輯仍有漏洞。
@@ -224,20 +231,22 @@ class WizChatReader:
             print(f"[reader] chat log has no overlap with baseline, treating as reset "
                   f"(lines={len(cur)})", file=sys.stderr)
         self._prev = cur
-        return self._guard_burst(appended, path, prev_len, len(cur), len(texts))
+        return self._guard_burst(appended, path, prev_len, len(cur), texts)
 
     def _guard_burst(self, appended: list[str], path: str, prev_len: int,
-                     cur_len: int, nodes: int) -> list[str]:
+                     cur_len: int, texts: list[str]) -> list[str]:
         """所有差分路徑的共同出口：擋下不可能為真的暴量新增（見 MAX_NEW_LINES_PER_POLL），
         並為接近上限的批次留下診斷數據。基準已在呼叫端更新，擋下即等同靜默重建基準。"""
         if len(appended) > MAX_NEW_LINES_PER_POLL:
             print(f"[reader] implausible burst suppressed via {path}: {len(appended)} new "
-                  f"lines in one poll (prev={prev_len}, cur={cur_len}, nodes={nodes}); "
+                  f"lines in one poll (prev={prev_len}, cur={cur_len}, "
+                  f"nodes={len(texts)}, sizes={node_sizes(texts)}); "
                   f"re-baselined without emitting", file=sys.stderr)
             return []
         if len(appended) > LARGE_BATCH_LOG_THRESHOLD:
             print(f"[reader] large batch via {path}: {len(appended)} lines "
-                  f"(prev={prev_len}, cur={cur_len}, nodes={nodes})", file=sys.stderr)
+                  f"(prev={prev_len}, cur={cur_len}, nodes={len(texts)}, "
+                  f"sizes={node_sizes(texts)})", file=sys.stderr)
         return appended
 
     def input_open(self) -> bool:

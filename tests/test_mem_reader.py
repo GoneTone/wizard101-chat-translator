@@ -370,6 +370,22 @@ def test_implausible_burst_is_suppressed():
     assert r.read_new() == ["[C] real"]        # 基準已重建，之後正常延續
 
 
+def test_burst_log_reports_per_node_sizes(capsys):
+    # 診斷 log 要看得出是哪個節點在灌入完整歷史（chatLog 有多個節點、內容量差一個數量級）
+    from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
+    tail = _say(9, "Z", "lol")
+    old = _burst_lines(MAX_NEW_LINES_PER_POLL + 1)
+    r = FakeWiz([
+        [_log(_say(1, "A", "a"), tail), ""],
+        [_log(tail, *old), ""],
+    ])
+    assert r.read_new() == []
+    assert r.read_new() == []
+    err = capsys.readouterr().err
+    assert "implausible burst suppressed" in err
+    assert f"sizes=[0, {MAX_NEW_LINES_PER_POLL + 2}]" in err
+
+
 def test_burst_within_limit_still_emitted():
     # 上限是防洪水，不是限流：翻譯卡住時累積的正常批次仍要全數吐出
     from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
