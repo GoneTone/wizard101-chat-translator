@@ -74,6 +74,7 @@ _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
 _BUBBLE_SIZE = 64
 _CLICK_THRESHOLD = 5
+_FOREGROUND_POLL_MS = 300
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 _SCROLLBAR_WIDTH = 8
 _MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
@@ -101,6 +102,24 @@ def should_stick_to_bottom(view_bottom_fraction: float,
 def is_click(dx: int, dy: int, threshold: int = _CLICK_THRESHOLD) -> bool:
     """按下到放開的位移是否算點擊（否則視為拖曳）。"""
     return abs(dx) < threshold and abs(dy) < threshold
+
+
+def point_in_rect(px: int, py: int, x: int, y: int, w: int, h: int) -> bool:
+    """(px, py) 是否落在左上角 (x, y)、寬 w 高 h 的矩形內（含邊界）。"""
+    return x <= px <= x + w - 1 and y <= py <= y + h - 1
+
+
+def should_auto_expand(foreground: int, previous: int, bubble_hwnd: int,
+                       cursor_on_bubble: bool) -> bool:
+    """泡泡被切成前景（點工作列按鈕／Alt+Tab）時是否該自動展開回完整視窗。
+
+    只認「這一輪才變成前景」的轉換，持續在前景時不重複觸發；游標壓在泡泡上
+    代表使用者正直接操作泡泡，交給既有的按下／拖曳／放開邏輯處理——否則按下
+    的瞬間就展開，泡泡再也拖不動。bubble_hwnd 取不到（0）時一律不觸發，
+    避免與 GetForegroundWindow() 的 0（無前景視窗）誤判成相等。"""
+    if not bubble_hwnd or foreground != bubble_hwnd or previous == bubble_hwnd:
+        return False
+    return not cursor_on_bubble
 
 
 def thumb_span(first: float, last: float, track_height: int,
@@ -225,6 +244,9 @@ class OverlayWindow:
         self._minimized = False
         self._unread = 0
         self._bubble: tk.Toplevel | None = None
+        self._bubble_hwnd = 0
+        self._prev_foreground = 0
+        self._watch_job: str | None = None
         self._messages: list[_Message] = []
         self._error_label: tk.Label | None = None
         self._w = max(width, MIN_WIDTH)
@@ -364,11 +386,18 @@ class OverlayWindow:
         self._win.withdraw()
         self._backdrop.withdraw()
         self._show_bubble()
+        # 泡泡剛建立時可能已經是前景（_enable_taskbar_button 的 deiconify 會啟用它），
+        # 拿當下的前景當基準才不會第一輪就誤判成「使用者切回本工具」
+        self._prev_foreground = self._foreground_window()
+        self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
 
     def expand(self) -> None:
         """從泡泡展開回完整視窗，未讀歸零。"""
         if not self._minimized:
             return
+        if self._watch_job is not None:
+            self._win.after_cancel(self._watch_job)
+            self._watch_job = None
         self._minimized = False
         self._unread = 0
         if self._bubble is not None:
@@ -416,6 +445,44 @@ class OverlayWindow:
         self._bubble_canvas = c
         b.title(APP_NAME)
         _enable_taskbar_button(b)
+        try:
+            self._bubble_hwnd = win32gui.GetAncestor(b.winfo_id(), 2)  # GA_ROOT
+        except Exception as exc:
+            self._bubble_hwnd = 0
+            print(f"[ui] bubble hwnd lookup failed: {exc}", file=sys.stderr)
+
+    def _foreground_window(self) -> int:
+        try:
+            return win32gui.GetForegroundWindow()
+        except Exception as exc:
+            print(f"[ui] foreground lookup failed: {exc}", file=sys.stderr)
+            return 0
+
+    def _watch_foreground(self) -> None:
+        """泡泡狀態下輪詢前景視窗，本工具被切回前景就展開。
+        overrideredirect 視窗不是 OS 意義上的最小化，收不到還原通知，
+        點工作列按鈕／Alt+Tab 只會把泡泡切成前景，只能自己輪詢察覺。"""
+        self._watch_job = None
+        if not self._minimized or self._bubble is None:
+            return
+        fg = self._foreground_window()
+        try:
+            px, py = self._bubble.winfo_pointerxy()
+            on_bubble = point_in_rect(px, py, self._bubble.winfo_x(),
+                                      self._bubble.winfo_y(),
+                                      _BUBBLE_SIZE, _BUBBLE_SIZE)
+        except Exception as exc:
+            print(f"[ui] bubble hit-test failed: {exc}", file=sys.stderr)
+            on_bubble = True  # 測不到就當作使用者正壓著泡泡，寧可不展開
+        expand = should_auto_expand(fg, self._prev_foreground,
+                                    self._bubble_hwnd, on_bubble)
+        self._prev_foreground = fg
+        if expand:
+            print(f"[ui] auto-expand: bubble brought to foreground, fg=0x{fg:x}",
+                  file=sys.stderr)
+            self.expand()
+            return
+        self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
 
     def _bubble_press(self, e) -> None:
         self._bubble_drag_state = (e.x_root, e.y_root,

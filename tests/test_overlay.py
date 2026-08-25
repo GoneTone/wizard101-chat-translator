@@ -5,8 +5,10 @@ from src.reader.overlay import (
     _GRIP_SIZE,
     is_click,
     moved_to,
+    point_in_rect,
     resized_to,
     scroll_fraction,
+    should_auto_expand,
     should_stick_to_bottom,
     thumb_span,
 )
@@ -263,3 +265,43 @@ def test_update_message_ignores_unknown_id(root):
     ov.add_message("[B] two", "翻譯中…", msg_id=2)   # 擠掉 msg_id=1
     ov.update_message(1, "甲")
     assert ov.visible_messages() == [("[B] two", "翻譯中…")]
+
+
+def test_point_in_rect_edges():
+    assert point_in_rect(10, 10, 10, 10, 64, 64) is True
+    assert point_in_rect(73, 73, 10, 10, 64, 64) is True
+    assert point_in_rect(74, 40, 10, 10, 64, 64) is False   # 右緣外
+    assert point_in_rect(9, 40, 10, 10, 64, 64) is False    # 左緣外
+
+
+def test_should_auto_expand_when_bubble_becomes_foreground():
+    # 點工作列按鈕／Alt+Tab 切回本工具：泡泡這一輪才變前景，游標不在泡泡上
+    assert should_auto_expand(foreground=101, previous=202, bubble_hwnd=101,
+                              cursor_on_bubble=False) is True
+
+
+def test_no_auto_expand_while_cursor_on_bubble():
+    # 直接按泡泡也會讓它變前景；展開與否交給既有的點擊／拖曳邏輯，否則拖不動
+    assert should_auto_expand(foreground=101, previous=202, bubble_hwnd=101,
+                              cursor_on_bubble=True) is False
+
+
+def test_no_auto_expand_when_bubble_already_foreground():
+    # 已經是前景（例如拖曳結束游標剛離開泡泡）不算切換，不重複觸發
+    assert should_auto_expand(foreground=101, previous=101, bubble_hwnd=101,
+                              cursor_on_bubble=False) is False
+
+
+def test_no_auto_expand_for_other_windows():
+    assert should_auto_expand(foreground=303, previous=202, bubble_hwnd=101,
+                              cursor_on_bubble=False) is False
+
+
+def test_minimize_starts_foreground_watch_and_expand_stops_it(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    assert ov._watch_job is None
+    ov.minimize()
+    assert ov._watch_job is not None
+    ov.expand()
+    assert ov._watch_job is None
