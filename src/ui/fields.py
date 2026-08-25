@@ -31,10 +31,12 @@ PROVIDERS: dict[str, Provider] = {
     "custom": Provider(label="自訂端點（進階）", needs_base_url=True),
 }
 
-COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文", "日本語", "한국어",
+COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "日本語", "한국어",
                     "Español", "Português", "Deutsch", "Français"]
 
 CLAUDE_MODEL_HINT = "較快較省：claude-haiku-4-5"
+
+LANGUAGE_HINT = "清單只是常用選項，也可以直接輸入任何語言名稱（例如 Italiano、ภาษาไทย）。"
 
 THINKING_HINT = "建議關閉：開啟可能會讓每則翻譯慢上數秒、也更耗 Token。"
 
@@ -306,6 +308,8 @@ class LanguageField(ttk.Frame):
         self._var = tk.StringVar(value=initial)
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
+        ttk.Label(self, text=LANGUAGE_HINT, foreground="#888888",
+                  wraplength=440, justify="left").pack(anchor="w", pady=(2, 0))
 
     def value(self) -> str:
         return self._var.get().strip()
