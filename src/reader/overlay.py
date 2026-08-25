@@ -245,6 +245,8 @@ class OverlayWindow:
         self._unread = 0
         self._bubble: tk.Toplevel | None = None
         self._bubble_hwnd = 0
+        # 泡泡按下的起點；None＝這次放開沒有對應的按下（見 _bubble_release）
+        self._bubble_drag_state: tuple[int, int, int, int] | None = None
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._messages: list[_Message] = []
@@ -489,12 +491,19 @@ class OverlayWindow:
                                    self._bubble.winfo_x(), self._bubble.winfo_y())
 
     def _bubble_drag(self, e) -> None:
+        if self._bubble_drag_state is None:
+            return
         sx, sy, ox, oy = self._bubble_drag_state
         nx, ny = moved_to(ox, oy, e.x_root - sx, e.y_root - sy)
         self._bubble.geometry(f"+{nx}+{ny}")
 
     def _bubble_release(self, e) -> None:
+        # 點 ─ 縮小時 minimize() 會 withdraw 掉正被按住的視窗、隱式 grab 因此斷掉，
+        # 放開滑鼠的事件落到剛出現在游標下的泡泡上——沒有對應的按下，當作沒發生
+        if self._bubble_drag_state is None:
+            return
         sx, sy, _, _ = self._bubble_drag_state
+        self._bubble_drag_state = None
         if is_click(e.x_root - sx, e.y_root - sy):
             self.expand()
             return

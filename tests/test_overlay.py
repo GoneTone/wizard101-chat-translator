@@ -327,3 +327,19 @@ def test_successful_translation_keeps_the_game_colour(root):
 
     line = ov._messages[0].row.winfo_children()[1]
     assert line.itemcget("fg", "fill") == "#66ccff"
+
+
+def test_bubble_release_without_press_is_ignored(root):
+    # 點標題列的 ─ 縮小時，minimize() withdraw 掉正被按住的視窗、隱式 grab 斷掉，
+    # 放開滑鼠的事件會落到剛出現在游標下的泡泡上——沒有對應的 press，
+    # 既不得丟例外（實機 log 有 AttributeError），也不得把剛收起的視窗展開
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.minimize()
+
+    class FakeEvent:
+        x_root = 10
+        y_root = 10
+
+    ov._bubble_release(FakeEvent())
+    assert ov.minimized is True
