@@ -1,6 +1,6 @@
 """收訊翻譯工作池：以固定數量的 worker 平行翻譯，單則卡住不影響其他則。
 
-呼叫端只負責提交（line, context, msg_id）與接收 on_result(msg_id, text)；
+呼叫端只負責提交（line, context, msg_id）與接收 on_result(msg_id, text, failed)；
 顯示順序不由完成順序決定——overlay 在提交當下就已佔好位置（見 reader_loop）。
 """
 import sys
@@ -15,7 +15,8 @@ CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；�
 
 
 class TranslationPool:
-    """平行收訊翻譯。`on_result(msg_id, text)` 於 worker 執行緒呼叫，
+    """平行收訊翻譯。`on_result(msg_id, text, failed)` 於 worker 執行緒呼叫，
+    failed＝放棄該則、text 是失敗提示而非譯文。
     呼叫端負責把它轉交回 UI 執行緒。"""
 
     def __init__(self, translator, on_result, workers: int, failed_notice: str):
@@ -134,12 +135,12 @@ class TranslationPool:
                           f"{reason} ({exc}): {line}", file=sys.stderr)
                     self._decrement_in_flight()
                     decremented = True
-                    self._on_result(msg_id, self._failed_notice)
+                    self._on_result(msg_id, self._failed_notice, True)
                     return
                 self._note_success()
                 self._decrement_in_flight()
                 decremented = True
-                self._on_result(msg_id, translated)
+                self._on_result(msg_id, translated, False)
                 return
         finally:
             if not decremented:

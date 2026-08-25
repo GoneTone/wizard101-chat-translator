@@ -36,8 +36,8 @@ def test_display_order_follows_read_order_not_completion_order(root):
     context = ChatContext()
     pool = TranslationPool(
         translator=ReverseOrderTranslator("[A] one", others=2),
-        on_result=lambda mid, text: ui_queue.put(
-            lambda: overlay.update_message(mid, text)),
+        on_result=lambda mid, text, failed: ui_queue.put(
+            lambda: overlay.update_message(mid, text, failed=failed)),
         workers=3, failed_notice=FAILED)
     try:
         for i, line in enumerate(lines, start=1):

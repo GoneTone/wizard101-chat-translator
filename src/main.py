@@ -267,8 +267,8 @@ def main() -> None:
 
     pool = TranslationPool(
         translator=translator,
-        on_result=lambda mid, text: ui_queue.put(
-            lambda: overlay.update_message(mid, text)),
+        on_result=lambda mid, text, failed: ui_queue.put(
+            lambda: overlay.update_message(mid, text, failed=failed)),
         workers=cfg["max_parallel_translations"],
         failed_notice=TRANSLATE_FAILED_NOTICE)
 

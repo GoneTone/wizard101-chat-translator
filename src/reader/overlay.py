@@ -594,8 +594,10 @@ class OverlayWindow:
             self._unread += 1
             self._update_badge()
 
-    def update_message(self, msg_id: int, translated: str) -> None:
+    def update_message(self, msg_id: int, translated: str,
+                       failed: bool = False) -> None:
         """把某則佔位訊息的譯文就地填入（原文與位置不動）。
+        failed＝這則翻不出來、填入的是失敗提示，改用錯誤色與一般對話區隔。
         找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
         for i, m in enumerate(self._messages):
             if m.msg_id != msg_id:
@@ -603,7 +605,9 @@ class OverlayWindow:
             stick = should_stick_to_bottom(self._canvas.yview()[1])
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
             line.itemconfigure("txt", text=translated)
-            line.itemconfigure("fg", fill=m.color or FG_TRANSLATED)  # 脫離佔位，換回該則顏色
+            # 脫離佔位：換回該則的遊戲色；翻譯失敗則一律走錯誤色
+            line.itemconfigure("fg", fill=FG_ERROR if failed
+                               else (m.color or FG_TRANSLATED))
             _fit_line_height(line)
             self._messages[i] = m._replace(translated=translated)
             self._canvas.update_idletasks()

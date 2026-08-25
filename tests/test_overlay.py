@@ -1,4 +1,5 @@
 from src.reader.overlay import (
+    FG_ERROR,
     MIN_HEIGHT,
     MIN_WIDTH,
     OverlayWindow,
@@ -305,3 +306,24 @@ def test_minimize_starts_foreground_watch_and_expand_stops_it(root):
     assert ov._watch_job is not None
     ov.expand()
     assert ov._watch_job is None
+
+
+def test_failed_translation_line_is_shown_in_error_colour(root):
+    # 翻不出來的那則要跟一般對話一眼分得開：譯文行改用錯誤色，不用該則的遊戲色
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文", "翻譯中…", msg_id=7, pending=True, color="#66ccff")
+    ov.update_message(7, "⚠  這則訊息翻譯不出來", failed=True)
+
+    line = ov._messages[0].row.winfo_children()[1]
+    assert line.itemcget("fg", "fill") == FG_ERROR
+
+
+def test_successful_translation_keeps_the_game_colour(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文", "翻譯中…", msg_id=8, pending=True, color="#66ccff")
+    ov.update_message(8, "譯文")
+
+    line = ov._messages[0].row.winfo_children()[1]
+    assert line.itemcget("fg", "fill") == "#66ccff"

@@ -23,12 +23,15 @@ class Collector:
 
     def __init__(self):
         self.results: dict[int, str] = {}
+        self.failed: set[int] = set()
         self._lock = threading.Lock()
         self._event = threading.Event()
 
-    def __call__(self, msg_id, text):
+    def __call__(self, msg_id, text, failed):
         with self._lock:
             self.results[msg_id] = text
+            if failed:
+                self.failed.add(msg_id)
         self._event.set()
 
     def wait_for(self, count, timeout=5.0):
