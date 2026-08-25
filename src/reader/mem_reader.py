@@ -381,8 +381,16 @@ class WizChatReader:
                 emitted = self._drop_resurfaced(emitted, path)
         # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。
         # 過濾要在 _remember 之前——本輪剛出現的新行還不在集合裡，才吐得出來。
+        # 例外：空讀轉場後只冒出一行＝剛到的新訊息，不過濾。視圖重浮走的是切換
+        # （前一輪仍讀得到內容、且整份歷史一起回來，實測 37-116 行），不會先空白；
+        # 照過濾會讓與舊訊息同字的新訊息整句消失（實機回報：轉場後的第一句私訊
+        # Test 因啟動基準裡有人講過同一句而被吞，對方講第二次才翻得出來）。
         elif emitted:
-            emitted = self._drop_resurfaced(emitted, path)
+            if baseline_stale and len(emitted) == 1:
+                print(f"[reader] single line after an empty stretch kept as new "
+                      f"(text={emitted[0].text[:40]!r}, path={path})", file=sys.stderr)
+            else:
+                emitted = self._drop_resurfaced(emitted, path)
         self._remember(cur_texts)
         return self._guard_burst(emitted, path, prev_len, len(cur), texts)
 

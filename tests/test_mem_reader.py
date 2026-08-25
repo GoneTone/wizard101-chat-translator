@@ -1,6 +1,6 @@
 from src.reader.mem_reader import (
-    ChatLine, GameNotRunning, WizChatReader, align_append, align_recover, clean,
-    filter_resurfaced, lines_from_chatlog,
+    RESET_WARMUP_POLLS, ChatLine, GameNotRunning, WizChatReader, align_append,
+    align_recover, clean, filter_resurfaced, lines_from_chatlog,
 )
 
 
@@ -799,3 +799,19 @@ def test_lines_keeps_quick_chat_word_balloon():
     raw = ('<color;FFFFFF><image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> '
            '<link;GID:196751008722541272,迈克尔,0>[迈克尔]</link> 不是</color>')
     assert _texts(lines_from_chatlog(raw)) == ["[迈克尔] 不是"]
+
+
+def test_single_line_view_after_transition_is_not_filtered_as_resurfaced():
+    # 實機回報：聊天轉場空掉後收到私訊 "Test"，該行文字在啟動基準裡出現過，
+    # 被 seen 過濾當成重浮歷史丟掉（第二次講同一句才走 append 而正常翻出）。
+    # 歷史重浮一定是整份幾十行回來，視圖只有一行時必是新訊息，不得過濾。
+    history = [_say(1, "Ann", "Test"), _say(2, "Bob", "hello"), _own("谢谢")]
+    full = _log(*history)
+    r = FakeWiz([full] * (1 + RESET_WARMUP_POLLS) + ["", "", _say(1, "Ann", "Test")])
+
+    assert r.read_new() == []              # 基準（含舊的 Test）
+    for _ in range(RESET_WARMUP_POLLS):    # 燒掉暖機輪數（實機早已過期）
+        assert r.read_new() == []
+    assert r.read_new() == []              # 轉場空讀
+    assert r.read_new() == []              # 連續空讀 → 基準判定 stale
+    assert _texts(r.read_new()) == ["[Ann] Test"]
