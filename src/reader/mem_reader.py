@@ -20,6 +20,7 @@ from collections import deque
 from typing import NamedTuple
 
 from src.reader import hook_state
+from src.reader.message_log import MessageLog
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
@@ -63,6 +64,14 @@ INPUT_RELEASE_POLLS = 2
 # （剛送出的同字句照翻）接手。門檻取小值涵蓋「兩則訊息之間的短暫清空」：
 # 轉場的暫態清空同樣走 reset，但填回的舊內容全在看過集合裡，不會重譯。
 STALE_BASELINE_EMPTY_POLLS = 2
+
+
+class _Outcome(NamedTuple):
+    """一輪差分的結果：判定路徑、要吐出去的行，以及對齊路徑取得的新增行數
+    （早退路徑沒有對齊，appended 為 None）。路徑名只供 messages.log 診斷。"""
+    path: str
+    emitted: list["ChatLine"]
+    appended: int | None = None
 
 
 class GameNotRunning(Exception):
@@ -258,7 +267,8 @@ class WizChatReader:
     所有路徑共用一道出口防線：單輪吐出超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊，
     不吐並重建基準（見該常數的說明）。"""
 
-    def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME):
+    def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME,
+                 message_log: MessageLog | None = None):
         self.process_name = process_name
         self._game_path = game_path
         self._prev: list[str] = []  # 基準只存文字：顏色不參與差分（見 read_new）
@@ -276,6 +286,7 @@ class WizChatReader:
         self._client = None
         self._pid = 0
         self._edit_node = None  # chatEditContainer 節點快取（input_open 用）
+        self._msg_log = message_log  # messages.log（None＝不記錄，測試預設不落檔）
 
     @property
     def anchored(self) -> bool:
@@ -285,6 +296,14 @@ class WizChatReader:
     def read_new(self) -> list[ChatLine]:
         """回傳自上次呼叫後新增的玩家聊天行（依序、含重複）；無新訊息回傳 []。
         找不到遊戲或連線中斷丟 GameNotRunning。"""
+        outcome = self._diff_new_lines()
+        if self._msg_log is not None:
+            self._msg_log.decision(outcome.path, outcome.appended,
+                                   [l.text for l in outcome.emitted])
+        return outcome.emitted
+
+    def _diff_new_lines(self) -> _Outcome:
+        """差分出本輪新增的玩家聊天行，連同判定路徑（read_new 記進 messages.log）。"""
         texts = self._read_chatlog_texts()
         # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
         input_open_now = self.input_open()
@@ -294,7 +313,13 @@ class WizChatReader:
             self._input_recent -= 1
         self._input_was_open = input_open_now
         # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
-        cur = lines_from_chatlog("\n".join(sorted(texts)))
+        raw = "\n".join(sorted(texts))
+        if self._msg_log is not None:
+            # 解析與過濾之前先落檔：messages.log 要的是未經加工的原文
+            self._msg_log.snapshot(raw.split("\n") if raw else [],
+                                   nodes=len(texts), sizes=node_sizes(texts),
+                                   input_open=input_open_now)
+        cur = lines_from_chatlog(raw)
         # 差分只看文字：切頻道時 chatLog 會把同樣的訊息以該頻道顏色重新染色，
         # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
         cur_texts = [l.text for l in cur]
@@ -305,14 +330,14 @@ class WizChatReader:
             self._synced = True
             print(f"[reader] baseline established (lines={len(cur)}, "
                   f"nodes={len(texts)})", file=sys.stderr)
-            return []
+            return _Outcome("baseline", [])
         # 暖機以「輪數」計且含空讀：重開遊戲後聊天常長時間空白，若只數非空讀，
         # 暖機永不過期，各頻道從空白冒出的第一句（走 reset）會被無限吸收
         if self._warmup_left > 0:
             self._warmup_left -= 1
         if not cur:
             self._empty_streak += 1
-            return []               # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
+            return _Outcome("empty", [])   # 空讀（傳送/轉場暫態清空）→ 保留基準、忽略，不重譯
         baseline_stale = self._empty_streak >= STALE_BASELINE_EMPTY_POLLS
         self._empty_streak = 0
         if baseline_stale:
@@ -328,7 +353,7 @@ class WizChatReader:
                 self._node_count = len(texts)
                 self._prev = cur_texts
                 self._remember(cur_texts)
-                return []
+                return _Outcome("node-decrease", [])
             # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，
             # 不可盲目吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，
             # 跳過對齊直接走 reset 語意：空基準照吐、暖機期吸收、其後看過集合過濾
@@ -362,7 +387,7 @@ class WizChatReader:
                       f"prev_tail={self._prev[-1][:40]!r})", file=sys.stderr)
                 self._prev = cur_texts
                 self._remember(cur_texts)
-                return []
+                return _Outcome("warmup", [])
             print(f"[reader] chat log has no overlap with baseline, treating as reset "
                   f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
                   f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
@@ -410,7 +435,8 @@ class WizChatReader:
             else:
                 emitted = self._drop_resurfaced(emitted, path)
         self._remember(cur_texts)
-        return self._guard_burst(emitted, path, prev_len, len(cur), texts)
+        return _Outcome(path, self._guard_burst(emitted, path, prev_len, len(cur), texts),
+                        len(appended))
 
     def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。

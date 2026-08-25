@@ -1,7 +1,10 @@
+import io
+
 from src.reader.mem_reader import (
     RESET_WARMUP_POLLS, ChatLine, GameNotRunning, WizChatReader, align_append,
     align_recover, clean, filter_resurfaced, lines_from_chatlog,
 )
+from src.reader.message_log import MessageLog
 
 
 # --- clean：去標記 / 還原實體 / 表情 ---
@@ -203,8 +206,8 @@ def test_align_recover_none_when_no_overlap():
 class FakeWiz(WizChatReader):
     """以腳本化的 chatLog 全文序列取代 wizwalker I/O。inputs＝每輪輸入框開關狀態。"""
 
-    def __init__(self, texts, inputs=None):
-        super().__init__()
+    def __init__(self, texts, inputs=None, message_log=None):
+        super().__init__(message_log=message_log)
         self.texts = texts
         self.inputs = list(inputs or [])
         self.n = 0
@@ -852,3 +855,35 @@ def test_new_message_survives_a_duplicated_chat_log_burst():
 
     assert r.read_new() == []
     assert _texts(r.read_new()) == ["[B] Test2"]
+
+
+# --- messages.log：原始內容與判定結果落檔（見 src/reader/message_log.py）---
+def test_message_log_records_raw_lines_and_what_was_emitted():
+    buf = io.StringIO()
+    system = "<color;FFFFFF><image;Art/Art_Chat_System.dds;24;24;FF> joined </color>"
+    first = _say_colored("FF66CC", "Bob", "hi")
+    second = _say_colored("FF66CC", "Amy", "yo")
+    r = FakeWiz([_log(first, system), _log(first, system, second)],
+                message_log=MessageLog(buf))
+    r.read_new()   # 建立基準，不回吐
+    assert _texts(r.read_new()) == ["[Amy] yo"]
+    out = buf.getvalue()
+    assert f"  RAW {first}" in out
+    assert f"  RAW {system}" in out       # 系統訊息不過濾，照抄
+    assert f"  RAW {second}" in out
+    assert "path=baseline" in out
+    assert "  OUT [Amy] yo" in out
+
+
+def test_message_log_stays_quiet_while_the_chat_log_does_not_change():
+    buf = io.StringIO()
+    r = FakeWiz([_log(_say_colored("FF66CC", "Bob", "hi"))], message_log=MessageLog(buf))
+    r.read_new()
+    buf.seek(0), buf.truncate()
+    r.read_new()
+    assert buf.getvalue() == ""
+
+
+def test_message_log_is_optional():
+    r = FakeWiz([_log(_say_colored("FF66CC", "Bob", "hi"))])
+    assert r.read_new() == []
