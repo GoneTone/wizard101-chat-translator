@@ -51,8 +51,8 @@ Wizard101 聊天 AI 翻譯：讀取遊戲聊天訊息即時翻成**你設定的�
    （含收訊用的 wizwalker；已於 `[tool.uv.sources]` 指向有跟進最新 client
    pattern 的 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker)，
    官方 PyPI 版 pattern 過舊、對不上現行 client）
-2. 複製 `config.example.json` 為 `config.json`，填入自架 AI 伺服器的
-   `api.base_url` 與 `api.model`(OpenAI 相容 `/v1/chat/completions`)
+2. `uv run run.py` —— 第一次執行會跑首次設定精靈（選服務商、填金鑰或自架
+   伺服器網址、測試連線），設定寫進專案根目錄的 `config.json`（不進版控）
 
 > 遊戲改版導致掛入報 `PatternFailed` 時，更新 fork 後重跑 `uv sync`（或
 > `uv lock --upgrade-package wizwalker`）取得新 pattern。
