@@ -37,6 +37,10 @@ LARGE_BATCH_LOG_THRESHOLD = 10
 # 下方「全部看過」那道判定是全有全無，批次裡混進一行沒讀過的就整批放行，擋不住這種
 # 混合批次；達此門檻的批次改逐行剔除看過的行，沒見過的行照吐、不會吞掉真正的新訊息。
 BULK_APPEND_FILTER_MIN = 10
+# 暴增批次判定為「內容重浮」的門檻：剔除看過的行之後，沒讀過的行不到全批的 1/N。
+# 切到沒讀過的視圖時整批都是生面孔（實測前綴巧合：1 行基準冒出 4 行全新），
+# chatLog 膨脹成重複版本時則幾乎全是看過的行、只夾著剛抵達的一兩句新訊息。
+DUPLICATE_BURST_SEEN_RATIO = 4
 # 基準建立後的暖機輪數：期間 reset（零重疊讀取）一律靜默吸收。啟動時基準與看過集合
 # 只蓋到當前分頁，其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都發生在前 1-3 輪，
 # 視圖每輪輪播、看過集合幾輪內學完，5 輪已保守）；暖機拉太長會放大代價——期間切到
@@ -378,10 +382,18 @@ class WizChatReader:
                 emitted = []
             elif len(appended) >= 3 and len(appended) > 2 * prev_len:
                 # 一輪暴增超過基準兩倍 → 不可能的人為速度，判定為切到內容較多的視圖。
-                # 代價：聊天剛起步（基準 1-2 行）時 1 秒內連發 3 句會被吸收，下句恢復
-                print(f"[reader] implausible append burst absorbed as view switch "
-                      f"(appended={len(appended)}, prev={prev_len})", file=sys.stderr)
-                emitted = []
+                # 代價：聊天剛起步（基準 1-2 行）時 1 秒內連發 3 句會被吸收，下句恢復。
+                # 但整批丟棄前要先看有多少是看過的：chatLog 會短暫膨脹成重複版本
+                # （實機 102 行 ×8 ≈ 822 行），此時抵達的新訊息夾在裡面會一起被丟掉。
+                kept = self._drop_resurfaced(emitted, path)
+                if len(kept) > len(appended) // DUPLICATE_BURST_SEEN_RATIO:
+                    print(f"[reader] implausible append burst absorbed as view switch "
+                          f"(appended={len(appended)}, unseen={len(kept)}, "
+                          f"prev={prev_len})", file=sys.stderr)
+                    emitted = []
+                else:
+                    # 絕大多數都看過＝內容重浮，剩下的寥寥幾行是夾在裡面的新訊息 → 照吐
+                    emitted = kept
             elif len(appended) >= BULK_APPEND_FILTER_MIN:
                 # 混合批次（大量重浮歷史夾帶少數沒讀過的行）：見 BULK_APPEND_FILTER_MIN
                 emitted = self._drop_resurfaced(emitted, path)

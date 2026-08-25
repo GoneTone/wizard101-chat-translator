@@ -840,3 +840,15 @@ def test_lines_mark_own_message_without_player_link():
     other, = lines_from_chatlog(_say(1, "Wolf", "hello"))
     assert own.own is True
     assert other.own is False
+
+
+def test_new_message_survives_a_duplicated_chat_log_burst():
+    # 實機回報：chatLog 短暫膨脹成重複版本（102 行歷史 ×8 ≈ 822 行），剛好在那一輪
+    # 抵達的私訊被「暴增＝切到別的視圖」判定連同重複內容整批丟棄，對方講第二句才翻得出來。
+    # 剔除看過的行之後只剩寥寥幾行時，那就是夾在重複內容裡的新訊息，必須照吐。
+    history = [_say(1, "A", f"m{i}") for i in range(12)]
+    duplicated = history * 4 + [_say(2, "B", "Test2")]
+    r = FakeWiz([_log(*history), _log(*duplicated)])
+
+    assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[B] Test2"]
