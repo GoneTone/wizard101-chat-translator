@@ -67,9 +67,11 @@ class GameNotRunning(Exception):
 
 # --- 純函式：標記解析（可單元測試，不需遊戲）---
 class ChatLine(NamedTuple):
-    """一行乾淨的玩家聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。"""
+    """一行乾淨的玩家聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。
+    own＝這句是自己講的（見 _OTHER_PLAYER_LINK）。"""
     text: str
     color: str | None
+    own: bool = False
 
 
 _TAG = re.compile(r"<[^>]*>")
@@ -83,6 +85,9 @@ _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
 _PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
                         "<image;Art/Art_Word_Balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
+# 他人發言的名字是可點擊的玩家連結；自己的發言只有純文字 [你]（各語系用語不同，
+# 故以「有沒有這個連結」判斷是不是自己講的，不比對名稱字串）
+_OTHER_PLAYER_LINK = "<link;GID"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
 _warned_icons: set[str] = set()  # 每種未知圖示每次執行只警告一次，避免洗版
@@ -130,7 +135,8 @@ def lines_from_chatlog(text: str) -> list[ChatLine]:
             continue
         line = clean(raw)
         if _VALID.match(line):
-            out.append(ChatLine(line, line_color(raw)))
+            out.append(ChatLine(line, line_color(raw),
+                                _OTHER_PLAYER_LINK not in raw))
     return out
 
 
@@ -398,10 +404,12 @@ class WizChatReader:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
         呼叫端必須在 _remember 之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
         kept = filter_resurfaced(emitted, self._seen)
-        if (len(kept) != len(emitted) and self._input_recent > 0
+        if (len(kept) != len(emitted) and self._input_recent > 0 and emitted[-1].own
                 and (not kept or kept[-1] is not emitted[-1])):
             # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
-            # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除
+            # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除。
+            # 限自己講的那行：轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
+            # 舊訊息當成「剛送出」放行而重翻（實機回報）
             print(f"[reader] released tail line suppressed as resurfaced: input "
                   f"closed recently, treating as a just-sent message via {path}",
                   file=sys.stderr)

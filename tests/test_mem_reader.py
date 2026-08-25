@@ -33,6 +33,11 @@ def _texts(lines):
     return [l.text for l in lines]
 
 
+def _texts_colors(lines):
+    """只比對文字與遊戲顯示色。"""
+    return [(l.text, l.color) for l in lines]
+
+
 # --- lines_from_chatlog：從 chatLog 全文抽玩家發言 ---
 def _say(gid: int, name: str, text: str) -> str:
     return (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
@@ -110,13 +115,13 @@ def test_lines_keeps_house_channel_message_with_balloon_icon():
     # 房間頻道實測 markup：圖示為 chat_balloon_Owner（房主）、頻道色 FFFF00
     raw = ("<color;FFFF00><image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> "
            "[你] Test1</color>")
-    assert lines_from_chatlog(raw) == [("[你] Test1", "#ffff00")]
+    assert _texts_colors(lines_from_chatlog(raw)) == [("[你] Test1", "#ffff00")]
 
 
 def test_lines_keeps_house_guest_variant():
     raw = ("<color;FFFF00><image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> "
            "<link;GID:9,Amy,2>[Amy]</link> hi house</color>")
-    assert lines_from_chatlog(raw) == [("[Amy] hi house", "#ffff00")]
+    assert _texts_colors(lines_from_chatlog(raw)) == [("[Amy] hi house", "#ffff00")]
 
 
 def test_lines_skips_debug_rows_without_icon():
@@ -129,25 +134,25 @@ def test_lines_skips_debug_rows_without_icon():
 # --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
 def test_lines_carry_game_color():
     line, = lines_from_chatlog(_say(1, "Wolf", "hello world"))
-    assert line == ("[Wolf] hello world", "#ffffff")
     assert line.text == "[Wolf] hello world"
     assert line.color == "#ffffff"
+    assert line.own is False   # 帶玩家連結＝別人講的
 
 
 def test_lines_color_normalized_lowercase_hex():
     raw = "<color;80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>"
-    assert lines_from_chatlog(raw) == [("[你] hi", "#80ff00")]
+    assert _texts_colors(lines_from_chatlog(raw)) == [("[你] hi", "#80ff00")]
 
 
 def test_lines_color_takes_last_six_of_eight_digit_hex():
     # 帶 alpha 的 AARRGGBB 形式：只取後 6 位當顯示色
     raw = "<color;FF80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>"
-    assert lines_from_chatlog(raw) == [("[你] hi", "#80ff00")]
+    assert _texts_colors(lines_from_chatlog(raw)) == [("[你] hi", "#80ff00")]
 
 
 def test_lines_color_missing_is_none():
     raw = "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi"
-    assert lines_from_chatlog(raw) == [("[你] hi", None)]
+    assert _texts_colors(lines_from_chatlog(raw)) == [("[你] hi", None)]
 
 
 # --- align_append ---
@@ -282,7 +287,7 @@ def test_message_sent_while_on_filtered_view_is_emitted():
 def test_filter_resurfaced_drops_seen_and_keeps_new():
     seen = {"[A] lol"}
     emitted = [ChatLine("[A] lol", None), ChatLine("[B] new", None)]
-    assert filter_resurfaced(emitted, seen) == [("[B] new", None)]
+    assert _texts(filter_resurfaced(emitted, seen)) == ["[B] new"]
 
 
 def test_suppression_survives_stable_stretch_on_one_view():
@@ -815,3 +820,23 @@ def test_single_line_view_after_transition_is_not_filtered_as_resurfaced():
     assert r.read_new() == []              # 轉場空讀
     assert r.read_new() == []              # 連續空讀 → 基準判定 stale
     assert _texts(r.read_new()) == ["[Ann] Test"]
+
+
+def test_correlated_release_ignores_another_players_tail_line():
+    # 轉場期間遊戲輸入框狀態會亂跳，關聯放行不能只看「輸入框剛開關過」：
+    # 尾行是別人的發言（帶 <link;GID>）時放行等於重翻舊訊息（實機回報：
+    # [摩根 灰烬行者] Have a good one Taylor 在轉場時重複出現）
+    full = _log(_say(1, "A", "m1"), _own("gg"), _say(2, "Morgan", "Have a good one"))
+    reads = [full] * 7 + [""] * 20 + [full]
+    inputs = [False] * 26 + [True, False]
+    r = FakeWiz(reads, inputs)
+    for _ in range(28):
+        assert r.read_new() == []
+
+
+def test_lines_mark_own_message_without_player_link():
+    # 「是不是自己講的」以有無玩家連結判斷：各語系的自稱用語不同，不比對名稱字串
+    own, = lines_from_chatlog(_own("hello"))
+    other, = lines_from_chatlog(_say(1, "Wolf", "hello"))
+    assert own.own is True
+    assert other.own is False
