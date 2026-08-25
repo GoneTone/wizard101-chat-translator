@@ -15,10 +15,10 @@ from src.config import APP_NAME
 BG = "#101018"
 BAR = "#23233a"
 GRIP = "#3a3a55"
-FG_ORIGINAL = "#c8c8d4"
+FG_ORIGINAL = "#c0c0cd"
 FG_TRANSLATED = "#f2f2f7"
 # 原文對譯文的調暗係數：原文是輔助資訊，壓暗到譯文之下讓視線先落在譯文上
-DIM_FACTOR = 0.75
+DIM_FACTOR = 0.71
 FG_PENDING = "#9398a8"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"

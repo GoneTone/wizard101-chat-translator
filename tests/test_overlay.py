@@ -225,8 +225,8 @@ def _original_fill(ov, index=0):
 
 def test_dimmed_scales_each_channel_toward_dark():
     from src.reader.overlay import dimmed
-    assert dimmed("#ffffff") == "#bfbfbf"   # 各通道乘 DIM_FACTOR，原文明顯暗於譯文
-    assert dimmed("#80ff00") == "#60bf00"
+    assert dimmed("#ffffff") == "#b5b5b5"   # 各通道乘 DIM_FACTOR，原文明顯暗於譯文
+    assert dimmed("#80ff00") == "#5bb500"
     assert dimmed("#000000") == "#000000"
 
 
