@@ -779,3 +779,15 @@ def test_read_failure_raises_game_not_running():
         assert False, "應丟 GameNotRunning"
     except GameNotRunning:
         pass
+
+
+def test_history_reappended_in_bulk_only_emits_unseen_lines():
+    # 切伺服器轉場：chatLog 一輪內把整份歷史再接一次（實測 101 行→200 行）。
+    # 這批絕大多數是看過的行，但只要混進一行沒讀過的，全有全無的「全部看過」
+    # 判定就整批放行——大批次必須逐行過濾，只留真正沒見過的行。
+    base = [_say(1, "Wolf", f"line {i}") for i in range(12)]
+    doubled = base + base[:11] + [_say(1, "Wolf", "brand new line")]
+    r = FakeWiz([_log(*base), _log(*doubled)])
+
+    assert r.read_new() == []                  # 基準
+    assert _texts(r.read_new()) == ["[Wolf] brand new line"]

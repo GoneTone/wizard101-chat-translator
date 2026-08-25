@@ -32,6 +32,11 @@ INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸
 MAX_NEW_LINES_PER_POLL = 100
 # 未達上限但異常大的批次：照吐，但留下診斷數據供事後判斷差分是否誤判
 LARGE_BATCH_LOG_THRESHOLD = 10
+# append 快路徑改走逐行過濾的批次大小門檻。一輪 poll 內湧出這麼多行不可能是真人發言，
+# 而是轉場時 chatLog 把整份歷史重接一次（實測切伺服器：101 行→200 行→吐出 100 行舊訊息）。
+# 下方「全部看過」那道判定是全有全無，批次裡混進一行沒讀過的就整批放行，擋不住這種
+# 混合批次；達此門檻的批次改逐行剔除看過的行，沒見過的行照吐、不會吞掉真正的新訊息。
+BULK_APPEND_FILTER_MIN = 10
 # 基準建立後的暖機輪數：期間 reset（零重疊讀取）一律靜默吸收。啟動時基準與看過集合
 # 只蓋到當前分頁，其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都發生在前 1-3 輪，
 # 視圖每輪輪播、看過集合幾輪內學完，5 輪已保守）；暖機拉太長會放大代價——期間切到
@@ -369,25 +374,33 @@ class WizChatReader:
                 print(f"[reader] implausible append burst absorbed as view switch "
                       f"(appended={len(appended)}, prev={prev_len})", file=sys.stderr)
                 emitted = []
+            elif len(appended) >= BULK_APPEND_FILTER_MIN:
+                # 混合批次（大量重浮歷史夾帶少數沒讀過的行）：見 BULK_APPEND_FILTER_MIN
+                emitted = self._drop_resurfaced(emitted, path)
         # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。
         # 過濾要在 _remember 之前——本輪剛出現的新行還不在集合裡，才吐得出來。
         elif emitted:
-            kept = filter_resurfaced(emitted, self._seen)
-            if (len(kept) != len(emitted) and self._input_recent > 0
-                    and (not kept or kept[-1] is not emitted[-1])):
-                # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
-                # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除
-                print(f"[reader] released tail line suppressed as resurfaced: input "
-                      f"closed recently, treating as a just-sent message via {path}",
-                      file=sys.stderr)
-                kept = kept + [emitted[-1]]
-            if len(kept) != len(emitted):
-                print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
-                      f"lines via {path} (kept={len(kept)}, "
-                      f"seen={len(self._seen)})", file=sys.stderr)
-            emitted = kept
+            emitted = self._drop_resurfaced(emitted, path)
         self._remember(cur_texts)
         return self._guard_burst(emitted, path, prev_len, len(cur), texts)
+
+    def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
+        """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
+        呼叫端必須在 _remember 之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
+        kept = filter_resurfaced(emitted, self._seen)
+        if (len(kept) != len(emitted) and self._input_recent > 0
+                and (not kept or kept[-1] is not emitted[-1])):
+            # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
+            # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除
+            print(f"[reader] released tail line suppressed as resurfaced: input "
+                  f"closed recently, treating as a just-sent message via {path}",
+                  file=sys.stderr)
+            kept = kept + [emitted[-1]]
+        if len(kept) != len(emitted):
+            print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
+                  f"lines via {path} (kept={len(kept)}, "
+                  f"seen={len(self._seen)})", file=sys.stderr)
+        return kept
 
     def _remember(self, texts: list[str]) -> None:
         """把行文字記進看過集合；超過 SEEN_LINES_CAP 從最舊的開始淘汰。"""
