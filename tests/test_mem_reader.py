@@ -791,3 +791,11 @@ def test_history_reappended_in_bulk_only_emits_unseen_lines():
 
     assert r.read_new() == []                  # 基準
     assert _texts(r.read_new()) == ["[Wolf] brand new line"]
+
+
+def test_lines_keeps_quick_chat_word_balloon():
+    # 快捷訊息（禁言帳號只能用選單發話）的圖示是 Art_Word_Balloon、link 末位為 0，
+    # 其餘結構與一般發言相同；實機取樣，不得因圖示不在白名單被丟掉
+    raw = ('<color;FFFFFF><image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> '
+           '<link;GID:196751008722541272,迈克尔,0>[迈克尔]</link> 不是</color>')
+    assert _texts(lines_from_chatlog(raw)) == ["[迈克尔] 不是"]

@@ -77,9 +77,11 @@ _TAG = re.compile(r"<[^>]*>")
 _COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
 # 聊天頻道圖示：玩家發言（他人與自己）行都帶頻道圖示——多數頻道是 Art_Chat_<頻道>，
-# 房間頻道實測是 chat_balloon_<Owner/Guest>；系統訊息用 Art_Chat_System。
+# 房間頻道實測是 chat_balloon_<Owner/Guest>，快捷訊息（禁言帳號只能用選單發話）是
+# Art_Word_Balloon；系統訊息用 Art_Chat_System。
 # 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
-_PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon")
+_PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
+                        "<image;Art/Art_Word_Balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
@@ -142,8 +144,8 @@ def _warn_unknown_icon(raw: str) -> None:
         return  # 格式不像聊天行（系統/除錯雜訊）：不值得警告
     _warned_icons.add(m.group(1))
     print(f"[reader] unrecognized chat icon {m.group(1)!r}, line dropped "
-          f"(add prefix to _PLAYER_IMG_PREFIXES if this is a player channel)",
-          file=sys.stderr)
+          f"(add prefix to _PLAYER_IMG_PREFIXES if this is a player channel); "
+          f"raw={raw[:160]!r}", file=sys.stderr)
 
 
 def node_sizes(texts: list[str]) -> list[int]:
