@@ -5,16 +5,17 @@ import queue
 import sys
 import threading
 import tkinter as tk
-from datetime import datetime, timedelta, timezone
 
 import keyboard
 
 from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import CONFIG_PATH, app_dir, is_configured, load_config, save_config
+from src.config import CONFIG_PATH, is_configured, load_config, save_config
 from src.context import ChatContext
+from src.logfiles import TimestampedStream, open_session_log
 from src.reader.mem_reader import GameNotRunning, WizChatReader
+from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.translation_pool import TranslationPool
 from src.translator import Translator
@@ -64,10 +65,11 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
                 stop: threading.Event, context: ChatContext, pool: TranslationPool,
-                on_input_open=None, on_input_close=None) -> None:
+                on_input_open=None, on_input_close=None,
+                message_log: MessageLog | None = None) -> None:
     # 讀遊戲聊天記錄 → 依序推進上下文、在 overlay 佔位 → 交給 pool 平行翻譯。
     # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
-    reader = WizChatReader(game_path=cfg.get("game_path"))
+    reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
     msg_ids = itertools.count(1)
     game_missing = False
     game_input_open = False
@@ -150,71 +152,26 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
 
 
 
-SESSION_HEADER_PREFIX = "===== session started "
-LOG_RETENTION_DAYS = 7        # app.log 保留天數（以 session 標頭日期判斷）
-_LOG_HARD_CAP = 5 * 1024 * 1024   # 異常灌爆保險絲：超過就先砍到尾端再清理
-_LOG_KEEP_TAIL = 1 * 1024 * 1024
-_HEADER_TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-
-def session_header(now: datetime) -> str:
-    """app.log 的啟動分段標頭（UTC＋0）。"""
-    return f"{SESSION_HEADER_PREFIX}{now.strftime(_HEADER_TS_FORMAT)} ====="
-
-
-def trim_log_sessions(text: str, now: datetime) -> str:
-    """以 session 標頭把 log 切段，只保留 LOG_RETENTION_DAYS 內開始的段落。
-    無標頭的開頭內容（舊格式）與標頭解析失敗的段落一併視為過期丟棄。"""
-    cutoff = now - timedelta(days=LOG_RETENTION_DAYS)
-    keep: list[str] = []
-    keeping = False
-    for line in text.splitlines(keepends=True):
-        if line.startswith(SESSION_HEADER_PREFIX):
-            token = line[len(SESSION_HEADER_PREFIX):].split(" ")[0]
-            try:
-                ts = datetime.strptime(token, _HEADER_TS_FORMAT).replace(
-                    tzinfo=timezone.utc)
-            except ValueError:
-                keeping = False
-            else:
-                keeping = ts >= cutoff
-        if keeping:
-            keep.append(line)
-    return "".join(keep)
-
-
-def _prepare_log(path, now: datetime) -> None:
-    """開檔前清理過期段落；檔案異常肥大時先砍到尾端再清理，避免拖慢啟動。"""
-    if not path.exists():
-        return
-    raw = path.read_bytes()
-    if len(raw) > _LOG_HARD_CAP:
-        raw = raw[-_LOG_KEEP_TAIL:]
-    text = raw.decode("utf-8", errors="replace")
-    trimmed = trim_log_sessions(text, now)
-    if trimmed != text:
-        path.write_text(trimmed, encoding="utf-8")
-
-
 def main() -> None:
     if getattr(sys, "frozen", False):
         # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
-        # 使用者回報問題時附上此檔即可（附加模式、保留近 LOG_RETENTION_DAYS 天，
-        # 每次啟動寫一行 UTC 分段標頭）。
-        log_path = app_dir() / "app.log"
-        now = datetime.now(timezone.utc)
-        try:
-            _prepare_log(log_path, now)
-            log = open(log_path, "a", encoding="utf-8", buffering=1)
-            log.write(session_header(now) + "\n")
-        except OSError:
-            # exe 所在資料夾沒有寫入權限時開檔會拋例外；windowed 模式沒有主控台可看錯誤，
-            # 退回丟棄輸出而非讓程式在使用者看不到任何訊息的情況下當掉。
-            log = open(os.devnull, "w", encoding="utf-8")
-        sys.stdout = sys.stderr = log
+        # 使用者回報問題時附上此檔即可（附加模式、保留近 7 天，每次啟動寫一行分段標頭）。
+        sys.stdout = sys.stderr = TimestampedStream(open_session_log("app.log"))
+    else:
+        # 開發模式輸出到主控台，同樣補時戳，才對得上 messages.log 的時間軸。
+        # 主控台編碼常是 cp950（非 UTF-8），UI 文字裡的 ✕ 之類字元會讓 print 直接
+        # 拋 UnicodeEncodeError 把程式帶掉，故先放寬成無法編碼就替換。
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
+        sys.stdout = TimestampedStream(sys.stdout)
+        sys.stderr = TimestampedStream(sys.stderr)
 
     # 版本先印：使用者回報問題時，app.log 分段標頭後第一行就看得到版本
     print(f"[app] version={__version__}", file=sys.stderr)
+
+    # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
+    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
 
     cfg = load_config(CONFIG_PATH)
 
@@ -305,7 +262,8 @@ def main() -> None:
     reader_thread = threading.Thread(
         target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
         kwargs={"on_input_open": lambda: ui_queue.put(input_box.show),
-                "on_input_close": lambda: ui_queue.put(input_box.close)},
+                "on_input_close": lambda: ui_queue.put(input_box.close),
+                "message_log": message_log},
         daemon=True)
     reader_thread.start()
 

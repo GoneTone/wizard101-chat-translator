@@ -21,7 +21,7 @@ Wizard101 聊天 AI 翻譯：讀取遊戲聊天訊息即時翻成**你設定的�
 
 1. 到 [Releases](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
    下載 `Wizard101ChatTranslator.exe`，放到任意資料夾（設定 `config.json`
-   與紀錄檔 `app.log` 都會存在 exe 同一個資料夾）
+   與紀錄檔 `app.log`、`messages.log` 都會存在 exe 同一個資料夾）
 2. 雙擊執行：
    - 第一次執行（找不到 `config.json`）會跳出**首次設定精靈**：第一步選翻譯服務、
      填金鑰並測試連線，第二步選目標語言與熱鍵，存好設定後自動進入主流程
@@ -64,8 +64,18 @@ uv run pyinstaller build.spec --noconfirm
 ```
 
 產物在 `dist/Wizard101ChatTranslator.exe`，單一 windowed exe（無主控台黑窗）。
-分發時只需這個 exe;`config.json` 與 `app.log` 會在使用者第一次執行時自動建立
-在 exe 同一個資料夾（見上方「一般使用者」）。
+分發時只需這個 exe;`config.json`、`app.log` 與 `messages.log` 會在使用者第一次執行時
+自動建立在 exe 同一個資料夾（見上方「一般使用者」）。
+
+### 紀錄檔
+
+兩份紀錄都以「每次啟動一段」分段、只保留近 7 天，每行開頭是 UTC＋0 時戳：
+
+- `app.log`：程式診斷輸出（掛入、翻譯請求、設定套用、例外等）。
+- `messages.log`：收訊端讀到的**原始**聊天內容，不做任何清理與過濾
+  （`RAW` 為含標記的原文、含系統訊息，只排除遊戲自己灌進聊天控件的
+  `[WARN]`／`[ERRO]`／`[DBGM]` 除錯行；`OUT` 為實際送去翻譯的行），
+  訊息漏翻／重複翻譯之類的問題請一併附上這份。
 
 ### 放版
 
