@@ -75,7 +75,6 @@ _STICK_THRESHOLD = 0.999
 _BUBBLE_SIZE = 64
 _CLICK_THRESHOLD = 5
 _FOREGROUND_POLL_MS = 300
-_BACKDROP_POLL_MS = 1000
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 _SCROLLBAR_WIDTH = 8
 _MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
@@ -217,16 +216,6 @@ def _make_non_activating(win: tk.Toplevel) -> None:
         print(f"[ui] non-activating setup failed: {exc}", file=sys.stderr)
 
 
-def _first_visible_below(hwnd: int) -> int:
-    """疊序上位於 hwnd 正後方的第一個**可見**視窗（0＝沒有）。
-    GW_HWNDNEXT 連隱藏視窗也一起走訪，直接取下一個會把早已 withdraw 的視窗
-    當成插隊者——只有看得見的視窗才會真的擋住透明區露出的內容。"""
-    nxt = win32gui.GetWindow(hwnd, win32con.GW_HWNDNEXT)
-    while nxt and not win32gui.IsWindowVisible(nxt):
-        nxt = win32gui.GetWindow(nxt, win32con.GW_HWNDNEXT)
-    return nxt
-
-
 def _enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
     """讓無邊框視窗出現在工作列與 Alt+Tab。
     overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
@@ -268,7 +257,6 @@ class OverlayWindow:
         self._bubble_drag_state: tuple[int, int, int, int] | None = None
         self._prev_foreground = 0
         self._watch_job: str | None = None
-        self._backdrop_intact = True
         self._messages: list[_Message] = []
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估，不在每次加訊息時當場採樣——
         # 縮放視窗／錯誤橫幅進出都會把視圖推離底部，當場採樣會把它誤判成「使用者往上捲」。
@@ -390,39 +378,6 @@ class OverlayWindow:
         except Exception as exc:
             print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
         self._backdrop.lower(self._win)  # 疊序保險：底板壓在文字層之下
-        self._win.after(_BACKDROP_POLL_MS, self._watch_backdrop)
-
-    def _watch_backdrop(self) -> None:
-        """定期確認半透明底板還在文字層正後方。
-
-        文字層是用透明色鍵挖空的，透明區露出的就是它正後方那個視窗。正常情況下
-        那是底板（那層暗底），捲軸滑塊與右下角縮放把手全靠它撐出對比；底板一旦被
-        藏起來或被別的視窗插進中間，露出的變成遊戲畫面，這兩者就會突然「消失」
-        （訊息有描邊，所以照常讀得到——症狀只挑細小的元件下手，很難自己看出原因）。
-
-        目前只記錄、不自動修復：得先從 app.log 分辨是「底板被藏起來」還是
-        「疊序被插隊」，才知道該補 deiconify 還是補 lower，否則修法只是猜的。"""
-        self._win.after(_BACKDROP_POLL_MS, self._watch_backdrop)
-        if self._minimized:
-            return   # 泡泡狀態下兩層本來就都收起來了
-        try:
-            text_layer = win32gui.GetAncestor(self._win.winfo_id(), 2)      # GA_ROOT
-            backdrop = win32gui.GetAncestor(self._backdrop.winfo_id(), 2)
-            visible = bool(win32gui.IsWindowVisible(backdrop))
-            below = _first_visible_below(text_layer)
-        except Exception as exc:
-            print(f"[ui] backdrop check failed: {exc}", file=sys.stderr)
-            return
-        intact = visible and below == backdrop
-        if intact == self._backdrop_intact:
-            return
-        self._backdrop_intact = intact
-        if intact:
-            print("[ui] backdrop is back behind the text layer", file=sys.stderr)
-        else:
-            print(f"[ui] backdrop lost from behind the text layer "
-                  f"(backdrop_visible={visible}, backdrop=0x{backdrop:x}, "
-                  f"below_text_layer=0x{below:x})", file=sys.stderr)
 
     # --- 縮小成泡泡 ---
     @property
