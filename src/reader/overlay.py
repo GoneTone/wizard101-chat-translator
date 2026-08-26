@@ -395,6 +395,7 @@ class OverlayWindow:
         # 拿當下的前景當基準才不會第一輪就誤判成「使用者切回本工具」
         self._prev_foreground = self._foreground_window()
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
+        print(f"[ui] minimized to bubble ({self._scroll_debug()})", file=sys.stderr)
 
     def expand(self) -> None:
         """從泡泡展開回完整視窗，未讀歸零。"""
@@ -414,6 +415,11 @@ class OverlayWindow:
         self._win.deiconify()
         self._win.attributes("-topmost", True)
         self._backdrop.lower(self._win)  # 疊序保險：底板永遠壓在文字層之下
+        # 泡泡期間進來的訊息是在 unmap 狀態下排版的，重新顯示後尺寸才真正確定；
+        # 這裡必須自己重算並貼底，不能指望 deiconify 一定會帶來 <Configure>
+        # （幾何沒變就不會有事件），否則捲動範圍停在舊值、最新訊息捲不到。
+        self._refresh_scroll()
+        print(f"[ui] expanded ({self._scroll_debug()})", file=sys.stderr)
 
     def _show_bubble(self) -> None:
         b = tk.Toplevel(self._win)
@@ -565,6 +571,17 @@ class OverlayWindow:
         self._canvas.yview(*args)
         self._note_scroll()
 
+    def _scroll_debug(self) -> str:
+        """捲動狀態快照，供 log 定位「訊息看不到／捲不到底」這類回報。
+        scrollregion 與 bbox 的高度對不上，就代表捲動範圍是舊的。"""
+        region = self._canvas.cget("scrollregion").split()
+        bbox = self._canvas.bbox("all")
+        return (f"messages={len(self._messages)} follow={self._follow} "
+                f"yview_bottom={self._canvas.yview()[1]:.4f} "
+                f"region_h={region[3] if len(region) == 4 else '?'} "
+                f"content_h={bbox[3] if bbox else '?'} "
+                f"canvas_h={self._canvas.winfo_height()}")
+
     def _note_scroll(self) -> None:
         """使用者主動捲動後重新判定是否繼續跟隨底部：往上捲＝正在讀歷史，
         新訊息不該把畫面搶走；捲回底部則恢復跟隨。"""
@@ -572,7 +589,7 @@ class OverlayWindow:
         if follow != self._follow:
             self._follow = follow
             print(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
-                  f"(user scrolled, messages={len(self._messages)})", file=sys.stderr)
+                  f"by user scroll ({self._scroll_debug()})", file=sys.stderr)
 
     def _refresh_scroll(self) -> None:
         """重算捲動範圍，並在跟隨模式下把視圖貼回底部。

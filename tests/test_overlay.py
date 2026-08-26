@@ -409,3 +409,21 @@ def test_scrolling_up_stops_following_until_back_at_bottom(root):
     ov.add_message("newer still", "更新的", msg_id=997)
     root.update()
     assert _at_bottom(ov)
+
+
+def test_expand_reanchors_view_to_bottom(root):
+    # 泡泡期間的訊息是在 unmap 狀態下排版的，展開後尺寸才真正確定。
+    # expand() 必須自己重算並貼底——deiconify 不保證帶來 <Configure>，
+    # 沒有這一步的話捲動範圍停在舊值，最新訊息怎麼捲都捲不到。
+    ov = _filled_overlay(root)
+    ov.minimize()
+    root.update()
+    for i in range(100, 106):
+        ov.add_message(f"bubbled line {i} arriving while the window is a bubble",
+                       f"第 {i} 則泡泡期間的譯文，長度足以換行", msg_id=i)
+    ov._canvas.yview_moveto(0.0)   # 模擬 unmap 期間的排版落差把視圖推離底部
+    root.update()
+    assert ov._follow, "非使用者操作，跟隨狀態不該改變"
+    ov.expand()
+    root.update()
+    assert _at_bottom(ov)
