@@ -345,15 +345,15 @@ class OverlayWindow:
                                      font=("Microsoft JhengHei", 11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 右下角縮放把手：實心底色當抓取區（透明色鍵的像素在 Windows 下點不到），
-        # 再疊三道亮色斜線——單靠一塊深色方塊壓在遊戲畫面上幾乎看不出來，
-        # 斜線是縮放把手的通用視覺，且亮色在任何背景上都有對比。
-        grip = tk.Canvas(self._win, width=_GRIP_SIZE, height=_GRIP_SIZE, bg=GRIP,
+        # 右下角縮放把手：只畫斜線、背景留透明色鍵，才不會在遊戲畫面上多出一塊方形。
+        # 代價是只有線條那些實心像素接得到滑鼠（透明色鍵的像素在 Windows 下點不穿），
+        # 所以線畫粗一點把抓取範圍撐回來；亮色配描邊，任何背景上都有對比。
+        grip = tk.Canvas(self._win, width=_GRIP_SIZE, height=_GRIP_SIZE, bg=BG,
                          highlightthickness=0, bd=0, cursor="size_nw_se")
         for inset in (4, 9, 14):
-            grip.create_line(_GRIP_SIZE - inset, _GRIP_SIZE - 2,
-                             _GRIP_SIZE - 2, _GRIP_SIZE - inset,
-                             fill=FG_BAR, width=1)
+            ends = (_GRIP_SIZE - inset, _GRIP_SIZE - 2, _GRIP_SIZE - 2, _GRIP_SIZE - inset)
+            grip.create_line(*ends, fill=_OUTLINE, width=4)
+            grip.create_line(*ends, fill=FG_BAR, width=2)
         grip.place(relx=1.0, rely=1.0, anchor="se")
         grip.bind("<ButtonPress-1>", self._resize_start)
         grip.bind("<B1-Motion>", self._resize_drag)
