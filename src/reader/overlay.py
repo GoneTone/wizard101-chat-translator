@@ -79,8 +79,8 @@ _BACKDROP_POLL_MS = 1000
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
 _SCROLLBAR_WIDTH = 8
 _MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
-_THUMB = "#4a4a6b"
-_THUMB_HOVER = "#8a8ab0"
+_THUMB = "#8a8ab0"
+_THUMB_HOVER = "#c0c0e0"
 
 
 def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
@@ -178,12 +178,20 @@ class ThinScrollbar(tk.Canvas):
         if span is None:
             return  # 不需捲動：整條隱形
         top, bottom = span
-        # 圓角滑塊＝上下各一個圓 + 中間矩形（Canvas 沒有圓角矩形）
-        x0, x1, r = self._pad, self._pad + self._thickness, self._thickness
-        self.create_oval(x0, top, x1, top + r, fill=self._color, outline="", tags="thumb")
-        self.create_oval(x0, bottom - r, x1, bottom, fill=self._color, outline="",
-                         tags="thumb")
-        self.create_rectangle(x0, top + r / 2, x1, bottom - r / 2, fill=self._color,
+        # 先畫大一圈的深色描邊再疊本色。底板是半透明的，合成後的亮度取決於視窗後面
+        # 是什麼——壓在亮色畫面上時整片會被提亮，沒有描邊的滑塊就融進背景看不見了。
+        # 與訊息文字同一套處理（見 _outlined_line）。
+        self._draw_thumb(top, bottom, _OUTLINE, grow=1)
+        self._draw_thumb(top, bottom, self._color, grow=0)
+
+    def _draw_thumb(self, top: int, bottom: int, color: str, grow: int) -> None:
+        """圓角滑塊＝上下各一個圓 + 中間矩形（Canvas 沒有圓角矩形）。
+        grow 讓整個形狀往外長一圈，用來畫描邊。"""
+        x0, x1 = self._pad - grow, self._pad + self._thickness + grow
+        top, bottom, r = top - grow, bottom + grow, x1 - x0
+        self.create_oval(x0, top, x1, top + r, fill=color, outline="", tags="thumb")
+        self.create_oval(x0, bottom - r, x1, bottom, fill=color, outline="", tags="thumb")
+        self.create_rectangle(x0, top + r / 2, x1, bottom - r / 2, fill=color,
                               outline="", tags="thumb")
 
     def _press(self, e) -> None:
