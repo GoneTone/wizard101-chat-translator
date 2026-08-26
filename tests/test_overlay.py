@@ -343,3 +343,69 @@ def test_bubble_release_without_press_is_ignored(root):
 
     ov._bubble_release(FakeEvent())
     assert ov.minimized is True
+
+
+def _filled_overlay(root, width=739, height=350, count=40):
+    """裝滿到需要捲動、且視圖停在最底的 overlay，供自動跟隨的測試當起點。"""
+    ov = OverlayWindow(root, x=100, y=100, width=width, height=height,
+                       max_messages=200, fade_seconds=0)
+    root.update()
+    for i in range(count):
+        ov.add_message(f"message number {i}: a chat line long enough that a narrower "
+                       f"window forces it onto a second line",
+                       f"第 {i} 則譯文，內容夠長，窄視窗下一定會換行成兩行以上，"
+                       f"這樣才測得到重新排版導致的高度變化", msg_id=i)
+    root.update()
+    assert ov._canvas.yview()[1] == 1.0, "前置條件：視圖應停在最底"
+    return ov
+
+
+def _at_bottom(ov) -> bool:
+    return should_stick_to_bottom(ov._canvas.yview()[1])
+
+
+def test_narrowing_window_keeps_following_new_messages(root):
+    # 視窗變窄 → 文字重新換行變高 → 視圖被內容推離底部；自動跟隨必須自己貼回去，
+    # 否則之後每一則新訊息都落在畫面外，看起來就像「訊息漏掉了」
+    ov = _filled_overlay(root)
+    ov._win.geometry("420x350+100+100")
+    root.update()
+    assert _at_bottom(ov)
+    ov.add_message("brand new line", "全新的一行", msg_id=999)
+    root.update()
+    assert _at_bottom(ov)
+
+
+def test_shortening_window_keeps_following_new_messages(root):
+    # 視窗變矮 → 視口縮小、內容不動，同樣會讓視圖不再貼底
+    ov = _filled_overlay(root)
+    ov._win.geometry("739x220+100+100")
+    root.update()
+    assert _at_bottom(ov)
+
+
+def test_error_banner_keeps_following_new_messages(root):
+    # 錯誤橫幅從畫布底部吃走高度，效果等同視窗變矮
+    ov = _filled_overlay(root)
+    ov.set_error("⚠  翻譯伺服器離線，重試中…")
+    root.update()
+    assert _at_bottom(ov)
+    ov.clear_error()
+    root.update()
+    assert _at_bottom(ov)
+
+
+def test_scrolling_up_stops_following_until_back_at_bottom(root):
+    # 使用者往上捲＝正在讀歷史，新訊息不該把畫面搶走
+    ov = _filled_overlay(root)
+    ov._canvas.yview_moveto(0.0)
+    ov._note_scroll()
+    ov.add_message("newest", "最新", msg_id=998)
+    root.update()
+    assert not _at_bottom(ov)
+    # 捲回底部後恢復自動跟隨
+    ov._canvas.yview_moveto(1.0)
+    ov._note_scroll()
+    ov.add_message("newer still", "更新的", msg_id=997)
+    root.update()
+    assert _at_bottom(ov)

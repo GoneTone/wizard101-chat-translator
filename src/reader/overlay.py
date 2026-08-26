@@ -250,6 +250,9 @@ class OverlayWindow:
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._messages: list[_Message] = []
+        # 視圖是否黏在底部。只在使用者主動捲動時重新評估，不在每次加訊息時當場採樣——
+        # 縮放視窗／錯誤橫幅進出都會把視圖推離底部，當場採樣會把它誤判成「使用者往上捲」。
+        self._follow = True
         self._error_label: tk.Label | None = None
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
@@ -320,7 +323,7 @@ class OverlayWindow:
         scroll_area = tk.Frame(self._frame, bg=BG)
         scroll_area.pack(side="top", fill="both", expand=True)
         self._canvas = tk.Canvas(scroll_area, bg=BG, highlightthickness=0)
-        self._scrollbar = ThinScrollbar(scroll_area, command=self._canvas.yview)
+        self._scrollbar = ThinScrollbar(scroll_area, command=self._user_scroll)
         self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
         # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
@@ -549,9 +552,39 @@ class OverlayWindow:
                 _fit_line_height(child)
         if self._error_label is not None:
             self._error_label.configure(wraplength=self._wrap)
+        # 排到 idle 再貼底，不在事件處理中直接 update_idletasks()——那會讓下一個
+        # Configure 事件重入本函式；此時排版也尚未完成，量到的高度是舊的。
+        self._win.after_idle(self._refresh_scroll)
 
     def _on_wheel(self, e) -> None:
         self._canvas.yview_scroll(int(-e.delta / 120), "units")
+        self._note_scroll()
+
+    def _user_scroll(self, *args) -> None:
+        """捲軸拖曳的入口（yview 的包裝）：捲完順手記下使用者要不要繼續跟隨底部。"""
+        self._canvas.yview(*args)
+        self._note_scroll()
+
+    def _note_scroll(self) -> None:
+        """使用者主動捲動後重新判定是否繼續跟隨底部：往上捲＝正在讀歷史，
+        新訊息不該把畫面搶走；捲回底部則恢復跟隨。"""
+        follow = should_stick_to_bottom(self._canvas.yview()[1])
+        if follow != self._follow:
+            self._follow = follow
+            print(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
+                  f"(user scrolled, messages={len(self._messages)})", file=sys.stderr)
+
+    def _refresh_scroll(self) -> None:
+        """重算捲動範圍，並在跟隨模式下把視圖貼回底部。
+
+        任何改變畫布內容或幾何的動作都要呼叫：新增／更新訊息、清掉過期訊息，
+        以及縮放視窗與錯誤橫幅進出所觸發的重新排版。少呼叫一處的後果不是少捲一次，
+        而是視圖從此停在舊位置——`_follow` 仍為真但沒人把它貼回底部，
+        之後每一則新訊息都落在畫面外，看起來就像訊息漏掉了。"""
+        self._canvas.update_idletasks()
+        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+        if self._follow:
+            self._canvas.yview_moveto(1.0)
 
     def _move_start(self, e) -> None:
         self._drag = (e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y())
@@ -580,8 +613,6 @@ class OverlayWindow:
         """加入一則訊息。pending＝譯文欄位目前是佔位字樣，以較暗的顏色標示，
         待 update_message 填入真正的譯文時才恢復正常顏色。
         color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
-        stick = should_stick_to_bottom(self._canvas.yview()[1])
-
         row = tk.Frame(self._inner, bg=BG)
         _outlined_line(row, original, dimmed(color) if color else FG_ORIGINAL,
                        _FONT_ORIGINAL, self._wrap).pack(fill="x")
@@ -595,10 +626,7 @@ class OverlayWindow:
             self._messages.pop(0).row.destroy()
 
         self._refresh_placeholder()
-        self._canvas.update_idletasks()
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        if stick:
-            self._canvas.yview_moveto(1.0)
+        self._refresh_scroll()
         if self._minimized:
             self._unread += 1
             self._update_badge()
@@ -611,7 +639,6 @@ class OverlayWindow:
         for i, m in enumerate(self._messages):
             if m.msg_id != msg_id:
                 continue
-            stick = should_stick_to_bottom(self._canvas.yview()[1])
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
             line.itemconfigure("txt", text=translated)
             # 脫離佔位：換回該則的遊戲色；翻譯失敗則一律走錯誤色
@@ -619,19 +646,20 @@ class OverlayWindow:
                                else (m.color or FG_TRANSLATED))
             _fit_line_height(line)
             self._messages[i] = m._replace(translated=translated)
-            self._canvas.update_idletasks()
-            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-            if stick:
-                self._canvas.yview_moveto(1.0)
+            self._refresh_scroll()
             return
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
         self._max = max_messages
         self._fade = fade_seconds
+        removed = False
         while len(self._messages) > self._max:
             self._messages.pop(0).row.destroy()
+            removed = True
         self._refresh_placeholder()
+        if removed:
+            self._refresh_scroll()
 
     def prune(self, now: float | None = None) -> None:
         if self._fade <= 0:
@@ -643,8 +671,11 @@ class OverlayWindow:
                 entry.row.destroy()
             else:
                 keep.append(entry)
+        if len(keep) == len(self._messages):
+            return
         self._messages = keep
         self._refresh_placeholder()
+        self._refresh_scroll()
 
     def set_status(self, text: str, color: str = FG_BAR) -> None:
         """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。"""
