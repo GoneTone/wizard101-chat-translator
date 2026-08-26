@@ -197,16 +197,70 @@ def test_input_box_restores_saved_position(root):
                    position={"x": 321, "y": 210})
     box.show()
     box._win.update_idletasks()
-    assert box._win.geometry().startswith("460x84+321+210")
+    # 高度由 _fit_height 依內容決定，這裡只釘寬度與位置
+    assert box._win.geometry().startswith("460x")
+    assert box._win.geometry().endswith("+321+210")
     box.close()
 
 
 def test_input_box_saves_position_on_close(root):
     saved = []
     box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
-                   position={"x": 150, "y": 160}, on_move=lambda x, y: saved.append((x, y)))
+                   position={"x": 150, "y": 160},
+                   on_geometry_change=lambda x, y, w: saved.append((x, y, w)))
     box.show()
     box._win.update_idletasks()
     box.close()
     assert len(saved) == 1
     assert all(isinstance(v, int) for v in saved[0])
+
+
+def test_show_restores_remembered_width(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None, width=620)
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.winfo_width() == 620
+    box.close()
+
+
+def test_show_clamps_remembered_width_to_minimum(root):
+    from src.composer.input_box import MIN_WIDTH
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None, width=80)
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.winfo_width() == MIN_WIDTH
+    box.close()
+
+
+def test_close_reports_position_and_width(root):
+    reported = []
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None,
+                   on_geometry_change=lambda x, y, w: reported.append((x, y, w)))
+    box.show()
+    box._win.geometry("700x84+120+140")
+    box._win.update_idletasks()
+    box.close()
+    assert reported == [(120, 140, 700)]
+
+
+def test_fit_height_keeps_user_width(root):
+    # 高度自適應不得把使用者拖出來的寬度打回預設值
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._win.geometry("700x84+10+10")
+    box._win.update_idletasks()
+    box._fit_height()
+    box._win.update_idletasks()
+    assert box._win.winfo_width() == 700
+    box.close()
+
+
+def test_fit_height_shrinks_when_hint_needs_fewer_lines(root):
+    # 拉寬 → 提示文字行數變少 → 高度要跟著貼回內容，不能停在開窗時的高度
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._win.update_idletasks()
+    box._win.geometry(f"1000x{box._win.winfo_height()}")
+    box._win.update()
+    assert box._win.winfo_height() == box._win.winfo_reqheight()
+    box.close()

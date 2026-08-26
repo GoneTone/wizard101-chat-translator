@@ -8,21 +8,28 @@ import win32gui
 
 from src.composer.paste import force_foreground
 from src.config import APP_NAME
+from src.ui.responsive import apply_wrap, bind_wrap
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
 GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
+DEFAULT_WIDTH = 460
+MIN_WIDTH = 320  # 再窄會把提示文字擠成一長條，且輸入欄放不下一句話
+_INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit_height 貼合
+_HINT_TRAILING = 24   # 提示文字換行時要讓出的左右邊距
 
 
 class InputBox:
     def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated,
-                 position: dict | None = None, on_move=None):
+                 position: dict | None = None, width: int = DEFAULT_WIDTH,
+                 on_geometry_change=None):
         self._root = root
         self._translate = translate_fn
         self._queue = ui_queue
         self._on_translated = on_translated
         self._pos = position or {"x": None, "y": None}
-        self._on_move = on_move
+        self._width = max(MIN_WIDTH, width)
+        self._on_geometry_change = on_geometry_change
         self._win: tk.Toplevel | None = None
         self._entry: tk.Entry | None = None
         self._status: tk.Label | None = None
@@ -37,19 +44,27 @@ class InputBox:
         self._target_hwnd = win32gui.GetForegroundWindow()
         self._win = tk.Toplevel(self._root)
         self._win.title(APP_NAME)
-        self._win.resizable(False, False)  # 高度依內容自適應，手動縮放會切到文字
+        # 只放開寬度：高度由 _fit_height 依內容自適應，手動拉高會露出一片空白
+        self._win.resizable(True, False)
+        # 高度不受下限拘束：完全交給 _fit_height 依內容決定（拉寬後行數變少要能縮回去）
+        self._win.minsize(MIN_WIDTH, 1)
         self._win.attributes("-topmost", True)
         self._win.configure(bg=BG)
         px = self._pos["x"] if self._pos.get("x") is not None else 200
         py = self._pos["y"] if self._pos.get("y") is not None else 200
-        self._win.geometry(f"460x84+{px}+{py}")
+        self._win.geometry(f"{self._width}x{_INITIAL_HEIGHT}+{px}+{py}")
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=("Microsoft JhengHei", 12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
         self._status = tk.Label(self._win, text="輸入訊息後按下 Enter 會執行翻譯並自動輸入進遊戲輸入框（不會自動送出）；按 Esc 或未輸入直接按 Enter 可關閉此輸入框",
                                 bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9),
-                                anchor="w", justify="left", wraplength=436)
+                                anchor="w", justify="left")
         self._status.pack(fill="x", padx=8)
+        # 拉寬視窗 → 提示文字重新換行 → 行數變了才重算高度（值沒變不動，避免回圈）
+        bind_wrap(self._status, container=self._win, trailing=_HINT_TRAILING,
+                  on_change=self._fit_height)
+        # 視窗還沒 map 時量不到寬度，先用目標寬度套一次；否則開窗高度會先窄一格再跳
+        apply_wrap(self._status, self._width, _HINT_TRAILING)
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)
@@ -72,7 +87,7 @@ class InputBox:
 
     def close(self) -> None:
         if self._win is not None:
-            self._remember_position()
+            self._remember_geometry()
             self._win.destroy()
             self._win = None
             self._entry = None
@@ -81,15 +96,17 @@ class InputBox:
             # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
             force_foreground(self._target_hwnd)
 
-    def _remember_position(self) -> None:
-        """記住輸入框目前位置，供下次開啟還原（關閉前呼叫）。"""
+    def _remember_geometry(self) -> None:
+        """記住輸入框目前位置與寬度，供下次開啟還原（關閉前呼叫）。高度不記：依內容自適應。"""
         try:
-            x, y = self._win.winfo_x(), self._win.winfo_y()
+            self._win.update_idletasks()
+            x, y, width = self._win.winfo_x(), self._win.winfo_y(), self._current_width()
         except Exception:
             return
         self._pos = {"x": x, "y": y}
-        if self._on_move is not None:
-            self._on_move(x, y)
+        self._width = width
+        if self._on_geometry_change is not None:
+            self._on_geometry_change(x, y, self._width)
 
     def _on_enter(self, _event) -> None:
         # 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
@@ -122,11 +139,20 @@ class InputBox:
         self._status.configure(text=message, fg="#ff5f5f")
         self._fit_height()
 
+    def _current_width(self) -> int:
+        """目前視窗寬度；尚未 map 時 winfo_width() 回 1，退回記憶中的寬度。"""
+        width = self._win.winfo_width()
+        return max(MIN_WIDTH, width if width > 1 else self._width)
+
     def _fit_height(self) -> None:
-        """依內容自動調整視窗高度（位置不動）：提示／錯誤文字換行行數會隨
-        DPI 縮放與訊息長度變動，固定高度會把文字切在下緣。"""
+        """依內容自動調整視窗高度（位置與寬度不動）：提示／錯誤文字換行行數會隨
+        DPI 縮放、視窗寬度與訊息長度變動，固定高度會把文字切在下緣。"""
+        if self._win is None:
+            return
         self._win.update_idletasks()
-        self._win.geometry(f"460x{max(84, self._win.winfo_reqheight())}")
+        height = self._win.winfo_reqheight()
+        if height != self._win.winfo_height():
+            self._win.geometry(f"{self._current_width()}x{height}")
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:

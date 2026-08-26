@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from tkinter import ttk
 
 from src.translator import TranslatorConfigError, TranslatorOffline, test_translate
+from src.ui.responsive import bind_wrap
 
 
 @dataclass(frozen=True)
@@ -103,8 +104,9 @@ class ApiFields(ttk.Frame):
         test_row.pack(fill="x", pady=(8, 0))
         self._test_btn = ttk.Button(test_row, text="測試連線", command=self._start_test)
         self._test_btn.pack(side="left")
-        self._test_result = ttk.Label(test_row, text="", wraplength=360)
-        self._test_result.pack(side="left", padx=8)
+        self._test_result = ttk.Label(test_row, text="")
+        self._test_result.pack(side="left", fill="x", expand=True, padx=8)
+        bind_wrap(self._test_result)
 
         self._target_language_fn = lambda: "繁體中文（台灣）"
         self._rebuild_fields()
@@ -175,8 +177,10 @@ class ApiFields(ttk.Frame):
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
         ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
                         variable=self._thinking).pack(anchor="w", pady=(2, 0))
-        ttk.Label(self._fields, text=THINKING_HINT, foreground="#888888",
-                  wraplength=440, justify="left").pack(anchor="w", padx=(20, 0))
+        hint = ttk.Label(self._fields, text=THINKING_HINT, foreground="#888888",
+                         justify="left")
+        hint.pack(fill="x", padx=(20, 0))
+        bind_wrap(hint)
 
     def _labeled_entry(self, label: str, var: tk.StringVar, secret: bool = False):
         row = ttk.Frame(self._fields)
@@ -308,8 +312,10 @@ class LanguageField(ttk.Frame):
         self._var = tk.StringVar(value=initial)
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
-        ttk.Label(self, text=LANGUAGE_HINT, foreground="#888888",
-                  wraplength=440, justify="left").pack(anchor="w", pady=(2, 0))
+        hint = ttk.Label(self, text=LANGUAGE_HINT, foreground="#888888",
+                         justify="left")
+        hint.pack(fill="x", pady=(2, 0))
+        bind_wrap(hint)
 
     def value(self) -> str:
         return self._var.get().strip()

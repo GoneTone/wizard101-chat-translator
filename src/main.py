@@ -232,13 +232,15 @@ def main() -> None:
     def on_translated(translated: str, hwnd: int | None) -> None:
         type_into_window(hwnd, translated, delay=cfg["type_delay"])
 
-    def save_input_position(x: int, y: int) -> None:
+    def save_input_geometry(x: int, y: int, width: int) -> None:
         cfg["input_position"] = {"x": x, "y": y}
+        cfg["input_width"] = width
         save_config(CONFIG_PATH, cfg)
 
     input_box = InputBox(root, lambda text: translator.translate_outgoing(
         text, context.snapshot()), ui_queue, on_translated,
-        position=cfg["input_position"], on_move=save_input_position)
+        position=cfg["input_position"], width=cfg["input_width"],
+        on_geometry_change=save_input_geometry)
     hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
 
     def apply_settings() -> None:

@@ -7,6 +7,7 @@ from src import __version__
 from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
+from src.ui.responsive import bind_wrap
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
@@ -51,7 +52,8 @@ class SettingsWindow:
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
-        self._win.resizable(False, False)  # 版面按固定尺寸配置，縮放會切到文字
+        self._win.resizable(True, True)
+        self._win.minsize(win_w, win_h)  # 下限＝預設尺寸：再窄就會把欄位與說明擠到切字
         self._win.attributes("-topmost", True)
 
         nb = ttk.Notebook(self._win)
@@ -125,9 +127,10 @@ class SettingsWindow:
         ttk.Scale(row, from_=lo, to=hi, orient="horizontal", variable=var,
                   command=on_slide, length=160).pack(side="left")
         value_label.pack(side="left", padx=(6, 0))
-        ttk.Label(row, text=f"即時預覽，小＝更透明（預設 {DEFAULT_CONFIG['overlay_alpha']}）",
-                  foreground="#888888", wraplength=280,
-                  justify="left").pack(side="left", padx=8)
+        note = ttk.Label(row, text=f"即時預覽，小＝更透明（預設 {DEFAULT_CONFIG['overlay_alpha']}）",
+                         foreground="#888888", justify="left")
+        note.pack(side="left", fill="x", expand=True, padx=8)
+        bind_wrap(note)
         return var
 
     def _cancel(self) -> None:
@@ -145,9 +148,10 @@ class SettingsWindow:
             else tk.IntVar(value=initial)
         ttk.Spinbox(row, textvariable=var, from_=lo, to=hi, increment=step,
                     width=8).pack(side="left")
-        ttk.Label(row, text=f"{hint}（範圍 {lo}–{hi}，預設 {DEFAULT_CONFIG[key]}）",
-                  foreground="#888888", wraplength=380,
-                  justify="left").pack(side="left", padx=8)
+        note = ttk.Label(row, text=f"{hint}（範圍 {lo}–{hi}，預設 {DEFAULT_CONFIG[key]}）",
+                         foreground="#888888", justify="left")
+        note.pack(side="left", fill="x", expand=True, padx=8)
+        bind_wrap(note)
         return var
 
     def _browse_game_path(self) -> None:

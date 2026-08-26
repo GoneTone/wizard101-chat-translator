@@ -6,6 +6,7 @@ from tkinter import ttk
 from src.config import APP_NAME
 from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
+from src.ui.responsive import bind_wrap
 
 STEP_API, STEP_PREFS = 0, 1
 _TITLES = ["API 設定", "偏好設定"]
@@ -40,7 +41,8 @@ class SetupWizard:
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
-        self._win.resizable(False, False)
+        self._win.resizable(True, True)
+        self._win.minsize(win_w, win_h)  # 下限＝預設尺寸：再窄會把「略過測試」與測試結果擠出畫面
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self._indicator = ttk.Label(self._win, text="")
@@ -79,7 +81,9 @@ class SetupWizard:
         self._title.configure(text=_TITLES[self._step])
 
         if self._step == STEP_API:
-            ttk.Label(self._body, wraplength=480, text=_INTRO).pack(anchor="w")
+            intro = ttk.Label(self._body, text=_INTRO, justify="left")
+            intro.pack(fill="x")
+            bind_wrap(intro)
             self._api_fields.pack(fill="x", pady=(10, 0))
             skip = ttk.Label(self._body, text="略過測試", foreground="#888888",
                              cursor="hand2", font=("Microsoft JhengHei", 8))
