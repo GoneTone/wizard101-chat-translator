@@ -1,4 +1,4 @@
-"""疊加視窗：無邊框、置頂、半透明、固定大小、可拖曳移動與縮放、可滾動。
+"""疊加視窗：無邊框、置頂、半透明、可拖曳移動、可從四邊／四角縮放、可滾動。
 顯示原文 + 譯文（最新在最下，可向上滾動看歷史）。
 捲動定位：在底部時新訊息自動跟到最底；向上捲看歷史時不會被硬拉回底部。
 不滑鼠穿透 —— 視窗蓋住的區域點擊不會傳到遊戲，視窗永遠可互動。"""
@@ -71,6 +71,8 @@ MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _GRIP_SIZE = 16
+_EDGE = 6        # 四邊的縮放感應寬度（px）
+_CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
 _STICK_THRESHOLD = 0.999
 _BUBBLE_SIZE = 64
 _CLICK_THRESHOLD = 5
@@ -79,6 +81,9 @@ _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出�
 _SCROLLBAR_WIDTH = 8
 _MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
 _THUMB = "#8a8ab0"
+_EDGE_CURSORS = {"n": "size_ns", "s": "size_ns", "w": "size_we", "e": "size_we",
+                 "nw": "size_nw_se", "se": "size_nw_se",
+                 "ne": "size_ne_sw", "sw": "size_ne_sw"}
 _THUMB_HOVER = "#c0c0e0"
 
 
@@ -87,10 +92,48 @@ def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
     return start_x + dx, start_y + dy
 
 
-def resized_to(start_w: int, start_h: int, dx: int, dy: int,
-               min_w: int, min_h: int) -> tuple[int, int]:
-    """拖曳縮放後的新寬高（不小於最小值）。"""
-    return max(min_w, start_w + dx), max(min_h, start_h + dy)
+def edge_at(px: int, py: int, x: int, y: int, w: int, h: int,
+            edge: int = _EDGE, corner: int = _CORNER) -> str:
+    """游標壓在視窗的哪一條邊／哪個角：`"n"`／`"se"`…，都不是則空字串。
+    角落的判定帶比邊寬，且兩軸都落在角落帶內才算角——否則靠近角的邊會很難單軸縮放。"""
+    if not point_in_rect(px, py, x, y, w, h):
+        return ""
+    left, right = px - x, x + w - 1 - px
+    top, bottom = py - y, y + h - 1 - py
+    vertical = "n" if top < corner else ("s" if bottom < corner else "")
+    horizontal = "w" if left < corner else ("e" if right < corner else "")
+    if vertical and horizontal:
+        return vertical + horizontal
+    if top < edge:
+        return "n"
+    if bottom < edge:
+        return "s"
+    if left < edge:
+        return "w"
+    if right < edge:
+        return "e"
+    return ""
+
+
+def resized_edge(edge: str, x: int, y: int, w: int, h: int, dx: int, dy: int,
+                 min_w: int, min_h: int) -> tuple[int, int, int, int]:
+    """從某條邊／角拖曳 (dx, dy) 後的新幾何 (x, y, w, h)。
+
+    拉左緣／上緣要同時改位置與尺寸，對邊才會留在原處；寬高撞到最小值後位置就凍住，
+    否則游標繼續往內移會把整個視窗一起拖走。"""
+    if "e" in edge:
+        w = max(min_w, w + dx)
+    elif "w" in edge:
+        new_w = max(min_w, w - dx)
+        x += w - new_w
+        w = new_w
+    if "s" in edge:
+        h = max(min_h, h + dy)
+    elif "n" in edge:
+        new_h = max(min_h, h - dy)
+        y += h - new_h
+        h = new_h
+    return x, y, w, h
 
 
 def should_stick_to_bottom(view_bottom_fraction: float,
@@ -266,6 +309,8 @@ class OverlayWindow:
         self._h = max(height, MIN_HEIGHT)
         self._wrap = self._w - 40
         self._drag = (0, 0, 0, 0)
+        # 縮放中的起點與起始幾何；None＝目前沒有在縮放（見 _resize_start）
+        self._resize: tuple[int, int, int, int, int, int, str] | None = None
 
         # 雙層視窗:tk 的 -alpha 是整窗生效、無法只透背景,故拆兩層——
         # 下層 backdrop 承擔半透明底板(透明度設定作用於此),
@@ -320,9 +365,10 @@ class OverlayWindow:
                                       font=("Microsoft JhengHei", 8), anchor="e")
         self._status_label.pack(side="right", padx=6)
         for w in (bar, label, self._status_label):
-            w.bind("<ButtonPress-1>", self._move_start)
-            w.bind("<B1-Motion>", self._move_drag)
-            w.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
+            w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
+            w.bind("<ButtonPress-1>", self._bar_press)
+            w.bind("<B1-Motion>", self._bar_drag)
+            w.bind("<ButtonRelease-1>", self._bar_release)
 
         # 內容區：錯誤橫幅（固定在下，不隨捲動）+ 可滾動訊息區
         self._frame = tk.Frame(self._win, bg=BG)
@@ -335,7 +381,8 @@ class OverlayWindow:
         self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
         # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
-        self._scrollbar.pack(side="right", fill="y", pady=(0, _GRIP_SIZE))
+        self._scrollbar.pack(side="right", fill="y", padx=(0, _EDGE),
+                             pady=(0, _GRIP_SIZE))
         self._canvas.pack(side="left", fill="both", expand=True)
         self._inner = tk.Frame(self._canvas, bg=BG)
         self._inner_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
@@ -363,9 +410,17 @@ class OverlayWindow:
             grip.create_line(*ends, fill=_OUTLINE, width=4)
             grip.create_line(*ends, fill=FG_BAR, width=2)
         grip.place(relx=1.0, rely=1.0, anchor="se")
-        grip.bind("<ButtonPress-1>", self._resize_start)
-        grip.bind("<B1-Motion>", self._resize_drag)
-        grip.bind("<ButtonRelease-1>", lambda e: self._emit_geometry())
+        grip.bind("<ButtonPress-1>", lambda e: self._resize_start(e, "se"))
+        grip.bind("<B1-Motion>", self._edge_drag)
+        grip.bind("<ButtonRelease-1>", self._edge_release)
+
+        # 四邊縮放：本體的透明背景像素點得穿，左／右／下三邊與下方兩角的事件會落到
+        # 底板上。上緣被標題列擋住，改由標題列自己的按下事件分流（見 _bar_press）——
+        # 在標題列上鋪一條感應細條會蓋掉標題文字的頂端。
+        self._backdrop.bind("<Motion>", self._edge_motion)
+        self._backdrop.bind("<ButtonPress-1>", self._edge_press)
+        self._backdrop.bind("<B1-Motion>", self._edge_drag)
+        self._backdrop.bind("<ButtonRelease-1>", self._edge_release)
 
         self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
         _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
@@ -634,16 +689,64 @@ class OverlayWindow:
         self._win.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
         self._backdrop.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
 
-    def _resize_start(self, e) -> None:
-        self._drag = (e.x_root, e.y_root, self._w, self._h)
+    def _edge_under(self, e) -> str:
+        """游標（螢幕座標）目前壓在視窗的哪條邊／哪個角。"""
+        return edge_at(e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y(),
+                       self._w, self._h)
 
-    def _resize_drag(self, e) -> None:
-        sx, sy, ow, oh = self._drag
-        nw, nh = resized_to(ow, oh, e.x_root - sx, e.y_root - sy, MIN_WIDTH, MIN_HEIGHT)
-        self._w, self._h = nw, nh
-        geometry = f"{nw}x{nh}+{self._win.winfo_x()}+{self._win.winfo_y()}"
-        self._win.geometry(geometry)
-        self._backdrop.geometry(geometry)
+    def _edge_motion(self, e, default: str = "") -> None:
+        e.widget.configure(cursor=_EDGE_CURSORS.get(self._edge_under(e), default))
+
+    def _edge_press(self, e) -> None:
+        edge = self._edge_under(e)
+        if edge:
+            self._resize_start(e, edge)
+
+    def _bar_press(self, e) -> None:
+        """標題列按下：壓在上緣（含上方兩角）＝縮放，其餘＝拖曳移動。"""
+        edge = self._edge_under(e)
+        if edge:
+            self._resize_start(e, edge)
+        else:
+            self._move_start(e)
+
+    def _bar_drag(self, e) -> None:
+        if self._resize is not None:
+            self._edge_drag(e)
+        else:
+            self._move_drag(e)
+
+    def _bar_release(self, e) -> None:
+        if self._resize is not None:
+            self._edge_release(e)
+        else:
+            self._emit_geometry()
+
+    def _resize_start(self, e, edge: str) -> None:
+        """記下拖曳起點與起始幾何：拖曳期間一律以起點換算，避免逐次累加的誤差。"""
+        self._resize = (e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y(),
+                        self._w, self._h, edge)
+        print(f"[ui] overlay resize start edge={edge} geometry="
+              f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}",
+              file=sys.stderr)
+
+    def _edge_drag(self, e) -> None:
+        if self._resize is None:
+            return  # 這次按下不在邊上（或按在別處後才滑進來）：不是縮放
+        sx, sy, ox, oy, ow, oh, edge = self._resize
+        self._apply_geometry(*resized_edge(edge, ox, oy, ow, oh,
+                                           e.x_root - sx, e.y_root - sy,
+                                           MIN_WIDTH, MIN_HEIGHT))
+
+    def _edge_release(self, e) -> None:
+        if self._resize is None:
+            return
+        edge = self._resize[6]
+        self._resize = None
+        print(f"[ui] overlay resize end edge={edge} geometry="
+              f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}",
+              file=sys.stderr)
+        self._emit_geometry()
 
     # --- 訊息 ---
     def add_message(self, original: str, translated: str, now: float | None = None,

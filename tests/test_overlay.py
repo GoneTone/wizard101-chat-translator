@@ -4,10 +4,11 @@ from src.reader.overlay import (
     MIN_WIDTH,
     OverlayWindow,
     _GRIP_SIZE,
+    edge_at,
     is_click,
     moved_to,
     point_in_rect,
-    resized_to,
+    resized_edge,
     scroll_fraction,
     should_auto_expand,
     should_stick_to_bottom,
@@ -70,12 +71,66 @@ def test_do_not_stick_when_scrolled_up():
     assert should_stick_to_bottom(0.4) is False
 
 
-def test_resized_to_adds_delta():
-    assert resized_to(400, 300, 50, 20, MIN_WIDTH, MIN_HEIGHT) == (450, 320)
+def test_resized_edge_south_east_grows_without_moving():
+    assert resized_edge("se", 100, 200, 400, 300, 50, 20,
+                        MIN_WIDTH, MIN_HEIGHT) == (100, 200, 450, 320)
 
 
-def test_resized_to_clamps_to_minimum():
-    assert resized_to(400, 300, -1000, -1000, MIN_WIDTH, MIN_HEIGHT) == (MIN_WIDTH, MIN_HEIGHT)
+def test_resized_edge_south_east_clamps_to_minimum():
+    assert resized_edge("se", 100, 200, 400, 300, -1000, -1000,
+                        MIN_WIDTH, MIN_HEIGHT) == (100, 200, MIN_WIDTH, MIN_HEIGHT)
+
+
+def test_resized_edge_west_moves_origin_and_keeps_right_edge():
+    # 往左拖 40：左緣左移 40、寬度加 40，右緣（x+w）不動
+    assert resized_edge("w", 100, 200, 400, 300, -40, 0,
+                        MIN_WIDTH, MIN_HEIGHT) == (60, 200, 440, 300)
+
+
+def test_resized_edge_north_moves_origin_and_keeps_bottom_edge():
+    assert resized_edge("n", 100, 200, 400, 300, 0, -40,
+                        MIN_WIDTH, MIN_HEIGHT) == (100, 160, 400, 340)
+
+
+def test_resized_edge_west_freezes_origin_at_minimum_width():
+    # 撞到最小寬度後左緣要停住；否則游標繼續右移會把整個視窗一起往右拉走
+    x, y, w, h = resized_edge("w", 100, 200, 400, 300, 1000, 0,
+                              MIN_WIDTH, MIN_HEIGHT)
+    assert (w, h) == (MIN_WIDTH, 300)
+    assert x == 100 + 400 - MIN_WIDTH   # 右緣仍固定在 500
+    assert y == 200
+
+
+def test_resized_edge_north_west_resizes_both_axes():
+    assert resized_edge("nw", 100, 200, 400, 300, -30, -20,
+                        MIN_WIDTH, MIN_HEIGHT) == (70, 180, 430, 320)
+
+
+def test_edge_at_outside_window_is_no_edge():
+    assert edge_at(99, 300, 100, 200, 400, 300) == ""
+
+
+def test_edge_at_interior_is_no_edge():
+    assert edge_at(300, 350, 100, 200, 400, 300) == ""
+
+
+def test_edge_at_each_side():
+    assert edge_at(102, 350, 100, 200, 400, 300) == "w"
+    assert edge_at(497, 350, 100, 200, 400, 300) == "e"
+    assert edge_at(300, 202, 100, 200, 400, 300) == "n"
+    assert edge_at(300, 497, 100, 200, 400, 300) == "s"
+
+
+def test_edge_at_corners_take_priority_over_sides():
+    assert edge_at(108, 208, 100, 200, 400, 300) == "nw"
+    assert edge_at(492, 208, 100, 200, 400, 300) == "ne"
+    assert edge_at(108, 492, 100, 200, 400, 300) == "sw"
+    assert edge_at(492, 492, 100, 200, 400, 300) == "se"
+
+
+def test_edge_at_ignores_corner_band_away_from_the_other_axis():
+    # 距離左緣 10px（大於邊界寬、小於角落寬）但在視窗中段：不是角落也不算邊
+    assert edge_at(110, 350, 100, 200, 400, 300) == ""
 
 
 def test_add_message_appends_and_caps_at_max(root):
