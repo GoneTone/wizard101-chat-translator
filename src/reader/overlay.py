@@ -415,9 +415,13 @@ class OverlayWindow:
         self._win.deiconify()
         self._win.attributes("-topmost", True)
         self._backdrop.lower(self._win)  # 疊序保險：底板永遠壓在文字層之下
-        # 泡泡期間進來的訊息是在 unmap 狀態下排版的，重新顯示後尺寸才真正確定；
-        # 這裡必須自己重算並貼底，不能指望 deiconify 一定會帶來 <Configure>
-        # （幾何沒變就不會有事件），否則捲動範圍停在舊值、最新訊息捲不到。
+        # 重新對齊排到 idle：deiconify 只是送出顯示要求，這一行執行時畫布仍是隱藏的，
+        # 當場重算會量到（也擺放到）舊值。等 map 真的完成後再做，才對得齊。
+        self._win.after_idle(self._settle_after_expand)
+
+    def _settle_after_expand(self) -> None:
+        """視窗重新顯示後把捲動狀態接回來。泡泡期間進來的訊息是在隱藏狀態下排版的，
+        必須自己重算——不能指望 deiconify 一定會帶來 <Configure>（幾何沒變就沒有事件）。"""
         self._refresh_scroll()
         print(f"[ui] expanded ({self._scroll_debug()})", file=sys.stderr)
 
@@ -599,6 +603,10 @@ class OverlayWindow:
         而是視圖從此停在舊位置——`_follow` 仍為真但沒人把它貼回底部，
         之後每一則新訊息都落在畫面外，看起來就像訊息漏掉了。"""
         self._canvas.update_idletasks()
+        # 視窗隱藏（縮成泡泡、工作列收合）期間畫布不重繪，內嵌的訊息容器就停止跟著
+        # 捲動位置移動，與畫布自己的捲動帳目脫節——yview 回報已在底部，畫面卻少了
+        # 最後幾則、往下也捲不動。重設一次座標（值不變）即可要求畫布重新擺放它。
+        self._canvas.coords(self._inner_id, 0, 0)
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         if self._follow:
             self._canvas.yview_moveto(1.0)

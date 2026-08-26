@@ -427,3 +427,19 @@ def test_expand_reanchors_view_to_bottom(root):
     ov.expand()
     root.update()
     assert _at_bottom(ov)
+
+
+def test_expand_realigns_the_message_container(root):
+    # 視窗隱藏期間畫布不重繪，內嵌的訊息容器會停在舊的捲動位置，與 canvas 自己的
+    # 捲動帳目脫節：yview 回報已在底部，畫面卻少了最後幾則，往下也捲不動
+    # （要等下一則新訊息改變容器尺寸、觸發重新佈局才會對齊）。
+    ov = _filled_overlay(root)
+    ov.minimize()
+    root.update()
+    for i in range(200, 204):
+        ov.add_message(f"bubbled line {i} arriving while the window is a bubble",
+                       f"第 {i} 則泡泡期間的譯文，長度足以換行", msg_id=i)
+        root.update()
+    ov.expand()
+    root.update()
+    assert ov._inner.winfo_y() == -int(ov._canvas.canvasy(0))
