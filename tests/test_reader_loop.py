@@ -2,6 +2,7 @@
 翻譯本身與其重試改由 TranslationPool 負責（見 test_translation_pool.py）。"""
 import queue
 import threading
+import time
 
 import src.main as main_module
 from src.context import ChatContext
@@ -251,3 +252,31 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     assert ov.errors == [main_module.GAME_MISSING_NOTICE]
     assert ov.messages == []
     assert "●  等待遊戲中…" in ov.statuses
+
+
+class DelayedInputReader(FakeReader):
+    """輸入框在指定秒數後才變成開啟：模擬使用者在一輪的等待中途打開遊戲聊天欄。"""
+
+    def __init__(self, reads, stop, opens_after):
+        super().__init__(reads, stop)
+        self.opens_after = opens_after
+        self.started = time.monotonic()
+
+    def input_open(self):
+        return time.monotonic() - self.started >= self.opens_after
+
+
+def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
+    # 聊天欄在兩輪讀取之間被打開：翻譯輸入框不該等到下一輪才彈出
+    cfg = {"poll_interval": 0.5, "auto_show_input": True}
+    opened_at = []
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: DelayedInputReader([[], []], stop, 0.1))
+    start = time.monotonic()
+    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
+                on_input_open=lambda: opened_at.append(time.monotonic() - start))
+    _drain(ui_queue)
+    assert opened_at, "沒有偵測到輸入框開啟"
+    assert opened_at[0] < 0.25, f"延遲 {opened_at[0]:.3f}s，等到了下一輪讀取"

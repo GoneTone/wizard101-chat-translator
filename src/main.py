@@ -4,6 +4,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 
 import keyboard
@@ -22,6 +23,9 @@ from src.translator import Translator
 from src.ui.settings import SettingsWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
+# 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
+# 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
+INPUT_POLL_INTERVAL = 0.05
 
 PENDING_NOTICE = "翻譯中…"                        # 佔位期間顯示於譯文位置
 TRANSLATE_FAILED_NOTICE = "⚠  這則訊息翻譯不出來"   # 放棄該行時代替譯文顯示
@@ -84,6 +88,37 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
         text, color = STATUS[key]
         ui_queue.put(lambda: overlay.set_status(text, color))
 
+    def check_input() -> None:
+        """遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回。"""
+        nonlocal game_input_open
+        if on_input_open is None or not cfg.get("auto_show_input", True):
+            return
+        now_open = reader.input_open()
+        if now_open == game_input_open:
+            return
+        game_input_open = now_open
+        print(f"[reader] game chat input {'opened' if now_open else 'closed'}",
+              file=sys.stderr)
+        if now_open:
+            on_input_open()
+        elif on_input_close is not None:
+            on_input_close()
+
+    def wait_watching_input(seconds: float) -> None:
+        """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
+
+        input_open() 只讀一個已快取節點的可見性旗標（實測 <0.1ms），可以用遠高於
+        poll_interval 的頻率取樣；讀聊天記錄則貴得多（實測約 10ms），維持原本的節奏。
+        取樣不另開執行緒——WizChatReader 內部跑自己的 asyncio loop，跨執行緒併發呼叫
+        會踩到彼此。"""
+        deadline = time.monotonic() + seconds
+        while not stop.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            stop.wait(min(INPUT_POLL_INTERVAL, remaining))
+            check_input()
+
     def set_banner(text: str | None) -> None:
         nonlocal last_banner
         if text == last_banner:
@@ -134,19 +169,8 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
         else:
             set_status("listening" if reader.anchored else "locating")
 
-        # 遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回
-        if on_input_open is not None and cfg.get("auto_show_input", True):
-            now_open = reader.input_open()
-            if now_open != game_input_open:
-                game_input_open = now_open
-                print(f"[reader] game chat input {'opened' if now_open else 'closed'}",
-                      file=sys.stderr)
-                if now_open:
-                    on_input_open()
-                elif on_input_close is not None:
-                    on_input_close()
-
-        stop.wait(cfg["poll_interval"])
+        check_input()
+        wait_watching_input(cfg["poll_interval"])
 
     reader.close()  # 停止：解除 wizwalker hook、關閉連線
 
