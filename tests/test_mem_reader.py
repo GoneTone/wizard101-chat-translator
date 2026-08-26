@@ -536,6 +536,16 @@ def test_same_text_resend_after_short_empty_is_emitted():
     assert _texts(r.read_new()) == ["[你] Hi"]
 
 
+def test_single_line_view_refill_after_short_empty_is_not_retranslated():
+    # 實機：聊天視圖裡只有一行玩家訊息，轉場清空後原樣填回——內容與基準一字不差，
+    # 沒有新訊息可言。單行例外只適用於內容真的變了的情況，否則每次轉場都重譯尾行
+    view = _log(_say(1, "A", "ill stay"))
+    reads = [view] * 8 + ["", ""] + [view, view]
+    r = FakeWiz(reads)
+    for _ in range(len(reads)):
+        assert r.read_new() == []
+
+
 def test_short_empty_refill_still_not_retranslated():
     # 門檻降低後轉場短暫清空也走 reset：填回同樣歷史仍不得重譯（看過集合擋下）
     main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
