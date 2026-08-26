@@ -345,9 +345,15 @@ class OverlayWindow:
                                      font=("Microsoft JhengHei", 11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 右下角縮放把手
-        grip = tk.Frame(self._win, bg=GRIP, width=_GRIP_SIZE, height=_GRIP_SIZE,
-                        cursor="size_nw_se")
+        # 右下角縮放把手：實心底色當抓取區（透明色鍵的像素在 Windows 下點不到），
+        # 再疊三道亮色斜線——單靠一塊深色方塊壓在遊戲畫面上幾乎看不出來，
+        # 斜線是縮放把手的通用視覺，且亮色在任何背景上都有對比。
+        grip = tk.Canvas(self._win, width=_GRIP_SIZE, height=_GRIP_SIZE, bg=GRIP,
+                         highlightthickness=0, bd=0, cursor="size_nw_se")
+        for inset in (4, 9, 14):
+            grip.create_line(_GRIP_SIZE - inset, _GRIP_SIZE - 2,
+                             _GRIP_SIZE - 2, _GRIP_SIZE - inset,
+                             fill=FG_BAR, width=1)
         grip.place(relx=1.0, rely=1.0, anchor="se")
         grip.bind("<ButtonPress-1>", self._resize_start)
         grip.bind("<B1-Motion>", self._resize_drag)
