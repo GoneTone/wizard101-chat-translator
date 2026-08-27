@@ -6,19 +6,22 @@ import pytest
 
 from src.translator import (
     OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
-    TranslatorOffline, build_incoming_system,
+    TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
 )
 
 
 class FakeResponse:
     def __init__(self, status_code=200, content="譯文", finish_reason="stop",
-                 completion_tokens=None):
+                 completion_tokens=None, payload=None):
         self.status_code = status_code
         self._content = content
         self._finish_reason = finish_reason
         self._completion_tokens = completion_tokens
+        self._payload = payload
 
     def json(self):
+        if self._payload is not None:
+            return self._payload
         data = {"choices": [{"message": {"content": self._content},
                              "finish_reason": self._finish_reason}]}
         if self._completion_tokens is not None:
@@ -39,6 +42,12 @@ class FakeHttpxClient:
 
     def post(self, url, json):
         self.last_body = json
+        if self._raises:
+            raise self._raises
+        return self._response
+
+    def get(self, url):
+        self.last_url = url
         if self._raises:
             raise self._raises
         return self._response
@@ -304,3 +313,92 @@ def test_reconfigure_switches_provider():
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
     from src.translator import _ClaudeClient
     assert isinstance(t._impl, _ClaudeClient)
+
+
+class FakeModel:
+    def __init__(self, model_id):
+        self.id = model_id
+
+
+class FakeAnthropicModels:
+    def __init__(self, ids=(), raises=None):
+        self._ids = ids
+        self._raises = raises
+
+    def list(self):
+        if self._raises:
+            raise self._raises
+        return [FakeModel(i) for i in self._ids]
+
+
+def _api(provider="custom", base_url="http://x", model="", api_key="k"):
+    return {"provider": provider, "base_url": base_url, "model": model,
+            "api_key": api_key, "thinking": False}
+
+
+def test_list_models_openai_compat_returns_sorted_ids():
+    fake = FakeHttpxClient(response=FakeResponse(
+        payload={"data": [{"id": "qwen3"}, {"id": "gemma3"}]}))
+    assert list_models(_api(), client=fake) == ["gemma3", "qwen3"]
+    assert fake.last_url == "/v1/models"
+
+
+@pytest.mark.parametrize("status", [404, 405])
+def test_list_models_missing_endpoint_maps_to_no_model_list(status):
+    # 端點沒有 /v1/models：與「模型不存在」是兩回事，不可映射成 TranslatorConfigError
+    fake = FakeHttpxClient(response=FakeResponse(status_code=status))
+    with pytest.raises(TranslatorNoModelList):
+        list_models(_api(), client=fake)
+
+
+def test_list_models_response_without_data_maps_to_no_model_list():
+    fake = FakeHttpxClient(response=FakeResponse(payload={"object": "list"}))
+    with pytest.raises(TranslatorNoModelList):
+        list_models(_api(), client=fake)
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_list_models_auth_error_maps_to_config_error(status):
+    fake = FakeHttpxClient(response=FakeResponse(status_code=status))
+    with pytest.raises(TranslatorConfigError) as ei:
+        list_models(_api(), client=fake)
+    assert ei.value.status == status
+
+
+def test_list_models_connection_error_maps_to_offline():
+    fake = FakeHttpxClient(raises=httpx.ConnectError("refused"))
+    with pytest.raises(TranslatorOffline):
+        list_models(_api(), client=fake)
+
+
+@pytest.mark.parametrize("status", [429, 500, 503])
+def test_list_models_retryable_status_maps_to_offline(status):
+    fake = FakeHttpxClient(response=FakeResponse(status_code=status))
+    with pytest.raises(TranslatorOffline):
+        list_models(_api(), client=fake)
+
+
+def test_list_models_claude_uses_models_api():
+    fake = FakeAnthropicClient()
+    fake.models = FakeAnthropicModels(ids=("claude-opus-5", "claude-haiku-4-5"))
+    assert list_models(_api(provider="claude"), client=fake) == [
+        "claude-haiku-4-5", "claude-opus-5"]
+
+
+@pytest.mark.parametrize("status,exc", [(401, TranslatorConfigError),
+                                        (404, TranslatorNoModelList),
+                                        (429, TranslatorOffline),
+                                        (500, TranslatorOffline)])
+def test_list_models_claude_status_error_mapping(status, exc):
+    fake = FakeAnthropicClient()
+    fake.models = FakeAnthropicModels(raises=_anthropic_status_error(status))
+    with pytest.raises(exc):
+        list_models(_api(provider="claude"), client=fake)
+
+
+def test_list_models_claude_connection_error_maps_to_offline():
+    fake = FakeAnthropicClient()
+    fake.models = FakeAnthropicModels(
+        raises=anthropic.APIConnectionError(request=httpx2.Request("GET", "http://x")))
+    with pytest.raises(TranslatorOffline):
+        list_models(_api(provider="claude"), client=fake)

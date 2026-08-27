@@ -7,10 +7,11 @@ import tkinter as tk
 import webbrowser
 
 import keyboard
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from tkinter import ttk
 
-from src.translator import TranslatorConfigError, TranslatorOffline, test_translate
+from src.translator import (TranslatorConfigError, TranslatorNoModelList,
+                            TranslatorOffline, list_models, test_translate)
 from src.ui.responsive import bind_wrap
 
 
@@ -18,16 +19,13 @@ from src.ui.responsive import bind_wrap
 class Provider:
     label: str
     needs_base_url: bool
-    models: list[str] = field(default_factory=list)
     key_url: str | None = None
 
 
 PROVIDERS: dict[str, Provider] = {
     "openai": Provider(label="ChatGPT（OpenAI）", needs_base_url=False,
-                       models=["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
                        key_url="https://platform.openai.com/api-keys"),
     "claude": Provider(label="Claude（Anthropic）", needs_base_url=False,
-                       models=["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
                        key_url="https://console.anthropic.com/settings/keys"),
     "custom": Provider(label="自訂端點（進階）", needs_base_url=True),
 }
@@ -35,7 +33,9 @@ PROVIDERS: dict[str, Provider] = {
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "日本語", "한국어",
                     "Español", "Português", "Deutsch", "Français"]
 
-CLAUDE_MODEL_HINT = "較快較省：claude-haiku-4-5"
+MODEL_HINT_IDLE = "按「重新整理」從伺服器取得可用模型清單；也可以自行輸入模型名稱。"
+MODEL_HINT_NO_LIST = "此端點未提供模型清單，請自行輸入模型名稱。"
+MODEL_HINT_EMPTY = "伺服器回報 0 個可用模型，請自行輸入模型名稱。"
 
 LANGUAGE_HINT = "清單只是常用選項，也可以直接輸入任何語言名稱（例如 Italiano、ภาษาไทย）。"
 
@@ -45,17 +45,46 @@ THINKING_HINT = "建議關閉：開啟可能會讓每則翻譯慢上數秒、也
 AUTO_INPUT_LABEL = "遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）"
 
 
-def validate_api_form(api: dict) -> list[str]:
-    """檢查 API 表單必填欄位，回傳錯誤訊息列表（空＝通過）。"""
+def validate_endpoint_fields(api: dict) -> list[str]:
+    """檢查連上端點所需的欄位（不含模型），回傳錯誤訊息列表（空＝通過）。
+    取模型清單時模型欄本來就還沒填，故與 validate_api_form 分開。"""
     errors = []
     provider = PROVIDERS[api["provider"]]
-    if not api["model"].strip():
-        errors.append("請選擇或輸入模型")
     if not provider.needs_base_url and not api["api_key"].strip():
         errors.append("請輸入 API 金鑰")
     if provider.needs_base_url and not api["base_url"].strip():
         errors.append("請輸入伺服器網址")
     return errors
+
+
+def validate_api_form(api: dict) -> list[str]:
+    """檢查 API 表單必填欄位，回傳錯誤訊息列表（空＝通過）。"""
+    errors = [] if api["model"].strip() else ["請選擇或輸入模型"]
+    return errors + validate_endpoint_fields(api)
+
+
+def filter_models(models: list[str], query: str) -> list[str]:
+    """依關鍵字篩選模型清單（不分大小寫子字串比對）；關鍵字為空白＝不篩選。"""
+    keyword = query.strip().lower()
+    return [m for m in models if keyword in m.lower()] if keyword else list(models)
+
+
+def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 100):
+    """輪詢背景執行緒放進 queue 的結果，取到就在主執行緒交給 on_result。
+    tkinter 的 after 不保證跨執行緒安全：worker 只放 queue，由主執行緒輪詢取用。
+    等待期間視窗被關閉即停止輪詢、結果丟棄。"""
+    try:
+        if not widget.winfo_exists():
+            return
+    except tk.TclError:
+        return
+    try:
+        result = result_queue.get_nowait()
+    except queue.Empty:
+        widget.after(interval_ms,
+                     lambda: poll_queue(widget, result_queue, on_result, interval_ms))
+        return
+    on_result(result)
 
 
 def friendly_error(exc: Exception) -> str:
@@ -71,6 +100,209 @@ def friendly_error(exc: Exception) -> str:
     return f"發生錯誤：{exc}"
 
 
+
+
+class ModelField(ttk.Frame):
+    """模型欄位：可自行輸入的下拉選單 ＋「重新整理」向端點取得可用模型清單。
+    清單不落地也不快取（每次按才抓）；端點沒有模型清單 API 時退化成純文字輸入。"""
+
+    def __init__(self, parent, model_var: tk.StringVar, api_getter):
+        super().__init__(parent)
+        self._var = model_var
+        self._api_getter = api_getter
+        self._all_models: list[str] = []
+        self._queue: queue.Queue = queue.Queue()
+        self._outside_click_id: str | None = None
+
+        # grid 而非 pack：說明文字要與輸入框（而不是「模型」標籤）切齊同一欄。
+        self.columnconfigure(1, weight=1)
+        ttk.Label(self, text="模型", width=14).grid(row=0, column=0, sticky="w")
+        self._combo = ttk.Combobox(self, textvariable=self._var, values=[])
+        self._combo.grid(row=0, column=1, sticky="ew", pady=2)
+        self._btn = ttk.Button(self, text="重新整理", width=9, command=self._start_refresh)
+        self._btn.grid(row=0, column=2, padx=(4, 0))
+        self._status = ttk.Label(self, text=MODEL_HINT_IDLE, foreground="#888888",
+                                 justify="left")
+        self._status.grid(row=1, column=1, columnspan=2, sticky="ew")
+        bind_wrap(self._status)
+
+        self._combo.bind("<KeyRelease>", self._on_type)
+        self._combo.bind("<FocusOut>", lambda e: self.after_idle(self._unpost_if_left))
+        self._combo.bind("<Escape>", lambda e: self.unpost_options())
+        for key in ("<Down>", "<Up>"):
+            self._combo.bind(key, self._on_arrow)
+        self._combo.bind("<<ComboboxSelected>>", lambda e: self.unpost_options())
+        # 從箭頭展開的清單也要解除 modal（原生 Press binding 攔不到，改在事件後補）。
+        self._combo.bind("<ButtonRelease-1>",
+                         lambda e: self.after_idle(self._make_popdown_modeless))
+
+    # --- 狀態查詢（測試與呼叫端用） ---
+    def options(self) -> list[str]:
+        return list(self._combo.cget("values"))
+
+    def status(self) -> str:
+        return self._status.cget("text")
+
+    # --- 下拉清單 ---
+    def is_posted(self) -> bool:
+        """下拉清單目前是否展開著。"""
+        return bool(self._combo.tk.call("winfo", "ismapped", self._popdown()))
+
+    def post_options(self) -> None:
+        """展開下拉清單，並把鍵盤焦點留在輸入框，以便邊看清單邊改關鍵字。"""
+        if not self.is_posted():
+            self._combo.tk.call("ttk::combobox::Post", self._combo)
+        self._make_popdown_modeless()
+        self._watch_outside_click()
+        self._combo.focus_set()
+
+    def unpost_options(self) -> None:
+        if not self._combo.winfo_exists():
+            return  # 關窗時仍可能有延遲的收合回呼落到這裡
+        self._combo.tk.call("ttk::combobox::Unpost", self._combo)
+        if self._outside_click_id is not None:
+            self.winfo_toplevel().unbind("<Button-1>", self._outside_click_id)
+            self._outside_click_id = None
+
+    def _watch_outside_click(self) -> None:
+        """展開期間監看整個視窗的點擊，點到別的控件就收起清單。
+        原生是靠 global grab 攔下所有點擊才做到「點哪都關」，而 grab 已為了讓
+        使用者能邊看清單邊打字而拆掉（見 _make_popdown_modeless），只好自己補。
+        清單本身是另一個 toplevel，它的點擊不會傳到這裡，不會誤收。"""
+        if self._outside_click_id is None:
+            self._outside_click_id = self.winfo_toplevel().bind(
+                "<Button-1>", self._on_click_elsewhere, add="+")
+
+    def _on_click_elsewhere(self, event) -> None:
+        if event.widget is not self._combo:
+            self.unpost_options()
+
+    def _popdown(self) -> str:
+        return self._combo.tk.eval(f"ttk::combobox::PopdownWindow {self._combo}")
+
+    def _listbox(self) -> str:
+        return self._popdown() + ".f.l"
+
+    def _make_popdown_modeless(self) -> None:
+        """拆掉展開清單的 modal 行為，讓它能與輸入框並存。
+
+        ttk 原生的清單是 modal 的：grab 住滑鼠、一 map 就搶走鍵盤焦點、一失焦就
+        自動收合。於是點回輸入框改關鍵字時，那一下點擊只會把清單關掉，使用者
+        永遠沒辦法邊看清單邊篩選。三者都拆掉後，焦點留在輸入框、收合時機改由
+        本元件自己掌握（失焦、Esc、選取）。
+
+        這些行為都來自 ttk 的類別 binding（ComboboxPopdown／ComboboxListbox），
+        只有實例 binding 才蓋得過去，且腳本要以 break 收尾才會中止類別 binding。
+        清單 map 時原生會重新抓一次 global grab，所以連 <Map> 都得改寫——只留下
+        「輸入框顯示按下狀態」，把 grab 拿掉。"""
+        try:
+            popdown = self._popdown()
+            self._combo.tk.call("grab", "release", popdown)
+            self._combo.tk.call("bind", popdown, "<Map>",
+                                "[winfo parent %W] state pressed; break")
+            for event in ("<Map>", "<FocusOut>"):
+                self._combo.tk.call("bind", self._listbox(), event, "break")
+        except tk.TclError:
+            pass  # 清單尚未建立：沒有 grab 也沒有 binding 要拆
+
+    def _unpost_if_left(self) -> None:
+        """輸入框失焦後收起清單；焦點只是移進清單本身則不算離開。"""
+        if not self._combo.winfo_exists():
+            return
+        if not str(self._combo.tk.call("focus")).startswith(self._popdown()):
+            self.unpost_options()
+
+    def _on_arrow(self, event) -> str:
+        """方向鍵：展開清單並把鍵盤交給它，之後的上下移動與 Enter 選取都走原生。"""
+        if not self._all_models:
+            return "break"
+        if not self.is_posted():
+            self.post_options()
+        self._combo.tk.call("focus", self._listbox())
+        return "break"
+
+    def _on_type(self, event) -> None:
+        """輸入即篩選，並讓清單保持展開顯示篩選結果。
+        方向鍵／Enter／Esc／Tab 交回原生鍵盤操作，不在這裡攔截。"""
+        if event.keysym in ("Up", "Down", "Return", "Escape", "Tab"):
+            return
+        self.refresh_options()
+        if self.options():
+            self.post_options()
+
+    # --- 清單呈現 ---
+    def refresh_options(self) -> None:
+        """依模型欄目前的輸入篩選下拉選單；還沒抓過清單就不動作。"""
+        if not self._all_models:
+            return
+        matched = filter_models(self._all_models, self._var.get())
+        self._combo.configure(values=matched)
+        if not matched:
+            self.unpost_options()  # 沒有相符項目時清單只會剩一個空白小框
+        elif self.is_posted():
+            self._reload_posted_list()
+
+    def _reload_posted_list(self) -> None:
+        """把新的 values 灌進「已經展開」的清單。
+        ttk 只在展開當下填一次內容，之後改 values 畫面不會跟著變——邊打字邊篩選
+        就得自己重填，並依新的項數重算清單高度與位置。"""
+        self._combo.tk.call("ttk::combobox::ConfigureListbox", self._combo)
+        self._combo.update_idletasks()  # 幾何要先傳播，重新定位才量得到新高度
+        self._combo.tk.call("ttk::combobox::PlacePopdown", self._combo, self._popdown())
+
+    def show_models(self, models: list[str]) -> None:
+        self._all_models = list(models)
+        self._combo.configure(values=self._all_models)
+        self._set_status(
+            f"找到 {len(models)} 個模型：輸入關鍵字可篩選，清單外的模型名稱也能自行輸入。"
+            if models else MODEL_HINT_EMPTY)
+
+    def show_error(self, exc: Exception) -> None:
+        self._all_models = []
+        self._combo.configure(values=[])
+        if isinstance(exc, TranslatorNoModelList):
+            self._set_status(MODEL_HINT_NO_LIST)
+        else:
+            self._set_status(friendly_error(exc), error=True)
+
+    def _set_status(self, text: str, error: bool = False) -> None:
+        self._status.configure(text=text, foreground="#cc3333" if error else "#888888")
+
+    # --- 取得清單 ---
+    def _start_refresh(self) -> None:
+        api = self._api_getter()
+        errors = validate_endpoint_fields(api)
+        if errors:
+            self._set_status("；".join(errors), error=True)
+            return
+        self._btn.configure(state="disabled", text="讀取中…")
+        self._set_status(MODEL_HINT_IDLE)
+        threading.Thread(target=self._refresh_worker, args=(api,), daemon=True).start()
+        poll_queue(self, self._queue, self._on_refreshed)
+
+    def _refresh_worker(self, api: dict) -> None:
+        try:
+            models = list_models(api)
+        except TranslatorNoModelList as exc:
+            print(f"[settings] model list unsupported (provider={api['provider']}, "
+                  f"base_url={api['base_url']}): {exc}", file=sys.stderr)
+            self._queue.put(exc)
+            return
+        except Exception as exc:
+            print(f"[settings] model list failed (provider={api['provider']}, "
+                  f"base_url={api['base_url']}): {exc}", file=sys.stderr)
+            self._queue.put(exc)
+            return
+        print(f"[settings] model list fetched (provider={api['provider']}, "
+              f"count={len(models)})", file=sys.stderr)
+        self._queue.put(models)
+
+    def _on_refreshed(self, result) -> None:
+        self._btn.configure(state="normal", text="重新整理")
+        if isinstance(result, Exception):
+            self.show_error(result)
+        else:
+            self.show_models(result)
 
 
 class ApiFields(ttk.Frame):
@@ -138,28 +370,17 @@ class ApiFields(ttk.Frame):
         if provider_changed:
             # 切換服務商後，上一家的「連線成功」殘留字樣不該繼續顯示。
             self._test_result.configure(text="")
+            # 模型 ID 跨服務商不通用（已抓的清單隨模型欄重建一起消失）。
+            self._model.set("")
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
             self._labeled_entry("伺服器網址", self._base_url)
-            self._labeled_entry("模型名稱", self._model)
+            self._model_row()
             self._labeled_entry("API 金鑰（選填）", self._api_key, secret=True)
             self._thinking_row()
-            # custom 分支不清空模型欄：使用者原輸入（含跨服務商切回時）都保留。
         else:
             self._labeled_entry("API 金鑰", self._api_key, secret=True)
-            row = ttk.Frame(self._fields)
-            row.pack(fill="x", pady=2)
-            ttk.Label(row, text="模型").pack(side="left")
-            combo = ttk.Combobox(row, textvariable=self._model, values=prov.models)
-            combo.pack(side="left", fill="x", expand=True, padx=(8, 0))
-            # 切換服務商後模型欄若殘留上一家的模型 ID（不在新清單內），改填新服務商預設模型；
-            # 模型欄原本是空的（如精靈初始狀態）也一併補上預設值。
-            if (provider_changed and self._model.get() not in prov.models) \
-                    or not self._model.get():
-                self._model.set(prov.models[0])
-            if self._provider.get() == "claude":
-                ttk.Label(self._fields, text=CLAUDE_MODEL_HINT,
-                          foreground="#888888").pack(anchor="w")
+            self._model_row()
             if self._provider.get() == "openai":
                 # ChatGPT 官方端點也可關思考（只送 reasoning_effort，見 translator）；
                 # Claude 維持模型預設（adaptive），不提供開關。
@@ -172,6 +393,11 @@ class ApiFields(ttk.Frame):
         self._invalidate_test()
         if self._on_change:
             self._on_change()
+
+    def _model_row(self) -> None:
+        """模型欄（三家共用）：每次重建都是新元件，切換服務商時已抓的清單自然清空。"""
+        self._model_field = ModelField(self._fields, self._model, self.get_values)
+        self._model_field.pack(fill="x")
 
     def _thinking_row(self) -> None:
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
@@ -209,7 +435,7 @@ class ApiFields(ttk.Frame):
         target = self._target_language_fn()
         threading.Thread(target=self._test_worker, args=(api, target),
                          daemon=True).start()
-        self._poll_result()
+        poll_queue(self, self._queue, self._on_tested)
 
     def _test_worker(self, api: dict, target_language: str) -> None:
         try:
@@ -223,18 +449,8 @@ class ApiFields(ttk.Frame):
               f"model={api['model']})", file=sys.stderr)
         self._queue.put((True, f"連線成功　範例：{sample}"))
 
-    def _poll_result(self) -> None:
-        # tkinter 的 after 不保證跨執行緒安全：worker 只放 queue，主執行緒輪詢取用
-        try:
-            if not self.winfo_exists():
-                return  # 測試進行中視窗被關閉：停止輪詢，結果丟棄
-        except tk.TclError:
-            return
-        try:
-            ok, message = self._queue.get_nowait()
-        except queue.Empty:
-            self.after(100, self._poll_result)
-            return
+    def _on_tested(self, result) -> None:
+        ok, message = result
         self._test_btn.configure(state="normal", text="測試連線")
         self._show_test_result(ok, message)
 
@@ -276,7 +492,7 @@ class HotkeyField(ttk.Frame):
         self._capturing = True
         self._btn.configure(text="請按鍵…（Esc 取消）", state="disabled")
         threading.Thread(target=self._capture_worker, daemon=True).start()
-        self._poll_capture()
+        poll_queue(self, self._queue, self._on_captured)
 
     def _capture_worker(self) -> None:
         try:
@@ -286,18 +502,7 @@ class HotkeyField(ttk.Frame):
             combo = None
         self._queue.put(combo)
 
-    def _poll_capture(self) -> None:
-        # 與測試連線同模式:worker 只放 queue,主執行緒輪詢取用(tk 跨執行緒不安全)
-        try:
-            if not self.winfo_exists():
-                return  # 捕捉期間視窗被關閉:結果丟棄
-        except tk.TclError:
-            return
-        try:
-            combo = self._queue.get_nowait()
-        except queue.Empty:
-            self.after(100, self._poll_capture)
-            return
+    def _on_captured(self, combo) -> None:
         self._capturing = False
         self._btn.configure(text="更改", state="normal")
         if combo and combo != "esc":

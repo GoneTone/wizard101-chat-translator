@@ -6,6 +6,8 @@
 
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
 TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
+另提供 list_models()：向端點取得可用模型清單供設定視窗選擇，端點不支援時拋
+TranslatorNoModelList。
 上下文由呼叫端提供（見 src/context.py）：本類別不持有狀態，可安全平行呼叫。
 """
 import re
@@ -179,6 +181,24 @@ class TranslatorConfigError(Exception):
         self.status = status
 
 
+class TranslatorNoModelList(Exception):
+    """此端點不提供模型清單（/v1/models 回 404／405，或回應缺 data 陣列）。
+    與 TranslatorConfigError 的 404（模型不存在）是兩回事：這裡只代表「問不到清單」，
+    使用者仍可自行輸入模型名稱正常翻譯。"""
+
+
+def _model_list_error(status: int) -> Exception | None:
+    """把模型清單請求的 HTTP 狀態碼映射成對應例外（None＝可繼續解析回應）。
+    兩種後端共用，確保 OpenAI 相容端點與 Claude 官方 API 的判定一致。"""
+    if status in (404, 405):
+        return TranslatorNoModelList(f"HTTP {status}")
+    if status in (401, 403):
+        return TranslatorConfigError(f"HTTP {status}", status=status)
+    if status == 429 or status >= 500:
+        return TranslatorOffline(f"HTTP {status}")
+    return None
+
+
 class _OpenAICompatClient:
     """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。"""
 
@@ -223,6 +243,20 @@ class _OpenAICompatClient:
                              content or "")
         return strip_think(content).strip()
 
+    def list_models(self) -> list[str]:
+        try:
+            resp = self._client.get("/v1/models")
+        except httpx.HTTPError as exc:
+            raise TranslatorOffline(str(exc)) from exc
+        error = _model_list_error(resp.status_code)
+        if error is not None:
+            raise error
+        resp.raise_for_status()
+        data = resp.json().get("data")
+        if not isinstance(data, list):
+            raise TranslatorNoModelList("response has no data array")
+        return sorted(str(m["id"]) for m in data if isinstance(m, dict) and m.get("id"))
+
 
 class _ClaudeClient:
     """Claude 官方 API（anthropic SDK）：打 /v1/messages。
@@ -253,6 +287,18 @@ class _ClaudeClient:
             raise _truncated(_MAX_TOKENS_THINKING,
                              getattr(usage, "output_tokens", None), content)
         return strip_think(content).strip()
+
+    def list_models(self) -> list[str]:
+        try:
+            page = self._client.models.list()  # SDK 自動翻頁，直接迭代即可
+        except anthropic.APIConnectionError as exc:
+            raise TranslatorOffline(str(exc)) from exc
+        except anthropic.APIStatusError as exc:
+            error = _model_list_error(exc.status_code)
+            if error is None:
+                raise
+            raise error from exc
+        return sorted(m.id for m in page)
 
 
 def _build_client(provider: str, base_url: str, model: str, api_key: str,
@@ -303,6 +349,12 @@ class Translator:
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING))
+
+
+def list_models(api: dict, client=None) -> list[str]:
+    """取得端點上可用的模型 ID（已排序）。api 為設定表單當下的值，與翻譯走同一條分派。
+    端點不提供清單時拋 TranslatorNoModelList——呼叫端應提示改為自行輸入模型名稱。"""
+    return _build_client(**api, timeout=_TIMEOUT, client=client).list_models()
 
 
 def test_translate(api: dict, target_language: str) -> str:
