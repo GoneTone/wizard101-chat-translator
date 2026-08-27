@@ -75,7 +75,8 @@ def build_incoming_system(target_language: str) -> str:
         f"6. 網路及遊戲聊天的縮寫、俚語（如 lol、gg、brb、omg、ty、np 等）"
         f"請翻成 {target_language} 在地、口語的說法，不要保留原縮寫。\n"
         "7. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
-        "請原樣保留在對應位置，不要翻譯或刪除。\n"
+        "請原樣保留在對應位置，不要翻譯或刪除；"
+        "原文沒有的表情符號一律不得自行添加。\n"
         "8. 標點盡量貼近原文的標點風格（原文結尾沒有標點就盡量不加）；"
         f"需要標點時使用 {target_language} 慣用的樣式。"
     )
@@ -109,7 +110,8 @@ def build_outgoing_system(outgoing_language: str) -> str:
         "名稱，不要另譯或加註。\n"
         f"7. 網路及遊戲聊天的縮寫、俚語請翻成 {outgoing_language} 在地、口語的說法。\n"
         "8. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
-        "請原樣保留在對應位置，不要翻譯或刪除。\n"
+        "請原樣保留在對應位置，不要翻譯或刪除；"
+        "原文沒有的表情符號一律不得自行添加。\n"
         "9. 盡量貼近原文的標點風格（例如原文句尾沒有句號，譯文結尾也盡量不加）。"
     )
 
@@ -293,12 +295,14 @@ class Translator:
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
         發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。
-        few-shot 只在無背景上下文時帶：有上下文時多輪結構已足夠，避免範例與
-        背景 turn 交錯干擾弱模型。"""
+        few-shot 一律帶：曾只在無背景上下文時帶，但遊戲內幾乎永遠有上下文，
+        等於防脫稿範例形同虛設——實測模型會把「不好意思我英文不好，用翻譯器」
+        當成對它說的話，回「No worries, I'll help you out!」，而該回覆會被原樣
+        送進遊戲聊天。"""
         return self._impl.chat(
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
-                        examples=None if context else FEWSHOT_OUTGOING))
+                        examples=FEWSHOT_OUTGOING))
 
 
 def test_translate(api: dict, target_language: str) -> str:

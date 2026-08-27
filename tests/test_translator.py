@@ -258,12 +258,13 @@ def test_translator_keeps_no_internal_history():
     assert not hasattr(t, "_history")
 
 
-def test_outgoing_uses_given_context_and_skips_fewshot():
+def test_outgoing_keeps_fewshot_even_with_context():
     from src.translator import FEWSHOT_OUTGOING
     fake = FakeHttpxClient()
     _make(fake).translate_outgoing("好啊", ["[A] want to trade?"])
     turns = _turns(fake.last_body)
-    assert turns[0] != FEWSHOT_OUTGOING[0]                           # 有上下文就不加範例
+    # 遊戲內幾乎永遠有上下文，範例若在此時被略過，防脫稿保護等於沒有
+    assert turns[:len(FEWSHOT_OUTGOING)] == FEWSHOT_OUTGOING
     assert any("[A] want to trade?" in m["content"] for m in turns)
     assert turns[-1] == {"role": "user", "content": "好啊"}
 
