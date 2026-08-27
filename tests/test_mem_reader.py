@@ -2,7 +2,7 @@ import io
 
 from src.reader.mem_reader import (
     RESET_WARMUP_POLLS, ChatLine, GameNotRunning, WizChatReader, align_append,
-    align_recover, clean, filter_resurfaced, lines_from_chatlog,
+    align_recover, clean, filter_resurfaced, lines_from_chatlog, lines_from_nodes,
 )
 from src.reader.message_log import MessageLog
 
@@ -865,6 +865,49 @@ def test_new_message_survives_a_duplicated_chat_log_burst():
 
     assert r.read_new() == []
     assert _texts(r.read_new()) == ["[B] Test2"]
+
+
+# --- 鏡射節點：組隊／私訊浮動視窗把同一則訊息再渲染一份 ---
+def test_lines_from_nodes_drops_a_mirrored_node():
+    # 內容被主視圖完全涵蓋的節點＝鏡射視圖，不另計；主視圖沒有的行照收
+    main = _log(_say(1, "A", "m1"), _own("hi"))
+    lines, mirrored = lines_from_nodes([main, _log(_own("hi")), ""])
+    assert _texts(lines) == ["[A] m1", "[你] hi"]
+    assert mirrored == 1
+
+
+def test_lines_from_nodes_keeps_a_node_with_its_own_content():
+    # 私訊視窗有主視圖看不到的訊息：不是鏡射，兩個節點都要收
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    lines, mirrored = lines_from_nodes([main, _log(_own("whisper"))])
+    assert _texts(lines) == ["[A] m1", "[B] m2", "[你] whisper"]
+    assert mirrored == 0
+
+
+def test_team_up_mirror_node_is_translated_once():
+    # 實機 poll 43271：開組隊視窗後 chatLog 多一個節點（sizes=[1, 1, 0]），
+    # 使用者發的同一句同時渲染在主視圖與組隊視窗，串接後一則訊息被翻兩次
+    main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    sent = [_log(_own("hi")), _log(_own("hi")), ""]
+    r = FakeWiz([[main, "", ""]] * (1 + RESET_WARMUP_POLLS) + [sent])
+    for _ in range(1 + RESET_WARMUP_POLLS):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] hi"]
+
+
+def test_view_flap_beside_a_mirror_node_does_not_retranslate():
+    # 實機 43280⇄43283：組隊視窗開著時主節點在「完整歷史」與「只剩剛送出那句」
+    # 之間來回跳；鏡射多出來的那份會被 align_append 當成新增，每跳回來就重翻一次
+    history = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
+    small = [_log(_own("hi")), _log(_own("hi")), ""]
+    full = [history, _log(_own("hi")), ""]
+    r = FakeWiz([[history, "", ""]] * (1 + RESET_WARMUP_POLLS)
+                + [small, full, small, full])
+    for _ in range(1 + RESET_WARMUP_POLLS):
+        assert r.read_new() == []
+    assert _texts(r.read_new()) == ["[你] hi"]   # 剛送出：翻一次
+    for _ in range(3):
+        assert r.read_new() == []                # 視圖來回跳：不得重翻
 
 
 # --- messages.log：原始內容與判定結果落檔（見 src/reader/message_log.py）---

@@ -16,7 +16,7 @@ import asyncio
 import os
 import re
 import sys
-from collections import deque
+from collections import Counter, deque
 from typing import NamedTuple
 
 from src.reader import hook_state
@@ -167,6 +167,37 @@ def _warn_unknown_icon(raw: str) -> None:
           f"raw={raw[:160]!r}", file=sys.stderr)
 
 
+def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
+    """part 的每一行（含重複次數）都能在 main 裡找到 → part 只是 main 的鏡射。"""
+    remaining = Counter(l.text for l in main)
+    for line in part:
+        if not remaining[line.text]:
+            return False
+        remaining[line.text] -= 1
+    return True
+
+
+def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
+    """把各 chatLog 節點的全文合併成單一玩家聊天行序列（依傳入順序串接），
+    回傳（行序列, 被剔除的鏡射節點數）。
+
+    組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份
+    （實測：開組隊視窗後發話，同一句同時出現在兩個節點，sizes=[1, 1, 0]）。
+    盲目串接會讓一則訊息變成兩行——當下就翻兩次，之後主視圖在完整歷史與精簡視圖
+    之間來回跳時，多出來的那份還會被 align_append 當成尾端新增而每次重翻。
+    以行數最多的節點為主視圖，內容被它完全涵蓋（含重複次數）的節點即判定為鏡射。
+    代價：兩個視窗剛好各自出現一句一字不差的訊息時只翻一次，與差分既有的取捨一致。
+    空節點不算鏡射——它本來就不貢獻任何行，計進去會讓診斷 log 每輪都在響。
+    """
+    parts = [lines_from_chatlog(t) for t in texts]
+    if len(parts) < 2:
+        return [l for p in parts for l in p], 0
+    main = max(range(len(parts)), key=lambda i: len(parts[i]))
+    kept = [p for i, p in enumerate(parts)
+            if i == main or not (p and _mirrors(p, parts[main]))]
+    return [l for p in kept for l in p], len(parts) - len(kept)
+
+
 def node_sizes(texts: list[str]) -> list[int]:
     """各 chatLog 節點各自的玩家聊天行數，依串接時的排序。診斷用：看得出是哪個節點
     在灌入完整歷史，以及 sorted 的名次有沒有翻轉（翻轉時同一組節點的順序會對調）。
@@ -279,6 +310,7 @@ class WizChatReader:
         self._input_was_open = False
         self._empty_streak = 0     # 連續空讀輪數（見 STALE_BASELINE_EMPTY_POLLS）
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
+        self._mirrored_nodes = 0   # 上輪剔除的鏡射節點數（見 lines_from_nodes）
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -313,13 +345,21 @@ class WizChatReader:
             self._input_recent -= 1
         self._input_was_open = input_open_now
         # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
-        raw = "\n".join(sorted(texts))
+        ordered = sorted(texts)
+        raw = "\n".join(ordered)
         if self._msg_log is not None:
             # 解析與過濾之前先落檔：messages.log 要的是未經加工的原文
             self._msg_log.snapshot(raw.split("\n") if raw else [],
                                    nodes=len(texts), sizes=node_sizes(texts),
                                    input_open=input_open_now)
-        cur = lines_from_chatlog(raw)
+        cur, mirrored = lines_from_nodes(ordered)
+        if mirrored != self._mirrored_nodes:
+            # 只在鏡射節點數變動時印：組隊視窗開著時每輪都成立，逐輪印會洗版
+            print(f"[reader] mirrored chatLog nodes {self._mirrored_nodes}->{mirrored} "
+                  f"(nodes={len(texts)}, sizes={node_sizes(texts)}, "
+                  f"merged_lines={len(cur)}); mirrored copies are not retranslated",
+                  file=sys.stderr)
+            self._mirrored_nodes = mirrored
         # 差分只看文字：切頻道時 chatLog 會把同樣的訊息以該頻道顏色重新染色，
         # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
         cur_texts = [l.text for l in cur]
@@ -633,6 +673,7 @@ class WizChatReader:
         # （Test/lol 等常用字）誤判為重浮歷史而吞掉。
         self._prev = []
         self._node_count = None
+        self._mirrored_nodes = 0
         self._synced = False
         self._seen.clear()
         self._seen_order.clear()
