@@ -421,12 +421,14 @@ class ApiFields(ttk.Frame):
         row.pack(fill="x", pady=2)
         ttk.Label(row, text=label, width=14).pack(side="left")
         entry = ttk.Entry(row, textvariable=var, show="●" if secret else "")
-        entry.pack(side="left", fill="x", expand=True)
         if secret:
+            # 「顯示」先 pack：pack 依宣告順序分配空間，expand=True 的輸入框若先宣告
+            # 會吃光整列寬度，這顆固定寬度的按鈕就會在視窗變窄時被擠掉。
             btn = ttk.Button(row, text=t("button.show"), width=5,
                              command=lambda: entry.configure(
                                  show="" if entry.cget("show") else "●"))
-            btn.pack(side="left", padx=(4, 0))
+            btn.pack(side="right", padx=(4, 0))
+        entry.pack(side="left", fill="x", expand=True)
 
     # --- 測試連線 ---
     def _invalidate_test(self) -> None:

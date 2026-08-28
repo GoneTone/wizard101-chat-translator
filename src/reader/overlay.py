@@ -354,9 +354,10 @@ class OverlayWindow:
         bar.pack_propagate(False)
         self._title_label = tk.Label(bar, text=f"≡  {app_name()}", bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
-        self._title_label.pack(side="left", padx=6)
         # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
-        # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑。
+        # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑——
+        # 所以整組控制項都要排在標題之前 pack，標題再長（英文的應用程式名較長）
+        # 或視窗被縮到多窄，都不會把它們擠出畫面。標題自己則會被裁掉，那無所謂。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
                              font=ui_font(9), cursor="hand2")
@@ -374,6 +375,7 @@ class OverlayWindow:
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=ui_font(8), anchor="e")
         self._status_label.pack(side="right", padx=6)
+        self._title_label.pack(side="left", padx=6)
         for w in (bar, self._title_label, self._status_label):
             w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
             w.bind("<ButtonPress-1>", self._bar_press)
@@ -386,6 +388,8 @@ class OverlayWindow:
 
         scroll_area = tk.Frame(self._frame, bg=BG)
         scroll_area.pack(side="top", fill="both", expand=True)
+        # 錯誤橫幅是事後才建立的，pack 時要指名排在捲動區之前（見 set_error）
+        self._scroll_area = scroll_area
         self._canvas = tk.Canvas(scroll_area, bg=BG, highlightthickness=0)
         self._scrollbar = ThinScrollbar(scroll_area, command=self._user_scroll)
         self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
@@ -883,7 +887,10 @@ class OverlayWindow:
         self._error_label = tk.Label(self._frame, text=t(key), bg=BG, fg=FG_ERROR,
                                      font=ui_font(10, "bold"), anchor="w",
                                      wraplength=self._wrap)
-        self._error_label.pack(side="bottom", fill="x", pady=2)
+        # before＝捲動區：pack 依宣告順序分配空間，橫幅排在 expand=True 的捲動區
+        # 之後就會在視窗被縮小時被擠掉——而「遊戲未就緒」正是最該看到的訊息。
+        self._error_label.pack(side="bottom", fill="x", pady=2,
+                               before=self._scroll_area)
 
     def clear_error(self) -> None:
         self._error_key = None

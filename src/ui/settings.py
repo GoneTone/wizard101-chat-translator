@@ -9,6 +9,12 @@ from src.i18n import current_language, set_language, t
 from src.ui.fields import (ApiFields, HotkeyField, LanguageField, UiLanguageField,
                            validate_api_form)
 from src.ui.responsive import bind_wrap
+from src.ui.scrollable import ScrollableFrame
+
+MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
+# 說明文字換行時的右側預留：欄位自己的 grid padx（8）＋分頁內距（12）＋一點餘裕。
+# 少扣了就會把說明的最後一兩個字切在視窗右緣外。
+_HINT_TRAILING = 24
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
@@ -54,15 +60,27 @@ class SettingsWindow:
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
-        self._win.minsize(win_w, win_h)  # 下限＝預設尺寸：再窄就會把欄位與說明擠到切字
+        # 寬度下限維持預設值：欄位與說明需要這個寬度，再窄是橫向擠壓，捲動救不了。
+        # 高度下限則放寬——分頁內容可以捲動，不必為了「塞得下」而綁死視窗高度。
+        self._win.minsize(win_w, MIN_HEIGHT)
         self._win.attributes("-topmost", True)
+
+        # 底部按鈕列先 pack：pack 依宣告順序分配空間，expand=True 的內容區若先宣告，
+        # 會吃光剩餘高度，這條固定高度的按鈕列就會在視窗變矮時被擠扁甚至消失。
+        btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
+        btns.pack(side="bottom", fill="x")
+        ttk.Label(btns, text=f"v{__version__}", foreground="#888888").pack(side="left")
+        ttk.Button(btns, text=t("button.cancel"), command=self._cancel).pack(side="right")
+        ttk.Button(btns, text=t("button.save"), command=self._save).pack(side="right",
+                                                                        padx=(0, 8))
 
         nb = ttk.Notebook(self._win)
         nb.pack(fill="both", expand=True, padx=8, pady=8)
 
         # --- 基本 ---
-        basic = ttk.Frame(nb, padding=12)
-        nb.add(basic, text=t("settings.tab.basic"))
+        basic_scroll = ScrollableFrame(nb, padding=12)
+        basic = basic_scroll.body
+        nb.add(basic_scroll, text=t("settings.tab.basic"))
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
         self._ui_language = UiLanguageField(basic, current_language())
         self._ui_language.pack(fill="x", pady=(2, 10))
@@ -80,48 +98,61 @@ class SettingsWindow:
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
 
         # --- 進階 ---
-        adv = ttk.Frame(nb, padding=12)
-        nb.add(adv, text=t("settings.tab.advanced"))
-        self._poll = self._spin(adv, "settings.poll_interval", cfg["poll_interval"],
+        adv_scroll = ScrollableFrame(nb, padding=12)
+        adv = adv_scroll.body
+        nb.add(adv_scroll, text=t("settings.tab.advanced"))
+        # grid 而非 pack：標籤欄的寬度由最長的那一條決定，各列自然對齊。
+        # 原本用固定字元寬（width=14）對齊，中文塞得下、英文會被裁掉
+        # （"Message fade-out (s)"、"Parallel translations"）。
+        adv.columnconfigure(2, weight=1)   # 說明欄吃掉剩餘寬度
+        self._poll = self._spin(adv, 0, "settings.poll_interval", cfg["poll_interval"],
                                 "poll_interval", 0.1, "settings.poll_interval_hint")
-        self._fade = self._spin(adv, "settings.fade", cfg["fade_seconds"],
+        self._fade = self._spin(adv, 1, "settings.fade", cfg["fade_seconds"],
                                 "fade_seconds", 10, "settings.fade_hint")
-        self._max_msgs = self._spin(adv, "settings.max_messages", cfg["max_messages"],
-                                    "max_messages", 10, "settings.max_messages_hint")
-        self._parallel = self._spin(adv, "settings.parallel",
+        self._max_msgs = self._spin(adv, 2, "settings.max_messages",
+                                    cfg["max_messages"], "max_messages", 10,
+                                    "settings.max_messages_hint")
+        self._parallel = self._spin(adv, 3, "settings.parallel",
                                     cfg["max_parallel_translations"],
                                     "max_parallel_translations", 1,
                                     "settings.parallel_hint")
-        self._type_delay = self._spin(adv, "settings.type_delay", cfg["type_delay"],
+        self._type_delay = self._spin(adv, 4, "settings.type_delay", cfg["type_delay"],
                                       "type_delay", 0.01, "settings.type_delay_hint")
-        self._alpha_var = self._alpha_slider(adv, cfg["overlay_alpha"])
+        self._alpha_var = self._alpha_slider(adv, 5, cfg["overlay_alpha"])
+
+        ttk.Label(adv, text=t("settings.game_path")).grid(row=6, column=0, sticky="w",
+                                                          pady=(10, 2))
+        # 滑桿與路徑列跨欄放進自己的 Frame：它們比 Spinbox 寬得多，
+        # 讓它們獨占 column 1 會把每一列的數值欄都撐開、右邊拉出一大片空白。
         path_row = ttk.Frame(adv)
-        path_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(path_row, text=t("settings.game_path"), width=14).pack(side="left")
+        path_row.grid(row=6, column=1, columnspan=2, sticky="ew", padx=(8, 0),
+                      pady=(10, 2))
+        self._game_path_row = path_row   # 版面順序測試取得這一列的入口
         self._game_path = tk.StringVar(value=cfg["game_path"] or "")
+        # 「瀏覽…」先 pack：expand=True 的輸入框若先宣告會吃光整列寬度，
+        # 這顆固定寬度的按鈕就會在視窗變窄時被擠掉。
+        ttk.Button(path_row, text=t("button.browse"), width=7,
+                   command=self._browse_game_path).pack(side="right", padx=(4, 0))
         ttk.Entry(path_row, textvariable=self._game_path).pack(
             side="left", fill="x", expand=True)
-        ttk.Button(path_row, text=t("button.browse"), width=7,
-                   command=self._browse_game_path).pack(side="left", padx=(4, 0))
-        ttk.Label(adv, text=t("settings.game_path_hint"),
-                  foreground="#888888").pack(anchor="w")
+        hint = ttk.Label(adv, text=t("settings.game_path_hint"), foreground="#888888",
+                         justify="left")
+        hint.grid(row=7, column=0, columnspan=3, sticky="ew")
+        bind_wrap(hint, trailing=_HINT_TRAILING)
 
-        btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
-        btns.pack(side="bottom", fill="x")
-        ttk.Label(btns, text=f"v{__version__}", foreground="#888888").pack(side="left")
-        ttk.Button(btns, text=t("button.cancel"), command=self._cancel).pack(side="right")
-        ttk.Button(btns, text=t("button.save"), command=self._save).pack(side="right",
-                                                                        padx=(0, 8))
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
-    def _alpha_slider(self, parent, initial: float) -> tk.DoubleVar:
+    def _alpha_slider(self, parent, grid_row: int, initial: float) -> tk.DoubleVar:
         """視窗不透明度滑桿：拖動即時預覽（套到 overlay 與泡泡），儲存才寫入設定。"""
         lo, hi = ADVANCED_LIMITS["overlay_alpha"]
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text=t("settings.alpha"), width=14).pack(side="left")
+        ttk.Label(parent, text=t("settings.alpha")).grid(row=grid_row, column=0,
+                                                        sticky="w", pady=2)
+        # 滑桿比 Spinbox 寬得多：跨欄放進自己的 Frame，才不會把每一列的數值欄都撐開
+        holder = ttk.Frame(parent)
+        holder.grid(row=grid_row, column=1, columnspan=2, sticky="ew", padx=(8, 0),
+                    pady=2)
         var = tk.DoubleVar(value=initial)
-        value_label = ttk.Label(row, text=f"{initial:.2f}", width=5)
+        value_label = ttk.Label(holder, text=f"{initial:.2f}", width=5)
 
         def on_slide(raw: str) -> None:
             v = round(float(raw), 2)
@@ -130,11 +161,11 @@ class SettingsWindow:
             if self._on_alpha_preview is not None:
                 self._on_alpha_preview(v)
 
-        ttk.Scale(row, from_=lo, to=hi, orient="horizontal", variable=var,
+        ttk.Scale(holder, from_=lo, to=hi, orient="horizontal", variable=var,
                   command=on_slide, length=160).pack(side="left")
         value_label.pack(side="left", padx=(6, 0))
-        note = ttk.Label(row, text=t("settings.alpha_hint",
-                                     default=DEFAULT_CONFIG["overlay_alpha"]),
+        note = ttk.Label(holder, text=t("settings.alpha_hint",
+                                        default=DEFAULT_CONFIG["overlay_alpha"]),
                          foreground="#888888", justify="left")
         note.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(note)
@@ -146,20 +177,21 @@ class SettingsWindow:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
         self._win.destroy()
 
-    def _spin(self, parent, label_key, initial, key, step, hint_key):
+    def _spin(self, parent, grid_row, label_key, initial, key, step, hint_key):
+        """進階數值的一列：標籤、Spinbox、範圍說明各佔 grid 的一欄。"""
         lo, hi = ADVANCED_LIMITS[key]
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text=t(label_key), width=14).pack(side="left")
+        ttk.Label(parent, text=t(label_key)).grid(row=grid_row, column=0, sticky="w",
+                                                  pady=2)
         var = tk.DoubleVar(value=initial) if isinstance(initial, float) \
             else tk.IntVar(value=initial)
-        ttk.Spinbox(row, textvariable=var, from_=lo, to=hi, increment=step,
-                    width=8).pack(side="left")
-        note = ttk.Label(row, text=t("settings.range_hint", hint=t(hint_key), lo=lo,
-                                     hi=hi, default=DEFAULT_CONFIG[key]),
+        ttk.Spinbox(parent, textvariable=var, from_=lo, to=hi, increment=step,
+                    width=8).grid(row=grid_row, column=1, sticky="w", padx=(8, 0),
+                                  pady=2)
+        note = ttk.Label(parent, text=t("settings.range_hint", hint=t(hint_key), lo=lo,
+                                        hi=hi, default=DEFAULT_CONFIG[key]),
                          foreground="#888888", justify="left")
-        note.pack(side="left", fill="x", expand=True, padx=8)
-        bind_wrap(note)
+        note.grid(row=grid_row, column=2, sticky="ew", padx=8, pady=2)
+        bind_wrap(note, trailing=_HINT_TRAILING)
         return var
 
     def _browse_game_path(self) -> None:

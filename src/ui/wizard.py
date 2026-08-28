@@ -10,9 +10,12 @@ from src.ui.fields import (DEFAULT_TARGET_LANGUAGE, ApiFields, HotkeyField,
                            LanguageField, UiLanguageField, validate_api_form)
 from src.ui.fonts import ui_font
 from src.ui.responsive import bind_wrap
+from src.ui.scrollable import ScrollableFrame
 
 STEP_LANG, STEP_API, STEP_PREFS = 0, 1, 2
 _STEP_KEYS = ["wizard.step.language", "wizard.step.api", "wizard.step.prefs"]
+
+MIN_HEIGHT = 380  # 視窗高度下限：步驟內容可捲動，只需容得下步驟標題與導覽列
 
 
 def can_advance(step: int, api_test_passed: bool, api_errors: list[str]) -> bool:
@@ -36,29 +39,35 @@ class SetupWizard:
 
         self._win = tk.Toplevel(root)
         self._win.title(t("wizard.title", app=app_name()))
-        # 高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
-        # 測試結果訊息（尤其多行錯誤）還會再撐高，太緊會把「略過測試」擠出畫面。
+        # 預設高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
+        # 測試結果訊息（尤其多行錯誤）還會再撐高。
         win_w, win_h = 540, 540
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
-        self._win.minsize(win_w, win_h)  # 下限＝預設尺寸：再窄會把「略過測試」與測試結果擠出畫面
+        # 寬度下限維持預設值（再窄是橫向擠壓，捲動救不了）；高度下限放寬——
+        # 步驟內容可以捲動，不必為了「塞得下測試結果」而綁死視窗高度。
+        self._win.minsize(win_w, MIN_HEIGHT)
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
         self._indicator = ttk.Label(self._win, text="")
         self._indicator.pack(pady=(10, 0))
         self._title = ttk.Label(self._win, font=ui_font(13, "bold"))
         self._title.pack(pady=(2, 8))
-        self._body = ttk.Frame(self._win, padding=16)
-        self._body.pack(fill="both", expand=True)
 
+        # 導覽列先 pack：pack 依宣告順序分配空間，expand=True 的內容區若先宣告，
+        # 會吃光剩餘高度，「上一步／下一步」就會在視窗變矮時被擠出畫面。
         nav = ttk.Frame(self._win, padding=8)
         nav.pack(side="bottom", fill="x")
         self._back_btn = ttk.Button(nav, text=t("button.back"), command=self._back)
         self._back_btn.pack(side="left")
         self._next_btn = ttk.Button(nav, text=t("button.next"), command=self._next)
         self._next_btn.pack(side="right")
+
+        self._body_scroll = ScrollableFrame(self._win, padding=16)
+        self._body = self._body_scroll.body   # 步驟內容都放這裡，捲動由外層處理
+        self._body_scroll.pack(fill="both", expand=True)
 
         # 跨步驟保留的欄位元件（建一次，切步驟時搬進／搬出 body）
         self._ui_language = UiLanguageField(self._body, current_language(),
