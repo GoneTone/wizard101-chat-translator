@@ -5,8 +5,8 @@ from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
 from src.config import ADVANCED_LIMITS, app_name, DEFAULT_CONFIG, clamp_advanced
-from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
-                           validate_api_form)
+from src.i18n import t
+from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
 from src.ui.responsive import bind_wrap
 
 
@@ -72,7 +72,7 @@ class SettingsWindow:
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
-        ttk.Checkbutton(basic, text=AUTO_INPUT_LABEL,
+        ttk.Checkbutton(basic, text=t("field.auto_input"),
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
 
         # --- 進階 ---

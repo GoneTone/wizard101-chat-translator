@@ -10,40 +10,39 @@ import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
-from src.i18n import t
+from src.i18n import LANGUAGES, SOURCE_LANGUAGE, current_language, t
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
                             TranslatorOffline, list_models, test_translate)
+from src.ui.fonts import ui_font
 from src.ui.responsive import bind_wrap
 
 
 @dataclass(frozen=True)
 class Provider:
-    label: str
+    label_key: str
     needs_base_url: bool
     key_url: str | None = None
 
 
 PROVIDERS: dict[str, Provider] = {
-    "openai": Provider(label="ChatGPT（OpenAI）", needs_base_url=False,
+    # 前兩家是品牌名，不進語言檔；只有「自訂端點」需要翻譯。
+    "openai": Provider(label_key="provider.openai", needs_base_url=False,
                        key_url="https://platform.openai.com/api-keys"),
-    "claude": Provider(label="Claude（Anthropic）", needs_base_url=False,
+    "claude": Provider(label_key="provider.claude", needs_base_url=False,
                        key_url="https://console.anthropic.com/settings/keys"),
-    "custom": Provider(label="自訂端點（進階）", needs_base_url=True),
+    "custom": Provider(label_key="provider.custom", needs_base_url=True),
 }
 
-COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "日本語", "한국어",
-                    "Español", "Português", "Deutsch", "Français"]
+# 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
+COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",
+                    "한국어", "Español", "Português", "Deutsch", "Français"]
 
-MODEL_HINT_IDLE = "按「重新整理」從伺服器取得可用模型清單；也可以自行輸入模型名稱。"
-MODEL_HINT_NO_LIST = "此端點未提供模型清單，請自行輸入模型名稱。"
-MODEL_HINT_EMPTY = "伺服器回報 0 個可用模型，請自行輸入模型名稱。"
-
-LANGUAGE_HINT = "清單只是常用選項，也可以直接輸入任何語言名稱（例如 Italiano、ภาษาไทย）。"
-
-THINKING_HINT = "建議關閉：開啟可能會讓每則翻譯慢上數秒、也更耗 Token。"
-
-# 精靈與設定視窗共用同一句，避免兩邊文案走鐘
-AUTO_INPUT_LABEL = "遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）"
+# 介面語言 → 翻譯目標語言的預設值：首次設定時讓兩者一致，之後互不干涉。
+DEFAULT_TARGET_LANGUAGE = {
+    "zh-TW": "繁體中文（台灣）",
+    "zh-CN": "简体中文（中国）",
+    "en": "English",
+}
 
 
 def validate_endpoint_fields(api: dict) -> list[str]:
@@ -120,12 +119,13 @@ class ModelField(ttk.Frame):
 
         # grid 而非 pack：說明文字要與輸入框（而不是「模型」標籤）切齊同一欄。
         self.columnconfigure(1, weight=1)
-        ttk.Label(self, text="模型", width=14).grid(row=0, column=0, sticky="w")
+        ttk.Label(self, text=t("field.model"), width=14).grid(row=0, column=0, sticky="w")
         self._combo = ttk.Combobox(self, textvariable=self._var, values=[])
         self._combo.grid(row=0, column=1, sticky="ew", pady=2)
-        self._btn = ttk.Button(self, text="重新整理", width=9, command=self._start_refresh)
+        self._btn = ttk.Button(self, text=t("button.refresh"), width=9,
+                               command=self._start_refresh)
         self._btn.grid(row=0, column=2, padx=(4, 0))
-        self._status = ttk.Label(self, text=MODEL_HINT_IDLE, foreground="#888888",
+        self._status = ttk.Label(self, text=t("hint.model_idle"), foreground="#888888",
                                  justify="left")
         self._status.grid(row=1, column=1, columnspan=2, sticky="ew")
         bind_wrap(self._status)
@@ -257,9 +257,8 @@ class ModelField(ttk.Frame):
     def show_models(self, models: list[str]) -> None:
         self._all_models = list(models)
         self._combo.configure(values=self._all_models)
-        self._set_status(
-            f"找到 {len(models)} 個模型：輸入關鍵字可篩選，清單外的模型名稱也能自行輸入。"
-            if models else MODEL_HINT_EMPTY)
+        self._set_status(t("hint.model_found", count=len(models)) if models
+                         else t("hint.model_empty"))
 
     def show_error(self, exc: Exception) -> None:
         self._all_models = []
@@ -280,8 +279,8 @@ class ModelField(ttk.Frame):
         if errors:
             self._set_status(t("sep.errors").join(t(e) for e in errors), error=True)
             return
-        self._btn.configure(state="disabled", text="讀取中…")
-        self._set_status(MODEL_HINT_IDLE)
+        self._btn.configure(state="disabled", text=t("button.loading"))
+        self._set_status(t("hint.model_idle"))
         threading.Thread(target=self._refresh_worker, args=(api,), daemon=True).start()
         poll_queue(self, self._queue, self._on_refreshed)
 
@@ -303,7 +302,7 @@ class ModelField(ttk.Frame):
         self._queue.put(models)
 
     def _on_refreshed(self, result) -> None:
-        self._btn.configure(state="normal", text="重新整理")
+        self._btn.configure(state="normal", text=t("button.refresh"))
         if isinstance(result, Exception):
             self.show_error(result)
         else:
@@ -330,7 +329,7 @@ class ApiFields(ttk.Frame):
         radio_row = ttk.Frame(self)
         radio_row.pack(fill="x", pady=(0, 6))
         for key, prov in PROVIDERS.items():
-            ttk.Radiobutton(radio_row, text=prov.label, value=key,
+            ttk.Radiobutton(radio_row, text=t(prov.label_key), value=key,
                             variable=self._provider,
                             command=self._rebuild_fields).pack(anchor="w")
 
@@ -339,13 +338,14 @@ class ApiFields(ttk.Frame):
 
         test_row = ttk.Frame(self)
         test_row.pack(fill="x", pady=(8, 0))
-        self._test_btn = ttk.Button(test_row, text="測試連線", command=self._start_test)
+        self._test_btn = ttk.Button(test_row, text=t("button.test"),
+                                    command=self._start_test)
         self._test_btn.pack(side="left")
         self._test_result = ttk.Label(test_row, text="")
         self._test_result.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(self._test_result)
 
-        self._target_language_fn = lambda: "繁體中文（台灣）"
+        self._target_language_fn = lambda: DEFAULT_TARGET_LANGUAGE[current_language()]
         self._rebuild_fields()
 
     # --- 值存取 ---
@@ -379,18 +379,22 @@ class ApiFields(ttk.Frame):
             self._model.set("")
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
-            self._labeled_entry("伺服器網址", self._base_url)
+            self._labeled_entry(t("field.base_url"), self._base_url)
+            hint = ttk.Label(self._fields, text=t("hint.custom_endpoint"),
+                             foreground="#888888", justify="left")
+            hint.pack(fill="x", padx=(20, 0))
+            bind_wrap(hint)
             self._model_row()
-            self._labeled_entry("API 金鑰（選填）", self._api_key, secret=True)
+            self._labeled_entry(t("field.api_key_optional"), self._api_key, secret=True)
             self._thinking_row()
         else:
-            self._labeled_entry("API 金鑰", self._api_key, secret=True)
+            self._labeled_entry(t("field.api_key"), self._api_key, secret=True)
             self._model_row()
             if self._provider.get() == "openai":
                 # ChatGPT 官方端點也可關思考（只送 reasoning_effort，見 translator）；
                 # Claude 維持模型預設（adaptive），不提供開關。
                 self._thinking_row()
-            link = ttk.Label(self._fields, text="取得金鑰 ↗", foreground="#4a7ddc",
+            link = ttk.Label(self._fields, text=t("link.get_key"), foreground="#4a7ddc",
                              cursor="hand2")
             link.pack(anchor="w", pady=(2, 0))
             link.bind("<Button-1>", lambda e: webbrowser.open(prov.key_url))
@@ -406,9 +410,9 @@ class ApiFields(ttk.Frame):
 
     def _thinking_row(self) -> None:
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
-        ttk.Checkbutton(self._fields, text="啟用模型思考（thinking）",
+        ttk.Checkbutton(self._fields, text=t("field.thinking"),
                         variable=self._thinking).pack(anchor="w", pady=(2, 0))
-        hint = ttk.Label(self._fields, text=THINKING_HINT, foreground="#888888",
+        hint = ttk.Label(self._fields, text=t("hint.thinking"), foreground="#888888",
                          justify="left")
         hint.pack(fill="x", padx=(20, 0))
         bind_wrap(hint)
@@ -420,7 +424,7 @@ class ApiFields(ttk.Frame):
         entry = ttk.Entry(row, textvariable=var, show="●" if secret else "")
         entry.pack(side="left", fill="x", expand=True)
         if secret:
-            btn = ttk.Button(row, text="顯示", width=5,
+            btn = ttk.Button(row, text=t("button.show"), width=5,
                              command=lambda: entry.configure(
                                  show="" if entry.cget("show") else "●"))
             btn.pack(side="left", padx=(4, 0))
@@ -435,7 +439,7 @@ class ApiFields(ttk.Frame):
         if errors:
             self._show_test_result(False, t("sep.errors").join(t(e) for e in errors))
             return
-        self._test_btn.configure(state="disabled", text="測試中…")
+        self._test_btn.configure(state="disabled", text=t("button.testing"))
         self._test_result.configure(text="")
         target = self._target_language_fn()
         threading.Thread(target=self._test_worker, args=(api, target),
@@ -453,11 +457,11 @@ class ApiFields(ttk.Frame):
             return
         print(f"[settings] test connection ok (provider={api['provider']}, "
               f"model={api['model']})", file=sys.stderr)
-        self._queue.put((True, f"連線成功　範例：{sample}"))
+        self._queue.put((True, t("test.success", sample=sample)))
 
     def _on_tested(self, result) -> None:
         ok, message = result
-        self._test_btn.configure(state="normal", text="測試連線")
+        self._test_btn.configure(state="normal", text=t("button.test"))
         self._show_test_result(ok, message)
 
     def _show_test_result(self, ok: bool, message: str) -> None:
@@ -482,7 +486,8 @@ class HotkeyField(ttk.Frame):
         self._capturing = False
         self._label = ttk.Label(self, text=initial)
         self._label.pack(side="left")
-        self._btn = ttk.Button(self, text="更改", width=14, command=self._capture)
+        self._btn = ttk.Button(self, text=t("button.change"), width=14,
+                               command=self._capture)
         self._btn.pack(side="left", padx=8)
 
     def value(self) -> str:
@@ -496,7 +501,7 @@ class HotkeyField(ttk.Frame):
         if self._capturing:
             return
         self._capturing = True
-        self._btn.configure(text="請按鍵…（Esc 取消）", state="disabled")
+        self._btn.configure(text=t("button.press_key"), state="disabled")
         threading.Thread(target=self._capture_worker, daemon=True).start()
         poll_queue(self, self._queue, self._on_captured)
 
@@ -510,7 +515,7 @@ class HotkeyField(ttk.Frame):
 
     def _on_captured(self, combo) -> None:
         self._capturing = False
-        self._btn.configure(text="更改", state="normal")
+        self._btn.configure(text=t("button.change"), state="normal")
         if combo and combo != "esc":
             self.set_value(combo)
 
@@ -523,7 +528,7 @@ class LanguageField(ttk.Frame):
         self._var = tk.StringVar(value=initial)
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
-        hint = ttk.Label(self, text=LANGUAGE_HINT, foreground="#888888",
+        hint = ttk.Label(self, text=t("hint.language"), foreground="#888888",
                          justify="left")
         hint.pack(fill="x", pady=(2, 0))
         bind_wrap(hint)
@@ -533,3 +538,34 @@ class LanguageField(ttk.Frame):
 
     def set_value(self, s: str) -> None:
         self._var.set(s)
+
+
+class UiLanguageField(ttk.Frame):
+    """介面語言：固定三個選項的唯讀下拉。
+
+    顯示 endonym（各語言自稱），對外進出的是語言碼——與 LanguageField
+    （翻譯目標語言，可自由輸入任何語言名稱）是不同用途的兩個欄位。"""
+
+    def __init__(self, parent, initial: str, on_change=None):
+        super().__init__(parent)
+        self._on_change = on_change
+        self._names = list(LANGUAGES.values())
+        self._codes = list(LANGUAGES)
+        self._var = tk.StringVar(value=LANGUAGES.get(initial, LANGUAGES[SOURCE_LANGUAGE]))
+        combo = ttk.Combobox(self, textvariable=self._var, values=self._names,
+                             state="readonly")
+        combo.pack(fill="x")
+        combo.bind("<<ComboboxSelected>>", lambda e: self._notify())
+
+    def value(self) -> str:
+        """目前選到的語言碼。"""
+        name = self._var.get()
+        return self._codes[self._names.index(name)] if name in self._names \
+            else SOURCE_LANGUAGE
+
+    def set_value(self, code: str) -> None:
+        self._var.set(LANGUAGES.get(code, LANGUAGES[SOURCE_LANGUAGE]))
+
+    def _notify(self) -> None:
+        if self._on_change is not None:
+            self._on_change(self.value())

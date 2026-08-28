@@ -33,6 +33,35 @@ def test_providers_metadata():
     assert not PROVIDERS["openai"].needs_base_url
 
 
+def test_provider_labels_are_translated():
+    from src import i18n
+    from src.ui.fields import PROVIDERS
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("en")
+        assert t(PROVIDERS["custom"].label_key) == "Custom endpoint (OpenAI-compatible)"
+        i18n.set_language("zh-CN")
+        assert t(PROVIDERS["custom"].label_key) == "自定义端点（OpenAI API 兼容）"
+    finally:
+        i18n.set_language(before)
+
+
+def test_common_languages_include_english():
+    from src.ui.fields import COMMON_LANGUAGES
+
+    assert "English" in COMMON_LANGUAGES
+
+
+def test_ui_language_field_round_trips_language_code(root):
+    from src.ui.fields import UiLanguageField
+
+    field = UiLanguageField(root, "zh-TW")
+    assert field.value() == "zh-TW"
+    field.set_value("en")
+    assert field.value() == "en"
+
+
 def test_validate_requires_model():
     errs = validate_api_form({"provider": "openai", "model": "", "api_key": "k",
                               "base_url": "", "thinking": False})
@@ -202,7 +231,7 @@ def test_model_field_status_says_custom_name_is_allowed(root):
     # 抓到清單後也要讓使用者知道清單外的模型名稱一樣能自己打
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_models(["gemma3", "qwen3"])
-    assert "自行輸入" in fields._model_field.status()
+    assert fields._model_field.status() == t("hint.model_found", count=2)
 
 
 def test_model_field_unpost_after_destroy_is_safe(offscreen):

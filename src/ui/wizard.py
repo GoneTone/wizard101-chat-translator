@@ -4,7 +4,8 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.config import app_name
-from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
+from src.i18n import t
+from src.ui.fields import (ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
 from src.ui.responsive import bind_wrap
 
@@ -95,7 +96,7 @@ class SetupWizard:
             self._language.pack(fill="x", pady=(2, 12))
             ttk.Label(self._body, text="呼出輸入框的熱鍵").pack(anchor="w")
             self._hotkey.pack(anchor="w", pady=(2, 0))
-            ttk.Checkbutton(self._body, text=AUTO_INPUT_LABEL,
+            ttk.Checkbutton(self._body, text=t("field.auto_input"),
                             variable=self._auto_input).pack(anchor="w", pady=(14, 0))
             self._next_btn.configure(text="完成")
         self._back_btn.configure(
