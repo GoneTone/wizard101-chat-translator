@@ -581,3 +581,21 @@ def test_refresh_labels_retranslates_status_and_banner(root):
         assert ov.error_text() == "⚠  Translation server is offline — retrying…"
     finally:
         i18n.set_language(before)
+
+
+def test_message_font_follows_language(root):
+    # 新訊息的原文／譯文行要用建立當下的介面語言取字型，不能沿用啟動時鎖住的常數
+    from src import i18n
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-CN")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+        ov.add_message("[A] hi", "嗨", msg_id=1)
+        row = ov._messages[0].row
+        lines = row.winfo_children()  # [原文 canvas, 譯文 canvas]
+        fonts = {str(line.itemcget(item, "font"))
+                 for line in lines for item in line.find_withtag("txt")}
+        assert all("YaHei" in f for f in fonts)
+    finally:
+        i18n.set_language(before)

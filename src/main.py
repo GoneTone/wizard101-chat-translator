@@ -256,9 +256,10 @@ def main() -> None:
         position=cfg["input_position"], width=cfg["input_width"],
         on_geometry_change=save_input_geometry)
     hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
+    ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def apply_settings() -> None:
-        nonlocal hotkey_handle
+        nonlocal hotkey_handle, ui_language
         save_config(CONFIG_PATH, cfg)
         translator.reconfigure(**cfg["api"], target_language=cfg["target_language"])
         pool.resize(cfg["max_parallel_translations"])
@@ -267,8 +268,14 @@ def main() -> None:
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
+        # 語言已由設定視窗套用（set_language）；這裡負責讓常駐的 overlay 跟上。
+        if cfg["ui_language"] != ui_language:
+            ui_language = cfg["ui_language"]
+            overlay.refresh_labels()
+            print(f"[ui] overlay relabelled for language {ui_language}", file=sys.stderr)
         print(f"[settings] applied; provider={cfg['api']['provider']}, "
               f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}, "
+              f"ui_language={cfg['ui_language']}, "
               f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,

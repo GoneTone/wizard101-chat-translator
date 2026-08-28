@@ -36,8 +36,6 @@ STATUS_COLORS = {
 _OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比
 _OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
                     (0, 1), (1, -1), (1, 0), (1, 1))
-_FONT_ORIGINAL = ("Microsoft JhengHei", 9)
-_FONT_TRANSLATED = ("Microsoft JhengHei", 11)
 
 
 def _fit_line_height(c: "tk.Canvas") -> None:
@@ -361,20 +359,20 @@ class OverlayWindow:
         # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
-                             font=("Microsoft JhengHei", 9), cursor="hand2")
+                             font=ui_font(9), cursor="hand2")
             close.pack(side="right", padx=(0, 6))
             close.bind("<Button-1>", lambda e: on_close())
         mini = tk.Label(bar, text="─", bg=BAR, fg=FG_BAR,
-                        font=("Microsoft JhengHei", 9), cursor="hand2")
+                        font=ui_font(9), cursor="hand2")
         mini.pack(side="right", padx=(0, 4))
         mini.bind("<Button-1>", lambda e: self.minimize())
         if on_settings is not None:
             gear = tk.Label(bar, text="⚙", bg=BAR, fg=FG_BAR,
-                            font=("Microsoft JhengHei", 9), cursor="hand2")
+                            font=ui_font(9), cursor="hand2")
             gear.pack(side="right", padx=(0, 4))
             gear.bind("<Button-1>", lambda e: on_settings())
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
-                                      font=("Microsoft JhengHei", 8), anchor="e")
+                                      font=ui_font(8), anchor="e")
         self._status_label.pack(side="right", padx=6)
         for w in (bar, self._title_label, self._status_label):
             w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
@@ -409,7 +407,7 @@ class OverlayWindow:
 
         # 空狀態提示：沒有任何訊息時，把目前狀態大字顯示在視窗正中間
         self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
-                                     font=("Microsoft JhengHei", 11))
+                                     font=ui_font(11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
         # 右下角縮放把手：只畫斜線、背景留透明色鍵，才不會在遊戲畫面上多出一塊方形。
@@ -533,7 +531,7 @@ class OverlayWindow:
                       outline=FG_ORIGINAL, width=2)
         self._badge = c.create_text(_BUBBLE_SIZE - px(0.23), px(0.20), text="",
                                     fill="#ff9090",
-                                    font=("Microsoft JhengHei", 9, "bold"))
+                                    font=ui_font(9, "bold"))
         c.bind("<ButtonPress-1>", self._bubble_press)
         c.bind("<B1-Motion>", self._bubble_drag)
         c.bind("<ButtonRelease-1>", self._bubble_release)
@@ -796,10 +794,10 @@ class OverlayWindow:
         anchor = self._view_anchor()
         row = tk.Frame(self._inner, bg=BG)
         _outlined_line(row, original, dimmed(color) if color else FG_ORIGINAL,
-                       _FONT_ORIGINAL, self._wrap).pack(fill="x")
+                       ui_font(9), self._wrap).pack(fill="x")
         _outlined_line(row, translated,
                        FG_PENDING if pending else (color or FG_TRANSLATED),
-                       _FONT_TRANSLATED, self._wrap).pack(fill="x")
+                       ui_font(11), self._wrap).pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._messages.append(_Message(now if now is not None else time.time(),
                                        original, translated, row, msg_id, color))
