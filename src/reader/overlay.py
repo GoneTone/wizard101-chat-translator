@@ -664,8 +664,32 @@ class OverlayWindow:
             print(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
                   f"by user scroll ({self._scroll_debug()})", file=sys.stderr)
 
-    def _refresh_scroll(self) -> None:
-        """重算捲動範圍，並在跟隨模式下把視圖貼回底部。
+    def _view_anchor(self) -> tuple["tk.Misc", int] | None:
+        """視圖目前對齊到的內容位置：(最新一則的列, 它相對視口頂端的偏移)。
+
+        畫布記的是像素原點、不是「看到哪一則」，所以清掉上方的舊訊息（訊息上限、
+        淡出）或改變某列的高度時，底下的內容會整段滑動，使用者正在讀的那幾行就跳掉了。
+        內容變動前先取錨、變動後交給 `_refresh_scroll` 復位。跟隨底部時不需要錨——
+        直接貼底即可；最新一則永遠不會被上方的清除動作移走，拿它當錨最穩。"""
+        if self._follow or not self._messages:
+            return None
+        row = self._messages[-1].row
+        return row, row.winfo_y() - int(self._canvas.canvasy(0))
+
+    def _restore_anchor(self, row: "tk.Misc", offset: int) -> None:
+        """把捲動位置移回「錨點列仍在視口同一偏移」處（見 `_view_anchor`）。"""
+        bbox = self._canvas.bbox("all")
+        if not row.winfo_exists() or bbox is None or bbox[3] <= bbox[1]:
+            # 罕見（錨點列被清光、內容量不出來）：放棄補位，視圖會跳一下
+            print(f"[ui] scroll anchor unusable, view may jump "
+                  f"(row_alive={bool(row.winfo_exists())} bbox={bbox}) "
+                  f"({self._scroll_debug()})", file=sys.stderr)
+            return
+        target = max(bbox[1], row.winfo_y() - offset)
+        self._canvas.yview_moveto((target - bbox[1]) / (bbox[3] - bbox[1]))
+
+    def _refresh_scroll(self, anchor: tuple["tk.Misc", int] | None = None) -> None:
+        """重算捲動範圍，並在跟隨模式下把視圖貼回底部；沒在跟隨時依 anchor 維持原位。
 
         任何改變畫布內容或幾何的動作都要呼叫：新增／更新訊息、清掉過期訊息，
         以及縮放視窗與錯誤橫幅進出所觸發的重新排版。少呼叫一處的後果不是少捲一次，
@@ -679,6 +703,8 @@ class OverlayWindow:
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         if self._follow:
             self._canvas.yview_moveto(1.0)
+        elif anchor is not None:
+            self._restore_anchor(*anchor)
 
     def _move_start(self, e) -> None:
         self._drag = (e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y())
@@ -755,6 +781,7 @@ class OverlayWindow:
         """加入一則訊息。pending＝譯文欄位目前是佔位字樣，以較暗的顏色標示，
         待 update_message 填入真正的譯文時才恢復正常顏色。
         color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
+        anchor = self._view_anchor()
         row = tk.Frame(self._inner, bg=BG)
         _outlined_line(row, original, dimmed(color) if color else FG_ORIGINAL,
                        _FONT_ORIGINAL, self._wrap).pack(fill="x")
@@ -768,7 +795,7 @@ class OverlayWindow:
             self._messages.pop(0).row.destroy()
 
         self._refresh_placeholder()
-        self._refresh_scroll()
+        self._refresh_scroll(anchor)
         if self._minimized:
             self._unread += 1
             self._update_badge()
@@ -778,6 +805,7 @@ class OverlayWindow:
         """把某則佔位訊息的譯文就地填入（原文與位置不動）。
         failed＝這則翻不出來、填入的是失敗提示，改用錯誤色與一般對話區隔。
         找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
+        anchor = self._view_anchor()
         for i, m in enumerate(self._messages):
             if m.msg_id != msg_id:
                 continue
@@ -788,11 +816,12 @@ class OverlayWindow:
                                else (m.color or FG_TRANSLATED))
             _fit_line_height(line)
             self._messages[i] = m._replace(translated=translated)
-            self._refresh_scroll()
+            self._refresh_scroll(anchor)
             return
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
+        anchor = self._view_anchor()
         self._max = max_messages
         self._fade = fade_seconds
         removed = False
@@ -801,11 +830,12 @@ class OverlayWindow:
             removed = True
         self._refresh_placeholder()
         if removed:
-            self._refresh_scroll()
+            self._refresh_scroll(anchor)
 
     def prune(self, now: float | None = None) -> None:
         if self._fade <= 0:
             return  # fade_seconds <= 0：永不依時間清除訊息（可滾動看歷史）
+        anchor = self._view_anchor()
         cutoff = (now if now is not None else time.time()) - self._fade
         keep = []
         for entry in self._messages:
@@ -817,7 +847,7 @@ class OverlayWindow:
             return
         self._messages = keep
         self._refresh_placeholder()
-        self._refresh_scroll()
+        self._refresh_scroll(anchor)
 
     def set_status(self, text: str, color: str = FG_BAR) -> None:
         """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。"""

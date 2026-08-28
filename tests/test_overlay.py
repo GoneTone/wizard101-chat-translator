@@ -400,10 +400,11 @@ def test_bubble_release_without_press_is_ignored(root):
     assert ov.minimized is True
 
 
-def _filled_overlay(root, width=739, height=350, count=40):
+def _filled_overlay(root, width=739, height=350, count=40,
+                    max_messages=200, fade_seconds=0):
     """裝滿到需要捲動、且視圖停在最底的 overlay，供自動跟隨的測試當起點。"""
     ov = OverlayWindow(root, x=100, y=100, width=width, height=height,
-                       max_messages=200, fade_seconds=0)
+                       max_messages=max_messages, fade_seconds=fade_seconds)
     root.update()
     for i in range(count):
         ov.add_message(f"message number {i}: a chat line long enough that a narrower "
@@ -417,6 +418,18 @@ def _filled_overlay(root, width=739, height=350, count=40):
 
 def _at_bottom(ov) -> bool:
     return should_stick_to_bottom(ov._canvas.yview()[1])
+
+
+def _row_offset(ov, msg_id: int) -> int:
+    """某則訊息目前落在視口的哪個 y（畫面座標）。"""
+    row = next(m.row for m in ov._messages if m.msg_id == msg_id)
+    return row.winfo_y() - int(ov._canvas.canvasy(0))
+
+
+def _scroll_up(ov, fraction: float = 0.3) -> None:
+    ov._canvas.yview_moveto(fraction)
+    ov._note_scroll()
+    assert not ov._follow, "前置條件：往上捲後應停止跟隨底部"
 
 
 def test_narrowing_window_keeps_following_new_messages(root):
@@ -464,6 +477,58 @@ def test_scrolling_up_stops_following_until_back_at_bottom(root):
     ov.add_message("newer still", "更新的", msg_id=997)
     root.update()
     assert _at_bottom(ov)
+
+
+def test_message_cap_keeps_scrolled_view_in_place(root):
+    # 往上讀歷史時撞到訊息上限：最舊的幾則從上方被移除，底下的內容整段往上滑。
+    # 畫布記的是像素原點、不是「看到哪一則」，不補位的話正在讀的那幾行就會跳掉。
+    ov = _filled_overlay(root, count=40, max_messages=40)
+    _scroll_up(ov)
+    root.update()
+    before = _row_offset(ov, 20)
+    for i in range(100, 105):
+        ov.add_message(f"newcomer {i} pushing the oldest lines out of the list",
+                       f"第 {i} 則擠掉最舊訊息的新訊息，長度足以換行", msg_id=i)
+    root.update()
+    assert _row_offset(ov, 20) == before
+
+
+def test_prune_keeps_scrolled_view_in_place(root):
+    # 淡出清除同樣是從上方移除內容，效果與撞上限一致
+    ov = OverlayWindow(root, x=100, y=100, width=739, height=350,
+                       max_messages=200, fade_seconds=60)
+    root.update()
+    for i in range(40):
+        ov.add_message(f"message number {i}: a chat line long enough to wrap",
+                       f"第 {i} 則譯文，內容夠長，窄視窗下一定會換行成兩行以上",
+                       now=1000.0 + i, msg_id=i)
+    root.update()
+    _scroll_up(ov)
+    root.update()
+    before = _row_offset(ov, 20)
+    ov.prune(now=1000.0 + 10 + 60)   # 清掉最舊的十則
+    root.update()
+    assert len(ov.visible_messages()) == 29
+    assert _row_offset(ov, 20) == before
+
+
+def test_filling_a_pending_translation_keeps_scrolled_view_in_place(root):
+    # 佔位訊息填入譯文會改變該列高度；若那列在視口上方，底下的內容會整段下移
+    ov = _filled_overlay(root, count=40)
+    ov.add_message("pending line", "翻譯中…", msg_id=500, pending=True)
+    for i in range(600, 610):
+        ov.add_message(f"later line {i} keeping the pending row above the viewport",
+                       f"第 {i} 則後續訊息，長度足以換行", msg_id=i)
+    root.update()
+    _scroll_up(ov, 0.8)
+    root.update()
+    before = _row_offset(ov, 605)
+    ov.update_message(500, "終於補上的譯文。這段刻意寫得很長，長到足以讓那一列從佔位時的"
+                           "一行撐成三行以上——高度一變，底下的所有訊息都會跟著往下移，"
+                           "使用者正在讀的那幾行也就跟著跑掉了，所以這裡要一起補位。"
+                           "再多墊一句，確保在寬視窗下也一定會換行成好幾行。")
+    root.update()
+    assert _row_offset(ov, 605) == before
 
 
 def test_expand_reanchors_view_to_bottom(root):
