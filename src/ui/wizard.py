@@ -1,20 +1,18 @@
-"""首次設定精靈：API 設定（選服務商 → 填 API → 測試連線）→ 偏好設定，
-兩步完成寫入 cfg。中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
+"""首次設定精靈：介面語言 → API 設定（選服務商 → 填 API → 測試連線）→ 偏好設定，
+三步完成寫入 cfg。中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
+import sys
 import tkinter as tk
 from tkinter import ttk
 
 from src.config import app_name
-from src.i18n import t
-from src.ui.fields import (ApiFields, HotkeyField, LanguageField,
-                           validate_api_form)
+from src.i18n import current_language, set_language, t
+from src.ui.fields import (DEFAULT_TARGET_LANGUAGE, ApiFields, HotkeyField,
+                           LanguageField, UiLanguageField, validate_api_form)
+from src.ui.fonts import ui_font
 from src.ui.responsive import bind_wrap
 
-STEP_API, STEP_PREFS = 0, 1
-_TITLES = ["API 設定", "偏好設定"]
-
-_INTRO = ("本工具會即時翻譯 Wizard101 的遊戲聊天，並可用熱鍵輸入你的語言、"
-          "翻成英文送進遊戲。\n請選擇翻譯服務並填好設定，按「測試連線」確認可用"
-          "（會實際翻譯一句測試文字）。")
+STEP_LANG, STEP_API, STEP_PREFS = 0, 1, 2
+_STEP_KEYS = ["wizard.step.language", "wizard.step.api", "wizard.step.prefs"]
 
 
 def can_advance(step: int, api_test_passed: bool, api_errors: list[str]) -> bool:
@@ -26,16 +24,18 @@ def can_advance(step: int, api_test_passed: bool, api_errors: list[str]) -> bool
 
 
 class SetupWizard:
-    """精靈視窗本體。completed 屬性表示是否走完全部步驟。"""
+    """精靈視窗本體。completed 屬性表示是否走完全部步驟；restart 表示語言頁換過語言，
+    需要以新語言重建整個精靈（見 run_wizard）。"""
 
     def __init__(self, root: tk.Tk, cfg: dict):
         self._cfg = cfg
         self.completed = False
-        self._step = STEP_API
+        self.restart = False
+        self._step = STEP_LANG
         self._skip_test = False
 
         self._win = tk.Toplevel(root)
-        self._win.title(f"{app_name()} — 首次設定")
+        self._win.title(t("wizard.title", app=app_name()))
         # 高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
         # 測試結果訊息（尤其多行錯誤）還會再撐高，太緊會把「略過測試」擠出畫面。
         win_w, win_h = 540, 540
@@ -48,19 +48,21 @@ class SetupWizard:
 
         self._indicator = ttk.Label(self._win, text="")
         self._indicator.pack(pady=(10, 0))
-        self._title = ttk.Label(self._win, font=("Microsoft JhengHei", 13, "bold"))
+        self._title = ttk.Label(self._win, font=ui_font(13, "bold"))
         self._title.pack(pady=(2, 8))
         self._body = ttk.Frame(self._win, padding=16)
         self._body.pack(fill="both", expand=True)
 
         nav = ttk.Frame(self._win, padding=8)
         nav.pack(side="bottom", fill="x")
-        self._back_btn = ttk.Button(nav, text="上一步", command=self._back)
+        self._back_btn = ttk.Button(nav, text=t("button.back"), command=self._back)
         self._back_btn.pack(side="left")
-        self._next_btn = ttk.Button(nav, text="下一步", command=self._next)
+        self._next_btn = ttk.Button(nav, text=t("button.next"), command=self._next)
         self._next_btn.pack(side="right")
 
         # 跨步驟保留的欄位元件（建一次，切步驟時搬進／搬出 body）
+        self._ui_language = UiLanguageField(self._body, current_language(),
+                                            on_change=self._on_language_change)
         self._api_fields = ApiFields(self._body, cfg["api"], on_change=self._on_api_change)
         self._language = LanguageField(self._body, cfg["target_language"])
         self._hotkey = HotkeyField(self._body, cfg["hotkey"])
@@ -71,37 +73,67 @@ class SetupWizard:
     def _show_step(self) -> None:
         # 跨步驟保留的元件只收起來；每步臨時建立的說明文字等直接銷毀，
         # 避免來回導航時在 body 底下累積孤兒 widget。
-        persistent = {self._api_fields, self._language, self._hotkey}
+        persistent = {self._ui_language, self._api_fields, self._language, self._hotkey}
         for w in self._body.winfo_children():
             if w in persistent:
                 w.pack_forget()
             else:
                 w.destroy()
         self._indicator.configure(text="  ".join(
-            "●" if i <= self._step else "○" for i in range(len(_TITLES))))
-        self._title.configure(text=_TITLES[self._step])
+            "●" if i <= self._step else "○" for i in range(len(_STEP_KEYS))))
+        self._title.configure(text=t(_STEP_KEYS[self._step]))
 
-        if self._step == STEP_API:
-            intro = ttk.Label(self._body, text=_INTRO, justify="left")
+        if self._step == STEP_LANG:
+            hint = ttk.Label(self._body, text=t("wizard.language_hint"), justify="left")
+            hint.pack(fill="x", pady=(0, 8))
+            bind_wrap(hint)
+            self._ui_language.pack(fill="x")
+            self._next_btn.configure(text=t("button.next"))
+        elif self._step == STEP_API:
+            intro = ttk.Label(self._body, text=t("wizard.intro"), justify="left")
             intro.pack(fill="x")
             bind_wrap(intro)
             self._api_fields.pack(fill="x", pady=(10, 0))
-            skip = ttk.Label(self._body, text="略過測試", foreground="#888888",
-                             cursor="hand2", font=("Microsoft JhengHei", 8))
+            skip = ttk.Label(self._body, text=t("wizard.skip_test"), foreground="#888888",
+                             cursor="hand2", font=ui_font(8))
             skip.pack(anchor="e", pady=(6, 0))
             skip.bind("<Button-1>", lambda e: self._do_skip_test())
-            self._next_btn.configure(text="下一步")
+            self._next_btn.configure(text=t("button.next"))
         else:  # STEP_PREFS
-            ttk.Label(self._body, text="翻譯目標語言（收到的訊息翻成什麼語言）").pack(anchor="w")
+            ttk.Label(self._body, text=t("wizard.target_language")).pack(anchor="w")
             self._language.pack(fill="x", pady=(2, 12))
-            ttk.Label(self._body, text="呼出輸入框的熱鍵").pack(anchor="w")
+            ttk.Label(self._body, text=t("settings.hotkey")).pack(anchor="w")
             self._hotkey.pack(anchor="w", pady=(2, 0))
             ttk.Checkbutton(self._body, text=t("field.auto_input"),
                             variable=self._auto_input).pack(anchor="w", pady=(14, 0))
-            self._next_btn.configure(text="完成")
+            self._next_btn.configure(text=t("button.finish"))
         self._back_btn.configure(
-            state="normal" if self._step > STEP_API else "disabled")
+            state="normal" if self._step > STEP_LANG else "disabled")
         self._refresh_nav()
+
+    def _on_language_change(self, code: str) -> None:
+        """語言一改就整個精靈重建：跨步驟保留的欄位元件已帶著舊語言的標籤，
+        逐一刷新容易漏掉，重建最保險（代價是 API 測試狀態要重測）。"""
+        if code == current_language():
+            return
+        old_default = DEFAULT_TARGET_LANGUAGE.get(current_language())
+        self._collect_into_cfg()
+        set_language(code)
+        self._cfg["ui_language"] = code
+        # 使用者還沒動過翻譯目標語言時，讓它跟著介面語言走；動過就不覆蓋。
+        if self._cfg["target_language"] == old_default:
+            self._cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[code]
+        self.restart = True
+        print(f"[ui] wizard restarting with language {code}", file=sys.stderr)
+        self._win.destroy()
+
+    def _collect_into_cfg(self) -> None:
+        """把目前填在欄位裡的值寫回 cfg（重建精靈與完成精靈共用）。"""
+        self._cfg["api"] = self._api_fields.get_values()
+        if self._language.value():
+            self._cfg["target_language"] = self._language.value()
+        self._cfg["hotkey"] = self._hotkey.value()
+        self._cfg["auto_show_input"] = self._auto_input.get()
 
     def _on_api_change(self) -> None:
         # API 欄位有任何變動就取消先前的「略過測試」：改過設定應重新測試（或再次明示略過）。
@@ -133,11 +165,8 @@ class SetupWizard:
         self._show_step()
 
     def _finish(self) -> None:
-        self._cfg["api"] = self._api_fields.get_values()
-        if self._language.value():
-            self._cfg["target_language"] = self._language.value()
-        self._cfg["hotkey"] = self._hotkey.value()
-        self._cfg["auto_show_input"] = self._auto_input.get()
+        self._collect_into_cfg()
+        self._cfg["ui_language"] = current_language()
         self.completed = True
         self._win.destroy()
 
@@ -146,7 +175,10 @@ class SetupWizard:
 
 
 def run_wizard(root: tk.Tk, cfg: dict) -> bool:
-    """顯示首次設定精靈並等待關閉；完成回 True（結果已寫入 cfg，呼叫端負責存檔）。"""
-    wizard = SetupWizard(root, cfg)
-    root.wait_window(wizard._win)
-    return wizard.completed
+    """顯示首次設定精靈並等待關閉；完成回 True（結果已寫入 cfg，呼叫端負責存檔）。
+    使用者在語言頁換語言時，精靈會以新語言重建（見 SetupWizard._on_language_change）。"""
+    while True:
+        wizard = SetupWizard(root, cfg)
+        root.wait_window(wizard._win)
+        if not wizard.restart:
+            return wizard.completed

@@ -71,5 +71,16 @@
   "error.need_target_language": "請選擇或輸入翻譯目標語言",
   "dialog.incomplete_title": "設定不完整",
   "dialog.notice_title": "提示",
-  "dialog.game_path_restart": "遊戲路徑將於下次啟動生效"
+  "dialog.game_path_restart": "遊戲路徑將於下次啟動生效",
+  "wizard.title": "{app} — 首次設定",
+  "wizard.step.language": "介面語言",
+  "wizard.step.api": "API 設定",
+  "wizard.step.prefs": "偏好設定",
+  "wizard.language_hint": "選擇本工具介面使用的語言。",
+  "wizard.intro": "本工具會即時翻譯 Wizard101 的遊戲聊天，並可用熱鍵輸入你的語言、翻成英文送進遊戲。\n請選擇翻譯服務並填好設定，按「測試連線」確認可用（會實際翻譯一句測試文字）。",
+  "wizard.skip_test": "略過測試",
+  "wizard.target_language": "翻譯目標語言（收到的訊息翻成什麼語言）",
+  "button.back": "上一步",
+  "button.next": "下一步",
+  "button.finish": "完成"
 }
