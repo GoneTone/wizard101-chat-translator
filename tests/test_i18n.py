@@ -62,8 +62,26 @@ def test_t_formats_named_placeholders():
     assert i18n.t("test.greet", name="Amy") == "你好 Amy"
 
 
-def test_missing_key_falls_back_to_source_language():
+def test_fallback_order_is_current_then_english_then_source():
+    i18n.set_language("zh-CN")
+    assert i18n.fallback_order() == ["zh-CN", "en", "zh-TW"]
     i18n.set_language("en")
+    assert i18n.fallback_order() == ["en", "zh-TW"]      # 當前語言就是英文，不重複查
+    i18n.set_language("zh-TW")
+    assert i18n.fallback_order() == ["zh-TW", "en"]
+
+
+def test_missing_key_falls_back_to_english_before_source():
+    # 缺翻譯優先退英文：這條繁中也有，取的仍必須是英文那份
+    i18n.set_language("zh-CN")
+    i18n._load("en")["test.partial"] = "English copy"
+    i18n._load(i18n.SOURCE_LANGUAGE)["test.partial"] = "繁中文案"
+    assert i18n.t("test.partial") == "English copy"
+
+
+def test_missing_key_falls_back_to_source_language_last():
+    # 英文還沒跟上時（新文案一定先進來源語言）退繁中當保底
+    i18n.set_language("zh-CN")
     i18n._load(i18n.SOURCE_LANGUAGE)["test.only_source"] = "只有來源語言有"
     assert i18n.t("test.only_source") == "只有來源語言有"
 
@@ -73,12 +91,12 @@ def test_missing_everywhere_returns_the_key_itself():
     assert i18n.t("test.nowhere") == "test.nowhere"
 
 
-def test_broken_placeholder_falls_back_to_source_language():
-    # 譯者把 {count} 打成 {conut}：該語言的字串無法 format，退回來源語言
-    i18n.set_language("en")
-    i18n._load(i18n.SOURCE_LANGUAGE)["test.count"] = "共 {count} 則"
-    i18n._load("en")["test.count"] = "total {conut}"
-    assert i18n.t("test.count", count=3) == "共 3 則"
+def test_broken_placeholder_falls_back_to_the_next_language():
+    # 譯者把 {count} 打成 {conut}：該語言的字串無法 format，退 fallback 順序的下一個語言
+    i18n.set_language("zh-CN")
+    i18n._load("zh-CN")["test.count"] = "共 {conut} 条"
+    i18n._load("en")["test.count"] = "{count} in total"
+    assert i18n.t("test.count", count=3) == "3 in total"
 
 
 def test_unknown_language_code_falls_back_to_default():

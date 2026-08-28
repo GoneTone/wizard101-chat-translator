@@ -10,7 +10,7 @@ import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
-from src.i18n import LANGUAGES, SOURCE_LANGUAGE, current_language, t
+from src.i18n import DEFAULT_LANGUAGE, LANGUAGES, current_language, t
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
                             TranslatorOffline, list_models, test_translate)
 from src.ui.responsive import bind_wrap
@@ -550,7 +550,8 @@ class UiLanguageField(ttk.Frame):
         self._on_change = on_change
         self._names = list(LANGUAGES.values())
         self._codes = list(LANGUAGES)
-        self._var = tk.StringVar(value=LANGUAGES.get(initial, LANGUAGES[SOURCE_LANGUAGE]))
+        self._var = tk.StringVar(
+            value=LANGUAGES.get(initial, LANGUAGES[DEFAULT_LANGUAGE]))
         combo = ttk.Combobox(self, textvariable=self._var, values=self._names,
                              state="readonly")
         combo.pack(fill="x")
@@ -560,10 +561,10 @@ class UiLanguageField(ttk.Frame):
         """目前選到的語言碼。"""
         name = self._var.get()
         return self._codes[self._names.index(name)] if name in self._names \
-            else SOURCE_LANGUAGE
+            else DEFAULT_LANGUAGE
 
     def set_value(self, code: str) -> None:
-        self._var.set(LANGUAGES.get(code, LANGUAGES[SOURCE_LANGUAGE]))
+        self._var.set(LANGUAGES.get(code, LANGUAGES[DEFAULT_LANGUAGE]))
 
     def _notify(self) -> None:
         if self._on_change is not None:

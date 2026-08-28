@@ -1,8 +1,9 @@
 """介面文案資源：依當前介面語言提供字串。
 
-語言檔為扁平 key-value JSON（`<語言碼>.json`），繁體中文（台灣）是來源語言，
-也是缺字串時的 fallback 對象——翻譯平台上譯文未完成是常態，介面不可因此炸開。
-本模組只負責「給字串」，不碰 UI、不碰 config 讀寫。
+語言檔為扁平 key-value JSON（`<語言碼>.json`），繁體中文（台灣）是來源語言
+（Crowdin 的上傳來源、測試基準）。缺字串時**先退英文**——翻譯平台上譯文未完成
+是常態，退到多數人讀得懂的語言比退到繁中合理；繁中排在英文之後當保底，因為新文案
+一定先進來源語言，英文有可能還沒跟上。本模組只負責「給字串」，不碰 UI、不碰 config 讀寫。
 """
 import json
 import locale
@@ -16,8 +17,8 @@ LANGUAGES: dict[str, str] = {
     "en": "English",
 }
 
-SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言，同時是 fallback 對象
-DEFAULT_LANGUAGE = "en"     # 偵測不到或語言碼不認得時的退路
+SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
+DEFAULT_LANGUAGE = "en"     # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
 
 # Windows locale 名稱 → 介面語言碼。未列出者一律退 DEFAULT_LANGUAGE。
 _LOCALE_MAP = {
@@ -25,7 +26,7 @@ _LOCALE_MAP = {
     "zh_CN": "zh-CN", "zh_SG": "zh-CN",
 }
 
-_current = SOURCE_LANGUAGE
+_current = DEFAULT_LANGUAGE   # set_language() 被呼叫前的預設（main.py 啟動時一定會設）
 _cache: dict[str, dict[str, str]] = {}
 
 
@@ -75,30 +76,32 @@ def set_language(code: str) -> None:
     print(f"[i18n] language set: {code}", file=sys.stderr)
 
 
-def _lookup(key: str) -> str:
-    strings = _load(_current)
-    if key in strings:
-        return strings[key]
-    print(f"[i18n] missing key: {key} lang={_current}", file=sys.stderr)
-    return _load(SOURCE_LANGUAGE).get(key, key)
+def fallback_order() -> list[str]:
+    """字串查找順序：當前語言 → 英文 → 來源語言（繁中），重複的語言碼只留第一個。"""
+    order = []
+    for code in (_current, DEFAULT_LANGUAGE, SOURCE_LANGUAGE):
+        if code not in order:
+            order.append(code)
+    return order
 
 
 def t(key: str, **kwargs) -> str:
     """取當前語言的文案，並以具名變數 format。
 
-    format 失敗（譯者把變數名打錯）時退回來源語言的字串重試——寧可顯示繁中，
+    缺字串、或 format 失敗（譯者把變數名打壞）都往 fallback_order() 的下一個語言退；
+    每一種語言都不行才回傳 key 本身——寧可顯示英文、繁中，甚至 key，
     也不要讓整個視窗因為一則譯文而拋例外。"""
-    template = _lookup(key)
-    try:
-        return template.format(**kwargs)
-    except (KeyError, IndexError) as exc:
-        print(f"[i18n] format failed: key={key} lang={_current} error={exc}",
-              file=sys.stderr)
-        fallback = _load(SOURCE_LANGUAGE).get(key, key)
+    for code in fallback_order():
+        template = _load(code).get(key)
+        if template is None:
+            print(f"[i18n] missing key: {key} lang={code}", file=sys.stderr)
+            continue
         try:
-            return fallback.format(**kwargs)
-        except (KeyError, IndexError):
-            return fallback
+            return template.format(**kwargs)
+        except (KeyError, IndexError) as exc:
+            print(f"[i18n] format failed: key={key} lang={code} error={exc}",
+                  file=sys.stderr)
+    return key
 
 
 def map_locale_name(name: str) -> str:
