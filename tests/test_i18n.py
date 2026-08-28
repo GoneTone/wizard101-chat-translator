@@ -106,3 +106,20 @@ def test_languages_are_listed_as_endonyms():
         "zh-CN": "简体中文（中国）",
         "en": "English",
     }
+
+
+def test_set_language_keeps_previous_language_when_load_fails(monkeypatch):
+    # 切換失敗（缺檔／內容損毀）時，_current 不該被改到一個永遠載入不了的語言，
+    # 否則之後每一次 t() 都會炸例外。
+    i18n.set_language("zh-TW")
+    original_load = i18n._load
+
+    def failing_load(code):
+        if code == "en":
+            raise ValueError("corrupted catalog")
+        return original_load(code)
+
+    monkeypatch.setattr(i18n, "_load", failing_load)
+    with pytest.raises(ValueError):
+        i18n.set_language("en")
+    assert i18n.current_language() == "zh-TW"

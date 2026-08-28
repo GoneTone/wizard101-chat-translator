@@ -61,14 +61,17 @@ def current_language() -> str:
 
 
 def set_language(code: str) -> None:
-    """切換介面語言；語言碼不認得時退回 DEFAULT_LANGUAGE。"""
+    """切換介面語言；語言碼不認得時退回 DEFAULT_LANGUAGE。
+
+    先載入再切換 `_current`：載入失敗（缺檔、內容損毀）就拋出例外，
+    此時 `_current` 仍停在原本能正常運作的語言，不會讓後續 `t()` 全數炸開。"""
     global _current
     if code not in LANGUAGES:
         print(f"[i18n] unknown language: {code}, using {DEFAULT_LANGUAGE}",
               file=sys.stderr)
         code = DEFAULT_LANGUAGE
-    _current = code
     _load(code)
+    _current = code
     print(f"[i18n] language set: {code}", file=sys.stderr)
 
 

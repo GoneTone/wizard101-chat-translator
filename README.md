@@ -23,9 +23,11 @@ Wizard101 聊天 AI 翻譯：讀取遊戲聊天訊息即時翻成**你設定的�
    下載 `Wizard101ChatTranslator.exe`，放到任意資料夾（設定 `config.json`
    與紀錄檔 `app.log`、`messages.log` 都會存在 exe 同一個資料夾）
 2. 雙擊執行：
-   - 第一次執行（找不到 `config.json`）會跳出**首次設定精靈**：第一步選翻譯服務、
-     填金鑰並測試連線，第二步選目標語言與熱鍵，存好設定後自動進入主流程
-   - 之後每次啟動都直接進主流程，不會再跳精靈
+   - 第一次執行（找不到 `config.json`）會跳出**首次設定精靈**：第一步選介面語言
+     （繁體中文／简体中文／English），第二步選翻譯服務、填金鑰並測試連線，
+     第三步選目標語言與熱鍵，存好設定後自動進入主流程
+   - 之後每次啟動都直接進主流程，不會再跳精靈；介面語言之後仍可隨時在設定視窗
+     （齒輪 ⚙）改，存檔即立即套用，不必重開程式
 3. 開啟 Wizard101 並**登入進遊戲世界內**，疊加視窗才讀得到聊天訊息
 4. 想改設定（服務商、金鑰、目標語言、熱鍵…）時，點疊加視窗標題列的齒輪
    （⚙）開啟設定視窗，存檔即套用，不必重開程式
@@ -114,6 +116,7 @@ uv run pyinstaller build.spec --noconfirm
 
 | 欄位 | 說明 |
 |------|------|
+| `ui_language` | 介面語言：`zh-TW`（繁體中文（台灣））、`zh-CN`（简体中文（中国））、`en`（English）；`null`（預設）＝下次啟動時依 Windows 系統語言自動判定。也可隨時在設定視窗（齒輪 ⚙）改，立即套用 |
 | `api.provider` | 翻譯服務商：`openai`（ChatGPT）、`claude`（Anthropic）、`custom`（自訂 OpenAI 相容端點，需自行架設，填 `api.base_url`） |
 | `api.base_url` / `api.model` / `api.api_key` | `provider` 為 `custom` 時使用 `base_url`（自架 OpenAI 相容 API，`/v1/chat/completions`）；`openai`／`claude` 則固定用官方端點，只需 `model` 與 `api_key` |
 | `target_language` | 收訊翻成的目標語言（人讀名稱，直接帶入提示詞），例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |

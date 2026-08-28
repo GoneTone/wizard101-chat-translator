@@ -21,6 +21,7 @@ from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.translation_pool import TranslationPool
 from src.translator import Translator
+from src.ui.fields import DEFAULT_TARGET_LANGUAGE
 from src.ui.settings import SettingsWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
@@ -39,6 +40,20 @@ def banner_for(game_missing: bool, error_state: str | None) -> str | None:
     if error_state == "offline":
         return "notice.offline"
     return None
+
+
+def bootstrap_language(cfg: dict, detect=detect_system_language) -> str:
+    """決定啟動時要套用的介面語言碼，並就地補上首次執行的 target_language 預設值。
+
+    `cfg["ui_language"]` 為 None 代表尚未走過精靈（首次執行）：介面語言依系統偵測，
+    翻譯目標語言也跟著它走，否則非 zh-TW 系統會在精靈第三步看到不相關的
+    「繁體中文（台灣）」預設值。已有 `ui_language` 代表使用者走過精靈，
+    不再覆蓋其目標語言設定；此時也不呼叫 `detect`，避免每次啟動都做多餘的系統查詢。"""
+    if cfg["ui_language"] is None:
+        detected = detect()
+        cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[detected]
+        return detected
+    return cfg["ui_language"]
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -67,12 +82,12 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
     last_status: str | None = None
     last_banner: str | None = None
 
-    def set_status(key: str) -> None:
+    def set_status(state: str) -> None:
         nonlocal last_status
-        if key == last_status:
+        if state == last_status:
             return
-        last_status = key
-        ui_queue.put(lambda k=key: overlay.set_status(k))
+        last_status = state
+        ui_queue.put(lambda s=state: overlay.set_status(s))
 
     def check_input() -> None:
         """遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回。"""
@@ -186,7 +201,7 @@ def main() -> None:
     cfg = load_config(CONFIG_PATH)
 
     # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
-    set_language(cfg["ui_language"] or detect_system_language())
+    set_language(bootstrap_language(cfg))
 
     root = tk.Tk()
     root.withdraw()

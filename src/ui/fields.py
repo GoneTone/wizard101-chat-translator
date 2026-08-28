@@ -13,7 +13,6 @@ from tkinter import ttk
 from src.i18n import LANGUAGES, SOURCE_LANGUAGE, current_language, t
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
                             TranslatorOffline, list_models, test_translate)
-from src.ui.fonts import ui_font
 from src.ui.responsive import bind_wrap
 
 

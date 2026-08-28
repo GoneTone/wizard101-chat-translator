@@ -18,6 +18,7 @@ SCAN_TARGETS = [
     "src/ui/wizard.py",
     "src/ui/fonts.py",
     "src/ui/responsive.py",
+    "src/translation_pool.py",
 ]
 
 # 例外：語言選單與翻譯目標語言清單一律顯示 endonym，任何介面語言下都不翻譯。
@@ -27,7 +28,9 @@ ALLOWED = {
 
 
 def _has_cjk(text: str) -> bool:
-    return any("぀" <= c <= "鿿" or "가" <= c <= "힯" for c in text)
+    return any("぀" <= c <= "鿿" or "가" <= c <= "힯"
+               or "　" <= c <= "〿" or "＀" <= c <= "￯"
+               for c in text)
 
 
 def _docstring_nodes(tree: ast.AST) -> set[int]:

@@ -125,7 +125,10 @@ class SetupWizard:
             self._cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[code]
         self.restart = True
         print(f"[ui] wizard restarting with language {code}", file=sys.stderr)
-        self._win.destroy()
+        # after_idle：這裡是從 <<ComboboxSelected>> 事件內呼叫，ttk 的類別 binding
+        # 還在處理同一個事件，立即 destroy() 會讓它收尾時對已死的 widget 操作，
+        # 冒出 TclError: invalid command name。延到事件處理完才銷毀視窗。
+        self._win.after_idle(self._win.destroy)
 
     def _collect_into_cfg(self) -> None:
         """把目前填在欄位裡的值寫回 cfg（重建精靈與完成精靈共用）。"""
