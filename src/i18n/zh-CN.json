@@ -8,5 +8,14 @@
   "status.locating": "●  连接游戏中…",
   "status.listening": "●  监听中",
   "status.translating": "●  翻译中…",
-  "status.waiting_game": "●  等待游戏中…"
+  "status.waiting_game": "●  等待游戏中…",
+  "error.need_api_key": "请输入 API 密钥",
+  "error.need_base_url": "请输入服务器网址",
+  "error.need_model": "请选择或输入模型",
+  "error.bad_key": "密钥无效或已过期，请确认 API 密钥",
+  "error.model_not_found": "找不到模型，请确认模型名称",
+  "error.api_http": "API 设置有误（HTTP {status}），请检查各字段",
+  "error.offline": "无法连接到服务器，请检查网址与网络",
+  "error.unexpected": "发生错误：{error}",
+  "sep.errors": "；"
 }

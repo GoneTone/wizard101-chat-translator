@@ -10,6 +10,7 @@ import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
+from src.i18n import t
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
                             TranslatorOffline, list_models, test_translate)
 from src.ui.responsive import bind_wrap
@@ -46,20 +47,20 @@ AUTO_INPUT_LABEL = "遊戲開啟聊天輸入框時自動呼出翻譯輸入（關
 
 
 def validate_endpoint_fields(api: dict) -> list[str]:
-    """檢查連上端點所需的欄位（不含模型），回傳錯誤訊息列表（空＝通過）。
+    """檢查連上端點所需的欄位（不含模型），回傳錯誤文案 key 列表（空＝通過）。
     取模型清單時模型欄本來就還沒填，故與 validate_api_form 分開。"""
     errors = []
     provider = PROVIDERS[api["provider"]]
     if not provider.needs_base_url and not api["api_key"].strip():
-        errors.append("請輸入 API 金鑰")
+        errors.append("error.need_api_key")
     if provider.needs_base_url and not api["base_url"].strip():
-        errors.append("請輸入伺服器網址")
+        errors.append("error.need_base_url")
     return errors
 
 
 def validate_api_form(api: dict) -> list[str]:
-    """檢查 API 表單必填欄位，回傳錯誤訊息列表（空＝通過）。"""
-    errors = [] if api["model"].strip() else ["請選擇或輸入模型"]
+    """檢查 API 表單必填欄位，回傳錯誤文案 key 列表（空＝通過）。"""
+    errors = [] if api["model"].strip() else ["error.need_model"]
     return errors + validate_endpoint_fields(api)
 
 
@@ -87,17 +88,20 @@ def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 
     on_result(result)
 
 
-def friendly_error(exc: Exception) -> str:
-    """把翻譯例外轉成一般使用者看得懂的錯誤訊息。"""
+def friendly_error(exc: Exception) -> tuple[str, dict]:
+    """把翻譯例外轉成（文案 key， format 變數）。
+
+    帶變數的兩種錯誤（HTTP 狀態碼、未預期例外）光靠 key 表達不了，故回傳
+    tuple；顯示端一律 `t(key, **kwargs)`。"""
     if isinstance(exc, TranslatorConfigError):
         if exc.status in (401, 403):
-            return "金鑰無效或過期，請確認 API 金鑰"
+            return "error.bad_key", {}
         if exc.status == 404:
-            return "找不到模型，請確認模型名稱"
-        return f"API 設定有誤（HTTP {exc.status}），請檢查各欄位"
+            return "error.model_not_found", {}
+        return "error.api_http", {"status": exc.status}
     if isinstance(exc, TranslatorOffline):
-        return "無法連線到伺服器，請檢查網址與網路"
-    return f"發生錯誤：{exc}"
+        return "error.offline", {}
+    return "error.unexpected", {"error": exc}
 
 
 
@@ -261,9 +265,10 @@ class ModelField(ttk.Frame):
         self._all_models = []
         self._combo.configure(values=[])
         if isinstance(exc, TranslatorNoModelList):
-            self._set_status(MODEL_HINT_NO_LIST)
+            self._set_status(t("hint.model_no_list"))
         else:
-            self._set_status(friendly_error(exc), error=True)
+            key, kwargs = friendly_error(exc)
+            self._set_status(t(key, **kwargs), error=True)
 
     def _set_status(self, text: str, error: bool = False) -> None:
         self._status.configure(text=text, foreground="#cc3333" if error else "#888888")
@@ -273,7 +278,7 @@ class ModelField(ttk.Frame):
         api = self._api_getter()
         errors = validate_endpoint_fields(api)
         if errors:
-            self._set_status("；".join(errors), error=True)
+            self._set_status(t("sep.errors").join(t(e) for e in errors), error=True)
             return
         self._btn.configure(state="disabled", text="讀取中…")
         self._set_status(MODEL_HINT_IDLE)
@@ -428,7 +433,7 @@ class ApiFields(ttk.Frame):
         api = self.get_values()
         errors = validate_api_form(api)
         if errors:
-            self._show_test_result(False, "；".join(errors))
+            self._show_test_result(False, t("sep.errors").join(t(e) for e in errors))
             return
         self._test_btn.configure(state="disabled", text="測試中…")
         self._test_result.configure(text="")
@@ -443,7 +448,8 @@ class ApiFields(ttk.Frame):
         except Exception as exc:
             print(f"[settings] test connection failed (provider={api['provider']}, "
                   f"model={api['model']}): {exc}", file=sys.stderr)
-            self._queue.put((False, friendly_error(exc)))
+            key, kwargs = friendly_error(exc)
+            self._queue.put((False, t(key, **kwargs)))
             return
         print(f"[settings] test connection ok (provider={api['provider']}, "
               f"model={api['model']})", file=sys.stderr)

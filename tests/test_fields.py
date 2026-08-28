@@ -4,6 +4,7 @@ import tkinter as tk
 
 import pytest
 
+from src.i18n import t
 from src.translator import (
     TranslatorConfigError, TranslatorNoModelList, TranslatorOffline,
 )
@@ -35,27 +36,31 @@ def test_providers_metadata():
 def test_validate_requires_model():
     errs = validate_api_form({"provider": "openai", "model": "", "api_key": "k",
                               "base_url": "", "thinking": False})
-    assert any("模型" in e for e in errs)
+    assert "error.need_model" in errs
 
 
 def test_validate_requires_key_for_official_providers():
     errs = validate_api_form({"provider": "claude", "model": "claude-opus-5",
                               "api_key": "", "base_url": "", "thinking": False})
-    assert any("金鑰" in e for e in errs)
+    assert "error.need_api_key" in errs
 
 
 def test_validate_requires_base_url_for_custom_only():
     api = {"provider": "custom", "model": "m", "api_key": "", "base_url": "",
            "thinking": False}
-    assert any("網址" in e for e in validate_api_form(api))
+    assert "error.need_base_url" in validate_api_form(api)
     api["base_url"] = "http://127.0.0.1:8000"
     assert validate_api_form(api) == []  # custom 不需金鑰
 
 
 def test_friendly_error_messages():
-    assert "金鑰" in friendly_error(TranslatorConfigError("HTTP 401", status=401))
-    assert "模型" in friendly_error(TranslatorConfigError("HTTP 404", status=404))
-    assert "連線" in friendly_error(TranslatorOffline("refused"))
+    assert friendly_error(TranslatorConfigError("HTTP 401", status=401)) == \
+        ("error.bad_key", {})
+    assert friendly_error(TranslatorConfigError("HTTP 404", status=404)) == \
+        ("error.model_not_found", {})
+    assert friendly_error(TranslatorConfigError("HTTP 500", status=500)) == \
+        ("error.api_http", {"status": 500})
+    assert friendly_error(TranslatorOffline("refused")) == ("error.offline", {})
 
 
 
@@ -114,7 +119,7 @@ def test_validate_endpoint_fields_ignores_model():
                                      "thinking": False}) == []
     errs = validate_endpoint_fields({"provider": "openai", "model": "", "api_key": "",
                                      "base_url": "", "thinking": False})
-    assert any("金鑰" in e for e in errs)
+    assert "error.need_api_key" in errs
 
 
 def test_model_field_shows_fetched_models(root):
@@ -127,14 +132,14 @@ def test_model_field_shows_fetched_models(root):
 def test_model_field_unsupported_endpoint_hints_manual_input(root):
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_error(TranslatorNoModelList("HTTP 404"))
-    assert "自行輸入" in fields._model_field.status()
+    assert fields._model_field.status() == t("hint.model_no_list")
     assert fields._model_field.options() == []
 
 
 def test_model_field_error_uses_friendly_message(root):
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_error(TranslatorOffline("refused"))
-    assert "連線" in fields._model_field.status()
+    assert fields._model_field.status() == t("error.offline")
 
 
 def test_model_field_typing_filters_fetched_options(root):

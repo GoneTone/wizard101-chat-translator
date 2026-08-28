@@ -3,7 +3,7 @@ from src.ui.wizard import STEP_API, STEP_PREFS, can_advance
 
 
 def test_step_api_requires_valid_form():
-    assert not can_advance(STEP_API, api_test_passed=True, api_errors=["請輸入 API 金鑰"])
+    assert not can_advance(STEP_API, api_test_passed=True, api_errors=["error.need_api_key"])
 
 
 def test_step_api_requires_passed_or_skipped_test():
