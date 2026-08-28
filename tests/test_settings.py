@@ -113,12 +113,15 @@ def test_save_applies_ui_language(root, tmp_path):
         cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
                       "api_key": "", "thinking": False}
         saved = []
-        win = SettingsWindow(root, cfg, on_save=lambda: saved.append(True))
+        win = SettingsWindow(root, cfg,
+                             on_save=lambda: saved.append(i18n.current_language()))
         win.open()
         win._ui_language.set_value("en")
         win._save()
         assert cfg["ui_language"] == "en"
         assert i18n.current_language() == "en"
-        assert saved == [True]      # 語言先套用，on_save 才被呼叫
+        # on_save 看到的必須已經是新語言：這行是本測試的重點，
+        # 若 _save() 把 on_save 提前到套用語言之前，這裡會是 "zh-TW"。
+        assert saved == ["en"]
     finally:
         i18n.set_language(before)
