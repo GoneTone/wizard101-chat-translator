@@ -557,7 +557,7 @@ class WizChatReader:
             return self._grab_texts()
         except Exception as exc:  # 遊戲關閉/文件釋放/記憶體讀取失敗 → 視為斷線，由上層重連
             self._teardown()
-            raise GameNotRunning(f"讀取聊天失敗（可能已離開遊戲）：{exc}") from exc
+            raise GameNotRunning(f"chatlog read failed (likely left the game): {exc}") from exc
 
     # --- 與 wizwalker 的 I/O 接縫（測試中覆寫 _grab_texts）---
     def _grab_texts(self) -> list[str]:
@@ -580,7 +580,7 @@ class WizChatReader:
         clients = self._handler.get_new_clients()
         if not clients:
             self._teardown()
-            raise GameNotRunning(f"找不到 {self.process_name}")
+            raise GameNotRunning(f"game process not found: {self.process_name}")
         self._client = clients[0]
         self._pid = self._client.process_id
         hook_state.sweep(_pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
@@ -591,7 +591,7 @@ class WizChatReader:
             self._run(self._client.hook_handler.activate_root_window_hook())
         except Exception as exc:
             self._teardown()
-            raise GameNotRunning(f"無法掛入遊戲（{exc}）") from exc
+            raise GameNotRunning(f"failed to attach to game: {exc}") from exc
         self._connected = True
         print(f"[reader] attached to game (pid={self._pid})", file=sys.stderr)
         self._save_hook_state(self._pid)      # 掛入成功 → 存還原狀態，供下次髒退出修復
