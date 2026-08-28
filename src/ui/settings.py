@@ -4,9 +4,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
-from src.config import ADVANCED_LIMITS, app_name, DEFAULT_CONFIG, clamp_advanced
-from src.i18n import t
-from src.ui.fields import ApiFields, HotkeyField, LanguageField, validate_api_form
+from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_name, clamp_advanced
+from src.i18n import current_language, set_language, t
+from src.ui.fields import (ApiFields, HotkeyField, LanguageField, UiLanguageField,
+                           validate_api_form)
 from src.ui.responsive import bind_wrap
 
 
@@ -14,7 +15,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
                           alpha_var, parallel_var) -> tuple[dict | None, str | None]:
     """讀取並轉型進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
     `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
-    統一在此攔截並回傳 `（None， 錯誤訊息）`，讓呼叫端走既有表單錯誤提示、
+    統一在此攔截並回傳 `（None， 錯誤文案 key）`，讓呼叫端走既有表單錯誤提示、
     不讓 cfg 被寫到一半。成功則回傳 `(clamp_advanced(...), None)`。"""
     try:
         values = clamp_advanced({
@@ -26,7 +27,7 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
             "max_parallel_translations": int(parallel_var.get()),
         })
     except (tk.TclError, ValueError):
-        return None, "進階數值格式錯誤，請輸入數字"
+        return None, "error.advanced_not_number"
     return values, None
 
 
@@ -47,7 +48,7 @@ class SettingsWindow:
             return
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
-        self._win.title(f"{app_name()} — 設定")
+        self._win.title(t("settings.title", app=app_name()))
         win_w, win_h = 640, 560
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
@@ -61,14 +62,17 @@ class SettingsWindow:
 
         # --- 基本 ---
         basic = ttk.Frame(nb, padding=12)
-        nb.add(basic, text="基本")
+        nb.add(basic, text=t("settings.tab.basic"))
+        ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
+        self._ui_language = UiLanguageField(basic, current_language())
+        self._ui_language.pack(fill="x", pady=(2, 10))
         self._api = ApiFields(basic, cfg["api"])
         self._api.pack(fill="x")
         self._api.set_target_language_fn(lambda: self._language.value())
-        ttk.Label(basic, text="翻譯目標語言").pack(anchor="w", pady=(12, 0))
+        ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w", pady=(12, 0))
         self._language = LanguageField(basic, cfg["target_language"])
         self._language.pack(fill="x", pady=(2, 8))
-        ttk.Label(basic, text="呼出輸入框的熱鍵").pack(anchor="w")
+        ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w")
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
@@ -77,35 +81,37 @@ class SettingsWindow:
 
         # --- 進階 ---
         adv = ttk.Frame(nb, padding=12)
-        nb.add(adv, text="進階")
-        self._poll = self._spin(adv, "輪詢間隔（秒）", cfg["poll_interval"],
-                                "poll_interval", 0.1, "收訊掃描頻率，小＝更即時")
-        self._fade = self._spin(adv, "訊息淡出（秒）", cfg["fade_seconds"],
-                                "fade_seconds", 10, "0＝永不淡出，可滾動看歷史")
-        self._max_msgs = self._spin(adv, "訊息保留上限", cfg["max_messages"],
-                                    "max_messages", 10, "超過移除最舊")
-        self._parallel = self._spin(adv, "同時翻譯則數", cfg["max_parallel_translations"],
+        nb.add(adv, text=t("settings.tab.advanced"))
+        self._poll = self._spin(adv, "settings.poll_interval", cfg["poll_interval"],
+                                "poll_interval", 0.1, "settings.poll_interval_hint")
+        self._fade = self._spin(adv, "settings.fade", cfg["fade_seconds"],
+                                "fade_seconds", 10, "settings.fade_hint")
+        self._max_msgs = self._spin(adv, "settings.max_messages", cfg["max_messages"],
+                                    "max_messages", 10, "settings.max_messages_hint")
+        self._parallel = self._spin(adv, "settings.parallel",
+                                    cfg["max_parallel_translations"],
                                     "max_parallel_translations", 1,
-                                    "1＝逐則排隊；大於 1 同時翻多則，訊息密集時更快跟上")
-        self._type_delay = self._spin(adv, "鍵入延遲（秒）", cfg["type_delay"],
-                                      "type_delay", 0.01, "遊戲漏字就調大")
+                                    "settings.parallel_hint")
+        self._type_delay = self._spin(adv, "settings.type_delay", cfg["type_delay"],
+                                      "type_delay", 0.01, "settings.type_delay_hint")
         self._alpha_var = self._alpha_slider(adv, cfg["overlay_alpha"])
         path_row = ttk.Frame(adv)
         path_row.pack(fill="x", pady=(8, 0))
-        ttk.Label(path_row, text="遊戲路徑", width=14).pack(side="left")
+        ttk.Label(path_row, text=t("settings.game_path"), width=14).pack(side="left")
         self._game_path = tk.StringVar(value=cfg["game_path"] or "")
         ttk.Entry(path_row, textvariable=self._game_path).pack(
             side="left", fill="x", expand=True)
-        ttk.Button(path_row, text="瀏覽…", width=7,
+        ttk.Button(path_row, text=t("button.browse"), width=7,
                    command=self._browse_game_path).pack(side="left", padx=(4, 0))
-        ttk.Label(adv, text="留空＝自動偵測執行中的遊戲",
+        ttk.Label(adv, text=t("settings.game_path_hint"),
                   foreground="#888888").pack(anchor="w")
 
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
         btns.pack(side="bottom", fill="x")
         ttk.Label(btns, text=f"v{__version__}", foreground="#888888").pack(side="left")
-        ttk.Button(btns, text="取消", command=self._cancel).pack(side="right")
-        ttk.Button(btns, text="儲存", command=self._save).pack(side="right", padx=(0, 8))
+        ttk.Button(btns, text=t("button.cancel"), command=self._cancel).pack(side="right")
+        ttk.Button(btns, text=t("button.save"), command=self._save).pack(side="right",
+                                                                        padx=(0, 8))
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
     def _alpha_slider(self, parent, initial: float) -> tk.DoubleVar:
@@ -113,7 +119,7 @@ class SettingsWindow:
         lo, hi = ADVANCED_LIMITS["overlay_alpha"]
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text="視窗不透明度", width=14).pack(side="left")
+        ttk.Label(row, text=t("settings.alpha"), width=14).pack(side="left")
         var = tk.DoubleVar(value=initial)
         value_label = ttk.Label(row, text=f"{initial:.2f}", width=5)
 
@@ -127,7 +133,8 @@ class SettingsWindow:
         ttk.Scale(row, from_=lo, to=hi, orient="horizontal", variable=var,
                   command=on_slide, length=160).pack(side="left")
         value_label.pack(side="left", padx=(6, 0))
-        note = ttk.Label(row, text=f"即時預覽，小＝更透明（預設 {DEFAULT_CONFIG['overlay_alpha']}）",
+        note = ttk.Label(row, text=t("settings.alpha_hint",
+                                     default=DEFAULT_CONFIG["overlay_alpha"]),
                          foreground="#888888", justify="left")
         note.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(note)
@@ -139,16 +146,17 @@ class SettingsWindow:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
         self._win.destroy()
 
-    def _spin(self, parent, label, initial, key, step, hint):
+    def _spin(self, parent, label_key, initial, key, step, hint_key):
         lo, hi = ADVANCED_LIMITS[key]
         row = ttk.Frame(parent)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text=label, width=14).pack(side="left")
+        ttk.Label(row, text=t(label_key), width=14).pack(side="left")
         var = tk.DoubleVar(value=initial) if isinstance(initial, float) \
             else tk.IntVar(value=initial)
         ttk.Spinbox(row, textvariable=var, from_=lo, to=hi, increment=step,
                     width=8).pack(side="left")
-        note = ttk.Label(row, text=f"{hint}（範圍 {lo}–{hi}，預設 {DEFAULT_CONFIG[key]}）",
+        note = ttk.Label(row, text=t("settings.range_hint", hint=t(hint_key), lo=lo,
+                                     hi=hi, default=DEFAULT_CONFIG[key]),
                          foreground="#888888", justify="left")
         note.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(note)
@@ -167,15 +175,19 @@ class SettingsWindow:
         api = self._api.get_values()
         errors = validate_api_form(api)
         if not self._language.value():
-            errors.append("請選擇或輸入翻譯目標語言")
+            errors.append("error.need_target_language")
         if advanced_error:
             errors.append(advanced_error)
         if errors:
-            messagebox.showwarning("設定不完整", "\n".join(errors), parent=self._win)
+            messagebox.showwarning(t("dialog.incomplete_title"),
+                                   "\n".join(t(e) for e in errors), parent=self._win)
             return
         cfg = self._cfg
         old_game_path = cfg["game_path"]
         cfg["api"] = api
+        # 語言要在 on_save 之前套用：apply_settings 會依新語言重繪 overlay。
+        cfg["ui_language"] = self._ui_language.value()
+        set_language(cfg["ui_language"])
         cfg["target_language"] = self._language.value()
         cfg["hotkey"] = self._hotkey.value()
         cfg["auto_show_input"] = self._auto_input.get()
@@ -184,5 +196,6 @@ class SettingsWindow:
         game_path_changed = cfg["game_path"] != old_game_path
         self._on_save()
         if game_path_changed:
-            messagebox.showinfo("提示", "遊戲路徑將於下次啟動生效", parent=self._win)
+            messagebox.showinfo(t("dialog.notice_title"), t("dialog.game_path_restart"),
+                                parent=self._win)
         self._win.destroy()

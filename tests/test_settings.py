@@ -1,4 +1,5 @@
 """設定視窗純邏輯與 overlay set_limits／set_alpha 測試。"""
+import copy
 import tkinter as tk
 
 from src.reader.overlay import OverlayWindow
@@ -63,7 +64,7 @@ def test_parse_advanced_values_returns_error_on_non_numeric_input(root):
     values, error = parse_advanced_values(poll, fade, max_msgs, type_delay, alpha, parallel)
 
     assert values is None
-    assert error == "進階數值格式錯誤，請輸入數字"
+    assert error == "error.advanced_not_number"
 
 
 def test_parse_advanced_values_clamps_valid_numeric_input(root):
@@ -83,3 +84,41 @@ def test_parse_advanced_values_clamps_parallel(root):
     values, error = parse_advanced_values(poll, fade, max_msgs, type_delay, alpha, parallel)
     assert error is None
     assert values["max_parallel_translations"] == 8
+
+
+def test_parse_advanced_values_returns_error_key():
+    import tkinter as tk
+
+    from src.ui.settings import parse_advanced_values
+
+    class BadVar:
+        def get(self):
+            raise ValueError("not a number")
+
+    values, error = parse_advanced_values(BadVar(), BadVar(), BadVar(), BadVar(),
+                                          BadVar(), BadVar())
+    assert values is None
+    assert error == "error.advanced_not_number"
+
+
+def test_save_applies_ui_language(root, tmp_path):
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
+                      "api_key": "", "thinking": False}
+        saved = []
+        win = SettingsWindow(root, cfg, on_save=lambda: saved.append(True))
+        win.open()
+        win._ui_language.set_value("en")
+        win._save()
+        assert cfg["ui_language"] == "en"
+        assert i18n.current_language() == "en"
+        assert saved == [True]      # 語言先套用，on_save 才被呼叫
+    finally:
+        i18n.set_language(before)
