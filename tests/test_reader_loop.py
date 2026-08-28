@@ -6,7 +6,8 @@ import time
 
 import src.main as main_module
 from src.context import ChatContext
-from src.main import PENDING_NOTICE, banner_for, reader_loop
+from src.i18n import t
+from src.main import banner_for, reader_loop
 from src.reader.mem_reader import ChatLine, GameNotRunning
 
 
@@ -40,14 +41,14 @@ class FakeOverlay:
     def update_message(self, msg_id, translated):
         pass
 
-    def set_error(self, text):
-        self.errors.append(text)
+    def set_error(self, key):
+        self.errors.append(key)
 
     def clear_error(self):
         self.clears += 1
 
-    def set_status(self, text, color=None):
-        self.statuses.append(text)
+    def set_status(self, state):
+        self.statuses.append(state)
 
 
 class FakeReader:
@@ -100,8 +101,8 @@ def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
     reads = [[], ["[A] a"], ["[B] hi", "[B] hi"], []]
     pool, _ = run_scripted(cfg, ov, reads, monkeypatch)
     # overlay 依讀取順序先佔位（譯文位置為「翻譯中…」），順序不由翻譯完成先後決定
-    assert ov.messages == [("[A] a", PENDING_NOTICE), ("[B] hi", PENDING_NOTICE),
-                           ("[B] hi", PENDING_NOTICE)]
+    assert ov.messages == [("[A] a", t("notice.pending")), ("[B] hi", t("notice.pending")),
+                           ("[B] hi", t("notice.pending"))]
     assert [line for line, _, _ in pool.submitted] == ["[A] a", "[B] hi", "[B] hi"]
     assert [msg_id for _, _, msg_id in pool.submitted] == [1, 2, 3]
     assert ov.pending_flags == [True, True, True]  # 佔位要標記，overlay 才會用較暗的顏色
@@ -113,7 +114,7 @@ def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
     ov = FakeOverlay()
     reads = [[ChatLine("[A] a", "#80ff00")], []]
     pool, context = run_scripted(cfg, ov, reads, monkeypatch)
-    assert ov.messages == [("[A] a", PENDING_NOTICE)]
+    assert ov.messages == [("[A] a", t("notice.pending"))]
     assert ov.colors == ["#80ff00"]
     assert pool.submitted == [("[A] a", [], 1)]
     assert context.snapshot() == ["[A] a"]
@@ -135,14 +136,14 @@ def test_banner_follows_pool_error_state(monkeypatch):
     pool = FakePool()
     pool.error_state = "offline"
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
-    assert ov.errors == [main_module.OFFLINE_NOTICE]
+    assert ov.errors == ["notice.offline"]
 
 
 def test_banner_prefers_game_missing_over_translation_error():
     # 連不上遊戲時翻譯狀態已無意義，橫幅顯示遊戲未就緒
-    assert banner_for(True, "offline") == main_module.GAME_MISSING_NOTICE
-    assert banner_for(False, "config") == main_module.CONFIG_ERROR_NOTICE
-    assert banner_for(False, "offline") == main_module.OFFLINE_NOTICE
+    assert banner_for(True, "offline") == "notice.game_missing"
+    assert banner_for(False, "config") == "notice.config_error"
+    assert banner_for(False, "offline") == "notice.offline"
     assert banner_for(False, None) is None
 
 
@@ -152,7 +153,7 @@ def test_status_shows_translating_while_pool_busy(monkeypatch):
     pool = FakePool()
     pool.in_flight = 2
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
-    assert "●  翻譯中…" in ov.statuses
+    assert "translating" in ov.statuses
 
 
 class StatusFakeReader(FakeReader):
@@ -183,7 +184,7 @@ def test_status_transitions(monkeypatch):
                         lambda **kw: StatusFakeReader(reads, stop, pool, busy_at=1))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), pool)
     _drain(ui_queue)
-    assert ov.statuses == ["●  監聽中", "●  翻譯中…", "●  監聽中"]
+    assert ov.statuses == ["listening", "translating", "listening"]
 
 
 def test_status_locating_when_not_anchored(monkeypatch):
@@ -195,7 +196,7 @@ def test_status_locating_when_not_anchored(monkeypatch):
                         lambda **kw: FakeReader([[], []], stop, anchored=False))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.statuses == ["●  連線遊戲中…"]  # 狀態未變不重複發
+    assert ov.statuses == ["locating"]  # 狀態未變不重複發
 
 
 class InputFakeReader(FakeReader):
@@ -249,9 +250,9 @@ def test_game_not_running_shows_banner_once(monkeypatch):
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.errors == [main_module.GAME_MISSING_NOTICE]
+    assert ov.errors == ["notice.game_missing"]
     assert ov.messages == []
-    assert "●  等待遊戲中…" in ov.statuses
+    assert "waiting_game" in ov.statuses
 
 
 class DelayedInputReader(FakeReader):

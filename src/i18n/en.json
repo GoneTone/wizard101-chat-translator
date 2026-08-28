@@ -1,3 +1,12 @@
 {
-  "app.name": "Wizard101 Chat Translator"
+  "app.name": "Wizard101 Chat Translator",
+  "notice.pending": "Translating…",
+  "notice.translate_failed": "⚠  Could not translate this message",
+  "notice.game_missing": "⚠  Game not ready or disconnected — waiting…",
+  "notice.offline": "⚠  Translation server is offline — retrying…",
+  "notice.config_error": "⚠  API settings are invalid — open settings (⚙) to check",
+  "status.locating": "●  Connecting to game…",
+  "status.listening": "●  Listening",
+  "status.translating": "●  Translating…",
+  "status.waiting_game": "●  Waiting for game…"
 }

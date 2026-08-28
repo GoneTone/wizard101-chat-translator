@@ -1,3 +1,4 @@
+from src.i18n import t
 from src.reader.overlay import (
     FG_ERROR,
     MIN_HEIGHT,
@@ -31,7 +32,7 @@ def test_resize_updates_existing_message_wraplength(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
-    ov.set_error("錯誤橫幅")
+    ov.set_error("notice.offline")
 
     class FakeEvent:
         width = 240
@@ -164,8 +165,8 @@ def test_no_fade_when_fade_seconds_zero(root):
 def test_error_banner_toggle(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     assert ov.error_text() is None
-    ov.set_error("⚠ 翻譯伺服器離線")
-    assert ov.error_text() == "⚠ 翻譯伺服器離線"
+    ov.set_error("notice.offline")
+    assert ov.error_text() == t("notice.offline")
     ov.clear_error()
     assert ov.error_text() is None
 
@@ -190,10 +191,10 @@ def test_geometry_change_callback_fires_on_manual_apply(root):
 def test_set_status_updates_bar_label(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     assert ov.status_text() == ""
-    ov.set_status("●  監聽中", "#7dc87d")
-    assert ov.status_text() == "●  監聽中"
-    ov.set_status("●  翻譯中…", "#6fa8dc")
-    assert ov.status_text() == "●  翻譯中…"
+    ov.set_status("listening")
+    assert ov.status_text() == t("status.listening")
+    ov.set_status("translating")
+    assert ov.status_text() == t("status.translating")
 
 
 def test_thumb_hidden_when_content_fits():
@@ -230,12 +231,12 @@ def test_scroll_fraction_subtracts_grab_offset_and_clamps():
 
 def test_placeholder_centered_when_empty_hidden_after_message(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
-    ov.set_status("●  連線遊戲中…", "#e0b050")
+    ov.set_status("locating")
     assert ov.placeholder_visible() is True          # 沒訊息 → 置中顯示狀態
-    assert ov.status_text() == "●  連線遊戲中…"
+    assert ov.status_text() == t("status.locating")
     ov.add_message("[A] hi", "譯文")
     assert ov.placeholder_visible() is False         # 有訊息 → 收掉
-    ov.set_status("●  監聽中", "#7dc87d")
+    ov.set_status("listening")
     assert ov.placeholder_visible() is False         # 有訊息時更新狀態也不重現
 
 
@@ -455,7 +456,7 @@ def test_shortening_window_keeps_following_new_messages(root):
 def test_error_banner_keeps_following_new_messages(root):
     # 錯誤橫幅從畫布底部吃走高度，效果等同視窗變矮
     ov = _filled_overlay(root)
-    ov.set_error("⚠  翻譯伺服器離線，重試中…")
+    ov.set_error("notice.offline")
     root.update()
     assert _at_bottom(ov)
     ov.clear_error()
@@ -563,3 +564,20 @@ def test_expand_realigns_the_message_container(root):
     ov.expand()
     root.update()
     assert ov._inner.winfo_y() == -int(ov._canvas.canvasy(0))
+
+
+def test_refresh_labels_retranslates_status_and_banner(root):
+    from src import i18n
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+        ov.set_status("listening")
+        ov.set_error("notice.offline")
+        i18n.set_language("en")
+        ov.refresh_labels()
+        assert ov.status_text() == "●  Listening"
+        assert ov.error_text() == "⚠  Translation server is offline — retrying…"
+    finally:
+        i18n.set_language(before)

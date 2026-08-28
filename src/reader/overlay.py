@@ -11,6 +11,8 @@ import win32con
 import win32gui
 
 from src.config import app_name
+from src.i18n import t
+from src.ui.fonts import ui_font
 
 BG = "#101018"
 BAR = "#23233a"
@@ -22,6 +24,14 @@ DIM_FACTOR = 0.71
 FG_PENDING = "#9398a8"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
 FG_BAR = "#c8c8d8"
+
+# 狀態指示的顏色（文字由 i18n 依 state key 取得）
+STATUS_COLORS = {
+    "locating": "#e0b050",
+    "listening": "#7dc87d",
+    "translating": "#6fa8dc",
+    "waiting_game": "#9a9aa8",
+}
 
 _OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比
 _OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
@@ -305,6 +315,8 @@ class OverlayWindow:
         # 縮放視窗／錯誤橫幅進出都會把視圖推離底部，當場採樣會把它誤判成「使用者往上捲」。
         self._follow = True
         self._error_label: tk.Label | None = None
+        self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
+        self._error_key: str | None = None      # 目前橫幅的 key，同上
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
         self._wrap = self._w - 40
@@ -342,9 +354,9 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        label = tk.Label(bar, text=f"≡  {app_name()}", bg=BAR, fg=FG_BAR,
-                         font=("Microsoft JhengHei", 8), anchor="w")
-        label.pack(side="left", padx=6)
+        self._title_label = tk.Label(bar, text=f"≡  {app_name()}", bg=BAR, fg=FG_BAR,
+                                     font=ui_font(8), anchor="w")
+        self._title_label.pack(side="left", padx=6)
         # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
         # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑。
         if on_close is not None:
@@ -364,7 +376,7 @@ class OverlayWindow:
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=("Microsoft JhengHei", 8), anchor="e")
         self._status_label.pack(side="right", padx=6)
-        for w in (bar, label, self._status_label):
+        for w in (bar, self._title_label, self._status_label):
             w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
             w.bind("<ButtonPress-1>", self._bar_press)
             w.bind("<B1-Motion>", self._bar_drag)
@@ -849,8 +861,11 @@ class OverlayWindow:
         self._refresh_placeholder()
         self._refresh_scroll(anchor)
 
-    def set_status(self, text: str, color: str = FG_BAR) -> None:
-        """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。"""
+    def set_status(self, state: str) -> None:
+        """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。
+        存的是 state key 而非文字——語言切換後 refresh_labels() 才能重新翻譯。"""
+        self._status_state = state
+        text, color = t(f"status.{state}"), STATUS_COLORS[state]
         self._status_label.configure(text=text, fg=color)
         self._placeholder.configure(text=text, fg=color)
         self._refresh_placeholder()
@@ -863,17 +878,34 @@ class OverlayWindow:
             self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
             self._placeholder.lift()
 
-    def set_error(self, text: str) -> None:
+    def set_error(self, key: str) -> None:
+        """顯示錯誤橫幅（傳入文案 key，顯示時才翻譯）。"""
         self.clear_error()
-        self._error_label = tk.Label(self._frame, text=text, bg=BG, fg=FG_ERROR,
-                                     font=("Microsoft JhengHei", 10, "bold"), anchor="w",
+        self._error_key = key
+        self._error_label = tk.Label(self._frame, text=t(key), bg=BG, fg=FG_ERROR,
+                                     font=ui_font(10, "bold"), anchor="w",
                                      wraplength=self._wrap)
         self._error_label.pack(side="bottom", fill="x", pady=2)
 
     def clear_error(self) -> None:
+        self._error_key = None
         if self._error_label is not None:
             self._error_label.destroy()
             self._error_label = None
+
+    def refresh_labels(self) -> None:
+        """介面語言變更後重繪常駐文字（標題列、狀態、錯誤橫幅）與字型。
+        已經印在畫面上的訊息不回溯改寫——那是聊天內容，不是介面文字。"""
+        self._title_label.configure(text=f"≡  {app_name()}", font=ui_font(8))
+        self._status_label.configure(font=ui_font(8))
+        self._placeholder.configure(font=ui_font(11))
+        self._win.title(app_name())
+        if self._bubble is not None:
+            self._bubble.title(app_name())
+        if self._status_state is not None:
+            self.set_status(self._status_state)
+        if self._error_key is not None:
+            self.set_error(self._error_key)
 
     # --- 測試/除錯輔助 ---
     def visible_messages(self) -> list[tuple[str, str]]:

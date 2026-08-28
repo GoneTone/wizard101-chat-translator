@@ -1,3 +1,12 @@
 {
-  "app.name": "Wizard101 对话翻译助手"
+  "app.name": "Wizard101 对话翻译助手",
+  "notice.pending": "翻译中…",
+  "notice.translate_failed": "⚠  这条消息翻译不出来",
+  "notice.game_missing": "⚠  游戏未就绪／连接中断，等待中…",
+  "notice.offline": "⚠  翻译服务器离线，重试中…",
+  "notice.config_error": "⚠  API 设置有误，请打开设置（⚙）检查",
+  "status.locating": "●  连接游戏中…",
+  "status.listening": "●  监听中",
+  "status.translating": "●  翻译中…",
+  "status.waiting_game": "●  等待游戏中…"
 }

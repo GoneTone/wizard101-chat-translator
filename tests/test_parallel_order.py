@@ -4,7 +4,7 @@ import threading
 import time
 
 from src.context import ChatContext
-from src.main import PENDING_NOTICE
+from src.i18n import t
 from src.reader.overlay import OverlayWindow
 from src.translation_pool import TranslationPool
 
@@ -38,12 +38,12 @@ def test_display_order_follows_read_order_not_completion_order(root):
         translator=ReverseOrderTranslator("[A] one", others=2),
         on_result=lambda mid, text, failed: ui_queue.put(
             lambda: overlay.update_message(mid, text, failed=failed)),
-        workers=3, failed_notice=FAILED)
+        workers=3, failed_notice_fn=lambda: FAILED)
     try:
         for i, line in enumerate(lines, start=1):
             ctx = context.snapshot()
             context.push(line)
-            overlay.add_message(line, PENDING_NOTICE, msg_id=i)
+            overlay.add_message(line, t("notice.pending"), msg_id=i)
             pool.submit(line, ctx, msg_id=i)
         for _ in range(500):                       # 至多 5 秒，收滿三則就停
             while True:
@@ -51,7 +51,8 @@ def test_display_order_follows_read_order_not_completion_order(root):
                     ui_queue.get_nowait()()
                 except queue.Empty:
                     break
-            if all(t != PENDING_NOTICE for _, t in overlay.visible_messages()):
+            if all(translated != t("notice.pending")
+                  for _, translated in overlay.visible_messages()):
                 break
             time.sleep(0.01)   # 主執行緒得讓出時間，worker 才有機會回報
         assert overlay.visible_messages() == [

@@ -19,10 +19,12 @@ class TranslationPool:
     failed＝放棄該則、text 是失敗提示而非譯文。
     呼叫端負責把它轉交回 UI 執行緒。"""
 
-    def __init__(self, translator, on_result, workers: int, failed_notice: str):
+    def __init__(self, translator, on_result, workers: int, failed_notice_fn):
         self._translator = translator
         self._on_result = on_result
-        self._failed_notice = failed_notice
+        # 取失敗提示的 callable 而非字串：介面語言可能在執行中被改掉，
+        # 建構當下就定案的字串會停在舊語言。
+        self._failed_notice_fn = failed_notice_fn
         self._workers = workers
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -135,7 +137,7 @@ class TranslationPool:
                           f"{reason} ({exc}): {line}", file=sys.stderr)
                     self._decrement_in_flight()
                     decremented = True
-                    self._on_result(msg_id, self._failed_notice, True)
+                    self._on_result(msg_id, self._failed_notice_fn(), True)
                     return
                 self._note_success()
                 self._decrement_in_flight()

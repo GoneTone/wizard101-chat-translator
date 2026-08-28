@@ -14,7 +14,7 @@ from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, is_configured, load_config, save_config
 from src.context import ChatContext
-from src.i18n import current_language, detect_system_language, set_language
+from src.i18n import current_language, detect_system_language, set_language, t
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
@@ -28,30 +28,16 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
 INPUT_POLL_INTERVAL = 0.05
 
-PENDING_NOTICE = "翻譯中…"                        # 佔位期間顯示於譯文位置
-TRANSLATE_FAILED_NOTICE = "⚠  這則訊息翻譯不出來"   # 放棄該行時代替譯文顯示
-GAME_MISSING_NOTICE = "⚠  遊戲未就緒／連線中斷，等待中…"
-OFFLINE_NOTICE = "⚠  翻譯伺服器離線，重試中…"
-CONFIG_ERROR_NOTICE = "⚠  API 設定有誤，請開啟設定（⚙）檢查"
-
-# overlay 標題列狀態指示：（文字， 顏色）
-STATUS = {
-    "locating": ("●  連線遊戲中…", "#e0b050"),
-    "listening": ("●  監聽中", "#7dc87d"),
-    "translating": ("●  翻譯中…", "#6fa8dc"),
-    "waiting_game": ("●  等待遊戲中…", "#9a9aa8"),
-}
-
 
 def banner_for(game_missing: bool, error_state: str | None) -> str | None:
-    """依目前狀況決定該顯示哪一條錯誤橫幅（None＝不顯示）。
+    """依目前狀況決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
     遊戲未就緒優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。"""
     if game_missing:
-        return GAME_MISSING_NOTICE
+        return "notice.game_missing"
     if error_state == "config":
-        return CONFIG_ERROR_NOTICE
+        return "notice.config_error"
     if error_state == "offline":
-        return OFFLINE_NOTICE
+        return "notice.offline"
     return None
 
 
@@ -86,8 +72,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
         if key == last_status:
             return
         last_status = key
-        text, color = STATUS[key]
-        ui_queue.put(lambda: overlay.set_status(text, color))
+        ui_queue.put(lambda k=key: overlay.set_status(k))
 
     def check_input() -> None:
         """遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回。"""
@@ -120,15 +105,15 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             stop.wait(min(INPUT_POLL_INTERVAL, remaining))
             check_input()
 
-    def set_banner(text: str | None) -> None:
+    def set_banner(key: str | None) -> None:
         nonlocal last_banner
-        if text == last_banner:
+        if key == last_banner:
             return
-        last_banner = text
-        if text is None:
+        last_banner = key
+        if key is None:
             ui_queue.put(overlay.clear_error)
         else:
-            ui_queue.put(lambda t=text: overlay.set_error(t))
+            ui_queue.put(lambda k=key: overlay.set_error(k))
 
     while not stop.is_set():
         set_status("listening" if reader.anchored else "locating")
@@ -160,8 +145,8 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             context.push(line.text)
             msg_id = next(msg_ids)
             ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
-                         overlay.add_message(o, PENDING_NOTICE, msg_id=m, pending=True,
-                                             color=c))
+                         overlay.add_message(o, t("notice.pending"), msg_id=m,
+                                             pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
         set_banner(banner_for(game_missing, pool.error_state))
@@ -256,7 +241,7 @@ def main() -> None:
         on_result=lambda mid, text, failed: ui_queue.put(
             lambda: overlay.update_message(mid, text, failed=failed)),
         workers=cfg["max_parallel_translations"],
-        failed_notice=TRANSLATE_FAILED_NOTICE)
+        failed_notice_fn=lambda: t("notice.translate_failed"))
 
     def on_translated(translated: str, hwnd: int | None) -> None:
         type_into_window(hwnd, translated, delay=cfg["type_delay"])

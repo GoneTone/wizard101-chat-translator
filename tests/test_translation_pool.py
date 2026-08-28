@@ -53,7 +53,7 @@ class OkTranslator:
 
 def _pool(translator, collector, workers=4):
     return TranslationPool(translator=translator, on_result=collector,
-                           workers=workers, failed_notice=FAILED)
+                           workers=workers, failed_notice_fn=lambda: FAILED)
 
 
 class FailThenOk:
