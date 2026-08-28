@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
-from src.config import ADVANCED_LIMITS, APP_NAME, DEFAULT_CONFIG, clamp_advanced
+from src.config import ADVANCED_LIMITS, app_name, DEFAULT_CONFIG, clamp_advanced
 from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
 from src.ui.responsive import bind_wrap
@@ -47,7 +47,7 @@ class SettingsWindow:
             return
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
-        self._win.title(f"{APP_NAME} — 設定")
+        self._win.title(f"{app_name()} — 設定")
         win_w, win_h = 640, 560
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2

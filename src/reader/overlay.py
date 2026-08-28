@@ -10,7 +10,7 @@ from typing import NamedTuple
 import win32con
 import win32gui
 
-from src.config import APP_NAME
+from src.config import app_name
 
 BG = "#101018"
 BAR = "#23233a"
@@ -342,7 +342,7 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        label = tk.Label(bar, text=f"≡  {APP_NAME}", bg=BAR, fg=FG_BAR,
+        label = tk.Label(bar, text=f"≡  {app_name()}", bg=BAR, fg=FG_BAR,
                          font=("Microsoft JhengHei", 8), anchor="w")
         label.pack(side="left", padx=6)
         # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
@@ -422,7 +422,7 @@ class OverlayWindow:
         self._backdrop.bind("<B1-Motion>", self._edge_drag)
         self._backdrop.bind("<ButtonRelease-1>", self._edge_release)
 
-        self._win.title(APP_NAME)  # 工作列按鈕顯示的名稱
+        self._win.title(app_name())  # 工作列按鈕顯示的名稱
         _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
         # 用 Win32 直接建立 OS 擁有關係：owned window 在 OS 層永遠疊在 owner 之上，
         # 任何點擊／啟用都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
@@ -527,7 +527,7 @@ class OverlayWindow:
         c.bind("<ButtonRelease-1>", self._bubble_release)
         self._bubble = b
         self._bubble_canvas = c
-        b.title(APP_NAME)
+        b.title(app_name())
         _enable_taskbar_button(b)
         try:
             self._bubble_hwnd = win32gui.GetAncestor(b.winfo_id(), 2)  # GA_ROOT

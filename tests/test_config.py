@@ -108,3 +108,35 @@ def test_is_configured():
     assert is_configured(cfg)  # custom 不需金鑰，需 base_url
     cfg["api"]["base_url"] = ""
     assert not is_configured(cfg)
+
+
+def test_default_config_has_ui_language():
+    from src.config import DEFAULT_CONFIG
+
+    assert DEFAULT_CONFIG["ui_language"] is None  # None＝尚未選過，啟動時偵測系統語言
+
+
+def test_app_name_follows_language(tmp_path):
+    from src import i18n
+    from src.config import app_name
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("en")
+        assert app_name() == "Wizard101 Chat Translator"
+        i18n.set_language("zh-TW")
+        assert app_name() == "Wizard101 對話翻譯助手"
+    finally:
+        i18n.set_language(before)
+
+
+def test_old_config_without_ui_language_loads(tmp_path):
+    import json
+
+    from src.config import load_config
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"hotkey": "ctrl+alt+t"}), encoding="utf-8")
+    cfg = load_config(path)
+    assert cfg["ui_language"] is None       # 舊 config 補上預設值
+    assert cfg["hotkey"] == "ctrl+alt+t"    # 既有設定不動

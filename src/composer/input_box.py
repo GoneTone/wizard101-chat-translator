@@ -7,7 +7,7 @@ import tkinter as tk
 import win32gui
 
 from src.composer.paste import force_foreground
-from src.config import APP_NAME
+from src.config import app_name
 from src.ui.responsive import apply_wrap, bind_wrap
 
 BG = "#1a1a24"
@@ -43,7 +43,7 @@ class InputBox:
         self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
         self._win = tk.Toplevel(self._root)
-        self._win.title(APP_NAME)
+        self._win.title(app_name())
         # 只放開寬度：高度由 _fit_height 依內容自適應，手動拉高會露出一片空白
         self._win.resizable(True, False)
         # 高度不受下限拘束：完全交給 _fit_height 依內容決定（拉寬後行數變少要能縮回去）

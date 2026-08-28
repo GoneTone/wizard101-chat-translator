@@ -14,6 +14,7 @@ from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, is_configured, load_config, save_config
 from src.context import ChatContext
+from src.i18n import current_language, detect_system_language, set_language
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
@@ -199,6 +200,9 @@ def main() -> None:
 
     cfg = load_config(CONFIG_PATH)
 
+    # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
+    set_language(cfg["ui_language"] or detect_system_language())
+
     root = tk.Tk()
     root.withdraw()
 
@@ -214,6 +218,7 @@ def main() -> None:
 
     # 啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄
     print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+          f"ui_language={cfg['ui_language']} (active={current_language()}), "
           f"provider={cfg['api']['provider']}, model={cfg['api']['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
           f"poll_interval={cfg['poll_interval']}, "

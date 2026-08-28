@@ -3,7 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from src.config import APP_NAME
+from src.config import app_name
 from src.ui.fields import (AUTO_INPUT_LABEL, ApiFields, HotkeyField, LanguageField,
                            validate_api_form)
 from src.ui.responsive import bind_wrap
@@ -34,7 +34,7 @@ class SetupWizard:
         self._skip_test = False
 
         self._win = tk.Toplevel(root)
-        self._win.title(f"{APP_NAME} — 首次設定")
+        self._win.title(f"{app_name()} — 首次設定")
         # 高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
         # 測試結果訊息（尤其多行錯誤）還會再撐高，太緊會把「略過測試」擠出畫面。
         win_w, win_h = 540, 540

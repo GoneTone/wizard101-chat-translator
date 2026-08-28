@@ -4,8 +4,12 @@ import json
 import sys
 from pathlib import Path
 
+from src.i18n import t
 
-APP_NAME = "Wizard101 對話翻譯助手"  # 應用程式顯示名稱：各視窗標題／工作列統一使用
+
+def app_name() -> str:
+    """應用程式顯示名稱：各視窗標題／工作列統一使用（隨介面語言變動）。"""
+    return t("app.name")
 
 
 def app_dir() -> Path:
@@ -21,6 +25,7 @@ CONFIG_PATH = app_dir() / "config.json"
 DEFAULT_CONFIG: dict = {
     "api": {"provider": "openai", "base_url": "http://127.0.0.1:8000",
             "model": "", "api_key": "", "thinking": False},
+    "ui_language": None,     # 介面語言；None＝尚未選過，啟動時依系統語言自動判定
     "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文
     "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
