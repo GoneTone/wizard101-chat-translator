@@ -5,7 +5,7 @@ a = Analysis(
     ["run.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("src/i18n/*.json", "i18n")],  # 語言檔：執行期由 src/i18n 依 _MEIPASS 讀取
     hiddenimports=[],  # spike 發現缺模組時補在這裡，並註明原因
     excludes=[],
 )
