@@ -58,13 +58,13 @@ def test_t_returns_current_language_string():
 
 def test_t_formats_named_placeholders():
     i18n.set_language("zh-TW")
-    i18n._cache["zh-TW"]["test.greet"] = "你好 {name}"
+    i18n._load("zh-TW")["test.greet"] = "你好 {name}"
     assert i18n.t("test.greet", name="Amy") == "你好 Amy"
 
 
 def test_missing_key_falls_back_to_source_language():
     i18n.set_language("en")
-    i18n._cache[i18n.SOURCE_LANGUAGE]["test.only_source"] = "只有來源語言有"
+    i18n._load(i18n.SOURCE_LANGUAGE)["test.only_source"] = "只有來源語言有"
     assert i18n.t("test.only_source") == "只有來源語言有"
 
 
@@ -76,8 +76,8 @@ def test_missing_everywhere_returns_the_key_itself():
 def test_broken_placeholder_falls_back_to_source_language():
     # 譯者把 {count} 打成 {conut}：該語言的字串無法 format，退回來源語言
     i18n.set_language("en")
-    i18n._cache[i18n.SOURCE_LANGUAGE]["test.count"] = "共 {count} 則"
-    i18n._cache["en"]["test.count"] = "total {conut}"
+    i18n._load(i18n.SOURCE_LANGUAGE)["test.count"] = "共 {count} 則"
+    i18n._load("en")["test.count"] = "total {conut}"
     assert i18n.t("test.count", count=3) == "共 3 則"
 
 
