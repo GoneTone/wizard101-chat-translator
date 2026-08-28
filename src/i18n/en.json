@@ -82,5 +82,9 @@
   "wizard.target_language": "Target language (what incoming messages are translated into)",
   "button.back": "Back",
   "button.next": "Next",
-  "button.finish": "Finish"
+  "button.finish": "Finish",
+  "input.hint": "Type a message and press Enter to translate it and type it into the game chat box (it is not sent automatically). Press Esc, or Enter on an empty box, to close this window.",
+  "input.translating": "Translating…",
+  "input.failed": "Translation failed: {error}",
+  "input.too_long": "The translation is {count} characters, over the game limit of {limit} — trim it or split it up."
 }

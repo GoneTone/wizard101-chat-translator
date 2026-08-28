@@ -8,6 +8,8 @@ import win32gui
 
 from src.composer.paste import force_foreground
 from src.config import app_name
+from src.i18n import t
+from src.ui.fonts import ui_font
 from src.ui.responsive import apply_wrap, bind_wrap
 
 BG = "#1a1a24"
@@ -54,10 +56,10 @@ class InputBox:
         py = self._pos["y"] if self._pos.get("y") is not None else 200
         self._win.geometry(f"{self._width}x{_INITIAL_HEIGHT}+{px}+{py}")
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
-                               font=("Microsoft JhengHei", 12))
+                               font=ui_font(12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
-        self._status = tk.Label(self._win, text="輸入訊息後按下 Enter 會執行翻譯並自動輸入進遊戲輸入框（不會自動送出）；按 Esc 或未輸入直接按 Enter 可關閉此輸入框",
-                                bg=BG, fg="#9a9aa8", font=("Microsoft JhengHei", 9),
+        self._status = tk.Label(self._win, text=t("input.hint"),
+                                bg=BG, fg="#9a9aa8", font=ui_font(9),
                                 anchor="w", justify="left")
         self._status.pack(fill="x", padx=8)
         # 拉寬視窗 → 提示文字重新換行 → 行數變了才重算高度（值沒變不動，避免回圈）
@@ -115,7 +117,7 @@ class InputBox:
             self.close()  # 空白按 Enter＝關閉（等同 Esc），快速讓開回到遊戲
             return
         self._entry.configure(state="disabled")
-        self._status.configure(text="翻譯中…", fg="#9a9aa8")
+        self._status.configure(text=t("input.translating"), fg="#9a9aa8")
         hwnd = self._target_hwnd
         session = self._session
         threading.Thread(target=self._worker, args=(text, hwnd, session), daemon=True).start()
@@ -125,7 +127,7 @@ class InputBox:
             translated = self._translate(text)
         except Exception as exc:
             # 先把訊息綁成區域變數：lambda 延後在主執行緒執行，屆時 except 的 exc 已被刪除
-            msg = f"翻譯失敗：{exc}"
+            msg = t("input.failed", error=exc)
             self._queue.put(lambda: self._show_error(msg, session))
             return
         self._queue.put(lambda: self._finish(translated, hwnd, session))
@@ -159,8 +161,8 @@ class InputBox:
             return  # stale/cancelled
         if len(translated) > GAME_INPUT_MAX_CHARS:
             # 超過遊戲輸入上限：不鍵入、不關窗，讓使用者刪減原文後重送
-            self._show_error(f"譯文 {len(translated)} 字，超過遊戲上限 "
-                             f"{GAME_INPUT_MAX_CHARS} 字——請刪減或分段後重送", session)
+            self._show_error(t("input.too_long", count=len(translated),
+                               limit=GAME_INPUT_MAX_CHARS), session)
             return
         self.close()
         self._on_translated(translated, hwnd)

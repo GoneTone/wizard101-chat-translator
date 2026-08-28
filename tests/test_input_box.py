@@ -50,7 +50,7 @@ def test_finish_over_limit_keeps_window_and_blocks_send(root):
     box._finish("x" * (GAME_INPUT_MAX_CHARS + 1), None, session)
     assert box._win is not None          # 不關閉，讓使用者刪減重送
     assert sent == []                    # 不鍵入遊戲
-    assert "超過" in box._status.cget("text")
+    assert str(GAME_INPUT_MAX_CHARS + 1) in box._status.cget("text")
     assert str(box._entry.cget("state")) == "normal"  # 輸入欄恢復可編輯
     box.close()
 
@@ -161,10 +161,10 @@ def test_current_error_shown_on_error(root):
     current_session = box._session
 
     # Show error with matching session
-    box._show_error("翻譯失敗:timeout", current_session)
+    box._show_error("boom", current_session)
 
     # Status should be updated to error message
-    assert box._status.cget("text") == "翻譯失敗:timeout"
+    assert box._status.cget("text") == "boom"
     assert box._status.cget("fg") == "#ff5f5f"
     # Entry should be re-enabled for user retry
     assert box._entry.cget("state") == "normal"
@@ -189,7 +189,7 @@ def test_worker_failure_error_callback_runs(root):
     callback = ui_queue.get_nowait()
     callback()  # 修正前此處會 NameError: name 'exc' is not defined
 
-    assert box._status.cget("text").startswith("翻譯失敗")
+    assert "boom" in box._status.cget("text")
 
 
 def test_input_box_restores_saved_position(root):
@@ -264,3 +264,27 @@ def test_fit_height_shrinks_when_hint_needs_fewer_lines(root):
     box._win.update()
     assert box._win.winfo_height() == box._win.winfo_reqheight()
     box.close()
+
+
+def test_error_message_follows_language(root):
+    import httpx
+
+    from src import i18n
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("en")
+        ui_queue = queue.Queue()
+
+        def failing_translate(text):
+            raise httpx.HTTPError("boom")
+
+        box = InputBox(root, failing_translate, ui_queue, lambda e, h: None)
+        box._win = tk.Toplevel(root)
+        box._entry = tk.Entry(box._win)
+        box._status = tk.Label(box._win, text="original")
+        box._worker("hello", None, box._session)
+        ui_queue.get_nowait()()
+        assert box._status.cget("text").startswith("Translation failed:")
+    finally:
+        i18n.set_language(before)
