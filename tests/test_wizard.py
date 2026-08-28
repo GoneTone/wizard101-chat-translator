@@ -103,7 +103,7 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     try:
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         assert cfg["ui_language"] is None  # 首次執行
-        language = bootstrap_language(cfg, detect=lambda: "en")
+        language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
         i18n.set_language(language)
         assert cfg["target_language"] == DEFAULT_TARGET_LANGUAGE["en"]
 
@@ -113,3 +113,49 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
         assert cfg["target_language"] == "简体中文（中国）"
     finally:
         i18n.set_language(before)
+
+
+def test_bootstrap_language_first_run_no_config_file():
+    """真正首次執行（config 檔案原本不存在）：介面語言依偵測，target_language 也跟著換。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.main import bootstrap_language
+    from src.ui.fields import DEFAULT_TARGET_LANGUAGE
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    assert cfg["ui_language"] is None
+
+    language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
+
+    assert language == "en"
+    assert cfg["target_language"] == DEFAULT_TARGET_LANGUAGE["en"]
+
+
+def test_bootstrap_language_upgrading_user_keeps_target_language():
+    """回歸測試：升級使用者的 config.json 已存在，只是 pre-i18n 版本沒有 ui_language 欄位，
+    load_config()／_merge 會把它回填成 None（見 tests/test_config.py），不代表沒走過精靈。
+    此情境下介面語言仍可依偵測決定，但使用者原本選好的 target_language 不可被覆蓋，
+    也不該在每次啟動時被悄悄改回系統預設值。"""
+    from src.main import bootstrap_language
+
+    cfg = {"ui_language": None, "target_language": "日本語"}
+
+    language = bootstrap_language(cfg, config_existed=True, detect=lambda: "en")
+
+    assert language == "en"
+    assert cfg["target_language"] == "日本語"
+
+
+def test_bootstrap_language_returning_user_uses_saved_language():
+    """回頭使用者：config 已有真實的 ui_language，直接採用、不呼叫 detect，target_language 不動。"""
+    from src.main import bootstrap_language
+
+    cfg = {"ui_language": "zh-CN", "target_language": "日本語"}
+    calls = []
+
+    language = bootstrap_language(cfg, config_existed=True, detect=lambda: calls.append(1) or "en")
+
+    assert language == "zh-CN"
+    assert calls == []
+    assert cfg["target_language"] == "日本語"

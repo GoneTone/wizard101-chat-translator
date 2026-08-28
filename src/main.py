@@ -42,16 +42,25 @@ def banner_for(game_missing: bool, error_state: str | None) -> str | None:
     return None
 
 
-def bootstrap_language(cfg: dict, detect=detect_system_language) -> str:
-    """決定啟動時要套用的介面語言碼，並就地補上首次執行的 target_language 預設值。
+def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_language) -> str:
+    """決定啟動時要套用的介面語言碼，並在真正首次執行時就地補上 target_language 預設值。
 
-    `cfg["ui_language"]` 為 None 代表尚未走過精靈（首次執行）：介面語言依系統偵測，
-    翻譯目標語言也跟著它走，否則非 zh-TW 系統會在精靈第三步看到不相關的
-    「繁體中文（台灣）」預設值。已有 `ui_language` 代表使用者走過精靈，
-    不再覆蓋其目標語言設定；此時也不呼叫 `detect`，避免每次啟動都做多餘的系統查詢。"""
+    是否為首次執行由呼叫端傳入的 `config_existed`（啟動時 config.json 是否已存在）判斷，
+    不能看 `cfg["ui_language"]` 是否為 None：pre-i18n 版本寫出的舊 config 一樣會被
+    `load_config()`／`_merge` 回填成 `ui_language: None`（見 `tests/test_config.py`），
+    若沿用舊判斷式，既有使用者升級後會被誤判成首次執行，導致他們自己選過的
+    target_language 被系統偵測值悄悄覆蓋，還會在下一次任何 `save_config`（例如只是拖動
+    視窗）時永久寫死，之後每次啟動都重演，手動改 config.json 也救不回來。
+
+    `config_existed` 為 False（真正首次執行）時：介面語言依系統偵測，翻譯目標語言也
+    跟著它走，否則非 zh-TW 系統會在精靈第三步看到不相關的「繁體中文（台灣）」預設值。
+    `config_existed` 為 True 時：`ui_language` 若是真實語言碼就直接採用、不呼叫
+    `detect`（避免每次啟動都做多餘的系統查詢）；若仍是 None（沿用自舊版設定檔），
+    介面語言照樣呼叫 `detect` 決定，但不動 target_language，尊重使用者原本的選擇。"""
     if cfg["ui_language"] is None:
         detected = detect()
-        cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[detected]
+        if not config_existed:
+            cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[detected]
         return detected
     return cfg["ui_language"]
 
@@ -198,10 +207,11 @@ def main() -> None:
     # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
     message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
 
+    config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
 
     # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
-    set_language(bootstrap_language(cfg))
+    set_language(bootstrap_language(cfg, config_existed))
 
     root = tk.Tk()
     root.withdraw()
