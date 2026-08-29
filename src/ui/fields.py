@@ -32,6 +32,9 @@ PROVIDERS: dict[str, Provider] = {
     "custom": Provider(label_key="provider.custom", needs_base_url=True),
 }
 
+# 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
+LABEL_WIDTH = 14
+
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",
                     "한국어", "Español", "Português", "Deutsch", "Français"]
@@ -118,7 +121,8 @@ class ModelField(ttk.Frame):
 
         # grid 而非 pack：說明文字要與輸入框（而不是「模型」標籤）切齊同一欄。
         self.columnconfigure(1, weight=1)
-        ttk.Label(self, text=t("field.model"), width=14).grid(row=0, column=0, sticky="w")
+        ttk.Label(self, text=t("field.model"), width=LABEL_WIDTH).grid(
+            row=0, column=0, sticky="w")
         self._combo = ttk.Combobox(self, textvariable=self._var, values=[])
         self._combo.grid(row=0, column=1, sticky="ew", pady=2)
         self._btn = ttk.Button(self, text=t("button.refresh"), width=9,
@@ -379,10 +383,7 @@ class ApiFields(ttk.Frame):
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
             self._labeled_entry(t("field.base_url"), self._base_url)
-            hint = ttk.Label(self._fields, text=t("hint.custom_endpoint"),
-                             foreground="#888888", justify="left")
-            hint.pack(fill="x", padx=(20, 0))
-            bind_wrap(hint)
+            self._field_hint(t("hint.custom_endpoint"))
             self._model_row()
             self._labeled_entry(t("field.api_key_optional"), self._api_key, secret=True)
             self._thinking_row()
@@ -402,6 +403,16 @@ class ApiFields(ttk.Frame):
         if self._on_change:
             self._on_change()
 
+    def _field_hint(self, text: str) -> None:
+        """欄位下方的說明：左邊留一個與標籤等寬的空位，讓文字左緣對齊輸入框，
+        與模型欄（走 grid，說明本來就落在輸入框那一欄）的觀感一致。"""
+        row = ttk.Frame(self._fields)
+        row.pack(fill="x")
+        ttk.Label(row, width=LABEL_WIDTH).pack(side="left")
+        hint = ttk.Label(row, text=text, foreground="#888888", justify="left")
+        hint.pack(side="left", fill="x", expand=True)
+        bind_wrap(hint)
+
     def _model_row(self) -> None:
         """模型欄（三家共用）：每次重建都是新元件，切換服務商時已抓的清單自然清空。"""
         self._model_field = ModelField(self._fields, self._model, self.get_values)
@@ -419,7 +430,7 @@ class ApiFields(ttk.Frame):
     def _labeled_entry(self, label: str, var: tk.StringVar, secret: bool = False):
         row = ttk.Frame(self._fields)
         row.pack(fill="x", pady=2)
-        ttk.Label(row, text=label, width=14).pack(side="left")
+        ttk.Label(row, text=label, width=LABEL_WIDTH).pack(side="left")
         entry = ttk.Entry(row, textvariable=var, show="●" if secret else "")
         if secret:
             # 「顯示」先 pack：pack 依宣告順序分配空間，expand=True 的輸入框若先宣告
