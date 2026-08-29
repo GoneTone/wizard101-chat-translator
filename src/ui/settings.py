@@ -11,6 +11,7 @@ from src.ui.fields import (ApiFields, HotkeyField, LanguageField, UiLanguageFiel
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
 
+MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
 # 說明文字換行時的右側預留：欄位自己的 grid padx（8）＋分頁內距（12）＋一點餘裕。
 # 少扣了就會把說明的最後一兩個字切在視窗右緣外。
@@ -55,14 +56,16 @@ class SettingsWindow:
         cfg = self._cfg
         self._win = tk.Toplevel(self._root)
         self._win.title(t("settings.title", app=app_name()))
-        win_w, win_h = 640, 560
+        # 開窗尺寸：量過「基本」分頁在英文下需要 512px 內容高（三種語言中最高），
+        # 加上分頁標籤與按鈕列後 620 就放得下，取 640 再留一點給測試連線的結果訊息。
+        # 寬度 720 讓各欄說明少換一兩行（640 時「進階」分頁的說明會多出約 40px）。
+        win_w, win_h = 720, 640
         x = (self._win.winfo_screenwidth() - win_w) // 2
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
-        # 寬度下限維持預設值：欄位與說明需要這個寬度，再窄是橫向擠壓，捲動救不了。
-        # 高度下限則放寬——分頁內容可以捲動，不必為了「塞得下」而綁死視窗高度。
-        self._win.minsize(win_w, MIN_HEIGHT)
+        # 下限比開窗尺寸小：使用者要縮小就讓他縮，內容捲動即可
+        self._win.minsize(MIN_WIDTH, MIN_HEIGHT)
         self._win.attributes("-topmost", True)
 
         # 底部按鈕列先 pack：pack 依宣告順序分配空間，expand=True 的內容區若先宣告，
