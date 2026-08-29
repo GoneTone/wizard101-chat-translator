@@ -26,7 +26,7 @@
   "field.api_key": "API 金鑰",
   "field.api_key_optional": "API 金鑰（選填）",
   "field.thinking": "啟用模型思考（thinking）",
-  "field.auto_input": "翻譯輸入框跟著遊戲的聊天輸入框一起開關",
+  "field.auto_input": "讓翻譯輸入框跟著遊戲的聊天輸入框一起開關",
   "field.ui_language": "介面語言",
   "button.refresh": "重新整理",
   "button.loading": "讀取中…",
