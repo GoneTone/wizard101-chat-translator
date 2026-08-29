@@ -1,5 +1,9 @@
 """一般設定視窗：分「基本／進階」分頁，儲存即套用（不需重啟）。
-遊戲路徑例外：重掛 hook 需重啟，儲存後提示下次啟動生效。"""
+遊戲路徑例外：重掛 hook 需重啟，儲存後提示下次啟動生效。
+介面語言是唯一「改了就先看到」的欄位：換語言即時預覽（視窗以新語言重建、
+常駐介面 relabel），但仍要按下儲存才寫進設定，取消則還原成開窗時的語言。"""
+import copy
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -41,28 +45,42 @@ def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
 class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
-    def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None):
+    def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None,
+                 on_language_preview=None):
         self._root = root
         self._cfg = cfg
         self._on_save = on_save
         self._on_alpha_preview = on_alpha_preview  # 拖滑桿即時套用透明度（預覽）
+        self._on_language_preview = on_language_preview  # 讓常駐視窗跟上預覽中的語言
         self._win: tk.Toplevel | None = None
+        # 未儲存的編輯暫存：欄位初始值都讀這裡，換語言重建視窗才不會弄丟填到一半的內容。
+        # None＝目前沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
+        self._draft: dict | None = None
+        self._language_at_open: str | None = None
+        self._restore_geometry: str | None = None   # 重建時沿用的視窗位置與大小
+        self._restore_tab: int | None = None        # 重建時沿用的分頁
 
     def open(self) -> None:
         if self._win is not None and self._win.winfo_exists():
             self._win.lift()
             self._win.focus_force()
             return
-        cfg = self._cfg
+        if self._draft is None:
+            self._draft = copy.deepcopy(self._cfg)
+            self._language_at_open = current_language()
+        cfg = self._draft
         self._win = tk.Toplevel(self._root)
         self._win.title(t("settings.title", app=app_name()))
         # 開窗尺寸：量過「基本」分頁在英文下需要 512px 內容高（三種語言中最高），
         # 加上分頁標籤與按鈕列後 620 就放得下，取 640 再留一點給測試連線的結果訊息。
         # 寬度 720 讓各欄說明少換一兩行（640 時「進階」分頁的說明會多出約 40px）。
         win_w, win_h = 720, 640
-        x = (self._win.winfo_screenwidth() - win_w) // 2
-        y = (self._win.winfo_screenheight() - win_h) // 2
-        self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
+        if self._restore_geometry is not None:
+            self._win.geometry(self._restore_geometry)   # 換語言重建：不要跳回螢幕中央
+        else:
+            x = (self._win.winfo_screenwidth() - win_w) // 2
+            y = (self._win.winfo_screenheight() - win_h) // 2
+            self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
         # 下限比開窗尺寸小：使用者要縮小就讓他縮，內容捲動即可
         self._win.minsize(MIN_WIDTH, MIN_HEIGHT)
@@ -79,6 +97,7 @@ class SettingsWindow:
 
         nb = ttk.Notebook(self._win)
         nb.pack(fill="both", expand=True, padx=8, pady=8)
+        self._nb = nb
 
         # --- 基本 ---
         basic_scroll = ScrollableFrame(nb, padding=12)
@@ -87,7 +106,8 @@ class SettingsWindow:
         # 兩個語言設定放在一起：介面語言與翻譯目標語言是最容易被搞混的一對，
         # 相鄰擺放才看得出「這個管介面、那個管收到的訊息」。
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
-        self._ui_language = UiLanguageField(basic, current_language())
+        self._ui_language = UiLanguageField(basic, current_language(),
+                                            on_change=self._on_language_change)
         self._ui_language.pack(fill="x", pady=(2, 10))
         ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
         self._language = LanguageField(
@@ -147,6 +167,9 @@ class SettingsWindow:
         hint.grid(row=7, column=0, columnspan=3, sticky="ew")
         bind_wrap(hint, trailing=_HINT_TRAILING)
 
+        if self._restore_tab is not None:
+            nb.select(self._restore_tab)
+        self._restore_geometry = self._restore_tab = None
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
     def _alpha_slider(self, parent, grid_row: int, initial: float) -> tk.DoubleVar:
@@ -178,10 +201,62 @@ class SettingsWindow:
         bind_wrap(note)
         return var
 
+    def _on_language_change(self, code: str) -> None:
+        """介面語言換了：立刻以新語言預覽，但不寫 cfg（按儲存才算數）。
+
+        整個視窗重建、而非逐一 reconfigure 標籤：欄位元件各自帶著舊語言的文字，
+        逐一刷新容易漏掉（精靈也是這麼做的）。代價是 API 測試結果會被清掉——
+        那句譯文本來就綁著當時的語言。"""
+        if code == current_language():
+            return
+        self._collect_into_draft()
+        self._restore_geometry = self._win.geometry()
+        self._restore_tab = self._nb.index("current")
+        print(f"[ui] settings previewing language {code}", file=sys.stderr)
+        self._preview_language(code)
+        # after_idle：這裡是從 <<ComboboxSelected>> 事件內呼叫，ttk 的類別 binding
+        # 還在處理同一個事件，立即 destroy() 會讓它收尾時對已死的 widget 操作，
+        # 冒出 TclError: invalid command name。延到事件處理完才重建視窗。
+        self._win.after_idle(self._rebuild)
+
+    def _preview_language(self, code: str) -> None:
+        """套用預覽語言：設定視窗之外，常駐的 overlay 也要跟著換（由呼叫端提供）。"""
+        set_language(code)
+        if self._on_language_preview is not None:
+            self._on_language_preview()
+
+    def _rebuild(self) -> None:
+        self._win.destroy()
+        self._win = None
+        self.open()
+
+    def _collect_into_draft(self) -> None:
+        """把目前填在欄位裡的值寫回 draft，供重建視窗時復原。
+
+        進階數值鍵到一半是非數字時就保留 draft 原值：重建不是儲存，
+        不該在這裡把使用者擋在表單錯誤提示前面。"""
+        draft = self._draft
+        draft["api"] = self._api.get_values()
+        if self._language.value():
+            draft["target_language"] = self._language.value()
+        draft["hotkey"] = self._hotkey.value()
+        draft["auto_show_input"] = self._auto_input.get()
+        draft["game_path"] = self._game_path.get().strip() or None
+        advanced, _error = parse_advanced_values(
+            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
+            self._parallel)
+        if advanced is not None:
+            draft.update(advanced)
+
     def _cancel(self) -> None:
-        """取消／關窗：把預覽中的透明度還原為目前設定值。"""
+        """取消／關窗：把預覽中的透明度與介面語言都還原為目前設定值。"""
         if self._on_alpha_preview is not None:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
+        if self._language_at_open is not None                 and current_language() != self._language_at_open:
+            print(f"[ui] settings language preview reverted to "
+                  f"{self._language_at_open}", file=sys.stderr)
+            self._preview_language(self._language_at_open)
+        self._draft = None
         self._win.destroy()
 
     def _spin(self, parent, grid_row, label_key, initial, key, step, hint_key):
@@ -237,4 +312,5 @@ class SettingsWindow:
         if game_path_changed:
             messagebox.showinfo(t("dialog.notice_title"), t("dialog.game_path_restart"),
                                 parent=self._win)
+        self._draft = None
         self._win.destroy()

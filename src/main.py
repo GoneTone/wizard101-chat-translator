@@ -283,6 +283,13 @@ def main() -> None:
     hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
+    def relabel_ui() -> None:
+        """介面語言換掉後讓常駐視窗跟上（設定視窗預覽、還原與儲存都走這裡）。
+        翻譯輸入框每次呼出才建立元件，會自然帶到新語言，不需要另外處理。"""
+        overlay.refresh_labels()
+        print(f"[ui] overlay relabelled for language {current_language()}",
+              file=sys.stderr)
+
     def apply_settings() -> None:
         nonlocal hotkey_handle, ui_language
         save_config(CONFIG_PATH, cfg)
@@ -294,17 +301,18 @@ def main() -> None:
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
         # 語言已由設定視窗套用（set_language）；這裡負責讓常駐的 overlay 跟上。
+        # 預覽時通常已 relabel 過，這裡是沒經過預覽的路徑（程式化改語言）的保底。
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
-            overlay.refresh_labels()
-            print(f"[ui] overlay relabelled for language {ui_language}", file=sys.stderr)
+            relabel_ui()
         print(f"[settings] applied; provider={cfg['api']['provider']}, "
               f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}, "
               f"ui_language={cfg['ui_language']}, "
               f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
-                              on_alpha_preview=overlay.set_alpha)
+                              on_alpha_preview=overlay.set_alpha,
+                              on_language_preview=relabel_ui)
 
     stop = threading.Event()
     reader_thread = threading.Thread(
