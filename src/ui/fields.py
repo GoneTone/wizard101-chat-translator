@@ -10,7 +10,8 @@ import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
-from src.i18n import DEFAULT_LANGUAGE, LANGUAGES, current_language, t
+from src.i18n import (DEFAULT_LANGUAGE, available_languages, current_language,
+                      language_name, t)
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
                             TranslatorOffline, list_models, test_translate)
 from src.ui.responsive import bind_wrap
@@ -38,14 +39,6 @@ LABEL_WIDTH = 14
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",
                     "한국어", "Español", "Português", "Deutsch", "Français"]
-
-# 介面語言 → 翻譯目標語言的預設值：首次設定時讓兩者一致，之後互不干涉。
-DEFAULT_TARGET_LANGUAGE = {
-    "zh-TW": "繁體中文（台灣）",
-    "zh-CN": "简体中文（中国）",
-    "en": "English",
-}
-
 
 def validate_endpoint_fields(api: dict) -> list[str]:
     """檢查連上端點所需的欄位（不含模型），回傳錯誤文案 key 列表（空＝通過）。
@@ -572,10 +565,11 @@ class UiLanguageField(ttk.Frame):
     def __init__(self, parent, initial: str, on_change=None):
         super().__init__(parent)
         self._on_change = on_change
-        self._names = list(LANGUAGES.values())
-        self._codes = list(LANGUAGES)
-        self._var = tk.StringVar(
-            value=LANGUAGES.get(initial, LANGUAGES[DEFAULT_LANGUAGE]))
+        languages = available_languages()
+        self._names = list(languages.values())
+        self._codes = list(languages)
+        self._var = tk.StringVar(value=language_name(
+            initial if initial in languages else DEFAULT_LANGUAGE))
         combo = ttk.Combobox(self, textvariable=self._var, values=self._names,
                              state="readonly")
         combo.pack(fill="x")
@@ -588,7 +582,8 @@ class UiLanguageField(ttk.Frame):
             else DEFAULT_LANGUAGE
 
     def set_value(self, code: str) -> None:
-        self._var.set(LANGUAGES.get(code, LANGUAGES[DEFAULT_LANGUAGE]))
+        self._var.set(language_name(
+            code if code in available_languages() else DEFAULT_LANGUAGE))
 
     def _notify(self) -> None:
         if self._on_change is not None:

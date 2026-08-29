@@ -1,4 +1,7 @@
 {
+  "language.name": "English",
+  "language.font": "Segoe UI",
+  "language.locales": "",
   "app.name": "Wizard101 Chat Translator",
   "notice.pending": "Translating…",
   "notice.translate_failed": "⚠  Could not translate this message",

@@ -59,6 +59,25 @@ Wizard101 聊天 AI 翻譯：讀取遊戲聊天訊息即時翻成**你設定的�
 > 遊戲改版導致掛入報 `PatternFailed` 時，更新 fork 後重跑 `uv sync`（或
 > `uv lock --upgrade-package wizwalker`）取得新 pattern。
 
+### 新增介面語言
+
+介面語言清單由 `src/i18n/` 底下的語言檔掃描而來，**新增一個語言不必改任何程式碼**：
+
+1. 複製 `src/i18n/zh-TW.json`（來源語言，key 最齊全）成 `src/i18n/<語言碼>.json`，
+   例如 `ja.json`，把每一則文案翻好
+2. 檔案開頭這三個欄位是該語言自己的資料，不是給譯者翻的文案：
+
+   | 欄位 | 說明 |
+   |------|------|
+   | `language.name` | 該語言的自稱（endonym），例如 `日本語`。語言選單在任何介面語言下都顯示它、不翻譯；也是這個語言的使用者首次執行時預設的 `target_language` |
+   | `language.font` | 介面字族，例如 `Yu Gothic UI`。沒宣告則退 `Segoe UI` |
+   | `language.locales` | 要吃下的 Windows locale 名稱，空白分隔（例如 `zh_TW zh_HK zh_MO`）。**同語言不同字集才需要指名**；`ja_JP` 這種靠語言前綴就對得上語言碼 `ja`，留空即可 |
+
+3. `uv run pytest` —— `tests/test_i18n.py` 會檢查新語言檔的 key 與來源語言一致、
+   變數（`{app}` 等）沒被翻壞、metadata 有填
+
+打包時 `build.spec` 以 `src/i18n/*.json` 收錄，新檔會自動被帶進 exe。
+
 ### 打包（exe）
 
 ```
@@ -116,7 +135,7 @@ uv run pyinstaller build.spec --noconfirm
 
 | 欄位 | 說明 |
 |------|------|
-| `ui_language` | 介面語言：`zh-TW`（繁體中文（台灣））、`zh-CN`（简体中文（中国））、`en`（English）；`null`（預設）＝下次啟動時依 Windows 系統語言自動判定。也可隨時在設定視窗（齒輪 ⚙）改，立即套用 |
+| `ui_language` | 介面語言，語言碼對應 `src/i18n/<語言碼>.json`，目前內建 `zh-TW`（繁體中文（台灣））、`zh-CN`（简体中文（中国））、`en`（English）；`null`（預設）＝下次啟動時依 Windows 系統語言自動判定。也可隨時在設定視窗（齒輪 ⚙）改，立即套用 |
 | `api.provider` | 翻譯服務商：`openai`（ChatGPT）、`claude`（Anthropic）、`custom`（自訂 OpenAI 相容端點，需自行架設，填 `api.base_url`） |
 | `api.base_url` / `api.model` / `api.api_key` | `provider` 為 `custom` 時使用 `base_url`（自架 OpenAI 相容 API，`/v1/chat/completions`）；`openai`／`claude` 則固定用官方端點，只需 `model` 與 `api_key` |
 | `target_language` | 收訊翻成的目標語言（人讀名稱，直接帶入提示詞），例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |

@@ -5,9 +5,9 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.config import app_name
-from src.i18n import current_language, set_language, t
-from src.ui.fields import (DEFAULT_TARGET_LANGUAGE, ApiFields, HotkeyField,
-                           LanguageField, UiLanguageField, validate_api_form)
+from src.i18n import current_language, language_name, set_language, t
+from src.ui.fields import (ApiFields, HotkeyField, LanguageField, UiLanguageField,
+                           validate_api_form)
 from src.ui.fonts import ui_font
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
@@ -125,13 +125,13 @@ class SetupWizard:
         逐一刷新容易漏掉，重建最保險（代價是 API 測試狀態要重測）。"""
         if code == current_language():
             return
-        old_default = DEFAULT_TARGET_LANGUAGE.get(current_language())
+        old_default = language_name(current_language())
         self._collect_into_cfg()
         set_language(code)
         self._cfg["ui_language"] = code
         # 使用者還沒動過翻譯目標語言時，讓它跟著介面語言走；動過就不覆蓋。
         if self._cfg["target_language"] == old_default:
-            self._cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[code]
+            self._cfg["target_language"] = language_name(code)
         self.restart = True
         print(f"[ui] wizard restarting with language {code}", file=sys.stderr)
         # after_idle：這裡是從 <<ComboboxSelected>> 事件內呼叫，ttk 的類別 binding

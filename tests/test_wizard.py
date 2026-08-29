@@ -84,7 +84,7 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     """回歸測試（main.bootstrap_language 修好前的死路徑）：
 
     英文系統首次啟動時，main.bootstrap_language() 現在會把 target_language
-    設成 DEFAULT_TARGET_LANGUAGE["en"]（"English"），而不是留在 config.py 的
+    設成該介面語言的自稱（i18n.language_name("en") ＝ "English"），而不是留在 config.py 的
     原始預設值「繁體中文（台灣）」。本測試從這個已修正的啟動狀態出發，
     驗證精靈頁再切到 zh-CN 時，_on_language_change 的
     `target_language == old_default` 判斷式現在真的比對得到，能接著把
@@ -96,7 +96,6 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.main import bootstrap_language
-    from src.ui.fields import DEFAULT_TARGET_LANGUAGE
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -105,11 +104,11 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
         assert cfg["ui_language"] is None  # 首次執行
         language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
         i18n.set_language(language)
-        assert cfg["target_language"] == DEFAULT_TARGET_LANGUAGE["en"]
+        assert cfg["target_language"] == i18n.language_name("en")
 
         wizard = SetupWizard(root, cfg)
         wizard._on_language_change("zh-CN")
-        assert cfg["target_language"] == DEFAULT_TARGET_LANGUAGE["zh-CN"]
+        assert cfg["target_language"] == i18n.language_name("zh-CN")
         assert cfg["target_language"] == "简体中文（中国）"
     finally:
         i18n.set_language(before)
@@ -119,9 +118,9 @@ def test_bootstrap_language_first_run_no_config_file():
     """真正首次執行（config 檔案原本不存在）：介面語言依偵測，target_language 也跟著換。"""
     import copy
 
+    from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.main import bootstrap_language
-    from src.ui.fields import DEFAULT_TARGET_LANGUAGE
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     assert cfg["ui_language"] is None
@@ -129,7 +128,7 @@ def test_bootstrap_language_first_run_no_config_file():
     language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
 
     assert language == "en"
-    assert cfg["target_language"] == DEFAULT_TARGET_LANGUAGE["en"]
+    assert cfg["target_language"] == i18n.language_name("en")
 
 
 def test_bootstrap_language_upgrading_user_keeps_target_language():

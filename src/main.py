@@ -14,14 +14,14 @@ from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, is_configured, load_config, save_config
 from src.context import ChatContext
-from src.i18n import current_language, detect_system_language, set_language, t
+from src.i18n import (current_language, detect_system_language, language_name,
+                      set_language, t)
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.translation_pool import TranslationPool
 from src.translator import Translator
-from src.ui.fields import DEFAULT_TARGET_LANGUAGE
 from src.ui.settings import SettingsWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
@@ -60,7 +60,7 @@ def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_lan
     if cfg["ui_language"] is None:
         detected = detect()
         if not config_existed:
-            cfg["target_language"] = DEFAULT_TARGET_LANGUAGE[detected]
+            cfg["target_language"] = language_name(detected)
         return detected
     return cfg["ui_language"]
 
