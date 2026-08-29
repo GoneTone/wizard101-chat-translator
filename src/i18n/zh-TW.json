@@ -43,7 +43,7 @@
   "hint.model_found": "找到 {count} 個模型：輸入關鍵字可篩選，清單外的模型名稱也能自行輸入。",
   "hint.language": "清單只是常用選項，也可以直接輸入任何語言名稱（例如 Italiano、ภาษาไทย）。",
   "hint.thinking": "建議關閉：開啟可能會讓每則翻譯慢上數秒、也更耗 Token。",
-  "hint.custom_endpoint": "填入任何 OpenAI API 相容端點的網址，例如 LM Studio、Ollama、vLLM。",
+  "hint.custom_endpoint": "填入任何 OpenAI API 相容端點的網址，例如 LM Studio、Ollama、vLLM。只填到主機與連接埠（例如 http://127.0.0.1:8000），結尾不要加 /v1 或其他路徑。",
   "settings.title": "{app} — 設定",
   "settings.tab.basic": "基本",
   "settings.tab.advanced": "進階",

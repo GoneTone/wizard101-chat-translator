@@ -43,7 +43,7 @@
   "hint.model_found": "Found {count} models. Type to filter, or enter a name that is not listed.",
   "hint.language": "The list is just common choices — you can type any language name, for example Italiano or ภาษาไทย.",
   "hint.thinking": "Best left off: it can add several seconds per translation and uses more tokens.",
-  "hint.custom_endpoint": "Enter the URL of any OpenAI-compatible endpoint, such as LM Studio, Ollama, or vLLM.",
+  "hint.custom_endpoint": "Enter the URL of any OpenAI-compatible endpoint, such as LM Studio, Ollama, or vLLM. Give the host and port only (for example http://127.0.0.1:8000) — do not add /v1 or any other path.",
   "settings.title": "{app} — Settings",
   "settings.tab.basic": "Basic",
   "settings.tab.advanced": "Advanced",
