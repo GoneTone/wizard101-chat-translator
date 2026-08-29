@@ -36,7 +36,7 @@
   "button.change": "更改",
   "button.press_key": "請按鍵…（Esc 取消）",
   "link.get_key": "取得金鑰 ↗",
-  "test.success": "連線成功　範例：{sample}",
+  "test.success": "連線成功　譯文：{sample}",
   "hint.model_idle": "按「重新整理」從伺服器取得可用模型清單；也可以自行輸入模型名稱。",
   "hint.model_no_list": "此端點未提供模型清單，請自行輸入模型名稱。",
   "hint.model_empty": "伺服器回報 0 個可用模型，請自行輸入模型名稱。",

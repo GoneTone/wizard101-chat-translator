@@ -36,7 +36,7 @@
   "button.change": "更改",
   "button.press_key": "请按键…（Esc 取消）",
   "link.get_key": "获取密钥 ↗",
-  "test.success": "连接成功　示例：{sample}",
+  "test.success": "连接成功　译文：{sample}",
   "hint.model_idle": "点“刷新”从服务器获取可用模型列表；也可以自行输入模型名称。",
   "hint.model_no_list": "此端点未提供模型列表，请自行输入模型名称。",
   "hint.model_empty": "服务器报告 0 个可用模型，请自行输入模型名称。",

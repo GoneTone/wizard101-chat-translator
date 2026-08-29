@@ -84,16 +84,20 @@ class SettingsWindow:
         basic_scroll = ScrollableFrame(nb, padding=12)
         basic = basic_scroll.body
         nb.add(basic_scroll, text=t("settings.tab.basic"))
+        # 兩個語言設定放在一起：介面語言與翻譯目標語言是最容易被搞混的一對，
+        # 相鄰擺放才看得出「這個管介面、那個管收到的訊息」。
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
         self._ui_language = UiLanguageField(basic, current_language())
         self._ui_language.pack(fill="x", pady=(2, 10))
+        ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
+        self._language = LanguageField(
+            basic, cfg["target_language"],
+            on_change=lambda: self._api.clear_test_result())
+        self._language.pack(fill="x", pady=(2, 10))
         self._api = ApiFields(basic, cfg["api"])
         self._api.pack(fill="x")
         self._api.set_target_language_fn(lambda: self._language.value())
-        ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w", pady=(12, 0))
-        self._language = LanguageField(basic, cfg["target_language"])
-        self._language.pack(fill="x", pady=(2, 8))
-        ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w")
+        ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])

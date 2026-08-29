@@ -125,3 +125,39 @@ def test_save_applies_ui_language(root, tmp_path):
         assert saved == ["en"]
     finally:
         i18n.set_language(before)
+
+
+def _open_settings(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
+                  "api_key": "", "thinking": False}
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    return win
+
+
+def test_changing_target_language_clears_the_test_result(root):
+    # 測試連線顯示的譯文是用當時的目標語言翻出來的，語言一改那句就過期了——
+    # 留著會讓使用者以為新語言已經驗證過。
+    win = _open_settings(root)
+    win._api._show_test_result(True, "connected, sample translation")
+    assert win._api.test_passed
+    win._language.set_value("English")
+    assert not win._api.test_passed
+    assert win._api._test_result.cget("text") == ""
+    win._win.destroy()
+
+
+def test_both_language_fields_come_before_the_api_section(root):
+    # 介面語言與翻譯目標語言是最容易被搞混的一對，要相鄰且排在 API 設定之前
+    win = _open_settings(root)
+    basic = win._ui_language.master
+    order = [str(w) for w in basic.pack_slaves()]
+    ui_at = order.index(str(win._ui_language))
+    target_at = order.index(str(win._language))
+    api_at = order.index(str(win._api))
+    assert ui_at < target_at < api_at, f"版面順序不對：{order}"
+    win._win.destroy()

@@ -36,7 +36,7 @@
   "button.change": "Change",
   "button.press_key": "Press a key… (Esc to cancel)",
   "link.get_key": "Get a key ↗",
-  "test.success": "Connected. Sample: {sample}",
+  "test.success": "Connected. Translation: {sample}",
   "hint.model_idle": "Click Refresh to fetch the model list from the server, or type a model name yourself.",
   "hint.model_no_list": "This endpoint does not provide a model list. Enter the model name yourself.",
   "hint.model_empty": "The server reported 0 available models. Enter the model name yourself.",

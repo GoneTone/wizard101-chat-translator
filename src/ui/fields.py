@@ -445,6 +445,13 @@ class ApiFields(ttk.Frame):
     def _invalidate_test(self) -> None:
         self.test_passed = False
 
+    def clear_test_result(self) -> None:
+        """作廢已顯示的測試結果：那句譯文是用當時的目標語言翻的，語言一改就不算數。"""
+        self._invalidate_test()
+        self._test_result.configure(text="")
+        if self._on_change:
+            self._on_change()
+
     def _start_test(self) -> None:
         api = self.get_values()
         errors = validate_api_form(api)
@@ -535,9 +542,13 @@ class HotkeyField(ttk.Frame):
 class LanguageField(ttk.Frame):
     """翻譯目標語言：常用語言下拉 + 可自行輸入。"""
 
-    def __init__(self, parent, initial: str):
+    def __init__(self, parent, initial: str, on_change=None):
         super().__init__(parent)
         self._var = tk.StringVar(value=initial)
+        if on_change is not None:
+            # 下拉選取與手動輸入都要通知：測試連線的譯文是用某個目標語言翻出來的，
+            # 語言一改那句譯文就過期了（見 ApiFields.clear_test_result）。
+            self._var.trace_add("write", lambda *_: on_change())
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
         hint = ttk.Label(self, text=t("hint.language"), foreground="#888888",
