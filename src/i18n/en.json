@@ -48,7 +48,7 @@
   "settings.tab.basic": "Basic",
   "settings.tab.advanced": "Advanced",
   "settings.target_language": "Translate messages into",
-  "settings.hotkey": "Hotkey to open the input box",
+  "settings.hotkey": "Hotkey to open the translation input",
   "settings.poll_interval": "Poll interval (s)",
   "settings.poll_interval_hint": "How often incoming chat is scanned; lower is more responsive",
   "settings.fade": "Message fade-out (s)",
