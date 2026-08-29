@@ -287,7 +287,7 @@ class SettingsWindow:
             self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
             self._parallel)
         api = self._api.get_values()
-        errors = validate_api_form(api)
+        errors = validate_api_form(self._api.active_values())
         if not self._language.value():
             errors.append("error.need_target_language")
         if advanced_error:

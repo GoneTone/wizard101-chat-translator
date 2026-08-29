@@ -1,9 +1,12 @@
 """fields 純邏輯測試：表單驗證、錯誤文案、熱鍵字串。"""
+import copy
 import gc
 import tkinter as tk
+from tkinter import ttk
 
 import pytest
 
+from src.config import API_PROVIDERS, DEFAULT_CONFIG, active_api
 from src.i18n import t
 from src.translator import (
     TranslatorConfigError, TranslatorNoModelList, TranslatorOffline,
@@ -28,7 +31,7 @@ def offscreen(root):
 
 
 def test_providers_metadata():
-    assert set(PROVIDERS) == {"openai", "claude", "custom"}
+    assert set(PROVIDERS) == set(API_PROVIDERS)  # 每家都要有自己的一份設定可存
     assert PROVIDERS["custom"].needs_base_url
     assert not PROVIDERS["openai"].needs_base_url
 
@@ -94,30 +97,137 @@ def test_friendly_error_messages():
 
 
 
-def _initial(provider="openai", model="", base_url="", thinking=False):
-    return {"provider": provider, "api_key": "", "model": model,
-            "base_url": base_url, "thinking": thinking}
+def _initial(provider="openai", **profile):
+    """ApiFields 吃的是整個 api 區塊：provider 加上每家各一份設定。"""
+    api = copy.deepcopy(DEFAULT_CONFIG["api"])
+    api["provider"] = provider
+    api[provider].update(profile)
+    return api
 
 
-def test_switch_provider_clears_model(root):
-    # 模型 ID 跨服務商不通用，留著上一家的值只會誤導
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    fields._provider.set("claude")
+def _switch(fields, provider):
+    fields._provider.set(provider)
     fields._rebuild_fields()
-    assert fields.get_values()["model"] == ""
+
+
+def test_switch_provider_shows_that_providers_own_values(root):
+    # 模型 ID 跨服務商不通用：切過去看到的是那家自己的設定，不是上一家的殘值
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    _switch(fields, "claude")
+    assert fields.active_values()["model"] == ""
+
+
+def test_switch_back_restores_the_previous_provider_values(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol",
+                                      api_key="sk-1", thinking=True))
+    _switch(fields, "custom")
+    fields._base_url.set("http://x")
+    fields._model.set("qwen3")
+    _switch(fields, "openai")
+    assert fields.active_values() == {"provider": "openai", "model": "gpt-5.6-sol",
+                                      "api_key": "sk-1", "thinking": True}
+
+
+def test_get_values_keeps_every_provider_profile(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol",
+                                      api_key="sk-1"))
+    _switch(fields, "custom")
+    fields._base_url.set("http://x")
+    fields._model.set("qwen3")
+    api = fields.get_values()
+    assert api["provider"] == "custom"
+    assert api["custom"]["base_url"] == "http://x"      # 目前欄位值也寫了回去
+    assert api["openai"] == {"model": "gpt-5.6-sol", "api_key": "sk-1",
+                             "thinking": False}
 
 
 def test_rebuild_without_switching_keeps_model(root):
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-terra"))
     fields._rebuild_fields()
-    assert fields.get_values()["model"] == "gpt-5.6-terra"
+    assert fields.active_values()["model"] == "gpt-5.6-terra"
+
+
+def test_set_values_replaces_every_profile(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    fields.set_values(_initial(provider="claude", model="claude-opus-5",
+                               api_key="sk-ant-1"))
+    assert fields.active_values()["model"] == "claude-opus-5"
+    assert fields.get_values()["openai"]["model"] == ""  # 舊的那份不該殘留
+
+
+def _widget_texts(parent):
+    """遞迴收集元件上的文字，用來斷言某一欄有沒有被畫出來。"""
+    texts = []
+    for w in parent.winfo_children():
+        try:
+            texts.append(str(w.cget("text")))
+        except tk.TclError:
+            pass
+        texts.extend(_widget_texts(w))
+    return texts
+
+
+def _effort_combobox(fields):
+    """思考深度那個下拉：模型欄也是 Combobox，靠 textvariable 認人。"""
+    target = str(fields._effort_shown)
+    stack = [fields._fields]
+    while stack:
+        widget = stack.pop()
+        if isinstance(widget, ttk.Combobox) and str(widget.cget("textvariable")) == target:
+            return widget
+        stack.extend(widget.winfo_children())
+    return None
+
+
+def test_claude_shows_thinking_depth_instead_of_a_toggle(root):
+    # Claude 沒有「完全不思考」，做成與另兩家一樣的勾選會誤導
+    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5"))
+    texts = _widget_texts(fields._fields)
+    assert t("field.effort") in texts
+    assert t("field.thinking") not in texts
+
+
+def test_openai_keeps_the_thinking_toggle(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5"))
+    texts = _widget_texts(fields._fields)
+    assert t("field.thinking") in texts
+    assert t("field.effort") not in texts
+
+
+def test_effort_dropdown_shows_the_saved_choice(root):
+    from src.config import EFFORT_LOW
+
+    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
+                                      effort=EFFORT_LOW))
+    assert fields._effort_shown.get() == t("effort.low")
+
+
+def test_choosing_an_effort_stores_its_code(root):
+    from src.config import EFFORT_LOW
+
+    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5"))
+    combo = _effort_combobox(fields)
+    fields._effort_shown.set(t("effort.low"))
+    combo.event_generate("<<ComboboxSelected>>")
+    root.update()
+    assert fields.active_values()["effort"] == EFFORT_LOW
+
+
+def test_effort_survives_switching_providers(root):
+    from src.config import EFFORT_LOW
+
+    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
+                                      effort=EFFORT_LOW))
+    _switch(fields, "openai")
+    _switch(fields, "claude")
+    assert fields.active_values()["effort"] == EFFORT_LOW
+    assert fields._effort_shown.get() == t("effort.low")
 
 
 def test_switch_provider_clears_fetched_model_list(root):
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
     fields._model_field.show_models(["gpt-5.6-sol", "gpt-5.6-luna"])
-    fields._provider.set("custom")
-    fields._rebuild_fields()
+    _switch(fields, "custom")
     assert fields._model_field.options() == []
 
 
@@ -125,8 +235,7 @@ def test_switch_provider_clears_test_result_label(root):
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
     fields._show_test_result(True, "連線成功　範例：hi")
     assert fields._test_result.cget("text") != ""
-    fields._provider.set("claude")
-    fields._rebuild_fields()
+    _switch(fields, "claude")
     assert fields._test_result.cget("text") == ""
 
 
@@ -183,8 +292,10 @@ def test_model_field_typing_filters_fetched_options(root):
 
 
 def _model_field(parent):
-    field = ModelField(parent, tk.StringVar(), lambda: _initial(provider="custom",
-                                                               base_url="http://x"))
+    # ModelField 只認目前生效的那家（扁平），不需要看到其他家的設定
+    field = ModelField(parent, tk.StringVar(),
+                       lambda: active_api({"api": _initial(provider="custom",
+                                                           base_url="http://x")}))
     field.pack(fill="x")
     parent.update()
     return field

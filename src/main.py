@@ -12,7 +12,8 @@ import keyboard
 from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import CONFIG_PATH, is_configured, load_config, save_config
+from src.config import (CONFIG_PATH, active_api, is_configured, load_config,
+                        save_config)
 from src.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
@@ -227,14 +228,15 @@ def main() -> None:
         save_config(CONFIG_PATH, cfg)
 
     # 啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄
+    api = active_api(cfg)
     print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
           f"ui_language={cfg['ui_language']} (active={current_language()}), "
-          f"provider={cfg['api']['provider']}, model={cfg['api']['model']}, "
+          f"provider={api['provider']}, model={api['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
           f"poll_interval={cfg['poll_interval']}, "
           f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
-    translator = Translator(**cfg["api"], target_language=cfg["target_language"])
+    translator = Translator(**api, target_language=cfg["target_language"])
     context = ChatContext()
     ui_queue: queue.Queue = queue.Queue()
 
@@ -293,7 +295,8 @@ def main() -> None:
     def apply_settings() -> None:
         nonlocal hotkey_handle, ui_language
         save_config(CONFIG_PATH, cfg)
-        translator.reconfigure(**cfg["api"], target_language=cfg["target_language"])
+        translator.reconfigure(**active_api(cfg),
+                               target_language=cfg["target_language"])
         pool.resize(cfg["max_parallel_translations"])
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
@@ -305,8 +308,9 @@ def main() -> None:
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
-        print(f"[settings] applied; provider={cfg['api']['provider']}, "
-              f"model={cfg['api']['model']}, hotkey={cfg['hotkey']}, "
+        applied = active_api(cfg)
+        print(f"[settings] applied; provider={applied['provider']}, "
+              f"model={applied['model']}, hotkey={cfg['hotkey']}, "
               f"ui_language={cfg['ui_language']}, "
               f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 

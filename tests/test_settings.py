@@ -110,8 +110,8 @@ def test_save_applies_ui_language(root, tmp_path):
     try:
         i18n.set_language("zh-TW")
         cfg = copy.deepcopy(DEFAULT_CONFIG)
-        cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
-                      "api_key": "", "thinking": False}
+        cfg["api"]["provider"] = "custom"
+        cfg["api"]["custom"].update(base_url="http://x", model="m")
         saved = []
         win = SettingsWindow(root, cfg,
                              on_save=lambda: saved.append(i18n.current_language()))
@@ -133,8 +133,8 @@ def _open_settings(root, on_language_preview=None):
     from src.ui.settings import SettingsWindow
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
-                  "api_key": "", "thinking": False}
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None,
                          on_language_preview=on_language_preview)

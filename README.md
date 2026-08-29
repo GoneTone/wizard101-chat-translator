@@ -136,10 +136,13 @@ uv run pyinstaller build.spec --noconfirm
 | 欄位 | 說明 |
 |------|------|
 | `ui_language` | 介面語言，語言碼對應 `src/i18n/<語言碼>.json`，目前內建 `zh-TW`（繁體中文（台灣））、`zh-CN`（简体中文（中国））、`en`（English）；`null`（預設）＝下次啟動時依 Windows 系統語言自動判定。也可隨時在設定視窗（齒輪 ⚙）改，立即套用 |
-| `api.provider` | 翻譯服務商：`openai`（ChatGPT）、`claude`（Anthropic）、`custom`（自訂 OpenAI 相容端點，需自行架設，填 `api.base_url`） |
-| `api.base_url` / `api.model` / `api.api_key` | `provider` 為 `custom` 時使用 `base_url`（自架 OpenAI 相容 API，`/v1/chat/completions`）；`openai`／`claude` 則固定用官方端點，只需 `model` 與 `api_key` |
+| `api.provider` | 目前選用的翻譯服務商：`openai`（ChatGPT）、`claude`（Anthropic）、`custom`（自訂 OpenAI 相容端點，需自行架設） |
+| `api.openai` / `api.claude` / `api.custom` | 每家各存一份設定，互不覆蓋——換家再換回來不必重填。生效的是 `provider` 指到的那一份。每家只存自己用得到的欄位，載入時會清掉不屬於該家的欄位並回寫 |
+| `api.<服務商>.model` / `.api_key` | 三家共通。`openai`／`claude` 用官方端點（網址寫死在程式裡），填 `model` 與 `api_key` 即可 |
+| `api.custom.base_url` | 僅 `custom`：自架 OpenAI 相容 API 的網址（`/v1/chat/completions`），只填到主機與連接埠 |
 | `target_language` | 收訊翻成的目標語言（人讀名稱，直接帶入提示詞），例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |
-| `api.thinking` | 模型是否啟用思考/reasoning（預設 `false`：關閉思考）。ChatGPT 官方端點只送它認得的 `reasoning_effort: "none"`；自訂端點併入常見後端的停用參數（`reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等）；Claude 不適用此欄（維持模型預設 adaptive）。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何，譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯，回報後可移除 |
+| `api.openai.thinking` / `api.custom.thinking` | 模型是否啟用思考/reasoning（預設 `false`：關閉思考）。ChatGPT 官方端點只送它認得的 `reasoning_effort: "none"`；自訂端點併入常見後端的停用參數（`reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等）。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何，譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯，回報後可移除 |
+| `api.claude.effort` | 僅 `claude`：思考深度。`auto`（預設）＝不帶參數、由模型自行決定（adaptive）；`low`＝送 `output_config.effort="low"` 壓到最低，譯文更快也更省 Token。Claude 沒有「完全不思考」的選項，故不用 `thinking` 開關 |
 | `poll_interval` | 輪詢間隔秒數（預設 0.4）。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
 | `max_parallel_translations` | 同時進行的收訊翻譯則數（1–8，預設 4）。1＝逐則排隊；大於 1 同時翻多則，訊息密集時更快跟上 |
 | `game_path` | 遊戲根目錄（含 `Bin\`、`Data\` 的那層）；`null`（預設）＝自動偵測執行中的遊戲程序路徑。自動偵測失敗才需手動填（如非標準安裝） |

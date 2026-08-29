@@ -1,5 +1,6 @@
 """精靈與設定視窗共用的欄位元件與純邏輯：
 服務商選擇、API 欄位、測試連線、熱鍵捕捉、語言選擇。"""
+import copy
 import queue
 import sys
 import threading
@@ -10,6 +11,8 @@ import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
+from src.config import (API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS,
+                        EFFORT_AUTO)
 from src.i18n import (DEFAULT_LANGUAGE, available_languages, current_language,
                       language_name, t)
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
@@ -19,19 +22,28 @@ from src.ui.responsive import bind_wrap
 
 @dataclass(frozen=True)
 class Provider:
+    """服務商的 UI 資料。該畫哪些欄位一律問 config 的欄位表（has_field），
+    這裡只補純 UI 的部分：顯示名稱與申請金鑰的連結。"""
+    key: str
     label_key: str
-    needs_base_url: bool
     key_url: str | None = None
 
+    def has_field(self, name: str) -> bool:
+        return name in API_PROFILE_FIELDS[self.key]
 
-PROVIDERS: dict[str, Provider] = {
+    @property
+    def needs_base_url(self) -> bool:
+        return self.has_field("base_url")
+
+
+PROVIDERS: dict[str, Provider] = {p.key: p for p in (
     # 前兩家是品牌名，不進語言檔；只有「自訂端點」需要翻譯。
-    "openai": Provider(label_key="provider.openai", needs_base_url=False,
-                       key_url="https://platform.openai.com/api-keys"),
-    "claude": Provider(label_key="provider.claude", needs_base_url=False,
-                       key_url="https://console.anthropic.com/settings/keys"),
-    "custom": Provider(label_key="provider.custom", needs_base_url=True),
-}
+    Provider(key="openai", label_key="provider.openai",
+             key_url="https://platform.openai.com/api-keys"),
+    Provider(key="claude", label_key="provider.claude",
+             key_url="https://console.anthropic.com/settings/keys"),
+    Provider(key="custom", label_key="provider.custom"),
+)}
 
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
@@ -313,13 +325,17 @@ class ApiFields(ttk.Frame):
         self._on_change = on_change
         self.test_passed = False
         self._queue: queue.Queue = queue.Queue()  # 測試結果由背景執行緒送回主執行緒
+        # 每家一份設定都留在手上：切換服務商時只是換一份填進欄位，值不會互相蓋掉。
+        self._profiles = {name: dict(initial[name]) for name in API_PROVIDERS}
         self._last_provider = initial["provider"]
         self._provider = tk.StringVar(value=initial["provider"])
-        self._api_key = tk.StringVar(value=initial["api_key"])
-        self._model = tk.StringVar(value=initial["model"])
-        self._base_url = tk.StringVar(value=initial["base_url"])
-        self._thinking = tk.BooleanVar(value=initial["thinking"])
-        for var in (self._api_key, self._model, self._base_url):
+        self._api_key = tk.StringVar()
+        self._model = tk.StringVar()
+        self._base_url = tk.StringVar()
+        self._thinking = tk.BooleanVar()
+        self._effort = tk.StringVar()
+        self._load_profile(initial["provider"])
+        for var in (self._api_key, self._model, self._base_url, self._effort):
             var.trace_add("write", lambda *_: self._invalidate_test())
 
         radio_row = ttk.Frame(self)
@@ -346,33 +362,65 @@ class ApiFields(ttk.Frame):
 
     # --- 值存取 ---
     def get_values(self) -> dict:
-        return {"provider": self._provider.get(), "api_key": self._api_key.get().strip(),
-                "model": self._model.get().strip(),
-                "base_url": self._base_url.get().strip(),
-                "thinking": self._thinking.get()}
+        """完整的 api 區塊（provider ＋ 每家各一份）：存檔用。
+        欄位上的值先歸還目前這家，其餘服務商的設定原樣帶著走。"""
+        self._profiles[self._last_provider] = self._field_values(self._last_provider)
+        return {"provider": self._provider.get(), **copy.deepcopy(self._profiles)}
+
+    def active_values(self) -> dict:
+        """目前這家的設定（扁平，含 provider）：表單驗證、取模型清單與測試連線用。"""
+        provider = self._provider.get()
+        return {"provider": provider, **self._field_values(provider)}
 
     def set_values(self, api: dict) -> None:
+        """整份 api 區塊換掉（設定視窗重建時復原 draft 用）。"""
+        self._profiles = {name: dict(api[name]) for name in API_PROVIDERS}
+        # 先對齊 _last_provider，_rebuild_fields 才不會把剛載入的值當成上一家的而歸還回去
+        self._last_provider = api["provider"]
         self._provider.set(api["provider"])
-        self._api_key.set(api["api_key"])
-        self._model.set(api["model"])
-        self._base_url.set(api["base_url"])
-        self._thinking.set(api["thinking"])
+        self._load_profile(api["provider"])
         self._rebuild_fields()
+
+    def _field_values(self, provider: str) -> dict:
+        """欄位上的值，只取這家有的那幾個（見 config.API_PROFILE_FIELDS）。
+        provider 要明講：換家的當下欄位裡放的還是上一家的值。"""
+        values = {"api_key": self._api_key.get().strip(),
+                  "model": self._model.get().strip(),
+                  "base_url": self._base_url.get().strip(),
+                  "thinking": self._thinking.get(),
+                  "effort": self._effort.get()}
+        return {key: values[key] for key in API_PROFILE_FIELDS[provider]}
+
+    def _load_profile(self, provider: str) -> None:
+        profile = self._profiles[provider]
+        self._api_key.set(profile["api_key"])
+        self._model.set(profile["model"])
+        self._base_url.set(profile.get("base_url", ""))
+        self._thinking.set(profile.get("thinking", False))
+        self._effort.set(profile.get("effort", EFFORT_AUTO))
 
     def set_target_language_fn(self, fn) -> None:
         """測試連線時取得目標語言的 callback（精靈階段語言還沒選，用預設）。"""
         self._target_language_fn = fn
 
+    def _switch_profile(self) -> None:
+        """換服務商：欄位上的值歸還上一家，再把新這家自己存的值填回欄位。
+        連線測試結果不跟著搬（那是對上一家端點測出來的），已抓的模型清單隨欄位重建消失。"""
+        self._profiles[self._last_provider] = self._field_values(self._last_provider)
+        target = self._provider.get()
+        self._load_profile(target)
+        self._test_result.configure(text="")
+        profile = self._profiles[target]
+        print(f"[settings] provider switched {self._last_provider} -> {target} "
+              f"(model={profile['model'] or '-'}, has_key={bool(profile['api_key'])})",
+              file=sys.stderr)
+
     # --- 動態欄位 ---
     def _rebuild_fields(self) -> None:
         for w in self._fields.winfo_children():
             w.destroy()
-        provider_changed = self._provider.get() != self._last_provider
-        if provider_changed:
-            # 切換服務商後，上一家的「連線成功」殘留字樣不該繼續顯示。
-            self._test_result.configure(text="")
-            # 模型 ID 跨服務商不通用（已抓的清單隨模型欄重建一起消失）。
-            self._model.set("")
+        if self._provider.get() != self._last_provider:
+            self._switch_profile()
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
             self._labeled_entry(t("field.base_url"), self._base_url)
@@ -383,10 +431,11 @@ class ApiFields(ttk.Frame):
         else:
             self._labeled_entry(t("field.api_key"), self._api_key, secret=True)
             self._model_row()
-            if self._provider.get() == "openai":
-                # ChatGPT 官方端點也可關思考（只送 reasoning_effort，見 translator）；
-                # Claude 維持模型預設（adaptive），不提供開關。
+            if prov.has_field("thinking"):
+                # ChatGPT 官方端點可關思考（只送 reasoning_effort，見 translator）。
                 self._thinking_row()
+            if prov.has_field("effort"):
+                self._effort_row()
             link = ttk.Label(self._fields, text=t("link.get_key"), foreground="#4a7ddc",
                              cursor="hand2")
             link.pack(anchor="w", pady=(2, 0))
@@ -408,8 +457,26 @@ class ApiFields(ttk.Frame):
 
     def _model_row(self) -> None:
         """模型欄（三家共用）：每次重建都是新元件，切換服務商時已抓的清單自然清空。"""
-        self._model_field = ModelField(self._fields, self._model, self.get_values)
+        self._model_field = ModelField(self._fields, self._model, self.active_values)
         self._model_field.pack(fill="x")
+
+    def _effort_row(self) -> None:
+        """思考深度（Claude）：選項是「自動／精簡」而不是開關——Claude 沒有完全不
+        思考這個選項，做成與另兩家一樣的勾選只會讓人以為關得掉。
+        下拉顯示的是譯文，存回設定的是 API_EFFORTS 的代碼。"""
+        row = ttk.Frame(self._fields)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text=t("field.effort"), width=LABEL_WIDTH).pack(side="left")
+        names = [t(f"effort.{code}") for code in API_EFFORTS]
+        current = self._effort.get() if self._effort.get() in API_EFFORTS else EFFORT_AUTO
+        # 顯示用的變數要留在 self 上：只被 Combobox 參照的話會被 GC，欄位就空掉。
+        self._effort_shown = tk.StringVar(value=t(f"effort.{current}"))
+        combo = ttk.Combobox(row, textvariable=self._effort_shown, values=names,
+                             state="readonly")
+        combo.pack(side="left", fill="x", expand=True)
+        combo.bind("<<ComboboxSelected>>", lambda e: self._effort.set(
+            API_EFFORTS[names.index(self._effort_shown.get())]))
+        self._field_hint(t("hint.effort"))
 
     def _thinking_row(self) -> None:
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
@@ -446,7 +513,7 @@ class ApiFields(ttk.Frame):
             self._on_change()
 
     def _start_test(self) -> None:
-        api = self.get_values()
+        api = self.active_values()
         errors = validate_api_form(api)
         if errors:
             self._show_test_result(False, t("sep.errors").join(t(e) for e in errors))

@@ -15,6 +15,8 @@ import re
 import anthropic
 import httpx
 
+from src.config import EFFORT_AUTO
+
 # 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
@@ -260,18 +262,25 @@ class _OpenAICompatClient:
 
 class _ClaudeClient:
     """Claude 官方 API（anthropic SDK）：打 /v1/messages。
-    Claude 5 系不接受 temperature（會 400），thinking 用預設（adaptive），皆不帶。"""
+    Claude 5 系不接受 temperature（會 400），也沒有「完全不思考」這個選項：
+    思考深度改由 effort 控制，EFFORT_AUTO 時連 output_config 都不帶、維持模型
+    預設（adaptive）。刻意不走 thinking={"type": "disabled"}——那在 Opus 5 會把
+    <thinking> 標籤漏進回應，而 strip_think 只認 <think>。"""
 
-    def __init__(self, model: str, api_key: str, timeout: float = _TIMEOUT, client=None):
+    def __init__(self, model: str, api_key: str, effort: str = EFFORT_AUTO,
+                 timeout: float = _TIMEOUT, client=None):
         self._client = client if client is not None else anthropic.Anthropic(
             api_key=api_key, timeout=timeout)
         self._model = model
+        self._effort = effort
 
     def chat(self, system: str, turns: list[dict]) -> str:
+        params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
+                  "system": system, "messages": turns}
+        if self._effort != EFFORT_AUTO:
+            params["output_config"] = {"effort": self._effort}
         try:
-            resp = self._client.messages.create(
-                model=self._model, max_tokens=_MAX_TOKENS_THINKING,
-                system=system, messages=turns)
+            resp = self._client.messages.create(**params)
         except anthropic.APIConnectionError as exc:
             raise TranslatorOffline(str(exc)) from exc
         except anthropic.APIStatusError as exc:
@@ -301,10 +310,14 @@ class _ClaudeClient:
         return sorted(m.id for m in page)
 
 
-def _build_client(provider: str, base_url: str, model: str, api_key: str,
-                  thinking: bool, timeout: float, client):
+# 欄位一律給預設值：呼叫端（Translator、list_models）直接展開某一家的設定，
+# 而每家有的欄位不同（見 config.API_PROFILE_FIELDS）。
+def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
+                  api_key: str = "", thinking: bool = True, effort: str = EFFORT_AUTO,
+                  timeout: float = _TIMEOUT, client=None):
     if provider == "claude":
-        return _ClaudeClient(model=model, api_key=api_key, timeout=timeout, client=client)
+        return _ClaudeClient(model=model, api_key=api_key, effort=effort,
+                             timeout=timeout, client=client)
     if provider == "openai":
         # 官方端點固定 base_url，且只帶它認得的停用參數（自架後端那組未知欄位會 400）。
         return _OpenAICompatClient(base_url=OPENAI_BASE_URL, model=model, api_key=api_key,
@@ -318,16 +331,19 @@ class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。"""
 
     def __init__(self, *, provider: str = "custom", base_url: str = "", model: str = "",
-                 api_key: str = "", thinking: bool = True, target_language: str,
-                 timeout: float = _TIMEOUT, client=None):
-        self._impl = _build_client(provider, base_url, model, api_key, thinking,
+                 api_key: str = "", thinking: bool = True, effort: str = EFFORT_AUTO,
+                 target_language: str, timeout: float = _TIMEOUT, client=None):
+        self._impl = _build_client(provider, base_url, model, api_key, thinking, effort,
                                    timeout, client)
         self._target_language = target_language
 
-    def reconfigure(self, *, provider: str, base_url: str, model: str, api_key: str,
-                    thinking: bool, target_language: str) -> None:
+    # 每家服務商的設定欄位不同（見 config.API_PROFILE_FIELDS），呼叫端直接把
+    # active_api(cfg) 展開進來，故這裡的欄位一律給預設值、缺哪個都不會炸。
+    def reconfigure(self, *, provider: str = "custom", base_url: str = "",
+                    model: str = "", api_key: str = "", thinking: bool = True,
+                    effort: str = EFFORT_AUTO, target_language: str) -> None:
         """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。"""
-        self._impl = _build_client(provider, base_url, model, api_key, thinking,
+        self._impl = _build_client(provider, base_url, model, api_key, thinking, effort,
                                    _TIMEOUT, None)
         self._target_language = target_language
 

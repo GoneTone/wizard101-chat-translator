@@ -182,6 +182,24 @@ def test_claude_sends_max_tokens():
     assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_THINKING
 
 
+def test_claude_auto_effort_sends_no_output_config():
+    # 自動＝維持模型預設（adaptive），連參數都不帶
+    fake = FakeAnthropicClient()
+    Translator(provider="claude", model="m", api_key="k",
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
+    assert "output_config" not in fake.messages.last_kwargs
+
+
+def test_claude_low_effort_sends_output_config():
+    from src.config import EFFORT_LOW
+    fake = FakeAnthropicClient()
+    Translator(provider="claude", model="m", api_key="k", effort=EFFORT_LOW,
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
+    assert fake.messages.last_kwargs["output_config"] == {"effort": "low"}
+    # 思考深度壓低不代表關閉思考：Claude 沒有 thinking 開關可送
+    assert "thinking" not in fake.messages.last_kwargs
+
+
 def test_claude_truncated_output_maps_to_bad_output():
     t = Translator(provider="claude", model="m", api_key="k",
                    target_language="繁體中文（台灣）",
@@ -332,8 +350,11 @@ class FakeAnthropicModels:
 
 
 def _api(provider="custom", base_url="http://x", model="", api_key="k"):
-    return {"provider": provider, "base_url": base_url, "model": model,
-            "api_key": api_key, "thinking": False}
+    """設定表單當下的值（扁平）：每家欄位不同，這裡給的是自訂端點那組。"""
+    api = {"provider": provider, "model": model, "api_key": api_key}
+    if provider == "custom":
+        api.update(base_url=base_url, thinking=False)
+    return api
 
 
 def test_list_models_openai_compat_returns_sorted_ids():

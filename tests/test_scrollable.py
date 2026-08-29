@@ -78,8 +78,8 @@ def test_settings_button_row_is_packed_before_the_notebook(root, tmp_path):
     from src.ui.settings import SettingsWindow
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
-                  "api_key": "", "thinking": False}
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     order = _slave_order(win._win)
@@ -130,10 +130,14 @@ def test_overlay_title_is_packed_after_the_bar_controls(root):
 
 
 def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
     from src.ui.fields import ApiFields
 
-    fields = ApiFields(root, {"provider": "openai", "api_key": "k", "model": "m",
-                              "base_url": "", "thinking": False})
+    api = copy.deepcopy(DEFAULT_CONFIG["api"])
+    api["openai"].update(api_key="k", model="m")
+    fields = ApiFields(root, api)
     rows = [w for w in fields._fields.pack_slaves() if w.pack_slaves()]
     reveal_rows = [r for r in rows
                    if any(isinstance(c, ttk.Button) for c in r.pack_slaves())]
@@ -153,8 +157,8 @@ def test_game_path_browse_button_is_packed_before_the_entry(root):
     from src.ui.settings import SettingsWindow
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": "m",
-                  "api_key": "", "thinking": False}
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     path_row = win._game_path_row

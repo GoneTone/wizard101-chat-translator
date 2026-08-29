@@ -155,7 +155,7 @@ class SetupWizard:
     def _refresh_nav(self) -> None:
         if not hasattr(self, "_api_fields"):
             return  # ApiFields 建構中觸發的第一次 on_change：欄位元件尚未掛上 self，略過
-        api = self._api_fields.get_values()
+        api = self._api_fields.active_values()
         ok = can_advance(self._step,
                          self._api_fields.test_passed or self._skip_test,
                          validate_api_form(api))
