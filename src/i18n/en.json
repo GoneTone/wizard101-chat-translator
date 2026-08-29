@@ -26,7 +26,7 @@
   "field.api_key": "API key",
   "field.api_key_optional": "API key (optional)",
   "field.thinking": "Enable model thinking",
-  "field.auto_input": "Open the translation input when the game chat box opens (and hide it when it closes)",
+  "field.auto_input": "Open and close the translation input with the game chat box",
   "field.ui_language": "Interface language",
   "button.refresh": "Refresh",
   "button.loading": "Loading…",
