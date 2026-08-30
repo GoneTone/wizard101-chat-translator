@@ -12,12 +12,14 @@ import keyboard
 import win32api
 import win32con
 import win32gui
+import win32event
+import winerror
 
 from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.config import (CONFIG_PATH, active_api, is_configured, load_config,
-                        save_config)
+from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
+                        load_config, save_config)
 from src.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
@@ -31,6 +33,9 @@ from src.translator import Translator
 from src.ui.settings import SettingsWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
+# 單一實例的 mutex 名稱。跑第二份會讓兩邊搶著對遊戲掛 wizwalker hook，
+# 也會同時寫同一份 config.json 與 log，因此直接擋掉。
+SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
 
 # 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
@@ -193,6 +198,52 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
 
 
 
+def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
+    """搶下單一實例的 mutex；已經有一份在跑時回 None。
+
+    呼叫端必須留住回傳的 handle 直到程序結束：mutex 隨 handle 關閉而釋放，
+    handle 一被回收就等於放行下一份實例。name 可覆寫是為了讓測試各用各的名稱，
+    不會被使用者正在執行的本尊卡住。"""
+    handle = win32event.CreateMutex(None, False, name)
+    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+        return None
+    return handle
+
+
+def focus_running_instance(title: str) -> bool:
+    """把既有實例的視窗帶到前景；找不到視窗或被系統擋下時回 False。
+
+    Windows 的前景鎖會擋掉背景程序的 SetForegroundWindow，這時系統改成閃工作列
+    按鈕——使用者仍看得到回應，所以失敗只記錄、不當成錯誤。"""
+    found = []
+
+    def collect(hwnd, _):
+        try:
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == title:
+                found.append(hwnd)
+        except Exception:
+            pass   # 列舉途中單一視窗查詢失敗不該中斷整輪掃描
+        return True
+
+    try:
+        win32gui.EnumWindows(collect, None)
+    except Exception as exc:
+        print(f"[app] window scan failed: {exc}", file=sys.stderr)
+        return False
+    if not found:
+        print(f"[app] no window titled {title!r} to focus", file=sys.stderr)
+        return False
+    hwnd = found[0]
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception as exc:
+        print(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}",
+              file=sys.stderr)
+        return False
+    return True
+
+
 def apply_window_icon(root: tk.Tk) -> int | None:
     """把應用程式 icon 裝到視窗類別上，回傳裝上去的 HICON（失敗回 None）。
 
@@ -259,6 +310,17 @@ def main() -> None:
 
     # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
     set_language(bootstrap_language(cfg, config_existed))
+
+    # 擋掉第二份實例：兩份會搶著對遊戲掛 wizwalker hook，也會同時寫同一份設定與 log。
+    # 位置卡在語言定案之後（既有實例的視窗標題就是 app_name()，要有語言才算得出來）、
+    # 開 messages.log 之前（否則被擋下的那份會在收訊記錄裡多留一段空白 session）。
+    # instance_lock 必須留著不放：handle 一被回收，mutex 就跟著釋放、放行下一份。
+    instance_lock = acquire_single_instance()
+    if instance_lock is None:
+        focused = focus_running_instance(app_name())
+        print(f"[app] another instance is already running (focused={focused}), exiting",
+              file=sys.stderr)
+        return
 
     # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
     message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
