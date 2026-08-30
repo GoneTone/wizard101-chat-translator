@@ -80,6 +80,11 @@ MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _BAR_ICON = 16   # 標題列 icon：留 2px 上下邊給 _BAR_HEIGHT，且是 icon.ico 的原生尺寸
+# 標題列文字往下推的補償。Label 的垂直置中是按字型 linespace 算的，含 baseline 以下的
+# descent 空間，而中文字與數字都沒有下伸部，墨跡因此整個偏上——icon 是完整填滿的圖，
+# 精準置中，並排就看得出兩者沒對齊。實測補 1px 最接近（剩下的 0.5px 是墨跡高度奇偶
+# 不匹配，補不掉）。
+_BAR_TEXT_NUDGE = 1
 _GRIP_SIZE = 16
 _EDGE = 6        # 四邊的縮放感應寬度（px）
 _CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
@@ -403,13 +408,14 @@ class OverlayWindow:
             gear.bind("<Button-1>", lambda e: on_settings())
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=ui_font(8), anchor="e")
-        self._status_label.pack(side="right", padx=6)
+        self._status_label.pack(side="right", padx=6, pady=(_BAR_TEXT_NUDGE, 0))
         draggable = [bar, self._title_label, self._status_label]
         if self._bar_icon is not None:
             bar_icon = tk.Label(bar, image=self._bar_icon, bg=BAR)
             bar_icon.pack(side="left", padx=(6, 4))
             draggable.append(bar_icon)
-        self._title_label.pack(side="left", padx=(0 if self._bar_icon else 6, 6))
+        self._title_label.pack(side="left", padx=(0 if self._bar_icon else 6, 6),
+                               pady=(_BAR_TEXT_NUDGE, 0))
         for w in draggable:
             w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
             w.bind("<ButtonPress-1>", self._bar_press)
