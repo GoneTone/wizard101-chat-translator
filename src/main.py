@@ -1,4 +1,5 @@
 """進入點：reader 執行緒（wizwalker 收訊）+ 全域熱鍵 + tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
+import ctypes
 import itertools
 import os
 import queue
@@ -8,6 +9,9 @@ import time
 import tkinter as tk
 
 import keyboard
+import win32api
+import win32con
+import win32gui
 
 from src import __version__
 from src.composer.input_box import InputBox
@@ -21,11 +25,13 @@ from src.logfiles import TimestampedStream, open_session_log
 from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
+from src.resources import icon_path
 from src.translation_pool import TranslationPool
 from src.translator import Translator
 from src.ui.settings import SettingsWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
+
 # 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
 INPUT_POLL_INTERVAL = 0.05
@@ -187,6 +193,49 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
 
 
 
+def apply_window_icon(root: tk.Tk) -> int | None:
+    """把應用程式 icon 裝到視窗類別上，回傳裝上去的 HICON（失敗回 None）。
+
+    不用 tkinter 的 `iconbitmap`：它在 Windows 上挑不對 ICO 的 frame，實測掛出來的
+    32x32 是被放大裁切過的糊圖（徽章切在邊緣、101 缺一半）。改用 LoadImage 指定
+    尺寸載入——它會挑最接近的原生 frame——再寫進視窗類別，之後建立的每個 Toplevel
+    都自動沿用，不必逐一設定。
+
+    類別得透過一個 TkTopLevel 視窗才設得到：withdraw 的 root 在 Windows 上是
+    TkChild，跟實際顯示的視窗不同類別，所以這裡開一個隱藏的 Toplevel 當跳板
+    （隱藏狀態仍屬 TkTopLevel，不會閃畫面）。
+
+    小圖示（GCL_HICONSM）設不進去（實測寫入回報成功卻讀不回來），但工作列按鈕在
+    Windows 11 是看 exe 的圖示、不看視窗 icon，所以不影響——真正要顧的是 exe 資源
+    裡的尺寸要齊全（見 src/assets/icon.ico）。
+
+    icon 是可有可無的裝飾，掛不上去只留 log，不能因此擋掉啟動。"""
+    path = icon_path()
+    probe = None
+    try:
+        probe = tk.Toplevel(root)
+        probe.withdraw()
+        probe.update_idletasks()
+        hwnd = win32gui.GetAncestor(probe.winfo_id(), 2)   # GA_ROOT
+        size = win32api.GetSystemMetrics(win32con.SM_CXICON)
+        hicon = win32gui.LoadImage(0, str(path), win32con.IMAGE_ICON, size, size,
+                                   win32con.LR_LOADFROMFILE)
+        user32 = ctypes.windll.user32
+        user32.SetClassLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int,
+                                            ctypes.c_void_p]
+        user32.SetClassLongPtrW.restype = ctypes.c_void_p
+        user32.SetClassLongPtrW(hwnd, win32con.GCL_HICON, hicon)
+        print(f"[ui] window icon applied: path={path} size={size} hicon={hicon:#x}",
+              file=sys.stderr)
+        return hicon
+    except Exception as exc:
+        print(f"[ui] window icon failed: path={path} error={exc}", file=sys.stderr)
+        return None
+    finally:
+        if probe is not None:
+            probe.destroy()
+
+
 def main() -> None:
     if getattr(sys, "frozen", False):
         # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
@@ -205,17 +254,18 @@ def main() -> None:
     # 版本先印：使用者回報問題時，app.log 分段標頭後第一行就看得到版本
     print(f"[app] version={__version__}", file=sys.stderr)
 
-    # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
-    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
-
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
 
     # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
     set_language(bootstrap_language(cfg, config_existed))
 
+    # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
+    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
+
     root = tk.Tk()
     root.withdraw()
+    apply_window_icon(root)
 
     if not is_configured(cfg):
         from src.ui.wizard import run_wizard

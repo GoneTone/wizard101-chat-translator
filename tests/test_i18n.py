@@ -27,7 +27,7 @@ def fake_catalog(monkeypatch, tmp_path):
             json.dumps(strings, ensure_ascii=False), encoding="utf-8")
         i18n.forget_catalogs()
 
-    monkeypatch.setattr(i18n, "_i18n_dir", lambda: tmp_path)
+    monkeypatch.setattr(i18n, "bundle_dir", lambda name: tmp_path)
     i18n.forget_catalogs()
     yield write
     i18n.forget_catalogs()

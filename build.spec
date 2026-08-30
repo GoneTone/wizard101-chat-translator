@@ -5,7 +5,10 @@ a = Analysis(
     ["run.py"],
     pathex=[],
     binaries=[],
-    datas=[("src/i18n/*.json", "i18n")],  # 語言檔：執行期由 src/i18n 依 _MEIPASS 讀取
+    datas=[
+        ("src/i18n/*.json", "i18n"),      # 語言檔：執行期由 src/i18n 依 _MEIPASS 讀取
+        ("src/assets/*", "assets"),       # icon：exe 用 .ico，tkinter 用 .png，都經 src/resources 取用
+    ],
     hiddenimports=[],  # spike 發現缺模組時補在這裡，並註明原因
     excludes=[],
 )
@@ -16,6 +19,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     name="Wizard101ChatTranslator",
+    icon="src/assets/icon.ico",
     console=False,
     upx=False,
 )

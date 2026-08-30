@@ -12,6 +12,7 @@ import win32gui
 
 from src.config import app_name
 from src.i18n import t
+from src.resources import png_icon_path
 from src.ui.fonts import ui_font
 
 BG = "#101018"
@@ -78,14 +79,26 @@ class _Message(NamedTuple):
 MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
+_BAR_ICON = 16   # 標題列 icon：留 2px 上下邊給 _BAR_HEIGHT，且是 icon.ico 的原生尺寸
 _GRIP_SIZE = 16
 _EDGE = 6        # 四邊的縮放感應寬度（px）
 _CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
 _STICK_THRESHOLD = 0.999
-_BUBBLE_SIZE = 64
+_BUBBLE_SIZE = 48
 _CLICK_THRESHOLD = 5
 _FOREGROUND_POLL_MS = 300
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
+# 未讀數底圓相對文字外框的外擴：橢圓要夠大，四角的字才不會被切掉。跟著泡泡尺寸走，
+# 否則泡泡縮小後這顆徽章會相對膨脹，「99+」直接橫跨半顆泡泡蓋掉圖案。
+_BADGE_PAD = max(2, round(_BUBBLE_SIZE * 0.065))
+_BADGE_FONT_SIZE = 7   # 配合 _BUBBLE_SIZE：太大會擠掉底下的 101
+# 未讀數徽章的垂直位置：對齊 icon 右下角「101」的中心線（實際量圖得來的比例），
+# 兩者落在同一條水平線上才不會看起來一高一低。
+_BADGE_BASELINE = 0.82
+# 泡泡是收起來的浮標，該比主視窗更低調：在使用者設定的不透明度上再打折，
+# 但留一個下限，免得 overlay_alpha 調到最低時泡泡幾乎看不見、找不回來。
+_BUBBLE_ALPHA_FACTOR = 0.8
+_BUBBLE_ALPHA_FLOOR = 0.30
 _SCROLLBAR_WIDTH = 8
 _MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
 _THUMB = "#8a8ab0"
@@ -171,6 +184,19 @@ def should_auto_expand(foreground: int, previous: int, bubble_hwnd: int,
     if not bubble_hwnd or foreground != bubble_hwnd or previous == bubble_hwnd:
         return False
     return not cursor_on_bubble
+
+
+def _load_icon(master: tk.Misc, size: int) -> tk.PhotoImage | None:
+    """載入 icon 圖片；失敗回 None，由呼叫端略過那個 icon。
+
+    呼叫端必須自己留住回傳值（存成實例屬性）：Tk 只保存指標，PhotoImage 一被
+    回收，畫面上的圖就跟著消失。"""
+    path = png_icon_path(size)
+    try:
+        return tk.PhotoImage(file=str(path), master=master)
+    except tk.TclError as exc:
+        print(f"[ui] icon image failed: path={path} error={exc}", file=sys.stderr)
+        return None
 
 
 def thumb_span(first: float, last: float, track_height: int,
@@ -299,6 +325,7 @@ class OverlayWindow:
         self._alpha = alpha
         self._on_geometry_change = on_geometry_change
         self._on_bubble_move = on_bubble_move
+        self._on_close = on_close   # 泡泡建立時要拿它接 WM_DELETE_WINDOW
         self._bubble_pos = dict(bubble_position) if bubble_position else {"x": None, "y": None}
         self._minimized = False
         self._unread = 0
@@ -352,7 +379,9 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        self._title_label = tk.Label(bar, text=f"≡  {app_name()}", bg=BAR, fg=FG_BAR,
+        # icon 兼任原本 ≡ 的位置；可拖曳的暗示交給 bar 的 fleur 游標
+        self._bar_icon = _load_icon(self._win, _BAR_ICON)
+        self._title_label = tk.Label(bar, text=app_name(), bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
         # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
         # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑——
@@ -375,8 +404,13 @@ class OverlayWindow:
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=ui_font(8), anchor="e")
         self._status_label.pack(side="right", padx=6)
-        self._title_label.pack(side="left", padx=6)
-        for w in (bar, self._title_label, self._status_label):
+        draggable = [bar, self._title_label, self._status_label]
+        if self._bar_icon is not None:
+            bar_icon = tk.Label(bar, image=self._bar_icon, bg=BAR)
+            bar_icon.pack(side="left", padx=(6, 4))
+            draggable.append(bar_icon)
+        self._title_label.pack(side="left", padx=(0 if self._bar_icon else 6, 6))
+        for w in draggable:
             w.bind("<Motion>", lambda e: self._edge_motion(e, "fleur"))
             w.bind("<ButtonPress-1>", self._bar_press)
             w.bind("<B1-Motion>", self._bar_drag)
@@ -437,16 +471,37 @@ class OverlayWindow:
         self._backdrop.bind("<ButtonRelease-1>", self._edge_release)
 
         self._win.title(app_name())  # 工作列按鈕顯示的名稱
-        _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
         # 用 Win32 直接建立 OS 擁有關係：owned window 在 OS 層永遠疊在 owner 之上，
         # 任何點擊／啟用都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
+        #
+        # 這一步必須排在 _enable_taskbar_button 之前：改 owner 會讓 shell 撤掉已經
+        # 建好的工作列按鈕，而 WS_EX_APPWINDOW 得等下一次 hide→show 才會重新生效。
+        # 順序反過來的話，首次啟動根本看不到工作列按鈕，要縮小再放大（或開設定視窗）
+        # 補一次 hide→show 才會冒出來。
         try:
+            self._win.update_idletasks()
             win_hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)
             bd_hwnd = win32gui.GetAncestor(self._backdrop.winfo_id(), 2)
             win32gui.SetWindowLong(win_hwnd, win32con.GWL_HWNDPARENT, bd_hwnd)
         except Exception as exc:
             print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
+        _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
+        # 有工作列按鈕就關得掉：Alt+F4、工作列右鍵「關閉視窗」都送 WM_DELETE_WINDOW。
+        # tkinter 預設把它接成「destroy 這個 Toplevel」，那只會拆掉文字層，留下 backdrop
+        # 這層半透明底板孤兒在畫面上，主迴圈還照跑（每 5 秒對著已消失的 widget 噴錯）。
+        # 接回 ✕ 的乾淨關閉，兩條路徑才一致。
+        self._bind_close_protocol(self._win, on_close)
         self._backdrop.lower(self._win)  # 疊序保險：底板壓在文字層之下
+
+    def _bubble_alpha(self) -> float:
+        """泡泡的不透明度：跟著主視窗的設定走，但再透一些（不低於下限）。"""
+        return max(_BUBBLE_ALPHA_FLOOR, self._alpha * _BUBBLE_ALPHA_FACTOR)
+
+    def _bind_close_protocol(self, win: tk.Toplevel, on_close) -> None:
+        """把視窗管理員的關閉要求（Alt+F4／工作列右鍵）接到乾淨關閉流程。
+        on_close 為 None（測試直接建視窗）時維持 Tk 預設行為。"""
+        if on_close is not None:
+            win.protocol("WM_DELETE_WINDOW", on_close)
 
     # --- 縮小成泡泡 ---
     @property
@@ -513,7 +568,7 @@ class OverlayWindow:
         b.overrideredirect(True)
         b.attributes("-topmost", True)
         b.attributes("-transparentcolor", _TRANSPARENT)
-        b.attributes("-alpha", self._alpha)
+        b.attributes("-alpha", self._bubble_alpha())
         b.configure(bg=_TRANSPARENT)
         b.geometry(f"{_BUBBLE_SIZE}x{_BUBBLE_SIZE}"
                    f"+{self._bubble_pos['x']}+{self._bubble_pos['y']}")
@@ -524,18 +579,28 @@ class OverlayWindow:
         def px(f: float) -> int:
             return round(_BUBBLE_SIZE * f)  # 圖示座標按泡泡尺寸等比縮放
 
-        c.create_oval(2, 2, _BUBBLE_SIZE - 2, _BUBBLE_SIZE - 2,
-                      fill=BAR, outline=GRIP, width=2)
-        # 圖示：兩個交疊的對話泡泡（翻譯意象），Canvas 直接繪製、不依賴圖檔
-        c.create_oval(px(0.23), px(0.30), px(0.59), px(0.59),
-                      outline=FG_TRANSLATED, width=2)
-        c.create_polygon(px(0.32), px(0.57), px(0.43), px(0.57), px(0.27), px(0.70),
-                         fill=FG_TRANSLATED)
-        c.create_oval(px(0.48), px(0.45), px(0.80), px(0.73),
-                      outline=FG_ORIGINAL, width=2)
-        self._badge = c.create_text(_BUBBLE_SIZE - px(0.23), px(0.20), text="",
+        # 泡泡就是應用程式 icon 本身：圓形之外是透明色鍵，方形視窗只露出圓。
+        # icon 載不進來時退回原本的深色圓底，泡泡至少還看得見、抓得住。
+        self._bubble_icon = _load_icon(b, _BUBBLE_SIZE)
+        if self._bubble_icon is not None:
+            c.create_image(_BUBBLE_SIZE // 2, _BUBBLE_SIZE // 2, image=self._bubble_icon)
+        else:
+            c.create_oval(2, 2, _BUBBLE_SIZE - 2, _BUBBLE_SIZE - 2,
+                          fill=BAR, outline=GRIP, width=2)
+
+        # 未讀數擺左下：icon 右上是「文A」徽章、右下是 101，只有左下留白。
+        # 底下墊一個深色圓才有對比——數字直接壓在彩色螺旋上讀不出來。
+        # 這是徽章的基準位置；_update_badge 每次都先把文字放回這裡再量，位數變動
+        # 才不會讓它一路往右漂。
+        # 垂直用 _BADGE_BASELINE 對齊圖案右下角那個「101」的中心線（量出來的比例），
+        # 兩者才在同一條水平線上；水平則盡量貼左緣，只留下底圓不被裁掉的餘裕。
+        self._badge_home = (px(0.18), px(_BADGE_BASELINE))
+        bx, by = self._badge_home
+        self._badge_dot = c.create_oval(bx, by, bx, by,   # 大小交給 _update_badge 依文字重算
+                                        fill=BAR, outline=GRIP, state="hidden")
+        self._badge = c.create_text(bx, by, text="",
                                     fill="#ff9090",
-                                    font=ui_font(9, "bold"))
+                                    font=ui_font(_BADGE_FONT_SIZE, "bold"))
         c.bind("<ButtonPress-1>", self._bubble_press)
         c.bind("<B1-Motion>", self._bubble_drag)
         c.bind("<ButtonRelease-1>", self._bubble_release)
@@ -543,6 +608,9 @@ class OverlayWindow:
         self._bubble_canvas = c
         b.title(app_name())
         _enable_taskbar_button(b)
+        # 泡泡同樣有工作列按鈕。被 Alt+F4 就地 destroy 的話主視窗仍是隱藏狀態，
+        # 使用者會完全找不到這支程式，所以一樣接到乾淨關閉。
+        self._bind_close_protocol(b, self._on_close)
         try:
             self._bubble_hwnd = win32gui.GetAncestor(b.winfo_id(), 2)  # GA_ROOT
         except Exception as exc:
@@ -612,13 +680,36 @@ class OverlayWindow:
         self._alpha = alpha
         self._backdrop.attributes("-alpha", alpha)
         if self._bubble is not None:
-            self._bubble.attributes("-alpha", alpha)
+            self._bubble.attributes("-alpha", self._bubble_alpha())
 
     def _update_badge(self) -> None:
         if self._bubble is None:
             return
         text = "99+" if self._unread > 99 else (str(self._unread) if self._unread else "")
-        self._bubble_canvas.itemconfigure(self._badge, text=text)
+        c = self._bubble_canvas
+        c.itemconfigure(self._badge, text=text)
+        if not text:
+            c.itemconfigure(self._badge_dot, state="hidden")
+            return
+        # 底圓貼著文字實際範圍走，位數一多就往左右長成橫橢圓。
+        # 先把文字放回基準位置再量：上一輪若因為 99+ 把它往右推過，這裡不歸位就會越漂越右。
+        c.coords(self._badge, *self._badge_home)
+        x0, y0, x1, y1 = c.bbox(self._badge)
+        # 全部取整再畫：create_oval 的高度是 2*half_h+1（奇數），圓心才落在像素正中央，
+        # 和數字墨跡（高度同為奇數）對得起來。留浮點的話圓心會卡在像素邊界，
+        # 數字永遠差半格，看起來就是沒對準。
+        half_h = round((y1 - y0) / 2 + _BADGE_PAD)
+        # 單一數字的 bbox 又窄又高，四周等量外擴會擠成直立橢圓（很醜）——水平半徑
+        # 至少拉齊成圓，位數多了才讓它自然往左右長。
+        half_w = max(round((x1 - x0) / 2 + _BADGE_PAD), half_h)
+        cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
+        # 徽章貼著左下角，位數一多底圓會往左戳出畫布：把圓心往右推回來，
+        # 文字跟著一起走才會同心。垂直同理，避免底緣被畫布切掉。
+        cx = max(cx, half_w + 1)
+        cy = min(cy, _BUBBLE_SIZE - half_h - 1)
+        c.coords(self._badge, cx, cy)
+        c.coords(self._badge_dot, cx - half_w, cy - half_h, cx + half_w, cy + half_h)
+        c.itemconfigure(self._badge_dot, state="normal")
 
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:

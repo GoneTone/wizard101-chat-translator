@@ -599,3 +599,33 @@ def test_message_font_follows_language(root):
         assert all("YaHei" in f for f in fonts)
     finally:
         i18n.set_language(before)
+
+
+def test_window_close_button_runs_the_clean_shutdown(root):
+    # Alt+F4 與工作列右鍵「關閉視窗」都送 WM_DELETE_WINDOW；沒有 handler 時 Tk 只會
+    # destroy 這一個 Toplevel，留下 backdrop 那層半透明底板孤兒在畫面上、主迴圈照跑。
+    # 兩個有工作列按鈕的視窗都必須把它接回和 ✕ 一樣的乾淨關閉。
+    closed = []
+    ov = OverlayWindow(root, x=0, y=0, max_messages=10, fade_seconds=0,
+                       on_close=lambda: closed.append("win"))
+
+    # tkinter predefines this protocol as "destroy this Toplevel"，所以不能只斷言它非空
+    handler = ov._win.protocol("WM_DELETE_WINDOW")
+    assert not handler.endswith("destroy"), "文字層仍停在 Tk 預設的 destroy 行為"
+    root.call(handler)
+    assert closed == ["win"]
+    assert ov._win.winfo_exists(), "關閉要交給乾淨關閉流程，不是就地拆掉文字層"
+
+
+def test_bubble_close_button_runs_the_clean_shutdown(root):
+    # 泡泡同樣有工作列按鈕：被 Alt+F4 關掉而只 destroy 泡泡的話，主視窗仍是隱藏狀態，
+    # 使用者會完全找不到這支程式。
+    closed = []
+    ov = OverlayWindow(root, x=0, y=0, max_messages=10, fade_seconds=0,
+                       on_close=lambda: closed.append("bubble"))
+    ov.minimize()
+
+    handler = ov._bubble.protocol("WM_DELETE_WINDOW")
+    assert not handler.endswith("destroy"), "泡泡仍停在 Tk 預設的 destroy 行為"
+    root.call(handler)
+    assert closed == ["bubble"]

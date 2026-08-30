@@ -12,7 +12,8 @@
 import json
 import locale
 import sys
-from pathlib import Path
+
+from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（都不是給譯者翻的文案，是該語言自己的資料）：
 # 自稱（語言選單顯示用，也是這個語言的使用者預設的翻譯目標語言）、介面字族、
@@ -29,14 +30,6 @@ _cache: dict[str, dict[str, str]] = {}
 _languages: dict[str, str] | None = None   # available_languages() 的快取
 
 
-def _i18n_dir() -> Path:
-    """語言檔所在目錄。打包（frozen）時語言檔被解壓到 _MEIPASS，與 config 所在的
-    exe 旁目錄不同——語言檔是唯讀資源，不能沿用 config.app_dir()。"""
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS) / "i18n"
-    return Path(__file__).resolve().parent
-
-
 def _no_duplicates(pairs: list[tuple[str, str]]) -> dict[str, str]:
     """json.load 的 object_pairs_hook：重複 key 預設會被靜默覆蓋，這裡直接擋下。"""
     seen: dict[str, str] = {}
@@ -49,7 +42,7 @@ def _no_duplicates(pairs: list[tuple[str, str]]) -> dict[str, str]:
 
 def _load(code: str) -> dict[str, str]:
     if code not in _cache:
-        path = _i18n_dir() / f"{code}.json"
+        path = bundle_dir("i18n") / f"{code}.json"
         with path.open(encoding="utf-8") as handle:
             _cache[code] = json.load(handle, object_pairs_hook=_no_duplicates)
     return _cache[code]
@@ -72,7 +65,7 @@ def available_languages() -> dict[str, str]:
     global _languages
     if _languages is None:
         found = {}
-        for path in sorted(_i18n_dir().glob("*.json")):
+        for path in sorted(bundle_dir("i18n").glob("*.json")):
             code = path.stem
             name = _meta(code, META_NAME)
             if not name:
