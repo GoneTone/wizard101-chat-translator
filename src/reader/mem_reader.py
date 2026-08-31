@@ -16,6 +16,7 @@ import asyncio
 import os
 import re
 import sys
+import time
 from collections import Counter, deque
 from typing import NamedTuple
 
@@ -24,6 +25,14 @@ from src.reader.message_log import MessageLog
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
+
+# hook 掛上後，等遊戲把 root window 位址寫回來的上限（秒）與輪詢間隔。
+# wizwalker 的 activate_root_window_hook(wait_for_ready=True) 內部是 asyncio.wait_for(..., None)
+# ——**無限等**。pattern 掃得到、hook 也寫進去了，那段程式碼卻已不在執行路徑時
+# （遊戲改版的典型徵兆），整條收訊執行緒會永久卡在掛入，不拋例外、UI 停在「連線遊戲中」，
+# 關程式時 join 逾時被硬砍，hook 還留在遊戲記憶體裡。故一律自己等、自己逾時。
+HOOK_READY_TIMEOUT = 15.0
+HOOK_READY_POLL = 0.3
 
 # 單輪 poll 的新增行數上限。實測 chatLog 會在「約 110 行的短清單」與「上千行的完整歷史」
 # 之間反覆跳動；只要歷史開頭那行碰巧等於基準尾行（聊天充滿 lol/gg 等重複短行），
@@ -81,6 +90,21 @@ class GameNotRunning(Exception):
 class GameAccessDenied(GameNotRunning):
     """開不了遊戲程序的 handle——多半是遊戲以系統管理員身分執行、本程式沒有。
     繼承 GameNotRunning，上層的退避重連原封不動生效，只在文案上分流。"""
+
+
+class GameVersionMismatch(GameNotRunning):
+    """掛入點與這個遊戲版本對不上，wizwalker 的 pattern 已不適用。
+    繼承 GameNotRunning，上層的退避重連原封不動生效，只在文案上分流。"""
+
+
+def is_version_mismatch(exc: BaseException) -> bool:
+    """判斷掛入失敗是否為「掛入點與遊戲版本對不上」。
+
+    三種徵兆：pattern 掃不到、pattern 掃到多個（兩者都在 wizwalker 寫入任何遊戲
+    記憶體之前拋出，遊戲是乾淨的），以及 hook 寫進去了卻遲遲沒被觸發（等待逾時）。
+    其餘失敗（開不了程序、程序消失、讀寫錯誤）不屬此類，仍走「遊戲未就緒」文案。"""
+    from wizwalker.errors import PatternFailed, PatternMultipleResults
+    return isinstance(exc, (PatternFailed, PatternMultipleResults, TimeoutError))
 
 
 # --- 純函式：標記解析（可單元測試，不需遊戲）---
@@ -605,16 +629,54 @@ class WizChatReader:
         try:
             # 只啟讀聊天所需的 root_window hook（不啟 player/duel/quest 等），
             # 注入最小化、且不受是否在世界內等遊戲狀態影響。
-            self._run(self._client.hook_handler.activate_root_window_hook())
+            # 掛入與等待就緒刻意拆成兩步（wait_for_ready=False）：wizwalker 內建的等待
+            # 無限期（見 HOOK_READY_TIMEOUT），且中間這一步要先把還原狀態存起來——
+            # hook 此刻已寫進遊戲記憶體，等待途中被硬砍才修得回來。
+            self._run(self._client.hook_handler.activate_root_window_hook(
+                wait_for_ready=False))
+            self._save_hook_state(self._pid)
+            waited = self._wait_root_window_ready()
         except Exception as exc:
             self._teardown()
+            if is_version_mismatch(exc):
+                raise GameVersionMismatch(
+                    f"hook does not match this game build: {exc}") from exc
             raise GameNotRunning(f"failed to attach to game: {exc}") from exc
         self._connected = True
-        print(f"[reader] attached to game (pid={self._pid})", file=sys.stderr)
-        self._save_hook_state(self._pid)      # 掛入成功 → 存還原狀態，供下次髒退出修復
+        print(f"[reader] attached to game (pid={self._pid}, hook_ready_in={waited:.1f}s)",
+              file=sys.stderr)
 
     def _run(self, coro):
         return self._loop.run_until_complete(coro)
+
+    def _wait_root_window_ready(self) -> float:
+        """等 hook 把 current root window 位址寫回來（非 0 ＝ hook 真的被執行過），
+        回傳等待秒數。逾時丟 TimeoutError，由 is_version_mismatch 歸類為版本不相容。
+
+        hook 剛寫入時位址尚未有效，讀取失敗是常態，一律當成「還沒好」繼續等；
+        真正的失敗只有逾時一種。"""
+        async def _wait() -> bool:
+            deadline = time.monotonic() + HOOK_READY_TIMEOUT
+            while True:
+                try:
+                    if await self._client.hook_handler.read_current_root_window_base():
+                        return True
+                except Exception:
+                    pass
+                if time.monotonic() >= deadline:
+                    return False
+                await asyncio.sleep(HOOK_READY_POLL)
+
+        started = time.monotonic()
+        ready = self._run(_wait())
+        elapsed = time.monotonic() - started
+        if not ready:
+            print(f"[reader] root window hook never fired within "
+                  f"{HOOK_READY_TIMEOUT:.0f}s (pid={self._pid}); the hook pattern "
+                  f"likely does not match this game build", file=sys.stderr)
+            raise TimeoutError(
+                f"root window hook did not fire within {HOOK_READY_TIMEOUT:.0f}s")
+        return elapsed
 
     def _module_base(self) -> int:
         try:

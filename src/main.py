@@ -24,7 +24,9 @@ from src.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
 from src.logfiles import TimestampedStream, open_session_log
-from src.reader.mem_reader import GameAccessDenied, GameNotRunning, WizChatReader
+from src.reader.mem_reader import (
+    GameAccessDenied, GameNotRunning, GameVersionMismatch, WizChatReader,
+)
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.resources import icon_path
@@ -182,9 +184,13 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
         try:
             new_lines = reader.read_new()
         except GameNotRunning as exc:
-            denied = isinstance(exc, GameAccessDenied)
-            set_status("access_denied" if denied else "waiting_game")
-            issue = "notice.access_denied" if denied else "notice.game_missing"
+            if isinstance(exc, GameAccessDenied):
+                status, issue = "access_denied", "notice.access_denied"
+            elif isinstance(exc, GameVersionMismatch):
+                status, issue = "version_mismatch", "notice.version_mismatch"
+            else:
+                status, issue = "waiting_game", "notice.game_missing"
+            set_status(status)
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
             game_issue = issue
