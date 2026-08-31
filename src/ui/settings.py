@@ -236,28 +236,34 @@ class SettingsWindow:
         每次按下都重建 queue：SettingsWindow 整個 app 生命週期只有一個實例，
         `self._update_queue` 若只在 __init__ 建一次，視窗在結果送回前被關掉
         （或換語言 `_rebuild`）就會讓 poll_queue 停止輪詢，結果留在舊 queue 裡；
-        下次檢查沿用同一個 queue，會先撈到那筆過期結果，而不是這一輪的。"""
-        self._update_queue = queue.Queue()
+        下次檢查沿用同一個 queue，會先撈到那筆過期結果，而不是這一輪的。
+
+        queue 同時以參數交給 worker，而不是讓它回頭讀 `self._update_queue`：
+        前一輪沒回來的 worker 一旦查到的是新那一輪的 queue，過期結果照樣會被
+        撈走顯示——重建 queue 只擋掉視窗重開這條路徑，擋不掉兩輪重疊。"""
+        result_queue: queue.Queue = queue.Queue()
+        self._update_queue = result_queue   # 這一輪的通道（poll_queue 與測試取用）
         self._update_btn.configure(state="disabled", text=t("button.checking"))
         self._update_result.configure(text="")
-        threading.Thread(target=self._update_check_worker, daemon=True).start()
-        poll_queue(self._win, self._update_queue, self._on_update_checked)
+        threading.Thread(target=self._update_check_worker, args=(result_queue,),
+                         daemon=True).start()
+        poll_queue(self._win, result_queue, self._on_update_checked)
 
-    def _update_check_worker(self) -> None:
+    def _update_check_worker(self, result_queue: queue.Queue) -> None:
         try:
             release = self._check_update()
         except Exception as exc:
             print(f"[update] manual check failed: {exc}", file=sys.stderr)
-            self._update_queue.put(("failed", t("update.failed", error=exc), None))
+            result_queue.put(("failed", t("update.failed", error=exc), None))
             return
         if release is None:
             print("[update] manual check: already up to date", file=sys.stderr)
-            self._update_queue.put(("latest", t("update.latest"), None))
+            result_queue.put(("latest", t("update.latest"), None))
             return
         print(f"[update] manual check: {release.version} available", file=sys.stderr)
-        self._update_queue.put(("available",
-                                t("update.available", version=release.version),
-                                release.url))
+        result_queue.put(("available",
+                          t("update.available", version=release.version),
+                          release.url))
 
     def _on_update_checked(self, result) -> None:
         state, message, url = result

@@ -334,7 +334,7 @@ def _run_check(win):
     """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式。
     正式路徑是 worker 在背景執行緒跑、poll_queue 在主執行緒取，這裡把兩段接起來，
     測試才不必等執行緒。"""
-    win._update_check_worker()
+    win._update_check_worker(win._update_queue)
     win._on_update_checked(win._update_queue.get_nowait())
 
 
@@ -441,6 +441,62 @@ def test_check_button_discards_a_stale_queue_result(root):
     deadline = time.monotonic() + 5
     while win._update_result.cget("text") != "✓ " + t("update.latest") \
             and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    win._win.destroy()
+
+
+def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
+    """回歸測試：worker 必須寫回啟動它的那一輪 queue，不能回頭讀 `_update_queue`。
+
+    重現的是兩輪重疊：按下檢查 → 結果回來前關掉視窗 → 重開 → 再按一次。舊 worker
+    若在 put 當下才查 `self._update_queue`，查到的會是新那一輪的 queue，過期結果
+    就會被這一輪的 poll_queue 撈走顯示（重建 queue 只擋得掉單輪的滯留）。
+    這裡讓兩輪都卡在 Event 上、先放行舊的，確認它落在自己的 queue、畫面不受影響。"""
+    import threading
+    import time
+
+    from src.i18n import t
+    from src.updater import UpdateCheckError
+
+    stale_started, release_stale = threading.Event(), threading.Event()
+    release_current = threading.Event()
+
+    def stale_checker():
+        stale_started.set()
+        release_stale.wait(5)
+        raise UpdateCheckError("stale round")
+
+    win = _open_settings_with_checker(root, stale_checker)
+    win._update_btn.invoke()
+    assert stale_started.wait(5)
+    stale_queue = win._update_queue
+
+    # 結果回來前關窗再重開：按鈕與結果標籤都是新的，可以再按一次
+    win._win.destroy()
+    win.open()
+
+    def current_checker():
+        release_current.wait(5)
+        return None
+
+    win._check_update = current_checker
+    win._update_btn.invoke()
+    assert win._update_queue is not stale_queue
+
+    # 先放行舊 worker，並給 poll_queue（100ms 一輪）足夠機會誤撈
+    release_stale.set()
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert stale_queue.qsize() == 1               # 舊結果留在自己那一輪
+    assert win._update_result.cget("text") == ""  # 畫面仍停在「檢查中」
+
+    release_current.set()
+    deadline = time.monotonic() + 5
+    while not win._update_result.cget("text") and time.monotonic() < deadline:
         root.update()
         time.sleep(0.01)
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
