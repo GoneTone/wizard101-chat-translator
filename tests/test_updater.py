@@ -1,5 +1,10 @@
 """更新檢查：版本解析比較（純函式）與 GitHub API 取用（假 client）。"""
-from src.updater import is_newer, parse_version
+import httpx
+import pytest
+
+from src.updater import (LATEST_API, RELEASES_URL, Release, UpdateCheckError,
+                         check_for_update, fetch_latest_release, is_newer,
+                         parse_version)
 
 
 def test_parse_version_accepts_plain_and_v_prefixed():
@@ -30,3 +35,89 @@ def test_is_newer_is_false_when_either_side_is_unparsable():
     # 寧可漏提醒也不要誤報：橫幅會把使用者導去下載頁
     assert is_newer("nightly", "0.1.0") is False
     assert is_newer("0.2.0", "unknown") is False
+
+
+_TAG_URL = "https://github.com/GoneTone/wizard101-chat-translator/releases/tag/v0.2.0"
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None):
+        self.status_code = status_code
+        self._payload = {"tag_name": "v0.2.0", "html_url": _TAG_URL} \
+            if payload is None else payload
+
+    def json(self):
+        if self._payload is _BROKEN_JSON:
+            raise ValueError("not json")
+        return self._payload
+
+
+_BROKEN_JSON = object()
+
+
+class FakeClient:
+    """只認 get 的假 httpx client；記下被打的網址與標頭供斷言。"""
+
+    def __init__(self, response=None, raises=None):
+        self._response = response if response is not None else FakeResponse()
+        self._raises = raises
+        self.calls = []
+
+    def get(self, url, headers=None):
+        self.calls.append((url, headers))
+        if self._raises is not None:
+            raise self._raises
+        return self._response
+
+
+def test_fetch_latest_release_reads_tag_and_url():
+    client = FakeClient()
+    release = fetch_latest_release(client=client)
+    assert release == Release(version="0.2.0", url=_TAG_URL)
+    url, headers = client.calls[0]
+    assert url == LATEST_API
+    assert headers["Accept"] == "application/vnd.github+json"
+    assert "wizard101-chat-translator" in headers["User-Agent"]
+
+
+def test_fetch_latest_release_returns_none_when_no_release_exists():
+    # 404＝尚未發過任何 release（也涵蓋 repo 尚未公開）：不是錯誤
+    assert fetch_latest_release(client=FakeClient(FakeResponse(status_code=404))) is None
+
+
+@pytest.mark.parametrize("status", [403, 429, 500])
+def test_fetch_latest_release_raises_on_other_status_codes(status):
+    with pytest.raises(UpdateCheckError) as exc:
+        fetch_latest_release(client=FakeClient(FakeResponse(status_code=status)))
+    assert str(status) in str(exc.value)
+
+
+def test_fetch_latest_release_raises_when_connection_fails():
+    client = FakeClient(raises=httpx.ConnectError("no route to host"))
+    with pytest.raises(UpdateCheckError):
+        fetch_latest_release(client=client)
+
+
+def test_fetch_latest_release_raises_on_unusable_payload():
+    with pytest.raises(UpdateCheckError):
+        fetch_latest_release(client=FakeClient(FakeResponse(payload={})))
+    with pytest.raises(UpdateCheckError):
+        fetch_latest_release(client=FakeClient(FakeResponse(payload=_BROKEN_JSON)))
+
+
+def test_fetch_latest_release_falls_back_to_releases_page_without_html_url():
+    client = FakeClient(FakeResponse(payload={"tag_name": "v0.3.0"}))
+    assert fetch_latest_release(client=client) == Release(version="0.3.0",
+                                                          url=RELEASES_URL)
+
+
+def test_check_for_update_returns_release_only_when_newer():
+    client = FakeClient()
+    assert check_for_update(current="0.1.0", client=client).version == "0.2.0"
+    assert check_for_update(current="0.2.0", client=client) is None
+    assert check_for_update(current="9.9.9", client=client) is None
+
+
+def test_check_for_update_returns_none_when_no_release_exists():
+    client = FakeClient(FakeResponse(status_code=404))
+    assert check_for_update(current="0.1.0", client=client) is None
