@@ -1028,8 +1028,11 @@ class OverlayWindow:
         label.pack(side="left", fill="x", expand=True)
         label.bind("<Button-1>", lambda e: self._open_update_link(release))
         # before＝捲動區：與錯誤橫幅同理，排在 expand=True 的捲動區之後會在視窗
-        # 被縮小時被擠掉。
-        row.pack(side="bottom", fill="x", pady=2, before=self._scroll_area)
+        # 被縮小時被擠掉。右側讓出縮放把手的寬度：把手 place 在視窗右下角、底色是
+        # 透明色鍵，疊在這條不透明橫幅上會挖出一個缺口並蓋掉半個 ✕（捲軸為同樣的
+        # 理由讓出把手的高度）。
+        row.pack(side="bottom", fill="x", pady=2, padx=(0, _GRIP_SIZE),
+                 before=self._scroll_area)
         self._update_row = row
         self._update_label = label
         print(f"[update] banner shown for {release.version}", file=sys.stderr)

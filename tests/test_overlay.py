@@ -662,6 +662,22 @@ def test_update_banner_uses_an_opaque_background(root):
     assert BG_UPDATE != BG
 
 
+def test_update_banner_leaves_room_for_the_resize_grip(root):
+    """回歸測試：橫幅右側要讓出縮放把手的寬度。
+
+    把手 place 在視窗右下角、底色是透明色鍵，疊在這條不透明橫幅上會挖出一個
+    缺口並蓋掉半個 ✕（實機看到的症狀）。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+
+    # pack_info 的 padx 在不同 Tk 版本可能是 (0, 16) 序對或 "0 16" 字串
+    padx = ov._update_row.pack_info()["padx"]
+    right = padx[-1] if isinstance(padx, (tuple, list)) else str(padx).split()[-1]
+    assert int(str(right)) == _GRIP_SIZE, f"右側未讓出把手寬度：padx={padx}"
+
+
 def test_update_banner_and_error_banner_coexist(root):
     # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
     from src.updater import Release
