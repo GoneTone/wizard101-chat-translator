@@ -629,3 +629,50 @@ def test_bubble_close_button_runs_the_clean_shutdown(root):
     assert not handler.endswith("destroy"), "泡泡仍停在 Tk 預設的 destroy 行為"
     root.call(handler)
     assert closed == ["bubble"]
+
+
+def test_set_update_shows_a_clickable_banner(root):
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    assert ov.update_text() is None
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    assert ov._update_label.cget("cursor") == "hand2"
+    ov.clear_update()
+    assert ov.update_text() is None
+
+
+def test_update_banner_and_error_banner_coexist(root):
+    # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_error("notice.offline")
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.error_text() == t("notice.offline")
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    ov.clear_update()
+    assert ov.error_text() == t("notice.offline")   # 關掉更新橫幅不影響錯誤橫幅
+
+
+def test_update_banner_follows_language_and_width(root):
+    from src import i18n
+    from src.updater import Release
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+        ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+        i18n.set_language("en")
+        ov.refresh_labels()
+        assert ov.update_text() == "⬆  Version 0.2.0 is available — click to download"
+
+        class FakeEvent:
+            width = 240
+
+        ov._on_canvas_configure(FakeEvent())
+        assert ov._update_label.cget("wraplength") == max(80, 240 - 12)
+    finally:
+        i18n.set_language(before)

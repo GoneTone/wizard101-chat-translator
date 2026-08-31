@@ -9,6 +9,7 @@
   "notice.access_denied": "⚠  权限不足：游戏以管理员身份运行，请以管理员身份重开本程序",
   "notice.offline": "⚠  翻译服务器离线，重试中…",
   "notice.config_error": "⚠  API 设置有误，请打开设置（⚙）检查",
+  "update.available": "⬆  有新版本 v{version}，点此下载",
   "status.locating": "●  连接游戏中…",
   "status.listening": "●  监听中",
   "status.translating": "●  翻译中…",

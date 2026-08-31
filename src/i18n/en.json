@@ -9,6 +9,7 @@
   "notice.access_denied": "⚠  Access denied: the game runs elevated — restart this program as administrator",
   "notice.offline": "⚠  Translation server is offline — retrying…",
   "notice.config_error": "⚠  API settings are invalid — open settings (⚙) to check",
+  "update.available": "⬆  Version {version} is available — click to download",
   "status.locating": "●  Connecting to game…",
   "status.listening": "●  Listening",
   "status.translating": "●  Translating…",

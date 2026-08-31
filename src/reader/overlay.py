@@ -5,6 +5,7 @@
 import sys
 import time
 import tkinter as tk
+import webbrowser
 from typing import NamedTuple
 
 import win32con
@@ -24,6 +25,9 @@ FG_TRANSLATED = "#f2f2f7"
 DIM_FACTOR = 0.71
 FG_PENDING = "#9398a8"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
 FG_ERROR = "#ff5f5f"
+# 更新橫幅用連結藍。fields.py 的 #4a7ddc 是給淺色設定視窗用的，放在 overlay 的
+# 深色底（#101018）上會暗到看不出是可點的連結，故另取一個亮一階的藍。
+FG_UPDATE = "#6fa8ff"
 FG_BAR = "#c8c8d8"
 
 # 狀態指示的顏色（文字由 i18n 依 state key 取得）
@@ -348,6 +352,9 @@ class OverlayWindow:
         self._error_label: tk.Label | None = None
         self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
         self._error_key: str | None = None      # 目前橫幅的 key，同上
+        self._update_row: tk.Frame | None = None
+        self._update_label: tk.Label | None = None
+        self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
         self._wrap = self._w - 40
@@ -743,6 +750,8 @@ class OverlayWindow:
                 _fit_line_height(child)
         if self._error_label is not None:
             self._error_label.configure(wraplength=self._wrap)
+        if self._update_label is not None:
+            self._update_label.configure(wraplength=self._wrap)
         # 排到 idle 再貼底，不在事件處理中直接 update_idletasks()——那會讓下一個
         # Configure 事件重入本函式；此時排版也尚未完成，量到的高度是舊的。
         self._win.after_idle(self._refresh_scroll)
@@ -996,6 +1005,38 @@ class OverlayWindow:
             self._error_label.destroy()
             self._error_label = None
 
+    def set_update(self, release) -> None:
+        """顯示更新橫幅：整列可點（開瀏覽器到下載頁），右側 ✕ 只關掉這一次。
+
+        與錯誤橫幅各佔一列、互不覆蓋：錯誤橫幅隨遊戲與翻譯狀態自動來去，這條則是
+        一次性的告知，兩者可能同時該被看到。release 存起來，換語言時才重繪得出來。"""
+        self.clear_update()
+        self._update_release = release
+        row = tk.Frame(self._frame, bg=BG)
+        close = tk.Label(row, text="✕", bg=BG, fg=FG_UPDATE, font=ui_font(9),
+                         cursor="hand2")
+        # ✕ 先 pack：expand=True 的文字若先宣告會吃光整列寬度，把它擠出畫面
+        close.pack(side="right", padx=(4, 6))
+        close.bind("<Button-1>", lambda e: self.clear_update())
+        label = tk.Label(row, text=t("update.available", version=release.version),
+                         bg=BG, fg=FG_UPDATE, font=ui_font(10, "bold"), anchor="w",
+                         cursor="hand2", wraplength=self._wrap)
+        label.pack(side="left", fill="x", expand=True)
+        label.bind("<Button-1>", lambda e: webbrowser.open(release.url))
+        # before＝捲動區：與錯誤橫幅同理，排在 expand=True 的捲動區之後會在視窗
+        # 被縮小時被擠掉。
+        row.pack(side="bottom", fill="x", pady=2, before=self._scroll_area)
+        self._update_row = row
+        self._update_label = label
+        print(f"[update] banner shown for {release.version}", file=sys.stderr)
+
+    def clear_update(self) -> None:
+        self._update_release = None
+        if self._update_row is not None:
+            self._update_row.destroy()
+            self._update_row = None
+            self._update_label = None
+
     def refresh_labels(self) -> None:
         """介面語言變更後重繪常駐文字（標題列、狀態、錯誤橫幅）與字型。
         已經印在畫面上的訊息不回溯改寫——那是聊天內容，不是介面文字。"""
@@ -1009,6 +1050,8 @@ class OverlayWindow:
             self.set_status(self._status_state)
         if self._error_key is not None:
             self.set_error(self._error_key)
+        if self._update_release is not None:
+            self.set_update(self._update_release)
 
     # --- 測試/除錯輔助 ---
     def visible_messages(self) -> list[tuple[str, str]]:
@@ -1016,6 +1059,9 @@ class OverlayWindow:
 
     def error_text(self) -> str | None:
         return self._error_label.cget("text") if self._error_label else None
+
+    def update_text(self) -> str | None:
+        return self._update_label.cget("text") if self._update_label else None
 
     def status_text(self) -> str:
         return self._status_label.cget("text")
