@@ -121,3 +121,51 @@ def test_check_for_update_returns_release_only_when_newer():
 def test_check_for_update_returns_none_when_no_release_exists():
     client = FakeClient(FakeResponse(status_code=404))
     assert check_for_update(current="0.1.0", client=client) is None
+
+
+def test_announce_update_queues_the_banner_when_newer_exists():
+    import queue as queue_module
+
+    from src.main import announce_update
+
+    class FakeOverlay:
+        def __init__(self):
+            self.shown = []
+
+        def set_update(self, release):
+            self.shown.append(release)
+
+    release = Release(version="0.2.0", url=_TAG_URL)
+    ui_queue = queue_module.Queue()
+    overlay = FakeOverlay()
+
+    announce_update(ui_queue, overlay, checker=lambda: release)
+
+    # 背景執行緒只把回呼排進 ui_queue，由主執行緒取出後才碰 tkinter
+    assert overlay.shown == []
+    ui_queue.get_nowait()()
+    assert overlay.shown == [release]
+
+
+def test_announce_update_stays_quiet_without_a_newer_release():
+    import queue as queue_module
+
+    from src.main import announce_update
+
+    ui_queue = queue_module.Queue()
+    announce_update(ui_queue, object(), checker=lambda: None)
+    assert ui_queue.empty()
+
+
+def test_announce_update_swallows_check_failures():
+    # 檢查更新失敗絕不能影響啟動與收訊
+    import queue as queue_module
+
+    from src.main import announce_update
+
+    def boom():
+        raise UpdateCheckError("HTTP 403")
+
+    ui_queue = queue_module.Queue()
+    announce_update(ui_queue, object(), checker=boom)
+    assert ui_queue.empty()

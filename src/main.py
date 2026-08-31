@@ -31,6 +31,7 @@ from src.resources import icon_path
 from src.translation_pool import TranslationPool
 from src.translator import Translator
 from src.ui.settings import SettingsWindow
+from src.updater import check_for_update
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 # 單一實例的 mutex 名稱。跑第二份會讓兩邊搶著對遊戲掛 wizwalker hook，
@@ -98,6 +99,21 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             callback()
         except Exception as exc:  # 避免單一 UI 回呼失敗就讓整個 pump 迴圈停擺
             print(f"[ui] callback failed: {exc}", file=sys.stderr)
+
+
+def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) -> None:
+    """檢查更新，有新版就把橫幅回呼排進 ui_queue（供背景執行緒呼叫）。
+
+    任何失敗都只留 log：更新檢查是附加功能，不能影響啟動與收訊。`checker` 可注入
+    是為了測試，正式路徑用預設的 check_for_update。"""
+    try:
+        release = checker()
+    except Exception as exc:
+        print(f"[update] check failed: {exc}", file=sys.stderr)
+        return
+    if release is None:
+        return
+    ui_queue.put(lambda: overlay.set_update(release))
 
 
 def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
@@ -451,6 +467,11 @@ def main() -> None:
                 "message_log": message_log},
         daemon=True)
     reader_thread.start()
+
+    # 更新檢查另開一條 daemon 執行緒：網路慢或不通都不該拖住啟動，關閉程式時也
+    # 不等它（結果只是一條橫幅，丟掉無妨）。
+    threading.Thread(target=announce_update, args=(ui_queue, overlay),
+                     daemon=True).start()
 
     def pump() -> None:
         drain_ui_queue(ui_queue)
