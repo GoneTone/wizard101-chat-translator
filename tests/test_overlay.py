@@ -6,6 +6,7 @@ from src.reader.overlay import (
     MIN_HEIGHT,
     MIN_WIDTH,
     OverlayWindow,
+    STATUS_COLORS,
     _GRIP_SIZE,
     edge_at,
     is_click,
@@ -711,3 +712,26 @@ def test_update_banner_follows_language_and_width(root):
         assert ov._update_label.cget("wraplength") == max(80, 240 - 12)
     finally:
         i18n.set_language(before)
+
+
+def test_every_status_has_both_a_label_and_a_colour():
+    """set_status 直接查 STATUS_COLORS[state]，漏一個顏色＝執行期 KeyError，
+    而狀態列出現的時機（掛不進遊戲）正是最不該再炸一次的時候。"""
+    import json
+    from pathlib import Path
+    catalog = json.loads(
+        (Path(__file__).resolve().parent.parent / "src" / "i18n" / "zh-TW.json")
+        .read_text(encoding="utf-8"))
+    labelled = {k.removeprefix("status.") for k in catalog if k.startswith("status.")}
+    assert labelled == set(STATUS_COLORS)
+
+
+def test_wrapped_banners_stay_left_aligned(root):
+    """tk.Label 多行預設置中：版本不相容這類長橫幅換行後會歪成階梯狀。"""
+    from types import SimpleNamespace
+    ov = OverlayWindow(root, x=0, y=0, width=320, height=200,
+                       max_messages=10, fade_seconds=0)
+    ov.set_error("notice.version_mismatch")
+    assert str(ov._error_label.cget("justify")) == "left"
+    ov.set_update(SimpleNamespace(version="1.2.3", url="https://example.invalid"))
+    assert str(ov._update_label.cget("justify")) == "left"

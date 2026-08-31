@@ -8,7 +8,9 @@ import src.main as main_module
 from src.context import ChatContext
 from src.i18n import t
 from src.main import banner_for, reader_loop
-from src.reader.mem_reader import ChatLine, GameAccessDenied, GameNotRunning
+from src.reader.mem_reader import (
+    ChatLine, GameAccessDenied, GameNotRunning, GameVersionMismatch,
+)
 
 
 class FakePool:
@@ -270,6 +272,23 @@ def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
     _drain(ui_queue)
     assert ov.errors == ["notice.access_denied"]
     assert "access_denied" in ov.statuses
+
+
+def test_version_mismatch_shows_its_own_banner_and_status(monkeypatch):
+    # 掛入點與遊戲版本對不上，跟「遊戲沒開」長得一樣但解法完全不同：
+    # 橫幅要說出該更新遊戲與本程式，而不是叫使用者繼續等遊戲
+    monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    reads = [GameVersionMismatch("pattern failed"), GameVersionMismatch("pattern failed")]
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: FakeReader(reads, stop))
+    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _drain(ui_queue)
+    assert ov.errors == ["notice.version_mismatch"]
+    assert "version_mismatch" in ov.statuses
 
 
 class DelayedInputReader(FakeReader):

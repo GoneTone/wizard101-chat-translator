@@ -45,6 +45,12 @@ Wizard101 本身以**系統管理員**身分執行時，本工具也必須以系
 （掛入遊戲程序需要對等或更高權限）；權限不足時疊加視窗會顯示
 「⚠  權限不足」橫幅，關掉本工具、右鍵選「以系統管理員身分執行」再開一次即可。
 
+**遊戲改版後掛不進去**：本工具靠固定的記憶體特徵（pattern）找到聊天控件，遊戲改版
+可能讓這組特徵失效。此時疊加視窗會顯示「⚠  遊戲版本不相容」橫幅——先把**遊戲與
+本工具**都更新到最新版；若兩者都已是最新仍出現這條橫幅，代表本工具尚未跟上這個遊戲
+版本，只能等新版釋出（可在設定視窗的「關於」分頁檢查更新）。這種情況下不會有任何
+東西被寫進遊戲，等待期間放著不管也不會有副作用。
+
 ## 開發者
 
 以下為原始碼開發、除錯、打包用的流程。
@@ -127,7 +133,8 @@ uv run pyinstaller build.spec --noconfirm
 2. `uv run run.py`（等同 `uv run python -m src.main`）
    - 若顯示「權限不足」：遊戲以系統管理員身分執行、掛不進去，改以**系統管理員**身分開終端再執行
    - 若狀態停在「連線遊戲中…」或顯示「遊戲未就緒／連線中斷」，確認遊戲已啟動並登入進世界內
-   - 若掛入時報 `PatternFailed`：遊戲已改版、pattern 過舊，更新 fork 後重跑 `uv sync`
+   - 若掛入時報 `PatternFailed`、或橫幅顯示「遊戲版本不相容」：遊戲已改版、pattern 過舊，
+     更新 fork 後重跑 `uv sync`
 3. 聊天出現訊息 → 疊加視窗顯示「原文 + 目標語言譯文」（最新在最下，可向上滾動看歷史；預設不自動清除）
    - 可互動：**拖曳頂端標題列移動、拖任一邊或任一角縮放**（右下角另有把手；標題列上的
      ⚙／─／✕ 按鈕本身仍是按鈕，不觸發縮放），位置與大小自動存檔
@@ -167,7 +174,9 @@ uv run pyinstaller build.spec --noconfirm
 - 遊戲聊天白名單：非白名單英文詞可能被遊戲過濾，任何翻譯工具都繞不過
 - 收訊延遲約 `poll_interval` + 翻譯時間
 - 依賴 wizwalker 的記憶體 pattern：遊戲改版後 pattern 可能失效（掛入時報
-  `PatternFailed`），需等 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑 `uv sync`
+  `PatternFailed`，或 hook 掛上了卻不被觸發），需等
+  [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker) 跟進更新後重跑
+  `uv sync`。兩種情形疊加視窗都顯示「⚠  遊戲版本不相容」橫幅，與「遊戲沒開」分得開
 - Ctrl+C 結束會自動解除 hook。即使被**強制結束**（工作管理員 kill、當機）遺留了
   hook，下次啟動也會**自動修復**（把遺留的原始 bytes 寫回、等同補做 unhook）、免重開
   遊戲——修復狀態存於 `%LOCALAPPDATA%\wizard101-chat-translator\`，依 PID + 模組基址比對，

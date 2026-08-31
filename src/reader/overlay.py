@@ -41,6 +41,7 @@ STATUS_COLORS = {
     "translating": "#6fa8dc",
     "waiting_game": "#9a9aa8",
     "access_denied": FG_ERROR,  # 要使用者動手（以管理員重開）才解得掉，用錯誤色
+    "version_mismatch": FG_ERROR,  # 同上：等下去也不會好，要更新遊戲或本程式
 }
 
 _OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比
@@ -995,9 +996,11 @@ class OverlayWindow:
         """顯示錯誤橫幅（傳入文案 key，顯示時才翻譯）。"""
         self.clear_error()
         self._error_key = key
+        # justify＝換行後每一行都靠左：tk.Label 多行預設置中，anchor="w" 只擺放整塊
+        # 文字、管不到行內對齊，較長的橫幅（如版本不相容）換行後會歪成階梯狀。
         self._error_label = tk.Label(self._frame, text=t(key), bg=BG, fg=FG_ERROR,
                                      font=ui_font(10, "bold"), anchor="w",
-                                     wraplength=self._wrap)
+                                     justify="left", wraplength=self._wrap)
         # before＝捲動區：pack 依宣告順序分配空間，橫幅排在 expand=True 的捲動區
         # 之後就會在視窗被縮小時被擠掉——而「遊戲未就緒」正是最該看到的訊息。
         self._error_label.pack(side="bottom", fill="x", pady=2,
@@ -1024,7 +1027,8 @@ class OverlayWindow:
         close.bind("<Button-1>", lambda e: self._dismiss_update())
         label = tk.Label(row, text=t("update.available", version=release.version),
                          bg=BG_UPDATE, fg=FG_UPDATE, font=ui_font(10, "bold"),
-                         anchor="w", cursor="hand2", wraplength=self._wrap)
+                         anchor="w", justify="left", cursor="hand2",
+                         wraplength=self._wrap)
         label.pack(side="left", fill="x", expand=True)
         label.bind("<Button-1>", lambda e: self._open_update_link(release))
         # before＝捲動區：與錯誤橫幅同理，排在 expand=True 的捲動區之後會在視窗
