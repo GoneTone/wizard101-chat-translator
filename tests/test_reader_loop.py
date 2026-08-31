@@ -8,7 +8,7 @@ import src.main as main_module
 from src.context import ChatContext
 from src.i18n import t
 from src.main import banner_for, reader_loop
-from src.reader.mem_reader import ChatLine, GameNotRunning
+from src.reader.mem_reader import ChatLine, GameAccessDenied, GameNotRunning
 
 
 class FakePool:
@@ -139,12 +139,13 @@ def test_banner_follows_pool_error_state(monkeypatch):
     assert ov.errors == ["notice.offline"]
 
 
-def test_banner_prefers_game_missing_over_translation_error():
-    # 連不上遊戲時翻譯狀態已無意義，橫幅顯示遊戲未就緒
-    assert banner_for(True, "offline") == "notice.game_missing"
-    assert banner_for(False, "config") == "notice.config_error"
-    assert banner_for(False, "offline") == "notice.offline"
-    assert banner_for(False, None) is None
+def test_banner_prefers_game_issue_over_translation_error():
+    # 連不上遊戲時翻譯狀態已無意義，橫幅顯示遊戲端的問題
+    assert banner_for("notice.game_missing", "offline") == "notice.game_missing"
+    assert banner_for("notice.access_denied", "offline") == "notice.access_denied"
+    assert banner_for(None, "config") == "notice.config_error"
+    assert banner_for(None, "offline") == "notice.offline"
+    assert banner_for(None, None) is None
 
 
 def test_status_shows_translating_while_pool_busy(monkeypatch):
@@ -253,6 +254,22 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     assert ov.errors == ["notice.game_missing"]
     assert ov.messages == []
     assert "waiting_game" in ov.statuses
+
+
+def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
+    # 權限不足與「找不到遊戲」是兩回事：橫幅要直接說出該以系統管理員身分重開
+    monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    reads = [GameAccessDenied("denied"), GameAccessDenied("denied")]
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(main_module, "WizChatReader",
+                        lambda **kw: FakeReader(reads, stop))
+    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _drain(ui_queue)
+    assert ov.errors == ["notice.access_denied"]
+    assert "access_denied" in ov.statuses
 
 
 class DelayedInputReader(FakeReader):

@@ -1,8 +1,9 @@
 import io
 
 from src.reader.mem_reader import (
-    RESET_WARMUP_POLLS, ChatLine, GameNotRunning, WizChatReader, align_append,
-    align_recover, clean, filter_resurfaced, lines_from_chatlog, lines_from_nodes,
+    RESET_WARMUP_POLLS, ChatLine, GameAccessDenied, GameNotRunning, WizChatReader,
+    align_append, align_recover, clean, filter_resurfaced, lines_from_chatlog,
+    lines_from_nodes,
 )
 from src.reader.message_log import MessageLog
 
@@ -940,3 +941,64 @@ def test_message_log_stays_quiet_while_the_chat_log_does_not_change():
 def test_message_log_is_optional():
     r = FakeWiz([_log(_say_colored("FF66CC", "Bob", "hi"))])
     assert r.read_new() == []
+
+
+# --- 連線失敗的分類（不需遊戲：以假 ClientHandler 注入例外）---
+class _FailingHandler:
+    """get_new_clients 一律丟出指定例外；close 供 _teardown 呼叫。"""
+
+    def __init__(self, exc):
+        self._exc = exc
+
+    def get_new_clients(self):
+        raise self._exc
+
+    async def close(self):
+        pass
+
+
+def _reader_failing_to_open(monkeypatch, exc):
+    """讓 _connect 走到 get_new_clients 就丟出 exc 的 reader。"""
+    import wizwalker
+
+    from src.reader import mem_reader
+    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
+    monkeypatch.setattr(wizwalker, "ClientHandler", lambda **kw: _FailingHandler(exc))
+    return WizChatReader()
+
+
+def test_open_process_denied_raises_access_denied(monkeypatch):
+    # 遊戲以較高權限執行時 pymem 開不了 handle：要能與「找不到遊戲」分辨開來
+    from pymem.exception import CouldNotOpenProcess
+    r = _reader_failing_to_open(monkeypatch, CouldNotOpenProcess(4321))
+    try:
+        r._connect()
+        assert False, "應丟 GameAccessDenied"
+    except GameAccessDenied as exc:
+        assert "4321" in str(exc)
+
+
+def test_access_denied_is_a_game_not_running():
+    # 繼承既有例外，上層的退避重連照舊生效，只在文案上分流
+    assert issubclass(GameAccessDenied, GameNotRunning)
+
+
+def test_other_connect_failure_stays_game_not_running(monkeypatch):
+    r = _reader_failing_to_open(monkeypatch, RuntimeError("boom"))
+    try:
+        r._connect()
+        assert False, "應丟 GameNotRunning"
+    except GameAccessDenied:
+        assert False, "非權限錯誤不得歸類為權限不足"
+    except GameNotRunning:
+        pass
+
+
+def test_failed_connect_closes_event_loop(monkeypatch):
+    # 連線失敗每 poll_interval 重試一輪，沒收掉 loop 會一輪洩漏一個
+    r = _reader_failing_to_open(monkeypatch, RuntimeError("boom"))
+    try:
+        r._connect()
+    except GameNotRunning:
+        pass
+    assert r._loop is None

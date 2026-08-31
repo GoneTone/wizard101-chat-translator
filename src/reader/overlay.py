@@ -32,6 +32,7 @@ STATUS_COLORS = {
     "listening": "#7dc87d",
     "translating": "#6fa8dc",
     "waiting_game": "#9a9aa8",
+    "access_denied": FG_ERROR,  # 要使用者動手（以管理員重開）才解得掉，用錯誤色
 }
 
 _OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比

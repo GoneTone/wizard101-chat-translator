@@ -24,7 +24,7 @@ from src.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
 from src.logfiles import TimestampedStream, open_session_log
-from src.reader.mem_reader import GameNotRunning, WizChatReader
+from src.reader.mem_reader import GameAccessDenied, GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.resources import icon_path
@@ -42,11 +42,21 @@ SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
 INPUT_POLL_INTERVAL = 0.05
 
 
-def banner_for(game_missing: bool, error_state: str | None) -> str | None:
+def is_elevated() -> bool:
+    """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def banner_for(game_issue: str | None, error_state: str | None) -> str | None:
     """依目前狀況決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
-    遊戲未就緒優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。"""
-    if game_missing:
-        return "notice.game_missing"
+    game_issue 是遊戲端問題的文案 key（None＝遊戲正常），優先於翻譯錯誤：
+    連不上遊戲時翻譯狀態已無意義。"""
+    if game_issue:
+        return game_issue
     if error_state == "config":
         return "notice.config_error"
     if error_state == "offline":
@@ -98,7 +108,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
     # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
     msg_ids = itertools.count(1)
-    game_missing = False
+    game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
     game_input_open = False
     last_status: str | None = None
     last_banner: str | None = None
@@ -156,11 +166,13 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
         try:
             new_lines = reader.read_new()
         except GameNotRunning as exc:
-            set_status("waiting_game")
-            if not game_missing:
-                game_missing = True
+            denied = isinstance(exc, GameAccessDenied)
+            set_status("access_denied" if denied else "waiting_game")
+            issue = "notice.access_denied" if denied else "notice.game_missing"
+            if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
-            set_banner(banner_for(game_missing, pool.error_state))
+            game_issue = issue
+            set_banner(banner_for(game_issue, pool.error_state))
             if game_input_open:
                 game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
                 if on_input_close is not None:
@@ -172,8 +184,8 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             stop.wait(cfg["poll_interval"])
             continue
 
-        if game_missing:
-            game_missing = False
+        if game_issue:
+            game_issue = None
             print("[reader] game back, resuming", file=sys.stderr)
 
         for line in new_lines:
@@ -185,7 +197,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
                                              pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
-        set_banner(banner_for(game_missing, pool.error_state))
+        set_banner(banner_for(game_issue, pool.error_state))
         if pool.in_flight:
             set_status("translating")
         else:
@@ -342,6 +354,7 @@ def main() -> None:
     # 啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄
     api = active_api(cfg)
     print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+          f"elevated={is_elevated()}, "
           f"ui_language={cfg['ui_language']} (active={current_language()}), "
           f"provider={api['provider']}, model={api['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "

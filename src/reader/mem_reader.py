@@ -78,6 +78,11 @@ class GameNotRunning(Exception):
     """找不到遊戲程序，或無法連上/掛入。"""
 
 
+class GameAccessDenied(GameNotRunning):
+    """開不了遊戲程序的 handle——多半是遊戲以系統管理員身分執行、本程式沒有。
+    繼承 GameNotRunning，上層的退避重連原封不動生效，只在文案上分流。"""
+
+
 # --- 純函式：標記解析（可單元測試，不需遊戲）---
 class ChatLine(NamedTuple):
     """一行乾淨的玩家聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。
@@ -569,6 +574,7 @@ class WizChatReader:
 
     def _connect(self) -> None:
         import wizwalker.utils
+        from pymem.exception import CouldNotOpenProcess
         from wizwalker import ClientHandler
 
         path = self._game_path or detect_install_path()
@@ -577,7 +583,18 @@ class WizChatReader:
 
         self._loop = asyncio.new_event_loop()
         self._handler = ClientHandler()
-        clients = self._handler.get_new_clients()
+        try:
+            clients = self._handler.get_new_clients()
+        except CouldNotOpenProcess as exc:
+            # 程序在、handle 開不了＝完整性等級對不上（medium 開不了 high）。
+            # 這裡不 teardown 會每輪重試漏掉一個 event loop。
+            self._teardown()
+            raise GameAccessDenied(
+                f"cannot open game process handle ({exc}); the game is likely "
+                f"running elevated while this program is not") from exc
+        except Exception as exc:
+            self._teardown()
+            raise GameNotRunning(f"failed to open game process: {exc}") from exc
         if not clients:
             self._teardown()
             raise GameNotRunning(f"game process not found: {self.process_name}")
