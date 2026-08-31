@@ -202,7 +202,10 @@ class SettingsWindow:
                                       command=self._start_update_check)
         self._update_btn.pack(side="left", padx=(8, 0))
         self._update_result = ttk.Label(version_row, text="")
-        self._update_result.pack(side="left", fill="x", expand=True, padx=8)
+        # 不 fill／expand：「有新版」時整個標籤是可點的連結，撐滿整列會讓文字
+        # 後面那段空白也跟著可點、游標也變成手指。換行寬度仍由 bind_wrap 依
+        # 這一列的寬度算，長訊息（檢查失敗帶例外訊息）照樣折行。
+        self._update_result.pack(side="left", padx=8)
         bind_wrap(self._update_result)
 
         ttk.Label(about, text=t("about.project")).grid(row=1, column=0, sticky="w",

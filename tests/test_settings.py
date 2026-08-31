@@ -501,3 +501,16 @@ def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
         time.sleep(0.01)
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
     win._win.destroy()
+
+
+def test_update_result_is_only_clickable_over_its_text(root):
+    """回歸測試：結果標籤不可撐滿整列。
+
+    「有新版」時整個標籤是可點的連結，撐滿整列會讓文字後面那段空白也可點、
+    游標也變成手指——使用者會對著空白處點卻開了瀏覽器。"""
+    win = _open_settings_with_checker(root, lambda: None)
+    info = win._update_result.pack_info()
+
+    assert not int(info["expand"]), f"結果標籤不該 expand：{info}"
+    assert str(info["fill"]) == "none", f"結果標籤不該 fill：{info}"
+    win._win.destroy()
