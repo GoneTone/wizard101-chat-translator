@@ -88,7 +88,9 @@ def fetch_latest_release(client=None) -> Release | None:
     client（沿用 translator 的同名慣例）；沒給就自己開一個用完即關的 httpx client。"""
     if client is not None:
         return _fetch(client)
-    with httpx.Client(timeout=_TIMEOUT) as http:
+    # follow_redirects：repo 改名／搬家時 GitHub API 會回 301，沒有這個參數會被
+    # httpx 直接當成最終回應（HTTP 301），檢查更新就變成一律回報失敗。
+    with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as http:
         return _fetch(http)
 
 
