@@ -48,6 +48,9 @@ PROVIDERS: dict[str, Provider] = {p.key: p for p in (
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
 
+# 可點連結的字色（設定視窗與精靈共用）
+LINK_COLOR = "#4a7ddc"
+
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",
                     "한국어", "Español", "Português", "Deutsch", "Français"]
@@ -74,6 +77,13 @@ def filter_models(models: list[str], query: str) -> list[str]:
     """依關鍵字篩選模型清單（不分大小寫子字串比對）；關鍵字為空白＝不篩選。"""
     keyword = query.strip().lower()
     return [m for m in models if keyword in m.lower()] if keyword else list(models)
+
+
+def link_label(parent, text: str, url: str) -> ttk.Label:
+    """藍字可點的連結標籤：點擊以系統瀏覽器開啟 url。"""
+    label = ttk.Label(parent, text=text, foreground=LINK_COLOR, cursor="hand2")
+    label.bind("<Button-1>", lambda e: webbrowser.open(url))
+    return label
 
 
 def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 100):
@@ -436,10 +446,8 @@ class ApiFields(ttk.Frame):
                 self._thinking_row()
             if prov.has_field("effort"):
                 self._effort_row()
-            link = ttk.Label(self._fields, text=t("link.get_key"), foreground="#4a7ddc",
-                             cursor="hand2")
-            link.pack(anchor="w", pady=(2, 0))
-            link.bind("<Button-1>", lambda e: webbrowser.open(prov.key_url))
+            link_label(self._fields, t("link.get_key"), prov.key_url).pack(
+                anchor="w", pady=(2, 0))
         self._last_provider = self._provider.get()
         self._invalidate_test()
         if self._on_change:

@@ -380,3 +380,23 @@ def test_dropdown_closes_when_nothing_matches(offscreen):
     field.refresh_options()
     offscreen.update()
     assert not field.is_posted()
+
+
+def test_link_label_opens_the_url_on_click(root, monkeypatch):
+    import tkinter as tk
+
+    from src.ui import fields
+    from src.ui.fields import LINK_COLOR, link_label
+
+    opened = []
+    monkeypatch.setattr(fields.webbrowser, "open", opened.append)
+    holder = tk.Frame(root)
+    label = link_label(holder, "GoneTone", "https://example.invalid/author")
+
+    assert label.cget("text") == "GoneTone"
+    assert str(label.cget("foreground")) == LINK_COLOR
+    assert "hand2" in str(label.cget("cursor"))
+    label.event_generate("<Button-1>")
+    root.update()
+    assert opened == ["https://example.invalid/author"]
+    holder.destroy()
