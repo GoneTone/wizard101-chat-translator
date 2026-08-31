@@ -19,6 +19,10 @@ from src.ui.fonts import ui_font
 BG = "#101018"
 BAR = "#23233a"
 GRIP = "#3a3a55"
+# 更新橫幅底色：不可沿用 BG——本體用 BG 當 `-transparentcolor`，符合這個顏色的
+# 像素連 hit-test 都會被 Windows 跳過（縮放把手也是靠這點才做出「透明卻可拖曳」
+# 以外的效果）。橫幅要整列可點、右側 ✕ 也要能點到，底色必須是不透明的顏色。
+BG_UPDATE = "#1b2740"
 FG_ORIGINAL = "#c0c0cd"
 FG_TRANSLATED = "#f2f2f7"
 # 原文對譯文的調暗係數：原文是輔助資訊，壓暗到譯文之下讓視線先落在譯文上
@@ -1012,23 +1016,33 @@ class OverlayWindow:
         一次性的告知，兩者可能同時該被看到。release 存起來，換語言時才重繪得出來。"""
         self.clear_update()
         self._update_release = release
-        row = tk.Frame(self._frame, bg=BG)
-        close = tk.Label(row, text="✕", bg=BG, fg=FG_UPDATE, font=ui_font(9),
+        row = tk.Frame(self._frame, bg=BG_UPDATE)
+        close = tk.Label(row, text="✕", bg=BG_UPDATE, fg=FG_UPDATE, font=ui_font(9),
                          cursor="hand2")
         # ✕ 先 pack：expand=True 的文字若先宣告會吃光整列寬度，把它擠出畫面
         close.pack(side="right", padx=(4, 6))
-        close.bind("<Button-1>", lambda e: self.clear_update())
+        close.bind("<Button-1>", lambda e: self._dismiss_update())
         label = tk.Label(row, text=t("update.available", version=release.version),
-                         bg=BG, fg=FG_UPDATE, font=ui_font(10, "bold"), anchor="w",
-                         cursor="hand2", wraplength=self._wrap)
+                         bg=BG_UPDATE, fg=FG_UPDATE, font=ui_font(10, "bold"),
+                         anchor="w", cursor="hand2", wraplength=self._wrap)
         label.pack(side="left", fill="x", expand=True)
-        label.bind("<Button-1>", lambda e: webbrowser.open(release.url))
+        label.bind("<Button-1>", lambda e: self._open_update_link(release))
         # before＝捲動區：與錯誤橫幅同理，排在 expand=True 的捲動區之後會在視窗
         # 被縮小時被擠掉。
         row.pack(side="bottom", fill="x", pady=2, before=self._scroll_area)
         self._update_row = row
         self._update_label = label
         print(f"[update] banner shown for {release.version}", file=sys.stderr)
+
+    def _open_update_link(self, release) -> None:
+        print(f"[update] banner clicked version={release.version}", file=sys.stderr)
+        webbrowser.open(release.url)
+
+    def _dismiss_update(self) -> None:
+        if self._update_release is not None:
+            print(f"[update] banner dismissed version={self._update_release.version}",
+                  file=sys.stderr)
+        self.clear_update()
 
     def clear_update(self) -> None:
         self._update_release = None
