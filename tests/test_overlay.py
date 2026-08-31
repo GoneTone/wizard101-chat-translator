@@ -1,5 +1,7 @@
 from src.i18n import t
 from src.reader.overlay import (
+    BG,
+    BG_UPDATE,
     FG_ERROR,
     MIN_HEIGHT,
     MIN_WIDTH,
@@ -629,3 +631,83 @@ def test_bubble_close_button_runs_the_clean_shutdown(root):
     assert not handler.endswith("destroy"), "泡泡仍停在 Tk 預設的 destroy 行為"
     root.call(handler)
     assert closed == ["bubble"]
+
+
+def test_set_update_shows_a_clickable_banner(root):
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    assert ov.update_text() is None
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    assert ov._update_label.cget("cursor") == "hand2"
+    ov.clear_update()
+    assert ov.update_text() is None
+
+
+def test_update_banner_uses_an_opaque_background(root):
+    """回歸測試：橫幅底色不可等於 BG——本體視窗把 BG 設成 `-transparentcolor`，
+    符合這個顏色的像素在 Windows 下連 hit-test 都會被跳過，整列可點與右側 ✕
+    就都點不到，靠近下緣時點擊還會穿透到 backdrop 變成縮放視窗。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    row = ov._update_row
+    close, label = row.winfo_children()
+
+    assert str(row.cget("bg")) == BG_UPDATE
+    assert str(label.cget("bg")) == BG_UPDATE
+    assert str(close.cget("bg")) == BG_UPDATE
+    assert BG_UPDATE != BG
+
+
+def test_update_banner_leaves_room_for_the_resize_grip(root):
+    """回歸測試：橫幅右側要讓出縮放把手的寬度。
+
+    把手 place 在視窗右下角、底色是透明色鍵，疊在這條不透明橫幅上會挖出一個
+    缺口並蓋掉半個 ✕（實機看到的症狀）。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+
+    # pack_info 的 padx 在不同 Tk 版本可能是 (0, 16) 序對或 "0 16" 字串
+    padx = ov._update_row.pack_info()["padx"]
+    right = padx[-1] if isinstance(padx, (tuple, list)) else str(padx).split()[-1]
+    assert int(str(right)) == _GRIP_SIZE, f"右側未讓出把手寬度：padx={padx}"
+
+
+def test_update_banner_and_error_banner_coexist(root):
+    # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_error("notice.offline")
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.error_text() == t("notice.offline")
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    ov.clear_update()
+    assert ov.error_text() == t("notice.offline")   # 關掉更新橫幅不影響錯誤橫幅
+
+
+def test_update_banner_follows_language_and_width(root):
+    from src import i18n
+    from src.updater import Release
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+        ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+        i18n.set_language("en")
+        ov.refresh_labels()
+        assert ov.update_text() == "⬆  Version 0.2.0 is available — click to download"
+
+        class FakeEvent:
+            width = 240
+
+        ov._on_canvas_configure(FakeEvent())
+        assert ov._update_label.cget("wraplength") == max(80, 240 - 12)
+    finally:
+        i18n.set_language(before)

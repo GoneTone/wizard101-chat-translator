@@ -285,3 +285,232 @@ def test_save_keeps_the_previewed_language(root):
         assert win._cfg["ui_language"] == "en"
     finally:
         i18n.set_language(before)
+
+
+def _open_settings_with_checker(root, checker):
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import current_language
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["ui_language"] = current_language()
+    win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=checker)
+    win.open()
+    return win
+
+
+def test_about_tab_shows_version_and_links(root, monkeypatch):
+    from src import __version__
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.updater import AUTHOR_URL, PROJECT_URL
+
+    opened = []
+    monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
+    win = _open_settings_with_checker(root, lambda: None)
+    tabs = [win._nb.tab(i, "text") for i in range(win._nb.index("end"))]
+    assert tabs[2] == t("settings.tab.about")
+    assert win._version_label.cget("text") == f"v{__version__}"
+    assert win._project_link.cget("text") == PROJECT_URL
+    assert win._author_link.cget("text") == "GoneTone"
+
+    win._author_link.event_generate("<Button-1>")
+    root.update()
+    assert opened == [AUTHOR_URL]
+    win._win.destroy()
+
+
+def test_about_tab_shows_the_log_folder(root):
+    from src.config import app_dir
+
+    win = _open_settings_with_checker(root, lambda: None)
+    assert win._logs_label.cget("text") == str(app_dir())
+    win._win.destroy()
+
+
+def _run_check(win):
+    """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式。
+    正式路徑是 worker 在背景執行緒跑、poll_queue 在主執行緒取，這裡把兩段接起來，
+    測試才不必等執行緒。"""
+    win._update_check_worker(win._update_queue)
+    win._on_update_checked(win._update_queue.get_nowait())
+
+
+def test_manual_check_reports_up_to_date(root):
+    from src.i18n import t
+    from src.ui import settings as settings_module
+
+    win = _open_settings_with_checker(root, lambda: None)
+    _run_check(win)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["latest"]
+    assert win._update_btn.cget("text") == t("button.check_update")
+    assert str(win._update_btn.cget("state")) == "normal"
+    win._win.destroy()
+
+
+def test_manual_check_reports_a_new_version(root, monkeypatch):
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.updater import Release
+
+    release = Release(version="9.9.9", url="https://example.invalid/rel")
+    win = _open_settings_with_checker(root, lambda: release)
+    _run_check(win)
+    assert win._update_result.cget("text") == t("update.available", version="9.9.9")
+    assert "hand2" in str(win._update_result.cget("cursor"))
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["available"]
+
+    opened = []
+    monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
+    win._update_result.event_generate("<Button-1>")
+    root.update()
+    assert opened == ["https://example.invalid/rel"]
+    win._win.destroy()
+
+
+def test_manual_check_reports_failure(root):
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.updater import UpdateCheckError
+
+    def boom():
+        raise UpdateCheckError("HTTP 403")
+
+    win = _open_settings_with_checker(root, boom)
+    _run_check(win)
+    assert win._update_result.cget("text") == "✗ " + t("update.failed", error="HTTP 403")
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["failed"]
+    assert str(win._update_btn.cget("state")) == "normal"
+    win._win.destroy()
+
+
+def test_check_button_runs_the_real_thread_and_poll_path(root):
+    """走完整路徑：按下按鈕 → 背景執行緒 → poll_queue 回主執行緒更新結果。
+
+    假 checker 先卡在 Event 上，才觀察得到「檢查中」的按鈕狀態；放行後 pump
+    事件迴圈直到結果出現（poll_queue 靠 after 輪詢，必須真的跑事件迴圈，
+    不能用 sleep 猜時間）。"""
+    import threading
+    import time
+
+    from src.i18n import t
+
+    release_checker = threading.Event()
+
+    def checker():
+        release_checker.wait(5)
+        return None
+
+    win = _open_settings_with_checker(root, checker)
+    win._update_btn.invoke()
+    root.update()
+    assert str(win._update_btn.cget("state")) == "disabled"
+    assert win._update_btn.cget("text") == t("button.checking")
+
+    release_checker.set()
+    deadline = time.monotonic() + 5
+    while not win._update_result.cget("text") and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)  # 讓出 CPU：純 root.update() 忙迴圈最壞情況會空轉滿 5 秒
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    assert str(win._update_btn.cget("state")) == "normal"
+    assert win._update_btn.cget("text") == t("button.check_update")
+    win._win.destroy()
+
+
+def test_check_button_discards_a_stale_queue_result(root):
+    """回歸測試：`_update_queue` 過去只在 __init__ 建一次，整個 app 生命週期共用。
+
+    若上一輪的結果因視窗提早關掉（或換語言 `_rebuild`）而沒被 poll_queue 撈走，
+    會滯留在 queue 裡；這裡直接塞一筆過期結果模擬那種情況，驗證按下「檢查更新」
+    看到的是這一輪查出來的結果，而不是撈到那筆滯留的舊資料。"""
+    import time
+
+    from src.i18n import t
+
+    win = _open_settings_with_checker(root, lambda: None)
+    win._update_queue.put(("failed", "stale result from a previous round", None))
+
+    win._update_btn.invoke()
+    deadline = time.monotonic() + 5
+    while win._update_result.cget("text") != "✓ " + t("update.latest") \
+            and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    win._win.destroy()
+
+
+def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
+    """回歸測試：worker 必須寫回啟動它的那一輪 queue，不能回頭讀 `_update_queue`。
+
+    重現的是兩輪重疊：按下檢查 → 結果回來前關掉視窗 → 重開 → 再按一次。舊 worker
+    若在 put 當下才查 `self._update_queue`，查到的會是新那一輪的 queue，過期結果
+    就會被這一輪的 poll_queue 撈走顯示（重建 queue 只擋得掉單輪的滯留）。
+    這裡讓兩輪都卡在 Event 上、先放行舊的，確認它落在自己的 queue、畫面不受影響。"""
+    import threading
+    import time
+
+    from src.i18n import t
+    from src.updater import UpdateCheckError
+
+    stale_started, release_stale = threading.Event(), threading.Event()
+    release_current = threading.Event()
+
+    def stale_checker():
+        stale_started.set()
+        release_stale.wait(5)
+        raise UpdateCheckError("stale round")
+
+    win = _open_settings_with_checker(root, stale_checker)
+    win._update_btn.invoke()
+    assert stale_started.wait(5)
+    stale_queue = win._update_queue
+
+    # 結果回來前關窗再重開：按鈕與結果標籤都是新的，可以再按一次
+    win._win.destroy()
+    win.open()
+
+    def current_checker():
+        release_current.wait(5)
+        return None
+
+    win._check_update = current_checker
+    win._update_btn.invoke()
+    assert win._update_queue is not stale_queue
+
+    # 先放行舊 worker，並給 poll_queue（100ms 一輪）足夠機會誤撈
+    release_stale.set()
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert stale_queue.qsize() == 1               # 舊結果留在自己那一輪
+    assert win._update_result.cget("text") == ""  # 畫面仍停在「檢查中」
+
+    release_current.set()
+    deadline = time.monotonic() + 5
+    while not win._update_result.cget("text") and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    win._win.destroy()
+
+
+def test_update_result_is_only_clickable_over_its_text(root):
+    """回歸測試：結果標籤不可撐滿整列。
+
+    「有新版」時整個標籤是可點的連結，撐滿整列會讓文字後面那段空白也可點、
+    游標也變成手指——使用者會對著空白處點卻開了瀏覽器。"""
+    win = _open_settings_with_checker(root, lambda: None)
+    info = win._update_result.pack_info()
+
+    assert not int(info["expand"]), f"結果標籤不該 expand：{info}"
+    assert str(info["fill"]) == "none", f"結果標籤不該 fill：{info}"
+    win._win.destroy()
