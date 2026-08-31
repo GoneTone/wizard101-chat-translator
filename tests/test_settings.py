@@ -334,10 +334,13 @@ def _run_check(win):
 
 def test_manual_check_reports_up_to_date(root):
     from src.i18n import t
+    from src.ui import settings as settings_module
 
     win = _open_settings_with_checker(root, lambda: None)
     _run_check(win)
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["latest"]
     assert win._update_btn.cget("text") == t("button.check_update")
     assert str(win._update_btn.cget("state")) == "normal"
     win._win.destroy()
@@ -353,6 +356,8 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
     _run_check(win)
     assert win._update_result.cget("text") == t("update.available", version="9.9.9")
     assert "hand2" in str(win._update_result.cget("cursor"))
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["available"]
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -364,6 +369,7 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
 
 def test_manual_check_reports_failure(root):
     from src.i18n import t
+    from src.ui import settings as settings_module
     from src.updater import UpdateCheckError
 
     def boom():
@@ -372,5 +378,40 @@ def test_manual_check_reports_failure(root):
     win = _open_settings_with_checker(root, boom)
     _run_check(win)
     assert win._update_result.cget("text") == "✗ " + t("update.failed", error="HTTP 403")
+    assert str(win._update_result.cget("foreground")) \
+        == settings_module._UPDATE_COLORS["failed"]
     assert str(win._update_btn.cget("state")) == "normal"
+    win._win.destroy()
+
+
+def test_check_button_runs_the_real_thread_and_poll_path(root):
+    """走完整路徑：按下按鈕 → 背景執行緒 → poll_queue 回主執行緒更新結果。
+
+    假 checker 先卡在 Event 上，才觀察得到「檢查中」的按鈕狀態；放行後 pump
+    事件迴圈直到結果出現（poll_queue 靠 after 輪詢，必須真的跑事件迴圈，
+    不能用 sleep 猜時間）。"""
+    import threading
+    import time
+
+    from src.i18n import t
+
+    release_checker = threading.Event()
+
+    def checker():
+        release_checker.wait(5)
+        return None
+
+    win = _open_settings_with_checker(root, checker)
+    win._update_btn.invoke()
+    root.update()
+    assert str(win._update_btn.cget("state")) == "disabled"
+    assert win._update_btn.cget("text") == t("button.checking")
+
+    release_checker.set()
+    deadline = time.monotonic() + 5
+    while not win._update_result.cget("text") and time.monotonic() < deadline:
+        root.update()
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    assert str(win._update_btn.cget("state")) == "normal"
+    assert win._update_btn.cget("text") == t("button.check_update")
     win._win.destroy()
