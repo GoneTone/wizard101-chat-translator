@@ -301,18 +301,24 @@ def _open_settings_with_checker(root, checker):
     return win
 
 
-def test_about_tab_shows_version_and_links(root):
+def test_about_tab_shows_version_and_links(root, monkeypatch):
     from src import __version__
     from src.i18n import t
+    from src.ui import settings as settings_module
     from src.updater import AUTHOR_URL, PROJECT_URL
 
+    opened = []
+    monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
     win = _open_settings_with_checker(root, lambda: None)
     tabs = [win._nb.tab(i, "text") for i in range(win._nb.index("end"))]
     assert tabs[2] == t("settings.tab.about")
     assert win._version_label.cget("text") == f"v{__version__}"
     assert win._project_link.cget("text") == PROJECT_URL
     assert win._author_link.cget("text") == "GoneTone"
-    assert win._author_link_url == AUTHOR_URL
+
+    win._author_link.event_generate("<Button-1>")
+    root.update()
+    assert opened == [AUTHOR_URL]
     win._win.destroy()
 
 
@@ -411,7 +417,31 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
     deadline = time.monotonic() + 5
     while not win._update_result.cget("text") and time.monotonic() < deadline:
         root.update()
+        time.sleep(0.01)  # 讓出 CPU：純 root.update() 忙迴圈最壞情況會空轉滿 5 秒
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
     assert str(win._update_btn.cget("state")) == "normal"
     assert win._update_btn.cget("text") == t("button.check_update")
+    win._win.destroy()
+
+
+def test_check_button_discards_a_stale_queue_result(root):
+    """回歸測試：`_update_queue` 過去只在 __init__ 建一次，整個 app 生命週期共用。
+
+    若上一輪的結果因視窗提早關掉（或換語言 `_rebuild`）而沒被 poll_queue 撈走，
+    會滯留在 queue 裡；這裡直接塞一筆過期結果模擬那種情況，驗證按下「檢查更新」
+    看到的是這一輪查出來的結果，而不是撈到那筆滯留的舊資料。"""
+    import time
+
+    from src.i18n import t
+
+    win = _open_settings_with_checker(root, lambda: None)
+    win._update_queue.put(("failed", "stale result from a previous round", None))
+
+    win._update_btn.invoke()
+    deadline = time.monotonic() + 5
+    while win._update_result.cget("text") != "✓ " + t("update.latest") \
+            and time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
     win._win.destroy()

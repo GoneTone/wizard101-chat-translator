@@ -213,7 +213,6 @@ class SettingsWindow:
         ttk.Label(about, text=t("about.author")).grid(row=2, column=0, sticky="w",
                                                       pady=2)
         # 開發者名稱是識別碼不是文案，不進語言檔（與服務商品牌名同理）
-        self._author_link_url = AUTHOR_URL
         self._author_link = link_label(about, "GoneTone", AUTHOR_URL)
         self._author_link.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=2)
 
@@ -232,7 +231,13 @@ class SettingsWindow:
         bind_wrap(logs_hint, trailing=_HINT_TRAILING)
 
     def _start_update_check(self) -> None:
-        """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。"""
+        """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。
+
+        每次按下都重建 queue：SettingsWindow 整個 app 生命週期只有一個實例，
+        `self._update_queue` 若只在 __init__ 建一次，視窗在結果送回前被關掉
+        （或換語言 `_rebuild`）就會讓 poll_queue 停止輪詢，結果留在舊 queue 裡；
+        下次檢查沿用同一個 queue，會先撈到那筆過期結果，而不是這一輪的。"""
+        self._update_queue = queue.Queue()
         self._update_btn.configure(state="disabled", text=t("button.checking"))
         self._update_result.configure(text="")
         threading.Thread(target=self._update_check_worker, daemon=True).start()
