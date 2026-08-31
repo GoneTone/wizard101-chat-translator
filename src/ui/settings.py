@@ -3,23 +3,32 @@
 介面語言是唯一「改了就先看到」的欄位：換語言即時預覽（視窗以新語言重建、
 常駐介面 relabel），但仍要按下儲存才寫進設定，取消則還原成開窗時的語言。"""
 import copy
+import os
+import queue
 import sys
+import threading
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
-from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_name, clamp_advanced
+from src.config import (ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name,
+                        clamp_advanced)
 from src.i18n import current_language, set_language, t
-from src.ui.fields import (ApiFields, HotkeyField, LanguageField, UiLanguageField,
+from src.ui.fields import (LINK_COLOR, ApiFields, HotkeyField, LanguageField,
+                           UiLanguageField, link_label, poll_queue,
                            validate_api_form)
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
+from src.updater import AUTHOR_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
 # 說明文字換行時的右側預留：欄位自己的 grid padx（8）＋分頁內距（12）＋一點餘裕。
 # 少扣了就會把說明的最後一兩個字切在視窗右緣外。
 _HINT_TRAILING = 24
+# 檢查更新結果的字色：沿用測試連線那組（成功綠、失敗紅），有新版用連結藍。
+_UPDATE_COLORS = {"latest": "#2e8b57", "available": LINK_COLOR, "failed": "#cc3333"}
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
@@ -46,12 +55,14 @@ class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
     def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None,
-                 on_language_preview=None):
+                 on_language_preview=None, check_update=check_for_update):
         self._root = root
         self._cfg = cfg
         self._on_save = on_save
         self._on_alpha_preview = on_alpha_preview  # 拖滑桿即時套用透明度（預覽）
         self._on_language_preview = on_language_preview  # 讓常駐視窗跟上預覽中的語言
+        self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
+        self._update_queue: queue.Queue = queue.Queue()
         self._win: tk.Toplevel | None = None
         # 未儲存的編輯暫存：欄位初始值都讀這裡，換語言重建視窗才不會弄丟填到一半的內容。
         # None＝目前沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
@@ -167,10 +178,101 @@ class SettingsWindow:
         hint.grid(row=7, column=0, columnspan=3, sticky="ew")
         bind_wrap(hint, trailing=_HINT_TRAILING)
 
+        self._build_about(nb)
+
         if self._restore_tab is not None:
             nb.select(self._restore_tab)
         self._restore_geometry = self._restore_tab = None
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _build_about(self, nb) -> None:
+        """關於分頁：版本與手動檢查更新、專案與開發者連結、紀錄檔位置。"""
+        about_scroll = ScrollableFrame(nb, padding=12)
+        about = about_scroll.body
+        nb.add(about_scroll, text=t("settings.tab.about"))
+        about.columnconfigure(1, weight=1)
+
+        ttk.Label(about, text=t("about.version")).grid(row=0, column=0, sticky="w",
+                                                       pady=2)
+        version_row = ttk.Frame(about)
+        version_row.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=2)
+        self._version_label = ttk.Label(version_row, text=f"v{__version__}")
+        self._version_label.pack(side="left")
+        self._update_btn = ttk.Button(version_row, text=t("button.check_update"),
+                                      command=self._start_update_check)
+        self._update_btn.pack(side="left", padx=(8, 0))
+        self._update_result = ttk.Label(version_row, text="")
+        self._update_result.pack(side="left", fill="x", expand=True, padx=8)
+        bind_wrap(self._update_result)
+
+        ttk.Label(about, text=t("about.project")).grid(row=1, column=0, sticky="w",
+                                                       pady=2)
+        self._project_link = link_label(about, PROJECT_URL, PROJECT_URL)
+        self._project_link.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=2)
+
+        ttk.Label(about, text=t("about.author")).grid(row=2, column=0, sticky="w",
+                                                      pady=2)
+        # 開發者名稱是識別碼不是文案，不進語言檔（與服務商品牌名同理）
+        self._author_link_url = AUTHOR_URL
+        self._author_link = link_label(about, "GoneTone", AUTHOR_URL)
+        self._author_link.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=2)
+
+        ttk.Label(about, text=t("about.logs")).grid(row=3, column=0, sticky="w",
+                                                    pady=(10, 2))
+        logs_row = ttk.Frame(about)
+        logs_row.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(10, 2))
+        # 按鈕先 pack：expand=True 的路徑標籤若先宣告會吃光整列，把按鈕擠掉
+        ttk.Button(logs_row, text=t("button.open_folder"),
+                   command=self._open_log_folder).pack(side="right", padx=(4, 0))
+        self._logs_label = ttk.Label(logs_row, text=str(app_dir()))
+        self._logs_label.pack(side="left", fill="x", expand=True)
+        logs_hint = ttk.Label(about, text=t("about.logs_hint"), foreground="#888888",
+                              justify="left")
+        logs_hint.grid(row=4, column=0, columnspan=2, sticky="ew")
+        bind_wrap(logs_hint, trailing=_HINT_TRAILING)
+
+    def _start_update_check(self) -> None:
+        """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。"""
+        self._update_btn.configure(state="disabled", text=t("button.checking"))
+        self._update_result.configure(text="")
+        threading.Thread(target=self._update_check_worker, daemon=True).start()
+        poll_queue(self._win, self._update_queue, self._on_update_checked)
+
+    def _update_check_worker(self) -> None:
+        try:
+            release = self._check_update()
+        except Exception as exc:
+            print(f"[update] manual check failed: {exc}", file=sys.stderr)
+            self._update_queue.put(("failed", t("update.failed", error=exc), None))
+            return
+        if release is None:
+            print("[update] manual check: already up to date", file=sys.stderr)
+            self._update_queue.put(("latest", t("update.latest"), None))
+            return
+        print(f"[update] manual check: {release.version} available", file=sys.stderr)
+        self._update_queue.put(("available",
+                                t("update.available", version=release.version),
+                                release.url))
+
+    def _on_update_checked(self, result) -> None:
+        state, message, url = result
+        self._update_btn.configure(state="normal", text=t("button.check_update"))
+        prefix = {"latest": "✓ ", "failed": "✗ ", "available": ""}[state]
+        self._update_result.configure(text=prefix + message,
+                                      foreground=_UPDATE_COLORS[state],
+                                      cursor="hand2" if url else "")
+        self._update_result.unbind("<Button-1>")
+        if url:
+            self._update_result.bind("<Button-1>", lambda e: webbrowser.open(url))
+
+    def _open_log_folder(self) -> None:
+        """開啟 app.log／messages.log 所在的資料夾（Windows 檔案總管）。"""
+        path = app_dir()
+        try:
+            os.startfile(path)
+        except OSError as exc:
+            print(f"[ui] open log folder failed: path={path} error={exc}",
+                  file=sys.stderr)
 
     def _alpha_slider(self, parent, grid_row: int, initial: float) -> tk.DoubleVar:
         """視窗不透明度滑桿：拖動即時預覽（套到 overlay 與泡泡），儲存才寫入設定。"""

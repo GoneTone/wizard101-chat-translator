@@ -285,3 +285,92 @@ def test_save_keeps_the_previewed_language(root):
         assert win._cfg["ui_language"] == "en"
     finally:
         i18n.set_language(before)
+
+
+def _open_settings_with_checker(root, checker):
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import current_language
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["ui_language"] = current_language()
+    win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=checker)
+    win.open()
+    return win
+
+
+def test_about_tab_shows_version_and_links(root):
+    from src import __version__
+    from src.i18n import t
+    from src.updater import AUTHOR_URL, PROJECT_URL
+
+    win = _open_settings_with_checker(root, lambda: None)
+    tabs = [win._nb.tab(i, "text") for i in range(win._nb.index("end"))]
+    assert tabs[2] == t("settings.tab.about")
+    assert win._version_label.cget("text") == f"v{__version__}"
+    assert win._project_link.cget("text") == PROJECT_URL
+    assert win._author_link.cget("text") == "GoneTone"
+    assert win._author_link_url == AUTHOR_URL
+    win._win.destroy()
+
+
+def test_about_tab_shows_the_log_folder(root):
+    from src.config import app_dir
+
+    win = _open_settings_with_checker(root, lambda: None)
+    assert win._logs_label.cget("text") == str(app_dir())
+    win._win.destroy()
+
+
+def _run_check(win):
+    """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式。
+    正式路徑是 worker 在背景執行緒跑、poll_queue 在主執行緒取，這裡把兩段接起來，
+    測試才不必等執行緒。"""
+    win._update_check_worker()
+    win._on_update_checked(win._update_queue.get_nowait())
+
+
+def test_manual_check_reports_up_to_date(root):
+    from src.i18n import t
+
+    win = _open_settings_with_checker(root, lambda: None)
+    _run_check(win)
+    assert win._update_result.cget("text") == "✓ " + t("update.latest")
+    assert win._update_btn.cget("text") == t("button.check_update")
+    assert str(win._update_btn.cget("state")) == "normal"
+    win._win.destroy()
+
+
+def test_manual_check_reports_a_new_version(root, monkeypatch):
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.updater import Release
+
+    release = Release(version="9.9.9", url="https://example.invalid/rel")
+    win = _open_settings_with_checker(root, lambda: release)
+    _run_check(win)
+    assert win._update_result.cget("text") == t("update.available", version="9.9.9")
+    assert "hand2" in str(win._update_result.cget("cursor"))
+
+    opened = []
+    monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
+    win._update_result.event_generate("<Button-1>")
+    root.update()
+    assert opened == ["https://example.invalid/rel"]
+    win._win.destroy()
+
+
+def test_manual_check_reports_failure(root):
+    from src.i18n import t
+    from src.updater import UpdateCheckError
+
+    def boom():
+        raise UpdateCheckError("HTTP 403")
+
+    win = _open_settings_with_checker(root, boom)
+    _run_check(win)
+    assert win._update_result.cget("text") == "✗ " + t("update.failed", error="HTTP 403")
+    assert str(win._update_btn.cget("state")) == "normal"
+    win._win.destroy()
