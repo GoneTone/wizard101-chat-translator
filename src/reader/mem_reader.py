@@ -387,6 +387,7 @@ class WizChatReader:
         self._warmup_system_left = RESET_WARMUP_POLLS
         self._input_recent = 0     # 輸入框開啟後的剩餘關聯輪數（見 INPUT_RELEASE_POLLS）
         self._input_was_open = False
+        self._released_for_input = False  # 本次輸入框開啟是否已用掉關聯放行額度
         self._empty_streak = 0     # 連續空讀輪數（見 STALE_BASELINE_EMPTY_POLLS）
         self._node_count: int | None = None  # 上輪讀到的 chatLog 節點數（變動＝串接結構改變）
         self._mirrored_nodes = 0   # 上輪剔除的鏡射節點數（見 lines_from_nodes）
@@ -422,6 +423,14 @@ class WizChatReader:
         texts = self._read_chatlog_texts()
         # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
         input_open_now = self.input_open()
+        if input_open_now and not self._input_was_open:
+            # 輸入框重新開啟＝使用者可能又要送一句，關聯放行的額度重新給一次。
+            # 額度以「開啟一次」為單位而非以輪數為單位：輸入框開著時下面那行每輪都把
+            # _input_recent 重置，若不另外設限，開著輸入框切聊天頁籤會讓自己剛發的
+            # 那句每切回來就再放行一次（實機回報：重開軟體後切頁籤重複顯示，
+            # 幾次後才停在關聯輪數耗盡）。重打同一句必然要重開輸入框，切頁籤不會，
+            # 這個邊緣正好把兩者分開。
+            self._released_for_input = False
         if input_open_now or self._input_was_open:
             self._input_recent = INPUT_RELEASE_POLLS
         elif self._input_recent > 0:
@@ -591,15 +600,20 @@ class WizChatReader:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
         呼叫端必須在 _remember 之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
         kept = filter_resurfaced(emitted, self._seen)
-        if (len(kept) != len(emitted) and self._input_recent > 0 and emitted[-1].own
+        if (len(kept) != len(emitted) and self._input_recent > 0
+                and not self._released_for_input and emitted[-1].own
                 and (not kept or kept[-1] is not emitted[-1])):
             # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
             # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除。
             # 限自己講的那行：轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
             # 舊訊息當成「剛送出」放行而重翻（實機回報）
+            # 每次開啟輸入框只放行一次（見 _released_for_input 的重置點）：這個機制
+            # 分不出「重打同一句」與「切頁籤讓同一句重新浮現」，不設限的話後者會
+            # 每切回來就重複顯示一次。
             print(f"[reader] released tail line suppressed as resurfaced: input "
                   f"closed recently, treating as a just-sent message via {path}",
                   file=sys.stderr)
+            self._released_for_input = True
             kept = kept + [emitted[-1]]
         if len(kept) != len(emitted):
             print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
