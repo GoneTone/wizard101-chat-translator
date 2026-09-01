@@ -7,10 +7,13 @@
 句型，金額每次都不同，不正規化就永遠不會命中。
 """
 import json
+import os
 import re
 import sys
+import tempfile
 import threading
 from collections import OrderedDict
+from pathlib import Path
 
 from src.config import local_state_dir
 
@@ -140,16 +143,51 @@ class TranslationCache:
               file=sys.stderr)
 
     def flush(self) -> None:
-        """寫回磁碟。寫檔失敗只記 log，不影響翻譯——快取是最佳化，不是必要路徑。"""
+        """寫回磁碟：先寫進同目錄的獨立暫存檔，寫完再 os.replace() 原子性換上。
+
+        worker 觸發的 auto-flush（見 put()）與關閉流程的最終 flush 可能同時觸發——
+        兩邊各自寫進自己的暫存檔名，不會共用同一個寫入中的檔案；os.replace() 在
+        Windows 與 POSIX 上都是原子操作，讀者（load()）不會看到寫一半的 JSON，
+        兩次 flush 疊在一起也頂多是後者覆蓋前者、不會互相截斷成殘破檔案。
+        寫檔失敗只記 log，不影響翻譯——快取是最佳化，不是必要路徑。"""
         with self._lock:
             payload = {"fingerprint": self._fingerprint,
                        "entries": dict(self._entries)}
             count = len(self._entries)
             self._unflushed = 0
+        tmp_path: Path | None = None
         try:
             CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False),
-                                  encoding="utf-8")
+            fd, tmp_name = tempfile.mkstemp(dir=CACHE_PATH.parent,
+                                            prefix=f"{CACHE_PATH.name}.")
+            tmp_path = Path(tmp_name)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            os.replace(tmp_path, CACHE_PATH)
+            tmp_path = None   # 已被換到目的地，不必再清
             print(f"[cache] flushed {count} entries to {CACHE_PATH}", file=sys.stderr)
         except Exception as exc:
             print(f"[cache] flush failed: {exc}", file=sys.stderr)
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+
+def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
+    """翻一則系統訊息並存進快取。送去翻譯的是正規化後的樣板，存的也是樣板譯文；
+    佔位符被模型弄壞時不快取、改用原文直翻一次（正確性優先於命中率）。
+
+    `translator` 只要求有 `translate_system_message(text) -> str`（見
+    `src.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
+    """
+    template, numbers = normalize(text)
+    translated = translator.translate_system_message(template)
+    # put() 收的是**原文**、內部自己正規化。這裡不能傳 template——
+    # 它含 `{0}`，再 normalize 一次會把裡面的 0 當成數字，變成 `{{0}}`。
+    if cache.put(text, translated):
+        return restore(translated, numbers)
+    print(f"[cache] falling back to a direct translation: {text!r}", file=sys.stderr)
+    return translator.translate_system_message(text)

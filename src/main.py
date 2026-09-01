@@ -31,7 +31,9 @@ from src.reader.mem_reader import (
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.resources import icon_path
-from src.translation_cache import TranslationCache, fingerprint_of, normalize, restore
+from src.translation_cache import (
+    TranslationCache, fingerprint_of, translate_and_cache,
+)
 from src.translation_pool import TranslationPool
 from src.translator import Translator
 from src.ui.settings import SettingsWindow
@@ -125,7 +127,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
                 on_input_open=None, on_input_close=None,
                 message_log: MessageLog | None = None,
                 system_pool: TranslationPool | None = None,
-                cache=None) -> None:
+                cache: TranslationCache | None = None) -> None:
     # 讀遊戲聊天記錄 → 依序推進上下文、在 overlay 佔位 → 交給 pool 平行翻譯。
     # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
@@ -446,21 +448,9 @@ def main() -> None:
         failed_notice_fn=lambda: t("notice.translate_failed"),
         gate=gate)
 
-    def _translate_and_cache(text: str) -> str:
-        """翻一則系統訊息並存進快取。送去翻譯的是正規化後的樣板，存的也是樣板譯文；
-        佔位符被模型弄壞時不快取、改用原文直翻一次（見 translation_cache）。"""
-        template, numbers = normalize(text)
-        translated = translator.translate_system_message(template)
-        # put() 收的是**原文**、內部自己正規化。這裡不能傳 template——
-        # 它含 `{0}`，再 normalize 一次會把裡面的 0 當成數字，變成 `{{0}}`。
-        if cache.put(text, translated):
-            return restore(translated, numbers)
-        print(f"[cache] falling back to a direct translation: {text!r}", file=sys.stderr)
-        return translator.translate_system_message(text)
-
     def on_system_result(msg_id: int, text: str, failed: bool) -> None:
         """系統訊息譯完：把結果轉交 UI 執行緒回填 overlay（快取寫入已在
-        _translate_and_cache 內、於 worker 執行緒完成）。"""
+        translate_and_cache 內、於 worker 執行緒完成）。"""
         ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
 
     system_pool = TranslationPool(
@@ -468,7 +458,7 @@ def main() -> None:
         on_result=on_system_result,
         workers=cfg["max_parallel_translations"],
         failed_notice_fn=lambda: t("notice.translate_failed"),
-        translate_fn=lambda text, _ctx: _translate_and_cache(text),
+        translate_fn=lambda text, _ctx: translate_and_cache(translator, cache, text),
         gate=gate)
 
     def on_translated(translated: str, hwnd: int | None) -> None:
@@ -496,12 +486,11 @@ def main() -> None:
     def apply_settings() -> None:
         nonlocal hotkey_handle, ui_language
         save_config(CONFIG_PATH, cfg)
-        translator.reconfigure(**active_api(cfg),
-                               target_language=cfg["target_language"])
+        applied_api = active_api(cfg)
+        translator.reconfigure(**applied_api, target_language=cfg["target_language"])
         pool.resize(cfg["max_parallel_translations"])
         system_pool.resize(cfg["max_parallel_translations"])
         # 服務商／模型／目標語言任一改變，舊譯文即失效
-        applied_api = active_api(cfg)
         cache.rebind(fingerprint_of(applied_api["provider"], applied_api["model"],
                                     cfg["target_language"]))
         keyboard.remove_hotkey(hotkey_handle)
@@ -514,9 +503,8 @@ def main() -> None:
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
-        applied = active_api(cfg)
-        print(f"[settings] applied; provider={applied['provider']}, "
-              f"model={applied['model']}, hotkey={cfg['hotkey']}, "
+        print(f"[settings] applied; provider={applied_api['provider']}, "
+              f"model={applied_api['model']}, hotkey={cfg['hotkey']}, "
               f"ui_language={cfg['ui_language']}, "
               f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
@@ -556,7 +544,12 @@ def main() -> None:
         stop.set()
         pool.shutdown()
         system_pool.shutdown()
-        keyboard.unhook_all()
+        try:
+            keyboard.unhook_all()
+        except Exception as exc:
+            # 不可讓這裡的例外逃出 finally——逃出去會連 reader join、cache flush、
+            # os._exit(0) 都跳過，使用者連快取都救不回來。
+            print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
         # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
         # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
         reader_thread.join(timeout=8)

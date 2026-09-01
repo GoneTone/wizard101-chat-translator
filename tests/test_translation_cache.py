@@ -4,7 +4,10 @@ import json
 import pytest
 
 import src.translation_cache as cache_module
-from src.translation_cache import TranslationCache, fingerprint_of, normalize, placeholders_match, restore
+from src.translation_cache import (
+    TranslationCache, fingerprint_of, normalize, placeholders_match, restore,
+    translate_and_cache,
+)
 
 
 def test_normalize_replaces_numbers_with_placeholders():
@@ -200,6 +203,41 @@ def test_rebind_is_a_no_op_when_the_fingerprint_is_unchanged(cache_path):
     c.rebind(FP)
     assert not cache_path.exists()      # 沒變更就不觸發落盤
     assert c.get("熔岩百合") == "熔岩百合(Lava Lily)"
+
+
+class FakeTranslator:
+    """記錄收到的每一次翻譯請求；translations 是「送進去的文字→回傳的譯文」對照表。"""
+
+    def __init__(self, translations):
+        self.translations = dict(translations)
+        self.requested: list[str] = []
+
+    def translate_system_message(self, text):
+        self.requested.append(text)
+        return self.translations[text]
+
+
+def test_translate_and_cache_stores_the_normalized_template(cache_path):
+    translator = FakeTranslator({"你获得了 {0} 金币！": "你獲得了 {0} 金幣！"})
+    cache = TranslationCache(FP)
+    result = translate_and_cache(translator, cache, "你获得了 39 金币！")
+    assert result == "你獲得了 39 金幣！"
+    assert translator.requested == ["你获得了 {0} 金币！"]   # 送去翻譯的是樣板，不是原文
+    assert cache.get("你获得了 39 金币！") == "你獲得了 39 金幣！"
+    assert cache.get("你获得了 65 金币！") == "你獲得了 65 金幣！"   # 換個數字也命中同一筆
+
+
+def test_translate_and_cache_falls_back_when_the_model_mangles_a_placeholder(cache_path):
+    # 模型把樣板譯文裡的佔位符弄丟：不快取，改用原文直翻一次，正確性優先於命中率
+    translator = FakeTranslator({
+        "你获得了 {0} 金币！": "你獲得了金幣！",        # 樣板譯文：佔位符不見了
+        "你获得了 39 金币！": "你獲得了 39 金幣！",     # 直翻原文（fallback）的結果
+    })
+    cache = TranslationCache(FP)
+    result = translate_and_cache(translator, cache, "你获得了 39 金币！")
+    assert result == "你獲得了 39 金幣！"
+    assert translator.requested == ["你获得了 {0} 金币！", "你获得了 39 金币！"]
+    assert cache.get("你获得了 39 金币！") is None   # 沒存進快取
 
 
 def test_fingerprint_never_contains_the_api_key():
