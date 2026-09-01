@@ -542,3 +542,52 @@ def test_update_result_is_only_clickable_over_its_text(root):
     assert not int(info["expand"]), f"結果標籤不該 expand：{info}"
     assert str(info["fill"]) == "none", f"結果標籤不該 fill：{info}"
     win._win.destroy()
+
+
+class FakeCache:
+    """記錄 clear 呼叫次數與回傳筆數。"""
+
+    def __init__(self, count=42):
+        self.count = count
+        self.cleared = 0
+
+    def clear(self):
+        self.cleared += 1
+        return self.count
+
+
+def _configured_cfg():
+    from src.config import DEFAULT_CONFIG
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    return cfg
+
+
+def test_about_tab_hides_the_cache_row_without_a_cache(root):
+    from src.ui.settings import SettingsWindow
+    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None)
+    win.open()
+    assert not hasattr(win, "_cache_result"), "沒有快取就不該畫出那一列"
+
+
+def test_clear_cache_button_clears_and_reports_the_count(root):
+    from src.i18n import t
+    from src.ui.settings import SettingsWindow
+    cache = FakeCache(count=42)
+    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win.open()
+    assert win._cache_result.cget("text") == ""      # 還沒按之前不顯示任何結果
+    win._clear_cache()
+    assert cache.cleared == 1
+    assert win._cache_result.cget("text") == t("about.cache_cleared", count=42)
+
+
+def test_clear_cache_reports_zero_when_the_cache_was_already_empty(root):
+    from src.i18n import t
+    from src.ui.settings import SettingsWindow
+    cache = FakeCache(count=0)
+    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win.open()
+    win._clear_cache()
+    assert win._cache_result.cget("text") == t("about.cache_cleared", count=0)

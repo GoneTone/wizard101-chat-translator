@@ -312,3 +312,46 @@ def test_cache_file_never_contains_the_api_key(cache_path):
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.flush()
     assert "sk-" not in cache_path.read_text(encoding="utf-8")
+
+
+# --- clear：使用者在設定視窗主動清除 ---
+def test_clear_empties_the_cache_and_reports_the_count(cache_path):
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
+    c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
+    assert c.clear() == 2
+    assert c.get("熔岩百合") is None
+    assert c.get("你获得了 39 金币！") is None
+
+
+def test_clear_removes_the_file_from_disk(cache_path):
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
+    c.flush()
+    assert cache_path.exists()
+    c.clear()
+    assert not cache_path.exists()
+
+
+def test_clear_survives_a_missing_file(cache_path):
+    # 從未落盤過就按清除：不得拋例外
+    assert TranslationCache(FP).clear() == 0
+
+
+def test_clear_does_not_write_the_discarded_entries_back(cache_path):
+    # 與 rebind 不同：rebind 會先 flush 舊內容再換指紋，clear 是丟掉，不寫回
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
+    c.flush()
+    c.clear()
+    c.flush()
+    data = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert data["entries"] == {}
+
+
+def test_cache_still_usable_after_clear(cache_path):
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
+    c.clear()
+    c.put("迷幻木头", "迷幻木頭", FP)
+    assert c.get("迷幻木头") == "迷幻木頭"

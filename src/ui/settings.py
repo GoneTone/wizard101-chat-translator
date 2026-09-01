@@ -55,12 +55,13 @@ class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
     def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None,
-                 on_language_preview=None, check_update=check_for_update):
+                 on_language_preview=None, check_update=check_for_update, cache=None):
         self._root = root
         self._cfg = cfg
         self._on_save = on_save
         self._on_alpha_preview = on_alpha_preview  # 拖滑桿即時套用透明度（預覽）
         self._on_language_preview = on_language_preview  # 讓常駐視窗跟上預覽中的語言
+        self._cache = cache   # 譯文快取；None＝關於分頁不畫「清除快取」那一列
         self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
         self._update_queue: queue.Queue = queue.Queue()
         self._win: tk.Toplevel | None = None
@@ -237,6 +238,28 @@ class SettingsWindow:
                               justify="left")
         logs_hint.grid(row=4, column=0, columnspan=2, sticky="ew")
         bind_wrap(logs_hint, trailing=_HINT_TRAILING)
+
+        if self._cache is not None:   # None＝呼叫端沒有快取（測試與早期啟動路徑）
+            ttk.Label(about, text=t("about.cache")).grid(row=5, column=0, sticky="w",
+                                                         pady=(10, 2))
+            cache_row = ttk.Frame(about)
+            cache_row.grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(10, 2))
+            ttk.Button(cache_row, text=t("button.clear_cache"),
+                       command=self._clear_cache).pack(side="left")
+            self._cache_result = ttk.Label(cache_row, text="")
+            self._cache_result.pack(side="left", padx=(8, 0))
+            cache_hint = ttk.Label(about, text=t("about.cache_hint"),
+                                   foreground="#888888", justify="left")
+            cache_hint.grid(row=6, column=0, columnspan=2, sticky="ew")
+            bind_wrap(cache_hint, trailing=_HINT_TRAILING)
+
+    def _clear_cache(self) -> None:
+        """清掉譯文快取並回報筆數。不加確認對話框：快取會自動重建，
+        誤按的代價只是下一則同樣的系統訊息重翻一次。"""
+        count = self._cache.clear()
+        self._cache_result.configure(text=t("about.cache_cleared", count=count))
+        print(f"[settings] translation cache cleared by user ({count} entries)",
+              file=sys.stderr)
 
     def _start_update_check(self) -> None:
         """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。

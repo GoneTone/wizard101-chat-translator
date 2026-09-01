@@ -510,7 +510,8 @@ def main() -> None:
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,
-                              on_language_preview=relabel_ui)
+                              on_language_preview=relabel_ui,
+                              cache=cache)
 
     stop = threading.Event()
     reader_thread = threading.Thread(

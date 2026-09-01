@@ -134,6 +134,23 @@ class TranslationCache:
             self._fingerprint = fingerprint
             self._unflushed = 0
 
+    def clear(self) -> int:
+        """清空快取並刪掉磁碟檔案，回傳清掉的筆數（設定視窗要回報給使用者）。
+
+        與 rebind() 語意不同：那是換指紋，會先把舊內容 flush 出去留著；這是使用者
+        主動丟棄，不寫回任何東西。刪檔失敗只記 log 不拋——快取是最佳化路徑，
+        清不掉檔案也不該讓設定視窗炸掉，下次 flush 會覆寫它。"""
+        with self._lock:
+            count = len(self._entries)
+            self._entries.clear()
+            self._unflushed = 0
+        try:
+            CACHE_PATH.unlink(missing_ok=True)
+        except Exception as exc:
+            print(f"[cache] could not delete {CACHE_PATH}: {exc}", file=sys.stderr)
+        print(f"[cache] cleared {count} entries on user request", file=sys.stderr)
+        return count
+
     def load(self) -> None:
         """從磁碟載入。指紋不符、檔案損壞或不存在一律當作空快取（不是錯誤）。"""
         if not CACHE_PATH.exists():
