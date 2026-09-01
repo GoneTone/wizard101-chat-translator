@@ -442,14 +442,16 @@ class ApiFields(ttk.Frame):
             self._thinking_row()
         else:
             self._labeled_entry(t("field.api_key"), self._api_key, secret=True)
+            # 取金鑰的連結緊貼金鑰欄：它是這一欄的輔助說明，擺到所有欄位最後
+            # 會與它要幫的欄位分家，使用者在金鑰欄卡住時看不到它。
+            link_label(self._fields, t("link.get_key"), prov.key_url).pack(
+                anchor="w", pady=(2, 0))
             self._model_row()
             if prov.has_field("thinking"):
                 # ChatGPT 官方端點可關思考（只送 reasoning_effort，見 translator）。
                 self._thinking_row()
             if prov.has_field("effort"):
                 self._effort_row()
-            link_label(self._fields, t("link.get_key"), prov.key_url).pack(
-                anchor="w", pady=(2, 0))
         self._last_provider = self._provider.get()
         self._invalidate_test()
         if self._on_change:

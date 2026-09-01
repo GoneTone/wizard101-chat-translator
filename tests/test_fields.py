@@ -420,3 +420,17 @@ def test_official_endpoint_keeps_key_before_model(root):
     fields = ApiFields(root, _initial(provider="openai"))
     texts = _widget_texts(fields._fields)
     assert texts.index(t("field.api_key")) < texts.index(t("field.model"))
+
+
+def test_get_key_link_sits_under_the_api_key_field(root):
+    """取金鑰的連結是金鑰欄的輔助說明，要緊貼在它底下。
+
+    原本擺在所有欄位的最後（模型、思考深度之後），與它要幫的欄位分家——
+    使用者卡在金鑰欄時視線不會落到那裡。"""
+    for provider in ("openai", "claude"):
+        fields = ApiFields(root, _initial(provider=provider))
+        texts = _widget_texts(fields._fields)
+        key_at = texts.index(t("field.api_key"))
+        link_at = texts.index(t("link.get_key"))
+        model_at = texts.index(t("field.model"))
+        assert key_at < link_at < model_at, f"{provider} 的連結位置不對：{texts}"
