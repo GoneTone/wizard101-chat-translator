@@ -151,6 +151,24 @@ def test_load_survives_a_corrupt_file(cache_path):
     assert c.get("熔岩百合") is None
 
 
+def test_load_survives_a_structurally_malformed_file(cache_path):
+    # entries 語法上是合法 JSON，但形狀不對（list／string 而非 dict）——
+    # 截斷寫入或版本不一致的舊檔可能留下這種殘骸，一樣不得拋例外。
+    cache_path.write_text(
+        json.dumps({"fingerprint": FP, "entries": ["not", "a", "dict"]}),
+        encoding="utf-8")
+    c = TranslationCache(FP)
+    c.load()            # 不得拋例外
+    assert c.get("熔岩百合") is None
+
+    cache_path.write_text(
+        json.dumps({"fingerprint": FP, "entries": "not a dict either"}),
+        encoding="utf-8")
+    c2 = TranslationCache(FP)
+    c2.load()           # 不得拋例外
+    assert c2.get("熔岩百合") is None
+
+
 def test_load_survives_a_missing_file(cache_path):
     c = TranslationCache(FP)
     c.load()

@@ -111,6 +111,9 @@ class TranslationCache:
             data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
             stored = data.get("fingerprint")
             entries = data.get("entries") or {}
+            if not isinstance(entries, dict):
+                raise TypeError(f"entries is {type(entries).__name__}, expected dict")
+            items = list(entries.items())[-MAX_ENTRIES:]
         except Exception as exc:
             print(f"[cache] unreadable cache file, starting empty: {exc}",
                   file=sys.stderr)
@@ -120,7 +123,7 @@ class TranslationCache:
                   f"(stored={stored!r}, current={self._fingerprint!r})", file=sys.stderr)
             return
         with self._lock:
-            self._entries = OrderedDict(list(entries.items())[-MAX_ENTRIES:])
+            self._entries = OrderedDict(items)
         print(f"[cache] loaded {len(entries)} entries from {CACHE_PATH}",
               file=sys.stderr)
 
