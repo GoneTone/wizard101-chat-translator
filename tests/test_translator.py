@@ -7,6 +7,7 @@ import pytest
 from src.translator import (
     OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
     TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
+    build_system_message_system, _game_noun_rule, strip_invented_english,
 )
 
 
@@ -423,3 +424,115 @@ def test_list_models_claude_connection_error_maps_to_offline():
         raises=anthropic.APIConnectionError(request=httpx2.Request("GET", "http://x")))
     with pytest.raises(TranslatorOffline):
         list_models(_api(provider="claude"), client=fake)
+
+
+def test_system_message_prompt_names_the_target_language():
+    prompt = build_system_message_system("日本語")
+    assert "日本語" in prompt
+
+
+def test_system_message_prompt_does_not_mention_a_sender_prefix():
+    # 系統訊息沒有 [發送者] 前綴，提示詞若照抄收訊那套會讓模型自己編一個出來
+    prompt = build_system_message_system("繁體中文（台灣）")
+    assert "[發送者]" not in prompt
+
+
+def test_system_message_prompt_protects_placeholders():
+    prompt = build_system_message_system("繁體中文（台灣）")
+    assert "{0}" in prompt
+
+
+def test_translate_system_message_sends_no_context_turns():
+    fake = FakeHttpxClient()
+    tr = Translator(target_language="繁體中文（台灣）", client=fake)
+    tr.translate_system_message("你获得了 {0} 金币！")
+    # 檢查只送了單一 user turn（無背景上下文）
+    turns = fake.last_body["messages"][1:]  # 跳過 system message
+    assert turns == [{"role": "user", "content": "你获得了 {0} 金币！"}]
+
+
+def test_translate_system_message_strips_think_blocks():
+    fake = FakeHttpxClient(response=FakeResponse(content="<think>hmm</think>你獲得了 {0} 金幣！"))
+    tr = Translator(target_language="繁體中文（台灣）", client=fake)
+    assert tr.translate_system_message("你获得了 {0} 金币！") == "你獲得了 {0} 金幣！"
+
+
+# --- 遊戲名詞規則：括號裡的英文只能照抄原文既有的 ---
+def test_game_noun_rule_is_shared_by_both_prompts():
+    # 這條規則曾在收訊與系統訊息兩處各寫一份，改一處就會漏另一處——
+    # 實機回報的「自行編造英文」正源於此。共用同一份，結構上防止再度分岔。
+    rule = _game_noun_rule("日本語")
+    assert rule in build_incoming_system("日本語")
+    assert rule in build_system_message_system("日本語")
+
+
+def test_game_noun_rule_forbids_inventing_english_for_non_english_source():
+    # 原文非英文時模型不得自行翻一個英文塞進括號
+    rule = _game_noun_rule("繁體中文（台灣）")
+    assert "只能照抄原文本來就有的" in rule
+    assert "不得附加任何英文" in rule
+
+
+def test_game_noun_rule_still_keeps_english_when_the_source_is_english():
+    rule = _game_noun_rule("繁體中文（台灣）")
+    assert "火龍(Fire Dragon)" in rule
+
+
+def test_game_noun_rule_names_the_target_language():
+    assert "日本語" in _game_noun_rule("日本語")
+    assert "Español" in _game_noun_rule("Español")
+
+
+# --- strip_invented_english：原文沒有英文時，譯文的括號英文必然是模型生成的 ---
+def test_strip_invented_english_removes_parenthesised_english_for_cjk_source():
+    # 實測：同一則簡中材料名，兩次翻譯分別補上 (Psychedelic Wood) 與 (Mystic Wood)
+    assert strip_invented_english("迷幻木头", "迷幻木頭(Mystic Wood)") == "迷幻木頭"
+
+
+def test_strip_invented_english_keeps_english_when_the_source_has_english():
+    # 原文本來就有英文：括號可能是照抄的，不得動
+    assert strip_invented_english(
+        "Proud Pegasus Statue", "驕傲的飛馬雕像(Proud Pegasus Statue)"
+    ) == "驕傲的飛馬雕像(Proud Pegasus Statue)"
+
+
+def test_strip_invented_english_ignores_an_english_sender_name():
+    # 判斷只看訊息內容：發送者名是英文不代表內容有英文
+    assert strip_invented_english(
+        "[Amy] 迷幻木头", "[Amy] 迷幻木頭(Mystic Wood)"
+    ) == "[Amy] 迷幻木頭"
+
+
+def test_strip_invented_english_keeps_the_sender_prefix():
+    assert strip_invented_english("[艾米] 迷幻木头", "[艾米] 迷幻木頭(Mystic Wood)") \
+        == "[艾米] 迷幻木頭"
+
+
+def test_strip_invented_english_handles_full_width_parentheses():
+    assert strip_invented_english("迷幻木头", "迷幻木頭（Mystic Wood）") == "迷幻木頭"
+
+
+def test_strip_invented_english_leaves_placeholders_alone():
+    assert strip_invented_english("你获得了 {0} 金币！", "你獲得了 {0} 金幣！") \
+        == "你獲得了 {0} 金幣！"
+
+
+def test_strip_invented_english_leaves_cjk_parentheses_content_alone():
+    # 括號裡不是英文就不是幻覺，原樣保留
+    assert strip_invented_english("熔岩百合", "熔岩百合（一種材料）") == "熔岩百合（一種材料）"
+
+
+def test_strip_invented_english_removes_every_occurrence():
+    assert strip_invented_english(
+        "你获得了迷幻木头和熔岩百合", "你獲得了迷幻木頭(Mystic Wood)和熔岩百合(Lava Lily)"
+    ) == "你獲得了迷幻木頭和熔岩百合"
+
+
+def test_translate_incoming_strips_invented_english():
+    fake = FakeHttpxClient(response=FakeResponse(content="[艾米] 迷幻木頭(Mystic Wood)"))
+    assert _make(fake).translate_incoming("[艾米] 迷幻木头", []) == "[艾米] 迷幻木頭"
+
+
+def test_translate_system_message_strips_invented_english():
+    fake = FakeHttpxClient(response=FakeResponse(content="迷幻木頭(Mystic Wood)"))
+    assert _make(fake).translate_system_message("迷幻木头") == "迷幻木頭"

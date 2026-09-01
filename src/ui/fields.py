@@ -433,21 +433,25 @@ class ApiFields(ttk.Frame):
             self._switch_profile()
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
+            # 依填寫順序排：網址→金鑰→模型。模型清單要靠前兩者才取得到，
+            # 且這樣與官方端點那一支（金鑰在模型之前）一致，切換服務商時欄位不跳動。
             self._labeled_entry(t("field.base_url"), self._base_url)
             self._field_hint(t("hint.custom_endpoint"))
-            self._model_row()
             self._labeled_entry(t("field.api_key_optional"), self._api_key, secret=True)
+            self._model_row()
             self._thinking_row()
         else:
             self._labeled_entry(t("field.api_key"), self._api_key, secret=True)
+            # 取金鑰的連結緊貼金鑰欄：它是這一欄的輔助說明，擺到所有欄位最後
+            # 會與它要幫的欄位分家，使用者在金鑰欄卡住時看不到它。
+            link_label(self._fields, t("link.get_key"), prov.key_url).pack(
+                anchor="w", pady=(2, 0))
             self._model_row()
             if prov.has_field("thinking"):
                 # ChatGPT 官方端點可關思考（只送 reasoning_effort，見 translator）。
                 self._thinking_row()
             if prov.has_field("effort"):
                 self._effort_row()
-            link_label(self._fields, t("link.get_key"), prov.key_url).pack(
-                anchor="w", pady=(2, 0))
         self._last_provider = self._provider.get()
         self._invalidate_test()
         if self._on_change:

@@ -61,6 +61,7 @@ class FakeReader:
         self.stop = stop
         self.anchored = anchored
         self.n = 0
+        self.emit_system = False
 
     def read_new(self):
         i = self.n
@@ -77,14 +78,24 @@ class FakeReader:
         pass
 
 
-def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None):
+def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
+                 system_pool=None, cache=None, readers=None):
+    """readers（若提供）會被塞進建立出來的 FakeReader，供呼叫端檢查
+    reader.emit_system 等屬性是否真的被 reader_loop 同步過。"""
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     pool = pool or FakePool()
     context = context or ChatContext()
-    monkeypatch.setattr(main_module, "WizChatReader",
-                        lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, overlay, ui_queue, stop, context, pool)
+
+    def make_reader(**kw):
+        reader = FakeReader(reads, stop)
+        if readers is not None:
+            readers.append(reader)
+        return reader
+
+    monkeypatch.setattr(main_module, "WizChatReader", make_reader)
+    reader_loop(cfg, overlay, ui_queue, stop, context, pool,
+                system_pool=system_pool, cache=cache)
     _drain(ui_queue)
     return pool, context
 
@@ -95,6 +106,130 @@ def _drain(ui_queue):
             ui_queue.get_nowait()()
         except queue.Empty:
             break
+
+
+class FakeCache:
+    """記錄查詢；hits 指定哪些原文要命中，以及命中時回傳的譯文。"""
+
+    def __init__(self, hits=None):
+        self.hits = dict(hits or {})
+        self.queried: list[str] = []
+
+    def get(self, text):
+        self.queried.append(text)
+        return self.hits.get(text)
+
+
+def _drop(text: str) -> ChatLine:
+    """一行系統訊息（帶遊戲顯示色）。"""
+    return ChatLine(text, "#00ff00", False, True)
+
+
+def test_system_lines_skip_the_chat_context(monkeypatch):
+    # 系統訊息不得進入上下文：8 行的窗會被掉寶洗光，玩家對話就失去語境
+    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    ov = FakeOverlay()
+    reads = [[_drop("你获得了 39 金币！"), ChatLine("[Lars] hi", None)], []]
+    sys_pool = FakePool()
+    pool, context = run_scripted(cfg, ov, reads, monkeypatch,
+                                 system_pool=sys_pool, cache=FakeCache())
+    assert context.snapshot() == ["[Lars] hi"]
+    assert [line for line, _, _ in pool.submitted] == ["[Lars] hi"]
+    assert [line for line, _, _ in sys_pool.submitted] == ["你获得了 39 金币！"]
+    # 系統訊息不吃上下文，提交時 context 必為空
+    assert [ctx for _, ctx, _ in sys_pool.submitted] == [[]]
+
+
+def test_cached_system_line_is_added_already_translated(monkeypatch):
+    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    ov = FakeOverlay()
+    reads = [[_drop("你获得了 39 金币！")], []]
+    sys_pool = FakePool()
+    cache = FakeCache({"你获得了 39 金币！": "你獲得了 39 金幣！"})
+    run_scripted(cfg, ov, reads, monkeypatch, system_pool=sys_pool, cache=cache)
+    assert ov.messages == [("你获得了 39 金币！", "你獲得了 39 金幣！")]
+    assert ov.pending_flags == [False]   # 命中快取＝完成態，不經過佔位
+    assert ov.colors == ["#00ff00"]      # 遊戲顯示色照樣帶到 overlay
+    assert sys_pool.submitted == []      # 命中就不進 pool
+    assert cache.queried == ["你获得了 39 金币！"]   # 確實查過快取，不是巧合命中
+
+
+def test_uncached_system_line_goes_to_the_system_pool(monkeypatch):
+    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    ov = FakeOverlay()
+    reads = [[_drop("你获得了 39 金币！")], []]
+    sys_pool = FakePool()
+    pool, _ = run_scripted(cfg, ov, reads, monkeypatch,
+                           system_pool=sys_pool, cache=FakeCache())
+    assert ov.messages == [("你获得了 39 金币！", t("notice.pending"))]
+    assert ov.pending_flags == [True]
+    assert [line for line, _, _ in sys_pool.submitted] == ["你获得了 39 金币！"]
+    assert pool.submitted == []          # 不得混進玩家對話那條佇列
+
+
+def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypatch):
+    # API 掛掉時若剛好只有系統訊息在跑，玩家 pool 的 error_state 還是 None，
+    # 橫幅仍然必須出現（見 main.reader_loop 的 or 合併）
+    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    ov = FakeOverlay()
+    sys_pool = FakePool()
+    sys_pool.error_state = "offline"
+    run_scripted(cfg, ov, [[], []], monkeypatch, system_pool=sys_pool,
+                 cache=FakeCache())
+    assert ov.errors == ["notice.offline"]
+
+
+def test_system_lines_are_ignored_when_the_setting_is_off(monkeypatch):
+    cfg = {"poll_interval": 0.01, "translate_system_messages": False}
+    ov = FakeOverlay()
+    sys_pool = FakePool()
+    # reader.emit_system 為 False 時真實 reader 根本不會吐系統行，
+    # 這裡驗證的是 reader_loop 有把設定傳下去（而不是只因為腳本裡沒有系統行）
+    reads = [[ChatLine("[Lars] hi", None)], []]
+    readers: list = []
+    pool, _ = run_scripted(cfg, ov, reads, monkeypatch, system_pool=sys_pool,
+                           cache=FakeCache(), readers=readers)
+    assert sys_pool.submitted == []
+    assert readers[0].emit_system is False
+
+
+class TogglingEmitSystemReader(FakeReader):
+    """在第一輪讀取後把 cfg 的開關切成 True，藉此驗證 reader.emit_system 是否
+    在每輪迴圈開頭重新同步（而不是只在建立 reader 當下設一次就固定住）。
+    emit_system_log 記錄每輪呼叫 read_new() 時，reader.emit_system 當下的值。"""
+
+    def __init__(self, reads, stop, cfg):
+        super().__init__(reads, stop)
+        self.cfg = cfg
+        self.emit_system_log: list[bool] = []
+
+    def read_new(self):
+        self.emit_system_log.append(self.emit_system)
+        if self.n == 0:
+            self.cfg["translate_system_messages"] = True
+        return super().read_new()
+
+
+def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
+    # 設定可能在執行中被使用者從設定視窗切換；若只在建立 reader 當下同步一次，
+    # 中途切換就要等下次重開程式才生效。這裡在第一輪讀取後把 cfg 切成 True，
+    # 驗證第二輪迴圈開頭已經跟上（見 main.reader_loop 主迴圈開頭那行同步）。
+    cfg = {"poll_interval": 0.01, "translate_system_messages": False}
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    reads = [[], [], []]
+    created: list[TogglingEmitSystemReader] = []
+
+    def make_reader(**kw):
+        reader = TogglingEmitSystemReader(reads, stop, cfg)
+        created.append(reader)
+        return reader
+
+    monkeypatch.setattr(main_module, "WizChatReader", make_reader)
+    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
+                system_pool=FakePool(), cache=FakeCache())
+    _drain(ui_queue)
+    assert created[0].emit_system_log == [False, True, True]
 
 
 def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
@@ -115,11 +250,13 @@ def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
     cfg = {"poll_interval": 0.01}
     ov = FakeOverlay()
     reads = [[ChatLine("[A] a", "#80ff00")], []]
-    pool, context = run_scripted(cfg, ov, reads, monkeypatch)
+    cache = FakeCache()
+    pool, context = run_scripted(cfg, ov, reads, monkeypatch, cache=cache)
     assert ov.messages == [("[A] a", t("notice.pending"))]
     assert ov.colors == ["#80ff00"]
     assert pool.submitted == [("[A] a", [], 1)]
     assert context.snapshot() == ["[A] a"]
+    assert cache.queried == []   # 玩家對話不查快取——快取只服務系統訊息
 
 
 def test_context_advances_by_read_order_not_by_completion(monkeypatch):

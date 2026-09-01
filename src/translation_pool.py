@@ -19,12 +19,20 @@ class TranslationPool:
     failed＝放棄該則、text 是失敗提示而非譯文。
     呼叫端負責把它轉交回 UI 執行緒。"""
 
-    def __init__(self, translator, on_result, workers: int, failed_notice_fn):
+    def __init__(self, translator, on_result, workers: int, failed_notice_fn,
+                 translate_fn=None, gate=None):
         self._translator = translator
         self._on_result = on_result
         # 取失敗提示的 callable 而非字串：介面語言可能在執行中被改掉，
         # 建構當下就定案的字串會停在舊語言。
         self._failed_notice_fn = failed_notice_fn
+        # 哪一條翻譯路徑：預設收訊（吃 context），系統訊息 pool 傳入自己的。
+        self._translate_fn = translate_fn or (
+            lambda text, context: translator.translate_incoming(text, context))
+        # 總量閘（可為 None＝不限總量，測試與單 pool 情境用）。與下方的退避閘門
+        # （_gate_until／_wait_for_gate）是兩回事：那是「伺服器掛了、全體暫停」，
+        # 這是「同時最多幾則」。
+        self._concurrency = gate
         self._workers = workers
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -88,6 +96,8 @@ class TranslationPool:
             self._executor = ThreadPoolExecutor(max_workers=workers,
                                                 thread_name_prefix="translate")
         old.shutdown(wait=False)
+        if self._concurrency is not None:
+            self._concurrency.set_limit(workers)
         print(f"[translate] pool resized to {workers} workers", file=sys.stderr)
 
     def shutdown(self, wait: bool = False) -> None:
@@ -121,7 +131,7 @@ class TranslationPool:
                     return          # 關閉中：放棄這則，不回報
                 attempts += 1
                 try:
-                    translated = self._translator.translate_incoming(line, context)
+                    translated = self._call_translate(line, context)
                 except TranslatorOffline as exc:
                     self._note_failure("offline", exc)
                     continue        # 該則留著重試，伺服器恢復就補上
@@ -147,6 +157,18 @@ class TranslationPool:
         finally:
             if not decremented:
                 self._decrement_in_flight()
+
+    def _call_translate(self, line: str, context: list[str]) -> str:
+        """在總量閘的額度內送出一次翻譯請求。取不到額度（關閉中）視為離線、
+        交給既有的重試路徑處理——此時 _stop 已設定，下一圈就會收手。"""
+        if self._concurrency is None:
+            return self._translate_fn(line, context)
+        if not self._concurrency.acquire(self._stop):
+            raise TranslatorOffline("shutting down while waiting for a concurrency slot")
+        try:
+            return self._translate_fn(line, context)
+        finally:
+            self._concurrency.release()
 
     def _wait_for_gate(self) -> bool:
         """等到退避閘門開啟；關閉中回傳 False。分段等待讓 shutdown 能及時打斷。"""

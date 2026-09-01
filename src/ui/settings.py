@@ -158,12 +158,17 @@ class SettingsWindow:
                                       "type_delay", 0.01, "settings.type_delay_hint")
         self._alpha_var = self._alpha_slider(adv, 5, cfg["overlay_alpha"])
 
-        ttk.Label(adv, text=t("settings.game_path")).grid(row=6, column=0, sticky="w",
+        self._translate_system = tk.BooleanVar(value=cfg["translate_system_messages"])
+        ttk.Checkbutton(adv, text=t("field.translate_system"),
+                        variable=self._translate_system).grid(
+            row=6, column=0, columnspan=3, sticky="w", pady=(10, 2))
+
+        ttk.Label(adv, text=t("settings.game_path")).grid(row=7, column=0, sticky="w",
                                                           pady=(10, 2))
         # 滑桿與路徑列跨欄放進自己的 Frame：它們比 Spinbox 寬得多，
         # 讓它們獨占 column 1 會把每一列的數值欄都撐開、右邊拉出一大片空白。
         path_row = ttk.Frame(adv)
-        path_row.grid(row=6, column=1, columnspan=2, sticky="ew", padx=(8, 0),
+        path_row.grid(row=7, column=1, columnspan=2, sticky="ew", padx=(8, 0),
                       pady=(10, 2))
         self._game_path_row = path_row   # 版面順序測試取得這一列的入口
         self._game_path = tk.StringVar(value=cfg["game_path"] or "")
@@ -175,7 +180,7 @@ class SettingsWindow:
             side="left", fill="x", expand=True)
         hint = ttk.Label(adv, text=t("settings.game_path_hint"), foreground="#888888",
                          justify="left")
-        hint.grid(row=7, column=0, columnspan=3, sticky="ew")
+        hint.grid(row=8, column=0, columnspan=3, sticky="ew")
         bind_wrap(hint, trailing=_HINT_TRAILING)
 
         self._build_about(nb)
@@ -357,6 +362,7 @@ class SettingsWindow:
             draft["target_language"] = self._language.value()
         draft["hotkey"] = self._hotkey.value()
         draft["auto_show_input"] = self._auto_input.get()
+        draft["translate_system_messages"] = self._translate_system.get()
         draft["game_path"] = self._game_path.get().strip() or None
         advanced, _error = parse_advanced_values(
             self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
@@ -421,6 +427,7 @@ class SettingsWindow:
         cfg["target_language"] = self._language.value()
         cfg["hotkey"] = self._hotkey.value()
         cfg["auto_show_input"] = self._auto_input.get()
+        cfg["translate_system_messages"] = self._translate_system.get()
         cfg.update(advanced)
         cfg["game_path"] = self._game_path.get().strip() or None
         game_path_changed = cfg["game_path"] != old_game_path

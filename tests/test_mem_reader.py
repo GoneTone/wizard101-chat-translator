@@ -4,6 +4,7 @@ from src.reader.mem_reader import (
     RESET_WARMUP_POLLS, ChatLine, GameAccessDenied, GameNotRunning,
     GameVersionMismatch, WizChatReader, align_append, align_recover, clean,
     filter_resurfaced, is_version_mismatch, lines_from_chatlog, lines_from_nodes,
+    player_out_with_idx,
 )
 from src.reader.message_log import MessageLog
 
@@ -66,11 +67,13 @@ def test_lines_keeps_cjk_sender_and_spaces():
     assert _texts(lines_from_chatlog(log)) == ["[沃尔夫 亡灵骑兵] wth"]
 
 
-def test_lines_skips_system_messages():
-    # 系統訊息（無 <link;GID>）不翻：掉寶/經驗/升等
+def test_lines_flags_system_messages():
+    # 系統訊息（掉寶/經驗/升等）照收，但標上 system 旗標走另一條差分軌
     log = "\n".join([_say(1, "Amy", "hi"), _system("你獲得了 51 金幣！"),
                      _system("你現在等級 28！")])
-    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi"]
+    lines = lines_from_chatlog(log)
+    assert _texts(lines) == ["[Amy] hi", "你獲得了 51 金幣！", "你現在等級 28！"]
+    assert [l.system for l in lines] == [False, True, True]
 
 
 def test_lines_skips_debug_rows():
@@ -90,7 +93,8 @@ def test_lines_keeps_own_message():
 def test_lines_keeps_own_and_others_together():
     log = "\n".join([_say(1, "Amy", "hi"), _own("我回你"), _system("你獲得了 51 金幣！"),
                      "[STAT] noise", _say(2, "Bob", "yo")])
-    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi", "[你] 我回你", "[Bob] yo"]
+    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi", "[你] 我回你",
+                                               "你獲得了 51 金幣！", "[Bob] yo"]
 
 
 def test_lines_preserves_order_and_repeats():
@@ -109,8 +113,7 @@ def test_lines_keeps_astral_emoji_text():
     assert _texts(lines_from_chatlog(_say(1, "Amy", "nice 😂👀"))) == ["[Amy] nice 😂👀"]
 
 
-def test_lines_empty_when_no_player_chat():
-    assert lines_from_chatlog(_system("你獲得了 14 金幣！")) == []
+def test_lines_empty_for_empty_input():
     assert lines_from_chatlog("") == []
 
 
@@ -133,6 +136,81 @@ def test_lines_skips_debug_rows_without_icon():
     log = "\n".join(["[DBGM] MSG_SendBlob 114 CurrentZone 114</color>",
                      "[DBGM] Loading housing blob: Type:Garden Objects:1</color>"])
     assert lines_from_chatlog(log) == []
+
+
+# --- 系統訊息：照收但標上 system 旗標（走獨立差分軌，見 _diff_system_lines）---
+def _system_colored(color: str, text: str) -> str:
+    return (f"<color;{color}><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> "
+            f"{text}</color>")
+
+
+def test_system_lines_are_emitted_with_the_system_flag():
+    lines = lines_from_chatlog(_system_colored("00FF00", "你获得了 39 金币！"))
+    assert [l.text for l in lines] == ["你获得了 39 金币！"]
+    assert lines[0].system is True
+    assert lines[0].color == "#00ff00"
+
+
+def test_player_lines_are_not_flagged_as_system():
+    lines = lines_from_chatlog(_say_colored("FFFFFF", "Lars", "hi"))
+    assert lines[0].system is False
+
+
+def test_system_lines_do_not_need_a_sender_prefix():
+    # 玩家行必須通過 _VALID 的 [發送者] 規則，系統行沒有前綴、不適用
+    lines = lines_from_chatlog(_system_colored("AA00AA", "你获得了 3 经验值！"))
+    assert [l.text for l in lines] == ["你获得了 3 经验值！"]
+
+
+def test_system_lines_that_clean_to_nothing_are_dropped():
+    assert lines_from_chatlog(_system_colored("00FF00", "")) == []
+
+
+def test_debug_lines_are_still_dropped():
+    # 除錯行沒有任何頻道圖示，不會因為放行系統訊息而混進來
+    assert lines_from_chatlog("[DBGM] some debug noise") == []
+    assert lines_from_chatlog("[WARN] another one") == []
+
+
+def test_system_and_player_lines_keep_their_in_game_order():
+    raw = _log(_system_colored("00FF00", "你获得了 39 金币！"),
+               _say_colored("FFFFFF", "Lars", "hi"),
+               _system_colored("AA00AA", "你获得了 3 经验值！"))
+    lines = lines_from_chatlog(raw)
+    assert [l.text for l in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
+    assert [l.system for l in lines] == [True, False, True]
+
+
+def test_mirror_detection_still_only_considers_player_lines():
+    # 主視圖有玩家行＋系統行，副節點只鏡射玩家行 → 仍判定為鏡射並剔除
+    main = _log(_say_colored("FFFFFF", "Lars", "hi"), _system_colored("00FF00", "你获得了 39 金币！"))
+    mirror = _say_colored("FFFFFF", "Lars", "hi")
+    lines, mirrored = lines_from_nodes([main, mirror])
+    assert mirrored == 1
+    assert [l.text for l in lines] == ["[Lars] hi", "你获得了 39 金币！"]
+
+
+def test_player_index_mapping_skips_lines_filtered_out_of_the_tail():
+    # 慢路徑會從尾段「中間」剔除重浮歷史，剩下的不再是連續尾段：
+    # 若只取同長度的尾段索引，吐出的會是 b、c 而不是 a、c
+    cur_all = lines_from_chatlog(_log(_say_colored("FFFFFF", "P", "a"),
+                                      _system_colored("00FF00", "掉寶"),
+                                      _say_colored("FFFFFF", "P", "b"),
+                                      _say_colored("FFFFFF", "P", "c")))
+    player_idx = [0, 2, 3]
+    cur_player = [cur_all[i] for i in player_idx]
+    assert player_out_with_idx([cur_player[0], cur_player[2]], cur_player, player_idx) == [0, 3]
+    assert player_out_with_idx([], cur_player, player_idx) == []
+
+
+def test_player_index_mapping_tells_repeated_lines_apart():
+    # 重複行（lol／gg）文字一模一樣，只能以物件識別對回索引
+    cur_all = lines_from_chatlog(_log(_say_colored("FFFFFF", "P", "lol"),
+                                      _system_colored("00FF00", "掉寶"),
+                                      _say_colored("FFFFFF", "P", "lol")))
+    player_idx = [0, 2]
+    cur_player = [cur_all[i] for i in player_idx]
+    assert player_out_with_idx([cur_player[1]], cur_player, player_idx) == [2]
 
 
 # --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
@@ -911,6 +989,114 @@ def test_view_flap_beside_a_mirror_node_does_not_retranslate():
         assert r.read_new() == []                # 視圖來回跳：不得重翻
 
 
+# --- 系統訊息的差分軌：與玩家軌分離，由 emit_system 決定要不要輸出 ---
+def test_system_and_player_lines_are_emitted_in_game_order():
+    first = _say_colored("FFFFFF", "Lars", "hi")
+    second = _log(first,
+                  _system_colored("00FF00", "你获得了 39 金币！"),
+                  _say_colored("FFFFFF", "Amy", "hey"),
+                  _system_colored("AA00AA", "你获得了 3 经验值！"))
+    r = FakeWiz([first, second])
+    r.emit_system = True
+    r.read_new()                      # 建立基準
+    assert _texts(r.read_new()) == ["你获得了 39 金币！", "[Amy] hey", "你获得了 3 经验值！"]
+
+
+def test_system_messages_do_not_disturb_the_player_baseline():
+    # 一輪湧入大量系統訊息，夾在其中的玩家訊息仍須照吐
+    base = _say_colored("FFFFFF", "Lars", "hi")
+    flood = _log(base, *[_system_colored("00FF00", f"你获得了 {n} 金币！") for n in range(1, 15)],
+                 _say_colored("FFFFFF", "Amy", "hey"))
+    r = FakeWiz([base, flood])
+    r.read_new()
+    # 精確比對：emit_system 預設關閉，系統行一行都不該漏進玩家軌的輸出
+    assert _texts(r.read_new()) == ["[Amy] hey"]
+
+
+def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
+    # 「這一輪沒有系統訊息」是日常狀態，不可拿它清掉系統軌基準：基準一沒了，
+    # 下一輪就會被推去走 reset，而 reset 一律以看過集合過濾——再掉一次一字不差的
+    # 同樣的寶（實機最常見的情形）就會被當成重浮歷史而整句吞掉。
+    drop = _system_colored("00FF00", "你获得了 39 金币！")
+    player = _say_colored("FFFFFF", "Lars", "hi")
+    with_sys = _log(player, drop)
+    no_sys = _log(player, _say_colored("FFFFFF", "Amy", "a"))
+    dropped_again = _log(player, _say_colored("FFFFFF", "Amy", "a"), drop, drop)
+    r = FakeWiz([with_sys, no_sys, no_sys, no_sys, dropped_again])
+    r.emit_system = True
+    r.read_new()                                    # 建立基準（含那一則掉寶）
+    assert _texts(r.read_new()) == ["[Amy] a"]      # 這三輪一則系統訊息都沒有
+    assert _texts(r.read_new()) == []
+    assert _texts(r.read_new()) == []
+    # 基準還在 → 只有「第二次」掉寶算新的：不吞掉，也不把第一次的重吐一遍
+    assert _texts(r.read_new()) == ["你获得了 39 金币！"]
+
+
+def test_system_lines_are_tracked_even_when_not_emitted():
+    # 開關關閉時仍要跟蹤系統軌，之後打開才不會爆吐歷史（emit_system=False）
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
+    r = FakeWiz([first, second, second])
+    r.emit_system = False
+    r.read_new()
+    assert _texts(r.read_new()) == []      # 關閉時不吐
+    r.emit_system = True
+    assert _texts(r.read_new()) == []      # 打開後也不該把歷史倒出來
+
+
+def test_system_track_keeps_emitting_after_being_re_enabled():
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
+    third = _log(second, _system_colored("AA00AA", "你获得了 3 经验值！"))
+    r = FakeWiz([first, second, third])
+    r.emit_system = False
+    r.read_new()
+    r.read_new()
+    r.emit_system = True
+    assert _texts(r.read_new()) == ["你获得了 3 经验值！"]
+
+
+def test_node_increase_does_not_re_emit_a_system_line_the_new_node_carries(capsys):
+    # 實機：掉寶進行中開私訊／組隊視窗，chatLog 節點數 1->2。串接結構一變，對齊就會
+    # 生出假的 append，而 append 路徑不過看過集合 → 剛掉過的那則寶再吐一次、再打一次
+    # API。節點數是兩軌共同的事實：系統軌比照玩家軌走 reset 語意，交由看過集合擋下。
+    drop = _system_colored("00FF00", "你获得了 39 金币！")
+    main = _log(_say_colored("FFFFFF", "Lars", "hi"), drop)
+    whisper = _log(_own("whisper 1"), drop)   # 新視窗把同一則掉寶也渲染了一份
+    r = FakeWiz([[main]] * 7 + [[main, whisper]])
+    r.emit_system = True
+    for _ in range(7):
+        assert r.read_new() == []             # 基準 ＋ 暖機期過完
+    # 新節點裡的新玩家訊息照吐；已經看過的掉寶不得再吐一次
+    assert _texts(r.read_new()) == ["[你] whisper 1"]
+    assert ("system track handled as reset (chatLog node count increased)"
+            in capsys.readouterr().err)
+
+
+def test_merge_keeps_game_order_when_the_two_tracks_take_different_paths(capsys):
+    # 雙軌設計的核心保證：兩軌各自走了哪條路徑都不影響相對順序（索引同源）。
+    # 這裡讓玩家軌走 append、系統軌走 reset（頭部的舊掉寶被顯示上限修掉，
+    # 與系統軌基準完全無重疊），輸出仍須與遊戲內的交錯順序一字不差。
+    old_drop = _system_colored("00FF00", "你获得了 39 金币！")
+    hi = _say_colored("FFFFFF", "Lars", "hi")
+    gold = _system_colored("00FF00", "你获得了 65 金币！")
+    hey = _say_colored("FFFFFF", "Amy", "hey")
+    exp = _system_colored("AA00AA", "你获得了 88 经验值！")
+    log = io.StringIO()
+    r = FakeWiz([_log(old_drop, hi)] * 6 + [_log(hi, gold, hey, exp)],
+                message_log=MessageLog(log))
+    r.emit_system = True
+    for _ in range(6):
+        assert r.read_new() == []
+    log.truncate(0)
+    log.seek(0)
+    emitted = r.read_new()
+    assert "path=append" in log.getvalue()          # 玩家軌：hi 之後純附加
+    assert ("system track handled as reset (no overlap with baseline)"
+            in capsys.readouterr().err)             # 系統軌：與基準無重疊
+    assert _texts(emitted) == ["你获得了 65 金币！", "[Amy] hey", "你获得了 88 经验值！"]
+
+
 # --- messages.log：原始內容與判定結果落檔（見 src/reader/message_log.py）---
 def test_message_log_records_raw_lines_and_what_was_emitted():
     buf = io.StringIO()
@@ -1179,3 +1365,58 @@ def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     r = _connecting_reader(monkeypatch, tmp_path, handler)
     r._connect()
     assert handler.activate_kwargs == {"wait_for_ready": False}
+
+
+def _tab_switch_script(mine: str, other: str) -> list[str]:
+    """前 6 輪停在同一視圖（建立基準並耗掉 RESET_WARMUP_POLLS 的暖機吸收期），
+    其後在兩個視圖之間來回切，模擬切聊天頁籤。"""
+    return [mine] * 6 + [other, mine, other, mine]
+
+
+def test_no_release_while_the_input_box_is_open():
+    """輸入框開著時切頁籤，自己的舊發言不得被當成「剛送出」而重複顯示。
+
+    實機回報：重開軟體後切聊天頁籤重複顯示同一句。app.log 顯示放行發生在
+    「開啟輸入框後 60 毫秒」——那一刻使用者還在打字，不可能有剛送出的訊息，
+    重新浮現的其實是切頁籤帶出來的舊訊息。送出的那一輪 input_open 為 False
+    （訊息是在輸入框關掉之後才出現在 chatLog 裡），開著時放行純屬誤判。
+    """
+    mine = _own("Test321")
+    other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
+    script = _tab_switch_script(mine, other)
+    r = FakeWiz(script, inputs=[True] * len(script))   # 輸入框全程開著
+    for _ in range(6):
+        r.read_new()
+    r.read_new()                            # 切到別人的視圖：首次見到，照吐
+    assert _texts(r.read_new()) == [], "輸入框開著時不該放行重浮的舊發言"
+    r.read_new()
+    assert _texts(r.read_new()) == [], "再切回來同樣不該放行"
+
+
+def test_release_fires_after_the_input_box_closes():
+    """輸入框剛關閉＝剛送出：重打同一句被看過集合擋下時仍要放行（原始救援場景）。"""
+    mine = _own("Test321")
+    other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
+    script = _tab_switch_script(mine, other)
+    # 前 6 輪開著（打字中），第 7 輪起關閉＝送出
+    inputs = [True] * 6 + [False] * (len(script) - 6)
+    r = FakeWiz(script, inputs=inputs)
+    for _ in range(6):
+        r.read_new()
+    r.read_new()                            # 輸入框關閉的那一輪
+    assert _texts(r.read_new()) == ["[你] Test321"], "剛送出的同字訊息要放行"
+
+
+def test_release_fires_once_per_input_session():
+    """關聯放行的額度以「一次輸入」為單位，窗內不得重複放行同一行。"""
+    mine = _own("Test321")
+    other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
+    script = _tab_switch_script(mine, other)
+    inputs = [True] * 6 + [False] * (len(script) - 6)
+    r = FakeWiz(script, inputs=inputs)
+    for _ in range(6):
+        r.read_new()
+    r.read_new()
+    assert _texts(r.read_new()) == ["[你] Test321"]
+    r.read_new()
+    assert _texts(r.read_new()) == [], "同一次輸入只放行一次"

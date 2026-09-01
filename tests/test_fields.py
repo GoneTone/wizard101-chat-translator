@@ -400,3 +400,37 @@ def test_link_label_opens_the_url_on_click(root, monkeypatch):
     root.update()
     assert opened == ["https://example.invalid/author"]
     holder.destroy()
+
+
+def test_custom_endpoint_orders_fields_by_fill_in_sequence(root):
+    """自訂端點的欄位依填寫順序排：網址 → 金鑰 → 模型。
+
+    模型清單要靠網址與金鑰才取得到，把模型欄擺在金鑰之前會讓使用者先碰到一個
+    還不能用的欄位；官方端點那一支本來就是金鑰在模型之前，兩者一致切換服務商
+    時欄位才不會跳動。"""
+    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
+    texts = _widget_texts(fields._fields)
+    url_at = texts.index(t("field.base_url"))
+    key_at = texts.index(t("field.api_key_optional"))
+    model_at = texts.index(t("field.model"))
+    assert url_at < key_at < model_at, f"欄位順序不對：{texts}"
+
+
+def test_official_endpoint_keeps_key_before_model(root):
+    fields = ApiFields(root, _initial(provider="openai"))
+    texts = _widget_texts(fields._fields)
+    assert texts.index(t("field.api_key")) < texts.index(t("field.model"))
+
+
+def test_get_key_link_sits_under_the_api_key_field(root):
+    """取金鑰的連結是金鑰欄的輔助說明，要緊貼在它底下。
+
+    原本擺在所有欄位的最後（模型、思考深度之後），與它要幫的欄位分家——
+    使用者卡在金鑰欄時視線不會落到那裡。"""
+    for provider in ("openai", "claude"):
+        fields = ApiFields(root, _initial(provider=provider))
+        texts = _widget_texts(fields._fields)
+        key_at = texts.index(t("field.api_key"))
+        link_at = texts.index(t("link.get_key"))
+        model_at = texts.index(t("field.model"))
+        assert key_at < link_at < model_at, f"{provider} 的連結位置不對：{texts}"

@@ -9,10 +9,11 @@ jump 原碼）+ 當時的模組基址（module base）。依 PID 命名存檔。
 還原前比對存檔基址與現行基址，不符即視為過期、不套用，避免寫到錯的位址。
 """
 import json
-import os
 from pathlib import Path
 
-APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
+from src.config import local_state_dir
+
+APP_DIR = local_state_dir()
 
 
 def _state_path(pid: int) -> Path:

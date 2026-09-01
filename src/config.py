@@ -1,6 +1,7 @@
 """config.json 讀寫；缺漏欄位以 DEFAULT_CONFIG 補齊。"""
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,12 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
+
+
+def local_state_dir() -> Path:
+    """本機狀態目錄：跨啟動保留、但不屬於使用者資料的檔案（hook 修復狀態、譯文快取）。
+    與 `app_dir()` 分開——那裡放的是使用者會去看、去改的東西（config.json、log）。"""
+    return Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
 
 
 CONFIG_PATH = app_dir() / "config.json"
@@ -57,6 +64,9 @@ DEFAULT_CONFIG: dict = {
     # 同時進行的收訊翻譯則數。實測 4 併發後幾乎無額外收益，只讓單則延遲更差；
     # 設 1 等同逐則排隊（本功能之前的行為）。
     "max_parallel_translations": 4,
+    # 是否翻譯並顯示遊戲系統訊息（掉寶／經驗／升等廣播等）。預設關閉：量大，會佔用
+    # max_messages 的額度把玩家對話往上推走，由使用者自行決定要不要開。
+    "translate_system_messages": False,
     "hotkey": "ctrl+space",
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）

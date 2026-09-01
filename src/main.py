@@ -18,6 +18,7 @@ import winerror
 from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
+from src.concurrency_gate import ConcurrencyGate
 from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
                         load_config, save_config)
 from src.context import ChatContext
@@ -30,6 +31,9 @@ from src.reader.mem_reader import (
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.resources import icon_path
+from src.translation_cache import (
+    TranslationCache, fingerprint_of, translate_and_cache,
+)
 from src.translation_pool import TranslationPool
 from src.translator import Translator
 from src.ui.settings import SettingsWindow
@@ -121,10 +125,13 @@ def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) ->
 def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
                 stop: threading.Event, context: ChatContext, pool: TranslationPool,
                 on_input_open=None, on_input_close=None,
-                message_log: MessageLog | None = None) -> None:
+                message_log: MessageLog | None = None,
+                system_pool: TranslationPool | None = None,
+                cache: TranslationCache | None = None) -> None:
     # 讀遊戲聊天記錄 → 依序推進上下文、在 overlay 佔位 → 交給 pool 平行翻譯。
     # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
+    reader.emit_system = cfg.get("translate_system_messages", False)
     msg_ids = itertools.count(1)
     game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
     game_input_open = False
@@ -180,6 +187,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             ui_queue.put(lambda k=key: overlay.set_error(k))
 
     while not stop.is_set():
+        reader.emit_system = cfg.get("translate_system_messages", False)
         set_status("listening" if reader.anchored else "locating")
         try:
             new_lines = reader.read_new()
@@ -194,7 +202,8 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
             game_issue = issue
-            set_banner(banner_for(game_issue, pool.error_state))
+            set_banner(banner_for(game_issue, pool.error_state or
+                                  (system_pool.error_state if system_pool else None)))
             if game_input_open:
                 game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
                 if on_input_close is not None:
@@ -211,16 +220,31 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             print("[reader] game back, resuming", file=sys.stderr)
 
         for line in new_lines:
+            msg_id = next(msg_ids)
+            if line.system:
+                # 系統訊息不進上下文，且先查快取——命中就直接以完成態顯示，
+                # 不佔位也不進 pool（零延遲）。
+                cached = cache.get(line.text) if cache is not None else None
+                if cached is not None:
+                    ui_queue.put(lambda o=line.text, tr=cached, c=line.color:
+                                 overlay.add_message(o, tr, color=c))
+                    continue
+                ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
+                             overlay.add_message(o, t("notice.pending"), msg_id=m,
+                                                 pending=True, color=c))
+                if system_pool is not None:
+                    system_pool.submit(line.text, [], msg_id)
+                continue
             ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
             context.push(line.text)
-            msg_id = next(msg_ids)
             ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
                          overlay.add_message(o, t("notice.pending"), msg_id=m,
                                              pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
-        set_banner(banner_for(game_issue, pool.error_state))
-        if pool.in_flight:
+        set_banner(banner_for(game_issue, pool.error_state or
+                              (system_pool.error_state if system_pool else None)))
+        if pool.in_flight or (system_pool is not None and system_pool.in_flight):
             set_status("translating")
         else:
             set_status("listening" if reader.anchored else "locating")
@@ -381,7 +405,8 @@ def main() -> None:
           f"provider={api['provider']}, model={api['model']}, "
           f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
           f"poll_interval={cfg['poll_interval']}, "
-          f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
+          f"parallel={cfg['max_parallel_translations']}, "
+          f"translate_system={cfg['translate_system_messages']}", file=sys.stderr)
 
     translator = Translator(**api, target_language=cfg["target_language"])
     context = ChatContext()
@@ -410,12 +435,31 @@ def main() -> None:
         alpha=cfg["overlay_alpha"],
     )
 
+    gate = ConcurrencyGate(cfg["max_parallel_translations"])
+    cache = TranslationCache(fingerprint_of(api["provider"], api["model"],
+                                            cfg["target_language"]))
+    cache.load()
+
     pool = TranslationPool(
         translator=translator,
         on_result=lambda mid, text, failed: ui_queue.put(
             lambda: overlay.update_message(mid, text, failed=failed)),
         workers=cfg["max_parallel_translations"],
-        failed_notice_fn=lambda: t("notice.translate_failed"))
+        failed_notice_fn=lambda: t("notice.translate_failed"),
+        gate=gate)
+
+    def on_system_result(msg_id: int, text: str, failed: bool) -> None:
+        """系統訊息譯完：把結果轉交 UI 執行緒回填 overlay（快取寫入已在
+        translate_and_cache 內、於 worker 執行緒完成）。"""
+        ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
+
+    system_pool = TranslationPool(
+        translator=translator,
+        on_result=on_system_result,
+        workers=cfg["max_parallel_translations"],
+        failed_notice_fn=lambda: t("notice.translate_failed"),
+        translate_fn=lambda text, _ctx: translate_and_cache(translator, cache, text),
+        gate=gate)
 
     def on_translated(translated: str, hwnd: int | None) -> None:
         type_into_window(hwnd, translated, delay=cfg["type_delay"])
@@ -442,9 +486,13 @@ def main() -> None:
     def apply_settings() -> None:
         nonlocal hotkey_handle, ui_language
         save_config(CONFIG_PATH, cfg)
-        translator.reconfigure(**active_api(cfg),
-                               target_language=cfg["target_language"])
+        applied_api = active_api(cfg)
+        translator.reconfigure(**applied_api, target_language=cfg["target_language"])
         pool.resize(cfg["max_parallel_translations"])
+        system_pool.resize(cfg["max_parallel_translations"])
+        # 服務商／模型／目標語言任一改變，舊譯文即失效
+        cache.rebind(fingerprint_of(applied_api["provider"], applied_api["model"],
+                                    cfg["target_language"]))
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
                                             lambda: ui_queue.put(input_box.show))
@@ -455,9 +503,8 @@ def main() -> None:
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
-        applied = active_api(cfg)
-        print(f"[settings] applied; provider={applied['provider']}, "
-              f"model={applied['model']}, hotkey={cfg['hotkey']}, "
+        print(f"[settings] applied; provider={applied_api['provider']}, "
+              f"model={applied_api['model']}, hotkey={cfg['hotkey']}, "
               f"ui_language={cfg['ui_language']}, "
               f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
 
@@ -470,7 +517,9 @@ def main() -> None:
         target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
         kwargs={"on_input_open": lambda: ui_queue.put(input_box.show),
                 "on_input_close": lambda: ui_queue.put(input_box.close),
-                "message_log": message_log},
+                "message_log": message_log,
+                "system_pool": system_pool,
+                "cache": cache},
         daemon=True)
     reader_thread.start()
 
@@ -494,7 +543,13 @@ def main() -> None:
         print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
         stop.set()
         pool.shutdown()
-        keyboard.unhook_all()
+        system_pool.shutdown()
+        try:
+            keyboard.unhook_all()
+        except Exception as exc:
+            # 不可讓這裡的例外逃出 finally——逃出去會連 reader join、cache flush、
+            # os._exit(0) 都跳過，使用者連快取都救不回來。
+            print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
         # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
         # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
         reader_thread.join(timeout=8)
@@ -502,6 +557,10 @@ def main() -> None:
             root.destroy()
         except Exception:
             pass
+        # 落盤放在兩個 pool 都已 shutdown()、reader 執行緒也已 join 之後——
+        # 越晚呼叫，飛行中的翻譯 worker 就有越多機會在這之前寫完 cache.put()；
+        # os._exit(0) 不會跑 atexit，這是把快取寫回磁碟的最後機會。
+        cache.flush()
         print("[app] shutdown complete")
         # 翻譯 worker 執行緒非 daemon，逾時仍卡在 HTTP 請求中的話（最長 _TIMEOUT=60 秒）
         # 一般 return 會讓直譯器在 concurrent.futures.thread._python_exit 卡住等它們
