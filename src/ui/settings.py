@@ -31,7 +31,7 @@ _HINT_TRAILING = 24
 _UPDATE_COLORS = {"latest": "#2e8b57", "available": LINK_COLOR, "failed": "#cc3333"}
 # 「關於」分頁的分組間距：版本／專案／開發者是唯讀資訊，紀錄檔與譯文快取是會動手的
 # 維護項目，兩區之間拉開才不會被看成同一串條目。
-_GROUP_GAP = 20
+_GROUP_GAP = 32
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
