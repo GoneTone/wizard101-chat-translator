@@ -365,6 +365,77 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
         pool.shutdown(wait=True)
 
 
+def test_uses_the_supplied_translate_fn():
+    class Tr:
+        def translate_incoming(self, text, context):
+            raise AssertionError("不該走收訊路徑")
+
+        def translate_system_message(self, text):
+            return f"譯:{text}"
+
+    collector = Collector()
+    tr = Tr()
+    pool = TranslationPool(translator=tr, on_result=collector, workers=1,
+                           failed_notice_fn=lambda: FAILED,
+                           translate_fn=lambda text, context: tr.translate_system_message(text))
+    pool.submit("你获得了 {0} 金币！", [], 1)
+    assert collector.wait_for(1)[1] == "譯:你获得了 {0} 金币！"
+    pool.shutdown(wait=True)
+
+
+def test_two_pools_sharing_a_gate_never_exceed_the_total_limit():
+    from src.concurrency_gate import ConcurrencyGate
+
+    gate = ConcurrencyGate(2)
+    peak = {"value": 0}
+    active = threading.Lock()
+    running = []
+
+    def translate(text, context):
+        with active:
+            running.append(text)
+            peak["value"] = max(peak["value"], len(running))
+        time.sleep(0.05)
+        with active:
+            running.remove(text)
+        return f"譯:{text}"
+
+    class Tr:
+        def translate_incoming(self, text, context):
+            return translate(text, context)
+
+    a_collector, b_collector = Collector(), Collector()
+    a = TranslationPool(translator=Tr(), on_result=a_collector, workers=4,
+                        failed_notice_fn=lambda: FAILED, gate=gate)
+    b = TranslationPool(translator=Tr(), on_result=b_collector, workers=4,
+                        failed_notice_fn=lambda: FAILED, gate=gate)
+    for i in range(6):
+        a.submit(f"a{i}", [], i)
+        b.submit(f"b{i}", [], i)
+    a_collector.wait_for(6)
+    b_collector.wait_for(6)
+    assert peak["value"] <= 2, f"總併發衝到 {peak['value']}，應不超過閘的上限"
+    a.shutdown(wait=True)
+    b.shutdown(wait=True)
+
+
+def test_resize_also_raises_the_gate_limit():
+    from src.concurrency_gate import ConcurrencyGate
+
+    gate = ConcurrencyGate(1)
+
+    class Tr:
+        def translate_incoming(self, text, context):
+            return text
+
+    pool = TranslationPool(translator=Tr(), on_result=Collector(), workers=1,
+                           failed_notice_fn=lambda: FAILED, gate=gate)
+    pool.resize(4)
+    stop = threading.Event()
+    assert all(gate.acquire(stop) for _ in range(4)), "閘的上限應跟著 resize 調大"
+    pool.shutdown(wait=True)
+
+
 def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
     """回歸測試：burst 去重不能連帶讓「真正分開的多輪失敗」也不再逐階推進。
     單一 worker 保證每次呼叫都是獨立一輪（前一輪的閘門必定已到期才會有下一次呼叫），
