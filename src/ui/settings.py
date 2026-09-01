@@ -29,6 +29,9 @@ MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁
 _HINT_TRAILING = 24
 # 檢查更新結果的字色：沿用測試連線那組（成功綠、失敗紅），有新版用連結藍。
 _UPDATE_COLORS = {"latest": "#2e8b57", "available": LINK_COLOR, "failed": "#cc3333"}
+# 「關於」分頁的分組間距：版本／專案／開發者是唯讀資訊，紀錄檔與譯文快取是會動手的
+# 維護項目，兩區之間拉開才不會被看成同一串條目。
+_GROUP_GAP = 20
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
@@ -225,10 +228,11 @@ class SettingsWindow:
         self._author_link = link_label(about, "GoneTone", AUTHOR_URL)
         self._author_link.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=2)
 
+        # 維護區的起點：與上面的唯讀資訊拉開（見 _GROUP_GAP）
         ttk.Label(about, text=t("about.logs")).grid(row=3, column=0, sticky="w",
-                                                    pady=(10, 2))
+                                                    pady=(_GROUP_GAP, 2))
         logs_row = ttk.Frame(about)
-        logs_row.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(10, 2))
+        logs_row.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(_GROUP_GAP, 2))
         # 按鈕先 pack：expand=True 的路徑標籤若先宣告會吃光整列，把按鈕擠掉
         ttk.Button(logs_row, text=t("button.open_folder"),
                    command=self._open_log_folder).pack(side="right", padx=(4, 0))
