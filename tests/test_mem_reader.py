@@ -4,6 +4,7 @@ from src.reader.mem_reader import (
     RESET_WARMUP_POLLS, ChatLine, GameAccessDenied, GameNotRunning,
     GameVersionMismatch, WizChatReader, align_append, align_recover, clean,
     filter_resurfaced, is_version_mismatch, lines_from_chatlog, lines_from_nodes,
+    player_out_with_idx,
 )
 from src.reader.message_log import MessageLog
 
@@ -66,11 +67,13 @@ def test_lines_keeps_cjk_sender_and_spaces():
     assert _texts(lines_from_chatlog(log)) == ["[沃尔夫 亡灵骑兵] wth"]
 
 
-def test_lines_skips_system_messages():
-    # 系統訊息（無 <link;GID>）不翻：掉寶/經驗/升等
+def test_lines_flags_system_messages():
+    # 系統訊息（掉寶/經驗/升等）照收，但標上 system 旗標走另一條差分軌
     log = "\n".join([_say(1, "Amy", "hi"), _system("你獲得了 51 金幣！"),
                      _system("你現在等級 28！")])
-    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi"]
+    lines = lines_from_chatlog(log)
+    assert _texts(lines) == ["[Amy] hi", "你獲得了 51 金幣！", "你現在等級 28！"]
+    assert [l.system for l in lines] == [False, True, True]
 
 
 def test_lines_skips_debug_rows():
@@ -90,7 +93,8 @@ def test_lines_keeps_own_message():
 def test_lines_keeps_own_and_others_together():
     log = "\n".join([_say(1, "Amy", "hi"), _own("我回你"), _system("你獲得了 51 金幣！"),
                      "[STAT] noise", _say(2, "Bob", "yo")])
-    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi", "[你] 我回你", "[Bob] yo"]
+    assert _texts(lines_from_chatlog(log)) == ["[Amy] hi", "[你] 我回你",
+                                               "你獲得了 51 金幣！", "[Bob] yo"]
 
 
 def test_lines_preserves_order_and_repeats():
@@ -110,7 +114,6 @@ def test_lines_keeps_astral_emoji_text():
 
 
 def test_lines_empty_when_no_player_chat():
-    assert lines_from_chatlog(_system("你獲得了 14 金幣！")) == []
     assert lines_from_chatlog("") == []
 
 
@@ -133,6 +136,81 @@ def test_lines_skips_debug_rows_without_icon():
     log = "\n".join(["[DBGM] MSG_SendBlob 114 CurrentZone 114</color>",
                      "[DBGM] Loading housing blob: Type:Garden Objects:1</color>"])
     assert lines_from_chatlog(log) == []
+
+
+# --- 系統訊息：照收但標上 system 旗標（走獨立差分軌，見 _diff_system_lines）---
+def _system_colored(color: str, text: str) -> str:
+    return (f"<color;{color}><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> "
+            f"{text}</color>")
+
+
+def test_system_lines_are_emitted_with_the_system_flag():
+    lines = lines_from_chatlog(_system_colored("00FF00", "你获得了 39 金币！"))
+    assert [l.text for l in lines] == ["你获得了 39 金币！"]
+    assert lines[0].system is True
+    assert lines[0].color == "#00ff00"
+
+
+def test_player_lines_are_not_flagged_as_system():
+    lines = lines_from_chatlog(_say_colored("FFFFFF", "Lars", "hi"))
+    assert lines[0].system is False
+
+
+def test_system_lines_do_not_need_a_sender_prefix():
+    # 玩家行必須通過 _VALID 的 [發送者] 規則，系統行沒有前綴、不適用
+    lines = lines_from_chatlog(_system_colored("AA00AA", "你获得了 3 经验值！"))
+    assert [l.text for l in lines] == ["你获得了 3 经验值！"]
+
+
+def test_system_lines_that_clean_to_nothing_are_dropped():
+    assert lines_from_chatlog(_system_colored("00FF00", "")) == []
+
+
+def test_debug_lines_are_still_dropped():
+    # 除錯行沒有任何頻道圖示，不會因為放行系統訊息而混進來
+    assert lines_from_chatlog("[DBGM] some debug noise") == []
+    assert lines_from_chatlog("[WARN] another one") == []
+
+
+def test_system_and_player_lines_keep_their_in_game_order():
+    raw = _log(_system_colored("00FF00", "你获得了 39 金币！"),
+               _say_colored("FFFFFF", "Lars", "hi"),
+               _system_colored("AA00AA", "你获得了 3 经验值！"))
+    lines = lines_from_chatlog(raw)
+    assert [l.text for l in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
+    assert [l.system for l in lines] == [True, False, True]
+
+
+def test_mirror_detection_still_only_considers_player_lines():
+    # 主視圖有玩家行＋系統行，副節點只鏡射玩家行 → 仍判定為鏡射並剔除
+    main = _log(_say_colored("FFFFFF", "Lars", "hi"), _system_colored("00FF00", "你获得了 39 金币！"))
+    mirror = _say_colored("FFFFFF", "Lars", "hi")
+    lines, mirrored = lines_from_nodes([main, mirror])
+    assert mirrored == 1
+    assert [l.text for l in lines] == ["[Lars] hi", "你获得了 39 金币！"]
+
+
+def test_player_index_mapping_skips_lines_filtered_out_of_the_tail():
+    # 慢路徑會從尾段「中間」剔除重浮歷史，剩下的不再是連續尾段：
+    # 若只取同長度的尾段索引，吐出的會是 b、c 而不是 a、c
+    cur_all = lines_from_chatlog(_log(_say_colored("FFFFFF", "P", "a"),
+                                      _system_colored("00FF00", "掉寶"),
+                                      _say_colored("FFFFFF", "P", "b"),
+                                      _say_colored("FFFFFF", "P", "c")))
+    player_idx = [0, 2, 3]
+    cur_player = [cur_all[i] for i in player_idx]
+    assert player_out_with_idx([cur_player[0], cur_player[2]], cur_player, player_idx) == [0, 3]
+    assert player_out_with_idx([], cur_player, player_idx) == []
+
+
+def test_player_index_mapping_tells_repeated_lines_apart():
+    # 重複行（lol／gg）文字一模一樣，只能以物件識別對回索引
+    cur_all = lines_from_chatlog(_log(_say_colored("FFFFFF", "P", "lol"),
+                                      _system_colored("00FF00", "掉寶"),
+                                      _say_colored("FFFFFF", "P", "lol")))
+    player_idx = [0, 2]
+    cur_player = [cur_all[i] for i in player_idx]
+    assert player_out_with_idx([cur_player[1]], cur_player, player_idx) == [2]
 
 
 # --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
@@ -909,6 +987,69 @@ def test_view_flap_beside_a_mirror_node_does_not_retranslate():
     assert _texts(r.read_new()) == ["[你] hi"]   # 剛送出：翻一次
     for _ in range(3):
         assert r.read_new() == []                # 視圖來回跳：不得重翻
+
+
+# --- 系統訊息的差分軌：與玩家軌分離，由 emit_system 決定要不要輸出 ---
+def test_system_and_player_lines_are_emitted_in_game_order():
+    first = _say_colored("FFFFFF", "Lars", "hi")
+    second = _log(first,
+                  _system_colored("00FF00", "你获得了 39 金币！"),
+                  _say_colored("FFFFFF", "Amy", "hey"),
+                  _system_colored("AA00AA", "你获得了 3 经验值！"))
+    r = FakeWiz([first, second])
+    r.emit_system = True
+    r.read_new()                      # 建立基準
+    assert _texts(r.read_new()) == ["你获得了 39 金币！", "[Amy] hey", "你获得了 3 经验值！"]
+
+
+def test_system_messages_do_not_disturb_the_player_baseline():
+    # 一輪湧入大量系統訊息，夾在其中的玩家訊息仍須照吐
+    base = _say_colored("FFFFFF", "Lars", "hi")
+    flood = _log(base, *[_system_colored("00FF00", f"你获得了 {n} 金币！") for n in range(1, 15)],
+                 _say_colored("FFFFFF", "Amy", "hey"))
+    r = FakeWiz([base, flood])
+    r.read_new()
+    out = _texts(r.read_new())
+    assert "[Amy] hey" in out
+
+
+def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
+    # 「這一輪沒有系統訊息」是日常狀態，不可累積成 baseline_stale 而強制 reset
+    with_sys = _log(_say_colored("FFFFFF", "Lars", "hi"),
+                    _system_colored("00FF00", "你获得了 39 金币！"))
+    only_player = _log(_say_colored("FFFFFF", "Lars", "hi"),
+                       _system_colored("00FF00", "你获得了 39 金币！"),
+                       _say_colored("FFFFFF", "Amy", "a"))
+    r = FakeWiz([with_sys, only_player, only_player, only_player, only_player])
+    r.read_new()
+    for _ in range(3):
+        r.read_new()
+    # 系統軌基準沒有過期，舊的那則掉寶不得被重吐
+    assert _texts(r.read_new()) == []
+
+
+def test_system_lines_are_tracked_even_when_not_emitted():
+    # 開關關閉時仍要跟蹤系統軌，之後打開才不會爆吐歷史（emit_system=False）
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
+    r = FakeWiz([first, second, second])
+    r.emit_system = False
+    r.read_new()
+    assert _texts(r.read_new()) == []      # 關閉時不吐
+    r.emit_system = True
+    assert _texts(r.read_new()) == []      # 打開後也不該把歷史倒出來
+
+
+def test_system_track_keeps_emitting_after_being_re_enabled():
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
+    third = _log(second, _system_colored("AA00AA", "你获得了 3 经验值！"))
+    r = FakeWiz([first, second, third])
+    r.emit_system = False
+    r.read_new()
+    r.read_new()
+    r.emit_system = True
+    assert _texts(r.read_new()) == ["你获得了 3 经验值！"]
 
 
 # --- messages.log：原始內容與判定結果落檔（見 src/reader/message_log.py）---
