@@ -423,15 +423,15 @@ class WizChatReader:
         texts = self._read_chatlog_texts()
         # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
         input_open_now = self.input_open()
-        if input_open_now and not self._input_was_open:
-            # 輸入框重新開啟＝使用者可能又要送一句，關聯放行的額度重新給一次。
-            # 額度以「開啟一次」為單位而非以輪數為單位：輸入框開著時下面那行每輪都把
-            # _input_recent 重置，若不另外設限，開著輸入框切聊天頁籤會讓自己剛發的
-            # 那句每切回來就再放行一次（實機回報：重開軟體後切頁籤重複顯示，
-            # 幾次後才停在關聯輪數耗盡）。重打同一句必然要重開輸入框，切頁籤不會，
-            # 這個邊緣正好把兩者分開。
+        if input_open_now:
+            # 輸入框開著＝還在打字，這一刻不可能有「剛送出」的訊息。此時放行等於把
+            # 切頁籤浮出來的舊訊息當成新訊息（實機：開輸入框後 60ms 就放行了一次）。
+            # 順手把額度還原，使用者關掉輸入框後才重新計算。
+            self._input_recent = 0
             self._released_for_input = False
-        if input_open_now or self._input_was_open:
+        elif self._input_was_open:
+            # 輸入框剛關閉才是「剛送出」的訊號：實機的送出輪 input_open=False，
+            # 訊息是在輸入框關掉之後才出現在 chatLog 裡。
             self._input_recent = INPUT_RELEASE_POLLS
         elif self._input_recent > 0:
             self._input_recent -= 1

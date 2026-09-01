@@ -1367,40 +1367,56 @@ def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     assert handler.activate_kwargs == {"wait_for_ready": False}
 
 
-def test_input_release_fires_once_per_input_session():
-    """輸入框開著時反覆切頁籤，自己剛發的那句只放行一次。
+def _tab_switch_script(mine: str, other: str) -> list[str]:
+    """前 6 輪停在同一視圖（建立基準並耗掉 RESET_WARMUP_POLLS 的暖機吸收期），
+    其後在兩個視圖之間來回切，模擬切聊天頁籤。"""
+    return [mine] * 6 + [other, mine, other, mine]
 
-    關聯放行是為了救「重打同一句話被看過集合吞掉」，但它分不出那個情境與
-    「切頁籤讓同一句重新浮現」。輸入框開著時 _input_recent 每輪都被重置
-    （見 _diff_new_lines），於是每次切回含自己發言的視圖都會再放行一次——
-    實機回報：重開軟體後切聊天頁籤重複顯示同一句，幾次後才停（停在關聯輪數耗盡）。
+
+def test_no_release_while_the_input_box_is_open():
+    """輸入框開著時切頁籤，自己的舊發言不得被當成「剛送出」而重複顯示。
+
+    實機回報：重開軟體後切聊天頁籤重複顯示同一句。app.log 顯示放行發生在
+    「開啟輸入框後 60 毫秒」——那一刻使用者還在打字，不可能有剛送出的訊息，
+    重新浮現的其實是切頁籤帶出來的舊訊息。送出的那一輪 input_open 為 False
+    （訊息是在輸入框關掉之後才出現在 chatLog 裡），開著時放行純屬誤判。
     """
     mine = _own("Test321")
     other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
-    # 前 6 輪停在同一個視圖：建立基準並耗掉 RESET_WARMUP_POLLS 的暖機吸收期
-    script = [mine] * 6 + [other, mine, other, mine]
-    r = FakeWiz(script, inputs=[True] * len(script))
+    script = _tab_switch_script(mine, other)
+    r = FakeWiz(script, inputs=[True] * len(script))   # 輸入框全程開著
     for _ in range(6):
         r.read_new()
-    r.read_new()                          # 切到別人的視圖：首次見到，照吐
-    first = _texts(r.read_new())          # 切回自己的視圖：關聯放行一次
-    r.read_new()                          # 再切走
-    second = _texts(r.read_new())         # 再切回：同一個輸入週期內不得再放行
-    assert first == ["[你] Test321"], "第一次應放行（重打同一句的救援）"
-    assert second == [], "同一個輸入框開啟週期內不該重複放行"
+    r.read_new()                            # 切到別人的視圖：首次見到，照吐
+    assert _texts(r.read_new()) == [], "輸入框開著時不該放行重浮的舊發言"
+    r.read_new()
+    assert _texts(r.read_new()) == [], "再切回來同樣不該放行"
 
 
-def test_input_release_rearms_after_the_box_is_reopened():
-    """重新開一次輸入框＝使用者可能又要重打同一句，放行額度要回來。"""
+def test_release_fires_after_the_input_box_closes():
+    """輸入框剛關閉＝剛送出：重打同一句被看過集合擋下時仍要放行（原始救援場景）。"""
     mine = _own("Test321")
-    other = _log(_say(1, "Amy", "123"))
-    script = [mine] * 6 + [other, mine, other, mine]
-    # 切回來的那兩輪之間關閉再開啟輸入框
-    inputs = [True] * 8 + [False, True, True, True]
+    other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
+    script = _tab_switch_script(mine, other)
+    # 前 6 輪開著（打字中），第 7 輪起關閉＝送出
+    inputs = [True] * 6 + [False] * (len(script) - 6)
+    r = FakeWiz(script, inputs=inputs)
+    for _ in range(6):
+        r.read_new()
+    r.read_new()                            # 輸入框關閉的那一輪
+    assert _texts(r.read_new()) == ["[你] Test321"], "剛送出的同字訊息要放行"
+
+
+def test_release_fires_once_per_input_session():
+    """關聯放行的額度以「一次輸入」為單位，窗內不得重複放行同一行。"""
+    mine = _own("Test321")
+    other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))
+    script = _tab_switch_script(mine, other)
+    inputs = [True] * 6 + [False] * (len(script) - 6)
     r = FakeWiz(script, inputs=inputs)
     for _ in range(6):
         r.read_new()
     r.read_new()
     assert _texts(r.read_new()) == ["[你] Test321"]
     r.read_new()
-    assert _texts(r.read_new()) == ["[你] Test321"], "重開輸入框後應可再次放行"
+    assert _texts(r.read_new()) == [], "同一次輸入只放行一次"
