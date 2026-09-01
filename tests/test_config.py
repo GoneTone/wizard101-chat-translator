@@ -278,3 +278,14 @@ def test_local_state_dir_falls_back_to_home_without_localappdata(monkeypatch):
 def test_hook_state_shares_the_same_state_dir():
     from src.reader import hook_state
     assert hook_state.APP_DIR == local_state_dir()
+
+
+def test_translate_system_messages_defaults_to_off():
+    assert DEFAULT_CONFIG["translate_system_messages"] is False
+
+
+def test_load_config_fills_in_translate_system_messages(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"target_language": "日本語"}), encoding="utf-8")
+    cfg = load_config(path)
+    assert cfg["translate_system_messages"] is False

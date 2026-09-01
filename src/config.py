@@ -64,6 +64,9 @@ DEFAULT_CONFIG: dict = {
     # 同時進行的收訊翻譯則數。實測 4 併發後幾乎無額外收益，只讓單則延遲更差；
     # 設 1 等同逐則排隊（本功能之前的行為）。
     "max_parallel_translations": 4,
+    # 是否翻譯並顯示遊戲系統訊息（掉寶／經驗／升等廣播等）。預設關閉：量大，會佔用
+    # max_messages 的額度把玩家對話往上推走，由使用者自行決定要不要開。
+    "translate_system_messages": False,
     "hotkey": "ctrl+space",
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）

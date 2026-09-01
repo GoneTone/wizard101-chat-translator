@@ -40,6 +40,7 @@
   "effort.auto": "自動（預設）",
   "effort.low": "精簡",
   "field.auto_input": "讓翻譯輸入框跟著遊戲的聊天輸入框一起開關",
+  "field.translate_system": "翻譯遊戲系統訊息（掉寶、經驗、升等廣播等）",
   "field.ui_language": "介面語言",
   "button.refresh": "重新整理",
   "button.loading": "讀取中…",

@@ -139,6 +139,34 @@ def test_save_applies_ui_language(root, tmp_path):
         i18n.set_language(before)
 
 
+def test_save_stores_the_system_message_toggle(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._translate_system.get() is False   # 預設關閉
+    win._translate_system.set(True)
+    win._save()
+    assert cfg["translate_system_messages"] is True
+
+
+def test_reopening_settings_reflects_the_saved_toggle(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["translate_system_messages"] = True
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._translate_system.get() is True
+
+
 def _open_settings(root, on_language_preview=None):
     from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
