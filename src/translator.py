@@ -390,8 +390,8 @@ class Translator:
         **簽名刻意不吃 context**：系統訊息彼此獨立，不需要也不應該吃聊天上下文
         （8 行的上下文窗會被掉寶洗光，玩家對話就失去語境）。這也讓本方法成為
         純函式化的呼叫，是譯文快取正確性的前提（見 translation_cache）。"""
-        return strip_think(self._impl.chat(build_system_message_system(self._target_language),
-                                           [{"role": "user", "content": text}])).strip()
+        return self._impl.chat(build_system_message_system(self._target_language),
+                               [{"role": "user", "content": text}])
 
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
