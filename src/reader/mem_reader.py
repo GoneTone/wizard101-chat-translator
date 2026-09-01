@@ -471,8 +471,10 @@ class WizChatReader:
             # 系統軌不能跟著吸收：「這一輪沒有玩家行、只有掉寶」是日常狀態，
             # 在這裡靜默吞掉等於系統訊息永遠吐不出來。
             self._empty_streak += 1
+            # 節點數變化在這條早退路徑上還沒判（玩家軌一律等到有玩家行的那一輪才比對
+            # _node_count），因此 node_added 只能是 False；下一輪非空讀才會補判。
             system_out = self._diff_system_lines(cur_system_texts, system_idx,
-                                                 cur_all, texts)
+                                                 cur_all, texts, node_added=False)
             return _Outcome("empty", [cur_all[i] for i in system_out])
         baseline_stale = self._empty_streak >= STALE_BASELINE_EMPTY_POLLS
         self._empty_streak = 0
@@ -579,7 +581,8 @@ class WizChatReader:
                 emitted = self._drop_resurfaced(emitted, path)
         self._remember(cur_texts)
         player_out = self._guard_burst(emitted, path, prev_len, len(cur), texts)
-        system_out = self._diff_system_lines(cur_system_texts, system_idx, cur_all, texts)
+        system_out = self._diff_system_lines(cur_system_texts, system_idx, cur_all,
+                                             texts, node_added)
         # 依原索引合併：兩軌各自走了哪條路徑都不影響相對順序（索引同源）
         merged = sorted(player_out_with_idx(player_out, cur, player_idx) + system_out)
         return _Outcome(path, [cur_all[i] for i in merged], len(appended))
@@ -605,12 +608,18 @@ class WizChatReader:
         return kept
 
     def _diff_system_lines(self, cur_texts: list[str], system_idx: list[int],
-                           cur_all: list[ChatLine], texts: list[str]) -> list[int]:
+                           cur_all: list[ChatLine], texts: list[str],
+                           node_added: bool = False) -> list[int]:
         """系統訊息的差分軌，回傳新增行在完整序列中的索引。
 
         路徑決策刻意不與玩家軌共用：玩家軌的「空讀＝轉場暫態清空」在這裡不成立——
         「這一輪沒有系統訊息」是日常狀態，照搬 STALE_BASELINE_EMPTY_POLLS 會讓基準
         不斷過期、把系統軌長期推去走 reset，大幅拉高重吐機率。
+
+        `node_added` 是**兩軌共同的事實**（由 _diff_new_lines() 統一判定）：節點增加
+        代表串接結構已變，對齊此時毫無意義，會生出假的 append——而 append 路徑不過
+        看過集合，剛掉過的寶就會再吐一次、再打一次 API。因此比照玩家軌跳過對齊直接
+        走 reset 語意，讓 _seen_system 把重浮的行擋下來。
 
         `emit_system` 為 False 時仍照常推進基準與看過集合，只是不回傳——否則使用者
         中途打開開關的瞬間，整份歷史系統訊息會被當成新訊息一次吐出、翻上百則。
@@ -622,8 +631,8 @@ class WizChatReader:
         prev = self._prev_system
         prev_len = len(prev)
         path = "append"
-        appended = align_append(prev, cur_texts)
-        if appended is None:
+        appended = None if node_added else align_append(prev, cur_texts)
+        if appended is None and not node_added:
             path = "recover"
             appended = align_recover(prev, cur_texts)
         if appended is None:
@@ -634,6 +643,10 @@ class WizChatReader:
                 self._prev_system = cur_texts
                 self._remember_system(cur_texts)
                 return []
+            reason = ("chatLog node count increased" if node_added
+                      else "no overlap with baseline")
+            print(f"[reader] system track handled as reset ({reason}): "
+                  f"prev={prev_len}, cur={len(cur_texts)}", file=sys.stderr)
             appended = cur_texts
         self._prev_system = cur_texts
         emitted_texts = appended

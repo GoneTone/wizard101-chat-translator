@@ -37,7 +37,9 @@ class ConcurrencyGate:
     def release(self) -> None:
         with self._cond:
             self._in_use -= 1
-            self._cond.notify()
+            # notify_all 而非 notify：被叫醒的那一個若正好因 stop 而放棄（關閉中），
+            # 剛空出來的額度就沒人接手，其餘等待者得再空等一個 _WAIT_SLICE。
+            self._cond.notify_all()
 
     def set_limit(self, limit: int) -> None:
         """變更上限。調大時喚醒等待者；調小不收回已發出的額度——

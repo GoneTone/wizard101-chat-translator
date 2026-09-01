@@ -1056,6 +1056,47 @@ def test_system_track_keeps_emitting_after_being_re_enabled():
     assert _texts(r.read_new()) == ["你获得了 3 经验值！"]
 
 
+def test_node_increase_does_not_re_emit_a_system_line_the_new_node_carries(capsys):
+    # 實機：掉寶進行中開私訊／組隊視窗，chatLog 節點數 1->2。串接結構一變，對齊就會
+    # 生出假的 append，而 append 路徑不過看過集合 → 剛掉過的那則寶再吐一次、再打一次
+    # API。節點數是兩軌共同的事實：系統軌比照玩家軌走 reset 語意，交由看過集合擋下。
+    drop = _system_colored("00FF00", "你获得了 39 金币！")
+    main = _log(_say_colored("FFFFFF", "Lars", "hi"), drop)
+    whisper = _log(_own("whisper 1"), drop)   # 新視窗把同一則掉寶也渲染了一份
+    r = FakeWiz([[main]] * 7 + [[main, whisper]])
+    r.emit_system = True
+    for _ in range(7):
+        assert r.read_new() == []             # 基準 ＋ 暖機期過完
+    # 新節點裡的新玩家訊息照吐；已經看過的掉寶不得再吐一次
+    assert _texts(r.read_new()) == ["[你] whisper 1"]
+    assert ("system track handled as reset (chatLog node count increased)"
+            in capsys.readouterr().err)
+
+
+def test_merge_keeps_game_order_when_the_two_tracks_take_different_paths(capsys):
+    # 雙軌設計的核心保證：兩軌各自走了哪條路徑都不影響相對順序（索引同源）。
+    # 這裡讓玩家軌走 append、系統軌走 reset（頭部的舊掉寶被顯示上限修掉，
+    # 與系統軌基準完全無重疊），輸出仍須與遊戲內的交錯順序一字不差。
+    old_drop = _system_colored("00FF00", "你获得了 39 金币！")
+    hi = _say_colored("FFFFFF", "Lars", "hi")
+    gold = _system_colored("00FF00", "你获得了 65 金币！")
+    hey = _say_colored("FFFFFF", "Amy", "hey")
+    exp = _system_colored("AA00AA", "你获得了 88 经验值！")
+    log = io.StringIO()
+    r = FakeWiz([_log(old_drop, hi)] * 6 + [_log(hi, gold, hey, exp)],
+                message_log=MessageLog(log))
+    r.emit_system = True
+    for _ in range(6):
+        assert r.read_new() == []
+    log.truncate(0)
+    log.seek(0)
+    emitted = r.read_new()
+    assert "path=append" in log.getvalue()          # 玩家軌：hi 之後純附加
+    assert ("system track handled as reset (no overlap with baseline)"
+            in capsys.readouterr().err)             # 系統軌：與基準無重疊
+    assert _texts(emitted) == ["你获得了 65 金币！", "[Amy] hey", "你获得了 88 经验值！"]
+
+
 # --- messages.log：原始內容與判定結果落檔（見 src/reader/message_log.py）---
 def test_message_log_records_raw_lines_and_what_was_emitted():
     buf = io.StringIO()

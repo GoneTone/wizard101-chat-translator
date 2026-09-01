@@ -73,6 +73,12 @@ class TranslationCache:
         self._unflushed = 0
         self._lock = threading.Lock()
 
+    @property
+    def fingerprint(self) -> str:
+        """目前生效的指紋。翻譯開始前先取一份，寫回時交給 put() 比對（見 put）。"""
+        with self._lock:
+            return self._fingerprint
+
     def get(self, text: str) -> str | None:
         """查快取。命中回傳**已回填數字**的譯文，未命中回傳 None。"""
         template, numbers = normalize(text)
@@ -83,9 +89,14 @@ class TranslationCache:
             self._entries.move_to_end(template)
         return restore(translated, numbers)
 
-    def put(self, text: str, translated_template: str) -> bool:
+    def put(self, text: str, translated_template: str, fingerprint: str) -> bool:
         """存入一筆。`translated_template` 是**樣板的譯文**（仍帶佔位符）。
-        佔位符與樣板對不上就不存並回傳 False——呼叫端須改用原文直翻。"""
+        佔位符與樣板對不上就不存並回傳 False——呼叫端須改用原文直翻。
+
+        `fingerprint` 是這則譯文**產出當下**的指紋：翻譯還在飛行中時使用者可能在設定
+        視窗換掉服務商／模型／目標語言（rebind），此時用舊設定翻好的譯文若照存，會被
+        當成新設定的譯文寫進磁碟、跨重啟一直回吐錯誤語言。不符即丟棄並回傳 False。
+        """
         template, _ = normalize(text)
         if not placeholders_match(template, translated_template):
             print(f"[cache] placeholder mismatch, not cached: "
@@ -93,6 +104,12 @@ class TranslationCache:
                   file=sys.stderr)
             return False
         with self._lock:
+            if fingerprint != self._fingerprint:
+                print(f"[cache] fingerprint changed while translating, discarding "
+                      f"stale translation: template={template!r} "
+                      f"produced_under={fingerprint!r} current={self._fingerprint!r}",
+                      file=sys.stderr)
+                return False
             self._entries[template] = translated_template
             self._entries.move_to_end(template)
             while len(self._entries) > MAX_ENTRIES:
@@ -139,7 +156,7 @@ class TranslationCache:
             return
         with self._lock:
             self._entries = OrderedDict(items)
-        print(f"[cache] loaded {len(entries)} entries from {CACHE_PATH}",
+        print(f"[cache] loaded {len(items)} entries from {CACHE_PATH}",
               file=sys.stderr)
 
     def flush(self) -> None:
@@ -178,16 +195,18 @@ class TranslationCache:
 
 def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     """翻一則系統訊息並存進快取。送去翻譯的是正規化後的樣板，存的也是樣板譯文；
-    佔位符被模型弄壞時不快取、改用原文直翻一次（正確性優先於命中率）。
+    佔位符被模型弄壞、或翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次
+    ——後者這一次直翻走的已是新設定，拿到的譯文語言才對（正確性優先於命中率）。
 
     `translator` 只要求有 `translate_system_message(text) -> str`（見
     `src.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
     """
     template, numbers = normalize(text)
+    fingerprint = cache.fingerprint   # 翻譯期間使用者可能換設定，先記下產出當下的指紋
     translated = translator.translate_system_message(template)
     # put() 收的是**原文**、內部自己正規化。這裡不能傳 template——
     # 它含 `{0}`，再 normalize 一次會把裡面的 0 當成數字，變成 `{{0}}`。
-    if cache.put(text, translated):
+    if cache.put(text, translated, fingerprint):
         return restore(translated, numbers)
     print(f"[cache] falling back to a direct translation: {text!r}", file=sys.stderr)
     return translator.translate_system_message(text)
