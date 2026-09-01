@@ -318,6 +318,12 @@ def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],
             want = next(remaining, None)
             if want is None:
                 break
+    if want is not None:
+        # 走到這裡代表 emitted 已不是 cur_player 的子序列（例如某條路徑改用 _replace
+        # 重建了 ChatLine，物件識別就斷了）。沒對上的行會被靜默丟掉——正是本模組
+        # 註解裡一再出現的「玩家訊息被吞」那一類，留 log 才查得出來。
+        print(f"[reader] player index mapping incomplete: {len(emitted)} emitted, "
+              f"{len(out)} mapped (subsequence invariant broken)", file=sys.stderr)
     return out
 
 
@@ -399,8 +405,9 @@ class WizChatReader:
         return self._connected
 
     def read_new(self) -> list[ChatLine]:
-        """回傳自上次呼叫後新增的玩家聊天行（依序、含重複）；無新訊息回傳 []。
-        找不到遊戲或連線中斷丟 GameNotRunning。"""
+        """回傳自上次呼叫後新增的聊天行（依序、含重複）；無新訊息回傳 []。
+        玩家發言恆回傳；系統訊息由 emit_system 決定（見 _diff_system_lines），
+        兩者依遊戲內的原順序交錯。找不到遊戲或連線中斷丟 GameNotRunning。"""
         outcome = self._diff_new_lines()
         if self._msg_log is not None:
             self._msg_log.decision(outcome.path, outcome.appended,
@@ -408,7 +415,10 @@ class WizChatReader:
         return outcome.emitted
 
     def _diff_new_lines(self) -> _Outcome:
-        """差分出本輪新增的玩家聊天行，連同判定路徑（read_new 記進 messages.log）。"""
+        """差分出本輪新增的聊天行，連同判定路徑（read_new 記進 messages.log）。
+
+        玩家行與系統行走各自獨立的差分軌（後者見 _diff_system_lines），最後依原索引
+        合併還原遊戲內順序。回傳的 path 是**玩家軌**的判定路徑。"""
         texts = self._read_chatlog_texts()
         # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
         input_open_now = self.input_open()

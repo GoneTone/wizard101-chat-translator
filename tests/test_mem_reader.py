@@ -113,7 +113,7 @@ def test_lines_keeps_astral_emoji_text():
     assert _texts(lines_from_chatlog(_say(1, "Amy", "nice 😂👀"))) == ["[Amy] nice 😂👀"]
 
 
-def test_lines_empty_when_no_player_chat():
+def test_lines_empty_for_empty_input():
     assert lines_from_chatlog("") == []
 
 
@@ -1009,23 +1009,27 @@ def test_system_messages_do_not_disturb_the_player_baseline():
                  _say_colored("FFFFFF", "Amy", "hey"))
     r = FakeWiz([base, flood])
     r.read_new()
-    out = _texts(r.read_new())
-    assert "[Amy] hey" in out
+    # 精確比對：emit_system 預設關閉，系統行一行都不該漏進玩家軌的輸出
+    assert _texts(r.read_new()) == ["[Amy] hey"]
 
 
 def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
-    # 「這一輪沒有系統訊息」是日常狀態，不可累積成 baseline_stale 而強制 reset
-    with_sys = _log(_say_colored("FFFFFF", "Lars", "hi"),
-                    _system_colored("00FF00", "你获得了 39 金币！"))
-    only_player = _log(_say_colored("FFFFFF", "Lars", "hi"),
-                       _system_colored("00FF00", "你获得了 39 金币！"),
-                       _say_colored("FFFFFF", "Amy", "a"))
-    r = FakeWiz([with_sys, only_player, only_player, only_player, only_player])
-    r.read_new()
-    for _ in range(3):
-        r.read_new()
-    # 系統軌基準沒有過期，舊的那則掉寶不得被重吐
+    # 「這一輪沒有系統訊息」是日常狀態，不可拿它清掉系統軌基準：基準一沒了，
+    # 下一輪就會被推去走 reset，而 reset 一律以看過集合過濾——再掉一次一字不差的
+    # 同樣的寶（實機最常見的情形）就會被當成重浮歷史而整句吞掉。
+    drop = _system_colored("00FF00", "你获得了 39 金币！")
+    player = _say_colored("FFFFFF", "Lars", "hi")
+    with_sys = _log(player, drop)
+    no_sys = _log(player, _say_colored("FFFFFF", "Amy", "a"))
+    dropped_again = _log(player, _say_colored("FFFFFF", "Amy", "a"), drop, drop)
+    r = FakeWiz([with_sys, no_sys, no_sys, no_sys, dropped_again])
+    r.emit_system = True
+    r.read_new()                                    # 建立基準（含那一則掉寶）
+    assert _texts(r.read_new()) == ["[Amy] a"]      # 這三輪一則系統訊息都沒有
     assert _texts(r.read_new()) == []
+    assert _texts(r.read_new()) == []
+    # 基準還在 → 只有「第二次」掉寶算新的：不吞掉，也不把第一次的重吐一遍
+    assert _texts(r.read_new()) == ["你获得了 39 金币！"]
 
 
 def test_system_lines_are_tracked_even_when_not_emitted():
