@@ -433,10 +433,12 @@ class ApiFields(ttk.Frame):
             self._switch_profile()
         prov = PROVIDERS[self._provider.get()]
         if prov.needs_base_url:
+            # 依填寫順序排：網址→金鑰→模型。模型清單要靠前兩者才取得到，
+            # 且這樣與官方端點那一支（金鑰在模型之前）一致，切換服務商時欄位不跳動。
             self._labeled_entry(t("field.base_url"), self._base_url)
             self._field_hint(t("hint.custom_endpoint"))
-            self._model_row()
             self._labeled_entry(t("field.api_key_optional"), self._api_key, secret=True)
+            self._model_row()
             self._thinking_row()
         else:
             self._labeled_entry(t("field.api_key"), self._api_key, secret=True)

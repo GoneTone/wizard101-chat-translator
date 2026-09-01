@@ -400,3 +400,23 @@ def test_link_label_opens_the_url_on_click(root, monkeypatch):
     root.update()
     assert opened == ["https://example.invalid/author"]
     holder.destroy()
+
+
+def test_custom_endpoint_orders_fields_by_fill_in_sequence(root):
+    """自訂端點的欄位依填寫順序排：網址 → 金鑰 → 模型。
+
+    模型清單要靠網址與金鑰才取得到，把模型欄擺在金鑰之前會讓使用者先碰到一個
+    還不能用的欄位；官方端點那一支本來就是金鑰在模型之前，兩者一致切換服務商
+    時欄位才不會跳動。"""
+    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
+    texts = _widget_texts(fields._fields)
+    url_at = texts.index(t("field.base_url"))
+    key_at = texts.index(t("field.api_key_optional"))
+    model_at = texts.index(t("field.model"))
+    assert url_at < key_at < model_at, f"欄位順序不對：{texts}"
+
+
+def test_official_endpoint_keeps_key_before_model(root):
+    fields = ApiFields(root, _initial(provider="openai"))
+    texts = _widget_texts(fields._fields)
+    assert texts.index(t("field.api_key")) < texts.index(t("field.model"))
