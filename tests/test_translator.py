@@ -7,6 +7,7 @@ import pytest
 from src.translator import (
     OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
     TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
+    build_system_message_system,
 )
 
 
@@ -423,3 +424,34 @@ def test_list_models_claude_connection_error_maps_to_offline():
         raises=anthropic.APIConnectionError(request=httpx2.Request("GET", "http://x")))
     with pytest.raises(TranslatorOffline):
         list_models(_api(provider="claude"), client=fake)
+
+
+def test_system_message_prompt_names_the_target_language():
+    prompt = build_system_message_system("日本語")
+    assert "日本語" in prompt
+
+
+def test_system_message_prompt_does_not_mention_a_sender_prefix():
+    # 系統訊息沒有 [發送者] 前綴，提示詞若照抄收訊那套會讓模型自己編一個出來
+    prompt = build_system_message_system("繁體中文（台灣）")
+    assert "[發送者]" not in prompt
+
+
+def test_system_message_prompt_protects_placeholders():
+    prompt = build_system_message_system("繁體中文（台灣）")
+    assert "{0}" in prompt
+
+
+def test_translate_system_message_sends_no_context_turns():
+    fake = FakeHttpxClient()
+    tr = Translator(target_language="繁體中文（台灣）", client=fake)
+    tr.translate_system_message("你获得了 {0} 金币！")
+    # 檢查只送了單一 user turn（無背景上下文）
+    turns = fake.last_body["messages"][1:]  # 跳過 system message
+    assert turns == [{"role": "user", "content": "你获得了 {0} 金币！"}]
+
+
+def test_translate_system_message_strips_think_blocks():
+    fake = FakeHttpxClient(response=FakeResponse(content="<think>hmm</think>你獲得了 {0} 金幣！"))
+    tr = Translator(target_language="繁體中文（台灣）", client=fake)
+    assert tr.translate_system_message("你获得了 {0} 金币！") == "你獲得了 {0} 金幣！"
