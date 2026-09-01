@@ -54,6 +54,22 @@ def build_turns(context: list[str], text: str, intro: str,
     return turns
 
 
+def _game_noun_rule(target_language: str) -> str:
+    """遊戲名詞的翻譯規則，收訊與系統訊息兩條提示詞共用。
+
+    括號裡的英文只能照抄原文既有的：早期版本無條件要求「在譯名後附上英文原文」，
+    在原文並非英文的伺服器上，模型沒有英文可抄就自己翻一個塞進括號（實機回報，
+    例如掉寶的材料名被冠上一個它自行翻譯的英文名）。兩處各寫一份時改一處會漏另一處，
+    故抽成單一真實來源。"""
+    return (
+        f"遊戲相關名詞（魔法名、地名、物品名、材料名、NPC 名等）翻成 {target_language}。"
+        "括號裡的英文只能照抄原文本來就有的，絕不可自行翻譯或補上——"
+        "原文是英文時，在譯名後用半形括號附上該英文原文，例如「火龍(Fire Dragon)」、"
+        "「鱷魚國(Krokotopia)」；原文不是英文時只輸出譯名，不得附加任何英文。"
+        "純代碼或確實無法翻譯的內容則保留原文。"
+    )
+
+
 def build_incoming_system(target_language: str) -> str:
     """建構收訊翻譯的 system 提示：把聊天內容翻成 target_language（來源語言自動判斷）。"""
     return (
@@ -73,9 +89,7 @@ def build_incoming_system(target_language: str) -> str:
         "（如「以下是翻譯：」、「譯文如下：」等）。\n"
         "4. 忠實傳達原文的意思與語氣，不要曲解或改變原意；"
         "語氣口語自然、貼近上下文對話的節奏。\n"
-        f"5. 遊戲相關名詞（魔法名、地名、物品名、NPC 名等）翻成 {target_language}，並在譯名後"
-        "用半形括號附上英文原文，例如「火龍(Fire Dragon)」、「鱷魚國(Krokotopia)」；"
-        "純代碼或確實無法翻譯的內容則保留原文。\n"
+        f"5. {_game_noun_rule(target_language)}\n"
         f"6. 網路及遊戲聊天的縮寫、俚語（如 lol、gg、brb、omg、ty、np 等）"
         f"請翻成 {target_language} 在地、口語的說法，不要保留原縮寫。\n"
         "7. 如果文本包含表情符號（emoji 或 :名稱: 形式），"
@@ -140,9 +154,7 @@ def build_system_message_system(target_language: str) -> str:
         "數量也不得增減；它們代表原訊息中的數字，會在翻譯後被填回。"
         "譯文的語序若與原文不同，把佔位符放到譯文中對應的位置即可。\n"
         "4. 忠實傳達原文的意思，不要曲解或改變原意；語氣自然、貼近遊戲介面用語。\n"
-        f"5. 遊戲相關名詞（魔法名、地名、物品名、材料名、NPC 名等）翻成 {target_language}，"
-        "並在譯名後用半形括號附上英文原文，例如「火龍(Fire Dragon)」、"
-        "「鱷魚國(Krokotopia)」；純代碼或確實無法翻譯的內容則保留原文。\n"
+        f"5. {_game_noun_rule(target_language)}\n"
         "6. 如果文本包含表情符號（emoji 或 :名稱: 形式），請原樣保留在對應位置，"
         "不要翻譯或刪除；原文沒有的表情符號一律不得自行添加。\n"
         "7. 標點盡量貼近原文的標點風格；"
