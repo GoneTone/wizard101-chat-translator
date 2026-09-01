@@ -182,6 +182,27 @@ def strip_think(text: str) -> str:
     return _THINK_BLOCK.sub("", text)
 
 
+_SENDER_PREFIX = re.compile(r"^\[[^\]]{1,40}\]\s*")
+# 半形或全形括號包住、以英文字母開頭的內容（模型補上的英文名長這樣）
+_PAREN_ENGLISH = re.compile(r"\s*[（(][A-Za-z][A-Za-z0-9 .'\-]*[)）]")
+
+
+def strip_invented_english(source: str, translated: str) -> str:
+    """原文不含英文時，移除譯文裡以括號補上的英文名。
+
+    提示詞已要求「括號裡的英文只能照抄原文既有的」（見 _game_noun_rule），但小模型
+    的遵從度不穩：實測同一則簡體中文材料名，兩次翻譯分別補上 (Psychedelic Wood) 與
+    (Mystic Wood)——兩個都是模型自己翻的，遊戲裡並沒有這個英文名（實機回報）。
+    規則裡的正面示範「火龍(Fire Dragon)」本身也在誘導模型套用那個格式。
+    原文一個英文字母都沒有時，譯文的括號英文必然是憑空生成，直接移除。
+
+    判斷只看訊息內容、不看 `[發送者]` 前綴：發送者名是英文不代表訊息內容有英文。
+    括號裡不是英文（中文註解等）一律不動。"""
+    if re.search(r"[A-Za-z]", _SENDER_PREFIX.sub("", source)):
+        return translated   # 原文本來就有英文，括號裡可能是照抄的，不得動
+    return _PAREN_ENGLISH.sub("", translated)
+
+
 OPENAI_BASE_URL = "https://api.openai.com"  # ChatGPT preset 固定官方端點
 _TIMEOUT = 60.0
 # 譯文長度上限。存在的理由不是省 token，而是防止模型 repetition loop 生成到吃穿 _TIMEOUT：
@@ -392,9 +413,9 @@ class Translator:
     def translate_incoming(self, text: str, context: list[str]) -> str:
         """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
         context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
-        return self._impl.chat(
+        return strip_invented_english(text, self._impl.chat(
             build_incoming_system(self._target_language),
-            build_turns(context, text, CONTEXT_INTRO_INCOMING))
+            build_turns(context, text, CONTEXT_INTRO_INCOMING)))
 
     def translate_system_message(self, text: str) -> str:
         """系統訊息：把遊戲系統通知（任何語言）翻成使用者設定的目標語言。
@@ -402,8 +423,9 @@ class Translator:
         **簽名刻意不吃 context**：系統訊息彼此獨立，不需要也不應該吃聊天上下文
         （8 行的上下文窗會被掉寶洗光，玩家對話就失去語境）。這也讓本方法成為
         純函式化的呼叫，是譯文快取正確性的前提（見 translation_cache）。"""
-        return self._impl.chat(build_system_message_system(self._target_language),
-                               [{"role": "user", "content": text}])
+        return strip_invented_english(
+            text, self._impl.chat(build_system_message_system(self._target_language),
+                                  [{"role": "user", "content": text}]))
 
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
