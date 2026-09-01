@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.config import (API_PROFILE_FIELDS, API_PROVIDERS, DEFAULT_CONFIG, active_api,
-                        app_dir, is_configured, load_config, save_config)
+                        app_dir, is_configured, load_config, local_state_dir, save_config)
 
 
 def test_load_missing_file_returns_defaults(tmp_path: Path):
@@ -263,3 +263,18 @@ def test_old_config_without_ui_language_loads(tmp_path):
     cfg = load_config(path)
     assert cfg["ui_language"] is None       # 舊 config 補上預設值
     assert cfg["hotkey"] == "ctrl+alt+t"    # 既有設定不動
+
+
+def test_local_state_dir_uses_localappdata(monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\test\AppData\Local")
+    assert local_state_dir() == Path(r"C:\Users\test\AppData\Local") / "wizard101-chat-translator"
+
+
+def test_local_state_dir_falls_back_to_home_without_localappdata(monkeypatch):
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    assert local_state_dir() == Path.home() / "wizard101-chat-translator"
+
+
+def test_hook_state_shares_the_same_state_dir():
+    from src.reader import hook_state
+    assert hook_state.APP_DIR == local_state_dir()

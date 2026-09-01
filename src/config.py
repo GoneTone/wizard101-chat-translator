@@ -1,6 +1,7 @@
 """config.json 讀寫；缺漏欄位以 DEFAULT_CONFIG 補齊。"""
 import copy
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,6 +19,12 @@ def app_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
+
+
+def local_state_dir() -> Path:
+    """本機狀態目錄：跨啟動保留、但不屬於使用者資料的檔案（hook 修復狀態、譯文快取）。
+    與 `app_dir()` 分開——那裡放的是使用者會去看、去改的東西（config.json、log）。"""
+    return Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
 
 
 CONFIG_PATH = app_dir() / "config.json"
