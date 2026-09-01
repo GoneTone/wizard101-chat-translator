@@ -1,3 +1,5 @@
+import pytest
+
 from src.i18n import t
 from src.reader.overlay import (
     BG,
@@ -174,6 +176,7 @@ def test_error_banner_toggle(root):
     assert ov.error_text() is None
 
 
+@pytest.mark.real_position
 def test_explicit_position_and_size_applied(root):
     ov = OverlayWindow(root, x=0, y=0, width=400, height=250)
     ov._win.update_idletasks()

@@ -1,6 +1,8 @@
 import queue
 import tkinter as tk
 
+import pytest
+
 from src.composer.input_box import InputBox
 
 
@@ -192,6 +194,7 @@ def test_worker_failure_error_callback_runs(root):
     assert "boom" in box._status.cget("text")
 
 
+@pytest.mark.real_position
 def test_input_box_restores_saved_position(root):
     box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
                    position={"x": 321, "y": 210})
@@ -232,6 +235,7 @@ def test_show_clamps_remembered_width_to_minimum(root):
     box.close()
 
 
+@pytest.mark.real_position
 def test_close_reports_position_and_width(root):
     reported = []
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None,

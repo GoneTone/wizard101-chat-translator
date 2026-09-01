@@ -27,3 +27,6 @@ wizwalker = { git = "https://codeberg.org/LaurenzNotHere/wizwalker.git", branch 
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "real_position: 測試斷言視窗的實際位置，不套用 conftest 的螢幕外停放",
+]

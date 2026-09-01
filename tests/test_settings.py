@@ -54,6 +54,7 @@ def test_bubble_alpha_stops_at_the_floor(root):
     ov.expand()
 
 
+@pytest.mark.real_position
 def test_overlay_backdrop_follows_geometry(root):
     ov = OverlayWindow(root, x=30, y=40, width=460, height=300,
                        max_messages=5, fade_seconds=0)
