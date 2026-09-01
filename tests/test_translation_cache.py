@@ -184,6 +184,24 @@ def test_autoflushes_after_enough_new_entries(cache_path, monkeypatch):
     assert cache_path.exists(), "累積到門檻應自動落盤"
 
 
+def test_rebind_flushes_the_old_fingerprint_and_starts_empty(cache_path):
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)")
+    c.rebind("claude|claude-opus-5|日本語")
+    assert c.get("熔岩百合") is None    # 舊快取隨指紋變更清空
+    data = json.loads(cache_path.read_text(encoding="utf-8"))
+    assert data["fingerprint"] == FP    # 落盤的是變更「前」的指紋
+    assert data["entries"]["熔岩百合"] == "熔岩百合(Lava Lily)"
+
+
+def test_rebind_is_a_no_op_when_the_fingerprint_is_unchanged(cache_path):
+    c = TranslationCache(FP)
+    c.put("熔岩百合", "熔岩百合(Lava Lily)")
+    c.rebind(FP)
+    assert not cache_path.exists()      # 沒變更就不觸發落盤
+    assert c.get("熔岩百合") == "熔岩百合(Lava Lily)"
+
+
 def test_fingerprint_never_contains_the_api_key():
     fp = fingerprint_of("custom", "gemma-4-26b-a4b", "繁體中文（台灣）")
     assert "gemma-4-26b-a4b" in fp

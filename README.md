@@ -156,6 +156,7 @@ uv run pyinstaller build.spec --noconfirm
 | `api.<服務商>.model` / `.api_key` | 三家共通。`openai`／`claude` 用官方端點（網址寫死在程式裡），填 `model` 與 `api_key` 即可 |
 | `api.custom.base_url` | 僅 `custom`：自架 OpenAI 相容 API 的網址（`/v1/chat/completions`），只填到主機與連接埠 |
 | `target_language` | 收訊翻成的目標語言（人讀名稱，直接帶入提示詞），例如 `繁體中文（台灣）`、`日本語`、`Español`。發話固定翻成英文、來源語言一律自動判斷 |
+| `translate_system_messages` | 是否翻譯並顯示遊戲系統訊息（掉寶、經驗、升等廣播、好友邀請等，預設 `false`）。開啟後系統訊息會與玩家對話依遊戲內順序交錯顯示，並佔用 `max_messages` 的額度 |
 | `api.openai.thinking` / `api.custom.thinking` | 模型是否啟用思考/reasoning（預設 `false`：關閉思考）。ChatGPT 官方端點只送它認得的 `reasoning_effort: "none"`；自訂端點併入常見後端的停用參數（`reasoning_effort`/`chat_template_kwargs.enable_thinking`/`think` 等）。設 `true` 則不帶任何思考參數、維持模型預設。不論設定為何，譯文中的 `<think>…</think>` 一律去除。嚴格伺服器若因某參數報錯，回報後可移除 |
 | `api.claude.effort` | 僅 `claude`：思考深度。`auto`（預設）＝不帶參數、由模型自行決定（adaptive）；`low`＝送 `output_config.effort="low"` 壓到最低，譯文更快也更省 Token。Claude 沒有「完全不思考」的選項，故不用 `thinking` 開關 |
 | `poll_interval` | 輪詢間隔秒數（預設 0.4）。每輪讀一次聊天記錄全文、與上輪比對取新增行 |
@@ -181,7 +182,10 @@ uv run pyinstaller build.spec --noconfirm
   hook，下次啟動也會**自動修復**（把遺留的原始 bytes 寫回、等同補做 unhook）、免重開
   遊戲——修復狀態存於 `%LOCALAPPDATA%\wizard101-chat-translator\`，依 PID + 模組基址比對，
   只對同一個仍在執行的遊戲程序套用。僅「狀態檔遺失的舊遺留」才需重開遊戲一次。
-- 翻玩家發言（**含自己的 `[你]` 發言**與他人發言）；系統訊息（掉寶/經驗/升等）與遊戲除錯行不翻
+- 翻玩家發言（**含自己的 `[你]` 發言**與他人發言）；系統訊息預設不翻，可在設定視窗的
+  「進階」分頁開啟（開啟後譯文會快取在 `%LOCALAPPDATA%\wizard101-chat-translator\`，
+  重複的句型不會重複打 API）。全服升等廣播因每則的玩家名不同，快取無法命中。
+  遊戲除錯行一律不翻
 - wizwalker 掛入與全域熱鍵（keyboard 套件）只在遊戲以系統管理員身分執行時需要同樣
   提權（完整性等級要對等），一般情況不必；權限不足時橫幅會直接指出解法
 

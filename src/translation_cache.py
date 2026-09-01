@@ -102,6 +102,18 @@ class TranslationCache:
             self.flush()
         return True
 
+    def rebind(self, fingerprint: str) -> None:
+        """指紋變更（換服務商／模型／目標語言）：先落盤舊的，再清空重來。"""
+        if fingerprint == self._fingerprint:
+            return
+        self.flush()
+        with self._lock:
+            print(f"[cache] fingerprint changed at runtime, clearing "
+                  f"{len(self._entries)} entries", file=sys.stderr)
+            self._entries.clear()
+            self._fingerprint = fingerprint
+            self._unflushed = 0
+
     def load(self) -> None:
         """從磁碟載入。指紋不符、檔案損壞或不存在一律當作空快取（不是錯誤）。"""
         if not CACHE_PATH.exists():
