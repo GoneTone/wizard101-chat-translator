@@ -50,7 +50,7 @@
 | 快取 key | 數字正規化後的 template |
 | 快取失效 | 指紋 ＝ `provider ＋ model ＋ target_language`，不符整份作廢 |
 | 併發架構 | **兩個 `TranslationPool` 實例**，玩家對話與系統訊息各一條佇列 |
-| 兩個 pool 的 workers | **都吃 `max_parallel_translations`**，不寫死魔術數字 |
+| 總併發上限 | **`max_parallel_translations` 就是總數**：兩個 pool 各 N 個 worker，但共用一個 N 額度的併發閘 |
 | 快取命中時的路徑 | **不進 pool**，直接以完成態加入 overlay（零延遲、無 pending 佔位） |
 
 ---
@@ -264,9 +264,26 @@ APP_DIR = Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-
 分 pool 的**唯一理由是佇列隔離**：單一 pool 時，一輪湧入的十幾則系統訊息會排在玩家對話
 之前，讓對話延遲數秒到十數秒；分開之後玩家對話那條佇列裡永遠只有玩家對話。
 
-兩個 pool 都吃 `max_parallel_translations`，因此設 4 時實際同時進行的請求最多為 8。
-**README 與設定視窗的說明文字必須同步改成「每條通道」的語意**，否則文件與行為不符。
-自架端點併發吃緊時把值調小即可。
+### 共用併發閘：`max_parallel_translations` 是總數
+
+兩個 pool 各有 N 個 worker，但**共用一個 N 額度的併發閘**——worker 在真正發出 API 請求
+之前先取一個額度，取不到就等。職責切得很乾淨：**pool 管佇列隔離，閘管總量**。
+
+因此 `max_parallel_translations` 維持它字面的語意（同時進行的收訊翻譯則數），
+**README 與設定視窗的文案不需要改**。任何 N 值都守得住，包含 N=1
+（兩條佇列共搶 1 個額度，總併發就是 1）。
+
+取捨：系統訊息有可能短暫佔滿全部 N 個額度，此時玩家對話得等。但等的是「其中一則翻譯完成」
+（1–3 秒），而非單一 pool 那種「排在十幾則掉寶之後」（4–12 秒）。隔離的價值大部分仍在。
+
+實作是一個小類別（`threading.Condition` ＋ 計數 ＋ 可調上限，約 25 行，純邏輯、易測）：
+
+- **不可直接用 `threading.Semaphore`**：`max_parallel_translations` 可在設定視窗即時修改，
+  而號誌容量無法調整。閘需要 `set_limit()`，且調整後既有的等待者要能正確被喚醒。
+- **命名須與 pool 既有的退避閘門（`_gate_until` ／ `_wait_for_gate`）區分**，兩者用途不同
+  （退避閘門是「伺服器掛了、全體暫停」，併發閘是「同時最多幾則」），看混會很難查。
+- 取得額度的等待必須能被 `shutdown` 打斷，不可無限阻塞（沿用 `_wait_for_gate` 的分段等待作法）。
+- `resize()` 時兩個 pool 的 worker 數與閘的上限一起套用新值。
 
 ### `reader_loop` 依 `line.system` 分流
 
@@ -322,7 +339,7 @@ banner_for(game_issue, pool.error_state or system_pool.error_state)
 ### README
 
 - 設定表格新增 `translate_system_messages` 一列。
-- `max_parallel_translations` 該列改為「每條通道」的語意。
+- `max_parallel_translations` 該列**不需改動**：它仍是總併發數（見第五節的共用併發閘）。
 - 「已知限制」中「系統訊息不翻」的敘述改寫為「預設不翻，可於設定開啟」，
   並補上玩家名導致全服廣播無法命中快取的限制。
 
@@ -341,6 +358,7 @@ banner_for(game_issue, pool.error_state or system_pool.error_state)
 | **交錯順序** | 玩家與系統行交錯的 `cur`，emit 後的順序必須與 `cur` 中的相對順序一致（含兩軌走不同路徑的組合） |
 | `TranslationCache` | LRU 淘汰、指紋失效整份作廢、持久化往返、壞檔容錯、**檔案不含 API 金鑰** |
 | `TranslationPool` | `translate_fn` 參數化後既有行為不變 |
+| 併發閘 | 同時取用不超過上限；`set_limit()` 調大時等待者被喚醒、調小時不超發；`shutdown` 期間等待可被打斷；**兩個 pool 共用一個閘時總併發不超過 `max_parallel_translations`** |
 | `config` | 新欄位預設值與載入補齊 |
 
 超出 `pytest` 的驗收留給實機（開遊戲並登入進世界內）：
