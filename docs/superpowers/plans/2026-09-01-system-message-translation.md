@@ -704,28 +704,49 @@ git commit -m "feat(cache): add a persistent cache for system message translatio
 
 ---
 
-### Task 5: 解析層放行系統行
+### Task 5: 解析層與雙軌差分
+
+> **本 task 由原計畫的 Task 5、6 合併而成**（控制端 pre-flight ruling A）。兩者改的是同一條資料路徑：放行系統行之後、`emit_system` 閘門建立之前，`tests/test_mem_reader.py` 必然是紅的，中間沒有可獨立驗收的狀態。八個 step 一次做完、一次 commit。
+>
+> 這是整份計畫風險最高的一段。**玩家軌的路徑決策程式碼一行都不動**，只是它的輸入從「完整序列」換成「玩家行序列」；系統軌另寫一套較簡單的決策。
 
 **Files:**
-- Modify: `src/reader/mem_reader.py:111-118`（`ChatLine`）、`164-183`（`lines_from_chatlog`）、`209-228`（`lines_from_nodes`）
+- Modify: `src/reader/mem_reader.py:111-118`（`ChatLine`）、`164-183`（`lines_from_chatlog`）、`209-228`（`lines_from_nodes`）、`330-352`（`__init__`）、`366-531`（`_diff_new_lines`）
 - Test: `tests/test_mem_reader.py`
 
 **Interfaces:**
 - Consumes: 無
-- Produces: `ChatLine.system: bool`；`lines_from_chatlog()` 的輸出含系統行
+- Produces:
+  - `ChatLine.system: bool`；`lines_from_chatlog()` 的輸出含系統行
+  - `WizChatReader.emit_system: bool`（公開屬性，預設 `False`）
+  - `WizChatReader.read_new()` 回傳的序列含系統行，順序與遊戲內一致
+  - `player_out_with_idx(emitted, cur_player, player_idx) -> list[int]`（模組層純函式）
+
+**必須更新的既有測試（僅這兩個，其餘一律不得修改）**
+
+這兩個測試斷言的正是本功能要改變的行為，更新它們是對的：
+
+| 測試 | 現行斷言 | 改為 |
+|---|---|---|
+| `test_lines_skips_system_messages`（約 `tests/test_mem_reader.py:69`） | `_texts(lines_from_chatlog(log)) == ["[Amy] hi"]` | 三行都產出，且只有後兩行 `system is True`；函式改名為 `test_lines_flags_system_messages` |
+| `test_lines_empty_when_no_player_chat`（約 `:112`） | `lines_from_chatlog(_system("你獲得了 14 金幣！")) == []` | 該行現在會產出一筆 `system=True` 的 `ChatLine`；只保留 `lines_from_chatlog("") == []` 這一句，系統行的斷言移到上一列的新測試 |
+
+**必須維持綠燈、不得修改的既有測試**（`emit_system` 預設 `False`，它們的行為不變）：`test_system_and_debug_never_emitted`（約 `:602`）、`test_message_log_records_raw_lines_and_what_was_emitted`（約 `:914`）。**這兩個是玩家軌零迴歸的哨兵——它們若轉紅，代表雙軌沒做對，停下來修實作，不要動測試。**
 
 - [ ] **Step 1: 寫失敗的測試**
 
-加到 `tests/test_mem_reader.py`（放在既有 `lines_from_chatlog` 測試群組之後）：
+加到 `tests/test_mem_reader.py`（放在既有 `lines_from_chatlog` 測試群組之後）。
+
+> **不要新增名為 `_system` 的 helper**：該檔 `:51` 已有 `_system(text)`（固定綠色），同名不同簽名會覆蓋它、讓既有測試 TypeError。需要指定顏色時用下面的 `_system_colored`。
 
 ```python
-def _system(color: str, text: str) -> str:
+def _system_colored(color: str, text: str) -> str:
     return (f"<color;{color}><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> "
             f"{text}</color>")
 
 
 def test_system_lines_are_emitted_with_the_system_flag():
-    lines = lines_from_chatlog(_system("00FF00", "你获得了 39 金币！"))
+    lines = lines_from_chatlog(_system_colored("00FF00", "你获得了 39 金币！"))
     assert [l.text for l in lines] == ["你获得了 39 金币！"]
     assert lines[0].system is True
     assert lines[0].color == "#00ff00"
@@ -738,12 +759,12 @@ def test_player_lines_are_not_flagged_as_system():
 
 def test_system_lines_do_not_need_a_sender_prefix():
     # 玩家行必須通過 _VALID 的 [發送者] 規則，系統行沒有前綴、不適用
-    lines = lines_from_chatlog(_system("AA00AA", "你获得了 3 经验值！"))
+    lines = lines_from_chatlog(_system_colored("AA00AA", "你获得了 3 经验值！"))
     assert [l.text for l in lines] == ["你获得了 3 经验值！"]
 
 
 def test_system_lines_that_clean_to_nothing_are_dropped():
-    assert lines_from_chatlog(_system("00FF00", "")) == []
+    assert lines_from_chatlog(_system_colored("00FF00", "")) == []
 
 
 def test_debug_lines_are_still_dropped():
@@ -753,9 +774,9 @@ def test_debug_lines_are_still_dropped():
 
 
 def test_system_and_player_lines_keep_their_in_game_order():
-    raw = _log(_system("00FF00", "你获得了 39 金币！"),
+    raw = _log(_system_colored("00FF00", "你获得了 39 金币！"),
                _say_colored("FFFFFF", "Lars", "hi"),
-               _system("AA00AA", "你获得了 3 经验值！"))
+               _system_colored("AA00AA", "你获得了 3 经验值！"))
     lines = lines_from_chatlog(raw)
     assert [l.text for l in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
     assert [l.system for l in lines] == [True, False, True]
@@ -763,7 +784,7 @@ def test_system_and_player_lines_keep_their_in_game_order():
 
 def test_mirror_detection_still_only_considers_player_lines():
     # 主視圖有玩家行＋系統行，副節點只鏡射玩家行 → 仍判定為鏡射並剔除
-    main = _log(_say_colored("FFFFFF", "Lars", "hi"), _system("00FF00", "你获得了 39 金币！"))
+    main = _log(_say_colored("FFFFFF", "Lars", "hi"), _system_colored("00FF00", "你获得了 39 金币！"))
     mirror = _say_colored("FFFFFF", "Lars", "hi")
     lines, mirrored = lines_from_nodes([main, mirror])
     assert mirrored == 1
@@ -850,33 +871,7 @@ def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
 
 `node_sizes()` 的 docstring 補一句：它數的是**全部**行（含系統訊息）。實作不變。
 
-- [ ] **Step 4: 執行測試確認通過**
-
-Run: `uv run pytest tests/test_mem_reader.py -q`
-Expected: PASS。**既有測試必須全綠**——若有既有測試轉紅，代表放行系統行影響到玩家軌，停下來檢查而不是改測試。
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/reader/mem_reader.py tests/test_mem_reader.py
-git commit -m "feat(reader): parse system messages instead of dropping them"
-```
-
----
-
-### Task 6: 雙軌差分與索引合併
-
-這是整份計畫風險最高的一段。**玩家軌的路徑決策程式碼一行都不動**，只是它的輸入從「完整序列」換成「玩家行序列」；系統軌另寫一套較簡單的決策。
-
-**Files:**
-- Modify: `src/reader/mem_reader.py:330-352`（`__init__`）、`366-531`（`_diff_new_lines`）
-- Test: `tests/test_mem_reader.py`
-
-**Interfaces:**
-- Consumes: `ChatLine.system`（Task 5）
-- Produces: `WizChatReader.read_new()` 回傳的序列含系統行，順序與遊戲內一致
-
-- [ ] **Step 1: 寫失敗的測試**
+- [ ] **Step 4: 寫失敗的測試**
 
 加到 `tests/test_mem_reader.py`：
 
@@ -884,9 +879,9 @@ git commit -m "feat(reader): parse system messages instead of dropping them"
 def test_system_and_player_lines_are_emitted_in_game_order():
     first = _say_colored("FFFFFF", "Lars", "hi")
     second = _log(first,
-                  _system("00FF00", "你获得了 39 金币！"),
+                  _system_colored("00FF00", "你获得了 39 金币！"),
                   _say_colored("FFFFFF", "Amy", "hey"),
-                  _system("AA00AA", "你获得了 3 经验值！"))
+                  _system_colored("AA00AA", "你获得了 3 经验值！"))
     r = FakeWiz([first, second])
     r.read_new()                      # 建立基準
     assert _texts(r.read_new()) == ["你获得了 39 金币！", "[Amy] hey", "你获得了 3 经验值！"]
@@ -895,7 +890,7 @@ def test_system_and_player_lines_are_emitted_in_game_order():
 def test_system_messages_do_not_disturb_the_player_baseline():
     # 一輪湧入大量系統訊息，夾在其中的玩家訊息仍須照吐
     base = _say_colored("FFFFFF", "Lars", "hi")
-    flood = _log(base, *[_system("00FF00", f"你获得了 {n} 金币！") for n in range(1, 15)],
+    flood = _log(base, *[_system_colored("00FF00", f"你获得了 {n} 金币！") for n in range(1, 15)],
                  _say_colored("FFFFFF", "Amy", "hey"))
     r = FakeWiz([base, flood])
     r.read_new()
@@ -906,9 +901,9 @@ def test_system_messages_do_not_disturb_the_player_baseline():
 def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
     # 「這一輪沒有系統訊息」是日常狀態，不可累積成 baseline_stale 而強制 reset
     with_sys = _log(_say_colored("FFFFFF", "Lars", "hi"),
-                    _system("00FF00", "你获得了 39 金币！"))
+                    _system_colored("00FF00", "你获得了 39 金币！"))
     only_player = _log(_say_colored("FFFFFF", "Lars", "hi"),
-                       _system("00FF00", "你获得了 39 金币！"),
+                       _system_colored("00FF00", "你获得了 39 金币！"),
                        _say_colored("FFFFFF", "Amy", "a"))
     r = FakeWiz([with_sys, only_player, only_player, only_player, only_player])
     r.read_new()
@@ -920,8 +915,8 @@ def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
 
 def test_system_lines_are_tracked_even_when_not_emitted():
     # 開關關閉時仍要跟蹤系統軌，之後打開才不會爆吐歷史（emit_system=False）
-    first = _system("00FF00", "你获得了 39 金币！")
-    second = _log(first, _system("00FF00", "你获得了 65 金币！"))
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
     r = FakeWiz([first, second, second])
     r.emit_system = False
     r.read_new()
@@ -931,9 +926,9 @@ def test_system_lines_are_tracked_even_when_not_emitted():
 
 
 def test_system_track_keeps_emitting_after_being_re_enabled():
-    first = _system("00FF00", "你获得了 39 金币！")
-    second = _log(first, _system("00FF00", "你获得了 65 金币！"))
-    third = _log(second, _system("AA00AA", "你获得了 3 经验值！"))
+    first = _system_colored("00FF00", "你获得了 39 金币！")
+    second = _log(first, _system_colored("00FF00", "你获得了 65 金币！"))
+    third = _log(second, _system_colored("AA00AA", "你获得了 3 经验值！"))
     r = FakeWiz([first, second, third])
     r.emit_system = False
     r.read_new()
@@ -944,12 +939,12 @@ def test_system_track_keeps_emitting_after_being_re_enabled():
 
 `FakeWiz` 不需要修改——`emit_system` 是 `WizChatReader` 的公開屬性，測試直接設定即可。
 
-- [ ] **Step 2: 執行測試確認失敗**
+- [ ] **Step 5: 執行測試確認失敗**
 
 Run: `uv run pytest tests/test_mem_reader.py -k "in_game_order or player_baseline or stale_the_system or tracked_even or re_enabled" -v`
 Expected: FAIL，系統行未被吐出／`AttributeError: emit_system`
 
-- [ ] **Step 3: 實作**
+- [ ] **Step 6: 實作**
 
 `__init__` 加入系統軌狀態與開關（放在既有 `_seen_order` 之後）：
 
@@ -1109,21 +1104,27 @@ def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],
             self._remember_system(cur_system_texts)
 ```
 
-- [ ] **Step 4: 執行測試確認通過**
+- [ ] **Step 7: 執行測試確認通過**
 
-Run: `uv run pytest tests/test_mem_reader.py -q`
-Expected: PASS。**既有測試全綠是本 task 的驗收核心**——玩家軌零迴歸。
+Run: `uv run pytest tests/test_mem_reader.py -q`，接著 `uv run pytest -q`（全套）
+Expected: 兩者都 PASS。
 
-- [ ] **Step 5: Commit**
+**本 task 的驗收核心是玩家軌零迴歸**，逐項確認：
+
+1. `test_system_and_debug_never_emitted` 與 `test_message_log_records_raw_lines_and_what_was_emitted` 這兩個哨兵**維持綠燈且未被修改**（`git diff` 檢查它們沒有出現在差異裡）。它們若轉紅，是實作錯了，不是測試該改。
+2. 除了本 task 開頭表格所列的那兩個單元層測試，`tests/test_mem_reader.py` 的既有測試**一行都沒有被改動**。
+3. 全套測試綠燈——確認放行系統行沒有波及 `test_reader_loop.py` 等其他檔案。
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/reader/mem_reader.py tests/test_mem_reader.py
-git commit -m "feat(reader): diff system messages on their own track"
+git commit -m "feat(reader): parse system messages and diff them on their own track"
 ```
 
 ---
 
-### Task 7: 系統訊息的翻譯路徑
+### Task 6: 系統訊息的翻譯路徑
 
 **Files:**
 - Modify: `src/translator.py`
@@ -1252,14 +1253,14 @@ git commit -m "feat(translate): add a system message translation path"
 
 ---
 
-### Task 8: TranslationPool 參數化與併發閘接入
+### Task 7: TranslationPool 參數化與併發閘接入
 
 **Files:**
 - Modify: `src/translation_pool.py`
 - Test: `tests/test_translation_pool.py`
 
 **Interfaces:**
-- Consumes: `ConcurrencyGate`（Task 2）、`Translator.translate_system_message`（Task 7）
+- Consumes: `ConcurrencyGate`（Task 2）、`Translator.translate_system_message`（Task 6）
 - Produces: `TranslationPool(..., translate_fn=None, gate=None)`；`pool.resize()` 同時套用閘的上限
 
 - [ ] **Step 1: 寫失敗的測試**
@@ -1413,7 +1414,7 @@ git commit -m "feat(translate): parameterize the pool path and cap total concurr
 
 ---
 
-### Task 9: 設定欄位、設定視窗與語言檔
+### Task 8: 設定欄位、設定視窗與語言檔
 
 **Files:**
 - Modify: `src/config.py`（`DEFAULT_CONFIG`）
@@ -1539,9 +1540,9 @@ git commit -m "feat(settings): add a toggle for translating system messages"
 
 ---
 
-### Task 10: 主流程接線與文件
+### Task 9: 主流程接線與文件
 
-把前九個 task 的元件接起來：兩個 pool、共用閘、快取查詢、reader 分流、錯誤橫幅合併。
+把前八個 task 的元件接起來：兩個 pool、共用閘、快取查詢、reader 分流、錯誤橫幅合併。
 
 **Files:**
 - Modify: `src/main.py:121-233`（`reader_loop`）、`324-500`（`main`）
@@ -1549,7 +1550,7 @@ git commit -m "feat(settings): add a toggle for translating system messages"
 - Test: `tests/test_reader_loop.py`
 
 **Interfaces:**
-- Consumes: 前九個 task 的全部產出
+- Consumes: 前八個 task 的全部產出
 - Produces: 無（終端接線）
 
 - [ ] **Step 1: 寫失敗的測試**
@@ -1889,12 +1890,20 @@ git commit -m "feat(app): wire up system message translation and its cache"
 
 ## 自我檢查結果
 
-**Spec 覆蓋**：spec 的七節皆有對應 task——解析與雙軌（Task 5、6）、翻譯路徑（Task 7）、正規化（Task 3）、快取元件（Task 1、4）、併發與資料流（Task 2、8、10）、設定與介面文字（Task 9、10）、測試策略（各 task 的 Step 1 與 Task 10 Step 5）。
+**Spec 覆蓋**：spec 的七節皆有對應 task——解析與雙軌（Task 5）、翻譯路徑（Task 6）、正規化（Task 3）、快取元件（Task 1、4）、併發與資料流（Task 2、7、9）、設定與介面文字（Task 8、9）、測試策略（各 task 的 Step 1 與 Task 9 Step 5）。
 
 **Self-review 抓到並已修正的三件事**：
 
-1. **`cache.put()` 的參數傳錯**：Task 10 原本傳的是正規化後的 `template`，但 `put()` 內部會自己再正規化一次——而 `{0}` 裡的 `0` 會被 `_NUMBER` 當成數字，變成 `{{0}}`，快取從此永遠對不上。已改為傳原文，並在 Task 4 補了 `test_put_takes_the_raw_text_not_the_template` 守住這件事。
-2. **兩處測試骨架留了 `...` 佔位**（Task 9、Task 10）。已依 `tests/test_settings.py` 的 `test_save_applies_ui_language` 與 `tests/test_reader_loop.py` 的 `run_scripted`／`FakePool`／`FakeOverlay` 慣例填成可直接執行的測試碼。
+1. **`cache.put()` 的參數傳錯**：Task 9 原本傳的是正規化後的 `template`，但 `put()` 內部會自己再正規化一次——而 `{0}` 裡的 `0` 會被 `_NUMBER` 當成數字，變成 `{{0}}`，快取從此永遠對不上。已改為傳原文，並在 Task 4 補了 `test_put_takes_the_raw_text_not_the_template` 守住這件事。
+2. **兩處測試骨架留了 `...` 佔位**（Task 8、Task 9）。已依 `tests/test_settings.py` 的 `test_save_applies_ui_language` 與 `tests/test_reader_loop.py` 的 `run_scripted`／`FakePool`／`FakeOverlay` 慣例填成可直接執行的測試碼。
 3. **`cfg["translate_system_messages"]` 會打破既有測試**：`tests/test_reader_loop.py` 傳的是 minimal dict。已改用 `cfg.get(..., False)`，與該檔既有的 `cfg.get("game_path")` 慣例一致。
 
 **型別一致性**：`ConcurrencyGate.acquire/release/set_limit/in_use`、`TranslationCache.get/put/load/flush/rebind`、`fingerprint_of`、`normalize/restore/placeholders_match`、`TranslationPool(translate_fn=, gate=)`、`ChatLine.system`、`WizChatReader.emit_system` 在各 task 之間的名稱與簽名已逐一核對一致。
+
+## 執行前的 pre-flight 修訂（控制端 ruling）
+
+執行本計畫前的衝突掃描又抓到三件事，均已改入上文：
+
+1. **原 Task 5、6 已合併為單一 Task 5**（八個 step、一次 commit），其後的 task 順延為 6-9，共九個 task。原因：`tests/test_mem_reader.py` 有四個既有測試斷言系統訊息不被 emit；放行系統行之後、`emit_system` 閘門之前，其中兩個必然轉紅，原 Task 5 沒有可獨立驗收的綠燈狀態。
+2. **明列了哪兩個既有測試該改、哪兩個是不得動的哨兵**。原文只寫「既有測試轉紅就停下來檢查而不是改測試」，對那兩個單元層測試是錯的指示——它們斷言的正是本功能要改變的行為。
+3. **測試 helper 命名衝突**：原本要新增的 `_system(color, text)` 與該檔 `:51` 既有的 `_system(text)` 同名不同簽名，會覆蓋它並讓既有測試 TypeError。已改名為 `_system_colored(color, text)`。
