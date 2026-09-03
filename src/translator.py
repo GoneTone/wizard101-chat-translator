@@ -11,6 +11,7 @@ TranslatorNoModelList。
 上下文由呼叫端提供（見 src/context.py）：本類別不持有狀態，可安全平行呼叫。
 """
 import re
+import sys
 
 import anthropic
 import httpx
@@ -19,6 +20,10 @@ from src.config import EFFORT_AUTO
 
 # 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
+
+# 提示詞版次：實質改動任何一條提示詞就 +1。系統訊息譯文的快取指紋含這個值
+# （見 translation_cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留在磁碟上。
+PROMPT_REVISION = 2
 
 # 上下文以「多輪對話」而非段落標記傳遞：把背景聊天記錄當成前一輪 user 訊息、
 # 由 assistant 確認後，待翻句子才單獨成為最後一個乾淨的 user 輪。
@@ -60,12 +65,19 @@ def _game_noun_rule(target_language: str) -> str:
     括號裡的英文只能照抄原文既有的：早期版本無條件要求「在譯名後附上英文原文」，
     在原文並非英文的伺服器上，模型沒有英文可抄就自己翻一個塞進括號（實機回報，
     例如掉寶的材料名被冠上一個它自行翻譯的英文名）。兩處各寫一份時改一處會漏另一處，
-    故抽成單一真實來源。"""
+    故抽成單一真實來源。
+
+    **規則裡一個英文字都不能出現**：曾以「火龍(Fire Dragon)」「鱷魚國(Krokotopia)」
+    示範附註格式，實測反而把模型整個帶往英文——中文伺服器的裸名詞（掉寶、裝備名這類
+    沒有句子語境的系統訊息）被直接譯成官方英文名，`雪刺帽` 穩定回 `Snowspike Hat`。
+    拿掉範例後同一批句子穩定翻成目標語言。玩家名與 NPC 名同理不翻：模型認得音譯名的
+    英文來源（卡拉米蒂 → Calamity），一翻就把人名換成另一個玩家認不出來的寫法。"""
     return (
-        f"遊戲相關名詞（魔法名、地名、物品名、材料名、NPC 名等）翻成 {target_language}。"
-        "括號裡的英文只能照抄原文本來就有的，絕不可自行翻譯或補上——"
-        "原文是英文時，在譯名後用半形括號附上該英文原文，例如「火龍(Fire Dragon)」、"
-        "「鱷魚國(Krokotopia)」；原文不是英文時只輸出譯名，不得附加任何英文。"
+        f"遊戲相關名詞（魔法名、地名、物品名、材料名等）翻成 {target_language}，"
+        "不得改用英文或其他語言既有的名稱。"
+        "玩家名與 NPC 名原樣保留，不要翻譯或音譯。"
+        "原文本來就有英文時，可在譯名後用半形括號附上該英文原文；"
+        "原文沒有英文時只輸出譯名，不得自行翻譯或補上任何英文。"
         "純代碼或確實無法翻譯的內容則保留原文。"
     )
 
@@ -134,13 +146,22 @@ def build_outgoing_system(outgoing_language: str) -> str:
     )
 
 
-def build_system_message_system(target_language: str) -> str:
+# 譯文落回英文時，重譯用的追加提醒（見 Translator.translate_system_message）。
+# 放在 system 而不是待翻的使用者輪：塞進待翻文字裡，模型會把提醒本身也翻出來。
+def _strict_retry_note(target_language: str) -> str:
+    return ("\n\n注意：你上一次的輸出把原文的名詞換成了英文。這一次只准輸出 "
+            f"{target_language}，原文裡沒有出現過的英文字母一個都不准寫。")
+
+
+def build_system_message_system(target_language: str, strict: bool = False) -> str:
     """建構系統訊息翻譯的 system 提示：把遊戲系統訊息翻成 target_language。
 
     與收訊翻譯分開的原因：系統訊息沒有「[發送者] 內容」的格式，收訊那套規則會讓模型
     自己補一個發送者出來。這條路徑也不提供任何上下文——系統訊息彼此獨立，
-    「同一句原文必然得到同一句譯文」正是它可以被快取的前提。"""
-    return (
+    「同一句原文必然得到同一句譯文」正是它可以被快取的前提。
+
+    strict=True 是重譯用的版本，多帶一段「上次輸出落回英文」的提醒。"""
+    prompt = (
         f"你是一個專業的翻譯員，負責將線上遊戲 Wizard101 的系統訊息"
         f"（任何語言，自動判斷）流暢地翻譯為 {target_language}。"
         "系統訊息指遊戲本身發出的通知，例如掉寶、獲得金幣與經驗、升等廣播、"
@@ -158,8 +179,15 @@ def build_system_message_system(target_language: str) -> str:
         "6. 如果文本包含表情符號（emoji 或 :名稱: 形式），請原樣保留在對應位置，"
         "不要翻譯或刪除；原文沒有的表情符號一律不得自行添加。\n"
         "7. 標點盡量貼近原文的標點風格；"
-        f"需要標點時使用 {target_language} 慣用的樣式。"
+        f"需要標點時使用 {target_language} 慣用的樣式。\n"
+        # 系統訊息常常是沒有句子語境的裸名詞，最容易被模型整個換成官方英文名；
+        # 這條全域約束是實測下唯一壓得住的寫法（見 _game_noun_rule）。
+        f"8. 整則譯文必須完全以 {target_language} 書寫；"
+        "原文沒有的英文（或其他語言）一律不得出現在譯文裡。"
     )
+    if strict:
+        prompt += _strict_retry_note(target_language)
+    return prompt
 
 
 # thinking=False 時併入請求 body 的停用參數，涵蓋常見後端（伺服器通常忽略不認得的欄位）。
@@ -185,6 +213,19 @@ def strip_think(text: str) -> str:
 _SENDER_PREFIX = re.compile(r"^\[[^\]]{1,40}\]\s*")
 # 半形或全形括號包住、以英文字母開頭的內容（模型補上的英文名長這樣）
 _PAREN_ENGLISH = re.compile(r"\s*[（(][A-Za-z][A-Za-z0-9 .'\-]*[)）]")
+_LATIN = re.compile(r"[A-Za-z]")
+# 一段連續的拉丁文字：字母起頭，其後可接字母、數字與詞內常見的標點與空白，
+# 這樣「Received a friend request from Amy」是一段，而不是被空白切成六段。
+_LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9 .,'’\-]*")
+# 目標語言的字：拉丁片段拿掉後，還算不算留下了「字」（漢字、假名、諺文、
+# 西里爾字母等都是 \w，空白、數字與標點則不是）。
+_NON_LATIN_WORD = re.compile(r"[^\W\d_]")
+
+
+def _content_has_latin(text: str) -> bool:
+    """訊息內容裡有沒有拉丁字母。`[發送者]` 前綴不算——發送者名是英文，
+    與訊息內容用什麼文字寫成無關。"""
+    return _LATIN.search(_SENDER_PREFIX.sub("", text)) is not None
 
 
 def strip_invented_english(source: str, translated: str) -> str:
@@ -193,14 +234,60 @@ def strip_invented_english(source: str, translated: str) -> str:
     提示詞已要求「括號裡的英文只能照抄原文既有的」（見 _game_noun_rule），但小模型
     的遵從度不穩：實測同一則簡體中文材料名，兩次翻譯分別補上 (Psychedelic Wood) 與
     (Mystic Wood)——兩個都是模型自己翻的，遊戲裡並沒有這個英文名（實機回報）。
-    規則裡的正面示範「火龍(Fire Dragon)」本身也在誘導模型套用那個格式。
+    規則裡曾有的正面示範「火龍(Fire Dragon)」本身也在誘導模型套用那個格式（已移除）。
     原文一個英文字母都沒有時，譯文的括號英文必然是憑空生成，直接移除。
 
-    判斷只看訊息內容、不看 `[發送者]` 前綴：發送者名是英文不代表訊息內容有英文。
     括號裡不是英文（中文註解等）一律不動。"""
-    if re.search(r"[A-Za-z]", _SENDER_PREFIX.sub("", source)):
+    if _content_has_latin(source):
         return translated   # 原文本來就有英文，括號裡可能是照抄的，不得動
     return _PAREN_ENGLISH.sub("", translated)
+
+
+def uses_latin_script(language: str) -> bool:
+    """這個語言是否以拉丁字母書寫。
+
+    看語言名稱本身用什麼文字寫成：設定裡的目標語言是人讀名稱，預設清單一律是自稱
+    （見 ui.fields.COMMON_LANGUAGES），而自稱必然以該語言自己的文字書寫——
+    `English`、`Español` 對上 `繁體中文（台灣）`、`日本語`、`한국어`。
+    如此判斷不必在程式碼裡列任何語言名冊。"""
+    return _LATIN.search(language) is not None
+
+
+def _squash(text: str) -> str:
+    """比對譯文片段與原文用的正規化：空白壓成一格、忽略大小寫。"""
+    return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
+    """譯文是否出現了不該有的拉丁文字——模型自作主張改用英文名，或整句沒翻。
+
+    實機症狀：目標語言是繁體中文，中文伺服器的裸名詞卻被翻成官方英文名
+    （`雪刺帽` → `Snowspike Hat`），音譯的玩家名也會被還原成英文來源
+    （`卡拉米蒂 …` → `Calamity …`）。strip_invented_english 只清括號裡的英文，
+    這種整段或半段的英譯它抓不到。
+
+    兩條規則，缺一不可：
+    1. 譯文整段都是拉丁——沒有一個目標語言的字。模型要不是改用了英文名，就是把
+       原文原樣吐了回來（拉丁文字的伺服器上這是主要的失敗樣態）。
+    2. 譯文裡某個拉丁片段不是原文本來就有的字串。只看「原文有沒有英文」不夠：
+       系統訊息常夾著英文玩家名（`收到 [Amy] 的伙伴邀请`），有它在整條檢查就會
+       被放行，模型把整句翻成英文也抓不到。逐片段比對才擋得住，同時又不會誤傷
+       譯文照抄的那些英文（`Amy` 確實出現在原文裡）。
+
+    兩個已知的盲點，都是字元層面無解、需要語言辨識才做得到的：
+    目標語言本身以拉丁字母書寫時（`Español`、`Deutsch`）一律回 False——那時譯文
+    滿是拉丁字母才是對的，而 `Snowspike Hat` 與 `Sombrero de Nieve` 分不出來；
+    同文字系統之間也看不出來（目標繁中卻回吐簡中、目標日文卻回吐中文）。"""
+    if uses_latin_script(target_language):
+        return False
+    body = _SENDER_PREFIX.sub("", translated)
+    if not _LATIN.search(body):
+        return False
+    runs = [run.group() for run in _LATIN_RUN.finditer(body)]
+    if not _NON_LATIN_WORD.search(_LATIN_RUN.sub("", body)):
+        return True     # 規則 1：整段沒有一個目標語言的字
+    haystack = _squash(_SENDER_PREFIX.sub("", source))
+    return any(_squash(run) not in haystack for run in runs)   # 規則 2
 
 
 OPENAI_BASE_URL = "https://api.openai.com"  # ChatGPT preset 固定官方端點
@@ -410,6 +497,11 @@ class Translator:
                                    _TIMEOUT, None)
         self._target_language = target_language
 
+    @property
+    def target_language(self) -> str:
+        """目前的目標語言。呼叫端要判斷譯文品質時需要它（見 has_stray_latin）。"""
+        return self._target_language
+
     def translate_incoming(self, text: str, context: list[str]) -> str:
         """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
         context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
@@ -422,10 +514,28 @@ class Translator:
 
         **簽名刻意不吃 context**：系統訊息彼此獨立，不需要也不應該吃聊天上下文
         （8 行的上下文窗會被掉寶洗光，玩家對話就失去語境）。這也讓本方法成為
-        純函式化的呼叫，是譯文快取正確性的前提（見 translation_cache）。"""
+        純函式化的呼叫，是譯文快取正確性的前提（見 translation_cache）。
+
+        譯文落回英文時重譯一次（見 has_stray_latin）：系統訊息多半是沒有句子
+        語境的裸名詞，模型特別容易改用官方英文名。實測重譯救得回約三分之一，
+        救不回的（音譯的玩家名）就照樣回傳——呼叫端負責不把它寫進快取。
+        重譯只走這條路徑：收訊有完整句子語境、實測不會落回英文，多打一次是白花錢。"""
+        translated = self._system_message_once(text)
+        if has_stray_latin(text, translated, self._target_language):
+            print(f"[translate] system message is not in the target language, retrying "
+                  f"strictly: source={text!r} translated={translated!r}", file=sys.stderr)
+            translated = self._system_message_once(text, strict=True)
+            if has_stray_latin(text, translated, self._target_language):
+                print(f"[translate] strict retry is still not in the target language, "
+                      f"using it as is: source={text!r} translated={translated!r}",
+                      file=sys.stderr)
+        return translated
+
+    def _system_message_once(self, text: str, strict: bool = False) -> str:
         return strip_invented_english(
-            text, self._impl.chat(build_system_message_system(self._target_language),
-                                  [{"role": "user", "content": text}]))
+            text, self._impl.chat(
+                build_system_message_system(self._target_language, strict=strict),
+                [{"role": "user", "content": text}]))
 
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。

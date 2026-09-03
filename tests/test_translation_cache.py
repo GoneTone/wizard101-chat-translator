@@ -8,6 +8,7 @@ from src.translation_cache import (
     TranslationCache, fingerprint_of, normalize, placeholders_match, restore,
     translate_and_cache,
 )
+from src.translator import PROMPT_REVISION
 
 
 def test_normalize_replaces_numbers_with_placeholders():
@@ -240,6 +241,8 @@ def test_rebind_is_a_no_op_when_the_fingerprint_is_unchanged(cache_path):
 class FakeTranslator:
     """記錄收到的每一次翻譯請求；translations 是「送進去的文字→回傳的譯文」對照表。"""
 
+    target_language = "繁體中文（台灣）"
+
     def __init__(self, translations):
         self.translations = dict(translations)
         self.requested: list[str] = []
@@ -355,3 +358,29 @@ def test_cache_still_usable_after_clear(cache_path):
     c.clear()
     c.put("迷幻木头", "迷幻木頭", FP)
     assert c.get("迷幻木头") == "迷幻木頭"
+
+
+def test_translate_and_cache_does_not_store_a_translation_that_slipped_into_english(
+        cache_path):
+    # 實機：目標語言是繁中，模型卻把裸名詞翻成官方英文名。錯一次就被快取固化、
+    # 之後每次命中都吐英文——這類譯文照樣顯示（模型已重譯過一次，見 translator），
+    # 但一律不落盤，下次有機會翻對。
+    translator = FakeTranslator({"雪刺帽": "Snowspike Hat"})
+    cache = TranslationCache(FP)
+    assert translate_and_cache(translator, cache, "雪刺帽") == "Snowspike Hat"
+    assert cache.get("雪刺帽") is None
+    assert translator.requested == ["雪刺帽"]   # 不再多打一次直翻
+
+
+def test_translate_and_cache_stores_a_translation_that_kept_the_source_english(
+        cache_path):
+    translator = FakeTranslator({"death skeleturion": "死亡骷髏戰士"})
+    cache = TranslationCache(FP)
+    assert translate_and_cache(translator, cache, "death skeleturion") == "死亡骷髏戰士"
+    assert cache.get("death skeleturion") == "死亡骷髏戰士"
+
+
+def test_fingerprint_covers_the_prompt_revision():
+    # 提示詞改了，舊提示詞產出的譯文就該整份作廢——否則使用者手上翻壞的譯名
+    # 會跨著更新一直留在磁碟上。
+    assert f"p{PROMPT_REVISION}" in fingerprint_of("custom", "gemma", "日本語")

@@ -16,6 +16,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from src.config import local_state_dir
+from src.translator import PROMPT_REVISION, has_stray_latin
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _PLACEHOLDER = re.compile(r"\{(\d+)\}")
@@ -56,9 +57,11 @@ FLUSH_EVERY = 20      # 累積這麼多筆新增才落盤一次（不逐筆寫�
 
 
 def fingerprint_of(provider: str, model: str, target_language: str) -> str:
-    """快取指紋：換服務商、換模型或換目標語言時，舊譯文必須整份作廢。
+    """快取指紋：換服務商、換模型、換目標語言或改過提示詞時，舊譯文必須整份作廢。
+    提示詞版次也算進來（見 translator.PROMPT_REVISION）——否則舊提示詞翻壞的譯名
+    會跨著程式更新一直留在使用者的磁碟上，改了提示詞也看不到效果。
     **絕不含 API 金鑰**——這份指紋會被寫進磁碟。"""
-    return f"{provider}|{model}|{target_language}"
+    return f"{provider}|{model}|{target_language}|p{PROMPT_REVISION}"
 
 
 class TranslationCache:
@@ -215,12 +218,20 @@ def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     佔位符被模型弄壞、或翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次
     ——後者這一次直翻走的已是新設定，拿到的譯文語言才對（正確性優先於命中率）。
 
-    `translator` 只要求有 `translate_system_message(text) -> str`（見
-    `src.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
+    模型改用英文名的譯文（見 translator.has_stray_latin）一律不落盤：翻譯器已經
+    為它重譯過一次，救不回來的照樣顯示，但存進快取就等於把這個錯誤固化——之後每次
+    命中都吐同一個英文名，跨重啟都在。不快取，下次遇到同一句還有機會翻對。
+
+    `translator` 只要求有 `translate_system_message(text) -> str` 與 `target_language`
+    （見 `src.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
     """
     template, numbers = normalize(text)
     fingerprint = cache.fingerprint   # 翻譯期間使用者可能換設定，先記下產出當下的指紋
     translated = translator.translate_system_message(template)
+    if has_stray_latin(template, translated, translator.target_language):
+        print(f"[cache] translation is not in the target language, not cached: "
+              f"template={template!r} translated={translated!r}", file=sys.stderr)
+        return restore(translated, numbers)
     # put() 收的是**原文**、內部自己正規化。這裡不能傳 template——
     # 它含 `{0}`，再 normalize 一次會把裡面的 0 當成數字，變成 `{{0}}`。
     if cache.put(text, translated, fingerprint):

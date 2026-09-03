@@ -7,7 +7,8 @@ import pytest
 from src.translator import (
     OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
     TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
-    build_system_message_system, _game_noun_rule, strip_invented_english,
+    build_system_message_system, _game_noun_rule, _PAREN_ENGLISH,
+    has_stray_latin, strip_invented_english,
 )
 
 
@@ -469,13 +470,22 @@ def test_game_noun_rule_is_shared_by_both_prompts():
 def test_game_noun_rule_forbids_inventing_english_for_non_english_source():
     # 原文非英文時模型不得自行翻一個英文塞進括號
     rule = _game_noun_rule("繁體中文（台灣）")
-    assert "只能照抄原文本來就有的" in rule
-    assert "不得附加任何英文" in rule
+    assert "不得自行翻譯或補上任何英文" in rule
 
 
 def test_game_noun_rule_still_keeps_english_when_the_source_is_english():
-    rule = _game_noun_rule("繁體中文（台灣）")
-    assert "火龍(Fire Dragon)" in rule
+    assert "原文本來就有英文時" in _game_noun_rule("繁體中文（台灣）")
+
+
+def test_game_noun_rule_carries_no_english_example():
+    # 示範一次「譯名(English)」就會把模型帶往英文：實機上「雪刺帽」被整個譯成
+    # Snowspike Hat，拿掉範例後同一句穩定翻成中文（見規則的 docstring）。
+    # 這裡用實際清理譯文的那條正則反過來擋住範例回流。
+    assert _PAREN_ENGLISH.search(_game_noun_rule("繁體中文（台灣）")) is None
+
+
+def test_game_noun_rule_keeps_player_and_npc_names_untranslated():
+    assert "原樣保留" in _game_noun_rule("繁體中文（台灣）")
 
 
 def test_game_noun_rule_names_the_target_language():
@@ -536,3 +546,146 @@ def test_translate_incoming_strips_invented_english():
 def test_translate_system_message_strips_invented_english():
     fake = FakeHttpxClient(response=FakeResponse(content="迷幻木頭(Mystic Wood)"))
     assert _make(fake).translate_system_message("迷幻木头") == "迷幻木頭"
+
+
+class FakeSequenceClient(FakeHttpxClient):
+    """依序回傳多個回應，並留下每一次的 request body：重譯路徑要看兩次請求。
+    回應用完後重複最後一個。"""
+
+    def __init__(self, contents):
+        super().__init__()
+        self._queue = [FakeResponse(content=c) for c in contents]
+        self.bodies = []
+
+    def post(self, url, json):
+        self.bodies.append(json)
+        return self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
+
+
+# --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---
+def test_has_stray_latin_flags_a_translation_that_switched_to_english():
+    assert has_stray_latin("雪刺帽", "Snowspike Hat", "繁體中文（台灣）")
+
+
+def test_has_stray_latin_flags_a_partly_englished_translation():
+    # 實機：音譯的玩家名被還原成英文來源（卡拉米蒂 → Calamity），其餘照翻
+    assert has_stray_latin("卡拉米蒂 现在等级 {0}！", "Calamity 現在等級 {0}！",
+                              "繁體中文（台灣）")
+
+
+def test_has_stray_latin_accepts_a_translation_in_the_target_language():
+    assert not has_stray_latin("雪刺帽", "雪刺帽", "繁體中文（台灣）")
+
+
+def test_has_stray_latin_allows_english_the_source_already_had():
+    assert not has_stray_latin("death skeleturion", "死亡骷髏戰士 (Death Skeleturion)",
+                                  "繁體中文（台灣）")
+
+
+def test_has_stray_latin_is_off_for_a_latin_script_target_language():
+    # 目標語言自己就以拉丁字母書寫時，譯文滿是拉丁字母才是對的
+    assert not has_stray_latin("雪刺帽", "Snowspike Hat", "English")
+    assert not has_stray_latin("雪刺帽", "Sombrero de Nieve", "Español")
+
+
+def test_has_stray_latin_ignores_an_english_sender_name():
+    assert not has_stray_latin("[Amy] 雪刺帽", "[Amy] 雪刺帽", "繁體中文（台灣）")
+
+
+def test_has_stray_latin_looks_at_the_message_body_of_the_translation():
+    assert has_stray_latin("[艾米] 雪刺帽", "[艾米] Snowspike Hat", "繁體中文（台灣）")
+
+
+# --- 系統訊息落回英文時重譯一次 ---
+def test_system_message_prompt_demands_the_whole_translation_in_the_target_language():
+    assert "整則譯文必須完全以 日本語 書寫" in build_system_message_system("日本語")
+
+
+def test_strict_system_message_prompt_calls_out_the_english_slip():
+    strict = build_system_message_system("日本語", strict=True)
+    assert build_system_message_system("日本語") in strict
+    assert "上一次" in strict
+
+
+def test_translate_system_message_retries_when_the_model_answers_in_english():
+    fake = FakeSequenceClient(["Snowspike Hat", "雪刺帽"])
+    assert _make(fake).translate_system_message("雪刺帽") == "雪刺帽"
+    assert len(fake.bodies) == 2
+    assert "上一次" in fake.bodies[1]["messages"][0]["content"]   # 重譯用更嚴格的提示詞
+
+
+def test_translate_system_message_does_not_retry_a_clean_translation():
+    fake = FakeSequenceClient(["雪刺帽"])
+    _make(fake).translate_system_message("雪刺帽")
+    assert len(fake.bodies) == 1
+
+
+def test_translate_system_message_keeps_a_retry_that_is_still_english():
+    # 實測音譯的玩家名重譯仍會英譯：照樣顯示（呼叫端負責不快取），不再多打第三次
+    fake = FakeSequenceClient(["Calamity 現在等級 {0}！"])
+    tr = _make(fake)
+    assert tr.translate_system_message("卡拉米蒂 现在等级 {0}！") == "Calamity 現在等級 {0}！"
+    assert len(fake.bodies) == 2
+
+
+def test_incoming_translation_is_not_retried():
+    # 收訊有完整句子語境、實測不會落回英文；多打一次只是白花錢
+    fake = FakeSequenceClient(["Snowspike Hat"])
+    _make(fake).translate_incoming("雪刺帽", [])
+    assert len(fake.bodies) == 1
+
+
+def test_translator_exposes_the_target_language():
+    assert _make(FakeHttpxClient()).target_language == "繁體中文（台灣）"
+
+
+def test_reconfigure_updates_the_exposed_target_language():
+    tr = _make(FakeHttpxClient())
+    tr.reconfigure(provider="custom", base_url="http://x", model="m",
+                   target_language="日本語")
+    assert tr.target_language == "日本語"
+
+
+# --- 規則 1：譯文整段都是拉丁，一個目標語言的字都沒有 ---
+def test_has_stray_latin_flags_a_source_echoed_back_untranslated():
+    # 拉丁文字的伺服器上主要的失敗樣態：模型把原文原樣吐回來。片段比對放行
+    # （片段確實都在原文裡），要靠「整段沒有目標語言的字」這條才擋得住。
+    assert has_stray_latin("You received Snowspike Hat",
+                           "You received Snowspike Hat", "繁體中文（台灣）")
+
+
+def test_has_stray_latin_accepts_a_translation_that_has_target_language_words():
+    assert not has_stray_latin("You received Snowspike Hat",
+                               "你獲得了 Snowspike Hat", "繁體中文（台灣）")
+
+
+# --- 規則 2：譯文的拉丁片段不是原文本來就有的 ---
+def test_has_stray_latin_flags_an_english_sentence_built_around_a_player_name():
+    # 原文夾著英文玩家名，舊判準（只問原文有沒有英文）會整條放行
+    assert has_stray_latin("收到 [Amy] 的伙伴邀请",
+                           "Received a friend request from Amy", "繁體中文（台灣）")
+
+
+def test_has_stray_latin_allows_a_player_name_copied_from_the_source():
+    assert not has_stray_latin("收到 [Amy] 的伙伴邀请", "收到 Amy 的夥伴邀請",
+                               "繁體中文（台灣）")
+
+
+def test_has_stray_latin_ignores_case_and_spacing_when_matching_the_source():
+    assert not has_stray_latin("你获得了 Lava Lily", "你獲得了  lava lily",
+                               "繁體中文（台灣）")
+
+
+def test_has_stray_latin_flags_a_name_the_model_swapped_in():
+    # 原文有一個英文名，模型卻換上另一個——片段不在原文裡就是憑空生成的
+    assert has_stray_latin("收到 [Amy] 的伙伴邀请", "收到 Snowspike Hat 的夥伴邀請",
+                           "繁體中文（台灣）")
+
+
+def test_has_stray_latin_covers_non_latin_target_languages():
+    for language in ["日本語", "한국어", "Русский", "ภาษาไทย", "Ελληνικά"]:
+        assert has_stray_latin("雪刺帽", "Snowspike Hat", language)
+
+
+def test_has_stray_latin_accepts_a_translation_without_any_latin():
+    assert not has_stray_latin("你获得了 {0} 金币！", "{0} ゴールドを手に入れた！", "日本語")
