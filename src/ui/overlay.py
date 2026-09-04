@@ -142,6 +142,25 @@ class OverlayWindow:
         # 縮放中的起點與起始幾何；None＝目前沒有在縮放（見 _resize_start）
         self._resize: tuple[int, int, int, int, int, int, str] | None = None
 
+        self._build_backdrop(root)
+        # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
+        # 把 backdrop 一起抬起、反而蓋過文字層（實測）；OS 擁有關係於下方另設。
+        self._win = tk.Toplevel(root)
+        self._win.overrideredirect(True)
+        self._win.attributes("-topmost", True)
+        self._win.attributes("-transparentcolor", BG)
+        self._win.configure(bg=BG)
+        # 未設定過位置（首次啟動）：擺螢幕正中央，比擺角落更容易被注意到
+        px = x if x is not None else (self._win.winfo_screenwidth() - self._w) // 2
+        py = y if y is not None else (self._win.winfo_screenheight() - self._h) // 2
+        self._apply_geometry(px, py, self._w, self._h)
+        self._build_title_bar(on_settings, on_close)
+        self._build_message_area()
+        self._build_resize_handles()
+        self._attach_to_shell(on_close)
+
+    def _build_backdrop(self, root: tk.Tk) -> None:
+        """半透明底板：雙層視窗的下層（見內文）。"""
         # 雙層視窗：tk 的 -alpha 整窗生效、無法只透背景，故拆兩層——下層 backdrop 承擔
         # 半透明底板（透明度設定作用於此），上層本體以 -transparentcolor 挖空背景色，
         # 文字與控制項保持完全不透明。本體由 backdrop 擁有（owned window），永遠疊在其上。
@@ -155,18 +174,8 @@ class OverlayWindow:
         make_non_activating(self._backdrop)
         self._backdrop.bind("<MouseWheel>", self._on_wheel)
 
-        # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
-        # 把 backdrop 一起抬起、反而蓋過文字層（實測）；OS 擁有關係於下方另設。
-        self._win = tk.Toplevel(root)
-        self._win.overrideredirect(True)
-        self._win.attributes("-topmost", True)
-        self._win.attributes("-transparentcolor", BG)
-        self._win.configure(bg=BG)
-        # 未設定過位置（首次啟動）：擺螢幕正中央，比擺角落更容易被注意到
-        px = x if x is not None else (self._win.winfo_screenwidth() - self._w) // 2
-        py = y if y is not None else (self._win.winfo_screenheight() - self._h) // 2
-        self._apply_geometry(px, py, self._w, self._h)
-
+    def _build_title_bar(self, on_settings, on_close) -> None:
+        """標題列：icon、標題、狀態字與 ⚙／─／✕，整列可拖曳移動、上緣可縮放。"""
         # 標題列（可拖曳移動）
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
@@ -208,6 +217,8 @@ class OverlayWindow:
             w.bind("<B1-Motion>", self._bar_drag)
             w.bind("<ButtonRelease-1>", self._bar_release)
 
+    def _build_message_area(self) -> None:
+        """內容區：可捲動的訊息列表、細捲軸、空狀態提示（橫幅事後才 pack 進來）。"""
         # 內容區：錯誤橫幅（固定在下，不隨捲動）+ 可滾動訊息區
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(side="top", fill="both", expand=True)
@@ -239,6 +250,8 @@ class OverlayWindow:
                                      font=ui_font(11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
+    def _build_resize_handles(self) -> None:
+        """右下角把手與四邊縮放的事件接線。"""
         # 右下角縮放把手只畫斜線、背景留透明色鍵，才不會在遊戲畫面上多出一塊方形。
         # 代價是只有線條的實心像素接得到滑鼠（透明色鍵像素在 Windows 下點不穿），
         # 所以線畫粗一點撐回抓取範圍；亮色配描邊，任何背景上都有對比。
@@ -261,6 +274,8 @@ class OverlayWindow:
         self._backdrop.bind("<B1-Motion>", self._edge_drag)
         self._backdrop.bind("<ButtonRelease-1>", self._edge_release)
 
+    def _attach_to_shell(self, on_close) -> None:
+        """OS 層的收尾：owner 關係、工作列按鈕、關閉協定、疊序。"""
         self._win.title(app_name())  # 工作列按鈕顯示的名稱
         # 用 Win32 直接建立 OS 擁有關係：owned window 永遠疊在 owner 之上，點擊／啟用
         # 都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
