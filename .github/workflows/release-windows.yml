@@ -1,0 +1,172 @@
+name: release-windows
+run-name: release ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (vX.Y.Z or vX.Y.Z-rc.N)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      # === A. Checkout target branch ================================
+      - name: Checkout master
+        uses: actions/checkout@v7
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # === B. Toolchain =============================================
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # === C. Version bump ==========================================
+      # 版本號的唯一真實來源是 src/__init__.py 的 __version__；pyproject.toml 的
+      # version 與 uv.lock 裡的專案版本要跟著同步，tests/test_version.py 會釘住前兩者。
+      - name: Parse tag & bump version
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if ($tag -notmatch '^v(\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?)$') {
+            throw "tag '$tag' does not match vX.Y.Z[-prerelease]"
+          }
+          $semver = $Matches[1]
+
+          $init = Get-Content src/__init__.py -Raw -Encoding UTF8
+          $init = [regex]::Replace($init, '(?m)^__version__ = "[^"]*"', "__version__ = `"$semver`"", 1)
+          Set-Content src/__init__.py -Value $init -Encoding UTF8 -NoNewline
+
+          $toml = Get-Content pyproject.toml -Raw -Encoding UTF8
+          $toml = [regex]::Replace($toml, '(?m)^version = "[^"]*"', "version = `"$semver`"", 1)
+          Set-Content pyproject.toml -Value $toml -Encoding UTF8 -NoNewline
+
+          uv lock
+          if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
+
+          if (git status --porcelain src/__init__.py pyproject.toml uv.lock) {
+            "VERSION_CHANGED=true" | Out-File $env:GITHUB_ENV -Append
+          } else {
+            "VERSION_CHANGED=false" | Out-File $env:GITHUB_ENV -Append
+          }
+          "SEMVER=$semver" | Out-File $env:GITHUB_ENV -Append
+
+      # === D. Quality gate ==========================================
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Test
+        run: uv run pytest
+
+      # === E. Commit bump ===========================================
+      - name: Commit version bump
+        if: env.VERSION_CHANGED == 'true'
+        shell: pwsh
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/__init__.py pyproject.toml uv.lock
+          git commit -m "chore(release): bump version to v${{ env.SEMVER }} [skip ci]"
+          git push origin HEAD:master
+
+      - name: Capture release commit SHA
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "RELEASE_SHA=$sha" | Out-File $env:GITHUB_ENV -Append
+          Write-Host "Release commit SHA: $sha"
+
+      # === F. Build =================================================
+      - name: Build exe
+        run: uv run pyinstaller build.spec --noconfirm
+
+      - name: Locate exe
+        shell: pwsh
+        run: |
+          $exe = Get-Item dist\Wizard101ChatTranslator.exe -ErrorAction Stop
+          "EXE_PATH=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
+          "EXE_NAME=$($exe.Name)" | Out-File $env:GITHUB_ENV -Append
+
+      # === G. Create or update release draft ========================
+      # 更新檢查看的是 /releases/latest，draft 不算數：維護者在 GitHub 上補完版本說明、
+      # 按下 Publish 之後使用者端才會收到更新提醒。
+      - name: Create or update release draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          # inputs.prerelease 是 workflow_dispatch boolean，interpolation 後一律是字串 "true"/"false"，故用字串比較
+          $isDraft = gh release view "$tag" --json isDraft --jq '.isDraft' 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($isDraft -ne "true") {
+              throw "Release '$tag' already exists and is PUBLISHED; refusing to overwrite its assets."
+            }
+            Write-Host "Draft '$tag' already exists; refreshing target to $env:RELEASE_SHA and re-uploading exe with --clobber"
+            gh release edit "$tag" --target "$env:RELEASE_SHA"
+            gh release upload "$tag" "$env:EXE_PATH" --clobber
+          } else {
+            Write-Host "Creating draft release '$tag' targeting $env:RELEASE_SHA"
+            $createArgs = @("$tag", "$env:EXE_PATH", "--draft", "--title", "$tag", "--generate-notes", "--target", "$env:RELEASE_SHA")
+            if ("${{ inputs.prerelease }}" -eq "true") { $createArgs += "--prerelease" }
+            gh release create @createArgs
+
+            # 自動產生的 What's Changed 上下以 `---` 包夾，底部附固定文案（.github/release-footer.md）。
+            # 上方分隔線預留給維護者編輯 draft 時手動補上的版本說明，最終結構為：
+            #   [手動版本說明]\n\n---\n\n## What's Changed ...\n\n---\n\n[footer]
+            $generated = (gh release view "$tag" --json body | ConvertFrom-Json).body.TrimEnd()
+            $footer = Get-Content .github/release-footer.md -Raw -Encoding UTF8
+            $bodyFile = Join-Path $env:RUNNER_TEMP "release_body.md"
+            Set-Content -Path $bodyFile -Value "---`n`n$generated`n`n---`n`n$footer" -Encoding UTF8 -NoNewline
+            gh release edit "$tag" --notes-file $bodyFile
+          }
+
+      # === H. Workflow artifact (debug fallback) ====================
+      - name: Upload exe as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-exe-${{ env.SEMVER }}
+          path: dist/Wizard101ChatTranslator.exe
+          retention-days: 30
+          if-no-files-found: warn
+
+      # === I. Step summary ==========================================
+      - name: Write step summary
+        if: success()
+        shell: pwsh
+        run: |
+          $exe = "${{ env.EXE_PATH }}"
+          $size = [math]::Round((Get-Item $exe).Length / 1MB, 2)
+          $sha  = (Get-FileHash $exe -Algorithm SHA256).Hash
+          @"
+          ## Release ${{ inputs.tag }}
+
+          - **Version**: ${{ env.SEMVER }}
+          - **Exe**: ``${{ env.EXE_NAME }}``
+          - **Size**: $size MB
+          - **SHA-256**: ``$sha``
+          - **Release commit**: ``${{ env.RELEASE_SHA }}``
+          - **Draft created**: ✓ — review the notes and Publish manually
+          "@ | Out-File $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

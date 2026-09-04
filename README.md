@@ -92,8 +92,10 @@ Wizard101 本身以**系統管理員**身分執行時，本工具也必須以系
 
 ```
 uv run ruff check src tests   # lint：未用的 import、未定義名稱、import 排序（規則見 pyproject.toml）
-uv run pytest                 # 單元測試
+uv run pytest                 # 單元測試（預設 4 個 worker 平行跑；要序列跑加 -p no:xdist）
 ```
+
+推上 GitHub 後 CI（`.github/workflows/ci.yml`）會在 Windows runner 上跑同樣的 lint 與測試。
 
 ### 打包（exe）
 
@@ -122,17 +124,21 @@ uv run pyinstaller build.spec --noconfirm
 由 `tests/test_version.py` 釘住兩者一致）。0.x 期間 minor 版可含破壞性變更
 （例如 `config.json` 欄位改名），patch 版只修 bug。
 
-放一版的步驟：
+放版由 GitHub Actions 的 `release-windows` workflow（`.github/workflows/release-windows.yml`）
+完成，不必在本機打包：
 
-1. 同步改 `src/__init__.py` 與 `pyproject.toml` 的版本號
-2. `uv run pytest` 全綠
-3. `git commit -m "chore: release v0.2.0"`
-4. `git tag v0.2.0`（tag 一律 `v` 前綴）並推上 GitHub
-5. `uv run pyinstaller build.spec --noconfirm` 打包，在 GitHub 上以該 tag
-   建立 Release，把 `dist/Wizard101ChatTranslator.exe` 當作 asset 上傳
+1. 到 GitHub 的 **Actions → release-windows → Run workflow**，填入 tag（`v0.2.0`，
+   一律 `v` 前綴；預發版寫 `v0.2.0-rc.1` 並勾 pre-release）
+2. workflow 會在 `master` 上：把 `src/__init__.py`、`pyproject.toml`、`uv.lock` 的版本號
+   改成 tag 的版本並 commit（`chore(release): bump version to v0.2.0 [skip ci]`）→ 跑 lint
+   與測試 → `pyinstaller` 打包 → 以該 commit 建立**草稿** Release、上傳
+   `Wizard101ChatTranslator.exe`，版本說明用 GitHub 自動產生的 What's Changed
+   加上 `.github/release-footer.md` 的固定文案
+3. 到 Releases 頁檢查草稿（可在最上方補一段人寫的版本說明），確認後按 **Publish**
 
-> 更新檢查看的是 GitHub 的 **Release**（`/releases/latest`），只推 tag 不建 Release
-> 的話使用者端不會收到更新提醒。
+> 更新檢查看的是 GitHub 的 **Release**（`/releases/latest`），草稿與 pre-release 都不算，
+> 要按下 Publish 使用者端才會收到更新提醒。同一個 tag 重跑 workflow 只會更新既有草稿；
+> 已發布的 Release 不會被覆蓋。
 
 ### 使用（從原始碼執行）
 
