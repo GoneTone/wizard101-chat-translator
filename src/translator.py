@@ -340,16 +340,22 @@ class TranslatorNoModelList(Exception):
     使用者仍可自行輸入模型名稱正常翻譯。"""
 
 
-def _model_list_error(status: int) -> Exception | None:
-    """把模型清單請求的 HTTP 狀態碼映射成對應例外（None＝可繼續解析回應）。
+def _status_error(status: int) -> Exception | None:
+    """把翻譯請求的 HTTP 狀態碼映射成對應例外（None＝可繼續解析回應）。
     兩種後端共用，確保 OpenAI 相容端點與 Claude 官方 API 的判定一致。"""
-    if status in (404, 405):
-        return TranslatorNoModelList(f"HTTP {status}")
-    if status in (401, 403):
+    if status in (401, 403, 404):
         return TranslatorConfigError(f"HTTP {status}", status=status)
     if status == 429 or status >= 500:
         return TranslatorOffline(f"HTTP {status}")
     return None
+
+
+def _model_list_error(status: int) -> Exception | None:
+    """模型清單請求的狀態碼對應：404／405 是「端點不提供清單」而非設定錯誤，
+    其餘沿用翻譯請求的判定。"""
+    if status in (404, 405):
+        return TranslatorNoModelList(f"HTTP {status}")
+    return _status_error(status)
 
 
 class _OpenAICompatClient:
@@ -381,10 +387,9 @@ class _OpenAICompatClient:
             resp = self._client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
             raise TranslatorOffline(str(exc)) from exc
-        if resp.status_code in (401, 403, 404):
-            raise TranslatorConfigError(f"HTTP {resp.status_code}", status=resp.status_code)
-        if resp.status_code == 429 or resp.status_code >= 500:
-            raise TranslatorOffline(f"HTTP {resp.status_code}")
+        error = _status_error(resp.status_code)
+        if error is not None:
+            raise error
         resp.raise_for_status()
         data = resp.json()
         choice = data["choices"][0]
@@ -435,12 +440,10 @@ class _ClaudeClient:
         except anthropic.APIConnectionError as exc:
             raise TranslatorOffline(str(exc)) from exc
         except anthropic.APIStatusError as exc:
-            code = exc.status_code
-            if code in (401, 403, 404):
-                raise TranslatorConfigError(f"HTTP {code}", status=code) from exc
-            if code == 429 or code >= 500:
-                raise TranslatorOffline(f"HTTP {code}") from exc
-            raise
+            error = _status_error(exc.status_code)
+            if error is None:
+                raise
+            raise error from exc
         content = "".join(b.text for b in resp.content if b.type == "text")
         if resp.stop_reason == "max_tokens":
             usage = getattr(resp, "usage", None)
@@ -479,23 +482,20 @@ def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
 
 
 class Translator:
-    """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。"""
+    """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
-    def __init__(self, *, provider: str = "custom", base_url: str = "", model: str = "",
-                 api_key: str = "", thinking: bool = True, effort: str = EFFORT_AUTO,
-                 target_language: str, timeout: float = _TIMEOUT, client=None):
-        self._impl = _build_client(provider, base_url, model, api_key, thinking, effort,
-                                   timeout, client)
+    `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
+    config.API_PROFILE_FIELDS），呼叫端直接把 active_api(cfg) 展開進來，缺的欄位
+    由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
+
+    def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
+                 client=None, **api):
+        self._impl = _build_client(**api, timeout=timeout, client=client)
         self._target_language = target_language
 
-    # 每家服務商的設定欄位不同（見 config.API_PROFILE_FIELDS），呼叫端直接把
-    # active_api(cfg) 展開進來，故這裡的欄位一律給預設值、缺哪個都不會炸。
-    def reconfigure(self, *, provider: str = "custom", base_url: str = "",
-                    model: str = "", api_key: str = "", thinking: bool = True,
-                    effort: str = EFFORT_AUTO, target_language: str) -> None:
+    def reconfigure(self, *, target_language: str, **api) -> None:
         """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。"""
-        self._impl = _build_client(provider, base_url, model, api_key, thinking, effort,
-                                   _TIMEOUT, None)
+        self._impl = _build_client(**api)
         self._target_language = target_language
 
     @property
