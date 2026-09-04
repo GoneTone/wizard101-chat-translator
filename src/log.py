@@ -8,5 +8,8 @@ import sys
 
 def log(message: str) -> None:
     stream = sys.stderr
-    if stream is not None:   # windowed exe 在 main 把輸出導向 app.log 之前 stderr 是 None
-        print(message, file=stream)
+    if stream is None:   # windowed exe 在 main 把輸出導向 app.log 之前 stderr 是 None
+        return
+    # 整行一次 write（不用 print：它把內文與換行分兩次寫），多執行緒同時記錄時
+    # 每一行才不會被別人的行切開、或漏掉行首時戳
+    stream.write(message + "\n")

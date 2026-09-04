@@ -5,6 +5,7 @@
 輸出經 TimestampedStream 包裝後每行前綴一個 UTC＋0 時戳。
 """
 import os
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -88,13 +89,17 @@ class TimestampedStream:
         self._stream = stream
         self._stamp = stamp
         self._at_line_start = True
+        # reader／翻譯 worker／更新檢查等執行緒都會寫：不鎖的話「是否在行首」會被
+        # 別的執行緒改掉，實機 app.log 出現過沒有時戳的行
+        self._lock = threading.Lock()
 
     def write(self, text: str) -> int:
-        for part in text.splitlines(keepends=True):
-            if self._at_line_start:
-                self._stream.write(f"{self._stamp()} ")
-            self._stream.write(part)
-            self._at_line_start = part.endswith(("\n", "\r"))
+        with self._lock:
+            for part in text.splitlines(keepends=True):
+                if self._at_line_start:
+                    self._stream.write(f"{self._stamp()} ")
+                self._stream.write(part)
+                self._at_line_start = part.endswith(("\n", "\r"))
         return len(text)
 
     def __getattr__(self, name):

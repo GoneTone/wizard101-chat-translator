@@ -107,3 +107,41 @@ def test_unparseable_header_section_dropped():
 
 def test_empty_text_stays_empty():
     assert trim_log_sessions("", NOW) == ""
+
+
+def test_concurrent_writers_keep_every_line_stamped():
+    # 多執行緒同時寫（reader／翻譯 worker／更新檢查）：實機 app.log 曾出現沒時戳的行
+    import threading
+
+    buf = io.StringIO()
+    stream = TimestampedStream(buf, stamp=lambda: "T")
+
+    def writer(tag):
+        for i in range(300):
+            stream.write(f"[{tag}] line {i}\n")
+
+    threads = [threading.Thread(target=writer, args=(t,)) for t in "abcd"]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    lines = buf.getvalue().splitlines()
+    assert len(lines) == 1200
+    assert all(line.startswith("T [") for line in lines)
+
+
+def test_log_writes_a_whole_line_in_one_call(monkeypatch):
+    # print 會把內文與換行分兩次 write，行首時戳的狀態就可能被別的執行緒插隊
+    from src.log import log
+
+    class Recorder:
+        def __init__(self):
+            self.calls = []
+
+        def write(self, text):
+            self.calls.append(text)
+
+    rec = Recorder()
+    monkeypatch.setattr("sys.stderr", rec)
+    log("[x] hello")
+    assert rec.calls == ["[x] hello\n"]
