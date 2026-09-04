@@ -106,7 +106,7 @@ def test_wizard_nav_is_packed_before_the_body(root):
 
 
 def test_overlay_error_banner_is_packed_before_the_scroll_area(root):
-    from src.reader.overlay import OverlayWindow
+    from src.ui.overlay import OverlayWindow
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     ov.set_error("notice.offline")
@@ -119,7 +119,7 @@ def test_overlay_error_banner_is_packed_before_the_scroll_area(root):
 def test_overlay_title_is_packed_after_the_bar_controls(root):
     # overlay 是無邊框視窗，✕ 是唯一的正常關閉途徑：標題（英文較長）先 pack 的話，
     # 視窗一縮窄就會把 ✕／⚙／─ 擠出畫面，程式再也關不掉。
-    from src.reader.overlay import OverlayWindow
+    from src.ui.overlay import OverlayWindow
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        on_close=lambda: None, on_settings=lambda: None)

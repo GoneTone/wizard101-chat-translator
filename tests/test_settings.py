@@ -4,8 +4,8 @@ import tkinter as tk
 
 import pytest
 
-from src.reader.overlay import (OverlayWindow, _BUBBLE_ALPHA_FACTOR,
-                                _BUBBLE_ALPHA_FLOOR)
+from src.ui.bubble import BUBBLE_ALPHA_FACTOR, BUBBLE_ALPHA_FLOOR
+from src.ui.overlay import OverlayWindow
 from src.config import clamp_advanced
 from src.ui.settings import parse_advanced_values
 
@@ -42,7 +42,7 @@ def test_overlay_set_alpha_applies_to_backdrop_and_bubble(root):
     assert float(ov._backdrop.attributes("-alpha")) == 0.5
     assert float(ov._win.attributes("-alpha")) == 1.0
     # 泡泡刻意比主視窗再透一些——它是收起來的浮標，該更低調，所以不是同一個值
-    assert float(ov._bubble.attributes("-alpha")) == pytest.approx(0.5 * _BUBBLE_ALPHA_FACTOR)
+    assert float(ov._bubble.attributes("-alpha")) == pytest.approx(0.5 * BUBBLE_ALPHA_FACTOR)
     ov.expand()
 
 
@@ -50,7 +50,7 @@ def test_bubble_alpha_stops_at_the_floor(root):
     # overlay_alpha 已經是最低時再打折會讓泡泡幾乎看不見，找不回來——所以有下限
     ov = OverlayWindow(root, x=0, y=0, max_messages=5, fade_seconds=0, alpha=0.3)
     ov.minimize()
-    assert float(ov._bubble.attributes("-alpha")) == pytest.approx(_BUBBLE_ALPHA_FLOOR)
+    assert float(ov._bubble.attributes("-alpha")) == pytest.approx(BUBBLE_ALPHA_FLOOR)
     ov.expand()
 
 

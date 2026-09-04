@@ -11,8 +11,8 @@ import pytest
 SCAN_TARGETS = [
     "src/main.py",
     "src/config.py",
-    "src/reader/overlay.py",
-    "src/composer/input_box.py",
+    "src/ui/overlay.py",
+    "src/ui/input_box.py",
     "src/ui/fields.py",
     "src/ui/settings.py",
     "src/ui/wizard.py",

@@ -16,7 +16,7 @@ import win32event
 import winerror
 
 from src import __version__
-from src.composer.input_box import InputBox
+from src.ui.input_box import InputBox
 from src.composer.paste import type_into_window
 from src.translation.gate import ConcurrencyGate
 from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
@@ -29,7 +29,7 @@ from src.reader.mem_reader import (
     GameAccessDenied, GameNotRunning, GameVersionMismatch, WizChatReader,
 )
 from src.reader.message_log import MessageLog
-from src.reader.overlay import OverlayWindow
+from src.ui.overlay import OverlayWindow
 from src.resources import icon_path
 from src.translation.cache import (
     TranslationCache, fingerprint_of, translate_and_cache,
@@ -37,6 +37,7 @@ from src.translation.cache import (
 from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
 from src.ui.settings import SettingsWindow
+from src.ui.winstyle import root_hwnd
 from src.updater import check_for_update
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
@@ -326,7 +327,7 @@ def apply_window_icon(root: tk.Tk) -> int | None:
         probe = tk.Toplevel(root)
         probe.withdraw()
         probe.update_idletasks()
-        hwnd = win32gui.GetAncestor(probe.winfo_id(), 2)   # GA_ROOT
+        hwnd = root_hwnd(probe)
         size = win32api.GetSystemMetrics(win32con.SM_CXICON)
         hicon = win32gui.LoadImage(0, str(path), win32con.IMAGE_ICON, size, size,
                                    win32con.LR_LOADFROMFILE)

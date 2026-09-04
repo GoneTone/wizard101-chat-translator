@@ -11,6 +11,7 @@ from src.config import app_name
 from src.i18n import t
 from src.ui.fonts import ui_font
 from src.ui.responsive import HINT_TRAILING, apply_wrap, bind_wrap
+from src.ui.winstyle import root_hwnd
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
@@ -81,7 +82,7 @@ class InputBox:
         self._win.focus_force()
         try:
             self._win.update_idletasks()
-            force_foreground(win32gui.GetAncestor(self._win.winfo_id(), 2))  # GA_ROOT
+            force_foreground(root_hwnd(self._win))
         except Exception:
             pass  # 奪取前景失敗：仍有 topmost + focus_force，退回讓使用者點一下輸入框
         self._entry.focus_force()

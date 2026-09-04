@@ -13,26 +13,15 @@ import win32gui
 
 from src.config import app_name
 from src.i18n import t
-from src.resources import png_icon_path
+from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
-
-BG = "#101018"
-BAR = "#23233a"
-GRIP = "#3a3a55"
-# 更新橫幅底色：不可沿用 BG——本體用 BG 當 `-transparentcolor`，符合這個顏色的
-# 像素連 hit-test 都會被 Windows 跳過（縮放把手也是靠這點才做出「透明卻可拖曳」
-# 以外的效果）。橫幅要整列可點、右側 ✕ 也要能點到，底色必須是不透明的顏色。
-BG_UPDATE = "#1b2740"
-FG_ORIGINAL = "#c0c0cd"
-FG_TRANSLATED = "#f2f2f7"
-# 原文對譯文的調暗係數：原文是輔助資訊，壓暗到譯文之下讓視線先落在譯文上
-DIM_FACTOR = 0.71
-FG_PENDING = "#9398a8"  # 佔位中的譯文：比原文更暗，一眼看出這則還沒翻好
-FG_ERROR = "#ff5f5f"
-# 更新橫幅用連結藍。fields.py 的 #4a7ddc 是給淺色設定視窗用的，放在 overlay 的
-# 深色底（#101018）上會暗到看不出是可點的連結，故另取一個亮一階的藍。
-FG_UPDATE = "#6fa8ff"
-FG_BAR = "#c8c8d8"
+from src.ui.geometry import EDGE, edge_at, moved_to, resized_edge
+from src.ui.icons import load_icon
+from src.ui.palette import (BAR, BG, BG_UPDATE, DIM_FACTOR, FG_BAR, FG_ERROR,
+                            FG_ORIGINAL, FG_PENDING, FG_TRANSLATED, FG_UPDATE,
+                            OUTLINE)
+from src.ui.thin_scrollbar import ThinScrollbar
+from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 
 # 狀態指示的顏色（文字由 i18n 依 state key 取得）
 STATUS_COLORS = {
@@ -44,7 +33,6 @@ STATUS_COLORS = {
     "version_mismatch": FG_ERROR,  # 同上：等下去也不會好，要更新遊戲或本程式
 }
 
-_OUTLINE = "#0a0a10"  # 字幕描邊色:深色輪廓讓文字在任何遊戲畫面上都保有對比
 _OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
                     (0, 1), (1, -1), (1, 0), (1, 1))
 
@@ -61,7 +49,7 @@ def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Ca
     Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
     c = tk.Canvas(parent, bg=BG, highlightthickness=0, bd=0)
     for dx, dy in _OUTLINE_OFFSETS:
-        c.create_text(2 + dx, 2 + dy, text=text, fill=_OUTLINE, font=font,
+        c.create_text(2 + dx, 2 + dy, text=text, fill=OUTLINE, font=font,
                       anchor="nw", width=wrap, tags="txt")
     # 本色最後畫，疊在描邊之上。額外掛 "fg" tag：改色時只動本色，描邊不能跟著變
     c.create_text(2, 2, text=text, fill=fg, font=font, anchor="nw",
@@ -96,236 +84,17 @@ _BAR_ICON = 16   # 標題列 icon：留 2px 上下邊給 _BAR_HEIGHT，且是 ic
 # 不匹配，補不掉）。
 _BAR_TEXT_NUDGE = 1
 _GRIP_SIZE = 16
-_EDGE = 6        # 四邊的縮放感應寬度（px）
-_CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
 _STICK_THRESHOLD = 0.999
-_BUBBLE_SIZE = 48
-_CLICK_THRESHOLD = 5
 _FOREGROUND_POLL_MS = 300
-_TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
-# 未讀數底圓相對文字外框的外擴：橢圓要夠大，四角的字才不會被切掉。跟著泡泡尺寸走，
-# 否則泡泡縮小後這顆徽章會相對膨脹，「99+」直接橫跨半顆泡泡蓋掉圖案。
-_BADGE_PAD = max(2, round(_BUBBLE_SIZE * 0.065))
-_BADGE_FONT_SIZE = 7   # 配合 _BUBBLE_SIZE：太大會擠掉底下的 101
-# 未讀數徽章的垂直位置：對齊 icon 右下角「101」的中心線（實際量圖得來的比例），
-# 兩者落在同一條水平線上才不會看起來一高一低。
-_BADGE_BASELINE = 0.82
-# 泡泡是收起來的浮標，該比主視窗更低調：在使用者設定的不透明度上再打折，
-# 但留一個下限，免得 overlay_alpha 調到最低時泡泡幾乎看不見、找不回來。
-_BUBBLE_ALPHA_FACTOR = 0.8
-_BUBBLE_ALPHA_FLOOR = 0.30
-_SCROLLBAR_WIDTH = 8
-_MIN_THUMB = 20      # 滑塊最短長度（px）：訊息很多時仍抓得住
-_THUMB = "#8a8ab0"
 _EDGE_CURSORS = {"n": "size_ns", "s": "size_ns", "w": "size_we", "e": "size_we",
                  "nw": "size_nw_se", "se": "size_nw_se",
                  "ne": "size_ne_sw", "sw": "size_ne_sw"}
-_THUMB_HOVER = "#c0c0e0"
-
-
-def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
-    """拖曳位移後的新左上角座標。"""
-    return start_x + dx, start_y + dy
-
-
-def edge_at(px: int, py: int, x: int, y: int, w: int, h: int,
-            edge: int = _EDGE, corner: int = _CORNER) -> str:
-    """游標壓在視窗的哪一條邊／哪個角：`"n"`／`"se"`…，都不是則空字串。
-    角落的判定帶比邊寬，且兩軸都落在角落帶內才算角——否則靠近角的邊會很難單軸縮放。"""
-    if not point_in_rect(px, py, x, y, w, h):
-        return ""
-    left, right = px - x, x + w - 1 - px
-    top, bottom = py - y, y + h - 1 - py
-    vertical = "n" if top < corner else ("s" if bottom < corner else "")
-    horizontal = "w" if left < corner else ("e" if right < corner else "")
-    if vertical and horizontal:
-        return vertical + horizontal
-    if top < edge:
-        return "n"
-    if bottom < edge:
-        return "s"
-    if left < edge:
-        return "w"
-    if right < edge:
-        return "e"
-    return ""
-
-
-def resized_edge(edge: str, x: int, y: int, w: int, h: int, dx: int, dy: int,
-                 min_w: int, min_h: int) -> tuple[int, int, int, int]:
-    """從某條邊／角拖曳 (dx, dy) 後的新幾何 (x, y, w, h)。
-
-    拉左緣／上緣要同時改位置與尺寸，對邊才會留在原處；寬高撞到最小值後位置就凍住，
-    否則游標繼續往內移會把整個視窗一起拖走。"""
-    if "e" in edge:
-        w = max(min_w, w + dx)
-    elif "w" in edge:
-        new_w = max(min_w, w - dx)
-        x += w - new_w
-        w = new_w
-    if "s" in edge:
-        h = max(min_h, h + dy)
-    elif "n" in edge:
-        new_h = max(min_h, h - dy)
-        y += h - new_h
-        h = new_h
-    return x, y, w, h
 
 
 def should_stick_to_bottom(view_bottom_fraction: float,
                            threshold: float = _STICK_THRESHOLD) -> bool:
     """視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。"""
     return view_bottom_fraction >= threshold
-
-
-def is_click(dx: int, dy: int, threshold: int = _CLICK_THRESHOLD) -> bool:
-    """按下到放開的位移是否算點擊（否則視為拖曳）。"""
-    return abs(dx) < threshold and abs(dy) < threshold
-
-
-def point_in_rect(px: int, py: int, x: int, y: int, w: int, h: int) -> bool:
-    """(px, py) 是否落在左上角 (x, y)、寬 w 高 h 的矩形內（含邊界）。"""
-    return x <= px <= x + w - 1 and y <= py <= y + h - 1
-
-
-def should_auto_expand(foreground: int, previous: int, bubble_hwnd: int,
-                       cursor_on_bubble: bool) -> bool:
-    """泡泡被切成前景（點工作列按鈕／Alt+Tab）時是否該自動展開回完整視窗。
-
-    只認「這一輪才變成前景」的轉換，持續在前景時不重複觸發；游標壓在泡泡上
-    代表使用者正直接操作泡泡，交給既有的按下／拖曳／放開邏輯處理——否則按下
-    的瞬間就展開，泡泡再也拖不動。bubble_hwnd 取不到（0）時一律不觸發，
-    避免與 GetForegroundWindow() 的 0（無前景視窗）誤判成相等。"""
-    if not bubble_hwnd or foreground != bubble_hwnd or previous == bubble_hwnd:
-        return False
-    return not cursor_on_bubble
-
-
-def _load_icon(master: tk.Misc, size: int) -> tk.PhotoImage | None:
-    """載入 icon 圖片；失敗回 None，由呼叫端略過那個 icon。
-
-    呼叫端必須自己留住回傳值（存成實例屬性）：Tk 只保存指標，PhotoImage 一被
-    回收，畫面上的圖就跟著消失。"""
-    path = png_icon_path(size)
-    try:
-        return tk.PhotoImage(file=str(path), master=master)
-    except tk.TclError as exc:
-        print(f"[ui] icon image failed: path={path} error={exc}", file=sys.stderr)
-        return None
-
-
-def thumb_span(first: float, last: float, track_height: int,
-               min_thumb: int = _MIN_THUMB) -> tuple[int, int] | None:
-    """捲軸滑塊在軌道上的 (top, bottom) 像素範圍；內容塞得下＝不需捲動時回 None。
-    比例算出的長度不足 min_thumb 時就撐到 min_thumb（並保持不超出軌道）。"""
-    if track_height <= 0 or last - first >= 1.0:
-        return None
-    top = round(first * track_height)
-    bottom = round(last * track_height)
-    if bottom - top < min_thumb:
-        bottom = min(track_height, top + min_thumb)
-        top = max(0, bottom - min_thumb)
-    return top, bottom
-
-
-def scroll_fraction(pointer_y: int, grab_offset: float, track_height: int) -> float:
-    """拖曳滑塊時的 yview_moveto 比例：游標位置扣掉抓取點偏移，夾在 0–1。"""
-    if track_height <= 0:
-        return 0.0
-    return min(1.0, max(0.0, pointer_y / track_height - grab_offset))
-
-
-class ThinScrollbar(tk.Canvas):
-    """自繪細捲軸，介面與 tk.Scrollbar 相容（set／command），可直接接 yscrollcommand。
-    Windows 的原生捲軸忽略 bg／troughcolor（實測改色無效），只能自繪才配得上深色
-    疊加視窗；軌道留 BG＝視窗的透明色鍵，露出底下那片半透明底板。"""
-
-    def __init__(self, parent, command, width: int = _SCROLLBAR_WIDTH):
-        super().__init__(parent, width=width, bg=BG, highlightthickness=0, bd=0)
-        self._command = command
-        self._pad = 2
-        self._thickness = width - self._pad * 2
-        self._first, self._last = 0.0, 1.0
-        self._grab_offset = 0.0
-        self._color = _THUMB
-        self.bind("<Configure>", lambda e: self._redraw())
-        self.bind("<ButtonPress-1>", self._press)
-        self.bind("<B1-Motion>", self._drag)
-        self.bind("<Enter>", lambda e: self._recolor(_THUMB_HOVER))
-        self.bind("<Leave>", lambda e: self._recolor(_THUMB))
-
-    def set(self, first, last) -> None:
-        """yscrollcommand 介面：目前可見範圍的起訖比例。"""
-        self._first, self._last = float(first), float(last)
-        self._redraw()
-
-    def _recolor(self, color: str) -> None:
-        self._color = color
-        self._redraw()
-
-    def _redraw(self) -> None:
-        self.delete("thumb")
-        span = thumb_span(self._first, self._last, self.winfo_height())
-        if span is None:
-            return  # 不需捲動：整條隱形
-        top, bottom = span
-        # 先畫大一圈的深色描邊再疊本色。底板是半透明的，合成後的亮度取決於視窗後面
-        # 是什麼——壓在亮色畫面上時整片會被提亮，沒有描邊的滑塊就融進背景看不見了。
-        # 與訊息文字同一套處理（見 _outlined_line）。
-        self._draw_thumb(top, bottom, _OUTLINE, grow=1)
-        self._draw_thumb(top, bottom, self._color, grow=0)
-
-    def _draw_thumb(self, top: int, bottom: int, color: str, grow: int) -> None:
-        """圓角滑塊＝上下各一個圓 + 中間矩形（Canvas 沒有圓角矩形）。
-        grow 讓整個形狀往外長一圈，用來畫描邊。"""
-        x0, x1 = self._pad - grow, self._pad + self._thickness + grow
-        top, bottom, r = top - grow, bottom + grow, x1 - x0
-        self.create_oval(x0, top, x1, top + r, fill=color, outline="", tags="thumb")
-        self.create_oval(x0, bottom - r, x1, bottom, fill=color, outline="", tags="thumb")
-        self.create_rectangle(x0, top + r / 2, x1, bottom - r / 2, fill=color,
-                              outline="", tags="thumb")
-
-    def _press(self, e) -> None:
-        height = max(self.winfo_height(), 1)
-        self._grab_offset = e.y / height - self._first
-
-    def _drag(self, e) -> None:
-        self._command("moveto", scroll_fraction(e.y, self._grab_offset,
-                                                self.winfo_height()))
-
-
-def _make_non_activating(win: tk.Toplevel) -> None:
-    """讓視窗攔截滑鼠事件但點擊不奪焦點、不改變疊序（WS_EX_NOACTIVATE）。
-    用於底板：點到透明背景區不會穿到遊戲，也不會把底板抬到文字層之上。
-    失敗的後果是點擊底板可能改變疊序，另有 lower() 保險擋著。"""
-    try:
-        win.update_idletasks()
-        hwnd = win32gui.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        style |= win32con.WS_EX_NOACTIVATE
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
-    except Exception as exc:
-        print(f"[ui] non-activating setup failed: {exc}", file=sys.stderr)
-
-
-def _enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
-    """讓無邊框視窗出現在工作列與 Alt+Tab。
-    overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
-    extended style 即可；需 withdraw→deiconify 一次讓樣式生效，
-    之後重設 topmost（與 alpha，若有）。失敗只是少個按鈕，不影響功能。"""
-    try:
-        win.update_idletasks()
-        hwnd = win32gui.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        style = (style & ~win32con.WS_EX_TOOLWINDOW) | win32con.WS_EX_APPWINDOW
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
-        win.withdraw()
-        win.deiconify()
-        win.attributes("-topmost", True)
-        if alpha is not None:
-            win.attributes("-alpha", alpha)
-    except Exception as exc:
-        print(f"[ui] taskbar button setup failed: {exc}", file=sys.stderr)
 
 
 class OverlayWindow:
@@ -344,10 +113,7 @@ class OverlayWindow:
         self._bubble_pos = dict(bubble_position) if bubble_position else {"x": None, "y": None}
         self._minimized = False
         self._unread = 0
-        self._bubble: tk.Toplevel | None = None
-        self._bubble_hwnd = 0
-        # 泡泡按下的起點；None＝這次放開沒有對應的按下（見 _bubble_release）
-        self._bubble_drag_state: tuple[int, int, int, int] | None = None
+        self._bubble: Bubble | None = None
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._messages: list[_Message] = []
@@ -378,7 +144,7 @@ class OverlayWindow:
         self._backdrop.configure(bg=BG)
         # 底板攔截透明背景區的滑鼠事件(不穿透到遊戲),但點擊不奪焦點、不改疊序;
         # 空白處的滾輪由底板轉發給訊息區捲動。
-        _make_non_activating(self._backdrop)
+        make_non_activating(self._backdrop)
         self._backdrop.bind("<MouseWheel>", self._on_wheel)
 
         # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
@@ -398,7 +164,7 @@ class OverlayWindow:
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
         # icon 兼任原本 ≡ 的位置；可拖曳的暗示交給 bar 的 fleur 游標
-        self._bar_icon = _load_icon(self._win, _BAR_ICON)
+        self._bar_icon = load_icon(self._win, _BAR_ICON)
         self._title_label = tk.Label(bar, text=app_name(), bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
         # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
@@ -448,7 +214,7 @@ class OverlayWindow:
         self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
         # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
-        self._scrollbar.pack(side="right", fill="y", padx=(0, _EDGE),
+        self._scrollbar.pack(side="right", fill="y", padx=(0, EDGE),
                              pady=(0, _GRIP_SIZE))
         self._canvas.pack(side="left", fill="both", expand=True)
         self._inner = tk.Frame(self._canvas, bg=BG)
@@ -474,7 +240,7 @@ class OverlayWindow:
                          highlightthickness=0, bd=0, cursor="size_nw_se")
         for inset in (4, 9, 14):
             ends = (_GRIP_SIZE - inset, _GRIP_SIZE - 2, _GRIP_SIZE - 2, _GRIP_SIZE - inset)
-            grip.create_line(*ends, fill=_OUTLINE, width=4)
+            grip.create_line(*ends, fill=OUTLINE, width=4)
             grip.create_line(*ends, fill=FG_BAR, width=2)
         grip.place(relx=1.0, rely=1.0, anchor="se")
         grip.bind("<ButtonPress-1>", lambda e: self._resize_start(e, "se"))
@@ -493,34 +259,24 @@ class OverlayWindow:
         # 用 Win32 直接建立 OS 擁有關係：owned window 在 OS 層永遠疊在 owner 之上，
         # 任何點擊／啟用都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
         #
-        # 這一步必須排在 _enable_taskbar_button 之前：改 owner 會讓 shell 撤掉已經
+        # 這一步必須排在 enable_taskbar_button 之前：改 owner 會讓 shell 撤掉已經
         # 建好的工作列按鈕，而 WS_EX_APPWINDOW 得等下一次 hide→show 才會重新生效。
         # 順序反過來的話，首次啟動根本看不到工作列按鈕，要縮小再放大（或開設定視窗）
         # 補一次 hide→show 才會冒出來。
         try:
             self._win.update_idletasks()
-            win_hwnd = win32gui.GetAncestor(self._win.winfo_id(), 2)
-            bd_hwnd = win32gui.GetAncestor(self._backdrop.winfo_id(), 2)
-            win32gui.SetWindowLong(win_hwnd, win32con.GWL_HWNDPARENT, bd_hwnd)
+            win32gui.SetWindowLong(root_hwnd(self._win), win32con.GWL_HWNDPARENT,
+                                   root_hwnd(self._backdrop))
         except Exception as exc:
             print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
-        _enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
+        enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
         # 有工作列按鈕就關得掉：Alt+F4、工作列右鍵「關閉視窗」都送 WM_DELETE_WINDOW。
         # tkinter 預設把它接成「destroy 這個 Toplevel」，那只會拆掉文字層，留下 backdrop
         # 這層半透明底板孤兒在畫面上，主迴圈還照跑（每 5 秒對著已消失的 widget 噴錯）。
         # 接回 ✕ 的乾淨關閉，兩條路徑才一致。
-        self._bind_close_protocol(self._win, on_close)
+        if on_close is not None:   # None（測試直接建視窗）時維持 Tk 預設行為
+            self._win.protocol("WM_DELETE_WINDOW", on_close)
         self._backdrop.lower(self._win)  # 疊序保險：底板壓在文字層之下
-
-    def _bubble_alpha(self) -> float:
-        """泡泡的不透明度：跟著主視窗的設定走，但再透一些（不低於下限）。"""
-        return max(_BUBBLE_ALPHA_FLOOR, self._alpha * _BUBBLE_ALPHA_FACTOR)
-
-    def _bind_close_protocol(self, win: tk.Toplevel, on_close) -> None:
-        """把視窗管理員的關閉要求（Alt+F4／工作列右鍵）接到乾淨關閉流程。
-        on_close 為 None（測試直接建視窗）時維持 Tk 預設行為。"""
-        if on_close is not None:
-            win.protocol("WM_DELETE_WINDOW", on_close)
 
     # --- 縮小成泡泡 ---
     @property
@@ -540,15 +296,17 @@ class OverlayWindow:
         if self._bubble_pos.get("x") is None:
             # 無記憶位置：預設出現在 overlay 右上角（縮小按鈕附近），視覺上「收進泡泡」
             self._bubble_pos = {
-                "x": self._win.winfo_x() + self._win.winfo_width() - _BUBBLE_SIZE,
+                "x": self._win.winfo_x() + self._win.winfo_width() - BUBBLE_SIZE,
                 "y": self._win.winfo_y(),
             }
         self._minimized = True
         self._unread = 0
         self._win.withdraw()
         self._backdrop.withdraw()
-        self._show_bubble()
-        # 泡泡剛建立時可能已經是前景（_enable_taskbar_button 的 deiconify 會啟用它），
+        self._bubble = Bubble(self._win, self._bubble_pos["x"], self._bubble_pos["y"],
+                              bubble_alpha(self._alpha), on_click=self.expand,
+                              on_move=self._bubble_moved, on_close=self._on_close)
+        # 泡泡剛建立時可能已經是前景（enable_taskbar_button 的 deiconify 會啟用它），
         # 拿當下的前景當基準才不會第一輪就誤判成「使用者切回本工具」
         self._prev_foreground = self._foreground_window()
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
@@ -582,60 +340,6 @@ class OverlayWindow:
         self._refresh_scroll()
         print(f"[ui] expanded ({self._scroll_debug()})", file=sys.stderr)
 
-    def _show_bubble(self) -> None:
-        b = tk.Toplevel(self._win)
-        b.overrideredirect(True)
-        b.attributes("-topmost", True)
-        b.attributes("-transparentcolor", _TRANSPARENT)
-        b.attributes("-alpha", self._bubble_alpha())
-        b.configure(bg=_TRANSPARENT)
-        b.geometry(f"{_BUBBLE_SIZE}x{_BUBBLE_SIZE}"
-                   f"+{self._bubble_pos['x']}+{self._bubble_pos['y']}")
-        c = tk.Canvas(b, width=_BUBBLE_SIZE, height=_BUBBLE_SIZE,
-                      bg=_TRANSPARENT, highlightthickness=0)
-        c.pack()
-
-        def px(f: float) -> int:
-            return round(_BUBBLE_SIZE * f)  # 圖示座標按泡泡尺寸等比縮放
-
-        # 泡泡就是應用程式 icon 本身：圓形之外是透明色鍵，方形視窗只露出圓。
-        # icon 載不進來時退回原本的深色圓底，泡泡至少還看得見、抓得住。
-        self._bubble_icon = _load_icon(b, _BUBBLE_SIZE)
-        if self._bubble_icon is not None:
-            c.create_image(_BUBBLE_SIZE // 2, _BUBBLE_SIZE // 2, image=self._bubble_icon)
-        else:
-            c.create_oval(2, 2, _BUBBLE_SIZE - 2, _BUBBLE_SIZE - 2,
-                          fill=BAR, outline=GRIP, width=2)
-
-        # 未讀數擺左下：icon 右上是「文A」徽章、右下是 101，只有左下留白。
-        # 底下墊一個深色圓才有對比——數字直接壓在彩色螺旋上讀不出來。
-        # 這是徽章的基準位置；_update_badge 每次都先把文字放回這裡再量，位數變動
-        # 才不會讓它一路往右漂。
-        # 垂直用 _BADGE_BASELINE 對齊圖案右下角那個「101」的中心線（量出來的比例），
-        # 兩者才在同一條水平線上；水平則盡量貼左緣，只留下底圓不被裁掉的餘裕。
-        self._badge_home = (px(0.18), px(_BADGE_BASELINE))
-        bx, by = self._badge_home
-        self._badge_dot = c.create_oval(bx, by, bx, by,   # 大小交給 _update_badge 依文字重算
-                                        fill=BAR, outline=GRIP, state="hidden")
-        self._badge = c.create_text(bx, by, text="",
-                                    fill="#ff9090",
-                                    font=ui_font(_BADGE_FONT_SIZE, "bold"))
-        c.bind("<ButtonPress-1>", self._bubble_press)
-        c.bind("<B1-Motion>", self._bubble_drag)
-        c.bind("<ButtonRelease-1>", self._bubble_release)
-        self._bubble = b
-        self._bubble_canvas = c
-        b.title(app_name())
-        _enable_taskbar_button(b)
-        # 泡泡同樣有工作列按鈕。被 Alt+F4 就地 destroy 的話主視窗仍是隱藏狀態，
-        # 使用者會完全找不到這支程式，所以一樣接到乾淨關閉。
-        self._bind_close_protocol(b, self._on_close)
-        try:
-            self._bubble_hwnd = win32gui.GetAncestor(b.winfo_id(), 2)  # GA_ROOT
-        except Exception as exc:
-            self._bubble_hwnd = 0
-            print(f"[ui] bubble hwnd lookup failed: {exc}", file=sys.stderr)
-
     def _foreground_window(self) -> int:
         try:
             return win32gui.GetForegroundWindow()
@@ -651,16 +355,8 @@ class OverlayWindow:
         if not self._minimized or self._bubble is None:
             return
         fg = self._foreground_window()
-        try:
-            px, py = self._bubble.winfo_pointerxy()
-            on_bubble = point_in_rect(px, py, self._bubble.winfo_x(),
-                                      self._bubble.winfo_y(),
-                                      _BUBBLE_SIZE, _BUBBLE_SIZE)
-        except Exception as exc:
-            print(f"[ui] bubble hit-test failed: {exc}", file=sys.stderr)
-            on_bubble = True  # 測不到就當作使用者正壓著泡泡，寧可不展開
-        expand = should_auto_expand(fg, self._prev_foreground,
-                                    self._bubble_hwnd, on_bubble)
+        expand = should_auto_expand(fg, self._prev_foreground, self._bubble.hwnd,
+                                    self._bubble.pointer_over())
         self._prev_foreground = fg
         if expand:
             print(f"[ui] auto-expand: bubble brought to foreground, fg=0x{fg:x}",
@@ -669,66 +365,18 @@ class OverlayWindow:
             return
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
 
-    def _bubble_press(self, e) -> None:
-        self._bubble_drag_state = (e.x_root, e.y_root,
-                                   self._bubble.winfo_x(), self._bubble.winfo_y())
-
-    def _bubble_drag(self, e) -> None:
-        if self._bubble_drag_state is None:
-            return
-        sx, sy, ox, oy = self._bubble_drag_state
-        nx, ny = moved_to(ox, oy, e.x_root - sx, e.y_root - sy)
-        self._bubble.geometry(f"+{nx}+{ny}")
-
-    def _bubble_release(self, e) -> None:
-        # 點 ─ 縮小時 minimize() 會 withdraw 掉正被按住的視窗、隱式 grab 因此斷掉，
-        # 放開滑鼠的事件落到剛出現在游標下的泡泡上——沒有對應的按下，當作沒發生
-        if self._bubble_drag_state is None:
-            return
-        sx, sy, _, _ = self._bubble_drag_state
-        self._bubble_drag_state = None
-        if is_click(e.x_root - sx, e.y_root - sy):
-            self.expand()
-            return
-        self._bubble_pos = {"x": self._bubble.winfo_x(), "y": self._bubble.winfo_y()}
+    def _bubble_moved(self, x: int, y: int) -> None:
+        """泡泡被拖到新位置：記住並回報給呼叫端存檔。"""
+        self._bubble_pos = {"x": x, "y": y}
         if self._on_bubble_move is not None:
-            self._on_bubble_move(self._bubble_pos["x"], self._bubble_pos["y"])
+            self._on_bubble_move(x, y)
 
     def set_alpha(self, alpha: float) -> None:
         """套用新的視窗不透明度（半透明底板與泡泡即時生效；文字層恆為不透明）。"""
         self._alpha = alpha
         self._backdrop.attributes("-alpha", alpha)
         if self._bubble is not None:
-            self._bubble.attributes("-alpha", self._bubble_alpha())
-
-    def _update_badge(self) -> None:
-        if self._bubble is None:
-            return
-        text = "99+" if self._unread > 99 else (str(self._unread) if self._unread else "")
-        c = self._bubble_canvas
-        c.itemconfigure(self._badge, text=text)
-        if not text:
-            c.itemconfigure(self._badge_dot, state="hidden")
-            return
-        # 底圓貼著文字實際範圍走，位數一多就往左右長成橫橢圓。
-        # 先把文字放回基準位置再量：上一輪若因為 99+ 把它往右推過，這裡不歸位就會越漂越右。
-        c.coords(self._badge, *self._badge_home)
-        x0, y0, x1, y1 = c.bbox(self._badge)
-        # 全部取整再畫：create_oval 的高度是 2*half_h+1（奇數），圓心才落在像素正中央，
-        # 和數字墨跡（高度同為奇數）對得起來。留浮點的話圓心會卡在像素邊界，
-        # 數字永遠差半格，看起來就是沒對準。
-        half_h = round((y1 - y0) / 2 + _BADGE_PAD)
-        # 單一數字的 bbox 又窄又高，四周等量外擴會擠成直立橢圓（很醜）——水平半徑
-        # 至少拉齊成圓，位數多了才讓它自然往左右長。
-        half_w = max(round((x1 - x0) / 2 + _BADGE_PAD), half_h)
-        cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
-        # 徽章貼著左下角，位數一多底圓會往左戳出畫布：把圓心往右推回來，
-        # 文字跟著一起走才會同心。垂直同理，避免底緣被畫布切掉。
-        cx = max(cx, half_w + 1)
-        cy = min(cy, _BUBBLE_SIZE - half_h - 1)
-        c.coords(self._badge, cx, cy)
-        c.coords(self._badge_dot, cx - half_w, cy - half_h, cx + half_w, cy + half_h)
-        c.itemconfigure(self._badge_dot, state="normal")
+            self._bubble.attributes("-alpha", bubble_alpha(alpha))
 
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:
@@ -922,9 +570,9 @@ class OverlayWindow:
 
         self._refresh_placeholder()
         self._refresh_scroll(anchor)
-        if self._minimized:
+        if self._minimized and self._bubble is not None:
             self._unread += 1
-            self._update_badge()
+            self._bubble.set_unread(self._unread)
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:

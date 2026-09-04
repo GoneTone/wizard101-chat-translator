@@ -3,7 +3,7 @@ import tkinter as tk
 
 import pytest
 
-from src.composer.input_box import InputBox
+from src.ui.input_box import InputBox
 
 
 def test_stale_session_discarded_on_cancel(root):
@@ -44,7 +44,7 @@ def test_stale_session_discarded_on_cancel(root):
 
 
 def test_finish_over_limit_keeps_window_and_blocks_send(root):
-    from src.composer.input_box import GAME_INPUT_MAX_CHARS
+    from src.ui.input_box import GAME_INPUT_MAX_CHARS
     sent = []
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
     box.show()
@@ -58,7 +58,7 @@ def test_finish_over_limit_keeps_window_and_blocks_send(root):
 
 
 def test_finish_within_limit_sends_and_closes(root):
-    from src.composer.input_box import GAME_INPUT_MAX_CHARS
+    from src.ui.input_box import GAME_INPUT_MAX_CHARS
     sent = []
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
     box.show()
@@ -227,7 +227,7 @@ def test_show_restores_remembered_width(root):
 
 
 def test_show_clamps_remembered_width_to_minimum(root):
-    from src.composer.input_box import MIN_WIDTH
+    from src.ui.input_box import MIN_WIDTH
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None, width=80)
     box.show()
     box._win.update_idletasks()

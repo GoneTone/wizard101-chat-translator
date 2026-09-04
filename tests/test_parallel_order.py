@@ -5,7 +5,7 @@ import time
 
 from src.translation.context import ChatContext
 from src.i18n import t
-from src.reader.overlay import OverlayWindow
+from src.ui.overlay import OverlayWindow
 from src.translation.pool import TranslationPool
 
 FAILED = "⚠  這則訊息翻譯不出來"

@@ -1,7 +1,9 @@
 import pytest
 
 from src.i18n import t
-from src.reader.overlay import (
+from src.ui.bubble import should_auto_expand
+from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
+from src.ui.overlay import (
     BG,
     BG_UPDATE,
     FG_ERROR,
@@ -10,16 +12,9 @@ from src.reader.overlay import (
     OverlayWindow,
     STATUS_COLORS,
     _GRIP_SIZE,
-    edge_at,
-    is_click,
-    moved_to,
-    point_in_rect,
-    resized_edge,
-    scroll_fraction,
-    should_auto_expand,
     should_stick_to_bottom,
-    thumb_span,
 )
+from src.ui.thin_scrollbar import scroll_fraction, thumb_span
 
 
 def test_is_click_within_threshold():
@@ -264,7 +259,7 @@ def _translation_fill(ov, index=0):
 
 def test_pending_placeholder_uses_dimmer_colour_until_filled(root):
     # 佔位期間譯文欄位要能一眼與已翻好的訊息區分，填入真正的譯文後恢復正常顏色
-    from src.reader.overlay import FG_PENDING, FG_TRANSLATED
+    from src.ui.overlay import FG_PENDING, FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True)
     assert _translation_fill(ov) == FG_PENDING
@@ -273,7 +268,7 @@ def test_pending_placeholder_uses_dimmer_colour_until_filled(root):
 
 
 def test_completed_message_is_not_dimmed(root):
-    from src.reader.overlay import FG_TRANSLATED
+    from src.ui.overlay import FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲")          # 非佔位：直接就是完成品
     assert _translation_fill(ov) == FG_TRANSLATED
@@ -286,7 +281,7 @@ def _original_fill(ov, index=0):
 
 
 def test_dimmed_scales_each_channel_toward_dark():
-    from src.reader.overlay import dimmed
+    from src.ui.overlay import dimmed
     assert dimmed("#ffffff") == "#b5b5b5"   # 各通道乘 DIM_FACTOR，原文明顯暗於譯文
     assert dimmed("#80ff00") == "#5bb500"
     assert dimmed("#000000") == "#000000"
@@ -294,7 +289,7 @@ def test_dimmed_scales_each_channel_toward_dark():
 
 def test_message_uses_game_color_translated_bright_original_dim(root):
     # 譯文用遊戲聊天的顯示色，原文用同色調暗版——與遊戲內配色一眼對得上
-    from src.reader.overlay import dimmed
+    from src.ui.overlay import dimmed
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲", color="#80ff00")
     assert _translation_fill(ov) == "#80ff00"
@@ -303,7 +298,7 @@ def test_message_uses_game_color_translated_bright_original_dim(root):
 
 def test_pending_message_restores_game_color_on_update(root):
     # 佔位期間仍用暗灰（語意＝還沒翻好），真譯文落地才換成遊戲色
-    from src.reader.overlay import FG_PENDING, dimmed
+    from src.ui.overlay import FG_PENDING, dimmed
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True, color="#80ff00")
     assert _translation_fill(ov) == FG_PENDING
@@ -314,7 +309,7 @@ def test_pending_message_restores_game_color_on_update(root):
 
 def test_message_without_color_falls_back_to_default_palette(root):
     # 讀不到遊戲色（理論上不會發生，防衛用）：維持現行預設配色
-    from src.reader.overlay import FG_ORIGINAL, FG_TRANSLATED
+    from src.ui.overlay import FG_ORIGINAL, FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲")
     assert _translation_fill(ov) == FG_TRANSLATED
@@ -403,7 +398,7 @@ def test_bubble_release_without_press_is_ignored(root):
         x_root = 10
         y_root = 10
 
-    ov._bubble_release(FakeEvent())
+    ov._bubble._release(FakeEvent())
     assert ov.minimized is True
 
 
