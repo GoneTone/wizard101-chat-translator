@@ -463,20 +463,7 @@ class WizChatReader:
         玩家行與系統行走各自獨立的差分軌（後者見 _diff_system_lines），最後依原索引
         合併還原遊戲內順序。回傳的 path 是**玩家軌**的判定路徑。"""
         texts = self._read_chatlog_texts()
-        # 輸入框關聯放行（見 INPUT_RELEASE_POLLS）的輪數計數
-        input_open_now = self.input_open()
-        if input_open_now:
-            # 輸入框開著＝還在打字，不可能有「剛送出」的訊息；此時放行會把切頁籤浮出的
-            # 舊訊息當成新訊息（實機：開輸入框後 60ms 就放行了一次）。額度也還原，關掉後再算。
-            self._input_recent = 0
-            self._released_for_input = False
-        elif self._input_was_open:
-            # 輸入框剛關閉才是「剛送出」的訊號：實機的送出輪 input_open=False，
-            # 訊息在輸入框關掉之後才出現在 chatLog
-            self._input_recent = INPUT_RELEASE_POLLS
-        elif self._input_recent > 0:
-            self._input_recent -= 1
-        self._input_was_open = input_open_now
+        input_open_now = self._track_input_box()
         # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
         ordered = sorted(texts)
         raw = "\n".join(ordered)
@@ -572,28 +559,7 @@ class WizChatReader:
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
         if path == "append":
-            # 巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被 append 誤判成
-            # 「新增了 B 的其餘舊行」且不經任何過濾（實機每次切分頁重翻的主因）。
-            # 單行 append（正常訊息與重複的 lol/gg）永不過濾。
-            if len(appended) >= 2 and all(t in self._player.seen for t in appended):
-                log(f"[reader] append of {len(appended)} all-seen lines absorbed "
-                    f"as view resurface (prev={prev_len})")
-                emitted = []
-            elif len(appended) >= 3 and len(appended) > 2 * prev_len:
-                # 一輪暴增超過基準兩倍＝不可能的人為速度，判定為切到內容較多的視圖（代價：
-                # 基準 1-2 行時 1 秒內連發 3 句會被吸收，下句恢復）。整批丟棄前先看有多少是
-                # 看過的：chatLog 會短暫膨脹成重複版本（實機 102 行 ×8 ≈ 822 行），
-                # 此時抵達的新訊息夾在裡面會一起被丟掉。
-                kept = self._drop_resurfaced(emitted, path)
-                if len(kept) > len(appended) // DUPLICATE_BURST_SEEN_RATIO:
-                    log(f"[reader] implausible append burst absorbed as view switch "
-                        f"(appended={len(appended)}, unseen={len(kept)}, "
-                        f"prev={prev_len})")
-                    emitted = []
-                else:
-                    emitted = kept
-            elif len(appended) >= BULK_APPEND_FILTER_MIN:
-                emitted = self._drop_resurfaced(emitted, path)
+            emitted = self._filter_append(appended, emitted, prev_len)
         # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。例外：空讀轉場後只冒出一行且內容與清空前
         # 不同＝剛到的新訊息，不過濾——照過濾會吞掉與舊訊息同字的新訊息（實機回報：轉場後
         # 第一句私訊 Test 因基準裡有人講過同一句而被吞）。內容一字不差填回則不適用：視圖只有
@@ -612,6 +578,49 @@ class WizChatReader:
         # 依原索引合併：兩軌各自走了哪條路徑都不影響相對順序（索引同源）
         merged = sorted(player_out_with_idx(player_out, cur, player_idx) + system_out)
         return _Outcome(path, [cur_all[i] for i in merged], len(appended))
+
+    def _track_input_box(self) -> bool:
+        """每輪取樣遊戲輸入框，推進關聯放行的輪數計數（見 INPUT_RELEASE_POLLS）；
+        回傳輸入框目前是否開著。"""
+        input_open_now = self.input_open()
+        if input_open_now:
+            # 輸入框開著＝還在打字，不可能有「剛送出」的訊息；此時放行會把切頁籤浮出的
+            # 舊訊息當成新訊息（實機：開輸入框後 60ms 就放行了一次）。額度也還原，關掉後再算。
+            self._input_recent = 0
+            self._released_for_input = False
+        elif self._input_was_open:
+            # 輸入框剛關閉才是「剛送出」的訊號：實機的送出輪 input_open=False，
+            # 訊息在輸入框關掉之後才出現在 chatLog
+            self._input_recent = INPUT_RELEASE_POLLS
+        elif self._input_recent > 0:
+            self._input_recent -= 1
+        self._input_was_open = input_open_now
+        return input_open_now
+
+    def _filter_append(self, appended: list[str], emitted: list[ChatLine],
+                       prev_len: int) -> list[ChatLine]:
+        """append 快路徑的巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被
+        append 誤判成「新增了 B 的其餘舊行」且不經任何過濾（實機每次切分頁重翻的主因）。
+        單行 append（正常訊息與重複的 lol/gg）永不過濾。"""
+        if len(appended) >= 2 and all(t in self._player.seen for t in appended):
+            log(f"[reader] append of {len(appended)} all-seen lines absorbed "
+                f"as view resurface (prev={prev_len})")
+            return []
+        if len(appended) >= 3 and len(appended) > 2 * prev_len:
+            # 一輪暴增超過基準兩倍＝不可能的人為速度，判定為切到內容較多的視圖（代價：
+            # 基準 1-2 行時 1 秒內連發 3 句會被吸收，下句恢復）。整批丟棄前先看有多少是
+            # 看過的：chatLog 會短暫膨脹成重複版本（實機 102 行 ×8 ≈ 822 行），
+            # 此時抵達的新訊息夾在裡面會一起被丟掉。
+            kept = self._drop_resurfaced(emitted, "append")
+            if len(kept) > len(appended) // DUPLICATE_BURST_SEEN_RATIO:
+                log(f"[reader] implausible append burst absorbed as view switch "
+                    f"(appended={len(appended)}, unseen={len(kept)}, "
+                    f"prev={prev_len})")
+                return []
+            return kept
+        if len(appended) >= BULK_APPEND_FILTER_MIN:
+            return self._drop_resurfaced(emitted, "append")
+        return emitted
 
     def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
