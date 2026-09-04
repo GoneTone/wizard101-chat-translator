@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "pyinstaller>=6.22.2",
     "pytest",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.16.6",
 ]
 
@@ -28,6 +29,9 @@ wizwalker = { git = "https://codeberg.org/LaurenzNotHere/wizwalker.git", branch 
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 4 個 worker 平行跑：測試幾乎都在開 tkinter 視窗，平行後約 45 秒→30 秒。
+# -n auto 會開太多 Tk 程序（實測有失敗與卡住），固定 4 個；要序列跑加 -p no:xdist
+addopts = "-n 4"
 markers = [
     "real_position: 測試斷言視窗的實際位置，不套用 conftest 的螢幕外停放",
 ]

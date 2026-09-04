@@ -428,7 +428,9 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
     release_checker = threading.Event()
 
     def checker():
-        release_checker.wait(5)
+        # 等待上限只是保險絲：平行跑測試（xdist）時一次 root.update() 就可能吃掉數秒，
+        # 5 秒曾讓它提早回傳、按鈕在斷言前就恢復 normal
+        release_checker.wait(30)
         return None
 
     win = _open_settings_with_checker(root, checker)
@@ -438,7 +440,7 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
     assert win._update_btn.cget("text") == t("button.checking")
 
     release_checker.set()
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 30
     while not win._update_result.cget("text") and time.monotonic() < deadline:
         root.update()
         time.sleep(0.01)  # 讓出 CPU：純 root.update() 忙迴圈最壞情況會空轉滿 5 秒
