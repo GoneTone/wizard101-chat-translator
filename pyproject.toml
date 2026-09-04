@@ -15,6 +15,7 @@ dependencies = [
 dev = [
     "pyinstaller>=6.22.2",
     "pytest",
+    "ruff>=0.16.6",
 ]
 
 [tool.uv]
@@ -30,3 +31,14 @@ testpaths = ["tests"]
 markers = [
     "real_position: 測試斷言視窗的實際位置，不套用 conftest 的螢幕外停放",
 ]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# E/W：pycodestyle；F：pyflakes（未用 import、未定義名稱）；I：import 排序；
+# B：常見 bug 模式；UP：舊語法升級；SIM：可簡化的寫法
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+# SIM105：try/except pass 比 contextlib.suppress 直白，保留
+ignore = ["SIM105"]

@@ -70,7 +70,7 @@ class TranslationCache:
 
     def __init__(self, fingerprint: str):
         self._fingerprint = fingerprint
-        self._entries: "OrderedDict[str, str]" = OrderedDict()
+        self._entries: OrderedDict[str, str] = OrderedDict()
         self._unflushed = 0
         self._lock = threading.Lock()
 

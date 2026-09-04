@@ -9,11 +9,18 @@ import pytest
 from src.config import API_PROVIDERS, DEFAULT_CONFIG, active_api
 from src.i18n import t
 from src.translation.translator import (
-    TranslatorConfigError, TranslatorNoModelList, TranslatorOffline,
+    TranslatorConfigError,
+    TranslatorNoModelList,
+    TranslatorOffline,
 )
 from src.ui.fields import (
-    PROVIDERS, ApiFields, ModelField, filter_models, friendly_error,
-    validate_api_form, validate_endpoint_fields,
+    PROVIDERS,
+    ApiFields,
+    ModelField,
+    filter_models,
+    friendly_error,
+    validate_api_form,
+    validate_endpoint_fields,
 )
 
 

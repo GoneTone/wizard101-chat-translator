@@ -4,9 +4,9 @@ import tkinter as tk
 
 import pytest
 
+from src.config import clamp_advanced
 from src.ui.bubble import BUBBLE_ALPHA_FACTOR, BUBBLE_ALPHA_FLOOR
 from src.ui.overlay import OverlayWindow
-from src.config import clamp_advanced
 from src.ui.settings import parse_advanced_values
 
 
@@ -100,7 +100,6 @@ def test_parse_advanced_values_clamps_parallel(root):
 
 
 def test_parse_advanced_values_returns_error_key():
-    import tkinter as tk
 
     from src.ui.settings import parse_advanced_values
 

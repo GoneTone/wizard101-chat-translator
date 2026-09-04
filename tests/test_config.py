@@ -4,8 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from src.config import (API_PROFILE_FIELDS, API_PROVIDERS, DEFAULT_CONFIG, active_api,
-                        app_dir, is_configured, load_config, local_state_dir, save_config)
+from src.config import (
+    API_PROFILE_FIELDS,
+    API_PROVIDERS,
+    DEFAULT_CONFIG,
+    active_api,
+    app_dir,
+    is_configured,
+    load_config,
+    local_state_dir,
+    save_config,
+)
 
 
 def test_load_missing_file_returns_defaults(tmp_path: Path):
@@ -277,7 +286,7 @@ def test_local_state_dir_falls_back_to_home_without_localappdata(monkeypatch):
 
 def test_hook_state_shares_the_same_state_dir():
     from src.reader import hook_state
-    assert hook_state.STATE_DIR == local_state_dir()
+    assert local_state_dir() == hook_state.STATE_DIR
 
 
 def test_translate_system_messages_defaults_to_off():

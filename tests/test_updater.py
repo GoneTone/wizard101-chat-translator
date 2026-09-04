@@ -2,9 +2,16 @@
 import httpx
 import pytest
 
-from src.updater import (LATEST_API, RELEASES_URL, Release, UpdateCheckError,
-                         check_for_update, fetch_latest_release, is_newer,
-                         parse_version)
+from src.updater import (
+    LATEST_API,
+    RELEASES_URL,
+    Release,
+    UpdateCheckError,
+    check_for_update,
+    fetch_latest_release,
+    is_newer,
+    parse_version,
+)
 
 
 def test_parse_version_accepts_plain_and_v_prefixed():

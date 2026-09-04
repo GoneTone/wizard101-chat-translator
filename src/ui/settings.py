@@ -12,12 +12,20 @@ import webbrowser
 from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
-from src.config import (ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name,
-                        clamp_advanced)
+from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t
-from src.ui.fields import (HINT_COLOR, LINK_COLOR, ApiFields, HotkeyField,
-                           LanguageField, UiLanguageField, link_label, poll_queue,
-                           show_outcome, validate_api_form)
+from src.ui.fields import (
+    HINT_COLOR,
+    LINK_COLOR,
+    ApiFields,
+    HotkeyField,
+    LanguageField,
+    UiLanguageField,
+    link_label,
+    poll_queue,
+    show_outcome,
+    validate_api_form,
+)
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.scrollable import ScrollableFrame
 from src.updater import AUTHOR_URL, PROJECT_URL, check_for_update

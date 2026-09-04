@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING
 
 from src.i18n import t
 from src.reader.mem_reader import (
-    GameAccessDenied, GameNotRunning, GameVersionMismatch, WizChatReader,
+    GameAccessDenied,
+    GameNotRunning,
+    GameVersionMismatch,
+    WizChatReader,
 )
 from src.reader.message_log import MessageLog
 from src.translation.cache import TranslationCache

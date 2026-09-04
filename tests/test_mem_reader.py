@@ -1,9 +1,19 @@
 import io
 
 from src.reader.mem_reader import (
-    RESET_WARMUP_POLLS, ChatLine, GameAccessDenied, GameNotRunning,
-    GameVersionMismatch, WizChatReader, align_append, align_recover, clean,
-    filter_resurfaced, is_version_mismatch, lines_from_chatlog, lines_from_nodes,
+    RESET_WARMUP_POLLS,
+    ChatLine,
+    GameAccessDenied,
+    GameNotRunning,
+    GameVersionMismatch,
+    WizChatReader,
+    align_append,
+    align_recover,
+    clean,
+    filter_resurfaced,
+    is_version_mismatch,
+    lines_from_chatlog,
+    lines_from_nodes,
     player_out_with_idx,
 )
 from src.reader.message_log import MessageLog
@@ -35,12 +45,12 @@ def test_clean_strips_emoticon_prefix_and_digits():
 
 def _texts(lines):
     """只比對文字內容（顏色另有專門測試）。"""
-    return [l.text for l in lines]
+    return [line.text for line in lines]
 
 
 def _texts_colors(lines):
     """只比對文字與遊戲顯示色。"""
-    return [(l.text, l.color) for l in lines]
+    return [(line.text, line.color) for line in lines]
 
 
 # --- lines_from_chatlog：從 chatLog 全文抽玩家發言 ---
@@ -73,7 +83,7 @@ def test_lines_flags_system_messages():
                      _system("你現在等級 28！")])
     lines = lines_from_chatlog(log)
     assert _texts(lines) == ["[Amy] hi", "你獲得了 51 金幣！", "你現在等級 28！"]
-    assert [l.system for l in lines] == [False, True, True]
+    assert [line.system for line in lines] == [False, True, True]
 
 
 def test_lines_skips_debug_rows():
@@ -102,9 +112,9 @@ def test_lines_preserves_order_and_repeats():
 
 
 def test_lines_keeps_emoticon_line():
-    log = (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
-           f"<link;GID:1,Lars,2>[Lars]</link> ty king "
-           f"<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>")
+    log = ("<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
+           "<link;GID:1,Lars,2>[Lars]</link> ty king "
+           "<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>")
     assert _texts(lines_from_chatlog(log)) == ["[Lars] ty king :heart:"]
 
 
@@ -145,7 +155,7 @@ def _system_colored(color: str, text: str) -> str:
 
 def test_system_lines_are_emitted_with_the_system_flag():
     lines = lines_from_chatlog(_system_colored("00FF00", "你获得了 39 金币！"))
-    assert [l.text for l in lines] == ["你获得了 39 金币！"]
+    assert [line.text for line in lines] == ["你获得了 39 金币！"]
     assert lines[0].system is True
     assert lines[0].color == "#00ff00"
 
@@ -158,7 +168,7 @@ def test_player_lines_are_not_flagged_as_system():
 def test_system_lines_do_not_need_a_sender_prefix():
     # 玩家行必須通過 _VALID 的 [發送者] 規則，系統行沒有前綴、不適用
     lines = lines_from_chatlog(_system_colored("AA00AA", "你获得了 3 经验值！"))
-    assert [l.text for l in lines] == ["你获得了 3 经验值！"]
+    assert [line.text for line in lines] == ["你获得了 3 经验值！"]
 
 
 def test_system_lines_that_clean_to_nothing_are_dropped():
@@ -180,14 +190,14 @@ def test_server_broadcast_without_any_icon_is_flagged_as_system():
     # 實機樣本：維修預告只有顏色標記，沒有任何 Art/ 圖示（app.log 也警告不到）
     lines = lines_from_chatlog(
         _broadcast("D9ABF8", "[Server Message] 服务器在2小时内关闭以进行维护"))
-    assert [l.text for l in lines] == ["[Server Message] 服务器在2小时内关闭以进行维护"]
+    assert [line.text for line in lines] == ["[Server Message] 服务器在2小时内关闭以进行维护"]
     assert lines[0].system is True
     assert lines[0].color == "#d9abf8"
 
 
 def test_server_broadcast_does_not_need_a_sender_prefix():
     lines = lines_from_chatlog(_broadcast("D9ABF8", "服务器即将关闭"))
-    assert [l.text for l in lines] == ["服务器即将关闭"]
+    assert [line.text for line in lines] == ["服务器即将关闭"]
     assert lines[0].system is True
 
 
@@ -213,8 +223,8 @@ def test_system_and_player_lines_keep_their_in_game_order():
                _say_colored("FFFFFF", "Lars", "hi"),
                _system_colored("AA00AA", "你获得了 3 经验值！"))
     lines = lines_from_chatlog(raw)
-    assert [l.text for l in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
-    assert [l.system for l in lines] == [True, False, True]
+    assert [line.text for line in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
+    assert [line.system for line in lines] == [True, False, True]
 
 
 def test_mirror_detection_still_only_considers_player_lines():
@@ -223,7 +233,7 @@ def test_mirror_detection_still_only_considers_player_lines():
     mirror = _say_colored("FFFFFF", "Lars", "hi")
     lines, mirrored = lines_from_nodes([main, mirror])
     assert mirrored == 1
-    assert [l.text for l in lines] == ["[Lars] hi", "你获得了 39 金币！"]
+    assert [line.text for line in lines] == ["[Lars] hi", "你获得了 39 金币！"]
 
 
 def test_player_index_mapping_skips_lines_filtered_out_of_the_tail():
@@ -526,7 +536,7 @@ def test_reconnect_resets_session_state():
         assert r.read_new() == []
     try:
         r.read_new()
-        assert False, "expected GameNotRunning"
+        raise AssertionError("expected GameNotRunning")
     except GameNotRunning:
         pass
     r._connected = True                          # 模擬重連成功
@@ -905,7 +915,7 @@ def test_read_failure_raises_game_not_running():
     assert r.read_new() == []
     try:
         r.read_new()
-        assert False, "應丟 GameNotRunning"
+        raise AssertionError("應丟 GameNotRunning")
     except GameNotRunning:
         pass
 
@@ -1184,7 +1194,7 @@ def test_open_process_denied_raises_access_denied(monkeypatch):
     r = _reader_failing_to_open(monkeypatch, CouldNotOpenProcess(4321))
     try:
         r._connect()
-        assert False, "應丟 GameAccessDenied"
+        raise AssertionError("應丟 GameAccessDenied")
     except GameAccessDenied as exc:
         assert "4321" in str(exc)
 
@@ -1198,9 +1208,9 @@ def test_other_connect_failure_stays_game_not_running(monkeypatch):
     r = _reader_failing_to_open(monkeypatch, RuntimeError("boom"))
     try:
         r._connect()
-        assert False, "應丟 GameNotRunning"
+        raise AssertionError("應丟 GameNotRunning")
     except GameAccessDenied:
-        assert False, "非權限錯誤不得歸類為權限不足"
+        raise AssertionError("非權限錯誤不得歸類為權限不足") from None
     except GameNotRunning:
         pass
 
@@ -1298,7 +1308,7 @@ def test_wait_root_window_ready_times_out_instead_of_hanging_forever(monkeypatch
     r = _waiting_reader(_StubHookHandler())  # 位址永遠是 0
     try:
         r._wait_root_window_ready()
-        assert False, "應丟 TimeoutError"
+        raise AssertionError("應丟 TimeoutError")
     except TimeoutError:
         pass
 
@@ -1336,7 +1346,7 @@ def test_pattern_failure_while_attaching_raises_version_mismatch(monkeypatch, tm
                            _StubHookHandler(activate_exc=PatternFailed(b"\x90")))
     try:
         r._connect()
-        assert False, "應丟 GameVersionMismatch"
+        raise AssertionError("應丟 GameVersionMismatch")
     except GameVersionMismatch:
         pass
 
@@ -1347,7 +1357,7 @@ def test_hook_never_firing_raises_version_mismatch(monkeypatch, tmp_path):
     r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler())
     try:
         r._connect()
-        assert False, "應丟 GameVersionMismatch"
+        raise AssertionError("應丟 GameVersionMismatch")
     except GameVersionMismatch:
         pass
 
@@ -1357,9 +1367,9 @@ def test_other_attach_failure_stays_game_not_running(monkeypatch, tmp_path):
                            _StubHookHandler(activate_exc=RuntimeError("boom")))
     try:
         r._connect()
-        assert False, "應丟 GameNotRunning"
+        raise AssertionError("應丟 GameNotRunning")
     except GameVersionMismatch:
-        assert False, "非 pattern／逾時的失敗不得歸類為版本不相容"
+        raise AssertionError("非 pattern／逾時的失敗不得歸類為版本不相容") from None
     except GameNotRunning:
         pass
 

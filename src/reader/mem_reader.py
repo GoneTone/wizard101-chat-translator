@@ -15,7 +15,8 @@ import re
 import sys
 import time
 from collections import Counter, deque
-from typing import Container, NamedTuple
+from collections.abc import Container
+from typing import NamedTuple
 
 from src.reader import hook_state
 from src.reader.message_log import MessageLog
@@ -206,7 +207,7 @@ def _warn_unknown_icon(raw: str) -> None:
 
 def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
     """part 的每一行（含重複次數）都能在 main 裡找到 → part 只是 main 的鏡射。"""
-    remaining = Counter(l.text for l in main)
+    remaining = Counter(line.text for line in main)
     for line in part:
         if not remaining[line.text]:
             return False
@@ -227,12 +228,12 @@ def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
     判定完成後才從保留的節點取出系統行。"""
     parts = [lines_from_chatlog(t) for t in texts]
     if len(parts) < 2:
-        return [l for p in parts for l in p], 0
-    players = [[l for l in p if not l.system] for p in parts]
+        return [line for p in parts for line in p], 0
+    players = [[line for line in p if not line.system] for p in parts]
     main = max(range(len(parts)), key=lambda i: len(players[i]))
     kept = [p for i, p in enumerate(parts)
             if i == main or not (players[i] and _mirrors(players[i], players[main]))]
-    return [l for p in kept for l in p], len(parts) - len(kept)
+    return [line for p in kept for line in p], len(parts) - len(kept)
 
 
 def node_sizes(texts: list[str]) -> list[int]:
@@ -453,7 +454,7 @@ class WizChatReader:
         outcome = self._diff_new_lines()
         if self._msg_log is not None:
             self._msg_log.decision(outcome.path, outcome.appended,
-                                   [l.text for l in outcome.emitted])
+                                   [line.text for line in outcome.emitted])
         return outcome.emitted
 
     def _diff_new_lines(self) -> _Outcome:
@@ -494,13 +495,13 @@ class WizChatReader:
             self._mirrored_nodes = mirrored
         # 兩軌分離但索引同源：最後依原索引合併，遊戲內的交錯順序即完整還原
         cur_all = cur                                  # 完整序列（含系統行），索引的基準
-        player_idx = [i for i, l in enumerate(cur_all) if not l.system]
-        system_idx = [i for i, l in enumerate(cur_all) if l.system]
+        player_idx = [i for i, line in enumerate(cur_all) if not line.system]
+        system_idx = [i for i, line in enumerate(cur_all) if line.system]
         cur_system_texts = [cur_all[i].text for i in system_idx]
         cur = [cur_all[i] for i in player_idx]
         # 差分只看文字：切頻道時 chatLog 會把同樣的訊息以該頻道顏色重新染色，
         # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
-        cur_texts = [l.text for l in cur]
+        cur_texts = [line.text for line in cur]
         if not self._synced:
             # 首次連上：記錄現況（含既有歷史），不回吐
             self._player.rebaseline(cur_texts)

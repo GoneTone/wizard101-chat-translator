@@ -6,17 +6,20 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
-
-import keyboard
 from dataclasses import dataclass
 from tkinter import ttk
 
-from src.config import (API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS,
-                        EFFORT_AUTO, needs_base_url)
-from src.i18n import (DEFAULT_LANGUAGE, available_languages, current_language,
-                      language_name, t)
-from src.translation.translator import (TranslatorConfigError, TranslatorNoModelList,
-                            TranslatorOffline, list_models, test_translate)
+import keyboard
+
+from src.config import API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS, EFFORT_AUTO, needs_base_url
+from src.i18n import DEFAULT_LANGUAGE, available_languages, current_language, language_name, t
+from src.translation.translator import (
+    TranslatorConfigError,
+    TranslatorNoModelList,
+    TranslatorOffline,
+    list_models,
+    test_translate,
+)
 from src.ui.responsive import bind_wrap
 
 

@@ -12,14 +12,15 @@
 - **Commit message 與 PR 標題一律英文**：commit message（subject 與 body）與 PR 標題使用英文、半形標點，沿用 conventional commits 格式（`feat(...)`、`fix(...)`、`docs(...)`、`chore(...)`、`refactor(...)` 等），subject 簡潔。PR 描述、設計文件、程式碼註解／docstring、UI 文字（overlay 橫幅／設定視窗等）不受此條影響，仍依「標點依語言慣例」維持繁體中文全形。
 - **簡單改動免 spec**：純字串／提示詞小改、單檔 typo、單一 bug fix、純機械重構（重新命名、抽常數）、config 欄位增減等，可直接動手，不必走 brainstorming → spec → plan；使用者已自帶明確設計判斷（what + why）時同樣免 spec。需要走流程的判準：跨多檔影響架構、新增元件／資料流、驗收條件超過「pytest 全綠」的功能。
 - **版本號單一真實來源**：`src/__init__.py` 的 `__version__`（執行期一律讀它；專案 `package = false`，打包成 exe 後 `importlib.metadata` 讀不到）。改版時 `pyproject.toml` 的 `version` 要同步，`tests/test_version.py` 會把兩者釘在一起。SemVer、tag 用 `v` 前綴、放版步驟見 README「放版」。
-- **優先用 `uv`**：本專案以 uv 管理環境（`pyproject.toml` + `uv.lock`）。相依裝好用 `uv sync`；執行用 `uv run run.py`（或 `uv run python -m src.main`）；測試用 `uv run pytest`。翻譯設定與 API 金鑰在 `config.json`（gitignore、不進版控）。
+- **優先用 `uv`**：本專案以 uv 管理環境（`pyproject.toml` + `uv.lock`）。相依裝好用 `uv sync`；執行用 `uv run run.py`（或 `uv run python -m src.main`）；lint 用 `uv run ruff check src tests`；測試用 `uv run pytest`。翻譯設定與 API 金鑰在 `config.json`（gitignore、不進版控）。
 
 ## 提交前品質檢查
 
 執行 `git commit` 前：
 
-1. **測試**：`uv run pytest` — 必須全部通過。
-2. 若改到收訊／掛入相關，盡量開著遊戲（登入進世界內）`uv run run.py` 實跑一次確認。
+1. **Lint**：`uv run ruff check src tests` — 必須零錯誤（未用的 import、未定義名稱、import 排序等；規則見 `pyproject.toml`）。
+2. **測試**：`uv run pytest` — 必須全部通過。
+3. 若改到收訊／掛入相關，盡量開著遊戲（登入進世界內）`uv run run.py` 實跑一次確認。
 
 任何一項失敗就先修，不要用 `--no-verify` 跳過。**不要主動 git push。**
 

@@ -9,22 +9,22 @@ import tkinter as tk
 import keyboard
 import win32api
 import win32con
-import win32gui
 import win32event
+import win32gui
 import winerror
 
 from src import __version__
 from src.composer.paste import type_into_window
-from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
-                        load_config, save_config)
-from src.i18n import (current_language, detect_system_language, language_name,
-                      set_language, t)
+from src.config import CONFIG_PATH, active_api, app_name, is_configured, load_config, save_config
+from src.i18n import current_language, detect_system_language, language_name, set_language, t
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
 from src.reader.message_log import MessageLog
 from src.resources import icon_path
 from src.translation.cache import (
-    TranslationCache, fingerprint_of, translate_and_cache,
+    TranslationCache,
+    fingerprint_of,
+    translate_and_cache,
 )
 from src.translation.context import ChatContext
 from src.translation.gate import ConcurrencyGate

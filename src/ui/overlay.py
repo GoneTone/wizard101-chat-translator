@@ -17,9 +17,19 @@ from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE, edge_at, moved_to, resized_edge
 from src.ui.icons import load_icon
-from src.ui.palette import (BAR, BG, BG_UPDATE, DIM_FACTOR, FG_BAR, FG_ERROR,
-                            FG_ORIGINAL, FG_PENDING, FG_TRANSLATED, FG_UPDATE,
-                            OUTLINE)
+from src.ui.palette import (
+    BAR,
+    BG,
+    BG_UPDATE,
+    DIM_FACTOR,
+    FG_BAR,
+    FG_ERROR,
+    FG_ORIGINAL,
+    FG_PENDING,
+    FG_TRANSLATED,
+    FG_UPDATE,
+    OUTLINE,
+)
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 

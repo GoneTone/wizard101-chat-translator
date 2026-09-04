@@ -5,7 +5,11 @@ import pytest
 
 import src.translation.cache as cache_module
 from src.translation.cache import (
-    TranslationCache, fingerprint_of, normalize, placeholders_match, restore,
+    TranslationCache,
+    fingerprint_of,
+    normalize,
+    placeholders_match,
+    restore,
     translate_and_cache,
 )
 from src.translation.translator import PROMPT_REVISION

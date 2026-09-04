@@ -6,7 +6,6 @@
 """
 import re
 
-
 # 遊戲把自己的除錯輸出（貼圖載入失敗、音效通道回收等）也灌進 chatLog，量遠大於聊天；
 # 這些行以 [WARN]／[ERRO]／[DBGM] 之類全大寫標籤開頭，聊天與系統訊息則以 <color;..> 起頭。
 _DEBUG_LINE = re.compile(r"\s*\[[A-Z]{3,5}\]")

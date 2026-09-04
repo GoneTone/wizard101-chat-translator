@@ -1,18 +1,21 @@
 """log 檔基礎設施的純邏輯測試：每行 UTC 時戳前綴、session 分段保留。"""
-from datetime import datetime, timedelta, timezone
 import io
+from datetime import UTC, datetime, timedelta, timezone
 
 from src.logfiles import (
-    LOG_RETENTION_DAYS, TimestampedStream, session_header, trim_log_sessions,
+    LOG_RETENTION_DAYS,
+    TimestampedStream,
+    session_header,
+    trim_log_sessions,
     utc_stamp,
 )
 
-NOW = datetime(2026, 8, 22, 12, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 22, 12, 0, 0, tzinfo=UTC)
 
 
 # --- utc_stamp ---
 def test_utc_stamp_has_millisecond_precision():
-    ts = datetime(2026, 8, 25, 9, 12, 3, 412345, tzinfo=timezone.utc)
+    ts = datetime(2026, 8, 25, 9, 12, 3, 412345, tzinfo=UTC)
     assert utc_stamp(ts) == "2026-08-25T09:12:03.412Z"
 
 

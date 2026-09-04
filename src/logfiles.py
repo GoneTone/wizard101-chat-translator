@@ -6,7 +6,7 @@
 """
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from src.config import app_dir
@@ -21,7 +21,7 @@ _STAMP_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"
 
 def utc_stamp(now: datetime | None = None) -> str:
     """行首時戳（UTC＋0、毫秒）。poll 只隔零點幾秒，秒級解析度分不出先後。"""
-    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    now = (now or datetime.now(UTC)).astimezone(UTC)
     return now.strftime(_STAMP_FORMAT)[:-3] + "Z"
 
 
@@ -41,7 +41,7 @@ def trim_log_sessions(text: str, now: datetime) -> str:
             token = line[len(SESSION_HEADER_PREFIX):].split(" ")[0]
             try:
                 ts = datetime.strptime(token, _HEADER_TS_FORMAT).replace(
-                    tzinfo=timezone.utc)
+                    tzinfo=UTC)
             except ValueError:
                 keeping = False
             else:
@@ -67,11 +67,11 @@ def _prepare_log(path: Path, now: datetime) -> None:
 def open_session_log(name: str, now: datetime | None = None):
     """開啟 app_dir() 旁的 log 檔：清掉過期段落後以 append 開檔並寫入 session 標頭。
     資料夾不可寫時退回 devnull——windowed 模式沒有主控台，不能讓開檔失敗把程式帶掉。"""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     path = app_dir() / name
     try:
         _prepare_log(path, now)
-        stream = open(path, "a", encoding="utf-8", buffering=1)
+        stream = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         stream.write(session_header(now) + "\n")
     except OSError as exc:
         if sys.stderr is not None:

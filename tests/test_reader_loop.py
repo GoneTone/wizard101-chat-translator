@@ -5,12 +5,15 @@ import threading
 import time
 
 import src.reader.loop as loop_module
-from src.translation.context import ChatContext
 from src.i18n import t
 from src.reader.loop import banner_for, reader_loop
 from src.reader.mem_reader import (
-    ChatLine, GameAccessDenied, GameNotRunning, GameVersionMismatch,
+    ChatLine,
+    GameAccessDenied,
+    GameNotRunning,
+    GameVersionMismatch,
 )
+from src.translation.context import ChatContext
 
 
 class FakePool:
@@ -72,7 +75,7 @@ class FakeReader:
         if isinstance(r, Exception):
             raise r
         # 真實 reader 回傳 ChatLine；腳本可寫純字串（無色）省事
-        return [l if isinstance(l, ChatLine) else ChatLine(l, None) for l in r]
+        return [line if isinstance(line, ChatLine) else ChatLine(line, None) for line in r]
 
     def close(self):
         pass

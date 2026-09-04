@@ -3,7 +3,6 @@
 tkinter 的 pack 依宣告順序分配空間，expand=True 的內容區若排在固定高度的邊條之前，
 視窗一變矮就會把邊條擠掉（按鈕列、導覽列、錯誤橫幅）——順序可直接斷言，所以釘起來。
 """
-import tkinter as tk
 from tkinter import ttk
 
 from src.ui.scrollable import ScrollableFrame

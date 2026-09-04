@@ -4,14 +4,14 @@ from src.i18n import t
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
 from src.ui.overlay import (
+    _GRIP_SIZE,
     BG,
     BG_UPDATE,
     FG_ERROR,
     MIN_HEIGHT,
     MIN_WIDTH,
-    OverlayWindow,
     STATUS_COLORS,
-    _GRIP_SIZE,
+    OverlayWindow,
     should_stick_to_bottom,
 )
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span

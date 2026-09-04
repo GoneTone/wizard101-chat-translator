@@ -5,10 +5,19 @@ import httpx2
 import pytest
 
 from src.translation.translator import (
-    OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
-    TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
-    build_system_message_system, _game_noun_rule, _PAREN_ENGLISH,
-    has_stray_latin, strip_invented_english,
+    _PAREN_ENGLISH,
+    OPENAI_BASE_URL,
+    Translator,
+    TranslatorBadOutput,
+    TranslatorConfigError,
+    TranslatorNoModelList,
+    TranslatorOffline,
+    _game_noun_rule,
+    build_incoming_system,
+    build_system_message_system,
+    has_stray_latin,
+    list_models,
+    strip_invented_english,
 )
 
 

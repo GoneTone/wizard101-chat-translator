@@ -88,6 +88,13 @@ Wizard101 本身以**系統管理員**身分執行時，本工具也必須以系
 
 打包時 `build.spec` 以 `src/i18n/*.json` 收錄，新檔會自動被帶進 exe。
 
+### 檢查
+
+```
+uv run ruff check src tests   # lint：未用的 import、未定義名稱、import 排序（規則見 pyproject.toml）
+uv run pytest                 # 單元測試
+```
+
 ### 打包（exe）
 
 ```

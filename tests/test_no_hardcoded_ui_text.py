@@ -36,11 +36,11 @@ def _docstring_nodes(tree: ast.AST) -> set[int]:
     """模組／函式／類別的 docstring 節點 id：docstring 用中文是規範，不該被擋。"""
     ids = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
-                             ast.ClassDef)):
-            if ast.get_docstring(node, clean=False) is not None and node.body \
-                    and isinstance(node.body[0], ast.Expr):
-                ids.add(id(node.body[0].value))
+        if (isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef,
+                              ast.ClassDef))
+                and ast.get_docstring(node, clean=False) is not None
+                and node.body and isinstance(node.body[0], ast.Expr)):
+            ids.add(id(node.body[0].value))
     return ids
 
 
