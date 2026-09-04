@@ -5,6 +5,9 @@ Tk 的 `wraplength` 是固定像素值，視窗放大後說明文字仍卡在原
 import tkinter as tk
 
 MIN_WRAP = 160  # 換行寬度下限：視窗被拖到極窄時仍讓文字保有可讀寬度
+# 說明文字換行時的右側預留：欄位自己的內距（8）＋容器內距（12）＋一點餘裕。
+# 少扣了就會把說明的最後一兩個字切在視窗右緣外。
+HINT_TRAILING = 24
 
 
 def wrap_width(container_width: int, reserved: int = 0,

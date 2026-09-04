@@ -10,7 +10,7 @@ from src.composer.paste import force_foreground
 from src.config import app_name
 from src.i18n import t
 from src.ui.fonts import ui_font
-from src.ui.responsive import apply_wrap, bind_wrap
+from src.ui.responsive import HINT_TRAILING, apply_wrap, bind_wrap
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
@@ -18,7 +18,6 @@ GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
 DEFAULT_WIDTH = 460
 MIN_WIDTH = 320  # 再窄會把提示文字擠成一長條，且輸入欄放不下一句話
 _INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit_height 貼合
-_HINT_TRAILING = 24   # 提示文字換行時要讓出的左右邊距
 
 
 class InputBox:
@@ -63,10 +62,10 @@ class InputBox:
                                 anchor="w", justify="left")
         self._status.pack(fill="x", padx=8)
         # 拉寬視窗 → 提示文字重新換行 → 行數變了才重算高度（值沒變不動，避免回圈）
-        bind_wrap(self._status, container=self._win, trailing=_HINT_TRAILING,
+        bind_wrap(self._status, container=self._win, trailing=HINT_TRAILING,
                   on_change=self._fit_height)
         # 視窗還沒 map 時量不到寬度，先用目標寬度套一次；否則開窗高度會先窄一格再跳
-        apply_wrap(self._status, self._width, _HINT_TRAILING)
+        apply_wrap(self._status, self._width, HINT_TRAILING)
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)

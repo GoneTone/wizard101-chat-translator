@@ -369,13 +369,12 @@ def _run_check(win):
 
 def test_manual_check_reports_up_to_date(root):
     from src.i18n import t
-    from src.ui import settings as settings_module
+    from src.ui import fields as fields_module
 
     win = _open_settings_with_checker(root, lambda: None)
     _run_check(win)
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
-    assert str(win._update_result.cget("foreground")) \
-        == settings_module._UPDATE_COLORS["latest"]
+    assert str(win._update_result.cget("foreground")) == fields_module.OK_COLOR
     assert win._update_btn.cget("text") == t("button.check_update")
     assert str(win._update_btn.cget("state")) == "normal"
     win._win.destroy()
@@ -383,6 +382,7 @@ def test_manual_check_reports_up_to_date(root):
 
 def test_manual_check_reports_a_new_version(root, monkeypatch):
     from src.i18n import t
+    from src.ui import fields as fields_module
     from src.ui import settings as settings_module
     from src.updater import Release
 
@@ -391,8 +391,7 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
     _run_check(win)
     assert win._update_result.cget("text") == t("update.available", version="9.9.9")
     assert "hand2" in str(win._update_result.cget("cursor"))
-    assert str(win._update_result.cget("foreground")) \
-        == settings_module._UPDATE_COLORS["available"]
+    assert str(win._update_result.cget("foreground")) == fields_module.LINK_COLOR
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -404,7 +403,7 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
 
 def test_manual_check_reports_failure(root):
     from src.i18n import t
-    from src.ui import settings as settings_module
+    from src.ui import fields as fields_module
     from src.updater import UpdateCheckError
 
     def boom():
@@ -413,8 +412,7 @@ def test_manual_check_reports_failure(root):
     win = _open_settings_with_checker(root, boom)
     _run_check(win)
     assert win._update_result.cget("text") == "✗ " + t("update.failed", error="HTTP 403")
-    assert str(win._update_result.cget("foreground")) \
-        == settings_module._UPDATE_COLORS["failed"]
+    assert str(win._update_result.cget("foreground")) == fields_module.ERROR_COLOR
     assert str(win._update_btn.cget("state")) == "normal"
     win._win.destroy()
 

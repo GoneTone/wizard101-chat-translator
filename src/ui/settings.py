@@ -15,20 +15,15 @@ from src import __version__
 from src.config import (ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name,
                         clamp_advanced)
 from src.i18n import current_language, set_language, t
-from src.ui.fields import (LINK_COLOR, ApiFields, HotkeyField, LanguageField,
-                           UiLanguageField, link_label, poll_queue,
-                           validate_api_form)
-from src.ui.responsive import bind_wrap
+from src.ui.fields import (HINT_COLOR, LINK_COLOR, ApiFields, HotkeyField,
+                           LanguageField, UiLanguageField, link_label, poll_queue,
+                           show_outcome, validate_api_form)
+from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.scrollable import ScrollableFrame
 from src.updater import AUTHOR_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
-# 說明文字換行時的右側預留：欄位自己的 grid padx（8）＋分頁內距（12）＋一點餘裕。
-# 少扣了就會把說明的最後一兩個字切在視窗右緣外。
-_HINT_TRAILING = 24
-# 檢查更新結果的字色：沿用測試連線那組（成功綠、失敗紅），有新版用連結藍。
-_UPDATE_COLORS = {"latest": "#2e8b57", "available": LINK_COLOR, "failed": "#cc3333"}
 # 「關於」分頁的分組間距：版本／專案／開發者是唯讀資訊，紀錄檔與譯文快取是會動手的
 # 維護項目，兩區之間拉開才不會被看成同一串條目。
 _GROUP_GAP = 32
@@ -105,7 +100,7 @@ class SettingsWindow:
         # 會吃光剩餘高度，這條固定高度的按鈕列就會在視窗變矮時被擠扁甚至消失。
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
         btns.pack(side="bottom", fill="x")
-        ttk.Label(btns, text=f"v{__version__}", foreground="#888888").pack(side="left")
+        ttk.Label(btns, text=f"v{__version__}", foreground=HINT_COLOR).pack(side="left")
         ttk.Button(btns, text=t("button.cancel"), command=self._cancel).pack(side="right")
         ttk.Button(btns, text=t("button.save"), command=self._save).pack(side="right",
                                                                         padx=(0, 8))
@@ -182,10 +177,10 @@ class SettingsWindow:
                    command=self._browse_game_path).pack(side="right", padx=(4, 0))
         ttk.Entry(path_row, textvariable=self._game_path).pack(
             side="left", fill="x", expand=True)
-        hint = ttk.Label(adv, text=t("settings.game_path_hint"), foreground="#888888",
+        hint = ttk.Label(adv, text=t("settings.game_path_hint"), foreground=HINT_COLOR,
                          justify="left")
         hint.grid(row=8, column=0, columnspan=3, sticky="ew")
-        bind_wrap(hint, trailing=_HINT_TRAILING)
+        bind_wrap(hint, trailing=HINT_TRAILING)
 
         self._build_about(nb)
 
@@ -238,10 +233,10 @@ class SettingsWindow:
                    command=self._open_log_folder).pack(side="right", padx=(4, 0))
         self._logs_label = ttk.Label(logs_row, text=str(app_dir()))
         self._logs_label.pack(side="left", fill="x", expand=True)
-        logs_hint = ttk.Label(about, text=t("about.logs_hint"), foreground="#888888",
+        logs_hint = ttk.Label(about, text=t("about.logs_hint"), foreground=HINT_COLOR,
                               justify="left")
         logs_hint.grid(row=4, column=0, columnspan=2, sticky="ew")
-        bind_wrap(logs_hint, trailing=_HINT_TRAILING)
+        bind_wrap(logs_hint, trailing=HINT_TRAILING)
 
         if self._cache is not None:   # None＝呼叫端沒有快取（測試與早期啟動路徑）
             ttk.Label(about, text=t("about.cache")).grid(row=5, column=0, sticky="w",
@@ -253,9 +248,9 @@ class SettingsWindow:
             self._cache_result = ttk.Label(cache_row, text="")
             self._cache_result.pack(side="left", padx=(8, 0))
             cache_hint = ttk.Label(about, text=t("about.cache_hint"),
-                                   foreground="#888888", justify="left")
+                                   foreground=HINT_COLOR, justify="left")
             cache_hint.grid(row=6, column=0, columnspan=2, sticky="ew")
-            bind_wrap(cache_hint, trailing=_HINT_TRAILING)
+            bind_wrap(cache_hint, trailing=HINT_TRAILING)
 
     def _clear_cache(self) -> None:
         """清掉譯文快取並回報筆數。不加確認對話框：快取會自動重建，
@@ -303,13 +298,15 @@ class SettingsWindow:
     def _on_update_checked(self, result) -> None:
         state, message, url = result
         self._update_btn.configure(state="normal", text=t("button.check_update"))
-        prefix = {"latest": "✓ ", "failed": "✗ ", "available": ""}[state]
-        self._update_result.configure(text=prefix + message,
-                                      foreground=_UPDATE_COLORS[state],
-                                      cursor="hand2" if url else "")
         self._update_result.unbind("<Button-1>")
-        if url:
+        if state == "available":
+            # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
+            self._update_result.configure(text=message, foreground=LINK_COLOR,
+                                          cursor="hand2")
             self._update_result.bind("<Button-1>", lambda e: webbrowser.open(url))
+            return
+        show_outcome(self._update_result, state == "latest", message)
+        self._update_result.configure(cursor="")
 
     def _open_log_folder(self) -> None:
         """開啟 app.log／messages.log 所在的資料夾（Windows 檔案總管）。"""
@@ -344,7 +341,7 @@ class SettingsWindow:
         value_label.pack(side="left", padx=(6, 0))
         note = ttk.Label(holder, text=t("settings.alpha_hint",
                                         default=DEFAULT_CONFIG["overlay_alpha"]),
-                         foreground="#888888", justify="left")
+                         foreground=HINT_COLOR, justify="left")
         note.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(note)
         return var
@@ -378,24 +375,33 @@ class SettingsWindow:
         self._win = None
         self.open()
 
-    def _collect_into_draft(self) -> None:
-        """把目前填在欄位裡的值寫回 draft，供重建視窗時復原。
-
-        進階數值鍵到一半是非數字時就保留 draft 原值：重建不是儲存，
-        不該在這裡把使用者擋在表單錯誤提示前面。"""
-        draft = self._draft
-        draft["api"] = self._api.get_values()
-        if self._language.value():
-            draft["target_language"] = self._language.value()
-        draft["hotkey"] = self._hotkey.value()
-        draft["auto_show_input"] = self._auto_input.get()
-        draft["translate_system_messages"] = self._translate_system.get()
-        draft["game_path"] = self._game_path.get().strip() or None
-        advanced, _error = parse_advanced_values(
+    def _form_values(self) -> tuple[dict, str | None]:
+        """讀取表單目前的值（不含介面語言，它由儲存路徑另外處理），回傳
+        （欄位值, 進階數值的錯誤文案 key 或 None）。進階數值解析失敗時就不含那幾個鍵。"""
+        values = {
+            "api": self._api.get_values(),
+            "target_language": self._language.value(),
+            "hotkey": self._hotkey.value(),
+            "auto_show_input": self._auto_input.get(),
+            "translate_system_messages": self._translate_system.get(),
+            "game_path": self._game_path.get().strip() or None,
+        }
+        advanced, error = parse_advanced_values(
             self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
             self._parallel)
         if advanced is not None:
-            draft.update(advanced)
+            values.update(advanced)
+        return values, error
+
+    def _collect_into_draft(self) -> None:
+        """把目前填在欄位裡的值寫回 draft，供重建視窗時復原。
+
+        進階數值鍵到一半是非數字、或目標語言清空時就保留 draft 原值：
+        重建不是儲存，不該在這裡把使用者擋在表單錯誤提示前面。"""
+        values, _error = self._form_values()
+        if not values["target_language"]:
+            del values["target_language"]
+        self._draft.update(values)
 
     def _cancel(self) -> None:
         """取消／關窗：把預覽中的透明度與介面語言都還原為目前設定值。"""
@@ -421,9 +427,9 @@ class SettingsWindow:
                                   pady=2)
         note = ttk.Label(parent, text=t("settings.range_hint", hint=t(hint_key), lo=lo,
                                         hi=hi, default=DEFAULT_CONFIG[key]),
-                         foreground="#888888", justify="left")
+                         foreground=HINT_COLOR, justify="left")
         note.grid(row=grid_row, column=2, sticky="ew", padx=8, pady=2)
-        bind_wrap(note, trailing=_HINT_TRAILING)
+        bind_wrap(note, trailing=HINT_TRAILING)
         return var
 
     def _browse_game_path(self) -> None:
@@ -432,13 +438,10 @@ class SettingsWindow:
             self._game_path.set(chosen)
 
     def _save(self) -> None:
-        # 進階數值先解析：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
-        advanced, advanced_error = parse_advanced_values(
-            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
-            self._parallel)
-        api = self._api.get_values()
+        # 先整批解析再驗證：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
+        values, advanced_error = self._form_values()
         errors = validate_api_form(self._api.active_values())
-        if not self._language.value():
+        if not values["target_language"]:
             errors.append("error.need_target_language")
         if advanced_error:
             errors.append(advanced_error)
@@ -447,18 +450,11 @@ class SettingsWindow:
                                    "\n".join(t(e) for e in errors), parent=self._win)
             return
         cfg = self._cfg
-        old_game_path = cfg["game_path"]
-        cfg["api"] = api
+        game_path_changed = values["game_path"] != cfg["game_path"]
         # 語言要在 on_save 之前套用：apply_settings 會依新語言重繪 overlay。
         cfg["ui_language"] = self._ui_language.value()
         set_language(cfg["ui_language"])
-        cfg["target_language"] = self._language.value()
-        cfg["hotkey"] = self._hotkey.value()
-        cfg["auto_show_input"] = self._auto_input.get()
-        cfg["translate_system_messages"] = self._translate_system.get()
-        cfg.update(advanced)
-        cfg["game_path"] = self._game_path.get().strip() or None
-        game_path_changed = cfg["game_path"] != old_game_path
+        cfg.update(values)
         self._on_save()
         if game_path_changed:
             messagebox.showinfo(t("dialog.notice_title"), t("dialog.game_path_restart"),

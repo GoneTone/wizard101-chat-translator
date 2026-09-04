@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from tkinter import ttk
 
 from src.config import (API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS,
-                        EFFORT_AUTO)
+                        EFFORT_AUTO, needs_base_url)
 from src.i18n import (DEFAULT_LANGUAGE, available_languages, current_language,
                       language_name, t)
 from src.translator import (TranslatorConfigError, TranslatorNoModelList,
@@ -33,7 +33,7 @@ class Provider:
 
     @property
     def needs_base_url(self) -> bool:
-        return self.has_field("base_url")
+        return needs_base_url(self.key)
 
 
 PROVIDERS: dict[str, Provider] = {p.key: p for p in (
@@ -48,8 +48,11 @@ PROVIDERS: dict[str, Provider] = {p.key: p for p in (
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
 
-# 可點連結的字色（設定視窗與精靈共用）
+# 精靈、設定視窗與輸入框共用的字色：可點連結、欄位說明的灰、成功綠、失敗紅
 LINK_COLOR = "#4a7ddc"
+HINT_COLOR = "#888888"
+OK_COLOR = "#2e8b57"
+ERROR_COLOR = "#cc3333"
 
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",
@@ -77,6 +80,13 @@ def filter_models(models: list[str], query: str) -> list[str]:
     """依關鍵字篩選模型清單（不分大小寫子字串比對）；關鍵字為空白＝不篩選。"""
     keyword = query.strip().lower()
     return [m for m in models if keyword in m.lower()] if keyword else list(models)
+
+
+def show_outcome(label: ttk.Label, ok: bool, message: str) -> None:
+    """把一次操作的結果寫進標籤：成功「✓ 」綠字、失敗「✗ 」紅字
+    （測試連線與檢查更新共用同一種呈現）。"""
+    label.configure(text=("✓ " if ok else "✗ ") + message,
+                    foreground=OK_COLOR if ok else ERROR_COLOR)
 
 
 def link_label(parent, text: str, url: str) -> ttk.Label:
@@ -141,7 +151,7 @@ class ModelField(ttk.Frame):
         self._btn = ttk.Button(self, text=t("button.refresh"), width=9,
                                command=self._start_refresh)
         self._btn.grid(row=0, column=2, padx=(4, 0))
-        self._status = ttk.Label(self, text=t("hint.model_idle"), foreground="#888888",
+        self._status = ttk.Label(self, text=t("hint.model_idle"), foreground=HINT_COLOR,
                                  justify="left")
         self._status.grid(row=1, column=1, columnspan=2, sticky="ew")
         bind_wrap(self._status)
@@ -286,7 +296,7 @@ class ModelField(ttk.Frame):
             self._set_status(t(key, **kwargs), error=True)
 
     def _set_status(self, text: str, error: bool = False) -> None:
-        self._status.configure(text=text, foreground="#cc3333" if error else "#888888")
+        self._status.configure(text=text, foreground=ERROR_COLOR if error else HINT_COLOR)
 
     # --- 取得清單 ---
     def _start_refresh(self) -> None:
@@ -462,7 +472,7 @@ class ApiFields(ttk.Frame):
         row = ttk.Frame(self._fields)
         row.pack(fill="x")
         ttk.Label(row, width=LABEL_WIDTH).pack(side="left")
-        hint = ttk.Label(row, text=text, foreground="#888888", justify="left")
+        hint = ttk.Label(row, text=text, foreground=HINT_COLOR, justify="left")
         hint.pack(side="left", fill="x", expand=True)
         bind_wrap(hint)
 
@@ -493,7 +503,7 @@ class ApiFields(ttk.Frame):
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
         ttk.Checkbutton(self._fields, text=t("field.thinking"),
                         variable=self._thinking).pack(anchor="w", pady=(2, 0))
-        hint = ttk.Label(self._fields, text=t("hint.thinking"), foreground="#888888",
+        hint = ttk.Label(self._fields, text=t("hint.thinking"), foreground=HINT_COLOR,
                          justify="left")
         hint.pack(fill="x", padx=(20, 0))
         bind_wrap(hint)
@@ -556,9 +566,7 @@ class ApiFields(ttk.Frame):
 
     def _show_test_result(self, ok: bool, message: str) -> None:
         self.test_passed = ok
-        prefix = "✓ " if ok else "✗ "
-        color = "#2e8b57" if ok else "#cc3333"
-        self._test_result.configure(text=prefix + message, foreground=color)
+        show_outcome(self._test_result, ok, message)
         if self._on_change:
             self._on_change()
 
@@ -622,7 +630,7 @@ class LanguageField(ttk.Frame):
             self._var.trace_add("write", lambda *_: on_change())
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
-        hint = ttk.Label(self, text=t("hint.language"), foreground="#888888",
+        hint = ttk.Label(self, text=t("hint.language"), foreground=HINT_COLOR,
                          justify="left")
         hint.pack(fill="x", pady=(2, 0))
         bind_wrap(hint)
