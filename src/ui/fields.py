@@ -120,8 +120,6 @@ def friendly_error(exc: Exception) -> tuple[str, dict]:
     return "error.unexpected", {"error": exc}
 
 
-
-
 class ModelField(ttk.Frame):
     """模型欄位：可自行輸入的下拉選單 ＋「重新整理」向端點取得可用模型清單。
     清單不落地也不快取（每次按才抓）；端點沒有模型清單 API 時退化成純文字輸入。"""
@@ -367,7 +365,8 @@ class ApiFields(ttk.Frame):
         self._test_result.pack(side="left", fill="x", expand=True, padx=8)
         bind_wrap(self._test_result)
 
-        self._target_language_fn = lambda: DEFAULT_TARGET_LANGUAGE[current_language()]
+        # 精靈階段目標語言還沒選：退到介面語言的自稱（與 main.bootstrap_language 同一套預設）
+        self._target_language_fn = lambda: language_name(current_language())
         self._rebuild_fields()
 
     # --- 值存取 ---

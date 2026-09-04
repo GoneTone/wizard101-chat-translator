@@ -434,3 +434,25 @@ def test_get_key_link_sits_under_the_api_key_field(root):
         link_at = texts.index(t("link.get_key"))
         model_at = texts.index(t("field.model"))
         assert key_at < link_at < model_at, f"{provider} 的連結位置不對：{texts}"
+
+
+def test_test_connection_defaults_to_the_ui_languages_name(root, monkeypatch):
+    # 精靈不呼叫 set_target_language_fn：預設要退到介面語言的自稱，而不是炸掉
+    from src import i18n
+    from src.ui import fields as fields_module
+
+    captured = {}
+
+    def fake_test_translate(api, target_language):
+        captured["target"] = target_language
+        return "[Tester] 你好"
+
+    monkeypatch.setattr(fields_module, "test_translate", fake_test_translate)
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
+        fields._test_worker(fields.active_values(), fields._target_language_fn())
+    finally:
+        i18n.set_language(before)
+    assert captured["target"] == i18n.language_name("zh-TW")
