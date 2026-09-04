@@ -13,16 +13,16 @@ from pathlib import Path
 
 from src.config import local_state_dir
 
-APP_DIR = local_state_dir()
+STATE_DIR = local_state_dir()
 
 
 def _state_path(pid: int) -> Path:
-    return APP_DIR / f"hookstate-{pid}.json"
+    return STATE_DIR / f"hookstate-{pid}.json"
 
 
 def save_state(pid: int, base: int, ops: list[tuple[int, bytes]]) -> None:
     """存還原操作（位址， 原始bytes）與模組基址；掛入成功後呼叫。"""
-    APP_DIR.mkdir(parents=True, exist_ok=True)
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
     data = {"base": base, "ops": [{"addr": addr, "bytes": b.hex()} for addr, b in ops]}
     _state_path(pid).write_text(json.dumps(data), encoding="utf-8")
 
@@ -50,9 +50,9 @@ def clear_state(pid: int) -> None:
 
 def sweep(is_alive) -> None:
     """刪除已不在執行的 PID 的殘留狀態檔。is_alive(pid: int) -> bool。"""
-    if not APP_DIR.exists():
+    if not STATE_DIR.exists():
         return
-    for f in APP_DIR.glob("hookstate-*.json"):
+    for f in STATE_DIR.glob("hookstate-*.json"):
         try:
             pid = int(f.stem.rsplit("-", 1)[1])
         except (ValueError, IndexError):

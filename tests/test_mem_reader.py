@@ -1336,7 +1336,7 @@ def _connecting_reader(monkeypatch, tmp_path, hook_handler):
     from src.reader import hook_state, mem_reader
     monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
     monkeypatch.setattr(mem_reader, "HOOK_READY_POLL", 0.0)
-    monkeypatch.setattr(hook_state, "APP_DIR", tmp_path)
+    monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     client = _StubClient(hook_handler)
     monkeypatch.setattr(wizwalker, "ClientHandler", lambda **kw: _StubHandler(client))
     return WizChatReader()

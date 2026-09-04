@@ -277,7 +277,7 @@ def test_local_state_dir_falls_back_to_home_without_localappdata(monkeypatch):
 
 def test_hook_state_shares_the_same_state_dir():
     from src.reader import hook_state
-    assert hook_state.APP_DIR == local_state_dir()
+    assert hook_state.STATE_DIR == local_state_dir()
 
 
 def test_translate_system_messages_defaults_to_off():

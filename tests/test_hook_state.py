@@ -7,7 +7,7 @@ from src.reader import hook_state
 
 @pytest.fixture(autouse=True)
 def tmp_appdir(tmp_path, monkeypatch):
-    monkeypatch.setattr(hook_state, "APP_DIR", tmp_path / "state")
+    monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path / "state")
     return tmp_path / "state"
 
 
