@@ -5,6 +5,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from dataclasses import dataclass
 
 import keyboard
 import win32api
@@ -225,43 +226,20 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     os._exit(0)
 
 
-def main() -> None:
-    redirect_output()
-    # 版本先印：app.log 分段標頭後第一行就是版本
-    log(f"[app] version={__version__}")
+@dataclass
+class App:
+    """build_app() 接好線的執行期物件：主迴圈的 pump 與關閉流程只需要這幾個。"""
+    ui_queue: queue.Queue
+    overlay: OverlayWindow
+    pools: list[TranslationPool]
+    cache: TranslationCache
+    stop: threading.Event
+    reader_thread: threading.Thread
 
-    config_existed = CONFIG_PATH.exists()
-    cfg = load_config(CONFIG_PATH)
 
-    # 介面語言要在建立任何視窗之前定案：文案與字型都由它決定
-    set_language(bootstrap_language(cfg, config_existed))
-
-    # 單一實例檢查卡在語言定案之後（既有實例的視窗標題 app_name() 要有語言才算得出來）、
-    # 開 messages.log 之前（否則被擋下的那份會多留一段空白 session）。
-    # instance_lock 必須留著：handle 一被回收，mutex 就釋放、放行下一份。
-    instance_lock = acquire_single_instance()
-    if instance_lock is None:
-        focused = focus_running_instance(app_name())
-        log(f"[app] another instance is already running (focused={focused}), exiting")
-        return
-
-    # 收訊原始內容另存一份，訊息類問題直接比對這份
-    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
-
-    root = tk.Tk()
-    root.withdraw()
-    apply_window_icon(root)
-
-    if not is_configured(cfg):
-        from src.ui.wizard import run_wizard
-        log("[app] config incomplete, launching first-run wizard")
-        if not run_wizard(root, cfg):
-            log("[app] wizard cancelled, exiting")
-            root.destroy()
-            return
-        log("[app] wizard completed, config saved")
-        save_config(CONFIG_PATH, cfg)
-
+def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
+    """建構並接線所有元件（翻譯器與快取、overlay、翻譯池、輸入框與熱鍵、設定視窗），
+    啟動 reader 執行緒與更新檢查。"""
     api = active_api(cfg)
     log_startup_summary(cfg, api)
 
@@ -380,10 +358,51 @@ def main() -> None:
     # 更新檢查另開 daemon 執行緒：網路慢不該拖住啟動，關閉時也不等它（結果只是一條橫幅）
     threading.Thread(target=announce_update, args=(ui_queue, overlay),
                      daemon=True).start()
+    return App(ui_queue, overlay, [pool, system_pool], cache, stop, reader_thread)
+
+
+def main() -> None:
+    redirect_output()
+    # 版本先印：app.log 分段標頭後第一行就是版本
+    log(f"[app] version={__version__}")
+
+    config_existed = CONFIG_PATH.exists()
+    cfg = load_config(CONFIG_PATH)
+
+    # 介面語言要在建立任何視窗之前定案：文案與字型都由它決定
+    set_language(bootstrap_language(cfg, config_existed))
+
+    # 單一實例檢查卡在語言定案之後（既有實例的視窗標題 app_name() 要有語言才算得出來）、
+    # 開 messages.log 之前（否則被擋下的那份會多留一段空白 session）。
+    # instance_lock 必須留著：handle 一被回收，mutex 就釋放、放行下一份。
+    instance_lock = acquire_single_instance()
+    if instance_lock is None:
+        focused = focus_running_instance(app_name())
+        log(f"[app] another instance is already running (focused={focused}), exiting")
+        return
+
+    # 收訊原始內容另存一份，訊息類問題直接比對這份
+    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
+
+    root = tk.Tk()
+    root.withdraw()
+    apply_window_icon(root)
+
+    if not is_configured(cfg):
+        from src.ui.wizard import run_wizard
+        log("[app] config incomplete, launching first-run wizard")
+        if not run_wizard(root, cfg):
+            log("[app] wizard cancelled, exiting")
+            root.destroy()
+            return
+        log("[app] wizard completed, config saved")
+        save_config(CONFIG_PATH, cfg)
+
+    app = build_app(cfg, root, message_log)
 
     def pump() -> None:
-        drain_ui_queue(ui_queue)
-        overlay.prune()
+        drain_ui_queue(app.ui_queue)
+        app.overlay.prune()
         root.after(50, pump)
 
     log(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit via the overlay ✕")
@@ -393,7 +412,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass  # Ctrl+C 安靜結束，不印 traceback
     finally:
-        shutdown(stop, [pool, system_pool], reader_thread, root, cache)
+        shutdown(app.stop, app.pools, app.reader_thread, root, app.cache)
 
 
 if __name__ == "__main__":
