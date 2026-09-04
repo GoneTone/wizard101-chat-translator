@@ -18,7 +18,7 @@ import re
 import sys
 import time
 from collections import Counter, deque
-from typing import NamedTuple
+from typing import Container, NamedTuple
 
 from src.reader import hook_state
 from src.reader.message_log import MessageLog
@@ -310,7 +310,71 @@ def align_recover(prev_lines: list[str], cur_lines: list[str]) -> list[str] | No
     return None
 
 
-def filter_resurfaced(emitted: list[ChatLine], seen: set[str]) -> list[ChatLine]:
+class _SeenLines:
+    """近期讀過的行文字集合（各視圖聯集），超過容量從最舊的開始淘汰（FIFO）。
+    容量上限的取捨見 SEEN_LINES_CAP。"""
+
+    def __init__(self, cap: int = SEEN_LINES_CAP):
+        self._cap = cap
+        self._set: set[str] = set()
+        self._order: deque[str] = deque()
+
+    def remember(self, texts: list[str]) -> None:
+        for text in texts:
+            if text not in self._set:
+                self._set.add(text)
+                self._order.append(text)
+        while len(self._order) > self._cap:
+            self._set.discard(self._order.popleft())
+
+    def clear(self) -> None:
+        self._set.clear()
+        self._order.clear()
+
+    def __contains__(self, text: object) -> bool:
+        return text in self._set
+
+    def __len__(self) -> int:
+        return len(self._set)
+
+
+class _Track:
+    """一條差分軌的狀態：上輪基準（只存文字，顏色不參與差分）、看過集合、剩餘暖機輪數。
+    玩家軌與系統軌各持一份、完全獨立（見 WizChatReader.__init__）。"""
+
+    def __init__(self):
+        self.prev: list[str] = []
+        self.seen = _SeenLines()
+        self.warmup_left = RESET_WARMUP_POLLS
+
+    def rebaseline(self, texts: list[str]) -> None:
+        """把本輪內容立為新基準並記進看過集合（靜默吸收、不吐任何行的路徑用）。"""
+        self.prev = texts
+        self.seen.remember(texts)
+
+    def reset(self) -> None:
+        """回到剛連上時的狀態（斷線後呼叫）。"""
+        self.prev = []
+        self.seen.clear()
+        self.warmup_left = RESET_WARMUP_POLLS
+
+
+def _align(prev: list[str], cur: list[str],
+           force_reset: bool) -> tuple[str, list[str] | None]:
+    """差分的判定階梯：append（快路徑）→ recover（退路）→ reset（完全無重疊）。
+    回傳（路徑名, 新增行）；reset 時新增行為 None，由呼叫端決定吸收或整批放行。
+    force_reset＝串接結構已變或基準已過期，對齊沒有意義，直接跳到 reset。"""
+    if not force_reset:
+        appended = align_append(prev, cur)
+        if appended is not None:
+            return "append", appended
+        appended = align_recover(prev, cur)
+        if appended is not None:
+            return "recover", appended
+    return "reset", None
+
+
+def filter_resurfaced(emitted: list[ChatLine], seen: Container[str]) -> list[ChatLine]:
     """剔除看過集合已有的行（＝視圖切換時重新浮上來的歷史），保留真正的新行。
     只用在 recover/reset 慢路徑：代價是恰在視圖切換那一輪出現的「與近期舊訊息
     一字不差的重複句」會被略過，與 align_recover 既有的取捨一致。"""
@@ -391,17 +455,11 @@ class WizChatReader:
                  message_log: MessageLog | None = None):
         self.process_name = process_name
         self._game_path = game_path
-        self._prev: list[str] = []  # 基準只存文字：顏色不參與差分（見 read_new）
-        self._warmup_left = RESET_WARMUP_POLLS  # 剩餘暖機輪數（reset 吸收期）
-        self._seen: set[str] = set()          # 近期讀過的行文字（各視圖聯集）
-        self._seen_order: deque[str] = deque()  # 進入順序，供容量上限 FIFO 淘汰
+        # 玩家軌與系統軌各一份差分狀態、完全分離：共用同一個看過集合會讓掉寶刷屏把
+        # 玩家說過的話擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
+        self._player = _Track()
+        self._system = _Track()
         self.emit_system = False   # 是否輸出系統訊息（對應 config 的 translate_system_messages）
-        # 系統軌狀態：與玩家軌完全分離。共用同一個 _seen 會讓掉寶刷屏把玩家說過的話
-        # 擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
-        self._prev_system: list[str] = []
-        self._seen_system: set[str] = set()
-        self._seen_system_order: deque[str] = deque()
-        self._warmup_system_left = RESET_WARMUP_POLLS
         self._input_recent = 0     # 輸入框開啟後的剩餘關聯輪數（見 INPUT_RELEASE_POLLS）
         self._input_was_open = False
         self._released_for_input = False  # 本次輸入框開啟是否已用掉關聯放行額度
@@ -479,10 +537,9 @@ class WizChatReader:
         # 顏色參與相等比較會被誤判成「無重疊 → reset」而重吐整份舊訊息（重複翻譯）
         cur_texts = [l.text for l in cur]
         if not self._synced:
-            self._prev = cur_texts  # 首次連上：記錄現況（含既有歷史），不回吐
-            self._remember(cur_texts)
-            self._prev_system = cur_system_texts
-            self._remember_system(cur_system_texts)
+            # 首次連上：記錄現況（含既有歷史），不回吐
+            self._player.rebaseline(cur_texts)
+            self._system.rebaseline(cur_system_texts)
             self._node_count = len(texts)
             self._synced = True
             print(f"[reader] baseline established (lines={len(cur)}, "
@@ -490,8 +547,8 @@ class WizChatReader:
             return _Outcome("baseline", [])
         # 暖機以「輪數」計且含空讀：重開遊戲後聊天常長時間空白，若只數非空讀，
         # 暖機永不過期，各頻道從空白冒出的第一句（走 reset）會被無限吸收
-        if self._warmup_left > 0:
-            self._warmup_left -= 1
+        if self._player.warmup_left > 0:
+            self._player.warmup_left -= 1
         if not cur:
             # 空讀（傳送/轉場暫態清空）→ 玩家軌保留基準、忽略，不重譯。
             # 系統軌不能跟著吸收：「這一輪沒有玩家行、只有掉寶」是日常狀態，
@@ -515,10 +572,8 @@ class WizChatReader:
                       f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
                       f"re-baselining without emitting", file=sys.stderr)
                 self._node_count = len(texts)
-                self._prev = cur_texts
-                self._remember(cur_texts)
-                self._prev_system = cur_system_texts
-                self._remember_system(cur_system_texts)
+                self._player.rebaseline(cur_texts)
+                self._system.rebaseline(cur_system_texts)
                 return _Outcome("node-decrease", [])
             # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，
             # 不可盲目吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，
@@ -528,48 +583,41 @@ class WizChatReader:
                   f"handling as reset", file=sys.stderr)
             self._node_count = len(texts)
             node_added = True
-        prev_texts = self._prev
+        prev_texts = self._player.prev
         prev_len = len(prev_texts)
-        force_reset = node_added or baseline_stale
-        path = "append"
-        appended = None if force_reset else align_append(self._prev, cur_texts)
-        if appended is None and not force_reset:
-            # 前綴對不齊（撕裂讀取等）→ 以尾段在 cur 的最後出現位置恢復
-            path = "recover"
-            appended = align_recover(self._prev, cur_texts)
-            if appended is not None:
-                print(f"[reader] baseline misaligned, recovered via tail anchor "
-                      f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
-                      f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
+        path, appended = _align(prev_texts, cur_texts, node_added or baseline_stale)
+        if path == "recover":
+            # 前綴對不齊（撕裂讀取等），已改以尾段在 cur 的最後出現位置恢復
+            print(f"[reader] baseline misaligned, recovered via tail anchor "
+                  f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
+                  f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
         if appended is None:
             # 與基準完全無重疊 → 首次切到沒讀過的分頁視圖、relog 成全新內容，
             # 或單行置換式視圖（朋友視窗：每句新話取代整個視圖內容）的新訊息。
             # 暖機期內（見 RESET_WARMUP_POLLS）一律靜默吸收——堵啟動盲區；
             # 暖機期後照常輸出、交由下方看過集合過濾：沒見過的行（真新訊息）
             # 照吐，重浮歷史剔除。基準為空（連上時聊天是空的）不受暖機限制。
-            path = "reset"
-            if self._prev and self._warmup_left > 0:
+            if prev_texts and self._player.warmup_left > 0:
                 print(f"[reader] no overlap with baseline during warmup, absorbed "
                       f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
-                      f"prev_tail={self._prev[-1][:40]!r})", file=sys.stderr)
-                self._prev = cur_texts
-                self._remember(cur_texts)
-                self._prev_system = cur_system_texts
-                self._remember_system(cur_system_texts)
+                      f"prev_tail={prev_texts[-1][:40]!r})", file=sys.stderr)
+                self._player.rebaseline(cur_texts)
+                self._system.rebaseline(cur_system_texts)
                 return _Outcome("warmup", [])
             print(f"[reader] chat log has no overlap with baseline, treating as reset "
                   f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
-                  f"prev_tail={self._prev[-1][:40] if self._prev else ''!r})",
+                  f"prev_tail={prev_texts[-1][:40] if prev_texts else ''!r})",
                   file=sys.stderr)
             appended = cur_texts
-        self._prev = cur_texts
+        # 基準先換、看過集合最後才記：本輪剛出現的新行還不在集合裡，過濾才吐得出來
+        self._player.prev = cur_texts
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
         if path == "append":
             # 巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被 append
             # 誤判成「新增了 B 的其餘舊行」且不經過任何過濾（實機每次切分頁重翻的主因）。
             # 單行 append（正常訊息與重複的 lol/gg）永不過濾。
-            if len(appended) >= 2 and all(t in self._seen for t in appended):
+            if len(appended) >= 2 and all(t in self._player.seen for t in appended):
                 # 吐出的行全部見過 → 視圖重浮
                 print(f"[reader] append of {len(appended)} all-seen lines absorbed "
                       f"as view resurface (prev={prev_len})", file=sys.stderr)
@@ -592,7 +640,7 @@ class WizChatReader:
                 # 混合批次（大量重浮歷史夾帶少數沒讀過的行）：見 BULK_APPEND_FILTER_MIN
                 emitted = self._drop_resurfaced(emitted, path)
         # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。
-        # 過濾要在 _remember 之前——本輪剛出現的新行還不在集合裡，才吐得出來。
+        # 過濾要在把本輪內容記進看過集合之前——本輪剛出現的新行還不在集合裡，才吐得出來。
         # 例外：空讀轉場後只冒出一行**且內容與清空前不同**＝剛到的新訊息，不過濾；
         # 照過濾會讓與舊訊息同字的新訊息整句消失（實機回報：轉場後的第一句私訊
         # Test 因啟動基準裡有人講過同一句而被吞，對方講第二次才翻得出來）。
@@ -605,7 +653,7 @@ class WizChatReader:
                       f"(text={emitted[0].text[:40]!r}, path={path})", file=sys.stderr)
             else:
                 emitted = self._drop_resurfaced(emitted, path)
-        self._remember(cur_texts)
+        self._player.seen.remember(cur_texts)
         player_out = self._guard_burst(emitted, path, prev_len, len(cur), texts)
         system_out = self._diff_system_lines(cur_system_texts, system_idx, cur_all,
                                              texts, node_added)
@@ -615,8 +663,8 @@ class WizChatReader:
 
     def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
-        呼叫端必須在 _remember 之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
-        kept = filter_resurfaced(emitted, self._seen)
+        呼叫端必須在把本輪內容記進看過集合之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
+        kept = filter_resurfaced(emitted, self._player.seen)
         if (len(kept) != len(emitted) and self._input_recent > 0
                 and not self._released_for_input and emitted[-1].own
                 and (not kept or kept[-1] is not emitted[-1])):
@@ -635,7 +683,7 @@ class WizChatReader:
         if len(kept) != len(emitted):
             print(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
                   f"lines via {path} (kept={len(kept)}, "
-                  f"seen={len(self._seen)})", file=sys.stderr)
+                  f"seen={len(self._player.seen)})", file=sys.stderr)
         return kept
 
     def _diff_system_lines(self, cur_texts: list[str], system_idx: list[int],
@@ -650,45 +698,39 @@ class WizChatReader:
         `node_added` 是**兩軌共同的事實**（由 _diff_new_lines() 統一判定）：節點增加
         代表串接結構已變，對齊此時毫無意義，會生出假的 append——而 append 路徑不過
         看過集合，剛掉過的寶就會再吐一次、再打一次 API。因此比照玩家軌跳過對齊直接
-        走 reset 語意，讓 _seen_system 把重浮的行擋下來。
+        走 reset 語意，讓系統軌的看過集合把重浮的行擋下來。
 
         `emit_system` 為 False 時仍照常推進基準與看過集合，只是不回傳——否則使用者
         中途打開開關的瞬間，整份歷史系統訊息會被當成新訊息一次吐出、翻上百則。
         """
         if not cur_texts:
             return []            # 沒有系統訊息：保留基準，不累計 stale
-        if self._warmup_system_left > 0:
-            self._warmup_system_left -= 1
-        prev = self._prev_system
-        prev_len = len(prev)
-        path = "append"
-        appended = None if node_added else align_append(prev, cur_texts)
-        if appended is None and not node_added:
-            path = "recover"
-            appended = align_recover(prev, cur_texts)
+        track = self._system
+        if track.warmup_left > 0:
+            track.warmup_left -= 1
+        prev_len = len(track.prev)
+        path, appended = _align(track.prev, cur_texts, node_added)
         if appended is None:
-            path = "reset"
-            if prev and self._warmup_system_left > 0:
+            if track.prev and track.warmup_left > 0:
                 print(f"[reader] system track absorbed during warmup "
                       f"(lines={len(cur_texts)})", file=sys.stderr)
-                self._prev_system = cur_texts
-                self._remember_system(cur_texts)
+                track.rebaseline(cur_texts)
                 return []
             reason = ("chatLog node count increased" if node_added
                       else "no overlap with baseline")
             print(f"[reader] system track handled as reset ({reason}): "
                   f"prev={prev_len}, cur={len(cur_texts)}", file=sys.stderr)
             appended = cur_texts
-        self._prev_system = cur_texts
+        track.prev = cur_texts
         emitted_texts = appended
         if path != "append" or len(appended) >= BULK_APPEND_FILTER_MIN:
             # 與玩家軌同策略：正常新增一律放行，只在慢路徑與大批次過濾重浮歷史
-            kept = [t for t in emitted_texts if t not in self._seen_system]
+            kept = [t for t in emitted_texts if t not in track.seen]
             if len(kept) != len(emitted_texts):
                 print(f"[reader] system track dropped {len(emitted_texts) - len(kept)} "
                       f"resurfaced lines via {path}", file=sys.stderr)
             emitted_texts = kept
-        self._remember_system(cur_texts)
+        track.seen.remember(cur_texts)
         if len(emitted_texts) > MAX_NEW_LINES_PER_POLL:
             print(f"[reader] implausible system burst suppressed via {path}: "
                   f"{len(emitted_texts)} new lines in one poll (prev={prev_len}, "
@@ -711,24 +753,6 @@ class WizChatReader:
                 pending.remove(text)       # 逐一消耗，重複行只對應一個索引
                 out.append(idx)
         return out
-
-    def _remember_system(self, texts: list[str]) -> None:
-        """系統軌的看過集合，容量上限與玩家軌相同但完全獨立。"""
-        for t in texts:
-            if t not in self._seen_system:
-                self._seen_system.add(t)
-                self._seen_system_order.append(t)
-        while len(self._seen_system_order) > SEEN_LINES_CAP:
-            self._seen_system.discard(self._seen_system_order.popleft())
-
-    def _remember(self, texts: list[str]) -> None:
-        """把行文字記進看過集合；超過 SEEN_LINES_CAP 從最舊的開始淘汰。"""
-        for t in texts:
-            if t not in self._seen:
-                self._seen.add(t)
-                self._seen_order.append(t)
-        while len(self._seen_order) > SEEN_LINES_CAP:
-            self._seen.discard(self._seen_order.popleft())
 
     def _guard_burst(self, appended: list[ChatLine], path: str, prev_len: int,
                      cur_len: int, texts: list[str]) -> list[ChatLine]:
@@ -941,17 +965,11 @@ class WizChatReader:
         # 差分狀態屬於單一遊戲 session：斷線（多半是遊戲重開）後全部歸零。
         # 沿用舊 session 的基準/看過集合，會把新 session 與舊訊息同字的第一句
         # （Test/lol 等常用字）誤判為重浮歷史而吞掉。
-        self._prev = []
+        self._player.reset()
+        self._system.reset()
         self._node_count = None
         self._mirrored_nodes = 0
         self._synced = False
-        self._seen.clear()
-        self._seen_order.clear()
-        self._warmup_left = RESET_WARMUP_POLLS
-        self._prev_system = []
-        self._seen_system.clear()
-        self._seen_system_order.clear()
-        self._warmup_system_left = RESET_WARMUP_POLLS
 
     def close(self) -> None:
         """停止時呼叫：解除 hook、關閉連線。"""
