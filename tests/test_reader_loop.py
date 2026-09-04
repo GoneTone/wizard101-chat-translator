@@ -4,10 +4,10 @@ import queue
 import threading
 import time
 
-import src.main as main_module
+import src.reader.loop as loop_module
 from src.translation.context import ChatContext
 from src.i18n import t
-from src.main import banner_for, reader_loop
+from src.reader.loop import banner_for, reader_loop
 from src.reader.mem_reader import (
     ChatLine, GameAccessDenied, GameNotRunning, GameVersionMismatch,
 )
@@ -93,7 +93,7 @@ def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
             readers.append(reader)
         return reader
 
-    monkeypatch.setattr(main_module, "WizChatReader", make_reader)
+    monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
     reader_loop(cfg, overlay, ui_queue, stop, context, pool,
                 system_pool=system_pool, cache=cache)
     _drain(ui_queue)
@@ -169,7 +169,7 @@ def test_uncached_system_line_goes_to_the_system_pool(monkeypatch):
 
 def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypatch):
     # API 掛掉時若剛好只有系統訊息在跑，玩家 pool 的 error_state 還是 None，
-    # 橫幅仍然必須出現（見 main.reader_loop 的 or 合併）
+    # 橫幅仍然必須出現（見 reader_loop 的 or 合併）
     cfg = {"poll_interval": 0.01, "translate_system_messages": True}
     ov = FakeOverlay()
     sys_pool = FakePool()
@@ -213,7 +213,7 @@ class TogglingEmitSystemReader(FakeReader):
 def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
     # 設定可能在執行中被使用者從設定視窗切換；若只在建立 reader 當下同步一次，
     # 中途切換就要等下次重開程式才生效。這裡在第一輪讀取後把 cfg 切成 True，
-    # 驗證第二輪迴圈開頭已經跟上（見 main.reader_loop 主迴圈開頭那行同步）。
+    # 驗證第二輪迴圈開頭已經跟上（見 reader_loop 主迴圈開頭那行同步）。
     cfg = {"poll_interval": 0.01, "translate_system_messages": False}
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
@@ -225,7 +225,7 @@ def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
         created.append(reader)
         return reader
 
-    monkeypatch.setattr(main_module, "WizChatReader", make_reader)
+    monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
     reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
                 system_pool=FakePool(), cache=FakeCache())
     _drain(ui_queue)
@@ -320,7 +320,7 @@ def test_status_transitions(monkeypatch):
     reads = [[], ["[A] a"], []]
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: StatusFakeReader(reads, stop, pool, busy_at=1))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), pool)
     _drain(ui_queue)
@@ -332,7 +332,7 @@ def test_status_locating_when_not_anchored(monkeypatch):
     ov = FakeOverlay()
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader([[], []], stop, anchored=False))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
@@ -355,7 +355,7 @@ def _run_with_input(cfg, reads, input_states, monkeypatch):
     events = []
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: InputFakeReader(reads, stop, input_states))
     reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
                 on_input_open=lambda: events.append("open"),
@@ -380,13 +380,13 @@ def test_game_input_detection_disabled_by_config(monkeypatch):
 
 
 def test_game_not_running_shows_banner_once(monkeypatch):
-    monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
+    monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
     cfg = {"poll_interval": 0.01}
     ov = FakeOverlay()
     reads = [GameNotRunning("no game"), GameNotRunning("no game")]
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
@@ -397,13 +397,13 @@ def test_game_not_running_shows_banner_once(monkeypatch):
 
 def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
     # 權限不足與「找不到遊戲」是兩回事：橫幅要直接說出該以系統管理員身分重開
-    monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
+    monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
     cfg = {"poll_interval": 0.01}
     ov = FakeOverlay()
     reads = [GameAccessDenied("denied"), GameAccessDenied("denied")]
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
@@ -414,13 +414,13 @@ def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
 def test_version_mismatch_shows_its_own_banner_and_status(monkeypatch):
     # 掛入點與遊戲版本對不上，跟「遊戲沒開」長得一樣但解法完全不同：
     # 橫幅要說出該更新遊戲與本程式，而不是叫使用者繼續等遊戲
-    monkeypatch.setattr(main_module, "GAME_MISSING_INTERVAL", 0.01)
+    monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
     cfg = {"poll_interval": 0.01}
     ov = FakeOverlay()
     reads = [GameVersionMismatch("pattern failed"), GameVersionMismatch("pattern failed")]
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
@@ -446,7 +446,7 @@ def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
     opened_at = []
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
-    monkeypatch.setattr(main_module, "WizChatReader",
+    monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: DelayedInputReader([[], []], stop, 0.1))
     start = time.monotonic()
     reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),

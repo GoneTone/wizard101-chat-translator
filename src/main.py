@@ -1,11 +1,9 @@
 """進入點：reader 執行緒（wizwalker 收訊）+ 全域熱鍵 + tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
 import ctypes
-import itertools
 import os
 import queue
 import sys
 import threading
-import time
 import tkinter as tk
 
 import keyboard
@@ -16,39 +14,31 @@ import win32event
 import winerror
 
 from src import __version__
-from src.ui.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.translation.gate import ConcurrencyGate
 from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
                         load_config, save_config)
-from src.translation.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
 from src.logfiles import TimestampedStream, open_session_log
-from src.reader.mem_reader import (
-    GameAccessDenied, GameNotRunning, GameVersionMismatch, WizChatReader,
-)
+from src.reader.loop import reader_loop
 from src.reader.message_log import MessageLog
-from src.ui.overlay import OverlayWindow
 from src.resources import icon_path
 from src.translation.cache import (
     TranslationCache, fingerprint_of, translate_and_cache,
 )
+from src.translation.context import ChatContext
+from src.translation.gate import ConcurrencyGate
 from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
+from src.ui.input_box import InputBox
+from src.ui.overlay import OverlayWindow
 from src.ui.settings import SettingsWindow
 from src.ui.winstyle import root_hwnd
 from src.updater import check_for_update
 
-GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 # 單一實例的 mutex 名稱。跑第二份會讓兩邊搶著對遊戲掛 wizwalker hook，
 # 也會同時寫同一份 config.json 與 log，因此直接擋掉。
 SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
-
-# 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
-# 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
-INPUT_POLL_INTERVAL = 0.05
-
 
 def is_elevated() -> bool:
     """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
@@ -56,19 +46,6 @@ def is_elevated() -> bool:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
-
-
-def banner_for(game_issue: str | None, error_state: str | None) -> str | None:
-    """依目前狀況決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
-    game_issue 是遊戲端問題的文案 key（None＝遊戲正常），優先於翻譯錯誤：
-    連不上遊戲時翻譯狀態已無意義。"""
-    if game_issue:
-        return game_issue
-    if error_state == "config":
-        return "notice.config_error"
-    if error_state == "offline":
-        return "notice.offline"
-    return None
 
 
 def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_language) -> str:
@@ -120,142 +97,6 @@ def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) ->
     if release is None:
         return
     ui_queue.put(lambda: overlay.set_update(release))
-
-
-def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
-                stop: threading.Event, context: ChatContext, pool: TranslationPool,
-                on_input_open=None, on_input_close=None,
-                message_log: MessageLog | None = None,
-                system_pool: TranslationPool | None = None,
-                cache: TranslationCache | None = None) -> None:
-    # 讀遊戲聊天記錄 → 依序推進上下文、在 overlay 佔位 → 交給 pool 平行翻譯。
-    # 本迴圈不做翻譯，因此單則翻譯卡住不會延誤後續訊息的讀取與顯示。
-    reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
-    reader.emit_system = cfg.get("translate_system_messages", False)
-    msg_ids = itertools.count(1)
-    game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
-    game_input_open = False
-    last_status: str | None = None
-    last_banner: str | None = None
-
-    def set_status(state: str) -> None:
-        nonlocal last_status
-        if state == last_status:
-            return
-        last_status = state
-        ui_queue.put(lambda s=state: overlay.set_status(s))
-
-    def check_input() -> None:
-        """遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回。"""
-        nonlocal game_input_open
-        if on_input_open is None or not cfg.get("auto_show_input", True):
-            return
-        now_open = reader.input_open()
-        if now_open == game_input_open:
-            return
-        game_input_open = now_open
-        print(f"[reader] game chat input {'opened' if now_open else 'closed'}",
-              file=sys.stderr)
-        if now_open:
-            on_input_open()
-        elif on_input_close is not None:
-            on_input_close()
-
-    def wait_watching_input(seconds: float) -> None:
-        """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
-
-        input_open() 只讀一個已快取節點的可見性旗標（實測 <0.1ms），可以用遠高於
-        poll_interval 的頻率取樣；讀聊天記錄則貴得多（實測約 10ms），維持原本的節奏。
-        取樣不另開執行緒——WizChatReader 內部跑自己的 asyncio loop，跨執行緒併發呼叫
-        會踩到彼此。"""
-        deadline = time.monotonic() + seconds
-        while not stop.is_set():
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            stop.wait(min(INPUT_POLL_INTERVAL, remaining))
-            check_input()
-
-    def translation_error() -> str | None:
-        """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
-        return pool.error_state or (system_pool.error_state if system_pool else None)
-
-    def set_banner(key: str | None) -> None:
-        nonlocal last_banner
-        if key == last_banner:
-            return
-        last_banner = key
-        if key is None:
-            ui_queue.put(overlay.clear_error)
-        else:
-            ui_queue.put(lambda k=key: overlay.set_error(k))
-
-    while not stop.is_set():
-        reader.emit_system = cfg.get("translate_system_messages", False)
-        set_status("listening" if reader.anchored else "locating")
-        try:
-            new_lines = reader.read_new()
-        except GameNotRunning as exc:
-            if isinstance(exc, GameAccessDenied):
-                status, issue = "access_denied", "notice.access_denied"
-            elif isinstance(exc, GameVersionMismatch):
-                status, issue = "version_mismatch", "notice.version_mismatch"
-            else:
-                status, issue = "waiting_game", "notice.game_missing"
-            set_status(status)
-            if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
-                print(f"[reader] game not ready: {exc}", file=sys.stderr)
-            game_issue = issue
-            set_banner(banner_for(game_issue, translation_error()))
-            if game_input_open:
-                game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
-                if on_input_close is not None:
-                    on_input_close()
-            stop.wait(GAME_MISSING_INTERVAL)
-            continue
-        except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
-            print(f"[reader] poll skipped: {exc}", file=sys.stderr)
-            stop.wait(cfg["poll_interval"])
-            continue
-
-        if game_issue:
-            game_issue = None
-            print("[reader] game back, resuming", file=sys.stderr)
-
-        for line in new_lines:
-            msg_id = next(msg_ids)
-            if line.system:
-                # 系統訊息不進上下文，且先查快取——命中就直接以完成態顯示，
-                # 不佔位也不進 pool（零延遲）。
-                cached = cache.get(line.text) if cache is not None else None
-                if cached is not None:
-                    ui_queue.put(lambda o=line.text, tr=cached, c=line.color:
-                                 overlay.add_message(o, tr, color=c))
-                    continue
-                ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
-                             overlay.add_message(o, t("notice.pending"), msg_id=m,
-                                                 pending=True, color=c))
-                if system_pool is not None:
-                    system_pool.submit(line.text, [], msg_id)
-                continue
-            ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
-            context.push(line.text)
-            ui_queue.put(lambda o=line.text, c=line.color, m=msg_id:
-                         overlay.add_message(o, t("notice.pending"), msg_id=m,
-                                             pending=True, color=c))
-            pool.submit(line.text, ctx, msg_id)
-
-        set_banner(banner_for(game_issue, translation_error()))
-        if pool.in_flight or (system_pool is not None and system_pool.in_flight):
-            set_status("translating")
-        else:
-            set_status("listening" if reader.anchored else "locating")
-
-        check_input()
-        wait_watching_input(cfg["poll_interval"])
-
-    reader.close()  # 停止：解除 wizwalker hook、關閉連線
-
 
 
 def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
@@ -347,21 +188,72 @@ def apply_window_icon(root: tk.Tk) -> int | None:
             probe.destroy()
 
 
-def main() -> None:
+def redirect_output() -> None:
+    """把 stdout／stderr 接到帶時戳的輸出：打包版落入 exe 旁的 app.log，開發模式留在主控台。"""
     if getattr(sys, "frozen", False):
         # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
         # 使用者回報問題時附上此檔即可（附加模式、保留近 7 天，每次啟動寫一行分段標頭）。
         sys.stdout = sys.stderr = TimestampedStream(open_session_log("app.log"))
-    else:
-        # 開發模式輸出到主控台，同樣補時戳，才對得上 messages.log 的時間軸。
-        # 主控台編碼常是 cp950（非 UTF-8），UI 文字裡的 ✕ 之類字元會讓 print 直接
-        # 拋 UnicodeEncodeError 把程式帶掉，故先放寬成無法編碼就替換。
-        for stream in (sys.stdout, sys.stderr):
-            if hasattr(stream, "reconfigure"):
-                stream.reconfigure(errors="replace")
-        sys.stdout = TimestampedStream(sys.stdout)
-        sys.stderr = TimestampedStream(sys.stderr)
+        return
+    # 開發模式輸出到主控台，同樣補時戳，才對得上 messages.log 的時間軸。
+    # 主控台編碼常是 cp950（非 UTF-8），UI 文字裡的 ✕ 之類字元會讓 print 直接
+    # 拋 UnicodeEncodeError 把程式帶掉，故先放寬成無法編碼就替換。
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    sys.stdout = TimestampedStream(sys.stdout)
+    sys.stderr = TimestampedStream(sys.stderr)
 
+
+def log_startup_summary(cfg: dict, api: dict) -> None:
+    """啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄。"""
+    print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+          f"elevated={is_elevated()}, "
+          f"ui_language={cfg['ui_language']} (active={current_language()}), "
+          f"provider={api['provider']}, model={api['model']}, "
+          f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
+          f"poll_interval={cfg['poll_interval']}, "
+          f"parallel={cfg['max_parallel_translations']}, "
+          f"translate_system={cfg['translate_system_messages']}", file=sys.stderr)
+
+
+def shutdown(stop: threading.Event, pools: list[TranslationPool],
+             reader_thread: threading.Thread, root: tk.Tk,
+             cache: TranslationCache) -> None:
+    """乾淨關閉：停 reader（解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
+    步驟順序有其理由，見各段註解；本函式不返回。"""
+    print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
+    stop.set()
+    for pool in pools:
+        pool.shutdown()
+    try:
+        keyboard.unhook_all()
+    except Exception as exc:
+        # 不可讓這裡的例外逃出——逃出去會連 reader join、cache flush、
+        # os._exit(0) 都跳過，使用者連快取都救不回來。
+        print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
+    # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
+    # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
+    reader_thread.join(timeout=8)
+    try:
+        root.destroy()
+    except Exception:
+        pass
+    # 落盤放在兩個 pool 都已 shutdown()、reader 執行緒也已 join 之後——
+    # 越晚呼叫，飛行中的翻譯 worker 就有越多機會在這之前寫完 cache.put()；
+    # os._exit(0) 不會跑 atexit，這是把快取寫回磁碟的最後機會。
+    cache.flush()
+    print("[app] shutdown complete")
+    # 翻譯 worker 執行緒非 daemon，逾時仍卡在 HTTP 請求中的話（最長 _TIMEOUT=60 秒）
+    # 一般 return 會讓直譯器在 concurrent.futures.thread._python_exit 卡住等它們
+    # join，使用者看到視窗已關、程式卻在工作管理員裡多留最多 60 秒——像當掉一樣。
+    # 該還原的都還原了（reader 執行緒已 join、hook 已解除、log 已寫完且線緩衝），
+    # 故直接砍行程；日後若想「修」回乾淨 return，請先確認上述 60 秒卡住已消失。
+    os._exit(0)
+
+
+def main() -> None:
+    redirect_output()
     # 版本先印：使用者回報問題時，app.log 分段標頭後第一行就看得到版本
     print(f"[app] version={__version__}", file=sys.stderr)
 
@@ -399,16 +291,8 @@ def main() -> None:
         print("[app] wizard completed, config saved", file=sys.stderr)
         save_config(CONFIG_PATH, cfg)
 
-    # 啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄
     api = active_api(cfg)
-    print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
-          f"elevated={is_elevated()}, "
-          f"ui_language={cfg['ui_language']} (active={current_language()}), "
-          f"provider={api['provider']}, model={api['model']}, "
-          f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
-          f"poll_interval={cfg['poll_interval']}, "
-          f"parallel={cfg['max_parallel_translations']}, "
-          f"translate_system={cfg['translate_system_messages']}", file=sys.stderr)
+    log_startup_summary(cfg, api)
 
     translator = Translator(**api, target_language=cfg["target_language"])
     context = ChatContext()
@@ -541,34 +425,7 @@ def main() -> None:
     except KeyboardInterrupt:
         pass  # Ctrl+C：安靜結束，不印 traceback
     finally:
-        print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
-        stop.set()
-        pool.shutdown()
-        system_pool.shutdown()
-        try:
-            keyboard.unhook_all()
-        except Exception as exc:
-            # 不可讓這裡的例外逃出 finally——逃出去會連 reader join、cache flush、
-            # os._exit(0) 都跳過，使用者連快取都救不回來。
-            print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
-        # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
-        # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
-        reader_thread.join(timeout=8)
-        try:
-            root.destroy()
-        except Exception:
-            pass
-        # 落盤放在兩個 pool 都已 shutdown()、reader 執行緒也已 join 之後——
-        # 越晚呼叫，飛行中的翻譯 worker 就有越多機會在這之前寫完 cache.put()；
-        # os._exit(0) 不會跑 atexit，這是把快取寫回磁碟的最後機會。
-        cache.flush()
-        print("[app] shutdown complete")
-        # 翻譯 worker 執行緒非 daemon，逾時仍卡在 HTTP 請求中的話（最長 _TIMEOUT=60 秒）
-        # 一般 return 會讓直譯器在 concurrent.futures.thread._python_exit 卡住等它們
-        # join，使用者看到視窗已關、程式卻在工作管理員裡多留最多 60 秒——像當掉一樣。
-        # 該還原的都還原了（reader 執行緒已 join、hook 已解除、log 已寫完且線緩衝），
-        # 故直接砍行程；日後若想「修」回乾淨 return，請先確認上述 60 秒卡住已消失。
-        os._exit(0)
+        shutdown(stop, [pool, system_pool], reader_thread, root, cache)
 
 
 if __name__ == "__main__":
