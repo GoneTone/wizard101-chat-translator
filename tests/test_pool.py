@@ -197,9 +197,8 @@ def test_submit_survives_concurrent_resize():
 
 
 def test_shutdown_cancels_queued_work_without_leaking_in_flight():
-    """shutdown() 對尚未開始執行、被 cancel_futures 取消的排隊工作，
-    也要讓 in_flight 歸零（回歸測試：cancel 掉的 work item 永遠不會經 _work 的
-    finally 遞減，之前會讓 in_flight 卡住、狀態指示永遠顯示『翻譯中…』）。"""
+    """shutdown() 對被 cancel_futures 取消的排隊工作也要讓 in_flight 歸零（回歸：取消的
+    work item 不會經 _work 的 finally 遞減，之前會讓狀態指示永遠顯示『翻譯中…』）。"""
     release = threading.Event()
     started = threading.Event()
 
@@ -318,11 +317,10 @@ def test_backoff_gate_is_shared_across_workers():
 
 
 def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
-    """回歸測試（review 發現）：N 個 worker 同時撞上剛開啟的閘門時，只能有一個
-    「回合」推進退避層級，不能因為同時失敗的 worker 數量而一次跳好幾階。
+    """回歸測試（review 發現）：N 個 worker 同時撞上剛開啟的閘門時，只能推進一層退避，
+    不能因同時失敗的 worker 數量一次跳好幾階。
 
-    第二輪刻意卡住、由測試主動放行才能繼續，藉此確定斷言時機——不靠量測經過的
-    時間判斷是否已推進，避免時間相關的 flaky。"""
+    第二輪刻意卡住、由測試放行，藉此確定斷言時機——不靠量時間，避免 flaky。"""
     import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.05, 0.1, 0.2])
     workers = 4
@@ -437,9 +435,8 @@ def test_resize_also_raises_the_gate_limit():
 
 
 def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
-    """回歸測試：burst 去重不能連帶讓「真正分開的多輪失敗」也不再逐階推進。
-    單一 worker 保證每次呼叫都是獨立一輪（前一輪的閘門必定已到期才會有下一次呼叫），
-    不會被誤判成同一輪的兄弟失敗。"""
+    """回歸測試：burst 去重不能讓「真正分開的多輪失敗」不再逐階推進。單一 worker 保證
+    每次呼叫都是獨立一輪（前一輪閘門到期才有下一次呼叫），不會被誤判成同輪的兄弟失敗。"""
     import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.02, 0.04, 0.08])
 

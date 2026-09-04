@@ -57,10 +57,8 @@ FLUSH_EVERY = 20      # 累積這麼多筆新增才落盤一次（不逐筆寫�
 
 
 def fingerprint_of(provider: str, model: str, target_language: str) -> str:
-    """快取指紋：換服務商、換模型、換目標語言或改過提示詞時，舊譯文必須整份作廢。
-    提示詞版次也算進來（見 translator.PROMPT_REVISION）——否則舊提示詞翻壞的譯名
-    會跨著程式更新一直留在使用者的磁碟上，改了提示詞也看不到效果。
-    **絕不含 API 金鑰**——這份指紋會被寫進磁碟。"""
+    """快取指紋：換服務商、模型、目標語言或提示詞版次時舊譯文整份作廢（不含版次的話，
+    舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。絕不含 API 金鑰——指紋會寫進磁碟。"""
     return f"{provider}|{model}|{target_language}|p{PROMPT_REVISION}"
 
 
@@ -93,13 +91,10 @@ class TranslationCache:
         return restore(translated, numbers)
 
     def put(self, text: str, translated_template: str, fingerprint: str) -> bool:
-        """存入一筆。`translated_template` 是**樣板的譯文**（仍帶佔位符）。
-        佔位符與樣板對不上就不存並回傳 False——呼叫端須改用原文直翻。
-
-        `fingerprint` 是這則譯文**產出當下**的指紋：翻譯還在飛行中時使用者可能在設定
-        視窗換掉服務商／模型／目標語言（rebind），此時用舊設定翻好的譯文若照存，會被
-        當成新設定的譯文寫進磁碟、跨重啟一直回吐錯誤語言。不符即丟棄並回傳 False。
-        """
+        """存入一筆；`translated_template` 是樣板的譯文（仍帶佔位符）。
+        佔位符對不上就不存並回傳 False——呼叫端須改用原文直翻。
+        `fingerprint` 是譯文產出當下的指紋：翻譯飛行中使用者可能 rebind 換掉服務商／模型／
+        目標語言，舊設定翻好的譯文若照存會被當成新設定的寫進磁碟、跨重啟回吐錯誤語言。"""
         template, _ = normalize(text)
         if not placeholders_match(template, translated_template):
             print(f"[cache] placeholder mismatch, not cached: "
@@ -138,11 +133,9 @@ class TranslationCache:
             self._unflushed = 0
 
     def clear(self) -> int:
-        """清空快取並刪掉磁碟檔案，回傳清掉的筆數（設定視窗要回報給使用者）。
-
-        與 rebind() 語意不同：那是換指紋，會先把舊內容 flush 出去留著；這是使用者
-        主動丟棄，不寫回任何東西。刪檔失敗只記 log 不拋——快取是最佳化路徑，
-        清不掉檔案也不該讓設定視窗炸掉，下次 flush 會覆寫它。"""
+        """清空快取並刪掉磁碟檔案，回傳清掉的筆數。與 rebind() 不同：那會先 flush 舊內容，
+        這是使用者主動丟棄、不寫回。刪檔失敗只記 log 不拋——快取是最佳化路徑，
+        下次 flush 會覆寫它。"""
         with self._lock:
             count = len(self._entries)
             self._entries.clear()
@@ -180,13 +173,9 @@ class TranslationCache:
               file=sys.stderr)
 
     def flush(self) -> None:
-        """寫回磁碟：先寫進同目錄的獨立暫存檔，寫完再 os.replace() 原子性換上。
-
-        worker 觸發的 auto-flush（見 put()）與關閉流程的最終 flush 可能同時觸發——
-        兩邊各自寫進自己的暫存檔名，不會共用同一個寫入中的檔案；os.replace() 在
-        Windows 與 POSIX 上都是原子操作，讀者（load()）不會看到寫一半的 JSON，
-        兩次 flush 疊在一起也頂多是後者覆蓋前者、不會互相截斷成殘破檔案。
-        寫檔失敗只記 log，不影響翻譯——快取是最佳化，不是必要路徑。"""
+        """寫回磁碟：先寫同目錄的獨立暫存檔，再 os.replace() 原子換上。
+        worker 的 auto-flush 與關閉時的最終 flush 可能同時觸發，各自寫自己的暫存檔，
+        讀者不會看到寫一半的 JSON，疊在一起頂多後者覆蓋前者。寫檔失敗只記 log。"""
         with self._lock:
             payload = {"fingerprint": self._fingerprint,
                        "entries": dict(self._entries)}
@@ -214,26 +203,21 @@ class TranslationCache:
 
 
 def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
-    """翻一則系統訊息並存進快取。送去翻譯的是正規化後的樣板，存的也是樣板譯文；
-    佔位符被模型弄壞、或翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次
-    ——後者這一次直翻走的已是新設定，拿到的譯文語言才對（正確性優先於命中率）。
+    """翻一則系統訊息並存進快取。送翻與存入的都是正規化後的樣板；佔位符被模型弄壞或
+    翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次——那一次走的已是新設定。
+    落回英文的譯文（見 translator.has_stray_latin）一律不落盤：翻譯器已重譯過一次，
+    救不回的照樣顯示，但存進快取等於把錯誤固化、每次命中都吐同一個英文名。
 
-    模型改用英文名的譯文（見 translator.has_stray_latin）一律不落盤：翻譯器已經
-    為它重譯過一次，救不回來的照樣顯示，但存進快取就等於把這個錯誤固化——之後每次
-    命中都吐同一個英文名，跨重啟都在。不快取，下次遇到同一句還有機會翻對。
-
-    `translator` 只要求有 `translate_system_message(text) -> str` 與 `target_language`
-    （見 `src.translation.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
-    """
+    `translator` 只要求有 `translate_system_message(text) -> str` 與 `target_language`，
+    不直接依賴 Translator 型別以避免模組互相 import。"""
     template, numbers = normalize(text)
-    fingerprint = cache.fingerprint   # 翻譯期間使用者可能換設定，先記下產出當下的指紋
+    fingerprint = cache.fingerprint   # 先記下產出當下的指紋（翻譯期間可能換設定）
     translated = translator.translate_system_message(template)
     if has_stray_latin(template, translated, translator.target_language):
         print(f"[cache] translation is not in the target language, not cached: "
               f"template={template!r} translated={translated!r}", file=sys.stderr)
         return restore(translated, numbers)
-    # put() 收的是**原文**、內部自己正規化。這裡不能傳 template——
-    # 它含 `{0}`，再 normalize 一次會把裡面的 0 當成數字，變成 `{{0}}`。
+    # put() 收原文、內部自己正規化；傳 template 會把 `{0}` 裡的 0 再當成數字、變成 `{{0}}`。
     if cache.put(text, translated, fingerprint):
         return restore(translated, numbers)
     print(f"[cache] falling back to a direct translation: {text!r}", file=sys.stderr)

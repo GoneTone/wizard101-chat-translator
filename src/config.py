@@ -29,10 +29,9 @@ def local_state_dir() -> Path:
 
 CONFIG_PATH = app_dir() / "config.json"
 
-# 每家服務商各存一份設定（切換時互不覆蓋），且只存自己用得到的欄位——
-# 官方端點的網址寫死在 translator，Claude 不吃 thinking 開關而是思考深度 effort。
-# 這張表同時是服務商清單與「哪家有哪些欄位」的單一真實來源：載入補值、UI 該畫哪些
-# 欄位（見 ui/fields.py 的 PROVIDERS）都看它。
+# 每家服務商各存一份設定（切換時互不覆蓋），只存自己用得到的欄位：官方端點網址寫死在
+# translator，Claude 不吃 thinking 開關而是 effort。這張表是服務商清單與欄位的單一真實
+# 來源：載入補值、UI 該畫哪些欄位（ui/fields.py 的 PROVIDERS）都看它。
 API_PROFILE_FIELDS: dict[str, dict] = {
     "openai": {"model": "", "api_key": "", "thinking": False},
     "claude": {"model": "", "api_key": "", "effort": "auto"},
@@ -57,22 +56,18 @@ def _default_api() -> dict:
 DEFAULT_CONFIG: dict = {
     "api": _default_api(),
     "ui_language": None,     # 介面語言；None＝尚未選過，啟動時依系統語言自動判定
-    "target_language": "繁體中文（台灣）",  # 收訊翻成的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文
+    "target_language": "繁體中文（台灣）",  # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文
     "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
     "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊
-    # 同時進行的收訊翻譯則數。實測 4 併發後幾乎無額外收益，只讓單則延遲更差；
-    # 設 1 等同逐則排隊（本功能之前的行為）。
-    "max_parallel_translations": 4,
-    # 是否翻譯並顯示遊戲系統訊息（掉寶／經驗／升等廣播等）。預設關閉：量大，會佔用
-    # max_messages 的額度把玩家對話往上推走，由使用者自行決定要不要開。
-    "translate_system_messages": False,
+    "max_parallel_translations": 4,  # 同時翻譯則數；實測 4 以上幾乎無額外收益，1＝逐則排隊
+    "translate_system_messages": False,  # 是否翻譯遊戲系統訊息（掉寶／升等等）；量大會擠掉玩家對話
     "hotkey": "ctrl+space",
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）
     "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒），遊戲漏字就調大
     "overlay_alpha": 0.80,   # 視窗不透明度（半透明底板與泡泡），小＝更透明
-    # x／y 為 null＝尚未拖曳過：首次啟動時擺螢幕正中央（見 OverlayWindow）
+    # x／y 為 null＝尚未拖曳過，首次啟動擺螢幕正中央（見 OverlayWindow）
     "overlay": {"x": None, "y": None, "width": 640, "height": 420},
     "input_position": {"x": None, "y": None},  # 翻譯輸入框位置（拖曳後記住）
     "input_width": 460,      # 翻譯輸入框寬度（縮放後記住）；高度依內容自適應，不記
@@ -92,9 +87,8 @@ ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
 
 
 def clamp_advanced(values: dict) -> dict:
-    """就地把進階數值夾在安全範圍（直接修改傳入的 dict）並回傳同一個 dict。
-    設定視窗儲存與 config.json 載入都經過這裡——手動編輯出界值
-    （如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
+    """就地把進階數值夾在安全範圍並回傳同一個 dict。設定視窗儲存與 config.json 載入
+    都經過這裡——手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
     for key, (lo, hi) in ADVANCED_LIMITS.items():
         values[key] = min(hi, max(lo, values[key]))
     return values
@@ -112,7 +106,7 @@ def _merge(base: dict, override: dict) -> dict:
 
 def active_api(cfg: dict) -> dict:
     """目前選用那家的 API 設定（扁平副本，額外帶 provider）。
-    翻譯端與表單驗證都經過這裡，不必知道其他家的設定也存在同一個區塊裡。"""
+    翻譯端與表單驗證都經過這裡，不必知道其他家的設定也在同一個區塊裡。"""
     api = cfg["api"]
     return {"provider": api["provider"], **copy.deepcopy(api[api["provider"]])}
 
@@ -138,8 +132,7 @@ def _migrate_api(api: dict) -> dict:
 
 def _prune_profiles(api: dict) -> list[str]:
     """就地刪掉每家 profile 裡不屬於它的欄位，回傳刪掉的 `服務商.欄位` 清單。
-    欄位表變動過（如 Claude 從 thinking 改成 effort）時，舊檔案會留下不再生效的
-    欄位——留著只會讓人以為它有作用。"""
+    欄位表變動過（如 Claude 從 thinking 改成 effort）時，舊檔會留下不再生效的欄位。"""
     dropped = []
     for provider, fields in API_PROFILE_FIELDS.items():
         profile = api.get(provider)
@@ -169,8 +162,7 @@ def load_config(path: Path) -> dict:
         print(f"[config] dropped stale api fields ({', '.join(dropped)})",
               file=sys.stderr)
     if legacy or dropped:
-        # 整理後立刻落地，不必等使用者按下儲存：手開 config.json 看到的就是生效的結構。
-        # 寫不進去（目錄唯讀等）不該擋住啟動，記一行就繼續用記憶體裡整理好的設定。
+        # 整理後立刻落地，手開 config.json 看到的就是生效的結構；寫不進去不擋啟動
         try:
             save_config(path, cfg)
             print(f"[config] rewrote {path.name} in the per-provider format",

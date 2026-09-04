@@ -1,14 +1,12 @@
 """共用翻譯 client：依設定的 provider 選擇後端（OpenAI 相容 /v1/chat/completions 或 Claude /v1/messages）。
 
-收訊：來源語言自動判斷 → 翻成使用者設定的目標語言（target_language）。
-發話：來源語言自動判斷 → 翻成遊戲聊天語言（OUTGOING_LANGUAGE，固定）。
-提示詞依語言參數動態建構，程式碼不綁定特定語言。
+收訊翻成使用者設定的目標語言（target_language），發話翻成 OUTGOING_LANGUAGE，
+來源語言一律自動判斷；提示詞依語言參數建構，不綁定特定語言。
 
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
 TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
-另提供 list_models()：向端點取得可用模型清單供設定視窗選擇，端點不支援時拋
-TranslatorNoModelList。
-上下文由呼叫端提供（見 src/translation/context.py）：本類別不持有狀態，可安全平行呼叫。
+list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
+上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
 """
 import re
 import sys
@@ -18,27 +16,24 @@ import httpx
 
 from src.config import EFFORT_AUTO
 
-# 發話固定翻成的語言（遊戲聊天使用的語言）；為固定產品設定，不進 config。
+# 發話固定翻成的語言（遊戲聊天語言）；固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
-# 提示詞版次：實質改動任何一條提示詞就 +1。系統訊息譯文的快取指紋含這個值
+# 提示詞版次：實質改動任何一條提示詞就 +1。系統訊息譯文的快取指紋含它
 # （見 translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留在磁碟上。
 PROMPT_REVISION = 2
 
-# 上下文以「多輪對話」而非段落標記傳遞：把背景聊天記錄當成前一輪 user 訊息、
-# 由 assistant 確認後，待翻句子才單獨成為最後一個乾淨的 user 輪。
-# 這樣 system prompt 不必列出任何 header 字串——小模型會把 header 回吐成
-# 「請照此格式提供輸入」並脫稿（實測踩過），去掉 header 從根本消除該行為。
+# 上下文以多輪對話傳遞（背景記錄當前一輪 user、assistant 確認、待翻句子單獨成最後一輪）
+# 而非段落標記：system prompt 因此不必列任何 header 字串——小模型會把 header 回吐成
+# 「請照此格式提供輸入」而脫稿（實測踩過）。
 CONTEXT_INTRO_INCOMING = ("以下是最近的遊戲聊天記錄，僅供你理解語境"
                           "（代詞、接話、省略等），不要翻譯這些內容：")
 CONTEXT_INTRO_OUTGOING = ("以下是其他玩家最近說的話，僅供你理解對話情境，"
                           "不要翻譯這些內容：")
 CONTEXT_ACK = "好的，我已了解語境。請給我要翻譯的訊息。"
 
-# 發話 few-shot 範例：本地小模型 zero-shot 常把翻譯任務誤解成對話助手、
-# 回「請提供要翻譯的內容」而脫稿；用幾組「訊息→英文譯文」示範強制它進入
-# 翻譯模式。最後一組刻意示範「像指令的訊息也照翻」，直接對抗該脫稿行為。
-# 發話固定翻英文（OUTGOING_LANGUAGE），範例可固定、不違反語言不寫死原則。
+# 發話 few-shot：本地小模型 zero-shot 常把翻譯任務當成對話助手、回「請提供要翻譯的內容」
+# 而脫稿；最後一組刻意示範「像指令的訊息也照翻」。發話固定翻英文，範例可固定。
 FEWSHOT_OUTGOING = [
     {"role": "user", "content": "在嗎，一起打王"},
     {"role": "assistant", "content": "you there? let's fight the boss"},
@@ -49,8 +44,8 @@ FEWSHOT_OUTGOING = [
 
 def build_turns(context: list[str], text: str, intro: str,
                 examples: list[dict] | None = None) -> list[dict]:
-    """組出送給模型的對話輪：few-shot 範例（若有）在最前，其後接背景上下文
-    （背景 user 輪＋assistant 確認），待翻句子永遠是最後一個不含包裝的乾淨 user 輪。"""
+    """組出送給模型的對話輪：few-shot 範例在前，其後背景上下文（user 輪＋assistant 確認），
+    待翻句子永遠是最後一個不含包裝的乾淨 user 輪。"""
     turns = list(examples) if examples else []
     if context:
         turns.append({"role": "user", "content": intro + "\n" + "\n".join(context)})
@@ -60,18 +55,14 @@ def build_turns(context: list[str], text: str, intro: str,
 
 
 def _game_noun_rule(target_language: str) -> str:
-    """遊戲名詞的翻譯規則，收訊與系統訊息兩條提示詞共用。
+    """遊戲名詞的翻譯規則，收訊與系統訊息兩條提示詞共用（單一真實來源）。
 
-    括號裡的英文只能照抄原文既有的：早期版本無條件要求「在譯名後附上英文原文」，
-    在原文並非英文的伺服器上，模型沒有英文可抄就自己翻一個塞進括號（實機回報，
-    例如掉寶的材料名被冠上一個它自行翻譯的英文名）。兩處各寫一份時改一處會漏另一處，
-    故抽成單一真實來源。
-
-    **規則裡一個英文字都不能出現**：曾以「火龍(Fire Dragon)」「鱷魚國(Krokotopia)」
-    示範附註格式，實測反而把模型整個帶往英文——中文伺服器的裸名詞（掉寶、裝備名這類
-    沒有句子語境的系統訊息）被直接譯成官方英文名，`雪刺帽` 穩定回 `Snowspike Hat`。
-    拿掉範例後同一批句子穩定翻成目標語言。玩家名與 NPC 名同理不翻：模型認得音譯名的
-    英文來源（卡拉米蒂 → Calamity），一翻就把人名換成另一個玩家認不出來的寫法。"""
+    括號裡的英文只能照抄原文既有的：早期無條件要求附上英文原文，在非英文伺服器上模型
+    沒有英文可抄就自己翻一個塞進括號（實機回報）。
+    規則裡一個英文字都不能出現：曾以「火龍(Fire Dragon)」示範附註格式，實測反而把模型
+    帶往英文——裸名詞被直接譯成官方英文名（`雪刺帽` → `Snowspike Hat`），拿掉範例後
+    才穩定翻成目標語言。玩家名與 NPC 名同理不翻：模型認得音譯名的英文來源
+    （卡拉米蒂 → Calamity），一翻就換成玩家認不出來的寫法。"""
     return (
         f"遊戲相關名詞（魔法名、地名、物品名、材料名等）翻成 {target_language}，"
         "不得改用英文或其他語言既有的名稱。"
@@ -146,8 +137,8 @@ def build_outgoing_system(outgoing_language: str) -> str:
     )
 
 
-# 譯文落回英文時，重譯用的追加提醒（見 Translator.translate_system_message）。
-# 放在 system 而不是待翻的使用者輪：塞進待翻文字裡，模型會把提醒本身也翻出來。
+# 譯文落回英文時重譯用的追加提醒（見 Translator.translate_system_message）。
+# 放在 system 而非待翻的 user 輪：塞進待翻文字裡，模型會把提醒本身也翻出來。
 def _strict_retry_note(target_language: str) -> str:
     return ("\n\n注意：你上一次的輸出把原文的名詞換成了英文。這一次只准輸出 "
             f"{target_language}，原文裡沒有出現過的英文字母一個都不准寫。")
@@ -156,11 +147,9 @@ def _strict_retry_note(target_language: str) -> str:
 def build_system_message_system(target_language: str, strict: bool = False) -> str:
     """建構系統訊息翻譯的 system 提示：把遊戲系統訊息翻成 target_language。
 
-    與收訊翻譯分開的原因：系統訊息沒有「[發送者] 內容」的格式，收訊那套規則會讓模型
-    自己補一個發送者出來。這條路徑也不提供任何上下文——系統訊息彼此獨立，
-    「同一句原文必然得到同一句譯文」正是它可以被快取的前提。
-
-    strict=True 是重譯用的版本，多帶一段「上次輸出落回英文」的提醒。"""
+    與收訊分開：系統訊息沒有「[發送者] 內容」格式，收訊那套規則會讓模型自己補一個發送者。
+    此路徑不帶任何上下文——「同一句原文必得同一句譯文」是它可被快取的前提。
+    strict=True 是重譯版本，多帶一段「上次輸出落回英文」的提醒。"""
     prompt = (
         f"你是一個專業的翻譯員，負責將線上遊戲 Wizard101 的系統訊息"
         f"（任何語言，自動判斷）流暢地翻譯為 {target_language}。"
@@ -181,8 +170,8 @@ def build_system_message_system(target_language: str, strict: bool = False) -> s
         "不要翻譯或刪除；原文沒有的表情符號一律不得自行添加。\n"
         "7. 標點盡量貼近原文的標點風格；"
         f"需要標點時使用 {target_language} 慣用的樣式。\n"
-        # 系統訊息常常是沒有句子語境的裸名詞，最容易被模型整個換成官方英文名；
-        # 這條全域約束是實測下唯一壓得住的寫法（見 _game_noun_rule）。
+        # 裸名詞的系統訊息最容易被整個換成官方英文名；這條全域約束是實測唯一壓得住的
+        # 寫法（見 _game_noun_rule）。
         f"8. 整則譯文必須完全以 {target_language} 書寫；"
         "原文沒有的英文（或其他語言）一律不得出現在譯文裡。"
     )
@@ -206,8 +195,8 @@ _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 
 def strip_think(text: str) -> str:
-    """移除回應中的 <think>…</think> 推理區塊（reasoning 模型會把思考夾在 content 裡）。
-    無論是否啟用思考都套用，確保推理內容不會污染譯文。"""
+    """移除回應中的 <think>…</think> 推理區塊（reasoning 模型會把思考夾在 content 裡）；
+    無論是否啟用思考都套用。"""
     return _THINK_BLOCK.sub("", text)
 
 
@@ -215,42 +204,34 @@ _SENDER_PREFIX = re.compile(r"^\[[^\]]{1,40}\]\s*")
 # 半形或全形括號包住、以英文字母開頭的內容（模型補上的英文名長這樣）
 _PAREN_ENGLISH = re.compile(r"\s*[（(][A-Za-z][A-Za-z0-9 .'\-]*[)）]")
 _LATIN = re.compile(r"[A-Za-z]")
-# 一段連續的拉丁文字：字母起頭，其後可接字母、數字與詞內常見的標點與空白，
-# 這樣「Received a friend request from Amy」是一段，而不是被空白切成六段。
+# 一段連續的拉丁文字（字母起頭，可含數字、詞內標點與空白）：
+# 「Received a friend request from Amy」算一段，而非被空白切成六段。
 _LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9 .,'’\-]*")
-# 目標語言的字：拉丁片段拿掉後，還算不算留下了「字」（漢字、假名、諺文、
-# 西里爾字母等都是 \w，空白、數字與標點則不是）。
+# 目標語言的「字」：漢字、假名、諺文、西里爾字母都是 \w，空白、數字與標點不是。
 _NON_LATIN_WORD = re.compile(r"[^\W\d_]")
 
 
 def _content_has_latin(text: str) -> bool:
-    """訊息內容裡有沒有拉丁字母。`[發送者]` 前綴不算——發送者名是英文，
-    與訊息內容用什麼文字寫成無關。"""
+    """訊息內容裡有沒有拉丁字母；`[發送者]` 前綴不算（發送者名是英文，與內容無關）。"""
     return _LATIN.search(_SENDER_PREFIX.sub("", text)) is not None
 
 
 def strip_invented_english(source: str, translated: str) -> str:
     """原文不含英文時，移除譯文裡以括號補上的英文名。
 
-    提示詞已要求「括號裡的英文只能照抄原文既有的」（見 _game_noun_rule），但小模型
-    的遵從度不穩：實測同一則簡體中文材料名，兩次翻譯分別補上 (Psychedelic Wood) 與
-    (Mystic Wood)——兩個都是模型自己翻的，遊戲裡並沒有這個英文名（實機回報）。
-    規則裡曾有的正面示範「火龍(Fire Dragon)」本身也在誘導模型套用那個格式（已移除）。
-    原文一個英文字母都沒有時，譯文的括號英文必然是憑空生成，直接移除。
-
+    提示詞已要求括號英文只能照抄原文（見 _game_noun_rule），但小模型遵從度不穩：實測
+    同一則簡體中文材料名兩次分別補上 (Psychedelic Wood) 與 (Mystic Wood)，遊戲裡並沒有
+    這個英文名。原文一個英文字母都沒有時，括號英文必然是憑空生成。
     括號裡不是英文（中文註解等）一律不動。"""
     if _content_has_latin(source):
-        return translated   # 原文本來就有英文，括號裡可能是照抄的，不得動
+        return translated   # 原文有英文，括號裡可能是照抄的
     return _PAREN_ENGLISH.sub("", translated)
 
 
 def uses_latin_script(language: str) -> bool:
-    """這個語言是否以拉丁字母書寫。
-
-    看語言名稱本身用什麼文字寫成：設定裡的目標語言是人讀名稱，預設清單一律是自稱
-    （見 ui.fields.COMMON_LANGUAGES），而自稱必然以該語言自己的文字書寫——
-    `English`、`Español` 對上 `繁體中文（台灣）`、`日本語`、`한국어`。
-    如此判斷不必在程式碼裡列任何語言名冊。"""
+    """這個語言是否以拉丁字母書寫。看語言名稱本身的文字：目標語言是人讀名稱，預設清單
+    一律是自稱（見 ui.fields.COMMON_LANGUAGES），`English`、`Español` 對上
+    `繁體中文（台灣）`、`日本語`，不必在程式碼裡列語言名冊。"""
     return _LATIN.search(language) is not None
 
 
@@ -260,25 +241,22 @@ def _squash(text: str) -> str:
 
 
 def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
-    """譯文是否出現了不該有的拉丁文字——模型自作主張改用英文名，或整句沒翻。
+    """譯文是否出現了不該有的拉丁文字——模型改用英文名，或整句沒翻。
 
-    實機症狀：目標語言是繁體中文，中文伺服器的裸名詞卻被翻成官方英文名
-    （`雪刺帽` → `Snowspike Hat`），音譯的玩家名也會被還原成英文來源
-    （`卡拉米蒂 …` → `Calamity …`）。strip_invented_english 只清括號裡的英文，
-    這種整段或半段的英譯它抓不到。
+    實機症狀：中文伺服器的裸名詞被翻成官方英文名（`雪刺帽` → `Snowspike Hat`），
+    音譯的玩家名被還原成英文（`卡拉米蒂` → `Calamity`）；strip_invented_english
+    只清括號裡的英文，抓不到這種整段或半段英譯。
 
-    兩條規則，缺一不可：
-    1. 譯文整段都是拉丁——沒有一個目標語言的字。模型要不是改用了英文名，就是把
-       原文原樣吐了回來（拉丁文字的伺服器上這是主要的失敗樣態）。
-    2. 譯文裡某個拉丁片段不是原文本來就有的字串。只看「原文有沒有英文」不夠：
-       系統訊息常夾著英文玩家名（`收到 [Amy] 的伙伴邀请`），有它在整條檢查就會
-       被放行，模型把整句翻成英文也抓不到。逐片段比對才擋得住，同時又不會誤傷
-       譯文照抄的那些英文（`Amy` 確實出現在原文裡）。
+    兩條規則缺一不可：
+    1. 譯文整段都是拉丁、沒有一個目標語言的字——改用了英文名，或原文原樣吐回
+       （拉丁文字伺服器上的主要失敗樣態）。
+    2. 譯文裡某個拉丁片段不是原文既有的字串。只看「原文有沒有英文」不夠：系統訊息
+       常夾英文玩家名（`收到 [Amy] 的伙伴邀请`），整條放行後整句英譯也抓不到；
+       逐片段比對才擋得住，又不誤傷照抄的 `Amy`。
 
-    兩個已知的盲點，都是字元層面無解、需要語言辨識才做得到的：
-    目標語言本身以拉丁字母書寫時（`Español`、`Deutsch`）一律回 False——那時譯文
-    滿是拉丁字母才是對的，而 `Snowspike Hat` 與 `Sombrero de Nieve` 分不出來；
-    同文字系統之間也看不出來（目標繁中卻回吐簡中、目標日文卻回吐中文）。"""
+    已知盲點（字元層面無解）：目標語言本身用拉丁字母（`Español`）時一律回 False，
+    `Snowspike Hat` 與 `Sombrero de Nieve` 分不出來；同文字系統之間也看不出
+    （目標繁中卻回吐簡中）。"""
     if uses_latin_script(target_language):
         return False
     body = _SENDER_PREFIX.sub("", translated)
@@ -293,10 +271,9 @@ def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
 
 OPENAI_BASE_URL = "https://api.openai.com"  # ChatGPT preset 固定官方端點
 _TIMEOUT = 60.0
-# 譯文長度上限。存在的理由不是省 token，而是防止模型 repetition loop 生成到吃穿 _TIMEOUT：
-# 實測 temperature=0 遇到原文本身重複（如「am chick um chick um chick」）會無限吐同一個字，
-# 放到 180 秒仍不收斂，於是整條收訊流程被誤判成「翻譯伺服器離線」並卡在該行重試。
-# 實測逼近遊戲單行上限、且塞滿要附英文原文的遊戲名詞的最壞譯文約 80 token，512 餘裕充足。
+# 譯文長度上限，目的是防 repetition loop 吃穿 _TIMEOUT 而非省 token：實測 temperature=0
+# 遇到原文本身重複（「am chick um chick um chick」）會無限吐同一個字，180 秒仍不收斂，
+# 整條收訊流程被誤判成「翻譯伺服器離線」並卡在該行重試。最壞譯文實測約 80 token。
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
@@ -341,8 +318,7 @@ class TranslatorNoModelList(Exception):
 
 
 def _status_error(status: int) -> Exception | None:
-    """把翻譯請求的 HTTP 狀態碼映射成對應例外（None＝可繼續解析回應）。
-    兩種後端共用，確保 OpenAI 相容端點與 Claude 官方 API 的判定一致。"""
+    """翻譯請求的 HTTP 狀態碼映射成例外（None＝可繼續解析回應）；兩種後端共用，判定一致。"""
     if status in (401, 403, 404):
         return TranslatorConfigError(f"HTTP {status}", status=status)
     if status == 429 or status >= 500:
@@ -513,14 +489,12 @@ class Translator:
     def translate_system_message(self, text: str) -> str:
         """系統訊息：把遊戲系統通知（任何語言）翻成使用者設定的目標語言。
 
-        **簽名刻意不吃 context**：系統訊息彼此獨立，不需要也不應該吃聊天上下文
-        （8 行的上下文窗會被掉寶洗光，玩家對話就失去語境）。這也讓本方法成為
-        純函式化的呼叫，是譯文快取正確性的前提（見 translation.cache）。
+        刻意不吃 context：系統訊息彼此獨立，8 行的上下文窗會被掉寶洗光、玩家對話失去
+        語境；純函式化的呼叫也是譯文快取正確性的前提（見 translation.cache）。
 
-        譯文落回英文時重譯一次（見 has_stray_latin）：系統訊息多半是沒有句子
-        語境的裸名詞，模型特別容易改用官方英文名。實測重譯救得回約三分之一，
-        救不回的（音譯的玩家名）就照樣回傳——呼叫端負責不把它寫進快取。
-        重譯只走這條路徑：收訊有完整句子語境、實測不會落回英文，多打一次是白花錢。"""
+        譯文落回英文時重譯一次（見 has_stray_latin）：裸名詞特別容易被改用官方英文名，
+        實測重譯救得回約三分之一，救不回的（音譯玩家名）照樣回傳，呼叫端負責不寫進快取。
+        只有這條路徑重譯：收訊有完整句子語境、實測不會落回英文。"""
         translated = self._system_message_once(text)
         if has_stray_latin(text, translated, self._target_language):
             print(f"[translate] system message is not in the target language, retrying "
@@ -541,10 +515,9 @@ class Translator:
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
         發話內容不寫入上下文——送出後遊戲會回顯成聊天行，由收訊路徑記錄。
-        few-shot 一律帶：曾只在無背景上下文時帶，但遊戲內幾乎永遠有上下文，
-        等於防脫稿範例形同虛設——實測模型會把「不好意思我英文不好，用翻譯器」
-        當成對它說的話，回「No worries, I'll help you out!」，而該回覆會被原樣
-        送進遊戲聊天。"""
+        few-shot 一律帶：曾只在無上下文時帶，但遊戲內幾乎永遠有上下文，實測模型會把
+        「不好意思我英文不好，用翻譯器」當成對它說的話回「No worries, I'll help you out!」，
+        而該回覆會被原樣送進遊戲聊天。"""
         return self._impl.chat(
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,

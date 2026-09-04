@@ -1,17 +1,14 @@
 """messages.log：逐輪記錄 chatLog 的原始內容與 reader 的判定結果，供事後 debug。
 
-不做任何清理與過濾——含標記的原文、系統訊息一律照抄（只排除遊戲自己的除錯行，
-見 is_debug_line），
-和 `mem_reader` 送去翻譯的乾淨行（OUT）並排在同一份檔案裡，
-一眼就能對照「遊戲送進來什麼 → 走哪條判定路徑 → 實際翻了哪幾行」。
-每輪只寫變動的部分，內容沒變的輪不留痕跡（掛機不長檔案）。
+原文不清理不過濾（只排除遊戲自己的除錯行，見 is_debug_line），與 `mem_reader` 送去
+翻譯的乾淨行（OUT）並排，一眼對照「遊戲送進來什麼 → 走哪條判定 → 實際翻了哪幾行」。
+內容沒變的輪不留痕跡（掛機不長檔案）。
 """
 import re
 
 
-# 遊戲把自己的除錯輸出（貼圖載入失敗、音效通道回收等）也灌進 chatLog，量遠大於真的聊天。
-# 這些行不帶任何標記、以 [WARN]／[ERRO]／[DBGM] 這類全大寫標籤開頭，
-# 玩家發言與系統訊息則一律以 <color;..> 起頭，不會誤判。
+# 遊戲把自己的除錯輸出（貼圖載入失敗、音效通道回收等）也灌進 chatLog，量遠大於聊天；
+# 這些行以 [WARN]／[ERRO]／[DBGM] 之類全大寫標籤開頭，聊天與系統訊息則以 <color;..> 起頭。
 _DEBUG_LINE = re.compile(r"\s*\[[A-Z]{3,5}\]")
 
 
@@ -22,8 +19,7 @@ def is_debug_line(raw: str) -> bool:
 
 def new_raw_lines(prev: list[str], cur: list[str]) -> list[str]:
     """本輪相對上一輪新出現的原始行（保持出現順序）。
-    以出現「次數」差分而非集合：同一句被講第二次（lol／gg）是真的新訊息，
-    用集合會整句吃掉——那正是最需要 debug 的情境。"""
+    以出現次數差分而非集合：同一句被講第二次（lol／gg）是真的新訊息，集合會整句吃掉。"""
     remaining: dict[str, int] = {}
     for line in prev:
         remaining[line] = remaining.get(line, 0) + 1

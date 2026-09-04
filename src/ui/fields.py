@@ -115,10 +115,8 @@ def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 
 
 
 def friendly_error(exc: Exception) -> tuple[str, dict]:
-    """把翻譯例外轉成（文案 key， format 變數）。
-
-    帶變數的兩種錯誤（HTTP 狀態碼、未預期例外）光靠 key 表達不了，故回傳
-    tuple；顯示端一律 `t(key, **kwargs)`。"""
+    """把翻譯例外轉成（文案 key，format 變數）；顯示端一律 `t(key, **kwargs)`。
+    HTTP 狀態碼與未預期例外光靠 key 表達不了，故帶變數。"""
     if isinstance(exc, TranslatorConfigError):
         if exc.status in (401, 403):
             return "error.bad_key", {}
@@ -175,7 +173,6 @@ class ModelField(ttk.Frame):
 
     # --- 下拉清單 ---
     def is_posted(self) -> bool:
-        """下拉清單目前是否展開著。"""
         return bool(self._combo.tk.call("winfo", "ismapped", self._popdown()))
 
     def post_options(self) -> None:
@@ -195,10 +192,9 @@ class ModelField(ttk.Frame):
             self._outside_click_id = None
 
     def _watch_outside_click(self) -> None:
-        """展開期間監看整個視窗的點擊，點到別的控件就收起清單。
-        原生是靠 global grab 攔下所有點擊才做到「點哪都關」，而 grab 已為了讓
-        使用者能邊看清單邊打字而拆掉（見 _make_popdown_modeless），只好自己補。
-        清單本身是另一個 toplevel，它的點擊不會傳到這裡，不會誤收。"""
+        """展開期間監看整個視窗的點擊，點到別的控件就收起清單。原生靠 global grab
+        才做到「點哪都關」，而 grab 已為了邊看清單邊打字拆掉（見 _make_popdown_modeless）。
+        清單本身是另一個 toplevel，其點擊不會傳到這裡，不會誤收。"""
         if self._outside_click_id is None:
             self._outside_click_id = self.winfo_toplevel().bind(
                 "<Button-1>", self._on_click_elsewhere, add="+")
@@ -214,17 +210,13 @@ class ModelField(ttk.Frame):
         return self._popdown() + ".f.l"
 
     def _make_popdown_modeless(self) -> None:
-        """拆掉展開清單的 modal 行為，讓它能與輸入框並存。
+        """拆掉展開清單的 modal 行為，讓它與輸入框並存。
 
-        ttk 原生的清單是 modal 的：grab 住滑鼠、一 map 就搶走鍵盤焦點、一失焦就
-        自動收合。於是點回輸入框改關鍵字時，那一下點擊只會把清單關掉，使用者
-        永遠沒辦法邊看清單邊篩選。三者都拆掉後，焦點留在輸入框、收合時機改由
-        本元件自己掌握（失焦、Esc、選取）。
-
-        這些行為都來自 ttk 的類別 binding（ComboboxPopdown／ComboboxListbox），
-        只有實例 binding 才蓋得過去，且腳本要以 break 收尾才會中止類別 binding。
-        清單 map 時原生會重新抓一次 global grab，所以連 <Map> 都得改寫——只留下
-        「輸入框顯示按下狀態」，把 grab 拿掉。"""
+        ttk 原生清單會 grab 滑鼠、一 map 就搶鍵盤焦點、一失焦就收合，點回輸入框改
+        關鍵字那一下只會把清單關掉。三者都拆掉後焦點留在輸入框，收合時機由本元件
+        掌握（失焦、Esc、選取）。這些行為來自 ttk 類別 binding（ComboboxPopdown／
+        ComboboxListbox），只有實例 binding 以 break 收尾才蓋得過；清單 map 時原生會
+        重抓 global grab，所以 <Map> 也得改寫——只留「輸入框顯示按下狀態」。"""
         try:
             popdown = self._popdown()
             self._combo.tk.call("grab", "release", popdown)
@@ -273,9 +265,8 @@ class ModelField(ttk.Frame):
             self._reload_posted_list()
 
     def _reload_posted_list(self) -> None:
-        """把新的 values 灌進「已經展開」的清單。
-        ttk 只在展開當下填一次內容，之後改 values 畫面不會跟著變——邊打字邊篩選
-        就得自己重填，並依新的項數重算清單高度與位置。"""
+        """把新的 values 灌進已展開的清單：ttk 只在展開當下填一次內容，之後改 values
+        畫面不會跟著變，得自己重填並依新項數重算清單高度與位置。"""
         self._combo.tk.call("ttk::combobox::ConfigureListbox", self._combo)
         self._combo.update_idletasks()  # 幾何要先傳播，重新定位才量得到新高度
         self._combo.tk.call("ttk::combobox::PlacePopdown", self._combo, self._popdown())
@@ -451,8 +442,7 @@ class ApiFields(ttk.Frame):
             self._thinking_row()
         else:
             self._labeled_entry(t("field.api_key"), self._api_key, secret=True)
-            # 取金鑰的連結緊貼金鑰欄：它是這一欄的輔助說明，擺到所有欄位最後
-            # 會與它要幫的欄位分家，使用者在金鑰欄卡住時看不到它。
+            # 取金鑰的連結緊貼金鑰欄：它是這一欄的輔助說明，擺到最後會與要幫的欄位分家
             link_label(self._fields, t("link.get_key"), prov.key_url).pack(
                 anchor="w", pady=(2, 0))
             self._model_row()
@@ -514,8 +504,7 @@ class ApiFields(ttk.Frame):
         ttk.Label(row, text=label, width=LABEL_WIDTH).pack(side="left")
         entry = ttk.Entry(row, textvariable=var, show="●" if secret else "")
         if secret:
-            # 「顯示」先 pack：pack 依宣告順序分配空間，expand=True 的輸入框若先宣告
-            # 會吃光整列寬度，這顆固定寬度的按鈕就會在視窗變窄時被擠掉。
+            # 「顯示」先 pack：後宣告會在視窗變窄時被 expand=True 的輸入框擠掉
             btn = ttk.Button(row, text=t("button.show"), width=5,
                              command=lambda: entry.configure(
                                  show="" if entry.cget("show") else "●"))
@@ -643,10 +632,8 @@ class LanguageField(ttk.Frame):
 
 
 class UiLanguageField(ttk.Frame):
-    """介面語言：固定三個選項的唯讀下拉。
-
-    顯示 endonym（各語言自稱），對外進出的是語言碼——與 LanguageField
-    （翻譯目標語言，可自由輸入任何語言名稱）是不同用途的兩個欄位。"""
+    """介面語言：唯讀下拉，顯示 endonym、對外進出語言碼——與 LanguageField
+    （翻譯目標語言，可自由輸入）是不同用途的兩個欄位。"""
 
     def __init__(self, parent, initial: str, on_change=None):
         super().__init__(parent)

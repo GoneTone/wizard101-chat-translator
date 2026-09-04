@@ -194,9 +194,8 @@ def test_system_lines_are_ignored_when_the_setting_is_off(monkeypatch):
 
 
 class TogglingEmitSystemReader(FakeReader):
-    """在第一輪讀取後把 cfg 的開關切成 True，藉此驗證 reader.emit_system 是否
-    在每輪迴圈開頭重新同步（而不是只在建立 reader 當下設一次就固定住）。
-    emit_system_log 記錄每輪呼叫 read_new() 時，reader.emit_system 當下的值。"""
+    """第一輪讀取後把 cfg 的開關切成 True，驗證 reader.emit_system 每輪迴圈開頭都重新同步。
+    emit_system_log 記錄每輪 read_new() 時 reader.emit_system 的值。"""
 
     def __init__(self, reads, stop, cfg):
         super().__init__(reads, stop)
@@ -211,9 +210,8 @@ class TogglingEmitSystemReader(FakeReader):
 
 
 def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
-    # 設定可能在執行中被使用者從設定視窗切換；若只在建立 reader 當下同步一次，
-    # 中途切換就要等下次重開程式才生效。這裡在第一輪讀取後把 cfg 切成 True，
-    # 驗證第二輪迴圈開頭已經跟上（見 reader_loop 主迴圈開頭那行同步）。
+    # 設定可能在執行中從設定視窗切換；若只在建立 reader 時同步一次，中途切換要等重開才生效。
+    # 第一輪讀取後把 cfg 切成 True，驗證第二輪迴圈開頭已經跟上
     cfg = {"poll_interval": 0.01, "translate_system_messages": False}
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
@@ -297,9 +295,8 @@ def test_status_shows_translating_while_pool_busy(monkeypatch):
 
 
 class StatusFakeReader(FakeReader):
-    """依 poll 次數翻轉 pool.in_flight：模擬「送出翻譯後 pool 忙碌一輪、
-    隨後轉回閒置」，藉此驗證狀態指示會從翻譯中降回監聽中（而不是卡住）。
-    FakePool.in_flight 是純屬性，直接由這裡代替真正的 pool 翻轉。"""
+    """依 poll 次數翻轉 pool.in_flight：模擬送出翻譯後 pool 忙碌一輪、隨後轉回閒置，
+    驗證狀態指示會從翻譯中降回監聽中（FakePool.in_flight 是純屬性，由這裡代替翻轉）。"""
 
     def __init__(self, reads, stop, pool, busy_at):
         super().__init__(reads, stop)

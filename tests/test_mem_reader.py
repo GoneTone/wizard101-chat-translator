@@ -85,7 +85,6 @@ def test_lines_skips_debug_rows():
 
 
 def test_lines_keeps_own_message():
-    # 自己的發言（[你]，無 link）也要收
     assert _texts(lines_from_chatlog(_own("zztest123"))) == ["[你] zztest123"]
     assert _texts(lines_from_chatlog(_own("測試 訊息 :)"))) == ["[你] 測試 訊息 :)"]
 
@@ -586,9 +585,8 @@ def test_node_removed_stays_silent_then_resumes():
 
 # --- 輸入框關聯放行：剛送出的訊息與近期舊訊息同字時不得被誤判重浮 ---
 def test_same_text_message_after_relogin_emitted_when_input_just_closed():
-    # 實機：登出再登入不重啟程序，看過集合殘留舊 session 字樣；登入後在朋友視窗
-    # 重打同一句（Test）走 reset 被誤判重浮吞掉。輸入框剛關閉＝使用者剛送出，
-    # 視圖尾行同字者關聯放行
+    # 實機：登出再登入（不重啟程序）後在朋友視窗重打同一句，走 reset 被看過集合誤判重浮吞掉。
+    # 輸入框剛關閉＝使用者剛送出，視圖尾行同字者關聯放行
     main = _log(_say(1, "A", "m1"), _own("Test"), _say(2, "B", "m2"))
     reads = [main] * 7 + [""] * 20 + [_log(_own("Test"))]
     inputs = [False] * 26 + [True, False]      # 送出前一輪輸入框開啟
@@ -620,9 +618,8 @@ def test_correlated_release_only_frees_the_tail_line():
 
 
 def test_same_tail_text_after_long_empty_emitted_with_input():
-    # 實機：登出前最後一句與登入後第一句同字（Test）——新內容恰等於舊基準尾行，
-    # append 誤判「無變化」靜默吞掉。長時間全空後基準視為過期、強制走 reset 語意，
-    # 由看過集合＋輸入框關聯放行接手
+    # 實機：登出前最後一句與登入後第一句同字——新內容恰等於舊基準尾行，append 誤判「無變化」。
+    # 長時間全空後基準視為過期、強制走 reset，由看過集合＋輸入框關聯放行接手
     main = _log(_say(1, "A", "m1"), _own("Test"))    # 登出前尾行＝Test
     reads = [main] * 7 + [""] * 20 + [_log(_own("Test"))]
     inputs = [False] * 26 + [True, False]
@@ -861,10 +858,8 @@ def _burst_lines(n: int) -> list[str]:
 
 
 def test_implausible_burst_is_suppressed():
-    # 實測情境：chatLog 在「約 110 行的短清單」與「上千行的完整歷史」之間反覆跳動，
-    # 只要歷史開頭那行碰巧等於基準尾行（聊天充滿 lol/gg 等重複短行），align_append
-    # 就會把整段舊訊息當成新訊息且不印 log。一輪 poll 只隔 poll_interval 秒，
-    # 不可能新增這麼多行 → 一律不吐、靜默重建基準。
+    # 實測：chatLog 在短清單與上千行完整歷史間反覆跳動，歷史開頭恰等於基準尾行（lol/gg）時
+    # align_append 會把整段舊訊息當成新訊息。一輪 poll 不可能新增這麼多行 → 靜默重建基準
     from src.reader.mem_reader import MAX_NEW_LINES_PER_POLL
     tail = _say(9, "Z", "lol")
     old = _burst_lines(MAX_NEW_LINES_PER_POLL + 1)
@@ -916,9 +911,8 @@ def test_read_failure_raises_game_not_running():
 
 
 def test_history_reappended_in_bulk_only_emits_unseen_lines():
-    # 切伺服器轉場：chatLog 一輪內把整份歷史再接一次（實測 101 行→200 行）。
-    # 這批絕大多數是看過的行，但只要混進一行沒讀過的，全有全無的「全部看過」
-    # 判定就整批放行——大批次必須逐行過濾，只留真正沒見過的行。
+    # 切伺服器轉場：chatLog 一輪內把整份歷史再接一次（實測 101→200 行）。只要混進一行沒讀過的，
+    # 全有全無的「全部看過」判定就整批放行——大批次必須逐行過濾，只留真正沒見過的行
     base = [_say(1, "Wolf", f"line {i}") for i in range(12)]
     doubled = base + base[:11] + [_say(1, "Wolf", "brand new line")]
     r = FakeWiz([_log(*base), _log(*doubled)])
@@ -936,9 +930,8 @@ def test_lines_keeps_quick_chat_word_balloon():
 
 
 def test_single_line_view_after_transition_is_not_filtered_as_resurfaced():
-    # 實機回報：聊天轉場空掉後收到私訊 "Test"，該行文字在啟動基準裡出現過，
-    # 被 seen 過濾當成重浮歷史丟掉（第二次講同一句才走 append 而正常翻出）。
-    # 歷史重浮一定是整份幾十行回來，視圖只有一行時必是新訊息，不得過濾。
+    # 實機：轉場空掉後收到私訊 "Test"，該行文字在啟動基準裡出現過，被 seen 過濾當成重浮丟掉。
+    # 歷史重浮一定是整份幾十行回來，視圖只有一行時必是新訊息，不得過濾
     history = [_say(1, "Ann", "Test"), _say(2, "Bob", "hello"), _own("谢谢")]
     full = _log(*history)
     r = FakeWiz([full] * (1 + RESET_WARMUP_POLLS) + ["", "", _say(1, "Ann", "Test")])
@@ -952,9 +945,8 @@ def test_single_line_view_after_transition_is_not_filtered_as_resurfaced():
 
 
 def test_correlated_release_ignores_another_players_tail_line():
-    # 轉場期間遊戲輸入框狀態會亂跳，關聯放行不能只看「輸入框剛開關過」：
-    # 尾行是別人的發言（帶 <link;GID>）時放行等於重翻舊訊息（實機回報：
-    # [摩根 灰烬行者] Have a good one Taylor 在轉場時重複出現）
+    # 轉場期間輸入框狀態會亂跳，關聯放行不能只看「輸入框剛開關過」：尾行是別人的發言
+    # （帶 <link;GID>）時放行等於重翻舊訊息（實機：[摩根 灰烬行者] 在轉場時重複出現）
     full = _log(_say(1, "A", "m1"), _own("gg"), _say(2, "Morgan", "Have a good one"))
     reads = [full] * 7 + [""] * 20 + [full]
     inputs = [False] * 26 + [True, False]
@@ -972,9 +964,8 @@ def test_lines_mark_own_message_without_player_link():
 
 
 def test_new_message_survives_a_duplicated_chat_log_burst():
-    # 實機回報：chatLog 短暫膨脹成重複版本（102 行歷史 ×8 ≈ 822 行），剛好在那一輪
-    # 抵達的私訊被「暴增＝切到別的視圖」判定連同重複內容整批丟棄，對方講第二句才翻得出來。
-    # 剔除看過的行之後只剩寥寥幾行時，那就是夾在重複內容裡的新訊息，必須照吐。
+    # 實機：chatLog 短暫膨脹成重複版本（102 行 ×8），那一輪抵達的私訊被「暴增＝切視圖」判定
+    # 連同重複內容整批丟棄。剔除看過的行後只剩寥寥幾行時，那就是新訊息，必須照吐
     history = [_say(1, "A", f"m{i}") for i in range(12)]
     duplicated = history * 4 + [_say(2, "B", "Test2")]
     r = FakeWiz([_log(*history), _log(*duplicated)])
@@ -1051,9 +1042,8 @@ def test_system_messages_do_not_disturb_the_player_baseline():
 
 
 def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
-    # 「這一輪沒有系統訊息」是日常狀態，不可拿它清掉系統軌基準：基準一沒了，
-    # 下一輪就會被推去走 reset，而 reset 一律以看過集合過濾——再掉一次一字不差的
-    # 同樣的寶（實機最常見的情形）就會被當成重浮歷史而整句吞掉。
+    # 「這一輪沒有系統訊息」是日常狀態，不可拿它清掉系統軌基準：基準一沒了下一輪就走 reset，
+    # 而 reset 以看過集合過濾——再掉一次一字不差的同樣的寶（實機最常見）就會被吞掉
     drop = _system_colored("00FF00", "你获得了 39 金币！")
     player = _say_colored("FFFFFF", "Lars", "hi")
     with_sys = _log(player, drop)
@@ -1094,9 +1084,8 @@ def test_system_track_keeps_emitting_after_being_re_enabled():
 
 
 def test_node_increase_does_not_re_emit_a_system_line_the_new_node_carries(capsys):
-    # 實機：掉寶進行中開私訊／組隊視窗，chatLog 節點數 1->2。串接結構一變，對齊就會
-    # 生出假的 append，而 append 路徑不過看過集合 → 剛掉過的那則寶再吐一次、再打一次
-    # API。節點數是兩軌共同的事實：系統軌比照玩家軌走 reset 語意，交由看過集合擋下。
+    # 實機：掉寶進行中開私訊／組隊視窗，節點數 1->2。串接結構一變，對齊生出假的 append，
+    # 而 append 不過看過集合 → 剛掉的寶再吐一次。系統軌比照玩家軌走 reset，交由看過集合擋下
     drop = _system_colored("00FF00", "你获得了 39 金币！")
     main = _log(_say_colored("FFFFFF", "Lars", "hi"), drop)
     whisper = _log(_own("whisper 1"), drop)   # 新視窗把同一則掉寶也渲染了一份
@@ -1111,9 +1100,8 @@ def test_node_increase_does_not_re_emit_a_system_line_the_new_node_carries(capsy
 
 
 def test_merge_keeps_game_order_when_the_two_tracks_take_different_paths(capsys):
-    # 雙軌設計的核心保證：兩軌各自走了哪條路徑都不影響相對順序（索引同源）。
-    # 這裡讓玩家軌走 append、系統軌走 reset（頭部的舊掉寶被顯示上限修掉，
-    # 與系統軌基準完全無重疊），輸出仍須與遊戲內的交錯順序一字不差。
+    # 雙軌核心保證：兩軌各走哪條路徑都不影響相對順序（索引同源）。這裡讓玩家軌走 append、
+    # 系統軌走 reset（頭部舊掉寶被顯示上限修掉、與基準無重疊），輸出仍須與遊戲內交錯順序一致
     old_drop = _system_colored("00FF00", "你获得了 39 金币！")
     hi = _say_colored("FFFFFF", "Lars", "hi")
     gold = _system_colored("00FF00", "你获得了 65 金币！")
@@ -1413,10 +1401,8 @@ def _tab_switch_script(mine: str, other: str) -> list[str]:
 def test_no_release_while_the_input_box_is_open():
     """輸入框開著時切頁籤，自己的舊發言不得被當成「剛送出」而重複顯示。
 
-    實機回報：重開軟體後切聊天頁籤重複顯示同一句。app.log 顯示放行發生在
-    「開啟輸入框後 60 毫秒」——那一刻使用者還在打字，不可能有剛送出的訊息，
-    重新浮現的其實是切頁籤帶出來的舊訊息。送出的那一輪 input_open 為 False
-    （訊息是在輸入框關掉之後才出現在 chatLog 裡），開著時放行純屬誤判。
+    實機：重開軟體後切頁籤重複顯示同一句，app.log 顯示放行發生在開啟輸入框後 60 毫秒——
+    那時使用者還在打字，重浮的是切頁籤帶出的舊訊息；送出那一輪 input_open 本就為 False。
     """
     mine = _own("Test321")
     other = _log(_say(1, "Amy", "123"), _say(2, "Bob", "456"))

@@ -78,10 +78,9 @@ MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
 _BAR_ICON = 16   # 標題列 icon：留 2px 上下邊給 _BAR_HEIGHT，且是 icon.ico 的原生尺寸
-# 標題列文字往下推的補償。Label 的垂直置中是按字型 linespace 算的，含 baseline 以下的
-# descent 空間，而中文字與數字都沒有下伸部，墨跡因此整個偏上——icon 是完整填滿的圖，
-# 精準置中，並排就看得出兩者沒對齊。實測補 1px 最接近（剩下的 0.5px 是墨跡高度奇偶
-# 不匹配，補不掉）。
+# 標題列文字下推的補償：Label 垂直置中按字型 linespace（含 descent）算，中文與數字
+# 沒有下伸部、墨跡整體偏上，與精準置中的 icon 並排就對不齊。實測補 1px 最接近
+# （剩下的 0.5px 是墨跡高度奇偶不匹配，補不掉）。
 _BAR_TEXT_NUDGE = 1
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
@@ -117,8 +116,8 @@ class OverlayWindow:
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._messages: list[_Message] = []
-        # 視圖是否黏在底部。只在使用者主動捲動時重新評估，不在每次加訊息時當場採樣——
-        # 縮放視窗／錯誤橫幅進出都會把視圖推離底部，當場採樣會把它誤判成「使用者往上捲」。
+        # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
+        # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
         self._error_label: tk.Label | None = None
         self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
@@ -133,16 +132,15 @@ class OverlayWindow:
         # 縮放中的起點與起始幾何；None＝目前沒有在縮放（見 _resize_start）
         self._resize: tuple[int, int, int, int, int, int, str] | None = None
 
-        # 雙層視窗:tk 的 -alpha 是整窗生效、無法只透背景,故拆兩層——
-        # 下層 backdrop 承擔半透明底板(透明度設定作用於此),
-        # 上層本體以 -transparentcolor 把背景色挖空,文字與控制項保持完全不透明。
-        # 本體由 backdrop 擁有(owned window),Windows 保證永遠疊在其上。
+        # 雙層視窗：tk 的 -alpha 整窗生效、無法只透背景，故拆兩層——下層 backdrop 承擔
+        # 半透明底板（透明度設定作用於此），上層本體以 -transparentcolor 挖空背景色，
+        # 文字與控制項保持完全不透明。本體由 backdrop 擁有（owned window），永遠疊在其上。
         self._backdrop = tk.Toplevel(root)
         self._backdrop.overrideredirect(True)
         self._backdrop.attributes("-topmost", True)
         self._backdrop.attributes("-alpha", self._alpha)
         self._backdrop.configure(bg=BG)
-        # 底板攔截透明背景區的滑鼠事件(不穿透到遊戲),但點擊不奪焦點、不改疊序;
+        # 底板攔截透明背景區的滑鼠事件（不穿透到遊戲），但點擊不奪焦點、不改疊序；
         # 空白處的滾輪由底板轉發給訊息區捲動。
         make_non_activating(self._backdrop)
         self._backdrop.bind("<MouseWheel>", self._on_wheel)
@@ -163,14 +161,13 @@ class OverlayWindow:
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
-        # icon 兼任原本 ≡ 的位置；可拖曳的暗示交給 bar 的 fleur 游標
+        # 不另放拖曳把手符號，可拖曳的暗示交給 bar 的 fleur 游標
         self._bar_icon = load_icon(self._win, _BAR_ICON)
         self._title_label = tk.Label(bar, text=app_name(), bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
-        # side="right" 先 pack 者占最外側：由右到左依序為 ✕、⚙、狀態字。
-        # overlay 是無邊框視窗、打包版沒有主控台，✕ 是唯一的正常關閉途徑——
-        # 所以整組控制項都要排在標題之前 pack，標題再長（英文的應用程式名較長）
-        # 或視窗被縮到多窄，都不會把它們擠出畫面。標題自己則會被裁掉，那無所謂。
+        # side="right" 先 pack 者占最外側：由右到左為 ✕、⚙、狀態字。打包版沒有主控台，
+        # ✕ 是唯一的正常關閉途徑，所以整組控制項都排在標題之前 pack——標題再長
+        # 或視窗再窄，被裁掉的只會是標題。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
                              font=ui_font(9), cursor="hand2")
@@ -224,18 +221,17 @@ class OverlayWindow:
             lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
         )
         self._canvas.bind("<Configure>", self._on_canvas_configure)
-        # 滑鼠移入時啟用滾輪捲動
         self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._on_wheel))
         self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
 
-        # 空狀態提示：沒有任何訊息時，把目前狀態大字顯示在視窗正中間
+        # 空狀態提示：沒有訊息時把目前狀態大字置中顯示
         self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
                                      font=ui_font(11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 右下角縮放把手：只畫斜線、背景留透明色鍵，才不會在遊戲畫面上多出一塊方形。
-        # 代價是只有線條那些實心像素接得到滑鼠（透明色鍵的像素在 Windows 下點不穿），
-        # 所以線畫粗一點把抓取範圍撐回來；亮色配描邊，任何背景上都有對比。
+        # 右下角縮放把手只畫斜線、背景留透明色鍵，才不會在遊戲畫面上多出一塊方形。
+        # 代價是只有線條的實心像素接得到滑鼠（透明色鍵像素在 Windows 下點不穿），
+        # 所以線畫粗一點撐回抓取範圍；亮色配描邊，任何背景上都有對比。
         grip = tk.Canvas(self._win, width=_GRIP_SIZE, height=_GRIP_SIZE, bg=BG,
                          highlightthickness=0, bd=0, cursor="size_nw_se")
         for inset in (4, 9, 14):
@@ -247,22 +243,20 @@ class OverlayWindow:
         grip.bind("<B1-Motion>", self._edge_drag)
         grip.bind("<ButtonRelease-1>", self._edge_release)
 
-        # 四邊縮放：本體的透明背景像素點得穿，左／右／下三邊與下方兩角的事件會落到
-        # 底板上。上緣被標題列擋住，改由標題列自己的按下事件分流（見 _bar_press）——
-        # 在標題列上鋪一條感應細條會蓋掉標題文字的頂端。
+        # 四邊縮放：本體的透明背景像素點得穿，左／右／下三邊與下方兩角的事件落到底板上。
+        # 上緣被標題列擋住，由標題列自己的按下事件分流（見 _bar_press）——在標題列上
+        # 鋪感應細條會蓋掉標題文字的頂端。
         self._backdrop.bind("<Motion>", self._edge_motion)
         self._backdrop.bind("<ButtonPress-1>", self._edge_press)
         self._backdrop.bind("<B1-Motion>", self._edge_drag)
         self._backdrop.bind("<ButtonRelease-1>", self._edge_release)
 
         self._win.title(app_name())  # 工作列按鈕顯示的名稱
-        # 用 Win32 直接建立 OS 擁有關係：owned window 在 OS 層永遠疊在 owner 之上，
-        # 任何點擊／啟用都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
-        #
-        # 這一步必須排在 enable_taskbar_button 之前：改 owner 會讓 shell 撤掉已經
-        # 建好的工作列按鈕，而 WS_EX_APPWINDOW 得等下一次 hide→show 才會重新生效。
-        # 順序反過來的話，首次啟動根本看不到工作列按鈕，要縮小再放大（或開設定視窗）
-        # 補一次 hide→show 才會冒出來。
+        # 用 Win32 直接建立 OS 擁有關係：owned window 永遠疊在 owner 之上，點擊／啟用
+        # 都不會反轉（Tk 的 master 參數實測不會設定 GW_OWNER）。
+        # 必須排在 enable_taskbar_button 之前：改 owner 會讓 shell 撤掉已建好的工作列
+        # 按鈕，而 WS_EX_APPWINDOW 要等下一次 hide→show 才重新生效——順序反過來，
+        # 首次啟動就沒有工作列按鈕。
         try:
             self._win.update_idletasks()
             win32gui.SetWindowLong(root_hwnd(self._win), win32con.GWL_HWNDPARENT,
@@ -270,9 +264,8 @@ class OverlayWindow:
         except Exception as exc:
             print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
         enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
-        # 有工作列按鈕就關得掉：Alt+F4、工作列右鍵「關閉視窗」都送 WM_DELETE_WINDOW。
-        # tkinter 預設把它接成「destroy 這個 Toplevel」，那只會拆掉文字層，留下 backdrop
-        # 這層半透明底板孤兒在畫面上，主迴圈還照跑（每 5 秒對著已消失的 widget 噴錯）。
+        # 有工作列按鈕就關得掉（Alt+F4、工作列右鍵都送 WM_DELETE_WINDOW）：tkinter 預設
+        # 接成 destroy 這個 Toplevel，只拆掉文字層、留下 backdrop 孤兒，主迴圈還照跑噴錯。
         # 接回 ✕ 的乾淨關閉，兩條路徑才一致。
         if on_close is not None:   # None（測試直接建視窗）時維持 Tk 預設行為
             self._win.protocol("WM_DELETE_WINDOW", on_close)
@@ -335,8 +328,8 @@ class OverlayWindow:
         self._win.after_idle(self._settle_after_expand)
 
     def _settle_after_expand(self) -> None:
-        """視窗重新顯示後把捲動狀態接回來。泡泡期間進來的訊息是在隱藏狀態下排版的，
-        必須自己重算——不能指望 deiconify 一定會帶來 <Configure>（幾何沒變就沒有事件）。"""
+        """視窗重新顯示後接回捲動狀態：泡泡期間的訊息是在隱藏狀態下排版的，必須自己
+        重算——deiconify 幾何沒變就不會帶來 <Configure>。"""
         self._refresh_scroll()
         print(f"[ui] expanded ({self._scroll_debug()})", file=sys.stderr)
 
@@ -366,7 +359,6 @@ class OverlayWindow:
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
 
     def _bubble_moved(self, x: int, y: int) -> None:
-        """泡泡被拖到新位置：記住並回報給呼叫端存檔。"""
         self._bubble_pos = {"x": x, "y": y}
         if self._on_bubble_move is not None:
             self._on_bubble_move(x, y)
@@ -414,13 +406,13 @@ class OverlayWindow:
         self._note_scroll()
 
     def _user_scroll(self, *args) -> None:
-        """捲軸拖曳的入口（yview 的包裝）：捲完順手記下使用者要不要繼續跟隨底部。"""
+        """捲軸拖曳入口：捲完記下使用者是否仍要跟隨底部。"""
         self._canvas.yview(*args)
         self._note_scroll()
 
     def _scroll_debug(self) -> str:
-        """捲動狀態快照，供 log 定位「訊息看不到／捲不到底」這類回報。
-        scrollregion 與 bbox 的高度對不上，就代表捲動範圍是舊的。"""
+        """捲動狀態快照，供 log 定位「訊息看不到／捲不到底」；region_h 與 content_h
+        對不上就代表捲動範圍是舊的。"""
         region = self._canvas.cget("scrollregion").split()
         bbox = self._canvas.bbox("all")
         return (f"messages={len(self._messages)} follow={self._follow} "
@@ -441,10 +433,10 @@ class OverlayWindow:
     def _view_anchor(self) -> tuple["tk.Misc", int] | None:
         """視圖目前對齊到的內容位置：(最新一則的列, 它相對視口頂端的偏移)。
 
-        畫布記的是像素原點、不是「看到哪一則」，所以清掉上方的舊訊息（訊息上限、
-        淡出）或改變某列的高度時，底下的內容會整段滑動，使用者正在讀的那幾行就跳掉了。
-        內容變動前先取錨、變動後交給 `_refresh_scroll` 復位。跟隨底部時不需要錨——
-        直接貼底即可；最新一則永遠不會被上方的清除動作移走，拿它當錨最穩。"""
+        畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
+        內容會整段滑動、正在讀的行就跳掉——內容變動前取錨、變動後交給
+        `_refresh_scroll` 復位。跟隨底部時直接貼底不需要錨；最新一則不會被上方的
+        清除移走，拿它當錨最穩。"""
         if self._follow or not self._messages:
             return None
         row = self._messages[-1].row
@@ -463,16 +455,15 @@ class OverlayWindow:
         self._canvas.yview_moveto((target - bbox[1]) / (bbox[3] - bbox[1]))
 
     def _refresh_scroll(self, anchor: tuple["tk.Misc", int] | None = None) -> None:
-        """重算捲動範圍，並在跟隨模式下把視圖貼回底部；沒在跟隨時依 anchor 維持原位。
+        """重算捲動範圍；跟隨模式貼回底部，否則依 anchor 維持原位。
 
-        任何改變畫布內容或幾何的動作都要呼叫：新增／更新訊息、清掉過期訊息，
-        以及縮放視窗與錯誤橫幅進出所觸發的重新排版。少呼叫一處的後果不是少捲一次，
-        而是視圖從此停在舊位置——`_follow` 仍為真但沒人把它貼回底部，
-        之後每一則新訊息都落在畫面外，看起來就像訊息漏掉了。"""
+        任何改變畫布內容或幾何的動作都要呼叫（新增／更新／清除訊息、縮放、橫幅進出）。
+        漏呼叫的後果是視圖從此停在舊位置——`_follow` 仍為真卻沒人貼底，之後每則
+        新訊息都落在畫面外，看起來就像訊息漏掉了。"""
         self._canvas.update_idletasks()
-        # 視窗隱藏（縮成泡泡、工作列收合）期間畫布不重繪，內嵌的訊息容器就停止跟著
-        # 捲動位置移動，與畫布自己的捲動帳目脫節——yview 回報已在底部，畫面卻少了
-        # 最後幾則、往下也捲不動。重設一次座標（值不變）即可要求畫布重新擺放它。
+        # 視窗隱藏（縮成泡泡、工作列收合）期間畫布不重繪，內嵌容器與捲動帳目脫節——
+        # yview 回報已在底部，畫面卻少了最後幾則、往下也捲不動。重設一次座標（值不變）
+        # 即可要求畫布重新擺放它。
         self._canvas.coords(self._inner_id, 0, 0)
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
         if self._follow:
@@ -585,7 +576,6 @@ class OverlayWindow:
                 continue
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
             line.itemconfigure("txt", text=translated)
-            # 脫離佔位：換回該則的遊戲色；翻譯失敗則一律走錯誤色
             line.itemconfigure("fg", fill=FG_ERROR if failed
                                else (m.color or FG_TRANSLATED))
             _fit_line_height(line)
@@ -633,7 +623,6 @@ class OverlayWindow:
         self._refresh_placeholder()
 
     def _refresh_placeholder(self) -> None:
-        """沒有訊息 → 置中顯示狀態；有訊息 → 收掉，讓位給訊息列表。"""
         if self._messages:
             self._placeholder.place_forget()
         else:
@@ -662,9 +651,8 @@ class OverlayWindow:
 
     def set_update(self, release) -> None:
         """顯示更新橫幅：整列可點（開瀏覽器到下載頁），右側 ✕ 只關掉這一次。
-
-        與錯誤橫幅各佔一列、互不覆蓋：錯誤橫幅隨遊戲與翻譯狀態自動來去，這條則是
-        一次性的告知，兩者可能同時該被看到。release 存起來，換語言時才重繪得出來。"""
+        與錯誤橫幅各佔一列、互不覆蓋——兩者可能同時該被看到。release 存起來，
+        換語言時才重繪得出來。"""
         self.clear_update()
         self._update_release = release
         row = tk.Frame(self._frame, bg=BG_UPDATE)
@@ -679,10 +667,8 @@ class OverlayWindow:
                          wraplength=self._wrap)
         label.pack(side="left", fill="x", expand=True)
         label.bind("<Button-1>", lambda e: self._open_update_link(release))
-        # before＝捲動區：與錯誤橫幅同理，排在 expand=True 的捲動區之後會在視窗
-        # 被縮小時被擠掉。右側讓出縮放把手的寬度：把手 place 在視窗右下角、底色是
-        # 透明色鍵，疊在這條不透明橫幅上會挖出一個缺口並蓋掉半個 ✕（捲軸為同樣的
-        # 理由讓出把手的高度）。
+        # before＝捲動區：同錯誤橫幅。右側讓出縮放把手的寬度：把手底色是透明色鍵，
+        # 疊在這條不透明橫幅上會挖出缺口並蓋掉半個 ✕（捲軸讓出把手高度同理）。
         row.pack(side="bottom", fill="x", pady=2, padx=(0, _GRIP_SIZE),
                  before=self._scroll_area)
         self._update_row = row

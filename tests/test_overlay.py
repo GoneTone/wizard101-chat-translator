@@ -387,9 +387,8 @@ def test_successful_translation_keeps_the_game_colour(root):
 
 
 def test_bubble_release_without_press_is_ignored(root):
-    # 點標題列的 ─ 縮小時，minimize() withdraw 掉正被按住的視窗、隱式 grab 斷掉，
-    # 放開滑鼠的事件會落到剛出現在游標下的泡泡上——沒有對應的 press，
-    # 既不得丟例外（實機 log 有 AttributeError），也不得把剛收起的視窗展開
+    # 點 ─ 縮小時 minimize() withdraw 掉正被按住的視窗、隱式 grab 斷掉，放開滑鼠的事件落到
+    # 剛出現的泡泡上——沒有對應的 press，不得丟例外（實機 AttributeError），也不得展開
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.minimize()
@@ -534,9 +533,8 @@ def test_filling_a_pending_translation_keeps_scrolled_view_in_place(root):
 
 
 def test_expand_reanchors_view_to_bottom(root):
-    # 泡泡期間的訊息是在 unmap 狀態下排版的，展開後尺寸才真正確定。
-    # expand() 必須自己重算並貼底——deiconify 不保證帶來 <Configure>，
-    # 沒有這一步的話捲動範圍停在舊值，最新訊息怎麼捲都捲不到。
+    # 泡泡期間的訊息是在 unmap 狀態下排版的，展開後尺寸才確定。expand() 必須自己重算並貼底——
+    # deiconify 不保證帶來 <Configure>，捲動範圍停在舊值的話最新訊息怎麼捲都捲不到
     ov = _filled_overlay(root)
     ov.minimize()
     root.update()
@@ -552,9 +550,8 @@ def test_expand_reanchors_view_to_bottom(root):
 
 
 def test_expand_realigns_the_message_container(root):
-    # 視窗隱藏期間畫布不重繪，內嵌的訊息容器會停在舊的捲動位置，與 canvas 自己的
-    # 捲動帳目脫節：yview 回報已在底部，畫面卻少了最後幾則，往下也捲不動
-    # （要等下一則新訊息改變容器尺寸、觸發重新佈局才會對齊）。
+    # 視窗隱藏期間畫布不重繪，內嵌容器停在舊捲動位置、與 canvas 的捲動帳目脫節：yview 回報
+    # 已在底部，畫面卻少了最後幾則（要等下一則新訊息觸發重新佈局才會對齊）
     ov = _filled_overlay(root)
     ov.minimize()
     root.update()
@@ -603,14 +600,13 @@ def test_message_font_follows_language(root):
 
 
 def test_window_close_button_runs_the_clean_shutdown(root):
-    # Alt+F4 與工作列右鍵「關閉視窗」都送 WM_DELETE_WINDOW；沒有 handler 時 Tk 只會
-    # destroy 這一個 Toplevel，留下 backdrop 那層半透明底板孤兒在畫面上、主迴圈照跑。
-    # 兩個有工作列按鈕的視窗都必須把它接回和 ✕ 一樣的乾淨關閉。
+    # Alt+F4 與工作列「關閉視窗」都送 WM_DELETE_WINDOW；沒有 handler 時 Tk 只 destroy 這一個
+    # Toplevel，留下 backdrop 孤兒、主迴圈照跑。兩個有工作列按鈕的視窗都必須接回乾淨關閉
     closed = []
     ov = OverlayWindow(root, x=0, y=0, max_messages=10, fade_seconds=0,
                        on_close=lambda: closed.append("win"))
 
-    # tkinter predefines this protocol as "destroy this Toplevel"，所以不能只斷言它非空
+    # tkinter 預設把這個 protocol 設成「destroy 這個 Toplevel」，所以不能只斷言它非空
     handler = ov._win.protocol("WM_DELETE_WINDOW")
     assert not handler.endswith("destroy"), "文字層仍停在 Tk 預設的 destroy 行為"
     root.call(handler)
@@ -646,8 +642,7 @@ def test_set_update_shows_a_clickable_banner(root):
 
 def test_update_banner_uses_an_opaque_background(root):
     """回歸測試：橫幅底色不可等於 BG——本體視窗把 BG 設成 `-transparentcolor`，
-    符合這個顏色的像素在 Windows 下連 hit-test 都會被跳過，整列可點與右側 ✕
-    就都點不到，靠近下緣時點擊還會穿透到 backdrop 變成縮放視窗。"""
+    符合該色的像素在 Windows 下連 hit-test 都跳過，整列與右側 ✕ 就都點不到。"""
     from src.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
@@ -664,8 +659,7 @@ def test_update_banner_uses_an_opaque_background(root):
 def test_update_banner_leaves_room_for_the_resize_grip(root):
     """回歸測試：橫幅右側要讓出縮放把手的寬度。
 
-    把手 place 在視窗右下角、底色是透明色鍵，疊在這條不透明橫幅上會挖出一個
-    缺口並蓋掉半個 ✕（實機看到的症狀）。"""
+    把手 place 在右下角、底色是透明色鍵，疊在不透明橫幅上會挖出缺口並蓋掉半個 ✕。"""
     from src.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)

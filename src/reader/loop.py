@@ -29,9 +29,8 @@ INPUT_POLL_INTERVAL = 0.05
 
 
 def banner_for(game_issue: str | None, error_state: str | None) -> str | None:
-    """依目前狀況決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
-    game_issue 是遊戲端問題的文案 key（None＝遊戲正常），優先於翻譯錯誤：
-    連不上遊戲時翻譯狀態已無意義。"""
+    """決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
+    game_issue（遊戲端問題的文案 key）優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。"""
     if game_issue:
         return game_issue
     if error_state == "config":
@@ -82,11 +81,9 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
 
     def wait_watching_input(seconds: float) -> None:
         """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
-
-        input_open() 只讀一個已快取節點的可見性旗標（實測 <0.1ms），可以用遠高於
-        poll_interval 的頻率取樣；讀聊天記錄則貴得多（實測約 10ms），維持原本的節奏。
-        取樣不另開執行緒——WizChatReader 內部跑自己的 asyncio loop，跨執行緒併發呼叫
-        會踩到彼此。"""
+        input_open() 只讀一個已快取節點的旗標（實測 <0.1ms），讀聊天記錄則約 10ms，
+        故兩者節奏分開。不另開執行緒：WizChatReader 內部跑自己的 asyncio loop，
+        跨執行緒併發呼叫會踩到彼此。"""
         deadline = time.monotonic() + seconds
         while not stop.is_set():
             remaining = deadline - time.monotonic()
@@ -144,8 +141,7 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
         for line in new_lines:
             msg_id = next(msg_ids)
             if line.system:
-                # 系統訊息不進上下文，且先查快取——命中就直接以完成態顯示，
-                # 不佔位也不進 pool（零延遲）。
+                # 系統訊息不進上下文；快取命中就直接以完成態顯示，不佔位也不進 pool
                 cached = cache.get(line.text) if cache is not None else None
                 if cached is not None:
                     ui_queue.put(lambda o=line.text, tr=cached, c=line.color:
@@ -173,4 +169,4 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
         check_input()
         wait_watching_input(cfg["poll_interval"])
 
-    reader.close()  # 停止：解除 wizwalker hook、關閉連線
+    reader.close()

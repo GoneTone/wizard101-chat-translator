@@ -313,7 +313,7 @@ def _turns(body):
 
 
 def test_incoming_system_has_no_format_markers():
-    # system 不得列出段落標記字串,否則小模型會把它回吐成「請照此格式提供輸入」
+    # system 不得列出段落標記字串，否則小模型會把它回吐成「請照此格式提供輸入」
     system = build_incoming_system("繁體中文（台灣）")
     assert "[要翻譯的訊息]" not in system
     assert "語境" in system            # 仍說明會收到聊天記錄當背景
@@ -447,7 +447,6 @@ def test_translate_system_message_sends_no_context_turns():
     fake = FakeHttpxClient()
     tr = Translator(target_language="繁體中文（台灣）", client=fake)
     tr.translate_system_message("你获得了 {0} 金币！")
-    # 檢查只送了單一 user turn（無背景上下文）
     turns = fake.last_body["messages"][1:]  # 跳過 system message
     assert turns == [{"role": "user", "content": "你获得了 {0} 金币！"}]
 
@@ -478,9 +477,8 @@ def test_game_noun_rule_still_keeps_english_when_the_source_is_english():
 
 
 def test_game_noun_rule_carries_no_english_example():
-    # 示範一次「譯名(English)」就會把模型帶往英文：實機上「雪刺帽」被整個譯成
-    # Snowspike Hat，拿掉範例後同一句穩定翻成中文（見規則的 docstring）。
-    # 這裡用實際清理譯文的那條正則反過來擋住範例回流。
+    # 示範一次「譯名(English)」就會把模型帶往英文：實機「雪刺帽」被整個譯成 Snowspike Hat，
+    # 拿掉範例後穩定翻成中文。這裡用清理譯文的那條正則反過來擋住範例回流
     assert _PAREN_ENGLISH.search(_game_noun_rule("繁體中文（台灣）")) is None
 
 

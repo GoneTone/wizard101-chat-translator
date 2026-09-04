@@ -36,8 +36,7 @@ from src.ui.settings import SettingsWindow
 from src.ui.winstyle import root_hwnd
 from src.updater import check_for_update
 
-# 單一實例的 mutex 名稱。跑第二份會讓兩邊搶著對遊戲掛 wizwalker hook，
-# 也會同時寫同一份 config.json 與 log，因此直接擋掉。
+# 第二份實例會搶著對遊戲掛 wizwalker hook，也會同時寫同一份 config.json 與 log。
 SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
 
 def is_elevated() -> bool:
@@ -49,20 +48,14 @@ def is_elevated() -> bool:
 
 
 def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_language) -> str:
-    """決定啟動時要套用的介面語言碼，並在真正首次執行時就地補上 target_language 預設值。
+    """決定啟動時的介面語言碼；真正首次執行時順便把 target_language 補成同語言。
 
-    是否為首次執行由呼叫端傳入的 `config_existed`（啟動時 config.json 是否已存在）判斷，
-    不能看 `cfg["ui_language"]` 是否為 None：pre-i18n 版本寫出的舊 config 一樣會被
-    `load_config()`／`_merge` 回填成 `ui_language: None`（見 `tests/test_config.py`），
-    若沿用舊判斷式，既有使用者升級後會被誤判成首次執行，導致他們自己選過的
-    target_language 被系統偵測值悄悄覆蓋，還會在下一次任何 `save_config`（例如只是拖動
-    視窗）時永久寫死，之後每次啟動都重演，手動改 config.json 也救不回來。
-
-    `config_existed` 為 False（真正首次執行）時：介面語言依系統偵測，翻譯目標語言也
-    跟著它走，否則非 zh-TW 系統會在精靈第三步看到不相關的「繁體中文（台灣）」預設值。
-    `config_existed` 為 True 時：`ui_language` 若是真實語言碼就直接採用、不呼叫
-    `detect`（避免每次啟動都做多餘的系統查詢）；若仍是 None（沿用自舊版設定檔），
-    介面語言照樣呼叫 `detect` 決定，但不動 target_language，尊重使用者原本的選擇。"""
+    首次執行只能看 `config_existed`，不能看 `ui_language` 是否為 None：pre-i18n 的舊
+    config 經 `load_config` 補值後同樣是 None，若據此判斷，升級的使用者會被當成首次
+    執行，自己選過的 target_language 被系統偵測值覆蓋，並在下一次 save_config 永久寫死。
+    首次執行時 target_language 跟著系統語言走，否則非 zh-TW 系統會在精靈看到不相關的
+    繁中預設值；舊設定檔 ui_language 仍為 None 時只偵測介面語言、不動 target_language；
+    ui_language 已是真實語言碼時不呼叫 `detect`。"""
     if cfg["ui_language"] is None:
         detected = detect()
         if not config_existed:
@@ -80,15 +73,13 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
             break
         try:
             callback()
-        except Exception as exc:  # 避免單一 UI 回呼失敗就讓整個 pump 迴圈停擺
+        except Exception as exc:
             print(f"[ui] callback failed: {exc}", file=sys.stderr)
 
 
 def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) -> None:
     """檢查更新，有新版就把橫幅回呼排進 ui_queue（供背景執行緒呼叫）。
-
-    任何失敗都只留 log：更新檢查是附加功能，不能影響啟動與收訊。`checker` 可注入
-    是為了測試，正式路徑用預設的 check_for_update。"""
+    失敗只留 log：更新檢查是附加功能，不能影響啟動與收訊。`checker` 供測試注入。"""
     try:
         release = checker()
     except Exception as exc:
@@ -101,10 +92,8 @@ def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) ->
 
 def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
     """搶下單一實例的 mutex；已經有一份在跑時回 None。
-
-    呼叫端必須留住回傳的 handle 直到程序結束：mutex 隨 handle 關閉而釋放，
-    handle 一被回收就等於放行下一份實例。name 可覆寫是為了讓測試各用各的名稱，
-    不會被使用者正在執行的本尊卡住。"""
+    呼叫端必須留住回傳的 handle 直到程序結束：mutex 隨 handle 關閉而釋放。
+    name 可覆寫讓測試各用各的名稱，不會被正在執行的本尊卡住。"""
     handle = win32event.CreateMutex(None, False, name)
     if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
         return None
@@ -113,9 +102,8 @@ def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
 
 def focus_running_instance(title: str) -> bool:
     """把既有實例的視窗帶到前景；找不到視窗或被系統擋下時回 False。
-
-    Windows 的前景鎖會擋掉背景程序的 SetForegroundWindow，這時系統改成閃工作列
-    按鈕——使用者仍看得到回應，所以失敗只記錄、不當成錯誤。"""
+    前景鎖擋下背景程序的 SetForegroundWindow 時系統會改成閃工作列按鈕，
+    使用者仍看得到回應，所以失敗只記錄、不當成錯誤。"""
     found = []
 
     def collect(hwnd, _):
@@ -123,7 +111,7 @@ def focus_running_instance(title: str) -> bool:
             if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == title:
                 found.append(hwnd)
         except Exception:
-            pass   # 列舉途中單一視窗查詢失敗不該中斷整輪掃描
+            pass   # 單一視窗查詢失敗不該中斷整輪列舉
         return True
 
     try:
@@ -146,22 +134,14 @@ def focus_running_instance(title: str) -> bool:
 
 
 def apply_window_icon(root: tk.Tk) -> int | None:
-    """把應用程式 icon 裝到視窗類別上，回傳裝上去的 HICON（失敗回 None）。
+    """把應用程式 icon 裝到視窗類別上，回傳 HICON；失敗回 None（icon 只是裝飾，不擋啟動）。
 
-    不用 tkinter 的 `iconbitmap`：它在 Windows 上挑不對 ICO 的 frame，實測掛出來的
-    32x32 是被放大裁切過的糊圖（徽章切在邊緣、101 缺一半）。改用 LoadImage 指定
-    尺寸載入——它會挑最接近的原生 frame——再寫進視窗類別，之後建立的每個 Toplevel
-    都自動沿用，不必逐一設定。
-
-    類別得透過一個 TkTopLevel 視窗才設得到：withdraw 的 root 在 Windows 上是
-    TkChild，跟實際顯示的視窗不同類別，所以這裡開一個隱藏的 Toplevel 當跳板
-    （隱藏狀態仍屬 TkTopLevel，不會閃畫面）。
-
-    小圖示（GCL_HICONSM）設不進去（實測寫入回報成功卻讀不回來），但工作列按鈕在
-    Windows 11 是看 exe 的圖示、不看視窗 icon，所以不影響——真正要顧的是 exe 資源
-    裡的尺寸要齊全（見 src/assets/icon.ico）。
-
-    icon 是可有可無的裝飾，掛不上去只留 log，不能因此擋掉啟動。"""
+    不用 tkinter 的 `iconbitmap`：它在 Windows 上挑錯 ICO frame，實測 32x32 是放大裁切
+    過的糊圖。改用 LoadImage 指定尺寸（會挑最接近的原生 frame）寫進視窗類別，之後每個
+    Toplevel 都自動沿用。類別得透過 TkTopLevel 視窗才設得到——withdraw 的 root 是
+    TkChild——故開一個隱藏 Toplevel 當跳板。小圖示（GCL_HICONSM）寫入回報成功卻讀不
+    回來，但 Windows 11 工作列看的是 exe 資源的圖示，不受影響（尺寸要齊全，見
+    src/assets/icon.ico）。"""
     path = icon_path()
     probe = None
     try:
@@ -191,13 +171,11 @@ def apply_window_icon(root: tk.Tk) -> int | None:
 def redirect_output() -> None:
     """把 stdout／stderr 接到帶時戳的輸出：打包版落入 exe 旁的 app.log，開發模式留在主控台。"""
     if getattr(sys, "frozen", False):
-        # windowed exe 沒有 stdout/stderr（為 None）；全部導到 exe 旁的 app.log，
-        # 使用者回報問題時附上此檔即可（附加模式、保留近 7 天，每次啟動寫一行分段標頭）。
+        # windowed exe 的 stdout／stderr 為 None，全部導到 exe 旁的 app.log
         sys.stdout = sys.stderr = TimestampedStream(open_session_log("app.log"))
         return
-    # 開發模式輸出到主控台，同樣補時戳，才對得上 messages.log 的時間軸。
-    # 主控台編碼常是 cp950（非 UTF-8），UI 文字裡的 ✕ 之類字元會讓 print 直接
-    # 拋 UnicodeEncodeError 把程式帶掉，故先放寬成無法編碼就替換。
+    # 主控台編碼常是 cp950，UI 文字裡的 ✕ 之類字元會讓 print 拋 UnicodeEncodeError
+    # 把程式帶掉，故先放寬成無法編碼就替換；時戳同樣要補，才對得上 messages.log。
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
@@ -221,7 +199,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
              reader_thread: threading.Thread, root: tk.Tk,
              cache: TranslationCache) -> None:
     """乾淨關閉：停 reader（解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
-    步驟順序有其理由，見各段註解；本函式不返回。"""
+    步驟順序見各段註解；本函式不返回。"""
     print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
     stop.set()
     for pool in pools:
@@ -229,44 +207,39 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     try:
         keyboard.unhook_all()
     except Exception as exc:
-        # 不可讓這裡的例外逃出——逃出去會連 reader join、cache flush、
-        # os._exit(0) 都跳過，使用者連快取都救不回來。
+        # 例外逃出會連 reader join、cache flush、os._exit 都跳過
         print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
-    # 等 reader 執行緒跑完 reader.close()（解除 wizwalker hook、還原遊戲記憶體）再退出；
-    # 否則 daemon 執行緒會被直接砍掉，hook 殘留 → 下次掛入 PatternFailed、需重開遊戲。
+    # 等 reader 跑完 reader.close()（解除 hook、還原遊戲記憶體）；daemon 執行緒被直接
+    # 砍掉會讓 hook 殘留，下次掛入 PatternFailed、需重開遊戲。
     reader_thread.join(timeout=8)
     try:
         root.destroy()
     except Exception:
         pass
-    # 落盤放在兩個 pool 都已 shutdown()、reader 執行緒也已 join 之後——
-    # 越晚呼叫，飛行中的翻譯 worker 就有越多機會在這之前寫完 cache.put()；
-    # os._exit(0) 不會跑 atexit，這是把快取寫回磁碟的最後機會。
+    # 落盤放在 pool shutdown 與 reader join 之後，飛行中的 worker 才有機會先寫完
+    # cache.put()；os._exit 不跑 atexit，這是寫回磁碟的最後機會。
     cache.flush()
     print("[app] shutdown complete")
-    # 翻譯 worker 執行緒非 daemon，逾時仍卡在 HTTP 請求中的話（最長 _TIMEOUT=60 秒）
-    # 一般 return 會讓直譯器在 concurrent.futures.thread._python_exit 卡住等它們
-    # join，使用者看到視窗已關、程式卻在工作管理員裡多留最多 60 秒——像當掉一樣。
-    # 該還原的都還原了（reader 執行緒已 join、hook 已解除、log 已寫完且線緩衝），
-    # 故直接砍行程；日後若想「修」回乾淨 return，請先確認上述 60 秒卡住已消失。
+    # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 _TIMEOUT=60 秒）時，一般 return 會讓
+    # 直譯器在 concurrent.futures.thread._python_exit 等它們 join——視窗已關、程式卻在
+    # 工作管理員多留 60 秒。該還原的都已還原（hook 已解除、log 為線緩衝），直接砍行程。
     os._exit(0)
 
 
 def main() -> None:
     redirect_output()
-    # 版本先印：使用者回報問題時，app.log 分段標頭後第一行就看得到版本
+    # 版本先印：app.log 分段標頭後第一行就是版本
     print(f"[app] version={__version__}", file=sys.stderr)
 
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
 
-    # 介面語言要在建立任何視窗之前決定：文案與字型都由它決定。
+    # 介面語言要在建立任何視窗之前定案：文案與字型都由它決定
     set_language(bootstrap_language(cfg, config_existed))
 
-    # 擋掉第二份實例：兩份會搶著對遊戲掛 wizwalker hook，也會同時寫同一份設定與 log。
-    # 位置卡在語言定案之後（既有實例的視窗標題就是 app_name()，要有語言才算得出來）、
-    # 開 messages.log 之前（否則被擋下的那份會在收訊記錄裡多留一段空白 session）。
-    # instance_lock 必須留著不放：handle 一被回收，mutex 就跟著釋放、放行下一份。
+    # 單一實例檢查卡在語言定案之後（既有實例的視窗標題 app_name() 要有語言才算得出來）、
+    # 開 messages.log 之前（否則被擋下的那份會多留一段空白 session）。
+    # instance_lock 必須留著：handle 一被回收，mutex 就釋放、放行下一份。
     instance_lock = acquire_single_instance()
     if instance_lock is None:
         focused = focus_running_instance(app_name())
@@ -274,7 +247,7 @@ def main() -> None:
               file=sys.stderr)
         return
 
-    # 收訊原始內容另存一份（不清理、不過濾），訊息類問題直接比對這份
+    # 收訊原始內容另存一份，訊息類問題直接比對這份
     message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
 
     root = tk.Tk()
@@ -287,7 +260,7 @@ def main() -> None:
         if not run_wizard(root, cfg):
             print("[app] wizard cancelled, exiting", file=sys.stderr)
             root.destroy()
-            return  # 使用者取消首次設定
+            return
         print("[app] wizard completed, config saved", file=sys.stderr)
         save_config(CONFIG_PATH, cfg)
 
@@ -315,7 +288,7 @@ def main() -> None:
         fade_seconds=cfg["fade_seconds"],
         on_geometry_change=save_geometry,
         on_settings=lambda: ui_queue.put(lambda: settings.open()),
-        on_close=root.quit,  # ✕ 結束 mainloop → 走 finally 的乾淨關閉（停 reader、解 hook）
+        on_close=root.quit,  # 結束 mainloop → 走 finally 的乾淨關閉
         bubble_position=cfg["bubble_position"],
         on_bubble_move=save_bubble_position,
         alpha=cfg["overlay_alpha"],
@@ -328,7 +301,7 @@ def main() -> None:
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:
         """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。
-        系統訊息的快取寫入已在 translate_and_cache 內完成，這裡兩條佇列走同一段。"""
+        系統訊息的快取寫入已在 translate_and_cache 內完成，兩條佇列走同一段。"""
         ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
 
     pool = TranslationPool(
@@ -361,8 +334,8 @@ def main() -> None:
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def relabel_ui() -> None:
-        """介面語言換掉後讓常駐視窗跟上（設定視窗預覽、還原與儲存都走這裡）。
-        翻譯輸入框每次呼出才建立元件，會自然帶到新語言，不需要另外處理。"""
+        """介面語言換掉後讓常駐視窗跟上（預覽、還原與儲存都走這裡）。
+        翻譯輸入框每次呼出才建立元件，會自然帶到新語言。"""
         overlay.refresh_labels()
         print(f"[ui] overlay relabelled for language {current_language()}",
               file=sys.stderr)
@@ -382,8 +355,7 @@ def main() -> None:
                                             lambda: ui_queue.put(input_box.show))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
-        # 語言已由設定視窗套用（set_language）；這裡負責讓常駐的 overlay 跟上。
-        # 預覽時通常已 relabel 過，這裡是沒經過預覽的路徑（程式化改語言）的保底。
+        # set_language 已由設定視窗呼叫；預覽通常已 relabel 過，這裡是沒經過預覽路徑的保底
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
@@ -408,8 +380,7 @@ def main() -> None:
         daemon=True)
     reader_thread.start()
 
-    # 更新檢查另開一條 daemon 執行緒：網路慢或不通都不該拖住啟動，關閉程式時也
-    # 不等它（結果只是一條橫幅，丟掉無妨）。
+    # 更新檢查另開 daemon 執行緒：網路慢不該拖住啟動，關閉時也不等它（結果只是一條橫幅）
     threading.Thread(target=announce_update, args=(ui_queue, overlay),
                      daemon=True).start()
 
@@ -423,7 +394,7 @@ def main() -> None:
     try:
         root.mainloop()
     except KeyboardInterrupt:
-        pass  # Ctrl+C：安靜結束，不印 traceback
+        pass  # Ctrl+C 安靜結束，不印 traceback
     finally:
         shutdown(stop, [pool, system_pool], reader_thread, root, cache)
 

@@ -1,13 +1,10 @@
 """介面文案資源：依當前介面語言提供字串。
 
-可選語言直接掃語言檔目錄得來，程式碼裡不留任何語言名冊：**新增一個介面語言
-只要放進一份 `<語言碼>.json`**，並在檔內宣告 `language.*` 這組 metadata
-（自稱、介面字族、要吃下的 Windows locale），不必動任何程式碼。
-
-語言檔為扁平 key-value JSON（`<語言碼>.json`），繁體中文（台灣）是來源語言
-（Crowdin 的上傳來源、測試基準）。缺字串時**先退英文**——翻譯平台上譯文未完成
-是常態，退到多數人讀得懂的語言比退到繁中合理；繁中排在英文之後當保底，因為新文案
-一定先進來源語言，英文有可能還沒跟上。本模組只負責「給字串」，不碰 UI、不碰 config 讀寫。
+可選語言直接掃語言檔目錄得來，程式碼裡不留語言名冊：新增介面語言只要放一份扁平
+key-value 的 `<語言碼>.json` 並在檔內宣告 `language.*` metadata，不必動程式碼。
+繁體中文（台灣）是來源語言（Crowdin 上傳來源、測試基準）。缺字串先退英文再退來源
+語言：譯文未完成是常態，退到多數人讀得懂的語言較合理；新文案一定先進來源語言，
+英文可能還沒跟上。本模組只負責給字串，不碰 UI、不碰 config 讀寫。
 """
 import json
 import locale
@@ -15,9 +12,8 @@ import sys
 
 from src.resources import bundle_dir
 
-# 語言檔自帶的 metadata（都不是給譯者翻的文案，是該語言自己的資料）：
-# 自稱（語言選單顯示用，也是這個語言的使用者預設的翻譯目標語言）、介面字族、
-# 以及要吃下哪些 Windows locale（同語言不同字集才需要指名，見 map_locale_name）。
+# 語言檔自帶的 metadata（不是給譯者翻的文案）：自稱（選單顯示用，也是該語言使用者預設
+# 的翻譯目標）、介面字族、要吃下的 Windows locale（同語言不同字集才需指名，見 map_locale_name）。
 META_NAME = "language.name"
 META_FONT = "language.font"
 META_LOCALES = "language.locales"
@@ -50,9 +46,8 @@ def _load(code: str) -> dict[str, str]:
 
 def _meta(code: str, key: str) -> str:
     """讀某個語言檔自己宣告的 metadata（缺就回空字串）。
-
-    刻意不走 `t()` 的 fallback：自稱與字型若借到別的語言，漏填會偽裝成正常值
-    （新增的 ja.json 忘了填自稱，選單上會出現第二個「English」）。"""
+    刻意不走 `t()` 的 fallback：自稱與字型借到別的語言，漏填會偽裝成正常值
+    （ja.json 忘了填自稱，選單上會出現第二個「English」）。"""
     try:
         return _load(code).get(key, "")
     except (OSError, ValueError) as exc:
@@ -102,9 +97,8 @@ def current_language() -> str:
 
 def set_language(code: str) -> None:
     """切換介面語言；語言碼不認得時退回 DEFAULT_LANGUAGE。
-
-    先載入再切換 `_current`：載入失敗（缺檔、內容損毀）就拋出例外，
-    此時 `_current` 仍停在原本能正常運作的語言，不會讓後續 `t()` 全數炸開。"""
+    先載入再切換 `_current`：載入失敗就拋例外，`_current` 仍停在原本能用的語言，
+    後續 `t()` 不會全數炸開。"""
     global _current
     if code not in available_languages():
         print(f"[i18n] unknown language: {code}, using {DEFAULT_LANGUAGE}",
@@ -126,10 +120,8 @@ def fallback_order() -> list[str]:
 
 def t(key: str, **kwargs) -> str:
     """取當前語言的文案，並以具名變數 format。
-
-    缺字串、或 format 失敗（譯者把變數名打壞）都往 fallback_order() 的下一個語言退；
-    每一種語言都不行才回傳 key 本身——寧可顯示英文、繁中，甚至 key，
-    也不要讓整個視窗因為一則譯文而拋例外。"""
+    缺字串或 format 失敗（譯者把變數名打壞）都往 fallback_order() 的下一個語言退，
+    全部不行才回傳 key 本身——寧可顯示 key，也不讓整個視窗因一則譯文拋例外。"""
     for code in fallback_order():
         template = _load(code).get(key)
         if template is None:
@@ -144,11 +136,9 @@ def t(key: str, **kwargs) -> str:
 
 
 def map_locale_name(name: str) -> str:
-    """Windows locale 名稱（如 `zh_TW`）→ 介面語言碼；對不上的語言退 DEFAULT_LANGUAGE。
-
-    先看各語言檔宣告的 language.locales——同一語言不同字集（zh_TW／zh_CN）
-    必須指名，光看語言前綴分不出來。沒有人認領才退而比對語言前綴
-    （`ja_JP` → `ja`），所以多數語言連宣告 locales 都不必。"""
+    """Windows locale 名稱（如 `zh_TW`）→ 介面語言碼；對不上退 DEFAULT_LANGUAGE。
+    先看各語言檔宣告的 language.locales（同語言不同字集如 zh_TW／zh_CN 必須指名），
+    沒人認領才比對語言前綴（`ja_JP` → `ja`），所以多數語言不必宣告 locales。"""
     name = name.split(".")[0]
     for code in available_languages():
         if name in _meta(code, META_LOCALES).split():

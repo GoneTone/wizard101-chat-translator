@@ -11,9 +11,8 @@ FOCUS_DELAY = 0.15  # 切回遊戲視窗後、開始打字前的緩衝（秒）
 
 
 def force_foreground(hwnd: int | None) -> None:
-    """把前景切到 hwnd。單純 SetForegroundWindow 會被 Windows 前景鎖擋下，
-    掛上目前前景視窗的執行緒（AttachThreadInput）再切才可靠；
-    失敗放棄，由使用者自行點回。"""
+    """把前景切到 hwnd。單純 SetForegroundWindow 會被前景鎖擋下，先 AttachThreadInput
+    掛上目前前景視窗的執行緒再切才可靠；失敗放棄，由使用者自行點回。"""
     if not hwnd or not win32gui.IsWindow(hwnd):
         return
     try:
@@ -30,10 +29,9 @@ def force_foreground(hwnd: int | None) -> None:
 
 
 def type_into_window(hwnd: int | None, text: str, delay: float = 0.02) -> None:
-    """還原前景視窗（hwnd），逐字鍵入 text。delay 為每個字元間隔（秒），
-    太快遊戲可能漏字，可調大。絕不送 Enter。"""
-    # 「絕不自動送出」的最後防線：keyboard.write 會把換行打成 Enter 鍵，
-    # 模型偶發的多行輸出不可觸發遊戲送出——一律壓成空格。
+    """還原前景視窗（hwnd），逐字鍵入 text；delay 為每字間隔（秒），遊戲漏字就調大。"""
+    # 絕不送 Enter 的最後防線：keyboard.write 會把換行打成 Enter，模型偶發的多行
+    # 輸出一律壓成空格
     text = re.sub(r"[\r\n]+", " ", text).strip()
     if hwnd and win32gui.IsWindow(hwnd):
         force_foreground(hwnd)

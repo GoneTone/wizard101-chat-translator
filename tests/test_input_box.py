@@ -7,14 +7,12 @@ from src.ui.input_box import InputBox
 
 
 def test_stale_session_discarded_on_cancel(root):
-    """Test that cancelled translations don't call on_translated.
+    """Cancelled translations must not call on_translated.
 
-    Simulates: user presses Enter (session starts) → user presses Esc
-    (session incremented) → translation completes → queued lambda runs
-    but sees session mismatch and discards result.
+    Enter starts a session, Esc bumps it, then the stale _finish sees the mismatch.
     """
     ui_queue = queue.Queue()
-    on_translated = []  # list to capture call
+    on_translated = []
 
     def fake_translate(text):
         return "translated: " + text
@@ -24,22 +22,20 @@ def test_stale_session_discarded_on_cancel(root):
 
     box = InputBox(root, fake_translate, ui_queue, on_translated_callback)
 
-    # Simulate show() — increments session to 1
+    # Simulate show()
     box._win = tk.Toplevel(root)  # fake window to pass is not None check
     box._session += 1
     session_started = box._session
     assert session_started == 1
 
-    # Simulate Esc cancellation — increments session to 2
+    # Simulate Esc cancellation
     box._session += 1
     session_cancelled = box._session
     assert session_cancelled == 2
 
     # Simulate queued _finish with stale session
-    # Direct call to _finish with old session
     box._finish("english text", None, session_started)
 
-    # on_translated should NOT have been called
     assert on_translated == [], "Stale result should be discarded"
 
 
@@ -96,8 +92,8 @@ def test_non_cancelled_translation_succeeds(root):
 
     box = InputBox(root, fake_translate, ui_queue, on_translated_callback)
 
-    # Simulate show() — increments session to 1
-    box._win = tk.Toplevel(root)  # fake window
+    # Simulate show()
+    box._win = tk.Toplevel(root)
     box._session += 1
     session_started = box._session
     assert session_started == 1
@@ -105,7 +101,6 @@ def test_non_cancelled_translation_succeeds(root):
     # Simulate successful _finish with matching session (no close called first)
     box._finish("english text", 12345, session_started)
 
-    # on_translated SHOULD have been called
     assert on_translated == [("english text", 12345)]
 
 
@@ -122,7 +117,6 @@ def test_stale_error_discarded_on_cancel(root):
 
     box = InputBox(root, fake_translate, ui_queue, on_translated_callback)
 
-    # Setup
     box._win = tk.Toplevel(root)
     box._entry = tk.Entry(box._win)
     box._status = tk.Label(box._win, text="test")
@@ -135,8 +129,7 @@ def test_stale_error_discarded_on_cancel(root):
     # Simulate error with stale session
     box._show_error("Error message", session_started)
 
-    # Entry and status should not be updated (because session was stale)
-    # The entry/status should still be in their original state
+    # Entry and status stay untouched because the session was stale
     assert box._status.cget("text") == "test"
     assert box._status.cget("fg") != "#ff5f5f"
 
@@ -154,7 +147,6 @@ def test_current_error_shown_on_error(root):
 
     box = InputBox(root, fake_translate, ui_queue, on_translated_callback)
 
-    # Setup
     box._win = tk.Toplevel(root)
     box._entry = tk.Entry(box._win)
     box._entry.configure(state="disabled")
@@ -162,10 +154,8 @@ def test_current_error_shown_on_error(root):
     box._session += 1
     current_session = box._session
 
-    # Show error with matching session
     box._show_error("boom", current_session)
 
-    # Status should be updated to error message
     assert box._status.cget("text") == "boom"
     assert box._status.cget("fg") == "#ff5f5f"
     # Entry should be re-enabled for user retry

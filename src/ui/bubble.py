@@ -1,9 +1,8 @@
 """疊加視窗縮小後的浮動泡泡：應用程式 icon 的圓形視窗＋未讀數徽章。
 
-點一下展開（on_click）、拖曳移動（放開時回報新位置 on_move）；有工作列按鈕，
-Alt+F4／工作列關閉走 on_close，與主視窗同一條乾淨關閉路徑。
-OverlayWindow 在 minimize() 時建立、expand() 時銷毀；展開的時機判斷
-（點工作列按鈕／Alt+Tab 切回本工具）由 overlay 輪詢前景視窗、以 should_auto_expand 決定。"""
+點一下展開（on_click）、拖曳移動（放開時回報 on_move）；有工作列按鈕，Alt+F4／
+工作列關閉走 on_close。OverlayWindow 在 minimize() 建立、expand() 銷毀；自動展開
+的時機由 overlay 輪詢前景視窗、以 should_auto_expand 決定。"""
 import sys
 import tkinter as tk
 
@@ -16,15 +15,15 @@ from src.ui.winstyle import enable_taskbar_button, root_hwnd
 
 BUBBLE_SIZE = 48
 _TRANSPARENT = "#010101"  # 泡泡視窗的透明色鍵（方形視窗只露出圓形）
-# 未讀數底圓相對文字外框的外擴：橢圓要夠大，四角的字才不會被切掉。跟著泡泡尺寸走，
-# 否則泡泡縮小後這顆徽章會相對膨脹，「99+」直接橫跨半顆泡泡蓋掉圖案。
+# 未讀數底圓相對文字外框的外擴。跟著泡泡尺寸走，否則泡泡縮小後徽章會相對膨脹，
+# 「99+」直接橫跨半顆泡泡蓋掉圖案。
 _BADGE_PAD = max(2, round(BUBBLE_SIZE * 0.065))
 _BADGE_FONT_SIZE = 7   # 配合 BUBBLE_SIZE：太大會擠掉底下的 101
-# 未讀數徽章的垂直位置：對齊 icon 右下角「101」的中心線（實際量圖得來的比例），
-# 兩者落在同一條水平線上才不會看起來一高一低。
+# 未讀數徽章的垂直位置：對齊 icon 右下角「101」的中心線（量圖得來的比例），
+# 兩者才不會看起來一高一低。
 _BADGE_BASELINE = 0.82
-# 泡泡是收起來的浮標，該比主視窗更低調：在使用者設定的不透明度上再打折，
-# 但留一個下限，免得 overlay_alpha 調到最低時泡泡幾乎看不見、找不回來。
+# 泡泡該比主視窗更低調：在使用者設定的不透明度上再打折，但留下限，免得
+# overlay_alpha 調到最低時泡泡幾乎看不見、找不回來。
 BUBBLE_ALPHA_FACTOR = 0.8
 BUBBLE_ALPHA_FLOOR = 0.30
 
@@ -68,10 +67,9 @@ class Bubble(tk.Toplevel):
         c.pack()
 
         def px(f: float) -> int:
-            return round(BUBBLE_SIZE * f)  # 圖示座標按泡泡尺寸等比縮放
+            return round(BUBBLE_SIZE * f)
 
-        # 泡泡就是應用程式 icon 本身：圓形之外是透明色鍵，方形視窗只露出圓。
-        # icon 載不進來時退回原本的深色圓底，泡泡至少還看得見、抓得住。
+        # 泡泡就是應用程式 icon 本身；載不進來時退回深色圓底，至少還看得見、抓得住。
         self._icon = load_icon(self, BUBBLE_SIZE)
         if self._icon is not None:
             c.create_image(BUBBLE_SIZE // 2, BUBBLE_SIZE // 2, image=self._icon)
@@ -79,12 +77,9 @@ class Bubble(tk.Toplevel):
             c.create_oval(2, 2, BUBBLE_SIZE - 2, BUBBLE_SIZE - 2,
                           fill=BAR, outline=GRIP, width=2)
 
-        # 未讀數擺左下：icon 右上是「文A」徽章、右下是 101，只有左下留白。
-        # 底下墊一個深色圓才有對比——數字直接壓在彩色螺旋上讀不出來。
-        # 這是徽章的基準位置；set_unread 每次都先把文字放回這裡再量，位數變動
-        # 才不會讓它一路往右漂。
-        # 垂直用 _BADGE_BASELINE 對齊圖案右下角那個「101」的中心線（量出來的比例），
-        # 兩者才在同一條水平線上；水平則盡量貼左緣，只留下底圓不被裁掉的餘裕。
+        # 未讀數擺左下：icon 右上是「文A」徽章、右下是 101，只剩左下留白；底下墊深色圓
+        # 才有對比，數字直接壓在彩色螺旋上讀不出來。這是徽章的基準位置（set_unread
+        # 先歸位再量），水平盡量貼左緣、只留底圓不被裁掉的餘裕。
         self._badge_home = (px(0.18), px(_BADGE_BASELINE))
         bx, by = self._badge_home
         self._badge_dot = c.create_oval(bx, by, bx, by,   # 大小交給 set_unread 依文字重算
@@ -97,8 +92,8 @@ class Bubble(tk.Toplevel):
         c.bind("<ButtonRelease-1>", self._release)
         self.title(app_name())
         enable_taskbar_button(self)
-        # 泡泡同樣有工作列按鈕。被 Alt+F4 就地 destroy 的話主視窗仍是隱藏狀態，
-        # 使用者會完全找不到這支程式，所以一樣接到乾淨關閉。
+        # 被 Alt+F4 就地 destroy 的話主視窗仍是隱藏狀態，使用者會完全找不到這支程式，
+        # 所以一樣接到乾淨關閉。
         if on_close is not None:
             self.protocol("WM_DELETE_WINDOW", on_close)
         try:
@@ -109,9 +104,9 @@ class Bubble(tk.Toplevel):
 
     def destroy(self) -> None:
         super().destroy()
-        # icon 圖片跟著泡泡在主執行緒上釋放：留給循環 GC 的話，PhotoImage.__del__
-        # 可能在翻譯 worker 執行緒裡被觸發，對 Tk 的呼叫會炸「main thread is not in
-        # main loop」（測試實測踩過，只在 GC 剛好落在別的執行緒時出現）。
+        # icon 圖片在主執行緒上釋放：留給循環 GC 的話，PhotoImage.__del__ 可能在翻譯
+        # worker 執行緒裡觸發，對 Tk 的呼叫會炸「main thread is not in main loop」
+        # （測試實測踩過，只在 GC 剛好落在別的執行緒時出現）。
         self._icon = None
 
     def set_unread(self, count: int) -> None:
@@ -122,20 +117,17 @@ class Bubble(tk.Toplevel):
         if not text:
             c.itemconfigure(self._badge_dot, state="hidden")
             return
-        # 底圓貼著文字實際範圍走，位數一多就往左右長成橫橢圓。
-        # 先把文字放回基準位置再量：上一輪若因為 99+ 把它往右推過，這裡不歸位就會越漂越右。
+        # 先把文字放回基準位置再量：上一輪若因 99+ 往右推過，不歸位會越漂越右
         c.coords(self._badge, *self._badge_home)
         x0, y0, x1, y1 = c.bbox(self._badge)
-        # 全部取整再畫：create_oval 的高度是 2*half_h+1（奇數），圓心才落在像素正中央，
-        # 和數字墨跡（高度同為奇數）對得起來。留浮點的話圓心會卡在像素邊界，
-        # 數字永遠差半格，看起來就是沒對準。
+        # 全部取整再畫：create_oval 高度為 2*half_h+1（奇數），圓心才落在像素正中央、
+        # 與數字墨跡（高度同為奇數）對齊；留浮點的話圓心卡在像素邊界，數字永遠差半格。
         half_h = round((y1 - y0) / 2 + _BADGE_PAD)
-        # 單一數字的 bbox 又窄又高，四周等量外擴會擠成直立橢圓（很醜）——水平半徑
-        # 至少拉齊成圓，位數多了才讓它自然往左右長。
+        # 單一數字的 bbox 又窄又高，等量外擴會成直立橢圓——水平半徑至少拉齊成圓，
+        # 位數多了才讓它往左右長成橫橢圓。
         half_w = max(round((x1 - x0) / 2 + _BADGE_PAD), half_h)
         cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
-        # 徽章貼著左下角，位數一多底圓會往左戳出畫布：把圓心往右推回來，
-        # 文字跟著一起走才會同心。垂直同理，避免底緣被畫布切掉。
+        # 徽章貼著左下角，位數一多底圓會戳出畫布：把圓心推回來，文字跟著走才同心
         cx = max(cx, half_w + 1)
         cy = min(cy, BUBBLE_SIZE - half_h - 1)
         c.coords(self._badge, cx, cy)

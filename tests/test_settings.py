@@ -360,9 +360,8 @@ def test_about_tab_shows_the_log_folder(root):
 
 
 def _run_check(win):
-    """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式。
-    正式路徑是 worker 在背景執行緒跑、poll_queue 在主執行緒取，這裡把兩段接起來，
-    測試才不必等執行緒。"""
+    """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式
+    （正式路徑是背景執行緒跑、poll_queue 主執行緒取，這裡接起來測試才不必等執行緒）。"""
     win._update_check_worker(win._update_queue)
     win._on_update_checked(win._update_queue.get_nowait())
 
@@ -420,9 +419,8 @@ def test_manual_check_reports_failure(root):
 def test_check_button_runs_the_real_thread_and_poll_path(root):
     """走完整路徑：按下按鈕 → 背景執行緒 → poll_queue 回主執行緒更新結果。
 
-    假 checker 先卡在 Event 上，才觀察得到「檢查中」的按鈕狀態；放行後 pump
-    事件迴圈直到結果出現（poll_queue 靠 after 輪詢，必須真的跑事件迴圈，
-    不能用 sleep 猜時間）。"""
+    假 checker 先卡在 Event 上才觀察得到「檢查中」；放行後 pump 事件迴圈直到結果出現
+    （poll_queue 靠 after 輪詢，必須真的跑事件迴圈）。"""
     import threading
     import time
 
@@ -452,11 +450,10 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
 
 
 def test_check_button_discards_a_stale_queue_result(root):
-    """回歸測試：`_update_queue` 過去只在 __init__ 建一次，整個 app 生命週期共用。
+    """回歸測試：`_update_queue` 過去只在 __init__ 建一次、整個 app 生命週期共用。
 
-    若上一輪的結果因視窗提早關掉（或換語言 `_rebuild`）而沒被 poll_queue 撈走，
-    會滯留在 queue 裡；這裡直接塞一筆過期結果模擬那種情況，驗證按下「檢查更新」
-    看到的是這一輪查出來的結果，而不是撈到那筆滯留的舊資料。"""
+    上一輪結果若因視窗提早關掉沒被 poll_queue 撈走會滯留；這裡直接塞一筆過期結果，
+    驗證按下「檢查更新」看到的是這一輪的結果。"""
     import time
 
     from src.i18n import t
@@ -477,10 +474,9 @@ def test_check_button_discards_a_stale_queue_result(root):
 def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
     """回歸測試：worker 必須寫回啟動它的那一輪 queue，不能回頭讀 `_update_queue`。
 
-    重現的是兩輪重疊：按下檢查 → 結果回來前關掉視窗 → 重開 → 再按一次。舊 worker
-    若在 put 當下才查 `self._update_queue`，查到的會是新那一輪的 queue，過期結果
-    就會被這一輪的 poll_queue 撈走顯示（重建 queue 只擋得掉單輪的滯留）。
-    這裡讓兩輪都卡在 Event 上、先放行舊的，確認它落在自己的 queue、畫面不受影響。"""
+    兩輪重疊：按下檢查 → 結果回來前關窗 → 重開 → 再按一次。舊 worker 若在 put 當下才查
+    `self._update_queue`，過期結果會被新一輪的 poll_queue 撈走顯示。這裡先放行舊的，
+    確認它落在自己的 queue、畫面不受影響。"""
     import threading
     import time
 
@@ -531,10 +527,8 @@ def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
 
 
 def test_update_result_is_only_clickable_over_its_text(root):
-    """回歸測試：結果標籤不可撐滿整列。
-
-    「有新版」時整個標籤是可點的連結，撐滿整列會讓文字後面那段空白也可點、
-    游標也變成手指——使用者會對著空白處點卻開了瀏覽器。"""
+    """回歸測試：結果標籤不可撐滿整列——「有新版」時整個標籤是可點的連結，撐滿會讓
+    文字後的空白也可點、游標也變手指。"""
     win = _open_settings_with_checker(root, lambda: None)
     info = win._update_result.pack_info()
 

@@ -1,16 +1,13 @@
 """收訊端：透過 wizwalker 掛入遊戲、讀聊天顯示控件 `chatLog` 的全文，差分出新增行。
 
-聊天在記憶體/顯示層是帶標記的富文字，每則一行、以 `\n` 分隔：
+聊天在顯示層是帶標記的富文字，每則一行、以 `\n` 分隔：
     他人： <color;..><image;Art/Art_Chat_Say.dds;..> <link;GID:<id>,<名>,2>[<名>]</link> 內文 </color>
     自己： <color;..><image;Art/Art_Chat_Say.dds;..> [你] 內文 </color>          ← 無 <link;GID>
-玩家發言（他人與自己）都帶頻道圖示（Art_Chat_<頻道>，房間頻道為 chat_balloon_*）；
-系統訊息用 Art_Chat_System、除錯行無圖示，以此過濾出玩家發言，
-再去標記回傳乾淨的「[發送者] 內文」，
-連同行首 <color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
+玩家發言帶頻道圖示（Art_Chat_<頻道>，房間頻道為 chat_balloon_*）、系統訊息用
+Art_Chat_System、除錯行無圖示，以此分流；去標記後回傳「[發送者] 內文」，連同行首
+<color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
 
-wizwalker 靠 root-window hook 定位 `chatLog` 控件（穩定、有序、含他人訊息），
-取代舊的全記憶體掃描 + 活文件定錨。注意：wizwalker 為了 hook 會寫入遊戲程序記憶體
-（注入），非純讀。
+注意：wizwalker 靠 root-window hook 定位控件，為此會寫入遊戲程序記憶體（注入），非純讀。
 """
 import asyncio
 import os
@@ -26,55 +23,46 @@ from src.reader.message_log import MessageLog
 PROCESS_NAME = "WizardGraphicalClient.exe"
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
 
-# hook 掛上後，等遊戲把 root window 位址寫回來的上限（秒）與輪詢間隔。
-# wizwalker 的 activate_root_window_hook(wait_for_ready=True) 內部是 asyncio.wait_for(..., None)
-# ——**無限等**。pattern 掃得到、hook 也寫進去了，那段程式碼卻已不在執行路徑時
-# （遊戲改版的典型徵兆），整條收訊執行緒會永久卡在掛入，不拋例外、UI 停在「連線遊戲中」，
-# 關程式時 join 逾時被硬砍，hook 還留在遊戲記憶體裡。故一律自己等、自己逾時。
+# 等 root window 位址寫回來的上限（秒）與輪詢間隔。wizwalker 的 activate_root_window_hook
+# (wait_for_ready=True) 內部是無限等：pattern 掃得到、hook 寫進去了，但那段程式碼已不在執行
+# 路徑（遊戲改版的典型徵兆）時，收訊執行緒會永久卡在掛入、不拋例外，關程式時被硬砍而
+# hook 殘留在遊戲記憶體裡。故一律自己等、自己逾時。
 HOOK_READY_TIMEOUT = 15.0
 HOOK_READY_POLL = 0.3
 
-# 單輪 poll 的新增行數上限。實測 chatLog 會在「約 110 行的短清單」與「上千行的完整歷史」
-# 之間反覆跳動；只要歷史開頭那行碰巧等於基準尾行（聊天充滿 lol/gg 等重複短行），
-# align_append 就會把整段舊訊息當成新訊息回吐——而且它是唯一不印 log 的路徑，難以察覺。
-# 一輪只隔 poll_interval 秒，真實聊天不可能新增這麼多，超過即判定為差分誤對齊。
-# 這道防線套在所有路徑的共同出口，不只擋 align_append。
+# 單輪 poll 的新增行數上限，套在所有路徑的共同出口。實測 chatLog 會在約 110 行的短清單
+# 與上千行的完整歷史之間跳動，歷史開頭恰等於基準尾行（lol/gg 等重複短行）時 align_append
+# 會把整段舊訊息當新訊息回吐且不印 log；一輪 poll_interval 內真實聊天不可能新增這麼多。
 MAX_NEW_LINES_PER_POLL = 100
-# 未達上限但異常大的批次：照吐，但留下診斷數據供事後判斷差分是否誤判
+# 未達上限但異常大的批次：照吐，只留診斷數據
 LARGE_BATCH_LOG_THRESHOLD = 10
-# 系統軌的診斷 log 門檻。掉寶一輪十幾行是常態，套玩家軌的 LARGE_BATCH_LOG_THRESHOLD
-# 會讓 app.log 每輪都印一行 large batch 而被洗掉。暴量防線（MAX_NEW_LINES_PER_POLL）
-# 兩軌沿用同值——一輪真的超過 100 行系統訊息就是差分誤對齊，正是它該擋的。
+# 系統軌的診斷門檻：掉寶一輪十幾行是常態，套玩家軌的門檻會讓 app.log 每輪都印 large batch。
+# 暴量防線 MAX_NEW_LINES_PER_POLL 兩軌沿用同值——一輪超過 100 行系統訊息就是差分誤對齊。
 SYSTEM_LARGE_BATCH_LOG_THRESHOLD = 40
-# append 快路徑改走逐行過濾的批次大小門檻。一輪 poll 內湧出這麼多行不可能是真人發言，
-# 而是轉場時 chatLog 把整份歷史重接一次（實測切伺服器：101 行→200 行→吐出 100 行舊訊息）。
-# 下方「全部看過」那道判定是全有全無，批次裡混進一行沒讀過的就整批放行，擋不住這種
-# 混合批次；達此門檻的批次改逐行剔除看過的行，沒見過的行照吐、不會吞掉真正的新訊息。
+# append 快路徑改走逐行過濾的批次大小。一輪湧出這麼多行不會是真人發言，而是轉場時 chatLog
+# 把整份歷史重接一次（實測切伺服器：101→200 行、吐出 100 行舊訊息）；「全部看過」那道判定
+# 是全有全無，混進一行沒讀過的就整批放行，故達此門檻改逐行剔除看過的行、沒見過的照吐。
 BULK_APPEND_FILTER_MIN = 10
-# 暴增批次判定為「內容重浮」的門檻：剔除看過的行之後，沒讀過的行不到全批的 1/N。
-# 切到沒讀過的視圖時整批都是生面孔（實測前綴巧合：1 行基準冒出 4 行全新），
-# chatLog 膨脹成重複版本時則幾乎全是看過的行、只夾著剛抵達的一兩句新訊息。
+# 暴增批次判定為「內容重浮」的門檻：剔除看過的行後，沒讀過的行不到全批的 1/N。
+# 切到沒讀過的視圖時整批都是生面孔（實測前綴巧合：1 行基準冒出 4 行全新）；
+# chatLog 膨脹成重複版本時幾乎全是看過的行、只夾著剛抵達的一兩句新訊息。
 DUPLICATE_BURST_SEEN_RATIO = 4
-# 基準建立後的暖機輪數：期間 reset（零重疊讀取）一律靜默吸收。啟動時基準與看過集合
-# 只蓋到當前分頁，其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都發生在前 1-3 輪，
-# 視圖每輪輪播、看過集合幾輪內學完，5 輪已保守）；暖機拉太長會放大代價——期間切到
-# 別的頻道說的第一句（走 reset）會被吸收。暖機期過後 reset 恢復以看過集合過濾。
+# 基準建立後的暖機輪數，期間 reset（零重疊讀取）一律靜默吸收：啟動時基準只蓋到當前分頁，
+# 其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都在前 1-3 輪，5 輪已保守）。
+# 拉太長會放大代價——期間切到別的頻道說的第一句（走 reset）會被吸收。
 RESET_WARMUP_POLLS = 5
-# 「看過集合」容量上限（行數，FIFO 淘汰最舊）。聊天分頁共用同一個 chatLog 控件
-# （實測無分頁狀態可讀），切分頁＝內容換成另一視圖，recover/reset 會把重新浮上來的
-# 歷史誤判成新訊息；每輪把讀到的行記進集合，慢路徑吐出前剔除集合裡已有的行。
-# 不能改存「最近幾份基準」：append 快路徑每輪都在換基準，停留同一視圖幾輪
-# 就會把其他視圖的證據擠掉（實測破功），集合只受總量上限影響。
+# 「看過集合」容量上限（行數，FIFO）。聊天分頁共用同一個 chatLog 控件且無分頁狀態可讀，
+# 切分頁＝內容換成另一視圖，recover/reset 會把重浮的歷史誤判成新訊息，故靠它過濾。
+# 不能改存「最近幾份基準」：append 每輪換基準，停留同一視圖幾輪就把其他視圖的證據
+# 擠掉（實測破功）。
 SEEN_LINES_CAP = 10000
-# 輸入框關聯放行的有效輪數：使用者剛送出訊息時，遊戲輸入框必在前 1-2 輪內開啟過。
-# 登出再登入不會重啟程序、看過集合殘留舊 session 字樣，重打同一句（Test/lol 等）
-# 走 reset 會被誤判重浮吞掉；輸入框剛關閉＋視圖尾行同字＝剛送出的訊息，放行。
+# 輸入框關聯放行的有效輪數：剛送出訊息時，遊戲輸入框必在前 1-2 輪內開啟過。登出再登入
+# 不重啟程序、看過集合殘留舊 session 字樣，重打同一句（Test/lol 等）走 reset 會被誤判
+# 重浮吞掉；輸入框剛關閉＋視圖尾行同字＝剛送出的訊息，放行。
 INPUT_RELEASE_POLLS = 2
-# 連續空讀達此輪數即視舊基準過期：恢復內容後不得再拿它做 append/recover 對齊——
-# 置換式視圖（朋友/私訊視窗只顯示最近一則）重打同一句、或登出前尾行與登入後第一句
-# 同字時，append 會誤判「無變化」把新句靜默吞掉（實測且無 log 可循）。
-# 過期後強制走 reset 語意，由看過集合（歷史灌回不重翻）與輸入框關聯放行
-# （剛送出的同字句照翻）接手。門檻取小值涵蓋「兩則訊息之間的短暫清空」：
+# 連續空讀達此輪數即視舊基準過期，恢復內容後強制走 reset 語意：置換式視圖（朋友/私訊
+# 視窗只顯示最近一則）重打同一句、或登出前尾行與登入後第一句同字時，append 會誤判
+# 「無變化」靜默吞掉新句（實測且無 log 可循）。門檻取小值以涵蓋兩則訊息之間的短暫清空；
 # 轉場的暫態清空同樣走 reset，但填回的舊內容全在看過集合裡，不會重譯。
 STALE_BASELINE_EMPTY_POLLS = 2
 
@@ -93,20 +81,18 @@ class GameNotRunning(Exception):
 
 class GameAccessDenied(GameNotRunning):
     """開不了遊戲程序的 handle——多半是遊戲以系統管理員身分執行、本程式沒有。
-    繼承 GameNotRunning，上層的退避重連原封不動生效，只在文案上分流。"""
+    只在文案上分流，上層的退避重連照舊。"""
 
 
 class GameVersionMismatch(GameNotRunning):
     """掛入點與這個遊戲版本對不上，wizwalker 的 pattern 已不適用。
-    繼承 GameNotRunning，上層的退避重連原封不動生效，只在文案上分流。"""
+    只在文案上分流，上層的退避重連照舊。"""
 
 
 def is_version_mismatch(exc: BaseException) -> bool:
-    """判斷掛入失敗是否為「掛入點與遊戲版本對不上」。
-
-    三種徵兆：pattern 掃不到、pattern 掃到多個（兩者都在 wizwalker 寫入任何遊戲
-    記憶體之前拋出，遊戲是乾淨的），以及 hook 寫進去了卻遲遲沒被觸發（等待逾時）。
-    其餘失敗（開不了程序、程序消失、讀寫錯誤）不屬此類，仍走「遊戲未就緒」文案。"""
+    """掛入失敗是否為「掛入點與遊戲版本對不上」：pattern 掃不到、掃到多個（兩者都在
+    寫入遊戲記憶體之前拋出）、或 hook 寫進去了卻遲遲沒被觸發（等待逾時）。
+    其餘失敗（開不了程序、程序消失、讀寫錯誤）仍走「遊戲未就緒」文案。"""
     from wizwalker.errors import PatternFailed, PatternMultipleResults
     return isinstance(exc, (PatternFailed, PatternMultipleResults, TimeoutError))
 
@@ -127,26 +113,24 @@ _TAG = re.compile(r"<[^>]*>")
 # 顏色標記的值為 6 位 RRGGBB 或 8 位 AARRGGBB（帶 alpha），顯示色一律取後 6 位
 _COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
 _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
-# 聊天頻道圖示：玩家發言（他人與自己）行都帶頻道圖示——多數頻道是 Art_Chat_<頻道>，
-# 房間頻道實測是 chat_balloon_<Owner/Guest>，快捷訊息（禁言帳號只能用選單發話）是
-# Art_Word_Balloon；系統訊息用 Art_Chat_System。
+# 玩家發言行都帶頻道圖示：多數頻道是 Art_Chat_<頻道>，房間頻道實測是
+# chat_balloon_<Owner/Guest>，快捷訊息（禁言帳號只能用選單發話）是 Art_Word_Balloon。
 # 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
 _PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
                         "<image;Art/Art_Word_Balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
-# 伺服器公告（維修預告等）實測連圖示都沒有，只有行首 <color;..>：
-# 以「有沒有 Art/ 圖示」與「有沒有行首顏色」兩者一起認（見 _is_server_broadcast）。
+# 伺服器公告（維修預告等）實測連圖示都沒有，只有行首 <color;..>（見 _is_server_broadcast）
 _ART_IMG = "<image;Art/"
 _LEADING_COLOR = re.compile(r"^\s*<color;")
-# 他人發言的名字是可點擊的玩家連結；自己的發言只有純文字 [你]（各語系用語不同，
-# 故以「有沒有這個連結」判斷是不是自己講的，不比對名稱字串）
+# 他人發言的名字是可點擊的玩家連結，自己的只有純文字 [你]；[你] 各語系用語不同，
+# 故以連結有無判斷是否自己講的，不比對名稱字串
 _OTHER_PLAYER_LINK = "<link;GID"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
 _warned_icons: set[str] = set()  # 每種未知圖示每次執行只警告一次，避免洗版
 
-# 遊戲表情符號：訊息內文以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 ：名稱： 文字
-# （不轉成 emoji，只保留表情本身，避免整行只有表情時被去光而消失）。
+# 遊戲表情以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 :名稱: 文字（不轉 emoji），
+# 避免整行只有表情時被去光而消失
 _EMOTE_TAG = re.compile(r"<image;Emoticons/([^.;>]+)\.dds[^>]*>", re.IGNORECASE)
 
 
@@ -154,7 +138,7 @@ def _emote_to_char(m: re.Match) -> str:
     name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
     if not re.fullmatch(r"[a-z0-9_]+", name):
         return ""  # 撕裂的標記（名稱夾入雜字）：丟棄該表情，保留整行其餘內容
-    return f":{name}:"  # 保留成 ：名稱： 文字
+    return f":{name}:"
 
 
 def clean(text: str) -> str:
@@ -173,16 +157,12 @@ def line_color(raw: str) -> str | None:
 
 
 def lines_from_chatlog(text: str) -> list[ChatLine]:
-    """把 chatLog 控件全文（以 `\n` 分行的渲染 markup）解析成乾淨聊天行
-    （ChatLine：文字＋遊戲顯示色＋system 旗標），保留順序與重複。
+    """把 chatLog 全文（以 `\n` 分行的渲染 markup）解析成乾淨聊天行，保留順序與重複。
 
-    收玩家發言（含**自己**的 `[你]` 行與他人 `<link;GID>[名]` 行，圖示前綴見
-    _PLAYER_IMG_PREFIXES）、系統訊息（Art_Chat_System）與伺服器公告
-    （無圖示，見 _is_server_broadcast）；濾掉遊戲除錯行
-    （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。
-
-    放行判準不同：玩家行必須是「[發送者] 內容」（_VALID），系統訊息與伺服器公告沒有
-    固定的發送者前綴，只要 clean() 後非空即收。"""
+    收玩家發言（含自己的 `[你]` 行與他人 `<link;GID>[名]` 行）、系統訊息
+    （Art_Chat_System）與伺服器公告（_is_server_broadcast）；濾掉遊戲除錯行
+    （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。玩家行必須是「[發送者] 內容」
+    （_VALID）；系統訊息與公告沒有固定前綴，clean() 後非空即收。"""
     out: list[ChatLine] = []
     for raw in text.split("\n"):
         if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
@@ -201,13 +181,12 @@ def lines_from_chatlog(text: str) -> list[ChatLine]:
 
 
 def _is_server_broadcast(raw: str) -> bool:
-    """這行是伺服器公告嗎——有行首顏色、卻沒有任何 Art/ 頻道圖示。
+    """有行首顏色、卻沒有任何 Art/ 圖示 → 伺服器公告。
 
-    實機樣本只有 `<color;D9ABF8>[Server Message] 內文</color>`，發送者前綴不保證存在，
-    故不比對字串。遊戲自己的除錯輸出（`RECEIVED STATUS UPDATE for [id]` 之類）同樣
-    沒有圖示，但不以 `<color;..>` 起頭，靠這點分辨。
-    先排除帶 Art/ 圖示的行，未收錄的頻道才會照舊落到 _warn_unknown_icon，
-    不會被這條規則悄悄吞成系統訊息。"""
+    實機樣本只有 `<color;D9ABF8>[Server Message] 內文</color>`，前綴不保證存在故不比對
+    字串；遊戲除錯輸出（`RECEIVED STATUS UPDATE for [id]`）同樣無圖示但不以 <color;..>
+    起頭。先排除帶 Art/ 圖示的行，未收錄的頻道才會照舊落到 _warn_unknown_icon，
+    不會被悄悄吞成系統訊息。"""
     return _ART_IMG not in raw and _LEADING_COLOR.match(raw) is not None
 
 
@@ -236,20 +215,16 @@ def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
 
 
 def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
-    """把各 chatLog 節點的全文合併成單一聊天行序列（依傳入順序串接），
+    """把各 chatLog 節點的全文依傳入順序串接成單一聊天行序列，
     回傳（行序列, 被剔除的鏡射節點數）。
 
-    組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份
-    （實測：開組隊視窗後發話，同一句同時出現在兩個節點，sizes=[1, 1, 0]）。
-    盲目串接會讓一則訊息變成兩行——當下就翻兩次，之後主視圖在完整歷史與精簡視圖
-    之間來回跳時，多出來的那份還會被 align_append 當成尾端新增而每次重翻。
-    以玩家行數最多的節點為主視圖，玩家行被它完全涵蓋（含重複次數）的節點即判定為鏡射。
-    代價：兩個視窗剛好各自出現一句一字不差的訊息時只翻一次，與差分既有的取捨一致。
-    空節點不算鏡射——它本來就不貢獻任何行，計進去會讓診斷 log 每輪都在響。
-
-    **鏡射判定只看玩家行**：系統訊息在不同節點的出現方式未經實測，讓它參與判定會改變
-    這條調校過的規則。判定完成後才從保留的節點取出系統行。
-    """
+    組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份（實測開組隊
+    視窗後發話，同一句出現在兩個節點，sizes=[1, 1, 0]）；盲目串接會翻兩次，之後主視圖在
+    完整歷史與精簡視圖間跳動時，多出的那份還會被 align_append 當成尾端新增而每次重翻。
+    以玩家行數最多的節點為主視圖，玩家行被它完全涵蓋（含重複次數）的節點判定為鏡射；
+    代價是兩個視窗恰各出現一句一字不差的訊息時只翻一次。空節點不算鏡射，否則診斷 log
+    每輪都在響。鏡射判定只看玩家行——系統訊息在不同節點的出現方式未經實測，
+    判定完成後才從保留的節點取出系統行。"""
     parts = [lines_from_chatlog(t) for t in texts]
     if len(parts) < 2:
         return [l for p in parts for l in p], 0
@@ -261,9 +236,8 @@ def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
 
 
 def node_sizes(texts: list[str]) -> list[int]:
-    """各 chatLog 節點各自的聊天行數（含系統訊息），依串接時的排序。診斷用：看得出是哪個節點
-    在灌入完整歷史，以及 sorted 的名次有沒有翻轉（翻轉時同一組節點的順序會對調）。
-    只在要印診斷 log 時呼叫——每輪都算等於把解析成本翻倍。"""
+    """各 chatLog 節點的聊天行數（含系統訊息），依串接時的排序；診斷用，看得出哪個節點在
+    灌入完整歷史、sorted 名次有無翻轉。只在要印診斷 log 時呼叫——每輪都算等於解析成本翻倍。"""
     return [len(lines_from_chatlog(t)) for t in sorted(texts)]
 
 
@@ -277,10 +251,9 @@ def _find_last_run(cur_lines: list[str], seq: list[str]) -> int | None:
 
 
 def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """附加/捲動對齊（快路徑）：找最短的「prev 去掉前 k 行」正好是 cur 的前綴，
-    回傳 cur 尾端多出來的行（新訊息，含重複、依序）；對不齊回傳 None。
-    聊天記錄平時純附加（k=0 必中）；達顯示上限修剪頭部時 k>0 吸收捲動。
-    對不齊時呼叫端改走 align_recover——本函式必須嚴格要求前綴，
+    """附加/捲動對齊（快路徑）：找最短的「prev 去掉前 k 行」正好是 cur 的前綴，回傳 cur
+    尾端多出來的行（含重複、依序）；對不齊回傳 None，呼叫端改走 align_recover。
+    平時純附加 k=0 必中；達顯示上限修剪頭部時 k>0 吸收捲動。必須嚴格要求前綴，
     否則「尾行與新行重複」（[hi]→[hi,hi]）會被誤判為無新增而漏訊。"""
     if not prev_lines:
         return None
@@ -292,14 +265,11 @@ def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | Non
 
 
 def align_recover(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """恢復對齊（align_append 對不齊時的退路）：找最長的 prev 尾段 prev[k:]，
-    其以連續片段出現在 cur 的**最後**位置，回傳該片段之後的行；
-    完全無重疊回傳 None（呼叫端視為聊天重置）。
-
-    走到這裡代表讀取異常——撕裂讀取（遊戲寫入中讀到中段缺行/壞行的全文）
-    或多 chatLog 串接結構變化。取「最後」位置是關鍵：聊天充滿重複行
-    （lol/gg 等），錨到較早的重複行會把其後整段舊訊息當新行重吐
-    （翻譯洪水＋timeout 螺旋）；錨到最後頂多漏掉少數重複的新行，代價小得多。"""
+    """恢復對齊（align_append 的退路）：找最長的 prev 尾段 prev[k:]，其以連續片段出現在
+    cur 的**最後**位置，回傳其後的行；完全無重疊回傳 None（呼叫端視為聊天重置）。
+    走到這裡代表撕裂讀取（遊戲寫入中讀到缺行/壞行）或多 chatLog 串接結構變化。
+    取「最後」位置是關鍵：聊天充滿重複行（lol/gg），錨到較早的重複行會把其後整段舊訊息
+    重吐（翻譯洪水＋timeout 螺旋）；錨到最後頂多漏掉少數重複的新行。"""
     if not prev_lines:
         return None
     for k in range(len(prev_lines)):
@@ -400,9 +370,8 @@ def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],
             if want is None:
                 break
     if want is not None:
-        # 走到這裡代表 emitted 已不是 cur_player 的子序列（例如某條路徑改用 _replace
-        # 重建了 ChatLine，物件識別就斷了）。沒對上的行會被靜默丟掉——正是本模組
-        # 註解裡一再出現的「玩家訊息被吞」那一類，留 log 才查得出來。
+        # emitted 已不是 cur_player 的子序列（例如某條路徑用 _replace 重建了 ChatLine，
+        # 物件識別斷了）：沒對上的行會被靜默丟掉，正是「玩家訊息被吞」那一類，留 log 才查得出來
         print(f"[reader] player index mapping incomplete: {len(emitted)} emitted, "
               f"{len(out)} mapped (subsequence invariant broken)", file=sys.stderr)
     return out
@@ -427,7 +396,7 @@ def detect_install_path() -> str | None:
         except Exception:
             continue
         if path and path.lower().endswith(PROCESS_NAME.lower()):
-            return os.path.dirname(os.path.dirname(path))  # ...\Bin\exe → 根目錄
+            return os.path.dirname(os.path.dirname(path))
     return None
 
 
@@ -441,15 +410,12 @@ def _pid_alive(pid: int) -> bool:
 
 
 class WizChatReader:
-    """透過 wizwalker 讀 `chatLog` 全文，回傳每輪新增的玩家聊天行。
+    """透過 wizwalker 讀 `chatLog` 全文，回傳每輪新增的聊天行。
 
-    首次連上只記錄現況、不回吐既有歷史（只翻之後的新訊息）。之後每輪讀完整聊天記錄，
-    與上輪做尾端差分（align_append）取新增行；重複訊息因逐行保留不會漏。
-    空讀（傳送/轉場時聊天暫態清空）保留基準、忽略，避免填回同樣歷史時重譯；
-    與基準完全對不齊（首次切到沒讀過的分頁視圖／relog）則靜默吸收為新基準、
-    不輸出（見 read_new 的 reset 分支說明）。
-    所有路徑共用一道出口防線：單輪吐出超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊，
-    不吐並重建基準（見該常數的說明）。"""
+    首次連上只記錄現況、不回吐既有歷史；之後每輪讀完整聊天記錄，與上輪基準差分取新增行
+    （重複訊息逐行保留不會漏）。空讀（傳送/轉場暫態清空）保留基準、忽略；與基準完全
+    對不齊（切到沒讀過的分頁視圖／relog）視情況吸收或過濾（見 _diff_new_lines 的 reset
+    分支）。所有路徑共用一道出口防線：單輪超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊。"""
 
     def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME,
                  message_log: MessageLog | None = None):
@@ -496,17 +462,16 @@ class WizChatReader:
         玩家行與系統行走各自獨立的差分軌（後者見 _diff_system_lines），最後依原索引
         合併還原遊戲內順序。回傳的 path 是**玩家軌**的判定路徑。"""
         texts = self._read_chatlog_texts()
-        # 每輪記錄輸入框狀態，供 filter 關聯放行「剛送出、與舊訊息同字」的訊息
+        # 輸入框關聯放行（見 INPUT_RELEASE_POLLS）的輪數計數
         input_open_now = self.input_open()
         if input_open_now:
-            # 輸入框開著＝還在打字，這一刻不可能有「剛送出」的訊息。此時放行等於把
-            # 切頁籤浮出來的舊訊息當成新訊息（實機：開輸入框後 60ms 就放行了一次）。
-            # 順手把額度還原，使用者關掉輸入框後才重新計算。
+            # 輸入框開著＝還在打字，不可能有「剛送出」的訊息；此時放行會把切頁籤浮出的
+            # 舊訊息當成新訊息（實機：開輸入框後 60ms 就放行了一次）。額度也還原，關掉後再算。
             self._input_recent = 0
             self._released_for_input = False
         elif self._input_was_open:
             # 輸入框剛關閉才是「剛送出」的訊號：實機的送出輪 input_open=False，
-            # 訊息是在輸入框關掉之後才出現在 chatLog 裡。
+            # 訊息在輸入框關掉之後才出現在 chatLog
             self._input_recent = INPUT_RELEASE_POLLS
         elif self._input_recent > 0:
             self._input_recent -= 1
@@ -545,17 +510,15 @@ class WizChatReader:
             print(f"[reader] baseline established (lines={len(cur)}, "
                   f"nodes={len(texts)})", file=sys.stderr)
             return _Outcome("baseline", [])
-        # 暖機以「輪數」計且含空讀：重開遊戲後聊天常長時間空白，若只數非空讀，
-        # 暖機永不過期，各頻道從空白冒出的第一句（走 reset）會被無限吸收
+        # 暖機以輪數計且含空讀：重開遊戲後聊天常長時間空白，只數非空讀會讓暖機永不過期，
+        # 各頻道從空白冒出的第一句（走 reset）被無限吸收
         if self._player.warmup_left > 0:
             self._player.warmup_left -= 1
         if not cur:
-            # 空讀（傳送/轉場暫態清空）→ 玩家軌保留基準、忽略，不重譯。
-            # 系統軌不能跟著吸收：「這一輪沒有玩家行、只有掉寶」是日常狀態，
-            # 在這裡靜默吞掉等於系統訊息永遠吐不出來。
+            # 空讀（傳送/轉場暫態清空）：玩家軌保留基準、忽略。系統軌不能跟著吸收——
+            # 「這一輪沒有玩家行、只有掉寶」是日常狀態，在此吞掉等於系統訊息永遠吐不出來。
             self._empty_streak += 1
-            # 節點數變化在這條早退路徑上還沒判（玩家軌一律等到有玩家行的那一輪才比對
-            # _node_count），因此 node_added 只能是 False；下一輪非空讀才會補判。
+            # 節點數變化要等有玩家行的那一輪才比對 _node_count，這裡 node_added 只能是 False
             system_out = self._diff_system_lines(cur_system_texts, system_idx,
                                                  cur_all, texts, node_added=False)
             return _Outcome("empty", [cur_all[i] for i in system_out])
@@ -575,9 +538,8 @@ class WizChatReader:
                 self._player.rebaseline(cur_texts)
                 self._system.rebaseline(cur_system_texts)
                 return _Outcome("node-decrease", [])
-            # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，
-            # 不可盲目吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，
-            # 跳過對齊直接走 reset 語意：空基準照吐、暖機期吸收、其後看過集合過濾
+            # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，不可盲目
+            # 吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，直接走 reset 語意
             print(f"[reader] chatLog node count increased "
                   f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
                   f"handling as reset", file=sys.stderr)
@@ -587,16 +549,13 @@ class WizChatReader:
         prev_len = len(prev_texts)
         path, appended = _align(prev_texts, cur_texts, node_added or baseline_stale)
         if path == "recover":
-            # 前綴對不齊（撕裂讀取等），已改以尾段在 cur 的最後出現位置恢復
             print(f"[reader] baseline misaligned, recovered via tail anchor "
                   f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
                   f"nodes={len(texts)}, sizes={node_sizes(texts)})", file=sys.stderr)
         if appended is None:
-            # 與基準完全無重疊 → 首次切到沒讀過的分頁視圖、relog 成全新內容，
-            # 或單行置換式視圖（朋友視窗：每句新話取代整個視圖內容）的新訊息。
-            # 暖機期內（見 RESET_WARMUP_POLLS）一律靜默吸收——堵啟動盲區；
-            # 暖機期後照常輸出、交由下方看過集合過濾：沒見過的行（真新訊息）
-            # 照吐，重浮歷史剔除。基準為空（連上時聊天是空的）不受暖機限制。
+            # 與基準完全無重疊：首次切到沒讀過的分頁視圖、relog 成全新內容，或單行置換式
+            # 視圖（朋友視窗每句新話取代整個內容）的新訊息。暖機期內一律靜默吸收（堵啟動
+            # 盲區），之後交由看過集合過濾；基準為空（連上時聊天是空的）不受暖機限制。
             if prev_texts and self._player.warmup_left > 0:
                 print(f"[reader] no overlap with baseline during warmup, absorbed "
                       f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
@@ -614,19 +573,18 @@ class WizChatReader:
         # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
         emitted = cur[len(cur) - len(appended):]
         if path == "append":
-            # 巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被 append
-            # 誤判成「新增了 B 的其餘舊行」且不經過任何過濾（實機每次切分頁重翻的主因）。
+            # 巧合對齊防線：視圖 A 的內容恰為視圖 B 的前綴時，A→B 的切換會被 append 誤判成
+            # 「新增了 B 的其餘舊行」且不經任何過濾（實機每次切分頁重翻的主因）。
             # 單行 append（正常訊息與重複的 lol/gg）永不過濾。
             if len(appended) >= 2 and all(t in self._player.seen for t in appended):
-                # 吐出的行全部見過 → 視圖重浮
                 print(f"[reader] append of {len(appended)} all-seen lines absorbed "
                       f"as view resurface (prev={prev_len})", file=sys.stderr)
                 emitted = []
             elif len(appended) >= 3 and len(appended) > 2 * prev_len:
-                # 一輪暴增超過基準兩倍 → 不可能的人為速度，判定為切到內容較多的視圖。
-                # 代價：聊天剛起步（基準 1-2 行）時 1 秒內連發 3 句會被吸收，下句恢復。
-                # 但整批丟棄前要先看有多少是看過的：chatLog 會短暫膨脹成重複版本
-                # （實機 102 行 ×8 ≈ 822 行），此時抵達的新訊息夾在裡面會一起被丟掉。
+                # 一輪暴增超過基準兩倍＝不可能的人為速度，判定為切到內容較多的視圖（代價：
+                # 基準 1-2 行時 1 秒內連發 3 句會被吸收，下句恢復）。整批丟棄前先看有多少是
+                # 看過的：chatLog 會短暫膨脹成重複版本（實機 102 行 ×8 ≈ 822 行），
+                # 此時抵達的新訊息夾在裡面會一起被丟掉。
                 kept = self._drop_resurfaced(emitted, path)
                 if len(kept) > len(appended) // DUPLICATE_BURST_SEEN_RATIO:
                     print(f"[reader] implausible append burst absorbed as view switch "
@@ -634,19 +592,14 @@ class WizChatReader:
                           f"prev={prev_len})", file=sys.stderr)
                     emitted = []
                 else:
-                    # 絕大多數都看過＝內容重浮，剩下的寥寥幾行是夾在裡面的新訊息 → 照吐
                     emitted = kept
             elif len(appended) >= BULK_APPEND_FILTER_MIN:
-                # 混合批次（大量重浮歷史夾帶少數沒讀過的行）：見 BULK_APPEND_FILTER_MIN
                 emitted = self._drop_resurfaced(emitted, path)
-        # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。
-        # 過濾要在把本輪內容記進看過集合之前——本輪剛出現的新行還不在集合裡，才吐得出來。
-        # 例外：空讀轉場後只冒出一行**且內容與清空前不同**＝剛到的新訊息，不過濾；
-        # 照過濾會讓與舊訊息同字的新訊息整句消失（實機回報：轉場後的第一句私訊
-        # Test 因啟動基準裡有人講過同一句而被吞，對方講第二次才翻得出來）。
-        # 內容一字不差地填回則不適用——視圖裡只有一行玩家訊息時，轉場清空再還原
-        # 長得就像「單行新訊息」，例外會讓它每次轉場都重譯（實機回報）。這種讀取
-        # 交回看過集合過濾；使用者自己重打的同字句仍由輸入框關聯放行。
+        # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。例外：空讀轉場後只冒出一行且內容與清空前
+        # 不同＝剛到的新訊息，不過濾——照過濾會吞掉與舊訊息同字的新訊息（實機回報：轉場後
+        # 第一句私訊 Test 因基準裡有人講過同一句而被吞）。內容一字不差填回則不適用：視圖只有
+        # 一行玩家訊息時，轉場清空再還原長得就像單行新訊息，例外會讓它每次轉場都重譯
+        # （實機回報）；使用者自己重打的同字句仍由輸入框關聯放行。
         elif emitted:
             if baseline_stale and len(emitted) == 1 and cur_texts != prev_texts:
                 print(f"[reader] single line after an empty stretch kept as new "
@@ -663,18 +616,15 @@ class WizChatReader:
 
     def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
-        呼叫端必須在把本輪內容記進看過集合之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
+        必須在把本輪內容記進看過集合之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
         kept = filter_resurfaced(emitted, self._player.seen)
         if (len(kept) != len(emitted) and self._input_recent > 0
                 and not self._released_for_input and emitted[-1].own
                 and (not kept or kept[-1] is not emitted[-1])):
-            # 輸入框剛關閉＝使用者剛送出訊息：視圖尾行與舊訊息同字（重打同一句）
-            # 會被誤判重浮，關聯放行尾行；其餘被攔的行維持剔除。
-            # 限自己講的那行：轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
-            # 舊訊息當成「剛送出」放行而重翻（實機回報）
-            # 每次開啟輸入框只放行一次（見 _released_for_input 的重置點）：這個機制
-            # 分不出「重打同一句」與「切頁籤讓同一句重新浮現」，不設限的話後者會
-            # 每切回來就重複顯示一次。
+            # 輸入框剛關閉＝使用者剛送出：尾行與舊訊息同字（重打同一句）會被誤判重浮，關聯
+            # 放行尾行。限自己講的那行——轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
+            # 舊訊息當「剛送出」放行而重翻（實機回報）。每次開啟只放行一次：此機制分不出
+            # 「重打同一句」與「切頁籤讓同一句重浮」，不設限後者每切回來就重複顯示。
             print(f"[reader] released tail line suppressed as resurfaced: input "
                   f"closed recently, treating as a just-sent message via {path}",
                   file=sys.stderr)
@@ -691,18 +641,12 @@ class WizChatReader:
                            node_added: bool = False) -> list[int]:
         """系統訊息的差分軌，回傳新增行在完整序列中的索引。
 
-        路徑決策刻意不與玩家軌共用：玩家軌的「空讀＝轉場暫態清空」在這裡不成立——
-        「這一輪沒有系統訊息」是日常狀態，照搬 STALE_BASELINE_EMPTY_POLLS 會讓基準
-        不斷過期、把系統軌長期推去走 reset，大幅拉高重吐機率。
-
-        `node_added` 是**兩軌共同的事實**（由 _diff_new_lines() 統一判定）：節點增加
-        代表串接結構已變，對齊此時毫無意義，會生出假的 append——而 append 路徑不過
-        看過集合，剛掉過的寶就會再吐一次、再打一次 API。因此比照玩家軌跳過對齊直接
-        走 reset 語意，讓系統軌的看過集合把重浮的行擋下來。
-
-        `emit_system` 為 False 時仍照常推進基準與看過集合，只是不回傳——否則使用者
-        中途打開開關的瞬間，整份歷史系統訊息會被當成新訊息一次吐出、翻上百則。
-        """
+        路徑決策不與玩家軌共用：「這一輪沒有系統訊息」是日常狀態，照搬
+        STALE_BASELINE_EMPTY_POLLS 會讓基準不斷過期、把系統軌長期推去走 reset 而拉高重吐。
+        `node_added` 由 _diff_new_lines() 統一判定：節點增加代表串接結構已變，對齊會生出假的
+        append，而 append 路徑不過看過集合、剛掉過的寶會再吐一次，故比照玩家軌直接走 reset。
+        `emit_system` 為 False 時仍照常推進基準與看過集合，否則中途打開開關的瞬間，
+        整份歷史系統訊息會被當成新訊息一次吐出、翻上百則。"""
         if not cur_texts:
             return []            # 沒有系統訊息：保留基準，不累計 stale
         track = self._system
@@ -842,11 +786,10 @@ class WizChatReader:
         hook_state.sweep(_pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
         try:
-            # 只啟讀聊天所需的 root_window hook（不啟 player/duel/quest 等），
-            # 注入最小化、且不受是否在世界內等遊戲狀態影響。
-            # 掛入與等待就緒刻意拆成兩步（wait_for_ready=False）：wizwalker 內建的等待
-            # 無限期（見 HOOK_READY_TIMEOUT），且中間這一步要先把還原狀態存起來——
-            # hook 此刻已寫進遊戲記憶體，等待途中被硬砍才修得回來。
+            # 只啟讀聊天所需的 root_window hook（不啟 player/duel/quest 等）：注入最小化、
+            # 不受是否在世界內影響。掛入與等待就緒拆成兩步：wizwalker 內建的等待無限期
+            # （見 HOOK_READY_TIMEOUT），且 hook 此刻已寫進遊戲記憶體，要先把還原狀態存起來，
+            # 等待途中被硬砍才修得回來。
             self._run(self._client.hook_handler.activate_root_window_hook(
                 wait_for_ready=False))
             self._save_hook_state(self._pid)
@@ -945,9 +888,8 @@ class WizChatReader:
                 self._loop.run_until_complete(self._handler.close())
                 unhooked = True
         except Exception as exc:
-            # 解 hook 失敗：狀態檔會留著，下次啟動由 _repair_leaked_hooks 寫回原始 bytes。
-            # 過去這裡靜默吞掉，導致上層照樣印 shutdown complete，下次啟動才冒出
-            # 「repaired hooks leaked by previous dirty exit」而查不出原因。
+            # 狀態檔留著，下次啟動由 _repair_leaked_hooks 寫回原始 bytes。不能靜默吞：否則上層
+            # 照印 shutdown complete，下次啟動才冒出「repaired hooks leaked」而查不出原因。
             print(f"[reader] unhook failed, leaving repair state for next launch: {exc}",
                   file=sys.stderr)
         if unhooked and self._pid:
@@ -962,9 +904,8 @@ class WizChatReader:
         self._client = None
         self._edit_node = None
         self._connected = False
-        # 差分狀態屬於單一遊戲 session：斷線（多半是遊戲重開）後全部歸零。
-        # 沿用舊 session 的基準/看過集合，會把新 session 與舊訊息同字的第一句
-        # （Test/lol 等常用字）誤判為重浮歷史而吞掉。
+        # 差分狀態屬於單一遊戲 session，斷線後全部歸零：沿用舊 session 的基準/看過集合，
+        # 會把新 session 與舊訊息同字的第一句（Test/lol 等）誤判為重浮歷史而吞掉
         self._player.reset()
         self._system.reset()
         self._node_count = None

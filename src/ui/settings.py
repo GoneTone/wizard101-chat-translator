@@ -24,17 +24,15 @@ from src.updater import AUTHOR_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
-# 「關於」分頁的分組間距：版本／專案／開發者是唯讀資訊，紀錄檔與譯文快取是會動手的
-# 維護項目，兩區之間拉開才不會被看成同一串條目。
+# 「關於」分頁裡唯讀資訊與維護項目之間的間距：拉開才不會被看成同一串條目
 _GROUP_GAP = 32
 
 
 def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
                           alpha_var, parallel_var) -> tuple[dict | None, str | None]:
-    """讀取並轉型進階數值 Tk 變數：使用者手動鍵入非數字時，Tk 變數的
-    `.get()` 會拋 `TclError`，`int()`／`float()` 轉型也可能拋 `ValueError`——
-    統一在此攔截並回傳 `（None， 錯誤文案 key）`，讓呼叫端走既有表單錯誤提示、
-    不讓 cfg 被寫到一半。成功則回傳 `(clamp_advanced(...), None)`。"""
+    """讀取並轉型進階數值的 Tk 變數。手動鍵入非數字時 `.get()` 拋 `TclError`、
+    轉型拋 `ValueError`，統一攔下回傳 `(None, 錯誤文案 key)` 讓呼叫端走表單錯誤提示，
+    不讓 cfg 寫到一半；成功回傳 `(clamp_advanced(...), None)`。"""
     try:
         values = clamp_advanced({
             "poll_interval": float(poll_var.get()),
@@ -63,8 +61,8 @@ class SettingsWindow:
         self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
         self._update_queue: queue.Queue = queue.Queue()
         self._win: tk.Toplevel | None = None
-        # 未儲存的編輯暫存：欄位初始值都讀這裡，換語言重建視窗才不會弄丟填到一半的內容。
-        # None＝目前沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
+        # 未儲存的編輯暫存：欄位初始值讀這裡，換語言重建視窗才不會丟掉填到一半的內容；
+        # None＝沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
         self._draft: dict | None = None
         self._language_at_open: str | None = None
         self._restore_geometry: str | None = None   # 重建時沿用的視窗位置與大小
@@ -81,9 +79,9 @@ class SettingsWindow:
         cfg = self._draft
         self._win = tk.Toplevel(self._root)
         self._win.title(t("settings.title", app=app_name()))
-        # 開窗尺寸：量過「基本」分頁在英文下需要 512px 內容高（三種語言中最高），
-        # 加上分頁標籤與按鈕列後 620 就放得下，取 640 再留一點給測試連線的結果訊息。
-        # 寬度 720 讓各欄說明少換一兩行（640 時「進階」分頁的說明會多出約 40px）。
+        # 開窗尺寸：「基本」分頁在英文下（三種語言中最高）要 512px 內容高，加上分頁標籤
+        # 與按鈕列 620 放得下，640 再留給測試連線的結果訊息；寬 720 讓說明少換一兩行
+        # （640 時「進階」分頁的說明多出約 40px）。
         win_w, win_h = 720, 640
         if self._restore_geometry is not None:
             self._win.geometry(self._restore_geometry)   # 換語言重建：不要跳回螢幕中央
@@ -92,12 +90,11 @@ class SettingsWindow:
             y = (self._win.winfo_screenheight() - win_h) // 2
             self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
-        # 下限比開窗尺寸小：使用者要縮小就讓他縮，內容捲動即可
+        # 下限比開窗尺寸小：內容可捲動，使用者要縮就讓他縮
         self._win.minsize(MIN_WIDTH, MIN_HEIGHT)
         self._win.attributes("-topmost", True)
 
-        # 底部按鈕列先 pack：pack 依宣告順序分配空間，expand=True 的內容區若先宣告，
-        # 會吃光剩餘高度，這條固定高度的按鈕列就會在視窗變矮時被擠扁甚至消失。
+        # 按鈕列先 pack：後宣告會在視窗變矮時被 expand=True 的內容區擠掉
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
         btns.pack(side="bottom", fill="x")
         ttk.Label(btns, text=f"v{__version__}", foreground=HINT_COLOR).pack(side="left")
@@ -113,8 +110,7 @@ class SettingsWindow:
         basic_scroll = ScrollableFrame(nb, padding=12)
         basic = basic_scroll.body
         nb.add(basic_scroll, text=t("settings.tab.basic"))
-        # 兩個語言設定放在一起：介面語言與翻譯目標語言是最容易被搞混的一對，
-        # 相鄰擺放才看得出「這個管介面、那個管收到的訊息」。
+        # 介面語言與翻譯目標語言最容易被搞混，相鄰擺放才看得出各管什麼
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
         self._ui_language = UiLanguageField(basic, current_language(),
                                             on_change=self._on_language_change)
@@ -138,9 +134,8 @@ class SettingsWindow:
         adv_scroll = ScrollableFrame(nb, padding=12)
         adv = adv_scroll.body
         nb.add(adv_scroll, text=t("settings.tab.advanced"))
-        # grid 而非 pack：標籤欄的寬度由最長的那一條決定，各列自然對齊。
-        # 原本用固定字元寬（width=14）對齊，中文塞得下、英文會被裁掉
-        # （"Message fade-out (s)"、"Parallel translations"）。
+        # grid 而非 pack：標籤欄寬度由最長的一條決定；固定字元寬（width=14）中文塞得下、
+        # 英文（"Message fade-out (s)"）會被裁掉。
         adv.columnconfigure(2, weight=1)   # 說明欄吃掉剩餘寬度
         self._poll = self._spin(adv, 0, "settings.poll_interval", cfg["poll_interval"],
                                 "poll_interval", 0.1, "settings.poll_interval_hint")
@@ -164,15 +159,13 @@ class SettingsWindow:
 
         ttk.Label(adv, text=t("settings.game_path")).grid(row=7, column=0, sticky="w",
                                                           pady=(10, 2))
-        # 滑桿與路徑列跨欄放進自己的 Frame：它們比 Spinbox 寬得多，
-        # 讓它們獨占 column 1 會把每一列的數值欄都撐開、右邊拉出一大片空白。
+        # 路徑列比 Spinbox 寬得多：跨欄放進自己的 Frame，才不會把每一列的數值欄都撐開
         path_row = ttk.Frame(adv)
         path_row.grid(row=7, column=1, columnspan=2, sticky="ew", padx=(8, 0),
                       pady=(10, 2))
         self._game_path_row = path_row   # 版面順序測試取得這一列的入口
         self._game_path = tk.StringVar(value=cfg["game_path"] or "")
-        # 「瀏覽…」先 pack：expand=True 的輸入框若先宣告會吃光整列寬度，
-        # 這顆固定寬度的按鈕就會在視窗變窄時被擠掉。
+        # 「瀏覽…」先 pack：後宣告會在視窗變窄時被 expand=True 的輸入框擠掉
         ttk.Button(path_row, text=t("button.browse"), width=7,
                    command=self._browse_game_path).pack(side="right", padx=(4, 0))
         ttk.Entry(path_row, textvariable=self._game_path).pack(
@@ -206,9 +199,8 @@ class SettingsWindow:
                                       command=self._start_update_check)
         self._update_btn.pack(side="left", padx=(8, 0))
         self._update_result = ttk.Label(version_row, text="")
-        # 不 fill／expand：「有新版」時整個標籤是可點的連結，撐滿整列會讓文字
-        # 後面那段空白也跟著可點、游標也變成手指。換行寬度仍由 bind_wrap 依
-        # 這一列的寬度算，長訊息（檢查失敗帶例外訊息）照樣折行。
+        # 不 fill／expand：「有新版」時整個標籤是連結，撐滿整列會讓文字後的空白也可點；
+        # 換行寬度仍由 bind_wrap 依這一列的寬度算，長訊息照樣折行。
         self._update_result.pack(side="left", padx=8)
         bind_wrap(self._update_result)
 
@@ -223,12 +215,11 @@ class SettingsWindow:
         self._author_link = link_label(about, "GoneTone", AUTHOR_URL)
         self._author_link.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=2)
 
-        # 維護區的起點：與上面的唯讀資訊拉開（見 _GROUP_GAP）
         ttk.Label(about, text=t("about.logs")).grid(row=3, column=0, sticky="w",
                                                     pady=(_GROUP_GAP, 2))
         logs_row = ttk.Frame(about)
         logs_row.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(_GROUP_GAP, 2))
-        # 按鈕先 pack：expand=True 的路徑標籤若先宣告會吃光整列，把按鈕擠掉
+        # 按鈕先 pack：後宣告會被 expand=True 的路徑標籤擠掉
         ttk.Button(logs_row, text=t("button.open_folder"),
                    command=self._open_log_folder).pack(side="right", padx=(4, 0))
         self._logs_label = ttk.Label(logs_row, text=str(app_dir()))
@@ -263,14 +254,10 @@ class SettingsWindow:
     def _start_update_check(self) -> None:
         """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。
 
-        每次按下都重建 queue：SettingsWindow 整個 app 生命週期只有一個實例，
-        `self._update_queue` 若只在 __init__ 建一次，視窗在結果送回前被關掉
-        （或換語言 `_rebuild`）就會讓 poll_queue 停止輪詢，結果留在舊 queue 裡；
-        下次檢查沿用同一個 queue，會先撈到那筆過期結果，而不是這一輪的。
-
-        queue 同時以參數交給 worker，而不是讓它回頭讀 `self._update_queue`：
-        前一輪沒回來的 worker 一旦查到的是新那一輪的 queue，過期結果照樣會被
-        撈走顯示——重建 queue 只擋掉視窗重開這條路徑，擋不掉兩輪重疊。"""
+        每次按下都重建 queue：實例是整個 app 共用的，視窗在結果送回前被關掉（或換語言
+        重建）會讓 poll_queue 停止輪詢，過期結果留在舊 queue，下次檢查會先撈到它。
+        queue 以參數交給 worker 而非回頭讀 `self._update_queue`：否則兩輪重疊時，
+        前一輪的 worker 會把過期結果放進新 queue。"""
         result_queue: queue.Queue = queue.Queue()
         self._update_queue = result_queue   # 這一輪的通道（poll_queue 與測試取用）
         self._update_btn.configure(state="disabled", text=t("button.checking"))
@@ -309,7 +296,6 @@ class SettingsWindow:
         self._update_result.configure(cursor="")
 
     def _open_log_folder(self) -> None:
-        """開啟 app.log／messages.log 所在的資料夾（Windows 檔案總管）。"""
         path = app_dir()
         try:
             os.startfile(path)
@@ -347,11 +333,9 @@ class SettingsWindow:
         return var
 
     def _on_language_change(self, code: str) -> None:
-        """介面語言換了：立刻以新語言預覽，但不寫 cfg（按儲存才算數）。
-
-        整個視窗重建、而非逐一 reconfigure 標籤：欄位元件各自帶著舊語言的文字，
-        逐一刷新容易漏掉（精靈也是這麼做的）。代價是 API 測試結果會被清掉——
-        那句譯文本來就綁著當時的語言。"""
+        """介面語言換了：立刻以新語言預覽，不寫 cfg（按儲存才算數）。
+        整個視窗重建而非逐一 relabel：欄位元件各自帶著舊語言的文字，逐一刷新容易漏
+        （精靈同理）；代價是 API 測試結果被清掉——那句譯文本來就綁著當時的語言。"""
         if code == current_language():
             return
         self._collect_into_draft()
@@ -359,13 +343,12 @@ class SettingsWindow:
         self._restore_tab = self._nb.index("current")
         print(f"[ui] settings previewing language {code}", file=sys.stderr)
         self._preview_language(code)
-        # after_idle：這裡是從 <<ComboboxSelected>> 事件內呼叫，ttk 的類別 binding
-        # 還在處理同一個事件，立即 destroy() 會讓它收尾時對已死的 widget 操作，
-        # 冒出 TclError: invalid command name。延到事件處理完才重建視窗。
+        # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
+        # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
         self._win.after_idle(self._rebuild)
 
     def _preview_language(self, code: str) -> None:
-        """套用預覽語言：設定視窗之外，常駐的 overlay 也要跟著換（由呼叫端提供）。"""
+        """套用預覽語言；常駐的 overlay 也要跟著換（由呼叫端提供）。"""
         set_language(code)
         if self._on_language_preview is not None:
             self._on_language_preview()
@@ -376,8 +359,8 @@ class SettingsWindow:
         self.open()
 
     def _form_values(self) -> tuple[dict, str | None]:
-        """讀取表單目前的值（不含介面語言，它由儲存路徑另外處理），回傳
-        （欄位值, 進階數值的錯誤文案 key 或 None）。進階數值解析失敗時就不含那幾個鍵。"""
+        """讀取表單目前的值（不含介面語言，儲存路徑另外處理），回傳（欄位值，進階數值的
+        錯誤文案 key 或 None）；進階數值解析失敗時就不含那幾個鍵。"""
         values = {
             "api": self._api.get_values(),
             "target_language": self._language.value(),
@@ -394,10 +377,8 @@ class SettingsWindow:
         return values, error
 
     def _collect_into_draft(self) -> None:
-        """把目前填在欄位裡的值寫回 draft，供重建視窗時復原。
-
-        進階數值鍵到一半是非數字、或目標語言清空時就保留 draft 原值：
-        重建不是儲存，不該在這裡把使用者擋在表單錯誤提示前面。"""
+        """把欄位目前的值寫回 draft，供重建視窗時復原。進階數值是非數字、目標語言清空時
+        保留 draft 原值：重建不是儲存，不該在這裡擋使用者。"""
         values, _error = self._form_values()
         if not values["target_language"]:
             del values["target_language"]

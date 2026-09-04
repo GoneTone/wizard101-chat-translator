@@ -46,9 +46,8 @@ def test_png_icons_exist_at_the_sizes_tkinter_needs():
 
 
 def test_build_spec_bundles_and_applies_the_icon():
-    # 兩處都要提到 icon：exe 圖示，以及讓 tkinter 視窗拿得到的 datas 收錄。
-    # 只改其中一邊就會出現「exe 有圖示、視窗沒有」這種難察覺的落差；datas 收整個
-    # assets 目錄，新增圖檔不必再回來改 spec。
+    # 兩處都要提到 icon：exe 圖示，以及讓 tkinter 視窗拿得到的 datas 收錄，只改一邊就會
+    # 「exe 有圖示、視窗沒有」；datas 收整個 assets 目錄，新增圖檔不必再改 spec
     spec = BUILD_SPEC.read_text(encoding="utf-8")
     assert 'icon="src/assets/icon.ico"' in spec
     assert '("src/assets/*", "assets")' in spec

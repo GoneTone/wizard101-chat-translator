@@ -81,16 +81,9 @@ def test_language_change_keeps_customised_target_language(root):
 
 
 def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
-    """回歸測試（main.bootstrap_language 修好前的死路徑）：
-
-    英文系統首次啟動時，main.bootstrap_language() 現在會把 target_language
-    設成該介面語言的自稱（i18n.language_name("en") ＝ "English"），而不是留在 config.py 的
-    原始預設值「繁體中文（台灣）」。本測試從這個已修正的啟動狀態出發，
-    驗證精靈頁再切到 zh-CN 時，_on_language_change 的
-    `target_language == old_default` 判斷式現在真的比對得到，能接著把
-    target_language 帶到 zh-CN 的預設值。修復前 target_language 永遠停在
-    「繁體中文（台灣）」，此判斷式因 old_default 是 "English" 而永遠不成立，
-    這條分支形同死碼。"""
+    """回歸測試：英文系統首次啟動時 bootstrap_language 把 target_language 設成介面語言的
+    自稱（"English"），精靈再切到 zh-CN 時 `target_language == old_default` 才比對得到。
+    修復前 target_language 永遠停在「繁體中文（台灣）」，這條分支形同死碼。"""
     import copy
 
     from src import i18n
@@ -132,10 +125,8 @@ def test_bootstrap_language_first_run_no_config_file():
 
 
 def test_bootstrap_language_upgrading_user_keeps_target_language():
-    """回歸測試：升級使用者的 config.json 已存在，只是 pre-i18n 版本沒有 ui_language 欄位，
-    load_config()／_merge 會把它回填成 None（見 tests/test_config.py），不代表沒走過精靈。
-    此情境下介面語言仍可依偵測決定，但使用者原本選好的 target_language 不可被覆蓋，
-    也不該在每次啟動時被悄悄改回系統預設值。"""
+    """回歸測試：升級使用者的 config 已存在，只是舊版沒有 ui_language（被回填成 None），
+    不代表沒走過精靈：介面語言仍依偵測，但使用者選好的 target_language 不可被覆蓋。"""
     from src.main import bootstrap_language
 
     cfg = {"ui_language": None, "target_language": "日本語"}

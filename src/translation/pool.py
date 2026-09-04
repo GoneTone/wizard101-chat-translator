@@ -23,15 +23,13 @@ class TranslationPool:
                  translate_fn=None, gate=None):
         self._translator = translator
         self._on_result = on_result
-        # 取失敗提示的 callable 而非字串：介面語言可能在執行中被改掉，
-        # 建構當下就定案的字串會停在舊語言。
+        # 取 callable 而非字串：介面語言可能在執行中被改掉，定案的字串會停在舊語言。
         self._failed_notice_fn = failed_notice_fn
         # 哪一條翻譯路徑：預設收訊（吃 context），系統訊息 pool 傳入自己的。
         self._translate_fn = translate_fn or (
             lambda text, context: translator.translate_incoming(text, context))
-        # 總量閘（可為 None＝不限總量，測試與單 pool 情境用）。與下方的退避閘門
-        # （_gate_until／_wait_for_gate）是兩回事：那是「伺服器掛了、全體暫停」，
-        # 這是「同時最多幾則」。
+        # 總量閘（None＝不限，測試與單 pool 用）。與退避閘門（_gate_until）是兩回事：
+        # 那是「伺服器掛了、全體暫停」，這是「同時最多幾則」。
         self._concurrency = gate
         self._workers = workers
         self._lock = threading.Lock()
@@ -56,13 +54,11 @@ class TranslationPool:
             return self._error_state
 
     def submit(self, line: str, context: list[str], msg_id: int) -> None:
-        """提交一則翻譯。context 為提交當下的快照，重試時沿用同一份、不隨後續訊息漂移。
+        """提交一則翻譯。context 為提交當下的快照，重試時沿用同一份。
 
-        「檢查 _stop → 讀取 executor → 呼叫 executor.submit()」整段都在 _lock 內完成，
-        與 resize()／shutdown() 交換／關閉 executor 的臨界區互斥；否則會出現 submit()
-        讀到即將被換掉的 executor、鎖外才真正送件，而 executor 已 shutdown 導致
-        RuntimeError 直接炸出呼叫端，且 in_flight 已加計卻永遠等不到 _work 遞減的競速。
-        """
+        「檢查 _stop → executor.submit()」整段都在 _lock 內，與 resize()／shutdown()
+        換掉／關閉 executor 的臨界區互斥；否則鎖外送件會撞上已 shutdown 的 executor
+        炸出 RuntimeError，且 in_flight 已加計卻永遠等不到 _work 遞減。"""
         with self._lock:
             if self._stop.is_set():
                 return
@@ -70,7 +66,7 @@ class TranslationPool:
             try:
                 future = self._executor.submit(self._work, line, context, msg_id)
             except RuntimeError:
-                # 理論上已被上面同一把鎖排除；留著防呆，避免未來重構重新打開競速窗口。
+                # 已被同一把鎖排除；留著防呆，避免重構重新打開競速窗口。
                 self._in_flight -= 1
                 print(f"[translate] submit rejected, executor already shut down: {line}",
                       file=sys.stderr)
@@ -78,9 +74,8 @@ class TranslationPool:
         future.add_done_callback(self._on_future_done)
 
     def _on_future_done(self, future) -> None:
-        """work item 若在真正開始執行前就被 shutdown(cancel_futures=True) 取消，
-        _work 永遠不會跑、它的 finally 也就不會遞減 in_flight——這裡補上那次遞減。
-        _work 正常完成（成功或例外）時 future 不是 cancelled 狀態，這裡不重複計數。"""
+        """被 shutdown(cancel_futures=True) 取消、尚未開跑的 work item，_work 的 finally
+        不會執行，這裡補上那次 in_flight 遞減；正常完成的 future 不是 cancelled，不重複計數。"""
         if future.cancelled():
             with self._lock:
                 self._in_flight -= 1
@@ -112,17 +107,12 @@ class TranslationPool:
             self._in_flight -= 1
 
     def _work(self, line: str, context: list[str], msg_id: int) -> None:
-        """單次呼叫至多一次 return（成功／不可重試失敗／閘門關閉時放棄）。
+        """每則工作至多回報一次 on_result。
 
-        in_flight 在呼叫 on_result 之前遞減，而不是事後靠 finally 遞減——
-        否則從 on_result 回呼內讀 in_flight 會看到「這則其實已經有結果了」
-        卻還被算進行中，讓 in_flight 短暫多算一則、與其自身文件字面「已提交但
-        尚未回報結果的則數」不符。`decremented` 旗標防止這裡的提前遞減又被
-        finally 兜底重複扣一次；沒有呼叫 on_result 的路徑（迴圈正常跳出、
-        或 _wait_for_gate 因 stop 而放棄）則完全交給 finally 遞減，兩者互斥、
-        合計每則工作恰好遞減一次——與 _on_future_done 對「送出前就被
-        shutdown(cancel_futures=True) 取消」的 future 之遞減互斥（見模組層筆記）。
-        """
+        in_flight 在呼叫 on_result 之前遞減，而非事後靠 finally——否則 on_result 回呼內
+        讀 in_flight 會把已有結果的這則算進行中。`decremented` 防止 finally 再扣一次；
+        沒有呼叫 on_result 的路徑（stop 跳出、_wait_for_gate 放棄）則交給 finally。
+        合計每則恰好遞減一次，與 _on_future_done 對「送出前就被取消」的遞減互斥。"""
         attempts = 0
         decremented = False
         try:
@@ -139,8 +129,8 @@ class TranslationPool:
                     self._note_failure("config", exc)
                     continue        # 等使用者修正設定後自動恢復
                 except Exception as exc:
-                    # 譯文被截斷或回傳格式異常：temperature=0 下重試必得同一結果，
-                    # 直接放棄該則，讓 overlay 至少顯示原文而不是無聲消失。
+                    # 截斷或格式異常：temperature=0 下重試必得同一結果，直接放棄，
+                    # 讓 overlay 至少顯示原文而不是無聲消失。
                     reason = ("bad model output" if isinstance(exc, TranslatorBadOutput)
                               else "unexpected error")
                     print(f"[translate] line dropped after {attempts} attempt(s), "
@@ -181,13 +171,9 @@ class TranslationPool:
         return False
 
     def _note_failure(self, state: str, exc: Exception) -> None:
-        """推進全域退避閘門並記錄狀態。閘門是全域的——伺服器離線本就是全域事實，
-        否則 N 個 worker 會以 N 倍速重打同一台掛掉的伺服器。
-
-        閘門若還沒到期，代表另一個 worker 已經替「這一輪」失敗推進過閘門與退避層級，
-        這次呼叫只是同一輪的兄弟失敗，沿用現有閘門即可——否則 N 個 worker 同時撞上
-        剛開啟的閘門，會把 backoff_index 一口氣推進 N 階，直接跳到封頂值，而不是
-        照 BACKOFF_STEPS 逐輪升級。"""
+        """推進全域退避閘門並記錄狀態。閘門全域：伺服器離線是全域事實，否則 N 個 worker
+        會以 N 倍速重打同一台掛掉的伺服器。閘門未到期代表另一個 worker 已替這一輪推進過，
+        沿用即可——否則 N 個 worker 同時撞上會把 backoff_index 一口氣推 N 階、直接封頂。"""
         with self._lock:
             now = time.monotonic()
             if now >= self._gate_until:

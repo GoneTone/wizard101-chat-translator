@@ -38,9 +38,7 @@ def parse_version(text: str) -> tuple[int, int, int] | None:
 
 def is_newer(latest: str, current: str) -> bool:
     """latest 是否嚴格新於 current。
-
-    任一邊解析不出來就回 False——寧可漏提醒也不要誤報，畢竟提醒會把使用者
-    導去下載頁。"""
+    任一邊解析不出來就回 False——寧可漏提醒也不要誤報把使用者導去下載頁。"""
     newer, mine = parse_version(latest), parse_version(current)
     if newer is None or mine is None:
         print(f"[update] version unparsable: latest={latest!r} current={current!r}",
@@ -58,8 +56,7 @@ class Release:
 
 class UpdateCheckError(Exception):
     """檢查更新失敗（連線不通、配額用盡、回應無法解析）。
-
-    「目前沒有新版」與「還沒發過任何 release」都不走這個例外——那是正常結果。"""
+    「沒有新版」與「還沒發過 release」是正常結果，不走這個例外。"""
 
 
 def _fetch(http) -> Release | None:
@@ -82,14 +79,12 @@ def _fetch(http) -> Release | None:
 
 
 def fetch_latest_release(client=None) -> Release | None:
-    """取 GitHub 上最新的正式 release；尚未發過任何 release（404）時回 None。
-
-    `/releases/latest` 已自動排除 draft 與 pre-release。`client` 供測試注入假
-    client（沿用 translator 的同名慣例）；沒給就自己開一個用完即關的 httpx client。"""
+    """取 GitHub 上最新的正式 release（`/releases/latest` 已排除 draft 與 pre-release）；
+    尚未發過任何 release（404）時回 None。`client` 供測試注入。"""
     if client is not None:
         return _fetch(client)
-    # follow_redirects：repo 改名／搬家時 GitHub API 會回 301，沒有這個參數會被
-    # httpx 直接當成最終回應（HTTP 301），檢查更新就變成一律回報失敗。
+    # follow_redirects：repo 改名／搬家時 GitHub API 回 301，httpx 預設不跟隨，
+    # 檢查更新會變成一律回報失敗
     with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as http:
         return _fetch(http)
 

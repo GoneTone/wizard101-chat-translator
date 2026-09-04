@@ -20,8 +20,7 @@ def restore_language():
 def fake_catalog(monkeypatch, tmp_path):
     """把語言檔目錄換成 tmp，回傳「寫一個語言檔」的函式。
 
-    這組測試要驗證的正是「新增語言只需要丟一個語言檔」，所以刻意不碰真正的
-    src/i18n/*.json——用假目錄才能演練還不存在的語言。"""
+    要驗證的正是「新增語言只需丟一個語言檔」，所以刻意不碰真正的 src/i18n/*.json。"""
     def write(code: str, strings: dict) -> None:
         (tmp_path / f"{code}.json").write_text(
             json.dumps(strings, ensure_ascii=False), encoding="utf-8")

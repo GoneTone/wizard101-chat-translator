@@ -1,7 +1,6 @@
 """防迴歸：UI 模組內不得再出現中日韓文字的字串字面量。
 
-新增文案時忘了走 i18n，這個測試會直接失敗。掃描範圍刻意不含 translator.py
-（LLM 提示詞，非 UI 文字）與 mem_reader.py（log 訊息，另有英文規則）。
+忘了走 i18n 就會直接失敗。刻意不掃 translator.py（LLM 提示詞）與 mem_reader.py（英文 log）。
 """
 import ast
 from pathlib import Path

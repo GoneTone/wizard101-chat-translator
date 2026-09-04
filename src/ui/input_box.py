@@ -39,7 +39,7 @@ class InputBox:
         self._session = 0
 
     def show(self) -> None:
-        if self._win is not None:  # 已開著就聚焦
+        if self._win is not None:
             self._force_focus()
             return
         self._session += 1
@@ -99,7 +99,7 @@ class InputBox:
             force_foreground(self._target_hwnd)
 
     def _remember_geometry(self) -> None:
-        """記住輸入框目前位置與寬度，供下次開啟還原（關閉前呼叫）。高度不記：依內容自適應。"""
+        """記住位置與寬度供下次開啟還原（關閉前呼叫）；高度不記，依內容自適應。"""
         try:
             self._win.update_idletasks()
             x, y, width = self._win.winfo_x(), self._win.winfo_y(), self._current_width()
@@ -134,7 +134,7 @@ class InputBox:
 
     def _show_error(self, message: str, session: int) -> None:
         if session != self._session:
-            return  # stale/cancelled
+            return  # 過期回呼：輸入框已關閉或重開
         if self._entry is None:
             return
         self._entry.configure(state="normal")
@@ -158,7 +158,7 @@ class InputBox:
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
-            return  # stale/cancelled
+            return  # 過期回呼：輸入框已關閉或重開
         if len(translated) > GAME_INPUT_MAX_CHARS:
             # 超過遊戲輸入上限：不鍵入、不關窗，讓使用者刪減原文後重送
             self._show_error(t("input.too_long", count=len(translated),

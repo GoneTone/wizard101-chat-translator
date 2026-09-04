@@ -1,7 +1,4 @@
-"""conftest 的 `_park_windows`：跑測試時視窗不該彈到使用者畫面上。
-
-開發者多半正在同一台機器上做別的事，測試視窗一個個彈出來會搶焦點、干擾操作。
-"""
+"""conftest 的 `_park_windows`：跑測試時視窗不該彈到使用者畫面上搶焦點。"""
 import tkinter as tk
 
 import pytest

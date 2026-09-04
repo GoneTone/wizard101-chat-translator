@@ -24,8 +24,7 @@ class ScrollableFrame(ttk.Frame):
         self._scrollbar = ttk.Scrollbar(self, orient="vertical",
                                         command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=self._scrollbar.set)
-        # 捲軸先 pack：pack 依宣告順序分配空間，expand=True 的 canvas 若排在前面
-        # 會吃光寬度，捲軸就再也擠不進來
+        # 捲軸先 pack：後宣告會被 expand=True 的 canvas 擠掉
         self._scrollbar.pack(side="right", fill="y")
         self._canvas.pack(side="left", fill="both", expand=True)
 

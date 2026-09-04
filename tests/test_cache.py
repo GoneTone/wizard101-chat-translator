@@ -101,8 +101,7 @@ def test_put_expects_the_translation_of_the_normalized_template(cache_path):
 
 
 def test_put_takes_the_raw_text_not_the_template(cache_path):
-    # put() 內部自己正規化。傳入已含 {0} 的樣板會讓裡面的 0 被當成數字而變成 {{0}}，
-    # 之後永遠對不上——呼叫端務必傳原文（見 main._translate_and_cache）。
+    # put() 自己正規化：傳入含 {0} 的樣板會把 0 當數字變成 {{0}}，永遠對不上——務必傳原文
     c = TranslationCache(FP)
     c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
     assert c.get("你获得了 39 金币！") == "你獲得了 39 金幣！"
@@ -156,8 +155,7 @@ def test_load_survives_a_corrupt_file(cache_path):
 
 
 def test_load_survives_a_structurally_malformed_file(cache_path):
-    # entries 語法上是合法 JSON，但形狀不對（list／string 而非 dict）——
-    # 截斷寫入或版本不一致的舊檔可能留下這種殘骸，一樣不得拋例外。
+    # JSON 合法但形狀不對（list／string 而非 dict）：截斷寫入或舊版殘骸，一樣不得拋例外
     cache_path.write_text(
         json.dumps({"fingerprint": FP, "entries": ["not", "a", "dict"]}),
         encoding="utf-8")
@@ -175,8 +173,7 @@ def test_load_survives_a_structurally_malformed_file(cache_path):
 
 def test_load_truncates_to_the_cap_and_logs_the_stored_count(
         cache_path, monkeypatch, capsys):
-    # 檔案裡的筆數多於上限時只留最新的幾筆；log 報的必須是「實際存下的筆數」，
-    # 報檔案裡的筆數會讓 app.log 與記憶體中的實際狀態對不上。
+    # 超過上限只留最新幾筆；log 報的必須是實際存下的筆數，否則 app.log 與記憶體狀態對不上
     monkeypatch.setattr(cache_module, "MAX_ENTRIES", 2)
     cache_path.write_text(
         json.dumps({"fingerprint": FP, "entries": {"a": "A", "b": "B", "c": "C"}}),
@@ -277,10 +274,8 @@ def test_translate_and_cache_falls_back_when_the_model_mangles_a_placeholder(cac
 
 def test_translate_and_cache_discards_a_translation_that_finished_after_a_rebind(
         cache_path):
-    # 實況：四則系統訊息正在飛行中，使用者在設定視窗把目標語言由繁中換成日文並套用
-    # （apply_settings → cache.rebind）。舊語言的譯文回來得晚，若照存就會被當成日文的
-    # 譯文寫進磁碟、跨每一次重啟持續回吐錯誤語言——磁碟上的錯資料比一行過期的疊加訊息
-    # 嚴重得多，故一律丟棄，改用（已換好設定的）翻譯器直翻一次。
+    # 實況：翻譯飛行中使用者換了目標語言並套用（cache.rebind）。舊語言的譯文回來得晚，
+    # 照存就會以新指紋落盤、跨重啟持續回吐錯誤語言——一律丟棄，改用換好設定的翻譯器直翻
     cache = TranslationCache(FP)
 
     class SwappingTranslator(FakeTranslator):
@@ -362,9 +357,8 @@ def test_cache_still_usable_after_clear(cache_path):
 
 def test_translate_and_cache_does_not_store_a_translation_that_slipped_into_english(
         cache_path):
-    # 實機：目標語言是繁中，模型卻把裸名詞翻成官方英文名。錯一次就被快取固化、
-    # 之後每次命中都吐英文——這類譯文照樣顯示（模型已重譯過一次，見 translator），
-    # 但一律不落盤，下次有機會翻對。
+    # 實機：目標語言是繁中，模型卻把裸名詞翻成官方英文名。錯一次就被快取固化，
+    # 之後每次命中都吐英文——這類譯文照樣顯示，但一律不落盤，下次有機會翻對
     translator = FakeTranslator({"雪刺帽": "Snowspike Hat"})
     cache = TranslationCache(FP)
     assert translate_and_cache(translator, cache, "雪刺帽") == "Snowspike Hat"
@@ -381,6 +375,5 @@ def test_translate_and_cache_stores_a_translation_that_kept_the_source_english(
 
 
 def test_fingerprint_covers_the_prompt_revision():
-    # 提示詞改了，舊提示詞產出的譯文就該整份作廢——否則使用者手上翻壞的譯名
-    # 會跨著更新一直留在磁碟上。
+    # 提示詞改了，舊提示詞產出的譯文就該整份作廢——否則翻壞的譯名會跨著更新留在磁碟上
     assert f"p{PROMPT_REVISION}" in fingerprint_of("custom", "gemma", "日本語")

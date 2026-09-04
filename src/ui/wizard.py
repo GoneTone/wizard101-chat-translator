@@ -46,8 +46,7 @@ class SetupWizard:
         y = (self._win.winfo_screenheight() - win_h) // 2
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
-        # 寬度下限維持預設值（再窄是橫向擠壓，捲動救不了）；高度下限放寬——
-        # 步驟內容可以捲動，不必為了「塞得下測試結果」而綁死視窗高度。
+        # 寬度下限維持開窗值（再窄是橫向擠壓，捲動救不了）；高度放寬，步驟內容可捲動
         self._win.minsize(win_w, MIN_HEIGHT)
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
@@ -56,8 +55,7 @@ class SetupWizard:
         self._title = ttk.Label(self._win, font=ui_font(13, "bold"))
         self._title.pack(pady=(2, 8))
 
-        # 導覽列先 pack：pack 依宣告順序分配空間，expand=True 的內容區若先宣告，
-        # 會吃光剩餘高度，「上一步／下一步」就會在視窗變矮時被擠出畫面。
+        # 導覽列先 pack：後宣告會在視窗變矮時被 expand=True 的內容區擠掉
         nav = ttk.Frame(self._win, padding=8)
         nav.pack(side="bottom", fill="x")
         self._back_btn = ttk.Button(nav, text=t("button.back"), command=self._back)
@@ -80,8 +78,7 @@ class SetupWizard:
 
     # --- 導航 ---
     def _show_step(self) -> None:
-        # 跨步驟保留的元件只收起來；每步臨時建立的說明文字等直接銷毀，
-        # 避免來回導航時在 body 底下累積孤兒 widget。
+        # 跨步驟保留的元件只收起來；每步臨時建立的說明等直接銷毀，免得來回導航累積孤兒
         persistent = {self._ui_language, self._api_fields, self._language, self._hotkey}
         for w in self._body.winfo_children():
             if w in persistent:
@@ -134,9 +131,8 @@ class SetupWizard:
             self._cfg["target_language"] = language_name(code)
         self.restart = True
         print(f"[ui] wizard restarting with language {code}", file=sys.stderr)
-        # after_idle：這裡是從 <<ComboboxSelected>> 事件內呼叫，ttk 的類別 binding
-        # 還在處理同一個事件，立即 destroy() 會讓它收尾時對已死的 widget 操作，
-        # 冒出 TclError: invalid command name。延到事件處理完才銷毀視窗。
+        # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
+        # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
         self._win.after_idle(self._win.destroy)
 
     def _collect_into_cfg(self) -> None:
@@ -148,7 +144,7 @@ class SetupWizard:
         self._cfg["auto_show_input"] = self._auto_input.get()
 
     def _on_api_change(self) -> None:
-        # API 欄位有任何變動就取消先前的「略過測試」：改過設定應重新測試（或再次明示略過）。
+        # API 欄位一改就取消先前的「略過測試」：改過設定應重測（或再次明示略過）
         self._skip_test = False
         self._refresh_nav()
 

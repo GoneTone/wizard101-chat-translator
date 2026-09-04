@@ -65,9 +65,8 @@ def _prepare_log(path: Path, now: datetime) -> None:
 
 
 def open_session_log(name: str, now: datetime | None = None):
-    """開啟 exe（開發時為專案根目錄）旁的 log 檔：清掉過期段落後以 append 開檔，
-    並寫入本次啟動的 session 標頭。資料夾不可寫時退回 devnull——windowed 模式
-    沒有主控台可看錯誤，不能讓開檔失敗把程式帶掉。"""
+    """開啟 app_dir() 旁的 log 檔：清掉過期段落後以 append 開檔並寫入 session 標頭。
+    資料夾不可寫時退回 devnull——windowed 模式沒有主控台，不能讓開檔失敗把程式帶掉。"""
     now = now or datetime.now(timezone.utc)
     path = app_dir() / name
     try:
@@ -83,9 +82,8 @@ def open_session_log(name: str, now: datetime | None = None):
 
 class TimestampedStream:
     """把每個行首補上 UTC 時戳的輸出包裝（其餘屬性委派給被包住的串流）。
-
-    不能單純對每次 write 加前綴：`print` 會把內文與換行分兩次 write，
-    多行 traceback 也是一次 write 進來，故以「目前是否停在行首」為狀態逐行處理。"""
+    不能單純對每次 write 加前綴：`print` 把內文與換行分兩次 write，多行 traceback
+    則一次 write 進來，故以「是否停在行首」為狀態逐行處理。"""
 
     def __init__(self, stream, stamp=utc_stamp):
         self._stream = stream
