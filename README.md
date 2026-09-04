@@ -57,7 +57,8 @@ Wizard101 本身以**系統管理員**身分執行時，本工具也必須以系
 
 ### 安裝
 
-以 [uv](https://docs.astral.sh/uv/) 管理隔離環境（Windows、Python 3.11+）：
+以 [uv](https://docs.astral.sh/uv/) 管理隔離環境（Windows；Python 版本由 `.python-version`
+釘住，`uv sync` 會自動下載對應版本，本機與 CI 一致）：
 
 1. `uv sync` —— 建立 `.venv` 並依 `pyproject.toml` 裝好所有相依
    （含收訊用的 wizwalker；已於 `[tool.uv.sources]` 指向有跟進最新 client
