@@ -738,3 +738,21 @@ def test_wrapped_banners_stay_left_aligned(root):
     assert str(ov._error_label.cget("justify")) == "left"
     ov.set_update(SimpleNamespace(version="1.2.3", url="https://example.invalid"))
     assert str(ov._update_label.cget("justify")) == "left"
+
+
+def test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph(root):
+    from src import i18n
+    from src.config import app_name
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+        initial = ov._title_label.cget("text")
+        i18n.set_language("en")
+        ov.refresh_labels()
+        # 標題列早已用 icon 取代 ≡，換語言重繪後也不該把它加回來
+        assert ov._title_label.cget("text") == app_name()
+        assert "≡" not in initial and "≡" not in ov._title_label.cget("text")
+    finally:
+        i18n.set_language(before)

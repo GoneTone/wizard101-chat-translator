@@ -1061,7 +1061,7 @@ class OverlayWindow:
     def refresh_labels(self) -> None:
         """介面語言變更後重繪常駐文字（標題列、狀態、錯誤橫幅）與字型。
         已經印在畫面上的訊息不回溯改寫——那是聊天內容，不是介面文字。"""
-        self._title_label.configure(text=f"≡  {app_name()}", font=ui_font(8))
+        self._title_label.configure(text=app_name(), font=ui_font(8))
         self._status_label.configure(font=ui_font(8))
         self._placeholder.configure(font=ui_font(11))
         self._win.title(app_name())
