@@ -115,7 +115,8 @@ def is_version_mismatch(exc: BaseException) -> bool:
 class ChatLine(NamedTuple):
     """一行乾淨的聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。
     own＝這句是自己講的（見 _OTHER_PLAYER_LINK）；system＝遊戲系統訊息
-    （掉寶／經驗／升等廣播等，見 _SYSTEM_IMG），走與玩家對話分離的差分軌與翻譯路徑。"""
+    （掉寶／經驗／升等廣播等，見 _SYSTEM_IMG；伺服器公告見 _is_server_broadcast），
+    走與玩家對話分離的差分軌與翻譯路徑。"""
     text: str
     color: str | None
     own: bool = False
@@ -133,6 +134,10 @@ _VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
 _PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
                         "<image;Art/Art_Word_Balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
+# 伺服器公告（維修預告等）實測連圖示都沒有，只有行首 <color;..>：
+# 以「有沒有 Art/ 圖示」與「有沒有行首顏色」兩者一起認（見 _is_server_broadcast）。
+_ART_IMG = "<image;Art/"
+_LEADING_COLOR = re.compile(r"^\s*<color;")
 # 他人發言的名字是可點擊的玩家連結；自己的發言只有純文字 [你]（各語系用語不同，
 # 故以「有沒有這個連結」判斷是不是自己講的，不比對名稱字串）
 _OTHER_PLAYER_LINK = "<link;GID"
@@ -172,14 +177,15 @@ def lines_from_chatlog(text: str) -> list[ChatLine]:
     （ChatLine：文字＋遊戲顯示色＋system 旗標），保留順序與重複。
 
     收玩家發言（含**自己**的 `[你]` 行與他人 `<link;GID>[名]` 行，圖示前綴見
-    _PLAYER_IMG_PREFIXES）與系統訊息（Art_Chat_System）；濾掉遊戲除錯行
-    （[STAT]/[DBGL]/[DBGM]，無頻道圖示）。
+    _PLAYER_IMG_PREFIXES）、系統訊息（Art_Chat_System）與伺服器公告
+    （無圖示，見 _is_server_broadcast）；濾掉遊戲除錯行
+    （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。
 
-    兩者的放行判準不同：玩家行必須是「[發送者] 內容」（_VALID），系統訊息沒有發送者
-    前綴，只要 clean() 後非空即收。"""
+    放行判準不同：玩家行必須是「[發送者] 內容」（_VALID），系統訊息與伺服器公告沒有
+    固定的發送者前綴，只要 clean() 後非空即收。"""
     out: list[ChatLine] = []
     for raw in text.split("\n"):
-        if _SYSTEM_IMG in raw:
+        if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
             line = clean(raw)
             if line:
                 out.append(ChatLine(line, line_color(raw), False, True))
@@ -192,6 +198,17 @@ def lines_from_chatlog(text: str) -> list[ChatLine]:
             out.append(ChatLine(line, line_color(raw),
                                 _OTHER_PLAYER_LINK not in raw))
     return out
+
+
+def _is_server_broadcast(raw: str) -> bool:
+    """這行是伺服器公告嗎——有行首顏色、卻沒有任何 Art/ 頻道圖示。
+
+    實機樣本只有 `<color;D9ABF8>[Server Message] 內文</color>`，發送者前綴不保證存在，
+    故不比對字串。遊戲自己的除錯輸出（`RECEIVED STATUS UPDATE for [id]` 之類）同樣
+    沒有圖示，但不以 `<color;..>` 起頭，靠這點分辨。
+    先排除帶 Art/ 圖示的行，未收錄的頻道才會照舊落到 _warn_unknown_icon，
+    不會被這條規則悄悄吞成系統訊息。"""
+    return _ART_IMG not in raw and _LEADING_COLOR.match(raw) is not None
 
 
 def _warn_unknown_icon(raw: str) -> None:

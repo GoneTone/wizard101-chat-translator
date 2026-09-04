@@ -172,6 +172,43 @@ def test_debug_lines_are_still_dropped():
     assert lines_from_chatlog("[WARN] another one") == []
 
 
+# --- 伺服器公告：只有 <color;..>、連圖示都沒有，同樣走系統軌 ---
+def _broadcast(color: str, text: str) -> str:
+    return f"<color;{color}>{text}</color>"
+
+
+def test_server_broadcast_without_any_icon_is_flagged_as_system():
+    # 實機樣本：維修預告只有顏色標記，沒有任何 Art/ 圖示（app.log 也警告不到）
+    lines = lines_from_chatlog(
+        _broadcast("D9ABF8", "[Server Message] 服务器在2小时内关闭以进行维护"))
+    assert [l.text for l in lines] == ["[Server Message] 服务器在2小时内关闭以进行维护"]
+    assert lines[0].system is True
+    assert lines[0].color == "#d9abf8"
+
+
+def test_server_broadcast_does_not_need_a_sender_prefix():
+    lines = lines_from_chatlog(_broadcast("D9ABF8", "服务器即将关闭"))
+    assert [l.text for l in lines] == ["服务器即将关闭"]
+    assert lines[0].system is True
+
+
+def test_server_broadcast_that_cleans_to_nothing_is_dropped():
+    assert lines_from_chatlog(_broadcast("D9ABF8", "")) == []
+
+
+def test_iconless_lines_without_a_leading_color_tag_are_still_dropped():
+    # 遊戲的除錯輸出同樣沒有圖示，但不以 <color;..> 起頭（實機樣本）
+    assert lines_from_chatlog("RECEIVED STATUS UPDATE for [191965934165243834]") == []
+    assert lines_from_chatlog("收到 [1688849928085385] 的伙伴邀请") == []
+
+
+def test_lines_with_an_unknown_art_icon_are_not_taken_as_broadcasts():
+    # 帶未知頻道圖示的行仍走 _warn_unknown_icon 丟棄，不會被誤收成伺服器公告
+    raw = ("<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> "
+           "[Lars] hi </color>")
+    assert lines_from_chatlog(raw) == []
+
+
 def test_system_and_player_lines_keep_their_in_game_order():
     raw = _log(_system_colored("00FF00", "你获得了 39 金币！"),
                _say_colored("FFFFFF", "Lars", "hi"),
