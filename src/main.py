@@ -52,7 +52,6 @@ INPUT_POLL_INTERVAL = 0.05
 def is_elevated() -> bool:
     """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
     try:
-        import ctypes
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
@@ -176,6 +175,10 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             stop.wait(min(INPUT_POLL_INTERVAL, remaining))
             check_input()
 
+    def translation_error() -> str | None:
+        """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
+        return pool.error_state or (system_pool.error_state if system_pool else None)
+
     def set_banner(key: str | None) -> None:
         nonlocal last_banner
         if key == last_banner:
@@ -202,8 +205,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 print(f"[reader] game not ready: {exc}", file=sys.stderr)
             game_issue = issue
-            set_banner(banner_for(game_issue, pool.error_state or
-                                  (system_pool.error_state if system_pool else None)))
+            set_banner(banner_for(game_issue, translation_error()))
             if game_input_open:
                 game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
                 if on_input_close is not None:
@@ -242,8 +244,7 @@ def reader_loop(cfg: dict, overlay: OverlayWindow, ui_queue: queue.Queue,
                                              pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
-        set_banner(banner_for(game_issue, pool.error_state or
-                              (system_pool.error_state if system_pool else None)))
+        set_banner(banner_for(game_issue, translation_error()))
         if pool.in_flight or (system_pool is not None and system_pool.in_flight):
             set_status("translating")
         else:
@@ -440,22 +441,20 @@ def main() -> None:
                                             cfg["target_language"]))
     cache.load()
 
+    def deliver(msg_id: int, text: str, failed: bool) -> None:
+        """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。
+        系統訊息的快取寫入已在 translate_and_cache 內完成，這裡兩條佇列走同一段。"""
+        ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
+
     pool = TranslationPool(
         translator=translator,
-        on_result=lambda mid, text, failed: ui_queue.put(
-            lambda: overlay.update_message(mid, text, failed=failed)),
+        on_result=deliver,
         workers=cfg["max_parallel_translations"],
         failed_notice_fn=lambda: t("notice.translate_failed"),
         gate=gate)
-
-    def on_system_result(msg_id: int, text: str, failed: bool) -> None:
-        """系統訊息譯完：把結果轉交 UI 執行緒回填 overlay（快取寫入已在
-        translate_and_cache 內、於 worker 執行緒完成）。"""
-        ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
-
     system_pool = TranslationPool(
         translator=translator,
-        on_result=on_system_result,
+        on_result=deliver,
         workers=cfg["max_parallel_translations"],
         failed_notice_fn=lambda: t("notice.translate_failed"),
         translate_fn=lambda text, _ctx: translate_and_cache(translator, cache, text),
