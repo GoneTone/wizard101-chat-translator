@@ -114,7 +114,17 @@ class SettingsWindow:
         nb.pack(fill="both", expand=True, padx=8, pady=8)
         self._nb = nb
 
-        # --- 基本 ---
+        self._build_basic(nb, cfg)
+        self._build_advanced(nb, cfg)
+        self._build_about(nb)
+
+        if self._restore_tab is not None:
+            nb.select(self._restore_tab)
+        self._restore_geometry = self._restore_tab = None
+        self._win.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _build_basic(self, nb, cfg: dict) -> None:
+        """基本分頁：介面語言、翻譯目標語言、API 設定、熱鍵、自動呼出輸入框。"""
         basic_scroll = ScrollableFrame(nb, padding=12)
         basic = basic_scroll.body
         nb.add(basic_scroll, text=t("settings.tab.basic"))
@@ -138,7 +148,8 @@ class SettingsWindow:
         ttk.Checkbutton(basic, text=t("field.auto_input"),
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
 
-        # --- 進階 ---
+    def _build_advanced(self, nb, cfg: dict) -> None:
+        """進階分頁：數值參數、不透明度、系統訊息開關、遊戲路徑。"""
         adv_scroll = ScrollableFrame(nb, padding=12)
         adv = adv_scroll.body
         nb.add(adv_scroll, text=t("settings.tab.advanced"))
@@ -182,13 +193,6 @@ class SettingsWindow:
                          justify="left")
         hint.grid(row=8, column=0, columnspan=3, sticky="ew")
         bind_wrap(hint, trailing=HINT_TRAILING)
-
-        self._build_about(nb)
-
-        if self._restore_tab is not None:
-            nb.select(self._restore_tab)
-        self._restore_geometry = self._restore_tab = None
-        self._win.protocol("WM_DELETE_WINDOW", self._cancel)
 
     def _build_about(self, nb) -> None:
         """關於分頁：版本與手動檢查更新、專案與開發者連結、紀錄檔位置。"""
