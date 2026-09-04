@@ -401,7 +401,8 @@ class SettingsWindow:
         """取消／關窗：把預覽中的透明度與介面語言都還原為目前設定值。"""
         if self._on_alpha_preview is not None:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
-        if self._language_at_open is not None                 and current_language() != self._language_at_open:
+        if (self._language_at_open is not None
+                and current_language() != self._language_at_open):
             print(f"[ui] settings language preview reverted to "
                   f"{self._language_at_open}", file=sys.stderr)
             self._preview_language(self._language_at_open)
