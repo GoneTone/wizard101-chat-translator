@@ -3,11 +3,11 @@
 呼叫端只負責提交（line, context, msg_id）與接收 on_result(msg_id, text, failed)；
 顯示順序不由完成順序決定——overlay 在提交當下就已佔好位置（見 reader_loop）。
 """
-import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from src.log import log
 from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 BACKOFF_STEPS = [5, 15, 30]   # 翻譯伺服器離線時的重試間隔（秒）
@@ -68,8 +68,7 @@ class TranslationPool:
             except RuntimeError:
                 # 已被同一把鎖排除；留著防呆，避免重構重新打開競速窗口。
                 self._in_flight -= 1
-                print(f"[translate] submit rejected, executor already shut down: {line}",
-                      file=sys.stderr)
+                log(f"[translate] submit rejected, executor already shut down: {line}")
                 return
         future.add_done_callback(self._on_future_done)
 
@@ -93,7 +92,7 @@ class TranslationPool:
         old.shutdown(wait=False)
         if self._concurrency is not None:
             self._concurrency.set_limit(workers)
-        print(f"[translate] pool resized to {workers} workers", file=sys.stderr)
+        log(f"[translate] pool resized to {workers} workers")
 
     def shutdown(self, wait: bool = False) -> None:
         """停止接受新工作並要求 worker 盡快收手。"""
@@ -133,8 +132,8 @@ class TranslationPool:
                     # 讓 overlay 至少顯示原文而不是無聲消失。
                     reason = ("bad model output" if isinstance(exc, TranslatorBadOutput)
                               else "unexpected error")
-                    print(f"[translate] line dropped after {attempts} attempt(s), "
-                          f"{reason} ({exc}): {line}", file=sys.stderr)
+                    log(f"[translate] line dropped after {attempts} attempt(s), "
+                        f"{reason} ({exc}): {line}")
                     self._decrement_in_flight()
                     decremented = True
                     self._on_result(msg_id, self._failed_notice_fn(), True)
@@ -187,8 +186,8 @@ class TranslationPool:
             changed = self._error_state != state
             self._error_state = state
         if changed:
-            print(f"[translate] provider {state} error: {exc}; "
-                  f"retrying with backoff", file=sys.stderr)
+            log(f"[translate] provider {state} error: {exc}; "
+                f"retrying with backoff")
 
     def _note_success(self) -> None:
         """任何一次成功都代表伺服器與設定已恢復：清狀態、重置退避、放開閘門。"""
@@ -198,4 +197,4 @@ class TranslationPool:
             self._backoff_index = 0
             self._gate_until = 0.0
         if changed:
-            print("[translate] recovered, resuming normal speed", file=sys.stderr)
+            log("[translate] recovered, resuming normal speed")

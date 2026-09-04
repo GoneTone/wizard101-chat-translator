@@ -1,7 +1,7 @@
 """給 tkinter 用的應用程式 icon 圖片（標題列小圖、泡泡）。"""
-import sys
 import tkinter as tk
 
+from src.log import log
 from src.resources import png_icon_path
 
 
@@ -14,5 +14,5 @@ def load_icon(master: tk.Misc, size: int) -> tk.PhotoImage | None:
     try:
         return tk.PhotoImage(file=str(path), master=master)
     except tk.TclError as exc:
-        print(f"[ui] icon image failed: path={path} error={exc}", file=sys.stderr)
+        log(f"[ui] icon image failed: path={path} error={exc}")
         return None

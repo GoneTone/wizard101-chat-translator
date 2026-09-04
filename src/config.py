@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from src.i18n import t
+from src.log import log
 
 
 def app_name() -> str:
@@ -125,8 +126,8 @@ def _migrate_api(api: dict) -> dict:
     provider = api.get("provider", "custom")
     fields = API_PROFILE_FIELDS.get(provider, {})
     profile = {key: value for key, value in api.items() if key in fields}
-    print(f"[config] migrated flat api block into provider={provider} profile "
-          f"(fields={sorted(profile)})", file=sys.stderr)
+    log(f"[config] migrated flat api block into provider={provider} profile "
+        f"(fields={sorted(profile)})")
     return {"provider": provider, provider: profile}
 
 
@@ -154,21 +155,19 @@ def load_config(path: Path) -> dict:
     cfg = clamp_advanced(_merge(DEFAULT_CONFIG, data))
     # 手改 config.json 打錯服務商名稱時 active_api 會 KeyError，先在這裡擋掉
     if cfg["api"]["provider"] not in API_PROVIDERS:
-        print(f"[config] unknown provider {cfg['api']['provider']!r}; falling back to "
-              f"{DEFAULT_CONFIG['api']['provider']}", file=sys.stderr)
+        log(f"[config] unknown provider {cfg['api']['provider']!r}; falling back to "
+            f"{DEFAULT_CONFIG['api']['provider']}")
         cfg["api"]["provider"] = DEFAULT_CONFIG["api"]["provider"]
     dropped = _prune_profiles(cfg["api"])
     if dropped:
-        print(f"[config] dropped stale api fields ({', '.join(dropped)})",
-              file=sys.stderr)
+        log(f"[config] dropped stale api fields ({', '.join(dropped)})")
     if legacy or dropped:
         # 整理後立刻落地，手開 config.json 看到的就是生效的結構；寫不進去不擋啟動
         try:
             save_config(path, cfg)
-            print(f"[config] rewrote {path.name} in the per-provider format",
-                  file=sys.stderr)
+            log(f"[config] rewrote {path.name} in the per-provider format")
         except OSError as exc:
-            print(f"[config] could not rewrite {path.name}: {exc}", file=sys.stderr)
+            log(f"[config] could not rewrite {path.name}: {exc}")
     return cfg
 
 

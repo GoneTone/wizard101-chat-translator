@@ -3,10 +3,10 @@
 點一下展開（on_click）、拖曳移動（放開時回報 on_move）；有工作列按鈕，Alt+F4／
 工作列關閉走 on_close。OverlayWindow 在 minimize() 建立、expand() 銷毀；自動展開
 的時機由 overlay 輪詢前景視窗、以 should_auto_expand 決定。"""
-import sys
 import tkinter as tk
 
 from src.config import app_name
+from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import is_click, moved_to, point_in_rect
 from src.ui.icons import load_icon
@@ -100,7 +100,7 @@ class Bubble(tk.Toplevel):
             self.hwnd = root_hwnd(self)
         except Exception as exc:
             self.hwnd = 0
-            print(f"[ui] bubble hwnd lookup failed: {exc}", file=sys.stderr)
+            log(f"[ui] bubble hwnd lookup failed: {exc}")
 
     def destroy(self) -> None:
         super().destroy()
@@ -142,7 +142,7 @@ class Bubble(tk.Toplevel):
             return point_in_rect(px, py, self.winfo_x(), self.winfo_y(),
                                  BUBBLE_SIZE, BUBBLE_SIZE)
         except Exception as exc:
-            print(f"[ui] bubble hit-test failed: {exc}", file=sys.stderr)
+            log(f"[ui] bubble hit-test failed: {exc}")
             return True
 
     def _press(self, e) -> None:

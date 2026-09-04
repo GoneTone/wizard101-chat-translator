@@ -5,7 +5,6 @@
 import copy
 import os
 import queue
-import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -14,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t
+from src.log import log
 from src.ui.fields import (
     HINT_COLOR,
     LINK_COLOR,
@@ -256,8 +256,7 @@ class SettingsWindow:
         誤按的代價只是下一則同樣的系統訊息重翻一次。"""
         count = self._cache.clear()
         self._cache_result.configure(text=t("about.cache_cleared", count=count))
-        print(f"[settings] translation cache cleared by user ({count} entries)",
-              file=sys.stderr)
+        log(f"[settings] translation cache cleared by user ({count} entries)")
 
     def _start_update_check(self) -> None:
         """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。
@@ -278,14 +277,14 @@ class SettingsWindow:
         try:
             release = self._check_update()
         except Exception as exc:
-            print(f"[update] manual check failed: {exc}", file=sys.stderr)
+            log(f"[update] manual check failed: {exc}")
             result_queue.put(("failed", t("update.failed", error=exc), None))
             return
         if release is None:
-            print("[update] manual check: already up to date", file=sys.stderr)
+            log("[update] manual check: already up to date")
             result_queue.put(("latest", t("update.latest"), None))
             return
-        print(f"[update] manual check: {release.version} available", file=sys.stderr)
+        log(f"[update] manual check: {release.version} available")
         result_queue.put(("available",
                           t("update.available", version=release.version),
                           release.url))
@@ -308,8 +307,7 @@ class SettingsWindow:
         try:
             os.startfile(path)
         except OSError as exc:
-            print(f"[ui] open log folder failed: path={path} error={exc}",
-                  file=sys.stderr)
+            log(f"[ui] open log folder failed: path={path} error={exc}")
 
     def _alpha_slider(self, parent, grid_row: int, initial: float) -> tk.DoubleVar:
         """視窗不透明度滑桿：拖動即時預覽（套到 overlay 與泡泡），儲存才寫入設定。"""
@@ -349,7 +347,7 @@ class SettingsWindow:
         self._collect_into_draft()
         self._restore_geometry = self._win.geometry()
         self._restore_tab = self._nb.index("current")
-        print(f"[ui] settings previewing language {code}", file=sys.stderr)
+        log(f"[ui] settings previewing language {code}")
         self._preview_language(code)
         # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
         # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
@@ -398,8 +396,8 @@ class SettingsWindow:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
         if (self._language_at_open is not None
                 and current_language() != self._language_at_open):
-            print(f"[ui] settings language preview reverted to "
-                  f"{self._language_at_open}", file=sys.stderr)
+            log(f"[ui] settings language preview reverted to "
+                f"{self._language_at_open}")
             self._preview_language(self._language_at_open)
         self._draft = None
         self._win.destroy()

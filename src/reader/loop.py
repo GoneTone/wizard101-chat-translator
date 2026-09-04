@@ -5,12 +5,12 @@
 """
 import itertools
 import queue
-import sys
 import threading
 import time
 from typing import TYPE_CHECKING
 
 from src.i18n import t
+from src.log import log
 from src.reader.mem_reader import (
     GameAccessDenied,
     GameNotRunning,
@@ -75,8 +75,7 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
         if now_open == game_input_open:
             return
         game_input_open = now_open
-        print(f"[reader] game chat input {'opened' if now_open else 'closed'}",
-              file=sys.stderr)
+        log(f"[reader] game chat input {'opened' if now_open else 'closed'}")
         if now_open:
             on_input_open()
         elif on_input_close is not None:
@@ -123,7 +122,7 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                 status, issue = "waiting_game", "notice.game_missing"
             set_status(status)
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
-                print(f"[reader] game not ready: {exc}", file=sys.stderr)
+                log(f"[reader] game not ready: {exc}")
             game_issue = issue
             set_banner(banner_for(game_issue, translation_error()))
             if game_input_open:
@@ -133,13 +132,13 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
-            print(f"[reader] poll skipped: {exc}", file=sys.stderr)
+            log(f"[reader] poll skipped: {exc}")
             stop.wait(cfg["poll_interval"])
             continue
 
         if game_issue:
             game_issue = None
-            print("[reader] game back, resuming", file=sys.stderr)
+            log("[reader] game back, resuming")
 
         for line in new_lines:
             msg_id = next(msg_ids)

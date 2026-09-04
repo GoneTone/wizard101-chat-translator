@@ -9,12 +9,12 @@ list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoMo
 上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
 """
 import re
-import sys
 
 import anthropic
 import httpx
 
 from src.config import EFFORT_AUTO
+from src.log import log
 
 # 發話固定翻成的語言（遊戲聊天語言）；固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
@@ -497,13 +497,12 @@ class Translator:
         只有這條路徑重譯：收訊有完整句子語境、實測不會落回英文。"""
         translated = self._system_message_once(text)
         if has_stray_latin(text, translated, self._target_language):
-            print(f"[translate] system message is not in the target language, retrying "
-                  f"strictly: source={text!r} translated={translated!r}", file=sys.stderr)
+            log(f"[translate] system message is not in the target language, retrying "
+                f"strictly: source={text!r} translated={translated!r}")
             translated = self._system_message_once(text, strict=True)
             if has_stray_latin(text, translated, self._target_language):
-                print(f"[translate] strict retry is still not in the target language, "
-                      f"using it as is: source={text!r} translated={translated!r}",
-                      file=sys.stderr)
+                log(f"[translate] strict retry is still not in the target language, "
+                    f"using it as is: source={text!r} translated={translated!r}")
         return translated
 
     def _system_message_once(self, text: str, strict: bool = False) -> str:

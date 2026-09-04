@@ -1,11 +1,11 @@
 """首次設定精靈：介面語言 → API 設定（選服務商 → 填 API → 測試連線）→ 偏好設定，
 三步完成寫入 cfg。中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
-import sys
 import tkinter as tk
 from tkinter import ttk
 
 from src.config import app_name
 from src.i18n import current_language, language_name, set_language, t
+from src.log import log
 from src.ui.fields import (
     HINT_COLOR,
     ApiFields,
@@ -136,7 +136,7 @@ class SetupWizard:
         if self._cfg["target_language"] == old_default:
             self._cfg["target_language"] = language_name(code)
         self.restart = True
-        print(f"[ui] wizard restarting with language {code}", file=sys.stderr)
+        log(f"[ui] wizard restarting with language {code}")
         # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
         # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
         self._win.after_idle(self._win.destroy)

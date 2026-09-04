@@ -2,7 +2,6 @@
 服務商選擇、API 欄位、測試連線、熱鍵捕捉、語言選擇。"""
 import copy
 import queue
-import sys
 import threading
 import tkinter as tk
 import webbrowser
@@ -13,6 +12,7 @@ import keyboard
 
 from src.config import API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS, EFFORT_AUTO, needs_base_url
 from src.i18n import DEFAULT_LANGUAGE, available_languages, current_language, language_name, t
+from src.log import log
 from src.translation.translator import (
     TranslatorConfigError,
     TranslatorNoModelList,
@@ -308,17 +308,17 @@ class ModelField(ttk.Frame):
         try:
             models = list_models(api)
         except TranslatorNoModelList as exc:
-            print(f"[settings] model list unsupported (provider={api['provider']}, "
-                  f"base_url={api['base_url']}): {exc}", file=sys.stderr)
+            log(f"[settings] model list unsupported (provider={api['provider']}, "
+                f"base_url={api['base_url']}): {exc}")
             self._queue.put(exc)
             return
         except Exception as exc:
-            print(f"[settings] model list failed (provider={api['provider']}, "
-                  f"base_url={api['base_url']}): {exc}", file=sys.stderr)
+            log(f"[settings] model list failed (provider={api['provider']}, "
+                f"base_url={api['base_url']}): {exc}")
             self._queue.put(exc)
             return
-        print(f"[settings] model list fetched (provider={api['provider']}, "
-              f"count={len(models)})", file=sys.stderr)
+        log(f"[settings] model list fetched (provider={api['provider']}, "
+            f"count={len(models)})")
         self._queue.put(models)
 
     def _on_refreshed(self, result) -> None:
@@ -424,9 +424,8 @@ class ApiFields(ttk.Frame):
         self._load_profile(target)
         self._test_result.configure(text="")
         profile = self._profiles[target]
-        print(f"[settings] provider switched {self._last_provider} -> {target} "
-              f"(model={profile['model'] or '-'}, has_key={bool(profile['api_key'])})",
-              file=sys.stderr)
+        log(f"[settings] provider switched {self._last_provider} -> {target} "
+            f"(model={profile['model'] or '-'}, has_key={bool(profile['api_key'])})")
 
     # --- 動態欄位 ---
     def _rebuild_fields(self) -> None:
@@ -542,13 +541,13 @@ class ApiFields(ttk.Frame):
         try:
             sample = test_translate(api, target_language)
         except Exception as exc:
-            print(f"[settings] test connection failed (provider={api['provider']}, "
-                  f"model={api['model']}): {exc}", file=sys.stderr)
+            log(f"[settings] test connection failed (provider={api['provider']}, "
+                f"model={api['model']}): {exc}")
             key, kwargs = friendly_error(exc)
             self._queue.put((False, t(key, **kwargs)))
             return
-        print(f"[settings] test connection ok (provider={api['provider']}, "
-              f"model={api['model']})", file=sys.stderr)
+        log(f"[settings] test connection ok (provider={api['provider']}, "
+            f"model={api['model']})")
         self._queue.put((True, t("test.success", sample=sample)))
 
     def _on_tested(self, result) -> None:
@@ -599,7 +598,7 @@ class HotkeyField(ttk.Frame):
         try:
             combo = keyboard.read_hotkey(suppress=False)
         except Exception as exc:
-            print(f"[settings] hotkey capture failed: {exc}", file=sys.stderr)
+            log(f"[settings] hotkey capture failed: {exc}")
             combo = None
         self._queue.put(combo)
 

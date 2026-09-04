@@ -4,12 +4,12 @@
 怎麼提醒由呼叫端決定（啟動路徑走 overlay 橫幅，設定視窗走「關於」分頁）。
 """
 import re
-import sys
 from dataclasses import dataclass
 
 import httpx
 
 from src import __version__
+from src.log import log
 
 GITHUB_REPO = "GoneTone/wizard101-chat-translator"
 PROJECT_URL = f"https://github.com/{GITHUB_REPO}"
@@ -41,8 +41,7 @@ def is_newer(latest: str, current: str) -> bool:
     任一邊解析不出來就回 False——寧可漏提醒也不要誤報把使用者導去下載頁。"""
     newer, mine = parse_version(latest), parse_version(current)
     if newer is None or mine is None:
-        print(f"[update] version unparsable: latest={latest!r} current={current!r}",
-              file=sys.stderr)
+        log(f"[update] version unparsable: latest={latest!r} current={current!r}")
         return False
     return newer > mine
 
@@ -65,7 +64,7 @@ def _fetch(http) -> Release | None:
     except httpx.HTTPError as exc:
         raise UpdateCheckError(str(exc)) from exc
     if resp.status_code == 404:
-        print("[update] no release published yet (404)", file=sys.stderr)
+        log("[update] no release published yet (404)")
         return None
     if resp.status_code != 200:
         raise UpdateCheckError(f"HTTP {resp.status_code}")
@@ -92,11 +91,10 @@ def fetch_latest_release(client=None) -> Release | None:
 def check_for_update(current: str = __version__, client=None) -> Release | None:
     """回傳「比 current 新的 release」，沒有新版（含尚未發版）時回 None。
     查詢失敗拋 UpdateCheckError，由呼叫端決定要顯示錯誤還是靜默。"""
-    print("[update] checking latest release", file=sys.stderr)
+    log("[update] checking latest release")
     release = fetch_latest_release(client)
     if release is None:
         return None
     newer = is_newer(release.version, current)
-    print(f"[update] latest={release.version} current={current} newer={newer}",
-          file=sys.stderr)
+    log(f"[update] latest={release.version} current={current} newer={newer}")
     return release if newer else None

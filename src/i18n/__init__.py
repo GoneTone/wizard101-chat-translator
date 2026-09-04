@@ -8,8 +8,8 @@ key-value 的 `<語言碼>.json` 並在檔內宣告 `language.*` metadata，不�
 """
 import json
 import locale
-import sys
 
+from src.log import log
 from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是給譯者翻的文案）：自稱（選單顯示用，也是該語言使用者預設
@@ -51,7 +51,7 @@ def _meta(code: str, key: str) -> str:
     try:
         return _load(code).get(key, "")
     except (OSError, ValueError) as exc:
-        print(f"[i18n] catalog unreadable: {code} error={exc}", file=sys.stderr)
+        log(f"[i18n] catalog unreadable: {code} error={exc}")
         return ""
 
 
@@ -64,11 +64,10 @@ def available_languages() -> dict[str, str]:
             code = path.stem
             name = _meta(code, META_NAME)
             if not name:
-                print(f"[i18n] catalog without {META_NAME}: {code}", file=sys.stderr)
+                log(f"[i18n] catalog without {META_NAME}: {code}")
             found[code] = name or code
         _languages = found
-        print(f"[i18n] catalogs found: {','.join(_languages) or '(none)'}",
-              file=sys.stderr)
+        log(f"[i18n] catalogs found: {','.join(_languages) or '(none)'}")
     return _languages
 
 
@@ -101,12 +100,11 @@ def set_language(code: str) -> None:
     後續 `t()` 不會全數炸開。"""
     global _current
     if code not in available_languages():
-        print(f"[i18n] unknown language: {code}, using {DEFAULT_LANGUAGE}",
-              file=sys.stderr)
+        log(f"[i18n] unknown language: {code}, using {DEFAULT_LANGUAGE}")
         code = DEFAULT_LANGUAGE
     _load(code)
     _current = code
-    print(f"[i18n] language set: {code}", file=sys.stderr)
+    log(f"[i18n] language set: {code}")
 
 
 def fallback_order() -> list[str]:
@@ -125,13 +123,12 @@ def t(key: str, **kwargs) -> str:
     for code in fallback_order():
         template = _load(code).get(key)
         if template is None:
-            print(f"[i18n] missing key: {key} lang={code}", file=sys.stderr)
+            log(f"[i18n] missing key: {key} lang={code}")
             continue
         try:
             return template.format(**kwargs)
         except (KeyError, IndexError) as exc:
-            print(f"[i18n] format failed: key={key} lang={code} error={exc}",
-                  file=sys.stderr)
+            log(f"[i18n] format failed: key={key} lang={code} error={exc}")
     return key
 
 
@@ -157,9 +154,8 @@ def detect_system_language() -> str:
         lcid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
         name = locale.windows_locale.get(lcid, "")
     except Exception as exc:
-        print(f"[i18n] system language detection failed: {exc}", file=sys.stderr)
+        log(f"[i18n] system language detection failed: {exc}")
         return DEFAULT_LANGUAGE
     code = map_locale_name(name)
-    print(f"[i18n] system language detected: lcid={lcid} locale={name} -> {code}",
-          file=sys.stderr)
+    log(f"[i18n] system language detected: lcid={lcid} locale={name} -> {code}")
     return code

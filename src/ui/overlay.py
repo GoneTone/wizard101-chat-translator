@@ -2,7 +2,6 @@
 顯示原文 + 譯文（最新在最下，可向上滾動看歷史）。
 捲動定位：在底部時新訊息自動跟到最底；向上捲看歷史時不會被硬拉回底部。
 不滑鼠穿透 —— 視窗蓋住的區域點擊不會傳到遊戲，視窗永遠可互動。"""
-import sys
 import time
 import tkinter as tk
 import webbrowser
@@ -13,6 +12,7 @@ import win32gui
 
 from src.config import app_name
 from src.i18n import t
+from src.log import log
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE, edge_at, moved_to, resized_edge
@@ -272,7 +272,7 @@ class OverlayWindow:
             win32gui.SetWindowLong(root_hwnd(self._win), win32con.GWL_HWNDPARENT,
                                    root_hwnd(self._backdrop))
         except Exception as exc:
-            print(f"[ui] owner setup failed: {exc}", file=sys.stderr)
+            log(f"[ui] owner setup failed: {exc}")
         enable_taskbar_button(self._win)  # 文字層不透明，不需重設 alpha
         # 有工作列按鈕就關得掉（Alt+F4、工作列右鍵都送 WM_DELETE_WINDOW）：tkinter 預設
         # 接成 destroy 這個 Toplevel，只拆掉文字層、留下 backdrop 孤兒，主迴圈還照跑噴錯。
@@ -313,7 +313,7 @@ class OverlayWindow:
         # 拿當下的前景當基準才不會第一輪就誤判成「使用者切回本工具」
         self._prev_foreground = self._foreground_window()
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
-        print(f"[ui] minimized to bubble ({self._scroll_debug()})", file=sys.stderr)
+        log(f"[ui] minimized to bubble ({self._scroll_debug()})")
 
     def expand(self) -> None:
         """從泡泡展開回完整視窗，未讀歸零。"""
@@ -341,13 +341,13 @@ class OverlayWindow:
         """視窗重新顯示後接回捲動狀態：泡泡期間的訊息是在隱藏狀態下排版的，必須自己
         重算——deiconify 幾何沒變就不會帶來 <Configure>。"""
         self._refresh_scroll()
-        print(f"[ui] expanded ({self._scroll_debug()})", file=sys.stderr)
+        log(f"[ui] expanded ({self._scroll_debug()})")
 
     def _foreground_window(self) -> int:
         try:
             return win32gui.GetForegroundWindow()
         except Exception as exc:
-            print(f"[ui] foreground lookup failed: {exc}", file=sys.stderr)
+            log(f"[ui] foreground lookup failed: {exc}")
             return 0
 
     def _watch_foreground(self) -> None:
@@ -362,8 +362,7 @@ class OverlayWindow:
                                     self._bubble.pointer_over())
         self._prev_foreground = fg
         if expand:
-            print(f"[ui] auto-expand: bubble brought to foreground, fg=0x{fg:x}",
-                  file=sys.stderr)
+            log(f"[ui] auto-expand: bubble brought to foreground, fg=0x{fg:x}")
             self.expand()
             return
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
@@ -437,8 +436,8 @@ class OverlayWindow:
         follow = should_stick_to_bottom(self._canvas.yview()[1])
         if follow != self._follow:
             self._follow = follow
-            print(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
-                  f"by user scroll ({self._scroll_debug()})", file=sys.stderr)
+            log(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
+                f"by user scroll ({self._scroll_debug()})")
 
     def _view_anchor(self) -> tuple["tk.Misc", int] | None:
         """視圖目前對齊到的內容位置：(最新一則的列, 它相對視口頂端的偏移)。
@@ -457,9 +456,9 @@ class OverlayWindow:
         bbox = self._canvas.bbox("all")
         if not row.winfo_exists() or bbox is None or bbox[3] <= bbox[1]:
             # 罕見（錨點列被清光、內容量不出來）：放棄補位，視圖會跳一下
-            print(f"[ui] scroll anchor unusable, view may jump "
-                  f"(row_alive={bool(row.winfo_exists())} bbox={bbox}) "
-                  f"({self._scroll_debug()})", file=sys.stderr)
+            log(f"[ui] scroll anchor unusable, view may jump "
+                f"(row_alive={bool(row.winfo_exists())} bbox={bbox}) "
+                f"({self._scroll_debug()})")
             return
         target = max(bbox[1], row.winfo_y() - offset)
         self._canvas.yview_moveto((target - bbox[1]) / (bbox[3] - bbox[1]))
@@ -527,9 +526,8 @@ class OverlayWindow:
         """記下拖曳起點與起始幾何：拖曳期間一律以起點換算，避免逐次累加的誤差。"""
         self._resize = (e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y(),
                         self._w, self._h, edge)
-        print(f"[ui] overlay resize start edge={edge} geometry="
-              f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}",
-              file=sys.stderr)
+        log(f"[ui] overlay resize start edge={edge} geometry="
+            f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}")
 
     def _edge_drag(self, e) -> None:
         if self._resize is None:
@@ -544,9 +542,8 @@ class OverlayWindow:
             return
         edge = self._resize[6]
         self._resize = None
-        print(f"[ui] overlay resize end edge={edge} geometry="
-              f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}",
-              file=sys.stderr)
+        log(f"[ui] overlay resize end edge={edge} geometry="
+            f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}")
         self._emit_geometry()
 
     # --- 訊息 ---
@@ -683,16 +680,15 @@ class OverlayWindow:
                  before=self._scroll_area)
         self._update_row = row
         self._update_label = label
-        print(f"[update] banner shown for {release.version}", file=sys.stderr)
+        log(f"[update] banner shown for {release.version}")
 
     def _open_update_link(self, release) -> None:
-        print(f"[update] banner clicked version={release.version}", file=sys.stderr)
+        log(f"[update] banner clicked version={release.version}")
         webbrowser.open(release.url)
 
     def _dismiss_update(self) -> None:
         if self._update_release is not None:
-            print(f"[update] banner dismissed version={self._update_release.version}",
-                  file=sys.stderr)
+            log(f"[update] banner dismissed version={self._update_release.version}")
         self.clear_update()
 
     def clear_update(self) -> None:

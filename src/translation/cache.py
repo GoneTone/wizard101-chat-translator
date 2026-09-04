@@ -9,13 +9,13 @@
 import json
 import os
 import re
-import sys
 import tempfile
 import threading
 from collections import OrderedDict
 from pathlib import Path
 
 from src.config import local_state_dir
+from src.log import log
 from src.translation.translator import PROMPT_REVISION, has_stray_latin
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
@@ -97,23 +97,20 @@ class TranslationCache:
         目標語言，舊設定翻好的譯文若照存會被當成新設定的寫進磁碟、跨重啟回吐錯誤語言。"""
         template, _ = normalize(text)
         if not placeholders_match(template, translated_template):
-            print(f"[cache] placeholder mismatch, not cached: "
-                  f"template={template!r} translated={translated_template!r}",
-                  file=sys.stderr)
+            log(f"[cache] placeholder mismatch, not cached: "
+                f"template={template!r} translated={translated_template!r}")
             return False
         with self._lock:
             if fingerprint != self._fingerprint:
-                print(f"[cache] fingerprint changed while translating, discarding "
-                      f"stale translation: template={template!r} "
-                      f"produced_under={fingerprint!r} current={self._fingerprint!r}",
-                      file=sys.stderr)
+                log(f"[cache] fingerprint changed while translating, discarding "
+                    f"stale translation: template={template!r} "
+                    f"produced_under={fingerprint!r} current={self._fingerprint!r}")
                 return False
             self._entries[template] = translated_template
             self._entries.move_to_end(template)
             while len(self._entries) > MAX_ENTRIES:
                 dropped, _ = self._entries.popitem(last=False)
-                print(f"[cache] evicted least recently used entry: {dropped!r}",
-                      file=sys.stderr)
+                log(f"[cache] evicted least recently used entry: {dropped!r}")
             self._unflushed += 1
             due = self._unflushed >= FLUSH_EVERY
         if due:
@@ -126,8 +123,8 @@ class TranslationCache:
             return
         self.flush()
         with self._lock:
-            print(f"[cache] fingerprint changed at runtime, clearing "
-                  f"{len(self._entries)} entries", file=sys.stderr)
+            log(f"[cache] fingerprint changed at runtime, clearing "
+                f"{len(self._entries)} entries")
             self._entries.clear()
             self._fingerprint = fingerprint
             self._unflushed = 0
@@ -143,14 +140,14 @@ class TranslationCache:
         try:
             CACHE_PATH.unlink(missing_ok=True)
         except Exception as exc:
-            print(f"[cache] could not delete {CACHE_PATH}: {exc}", file=sys.stderr)
-        print(f"[cache] cleared {count} entries on user request", file=sys.stderr)
+            log(f"[cache] could not delete {CACHE_PATH}: {exc}")
+        log(f"[cache] cleared {count} entries on user request")
         return count
 
     def load(self) -> None:
         """從磁碟載入。指紋不符、檔案損壞或不存在一律當作空快取（不是錯誤）。"""
         if not CACHE_PATH.exists():
-            print("[cache] no cache file yet, starting empty", file=sys.stderr)
+            log("[cache] no cache file yet, starting empty")
             return
         try:
             data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
@@ -160,17 +157,15 @@ class TranslationCache:
                 raise TypeError(f"entries is {type(entries).__name__}, expected dict")
             items = list(entries.items())[-MAX_ENTRIES:]
         except Exception as exc:
-            print(f"[cache] unreadable cache file, starting empty: {exc}",
-                  file=sys.stderr)
+            log(f"[cache] unreadable cache file, starting empty: {exc}")
             return
         if stored != self._fingerprint:
-            print(f"[cache] fingerprint changed, discarding {len(entries)} entries "
-                  f"(stored={stored!r}, current={self._fingerprint!r})", file=sys.stderr)
+            log(f"[cache] fingerprint changed, discarding {len(entries)} entries "
+                f"(stored={stored!r}, current={self._fingerprint!r})")
             return
         with self._lock:
             self._entries = OrderedDict(items)
-        print(f"[cache] loaded {len(items)} entries from {CACHE_PATH}",
-              file=sys.stderr)
+        log(f"[cache] loaded {len(items)} entries from {CACHE_PATH}")
 
     def flush(self) -> None:
         """寫回磁碟：先寫同目錄的獨立暫存檔，再 os.replace() 原子換上。
@@ -191,9 +186,9 @@ class TranslationCache:
                 json.dump(payload, f, ensure_ascii=False)
             os.replace(tmp_path, CACHE_PATH)
             tmp_path = None   # 已被換到目的地，不必再清
-            print(f"[cache] flushed {count} entries to {CACHE_PATH}", file=sys.stderr)
+            log(f"[cache] flushed {count} entries to {CACHE_PATH}")
         except Exception as exc:
-            print(f"[cache] flush failed: {exc}", file=sys.stderr)
+            log(f"[cache] flush failed: {exc}")
         finally:
             if tmp_path is not None:
                 try:
@@ -214,11 +209,11 @@ def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     fingerprint = cache.fingerprint   # 先記下產出當下的指紋（翻譯期間可能換設定）
     translated = translator.translate_system_message(template)
     if has_stray_latin(template, translated, translator.target_language):
-        print(f"[cache] translation is not in the target language, not cached: "
-              f"template={template!r} translated={translated!r}", file=sys.stderr)
+        log(f"[cache] translation is not in the target language, not cached: "
+            f"template={template!r} translated={translated!r}")
         return restore(translated, numbers)
     # put() 收原文、內部自己正規化；傳 template 會把 `{0}` 裡的 0 再當成數字、變成 `{{0}}`。
     if cache.put(text, translated, fingerprint):
         return restore(translated, numbers)
-    print(f"[cache] falling back to a direct translation: {text!r}", file=sys.stderr)
+    log(f"[cache] falling back to a direct translation: {text!r}")
     return translator.translate_system_message(text)

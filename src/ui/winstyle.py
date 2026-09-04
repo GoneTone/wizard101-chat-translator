@@ -1,10 +1,11 @@
 """無邊框 Tk 視窗的 Win32 樣式調整：取根 HWND、點擊不奪焦點、工作列按鈕。
 overlay 本體與底板、泡泡、翻譯輸入框共用；每一項都是錦上添花，失敗只留 log。"""
-import sys
 import tkinter as tk
 
 import win32con
 import win32gui
+
+from src.log import log
 
 
 def root_hwnd(win: tk.Misc) -> int:
@@ -24,7 +25,7 @@ def make_non_activating(win: tk.Toplevel) -> None:
         style |= win32con.WS_EX_NOACTIVATE
         win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
     except Exception as exc:
-        print(f"[ui] non-activating setup failed: {exc}", file=sys.stderr)
+        log(f"[ui] non-activating setup failed: {exc}")
 
 
 def enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
@@ -44,4 +45,4 @@ def enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
         if alpha is not None:
             win.attributes("-alpha", alpha)
     except Exception as exc:
-        print(f"[ui] taskbar button setup failed: {exc}", file=sys.stderr)
+        log(f"[ui] taskbar button setup failed: {exc}")

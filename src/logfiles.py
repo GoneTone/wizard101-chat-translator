@@ -5,11 +5,11 @@
 輸出經 TimestampedStream 包裝後每行前綴一個 UTC＋0 時戳。
 """
 import os
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from src.config import app_dir
+from src.log import log
 
 SESSION_HEADER_PREFIX = "===== session started "
 LOG_RETENTION_DAYS = 7        # log 保留天數（以 session 標頭日期判斷）
@@ -74,8 +74,7 @@ def open_session_log(name: str, now: datetime | None = None):
         stream = open(path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         stream.write(session_header(now) + "\n")
     except OSError as exc:
-        if sys.stderr is not None:
-            print(f"[log] cannot open {name}: {exc}", file=sys.stderr)
+        log(f"[log] cannot open {name}: {exc}")
         return open(os.devnull, "w", encoding="utf-8")
     return stream
 

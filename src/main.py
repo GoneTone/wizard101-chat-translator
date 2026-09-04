@@ -17,6 +17,7 @@ from src import __version__
 from src.composer.paste import type_into_window
 from src.config import CONFIG_PATH, active_api, app_name, is_configured, load_config, save_config
 from src.i18n import current_language, detect_system_language, language_name, set_language, t
+from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
 from src.reader.message_log import MessageLog
@@ -74,7 +75,7 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
         try:
             callback()
         except Exception as exc:
-            print(f"[ui] callback failed: {exc}", file=sys.stderr)
+            log(f"[ui] callback failed: {exc}")
 
 
 def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) -> None:
@@ -83,7 +84,7 @@ def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) ->
     try:
         release = checker()
     except Exception as exc:
-        print(f"[update] check failed: {exc}", file=sys.stderr)
+        log(f"[update] check failed: {exc}")
         return
     if release is None:
         return
@@ -117,18 +118,17 @@ def focus_running_instance(title: str) -> bool:
     try:
         win32gui.EnumWindows(collect, None)
     except Exception as exc:
-        print(f"[app] window scan failed: {exc}", file=sys.stderr)
+        log(f"[app] window scan failed: {exc}")
         return False
     if not found:
-        print(f"[app] no window titled {title!r} to focus", file=sys.stderr)
+        log(f"[app] no window titled {title!r} to focus")
         return False
     hwnd = found[0]
     try:
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
         win32gui.SetForegroundWindow(hwnd)
     except Exception as exc:
-        print(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}",
-              file=sys.stderr)
+        log(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}")
         return False
     return True
 
@@ -157,11 +157,10 @@ def apply_window_icon(root: tk.Tk) -> int | None:
                                             ctypes.c_void_p]
         user32.SetClassLongPtrW.restype = ctypes.c_void_p
         user32.SetClassLongPtrW(hwnd, win32con.GCL_HICON, hicon)
-        print(f"[ui] window icon applied: path={path} size={size} hicon={hicon:#x}",
-              file=sys.stderr)
+        log(f"[ui] window icon applied: path={path} size={size} hicon={hicon:#x}")
         return hicon
     except Exception as exc:
-        print(f"[ui] window icon failed: path={path} error={exc}", file=sys.stderr)
+        log(f"[ui] window icon failed: path={path} error={exc}")
         return None
     finally:
         if probe is not None:
@@ -185,14 +184,14 @@ def redirect_output() -> None:
 
 def log_startup_summary(cfg: dict, api: dict) -> None:
     """啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄。"""
-    print(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
-          f"elevated={is_elevated()}, "
-          f"ui_language={cfg['ui_language']} (active={current_language()}), "
-          f"provider={api['provider']}, model={api['model']}, "
-          f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
-          f"poll_interval={cfg['poll_interval']}, "
-          f"parallel={cfg['max_parallel_translations']}, "
-          f"translate_system={cfg['translate_system_messages']}", file=sys.stderr)
+    log(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+        f"elevated={is_elevated()}, "
+        f"ui_language={cfg['ui_language']} (active={current_language()}), "
+        f"provider={api['provider']}, model={api['model']}, "
+        f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
+        f"poll_interval={cfg['poll_interval']}, "
+        f"parallel={cfg['max_parallel_translations']}, "
+        f"translate_system={cfg['translate_system_messages']}")
 
 
 def shutdown(stop: threading.Event, pools: list[TranslationPool],
@@ -200,7 +199,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
              cache: TranslationCache) -> None:
     """乾淨關閉：停 reader（解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
     步驟順序見各段註解；本函式不返回。"""
-    print("[app] shutting down, waiting for reader to unhook", file=sys.stderr)
+    log("[app] shutting down, waiting for reader to unhook")
     stop.set()
     for pool in pools:
         pool.shutdown()
@@ -208,7 +207,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
         keyboard.unhook_all()
     except Exception as exc:
         # 例外逃出會連 reader join、cache flush、os._exit 都跳過
-        print(f"[app] keyboard.unhook_all failed: {exc}", file=sys.stderr)
+        log(f"[app] keyboard.unhook_all failed: {exc}")
     # 等 reader 跑完 reader.close()（解除 hook、還原遊戲記憶體）；daemon 執行緒被直接
     # 砍掉會讓 hook 殘留，下次掛入 PatternFailed、需重開遊戲。
     reader_thread.join(timeout=8)
@@ -219,7 +218,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     # 落盤放在 pool shutdown 與 reader join 之後，飛行中的 worker 才有機會先寫完
     # cache.put()；os._exit 不跑 atexit，這是寫回磁碟的最後機會。
     cache.flush()
-    print("[app] shutdown complete")
+    log("[app] shutdown complete")
     # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 _TIMEOUT=60 秒）時，一般 return 會讓
     # 直譯器在 concurrent.futures.thread._python_exit 等它們 join——視窗已關、程式卻在
     # 工作管理員多留 60 秒。該還原的都已還原（hook 已解除、log 為線緩衝），直接砍行程。
@@ -229,7 +228,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
 def main() -> None:
     redirect_output()
     # 版本先印：app.log 分段標頭後第一行就是版本
-    print(f"[app] version={__version__}", file=sys.stderr)
+    log(f"[app] version={__version__}")
 
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
@@ -243,8 +242,7 @@ def main() -> None:
     instance_lock = acquire_single_instance()
     if instance_lock is None:
         focused = focus_running_instance(app_name())
-        print(f"[app] another instance is already running (focused={focused}), exiting",
-              file=sys.stderr)
+        log(f"[app] another instance is already running (focused={focused}), exiting")
         return
 
     # 收訊原始內容另存一份，訊息類問題直接比對這份
@@ -256,12 +254,12 @@ def main() -> None:
 
     if not is_configured(cfg):
         from src.ui.wizard import run_wizard
-        print("[app] config incomplete, launching first-run wizard", file=sys.stderr)
+        log("[app] config incomplete, launching first-run wizard")
         if not run_wizard(root, cfg):
-            print("[app] wizard cancelled, exiting", file=sys.stderr)
+            log("[app] wizard cancelled, exiting")
             root.destroy()
             return
-        print("[app] wizard completed, config saved", file=sys.stderr)
+        log("[app] wizard completed, config saved")
         save_config(CONFIG_PATH, cfg)
 
     api = active_api(cfg)
@@ -337,8 +335,7 @@ def main() -> None:
         """介面語言換掉後讓常駐視窗跟上（預覽、還原與儲存都走這裡）。
         翻譯輸入框每次呼出才建立元件，會自然帶到新語言。"""
         overlay.refresh_labels()
-        print(f"[ui] overlay relabelled for language {current_language()}",
-              file=sys.stderr)
+        log(f"[ui] overlay relabelled for language {current_language()}")
 
     def apply_settings() -> None:
         nonlocal hotkey_handle, ui_language
@@ -359,10 +356,10 @@ def main() -> None:
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
-        print(f"[settings] applied; provider={applied_api['provider']}, "
-              f"model={applied_api['model']}, hotkey={cfg['hotkey']}, "
-              f"ui_language={cfg['ui_language']}, "
-              f"parallel={cfg['max_parallel_translations']}", file=sys.stderr)
+        log(f"[settings] applied; provider={applied_api['provider']}, "
+            f"model={applied_api['model']}, hotkey={cfg['hotkey']}, "
+            f"ui_language={cfg['ui_language']}, "
+            f"parallel={cfg['max_parallel_translations']}")
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,
@@ -389,7 +386,7 @@ def main() -> None:
         overlay.prune()
         root.after(50, pump)
 
-    print(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit via the overlay ✕")
+    log(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit via the overlay ✕")
     pump()
     try:
         root.mainloop()
