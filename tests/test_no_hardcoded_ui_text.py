@@ -18,7 +18,7 @@ SCAN_TARGETS = [
     "src/ui/wizard.py",
     "src/ui/fonts.py",
     "src/ui/responsive.py",
-    "src/translation_pool.py",
+    "src/translation/pool.py",
 ]
 
 # 例外：語言選單與翻譯目標語言清單一律顯示 endonym，任何介面語言下都不翻譯。

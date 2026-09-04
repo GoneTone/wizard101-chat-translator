@@ -8,7 +8,7 @@ import pytest
 
 from src.config import API_PROVIDERS, DEFAULT_CONFIG, active_api
 from src.i18n import t
-from src.translator import (
+from src.translation.translator import (
     TranslatorConfigError, TranslatorNoModelList, TranslatorOffline,
 )
 from src.ui.fields import (

@@ -1,7 +1,7 @@
 """ConcurrencyGate：翻譯請求的總量上限（兩個 pool 共用一個閘）。"""
 import threading
 
-from src.concurrency_gate import ConcurrencyGate
+from src.translation.gate import ConcurrencyGate
 
 
 def test_allows_up_to_the_limit():

@@ -3,10 +3,10 @@ import queue
 import threading
 import time
 
-from src.context import ChatContext
+from src.translation.context import ChatContext
 from src.i18n import t
 from src.reader.overlay import OverlayWindow
-from src.translation_pool import TranslationPool
+from src.translation.pool import TranslationPool
 
 FAILED = "⚠  這則訊息翻譯不出來"
 

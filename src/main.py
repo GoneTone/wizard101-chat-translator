@@ -18,10 +18,10 @@ import winerror
 from src import __version__
 from src.composer.input_box import InputBox
 from src.composer.paste import type_into_window
-from src.concurrency_gate import ConcurrencyGate
+from src.translation.gate import ConcurrencyGate
 from src.config import (CONFIG_PATH, active_api, app_name, is_configured,
                         load_config, save_config)
-from src.context import ChatContext
+from src.translation.context import ChatContext
 from src.i18n import (current_language, detect_system_language, language_name,
                       set_language, t)
 from src.logfiles import TimestampedStream, open_session_log
@@ -31,11 +31,11 @@ from src.reader.mem_reader import (
 from src.reader.message_log import MessageLog
 from src.reader.overlay import OverlayWindow
 from src.resources import icon_path
-from src.translation_cache import (
+from src.translation.cache import (
     TranslationCache, fingerprint_of, translate_and_cache,
 )
-from src.translation_pool import TranslationPool
-from src.translator import Translator
+from src.translation.pool import TranslationPool
+from src.translation.translator import Translator
 from src.ui.settings import SettingsWindow
 from src.updater import check_for_update
 

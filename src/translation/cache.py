@@ -16,7 +16,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from src.config import local_state_dir
-from src.translator import PROMPT_REVISION, has_stray_latin
+from src.translation.translator import PROMPT_REVISION, has_stray_latin
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _PLACEHOLDER = re.compile(r"\{(\d+)\}")
@@ -223,7 +223,7 @@ def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     命中都吐同一個英文名，跨重啟都在。不快取，下次遇到同一句還有機會翻對。
 
     `translator` 只要求有 `translate_system_message(text) -> str` 與 `target_language`
-    （見 `src.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
+    （見 `src.translation.translator.Translator`），這裡不直接依賴該型別以避免模組互相 import。
     """
     template, numbers = normalize(text)
     fingerprint = cache.fingerprint   # 翻譯期間使用者可能換設定，先記下產出當下的指紋

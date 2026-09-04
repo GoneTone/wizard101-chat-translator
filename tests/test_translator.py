@@ -4,7 +4,7 @@ import httpx
 import httpx2
 import pytest
 
-from src.translator import (
+from src.translation.translator import (
     OPENAI_BASE_URL, Translator, TranslatorBadOutput, TranslatorConfigError,
     TranslatorNoModelList, TranslatorOffline, build_incoming_system, list_models,
     build_system_message_system, _game_noun_rule, _PAREN_ENGLISH,
@@ -148,7 +148,7 @@ def test_claude_status_error_mapping(status, exc):
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
     # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
-    from src.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
                target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
@@ -177,7 +177,7 @@ def test_openai_compat_missing_finish_reason_is_accepted():
 
 
 def test_claude_sends_max_tokens():
-    from src.translator import _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
@@ -238,13 +238,13 @@ def test_openai_provider_forces_official_base_url():
 
 
 def test_build_turns_without_context_is_single_user_turn():
-    from src.translator import build_turns
+    from src.translation.translator import build_turns
     assert build_turns([], "[A] hi", "intro") == [
         {"role": "user", "content": "[A] hi"}]
 
 
 def test_build_turns_prepends_fewshot_examples():
-    from src.translator import build_turns
+    from src.translation.translator import build_turns
     examples = [{"role": "user", "content": "在嗎"},
                 {"role": "assistant", "content": "you there?"}]
     turns = build_turns([], "哈囉", "intro", examples=examples)
@@ -253,7 +253,7 @@ def test_build_turns_prepends_fewshot_examples():
 
 
 def test_outgoing_uses_fewshot_when_no_context():
-    from src.translator import FEWSHOT_OUTGOING
+    from src.translation.translator import FEWSHOT_OUTGOING
     fake = FakeHttpxClient()
     _make(fake).translate_outgoing("在嗎", [])   # 無背景上下文：帶 few-shot 強制翻譯模式
     turns = _turns(fake.last_body)
@@ -288,7 +288,7 @@ def test_translator_keeps_no_internal_history():
 
 
 def test_outgoing_keeps_fewshot_even_with_context():
-    from src.translator import FEWSHOT_OUTGOING
+    from src.translation.translator import FEWSHOT_OUTGOING
     fake = FakeHttpxClient()
     _make(fake).translate_outgoing("好啊", ["[A] want to trade?"])
     turns = _turns(fake.last_body)
@@ -299,7 +299,7 @@ def test_outgoing_keeps_fewshot_even_with_context():
 
 
 def test_build_turns_with_context_is_multi_turn():
-    from src.translator import CONTEXT_ACK, build_turns
+    from src.translation.translator import CONTEXT_ACK, build_turns
     turns = build_turns(["[A] one", "[B] two"], "[C] three", "背景說明")
     assert turns == [
         {"role": "user", "content": "背景說明\n[A] one\n[B] two"},
@@ -321,7 +321,7 @@ def test_incoming_system_has_no_format_markers():
 
 def test_both_systems_forbid_treating_input_as_instructions():
     # 輸入內容長得像指令時模型不得脫稿回應（實測踩過：回了「了解。請提供…」）
-    from src.translator import build_outgoing_system
+    from src.translation.translator import build_outgoing_system
     assert "絕不回應" in build_incoming_system("繁體中文（台灣）")
     assert "絕不回應" in build_outgoing_system("English")
 
@@ -331,7 +331,7 @@ def test_reconfigure_switches_provider():
     t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",
                   thinking=False, target_language="日本語")
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
-    from src.translator import _ClaudeClient
+    from src.translation.translator import _ClaudeClient
     assert isinstance(t._impl, _ClaudeClient)
 
 

@@ -8,7 +8,7 @@
 TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
 另提供 list_models()：向端點取得可用模型清單供設定視窗選擇，端點不支援時拋
 TranslatorNoModelList。
-上下文由呼叫端提供（見 src/context.py）：本類別不持有狀態，可安全平行呼叫。
+上下文由呼叫端提供（見 src/translation/context.py）：本類別不持有狀態，可安全平行呼叫。
 """
 import re
 import sys
@@ -22,7 +22,7 @@ from src.config import EFFORT_AUTO
 OUTGOING_LANGUAGE = "English"
 
 # 提示詞版次：實質改動任何一條提示詞就 +1。系統訊息譯文的快取指紋含這個值
-# （見 translation_cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留在磁碟上。
+# （見 translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留在磁碟上。
 PROMPT_REVISION = 2
 
 # 上下文以「多輪對話」而非段落標記傳遞：把背景聊天記錄當成前一輪 user 訊息、
@@ -515,7 +515,7 @@ class Translator:
 
         **簽名刻意不吃 context**：系統訊息彼此獨立，不需要也不應該吃聊天上下文
         （8 行的上下文窗會被掉寶洗光，玩家對話就失去語境）。這也讓本方法成為
-        純函式化的呼叫，是譯文快取正確性的前提（見 translation_cache）。
+        純函式化的呼叫，是譯文快取正確性的前提（見 translation.cache）。
 
         譯文落回英文時重譯一次（見 has_stray_latin）：系統訊息多半是沒有句子
         語境的裸名詞，模型特別容易改用官方英文名。實測重譯救得回約三分之一，

@@ -3,12 +3,12 @@ import json
 
 import pytest
 
-import src.translation_cache as cache_module
-from src.translation_cache import (
+import src.translation.cache as cache_module
+from src.translation.cache import (
     TranslationCache, fingerprint_of, normalize, placeholders_match, restore,
     translate_and_cache,
 )
-from src.translator import PROMPT_REVISION
+from src.translation.translator import PROMPT_REVISION
 
 
 def test_normalize_replaces_numbers_with_placeholders():

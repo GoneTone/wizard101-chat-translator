@@ -8,7 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from src.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
+from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 BACKOFF_STEPS = [5, 15, 30]   # 翻譯伺服器離線時的重試間隔（秒）
 CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復

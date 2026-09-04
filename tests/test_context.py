@@ -1,7 +1,7 @@
 """ChatContext：跨執行緒共用的近期原文行緩衝。"""
 import threading
 
-from src.context import CONTEXT_LINES, ChatContext
+from src.translation.context import CONTEXT_LINES, ChatContext
 
 
 def test_snapshot_returns_pushed_lines_in_order():

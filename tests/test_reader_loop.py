@@ -1,11 +1,11 @@
 """reader_loop 行為：WizChatReader.read_new() → 推進 context → overlay 佔位 → 提交 pool。
-翻譯本身與其重試改由 TranslationPool 負責（見 test_translation_pool.py）。"""
+翻譯本身與其重試改由 TranslationPool 負責（見 test_pool.py）。"""
 import queue
 import threading
 import time
 
 import src.main as main_module
-from src.context import ChatContext
+from src.translation.context import ChatContext
 from src.i18n import t
 from src.main import banner_for, reader_loop
 from src.reader.mem_reader import (

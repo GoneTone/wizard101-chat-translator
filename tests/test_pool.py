@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from src.translation_pool import TranslationPool
-from src.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
+from src.translation.pool import TranslationPool
+from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 FAILED = "⚠  這則訊息翻譯不出來"
 
@@ -13,7 +13,7 @@ FAILED = "⚠  這則訊息翻譯不出來"
 @pytest.fixture(autouse=True)
 def fast_backoff(monkeypatch):
     """把退避縮到毫秒級：測的是「有沒有退避與重置」，不是真的等 5 秒。"""
-    import src.translation_pool as pool_module
+    import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.01, 0.01, 0.01])
     monkeypatch.setattr(pool_module, "CONFIG_ERROR_INTERVAL", 0.01)
 
@@ -323,7 +323,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
 
     第二輪刻意卡住、由測試主動放行才能繼續，藉此確定斷言時機——不靠量測經過的
     時間判斷是否已推進，避免時間相關的 flaky。"""
-    import src.translation_pool as pool_module
+    import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.05, 0.1, 0.2])
     workers = 4
     barrier = threading.Barrier(workers)
@@ -384,7 +384,7 @@ def test_uses_the_supplied_translate_fn():
 
 
 def test_two_pools_sharing_a_gate_never_exceed_the_total_limit():
-    from src.concurrency_gate import ConcurrencyGate
+    from src.translation.gate import ConcurrencyGate
 
     gate = ConcurrencyGate(2)
     peak = {"value": 0}
@@ -420,7 +420,7 @@ def test_two_pools_sharing_a_gate_never_exceed_the_total_limit():
 
 
 def test_resize_also_raises_the_gate_limit():
-    from src.concurrency_gate import ConcurrencyGate
+    from src.translation.gate import ConcurrencyGate
 
     gate = ConcurrencyGate(1)
 
@@ -440,7 +440,7 @@ def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
     """回歸測試：burst 去重不能連帶讓「真正分開的多輪失敗」也不再逐階推進。
     單一 worker 保證每次呼叫都是獨立一輪（前一輪的閘門必定已到期才會有下一次呼叫），
     不會被誤判成同一輪的兄弟失敗。"""
-    import src.translation_pool as pool_module
+    import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.02, 0.04, 0.08])
 
     class RecordingOffline:
