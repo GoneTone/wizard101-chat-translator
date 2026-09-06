@@ -186,8 +186,12 @@ def test_highlight_is_drawn_below_the_text(message):
     sel, _, first, second = message
     sel.begin(*_at(first))
     sel.extend(*_at(second, dx=1000))
-    assert first.find_withtag("sel"), "原文行應該畫出反白矩形"
-    assert first.find_withtag("sel")[-1] < first.find_withtag("txt")[0], \
+    order = first.find_all()
+    highlight = first.find_withtag("sel")
+    glyphs = first.find_withtag("txt")
+    assert highlight, "原文行應該畫出反白矩形"
+    # find_withtag 給的是 item ID（建立順序），要判斷誰壓在誰底下得看 find_all 的堆疊順序
+    assert max(order.index(i) for i in highlight) < min(order.index(i) for i in glyphs), \
         "反白必須壓在文字之下，否則會蓋掉字"
 
 
