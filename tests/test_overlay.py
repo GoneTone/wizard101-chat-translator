@@ -15,7 +15,7 @@ from src.ui.overlay import (
     _fit_line_height,
     should_stick_to_bottom,
 )
-from src.ui.selection import TEXT_ORIGIN
+from src.ui.selection import TEXT_ORIGIN, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
 
 
@@ -807,10 +807,13 @@ def test_minimize_clears_the_selection(root):
     ov.expand()
 
 
-def test_resize_redraws_the_highlight_and_keeps_the_selection(root):
+def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
-    ov.add_message("原文一原文一原文一", "譯文一譯文一譯文一")
+    # *10（非 *20）：縮放前要留在同一視覺行，_select_whole_message 的垂直置中點
+    # 才會落在該行內、真的從頭選起——量測顯示 *10 在縮放前的換行寬度下恰好一行、
+    # *20 已經先換成兩行，命中點會落在行界上、選不到開頭（見 fix-round 報告）。
+    ov.add_message("原文一" * 10, "譯文一" * 10)
     first, _ = _select_whole_message(ov)
     selected = ov._selection.text()
 
@@ -820,13 +823,17 @@ def test_resize_redraws_the_highlight_and_keeps_the_selection(root):
     ov._on_canvas_configure(FakeEvent())
     ov._win.update_idletasks()
 
+    rects = first.find_withtag("sel")
     assert ov._selection.text() == selected
-    assert first.find_withtag("sel")
+    # 每個視覺行一個反白矩形：換行變了、矩形數就要跟著變
+    assert len(rects) == len(visual_lines(first, line_font(first)))
+    # 沒有重畫的話，矩形仍是舊換行寬度下的幾何，右緣會超出新的換行寬度
+    assert max(first.coords(i)[2] for i in rects) <= ov._wrap + TEXT_ORIGIN
 
 
 def test_line_height_ignores_the_highlight(root):
     # 反白矩形的底緣以 linespace 為準，可能比文字墨跡低一兩個像素；_fit_line_height
-    # 若把它算進去，視窗每縮放一次列高就長高一點
+    # 若把它算進去，選取後再重算一次列高就會比選取前高
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
@@ -834,8 +841,7 @@ def test_line_height_ignores_the_highlight(root):
     ov._win.update_idletasks()
     before = first.winfo_reqheight()
 
-    for _ in range(3):
-        _fit_line_height(first)
+    _fit_line_height(first)
     ov._win.update_idletasks()
 
     assert first.winfo_reqheight() == before
