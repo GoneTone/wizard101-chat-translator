@@ -875,17 +875,25 @@ def test_press_on_a_message_starts_a_selection(root):
     assert ov._selection.text() == "原文一\n譯文一"
 
 
-def test_press_outside_the_message_area_clears_the_selection(root):
+def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
+    # 捲出視口的訊息列仍留著幾何位置：少了 _in_message_area 這道關卡，點在標題列
+    # 附近就會選到看不見的訊息
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
-                       max_messages=10, fade_seconds=0)
-    ov.add_message("原文一", "譯文一")
-    _select_whole_message(ov)
-    ov._win.update()   # 同上：canvas 要有真實尺寸，「外面」才有意義，不是碰巧沒命中
-    canvas = ov._canvas
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    hidden_top, hidden_bottom = ov._messages[0].row.winfo_children()
+    assert hidden_top.winfo_rooty() < ov._canvas.winfo_rooty(), \
+        "第一則應該已經捲出視口上方，否則這個測試沒有守到東西"
 
-    ov._selection_press(_Press(canvas.winfo_rootx() - 400, canvas.winfo_rooty() - 400))
+    ov._selection_press(_Press(hidden_top.winfo_rootx() + 40,
+                               hidden_top.winfo_rooty() + hidden_top.winfo_height() // 2))
+    ov._selection_drag(_Press(hidden_bottom.winfo_rootx() + 1000,
+                              hidden_bottom.winfo_rooty() + hidden_bottom.winfo_height() // 2))
 
-    assert ov._selection.active is False
+    assert ov._selection.dragging is False
+    assert ov._selection.text() == ""
 
 
 def test_backdrop_press_away_from_any_edge_starts_a_selection(root):
