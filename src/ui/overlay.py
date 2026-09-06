@@ -30,6 +30,7 @@ from src.ui.palette import (
     FG_UPDATE,
     OUTLINE,
 )
+from src.ui.popup import Popup
 from src.ui.selection import TEXT_ORIGIN, Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
@@ -136,7 +137,6 @@ class OverlayWindow:
         self._update_row: tk.Frame | None = None
         self._update_label: tk.Label | None = None
         self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
-        self._menu: tk.Menu | None = None   # 右鍵選單，整支程式共用一個（見 _build_selection_menu）
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
         self._wrap = self._w - 40
@@ -306,6 +306,10 @@ class OverlayWindow:
         self._win.bind("<Control-C>", self.copy_selection)
         # 右鍵與左鍵一樣要雙路由：選取區以外的空白處按右鍵，事件會穿透到 backdrop
         self._backdrop.bind("<Button-3>", self._selection_menu)
+        self._popup = Popup(self._win, self.copy_selection)
+        # Esc 綁在本體而非選單上：選單刻意不取鍵盤焦點（取走的話 Ctrl+C 就收不到），
+        # 使用者按 Esc 時焦點在本體上（框選起手時 _focus_for_copy 已經拿過來了）。
+        self._win.bind("<Escape>", lambda e: self._popup.hide())
 
     # --- 縮小成泡泡 ---
     @property
@@ -322,6 +326,7 @@ class OverlayWindow:
         if self._minimized:
             return
         self._selection.clear("minimized to bubble")
+        self._popup.hide()
         self._win.update_idletasks()
         if self._bubble_pos.get("x") is None:
             # 無記憶位置：預設出現在 overlay 右上角（縮小按鈕附近），視覺上「收進泡泡」
@@ -591,6 +596,7 @@ class OverlayWindow:
     def _selection_press(self, e) -> None:
         """框選起手。訊息列的底色是本體的透明色鍵，只有文字墨跡接得到滑鼠、其餘落到
         backdrop，兩條路徑都導進這裡，一律用螢幕座標。"""
+        self._popup.hide()   # 點到疊加視窗任何一處就收起選單（取代原生選單的 grab）
         if not self._in_message_area(e.x_root, e.y_root):
             self._selection.clear("press outside the message area")
             return
@@ -626,24 +632,12 @@ class OverlayWindow:
         self._win.update()
         log(f"[ui] copied selection chars={len(text)}")
 
-    def _build_selection_menu(self) -> "tk.Menu":
-        """右鍵選單（整支程式共用一個）。每次彈出前重設文字，語言換了就跟著換，
-        不必另存狀態、也不會每按一次右鍵就留下一個選單 widget。"""
-        if self._menu is None:
-            self._menu = tk.Menu(self._win, tearoff=0, font=ui_font(9))
-            self._menu.add_command(command=self.copy_selection)
-        self._menu.entryconfigure(0, label=t("menu.copy"), font=ui_font(9))
-        return self._menu
-
     def _selection_menu(self, e) -> None:
-        """有選取時才彈出右鍵選單；沒選取就不彈，不做灰掉的空選單。"""
+        """有選取時才彈出右鍵選單；沒選取就不彈，不做灰掉的空選單。
+        文字每次現取，介面語言換了就跟著換。"""
         if not self._selection.active:
             return
-        menu = self._build_selection_menu()
-        try:
-            menu.tk_popup(e.x_root, e.y_root)
-        finally:
-            menu.grab_release()
+        self._popup.show(e.x_root, e.y_root, t("menu.copy"))
 
     # --- 訊息 ---
     def _drop_row(self, entry: _Message) -> None:

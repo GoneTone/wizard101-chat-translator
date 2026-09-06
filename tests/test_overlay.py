@@ -986,26 +986,90 @@ def test_copy_writes_only_when_something_is_selected(root):
     assert root.clipboard_get() == "原文一\n譯文一", "沒有選取時不該動剪貼簿"
 
 
-def test_right_click_without_a_selection_pops_no_menu(root, monkeypatch):
+def test_right_click_without_a_selection_pops_no_menu(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
-    monkeypatch.setattr(ov, "_build_selection_menu",
-                        lambda: pytest.fail("沒有選取時不該建立選單"))
 
-    ov._selection_menu(_Press(0, 0))
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    assert ov._popup.visible is False
 
 
-def test_right_click_menu_labels_follow_the_ui_language(root):
+def test_right_click_with_a_selection_pops_the_themed_menu(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
     _select_whole_message(ov)
 
-    menu = ov._build_selection_menu()
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
 
-    assert menu.entrycget(0, "label") == t("menu.copy")
-    assert ov._build_selection_menu() is menu, "選單應整支程式共用一個，不重複建立"
+    assert ov._popup.visible is True
+    assert ov._popup.label_text() == t("menu.copy")
+
+
+def test_choosing_copy_from_the_menu_copies_and_closes(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov._popup._clicked(None)
+    ov._win.update()
+
+    assert root.clipboard_get() == "原文一\n譯文一"
+    assert ov._popup.visible is False
+
+
+def test_pressing_anywhere_closes_the_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov._selection_press(_Press(ov._canvas.winfo_rootx() - 400,
+                               ov._canvas.winfo_rooty() - 400))
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
+def test_escape_closes_the_menu(root):
+    # Esc 綁在本體上，不在選單上——選單從不取得鍵盤焦點（否則 Ctrl+C 會斷）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    assert ov._win.bind("<Escape>"), "Esc 必須綁在本體上"
+    ov._win.focus_force()   # 正式路徑上由框選起手的 _focus_for_copy 拿到焦點
+    ov._win.event_generate("<Escape>")
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
+def test_minimize_closes_the_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov.minimize()
+    ov._win.update()
+
+    assert ov._popup.visible is False
+    ov.expand()
 
 
 def test_selection_entry_points_are_bound(root):
