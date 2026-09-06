@@ -306,10 +306,10 @@ class OverlayWindow:
         self._win.bind("<Control-C>", self.copy_selection)
         # 右鍵與左鍵一樣要雙路由：選取區以外的空白處按右鍵，事件會穿透到 backdrop
         self._backdrop.bind("<Button-3>", self._selection_menu)
-        # 選單只靠點擊關閉，不接 Esc：鍵盤事件依焦點派送，而全螢幕遊戲會把前景搶回去，
-        # 選單開著幾秒後 Esc 多半已經進不來了（實機 log 實證）。滑鼠事件依座標派送，
-        # 點到疊加視窗任何一處都收得起來，那才是可靠的那條路。
         self._popup = Popup(self._win, self.copy_selection)
+        # Esc 綁在本體而非選單上：選單是不啟用視窗（見 Popup），鍵盤事件不會落到它身上，
+        # 焦點留在本體——框選起手時 _focus_for_copy 已經把焦點拿過來了。
+        self._win.bind("<Escape>", lambda e: self._popup.hide())
 
     # --- 縮小成泡泡 ---
     @property

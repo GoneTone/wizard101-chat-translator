@@ -1040,6 +1040,23 @@ def test_pressing_anywhere_closes_the_menu(root):
     assert ov._popup.visible is False
 
 
+def test_escape_closes_the_menu(root):
+    # Esc 綁在本體上，不在選單上——選單是不啟用視窗，鍵盤事件不會落到它身上
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    assert ov._win.bind("<Escape>"), "Esc 必須綁在本體上"
+    ov._win.focus_force()   # 正式路徑上由框選起手的 _focus_for_copy 拿到焦點
+    ov._win.event_generate("<Escape>")
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
 def test_minimize_closes_the_menu(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)

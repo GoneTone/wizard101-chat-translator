@@ -109,6 +109,21 @@ def test_hiding_an_already_hidden_popup_is_harmless(popup, root):
     assert p.visible is False
 
 
+def test_the_popup_never_becomes_the_active_window(popup, root):
+    # 選單一旦被啟用，鍵盤事件就落到它身上，疊加視窗本體的 Ctrl+C 與 Esc 全部失效
+    import win32con
+    import win32gui
+
+    from src.ui.winstyle import root_hwnd
+
+    p, _ = popup
+    p.show(300, 300, "複製")
+    root.update()
+
+    style = win32gui.GetWindowLong(root_hwnd(p._win), win32con.GWL_EXSTYLE)
+    assert style & win32con.WS_EX_NOACTIVATE
+
+
 def test_the_popup_is_a_borderless_topmost_window(popup):
     p, _ = popup
     # 疊加視窗自己就是 overrideredirect + topmost；選單得比它更上層，否則會被蓋掉

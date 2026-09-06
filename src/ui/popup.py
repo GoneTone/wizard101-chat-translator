@@ -10,6 +10,7 @@ import tkinter as tk
 from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.palette import BAR, FG_BAR, FG_TRANSLATED, GRIP
+from src.ui.winstyle import make_non_activating
 
 _PAD_X = 10
 _PAD_Y = 5
@@ -38,6 +39,10 @@ class Popup:
         self._win.attributes("-topmost", True)
         # 外層底色當作 1px 邊框，內層 row 靠 padx/pady=1 讓它露出來
         self._win.configure(bg=GRIP)
+        # 絕不能被啟用成作用中視窗：overrideredirect 視窗一 deiconify 就會被 Windows
+        # 啟用，鍵盤事件從此落到這裡，疊加視窗本體的 Ctrl+C 與 Esc 全部收不到（實機
+        # 踩過），而且還會把焦點從遊戲搶走。滑鼠事件不受影響——backdrop 用的是同一招。
+        make_non_activating(self._win)
 
         self._row = tk.Frame(self._win, bg=BAR, cursor="hand2")
         self._row.pack(padx=1, pady=1)
