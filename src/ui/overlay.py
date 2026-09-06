@@ -299,6 +299,12 @@ class OverlayWindow:
         if on_close is not None:   # None（測試直接建視窗）時維持 Tk 預設行為
             self._win.protocol("WM_DELETE_WINDOW", on_close)
         self._backdrop.lower(self._win)  # 疊序保險：底板壓在文字層之下
+        # Caps Lock 開著時 Tk 送的是 <Control-C>，兩個都要接。不用 bind_all——
+        # 那會連設定視窗的輸入框一起攔截。
+        self._win.bind("<Control-c>", self.copy_selection)
+        self._win.bind("<Control-C>", self.copy_selection)
+        # 右鍵與左鍵一樣要雙路由：選取區以外的空白處按右鍵，事件會穿透到 backdrop
+        self._backdrop.bind("<Button-3>", self._selection_menu)
 
     # --- 縮小成泡泡 ---
     @property
@@ -604,6 +610,33 @@ class OverlayWindow:
         except tk.TclError as exc:
             log(f"[ui] selection focus failed: {exc}")
 
+    def copy_selection(self, _event=None) -> None:
+        """把目前選取的文字寫進系統剪貼簿。沒有選取就什麼都不做——寫入空字串會把
+        使用者原本的剪貼簿內容清掉。"""
+        text = self._selection.text()
+        if not text:
+            return
+        self._win.clipboard_clear()
+        self._win.clipboard_append(text)
+        self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
+        log(f"[ui] copied selection chars={len(text)}")
+
+    def _build_selection_menu(self) -> "tk.Menu":
+        """右鍵選單。每次現建：語言一換文字就跟著換，不必另存狀態重繪。"""
+        menu = tk.Menu(self._win, tearoff=0, font=ui_font(9))
+        menu.add_command(label=t("menu.copy"), command=self.copy_selection)
+        return menu
+
+    def _selection_menu(self, e) -> None:
+        """有選取時才彈出右鍵選單；沒選取就不彈，不做灰掉的空選單。"""
+        if not self._selection.active:
+            return
+        menu = self._build_selection_menu()
+        try:
+            menu.tk_popup(e.x_root, e.y_root)
+        finally:
+            menu.grab_release()
+
     # --- 訊息 ---
     def _drop_row(self, entry: _Message) -> None:
         """移除一則訊息的畫面元件。銷毀列與解除選取登記必須成對——漏掉任一處，
@@ -633,6 +666,7 @@ class OverlayWindow:
             line.bind("<ButtonPress-1>", self._selection_press)
             line.bind("<B1-Motion>", self._selection_drag)
             line.bind("<ButtonRelease-1>", self._selection_release)
+            line.bind("<Button-3>", self._selection_menu)
         self._messages.append(_Message(now if now is not None else time.time(),
                                        original, translated, row, msg_id, color))
         while len(self._messages) > self._max:

@@ -949,3 +949,41 @@ def test_view_does_not_jump_to_the_bottom_while_selecting(root):
 
     assert ov._canvas.yview()[0] == before
     ov._selection_release(_Press(0, 0))
+
+
+def test_copy_writes_only_when_something_is_selected(root):
+    # 兩個斷言刻意合成一個測試：剪貼簿是全機器共用的資源，拆成兩個測試在
+    # pytest-xdist 的 4 個 worker 下會互相覆蓋（addopts 的 -n 4）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.copy_selection()
+    assert root.clipboard_get() == "原文一\n譯文一"
+
+    ov._selection.clear("test")
+    ov.copy_selection()
+    assert root.clipboard_get() == "原文一\n譯文一", "沒有選取時不該動剪貼簿"
+
+
+def test_right_click_without_a_selection_pops_no_menu(root, monkeypatch):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    monkeypatch.setattr(ov, "_build_selection_menu",
+                        lambda: pytest.fail("沒有選取時不該建立選單"))
+
+    ov._selection_menu(_Press(0, 0))
+
+
+def test_right_click_menu_labels_follow_the_ui_language(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    menu = ov._build_selection_menu()
+
+    assert menu.entrycget(0, "label") == t("menu.copy")
+    menu.destroy()
