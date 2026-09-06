@@ -845,3 +845,99 @@ def test_line_height_ignores_the_highlight(root):
     ov._win.update_idletasks()
 
     assert first.winfo_reqheight() == before
+
+
+class _Press:
+    """假的滑鼠事件（只用到螢幕座標）。"""
+
+    def __init__(self, x_root, y_root):
+        self.x_root = x_root
+        self.y_root = y_root
+        self.widget = None
+
+
+def test_press_on_a_message_starts_a_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    # update()（非 update_idletasks）：_in_message_area 量的是 ov._canvas 的實際尺寸，
+    # 這個 expand=True 的捲動畫布在全新 overrideredirect 視窗裡，只有真的跑過一輪
+    # 事件迴圈（Windows 送 WM_SIZE）才會拿到非 1x1 的量測值，idle 佇列處理不到這段
+    ov._win.update()
+    first, second = ov._messages[0].row.winfo_children()
+
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 1000,
+                              second.winfo_rooty() + second.winfo_height() // 2))
+    ov._selection_release(_Press(0, 0))
+
+    assert ov._selection.text() == "原文一\n譯文一"
+
+
+def test_press_outside_the_message_area_clears_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._win.update()   # 同上：canvas 要有真實尺寸，「外面」才有意義，不是碰巧沒命中
+    canvas = ov._canvas
+
+    ov._selection_press(_Press(canvas.winfo_rootx() - 400, canvas.winfo_rooty() - 400))
+
+    assert ov._selection.active is False
+
+
+def test_backdrop_press_away_from_any_edge_starts_a_selection(root):
+    # 訊息列的底色是透明色鍵，字間空隙的點擊會落到 backdrop——那條路徑也要能起手
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
+    first, second = ov._messages[0].row.winfo_children()
+
+    # +40（非 +TEXT_ORIGIN）：捲動區沒有留邊，行 canvas 左緣與視窗左緣重合，
+    # +TEXT_ORIGIN 會落在 EDGE 縮放感應帶內、被 _edge_press 誤判成縮放
+    ov._edge_press(_Press(first.winfo_rootx() + 40,
+                          first.winfo_rooty() + first.winfo_height() // 2))
+    ov._edge_drag(_Press(second.winfo_rootx() + 1000,
+                         second.winfo_rooty() + second.winfo_height() // 2))
+    ov._edge_release(_Press(0, 0))
+
+    assert ov._selection.text().endswith("\n譯文一")
+    assert ov._selection.active is True
+    assert ov._resize is None
+
+
+@pytest.mark.real_position
+def test_backdrop_press_on_an_edge_still_resizes(root):
+    ov = OverlayWindow(root, x=200, y=200, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov._win.update_idletasks()
+
+    ov._edge_press(_Press(200, 200 + 150))   # 左緣
+
+    assert ov._resize is not None
+    assert ov._selection.active is False
+    ov._edge_release(_Press(200, 350))
+
+
+def test_view_does_not_jump_to_the_bottom_while_selecting(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
+    # 用最後一則（非第一則）：視圖貼底時第一則已捲出視口，_in_message_area
+    # 會擋下這次按下、根本起不了選取
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._canvas.yview_moveto(0.0)
+    ov._win.update_idletasks()
+    before = ov._canvas.yview()[0]
+
+    ov._refresh_scroll()
+
+    assert ov._canvas.yview()[0] == before
+    ov._selection_release(_Press(0, 0))

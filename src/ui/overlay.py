@@ -15,7 +15,7 @@ from src.i18n import t
 from src.log import log
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
-from src.ui.geometry import EDGE, edge_at, moved_to, resized_edge
+from src.ui.geometry import EDGE, edge_at, moved_to, point_in_rect, resized_edge
 from src.ui.icons import load_icon
 from src.ui.palette import (
     BAR,
@@ -489,14 +489,15 @@ class OverlayWindow:
 
         任何改變畫布內容或幾何的動作都要呼叫（新增／更新／清除訊息、縮放、橫幅進出）。
         漏呼叫的後果是視圖從此停在舊位置——`_follow` 仍為真卻沒人貼底，之後每則
-        新訊息都落在畫面外，看起來就像訊息漏掉了。"""
+        新訊息都落在畫面外，看起來就像訊息漏掉了。
+        框選拖曳期間不貼底：畫面被新訊息拉走的話，游標下的字會整個換掉。"""
         self._canvas.update_idletasks()
         # 視窗隱藏（縮成泡泡、工作列收合）期間畫布不重繪，內嵌容器與捲動帳目脫節——
         # yview 回報已在底部，畫面卻少了最後幾則、往下也捲不動。重設一次座標（值不變）
         # 即可要求畫布重新擺放它。
         self._canvas.coords(self._inner_id, 0, 0)
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        if self._follow:
+        if self._follow and not self._selection.dragging:
             self._canvas.yview_moveto(1.0)
         elif anchor is not None:
             self._restore_anchor(*anchor)
@@ -522,6 +523,8 @@ class OverlayWindow:
         edge = self._edge_under(e)
         if edge:
             self._resize_start(e, edge)
+        else:
+            self._selection_press(e)   # 透明背景區的點擊落到這裡，交給框選
 
     def _bar_press(self, e) -> None:
         """標題列按下：壓在上緣（含上方兩角）＝縮放，其餘＝拖曳移動。"""
@@ -552,7 +555,8 @@ class OverlayWindow:
 
     def _edge_drag(self, e) -> None:
         if self._resize is None:
-            return  # 這次按下不在邊上（或按在別處後才滑進來）：不是縮放
+            self._selection_drag(e)   # 這次按下不在邊上：可能正在框選
+            return
         sx, sy, ox, oy, ow, oh, edge = self._resize
         self._apply_geometry(*resized_edge(edge, ox, oy, ow, oh,
                                            e.x_root - sx, e.y_root - sy,
@@ -560,12 +564,45 @@ class OverlayWindow:
 
     def _edge_release(self, e) -> None:
         if self._resize is None:
+            self._selection_release(e)
             return
         edge = self._resize[6]
         self._resize = None
         log(f"[ui] overlay resize end edge={edge} geometry="
             f"{self._w}x{self._h}+{self._win.winfo_x()}+{self._win.winfo_y()}")
         self._emit_geometry()
+
+    # --- 框選 ---
+    def _in_message_area(self, x_root: int, y_root: int) -> bool:
+        """螢幕座標是否落在可捲動的訊息視口內。捲出視野的列仍有幾何位置，不先擋一道
+        的話，點在把手或標題列附近會選到看不見的訊息。"""
+        c = self._canvas
+        return point_in_rect(x_root, y_root, c.winfo_rootx(), c.winfo_rooty(),
+                             c.winfo_width(), c.winfo_height())
+
+    def _selection_press(self, e) -> None:
+        """框選起手。訊息列的底色是本體的透明色鍵，只有文字墨跡接得到滑鼠、其餘落到
+        backdrop，兩條路徑都導進這裡，一律用螢幕座標。"""
+        if not self._in_message_area(e.x_root, e.y_root):
+            self._selection.clear("press outside the message area")
+            return
+        if self._selection.begin(e.x_root, e.y_root):
+            self._focus_for_copy()
+
+    def _selection_drag(self, e) -> None:
+        self._selection.extend(e.x_root, e.y_root)
+
+    def _selection_release(self, e) -> None:
+        self._selection.finish()
+
+    def _focus_for_copy(self) -> None:
+        """把鍵盤焦點交給本體，Ctrl+C 才收得到——backdrop 帶 WS_EX_NOACTIVATE，
+        從它起手的選取不會給焦點。"""
+        try:
+            self._win.focus_force()
+            log("[ui] selection took keyboard focus")
+        except tk.TclError as exc:
+            log(f"[ui] selection focus failed: {exc}")
 
     # --- 訊息 ---
     def _drop_row(self, entry: _Message) -> None:
@@ -592,6 +629,10 @@ class OverlayWindow:
         translated_line.pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
         self._selection.register(row, (original_line, translated_line))
+        for line in (original_line, translated_line):
+            line.bind("<ButtonPress-1>", self._selection_press)
+            line.bind("<B1-Motion>", self._selection_drag)
+            line.bind("<ButtonRelease-1>", self._selection_release)
         self._messages.append(_Message(now if now is not None else time.time(),
                                        original, translated, row, msg_id, color))
         while len(self._messages) > self._max:
