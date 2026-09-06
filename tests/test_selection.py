@@ -7,6 +7,7 @@ from src.ui.overlay import _outlined_line
 from src.ui.selection import (
     TEXT_ORIGIN,
     Caret,
+    Selection,
     caret_at,
     highlight_rects,
     line_font,
@@ -83,3 +84,136 @@ def test_selected_text_across_both_lines():
 
 def test_selected_text_of_an_empty_span():
     assert selected_text(["abcdef", "xyz"], Caret(0, 2), Caret(0, 2)) == ""
+
+
+@pytest.fixture
+def message(root):
+    """兩行一組的訊息列（原文行 ＋ 譯文行），已註冊進一個 Selection。"""
+    win = tk.Toplevel(root)
+    frame = tk.Frame(win)
+    frame.pack()
+    first = _outlined_line(frame, "original text", "#c0c0cd", ui_font(9), 400)
+    first.pack(fill="x")
+    second = _outlined_line(frame, "translated text", "#f2f2f7", ui_font(11), 400)
+    second.pack(fill="x")
+    win.update()
+    sel = Selection()
+    sel.register(frame, (first, second))
+    yield sel, frame, first, second
+    win.destroy()
+
+
+def _at(canvas, dx=TEXT_ORIGIN, dy=None):
+    """canvas 內某點的螢幕座標（dy 預設取該 canvas 的垂直中線）。"""
+    if dy is None:
+        dy = canvas.winfo_height() // 2
+    return canvas.winfo_rootx() + dx, canvas.winfo_rooty() + dy
+
+
+def test_begin_on_a_line_reports_a_hit(message):
+    sel, _, first, _ = message
+    assert sel.begin(*_at(first)) is True
+    assert sel.dragging is True
+
+
+def test_begin_outside_every_message_reports_no_hit(message):
+    sel, frame, first, _ = message
+    x, y = _at(first)
+    assert sel.begin(x, y - frame.winfo_height() - 200) is False
+
+
+def test_a_bare_press_is_not_a_selection(message):
+    sel, _, first, _ = message
+    sel.begin(*_at(first))
+    sel.finish()
+    assert sel.active is False
+    assert sel.text() == ""
+
+
+def test_dragging_across_both_lines_selects_both(message):
+    sel, _, first, second = message
+    sel.begin(*_at(first))
+    sel.extend(*_at(second, dx=1000))
+    assert sel.text() == "original text\ntranslated text"
+
+
+def test_reverse_drag_selects_the_same_text(message):
+    sel, _, first, second = message
+    sel.begin(*_at(second, dx=1000))
+    sel.extend(*_at(first))
+    assert sel.text() == "original text\ntranslated text"
+
+
+def test_dragging_below_the_message_clamps_to_its_end(message):
+    sel, _, first, second = message
+    sel.begin(*_at(first))
+    x, y = _at(second)
+    sel.extend(x, y + 500)
+    assert sel.text() == "original text\ntranslated text"
+
+
+def test_dragging_above_the_message_clamps_to_its_start(message):
+    sel, _, first, second = message
+    sel.begin(*_at(second, dx=1000))
+    x, y = _at(first)
+    sel.extend(x, y - 500)
+    assert sel.text() == "original text\ntranslated text"
+
+
+def test_selection_never_crosses_into_another_message(root):
+    # 「不跨訊息」是夾出來的：拖進另一則的範圍，focus 仍夾在起手那一則的結尾
+    win = tk.Toplevel(root)
+    frames = []
+    sel = Selection()
+    for original, translated in (("first one", "first two"), ("second one", "second two")):
+        frame = tk.Frame(win)
+        frame.pack()
+        top = _outlined_line(frame, original, "#c0c0cd", ui_font(9), 400)
+        top.pack(fill="x")
+        bottom = _outlined_line(frame, translated, "#f2f2f7", ui_font(11), 400)
+        bottom.pack(fill="x")
+        sel.register(frame, (top, bottom))
+        frames.append((frame, top, bottom))
+    win.update()
+
+    sel.begin(*_at(frames[0][1]))
+    sel.extend(*_at(frames[1][2], dx=1000))
+    assert sel.text() == "first one\nfirst two"
+    win.destroy()
+
+
+def test_highlight_is_drawn_below_the_text(message):
+    sel, _, first, second = message
+    sel.begin(*_at(first))
+    sel.extend(*_at(second, dx=1000))
+    assert first.find_withtag("sel"), "原文行應該畫出反白矩形"
+    assert first.find_withtag("sel")[-1] < first.find_withtag("txt")[0], \
+        "反白必須壓在文字之下，否則會蓋掉字"
+
+
+def test_clear_removes_the_highlight_and_the_selection(message):
+    sel, _, first, second = message
+    sel.begin(*_at(first))
+    sel.extend(*_at(second, dx=1000))
+    sel.clear("test")
+    assert sel.active is False
+    assert sel.text() == ""
+    assert first.find_withtag("sel") == ()
+
+
+def test_forget_clears_a_selection_in_that_row(message):
+    sel, frame, first, second = message
+    sel.begin(*_at(first))
+    sel.extend(*_at(second, dx=1000))
+    sel.forget(frame)
+    assert sel.active is False
+    assert sel.holds(frame) is False
+
+
+def test_redraw_keeps_the_selected_text(message):
+    sel, _, first, second = message
+    sel.begin(*_at(first))
+    sel.extend(*_at(second, dx=1000))
+    sel.redraw()
+    assert sel.text() == "original text\ntranslated text"
+    assert first.find_withtag("sel")
