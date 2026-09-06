@@ -30,6 +30,7 @@ from src.ui.palette import (
     FG_UPDATE,
     OUTLINE,
 )
+from src.ui.selection import Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 
@@ -49,7 +50,7 @@ _OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
 
 def _fit_line_height(c: "tk.Canvas") -> None:
     """把文字行 canvas 的高度縮放到剛好容納（換行後的）文字內容。"""
-    bbox = c.bbox("all")
+    bbox = c.bbox("txt")   # 只量文字：反白矩形的底緣比墨跡低，算進去會讓列高每次縮放都長一點
     if bbox:
         c.configure(height=bbox[3] + 2)
 
@@ -219,6 +220,9 @@ class OverlayWindow:
 
     def _build_message_area(self) -> None:
         """內容區：可捲動的訊息列表、細捲軸、空狀態提示（橫幅事後才 pack 進來）。"""
+        # 先建 _selection：本方法稍後綁定的 <Configure> 可能在事件迴圈中提早觸發
+        # _on_canvas_configure（其內會呼叫 self._selection.redraw()），屬性要先存在。
+        self._selection = Selection()
         # 內容區：錯誤橫幅（固定在下，不隨捲動）+ 可滾動訊息區
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(side="top", fill="both", expand=True)
@@ -310,6 +314,7 @@ class OverlayWindow:
         """縮小成浮動泡泡：隱藏本體（訊息照常累積），點泡泡展開、拖曳移動。"""
         if self._minimized:
             return
+        self._selection.clear("minimized to bubble")
         self._win.update_idletasks()
         if self._bubble_pos.get("x") is None:
             # 無記憶位置：預設出現在 overlay 右上角（縮小按鈕附近），視覺上「收進泡泡」
@@ -417,6 +422,7 @@ class OverlayWindow:
             for child in entry.row.winfo_children():
                 child.itemconfigure("txt", width=self._wrap)
                 _fit_line_height(child)
+        self._selection.redraw()
         if self._error_label is not None:
             self._error_label.configure(wraplength=self._wrap)
         if self._update_label is not None:
@@ -562,6 +568,12 @@ class OverlayWindow:
         self._emit_geometry()
 
     # --- 訊息 ---
+    def _drop_row(self, entry: _Message) -> None:
+        """移除一則訊息的畫面元件。銷毀列與解除選取登記必須成對——漏掉任一處，
+        選取就會指向已銷毀的 widget。"""
+        self._selection.forget(entry.row)
+        entry.row.destroy()
+
     def add_message(self, original: str, translated: str, now: float | None = None,
                     msg_id: int | None = None, pending: bool = False,
                     color: str | None = None) -> None:
@@ -570,16 +582,20 @@ class OverlayWindow:
         color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
         anchor = self._view_anchor()
         row = tk.Frame(self._inner, bg=BG)
-        _outlined_line(row, original, dimmed(color) if color else FG_ORIGINAL,
-                       ui_font(9), self._wrap).pack(fill="x")
-        _outlined_line(row, translated,
-                       FG_PENDING if pending else (color or FG_TRANSLATED),
-                       ui_font(11), self._wrap).pack(fill="x")
+        original_line = _outlined_line(row, original,
+                                       dimmed(color) if color else FG_ORIGINAL,
+                                       ui_font(9), self._wrap)
+        original_line.pack(fill="x")
+        translated_line = _outlined_line(row, translated,
+                                         FG_PENDING if pending else (color or FG_TRANSLATED),
+                                         ui_font(11), self._wrap)
+        translated_line.pack(fill="x")
         row.pack(side="top", fill="x", pady=2)  # 最新在最下
+        self._selection.register(row, (original_line, translated_line))
         self._messages.append(_Message(now if now is not None else time.time(),
                                        original, translated, row, msg_id, color))
         while len(self._messages) > self._max:
-            self._messages.pop(0).row.destroy()
+            self._drop_row(self._messages.pop(0))
 
         self._refresh_placeholder()
         self._refresh_scroll(anchor)
@@ -597,6 +613,8 @@ class OverlayWindow:
             if m.msg_id != msg_id:
                 continue
             line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
+            if self._selection.holds(m.row):
+                self._selection.clear("translated line replaced")
             line.itemconfigure("txt", text=translated)
             line.itemconfigure("fg", fill=FG_ERROR if failed
                                else (m.color or FG_TRANSLATED))
@@ -612,7 +630,7 @@ class OverlayWindow:
         self._fade = fade_seconds
         removed = False
         while len(self._messages) > self._max:
-            self._messages.pop(0).row.destroy()
+            self._drop_row(self._messages.pop(0))
             removed = True
         self._refresh_placeholder()
         if removed:
@@ -626,7 +644,7 @@ class OverlayWindow:
         keep = []
         for entry in self._messages:
             if entry.ts <= cutoff:
-                entry.row.destroy()
+                self._drop_row(entry)
             else:
                 keep.append(entry)
         if len(keep) == len(self._messages):

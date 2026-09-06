@@ -12,8 +12,10 @@ from src.ui.overlay import (
     MIN_WIDTH,
     STATUS_COLORS,
     OverlayWindow,
+    _fit_line_height,
     should_stick_to_bottom,
 )
+from src.ui.selection import TEXT_ORIGIN
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
 
 
@@ -745,3 +747,95 @@ def test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph(root):
         assert "≡" not in initial and "≡" not in ov._title_label.cget("text")
     finally:
         i18n.set_language(before)
+
+
+def _select_whole_message(ov, index=0):
+    """把第 index 則訊息整則選起來，回傳它的兩個行 canvas。"""
+    ov._win.update_idletasks()
+    first, second = ov._messages[index].row.winfo_children()
+    ov._selection.begin(first.winfo_rootx() + TEXT_ORIGIN,
+                        first.winfo_rooty() + first.winfo_height() // 2)
+    ov._selection.extend(second.winfo_rootx() + 1000,
+                         second.winfo_rooty() + second.winfo_height() // 2)
+    return first, second
+
+
+def test_prune_clears_a_selection_in_the_removed_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=60)
+    ov.add_message("原文一", "譯文一", now=0.0)
+    _select_whole_message(ov)
+    assert ov._selection.active is True
+
+    ov.prune(now=1000.0)
+
+    assert ov._selection.active is False
+    assert ov.visible_messages() == []
+
+
+def test_max_messages_overflow_clears_a_selection_in_the_dropped_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=1, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.add_message("原文二", "譯文二")
+
+    assert ov._selection.active is False
+
+
+def test_update_message_clears_a_selection_in_that_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "翻譯中…", msg_id=7, pending=True)
+    _select_whole_message(ov)
+
+    ov.update_message(7, "譯文一")
+
+    assert ov._selection.active is False
+
+
+def test_minimize_clears_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.minimize()
+
+    assert ov._selection.active is False
+    ov.expand()
+
+
+def test_resize_redraws_the_highlight_and_keeps_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一原文一原文一", "譯文一譯文一譯文一")
+    first, _ = _select_whole_message(ov)
+    selected = ov._selection.text()
+
+    class FakeEvent:
+        width = 240
+
+    ov._on_canvas_configure(FakeEvent())
+    ov._win.update_idletasks()
+
+    assert ov._selection.text() == selected
+    assert first.find_withtag("sel")
+
+
+def test_line_height_ignores_the_highlight(root):
+    # 反白矩形的底緣以 linespace 為準，可能比文字墨跡低一兩個像素；_fit_line_height
+    # 若把它算進去，視窗每縮放一次列高就長高一點
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    first, _ = _select_whole_message(ov)
+    ov._win.update_idletasks()
+    before = first.winfo_reqheight()
+
+    for _ in range(3):
+        _fit_line_height(first)
+    ov._win.update_idletasks()
+
+    assert first.winfo_reqheight() == before
