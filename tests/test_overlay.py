@@ -1025,23 +1025,23 @@ def test_choosing_copy_from_the_menu_copies_and_closes(root):
     assert ov._popup.visible is False
 
 
-def test_pressing_anywhere_closes_the_menu(root):
+def test_clicking_a_message_closes_the_menu(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
-    _select_whole_message(ov)
+    first, _ = _select_whole_message(ov)
     ov._selection_menu(_Press(300, 300))
     ov._win.update()
 
-    ov._selection_press(_Press(ov._canvas.winfo_rootx() - 400,
-                               ov._canvas.winfo_rooty() - 400))
+    first.event_generate("<ButtonPress-1>", x=2, y=2)
     ov._win.update()
 
     assert ov._popup.visible is False
 
 
-def test_escape_closes_the_menu(root):
-    # Esc 綁在本體上，不在選單上——選單是不啟用視窗，鍵盤事件不會落到它身上
+def test_clicking_the_title_bar_closes_the_menu(root):
+    # 「點別的地方就關掉」不能只涵蓋訊息區：標題列、捲軸、右下把手都是使用者會直覺
+    # 點的地方，事件沿 bindtags 傳到 toplevel，綁在那裡才全部涵蓋得到
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
@@ -1049,9 +1049,7 @@ def test_escape_closes_the_menu(root):
     ov._selection_menu(_Press(300, 300))
     ov._win.update()
 
-    assert ov._win.bind("<Escape>"), "Esc 必須綁在本體上"
-    ov._win.focus_force()   # 正式路徑上由框選起手的 _focus_for_copy 拿到焦點
-    ov._win.event_generate("<Escape>")
+    ov._title_label.event_generate("<ButtonPress-1>", x=2, y=2)
     ov._win.update()
 
     assert ov._popup.visible is False

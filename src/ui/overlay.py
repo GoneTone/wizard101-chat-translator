@@ -307,9 +307,11 @@ class OverlayWindow:
         # 右鍵與左鍵一樣要雙路由：選取區以外的空白處按右鍵，事件會穿透到 backdrop
         self._backdrop.bind("<Button-3>", self._selection_menu)
         self._popup = Popup(self._win, self.copy_selection)
-        # Esc 綁在本體而非選單上：選單是不啟用視窗（見 Popup），鍵盤事件不會落到它身上，
-        # 焦點留在本體——框選起手時 _focus_for_copy 已經把焦點拿過來了。
-        self._win.bind("<Escape>", lambda e: self._popup.hide())
+        # 點視窗任何一處都收起選單。綁在兩個 toplevel 上而不是各個控件上：Tk 的事件會
+        # 沿 bindtags 傳到所屬的 toplevel，標題列、捲軸、右下把手因此一併涵蓋——那些
+        # 正是使用者會直覺點的「別的地方」，漏掉的話選單會賴著不走。
+        for shell in (self._win, self._backdrop):
+            shell.bind("<ButtonPress-1>", lambda e: self._popup.hide(), add="+")
 
     # --- 縮小成泡泡 ---
     @property
@@ -596,7 +598,6 @@ class OverlayWindow:
     def _selection_press(self, e) -> None:
         """框選起手。訊息列的底色是本體的透明色鍵，只有文字墨跡接得到滑鼠、其餘落到
         backdrop，兩條路徑都導進這裡，一律用螢幕座標。"""
-        self._popup.hide()   # 點到疊加視窗任何一處就收起選單（取代原生選單的 grab）
         if not self._in_message_area(e.x_root, e.y_root):
             self._selection.clear("press outside the message area")
             return
