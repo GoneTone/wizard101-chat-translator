@@ -122,6 +122,13 @@ def test_begin_outside_every_message_reports_no_hit(message):
     assert sel.begin(x, y - frame.winfo_height() - 200) is False
 
 
+def test_begin_far_to_the_right_of_a_line_reports_no_hit(message):
+    # 命中要兩軸都算：只看垂直的話，視窗外任何同高度的點都會誤判成選到訊息
+    sel, _, first, _ = message
+    x, y = _at(first)
+    assert sel.begin(x + first.winfo_width() + 200, y) is False
+
+
 def test_a_bare_press_is_not_a_selection(message):
     sel, _, first, _ = message
     sel.begin(*_at(first))
@@ -139,7 +146,7 @@ def test_dragging_across_both_lines_selects_both(message):
 
 def test_reverse_drag_selects_the_same_text(message):
     sel, _, first, second = message
-    sel.begin(*_at(second, dx=1000))
+    sel.begin(*_at(second, dx=second.winfo_width() - 1))
     sel.extend(*_at(first))
     assert sel.text() == "original text\ntranslated text"
 
@@ -154,7 +161,7 @@ def test_dragging_below_the_message_clamps_to_its_end(message):
 
 def test_dragging_above_the_message_clamps_to_its_start(message):
     sel, _, first, second = message
-    sel.begin(*_at(second, dx=1000))
+    sel.begin(*_at(second, dx=second.winfo_width() - 1))
     x, y = _at(first)
     sel.extend(x, y - 500)
     assert sel.text() == "original text\ntranslated text"

@@ -8,6 +8,7 @@ import tkinter.font as tkfont
 from typing import NamedTuple
 
 from src.log import log
+from src.ui.geometry import point_in_rect
 from src.ui.palette import SELECT_BG
 
 TEXT_ORIGIN = 2   # 描邊文字 item 的繪製原點（見 overlay._outlined_line 的 create_text(2, 2, ...)）
@@ -198,7 +199,9 @@ class Selection:
         """螢幕座標落在哪一則的哪個 caret；都沒命中回 None。"""
         for row, canvases in self._rows.items():
             for line, canvas in enumerate(canvases):
-                if canvas.winfo_rooty() <= y_root <= canvas.winfo_rooty() + canvas.winfo_height() - 1:
+                if point_in_rect(x_root, y_root,
+                                 canvas.winfo_rootx(), canvas.winfo_rooty(),
+                                 canvas.winfo_width(), canvas.winfo_height()):
                     return row, self._caret_in(canvas, line, x_root, y_root)
         return None
 
