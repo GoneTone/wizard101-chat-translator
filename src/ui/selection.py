@@ -113,9 +113,12 @@ class Selection:
     def forget(self, row) -> None:
         """訊息列即將被銷毀：解除登記，選取落在該列時一併清掉——否則選取會指向
         已銷毀的 widget，之後任何一次重畫都會炸。"""
-        canvases = self._rows.pop(row, None)
+        canvases = self._rows.get(row)
         if canvases is None:
             return
+        if self._active is row:
+            self._erase()   # 趁該列還在 _rows 裡先擦掉反白，孤兒高亮不會留下來
+        self._rows.pop(row, None)
         for canvas in canvases:
             self._fonts.pop(canvas, None)
         if self._active is row:
@@ -149,7 +152,8 @@ class Selection:
         self._active, caret = hit
         self._anchor = self._focus = caret
         self._dragging = True
-        log(f"[ui] selection begin line={caret.line} index={caret.index}")
+        row_index = list(self._rows).index(self._active)
+        log(f"[ui] selection begin row={row_index} line={caret.line} index={caret.index}")
         return True
 
     def extend(self, x_root: int, y_root: int) -> None:

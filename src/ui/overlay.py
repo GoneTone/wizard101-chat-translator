@@ -30,7 +30,7 @@ from src.ui.palette import (
     FG_UPDATE,
     OUTLINE,
 )
-from src.ui.selection import Selection
+from src.ui.selection import TEXT_ORIGIN, Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 
@@ -50,7 +50,7 @@ _OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
 
 def _fit_line_height(c: "tk.Canvas") -> None:
     """把文字行 canvas 的高度縮放到剛好容納（換行後的）文字內容。"""
-    bbox = c.bbox("txt")   # 只量文字：反白矩形的底緣比墨跡低，算進去會讓列高每次縮放都長一點
+    bbox = c.bbox("txt")   # 只量文字項目：這樣列上其他畫的東西（反白矩形）永遠不會影響列高
     if bbox:
         c.configure(height=bbox[3] + 2)
 
@@ -60,10 +60,10 @@ def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Ca
     Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
     c = tk.Canvas(parent, bg=BG, highlightthickness=0, bd=0)
     for dx, dy in _OUTLINE_OFFSETS:
-        c.create_text(2 + dx, 2 + dy, text=text, fill=OUTLINE, font=font,
+        c.create_text(TEXT_ORIGIN + dx, TEXT_ORIGIN + dy, text=text, fill=OUTLINE, font=font,
                       anchor="nw", width=wrap, tags="txt")
     # 本色最後畫，疊在描邊之上。額外掛 "fg" tag：改色時只動本色，描邊不能跟著變
-    c.create_text(2, 2, text=text, fill=fg, font=font, anchor="nw",
+    c.create_text(TEXT_ORIGIN, TEXT_ORIGIN, text=text, fill=fg, font=font, anchor="nw",
                   width=wrap, tags=("txt", "fg"))
     _fit_line_height(c)
     return c
@@ -136,6 +136,7 @@ class OverlayWindow:
         self._update_row: tk.Frame | None = None
         self._update_label: tk.Label | None = None
         self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
+        self._menu: tk.Menu | None = None   # 右鍵選單，整支程式共用一個（見 _build_selection_menu）
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
         self._wrap = self._w - 40
@@ -472,8 +473,9 @@ class OverlayWindow:
         畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
         內容會整段滑動、正在讀的行就跳掉——內容變動前取錨、變動後交給
         `_refresh_scroll` 復位。跟隨底部時直接貼底不需要錨；最新一則不會被上方的
-        清除移走，拿它當錨最穩。"""
-        if self._follow or not self._messages:
+        清除移走，拿它當錨最穩。拖曳框選中即使處於跟隨狀態也要給錨——prune 把上方
+        訊息清掉會讓下方內容整段上移，沒有錨點補位的話游標下的字就會被換掉。"""
+        if (self._follow and not self._selection.dragging) or not self._messages:
             return None
         row = self._messages[-1].row
         return row, row.winfo_y() - int(self._canvas.canvasy(0))
@@ -605,6 +607,7 @@ class OverlayWindow:
         """把鍵盤焦點交給本體，Ctrl+C 才收得到——backdrop 帶 WS_EX_NOACTIVATE，
         從它起手的選取不會給焦點。"""
         try:
+            log("[ui] forcing keyboard focus")
             self._win.focus_force()
             log("[ui] selection took keyboard focus")
         except tk.TclError as exc:
@@ -618,14 +621,19 @@ class OverlayWindow:
             return
         self._win.clipboard_clear()
         self._win.clipboard_append(text)
-        self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
+        # Windows 下要 flush 過，內容才真的落進系統剪貼簿；這會連帶清空 after 佇列，
+        # add_message／prune 可能在這裡重入執行，但 text 已存成區域變數，無害
+        self._win.update()
         log(f"[ui] copied selection chars={len(text)}")
 
     def _build_selection_menu(self) -> "tk.Menu":
-        """右鍵選單。每次現建：語言一換文字就跟著換，不必另存狀態重繪。"""
-        menu = tk.Menu(self._win, tearoff=0, font=ui_font(9))
-        menu.add_command(label=t("menu.copy"), command=self.copy_selection)
-        return menu
+        """右鍵選單（整支程式共用一個）。每次彈出前重設文字，語言換了就跟著換，
+        不必另存狀態、也不會每按一次右鍵就留下一個選單 widget。"""
+        if self._menu is None:
+            self._menu = tk.Menu(self._win, tearoff=0, font=ui_font(9))
+            self._menu.add_command(command=self.copy_selection)
+        self._menu.entryconfigure(0, label=t("menu.copy"), font=ui_font(9))
+        return self._menu
 
     def _selection_menu(self, e) -> None:
         """有選取時才彈出右鍵選單；沒選取就不彈，不做灰掉的空選單。"""

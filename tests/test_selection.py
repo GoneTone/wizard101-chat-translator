@@ -86,6 +86,10 @@ def test_selected_text_of_an_empty_span():
     assert selected_text(["abcdef", "xyz"], Caret(0, 2), Caret(0, 2)) == ""
 
 
+def test_selected_text_includes_whole_lines_in_between():
+    assert selected_text(["abc", "mid", "xyz"], Caret(0, 1), Caret(2, 2)) == "bc\nmid\nxy"
+
+
 @pytest.fixture
 def message(root):
     """兩行一組的訊息列（原文行 ＋ 譯文行），已註冊進一個 Selection。"""

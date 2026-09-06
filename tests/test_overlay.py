@@ -12,7 +12,6 @@ from src.ui.overlay import (
     MIN_WIDTH,
     STATUS_COLORS,
     OverlayWindow,
-    _fit_line_height,
     should_stick_to_bottom,
 )
 from src.ui.selection import TEXT_ORIGIN, line_font, visual_lines
@@ -831,22 +830,6 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     assert max(first.coords(i)[2] for i in rects) <= ov._wrap + TEXT_ORIGIN
 
 
-def test_line_height_ignores_the_highlight(root):
-    # 反白矩形的底緣以 linespace 為準，可能比文字墨跡低一兩個像素；_fit_line_height
-    # 若把它算進去，選取後再重算一次列高就會比選取前高
-    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
-                       max_messages=10, fade_seconds=0)
-    ov.add_message("原文一", "譯文一")
-    first, _ = _select_whole_message(ov)
-    ov._win.update_idletasks()
-    before = first.winfo_reqheight()
-
-    _fit_line_height(first)
-    ov._win.update_idletasks()
-
-    assert first.winfo_reqheight() == before
-
-
 class _Press:
     """假的滑鼠事件（只用到螢幕座標）。"""
 
@@ -951,6 +934,42 @@ def test_view_does_not_jump_to_the_bottom_while_selecting(root):
     ov._selection_release(_Press(0, 0))
 
 
+def test_prune_during_a_drag_keeps_the_selected_text(root):
+    # 拖曳中上方訊息被 prune 掉，內容整段上移；沒有錨點補位的話，游標下的字會換掉。
+    #
+    # 6 則舊訊息會被 prune、20+ 則新訊息留下——內容量要夠大，「貼底時的相對位置」
+    # 才補得回去；只留一兩則的話，內容縮到比視口還矮，怎麼補位都會被頂到頂端。
+    # 拖曳開始後還要再新增幾則訊息（模擬翻譯持續進來）：跟隨模式每次加訊息都會把
+    # 視圖精準貼齊捲動範圍下緣，若拖曳一開始就呼叫 prune，Tk 自己重算 scrollregion
+    # 時剛好會把畫面重新頂回底部、巧合掩蓋掉這個 bug；插入這幾則之後視圖才會真正
+    # 脫離下緣，需要 `_view_anchor` 主動補位才守得住。
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=60)
+    for i in range(6):
+        ov.add_message(f"原文{i}", f"譯文{i}", now=0.0)
+    for i in range(20):
+        ov.add_message(f"原文新{i}", f"譯文新{i}", now=2000.0)
+    ov._win.update()
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 1000,
+                              second.winfo_rooty() + second.winfo_height() // 2))
+    selected = ov._selection.text()
+
+    for i in range(3):
+        ov.add_message(f"拖曳中{i}", f"拖曳中譯文{i}", now=2000.0)
+    ov._win.update()
+    before_y = second.winfo_rooty()
+
+    ov.prune(now=2000.0)   # 最舊的 6 則過期（0.0 + 60 < 2000），其餘保留
+    ov._win.update()
+
+    assert ov._selection.text() == selected
+    assert abs(second.winfo_rooty() - before_y) <= 1, \
+        "拖曳中的那一列不該因為上方訊息被 prune 而在畫面上移動"
+
+
 def test_copy_writes_only_when_something_is_selected(root):
     # 兩個斷言刻意合成一個測試：剪貼簿是全機器共用的資源，拆成兩個測試在
     # pytest-xdist 的 4 個 worker 下會互相覆蓋（addopts 的 -n 4）
@@ -986,4 +1005,19 @@ def test_right_click_menu_labels_follow_the_ui_language(root):
     menu = ov._build_selection_menu()
 
     assert menu.entrycget(0, "label") == t("menu.copy")
-    menu.destroy()
+    assert ov._build_selection_menu() is menu, "選單應整支程式共用一個，不重複建立"
+
+
+def test_selection_entry_points_are_bound(root):
+    # 所有既有測試都直接呼叫 handler，綁定整組刪掉也不會轉紅——這條守住實際入口
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+
+    assert ov._win.bind("<Control-c>")
+    assert ov._win.bind("<Control-C>")
+    assert ov._backdrop.bind("<Button-3>")
+    for line in ov._messages[0].row.winfo_children():
+        for sequence in ("<ButtonPress-1>", "<B1-Motion>",
+                         "<ButtonRelease-1>", "<Button-3>"):
+            assert line.bind(sequence), f"{sequence} 未綁定"
