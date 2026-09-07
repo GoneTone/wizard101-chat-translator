@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # 相依由 uv 管（pyproject.toml + uv.lock），Dependabot 的 uv 生態系兩個檔都會更新。
+  # 不設 versioning-strategy：相依都是 >= 開放約束，預設行為即可。
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Taipei"
+    open-pull-requests-limit: 30
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    groups:
+      pytest:
+        patterns:
+          - "pytest"
+          - "pytest-*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Taipei"
+    open-pull-requests-limit: 30
+    commit-message:
+      prefix: "chore"
+      prefix-development: "chore"
+      include: "scope"
+    cooldown:
+      default-days: 7
