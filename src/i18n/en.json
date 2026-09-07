@@ -3,6 +3,7 @@
   "language.font": "Segoe UI",
   "language.locales": "",
   "app.name": "Wizard101 Chat Translator",
+  "menu.copy": "Copy",
   "notice.pending": "Translating…",
   "notice.translate_failed": "⚠  Could not translate this message",
   "notice.game_missing": "⚠  Game not ready or disconnected — waiting…",

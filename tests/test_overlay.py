@@ -12,8 +12,10 @@ from src.ui.overlay import (
     MIN_WIDTH,
     STATUS_COLORS,
     OverlayWindow,
+    autoscroll_pixels,
     should_stick_to_bottom,
 )
+from src.ui.selection import TEXT_ORIGIN, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
 
 
@@ -745,3 +747,415 @@ def test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph(root):
         assert "≡" not in initial and "≡" not in ov._title_label.cget("text")
     finally:
         i18n.set_language(before)
+
+
+def _select_whole_message(ov, index=0):
+    """把第 index 則訊息整則選起來，回傳它的兩個行 canvas。"""
+    ov._win.update_idletasks()
+    first, second = ov._messages[index].row.winfo_children()
+    ov._selection.begin(first.winfo_rootx() + TEXT_ORIGIN,
+                        first.winfo_rooty() + first.winfo_height() // 2)
+    ov._selection.extend(second.winfo_rootx() + 1000,
+                         second.winfo_rooty() + second.winfo_height() // 2)
+    return first, second
+
+
+def test_prune_clears_a_selection_in_the_removed_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=60)
+    ov.add_message("原文一", "譯文一", now=0.0)
+    _select_whole_message(ov)
+    assert ov._selection.active is True
+
+    ov.prune(now=1000.0)
+
+    assert ov._selection.active is False
+    assert ov.visible_messages() == []
+
+
+def test_max_messages_overflow_clears_a_selection_in_the_dropped_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=1, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.add_message("原文二", "譯文二")
+
+    assert ov._selection.active is False
+
+
+def test_update_message_clears_a_selection_in_that_row(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "翻譯中…", msg_id=7, pending=True)
+    _select_whole_message(ov)
+
+    ov.update_message(7, "譯文一")
+
+    assert ov._selection.active is False
+
+
+def test_minimize_clears_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.minimize()
+
+    assert ov._selection.active is False
+    ov.expand()
+
+
+def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    # *10（非 *20）：縮放前要留在同一視覺行，_select_whole_message 的垂直置中點
+    # 才會落在該行內、真的從頭選起——量測顯示 *10 在縮放前的換行寬度下恰好一行、
+    # *20 已經先換成兩行，命中點會落在行界上、選不到開頭（見 fix-round 報告）。
+    ov.add_message("原文一" * 10, "譯文一" * 10)
+    first, _ = _select_whole_message(ov)
+    selected = ov._selection.text()
+
+    class FakeEvent:
+        width = 240
+
+    ov._on_canvas_configure(FakeEvent())
+    ov._win.update_idletasks()
+
+    rects = first.find_withtag("sel")
+    assert ov._selection.text() == selected
+    # 每個視覺行一個反白矩形：換行變了、矩形數就要跟著變
+    assert len(rects) == len(visual_lines(first, line_font(first)))
+    # 沒有重畫的話，矩形仍是舊換行寬度下的幾何，右緣會超出新的換行寬度
+    assert max(first.coords(i)[2] for i in rects) <= ov._wrap + TEXT_ORIGIN
+
+
+class _Press:
+    """假的滑鼠事件（只用到螢幕座標）。"""
+
+    def __init__(self, x_root, y_root):
+        self.x_root = x_root
+        self.y_root = y_root
+        self.widget = None
+
+
+def test_press_on_a_message_starts_a_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    # update()（非 update_idletasks）：_in_message_area 量的是 ov._canvas 的實際尺寸，
+    # 這個 expand=True 的捲動畫布在全新 overrideredirect 視窗裡，只有真的跑過一輪
+    # 事件迴圈（Windows 送 WM_SIZE）才會拿到非 1x1 的量測值，idle 佇列處理不到這段
+    ov._win.update()
+    first, second = ov._messages[0].row.winfo_children()
+
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 1000,
+                              second.winfo_rooty() + second.winfo_height() // 2))
+    ov._selection_release(_Press(0, 0))
+
+    assert ov._selection.text() == "原文一\n譯文一"
+
+
+def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
+    # 捲出視口的訊息列仍留著幾何位置：少了 _in_message_area 這道關卡，點在標題列
+    # 附近就會選到看不見的訊息
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    hidden_top, hidden_bottom = ov._messages[0].row.winfo_children()
+    assert hidden_top.winfo_rooty() < ov._canvas.winfo_rooty(), \
+        "第一則應該已經捲出視口上方，否則這個測試沒有守到東西"
+
+    ov._selection_press(_Press(hidden_top.winfo_rootx() + 40,
+                               hidden_top.winfo_rooty() + hidden_top.winfo_height() // 2))
+    ov._selection_drag(_Press(hidden_bottom.winfo_rootx() + 1000,
+                              hidden_bottom.winfo_rooty() + hidden_bottom.winfo_height() // 2))
+
+    assert ov._selection.dragging is False
+    assert ov._selection.text() == ""
+
+
+def test_backdrop_press_away_from_any_edge_starts_a_selection(root):
+    # 訊息列的底色是透明色鍵，字間空隙的點擊會落到 backdrop——那條路徑也要能起手
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
+    first, second = ov._messages[0].row.winfo_children()
+
+    # +40（非 +TEXT_ORIGIN）：捲動區沒有留邊，行 canvas 左緣與視窗左緣重合，
+    # +TEXT_ORIGIN 會落在 EDGE 縮放感應帶內、被 _edge_press 誤判成縮放
+    ov._edge_press(_Press(first.winfo_rootx() + 40,
+                          first.winfo_rooty() + first.winfo_height() // 2))
+    ov._edge_drag(_Press(second.winfo_rootx() + 1000,
+                         second.winfo_rooty() + second.winfo_height() // 2))
+    ov._edge_release(_Press(0, 0))
+
+    assert ov._selection.text().endswith("\n譯文一")
+    assert ov._selection.active is True
+    assert ov._resize is None
+
+
+@pytest.mark.real_position
+def test_backdrop_press_on_an_edge_still_resizes(root):
+    ov = OverlayWindow(root, x=200, y=200, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov._win.update_idletasks()
+
+    ov._edge_press(_Press(200, 200 + 150))   # 左緣
+
+    assert ov._resize is not None
+    assert ov._selection.active is False
+    ov._edge_release(_Press(200, 350))
+
+
+def test_view_does_not_jump_to_the_bottom_while_selecting(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
+    # 用最後一則（非第一則）：視圖貼底時第一則已捲出視口，_in_message_area
+    # 會擋下這次按下、根本起不了選取
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._canvas.yview_moveto(0.0)
+    ov._win.update_idletasks()
+    before = ov._canvas.yview()[0]
+
+    ov._refresh_scroll()
+
+    assert ov._canvas.yview()[0] == before
+    ov._selection_release(_Press(0, 0))
+
+
+def test_prune_during_a_drag_keeps_the_selected_text(root):
+    # 拖曳中上方訊息被 prune 掉，內容整段上移；沒有錨點補位的話，游標下的字會換掉。
+    #
+    # 6 則舊訊息會被 prune、20+ 則新訊息留下——內容量要夠大，「貼底時的相對位置」
+    # 才補得回去；只留一兩則的話，內容縮到比視口還矮，怎麼補位都會被頂到頂端。
+    # 拖曳開始後還要再新增幾則訊息（模擬翻譯持續進來）：跟隨模式每次加訊息都會把
+    # 視圖精準貼齊捲動範圍下緣，若拖曳一開始就呼叫 prune，Tk 自己重算 scrollregion
+    # 時剛好會把畫面重新頂回底部、巧合掩蓋掉這個 bug；插入這幾則之後視圖才會真正
+    # 脫離下緣，需要 `_view_anchor` 主動補位才守得住。
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=60)
+    for i in range(6):
+        ov.add_message(f"原文{i}", f"譯文{i}", now=0.0)
+    for i in range(20):
+        ov.add_message(f"原文新{i}", f"譯文新{i}", now=2000.0)
+    ov._win.update()
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 1000,
+                              second.winfo_rooty() + second.winfo_height() // 2))
+    selected = ov._selection.text()
+
+    for i in range(3):
+        ov.add_message(f"拖曳中{i}", f"拖曳中譯文{i}", now=2000.0)
+    ov._win.update()
+    before_y = second.winfo_rooty()
+
+    ov.prune(now=2000.0)   # 最舊的 6 則過期（0.0 + 60 < 2000），其餘保留
+    ov._win.update()
+
+    assert ov._selection.text() == selected
+    assert abs(second.winfo_rooty() - before_y) <= 1, \
+        "拖曳中的那一列不該因為上方訊息被 prune 而在畫面上移動"
+
+
+def test_copy_writes_only_when_something_is_selected(root):
+    # 兩個斷言刻意合成一個測試：剪貼簿是全機器共用的資源，拆成兩個測試在
+    # pytest-xdist 的 4 個 worker 下會互相覆蓋（addopts 的 -n 4）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov.copy_selection()
+    assert root.clipboard_get() == "原文一\n譯文一"
+
+    ov._selection.clear("test")
+    ov.copy_selection()
+    assert root.clipboard_get() == "原文一\n譯文一", "沒有選取時不該動剪貼簿"
+
+
+def test_right_click_without_a_selection_pops_no_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
+def test_right_click_with_a_selection_pops_the_themed_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    assert ov._popup.visible is True
+    assert ov._popup.label_text() == t("menu.copy")
+
+
+def test_choosing_copy_from_the_menu_copies_and_closes(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov._popup._clicked(None)
+    ov._win.update()
+
+    assert root.clipboard_get() == "原文一\n譯文一"
+    assert ov._popup.visible is False
+
+
+def test_clicking_a_message_closes_the_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    first, _ = _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    first.event_generate("<ButtonPress-1>", x=2, y=2)
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
+def test_clicking_the_title_bar_closes_the_menu(root):
+    # 「點別的地方就關掉」不能只涵蓋訊息區：標題列、捲軸、右下把手都是使用者會直覺
+    # 點的地方，事件沿 bindtags 傳到 toplevel，綁在那裡才全部涵蓋得到
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov._title_label.event_generate("<ButtonPress-1>", x=2, y=2)
+    ov._win.update()
+
+    assert ov._popup.visible is False
+
+
+def test_autoscroll_is_still_inside_the_viewport():
+    assert autoscroll_pixels(500, 400, 600) == 0
+    assert autoscroll_pixels(400, 400, 600) == 0
+    assert autoscroll_pixels(600, 400, 600) == 0
+
+
+def test_autoscroll_goes_up_above_the_viewport_and_down_below_it():
+    assert autoscroll_pixels(392, 400, 600) < 0
+    assert autoscroll_pixels(608, 400, 600) > 0
+
+
+def test_autoscroll_speeds_up_with_distance_but_is_capped():
+    near = autoscroll_pixels(610, 400, 600, lo=2, hi=24)
+    far = autoscroll_pixels(650, 400, 600, lo=2, hi=24)
+    assert 0 < near < far < 24
+    assert autoscroll_pixels(9000, 400, 600, lo=2, hi=24) == 24
+
+
+def _tick_autoscroll(ov, times=20):
+    """手動跑幾輪自動捲動。
+
+    每輪都要讓 Tk 重新排版：`winfo_rooty()` 回報的是上次排版的位置，連續同步呼叫
+    而不 update 的話，caret 會一直算在捲動前的那一列上。正式路徑每輪是獨立的
+    `after` 回呼，中間本來就有事件迴圈。每輪自己排的下一輪也要取消，免得留
+    after 排程給別的測試。"""
+    for _ in range(times):
+        ov._autoscroll()
+        ov._stop_autoscroll()
+        ov._win.update()
+
+
+def test_dragging_above_the_viewport_scrolls_and_grows_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 10,
+                              ov._canvas.winfo_rooty() - 60))
+    ov._stop_autoscroll()
+    ov._win.update()
+    view_before, text_before = ov._canvas.yview()[0], ov._selection.text()
+
+    _tick_autoscroll(ov)
+    ov._win.update()
+
+    assert ov._canvas.yview()[0] < view_before, "拖到視口上方應該要往上捲"
+    assert len(ov._selection.text()) > len(text_before), "捲動後選取要跟著長出來"
+
+
+def test_autoscroll_stops_once_the_drag_ends(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    first, _ = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(first.winfo_rootx() + 10,
+                              ov._canvas.winfo_rooty() - 60))
+    ov._selection_release(_Press(0, 0))
+    ov._win.update()
+    view_after_release = ov._canvas.yview()[0]
+
+    _tick_autoscroll(ov)
+    ov._win.update()
+
+    assert ov._canvas.yview()[0] == view_after_release
+    assert ov._autoscroll_job is None
+
+
+def test_minimize_closes_the_menu(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+    _select_whole_message(ov)
+    ov._selection_menu(_Press(300, 300))
+    ov._win.update()
+
+    ov.minimize()
+    ov._win.update()
+
+    assert ov._popup.visible is False
+    ov.expand()
+
+
+def test_selection_entry_points_are_bound(root):
+    # 所有既有測試都直接呼叫 handler，綁定整組刪掉也不會轉紅——這條守住實際入口
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=10, fade_seconds=0)
+    ov.add_message("原文一", "譯文一")
+
+    assert ov._win.bind("<Control-c>")
+    assert ov._win.bind("<Control-C>")
+    assert ov._backdrop.bind("<Button-3>")
+    for line in ov._messages[0].row.winfo_children():
+        for sequence in ("<ButtonPress-1>", "<B1-Motion>",
+                         "<ButtonRelease-1>", "<Button-3>"):
+            assert line.bind(sequence), f"{sequence} 未綁定"

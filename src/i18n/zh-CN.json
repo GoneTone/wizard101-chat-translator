@@ -3,6 +3,7 @@
   "language.font": "Microsoft YaHei",
   "language.locales": "zh_CN zh_SG",
   "app.name": "Wizard101 对话翻译助手",
+  "menu.copy": "复制",
   "notice.pending": "翻译中…",
   "notice.translate_failed": "⚠  这条消息翻译不出来",
   "notice.game_missing": "⚠  游戏未就绪／连接中断，等待中…",
