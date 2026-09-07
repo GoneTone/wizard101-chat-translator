@@ -351,10 +351,15 @@ def _message_of(body) -> str | None:
 
 
 def _clip(text: str) -> str:
+    """折成單行並截到 _DETAIL_MAX_CHARS。切點退到最後一個空白：硬切會把訊息
+    尾端的網址切一半，顯示端把它做成連結就成了死連結。"""
     text = " ".join(text.split())
-    if len(text) > _DETAIL_MAX_CHARS:
-        return text[:_DETAIL_MAX_CHARS] + "…"
-    return text
+    if len(text) <= _DETAIL_MAX_CHARS:
+        return text
+    cut = text.rfind(" ", 0, _DETAIL_MAX_CHARS + 1)
+    if cut <= 0:
+        cut = _DETAIL_MAX_CHARS
+    return text[:cut].rstrip() + "…"
 
 
 def error_detail(text: str) -> str:

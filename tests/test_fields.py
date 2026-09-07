@@ -254,9 +254,16 @@ def test_switch_provider_clears_fetched_model_list(root):
 def test_switch_provider_clears_test_result_label(root):
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
     fields._show_test_result(True, "連線成功　範例：hi")
-    assert fields._test_result.cget("text") != ""
+    assert fields._test_result.text() != ""
     _switch(fields, "claude")
-    assert fields._test_result.cget("text") == ""
+    assert fields._test_result.text() == ""
+
+
+def test_test_result_makes_urls_in_the_api_message_clickable(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
+    fields._show_test_result(False, "HTTP 401: get a key at https://a.example/keys.")
+    assert fields._test_result.text() == "✗ HTTP 401: get a key at https://a.example/keys."
+    assert fields._test_result.links() == [("https://a.example/keys", "https://a.example/keys")]
 
 
 def test_filter_models_is_case_insensitive_substring():
@@ -298,6 +305,15 @@ def test_model_field_error_uses_friendly_message(root):
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_error(TranslatorOffline("refused"))
     assert fields._model_field.status() == t("error.offline_detail", message="refused")
+
+
+def test_model_field_error_makes_urls_clickable(root):
+    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
+    fields._model_field.show_error(
+        TranslatorConfigError("see https://a.example/docs for models", status=400))
+    assert "https://a.example/docs" in fields._model_field.status()
+    assert fields._model_field._status.links() == [
+        ("https://a.example/docs", "https://a.example/docs")]
 
 
 def test_model_field_typing_filters_fetched_options(root):

@@ -190,7 +190,7 @@ def test_changing_target_language_clears_the_test_result(root):
     assert win._api.test_passed
     win._language.set_value("English")
     assert not win._api.test_passed
-    assert win._api._test_result.cget("text") == ""
+    assert win._api._test_result.text() == ""
     win._win.destroy()
 
 

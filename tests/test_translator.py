@@ -458,6 +458,17 @@ def test_error_detail_truncates_long_body():
     assert len(detail) <= 201 and detail.endswith("…")
 
 
+def test_error_detail_truncates_at_a_word_boundary_so_urls_survive():
+    # 硬切在第 200 字會把訊息尾端的網址切一半變成死連結
+    url = "https://platform.openai.com/account/api-keys"
+    body = "word " * 38 + url + " tail"
+    assert 200 < len(body) < 260
+    detail = error_detail(body)
+    assert detail.endswith("…")
+    assert url not in detail and "https://platform" not in detail
+    assert detail == "word " * 37 + "word…"
+
+
 def test_openai_compat_config_error_carries_api_message():
     fake = FakeHttpxClient(response=FakeResponse(
         status_code=401, text='{"error": {"message": "Incorrect API key provided"}}'))

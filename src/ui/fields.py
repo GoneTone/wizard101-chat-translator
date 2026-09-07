@@ -2,7 +2,6 @@
 服務商選擇、API 欄位、測試連線、熱鍵捕捉、語言選擇。"""
 import copy
 import queue
-import re
 import threading
 import tkinter as tk
 import webbrowser
@@ -29,6 +28,7 @@ from src.translation.translator import (
     test_translate,
 )
 from src.ui.responsive import bind_wrap
+from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup, ttk_background
 
 
 @dataclass(frozen=True)
@@ -59,8 +59,7 @@ PROVIDERS: dict[str, Provider] = {p.key: p for p in (
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
 
-# 精靈、設定視窗與輸入框共用的字色：可點連結、欄位說明的灰、成功綠、失敗紅
-LINK_COLOR = "#4a7ddc"
+# 精靈、設定視窗與輸入框共用的字色：欄位說明的灰、成功綠、失敗紅（連結藍見 richtext）
 HINT_COLOR = "#888888"
 OK_COLOR = "#2e8b57"
 ERROR_COLOR = "#cc3333"
@@ -93,11 +92,14 @@ def filter_models(models: list[str], query: str) -> list[str]:
     return [m for m in models if keyword in m.lower()] if keyword else list(models)
 
 
-def show_outcome(label: ttk.Label, ok: bool, message: str) -> None:
+def show_outcome(label, ok: bool, message: str) -> None:
     """把一次操作的結果寫進標籤：成功「✓ 」綠字、失敗「✗ 」紅字
-    （測試連線與檢查更新共用同一種呈現）。"""
-    label.configure(text=("✓ " if ok else "✗ ") + message,
-                    foreground=OK_COLOR if ok else ERROR_COLOR)
+    （測試連線與檢查更新共用同一種呈現；前者是 RichLabel、後者是 ttk.Label）。"""
+    text, color = ("✓ " if ok else "✗ ") + message, OK_COLOR if ok else ERROR_COLOR
+    if isinstance(label, RichLabel):
+        label.set(text, color)
+    else:
+        label.configure(text=text, foreground=color)
 
 
 def link_label(parent, text: str, url: str) -> ttk.Label:
@@ -105,34 +107,6 @@ def link_label(parent, text: str, url: str) -> ttk.Label:
     label = ttk.Label(parent, text=text, foreground=LINK_COLOR, cursor="hand2")
     label.bind("<Button-1>", lambda e: webbrowser.open(url))
     return label
-
-
-_LINK_MARKUP = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
-_SAFE_SCHEMES = ("http://", "https://")
-
-
-def parse_link_markup(text: str) -> list[tuple[str, str | None]]:
-    """把 `[文字](網址)` 的行內連結語法切成（顯示文字，網址或 None）的段落。
-    只認連結一種語法，其餘字元原樣留在文字段裡。
-
-    網址只放行 http／https：語言檔可以由外部貢獻者提供，其他 scheme（`file:`、
-    `javascript:`）降級成不可點的純文字——寧可少一條連結，也不要讓一份譯文開得了
-    任意 URI。"""
-    segments: list[tuple[str, str | None]] = []
-    cursor = 0
-    for match in _LINK_MARKUP.finditer(text):
-        if match.start() > cursor:
-            segments.append((text[cursor:match.start()], None))
-        label, url = match.group(1), match.group(2)
-        if url.lower().startswith(_SAFE_SCHEMES):
-            segments.append((label, url))
-        else:
-            log(f"[ui] link markup rejected: scheme={url.split(':', 1)[0][:16]}")
-            segments.append((label, None))
-        cursor = match.end()
-    if cursor < len(text):
-        segments.append((text[cursor:], None))
-    return segments
 
 
 def linked_text(parent, text: str) -> ttk.Frame:
@@ -218,10 +192,11 @@ class ModelField(ttk.Frame):
         self._btn = ttk.Button(self, text=t("button.refresh"), width=9,
                                command=self._start_refresh)
         self._btn.grid(row=0, column=2, padx=(4, 0))
-        self._status = ttk.Label(self, text=t("hint.model_idle"), foreground=HINT_COLOR,
-                                 justify="left")
+        # RichLabel：API 錯誤訊息裡的網址要能點；它自己依寬度換行，不必 bind_wrap
+        self._status = RichLabel(self, fg=HINT_COLOR, bg=ttk_background(self),
+                                 font="TkDefaultFont")
+        self._status.set(t("hint.model_idle"))
         self._status.grid(row=1, column=1, columnspan=2, sticky="ew")
-        bind_wrap(self._status)
 
         self._combo.bind("<KeyRelease>", self._on_type)
         self._combo.bind("<FocusOut>", lambda e: self.after_idle(self._unpost_if_left))
@@ -238,7 +213,7 @@ class ModelField(ttk.Frame):
         return list(self._combo.cget("values"))
 
     def status(self) -> str:
-        return self._status.cget("text")
+        return self._status.text()
 
     # --- 下拉清單 ---
     def is_posted(self) -> bool:
@@ -356,7 +331,7 @@ class ModelField(ttk.Frame):
             self._set_status(t(key, **kwargs), error=True)
 
     def _set_status(self, text: str, error: bool = False) -> None:
-        self._status.configure(text=text, foreground=ERROR_COLOR if error else HINT_COLOR)
+        self._status.set(text, ERROR_COLOR if error else HINT_COLOR)
 
     # --- 取得清單 ---
     def _start_refresh(self) -> None:
@@ -431,9 +406,9 @@ class ApiFields(ttk.Frame):
         self._test_btn = ttk.Button(test_row, text=t("button.test"),
                                     command=self._start_test)
         self._test_btn.pack(side="left")
-        self._test_result = ttk.Label(test_row, text="")
+        self._test_result = RichLabel(test_row, fg=ERROR_COLOR, bg=ttk_background(self),
+                                      font="TkDefaultFont")
         self._test_result.pack(side="left", fill="x", expand=True, padx=8)
-        bind_wrap(self._test_result)
 
         # 精靈階段目標語言還沒選：退到介面語言的自稱（與 main.bootstrap_language 同一套預設）
         self._target_language_fn = lambda: language_name(current_language())
@@ -488,7 +463,7 @@ class ApiFields(ttk.Frame):
         self._profiles[self._last_provider] = self._field_values(self._last_provider)
         target = self._provider.get()
         self._load_profile(target)
-        self._test_result.configure(text="")
+        self._test_result.set("")
         profile = self._profiles[target]
         log(f"[settings] provider switched {self._last_provider} -> {target} "
             f"(model={profile['model'] or '-'}, has_key={bool(profile['api_key'])})")
@@ -586,7 +561,7 @@ class ApiFields(ttk.Frame):
     def clear_test_result(self) -> None:
         """作廢已顯示的測試結果：那句譯文是用當時的目標語言翻的，語言一改就不算數。"""
         self._invalidate_test()
-        self._test_result.configure(text="")
+        self._test_result.set("")
         if self._on_change:
             self._on_change()
 
@@ -597,7 +572,7 @@ class ApiFields(ttk.Frame):
             self._show_test_result(False, t("sep.errors").join(t(e) for e in errors))
             return
         self._test_btn.configure(state="disabled", text=t("button.testing"))
-        self._test_result.configure(text="")
+        self._test_result.set("")
         target = self._target_language_fn()
         threading.Thread(target=self._test_worker, args=(api, target),
                          daemon=True).start()

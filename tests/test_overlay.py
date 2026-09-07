@@ -44,7 +44,6 @@ def test_resize_updates_existing_message_wraplength(root):
     for entry in ov._messages:
         for child in entry.row.winfo_children():
             assert int(float(child.itemcget("txt", "width"))) == expected
-    assert ov._error_label.cget("wraplength") == expected
 
 
 def test_minimize_counts_unread_and_expand_resets(root):
@@ -693,6 +692,16 @@ def test_error_banner_formats_the_api_message_and_survives_language_switch(root)
         i18n.set_language(before)
 
 
+def test_error_banner_makes_urls_in_the_api_message_clickable(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+    ov.set_error("notice.config_error_detail", status=401,
+                 message="see https://a.example/keys for a key")
+    assert "https://a.example/keys" in ov.error_text()
+    assert ov._error_label.links() == [("https://a.example/keys", "https://a.example/keys")]
+    ov.clear_error()
+    assert ov.error_text() is None
+
+
 def test_update_banner_and_error_banner_coexist(root):
     # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
     from src.updater import Release
@@ -745,8 +754,6 @@ def test_wrapped_banners_stay_left_aligned(root):
     from types import SimpleNamespace
     ov = OverlayWindow(root, x=0, y=0, width=320, height=200,
                        max_messages=10, fade_seconds=0)
-    ov.set_error("notice.version_mismatch")
-    assert str(ov._error_label.cget("justify")) == "left"
     ov.set_update(SimpleNamespace(version="1.2.3", url="https://example.invalid"))
     assert str(ov._update_label.cget("justify")) == "left"
 

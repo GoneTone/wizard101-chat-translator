@@ -31,6 +31,7 @@ from src.ui.palette import (
     OUTLINE,
 )
 from src.ui.popup import Popup
+from src.ui.richtext import RichLabel
 from src.ui.selection import TEXT_ORIGIN, Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
@@ -145,7 +146,7 @@ class OverlayWindow:
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
-        self._error_label: tk.Label | None = None
+        self._error_label: RichLabel | None = None
         self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
         self._error_key: str | None = None      # 目前橫幅的 key，同上
         self._error_kwargs: dict = {}
@@ -455,8 +456,6 @@ class OverlayWindow:
                 child.itemconfigure("txt", width=self._wrap)
                 _fit_line_height(child)
         self._selection.redraw()
-        if self._error_label is not None:
-            self._error_label.configure(wraplength=self._wrap)
         if self._update_label is not None:
             self._update_label.configure(wraplength=self._wrap)
         # 排到 idle 再貼底，不在事件處理中直接 update_idletasks()——那會讓下一個
@@ -801,11 +800,10 @@ class OverlayWindow:
         self.clear_error()
         self._error_key = key
         self._error_kwargs = kwargs
-        # justify＝換行後每一行都靠左：tk.Label 多行預設置中，anchor="w" 只擺放整塊
-        # 文字、管不到行內對齊，較長的橫幅（如版本不相容）換行後會歪成階梯狀。
-        self._error_label = tk.Label(self._frame, text=t(key, **kwargs), bg=BG, fg=FG_ERROR,
-                                     font=ui_font(10, "bold"), anchor="w",
-                                     justify="left", wraplength=self._wrap)
+        # RichLabel：API 錯誤訊息裡的網址要能點；它自己依寬度換行、行數決定高度
+        self._error_label = RichLabel(self._frame, fg=FG_ERROR, bg=BG,
+                                      font=ui_font(10, "bold"), link_fg=FG_UPDATE)
+        self._error_label.set(t(key, **kwargs))
         # before＝捲動區：pack 依宣告順序分配空間，橫幅排在 expand=True 的捲動區
         # 之後就會在視窗被縮小時被擠掉——而「遊戲未就緒」正是最該看到的訊息。
         self._error_label.pack(side="bottom", fill="x", pady=2,
@@ -880,7 +878,7 @@ class OverlayWindow:
         return [(m.original, m.translated) for m in self._messages]
 
     def error_text(self) -> str | None:
-        return self._error_label.cget("text") if self._error_label else None
+        return self._error_label.text() if self._error_label else None
 
     def update_text(self) -> str | None:
         return self._update_label.cget("text") if self._update_label else None
