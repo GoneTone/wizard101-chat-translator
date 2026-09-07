@@ -350,12 +350,14 @@ class ModelField(ttk.Frame):
             models = list_models(api)
         except TranslatorNoModelList as exc:
             log(f"[settings] model list unsupported (provider={api['provider']}, "
-                f"base_url={api['base_url']}): {exc}")
+                f"base_url={api.get('base_url', '')}): {exc}")
             self._queue.put(exc)
             return
         except Exception as exc:
+            # api.get：只有自訂端點的設定檔有 base_url，官方服務商在這裡 KeyError
+            # 會讓例外永遠進不了 queue、按鈕卡在「載入中」
             log(f"[settings] model list failed (provider={api['provider']}, "
-                f"base_url={api['base_url']}): {exc}")
+                f"base_url={api.get('base_url', '')}): {exc}")
             self._queue.put(exc)
             return
         log(f"[settings] model list fetched (provider={api['provider']}, "

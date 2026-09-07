@@ -307,6 +307,22 @@ def test_model_field_error_uses_friendly_message(root):
     assert fields._model_field.status() == t("error.offline_detail", message="refused")
 
 
+def test_refresh_worker_reports_failures_for_providers_without_base_url(root, monkeypatch):
+    # 回歸：openai／claude 的設定檔沒有 base_url，失敗分支寫 log 時 KeyError，
+    # 例外沒放進 queue，主執行緒的輪詢永遠等不到結果、按鈕卡在「載入中」
+    from src.ui import fields as fields_module
+
+    def rejected(api, client=None):
+        raise TranslatorConfigError("Incorrect API key", status=401)
+
+    monkeypatch.setattr(fields_module, "list_models", rejected)
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol", api_key="sk-1"))
+    field = fields._model_field
+    field._refresh_worker(fields.active_values())
+    result = field._queue.get_nowait()
+    assert isinstance(result, TranslatorConfigError)
+
+
 def test_model_field_error_makes_urls_clickable(root):
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_error(
