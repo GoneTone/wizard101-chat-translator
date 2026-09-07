@@ -659,3 +659,21 @@ def test_translators_follow_the_previewed_language(root, monkeypatch):
         win._win.destroy()
     finally:
         i18n.set_language(before)
+
+
+def test_settings_window_does_not_stay_on_top(root):
+    # 開窗時抬一次是為了不被 topmost 的 overlay 蓋住，但抬完就該放掉——
+    # 設定視窗不該一直壓在遊戲以外的其他程式之上
+    win = _open_settings(root)
+    assert bool(win._win.attributes("-topmost")) is True   # 抬起中
+    root.update_idletasks()
+    assert bool(win._win.attributes("-topmost")) is False
+    win._win.destroy()
+
+
+def test_releasing_topmost_survives_a_window_closed_in_the_meantime(root):
+    # idle 佇列跑到之前視窗可能已被關掉（或換語言重建），不該炸 TclError
+    win = _open_settings(root)
+    closed = win._win
+    closed.destroy()
+    win._release_topmost(closed)

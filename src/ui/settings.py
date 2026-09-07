@@ -102,7 +102,10 @@ class SettingsWindow:
         self._win.resizable(True, True)
         # 下限比開窗尺寸小：內容可捲動，使用者要縮就讓他縮
         self._win.minsize(MIN_WIDTH, MIN_HEIGHT)
+        # 抬到最前面一次就放掉：設定是從 topmost 的 overlay（⚙）叫出來的，不抬會被它
+        # 蓋住、看起來像沒反應；但設定視窗只是一般視窗，不該一直壓在其他程式之上。
         self._win.attributes("-topmost", True)
+        self._win.after_idle(self._release_topmost, self._win)
 
         # 按鈕列先 pack：後宣告會在視窗變矮時被 expand=True 的內容區擠掉
         btns = ttk.Frame(self._win, padding=(8, 0, 8, 8))
@@ -124,6 +127,12 @@ class SettingsWindow:
             nb.select(self._restore_tab)
         self._restore_geometry = self._restore_tab = None
         self._win.protocol("WM_DELETE_WINDOW", self._cancel)
+
+    def _release_topmost(self, win: tk.Toplevel) -> None:
+        """放掉開窗時暫時抬起用的 topmost（見 open()）。
+        排進 idle 佇列後才跑，期間視窗可能已被關掉或因換語言重建，故先確認還在。"""
+        if win.winfo_exists():
+            win.attributes("-topmost", False)
 
     def _build_basic(self, nb, cfg: dict) -> None:
         """基本分頁：介面語言、翻譯目標語言、API 設定、熱鍵、自動呼出輸入框。"""
