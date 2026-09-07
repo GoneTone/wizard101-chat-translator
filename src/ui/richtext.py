@@ -7,6 +7,7 @@
 import re
 import tkinter as tk
 import webbrowser
+from tkinter import font as tkfont
 from tkinter import ttk
 
 from src.log import log
@@ -16,8 +17,10 @@ LINK_COLOR = "#4a7ddc"
 
 _LINK_MARKUP = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 _SAFE_SCHEMES = ("http://", "https://")
-_BARE_URL = re.compile(r"https?://[^\s<>\[\]()]+", re.IGNORECASE)
-_URL_TRAILING_PUNCT = ".,;:!?"
+# 網址只收 RFC 3986 的 ASCII 字元：訊息裡的網址常緊接中文或全形標點（「…keys，請檢查」），
+# 用「非空白」當邊界會把後面整句吃進連結。括號與方括號也排除，免得與連結語法打架。
+_BARE_URL = re.compile(r"https?://[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+", re.IGNORECASE)
+_URL_TRAILING_PUNCT = ".,;:!?'"
 
 
 def parse_link_markup(text: str) -> list[tuple[str, str | None]]:
@@ -70,13 +73,16 @@ class RichLabel(tk.Text):
     點擊以系統瀏覽器開啟。文字先經 linkify 再依連結語法切段，所以固定文案也能用
     `[文字](網址)` 放連結。"""
 
-    def __init__(self, parent, *, fg: str, bg: str, font, link_fg: str = LINK_COLOR):
+    def __init__(self, parent, *, fg: str, bg: str, font, link_fg: str = LINK_COLOR,
+                 on_height_change=None):
         super().__init__(parent, wrap="word", width=1, height=1, bd=0, relief="flat",
                          highlightthickness=0, padx=0, pady=0, bg=bg, fg=fg, font=font,
                          cursor="", takefocus=0, state="disabled")
         self._links: list[tuple[str, str]] = []
         self._ranges: list[tuple[str, str]] = []
         self._fit_pending = False
+        self._on_height_change = on_height_change  # 行數變了才叫：外層據此重算視窗高度
+        self._line_height = max(1, tkfont.Font(root=self, font=font).metrics("linespace"))
         self.tag_configure("link", foreground=link_fg, underline=True)
         self.tag_bind("link", "<Enter>", lambda e: self.configure(cursor="hand2"))
         self.tag_bind("link", "<Leave>", lambda e: self.configure(cursor=""))
@@ -125,12 +131,21 @@ class RichLabel(tk.Text):
         self.after_idle(self._fit)
 
     def _fit(self) -> None:
+        """把高度設成內容的行數：內容總像素高（count 帶 update，否則 Tk 背景慢慢算的
+        行距還沒好）除以字型行高。不用 count displaylines——一個「字」（長網址）
+        超過一行寬時 Tk 逐字元折行，displaylines 少算那一行，最後一行就被切掉
+        （Tk 8.6.15 實測，帶 update 也一樣）。"""
         self._fit_pending = False
         if not self.winfo_exists():
             return
-        lines = self.count("1.0", "end-1c", "displaylines")
-        if isinstance(lines, tuple):
-            lines = lines[0]
-        lines = max(1, int(lines or 0))
+        pixels = _scalar(self.count("1.0", "end", "update", "ypixels"))
+        lines = max(1, -(-pixels // self._line_height))
         if int(self.cget("height")) != lines:
             self.configure(height=lines)
+            if self._on_height_change is not None:
+                self._on_height_change()
+
+
+def _scalar(value) -> int:
+    """tkinter 的 Text.count 依版本回 int 或單元素 tuple。"""
+    return int(value[0] if isinstance(value, tuple) else value or 0)

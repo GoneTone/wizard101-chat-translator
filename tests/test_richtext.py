@@ -12,6 +12,9 @@ from src.ui.richtext import linkify
     ("no links here", "no links here"),
     ("ftp://a.example/f", "ftp://a.example/f"),
     ("[docs](https://a.example/d) stays", "[docs](https://a.example/d) stays"),
+    # 中文緊接在網址後（沒有空白）：全形標點與 CJK 都不是網址的一部分
+    ("至 https://a.example/keys，請檢查", "至 [https://a.example/keys](https://a.example/keys)，請檢查"),
+    ("https://a.example/k。", "[https://a.example/k](https://a.example/k)。"),
 ])
 def test_linkify_wraps_bare_urls_in_link_markup(text, expected):
     assert linkify(text) == expected
@@ -81,5 +84,34 @@ def test_rich_label_click_on_link_opens_browser(root, monkeypatch):
         label.event_generate("<Motion>", x=x + w // 2, y=y + h // 2)
         label.event_generate("<Button-1>", x=x + w // 2, y=y + h // 2)
         assert opened == ["https://a.example/help"]
+    finally:
+        win.destroy()
+
+
+def test_rich_label_fits_a_long_unbreakable_word(root):
+    # Tk 對超過一行寬的「字」會逐字元折行，但 count displaylines 少算一行，
+    # 用它定高度會把最後一行切掉（實測：長網址接中文）
+    win, label = _label(root, width=200)
+    try:
+        label.set("see https://a.example/" + "verylongpath/" * 8 + "end，請開啟設定檢查")
+        win.update()
+        assert label.dlineinfo("end-1c") is not None   # 最後一個字真的畫在可見範圍內
+    finally:
+        win.destroy()
+
+
+def test_rich_label_reports_height_changes(root):
+    win = tk.Toplevel(root)
+    win.geometry("200x120+0+0")
+    changes = []
+    label = RichLabel(win, fg="#cc3333", bg="#ffffff", font=("Segoe UI", 9),
+                      on_height_change=lambda: changes.append(int(label.cget("height"))))
+    label.pack(fill="x")
+    win.update()
+    try:
+        label.set("a fairly long error message that certainly needs more than one line "
+                  "at two hundred pixels wide")
+        win.update()
+        assert changes and changes[-1] > 1
     finally:
         win.destroy()

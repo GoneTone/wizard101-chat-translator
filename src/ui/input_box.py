@@ -10,11 +10,13 @@ from src.composer.paste import force_foreground
 from src.config import app_name
 from src.i18n import t
 from src.ui.fonts import ui_font
-from src.ui.responsive import HINT_TRAILING, apply_wrap, bind_wrap
+from src.ui.palette import FG_ERROR, FG_UPDATE
+from src.ui.richtext import RichLabel
 from src.ui.winstyle import root_hwnd
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
+HINT_FG = "#9a9aa8"
 GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
 DEFAULT_WIDTH = 460
 MIN_WIDTH = 320  # 再窄會把提示文字擠成一長條，且輸入欄放不下一句話
@@ -34,7 +36,7 @@ class InputBox:
         self._on_geometry_change = on_geometry_change
         self._win: tk.Toplevel | None = None
         self._entry: tk.Entry | None = None
-        self._status: tk.Label | None = None
+        self._status: RichLabel | None = None
         self._target_hwnd: int | None = None
         self._session = 0
 
@@ -58,15 +60,12 @@ class InputBox:
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=ui_font(12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
-        self._status = tk.Label(self._win, text=t("input.hint"),
-                                bg=BG, fg="#9a9aa8", font=ui_font(9),
-                                anchor="w", justify="left")
+        # RichLabel：翻譯失敗訊息裡的網址要能點；它自己依寬度換行，
+        # 拉寬視窗 → 重新換行 → 行數變了才重算視窗高度（值沒變不動，避免回圈）
+        self._status = RichLabel(self._win, fg=HINT_FG, bg=BG, font=ui_font(9),
+                                 link_fg=FG_UPDATE, on_height_change=self._fit_height)
+        self._status.set(t("input.hint"))
         self._status.pack(fill="x", padx=8)
-        # 拉寬視窗 → 提示文字重新換行 → 行數變了才重算高度（值沒變不動，避免回圈）
-        bind_wrap(self._status, container=self._win, trailing=HINT_TRAILING,
-                  on_change=self._fit_height)
-        # 視窗還沒 map 時量不到寬度，先用目標寬度套一次；否則開窗高度會先窄一格再跳
-        apply_wrap(self._status, self._width, HINT_TRAILING)
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)
@@ -117,7 +116,7 @@ class InputBox:
             self.close()  # 空白按 Enter＝關閉（等同 Esc），快速讓開回到遊戲
             return
         self._entry.configure(state="disabled")
-        self._status.configure(text=t("input.translating"), fg="#9a9aa8")
+        self._status.set(t("input.translating"), HINT_FG)
         hwnd = self._target_hwnd
         session = self._session
         threading.Thread(target=self._worker, args=(text, hwnd, session), daemon=True).start()
@@ -138,7 +137,7 @@ class InputBox:
         if self._entry is None:
             return
         self._entry.configure(state="normal")
-        self._status.configure(text=message, fg="#ff5f5f")
+        self._status.set(message, FG_ERROR)
         self._fit_height()
 
     def _current_width(self) -> int:

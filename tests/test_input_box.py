@@ -39,6 +39,24 @@ def test_stale_session_discarded_on_cancel(root):
     assert on_translated == [], "Stale result should be discarded"
 
 
+def _status(win, text):
+    """測試直接替換的狀態列：與 InputBox 用的是同一種元件（RichLabel）。"""
+    from src.ui.richtext import RichLabel
+    label = RichLabel(win, fg="#9a9aa8", bg="#1a1a24", font=("Segoe UI", 9))
+    label.set(text)
+    return label
+
+
+def test_error_message_urls_are_clickable(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    try:
+        box._show_error("HTTP 401: see https://a.example/keys for a key", box._session)
+        assert box._status.links() == [("https://a.example/keys", "https://a.example/keys")]
+    finally:
+        box.close()
+
+
 def test_finish_over_limit_keeps_window_and_blocks_send(root):
     from src.ui.input_box import GAME_INPUT_MAX_CHARS
     sent = []
@@ -48,7 +66,7 @@ def test_finish_over_limit_keeps_window_and_blocks_send(root):
     box._finish("x" * (GAME_INPUT_MAX_CHARS + 1), None, session)
     assert box._win is not None          # 不關閉，讓使用者刪減重送
     assert sent == []                    # 不鍵入遊戲
-    assert str(GAME_INPUT_MAX_CHARS + 1) in box._status.cget("text")
+    assert str(GAME_INPUT_MAX_CHARS + 1) in box._status.text()
     assert str(box._entry.cget("state")) == "normal"  # 輸入欄恢復可編輯
     box.close()
 
@@ -119,7 +137,7 @@ def test_stale_error_discarded_on_cancel(root):
 
     box._win = tk.Toplevel(root)
     box._entry = tk.Entry(box._win)
-    box._status = tk.Label(box._win, text="test")
+    box._status = _status(box._win, "test")
     box._session += 1
     session_started = box._session
 
@@ -130,7 +148,7 @@ def test_stale_error_discarded_on_cancel(root):
     box._show_error("Error message", session_started)
 
     # Entry and status stay untouched because the session was stale
-    assert box._status.cget("text") == "test"
+    assert box._status.text() == "test"
     assert box._status.cget("fg") != "#ff5f5f"
 
 
@@ -150,13 +168,13 @@ def test_current_error_shown_on_error(root):
     box._win = tk.Toplevel(root)
     box._entry = tk.Entry(box._win)
     box._entry.configure(state="disabled")
-    box._status = tk.Label(box._win, text="original")
+    box._status = _status(box._win, "original")
     box._session += 1
     current_session = box._session
 
     box._show_error("boom", current_session)
 
-    assert box._status.cget("text") == "boom"
+    assert box._status.text() == "boom"
     assert box._status.cget("fg") == "#ff5f5f"
     # Entry should be re-enabled for user retry
     assert box._entry.cget("state") == "normal"
@@ -174,14 +192,14 @@ def test_worker_failure_error_callback_runs(root):
     box = InputBox(root, failing_translate, ui_queue, lambda e, h: None)
     box._win = tk.Toplevel(root)
     box._entry = tk.Entry(box._win)
-    box._status = tk.Label(box._win, text="original")
+    box._status = _status(box._win, "original")
     session = box._session
 
     box._worker("你好", None, session)  # 直接呼叫：走 except 分支、排入錯誤回呼
     callback = ui_queue.get_nowait()
     callback()  # 修正前此處會 NameError: name 'exc' is not defined
 
-    assert "boom" in box._status.cget("text")
+    assert "boom" in box._status.text()
 
 
 @pytest.mark.real_position
@@ -276,9 +294,9 @@ def test_error_message_follows_language(root):
         box = InputBox(root, failing_translate, ui_queue, lambda e, h: None)
         box._win = tk.Toplevel(root)
         box._entry = tk.Entry(box._win)
-        box._status = tk.Label(box._win, text="original")
+        box._status = _status(box._win, "original")
         box._worker("hello", None, box._session)
         ui_queue.get_nowait()()
-        assert box._status.cget("text").startswith("Translation failed:")
+        assert box._status.text().startswith("Translation failed:")
     finally:
         i18n.set_language(before)
