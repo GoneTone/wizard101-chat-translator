@@ -15,6 +15,7 @@ from src.translation.translator import (
     _game_noun_rule,
     build_incoming_system,
     build_system_message_system,
+    error_detail,
     has_stray_latin,
     list_models,
     strip_invented_english,
@@ -23,8 +24,9 @@ from src.translation.translator import (
 
 class FakeResponse:
     def __init__(self, status_code=200, content="譯文", finish_reason="stop",
-                 completion_tokens=None, payload=None):
+                 completion_tokens=None, payload=None, text=""):
         self.status_code = status_code
+        self.text = text
         self._content = content
         self._finish_reason = finish_reason
         self._completion_tokens = completion_tokens
@@ -124,9 +126,9 @@ class FakeAnthropicClient:
         self.messages = FakeAnthropicMessages(raises, stop_reason)
 
 
-def _anthropic_status_error(status):
+def _anthropic_status_error(status, body=None):
     resp = httpx2.Response(status, request=httpx2.Request("POST", "http://x"))
-    return anthropic.APIStatusError("err", response=resp, body=None)
+    return anthropic.APIStatusError("err", response=resp, body=body)
 
 
 def test_claude_provider_returns_text():
@@ -434,6 +436,90 @@ def test_list_models_claude_connection_error_maps_to_offline():
         raises=anthropic.APIConnectionError(request=httpx2.Request("GET", "http://x")))
     with pytest.raises(TranslatorOffline):
         list_models(_api(provider="claude"), client=fake)
+
+
+@pytest.mark.parametrize("text,expected", [
+    ('{"error": {"message": "Incorrect API key provided: sk-abc***"}}',
+     "Incorrect API key provided: sk-abc***"),
+    ('{"error": "model not found"}', "model not found"),
+    ('{"message": "quota exceeded"}', "quota exceeded"),
+    ('  plain text \n body ', "plain text body"),
+    ("<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1>"
+     "<hr><center>nginx</center></body></html>", "404 Not Found 404 Not Found nginx"),
+    ("", ""),
+    ('{"error": {"code": 42}}', '{"error": {"code": 42}}'),
+])
+def test_error_detail_extracts_api_message(text, expected):
+    assert error_detail(text) == expected
+
+
+def test_error_detail_truncates_long_body():
+    detail = error_detail("x" * 1000)
+    assert len(detail) <= 201 and detail.endswith("…")
+
+
+def test_openai_compat_config_error_carries_api_message():
+    fake = FakeHttpxClient(response=FakeResponse(
+        status_code=401, text='{"error": {"message": "Incorrect API key provided"}}'))
+    with pytest.raises(TranslatorConfigError) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert ei.value.status == 401
+    assert ei.value.detail == "Incorrect API key provided"
+    assert str(ei.value) == "HTTP 401: Incorrect API key provided"
+
+
+def test_openai_compat_other_4xx_maps_to_config_error():
+    # 400 常是「模型不吃 temperature」這類設定問題，API 的說明必須帶出來
+    fake = FakeHttpxClient(response=FakeResponse(
+        status_code=400, text='{"error": {"message": "Unsupported parameter: temperature"}}'))
+    with pytest.raises(TranslatorConfigError) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert ei.value.status == 400
+    assert ei.value.detail == "Unsupported parameter: temperature"
+
+
+def test_openai_compat_offline_status_carries_api_message():
+    fake = FakeHttpxClient(response=FakeResponse(status_code=503, text="upstream down"))
+    with pytest.raises(TranslatorOffline) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert ei.value.status == 503
+    assert ei.value.detail == "upstream down"
+
+
+def test_openai_compat_connection_error_carries_reason():
+    fake = FakeHttpxClient(raises=httpx.ConnectError("[Errno 11001] getaddrinfo failed"))
+    with pytest.raises(TranslatorOffline) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert ei.value.status is None
+    assert ei.value.detail == "[Errno 11001] getaddrinfo failed"
+
+
+def test_claude_status_error_carries_api_message():
+    body = {"type": "error", "error": {"type": "authentication_error",
+                                       "message": "invalid x-api-key"}}
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）",
+                   client=FakeAnthropicClient(raises=_anthropic_status_error(401, body)))
+    with pytest.raises(TranslatorConfigError) as ei:
+        t.translate_incoming("[A] hi", [])
+    assert ei.value.detail == "invalid x-api-key"
+
+
+def test_claude_other_4xx_maps_to_config_error():
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）",
+                   client=FakeAnthropicClient(raises=_anthropic_status_error(400)))
+    with pytest.raises(TranslatorConfigError) as ei:
+        t.translate_incoming("[A] hi", [])
+    assert ei.value.status == 400
+
+
+def test_list_models_config_error_carries_api_message():
+    fake = FakeHttpxClient(response=FakeResponse(
+        status_code=403, text='{"error": {"message": "region not supported"}}'))
+    with pytest.raises(TranslatorConfigError) as ei:
+        list_models(_api(), client=fake)
+    assert ei.value.detail == "region not supported"
 
 
 def test_system_message_prompt_names_the_target_language():

@@ -673,6 +673,26 @@ def test_update_banner_leaves_room_for_the_resize_grip(root):
     assert int(str(right)) == _GRIP_SIZE, f"右側未讓出把手寬度：padx={padx}"
 
 
+def test_error_banner_formats_the_api_message_and_survives_language_switch(root):
+    from src import i18n
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+        ov.set_error("notice.config_error_detail", status=401, message="Incorrect API key")
+        assert ov.error_text() == t("notice.config_error_detail", status=401,
+                                    message="Incorrect API key")
+        assert "Incorrect API key" in ov.error_text()
+        i18n.set_language("en")
+        ov.refresh_labels()   # 換語言重繪時 format 變數不可丟失
+        assert ov.error_text() == t("notice.config_error_detail", status=401,
+                                    message="Incorrect API key")
+        assert "Incorrect API key" in ov.error_text()
+    finally:
+        i18n.set_language(before)
+
+
 def test_update_banner_and_error_banner_coexist(root):
     # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
     from src.updater import Release

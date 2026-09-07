@@ -262,6 +262,50 @@ def test_offline_sets_error_state_while_failing():
         pool.shutdown(wait=True)
 
 
+def test_error_detail_exposes_the_api_message_while_failing():
+    blocked = threading.Event()
+
+    class AlwaysRejected:
+        def translate_incoming(self, text, context):
+            blocked.set()
+            raise TranslatorConfigError("Incorrect API key", status=401)
+
+    c = Collector()
+    pool = _pool(AlwaysRejected(), c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert blocked.wait(5.0)
+        deadline = time.monotonic() + 5.0
+        while pool.error_detail is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pool.error_detail == (401, "Incorrect API key")
+    finally:
+        pool.shutdown(wait=True)
+
+
+def test_error_detail_is_none_without_a_message_and_after_recovery():
+    tr = FailThenOk(TranslatorOffline("upstream down", status=503), failures=1)
+    c = Collector()
+    pool = _pool(tr, c, workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        assert c.wait_for(1)[1] == "譯:[A] one"
+        assert pool.error_detail is None          # 成功後連同 error_state 一起清掉
+    finally:
+        pool.shutdown(wait=True)
+    tr = FailThenOk(TranslatorOffline(status=503), failures=99)
+    pool = _pool(tr, Collector(), workers=1)
+    try:
+        pool.submit("[A] one", [], msg_id=1)
+        deadline = time.monotonic() + 5.0
+        while pool.error_state is None and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pool.error_state == "offline"
+        assert pool.error_detail is None          # API 沒說明：橫幅退回固定文案
+    finally:
+        pool.shutdown(wait=True)
+
+
 def test_config_error_retries_and_reports_config_state():
     tr = FailThenOk(TranslatorConfigError("bad key", status=401), failures=1)
     c = Collector()

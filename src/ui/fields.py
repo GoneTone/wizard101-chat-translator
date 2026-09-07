@@ -180,7 +180,12 @@ def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 
 
 def friendly_error(exc: Exception) -> tuple[str, dict]:
     """把翻譯例外轉成（文案 key，format 變數）；顯示端一律 `t(key, **kwargs)`。
-    HTTP 狀態碼與未預期例外光靠 key 表達不了，故帶變數。"""
+    有 API 說明（detail）就照實顯示——狀態碼猜的提示會誤導（自架端點 404 多半是
+    網址路徑錯而非模型錯），只在 API 什麼都沒說時才退回用狀態碼猜。"""
+    if isinstance(exc, (TranslatorConfigError, TranslatorOffline)) and exc.detail:
+        if exc.status is not None:
+            return "error.api_response", {"status": exc.status, "message": exc.detail}
+        return "error.offline_detail", {"message": exc.detail}
     if isinstance(exc, TranslatorConfigError):
         if exc.status in (401, 403):
             return "error.bad_key", {}

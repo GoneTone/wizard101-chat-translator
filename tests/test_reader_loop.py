@@ -22,6 +22,7 @@ class FakePool:
     def __init__(self):
         self.submitted: list[tuple[str, list[str], int]] = []
         self.error_state: str | None = None
+        self.error_detail: tuple[int | None, str] | None = None
         self.in_flight = 0
 
     def submit(self, line, context, msg_id):
@@ -46,8 +47,8 @@ class FakeOverlay:
     def update_message(self, msg_id, translated):
         pass
 
-    def set_error(self, key):
-        self.errors.append(key)
+    def set_error(self, key, **kwargs):
+        self.errors.append((key, kwargs))
 
     def clear_error(self):
         self.clears += 1
@@ -179,7 +180,7 @@ def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypa
     sys_pool.error_state = "offline"
     run_scripted(cfg, ov, [[], []], monkeypatch, system_pool=sys_pool,
                  cache=FakeCache())
-    assert ov.errors == ["notice.offline"]
+    assert ov.errors == [("notice.offline", {})]
 
 
 def test_system_lines_are_ignored_when_the_setting_is_off(monkeypatch):
@@ -276,16 +277,39 @@ def test_banner_follows_pool_error_state(monkeypatch):
     pool = FakePool()
     pool.error_state = "offline"
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
-    assert ov.errors == ["notice.offline"]
+    assert ov.errors == [("notice.offline", {})]
 
 
 def test_banner_prefers_game_issue_over_translation_error():
     # 連不上遊戲時翻譯狀態已無意義，橫幅顯示遊戲端的問題
-    assert banner_for("notice.game_missing", "offline") == "notice.game_missing"
-    assert banner_for("notice.access_denied", "offline") == "notice.access_denied"
-    assert banner_for(None, "config") == "notice.config_error"
-    assert banner_for(None, "offline") == "notice.offline"
+    assert banner_for("notice.game_missing", "offline") == ("notice.game_missing", {})
+    assert banner_for("notice.access_denied", "offline") == ("notice.access_denied", {})
+    assert banner_for(None, "config") == ("notice.config_error", {})
+    assert banner_for(None, "offline") == ("notice.offline", {})
     assert banner_for(None, None) is None
+
+
+def test_banner_shows_the_api_message_when_there_is_one():
+    assert banner_for(None, "config", (401, "Incorrect API key")) == (
+        "notice.config_error_detail", {"status": 401, "message": "Incorrect API key"})
+    assert banner_for(None, "offline", (503, "upstream down")) == (
+        "notice.offline_http", {"status": 503, "message": "upstream down"})
+    assert banner_for(None, "offline", (None, "getaddrinfo failed")) == (
+        "notice.offline_detail", {"message": "getaddrinfo failed"})
+    # 遊戲端問題仍優先於翻譯錯誤，不管有沒有 API 說明
+    assert banner_for("notice.game_missing", "config", (401, "x")) == (
+        "notice.game_missing", {})
+
+
+def test_loop_passes_the_pool_error_detail_to_the_banner(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    pool = FakePool()
+    pool.error_state = "config"
+    pool.error_detail = (401, "Incorrect API key")
+    run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool, cache=FakeCache())
+    assert ov.errors == [("notice.config_error_detail",
+                          {"status": 401, "message": "Incorrect API key"})]
 
 
 def test_status_shows_translating_while_pool_busy(monkeypatch):
@@ -390,7 +414,7 @@ def test_game_not_running_shows_banner_once(monkeypatch):
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.errors == ["notice.game_missing"]
+    assert ov.errors == [("notice.game_missing", {})]
     assert ov.messages == []
     assert "waiting_game" in ov.statuses
 
@@ -407,7 +431,7 @@ def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.errors == ["notice.access_denied"]
+    assert ov.errors == [("notice.access_denied", {})]
     assert "access_denied" in ov.statuses
 
 
@@ -424,7 +448,7 @@ def test_version_mismatch_shows_its_own_banner_and_status(monkeypatch):
                         lambda **kw: FakeReader(reads, stop))
     reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
     _drain(ui_queue)
-    assert ov.errors == ["notice.version_mismatch"]
+    assert ov.errors == [("notice.version_mismatch", {})]
     assert "version_mismatch" in ov.statuses
 
 

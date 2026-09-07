@@ -92,14 +92,27 @@ def test_validate_requires_base_url_for_custom_only():
     assert validate_api_form(api) == []  # custom 不需金鑰
 
 
-def test_friendly_error_messages():
-    assert friendly_error(TranslatorConfigError("HTTP 401", status=401)) == \
-        ("error.bad_key", {})
-    assert friendly_error(TranslatorConfigError("HTTP 404", status=404)) == \
+def test_friendly_error_guesses_from_status_when_api_gave_no_message():
+    assert friendly_error(TranslatorConfigError(status=401)) == ("error.bad_key", {})
+    assert friendly_error(TranslatorConfigError(status=404)) == \
         ("error.model_not_found", {})
-    assert friendly_error(TranslatorConfigError("HTTP 500", status=500)) == \
-        ("error.api_http", {"status": 500})
-    assert friendly_error(TranslatorOffline("refused")) == ("error.offline", {})
+    assert friendly_error(TranslatorConfigError(status=400)) == \
+        ("error.api_http", {"status": 400})
+    assert friendly_error(TranslatorOffline(status=503)) == ("error.offline", {})
+    assert friendly_error(TranslatorOffline()) == ("error.offline", {})
+
+
+def test_friendly_error_prefers_the_api_message_over_status_guess():
+    # 狀態碼猜的提示會誤導（自架端點 404 常是網址錯而非模型錯），有 API 說明就用它
+    assert friendly_error(TranslatorConfigError("Incorrect API key", status=401)) == \
+        ("error.api_response", {"status": 401, "message": "Incorrect API key"})
+    assert friendly_error(TranslatorOffline("upstream down", status=503)) == \
+        ("error.api_response", {"status": 503, "message": "upstream down"})
+
+
+def test_friendly_error_shows_connection_failure_reason():
+    assert friendly_error(TranslatorOffline("[Errno 11001] getaddrinfo failed")) == \
+        ("error.offline_detail", {"message": "[Errno 11001] getaddrinfo failed"})
 
 
 
@@ -284,7 +297,7 @@ def test_model_field_unsupported_endpoint_hints_manual_input(root):
 def test_model_field_error_uses_friendly_message(root):
     fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
     fields._model_field.show_error(TranslatorOffline("refused"))
-    assert fields._model_field.status() == t("error.offline")
+    assert fields._model_field.status() == t("error.offline_detail", message="refused")
 
 
 def test_model_field_typing_filters_fetched_options(root):

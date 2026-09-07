@@ -8,6 +8,7 @@ TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
 上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
 """
+import json
 import re
 
 import anthropic
@@ -280,7 +281,24 @@ _MAX_TOKENS_THINKING = 2048
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
-class TranslatorOffline(Exception):
+class TranslatorError(Exception):
+    """翻譯請求失敗的共同基底：`status` 是 HTTP 狀態碼（連線層失敗為 None），
+    `detail` 是 API 回應裡的說明或連線失敗原因（見 error_detail），
+    UI 與 log 都直接拿它顯示，不再只靠狀態碼猜使用者該檢查什麼。"""
+
+    def __init__(self, detail: str = "", status: int | None = None):
+        self.status = status
+        self.detail = detail
+        if status is not None and detail:
+            message = f"HTTP {status}: {detail}"
+        elif status is not None:
+            message = f"HTTP {status}"
+        else:
+            message = detail
+        super().__init__(message)
+
+
+class TranslatorOffline(TranslatorError):
     """可重試的翻譯失敗：連線失敗、逾時、429、5xx。"""
 
 
@@ -301,14 +319,10 @@ def _truncated(max_tokens: int, completion_tokens, sample: str) -> TranslatorBad
         f"completion_tokens={completion_tokens}, sample={head!r}")
 
 
-class TranslatorConfigError(Exception):
-    """設定錯誤：金鑰無效（401/403）、模型不存在（404）。
+class TranslatorConfigError(TranslatorError):
+    """設定錯誤：4xx（金鑰無效、模型不存在、參數不被接受等）。
     可重試——pool 以固定的 CONFIG_ERROR_INTERVAL 間隔持續重試，
     使用者於執行期間修正 config.json 後即自動恢復，不必重啟程式。"""
-
-    def __init__(self, message: str, status: int | None = None):
-        super().__init__(message)
-        self.status = status
 
 
 class TranslatorNoModelList(Exception):
@@ -317,21 +331,60 @@ class TranslatorNoModelList(Exception):
     使用者仍可自行輸入模型名稱正常翻譯。"""
 
 
-def _status_error(status: int) -> Exception | None:
-    """翻譯請求的 HTTP 狀態碼映射成例外（None＝可繼續解析回應）；兩種後端共用，判定一致。"""
-    if status in (401, 403, 404):
-        return TranslatorConfigError(f"HTTP {status}", status=status)
-    if status == 429 or status >= 500:
-        return TranslatorOffline(f"HTTP {status}")
+_DETAIL_MAX_CHARS = 200  # 橫幅與設定視窗共用：夠放一句 API 說明，擋掉整頁 HTML
+_HTML_TAG = re.compile(r"<[^>]+>")
+
+
+def _message_of(body) -> str | None:
+    """從已解析的錯誤 body 取說明文字：OpenAI／Anthropic 都是 error.message，
+    部分自架後端把 error 或 message 直接放字串。"""
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if isinstance(error, dict) and isinstance(error.get("message"), str):
+        return error["message"]
+    if isinstance(error, str):
+        return error
+    if isinstance(body.get("message"), str):
+        return body["message"]
     return None
 
 
-def _model_list_error(status: int) -> Exception | None:
+def _clip(text: str) -> str:
+    text = " ".join(text.split())
+    if len(text) > _DETAIL_MAX_CHARS:
+        return text[:_DETAIL_MAX_CHARS] + "…"
+    return text
+
+
+def error_detail(text: str) -> str:
+    """把錯誤回應的原始 body 整理成可直接顯示的一句話：JSON 取 error.message 之類的
+    欄位，HTML 錯誤頁去標籤，其餘照原文；一律折成單行並截到 _DETAIL_MAX_CHARS。"""
+    try:
+        message = _message_of(json.loads(text))
+    except ValueError:
+        message = None
+    if message is None:
+        message = _HTML_TAG.sub(" ", text)
+    return _clip(message)
+
+
+def _status_error(status: int, detail: str = "") -> TranslatorError | None:
+    """翻譯請求的 HTTP 狀態碼映射成例外（None＝可繼續解析回應）；兩種後端共用，判定一致。
+    4xx 一律當設定錯誤：400 多半是模型不吃某個參數，改設定才會好。"""
+    if status == 429 or status >= 500:
+        return TranslatorOffline(detail, status=status)
+    if status >= 400:
+        return TranslatorConfigError(detail, status=status)
+    return None
+
+
+def _model_list_error(status: int, detail: str = "") -> Exception | None:
     """模型清單請求的狀態碼對應：404／405 是「端點不提供清單」而非設定錯誤，
     其餘沿用翻譯請求的判定。"""
     if status in (404, 405):
         return TranslatorNoModelList(f"HTTP {status}")
-    return _status_error(status)
+    return _status_error(status, detail)
 
 
 class _OpenAICompatClient:
@@ -362,8 +415,8 @@ class _OpenAICompatClient:
         try:
             resp = self._client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
-            raise TranslatorOffline(str(exc)) from exc
-        error = _status_error(resp.status_code)
+            raise TranslatorOffline(_clip(str(exc))) from exc
+        error = _status_error(resp.status_code, error_detail(resp.text))
         if error is not None:
             raise error
         resp.raise_for_status()
@@ -381,8 +434,8 @@ class _OpenAICompatClient:
         try:
             resp = self._client.get("/v1/models")
         except httpx.HTTPError as exc:
-            raise TranslatorOffline(str(exc)) from exc
-        error = _model_list_error(resp.status_code)
+            raise TranslatorOffline(_clip(str(exc))) from exc
+        error = _model_list_error(resp.status_code, error_detail(resp.text))
         if error is not None:
             raise error
         resp.raise_for_status()
@@ -390,6 +443,12 @@ class _OpenAICompatClient:
         if not isinstance(data, list):
             raise TranslatorNoModelList("response has no data array")
         return sorted(str(m["id"]) for m in data if isinstance(m, dict) and m.get("id"))
+
+
+def _anthropic_detail(exc: anthropic.APIStatusError) -> str:
+    """SDK 已把 body 解析成 dict（exc.body），取不到說明時退回 SDK 自己組的訊息。"""
+    message = _message_of(exc.body)
+    return _clip(message if message is not None else exc.message)
 
 
 class _ClaudeClient:
@@ -414,9 +473,9 @@ class _ClaudeClient:
         try:
             resp = self._client.messages.create(**params)
         except anthropic.APIConnectionError as exc:
-            raise TranslatorOffline(str(exc)) from exc
+            raise TranslatorOffline(_clip(str(exc))) from exc
         except anthropic.APIStatusError as exc:
-            error = _status_error(exc.status_code)
+            error = _status_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
                 raise
             raise error from exc
@@ -431,9 +490,9 @@ class _ClaudeClient:
         try:
             page = self._client.models.list()  # SDK 自動翻頁，直接迭代即可
         except anthropic.APIConnectionError as exc:
-            raise TranslatorOffline(str(exc)) from exc
+            raise TranslatorOffline(_clip(str(exc))) from exc
         except anthropic.APIStatusError as exc:
-            error = _model_list_error(exc.status_code)
+            error = _model_list_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
                 raise
             raise error from exc

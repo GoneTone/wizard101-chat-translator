@@ -36,6 +36,7 @@ class TranslationPool:
         self._stop = threading.Event()
         self._in_flight = 0
         self._error_state: str | None = None
+        self._error_detail: tuple[int | None, str] | None = None
         self._backoff_index = 0
         self._gate_until = 0.0   # time.monotonic() 之前不得送出新請求
         self._executor = ThreadPoolExecutor(max_workers=workers,
@@ -52,6 +53,13 @@ class TranslationPool:
         """目前的翻譯錯誤狀態：None／"offline"／"config"，供上層決定錯誤橫幅。"""
         with self._lock:
             return self._error_state
+
+    @property
+    def error_detail(self) -> tuple[int | None, str] | None:
+        """最近一次失敗的（HTTP 狀態碼，API 說明）；沒在失敗或 API 沒給說明時為 None，
+        橫幅據此決定要照實顯示 API 訊息還是退回固定文案。"""
+        with self._lock:
+            return self._error_detail
 
     def submit(self, line: str, context: list[str], msg_id: int) -> None:
         """提交一則翻譯。context 為提交當下的快照，重試時沿用同一份。
@@ -185,6 +193,7 @@ class TranslationPool:
                 self._gate_until = now + delay
             changed = self._error_state != state
             self._error_state = state
+            self._error_detail = (exc.status, exc.detail) if exc.detail else None
         if changed:
             log(f"[translate] provider {state} error: {exc}; "
                 f"retrying with backoff")
@@ -194,6 +203,7 @@ class TranslationPool:
         with self._lock:
             changed = self._error_state is not None
             self._error_state = None
+            self._error_detail = None
             self._backoff_index = 0
             self._gate_until = 0.0
         if changed:

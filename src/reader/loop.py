@@ -31,15 +31,26 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 INPUT_POLL_INTERVAL = 0.05
 
 
-def banner_for(game_issue: str | None, error_state: str | None) -> str | None:
-    """決定該顯示哪一條錯誤橫幅的文案 key（None＝不顯示）。
-    game_issue（遊戲端問題的文案 key）優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。"""
+def banner_for(game_issue: str | None, error_state: str | None,
+               error_detail: tuple[int | None, str] | None = None) -> tuple[str, dict] | None:
+    """決定該顯示哪一條錯誤橫幅：（文案 key，format 變數）或 None＝不顯示。
+    game_issue（遊戲端問題的文案 key）優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。
+    error_detail 是 pool 記下的（HTTP 狀態碼，API 說明）：有就照實顯示，
+    沒有才退回只靠狀態猜的固定文案。"""
     if game_issue:
-        return game_issue
+        return game_issue, {}
     if error_state == "config":
-        return "notice.config_error"
+        if error_detail:
+            status, message = error_detail
+            return "notice.config_error_detail", {"status": status, "message": message}
+        return "notice.config_error", {}
     if error_state == "offline":
-        return "notice.offline"
+        if error_detail:
+            status, message = error_detail
+            if status is not None:
+                return "notice.offline_http", {"status": status, "message": message}
+            return "notice.offline_detail", {"message": message}
+        return "notice.offline", {}
     return None
 
 
@@ -94,19 +105,23 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
             stop.wait(min(INPUT_POLL_INTERVAL, remaining))
             check_input()
 
-    def translation_error() -> str | None:
+    def translation_banner(game_issue: str | None) -> tuple[str, dict] | None:
         """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
-        return pool.error_state or (system_pool.error_state if system_pool else None)
+        failing = pool if pool.error_state else system_pool
+        if failing is None:
+            return banner_for(game_issue, None)
+        return banner_for(game_issue, failing.error_state, failing.error_detail)
 
-    def set_banner(key: str | None) -> None:
+    def set_banner(banner: tuple[str, dict] | None) -> None:
         nonlocal last_banner
-        if key == last_banner:
+        if banner == last_banner:
             return
-        last_banner = key
-        if key is None:
+        last_banner = banner
+        if banner is None:
             ui_queue.put(overlay.clear_error)
         else:
-            ui_queue.put(lambda k=key: overlay.set_error(k))
+            key, kwargs = banner
+            ui_queue.put(lambda: overlay.set_error(key, **kwargs))
 
     while not stop.is_set():
         reader.emit_system = cfg.get("translate_system_messages", False)
@@ -124,7 +139,7 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 log(f"[reader] game not ready: {exc}")
             game_issue = issue
-            set_banner(banner_for(game_issue, translation_error()))
+            set_banner(translation_banner(game_issue))
             if game_input_open:
                 game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
                 if on_input_close is not None:
@@ -162,7 +177,7 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                                              pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
-        set_banner(banner_for(game_issue, translation_error()))
+        set_banner(translation_banner(game_issue))
         if pool.in_flight or (system_pool is not None and system_pool.in_flight):
             set_status("translating")
         else:

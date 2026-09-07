@@ -148,6 +148,7 @@ class OverlayWindow:
         self._error_label: tk.Label | None = None
         self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
         self._error_key: str | None = None      # 目前橫幅的 key，同上
+        self._error_kwargs: dict = {}
         self._update_row: tk.Frame | None = None
         self._update_label: tk.Label | None = None
         self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
@@ -795,13 +796,14 @@ class OverlayWindow:
             self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
             self._placeholder.lift()
 
-    def set_error(self, key: str) -> None:
-        """顯示錯誤橫幅（傳入文案 key，顯示時才翻譯）。"""
+    def set_error(self, key: str, **kwargs) -> None:
+        """顯示錯誤橫幅（傳入文案 key 與 format 變數，顯示時才翻譯）。"""
         self.clear_error()
         self._error_key = key
+        self._error_kwargs = kwargs
         # justify＝換行後每一行都靠左：tk.Label 多行預設置中，anchor="w" 只擺放整塊
         # 文字、管不到行內對齊，較長的橫幅（如版本不相容）換行後會歪成階梯狀。
-        self._error_label = tk.Label(self._frame, text=t(key), bg=BG, fg=FG_ERROR,
+        self._error_label = tk.Label(self._frame, text=t(key, **kwargs), bg=BG, fg=FG_ERROR,
                                      font=ui_font(10, "bold"), anchor="w",
                                      justify="left", wraplength=self._wrap)
         # before＝捲動區：pack 依宣告順序分配空間，橫幅排在 expand=True 的捲動區
@@ -869,7 +871,7 @@ class OverlayWindow:
         if self._status_state is not None:
             self.set_status(self._status_state)
         if self._error_key is not None:
-            self.set_error(self._error_key)
+            self.set_error(self._error_key, **self._error_kwargs)
         if self._update_release is not None:
             self.set_update(self._update_release)
 
