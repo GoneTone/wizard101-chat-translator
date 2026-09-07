@@ -385,12 +385,19 @@ def _model_list_error(status: int, detail: str = "") -> Exception | None:
 
 
 class _OpenAICompatClient:
-    """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。"""
+    """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。
+
+    official＝OpenAI 官方端點，請求 body 與自架後端有三處不同：
+    - 長度上限用 max_completion_tokens（max_tokens 已棄用，GPT-5／o 系列直接 400）；
+    - 不帶 temperature（同一批模型只接受預設值，帶 0 會 400）；
+    - 停用思考只帶它認得的 reasoning_effort（未知欄位嚴格回 400）。
+    自架後端（vLLM／Ollama／LM Studio）多半只認 max_tokens，temperature=0 也是為了
+    它們的重現性，故維持原樣。"""
 
     def __init__(self, base_url: str, model: str, api_key: str = "",
                  thinking: bool = True, timeout: float = _TIMEOUT, client=None,
-                 disable_params: dict = _DISABLE_THINKING):
-        self._disable_params = disable_params
+                 official: bool = False):
+        self._official = official
         if client is not None:
             self._client = client
         else:
@@ -404,11 +411,14 @@ class _OpenAICompatClient:
         body = {
             "model": self._model,
             "messages": [{"role": "system", "content": system}, *turns],
-            "temperature": 0,
-            "max_tokens": max_tokens,
         }
+        if self._official:
+            body["max_completion_tokens"] = max_tokens
+        else:
+            body["temperature"] = 0
+            body["max_tokens"] = max_tokens
         if not self._thinking:
-            body.update(self._disable_params)
+            body.update(_DISABLE_THINKING_OPENAI if self._official else _DISABLE_THINKING)
         try:
             resp = self._client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
@@ -505,10 +515,10 @@ def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
         return _ClaudeClient(model=model, api_key=api_key, effort=effort,
                              timeout=timeout, client=client)
     if provider == "openai":
-        # 官方端點固定 base_url，且只帶它認得的停用參數（自架後端那組未知欄位會 400）。
+        # 官方端點固定 base_url；請求 body 的差異見 _OpenAICompatClient
         return _OpenAICompatClient(base_url=OPENAI_BASE_URL, model=model, api_key=api_key,
                                    thinking=thinking, timeout=timeout, client=client,
-                                   disable_params=_DISABLE_THINKING_OPENAI)
+                                   official=True)
     return _OpenAICompatClient(base_url=base_url, model=model, api_key=api_key,
                                thinking=thinking, timeout=timeout, client=client)
 

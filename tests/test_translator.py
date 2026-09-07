@@ -242,6 +242,33 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
         assert key not in fake.last_body
 
 
+def test_openai_provider_uses_max_completion_tokens_and_no_temperature():
+    # 官方端點：max_tokens 已棄用、GPT-5／o 系列直接回 400「use max_completion_tokens」；
+    # 同一批模型也只接受預設 temperature（實測「Only the default (1) value is supported」）
+    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+
+    fake = FakeHttpxClient()
+    t = Translator(provider="openai", model="m", api_key="k", thinking=False,
+                   target_language="繁體中文（台灣）", client=fake)
+    t.translate_incoming("[A] hi", [])
+    assert fake.last_body["max_completion_tokens"] == _MAX_TOKENS
+    assert "max_tokens" not in fake.last_body
+    assert "temperature" not in fake.last_body
+    fake = FakeHttpxClient()
+    Translator(provider="openai", model="m", api_key="k", thinking=True,
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
+    assert fake.last_body["max_completion_tokens"] == _MAX_TOKENS_THINKING
+
+
+def test_custom_endpoint_keeps_max_tokens_and_temperature():
+    # 自架後端（vLLM／Ollama／LM Studio）多半只認 max_tokens，temperature=0 也是為了它們的重現性
+    fake = FakeHttpxClient()
+    _make(fake).translate_incoming("[A] hi", [])
+    assert "max_tokens" in fake.last_body
+    assert "max_completion_tokens" not in fake.last_body
+    assert fake.last_body["temperature"] == 0
+
+
 def test_openai_provider_forces_official_base_url():
     t = Translator(provider="openai", base_url="http://evil.example", model="m",
                    api_key="k", target_language="繁體中文（台灣）")
