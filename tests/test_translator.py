@@ -453,20 +453,13 @@ def test_error_detail_extracts_api_message(text, expected):
     assert error_detail(text) == expected
 
 
-def test_error_detail_truncates_long_body():
-    detail = error_detail("x" * 1000)
-    assert len(detail) <= 201 and detail.endswith("…")
-
-
-def test_error_detail_truncates_at_a_word_boundary_so_urls_survive():
-    # 硬切在第 200 字會把訊息尾端的網址切一半變成死連結
+def test_error_detail_keeps_the_whole_message():
+    # 不截斷：訊息尾端常是說明網址，切掉就少了最有用的部分；只折成單行
     url = "https://platform.openai.com/account/api-keys"
-    body = "word " * 38 + url + " tail"
-    assert 200 < len(body) < 260
+    body = "word " * 60 + "\n  " + url + " tail"
     detail = error_detail(body)
-    assert detail.endswith("…")
-    assert url not in detail and "https://platform" not in detail
-    assert detail == "word " * 37 + "word…"
+    assert detail == "word " * 60 + url + " tail"
+    assert "…" not in detail
 
 
 def test_openai_compat_config_error_carries_api_message():

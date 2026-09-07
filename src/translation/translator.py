@@ -331,7 +331,6 @@ class TranslatorNoModelList(Exception):
     使用者仍可自行輸入模型名稱正常翻譯。"""
 
 
-_DETAIL_MAX_CHARS = 200  # 橫幅與設定視窗共用：夠放一句 API 說明，擋掉整頁 HTML
 _HTML_TAG = re.compile(r"<[^>]+>")
 
 
@@ -350,28 +349,21 @@ def _message_of(body) -> str | None:
     return None
 
 
-def _clip(text: str) -> str:
-    """折成單行並截到 _DETAIL_MAX_CHARS。切點退到最後一個空白：硬切會把訊息
-    尾端的網址切一半，顯示端把它做成連結就成了死連結。"""
-    text = " ".join(text.split())
-    if len(text) <= _DETAIL_MAX_CHARS:
-        return text
-    cut = text.rfind(" ", 0, _DETAIL_MAX_CHARS + 1)
-    if cut <= 0:
-        cut = _DETAIL_MAX_CHARS
-    return text[:cut].rstrip() + "…"
+def _one_line(text: str) -> str:
+    """折成單行（多行 body、縮排的 JSON）；不截斷——訊息尾端常是說明網址。"""
+    return " ".join(text.split())
 
 
 def error_detail(text: str) -> str:
     """把錯誤回應的原始 body 整理成可直接顯示的一句話：JSON 取 error.message 之類的
-    欄位，HTML 錯誤頁去標籤，其餘照原文；一律折成單行並截到 _DETAIL_MAX_CHARS。"""
+    欄位，HTML 錯誤頁去標籤，其餘照原文；一律折成單行。"""
     try:
         message = _message_of(json.loads(text))
     except ValueError:
         message = None
     if message is None:
         message = _HTML_TAG.sub(" ", text)
-    return _clip(message)
+    return _one_line(message)
 
 
 def _status_error(status: int, detail: str = "") -> TranslatorError | None:
@@ -420,7 +412,7 @@ class _OpenAICompatClient:
         try:
             resp = self._client.post("/v1/chat/completions", json=body)
         except httpx.HTTPError as exc:
-            raise TranslatorOffline(_clip(str(exc))) from exc
+            raise TranslatorOffline(_one_line(str(exc))) from exc
         error = _status_error(resp.status_code, error_detail(resp.text))
         if error is not None:
             raise error
@@ -439,7 +431,7 @@ class _OpenAICompatClient:
         try:
             resp = self._client.get("/v1/models")
         except httpx.HTTPError as exc:
-            raise TranslatorOffline(_clip(str(exc))) from exc
+            raise TranslatorOffline(_one_line(str(exc))) from exc
         error = _model_list_error(resp.status_code, error_detail(resp.text))
         if error is not None:
             raise error
@@ -453,7 +445,7 @@ class _OpenAICompatClient:
 def _anthropic_detail(exc: anthropic.APIStatusError) -> str:
     """SDK 已把 body 解析成 dict（exc.body），取不到說明時退回 SDK 自己組的訊息。"""
     message = _message_of(exc.body)
-    return _clip(message if message is not None else exc.message)
+    return _one_line(message if message is not None else exc.message)
 
 
 class _ClaudeClient:
@@ -478,7 +470,7 @@ class _ClaudeClient:
         try:
             resp = self._client.messages.create(**params)
         except anthropic.APIConnectionError as exc:
-            raise TranslatorOffline(_clip(str(exc))) from exc
+            raise TranslatorOffline(_one_line(str(exc))) from exc
         except anthropic.APIStatusError as exc:
             error = _status_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
@@ -495,7 +487,7 @@ class _ClaudeClient:
         try:
             page = self._client.models.list()  # SDK 自動翻頁，直接迭代即可
         except anthropic.APIConnectionError as exc:
-            raise TranslatorOffline(_clip(str(exc))) from exc
+            raise TranslatorOffline(_one_line(str(exc))) from exc
         except anthropic.APIStatusError as exc:
             error = _model_list_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
