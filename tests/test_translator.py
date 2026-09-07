@@ -1,4 +1,6 @@
 """translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
+import json
+
 import anthropic
 import httpx
 import httpx2
@@ -267,6 +269,83 @@ def test_custom_endpoint_keeps_max_tokens_and_temperature():
     assert "max_tokens" in fake.last_body
     assert "max_completion_tokens" not in fake.last_body
     assert fake.last_body["temperature"] == 0
+
+
+class SequenceClient:
+    """替身 httpx.Client：依序回傳 responses，並記下每次送出的 body。"""
+    def __init__(self, *responses):
+        self._responses = list(responses)
+        self.bodies = []
+
+    def post(self, url, json):
+        self.bodies.append(json)
+        return self._responses.pop(0)
+
+
+def _rejects(param: str, wording: str = "unrecognized"):
+    messages = {
+        "unrecognized": f"Unrecognized request argument supplied: {param}",
+        "unsupported": f"Unsupported parameter: '{param}' is not supported with this model. "
+                       f"Use 'max_completion_tokens' instead.",
+        "value": f"Unsupported value: '{param}' does not support 0 with this model. "
+                 f"Only the default (1) value is supported.",
+    }
+    return FakeResponse(status_code=400,
+                        text=json.dumps({"error": {"message": messages[wording]}}))
+
+
+def test_rejected_parameter_is_dropped_and_the_request_retried():
+    # gpt-4o-mini 這類非推理模型不認 reasoning_effort：規則因模型而異、靠名稱猜會一直追不上，
+    # 改成聽伺服器的——它指名哪個參數就拿掉哪個重送
+    fake = SequenceClient(_rejects("reasoning_effort"), FakeResponse())
+    t = Translator(provider="openai", model="gpt-4o-mini", api_key="k", thinking=False,
+                   target_language="繁體中文（台灣）", client=fake)
+    assert t.translate_incoming("[A] hi", []) == "譯文"
+    assert "reasoning_effort" in fake.bodies[0]
+    assert "reasoning_effort" not in fake.bodies[1]
+    # 學到的規則記在 client 上：下一句不再多送一次被拒的請求
+    fake._responses.append(FakeResponse())
+    t.translate_incoming("[A] again", [])
+    assert len(fake.bodies) == 3 and "reasoning_effort" not in fake.bodies[2]
+
+
+@pytest.mark.parametrize("wording", ["unsupported", "value"])
+def test_other_openai_rejection_wordings_are_recognised(wording):
+    fake = SequenceClient(_rejects("temperature", wording), FakeResponse())
+    assert _make(fake).translate_incoming("[A] hi", []) == "譯文"
+    assert "temperature" not in fake.bodies[1]
+
+
+def test_rejected_token_limit_is_swapped_not_dropped():
+    # 長度上限是防 repetition loop 的保險，不能因為端點只認另一個名字就整個不帶
+    from src.translation.translator import _MAX_TOKENS_THINKING
+    fake = SequenceClient(_rejects("max_completion_tokens"), FakeResponse())
+    t = Translator(provider="openai", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    t.translate_incoming("[A] hi", [])
+    assert "max_completion_tokens" not in fake.bodies[1]
+    assert fake.bodies[1]["max_tokens"] == _MAX_TOKENS_THINKING
+    fake = SequenceClient(_rejects("max_tokens", "unsupported"), FakeResponse())
+    _make(fake).translate_incoming("[A] hi", [])
+    assert "max_tokens" not in fake.bodies[1]
+    assert fake.bodies[1]["max_completion_tokens"] == _MAX_TOKENS_THINKING
+
+
+def test_400_without_a_named_parameter_is_still_a_config_error():
+    fake = SequenceClient(FakeResponse(status_code=400,
+                                       text='{"error": {"message": "bad request"}}'))
+    with pytest.raises(TranslatorConfigError) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert ei.value.detail == "bad request"
+    assert len(fake.bodies) == 1
+
+
+def test_rejection_of_a_parameter_we_did_not_send_is_not_retried_forever():
+    # 伺服器指名的參數本來就不在 body 裡：拿掉也沒用，照一般 400 處理
+    fake = SequenceClient(_rejects("frequency_penalty"))
+    with pytest.raises(TranslatorConfigError):
+        _make(fake).translate_incoming("[A] hi", [])
+    assert len(fake.bodies) == 1
 
 
 def test_openai_provider_forces_official_base_url():

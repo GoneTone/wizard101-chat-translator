@@ -384,15 +384,35 @@ def _model_list_error(status: int, detail: str = "") -> Exception | None:
     return _status_error(status, detail)
 
 
+# OpenAI 官方 400 指名參數的三種寫法：非推理模型不認 reasoning_effort、
+# GPT-5／o 系列不認 max_tokens 與非預設 temperature。
+_REJECTED_PARAM = re.compile(
+    r"Unrecognized request argument supplied: (\w+)"
+    r"|Unsupported (?:parameter|value): '(\w+)'")
+# 長度上限兩個名字互換而非拿掉：它是防 repetition loop 的保險（見 _MAX_TOKENS）。
+_TOKEN_LIMIT_PARAMS = {"max_tokens": "max_completion_tokens",
+                       "max_completion_tokens": "max_tokens"}
+
+
+def rejected_parameter(detail: str) -> str | None:
+    """從 400 的說明文字抓出被拒的參數名；認不出來回 None。"""
+    match = _REJECTED_PARAM.search(detail)
+    if match is None:
+        return None
+    return match.group(1) or match.group(2)
+
+
 class _OpenAICompatClient:
     """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。
 
-    official＝OpenAI 官方端點，請求 body 與自架後端有三處不同：
-    - 長度上限用 max_completion_tokens（max_tokens 已棄用，GPT-5／o 系列直接 400）；
-    - 不帶 temperature（同一批模型只接受預設值，帶 0 會 400）；
-    - 停用思考只帶它認得的 reasoning_effort（未知欄位嚴格回 400）。
-    自架後端（vLLM／Ollama／LM Studio）多半只認 max_tokens，temperature=0 也是為了
-    它們的重現性，故維持原樣。"""
+    哪些參數能帶因模型而異（gpt-4o-mini 不認 reasoning_effort，GPT-5 不認 max_tokens
+    與 temperature），靠模型名稱猜規則追不上改版，改成聽伺服器的：400 指名某個參數
+    就拿掉它重送一次，並記在這個 client 上，之後的請求不再帶。
+
+    official＝OpenAI 官方端點的起手式：長度上限用 max_completion_tokens、不帶
+    temperature、停用思考只帶 reasoning_effort（未知欄位嚴格回 400）。自架後端
+    （vLLM／Ollama／LM Studio）多半只認 max_tokens，temperature=0 也是為了它們的
+    重現性，故起手維持原樣。"""
 
     def __init__(self, base_url: str, model: str, api_key: str = "",
                  thinking: bool = True, timeout: float = _TIMEOUT, client=None,
@@ -405,27 +425,47 @@ class _OpenAICompatClient:
             self._client = httpx.Client(base_url=base_url, headers=headers, timeout=timeout)
         self._model = model
         self._thinking = thinking
+        self._token_param = "max_completion_tokens" if official else "max_tokens"
+        self._dropped: set[str] = set()
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
+    def _body(self, system: str, turns: list[dict], max_tokens: int) -> dict:
         body = {
             "model": self._model,
             "messages": [{"role": "system", "content": system}, *turns],
+            self._token_param: max_tokens,
         }
-        if self._official:
-            body["max_completion_tokens"] = max_tokens
-        else:
+        if not self._official:
             body["temperature"] = 0
-            body["max_tokens"] = max_tokens
         if not self._thinking:
             body.update(_DISABLE_THINKING_OPENAI if self._official else _DISABLE_THINKING)
-        try:
-            resp = self._client.post("/v1/chat/completions", json=body)
-        except httpx.HTTPError as exc:
-            raise TranslatorOffline(_one_line(str(exc))) from exc
-        error = _status_error(resp.status_code, error_detail(resp.text))
-        if error is not None:
-            raise error
+        for name in self._dropped:
+            body.pop(name, None)
+        return body
+
+    def _learn_rejection(self, param: str) -> None:
+        if param in _TOKEN_LIMIT_PARAMS:
+            self._token_param = _TOKEN_LIMIT_PARAMS[param]
+        else:
+            self._dropped.add(param)
+
+    def chat(self, system: str, turns: list[dict]) -> str:
+        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
+        while True:
+            body = self._body(system, turns, max_tokens)
+            try:
+                resp = self._client.post("/v1/chat/completions", json=body)
+            except httpx.HTTPError as exc:
+                raise TranslatorOffline(_one_line(str(exc))) from exc
+            error = _status_error(resp.status_code, error_detail(resp.text))
+            if error is None:
+                break
+            param = rejected_parameter(error.detail) if error.status == 400 else None
+            if param is None or param not in body:
+                raise error
+            # 每輪都拿掉一個 body 裡確實有的參數，所以必然收斂
+            self._learn_rejection(param)
+            log(f"[translate] endpoint rejected parameter {param} (model={self._model}); "
+                f"retrying without it")
         resp.raise_for_status()
         data = resp.json()
         choice = data["choices"][0]
