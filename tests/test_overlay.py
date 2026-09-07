@@ -12,6 +12,7 @@ from src.ui.overlay import (
     MIN_WIDTH,
     STATUS_COLORS,
     OverlayWindow,
+    autoscroll_pixels,
     should_stick_to_bottom,
 )
 from src.ui.selection import TEXT_ORIGIN, line_font, visual_lines
@@ -1053,6 +1054,81 @@ def test_clicking_the_title_bar_closes_the_menu(root):
     ov._win.update()
 
     assert ov._popup.visible is False
+
+
+def test_autoscroll_is_still_inside_the_viewport():
+    assert autoscroll_pixels(500, 400, 600) == 0
+    assert autoscroll_pixels(400, 400, 600) == 0
+    assert autoscroll_pixels(600, 400, 600) == 0
+
+
+def test_autoscroll_goes_up_above_the_viewport_and_down_below_it():
+    assert autoscroll_pixels(392, 400, 600) < 0
+    assert autoscroll_pixels(608, 400, 600) > 0
+
+
+def test_autoscroll_speeds_up_with_distance_but_is_capped():
+    near = autoscroll_pixels(610, 400, 600, lo=2, hi=24)
+    far = autoscroll_pixels(650, 400, 600, lo=2, hi=24)
+    assert 0 < near < far < 24
+    assert autoscroll_pixels(9000, 400, 600, lo=2, hi=24) == 24
+
+
+def _tick_autoscroll(ov, times=20):
+    """手動跑幾輪自動捲動。
+
+    每輪都要讓 Tk 重新排版：`winfo_rooty()` 回報的是上次排版的位置，連續同步呼叫
+    而不 update 的話，caret 會一直算在捲動前的那一列上。正式路徑每輪是獨立的
+    `after` 回呼，中間本來就有事件迴圈。每輪自己排的下一輪也要取消，免得留
+    after 排程給別的測試。"""
+    for _ in range(times):
+        ov._autoscroll()
+        ov._stop_autoscroll()
+        ov._win.update()
+
+
+def test_dragging_above_the_viewport_scrolls_and_grows_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    first, second = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(second.winfo_rootx() + 10,
+                              ov._canvas.winfo_rooty() - 60))
+    ov._stop_autoscroll()
+    ov._win.update()
+    view_before, text_before = ov._canvas.yview()[0], ov._selection.text()
+
+    _tick_autoscroll(ov)
+    ov._win.update()
+
+    assert ov._canvas.yview()[0] < view_before, "拖到視口上方應該要往上捲"
+    assert len(ov._selection.text()) > len(text_before), "捲動後選取要跟著長出來"
+
+
+def test_autoscroll_stops_once_the_drag_ends(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       max_messages=50, fade_seconds=0)
+    for i in range(20):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update()
+    first, _ = ov._messages[-1].row.winfo_children()
+    ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
+                               first.winfo_rooty() + first.winfo_height() // 2))
+    ov._selection_drag(_Press(first.winfo_rootx() + 10,
+                              ov._canvas.winfo_rooty() - 60))
+    ov._selection_release(_Press(0, 0))
+    ov._win.update()
+    view_after_release = ov._canvas.yview()[0]
+
+    _tick_autoscroll(ov)
+    ov._win.update()
+
+    assert ov._canvas.yview()[0] == view_after_release
+    assert ov._autoscroll_job is None
 
 
 def test_minimize_closes_the_menu(root):

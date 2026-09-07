@@ -97,6 +97,9 @@ _BAR_TEXT_NUDGE = 1
 _GRIP_SIZE = 16
 _STICK_THRESHOLD = 0.999
 _FOREGROUND_POLL_MS = 300
+_AUTOSCROLL_MS = 40      # 框選拖到邊界外時的捲動節奏
+_AUTOSCROLL_MIN = 2      # 每輪最少捲幾像素（剛越界時要慢，才停得準）
+_AUTOSCROLL_MAX = 24
 _EDGE_CURSORS = {"n": "size_ns", "s": "size_ns", "w": "size_we", "e": "size_we",
                  "nw": "size_nw_se", "se": "size_nw_se",
                  "ne": "size_ne_sw", "sw": "size_ne_sw"}
@@ -106,6 +109,17 @@ def should_stick_to_bottom(view_bottom_fraction: float,
                            threshold: float = _STICK_THRESHOLD) -> bool:
     """視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。"""
     return view_bottom_fraction >= threshold
+
+
+def autoscroll_pixels(y_root: int, top: int, bottom: int,
+                      lo: int = _AUTOSCROLL_MIN, hi: int = _AUTOSCROLL_MAX) -> int:
+    """框選拖到訊息區之外時，每一輪要捲動的像素（負值往上，落在區內回 0）。
+    離邊界越遠捲越快，但設上限——否則游標一滑出視窗就整段飛過去，選不準。"""
+    if y_root < top:
+        return -min(hi, lo + (top - y_root) // 4)
+    if y_root > bottom:
+        return min(hi, lo + (y_root - bottom) // 4)
+    return 0
 
 
 class OverlayWindow:
@@ -143,6 +157,8 @@ class OverlayWindow:
         self._drag = (0, 0, 0, 0)
         # 縮放中的起點與起始幾何；None＝目前沒有在縮放（見 _resize_start）
         self._resize: tuple[int, int, int, int, int, int, str] | None = None
+        self._drag_point: tuple[int, int] | None = None   # 框選拖曳的最後座標（自動捲動要用）
+        self._autoscroll_job: str | None = None
 
         self._build_backdrop(root)
         # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
@@ -327,6 +343,7 @@ class OverlayWindow:
         """縮小成浮動泡泡：隱藏本體（訊息照常累積），點泡泡展開、拖曳移動。"""
         if self._minimized:
             return
+        self._stop_autoscroll()
         self._selection.clear("minimized to bubble")
         self._popup.hide()
         self._win.update_idletasks()
@@ -605,10 +622,41 @@ class OverlayWindow:
             self._focus_for_copy()
 
     def _selection_drag(self, e) -> None:
+        self._drag_point = (e.x_root, e.y_root)
         self._selection.extend(e.x_root, e.y_root)
+        if self._autoscroll_job is None:
+            self._autoscroll_job = self._win.after(_AUTOSCROLL_MS, self._autoscroll)
 
     def _selection_release(self, e) -> None:
+        self._stop_autoscroll()
         self._selection.finish()
+
+    def _autoscroll(self) -> None:
+        """拖到訊息區上下緣之外時持續捲動，選取才能延伸到畫面外的訊息。
+
+        每捲一次都要用最後的游標座標重算一次 focus——內容在游標底下移動了，
+        游標壓著的字跟著換人，不重算的話選取範圍會停在捲動前的位置。"""
+        self._autoscroll_job = None
+        if not self._selection.dragging or self._drag_point is None:
+            return
+        top = self._canvas.winfo_rooty()
+        step = autoscroll_pixels(self._drag_point[1], top,
+                                 top + self._canvas.winfo_height() - 1)
+        bbox = self._canvas.bbox("all")
+        height = (bbox[3] - bbox[1]) if bbox else 0
+        if step and height > 0:
+            self._canvas.yview_moveto(
+                min(1.0, max(0.0, self._canvas.yview()[0] + step / height)))
+            self._note_scroll()
+            self._selection.extend(*self._drag_point)
+        self._autoscroll_job = self._win.after(_AUTOSCROLL_MS, self._autoscroll)
+
+    def _stop_autoscroll(self) -> None:
+        """取消排程。`_drag_point` 刻意留著——它只被 `_autoscroll` 讀，而那裡本來就會
+        先看 `dragging`；清掉反而讓「停掉排程」與「結束拖曳」兩件事糊在一起。"""
+        if self._autoscroll_job is not None:
+            self._win.after_cancel(self._autoscroll_job)
+            self._autoscroll_job = None
 
     def _focus_for_copy(self) -> None:
         """把鍵盤焦點交給本體，Ctrl+C 才收得到——backdrop 帶 WS_EX_NOACTIVATE，

@@ -75,19 +75,31 @@ def test_empty_selection_has_no_rects(line):
 
 
 def test_selected_text_within_one_line():
-    assert selected_text(["abcdef", "xyz"], Caret(0, 1), Caret(0, 4)) == "bcd"
+    assert selected_text([["abcdef", "xyz"]], Caret(0, 0, 1), Caret(0, 0, 4)) == "bcd"
 
 
 def test_selected_text_across_both_lines():
-    assert selected_text(["abcdef", "xyz"], Caret(0, 4), Caret(1, 2)) == "ef\nxy"
+    assert selected_text([["abcdef", "xyz"]], Caret(0, 0, 4), Caret(0, 1, 2)) == "ef\nxy"
 
 
 def test_selected_text_of_an_empty_span():
-    assert selected_text(["abcdef", "xyz"], Caret(0, 2), Caret(0, 2)) == ""
+    assert selected_text([["abcdef", "xyz"]], Caret(0, 0, 2), Caret(0, 0, 2)) == ""
 
 
 def test_selected_text_includes_whole_lines_in_between():
-    assert selected_text(["abc", "mid", "xyz"], Caret(0, 1), Caret(2, 2)) == "bc\nmid\nxy"
+    assert selected_text([["abc", "mid", "xyz"]],
+                         Caret(0, 0, 1), Caret(0, 2, 2)) == "bc\nmid\nxy"
+
+
+def test_selected_text_separates_messages_with_a_blank_line():
+    messages = [["a1", "a2"], ["b1", "b2"], ["c1", "c2"]]
+    assert selected_text(messages, Caret(0, 1, 1), Caret(2, 0, 1)) == "2\n\nb1\nb2\n\nc"
+
+
+def test_selected_text_of_two_whole_messages():
+    messages = [["原文一", "譯文一"], ["原文二", "譯文二"]]
+    assert selected_text(messages, Caret(0, 0, 0), Caret(1, 1, 3)) == (
+        "原文一\n譯文一\n\n原文二\n譯文二")
 
 
 @pytest.fixture
@@ -171,26 +183,97 @@ def test_dragging_above_the_message_clamps_to_its_start(message):
     assert sel.text() == "original text\ntranslated text"
 
 
-def test_selection_never_crosses_into_another_message(root):
-    # 「不跨訊息」是夾出來的：拖進另一則的範圍，focus 仍夾在起手那一則的結尾
+@pytest.fixture
+def three_messages(root):
+    """三則訊息（每則原文行＋譯文行）疊在同一個視窗裡，已註冊進一個 Selection。"""
     win = tk.Toplevel(root)
-    frames = []
+    rows = []
     sel = Selection()
-    for original, translated in (("first one", "first two"), ("second one", "second two")):
+    for n in ("one", "two", "three"):
         frame = tk.Frame(win)
         frame.pack()
-        top = _outlined_line(frame, original, "#c0c0cd", ui_font(9), 400)
+        top = _outlined_line(frame, f"orig {n}", "#c0c0cd", ui_font(9), 400)
         top.pack(fill="x")
-        bottom = _outlined_line(frame, translated, "#f2f2f7", ui_font(11), 400)
+        bottom = _outlined_line(frame, f"trans {n}", "#f2f2f7", ui_font(11), 400)
         bottom.pack(fill="x")
         sel.register(frame, (top, bottom))
-        frames.append((frame, top, bottom))
+        rows.append((frame, top, bottom))
     win.update()
-
-    sel.begin(*_at(frames[0][1]))
-    sel.extend(*_at(frames[1][2], dx=1000))
-    assert sel.text() == "first one\nfirst two"
+    yield sel, rows
     win.destroy()
+
+
+def test_selection_spans_messages_with_a_blank_line_between(three_messages):
+    sel, rows = three_messages
+
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(*_at(rows[1][2], dx=rows[1][2].winfo_width() - 1))
+
+    assert sel.text() == "orig one\ntrans one\n\norig two\ntrans two"
+
+
+def test_selection_spans_three_messages(three_messages):
+    sel, rows = three_messages
+
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(*_at(rows[2][2], dx=rows[2][2].winfo_width() - 1))
+
+    assert sel.text().count("\n\n") == 2, "三則之間要有兩個空行"
+    assert sel.text().startswith("orig one")
+    assert sel.text().endswith("trans three")
+
+
+def test_dragging_below_everything_clamps_to_the_last_message(three_messages):
+    sel, rows = three_messages
+    x, y = _at(rows[2][2])
+
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(x, y + 500)
+
+    assert sel.text().endswith("trans three")
+
+
+def test_dragging_above_everything_clamps_to_the_first_message(three_messages):
+    sel, rows = three_messages
+    x, y = _at(rows[0][1])
+
+    sel.begin(*_at(rows[2][2], dx=rows[2][2].winfo_width() - 1))
+    sel.extend(x, y - 500)
+
+    assert sel.text().startswith("orig one")
+
+
+def test_highlight_is_drawn_on_every_spanned_message(three_messages):
+    sel, rows = three_messages
+
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(*_at(rows[2][2], dx=rows[2][2].winfo_width() - 1))
+
+    for _, top, bottom in rows:
+        assert top.find_withtag("sel"), "跨越的每一列都要有反白"
+        assert bottom.find_withtag("sel")
+
+
+def test_forgetting_a_row_before_the_selection_keeps_the_text(three_messages):
+    # 訊息以序號定位，prune 砍掉最舊的一則時序號要整體前移，否則選取會錯位
+    sel, rows = three_messages
+    sel.begin(*_at(rows[1][1]))
+    sel.extend(*_at(rows[2][2], dx=rows[2][2].winfo_width() - 1))
+    before = sel.text()
+
+    sel.forget(rows[0][0])
+
+    assert sel.text() == before
+
+
+def test_forgetting_a_row_inside_the_selection_clears_it(three_messages):
+    sel, rows = three_messages
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(*_at(rows[2][2], dx=rows[2][2].winfo_width() - 1))
+
+    sel.forget(rows[1][0])
+
+    assert sel.active is False
 
 
 def test_highlight_is_drawn_below_the_text(message):

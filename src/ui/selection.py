@@ -15,8 +15,10 @@ TEXT_ORIGIN = 2   # 描邊文字 item 的繪製原點（見 overlay._outlined_li
 
 
 class Caret(NamedTuple):
-    """選取端點。line＝該則訊息內第幾個 canvas（0＝原文行，1＝譯文行）；
-    index＝該行文字內的字元索引。NamedTuple 的比較順序恰好就是閱讀順序。"""
+    """選取端點。message＝第幾則訊息；line＝該則內第幾個 canvas（0＝原文行，
+    1＝譯文行）；index＝該行文字內的字元索引。欄位順序即閱讀順序，NamedTuple
+    的字典序比較因此可以直接拿來排先後。"""
+    message: int
     line: int
     index: int
 
@@ -69,29 +71,40 @@ def highlight_rects(canvas, font, start: int, end: int) -> list[tuple[int, int, 
     return rects
 
 
-def selected_text(texts: list[str], start: Caret, end: Caret) -> str:
-    """選取範圍內的文字；跨行時以換行相接。純字串運算，不碰 Tk。"""
+def selected_text(messages: list[list[str]], start: Caret, end: Caret) -> str:
+    """選取範圍內的文字。同一則訊息的行以換行相接，訊息與訊息之間空一行——
+    貼出去才看得出哪幾句原本是同一則。純字串運算，不碰 Tk。"""
     if start >= end:
         return ""
-    if start.line == end.line:
-        return texts[start.line][start.index:end.index]
-    parts = [texts[start.line][start.index:]]
-    parts.extend(texts[line] for line in range(start.line + 1, end.line))
-    parts.append(texts[end.line][:end.index])
-    return "\n".join(parts)
+    chunks = []
+    for message in range(start.message, end.message + 1):
+        lines = messages[message]
+        first = start.line if message == start.message else 0
+        last = end.line if message == end.message else len(lines) - 1
+        picked = []
+        for line in range(first, last + 1):
+            text = lines[line]
+            lo = start.index if (message, line) == (start.message, start.line) else 0
+            hi = end.index if (message, line) == (end.message, end.line) else len(text)
+            picked.append(text[lo:hi])
+        chunks.append("\n".join(picked))
+    return "\n\n".join(chunks)
 
 
 class Selection:
     """疊加視窗訊息的選取狀態：命中、夾取、反白繪製與取字。
 
     只認螢幕座標——事件從文字 canvas（墨跡像素）或 backdrop（其餘區域因透明色鍵
-    而穿透過去）進來都一樣，呼叫端負責換算。選取不跨訊息：起手決定作用中的那一則，
-    拖出範圍就夾到該則的頭或尾。"""
+    而穿透過去）進來都一樣，呼叫端負責換算。選取可跨訊息；拖出全部訊息的上下界
+    就夾到最前／最後。
+
+    caret 以「第幾則」定位而非物件參照，所以列被移除時序號要跟著維護（見 `forget`）。
+    """
 
     def __init__(self):
         self._rows: dict = {}          # 訊息列 → 該列的行 canvas（插入順序＝顯示順序）
         self._fonts: dict = {}         # 行 canvas → Font；拖曳時每個事件都要量測，不能重建
-        self._active = None            # 作用中的那一則（訊息列）
+        self._drawn: list = []         # 目前畫著反白的 canvas；擦除只掃這些，不掃全部訊息
         self._anchor: Caret | None = None
         self._focus: Caret | None = None
         self._dragging = False
@@ -111,24 +124,43 @@ class Selection:
         self._rows[row] = list(canvases)
 
     def forget(self, row) -> None:
-        """訊息列即將被銷毀：解除登記，選取落在該列時一併清掉——否則選取會指向
-        已銷毀的 widget，之後任何一次重畫都會炸。"""
+        """訊息列即將被銷毀：解除登記。
+
+        列落在選取範圍內就一併清掉選取——留著的話 caret 會指向已銷毀的 widget。
+        列在選取**之前**則把兩個 caret 的序號各往前挪一格：訊息是以序號定位的，
+        而 `prune` 每輪都可能砍掉最舊的一則，不挪的話選取會整段錯位。"""
         canvases = self._rows.get(row)
         if canvases is None:
             return
-        if self._active is row:
-            self._erase()   # 趁該列還在 _rows 裡先擦掉反白，孤兒高亮不會留下來
+        message = list(self._rows).index(row)
+        low = high = None
+        if self._anchor is not None and self._focus is not None:
+            low = min(self._anchor, self._focus).message
+            high = max(self._anchor, self._focus).message
+        touched = low is not None and low <= message <= high
+        if touched:
+            self._erase()   # 趁該列還在時先擦掉反白，孤兒高亮不會留下來
         self._rows.pop(row, None)
         for canvas in canvases:
             self._fonts.pop(canvas, None)
-        if self._active is row:
-            self._active = self._anchor = self._focus = None
+            if canvas in self._drawn:
+                self._drawn.remove(canvas)
+        if low is None:
+            return
+        if touched:
+            self._anchor = self._focus = None
             self._dragging = False
             log("[ui] selection cleared (row destroyed)")
+        elif message < low:
+            self._anchor = self._anchor._replace(message=self._anchor.message - 1)
+            self._focus = self._focus._replace(message=self._focus.message - 1)
 
     def holds(self, row) -> bool:
-        """目前的選取是否落在這一列。"""
-        return self._active is row
+        """這一列是否落在目前的選取範圍內。"""
+        span = self.span()
+        if span is None or row not in self._rows:
+            return False
+        return span[0].message <= list(self._rows).index(row) <= span[1].message
 
     def span(self) -> tuple[Caret, Caret] | None:
         """正規化後的 `(start, end)`；沒有選取或選取為空則 None。"""
@@ -137,27 +169,27 @@ class Selection:
         return min(self._anchor, self._focus), max(self._anchor, self._focus)
 
     def text(self) -> str:
-        """目前選取到的文字（跨行以換行相接）。"""
+        """目前選取到的文字（同一則內換行相接，訊息之間空一行）。"""
         span = self.span()
         if span is None:
             return ""
-        return selected_text([line_text(c) for c in self._rows[self._active]], *span)
+        messages = [[line_text(c) for c in canvases] for canvases in self._rows.values()]
+        return selected_text(messages, *span)
 
     def begin(self, x_root: int, y_root: int) -> bool:
         """框選起手；回傳是否命中某一則訊息。"""
-        hit = self._hit(x_root, y_root)
+        caret = self._hit(x_root, y_root)
         self.clear("new press")
-        if hit is None:
+        if caret is None:
             return False
-        self._active, caret = hit
         self._anchor = self._focus = caret
         self._dragging = True
-        row_index = list(self._rows).index(self._active)
-        log(f"[ui] selection begin row={row_index} line={caret.line} index={caret.index}")
+        log(f"[ui] selection begin message={caret.message} line={caret.line} "
+            f"index={caret.index}")
         return True
 
     def extend(self, x_root: int, y_root: int) -> None:
-        """拖曳中：更新 focus（夾在起手那一則內）並重畫反白。"""
+        """拖曳中：更新 focus 並重畫反白。"""
         if not self._dragging:
             return
         self._focus = self._clamped(x_root, y_root)
@@ -173,15 +205,15 @@ class Selection:
             log("[ui] selection end empty")
             return
         start, end = span
-        log(f"[ui] selection end start={start.line}:{start.index} "
-            f"end={end.line}:{end.index} chars={len(self.text())}")
+        log(f"[ui] selection end start={start.message}:{start.line}:{start.index} "
+            f"end={end.message}:{end.line}:{end.index} chars={len(self.text())}")
 
     def clear(self, reason: str) -> None:
         """清除選取與反白。`reason` 只進 log，方便事後定位「選取莫名消失」。"""
-        if self._active is None:
+        if self._anchor is None:
             return
         self._erase()
-        self._active = self._anchor = self._focus = None
+        self._anchor = self._focus = None
         self._dragging = False
         log(f"[ui] selection cleared ({reason})")
 
@@ -195,34 +227,38 @@ class Selection:
             self._fonts[canvas] = line_font(canvas)
         return self._fonts[canvas]
 
-    def _caret_in(self, canvas, line: int, x_root: int, y_root: int) -> Caret:
-        return Caret(line, caret_at(canvas, x_root - canvas.winfo_rootx(),
-                                    y_root - canvas.winfo_rooty()))
+    def _caret_in(self, canvas, message: int, line: int,
+                  x_root: int, y_root: int) -> Caret:
+        return Caret(message, line, caret_at(canvas, x_root - canvas.winfo_rootx(),
+                                             y_root - canvas.winfo_rooty()))
 
-    def _hit(self, x_root: int, y_root: int):
-        """螢幕座標落在哪一則的哪個 caret；都沒命中回 None。"""
-        for row, canvases in self._rows.items():
+    def _hit(self, x_root: int, y_root: int) -> Caret | None:
+        """螢幕座標落在哪個 caret；都沒命中回 None。"""
+        for message, canvases in enumerate(self._rows.values()):
             for line, canvas in enumerate(canvases):
                 if point_in_rect(x_root, y_root,
                                  canvas.winfo_rootx(), canvas.winfo_rooty(),
                                  canvas.winfo_width(), canvas.winfo_height()):
-                    return row, self._caret_in(canvas, line, x_root, y_root)
+                    return self._caret_in(canvas, message, line, x_root, y_root)
         return None
 
     def _clamped(self, x_root: int, y_root: int) -> Caret:
-        """拖曳點換算成作用中那一則的 caret。垂直方向決定落在哪一行、超出則夾到
-        該則的頭或尾；水平方向交給 Tk 自己夾（見 `caret_at`）。"""
-        canvases = self._rows[self._active]
-        if y_root < canvases[0].winfo_rooty():
-            return Caret(0, 0)
-        for line, canvas in enumerate(canvases):
-            if y_root <= canvas.winfo_rooty() + canvas.winfo_height() - 1:
-                return self._caret_in(canvas, line, x_root, y_root)
-        return Caret(len(canvases) - 1, len(line_text(canvases[-1])))
+        """拖曳點換算成 caret。垂直方向決定落在哪一則的哪一行，超出全部訊息的
+        上下界就夾到最前／最後；水平方向交給 Tk 自己夾（見 `caret_at`）。"""
+        rows = list(self._rows.values())
+        if y_root < rows[0][0].winfo_rooty():
+            return Caret(0, 0, 0)
+        for message, canvases in enumerate(rows):
+            for line, canvas in enumerate(canvases):
+                if y_root <= canvas.winfo_rooty() + canvas.winfo_height() - 1:
+                    return self._caret_in(canvas, message, line, x_root, y_root)
+        return Caret(len(rows) - 1, len(rows[-1]) - 1, len(line_text(rows[-1][-1])))
 
     def _erase(self) -> None:
-        for canvas in self._rows.get(self._active, ()):
-            canvas.delete("sel")
+        for canvas in self._drawn:
+            if canvas.winfo_exists():
+                canvas.delete("sel")
+        self._drawn.clear()
 
     def _draw(self) -> None:
         self._erase()
@@ -230,14 +266,19 @@ class Selection:
         if span is None:
             return
         start, end = span
-        for line, canvas in enumerate(self._rows[self._active]):
-            if line < start.line or line > end.line:
-                continue
-            lo = start.index if line == start.line else 0
-            hi = end.index if line == end.line else len(line_text(canvas))
-            rects = highlight_rects(canvas, self._font(canvas), lo, hi)
-            if rects:
-                for x0, y0, x1, y1 in rects:
-                    canvas.create_rectangle(x0, y0, x1, y1, fill=SELECT_BG,
-                                            outline="", tags="sel")
-                canvas.tag_lower("sel", "txt")
+        rows = list(self._rows.values())
+        for message in range(start.message, end.message + 1):
+            for line, canvas in enumerate(rows[message]):
+                if not ((start.message, start.line) <= (message, line)
+                        <= (end.message, end.line)):
+                    continue
+                lo = start.index if (message, line) == (start.message, start.line) else 0
+                hi = (end.index if (message, line) == (end.message, end.line)
+                      else len(line_text(canvas)))
+                rects = highlight_rects(canvas, self._font(canvas), lo, hi)
+                if rects:
+                    for x0, y0, x1, y1 in rects:
+                        canvas.create_rectangle(x0, y0, x1, y1, fill=SELECT_BG,
+                                                outline="", tags="sel")
+                    canvas.tag_lower("sel", "txt")
+                    self._drawn.append(canvas)
