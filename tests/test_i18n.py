@@ -179,6 +179,22 @@ def test_missing_metadata_never_borrows_another_language(fake_catalog):
     assert i18n.font_family("ja") is None
 
 
+def test_translators_are_never_borrowed_from_another_language(fake_catalog):
+    # 譯者掛名借到別的語言就是把功勞掛錯人，所以與其他 metadata 一樣不走 t() 的 fallback。
+    fake_catalog("en", {"language.name": "English",
+                        "language.translators": "[Someone](https://example.com)"})
+    fake_catalog("ja", {"language.name": "日本語"})
+
+    assert i18n.translators("en") == "[Someone](https://example.com)"
+    assert i18n.translators("ja") == ""
+
+
+def test_translators_is_optional_metadata():
+    # 來源語言是開發者自己寫的、沒有譯者；欄位空著是正常狀態，不該被當成漏填。
+    for code in i18n.available_languages():
+        assert isinstance(i18n.translators(code), str)
+
+
 def test_unknown_language_code_is_rejected_by_the_scanned_list(fake_catalog):
     fake_catalog("en", {"language.name": "English"})
     i18n.set_language("ja")   # 目錄裡沒有 ja.json

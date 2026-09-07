@@ -2,6 +2,7 @@
 服務商選擇、API 欄位、測試連線、熱鍵捕捉、語言選擇。"""
 import copy
 import queue
+import re
 import threading
 import tkinter as tk
 import webbrowser
@@ -11,7 +12,14 @@ from tkinter import ttk
 import keyboard
 
 from src.config import API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS, EFFORT_AUTO, needs_base_url
-from src.i18n import DEFAULT_LANGUAGE, available_languages, current_language, language_name, t
+from src.i18n import (
+    DEFAULT_LANGUAGE,
+    available_languages,
+    current_language,
+    language_name,
+    t,
+    translators,
+)
 from src.log import log
 from src.translation.translator import (
     TranslatorConfigError,
@@ -97,6 +105,59 @@ def link_label(parent, text: str, url: str) -> ttk.Label:
     label = ttk.Label(parent, text=text, foreground=LINK_COLOR, cursor="hand2")
     label.bind("<Button-1>", lambda e: webbrowser.open(url))
     return label
+
+
+_LINK_MARKUP = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
+_SAFE_SCHEMES = ("http://", "https://")
+
+
+def parse_link_markup(text: str) -> list[tuple[str, str | None]]:
+    """把 `[文字](網址)` 的行內連結語法切成（顯示文字，網址或 None）的段落。
+    只認連結一種語法，其餘字元原樣留在文字段裡。
+
+    網址只放行 http／https：語言檔可以由外部貢獻者提供，其他 scheme（`file:`、
+    `javascript:`）降級成不可點的純文字——寧可少一條連結，也不要讓一份譯文開得了
+    任意 URI。"""
+    segments: list[tuple[str, str | None]] = []
+    cursor = 0
+    for match in _LINK_MARKUP.finditer(text):
+        if match.start() > cursor:
+            segments.append((text[cursor:match.start()], None))
+        label, url = match.group(1), match.group(2)
+        if url.lower().startswith(_SAFE_SCHEMES):
+            segments.append((label, url))
+        else:
+            log(f"[ui] link markup rejected: scheme={url.split(':', 1)[0][:16]}")
+            segments.append((label, None))
+        cursor = match.end()
+    if cursor < len(text):
+        segments.append((text[cursor:], None))
+    return segments
+
+
+def linked_text(parent, text: str) -> ttk.Frame:
+    """把一行帶行內連結的文字排成一列標籤：文字段是一般標籤，連結段是 link_label。
+    刻意不自動換行——用它的是譯者掛名這類短句，折行的複雜度換不到什麼。"""
+    row = ttk.Frame(parent)
+    for segment, url in parse_link_markup(text):
+        if url is None:
+            ttk.Label(row, text=segment).pack(side="left")
+        else:
+            link_label(row, segment, url).pack(side="left")
+    return row
+
+
+def translators_row(parent) -> ttk.Frame | None:
+    """目前介面語言的譯者掛名列（灰標籤 ＋ 可能帶連結的名單）；沒有掛名回 None。
+    給介面語言下拉的正下方用——設定視窗與精靈各一處，掛名屬於選到的那個語言。"""
+    credit = translators(current_language())
+    if not credit:
+        return None
+    row = ttk.Frame(parent)
+    ttk.Label(row, text=t("credit.translators"),
+              foreground=HINT_COLOR).pack(side="left")
+    linked_text(row, credit).pack(side="left", padx=(6, 0))
+    return row
 
 
 def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 100):

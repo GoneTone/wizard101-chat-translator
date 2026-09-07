@@ -13,10 +13,12 @@ from src.log import log
 from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是給譯者翻的文案）：自稱（選單顯示用，也是該語言使用者預設
-# 的翻譯目標）、介面字族、要吃下的 Windows locale（同語言不同字集才需指名，見 map_locale_name）。
+# 的翻譯目標）、介面字族、要吃下的 Windows locale（同語言不同字集才需指名，見 map_locale_name）、
+# 這份譯文的譯者掛名。
 META_NAME = "language.name"
 META_FONT = "language.font"
 META_LOCALES = "language.locales"
+META_TRANSLATORS = "language.translators"
 
 SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
 DEFAULT_LANGUAGE = "en"     # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
@@ -80,6 +82,13 @@ def language_name(code: str) -> str:
 def font_family(code: str) -> str | None:
     """語言檔宣告的介面字族；沒宣告回 None，由呼叫端決定保底字型。"""
     return _meta(code, META_FONT) or None
+
+
+def translators(code: str) -> str:
+    """這份譯文的譯者掛名（可帶 `[文字](網址)` 行內連結）；沒宣告或留空回空字串。
+    與其他 metadata 同樣不走 `t()` 的 fallback——掛名借到別的語言就是把功勞掛錯人。
+    來源語言由開發者自己寫，欄位空著是正常狀態，由顯示端決定不畫那一列。"""
+    return _meta(code, META_TRANSLATORS)
 
 
 def forget_catalogs() -> None:

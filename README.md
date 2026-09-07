@@ -77,13 +77,14 @@ Wizard101 本身以**系統管理員**身分執行時，本工具也必須以系
 
 1. 複製 `src/i18n/zh-TW.json`（來源語言，key 最齊全）成 `src/i18n/<語言碼>.json`，
    例如 `ja.json`，把每一則文案翻好
-2. 檔案開頭這三個欄位是該語言自己的資料，不是給譯者翻的文案：
+2. 檔案開頭這幾個欄位是該語言自己的資料，不是給譯者翻的文案：
 
    | 欄位 | 說明 |
    |------|------|
    | `language.name` | 該語言的自稱（endonym），例如 `日本語`。語言選單在任何介面語言下都顯示它、不翻譯；也是這個語言的使用者首次執行時預設的 `target_language` |
    | `language.font` | 介面字族，例如 `Yu Gothic UI`。沒宣告則退 `Segoe UI` |
    | `language.locales` | 要吃下的 Windows locale 名稱，空白分隔（例如 `zh_TW zh_HK zh_MO`）。**同語言不同字集才需要指名**；`ja_JP` 這種靠語言前綴就對得上語言碼 `ja`，留空即可 |
+   | `language.translators` | 這份譯文的譯者掛名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](網址)` 加行內連結（只接受 `http`／`https`）。留空＝不顯示；設定視窗的語言下拉底下、首次設定精靈的語言步驟與「關於」分頁都會顯示它 |
 
 3. `uv run pytest` —— `tests/test_i18n.py` 會檢查新語言檔的 key 與來源語言一致、
    變數（`{app}` 等）沒被翻壞、metadata 有填

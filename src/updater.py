@@ -14,6 +14,7 @@ from src.log import log
 GITHUB_REPO = "GoneTone/wizard101-chat-translator"
 PROJECT_URL = f"https://github.com/{GITHUB_REPO}"
 RELEASES_URL = f"{PROJECT_URL}/releases/latest"
+ISSUES_URL = f"{PROJECT_URL}/issues"
 AUTHOR_URL = "https://github.com/GoneTone"
 LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 

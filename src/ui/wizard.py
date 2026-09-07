@@ -12,6 +12,7 @@ from src.ui.fields import (
     HotkeyField,
     LanguageField,
     UiLanguageField,
+    translators_row,
     validate_api_form,
 )
 from src.ui.fonts import ui_font
@@ -94,12 +95,17 @@ class SetupWizard:
         self._indicator.configure(text="  ".join(
             "●" if i <= self._step else "○" for i in range(len(_STEP_KEYS))))
         self._title.configure(text=t(_STEP_KEYS[self._step]))
+        self._translators_row = None   # 剛剛連同其他臨時元件一起被銷毀了
 
         if self._step == STEP_LANG:
             hint = ttk.Label(self._body, text=t("wizard.language_hint"), justify="left")
             hint.pack(fill="x", pady=(0, 8))
             bind_wrap(hint)
             self._ui_language.pack(fill="x")
+            # 每次進這一步重建：離開本步驟時會連同其他臨時元件一起被銷毀
+            self._translators_row = translators_row(self._body)
+            if self._translators_row is not None:
+                self._translators_row.pack(anchor="w", pady=(4, 0))
             self._next_btn.configure(text=t("button.next"))
         elif self._step == STEP_API:
             intro = ttk.Label(self._body, text=t("wizard.intro"), justify="left")

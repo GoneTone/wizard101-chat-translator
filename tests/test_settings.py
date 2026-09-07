@@ -333,7 +333,7 @@ def test_about_tab_shows_version_and_links(root, monkeypatch):
     from src import __version__
     from src.i18n import t
     from src.ui import settings as settings_module
-    from src.updater import AUTHOR_URL, PROJECT_URL
+    from src.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -343,6 +343,7 @@ def test_about_tab_shows_version_and_links(root, monkeypatch):
     assert win._version_label.cget("text") == f"v{__version__}"
     assert win._project_link.cget("text") == PROJECT_URL
     assert win._author_link.cget("text") == "GoneTone"
+    assert win._issues_link.cget("text") == ISSUES_URL
 
     win._author_link.event_generate("<Button-1>")
     root.update()
@@ -585,3 +586,76 @@ def test_clear_cache_reports_zero_when_the_cache_was_already_empty(root):
     win.open()
     win._clear_cache()
     assert win._cache_result.cget("text") == t("about.cache_cleared", count=0)
+
+
+def _texts(frame):
+    """一列 widget 的文字，依 pack 順序。"""
+    return [w.cget("text") for w in frame.pack_slaves()]
+
+
+def _fake_translators(monkeypatch, credit):
+    """假造各語言的譯者掛名。兩個模組各自取值：下拉底下那列走 fields 的共用元件，
+    關於分頁自己取（那一列是 grid 的兩欄，版面與共用元件不同）。"""
+    from src.ui import fields as fields_module
+    from src.ui import settings as settings_module
+    for module in (fields_module, settings_module):
+        monkeypatch.setattr(module, "translators", credit)
+
+
+def test_translators_row_follows_the_ui_language_field(root, monkeypatch):
+    from src.i18n import t
+
+    _fake_translators(monkeypatch, lambda code: "[A](https://a.example)")
+    win = _open_settings(root)
+    basic = win._ui_language.master
+    order = [str(w) for w in basic.pack_slaves()]
+    # 譯者掛的是「選到的這個介面語言」，所以緊跟在下拉之下，不與翻譯目標語言隔開
+    assert order.index(str(win._translators_row)) \
+        == order.index(str(win._ui_language)) + 1
+    label, names = win._translators_row.pack_slaves()
+    assert label.cget("text") == t("credit.translators")
+    assert _texts(names) == ["A"]
+    win._win.destroy()
+
+
+def test_about_tab_shows_the_translators(root, monkeypatch):
+    from src.i18n import t
+
+    _fake_translators(monkeypatch, lambda code: "[A](https://a.example)、B")
+    win = _open_settings_with_checker(root, lambda: None)
+    assert _texts(win._about_translators) == ["A", "、B"]
+    grid = win._about_translators.grid_info()
+    # 譯者接在開發者之下：兩者都是掛名，中間不該插進「回報問題」那類操作列
+    assert (int(grid["row"]), int(grid["column"])) \
+        == (int(win._author_link.grid_info()["row"]) + 1, 1)
+    assert win._issues_link.grid_info()["row"] > grid["row"]
+    label = win._about_translators.master.grid_slaves(row=int(grid["row"]), column=0)[0]
+    assert label.cget("text") == t("credit.translators")
+    win._win.destroy()
+
+
+def test_translators_rows_are_hidden_when_the_language_credits_nobody(root, monkeypatch):
+    _fake_translators(monkeypatch, lambda code: "")
+    win = _open_settings_with_checker(root, lambda: None)
+    assert win._translators_row is None, "沒有譯者就不該畫出那一列"
+    assert win._about_translators is None, "沒有譯者就不該畫出那一列"
+    win._win.destroy()
+
+
+def test_translators_follow_the_previewed_language(root, monkeypatch):
+    # 換介面語言會整個重建視窗，譯者列必須跟著換成新語言的掛名
+    from src import i18n
+
+    _fake_translators(monkeypatch,
+                      lambda code: "" if code == "zh-TW" else code.upper())
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        win = _open_settings(root)
+        assert win._translators_row is None
+        win._on_language_change("en")
+        root.update()
+        assert _texts(win._translators_row.pack_slaves()[1]) == ["EN"]
+        win._win.destroy()
+    finally:
+        i18n.set_language(before)

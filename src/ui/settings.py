@@ -12,7 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
-from src.i18n import current_language, set_language, t
+from src.i18n import current_language, set_language, t, translators
 from src.log import log
 from src.ui.fields import (
     HINT_COLOR,
@@ -22,13 +22,15 @@ from src.ui.fields import (
     LanguageField,
     UiLanguageField,
     link_label,
+    linked_text,
     poll_queue,
     show_outcome,
+    translators_row,
     validate_api_form,
 )
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.scrollable import ScrollableFrame
-from src.updater import AUTHOR_URL, PROJECT_URL, check_for_update
+from src.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
@@ -132,7 +134,12 @@ class SettingsWindow:
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
         self._ui_language = UiLanguageField(basic, current_language(),
                                             on_change=self._on_language_change)
-        self._ui_language.pack(fill="x", pady=(2, 10))
+        # 掛名屬於選到的這個語言，緊貼在下拉之下才看得出對應關係
+        self._translators_row = translators_row(basic)
+        self._ui_language.pack(fill="x",
+                               pady=(2, 4 if self._translators_row else 10))
+        if self._translators_row is not None:
+            self._translators_row.pack(anchor="w", pady=(0, 10))
         ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
         self._language = LanguageField(
             basic, cfg["target_language"],
@@ -195,16 +202,20 @@ class SettingsWindow:
         bind_wrap(hint, trailing=HINT_TRAILING)
 
     def _build_about(self, nb) -> None:
-        """關於分頁：版本與手動檢查更新、專案與開發者連結、紀錄檔位置。"""
+        """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置。
+
+        列號用遞增的 row 而非寫死的數字：譯者與快取都是可有可無的列，
+        寫死的話每插一列就要把後面全部重編。"""
         about_scroll = ScrollableFrame(nb, padding=12)
         about = about_scroll.body
         nb.add(about_scroll, text=t("settings.tab.about"))
         about.columnconfigure(1, weight=1)
+        row = 0
 
-        ttk.Label(about, text=t("about.version")).grid(row=0, column=0, sticky="w",
+        ttk.Label(about, text=t("about.version")).grid(row=row, column=0, sticky="w",
                                                        pady=2)
         version_row = ttk.Frame(about)
-        version_row.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=2)
+        version_row.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=2)
         self._version_label = ttk.Label(version_row, text=f"v{__version__}")
         self._version_label.pack(side="left")
         self._update_btn = ttk.Button(version_row, text=t("button.check_update"),
@@ -216,21 +227,40 @@ class SettingsWindow:
         self._update_result.pack(side="left", padx=8)
         bind_wrap(self._update_result)
 
-        ttk.Label(about, text=t("about.project")).grid(row=1, column=0, sticky="w",
+        row += 1
+        ttk.Label(about, text=t("about.project")).grid(row=row, column=0, sticky="w",
                                                        pady=2)
         self._project_link = link_label(about, PROJECT_URL, PROJECT_URL)
-        self._project_link.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=2)
+        self._project_link.grid(row=row, column=1, sticky="w", padx=(8, 0), pady=2)
 
-        ttk.Label(about, text=t("about.author")).grid(row=2, column=0, sticky="w",
+        row += 1
+        ttk.Label(about, text=t("about.author")).grid(row=row, column=0, sticky="w",
                                                       pady=2)
         # 開發者名稱是識別碼不是文案，不進語言檔（與服務商品牌名同理）
         self._author_link = link_label(about, "GoneTone", AUTHOR_URL)
-        self._author_link.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=2)
+        self._author_link.grid(row=row, column=1, sticky="w", padx=(8, 0), pady=2)
 
-        ttk.Label(about, text=t("about.logs")).grid(row=3, column=0, sticky="w",
+        credit = translators(current_language())
+        self._about_translators = None
+        if credit:   # 空白＝這份譯文沒有譯者掛名（來源語言就是如此），整列不畫
+            row += 1
+            ttk.Label(about, text=t("credit.translators")).grid(row=row, column=0,
+                                                                sticky="w", pady=2)
+            self._about_translators = linked_text(about, credit)
+            self._about_translators.grid(row=row, column=1, sticky="w", padx=(8, 0),
+                                         pady=2)
+
+        row += 1
+        ttk.Label(about, text=t("about.issues")).grid(row=row, column=0, sticky="w",
+                                                      pady=2)
+        self._issues_link = link_label(about, ISSUES_URL, ISSUES_URL)
+        self._issues_link.grid(row=row, column=1, sticky="w", padx=(8, 0), pady=2)
+
+        row += 1
+        ttk.Label(about, text=t("about.logs")).grid(row=row, column=0, sticky="w",
                                                     pady=(_GROUP_GAP, 2))
         logs_row = ttk.Frame(about)
-        logs_row.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(_GROUP_GAP, 2))
+        logs_row.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=(_GROUP_GAP, 2))
         # 按鈕先 pack：後宣告會被 expand=True 的路徑標籤擠掉
         ttk.Button(logs_row, text=t("button.open_folder"),
                    command=self._open_log_folder).pack(side="right", padx=(4, 0))
@@ -238,21 +268,23 @@ class SettingsWindow:
         self._logs_label.pack(side="left", fill="x", expand=True)
         logs_hint = ttk.Label(about, text=t("about.logs_hint"), foreground=HINT_COLOR,
                               justify="left")
-        logs_hint.grid(row=4, column=0, columnspan=2, sticky="ew")
+        row += 1
+        logs_hint.grid(row=row, column=0, columnspan=2, sticky="ew")
         bind_wrap(logs_hint, trailing=HINT_TRAILING)
 
         if self._cache is not None:   # None＝呼叫端沒有快取（測試與早期啟動路徑）
-            ttk.Label(about, text=t("about.cache")).grid(row=5, column=0, sticky="w",
+            row += 1
+            ttk.Label(about, text=t("about.cache")).grid(row=row, column=0, sticky="w",
                                                          pady=(10, 2))
             cache_row = ttk.Frame(about)
-            cache_row.grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(10, 2))
+            cache_row.grid(row=row, column=1, sticky="ew", padx=(8, 0), pady=(10, 2))
             ttk.Button(cache_row, text=t("button.clear_cache"),
                        command=self._clear_cache).pack(side="left")
             self._cache_result = ttk.Label(cache_row, text="")
             self._cache_result.pack(side="left", padx=(8, 0))
             cache_hint = ttk.Label(about, text=t("about.cache_hint"),
                                    foreground=HINT_COLOR, justify="left")
-            cache_hint.grid(row=6, column=0, columnspan=2, sticky="ew")
+            cache_hint.grid(row=row + 1, column=0, columnspan=2, sticky="ew")
             bind_wrap(cache_hint, trailing=HINT_TRAILING)
 
     def _clear_cache(self) -> None:

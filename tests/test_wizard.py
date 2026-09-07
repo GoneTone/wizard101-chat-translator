@@ -149,3 +149,38 @@ def test_bootstrap_language_returning_user_uses_saved_language():
     assert language == "zh-CN"
     assert calls == []
     assert cfg["target_language"] == "日本語"
+
+
+def test_language_step_shows_the_translators(root, monkeypatch):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+    from src.ui import fields as fields_module
+    from src.ui.wizard import STEP_PREFS, SetupWizard
+
+    monkeypatch.setattr(fields_module, "translators",
+                        lambda code: "[A](https://a.example)")
+    wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
+    label, names = wizard._translators_row.pack_slaves()
+    assert label.cget("text") == t("credit.translators")
+    assert [w.cget("text") for w in names.pack_slaves()] == ["A"]
+
+    # 掛名只屬於語言頁：往後的步驟不該還留著那一列
+    wizard._step = STEP_PREFS
+    wizard._show_step()
+    assert wizard._translators_row is None
+    wizard._win.destroy()
+
+
+def test_language_step_without_translators_shows_no_row(root, monkeypatch):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.ui import fields as fields_module
+    from src.ui.wizard import SetupWizard
+
+    monkeypatch.setattr(fields_module, "translators", lambda code: "")
+    wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
+    assert wizard._translators_row is None
+    wizard._win.destroy()

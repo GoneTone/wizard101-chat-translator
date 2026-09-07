@@ -461,3 +461,53 @@ def test_test_connection_defaults_to_the_ui_languages_name(root, monkeypatch):
     finally:
         i18n.set_language(before)
     assert captured["target"] == i18n.language_name("zh-TW")
+
+
+def test_parse_link_markup_plain_text_has_no_links():
+    from src.ui.fields import parse_link_markup
+
+    assert parse_link_markup("GoneTone、Someone") == [("GoneTone、Someone", None)]
+    assert parse_link_markup("") == []
+
+
+def test_parse_link_markup_splits_links_from_surrounding_text():
+    from src.ui.fields import parse_link_markup
+
+    assert parse_link_markup("[A](https://a.example)、B") == [
+        ("A", "https://a.example"), ("、B", None)]
+    assert parse_link_markup("由 [A](http://a.example) 與 [B](https://b.example) 翻譯") == [
+        ("由 ", None), ("A", "http://a.example"), (" 與 ", None),
+        ("B", "https://b.example"), (" 翻譯", None)]
+
+
+def test_parse_link_markup_rejects_non_http_urls():
+    # 語言檔可能來自外部貢獻者：其他 scheme 只留文字、不給點，寧可少一條連結
+    from src.ui.fields import parse_link_markup
+
+    assert parse_link_markup("[A](javascript:alert)") == [("A", None)]
+    assert parse_link_markup("[A](file:///C:/x)") == [("A", None)]
+
+
+def test_parse_link_markup_leaves_broken_syntax_as_text():
+    from src.ui.fields import parse_link_markup
+
+    assert parse_link_markup("[A(https://a.example)") == [("[A(https://a.example)", None)]
+    assert parse_link_markup("[A] (https://a.example)") == [
+        ("[A] (https://a.example)", None)]
+
+
+def test_linked_text_makes_only_the_link_segment_clickable(root, monkeypatch):
+    from src.ui import fields as fields_module
+    from src.ui.fields import LINK_COLOR, linked_text
+
+    opened = []
+    monkeypatch.setattr(fields_module.webbrowser, "open", opened.append)
+    row = linked_text(root, "由 [A](https://a.example) 翻譯")
+    plain, link, tail = row.pack_slaves()
+    assert [w.cget("text") for w in (plain, link, tail)] == ["由 ", "A", " 翻譯"]
+    assert str(link.cget("foreground")) == LINK_COLOR
+    assert str(plain.cget("foreground")) != LINK_COLOR
+
+    link.event_generate("<Button-1>")
+    root.update()
+    assert opened == ["https://a.example"]
