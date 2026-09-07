@@ -31,5 +31,9 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
+      # 序列跑（覆蓋 pyproject 的 -n 4）：測試會真的開 tkinter 視窗，四個 worker 是四個
+      # 程序在搶同一個桌面的全域狀態——前景視窗、AttachThreadInput 的輸入佇列、grab、
+      # 疊序。實測在 runner 上會讓 Tk 在 destroy 時 access violation（worker 直接掛掉），
+      # 換一次執行就換一個 worker 中彈。本機開發者桌面穩定、平行仍然划算，故只改 CI。
       - name: Test
-        run: uv run pytest
+        run: uv run pytest -n 0
