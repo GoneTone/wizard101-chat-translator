@@ -1,5 +1,11 @@
 # 疊加視窗訊息框選與複製 實作計畫
 
+> **狀態：已執行完畢（2026-09-06），本文是當時的執行記錄，不是現行設計。**
+> 六個 task 都已完成並合併回 `master`。實機驗證後有數項決策改變——跨訊息選取、
+> 拖曳自動捲動、右鍵選單改為自繪視窗等——本文**未**回頭改寫，因此下文描述的
+> 行為有一部分已經不是程式現況。現行設計請看
+> [spec 的「事後修訂」節](../specs/2026-09-06-message-selection-copy-design.md#事後修訂2026-09-07)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 讓使用者能在疊加視窗的訊息上用滑鼠框選文字（可跨同一則的原文行與譯文行、不跨訊息），並以 `Ctrl+C` 或右鍵選單複製到剪貼簿。
