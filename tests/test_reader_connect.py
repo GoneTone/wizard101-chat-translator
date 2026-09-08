@@ -5,6 +5,7 @@ from src.reader.mem_reader import (
     GameNotRunning,
     GameVersionMismatch,
     WizChatReader,
+    is_game_process_path,
     is_version_mismatch,
 )
 
@@ -245,3 +246,16 @@ def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     r = _connecting_reader(monkeypatch, tmp_path, handler)
     r._connect()
     assert handler.activate_kwargs == {"wait_for_ready": False}
+
+
+def test_is_game_process_path_matches_game_exe():
+    assert is_game_process_path(r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe")
+    assert is_game_process_path(r"c:\games\wizard101\bin\wizardgraphicalclient.exe")
+
+
+def test_is_game_process_path_rejects_other_or_missing():
+    assert not is_game_process_path(r"C:\Program Files\Mozilla Firefox\firefox.exe")
+    assert not is_game_process_path(r"C:\Games\WizardGraphicalClient.exe.bak")
+    assert not is_game_process_path("")
+    assert not is_game_process_path(None)
+

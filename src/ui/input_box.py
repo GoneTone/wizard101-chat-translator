@@ -40,6 +40,10 @@ class InputBox:
         self._target_hwnd: int | None = None
         self._session = 0
 
+    @property
+    def is_open(self) -> bool:
+        return self._win is not None
+
     def show(self) -> None:
         if self._win is not None:
             self._force_focus()

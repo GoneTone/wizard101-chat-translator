@@ -300,3 +300,13 @@ def test_error_message_follows_language(root):
         assert box._status.text().startswith("Translation failed:")
     finally:
         i18n.set_language(before)
+
+
+def test_is_open_tracks_window_lifecycle(root):
+    box = InputBox(root, lambda text: text, queue.Queue(), lambda *_: None)
+    assert not box.is_open
+    box._win = tk.Toplevel(root)
+    assert box.is_open
+    box._win.destroy()
+    box._win = None
+    assert not box.is_open

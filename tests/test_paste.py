@@ -28,3 +28,14 @@ def test_type_into_window_never_sends_enter(monkeypatch):
     monkeypatch.setattr(paste.keyboard, "press_and_release", lambda *a, **k: calls.append(("par", a)))
     paste.type_into_window(None, "hello")
     assert calls == []
+
+
+def test_foreground_exe_returns_none_when_lookup_fails(monkeypatch):
+    # 沒前景視窗／查詢失敗都要安靜回 None，讓呼叫端當成「不是遊戲」處理
+    monkeypatch.setattr(paste.win32gui, "GetForegroundWindow", lambda: 0)
+    assert paste.foreground_exe() is None
+
+    def boom():
+        raise OSError("no window")
+    monkeypatch.setattr(paste.win32gui, "GetForegroundWindow", boom)
+    assert paste.foreground_exe() is None

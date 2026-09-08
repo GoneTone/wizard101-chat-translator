@@ -6,8 +6,24 @@ import time
 
 import keyboard
 import win32gui
+import win32process
+
+from src.reader.mem_reader import process_exe_path
 
 FOCUS_DELAY = 0.15  # 切回遊戲視窗後、開始打字前的緩衝（秒）
+
+
+def foreground_exe() -> str | None:
+    """目前前景視窗所屬程序的 exe 路徑；沒有前景視窗或查不到回 None。
+    搭配 is_game_process_path 判斷使用者是否正在遊戲畫面。"""
+    try:
+        hwnd = win32gui.GetForegroundWindow()
+        if not hwnd:
+            return None
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+    except Exception:
+        return None
+    return process_exe_path(pid)
 
 
 def force_foreground(hwnd: int | None) -> None:

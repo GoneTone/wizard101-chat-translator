@@ -15,12 +15,13 @@ import win32gui
 import winerror
 
 from src import __version__
-from src.composer.paste import type_into_window
+from src.composer.paste import foreground_exe, type_into_window
 from src.config import CONFIG_PATH, active_api, app_name, is_configured, load_config, save_config
 from src.i18n import current_language, detect_system_language, language_name, set_language, t
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
+from src.reader.mem_reader import is_game_process_path
 from src.reader.message_log import MessageLog
 from src.resources import icon_path
 from src.translation.cache import (
@@ -132,6 +133,20 @@ def focus_running_instance(title: str) -> bool:
         log(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}")
         return False
     return True
+
+
+def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
+    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：只有遊戲在前景才呼出翻譯輸入框，
+    其他視窗前景時當作沒按，免得在瀏覽器、聊天軟體裡誤觸。輸入框已開著時（它自己就是
+    前景）照舊重新對焦。"""
+    if input_box.is_open:
+        ui_queue.put(input_box.show)
+        return
+    exe = foreground_exe()
+    if is_game_process_path(exe):
+        ui_queue.put(input_box.show)
+        return
+    log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
 def apply_window_icon(root: tk.Tk) -> int | None:
@@ -306,7 +321,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         text, context.snapshot()), ui_queue, on_translated,
         position=cfg["input_position"], width=cfg["input_width"],
         on_geometry_change=save_input_geometry)
-    hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: ui_queue.put(input_box.show))
+    hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def relabel_ui() -> None:
@@ -327,7 +342,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
                                     cfg["target_language"]))
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
-                                            lambda: ui_queue.put(input_box.show))
+                                            lambda: on_hotkey(input_box, ui_queue))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
         # set_language 已由設定視窗呼叫；預覽通常已 relabel 過，這裡是沒經過預覽路徑的保底
