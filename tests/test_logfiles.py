@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from src.logfiles import (
     LOG_RETENTION_DAYS,
     TimestampedStream,
+    _prepare_log,
     session_header,
     trim_log_sessions,
     utc_stamp,
@@ -145,3 +146,43 @@ def test_log_writes_a_whole_line_in_one_call(monkeypatch):
     monkeypatch.setattr("sys.stderr", rec)
     log("[x] hello")
     assert rec.calls == ["[x] hello\n"]
+
+
+# --- 開檔前的清理（實際落盤）---
+def _crlf_session(dt: datetime, *lines: str, cr: int = 1) -> bytes:
+    eol = "\r" * cr + "\n"
+    return _session(dt, *lines).replace("\n", eol).encode("utf-8")
+
+
+def test_prepare_log_rewrite_keeps_single_crlf(tmp_path):
+    # 有過期段落 → 改寫檔案；改寫不可把既有的 \r\n 再翻成 \r\r\n
+    path = tmp_path / "app.log"
+    old = _crlf_session(NOW - timedelta(days=10), "[app] old")
+    recent = _crlf_session(NOW - timedelta(days=1), "[app] recent", "[reader] attached")
+    path.write_bytes(old + recent)
+    _prepare_log(path, NOW)
+    data = path.read_bytes()
+    assert b"\r\r" not in data
+    assert b"[app] old" not in data
+    assert data.count(b"\n") == 3
+
+
+def test_prepare_log_repairs_stacked_carriage_returns(tmp_path):
+    # 舊版每次改寫都多疊一個 \r：即使沒有段落過期也要修回每行一個換行
+    path = tmp_path / "app.log"
+    path.write_bytes(_crlf_session(NOW - timedelta(days=1), "[app] a", "[app] b", cr=5))
+    _prepare_log(path, NOW)
+    data = path.read_bytes()
+    assert b"\r\r" not in data
+    assert data.count(b"\n") == 3
+    assert b"[app] a" in data and b"[app] b" in data
+
+
+def test_prepare_log_leaves_healthy_file_untouched(tmp_path):
+    path = tmp_path / "app.log"
+    healthy = _crlf_session(NOW - timedelta(days=1), "[app] fine")
+    path.write_bytes(healthy)
+    before = path.stat().st_mtime_ns
+    _prepare_log(path, NOW)
+    assert path.read_bytes() == healthy
+    assert path.stat().st_mtime_ns == before

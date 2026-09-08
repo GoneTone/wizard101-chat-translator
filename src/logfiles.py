@@ -5,6 +5,7 @@
 輸出經 TimestampedStream 包裝後每行前綴一個 UTC＋0 時戳。
 """
 import os
+import re
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -53,16 +54,18 @@ def trim_log_sessions(text: str, now: datetime) -> str:
 
 
 def _prepare_log(path: Path, now: datetime) -> None:
-    """開檔前清理過期段落；檔案異常肥大時先砍到尾端再清理，避免拖慢啟動。"""
+    """開檔前清理過期段落；檔案異常肥大時先砍到尾端再清理，避免拖慢啟動。
+    寫回一律用 bytes：文字模式會把既有的 CRLF 再翻成 CR CR LF，每次改寫多疊一個 CR，
+    舊紀錄在編輯器裡就變成一堆空行。先把行尾正規化，順便修好之前疊壞的檔案。"""
     if not path.exists():
         return
     raw = path.read_bytes()
     if len(raw) > _LOG_HARD_CAP:
         raw = raw[-_LOG_KEEP_TAIL:]
-    text = raw.decode("utf-8", errors="replace")
-    trimmed = trim_log_sessions(text, now)
-    if trimmed != text:
-        path.write_text(trimmed, encoding="utf-8")
+    text = re.sub(r"\r*\n", "\n", raw.decode("utf-8", errors="replace"))
+    out = trim_log_sessions(text, now).replace("\n", os.linesep).encode("utf-8")
+    if out != raw:
+        path.write_bytes(out)
 
 
 def open_session_log(name: str, now: datetime | None = None):
