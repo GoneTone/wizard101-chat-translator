@@ -76,8 +76,11 @@ jobs:
       - name: Lint
         run: uv run ruff check src tests
 
+      # 序列跑（覆蓋 pyproject 的 -n 4），理由與 ci.yml 相同：runner 上四個 worker 會
+      # 搶同一個桌面的全域狀態，Tk 在 destroy 時 access violation。放版失敗的代價更高
+      # ——版本號 bump 已經 push，Release 卻還沒建立。
       - name: Test
-        run: uv run pytest
+        run: uv run pytest -n 0
 
       # === E. Commit bump ===========================================
       - name: Commit version bump

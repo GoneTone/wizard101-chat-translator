@@ -429,9 +429,10 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
     release_checker = threading.Event()
 
     def checker():
-        # 等待上限只是保險絲：平行跑測試（xdist）時一次 root.update() 就可能吃掉數秒，
-        # 5 秒曾讓它提早回傳、按鈕在斷言前就恢復 normal
-        release_checker.wait(30)
+        # 不設等待上限：這個假 checker 的語意就是「測試放行前絕不回應」。平行跑測試
+        # （xdist）時一次 root.update() 就可能吃掉數秒，任何逾時都可能先到期讓它提早
+        # 回傳、按鈕在斷言前就恢復 normal。執行緒是 daemon，測試提早失敗也不會擋住行程。
+        release_checker.wait()
         return None
 
     win = _open_settings_with_checker(root, checker)
@@ -490,12 +491,12 @@ def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
 
     def stale_checker():
         stale_started.set()
-        release_stale.wait(5)
+        release_stale.wait()   # 逾時會讓它自己提早回應，見上面 checker() 的說明
         raise UpdateCheckError("stale round")
 
     win = _open_settings_with_checker(root, stale_checker)
     win._update_btn.invoke()
-    assert stale_started.wait(5)
+    assert stale_started.wait(30)
     stale_queue = win._update_queue
 
     # 結果回來前關窗再重開：按鈕與結果標籤都是新的，可以再按一次
@@ -503,7 +504,7 @@ def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
     win.open()
 
     def current_checker():
-        release_current.wait(5)
+        release_current.wait()   # 同上：逾時到期會讓譯文結果在斷言前就落地
         return None
 
     win._check_update = current_checker
