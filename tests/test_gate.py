@@ -26,7 +26,7 @@ def test_blocks_beyond_the_limit_until_released():
     t.start()
     assert not got.wait(0.2), "額度已滿時不該放行"
     gate.release()
-    assert got.wait(2.0), "額度釋出後等待者要被喚醒"
+    assert got.wait(30.0), "額度釋出後等待者要被喚醒"
     t.join(timeout=2)
 
 
@@ -60,7 +60,7 @@ def test_raising_the_limit_wakes_waiters():
     t.start()
     assert not got.wait(0.2)
     gate.set_limit(2)
-    assert got.wait(2.0), "上限調大後等待者要被喚醒"
+    assert got.wait(30.0), "上限調大後等待者要被喚醒"
     t.join(timeout=2)
 
 

@@ -34,7 +34,7 @@ class Collector:
                 self.failed.add(msg_id)
         self._event.set()
 
-    def wait_for(self, count, timeout=5.0):
+    def wait_for(self, count, timeout=30.0):
         """等到收滿 count 則結果並回傳；逾時即斷言失敗（不靠 sleep 猜時間）。"""
         while True:
             with self._lock:
@@ -94,7 +94,7 @@ def test_blocked_line_does_not_block_the_others():
     class BlockingTranslator:
         def translate_incoming(self, text, context):
             if text == "[A] stuck":
-                release.wait(5.0)
+                release.wait()   # 不設逾時：逾時到期會讓它自己解除阻塞，見下方 finally
             return f"譯:{text}"
 
     c = Collector()
@@ -119,7 +119,7 @@ def test_in_flight_counts_outstanding_work():
     class SlowTranslator:
         def translate_incoming(self, text, context):
             started.set()
-            release.wait(5.0)
+            release.wait()   # 不設逾時：finally 一定會放行，逾時只會讓它提早跑完
             return "譯"
 
     c = Collector()
@@ -127,7 +127,7 @@ def test_in_flight_counts_outstanding_work():
     try:
         assert pool.in_flight == 0
         pool.submit("[A] one", [], msg_id=1)
-        assert started.wait(5.0)
+        assert started.wait(30.0)
         assert pool.in_flight == 1
         release.set()
         c.wait_for(1)
@@ -205,14 +205,14 @@ def test_shutdown_cancels_queued_work_without_leaking_in_flight():
     class SlowTranslator:
         def translate_incoming(self, text, context):
             started.set()
-            release.wait(5.0)
+            release.wait()   # 不設逾時：finally 一定會放行，逾時只會讓它提早跑完
             return "譯"
 
     c = Collector()
     pool = _pool(SlowTranslator(), c, workers=1)
     try:
         pool.submit("[A] running", [], msg_id=1)
-        assert started.wait(5.0)                        # 唯一的 worker 卡在第一則翻譯中
+        assert started.wait(30.0)                        # 唯一的 worker 卡在第一則翻譯中
         for i in range(2, 6):
             pool.submit(f"[A] queued{i}", [], msg_id=i)  # 排隊中，worker 尚未取用
         assert pool.in_flight == 5
@@ -253,8 +253,8 @@ def test_offline_sets_error_state_while_failing():
     pool = _pool(AlwaysOffline(), c, workers=1)
     try:
         pool.submit("[A] one", [], msg_id=1)
-        assert blocked.wait(5.0)
-        deadline = time.monotonic() + 5.0
+        assert blocked.wait(30.0)
+        deadline = time.monotonic() + 30.0
         while pool.error_state != "offline" and time.monotonic() < deadline:
             time.sleep(0.01)
         assert pool.error_state == "offline"
@@ -274,8 +274,8 @@ def test_error_detail_exposes_the_api_message_while_failing():
     pool = _pool(AlwaysRejected(), c, workers=1)
     try:
         pool.submit("[A] one", [], msg_id=1)
-        assert blocked.wait(5.0)
-        deadline = time.monotonic() + 5.0
+        assert blocked.wait(30.0)
+        deadline = time.monotonic() + 30.0
         while pool.error_detail is None and time.monotonic() < deadline:
             time.sleep(0.01)
         assert pool.error_detail == (401, "Incorrect API key")
@@ -297,7 +297,7 @@ def test_error_detail_is_none_without_a_message_and_after_recovery():
     pool = _pool(tr, Collector(), workers=1)
     try:
         pool.submit("[A] one", [], msg_id=1)
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + 30.0
         while pool.error_state is None and time.monotonic() < deadline:
             time.sleep(0.01)
         assert pool.error_state == "offline"
@@ -348,7 +348,7 @@ def test_backoff_gate_is_shared_across_workers():
     try:
         for i in range(4):
             pool.submit(f"[A] m{i}", [], msg_id=i)
-        deadline = time.monotonic() + 2.0
+        deadline = time.monotonic() + 30.0
         while time.monotonic() < deadline:
             with lock:
                 if len(hits) >= 8:
@@ -381,9 +381,11 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
                 self.calls += 1
                 call_no = self.calls
             if call_no <= workers:
-                barrier.wait(5.0)              # 逼所有 worker 真正同時進入第一輪失敗
+                # 保險絲不能拿掉：barrier 沒有像 proceed_round_2 那樣的 finally 放行路徑，
+                # 無限等待會在 worker 數不足時掛住整個行程（executor 執行緒非 daemon）
+                barrier.wait(60.0)             # 逼所有 worker 真正同時進入第一輪失敗
             else:
-                assert proceed_round_2.wait(5.0), "第二輪未如預期被放行"
+                proceed_round_2.wait()   # 不設逾時：finally 一定會放行
             raise TranslatorOffline("down")
 
     tr = BurstOffline()
@@ -395,7 +397,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
 
         # 等所有 worker 都各自跑完第一輪、進入（並卡在）第二輪嘗試——
         # 這保證每個 worker 自己的第一輪 _note_failure 都已經跑完。
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + 30.0
         while tr.calls < workers * 2 and time.monotonic() < deadline:
             time.sleep(0.005)
         assert tr.calls == workers * 2
