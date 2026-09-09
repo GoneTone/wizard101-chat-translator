@@ -11,7 +11,7 @@
 - **新功能要埋 log**：實作新功能或修改既有邏輯時，在關鍵節點（wizwalker 掛入／讀取、hook 修復、翻譯 API 請求與錯誤分支、設定套用、重試／重置判定等）呼叫 `log(...)`（`src/log.py`，寫到 stderr）記錄——打包版的 stdout／stderr 會全數落入 exe 旁的 `app.log`；不要直接 `print`。內容要帶足夠 context（行數、HTTP 狀態碼、provider、PID、例外訊息等）讓使用者匯出 `app.log` 後能直接定位問題，而不是 `"failed"` 這種沒有上下文的訊息。**log 訊息內容一律用英文**（方便搜尋、不受 locale 影響）：涵蓋所有寫進 stdout／stderr 的訊息字串（`key=value` 診斷欄位同理）；**唯獨程式碼註解／docstring 與 UI 顯示文字不受此條影響**——註解依「標點依語言慣例」用中文全形，overlay 橫幅／設定視窗／錯誤提示等使用者看得到的介面文字維持繁體中文。log 前綴對齊既有慣例（`[reader]`／`[translate]`／`[ui]` 等模組名）。**敏感資料（API 金鑰）絕不可寫入 log**。
 - **Commit message 與 PR 標題一律英文**：commit message（subject 與 body）與 PR 標題使用英文、半形標點，沿用 conventional commits 格式（`feat(...)`、`fix(...)`、`docs(...)`、`chore(...)`、`refactor(...)` 等），subject 簡潔。PR 描述、設計文件、程式碼註解／docstring、UI 文字（overlay 橫幅／設定視窗等）不受此條影響，仍依「標點依語言慣例」維持繁體中文全形。
 - **簡單改動免 spec**：純字串／提示詞小改、單檔 typo、單一 bug fix、純機械重構（重新命名、抽常數）、config 欄位增減等，可直接動手，不必走 brainstorming → spec → plan；使用者已自帶明確設計判斷（what + why）時同樣免 spec。需要走流程的判準：跨多檔影響架構、新增元件／資料流、驗收條件超過「pytest 全綠」的功能。
-- **版本號單一真實來源**：`src/__init__.py` 的 `__version__`（執行期一律讀它；專案 `package = false`，打包成 exe 後 `importlib.metadata` 讀不到）。改版時 `pyproject.toml` 的 `version` 要同步，`tests/test_version.py` 會把兩者釘在一起。SemVer、tag 用 `v` 前綴、放版步驟見 README「放版」。
+- **版本號單一真實來源**：`src/__init__.py` 的 `__version__`（執行期一律讀它；專案 `package = false`，打包成 exe 後 `importlib.metadata` 讀不到）。改版時 `pyproject.toml` 的 `version` 要同步，`tests/test_version.py` 會把兩者釘在一起。SemVer、tag 用 `v` 前綴、發布版本的步驟見 README「發布版本」。
 - **優先用 `uv`**：本專案以 uv 管理環境（`pyproject.toml` + `uv.lock`）。相依裝好用 `uv sync`；執行用 `uv run run.py`（或 `uv run python -m src.main`）；lint 用 `uv run ruff check src tests`；測試用 `uv run pytest`。翻譯設定與 API 金鑰在 `config.json`（gitignore、不進版控）。
 
 ## 提交前品質檢查
