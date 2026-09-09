@@ -364,7 +364,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
     """回歸測試（review 發現）：N 個 worker 同時撞上剛開啟的閘門時，只能推進一層退避，
     不能因同時失敗的 worker 數量一次跳好幾階。
 
-    第二輪刻意卡住、由測試放行，藉此確定斷言時機——不靠量時間，避免 flaky。"""
+    第二輪刻意卡住、由測試放行，藉此確定斷言時機 —— 不靠量時間，避免 flaky。"""
     import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.05, 0.1, 0.2])
     workers = 4
@@ -395,7 +395,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
         for i in range(workers):
             pool.submit(f"[A] m{i}", [], msg_id=i)
 
-        # 等所有 worker 都各自跑完第一輪、進入（並卡在）第二輪嘗試——
+        # 等所有 worker 都各自跑完第一輪、進入（並卡在）第二輪嘗試 ——
         # 這保證每個 worker 自己的第一輪 _note_failure 都已經跑完。
         deadline = time.monotonic() + 30.0
         while tr.calls < workers * 2 and time.monotonic() < deadline:

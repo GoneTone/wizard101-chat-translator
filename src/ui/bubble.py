@@ -38,7 +38,7 @@ def should_auto_expand(foreground: int, previous: int, bubble_hwnd: int,
     """泡泡被切成前景（點工作列按鈕／Alt+Tab）時是否該自動展開回完整視窗。
 
     只認「這一輪才變成前景」的轉換，持續在前景時不重複觸發；游標壓在泡泡上
-    代表使用者正直接操作泡泡，交給既有的按下／拖曳／放開邏輯處理——否則按下
+    代表使用者正直接操作泡泡，交給既有的按下／拖曳／放開邏輯處理 —— 否則按下
     的瞬間就展開，泡泡再也拖不動。bubble_hwnd 取不到（0）時一律不觸發，
     避免與 GetForegroundWindow() 的 0（無前景視窗）誤判成相等。"""
     if not bubble_hwnd or foreground != bubble_hwnd or previous == bubble_hwnd:
@@ -123,7 +123,7 @@ class Bubble(tk.Toplevel):
         # 全部取整再畫：create_oval 高度為 2*half_h+1（奇數），圓心才落在像素正中央、
         # 與數字墨跡（高度同為奇數）對齊；留浮點的話圓心卡在像素邊界，數字永遠差半格。
         half_h = round((y1 - y0) / 2 + _BADGE_PAD)
-        # 單一數字的 bbox 又窄又高，等量外擴會成直立橢圓——水平半徑至少拉齊成圓，
+        # 單一數字的 bbox 又窄又高，等量外擴會成直立橢圓 —— 水平半徑至少拉齊成圓，
         # 位數多了才讓它往左右長成橫橢圓。
         half_w = max(round((x1 - x0) / 2 + _BADGE_PAD), half_h)
         cx, cy = round((x0 + x1) / 2), round((y0 + y1) / 2)
@@ -135,7 +135,7 @@ class Bubble(tk.Toplevel):
         c.itemconfigure(self._badge_dot, state="normal")
 
     def pointer_over(self) -> bool:
-        """游標目前是否壓在泡泡上。測不到就當作是——寧可不自動展開，也不要在
+        """游標目前是否壓在泡泡上。測不到就當作是 —— 寧可不自動展開，也不要在
         使用者正按著泡泡時把它抽走（見 should_auto_expand）。"""
         try:
             px, py = self.winfo_pointerxy()
@@ -157,7 +157,7 @@ class Bubble(tk.Toplevel):
 
     def _release(self, e) -> None:
         # 點 ─ 縮小時 overlay 會 withdraw 掉正被按住的視窗、隱式 grab 因此斷掉，
-        # 放開滑鼠的事件落到剛出現在游標下的泡泡上——沒有對應的按下，當作沒發生
+        # 放開滑鼠的事件落到剛出現在游標下的泡泡上 —— 沒有對應的按下，當作沒發生
         if self._drag_state is None:
             return
         sx, sy, _, _ = self._drag_state

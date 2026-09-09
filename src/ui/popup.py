@@ -2,7 +2,7 @@
 
 不用 `tk.Menu`：它在 Windows 會被畫上一圈系統的淺色外框，`borderwidth`／`relief`
 都拔不掉（實測截圖確認），擺在深色疊加視窗旁邊像是外來的系統選單。代價是關閉與
-螢幕邊緣夾位得自己處理——關閉沿用 overlay 既有的滑鼠路由（點到疊加視窗任何一處都
+螢幕邊緣夾位得自己處理 —— 關閉沿用 overlay 既有的滑鼠路由（點到疊加視窗任何一處都
 會呼叫 `hide()`），不另外抓 grab。
 """
 import tkinter as tk
@@ -41,14 +41,14 @@ class Popup:
         self._win.configure(bg=GRIP)
         # 絕不能被啟用成作用中視窗：overrideredirect 視窗一 deiconify 就會被 Windows
         # 啟用，鍵盤事件從此落到這裡，疊加視窗本體的 Ctrl+C 與 Esc 全部收不到（實機
-        # 踩過），而且還會把焦點從遊戲搶走。滑鼠事件不受影響——backdrop 用的是同一招。
+        # 踩過），而且還會把焦點從遊戲搶走。滑鼠事件不受影響 —— backdrop 用的是同一招。
         make_non_activating(self._win)
 
         self._row = tk.Frame(self._win, bg=BAR, cursor="hand2")
         self._row.pack(padx=1, pady=1)
         self._icon = tk.Canvas(self._row, width=_ICON, height=_ICON, bg=BAR,
                                highlightthickness=0, bd=0)
-        # 「兩張疊起來的紙」：後面那張只露出左上角。用 canvas 而非 PhotoImage——底色能
+        # 「兩張疊起來的紙」：後面那張只露出左上角。用 canvas 而非 PhotoImage —— 底色能
         # 跟著 hover 換，也避開 PhotoImage 在別的執行緒被 GC 時對 Tk 呼叫的那個坑
         # （見 bubble.destroy）。
         self._icon.create_rectangle(0, 0, _ICON - _SHEET_OFFSET - 1, _ICON - _SHEET_OFFSET - 1,

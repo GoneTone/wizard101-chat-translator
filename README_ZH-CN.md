@@ -5,7 +5,7 @@
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
 
-Wizard101 的聊天 AI 翻译软件——叠在游戏上，双向实时翻译。
+Wizard101 的聊天 AI 翻译软件 —— 叠在游戏上，双向实时翻译。
 
 **看消息**：聊天对话出现的每一句都翻成你设置的语言、显示在叠加窗口里，译文上方保留原文，你永远看得到对方实际说了什么。
 
@@ -25,7 +25,7 @@ Wizard101 的聊天 AI 翻译软件——叠在游戏上，双向实时翻译。
 
 <https://github.com/GoneTone/wizard101-chat-translator/releases/latest>
 
-**更新版本**：请先关闭本软件——点叠加窗口标题栏右上角的 ✕——再换文件。程序运行中，exe 会被 Windows 锁住、也还挂在游戏上。关掉后下载新版 `Wizard101ChatTranslator.exe`，覆盖同一个文件夹里的旧文件即可，原本的 `config.json` 会照常沿用，服务商、密钥等设置都不必重填。
+**更新版本**：请先关闭本软件 —— 点叠加窗口标题栏右上角的 ✕ —— 再换文件。程序运行中，exe 会被 Windows 锁住、也还挂在游戏上。关掉后下载新版 `Wizard101ChatTranslator.exe`，覆盖同一个文件夹里的旧文件即可，原本的 `config.json` 会照常沿用，服务商、密钥等设置都不必重填。
 
 **杀毒软件误判**：本软件会读取游戏聊天内存（挂入游戏进程）并监听全局热键，行为模式与部分恶意程序相似，可能被杀毒软件标记或直接删除／隔离，这是误判，请自行评估风险后把程序加入杀毒软件白名单。
 
@@ -118,7 +118,7 @@ TODO
    | `language.locales` | 这个语言文件要认领哪些 Windows locale 名称，空格分隔（例如 `zh_TW zh_HK zh_MO`）。首次运行检测系统语言时，先看有没有语言文件认领该 locale，没人认领才退回比对语言前缀。**同语言不同字集（`zh_TW` 对繁体、`zh_CN` 对简体）必须指名**，否则两份语言文件抢同一个前缀；`ja_JP` 这种靠前缀就对得上语言码 `ja`，留空即可 |
    | `language.translators` | 这份译文的译者署名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](网址)` 加行内链接（只接受 `http`／`https`）。留空＝不显示；设置窗口的语言下拉底下、首次设置向导的语言步骤与「关于」标签页都会显示它 |
 
-3. `uv run pytest`——`tests/test_i18n.py` 会检查新语言文件的 key 与源语言一致、变量（`{app}` 等）没被翻坏、metadata 有填。
+3. `uv run pytest` —— `tests/test_i18n.py` 会检查新语言文件的 key 与源语言一致、变量（`{app}` 等）没被翻坏、metadata 有填。
 
 打包时 `build.spec` 以 `src/i18n/*.json` 收录，新文件会自动被带进 exe。
 

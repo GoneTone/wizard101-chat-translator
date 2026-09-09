@@ -28,7 +28,7 @@ def parse_link_markup(text: str) -> list[tuple[str, str | None]]:
     只認連結一種語法，其餘字元原樣留在文字段裡。
 
     網址只放行 http／https：語言檔可以由外部貢獻者提供，其他 scheme（`file:`、
-    `javascript:`）降級成不可點的純文字——寧可少一條連結，也不要讓一份譯文開得了
+    `javascript:`）降級成不可點的純文字 —— 寧可少一條連結，也不要讓一份譯文開得了
     任意 URI。"""
     segments: list[tuple[str, str | None]] = []
     cursor = 0
@@ -132,7 +132,7 @@ class RichLabel(tk.Text):
 
     def _fit(self) -> None:
         """把高度設成內容的行數：內容總像素高（count 帶 update，否則 Tk 背景慢慢算的
-        行距還沒好）除以字型行高。不用 count displaylines——一個「字」（長網址）
+        行距還沒好）除以字型行高。不用 count displaylines —— 一個「字」（長網址）
         超過一行寬時 Tk 逐字元折行，displaylines 少算那一行，最後一行就被切掉
         （Tk 8.6.15 實測，帶 update 也一樣）。"""
         self._fit_pending = False

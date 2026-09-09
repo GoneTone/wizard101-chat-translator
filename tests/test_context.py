@@ -12,7 +12,7 @@ def test_snapshot_returns_pushed_lines_in_order():
 
 
 def test_snapshot_is_a_copy():
-    # 呼叫端拿到的 snapshot 之後不得被新 push 影響——worker 帶著它重試時上下文不能漂移
+    # 呼叫端拿到的 snapshot 之後不得被新 push 影響 —— worker 帶著它重試時上下文不能漂移
     ctx = ChatContext()
     ctx.push("[A] one")
     snap = ctx.snapshot()

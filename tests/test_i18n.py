@@ -9,7 +9,7 @@ from src import i18n
 
 @pytest.fixture(autouse=True)
 def restore_language():
-    """還原全域語言，並清掉快取——測試會往 _cache 塞假 key，不清會污染後續測試。"""
+    """還原全域語言，並清掉快取 —— 測試會往 _cache 塞假 key，不清會污染後續測試。"""
     before = i18n.current_language()
     yield
     i18n.forget_catalogs()

@@ -289,7 +289,7 @@ def test_dimmed_scales_each_channel_toward_dark():
 
 
 def test_message_uses_game_color_translated_bright_original_dim(root):
-    # 譯文用遊戲聊天的顯示色，原文用同色調暗版——與遊戲內配色一眼對得上
+    # 譯文用遊戲聊天的顯示色，原文用同色調暗版 —— 與遊戲內配色一眼對得上
     from src.ui.overlay import dimmed
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲", color="#80ff00")
@@ -389,7 +389,7 @@ def test_successful_translation_keeps_the_game_colour(root):
 
 def test_bubble_release_without_press_is_ignored(root):
     # 點 ─ 縮小時 minimize() withdraw 掉正被按住的視窗、隱式 grab 斷掉，放開滑鼠的事件落到
-    # 剛出現的泡泡上——沒有對應的 press，不得丟例外（實機 AttributeError），也不得展開
+    # 剛出現的泡泡上 —— 沒有對應的 press，不得丟例外（實機 AttributeError），也不得展開
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.minimize()
@@ -526,7 +526,7 @@ def test_filling_a_pending_translation_keeps_scrolled_view_in_place(root):
     root.update()
     before = _row_offset(ov, 605)
     ov.update_message(500, "終於補上的譯文。這段刻意寫得很長，長到足以讓那一列從佔位時的"
-                           "一行撐成三行以上——高度一變，底下的所有訊息都會跟著往下移，"
+                           "一行撐成三行以上 —— 高度一變，底下的所有訊息都會跟著往下移，"
                            "使用者正在讀的那幾行也就跟著跑掉了，所以這裡要一起補位。"
                            "再多墊一句，確保在寬視窗下也一定會換行成好幾行。")
     root.update()
@@ -534,7 +534,7 @@ def test_filling_a_pending_translation_keeps_scrolled_view_in_place(root):
 
 
 def test_expand_reanchors_view_to_bottom(root):
-    # 泡泡期間的訊息是在 unmap 狀態下排版的，展開後尺寸才確定。expand() 必須自己重算並貼底——
+    # 泡泡期間的訊息是在 unmap 狀態下排版的，展開後尺寸才確定。expand() 必須自己重算並貼底 ——
     # deiconify 不保證帶來 <Configure>，捲動範圍停在舊值的話最新訊息怎麼捲都捲不到
     ov = _filled_overlay(root)
     ov.minimize()
@@ -642,7 +642,7 @@ def test_set_update_shows_a_clickable_banner(root):
 
 
 def test_update_banner_uses_an_opaque_background(root):
-    """回歸測試：橫幅底色不可等於 BG——本體視窗把 BG 設成 `-transparentcolor`，
+    """回歸測試：橫幅底色不可等於 BG —— 本體視窗把 BG 設成 `-transparentcolor`，
     符合該色的像素在 Windows 下連 hit-test 都跳過，整列與右側 ✕ 就都點不到。"""
     from src.updater import Release
 
@@ -838,7 +838,7 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     # *10（非 *20）：縮放前要留在同一視覺行，_select_whole_message 的垂直置中點
-    # 才會落在該行內、真的從頭選起——量測顯示 *10 在縮放前的換行寬度下恰好一行、
+    # 才會落在該行內、真的從頭選起 —— 量測顯示 *10 在縮放前的換行寬度下恰好一行、
     # *20 已經先換成兩行，命中點會落在行界上、選不到開頭（見 fix-round 報告）。
     ov.add_message("原文一" * 10, "譯文一" * 10)
     first, _ = _select_whole_message(ov)
@@ -908,7 +908,7 @@ def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
 
 
 def test_backdrop_press_away_from_any_edge_starts_a_selection(root):
-    # 訊息列的底色是透明色鍵，字間空隙的點擊會落到 backdrop——那條路徑也要能起手
+    # 訊息列的底色是透明色鍵，字間空隙的點擊會落到 backdrop —— 那條路徑也要能起手
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
@@ -965,7 +965,7 @@ def test_view_does_not_jump_to_the_bottom_while_selecting(root):
 def test_prune_during_a_drag_keeps_the_selected_text(root):
     # 拖曳中上方訊息被 prune 掉，內容整段上移；沒有錨點補位的話，游標下的字會換掉。
     #
-    # 6 則舊訊息會被 prune、20+ 則新訊息留下——內容量要夠大，「貼底時的相對位置」
+    # 6 則舊訊息會被 prune、20+ 則新訊息留下 —— 內容量要夠大，「貼底時的相對位置」
     # 才補得回去；只留一兩則的話，內容縮到比視口還矮，怎麼補位都會被頂到頂端。
     # 拖曳開始後還要再新增幾則訊息（模擬翻譯持續進來）：跟隨模式每次加訊息都會把
     # 視圖精準貼齊捲動範圍下緣，若拖曳一開始就呼叫 prune，Tk 自己重算 scrollregion
@@ -1174,7 +1174,7 @@ def test_minimize_closes_the_menu(root):
 
 
 def test_selection_entry_points_are_bound(root):
-    # 所有既有測試都直接呼叫 handler，綁定整組刪掉也不會轉紅——這條守住實際入口
+    # 所有既有測試都直接呼叫 handler，綁定整組刪掉也不會轉紅 —— 這條守住實際入口
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")

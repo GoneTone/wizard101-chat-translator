@@ -1,6 +1,6 @@
 """更新檢查：回答「GitHub 上有沒有比目前這版更新的 release」。
 
-只負責查詢與比較，不碰 UI、不碰 config，也不下載或安裝任何東西——要不要提醒、
+只負責查詢與比較，不碰 UI、不碰 config，也不下載或安裝任何東西 —— 要不要提醒、
 怎麼提醒由呼叫端決定（啟動路徑走 overlay 橫幅，設定視窗走「關於」分頁）。
 """
 import re
@@ -39,7 +39,7 @@ def parse_version(text: str) -> tuple[int, int, int] | None:
 
 def is_newer(latest: str, current: str) -> bool:
     """latest 是否嚴格新於 current。
-    任一邊解析不出來就回 False——寧可漏提醒也不要誤報把使用者導去下載頁。"""
+    任一邊解析不出來就回 False —— 寧可漏提醒也不要誤報把使用者導去下載頁。"""
     newer, mine = parse_version(latest), parse_version(current)
     if newer is None or mine is None:
         log(f"[update] version unparsable: latest={latest!r} current={current!r}")

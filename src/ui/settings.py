@@ -386,7 +386,7 @@ class SettingsWindow:
     def _on_language_change(self, code: str) -> None:
         """介面語言換了：立刻以新語言預覽，不寫 cfg（按儲存才算數）。
         整個視窗重建而非逐一 relabel：欄位元件各自帶著舊語言的文字，逐一刷新容易漏
-        （精靈同理）；代價是 API 測試結果被清掉——那句譯文本來就綁著當時的語言。"""
+        （精靈同理）；代價是 API 測試結果被清掉 —— 那句譯文本來就綁著當時的語言。"""
         if code == current_language():
             return
         self._collect_into_draft()

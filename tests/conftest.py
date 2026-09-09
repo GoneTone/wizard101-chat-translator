@@ -26,7 +26,7 @@ def _park_windows(request):
     不用 withdraw：視窗會量不到真實排版，換行寬度、下拉外部點擊那類測試會失效。
     不借用 monkeypatch fixture：與測試自己的 monkeypatch 共用還原堆疊會打亂還原順序
     （實測 test_i18n 的語言還原在 load 仍被 patch 成拋錯時執行）。
-    @pytest.mark.real_position 的測試不套用——它們斷言的就是視窗位置。
+    @pytest.mark.real_position 的測試不套用 —— 它們斷言的就是視窗位置。
     """
     if request.node.get_closest_marker("real_position"):
         yield

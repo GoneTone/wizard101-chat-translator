@@ -16,7 +16,7 @@ def test_windows_are_parked_offscreen(root):
 
 
 def test_parking_keeps_the_requested_size(root):
-    """只改寫位置、不動尺寸——量排版的測試靠的就是真實尺寸。"""
+    """只改寫位置、不動尺寸 —— 量排版的測試靠的就是真實尺寸。"""
     win = tk.Toplevel(root)
     try:
         win.geometry("240x120+10+10")

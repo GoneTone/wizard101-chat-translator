@@ -24,7 +24,7 @@ def app_dir() -> Path:
 
 def local_state_dir() -> Path:
     """本機狀態目錄：跨啟動保留、但不屬於使用者資料的檔案（hook 修復狀態、譯文快取）。
-    與 `app_dir()` 分開——那裡放的是使用者會去看、去改的東西（config.json、log）。"""
+    與 `app_dir()` 分開 —— 那裡放的是使用者會去看、去改的東西（config.json、log）。"""
     return Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "wizard101-chat-translator"
 
 
@@ -89,7 +89,7 @@ ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
 
 def clamp_advanced(values: dict) -> dict:
     """就地把進階數值夾在安全範圍並回傳同一個 dict。設定視窗儲存與 config.json 載入
-    都經過這裡——手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
+    都經過這裡 —— 手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
     for key, (lo, hi) in ADVANCED_LIMITS.items():
         values[key] = min(hi, max(lo, values[key]))
     return values

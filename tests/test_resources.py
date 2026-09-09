@@ -7,7 +7,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 BUILD_SPEC = Path(__file__).resolve().parents[1] / "build.spec"
 # Windows 各處要用的尺寸都得有原生 frame：16 標題列／20-24 工作列／32 Alt+Tab／
 # 40-48 檔案總管／64+ 大圖示。少了 24 的話工作列只能從 32 硬縮（1.33:1 非整數），
-# 整張圖連螺旋一起軟掉——這正是「工作列圖示很模糊」的成因。
+# 整張圖連螺旋一起軟掉 —— 這正是「工作列圖示很模糊」的成因。
 EXPECTED_SIZES = [16, 20, 24, 32, 40, 48, 64, 128]
 # overlay 用得到的 PNG：標題列（_BAR_ICON）與縮小後的泡泡（_BUBBLE_SIZE）
 PNG_SIZES = [16, 48]
@@ -60,7 +60,7 @@ def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):
 
 def test_apply_window_icon_installs_it_on_the_window_class(root):
     # tkinter 的 iconbitmap 挑不對 ICO 的 frame（實測掛出來是放大裁切過的糊圖），
-    # 所以改成自己載入正確尺寸再寫進視窗類別——之後建立的每個 Toplevel 都該沿用它。
+    # 所以改成自己載入正確尺寸再寫進視窗類別 —— 之後建立的每個 Toplevel 都該沿用它。
     import tkinter as tk
 
     import win32con

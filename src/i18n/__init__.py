@@ -86,7 +86,7 @@ def font_family(code: str) -> str | None:
 
 def translators(code: str) -> str:
     """這份譯文的譯者掛名（可帶 `[文字](網址)` 行內連結）；沒宣告或留空回空字串。
-    與其他 metadata 同樣不走 `t()` 的 fallback——掛名借到別的語言就是把功勞掛錯人。
+    與其他 metadata 同樣不走 `t()` 的 fallback —— 掛名借到別的語言就是把功勞掛錯人。
     來源語言由開發者自己寫，欄位空著是正常狀態，由顯示端決定不畫那一列。"""
     return _meta(code, META_TRANSLATORS)
 
@@ -128,7 +128,7 @@ def fallback_order() -> list[str]:
 def t(key: str, **kwargs) -> str:
     """取當前語言的文案，並以具名變數 format。
     缺字串或 format 失敗（譯者把變數名打壞）都往 fallback_order() 的下一個語言退，
-    全部不行才回傳 key 本身——寧可顯示 key，也不讓整個視窗因一則譯文拋例外。"""
+    全部不行才回傳 key 本身 —— 寧可顯示 key，也不讓整個視窗因一則譯文拋例外。"""
     for code in fallback_order():
         template = _load(code).get(key)
         if template is None:

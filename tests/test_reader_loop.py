@@ -258,11 +258,11 @@ def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
     assert ov.colors == ["#80ff00"]
     assert pool.submitted == [("[A] a", [], 1)]
     assert context.snapshot() == ["[A] a"]
-    assert cache.queried == []   # 玩家對話不查快取——快取只服務系統訊息
+    assert cache.queried == []   # 玩家對話不查快取 —— 快取只服務系統訊息
 
 
 def test_context_advances_by_read_order_not_by_completion(monkeypatch):
-    # 每則帶到的 context 是它「之前」的行——平行翻譯時同批訊息仍看得到彼此
+    # 每則帶到的 context 是它「之前」的行 —— 平行翻譯時同批訊息仍看得到彼此
     cfg = {"poll_interval": 0.01}
     reads = [["[A] one", "[B] two", "[C] three"], []]
     pool, context = run_scripted(cfg, FakeOverlay(), reads, monkeypatch)
@@ -337,7 +337,7 @@ class StatusFakeReader(FakeReader):
 
 def test_status_transitions(monkeypatch):
     # 監聽 →（有新訊息、pool 忙碌）翻譯中 → 監聽：完整三段都要出現，
-    # 不能只停在「翻譯中」——回歸測試（重寫 reader_loop 時遺失的舊測試）。
+    # 不能只停在「翻譯中」 —— 回歸測試（重寫 reader_loop 時遺失的舊測試）。
     cfg = {"poll_interval": 0.01}
     ov = FakeOverlay()
     pool = FakePool()

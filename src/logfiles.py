@@ -1,6 +1,6 @@
 """log 檔基礎設施：session 分段標頭、過期段落清理、每行 UTC 時戳。
 
-`app.log`（診斷輸出）與 `messages.log`（收訊原始內容）共用這裡的規則——
+`app.log`（診斷輸出）與 `messages.log`（收訊原始內容）共用這裡的規則 ——
 每次啟動寫一行 session 標頭、只保留近 LOG_RETENTION_DAYS 天的段落，
 輸出經 TimestampedStream 包裝後每行前綴一個 UTC＋0 時戳。
 """
@@ -70,7 +70,7 @@ def _prepare_log(path: Path, now: datetime) -> None:
 
 def open_session_log(name: str, now: datetime | None = None):
     """開啟 app_dir() 旁的 log 檔：清掉過期段落後以 append 開檔並寫入 session 標頭。
-    資料夾不可寫時退回 devnull——windowed 模式沒有主控台，不能讓開檔失敗把程式帶掉。"""
+    資料夾不可寫時退回 devnull —— windowed 模式沒有主控台，不能讓開檔失敗把程式帶掉。"""
     now = now or datetime.now(UTC)
     path = app_dir() / name
     try:

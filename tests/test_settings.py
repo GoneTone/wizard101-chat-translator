@@ -41,13 +41,13 @@ def test_overlay_set_alpha_applies_to_backdrop_and_bubble(root):
     ov.set_alpha(0.5)
     assert float(ov._backdrop.attributes("-alpha")) == 0.5
     assert float(ov._win.attributes("-alpha")) == 1.0
-    # 泡泡刻意比主視窗再透一些——它是收起來的浮標，該更低調，所以不是同一個值
+    # 泡泡刻意比主視窗再透一些 —— 它是收起來的浮標，該更低調，所以不是同一個值
     assert float(ov._bubble.attributes("-alpha")) == pytest.approx(0.5 * BUBBLE_ALPHA_FACTOR)
     ov.expand()
 
 
 def test_bubble_alpha_stops_at_the_floor(root):
-    # overlay_alpha 已經是最低時再打折會讓泡泡幾乎看不見，找不回來——所以有下限
+    # overlay_alpha 已經是最低時再打折會讓泡泡幾乎看不見，找不回來 —— 所以有下限
     ov = OverlayWindow(root, x=0, y=0, max_messages=5, fade_seconds=0, alpha=0.3)
     ov.minimize()
     assert float(ov._bubble.attributes("-alpha")) == pytest.approx(BUBBLE_ALPHA_FLOOR)
@@ -183,7 +183,7 @@ def _open_settings(root, on_language_preview=None):
 
 
 def test_changing_target_language_clears_the_test_result(root):
-    # 測試連線顯示的譯文是用當時的目標語言翻出來的，語言一改那句就過期了——
+    # 測試連線顯示的譯文是用當時的目標語言翻出來的，語言一改那句就過期了 ——
     # 留著會讓使用者以為新語言已經驗證過。
     win = _open_settings(root)
     win._api._show_test_result(True, "connected, sample translation")
@@ -530,7 +530,7 @@ def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
 
 
 def test_update_result_is_only_clickable_over_its_text(root):
-    """回歸測試：結果標籤不可撐滿整列——「有新版」時整個標籤是可點的連結，撐滿會讓
+    """回歸測試：結果標籤不可撐滿整列 —— 「有新版」時整個標籤是可點的連結，撐滿會讓
     文字後的空白也可點、游標也變手指。"""
     win = _open_settings_with_checker(root, lambda: None)
     info = win._update_result.pack_info()
@@ -663,7 +663,7 @@ def test_translators_follow_the_previewed_language(root, monkeypatch):
 
 
 def test_settings_window_does_not_stay_on_top(root):
-    # 開窗時抬一次是為了不被 topmost 的 overlay 蓋住，但抬完就該放掉——
+    # 開窗時抬一次是為了不被 topmost 的 overlay 蓋住，但抬完就該放掉 ——
     # 設定視窗不該一直壓在遊戲以外的其他程式之上
     win = _open_settings(root)
     assert bool(win._win.attributes("-topmost")) is True   # 抬起中

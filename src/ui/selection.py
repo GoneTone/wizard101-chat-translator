@@ -2,7 +2,7 @@
 
 一則訊息由兩個描邊文字 canvas 組成（原文行、譯文行，見 `overlay._outlined_line`）。
 Tk 的 canvas 原生選取全 app 只有一份、跨不了這兩個 canvas，所以反白自繪；但換行
-規則不自行實作——逐行問 Tk「這個座標是第幾個字元」即可還原排版。
+規則不自行實作 —— 逐行問 Tk「這個座標是第幾個字元」即可還原排版。
 """
 import tkinter.font as tkfont
 from typing import NamedTuple
@@ -72,7 +72,7 @@ def highlight_rects(canvas, font, start: int, end: int) -> list[tuple[int, int, 
 
 
 def selected_text(messages: list[list[str]], start: Caret, end: Caret) -> str:
-    """選取範圍內的文字。同一則訊息的行以換行相接，訊息與訊息之間空一行——
+    """選取範圍內的文字。同一則訊息的行以換行相接，訊息與訊息之間空一行 ——
     貼出去才看得出哪幾句原本是同一則。純字串運算，不碰 Tk。"""
     if start >= end:
         return ""
@@ -94,7 +94,7 @@ def selected_text(messages: list[list[str]], start: Caret, end: Caret) -> str:
 class Selection:
     """疊加視窗訊息的選取狀態：命中、夾取、反白繪製與取字。
 
-    只認螢幕座標——事件從文字 canvas（墨跡像素）或 backdrop（其餘區域因透明色鍵
+    只認螢幕座標 —— 事件從文字 canvas（墨跡像素）或 backdrop（其餘區域因透明色鍵
     而穿透過去）進來都一樣，呼叫端負責換算。選取可跨訊息；拖出全部訊息的上下界
     就夾到最前／最後。
 
@@ -126,7 +126,7 @@ class Selection:
     def forget(self, row) -> None:
         """訊息列即將被銷毀：解除登記。
 
-        列落在選取範圍內就一併清掉選取——留著的話 caret 會指向已銷毀的 widget。
+        列落在選取範圍內就一併清掉選取 —— 留著的話 caret 會指向已銷毀的 widget。
         列在選取**之前**則把兩個 caret 的序號各往前挪一格：訊息是以序號定位的，
         而 `prune` 每輪都可能砍掉最舊的一則，不挪的話選取會整段錯位。"""
         canvases = self._rows.get(row)

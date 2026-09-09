@@ -38,7 +38,7 @@ def test_system_messages_do_not_disturb_the_player_baseline():
 
 def test_a_poll_without_system_lines_does_not_stale_the_system_baseline():
     # 「這一輪沒有系統訊息」是日常狀態，不可拿它清掉系統軌基準：基準一沒了下一輪就走 reset，
-    # 而 reset 以看過集合過濾——再掉一次一字不差的同樣的寶（實機最常見）就會被吞掉
+    # 而 reset 以看過集合過濾 —— 再掉一次一字不差的同樣的寶（實機最常見）就會被吞掉
     drop = _system_colored("00FF00", "你获得了 39 金币！")
     player = _say_colored("FFFFFF", "Lars", "hi")
     with_sys = _log(player, drop)

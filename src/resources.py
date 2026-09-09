@@ -1,6 +1,6 @@
 """唯讀打包資源（語言檔、icon）的路徑解析。
 
-PyInstaller 把這類資源收進 exe，執行期解壓到 `_MEIPASS`——唯讀且每次啟動換位置，
+PyInstaller 把這類資源收進 exe，執行期解壓到 `_MEIPASS` —— 唯讀且每次啟動換位置，
 與 config.json、log 所在的可寫「exe 旁目錄」（`config.app_dir`）不可混用。
 """
 import sys

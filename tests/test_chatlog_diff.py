@@ -199,7 +199,7 @@ def test_single_repeat_append_still_emitted():
 
 
 def test_new_message_in_replacing_view_is_emitted_after_warmup():
-    # 實機 869：朋友視圖是單行「置換式」——每句新話取代整個視圖內容、與基準零重疊。
+    # 實機 869：朋友視圖是單行「置換式」 —— 每句新話取代整個視圖內容、與基準零重疊。
     # 暖機期過後，reset 路徑必須吐出沒見過的行（真新訊息），不得一律吸收
     main = _log(_say(1, "A", "m1"), _say(2, "B", "m2"))
     reads = [main] * 12 + [_log(_own("Test1")), _log(_own("123"))]
@@ -241,7 +241,7 @@ def test_first_message_per_channel_with_empty_chat_after_game_restart():
 
 
 def test_reconnect_resets_session_state():
-    # 遊戲重開（斷線重連）：基準/看過集合屬於上個 session，必須歸零——
+    # 遊戲重開（斷線重連）：基準/看過集合屬於上個 session，必須歸零 ——
     # 否則新 session 第一句與舊訊息同字（Test 等常用字）會被誤判重浮而吞掉
     reads = ([_log(_own("Test"))] * 12
              + [RuntimeError("game closed")]
@@ -343,7 +343,7 @@ def test_correlated_release_only_frees_the_tail_line():
 
 
 def test_same_tail_text_after_long_empty_emitted_with_input():
-    # 實機：登出前最後一句與登入後第一句同字——新內容恰等於舊基準尾行，append 誤判「無變化」。
+    # 實機：登出前最後一句與登入後第一句同字 —— 新內容恰等於舊基準尾行，append 誤判「無變化」。
     # 長時間全空後基準視為過期、強制走 reset，由看過集合＋輸入框關聯放行接手
     main = _log(_say(1, "A", "m1"), _own("Test"))    # 登出前尾行＝Test
     reads = [main] * 7 + [""] * 20 + [_log(_own("Test"))]
@@ -375,7 +375,7 @@ def test_same_text_resend_after_short_empty_is_emitted():
 
 
 def test_single_line_view_refill_after_short_empty_is_not_retranslated():
-    # 實機：聊天視圖裡只有一行玩家訊息，轉場清空後原樣填回——內容與基準一字不差，
+    # 實機：聊天視圖裡只有一行玩家訊息，轉場清空後原樣填回 —— 內容與基準一字不差，
     # 沒有新訊息可言。單行例外只適用於內容真的變了的情況，否則每次轉場都重譯尾行
     view = _log(_say(1, "A", "ill stay"))
     reads = [view] * 8 + ["", ""] + [view, view]
@@ -633,7 +633,7 @@ def test_read_failure_raises_game_not_running():
 
 def test_history_reappended_in_bulk_only_emits_unseen_lines():
     # 切伺服器轉場：chatLog 一輪內把整份歷史再接一次（實測 101→200 行）。只要混進一行沒讀過的，
-    # 全有全無的「全部看過」判定就整批放行——大批次必須逐行過濾，只留真正沒見過的行
+    # 全有全無的「全部看過」判定就整批放行 —— 大批次必須逐行過濾，只留真正沒見過的行
     base = [_say(1, "Wolf", f"line {i}") for i in range(12)]
     doubled = base + base[:11] + [_say(1, "Wolf", "brand new line")]
     r = FakeWiz([_log(*base), _log(*doubled)])
@@ -773,7 +773,7 @@ def test_message_log_is_optional():
 def test_no_release_while_the_input_box_is_open():
     """輸入框開著時切頁籤，自己的舊發言不得被當成「剛送出」而重複顯示。
 
-    實機：重開軟體後切頁籤重複顯示同一句，app.log 顯示放行發生在開啟輸入框後 60 毫秒——
+    實機：重開軟體後切頁籤重複顯示同一句，app.log 顯示放行發生在開啟輸入框後 60 毫秒 ——
     那時使用者還在打字，重浮的是切頁籤帶出的舊訊息；送出那一輪 input_open 本就為 False。
     """
     mine = _own("Test321")

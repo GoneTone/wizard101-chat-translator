@@ -1,7 +1,7 @@
 """收訊翻譯工作池：以固定數量的 worker 平行翻譯，單則卡住不影響其他則。
 
 呼叫端只負責提交（line, context, msg_id）與接收 on_result(msg_id, text, failed)；
-顯示順序不由完成順序決定——overlay 在提交當下就已佔好位置（見 reader_loop）。
+顯示順序不由完成順序決定 —— overlay 在提交當下就已佔好位置（見 reader_loop）。
 """
 import threading
 import time
@@ -89,7 +89,7 @@ class TranslationPool:
 
     def resize(self, workers: int) -> None:
         """變更平行度。舊 executor 放生（手上的工作跑完仍會經 on_result 回報，
-        msg_id 不受影響），本物件身分不變——持有本 pool 參考的呼叫端不需更新。"""
+        msg_id 不受影響），本物件身分不變 —— 持有本 pool 參考的呼叫端不需更新。"""
         with self._lock:
             if workers == self._workers:
                 return
@@ -116,7 +116,7 @@ class TranslationPool:
     def _work(self, line: str, context: list[str], msg_id: int) -> None:
         """每則工作至多回報一次 on_result。
 
-        in_flight 在呼叫 on_result 之前遞減，而非事後靠 finally——否則 on_result 回呼內
+        in_flight 在呼叫 on_result 之前遞減，而非事後靠 finally —— 否則 on_result 回呼內
         讀 in_flight 會把已有結果的這則算進行中。`decremented` 防止 finally 再扣一次；
         沒有呼叫 on_result 的路徑（stop 跳出、_wait_for_gate 放棄）則交給 finally。
         合計每則恰好遞減一次，與 _on_future_done 對「送出前就被取消」的遞減互斥。"""
@@ -157,7 +157,7 @@ class TranslationPool:
 
     def _call_translate(self, line: str, context: list[str]) -> str:
         """在總量閘的額度內送出一次翻譯請求。取不到額度（關閉中）視為離線、
-        交給既有的重試路徑處理——此時 _stop 已設定，下一圈就會收手。"""
+        交給既有的重試路徑處理 —— 此時 _stop 已設定，下一圈就會收手。"""
         if self._concurrency is None:
             return self._translate_fn(line, context)
         if not self._concurrency.acquire(self._stop):
@@ -180,7 +180,7 @@ class TranslationPool:
     def _note_failure(self, state: str, exc: Exception) -> None:
         """推進全域退避閘門並記錄狀態。閘門全域：伺服器離線是全域事實，否則 N 個 worker
         會以 N 倍速重打同一台掛掉的伺服器。閘門未到期代表另一個 worker 已替這一輪推進過，
-        沿用即可——否則 N 個 worker 同時撞上會把 backoff_index 一口氣推 N 階、直接封頂。"""
+        沿用即可 —— 否則 N 個 worker 同時撞上會把 backoff_index 一口氣推 N 階、直接封頂。"""
         with self._lock:
             now = time.monotonic()
             if now >= self._gate_until:

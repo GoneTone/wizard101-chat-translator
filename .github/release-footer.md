@@ -12,7 +12,7 @@
 
 If you are updating from an earlier version, quit the software first (click the ✕ on the overlay's title bar) — while it is running the exe is locked by Windows and still hooked into the game. Then overwrite the old `Wizard101ChatTranslator.exe` in the same folder; your existing `config.json` is kept, so nothing has to be set up again.
 
-若是從舊版更新，請先關閉本軟體（點疊加視窗標題列右上角的 ✕）——程式執行中，exe 會被 Windows 鎖住、也還掛在遊戲上。關掉後覆蓋同一個資料夾裡的舊 `Wizard101ChatTranslator.exe` 即可，原本的 `config.json` 會保留，設定不必重填。
+若是從舊版更新，請先關閉本軟體（點疊加視窗標題列右上角的 ✕） —— 程式執行中，exe 會被 Windows 鎖住、也還掛在遊戲上。關掉後覆蓋同一個資料夾裡的舊 `Wizard101ChatTranslator.exe` 即可，原本的 `config.json` 會保留，設定不必重填。
 
 ## Reporting Issues 回報問題
 

@@ -1,7 +1,7 @@
 """系統訊息譯文的持久化快取。
 
 系統訊息不吃聊天上下文（見 translator.translate_system_message），因此「同一句原文
-必然得到同一句譯文」——這正是它可以安全快取、而玩家對話不行的原因。
+必然得到同一句譯文」 —— 這正是它可以安全快取、而玩家對話不行的原因。
 
 數字先正規化成佔位符再當 key：`你获得了 39 金币！` 與 `你获得了 65 金币！` 是同一個
 句型，金額每次都不同，不正規化就永遠不會命中。
@@ -34,7 +34,7 @@ def normalize(text: str) -> tuple[str, list[str]]:
 
 
 def restore(template: str, numbers: list[str]) -> str:
-    """把數字填回樣板。依佔位符的**編號**取值，不依出現位置——
+    """把數字填回樣板。依佔位符的**編號**取值，不依出現位置 ——
     譯文的語序可能與原文不同（`{1} gold and {0} XP`），照位置填會把數字對調。"""
     def put(m: re.Match) -> str:
         idx = int(m.group(1))
@@ -58,7 +58,7 @@ FLUSH_EVERY = 20      # 累積這麼多筆新增才落盤一次（不逐筆寫�
 
 def fingerprint_of(provider: str, model: str, target_language: str) -> str:
     """快取指紋：換服務商、模型、目標語言或提示詞版次時舊譯文整份作廢（不含版次的話，
-    舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。絕不含 API 金鑰——指紋會寫進磁碟。"""
+    舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。絕不含 API 金鑰 —— 指紋會寫進磁碟。"""
     return f"{provider}|{model}|{target_language}|p{PROMPT_REVISION}"
 
 
@@ -92,7 +92,7 @@ class TranslationCache:
 
     def put(self, text: str, translated_template: str, fingerprint: str) -> bool:
         """存入一筆；`translated_template` 是樣板的譯文（仍帶佔位符）。
-        佔位符對不上就不存並回傳 False——呼叫端須改用原文直翻。
+        佔位符對不上就不存並回傳 False —— 呼叫端須改用原文直翻。
         `fingerprint` 是譯文產出當下的指紋：翻譯飛行中使用者可能 rebind 換掉服務商／模型／
         目標語言，舊設定翻好的譯文若照存會被當成新設定的寫進磁碟、跨重啟回吐錯誤語言。"""
         template, _ = normalize(text)
@@ -131,7 +131,7 @@ class TranslationCache:
 
     def clear(self) -> int:
         """清空快取並刪掉磁碟檔案，回傳清掉的筆數。與 rebind() 不同：那會先 flush 舊內容，
-        這是使用者主動丟棄、不寫回。刪檔失敗只記 log 不拋——快取是最佳化路徑，
+        這是使用者主動丟棄、不寫回。刪檔失敗只記 log 不拋 —— 快取是最佳化路徑，
         下次 flush 會覆寫它。"""
         with self._lock:
             count = len(self._entries)
@@ -199,7 +199,7 @@ class TranslationCache:
 
 def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     """翻一則系統訊息並存進快取。送翻與存入的都是正規化後的樣板；佔位符被模型弄壞或
-    翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次——那一次走的已是新設定。
+    翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次 —— 那一次走的已是新設定。
     落回英文的譯文（見 translator.has_stray_latin）一律不落盤：翻譯器已重譯過一次，
     救不回的照樣顯示，但存進快取等於把錯誤固化、每次命中都吐同一個英文名。
 

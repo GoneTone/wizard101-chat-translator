@@ -21,6 +21,6 @@ FG_UPDATE = "#6fa8ff"
 FG_BAR = "#c8c8d8"
 # 字幕描邊色：深色輪廓讓文字（與捲軸滑塊）在任何遊戲畫面上都保有對比
 OUTLINE = "#0a0a10"
-# 框選反白底色。不可用 BG——那是本體的 -transparentcolor，畫上去等於沒畫（見檔頭）。
+# 框選反白底色。不可用 BG —— 那是本體的 -transparentcolor，畫上去等於沒畫（見檔頭）。
 # 用不透明色另有好處：反白過的區域從此接得到滑鼠，拖曳回頭經過時事件不會掉到 backdrop。
 SELECT_BG = "#2d4a7a"

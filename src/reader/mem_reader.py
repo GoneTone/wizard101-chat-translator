@@ -38,7 +38,7 @@ MAX_NEW_LINES_PER_POLL = 100
 # 未達上限但異常大的批次：照吐，只留診斷數據
 LARGE_BATCH_LOG_THRESHOLD = 10
 # 系統軌的診斷門檻：掉寶一輪十幾行是常態，套玩家軌的門檻會讓 app.log 每輪都印 large batch。
-# 暴量防線 MAX_NEW_LINES_PER_POLL 兩軌沿用同值——一輪超過 100 行系統訊息就是差分誤對齊。
+# 暴量防線 MAX_NEW_LINES_PER_POLL 兩軌沿用同值 —— 一輪超過 100 行系統訊息就是差分誤對齊。
 SYSTEM_LARGE_BATCH_LOG_THRESHOLD = 40
 # append 快路徑改走逐行過濾的批次大小。一輪湧出這麼多行不會是真人發言，而是轉場時 chatLog
 # 把整份歷史重接一次（實測切伺服器：101→200 行、吐出 100 行舊訊息）；「全部看過」那道判定
@@ -50,7 +50,7 @@ BULK_APPEND_FILTER_MIN = 10
 DUPLICATE_BURST_SEEN_RATIO = 4
 # 基準建立後的暖機輪數，期間 reset（零重疊讀取）一律靜默吸收：啟動時基準只蓋到當前分頁，
 # 其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都在前 1-3 輪，5 輪已保守）。
-# 拉太長會放大代價——期間切到別的頻道說的第一句（走 reset）會被吸收。
+# 拉太長會放大代價 —— 期間切到別的頻道說的第一句（走 reset）會被吸收。
 RESET_WARMUP_POLLS = 5
 # 「看過集合」容量上限（行數，FIFO）。聊天分頁共用同一個 chatLog 控件且無分頁狀態可讀，
 # 切分頁＝內容換成另一視圖，recover/reset 會把重浮的歷史誤判成新訊息，故靠它過濾。
@@ -81,7 +81,7 @@ class GameNotRunning(Exception):
 
 
 class GameAccessDenied(GameNotRunning):
-    """開不了遊戲程序的 handle——多半是遊戲以系統管理員身分執行、本程式沒有。
+    """開不了遊戲程序的 handle —— 多半是遊戲以系統管理員身分執行、本程式沒有。
     只在文案上分流，上層的退避重連照舊。"""
 
 
@@ -224,7 +224,7 @@ def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
     完整歷史與精簡視圖間跳動時，多出的那份還會被 align_append 當成尾端新增而每次重翻。
     以玩家行數最多的節點為主視圖，玩家行被它完全涵蓋（含重複次數）的節點判定為鏡射；
     代價是兩個視窗恰各出現一句一字不差的訊息時只翻一次。空節點不算鏡射，否則診斷 log
-    每輪都在響。鏡射判定只看玩家行——系統訊息在不同節點的出現方式未經實測，
+    每輪都在響。鏡射判定只看玩家行 —— 系統訊息在不同節點的出現方式未經實測，
     判定完成後才從保留的節點取出系統行。"""
     parts = [lines_from_chatlog(t) for t in texts]
     if len(parts) < 2:
@@ -238,7 +238,7 @@ def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
 
 def node_sizes(texts: list[str]) -> list[int]:
     """各 chatLog 節點的聊天行數（含系統訊息），依串接時的排序；診斷用，看得出哪個節點在
-    灌入完整歷史、sorted 名次有無翻轉。只在要印診斷 log 時呼叫——每輪都算等於解析成本翻倍。"""
+    灌入完整歷史、sorted 名次有無翻轉。只在要印診斷 log 時呼叫 —— 每輪都算等於解析成本翻倍。"""
     return [len(lines_from_chatlog(t)) for t in sorted(texts)]
 
 
@@ -358,7 +358,7 @@ def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],
 
     emitted 是 cur_player 的**子序列**：對齊路徑先切出尾段，慢路徑再逐行剔除重浮歷史
     （見 _drop_resurfaced），中間可能被挖空，故不能只取同長度的尾段索引。
-    以物件識別（`is`）順向比對——聊天充滿一字不差的重複行，比對文字會對到錯的索引。"""
+    以物件識別（`is`）順向比對 —— 聊天充滿一字不差的重複行，比對文字會對到錯的索引。"""
     if not emitted:
         return []
     out: list[int] = []
@@ -513,7 +513,7 @@ class WizChatReader:
         if self._player.warmup_left > 0:
             self._player.warmup_left -= 1
         if not cur:
-            # 空讀（傳送/轉場暫態清空）：玩家軌保留基準、忽略。系統軌不能跟著吸收——
+            # 空讀（傳送/轉場暫態清空）：玩家軌保留基準、忽略。系統軌不能跟著吸收 ——
             # 「這一輪沒有玩家行、只有掉寶」是日常狀態，在此吞掉等於系統訊息永遠吐不出來。
             self._empty_streak += 1
             # 節點數變化要等有玩家行的那一輪才比對 _node_count，這裡 node_added 只能是 False
@@ -572,7 +572,7 @@ class WizChatReader:
         if path == "append":
             emitted = self._filter_append(appended, emitted, prev_len)
         # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。例外：空讀轉場後只冒出一行且內容與清空前
-        # 不同＝剛到的新訊息，不過濾——照過濾會吞掉與舊訊息同字的新訊息（實機回報：轉場後
+        # 不同＝剛到的新訊息，不過濾 —— 照過濾會吞掉與舊訊息同字的新訊息（實機回報：轉場後
         # 第一句私訊 Test 因基準裡有人講過同一句而被吞）。內容一字不差填回則不適用：視圖只有
         # 一行玩家訊息時，轉場清空再還原長得就像單行新訊息，例外會讓它每次轉場都重譯
         # （實機回報）；使用者自己重打的同字句仍由輸入框關聯放行。
@@ -635,13 +635,13 @@ class WizChatReader:
 
     def _drop_resurfaced(self, emitted: list[ChatLine], path: str) -> list[ChatLine]:
         """剔除看過集合裡已有的行（重浮歷史），沒見過的行保留。
-        必須在把本輪內容記進看過集合之前呼叫——本輪剛出現的新行還不在集合裡，才吐得出來。"""
+        必須在把本輪內容記進看過集合之前呼叫 —— 本輪剛出現的新行還不在集合裡，才吐得出來。"""
         kept = filter_resurfaced(emitted, self._player.seen)
         if (len(kept) != len(emitted) and self._input_recent > 0
                 and not self._released_for_input and emitted[-1].own
                 and (not kept or kept[-1] is not emitted[-1])):
             # 輸入框剛關閉＝使用者剛送出：尾行與舊訊息同字（重打同一句）會被誤判重浮，關聯
-            # 放行尾行。限自己講的那行——轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
+            # 放行尾行。限自己講的那行 —— 轉場期間輸入框狀態會亂跳，只看輸入框活動會把別人的
             # 舊訊息當「剛送出」放行而重翻（實機回報）。每次開啟只放行一次：此機制分不出
             # 「重打同一句」與「切頁籤讓同一句重浮」，不設限後者每切回來就重複顯示。
             log(f"[reader] released tail line suppressed as resurfaced: input "

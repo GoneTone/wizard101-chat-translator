@@ -105,7 +105,7 @@ def test_put_expects_the_translation_of_the_normalized_template(cache_path):
 
 
 def test_put_takes_the_raw_text_not_the_template(cache_path):
-    # put() 自己正規化：傳入含 {0} 的樣板會把 0 當數字變成 {{0}}，永遠對不上——務必傳原文
+    # put() 自己正規化：傳入含 {0} 的樣板會把 0 當數字變成 {{0}}，永遠對不上 —— 務必傳原文
     c = TranslationCache(FP)
     c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
     assert c.get("你获得了 39 金币！") == "你獲得了 39 金幣！"
@@ -279,7 +279,7 @@ def test_translate_and_cache_falls_back_when_the_model_mangles_a_placeholder(cac
 def test_translate_and_cache_discards_a_translation_that_finished_after_a_rebind(
         cache_path):
     # 實況：翻譯飛行中使用者換了目標語言並套用（cache.rebind）。舊語言的譯文回來得晚，
-    # 照存就會以新指紋落盤、跨重啟持續回吐錯誤語言——一律丟棄，改用換好設定的翻譯器直翻
+    # 照存就會以新指紋落盤、跨重啟持續回吐錯誤語言 —— 一律丟棄，改用換好設定的翻譯器直翻
     cache = TranslationCache(FP)
 
     class SwappingTranslator(FakeTranslator):
@@ -362,7 +362,7 @@ def test_cache_still_usable_after_clear(cache_path):
 def test_translate_and_cache_does_not_store_a_translation_that_slipped_into_english(
         cache_path):
     # 實機：目標語言是繁中，模型卻把裸名詞翻成官方英文名。錯一次就被快取固化，
-    # 之後每次命中都吐英文——這類譯文照樣顯示，但一律不落盤，下次有機會翻對
+    # 之後每次命中都吐英文 —— 這類譯文照樣顯示，但一律不落盤，下次有機會翻對
     translator = FakeTranslator({"雪刺帽": "Snowspike Hat"})
     cache = TranslationCache(FP)
     assert translate_and_cache(translator, cache, "雪刺帽") == "Snowspike Hat"
@@ -379,5 +379,5 @@ def test_translate_and_cache_stores_a_translation_that_kept_the_source_english(
 
 
 def test_fingerprint_covers_the_prompt_revision():
-    # 提示詞改了，舊提示詞產出的譯文就該整份作廢——否則翻壞的譯名會跨著更新留在磁碟上
+    # 提示詞改了，舊提示詞產出的譯文就該整份作廢 —— 否則翻壞的譯名會跨著更新留在磁碟上
     assert f"p{PROMPT_REVISION}" in fingerprint_of("custom", "gemma", "日本語")

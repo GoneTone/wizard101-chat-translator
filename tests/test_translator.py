@@ -296,7 +296,7 @@ def _rejects(param: str, wording: str = "unrecognized"):
 
 def test_rejected_parameter_is_dropped_and_the_request_retried():
     # gpt-4o-mini 這類非推理模型不認 reasoning_effort：規則因模型而異、靠名稱猜會一直追不上，
-    # 改成聽伺服器的——它指名哪個參數就拿掉哪個重送
+    # 改成聽伺服器的 —— 它指名哪個參數就拿掉哪個重送
     fake = SequenceClient(_rejects("reasoning_effort"), FakeResponse())
     t = Translator(provider="openai", model="gpt-4o-mini", api_key="k", thinking=False,
                    target_language="繁體中文（台灣）", client=fake)
@@ -664,7 +664,7 @@ def test_translate_system_message_strips_think_blocks():
 
 # --- 遊戲名詞規則：括號裡的英文只能照抄原文既有的 ---
 def test_game_noun_rule_is_shared_by_both_prompts():
-    # 這條規則曾在收訊與系統訊息兩處各寫一份，改一處就會漏另一處——
+    # 這條規則曾在收訊與系統訊息兩處各寫一份，改一處就會漏另一處 ——
     # 實機回報的「自行編造英文」正源於此。共用同一份，結構上防止再度分岔。
     rule = _game_noun_rule("日本語")
     assert rule in build_incoming_system("日本語")
@@ -880,7 +880,7 @@ def test_has_stray_latin_ignores_case_and_spacing_when_matching_the_source():
 
 
 def test_has_stray_latin_flags_a_name_the_model_swapped_in():
-    # 原文有一個英文名，模型卻換上另一個——片段不在原文裡就是憑空生成的
+    # 原文有一個英文名，模型卻換上另一個 —— 片段不在原文裡就是憑空生成的
     assert has_stray_latin("收到 [Amy] 的伙伴邀请", "收到 Snowspike Hat 的夥伴邀請",
                            "繁體中文（台灣）")
 

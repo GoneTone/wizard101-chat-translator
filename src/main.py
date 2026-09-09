@@ -154,8 +154,8 @@ def apply_window_icon(root: tk.Tk) -> int | None:
 
     不用 tkinter 的 `iconbitmap`：它在 Windows 上挑錯 ICO frame，實測 32x32 是放大裁切
     過的糊圖。改用 LoadImage 指定尺寸（會挑最接近的原生 frame）寫進視窗類別，之後每個
-    Toplevel 都自動沿用。類別得透過 TkTopLevel 視窗才設得到——withdraw 的 root 是
-    TkChild——故開一個隱藏 Toplevel 當跳板。小圖示（GCL_HICONSM）寫入回報成功卻讀不
+    Toplevel 都自動沿用。類別得透過 TkTopLevel 視窗才設得到 —— withdraw 的 root 是
+    TkChild —— 故開一個隱藏 Toplevel 當跳板。小圖示（GCL_HICONSM）寫入回報成功卻讀不
     回來，但 Windows 11 工作列看的是 exe 資源的圖示，不受影響（尺寸要齊全，見
     src/assets/icon.ico）。"""
     path = icon_path()
@@ -236,7 +236,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     cache.flush()
     log("[app] shutdown complete")
     # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 _TIMEOUT=60 秒）時，一般 return 會讓
-    # 直譯器在 concurrent.futures.thread._python_exit 等它們 join——視窗已關、程式卻在
+    # 直譯器在 concurrent.futures.thread._python_exit 等它們 join —— 視窗已關、程式卻在
     # 工作管理員多留 60 秒。該還原的都已還原（hook 已解除、log 為線緩衝），直接砍行程。
     os._exit(0)
 

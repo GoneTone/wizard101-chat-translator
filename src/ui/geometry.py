@@ -23,7 +23,7 @@ def is_click(dx: int, dy: int, threshold: int = _CLICK_THRESHOLD) -> bool:
 def edge_at(px: int, py: int, x: int, y: int, w: int, h: int,
             edge: int = EDGE, corner: int = _CORNER) -> str:
     """游標壓在視窗的哪一條邊／哪個角：`"n"`／`"se"`…，都不是則空字串。
-    角落的判定帶比邊寬，且兩軸都落在角落帶內才算角——否則靠近角的邊會很難單軸縮放。"""
+    角落的判定帶比邊寬，且兩軸都落在角落帶內才算角 —— 否則靠近角的邊會很難單軸縮放。"""
     if not point_in_rect(px, py, x, y, w, h):
         return ""
     left, right = px - x, x + w - 1 - px

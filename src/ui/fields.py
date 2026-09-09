@@ -111,7 +111,7 @@ def link_label(parent, text: str, url: str) -> ttk.Label:
 
 def linked_text(parent, text: str) -> ttk.Frame:
     """把一行帶行內連結的文字排成一列標籤：文字段是一般標籤，連結段是 link_label。
-    刻意不自動換行——用它的是譯者掛名這類短句，折行的複雜度換不到什麼。"""
+    刻意不自動換行 —— 用它的是譯者掛名這類短句，折行的複雜度換不到什麼。"""
     row = ttk.Frame(parent)
     for segment, url in parse_link_markup(text):
         if url is None:
@@ -123,7 +123,7 @@ def linked_text(parent, text: str) -> ttk.Frame:
 
 def translators_row(parent) -> ttk.Frame | None:
     """目前介面語言的譯者掛名列（灰標籤 ＋ 可能帶連結的名單）；沒有掛名回 None。
-    給介面語言下拉的正下方用——設定視窗與精靈各一處，掛名屬於選到的那個語言。"""
+    給介面語言下拉的正下方用 —— 設定視窗與精靈各一處，掛名屬於選到的那個語言。"""
     credit = translators(current_language())
     if not credit:
         return None
@@ -154,7 +154,7 @@ def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 
 
 def friendly_error(exc: Exception) -> tuple[str, dict]:
     """把翻譯例外轉成（文案 key，format 變數）；顯示端一律 `t(key, **kwargs)`。
-    有 API 說明（detail）就照實顯示——狀態碼猜的提示會誤導（自架端點 404 多半是
+    有 API 說明（detail）就照實顯示 —— 狀態碼猜的提示會誤導（自架端點 404 多半是
     網址路徑錯而非模型錯），只在 API 什麼都沒說時才退回用狀態碼猜。"""
     if isinstance(exc, (TranslatorConfigError, TranslatorOffline)) and exc.detail:
         if exc.status is not None:
@@ -260,7 +260,7 @@ class ModelField(ttk.Frame):
         關鍵字那一下只會把清單關掉。三者都拆掉後焦點留在輸入框，收合時機由本元件
         掌握（失焦、Esc、選取）。這些行為來自 ttk 類別 binding（ComboboxPopdown／
         ComboboxListbox），只有實例 binding 以 break 收尾才蓋得過；清單 map 時原生會
-        重抓 global grab，所以 <Map> 也得改寫——只留「輸入框顯示按下狀態」。"""
+        重抓 global grab，所以 <Map> 也得改寫 —— 只留「輸入框顯示按下狀態」。"""
         try:
             popdown = self._popdown()
             self._combo.tk.call("grab", "release", popdown)
@@ -517,7 +517,7 @@ class ApiFields(ttk.Frame):
         self._model_field.pack(fill="x")
 
     def _effort_row(self) -> None:
-        """思考深度（Claude）：選項是「自動／精簡」而不是開關——Claude 沒有完全不
+        """思考深度（Claude）：選項是「自動／精簡」而不是開關 —— Claude 沒有完全不
         思考這個選項，做成與另兩家一樣的勾選只會讓人以為關得掉。
         下拉顯示的是譯文，存回設定的是 API_EFFORTS 的代碼。"""
         row = ttk.Frame(self._fields)
@@ -609,7 +609,7 @@ class HotkeyField(ttk.Frame):
     """熱鍵欄位：顯示目前值，點「更改」後按下組合鍵即設定（Esc 取消）。
     捕捉用 keyboard 套件的低階鍵盤鉤子而非 tk 事件：Ctrl+Space 等組合會先被
     輸入法（IME）或系統攔截、tk 收不到；低階鉤子在 IME 之前就能看到按鍵，
-    且與實際註冊熱鍵走同一條路——捕捉得到就保證註冊得到。"""
+    且與實際註冊熱鍵走同一條路 —— 捕捉得到就保證註冊得到。"""
 
     def __init__(self, parent, initial: str):
         super().__init__(parent)
@@ -677,7 +677,7 @@ class LanguageField(ttk.Frame):
 
 
 class UiLanguageField(ttk.Frame):
-    """介面語言：唯讀下拉，顯示 endonym、對外進出語言碼——與 LanguageField
+    """介面語言：唯讀下拉，顯示 endonym、對外進出語言碼 —— 與 LanguageField
     （翻譯目標語言，可自由輸入）是不同用途的兩個欄位。"""
 
     def __init__(self, parent, initial: str, on_change=None):

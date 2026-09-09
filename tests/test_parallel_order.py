@@ -1,4 +1,4 @@
-"""端到端：完成順序與顯示順序脫鉤——後到的訊息先翻完，overlay 仍維持讀取順序。"""
+"""端到端：完成順序與顯示順序脫鉤 —— 後到的訊息先翻完，overlay 仍維持讀取順序。"""
 import queue
 import threading
 import time
