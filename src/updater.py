@@ -25,22 +25,39 @@ _HEADERS = {"Accept": "application/vnd.github+json",
 
 # 只取前三段數字，後綴（-beta.1、+build）一律忽略：/releases/latest 已排除
 # pre-release，這裡容忍後綴只是為了不因為 tag 寫法而整個解析失敗。
-_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)")
+_VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?")
+_RELEASE = (1,)   # 沒有預發布後綴＝正式版，依 SemVer 排在同版號的預發布之後
 
 
-def parse_version(text: str) -> tuple[int, int, int] | None:
-    """把 `v0.2.0` 之類的版本字串解析成可比較的三段整數；解析不出來回 None。"""
+def _precedence_key(text: str) -> tuple | None:
+    """SemVer 優先序的可比較鍵 `(三段版號, 預發布鍵)`；解析不出來回 None。
+
+    build metadata（`+build.5`）依 SemVer 不參與比較，正則不收它即可忽略。"""
     match = _VERSION_RE.match(text.strip()) if text else None
     if match is None:
         return None
-    major, minor, patch = match.groups()
-    return int(major), int(minor), int(patch)
+    major, minor, patch, prerelease = match.groups()
+    numbers = (int(major), int(minor), int(patch))
+    if prerelease is None:
+        return numbers, _RELEASE
+    # 數字識別碼比數值、字母識別碼比 ASCII，且數字一律低於字母 —— 由第一格的 0／1
+    # 表達，後兩格才是同類之間的比較值。前綴相同時欄位多者較新由 tuple 比較自然成立。
+    identifiers = tuple((0, int(part), "") if part.isdigit() else (1, 0, part)
+                        for part in prerelease.split("."))
+    return numbers, (0, identifiers)
+
+
+def parse_version(text: str) -> tuple[int, int, int] | None:
+    """把 `v0.2.0` 之類的版本字串解析成三段整數；解析不出來回 None。
+    只回版號本身，預發布後綴的優先序見 `_precedence_key`。"""
+    key = _precedence_key(text)
+    return None if key is None else key[0]
 
 
 def is_newer(latest: str, current: str) -> bool:
-    """latest 是否嚴格新於 current。
+    """latest 是否嚴格新於 current（含 SemVer 預發布優先序：`0.2.0-rc.1` < `0.2.0`）。
     任一邊解析不出來就回 False —— 寧可漏提醒也不要誤報把使用者導去下載頁。"""
-    newer, mine = parse_version(latest), parse_version(current)
+    newer, mine = _precedence_key(latest), _precedence_key(current)
     if newer is None or mine is None:
         log(f"[update] version unparsable: latest={latest!r} current={current!r}")
         return False

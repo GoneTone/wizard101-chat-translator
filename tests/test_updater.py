@@ -38,6 +38,30 @@ def test_is_newer_compares_numerically():
     assert is_newer("0.1.0", "0.2.0") is False
 
 
+def test_is_newer_ranks_a_release_above_its_own_prereleases():
+    # SemVer：0.2.0-rc.1 < 0.2.0。跑 rc 版的人要收得到正式版釋出的提醒
+    assert is_newer("0.2.0", "0.2.0-rc.1") is True
+    assert is_newer("0.2.0-rc.1", "0.2.0") is False
+
+
+def test_is_newer_compares_numeric_prerelease_identifiers_as_numbers():
+    assert is_newer("0.2.0-rc.2", "0.2.0-rc.1") is True
+    assert is_newer("0.2.0-rc.10", "0.2.0-rc.9") is True   # 字典序會判錯的例子
+
+
+def test_is_newer_ranks_alphanumeric_prerelease_identifiers_above_numeric_ones():
+    # SemVer：數字識別碼低於字母識別碼；前綴相同時欄位多的較新
+    assert is_newer("0.2.0-alpha.beta", "0.2.0-alpha.1") is True
+    assert is_newer("0.2.0-beta", "0.2.0-alpha") is True
+    assert is_newer("0.2.0-rc.1", "0.2.0-rc") is True
+
+
+def test_build_metadata_does_not_affect_precedence():
+    # SemVer 明定 build metadata 不參與優先序比較
+    assert is_newer("0.2.0+build.2", "0.2.0+build.1") is False
+    assert is_newer("0.2.0-rc.1+build.2", "0.2.0-rc.1") is False
+
+
 def test_is_newer_is_false_when_either_side_is_unparsable():
     # 寧可漏提醒也不要誤報：橫幅會把使用者導去下載頁
     assert is_newer("nightly", "0.1.0") is False
