@@ -5,7 +5,7 @@
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
 
-Wizard101 的聊天 AI 翻译软件 —— 叠在游戏上，双向实时翻译。
+Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，对话双向实时翻译。
 
 **看消息**：聊天对话出现的每一句都翻成你设置的语言、显示在叠加窗口里，译文上方保留原文，你永远看得到对方实际说了什么。
 

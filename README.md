@@ -5,7 +5,7 @@ English | [繁體中文](README_ZH-TW.md) | [简体中文](README_ZH-CN.md)
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
 
-An AI chat translator for Wizard101 — it sits on top of the game and translates chat both ways, in real time.
+Wizard101 Chat Translator — an AI translator for Wizard101's in-game chat, translating conversations both ways in real time.
 
 **Reading chat**: every line that appears in chat is translated into the language you set and shown in an overlay window, with the original kept above the translation, so you always see what was actually said.
 
