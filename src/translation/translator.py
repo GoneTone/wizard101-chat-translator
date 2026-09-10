@@ -25,7 +25,7 @@ OUTGOING_LANGUAGE = "English"
 # _game_noun_rule）就 +1 —— 只有這條路徑的譯文會落磁碟快取（見
 # translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留下。
 # 收訊與發話的提示詞不進快取，改動不必動版次。
-PROMPT_REVISION = 2
+PROMPT_REVISION = 3
 
 # 上下文以多輪對話傳遞（背景記錄當前一輪 user、assistant 確認、待翻句子單獨成最後一輪）
 # 而非段落標記：system prompt 因此不必列任何 header 字串 —— 小模型會把 header 回吐成
@@ -37,7 +37,10 @@ CONTEXT_INTRO_OUTGOING = ("以下是其他玩家最近說的話，僅供你理�
 CONTEXT_ACK = "好的，我已了解語境。請給我要翻譯的訊息。"
 
 # 發話 few-shot：本地小模型 zero-shot 常把翻譯任務當成對話助手、回「請提供要翻譯的內容」
-# 而脫稿；最後一組刻意示範「像指令的訊息也照翻」。發話固定翻英文，範例可固定。
+# 而脫稿；最後一組刻意示範「像指令的訊息也照翻」。發話固定翻英文，範例的目標側可固定。
+# 已知限制：範例的來源側是中文，來源語言雖宣稱自動判斷，非中文使用者拿到的示範仍是
+# 中文→英文。範例示範的是「任務形態」而非語言對，實測跨語言仍有效；要換成依介面語言
+# 選範例需要各語言的實機驗證，未驗證前不動。
 FEWSHOT_OUTGOING = [
     {"role": "user", "content": "在嗎，一起打王"},
     {"role": "assistant", "content": "you there? let's fight the boss"},
@@ -58,15 +61,31 @@ def build_turns(context: list[str], text: str, intro: str,
     return turns
 
 
+def is_game_language(target_language: str) -> bool:
+    """目標語言是否就是遊戲原生語言（OUTGOING_LANGUAGE）。提示詞裡「不得改用英文」那幾句
+    是針對「目標語言 ≠ 遊戲語言」寫的，目標就是英文時會自相矛盾，得整句拿掉。
+    只認名稱相等（忽略大小寫與前後空白）：Español 等其他拉丁字母語言仍要擋官方英文名。"""
+    return target_language.strip().casefold() == OUTGOING_LANGUAGE.casefold()
+
+
 def _game_noun_rule(target_language: str) -> str:
     """遊戲名詞的翻譯規則，收訊與系統訊息兩條提示詞共用（單一真實來源）。
 
+    規則裡的「英文」指遊戲原生語言（見 OUTGOING_LANGUAGE），不是對目標語言的假設：
+    官方名稱只有英文一種，模型才會往那裡跑。
     括號裡的英文只能照抄原文既有的：早期無條件要求附上英文原文，在非英文伺服器上模型
     沒有英文可抄就自己翻一個塞進括號（實機回報）。
     規則裡一個英文字都不能出現：曾以「火龍(Fire Dragon)」示範附註格式，實測反而把模型
     帶往英文 —— 裸名詞被直接譯成官方英文名（`雪刺帽` → `Snowspike Hat`），拿掉範例後
     才穩定翻成目標語言。玩家名與 NPC 名同理不翻：模型認得音譯名的英文來源
     （卡拉米蒂 → Calamity），一翻就換成玩家認不出來的寫法。"""
+    if is_game_language(target_language):
+        return (
+            f"遊戲相關名詞（魔法名、地名、物品名、材料名等）使用遊戲內慣用的 "
+            f"{target_language} 名稱。"
+            "玩家名與 NPC 名原樣保留，不要翻譯或音譯。"
+            "純代碼或確實無法翻譯的內容則保留原文。"
+        )
     return (
         f"遊戲相關名詞（魔法名、地名、物品名、材料名等）翻成 {target_language}，"
         "不得改用英文或其他語言既有的名稱。"
@@ -143,9 +162,9 @@ def build_outgoing_system(outgoing_language: str) -> str:
     )
 
 
-# 譯文落回英文時重譯用的追加提醒（見 Translator.translate_system_message）。
-# 放在 system 而非待翻的 user 輪：塞進待翻文字裡，模型會把提醒本身也翻出來。
 def _strict_retry_note(target_language: str) -> str:
+    """譯文落回英文時重譯用的追加提醒（見 Translator.translate_system_message）。
+    放在 system 而非待翻的 user 輪：塞進待翻文字裡，模型會把提醒本身也翻出來。"""
     return ("\n\n注意：你上一次的輸出把原文的名詞換成了英文。這一次只准輸出 "
             f"{target_language}，原文裡沒有出現過的英文字母一個都不准寫。")
 
@@ -175,12 +194,13 @@ def build_system_message_system(target_language: str, strict: bool = False) -> s
         "6. 如果文本包含表情符號（emoji 或 :名稱: 形式），請原樣保留在對應位置，"
         "不要翻譯或刪除；原文沒有的表情符號一律不得自行添加。\n"
         "7. 標點盡量貼近原文的標點風格；"
-        f"需要標點時使用 {target_language} 慣用的樣式。\n"
+        f"需要標點時使用 {target_language} 慣用的樣式。"
+    )
+    if not is_game_language(target_language):
         # 裸名詞的系統訊息最容易被整個換成官方英文名；這條全域約束是實測唯一壓得住的
         # 寫法（見 _game_noun_rule）。
-        f"8. 整則譯文必須完全以 {target_language} 書寫；"
-        "原文沒有的英文（或其他語言）一律不得出現在譯文裡。"
-    )
+        prompt += (f"\n8. 整則譯文必須完全以 {target_language} 書寫；"
+                   "原文沒有的英文（或其他語言）一律不得出現在譯文裡。")
     if strict:
         prompt += _strict_retry_note(target_language)
     return prompt

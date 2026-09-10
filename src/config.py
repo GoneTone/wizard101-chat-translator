@@ -5,7 +5,7 @@ import os
 import sys
 from pathlib import Path
 
-from src.i18n import t
+from src.i18n import SOURCE_LANGUAGE, language_name, t
 from src.log import log
 
 
@@ -57,7 +57,9 @@ def _default_api() -> dict:
 DEFAULT_CONFIG: dict = {
     "api": _default_api(),
     "ui_language": None,     # 介面語言；None＝尚未選過，啟動時依系統語言自動判定
-    "target_language": "繁體中文（台灣）",  # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文
+    # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文。首次啟動會被
+    # bootstrap_language 換成系統語言，這裡只是舊設定檔缺欄位時的補值
+    "target_language": language_name(SOURCE_LANGUAGE),
     "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
     "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊

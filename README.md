@@ -69,9 +69,9 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 
 ## Troubleshooting
 
-- **The "insufficient privileges" banner**: the game is running as administrator, so the software cannot hook into it. Close the software and start it as administrator (from source, open the terminal as administrator).
-- **The "incompatible game version" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). Nothing is written into the game in this state, so leaving it be has no side effects.
-- **Status stuck at "connecting to the game", or "game not ready / connection lost"**: make sure the game is running and that you are logged in, all the way into the game world.
+- **The "Access denied" banner**: the game is running as administrator, so the software cannot hook into it. Close the software and start it as administrator (from source, open the terminal as administrator).
+- **The "Game version not supported" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). Nothing is written into the game in this state, so leaving it be has no side effects.
+- **Status stuck at "Connecting to game…", or "Game not ready or disconnected"**: make sure the game is running and that you are logged in, all the way into the game world.
 - **Characters dropped while the translation is typed in**: raise *Typing delay (s)* on the *Advanced* tab of the settings window (⚙), and make sure the cursor stays in the game's chat input box while it types.
 
 ## Screenshots
@@ -144,7 +144,7 @@ The list of UI languages is discovered by scanning the language files under `src
 
 ```
 uv run ruff check src tests   # lint: unused imports, undefined names, import order (rules in pyproject.toml)
-uv run pytest                 # unit tests (4 parallel workers by default; add -p no:xdist to run serially)
+uv run pytest                 # unit tests (4 parallel workers by default; add -n 0 to run serially)
 ```
 
 Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same lint and tests on a Windows runner.
@@ -162,7 +162,7 @@ The result is `dist/Wizard101ChatTranslator.exe`, a single windowed exe with no 
 Both logs are split per launch, keep the last 7 days only, and start every line with a UTC+0 timestamp:
 
 - `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …).
-- `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (`RAW` is the original line including markup and system messages, excluding only the `[WARN]` / `[ERRO]` / `[DBGM]` debug lines the game itself pushes into the chat control; `OUT` is the line actually sent for translation). Attach this one for missed or duplicated translations.
+- `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (`RAW` is the original line including markup and system messages, excluding only the `[WARN]` / `[ERRO]` / `[DBGM]`-style debug lines the game itself pushes into the chat control; `OUT` is the line actually sent for translation). Attach this one for missed or duplicated translations.
 
 ## Icon
 

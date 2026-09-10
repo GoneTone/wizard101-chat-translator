@@ -9,6 +9,7 @@ import pytest
 from src.translation.translator import (
     _PAREN_ENGLISH,
     OPENAI_BASE_URL,
+    OUTGOING_LANGUAGE,
     Translator,
     TranslatorBadOutput,
     TranslatorConfigError,
@@ -924,3 +925,23 @@ def test_system_message_retry_is_logged_apart_from_the_first_attempt(capsys):
     err = capsys.readouterr().err
     assert "[translate] system message done in" in err
     assert "[translate] system message (strict retry) done in" in err
+
+
+# --- 目標語言就是遊戲原生語言時，「不得改用英文」那幾句會自相矛盾 ---
+def test_prompts_drop_the_no_english_clauses_when_the_target_is_the_game_language():
+    rule = _game_noun_rule(OUTGOING_LANGUAGE)
+    assert "不得改用英文" not in rule
+    assert "不得自行翻譯或補上任何英文" not in rule
+    system = build_system_message_system(OUTGOING_LANGUAGE)
+    assert "一律不得出現在譯文裡" not in system
+    assert OUTGOING_LANGUAGE in system
+
+
+def test_prompts_keep_the_no_english_clauses_for_other_latin_targets():
+    # Español 仍要擋官方英文名：只有「目標＝遊戲語言」才拿掉，不是「拉丁字母就拿掉」
+    assert "不得改用英文" in _game_noun_rule("Español")
+    assert "一律不得出現在譯文裡" in build_system_message_system("Español")
+
+
+def test_game_language_match_ignores_case_and_spacing():
+    assert "不得改用英文" not in _game_noun_rule(" english ")
