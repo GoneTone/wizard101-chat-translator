@@ -892,3 +892,27 @@ def test_has_stray_latin_covers_non_latin_target_languages():
 
 def test_has_stray_latin_accepts_a_translation_without_any_latin():
     assert not has_stray_latin("你获得了 {0} 金币！", "{0} ゴールドを手に入れた！", "日本語")
+
+
+def test_incoming_translation_logs_the_source_and_the_result(capsys):
+    # app.log 要能把原文與實際譯文並排對照 —— messages.log 只留原文，不留譯文
+    _make(FakeHttpxClient()).translate_incoming("[A] hi", ["[B] yo", "[A] sup"])
+    err = capsys.readouterr().err
+    assert "[translate] incoming done in" in err
+    assert "model=m" in err and "ctx=2" in err
+    assert "source='[A] hi'" in err and "translated='譯文'" in err
+
+
+def test_outgoing_translation_logs_how_many_context_lines_it_carried(capsys):
+    # 發話譯文被上下文帶偏時，第一個要看的就是當時餵了幾行
+    _make(FakeHttpxClient()).translate_outgoing("哈囉", ["[B] yo"])
+    err = capsys.readouterr().err
+    assert "[translate] outgoing done in" in err and "ctx=1" in err
+
+
+def test_system_message_retry_is_logged_apart_from_the_first_attempt(capsys):
+    fake = FakeHttpxClient(response=FakeResponse(content="Lava Lily"))
+    _make(fake).translate_system_message("你获得了 熔岩百合")
+    err = capsys.readouterr().err
+    assert "[translate] system message done in" in err
+    assert "[translate] system message (strict retry) done in" in err

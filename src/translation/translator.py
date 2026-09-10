@@ -10,6 +10,7 @@ list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoMo
 """
 import json
 import re
+import time
 
 import anthropic
 import httpx
@@ -428,6 +429,11 @@ class _OpenAICompatClient:
         self._token_param = "max_completion_tokens" if official else "max_tokens"
         self._dropped: set[str] = set()
 
+    @property
+    def model(self) -> str:
+        """目前使用的模型 ID（診斷 log 用）。"""
+        return self._model
+
     def _body(self, system: str, turns: list[dict], max_tokens: int) -> dict:
         body = {
             "model": self._model,
@@ -512,6 +518,11 @@ class _ClaudeClient:
         self._model = model
         self._effort = effort
 
+    @property
+    def model(self) -> str:
+        """目前使用的模型 ID（診斷 log 用）。"""
+        return self._model
+
     def chat(self, system: str, turns: list[dict]) -> str:
         params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
                   "system": system, "messages": turns}
@@ -585,12 +596,31 @@ class Translator:
         """目前的目標語言。呼叫端要判斷譯文品質時需要它（見 has_stray_latin）。"""
         return self._target_language
 
+    def _chat(self, kind: str, system: str, turns: list[dict], *,
+              source: str, context_lines: int, strip: bool = False) -> str:
+        """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
+
+        三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
+        實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
+        例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        """
+        started = time.monotonic()
+        translated = self._impl.chat(system, turns)
+        if strip:
+            translated = strip_invented_english(source, translated)
+        log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
+            f"(model={self._impl.model}, ctx={context_lines}): "
+            f"source={source!r} translated={translated!r}")
+        return translated
+
     def translate_incoming(self, text: str, context: list[str]) -> str:
         """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
         context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
-        return strip_invented_english(text, self._impl.chat(
+        return self._chat(
+            "incoming",
             build_incoming_system(self._target_language),
-            build_turns(context, text, CONTEXT_INTRO_INCOMING)))
+            build_turns(context, text, CONTEXT_INTRO_INCOMING),
+            source=text, context_lines=len(context), strip=True)
 
     def translate_system_message(self, text: str) -> str:
         """系統訊息：把遊戲系統通知（任何語言）翻成使用者設定的目標語言。
@@ -612,10 +642,11 @@ class Translator:
         return translated
 
     def _system_message_once(self, text: str, strict: bool = False) -> str:
-        return strip_invented_english(
-            text, self._impl.chat(
-                build_system_message_system(self._target_language, strict=strict),
-                [{"role": "user", "content": text}]))
+        return self._chat(
+            "system message (strict retry)" if strict else "system message",
+            build_system_message_system(self._target_language, strict=strict),
+            [{"role": "user", "content": text}],
+            source=text, context_lines=0, strip=True)
 
     def translate_outgoing(self, text: str, context: list[str]) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
@@ -623,10 +654,12 @@ class Translator:
         few-shot 一律帶：曾只在無上下文時帶，但遊戲內幾乎永遠有上下文，實測模型會把
         「不好意思我英文不好，用翻譯器」當成對它說的話回「No worries, I'll help you out!」，
         而該回覆會被原樣送進遊戲聊天。"""
-        return self._impl.chat(
+        return self._chat(
+            "outgoing",
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
-                        examples=FEWSHOT_OUTGOING))
+                        examples=FEWSHOT_OUTGOING),
+            source=text, context_lines=len(context))
 
 
 def list_models(api: dict, client=None) -> list[str]:
