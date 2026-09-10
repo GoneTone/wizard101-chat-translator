@@ -5,6 +5,7 @@
 內容沒變的輪不留痕跡（掛機不長檔案）。
 """
 import re
+from collections import Counter
 
 # 遊戲把自己的除錯輸出（貼圖載入失敗、音效通道回收等）也灌進 chatLog，量遠大於聊天；
 # 這些行以 [WARN]／[ERRO]／[DBGM] 之類全大寫標籤開頭，聊天與系統訊息則以 <color;..> 起頭。
@@ -19,9 +20,7 @@ def is_debug_line(raw: str) -> bool:
 def new_raw_lines(prev: list[str], cur: list[str]) -> list[str]:
     """本輪相對上一輪新出現的原始行（保持出現順序）。
     以出現次數差分而非集合：同一句被講第二次（lol／gg）是真的新訊息，集合會整句吃掉。"""
-    remaining: dict[str, int] = {}
-    for line in prev:
-        remaining[line] = remaining.get(line, 0) + 1
+    remaining = Counter(prev)
     fresh = []
     for line in cur:
         if remaining.get(line):

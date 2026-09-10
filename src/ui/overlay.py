@@ -124,6 +124,12 @@ def autoscroll_pixels(y_root: int, top: int, bottom: int,
 
 
 class OverlayWindow:
+    """疊在遊戲上的譯文視窗：無邊框、常駐最上層、可拖曳縮放，訊息列表可捲動與框選複製。
+
+    由三個 Toplevel 組成：不奪焦點的半透明底板、不透明的文字層、縮小後的泡泡
+    （見 bubble.py）。橫幅（翻譯錯誤、更新提示）固定在訊息區下方。所有公開方法都
+    必須在 Tk 主執行緒呼叫，背景執行緒經 ui_queue 排回來。"""
+
     def __init__(self, root: tk.Tk, x: int | None, y: int | None,
                  width: int = 640, height: int = 420,
                  max_messages: int = 50, fade_seconds: int = 180,
@@ -196,7 +202,6 @@ class OverlayWindow:
 
     def _build_title_bar(self, on_settings, on_close) -> None:
         """標題列：icon、標題、狀態字與 ⚙／─／✕，整列可拖曳移動、上緣可縮放。"""
-        # 標題列（可拖曳移動）
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
@@ -242,7 +247,6 @@ class OverlayWindow:
         # 先建 _selection：本方法稍後綁定的 <Configure> 可能在事件迴圈中提早觸發
         # _on_canvas_configure（其內會呼叫 self._selection.redraw()），屬性要先存在。
         self._selection = Selection()
-        # 內容區：錯誤橫幅（固定在下，不隨捲動）+ 可滾動訊息區
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(side="top", fill="both", expand=True)
 
@@ -492,7 +496,7 @@ class OverlayWindow:
                 f"by user scroll ({self._scroll_debug()})")
 
     def _view_anchor(self) -> tuple["tk.Misc", int] | None:
-        """視圖目前對齊到的內容位置：(最新一則的列, 它相對視口頂端的偏移)。
+        """視圖目前對齊到的內容位置：（最新一則的列，它相對視口頂端的偏移）。
 
         畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
         內容會整段滑動、正在讀的行就跳掉 —— 內容變動前取錨、變動後交給
@@ -540,8 +544,7 @@ class OverlayWindow:
     def _move_drag(self, e) -> None:
         sx, sy, ox, oy = self._drag
         nx, ny = moved_to(ox, oy, e.x_root - sx, e.y_root - sy)
-        self._win.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
-        self._backdrop.geometry(f"{self._w}x{self._h}+{nx}+{ny}")
+        self._apply_geometry(nx, ny, self._w, self._h)
 
     def _edge_under(self, e) -> str:
         """游標（螢幕座標）目前壓在視窗的哪條邊／哪個角。"""
@@ -763,6 +766,7 @@ class OverlayWindow:
             self._refresh_scroll(anchor)
 
     def prune(self, now: float | None = None) -> None:
+        """移除已超過淡出秒數的訊息（fade_seconds <= 0 時不做）；`now` 供測試指定時刻。"""
         if self._fade <= 0:
             return  # fade_seconds <= 0：永不依時間清除訊息（可滾動看歷史）
         anchor = self._view_anchor()
@@ -810,6 +814,7 @@ class OverlayWindow:
                                before=self._scroll_area)
 
     def clear_error(self) -> None:
+        """收起錯誤橫幅（翻譯恢復、遊戲重新連上時）。"""
         self._error_key = None
         if self._error_label is not None:
             self._error_label.destroy()
@@ -851,6 +856,7 @@ class OverlayWindow:
         self.clear_update()
 
     def clear_update(self) -> None:
+        """收起更新提示橫幅。"""
         self._update_release = None
         if self._update_row is not None:
             self._update_row.destroy()

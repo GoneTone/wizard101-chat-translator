@@ -6,6 +6,8 @@ tkinter 沒有現成的捲動容器，標準組合是 Canvas ＋ Scrollbar ＋ �
 import tkinter as tk
 from tkinter import ttk
 
+from src.ui.richtext import ttk_background
+
 
 class ScrollableFrame(ttk.Frame):
     """垂直捲動容器：內容放進 `.body`。
@@ -18,9 +20,8 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent, padding=0, **kwargs):
         super().__init__(parent, **kwargs)
         # tk.Canvas 不吃 ttk 主題，背景要自己對齊，否則捲動區會是一塊突兀的白底
-        background = ttk.Style().lookup("TFrame", "background")
         self._canvas = tk.Canvas(self, highlightthickness=0, bd=0,
-                                 background=background)
+                                 background=ttk_background(self))
         self._scrollbar = ttk.Scrollbar(self, orient="vertical",
                                         command=self._canvas.yview)
         self._canvas.configure(yscrollcommand=self._scrollbar.set)

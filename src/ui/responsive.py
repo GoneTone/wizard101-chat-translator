@@ -38,13 +38,12 @@ def apply_wrap(label: tk.Widget, container_width: int, reserved: int = 0,
 
 
 def bind_wrap(label: tk.Widget, container: tk.Misc | None = None,
-              trailing: int = 8, minimum: int = MIN_WRAP, on_change=None) -> None:
+              trailing: int = 8, minimum: int = MIN_WRAP) -> None:
     """讓 label 的換行寬度跟著 container（預設為 label 的父容器）的寬度走。
 
     預留寬度由 label 在容器內的 x 推算 —— 同一列左邊還有標籤／輸入框時，可用的
     只有它右邊剩下的空間；trailing 是右緣再留的邊距。container 若不是 label 的
-    直接父容器，這個推算就不成立（winfo_x 是對父容器的座標）。
-    on_change＝換行寬度真的改變後的回呼（例如重算視窗高度）。"""
+    直接父容器，這個推算就不成立（winfo_x 是對父容器的座標）。"""
     box = container if container is not None else label.master
     pending = False
 
@@ -55,9 +54,7 @@ def bind_wrap(label: tk.Widget, container: tk.Misc | None = None,
         # Configure 再套；label 也可能已被銷毀（切步驟、關窗）。
         if not label.winfo_exists() or box.winfo_width() <= 1:
             return
-        if apply_wrap(label, box.winfo_width(), label.winfo_x() + trailing,
-                      minimum) and on_change is not None:
-            on_change()
+        apply_wrap(label, box.winfo_width(), label.winfo_x() + trailing, minimum)
 
     def _schedule(_event=None) -> None:
         # 排到 idle 才量：Configure 當下的寬度與 label 位置都還是排版中的過渡值，

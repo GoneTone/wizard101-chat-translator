@@ -16,7 +16,7 @@ import win32gui
 import winerror
 
 from src import __version__
-from src.composer.paste import foreground_exe, type_into_window
+from src.composer.paste import force_foreground, foreground_exe, type_into_window
 from src.config import (
     CONFIG_PATH,
     DEFAULT_CONFIG,
@@ -127,9 +127,9 @@ def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
 
 
 def focus_running_instance(title: str) -> bool:
-    """把既有實例的視窗帶到前景；找不到視窗或被系統擋下時回 False。
-    前景鎖擋下背景程序的 SetForegroundWindow 時系統會改成閃工作列按鈕，
-    使用者仍看得到回應，所以失敗只記錄、不當成錯誤。"""
+    """把既有實例的視窗帶到前景；找不到視窗或還原失敗時回 False。
+    切前景走 composer 的 force_foreground（AttachThreadInput），單純 SetForegroundWindow
+    會被前景鎖擋下；就算仍被擋，系統也會改成閃工作列按鈕，使用者看得到回應。"""
     found = []
 
     def collect(hwnd, _):
@@ -151,10 +151,10 @@ def focus_running_instance(title: str) -> bool:
     hwnd = found[0]
     try:
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        win32gui.SetForegroundWindow(hwnd)
     except Exception as exc:
         log(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}")
         return False
+    force_foreground(hwnd)
     return True
 
 

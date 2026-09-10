@@ -25,6 +25,10 @@ _INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit
 
 
 class InputBox:
+    """翻譯輸入框視窗：`show()` 呼出（記住當下的前景視窗，鍵入時要切回去），
+    Enter 把文字交給 `translate_fn`，譯文經 `on_translated(text, hwnd)` 送進遊戲。
+    每次開關 `_session` +1，背景執行緒的結果對不上號就丟掉。"""
+
     def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated,
                  position: dict | None = None, width: int = DEFAULT_WIDTH,
                  on_geometry_change=None):
@@ -46,6 +50,7 @@ class InputBox:
         return self._win is not None
 
     def show(self) -> None:
+        """呼出輸入框；已開著就只是重新對焦。"""
         if self._win is not None:
             self._force_focus()
             return
@@ -93,6 +98,7 @@ class InputBox:
         self._entry.focus_force()
 
     def close(self) -> None:
+        """關閉輸入框並把前景還給呼出時的視窗；記住位置與寬度供下次還原。"""
         if self._win is not None:
             self._remember_geometry()
             self._win.destroy()

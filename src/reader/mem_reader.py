@@ -143,8 +143,8 @@ def _emote_to_char(m: re.Match) -> str:
 
 
 def clean(text: str) -> str:
-    """表情標記保留成 ：名稱：，去掉 <color;..> <image;..> <link;..> </..> 等標記，
-    還原玩家實際打出的 &lt; &gt; &amp； 實體，壓縮空白。"""
+    """表情標記保留成 `:名稱:`，去掉 <color;..> <image;..> <link;..> </..> 等標記，
+    還原玩家實際打出的 `&lt;` `&gt;` `&amp;` 實體，壓縮空白。"""
     text = _EMOTE_TAG.sub(_emote_to_char, text)
     text = _TAG.sub("", text)
     text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
@@ -217,7 +217,7 @@ def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
 
 def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
     """把各 chatLog 節點的全文依傳入順序串接成單一聊天行序列，
-    回傳（行序列, 被剔除的鏡射節點數）。
+    回傳（行序列，被剔除的鏡射節點數）。
 
     組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份（實測開組隊
     視窗後發話，同一句出現在兩個節點，sizes=[1, 1, 0]）；盲目串接會翻兩次，之後主視圖在
@@ -333,7 +333,7 @@ class _Track:
 def _align(prev: list[str], cur: list[str],
            force_reset: bool) -> tuple[str, list[str] | None]:
     """差分的判定階梯：append（快路徑）→ recover（退路）→ reset（完全無重疊）。
-    回傳（路徑名, 新增行）；reset 時新增行為 None，由呼叫端決定吸收或整批放行。
+    回傳（路徑名，新增行）；reset 時新增行為 None，由呼叫端決定吸收或整批放行。
     force_reset＝串接結構已變或基準已過期，對齊沒有意義，直接跳到 reset。"""
     if not force_reset:
         appended = align_append(prev, cur)
@@ -429,9 +429,8 @@ class WizChatReader:
     對不齊（切到沒讀過的分頁視圖／relog）視情況吸收或過濾（見 _diff_new_lines 的 reset
     分支）。所有路徑共用一道出口防線：單輪超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊。"""
 
-    def __init__(self, game_path: str | None = None, process_name: str = PROCESS_NAME,
+    def __init__(self, game_path: str | None = None,
                  message_log: MessageLog | None = None):
-        self.process_name = process_name
         self._game_path = game_path
         # 玩家軌與系統軌各一份差分狀態、完全分離：共用同一個看過集合會讓掉寶刷屏把
         # 玩家說過的話擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
@@ -799,7 +798,7 @@ class WizChatReader:
             raise GameNotRunning(f"failed to open game process: {exc}") from exc
         if not clients:
             self._teardown()
-            raise GameNotRunning(f"game process not found: {self.process_name}")
+            raise GameNotRunning(f"game process not found: {PROCESS_NAME}")
         self._client = clients[0]
         self._pid = self._client.process_id
         hook_state.sweep(_pid_alive)          # 清掉已不在執行的程序的殘留狀態檔

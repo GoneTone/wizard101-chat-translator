@@ -459,6 +459,12 @@ class _OpenAICompatClient:
         """目前使用的模型 ID（診斷 log 用）。"""
         return self._model
 
+    def close(self) -> None:
+        """釋放連線池。測試注入的假 client 不一定有 close，沒有就略過。"""
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            close()
+
     def _body(self, system: str, turns: list[dict], max_tokens: int) -> dict:
         body = {
             "model": self._model,
@@ -553,6 +559,12 @@ class _ClaudeClient:
         """目前使用的模型 ID（診斷 log 用）。"""
         return self._model
 
+    def close(self) -> None:
+        """釋放連線池。測試注入的假 client 不一定有 close，沒有就略過。"""
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            close()
+
     def chat(self, system: str, turns: list[dict]) -> str:
         params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
                   "system": system, "messages": turns}
@@ -617,7 +629,9 @@ class Translator:
         self._target_language = target_language
 
     def reconfigure(self, *, target_language: str, **api) -> None:
-        """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。"""
+        """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。
+        舊 client 先關：否則每改一次設定就多留一個連線池。"""
+        self._impl.close()
         self._impl = _build_client(**api)
         self._target_language = target_language
 
@@ -695,9 +709,17 @@ class Translator:
 def list_models(api: dict, client=None) -> list[str]:
     """取得端點上可用的模型 ID（已排序）。api 為設定表單當下的值，與翻譯走同一條分派。
     端點不提供清單時拋 TranslatorNoModelList —— 呼叫端應提示改為自行輸入模型名稱。"""
-    return _build_client(**api, timeout=_TIMEOUT, client=client).list_models()
+    impl = _build_client(**api, timeout=_TIMEOUT, client=client)
+    try:
+        return impl.list_models()
+    finally:
+        impl.close()
 
 
 def test_translate(api: dict, target_language: str) -> str:
     """測試連線：用表單當下的 api 設定實際翻一句固定文字，與正式翻譯同一條路。"""
-    return Translator(**api, target_language=target_language).translate_incoming(TEST_SAMPLE, [])
+    translator = Translator(**api, target_language=target_language)
+    try:
+        return translator.translate_incoming(TEST_SAMPLE, [])
+    finally:
+        translator._impl.close()

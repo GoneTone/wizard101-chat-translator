@@ -14,35 +14,35 @@ def root_hwnd(win: tk.Misc) -> int:
     return win32gui.GetAncestor(win.winfo_id(), 2)  # GA_ROOT
 
 
+def _update_exstyle(win: tk.Toplevel, mutate) -> None:
+    """讀出根視窗的 extended style，經 mutate 改寫後寫回。幾何要先 update_idletasks
+    傳播，否則根 HWND 可能還沒建好。"""
+    win.update_idletasks()
+    hwnd = root_hwnd(win)
+    style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+    win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, mutate(style))
+
+
 def make_non_activating(win: tk.Toplevel) -> None:
     """讓視窗攔截滑鼠事件但點擊不奪焦點、不改變疊序（WS_EX_NOACTIVATE）。
     用於 overlay 底板：點到透明背景區不會穿到遊戲，也不會把底板抬到文字層之上。
     失敗的後果是點擊底板可能改變疊序，另有 lower() 保險擋著。"""
     try:
-        win.update_idletasks()
-        hwnd = root_hwnd(win)
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        style |= win32con.WS_EX_NOACTIVATE
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
+        _update_exstyle(win, lambda style: style | win32con.WS_EX_NOACTIVATE)
     except Exception as exc:
         log(f"[ui] non-activating setup failed: {exc}")
 
 
-def enable_taskbar_button(win: tk.Toplevel, alpha: float | None = None) -> None:
+def enable_taskbar_button(win: tk.Toplevel) -> None:
     """讓無邊框視窗出現在工作列與 Alt+Tab。
     overrideredirect 視窗預設拿不到工作列按鈕，把 WS_EX_APPWINDOW 加進
     extended style 即可；需 withdraw→deiconify 一次讓樣式生效，
-    之後重設 topmost（與 alpha，若有）。失敗只是少個按鈕，不影響功能。"""
+    之後重設 topmost。失敗只是少個按鈕，不影響功能。"""
     try:
-        win.update_idletasks()
-        hwnd = root_hwnd(win)
-        style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-        style = (style & ~win32con.WS_EX_TOOLWINDOW) | win32con.WS_EX_APPWINDOW
-        win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, style)
+        _update_exstyle(win, lambda style: (style & ~win32con.WS_EX_TOOLWINDOW)
+                        | win32con.WS_EX_APPWINDOW)
         win.withdraw()
         win.deiconify()
         win.attributes("-topmost", True)
-        if alpha is not None:
-            win.attributes("-alpha", alpha)
     except Exception as exc:
         log(f"[ui] taskbar button setup failed: {exc}")

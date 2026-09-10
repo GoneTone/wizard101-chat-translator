@@ -23,7 +23,7 @@ _PLACEHOLDER = re.compile(r"\{(\d+)\}")
 
 
 def normalize(text: str) -> tuple[str, list[str]]:
-    """把文字中的數字換成依序編號的佔位符，回傳（樣板, 依序取出的數字）。"""
+    """把文字中的數字換成依序編號的佔位符，回傳（樣板，依序取出的數字）。"""
     numbers: list[str] = []
 
     def take(m: re.Match) -> str:

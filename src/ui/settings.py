@@ -21,6 +21,7 @@ from src.ui.fields import (
     HotkeyField,
     LanguageField,
     UiLanguageField,
+    hint_label,
     link_label,
     linked_text,
     poll_queue,
@@ -205,10 +206,8 @@ class SettingsWindow:
                    command=self._browse_game_path).pack(side="right", padx=(4, 0))
         ttk.Entry(path_row, textvariable=self._game_path).pack(
             side="left", fill="x", expand=True)
-        hint = ttk.Label(adv, text=t("settings.game_path_hint"), foreground=HINT_COLOR,
-                         justify="left")
-        hint.grid(row=8, column=0, columnspan=3, sticky="ew")
-        bind_wrap(hint, trailing=HINT_TRAILING)
+        hint_label(adv, t("settings.game_path_hint"), trailing=HINT_TRAILING).grid(
+            row=8, column=0, columnspan=3, sticky="ew")
 
     def _build_about(self, nb) -> None:
         """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置。
@@ -275,11 +274,9 @@ class SettingsWindow:
                    command=self._open_log_folder).pack(side="right", padx=(4, 0))
         self._logs_label = ttk.Label(logs_row, text=str(app_dir()))
         self._logs_label.pack(side="left", fill="x", expand=True)
-        logs_hint = ttk.Label(about, text=t("about.logs_hint"), foreground=HINT_COLOR,
-                              justify="left")
         row += 1
-        logs_hint.grid(row=row, column=0, columnspan=2, sticky="ew")
-        bind_wrap(logs_hint, trailing=HINT_TRAILING)
+        hint_label(about, t("about.logs_hint"), trailing=HINT_TRAILING).grid(
+            row=row, column=0, columnspan=2, sticky="ew")
 
         if self._cache is not None:   # None＝呼叫端沒有快取（測試與早期啟動路徑）
             row += 1
@@ -291,10 +288,8 @@ class SettingsWindow:
                        command=self._clear_cache).pack(side="left")
             self._cache_result = ttk.Label(cache_row, text="")
             self._cache_result.pack(side="left", padx=(8, 0))
-            cache_hint = ttk.Label(about, text=t("about.cache_hint"),
-                                   foreground=HINT_COLOR, justify="left")
-            cache_hint.grid(row=row + 1, column=0, columnspan=2, sticky="ew")
-            bind_wrap(cache_hint, trailing=HINT_TRAILING)
+            hint_label(about, t("about.cache_hint"), trailing=HINT_TRAILING).grid(
+                row=row + 1, column=0, columnspan=2, sticky="ew")
 
     def _clear_cache(self) -> None:
         """清掉譯文快取並回報筆數。不加確認對話框：快取會自動重建，
@@ -376,11 +371,8 @@ class SettingsWindow:
         ttk.Scale(holder, from_=lo, to=hi, orient="horizontal", variable=var,
                   command=on_slide, length=160).pack(side="left")
         value_label.pack(side="left", padx=(6, 0))
-        note = ttk.Label(holder, text=t("settings.alpha_hint",
-                                        default=DEFAULT_CONFIG["overlay_alpha"]),
-                         foreground=HINT_COLOR, justify="left")
-        note.pack(side="left", fill="x", expand=True, padx=8)
-        bind_wrap(note)
+        hint_label(holder, t("settings.alpha_hint", default=DEFAULT_CONFIG["overlay_alpha"])
+                   ).pack(side="left", fill="x", expand=True, padx=8)
         return var
 
     def _on_language_change(self, code: str) -> None:
@@ -457,11 +449,10 @@ class SettingsWindow:
         ttk.Spinbox(parent, textvariable=var, from_=lo, to=hi, increment=step,
                     width=8).grid(row=grid_row, column=1, sticky="w", padx=(8, 0),
                                   pady=2)
-        note = ttk.Label(parent, text=t("settings.range_hint", hint=t(hint_key), lo=lo,
-                                        hi=hi, default=DEFAULT_CONFIG[key]),
-                         foreground=HINT_COLOR, justify="left")
-        note.grid(row=grid_row, column=2, sticky="ew", padx=8, pady=2)
-        bind_wrap(note, trailing=HINT_TRAILING)
+        hint_label(parent, t("settings.range_hint", hint=t(hint_key), lo=lo, hi=hi,
+                             default=DEFAULT_CONFIG[key]),
+                   trailing=HINT_TRAILING).grid(row=grid_row, column=2, sticky="ew",
+                                                padx=8, pady=2)
         return var
 
     def _browse_game_path(self) -> None:

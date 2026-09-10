@@ -134,6 +134,14 @@ def translators_row(parent) -> ttk.Frame | None:
     return row
 
 
+def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:
+    """灰色說明文字，換行寬度跟著父容器走；呼叫端自己 pack／grid。
+    設定視窗與精靈裡每一句說明都長這樣，集中在這裡免得八處各抄一份。"""
+    label = ttk.Label(parent, text=text, foreground=HINT_COLOR, justify="left")
+    bind_wrap(label, trailing=trailing)
+    return label
+
+
 def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 100):
     """輪詢背景執行緒放進 queue 的結果，取到就在主執行緒交給 on_result。
     tkinter 的 after 不保證跨執行緒安全：worker 只放 queue，由主執行緒輪詢取用。
@@ -231,20 +239,21 @@ class ModelField(ttk.Frame):
         if not self._combo.winfo_exists():
             return  # 關窗時仍可能有延遲的收合回呼落到這裡
         self._combo.tk.call("ttk::combobox::Unpost", self._combo)
-        if self._outside_click_id is not None:
-            self.winfo_toplevel().unbind("<Button-1>", self._outside_click_id)
-            self._outside_click_id = None
+        self._watching_clicks = False
 
     def _watch_outside_click(self) -> None:
         """展開期間監看整個視窗的點擊，點到別的控件就收起清單。原生靠 global grab
         才做到「點哪都關」，而 grab 已為了邊看清單邊打字拆掉（見 _make_popdown_modeless）。
-        清單本身是另一個 toplevel，其點擊不會傳到這裡，不會誤收。"""
+        清單本身是另一個 toplevel，其點擊不會傳到這裡，不會誤收。
+        綁定只掛一次、收合時不解除而是關旗標：`unbind(seq, funcid)` 在 Python 3.13 之前
+        會把該序列上所有綁定一起清掉，日後誰在這個 toplevel 綁 <Button-1> 都會被拆。"""
         if self._outside_click_id is None:
             self._outside_click_id = self.winfo_toplevel().bind(
                 "<Button-1>", self._on_click_elsewhere, add="+")
+        self._watching_clicks = True
 
     def _on_click_elsewhere(self, event) -> None:
-        if event.widget is not self._combo:
+        if self._watching_clicks and event.widget is not self._combo:
             self.unpost_options()
 
     def _popdown(self) -> str:
@@ -316,12 +325,14 @@ class ModelField(ttk.Frame):
         self._combo.tk.call("ttk::combobox::PlacePopdown", self._combo, self._popdown())
 
     def show_models(self, models: list[str]) -> None:
+        """把抓到的模型清單填進下拉選單，並在說明列報告數量（0 個時提示自行輸入）。"""
         self._all_models = list(models)
         self._combo.configure(values=self._all_models)
         self._set_status(t("hint.model_found", count=len(models)) if models
                          else t("hint.model_empty"))
 
     def show_error(self, exc: Exception) -> None:
+        """抓模型清單失敗：清空選單、在說明列顯示易懂的原因（端點沒清單不算錯誤）。"""
         self._all_models = []
         self._combo.configure(values=[])
         if isinstance(exc, TranslatorNoModelList):
@@ -431,15 +442,6 @@ class ApiFields(ttk.Frame):
         provider = self._provider.get()
         return {"provider": provider, **self._field_values(provider)}
 
-    def set_values(self, api: dict) -> None:
-        """整份 api 區塊換掉（設定視窗重建時復原 draft 用）。"""
-        self._profiles = {name: dict(api[name]) for name in API_PROVIDERS}
-        # 先對齊 _last_provider，_rebuild_fields 才不會把剛載入的值當成上一家的而歸還回去
-        self._last_provider = api["provider"]
-        self._provider.set(api["provider"])
-        self._load_profile(api["provider"])
-        self._rebuild_fields()
-
     def _field_values(self, provider: str) -> dict:
         """欄位上的值，只取這家有的那幾個（見 config.API_PROFILE_FIELDS）。
         provider 要明講：換家的當下欄位裡放的還是上一家的值。"""
@@ -510,9 +512,7 @@ class ApiFields(ttk.Frame):
         row = ttk.Frame(self._fields)
         row.pack(fill="x")
         ttk.Label(row, width=LABEL_WIDTH).pack(side="left")
-        hint = ttk.Label(row, text=text, foreground=HINT_COLOR, justify="left")
-        hint.pack(side="left", fill="x", expand=True)
-        bind_wrap(hint)
+        hint_label(row, text).pack(side="left", fill="x", expand=True)
 
     def _model_row(self) -> None:
         """模型欄（三家共用）：每次重建都是新元件，切換服務商時已抓的清單自然清空。"""
@@ -541,10 +541,7 @@ class ApiFields(ttk.Frame):
         """思考開關＋為何建議關閉的說明（支援思考開關的服務商共用）。"""
         ttk.Checkbutton(self._fields, text=t("field.thinking"),
                         variable=self._thinking).pack(anchor="w", pady=(2, 0))
-        hint = ttk.Label(self._fields, text=t("hint.thinking"), foreground=HINT_COLOR,
-                         justify="left")
-        hint.pack(fill="x", padx=(20, 0))
-        bind_wrap(hint)
+        hint_label(self._fields, t("hint.thinking")).pack(fill="x", padx=(20, 0))
 
     def _labeled_entry(self, label: str, var: tk.StringVar, secret: bool = False):
         row = ttk.Frame(self._fields)
@@ -673,10 +670,7 @@ class LanguageField(ttk.Frame):
             self._var.trace_add("write", lambda *_: on_change())
         combo = ttk.Combobox(self, textvariable=self._var, values=COMMON_LANGUAGES)
         combo.pack(fill="x")
-        hint = ttk.Label(self, text=t("hint.language"), foreground=HINT_COLOR,
-                         justify="left")
-        hint.pack(fill="x", pady=(2, 0))
-        bind_wrap(hint)
+        hint_label(self, t("hint.language")).pack(fill="x", pady=(2, 0))
 
     def value(self) -> str:
         return self._var.get().strip()

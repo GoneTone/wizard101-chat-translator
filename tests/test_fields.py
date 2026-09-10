@@ -167,14 +167,6 @@ def test_rebuild_without_switching_keeps_model(root):
     assert fields.active_values()["model"] == "gpt-5.6-terra"
 
 
-def test_set_values_replaces_every_profile(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    fields.set_values(_initial(provider="claude", model="claude-opus-5",
-                               api_key="sk-ant-1"))
-    assert fields.active_values()["model"] == "claude-opus-5"
-    assert fields.get_values()["openai"]["model"] == ""  # 舊的那份不該殘留
-
-
 def _widget_texts(parent):
     """遞迴收集元件上的文字，用來斷言某一欄有沒有被畫出來。"""
     texts = []
