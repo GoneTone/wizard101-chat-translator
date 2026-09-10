@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from src.config import local_state_dir
+from src.log import log
 
 STATE_DIR = local_state_dir()
 
@@ -34,7 +35,9 @@ def load_state(pid: int) -> tuple[int | None, list[tuple[int, bytes]]]:
         data = json.loads(path.read_text(encoding="utf-8"))
         ops = [(int(e["addr"]), bytes.fromhex(e["bytes"])) for e in data["ops"]]
         return int(data["base"]), ops
-    except Exception:
+    except Exception as exc:
+        log(f"[reader] hook state unreadable, leaked hooks cannot be repaired "
+            f"(pid={pid}, file={path.name}): {type(exc).__name__}: {exc}")
         return None, []
 
 
@@ -42,8 +45,8 @@ def clear_state(pid: int) -> None:
     """刪除該 PID 的狀態檔（乾淨關閉、或修復完成後呼叫）。"""
     try:
         _state_path(pid).unlink(missing_ok=True)
-    except OSError:
-        pass
+    except OSError as exc:
+        log(f"[reader] could not delete hook state (pid={pid}): {exc}")
 
 
 def sweep(is_alive) -> None:
@@ -58,5 +61,5 @@ def sweep(is_alive) -> None:
         if not is_alive(pid):
             try:
                 f.unlink(missing_ok=True)
-            except OSError:
-                pass
+            except OSError as exc:
+                log(f"[reader] could not delete stale hook state {f.name}: {exc}")

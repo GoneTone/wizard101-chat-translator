@@ -452,6 +452,7 @@ class _OpenAICompatClient:
         self._thinking = thinking
         self._token_param = "max_completion_tokens" if official else "max_tokens"
         self._dropped: set[str] = set()
+        self._rejected_token_params: set[str] = set()
 
     @property
     def model(self) -> str:
@@ -472,11 +473,17 @@ class _OpenAICompatClient:
             body.pop(name, None)
         return body
 
-    def _learn_rejection(self, param: str) -> None:
+    def _learn_rejection(self, param: str) -> bool:
+        """記住端點拒絕的參數，回傳下一次請求是否還有變化可試。
+        長度上限兩個名字都被拒過就沒招了：再互換只會無限 ping-pong。"""
         if param in _TOKEN_LIMIT_PARAMS:
+            self._rejected_token_params.add(param)
+            if _TOKEN_LIMIT_PARAMS[param] in self._rejected_token_params:
+                return False
             self._token_param = _TOKEN_LIMIT_PARAMS[param]
         else:
             self._dropped.add(param)
+        return True
 
     def chat(self, system: str, turns: list[dict]) -> str:
         max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
@@ -490,10 +497,9 @@ class _OpenAICompatClient:
             if error is None:
                 break
             param = rejected_parameter(error.detail) if error.status == 400 else None
-            if param is None or param not in body:
+            if param is None or param not in body or not self._learn_rejection(param):
                 raise error
-            # 每輪都拿掉一個 body 裡確實有的參數，所以必然收斂
-            self._learn_rejection(param)
+            # 每輪都拿掉（或換掉）一個 body 裡確實有的參數，且同一個名字不會試第二次
             log(f"[translate] endpoint rejected parameter {param} (model={self._model}); "
                 f"retrying without it")
         resp.raise_for_status()

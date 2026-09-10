@@ -5,6 +5,7 @@ import queue
 import sys
 import threading
 import tkinter as tk
+import traceback
 from dataclasses import dataclass
 
 import keyboard
@@ -16,7 +17,15 @@ import winerror
 
 from src import __version__
 from src.composer.paste import foreground_exe, type_into_window
-from src.config import CONFIG_PATH, active_api, app_name, is_configured, load_config, save_config
+from src.config import (
+    CONFIG_PATH,
+    DEFAULT_CONFIG,
+    active_api,
+    app_name,
+    is_configured,
+    load_config,
+    save_config,
+)
 from src.i18n import current_language, detect_system_language, language_name, set_language, t
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
@@ -67,6 +76,19 @@ def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_lan
     return cfg["ui_language"]
 
 
+def register_hotkey(hotkey: str, callback) -> tuple[object, str]:
+    """向 keyboard 註冊全域熱鍵，回傳（handle，實際生效的熱鍵）。
+    手改 config.json 填了不認得的鍵名時退回預設熱鍵：windowed exe 在這裡炸掉等於無聲退出，
+    而設定視窗改熱鍵時舊的已先解除，失敗會讓輸入框再也呼不出來。"""
+    try:
+        return keyboard.add_hotkey(hotkey, callback), hotkey
+    except ValueError as exc:
+        fallback = DEFAULT_CONFIG["hotkey"]
+        log(f"[app] hotkey {hotkey!r} is not a valid key combination ({exc}); "
+            f"using {fallback!r}")
+        return keyboard.add_hotkey(fallback, callback), fallback
+
+
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
     """依序取出並執行 ui_queue 裡的回呼；單一回呼拋錯不影響其餘回呼或呼叫端。"""
     while True:
@@ -77,7 +99,8 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
         try:
             callback()
         except Exception as exc:
-            log(f"[ui] callback failed: {exc}")
+            log(f"[ui] callback failed: {type(exc).__name__}: {exc}\n"
+                f"{traceback.format_exc()}")
 
 
 def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) -> None:
@@ -321,7 +344,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         text, context.snapshot()), ui_queue, on_translated,
         position=cfg["input_position"], width=cfg["input_width"],
         on_geometry_change=save_input_geometry)
-    hotkey_handle = keyboard.add_hotkey(cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
+    hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
+                                                   lambda: on_hotkey(input_box, ui_queue))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def relabel_ui() -> None:
@@ -341,8 +365,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         cache.rebind(fingerprint_of(applied_api["provider"], applied_api["model"],
                                     cfg["target_language"]))
         keyboard.remove_hotkey(hotkey_handle)
-        hotkey_handle = keyboard.add_hotkey(cfg["hotkey"],
-                                            lambda: on_hotkey(input_box, ui_queue))
+        hotkey_handle, cfg["hotkey"] = register_hotkey(
+            cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
         # set_language 已由設定視窗呼叫；預覽通常已 relabel 過，這裡是沒經過預覽路徑的保底
@@ -350,9 +374,13 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
             ui_language = cfg["ui_language"]
             relabel_ui()
         log(f"[settings] applied; provider={applied_api['provider']}, "
-            f"model={applied_api['model']}, hotkey={cfg['hotkey']}, "
-            f"ui_language={cfg['ui_language']}, "
-            f"parallel={cfg['max_parallel_translations']}")
+            f"model={applied_api['model']}, target_language={cfg['target_language']!r}, "
+            f"hotkey={cfg['hotkey']}, ui_language={cfg['ui_language']}, "
+            f"parallel={cfg['max_parallel_translations']}, "
+            f"poll_interval={cfg['poll_interval']}, fade_seconds={cfg['fade_seconds']}, "
+            f"max_messages={cfg['max_messages']}, overlay_alpha={cfg['overlay_alpha']}, "
+            f"translate_system_messages={cfg['translate_system_messages']}, "
+            f"auto_show_input={cfg['auto_show_input']}")
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,

@@ -9,6 +9,7 @@ import win32gui
 from src.composer.paste import force_foreground
 from src.config import app_name
 from src.i18n import t
+from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.palette import FG_ERROR, FG_UPDATE
 from src.ui.richtext import RichLabel
@@ -50,6 +51,7 @@ class InputBox:
             return
         self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
+        log(f"[input] box opened (target_hwnd={self._target_hwnd:#x})")
         self._win = tk.Toplevel(self._root)
         self._win.title(app_name())
         # 只放開寬度：高度由 _fit_height 依內容自適應，手動拉高會露出一片空白
@@ -129,6 +131,8 @@ class InputBox:
         try:
             translated = self._translate(text)
         except Exception as exc:
+            log(f"[input] outgoing translation failed (chars={len(text)}): "
+                f"{type(exc).__name__}: {exc}")
             # 先把訊息綁成區域變數：lambda 延後在主執行緒執行，屆時 except 的 exc 已被刪除
             msg = t("input.failed", error=exc)
             self._queue.put(lambda: self._show_error(msg, session))
@@ -163,6 +167,8 @@ class InputBox:
         if session != self._session:
             return  # 過期回呼：輸入框已關閉或重開
         if len(translated) > GAME_INPUT_MAX_CHARS:
+            log(f"[input] translation too long for the game "
+                f"(chars={len(translated)}, limit={GAME_INPUT_MAX_CHARS})")
             # 超過遊戲輸入上限：不鍵入、不關窗，讓使用者刪減原文後重送
             self._show_error(t("input.too_long", count=len(translated),
                                limit=GAME_INPUT_MAX_CHARS), session)

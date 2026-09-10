@@ -91,9 +91,15 @@ ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
 
 def clamp_advanced(values: dict) -> dict:
     """就地把進階數值夾在安全範圍並回傳同一個 dict。設定視窗儲存與 config.json 載入
-    都經過這裡 —— 手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回。"""
+    都經過這裡 —— 手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回，
+    手改成非數值（字串、null）則退回預設值並留 log。"""
     for key, (lo, hi) in ADVANCED_LIMITS.items():
-        values[key] = min(hi, max(lo, values[key]))
+        value = values[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            log(f"[config] {key} is not a number ({value!r}); using default "
+                f"{DEFAULT_CONFIG[key]}")
+            value = DEFAULT_CONFIG[key]
+        values[key] = min(hi, max(lo, value))
     return values
 
 
@@ -148,9 +154,18 @@ def _prune_profiles(api: dict) -> list[str]:
 
 
 def load_config(path: Path) -> dict:
+    """讀 config.json 並補齊缺漏欄位；檔案不存在或壞掉（手改少逗號）時回預設值。
+    壞檔不覆寫：使用者的金鑰還在裡面，留給他自己修，只在 log 說明原因。"""
     if not path.exists():
         return copy.deepcopy(DEFAULT_CONFIG)
-    data = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(f"top level is {type(data).__name__}, expected an object")
+    except (OSError, ValueError) as exc:
+        log(f"[config] {path.name} is unreadable, using defaults (fix the file to "
+            f"restore your settings): {exc}")
+        return copy.deepcopy(DEFAULT_CONFIG)
     legacy = isinstance(data.get("api"), dict) and _is_legacy_api(data["api"])
     if legacy:
         data["api"] = _migrate_api(data["api"])
@@ -174,6 +189,7 @@ def load_config(path: Path) -> dict:
 
 
 def save_config(path: Path, cfg: dict) -> None:
+    """把整份設定寫回 config.json（UTF-8、縮排，方便手改）。"""
     path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
 
 

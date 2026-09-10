@@ -380,6 +380,9 @@ class ApiFields(ttk.Frame):
         self._on_change = on_change
         self.test_passed = False
         self._queue: queue.Queue = queue.Queue()  # 測試結果由背景執行緒送回主執行緒
+        # 每次開測 +1、任何會作廢結果的變動也 +1：測試還在跑時切了服務商或改了欄位，
+        # 舊結果回來時對不上號就丟掉，不能把新的設定標成「已測過」
+        self._test_session = 0
         # 每家一份設定都留在手上：切換服務商時只是換一份填進欄位，值不會互相蓋掉。
         self._profiles = {name: dict(initial[name]) for name in API_PROVIDERS}
         self._last_provider = initial["provider"]
@@ -559,6 +562,7 @@ class ApiFields(ttk.Frame):
     # --- 測試連線 ---
     def _invalidate_test(self) -> None:
         self.test_passed = False
+        self._test_session += 1
 
     def clear_test_result(self) -> None:
         """作廢已顯示的測試結果：那句譯文是用當時的目標語言翻的，語言一改就不算數。"""
@@ -576,9 +580,11 @@ class ApiFields(ttk.Frame):
         self._test_btn.configure(state="disabled", text=t("button.testing"))
         self._test_result.set("")
         target = self._target_language_fn()
+        self._test_session += 1
+        session = self._test_session
         threading.Thread(target=self._test_worker, args=(api, target),
                          daemon=True).start()
-        poll_queue(self, self._queue, self._on_tested)
+        poll_queue(self, self._queue, lambda result: self._on_tested(result, session))
 
     def _test_worker(self, api: dict, target_language: str) -> None:
         try:
@@ -593,9 +599,12 @@ class ApiFields(ttk.Frame):
             f"model={api['model']})")
         self._queue.put((True, t("test.success", sample=sample)))
 
-    def _on_tested(self, result) -> None:
+    def _on_tested(self, result, session: int) -> None:
         ok, message = result
         self._test_btn.configure(state="normal", text=t("button.test"))
+        if session != self._test_session:
+            log("[settings] test connection result discarded: settings changed meanwhile")
+            return
         self._show_test_result(ok, message)
 
     def _show_test_result(self, ok: bool, message: str) -> None:

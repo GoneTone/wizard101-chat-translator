@@ -945,3 +945,15 @@ def test_prompts_keep_the_no_english_clauses_for_other_latin_targets():
 
 def test_game_language_match_ignores_case_and_spacing():
     assert "不得改用英文" not in _game_noun_rule(" english ")
+
+
+def test_token_limit_rejected_under_both_names_raises_instead_of_looping():
+    # 兩個名字互換是為了保住長度上限；但端點兩個都拒絕時不能無限互換
+    fake = SequenceClient(_rejects("max_completion_tokens"),
+                          _rejects("max_tokens", "unsupported"),
+                          _rejects("max_completion_tokens"))
+    t = Translator(provider="openai", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    with pytest.raises(TranslatorConfigError):
+        t.translate_incoming("[A] hi", [])
+    assert len(fake.bodies) == 2

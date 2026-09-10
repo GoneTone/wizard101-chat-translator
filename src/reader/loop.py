@@ -7,6 +7,7 @@ import itertools
 import queue
 import threading
 import time
+import traceback
 from typing import TYPE_CHECKING
 
 from src.i18n import t
@@ -147,7 +148,8 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
-            log(f"[reader] poll skipped: {exc}")
+            log(f"[reader] poll skipped: {type(exc).__name__}: {exc}\n"
+                f"{traceback.format_exc()}")
             stop.wait(cfg["poll_interval"])
             continue
 

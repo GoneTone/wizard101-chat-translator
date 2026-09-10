@@ -259,3 +259,67 @@ def test_is_game_process_path_rejects_other_or_missing():
     assert not is_game_process_path("")
     assert not is_game_process_path(None)
 
+
+
+# --- 修復殘留 hook：寫回失敗與基址不符都要留下可追的 log ---
+class _FakeHookHandler:
+    def __init__(self, fail_at: set[int]):
+        self._fail_at = fail_at
+        self.written = []
+
+    async def write_bytes(self, addr, data):
+        if addr in self._fail_at:
+            raise OSError(f"write failed at {addr:#x}")
+        self.written.append((addr, data))
+
+
+class _FakeClient:
+    def __init__(self, base: int, fail_at: set[int] = frozenset()):
+        self.hook_handler = _FakeHookHandler(set(fail_at))
+        self._pymem = type("PM", (), {"base_address": base})()
+
+
+def _repairing_reader(monkeypatch, tmp_path, base, fail_at=()):
+    import asyncio
+
+    from src.reader import hook_state, mem_reader
+    monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
+    logged = []
+    monkeypatch.setattr(mem_reader, "log", logged.append)
+    r = WizChatReader()
+    r._loop = asyncio.new_event_loop()
+    r._client = _FakeClient(base, fail_at)
+    return r, logged
+
+
+def test_repair_reports_write_failures_instead_of_claiming_success(monkeypatch, tmp_path):
+    from src.reader import hook_state
+    r, logged = _repairing_reader(monkeypatch, tmp_path, base=0x1000, fail_at={0x3000})
+    hook_state.save_state(77, 0x1000, [(0x2000, b"\xab"), (0x3000, b"\xcd")])
+    r._repair_leaked_hooks(77)
+    assert r._client.hook_handler.written == [(0x2000, b"\xab")]
+    assert any("repaired" in line and "failed=1" in line for line in logged)
+    assert hook_state.load_state(77) == (None, [])
+
+
+def test_repair_skips_and_logs_a_stale_state_file(monkeypatch, tmp_path):
+    from src.reader import hook_state
+    r, logged = _repairing_reader(monkeypatch, tmp_path, base=0x9000)
+    hook_state.save_state(77, 0x1000, [(0x2000, b"\xab")])
+    r._repair_leaked_hooks(77)
+    assert r._client.hook_handler.written == []
+    assert any("stale" in line and "0x9000" in line for line in logged)
+    assert hook_state.load_state(77) == (None, [])
+
+
+def test_hook_state_save_failure_is_logged(monkeypatch, tmp_path):
+    from src.reader import hook_state
+    r, logged = _repairing_reader(monkeypatch, tmp_path, base=0x1000)
+    r._client.hook_handler._active_hooks = {}
+
+    def boom(pid, base, ops):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(hook_state, "save_state", boom)
+    r._save_hook_state(77)
+    assert any("hook state" in line and "disk full" in line for line in logged)

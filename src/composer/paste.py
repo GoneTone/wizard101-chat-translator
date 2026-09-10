@@ -8,6 +8,7 @@ import keyboard
 import win32gui
 import win32process
 
+from src.log import log
 from src.reader.mem_reader import process_exe_path
 
 FOCUS_DELAY = 0.15  # 切回遊戲視窗後、開始打字前的緩衝（秒）
@@ -40,8 +41,9 @@ def force_foreground(hwnd: int | None) -> None:
             user32.SetForegroundWindow(hwnd)
         finally:
             user32.AttachThreadInput(this_thread, fg_thread, False)
-    except Exception:
-        pass
+    except Exception as exc:
+        log(f"[composer] force_foreground failed (hwnd={hwnd:#x}): "
+            f"{type(exc).__name__}: {exc}")
 
 
 def type_into_window(hwnd: int | None, text: str, delay: float = 0.02) -> None:
@@ -49,7 +51,10 @@ def type_into_window(hwnd: int | None, text: str, delay: float = 0.02) -> None:
     # 絕不送 Enter 的最後防線：keyboard.write 會把換行打成 Enter，模型偶發的多行
     # 輸出一律壓成空格
     text = re.sub(r"[\r\n]+", " ", text).strip()
-    if hwnd and win32gui.IsWindow(hwnd):
+    target_alive = bool(hwnd and win32gui.IsWindow(hwnd))
+    log(f"[composer] typing chars={len(text)} delay={delay} "
+        f"hwnd={hwnd or 0:#x} target_alive={target_alive}")
+    if target_alive:
         force_foreground(hwnd)
         time.sleep(FOCUS_DELAY)
     keyboard.write(text, delay=delay)

@@ -87,3 +87,38 @@ def test_hotkey_refocuses_open_input_box_regardless_of_foreground(monkeypatch):
     box = _FakeInputBox(is_open=True)
     main.on_hotkey(box, q)
     assert q.get_nowait() == box.show
+
+
+# --- 熱鍵註冊：config.json 手改成不認得的鍵名不能讓程式無聲退出 ---
+class _FakeKeyboard:
+    def __init__(self, bad: str):
+        self._bad = bad
+        self.registered = []
+
+    def add_hotkey(self, hotkey, callback):
+        if hotkey == self._bad:
+            raise ValueError(f"unknown key {hotkey}")
+        self.registered.append(hotkey)
+        return object()
+
+
+def test_register_hotkey_falls_back_to_the_default_on_an_unknown_key(monkeypatch):
+    from src import main
+    from src.config import DEFAULT_CONFIG
+    fake = _FakeKeyboard(bad="ctrl+nope")
+    monkeypatch.setattr(main, "keyboard", fake)
+    logged = []
+    monkeypatch.setattr(main, "log", logged.append)
+    handle, used = main.register_hotkey("ctrl+nope", lambda: None)
+    assert handle is not None
+    assert used == DEFAULT_CONFIG["hotkey"]
+    assert fake.registered == [DEFAULT_CONFIG["hotkey"]]
+    assert any("ctrl+nope" in line for line in logged)
+
+
+def test_register_hotkey_uses_the_requested_key_when_valid(monkeypatch):
+    from src import main
+    fake = _FakeKeyboard(bad="")
+    monkeypatch.setattr(main, "keyboard", fake)
+    handle, used = main.register_hotkey("f8", lambda: None)
+    assert used == "f8" and fake.registered == ["f8"]

@@ -481,7 +481,7 @@ class WizChatReader:
         if self._msg_log is not None:
             # 解析與過濾之前先落檔：messages.log 要的是未經加工的原文
             self._msg_log.snapshot(raw.split("\n") if raw else [],
-                                   nodes=len(texts), sizes=node_sizes(texts),
+                                   nodes=len(texts), sizes_fn=lambda: node_sizes(texts),
                                    input_open=input_open_now)
         cur, mirrored = lines_from_nodes(ordered)
         if mirrored != self._mirrored_nodes:
@@ -778,6 +778,8 @@ class WizChatReader:
         from wizwalker import ClientHandler
 
         path = self._game_path or detect_install_path()
+        log(f"[reader] game path: {path!r} "
+            f"(source={'config' if self._game_path else 'detected'})")
         if path:
             wizwalker.utils._OVERRIDE_PATH = path  # Steam 版無登錄檔安裝路徑，需覆寫
 
@@ -865,17 +867,27 @@ class WizChatReader:
         if not ops:
             return
         try:
-            match = saved_base == self._module_base()
-        except Exception:
-            match = False
-        if match:
+            current_base = self._module_base()
+        except Exception as exc:
+            log(f"[reader] cannot read module base, ignoring hook state (pid={pid}): "
+                f"{type(exc).__name__}: {exc}")
+            current_base = None
+        if current_base == saved_base:
+            failed = 0
             for addr, original in ops:
                 try:
                     self._run(self._client.hook_handler.write_bytes(addr, original))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    failed += 1
+                    log(f"[reader] hook repair write failed at {addr:#x} "
+                        f"(len={len(original)}): {type(exc).__name__}: {exc}")
+            outcome = ("no game restart needed" if not failed
+                       else "restart the game if chat stays silent")
             log(f"[reader] repaired hooks leaked by previous dirty exit "
-                f"(writes={len(ops)}, pid={pid}), no game restart needed")
+                f"(writes={len(ops) - failed}, failed={failed}, pid={pid}), {outcome}")
+        elif current_base is not None:
+            log(f"[reader] stale hook state ignored (pid={pid} was reused: "
+                f"saved_base={saved_base:#x}, current_base={current_base:#x})")
         hook_state.clear_state(pid)  # 套用或過期，一律刪除
 
     def _save_hook_state(self, pid: int) -> None:
@@ -893,8 +905,10 @@ class WizChatReader:
                 ops.append((ja, bytes(jb)))
         try:
             hook_state.save_state(pid, self._module_base(), ops)
-        except Exception:
-            pass
+        except Exception as exc:
+            # 存不了就修不回：下次髒退出後只能重開遊戲，得讓 app.log 看得出原因
+            log(f"[reader] could not save hook state (pid={pid}, ops={len(ops)}): "
+                f"{type(exc).__name__}: {exc}")
 
     def _teardown(self) -> None:
         """關閉 wizwalker 連線與事件迴圈，回到未連線狀態（下次 read_new 會重連）。"""

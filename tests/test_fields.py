@@ -556,3 +556,20 @@ def test_linked_text_makes_only_the_link_segment_clickable(root, monkeypatch):
     link.event_generate("<Button-1>")
     root.update()
     assert opened == ["https://a.example"]
+
+
+def test_test_result_from_a_previous_provider_is_discarded(root):
+    # 測試連線還在跑時切換服務商：舊結果回來不能把新這家標成「已測過」
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
+    fields._test_btn.configure(state="disabled")
+    session = fields._test_session
+    _switch(fields, "claude")
+    fields._on_tested((True, "連線成功"), session)
+    assert fields.test_passed is False
+    assert fields._test_result.text() == ""
+
+
+def test_test_result_from_the_current_run_is_applied(root):
+    fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
+    fields._on_tested((True, "連線成功"), fields._test_session)
+    assert fields.test_passed is True

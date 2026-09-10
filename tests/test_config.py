@@ -298,3 +298,27 @@ def test_load_config_fills_in_translate_system_messages(tmp_path):
     path.write_text(json.dumps({"target_language": "日本語"}), encoding="utf-8")
     cfg = load_config(path)
     assert cfg["translate_system_messages"] is False
+
+
+def test_load_config_with_broken_json_falls_back_to_defaults(tmp_path, monkeypatch):
+    # 手改 config.json 少個逗號：windowed exe 沒有 console，炸在這裡等於無聲退出
+    from src import config as config_module
+    logged = []
+    monkeypatch.setattr(config_module, "log", logged.append)
+    p = tmp_path / "config.json"
+    p.write_text('{"hotkey": "f8",}', encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg == DEFAULT_CONFIG
+    assert any("config.json" in line and "unreadable" in line for line in logged)
+
+
+def test_load_config_with_non_numeric_advanced_value_uses_the_default(tmp_path, monkeypatch):
+    from src import config as config_module
+    logged = []
+    monkeypatch.setattr(config_module, "log", logged.append)
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"poll_interval": "fast", "max_messages": None}), encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg["poll_interval"] == DEFAULT_CONFIG["poll_interval"]
+    assert cfg["max_messages"] == DEFAULT_CONFIG["max_messages"]
+    assert any("poll_interval" in line for line in logged)

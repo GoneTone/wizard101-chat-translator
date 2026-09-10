@@ -40,9 +40,11 @@ class MessageLog:
         self._poll = 0
         self._changed = False
 
-    def snapshot(self, raw_lines: list[str], *, nodes: int, sizes: list[int],
+    def snapshot(self, raw_lines: list[str], *, nodes: int, sizes_fn,
                  input_open: bool) -> None:
-        """記錄本輪讀到的原始 chatLog 內容（解析之前，只濾掉遊戲自己的除錯行）。"""
+        """記錄本輪讀到的原始 chatLog 內容（解析之前，只濾掉遊戲自己的除錯行）。
+        `sizes_fn` 回各節點的行數，只在內容有變、真的要寫一筆時才呼叫：它要整段重新
+        解析 markup，掛機時每輪白算等於解析成本翻倍。"""
         self._poll += 1
         raw_lines = [line for line in raw_lines if not is_debug_line(line)]
         self._changed = raw_lines != self._prev
@@ -51,7 +53,7 @@ class MessageLog:
         fresh = new_raw_lines(self._prev, raw_lines)
         self._prev = list(raw_lines)
         # 快照變了但沒有新行（重排／重新染色／內容變少）也要留一筆：視圖切換看得見
-        self._write(f"[poll={self._poll} nodes={nodes} sizes={sizes} "
+        self._write(f"[poll={self._poll} nodes={nodes} sizes={sizes_fn()} "
                     f"lines={len(raw_lines)} input_open={input_open} new={len(fresh)}]")
         for line in fresh:
             self._write(f"  RAW {line}")

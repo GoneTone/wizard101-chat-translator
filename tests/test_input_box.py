@@ -310,3 +310,18 @@ def test_is_open_tracks_window_lifecycle(root):
     box._win.destroy()
     box._win = None
     assert not box.is_open
+
+
+def test_outgoing_translation_failure_is_logged(root, monkeypatch):
+    # 收訊失敗由 pool 記錄；發話失敗只顯示在輸入框，app.log 得留一行才查得到
+    from src.ui import input_box as input_box_module
+    logged = []
+    monkeypatch.setattr(input_box_module, "log", logged.append)
+
+    def failing(text):
+        raise RuntimeError("HTTP 500: upstream down")
+
+    box = InputBox(root, failing, queue.Queue(), lambda *a: None)
+    box._worker("hello", None, box._session)
+    assert any("outgoing translation failed" in line and "upstream down" in line
+               for line in logged)
