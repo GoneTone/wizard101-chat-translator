@@ -11,6 +11,7 @@ SCAN_TARGETS = [
     "src/main.py",
     "src/config.py",
     "src/ui/overlay.py",
+    "src/ui/message_list.py",
     "src/ui/input_box.py",
     "src/ui/fields.py",
     "src/ui/form.py",

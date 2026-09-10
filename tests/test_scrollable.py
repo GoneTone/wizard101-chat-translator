@@ -109,7 +109,7 @@ def test_overlay_error_banner_is_packed_before_the_scroll_area(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     ov.set_error("notice.offline")
     order = _slave_order(ov._frame)
-    assert order.index(str(ov._error_label)) < order.index(str(ov._scroll_area)), (
+    assert order.index(str(ov._error_label)) < order.index(str(ov._list.frame)), (
         f"錯誤橫幅應排在捲動區之前，實際版面：{order}")
     ov.clear_error()
 

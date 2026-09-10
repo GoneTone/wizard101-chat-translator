@@ -3,6 +3,7 @@ import pytest
 from src.i18n import t
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
+from src.ui.message_list import should_stick_to_bottom
 from src.ui.overlay import (
     _GRIP_SIZE,
     BG,
@@ -13,7 +14,6 @@ from src.ui.overlay import (
     STATUS_COLORS,
     OverlayWindow,
     autoscroll_pixels,
-    should_stick_to_bottom,
 )
 from src.ui.selection import TEXT_ORIGIN, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
@@ -39,9 +39,9 @@ def test_resize_updates_existing_message_wraplength(root):
     class FakeEvent:
         width = 240
 
-    ov._on_canvas_configure(FakeEvent())
+    ov._list._on_canvas_configure(FakeEvent())
     expected = max(80, 240 - 12)
-    for entry in ov._messages:
+    for entry in ov._list._messages:
         for child in entry.row.winfo_children():
             assert int(float(child.itemcget("txt", "width"))) == expected
 
@@ -219,7 +219,7 @@ def test_scrollbar_stops_above_resize_grip(root):
     # 把手 place 在視窗右下角：捲軸鋪到底會被壓住，滑塊捲到底時尤其明顯
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     ov._win.update_idletasks()
-    sb = ov._scrollbar
+    sb = ov._list._scrollbar
     bottom = sb.winfo_rooty() - ov._win.winfo_rooty() + sb.winfo_height()
     assert bottom <= ov._win.winfo_height() - _GRIP_SIZE
 
@@ -254,13 +254,13 @@ def test_update_message_fills_translation_in_place(root):
 
 def _translation_fill(ov, index=0):
     """取某則訊息譯文行的本色（"fg" tag 只掛在本色上，描邊不算）。"""
-    line = ov._messages[index].row.winfo_children()[1]
+    line = ov._list._messages[index].row.winfo_children()[1]
     return line.itemcget(line.find_withtag("fg")[0], "fill")
 
 
 def test_pending_placeholder_uses_dimmer_colour_until_filled(root):
     # 佔位期間譯文欄位要能一眼與已翻好的訊息區分，填入真正的譯文後恢復正常顏色
-    from src.ui.overlay import FG_PENDING, FG_TRANSLATED
+    from src.ui.palette import FG_PENDING, FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True)
     assert _translation_fill(ov) == FG_PENDING
@@ -269,7 +269,7 @@ def test_pending_placeholder_uses_dimmer_colour_until_filled(root):
 
 
 def test_completed_message_is_not_dimmed(root):
-    from src.ui.overlay import FG_TRANSLATED
+    from src.ui.palette import FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲")          # 非佔位：直接就是完成品
     assert _translation_fill(ov) == FG_TRANSLATED
@@ -277,12 +277,12 @@ def test_completed_message_is_not_dimmed(root):
 
 def _original_fill(ov, index=0):
     """取某則訊息原文行的本色（同 _translation_fill，取 row 第 0 個子件）。"""
-    line = ov._messages[index].row.winfo_children()[0]
+    line = ov._list._messages[index].row.winfo_children()[0]
     return line.itemcget(line.find_withtag("fg")[0], "fill")
 
 
 def test_dimmed_scales_each_channel_toward_dark():
-    from src.ui.overlay import dimmed
+    from src.ui.message_list import dimmed
     assert dimmed("#ffffff") == "#b5b5b5"   # 各通道乘 DIM_FACTOR，原文明顯暗於譯文
     assert dimmed("#80ff00") == "#5bb500"
     assert dimmed("#000000") == "#000000"
@@ -290,7 +290,7 @@ def test_dimmed_scales_each_channel_toward_dark():
 
 def test_message_uses_game_color_translated_bright_original_dim(root):
     # 譯文用遊戲聊天的顯示色，原文用同色調暗版 —— 與遊戲內配色一眼對得上
-    from src.ui.overlay import dimmed
+    from src.ui.message_list import dimmed
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲", color="#80ff00")
     assert _translation_fill(ov) == "#80ff00"
@@ -299,7 +299,8 @@ def test_message_uses_game_color_translated_bright_original_dim(root):
 
 def test_pending_message_restores_game_color_on_update(root):
     # 佔位期間仍用暗灰（語意＝還沒翻好），真譯文落地才換成遊戲色
-    from src.ui.overlay import FG_PENDING, dimmed
+    from src.ui.message_list import dimmed
+    from src.ui.palette import FG_PENDING
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True, color="#80ff00")
     assert _translation_fill(ov) == FG_PENDING
@@ -310,7 +311,7 @@ def test_pending_message_restores_game_color_on_update(root):
 
 def test_message_without_color_falls_back_to_default_palette(root):
     # 讀不到遊戲色（理論上不會發生，防衛用）：維持現行預設配色
-    from src.ui.overlay import FG_ORIGINAL, FG_TRANSLATED
+    from src.ui.palette import FG_ORIGINAL, FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲")
     assert _translation_fill(ov) == FG_TRANSLATED
@@ -373,7 +374,7 @@ def test_failed_translation_line_is_shown_in_error_colour(root):
     ov.add_message("原文", "翻譯中…", msg_id=7, pending=True, color="#66ccff")
     ov.update_message(7, "⚠  這則訊息翻譯不出來", failed=True)
 
-    line = ov._messages[0].row.winfo_children()[1]
+    line = ov._list._messages[0].row.winfo_children()[1]
     assert line.itemcget("fg", "fill") == FG_ERROR
 
 
@@ -383,7 +384,7 @@ def test_successful_translation_keeps_the_game_colour(root):
     ov.add_message("原文", "翻譯中…", msg_id=8, pending=True, color="#66ccff")
     ov.update_message(8, "譯文")
 
-    line = ov._messages[0].row.winfo_children()[1]
+    line = ov._list._messages[0].row.winfo_children()[1]
     assert line.itemcget("fg", "fill") == "#66ccff"
 
 
@@ -414,24 +415,24 @@ def _filled_overlay(root, width=739, height=350, count=40,
                        f"第 {i} 則譯文，內容夠長，窄視窗下一定會換行成兩行以上，"
                        f"這樣才測得到重新排版導致的高度變化", msg_id=i)
     root.update()
-    assert ov._canvas.yview()[1] == 1.0, "前置條件：視圖應停在最底"
+    assert ov._list._canvas.yview()[1] == 1.0, "前置條件：視圖應停在最底"
     return ov
 
 
 def _at_bottom(ov) -> bool:
-    return should_stick_to_bottom(ov._canvas.yview()[1])
+    return should_stick_to_bottom(ov._list._canvas.yview()[1])
 
 
 def _row_offset(ov, msg_id: int) -> int:
     """某則訊息目前落在視口的哪個 y（畫面座標）。"""
-    row = next(m.row for m in ov._messages if m.msg_id == msg_id)
-    return row.winfo_y() - int(ov._canvas.canvasy(0))
+    row = next(m.row for m in ov._list._messages if m.msg_id == msg_id)
+    return row.winfo_y() - int(ov._list._canvas.canvasy(0))
 
 
 def _scroll_up(ov, fraction: float = 0.3) -> None:
-    ov._canvas.yview_moveto(fraction)
-    ov._note_scroll()
-    assert not ov._follow, "前置條件：往上捲後應停止跟隨底部"
+    ov._list._canvas.yview_moveto(fraction)
+    ov._list.note_scroll()
+    assert not ov._list._follow, "前置條件：往上捲後應停止跟隨底部"
 
 
 def test_narrowing_window_keeps_following_new_messages(root):
@@ -468,14 +469,14 @@ def test_error_banner_keeps_following_new_messages(root):
 def test_scrolling_up_stops_following_until_back_at_bottom(root):
     # 使用者往上捲＝正在讀歷史，新訊息不該把畫面搶走
     ov = _filled_overlay(root)
-    ov._canvas.yview_moveto(0.0)
-    ov._note_scroll()
+    ov._list._canvas.yview_moveto(0.0)
+    ov._list.note_scroll()
     ov.add_message("newest", "最新", msg_id=998)
     root.update()
     assert not _at_bottom(ov)
     # 捲回底部後恢復自動跟隨
-    ov._canvas.yview_moveto(1.0)
-    ov._note_scroll()
+    ov._list._canvas.yview_moveto(1.0)
+    ov._list.note_scroll()
     ov.add_message("newer still", "更新的", msg_id=997)
     root.update()
     assert _at_bottom(ov)
@@ -542,9 +543,9 @@ def test_expand_reanchors_view_to_bottom(root):
     for i in range(100, 106):
         ov.add_message(f"bubbled line {i} arriving while the window is a bubble",
                        f"第 {i} 則泡泡期間的譯文，長度足以換行", msg_id=i)
-    ov._canvas.yview_moveto(0.0)   # 模擬 unmap 期間的排版落差把視圖推離底部
+    ov._list._canvas.yview_moveto(0.0)   # 模擬 unmap 期間的排版落差把視圖推離底部
     root.update()
-    assert ov._follow, "非使用者操作，跟隨狀態不該改變"
+    assert ov._list._follow, "非使用者操作，跟隨狀態不該改變"
     ov.expand()
     root.update()
     assert _at_bottom(ov)
@@ -562,7 +563,7 @@ def test_expand_realigns_the_message_container(root):
         root.update()
     ov.expand()
     root.update()
-    assert ov._inner.winfo_y() == -int(ov._canvas.canvasy(0))
+    assert ov._list._inner.winfo_y() == -int(ov._list._canvas.canvasy(0))
 
 
 def test_refresh_labels_retranslates_status_and_banner(root):
@@ -591,7 +592,7 @@ def test_message_font_follows_language(root):
         i18n.set_language("zh-CN")
         ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
         ov.add_message("[A] hi", "嗨", msg_id=1)
-        row = ov._messages[0].row
+        row = ov._list._messages[0].row
         lines = row.winfo_children()  # [原文 canvas, 譯文 canvas]
         fonts = {str(line.itemcget(item, "font"))
                  for line in lines for item in line.find_withtag("txt")}
@@ -731,7 +732,7 @@ def test_update_banner_follows_language_and_width(root):
         class FakeEvent:
             width = 240
 
-        ov._on_canvas_configure(FakeEvent())
+        ov._list._on_canvas_configure(FakeEvent())
         assert ov._update_label.cget("wraplength") == max(80, 240 - 12)
     finally:
         i18n.set_language(before)
@@ -779,7 +780,7 @@ def test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph(root):
 def _select_whole_message(ov, index=0):
     """把第 index 則訊息整則選起來，回傳它的兩個行 canvas。"""
     ov._win.update_idletasks()
-    first, second = ov._messages[index].row.winfo_children()
+    first, second = ov._list._messages[index].row.winfo_children()
     ov._selection.begin(first.winfo_rootx() + TEXT_ORIGIN,
                         first.winfo_rooty() + first.winfo_height() // 2)
     ov._selection.extend(second.winfo_rootx() + 1000,
@@ -847,7 +848,7 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     class FakeEvent:
         width = 240
 
-    ov._on_canvas_configure(FakeEvent())
+    ov._list._on_canvas_configure(FakeEvent())
     ov._win.update_idletasks()
 
     rects = first.find_withtag("sel")
@@ -855,7 +856,7 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     # 每個視覺行一個反白矩形：換行變了、矩形數就要跟著變
     assert len(rects) == len(visual_lines(first, line_font(first)))
     # 沒有重畫的話，矩形仍是舊換行寬度下的幾何，右緣會超出新的換行寬度
-    assert max(first.coords(i)[2] for i in rects) <= ov._wrap + TEXT_ORIGIN
+    assert max(first.coords(i)[2] for i in rects) <= ov._list.wrap + TEXT_ORIGIN
 
 
 class _Press:
@@ -871,11 +872,11 @@ def test_press_on_a_message_starts_a_selection(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
-    # update()（非 update_idletasks）：_in_message_area 量的是 ov._canvas 的實際尺寸，
+    # update()（非 update_idletasks）：_in_message_area 量的是 ov._list._canvas 的實際尺寸，
     # 這個 expand=True 的捲動畫布在全新 overrideredirect 視窗裡，只有真的跑過一輪
     # 事件迴圈（Windows 送 WM_SIZE）才會拿到非 1x1 的量測值，idle 佇列處理不到這段
     ov._win.update()
-    first, second = ov._messages[0].row.winfo_children()
+    first, second = ov._list._messages[0].row.winfo_children()
 
     ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
                                first.winfo_rooty() + first.winfo_height() // 2))
@@ -894,8 +895,8 @@ def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
     for i in range(20):
         ov.add_message(f"原文{i}", f"譯文{i}")
     ov._win.update()
-    hidden_top, hidden_bottom = ov._messages[0].row.winfo_children()
-    assert hidden_top.winfo_rooty() < ov._canvas.winfo_rooty(), \
+    hidden_top, hidden_bottom = ov._list._messages[0].row.winfo_children()
+    assert hidden_top.winfo_rooty() < ov._list._canvas.winfo_rooty(), \
         "第一則應該已經捲出視口上方，否則這個測試沒有守到東西"
 
     ov._selection_press(_Press(hidden_top.winfo_rootx() + 40,
@@ -913,7 +914,7 @@ def test_backdrop_press_away_from_any_edge_starts_a_selection(root):
                        max_messages=10, fade_seconds=0)
     ov.add_message("原文一", "譯文一")
     ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
-    first, second = ov._messages[0].row.winfo_children()
+    first, second = ov._list._messages[0].row.winfo_children()
 
     # +40（非 +TEXT_ORIGIN）：捲動區沒有留邊，行 canvas 左緣與視窗左緣重合，
     # +TEXT_ORIGIN 會落在 EDGE 縮放感應帶內、被 _edge_press 誤判成縮放
@@ -949,16 +950,16 @@ def test_view_does_not_jump_to_the_bottom_while_selecting(root):
     ov._win.update()   # 同上：_in_message_area 要量到真實的 canvas 尺寸
     # 用最後一則（非第一則）：視圖貼底時第一則已捲出視口，_in_message_area
     # 會擋下這次按下、根本起不了選取
-    first, second = ov._messages[-1].row.winfo_children()
+    first, second = ov._list._messages[-1].row.winfo_children()
     ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
                                first.winfo_rooty() + first.winfo_height() // 2))
-    ov._canvas.yview_moveto(0.0)
+    ov._list._canvas.yview_moveto(0.0)
     ov._win.update_idletasks()
-    before = ov._canvas.yview()[0]
+    before = ov._list._canvas.yview()[0]
 
-    ov._refresh_scroll()
+    ov._list.refresh_scroll()
 
-    assert ov._canvas.yview()[0] == before
+    assert ov._list._canvas.yview()[0] == before
     ov._selection_release(_Press(0, 0))
 
 
@@ -978,7 +979,7 @@ def test_prune_during_a_drag_keeps_the_selected_text(root):
     for i in range(20):
         ov.add_message(f"原文新{i}", f"譯文新{i}", now=2000.0)
     ov._win.update()
-    first, second = ov._messages[-1].row.winfo_children()
+    first, second = ov._list._messages[-1].row.winfo_children()
     ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
                                first.winfo_rooty() + first.winfo_height() // 2))
     ov._selection_drag(_Press(second.winfo_rootx() + 1000,
@@ -1120,19 +1121,19 @@ def test_dragging_above_the_viewport_scrolls_and_grows_the_selection(root):
     for i in range(20):
         ov.add_message(f"原文{i}", f"譯文{i}")
     ov._win.update()
-    first, second = ov._messages[-1].row.winfo_children()
+    first, second = ov._list._messages[-1].row.winfo_children()
     ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
                                first.winfo_rooty() + first.winfo_height() // 2))
     ov._selection_drag(_Press(second.winfo_rootx() + 10,
-                              ov._canvas.winfo_rooty() - 60))
+                              ov._list._canvas.winfo_rooty() - 60))
     ov._stop_autoscroll()
     ov._win.update()
-    view_before, text_before = ov._canvas.yview()[0], ov._selection.text()
+    view_before, text_before = ov._list._canvas.yview()[0], ov._selection.text()
 
     _tick_autoscroll(ov)
     ov._win.update()
 
-    assert ov._canvas.yview()[0] < view_before, "拖到視口上方應該要往上捲"
+    assert ov._list._canvas.yview()[0] < view_before, "拖到視口上方應該要往上捲"
     assert len(ov._selection.text()) > len(text_before), "捲動後選取要跟著長出來"
 
 
@@ -1142,19 +1143,19 @@ def test_autoscroll_stops_once_the_drag_ends(root):
     for i in range(20):
         ov.add_message(f"原文{i}", f"譯文{i}")
     ov._win.update()
-    first, _ = ov._messages[-1].row.winfo_children()
+    first, _ = ov._list._messages[-1].row.winfo_children()
     ov._selection_press(_Press(first.winfo_rootx() + TEXT_ORIGIN,
                                first.winfo_rooty() + first.winfo_height() // 2))
     ov._selection_drag(_Press(first.winfo_rootx() + 10,
-                              ov._canvas.winfo_rooty() - 60))
+                              ov._list._canvas.winfo_rooty() - 60))
     ov._selection_release(_Press(0, 0))
     ov._win.update()
-    view_after_release = ov._canvas.yview()[0]
+    view_after_release = ov._list._canvas.yview()[0]
 
     _tick_autoscroll(ov)
     ov._win.update()
 
-    assert ov._canvas.yview()[0] == view_after_release
+    assert ov._list._canvas.yview()[0] == view_after_release
     assert ov._autoscroll_job is None
 
 
@@ -1182,7 +1183,7 @@ def test_selection_entry_points_are_bound(root):
     assert ov._win.bind("<Control-c>")
     assert ov._win.bind("<Control-C>")
     assert ov._backdrop.bind("<Button-3>")
-    for line in ov._messages[0].row.winfo_children():
+    for line in ov._list._messages[0].row.winfo_children():
         for sequence in ("<ButtonPress-1>", "<B1-Motion>",
                          "<ButtonRelease-1>", "<Button-3>"):
             assert line.bind(sequence), f"{sequence} 未綁定"

@@ -1,11 +1,9 @@
-"""疊加視窗：無邊框、置頂、半透明、可拖曳移動、可從四邊／四角縮放、可滾動。
-顯示原文 + 譯文（最新在最下，可向上滾動看歷史）。
-捲動定位：在底部時新訊息自動跟到最底；向上捲看歷史時不會被硬拉回底部。
+"""疊加視窗：無邊框、置頂、半透明、可拖曳移動、可從四邊／四角縮放。
+顯示原文 + 譯文的列表在 message_list.py（含捲動定位）；本模組負責視窗殼、標題列、
+縮放、縮小成泡泡、橫幅，以及框選／複製的事件路由。
 不滑鼠穿透 —— 視窗蓋住的區域點擊不會傳到遊戲，視窗永遠可互動。"""
-import time
 import tkinter as tk
 import webbrowser
-from typing import NamedTuple
 
 import win32con
 import win32gui
@@ -15,25 +13,21 @@ from src.i18n import t
 from src.log import log
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
-from src.ui.geometry import EDGE, edge_at, moved_to, point_in_rect, resized_edge
+from src.ui.geometry import edge_at, moved_to, point_in_rect, resized_edge
 from src.ui.icons import load_icon
+from src.ui.message_list import MessageList
 from src.ui.palette import (
     BAR,
     BG,
     BG_UPDATE,
-    DIM_FACTOR,
     FG_BAR,
     FG_ERROR,
-    FG_ORIGINAL,
-    FG_PENDING,
-    FG_TRANSLATED,
     FG_UPDATE,
     OUTLINE,
 )
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
-from src.ui.selection import TEXT_ORIGIN, Selection
-from src.ui.thin_scrollbar import ThinScrollbar
+from src.ui.selection import Selection
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 
 # 狀態指示的顏色（文字由 i18n 依 state key 取得）
@@ -46,47 +40,6 @@ STATUS_COLORS = {
     "version_mismatch": FG_ERROR,  # 同上：等下去也不會好，要更新遊戲或本程式
 }
 
-_OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
-                    (0, 1), (1, -1), (1, 0), (1, 1))
-
-
-def _fit_line_height(c: "tk.Canvas") -> None:
-    """把文字行 canvas 的高度縮放到剛好容納（換行後的）文字內容。"""
-    bbox = c.bbox("txt")   # 只量文字項目：這樣列上其他畫的東西（反白矩形）永遠不會影響列高
-    if bbox:
-        c.configure(height=bbox[3] + 2)
-
-
-def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Canvas":
-    """字幕式描邊文字行：canvas 先畫八方向 1px 偏移的描邊副本、再疊本色 ——
-    Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
-    c = tk.Canvas(parent, bg=BG, highlightthickness=0, bd=0)
-    for dx, dy in _OUTLINE_OFFSETS:
-        c.create_text(TEXT_ORIGIN + dx, TEXT_ORIGIN + dy, text=text, fill=OUTLINE, font=font,
-                      anchor="nw", width=wrap, tags="txt")
-    # 本色最後畫，疊在描邊之上。額外掛 "fg" tag：改色時只動本色，描邊不能跟著變
-    c.create_text(TEXT_ORIGIN, TEXT_ORIGIN, text=text, fill=fg, font=font, anchor="nw",
-                  width=wrap, tags=("txt", "fg"))
-    _fit_line_height(c)
-    return c
-
-def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
-    """把 `#rrggbb` 各通道乘上係數調暗 —— 原文行用遊戲色的暗版，維持原文暗、譯文亮的層次。"""
-    r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
-    return f"#{round(r * factor):02x}{round(g * factor):02x}{round(b * factor):02x}"
-
-
-class _Message(NamedTuple):
-    """overlay 中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
-    color 為該則在遊戲內的顯示色（None＝退回預設配色）。"""
-    ts: float
-    original: str
-    translated: str
-    row: "tk.Frame"
-    msg_id: int | None
-    color: str | None = None
-
-
 MIN_WIDTH = 200
 MIN_HEIGHT = 90
 _BAR_HEIGHT = 20
@@ -96,7 +49,6 @@ _BAR_ICON = 16   # 標題列 icon：留 2px 上下邊給 _BAR_HEIGHT，且是 ic
 # （剩下的 0.5px 是墨跡高度奇偶不匹配，補不掉）。
 _BAR_TEXT_NUDGE = 1
 _GRIP_SIZE = 16
-_STICK_THRESHOLD = 0.999
 _FOREGROUND_POLL_MS = 300
 _AUTOSCROLL_MS = 40      # 框選拖到邊界外時的捲動節奏
 _AUTOSCROLL_MIN = 2      # 每輪最少捲幾像素（剛越界時要慢，才停得準）
@@ -104,12 +56,6 @@ _AUTOSCROLL_MAX = 24
 _EDGE_CURSORS = {"n": "size_ns", "s": "size_ns", "w": "size_we", "e": "size_we",
                  "nw": "size_nw_se", "se": "size_nw_se",
                  "ne": "size_ne_sw", "sw": "size_ne_sw"}
-
-
-def should_stick_to_bottom(view_bottom_fraction: float,
-                           threshold: float = _STICK_THRESHOLD) -> bool:
-    """視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。"""
-    return view_bottom_fraction >= threshold
 
 
 def autoscroll_pixels(y_root: int, top: int, bottom: int,
@@ -136,8 +82,6 @@ class OverlayWindow:
                  on_geometry_change=None, on_settings=None, on_close=None,
                  bubble_position: dict | None = None, on_bubble_move=None,
                  alpha: float = 0.80):
-        self._max = max_messages
-        self._fade = fade_seconds
         self._alpha = alpha
         self._on_geometry_change = on_geometry_change
         self._on_bubble_move = on_bubble_move
@@ -148,10 +92,6 @@ class OverlayWindow:
         self._bubble: Bubble | None = None
         self._prev_foreground = 0
         self._watch_job: str | None = None
-        self._messages: list[_Message] = []
-        # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
-        # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
-        self._follow = True
         self._error_label: RichLabel | None = None
         self._status_state: str | None = None   # 目前狀態的 key，語言切換後重繪用
         self._error_key: str | None = None      # 目前橫幅的 key，同上
@@ -161,7 +101,6 @@ class OverlayWindow:
         self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
-        self._wrap = self._w - 40
         self._drag = (0, 0, 0, 0)
         # 縮放中的起點與起始幾何；None＝目前沒有在縮放（見 _resize_start）
         self._resize: tuple[int, int, int, int, int, int, str] | None = None
@@ -181,7 +120,7 @@ class OverlayWindow:
         py = y if y is not None else (self._win.winfo_screenheight() - self._h) // 2
         self._apply_geometry(px, py, self._w, self._h)
         self._build_title_bar(on_settings, on_close)
-        self._build_message_area()
+        self._build_message_area(max_messages, fade_seconds)
         self._build_resize_handles()
         self._attach_to_shell(on_close)
 
@@ -195,10 +134,8 @@ class OverlayWindow:
         self._backdrop.attributes("-topmost", True)
         self._backdrop.attributes("-alpha", self._alpha)
         self._backdrop.configure(bg=BG)
-        # 底板攔截透明背景區的滑鼠事件（不穿透到遊戲），但點擊不奪焦點、不改疊序；
-        # 空白處的滾輪由底板轉發給訊息區捲動。
+        # 底板攔截透明背景區的滑鼠事件（不穿透到遊戲），但點擊不奪焦點、不改疊序
         make_non_activating(self._backdrop)
-        self._backdrop.bind("<MouseWheel>", self._on_wheel)
 
     def _build_title_bar(self, on_settings, on_close) -> None:
         """標題列：icon、標題、狀態字與 ⚙／─／✕，整列可拖曳移動、上緣可縮放。"""
@@ -242,40 +179,32 @@ class OverlayWindow:
             w.bind("<B1-Motion>", self._bar_drag)
             w.bind("<ButtonRelease-1>", self._bar_release)
 
-    def _build_message_area(self) -> None:
-        """內容區：可捲動的訊息列表、細捲軸、空狀態提示（橫幅事後才 pack 進來）。"""
-        # 先建 _selection：本方法稍後綁定的 <Configure> 可能在事件迴圈中提早觸發
-        # _on_canvas_configure（其內會呼叫 self._selection.redraw()），屬性要先存在。
+    def _build_message_area(self, max_messages: int, fade_seconds: int) -> None:
+        """內容區：訊息列表（見 message_list.py）；橫幅事後才 pack 進來、排在列表之前。"""
+        # 先建 _selection：列表綁定的 <Configure> 可能在事件迴圈中提早觸發、呼叫
+        # self._selection.redraw()，物件要先存在。
         self._selection = Selection()
         self._frame = tk.Frame(self._win, bg=BG)
         self._frame.pack(side="top", fill="both", expand=True)
+        self._list = MessageList(self._frame, self._selection,
+                                 max_messages=max_messages, fade_seconds=fade_seconds,
+                                 wrap=self._w - 40, bottom_inset=_GRIP_SIZE,
+                                 bind_line=self._bind_line,
+                                 on_wrap_change=self._on_wrap_change)
+        # 底板空白處的滾輪也轉發給訊息區捲動
+        self._backdrop.bind("<MouseWheel>", self._list.on_wheel)
 
-        scroll_area = tk.Frame(self._frame, bg=BG)
-        scroll_area.pack(side="top", fill="both", expand=True)
-        # 錯誤橫幅是事後才建立的，pack 時要指名排在捲動區之前（見 set_error）
-        self._scroll_area = scroll_area
-        self._canvas = tk.Canvas(scroll_area, bg=BG, highlightthickness=0)
-        self._scrollbar = ThinScrollbar(scroll_area, command=self._user_scroll)
-        self._scrollbar.bind("<MouseWheel>", self._on_wheel)  # 游標壓在捲軸上也能滾
-        self._canvas.configure(yscrollcommand=self._scrollbar.set)
-        # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
-        self._scrollbar.pack(side="right", fill="y", padx=(0, EDGE),
-                             pady=(0, _GRIP_SIZE))
-        self._canvas.pack(side="left", fill="both", expand=True)
-        self._inner = tk.Frame(self._canvas, bg=BG)
-        self._inner_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-        self._inner.bind(
-            "<Configure>",
-            lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas.bind("<Configure>", self._on_canvas_configure)
-        self._canvas.bind("<Enter>", lambda e: self._canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self._canvas.bind("<Leave>", lambda e: self._canvas.unbind_all("<MouseWheel>"))
+    def _bind_line(self, line: tk.Canvas) -> None:
+        """每一行文字 canvas 建好時接上框選與右鍵選單。"""
+        line.bind("<ButtonPress-1>", self._selection_press)
+        line.bind("<B1-Motion>", self._selection_drag)
+        line.bind("<ButtonRelease-1>", self._selection_release)
+        line.bind("<Button-3>", self._selection_menu)
 
-        # 空狀態提示：沒有訊息時把目前狀態大字置中顯示
-        self._placeholder = tk.Label(scroll_area, text="", bg=BG, fg=FG_BAR,
-                                     font=ui_font(11))
-        self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+    def _on_wrap_change(self, wrap: int) -> None:
+        """換行寬度隨畫布寬更新後，更新橫幅也要跟著換行，否則縮小視窗後右緣被切。"""
+        if self._update_label is not None:
+            self._update_label.configure(wraplength=wrap)
 
     def _build_resize_handles(self) -> None:
         """右下角把手與四邊縮放的事件接線。"""
@@ -370,7 +299,7 @@ class OverlayWindow:
         # 拿當下的前景當基準才不會第一輪就誤判成「使用者切回本工具」
         self._prev_foreground = self._foreground_window()
         self._watch_job = self._win.after(_FOREGROUND_POLL_MS, self._watch_foreground)
-        log(f"[ui] minimized to bubble ({self._scroll_debug()})")
+        log(f"[ui] minimized to bubble ({self._list.scroll_debug()})")
 
     def expand(self) -> None:
         """從泡泡展開回完整視窗，未讀歸零。"""
@@ -397,8 +326,8 @@ class OverlayWindow:
     def _settle_after_expand(self) -> None:
         """視窗重新顯示後接回捲動狀態：泡泡期間的訊息是在隱藏狀態下排版的，必須自己
         重算 —— deiconify 幾何沒變就不會帶來 <Configure>。"""
-        self._refresh_scroll()
-        log(f"[ui] expanded ({self._scroll_debug()})")
+        self._list.refresh_scroll()
+        log(f"[ui] expanded ({self._list.scroll_debug()})")
 
     def _foreground_window(self) -> int:
         try:
@@ -439,7 +368,6 @@ class OverlayWindow:
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:
         self._w, self._h = w, h
-        self._wrap = w - 40
         self._win.geometry(f"{w}x{h}+{x}+{y}")
         self._backdrop.geometry(f"{w}x{h}+{x}+{y}")
 
@@ -449,94 +377,6 @@ class OverlayWindow:
         self._win.update_idletasks()
         self._on_geometry_change(self._win.winfo_x(), self._win.winfo_y(),
                                  self._win.winfo_width(), self._win.winfo_height())
-
-    def _on_canvas_configure(self, e) -> None:
-        # 內層寬度跟著畫布寬，文字才會依視窗寬換行
-        self._canvas.itemconfigure(self._inner_id, width=e.width)
-        self._wrap = max(80, e.width - 12)
-        # 既有訊息與錯誤橫幅的換行寬度也要同步更新，否則縮小視窗後右緣被切
-        for entry in self._messages:
-            for child in entry.row.winfo_children():
-                child.itemconfigure("txt", width=self._wrap)
-                _fit_line_height(child)
-        self._selection.redraw()
-        if self._update_label is not None:
-            self._update_label.configure(wraplength=self._wrap)
-        # 排到 idle 再貼底，不在事件處理中直接 update_idletasks() —— 那會讓下一個
-        # Configure 事件重入本函式；此時排版也尚未完成，量到的高度是舊的。
-        self._win.after_idle(self._refresh_scroll)
-
-    def _on_wheel(self, e) -> None:
-        self._canvas.yview_scroll(int(-e.delta / 120), "units")
-        self._note_scroll()
-
-    def _user_scroll(self, *args) -> None:
-        """捲軸拖曳入口：捲完記下使用者是否仍要跟隨底部。"""
-        self._canvas.yview(*args)
-        self._note_scroll()
-
-    def _scroll_debug(self) -> str:
-        """捲動狀態快照，供 log 定位「訊息看不到／捲不到底」；region_h 與 content_h
-        對不上就代表捲動範圍是舊的。"""
-        region = self._canvas.cget("scrollregion").split()
-        bbox = self._canvas.bbox("all")
-        return (f"messages={len(self._messages)} follow={self._follow} "
-                f"yview_bottom={self._canvas.yview()[1]:.4f} "
-                f"region_h={region[3] if len(region) == 4 else '?'} "
-                f"content_h={bbox[3] if bbox else '?'} "
-                f"canvas_h={self._canvas.winfo_height()}")
-
-    def _note_scroll(self) -> None:
-        """使用者主動捲動後重新判定是否繼續跟隨底部：往上捲＝正在讀歷史，
-        新訊息不該把畫面搶走；捲回底部則恢復跟隨。"""
-        follow = should_stick_to_bottom(self._canvas.yview()[1])
-        if follow != self._follow:
-            self._follow = follow
-            log(f"[ui] auto-follow {'enabled' if follow else 'disabled'} "
-                f"by user scroll ({self._scroll_debug()})")
-
-    def _view_anchor(self) -> tuple["tk.Misc", int] | None:
-        """視圖目前對齊到的內容位置：（最新一則的列，它相對視口頂端的偏移）。
-
-        畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
-        內容會整段滑動、正在讀的行就跳掉 —— 內容變動前取錨、變動後交給
-        `_refresh_scroll` 復位。跟隨底部時直接貼底不需要錨；最新一則不會被上方的
-        清除移走，拿它當錨最穩。拖曳框選中即使處於跟隨狀態也要給錨 —— prune 把上方
-        訊息清掉會讓下方內容整段上移，沒有錨點補位的話游標下的字就會被換掉。"""
-        if (self._follow and not self._selection.dragging) or not self._messages:
-            return None
-        row = self._messages[-1].row
-        return row, row.winfo_y() - int(self._canvas.canvasy(0))
-
-    def _restore_anchor(self, row: "tk.Misc", offset: int) -> None:
-        """把捲動位置移回「錨點列仍在視口同一偏移」處（見 `_view_anchor`）。"""
-        bbox = self._canvas.bbox("all")
-        if not row.winfo_exists() or bbox is None or bbox[3] <= bbox[1]:
-            # 罕見（錨點列被清光、內容量不出來）：放棄補位，視圖會跳一下
-            log(f"[ui] scroll anchor unusable, view may jump "
-                f"(row_alive={bool(row.winfo_exists())} bbox={bbox}) "
-                f"({self._scroll_debug()})")
-            return
-        target = max(bbox[1], row.winfo_y() - offset)
-        self._canvas.yview_moveto((target - bbox[1]) / (bbox[3] - bbox[1]))
-
-    def _refresh_scroll(self, anchor: tuple["tk.Misc", int] | None = None) -> None:
-        """重算捲動範圍；跟隨模式貼回底部，否則依 anchor 維持原位。
-
-        任何改變畫布內容或幾何的動作都要呼叫（新增／更新／清除訊息、縮放、橫幅進出）。
-        漏呼叫的後果是視圖從此停在舊位置 —— `_follow` 仍為真卻沒人貼底，之後每則
-        新訊息都落在畫面外，看起來就像訊息漏掉了。
-        框選拖曳期間不貼底：畫面被新訊息拉走的話，游標下的字會整個換掉。"""
-        self._canvas.update_idletasks()
-        # 視窗隱藏（縮成泡泡、工作列收合）期間畫布不重繪，內嵌容器與捲動帳目脫節 ——
-        # yview 回報已在底部，畫面卻少了最後幾則、往下也捲不動。重設一次座標（值不變）
-        # 即可要求畫布重新擺放它。
-        self._canvas.coords(self._inner_id, 0, 0)
-        self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        if self._follow and not self._selection.dragging:
-            self._canvas.yview_moveto(1.0)
-        elif anchor is not None:
-            self._restore_anchor(*anchor)
 
     def _move_start(self, e) -> None:
         self._drag = (e.x_root, e.y_root, self._win.winfo_x(), self._win.winfo_y())
@@ -611,9 +451,7 @@ class OverlayWindow:
     def _in_message_area(self, x_root: int, y_root: int) -> bool:
         """螢幕座標是否落在可捲動的訊息視口內。捲出視野的列仍有幾何位置，不先擋一道
         的話，點在把手或標題列附近會選到看不見的訊息。"""
-        c = self._canvas
-        return point_in_rect(x_root, y_root, c.winfo_rootx(), c.winfo_rooty(),
-                             c.winfo_width(), c.winfo_height())
+        return point_in_rect(x_root, y_root, *self._list.viewport())
 
     def _selection_press(self, e) -> None:
         """框選起手。訊息列的底色是本體的透明色鍵，只有文字墨跡接得到滑鼠、其餘落到
@@ -642,15 +480,9 @@ class OverlayWindow:
         self._autoscroll_job = None
         if not self._selection.dragging or self._drag_point is None:
             return
-        top = self._canvas.winfo_rooty()
-        step = autoscroll_pixels(self._drag_point[1], top,
-                                 top + self._canvas.winfo_height() - 1)
-        bbox = self._canvas.bbox("all")
-        height = (bbox[3] - bbox[1]) if bbox else 0
-        if step and height > 0:
-            self._canvas.yview_moveto(
-                min(1.0, max(0.0, self._canvas.yview()[0] + step / height)))
-            self._note_scroll()
+        _, top, _, height = self._list.viewport()
+        step = autoscroll_pixels(self._drag_point[1], top, top + height - 1)
+        if step and self._list.scroll_by(step):
             self._selection.extend(*self._drag_point)
         self._autoscroll_job = self._win.after(_AUTOSCROLL_MS, self._autoscroll)
 
@@ -691,97 +523,28 @@ class OverlayWindow:
             return
         self._popup.show(e.x_root, e.y_root, t("menu.copy"))
 
-    # --- 訊息 ---
-    def _drop_row(self, entry: _Message) -> None:
-        """移除一則訊息的畫面元件。銷毀列與解除選取登記必須成對 —— 漏掉任一處，
-        選取就會指向已銷毀的 widget。"""
-        self._selection.forget(entry.row)
-        entry.row.destroy()
-
+    # --- 訊息（實作見 message_list.py） ---
     def add_message(self, original: str, translated: str, now: float | None = None,
                     msg_id: int | None = None, pending: bool = False,
                     color: str | None = None) -> None:
-        """加入一則訊息。pending＝譯文欄位目前是佔位字樣，以較暗的顏色標示，
-        待 update_message 填入真正的譯文時才恢復正常顏色。
-        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
-        anchor = self._view_anchor()
-        row = tk.Frame(self._inner, bg=BG)
-        original_line = _outlined_line(row, original,
-                                       dimmed(color) if color else FG_ORIGINAL,
-                                       ui_font(9), self._wrap)
-        original_line.pack(fill="x")
-        translated_line = _outlined_line(row, translated,
-                                         FG_PENDING if pending else (color or FG_TRANSLATED),
-                                         ui_font(11), self._wrap)
-        translated_line.pack(fill="x")
-        row.pack(side="top", fill="x", pady=2)  # 最新在最下
-        self._selection.register(row, (original_line, translated_line))
-        for line in (original_line, translated_line):
-            line.bind("<ButtonPress-1>", self._selection_press)
-            line.bind("<B1-Motion>", self._selection_drag)
-            line.bind("<ButtonRelease-1>", self._selection_release)
-            line.bind("<Button-3>", self._selection_menu)
-        self._messages.append(_Message(now if now is not None else time.time(),
-                                       original, translated, row, msg_id, color))
-        while len(self._messages) > self._max:
-            self._drop_row(self._messages.pop(0))
-
-        self._refresh_placeholder()
-        self._refresh_scroll(anchor)
+        """加入一則訊息（參數見 MessageList.add_message）；縮小成泡泡期間累計未讀數。"""
+        self._list.add_message(original, translated, now, msg_id, pending, color)
         if self._minimized and self._bubble is not None:
             self._unread += 1
             self._bubble.set_unread(self._unread)
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:
-        """把某則佔位訊息的譯文就地填入（原文與位置不動）。
-        failed＝這則翻不出來、填入的是失敗提示，改用錯誤色與一般對話區隔。
-        找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
-        anchor = self._view_anchor()
-        for i, m in enumerate(self._messages):
-            if m.msg_id != msg_id:
-                continue
-            line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
-            if self._selection.holds(m.row):
-                self._selection.clear("translated line replaced")
-            line.itemconfigure("txt", text=translated)
-            line.itemconfigure("fg", fill=FG_ERROR if failed
-                               else (m.color or FG_TRANSLATED))
-            _fit_line_height(line)
-            self._messages[i] = m._replace(translated=translated)
-            self._refresh_scroll(anchor)
-            return
+        """把某則佔位訊息的譯文就地填入（見 MessageList.update_message）。"""
+        self._list.update_message(msg_id, translated, failed)
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
-        anchor = self._view_anchor()
-        self._max = max_messages
-        self._fade = fade_seconds
-        removed = False
-        while len(self._messages) > self._max:
-            self._drop_row(self._messages.pop(0))
-            removed = True
-        self._refresh_placeholder()
-        if removed:
-            self._refresh_scroll(anchor)
+        self._list.set_limits(max_messages, fade_seconds)
 
     def prune(self, now: float | None = None) -> None:
         """移除已超過淡出秒數的訊息（fade_seconds <= 0 時不做）；`now` 供測試指定時刻。"""
-        if self._fade <= 0:
-            return  # fade_seconds <= 0：永不依時間清除訊息（可滾動看歷史）
-        anchor = self._view_anchor()
-        cutoff = (now if now is not None else time.time()) - self._fade
-        keep = []
-        for entry in self._messages:
-            if entry.ts <= cutoff:
-                self._drop_row(entry)
-            else:
-                keep.append(entry)
-        if len(keep) == len(self._messages):
-            return
-        self._messages = keep
-        self._refresh_placeholder()
-        self._refresh_scroll(anchor)
+        self._list.prune(now)
 
     def set_status(self, state: str) -> None:
         """更新狀態指示：標題列右側小字；視窗還沒有任何訊息時，同步大字置中顯示。
@@ -789,15 +552,7 @@ class OverlayWindow:
         self._status_state = state
         text, color = t(f"status.{state}"), STATUS_COLORS[state]
         self._status_label.configure(text=text, fg=color)
-        self._placeholder.configure(text=text, fg=color)
-        self._refresh_placeholder()
-
-    def _refresh_placeholder(self) -> None:
-        if self._messages:
-            self._placeholder.place_forget()
-        else:
-            self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
-            self._placeholder.lift()
+        self._list.set_placeholder(text, color)
 
     def set_error(self, key: str, **kwargs) -> None:
         """顯示錯誤橫幅（傳入文案 key 與 format 變數，顯示時才翻譯）。"""
@@ -811,7 +566,7 @@ class OverlayWindow:
         # before＝捲動區：pack 依宣告順序分配空間，橫幅排在 expand=True 的捲動區
         # 之後就會在視窗被縮小時被擠掉 —— 而「遊戲未就緒」正是最該看到的訊息。
         self._error_label.pack(side="bottom", fill="x", pady=2,
-                               before=self._scroll_area)
+                               before=self._list.frame)
 
     def clear_error(self) -> None:
         """收起錯誤橫幅（翻譯恢復、遊戲重新連上時）。"""
@@ -835,13 +590,13 @@ class OverlayWindow:
         label = tk.Label(row, text=t("update.available", version=release.version),
                          bg=BG_UPDATE, fg=FG_UPDATE, font=ui_font(10, "bold"),
                          anchor="w", justify="left", cursor="hand2",
-                         wraplength=self._wrap)
+                         wraplength=self._list.wrap)
         label.pack(side="left", fill="x", expand=True)
         label.bind("<Button-1>", lambda e: self._open_update_link(release))
         # before＝捲動區：同錯誤橫幅。右側讓出縮放把手的寬度：把手底色是透明色鍵，
         # 疊在這條不透明橫幅上會挖出缺口並蓋掉半個 ✕（捲軸讓出把手高度同理）。
         row.pack(side="bottom", fill="x", pady=2, padx=(0, _GRIP_SIZE),
-                 before=self._scroll_area)
+                 before=self._list.frame)
         self._update_row = row
         self._update_label = label
         log(f"[update] banner shown for {release.version}")
@@ -868,7 +623,7 @@ class OverlayWindow:
         已經印在畫面上的訊息不回溯改寫 —— 那是聊天內容，不是介面文字。"""
         self._title_label.configure(text=app_name(), font=ui_font(8))
         self._status_label.configure(font=ui_font(8))
-        self._placeholder.configure(font=ui_font(11))
+        self._list.refresh_fonts()
         self._win.title(app_name())
         if self._bubble is not None:
             self._bubble.title(app_name())
@@ -881,7 +636,7 @@ class OverlayWindow:
 
     # --- 測試/除錯輔助 ---
     def visible_messages(self) -> list[tuple[str, str]]:
-        return [(m.original, m.translated) for m in self._messages]
+        return self._list.visible_messages()
 
     def error_text(self) -> str | None:
         return self._error_label.text() if self._error_label else None
@@ -893,4 +648,4 @@ class OverlayWindow:
         return self._status_label.cget("text")
 
     def placeholder_visible(self) -> bool:
-        return self._placeholder.winfo_manager() == "place"
+        return self._list.placeholder_visible()

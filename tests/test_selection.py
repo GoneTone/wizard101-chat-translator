@@ -3,7 +3,7 @@ import tkinter as tk
 import pytest
 
 from src.ui.fonts import ui_font
-from src.ui.overlay import _outlined_line
+from src.ui.message_list import _outlined_line
 from src.ui.selection import (
     TEXT_ORIGIN,
     Caret,
