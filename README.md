@@ -2,6 +2,8 @@
   <img src="docs/banner.png" alt="Wizard101 Chat Translator" width="1000">
 </p>
 
+# Wizard101 Chat Translator
+
 English | [繁體中文](README_ZH-TW.md) | [简体中文](README_ZH-CN.md)
 
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
