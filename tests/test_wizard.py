@@ -156,10 +156,10 @@ def test_language_step_shows_the_translators(root, monkeypatch):
 
     from src.config import DEFAULT_CONFIG
     from src.i18n import t
-    from src.ui import fields as fields_module
+    from src.ui import form as form_module
     from src.ui.wizard import STEP_PREFS, SetupWizard
 
-    monkeypatch.setattr(fields_module, "translators",
+    monkeypatch.setattr(form_module, "translators",
                         lambda code: "[A](https://a.example)")
     wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
     label, names = wizard._translators_row.pack_slaves()
@@ -177,10 +177,10 @@ def test_language_step_without_translators_shows_no_row(root, monkeypatch):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.ui import fields as fields_module
+    from src.ui import form as form_module
     from src.ui.wizard import SetupWizard
 
-    monkeypatch.setattr(fields_module, "translators", lambda code: "")
+    monkeypatch.setattr(form_module, "translators", lambda code: "")
     wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
     assert wizard._translators_row is None
     wizard._win.destroy()

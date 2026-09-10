@@ -122,11 +122,13 @@ def align(prev: list[str], cur: list[str],
     return "reset", None
 
 
-def filter_resurfaced(emitted: list[ChatLine], seen: Container[str]) -> list[ChatLine]:
+def filter_resurfaced(emitted: list, seen: Container[str],
+                      text=lambda line: line.text) -> list:
     """剔除看過集合已有的行（＝視圖切換時重新浮上來的歷史），保留真正的新行。
     只用在 recover/reset 慢路徑：代價是恰在視圖切換那一輪出現的「與近期舊訊息
-    一字不差的重複句」會被略過，與 align_recover 既有的取捨一致。"""
-    return [line for line in emitted if line.text not in seen]
+    一字不差的重複句」會被略過，與 align_recover 既有的取捨一致。
+    `text` 取出每個元素用來比對的字串：玩家軌傳 ChatLine（預設），系統軌傳純文字。"""
+    return [item for item in emitted if text(item) not in seen]
 
 
 def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],

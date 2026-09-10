@@ -6,16 +6,10 @@ from tkinter import ttk
 from src.config import app_name
 from src.i18n import current_language, language_name, set_language, t
 from src.log import log
-from src.ui.fields import (
-    HINT_COLOR,
-    ApiFields,
-    HotkeyField,
-    LanguageField,
-    UiLanguageField,
-    translators_row,
-    validate_api_form,
-)
+from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
+from src.ui.form import HINT_COLOR, translators_row
+from src.ui.providers import validate_api_form
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
 

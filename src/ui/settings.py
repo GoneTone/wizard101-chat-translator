@@ -14,22 +14,19 @@ from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t, translators
 from src.log import log
-from src.ui.fields import (
+from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
+from src.ui.form import (
     HINT_COLOR,
-    LINK_COLOR,
-    ApiFields,
-    HotkeyField,
-    LanguageField,
-    UiLanguageField,
     hint_label,
     link_label,
     linked_text,
     poll_queue,
     show_outcome,
     translators_row,
-    validate_api_form,
 )
+from src.ui.providers import validate_api_form
 from src.ui.responsive import HINT_TRAILING, bind_wrap
+from src.ui.richtext import LINK_COLOR
 from src.ui.scrollable import ScrollableFrame
 from src.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL, check_for_update
 

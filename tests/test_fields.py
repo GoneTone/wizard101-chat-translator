@@ -13,15 +13,12 @@ from src.translation.translator import (
     TranslatorNoModelList,
     TranslatorOffline,
 )
-from src.ui.fields import (
-    PROVIDERS,
-    ApiFields,
-    ModelField,
-    filter_models,
-    friendly_error,
-    validate_api_form,
-    validate_endpoint_fields,
-)
+from src.ui import form as form_module
+from src.ui import model_field as model_field_module
+from src.ui.fields import ApiFields
+from src.ui.form import friendly_error
+from src.ui.model_field import ModelField, filter_models
+from src.ui.providers import PROVIDERS, validate_api_form, validate_endpoint_fields
 
 
 @pytest.fixture
@@ -45,7 +42,7 @@ def test_providers_metadata():
 
 def test_provider_labels_are_translated():
     from src import i18n
-    from src.ui.fields import PROVIDERS
+    from src.ui.providers import PROVIDERS
 
     before = i18n.current_language()
     try:
@@ -302,12 +299,11 @@ def test_model_field_error_uses_friendly_message(root):
 def test_refresh_worker_reports_failures_for_providers_without_base_url(root, monkeypatch):
     # 回歸：openai／claude 的設定檔沒有 base_url，失敗分支寫 log 時 KeyError，
     # 例外沒放進 queue，主執行緒的輪詢永遠等不到結果、按鈕卡在「載入中」
-    from src.ui import fields as fields_module
 
     def rejected(api, client=None):
         raise TranslatorConfigError("Incorrect API key", status=401)
 
-    monkeypatch.setattr(fields_module, "list_models", rejected)
+    monkeypatch.setattr(model_field_module, "list_models", rejected)
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol", api_key="sk-1"))
     field = fields._model_field
     field._refresh_worker(fields.active_values())
@@ -429,11 +425,11 @@ def test_dropdown_closes_when_nothing_matches(offscreen):
 def test_link_label_opens_the_url_on_click(root, monkeypatch):
     import tkinter as tk
 
-    from src.ui import fields
-    from src.ui.fields import LINK_COLOR, link_label
+    from src.ui.form import link_label
+    from src.ui.richtext import LINK_COLOR
 
     opened = []
-    monkeypatch.setattr(fields.webbrowser, "open", opened.append)
+    monkeypatch.setattr(form_module.webbrowser, "open", opened.append)
     holder = tk.Frame(root)
     label = link_label(holder, "GoneTone", "https://example.invalid/author")
 
@@ -501,14 +497,14 @@ def test_test_connection_defaults_to_the_ui_languages_name(root, monkeypatch):
 
 
 def test_parse_link_markup_plain_text_has_no_links():
-    from src.ui.fields import parse_link_markup
+    from src.ui.richtext import parse_link_markup
 
     assert parse_link_markup("GoneTone、Someone") == [("GoneTone、Someone", None)]
     assert parse_link_markup("") == []
 
 
 def test_parse_link_markup_splits_links_from_surrounding_text():
-    from src.ui.fields import parse_link_markup
+    from src.ui.richtext import parse_link_markup
 
     assert parse_link_markup("[A](https://a.example)、B") == [
         ("A", "https://a.example"), ("、B", None)]
@@ -519,14 +515,14 @@ def test_parse_link_markup_splits_links_from_surrounding_text():
 
 def test_parse_link_markup_rejects_non_http_urls():
     # 語言檔可能來自外部貢獻者：其他 scheme 只留文字、不給點，寧可少一條連結
-    from src.ui.fields import parse_link_markup
+    from src.ui.richtext import parse_link_markup
 
     assert parse_link_markup("[A](javascript:alert)") == [("A", None)]
     assert parse_link_markup("[A](file:///C:/x)") == [("A", None)]
 
 
 def test_parse_link_markup_leaves_broken_syntax_as_text():
-    from src.ui.fields import parse_link_markup
+    from src.ui.richtext import parse_link_markup
 
     assert parse_link_markup("[A(https://a.example)") == [("[A(https://a.example)", None)]
     assert parse_link_markup("[A] (https://a.example)") == [
@@ -534,11 +530,11 @@ def test_parse_link_markup_leaves_broken_syntax_as_text():
 
 
 def test_linked_text_makes_only_the_link_segment_clickable(root, monkeypatch):
-    from src.ui import fields as fields_module
-    from src.ui.fields import LINK_COLOR, linked_text
+    from src.ui.form import linked_text
+    from src.ui.richtext import LINK_COLOR
 
     opened = []
-    monkeypatch.setattr(fields_module.webbrowser, "open", opened.append)
+    monkeypatch.setattr(form_module.webbrowser, "open", opened.append)
     row = linked_text(root, "由 [A](https://a.example) 翻譯")
     plain, link, tail = row.pack_slaves()
     assert [w.cget("text") for w in (plain, link, tail)] == ["由 ", "A", " 翻譯"]

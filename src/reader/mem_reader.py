@@ -358,7 +358,7 @@ class WizChatReader:
         emitted_texts = appended
         if path != "append" or len(appended) >= BULK_APPEND_FILTER_MIN:
             # 與玩家軌同策略：正常新增一律放行，只在慢路徑與大批次過濾重浮歷史
-            kept = [t for t in emitted_texts if t not in track.seen]
+            kept = filter_resurfaced(emitted_texts, track.seen, text=lambda line: line)
             if len(kept) != len(emitted_texts):
                 log(f"[reader] system track dropped {len(emitted_texts) - len(kept)} "
                     f"resurfaced lines via {path}")

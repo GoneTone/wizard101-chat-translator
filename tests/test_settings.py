@@ -5,8 +5,10 @@ import tkinter as tk
 import pytest
 
 from src.config import clamp_advanced
+from src.ui import form as form_module
 from src.ui.bubble import BUBBLE_ALPHA_FACTOR, BUBBLE_ALPHA_FLOOR
 from src.ui.overlay import OverlayWindow
+from src.ui.richtext import LINK_COLOR
 from src.ui.settings import parse_advanced_values
 
 
@@ -368,12 +370,11 @@ def _run_check(win):
 
 def test_manual_check_reports_up_to_date(root):
     from src.i18n import t
-    from src.ui import fields as fields_module
 
     win = _open_settings_with_checker(root, lambda: None)
     _run_check(win)
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
-    assert str(win._update_result.cget("foreground")) == fields_module.OK_COLOR
+    assert str(win._update_result.cget("foreground")) == form_module.OK_COLOR
     assert win._update_btn.cget("text") == t("button.check_update")
     assert str(win._update_btn.cget("state")) == "normal"
     win._win.destroy()
@@ -381,7 +382,6 @@ def test_manual_check_reports_up_to_date(root):
 
 def test_manual_check_reports_a_new_version(root, monkeypatch):
     from src.i18n import t
-    from src.ui import fields as fields_module
     from src.ui import settings as settings_module
     from src.updater import Release
 
@@ -390,7 +390,7 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
     _run_check(win)
     assert win._update_result.cget("text") == t("update.available", version="9.9.9")
     assert "hand2" in str(win._update_result.cget("cursor"))
-    assert str(win._update_result.cget("foreground")) == fields_module.LINK_COLOR
+    assert str(win._update_result.cget("foreground")) == LINK_COLOR
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -402,7 +402,6 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
 
 def test_manual_check_reports_failure(root):
     from src.i18n import t
-    from src.ui import fields as fields_module
     from src.updater import UpdateCheckError
 
     def boom():
@@ -411,7 +410,7 @@ def test_manual_check_reports_failure(root):
     win = _open_settings_with_checker(root, boom)
     _run_check(win)
     assert win._update_result.cget("text") == "✗ " + t("update.failed", error="HTTP 403")
-    assert str(win._update_result.cget("foreground")) == fields_module.ERROR_COLOR
+    assert str(win._update_result.cget("foreground")) == form_module.ERROR_COLOR
     assert str(win._update_btn.cget("state")) == "normal"
     win._win.destroy()
 
@@ -595,11 +594,10 @@ def _texts(frame):
 
 
 def _fake_translators(monkeypatch, credit):
-    """假造各語言的譯者掛名。兩個模組各自取值：下拉底下那列走 fields 的共用元件，
+    """假造各語言的譯者掛名。兩個模組各自取值：下拉底下那列走 form 的共用元件，
     關於分頁自己取（那一列是 grid 的兩欄，版面與共用元件不同）。"""
-    from src.ui import fields as fields_module
     from src.ui import settings as settings_module
-    for module in (fields_module, settings_module):
+    for module in (form_module, settings_module):
         monkeypatch.setattr(module, "translators", credit)
 
 
