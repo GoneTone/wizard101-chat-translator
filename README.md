@@ -76,7 +76,21 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 
 ## Screenshots
 
-TODO
+The overlay over the running game — every chat line keeps its original above the translation:
+
+![The overlay showing a translated conversation over the running game](docs/images/1.png)
+
+Open the game's chat box and the translation input box comes up on its own; type in any language:
+
+![The translation input box with a message typed into it](docs/images/2.png)
+
+The English translation is typed into the game's chat box character by character — pressing Enter to send is up to you:
+
+![The game's chat box with the English translation typed into it](docs/images/3.png)
+
+The settings window: provider, API key, target language and hotkey, all applied without a restart:
+
+![The settings window on its Basic tab](docs/images/4.png)
 
 ## Known Limitations
 
