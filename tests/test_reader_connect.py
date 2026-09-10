@@ -5,9 +5,9 @@ from src.reader.mem_reader import (
     GameNotRunning,
     GameVersionMismatch,
     WizChatReader,
-    is_game_process_path,
     is_version_mismatch,
 )
+from src.reader.process import is_game_process_path
 
 
 # --- 連線失敗的分類（不需遊戲：以假 ClientHandler 注入例外）---

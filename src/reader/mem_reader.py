@@ -1,27 +1,31 @@
 """收訊端：透過 wizwalker 掛入遊戲、讀聊天顯示控件 `chatLog` 的全文，差分出新增行。
 
-聊天在顯示層是帶標記的富文字，每則一行、以 `\n` 分隔：
-    他人： <color;..><image;Art/Art_Chat_Say.dds;..> <link;GID:<id>,<名>,2>[<名>]</link> 內文 </color>
-    自己： <color;..><image;Art/Art_Chat_Say.dds;..> [你] 內文 </color>          ← 無 <link;GID>
-玩家發言帶頻道圖示（Art_Chat_<頻道>，房間頻道為 chat_balloon_*）、系統訊息用
-Art_Chat_System、除錯行無圖示，以此分流；去標記後回傳「[發送者] 內文」，連同行首
-<color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
+本模組負責 wizwalker 連線／hook 生命週期，以及玩家軌與系統軌的差分狀態機（各門檻的
+取捨都寫在常數旁）。標記解析在 markup.py、對齊演算法在 diff.py、程序偵測在 process.py，
+三者都是純函式，不需遊戲即可測試。
 
 注意：wizwalker 靠 root-window hook 定位控件，為此會寫入遊戲程序記憶體（注入），非純讀。
 """
 import asyncio
-import os
-import re
 import time
-from collections import Counter, deque
-from collections.abc import Container
 from typing import NamedTuple
 
 from src.log import log
 from src.reader import hook_state
+from src.reader.diff import (
+    Track,
+    align,
+    filter_resurfaced,
+    player_out_with_idx,
+)
+from src.reader.markup import ChatLine, lines_from_nodes, node_sizes
 from src.reader.message_log import MessageLog
+from src.reader.process import (
+    PROCESS_NAME,
+    detect_install_path,
+    pid_alive,
+)
 
-PROCESS_NAME = "WizardGraphicalClient.exe"
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
 
 # 等 root window 位址寫回來的上限（秒）與輪詢間隔。wizwalker 的 activate_root_window_hook
@@ -48,15 +52,6 @@ BULK_APPEND_FILTER_MIN = 10
 # 切到沒讀過的視圖時整批都是生面孔（實測前綴巧合：1 行基準冒出 4 行全新）；
 # chatLog 膨脹成重複版本時幾乎全是看過的行、只夾著剛抵達的一兩句新訊息。
 DUPLICATE_BURST_SEEN_RATIO = 4
-# 基準建立後的暖機輪數，期間 reset（零重疊讀取）一律靜默吸收：啟動時基準只蓋到當前分頁，
-# 其他分頁的歷史在頭幾輪浮上來會被誤當新訊息（實測都在前 1-3 輪，5 輪已保守）。
-# 拉太長會放大代價 —— 期間切到別的頻道說的第一句（走 reset）會被吸收。
-RESET_WARMUP_POLLS = 5
-# 「看過集合」容量上限（行數，FIFO）。聊天分頁共用同一個 chatLog 控件且無分頁狀態可讀，
-# 切分頁＝內容換成另一視圖，recover/reset 會把重浮的歷史誤判成新訊息，故靠它過濾。
-# 不能改存「最近幾份基準」：append 每輪換基準，停留同一視圖幾輪就把其他視圖的證據
-# 擠掉（實測破功）。
-SEEN_LINES_CAP = 10000
 # 輸入框關聯放行的有效輪數：剛送出訊息時，遊戲輸入框必在前 1-2 輪內開啟過。登出再登入
 # 不重啟程序、看過集合殘留舊 session 字樣，重打同一句（Test/lol 等）走 reset 會被誤判
 # 重浮吞掉；輸入框剛關閉＋視圖尾行同字＝剛送出的訊息，放行。
@@ -98,329 +93,6 @@ def is_version_mismatch(exc: BaseException) -> bool:
     return isinstance(exc, (PatternFailed, PatternMultipleResults, TimeoutError))
 
 
-# --- 純函式：標記解析（可單元測試，不需遊戲）---
-class ChatLine(NamedTuple):
-    """一行乾淨的聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。
-    own＝這句是自己講的（見 _OTHER_PLAYER_LINK）；system＝遊戲系統訊息
-    （掉寶／經驗／升等廣播等，見 _SYSTEM_IMG；伺服器公告見 _is_server_broadcast），
-    走與玩家對話分離的差分軌與翻譯路徑。"""
-    text: str
-    color: str | None
-    own: bool = False
-    system: bool = False
-
-
-_TAG = re.compile(r"<[^>]*>")
-# 顏色標記的值為 6 位 RRGGBB 或 8 位 AARRGGBB（帶 alpha），顯示色一律取後 6 位
-_COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
-_VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
-# 玩家發言行都帶頻道圖示：多數頻道是 Art_Chat_<頻道>，房間頻道實測是
-# chat_balloon_<Owner/Guest>，快捷訊息（禁言帳號只能用選單發話）是 Art_Word_Balloon。
-# 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
-_PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
-                        "<image;Art/Art_Word_Balloon")
-_SYSTEM_IMG = "<image;Art/Art_Chat_System"
-# 伺服器公告（維修預告等）實測連圖示都沒有，只有行首 <color;..>（見 _is_server_broadcast）
-_ART_IMG = "<image;Art/"
-_LEADING_COLOR = re.compile(r"^\s*<color;")
-# 他人發言的名字是可點擊的玩家連結，自己的只有純文字 [你]；[你] 各語系用語不同，
-# 故以連結有無判斷是否自己講的，不比對名稱字串
-_OTHER_PLAYER_LINK = "<link;GID"
-# 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
-_ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
-_warned_icons: set[str] = set()  # 每種未知圖示每次執行只警告一次，避免洗版
-
-# 遊戲表情以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 :名稱: 文字（不轉 emoji），
-# 避免整行只有表情時被去光而消失
-_EMOTE_TAG = re.compile(r"<image;Emoticons/([^.;>]+)\.dds[^>]*>", re.IGNORECASE)
-
-
-def _emote_to_char(m: re.Match) -> str:
-    name = re.sub(r"^emoticons?_|\d+$", "", m.group(1).lower())
-    if not re.fullmatch(r"[a-z0-9_]+", name):
-        return ""  # 撕裂的標記（名稱夾入雜字）：丟棄該表情，保留整行其餘內容
-    return f":{name}:"
-
-
-def clean(text: str) -> str:
-    """表情標記保留成 `:名稱:`，去掉 <color;..> <image;..> <link;..> </..> 等標記，
-    還原玩家實際打出的 `&lt;` `&gt;` `&amp;` 實體，壓縮空白。"""
-    text = _EMOTE_TAG.sub(_emote_to_char, text)
-    text = _TAG.sub("", text)
-    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-    return " ".join(text.replace("\x00", " ").split())
-
-
-def line_color(raw: str) -> str | None:
-    """從一行原始 markup 取遊戲顯示色（`#rrggbb` 小寫）；沒有顏色標記回傳 None。"""
-    m = _COLOR_TAG.search(raw)
-    return f"#{m.group(1)[-6:].lower()}" if m else None
-
-
-def lines_from_chatlog(text: str) -> list[ChatLine]:
-    """把 chatLog 全文（以 `\n` 分行的渲染 markup）解析成乾淨聊天行，保留順序與重複。
-
-    收玩家發言（含自己的 `[你]` 行與他人 `<link;GID>[名]` 行）、系統訊息
-    （Art_Chat_System）與伺服器公告（_is_server_broadcast）；濾掉遊戲除錯行
-    （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。玩家行必須是「[發送者] 內容」
-    （_VALID）；系統訊息與公告沒有固定前綴，clean() 後非空即收。"""
-    out: list[ChatLine] = []
-    for raw in text.split("\n"):
-        if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
-            line = clean(raw)
-            if line:
-                out.append(ChatLine(line, line_color(raw), False, True))
-            continue
-        if not any(p in raw for p in _PLAYER_IMG_PREFIXES):
-            _warn_unknown_icon(raw)
-            continue
-        line = clean(raw)
-        if _VALID.match(line):
-            out.append(ChatLine(line, line_color(raw),
-                                _OTHER_PLAYER_LINK not in raw))
-    return out
-
-
-def _is_server_broadcast(raw: str) -> bool:
-    """有行首顏色、卻沒有任何 Art/ 圖示 → 伺服器公告。
-
-    實機樣本只有 `<color;D9ABF8>[Server Message] 內文</color>`，前綴不保證存在故不比對
-    字串；遊戲除錯輸出（`RECEIVED STATUS UPDATE for [id]`）同樣無圖示但不以 <color;..>
-    起頭。先排除帶 Art/ 圖示的行，未收錄的頻道才會照舊落到 _warn_unknown_icon，
-    不會被悄悄吞成系統訊息。"""
-    return _ART_IMG not in raw and _LEADING_COLOR.match(raw) is not None
-
-
-def _warn_unknown_icon(raw: str) -> None:
-    """帶 Art/ 圖示、格式像聊天行、但圖示不在白名單：每種圖示警告一次。
-    漏接頻道（如尚未取樣的組隊頻道）能直接從 app.log 讀到圖示名稱，免再探測。"""
-    m = _ANY_ART_IMG.search(raw)
-    if not m or m.group(1) in _warned_icons:
-        return
-    if not _VALID.match(clean(raw)):
-        return  # 格式不像聊天行（系統/除錯雜訊）：不值得警告
-    _warned_icons.add(m.group(1))
-    log(f"[reader] unrecognized chat icon {m.group(1)!r}, line dropped "
-        f"(add prefix to _PLAYER_IMG_PREFIXES if this is a player channel); "
-        f"raw={raw[:160]!r}")
-
-
-def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
-    """part 的每一行（含重複次數）都能在 main 裡找到 → part 只是 main 的鏡射。"""
-    remaining = Counter(line.text for line in main)
-    for line in part:
-        if not remaining[line.text]:
-            return False
-        remaining[line.text] -= 1
-    return True
-
-
-def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
-    """把各 chatLog 節點的全文依傳入順序串接成單一聊天行序列，
-    回傳（行序列，被剔除的鏡射節點數）。
-
-    組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份（實測開組隊
-    視窗後發話，同一句出現在兩個節點，sizes=[1, 1, 0]）；盲目串接會翻兩次，之後主視圖在
-    完整歷史與精簡視圖間跳動時，多出的那份還會被 align_append 當成尾端新增而每次重翻。
-    以玩家行數最多的節點為主視圖，玩家行被它完全涵蓋（含重複次數）的節點判定為鏡射；
-    代價是兩個視窗恰各出現一句一字不差的訊息時只翻一次。空節點不算鏡射，否則診斷 log
-    每輪都在響。鏡射判定只看玩家行 —— 系統訊息在不同節點的出現方式未經實測，
-    判定完成後才從保留的節點取出系統行。"""
-    parts = [lines_from_chatlog(t) for t in texts]
-    if len(parts) < 2:
-        return [line for p in parts for line in p], 0
-    players = [[line for line in p if not line.system] for p in parts]
-    main = max(range(len(parts)), key=lambda i: len(players[i]))
-    kept = [p for i, p in enumerate(parts)
-            if i == main or not (players[i] and _mirrors(players[i], players[main]))]
-    return [line for p in kept for line in p], len(parts) - len(kept)
-
-
-def node_sizes(texts: list[str]) -> list[int]:
-    """各 chatLog 節點的聊天行數（含系統訊息），依串接時的排序；診斷用，看得出哪個節點在
-    灌入完整歷史、sorted 名次有無翻轉。只在要印診斷 log 時呼叫 —— 每輪都算等於解析成本翻倍。"""
-    return [len(lines_from_chatlog(t)) for t in sorted(texts)]
-
-
-def _find_last_run(cur_lines: list[str], seq: list[str]) -> int | None:
-    """seq 以連續片段出現在 cur_lines 中的**最後**位置；找不到回傳 None。"""
-    n = len(seq)
-    for i in range(len(cur_lines) - n, -1, -1):
-        if cur_lines[i:i + n] == seq:
-            return i
-    return None
-
-
-def align_append(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """附加/捲動對齊（快路徑）：找最短的「prev 去掉前 k 行」正好是 cur 的前綴，回傳 cur
-    尾端多出來的行（含重複、依序）；對不齊回傳 None，呼叫端改走 align_recover。
-    平時純附加 k=0 必中；達顯示上限修剪頭部時 k>0 吸收捲動。必須嚴格要求前綴，
-    否則「尾行與新行重複」（[hi]→[hi,hi]）會被誤判為無新增而漏訊。"""
-    if not prev_lines:
-        return None
-    for k in range(len(prev_lines)):
-        overlap = prev_lines[k:]
-        if cur_lines[:len(overlap)] == overlap:
-            return cur_lines[len(overlap):]
-    return None
-
-
-def align_recover(prev_lines: list[str], cur_lines: list[str]) -> list[str] | None:
-    """恢復對齊（align_append 的退路）：找最長的 prev 尾段 prev[k:]，其以連續片段出現在
-    cur 的**最後**位置，回傳其後的行；完全無重疊回傳 None（呼叫端視為聊天重置）。
-    走到這裡代表撕裂讀取（遊戲寫入中讀到缺行/壞行）或多 chatLog 串接結構變化。
-    取「最後」位置是關鍵：聊天充滿重複行（lol/gg），錨到較早的重複行會把其後整段舊訊息
-    重吐（翻譯洪水＋timeout 螺旋）；錨到最後頂多漏掉少數重複的新行。"""
-    if not prev_lines:
-        return None
-    for k in range(len(prev_lines)):
-        overlap = prev_lines[k:]
-        idx = _find_last_run(cur_lines, overlap)
-        if idx is not None:
-            return cur_lines[idx + len(overlap):]
-    return None
-
-
-class _SeenLines:
-    """近期讀過的行文字集合（各視圖聯集），超過容量從最舊的開始淘汰（FIFO）。
-    容量上限的取捨見 SEEN_LINES_CAP。"""
-
-    def __init__(self, cap: int = SEEN_LINES_CAP):
-        self._cap = cap
-        self._set: set[str] = set()
-        self._order: deque[str] = deque()
-
-    def remember(self, texts: list[str]) -> None:
-        for text in texts:
-            if text not in self._set:
-                self._set.add(text)
-                self._order.append(text)
-        while len(self._order) > self._cap:
-            self._set.discard(self._order.popleft())
-
-    def clear(self) -> None:
-        self._set.clear()
-        self._order.clear()
-
-    def __contains__(self, text: object) -> bool:
-        return text in self._set
-
-    def __len__(self) -> int:
-        return len(self._set)
-
-
-class _Track:
-    """一條差分軌的狀態：上輪基準（只存文字，顏色不參與差分）、看過集合、剩餘暖機輪數。
-    玩家軌與系統軌各持一份、完全獨立（見 WizChatReader.__init__）。"""
-
-    def __init__(self):
-        self.prev: list[str] = []
-        self.seen = _SeenLines()
-        self.warmup_left = RESET_WARMUP_POLLS
-
-    def rebaseline(self, texts: list[str]) -> None:
-        """把本輪內容立為新基準並記進看過集合（靜默吸收、不吐任何行的路徑用）。"""
-        self.prev = texts
-        self.seen.remember(texts)
-
-    def reset(self) -> None:
-        """回到剛連上時的狀態（斷線後呼叫）。"""
-        self.prev = []
-        self.seen.clear()
-        self.warmup_left = RESET_WARMUP_POLLS
-
-
-def _align(prev: list[str], cur: list[str],
-           force_reset: bool) -> tuple[str, list[str] | None]:
-    """差分的判定階梯：append（快路徑）→ recover（退路）→ reset（完全無重疊）。
-    回傳（路徑名，新增行）；reset 時新增行為 None，由呼叫端決定吸收或整批放行。
-    force_reset＝串接結構已變或基準已過期，對齊沒有意義，直接跳到 reset。"""
-    if not force_reset:
-        appended = align_append(prev, cur)
-        if appended is not None:
-            return "append", appended
-        appended = align_recover(prev, cur)
-        if appended is not None:
-            return "recover", appended
-    return "reset", None
-
-
-def filter_resurfaced(emitted: list[ChatLine], seen: Container[str]) -> list[ChatLine]:
-    """剔除看過集合已有的行（＝視圖切換時重新浮上來的歷史），保留真正的新行。
-    只用在 recover/reset 慢路徑：代價是恰在視圖切換那一輪出現的「與近期舊訊息
-    一字不差的重複句」會被略過，與 align_recover 既有的取捨一致。"""
-    return [line for line in emitted if line.text not in seen]
-
-
-def player_out_with_idx(emitted: list[ChatLine], cur_player: list[ChatLine],
-                        player_idx: list[int]) -> list[int]:
-    """把玩家軌吐出的行換算回它們在完整序列（含系統行）中的索引。
-
-    emitted 是 cur_player 的**子序列**：對齊路徑先切出尾段，慢路徑再逐行剔除重浮歷史
-    （見 _drop_resurfaced），中間可能被挖空，故不能只取同長度的尾段索引。
-    以物件識別（`is`）順向比對 —— 聊天充滿一字不差的重複行，比對文字會對到錯的索引。"""
-    if not emitted:
-        return []
-    out: list[int] = []
-    remaining = iter(emitted)
-    want = next(remaining)
-    for pos, line in enumerate(cur_player):
-        if line is want:
-            out.append(player_idx[pos])
-            want = next(remaining, None)
-            if want is None:
-                break
-    if want is not None:
-        # emitted 已不是 cur_player 的子序列（例如某條路徑用 _replace 重建了 ChatLine，
-        # 物件識別斷了）：沒對上的行會被靜默丟掉，正是「玩家訊息被吞」那一類，留 log 才查得出來
-        log(f"[reader] player index mapping incomplete: {len(emitted)} emitted, "
-            f"{len(out)} mapped (subsequence invariant broken)")
-    return out
-
-
-# --- 遊戲程序辨識與安裝路徑偵測（wizwalker 需要安裝路徑讀 Data/GameData 的 WAD） ---
-def is_game_process_path(path: str | None) -> bool:
-    """exe 路徑是否為遊戲主程式（依檔名比對，不分大小寫）。"""
-    return bool(path) and path.lower().endswith(PROCESS_NAME.lower())
-
-
-def process_exe_path(pid: int) -> str | None:
-    """取 pid 的主模組路徑；開不了程序（權限、已結束）回 None。"""
-    try:
-        import win32api
-        import win32process
-        h = win32api.OpenProcess(0x0410, False, pid)  # QUERY_INFORMATION | VM_READ
-        try:
-            return win32process.GetModuleFileNameEx(h, 0)
-        finally:
-            win32api.CloseHandle(h)
-    except Exception:
-        return None
-
-
-def detect_install_path() -> str | None:
-    """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
-    找不到回傳 None。用 pywin32 列舉程序，不掃描記憶體。"""
-    try:
-        import win32process
-    except ImportError:
-        return None
-    for pid in win32process.EnumProcesses():
-        path = process_exe_path(pid)
-        if is_game_process_path(path):
-            return os.path.dirname(os.path.dirname(path))
-    return None
-
-
-def _pid_alive(pid: int) -> bool:
-    """PID 是否仍在執行（供清掉殘留狀態檔）；判斷不了就當活著，不誤刪。"""
-    try:
-        import win32process
-        return pid in win32process.EnumProcesses()
-    except Exception:
-        return True
-
-
 class WizChatReader:
     """透過 wizwalker 讀 `chatLog` 全文，回傳每輪新增的聊天行。
 
@@ -434,8 +106,8 @@ class WizChatReader:
         self._game_path = game_path
         # 玩家軌與系統軌各一份差分狀態、完全分離：共用同一個看過集合會讓掉寶刷屏把
         # 玩家說過的話擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
-        self._player = _Track()
-        self._system = _Track()
+        self._player = Track()
+        self._system = Track()
         self.emit_system = False   # 是否輸出系統訊息（對應 config 的 translate_system_messages）
         self._input_recent = 0     # 輸入框開啟後的剩餘關聯輪數（見 INPUT_RELEASE_POLLS）
         self._input_was_open = False
@@ -544,7 +216,7 @@ class WizChatReader:
             node_added = True
         prev_texts = self._player.prev
         prev_len = len(prev_texts)
-        path, appended = _align(prev_texts, cur_texts, node_added or baseline_stale)
+        path, appended = align(prev_texts, cur_texts, node_added or baseline_stale)
         if path == "recover":
             log(f"[reader] baseline misaligned, recovered via tail anchor "
                 f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
@@ -670,7 +342,7 @@ class WizChatReader:
         if track.warmup_left > 0:
             track.warmup_left -= 1
         prev_len = len(track.prev)
-        path, appended = _align(track.prev, cur_texts, node_added)
+        path, appended = align(track.prev, cur_texts, node_added)
         if appended is None:
             if track.prev and track.warmup_left > 0:
                 log(f"[reader] system track absorbed during warmup "
@@ -801,7 +473,7 @@ class WizChatReader:
             raise GameNotRunning(f"game process not found: {PROCESS_NAME}")
         self._client = clients[0]
         self._pid = self._client.process_id
-        hook_state.sweep(_pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
+        hook_state.sweep(pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
         try:
             # 只啟讀聊天所需的 root_window hook（不啟 player/duel/quest 等）：注入最小化、

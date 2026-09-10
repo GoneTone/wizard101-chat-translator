@@ -7,12 +7,8 @@ import time
 import src.reader.loop as loop_module
 from src.i18n import t
 from src.reader.loop import banner_for, reader_loop
-from src.reader.mem_reader import (
-    ChatLine,
-    GameAccessDenied,
-    GameNotRunning,
-    GameVersionMismatch,
-)
+from src.reader.markup import ChatLine
+from src.reader.mem_reader import GameAccessDenied, GameNotRunning, GameVersionMismatch
 from src.translation.context import ChatContext
 
 

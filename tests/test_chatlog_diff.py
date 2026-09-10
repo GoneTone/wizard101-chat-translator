@@ -2,17 +2,9 @@
 收訊流程（暖機、視圖切換、輸入框關聯放行、暴增批次、鏡射節點），不需遊戲。"""
 import io
 
-from src.reader.mem_reader import (
-    RESET_WARMUP_POLLS,
-    ChatLine,
-    GameNotRunning,
-    WizChatReader,
-    align_append,
-    align_recover,
-    filter_resurfaced,
-    lines_from_chatlog,
-    lines_from_nodes,
-)
+from src.reader.diff import RESET_WARMUP_POLLS, align_append, align_recover, filter_resurfaced
+from src.reader.markup import ChatLine, lines_from_chatlog, lines_from_nodes
+from src.reader.mem_reader import GameNotRunning, WizChatReader
 from src.reader.message_log import MessageLog
 from tests.chatlog_helpers import (
     FakeWiz,

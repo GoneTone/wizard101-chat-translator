@@ -30,8 +30,8 @@ from src.i18n import current_language, detect_system_language, language_name, se
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
-from src.reader.mem_reader import is_game_process_path
 from src.reader.message_log import MessageLog
+from src.reader.process import is_game_process_path
 from src.resources import icon_path
 from src.translation.cache import (
     TranslationCache,

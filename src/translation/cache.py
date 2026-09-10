@@ -16,7 +16,8 @@ from pathlib import Path
 
 from src.config import local_state_dir
 from src.log import log
-from src.translation.translator import PROMPT_REVISION, has_stray_latin
+from src.translation.postprocess import has_stray_latin
+from src.translation.prompts import PROMPT_REVISION
 
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 _PLACEHOLDER = re.compile(r"\{(\d+)\}")
@@ -200,7 +201,7 @@ class TranslationCache:
 def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     """翻一則系統訊息並存進快取。送翻與存入的都是正規化後的樣板；佔位符被模型弄壞或
     翻譯期間指紋被換掉（見 put）時不快取，改用原文直翻一次 —— 那一次走的已是新設定。
-    落回英文的譯文（見 translator.has_stray_latin）一律不落盤：翻譯器已重譯過一次，
+    落回英文的譯文（見 postprocess.has_stray_latin）一律不落盤：翻譯器已重譯過一次，
     救不回的照樣顯示，但存進快取等於把錯誤固化、每次命中都吐同一個英文名。
 
     `translator` 只要求有 `translate_system_message(text) -> str` 與 `target_language`，

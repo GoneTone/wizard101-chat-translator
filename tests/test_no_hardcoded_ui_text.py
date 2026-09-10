@@ -1,6 +1,6 @@
 """防迴歸：UI 模組內不得再出現中日韓文字的字串字面量。
 
-忘了走 i18n 就會直接失敗。刻意不掃 translator.py（LLM 提示詞）與 mem_reader.py（英文 log）。
+忘了走 i18n 就會直接失敗。刻意不掃 translation/prompts.py（LLM 提示詞）與 mem_reader.py（英文 log）。
 """
 import ast
 from pathlib import Path
@@ -18,6 +18,7 @@ SCAN_TARGETS = [
     "src/ui/fonts.py",
     "src/ui/responsive.py",
     "src/translation/pool.py",
+    "src/translation/translator.py",
 ]
 
 # 例外：語言選單與翻譯目標語言清單一律顯示 endonym，任何介面語言下都不翻譯。

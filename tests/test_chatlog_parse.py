@@ -1,11 +1,7 @@
 """chatLog 標記解析：clean、lines_from_chatlog、頻道圖示、系統訊息、伺服器公告、顏色。"""
 
-from src.reader.mem_reader import (
-    clean,
-    lines_from_chatlog,
-    lines_from_nodes,
-    player_out_with_idx,
-)
+from src.reader.diff import player_out_with_idx
+from src.reader.markup import clean, lines_from_chatlog, lines_from_nodes
 from tests.chatlog_helpers import (
     _broadcast,
     _log,

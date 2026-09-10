@@ -9,7 +9,7 @@ import win32gui
 import win32process
 
 from src.log import log
-from src.reader.mem_reader import process_exe_path
+from src.reader.process import process_exe_path
 
 FOCUS_DELAY = 0.15  # 切回遊戲視窗後、開始打字前的緩衝（秒）
 

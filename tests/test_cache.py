@@ -12,7 +12,7 @@ from src.translation.cache import (
     restore,
     translate_and_cache,
 )
-from src.translation.translator import PROMPT_REVISION
+from src.translation.prompts import PROMPT_REVISION
 
 
 def test_normalize_replaces_numbers_with_placeholders():
