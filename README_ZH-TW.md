@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/banner.png" alt="Wizard101 對話翻譯助手 (Wizard101 Chat Translator)" width="1000">
+</p>
+
 # Wizard101 對話翻譯助手 (Wizard101 Chat Translator)
 
 [English](README.md) | 繁體中文 | [简体中文](README_ZH-CN.md)
