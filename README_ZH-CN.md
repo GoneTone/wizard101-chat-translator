@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.png" alt="Wizard101 对话翻译助手 (Wizard101 Chat Translator)" width="1000">
+  <img src="docs/images/banner/banner.png" alt="Wizard101 对话翻译助手 (Wizard101 Chat Translator)" width="1000">
 </p>
 
 # Wizard101 对话翻译助手 (Wizard101 Chat Translator)
