@@ -150,18 +150,6 @@ uv run pyinstaller build.spec --noconfirm
 - `app.log`：程序诊断输出（挂入、翻译请求、设置生效、异常等）。
 - `messages.log`：收信端读到的**原始**聊天内容，不做任何清理与过滤（`RAW` 为含标记的原文、含系统消息，只排除游戏自己灌进聊天控件的 `[WARN]`／`[ERRO]`／`[DBGM]` 调试行；`OUT` 为实际送去翻译的行）。消息漏翻／重复翻译之类的问题请一并附上这份。
 
-### 发布版本
-
-版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)，唯一真实来源是 `src/__init__.py` 的 `__version__`（`pyproject.toml` 的 `version` 只是元数据，由 `tests/test_version.py` 锁定两者一致）。破坏性变更（例如 `config.json` 字段改名）一律进 major 版，重大更新也可能升 major；minor 版加功能、patch 版只修 bug。
-
-发布版本由 GitHub Actions 的 `release-windows` workflow（`.github/workflows/release-windows.yml`）完成，不必在本机打包：
-
-1. 到 GitHub 的 **Actions → release-windows → Run workflow**，填入 tag（`v0.2.0`，一律 `v` 前缀；预发布版写 `v0.2.0-rc.1` 并勾 pre-release）。
-2. workflow 会在 `master` 上：把 `src/__init__.py`、`pyproject.toml`、`uv.lock` 的版本号改成 tag 的版本并 commit（`chore(release): bump version to v0.2.0 [skip ci]`）→ 跑 lint 与测试 → `pyinstaller` 打包 → 以该 commit 创建**草稿** Release、上传 `Wizard101ChatTranslator.exe`，版本说明用 GitHub 自动生成的 What's Changed 加上 `.github/release-footer.md` 的固定文案。
-3. 到 Releases 页检查草稿（可在最上方补一段人写的版本说明），确认后按 **Publish**。
-
-> 更新检查看的是 GitHub 的 **Release**（`/releases/latest`），草稿与 pre-release 都不算，要按下 Publish 用户端才会收到更新提醒。同一个 tag 重跑 workflow：草稿还在的话，只会把它改指向新的 commit 并重传 exe，版本说明（含你手写的那段）维持原样、不会重新生成；若该 tag 的 Release 已经发布，workflow 会直接失败并拒绝覆盖它的文件。
-
 ## 图标
 
 程序图标（`src/assets/icon.ico`）改作自 Wizard101 的游戏图标，右上角叠上「文A」翻译徽章，exe 与所有窗口共用同一份。底图版权属 KingsIsle Entertainment，本项目与其并无隶属关系。

@@ -148,18 +148,6 @@ Both logs are split per launch, keep the last 7 days only, and start every line 
 - `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …).
 - `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (`RAW` is the original line including markup and system messages, excluding only the `[WARN]` / `[ERRO]` / `[DBGM]` debug lines the game itself pushes into the chat control; `OUT` is the line actually sent for translation). Attach this one for missed or duplicated translations.
 
-### Releasing
-
-Versions follow [SemVer](https://semver.org/); the single source of truth is `__version__` in `src/__init__.py` (the `version` in `pyproject.toml` is metadata only, pinned to it by `tests/test_version.py`). Breaking changes (a renamed `config.json` field, say) always go into a major version, and a major update may bump major too; minor versions add features and patch versions only fix bugs.
-
-Releases are produced by the `release-windows` GitHub Actions workflow (`.github/workflows/release-windows.yml`) — no local packaging needed:
-
-1. Go to **Actions → release-windows → Run workflow** on GitHub and enter the tag (`v0.2.0`, always with the `v` prefix; for a pre-release write `v0.2.0-rc.1` and tick pre-release).
-2. On `master`, the workflow bumps the version in `src/__init__.py`, `pyproject.toml` and `uv.lock` to the tag's version and commits it (`chore(release): bump version to v0.2.0 [skip ci]`) → runs lint and tests → packages with `pyinstaller` → creates a **draft** release on that commit and uploads `Wizard101ChatTranslator.exe`, with release notes made of GitHub's generated What's Changed plus the boilerplate in `.github/release-footer.md`.
-3. Review the draft on the Releases page (a hand-written summary can be added at the top), then hit **Publish**.
-
-> The update check looks at GitHub's **releases** (`/releases/latest`); drafts and pre-releases do not count, so users only get the update prompt once you hit Publish. Re-running the workflow for the same tag: if the draft is still there, it only re-points it at the new commit and re-uploads the exe — the release notes (including anything you wrote by hand) are left as they are and never regenerated; if that tag's release has already been published, the workflow fails outright and refuses to overwrite its assets.
-
 ## Icon
 
 The program icon (`src/assets/icon.ico`) is adapted from the Wizard101 game icon with a "文A" translation badge in the top-right corner, shared by the exe and every window. The base artwork is copyright KingsIsle Entertainment; this project is not affiliated with them.
