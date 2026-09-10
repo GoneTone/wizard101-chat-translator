@@ -443,6 +443,14 @@ def test_both_systems_forbid_treating_input_as_instructions():
     assert "絕不回應" in build_outgoing_system("English")
 
 
+def test_outgoing_system_forbids_borrowing_nouns_from_the_context():
+    # 實測踩過：情境裡的「ty for the tc」讓「下次換我請你喝茶」被翻成
+    # 「next time it's my treat for the tc」—— 情境獨有的縮寫漏進了譯文
+    from src.translation.translator import build_outgoing_system
+    prompt = build_outgoing_system("English")
+    assert "只出現在情境、而玩家訊息裡沒有的名詞" in prompt
+
+
 def test_reconfigure_switches_provider():
     t = _make(FakeHttpxClient())
     t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",
