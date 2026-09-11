@@ -388,9 +388,10 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
             input_box.show()
 
     def on_game_input_close() -> None:
+        """遊戲聊天輸入框關了：被動收起翻譯輸入框，打到一半的文字留到下次呼出。"""
         input_box.clear_anchor()
         if cfg["auto_show_input"]:
-            input_box.close()
+            input_box.hide()
 
     stop = threading.Event()
     reader_thread = threading.Thread(

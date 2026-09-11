@@ -47,7 +47,8 @@ class InputBox:
     `set_anchor(rect)`／`clear_anchor()` 跟著遊戲輸入框的開關走：有錨點就貼在它正下方、
     與它同寬，沒有就貼在游標處。Enter 把文字交給 `translate_fn`，譯文經
     `on_translated(text, hwnd)` 送進遊戲。每次開關 `_session` +1，背景執行緒的結果
-    對不上號就丟掉。"""
+    對不上號就丟掉。`close()` 是使用者主動關（Esc／X／空白 Enter）或已送出，
+    未送出的文字一併丟掉；`hide()` 是遊戲關了聊天框被動收起，文字留到下次 `show()`。"""
 
     def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
         self._root = root
@@ -62,6 +63,7 @@ class InputBox:
         self._status: RichLabel | None = None
         self._target_hwnd: int | None = None
         self._session = 0
+        self._draft = ""  # hide() 收起時尚未送出的文字，下次 show() 還原
 
     @property
     def is_open(self) -> bool:
@@ -105,6 +107,11 @@ class InputBox:
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=ui_font(12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
+        if self._draft:
+            log(f"[input] draft restored (chars={len(self._draft)})")
+            self._entry.insert(0, self._draft)
+            self._entry.icursor("end")
+            self._draft = ""
         # RichLabel：翻譯失敗訊息裡的網址要能點；它自己依寬度換行，
         # 行數變了才重算視窗高度（值沒變不動，避免回圈）
         self._status = RichLabel(self._win, fg=HINT_FG, bg=BG, font=ui_font(9),
@@ -145,16 +152,30 @@ class InputBox:
             pass  # 奪取前景失敗：仍有 topmost + focus_force，退回讓使用者點一下輸入框
         self._entry.focus_force()
 
-    def close(self) -> None:
-        """關閉輸入框並把前景還給呼出時的視窗。位置與寬度都不記：下次呼出重新貼齊遊戲輸入框。"""
+    def hide(self) -> None:
+        """遊戲關了聊天框、被動收起：把尚未送出的文字留到下次 `show()`（翻譯中也算
+        未送出，該次結果會因 session 對不上被丟掉，使用者重按 Enter 再翻）。"""
         if self._win is not None:
-            self._win.destroy()
-            self._win = None
-            self._entry = None
-            self._status = None
-            self._session += 1
-            # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
-            force_foreground(self._target_hwnd)
+            self._draft = self._entry.get()
+            if self._draft:
+                log(f"[input] box hidden, draft kept (chars={len(self._draft)})")
+            self._destroy()
+
+    def close(self) -> None:
+        """使用者主動關閉或已送出：丟掉未送出的文字，把前景還給呼出時的視窗。
+        位置與寬度都不記：下次呼出重新貼齊遊戲輸入框。"""
+        self._draft = ""
+        if self._win is not None:
+            self._destroy()
+
+    def _destroy(self) -> None:
+        self._win.destroy()
+        self._win = None
+        self._entry = None
+        self._status = None
+        self._session += 1
+        # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
+        force_foreground(self._target_hwnd)
 
     def _on_enter(self, _event) -> None:
         # 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證

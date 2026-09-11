@@ -1,4 +1,5 @@
 import queue
+import threading
 import tkinter as tk
 
 import pytest
@@ -466,3 +467,67 @@ def test_outgoing_translation_failure_is_logged(root, monkeypatch):
     box._worker("hello", None, box._session)
     assert any("outgoing translation failed" in line and "upstream down" in line
                for line in logged)
+
+
+def test_hide_keeps_the_unsent_draft_for_the_next_show(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._entry.insert(0, "half typed")
+    box.hide()                      # 遊戲關了聊天框：被動收起
+    assert box._win is None
+    box.show()
+    try:
+        assert box._entry.get() == "half typed"
+        assert box._entry.index("insert") == len("half typed")
+    finally:
+        box.close()
+
+
+def test_manual_close_discards_the_draft(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._entry.insert(0, "half typed")
+    box.close()                     # Esc／X／空白 Enter
+    box.show()
+    try:
+        assert box._entry.get() == ""
+    finally:
+        box.close()
+
+
+def test_sent_text_is_not_restored(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._entry.insert(0, "hello")
+    box._finish("hello", None, box._session)
+    box.show()
+    try:
+        assert box._entry.get() == ""
+    finally:
+        box.close()
+
+
+def test_hide_while_translating_restores_an_editable_draft(root):
+    from src.i18n import t
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_translate(text):
+        started.set()
+        release.wait(5)
+        return text
+
+    box = InputBox(root, slow_translate, queue.Queue(), lambda *a: None)
+    box.show()
+    box._entry.insert(0, "still typing")
+    box._on_enter(None)
+    assert started.wait(5)
+    box.hide()
+    release.set()
+    box.show()
+    try:
+        assert box._entry.get() == "still typing"
+        assert str(box._entry.cget("state")) == "normal"
+        assert box._status.text() == t("input.hint")
+    finally:
+        box.close()
