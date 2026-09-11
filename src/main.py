@@ -380,12 +380,24 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
                               on_language_preview=relabel_ui,
                               cache=cache)
 
+    def on_game_input_open(anchor) -> None:
+        """遊戲聊天輸入框開了：記下錨點（熱鍵呼出也要貼齊），依設定決定是否自動呼出。"""
+        if anchor is not None:
+            input_box.set_anchor(anchor)
+        if cfg["auto_show_input"]:
+            input_box.show()
+
+    def on_game_input_close() -> None:
+        input_box.clear_anchor()
+        if cfg["auto_show_input"]:
+            input_box.close()
+
     stop = threading.Event()
     reader_thread = threading.Thread(
         target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
         kwargs={"on_input_open": lambda anchor: ui_queue.put(
-                    lambda: input_box.show(anchor)),
-                "on_input_close": lambda: ui_queue.put(input_box.close),
+                    lambda: on_game_input_open(anchor)),
+                "on_input_close": lambda: ui_queue.put(on_game_input_close),
                 "message_log": message_log,
                 "system_pool": system_pool,
                 "cache": cache},

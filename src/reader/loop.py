@@ -62,7 +62,8 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                 system_pool: TranslationPool | None = None,
                 cache: TranslationCache | None = None) -> None:
     """收訊執行緒的進入點；stop 被設定後解除 wizwalker hook 再返回。
-    on_input_open(anchor)／on_input_close＝遊戲聊天輸入框開關的邊緣觸發（auto_show_input）；
+    on_input_open(anchor)／on_input_close＝遊戲聊天輸入框開關的邊緣觸發，不受 auto_show_input
+    影響（要不要自動呼出由呼叫端決定，錨點則熱鍵呼出也用得到）；
     anchor＝遊戲輸入框的螢幕矩形 (x, y, w, h)，讀不到為 None。"""
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
     reader.emit_system = cfg.get("translate_system_messages", False)
@@ -80,9 +81,9 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
         ui_queue.put(lambda s=state: overlay.set_status(s))
 
     def check_input() -> None:
-        """遊戲聊天輸入框開／關的邊緣觸發：開 → 呼出翻譯輸入；關 → 收回。"""
+        """遊戲聊天輸入框開／關的邊緣觸發：開 → 回報錨點；關 → 回報關閉。"""
         nonlocal game_input_open
-        if on_input_open is None or not cfg.get("auto_show_input", True):
+        if on_input_open is None:
             return
         now_open = reader.input_open()
         if now_open == game_input_open:

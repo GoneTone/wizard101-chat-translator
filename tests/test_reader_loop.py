@@ -395,11 +395,12 @@ def test_game_input_edge_triggers_open_and_close(monkeypatch):
     assert events == [("open", (749, 893, 732, 44)), "close"]
 
 
-def test_game_input_detection_disabled_by_config(monkeypatch):
+def test_game_input_edges_are_reported_even_when_auto_show_is_off(monkeypatch):
+    # 要不要自動呼出由 main 決定；錨點一律回報，熱鍵呼出才知道遊戲輸入框在哪
     cfg = {"poll_interval": 0.01, "auto_show_input": False}
     events = _run_with_input(cfg, [[], [], []],
                              [False, True, False], monkeypatch)
-    assert events == []
+    assert events == [("open", (749, 893, 732, 44)), "close"]
 
 
 def test_game_not_running_shows_banner_once(monkeypatch):

@@ -1,5 +1,5 @@
 """翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
-遊戲開聊天輸入框時自動呼出並貼在它正下方（熱鍵呼出則沿用上次的位置）。
+遊戲聊天輸入框開著就貼在它正下方、同寬；沒開（熱鍵呼出）就貼在游標處。
 翻譯跑背景執行緒，結果經 ui_queue 回主執行緒。"""
 import queue
 import threading
@@ -26,8 +26,12 @@ GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
 DEFAULT_WIDTH = 460  # 沒有錨點時的寬度；有錨點就跟遊戲輸入框同寬
 MIN_WIDTH = 320  # 遊戲輸入框再窄也不跟：提示文字會擠成一長條，且輸入欄放不下一句話
 _INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit_height 貼合
-ANCHOR_GAP = 4  # 與遊戲輸入框的垂直間距（px）
-FALLBACK_X, FALLBACK_Y = 200, 200  # 沒有任何錨點（遊戲沒連上就按熱鍵）時的位置
+ANCHOR_GAP = 4  # 與遊戲輸入框／游標的垂直間距（px）
+
+
+def cursor_position() -> tuple[int, int]:
+    """游標的螢幕座標。"""
+    return win32gui.GetCursorPos()
 
 
 def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
@@ -39,17 +43,18 @@ def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
 
 
 class InputBox:
-    """翻譯輸入框視窗：`show(anchor)` 呼出（記住當下的前景視窗，鍵入時要切回去），
-    anchor＝遊戲輸入框的螢幕矩形，視窗貼在它正下方、與它同寬；沒給就沿用上一次的錨點。
-    Enter 把文字交給 `translate_fn`，譯文經 `on_translated(text, hwnd)` 送進遊戲。
-    每次開關 `_session` +1，背景執行緒的結果對不上號就丟掉。"""
+    """翻譯輸入框視窗：`show()` 呼出（記住當下的前景視窗，鍵入時要切回去）。
+    `set_anchor(rect)`／`clear_anchor()` 跟著遊戲輸入框的開關走：有錨點就貼在它正下方、
+    與它同寬，沒有就貼在游標處。Enter 把文字交給 `translate_fn`，譯文經
+    `on_translated(text, hwnd)` 送進遊戲。每次開關 `_session` +1，背景執行緒的結果
+    對不上號就丟掉。"""
 
     def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
         self._root = root
         self._translate = translate_fn
         self._queue = ui_queue
         self._on_translated = on_translated
-        self._anchor: tuple[int, int, int, int] | None = None
+        self._anchor: tuple[int, int, int, int] | None = None  # 遊戲輸入框的螢幕矩形
         self._width = DEFAULT_WIDTH  # 本次開窗的 client 寬度（見 show）
         self._above_anchor = False   # 本次是否放在錨點上方（高度變化要往上長）
         self._win: tk.Toplevel | None = None
@@ -62,14 +67,20 @@ class InputBox:
     def is_open(self) -> bool:
         return self._win is not None
 
-    def show(self, anchor: tuple[int, int, int, int] | None = None) -> None:
-        """呼出輸入框並貼在 anchor（遊戲輸入框的螢幕矩形）正下方、與它同寬；
+    def set_anchor(self, rect: tuple[int, int, int, int]) -> None:
+        """遊戲輸入框開了：記下它的螢幕矩形 (x, y, w, h)，下次 show() 貼齊它。"""
+        self._anchor = rect
+
+    def clear_anchor(self) -> None:
+        """遊戲輸入框關了：之後 show() 改貼游標。"""
+        self._anchor = None
+
+    def show(self) -> None:
+        """呼出輸入框：貼在遊戲輸入框正下方、與它同寬，沒有錨點就貼在游標處；
         已開著就只是重新對焦。"""
         if self._win is not None:
             self._force_focus()
             return
-        if anchor is not None:
-            self._anchor = anchor
         self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
         log(f"[input] box opened (target_hwnd={self._target_hwnd:#x}, "
@@ -109,14 +120,15 @@ class InputBox:
         self._force_focus()
 
     def _position(self, width: int, height: int) -> tuple[int, int]:
-        """可見外框（width×height）的左上角：貼在錨點下方（放不下翻到上方、夾在遊戲所在
-        螢幕的工作區內）；沒有錨點（遊戲沒連上就按熱鍵）退回固定位置。"""
-        self._above_anchor = False
-        if self._anchor is None:
-            return FALLBACK_X, FALLBACK_Y
-        area = work_area_at(self._anchor[0], self._anchor[1])
-        x, y = anchored_position(self._anchor, width, height, area, gap=ANCHOR_GAP)
-        self._above_anchor = y < self._anchor[1]
+        """可見外框（width×height）的左上角：貼在錨點下方，沒有錨點就把游標當成 0×0 的
+        錨點貼在它右下方；放不下翻到上方、夾在錨點所在螢幕的工作區內。"""
+        anchor = self._anchor
+        if anchor is None:
+            cx, cy = cursor_position()
+            anchor = (cx, cy, 0, 0)
+        area = work_area_at(anchor[0], anchor[1])
+        x, y = anchored_position(anchor, width, height, area, gap=ANCHOR_GAP)
+        self._above_anchor = y < anchor[1]
         return x, y
 
     def _force_focus(self) -> None:

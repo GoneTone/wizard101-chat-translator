@@ -229,7 +229,8 @@ def test_show_places_the_box_below_the_anchor(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
-    box.show(anchor=(300, 400, 500, 40))
+    box.set_anchor((300, 400, 500, 40))
+    box.show()
     box._win.update_idletasks()
     # 看得見的外框要與錨點同寬、左緣對齊：client 寬扣掉可見邊框，x 往左補隱形邊框
     assert box._win.geometry().startswith("498x")
@@ -243,36 +244,58 @@ def test_show_flips_above_using_the_visible_frame_height(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
-    box.show(anchor=(300, 1000, 500, 40))
+    box.set_anchor((300, 1000, 500, 40))
+    box.show()
     box._win.update_idletasks()
     visible_h = box._win.winfo_reqheight() + 32
     assert box._win.geometry().endswith(f"+293+{1000 - input_box_module.ANCHOR_GAP - visible_h}")
     box.close()
 
 
+_CURSOR = (640, 500)
+
+
 @pytest.mark.real_position
-def test_show_without_anchor_reuses_the_last_anchor(root, monkeypatch):
-    # 熱鍵呼出沒有錨點：沿用本次執行期最後一次遊戲輸入框的位置
+def test_show_without_anchor_sits_at_the_cursor(root, monkeypatch):
+    # 遊戲聊天框沒開、按熱鍵：左上角貼在游標右下方，寬度用預設
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
-    box.show(anchor=(300, 400, 500, 40))
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.geometry().startswith("460x")
+    assert box._win.geometry().endswith(f"+{640 - 7}+{500 + input_box_module.ANCHOR_GAP}")
+    box.close()
+
+
+@pytest.mark.real_position
+def test_clear_anchor_makes_show_use_the_cursor(root, monkeypatch):
+    # 遊戲聊天框關掉後錨點就失效，不能沿用舊位置
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.set_anchor((300, 400, 500, 40))
+    box.clear_anchor()
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.geometry().endswith(f"+{640 - 7}+{500 + input_box_module.ANCHOR_GAP}")
+    box.close()
+
+
+@pytest.mark.real_position
+def test_anchor_set_while_open_applies_on_the_next_show(root, monkeypatch):
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.show()
+    box.set_anchor((300, 400, 500, 40))
     box.close()
     box.show()
     box._win.update_idletasks()
     assert box._win.geometry().endswith(f"+293+{400 + 40 + input_box_module.ANCHOR_GAP}")
-    box.close()
-
-
-@pytest.mark.real_position
-def test_show_without_any_anchor_uses_the_fallback_position(root, monkeypatch):
-    # 固定位置同樣以可見邊界為準：x 往左補隱形邊框
-    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
-    box.show()
-    box._win.update_idletasks()
-    assert box._win.geometry().endswith(
-        f"+{input_box_module.FALLBACK_X - 7}+{input_box_module.FALLBACK_Y}")
     box.close()
 
 
@@ -281,7 +304,8 @@ def test_show_uses_the_anchor_width(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
-    box.show(anchor=(300, 400, 732, 44))
+    box.set_anchor((300, 400, 732, 44))
+    box.show()
     box._win.update_idletasks()
     assert box._win.winfo_width() == 730
     box.close()
@@ -298,7 +322,8 @@ def test_shown_box_visible_frame_matches_the_anchor(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: (9000, 9000, 4000, 3000))
     monkeypatch.setattr(input_box_module, "force_foreground", lambda hwnd: None)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
-    box.show(anchor=(10000, 10000, 732, 44))
+    box.set_anchor((10000, 10000, 732, 44))
+    box.show()
     box._win.update_idletasks()
     frame = wintypes.RECT()
     ctypes.windll.dwmapi.DwmGetWindowAttribute(root_hwnd(box._win), 9, ctypes.byref(frame),
@@ -314,7 +339,8 @@ def test_box_placed_above_the_anchor_grows_upward(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
-    box.show(anchor=(300, 1000, 500, 40))
+    box.set_anchor((300, 1000, 500, 40))
+    box.show()
     box._win.update()
     height = box._win.winfo_height()
     bottom = box._win.winfo_y() + height
@@ -342,14 +368,16 @@ def test_show_clamps_the_anchor_width_to_minimum(root, monkeypatch):
     from src.ui.input_box import MIN_WIDTH
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
-    box.show(anchor=(300, 400, 200, 44))
+    box.set_anchor((300, 400, 200, 44))
+    box.show()
     box._win.update_idletasks()
     assert box._win.winfo_width() == MIN_WIDTH
     box.close()
 
 
-def test_show_without_any_anchor_uses_the_default_width(root):
+def test_show_without_any_anchor_uses_the_default_width(root, monkeypatch):
     from src.ui.input_box import DEFAULT_WIDTH
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
     box.show()
     box._win.update_idletasks()
