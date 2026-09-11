@@ -22,6 +22,7 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 文章：
 
 - 巴哈姆特：<https://forum.gamer.com.tw/C.php?bsn=17541&snA=288&tnum=1>
+- 旋風之音 GoneTone - 網站：<https://blog.reh.tw/archives/4224>
 
 ## ⚠ 重要
 

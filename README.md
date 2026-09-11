@@ -22,6 +22,7 @@ Chat is read straight out of the game's chat window rather than off the screen: 
 Posts:
 
 - 巴哈姆特 (Bahamut): <https://forum.gamer.com.tw/C.php?bsn=17541&snA=288&tnum=1>
+- 旋風之音 GoneTone - Website：<https://blog.reh.tw/archives/4224>
 
 ## ⚠ Important
 
