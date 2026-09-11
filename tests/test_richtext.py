@@ -115,3 +115,24 @@ def test_rich_label_reports_height_changes(root):
         assert changes and changes[-1] > 1
     finally:
         win.destroy()
+
+
+def test_rich_label_set_before_layout_never_balloons(root):
+    # 先 set 再 pack（overlay 橫幅的順序）：第一次量高度時寬度還是佔位的 1px，
+    # 長句被算成一字一行，橫幅先撐滿整個視窗再縮回幾行 —— 訊息列表因此閃一下（實測）
+    win = tk.Toplevel(root)
+    win.geometry("460x300+0+0")
+    win.update()
+    label = RichLabel(win, fg="#cc3333", bg="#ffffff", font=("Segoe UI", 9))
+    requested = []
+    label.bind("<Configure>", lambda e: requested.append(int(label.cget("height"))), add=True)
+    try:
+        label.set("Service temporarily unavailable, please retry later at "
+                  "https://status.example.com/incidents/12345 and check the settings")
+        label.pack(fill="x")
+        win.update()
+        final = int(label.cget("height"))
+        assert 1 < final < 6
+        assert max(requested) == final, requested   # 從未要求過比最終行數更高的高度
+    finally:
+        win.destroy()

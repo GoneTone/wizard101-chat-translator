@@ -138,6 +138,11 @@ class RichLabel(tk.Text):
         self._fit_pending = False
         if not self.winfo_exists():
             return
+        # 還沒被幾何管理器排進版面時寬度是 1px 佔位值，長句會被算成一字一行、把高度
+        # 撐到整個視窗（overlay 橫幅先 set 再 pack 就會這樣，訊息列表因此閃一下）。
+        # 跳過即可：排進版面時的 <Configure> 會再排一次 fit，那時寬度才是真的。
+        if not self.winfo_ismapped():
+            return
         pixels = _scalar(self.count("1.0", "end", "update", "ypixels"))
         lines = max(1, -(-pixels // self._line_height))
         if int(self.cget("height")) != lines:
