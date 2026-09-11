@@ -1,4 +1,4 @@
-"""無邊框視窗拖曳、縮放與命中判定的純幾何函式（overlay 本體與泡泡共用，不碰 Tk）。"""
+"""無邊框視窗拖曳、縮放、命中判定與貼齊擺放的純幾何函式（overlay、泡泡、輸入框共用，不碰 Tk）。"""
 
 EDGE = 6        # 四邊的縮放感應寬度（px）
 _CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
@@ -62,3 +62,17 @@ def resized_edge(edge: str, x: int, y: int, w: int, h: int, dx: int, dy: int,
         y += h - new_h
         h = new_h
     return x, y, w, h
+
+
+def anchored_position(anchor: tuple[int, int, int, int], w: int, h: int,
+                      area: tuple[int, int, int, int], gap: int) -> tuple[int, int]:
+    """把 w×h 的視窗貼在錨點矩形 (x, y, w, h) 正下方、左緣對齊，回傳左上角座標。
+    下方放不下 area（螢幕工作區）就翻到錨點上方；最後把座標夾進 area 內。"""
+    ax, ay, _, ah = anchor
+    area_x, area_y, area_w, area_h = area
+    y = ay + ah + gap
+    if y + h > area_y + area_h:
+        y = ay - h - gap
+    x = max(area_x, min(ax, area_x + area_w - w))
+    y = max(area_y, min(y, area_y + area_h - h))
+    return x, y

@@ -62,7 +62,8 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                 system_pool: TranslationPool | None = None,
                 cache: TranslationCache | None = None) -> None:
     """收訊執行緒的進入點；stop 被設定後解除 wizwalker hook 再返回。
-    on_input_open／on_input_close＝遊戲聊天輸入框開關的邊緣觸發（auto_show_input）。"""
+    on_input_open(anchor)／on_input_close＝遊戲聊天輸入框開關的邊緣觸發（auto_show_input）；
+    anchor＝遊戲輸入框的螢幕矩形 (x, y, w, h)，讀不到為 None。"""
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
     reader.emit_system = cfg.get("translate_system_messages", False)
     msg_ids = itertools.count(1)
@@ -87,11 +88,14 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
         if now_open == game_input_open:
             return
         game_input_open = now_open
-        log(f"[reader] game chat input {'opened' if now_open else 'closed'}")
         if now_open:
-            on_input_open()
-        elif on_input_close is not None:
-            on_input_close()
+            anchor = reader.input_box_screen_rect()
+            log(f"[reader] game chat input opened (anchor={anchor})")
+            on_input_open(anchor)
+        else:
+            log("[reader] game chat input closed")
+            if on_input_close is not None:
+                on_input_close()
 
     def wait_watching_input(seconds: float) -> None:
         """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。

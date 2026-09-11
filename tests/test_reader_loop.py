@@ -370,6 +370,9 @@ class InputFakeReader(FakeReader):
         # read_new 已把 self.n 遞增，本輪狀態用 n-1 對應
         return self.input_states[min(self.n - 1, len(self.input_states) - 1)]
 
+    def input_box_screen_rect(self):
+        return (749, 893, 732, 44)
+
 
 def _run_with_input(cfg, reads, input_states, monkeypatch):
     events = []
@@ -378,7 +381,7 @@ def _run_with_input(cfg, reads, input_states, monkeypatch):
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: InputFakeReader(reads, stop, input_states))
     reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
-                on_input_open=lambda: events.append("open"),
+                on_input_open=lambda anchor: events.append(("open", anchor)),
                 on_input_close=lambda: events.append("close"))
     _drain(ui_queue)
     return events
@@ -389,7 +392,7 @@ def test_game_input_edge_triggers_open_and_close(monkeypatch):
     cfg = {"poll_interval": 0.01, "auto_show_input": True}
     events = _run_with_input(cfg, [[], [], [], [], []],
                              [False, True, True, False, False], monkeypatch)
-    assert events == ["open", "close"]
+    assert events == [("open", (749, 893, 732, 44)), "close"]
 
 
 def test_game_input_detection_disabled_by_config(monkeypatch):
@@ -459,6 +462,9 @@ class DelayedInputReader(FakeReader):
     def input_open(self):
         return time.monotonic() - self.started >= self.opens_after
 
+    def input_box_screen_rect(self):
+        return None
+
 
 def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
     # 聊天欄在兩輪讀取之間被打開：翻譯輸入框不該等到下一輪才彈出
@@ -470,7 +476,7 @@ def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
                         lambda **kw: DelayedInputReader([[], []], stop, 0.1))
     start = time.monotonic()
     reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
-                on_input_open=lambda: opened_at.append(time.monotonic() - start))
+                on_input_open=lambda anchor: opened_at.append(time.monotonic() - start))
     _drain(ui_queue)
     assert opened_at, "沒有偵測到輸入框開啟"
     assert opened_at[0] < 0.25, f"延遲 {opened_at[0]:.3f}s，等到了下一輪讀取"

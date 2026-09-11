@@ -335,15 +335,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     def on_translated(translated: str, hwnd: int | None) -> None:
         type_into_window(hwnd, translated, delay=cfg["type_delay"])
 
-    def save_input_geometry(x: int, y: int, width: int) -> None:
-        cfg["input_position"] = {"x": x, "y": y}
-        cfg["input_width"] = width
-        save_config(CONFIG_PATH, cfg)
-
     input_box = InputBox(root, lambda text: translator.translate_outgoing(
-        text, context.snapshot()), ui_queue, on_translated,
-        position=cfg["input_position"], width=cfg["input_width"],
-        on_geometry_change=save_input_geometry)
+        text, context.snapshot()), ui_queue, on_translated)
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
@@ -390,7 +383,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     stop = threading.Event()
     reader_thread = threading.Thread(
         target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
-        kwargs={"on_input_open": lambda: ui_queue.put(input_box.show),
+        kwargs={"on_input_open": lambda anchor: ui_queue.put(
+                    lambda: input_box.show(anchor)),
                 "on_input_close": lambda: ui_queue.put(input_box.close),
                 "message_log": message_log,
                 "system_pool": system_pool,

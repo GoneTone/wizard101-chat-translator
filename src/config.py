@@ -72,8 +72,6 @@ DEFAULT_CONFIG: dict = {
     "overlay_alpha": 0.80,   # 視窗不透明度（半透明底板與泡泡），小＝更透明
     # x／y 為 null＝尚未拖曳過，首次啟動擺螢幕正中央（見 OverlayWindow）
     "overlay": {"x": None, "y": None, "width": 640, "height": 420},
-    "input_position": {"x": None, "y": None},  # 翻譯輸入框位置（拖曳後記住）
-    "input_width": 460,      # 翻譯輸入框寬度（縮放後記住）；高度依內容自適應，不記
     "bubble_position": {"x": None, "y": None},  # 縮小泡泡位置（拖曳後記住；null＝overlay 右上角）
 }
 

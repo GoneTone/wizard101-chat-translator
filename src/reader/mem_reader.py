@@ -10,6 +10,8 @@ import asyncio
 import time
 from typing import NamedTuple
 
+import win32gui
+
 from src.log import log
 from src.reader import hook_state
 from src.reader.diff import (
@@ -25,6 +27,7 @@ from src.reader.process import (
     detect_install_path,
     pid_alive,
 )
+from src.reader.ui_rect import client_rect
 
 INPUT_CONTAINER = "chatEditContainer"  # 遊戲聊天輸入區容器：開啟輸入時 is_visible 翻 True（實測）
 
@@ -414,16 +417,54 @@ class WizChatReader:
             return False
 
     async def _input_open_async(self) -> bool:
-        if self._edit_node is None:
-            nodes = await self._client.root_window.get_windows_with_name(INPUT_CONTAINER)
-            if not nodes:
-                return False
-            self._edit_node = nodes[0]
+        node = await self._edit_container()
+        if node is None:
+            return False
         try:
-            return await self._edit_node.is_visible()
+            return await node.is_visible()
         except Exception:
             self._edit_node = None  # 控件被遊戲重建：下一輪重找
             return False
+
+    async def _edit_container(self):
+        """快取的 chatEditContainer 節點（找不到回 None）；input_open 與定位共用同一份快取。"""
+        if self._edit_node is None:
+            nodes = await self._client.root_window.get_windows_with_name(INPUT_CONTAINER)
+            if not nodes:
+                return None
+            self._edit_node = nodes[0]
+        return self._edit_node
+
+    def input_box_screen_rect(self) -> tuple[int, int, int, int] | None:
+        """遊戲聊天輸入框在螢幕上的矩形 (x, y, w, h)，供翻譯輸入框貼齊；
+        未連上、節點失效或視窗量不到一律回 None（呼叫端退回預設位置）。"""
+        if not self._connected:
+            return None
+        try:
+            return self._run(self._input_rect_async())
+        except Exception as exc:
+            self._edit_node = None
+            log(f"[reader] game chat input rect unavailable: {type(exc).__name__}: {exc}")
+            return None
+
+    async def _input_rect_async(self) -> tuple[int, int, int, int] | None:
+        node = await self._edit_container()
+        if node is None:
+            return None
+        rect = await node.window_rectangle()
+        # x2／y2 是含端點的邊：遊戲畫出的邊框比 x2−x1 多 1 邏輯 px（實機截圖逐像素比對）
+        size = (rect.x2 - rect.x1 + 1, rect.y2 - rect.y1 + 1)
+        offsets = [(rect.x1, rect.y1)]
+        for parent in await node.get_parents():
+            parent_rect = await parent.window_rectangle()
+            offsets.append((parent_rect.x1, parent_rect.y1))
+        root = await self._client.root_window.window_rectangle()
+        hwnd = self._client.window_handle
+        _, _, client_w, client_h = win32gui.GetClientRect(hwnd)
+        x, y, w, h = client_rect(offsets, size, (root.x2 - root.x1, root.y2 - root.y1),
+                                 (client_w, client_h))
+        origin_x, origin_y = win32gui.ClientToScreen(hwnd, (0, 0))
+        return (origin_x + x, origin_y + y, w, h)
 
     def _read_chatlog_texts(self) -> list[str]:
         """讀所有 `chatLog` 控件的全文（每節點一個字串）；連線中斷則丟 GameNotRunning。"""

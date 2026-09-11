@@ -3,6 +3,8 @@ import tkinter as tk
 
 import pytest
 
+from src.ui import input_box as input_box_module
+from src.ui.geometry import anchored_position
 from src.ui.input_box import InputBox
 
 
@@ -202,79 +204,178 @@ def test_worker_failure_error_callback_runs(root):
     assert "boom" in box._status.text()
 
 
+_AREA = (0, 0, 1920, 1040)  # 工作區（去掉工作列）
+
+
+def test_anchored_position_sits_below_the_anchor():
+    assert anchored_position((749, 893, 732, 44), 460, 84, _AREA, gap=4) == (749, 941)
+
+
+def test_anchored_position_flips_above_when_no_room_below():
+    # 遊戲全螢幕時聊天輸入框貼底：下方放不下就翻到上方
+    assert anchored_position((749, 1000, 732, 44), 460, 84, _AREA, gap=4) == (749, 912)
+
+
+def test_anchored_position_clamps_into_the_work_area():
+    assert anchored_position((1800, -50, 732, 44), 460, 84, _AREA, gap=4) == (1460, 0)
+
+
+# Windows 11、96 DPI 實測：外框左側 7 px 隱形邊框；可見寬＝client 寬 + 2、可見高＝client 高 + 32
+_CHROME = (7, 0, 2, 32)
+
+
 @pytest.mark.real_position
-def test_input_box_restores_saved_position(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
-                   position={"x": 321, "y": 210})
-    box.show()
+def test_show_places_the_box_below_the_anchor(root, monkeypatch):
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.show(anchor=(300, 400, 500, 40))
     box._win.update_idletasks()
-    # 高度由 _fit_height 依內容決定，這裡只釘寬度與位置
-    assert box._win.geometry().startswith("460x")
-    assert box._win.geometry().endswith("+321+210")
+    # 看得見的外框要與錨點同寬、左緣對齊：client 寬扣掉可見邊框，x 往左補隱形邊框
+    assert box._win.geometry().startswith("498x")
+    assert box._win.geometry().endswith(f"+293+{400 + 40 + input_box_module.ANCHOR_GAP}")
     box.close()
 
 
-def test_input_box_saves_position_on_close(root):
-    saved = []
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None,
-                   position={"x": 150, "y": 160},
-                   on_geometry_change=lambda x, y, w: saved.append((x, y, w)))
-    box.show()
+@pytest.mark.real_position
+def test_show_flips_above_using_the_visible_frame_height(root, monkeypatch):
+    # 翻到上方時要用含標題列的可見高度，否則標題列會蓋到遊戲輸入框
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.show(anchor=(300, 1000, 500, 40))
     box._win.update_idletasks()
-    box.close()
-    assert len(saved) == 1
-    assert all(isinstance(v, int) for v in saved[0])
-
-
-def test_show_restores_remembered_width(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None, width=620)
-    box.show()
-    box._win.update_idletasks()
-    assert box._win.winfo_width() == 620
+    visible_h = box._win.winfo_reqheight() + 32
+    assert box._win.geometry().endswith(f"+293+{1000 - input_box_module.ANCHOR_GAP - visible_h}")
     box.close()
 
 
-def test_show_clamps_remembered_width_to_minimum(root):
+@pytest.mark.real_position
+def test_show_without_anchor_reuses_the_last_anchor(root, monkeypatch):
+    # 熱鍵呼出沒有錨點：沿用本次執行期最後一次遊戲輸入框的位置
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.show(anchor=(300, 400, 500, 40))
+    box.close()
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.geometry().endswith(f"+293+{400 + 40 + input_box_module.ANCHOR_GAP}")
+    box.close()
+
+
+@pytest.mark.real_position
+def test_show_without_any_anchor_uses_the_fallback_position(root, monkeypatch):
+    # 固定位置同樣以可見邊界為準：x 往左補隱形邊框
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box.show()
+    box._win.update_idletasks()
+    assert box._win.geometry().endswith(
+        f"+{input_box_module.FALLBACK_X - 7}+{input_box_module.FALLBACK_Y}")
+    box.close()
+
+
+def test_show_uses_the_anchor_width(root, monkeypatch):
+    # 寬度跟著遊戲輸入框：探測值 1920×1080 下容器寬 732 px；client 寬扣掉可見邊框
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show(anchor=(300, 400, 732, 44))
+    box._win.update_idletasks()
+    assert box._win.winfo_width() == 730
+    box.close()
+
+
+@pytest.mark.real_position
+def test_shown_box_visible_frame_matches_the_anchor(root, monkeypatch):
+    """不假造邊框：用 DWM 讀回實際可見邊界，左緣與寬度都要和錨點一致。
+    （邊框要在 HWND 套上樣式後才量得到，太早量會全是 0 而看似對齊）"""
+    import ctypes
+    from ctypes import wintypes
+
+    from src.ui.winstyle import root_hwnd
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: (9000, 9000, 4000, 3000))
+    monkeypatch.setattr(input_box_module, "force_foreground", lambda hwnd: None)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show(anchor=(10000, 10000, 732, 44))
+    box._win.update_idletasks()
+    frame = wintypes.RECT()
+    ctypes.windll.dwmapi.DwmGetWindowAttribute(root_hwnd(box._win), 9, ctypes.byref(frame),
+                                               ctypes.sizeof(frame))
+    box.close()
+    assert (frame.left, frame.right - frame.left) == (10000, 732)
+    assert frame.top == 10000 + 44 + input_box_module.ANCHOR_GAP
+
+
+@pytest.mark.real_position
+def test_box_placed_above_the_anchor_grows_upward(root, monkeypatch):
+    # 放在錨點上方時，提示／錯誤文字換行長高要往上長、底邊釘住，否則會蓋到遊戲輸入框
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show(anchor=(300, 1000, 500, 40))
+    box._win.update()
+    height = box._win.winfo_height()
+    bottom = box._win.winfo_y() + height
+    box._status.set("很長的錯誤訊息 " * 30)
+    box._win.update()  # RichLabel 排到 idle 才量行數並回呼 _fit_height
+    assert box._win.winfo_height() > height
+    assert box._win.winfo_y() + box._win.winfo_height() == bottom
+    box.close()
+
+
+def test_visible_chrome_measures_the_frame_of_a_hidden_window(root):
+    # 視窗還沒顯示就要量得到，show() 才能在定位前扣掉邊框
+    from src.ui.winstyle import root_hwnd, visible_chrome
+    win = tk.Toplevel(root)
+    win.withdraw()
+    win.geometry("400x100")
+    win.update_idletasks()
+    left, top, extra_w, extra_h = visible_chrome(root_hwnd(win))
+    win.destroy()
+    assert left >= 0 and top >= 0 and extra_w >= 0
+    assert extra_h > extra_w  # 高度多出的是標題列，一定比左右邊框厚
+
+
+def test_show_clamps_the_anchor_width_to_minimum(root, monkeypatch):
     from src.ui.input_box import MIN_WIDTH
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None, width=80)
-    box.show()
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show(anchor=(300, 400, 200, 44))
     box._win.update_idletasks()
     assert box._win.winfo_width() == MIN_WIDTH
     box.close()
 
 
-@pytest.mark.real_position
-def test_close_reports_position_and_width(root):
-    reported = []
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None,
-                   on_geometry_change=lambda x, y, w: reported.append((x, y, w)))
-    box.show()
-    box._win.geometry("700x84+120+140")
-    box._win.update_idletasks()
-    box.close()
-    assert reported == [(120, 140, 700)]
-
-
-def test_fit_height_keeps_user_width(root):
-    # 高度自適應不得把使用者拖出來的寬度打回預設值
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
-    box.show()
-    box._win.geometry("700x84+10+10")
-    box._win.update_idletasks()
-    box._fit_height()
-    box._win.update_idletasks()
-    assert box._win.winfo_width() == 700
-    box.close()
-
-
-def test_fit_height_shrinks_when_hint_needs_fewer_lines(root):
-    # 拉寬 → 提示文字行數變少 → 高度要跟著貼回內容，不能停在開窗時的高度
+def test_show_without_any_anchor_uses_the_default_width(root):
+    from src.ui.input_box import DEFAULT_WIDTH
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
     box.show()
     box._win.update_idletasks()
-    box._win.geometry(f"1000x{box._win.winfo_height()}")
+    assert box._win.winfo_width() == DEFAULT_WIDTH
+    box.close()
+
+
+def test_fit_height_shrinks_when_the_status_needs_fewer_lines(root):
+    # 狀態文字從多行換回一行 → 高度要跟著貼回內容，不能停在較高的那次
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
     box._win.update()
+    box._status.set("很長的訊息 " * 30)
+    box._win.update()
+    taller = box._win.winfo_height()
+    box._status.set("短")
+    box._win.update()
+    assert box._win.winfo_height() < taller
     assert box._win.winfo_height() == box._win.winfo_reqheight()
+    box.close()
+
+
+def test_box_is_not_resizable(root):
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    assert tuple(int(v) for v in box._win.resizable()) == (0, 0)
     box.close()
 
 

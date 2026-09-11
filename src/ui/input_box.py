@@ -1,9 +1,12 @@
-"""熱鍵呼出的翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
+"""翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
+遊戲開聊天輸入框時自動呼出並貼在它正下方（熱鍵呼出則沿用上次的位置）。
 翻譯跑背景執行緒，結果經 ui_queue 回主執行緒。"""
 import queue
 import threading
 import tkinter as tk
 
+import win32api
+import win32con
 import win32gui
 
 from src.composer.paste import force_foreground
@@ -11,34 +14,44 @@ from src.config import app_name
 from src.i18n import t
 from src.log import log
 from src.ui.fonts import ui_font
+from src.ui.geometry import anchored_position
 from src.ui.palette import FG_ERROR, FG_UPDATE
 from src.ui.richtext import RichLabel
-from src.ui.winstyle import root_hwnd
+from src.ui.winstyle import root_hwnd, visible_chrome
 
 BG = "#1a1a24"
 FG = "#f2f2f7"
 HINT_FG = "#9a9aa8"
 GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
-DEFAULT_WIDTH = 460
-MIN_WIDTH = 320  # 再窄會把提示文字擠成一長條，且輸入欄放不下一句話
+DEFAULT_WIDTH = 460  # 沒有錨點時的寬度；有錨點就跟遊戲輸入框同寬
+MIN_WIDTH = 320  # 遊戲輸入框再窄也不跟：提示文字會擠成一長條，且輸入欄放不下一句話
 _INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit_height 貼合
+ANCHOR_GAP = 4  # 與遊戲輸入框的垂直間距（px）
+FALLBACK_X, FALLBACK_Y = 200, 200  # 沒有任何錨點（遊戲沒連上就按熱鍵）時的位置
+
+
+def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
+    """含 (x, y) 那顆螢幕的工作區 (x, y, w, h)（去掉工作列）；多螢幕時貼齊用的邊界要跟著
+    遊戲所在的螢幕走，不能用主螢幕尺寸。"""
+    monitor = win32api.MonitorFromPoint((x, y), win32con.MONITOR_DEFAULTTONEAREST)
+    left, top, right, bottom = win32api.GetMonitorInfo(monitor)["Work"]
+    return left, top, right - left, bottom - top
 
 
 class InputBox:
-    """翻譯輸入框視窗：`show()` 呼出（記住當下的前景視窗，鍵入時要切回去），
+    """翻譯輸入框視窗：`show(anchor)` 呼出（記住當下的前景視窗，鍵入時要切回去），
+    anchor＝遊戲輸入框的螢幕矩形，視窗貼在它正下方、與它同寬；沒給就沿用上一次的錨點。
     Enter 把文字交給 `translate_fn`，譯文經 `on_translated(text, hwnd)` 送進遊戲。
     每次開關 `_session` +1，背景執行緒的結果對不上號就丟掉。"""
 
-    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated,
-                 position: dict | None = None, width: int = DEFAULT_WIDTH,
-                 on_geometry_change=None):
+    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
         self._root = root
         self._translate = translate_fn
         self._queue = ui_queue
         self._on_translated = on_translated
-        self._pos = position or {"x": None, "y": None}
-        self._width = max(MIN_WIDTH, width)
-        self._on_geometry_change = on_geometry_change
+        self._anchor: tuple[int, int, int, int] | None = None
+        self._width = DEFAULT_WIDTH  # 本次開窗的 client 寬度（見 show）
+        self._above_anchor = False   # 本次是否放在錨點上方（高度變化要往上長）
         self._win: tk.Toplevel | None = None
         self._entry: tk.Entry | None = None
         self._status: RichLabel | None = None
@@ -49,30 +62,40 @@ class InputBox:
     def is_open(self) -> bool:
         return self._win is not None
 
-    def show(self) -> None:
-        """呼出輸入框；已開著就只是重新對焦。"""
+    def show(self, anchor: tuple[int, int, int, int] | None = None) -> None:
+        """呼出輸入框並貼在 anchor（遊戲輸入框的螢幕矩形）正下方、與它同寬；
+        已開著就只是重新對焦。"""
         if self._win is not None:
             self._force_focus()
             return
+        if anchor is not None:
+            self._anchor = anchor
         self._session += 1
         self._target_hwnd = win32gui.GetForegroundWindow()
-        log(f"[input] box opened (target_hwnd={self._target_hwnd:#x})")
+        log(f"[input] box opened (target_hwnd={self._target_hwnd:#x}, "
+            f"anchor={self._anchor})")
         self._win = tk.Toplevel(self._root)
+        # 先藏著把內容建好、量出實際高度再定位：下方放不放得下要看真實高度（提示文字
+        # 隨 DPI 與寬度換行），而且不會先閃在占位處再跳到錨點旁
+        self._win.withdraw()
         self._win.title(app_name())
-        # 只放開寬度：高度由 _fit_height 依內容自適應，手動拉高會露出一片空白
-        self._win.resizable(True, False)
-        # 高度不受下限拘束：完全交給 _fit_height 依內容決定（拉寬後行數變少要能縮回去）
-        self._win.minsize(MIN_WIDTH, 1)
+        # 尺寸由錨點與內容決定，不開放手動縮放；標題列仍可拖動（當次有效、不記錄）
+        self._win.resizable(False, False)
         self._win.attributes("-topmost", True)
         self._win.configure(bg=BG)
-        px = self._pos["x"] if self._pos.get("x") is not None else 200
-        py = self._pos["y"] if self._pos.get("y") is not None else 200
-        self._win.geometry(f"{self._width}x{_INITIAL_HEIGHT}+{px}+{py}")
+        self._win.geometry(f"{DEFAULT_WIDTH}x{_INITIAL_HEIGHT}")
+        # 看得見的外框要與遊戲輸入框同寬：client 寬先扣掉可見邊框，定位時再補回隱形邊框。
+        # 要先讓 Tk 把外框樣式套到 HWND 上（update_idletasks）再量，否則量到的邊框全是 0
+        self._win.update_idletasks()
+        left_inset, top_inset, extra_w, extra_h = visible_chrome(root_hwnd(self._win))
+        self._width = (max(MIN_WIDTH, self._anchor[2] - extra_w) if self._anchor is not None
+                       else DEFAULT_WIDTH)
+        self._win.geometry(f"{self._width}x{_INITIAL_HEIGHT}")
         self._entry = tk.Entry(self._win, bg="#262636", fg=FG, insertbackground=FG,
                                font=ui_font(12))
         self._entry.pack(fill="x", padx=8, pady=(10, 4))
         # RichLabel：翻譯失敗訊息裡的網址要能點；它自己依寬度換行，
-        # 拉寬視窗 → 重新換行 → 行數變了才重算視窗高度（值沒變不動，避免回圈）
+        # 行數變了才重算視窗高度（值沒變不動，避免回圈）
         self._status = RichLabel(self._win, fg=HINT_FG, bg=BG, font=ui_font(9),
                                  link_fg=FG_UPDATE, on_height_change=self._fit_height)
         self._status.set(t("input.hint"))
@@ -81,7 +104,20 @@ class InputBox:
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)
         self._fit_height()
+        px, py = self._position(self._width + extra_w, self._win.winfo_reqheight() + extra_h)
+        self._win.geometry(f"+{px - left_inset}+{py - top_inset}")
         self._force_focus()
+
+    def _position(self, width: int, height: int) -> tuple[int, int]:
+        """可見外框（width×height）的左上角：貼在錨點下方（放不下翻到上方、夾在遊戲所在
+        螢幕的工作區內）；沒有錨點（遊戲沒連上就按熱鍵）退回固定位置。"""
+        self._above_anchor = False
+        if self._anchor is None:
+            return FALLBACK_X, FALLBACK_Y
+        area = work_area_at(self._anchor[0], self._anchor[1])
+        x, y = anchored_position(self._anchor, width, height, area, gap=ANCHOR_GAP)
+        self._above_anchor = y < self._anchor[1]
+        return x, y
 
     def _force_focus(self) -> None:
         """把輸入框搶到前景並對焦輸入欄。從全域熱鍵開啟時遊戲仍是前景視窗，
@@ -98,9 +134,8 @@ class InputBox:
         self._entry.focus_force()
 
     def close(self) -> None:
-        """關閉輸入框並把前景還給呼出時的視窗；記住位置與寬度供下次還原。"""
+        """關閉輸入框並把前景還給呼出時的視窗。位置與寬度都不記：下次呼出重新貼齊遊戲輸入框。"""
         if self._win is not None:
-            self._remember_geometry()
             self._win.destroy()
             self._win = None
             self._entry = None
@@ -108,18 +143,6 @@ class InputBox:
             self._session += 1
             # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
             force_foreground(self._target_hwnd)
-
-    def _remember_geometry(self) -> None:
-        """記住位置與寬度供下次開啟還原（關閉前呼叫）；高度不記，依內容自適應。"""
-        try:
-            self._win.update_idletasks()
-            x, y, width = self._win.winfo_x(), self._win.winfo_y(), self._current_width()
-        except Exception:
-            return
-        self._pos = {"x": x, "y": y}
-        self._width = width
-        if self._on_geometry_change is not None:
-            self._on_geometry_change(x, y, self._width)
 
     def _on_enter(self, _event) -> None:
         # 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
@@ -154,20 +177,23 @@ class InputBox:
         self._status.set(message, FG_ERROR)
         self._fit_height()
 
-    def _current_width(self) -> int:
-        """目前視窗寬度；尚未 map 時 winfo_width() 回 1，退回記憶中的寬度。"""
-        width = self._win.winfo_width()
-        return max(MIN_WIDTH, width if width > 1 else self._width)
-
     def _fit_height(self) -> None:
-        """依內容自動調整視窗高度（位置與寬度不動）：提示／錯誤文字換行行數會隨
-        DPI 縮放、視窗寬度與訊息長度變動，固定高度會把文字切在下緣。"""
+        """依內容自動調整視窗高度（寬度不動）：提示／錯誤文字換行行數會隨
+        DPI 縮放、視窗寬度與訊息長度變動，固定高度會把文字切在下緣。寬度一律用開窗時
+        算好的值：尚未顯示時 winfo_width() 對不上 geometry 請求，不能讀回。
+        放在錨點上方時底邊釘住、往上長：顯示後才量得準的換行若往下長會蓋到遊戲輸入框。"""
         if self._win is None:
             return
         self._win.update_idletasks()
         height = self._win.winfo_reqheight()
-        if height != self._win.winfo_height():
-            self._win.geometry(f"{self._current_width()}x{height}")
+        current = self._win.winfo_height()
+        if height == current:
+            return
+        if self._above_anchor and self._win.winfo_viewable():
+            x, y = self._win.winfo_x(), self._win.winfo_y() - (height - current)
+            self._win.geometry(f"{self._width}x{height}+{x}+{y}")
+        else:
+            self._win.geometry(f"{self._width}x{height}")
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
