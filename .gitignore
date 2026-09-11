@@ -5,6 +5,7 @@ __pycache__/
 config.json
 build/
 dist/
-.idea/
+.idea/*
+!.idea/runConfigurations/
 app.log
 messages.log
