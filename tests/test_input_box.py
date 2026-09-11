@@ -400,6 +400,18 @@ def test_fit_height_shrinks_when_the_status_needs_fewer_lines(root):
     box.close()
 
 
+def test_shown_box_fits_the_wrapped_hint(root, monkeypatch):
+    # 熱鍵路徑寬度是預設值、顯示時尺寸沒變：提示換成多行後視窗高度也要跟上，
+    # 不能只露出第一行（實機回報）
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
+    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box.show()
+    box._win.update()
+    assert int(box._status.cget("height")) > 1
+    assert box._win.winfo_height() == box._win.winfo_reqheight()
+    box.close()
+
+
 def test_box_is_not_resizable(root):
     box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
     box.show()

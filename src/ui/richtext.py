@@ -87,6 +87,10 @@ class RichLabel(tk.Text):
         self.tag_bind("link", "<Enter>", lambda e: self.configure(cursor="hand2"))
         self.tag_bind("link", "<Leave>", lambda e: self.configure(cursor=""))
         self.bind("<Configure>", lambda e: self._schedule_fit())
+        # 視窗先 withdraw 建內容再顯示時，<Configure> 在未 mapped 時到達而被 _fit 跳過，
+        # 顯示那一刻尺寸沒變就不會再有 <Configure>：靠 <Map> 補量（實機：熱鍵呼出的
+        # 輸入框提示只露出第一行）
+        self.bind("<Map>", lambda e: self._schedule_fit())
 
     def set(self, text: str, fg: str | None = None) -> None:
         """換掉整段文字（可一併換字色）；空字串＝清空、只留一行高。"""
