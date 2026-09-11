@@ -19,6 +19,10 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 
 聊天内容是直接从游戏的聊天窗口读出来，不是从画面识别：不会看错字、不会乱序，他人与自己的发言、谁说的都涵盖，也不碰任何网络数据包。
 
+帖子：
+
+- 巴哈姆特：<https://forum.gamer.com.tw/C.php?bsn=17541&snA=288&tnum=1>
+
 ## ⚠ 重要
 
 本软件会挂入（注入）游戏进程读取对话内容，此行为未经 KingsIsle 认可，可能被认定违反 [Wizard101 服务条款](https://www.wizard101.com/game/termsofuse)；依该条款，KingsIsle 可基于任何理由（或无需理由）封号，**请自行斟酌**。

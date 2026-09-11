@@ -19,6 +19,10 @@ The language chat is translated into is up to you: write the language name strai
 
 Chat is read straight out of the game's chat window rather than off the screen: nothing is misread, nothing arrives out of order, everyone's lines are covered — yours included, along with who said them — and no network traffic is touched.
 
+Posts:
+
+- 巴哈姆特 (Bahamut): <https://forum.gamer.com.tw/C.php?bsn=17541&snA=288&tnum=1>
+
 ## ⚠ Important
 
 This software injects into the game process to read in-game conversations. KingsIsle does not sanction this, and it may be treated as a breach of the [Wizard101 Terms of Use](https://www.wizard101.com/game/termsofuse); under those terms KingsIsle may suspend an account for any reason, or for no reason. **Use at your own discretion.**
