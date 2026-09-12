@@ -34,9 +34,9 @@ def test_language_change_marks_restart_and_applies_language(root):
         i18n.set_language("zh-TW")
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         wizard = SetupWizard(root, cfg)
-        wizard._on_language_change("en")
-        assert cfg["ui_language"] == "en"
-        assert i18n.current_language() == "en"
+        wizard._on_language_change("en-US")
+        assert cfg["ui_language"] == "en-US"
+        assert i18n.current_language() == "en-US"
         assert wizard.restart is True
     finally:
         i18n.set_language(before)
@@ -55,7 +55,7 @@ def test_language_change_updates_untouched_target_language(root):
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         cfg["target_language"] = "繁體中文（台灣）"   # 使用者還沒動過
         wizard = SetupWizard(root, cfg)
-        wizard._on_language_change("en")
+        wizard._on_language_change("en-US")
         assert cfg["target_language"] == "English"
     finally:
         i18n.set_language(before)
@@ -74,7 +74,7 @@ def test_language_change_keeps_customised_target_language(root):
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         cfg["target_language"] = "日本語"   # 使用者自己選過了
         wizard = SetupWizard(root, cfg)
-        wizard._on_language_change("en")
+        wizard._on_language_change("en-US")
         assert cfg["target_language"] == "日本語"
     finally:
         i18n.set_language(before)
@@ -95,9 +95,9 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     try:
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         assert cfg["ui_language"] is None  # 首次執行
-        language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
+        language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en-US")
         i18n.set_language(language)
-        assert cfg["target_language"] == i18n.language_name("en")
+        assert cfg["target_language"] == i18n.language_name("en-US")
 
         wizard = SetupWizard(root, cfg)
         wizard._on_language_change("zh-CN")
@@ -118,10 +118,10 @@ def test_bootstrap_language_first_run_no_config_file():
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     assert cfg["ui_language"] is None
 
-    language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en")
+    language = bootstrap_language(cfg, config_existed=False, detect=lambda: "en-US")
 
-    assert language == "en"
-    assert cfg["target_language"] == i18n.language_name("en")
+    assert language == "en-US"
+    assert cfg["target_language"] == i18n.language_name("en-US")
 
 
 def test_bootstrap_language_upgrading_user_keeps_target_language():
@@ -131,9 +131,9 @@ def test_bootstrap_language_upgrading_user_keeps_target_language():
 
     cfg = {"ui_language": None, "target_language": "日本語"}
 
-    language = bootstrap_language(cfg, config_existed=True, detect=lambda: "en")
+    language = bootstrap_language(cfg, config_existed=True, detect=lambda: "en-US")
 
-    assert language == "en"
+    assert language == "en-US"
     assert cfg["target_language"] == "日本語"
 
 
@@ -144,7 +144,7 @@ def test_bootstrap_language_returning_user_uses_saved_language():
     cfg = {"ui_language": "zh-CN", "target_language": "日本語"}
     calls = []
 
-    language = bootstrap_language(cfg, config_existed=True, detect=lambda: calls.append(1) or "en")
+    language = bootstrap_language(cfg, config_existed=True, detect=lambda: calls.append(1) or "en-US")
 
     assert language == "zh-CN"
     assert calls == []

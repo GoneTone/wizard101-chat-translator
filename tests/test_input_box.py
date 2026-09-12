@@ -427,7 +427,7 @@ def test_error_message_follows_language(root):
 
     before = i18n.current_language()
     try:
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         ui_queue = queue.Queue()
 
         def failing_translate(text):

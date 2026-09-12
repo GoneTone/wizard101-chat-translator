@@ -1,27 +1,30 @@
 """介面文案資源：依當前介面語言提供字串。
 
 可選語言直接掃語言檔目錄得來，程式碼裡不留語言名冊：新增介面語言只要放一份扁平
-key-value 的 `<語言碼>.json` 並在檔內宣告 `language.*` metadata，不必動程式碼。
+key-value 的 `<locale 代碼>.json` 並在檔內宣告 `language.*` metadata，不必動程式碼。
+檔名採 Crowdin 的 locale 代碼（`en-US`／`zh-TW`／`ja-JP`），與 `crowdin.yml` 的
+`%locale%` 對齊，譯文下載即就位；系統語言要對到哪一份也由這個代碼經 CLDR 資料
+（langcodes）判斷，不必逐語言維護對照表。
 繁體中文（台灣）是來源語言（Crowdin 上傳來源、測試基準）。缺字串先退英文再退來源
 語言：譯文未完成是常態，退到多數人讀得懂的語言較合理；新文案一定先進來源語言，
 英文可能還沒跟上。本模組只負責給字串，不碰 UI、不碰 config 讀寫。
 """
+import ctypes
 import json
-import locale
+
+from langcodes import LanguageTagError, closest_match
 
 from src.log import log
 from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是給譯者翻的文案）：自稱（選單顯示用，也是該語言使用者預設
-# 的翻譯目標）、介面字族、要吃下的 Windows locale（同語言不同字集才需指名，見 map_locale_name）、
-# 這份譯文的譯者掛名。
+# 的翻譯目標）、介面字族、這份譯文的譯者掛名。
 META_NAME = "language.name"
 META_FONT = "language.font"
-META_LOCALES = "language.locales"
 META_TRANSLATORS = "language.translators"
 
 SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
-DEFAULT_LANGUAGE = "en"     # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
+DEFAULT_LANGUAGE = "en-US"  # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
 
 _current = DEFAULT_LANGUAGE   # set_language() 被呼叫前的預設（main.py 啟動時一定會設）
 _cache: dict[str, dict[str, str]] = {}
@@ -141,30 +144,52 @@ def t(key: str, **kwargs) -> str:
     return key
 
 
-def map_locale_name(name: str) -> str:
-    """Windows locale 名稱（如 `zh_TW`）→ 介面語言碼；對不上退 DEFAULT_LANGUAGE。
-    先看各語言檔宣告的 language.locales（同語言不同字集如 zh_TW／zh_CN 必須指名），
-    沒人認領才比對語言前綴（`ja_JP` → `ja`），所以多數語言不必宣告 locales。"""
-    name = name.split(".")[0]
-    for code in available_languages():
-        if name in _meta(code, META_LOCALES).split():
+def best_match(tags: list[str]) -> str:
+    """使用者偏好的語言標籤（BCP-47，依偏好由高到低）→ 最接近的介面語言碼。
+
+    比對交給 CLDR 的語言距離資料（`langcodes`）：`zh-HK` 找得到 `zh-TW`、`en-GB`
+    找得到 `en-US`、`pt-MZ` 找得到 `pt-PT`，語言檔不必自己宣告要認領哪些 locale。
+    偏好清單裡第一個找得到夠近語言檔的標籤勝出；都不夠近（回 `und`）就退
+    DEFAULT_LANGUAGE。"""
+    codes = list(available_languages())
+    for tag in tags:
+        try:
+            code, distance = closest_match(tag, codes)
+        except LanguageTagError as exc:
+            log(f"[i18n] unparsable language tag: {tag!r} error={exc}")
+            continue
+        if code != "und":
+            log(f"[i18n] language tag matched: {tag} -> {code} distance={distance}")
             return code
-    prefix = name.split("_")[0].lower()
-    for code in available_languages():
-        if code.lower() == prefix:
-            return code
+        log(f"[i18n] no catalog close enough: {tag}")
     return DEFAULT_LANGUAGE
+
+
+def preferred_ui_languages() -> list[str]:
+    """Windows 使用者的介面語言偏好清單（BCP-47 標籤，依偏好排序）。
+
+    刻意不走 GetUserDefaultUILanguage 的 LCID：`locale.windows_locale` 會把中性的
+    舊 LCID 譯成 `zh_CHT` 這種非 BCP-47 的名稱，語言配對認不得（`CHT` 不是合法地區
+    碼，會被當成單純的 `zh` 而對到簡中）。這支 API 直接給合法標籤，還多給了偏好順序。"""
+    MUI_LANGUAGE_NAME = 0x8
+    count = ctypes.c_ulong()
+    size = ctypes.c_ulong()
+    get = ctypes.windll.kernel32.GetUserPreferredUILanguages
+    if not get(MUI_LANGUAGE_NAME, ctypes.byref(count), None, ctypes.byref(size)):
+        raise OSError(ctypes.get_last_error())
+    buffer = ctypes.create_unicode_buffer(size.value)
+    if not get(MUI_LANGUAGE_NAME, ctypes.byref(count), buffer, ctypes.byref(size)):
+        raise OSError(ctypes.get_last_error())
+    return [tag for tag in buffer[:size.value].split("\0") if tag]
 
 
 def detect_system_language() -> str:
     """偵測 Windows 使用者介面語言。任何失敗都退 DEFAULT_LANGUAGE 並留下 log。"""
     try:
-        import ctypes
-        lcid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
-        name = locale.windows_locale.get(lcid, "")
+        tags = preferred_ui_languages()
     except Exception as exc:
         log(f"[i18n] system language detection failed: {exc}")
         return DEFAULT_LANGUAGE
-    code = map_locale_name(name)
-    log(f"[i18n] system language detected: lcid={lcid} locale={name} -> {code}")
+    code = best_match(tags)
+    log(f"[i18n] system language detected: preferred={','.join(tags) or '(none)'} -> {code}")
     return code

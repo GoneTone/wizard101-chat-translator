@@ -254,7 +254,7 @@ def test_app_name_follows_language(tmp_path):
 
     before = i18n.current_language()
     try:
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         assert app_name() == "Wizard101 Chat Translator"
         i18n.set_language("zh-TW")
         assert app_name() == "Wizard101 對話翻譯助手"

@@ -575,7 +575,7 @@ def test_refresh_labels_retranslates_status_and_banner(root):
         ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
         ov.set_status("listening")
         ov.set_error("notice.offline")
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         ov.refresh_labels()
         assert ov.status_text() == "●  Listening"
         assert ov.error_text() == "⚠  Translation server is offline — retrying…"
@@ -684,7 +684,7 @@ def test_error_banner_formats_the_api_message_and_survives_language_switch(root)
         assert ov.error_text() == t("notice.config_error_detail", status=401,
                                     message="Incorrect API key")
         assert "Incorrect API key" in ov.error_text()
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         ov.refresh_labels()   # 換語言重繪時 format 變數不可丟失
         assert ov.error_text() == t("notice.config_error_detail", status=401,
                                     message="Incorrect API key")
@@ -725,7 +725,7 @@ def test_update_banner_follows_language_and_width(root):
         i18n.set_language("zh-TW")
         ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
         ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         ov.refresh_labels()
         assert ov.update_text() == "⬆  Version 0.2.0 is available — click to download"
 
@@ -768,7 +768,7 @@ def test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph(root):
         i18n.set_language("zh-TW")
         ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
         initial = ov._title_label.cget("text")
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         ov.refresh_labels()
         # 標題列早已用 icon 取代 ≡，換語言重繪後也不該把它加回來
         assert ov._title_label.cget("text") == app_name()

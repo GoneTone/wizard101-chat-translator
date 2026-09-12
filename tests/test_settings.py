@@ -130,13 +130,13 @@ def test_save_applies_ui_language(root, tmp_path):
         win = SettingsWindow(root, cfg,
                              on_save=lambda: saved.append(i18n.current_language()))
         win.open()
-        win._ui_language.set_value("en")
+        win._ui_language.set_value("en-US")
         win._save()
-        assert cfg["ui_language"] == "en"
-        assert i18n.current_language() == "en"
+        assert cfg["ui_language"] == "en-US"
+        assert i18n.current_language() == "en-US"
         # on_save 看到的必須已經是新語言：這行是本測試的重點，
         # 若 _save() 把 on_save 提前到套用語言之前，這裡會是 "zh-TW"。
-        assert saved == ["en"]
+        assert saved == ["en-US"]
     finally:
         i18n.set_language(before)
 
@@ -222,11 +222,11 @@ def test_changing_ui_language_previews_it_without_touching_config(root):
                              on_language_preview=lambda: relabelled.append(
                                  i18n.current_language()))
         old_win = win._win
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
 
-        assert i18n.current_language() == "en"
-        assert relabelled == ["en"]
+        assert i18n.current_language() == "en-US"
+        assert relabelled == ["en-US"]
         assert win._cfg["ui_language"] == "zh-TW"
         assert not old_win.winfo_exists()
         assert win._win.title() == t("settings.title", app=app_name())
@@ -248,7 +248,7 @@ def test_language_preview_keeps_unsaved_edits(root):
         win._max_msgs.set(321)
         win._auto_input.set(False)
 
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
 
         assert win._hotkey.value() == "ctrl+alt+k"
@@ -270,7 +270,7 @@ def test_language_preview_keeps_the_current_tab(root):
         i18n.set_language("zh-TW")
         win = _open_settings(root)
         win._nb.select(1)
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
 
         assert win._nb.index("current") == 1
@@ -289,12 +289,12 @@ def test_cancel_restores_the_previewed_language(root):
         win = _open_settings(root,
                              on_language_preview=lambda: relabelled.append(
                                  i18n.current_language()))
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
         win._cancel()
 
         assert i18n.current_language() == "zh-TW"
-        assert relabelled == ["en", "zh-TW"]
+        assert relabelled == ["en-US", "zh-TW"]
         assert win._cfg["ui_language"] == "zh-TW"
     finally:
         i18n.set_language(before)
@@ -307,12 +307,12 @@ def test_save_keeps_the_previewed_language(root):
     try:
         i18n.set_language("zh-TW")
         win = _open_settings(root)
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
         win._save()
 
-        assert i18n.current_language() == "en"
-        assert win._cfg["ui_language"] == "en"
+        assert i18n.current_language() == "en-US"
+        assert win._cfg["ui_language"] == "en-US"
     finally:
         i18n.set_language(before)
 
@@ -652,9 +652,9 @@ def test_translators_follow_the_previewed_language(root, monkeypatch):
         i18n.set_language("zh-TW")
         win = _open_settings(root)
         assert win._translators_row is None
-        win._on_language_change("en")
+        win._on_language_change("en-US")
         root.update()
-        assert _texts(win._translators_row.pack_slaves()[1]) == ["EN"]
+        assert _texts(win._translators_row.pack_slaves()[1]) == ["EN-US"]
         win._win.destroy()
     finally:
         i18n.set_language(before)

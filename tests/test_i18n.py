@@ -1,7 +1,8 @@
-"""i18n 核心：語言檔一致性、fallback 行為、系統語言映射。"""
+"""i18n 核心：語言檔一致性、fallback 行為、系統語言配對。"""
 import json
 from pathlib import Path
 
+import langcodes
 import pytest
 
 from src import i18n
@@ -66,7 +67,7 @@ def test_language_files_have_no_duplicate_keys():
 
 
 def test_t_returns_current_language_string():
-    i18n.set_language("en")
+    i18n.set_language("en-US")
     assert i18n.t("app.name") == "Wizard101 Chat Translator"
     i18n.set_language("zh-CN")
     assert i18n.t("app.name") == "Wizard101 对话翻译助手"
@@ -80,17 +81,17 @@ def test_t_formats_named_placeholders():
 
 def test_fallback_order_is_current_then_english_then_source():
     i18n.set_language("zh-CN")
-    assert i18n.fallback_order() == ["zh-CN", "en", "zh-TW"]
-    i18n.set_language("en")
-    assert i18n.fallback_order() == ["en", "zh-TW"]      # 當前語言就是英文，不重複查
+    assert i18n.fallback_order() == ["zh-CN", "en-US", "zh-TW"]
+    i18n.set_language("en-US")
+    assert i18n.fallback_order() == ["en-US", "zh-TW"]      # 當前語言就是英文，不重複查
     i18n.set_language("zh-TW")
-    assert i18n.fallback_order() == ["zh-TW", "en"]
+    assert i18n.fallback_order() == ["zh-TW", "en-US"]
 
 
 def test_missing_key_falls_back_to_english_before_source():
     # 缺翻譯優先退英文：這條繁中也有，取的仍必須是英文那份
     i18n.set_language("zh-CN")
-    i18n._load("en")["test.partial"] = "English copy"
+    i18n._load("en-US")["test.partial"] = "English copy"
     i18n._load(i18n.SOURCE_LANGUAGE)["test.partial"] = "繁中文案"
     assert i18n.t("test.partial") == "English copy"
 
@@ -103,7 +104,7 @@ def test_missing_key_falls_back_to_source_language_last():
 
 
 def test_missing_everywhere_returns_the_key_itself():
-    i18n.set_language("en")
+    i18n.set_language("en-US")
     assert i18n.t("test.nowhere") == "test.nowhere"
 
 
@@ -111,7 +112,7 @@ def test_broken_placeholder_falls_back_to_the_next_language():
     # 譯者把 {count} 打成 {conut}：該語言的字串無法 format，退 fallback 順序的下一個語言
     i18n.set_language("zh-CN")
     i18n._load("zh-CN")["test.count"] = "共 {conut} 条"
-    i18n._load("en")["test.count"] = "{count} in total"
+    i18n._load("en-US")["test.count"] = "{count} in total"
     assert i18n.t("test.count", count=3) == "3 in total"
 
 
@@ -120,18 +121,41 @@ def test_unknown_language_code_falls_back_to_default():
     assert i18n.current_language() == i18n.DEFAULT_LANGUAGE
 
 
-@pytest.mark.parametrize("name, expected", [
-    ("zh_TW", "zh-TW"),
-    ("zh_HK", "zh-TW"),
-    ("zh_MO", "zh-TW"),
-    ("zh_CN", "zh-CN"),
-    ("zh_SG", "zh-CN"),
-    ("en_US", "en"),
-    ("xx_XX", "en"),   # 沒有人認領也對不上語言碼：退預設語言
-    ("", "en"),
+@pytest.mark.parametrize("tag, expected", [
+    ("zh-TW", "zh-TW"),
+    ("zh-HK", "zh-TW"),      # 港澳沒有自己的語言檔，CLDR 距離最近的是繁中
+    ("zh-MO", "zh-TW"),
+    ("zh-Hant", "zh-TW"),    # 只指字集、不指地區
+    ("zh-CN", "zh-CN"),
+    ("zh-SG", "zh-CN"),
+    ("zh-Hans", "zh-CN"),
+    ("en-US", "en-US"),
+    ("en-GB", "en-US"),      # 同語言的其他地區變體
+    ("ja-JP", "en-US"),      # 沒有夠近的語言檔：退預設語言
+    ("xx-XX", "en-US"),      # 不存在的語言
+    ("", "en-US"),           # 標籤根本解析不了
 ])
-def test_map_locale_name(name, expected):
-    assert i18n.map_locale_name(name) == expected
+def test_best_match_picks_the_closest_catalog(tag, expected):
+    assert i18n.best_match([tag]) == expected
+
+
+def test_best_match_follows_the_preference_order():
+    # 使用者偏好清單依序找，第一個有夠近語言檔的標籤勝出（日文沒有語言檔，跳過）
+    assert i18n.best_match(["ja-JP", "zh-CN", "en-US"]) == "zh-CN"
+
+
+def test_best_match_falls_back_to_default_when_nothing_is_close():
+    assert i18n.best_match([]) == i18n.DEFAULT_LANGUAGE
+    assert i18n.best_match(["ja-JP", "ko-KR"]) == i18n.DEFAULT_LANGUAGE
+
+
+def test_system_preferences_are_valid_language_tags():
+    # 實機檢查：Windows 回的必須是配對得動的 BCP-47 標籤（LCID 那條路會給 zh_CHT 這種
+    # 非標準名稱，配對時會被當成單純的 zh 而對錯字集）
+    tags = i18n.preferred_ui_languages()
+    assert tags, "系統至少會有一個介面語言"
+    assert all(langcodes.tag_is_valid(tag) for tag in tags), tags
+    assert i18n.detect_system_language() in i18n.available_languages()
 
 
 def test_languages_are_listed_as_endonyms():
@@ -149,44 +173,52 @@ def test_every_language_file_declares_its_own_metadata():
 
 
 def test_a_new_language_file_needs_no_code_change(fake_catalog):
-    # 本測試就是「新增語言只要丟一個語言檔」的實證：程式碼裡沒有任何 ja 的痕跡
-    fake_catalog("en", {"language.name": "English", "language.font": "Segoe UI"})
-    fake_catalog("ja", {"language.name": "日本語", "language.font": "Yu Gothic UI"})
+    # 本測試就是「新增語言只要丟一個語言檔」的實證：程式碼裡沒有任何 ja-JP 的痕跡
+    fake_catalog("en-US", {"language.name": "English", "language.font": "Segoe UI"})
+    fake_catalog("ja-JP", {"language.name": "日本語", "language.font": "Yu Gothic UI"})
 
-    assert i18n.available_languages() == {"en": "English", "ja": "日本語"}
-    assert i18n.language_name("ja") == "日本語"
-    assert i18n.font_family("ja") == "Yu Gothic UI"
-    assert i18n.map_locale_name("ja_JP") == "ja"   # 沒寫 locales 也能靠語言前綴命中
+    assert i18n.available_languages() == {"en-US": "English", "ja-JP": "日本語"}
+    assert i18n.language_name("ja-JP") == "日本語"
+    assert i18n.font_family("ja-JP") == "Yu Gothic UI"
+    assert i18n.best_match(["ja-JP"]) == "ja-JP"   # 系統語言配對也自動認得，語言檔不必宣告什麼
 
 
-def test_declared_locales_win_over_the_language_prefix(fake_catalog):
-    # 語言碼與 locale 前綴對不上（pt-BR vs pt_PT）時，靠語言檔自己宣告的 locales
-    fake_catalog("en", {"language.name": "English"})
-    fake_catalog("pt-BR", {"language.name": "Português (Brasil)",
-                           "language.locales": "pt_BR pt_PT"})
+def test_same_language_different_scripts_are_told_apart(fake_catalog):
+    # 繁簡共用語言子標籤 zh，靠 CLDR 的字集資料分辨，語言檔不必宣告要認領哪些 locale
+    fake_catalog("zh-TW", {"language.name": "繁體中文（台灣）"})
+    fake_catalog("zh-CN", {"language.name": "简体中文（中国）"})
 
-    assert i18n.map_locale_name("pt_PT") == "pt-BR"
-    assert i18n.map_locale_name("pt_BR") == "pt-BR"
+    assert i18n.best_match(["zh-HK"]) == "zh-TW"
+    assert i18n.best_match(["zh-SG"]) == "zh-CN"
+
+
+def test_regional_variants_are_told_apart(fake_catalog):
+    # 同字集不同地區（pt-BR／pt-PT）同樣由 CLDR 距離決定，莫三比克葡語靠向葡萄牙
+    fake_catalog("pt-BR", {"language.name": "Português (Brasil)"})
+    fake_catalog("pt-PT", {"language.name": "Português (Portugal)"})
+
+    assert i18n.best_match(["pt-MZ"]) == "pt-PT"
+    assert i18n.best_match(["pt-BR"]) == "pt-BR"
 
 
 def test_missing_metadata_never_borrows_another_language(fake_catalog):
     # metadata 不走 t() 的 fallback：忘了填 language.name 就顯示語言碼，
     # 顯示成 "English" 反而看不出是漏填。
-    fake_catalog("en", {"language.name": "English", "language.font": "Segoe UI"})
-    fake_catalog("ja", {"app.name": "ウィザード"})
+    fake_catalog("en-US", {"language.name": "English", "language.font": "Segoe UI"})
+    fake_catalog("ja-JP", {"app.name": "ウィザード"})
 
-    assert i18n.available_languages()["ja"] == "ja"
-    assert i18n.font_family("ja") is None
+    assert i18n.available_languages()["ja-JP"] == "ja-JP"
+    assert i18n.font_family("ja-JP") is None
 
 
 def test_translators_are_never_borrowed_from_another_language(fake_catalog):
     # 譯者掛名借到別的語言就是把功勞掛錯人，所以與其他 metadata 一樣不走 t() 的 fallback。
-    fake_catalog("en", {"language.name": "English",
-                        "language.translators": "[Someone](https://example.com)"})
-    fake_catalog("ja", {"language.name": "日本語"})
+    fake_catalog("en-US", {"language.name": "English",
+                           "language.translators": "[Someone](https://example.com)"})
+    fake_catalog("ja-JP", {"language.name": "日本語"})
 
-    assert i18n.translators("en") == "[Someone](https://example.com)"
-    assert i18n.translators("ja") == ""
+    assert i18n.translators("en-US") == "[Someone](https://example.com)"
+    assert i18n.translators("ja-JP") == ""
 
 
 def test_translators_is_optional_metadata():
@@ -196,8 +228,8 @@ def test_translators_is_optional_metadata():
 
 
 def test_unknown_language_code_is_rejected_by_the_scanned_list(fake_catalog):
-    fake_catalog("en", {"language.name": "English"})
-    i18n.set_language("ja")   # 目錄裡沒有 ja.json
+    fake_catalog("en-US", {"language.name": "English"})
+    i18n.set_language("ja-JP")   # 目錄裡沒有 ja-JP.json
     assert i18n.current_language() == i18n.DEFAULT_LANGUAGE
 
 
@@ -208,11 +240,11 @@ def test_set_language_keeps_previous_language_when_load_fails(monkeypatch):
     original_load = i18n._load
 
     def failing_load(code):
-        if code == "en":
+        if code == "en-US":
             raise ValueError("corrupted catalog")
         return original_load(code)
 
     monkeypatch.setattr(i18n, "_load", failing_load)
     with pytest.raises(ValueError):
-        i18n.set_language("en")
+        i18n.set_language("en-US")
     assert i18n.current_language() == "zh-TW"
