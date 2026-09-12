@@ -45,6 +45,7 @@
   "effort.auto": "自动（默认）",
   "effort.low": "精简",
   "field.auto_input": "让翻译输入框跟着游戏的聊天输入框一起开关",
+  "field.paste_hotkey": "在游戏内按 Ctrl+V 时自动键入剪贴板文本（游戏本身不支持粘贴）",
   "field.translate_system": "翻译游戏系统消息（掉宝、经验、升级广播等）",
   "field.ui_language": "界面语言",
   "button.refresh": "刷新",

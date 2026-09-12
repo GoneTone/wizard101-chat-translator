@@ -45,6 +45,7 @@
   "effort.auto": "Auto (default)",
   "effort.low": "Minimal",
   "field.auto_input": "Open and close the translation input with the game chat box",
+  "field.paste_hotkey": "Type the clipboard into the game when Ctrl+V is pressed in it (the game cannot paste)",
   "field.translate_system": "Translate game system messages (drops, XP, level-up broadcasts)",
   "field.ui_language": "Interface language",
   "button.refresh": "Refresh",
