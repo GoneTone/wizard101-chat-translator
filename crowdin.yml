@@ -1,5 +1,7 @@
 commit_message: Translations %language%
 append_commit_message: false
+# 匯出選項（Skip untranslated strings 等）不設在這裡，設在 Crowdin 專案的
+# Settings → Export；GitHub 整合建置譯文檔時吃的是那組設定，不是這個檔案。
 files:
   - source: /src/i18n/zh-TW.json
     translation: /src/i18n/%locale%.json

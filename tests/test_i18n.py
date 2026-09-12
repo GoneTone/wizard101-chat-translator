@@ -207,13 +207,35 @@ def test_regional_variants_are_told_apart(fake_catalog):
     assert i18n.best_match(["pt-BR"]) == "pt-BR"
 
 
-def test_missing_metadata_never_borrows_another_language(fake_catalog):
-    # metadata 不走 t() 的 fallback：忘了填 language.name 就顯示語言碼，
-    # 顯示成 "English" 反而看不出是漏填。
+def test_a_language_without_an_endonym_is_not_offered(fake_catalog):
+    # 選單顯示的就是自稱，連自己的名字都還沒翻的語言沒得顯示（Crowdin 會替每個目標語言
+    # 產檔，沒人翻的就是一份空檔）。自稱也不走 t() 的 fallback，不會借別的語言的。
     fake_catalog("en-US", {"language.name": "English"})
     fake_catalog("ja-JP", {"app.name": "ウィザード"})
 
-    assert i18n.available_languages()["ja-JP"] == "ja-JP"
+    assert "ja-JP" not in i18n.available_languages()
+    assert i18n.language_name("ja-JP") == "ja-JP"
+
+
+def test_a_barely_translated_language_is_not_offered(fake_catalog):
+    # 只翻了零星幾條的語言，選下去是半英半外的介面，比純英文更難讀
+    source = {"language.name": "繁體中文（台灣）"} | {f"key.{n}": "來源" for n in range(9)}
+    fake_catalog(i18n.SOURCE_LANGUAGE, source)
+    fake_catalog("ja-JP", {"language.name": "日本語", "key.0": "ひとつ", "key.1": "ふたつ"})
+    fake_catalog("ko-KR", {"language.name": "한국어"} | {f"key.{n}": "번역" for n in range(8)})
+
+    offered = i18n.available_languages()
+    assert "ja-JP" not in offered       # 30%
+    assert offered["ko-KR"] == "한국어"   # 90%
+
+
+def test_the_source_and_default_languages_are_always_offered(fake_catalog):
+    # 來源語言是完成度的比較基準，預設語言是所有 fallback 的終點：兩者少一個都會讓
+    # 「選不到任何語言」變成可能，所以不套用自稱與完成度的門檻
+    fake_catalog(i18n.SOURCE_LANGUAGE, {f"key.{n}": "來源" for n in range(10)})
+    fake_catalog(i18n.DEFAULT_LANGUAGE, {})
+
+    assert set(i18n.available_languages()) == {i18n.SOURCE_LANGUAGE, i18n.DEFAULT_LANGUAGE}
 
 
 def test_translators_are_never_borrowed_from_another_language(fake_catalog):

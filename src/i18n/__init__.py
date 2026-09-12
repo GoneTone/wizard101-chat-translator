@@ -19,12 +19,13 @@ from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是一般文案）：自稱（選單顯示用，也是該語言使用者預設的
 # 翻譯目標）、這份譯文的譯者掛名。兩者都由該語言的譯者填，未填就當作沒有 —— 未翻譯的
-# 字串不會被匯出（crowdin.yml 的 skip_untranslated_strings），不會帶著來源語言的值進來。
+# 字串不會被匯出（Crowdin 專案設定的 Skip untranslated strings），不會帶著來源語言的值進來。
 META_NAME = "language.name"
 META_TRANSLATORS = "language.translators"
 
 SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
 DEFAULT_LANGUAGE = "en-US"  # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
+MINIMUM_COVERAGE = 0.6      # 低於這個完成度就不進語言選單，見 available_languages()
 
 _current = DEFAULT_LANGUAGE   # set_language() 被呼叫前的預設（main.py 啟動時一定會設）
 _cache: dict[str, dict[str, str]] = {}
@@ -49,30 +50,57 @@ def _load(code: str) -> dict[str, str]:
     return _cache[code]
 
 
+def _catalog(code: str) -> dict[str, str]:
+    """語言檔內容；讀不到（缺檔、格式壞）回空字典並留下 log。"""
+    try:
+        return _load(code)
+    except (OSError, ValueError) as exc:
+        log(f"[i18n] catalog unreadable: {code} error={exc}")
+        return {}
+
+
 def _meta(code: str, key: str) -> str:
     """讀某個語言檔自己宣告的 metadata（缺就回空字串）。
     刻意不走 `t()` 的 fallback：自稱借到別的語言，漏填會偽裝成正常值
     （ja-JP.json 忘了填自稱，選單上會出現第二個「English」）。"""
-    try:
-        return _load(code).get(key, "")
-    except (OSError, ValueError) as exc:
-        log(f"[i18n] catalog unreadable: {code} error={exc}")
-        return ""
+    return _catalog(code).get(key, "")
+
+
+def _coverage(code: str, source_keys: set[str]) -> float:
+    """這份語言檔翻了來源語言的幾成（沒有來源語言可比時當作翻完）。"""
+    if not source_keys:
+        return 1.0
+    return len(source_keys & set(_catalog(code))) / len(source_keys)
 
 
 def available_languages() -> dict[str, str]:
-    """可選的介面語言：語言碼 → 自稱，依語言碼字母序。掃語言檔目錄得來並快取。"""
+    """可選的介面語言：語言碼 → 自稱，依語言碼字母序。掃語言檔目錄得來並快取。
+
+    語言檔存在不等於可選：Crowdin 會替每個目標語言產出檔案，沒人翻的就是一份空檔。
+    要進選單得同時「宣告了自稱」與「完成度達 MINIMUM_COVERAGE」—— 選單顯示的就是自稱，
+    連自己的名字都還沒翻的語言沒得顯示；只翻了零星幾條的語言選下去是半英半外的介面，
+    比純英文更難讀。來源語言與預設語言不受這兩道門檻限制：前者是完成度的比較基準，
+    後者是所有 fallback 的終點，任何時候都必須選得到。"""
     global _languages
     if _languages is None:
+        source_keys = set(_catalog(SOURCE_LANGUAGE))
         found = {}
         for path in sorted(bundle_dir("i18n").glob("*.json")):
             code = path.stem
             name = _meta(code, META_NAME)
-            if not name:
-                log(f"[i18n] catalog without {META_NAME}: {code}")
+            if code not in (SOURCE_LANGUAGE, DEFAULT_LANGUAGE):
+                coverage = _coverage(code, source_keys)
+                if not name:
+                    log(f"[i18n] catalog without {META_NAME}, not offered: {code} "
+                        f"coverage={coverage:.0%}")
+                    continue
+                if coverage < MINIMUM_COVERAGE:
+                    log(f"[i18n] catalog below {MINIMUM_COVERAGE:.0%}, not offered: "
+                        f"{code} coverage={coverage:.0%}")
+                    continue
             found[code] = name or code
         _languages = found
-        log(f"[i18n] catalogs found: {','.join(_languages) or '(none)'}")
+        log(f"[i18n] catalogs offered: {','.join(_languages) or '(none)'}")
     return _languages
 
 
