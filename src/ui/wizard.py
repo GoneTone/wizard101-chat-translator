@@ -8,7 +8,7 @@ from src.i18n import current_language, language_name, set_language, t
 from src.log import log
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
-from src.ui.form import HINT_COLOR, translators_row
+from src.ui.form import HINT_COLOR, help_translate_link, translators_row
 from src.ui.providers import validate_api_form
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
@@ -89,7 +89,8 @@ class SetupWizard:
         self._indicator.configure(text="  ".join(
             "●" if i <= self._step else "○" for i in range(len(_STEP_KEYS))))
         self._title.configure(text=t(_STEP_KEYS[self._step]))
-        self._translators_row = None   # 剛剛連同其他臨時元件一起被銷毀了
+        # 剛剛連同其他臨時元件一起被銷毀了
+        self._translators_row = self._help_translate_link = None
 
         if self._step == STEP_LANG:
             hint = ttk.Label(self._body, text=t("wizard.language_hint"), justify="left")
@@ -100,6 +101,8 @@ class SetupWizard:
             self._translators_row = translators_row(self._body)
             if self._translators_row is not None:
                 self._translators_row.pack(anchor="w", pady=(4, 0))
+            self._help_translate_link = help_translate_link(self._body)
+            self._help_translate_link.pack(anchor="w", pady=(4, 0))
             self._next_btn.configure(text=t("button.next"))
         elif self._step == STEP_API:
             intro = ttk.Label(self._body, text=t("wizard.intro"), justify="left")

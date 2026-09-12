@@ -17,6 +17,7 @@ from src.log import log
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
+    help_translate_link,
     hint_label,
     link_label,
     linked_text,
@@ -28,7 +29,7 @@ from src.ui.providers import validate_api_form
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
 from src.ui.scrollable import ScrollableFrame
-from src.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL, check_for_update
+from src.updater import AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列
@@ -141,12 +142,14 @@ class SettingsWindow:
         ttk.Label(basic, text=t("field.ui_language")).pack(anchor="w")
         self._ui_language = UiLanguageField(basic, current_language(),
                                             on_change=self._on_language_change)
-        # 掛名屬於選到的這個語言，緊貼在下拉之下才看得出對應關係
+        # 掛名屬於選到的這個語言，緊貼在下拉之下才看得出對應關係；
+        # 邀請協助翻譯的連結接在掛名之下，沒有掛名也照樣顯示 —— 沒人翻的語言更需要
         self._translators_row = translators_row(basic)
-        self._ui_language.pack(fill="x",
-                               pady=(2, 4 if self._translators_row else 10))
+        self._ui_language.pack(fill="x", pady=(2, 4))
         if self._translators_row is not None:
-            self._translators_row.pack(anchor="w", pady=(0, 10))
+            self._translators_row.pack(anchor="w", pady=(0, 2))
+        self._help_translate_link = help_translate_link(basic)
+        self._help_translate_link.pack(anchor="w", pady=(0, 10))
         ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
         self._language = LanguageField(
             basic, cfg["target_language"],
@@ -210,7 +213,7 @@ class SettingsWindow:
             row=8, column=0, columnspan=3, sticky="ew")
 
     def _build_about(self, nb) -> None:
-        """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置。
+        """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、協助翻譯、紀錄檔位置。
 
         列號用遞增的 row 而非寫死的數字：譯者與快取都是可有可無的列，
         寫死的話每插一列就要把後面全部重編。"""
@@ -257,6 +260,12 @@ class SettingsWindow:
             self._about_translators = linked_text(about, credit)
             self._about_translators.grid(row=row, column=1, sticky="w", padx=(8, 0),
                                          pady=2)
+
+        row += 1
+        ttk.Label(about, text=t("about.help_translate")).grid(
+            row=row, column=0, sticky="w", pady=2)
+        self._contribute_link = link_label(about, CROWDIN_URL, CROWDIN_URL)
+        self._contribute_link.grid(row=row, column=1, sticky="w", padx=(8, 0), pady=2)
 
         row += 1
         ttk.Label(about, text=t("about.issues")).grid(row=row, column=0, sticky="w",

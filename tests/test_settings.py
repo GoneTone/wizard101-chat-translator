@@ -614,6 +614,24 @@ def test_translators_row_follows_the_ui_language_field(root, monkeypatch):
     label, names = win._translators_row.pack_slaves()
     assert label.cget("text") == t("credit.translators")
     assert _texts(names) == ["A"]
+    # 「協助我們翻譯」接在譯者之下：兩者都屬於選到的這個介面語言
+    assert (order.index(str(win._help_translate_link))
+            == order.index(str(win._translators_row)) + 1)
+    win._win.destroy()
+
+
+def test_help_translate_link_opens_crowdin(root, monkeypatch):
+    from src.i18n import t
+    from src.updater import CROWDIN_URL
+
+    _fake_translators(monkeypatch, lambda code: "")
+    opened = []
+    monkeypatch.setattr(form_module.webbrowser, "open", opened.append)
+    win = _open_settings(root)
+    link = win._help_translate_link
+    assert link.cget("text") == t("credit.help_translate")
+    link.event_generate("<Button-1>")
+    assert opened == [CROWDIN_URL]
     win._win.destroy()
 
 
@@ -630,6 +648,26 @@ def test_about_tab_shows_the_translators(root, monkeypatch):
     assert win._issues_link.grid_info()["row"] > grid["row"]
     label = win._about_translators.master.grid_slaves(row=int(grid["row"]), column=0)[0]
     assert label.cget("text") == t("credit.translators")
+    # 「協助翻譯」緊接在譯者之下，同樣排在「回報問題」之前
+    contribute = win._contribute_link.grid_info()
+    assert int(contribute["row"]) == int(grid["row"]) + 1
+    assert win._issues_link.grid_info()["row"] > contribute["row"]
+    win._win.destroy()
+
+
+def test_about_tab_links_to_crowdin(root, monkeypatch):
+    from src.i18n import t
+    from src.updater import CROWDIN_URL
+
+    _fake_translators(monkeypatch, lambda code: "")
+    win = _open_settings_with_checker(root, lambda: None)
+    link = win._contribute_link
+    assert link.cget("text") == CROWDIN_URL
+    grid = link.grid_info()
+    label = link.master.grid_slaves(row=int(grid["row"]), column=0)[0]
+    assert label.cget("text") == t("about.help_translate")
+    # 沒有譯者列時直接接在開發者之下
+    assert int(grid["row"]) == int(win._author_link.grid_info()["row"]) + 1
     win._win.destroy()
 
 
@@ -638,6 +676,12 @@ def test_translators_rows_are_hidden_when_the_language_credits_nobody(root, monk
     win = _open_settings_with_checker(root, lambda: None)
     assert win._translators_row is None, "沒有譯者就不該畫出那一列"
     assert win._about_translators is None, "沒有譯者就不該畫出那一列"
+    # 邀請協助翻譯的連結不看有沒有譯者：沒人翻的語言更需要
+    basic = win._ui_language.master
+    order = [str(w) for w in basic.pack_slaves()]
+    assert (order.index(str(win._help_translate_link))
+            == order.index(str(win._ui_language)) + 1)
+    assert win._contribute_link.winfo_manager() == "grid"
     win._win.destroy()
 
 
