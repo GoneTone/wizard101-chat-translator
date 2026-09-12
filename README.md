@@ -138,14 +138,14 @@ The list of UI languages is discovered by scanning the language files under `src
 
    | Field | Description |
    |-------|-------------|
-   | `language.name` | The language's endonym, e.g. `日本語`. The language menu shows it untranslated whatever the UI language is; it is also the default `target_language` for someone whose first launch picks this language |
+   | `language.name` | The language's endonym, e.g. `日本語`. The language menu shows it untranslated whatever the UI language is; it is also the default `target_language` for someone whose first launch picks this language. **A language file that does not declare one is not offered in the menu** |
    | `language.translators` | Translation credits, e.g. `[GoneTone](https://github.com/GoneTone)、Someone`. `[text](url)` adds an inline link (`http` / `https` only). Empty = not shown; it appears under the language dropdown in the settings window, in the wizard's language step, and on the *About* tab |
 
 3. `uv run pytest` — `tests/test_i18n.py` checks that the new file's keys match the source language, that placeholders (`{app}` and friends) survived translation, and that the metadata is filled in.
 
 Which language file a system gets on first launch is decided by CLDR language-distance data ([`langcodes`](https://github.com/georgkrause/langcodes)) against the file names, so nothing needs declaring: a `zh-HK` system lands on `zh-TW`, `en-GB` on `en-US`, and a `pt-MZ` one would pick `pt-PT` over `pt-BR`. When no language file is close enough, the UI falls back to `en-US`. The UI font comes from the same data — the script behind the file name (`Jpan` → `Yu Gothic UI`, `Hant` → `Microsoft JhengHei`, everything else → `Segoe UI`), so nobody has to know which font family Windows ships for a language.
 
-Translations coming from Crowdin only carry the strings that are actually translated (`skip_untranslated_strings`), so a language file holding a subset of the keys is the normal state — the rest falls back per key, English first and the source language last.
+Translations coming from Crowdin only carry the strings that are actually translated (`skip_untranslated_strings`), so a language file holding a subset of the keys is the normal state — the rest falls back per key, English first and the source language last. A language only reaches the menu once it declares its endonym and has at least 80% of the source language's strings (`MINIMUM_COVERAGE`): Crowdin writes a file for every target language, and an empty or barely started one would just be a menu entry that opens a half-English UI. The source language and `en-US` are always offered. `app.log` records what was filtered out and at what percentage.
 
 `build.spec` bundles `src/i18n/*.json` when packaging, so a new file is carried into the exe automatically.
 
