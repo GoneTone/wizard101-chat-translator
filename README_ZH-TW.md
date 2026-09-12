@@ -8,6 +8,7 @@
 
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
+[![Crowdin](https://badges.crowdin.net/wizard101-chat-translator/localized.svg)](https://crowdin.com/project/wizard101-chat-translator)
 
 Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，對話雙向即時翻譯。
 
@@ -27,6 +28,12 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 ## ⚠ 重要
 
 本軟體會掛入（注入）遊戲程序讀取對話內容，此行為未經 KingsIsle 認可，可能被認定違反 [Wizard101 服務條款](https://www.wizard101.com/game/termsofuse)；依該條款，KingsIsle 可基於任何理由（或無需理由）停權，**請自行斟酌**。
+
+## 多國語言
+
+請協助我們將軟體翻譯成各國語言！
+
+<https://crowdin.com/project/wizard101-chat-translator>
 
 ## 下載
 
@@ -128,26 +135,6 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 1. 開啟並登入 Wizard101 到遊戲世界內。
 2. `uv run run.py`（等同 `uv run python -m src.main`）。
 3. 操作方式與[使用方式](#使用方式)一節相同；出現橫幅時見[疑難排解](#疑難排解)。
-
-### 新增介面語言
-
-介面語言清單由 `src/i18n/` 底下的語言檔掃描而來，**新增一個語言不必改任何程式碼**：
-
-1. 複製 `src/i18n/zh-TW.json`（來源語言，key 最齊全）成 `src/i18n/<locale 代碼>.json`，例如 `ja-JP.json`，把每一則文案翻好。檔名採 Crowdin 的 locale 代碼（`en-US`／`zh-TW`／`ja-JP`），也就是 `crowdin.yml` 寫入譯文的路徑，從 Crowdin 下載的檔案直接就位。
-2. 檔案開頭這幾個欄位是該語言自己的資料，不是給譯者翻的文案：
-
-   | 欄位 | 說明 |
-   |------|------|
-   | `language.name` | 該語言的自稱（endonym），例如 `日本語`。語言選單在任何介面語言下都顯示它、不翻譯；也是這個語言的使用者首次執行時預設的 `target_language`。**沒宣告自稱的語言檔不會出現在選單裡** |
-   | `language.translators` | 這份譯文的譯者掛名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](網址)` 加行內連結（只接受 `http`／`https`）。留空＝不顯示；設定視窗的語言下拉底下、首次設定精靈的語言步驟與「關於」分頁都會顯示它 |
-
-3. `uv run pytest` —— `tests/test_i18n.py` 會檢查新語言檔的 key 與來源語言一致、變數（`{app}` 等）沒被翻壞、metadata 有填。
-
-首次執行時系統語言要對到哪一份語言檔，是拿檔名交給 CLDR 的語言距離資料（[`langcodes`](https://github.com/georgkrause/langcodes)）判斷的，語言檔不必宣告任何東西：`zh-HK` 的系統會落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同時有 `pt-BR` 與 `pt-PT`，`pt-MZ` 的系統會選 `pt-PT`。沒有夠接近的語言檔時退 `en-US`。介面字族同樣由這份資料推導 —— 看檔名背後的文字系統（`Jpan` → `Yu Gothic UI`、`Hant` → `Microsoft JhengHei`，其餘退 `Segoe UI`），譯者不必知道 Windows 上該用哪個字族。
-
-從 Crowdin 下載的譯文只會帶真正翻好的字串（Crowdin 專案設定 Settings → Export 的 Skip untranslated strings），所以語言檔只有部分 key 是正常狀態 —— 缺的逐鍵 fallback，先退英文、最後退來源語言。語言要進得了選單，得同時宣告自稱、且完成度達來源語言的 60%（`MINIMUM_COVERAGE`）：Crowdin 會替每個目標語言產檔，空的或才起步的語言進了選單，選下去只是一個半英半外的介面。來源語言與 `en-US` 一律列入。被擋下的語言與其完成度會記在 `app.log`。
-
-打包時 `build.spec` 以 `src/i18n/*.json` 收錄，新檔會自動被帶進 exe。
 
 ### 檢查
 

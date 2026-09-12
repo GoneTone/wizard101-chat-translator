@@ -8,6 +8,7 @@
 
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
+[![Crowdin](https://badges.crowdin.net/wizard101-chat-translator/localized.svg)](https://crowdin.com/project/wizard101-chat-translator)
 
 Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，对话双向实时翻译。
 
@@ -27,6 +28,12 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 ## ⚠ 重要
 
 本软件会挂入（注入）游戏进程读取对话内容，此行为未经 KingsIsle 认可，可能被认定违反 [Wizard101 服务条款](https://www.wizard101.com/game/termsofuse)；依该条款，KingsIsle 可基于任何理由（或无需理由）封号，**请自行斟酌**。
+
+## 多国语言
+
+请协助我们将软件翻译成各国语言！
+
+<https://crowdin.com/project/wizard101-chat-translator>
 
 ## 下载
 
@@ -128,26 +135,6 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 1. 打开并登录 Wizard101 到游戏世界内。
 2. `uv run run.py`（等同 `uv run python -m src.main`）。
 3. 操作方式与[使用方式](#使用方式)一节相同；出现横幅时见[故障排除](#故障排除)。
-
-### 新增界面语言
-
-界面语言清单由 `src/i18n/` 底下的语言文件扫描而来，**新增一个语言不必改任何代码**：
-
-1. 复制 `src/i18n/zh-TW.json`（源语言，key 最齐全）成 `src/i18n/<locale 代码>.json`，例如 `ja-JP.json`，把每一条文案翻好。文件名采用 Crowdin 的 locale 代码（`en-US`／`zh-TW`／`ja-JP`），也就是 `crowdin.yml` 写入译文的路径，从 Crowdin 下载的文件直接就位。
-2. 文件开头这几个字段是该语言自己的数据，不是给译者翻的文案：
-
-   | 字段 | 说明 |
-   |------|------|
-   | `language.name` | 该语言的自称（endonym），例如 `日本語`。语言菜单在任何界面语言下都显示它、不翻译；也是这个语言的用户首次运行时默认的 `target_language`。**没声明自称的语言文件不会出现在菜单里** |
-   | `language.translators` | 这份译文的译者署名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](网址)` 加行内链接（只接受 `http`／`https`）。留空＝不显示；设置窗口的语言下拉底下、首次设置向导的语言步骤与「关于」标签页都会显示它 |
-
-3. `uv run pytest` —— `tests/test_i18n.py` 会检查新语言文件的 key 与源语言一致、变量（`{app}` 等）没被翻坏、metadata 有填。
-
-首次运行时系统语言要对到哪一份语言文件，是拿文件名交给 CLDR 的语言距离数据（[`langcodes`](https://github.com/georgkrause/langcodes)）判断的，语言文件不必声明任何东西：`zh-HK` 的系统会落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同时有 `pt-BR` 与 `pt-PT`，`pt-MZ` 的系统会选 `pt-PT`。没有足够接近的语言文件时退 `en-US`。界面字族同样由这份数据推导 —— 看文件名背后的文字系统（`Jpan` → `Yu Gothic UI`、`Hant` → `Microsoft JhengHei`，其余退 `Segoe UI`），译者不必知道 Windows 上该用哪个字族。
-
-从 Crowdin 下载的译文只会带真正翻好的字符串（Crowdin 项目设置 Settings → Export 的 Skip untranslated strings），所以语言文件只有部分 key 是正常状态 —— 缺的逐键 fallback，先退英文、最后退源语言。语言要进得了菜单，得同时声明自称、且完成度达源语言的 60%（`MINIMUM_COVERAGE`）：Crowdin 会替每个目标语言产文件，空的或才起步的语言进了菜单，选下去只是一个半英半外的界面。源语言与 `en-US` 一律列入。被挡下的语言与其完成度会记在 `app.log`。
-
-打包时 `build.spec` 以 `src/i18n/*.json` 收录，新文件会自动被带进 exe。
 
 ### 检查
 

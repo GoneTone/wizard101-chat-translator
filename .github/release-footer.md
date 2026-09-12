@@ -1,3 +1,19 @@
+## Reporting Issues 回報問題
+
+If you run into any problem, please report it and attach the `app.log` next to the exe (and `messages.log` for missing or duplicated translations).
+
+如果發現任何問題，請附上 exe 旁的 `app.log`（訊息漏翻／重複翻譯的問題請一併附上 `messages.log`）回報。
+
+<https://github.com/GoneTone/wizard101-chat-translator/issues>
+
+## Contribute Translation 貢獻翻譯
+
+Please help us translate this software!
+
+請協助我們將軟體翻譯成各國語言！
+
+<https://crowdin.com/project/wizard101-chat-translator>
+
 ## Notice 注意
 
 **_This software injects into the game process to read in-game conversations. KingsIsle does not sanction this, and it may be treated as a breach of the [Wizard101 Terms of Use](https://www.wizard101.com/game/termsofuse); under those terms KingsIsle may suspend an account for any reason, or for no reason. Use at your own risk._**
@@ -13,9 +29,3 @@
 If you are updating from an earlier version, quit the software first (click the ✕ on the overlay's title bar) — while it is running the exe is locked by Windows and still hooked into the game. Then overwrite the old `Wizard101ChatTranslator.exe` in the same folder; your existing `config.json` is kept, so nothing has to be set up again.
 
 若是從舊版更新，請先關閉本軟體（點疊加視窗標題列右上角的 ✕） —— 程式執行中，exe 會被 Windows 鎖住、也還掛在遊戲上。關掉後覆蓋同一個資料夾裡的舊 `Wizard101ChatTranslator.exe` 即可，原本的 `config.json` 會保留，設定不必重填。
-
-## Reporting Issues 回報問題
-
-If you run into any problem, please report it and attach the `app.log` next to the exe (and `messages.log` for missing or duplicated translations): <https://github.com/GoneTone/wizard101-chat-translator/issues>
-
-如果發現任何問題，請附上 exe 旁的 `app.log`（訊息漏翻／重複翻譯的問題請一併附上 `messages.log`）回報：<https://github.com/GoneTone/wizard101-chat-translator/issues>
