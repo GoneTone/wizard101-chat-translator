@@ -10,6 +10,7 @@ from src.i18n import current_language, t, translators
 from src.translation.translator import TranslatorConfigError, TranslatorOffline
 from src.ui.responsive import bind_wrap
 from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup
+from src.updater import CROWDIN_URL
 
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
@@ -60,6 +61,12 @@ def translators_row(parent) -> ttk.Frame | None:
               foreground=HINT_COLOR).pack(side="left")
     linked_text(row, credit).pack(side="left", padx=(6, 0))
     return row
+
+
+def help_translate_link(parent) -> ttk.Label:
+    """邀請協助翻譯的連結，點開 Crowdin 專案頁。接在譯者掛名列之下，
+    但不看有沒有掛名 —— 沒人翻的語言更需要這個入口。"""
+    return link_label(parent, t("credit.help_translate"), CROWDIN_URL)
 
 
 def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:

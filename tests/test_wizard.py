@@ -165,11 +165,15 @@ def test_language_step_shows_the_translators(root, monkeypatch):
     label, names = wizard._translators_row.pack_slaves()
     assert label.cget("text") == t("credit.translators")
     assert [w.cget("text") for w in names.pack_slaves()] == ["A"]
+    order = [str(w) for w in wizard._body.pack_slaves()]
+    assert (order.index(str(wizard._help_translate_link))
+            == order.index(str(wizard._translators_row)) + 1)
 
-    # 掛名只屬於語言頁：往後的步驟不該還留著那一列
+    # 掛名與邀請連結只屬於語言頁：往後的步驟不該還留著
     wizard._step = STEP_PREFS
     wizard._show_step()
     assert wizard._translators_row is None
+    assert wizard._help_translate_link is None
     wizard._win.destroy()
 
 
@@ -183,4 +187,26 @@ def test_language_step_without_translators_shows_no_row(root, monkeypatch):
     monkeypatch.setattr(form_module, "translators", lambda code: "")
     wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
     assert wizard._translators_row is None
+    wizard._win.destroy()
+
+
+def test_language_step_links_to_crowdin_even_without_translators(root, monkeypatch):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+    from src.ui import form as form_module
+    from src.ui.wizard import SetupWizard
+    from src.updater import CROWDIN_URL
+
+    monkeypatch.setattr(form_module, "translators", lambda code: "")
+    opened = []
+    monkeypatch.setattr(form_module.webbrowser, "open", opened.append)
+    wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
+    link = wizard._help_translate_link
+    assert link.cget("text") == t("credit.help_translate")
+    order = [str(w) for w in wizard._body.pack_slaves()]
+    assert order.index(str(link)) == order.index(str(wizard._ui_language)) + 1
+    link.event_generate("<Button-1>")
+    assert opened == [CROWDIN_URL]
     wizard._win.destroy()

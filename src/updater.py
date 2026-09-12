@@ -16,6 +16,7 @@ PROJECT_URL = f"https://github.com/{GITHUB_REPO}"
 RELEASES_URL = f"{PROJECT_URL}/releases/latest"
 ISSUES_URL = f"{PROJECT_URL}/issues"
 AUTHOR_URL = "https://github.com/GoneTone"
+CROWDIN_URL = "https://crowdin.com/project/wizard101-chat-translator"
 LATEST_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
 _TIMEOUT = 10.0   # 啟動路徑不等它，但也不能讓手動檢查的按鈕卡住不放
