@@ -19,7 +19,7 @@ from src.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是一般文案）：自稱（選單顯示用，也是該語言使用者預設的
 # 翻譯目標）、這份譯文的譯者掛名。兩者都由該語言的譯者填，未填就當作沒有 —— 未翻譯的
-# 字串不會被匯出（crowdin.yml 的 skip_untranslated_strings），不會帶著來源語言的值進來。
+# 字串不會被匯出（Crowdin 專案設定的 Skip untranslated strings），不會帶著來源語言的值進來。
 META_NAME = "language.name"
 META_TRANSLATORS = "language.translators"
 
