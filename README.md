@@ -8,6 +8,7 @@ English | [繁體中文](README_ZH-TW.md) | [简体中文](README_ZH-CN.md)
 
 [![ci](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/GoneTone/wizard101-chat-translator/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/GoneTone/wizard101-chat-translator)](https://github.com/GoneTone/wizard101-chat-translator/releases/latest)
+[![Crowdin](https://badges.crowdin.net/wizard101-chat-translator/localized.svg)](https://crowdin.com/project/wizard101-chat-translator)
 
 Wizard101 Chat Translator — an AI translator for Wizard101's in-game chat, translating conversations both ways in real time.
 
@@ -27,6 +28,12 @@ Posts:
 ## ⚠ Important
 
 This software injects into the game process to read in-game conversations. KingsIsle does not sanction this, and it may be treated as a breach of the [Wizard101 Terms of Use](https://www.wizard101.com/game/termsofuse); under those terms KingsIsle may suspend an account for any reason, or for no reason. **Use at your own discretion.**
+
+## Localization
+
+Please help us translate this software!
+
+<https://crowdin.com/project/wizard101-chat-translator>
 
 ## Download
 
@@ -128,26 +135,6 @@ The rest of this file covers working from source: development, debugging and pac
 1. Start Wizard101 and log in, all the way into the game world.
 2. `uv run run.py` (equivalent to `uv run python -m src.main`).
 3. It works exactly as described in [How to Use](#how-to-use); when a banner shows up, see [Troubleshooting](#troubleshooting).
-
-### Adding a UI language
-
-The list of UI languages is discovered by scanning the language files under `src/i18n/`, so **adding one requires no code changes**:
-
-1. Copy `src/i18n/zh-TW.json` (the source language, with the most complete set of keys) to `src/i18n/<locale code>.json` — `ja-JP.json`, say — and translate every string. The file name is the Crowdin locale code (`en-US`, `zh-TW`, `ja-JP`), which is what `crowdin.yml` writes translations to, so a file downloaded from Crowdin already sits where it belongs.
-2. The fields at the top of the file are that language's own data, not strings for the translator to translate:
-
-   | Field | Description |
-   |-------|-------------|
-   | `language.name` | The language's endonym, e.g. `日本語`. The language menu shows it untranslated whatever the UI language is; it is also the default `target_language` for someone whose first launch picks this language. **A language file that does not declare one is not offered in the menu** |
-   | `language.translators` | Translation credits, e.g. `[GoneTone](https://github.com/GoneTone)、Someone`. `[text](url)` adds an inline link (`http` / `https` only). Empty = not shown; it appears under the language dropdown in the settings window, in the wizard's language step, and on the *About* tab |
-
-3. `uv run pytest` — `tests/test_i18n.py` checks that the new file's keys match the source language, that placeholders (`{app}` and friends) survived translation, and that the metadata is filled in.
-
-Which language file a system gets on first launch is decided by CLDR language-distance data ([`langcodes`](https://github.com/georgkrause/langcodes)) against the file names, so nothing needs declaring: a `zh-HK` system lands on `zh-TW`, `en-GB` on `en-US`, and a `pt-MZ` one would pick `pt-PT` over `pt-BR`. When no language file is close enough, the UI falls back to `en-US`. The UI font comes from the same data — the script behind the file name (`Jpan` → `Yu Gothic UI`, `Hant` → `Microsoft JhengHei`, everything else → `Segoe UI`), so nobody has to know which font family Windows ships for a language.
-
-Translations coming from Crowdin only carry the strings that are actually translated (*Skip untranslated strings* in the Crowdin project's export settings), so a language file holding a subset of the keys is the normal state — the rest falls back per key, English first and the source language last. A language only reaches the menu once it declares its endonym and has at least 60% of the source language's strings (`MINIMUM_COVERAGE`): Crowdin writes a file for every target language, and an empty or barely started one would just be a menu entry that opens a half-English UI. The source language and `en-US` are always offered. `app.log` records what was filtered out and at what percentage.
-
-`build.spec` bundles `src/i18n/*.json` when packaging, so a new file is carried into the exe automatically.
 
 ### Checks
 
