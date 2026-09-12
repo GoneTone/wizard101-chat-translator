@@ -17,10 +17,10 @@ from langcodes import LanguageTagError, closest_match
 from src.log import log
 from src.resources import bundle_dir
 
-# 語言檔自帶的 metadata（不是給譯者翻的文案）：自稱（選單顯示用，也是該語言使用者預設
-# 的翻譯目標）、介面字族、這份譯文的譯者掛名。
+# 語言檔自帶的 metadata（不是一般文案）：自稱（選單顯示用，也是該語言使用者預設的
+# 翻譯目標）、這份譯文的譯者掛名。兩者都由該語言的譯者填，未填就當作沒有 —— 未翻譯的
+# 字串不會被匯出（crowdin.yml 的 skip_untranslated_strings），不會帶著來源語言的值進來。
 META_NAME = "language.name"
-META_FONT = "language.font"
 META_TRANSLATORS = "language.translators"
 
 SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
@@ -51,8 +51,8 @@ def _load(code: str) -> dict[str, str]:
 
 def _meta(code: str, key: str) -> str:
     """讀某個語言檔自己宣告的 metadata（缺就回空字串）。
-    刻意不走 `t()` 的 fallback：自稱與字型借到別的語言，漏填會偽裝成正常值
-    （ja.json 忘了填自稱，選單上會出現第二個「English」）。"""
+    刻意不走 `t()` 的 fallback：自稱借到別的語言，漏填會偽裝成正常值
+    （ja-JP.json 忘了填自稱，選單上會出現第二個「English」）。"""
     try:
         return _load(code).get(key, "")
     except (OSError, ValueError) as exc:
@@ -80,11 +80,6 @@ def language_name(code: str) -> str:
     """語言的自稱（endonym）；語言檔沒宣告就回語言碼本身。
     語言選單在任何介面語言下都顯示自稱、不翻譯。"""
     return available_languages().get(code) or code
-
-
-def font_family(code: str) -> str | None:
-    """語言檔宣告的介面字族；沒宣告回 None，由呼叫端決定保底字型。"""
-    return _meta(code, META_FONT) or None
 
 
 def translators(code: str) -> str:

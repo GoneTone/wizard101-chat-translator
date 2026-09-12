@@ -139,12 +139,13 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
    | 字段 | 说明 |
    |------|------|
    | `language.name` | 该语言的自称（endonym），例如 `日本語`。语言菜单在任何界面语言下都显示它、不翻译；也是这个语言的用户首次运行时默认的 `target_language` |
-   | `language.font` | 界面字族，例如 `Yu Gothic UI`。没声明则退回 `Segoe UI` |
    | `language.translators` | 这份译文的译者署名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](网址)` 加行内链接（只接受 `http`／`https`）。留空＝不显示；设置窗口的语言下拉底下、首次设置向导的语言步骤与「关于」标签页都会显示它 |
 
 3. `uv run pytest` —— `tests/test_i18n.py` 会检查新语言文件的 key 与源语言一致、变量（`{app}` 等）没被翻坏、metadata 有填。
 
-首次运行时系统语言要对到哪一份语言文件，是拿文件名交给 CLDR 的语言距离数据（[`langcodes`](https://github.com/georgkrause/langcodes)）判断的，语言文件不必声明任何东西：`zh-HK` 的系统会落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同时有 `pt-BR` 与 `pt-PT`，`pt-MZ` 的系统会选 `pt-PT`。没有足够接近的语言文件时退 `en-US`。
+首次运行时系统语言要对到哪一份语言文件，是拿文件名交给 CLDR 的语言距离数据（[`langcodes`](https://github.com/georgkrause/langcodes)）判断的，语言文件不必声明任何东西：`zh-HK` 的系统会落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同时有 `pt-BR` 与 `pt-PT`，`pt-MZ` 的系统会选 `pt-PT`。没有足够接近的语言文件时退 `en-US`。界面字族同样由这份数据推导 —— 看文件名背后的文字系统（`Jpan` → `Yu Gothic UI`、`Hant` → `Microsoft JhengHei`，其余退 `Segoe UI`），译者不必知道 Windows 上该用哪个字族。
+
+从 Crowdin 下载的译文只会带真正翻好的字符串（`skip_untranslated_strings`），所以语言文件只有部分 key 是正常状态 —— 缺的逐键 fallback，先退英文、最后退源语言。
 
 打包时 `build.spec` 以 `src/i18n/*.json` 收录，新文件会自动被带进 exe。
 

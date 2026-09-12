@@ -3,3 +3,6 @@ append_commit_message: false
 files:
   - source: /src/i18n/zh-TW.json
     translation: /src/i18n/%locale%.json
+    # 未翻譯的字串不匯出：語言檔只帶自己真正翻好的文案，缺的由 t() 逐鍵退英文再退繁中。
+    # 匯出來源值會讓每份新語言檔都宣告自己叫「繁體中文（台灣）」。
+    skip_untranslated_strings: true
