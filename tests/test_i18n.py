@@ -38,10 +38,13 @@ def _load_raw(code: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_every_language_has_the_same_keys():
+def test_no_language_file_has_keys_the_source_language_lacks():
+    # 譯文未完成是常態（Crowdin 不匯出未翻譯的字串，缺的由 t() 逐鍵 fallback），
+    # 但多出來的 key 一定是問題：key 改名沒同步，或譯者加了程式讀不到的東西
     source = set(_load_raw(i18n.SOURCE_LANGUAGE))
     for code in i18n.available_languages():
-        assert set(_load_raw(code)) == source, f"{code} 的 key 與來源語言不一致"
+        extra = set(_load_raw(code)) - source
+        assert not extra, f"{code} 有來源語言沒有的 key：{sorted(extra)}"
 
 
 def test_placeholders_match_across_languages():
@@ -54,6 +57,8 @@ def test_placeholders_match_across_languages():
     for code in i18n.available_languages():
         strings = _load_raw(code)
         for key, template in source.items():
+            if key not in strings:      # 還沒翻到的字串不會被匯出，不是錯誤
+                continue
             assert placeholders(strings[key]) == placeholders(template), \
                 f"{code} 的 {key} 變數與來源語言不一致"
 
@@ -117,7 +122,7 @@ def test_broken_placeholder_falls_back_to_the_next_language():
 
 
 def test_unknown_language_code_falls_back_to_default():
-    i18n.set_language("fr-FR")
+    i18n.set_language("xx-XX")
     assert i18n.current_language() == i18n.DEFAULT_LANGUAGE
 
 
@@ -131,8 +136,7 @@ def test_unknown_language_code_falls_back_to_default():
     ("zh-Hans", "zh-CN"),
     ("en-US", "en-US"),
     ("en-GB", "en-US"),      # 同語言的其他地區變體
-    ("ja-JP", "en-US"),      # 沒有夠近的語言檔：退預設語言
-    ("xx-XX", "en-US"),      # 不存在的語言
+    ("xx-XX", "en-US"),      # 不存在的語言：沒有夠近的語言檔，退預設語言
     ("", "en-US"),           # 標籤根本解析不了
 ])
 def test_best_match_picks_the_closest_catalog(tag, expected):
@@ -140,13 +144,14 @@ def test_best_match_picks_the_closest_catalog(tag, expected):
 
 
 def test_best_match_follows_the_preference_order():
-    # 使用者偏好清單依序找，第一個有夠近語言檔的標籤勝出（日文沒有語言檔，跳過）
-    assert i18n.best_match(["ja-JP", "zh-CN", "en-US"]) == "zh-CN"
+    # 使用者偏好清單依序找，第一個有夠近語言檔的標籤勝出。第一順位刻意用不存在的語言：
+    # 拿真實語言當「沒有語言檔」的例子，Crowdin 一加該語言這條就會假失敗
+    assert i18n.best_match(["xx-XX", "zh-CN", "en-US"]) == "zh-CN"
 
 
 def test_best_match_falls_back_to_default_when_nothing_is_close():
     assert i18n.best_match([]) == i18n.DEFAULT_LANGUAGE
-    assert i18n.best_match(["ja-JP", "ko-KR"]) == i18n.DEFAULT_LANGUAGE
+    assert i18n.best_match(["xx-XX", "yy-YY"]) == i18n.DEFAULT_LANGUAGE
 
 
 def test_system_preferences_are_valid_language_tags():
@@ -166,20 +171,21 @@ def test_languages_are_listed_as_endonyms():
     assert languages[i18n.SOURCE_LANGUAGE] == "繁體中文（台灣）"
 
 
-def test_every_language_file_declares_its_own_metadata():
-    for code, name in i18n.available_languages().items():
-        assert name and name != code, f"{code} 缺 language.name"
-        assert i18n.font_family(code), f"{code} 缺 language.font"
+def test_language_names_are_unique():
+    # 自稱是語言選單唯一的識別字（選單顯示自稱，選完再反查回語言碼），撞名會讓選單出現
+    # 兩列一模一樣的語言、而且選了其中一個卻套用到另一個
+    names = list(i18n.available_languages().values())
+    duplicated = {name for name in names if names.count(name) > 1}
+    assert not duplicated, f"這些自稱被多個語言檔宣告：{sorted(duplicated)}"
 
 
 def test_a_new_language_file_needs_no_code_change(fake_catalog):
     # 本測試就是「新增語言只要丟一個語言檔」的實證：程式碼裡沒有任何 ja-JP 的痕跡
-    fake_catalog("en-US", {"language.name": "English", "language.font": "Segoe UI"})
-    fake_catalog("ja-JP", {"language.name": "日本語", "language.font": "Yu Gothic UI"})
+    fake_catalog("en-US", {"language.name": "English"})
+    fake_catalog("ja-JP", {"language.name": "日本語"})
 
     assert i18n.available_languages() == {"en-US": "English", "ja-JP": "日本語"}
     assert i18n.language_name("ja-JP") == "日本語"
-    assert i18n.font_family("ja-JP") == "Yu Gothic UI"
     assert i18n.best_match(["ja-JP"]) == "ja-JP"   # 系統語言配對也自動認得，語言檔不必宣告什麼
 
 
@@ -204,11 +210,10 @@ def test_regional_variants_are_told_apart(fake_catalog):
 def test_missing_metadata_never_borrows_another_language(fake_catalog):
     # metadata 不走 t() 的 fallback：忘了填 language.name 就顯示語言碼，
     # 顯示成 "English" 反而看不出是漏填。
-    fake_catalog("en-US", {"language.name": "English", "language.font": "Segoe UI"})
+    fake_catalog("en-US", {"language.name": "English"})
     fake_catalog("ja-JP", {"app.name": "ウィザード"})
 
     assert i18n.available_languages()["ja-JP"] == "ja-JP"
-    assert i18n.font_family("ja-JP") is None
 
 
 def test_translators_are_never_borrowed_from_another_language(fake_catalog):
