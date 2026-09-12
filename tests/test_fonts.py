@@ -17,7 +17,7 @@ def test_font_family_follows_language():
     assert ui_font(9) == ("Microsoft JhengHei", 9)
     i18n.set_language("zh-CN")
     assert ui_font(9) == ("Microsoft YaHei", 9)
-    i18n.set_language("en")
+    i18n.set_language("en-US")
     assert ui_font(9) == ("Segoe UI", 9)
 
 

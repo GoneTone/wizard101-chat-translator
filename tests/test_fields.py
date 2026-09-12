@@ -46,7 +46,7 @@ def test_provider_labels_are_translated():
 
     before = i18n.current_language()
     try:
-        i18n.set_language("en")
+        i18n.set_language("en-US")
         assert t(PROVIDERS["custom"].label_key) == "Custom endpoint (OpenAI-compatible)"
         i18n.set_language("zh-CN")
         assert t(PROVIDERS["custom"].label_key) == "自定义端点（OpenAI API 兼容）"
@@ -65,8 +65,8 @@ def test_ui_language_field_round_trips_language_code(root):
 
     field = UiLanguageField(root, "zh-TW")
     assert field.value() == "zh-TW"
-    field.set_value("en")
-    assert field.value() == "en"
+    field.set_value("en-US")
+    assert field.value() == "en-US"
 
 
 def test_validate_requires_model():

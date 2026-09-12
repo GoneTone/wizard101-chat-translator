@@ -133,17 +133,18 @@ The rest of this file covers working from source: development, debugging and pac
 
 The list of UI languages is discovered by scanning the language files under `src/i18n/`, so **adding one requires no code changes**:
 
-1. Copy `src/i18n/zh-TW.json` (the source language, with the most complete set of keys) to `src/i18n/<language code>.json` — `ja.json`, say — and translate every string.
+1. Copy `src/i18n/zh-TW.json` (the source language, with the most complete set of keys) to `src/i18n/<locale code>.json` — `ja-JP.json`, say — and translate every string. The file name is the Crowdin locale code (`en-US`, `zh-TW`, `ja-JP`), which is what `crowdin.yml` writes translations to, so a file downloaded from Crowdin already sits where it belongs.
 2. The fields at the top of the file are that language's own data, not strings for the translator to translate:
 
    | Field | Description |
    |-------|-------------|
    | `language.name` | The language's endonym, e.g. `日本語`. The language menu shows it untranslated whatever the UI language is; it is also the default `target_language` for someone whose first launch picks this language |
    | `language.font` | The UI font family, e.g. `Yu Gothic UI`. Falls back to `Segoe UI` when not declared |
-   | `language.locales` | Which Windows locale names this language file claims, space-separated (e.g. `zh_TW zh_HK zh_MO`). When the first launch detects the system language, it first looks for a language file claiming that locale and only falls back to matching the language prefix. **Different scripts of the same language (`zh_TW` for traditional, `zh_CN` for simplified) must be named explicitly**, or the two language files fight over the same prefix; something like `ja_JP` already matches the language code `ja` by prefix, so leave it empty |
    | `language.translators` | Translation credits, e.g. `[GoneTone](https://github.com/GoneTone)、Someone`. `[text](url)` adds an inline link (`http` / `https` only). Empty = not shown; it appears under the language dropdown in the settings window, in the wizard's language step, and on the *About* tab |
 
 3. `uv run pytest` — `tests/test_i18n.py` checks that the new file's keys match the source language, that placeholders (`{app}` and friends) survived translation, and that the metadata is filled in.
+
+Which language file a system gets on first launch is decided by CLDR language-distance data ([`langcodes`](https://github.com/georgkrause/langcodes)) against the file names, so nothing needs declaring: a `zh-HK` system lands on `zh-TW`, `en-GB` on `en-US`, and a `pt-MZ` one would pick `pt-PT` over `pt-BR`. When no language file is close enough, the UI falls back to `en-US`.
 
 `build.spec` bundles `src/i18n/*.json` when packaging, so a new file is carried into the exe automatically.
 

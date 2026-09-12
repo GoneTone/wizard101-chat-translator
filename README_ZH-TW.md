@@ -133,17 +133,18 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 
 介面語言清單由 `src/i18n/` 底下的語言檔掃描而來，**新增一個語言不必改任何程式碼**：
 
-1. 複製 `src/i18n/zh-TW.json`（來源語言，key 最齊全）成 `src/i18n/<語言碼>.json`，例如 `ja.json`，把每一則文案翻好。
+1. 複製 `src/i18n/zh-TW.json`（來源語言，key 最齊全）成 `src/i18n/<locale 代碼>.json`，例如 `ja-JP.json`，把每一則文案翻好。檔名採 Crowdin 的 locale 代碼（`en-US`／`zh-TW`／`ja-JP`），也就是 `crowdin.yml` 寫入譯文的路徑，從 Crowdin 下載的檔案直接就位。
 2. 檔案開頭這幾個欄位是該語言自己的資料，不是給譯者翻的文案：
 
    | 欄位 | 說明 |
    |------|------|
    | `language.name` | 該語言的自稱（endonym），例如 `日本語`。語言選單在任何介面語言下都顯示它、不翻譯；也是這個語言的使用者首次執行時預設的 `target_language` |
    | `language.font` | 介面字族，例如 `Yu Gothic UI`。沒宣告則退回 `Segoe UI` |
-   | `language.locales` | 這個語言檔要認領哪些 Windows locale 名稱，空白分隔（例如 `zh_TW zh_HK zh_MO`）。首次執行偵測系統語言時，先看有沒有語言檔認領該 locale，沒人認領才退回比對語言前綴。**同語言不同字集（`zh_TW` 對繁體、`zh_CN` 對簡體）必須指名**，否則兩份語言檔搶同一個前綴；`ja_JP` 這種靠前綴就對得上語言碼 `ja`，留空即可 |
    | `language.translators` | 這份譯文的譯者掛名，例如 `[GoneTone](https://github.com/GoneTone)、Someone`。可用 `[文字](網址)` 加行內連結（只接受 `http`／`https`）。留空＝不顯示；設定視窗的語言下拉底下、首次設定精靈的語言步驟與「關於」分頁都會顯示它 |
 
 3. `uv run pytest` —— `tests/test_i18n.py` 會檢查新語言檔的 key 與來源語言一致、變數（`{app}` 等）沒被翻壞、metadata 有填。
+
+首次執行時系統語言要對到哪一份語言檔，是拿檔名交給 CLDR 的語言距離資料（[`langcodes`](https://github.com/georgkrause/langcodes)）判斷的，語言檔不必宣告任何東西：`zh-HK` 的系統會落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同時有 `pt-BR` 與 `pt-PT`，`pt-MZ` 的系統會選 `pt-PT`。沒有夠接近的語言檔時退 `en-US`。
 
 打包時 `build.spec` 以 `src/i18n/*.json` 收錄，新檔會自動被帶進 exe。
 

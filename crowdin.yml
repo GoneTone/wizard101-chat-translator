@@ -1,0 +1,5 @@
+commit_message: Translations %language%
+append_commit_message: false
+files:
+  - source: /src/i18n/zh-TW.json
+    translation: /src/i18n/%locale%.json
