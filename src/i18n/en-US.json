@@ -1,5 +1,6 @@
 {
   "language.name": "English",
+  "language.translators": "[Claude Code](https://claude.com/claude-code)",
   "app.name": "Wizard101 Chat Translator",
   "menu.copy": "Copy",
   "notice.pending": "Translating…",
