@@ -676,3 +676,19 @@ def test_releasing_topmost_survives_a_window_closed_in_the_meantime(root):
     closed = win._win
     closed.destroy()
     win._release_topmost(closed)
+
+
+def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    assert DEFAULT_CONFIG["paste_hotkey"] is True
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._paste_hotkey.get() is True
+    win._paste_hotkey.set(False)
+    win._save()
+    assert cfg["paste_hotkey"] is False

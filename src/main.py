@@ -16,7 +16,14 @@ import win32gui
 import winerror
 
 from src import __version__
-from src.composer.paste import force_foreground, foreground_exe, type_into_window
+from src.composer.paste import (
+    PasteInterceptor,
+    force_foreground,
+    foreground_exe,
+    install_paste_hook,
+    paste_clipboard,
+    type_into_window,
+)
 from src.config import (
     CONFIG_PATH,
     DEFAULT_CONFIG,
@@ -172,6 +179,24 @@ def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
     log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
+def should_intercept_paste(cfg: dict) -> bool:
+    """Ctrl+V 要不要由本程式接手：設定開啟且遊戲在前景。其他視窗一律不碰，
+    瀏覽器、聊天軟體裡的貼上照常。跑在鍵盤 hook 裡，每次按鍵都會問，要快。"""
+    return bool(cfg["paste_hotkey"]) and is_game_process_path(foreground_exe())
+
+
+def on_paste_hotkey(cfg: dict, game_chat_open: threading.Event) -> threading.Thread:
+    """攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
+    不能在 hook 回呼裡直接打字（Windows 會判定 hook 逾時而整個拔掉）。遊戲聊天輸入框
+    開著時走單行模式（換行改空格），其他地方換行照打。"""
+    hwnd = win32gui.GetForegroundWindow()
+    worker = threading.Thread(target=paste_clipboard,
+                              args=(hwnd, cfg["type_delay"], game_chat_open.is_set()),
+                              daemon=True)
+    worker.start()
+    return worker
+
+
 def apply_window_icon(root: tk.Tk) -> int | None:
     """把應用程式 icon 裝到視窗類別上，回傳 HICON；失敗回 None（icon 只是裝飾，不擋啟動）。
 
@@ -228,7 +253,7 @@ def log_startup_summary(cfg: dict, api: dict) -> None:
         f"ui_language={cfg['ui_language']} (active={current_language()}), "
         f"provider={api['provider']}, model={api['model']}, "
         f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
-        f"poll_interval={cfg['poll_interval']}, "
+        f"paste_hotkey={cfg['paste_hotkey']}, poll_interval={cfg['poll_interval']}, "
         f"parallel={cfg['max_parallel_translations']}, "
         f"translate_system={cfg['translate_system_messages']}")
 
@@ -339,6 +364,11 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         text, context.snapshot()), ui_queue, on_translated)
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
+    # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
+    game_chat_open = threading.Event()
+    # 攔截器每次都直接讀 cfg，設定視窗改開關不必重掛；關閉時由 shutdown 的 unhook_all 一併卸除
+    install_paste_hook(PasteInterceptor(lambda: should_intercept_paste(cfg),
+                                        lambda: on_paste_hotkey(cfg, game_chat_open)))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def relabel_ui() -> None:
@@ -373,7 +403,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
             f"poll_interval={cfg['poll_interval']}, fade_seconds={cfg['fade_seconds']}, "
             f"max_messages={cfg['max_messages']}, overlay_alpha={cfg['overlay_alpha']}, "
             f"translate_system_messages={cfg['translate_system_messages']}, "
-            f"auto_show_input={cfg['auto_show_input']}")
+            f"auto_show_input={cfg['auto_show_input']}, paste_hotkey={cfg['paste_hotkey']}")
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,
@@ -382,6 +412,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
     def on_game_input_open(anchor) -> None:
         """遊戲聊天輸入框開了：記下錨點（熱鍵呼出也要貼齊），依設定決定是否自動呼出。"""
+        game_chat_open.set()
         if anchor is not None:
             input_box.set_anchor(anchor)
         if cfg["auto_show_input"]:
@@ -389,6 +420,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
     def on_game_input_close() -> None:
         """遊戲聊天輸入框關了：被動收起翻譯輸入框，打到一半的文字留到下次呼出。"""
+        game_chat_open.clear()
         input_box.clear_anchor()
         if cfg["auto_show_input"]:
             input_box.hide()

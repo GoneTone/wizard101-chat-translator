@@ -23,7 +23,7 @@ Chat is read straight out of the game's chat window rather than off the screen: 
 Posts:
 
 - 巴哈姆特 (Bahamut): <https://forum.gamer.com.tw/C.php?bsn=17541&snA=288&tnum=1>
-- 旋風之音 GoneTone - Website：<https://blog.reh.tw/archives/4224>
+- 旋風之音 GoneTone - Website: <https://blog.reh.tw/archives/4224>
 
 ## ⚠ Important
 
@@ -58,19 +58,21 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - **Selectable and copyable**: press and drag the left mouse button over the messages to select text, across several messages if you want; dragging past the top or bottom edge of the message area auto-scrolls, so you can reach content that is off-screen. Then press `Ctrl+C`, or right-click the selection and choose *Copy*. Copied text has **a blank line between messages**.
    - Note: the window is not click-through — clicks on the area it covers do not reach the game.
 4. To say something: open the chat input box in the game → the translation input box appears on its own, right below the game's chat box and just as wide (re-aligned every time the chat box opens) → type your message (in any language) → Enter → the software switches back to the game and **types the translated English into the chat box character by character** → check it yourself, then press Enter to send.
-   - If you closed the translation input box, or turned the automatic popup (`auto_show_input`) off in the settings, press `Ctrl+Space` (the default) to bring it up; it opens under the game's chat box when that is open, otherwise at the mouse cursor. The hotkey only fires while the game window is in the foreground, so it never triggers in other apps.
+   - If you closed the translation input box, or turned the automatic popup off in the settings, press `Ctrl+Space` (the default) to bring it up; it opens under the game's chat box when that is open, otherwise at the mouse cursor. The hotkey only fires while the game window is in the foreground, so it never triggers in other apps.
    - A translation longer than the game chat box's 80-character limit is not typed: the translation input box shows the count and keeps your text so you can trim it or split it up and resend.
    - If the game closes its chat box while you are still typing, the translation input box hides with it but keeps the unsent text and restores it the next time it opens; only closing it yourself with Esc or ✕ discards the text.
    - Characters dropped, or typed too fast, while the translation goes into the game → open the settings window (⚙) and raise *Typing delay (s)* on the *Advanced* tab.
-   - Keep the cursor in the game's chat input box while it types — do not click another window.
-5. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart (the only exception is *Game path* on the *Advanced* tab, which takes effect on the next start).
-6. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
-7. Every launch checks GitHub for a new version; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
+   - Keep the cursor in the game's chat input box while it types. If you switch to another window, typing stops right there; the rest is never typed into the other window.
+5. To paste into the game: the game does not accept `Ctrl+V`, so with the game window in the foreground the software takes over `Ctrl+V` and **types the clipboard text character by character** instead (at the same typing delay). It works in any text field of the game, not just the chat box; while the game's chat input box is open, line breaks are typed as spaces so a multi-line clipboard does not send the message halfway through, elsewhere they are typed as Enter. `Ctrl+V` in any other window is untouched. It can be turned off in the settings.
+6. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart (the only exception is *Game path* on the *Advanced* tab, which takes effect on the next start).
+7. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
+8. Every launch checks GitHub for a new version; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
 ## Features
 
 - **Understand what people are saying**: every line of chat is translated into your language in real time, with the original kept above it; it keeps up even when messages flood in
 - **Speak in your own language**: open the game's chat input box and the translation input box appears on its own; type, press Enter, and the English translation is typed into the chat box — whether to send it is up to you
+- **Paste text into the game**: the game itself cannot paste text, so `Ctrl+V` with the game in the foreground types the clipboard for you, in any text field
 - **No misread characters, no missed messages**: the game's chat content is read directly rather than recognized off the screen, and both other people's lines and your own are covered
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI (ChatGPT), Anthropic (Claude), or your own OpenAI-compatible service; each keeps its own settings, so switching back and forth never makes you retype a key
@@ -86,7 +88,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **The "Access denied" banner**: the game is running as administrator, so the software cannot hook into it. Close the software and start it as administrator (from source, open the terminal as administrator).
 - **The "Game version not supported" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). Nothing is written into the game in this state, so leaving it be has no side effects.
 - **Status stuck at "Connecting to game…", or "Game not ready or disconnected"**: make sure the game is running and that you are logged in, all the way into the game world.
-- **Characters dropped while the translation is typed in**: raise *Typing delay (s)* on the *Advanced* tab of the settings window (⚙), and make sure the cursor stays in the game's chat input box while it types.
+- **Characters dropped while the translation is typed in**: raise *Typing delay (s)* on the *Advanced* tab of the settings window (⚙), and do not switch windows while it types (typing stops as soon as the game leaves the foreground).
 
 ## Screenshots
 

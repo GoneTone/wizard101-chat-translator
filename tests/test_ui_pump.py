@@ -122,3 +122,32 @@ def test_register_hotkey_uses_the_requested_key_when_valid(monkeypatch):
     monkeypatch.setattr(main, "keyboard", fake)
     handle, used = main.register_hotkey("f8", lambda: None)
     assert used == "f8" and fake.registered == ["f8"]
+
+
+# --- Ctrl+V 攔截：只在設定開啟且遊戲在前景時接手 ---
+def test_paste_intercepted_only_when_enabled_and_game_is_foreground(monkeypatch):
+    import src.main as main
+    game = r"C:\Wizard101\Bin\WizardGraphicalClient.exe"
+    monkeypatch.setattr(main, "foreground_exe", lambda: game)
+    assert main.should_intercept_paste({"paste_hotkey": True}) is True
+    assert main.should_intercept_paste({"paste_hotkey": False}) is False
+    monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\chrome.exe")
+    assert main.should_intercept_paste({"paste_hotkey": True}) is False
+    monkeypatch.setattr(main, "foreground_exe", lambda: None)
+    assert main.should_intercept_paste({"paste_hotkey": True}) is False
+
+
+def test_paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open(monkeypatch):
+    import threading
+
+    import src.main as main
+    pasted = []
+    monkeypatch.setattr(main, "paste_clipboard",
+                        lambda hwnd, delay, single_line: pasted.append((hwnd, delay, single_line)))
+    monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0x77)
+    chat_open = threading.Event()
+    cfg = {"type_delay": 0.03}
+    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
+    chat_open.set()
+    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
+    assert pasted == [(0x77, 0.03, False), (0x77, 0.03, True)]

@@ -161,6 +161,9 @@ class SettingsWindow:
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
         ttk.Checkbutton(basic, text=t("field.auto_input"),
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
+        self._paste_hotkey = tk.BooleanVar(value=cfg["paste_hotkey"])
+        ttk.Checkbutton(basic, text=t("field.paste_hotkey"),
+                        variable=self._paste_hotkey).pack(anchor="w", pady=(4, 0))
 
     def _build_advanced(self, nb, cfg: dict) -> None:
         """進階分頁：數值參數、不透明度、系統訊息開關、遊戲路徑。"""
@@ -406,6 +409,7 @@ class SettingsWindow:
             "target_language": self._language.value(),
             "hotkey": self._hotkey.value(),
             "auto_show_input": self._auto_input.get(),
+            "paste_hotkey": self._paste_hotkey.get(),
             "translate_system_messages": self._translate_system.get(),
             "game_path": self._game_path.get().strip() or None,
         }
