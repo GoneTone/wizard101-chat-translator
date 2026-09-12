@@ -145,7 +145,7 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 
 首次執行時系統語言要對到哪一份語言檔，是拿檔名交給 CLDR 的語言距離資料（[`langcodes`](https://github.com/georgkrause/langcodes)）判斷的，語言檔不必宣告任何東西：`zh-HK` 的系統會落到 `zh-TW`、`en-GB` 落到 `en-US`，若哪天同時有 `pt-BR` 與 `pt-PT`，`pt-MZ` 的系統會選 `pt-PT`。沒有夠接近的語言檔時退 `en-US`。介面字族同樣由這份資料推導 —— 看檔名背後的文字系統（`Jpan` → `Yu Gothic UI`、`Hant` → `Microsoft JhengHei`，其餘退 `Segoe UI`），譯者不必知道 Windows 上該用哪個字族。
 
-從 Crowdin 下載的譯文只會帶真正翻好的字串（`skip_untranslated_strings`），所以語言檔只有部分 key 是正常狀態 —— 缺的逐鍵 fallback，先退英文、最後退來源語言。語言要進得了選單，得同時宣告自稱、且完成度達來源語言的 80%（`MINIMUM_COVERAGE`）：Crowdin 會替每個目標語言產檔，空的或才起步的語言進了選單，選下去只是一個半英半外的介面。來源語言與 `en-US` 一律列入。被擋下的語言與其完成度會記在 `app.log`。
+從 Crowdin 下載的譯文只會帶真正翻好的字串（`skip_untranslated_strings`），所以語言檔只有部分 key 是正常狀態 —— 缺的逐鍵 fallback，先退英文、最後退來源語言。語言要進得了選單，得同時宣告自稱、且完成度達來源語言的 60%（`MINIMUM_COVERAGE`）：Crowdin 會替每個目標語言產檔，空的或才起步的語言進了選單，選下去只是一個半英半外的介面。來源語言與 `en-US` 一律列入。被擋下的語言與其完成度會記在 `app.log`。
 
 打包時 `build.spec` 以 `src/i18n/*.json` 收錄，新檔會自動被帶進 exe。
 

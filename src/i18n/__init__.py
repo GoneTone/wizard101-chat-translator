@@ -25,7 +25,7 @@ META_TRANSLATORS = "language.translators"
 
 SOURCE_LANGUAGE = "zh-TW"   # 文案來源語言：Crowdin 上傳來源、測試基準、fallback 的最後一層
 DEFAULT_LANGUAGE = "en-US"  # 尚未設定、偵測不到或語言碼不認得時的預設，也是缺字串時優先退的語言
-MINIMUM_COVERAGE = 0.8      # 低於這個完成度就不進語言選單，見 available_languages()
+MINIMUM_COVERAGE = 0.6      # 低於這個完成度就不進語言選單，見 available_languages()
 
 _current = DEFAULT_LANGUAGE   # set_language() 被呼叫前的預設（main.py 啟動時一定會設）
 _cache: dict[str, dict[str, str]] = {}
