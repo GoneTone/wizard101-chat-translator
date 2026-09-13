@@ -232,9 +232,9 @@ class SettingsWindow:
         self._update_btn = ttk.Button(version_row, text=t("button.check_update"),
                                       command=self._start_update_check)
         self._update_btn.pack(side="left", padx=(8, 0))
-        self._update_result = ttk.Label(version_row, text="")
         # 每次重建視窗都是新的一輪：舊視窗還沒回來的結果留在舊按鈕那一輪，不會落到這裡
         self._update_task = BackgroundButton(self._update_btn, "update check")
+        self._update_result = ttk.Label(version_row, text="")
         # 不 fill／expand：「有新版」時整個標籤是連結，撐滿整列會讓文字後的空白也可點；
         # 換行寬度仍由 bind_wrap 依這一列的寬度算，長訊息照樣折行。
         self._update_result.pack(side="left", padx=8)
@@ -327,8 +327,8 @@ class SettingsWindow:
             log("[update] manual check: already up to date")
             show_outcome(self._update_result, True, t("update.latest"))
             return
-        log(f"[update] manual check: {release.version} available")
         release = result
+        log(f"[update] manual check: {release.version} available")
         # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
         self._update_result.configure(text=t("update.available", version=release.version),
                                       foreground=LINK_COLOR, cursor="hand2")
@@ -379,7 +379,7 @@ class SettingsWindow:
         self._restore_geometry = self._win.geometry()
         self._restore_tab = self._nb.index("current")
         log(f"[ui] settings previewing language {code}")
-        self._preview_language(code)
+        set_language(code)
         # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
         # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
         self._win.after_idle(self._rebuild)
@@ -387,11 +387,24 @@ class SettingsWindow:
     def _preview_language(self, code: str) -> None:
         """套用預覽語言；常駐的 overlay 也要跟著換（由呼叫端提供）。"""
         set_language(code)
+        self._relabel_overlay()
+
+    def _relabel_overlay(self) -> None:
         if self._on_language_preview is not None:
             self._on_language_preview()
 
     def _rebuild(self) -> None:
-        self._win.destroy()
+        """以新語言重建視窗。overlay 先 relabel、用 update() 把重繪跑完，才拆舊窗建新窗。
+
+        新視窗映射時會湧出大量繪圖事件，overlay 標籤縮短後騰出區域的重繪（Tk 排在 idle）
+        會被排到那之後，舊語言多出的那截字殘留約 0.3 秒（實機截圖與逐幀擷取確認）。
+        update_idletasks() 不夠：騰出區域要先收到 Windows 的 WM_PAINT 才會重繪，得跑一輪
+        完整事件迴圈。此處在 after_idle 內、不在事件 binding 裡，update() 的重入風險低；
+        期間視窗仍可能被使用者關掉，故先確認還在。"""
+        self._relabel_overlay()
+        self._root.update()
+        if self._win is not None and self._win.winfo_exists():
+            self._win.destroy()
         self._win = None
         self.open()
 
@@ -424,15 +437,21 @@ class SettingsWindow:
 
     def _cancel(self) -> None:
         """取消／關窗：把預覽中的透明度與介面語言都還原為目前設定值。"""
+        if self._win is None or not self._win.winfo_exists():
+            return   # update() 期間再按一次取消／關窗會重入到這裡
         if self._on_alpha_preview is not None:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
+        self._draft = None
         if (self._language_at_open is not None
                 and current_language() != self._language_at_open):
             log(f"[ui] settings language preview reverted to "
                 f"{self._language_at_open}")
             self._preview_language(self._language_at_open)
-        self._draft = None
-        self._win.destroy()
+            # 同 _rebuild：先把 overlay 的重繪跑完再拆窗，拆窗的事件才不會把它往後推
+            # （逐幀擷取實測：先拆再 relabel、或拆完排 after_idle 都仍殘留約 0.1 秒）
+            self._root.update()
+        if self._win is not None and self._win.winfo_exists():
+            self._win.destroy()
 
     def _spin(self, parent, grid_row, label_key, initial, key, step, hint_key):
         """進階數值的一列：標籤、Spinbox、範圍說明各佔 grid 的一欄。"""

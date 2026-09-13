@@ -235,6 +235,32 @@ def test_changing_ui_language_previews_it_without_touching_config(root):
         i18n.set_language(before)
 
 
+def test_language_preview_flushes_the_overlay_repaint_before_rebuilding(root):
+    """回歸測試：overlay relabel 之後必須先跑一輪完整事件迴圈（update），再重建設定視窗。
+    新視窗映射時湧出的繪圖事件會把 overlay 標籤縮短後騰出區域的重繪往後推，舊語言多出的
+    那截字殘留約 0.3 秒（實機截圖：「对话翻译助手or」、「(● 监听中ɡ」）；update_idletasks
+    不夠，逐幀擷取實測仍殘留。"""
+    from src import i18n
+
+    before = i18n.current_language()
+    events = []
+    real_update = root.update
+    try:
+        i18n.set_language("zh-TW")
+        win = _open_settings(root)
+        old_win = win._win
+        win._on_language_preview = lambda: events.append("relabel")
+        root.update = lambda: events.append("update")
+        win._on_language_change("en-US")
+        real_update()
+        assert events == ["relabel", "update"]
+        assert not old_win.winfo_exists() and win._win.winfo_exists()
+        win._win.destroy()
+    finally:
+        root.update = real_update
+        i18n.set_language(before)
+
+
 def test_language_preview_keeps_unsaved_edits(root):
     from src import i18n
 
