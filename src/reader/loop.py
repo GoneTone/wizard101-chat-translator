@@ -32,6 +32,9 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 INPUT_POLL_INTERVAL = 0.05
 
 
+_PLAIN_NOTICE = {"config": "notice.config_error", "offline": "notice.offline"}
+
+
 def banner_for(game_issue: str | None, error_state: str | None,
                error_detail: tuple[int | None, str] | None = None) -> tuple[str, dict] | None:
     """決定該顯示哪一條錯誤橫幅：（文案 key，format 變數）或 None＝不顯示。
@@ -40,19 +43,89 @@ def banner_for(game_issue: str | None, error_state: str | None,
     沒有才退回只靠狀態猜的固定文案。"""
     if game_issue:
         return game_issue, {}
+    if error_state not in _PLAIN_NOTICE:
+        return None
+    if not error_detail:
+        return _PLAIN_NOTICE[error_state], {}
+    status, message = error_detail
     if error_state == "config":
-        if error_detail:
-            status, message = error_detail
-            return "notice.config_error_detail", {"status": status, "message": message}
-        return "notice.config_error", {}
-    if error_state == "offline":
-        if error_detail:
-            status, message = error_detail
-            if status is not None:
-                return "notice.offline_http", {"status": status, "message": message}
-            return "notice.offline_detail", {"message": message}
-        return "notice.offline", {}
-    return None
+        return "notice.config_error_detail", {"status": status, "message": message}
+    if status is not None:
+        return "notice.offline_http", {"status": status, "message": message}
+    return "notice.offline_detail", {"message": message}
+
+
+def translation_banner(game_issue: str | None, pool: TranslationPool,
+                       system_pool: TranslationPool | None) -> tuple[str, dict] | None:
+    """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
+    failing = pool if pool.error_state else system_pool
+    if failing is None:
+        return banner_for(game_issue, None)
+    return banner_for(game_issue, failing.error_state, failing.error_detail)
+
+
+class _OverlayFeed:
+    """reader 執行緒對 overlay 的推送：狀態字與橫幅都只在變化時才排進 ui_queue，
+    否則每輪 poll 都會塞一個沒有意義的重繪回呼。"""
+
+    def __init__(self, overlay: "OverlayWindow", ui_queue: queue.Queue):
+        self._overlay = overlay
+        self._queue = ui_queue
+        self._status: str | None = None
+        self._banner: tuple[str, dict] | None = None
+
+    def set_status(self, state: str) -> None:
+        if state == self._status:
+            return
+        self._status = state
+        self._queue.put(lambda: self._overlay.set_status(state))
+
+    def set_banner(self, banner: tuple[str, dict] | None) -> None:
+        if banner == self._banner:
+            return
+        self._banner = banner
+        if banner is None:
+            self._queue.put(self._overlay.clear_error)
+        else:
+            key, kwargs = banner
+            self._queue.put(lambda: self._overlay.set_error(key, **kwargs))
+
+
+class _InputWatch:
+    """遊戲聊天輸入框開／關的邊緣觸發：開 → 回報錨點；關 → 回報關閉。
+    on_input_open 為 None 時完全不取樣（呼叫端不關心輸入框）。"""
+
+    def __init__(self, reader: WizChatReader, on_input_open, on_input_close):
+        self._reader = reader
+        self._on_open = on_input_open
+        self._on_close = on_input_close
+        self.open = False
+
+    def poll(self) -> None:
+        """取樣一次，狀態翻轉才回報。"""
+        if self._on_open is None:
+            return
+        now_open = self._reader.input_open()
+        if now_open == self.open:
+            return
+        self.open = now_open
+        if now_open:
+            anchor = self._reader.input_box_screen_rect()
+            log(f"[reader] game chat input opened (anchor={anchor})")
+            self._on_open(anchor)
+        else:
+            self._report_closed()
+
+    def force_closed(self) -> None:
+        """遊戲斷線＝輸入框已不存在：開著就同步收回。"""
+        if self.open:
+            self.open = False
+            self._report_closed()
+
+    def _report_closed(self) -> None:
+        log("[reader] game chat input closed")
+        if self._on_close is not None:
+            self._on_close()
 
 
 def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
@@ -66,37 +139,10 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
     影響（要不要自動呼出由呼叫端決定，錨點則熱鍵呼出也用得到）；
     anchor＝遊戲輸入框的螢幕矩形 (x, y, w, h)，讀不到為 None。"""
     reader = WizChatReader(game_path=cfg.get("game_path"), message_log=message_log)
-    reader.emit_system = cfg.get("translate_system_messages", False)
+    feed = _OverlayFeed(overlay, ui_queue)
+    inputs = _InputWatch(reader, on_input_open, on_input_close)
     msg_ids = itertools.count(1)
     game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
-    game_input_open = False
-    last_status: str | None = None
-    last_banner: str | None = None
-
-    def set_status(state: str) -> None:
-        nonlocal last_status
-        if state == last_status:
-            return
-        last_status = state
-        ui_queue.put(lambda s=state: overlay.set_status(s))
-
-    def check_input() -> None:
-        """遊戲聊天輸入框開／關的邊緣觸發：開 → 回報錨點；關 → 回報關閉。"""
-        nonlocal game_input_open
-        if on_input_open is None:
-            return
-        now_open = reader.input_open()
-        if now_open == game_input_open:
-            return
-        game_input_open = now_open
-        if now_open:
-            anchor = reader.input_box_screen_rect()
-            log(f"[reader] game chat input opened (anchor={anchor})")
-            on_input_open(anchor)
-        else:
-            log("[reader] game chat input closed")
-            if on_input_close is not None:
-                on_input_close()
 
     def wait_watching_input(seconds: float) -> None:
         """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
@@ -109,29 +155,12 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
             if remaining <= 0:
                 return
             stop.wait(min(INPUT_POLL_INTERVAL, remaining))
-            check_input()
-
-    def translation_banner(game_issue: str | None) -> tuple[str, dict] | None:
-        """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
-        failing = pool if pool.error_state else system_pool
-        if failing is None:
-            return banner_for(game_issue, None)
-        return banner_for(game_issue, failing.error_state, failing.error_detail)
-
-    def set_banner(banner: tuple[str, dict] | None) -> None:
-        nonlocal last_banner
-        if banner == last_banner:
-            return
-        last_banner = banner
-        if banner is None:
-            ui_queue.put(overlay.clear_error)
-        else:
-            key, kwargs = banner
-            ui_queue.put(lambda: overlay.set_error(key, **kwargs))
+            inputs.poll()
 
     while not stop.is_set():
+        # 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
         reader.emit_system = cfg.get("translate_system_messages", False)
-        set_status("listening" if reader.anchored else "locating")
+        feed.set_status("listening" if reader.anchored else "locating")
         try:
             new_lines = reader.read_new()
         except GameNotRunning as exc:
@@ -141,15 +170,12 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                 status, issue = "version_mismatch", "notice.version_mismatch"
             else:
                 status, issue = "waiting_game", "notice.game_missing"
-            set_status(status)
+            feed.set_status(status)
             if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
                 log(f"[reader] game not ready: {exc}")
             game_issue = issue
-            set_banner(translation_banner(game_issue))
-            if game_input_open:
-                game_input_open = False  # 遊戲斷線＝輸入框已不存在，同步收回
-                if on_input_close is not None:
-                    on_input_close()
+            feed.set_banner(translation_banner(game_issue, pool, system_pool))
+            inputs.force_closed()
             stop.wait(GAME_MISSING_INTERVAL)
             continue
         except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
@@ -184,13 +210,13 @@ def reader_loop(cfg: dict, overlay: "OverlayWindow", ui_queue: queue.Queue,
                                              pending=True, color=c))
             pool.submit(line.text, ctx, msg_id)
 
-        set_banner(translation_banner(game_issue))
+        feed.set_banner(translation_banner(game_issue, pool, system_pool))
         if pool.in_flight or (system_pool is not None and system_pool.in_flight):
-            set_status("translating")
+            feed.set_status("translating")
         else:
-            set_status("listening" if reader.anchored else "locating")
+            feed.set_status("listening" if reader.anchored else "locating")
 
-        check_input()
+        inputs.poll()
         wait_watching_input(cfg["poll_interval"])
 
     reader.close()
