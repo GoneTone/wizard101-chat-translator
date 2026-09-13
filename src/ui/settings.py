@@ -60,12 +60,14 @@ class SettingsWindow:
     """設定視窗（單例）：open() 顯示或帶到前景；儲存時就地更新 cfg 並呼叫 on_save。"""
 
     def __init__(self, root: tk.Tk, cfg: dict, on_save, on_alpha_preview=None,
-                 on_language_preview=None, check_update=check_for_update, cache=None):
+                 on_language_preview=None, on_update_found=None,
+                 check_update=check_for_update, cache=None):
         self._root = root
         self._cfg = cfg
         self._on_save = on_save
         self._on_alpha_preview = on_alpha_preview  # 拖滑桿即時套用透明度（預覽）
         self._on_language_preview = on_language_preview  # 讓常駐視窗跟上預覽中的語言
+        self._on_update_found = on_update_found  # 手動檢查查到新版時通知（overlay 顯示橫幅）
         self._cache = cache   # 譯文快取；None＝關於分頁不畫「清除快取」那一列
         self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
         self._update_queue: queue.Queue = queue.Queue()
@@ -336,17 +338,20 @@ class SettingsWindow:
         log(f"[update] manual check: {release.version} available")
         result_queue.put(("available",
                           t("update.available", version=release.version),
-                          release.url))
+                          release))
 
     def _on_update_checked(self, result) -> None:
-        state, message, url = result
+        state, message, release = result
         self._update_btn.configure(state="normal", text=t("button.check_update"))
         self._update_result.unbind("<Button-1>")
         if state == "available":
             # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
             self._update_result.configure(text=message, foreground=LINK_COLOR,
                                           cursor="hand2")
-            self._update_result.bind("<Button-1>", lambda e: webbrowser.open(url))
+            self._update_result.bind("<Button-1>",
+                                     lambda e: webbrowser.open(release.url))
+            if self._on_update_found is not None:
+                self._on_update_found(release)
             return
         show_outcome(self._update_result, state == "latest", message)
         self._update_result.configure(cursor="")

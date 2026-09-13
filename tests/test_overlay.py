@@ -1187,3 +1187,53 @@ def test_selection_entry_points_are_bound(root):
         for sequence in ("<ButtonPress-1>", "<B1-Motion>",
                          "<ButtonRelease-1>", "<Button-3>"):
             assert line.bind(sequence), f"{sequence} 未綁定"
+
+
+def test_offer_update_shows_the_banner_when_nothing_was_dismissed(root):
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.offer_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    ov.clear_update()
+
+
+def test_offer_update_skips_a_version_the_user_dismissed(root):
+    """每小時自動檢查會反覆查到同一版：使用者按 ✕ 關掉後，同版（或更舊）不再跳出，
+    只有更新的版本才再顯示。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    ov._dismiss_update()
+    assert ov.update_text() is None
+
+    ov.offer_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() is None
+    ov.offer_update(Release(version="0.3.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.3.0")
+    ov.clear_update()
+
+
+def test_set_update_ignores_the_dismissed_version(root):
+    """手動檢查走 set_update：使用者自己按了「檢查更新」，關掉過的版本也要再顯示。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    ov._dismiss_update()
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    ov.clear_update()
+
+
+def test_clear_update_does_not_count_as_dismissing(root):
+    """程式自己收橫幅（clear_update）不是使用者的決定，之後同版仍該再提醒。"""
+    from src.updater import Release
+
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    ov.clear_update()
+    ov.offer_update(Release(version="0.2.0", url="https://example.invalid/rel"))
+    assert ov.update_text() == t("update.available", version="0.2.0")
+    ov.clear_update()
