@@ -3,11 +3,25 @@
 EDGE = 6        # 四邊的縮放感應寬度（px）
 _CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
 _CLICK_THRESHOLD = 5
+_EDGE_MARGIN = 4  # 夾在螢幕內時保留的餘裕
 
 
 def moved_to(start_x: int, start_y: int, dx: int, dy: int) -> tuple[int, int]:
     """拖曳位移後的新左上角座標。"""
     return start_x + dx, start_y + dy
+
+
+def centered_position(screen_w: int, screen_h: int, w: int, h: int) -> tuple[int, int]:
+    """把 w×h 的視窗擺在螢幕正中央時的左上角座標。"""
+    return (screen_w - w) // 2, (screen_h - h) // 2
+
+
+def clamped_position(x: int, y: int, w: int, h: int,
+                     screen_w: int, screen_h: int,
+                     margin: int = _EDGE_MARGIN) -> tuple[int, int]:
+    """把彈出位置夾進螢幕內：貼近右／下緣時往回收，免得選單有一半在畫面外。"""
+    return (max(margin, min(x, screen_w - w - margin)),
+            max(margin, min(y, screen_h - h - margin)))
 
 
 def point_in_rect(px: int, py: int, x: int, y: int, w: int, h: int) -> bool:

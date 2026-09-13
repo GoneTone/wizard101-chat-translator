@@ -9,6 +9,7 @@ from src.log import log
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, help_translate_link, translators_row
+from src.ui.geometry import centered_position
 from src.ui.providers import validate_api_form
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
@@ -43,8 +44,8 @@ class SetupWizard:
         # 預設高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
         # 測試結果訊息（尤其多行錯誤）還會再撐高。
         win_w, win_h = 540, 540
-        x = (self._win.winfo_screenwidth() - win_w) // 2
-        y = (self._win.winfo_screenheight() - win_h) // 2
+        x, y = centered_position(self._win.winfo_screenwidth(),
+                                 self._win.winfo_screenheight(), win_w, win_h)
         self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
         # 寬度下限維持開窗值（再窄是橫向擠壓，捲動救不了）；高度放寬，步驟內容可捲動

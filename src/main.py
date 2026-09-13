@@ -260,16 +260,24 @@ def redirect_output() -> None:
     sys.stderr = TimestampedStream(sys.stderr)
 
 
+def config_summary(cfg: dict, api: dict) -> str:
+    """一行設定摘要（啟動與套用設定時記錄，兩處同一份才不會漏欄位）；金鑰絕不列入。"""
+    return (f"provider={api['provider']}, model={api['model']}, "
+            f"target_language={cfg['target_language']!r}, ui_language={cfg['ui_language']}, "
+            f"hotkey={cfg['hotkey']}, paste_hotkey={cfg['paste_hotkey']}, "
+            f"auto_show_input={cfg['auto_show_input']}, "
+            f"poll_interval={cfg['poll_interval']}, "
+            f"parallel={cfg['max_parallel_translations']}, "
+            f"fade_seconds={cfg['fade_seconds']}, max_messages={cfg['max_messages']}, "
+            f"overlay_alpha={cfg['overlay_alpha']}, "
+            f"translate_system_messages={cfg['translate_system_messages']}")
+
+
 def log_startup_summary(cfg: dict, api: dict) -> None:
-    """啟動摘要：回報問題時第一眼掌握環境；金鑰絕不記錄。"""
+    """啟動摘要：回報問題時第一眼掌握環境。"""
     log(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
-        f"elevated={is_elevated()}, "
-        f"ui_language={cfg['ui_language']} (active={current_language()}), "
-        f"provider={api['provider']}, model={api['model']}, "
-        f"target_language={cfg['target_language']}, hotkey={cfg['hotkey']}, "
-        f"paste_hotkey={cfg['paste_hotkey']}, poll_interval={cfg['poll_interval']}, "
-        f"parallel={cfg['max_parallel_translations']}, "
-        f"translate_system={cfg['translate_system_messages']}")
+        f"elevated={is_elevated()}, active_language={current_language()}, "
+        f"{config_summary(cfg, api)}")
 
 
 def shutdown(stop: threading.Event, pools: list[TranslationPool],
@@ -314,68 +322,65 @@ class App:
     reader_thread: threading.Thread
 
 
-def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
-    """建構並接線所有元件（翻譯器與快取、overlay、翻譯池、輸入框與熱鍵、設定視窗），
-    啟動 reader 執行緒與更新檢查。"""
-    api = active_api(cfg)
-    log_startup_summary(cfg, api)
-
+def build_translation(cfg: dict, api: dict,
+                      deliver) -> tuple[Translator, TranslationCache, list[TranslationPool]]:
+    """翻譯端：翻譯器、系統訊息譯文快取，以及兩條翻譯池（玩家對話吃上下文；系統訊息
+    不吃上下文、走快取）。兩條池共用同一個總量閘與 `deliver(msg_id, text, failed)`。"""
     translator = Translator(**api, target_language=cfg["target_language"])
-    context = ChatContext()
-    ui_queue: queue.Queue = queue.Queue()
-
-    ov = cfg["overlay"]
-
-    def save_geometry(x: int, y: int, w: int, h: int) -> None:
-        cfg["overlay"] = {"x": x, "y": y, "width": w, "height": h}
-        save_config(CONFIG_PATH, cfg)
-
-    def save_bubble_position(x: int, y: int) -> None:
-        cfg["bubble_position"] = {"x": x, "y": y}
-        save_config(CONFIG_PATH, cfg)
-
-    overlay = OverlayWindow(
-        root,
-        x=ov["x"], y=ov["y"], width=ov["width"], height=ov["height"],
-        max_messages=cfg["max_messages"],
-        fade_seconds=cfg["fade_seconds"],
-        on_geometry_change=save_geometry,
-        on_settings=lambda: ui_queue.put(lambda: settings.open()),
-        on_close=root.quit,  # 結束 mainloop → 走 finally 的乾淨關閉
-        bubble_position=cfg["bubble_position"],
-        on_bubble_move=save_bubble_position,
-        alpha=cfg["overlay_alpha"],
-    )
-
     gate = ConcurrencyGate(cfg["max_parallel_translations"])
     cache = TranslationCache(fingerprint_of(api["provider"], api["model"],
                                             cfg["target_language"]))
     cache.load()
 
+    def make_pool(translate_fn=None) -> TranslationPool:
+        return TranslationPool(translator=translator, on_result=deliver,
+                               workers=cfg["max_parallel_translations"],
+                               failed_notice_fn=lambda: t("notice.translate_failed"),
+                               translate_fn=translate_fn, gate=gate)
+
+    pool = make_pool()
+    system_pool = make_pool(lambda text, _ctx: translate_and_cache(translator, cache, text))
+    return translator, cache, [pool, system_pool]
+
+
+def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
+    """建構並接線所有元件（翻譯器與快取、overlay、翻譯池、輸入框與熱鍵、設定視窗），
+    啟動 reader 執行緒與更新檢查。"""
+    api = active_api(cfg)
+    log_startup_summary(cfg, api)
+    context = ChatContext()
+    ui_queue: queue.Queue = queue.Queue()
+
+    def save_field(key: str, value) -> None:
+        """使用者拖過視窗／泡泡就立刻落地，不等按儲存。"""
+        cfg[key] = value
+        save_config(CONFIG_PATH, cfg)
+
+    ov = cfg["overlay"]
+    overlay = OverlayWindow(
+        root,
+        x=ov["x"], y=ov["y"], width=ov["width"], height=ov["height"],
+        max_messages=cfg["max_messages"],
+        fade_seconds=cfg["fade_seconds"],
+        on_geometry_change=lambda x, y, w, h: save_field(
+            "overlay", {"x": x, "y": y, "width": w, "height": h}),
+        on_settings=lambda: ui_queue.put(lambda: settings.open()),
+        on_close=root.quit,  # 結束 mainloop → 走 finally 的乾淨關閉
+        bubble_position=cfg["bubble_position"],
+        on_bubble_move=lambda x, y: save_field("bubble_position", {"x": x, "y": y}),
+        alpha=cfg["overlay_alpha"],
+    )
+
     def deliver(msg_id: int, text: str, failed: bool) -> None:
-        """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。
-        系統訊息的快取寫入已在 translate_and_cache 內完成，兩條佇列走同一段。"""
+        """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。"""
         ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
 
-    pool = TranslationPool(
-        translator=translator,
-        on_result=deliver,
-        workers=cfg["max_parallel_translations"],
-        failed_notice_fn=lambda: t("notice.translate_failed"),
-        gate=gate)
-    system_pool = TranslationPool(
-        translator=translator,
-        on_result=deliver,
-        workers=cfg["max_parallel_translations"],
-        failed_notice_fn=lambda: t("notice.translate_failed"),
-        translate_fn=lambda text, _ctx: translate_and_cache(translator, cache, text),
-        gate=gate)
-
-    def on_translated(translated: str, hwnd: int | None) -> None:
-        type_into_window(hwnd, translated, delay=cfg["type_delay"])
+    translator, cache, pools = build_translation(cfg, api, deliver)
+    pool, system_pool = pools
 
     input_box = InputBox(root, lambda text: translator.translate_outgoing(
-        text, context.snapshot()), ui_queue, on_translated)
+        text, context.snapshot()), ui_queue,
+        lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]))
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
     # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
@@ -396,8 +401,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         save_config(CONFIG_PATH, cfg)
         applied_api = active_api(cfg)
         translator.reconfigure(**applied_api, target_language=cfg["target_language"])
-        pool.resize(cfg["max_parallel_translations"])
-        system_pool.resize(cfg["max_parallel_translations"])
+        for p in pools:
+            p.resize(cfg["max_parallel_translations"])
         # 服務商／模型／目標語言任一改變，舊譯文即失效
         cache.rebind(fingerprint_of(applied_api["provider"], applied_api["model"],
                                     cfg["target_language"]))
@@ -410,14 +415,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         if cfg["ui_language"] != ui_language:
             ui_language = cfg["ui_language"]
             relabel_ui()
-        log(f"[settings] applied; provider={applied_api['provider']}, "
-            f"model={applied_api['model']}, target_language={cfg['target_language']!r}, "
-            f"hotkey={cfg['hotkey']}, ui_language={cfg['ui_language']}, "
-            f"parallel={cfg['max_parallel_translations']}, "
-            f"poll_interval={cfg['poll_interval']}, fade_seconds={cfg['fade_seconds']}, "
-            f"max_messages={cfg['max_messages']}, overlay_alpha={cfg['overlay_alpha']}, "
-            f"translate_system_messages={cfg['translate_system_messages']}, "
-            f"auto_show_input={cfg['auto_show_input']}, paste_hotkey={cfg['paste_hotkey']}")
+        log(f"[settings] applied; {config_summary(cfg, applied_api)}")
 
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,
@@ -453,7 +451,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     reader_thread.start()
 
     schedule_update_checks(root, ui_queue, overlay)
-    return App(ui_queue, overlay, [pool, system_pool], cache, stop, reader_thread)
+    return App(ui_queue, overlay, pools, cache, stop, reader_thread)
 
 
 def main() -> None:

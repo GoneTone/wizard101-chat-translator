@@ -9,6 +9,7 @@ import tkinter as tk
 
 from src.log import log
 from src.ui.fonts import ui_font
+from src.ui.geometry import clamped_position
 from src.ui.palette import BAR, FG_BAR, FG_TRANSLATED, GRIP
 from src.ui.winstyle import make_non_activating
 
@@ -17,15 +18,6 @@ _PAD_Y = 5
 _GAP = 6          # 圖示與文字的間距
 _ICON = 13        # 圖示邊長，配合 ui_font(9) 的字高
 _SHEET_OFFSET = 4  # 兩張紙錯開的距離
-_EDGE_MARGIN = 4  # 夾在螢幕內時保留的餘裕
-
-
-def clamped_position(x: int, y: int, w: int, h: int,
-                     screen_w: int, screen_h: int,
-                     margin: int = _EDGE_MARGIN) -> tuple[int, int]:
-    """把彈出位置夾進螢幕內：貼近右／下緣時往回收，免得選單有一半在畫面外。"""
-    return (max(margin, min(x, screen_w - w - margin)),
-            max(margin, min(y, screen_h - h - margin)))
 
 
 class Popup:
@@ -93,9 +85,6 @@ class Popup:
             return
         self._win.withdraw()
         log("[ui] copy popup hidden")
-
-    def destroy(self) -> None:
-        self._win.destroy()
 
     def _hover(self, on: bool) -> None:
         bg, fg = (GRIP, FG_TRANSLATED) if on else (BAR, FG_BAR)

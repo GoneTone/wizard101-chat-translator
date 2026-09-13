@@ -20,7 +20,7 @@ from src.reader.diff import (
     filter_resurfaced,
     player_out_with_idx,
 )
-from src.reader.markup import ChatLine, lines_from_nodes, node_sizes
+from src.reader.markup import ChatLine, forget_warned_icons, lines_from_nodes, node_sizes
 from src.reader.message_log import MessageLog
 from src.reader.process import (
     PROCESS_NAME,
@@ -147,25 +147,8 @@ class WizChatReader:
 
         玩家行與系統行走各自獨立的差分軌（後者見 _diff_system_lines），最後依原索引
         合併還原遊戲內順序。回傳的 path 是**玩家軌**的判定路徑。"""
-        texts = self._read_chatlog_texts()
-        input_open_now = self._track_input_box()
-        # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
-        ordered = sorted(texts)
-        raw = "\n".join(ordered)
-        if self._msg_log is not None:
-            # 解析與過濾之前先落檔：messages.log 要的是未經加工的原文
-            self._msg_log.snapshot(raw.split("\n") if raw else [],
-                                   nodes=len(texts), sizes_fn=lambda: node_sizes(texts),
-                                   input_open=input_open_now)
-        cur, mirrored = lines_from_nodes(ordered)
-        if mirrored != self._mirrored_nodes:
-            # 只在鏡射節點數變動時印：組隊視窗開著時每輪都成立，逐輪印會洗版
-            log(f"[reader] mirrored chatLog nodes {self._mirrored_nodes}->{mirrored} "
-                f"(nodes={len(texts)}, sizes={node_sizes(texts)}, "
-                f"merged_lines={len(cur)}); mirrored copies are not retranslated")
-            self._mirrored_nodes = mirrored
+        texts, cur_all = self._read_snapshot()
         # 兩軌分離但索引同源：最後依原索引合併，遊戲內的交錯順序即完整還原
-        cur_all = cur                                  # 完整序列（含系統行），索引的基準
         player_idx = [i for i, line in enumerate(cur_all) if not line.system]
         system_idx = [i for i, line in enumerate(cur_all) if line.system]
         cur_system_texts = [cur_all[i].text for i in system_idx]
@@ -175,8 +158,7 @@ class WizChatReader:
         cur_texts = [line.text for line in cur]
         if not self._synced:
             # 首次連上：記錄現況（含既有歷史），不回吐
-            self._player.rebaseline(cur_texts)
-            self._system.rebaseline(cur_system_texts)
+            self._rebaseline_all(cur_texts, cur_system_texts)
             self._node_count = len(texts)
             self._synced = True
             log(f"[reader] baseline established (lines={len(cur)}, "
@@ -199,63 +181,22 @@ class WizChatReader:
         if baseline_stale:
             log(f"[reader] baseline stale after a long empty stretch, "
                 f"handling as reset (lines={len(cur)})")
-        node_added = False
-        if len(texts) != self._node_count:
-            if len(texts) < self._node_count:
-                # 節點減少（關閉私訊視窗等）：內容只會消失不會新增，靜默重建基準
-                log(f"[reader] chatLog node count decreased "
-                    f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
-                    f"re-baselining without emitting")
-                self._node_count = len(texts)
-                self._player.rebaseline(cur_texts)
-                self._system.rebaseline(cur_system_texts)
-                return _Outcome("node-decrease", [])
-            # 節點增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，不可盲目
-            # 吸收（實測私訊第一句被吞）。串接結構已變、對齊無意義，直接走 reset 語意
-            log(f"[reader] chatLog node count increased "
-                f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), "
-                f"handling as reset")
-            self._node_count = len(texts)
-            node_added = True
+        node_change = self._track_node_count(texts)
+        if node_change == "decrease":
+            self._rebaseline_all(cur_texts, cur_system_texts)
+            return _Outcome("node-decrease", [])
+        node_added = node_change == "increase"
         prev_texts = self._player.prev
         prev_len = len(prev_texts)
-        path, appended = align(prev_texts, cur_texts, node_added or baseline_stale)
-        if path == "recover":
-            log(f"[reader] baseline misaligned, recovered via tail anchor "
-                f"(prev={prev_len}, cur={len(cur)}, emitted={len(appended)}, "
-                f"nodes={len(texts)}, sizes={node_sizes(texts)})")
+        path, appended = self._align_player(prev_texts, cur_texts,
+                                            node_added or baseline_stale, texts)
         if appended is None:
-            # 與基準完全無重疊：首次切到沒讀過的分頁視圖、relog 成全新內容，或單行置換式
-            # 視圖（朋友視窗每句新話取代整個內容）的新訊息。暖機期內一律靜默吸收（堵啟動
-            # 盲區），之後交由看過集合過濾；基準為空（連上時聊天是空的）不受暖機限制。
-            if prev_texts and self._player.warmup_left > 0:
-                log(f"[reader] no overlap with baseline during warmup, absorbed "
-                    f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
-                    f"prev_tail={prev_texts[-1][:40]!r})")
-                self._player.rebaseline(cur_texts)
-                self._system.rebaseline(cur_system_texts)
-                return _Outcome("warmup", [])
-            log(f"[reader] chat log has no overlap with baseline, treating as reset "
-                f"(lines={len(cur)}, cur_head={cur_texts[0][:40]!r}, "
-                f"prev_tail={prev_texts[-1][:40] if prev_texts else ''!r})")
-            appended = cur_texts
+            self._rebaseline_all(cur_texts, cur_system_texts)
+            return _Outcome("warmup", [])
         # 基準先換、看過集合最後才記：本輪剛出現的新行還不在集合裡，過濾才吐得出來
         self._player.prev = cur_texts
-        # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine，帶出當前顏色
-        emitted = cur[len(cur) - len(appended):]
-        if path == "append":
-            emitted = self._filter_append(appended, emitted, prev_len)
-        # 慢路徑（視圖切換/異常讀取）過濾重浮歷史。例外：空讀轉場後只冒出一行且內容與清空前
-        # 不同＝剛到的新訊息，不過濾 —— 照過濾會吞掉與舊訊息同字的新訊息（實機回報：轉場後
-        # 第一句私訊 Test 因基準裡有人講過同一句而被吞）。內容一字不差填回則不適用：視圖只有
-        # 一行玩家訊息時，轉場清空再還原長得就像單行新訊息，例外會讓它每次轉場都重譯
-        # （實機回報）；使用者自己重打的同字句仍由輸入框關聯放行。
-        elif emitted:
-            if baseline_stale and len(emitted) == 1 and cur_texts != prev_texts:
-                log(f"[reader] single line after an empty stretch kept as new "
-                    f"(text={emitted[0].text[:40]!r}, path={path})")
-            else:
-                emitted = self._drop_resurfaced(emitted, path)
+        emitted = self._filter_player(path, appended, cur, prev_len, baseline_stale,
+                                      content_changed=cur_texts != prev_texts)
         self._player.seen.remember(cur_texts)
         player_out = self._guard_burst(emitted, path, prev_len, len(cur), texts)
         system_out = self._diff_system_lines(cur_system_texts, system_idx, cur_all,
@@ -263,6 +204,95 @@ class WizChatReader:
         # 依原索引合併：兩軌各自走了哪條路徑都不影響相對順序（索引同源）
         merged = sorted(player_out_with_idx(player_out, cur, player_idx) + system_out)
         return _Outcome(path, [cur_all[i] for i in merged], len(appended))
+
+    def _read_snapshot(self) -> tuple[list[str], list[ChatLine]]:
+        """讀一輪 chatLog：取各節點全文、取樣輸入框、落 messages.log、解析成行序列。
+        回傳（各節點原文，解析後的完整行序列，含系統行）。"""
+        texts = self._read_chatlog_texts()
+        input_open_now = self._track_input_box()
+        # 控件列舉順序不保證穩定：排序讓多節點的串接結果確定，差分才有意義
+        ordered = sorted(texts)
+        raw = "\n".join(ordered)
+        if self._msg_log is not None:
+            # 解析與過濾之前先落檔：messages.log 要的是未經加工的原文
+            self._msg_log.snapshot(raw.split("\n") if raw else [],
+                                   nodes=len(texts), sizes_fn=lambda: node_sizes(texts),
+                                   input_open=input_open_now)
+        cur_all, mirrored = lines_from_nodes(ordered)
+        if mirrored != self._mirrored_nodes:
+            # 只在鏡射節點數變動時印：組隊視窗開著時每輪都成立，逐輪印會洗版
+            log(f"[reader] mirrored chatLog nodes {self._mirrored_nodes}->{mirrored} "
+                f"(nodes={len(texts)}, sizes={node_sizes(texts)}, "
+                f"merged_lines={len(cur_all)}); mirrored copies are not retranslated")
+            self._mirrored_nodes = mirrored
+        return texts, cur_all
+
+    def _rebaseline_all(self, player_texts: list[str], system_texts: list[str]) -> None:
+        """兩軌一起把本輪內容立為新基準（靜默吸收、不吐任何行的路徑用）。"""
+        self._player.rebaseline(player_texts)
+        self._system.rebaseline(system_texts)
+
+    def _track_node_count(self, texts: list[str]) -> str | None:
+        """比對 chatLog 節點數與上輪並記下新值：回傳 "decrease"／"increase"／None（無變化）。
+        減少（關閉私訊視窗等）：內容只會消失不會新增，呼叫端靜默重建基準。
+        增加（開私訊視窗／聊天 UI 生成）：新節點可能正載著使用者的第一句，不可盲目吸收
+        （實測私訊第一句被吞）；串接結構已變、對齊無意義，呼叫端直接走 reset 語意。"""
+        if len(texts) == self._node_count:
+            return None
+        if len(texts) < self._node_count:
+            change, action = "decrease", "re-baselining without emitting"
+        else:
+            change, action = "increase", "handling as reset"
+        log(f"[reader] chatLog node count {change}d "
+            f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), {action}")
+        self._node_count = len(texts)
+        return change
+
+    def _align_player(self, prev_texts: list[str], cur_texts: list[str],
+                      force_reset: bool, texts: list[str]) -> tuple[str, list[str] | None]:
+        """玩家軌的對齊階梯（見 diff.align）。回傳（路徑，新增行）；新增行為 None＝暖機期內
+        的零重疊讀取，呼叫端應靜默吸收（重建基準、不吐行）。"""
+        path, appended = align(prev_texts, cur_texts, force_reset)
+        if path == "recover":
+            log(f"[reader] baseline misaligned, recovered via tail anchor "
+                f"(prev={len(prev_texts)}, cur={len(cur_texts)}, emitted={len(appended)}, "
+                f"nodes={len(texts)}, sizes={node_sizes(texts)})")
+        if appended is not None:
+            return path, appended
+        # 與基準完全無重疊：首次切到沒讀過的分頁視圖、relog 成全新內容，或單行置換式
+        # 視圖（朋友視窗每句新話取代整個內容）的新訊息。暖機期內一律靜默吸收（堵啟動
+        # 盲區），之後交由看過集合過濾；基準為空（連上時聊天是空的）不受暖機限制。
+        if prev_texts and self._player.warmup_left > 0:
+            log(f"[reader] no overlap with baseline during warmup, absorbed "
+                f"(lines={len(cur_texts)}, cur_head={cur_texts[0][:40]!r}, "
+                f"prev_tail={prev_texts[-1][:40]!r})")
+            return path, None
+        log(f"[reader] chat log has no overlap with baseline, treating as reset "
+            f"(lines={len(cur_texts)}, cur_head={cur_texts[0][:40]!r}, "
+            f"prev_tail={prev_texts[-1][:40] if prev_texts else ''!r})")
+        return path, cur_texts
+
+    def _filter_player(self, path: str, appended: list[str], cur: list[ChatLine],
+                       prev_len: int, baseline_stale: bool,
+                       content_changed: bool) -> list[ChatLine]:
+        """把對齊結果切回 ChatLine（帶出當前顏色）並過濾重浮歷史：append 快路徑走巧合對齊
+        防線（_filter_append），慢路徑（視圖切換/異常讀取）剔除看過集合已有的行。
+        例外：空讀轉場後只冒出一行且內容與清空前不同＝剛到的新訊息，不過濾 —— 照過濾會
+        吞掉與舊訊息同字的新訊息（實機回報：轉場後第一句私訊 Test 因基準裡有人講過同一句
+        而被吞）。內容一字不差填回則不適用：視圖只有一行玩家訊息時，轉場清空再還原長得
+        就像單行新訊息，例外會讓它每次轉場都重譯（實機回報）；使用者自己重打的同字句仍由
+        輸入框關聯放行。必須在把本輪內容記進看過集合之前呼叫（見 _drop_resurfaced）。"""
+        # 對齊各路徑回傳的都是 cur 的尾段：以長度切回 ChatLine
+        emitted = cur[len(cur) - len(appended):]
+        if path == "append":
+            return self._filter_append(appended, emitted, prev_len)
+        if not emitted:
+            return emitted
+        if baseline_stale and len(emitted) == 1 and content_changed:
+            log(f"[reader] single line after an empty stretch kept as new "
+                f"(text={emitted[0].text[:40]!r}, path={path})")
+            return emitted
+        return self._drop_resurfaced(emitted, path)
 
     def _track_input_box(self) -> bool:
         """每輪取樣遊戲輸入框，推進關聯放行的輪數計數（見 INPUT_RELEASE_POLLS）；
@@ -652,6 +682,7 @@ class WizChatReader:
         self._node_count = None
         self._mirrored_nodes = 0
         self._synced = False
+        forget_warned_icons()
 
     def close(self) -> None:
         """停止時呼叫：解除 hook、關閉連線。"""

@@ -176,7 +176,25 @@ def rejected_parameter(detail: str) -> str | None:
     return match.group(1) or match.group(2)
 
 
-class _OpenAICompatClient:
+class _BaseClient:
+    """兩種後端共用的骨架：模型 ID 與連線池釋放。子類別各自實作 chat／list_models。"""
+
+    _client = None
+    _model = ""
+
+    @property
+    def model(self) -> str:
+        """目前使用的模型 ID（診斷 log 用）。"""
+        return self._model
+
+    def close(self) -> None:
+        """釋放連線池。測試注入的假 client 不一定有 close，沒有就略過。"""
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            close()
+
+
+class _OpenAICompatClient(_BaseClient):
     """OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：打 /v1/chat/completions。
 
     哪些參數能帶因模型而異（gpt-4o-mini 不認 reasoning_effort，GPT-5 不認 max_tokens
@@ -202,17 +220,6 @@ class _OpenAICompatClient:
         self._token_param = "max_completion_tokens" if official else "max_tokens"
         self._dropped: set[str] = set()
         self._rejected_token_params: set[str] = set()
-
-    @property
-    def model(self) -> str:
-        """目前使用的模型 ID（診斷 log 用）。"""
-        return self._model
-
-    def close(self) -> None:
-        """釋放連線池。測試注入的假 client 不一定有 close，沒有就略過。"""
-        close = getattr(self._client, "close", None)
-        if close is not None:
-            close()
 
     def _body(self, system: str, turns: list[dict], max_tokens: int) -> dict:
         body = {
@@ -289,7 +296,7 @@ def _anthropic_detail(exc: anthropic.APIStatusError) -> str:
     return _one_line(message if message is not None else exc.message)
 
 
-class _ClaudeClient:
+class _ClaudeClient(_BaseClient):
     """Claude 官方 API（anthropic SDK）：打 /v1/messages。
     Claude 5 系不接受 temperature（會 400），也沒有「完全不思考」這個選項：
     思考深度改由 effort 控制，EFFORT_AUTO 時連 output_config 都不帶、維持模型
@@ -302,17 +309,6 @@ class _ClaudeClient:
             api_key=api_key, timeout=timeout)
         self._model = model
         self._effort = effort
-
-    @property
-    def model(self) -> str:
-        """目前使用的模型 ID（診斷 log 用）。"""
-        return self._model
-
-    def close(self) -> None:
-        """釋放連線池。測試注入的假 client 不一定有 close，沒有就略過。"""
-        close = getattr(self._client, "close", None)
-        if close is not None:
-            close()
 
     def chat(self, system: str, turns: list[dict]) -> str:
         params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
@@ -383,6 +379,10 @@ class Translator:
         self._impl.close()
         self._impl = _build_client(**api)
         self._target_language = target_language
+
+    def close(self) -> None:
+        """釋放後端的連線池（一次性用途如測試連線，用完即關）。"""
+        self._impl.close()
 
     @property
     def target_language(self) -> str:
@@ -471,4 +471,4 @@ def test_translate(api: dict, target_language: str) -> str:
     try:
         return translator.translate_incoming(TEST_SAMPLE, [])
     finally:
-        translator._impl.close()
+        translator.close()

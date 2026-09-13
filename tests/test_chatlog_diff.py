@@ -251,6 +251,25 @@ def test_reconnect_resets_session_state():
     assert _texts(r.read_new()) == ["[你] Test"]  # 同字的第一句不得被舊集合吞掉
 
 
+def test_unknown_icon_warning_fires_again_after_a_reconnect(capsys):
+    # 未知圖示每個 session 只警告一次；斷線重連（遊戲可能已改版）後要能再警告，
+    # 否則改版後新頻道的圖示名稱永遠進不了 app.log
+    unknown = ("<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> "
+               "[Lars] hi </color>")
+    r = FakeWiz([unknown, unknown, RuntimeError("game closed"), unknown])
+    r.read_new()
+    r.read_new()
+    assert capsys.readouterr().err.count("unrecognized chat icon") == 1
+    try:
+        r.read_new()
+        raise AssertionError("expected GameNotRunning")
+    except GameNotRunning:
+        pass
+    r._connected = True
+    r.read_new()
+    assert capsys.readouterr().err.count("unrecognized chat icon") == 1
+
+
 def test_warmup_expires_within_five_polls():
     # 暖機縮短為 5 輪（0.4s poll 約 2 秒）：第 6 輪起 reset 的新訊息就要翻。
     # 啟動盲區實測都在前 1-3 輪（視圖每輪輪播、看過集合幾輪內學完），5 輪已保守

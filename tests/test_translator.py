@@ -957,3 +957,15 @@ def test_token_limit_rejected_under_both_names_raises_instead_of_looping():
     with pytest.raises(TranslatorConfigError):
         t.translate_incoming("[A] hi", [])
     assert len(fake.bodies) == 2
+
+
+def test_sender_prefix_limit_is_shared_with_the_chat_parser():
+    # 發送者前綴的長度上限由 markup 定義、postprocess 沿用：markup 收得下的名字，
+    # has_stray_latin 也必須認得是前綴（否則拉丁字母的玩家名會被當成沒翻的內容）
+    from src.reader.markup import lines_from_chatlog
+
+    longest = "A" * 40
+    raw = (f"<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
+           f"<link;GID:1,{longest},2>[{longest}]</link> 你好 </color>")
+    assert [line.text for line in lines_from_chatlog(raw)] == [f"[{longest}] 你好"]
+    assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False

@@ -4,8 +4,6 @@
 常駐介面 relabel），但仍要按下儲存才寫進設定，取消則還原成開窗時的語言。"""
 import copy
 import os
-import queue
-import threading
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
@@ -17,14 +15,15 @@ from src.log import log
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
+    BackgroundButton,
     help_translate_link,
     hint_label,
     link_label,
     linked_text,
-    poll_queue,
     show_outcome,
     translators_row,
 )
+from src.ui.geometry import centered_position
 from src.ui.providers import validate_api_form
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
@@ -70,7 +69,6 @@ class SettingsWindow:
         self._on_update_found = on_update_found  # 手動檢查查到新版時通知（overlay 顯示橫幅）
         self._cache = cache   # 譯文快取；None＝關於分頁不畫「清除快取」那一列
         self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
-        self._update_queue: queue.Queue = queue.Queue()
         self._win: tk.Toplevel | None = None
         # 未儲存的編輯暫存：欄位初始值讀這裡，換語言重建視窗才不會丟掉填到一半的內容；
         # None＝沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
@@ -97,8 +95,8 @@ class SettingsWindow:
         if self._restore_geometry is not None:
             self._win.geometry(self._restore_geometry)   # 換語言重建：不要跳回螢幕中央
         else:
-            x = (self._win.winfo_screenwidth() - win_w) // 2
-            y = (self._win.winfo_screenheight() - win_h) // 2
+            x, y = centered_position(self._win.winfo_screenwidth(),
+                                     self._win.winfo_screenheight(), win_w, win_h)
             self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
         # 下限比開窗尺寸小：內容可捲動，使用者要縮就讓他縮
@@ -234,6 +232,8 @@ class SettingsWindow:
         self._update_btn = ttk.Button(version_row, text=t("button.check_update"),
                                       command=self._start_update_check)
         self._update_btn.pack(side="left", padx=(8, 0))
+        # 每次重建視窗都是新的一輪：舊視窗還沒回來的結果留在舊按鈕那一輪，不會落到這裡
+        self._update_task = BackgroundButton(self._update_btn, "update check")
         self._update_result = ttk.Label(version_row, text="")
         # 不 fill／expand：「有新版」時整個標籤是連結，撐滿整列會讓文字後的空白也可點；
         # 換行寬度仍由 bind_wrap 依這一列的寬度算，長訊息照樣折行。
@@ -310,51 +310,31 @@ class SettingsWindow:
         log(f"[settings] translation cache cleared by user ({count} entries)")
 
     def _start_update_check(self) -> None:
-        """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。
-
-        每次按下都重建 queue：實例是整個 app 共用的，視窗在結果送回前被關掉（或換語言
-        重建）會讓 poll_queue 停止輪詢，過期結果留在舊 queue，下次檢查會先撈到它。
-        queue 以參數交給 worker 而非回頭讀 `self._update_queue`：否則兩輪重疊時，
-        前一輪的 worker 會把過期結果放進新 queue。"""
-        result_queue: queue.Queue = queue.Queue()
-        self._update_queue = result_queue   # 這一輪的通道（poll_queue 與測試取用）
-        self._update_btn.configure(state="disabled", text=t("button.checking"))
+        """手動檢查更新：背景查詢，結果回主執行緒顯示（見 form.BackgroundButton）。"""
         self._update_result.configure(text="")
-        threading.Thread(target=self._update_check_worker, args=(result_queue,),
-                         daemon=True).start()
-        poll_queue(self._win, result_queue, self._on_update_checked)
-
-    def _update_check_worker(self, result_queue: queue.Queue) -> None:
-        try:
-            release = self._check_update()
-        except Exception as exc:
-            log(f"[update] manual check failed: {exc}")
-            result_queue.put(("failed", t("update.failed", error=exc), None))
-            return
-        if release is None:
-            log("[update] manual check: already up to date")
-            result_queue.put(("latest", t("update.latest"), None))
-            return
-        log(f"[update] manual check: {release.version} available")
-        result_queue.put(("available",
-                          t("update.available", version=release.version),
-                          release))
+        self._update_task.start(self._check_update, self._on_update_checked,
+                                t("button.checking"))
 
     def _on_update_checked(self, result) -> None:
-        state, message, release = result
-        self._update_btn.configure(state="normal", text=t("button.check_update"))
+        """檢查更新的結果：Release（有新版）、None（已是最新）或拋出的例外。"""
         self._update_result.unbind("<Button-1>")
-        if state == "available":
-            # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
-            self._update_result.configure(text=message, foreground=LINK_COLOR,
-                                          cursor="hand2")
-            self._update_result.bind("<Button-1>",
-                                     lambda e: webbrowser.open(release.url))
-            if self._on_update_found is not None:
-                self._on_update_found(release)
-            return
-        show_outcome(self._update_result, state == "latest", message)
         self._update_result.configure(cursor="")
+        if isinstance(result, Exception):
+            log(f"[update] manual check failed: {result}")
+            show_outcome(self._update_result, False, t("update.failed", error=result))
+            return
+        if result is None:
+            log("[update] manual check: already up to date")
+            show_outcome(self._update_result, True, t("update.latest"))
+            return
+        release = result
+        log(f"[update] manual check: {release.version} available")
+        # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
+        self._update_result.configure(text=t("update.available", version=release.version),
+                                      foreground=LINK_COLOR, cursor="hand2")
+        self._update_result.bind("<Button-1>", lambda e: webbrowser.open(release.url))
+        if self._on_update_found is not None:
+            self._on_update_found(release)
 
     def _open_log_folder(self) -> None:
         path = app_dir()
@@ -399,7 +379,7 @@ class SettingsWindow:
         self._restore_geometry = self._win.geometry()
         self._restore_tab = self._nb.index("current")
         log(f"[ui] settings previewing language {code}")
-        self._preview_language(code)
+        set_language(code)
         # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，
         # 立即 destroy() 會讓它收尾時碰到已死的 widget（TclError: invalid command name）
         self._win.after_idle(self._rebuild)
@@ -407,11 +387,24 @@ class SettingsWindow:
     def _preview_language(self, code: str) -> None:
         """套用預覽語言；常駐的 overlay 也要跟著換（由呼叫端提供）。"""
         set_language(code)
+        self._relabel_overlay()
+
+    def _relabel_overlay(self) -> None:
         if self._on_language_preview is not None:
             self._on_language_preview()
 
     def _rebuild(self) -> None:
-        self._win.destroy()
+        """以新語言重建視窗。overlay 先 relabel、用 update() 把重繪跑完，才拆舊窗建新窗。
+
+        新視窗映射時會湧出大量繪圖事件，overlay 標籤縮短後騰出區域的重繪（Tk 排在 idle）
+        會被排到那之後，舊語言多出的那截字殘留約 0.3 秒（實機截圖與逐幀擷取確認）。
+        update_idletasks() 不夠：騰出區域要先收到 Windows 的 WM_PAINT 才會重繪，得跑一輪
+        完整事件迴圈。此處在 after_idle 內、不在事件 binding 裡，update() 的重入風險低；
+        期間視窗仍可能被使用者關掉，故先確認還在。"""
+        self._relabel_overlay()
+        self._root.update()
+        if self._win is not None and self._win.winfo_exists():
+            self._win.destroy()
         self._win = None
         self.open()
 
@@ -444,15 +437,21 @@ class SettingsWindow:
 
     def _cancel(self) -> None:
         """取消／關窗：把預覽中的透明度與介面語言都還原為目前設定值。"""
+        if self._win is None or not self._win.winfo_exists():
+            return   # update() 期間再按一次取消／關窗會重入到這裡
         if self._on_alpha_preview is not None:
             self._on_alpha_preview(self._cfg["overlay_alpha"])
+        self._draft = None
         if (self._language_at_open is not None
                 and current_language() != self._language_at_open):
             log(f"[ui] settings language preview reverted to "
                 f"{self._language_at_open}")
             self._preview_language(self._language_at_open)
-        self._draft = None
-        self._win.destroy()
+            # 同 _rebuild：先把 overlay 的重繪跑完再拆窗，拆窗的事件才不會把它往後推
+            # （逐幀擷取實測：先拆再 relabel、或拆完排 after_idle 都仍殘留約 0.1 秒）
+            self._root.update()
+        if self._win is not None and self._win.winfo_exists():
+            self._win.destroy()
 
     def _spin(self, parent, grid_row, label_key, initial, key, step, hint_key):
         """進階數值的一列：標籤、Spinbox、範圍說明各佔 grid 的一欄。"""

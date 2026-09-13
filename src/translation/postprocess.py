@@ -3,6 +3,8 @@
 """
 import re
 
+from src.reader.markup import SENDER_PREFIX
+
 _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
 
@@ -12,7 +14,7 @@ def strip_think(text: str) -> str:
     return _THINK_BLOCK.sub("", text)
 
 
-_SENDER_PREFIX = re.compile(r"^\[[^\]]{1,40}\]\s*")
+_SENDER_PREFIX = re.compile(rf"^{SENDER_PREFIX}\s*")
 # 半形或全形括號包住、以英文字母開頭的內容（模型補上的英文名長這樣）
 _PAREN_ENGLISH = re.compile(r"\s*[（(][A-Za-z][A-Za-z0-9 .'\-]*[)）]")
 _LATIN = re.compile(r"[A-Za-z]")

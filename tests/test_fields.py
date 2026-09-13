@@ -1,6 +1,7 @@
 """fields 純邏輯測試：表單驗證、錯誤文案、熱鍵字串。"""
 import copy
 import gc
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -14,7 +15,6 @@ from src.translation.translator import (
     TranslatorOffline,
 )
 from src.ui import form as form_module
-from src.ui import model_field as model_field_module
 from src.ui.fields import ApiFields
 from src.ui.form import friendly_error
 from src.ui.model_field import ModelField, filter_models
@@ -296,19 +296,14 @@ def test_model_field_error_uses_friendly_message(root):
     assert fields._model_field.status() == t("error.offline_detail", message="refused")
 
 
-def test_refresh_worker_reports_failures_for_providers_without_base_url(root, monkeypatch):
+def test_refresh_result_reports_failures_for_providers_without_base_url(root):
     # 回歸：openai／claude 的設定檔沒有 base_url，失敗分支寫 log 時 KeyError，
-    # 例外沒放進 queue，主執行緒的輪詢永遠等不到結果、按鈕卡在「載入中」
-
-    def rejected(api, client=None):
-        raise TranslatorConfigError("Incorrect API key", status=401)
-
-    monkeypatch.setattr(model_field_module, "list_models", rejected)
+    # 錯誤永遠顯示不出來、按鈕卡在「載入中」
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol", api_key="sk-1"))
     field = fields._model_field
-    field._refresh_worker(fields.active_values())
-    result = field._queue.get_nowait()
-    assert isinstance(result, TranslatorConfigError)
+    field._on_refreshed(TranslatorConfigError("Incorrect API key", status=401),
+                        fields.active_values())
+    assert field.status() == t("error.api_response", status=401, message="Incorrect API key")
 
 
 def test_model_field_error_makes_urls_clickable(root):
@@ -490,7 +485,10 @@ def test_test_connection_defaults_to_the_ui_languages_name(root, monkeypatch):
     try:
         i18n.set_language("zh-TW")
         fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
-        fields._test_worker(fields.active_values(), fields._target_language_fn())
+        fields._start_test()
+        deadline = time.monotonic() + 30
+        while "target" not in captured and time.monotonic() < deadline:
+            time.sleep(0.01)   # 背景執行緒一啟動就會呼叫假的 test_translate
     finally:
         i18n.set_language(before)
     assert captured["target"] == i18n.language_name("zh-TW")
@@ -550,14 +548,16 @@ def test_test_result_from_a_previous_provider_is_discarded(root):
     # 測試連線還在跑時切換服務商：舊結果回來不能把新這家標成「已測過」
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
     fields._test_btn.configure(state="disabled")
-    session = fields._test_session
+    session = fields._test_task.session
     _switch(fields, "claude")
-    fields._on_tested((True, "連線成功"), session)
+    fields._test_task._finish("[Tester] 你好", session)
     assert fields.test_passed is False
     assert fields._test_result.text() == ""
+    assert str(fields._test_btn.cget("state")) == "normal"   # 過期結果仍要把按鈕還原
 
 
 def test_test_result_from_the_current_run_is_applied(root):
     fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
-    fields._on_tested((True, "連線成功"), fields._test_session)
+    fields._on_tested("[Tester] 你好", fields.active_values())
     assert fields.test_passed is True
+    assert fields._test_result.text() == "✓ " + t("test.success", sample="[Tester] 你好")
