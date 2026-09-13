@@ -66,47 +66,45 @@ def test_placeholders_match_rejects_a_duplicated_placeholder():
 
 
 @pytest.fixture
-def cache_path(tmp_path, monkeypatch):
-    path = tmp_path / "syscache.json"
-    monkeypatch.setattr(cache_module, "CACHE_PATH", path)
-    return path
+def cache_path(tmp_path):
+    return tmp_path / "syscache.json"
 
 
 FP = "custom|gemma|繁體中文（台灣）"
 
 
 def test_get_returns_none_when_empty(cache_path):
-    assert TranslationCache(FP).get("你获得了 39 金币！") is None
+    assert TranslationCache(FP, path=cache_path).get("你获得了 39 金币！") is None
 
 
 def test_put_then_get_round_trips_with_the_number_restored(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     assert c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP) is True
     assert c.get("你获得了 39 金币！") == "你獲得了 39 金幣！"
 
 
 def test_a_different_number_hits_the_same_entry(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
     assert c.get("你获得了 65 金币！") == "你獲得了 65 金幣！"
 
 
 def test_put_rejects_a_translation_with_broken_placeholders(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     assert c.put("你获得了 39 金币！", "你獲得了金幣！", FP) is False
     assert c.get("你获得了 39 金币！") is None
 
 
 def test_put_expects_the_translation_of_the_normalized_template(cache_path):
     # 呼叫端送進來的譯文是「樣板的譯文」，不是「原文的譯文」
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     assert c.get("熔岩百合") == "熔岩百合(Lava Lily)"
 
 
 def test_put_takes_the_raw_text_not_the_template(cache_path):
     # put() 自己正規化：傳入含 {0} 的樣板會把 0 當數字變成 {{0}}，永遠對不上 —— 務必傳原文
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
     assert c.get("你获得了 39 金币！") == "你獲得了 39 金幣！"
     assert c.get("你获得了 {0} 金币！") is None
@@ -114,7 +112,7 @@ def test_put_takes_the_raw_text_not_the_template(cache_path):
 
 def test_evicts_the_least_recently_used_entry(cache_path, monkeypatch):
     monkeypatch.setattr(cache_module, "MAX_ENTRIES", 2)
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("a", "A", FP)
     c.put("b", "B", FP)
     c.get("a")          # a 變成最近使用
@@ -125,7 +123,7 @@ def test_evicts_the_least_recently_used_entry(cache_path, monkeypatch):
 
 
 def test_flush_writes_the_file_with_the_fingerprint(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.flush()
     data = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -134,26 +132,26 @@ def test_flush_writes_the_file_with_the_fingerprint(cache_path):
 
 
 def test_load_restores_entries_from_disk(cache_path):
-    first = TranslationCache(FP)
+    first = TranslationCache(FP, path=cache_path)
     first.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     first.flush()
-    second = TranslationCache(FP)
+    second = TranslationCache(FP, path=cache_path)
     second.load()
     assert second.get("熔岩百合") == "熔岩百合(Lava Lily)"
 
 
 def test_load_discards_everything_when_the_fingerprint_differs(cache_path):
-    first = TranslationCache(FP)
+    first = TranslationCache(FP, path=cache_path)
     first.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     first.flush()
-    second = TranslationCache("claude|claude-opus-5|日本語")
+    second = TranslationCache("claude|claude-opus-5|日本語", path=cache_path)
     second.load()
     assert second.get("熔岩百合") is None
 
 
 def test_load_survives_a_corrupt_file(cache_path):
     cache_path.write_text("{ not json", encoding="utf-8")
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.load()            # 不得拋例外
     assert c.get("熔岩百合") is None
 
@@ -163,14 +161,14 @@ def test_load_survives_a_structurally_malformed_file(cache_path):
     cache_path.write_text(
         json.dumps({"fingerprint": FP, "entries": ["not", "a", "dict"]}),
         encoding="utf-8")
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.load()            # 不得拋例外
     assert c.get("熔岩百合") is None
 
     cache_path.write_text(
         json.dumps({"fingerprint": FP, "entries": "not a dict either"}),
         encoding="utf-8")
-    c2 = TranslationCache(FP)
+    c2 = TranslationCache(FP, path=cache_path)
     c2.load()           # 不得拋例外
     assert c2.get("熔岩百合") is None
 
@@ -182,7 +180,7 @@ def test_load_truncates_to_the_cap_and_logs_the_stored_count(
     cache_path.write_text(
         json.dumps({"fingerprint": FP, "entries": {"a": "A", "b": "B", "c": "C"}}),
         encoding="utf-8")
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.load()
     assert c.get("a") is None           # 最舊的那筆超出上限，沒有載入
     assert c.get("c") == "C"
@@ -190,14 +188,14 @@ def test_load_truncates_to_the_cap_and_logs_the_stored_count(
 
 
 def test_load_survives_a_missing_file(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.load()
     assert c.get("熔岩百合") is None
 
 
 def test_autoflushes_after_enough_new_entries(cache_path, monkeypatch):
     monkeypatch.setattr(cache_module, "FLUSH_EVERY", 2)
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("a", "A", FP)
     assert not cache_path.exists()
     c.put("b", "B", FP)
@@ -205,7 +203,7 @@ def test_autoflushes_after_enough_new_entries(cache_path, monkeypatch):
 
 
 def test_rebind_flushes_the_old_fingerprint_and_starts_empty(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.rebind("claude|claude-opus-5|日本語")
     assert c.get("熔岩百合") is None    # 舊快取隨指紋變更清空
@@ -215,14 +213,14 @@ def test_rebind_flushes_the_old_fingerprint_and_starts_empty(cache_path):
 
 
 def test_put_accepts_a_translation_produced_under_the_current_fingerprint(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     assert c.put("熔岩百合", "熔岩百合(Lava Lily)", c.fingerprint) is True
     assert c.get("熔岩百合") == "熔岩百合(Lava Lily)"
 
 
 def test_put_rejects_a_translation_produced_under_a_previous_fingerprint(cache_path):
     # 翻譯飛行中使用者換了目標語言：舊語言的譯文回來得晚，不得存進新指紋的快取
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     produced_under = c.fingerprint
     c.rebind("custom|gemma|日本語")
     assert c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", produced_under) is False
@@ -232,7 +230,7 @@ def test_put_rejects_a_translation_produced_under_a_previous_fingerprint(cache_p
 
 
 def test_rebind_is_a_no_op_when_the_fingerprint_is_unchanged(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.rebind(FP)
     assert not cache_path.exists()      # 沒變更就不觸發落盤
@@ -255,7 +253,7 @@ class FakeTranslator:
 
 def test_translate_and_cache_stores_the_normalized_template(cache_path):
     translator = FakeTranslator({"你获得了 {0} 金币！": "你獲得了 {0} 金幣！"})
-    cache = TranslationCache(FP)
+    cache = TranslationCache(FP, path=cache_path)
     result = translate_and_cache(translator, cache, "你获得了 39 金币！")
     assert result == "你獲得了 39 金幣！"
     assert translator.requested == ["你获得了 {0} 金币！"]   # 送去翻譯的是樣板，不是原文
@@ -269,7 +267,7 @@ def test_translate_and_cache_falls_back_when_the_model_mangles_a_placeholder(cac
         "你获得了 {0} 金币！": "你獲得了金幣！",        # 樣板譯文：佔位符不見了
         "你获得了 39 金币！": "你獲得了 39 金幣！",     # 直翻原文（fallback）的結果
     })
-    cache = TranslationCache(FP)
+    cache = TranslationCache(FP, path=cache_path)
     result = translate_and_cache(translator, cache, "你获得了 39 金币！")
     assert result == "你獲得了 39 金幣！"
     assert translator.requested == ["你获得了 {0} 金币！", "你获得了 39 金币！"]
@@ -280,7 +278,7 @@ def test_translate_and_cache_discards_a_translation_that_finished_after_a_rebind
         cache_path):
     # 實況：翻譯飛行中使用者換了目標語言並套用（cache.rebind）。舊語言的譯文回來得晚，
     # 照存就會以新指紋落盤、跨重啟持續回吐錯誤語言 —— 一律丟棄，改用換好設定的翻譯器直翻
-    cache = TranslationCache(FP)
+    cache = TranslationCache(FP, path=cache_path)
 
     class SwappingTranslator(FakeTranslator):
         """第一次請求回來之前，使用者已經按下套用。"""
@@ -310,7 +308,7 @@ def test_fingerprint_never_contains_the_api_key():
 
 
 def test_cache_file_never_contains_the_api_key(cache_path):
-    c = TranslationCache(fingerprint_of("custom", "gemma", "繁體中文（台灣）"))
+    c = TranslationCache(fingerprint_of("custom", "gemma", "繁體中文（台灣）"), path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.flush()
     assert "sk-" not in cache_path.read_text(encoding="utf-8")
@@ -318,7 +316,7 @@ def test_cache_file_never_contains_the_api_key(cache_path):
 
 # --- clear：使用者在設定視窗主動清除 ---
 def test_clear_empties_the_cache_and_reports_the_count(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP)
     assert c.clear() == 2
@@ -327,7 +325,7 @@ def test_clear_empties_the_cache_and_reports_the_count(cache_path):
 
 
 def test_clear_removes_the_file_from_disk(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.flush()
     assert cache_path.exists()
@@ -337,12 +335,12 @@ def test_clear_removes_the_file_from_disk(cache_path):
 
 def test_clear_survives_a_missing_file(cache_path):
     # 從未落盤過就按清除：不得拋例外
-    assert TranslationCache(FP).clear() == 0
+    assert TranslationCache(FP, path=cache_path).clear() == 0
 
 
 def test_clear_does_not_write_the_discarded_entries_back(cache_path):
     # 與 rebind 不同：rebind 會先 flush 舊內容再換指紋，clear 是丟掉，不寫回
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.flush()
     c.clear()
@@ -352,7 +350,7 @@ def test_clear_does_not_write_the_discarded_entries_back(cache_path):
 
 
 def test_cache_still_usable_after_clear(cache_path):
-    c = TranslationCache(FP)
+    c = TranslationCache(FP, path=cache_path)
     c.put("熔岩百合", "熔岩百合(Lava Lily)", FP)
     c.clear()
     c.put("迷幻木头", "迷幻木頭", FP)
@@ -364,7 +362,7 @@ def test_translate_and_cache_does_not_store_a_translation_that_slipped_into_engl
     # 實機：目標語言是繁中，模型卻把裸名詞翻成官方英文名。錯一次就被快取固化，
     # 之後每次命中都吐英文 —— 這類譯文照樣顯示，但一律不落盤，下次有機會翻對
     translator = FakeTranslator({"雪刺帽": "Snowspike Hat"})
-    cache = TranslationCache(FP)
+    cache = TranslationCache(FP, path=cache_path)
     assert translate_and_cache(translator, cache, "雪刺帽") == "Snowspike Hat"
     assert cache.get("雪刺帽") is None
     assert translator.requested == ["雪刺帽"]   # 不再多打一次直翻
@@ -373,7 +371,7 @@ def test_translate_and_cache_does_not_store_a_translation_that_slipped_into_engl
 def test_translate_and_cache_stores_a_translation_that_kept_the_source_english(
         cache_path):
     translator = FakeTranslator({"death skeleturion": "死亡骷髏戰士"})
-    cache = TranslationCache(FP)
+    cache = TranslationCache(FP, path=cache_path)
     assert translate_and_cache(translator, cache, "death skeleturion") == "死亡骷髏戰士"
     assert cache.get("death skeleturion") == "死亡骷髏戰士"
 

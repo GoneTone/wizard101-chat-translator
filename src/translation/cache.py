@@ -69,8 +69,9 @@ class TranslationCache:
     執行緒安全：reader 執行緒查詢、翻譯 worker 寫入，兩邊都持同一把鎖。
     """
 
-    def __init__(self, fingerprint: str):
+    def __init__(self, fingerprint: str, path: Path = CACHE_PATH):
         self._fingerprint = fingerprint
+        self._path = path
         self._entries: OrderedDict[str, str] = OrderedDict()
         self._unflushed = 0
         self._lock = threading.Lock()
@@ -139,19 +140,19 @@ class TranslationCache:
             self._entries.clear()
             self._unflushed = 0
         try:
-            CACHE_PATH.unlink(missing_ok=True)
+            self._path.unlink(missing_ok=True)
         except Exception as exc:
-            log(f"[cache] could not delete {CACHE_PATH}: {exc}")
+            log(f"[cache] could not delete {self._path}: {exc}")
         log(f"[cache] cleared {count} entries on user request")
         return count
 
     def load(self) -> None:
         """從磁碟載入。指紋不符、檔案損壞或不存在一律當作空快取（不是錯誤）。"""
-        if not CACHE_PATH.exists():
+        if not self._path.exists():
             log("[cache] no cache file yet, starting empty")
             return
         try:
-            data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+            data = json.loads(self._path.read_text(encoding="utf-8"))
             stored = data.get("fingerprint")
             entries = data.get("entries") or {}
             if not isinstance(entries, dict):
@@ -166,7 +167,7 @@ class TranslationCache:
             return
         with self._lock:
             self._entries = OrderedDict(items)
-        log(f"[cache] loaded {len(items)} entries from {CACHE_PATH}")
+        log(f"[cache] loaded {len(items)} entries from {self._path}")
 
     def flush(self) -> None:
         """寫回磁碟：先寫同目錄的獨立暫存檔，再 os.replace() 原子換上。
@@ -179,15 +180,15 @@ class TranslationCache:
             self._unflushed = 0
         tmp_path: Path | None = None
         try:
-            CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_name = tempfile.mkstemp(dir=CACHE_PATH.parent,
-                                            prefix=f"{CACHE_PATH.name}.")
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(dir=self._path.parent,
+                                            prefix=f"{self._path.name}.")
             tmp_path = Path(tmp_name)
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False)
-            os.replace(tmp_path, CACHE_PATH)
+            os.replace(tmp_path, self._path)
             tmp_path = None   # 已被換到目的地，不必再清
-            log(f"[cache] flushed {count} entries to {CACHE_PATH}")
+            log(f"[cache] flushed {count} entries to {self._path}")
         except Exception as exc:
             log(f"[cache] flush failed: {exc}")
         finally:
