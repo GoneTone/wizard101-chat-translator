@@ -2,15 +2,13 @@
 大半是 ttk combobox 下拉清單的 Tcl 層改寫（拆掉 modal 行為讓清單與輸入框並存），
 自成一體，與其他欄位無關。
 """
-import queue
-import threading
 import tkinter as tk
 from tkinter import ttk
 
 from src.i18n import t
 from src.log import log
 from src.translation.translator import TranslatorNoModelList, list_models
-from src.ui.form import ERROR_COLOR, HINT_COLOR, LABEL_WIDTH, friendly_error, poll_queue
+from src.ui.form import ERROR_COLOR, HINT_COLOR, LABEL_WIDTH, BackgroundButton, friendly_error
 from src.ui.providers import validate_endpoint_fields
 from src.ui.richtext import RichLabel, ttk_background
 
@@ -30,7 +28,6 @@ class ModelField(ttk.Frame):
         self._var = model_var
         self._api_getter = api_getter
         self._all_models: list[str] = []
-        self._queue: queue.Queue = queue.Queue()
         self._outside_click_id: str | None = None
 
         # grid 而非 pack：說明文字要與輸入框（而不是「模型」標籤）切齊同一欄。
@@ -42,6 +39,7 @@ class ModelField(ttk.Frame):
         self._btn = ttk.Button(self, text=t("button.refresh"), width=9,
                                command=self._start_refresh)
         self._btn.grid(row=0, column=2, padx=(4, 0))
+        self._task = BackgroundButton(self._btn, "model list")
         # RichLabel：API 錯誤訊息裡的網址要能點；它自己依寬度換行，不必 bind_wrap
         self._status = RichLabel(self, fg=HINT_COLOR, bg=ttk_background(self),
                                  font="TkDefaultFont")
@@ -193,33 +191,19 @@ class ModelField(ttk.Frame):
         if errors:
             self._set_status(t("sep.errors").join(t(e) for e in errors), error=True)
             return
-        self._btn.configure(state="disabled", text=t("button.loading"))
         self._set_status(t("hint.model_idle"))
-        threading.Thread(target=self._refresh_worker, args=(api,), daemon=True).start()
-        poll_queue(self, self._queue, self._on_refreshed)
+        self._task.start(lambda: list_models(api), lambda result: self._on_refreshed(result, api),
+                         t("button.loading"))
 
-    def _refresh_worker(self, api: dict) -> None:
-        try:
-            models = list_models(api)
-        except TranslatorNoModelList as exc:
-            log(f"[settings] model list unsupported (provider={api['provider']}, "
-                f"base_url={api.get('base_url', '')}): {exc}")
-            self._queue.put(exc)
-            return
-        except Exception as exc:
-            # api.get：只有自訂端點的設定檔有 base_url，官方服務商在這裡 KeyError
-            # 會讓例外永遠進不了 queue、按鈕卡在「載入中」
-            log(f"[settings] model list failed (provider={api['provider']}, "
-                f"base_url={api.get('base_url', '')}): {exc}")
-            self._queue.put(exc)
+    def _on_refreshed(self, result, api: dict) -> None:
+        """抓清單的結果：模型 ID 清單，或拋出的例外。
+        api.get：只有自訂端點的設定檔有 base_url，官方服務商用 api[...] 會 KeyError。"""
+        if isinstance(result, Exception):
+            reason = "unsupported" if isinstance(result, TranslatorNoModelList) else "failed"
+            log(f"[settings] model list {reason} (provider={api['provider']}, "
+                f"base_url={api.get('base_url', '')}): {result}")
+            self.show_error(result)
             return
         log(f"[settings] model list fetched (provider={api['provider']}, "
-            f"count={len(models)})")
-        self._queue.put(models)
-
-    def _on_refreshed(self, result) -> None:
-        self._btn.configure(state="normal", text=t("button.refresh"))
-        if isinstance(result, Exception):
-            self.show_error(result)
-        else:
-            self.show_models(result)
+            f"count={len(result)})")
+        self.show_models(result)

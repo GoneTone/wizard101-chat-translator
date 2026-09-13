@@ -4,8 +4,6 @@
 常駐介面 relabel），但仍要按下儲存才寫進設定，取消則還原成開窗時的語言。"""
 import copy
 import os
-import queue
-import threading
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
@@ -17,11 +15,11 @@ from src.log import log
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
+    BackgroundButton,
     help_translate_link,
     hint_label,
     link_label,
     linked_text,
-    poll_queue,
     show_outcome,
     translators_row,
 )
@@ -70,7 +68,6 @@ class SettingsWindow:
         self._on_update_found = on_update_found  # 手動檢查查到新版時通知（overlay 顯示橫幅）
         self._cache = cache   # 譯文快取；None＝關於分頁不畫「清除快取」那一列
         self._check_update = check_update   # 可注入是為了測試，正式路徑用預設
-        self._update_queue: queue.Queue = queue.Queue()
         self._win: tk.Toplevel | None = None
         # 未儲存的編輯暫存：欄位初始值讀這裡，換語言重建視窗才不會丟掉填到一半的內容；
         # None＝沒有開著的編輯階段，下次 open() 重新從 cfg 取一份。
@@ -235,6 +232,8 @@ class SettingsWindow:
                                       command=self._start_update_check)
         self._update_btn.pack(side="left", padx=(8, 0))
         self._update_result = ttk.Label(version_row, text="")
+        # 每次重建視窗都是新的一輪：舊視窗還沒回來的結果留在舊按鈕那一輪，不會落到這裡
+        self._update_task = BackgroundButton(self._update_btn, "update check")
         # 不 fill／expand：「有新版」時整個標籤是連結，撐滿整列會讓文字後的空白也可點；
         # 換行寬度仍由 bind_wrap 依這一列的寬度算，長訊息照樣折行。
         self._update_result.pack(side="left", padx=8)
@@ -310,51 +309,31 @@ class SettingsWindow:
         log(f"[settings] translation cache cleared by user ({count} entries)")
 
     def _start_update_check(self) -> None:
-        """手動檢查更新：背景查詢，結果經 queue 交回主執行緒顯示（見 poll_queue）。
-
-        每次按下都重建 queue：實例是整個 app 共用的，視窗在結果送回前被關掉（或換語言
-        重建）會讓 poll_queue 停止輪詢，過期結果留在舊 queue，下次檢查會先撈到它。
-        queue 以參數交給 worker 而非回頭讀 `self._update_queue`：否則兩輪重疊時，
-        前一輪的 worker 會把過期結果放進新 queue。"""
-        result_queue: queue.Queue = queue.Queue()
-        self._update_queue = result_queue   # 這一輪的通道（poll_queue 與測試取用）
-        self._update_btn.configure(state="disabled", text=t("button.checking"))
+        """手動檢查更新：背景查詢，結果回主執行緒顯示（見 form.BackgroundButton）。"""
         self._update_result.configure(text="")
-        threading.Thread(target=self._update_check_worker, args=(result_queue,),
-                         daemon=True).start()
-        poll_queue(self._win, result_queue, self._on_update_checked)
-
-    def _update_check_worker(self, result_queue: queue.Queue) -> None:
-        try:
-            release = self._check_update()
-        except Exception as exc:
-            log(f"[update] manual check failed: {exc}")
-            result_queue.put(("failed", t("update.failed", error=exc), None))
-            return
-        if release is None:
-            log("[update] manual check: already up to date")
-            result_queue.put(("latest", t("update.latest"), None))
-            return
-        log(f"[update] manual check: {release.version} available")
-        result_queue.put(("available",
-                          t("update.available", version=release.version),
-                          release))
+        self._update_task.start(self._check_update, self._on_update_checked,
+                                t("button.checking"))
 
     def _on_update_checked(self, result) -> None:
-        state, message, release = result
-        self._update_btn.configure(state="normal", text=t("button.check_update"))
+        """檢查更新的結果：Release（有新版）、None（已是最新）或拋出的例外。"""
         self._update_result.unbind("<Button-1>")
-        if state == "available":
-            # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
-            self._update_result.configure(text=message, foreground=LINK_COLOR,
-                                          cursor="hand2")
-            self._update_result.bind("<Button-1>",
-                                     lambda e: webbrowser.open(release.url))
-            if self._on_update_found is not None:
-                self._on_update_found(release)
-            return
-        show_outcome(self._update_result, state == "latest", message)
         self._update_result.configure(cursor="")
+        if isinstance(result, Exception):
+            log(f"[update] manual check failed: {result}")
+            show_outcome(self._update_result, False, t("update.failed", error=result))
+            return
+        if result is None:
+            log("[update] manual check: already up to date")
+            show_outcome(self._update_result, True, t("update.latest"))
+            return
+        log(f"[update] manual check: {release.version} available")
+        release = result
+        # 有新版：整個標籤是可點的連結，用連結藍、不加 ✓／✗ 前綴
+        self._update_result.configure(text=t("update.available", version=release.version),
+                                      foreground=LINK_COLOR, cursor="hand2")
+        self._update_result.bind("<Button-1>", lambda e: webbrowser.open(release.url))
+        if self._on_update_found is not None:
+            self._on_update_found(release)
 
     def _open_log_folder(self) -> None:
         path = app_dir()

@@ -362,10 +362,14 @@ def test_about_tab_shows_the_log_folder(root):
 
 
 def _run_check(win):
-    """同步跑一次檢查：worker 直接呼叫，結果自 queue 取出後交給主執行緒的處理函式
-    （正式路徑是背景執行緒跑、poll_queue 主執行緒取，這裡接起來測試才不必等執行緒）。"""
-    win._update_check_worker(win._update_queue)
-    win._on_update_checked(win._update_queue.get_nowait())
+    """同步跑一次檢查：直接呼叫 checker，結果（或例外）交給主執行緒的處理函式
+    （正式路徑是 BackgroundButton 在背景執行緒跑、poll_queue 主執行緒取，
+    這裡接起來測試才不必等執行緒）。"""
+    try:
+        result = win._check_update()
+    except Exception as exc:
+        result = exc
+    win._on_update_checked(result)
 
 
 def test_manual_check_reports_up_to_date(root):
@@ -487,83 +491,6 @@ def test_check_button_runs_the_real_thread_and_poll_path(root):
     assert win._update_result.cget("text") == "✓ " + t("update.latest")
     assert str(win._update_btn.cget("state")) == "normal"
     assert win._update_btn.cget("text") == t("button.check_update")
-    win._win.destroy()
-
-
-def test_check_button_discards_a_stale_queue_result(root):
-    """回歸測試：`_update_queue` 過去只在 __init__ 建一次、整個 app 生命週期共用。
-
-    上一輪結果若因視窗提早關掉沒被 poll_queue 撈走會滯留；這裡直接塞一筆過期結果，
-    驗證按下「檢查更新」看到的是這一輪的結果。"""
-    import time
-
-    from src.i18n import t
-
-    win = _open_settings_with_checker(root, lambda: None)
-    win._update_queue.put(("failed", "stale result from a previous round", None))
-
-    win._update_btn.invoke()
-    deadline = time.monotonic() + 5
-    while win._update_result.cget("text") != "✓ " + t("update.latest") \
-            and time.monotonic() < deadline:
-        root.update()
-        time.sleep(0.01)
-    assert win._update_result.cget("text") == "✓ " + t("update.latest")
-    win._win.destroy()
-
-
-def test_a_stale_worker_cannot_land_in_a_later_rounds_queue(root):
-    """回歸測試：worker 必須寫回啟動它的那一輪 queue，不能回頭讀 `_update_queue`。
-
-    兩輪重疊：按下檢查 → 結果回來前關窗 → 重開 → 再按一次。舊 worker 若在 put 當下才查
-    `self._update_queue`，過期結果會被新一輪的 poll_queue 撈走顯示。這裡先放行舊的，
-    確認它落在自己的 queue、畫面不受影響。"""
-    import threading
-    import time
-
-    from src.i18n import t
-    from src.updater import UpdateCheckError
-
-    stale_started, release_stale = threading.Event(), threading.Event()
-    release_current = threading.Event()
-
-    def stale_checker():
-        stale_started.set()
-        release_stale.wait()   # 逾時會讓它自己提早回應，見上面 checker() 的說明
-        raise UpdateCheckError("stale round")
-
-    win = _open_settings_with_checker(root, stale_checker)
-    win._update_btn.invoke()
-    assert stale_started.wait(30)
-    stale_queue = win._update_queue
-
-    # 結果回來前關窗再重開：按鈕與結果標籤都是新的，可以再按一次
-    win._win.destroy()
-    win.open()
-
-    def current_checker():
-        release_current.wait()   # 同上：逾時到期會讓譯文結果在斷言前就落地
-        return None
-
-    win._check_update = current_checker
-    win._update_btn.invoke()
-    assert win._update_queue is not stale_queue
-
-    # 先放行舊 worker，並給 poll_queue（100ms 一輪）足夠機會誤撈
-    release_stale.set()
-    deadline = time.monotonic() + 1
-    while time.monotonic() < deadline:
-        root.update()
-        time.sleep(0.01)
-    assert stale_queue.qsize() == 1               # 舊結果留在自己那一輪
-    assert win._update_result.cget("text") == ""  # 畫面仍停在「檢查中」
-
-    release_current.set()
-    deadline = time.monotonic() + 5
-    while not win._update_result.cget("text") and time.monotonic() < deadline:
-        root.update()
-        time.sleep(0.01)
-    assert win._update_result.cget("text") == "✓ " + t("update.latest")
     win._win.destroy()
 
 

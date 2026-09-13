@@ -1,12 +1,14 @@
 """精靈與設定視窗共用的小元件：顏色常數、說明文字、連結標籤、結果標籤、
-背景執行緒結果的輪詢，以及把翻譯例外轉成文案 key。不含任何完整欄位群。
+按鈕觸發的背景工作（含結果輪詢），以及把翻譯例外轉成文案 key。不含任何完整欄位群。
 """
 import queue
+import threading
 import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
 from src.i18n import current_language, t, translators
+from src.log import log
 from src.translation.translator import TranslatorConfigError, TranslatorOffline
 from src.ui.responsive import bind_wrap
 from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup
@@ -93,6 +95,58 @@ def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 
                      lambda: poll_queue(widget, result_queue, on_result, interval_ms))
         return
     on_result(result)
+
+
+class BackgroundButton:
+    """按鈕觸發的背景工作（測試連線、抓模型清單、檢查更新、捕捉熱鍵共用同一套流程）。
+
+    start() 停用按鈕並換成「進行中」文字，`work` 在背景執行緒跑，結果（回傳值，或拋出的
+    例外物件）經 poll_queue 回主執行緒交給 on_done，按鈕同時還原成原本的文字。
+
+    過期結果一律丟掉：start() 與 invalidate() 都推進 session，結果回來時對不上號就只還原
+    按鈕、不呼叫 on_done —— 等待期間表單被改過（切服務商、改欄位）時舊結果已對不上現況。
+    每輪各用自己的 queue：視窗在結果回來前被關掉（或換語言重建）會讓 poll_queue 停止
+    輪詢，結果留在那一輪的 queue 裡，不會被下一輪撈到。"""
+
+    def __init__(self, button, label: str):
+        self._button = button
+        self._label = label   # log 用的工作名稱
+        self._session = 0
+        self._idle_text = button.cget("text")   # 還原用；按鈕隨視窗重建，文字不會中途換語言
+        self._on_done = None
+
+    @property
+    def session(self) -> int:
+        """目前這一輪的編號（測試用來模擬「結果回來時已過期」）。"""
+        return self._session
+
+    def invalidate(self) -> None:
+        """作廢尚未回來的結果。"""
+        self._session += 1
+
+    def start(self, work, on_done, busy_text: str) -> None:
+        """在背景執行 work()，完成後於主執行緒呼叫 on_done(結果或例外)。"""
+        self._session += 1
+        session = self._session
+        self._on_done = on_done
+        self._button.configure(state="disabled", text=busy_text)
+        result_queue: queue.Queue = queue.Queue()
+
+        def worker() -> None:
+            try:
+                result_queue.put(work())
+            except Exception as exc:
+                result_queue.put(exc)
+
+        threading.Thread(target=worker, daemon=True).start()
+        poll_queue(self._button, result_queue, lambda result: self._finish(result, session))
+
+    def _finish(self, result, session: int) -> None:
+        self._button.configure(state="normal", text=self._idle_text)
+        if session != self._session:
+            log(f"[ui] {self._label} result discarded: state changed meanwhile")
+            return
+        self._on_done(result)
 
 
 def friendly_error(exc: Exception) -> tuple[str, dict]:
