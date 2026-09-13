@@ -2,7 +2,8 @@ import tkinter as tk
 
 import pytest
 
-from src.ui.popup import Popup, clamped_position
+from src.ui.geometry import clamped_position
+from src.ui.popup import Popup
 
 
 @pytest.fixture
@@ -10,7 +11,7 @@ def popup(root):
     clicks = []
     p = Popup(root, on_click=lambda: clicks.append(1))
     yield p, clicks
-    p.destroy()
+    p._win.destroy()
 
 
 def test_clamped_position_keeps_a_fitting_popup_where_it_is():

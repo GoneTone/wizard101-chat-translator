@@ -13,7 +13,7 @@ from src.i18n import t
 from src.log import log
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.fonts import ui_font
-from src.ui.geometry import edge_at, moved_to, point_in_rect, resized_edge
+from src.ui.geometry import centered_position, edge_at, moved_to, point_in_rect, resized_edge
 from src.ui.icons import load_icon
 from src.ui.message_list import MessageList
 from src.ui.palette import (
@@ -118,9 +118,10 @@ class OverlayWindow:
         self._win.attributes("-transparentcolor", BG)
         self._win.configure(bg=BG)
         # 未設定過位置（首次啟動）：擺螢幕正中央，比擺角落更容易被注意到
-        px = x if x is not None else (self._win.winfo_screenwidth() - self._w) // 2
-        py = y if y is not None else (self._win.winfo_screenheight() - self._h) // 2
-        self._apply_geometry(px, py, self._w, self._h)
+        cx, cy = centered_position(self._win.winfo_screenwidth(),
+                                   self._win.winfo_screenheight(), self._w, self._h)
+        self._apply_geometry(x if x is not None else cx, y if y is not None else cy,
+                             self._w, self._h)
         self._build_title_bar(on_settings, on_close)
         self._build_message_area(max_messages, fade_seconds)
         self._build_resize_handles()

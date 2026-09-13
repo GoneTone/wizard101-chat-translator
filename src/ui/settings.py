@@ -23,6 +23,7 @@ from src.ui.form import (
     show_outcome,
     translators_row,
 )
+from src.ui.geometry import centered_position
 from src.ui.providers import validate_api_form
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
@@ -94,8 +95,8 @@ class SettingsWindow:
         if self._restore_geometry is not None:
             self._win.geometry(self._restore_geometry)   # 換語言重建：不要跳回螢幕中央
         else:
-            x = (self._win.winfo_screenwidth() - win_w) // 2
-            y = (self._win.winfo_screenheight() - win_h) // 2
+            x, y = centered_position(self._win.winfo_screenwidth(),
+                                     self._win.winfo_screenheight(), win_w, win_h)
             self._win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self._win.resizable(True, True)
         # 下限比開窗尺寸小：內容可捲動，使用者要縮就讓他縮
