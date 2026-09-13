@@ -380,6 +380,45 @@ def test_manual_check_reports_up_to_date(root):
     win._win.destroy()
 
 
+def test_manual_check_hands_a_new_version_to_on_update_found(root):
+    """手動檢查查到新版時，除了關於分頁的連結，也要讓 overlay 顯示橫幅。"""
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import current_language
+    from src.ui.settings import SettingsWindow
+    from src.updater import Release
+
+    release = Release(version="9.9.9", url="https://example.invalid/rel")
+    found = []
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["ui_language"] = current_language()
+    win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: release,
+                         on_update_found=found.append)
+    win.open()
+    _run_check(win)
+    assert found == [release]
+    win._win.destroy()
+
+
+def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import current_language
+    from src.ui.settings import SettingsWindow
+
+    found = []
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["ui_language"] = current_language()
+    win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: None,
+                         on_update_found=found.append)
+    win.open()
+    _run_check(win)
+    assert found == []
+    win._win.destroy()
+
+
 def test_manual_check_reports_a_new_version(root, monkeypatch):
     from src.i18n import t
     from src.ui import settings as settings_module

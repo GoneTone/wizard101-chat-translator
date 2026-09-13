@@ -57,6 +57,7 @@ from src.updater import check_for_update
 
 # 第二份實例會搶著對遊戲掛 wizwalker hook，也會同時寫同一份 config.json 與 log。
 SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
+UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000   # 自動檢查更新的間隔
 
 def is_elevated() -> bool:
     """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
@@ -112,7 +113,8 @@ def drain_ui_queue(ui_queue: queue.Queue) -> None:
 
 def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) -> None:
     """檢查更新，有新版就把橫幅回呼排進 ui_queue（供背景執行緒呼叫）。
-    失敗只留 log：更新檢查是附加功能，不能影響啟動與收訊。`checker` 供測試注入。"""
+    失敗只留 log：更新檢查是附加功能，不能影響啟動與收訊。`checker` 供測試注入。
+    走 overlay.offer_update：使用者關掉過的版本不再反覆跳出。"""
     try:
         release = checker()
     except Exception as exc:
@@ -120,7 +122,19 @@ def announce_update(ui_queue: queue.Queue, overlay, checker=check_for_update) ->
         return
     if release is None:
         return
-    ui_queue.put(lambda: overlay.set_update(release))
+    ui_queue.put(lambda: overlay.offer_update(release))
+
+
+def schedule_update_checks(root, ui_queue: queue.Queue, overlay,
+                           checker=check_for_update,
+                           interval_ms: int = UPDATE_CHECK_INTERVAL_MS) -> None:
+    """立刻在背景查一次更新，之後每隔 interval_ms 再查（由 root.after 排程，
+    視窗銷毀即停）。網路慢不該拖住啟動，關閉時也不等它（結果只是一條橫幅）。"""
+    threading.Thread(target=announce_update, args=(ui_queue, overlay),
+                     kwargs={"checker": checker}, daemon=True).start()
+    log(f"[update] next automatic check in {interval_ms // 60000} min")
+    root.after(interval_ms, lambda: schedule_update_checks(
+        root, ui_queue, overlay, checker=checker, interval_ms=interval_ms))
 
 
 def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
@@ -408,6 +422,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     settings = SettingsWindow(root, cfg, on_save=apply_settings,
                               on_alpha_preview=overlay.set_alpha,
                               on_language_preview=relabel_ui,
+                              on_update_found=overlay.set_update,
                               cache=cache)
 
     def on_game_input_open(anchor) -> None:
@@ -437,9 +452,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         daemon=True)
     reader_thread.start()
 
-    # 更新檢查另開 daemon 執行緒：網路慢不該拖住啟動，關閉時也不等它（結果只是一條橫幅）
-    threading.Thread(target=announce_update, args=(ui_queue, overlay),
-                     daemon=True).start()
+    schedule_update_checks(root, ui_queue, overlay)
     return App(ui_queue, overlay, [pool, system_pool], cache, stop, reader_thread)
 
 

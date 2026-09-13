@@ -29,6 +29,7 @@ from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
 from src.ui.selection import Selection
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
+from src.updater import is_newer
 
 # 狀態指示的顏色（文字由 i18n 依 state key 取得）
 STATUS_COLORS = {
@@ -99,6 +100,7 @@ class OverlayWindow:
         self._update_row: tk.Frame | None = None
         self._update_label: tk.Label | None = None
         self._update_release = None   # 目前橫幅對應的 Release，語言切換後重繪用
+        self._dismissed_version: str | None = None   # 使用者按 ✕ 關掉的版本，這次執行內不再自動跳出
         self._w = max(width, MIN_WIDTH)
         self._h = max(height, MIN_HEIGHT)
         self._drag = (0, 0, 0, 0)
@@ -575,10 +577,20 @@ class OverlayWindow:
             self._error_label.destroy()
             self._error_label = None
 
+    def offer_update(self, release) -> None:
+        """自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出，
+        只有比它新的版本才顯示橫幅。手動檢查與換語言重繪直接走 set_update。"""
+        dismissed = self._dismissed_version
+        if dismissed is not None and not is_newer(release.version, dismissed):
+            log(f"[update] banner skipped: {release.version} not newer than "
+                f"dismissed {dismissed}")
+            return
+        self.set_update(release)
+
     def set_update(self, release) -> None:
-        """顯示更新橫幅：整列可點（開瀏覽器到下載頁），右側 ✕ 只關掉這一次。
-        與錯誤橫幅各佔一列、互不覆蓋 —— 兩者可能同時該被看到。release 存起來，
-        換語言時才重繪得出來。"""
+        """顯示更新橫幅：整列可點（開瀏覽器到下載頁），右側 ✕ 關掉並記下版本，
+        自動檢查（offer_update）就不再為同版跳出。與錯誤橫幅各佔一列、互不覆蓋 ——
+        兩者可能同時該被看到。release 存起來，換語言時才重繪得出來。"""
         self.clear_update()
         self._update_release = release
         row = tk.Frame(self._frame, bg=BG_UPDATE)
@@ -607,6 +619,7 @@ class OverlayWindow:
 
     def _dismiss_update(self) -> None:
         if self._update_release is not None:
+            self._dismissed_version = self._update_release.version
             log(f"[update] banner dismissed version={self._update_release.version}")
         self.clear_update()
 

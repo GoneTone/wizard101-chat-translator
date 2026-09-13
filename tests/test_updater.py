@@ -163,7 +163,7 @@ def test_announce_update_queues_the_banner_when_newer_exists():
         def __init__(self):
             self.shown = []
 
-        def set_update(self, release):
+        def offer_update(self, release):
             self.shown.append(release)
 
     release = Release(version="0.2.0", url=_TAG_URL)
@@ -200,3 +200,50 @@ def test_announce_update_swallows_check_failures():
     ui_queue = queue_module.Queue()
     announce_update(ui_queue, object(), checker=boom)
     assert ui_queue.empty()
+
+
+class _FakeRoot:
+    """只記錄 after() 排程，不真的計時：測試自己決定何時觸發下一輪。"""
+
+    def __init__(self):
+        self.scheduled = []
+
+    def after(self, ms, callback):
+        self.scheduled.append((ms, callback))
+
+
+def test_schedule_update_checks_checks_now_and_again_after_the_interval():
+    import queue as queue_module
+
+    from src.main import schedule_update_checks
+
+    class FakeOverlay:
+        def __init__(self):
+            self.shown = []
+
+        def offer_update(self, release):
+            self.shown.append(release)
+
+    release = Release(version="0.2.0", url=_TAG_URL)
+    ui_queue = queue_module.Queue()
+    overlay = FakeOverlay()
+    root = _FakeRoot()
+    calls = []
+
+    def checker():
+        calls.append(1)
+        return release
+
+    schedule_update_checks(root, ui_queue, overlay, checker=checker, interval_ms=1234)
+
+    # 第一輪立刻在背景查，結果照舊經 ui_queue 回到主執行緒
+    ui_queue.get(timeout=5)()
+    assert overlay.shown == [release]
+    assert len(calls) == 1
+    # 並排好下一輪；觸發後再查一次、再排一次
+    assert [ms for ms, _ in root.scheduled] == [1234]
+    root.scheduled[0][1]()
+    ui_queue.get(timeout=5)()
+    assert len(calls) == 2
+    assert overlay.shown == [release, release]
+    assert [ms for ms, _ in root.scheduled] == [1234, 1234]
