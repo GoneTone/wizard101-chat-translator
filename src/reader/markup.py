@@ -29,7 +29,10 @@ class ChatLine(NamedTuple):
 _TAG = re.compile(r"<[^>]*>")
 # 顏色標記的值為 6 位 RRGGBB 或 8 位 AARRGGBB（帶 alpha），顯示色一律取後 6 位
 _COLOR_TAG = re.compile(r"<color;([0-9a-fA-F]{6,8})>")
-_VALID = re.compile(r"^\[[^\]]{1,40}\] .+")
+# 玩家行行首的「[發送者]」：本模組據此判定玩家行格式，譯文後處理（postprocess）
+# 據此剝掉前綴 —— 兩邊必須是同一條 pattern，否則前綴會被一邊認、另一邊不認。
+SENDER_PREFIX = r"\[[^\]]{1,40}\]"
+_VALID = re.compile(rf"^{SENDER_PREFIX} .+")
 # 玩家發言行都帶頻道圖示：多數頻道是 Art_Chat_<頻道>，房間頻道實測是
 # chat_balloon_<Owner/Guest>，快捷訊息（禁言帳號只能用選單發話）是 Art_Word_Balloon。
 # 自己的發言是 [你] 開頭、無 <link;GID>，故不能只靠 link 過濾。
@@ -44,7 +47,12 @@ _LEADING_COLOR = re.compile(r"^\s*<color;")
 _OTHER_PLAYER_LINK = "<link;GID"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
-_warned_icons: set[str] = set()  # 每種未知圖示每次執行只警告一次，避免洗版
+_warned_icons: set[str] = set()  # 每種未知圖示每個遊戲 session 只警告一次，避免洗版
+
+
+def forget_warned_icons() -> None:
+    """清掉「已警告過的未知圖示」：斷線重連（遊戲可能已改版）後要能再警告一次。"""
+    _warned_icons.clear()
 
 # 遊戲表情以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 :名稱: 文字（不轉 emoji），
 # 避免整行只有表情時被去光而消失
