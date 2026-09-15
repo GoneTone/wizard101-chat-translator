@@ -3,7 +3,15 @@ import io
 
 import pytest
 
-from src.region.ocr import OcrUnavailable, pick_language, recognize, upscaled_png
+from src.region.ocr import (
+    MAX_SCALE,
+    MIN_SCALE,
+    OcrUnavailable,
+    ideal_scale,
+    pick_language,
+    recognize,
+    scaled_png,
+)
 
 
 def test_pick_language_prefers_the_matching_primary_tag():
@@ -72,12 +80,22 @@ def _png(size):
     return buffer.getvalue()
 
 
-def test_upscaled_png_doubles_a_small_image():
+def test_scaled_png_resizes_by_the_factor():
     from PIL import Image
-    out = Image.open(io.BytesIO(upscaled_png(_png((300, 120)))))
+    out = Image.open(io.BytesIO(scaled_png(_png((300, 120)), 2.0)))
     assert out.size == (600, 240)
+    out = Image.open(io.BytesIO(scaled_png(_png((300, 120)), 0.5)))
+    assert out.size == (150, 60)
 
 
-def test_upscaled_png_leaves_a_large_image_alone():
-    png = _png((2000, 100))
-    assert upscaled_png(png) is png
+def test_ideal_scale_targets_the_ideal_word_height():
+    assert ideal_scale([20.0, 20.0]) == 2.0        # 小字放大
+    assert ideal_scale([80.0]) == 0.5              # 大字縮小
+    assert ideal_scale([40.0]) == 1.0
+
+
+def test_ideal_scale_is_clamped_and_defaults_to_one():
+    assert ideal_scale([1.0]) == MAX_SCALE
+    assert ideal_scale([1000.0]) == MIN_SCALE
+    assert ideal_scale([]) == 1.0
+    assert ideal_scale([0.0]) == 1.0
