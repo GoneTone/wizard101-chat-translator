@@ -239,15 +239,21 @@ def build_region_system(target_language: str, transcribe: bool) -> str:
     else:
         prompt += (
             "2. 僅輸出譯文，禁止解釋、描述畫面或添加任何額外內容"
-            "（如「以下是翻譯：」、「這張圖片顯示」等）。畫面上沒有文字就輸出空白。\n"
+            "（如「以下是翻譯：」、「這張圖片顯示」等）。畫面上沒有文字就輸出空白。"
+            "輸入是逐行的辨識結果：輸出必須逐行對應、行數與輸入完全相同，"
+            "每一行各自翻譯，不得把多行合併成一句、也不得漏掉任何一行"
+            f"（與 {target_language} 相近但書寫系統或用語不同的行，同樣要轉成 {target_language}）。\n"
         )
     prompt += (
         "3. 保留原文的段落、換行與條列結構，讓譯文能與畫面上的位置對應。\n"
         "4. 忠實傳達原文的意思與語氣，不要曲解或改變原意。\n"
-        f"5. {_game_noun_rule(target_language)}\n"
+        f"5. {_game_noun_rule(target_language)}"
+        "畫面上的專有名詞（地名、NPC 名、物品名、任務名）若原文不是 "
+        f"{target_language}，譯名後一律用半形括號附上原文，方便對照畫面。\n"
         f"6. 標點使用 {target_language} 慣用的樣式。"
     )
     if not is_game_language(target_language):
         prompt += (f"\n7. 整則譯文必須完全以 {target_language} 書寫；"
-                   "原文沒有的英文（或其他語言）一律不得出現在譯文裡。")
+                   "原文沒有的英文（或其他語言）一律不得出現在譯文裡"
+                   "（規則 5 括號裡照抄的原文除外）。")
     return prompt

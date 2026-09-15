@@ -24,7 +24,7 @@ def test_pending_then_text(card, root):
     assert not card.is_open
     card.show_pending(_RECT)
     root.update()
-    assert card.is_open and card.text() == t("notice.pending")
+    assert card.is_open and card.text() == t("region.recognizing")
     assert card._label.cget("fg") == FG_PENDING
     card.show_text("譯文第一行\n第二行")
     root.update()
@@ -94,7 +94,7 @@ def test_close_affordance_is_shown(card, root):
     root.update()
     assert card._close.cget("text") == "✕"
     assert card._hint.cget("text") == t("region.close_hint")
-    assert card.text() == t("notice.pending")   # 提示文字不能混進主要內容
+    assert card.text() == t("region.recognizing")   # 提示文字不能混進主要內容
 
 
 def test_close_button_tooltip_shows_close_text(card, root):

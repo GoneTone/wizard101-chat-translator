@@ -114,7 +114,9 @@ class RegionCard:
         self._label.bind("<Button-3>", self._right_click)
         win.geometry(f"{self._width}x1")   # 寬度先定，RichLabel 才能依它換行；高度由 _layout 量
         make_non_activating(win)
-        self._set_pending_text(t("notice.pending"))
+        # 一開始就是「辨識中」：看圖路徑一趟請求同時辨識與翻譯，退回 OCR 也仍在辨識，
+        # 只有 OCR 完成送去翻譯時才換成「翻譯中」（見 region_flow._show_stage），不來回跳
+        self._set_pending_text(t("region.recognizing"))
         self._layout()
         win.deiconify()
 
