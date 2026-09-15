@@ -397,6 +397,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         bubble_position=cfg["bubble_position"],
         on_bubble_move=lambda x, y: save_field("bubble_position", {"x": x, "y": y}),
         alpha=cfg["overlay_alpha"],
+        # region_flow 在下方才建立；閉包晚繫結沒關係，這顆按鈕只在點下當下才會呼叫它
+        on_region=lambda: ui_queue.put(lambda: region_flow.start_from_button()),
     )
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:

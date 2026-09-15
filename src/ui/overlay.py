@@ -82,7 +82,7 @@ class OverlayWindow:
                  max_messages: int = 50, fade_seconds: int = 180,
                  on_geometry_change=None, on_settings=None, on_close=None,
                  bubble_position: dict | None = None, on_bubble_move=None,
-                 alpha: float = 0.80):
+                 alpha: float = 0.80, on_region=None):
         self._alpha = alpha
         self._on_geometry_change = on_geometry_change
         self._on_bubble_move = on_bubble_move
@@ -91,6 +91,7 @@ class OverlayWindow:
         self._minimized = False
         self._unread = 0
         self._bubble: Bubble | None = None
+        self._region_btn: tk.Label | None = None   # 有 on_region 才建立，供測試點擊
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._error_label: RichLabel | None = None
@@ -122,7 +123,7 @@ class OverlayWindow:
                                    self._win.winfo_screenheight(), self._w, self._h)
         self._apply_geometry(x if x is not None else cx, y if y is not None else cy,
                              self._w, self._h)
-        self._build_title_bar(on_settings, on_close)
+        self._build_title_bar(on_settings, on_close, on_region)
         self._build_message_area(max_messages, fade_seconds)
         self._build_resize_handles()
         self._attach_to_shell(on_close)
@@ -140,8 +141,8 @@ class OverlayWindow:
         # 底板攔截透明背景區的滑鼠事件（不穿透到遊戲），但點擊不奪焦點、不改疊序
         make_non_activating(self._backdrop)
 
-    def _build_title_bar(self, on_settings, on_close) -> None:
-        """標題列：icon、標題、狀態字與 ⚙／─／✕，整列可拖曳移動、上緣可縮放。"""
+    def _build_title_bar(self, on_settings, on_close, on_region=None) -> None:
+        """標題列：icon、標題、狀態字與 ⚙／⛶／─／✕，整列可拖曳移動、上緣可縮放。"""
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
@@ -149,9 +150,9 @@ class OverlayWindow:
         self._bar_icon = load_icon(self._win, _BAR_ICON)
         self._title_label = tk.Label(bar, text=app_name(), bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
-        # side="right" 先 pack 者占最外側：由右到左為 ✕、⚙、狀態字。打包版沒有主控台，
-        # ✕ 是唯一的正常關閉途徑，所以整組控制項都排在標題之前 pack —— 標題再長
-        # 或視窗再窄，被裁掉的只會是標題。
+        # side="right" 先 pack 者占最外側：由右到左為 ✕、⚙、⛶（開始框選）、狀態字。
+        # 打包版沒有主控台，✕ 是唯一的正常關閉途徑，所以整組控制項都排在標題之前
+        # pack —— 標題再長或視窗再窄，被裁掉的只會是標題。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
                              font=ui_font(9), cursor="hand2")
@@ -166,6 +167,11 @@ class OverlayWindow:
                             font=ui_font(9), cursor="hand2")
             gear.pack(side="right", padx=(0, 4))
             gear.bind("<Button-1>", lambda e: on_settings())
+        if on_region is not None:
+            self._region_btn = tk.Label(bar, text="⛶", bg=BAR, fg=FG_BAR,
+                                        font=ui_font(9), cursor="hand2")
+            self._region_btn.pack(side="right", padx=(0, 4))
+            self._region_btn.bind("<Button-1>", lambda e: on_region())
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=ui_font(8), anchor="e")
         self._status_label.pack(side="right", padx=6, pady=(_BAR_TEXT_NUDGE, 0))

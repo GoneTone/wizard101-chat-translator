@@ -260,6 +260,90 @@ def test_is_game_process_path_rejects_other_or_missing():
     assert not is_game_process_path(None)
 
 
+# --- find_game_window：標題列按鈕路徑，遊戲不在前景時靠列舉找 ---
+def _fake_enum_windows(visible: dict[int, int]):
+    """假的 win32gui.EnumWindows：對 visible（hwnd → pid）裡的每個 hwnd 呼叫一次
+    callback，其餘 hwnd（模擬看不見的視窗）不在字典內。
+    `find_game_window` 內的 `import win32gui`／`import win32process` 拿到的是同一份
+    已載入的模組物件，monkeypatch 真正的模組即可影響它。"""
+    def enum_windows(callback, extra):
+        for hwnd in visible:
+            callback(hwnd, extra)
+    return enum_windows
+
+
+def test_find_game_window_returns_the_first_matching_visible_window(monkeypatch):
+    import win32gui
+    import win32process
+
+    from src.reader import process
+
+    pids = {1: 100, 2: 200, 3: 300}
+    monkeypatch.setattr(win32gui, "EnumWindows", _fake_enum_windows(pids))
+    monkeypatch.setattr(win32gui, "IsWindowVisible", lambda hwnd: True)
+    monkeypatch.setattr(win32process, "GetWindowThreadProcessId",
+                        lambda hwnd: (0, pids[hwnd]))
+    paths = {100: r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            200: r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe",
+            300: r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe"}
+    monkeypatch.setattr(process, "process_exe_path", lambda pid: paths[pid])
+
+    assert process.find_game_window() == 2
+
+
+def test_find_game_window_returns_none_when_the_game_is_not_running(monkeypatch):
+    import win32gui
+    import win32process
+
+    from src.reader import process
+
+    pids = {1: 100, 2: 200}
+    monkeypatch.setattr(win32gui, "EnumWindows", _fake_enum_windows(pids))
+    monkeypatch.setattr(win32gui, "IsWindowVisible", lambda hwnd: True)
+    monkeypatch.setattr(win32process, "GetWindowThreadProcessId",
+                        lambda hwnd: (0, pids[hwnd]))
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Program Files\Mozilla Firefox\firefox.exe")
+
+    assert process.find_game_window() is None
+
+
+def test_find_game_window_skips_invisible_windows(monkeypatch):
+    import win32gui
+    import win32process
+
+    from src.reader import process
+
+    monkeypatch.setattr(win32gui, "EnumWindows", _fake_enum_windows({1: 200}))
+    monkeypatch.setattr(win32gui, "IsWindowVisible", lambda hwnd: False)
+    monkeypatch.setattr(win32process, "GetWindowThreadProcessId", lambda hwnd: (0, 200))
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe")
+
+    assert process.find_game_window() is None
+
+
+def test_find_game_window_ignores_a_single_window_query_failure(monkeypatch):
+    """單一視窗查詢失敗（權限、視窗剛消失）不該中斷整輪列舉，後面還找得到遊戲。"""
+    import win32gui
+    import win32process
+
+    from src.reader import process
+
+    monkeypatch.setattr(win32gui, "EnumWindows", _fake_enum_windows({1: 100, 2: 200}))
+    monkeypatch.setattr(win32gui, "IsWindowVisible", lambda hwnd: True)
+
+    def boom_or_pid(hwnd):
+        if hwnd == 1:
+            raise RuntimeError("window vanished")
+        return (0, 200)
+
+    monkeypatch.setattr(win32process, "GetWindowThreadProcessId", boom_or_pid)
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe")
+
+    assert process.find_game_window() == 2
+
 
 # --- 修復殘留 hook：寫回失敗與基址不符都要留下可追的 log ---
 class _FakeHookHandler:

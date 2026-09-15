@@ -132,6 +132,7 @@
   "region.ocr_unavailable": "本機文字辨識不可用：請安裝 Windows 的 OCR 語言包，或改用支援看圖的模型",
   "region.failed": "翻譯失敗：{error}",
   "region.close_hint": "點一下即可關閉",
+  "region.no_game": "找不到遊戲視窗，請先啟動並登入遊戲",
   "settings.region_hotkey": "框選畫面翻譯的熱鍵",
   "error.hotkeys_same": "兩個熱鍵不可相同"
 }

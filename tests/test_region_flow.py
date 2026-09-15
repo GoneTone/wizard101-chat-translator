@@ -75,12 +75,13 @@ class FakePipeline:
 
 def _flow(root, pipeline, capture_window=lambda hwnd: _FRAME,
          crop=lambda frame, rect: b"png", capture_screen=lambda monitor: None,
-         foreground=lambda hwnd: None):
+         foreground=lambda hwnd: None, find_game=lambda: 0x1234):
     ui_queue = queue.Queue()
     selector, card = FakeSelector(), FakeCard()
     flow = RegionFlow(root, pipeline, ui_queue, alpha=0.8, selector=selector, card=card,
                       capture_window=capture_window, crop=crop, capture_screen=capture_screen,
-                      monitor_at=lambda x, y: _MONITOR, foreground=foreground)
+                      monitor_at=lambda x, y: _MONITOR, foreground=foreground,
+                      find_game=find_game)
     return flow, selector, card, ui_queue
 
 
@@ -278,6 +279,36 @@ def test_set_alpha_forwards_to_the_card(root):
     flow, selector, card, _ = _flow(root, FakePipeline())
     flow.set_alpha(0.5)
     assert ("alpha", 0.5) in card.events
+
+
+# --- start_from_button：標題列按鈕入口，遊戲 hwnd 靠列舉找而非讀前景 ---
+def test_start_from_button_opens_the_selector_with_the_found_window(root):
+    flow, selector, card, _ = _flow(root, FakePipeline(), find_game=lambda: 0x9999)
+    flow.start_from_button()
+    assert selector.is_open and flow.is_selecting
+    assert flow._game_hwnd == 0x9999
+
+
+def test_start_from_button_shows_an_error_card_when_no_game_window_is_found(monkeypatch, root):
+    from src.ui import region_flow as region_flow_module
+
+    monkeypatch.setattr(region_flow_module, "cursor_position", lambda: (40, 50))
+    flow, selector, card, _ = _flow(root, FakePipeline(), find_game=lambda: None)
+
+    flow.start_from_button()
+
+    assert not selector.is_open and not flow.is_selecting
+    assert card.events == [("pending", (40, 50, 0, 0)), ("error", t("region.no_game"))]
+
+
+def test_start_from_button_cancels_an_already_open_selector(root):
+    flow, selector, card, _ = _flow(root, FakePipeline(), find_game=lambda: 0x1234)
+    flow.start_from_button()
+    assert selector.is_open
+
+    flow.start_from_button()
+
+    assert selector.cancelled == 1 and not flow.is_selecting
 
 
 def test_describe_error_maps_each_failure_kind():

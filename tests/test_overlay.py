@@ -1227,6 +1227,21 @@ def test_set_update_ignores_the_dismissed_version(root):
     ov.clear_update()
 
 
+def test_region_button_invokes_the_callback_when_provided(root):
+    calls = []
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       on_region=lambda: calls.append("region"))
+    ov._win.update()
+    ov._region_btn.event_generate("<Button-1>")
+    ov._win.update()
+    assert calls == ["region"]
+
+
+def test_region_button_absent_without_a_callback(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
+    assert ov._region_btn is None
+
+
 def test_clear_update_does_not_count_as_dismissing(root):
     """程式自己收橫幅（clear_update）不是使用者的決定，之後同版仍該再提醒。"""
     from src.updater import Release

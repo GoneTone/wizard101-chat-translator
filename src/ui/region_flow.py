@@ -18,6 +18,7 @@ import win32gui
 from src.composer.paste import force_foreground
 from src.i18n import t
 from src.log import log
+from src.reader.process import find_game_window
 from src.region.capture import (
     CaptureError,
     Frame,
@@ -29,6 +30,7 @@ from src.region.capture import (
 from src.region.ocr import OcrUnavailable
 from src.translation.translator import TranslatorBadOutput, TranslatorError
 from src.ui.form import friendly_error
+from src.ui.input_box import cursor_position
 from src.ui.monitors import monitor_rect_at
 from src.ui.region_card import RegionCard
 from src.ui.region_select import RegionSelector
@@ -53,7 +55,7 @@ class RegionFlow:
     def __init__(self, root: tk.Tk, pipeline, ui_queue: queue.Queue, alpha: float,
                  selector=None, card=None, capture_window=capture_window, crop=crop_frame,
                  capture_screen=capture_screen, monitor_at=monitor_rect_at,
-                 foreground=force_foreground):
+                 foreground=force_foreground, find_game=find_game_window):
         self._pipeline = pipeline
         self._queue = ui_queue
         self._selector = selector if selector is not None else RegionSelector(root)
@@ -63,6 +65,7 @@ class RegionFlow:
         self._capture_screen = capture_screen
         self._monitor_at = monitor_at
         self._foreground = foreground
+        self._find_game = find_game
         self._session = 0
         self._thread: threading.Thread | None = None
         self._game_hwnd = 0
@@ -103,6 +106,21 @@ class RegionFlow:
         self._selector.show(monitor, frame,
                             on_select=lambda rect: self._selected(rect, game_hwnd, frame),
                             on_cancel=self._cancelled, backdrop=backdrop)
+
+    def start_from_button(self) -> None:
+        """標題列按鈕的入口：與熱鍵不同，按下當下遊戲多半不是前景視窗，
+        `game_hwnd` 要靠列舉視窗找（見 `find_game_window`），找不到就在游標處顯示錯誤卡片。"""
+        if self._selector.is_open:
+            self.toggle(0)
+            return
+        hwnd = self._find_game()
+        if hwnd is None:
+            log("[region] no game window found for the overlay button")
+            x, y = cursor_position()
+            self._card.show_pending((x, y, 0, 0))
+            self._card.show_error(t("region.no_game"))
+            return
+        self.toggle(hwnd)
 
     def _cancelled(self) -> None:
         """選取層被取消（Esc、右鍵、點一下沒拖動、或熱鍵取消都會觸發）：把前景還給遊戲
