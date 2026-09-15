@@ -334,6 +334,10 @@ class _ClaudeClient(_BaseClient):
         ]}
 
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
+        """打一次 /v1/messages 請求，回傳文字內容。
+        `max_tokens` 參數只是為了跟 `_OpenAICompatClient.chat` 介面一致而收下，實際被
+        忽略 —— Claude 一律送 `_MAX_TOKENS_THINKING`（見類別註解：Claude 沒有「不思考」
+        模式，思考深度改由 `effort` 控制，不是靠調這個參數）。"""
         params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
                   "system": system, "messages": turns}
         if self._effort != EFFORT_AUTO:

@@ -1013,6 +1013,21 @@ def test_region_text_sends_the_recognized_text_as_a_plain_user_turn():
     assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
 
 
+def test_translate_region_text_logs_no_translation_content(monkeypatch):
+    # 區域翻譯的原文可能整頁、譯文可能很長 —— log 只留字數，不留內容
+    import src.translation.translator as translator_module
+
+    messages = []
+    monkeypatch.setattr(translator_module, "log", messages.append)
+    fake = FakeHttpxClient()
+    text = "Talk to Merle Ambrose"
+    translated = _make(fake).translate_region_text(text)
+    assert translated == "譯文"
+    assert not any("譯文" in m or "Merle" in m for m in messages)
+    assert any(f"translated=<{len(translated)} chars>" in m and
+              f"source='<text {len(text)} chars>'" in m for m in messages)
+
+
 def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
     prompt = build_region_system("日本語")
     assert "日本語" in prompt

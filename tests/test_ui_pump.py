@@ -135,6 +135,19 @@ def test_register_hotkey_falls_back_to_the_given_fallback_on_an_unknown_key(monk
     assert fake.registered == ["ctrl+shift+space"]
 
 
+# --- 啟動時的熱鍵撞名防護：region_hotkey 與 hotkey 相同就不註冊 ---
+def test_region_hotkey_to_register_returns_none_on_collision():
+    import src.main as main
+    cfg = {"hotkey": "ctrl+shift+space", "region_hotkey": "ctrl+shift+space"}
+    assert main.region_hotkey_to_register(cfg) is None
+
+
+def test_region_hotkey_to_register_returns_the_hotkey_when_different():
+    import src.main as main
+    cfg = {"hotkey": "f8", "region_hotkey": "ctrl+shift+space"}
+    assert main.region_hotkey_to_register(cfg) == "ctrl+shift+space"
+
+
 # --- 框選熱鍵：選取層開著就取消、遊戲在前景才開始框選 ---
 class _FakeRegionFlow:
     def __init__(self, is_selecting: bool):

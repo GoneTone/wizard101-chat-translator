@@ -151,6 +151,41 @@ def test_stale_result_is_dropped_after_a_new_selection(root):
     assert ("text", "譯文50") in card.events
 
 
+def test_stale_error_is_dropped_after_a_new_selection(root):
+    flow, selector, card, ui_queue = _flow(
+        root, FakePipeline(raises=OcrUnavailable("no pack")))
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    flow._thread.join(timeout=5)     # 第一輪錯誤已排進 ui_queue，尚未回填
+    flow.toggle(0x1234)              # 新一輪：舊錯誤回填時 session 已對不上
+    selector.pick((0, 0, 50, 50))
+    _drain(ui_queue, flow)
+    # 兩輪的錯誤文案相同（OcrUnavailable 一律映射同一句），靠次數而非內容分辨
+    # 舊結果確實被 _show_error 的 session 檢查擋下、沒有重複回填卡片
+    assert card.events.count(("error", t("region.ocr_unavailable"))) == 1
+
+
+def test_selection_moves_foreground_before_showing_the_pending_card(root):
+    calls = []
+
+    def foreground(hwnd):
+        calls.append(("foreground", hwnd))
+
+    flow, selector, card, _ = _flow(
+        root, FakePipeline(RegionResult("譯文", "image")), foreground=foreground)
+    original_show_pending = card.show_pending
+
+    def recording_show_pending(rect):
+        calls.append(("pending", rect))
+        original_show_pending(rect)
+
+    card.show_pending = recording_show_pending
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    assert calls == [("foreground", 0x1234), ("pending", _RECT)]
+    flow._thread.join(timeout=5)
+
+
 def test_toggle_hides_a_previous_card(root):
     flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文", "image")))
     flow.toggle(0x1234)

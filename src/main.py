@@ -99,6 +99,17 @@ def register_hotkey(hotkey: str, callback,
         return keyboard.add_hotkey(fallback, callback), fallback
 
 
+def region_hotkey_to_register(cfg: dict) -> str | None:
+    """框選熱鍵要不要註冊：與輸入框熱鍵相同就不註冊（回 None），否則回熱鍵字串。
+    舊設定檔補上預設的 region_hotkey 後可能與使用者自訂的 hotkey 撞名，兩把一起觸發
+    會同時開輸入框與選取層；設定視窗儲存時會擋，啟動時要自己擋。"""
+    if cfg["region_hotkey"] == cfg["hotkey"]:
+        log(f"[app] region_hotkey {cfg['region_hotkey']!r} collides with hotkey; "
+            f"region translation disabled until a different hotkey is saved in settings")
+        return None
+    return cfg["region_hotkey"]
+
+
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
     """依序取出並執行 ui_queue 裡的回呼；單一回呼拋錯不影響其餘回呼或呼叫端。"""
     while True:
@@ -402,10 +413,14 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
                                                    lambda: on_hotkey(input_box, ui_queue))
     region_pipeline = RegionPipeline(translator)
     region_flow = RegionFlow(root, region_pipeline, ui_queue, cfg["overlay_alpha"])
-    # 退回的預設值要用 region_hotkey 自己的，否則手改壞掉的 config.json 會讓兩把熱鍵撞在一起
-    region_handle, cfg["region_hotkey"] = register_hotkey(
-        cfg["region_hotkey"], lambda: on_region_hotkey(region_flow, ui_queue),
-        fallback=DEFAULT_CONFIG["region_hotkey"])
+    region_to_register = region_hotkey_to_register(cfg)
+    if region_to_register is None:
+        region_handle = None
+    else:
+        # 退回的預設值要用 region_hotkey 自己的，否則手改壞掉的 config.json 會讓兩把熱鍵撞在一起
+        region_handle, cfg["region_hotkey"] = register_hotkey(
+            region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
+            fallback=DEFAULT_CONFIG["region_hotkey"])
     # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
     game_chat_open = threading.Event()
     # 攔截器每次都直接讀 cfg，設定視窗改開關不必重掛；關閉時由 shutdown 的 unhook_all 一併卸除
@@ -432,10 +447,15 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle, cfg["hotkey"] = register_hotkey(
             cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
-        keyboard.remove_hotkey(region_handle)
-        region_handle, cfg["region_hotkey"] = register_hotkey(
-            cfg["region_hotkey"], lambda: on_region_hotkey(region_flow, ui_queue),
-            fallback=DEFAULT_CONFIG["region_hotkey"])
+        if region_handle is not None:
+            keyboard.remove_hotkey(region_handle)
+        region_to_register = region_hotkey_to_register(cfg)
+        if region_to_register is None:
+            region_handle = None
+        else:
+            region_handle, cfg["region_hotkey"] = register_hotkey(
+                region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
+                fallback=DEFAULT_CONFIG["region_hotkey"])
         region_pipeline.reset()
         region_flow.set_alpha(cfg["overlay_alpha"])
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
