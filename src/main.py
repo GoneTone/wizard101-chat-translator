@@ -399,6 +399,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         alpha=cfg["overlay_alpha"],
         # region_flow 在下方才建立；閉包晚繫結沒關係，這顆按鈕只在點下當下才會呼叫它
         on_region=lambda: ui_queue.put(lambda: region_flow.start_from_button()),
+        region_hotkey=cfg["region_hotkey"],
     )
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:
@@ -458,6 +459,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
             region_handle, cfg["region_hotkey"] = register_hotkey(
                 region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
                 fallback=DEFAULT_CONFIG["region_hotkey"])
+        overlay.set_region_hotkey(cfg["region_hotkey"])
         region_pipeline.reset()
         region_flow.set_alpha(cfg["overlay_alpha"])
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])

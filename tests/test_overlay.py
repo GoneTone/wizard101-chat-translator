@@ -1242,6 +1242,29 @@ def test_region_button_absent_without_a_callback(root):
     assert ov._region_btn is None
 
 
+def _tooltip_for(ov, widget):
+    return next(tip for tip in ov._tooltips if tip._widget is widget)
+
+
+def test_region_button_tooltip_shows_the_configured_hotkey(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       on_region=lambda: None, region_hotkey="ctrl+shift+space")
+    tip = _tooltip_for(ov, ov._region_btn)
+    tip._show()  # 直接觸發顯示：text_fn 現取當下的熱鍵，不必等真的懸停
+    assert tip.text() == t("tooltip.region", hotkey="ctrl+shift+space")
+
+
+def test_set_region_hotkey_updates_the_tooltip_on_the_next_show(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                       on_region=lambda: None, region_hotkey="ctrl+shift+space")
+    tip = _tooltip_for(ov, ov._region_btn)
+
+    ov.set_region_hotkey("ctrl+alt+r")
+    tip._show()
+
+    assert tip.text() == t("tooltip.region", hotkey="ctrl+alt+r")
+
+
 def test_clear_update_does_not_count_as_dismissing(root):
     """程式自己收橫幅（clear_update）不是使用者的決定，之後同版仍該再提醒。"""
     from src.updater import Release

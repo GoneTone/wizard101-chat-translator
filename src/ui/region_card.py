@@ -35,6 +35,7 @@ from src.ui.palette import (
 )
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
+from src.ui.tooltip import Tooltip
 from src.ui.winstyle import make_non_activating
 
 MIN_WIDTH = 240   # 矩形再窄也不跟：譯文會擠成一長條
@@ -52,6 +53,7 @@ class RegionCard:
         self._win: tk.Toplevel | None = None
         self._label: RichLabel | None = None
         self._close: tk.Label | None = None
+        self._close_tooltip: Tooltip | None = None
         self._hint: tk.Label | None = None
         self._popup: Popup | None = None
         self._shown_text = ""     # text() 用：目前顯示的譯文（或提示文字），widget 內容已合併原文不能反推
@@ -90,6 +92,7 @@ class RegionCard:
                                cursor="hand2", padx=6)
         self._close.pack(side="right")
         self._close.bind("<Button-1>", lambda e: self.hide())
+        self._close_tooltip = Tooltip(self._close, lambda: t("tooltip.close"))
         self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
         self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
@@ -149,10 +152,13 @@ class RegionCard:
         if self._win is not None:
             if self._popup is not None:
                 self._popup.hide()
+            # _close_tooltip 的視窗是 self._win 的子視窗（見 Tooltip._build），
+            # destroy 這裡會一併收掉，不必另外呼叫 hide()
             self._win.destroy()
             self._win = None
             self._label = None
             self._close = None
+            self._close_tooltip = None
             self._hint = None
             self._popup = None
             self._shown_text = ""

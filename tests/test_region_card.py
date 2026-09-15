@@ -88,6 +88,15 @@ def test_close_affordance_is_shown(card, root):
     assert card.text() == t("notice.pending")   # 提示文字不能混進主要內容
 
 
+def test_close_button_tooltip_shows_close_text(card, root):
+    card.show_pending(_RECT)
+    root.update()
+
+    card._close_tooltip._show()  # 直接觸發顯示，不必真的等懸停
+
+    assert card._close_tooltip.text() == t("tooltip.close")
+
+
 def test_close_button_hides(card, root):
     card.show_pending(_RECT)
     root.update()
