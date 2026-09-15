@@ -37,3 +37,5 @@ jobs:
       # 換一次執行就換一個 worker 中彈。本機開發者桌面穩定、平行仍然划算，故只改 CI。
       - name: Test
         run: uv run pytest -n 0
+        env:
+          WCT_REAL_POSITION: "1"   # 本機預設跳過會畫到真實螢幕上的測試（見 tests/conftest.py）；runner 沒有人在用桌面，全跑

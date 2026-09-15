@@ -45,6 +45,8 @@ testpaths = ["tests"]
 # access violation，見 .github/workflows/ci.yml 的說明。
 addopts = "-n 4"
 markers = [
+    # 本機預設被 conftest 的 pytest_collection_modifyitems 跳過（畫到真實螢幕）；
+    # 設 WCT_REAL_POSITION=1 才會執行，CI 已設好。
     "real_position: 測試斷言視窗的實際位置，不套用 conftest 的螢幕外停放",
 ]
 
