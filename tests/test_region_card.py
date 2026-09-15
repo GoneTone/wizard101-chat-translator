@@ -1,4 +1,6 @@
 """結果卡片：三態文字、點擊關閉、貼在框選矩形正下方。"""
+import tkinter as tk
+
 import pytest
 
 from src.i18n import t
@@ -117,3 +119,66 @@ def test_narrow_rect_gets_the_minimum_width(card, root):
     card.show_pending((300, 200, 40, 20))
     root.update()
     assert card._win.winfo_width() == card_module.MIN_WIDTH
+
+
+def test_right_click_on_translation_shows_the_copy_menu(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+
+    card._label.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+
+    assert card._popup.visible is True
+    assert card._popup.label_text() == t("menu.copy")
+
+
+def test_copy_after_right_click_on_translation_copies_the_translation(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+    card._label.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+
+    card._copy()
+    root.update()
+
+    try:
+        assert root.clipboard_get() == "譯文"
+    except tk.TclError:
+        pytest.skip("clipboard unavailable in this environment")
+    assert card._popup.visible is False
+
+
+def test_copy_after_right_click_on_source_copies_the_source(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+    card._source.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+
+    card._copy()
+    root.update()
+
+    try:
+        assert root.clipboard_get() == "Talk to Merle"
+    except tk.TclError:
+        pytest.skip("clipboard unavailable in this environment")
+
+
+def test_right_click_does_not_close_the_card(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+
+    card._label.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+    assert card.is_open
+
+    card._label.event_generate("<Button-1>", x=5, y=5)
+    root.update()
+    assert not card.is_open
