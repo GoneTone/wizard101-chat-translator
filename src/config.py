@@ -66,6 +66,7 @@ DEFAULT_CONFIG: dict = {
     "max_parallel_translations": 4,  # 同時翻譯則數；實測 4 以上幾乎無額外收益，1＝逐則排隊
     "translate_system_messages": False,  # 是否翻譯遊戲系統訊息（掉寶／升等等）；量大會擠掉玩家對話
     "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",  # 框選畫面區域翻譯的熱鍵；不可與 hotkey 相同
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "paste_hotkey": True,     # 遊戲在前景時攔截 Ctrl+V，把剪貼簿文字自動鍵入（遊戲不支援貼上）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）

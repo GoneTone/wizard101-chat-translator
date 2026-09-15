@@ -161,6 +161,9 @@ class SettingsWindow:
         ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
+        ttk.Label(basic, text=t("settings.region_hotkey")).pack(anchor="w", pady=(10, 0))
+        self._region_hotkey = HotkeyField(basic, cfg["region_hotkey"])
+        self._region_hotkey.pack(anchor="w", pady=(2, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
         ttk.Checkbutton(basic, text=t("field.auto_input"),
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
@@ -415,6 +418,7 @@ class SettingsWindow:
             "api": self._api.get_values(),
             "target_language": self._language.value(),
             "hotkey": self._hotkey.value(),
+            "region_hotkey": self._region_hotkey.value(),
             "auto_show_input": self._auto_input.get(),
             "paste_hotkey": self._paste_hotkey.get(),
             "translate_system_messages": self._translate_system.get(),
@@ -478,6 +482,8 @@ class SettingsWindow:
         # 先整批解析再驗證：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         values, advanced_error = self._form_values()
         errors = validate_api_form(self._api.active_values())
+        if values["hotkey"] == values["region_hotkey"]:
+            errors.append("error.hotkeys_same")
         if not values["target_language"]:
             errors.append("error.need_target_language")
         if advanced_error:

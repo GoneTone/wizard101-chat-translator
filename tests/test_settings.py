@@ -728,3 +728,41 @@ def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
     win._paste_hotkey.set(False)
     win._save()
     assert cfg["paste_hotkey"] is False
+
+
+def test_save_stores_the_region_hotkey(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._region_hotkey.value() == "ctrl+shift+space"
+    win._region_hotkey.set_value("ctrl+alt+r")
+    win._save()
+    assert cfg["region_hotkey"] == "ctrl+alt+r"
+
+
+def test_save_rejects_identical_hotkeys(root, monkeypatch):
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    saved = []
+    win = SettingsWindow(root, cfg, on_save=lambda: saved.append(1))
+    win.open()
+    win._region_hotkey.set_value(cfg["hotkey"])
+    win._save()
+    assert saved == []
+    assert t("error.hotkeys_same") in warnings[0]
+    assert cfg["region_hotkey"] == "ctrl+shift+space"
+    win._win.destroy()

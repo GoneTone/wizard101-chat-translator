@@ -322,3 +322,9 @@ def test_load_config_with_non_numeric_advanced_value_uses_the_default(tmp_path, 
     assert cfg["poll_interval"] == DEFAULT_CONFIG["poll_interval"]
     assert cfg["max_messages"] == DEFAULT_CONFIG["max_messages"]
     assert any("poll_interval" in line for line in logged)
+
+
+def test_default_config_has_a_region_hotkey_distinct_from_the_input_hotkey():
+    from src.config import DEFAULT_CONFIG
+    assert DEFAULT_CONFIG["region_hotkey"] == "ctrl+shift+space"
+    assert DEFAULT_CONFIG["region_hotkey"] != DEFAULT_CONFIG["hotkey"]
