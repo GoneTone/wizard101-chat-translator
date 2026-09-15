@@ -36,19 +36,21 @@ def _create_engine():
     `RapidOCR.__init__` 建構到一半就會用讀到的設定把 logger 等級重設成
     INFO、且初始化過程本身就會印出好幾行模型路徑 —— 建構前才 setLevel 對
     這些訊息沒有用（等級會被蓋回去），得靠 `params` 直接把設定值改成
-    warning，讓 `__init__` 自己設回去的等級就是我們要的；建構完再設一次
+    error，讓 `__init__` 自己設回去的等級就是我們要的；建構完再設一次
     是防禦性寫法，擋住之後可能新增、不受這個設定管的 logger 用法。
+    壓到 error 而非 warning：框到沒有文字時它會以 WARNING 印「text detection result is
+    empty」（帶 ANSI 顏色碼），而這個情況本模組自己已經記了一行乾淨的 log。
     """
-    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.WARNING)
+    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.ERROR)
     try:
         from rapidocr import RapidOCR
     except ImportError as exc:
         raise OcrUnavailable(f"rapidocr/onnxruntime unavailable: {exc}") from exc
     try:
-        engine = RapidOCR(params={"Global.log_level": "warning"})
+        engine = RapidOCR(params={"Global.log_level": "error"})
     except Exception as exc:
         raise OcrUnavailable(f"failed to create RapidOCR engine: {exc}") from exc
-    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.WARNING)
+    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.ERROR)
     return engine
 
 
