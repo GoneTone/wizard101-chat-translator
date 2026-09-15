@@ -124,5 +124,13 @@
   "input.hint": "輸入訊息後按下 Enter 會執行翻譯並自動輸入進遊戲的輸入框（不會自動送出）；按 Esc 或未輸入直接按 Enter 可關閉此視窗",
   "input.translating": "翻譯中…",
   "input.failed": "翻譯失敗：{error}",
-  "input.too_long": "譯文 {count} 字，超過遊戲上限 {limit} 字 —— 請刪減或分段後重送"
+  "input.too_long": "譯文 {count} 字，超過遊戲上限 {limit} 字 —— 請刪減或分段後重送",
+  "region.hint": "拖曳框選要翻譯的區域，按 Esc 取消",
+  "region.no_text": "沒有辨識到文字",
+  "region.outside_game": "請框選遊戲畫面內的區域",
+  "region.capture_failed": "擷取畫面失敗：{error}",
+  "region.ocr_unavailable": "本機文字辨識不可用：請安裝 Windows 的 OCR 語言包，或改用支援看圖的模型",
+  "region.failed": "翻譯失敗：{error}",
+  "settings.region_hotkey": "框選畫面翻譯的熱鍵",
+  "error.hotkeys_same": "兩個熱鍵不可相同"
 }

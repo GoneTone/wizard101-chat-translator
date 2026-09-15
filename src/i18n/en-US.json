@@ -124,5 +124,13 @@
   "input.hint": "Type a message and press Enter to translate it and type it into the game's input box (it is not sent automatically). Press Esc, or Enter on an empty box, to close this window.",
   "input.translating": "Translating…",
   "input.failed": "Translation failed: {error}",
-  "input.too_long": "The translation is {count} characters, over the game limit of {limit} — trim it or split it up."
+  "input.too_long": "The translation is {count} characters, over the game limit of {limit} — trim it or split it up.",
+  "region.hint": "Drag to select the area to translate, Esc to cancel",
+  "region.no_text": "No text recognized",
+  "region.outside_game": "Select an area inside the game window",
+  "region.capture_failed": "Screen capture failed: {error}",
+  "region.ocr_unavailable": "Local text recognition is unavailable: install a Windows OCR language pack, or switch to a model that accepts images",
+  "region.failed": "Translation failed: {error}",
+  "settings.region_hotkey": "Hotkey to translate a selected screen area",
+  "error.hotkeys_same": "The two hotkeys must be different"
 }
