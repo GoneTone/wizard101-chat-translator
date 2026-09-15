@@ -24,6 +24,7 @@ SCAN_TARGETS = [
     "src/ui/region_card.py",
     "src/ui/monitors.py",
     "src/ui/region_select.py",
+    "src/ui/region_flow.py",
     "src/translation/pool.py",
     "src/translation/translator.py",
 ]

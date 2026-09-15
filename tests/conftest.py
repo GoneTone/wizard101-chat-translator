@@ -60,7 +60,7 @@ def _keep_foreground():
     """把 `force_foreground` 換成無操作，避免測試搶走遊戲的 Windows 前景。
 
     不用 monkeypatch fixture，理由同 `_park_windows`：手動存還原，逐一覆寫
-    在 import 當下就把名稱綁進自己命名空間的四個模組（`from ... import
+    在 import 當下就把名稱綁進自己命名空間的五個模組（`from ... import
     force_foreground`），而不是只改定義處的 `src.composer.paste` —— 否則已經
     綁定的名稱不會跟著變。測試自己 `monkeypatch.setattr(..., "force_foreground", ...)`
     時後蓋前，不受影響。
@@ -68,9 +68,11 @@ def _keep_foreground():
     import src.composer.paste as paste_module
     import src.main as main_module
     import src.ui.input_box as input_box_module
+    import src.ui.region_flow as region_flow_module
     import src.ui.region_select as region_select_module
 
-    modules = (paste_module, main_module, input_box_module, region_select_module)
+    modules = (paste_module, main_module, input_box_module, region_select_module,
+              region_flow_module)
     originals = [m.force_foreground for m in modules]
 
     def _noop(hwnd):
