@@ -161,15 +161,16 @@ class SettingsWindow:
         ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
+        # 每把熱鍵底下緊接著它自己的選項，看得出哪個開關管哪個功能
+        self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
+        ttk.Checkbutton(basic, text=t("field.auto_input"),
+                        variable=self._auto_input).pack(anchor="w", pady=(6, 0))
         ttk.Label(basic, text=t("settings.region_hotkey")).pack(anchor="w", pady=(10, 0))
         self._region_hotkey = HotkeyField(basic, cfg["region_hotkey"])
         self._region_hotkey.pack(anchor="w", pady=(2, 0))
         self._region_force_ocr = tk.BooleanVar(value=cfg["region_force_ocr"])
         ttk.Checkbutton(basic, text=t("field.region_force_ocr"),
                         variable=self._region_force_ocr).pack(anchor="w", pady=(6, 0))
-        self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
-        ttk.Checkbutton(basic, text=t("field.auto_input"),
-                        variable=self._auto_input).pack(anchor="w", pady=(10, 0))
         self._paste_hotkey = tk.BooleanVar(value=cfg["paste_hotkey"])
         ttk.Checkbutton(basic, text=t("field.paste_hotkey"),
                         variable=self._paste_hotkey).pack(anchor="w", pady=(4, 0))
