@@ -19,8 +19,10 @@ from src.config import EFFORT_AUTO
 from src.log import log
 from src.translation.postprocess import (
     has_stray_latin,
+    number_lines,
     strip_invented_english,
     strip_think,
+    unnumber_lines,
 )
 from src.translation.prompts import (
     CONTEXT_INTRO_INCOMING,
@@ -29,6 +31,7 @@ from src.translation.prompts import (
     OUTGOING_LANGUAGE,
     build_incoming_system,
     build_outgoing_system,
+    build_region_system,
     build_system_message_system,
     build_turns,
 )
@@ -52,6 +55,10 @@ _TIMEOUT = 60.0
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
+# 區域翻譯固定用放寬的上限：一次可能是一整頁任務書的所有行一起送出，
+# 思考模式下 <think> 區塊還要跟譯文搶同一個預算；上限依然存在是為了
+# 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
+_MAX_TOKENS_REGION = 4096
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
@@ -247,8 +254,9 @@ class _OpenAICompatClient(_BaseClient):
             self._dropped.add(param)
         return True
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
+        if max_tokens is None:
+            max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
         while True:
             body = self._body(system, turns, max_tokens)
             try:
@@ -310,8 +318,14 @@ class _ClaudeClient(_BaseClient):
         self._model = model
         self._effort = effort
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
+        """打一次 /v1/messages 請求，回傳文字內容。
+        `max_tokens` 未指定（None）時沿用聊天路徑的 `_MAX_TOKENS_THINKING`——Claude 沒有
+        「不思考」模式，思考深度改由 `effort` 控制，不是靠調這個參數；區域翻譯路徑會
+        明確帶 `_MAX_TOKENS_REGION`（一次可能送出一整頁的辨識行，預算得放寬），截斷判定
+        也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
+        limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
+        params = {"model": self._model, "max_tokens": limit,
                   "system": system, "messages": turns}
         if self._effort != EFFORT_AUTO:
             params["output_config"] = {"effort": self._effort}
@@ -327,8 +341,7 @@ class _ClaudeClient(_BaseClient):
         content = "".join(b.text for b in resp.content if b.type == "text")
         if resp.stop_reason == "max_tokens":
             usage = getattr(resp, "usage", None)
-            raise _truncated(_MAX_TOKENS_THINKING,
-                             getattr(usage, "output_tokens", None), content)
+            raise _truncated(limit, getattr(usage, "output_tokens", None), content)
         return strip_think(content).strip()
 
     def list_models(self) -> list[str]:
@@ -390,20 +403,23 @@ class Translator:
         return self._target_language
 
     def _chat(self, kind: str, system: str, turns: list[dict], *,
-              source: str, context_lines: int, strip: bool = False) -> str:
+              source: str, context_lines: int, strip: bool = False,
+              max_tokens: int | None = None, redact: bool = False) -> str:
         """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
 
         三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
         實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
         例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        `redact=True` 只記字數不記內容：區域翻譯的原文可能整頁、譯文可能很長。
         """
         started = time.monotonic()
-        translated = self._impl.chat(system, turns)
+        translated = self._impl.chat(system, turns, max_tokens=max_tokens)
         if strip:
             translated = strip_invented_english(source, translated)
+        shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
             f"(model={self._impl.model}, ctx={context_lines}): "
-            f"source={source!r} translated={translated!r}")
+            f"source={source!r} translated={shown}")
         return translated
 
     def translate_incoming(self, text: str, context: list[str]) -> str:
@@ -453,6 +469,19 @@ class Translator:
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING),
             source=text, context_lines=len(context))
+
+    def translate_region_text(self, text: str) -> str:
+        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
+        每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
+        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。"""
+        originals, numbered = number_lines(text)
+        translated = self._chat(
+            "region text",
+            build_region_system(self._target_language),
+            [{"role": "user", "content": numbered}],
+            source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
+            max_tokens=_MAX_TOKENS_REGION, redact=True)
+        return unnumber_lines(translated, originals)
 
 
 def list_models(api: dict, client=None) -> list[str]:

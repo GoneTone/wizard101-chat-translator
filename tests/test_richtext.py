@@ -117,6 +117,38 @@ def test_rich_label_reports_height_changes(root):
         win.destroy()
 
 
+def test_rich_label_set_blocks_joins_blocks_with_a_blank_line(root):
+    win, label = _label(root)
+    try:
+        label.set_blocks([("A", "#111111", ("Segoe UI", 9)), ("B", "#222222", ("Segoe UI", 11))])
+        assert label.get("1.0", "end-1c") == "A\n\nB"
+    finally:
+        win.destroy()
+
+
+def test_rich_label_set_blocks_colours_each_block(root):
+    win, label = _label(root)
+    try:
+        label.set_blocks([("A", "#111111", ("Segoe UI", 9)), ("B", "#222222", ("Segoe UI", 11))])
+        tags = label.tag_names("1.0")
+        block_tag = next(name for name in tags if name.startswith("block"))
+        assert label.tag_cget(block_tag, "foreground") == "#111111"
+    finally:
+        win.destroy()
+
+
+def test_rich_label_set_blocks_keeps_links_clickable(root):
+    win, label = _label(root)
+    try:
+        label.set_blocks([
+            ("see https://a.example/help now", "#111111", ("Segoe UI", 9)),
+            ("plain second block", "#222222", ("Segoe UI", 11)),
+        ])
+        assert label.links() == [("https://a.example/help", "https://a.example/help")]
+    finally:
+        win.destroy()
+
+
 def test_rich_label_set_before_layout_never_balloons(root):
     # 先 set 再 pack（overlay 橫幅的順序）：第一次量高度時寬度還是佔位的 1px，
     # 長句被算成一字一行，橫幅先撐滿整個視窗再縮回幾行 —— 訊息列表因此閃一下（實測）

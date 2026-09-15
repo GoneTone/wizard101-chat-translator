@@ -5,8 +5,6 @@ import queue
 import threading
 import tkinter as tk
 
-import win32api
-import win32con
 import win32gui
 
 from src.composer.paste import force_foreground
@@ -15,6 +13,7 @@ from src.i18n import t
 from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_position
+from src.ui.monitors import work_area_at
 from src.ui.palette import FG_ERROR, FG_UPDATE
 from src.ui.richtext import RichLabel
 from src.ui.winstyle import root_hwnd, visible_chrome
@@ -32,14 +31,6 @@ ANCHOR_GAP = 4  # 與遊戲輸入框／游標的垂直間距（px）
 def cursor_position() -> tuple[int, int]:
     """游標的螢幕座標。"""
     return win32gui.GetCursorPos()
-
-
-def work_area_at(x: int, y: int) -> tuple[int, int, int, int]:
-    """含 (x, y) 那顆螢幕的工作區 (x, y, w, h)（去掉工作列）；多螢幕時貼齊用的邊界要跟著
-    遊戲所在的螢幕走，不能用主螢幕尺寸。"""
-    monitor = win32api.MonitorFromPoint((x, y), win32con.MONITOR_DEFAULTTONEAREST)
-    left, top, right, bottom = win32api.GetMonitorInfo(monitor)["Work"]
-    return left, top, right - left, bottom - top
 
 
 class InputBox:

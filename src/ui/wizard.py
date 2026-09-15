@@ -1,7 +1,7 @@
 """首次設定精靈：介面語言 → API 設定（選服務商 → 填 API → 測試連線）→ 偏好設定，
 三步完成寫入 cfg。中途關閉＝取消（不留半套設定），run_wizard 回傳 False。"""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 from src.config import app_name
 from src.i18n import current_language, language_name, set_language, t
@@ -76,12 +76,14 @@ class SetupWizard:
         self._language = LanguageField(self._body, cfg["target_language"])
         self._hotkey = HotkeyField(self._body, cfg["hotkey"])
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
+        self._region_hotkey = HotkeyField(self._body, cfg["region_hotkey"])
         self._show_step()
 
     # --- 導航 ---
     def _show_step(self) -> None:
         # 跨步驟保留的元件只收起來；每步臨時建立的說明等直接銷毀，免得來回導航累積孤兒
-        persistent = {self._ui_language, self._api_fields, self._language, self._hotkey}
+        persistent = {self._ui_language, self._api_fields, self._language, self._hotkey,
+                      self._region_hotkey}
         for w in self._body.winfo_children():
             if w in persistent:
                 w.pack_forget()
@@ -120,8 +122,12 @@ class SetupWizard:
             self._language.pack(fill="x", pady=(2, 12))
             ttk.Label(self._body, text=t("settings.hotkey")).pack(anchor="w")
             self._hotkey.pack(anchor="w", pady=(2, 0))
+            # 與設定視窗同一個順序：每把熱鍵底下緊接著它自己的選項
             ttk.Checkbutton(self._body, text=t("field.auto_input"),
-                            variable=self._auto_input).pack(anchor="w", pady=(14, 0))
+                            variable=self._auto_input).pack(anchor="w", pady=(6, 0))
+            ttk.Label(self._body, text=t("settings.region_hotkey")).pack(anchor="w",
+                                                                         pady=(10, 0))
+            self._region_hotkey.pack(anchor="w", pady=(2, 0))
             self._next_btn.configure(text=t("button.finish"))
         self._back_btn.configure(
             state="normal" if self._step > STEP_LANG else "disabled")
@@ -152,6 +158,7 @@ class SetupWizard:
             self._cfg["target_language"] = self._language.value()
         self._cfg["hotkey"] = self._hotkey.value()
         self._cfg["auto_show_input"] = self._auto_input.get()
+        self._cfg["region_hotkey"] = self._region_hotkey.value()
 
     def _on_api_change(self) -> None:
         # API 欄位一改就取消先前的「略過測試」：改過設定應重測（或再次明示略過）
@@ -183,6 +190,11 @@ class SetupWizard:
         self._show_step()
 
     def _finish(self) -> None:
+        # 與設定視窗同一條驗證：兩把熱鍵相同會一起觸發，開輸入框的同時也開選取層
+        if self._hotkey.value() == self._region_hotkey.value():
+            messagebox.showwarning(t("dialog.incomplete_title"), t("error.hotkeys_same"),
+                                   parent=self._win)
+            return
         self._collect_into_cfg()
         self._cfg["ui_language"] = current_language()
         self.completed = True

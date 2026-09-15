@@ -6,14 +6,23 @@ import httpx
 import httpx2
 import pytest
 
-from src.translation.postprocess import _PAREN_ENGLISH, has_stray_latin, strip_invented_english
+from src.translation.postprocess import (
+    _PAREN_ENGLISH,
+    has_stray_latin,
+    number_lines,
+    strip_invented_english,
+    unnumber_lines,
+)
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
     _game_noun_rule,
     build_incoming_system,
+    build_region_system,
     build_system_message_system,
 )
 from src.translation.translator import (
+    _MAX_TOKENS_REGION,
+    _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
     Translator,
     TranslatorBadOutput,
@@ -102,9 +111,10 @@ def test_openai_compat_retryable_status_maps_to_offline(status):
 
 
 class FakeAnthropicMessages:
-    def __init__(self, raises=None, stop_reason="end_turn"):
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
         self._raises = raises
         self._stop_reason = stop_reason
+        self._content = content
         self.last_kwargs = None
 
     def create(self, **kwargs):
@@ -112,10 +122,11 @@ class FakeAnthropicMessages:
         if self._raises:
             raise self._raises
         stop_reason = self._stop_reason
+        content = self._content
 
         class Block:
             type = "text"
-            text = "克勞德譯文"
+            text = content
 
         class Resp:
             content = [Block()]
@@ -125,8 +136,8 @@ class FakeAnthropicMessages:
 
 
 class FakeAnthropicClient:
-    def __init__(self, raises=None, stop_reason="end_turn"):
-        self.messages = FakeAnthropicMessages(raises, stop_reason)
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
+        self.messages = FakeAnthropicMessages(raises, stop_reason, content)
 
 
 def _anthropic_status_error(status, body=None):
@@ -162,7 +173,7 @@ def test_claude_status_error_mapping(status, exc):
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
     # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
                target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
@@ -191,7 +202,6 @@ def test_openai_compat_missing_finish_reason_is_accepted():
 
 
 def test_claude_sends_max_tokens():
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
@@ -248,7 +258,7 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
 def test_openai_provider_uses_max_completion_tokens_and_no_temperature():
     # 官方端點：max_tokens 已棄用、GPT-5／o 系列直接回 400「use max_completion_tokens」；
     # 同一批模型也只接受預設 temperature（實測「Only the default (1) value is supported」）
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
 
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=False,
@@ -319,7 +329,6 @@ def test_other_openai_rejection_wordings_are_recognised(wording):
 
 def test_rejected_token_limit_is_swapped_not_dropped():
     # 長度上限是防 repetition loop 的保險，不能因為端點只認另一個名字就整個不帶
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = SequenceClient(_rejects("max_completion_tokens"), FakeResponse())
     t = Translator(provider="openai", model="m", api_key="k",
                    target_language="繁體中文（台灣）", client=fake)
@@ -969,3 +978,52 @@ def test_sender_prefix_limit_is_shared_with_the_chat_parser():
            f"<link;GID:1,{longest},2>[{longest}]</link> 你好 </color>")
     assert [line.text for line in lines_from_chatlog(raw)] == [f"[{longest}] 你好"]
     assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False
+
+
+def test_region_text_sends_the_recognized_lines_numbered():
+    fake = FakeHttpxClient(response=FakeResponse(content="1. 跟莫爾談談\n2. 第二行"))
+    translator = _make(fake)
+    assert translator.translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+        "跟莫爾談談\n第二行"
+    assert fake.last_body["messages"][-1] == {
+        "role": "user", "content": "1. Talk to Merle Ambrose\n2. Second line"}
+    assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
+    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
+
+
+def test_region_text_fills_lines_the_model_dropped_with_the_original():
+    fake = FakeHttpxClient(response=FakeResponse(content="2. 第二行"))
+    assert _make(fake).translate_region_text("海报伙伴\nSecond line") == "海报伙伴\n第二行"
+
+
+def test_number_lines_skips_blank_lines():
+    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
+
+
+def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
+    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
+    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
+    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
+
+
+def test_translate_region_text_logs_no_translation_content(monkeypatch):
+    # 區域翻譯的原文可能整頁、譯文可能很長 —— log 只留字數，不留內容
+    import src.translation.translator as translator_module
+
+    messages = []
+    monkeypatch.setattr(translator_module, "log", messages.append)
+    fake = FakeHttpxClient()
+    text = "Talk to Merle Ambrose"
+    translated = _make(fake).translate_region_text(text)
+    assert translated == "譯文"
+    assert not any("譯文" in m or "Merle" in m for m in messages)
+    assert any(f"translated=<{len(translated)} chars>" in m and
+              f"source='<text {len(text)} chars, 1 lines>'" in m for m in messages)
+
+
+def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
+    prompt = build_region_system("日本語")
+    assert "日本語" in prompt
+    assert "[發送者]" not in prompt
+
+

@@ -28,6 +28,7 @@ from src.ui.palette import (
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
 from src.ui.selection import Selection
+from src.ui.tooltip import Tooltip
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 from src.updater import is_newer
 
@@ -82,8 +83,9 @@ class OverlayWindow:
                  max_messages: int = 50, fade_seconds: int = 180,
                  on_geometry_change=None, on_settings=None, on_close=None,
                  bubble_position: dict | None = None, on_bubble_move=None,
-                 alpha: float = 0.80):
+                 alpha: float = 0.80, on_region=None, region_hotkey: str = ""):
         self._alpha = alpha
+        self._region_hotkey = region_hotkey
         self._on_geometry_change = on_geometry_change
         self._on_bubble_move = on_bubble_move
         self._on_close = on_close   # 泡泡建立時要拿它接 WM_DELETE_WINDOW
@@ -91,6 +93,7 @@ class OverlayWindow:
         self._minimized = False
         self._unread = 0
         self._bubble: Bubble | None = None
+        self._region_btn: tk.Label | None = None   # 有 on_region 才建立，供測試點擊
         self._prev_foreground = 0
         self._watch_job: str | None = None
         self._error_label: RichLabel | None = None
@@ -108,6 +111,7 @@ class OverlayWindow:
         self._resize: tuple[int, int, int, int, int, int, str] | None = None
         self._drag_point: tuple[int, int] | None = None   # 框選拖曳的最後座標（自動捲動要用）
         self._autoscroll_job: str | None = None
+        self._tooltips: list[Tooltip] = []   # 只為了不被 GC；文字經 lambda 現取，換語言免另外處理
 
         self._build_backdrop(root)
         # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
@@ -122,7 +126,7 @@ class OverlayWindow:
                                    self._win.winfo_screenheight(), self._w, self._h)
         self._apply_geometry(x if x is not None else cx, y if y is not None else cy,
                              self._w, self._h)
-        self._build_title_bar(on_settings, on_close)
+        self._build_title_bar(on_settings, on_close, on_region)
         self._build_message_area(max_messages, fade_seconds)
         self._build_resize_handles()
         self._attach_to_shell(on_close)
@@ -140,8 +144,8 @@ class OverlayWindow:
         # 底板攔截透明背景區的滑鼠事件（不穿透到遊戲），但點擊不奪焦點、不改疊序
         make_non_activating(self._backdrop)
 
-    def _build_title_bar(self, on_settings, on_close) -> None:
-        """標題列：icon、標題、狀態字與 ⚙／─／✕，整列可拖曳移動、上緣可縮放。"""
+    def _build_title_bar(self, on_settings, on_close, on_region=None) -> None:
+        """標題列：icon、標題、狀態字與 ⚙／⛶／─／✕，整列可拖曳移動、上緣可縮放。"""
         bar = tk.Frame(self._win, bg=BAR, height=_BAR_HEIGHT, cursor="fleur")
         bar.pack(side="top", fill="x")
         bar.pack_propagate(False)
@@ -149,23 +153,36 @@ class OverlayWindow:
         self._bar_icon = load_icon(self._win, _BAR_ICON)
         self._title_label = tk.Label(bar, text=app_name(), bg=BAR, fg=FG_BAR,
                                      font=ui_font(8), anchor="w")
-        # side="right" 先 pack 者占最外側：由右到左為 ✕、⚙、狀態字。打包版沒有主控台，
-        # ✕ 是唯一的正常關閉途徑，所以整組控制項都排在標題之前 pack —— 標題再長
-        # 或視窗再窄，被裁掉的只會是標題。
+        # side="right" 先 pack 者占最外側：由右到左為 ✕、⚙、⛶（開始框選）、狀態字。
+        # 打包版沒有主控台，✕ 是唯一的正常關閉途徑，所以整組控制項都排在標題之前
+        # pack —— 標題再長或視窗再窄，被裁掉的只會是標題。
         if on_close is not None:
             close = tk.Label(bar, text="✕", bg=BAR, fg=FG_BAR,
                              font=ui_font(9), cursor="hand2")
             close.pack(side="right", padx=(0, 6))
             close.bind("<Button-1>", lambda e: on_close())
+            self._tooltips.append(Tooltip(close, lambda: t("tooltip.close")))
         mini = tk.Label(bar, text="─", bg=BAR, fg=FG_BAR,
                         font=ui_font(9), cursor="hand2")
         mini.pack(side="right", padx=(0, 4))
         mini.bind("<Button-1>", lambda e: self.minimize())
+        self._tooltips.append(Tooltip(mini, lambda: t("tooltip.minimize")))
         if on_settings is not None:
             gear = tk.Label(bar, text="⚙", bg=BAR, fg=FG_BAR,
                             font=ui_font(9), cursor="hand2")
             gear.pack(side="right", padx=(0, 4))
             gear.bind("<Button-1>", lambda e: on_settings())
+            self._tooltips.append(Tooltip(gear, lambda: t("tooltip.settings")))
+        if on_region is not None:
+            self._region_btn = tk.Label(bar, text="⛶", bg=BAR, fg=FG_BAR,
+                                        font=ui_font(9), cursor="hand2")
+            self._region_btn.pack(side="right", padx=(0, 4))
+            self._region_btn.bind("<Button-1>", lambda e: on_region())
+            # hotkey 經 self._region_hotkey 現取：文字每次顯示才組出來，set_region_hotkey
+            # 更新設定後不必再碰這顆提示
+            self._tooltips.append(Tooltip(
+                self._region_btn,
+                lambda: t("tooltip.region", hotkey=self._region_hotkey)))
         self._status_label = tk.Label(bar, text="", bg=BAR, fg=FG_BAR,
                                       font=ui_font(8), anchor="e")
         self._status_label.pack(side="right", padx=6, pady=(_BAR_TEXT_NUDGE, 0))
@@ -367,6 +384,11 @@ class OverlayWindow:
         self._backdrop.attributes("-alpha", alpha)
         if self._bubble is not None:
             self._bubble.attributes("-alpha", bubble_alpha(alpha))
+
+    def set_region_hotkey(self, hotkey: str) -> None:
+        """設定視窗改了框選熱鍵後同步：⛶ 的提示文字現取 `self._region_hotkey`，
+        下一次懸停顯示就會是新的鍵名，不必重繪。"""
+        self._region_hotkey = hotkey
 
     # --- 幾何 ---
     def _apply_geometry(self, x: int, y: int, w: int, h: int) -> None:

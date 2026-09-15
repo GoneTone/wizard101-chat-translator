@@ -39,6 +39,7 @@ from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
 from src.reader.message_log import MessageLog
 from src.reader.process import is_game_process_path
+from src.region.pipeline import RegionPipeline
 from src.resources import icon_path
 from src.translation.cache import (
     TranslationCache,
@@ -51,6 +52,7 @@ from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
 from src.ui.input_box import InputBox
 from src.ui.overlay import OverlayWindow
+from src.ui.region_flow import RegionFlow
 from src.ui.settings import SettingsWindow
 from src.ui.winstyle import root_hwnd
 from src.updater import check_for_update
@@ -84,17 +86,28 @@ def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_lan
     return cfg["ui_language"]
 
 
-def register_hotkey(hotkey: str, callback) -> tuple[object, str]:
+def register_hotkey(hotkey: str, callback,
+                    fallback: str = DEFAULT_CONFIG["hotkey"]) -> tuple[object, str]:
     """向 keyboard 註冊全域熱鍵，回傳（handle，實際生效的熱鍵）。
     手改 config.json 填了不認得的鍵名時退回預設熱鍵：windowed exe 在這裡炸掉等於無聲退出，
     而設定視窗改熱鍵時舊的已先解除，失敗會讓輸入框再也呼不出來。"""
     try:
         return keyboard.add_hotkey(hotkey, callback), hotkey
     except ValueError as exc:
-        fallback = DEFAULT_CONFIG["hotkey"]
         log(f"[app] hotkey {hotkey!r} is not a valid key combination ({exc}); "
             f"using {fallback!r}")
         return keyboard.add_hotkey(fallback, callback), fallback
+
+
+def region_hotkey_to_register(cfg: dict) -> str | None:
+    """框選熱鍵要不要註冊：與輸入框熱鍵相同就不註冊（回 None），否則回熱鍵字串。
+    舊設定檔補上預設的 region_hotkey 後可能與使用者自訂的 hotkey 撞名，兩把一起觸發
+    會同時開輸入框與選取層；設定視窗儲存時會擋，啟動時要自己擋。"""
+    if cfg["region_hotkey"] == cfg["hotkey"]:
+        log(f"[app] region_hotkey {cfg['region_hotkey']!r} collides with hotkey; "
+            f"region translation disabled until a different hotkey is saved in settings")
+        return None
+    return cfg["region_hotkey"]
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -193,6 +206,20 @@ def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
     log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
+def on_region_hotkey(flow: RegionFlow, ui_queue: queue.Queue) -> None:
+    """框選熱鍵的回呼（keyboard 執行緒）：選取層開著就取消（此時前景是選取層本身）；
+    遊戲在前景才開始框選，其他視窗前景時當作沒按。"""
+    if flow.is_selecting:
+        ui_queue.put(lambda: flow.toggle(0))
+        return
+    exe = foreground_exe()
+    if is_game_process_path(exe):
+        hwnd = win32gui.GetForegroundWindow()
+        ui_queue.put(lambda: flow.toggle(hwnd))
+        return
+    log(f"[region] hotkey ignored: foreground is not the game window (exe={exe!r})")
+
+
 def should_intercept_paste(cfg: dict) -> bool:
     """Ctrl+V 要不要由本程式接手：設定開啟且遊戲在前景。其他視窗一律不碰，
     瀏覽器、聊天軟體裡的貼上照常。跑在鍵盤 hook 裡，每次按鍵都會問，要快。"""
@@ -264,7 +291,8 @@ def config_summary(cfg: dict, api: dict) -> str:
     """一行設定摘要（啟動與套用設定時記錄，兩處同一份才不會漏欄位）；金鑰絕不列入。"""
     return (f"provider={api['provider']}, model={api['model']}, "
             f"target_language={cfg['target_language']!r}, ui_language={cfg['ui_language']}, "
-            f"hotkey={cfg['hotkey']}, paste_hotkey={cfg['paste_hotkey']}, "
+            f"hotkey={cfg['hotkey']}, region_hotkey={cfg['region_hotkey']}, "
+            f"paste_hotkey={cfg['paste_hotkey']}, "
             f"auto_show_input={cfg['auto_show_input']}, "
             f"poll_interval={cfg['poll_interval']}, "
             f"parallel={cfg['max_parallel_translations']}, "
@@ -369,6 +397,9 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         bubble_position=cfg["bubble_position"],
         on_bubble_move=lambda x, y: save_field("bubble_position", {"x": x, "y": y}),
         alpha=cfg["overlay_alpha"],
+        # region_flow 在下方才建立；閉包晚繫結沒關係，這顆按鈕只在點下當下才會呼叫它
+        on_region=lambda: ui_queue.put(lambda: region_flow.start_from_button()),
+        region_hotkey=cfg["region_hotkey"],
     )
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:
@@ -383,6 +414,16 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]))
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
+    region_pipeline = RegionPipeline(translator)
+    region_flow = RegionFlow(root, region_pipeline, ui_queue, cfg["overlay_alpha"])
+    region_to_register = region_hotkey_to_register(cfg)
+    if region_to_register is None:
+        region_handle = None
+    else:
+        # 退回的預設值要用 region_hotkey 自己的，否則手改壞掉的 config.json 會讓兩把熱鍵撞在一起
+        region_handle, cfg["region_hotkey"] = register_hotkey(
+            region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
+            fallback=DEFAULT_CONFIG["region_hotkey"])
     # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
     game_chat_open = threading.Event()
     # 攔截器每次都直接讀 cfg，設定視窗改開關不必重掛；關閉時由 shutdown 的 unhook_all 一併卸除
@@ -397,7 +438,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         log(f"[ui] overlay relabelled for language {current_language()}")
 
     def apply_settings() -> None:
-        nonlocal hotkey_handle, ui_language
+        nonlocal hotkey_handle, region_handle, ui_language
         save_config(CONFIG_PATH, cfg)
         applied_api = active_api(cfg)
         translator.reconfigure(**applied_api, target_language=cfg["target_language"])
@@ -409,6 +450,17 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle, cfg["hotkey"] = register_hotkey(
             cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
+        if region_handle is not None:
+            keyboard.remove_hotkey(region_handle)
+        region_to_register = region_hotkey_to_register(cfg)
+        if region_to_register is None:
+            region_handle = None
+        else:
+            region_handle, cfg["region_hotkey"] = register_hotkey(
+                region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
+                fallback=DEFAULT_CONFIG["region_hotkey"])
+        overlay.set_region_hotkey(cfg["region_hotkey"])
+        region_flow.set_alpha(cfg["overlay_alpha"])
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])
         overlay.set_alpha(cfg["overlay_alpha"])
         # set_language 已由設定視窗呼叫；預覽通常已 relabel 過，這裡是沒經過預覽路徑的保底
@@ -498,7 +550,9 @@ def main() -> None:
         app.overlay.prune()
         root.after(50, pump)
 
-    log(f"[app] running; hotkey={cfg['hotkey']} opens the input box; quit via the overlay ✕")
+    log(f"[app] running; hotkey={cfg['hotkey']} opens the input box, "
+        f"region_hotkey={cfg['region_hotkey']} starts region translation; "
+        f"quit via the overlay ✕")
     pump()
     try:
         root.mainloop()
