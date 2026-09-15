@@ -3,7 +3,7 @@ import pytest
 
 from src.i18n import t
 from src.ui import region_card as card_module
-from src.ui.palette import FG_ERROR, FG_PENDING, FG_TRANSLATED
+from src.ui.palette import FG_ERROR, FG_ORIGINAL, FG_PENDING, FG_TRANSLATED
 from src.ui.region_card import ANCHOR_GAP, RegionCard
 
 _RECT = (300, 200, 400, 120)
@@ -28,6 +28,28 @@ def test_pending_then_text(card, root):
     root.update()
     assert card.text() == "譯文第一行\n第二行"
     assert card._label.cget("fg") == FG_TRANSLATED
+
+
+def test_show_text_with_source_displays_it_above_the_translation(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+    assert card.source_text() == "Talk to Merle"
+    assert card.text() == "譯文"
+    assert card._source.cget("fg") == FG_ORIGINAL
+    assert card._source.winfo_manager() != ""
+
+
+def test_show_text_without_source_hides_the_source_label(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+    card.show_text("譯文")
+    root.update()
+    assert card.source_text() == ""
+    assert card._source.winfo_manager() == ""
 
 
 def test_empty_text_shows_the_no_text_notice(card, root):

@@ -16,9 +16,12 @@ from src.translation.translator import TranslatorConfigError
 @dataclass(frozen=True)
 class RegionResult:
     """一次框選的結果：`text` 是譯文（空字串＝畫面上沒有文字），
-    `path` 是走了哪條路（`"image"`＝模型看圖、`"ocr"`＝本機 OCR＋文字翻譯）。"""
+    `path` 是走了哪條路（`"image"`＝模型看圖、`"ocr"`＝本機 OCR＋文字翻譯），
+    `source` 是原文 —— 看圖路徑是模型逐字抄寫出的畫面文字，OCR 路徑是本機辨識出的
+    文字；卡片用它在譯文上方顯示原文（見 ui.region_card.show_text）。"""
     text: str
     path: str
+    source: str = ""
 
 
 class RegionPipeline:
@@ -48,10 +51,10 @@ class RegionPipeline:
         image_error = None
         if not self._text_only:
             try:
-                text = self._translator.translate_region_image(png)
+                original, text = self._translator.translate_region_image(png)
                 log(f"[region] done in {time.monotonic() - started:.1f}s via image "
                     f"(rect={rect}, chars={len(text)})")
-                return RegionResult(text, "image")
+                return RegionResult(text, "image", original)
             except TranslatorConfigError as exc:
                 image_error = exc
                 log(f"[region] image input rejected (status={exc.status}, "
@@ -67,4 +70,4 @@ class RegionPipeline:
                 "the image request was rejected")
         log(f"[region] done in {time.monotonic() - started:.1f}s via ocr "
             f"(rect={rect}, source_chars={len(source)}, chars={len(text)})")
-        return RegionResult(text, "ocr")
+        return RegionResult(text, "ocr", source)

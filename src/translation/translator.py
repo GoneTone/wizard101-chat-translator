@@ -20,6 +20,7 @@ from src.config import EFFORT_AUTO
 from src.log import log
 from src.translation.postprocess import (
     has_stray_latin,
+    split_region_output,
     strip_invented_english,
     strip_think,
 )
@@ -484,21 +485,28 @@ class Translator:
                         examples=FEWSHOT_OUTGOING),
             source=text, context_lines=len(context))
 
-    def translate_region_image(self, png: bytes) -> str:
-        """區域翻譯（看圖）：把遊戲畫面截圖裡的文字翻成目標語言，辨識與翻譯一次完成。
-        端點不吃圖片時會回 4xx → TranslatorConfigError，由 region.pipeline 決定是否退回本機 OCR。"""
-        return self._chat(
+    def translate_region_image(self, png: bytes) -> tuple[str, str]:
+        """區域翻譯（看圖）：先逐字抄寫畫面文字，再翻成目標語言（見 build_region_system
+        的 WHY：抄寫先釘住「模型讀到了什麼」，翻譯只能基於這段抄寫，壓低幻覺）。
+        回傳 (原文, 譯文)；端點不吃圖片時會回 4xx → TranslatorConfigError，
+        由 region.pipeline 決定是否退回本機 OCR。"""
+        raw = self._chat(
             "region image",
-            build_region_system(self._target_language),
+            build_region_system(self._target_language, transcribe=True),
             [self._impl.image_turn(png, REGION_IMAGE_INSTRUCTION)],
             source=f"<png {len(png)} bytes>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True)
+        original, translated = split_region_output(raw)
+        log(f"[translate] region image split (original_chars={len(original)}, "
+            f"translated_chars={len(translated)})")
+        return original, translated
 
     def translate_region_text(self, text: str) -> str:
-        """區域翻譯（文字）：本機 OCR 辨識出的畫面文字 → 目標語言，與看圖共用同一份提示詞。"""
+        """區域翻譯（文字）：本機 OCR 辨識出的畫面文字 → 目標語言，與看圖共用同一份提示詞
+        （transcribe=False：文字本身就是本機辨識結果，不必再抄一次）。"""
         return self._chat(
             "region text",
-            build_region_system(self._target_language),
+            build_region_system(self._target_language, transcribe=False),
             [{"role": "user", "content": text}],
             source=f"<text {len(text)} chars>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True)

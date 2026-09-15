@@ -142,13 +142,13 @@ class RegionFlow:
             message = describe_error(exc)
             self._queue.put(lambda: self._show_error(message, session))
             return
-        self._queue.put(lambda: self._show_result(result.text, session))
+        self._queue.put(lambda: self._show_result(result.text, result.source, session))
 
-    def _show_result(self, text: str, session: int) -> None:
+    def _show_result(self, text: str, source: str, session: int) -> None:
         if session != self._session:
             log(f"[region] stale result dropped (session={session}, current={self._session})")
             return
-        self._card.show_text(text)
+        self._card.show_text(text, source)
 
     def _show_error(self, message: str, session: int) -> None:
         if session != self._session:

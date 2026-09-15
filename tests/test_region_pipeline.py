@@ -10,13 +10,14 @@ _RECT = (10, 20, 300, 100)
 
 
 class FakeTranslator:
-    def __init__(self, image=None, image_raises=None, text=None, text_raises=None):
+    def __init__(self, image=("", ""), image_raises=None, text=None, text_raises=None):
         self._image, self._image_raises = image, image_raises
         self._text, self._text_raises = text, text_raises
         self.image_calls = 0
         self.text_calls = []
 
     def translate_region_image(self, png):
+        """回傳 (原文, 譯文)，比照 Translator.translate_region_image 的介面。"""
         self.image_calls += 1
         if self._image_raises:
             raise self._image_raises
@@ -30,18 +31,25 @@ class FakeTranslator:
 
 
 def test_image_path_returns_the_translation_without_touching_ocr():
-    translator = FakeTranslator(image="譯文")
+    translator = FakeTranslator(image=("原文", "譯文"))
     ocr_calls = []
     pipeline = RegionPipeline(translator, recognize=lambda png: ocr_calls.append(png) or "x")
-    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "image")
+    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "image", "原文")
     assert ocr_calls == [] and not pipeline.text_only
+
+
+def test_image_path_with_empty_original_and_translation_shows_no_text():
+    # 畫面上根本沒有文字：抄寫與譯文都留空，卡片走「no text」提示
+    translator = FakeTranslator(image=("", ""))
+    pipeline = RegionPipeline(translator, recognize=lambda png: "x")
+    assert pipeline.run(_PNG, _RECT) == RegionResult("", "image", "")
 
 
 def test_rejected_image_falls_back_to_ocr_and_marks_text_only_when_text_succeeds():
     translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400),
                                 text="譯文")
     pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
-    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "ocr")
+    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "ocr", "Hello")
     assert translator.text_calls == ["Hello"]
     assert pipeline.text_only
     # 已標記：之後直接走 OCR，不再多送一趟圖片

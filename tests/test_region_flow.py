@@ -48,8 +48,8 @@ class FakeCard:
         self.is_open = True
         self.events.append(("pending", rect))
 
-    def show_text(self, text):
-        self.events.append(("text", text))
+    def show_text(self, text, source=""):
+        self.events.append(("text", text, source))
 
     def show_error(self, message):
         self.events.append(("error", message))
@@ -116,7 +116,16 @@ def test_selection_captures_and_fills_the_card_with_the_translation(root):
     flow.toggle(0x1234)
     selector.pick(_RECT)
     _drain(ui_queue, flow)
-    assert card.events == [("pending", _RECT), ("text", "譯文")]
+    assert card.events == [("pending", _RECT), ("text", "譯文", "")]
+
+
+def test_selection_passes_the_source_text_to_the_card(root):
+    flow, selector, card, ui_queue = _flow(
+        root, FakePipeline(RegionResult("譯文", "image", "Talk to Merle")))
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    assert ("text", "譯文", "Talk to Merle") in card.events
 
 
 def test_selection_crops_the_same_frame_that_was_captured(root):
@@ -195,8 +204,8 @@ def test_stale_result_is_dropped_after_a_new_selection(root):
     flow.toggle(0x1234)              # 新一輪：舊結果回填時 session 已對不上
     selector.pick((0, 0, 50, 50))
     _drain(ui_queue, flow)
-    assert ("text", "譯文300") not in card.events
-    assert ("text", "譯文50") in card.events
+    assert ("text", "譯文300", "") not in card.events
+    assert ("text", "譯文50", "") in card.events
 
 
 def test_stale_error_is_dropped_after_a_new_selection(root):
