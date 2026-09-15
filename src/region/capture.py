@@ -90,11 +90,6 @@ def crop_frame(frame: Frame, screen_rect: tuple[int, int, int, int]) -> bytes:
         raise SelectionOutsideGame(
             f"selection outside game window (rect={screen_rect}, "
             f"client={frame.client_origin + frame.client_size})")
-    # 檢查整張凍結畫面（而非裁出來的那一小塊）是不是全黑：使用者選到遊戲裡本來就
-    # 是黑色的內容（例如深色背景）是合理結果，只有整次擷取本身失敗才算 blank —— 這裡
-    # 多留一道防線是給沒經過 capture_window 就直接組出 Frame 的呼叫端（例如測試）用。
-    if frame.image.getextrema() == ((0, 0), (0, 0), (0, 0)):
-        raise CaptureError(f"blank capture (rect={screen_rect})")
     rx, ry, rw, rh = region
     cropped = frame.image.crop((rx, ry, rx + rw, ry + rh))
     buffer = io.BytesIO()

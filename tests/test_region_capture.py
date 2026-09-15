@@ -73,10 +73,3 @@ def test_crop_frame_rect_entirely_outside_the_client_is_selection_outside_game()
     frame = _client_frame()
     with pytest.raises(SelectionOutsideGame):
         crop_frame(frame, (0, 0, 10, 10))
-
-
-def test_crop_frame_over_a_blank_area_is_a_capture_error():
-    frame = Frame(Image.new("RGB", (200, 100), "black"),
-                  client_origin=(1000, 500), client_size=(200, 100))
-    with pytest.raises(CaptureError, match="blank"):
-        crop_frame(frame, (1000, 500, 20, 10))
