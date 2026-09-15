@@ -1,23 +1,29 @@
 """測試用的共用 fixture。
 
-開發者常常一邊玩遊戲一邊跑測試，套件不該打斷遊戲畫面或搶走前景。兩支 autouse
-fixture 各擋一種打斷：
-- `_park_windows` 把測試建立的視窗停到螢幕外，只有真正在斷言視窗位置的
-  `@pytest.mark.real_position` 測試才豁免 —— 但這類測試預設也會被
-  `pytest_collection_modifyitems` 直接跳過，本機執行不會有視窗真的畫到螢幕上；
-  CI（見 `.github/workflows/ci.yml`）設 `WCT_REAL_POSITION=1` 讓這批測試照跑，
-  才不會漏掉這段涵蓋範圍。
+開發者常常一邊玩遊戲一邊跑測試，套件不該打斷遊戲畫面或搶走前景，但也不能因此
+跳過測試。兩支 autouse fixture 各擋一種打斷，兩者都不跳過任何測試：
+- `_park_windows` 把測試建立的視窗停到螢幕外；但 `@pytest.mark.real_position`
+  測試斷言的就是視窗的真實座標，停到螢幕外會直接改壞被測目標，所以這類測試
+  改成讓新開的視窗維持真實座標、但強制全透明（`-alpha` 釘在 0.0）—— 座標、
+  尺寸、DWM frame bounds、`event_generate` 都維持真實可測，畫面上就是看不到。
 - `_keep_foreground` 把 `force_foreground`（AttachThreadInput 硬切 Windows 前景）
   換成無操作，避免 `InputBox.show()`／`_destroy()` 與
   `main.focus_running_instance` 在測試途中把遊戲踢到背景。
 """
-import os
 import tkinter as tk
 
 import pytest
 
 # 停放座標：夠遠，任何合理的桌面（含多螢幕橫向排列）都涵蓋不到。
 _PARK_X, _PARK_Y = 10000, 10000
+
+
+def _is_alpha_write(args):
+    """`wm_attributes` 的位置參數是不是在寫 alpha（選項名前面帶不帶 `-` 都算）。"""
+    if len(args) < 2:
+        return False
+    option = args[0]
+    return isinstance(option, str) and option.lstrip("-") == "alpha"
 
 
 @pytest.fixture(scope="session")
@@ -30,15 +36,41 @@ def root():
 
 @pytest.fixture(autouse=True)
 def _park_windows(request):
-    """把測試建立的視窗停到螢幕外，但**保持 mapped**。
+    """把測試建立的視窗停到螢幕外，但**保持 mapped**；real_position 測試改為全透明。
 
     不用 withdraw：視窗會量不到真實排版，換行寬度、下拉外部點擊那類測試會失效。
     不借用 monkeypatch fixture：與測試自己的 monkeypatch 共用還原堆疊會打亂還原順序
     （實測 test_i18n 的語言還原在 load 仍被 patch 成拋錯時執行）。
-    @pytest.mark.real_position 的測試不套用 —— 它們斷言的就是視窗位置。
+
+    @pytest.mark.real_position 的測試不套用停放，改套用透明化：包一層
+    `tk.Toplevel.__init__`，原生建構完成後立刻把該視窗的 `-alpha` 設成 0.0；
+    再包一層 `wm_attributes`（含 `attributes` 別名，stdlib 裡兩者是同一個函式
+    物件），把任何寫入 `-alpha` 的呼叫（位置參數或關鍵字參數皆算）強制改寫成
+    0.0，讀取與其他屬性原樣放行 —— 這樣被測程式自己呼叫 `attributes("-alpha",
+    x)` 調不透明度也現不了形。
     """
     if request.node.get_closest_marker("real_position"):
-        yield
+        original_init = tk.Toplevel.__init__
+        original_wm_attributes = tk.Wm.wm_attributes
+
+        def invisible_init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            self.attributes("-alpha", 0.0)
+
+        def forced_transparent(self, *args, **kwargs):
+            if "alpha" in kwargs:
+                kwargs = dict(kwargs, alpha=0.0)
+            elif _is_alpha_write(args):
+                args = (args[0], 0.0) + args[2:]
+            return original_wm_attributes(self, *args, **kwargs)
+
+        tk.Toplevel.__init__ = invisible_init
+        tk.Wm.wm_attributes = tk.Wm.attributes = forced_transparent
+        try:
+            yield
+        finally:
+            tk.Toplevel.__init__ = original_init
+            tk.Wm.wm_attributes = tk.Wm.attributes = original_wm_attributes
         return
     original_wm, original_geo = tk.Wm.wm_geometry, tk.Wm.geometry
 
@@ -85,17 +117,3 @@ def _keep_foreground():
     finally:
         for m, original in zip(modules, originals, strict=True):
             m.force_foreground = original
-
-
-def pytest_collection_modifyitems(config, items):
-    """本機預設跳過 `real_position` 測試：它們斷言視窗真實座標，會把視窗畫到
-    使用者正在用的螢幕上。CI 設 `WCT_REAL_POSITION=1` 讓這批測試照跑，
-    避免長期漏掉這段涵蓋範圍。"""
-    if os.environ.get("WCT_REAL_POSITION") == "1":
-        return
-    skip_real_position = pytest.mark.skip(
-        reason="draws windows on the real screen; set WCT_REAL_POSITION=1 to run"
-    )
-    for item in items:
-        if item.get_closest_marker("real_position"):
-            item.add_marker(skip_real_position)

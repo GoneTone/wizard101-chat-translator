@@ -36,3 +36,17 @@ def test_marked_tests_keep_their_real_position(root):
         assert (win.winfo_x(), win.winfo_y()) == (50, 60)
     finally:
         win.destroy()
+
+
+@pytest.mark.real_position
+def test_marked_windows_are_invisible(root):
+    """位置要真實，但畫面上不能看到：real_position 測試期間新開的視窗一律全透明。"""
+    win = tk.Toplevel(root)
+    try:
+        win.geometry("120x80+300+300")
+        win.update_idletasks()
+        assert float(win.attributes("-alpha")) == 0.0
+        win.attributes("-alpha", 0.8)   # 被測程式自己調不透明度也不能讓它現形
+        assert float(win.attributes("-alpha")) == 0.0
+    finally:
+        win.destroy()
