@@ -62,12 +62,16 @@ def test_hide_is_idempotent(card):
     assert not card.is_open
 
 
-@pytest.mark.real_position
-def test_card_sits_below_the_rect_with_the_rect_width(card, root):
+def test_card_is_anchored_below_the_rect_with_the_rect_width(card, root, monkeypatch):
+    calls = []
+
+    def spy(anchor, w, h, area, gap):
+        calls.append((anchor, w, area, gap))
+        return 10000, 10000   # 停在螢幕外：測試期間不在畫面上畫任何東西
+    monkeypatch.setattr(card_module, "anchored_position", spy)
     card.show_pending(_RECT)
     root.update()
-    assert card._win.winfo_x() == _RECT[0]
-    assert card._win.winfo_y() == _RECT[1] + _RECT[3] + ANCHOR_GAP
+    assert calls and calls[-1] == (_RECT, _RECT[2], _AREA, ANCHOR_GAP)
     assert card._win.winfo_width() == _RECT[2]
 
 
