@@ -72,13 +72,16 @@ def recognize(png: bytes) -> str:
         await writer.flush_async()
         stream.seek(0)
         decoder = await BitmapDecoder.create_async(stream)
-        # 引擎只吃 BGRA8；PNG 解出來的原生格式可能是索引色／灰階，直接丟給
+        # 引擎只接受 BGRA8、alpha 模式為 premultiplied 或 ignore 兩種（微軟官方文件
+        # 列的支援範圍）；PNG 解出來的原生格式可能是索引色／灰階，直接丟給
         # recognize_async 在某些解碼路徑會拋 WinRT 原生錯誤，所以一律轉換。alpha
-        # 模式選 STRAIGHT、不選 PREMULTIPLIED：後者對 alpha=0 的像素一律把 RGB
-        # 乘成全黑，若透明區域底色恰好較深、文字又是深色，轉換後兩者顏色會疊在一起
-        # 讓引擎讀不到字（實測驗證過）；STRAIGHT 保留原始 RGB，不會有這個問題。
+        # 模式選 ignore、不選 premultiplied：後者對 alpha=0 的像素一律把 RGB 乘成
+        # 全黑，若透明區域底色恰好較深、文字又是深色，轉換後兩者顏色會疊在一起讓
+        # 引擎讀不到字（實測驗證過）；ignore 保留原始 RGB 不做任何相乘，色彩不失真，
+        # 而且擷取流程（region.capture）產出的 PNG 本來就是不透明 RGB，語意上也沒有
+        # 需要合成的 alpha 通道。
         bitmap = await decoder.get_software_bitmap_converted_async(
-            BitmapPixelFormat.BGRA8, BitmapAlphaMode.STRAIGHT)
+            BitmapPixelFormat.BGRA8, BitmapAlphaMode.IGNORE)
         result = await engine.recognize_async(bitmap)
         return "\n".join(line.text for line in result.lines).strip()
 
