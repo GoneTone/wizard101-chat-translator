@@ -53,7 +53,13 @@ a = Analysis(
         ("src/i18n/*.json", "i18n"),      # 語言檔：執行期由 src/i18n 依 _MEIPASS 讀取
         ("src/assets/*", "assets"),       # icon：exe 用 .ico，tkinter 用 .png，都經 src/resources 取用
     ],
-    hiddenimports=[],  # spike 發現缺模組時補在這裡，並註明原因
+    # pywinrt 的集合與語言投影是 WinRT 回傳物件時執行期動態載入，靜態分析追不到；
+    # 缺了打包版的本機 OCR 會在列舉辨識語言時 ModuleNotFoundError（見 src/region/ocr.py）
+    hiddenimports=[
+        "winrt.windows.foundation",
+        "winrt.windows.foundation.collections",
+        "winrt.windows.globalization",
+    ],
     excludes=[],
 )
 pyz = PYZ(a.pure)
