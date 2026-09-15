@@ -3,7 +3,7 @@ import io
 
 import pytest
 
-from src.region.ocr import OcrUnavailable, pick_language, recognize
+from src.region.ocr import OcrUnavailable, pick_language, recognize, upscaled_png
 
 
 def test_pick_language_prefers_the_matching_primary_tag():
@@ -63,3 +63,21 @@ def test_recognize_returns_empty_for_a_blank_image():
         assert recognize(buffer.getvalue()) == ""
     except OcrUnavailable as exc:
         pytest.skip(f"no local OCR engine: {exc}")
+
+
+def _png(size):
+    from PIL import Image
+    buffer = io.BytesIO()
+    Image.new("RGB", size, "white").save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def test_upscaled_png_doubles_a_small_image():
+    from PIL import Image
+    out = Image.open(io.BytesIO(upscaled_png(_png((300, 120)))))
+    assert out.size == (600, 240)
+
+
+def test_upscaled_png_leaves_a_large_image_alone():
+    png = _png((2000, 100))
+    assert upscaled_png(png) is png

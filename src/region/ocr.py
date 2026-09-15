@@ -6,9 +6,17 @@
 套件缺了只讓這條退路不可用，不影響程式啟動。
 """
 import asyncio
+import io
+
+from PIL import Image
 
 from src.log import log
 from src.translation.prompts import OUTGOING_LANGUAGE_TAG
+
+# 辨識前放大的倍率與門檻：Windows OCR 對小字明顯較弱（實測遊戲商店標題會掉字），
+# 框選區域通常只有幾百像素，放大 2 倍後仍遠低於引擎上限；已經很大的圖不再放大。
+UPSCALE_FACTOR = 2
+UPSCALE_MAX_SIDE = 2000
 
 
 class OcrUnavailable(Exception):
@@ -57,12 +65,27 @@ def _create_engine(OcrEngine):
     return engine
 
 
+def upscaled_png(png: bytes, factor: int = UPSCALE_FACTOR,
+                 max_side: int = UPSCALE_MAX_SIDE) -> bytes:
+    """把 PNG 放大 factor 倍（LANCZOS）後重新編碼；最長邊已達 max_side 的圖原樣回傳。"""
+    # 先丟掉 alpha：Pillow 縮放 RGBA 會用預乘 alpha，透明區的 RGB 被壓成全黑，
+    # 黑字就跟背景混在一起；辨識時本來就忽略 alpha（見 recognize），轉 RGB 語意一致
+    image = Image.open(io.BytesIO(png)).convert("RGB")
+    if max(image.size) >= max_side:
+        return png
+    enlarged = image.resize((image.width * factor, image.height * factor), Image.LANCZOS)
+    buffer = io.BytesIO()
+    enlarged.save(buffer, "PNG")
+    return buffer.getvalue()
+
+
 def recognize(png: bytes) -> str:
     """辨識 PNG 裡的文字，各行以換行合併；沒有文字回空字串。
     引擎每次重建（很便宜），不跨執行緒共用 WinRT 物件。"""
     (OcrEngine, BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode,
      DataWriter, InMemoryRandomAccessStream) = _winrt()
     engine = _create_engine(OcrEngine)
+    png = upscaled_png(png)
 
     async def run() -> str:
         stream = InMemoryRandomAccessStream()
