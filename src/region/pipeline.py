@@ -4,13 +4,16 @@
 同一把金鑰、同一個模型，文字過、圖片被拒，問題只能是圖片；金鑰錯或模型不存在的情況
 文字也會失敗，不會被誤標。不解析錯誤字串（各家後端措辭不同）。標記只存在記憶體，
 設定套用時 reset()。
+圖片請求回 5xx／429（TranslatorOffline）時這一輪同樣退回 OCR，但**不標記**：實測 OpenAI
+對純文字模型收到圖片回的是 500 而非 400，不退回就永遠用不了；而 5xx 也可能只是暫時
+故障，標了會讓支援看圖的模型莫名走 OCR。文字那一路也失敗才算端點真的掛了。
 """
 import time
 from dataclasses import dataclass
 
 from src.log import log
 from src.region import ocr
-from src.translation.translator import TranslatorConfigError
+from src.translation.translator import TranslatorConfigError, TranslatorOffline
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,9 @@ class RegionPipeline:
                 image_error = exc
                 log(f"[region] image input rejected (status={exc.status}, "
                     f"detail={exc.detail!r}); falling back to local OCR")
+            except TranslatorOffline as exc:
+                log(f"[region] image request failed (status={exc.status}, "
+                    f"detail={exc.detail!r}); trying local OCR without marking text-only")
         source = self._recognize(png)
         if not source:
             log(f"[region] local OCR found no text (rect={rect})")

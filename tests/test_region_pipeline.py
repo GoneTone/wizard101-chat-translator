@@ -66,13 +66,24 @@ def test_rejected_image_with_failing_text_does_not_mark_text_only():
     assert not pipeline.text_only
 
 
-def test_offline_image_request_does_not_fall_back():
-    translator = FakeTranslator(image_raises=TranslatorOffline("down", status=503))
-    ocr_calls = []
-    pipeline = RegionPipeline(translator, recognize=lambda png: ocr_calls.append(png) or "x")
+def test_server_error_on_the_image_falls_back_without_marking_text_only():
+    # 實測 OpenAI 對純文字模型收到圖片回 500：這一輪照樣退回 OCR，但 5xx 可能只是暫時故障，不標記
+    translator = FakeTranslator(image_raises=TranslatorOffline("server error", status=500),
+                                text="譯文")
+    pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
+    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "ocr", "Hello")
+    assert not pipeline.text_only
+    pipeline.run(_PNG, _RECT)
+    assert translator.image_calls == 2   # 沒標記：下一次仍先試圖片
+
+
+def test_offline_endpoint_raises_the_text_path_error():
+    translator = FakeTranslator(image_raises=TranslatorOffline("down", status=503),
+                                text_raises=TranslatorOffline("down", status=503))
+    pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
     with pytest.raises(TranslatorOffline):
         pipeline.run(_PNG, _RECT)
-    assert ocr_calls == []
+    assert not pipeline.text_only
 
 
 def test_ocr_without_text_returns_an_empty_result_without_translating():
