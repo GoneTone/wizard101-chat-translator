@@ -1,4 +1,5 @@
 """translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
+import base64
 import json
 
 import anthropic
@@ -9,11 +10,15 @@ import pytest
 from src.translation.postprocess import _PAREN_ENGLISH, has_stray_latin, strip_invented_english
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
+    OUTGOING_LANGUAGE_TAG,
+    REGION_IMAGE_INSTRUCTION,
     _game_noun_rule,
     build_incoming_system,
+    build_region_system,
     build_system_message_system,
 )
 from src.translation.translator import (
+    _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
     Translator,
     TranslatorBadOutput,
@@ -162,7 +167,7 @@ def test_claude_status_error_mapping(status, exc):
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
     # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
                target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
@@ -191,7 +196,6 @@ def test_openai_compat_missing_finish_reason_is_accepted():
 
 
 def test_claude_sends_max_tokens():
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
@@ -248,7 +252,7 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
 def test_openai_provider_uses_max_completion_tokens_and_no_temperature():
     # 官方端點：max_tokens 已棄用、GPT-5／o 系列直接回 400「use max_completion_tokens」；
     # 同一批模型也只接受預設 temperature（實測「Only the default (1) value is supported」）
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
 
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=False,
@@ -319,7 +323,6 @@ def test_other_openai_rejection_wordings_are_recognised(wording):
 
 def test_rejected_token_limit_is_swapped_not_dropped():
     # 長度上限是防 repetition loop 的保險，不能因為端點只認另一個名字就整個不帶
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = SequenceClient(_rejects("max_completion_tokens"), FakeResponse())
     t = Translator(provider="openai", model="m", api_key="k",
                    target_language="繁體中文（台灣）", client=fake)
@@ -969,3 +972,53 @@ def test_sender_prefix_limit_is_shared_with_the_chat_parser():
            f"<link;GID:1,{longest},2>[{longest}]</link> 你好 </color>")
     assert [line.text for line in lines_from_chatlog(raw)] == [f"[{longest}] 你好"]
     assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False
+
+
+_PNG = b"\x89PNG\r\n\x1a\nfake"
+
+
+def test_openai_compat_region_image_sends_a_data_url_image_part():
+    fake = FakeHttpxClient()
+    translator = Translator(provider="custom", base_url="http://x", model="m", thinking=False,
+                            target_language="繁體中文（台灣）", client=fake)
+    assert translator.translate_region_image(_PNG) == "譯文"
+    turn = fake.last_body["messages"][-1]
+    assert turn["role"] == "user"
+    image_part, text_part = turn["content"]
+    assert image_part["type"] == "image_url"
+    assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
+    assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
+    # 任務書一頁翻成目標語言可能超過聊天用的 512 上限：區域方向固定用放寬的那檔
+    assert fake.last_body["max_tokens"] == _MAX_TOKENS_THINKING
+
+
+def test_claude_region_image_sends_a_base64_image_block():
+    fake = FakeAnthropicClient()
+    translator = Translator(provider="claude", model="m", api_key="k",
+                            target_language="繁體中文（台灣）", client=fake)
+    assert translator.translate_region_image(_PNG) == "克勞德譯文"
+    image_part, text_part = fake.messages.last_kwargs["messages"][-1]["content"]
+    assert image_part == {"type": "image", "source": {
+        "type": "base64", "media_type": "image/png",
+        "data": base64.b64encode(_PNG).decode("ascii")}}
+    assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
+    assert "繁體中文（台灣）" in fake.messages.last_kwargs["system"]
+
+
+def test_region_text_sends_the_recognized_text_as_a_plain_user_turn():
+    fake = FakeHttpxClient()
+    translator = _make(fake)
+    assert translator.translate_region_text("Talk to Merle Ambrose") == "譯文"
+    assert fake.last_body["messages"][-1] == {"role": "user", "content": "Talk to Merle Ambrose"}
+    assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
+
+
+def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
+    prompt = build_region_system("日本語")
+    assert "日本語" in prompt
+    assert "[發送者]" not in prompt
+
+
+def test_outgoing_language_tag_matches_the_outgoing_language():
+    # 本機 OCR 依這個主標籤挑引擎；它與 OUTGOING_LANGUAGE 描述的是同一個語言
+    assert OUTGOING_LANGUAGE == "English" and OUTGOING_LANGUAGE_TAG == "en"

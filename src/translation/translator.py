@@ -8,6 +8,7 @@ TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
 上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
 """
+import base64
 import json
 import re
 import time
@@ -27,8 +28,10 @@ from src.translation.prompts import (
     CONTEXT_INTRO_OUTGOING,
     FEWSHOT_OUTGOING,
     OUTGOING_LANGUAGE,
+    REGION_IMAGE_INSTRUCTION,
     build_incoming_system,
     build_outgoing_system,
+    build_region_system,
     build_system_message_system,
     build_turns,
 )
@@ -52,6 +55,8 @@ _TIMEOUT = 60.0
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
+# 區域翻譯固定用放寬的上限：任務書一頁翻成目標語言可能超過 _MAX_TOKENS
+_MAX_TOKENS_REGION = _MAX_TOKENS_THINKING
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
@@ -247,8 +252,17 @@ class _OpenAICompatClient(_BaseClient):
             self._dropped.add(param)
         return True
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
+    def image_turn(self, png: bytes, text: str) -> dict:
+        """帶一張 PNG 的使用者回合（OpenAI 相容格式：data URL 的 image_url 區塊）。"""
+        data = base64.b64encode(png).decode("ascii")
+        return {"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}},
+            {"type": "text", "text": text},
+        ]}
+
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
+        if max_tokens is None:
+            max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
         while True:
             body = self._body(system, turns, max_tokens)
             try:
@@ -310,7 +324,16 @@ class _ClaudeClient(_BaseClient):
         self._model = model
         self._effort = effort
 
-    def chat(self, system: str, turns: list[dict]) -> str:
+    def image_turn(self, png: bytes, text: str) -> dict:
+        """帶一張 PNG 的使用者回合（Claude 格式：base64 的 image 區塊）。"""
+        data = base64.b64encode(png).decode("ascii")
+        return {"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                         "data": data}},
+            {"type": "text", "text": text},
+        ]}
+
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
         params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
                   "system": system, "messages": turns}
         if self._effort != EFFORT_AUTO:
@@ -390,20 +413,23 @@ class Translator:
         return self._target_language
 
     def _chat(self, kind: str, system: str, turns: list[dict], *,
-              source: str, context_lines: int, strip: bool = False) -> str:
+              source: str, context_lines: int, strip: bool = False,
+              max_tokens: int | None = None, redact: bool = False) -> str:
         """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
 
         三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
         實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
         例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        `redact=True` 只記字數不記內容：區域翻譯的原文可能整頁、譯文可能很長。
         """
         started = time.monotonic()
-        translated = self._impl.chat(system, turns)
+        translated = self._impl.chat(system, turns, max_tokens=max_tokens)
         if strip:
             translated = strip_invented_english(source, translated)
+        shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
             f"(model={self._impl.model}, ctx={context_lines}): "
-            f"source={source!r} translated={translated!r}")
+            f"source={source!r} translated={shown}")
         return translated
 
     def translate_incoming(self, text: str, context: list[str]) -> str:
@@ -453,6 +479,25 @@ class Translator:
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING),
             source=text, context_lines=len(context))
+
+    def translate_region_image(self, png: bytes) -> str:
+        """區域翻譯（看圖）：把遊戲畫面截圖裡的文字翻成目標語言，辨識與翻譯一次完成。
+        端點不吃圖片時會回 4xx → TranslatorConfigError，由 region.pipeline 決定是否退回本機 OCR。"""
+        return self._chat(
+            "region image",
+            build_region_system(self._target_language),
+            [self._impl.image_turn(png, REGION_IMAGE_INSTRUCTION)],
+            source=f"<png {len(png)} bytes>", context_lines=0,
+            max_tokens=_MAX_TOKENS_REGION, redact=True)
+
+    def translate_region_text(self, text: str) -> str:
+        """區域翻譯（文字）：本機 OCR 辨識出的畫面文字 → 目標語言，與看圖共用同一份提示詞。"""
+        return self._chat(
+            "region text",
+            build_region_system(self._target_language),
+            [{"role": "user", "content": text}],
+            source=f"<text {len(text)} chars>", context_lines=0,
+            max_tokens=_MAX_TOKENS_REGION, redact=True)
 
 
 def list_models(api: dict, client=None) -> list[str]:
