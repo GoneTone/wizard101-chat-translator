@@ -300,17 +300,6 @@ def test_load_config_fills_in_translate_system_messages(tmp_path):
     assert cfg["translate_system_messages"] is False
 
 
-def test_region_force_ocr_defaults_to_off():
-    assert DEFAULT_CONFIG["region_force_ocr"] is False
-
-
-def test_load_config_fills_in_region_force_ocr(tmp_path):
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps({"target_language": "日本語"}), encoding="utf-8")
-    cfg = load_config(path)
-    assert cfg["region_force_ocr"] is False
-
-
 def test_load_config_with_broken_json_falls_back_to_defaults(tmp_path, monkeypatch):
     # 手改 config.json 少個逗號：windowed exe 沒有 console，炸在這裡等於無聲退出
     from src import config as config_module

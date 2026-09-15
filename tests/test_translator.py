@@ -1,5 +1,4 @@
 """translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
-import base64
 import json
 
 import anthropic
@@ -11,14 +10,11 @@ from src.translation.postprocess import (
     _PAREN_ENGLISH,
     has_stray_latin,
     number_lines,
-    split_region_output,
     strip_invented_english,
     unnumber_lines,
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
-    REGION_IMAGE_INSTRUCTION,
-    REGION_SEPARATOR,
     _game_noun_rule,
     build_incoming_system,
     build_region_system,
@@ -984,75 +980,6 @@ def test_sender_prefix_limit_is_shared_with_the_chat_parser():
     assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False
 
 
-_PNG = b"\x89PNG\r\n\x1a\nfake"
-
-
-_REGION_TRANSCRIBE_OUTPUT = f"Talk to Merle\n{REGION_SEPARATOR}\n跟莫爾談談"
-
-
-def test_openai_compat_region_image_sends_a_data_url_image_part():
-    fake = FakeHttpxClient(response=FakeResponse(content=_REGION_TRANSCRIBE_OUTPUT))
-    translator = Translator(provider="custom", base_url="http://x", model="m", thinking=False,
-                            target_language="繁體中文（台灣）", client=fake)
-    assert translator.translate_region_image(_PNG) == ("Talk to Merle", "跟莫爾談談")
-    turn = fake.last_body["messages"][-1]
-    assert turn["role"] == "user"
-    image_part, text_part = turn["content"]
-    assert image_part["type"] == "image_url"
-    assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
-    # 預設 auto 可能把較寬的框選縮到小字認不出，明確要求高解析度分析
-    assert image_part["image_url"]["detail"] == "high"
-    assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
-    # 輸出多了一份逐字抄寫，等於任務書長度算兩次：區域方向固定用更寬的那檔
-    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
-    # system prompt 要求先抄寫再翻譯：分隔線與這個要求本身都要在提示詞裡
-    assert fake.last_body["messages"][0]["content"] == build_region_system(
-        "繁體中文（台灣）", transcribe=True)
-
-
-def test_claude_region_image_sends_a_base64_image_block():
-    fake = FakeAnthropicClient(content=_REGION_TRANSCRIBE_OUTPUT)
-    translator = Translator(provider="claude", model="m", api_key="k",
-                            target_language="繁體中文（台灣）", client=fake)
-    assert translator.translate_region_image(_PNG) == ("Talk to Merle", "跟莫爾談談")
-    image_part, text_part = fake.messages.last_kwargs["messages"][-1]["content"]
-    assert image_part == {"type": "image", "source": {
-        "type": "base64", "media_type": "image/png",
-        "data": base64.b64encode(_PNG).decode("ascii")}}
-    assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
-    assert "繁體中文（台灣）" in fake.messages.last_kwargs["system"]
-
-
-def test_claude_region_image_sends_the_region_token_limit():
-    # Claude 的 chat() 平常忽略呼叫端傳入的 max_tokens、固定送 _MAX_TOKENS_THINKING；
-    # 區域翻譯明確帶 _MAX_TOKENS_REGION，這裡驗證它有被實際送出、而非被忽略
-    fake = FakeAnthropicClient(content=_REGION_TRANSCRIBE_OUTPUT)
-    translator = Translator(provider="claude", model="m", api_key="k",
-                            target_language="繁體中文（台灣）", client=fake)
-    translator.translate_region_image(_PNG)
-    assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_REGION
-
-
-def test_region_image_without_a_separator_returns_the_whole_output_as_translation():
-    # 模型沒照格式輸出時整段回退當譯文，原文留空 —— 不能整條翻譯直接丟失
-    fake = FakeHttpxClient(response=FakeResponse(content="跟莫爾談談"))
-    translator = _make(fake)
-    assert translator.translate_region_image(_PNG) == ("", "跟莫爾談談")
-
-
-def test_translate_region_image_logs_no_transcription_or_translation_content(monkeypatch):
-    import src.translation.translator as translator_module
-
-    messages = []
-    monkeypatch.setattr(translator_module, "log", messages.append)
-    fake = FakeHttpxClient(response=FakeResponse(content=_REGION_TRANSCRIBE_OUTPUT))
-    original, translated = _make(fake).translate_region_image(_PNG)
-    assert (original, translated) == ("Talk to Merle", "跟莫爾談談")
-    assert not any("Merle" in m or "莫爾" in m for m in messages)
-    assert any(f"original_chars={len(original)}" in m and
-              f"translated_chars={len(translated)}" in m for m in messages)
-
-
 def test_region_text_sends_the_recognized_lines_numbered():
     fake = FakeHttpxClient(response=FakeResponse(content="1. 跟莫爾談談\n2. 第二行"))
     translator = _make(fake)
@@ -1060,8 +987,8 @@ def test_region_text_sends_the_recognized_lines_numbered():
         "跟莫爾談談\n第二行"
     assert fake.last_body["messages"][-1] == {
         "role": "user", "content": "1. Talk to Merle Ambrose\n2. Second line"}
-    assert fake.last_body["messages"][0]["content"] == build_region_system(
-        "繁體中文（台灣）", transcribe=False)
+    assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
+    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
 
 
 def test_region_text_fills_lines_the_model_dropped_with_the_original():
@@ -1095,41 +1022,8 @@ def test_translate_region_text_logs_no_translation_content(monkeypatch):
 
 
 def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
-    prompt = build_region_system("日本語", transcribe=False)
+    prompt = build_region_system("日本語")
     assert "日本語" in prompt
     assert "[發送者]" not in prompt
-
-
-def test_region_system_prompt_transcribe_true_mentions_the_separator():
-    prompt = build_region_system("日本語", transcribe=True)
-    assert REGION_SEPARATOR in prompt
-
-
-def test_region_system_prompt_transcribe_false_does_not_mention_the_separator():
-    prompt = build_region_system("日本語", transcribe=False)
-    assert REGION_SEPARATOR not in prompt
-
-
-def test_split_region_output_normal_case_with_multiline_blocks():
-    text = "第一行\n第二行\n-----\n line 1\nline 2 "
-    assert split_region_output(text) == ("第一行\n第二行", "line 1\nline 2")
-
-
-def test_split_region_output_missing_separator_falls_back_to_whole_text():
-    assert split_region_output("只有譯文，沒有分隔線") == ("", "只有譯文，沒有分隔線")
-
-
-def test_split_region_output_leading_and_trailing_blank_lines():
-    text = "\n\n原文\n-----\n譯文\n\n"
-    assert split_region_output(text) == ("原文", "譯文")
-
-
-def test_split_region_output_tolerates_a_longer_dash_run():
-    text = "原文\n--------\n譯文"
-    assert split_region_output(text) == ("原文", "譯文")
-
-
-def test_split_region_output_empty_text_is_two_empty_strings():
-    assert split_region_output("") == ("", "")
 
 

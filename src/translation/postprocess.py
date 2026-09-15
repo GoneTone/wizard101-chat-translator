@@ -4,7 +4,6 @@
 import re
 
 from src.reader.markup import SENDER_PREFIX
-from src.translation.prompts import REGION_SEPARATOR
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE)
 
@@ -114,23 +113,3 @@ def unnumber_lines(output: str, originals: list[str]) -> str:
     if len(plain) == len(originals):
         return "\n".join(plain)
     return output.strip()
-
-
-def split_region_output(text: str) -> tuple[str, str]:
-    """把區域翻譯看圖路徑的原始輸出切成（逐字抄寫, 譯文）。
-
-    分隔線就是那行 strip() 後只剩連字號的一行（見 prompts.REGION_SEPARATOR）；
-    容忍前後多餘空白，也容忍模型多打幾個連字號的變體，只要求至少 3 個、不再要求
-    剛好等於 REGION_SEPARATOR。找不到分隔線代表模型沒照格式輸出（多半是舊版提示詞
-    快取或本機小模型不遵從格式），整段回退當成純譯文，原文留空 —— 卡片就不顯示
-    原文列，行為等同關閉這個功能前。"""
-    if not text:
-        return "", ""
-    lines = text.split("\n")
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == REGION_SEPARATOR or (stripped.strip("-") == "" and len(stripped) >= 3):
-            original = "\n".join(lines[:i]).strip()
-            translated = "\n".join(lines[i + 1:]).strip()
-            return original, translated
-    return "", text.strip()

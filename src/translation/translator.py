@@ -8,7 +8,6 @@ TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
 上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
 """
-import base64
 import json
 import re
 import time
@@ -21,7 +20,6 @@ from src.log import log
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
-    split_region_output,
     strip_invented_english,
     strip_think,
     unnumber_lines,
@@ -31,7 +29,6 @@ from src.translation.prompts import (
     CONTEXT_INTRO_OUTGOING,
     FEWSHOT_OUTGOING,
     OUTGOING_LANGUAGE,
-    REGION_IMAGE_INSTRUCTION,
     build_incoming_system,
     build_outgoing_system,
     build_region_system,
@@ -58,8 +55,8 @@ _TIMEOUT = 60.0
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
-# 區域翻譯固定用放寬的上限：輸出多了一份逐字抄寫，等於把「一頁任務書」的長度算兩次
-# （抄寫＋譯文），思考模式下 <think> 區塊還要跟這兩段搶同一個預算；上限依然存在是為了
+# 區域翻譯固定用放寬的上限：一次可能是一整頁任務書的所有行一起送出，
+# 思考模式下 <think> 區塊還要跟譯文搶同一個預算；上限依然存在是為了
 # 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
 _MAX_TOKENS_REGION = 4096
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
@@ -257,17 +254,6 @@ class _OpenAICompatClient(_BaseClient):
             self._dropped.add(param)
         return True
 
-    def image_turn(self, png: bytes, text: str) -> dict:
-        """帶一張 PNG 的使用者回合（OpenAI 相容格式：data URL 的 image_url 區塊）。
-        `detail: "high"` 是 OpenAI 的官方欄位（不認得的伺服器會忽略）：預設 `auto`
-        在畫面較寬的框選上可能把圖縮到連小字都認不出，明確要求高解析度分析。"""
-        data = base64.b64encode(png).decode("ascii")
-        return {"role": "user", "content": [
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}",
-                                                "detail": "high"}},
-            {"type": "text", "text": text},
-        ]}
-
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
         if max_tokens is None:
             max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
@@ -332,21 +318,12 @@ class _ClaudeClient(_BaseClient):
         self._model = model
         self._effort = effort
 
-    def image_turn(self, png: bytes, text: str) -> dict:
-        """帶一張 PNG 的使用者回合（Claude 格式：base64 的 image 區塊）。"""
-        data = base64.b64encode(png).decode("ascii")
-        return {"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
-                                         "data": data}},
-            {"type": "text", "text": text},
-        ]}
-
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
         """打一次 /v1/messages 請求，回傳文字內容。
         `max_tokens` 未指定（None）時沿用聊天路徑的 `_MAX_TOKENS_THINKING`——Claude 沒有
         「不思考」模式，思考深度改由 `effort` 控制，不是靠調這個參數；區域翻譯路徑會
-        明確帶 `_MAX_TOKENS_REGION`（看圖多了一份逐字抄寫，預算得放寬），截斷判定也要
-        用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
+        明確帶 `_MAX_TOKENS_REGION`（一次可能送出一整頁的辨識行，預算得放寬），截斷判定
+        也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
         limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
         params = {"model": self._model, "max_tokens": limit,
                   "system": system, "messages": turns}
@@ -493,31 +470,14 @@ class Translator:
                         examples=FEWSHOT_OUTGOING),
             source=text, context_lines=len(context))
 
-    def translate_region_image(self, png: bytes) -> tuple[str, str]:
-        """區域翻譯（看圖）：先逐字抄寫畫面文字，再翻成目標語言（見 build_region_system
-        的 WHY：抄寫先釘住「模型讀到了什麼」，翻譯只能基於這段抄寫，壓低幻覺）。
-        回傳 (原文, 譯文)；端點不吃圖片時會回 4xx → TranslatorConfigError，
-        由 region.pipeline 決定是否退回本機 OCR。"""
-        raw = self._chat(
-            "region image",
-            build_region_system(self._target_language, transcribe=True),
-            [self._impl.image_turn(png, REGION_IMAGE_INSTRUCTION)],
-            source=f"<png {len(png)} bytes>", context_lines=0,
-            max_tokens=_MAX_TOKENS_REGION, redact=True)
-        original, translated = split_region_output(raw)
-        log(f"[translate] region image split (original_chars={len(original)}, "
-            f"translated_chars={len(translated)})")
-        return original, translated
-
     def translate_region_text(self, text: str) -> str:
-        """區域翻譯（文字）：本機 OCR 辨識出的畫面文字 → 目標語言，與看圖共用同一份提示詞
-        （transcribe=False：文字本身就是本機辨識結果，不必再抄一次）。
+        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
         每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
         編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。"""
         originals, numbered = number_lines(text)
         translated = self._chat(
             "region text",
-            build_region_system(self._target_language, transcribe=False),
+            build_region_system(self._target_language),
             [{"role": "user", "content": numbered}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True)

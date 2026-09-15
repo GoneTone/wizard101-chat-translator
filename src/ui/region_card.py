@@ -4,7 +4,7 @@
 關閉方式是點卡片任一處、或下一次框選時被換掉。位置每次重排：譯文回來後高度變了，
 下方放不下要翻到矩形上方。標頭右上角另放一個 ✕、內文下方帶一行提示文字，
 點擊關閉本來就存在，只是沒人知道，這兩處純粹是把既有行為講出來。
-譯文回來時若帶原文（看圖路徑的逐字抄寫、OCR 路徑的辨識文字），在譯文上方另用一段
+譯文回來時若帶原文（本機 OCR 辨識出的文字），在譯文上方另用一段
 暗色小字顯示 —— 與聊天疊加視窗「原文在上、譯文在下」一致，也讓使用者能核對模型
 有沒有多翻或漏翻。原文與譯文放在同一顆 `RichLabel`（`richtext.RichLabel.set_blocks`）
 裡、中間空一行分隔，不再是兩顆各自獨立的 Text —— 拖曳選取才能一路跨過兩段文字，
@@ -114,7 +114,7 @@ class RegionCard:
         self._label.bind("<Button-3>", self._right_click)
         win.geometry(f"{self._width}x1")   # 寬度先定，RichLabel 才能依它換行；高度由 _layout 量
         make_non_activating(win)
-        # 單一等待狀態：看圖路徑一趟請求同時辨識與翻譯，退回 OCR 的兩步也不另外分段顯示
+        # 單一等待狀態：辨識與翻譯兩步不另外分段顯示
         self._shown_text = t("region.working")
         self._shown_source = ""
         self._label.set(self._shown_text, FG_PENDING)

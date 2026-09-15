@@ -113,7 +113,7 @@ def test_toggle_passes_the_captured_backdrop_to_the_selector(root):
 
 
 def test_selection_captures_and_fills_the_card_with_the_translation(root):
-    flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文", "image")))
+    flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文")))
     flow.toggle(0x1234)
     selector.pick(_RECT)
     _drain(ui_queue, flow)
@@ -122,7 +122,7 @@ def test_selection_captures_and_fills_the_card_with_the_translation(root):
 
 def test_selection_passes_the_source_text_to_the_card(root):
     flow, selector, card, ui_queue = _flow(
-        root, FakePipeline(RegionResult("譯文", "image", "Talk to Merle")))
+        root, FakePipeline(RegionResult("譯文", "Talk to Merle")))
     flow.toggle(0x1234)
     selector.pick(_RECT)
     _drain(ui_queue, flow)
@@ -137,7 +137,7 @@ def test_selection_crops_the_same_frame_that_was_captured(root):
         return b"png"
 
     flow, selector, card, ui_queue = _flow(
-        root, FakePipeline(RegionResult("譯文", "image")), crop=recording_crop)
+        root, FakePipeline(RegionResult("譯文")), crop=recording_crop)
     flow.toggle(0x1234)
     selector.pick(_RECT)
     _drain(ui_queue, flow)
@@ -194,7 +194,7 @@ class RectPipeline:
     """譯文帶矩形寬度，兩輪框選的結果才分得出新舊。"""
 
     def run(self, png, rect):
-        return RegionResult(f"譯文{rect[2]}", "image")
+        return RegionResult(f"譯文{rect[2]}")
 
 
 def test_stale_result_is_dropped_after_a_new_selection(root):
@@ -230,7 +230,7 @@ def test_selection_moves_foreground_before_showing_the_pending_card(root):
         calls.append(("foreground", hwnd))
 
     flow, selector, card, _ = _flow(
-        root, FakePipeline(RegionResult("譯文", "image")), foreground=foreground)
+        root, FakePipeline(RegionResult("譯文")), foreground=foreground)
     original_show_pending = card.show_pending
 
     def recording_show_pending(rect):
@@ -245,7 +245,7 @@ def test_selection_moves_foreground_before_showing_the_pending_card(root):
 
 
 def test_toggle_hides_a_previous_card(root):
-    flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文", "image")))
+    flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文")))
     flow.toggle(0x1234)
     selector.pick(_RECT)
     _drain(ui_queue, flow)
