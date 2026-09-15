@@ -133,7 +133,7 @@
   "region.failed": "翻譯失敗：{error}",
   "region.close_hint": "點一下即可關閉",
   "region.no_game": "找不到遊戲視窗，請先啟動並登入遊戲",
-  "region.recognizing": "辨識中…",
+  "region.working": "辨識並翻譯中…",
   "tooltip.region": "框選畫面翻譯 ({hotkey})",
   "tooltip.settings": "設定",
   "tooltip.minimize": "縮小",

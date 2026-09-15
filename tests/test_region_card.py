@@ -24,21 +24,12 @@ def test_pending_then_text(card, root):
     assert not card.is_open
     card.show_pending(_RECT)
     root.update()
-    assert card.is_open and card.text() == t("region.recognizing")
+    assert card.is_open and card.text() == t("region.working")
     assert card._label.cget("fg") == FG_PENDING
     card.show_text("譯文第一行\n第二行")
     root.update()
     assert card.text() == "譯文第一行\n第二行"
     assert card._label.cget("fg") == FG_TRANSLATED
-
-
-def test_show_stage_replaces_the_pending_text(card, root):
-    card.show_pending(_RECT)
-    root.update()
-    card.show_stage(t("region.recognizing"))
-    root.update()
-    assert card.text() == t("region.recognizing")
-    assert card._label.cget("fg") == FG_PENDING
 
 
 def test_show_text_with_source_puts_both_in_one_selectable_label(card, root):
@@ -94,7 +85,7 @@ def test_close_affordance_is_shown(card, root):
     root.update()
     assert card._close.cget("text") == "✕"
     assert card._hint.cget("text") == t("region.close_hint")
-    assert card.text() == t("region.recognizing")   # 提示文字不能混進主要內容
+    assert card.text() == t("region.working")   # 提示文字不能混進主要內容
 
 
 def test_close_button_tooltip_shows_close_text(card, root):

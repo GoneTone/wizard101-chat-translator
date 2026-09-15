@@ -48,9 +48,6 @@ class FakeCard:
         self.is_open = True
         self.events.append(("pending", rect))
 
-    def show_stage(self, text):
-        self.events.append(("stage", text))
-
     def show_text(self, text, source=""):
         self.events.append(("text", text, source))
 
@@ -67,13 +64,10 @@ class FakeCard:
 
 
 class FakePipeline:
-    def __init__(self, result=None, raises=None, stages=()):
-        self._result, self._raises, self._stages = result, raises, stages
+    def __init__(self, result=None, raises=None):
+        self._result, self._raises = result, raises
 
-    def run(self, png, rect, progress=None):
-        if progress is not None:
-            for stage in self._stages:
-                progress(stage)
+    def run(self, png, rect):
         if self._raises:
             raise self._raises
         return self._result
@@ -187,35 +181,6 @@ def test_plain_capture_error_is_shown_as_capture_failed(root):
     assert flow._thread is None
 
 
-def test_stages_are_shown_in_order_before_the_translation(root):
-    flow, selector, card, ui_queue = _flow(
-        root, FakePipeline(RegionResult("譯文", "ocr", "Hello"),
-                           stages=["recognizing", "translating"]))
-    flow.toggle(0x1234)
-    selector.pick(_RECT)
-    _drain(ui_queue, flow)
-    assert card.events == [
-        ("pending", _RECT),
-        ("stage", t("region.recognizing")),
-        ("stage", t("notice.pending")),
-        ("text", "譯文", "Hello"),
-    ]
-
-
-def test_stale_stage_is_dropped_after_a_new_selection(root):
-    flow, selector, card, ui_queue = _flow(
-        root, FakePipeline(RegionResult("譯文", "ocr", "Hello"), stages=["recognizing"]))
-    flow.toggle(0x1234)
-    selector.pick(_RECT)
-    flow._thread.join(timeout=5)     # 第一輪的 stage 已排進 ui_queue，尚未回填
-    flow.toggle(0x1234)              # 新一輪：舊 stage 回填時 session 已對不上
-    selector.pick((0, 0, 50, 50))
-    _drain(ui_queue, flow)
-    # 兩輪的階段文字相同（都是 region.recognizing），靠次數而非內容分辨：
-    # 只有第二輪（session 對得上）的那筆真的回填到卡片
-    assert card.events.count(("stage", t("region.recognizing"))) == 1
-
-
 def test_pipeline_errors_are_described_on_the_card(root):
     flow, selector, card, ui_queue = _flow(
         root, FakePipeline(raises=OcrUnavailable("no pack")))
@@ -228,7 +193,7 @@ def test_pipeline_errors_are_described_on_the_card(root):
 class RectPipeline:
     """譯文帶矩形寬度，兩輪框選的結果才分得出新舊。"""
 
-    def run(self, png, rect, progress=None):
+    def run(self, png, rect):
         return RegionResult(f"譯文{rect[2]}", "image")
 
 

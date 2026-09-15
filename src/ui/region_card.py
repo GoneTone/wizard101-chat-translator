@@ -114,25 +114,12 @@ class RegionCard:
         self._label.bind("<Button-3>", self._right_click)
         win.geometry(f"{self._width}x1")   # 寬度先定，RichLabel 才能依它換行；高度由 _layout 量
         make_non_activating(win)
-        # 一開始就是「辨識中」：看圖路徑一趟請求同時辨識與翻譯，退回 OCR 也仍在辨識，
-        # 只有 OCR 完成送去翻譯時才換成「翻譯中」（見 region_flow._show_stage），不來回跳
-        self._set_pending_text(t("region.recognizing"))
-        self._layout()
-        win.deiconify()
-
-    def show_stage(self, text: str) -> None:
-        """辨識翻譯進行中的階段文字（辨識中…／翻譯中…），沿用 `show_pending` 那套
-        淺色文字，只換內容，不動視窗其他部分。"""
-        if self._label is None:
-            return
-        self._set_pending_text(text)
-        self._layout()
-
-    def _set_pending_text(self, text: str) -> None:
-        """`show_pending`／`show_stage` 共用：換上待處理色（`FG_PENDING`）的文字。"""
-        self._shown_text = text
+        # 單一等待狀態：看圖路徑一趟請求同時辨識與翻譯，退回 OCR 的兩步也不另外分段顯示
+        self._shown_text = t("region.working")
         self._shown_source = ""
         self._label.set(self._shown_text, FG_PENDING)
+        self._layout()
+        win.deiconify()
 
     def show_text(self, text: str, source: str = "") -> None:
         """譯文回來了；空字串＝畫面上沒有文字，用暗色提示。

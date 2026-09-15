@@ -150,9 +150,7 @@ class RegionFlow:
 
     def _worker(self, png: bytes, rect: tuple[int, int, int, int], session: int) -> None:
         try:
-            result = self._pipeline.run(
-                png, rect,
-                progress=lambda stage: self._queue.put(lambda: self._show_stage(stage, session)))
+            result = self._pipeline.run(png, rect)
         except Exception as exc:
             if not isinstance(exc, (TranslatorError, TranslatorBadOutput, OcrUnavailable)):
                 log(f"[region] unexpected failure (rect={rect}): {type(exc).__name__}: {exc}\n"
@@ -169,14 +167,6 @@ class RegionFlow:
             log(f"[region] stale result dropped (session={session}, current={self._session})")
             return
         self._card.show_text(text, source)
-
-    def _show_stage(self, stage: str, session: int) -> None:
-        """退回本機 OCR 時的階段更新（見 `RegionPipeline.run` 的 `progress`）：
-        辨識中先顯示 `region.recognizing`，翻譯中換回既有的 `notice.pending`。"""
-        if session != self._session:
-            return
-        text = t("region.recognizing") if stage == "recognizing" else t("notice.pending")
-        self._card.show_stage(text)
 
     def _show_error(self, message: str, session: int) -> None:
         if session != self._session:
