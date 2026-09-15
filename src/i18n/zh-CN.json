@@ -131,6 +131,7 @@
   "region.capture_failed": "截取画面失败：{error}",
   "region.ocr_unavailable": "本机文字识别不可用：请安装 Windows 的 OCR 语言包，或改用支持看图的模型",
   "region.failed": "翻译失败：{error}",
+  "region.close_hint": "点一下即可关闭",
   "settings.region_hotkey": "框选画面翻译的热键",
   "error.hotkeys_same": "两个热键不可相同"
 }

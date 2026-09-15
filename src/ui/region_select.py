@@ -2,6 +2,7 @@
 
 暗色半透明底讓遊戲畫面仍看得見。這層需要鍵盤（Esc）與滑鼠，所以會奪焦點；
 關閉時由呼叫端把前景還給遊戲（RegionFlow）。點一下沒拖動視為取消（is_click）。
+提示文字另開一層不透明視窗疊在半透明底之上，不然文字會跟著底一起變淡。
 """
 import tkinter as tk
 
@@ -9,8 +10,8 @@ from src.composer.paste import force_foreground
 from src.i18n import t
 from src.ui.fonts import ui_font
 from src.ui.geometry import is_click
-from src.ui.palette import FG_BAR, FG_UPDATE
-from src.ui.winstyle import root_hwnd
+from src.ui.palette import BAR, FG_TRANSLATED, FG_UPDATE, GRIP
+from src.ui.winstyle import make_non_activating, root_hwnd
 
 _TINT_ALPHA = 0.35
 _BAND_WIDTH = 2
@@ -23,6 +24,8 @@ class RegionSelector:
     def __init__(self, root: tk.Tk):
         self._root = root
         self._win: tk.Toplevel | None = None
+        self._hint: tk.Toplevel | None = None
+        self._hint_label: tk.Label | None = None
         self._canvas: tk.Canvas | None = None
         self._band = None
         self._size_label = None
@@ -49,8 +52,6 @@ class RegionSelector:
         win.geometry(f"{monitor[2]}x{monitor[3]}+{monitor[0]}+{monitor[1]}")
         canvas = tk.Canvas(win, bg="black", highlightthickness=0, cursor="crosshair")
         canvas.pack(fill="both", expand=True)
-        canvas.create_text(monitor[2] // 2, _HINT_Y, text=t("region.hint"),
-                           fill=FG_BAR, font=ui_font(12))
         self._band = canvas.create_rectangle(0, 0, 0, 0, outline=FG_UPDATE,
                                              width=_BAND_WIDTH, state="hidden")
         self._size_label = canvas.create_text(0, 0, text="", fill=FG_UPDATE,
@@ -62,11 +63,32 @@ class RegionSelector:
         canvas.bind("<Button-3>", lambda e: self.cancel())
         self._win, self._canvas = win, canvas
         win.update_idletasks()
+        self._build_hint(monitor)
         # Tk 內部焦點：純 Tcl 層級操作，被系統前景鎖擋下時不會真的搶走 Windows 前景
         # （沒有 force_foreground 那支 AttachThreadInput），但 <Escape> 綁定要收得到
         # 事件非設不可，所以獨立於 _take_focus 之外、恆定執行，測試也不用停用它。
         win.focus_force()
         self._take_focus()
+
+    def _build_hint(self, monitor: tuple[int, int, int, int]) -> None:
+        """提示文字開在自己的不透明視窗：底下的選取層有 -alpha 0.35 的半透明底，
+        文字若畫在同一層上也會被拉淡到看不清楚。"""
+        hint = tk.Toplevel(self._root)
+        hint.overrideredirect(True)
+        hint.attributes("-topmost", True)
+        hint.configure(bg=GRIP)   # 外層底色當 1px 邊框，內層 body 靠 padx/pady=1 露出來
+        body = tk.Frame(hint, bg=BAR)
+        body.pack(padx=1, pady=1)
+        label = tk.Label(body, text=t("region.hint"), bg=BAR, fg=FG_TRANSLATED,
+                         font=ui_font(13), padx=16, pady=8)
+        label.pack()
+        make_non_activating(hint)
+        hint.update_idletasks()
+        x = monitor[0] + (monitor[2] - hint.winfo_reqwidth()) // 2
+        y = monitor[1] + _HINT_Y
+        hint.geometry(f"+{x}+{y}")
+        hint.lift(self._win)
+        self._hint, self._hint_label = hint, label
 
     def _take_focus(self) -> None:
         """把 Windows 前景切給選取層；Esc 要收得到，從遊戲熱鍵開層時遊戲仍是前景。
@@ -83,7 +105,9 @@ class RegionSelector:
 
     def _destroy(self) -> None:
         self._win.destroy()
+        self._hint.destroy()
         self._win = self._canvas = self._band = self._size_label = None
+        self._hint = self._hint_label = None
         self._start = None
 
     def _press(self, e) -> None:

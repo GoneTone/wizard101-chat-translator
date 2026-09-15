@@ -1,6 +1,7 @@
-"""選取層：拖曳→矩形（螢幕座標）、點一下→取消、Esc→取消。"""
+"""選取層：拖曳→矩形（螢幕座標）、點一下→取消、Esc→取消、提示文字自己一層視窗。"""
 import pytest
 
+from src.i18n import t
 from src.ui import region_select as select_module
 from src.ui.region_select import RegionSelector
 
@@ -68,3 +69,35 @@ def test_rubber_band_is_drawn_while_dragging(selector, root):
     canvas.event_generate("<B1-Motion>", x=110, y=70)
     root.update()
     assert [int(v) for v in canvas.coords(selector._band)] == [10, 20, 110, 70]
+
+
+def test_hint_shows_in_its_own_opaque_window(selector, root):
+    # 提示文字不能畫在半透明底上（見 region_select.py 的說明），要另開一層不透明視窗
+    selector.show(_MONITOR, on_select=lambda r: None)
+    root.update()
+    assert selector._hint is not None and selector._hint.winfo_exists()
+    assert selector._hint_label.cget("text") == t("region.hint")
+
+
+def test_hint_window_closes_with_the_layer(selector, root):
+    selector.show(_MONITOR, on_select=lambda r: None)
+    root.update()
+    selector.cancel()
+    assert selector._hint is None
+
+
+def test_hint_window_closes_after_a_completed_drag(selector, root):
+    picked = []
+    selector.show(_MONITOR, on_select=picked.append)
+    root.update()
+    _drag(selector, root, 400, 300, 100, 150)
+    assert picked and selector._hint is None
+
+
+def test_show_while_open_leaves_exactly_one_hint_window(selector, root):
+    selector.show(_MONITOR, on_select=lambda r: None)
+    first_hint = selector._hint
+    selector.show(_MONITOR, on_select=lambda r: None)
+    root.update()
+    assert not first_hint.winfo_exists()
+    assert selector._hint is not None and selector._hint.winfo_exists()

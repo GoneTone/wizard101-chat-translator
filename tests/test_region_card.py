@@ -54,6 +54,22 @@ def test_click_anywhere_hides(card, root):
     assert not card.is_open
 
 
+def test_close_affordance_is_shown(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    assert card._close.cget("text") == "✕"
+    assert card._hint.cget("text") == t("region.close_hint")
+    assert card.text() == t("notice.pending")   # 提示文字不能混進主要內容
+
+
+def test_close_button_hides(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card._close.event_generate("<Button-1>")
+    root.update()
+    assert not card.is_open
+
+
 def test_hide_is_idempotent(card):
     card.hide()
     card.show_pending(_RECT)

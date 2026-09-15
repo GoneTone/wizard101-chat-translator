@@ -131,6 +131,7 @@
   "region.capture_failed": "Screen capture failed: {error}",
   "region.ocr_unavailable": "Local text recognition is unavailable: install a Windows OCR language pack, or switch to a model that accepts images",
   "region.failed": "Translation failed: {error}",
+  "region.close_hint": "Click to close",
   "settings.region_hotkey": "Hotkey to translate a selected screen area",
   "error.hotkeys_same": "The two hotkeys must be different"
 }

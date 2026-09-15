@@ -2,7 +2,8 @@
 
 不奪焦點（與彈出選單同一招）：遊戲的鍵盤操作不中斷，代價是收不到 Esc，
 關閉方式是點卡片任一處、或下一次框選時被換掉。位置每次重排：譯文回來後高度變了，
-下方放不下要翻到矩形上方。
+下方放不下要翻到矩形上方。標頭右上角另放一個 ✕、內文下方帶一行提示文字，
+點擊關閉本來就存在，只是沒人知道，這兩處純粹是把既有行為講出來。
 """
 import tkinter as tk
 
@@ -11,7 +12,7 @@ from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_position
 from src.ui.monitors import work_area_at
-from src.ui.palette import BG, FG_ERROR, FG_PENDING, FG_TRANSLATED, FG_UPDATE, GRIP
+from src.ui.palette import BG, FG_BAR, FG_ERROR, FG_PENDING, FG_TRANSLATED, FG_UPDATE, GRIP
 from src.ui.richtext import RichLabel
 from src.ui.winstyle import make_non_activating
 
@@ -29,6 +30,8 @@ class RegionCard:
         self._alpha = alpha
         self._win: tk.Toplevel | None = None
         self._label: RichLabel | None = None
+        self._close: tk.Label | None = None
+        self._hint: tk.Label | None = None
         self._rect: tuple[int, int, int, int] | None = None
         self._width = MIN_WIDTH
 
@@ -56,9 +59,18 @@ class RegionCard:
         win.configure(bg=GRIP)   # 外層底色當 1px 邊框
         body = tk.Frame(win, bg=BG, cursor="hand2")
         body.pack(fill="both", expand=True, padx=1, pady=1)
+        header = tk.Frame(body, bg=BG)
+        header.pack(fill="x")
+        self._close = tk.Label(header, text="✕", bg=BG, fg=FG_BAR, font=ui_font(10),
+                               cursor="hand2", padx=6)
+        self._close.pack(side="right")
+        self._close.bind("<Button-1>", lambda e: self.hide())
         self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
         self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
+        self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
+                              font=ui_font(8), anchor="w")
+        self._hint.pack(fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
         for widget in (win, body, self._label):
             widget.bind("<Button-1>", lambda e: self.hide(), add="+")
         self._win = win
@@ -89,6 +101,8 @@ class RegionCard:
             self._win.destroy()
             self._win = None
             self._label = None
+            self._close = None
+            self._hint = None
 
     def text(self) -> str:
         """目前顯示的文字（測試用）。"""
