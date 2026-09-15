@@ -10,6 +10,13 @@ dependencies = [
     "langcodes>=3.5.1",
     "pillow>=12.3.0",
     "pywin32",
+    "winrt-runtime>=3.2.1",
+    "winrt-windows-foundation>=3.2.1",
+    "winrt-windows-foundation-collections>=3.2.1",
+    "winrt-windows-globalization>=3.2.1",
+    "winrt-windows-graphics-imaging>=3.2.1",
+    "winrt-windows-media-ocr>=3.2.1",
+    "winrt-windows-storage-streams>=3.2.1",
     "wizwalker",
 ]
 
