@@ -22,11 +22,6 @@ updates:
         patterns:
           - "pytest"
           - "pytest-*"
-      # pywinrt 的投影套件同一個專案、同版發布（見 src/region/ocr.py 用到的八個），
-      # 分開升會一次開八個 PR，且缺一個就 ModuleNotFoundError
-      winrt:
-        patterns:
-          - "winrt-*"
 
   - package-ecosystem: "github-actions"
     directory: "/"

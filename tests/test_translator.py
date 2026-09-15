@@ -15,7 +15,6 @@ from src.translation.postprocess import (
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
-    OUTGOING_LANGUAGE_TAG,
     REGION_IMAGE_INSTRUCTION,
     REGION_SEPARATOR,
     _game_noun_rule,
@@ -1115,6 +1114,3 @@ def test_split_region_output_empty_text_is_two_empty_strings():
     assert split_region_output("") == ("", "")
 
 
-def test_outgoing_language_tag_matches_the_outgoing_language():
-    # 本機 OCR 依這個主標籤挑引擎；它與 OUTGOING_LANGUAGE 描述的是同一個語言
-    assert OUTGOING_LANGUAGE == "English" and OUTGOING_LANGUAGE_TAG == "en"

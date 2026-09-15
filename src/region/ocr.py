@@ -1,129 +1,123 @@
-"""本機 OCR 退路：Windows 內建的 Windows.Media.Ocr，PNG bytes → 文字。
+"""本機 OCR 退路：RapidOCR（PP-OCR ONNX 模型），PNG bytes → 文字。
 
-只在翻譯後端不吃圖片時使用（見 region.pipeline）。Windows OCR 是逐語言的引擎，
-辨識語言優先挑遊戲語言（prompts.OUTGOING_LANGUAGE_TAG）：實測用使用者介面語言的引擎
-辨識遊戲文字會把空格全部吃掉（「HelloWizard」）。winrt 模組延遲到第一次呼叫才載入：
-套件缺了只讓這條退路不可用，不影響程式啟動。
+只在翻譯後端不吃圖片時使用（見 region.pipeline）。原本用 Windows 內建的
+Windows.Media.Ocr，但它讀不動遊戲的美術字型 —— 商店標題「Items Recommended
+For Your Wizard」試過 56 種前處理組合（縮放倍率、二值化、對比度全排列）全數
+失敗；RapidOCR 用同一個模型就能讀出英文與簡體中文，不必挑語言包。
+引擎（`rapidocr.RapidOCR`）延遲到第一次呼叫才建立：import 與載入模型約要
+0.4 秒，程式啟動不該為一個可能永遠用不到的退路先付這筆成本。
 """
-import asyncio
 import io
+import logging
+import statistics
+import threading
+import time
 
 from PIL import Image
 
 from src.log import log
-from src.translation.prompts import OUTGOING_LANGUAGE_TAG
 
-# 自適應縮放（與 PowerToys 文字擷取同一套做法）：Windows OCR 對字高約 40 px 的文字最準，
-# 太小會掉字、放太大會糊成別的字（實測：一律放大 2 倍救回了商店標題，卻把另一行
-# 較大的字讀壞）。先原尺寸辨識一次量出平均字高，再縮放到理想字高重跑一次。
-IDEAL_WORD_HEIGHT = 40.0
-MIN_SCALE, MAX_SCALE = 0.5, 4.0
-RESCALE_THRESHOLD = 0.1   # 倍率與 1 差不到這麼多就不重跑
+# rapidocr 套件內部固定用這個名稱建立 logger（見 rapidocr/utils/log.py），
+# 且預設等級是 INFO、外加 ANSI 顏色碼 —— 原樣落進 app.log 會是一堆控制碼。
+_RAPIDOCR_LOGGER_NAME = "RapidOCR"
 
 
 class OcrUnavailable(Exception):
-    """本機 OCR 不可用：winrt 套件載入失敗，或 Windows 沒有可用的 OCR 語言包。"""
+    """本機 OCR 不可用：rapidocr／onnxruntime 套件無法載入，或引擎建立失敗。"""
 
 
-_announced = False   # 引擎語言只在第一次成功時記一行，之後每次框選不重複
+_engine = None
+_engine_lock = threading.Lock()
 
 
-def pick_language(tags: list[str], preferred: str) -> str | None:
-    """從可用的辨識語言標籤挑一個：主標籤與 preferred 相符（`en` 對 `en-US`）的第一個，
-    沒有回 None（呼叫端改用使用者設定檔語言）。"""
-    wanted = preferred.casefold()
-    for tag in tags:
-        if tag.casefold().split("-")[0] == wanted:
-            return tag
-    return None
+def _create_engine():
+    """建立 RapidOCR 引擎（預設設定即可，模型已隨套件內建）。
 
-
-def _winrt():
+    `RapidOCR.__init__` 建構到一半就會用讀到的設定把 logger 等級重設成
+    INFO、且初始化過程本身就會印出好幾行模型路徑 —— 建構前才 setLevel 對
+    這些訊息沒有用（等級會被蓋回去），得靠 `params` 直接把設定值改成
+    warning，讓 `__init__` 自己設回去的等級就是我們要的；建構完再設一次
+    是防禦性寫法，擋住之後可能新增、不受這個設定管的 logger 用法。
+    """
+    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.WARNING)
     try:
-        from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapDecoder, BitmapPixelFormat
-        from winrt.windows.media.ocr import OcrEngine
-        from winrt.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
+        from rapidocr import RapidOCR
     except ImportError as exc:
-        raise OcrUnavailable(f"winrt OCR modules unavailable: {exc}") from exc
-    return (OcrEngine, BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode,
-            DataWriter, InMemoryRandomAccessStream)
-
-
-def _create_engine(OcrEngine):
-    global _announced
-    languages = list(OcrEngine.available_recognizer_languages)
-    tags = [language.language_tag for language in languages]
-    chosen = pick_language(tags, OUTGOING_LANGUAGE_TAG)
-    if chosen is not None:
-        engine = OcrEngine.try_create_from_language(languages[tags.index(chosen)])
-    else:
-        engine = OcrEngine.try_create_from_user_profile_languages()
-    if engine is None:
-        raise OcrUnavailable(f"no OCR language pack available (installed={tags})")
-    if not _announced:
-        _announced = True
-        log(f"[region] local OCR engine ready "
-            f"(language={engine.recognizer_language.language_tag}, installed={tags})")
+        raise OcrUnavailable(f"rapidocr/onnxruntime unavailable: {exc}") from exc
+    try:
+        engine = RapidOCR(params={"Global.log_level": "warning"})
+    except Exception as exc:
+        raise OcrUnavailable(f"failed to create RapidOCR engine: {exc}") from exc
+    logging.getLogger(_RAPIDOCR_LOGGER_NAME).setLevel(logging.WARNING)
     return engine
 
 
-def ideal_scale(word_heights: list[float], ideal: float = IDEAL_WORD_HEIGHT) -> float:
-    """依第一次辨識量到的字高算出第二次辨識的縮放倍率（夾在 MIN_SCALE～MAX_SCALE）；
-    沒有量到任何字回 1.0（沒東西可據以縮放）。"""
-    if not word_heights:
-        return 1.0
-    average = sum(word_heights) / len(word_heights)
-    if average <= 0:
-        return 1.0
-    return max(MIN_SCALE, min(MAX_SCALE, ideal / average))
+def _get_engine():
+    global _engine
+    if _engine is None:
+        with _engine_lock:
+            if _engine is None:
+                _engine = _create_engine()
+                log("[region] local OCR engine ready (rapidocr)")
+    return _engine
 
 
-def scaled_png(png: bytes, factor: float) -> bytes:
-    """把 PNG 依 factor 縮放（LANCZOS）後重新編碼。"""
-    # 先丟掉 alpha：Pillow 縮放 RGBA 會用預乘 alpha，透明區的 RGB 被壓成全黑，
-    # 黑字就跟背景混在一起；辨識時本來就忽略 alpha（見 recognize），轉 RGB 語意一致
-    image = Image.open(io.BytesIO(png)).convert("RGB")
-    size = (max(1, round(image.width * factor)), max(1, round(image.height * factor)))
-    buffer = io.BytesIO()
-    image.resize(size, Image.LANCZOS).save(buffer, "PNG")
-    return buffer.getvalue()
+def merge_lines(items: list[tuple[list, str]]) -> list[str]:
+    """把 RapidOCR 逐框辨識的結果併回可讀的行。
+
+    `items` 是 `(box, text)`：`box` 是框的 4 個角點 `[[x, y], ...]`。同一視覺
+    行常被切成好幾個框（例如商店標題「Items」「Recommended For Your」「Wizard」
+    各自成框），純靠框的順序無法還原行 —— 用框的中心 y 分組：與同一行已知
+    y 差距小於「全部框高度中位數的一半」的框歸為同一行，行間再由上到下排序、
+    行內由左到右排序，最後以單一空白接起來。
+    """
+    if not items:
+        return []
+
+    def y_center(box: list) -> float:
+        ys = [point[1] for point in box]
+        return sum(ys) / len(ys)
+
+    def height(box: list) -> float:
+        ys = [point[1] for point in box]
+        return max(ys) - min(ys)
+
+    def x_left(box: list) -> float:
+        return min(point[0] for point in box)
+
+    threshold = statistics.median(height(box) for box, _ in items) / 2
+    ordered = sorted(items, key=lambda item: y_center(item[0]))
+
+    lines: list[list[tuple[list, str]]] = []
+    line_ys: list[float] = []
+    for box, text in ordered:
+        yc = y_center(box)
+        if lines and abs(yc - line_ys[-1]) < threshold:
+            lines[-1].append((box, text))
+            line_ys[-1] = sum(y_center(b) for b, _ in lines[-1]) / len(lines[-1])
+        else:
+            lines.append([(box, text)])
+            line_ys.append(yc)
+
+    return [" ".join(text for _, text in sorted(line, key=lambda item: x_left(item[0])))
+            for line in lines]
 
 
 def recognize(png: bytes) -> str:
-    """辨識 PNG 裡的文字，各行以換行合併；沒有文字回空字串。
-    先原尺寸辨識量字高，倍率離 1 夠遠就縮放後再辨識一次、以第二次為準（見 ideal_scale）。
-    引擎每次重建（很便宜），不跨執行緒共用 WinRT 物件。"""
-    (OcrEngine, BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode,
-     DataWriter, InMemoryRandomAccessStream) = _winrt()
-    engine = _create_engine(OcrEngine)
+    """辨識 PNG 裡的文字，各行以換行合併（見 merge_lines）；沒有文字回空字串。
 
-    async def run(data: bytes):
-        stream = InMemoryRandomAccessStream()
-        writer = DataWriter(stream)
-        writer.write_bytes(data)
-        await writer.store_async()
-        await writer.flush_async()
-        stream.seek(0)
-        decoder = await BitmapDecoder.create_async(stream)
-        # 引擎只接受 BGRA8、alpha 模式為 premultiplied 或 ignore 兩種（微軟官方文件
-        # 列的支援範圍）；PNG 解出來的原生格式可能是索引色／灰階，直接丟給
-        # recognize_async 在某些解碼路徑會拋 WinRT 原生錯誤，所以一律轉換。alpha
-        # 模式選 ignore、不選 premultiplied：後者對 alpha=0 的像素一律把 RGB 乘成
-        # 全黑，若透明區域底色恰好較深、文字又是深色，轉換後兩者顏色會疊在一起讓
-        # 引擎讀不到字（實測驗證過）；ignore 保留原始 RGB 不做任何相乘，色彩不失真，
-        # 而且擷取流程（region.capture）產出的 PNG 本來就是不透明 RGB，語意上也沒有
-        # 需要合成的 alpha 通道。
-        bitmap = await decoder.get_software_bitmap_converted_async(
-            BitmapPixelFormat.BGRA8, BitmapAlphaMode.IGNORE)
-        return await engine.recognize_async(bitmap)
-
-    async def both() -> str:
-        result = await run(png)
-        heights = [word.bounding_rect.height for line in result.lines for word in line.words]
-        factor = ideal_scale(heights)
-        if abs(factor - 1.0) >= RESCALE_THRESHOLD:
-            log(f"[region] local OCR rescale (words={len(heights)}, factor={factor:.2f})")
-            result = await run(scaled_png(png, factor))
-        return "\n".join(line.text for line in result.lines).strip()
-
-    return asyncio.run(both())
+    丟掉 alpha 再交給引擎：`rapidocr` 的 `LoadImage` 直接接受 PIL Image，
+    會依原圖是 RGB 自動轉成引擎要的 BGR，不必自己換色階順序。
+    """
+    started = time.monotonic()
+    engine = _get_engine()
+    image = Image.open(io.BytesIO(png)).convert("RGB")
+    result = engine(image)
+    if result.txts is None:
+        log(f"[region] local OCR done (boxes=0, lines=0, "
+            f"ms={(time.monotonic() - started) * 1000:.0f})")
+        return ""
+    lines = merge_lines(list(zip(result.boxes, result.txts, strict=True)))
+    log(f"[region] local OCR done (boxes={len(result.txts)}, lines={len(lines)}, "
+        f"ms={(time.monotonic() - started) * 1000:.0f})")
+    return "\n".join(lines)

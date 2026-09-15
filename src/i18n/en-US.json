@@ -129,7 +129,7 @@
   "region.no_text": "No text recognized",
   "region.outside_game": "Select an area inside the game window",
   "region.capture_failed": "Screen capture failed: {error}",
-  "region.ocr_unavailable": "Local text recognition is unavailable: install a Windows OCR language pack, or switch to a model that accepts images",
+  "region.ocr_unavailable": "Local text recognition failed to start; switch to a model that accepts images",
   "region.failed": "Translation failed: {error}",
   "region.close_hint": "Click to close",
   "region.no_game": "Game window not found; start the game and log in first",

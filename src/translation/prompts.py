@@ -7,9 +7,6 @@
 # 發話固定翻成的語言（遊戲聊天語言）；固定產品設定，不進 config。
 OUTGOING_LANGUAGE = "English"
 
-# OUTGOING_LANGUAGE 的 BCP-47 主標籤：本機 OCR 挑辨識引擎用（見 region.ocr）。
-OUTGOING_LANGUAGE_TAG = "en"
-
 # 提示詞版次：改動系統訊息那條提示詞（build_system_message_system，含它共用的
 # _game_noun_rule）就 +1 —— 只有這條路徑的譯文會落磁碟快取（見
 # translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留下。

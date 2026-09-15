@@ -129,7 +129,7 @@
   "region.no_text": "没有识别到文字",
   "region.outside_game": "请框选游戏画面内的区域",
   "region.capture_failed": "截取画面失败：{error}",
-  "region.ocr_unavailable": "本机文字识别不可用：请安装 Windows 的 OCR 语言包，或改用支持看图的模型",
+  "region.ocr_unavailable": "本机文字识别初始化失败，请改用支持看图的模型",
   "region.failed": "翻译失败：{error}",
   "region.close_hint": "点一下即可关闭",
   "region.no_game": "找不到游戏窗口，请先启动并登录游戏",
