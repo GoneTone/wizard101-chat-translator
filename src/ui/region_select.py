@@ -69,6 +69,8 @@ class RegionSelector:
         # 事件非設不可，所以獨立於 _take_focus 之外、恆定執行，測試也不用停用它。
         win.focus_force()
         self._take_focus()
+        # 啟用選取層會把它抬到 topmost 帶的最上面，提示視窗得在那之後再抬一次才不會被壓在底下
+        self._hint.lift()
 
     def _build_hint(self, monitor: tuple[int, int, int, int]) -> None:
         """提示文字開在自己的不透明視窗：底下的選取層有 -alpha 0.35 的半透明底，
