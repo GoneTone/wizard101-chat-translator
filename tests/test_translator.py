@@ -10,8 +10,10 @@ import pytest
 from src.translation.postprocess import (
     _PAREN_ENGLISH,
     has_stray_latin,
+    number_lines,
     split_region_output,
     strip_invented_english,
+    unnumber_lines,
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
@@ -1051,13 +1053,30 @@ def test_translate_region_image_logs_no_transcription_or_translation_content(mon
               f"translated_chars={len(translated)}" in m for m in messages)
 
 
-def test_region_text_sends_the_recognized_text_as_a_plain_user_turn():
-    fake = FakeHttpxClient()
+def test_region_text_sends_the_recognized_lines_numbered():
+    fake = FakeHttpxClient(response=FakeResponse(content="1. 跟莫爾談談\n2. 第二行"))
     translator = _make(fake)
-    assert translator.translate_region_text("Talk to Merle Ambrose") == "譯文"
-    assert fake.last_body["messages"][-1] == {"role": "user", "content": "Talk to Merle Ambrose"}
+    assert translator.translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+        "跟莫爾談談\n第二行"
+    assert fake.last_body["messages"][-1] == {
+        "role": "user", "content": "1. Talk to Merle Ambrose\n2. Second line"}
     assert fake.last_body["messages"][0]["content"] == build_region_system(
         "繁體中文（台灣）", transcribe=False)
+
+
+def test_region_text_fills_lines_the_model_dropped_with_the_original():
+    fake = FakeHttpxClient(response=FakeResponse(content="2. 第二行"))
+    assert _make(fake).translate_region_text("海报伙伴\nSecond line") == "海报伙伴\n第二行"
+
+
+def test_number_lines_skips_blank_lines():
+    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
+
+
+def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
+    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
+    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
+    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
 
 
 def test_translate_region_text_logs_no_translation_content(monkeypatch):
@@ -1072,7 +1091,7 @@ def test_translate_region_text_logs_no_translation_content(monkeypatch):
     assert translated == "譯文"
     assert not any("譯文" in m or "Merle" in m for m in messages)
     assert any(f"translated=<{len(translated)} chars>" in m and
-              f"source='<text {len(text)} chars>'" in m for m in messages)
+              f"source='<text {len(text)} chars, 1 lines>'" in m for m in messages)
 
 
 def test_region_system_prompt_carries_the_target_language_and_no_chat_format():

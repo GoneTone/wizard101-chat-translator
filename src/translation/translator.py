@@ -20,9 +20,11 @@ from src.config import EFFORT_AUTO
 from src.log import log
 from src.translation.postprocess import (
     has_stray_latin,
+    number_lines,
     split_region_output,
     strip_invented_english,
     strip_think,
+    unnumber_lines,
 )
 from src.translation.prompts import (
     CONTEXT_INTRO_INCOMING,
@@ -509,13 +511,17 @@ class Translator:
 
     def translate_region_text(self, text: str) -> str:
         """區域翻譯（文字）：本機 OCR 辨識出的畫面文字 → 目標語言，與看圖共用同一份提示詞
-        （transcribe=False：文字本身就是本機辨識結果，不必再抄一次）。"""
-        return self._chat(
+        （transcribe=False：文字本身就是本機辨識結果，不必再抄一次）。
+        每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
+        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。"""
+        originals, numbered = number_lines(text)
+        translated = self._chat(
             "region text",
             build_region_system(self._target_language, transcribe=False),
-            [{"role": "user", "content": text}],
-            source=f"<text {len(text)} chars>", context_lines=0,
+            [{"role": "user", "content": numbered}],
+            source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True)
+        return unnumber_lines(translated, originals)
 
 
 def list_models(api: dict, client=None) -> list[str]:
