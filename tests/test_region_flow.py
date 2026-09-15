@@ -1,4 +1,5 @@
-"""框選流程：熱鍵切換、擷取失敗、背景結果回填、過期 session 丟棄；選取層與卡片用替身。"""
+"""框選流程：熱鍵切換、凍結畫面擷取／裁切失敗、背景結果回填、過期 session 丟棄；
+選取層與卡片用替身。"""
 import queue
 
 from src.i18n import t
@@ -10,17 +11,20 @@ from src.ui.region_flow import RegionFlow, describe_error
 
 _RECT = (100, 100, 300, 120)
 _MONITOR = (0, 0, 1920, 1080)
+_FRAME = object()   # 凍結畫面本身的內容跟流程無關，只要能原封不動傳到 crop 即可
 
 
 class FakeSelector:
     def __init__(self):
         self.is_open = False
+        self.frame = None
         self.on_select = None
         self.on_cancel = None
         self.cancelled = 0
 
-    def show(self, monitor, on_select, on_cancel=None):
-        self.is_open, self.on_select, self.on_cancel = True, on_select, on_cancel
+    def show(self, monitor, frame, on_select, on_cancel=None):
+        self.is_open, self.frame = True, frame
+        self.on_select, self.on_cancel = on_select, on_cancel
 
     def cancel(self):
         """比照真的 RegionSelector.cancel(notify=True)：關層後呼叫 on_cancel。"""
@@ -68,11 +72,12 @@ class FakePipeline:
         return self._result
 
 
-def _flow(root, pipeline, capture=lambda hwnd, rect: b"png", foreground=lambda hwnd: None):
+def _flow(root, pipeline, capture_window=lambda hwnd: _FRAME,
+         crop=lambda frame, rect: b"png", foreground=lambda hwnd: None):
     ui_queue = queue.Queue()
     selector, card = FakeSelector(), FakeCard()
     flow = RegionFlow(root, pipeline, ui_queue, alpha=0.8, selector=selector, card=card,
-                      capture=capture, monitor_at=lambda x, y: _MONITOR,
+                      capture_window=capture_window, crop=crop, monitor_at=lambda x, y: _MONITOR,
                       foreground=foreground)
     return flow, selector, card, ui_queue
 
@@ -91,6 +96,12 @@ def test_toggle_opens_the_selector_and_a_second_toggle_cancels_it(root):
     assert selector.cancelled == 1 and not flow.is_selecting
 
 
+def test_toggle_passes_the_captured_frame_to_the_selector(root):
+    flow, selector, card, _ = _flow(root, FakePipeline())
+    flow.toggle(0x1234)
+    assert selector.frame is _FRAME
+
+
 def test_selection_captures_and_fills_the_card_with_the_translation(root):
     flow, selector, card, ui_queue = _flow(root, FakePipeline(RegionResult("譯文", "image")))
     flow.toggle(0x1234)
@@ -99,11 +110,39 @@ def test_selection_captures_and_fills_the_card_with_the_translation(root):
     assert card.events == [("pending", _RECT), ("text", "譯文")]
 
 
+def test_selection_crops_the_same_frame_that_was_captured(root):
+    captured = []
+
+    def recording_crop(frame, rect):
+        captured.append(frame)
+        return b"png"
+
+    flow, selector, card, ui_queue = _flow(
+        root, FakePipeline(RegionResult("譯文", "image")), crop=recording_crop)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    assert captured == [_FRAME]
+
+
+def test_frame_capture_failure_is_shown_without_opening_the_selector(root):
+    boom = CaptureError("PrintWindow failed")
+
+    def failing(hwnd):
+        raise boom
+
+    flow, selector, card, _ = _flow(root, FakePipeline(), capture_window=failing)
+    flow.toggle(0x1234)
+    assert card.events == [("pending", (0, 0, 0, 0)), ("error", t("region.capture_failed", error=boom))]
+    assert not selector.is_open
+    assert flow._thread is None
+
+
 def test_capture_failure_is_shown_on_the_card_without_a_worker(root):
-    def failing(hwnd, rect):
+    def failing(frame, rect):
         raise SelectionOutsideGame("selection outside game window")
 
-    flow, selector, card, _ = _flow(root, FakePipeline(), capture=failing)
+    flow, selector, card, _ = _flow(root, FakePipeline(), crop=failing)
     flow.toggle(0x1234)
     selector.pick(_RECT)
     assert card.events == [("pending", _RECT), ("error", t("region.outside_game"))]
@@ -113,10 +152,10 @@ def test_capture_failure_is_shown_on_the_card_without_a_worker(root):
 def test_plain_capture_error_is_shown_as_capture_failed(root):
     boom = CaptureError("PrintWindow failed")
 
-    def failing(hwnd, rect):
+    def failing(frame, rect):
         raise boom
 
-    flow, selector, card, _ = _flow(root, FakePipeline(), capture=failing)
+    flow, selector, card, _ = _flow(root, FakePipeline(), crop=failing)
     flow.toggle(0x1234)
     selector.pick(_RECT)
     assert card.events == [("pending", _RECT), ("error", t("region.capture_failed", error=boom))]

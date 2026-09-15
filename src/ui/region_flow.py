@@ -1,8 +1,12 @@
-"""框選翻譯的主流程：熱鍵 → 選取層 → 擷取 → 背景辨識翻譯 → 結果卡片。
+"""框選翻譯的主流程：熱鍵 → 擷取一次凍結畫面 → 選取層 → 從凍結畫面裁切 → 背景辨識翻譯
+→ 結果卡片。
 
 所有公開方法都在 Tk 主執行緒呼叫（熱鍵回呼經 ui_queue 排進來）；辨識翻譯跑背景執行緒，
 結果經 ui_queue 回主執行緒。每次框選 session +1，過期結果丟掉（與 InputBox 同一招）。
-選取層、卡片、擷取、螢幕查詢都可注入替身供測試。
+熱鍵一觸發就先拍好整個 client 區（`capture_window`），選取層顯示這張凍結畫面、放開滑鼠
+後也是從同一張畫面裁切（`crop_frame`）—— 使用者選取當下看到的內容就是最後送去辨識的
+內容，不會因為放開滑鼠才重新拍一次而跟遊戲當下的畫面產生落差。
+選取層、卡片、擷取、裁切、螢幕查詢都可注入替身供測試。
 """
 import queue
 import threading
@@ -14,7 +18,7 @@ import win32gui
 from src.composer.paste import force_foreground
 from src.i18n import t
 from src.log import log
-from src.region.capture import CaptureError, SelectionOutsideGame, capture_region
+from src.region.capture import CaptureError, Frame, SelectionOutsideGame, capture_window, crop_frame
 from src.region.ocr import OcrUnavailable
 from src.translation.translator import TranslatorBadOutput, TranslatorError
 from src.ui.form import friendly_error
@@ -40,13 +44,14 @@ class RegionFlow:
     """一次一個框選；`toggle(game_hwnd)` 是熱鍵的入口（開層／取消層）。"""
 
     def __init__(self, root: tk.Tk, pipeline, ui_queue: queue.Queue, alpha: float,
-                 selector=None, card=None, capture=capture_region,
+                 selector=None, card=None, capture_window=capture_window, crop=crop_frame,
                  monitor_at=monitor_rect_at, foreground=force_foreground):
         self._pipeline = pipeline
         self._queue = ui_queue
         self._selector = selector if selector is not None else RegionSelector(root)
         self._card = card if card is not None else RegionCard(root, alpha)
-        self._capture = capture
+        self._capture_window = capture_window
+        self._crop = crop
         self._monitor_at = monitor_at
         self._foreground = foreground
         self._session = 0
@@ -63,8 +68,8 @@ class RegionFlow:
 
     def toggle(self, game_hwnd: int) -> None:
         """熱鍵：選取層開著就取消（觸發 `_cancelled` 還前景，見下）；否則收掉舊卡片、
-        在遊戲所在的螢幕開選取層。`game_hwnd == 0` 代表選取層已經關了（熱鍵取消跟滑鼠放開
-        兩條路徑競速時可能發生），不開一顆綁著假 hwnd 的選取層。"""
+        拍一張凍結畫面，在遊戲所在的螢幕開選取層顯示它。`game_hwnd == 0` 代表選取層已經
+        關了（熱鍵取消跟滑鼠放開兩條路徑競速時可能發生），不開一顆綁著假 hwnd 的選取層。"""
         if self._selector.is_open:
             log("[region] selection cancelled by hotkey")
             self._selector.cancel()
@@ -75,9 +80,17 @@ class RegionFlow:
         self._card.hide()
         self._game_hwnd = game_hwnd
         x, y = _window_center(game_hwnd)
+        try:
+            frame = self._capture_window(game_hwnd)
+        except CaptureError as exc:
+            # 選取層還沒開，遊戲仍是前景，不必像 _selected 那樣還前景
+            log(f"[region] frame capture failed (hwnd={game_hwnd:#x}): {exc}")
+            self._card.show_pending((x, y, 0, 0))
+            self._card.show_error(t("region.capture_failed", error=exc))
+            return
         log(f"[region] selection started (game_hwnd={game_hwnd:#x})")
-        self._selector.show(self._monitor_at(x, y),
-                            on_select=lambda rect: self._selected(rect, game_hwnd),
+        self._selector.show(self._monitor_at(x, y), frame,
+                            on_select=lambda rect: self._selected(rect, game_hwnd, frame),
                             on_cancel=self._cancelled)
 
     def _cancelled(self) -> None:
@@ -87,11 +100,11 @@ class RegionFlow:
         log("[region] selection cancelled")
         self._foreground(self._game_hwnd)
 
-    def _selected(self, rect: tuple[int, int, int, int], game_hwnd: int) -> None:
+    def _selected(self, rect: tuple[int, int, int, int], game_hwnd: int, frame: Frame) -> None:
         self._foreground(game_hwnd)
         self._card.show_pending(rect)
         try:
-            png = self._capture(game_hwnd, rect)
+            png = self._crop(frame, rect)
         except SelectionOutsideGame as exc:
             log(f"[region] capture failed (hwnd={game_hwnd:#x}, rect={rect}): {exc}")
             self._card.show_error(t("region.outside_game"))

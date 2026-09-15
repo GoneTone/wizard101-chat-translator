@@ -1,25 +1,30 @@
-"""框選用的全螢幕選取層：蓋滿遊戲所在的那顆螢幕，拖曳畫矩形，放開回報螢幕座標。
+"""框選用的全螢幕選取層：蓋滿遊戲所在的那顆螢幕，顯示 `RegionFlow` 事先凍結好的那一幀
+遊戲畫面（見 `capture_window`），拖曳畫矩形，放開回報螢幕座標。
 
-暗色半透明底讓遊戲畫面仍看得見。這層需要鍵盤（Esc）與滑鼠，所以會奪焦點；
-關閉時由呼叫端把前景還給遊戲（RegionFlow）。點一下沒拖動視為取消（is_click）。
-提示文字另開一層不透明視窗疊在半透明底之上，不然文字會跟著底一起變淡。
+整層改成不透明：底圖不是「半透明看穿桌面」而是暗化過的凍結畫面，遊戲視窗以外的區域維持
+純黑。拖曳中的框選範圍內用原始亮度的畫面取代暗化底，做出類似 Snipping Tool 的聚光燈效果，
+讓使用者看得出框選範圍實際框住了什麼。點一下沒拖動視為取消（is_click）。
+提示文字另開一層不透明視窗疊在選取層之上，跟底圖的明暗變化無關。
 """
 import tkinter as tk
 
+from PIL import ImageEnhance, ImageTk
+
 from src.composer.paste import force_foreground
 from src.i18n import t
+from src.region.capture import Frame
 from src.ui.fonts import ui_font
 from src.ui.geometry import is_click
 from src.ui.palette import BAR, FG_TRANSLATED, FG_UPDATE, GRIP
 from src.ui.winstyle import make_non_activating, root_hwnd
 
-_TINT_ALPHA = 0.35
+_DIM_FACTOR = 0.45
 _BAND_WIDTH = 2
 _HINT_Y = 40
 
 
 class RegionSelector:
-    """`show(monitor, on_select, on_cancel)` 開層；使用者放開滑鼠後層先關、再回呼。"""
+    """`show(monitor, frame, on_select, on_cancel)` 開層；使用者放開滑鼠後層先關、再回呼。"""
 
     def __init__(self, root: tk.Tk):
         self._root = root
@@ -29,6 +34,11 @@ class RegionSelector:
         self._canvas: tk.Canvas | None = None
         self._band = None
         self._size_label = None
+        self._spot = None
+        self._dim_photo = None
+        self._spot_photo = None
+        self._frame: Frame | None = None
+        self._frame_pos = (0, 0)
         self._origin = (0, 0)
         self._start: tuple[int, int] | None = None
         self._on_select = None
@@ -38,20 +48,29 @@ class RegionSelector:
     def is_open(self) -> bool:
         return self._win is not None
 
-    def show(self, monitor: tuple[int, int, int, int], on_select, on_cancel=None) -> None:
-        """在 monitor（螢幕矩形 x, y, w, h）上開選取層；已開著就先關掉重開。"""
+    def show(self, monitor: tuple[int, int, int, int], frame: Frame, on_select,
+             on_cancel=None) -> None:
+        """在 monitor（螢幕矩形 x, y, w, h）上開選取層，顯示 frame 這張已經凍結的遊戲畫面；
+        已開著就先關掉重開。"""
         self.cancel(notify=False)
         self._origin = (monitor[0], monitor[1])
         self._on_select, self._on_cancel = on_select, on_cancel
         self._start = None
+        self._frame = frame
         win = tk.Toplevel(self._root)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
-        win.attributes("-alpha", _TINT_ALPHA)
+        win.attributes("-alpha", 1.0)
         win.configure(bg="black", cursor="crosshair")
         win.geometry(f"{monitor[2]}x{monitor[3]}+{monitor[0]}+{monitor[1]}")
         canvas = tk.Canvas(win, bg="black", highlightthickness=0, cursor="crosshair")
         canvas.pack(fill="both", expand=True)
+        dim_image = ImageEnhance.Brightness(frame.image).enhance(_DIM_FACTOR)
+        self._dim_photo = ImageTk.PhotoImage(dim_image, master=canvas)
+        self._frame_pos = (frame.client_origin[0] - monitor[0], frame.client_origin[1] - monitor[1])
+        canvas.create_image(*self._frame_pos, image=self._dim_photo, anchor="nw")
+        # 建立順序決定疊放順序：聚光燈要蓋過暗化底，但框線與尺寸文字要蓋過聚光燈
+        self._spot = canvas.create_image(0, 0, anchor="nw", state="hidden")
         self._band = canvas.create_rectangle(0, 0, 0, 0, outline=FG_UPDATE,
                                              width=_BAND_WIDTH, state="hidden")
         self._size_label = canvas.create_text(0, 0, text="", fill=FG_UPDATE,
@@ -73,8 +92,7 @@ class RegionSelector:
         self._hint.lift()
 
     def _build_hint(self, monitor: tuple[int, int, int, int]) -> None:
-        """提示文字開在自己的不透明視窗：底下的選取層有 -alpha 0.35 的半透明底，
-        文字若畫在同一層上也會被拉淡到看不清楚。"""
+        """提示文字開在自己的不透明視窗，避免跟選取層的明暗切換互相干擾。"""
         hint = tk.Toplevel(self._root)
         hint.overrideredirect(True)
         hint.attributes("-topmost", True)
@@ -109,6 +127,9 @@ class RegionSelector:
         self._win.destroy()
         self._hint.destroy()
         self._win = self._canvas = self._band = self._size_label = None
+        self._spot = self._dim_photo = self._spot_photo = None
+        self._frame = None
+        self._frame_pos = (0, 0)
         self._hint = self._hint_label = None
         self._start = None
 
@@ -116,6 +137,7 @@ class RegionSelector:
         self._start = (e.x, e.y)
         self._canvas.coords(self._band, e.x, e.y, e.x, e.y)
         self._canvas.itemconfigure(self._band, state="normal")
+        self._canvas.itemconfigure(self._spot, state="hidden")
 
     def _drag(self, e) -> None:
         if self._start is None:
@@ -125,6 +147,23 @@ class RegionSelector:
         self._canvas.coords(self._size_label, min(x0, e.x), min(y0, e.y) - 2)
         self._canvas.itemconfigure(self._size_label, state="normal",
                                    text=f"{abs(e.x - x0)}×{abs(e.y - y0)}")
+        self._update_spotlight(x0, y0, e.x, e.y)
+
+    def _update_spotlight(self, x0: int, y0: int, x1: int, y1: int) -> None:
+        """框選範圍內用原始亮度畫面取代暗化底，範圍要跟遊戲畫面的可見範圍取交集 ——
+        框選拖出遊戲視窗外的部分裁掉，維持暗底（那裡本來就沒有遊戲畫面可以聚光）。"""
+        left, top = max(min(x0, x1), self._frame_pos[0]), max(min(y0, y1), self._frame_pos[1])
+        right = min(max(x0, x1), self._frame_pos[0] + self._frame.client_size[0])
+        bottom = min(max(y0, y1), self._frame_pos[1] + self._frame.client_size[1])
+        if right <= left or bottom <= top:
+            self._canvas.itemconfigure(self._spot, state="hidden")
+            return
+        fx, fy = self._frame_pos
+        crop_box = (left - fx, top - fy, right - fx, bottom - fy)
+        self._spot_photo = ImageTk.PhotoImage(self._frame.image.crop(crop_box),
+                                              master=self._canvas)
+        self._canvas.itemconfigure(self._spot, image=self._spot_photo, state="normal")
+        self._canvas.coords(self._spot, left, top)
 
     def _release(self, e) -> None:
         if self._start is None:

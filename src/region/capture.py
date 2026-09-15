@@ -1,10 +1,16 @@
-"""遊戲視窗畫面擷取：對遊戲 HWND 用 PrintWindow 取 DWM 合成後的內容，依框選矩形裁成 PNG。
+"""遊戲視窗畫面擷取：分兩步 —— `capture_window` 對遊戲 HWND 用 PrintWindow 拍一次完整的
+client 區畫面，凍結成 `Frame`；`crop_frame` 再從這份凍結畫面依框選矩形裁成 PNG。
 
-只拍遊戲視窗自己畫的東西：疊加視窗、翻譯輸入框、結果卡片與其他程式的視窗都不會入鏡，
-也不必「先藏視窗再拍」。座標換算是純函式（可測），Win32 那層集中在 capture_region。
+分兩步是為了讓選取層顯示的畫面跟最終送去辨識的畫面是同一幀 —— 使用者拖曳框選矩形時看到
+的背景，必須跟放開滑鼠後裁下來的內容完全一致；等放開滑鼠才重新拍一次的話，遊戲畫面這段
+時間可能已經變了，跟使用者選取當下看到的不一樣（也可能剛好拍到疊加層自己的東西）。
+只拍遊戲視窗自己畫的東西：疊加視窗、翻譯輸入框、結果卡片與其他程式的視窗都不會入鏡，也
+不必「先藏視窗再拍」。座標換算（`window_region`）與裁切（`crop_frame`）都是純函式（可測），
+Win32 那層集中在 `capture_window`。
 """
 import ctypes
 import io
+from dataclasses import dataclass
 
 import win32gui
 import win32ui
@@ -24,6 +30,16 @@ class SelectionOutsideGame(CaptureError):
     """框選矩形完全落在遊戲 client 區之外。"""
 
 
+@dataclass(frozen=True)
+class Frame:
+    """一次 `capture_window` 拍到的完整遊戲 client 區畫面 —— 選取層顯示它、`crop_frame`
+    從它裁切，兩邊用的是同一幀，不會受擷取之後遊戲又畫了新內容影響。"""
+
+    image: Image.Image
+    client_origin: tuple[int, int]
+    client_size: tuple[int, int]
+
+
 def window_region(screen_rect: tuple[int, int, int, int], client_origin: tuple[int, int],
                   client_size: tuple[int, int]) -> tuple[int, int, int, int] | None:
     """螢幕矩形 (x, y, w, h) → 遊戲 client 內的矩形；超出 client 的部分裁掉，
@@ -38,39 +54,53 @@ def window_region(screen_rect: tuple[int, int, int, int], client_origin: tuple[i
     return left, top, right - left, bottom - top
 
 
-def capture_region(hwnd: int, screen_rect: tuple[int, int, int, int]) -> bytes:
-    """把遊戲視窗 hwnd 在 screen_rect（螢幕座標）範圍內的畫面拍成 PNG bytes。
+def capture_window(hwnd: int) -> Frame:
+    """把遊戲視窗 hwnd 的整個 client 區拍成一張 `Frame`，做為這次框選要用的凍結畫面。
 
-    整段 Win32／PIL 呼叫集中在這個 try：滑鼠放開到真正擷取之間遊戲視窗可能已經消失或
+    整段 Win32／PIL 呼叫集中在這個 try：熱鍵觸發到真正擷取之間遊戲視窗可能已經消失或
     改變，`ClientToScreen`／`GetWindowRect`／`PrintWindow` 任一個都可能拋 pywintypes 或
-    win32ui 的例外、`Image.frombuffer` 也可能因為尺寸不合拋 ValueError —— 這些都不是呼叫
-    端該處理的型別，一律包成 CaptureError 讓 region_flow 能用單一 except 接住。
+    win32ui 的例外、裁切也可能因為尺寸不合拋 ValueError —— 這些都不是呼叫端該處理的型別，
+    一律包成 CaptureError 讓 region_flow 能用單一 except 接住。
     """
     try:
         client_origin = win32gui.ClientToScreen(hwnd, (0, 0))
         _, _, client_w, client_h = win32gui.GetClientRect(hwnd)
-        region = window_region(screen_rect, client_origin, (client_w, client_h))
-        if region is None:
-            raise SelectionOutsideGame(
-                f"selection outside game window (rect={screen_rect}, "
-                f"client={client_origin + (client_w, client_h)})")
         win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
         image = _print_window(hwnd, win_right - win_left, win_bottom - win_top)
         # PrintWindow 的原點是視窗外框左上角，client 區再往內偏一段邊框
         dx, dy = client_origin[0] - win_left, client_origin[1] - win_top
-        rx, ry, rw, rh = region
-        cropped = image.crop((rx + dx, ry + dy, rx + dx + rw, ry + dy + rh))
-        if cropped.getextrema() == ((0, 0), (0, 0), (0, 0)):
-            raise CaptureError(f"blank capture (hwnd={hwnd:#x}, rect={screen_rect})")
-        buffer = io.BytesIO()
-        cropped.save(buffer, "PNG")
+        client_image = image.crop((dx, dy, dx + client_w, dy + client_h))
+        if client_image.getextrema() == ((0, 0), (0, 0), (0, 0)):
+            raise CaptureError(f"blank capture (hwnd={hwnd:#x})")
     except CaptureError:
         raise
     except Exception as exc:
-        raise CaptureError(f"capture failed (hwnd={hwnd:#x}, rect={screen_rect}): "
+        raise CaptureError(f"capture failed (hwnd={hwnd:#x}): "
                            f"{type(exc).__name__}: {exc}") from exc
-    log(f"[region] captured (hwnd={hwnd:#x}, rect={screen_rect}, "
-        f"region={region}, png_bytes={buffer.tell()})")
+    log(f"[region] frame captured (hwnd={hwnd:#x}, client={client_origin}, "
+        f"size={client_w}x{client_h})")
+    return Frame(client_image, client_origin, (client_w, client_h))
+
+
+def crop_frame(frame: Frame, screen_rect: tuple[int, int, int, int]) -> bytes:
+    """從已經凍結的 `Frame` 裁出框選矩形，編碼成 PNG bytes；不碰 Win32，畫面在
+    `capture_window` 當下就已經定格，這裡只需要座標換算與裁切。"""
+    region = window_region(screen_rect, frame.client_origin, frame.client_size)
+    if region is None:
+        raise SelectionOutsideGame(
+            f"selection outside game window (rect={screen_rect}, "
+            f"client={frame.client_origin + frame.client_size})")
+    # 檢查整張凍結畫面（而非裁出來的那一小塊）是不是全黑：使用者選到遊戲裡本來就
+    # 是黑色的內容（例如深色背景）是合理結果，只有整次擷取本身失敗才算 blank —— 這裡
+    # 多留一道防線是給沒經過 capture_window 就直接組出 Frame 的呼叫端（例如測試）用。
+    if frame.image.getextrema() == ((0, 0), (0, 0), (0, 0)):
+        raise CaptureError(f"blank capture (rect={screen_rect})")
+    rx, ry, rw, rh = region
+    cropped = frame.image.crop((rx, ry, rx + rw, ry + rh))
+    buffer = io.BytesIO()
+    cropped.save(buffer, "PNG")
+    log(f"[region] region cropped (rect={screen_rect}, region={region}, "
+        f"png_bytes={buffer.tell()})")
     return buffer.getvalue()
 
 
