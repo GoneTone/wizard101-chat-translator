@@ -103,6 +103,38 @@ def test_ocr_unavailable_propagates():
         RegionPipeline(translator, recognize=unavailable).run(_PNG, _RECT)
 
 
+def test_progress_reports_recognizing_then_translating_on_the_fallback_path():
+    translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400),
+                                text="譯文")
+    pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
+    stages = []
+    pipeline.run(_PNG, _RECT, progress=stages.append)
+    assert stages == ["recognizing", "translating"]
+
+
+def test_progress_reports_only_recognizing_when_ocr_finds_no_text():
+    translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400))
+    pipeline = RegionPipeline(translator, recognize=lambda png: "")
+    stages = []
+    pipeline.run(_PNG, _RECT, progress=stages.append)
+    assert stages == ["recognizing"]
+
+
+def test_progress_is_not_called_on_the_image_path():
+    translator = FakeTranslator(image=("原文", "譯文"))
+    pipeline = RegionPipeline(translator, recognize=lambda png: "x")
+    stages = []
+    pipeline.run(_PNG, _RECT, progress=stages.append)
+    assert stages == []
+
+
+def test_progress_none_still_works():
+    translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400),
+                                text="譯文")
+    pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
+    assert pipeline.run(_PNG, _RECT, progress=None) == RegionResult("譯文", "ocr", "Hello")
+
+
 def test_reset_clears_the_text_only_mark():
     translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400),
                                 text="譯文")

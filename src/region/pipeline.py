@@ -48,8 +48,11 @@ class RegionPipeline:
             log("[region] text-only mark cleared (settings applied)")
         self._text_only = False
 
-    def run(self, png: bytes, rect: tuple[int, int, int, int]) -> RegionResult:
-        """辨識並翻譯一張截圖；`rect` 只用來記 log。"""
+    def run(self, png: bytes, rect: tuple[int, int, int, int], progress=None) -> RegionResult:
+        """辨識並翻譯一張截圖；`rect` 只用來記 log。
+        `progress` 是可選的回呼 `progress(stage: str)`，在背景執行緒裡呼叫，
+        讓 UI 端能區分「辨識中」與「翻譯中」兩個階段 —— 只有退回本機 OCR 的路徑
+        會呼叫（先 `"recognizing"` 再 `"translating"`），看圖路徑一次到位不會呼叫。"""
         started = time.monotonic()
         image_error = None
         if not self._text_only:
@@ -65,10 +68,14 @@ class RegionPipeline:
             except TranslatorOffline as exc:
                 log(f"[region] image request failed (status={exc.status}, "
                     f"detail={exc.detail!r}); trying local OCR without marking text-only")
+        if progress is not None:
+            progress("recognizing")
         source = self._recognize(png)
         if not source:
             log(f"[region] local OCR found no text (rect={rect})")
             return RegionResult("", "ocr")
+        if progress is not None:
+            progress("translating")
         text = self._translator.translate_region_text(source)
         if image_error is not None:
             self._text_only = True

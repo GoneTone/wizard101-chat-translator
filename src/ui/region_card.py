@@ -114,11 +114,23 @@ class RegionCard:
         self._label.bind("<Button-3>", self._right_click)
         win.geometry(f"{self._width}x1")   # 寬度先定，RichLabel 才能依它換行；高度由 _layout 量
         make_non_activating(win)
-        self._shown_text = t("notice.pending")
-        self._shown_source = ""
-        self._label.set(self._shown_text, FG_PENDING)
+        self._set_pending_text(t("notice.pending"))
         self._layout()
         win.deiconify()
+
+    def show_stage(self, text: str) -> None:
+        """辨識翻譯進行中的階段文字（辨識中…／翻譯中…），沿用 `show_pending` 那套
+        淺色文字，只換內容，不動視窗其他部分。"""
+        if self._label is None:
+            return
+        self._set_pending_text(text)
+        self._layout()
+
+    def _set_pending_text(self, text: str) -> None:
+        """`show_pending`／`show_stage` 共用：換上待處理色（`FG_PENDING`）的文字。"""
+        self._shown_text = text
+        self._shown_source = ""
+        self._label.set(self._shown_text, FG_PENDING)
 
     def show_text(self, text: str, source: str = "") -> None:
         """譯文回來了；空字串＝畫面上沒有文字，用暗色提示。

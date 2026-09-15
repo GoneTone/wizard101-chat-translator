@@ -32,6 +32,15 @@ def test_pending_then_text(card, root):
     assert card._label.cget("fg") == FG_TRANSLATED
 
 
+def test_show_stage_replaces_the_pending_text(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_stage(t("region.recognizing"))
+    root.update()
+    assert card.text() == t("region.recognizing")
+    assert card._label.cget("fg") == FG_PENDING
+
+
 def test_show_text_with_source_puts_both_in_one_selectable_label(card, root):
     # 原文與譯文現在放同一顆 RichLabel（set_blocks），中間空一行分隔 —— 拖曳選取
     # 才能一路跨過去，不會卡在兩段文字的交界（見 richtext.RichLabel.set_blocks）

@@ -133,6 +133,7 @@
   "region.failed": "翻译失败：{error}",
   "region.close_hint": "点一下即可关闭",
   "region.no_game": "找不到游戏窗口，请先启动并登录游戏",
+  "region.recognizing": "识别中…",
   "tooltip.region": "框选画面翻译 ({hotkey})",
   "tooltip.settings": "设置",
   "tooltip.minimize": "缩小",
