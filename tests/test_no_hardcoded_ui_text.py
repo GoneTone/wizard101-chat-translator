@@ -23,6 +23,7 @@ SCAN_TARGETS = [
     "src/ui/responsive.py",
     "src/ui/region_card.py",
     "src/ui/monitors.py",
+    "src/ui/region_select.py",
     "src/translation/pool.py",
     "src/translation/translator.py",
 ]
