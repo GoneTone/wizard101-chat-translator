@@ -127,8 +127,12 @@ return translated                                       # 路徑 ocr
 
 ### `region/ocr.py`
 
-- `OcrEngine.try_create_from_user_profile_languages()` 建引擎，依使用者 Windows 的語言設定
-  （不寫死語言）；回 `None` 即拋 `OcrUnavailable`。
+- 辨識語言**優先挑遊戲語言**：從 `OcrEngine.available_recognizer_languages` 找主標籤等於
+  `OUTGOING_LANGUAGE_TAG`（`prompts.py`，與 `OUTGOING_LANGUAGE` 並列的 BCP-47 主標籤，遊戲
+  語言是既有的產品常數、不是對使用者語言的假設）的那個建引擎；沒裝才退回
+  `try_create_from_user_profile_languages()`；仍是 `None` 即拋 `OcrUnavailable`。
+  2026-09-15 實測：Windows OCR 是逐語言的引擎，繁中引擎辨識英文會把空格全部吃掉
+  （`HelloWizardlOlquest`），依使用者設定檔語言建引擎並不可靠。
 - PNG 經 `BitmapDecoder` 解成 `SoftwareBitmap` → `recognize_async`，各行以換行合併。
 - WinRT 的 async 在 worker 執行緒用 `asyncio.run` 跑。
 - `winrt` 模組延遲到第一次呼叫才 import；載入失敗（套件沒打包進去）也只是
@@ -211,7 +215,10 @@ log 一律 `[region]` 前綴、英文、帶 context；譯文本身不進 log（�
 
 ## 七、相依與文件
 
-- 新增執行期相依：`pillow`、`winrt-runtime`、`winrt-Windows.Media.Ocr`、
-  `winrt-Windows.Graphics.Imaging`、`winrt-Windows.Storage.Streams`（實作時以 `uv add`
-  確認實際需要的最小集合）。
+- 新增執行期相依（2026-09-15 於拋棄式環境實測，Python 3.14 皆有 wheel）：`pillow`、
+  `winrt-runtime`、`winrt-Windows.Media.Ocr`、`winrt-Windows.Graphics.Imaging`、
+  `winrt-Windows.Storage.Streams`、`winrt-Windows.Foundation`、
+  `winrt-Windows.Foundation.Collections`、`winrt-Windows.Globalization`。後三個是 WinRT
+  回傳集合與語言物件時**執行期動態載入**的投影，程式碼裡沒有 import，PyInstaller 追不到，
+  `build.spec` 要列進 `hiddenimports`。
 - README 三份各加一段「框選畫面翻譯」（設定只用泛稱，不寫鍵名與介面文字，兩者都會過期）。`docs/releasing.md` 不動。
