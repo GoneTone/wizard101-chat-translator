@@ -30,12 +30,13 @@ def pick_language(tags: list[str], preferred: str) -> str | None:
 
 def _winrt():
     try:
-        from winrt.windows.graphics.imaging import BitmapDecoder
+        from winrt.windows.graphics.imaging import BitmapAlphaMode, BitmapDecoder, BitmapPixelFormat
         from winrt.windows.media.ocr import OcrEngine
         from winrt.windows.storage.streams import DataWriter, InMemoryRandomAccessStream
     except ImportError as exc:
         raise OcrUnavailable(f"winrt OCR modules unavailable: {exc}") from exc
-    return OcrEngine, BitmapDecoder, DataWriter, InMemoryRandomAccessStream
+    return (OcrEngine, BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode,
+            DataWriter, InMemoryRandomAccessStream)
 
 
 def _create_engine(OcrEngine):
@@ -59,7 +60,8 @@ def _create_engine(OcrEngine):
 def recognize(png: bytes) -> str:
     """辨識 PNG 裡的文字，各行以換行合併；沒有文字回空字串。
     引擎每次重建（很便宜），不跨執行緒共用 WinRT 物件。"""
-    OcrEngine, BitmapDecoder, DataWriter, InMemoryRandomAccessStream = _winrt()
+    (OcrEngine, BitmapDecoder, BitmapPixelFormat, BitmapAlphaMode,
+     DataWriter, InMemoryRandomAccessStream) = _winrt()
     engine = _create_engine(OcrEngine)
 
     async def run() -> str:
@@ -70,7 +72,13 @@ def recognize(png: bytes) -> str:
         await writer.flush_async()
         stream.seek(0)
         decoder = await BitmapDecoder.create_async(stream)
-        bitmap = await decoder.get_software_bitmap_async()
+        # 引擎只吃 BGRA8；PNG 解出來的原生格式可能是索引色／灰階，直接丟給
+        # recognize_async 在某些解碼路徑會拋 WinRT 原生錯誤，所以一律轉換。alpha
+        # 模式選 STRAIGHT、不選 PREMULTIPLIED：後者對 alpha=0 的像素一律把 RGB
+        # 乘成全黑，若透明區域底色恰好較深、文字又是深色，轉換後兩者顏色會疊在一起
+        # 讓引擎讀不到字（實測驗證過）；STRAIGHT 保留原始 RGB，不會有這個問題。
+        bitmap = await decoder.get_software_bitmap_converted_async(
+            BitmapPixelFormat.BGRA8, BitmapAlphaMode.STRAIGHT)
         result = await engine.recognize_async(bitmap)
         return "\n".join(line.text for line in result.lines).strip()
 

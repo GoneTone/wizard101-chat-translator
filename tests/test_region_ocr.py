@@ -37,6 +37,24 @@ def test_recognize_reads_rendered_text():
     assert "hello" in text.lower().replace(" ", "")
 
 
+def test_recognize_reads_text_on_a_transparent_background():
+    # 背景用 (255, 255, 255, 0)（全透明、底色白）而非 (0, 0, 0, 0)：後者的 RGB
+    # 與黑色文字完全相同，不論 alpha 怎麼處理，像素資料本身就無法分辨文字與背景，
+    # 測不出 BGRA8 轉換的迴歸——這裡要驗證的是「有 alpha 通道的 PNG 不會讓引擎
+    # 丟原生錯誤、且真的能讀到字」。
+    from PIL import Image, ImageDraw, ImageFont
+    image = Image.new("RGBA", (640, 120), (255, 255, 255, 0))
+    ImageDraw.Draw(image).text((20, 30), "Hello Wizard", fill=(0, 0, 0, 255),
+                               font=ImageFont.load_default(size=40))
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    try:
+        text = recognize(buffer.getvalue())
+    except OcrUnavailable as exc:
+        pytest.skip(f"no local OCR engine: {exc}")
+    assert "hello" in text.lower().replace(" ", "")
+
+
 def test_recognize_returns_empty_for_a_blank_image():
     from PIL import Image
     buffer = io.BytesIO()
