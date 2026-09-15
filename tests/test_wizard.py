@@ -210,3 +210,43 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
     link.event_generate("<Button-1>")
     assert opened == [CROWDIN_URL]
     wizard._win.destroy()
+
+
+def test_finish_stores_the_region_hotkey(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    wizard = SetupWizard(root, cfg)
+    wizard._step = STEP_PREFS
+    wizard._show_step()
+    assert wizard._region_hotkey.value() == "ctrl+shift+space"
+    wizard._region_hotkey.set_value("ctrl+alt+r")
+    wizard._finish()
+    assert wizard.completed is True
+    assert cfg["region_hotkey"] == "ctrl+alt+r"
+
+
+def test_finish_rejects_identical_hotkeys(root, monkeypatch):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+    from src.ui import wizard as wizard_module
+    from src.ui.wizard import SetupWizard
+
+    warnings = []
+    monkeypatch.setattr(wizard_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    wizard = SetupWizard(root, cfg)
+    wizard._step = STEP_PREFS
+    wizard._show_step()
+    wizard._region_hotkey.set_value(cfg["hotkey"])
+    wizard._finish()
+    assert wizard.completed is False
+    assert warnings == [t("error.hotkeys_same")]
+    assert cfg["region_hotkey"] == "ctrl+shift+space"
+    wizard._win.destroy()
