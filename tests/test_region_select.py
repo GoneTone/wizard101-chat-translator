@@ -1,5 +1,5 @@
 """選取層：拖曳→矩形（螢幕座標）、點一下→取消、Esc→取消、凍結畫面顯示與聚光燈、
-提示文字自己一層視窗。"""
+backdrop 暗化背景、提示文字自己一層視窗。"""
 import pytest
 from PIL import Image
 
@@ -103,6 +103,15 @@ def test_spotlight_shows_the_dragged_area_and_hides_on_the_next_press(selector, 
     canvas.event_generate("<ButtonPress-1>", x=130, y=90)
     root.update()
     assert canvas.itemcget(selector._spot, "state") == "hidden"
+
+
+def test_backdrop_is_placed_below_the_game_frame_when_given(selector, root):
+    backdrop = Image.new("RGB", (1600, 900), "white")
+    selector.show(_MONITOR, _FRAME, on_select=lambda r: None, backdrop=backdrop)
+    root.update()
+    items = selector._canvas.find_all()
+    assert [int(v) for v in selector._canvas.coords(items[0])] == [0, 0]
+    assert [int(v) for v in selector._canvas.coords(items[1])] == [100, 50]
 
 
 def test_hint_shows_in_its_own_opaque_window(selector, root):

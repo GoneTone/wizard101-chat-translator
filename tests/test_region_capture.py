@@ -1,5 +1,5 @@
 """框選矩形 → 遊戲 client 座標的換算（純函式）；`crop_frame` 對合成 Frame 的裁切；
-`capture_window` 的 Win32 例外一律變成 CaptureError。"""
+`capture_window` 的 Win32 例外一律變成 CaptureError；`capture_screen` 失敗時退回全黑。"""
 import io
 
 import pytest
@@ -73,3 +73,19 @@ def test_crop_frame_rect_entirely_outside_the_client_is_selection_outside_game()
     frame = _client_frame()
     with pytest.raises(SelectionOutsideGame):
         crop_frame(frame, (0, 0, 10, 10))
+
+
+def test_capture_screen_falls_back_to_black_when_grab_fails(monkeypatch):
+    def boom(**kwargs):
+        raise RuntimeError("no display")
+
+    monkeypatch.setattr(capture_module.ImageGrab, "grab", boom)
+    image = capture_module.capture_screen((100, 200, 300, 150))
+    assert image.size == (300, 150)
+    assert image.getpixel((0, 0)) == (0, 0, 0)
+
+
+def test_capture_screen_returns_the_grabbed_image_on_success(monkeypatch):
+    stub = Image.new("RGB", (10, 10), "red")
+    monkeypatch.setattr(capture_module.ImageGrab, "grab", lambda **kwargs: stub)
+    assert capture_module.capture_screen((0, 0, 10, 10)) is stub

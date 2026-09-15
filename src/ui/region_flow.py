@@ -18,7 +18,14 @@ import win32gui
 from src.composer.paste import force_foreground
 from src.i18n import t
 from src.log import log
-from src.region.capture import CaptureError, Frame, SelectionOutsideGame, capture_window, crop_frame
+from src.region.capture import (
+    CaptureError,
+    Frame,
+    SelectionOutsideGame,
+    capture_screen,
+    capture_window,
+    crop_frame,
+)
 from src.region.ocr import OcrUnavailable
 from src.translation.translator import TranslatorBadOutput, TranslatorError
 from src.ui.form import friendly_error
@@ -45,13 +52,15 @@ class RegionFlow:
 
     def __init__(self, root: tk.Tk, pipeline, ui_queue: queue.Queue, alpha: float,
                  selector=None, card=None, capture_window=capture_window, crop=crop_frame,
-                 monitor_at=monitor_rect_at, foreground=force_foreground):
+                 capture_screen=capture_screen, monitor_at=monitor_rect_at,
+                 foreground=force_foreground):
         self._pipeline = pipeline
         self._queue = ui_queue
         self._selector = selector if selector is not None else RegionSelector(root)
         self._card = card if card is not None else RegionCard(root, alpha)
         self._capture_window = capture_window
         self._crop = crop
+        self._capture_screen = capture_screen
         self._monitor_at = monitor_at
         self._foreground = foreground
         self._session = 0
@@ -88,10 +97,12 @@ class RegionFlow:
             self._card.show_pending((x, y, 0, 0))
             self._card.show_error(t("region.capture_failed", error=exc))
             return
+        monitor = self._monitor_at(x, y)
+        backdrop = self._capture_screen(monitor)   # 失敗一律退回全黑，不會擋住框選
         log(f"[region] selection started (game_hwnd={game_hwnd:#x})")
-        self._selector.show(self._monitor_at(x, y), frame,
+        self._selector.show(monitor, frame,
                             on_select=lambda rect: self._selected(rect, game_hwnd, frame),
-                            on_cancel=self._cancelled)
+                            on_cancel=self._cancelled, backdrop=backdrop)
 
     def _cancelled(self) -> None:
         """選取層被取消（Esc、右鍵、點一下沒拖動、或熱鍵取消都會觸發）：把前景還給遊戲

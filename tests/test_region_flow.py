@@ -18,12 +18,13 @@ class FakeSelector:
     def __init__(self):
         self.is_open = False
         self.frame = None
+        self.backdrop = None
         self.on_select = None
         self.on_cancel = None
         self.cancelled = 0
 
-    def show(self, monitor, frame, on_select, on_cancel=None):
-        self.is_open, self.frame = True, frame
+    def show(self, monitor, frame, on_select, on_cancel=None, backdrop=None):
+        self.is_open, self.frame, self.backdrop = True, frame, backdrop
         self.on_select, self.on_cancel = on_select, on_cancel
 
     def cancel(self):
@@ -73,12 +74,13 @@ class FakePipeline:
 
 
 def _flow(root, pipeline, capture_window=lambda hwnd: _FRAME,
-         crop=lambda frame, rect: b"png", foreground=lambda hwnd: None):
+         crop=lambda frame, rect: b"png", capture_screen=lambda monitor: None,
+         foreground=lambda hwnd: None):
     ui_queue = queue.Queue()
     selector, card = FakeSelector(), FakeCard()
     flow = RegionFlow(root, pipeline, ui_queue, alpha=0.8, selector=selector, card=card,
-                      capture_window=capture_window, crop=crop, monitor_at=lambda x, y: _MONITOR,
-                      foreground=foreground)
+                      capture_window=capture_window, crop=crop, capture_screen=capture_screen,
+                      monitor_at=lambda x, y: _MONITOR, foreground=foreground)
     return flow, selector, card, ui_queue
 
 
@@ -100,6 +102,13 @@ def test_toggle_passes_the_captured_frame_to_the_selector(root):
     flow, selector, card, _ = _flow(root, FakePipeline())
     flow.toggle(0x1234)
     assert selector.frame is _FRAME
+
+
+def test_toggle_passes_the_captured_backdrop_to_the_selector(root):
+    backdrop = object()
+    flow, selector, card, _ = _flow(root, FakePipeline(), capture_screen=lambda monitor: backdrop)
+    flow.toggle(0x1234)
+    assert selector.backdrop is backdrop
 
 
 def test_selection_captures_and_fills_the_card_with_the_translation(root):

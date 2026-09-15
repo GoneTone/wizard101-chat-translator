@@ -1,9 +1,12 @@
 """框選用的全螢幕選取層：蓋滿遊戲所在的那顆螢幕，顯示 `RegionFlow` 事先凍結好的那一幀
 遊戲畫面（見 `capture_window`），拖曳畫矩形，放開回報螢幕座標。
 
-整層改成不透明：底圖不是「半透明看穿桌面」而是暗化過的凍結畫面，遊戲視窗以外的區域維持
-純黑。拖曳中的框選範圍內用原始亮度的畫面取代暗化底，做出類似 Snipping Tool 的聚光燈效果，
-讓使用者看得出框選範圍實際框住了什麼。點一下沒拖動視為取消（is_click）。
+整層不透明：底圖是暗化過的凍結畫面，不是「半透明看穿桌面」。遊戲視窗以外的區域另外疊一張
+暗化過的整顆螢幕截圖（`backdrop`，見 `capture_screen`）墊在遊戲畫面底下，讓桌面其餘部分
+還看得見、只是暗一點（跟 Snipping Tool 一樣）；沒有 backdrop（例如螢幕截圖失敗）時退回
+純黑，選取層照樣開得起來。拖曳中的框選範圍內用原始亮度的遊戲畫面取代暗化底，做出類似
+Snipping Tool 的聚光燈效果，讓使用者看得出框選範圍實際框住了什麼（聚光燈只作用在遊戲畫面
+範圍內，backdrop 部分不參與）。點一下沒拖動視為取消（is_click）。
 提示文字另開一層不透明視窗疊在選取層之上，跟底圖的明暗變化無關。
 """
 import tkinter as tk
@@ -24,7 +27,8 @@ _HINT_Y = 40
 
 
 class RegionSelector:
-    """`show(monitor, frame, on_select, on_cancel)` 開層；使用者放開滑鼠後層先關、再回呼。"""
+    """`show(monitor, frame, on_select, on_cancel, backdrop)` 開層；
+    使用者放開滑鼠後層先關、再回呼。"""
 
     def __init__(self, root: tk.Tk):
         self._root = root
@@ -37,6 +41,7 @@ class RegionSelector:
         self._spot = None
         self._dim_photo = None
         self._spot_photo = None
+        self._backdrop_photo = None
         self._frame: Frame | None = None
         self._frame_pos = (0, 0)
         self._origin = (0, 0)
@@ -49,9 +54,10 @@ class RegionSelector:
         return self._win is not None
 
     def show(self, monitor: tuple[int, int, int, int], frame: Frame, on_select,
-             on_cancel=None) -> None:
+             on_cancel=None, backdrop=None) -> None:
         """在 monitor（螢幕矩形 x, y, w, h）上開選取層，顯示 frame 這張已經凍結的遊戲畫面；
-        已開著就先關掉重開。"""
+        backdrop（同尺寸的整顆螢幕截圖，見 `capture_screen`）給的話墊在遊戲畫面底下暗化
+        顯示，沒給就維持純黑。已開著就先關掉重開。"""
         self.cancel(notify=False)
         self._origin = (monitor[0], monitor[1])
         self._on_select, self._on_cancel = on_select, on_cancel
@@ -65,6 +71,11 @@ class RegionSelector:
         win.geometry(f"{monitor[2]}x{monitor[3]}+{monitor[0]}+{monitor[1]}")
         canvas = tk.Canvas(win, bg="black", highlightthickness=0, cursor="crosshair")
         canvas.pack(fill="both", expand=True)
+        if backdrop is not None:
+            dim_backdrop = ImageEnhance.Brightness(backdrop).enhance(_DIM_FACTOR)
+            self._backdrop_photo = ImageTk.PhotoImage(dim_backdrop, master=canvas)
+            # 建立順序決定疊放順序：backdrop 先畫，才會墊在遊戲畫面（下面接著建立）底下
+            canvas.create_image(0, 0, image=self._backdrop_photo, anchor="nw")
         dim_image = ImageEnhance.Brightness(frame.image).enhance(_DIM_FACTOR)
         self._dim_photo = ImageTk.PhotoImage(dim_image, master=canvas)
         self._frame_pos = (frame.client_origin[0] - monitor[0], frame.client_origin[1] - monitor[1])
@@ -127,7 +138,7 @@ class RegionSelector:
         self._win.destroy()
         self._hint.destroy()
         self._win = self._canvas = self._band = self._size_label = None
-        self._spot = self._dim_photo = self._spot_photo = None
+        self._spot = self._dim_photo = self._spot_photo = self._backdrop_photo = None
         self._frame = None
         self._frame_pos = (0, 0)
         self._hint = self._hint_label = None

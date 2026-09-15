@@ -1,12 +1,13 @@
 """遊戲視窗畫面擷取：分兩步 —— `capture_window` 對遊戲 HWND 用 PrintWindow 拍一次完整的
 client 區畫面，凍結成 `Frame`；`crop_frame` 再從這份凍結畫面依框選矩形裁成 PNG。
+另外 `capture_screen` 拍一次整顆螢幕，純粹給選取層當暗化背景用，跟前兩者的用途分開。
 
 分兩步是為了讓選取層顯示的畫面跟最終送去辨識的畫面是同一幀 —— 使用者拖曳框選矩形時看到
 的背景，必須跟放開滑鼠後裁下來的內容完全一致；等放開滑鼠才重新拍一次的話，遊戲畫面這段
 時間可能已經變了，跟使用者選取當下看到的不一樣（也可能剛好拍到疊加層自己的東西）。
 只拍遊戲視窗自己畫的東西：疊加視窗、翻譯輸入框、結果卡片與其他程式的視窗都不會入鏡，也
 不必「先藏視窗再拍」。座標換算（`window_region`）與裁切（`crop_frame`）都是純函式（可測），
-Win32 那層集中在 `capture_window`。
+Win32 那層集中在 `capture_window`／`capture_screen`。
 """
 import ctypes
 import io
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 
 import win32gui
 import win32ui
-from PIL import Image
+from PIL import Image, ImageGrab
 
 from src.log import log
 
@@ -80,6 +81,22 @@ def capture_window(hwnd: int) -> Frame:
     log(f"[region] frame captured (hwnd={hwnd:#x}, client={client_origin}, "
         f"size={client_w}x{client_h})")
     return Frame(client_image, client_origin, (client_w, client_h))
+
+
+def capture_screen(monitor: tuple[int, int, int, int]) -> Image.Image:
+    """把 monitor（螢幕矩形 x, y, w, h）整顆拍成圖片，做為選取層暗化背景用。
+
+    跟 `capture_window` 分開：`capture_window` 只拍遊戲自己畫的內容，凍結下來的 `Frame`
+    才是真正會被 `crop_frame` 裁切、送去辨識的來源；這裡拍到的整顆螢幕只是選取層的背景
+    畫面，讓使用者知道桌面其餘部分還在（暗一點，跟 Snipping Tool 一樣），不會被裁切也
+    不會被送去翻譯。因此失敗了也不影響框選本身：直接退回全黑背景，選取層照樣開得起來。
+    """
+    x, y, w, h = monitor
+    try:
+        return ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
+    except Exception as exc:
+        log(f"[region] screen grab failed (monitor={monitor}): {type(exc).__name__}: {exc}")
+        return Image.new("RGB", (w, h), "black")
 
 
 def crop_frame(frame: Frame, screen_rect: tuple[int, int, int, int]) -> bytes:
