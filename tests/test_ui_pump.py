@@ -124,6 +124,58 @@ def test_register_hotkey_uses_the_requested_key_when_valid(monkeypatch):
     assert used == "f8" and fake.registered == ["f8"]
 
 
+def test_register_hotkey_falls_back_to_the_given_fallback_on_an_unknown_key(monkeypatch):
+    # 區域熱鍵壞掉時要退回自己的預設值，不能撞上輸入框熱鍵的預設值
+    from src import main
+    fake = _FakeKeyboard(bad="ctrl+nope")
+    monkeypatch.setattr(main, "keyboard", fake)
+    handle, used = main.register_hotkey("ctrl+nope", lambda: None,
+                                        fallback="ctrl+shift+space")
+    assert used == "ctrl+shift+space"
+    assert fake.registered == ["ctrl+shift+space"]
+
+
+# --- 框選熱鍵：選取層開著就取消、遊戲在前景才開始框選 ---
+class _FakeRegionFlow:
+    def __init__(self, is_selecting: bool):
+        self.is_selecting = is_selecting
+        self.toggled = []
+
+    def toggle(self, hwnd):
+        self.toggled.append(hwnd)
+
+
+def test_region_hotkey_cancels_when_the_selector_is_already_open():
+    import src.main as main
+    q = queue.Queue()
+    flow = _FakeRegionFlow(is_selecting=True)
+    main.on_region_hotkey(flow, q)
+    q.get_nowait()()
+    assert flow.toggled == [0]
+
+
+def test_region_hotkey_starts_a_selection_when_game_is_foreground(monkeypatch):
+    import src.main as main
+    monkeypatch.setattr(main, "foreground_exe",
+                        lambda: r"C:\Wizard101\Bin\WizardGraphicalClient.exe")
+    monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0x1234)
+    q = queue.Queue()
+    flow = _FakeRegionFlow(is_selecting=False)
+    main.on_region_hotkey(flow, q)
+    q.get_nowait()()
+    assert flow.toggled == [0x1234]
+
+
+def test_region_hotkey_ignored_when_other_window_is_foreground(monkeypatch):
+    import src.main as main
+    monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
+    q = queue.Queue()
+    flow = _FakeRegionFlow(is_selecting=False)
+    main.on_region_hotkey(flow, q)
+    assert q.empty()
+    assert flow.toggled == []
+
+
 # --- Ctrl+V 攔截：只在設定開啟且遊戲在前景時接手 ---
 def test_paste_intercepted_only_when_enabled_and_game_is_foreground(monkeypatch):
     import src.main as main

@@ -9,6 +9,8 @@ import threading
 import tkinter as tk
 import traceback
 
+import win32gui
+
 from src.composer.paste import force_foreground
 from src.i18n import t
 from src.log import log
@@ -49,6 +51,7 @@ class RegionFlow:
         self._foreground = foreground
         self._session = 0
         self._thread: threading.Thread | None = None
+        self._game_hwnd = 0
 
     @property
     def is_selecting(self) -> bool:
@@ -59,17 +62,30 @@ class RegionFlow:
         self._card.set_alpha(alpha)
 
     def toggle(self, game_hwnd: int) -> None:
-        """熱鍵：選取層開著就取消；否則收掉舊卡片、在遊戲所在的螢幕開選取層。"""
+        """熱鍵：選取層開著就取消（觸發 `_cancelled` 還前景，見下）；否則收掉舊卡片、
+        在遊戲所在的螢幕開選取層。`game_hwnd == 0` 代表選取層已經關了（熱鍵取消跟滑鼠放開
+        兩條路徑競速時可能發生），不開一顆綁著假 hwnd 的選取層。"""
         if self._selector.is_open:
             log("[region] selection cancelled by hotkey")
             self._selector.cancel()
             return
+        if game_hwnd == 0:
+            log("[region] toggle ignored: no game window (selector already closed)")
+            return
         self._card.hide()
+        self._game_hwnd = game_hwnd
         x, y = _window_center(game_hwnd)
         log(f"[region] selection started (game_hwnd={game_hwnd:#x})")
         self._selector.show(self._monitor_at(x, y),
                             on_select=lambda rect: self._selected(rect, game_hwnd),
-                            on_cancel=lambda: log("[region] selection cancelled"))
+                            on_cancel=self._cancelled)
+
+    def _cancelled(self) -> None:
+        """選取層被取消（Esc、右鍵、點一下沒拖動、或熱鍵取消都會觸發）：把前景還給遊戲
+        —— 選取層開層時用 AttachThreadInput 搶走了前景，取消時換它換回來，否則使用者要先點
+        一下遊戲視窗，下一次熱鍵才不會被 `on_region_hotkey` 當成「前景不是遊戲」擋掉。"""
+        log("[region] selection cancelled")
+        self._foreground(self._game_hwnd)
 
     def _selected(self, rect: tuple[int, int, int, int], game_hwnd: int) -> None:
         self._foreground(game_hwnd)
@@ -119,7 +135,6 @@ class RegionFlow:
 def _window_center(hwnd: int) -> tuple[int, int]:
     """遊戲視窗的中心點（決定選取層要蓋哪顆螢幕）；查不到就用 (0, 0)＝主螢幕。"""
     try:
-        import win32gui
         left, top, right, bottom = win32gui.GetWindowRect(hwnd)
         return (left + right) // 2, (top + bottom) // 2
     except Exception as exc:

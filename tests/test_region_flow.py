@@ -16,14 +16,18 @@ class FakeSelector:
     def __init__(self):
         self.is_open = False
         self.on_select = None
+        self.on_cancel = None
         self.cancelled = 0
 
     def show(self, monitor, on_select, on_cancel=None):
-        self.is_open, self.on_select = True, on_select
+        self.is_open, self.on_select, self.on_cancel = True, on_select, on_cancel
 
     def cancel(self):
+        """比照真的 RegionSelector.cancel(notify=True)：關層後呼叫 on_cancel。"""
         self.is_open = False
         self.cancelled += 1
+        if self.on_cancel is not None:
+            self.on_cancel()
 
     def pick(self, rect):
         self.is_open = False
@@ -64,12 +68,12 @@ class FakePipeline:
         return self._result
 
 
-def _flow(root, pipeline, capture=lambda hwnd, rect: b"png"):
+def _flow(root, pipeline, capture=lambda hwnd, rect: b"png", foreground=lambda hwnd: None):
     ui_queue = queue.Queue()
     selector, card = FakeSelector(), FakeCard()
     flow = RegionFlow(root, pipeline, ui_queue, alpha=0.8, selector=selector, card=card,
                       capture=capture, monitor_at=lambda x, y: _MONITOR,
-                      foreground=lambda hwnd: None)
+                      foreground=foreground)
     return flow, selector, card, ui_queue
 
 
@@ -154,6 +158,34 @@ def test_toggle_hides_a_previous_card(root):
     _drain(ui_queue, flow)
     flow.toggle(0x1234)
     assert card.events[-1] == ("hide",)
+
+
+def test_esc_style_cancel_restores_the_games_foreground(root):
+    calls = []
+    flow, selector, card, _ = _flow(root, FakePipeline(), foreground=calls.append)
+    flow.toggle(0x1234)
+    selector.cancel()   # 模擬選取層自己觸發 on_cancel（Esc、右鍵、點一下沒拖動）
+    assert calls == [0x1234]
+
+
+def test_hotkey_cancel_restores_the_games_foreground(root):
+    calls = []
+    flow, selector, card, _ = _flow(root, FakePipeline(), foreground=calls.append)
+    flow.toggle(0x1234)
+    flow.toggle(0x1234)   # 選取層開著時再按一次熱鍵＝取消
+    assert calls == [0x1234]
+
+
+def test_toggle_with_hwnd_zero_is_ignored_once_the_selector_is_already_closed(root):
+    flow, selector, card, _ = _flow(root, FakePipeline())
+    flow.toggle(0)
+    assert not selector.is_open and not flow.is_selecting
+
+
+def test_set_alpha_forwards_to_the_card(root):
+    flow, selector, card, _ = _flow(root, FakePipeline())
+    flow.set_alpha(0.5)
+    assert ("alpha", 0.5) in card.events
 
 
 def test_describe_error_maps_each_failure_kind():
