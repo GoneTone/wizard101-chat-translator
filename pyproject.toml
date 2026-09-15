@@ -8,6 +8,7 @@ dependencies = [
     "httpx",
     "keyboard",
     "langcodes>=3.5.1",
+    "pillow>=12.3.0",
     "pywin32",
     "wizwalker",
 ]
