@@ -5,7 +5,7 @@ import pytest
 
 from src.i18n import t
 from src.ui import region_card as card_module
-from src.ui.palette import FG_ERROR, FG_ORIGINAL, FG_PENDING, FG_TRANSLATED
+from src.ui.palette import FG_ERROR, FG_PENDING, FG_TRANSLATED
 from src.ui.region_card import ANCHOR_GAP, RegionCard
 
 _RECT = (300, 200, 400, 120)
@@ -32,18 +32,19 @@ def test_pending_then_text(card, root):
     assert card._label.cget("fg") == FG_TRANSLATED
 
 
-def test_show_text_with_source_displays_it_above_the_translation(card, root):
+def test_show_text_with_source_puts_both_in_one_selectable_label(card, root):
+    # 原文與譯文現在放同一顆 RichLabel（set_blocks），中間空一行分隔 —— 拖曳選取
+    # 才能一路跨過去，不會卡在兩段文字的交界（見 richtext.RichLabel.set_blocks）
     card.show_pending(_RECT)
     root.update()
     card.show_text("譯文", source="Talk to Merle")
     root.update()
+    assert card._label.get("1.0", "end-1c") == "Talk to Merle\n\n譯文"
     assert card.source_text() == "Talk to Merle"
     assert card.text() == "譯文"
-    assert card._source.cget("fg") == FG_ORIGINAL
-    assert card._source.winfo_manager() != ""
 
 
-def test_show_text_without_source_hides_the_source_label(card, root):
+def test_show_text_without_source_shows_only_the_translation(card, root):
     card.show_pending(_RECT)
     root.update()
     card.show_text("譯文", source="Talk to Merle")
@@ -51,7 +52,7 @@ def test_show_text_without_source_hides_the_source_label(card, root):
     card.show_text("譯文")
     root.update()
     assert card.source_text() == ""
-    assert card._source.winfo_manager() == ""
+    assert card._label.get("1.0", "end-1c") == "譯文"
 
 
 def test_empty_text_shows_the_no_text_notice(card, root):
@@ -135,41 +136,6 @@ def test_right_click_on_translation_shows_the_copy_menu(card, root):
     assert card._popup.label_text() == t("menu.copy")
 
 
-def test_copy_after_right_click_on_translation_copies_the_translation(card, root):
-    card.show_pending(_RECT)
-    root.update()
-    card.show_text("譯文", source="Talk to Merle")
-    root.update()
-    card._label.event_generate("<Button-3>", x=5, y=5)
-    root.update()
-
-    card._copy()
-    root.update()
-
-    try:
-        assert root.clipboard_get() == "譯文"
-    except tk.TclError:
-        pytest.skip("clipboard unavailable in this environment")
-    assert card._popup.visible is False
-
-
-def test_copy_after_right_click_on_source_copies_the_source(card, root):
-    card.show_pending(_RECT)
-    root.update()
-    card.show_text("譯文", source="Talk to Merle")
-    root.update()
-    card._source.event_generate("<Button-3>", x=5, y=5)
-    root.update()
-
-    card._copy()
-    root.update()
-
-    try:
-        assert root.clipboard_get() == "Talk to Merle"
-    except tk.TclError:
-        pytest.skip("clipboard unavailable in this environment")
-
-
 def test_right_click_does_not_close_the_card(card, root):
     card.show_pending(_RECT)
     root.update()
@@ -225,8 +191,9 @@ def test_copy_selection_and_menu_copy_share_the_clipboard(card, root):
     root.update()
     card.show_text("譯文第一行", source="Talk to Merle")
     root.update()
+    # widget 內容此刻是 "Talk to Merle\n\n譯文第一行"：第 1 行原文、第 3 行譯文
 
-    card._label.tag_add("sel", "1.0", "1.2")
+    card._label.tag_add("sel", "3.0", "3.2")
     card.copy_selection()
     try:
         assert root.clipboard_get() == "譯文"
@@ -240,17 +207,15 @@ def test_copy_selection_and_menu_copy_share_the_clipboard(card, root):
     card.copy_selection()
     assert root.clipboard_get() == "哨兵內容", "沒有選取時不該動剪貼簿"
 
-    card._source.tag_add("sel", "1.0", "1.4")
+    card._label.tag_add("sel", "1.0", "end-1c")
     card.copy_selection()
-    assert root.clipboard_get() == "Talk"
+    assert root.clipboard_get() == "Talk to Merle\n\n譯文第一行", "選取要跨得過原文與譯文"
 
-    card._source.tag_remove("sel", "1.0", "end")
-    card._label.tag_add("sel", "1.0", "1.2")
     card._label.event_generate("<Button-3>", x=5, y=5)
     root.update()
     card._copy()
     root.update()
-    assert root.clipboard_get() == "譯文", "右鍵複製要優先用選取範圍"
+    assert root.clipboard_get() == "Talk to Merle\n\n譯文第一行", "右鍵複製要優先用選取範圍"
     assert card._popup.visible is False
 
     card._label.tag_remove("sel", "1.0", "end")
@@ -258,7 +223,7 @@ def test_copy_selection_and_menu_copy_share_the_clipboard(card, root):
     root.update()
     card._copy()
     root.update()
-    assert root.clipboard_get() == "譯文第一行", "沒有選取時複製整行"
+    assert root.clipboard_get() == "Talk to Merle\n\n譯文第一行", "沒有選取時複製整顆內容"
 
 
 def test_focus_for_copy_swallows_a_tcl_error_when_the_window_is_gone(card, root):
@@ -281,13 +246,11 @@ def test_control_c_entry_points_are_bound(card, root):
     assert card._win.bind("<Control-C>")
     assert card._label.bind("<Control-c>")
     assert card._label.bind("<Control-C>")
-    assert card._source.bind("<Control-c>")
-    assert card._source.bind("<Control-C>")
 
 
 def test_selection_stays_visible_without_keyboard_focus(card, root):
     card.show_pending(_RECT)
     card.show_text("譯文", source="Talk to Merle")
     root.update()
-    for label in (card._label, card._source):
-        assert label.cget("inactiveselectbackground") == label.cget("selectbackground")
+    label = card._label
+    assert label.cget("inactiveselectbackground") == label.cget("selectbackground")

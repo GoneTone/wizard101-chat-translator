@@ -4,15 +4,16 @@
 關閉方式是點卡片任一處、或下一次框選時被換掉。位置每次重排：譯文回來後高度變了，
 下方放不下要翻到矩形上方。標頭右上角另放一個 ✕、內文下方帶一行提示文字，
 點擊關閉本來就存在，只是沒人知道，這兩處純粹是把既有行為講出來。
-譯文回來時若帶原文（看圖路徑的逐字抄寫、OCR 路徑的辨識文字），在譯文上方另用一行
+譯文回來時若帶原文（看圖路徑的逐字抄寫、OCR 路徑的辨識文字），在譯文上方另用一段
 暗色小字顯示 —— 與聊天疊加視窗「原文在上、譯文在下」一致，也讓使用者能核對模型
-有沒有多翻或漏翻。
-譯文與原文列都是可拖曳選取的 `tk.Text`（見 `richtext.RichLabel`）：在文字上拖曳滑鼠
-＝反白選取（沿用 Tk 對唯讀 Text 的原生選取，不必解除 `state="disabled"`），選取不能
-跨兩列；純點擊（按下到放開沒有明顯位移，見 `geometry.is_click`）才關卡片，拖曳不關。
+有沒有多翻或漏翻。原文與譯文放在同一顆 `RichLabel`（`richtext.RichLabel.set_blocks`）
+裡、中間空一行分隔，不再是兩顆各自獨立的 Text —— 拖曳選取才能一路跨過兩段文字，
+不會卡在原文與譯文的交界。
+內文可拖曳選取（沿用 Tk 對唯讀 Text 的原生選取，不必解除 `state="disabled"`）；
+純點擊（按下到放開沒有明顯位移，見 `geometry.is_click`）才關卡片，拖曳不關。
 拖曳選取結束後會比照疊加視窗跟 backdrop 借鍵盤焦點（`_focus_for_copy`），讓 Ctrl+C
-收得到；右鍵點譯文或原文列會彈出單項的複製選單（與疊加視窗共用 `Popup`）——
-有選取就複製選取範圍，沒有就複製整行。
+收得到；右鍵會彈出單項的複製選單（與疊加視窗共用 `Popup`）——有選取就複製選取範圍，
+沒有就複製整顆內容（原文＋空行＋譯文，或單純譯文）。
 """
 import tkinter as tk
 
@@ -50,11 +51,11 @@ class RegionCard:
         self._alpha = alpha
         self._win: tk.Toplevel | None = None
         self._label: RichLabel | None = None
-        self._source: RichLabel | None = None
         self._close: tk.Label | None = None
         self._hint: tk.Label | None = None
         self._popup: Popup | None = None
-        self._copy_target = "text"   # 右鍵點的是哪一行："text"＝譯文、"source"＝原文
+        self._shown_text = ""     # text() 用：目前顯示的譯文（或提示文字），widget 內容已合併原文不能反推
+        self._shown_source = ""   # source_text() 用：目前顯示的原文；沒有原文就是空字串
         self._rect: tuple[int, int, int, int] | None = None
         self._width = MIN_WIDTH
         self._press_pos: tuple[int, int] | None = None   # 按下時的螢幕座標，放開時判斷是點擊還是拖曳
@@ -89,57 +90,58 @@ class RegionCard:
                                cursor="hand2", padx=6)
         self._close.pack(side="right")
         self._close.bind("<Button-1>", lambda e: self.hide())
-        # 原文列先建好但不 pack：預設隱藏，show_text 帶 source 時才插進 header 與譯文之間
-        self._source = RichLabel(body, fg=FG_ORIGINAL, bg=BG, font=ui_font(9),
-                                 on_height_change=self._layout)
         self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
         self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
-        for label in (self._source, self._label):
-            # inactiveselectbackground 在 Windows 預設為空：文字欄沒有鍵盤焦點時選取不會畫出來，
-            # 拖曳中與放開後看起來都像沒選到；設成同一個顏色，反白才留得住
-            label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED,
-                            inactiveselectbackground=SELECT_BG)
+        # inactiveselectbackground 在 Windows 預設為空：文字欄沒有鍵盤焦點時選取不會畫出來，
+        # 拖曳中與放開後看起來都像沒選到；設成同一個顏色，反白才留得住
+        self._label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED,
+                              inactiveselectbackground=SELECT_BG)
         self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
                               font=ui_font(8), anchor="w")
         self._hint.pack(fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
-        for widget in (win, body, self._label, self._source):
+        for widget in (win, body, self._label):
             widget.bind("<ButtonPress-1>", self._button_press, add="+")
             widget.bind("<ButtonRelease-1>", self._button_release, add="+")
-        for widget in (win, self._label, self._source):
+        for widget in (win, self._label):
             widget.bind("<Control-c>", self.copy_selection, add="+")
             widget.bind("<Control-C>", self.copy_selection, add="+")
         self._win = win
         self._popup = Popup(win, self._copy)
-        self._label.bind("<Button-3>", lambda e: self._right_click(e, "text"))
-        self._source.bind("<Button-3>", lambda e: self._right_click(e, "source"))
+        self._label.bind("<Button-3>", self._right_click)
         win.geometry(f"{self._width}x1")   # 寬度先定，RichLabel 才能依它換行；高度由 _layout 量
         make_non_activating(win)
-        self._label.set(t("notice.pending"), FG_PENDING)
+        self._shown_text = t("notice.pending")
+        self._shown_source = ""
+        self._label.set(self._shown_text, FG_PENDING)
         self._layout()
         win.deiconify()
 
     def show_text(self, text: str, source: str = "") -> None:
         """譯文回來了；空字串＝畫面上沒有文字，用暗色提示。
-        `source` 非空時在譯文上方插入一行暗色小字顯示原文（見檔頭）；空字串時原文列
-        收起（`pack_forget`），不佔版面。"""
-        if self._label is None or self._source is None:
+        `source` 非空時在譯文上方另放一段暗色小字顯示原文、中間空一行（見檔頭的
+        `set_blocks`）；空字串則跟過去一樣只放譯文一段。"""
+        if self._label is None:
             return
-        if source:
-            self._source.set(source, FG_ORIGINAL)
-            self._source.pack(fill="x", padx=_PAD_X, pady=(_PAD_Y, 0), before=self._label)
-        else:
-            self._source.set("")
-            self._source.pack_forget()
+        self._shown_source = source
         if text:
-            self._label.set(text, FG_TRANSLATED)
+            self._shown_text = text
+            color = FG_TRANSLATED
         else:
-            self._label.set(t("region.no_text"), FG_PENDING)
+            self._shown_text = t("region.no_text")
+            color = FG_PENDING
+        if source:
+            self._label.set_blocks([(source, FG_ORIGINAL, ui_font(9)),
+                                    (self._shown_text, color, ui_font(11))])
+            self._label.configure(fg=FG_TRANSLATED)   # 沒有落在任何區塊 tag 的殘餘字色也對齊譯文
+        else:
+            self._label.set(self._shown_text, color)
         self._layout()
 
     def show_error(self, message: str) -> None:
         if self._label is None:
             return
+        self._shown_text = message
         self._label.set(message, FG_ERROR)
         self._layout()
 
@@ -150,22 +152,20 @@ class RegionCard:
             self._win.destroy()
             self._win = None
             self._label = None
-            self._source = None
             self._close = None
             self._hint = None
             self._popup = None
+            self._shown_text = ""
+            self._shown_source = ""
 
     def text(self) -> str:
-        """目前顯示的譯文（測試用），不含原文列。"""
-        if self._label is None:
-            return ""
-        return self._label.get("1.0", "end-1c")
+        """目前顯示的譯文（測試用）；原文與譯文現在同放一顆 Text，不能再從 widget
+        反推，改記錄 `show_text`／`show_pending`／`show_error` 實際放的字串。"""
+        return self._shown_text
 
     def source_text(self) -> str:
-        """目前顯示的原文（測試用）；沒有原文（列被收起）時回傳空字串。"""
-        if self._source is None:
-            return ""
-        return self._source.get("1.0", "end-1c")
+        """目前顯示的原文（測試用）；沒有原文時回傳空字串。"""
+        return self._shown_source
 
     def _button_press(self, event: tk.Event) -> None:
         """記下按下時的螢幕座標，供放開時判斷是點擊還是拖曳。"""
@@ -186,23 +186,23 @@ class RegionCard:
 
     def _focus_for_copy(self) -> None:
         """把鍵盤焦點交給卡片本體，Ctrl+C 才收得到 —— 卡片跟疊加視窗一樣用
-        `make_non_activating` 不奪焦點，這裡是唯一例外（見 overlay 的同名函式）。"""
+        `make_non_activating` 不奪焦點，這裡是唯一例外（見 overlay 的同名函式）；
+        再把焦點轉到內容欄位本身，`inactiveselectbackground` 才不用扛起顯示反白的
+        全部責任。"""
         try:
             log("[region] forcing keyboard focus")
             self._win.focus_force()
-            for label in (self._label, self._source):
-                if label is not None and label.tag_ranges("sel"):
-                    label.focus_set()   # 焦點給有選取的欄位：Ctrl+C 直達、選取用作用中的顏色畫
-                    break
+            if self._label is not None:
+                self._label.focus_set()
             log("[region] selection took keyboard focus")
         except tk.TclError as exc:
             log(f"[region] selection focus failed: {exc}")
 
     def _selected_text(self) -> str:
-        """譯文或原文列目前的選取文字；兩者都沒有選取就回傳空字串（選取不跨兩列）。"""
-        for label in (self._label, self._source):
-            if label is not None and label.tag_ranges("sel"):
-                return label.get("sel.first", "sel.last")
+        """目前的選取文字（原文與譯文同一顆 Text，選取可以跨兩段）；沒有選取就回傳
+        空字串。"""
+        if self._label is not None and self._label.tag_ranges("sel"):
+            return self._label.get("sel.first", "sel.last")
         return ""
 
     def copy_selection(self, _event: tk.Event | None = None) -> None:
@@ -216,22 +216,23 @@ class RegionCard:
         self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
         log(f"[region] copied selection ({len(text)} chars)")
 
-    def _right_click(self, event: tk.Event, target: str) -> None:
-        """右鍵點譯文或原文列：記下要複製哪一行（沒有選取時的備援），彈出複製選單。"""
-        self._copy_target = target
+    def _right_click(self, event: tk.Event) -> None:
+        """右鍵點卡片內容：彈出複製選單。"""
         if self._popup is not None:
             self._popup.show(event.x_root, event.y_root, t("menu.copy"))
 
     def _copy(self) -> None:
-        """選單「複製」被點：有選取就複製選取範圍，沒有就複製右鍵點的那一整行；
-        都沒有文字就只收起選單。"""
+        """選單「複製」被點：有選取就複製選取範圍，沒有就複製整顆 Text 的內容
+        （原文＋空行＋譯文，或單純譯文）；都沒有文字就只收起選單。"""
+        if self._label is None:
+            return
         selected = self._selected_text()
-        text = selected or (self.text() if self._copy_target == "text" else self.source_text())
+        text = selected or self._label.get("1.0", "end-1c")
         if text and self._win is not None:
             self._win.clipboard_clear()
             self._win.clipboard_append(text)
             self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
-            kind = "selection" if selected else self._copy_target
+            kind = "selection" if selected else "text"
             log(f"[region] copied {kind} ({len(text)} chars)")
         if self._popup is not None:
             self._popup.hide()
