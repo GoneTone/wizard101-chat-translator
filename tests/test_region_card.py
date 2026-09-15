@@ -283,3 +283,11 @@ def test_control_c_entry_points_are_bound(card, root):
     assert card._label.bind("<Control-C>")
     assert card._source.bind("<Control-c>")
     assert card._source.bind("<Control-C>")
+
+
+def test_selection_stays_visible_without_keyboard_focus(card, root):
+    card.show_pending(_RECT)
+    card.show_text("譯文", source="Talk to Merle")
+    root.update()
+    for label in (card._label, card._source):
+        assert label.cget("inactiveselectbackground") == label.cget("selectbackground")

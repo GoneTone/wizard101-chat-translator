@@ -96,7 +96,10 @@ class RegionCard:
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
         self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
         for label in (self._source, self._label):
-            label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED)
+            # inactiveselectbackground 在 Windows 預設為空：文字欄沒有鍵盤焦點時選取不會畫出來，
+            # 拖曳中與放開後看起來都像沒選到；設成同一個顏色，反白才留得住
+            label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED,
+                            inactiveselectbackground=SELECT_BG)
         self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
                               font=ui_font(8), anchor="w")
         self._hint.pack(fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
@@ -187,6 +190,10 @@ class RegionCard:
         try:
             log("[region] forcing keyboard focus")
             self._win.focus_force()
+            for label in (self._label, self._source):
+                if label is not None and label.tag_ranges("sel"):
+                    label.focus_set()   # 焦點給有選取的欄位：Ctrl+C 直達、選取用作用中的顏色畫
+                    break
             log("[region] selection took keyboard focus")
         except tk.TclError as exc:
             log(f"[region] selection focus failed: {exc}")
