@@ -292,6 +292,7 @@ def config_summary(cfg: dict, api: dict) -> str:
     return (f"provider={api['provider']}, model={api['model']}, "
             f"target_language={cfg['target_language']!r}, ui_language={cfg['ui_language']}, "
             f"hotkey={cfg['hotkey']}, region_hotkey={cfg['region_hotkey']}, "
+            f"region_force_ocr={cfg['region_force_ocr']}, "
             f"paste_hotkey={cfg['paste_hotkey']}, "
             f"auto_show_input={cfg['auto_show_input']}, "
             f"poll_interval={cfg['poll_interval']}, "
@@ -414,7 +415,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]))
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
-    region_pipeline = RegionPipeline(translator)
+    # force_ocr 直接讀 cfg：設定視窗改開關不必重建 pipeline，apply_settings 不用另外接線
+    region_pipeline = RegionPipeline(translator, force_ocr=lambda: cfg["region_force_ocr"])
     region_flow = RegionFlow(root, region_pipeline, ui_queue, cfg["overlay_alpha"])
     region_to_register = region_hotkey_to_register(cfg)
     if region_to_register is None:

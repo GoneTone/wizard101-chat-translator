@@ -169,6 +169,34 @@ def test_reopening_settings_reflects_the_saved_toggle(root):
     assert win._translate_system.get() is True
 
 
+def test_save_stores_the_region_force_ocr_toggle(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._region_force_ocr.get() is False   # 預設關閉
+    win._region_force_ocr.set(True)
+    win._save()
+    assert cfg["region_force_ocr"] is True
+
+
+def test_reopening_settings_reflects_the_saved_region_force_ocr_toggle(root):
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import SettingsWindow
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["api"]["provider"] = "custom"
+    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg["region_force_ocr"] = True
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    assert win._region_force_ocr.get() is True
+
+
 def _open_settings(root, on_language_preview=None):
     from src.config import DEFAULT_CONFIG
     from src.i18n import current_language

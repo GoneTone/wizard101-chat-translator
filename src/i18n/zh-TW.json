@@ -47,6 +47,7 @@
   "field.auto_input": "讓翻譯輸入框跟著遊戲的聊天輸入框一起開關",
   "field.paste_hotkey": "在遊戲內按 Ctrl+V 時自動鍵入剪貼簿文字（遊戲本身不支援貼上）",
   "field.translate_system": "翻譯遊戲系統訊息（掉寶、經驗、升等廣播等）",
+  "field.region_force_ocr": "框選畫面翻譯一律使用本機文字辨識（不把截圖交給模型）",
   "field.ui_language": "介面語言",
   "button.refresh": "重新整理",
   "button.loading": "讀取中…",

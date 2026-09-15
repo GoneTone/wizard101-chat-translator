@@ -164,6 +164,9 @@ class SettingsWindow:
         ttk.Label(basic, text=t("settings.region_hotkey")).pack(anchor="w", pady=(10, 0))
         self._region_hotkey = HotkeyField(basic, cfg["region_hotkey"])
         self._region_hotkey.pack(anchor="w", pady=(2, 0))
+        self._region_force_ocr = tk.BooleanVar(value=cfg["region_force_ocr"])
+        ttk.Checkbutton(basic, text=t("field.region_force_ocr"),
+                        variable=self._region_force_ocr).pack(anchor="w", pady=(6, 0))
         self._auto_input = tk.BooleanVar(value=cfg["auto_show_input"])
         ttk.Checkbutton(basic, text=t("field.auto_input"),
                         variable=self._auto_input).pack(anchor="w", pady=(10, 0))
@@ -419,6 +422,7 @@ class SettingsWindow:
             "target_language": self._language.value(),
             "hotkey": self._hotkey.value(),
             "region_hotkey": self._region_hotkey.value(),
+            "region_force_ocr": self._region_force_ocr.get(),
             "auto_show_input": self._auto_input.get(),
             "paste_hotkey": self._paste_hotkey.get(),
             "translate_system_messages": self._translate_system.get(),

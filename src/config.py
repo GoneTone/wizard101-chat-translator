@@ -67,6 +67,8 @@ DEFAULT_CONFIG: dict = {
     "translate_system_messages": False,  # 是否翻譯遊戲系統訊息（掉寶／升等等）；量大會擠掉玩家對話
     "hotkey": "ctrl+space",
     "region_hotkey": "ctrl+shift+space",  # 框選畫面區域翻譯的熱鍵；不可與 hotkey 相同
+    # 框選翻譯一律走本機文字辨識、不把截圖交給模型（想省圖片 token 或模型不支援看圖時用）
+    "region_force_ocr": False,
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "paste_hotkey": True,     # 遊戲在前景時攔截 Ctrl+V，把剪貼簿文字自動鍵入（遊戲不支援貼上）
     "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）

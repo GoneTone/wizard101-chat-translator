@@ -103,6 +103,23 @@ def test_ocr_unavailable_propagates():
         RegionPipeline(translator, recognize=unavailable).run(_PNG, _RECT)
 
 
+def test_force_ocr_skips_the_image_path_and_does_not_mark_text_only():
+    translator = FakeTranslator(image=("原文", "看圖譯文"), text="OCR 譯文")
+    pipeline = RegionPipeline(translator, recognize=lambda png: "Hello",
+                              force_ocr=lambda: True)
+    assert pipeline.run(_PNG, _RECT) == RegionResult("OCR 譯文", "ocr", "Hello")
+    assert translator.image_calls == 0
+    assert not pipeline.text_only
+
+
+def test_force_ocr_false_leaves_the_image_path_unchanged():
+    translator = FakeTranslator(image=("原文", "譯文"))
+    pipeline = RegionPipeline(translator, recognize=lambda png: "x",
+                              force_ocr=lambda: False)
+    assert pipeline.run(_PNG, _RECT) == RegionResult("譯文", "image", "原文")
+    assert translator.image_calls == 1
+
+
 def test_reset_clears_the_text_only_mark():
     translator = FakeTranslator(image_raises=TranslatorConfigError("no images", status=400),
                                 text="譯文")

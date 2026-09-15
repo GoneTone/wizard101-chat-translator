@@ -47,6 +47,7 @@
   "field.auto_input": "Open and close the translation input with the game chat box",
   "field.paste_hotkey": "Type the clipboard into the game when Ctrl+V is pressed in it (the game cannot paste)",
   "field.translate_system": "Translate game system messages (drops, XP, level-up broadcasts)",
+  "field.region_force_ocr": "Always use local text recognition for screen-area translation (never send the screenshot to the model)",
   "field.ui_language": "Interface language",
   "button.refresh": "Refresh",
   "button.loading": "Loading…",

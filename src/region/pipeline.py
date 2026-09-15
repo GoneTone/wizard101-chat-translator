@@ -29,12 +29,15 @@ class RegionResult:
 
 class RegionPipeline:
     """看圖優先、退回本機 OCR 的決策；`recognize` 可注入（測試用替身）。
+    `force_ocr` 是零參數 callable，每次 `run` 都重新讀一次（通常回傳
+    `cfg["region_force_ocr"]`），設定套用後不必重建 pipeline 就生效。
     例外一律往上拋（TranslatorError 家族、TranslatorBadOutput、OcrUnavailable），
     由 UI 端轉成文案。"""
 
-    def __init__(self, translator, recognize=ocr.recognize):
+    def __init__(self, translator, recognize=ocr.recognize, force_ocr=lambda: False):
         self._translator = translator
         self._recognize = recognize
+        self._force_ocr = force_ocr
         self._text_only = False
 
     @property
@@ -49,10 +52,14 @@ class RegionPipeline:
         self._text_only = False
 
     def run(self, png: bytes, rect: tuple[int, int, int, int]) -> RegionResult:
-        """辨識並翻譯一張截圖；`rect` 只用來記 log。"""
+        """辨識並翻譯一張截圖；`rect` 只用來記 log。
+        設定強制走本機 OCR 時直接跳過圖片路徑，且不標記 `text_only`
+        （那是端點被證實不吃圖片才留的記號，這裡只是使用者的選擇）。"""
         started = time.monotonic()
         image_error = None
-        if not self._text_only:
+        if self._force_ocr():
+            log("[region] image path skipped (forced local OCR)")
+        elif not self._text_only:
             try:
                 original, text = self._translator.translate_region_image(png)
                 log(f"[region] done in {time.monotonic() - started:.1f}s via image "
