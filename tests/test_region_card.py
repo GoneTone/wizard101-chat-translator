@@ -73,7 +73,8 @@ def test_error_is_red(card, root):
 def test_click_anywhere_hides(card, root):
     card.show_pending(_RECT)
     root.update()
-    card._label.event_generate("<Button-1>", x=5, y=5)
+    card._label.event_generate("<ButtonPress-1>", x=5, y=5)
+    card._label.event_generate("<ButtonRelease-1>", x=5, y=5)
     root.update()
     assert not card.is_open
 
@@ -179,6 +180,106 @@ def test_right_click_does_not_close_the_card(card, root):
     root.update()
     assert card.is_open
 
-    card._label.event_generate("<Button-1>", x=5, y=5)
+    card._label.event_generate("<ButtonPress-1>", x=5, y=5)
+    card._label.event_generate("<ButtonRelease-1>", x=5, y=5)
     root.update()
     assert not card.is_open
+
+
+def test_click_without_drag_closes_the_card(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("很長很長的譯文內容", source="Talk to Merle")
+    root.update()
+
+    card._label.event_generate("<ButtonPress-1>", x=2, y=2)
+    card._label.event_generate("<ButtonRelease-1>", x=3, y=2)
+    root.update()
+
+    assert not card.is_open
+
+
+def test_drag_on_the_translation_label_selects_instead_of_closing(card, root, monkeypatch):
+    monkeypatch.setattr(card, "_focus_for_copy", lambda: None)
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("很長很長的譯文內容，足夠拖出一段選取範圍出來測試", source="Talk to Merle")
+    root.update()
+
+    card._label.event_generate("<ButtonPress-1>", x=2, y=2)
+    root.update()
+    card._label.event_generate("<B1-Motion>", x=80, y=2)
+    root.update()
+    card._label.event_generate("<ButtonRelease-1>", x=80, y=2)
+    root.update()
+
+    # Tk 是否真的透過合成事件跑完原生框選因平台而異，這裡只驗證「拖曳不關卡片」；
+    # 選取內容另外用 copy_selection 的測試（顯式 tag_add）驗證。
+    assert card.is_open
+
+
+def test_copy_selection_and_menu_copy_share_the_clipboard(card, root):
+    # 所有會動到剪貼簿的斷言合成同一個測試：剪貼簿是全機器共用的資源，拆成多個
+    # 測試在 pytest-xdist 的 4 個 worker 下會彼此覆蓋（見 addopts 的 -n 4）
+    card.show_pending(_RECT)
+    root.update()
+    card.show_text("譯文第一行", source="Talk to Merle")
+    root.update()
+
+    card._label.tag_add("sel", "1.0", "1.2")
+    card.copy_selection()
+    try:
+        assert root.clipboard_get() == "譯文"
+    except tk.TclError:
+        pytest.skip("clipboard unavailable in this environment")
+
+    card._label.tag_remove("sel", "1.0", "end")
+    root.clipboard_clear()
+    root.clipboard_append("哨兵內容")
+    root.update()
+    card.copy_selection()
+    assert root.clipboard_get() == "哨兵內容", "沒有選取時不該動剪貼簿"
+
+    card._source.tag_add("sel", "1.0", "1.4")
+    card.copy_selection()
+    assert root.clipboard_get() == "Talk"
+
+    card._source.tag_remove("sel", "1.0", "end")
+    card._label.tag_add("sel", "1.0", "1.2")
+    card._label.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+    card._copy()
+    root.update()
+    assert root.clipboard_get() == "譯文", "右鍵複製要優先用選取範圍"
+    assert card._popup.visible is False
+
+    card._label.tag_remove("sel", "1.0", "end")
+    card._label.event_generate("<Button-3>", x=5, y=5)
+    root.update()
+    card._copy()
+    root.update()
+    assert root.clipboard_get() == "譯文第一行", "沒有選取時複製整行"
+
+
+def test_focus_for_copy_swallows_a_tcl_error_when_the_window_is_gone(card, root):
+    ghost = tk.Toplevel(root)
+    ghost.withdraw()
+    ghost.destroy()
+    card._win = ghost
+
+    card._focus_for_copy()   # 不該丟例外
+
+
+def test_control_c_entry_points_are_bound(card, root):
+    # Control-c 靠 event_generate 模擬鍵盤不可靠（合成事件不一定真的送進 Text
+    # 的 bindtags，實測在這個 Tk 版本上就是不會觸發），改比照 overlay 的
+    # test_selection_entry_points_are_bound：只驗證綁定確實掛著。
+    card.show_pending(_RECT)
+    root.update()
+
+    assert card._win.bind("<Control-c>")
+    assert card._win.bind("<Control-C>")
+    assert card._label.bind("<Control-c>")
+    assert card._label.bind("<Control-C>")
+    assert card._source.bind("<Control-c>")
+    assert card._source.bind("<Control-C>")

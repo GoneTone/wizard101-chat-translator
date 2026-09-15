@@ -7,15 +7,19 @@
 譯文回來時若帶原文（看圖路徑的逐字抄寫、OCR 路徑的辨識文字），在譯文上方另用一行
 暗色小字顯示 —— 與聊天疊加視窗「原文在上、譯文在下」一致，也讓使用者能核對模型
 有沒有多翻或漏翻。
-右鍵點譯文或原文列會彈出單項的複製選單（與疊加視窗共用 `Popup`），選了就把該行
-文字寫進剪貼簿；左鍵關卡片的行為不受影響，兩個按鍵各自綁在不同事件上。
+譯文與原文列都是可拖曳選取的 `tk.Text`（見 `richtext.RichLabel`）：在文字上拖曳滑鼠
+＝反白選取（沿用 Tk 對唯讀 Text 的原生選取，不必解除 `state="disabled"`），選取不能
+跨兩列；純點擊（按下到放開沒有明顯位移，見 `geometry.is_click`）才關卡片，拖曳不關。
+拖曳選取結束後會比照疊加視窗跟 backdrop 借鍵盤焦點（`_focus_for_copy`），讓 Ctrl+C
+收得到；右鍵點譯文或原文列會彈出單項的複製選單（與疊加視窗共用 `Popup`）——
+有選取就複製選取範圍，沒有就複製整行。
 """
 import tkinter as tk
 
 from src.i18n import t
 from src.log import log
 from src.ui.fonts import ui_font
-from src.ui.geometry import anchored_position
+from src.ui.geometry import anchored_position, is_click
 from src.ui.monitors import work_area_at
 from src.ui.palette import (
     BG,
@@ -26,6 +30,7 @@ from src.ui.palette import (
     FG_TRANSLATED,
     FG_UPDATE,
     GRIP,
+    SELECT_BG,
 )
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
@@ -52,6 +57,7 @@ class RegionCard:
         self._copy_target = "text"   # 右鍵點的是哪一行："text"＝譯文、"source"＝原文
         self._rect: tuple[int, int, int, int] | None = None
         self._width = MIN_WIDTH
+        self._press_pos: tuple[int, int] | None = None   # 按下時的螢幕座標，放開時判斷是點擊還是拖曳
 
     @property
     def is_open(self) -> bool:
@@ -89,11 +95,17 @@ class RegionCard:
         self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
         self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
+        for label in (self._source, self._label):
+            label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED)
         self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
                               font=ui_font(8), anchor="w")
         self._hint.pack(fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
         for widget in (win, body, self._label, self._source):
-            widget.bind("<Button-1>", lambda e: self.hide(), add="+")
+            widget.bind("<ButtonPress-1>", self._button_press, add="+")
+            widget.bind("<ButtonRelease-1>", self._button_release, add="+")
+        for widget in (win, self._label, self._source):
+            widget.bind("<Control-c>", self.copy_selection, add="+")
+            widget.bind("<Control-C>", self.copy_selection, add="+")
         self._win = win
         self._popup = Popup(win, self._copy)
         self._label.bind("<Button-3>", lambda e: self._right_click(e, "text"))
@@ -152,20 +164,68 @@ class RegionCard:
             return ""
         return self._source.get("1.0", "end-1c")
 
+    def _button_press(self, event: tk.Event) -> None:
+        """記下按下時的螢幕座標，供放開時判斷是點擊還是拖曳。"""
+        self._press_pos = (event.x_root, event.y_root)
+
+    def _button_release(self, event: tk.Event) -> None:
+        """放開滑鼠：位移在門檻內＝點擊，關卡片；否則是拖曳選字，改跟 backdrop
+        借鍵盤焦點，讓 Ctrl+C 收得到（不關卡片，選出來的字才留得住）。"""
+        if self._press_pos is None:
+            return
+        dx = event.x_root - self._press_pos[0]
+        dy = event.y_root - self._press_pos[1]
+        self._press_pos = None
+        if is_click(dx, dy):
+            self.hide()
+        else:
+            self._focus_for_copy()
+
+    def _focus_for_copy(self) -> None:
+        """把鍵盤焦點交給卡片本體，Ctrl+C 才收得到 —— 卡片跟疊加視窗一樣用
+        `make_non_activating` 不奪焦點，這裡是唯一例外（見 overlay 的同名函式）。"""
+        try:
+            log("[region] forcing keyboard focus")
+            self._win.focus_force()
+            log("[region] selection took keyboard focus")
+        except tk.TclError as exc:
+            log(f"[region] selection focus failed: {exc}")
+
+    def _selected_text(self) -> str:
+        """譯文或原文列目前的選取文字；兩者都沒有選取就回傳空字串（選取不跨兩列）。"""
+        for label in (self._label, self._source):
+            if label is not None and label.tag_ranges("sel"):
+                return label.get("sel.first", "sel.last")
+        return ""
+
+    def copy_selection(self, _event: tk.Event | None = None) -> None:
+        """把目前選取的文字寫進系統剪貼簿；沒有選取就什麼都不做，
+        免得把使用者原本的剪貼簿內容清掉。"""
+        text = self._selected_text()
+        if not text or self._win is None:
+            return
+        self._win.clipboard_clear()
+        self._win.clipboard_append(text)
+        self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
+        log(f"[region] copied selection ({len(text)} chars)")
+
     def _right_click(self, event: tk.Event, target: str) -> None:
-        """右鍵點譯文或原文列：記下要複製哪一行，彈出複製選單。"""
+        """右鍵點譯文或原文列：記下要複製哪一行（沒有選取時的備援），彈出複製選單。"""
         self._copy_target = target
         if self._popup is not None:
             self._popup.show(event.x_root, event.y_root, t("menu.copy"))
 
     def _copy(self) -> None:
-        """選單「複製」被點：把右鍵點的那一行文字寫進剪貼簿；沒有文字就只收起選單。"""
-        text = self.text() if self._copy_target == "text" else self.source_text()
+        """選單「複製」被點：有選取就複製選取範圍，沒有就複製右鍵點的那一整行；
+        都沒有文字就只收起選單。"""
+        selected = self._selected_text()
+        text = selected or (self.text() if self._copy_target == "text" else self.source_text())
         if text and self._win is not None:
             self._win.clipboard_clear()
             self._win.clipboard_append(text)
             self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
-            log(f"[region] copied {self._copy_target} ({len(text)} chars)")
+            kind = "selection" if selected else self._copy_target
+            log(f"[region] copied {kind} ({len(text)} chars)")
         if self._popup is not None:
             self._popup.hide()
 
