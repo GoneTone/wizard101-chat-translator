@@ -56,8 +56,10 @@ _TIMEOUT = 60.0
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
-# 區域翻譯固定用放寬的上限：任務書一頁翻成目標語言可能超過 _MAX_TOKENS
-_MAX_TOKENS_REGION = _MAX_TOKENS_THINKING
+# 區域翻譯固定用放寬的上限：輸出多了一份逐字抄寫，等於把「一頁任務書」的長度算兩次
+# （抄寫＋譯文），思考模式下 <think> 區塊還要跟這兩段搶同一個預算；上限依然存在是為了
+# 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
+_MAX_TOKENS_REGION = 4096
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
@@ -254,10 +256,13 @@ class _OpenAICompatClient(_BaseClient):
         return True
 
     def image_turn(self, png: bytes, text: str) -> dict:
-        """帶一張 PNG 的使用者回合（OpenAI 相容格式：data URL 的 image_url 區塊）。"""
+        """帶一張 PNG 的使用者回合（OpenAI 相容格式：data URL 的 image_url 區塊）。
+        `detail: "high"` 是 OpenAI 的官方欄位（不認得的伺服器會忽略）：預設 `auto`
+        在畫面較寬的框選上可能把圖縮到連小字都認不出，明確要求高解析度分析。"""
         data = base64.b64encode(png).decode("ascii")
         return {"role": "user", "content": [
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}"}},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{data}",
+                                                "detail": "high"}},
             {"type": "text", "text": text},
         ]}
 
@@ -336,10 +341,12 @@ class _ClaudeClient(_BaseClient):
 
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None) -> str:
         """打一次 /v1/messages 請求，回傳文字內容。
-        `max_tokens` 參數只是為了跟 `_OpenAICompatClient.chat` 介面一致而收下，實際被
-        忽略 —— Claude 一律送 `_MAX_TOKENS_THINKING`（見類別註解：Claude 沒有「不思考」
-        模式，思考深度改由 `effort` 控制，不是靠調這個參數）。"""
-        params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
+        `max_tokens` 未指定（None）時沿用聊天路徑的 `_MAX_TOKENS_THINKING`——Claude 沒有
+        「不思考」模式，思考深度改由 `effort` 控制，不是靠調這個參數；區域翻譯路徑會
+        明確帶 `_MAX_TOKENS_REGION`（看圖多了一份逐字抄寫，預算得放寬），截斷判定也要
+        用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
+        limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
+        params = {"model": self._model, "max_tokens": limit,
                   "system": system, "messages": turns}
         if self._effort != EFFORT_AUTO:
             params["output_config"] = {"effort": self._effort}
@@ -355,8 +362,7 @@ class _ClaudeClient(_BaseClient):
         content = "".join(b.text for b in resp.content if b.type == "text")
         if resp.stop_reason == "max_tokens":
             usage = getattr(resp, "usage", None)
-            raise _truncated(_MAX_TOKENS_THINKING,
-                             getattr(usage, "output_tokens", None), content)
+            raise _truncated(limit, getattr(usage, "output_tokens", None), content)
         return strip_think(content).strip()
 
     def list_models(self) -> list[str]:

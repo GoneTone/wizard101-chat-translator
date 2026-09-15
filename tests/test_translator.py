@@ -24,6 +24,7 @@ from src.translation.prompts import (
     build_system_message_system,
 )
 from src.translation.translator import (
+    _MAX_TOKENS_REGION,
     _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
     Translator,
@@ -998,9 +999,11 @@ def test_openai_compat_region_image_sends_a_data_url_image_part():
     image_part, text_part = turn["content"]
     assert image_part["type"] == "image_url"
     assert image_part["image_url"]["url"].startswith("data:image/png;base64,")
+    # 預設 auto 可能把較寬的框選縮到小字認不出，明確要求高解析度分析
+    assert image_part["image_url"]["detail"] == "high"
     assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
-    # 任務書一頁翻成目標語言可能超過聊天用的 512 上限：區域方向固定用放寬的那檔
-    assert fake.last_body["max_tokens"] == _MAX_TOKENS_THINKING
+    # 輸出多了一份逐字抄寫，等於任務書長度算兩次：區域方向固定用更寬的那檔
+    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
     # system prompt 要求先抄寫再翻譯：分隔線與這個要求本身都要在提示詞裡
     assert fake.last_body["messages"][0]["content"] == build_region_system(
         "繁體中文（台灣）", transcribe=True)
@@ -1017,6 +1020,16 @@ def test_claude_region_image_sends_a_base64_image_block():
         "data": base64.b64encode(_PNG).decode("ascii")}}
     assert text_part == {"type": "text", "text": REGION_IMAGE_INSTRUCTION}
     assert "繁體中文（台灣）" in fake.messages.last_kwargs["system"]
+
+
+def test_claude_region_image_sends_the_region_token_limit():
+    # Claude 的 chat() 平常忽略呼叫端傳入的 max_tokens、固定送 _MAX_TOKENS_THINKING；
+    # 區域翻譯明確帶 _MAX_TOKENS_REGION，這裡驗證它有被實際送出、而非被忽略
+    fake = FakeAnthropicClient(content=_REGION_TRANSCRIBE_OUTPUT)
+    translator = Translator(provider="claude", model="m", api_key="k",
+                            target_language="繁體中文（台灣）", client=fake)
+    translator.translate_region_image(_PNG)
+    assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_REGION
 
 
 def test_region_image_without_a_separator_returns_the_whole_output_as_translation():
