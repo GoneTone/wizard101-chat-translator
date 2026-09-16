@@ -154,5 +154,5 @@ def test_hide_is_idempotent(box, root):
     ((-1, MARGIN + 100), ""),                           # 視窗外
 ])
 def test_hit_at_tells_corners_from_edges_from_the_inside(point, expected):
-    assert GRAB >= 6   # 邊帶至少要比 3px 的線寬一倍以上才好抓
+    assert 3 <= GRAB <= 6   # 比 3px 的線寬一點才好抓，但實機回饋 8px 已嫌太寬
     assert hit_at(*point, 300, 200) == expected

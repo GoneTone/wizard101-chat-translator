@@ -20,10 +20,10 @@ from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_
 from src.ui.palette import BG, FG_UPDATE
 from src.ui.winstyle import make_non_activating
 
-MARGIN = 8       # 矩形外側多留的寬度（px）：把手露在框外，也是邊帶在框外的那一半
+MARGIN = 6       # 矩形外側多留的寬度（px）：把手露在框外，也是邊帶在框外的那一半
 HANDLE = 10      # 把手方塊邊長（px）
 MIN_SIZE = 20    # 縮放時的最小寬高（px）
-GRAB = 8         # 邊帶在矩形內側的寬度（px）；與 MARGIN 合起來是整條邊帶
+GRAB = 4         # 邊帶在矩形內側的寬度（px）；與 MARGIN 合起來是整條邊帶
 _LINE = 3        # 亮色框線寬度（px），以矩形邊為中心線畫
 _TRANSPARENT = "#010101"   # 框線層的透明色鍵
 _GRIP_ALPHA = 0.01         # 滑鼠層：看不見但收得到滑鼠（0 就收不到）
