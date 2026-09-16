@@ -1,6 +1,7 @@
 """框選流程：熱鍵切換、凍結畫面擷取／裁切失敗、背景結果回填、過期 session 丟棄；
 選取層與卡片用替身。"""
 import queue
+from types import SimpleNamespace
 
 from src.i18n import t
 from src.region.capture import CaptureError, SelectionOutsideGame
@@ -16,7 +17,8 @@ from src.ui.region_flow import RegionFlow, describe_error
 
 _RECT = (100, 100, 300, 120)
 _MONITOR = (0, 0, 1920, 1080)
-_FRAME = object()   # 凍結畫面本身的內容跟流程無關，只要能原封不動傳到 crop 即可
+# 凍結畫面的影像內容跟流程無關（原封不動傳到 crop 即可）；流程只讀 client 區的位置與大小
+_FRAME = SimpleNamespace(client_origin=(100, 200), client_size=(800, 600))
 
 
 class FakeSelector:
@@ -152,7 +154,11 @@ def test_selection_crops_the_same_frame_that_was_captured(root):
     assert captured == [_FRAME]
 
 
-def test_frame_capture_failure_is_shown_without_opening_the_selector(root):
+def test_frame_capture_failure_is_shown_at_the_cursor_without_opening_the_selector(
+        monkeypatch, root):
+    from src.ui import region_flow as region_flow_module
+
+    monkeypatch.setattr(region_flow_module, "cursor_position", lambda: (40, 50))
     boom = CaptureError("PrintWindow failed")
 
     def failing(hwnd):
@@ -160,9 +166,25 @@ def test_frame_capture_failure_is_shown_without_opening_the_selector(root):
 
     flow, selector, card, _ = _flow(root, FakePipeline(), capture_window=failing)
     flow.toggle(0x1234)
-    assert card.events == [("pending", (0, 0, 0, 0)), ("error", t("region.capture_failed", error=boom))]
+    assert card.events == [("pending", (40, 50, 0, 0)),
+                           ("error", t("region.capture_failed", error=boom))]
     assert not selector.is_open
     assert flow._thread is None
+
+
+def test_the_selector_covers_the_monitor_under_the_middle_of_the_game_client_area(root):
+    asked = []
+
+    def monitor_at(x, y):
+        asked.append((x, y))
+        return _MONITOR
+
+    ui_queue = queue.Queue()
+    flow = RegionFlow(root, FakePipeline(), ui_queue, alpha=0.8, selector=FakeSelector(),
+                      card=FakeCard(), capture_window=lambda hwnd: _FRAME,
+                      capture_screen=lambda monitor: None, monitor_at=monitor_at)
+    flow.toggle(0x1234)
+    assert asked == [(100 + 400, 200 + 300)]
 
 
 def test_capture_failure_is_shown_on_the_card_without_a_worker(root):

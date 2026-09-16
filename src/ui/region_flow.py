@@ -18,8 +18,6 @@ import threading
 import tkinter as tk
 import traceback
 
-import win32gui
-
 from src.composer.paste import force_foreground
 from src.i18n import t
 from src.log import log
@@ -109,16 +107,18 @@ class RegionFlow:
         self._box.hide()
         self._cancel_request()
         self._game_hwnd = game_hwnd
-        x, y = _window_center(game_hwnd)
         try:
             frame = self._capture_window(game_hwnd)
         except CaptureError as exc:
             # 選取層還沒開，遊戲仍是前景，不必像 _selected 那樣還前景
             log(f"[region] frame capture failed (hwnd={game_hwnd:#x}): {exc}")
+            x, y = cursor_position()
             self._card.show_pending((x, y, 0, 0))
             self._card.show_error(t("region.capture_failed", error=exc))
             return
-        monitor = self._monitor_at(x, y)
+        # 選取層要蓋遊戲所在的那顆螢幕：凍結畫面帶著 client 區的位置與大小，取中心點查
+        monitor = self._monitor_at(frame.client_origin[0] + frame.client_size[0] // 2,
+                                   frame.client_origin[1] + frame.client_size[1] // 2)
         backdrop = self._capture_screen(monitor)   # 失敗一律退回全黑，不會擋住框選
         log(f"[region] selection started (game_hwnd={game_hwnd:#x})")
         self._selector.show(monitor, frame,
@@ -225,13 +225,3 @@ class RegionFlow:
         if session != self._session:
             return
         self._card.show_error(message)
-
-
-def _window_center(hwnd: int) -> tuple[int, int]:
-    """遊戲視窗的中心點（決定選取層要蓋哪顆螢幕）；查不到就用 (0, 0)＝主螢幕。"""
-    try:
-        left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-        return (left + right) // 2, (top + bottom) // 2
-    except Exception as exc:
-        log(f"[region] GetWindowRect failed (hwnd={hwnd:#x}): {exc}")
-        return 0, 0
