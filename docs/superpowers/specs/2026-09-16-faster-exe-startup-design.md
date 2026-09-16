@@ -201,7 +201,7 @@ import 悄悄破壞，且不會有任何既有測試變紅。同一個 process �
 
 ## 驗收條件
 
-- `uv run ruff check src tests` 零錯誤。
+- `uv run ruff check src tests tools` 零錯誤。
 - `uv run pytest` 全綠。
 - 上述五項實機驗證通過。
 - 啟動時間前後對照：預期 warm 從約 2.8 秒降到約 2.0 秒，且**全程有畫面**。
@@ -224,3 +224,20 @@ hwnd」，splash 佔住 primary window 後會不會歪掉只能實測。
 **實作順序上，這兩項排在最前面驗**，不等全部寫完才發現。若焦點問題無解，應回頭調整
 甚至放棄 C —— 一個會把 overlay 踢到遊戲背後的啟動畫面，代價比它解決的問題更大；此時
 A 與 B 仍可獨立保留，啟動時間一樣會從 2.8 秒降到約 2.0 秒。
+
+圖示問題也先定好因應方式，同樣不等實測炸開才臨場想辦法：`apply_window_icon(root)`
+（`src/main.py`）在正常路徑上全程跑在 splash 還佔著 primary window 的期間，若實測發現
+圖示跑掉，最低成本的修法是在正常路徑 `splash.close()` 之後**立刻重呼一次
+`apply_window_icon(root)`**——splash 交還 primary window 後再設一次類別圖示即可，不必
+回頭放棄整個 C。這段補呼叫**先不寫進程式碼**：圖示問題目前只是文件記載的已知風險、
+本專案尚未實測到，搶先加一個未觀察到的 bug 的 workaround 是預先設計，違反 YAGNI；只有
+實機驗證真的看到圖示跑掉時才動手補這一行。把因應方式先寫進 spec，是讓那次驗證結束在
+「照著做」，而不是臨時展開一輪除錯。
+
+## 後續追蹤
+
+- **發布說明要揭露 A 的收益不對稱**：本文件已在「A. 延遲 import `anthropic`」一節記錄
+  Claude 官方 provider 的使用者實際上省不到這 0.68 秒（成本只是從 import 階段挪到
+  `build_app()`），但目前的實作計畫沒有任何任務涵蓋「把這件事寫進發布說明」，本專案
+  也還沒有 `CHANGELOG`。下一次發布本次改動時，release note 需誠實描述這個差異，
+  不能讓 Claude 官方 provider 的使用者誤以為自己也省下了 0.68 秒；記在這裡以免被忘記。
