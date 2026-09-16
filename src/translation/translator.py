@@ -339,8 +339,6 @@ class _OpenAICompatClient(_BaseClient):
                         error = None
                         with _cancellable(cancel, resp.close):
                             content, finish_reason, completion_tokens = _read_sse(resp)
-            except TranslatorCancelled:
-                raise
             except (httpx.HTTPError, httpx.StreamError) as exc:
                 raise TranslatorOffline(_one_line(str(exc))) from exc
             if error is None:
@@ -435,8 +433,6 @@ class _ClaudeClient(_BaseClient):
             with (self._client.messages.stream(**params) as stream,
                   _cancellable(cancel, stream.close)):
                 resp = stream.get_final_message()
-        except TranslatorCancelled:
-            raise
         except (anthropic.APIConnectionError, httpx.HTTPError, httpx.StreamError) as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
         except anthropic.APIStatusError as exc:

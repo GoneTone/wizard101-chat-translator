@@ -1078,6 +1078,13 @@ def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
     assert "[發送者]" not in prompt
 
 
+def test_region_system_prompt_speaks_of_recognized_text_not_of_an_image():
+    # 輸入固定是本機 OCR 的文字，看圖時代的句子（描述畫面、猜字、沒有文字）只是噪音
+    prompt = build_region_system("日本語")
+    for stale in ("圖片", "描述畫面", "沒有文字", "無法辨識"):
+        assert stale not in prompt
+
+
 # --- 串流與取消：請求進行中可以從別的執行緒斷線，伺服器停止生成、不再計費 ---
 def test_openai_compat_asks_for_a_stream_and_joins_the_chunks():
     fake = FakeHttpxClient(response=FakeResponse(content="一段很長的譯文"))

@@ -1,6 +1,5 @@
-"""本機 OCR 退路：RapidOCR（PP-OCR ONNX 模型），PNG bytes → 文字。
-
-只在翻譯後端不吃圖片時使用（見 region.pipeline）。原本用 Windows 內建的
+"""本機 OCR：RapidOCR（PP-OCR ONNX 模型），PNG bytes → 文字；框選翻譯唯一的辨識路徑
+（見 region.pipeline）。原本用 Windows 內建的
 Windows.Media.Ocr，但它讀不動遊戲的美術字型 —— 商店標題「Items Recommended
 For Your Wizard」試過 56 種前處理組合（縮放倍率、二值化、對比度全排列）全數
 失敗；RapidOCR 用同一個模型就能讀出英文與簡體中文，不必挑語言包。
