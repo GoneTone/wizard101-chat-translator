@@ -13,8 +13,25 @@ ConnectionError。本模組把這些全部吞掉，呼叫端不必判斷環境�
 buffer，等 `main()` 在 `redirect_output()` 之後呼叫 `drain_logs()` 才一次補寫、並切換成
 之後直接呼叫 `log()`。`_failed` 讓呼叫端（`main()` 的 `[splash] startup screen ...` 那行）
 能判斷「看起來可用」與「其實已經失敗過」的差別，不必自己重複解析訊息內容。
+
+`PHASE_LOADING`／`PHASE_STARTING` 定義在這裡（而不是直接寫死在 `run.py`／
+`src/main.py` 呼叫處），是因為 `tools/splash_progress.py` 在 build 時要把同一組字串
+烤進 Tcl 腳本，用來判斷 bootloader 回報的 `status_text` 是不是這兩個階段訊息、藉此把
+進度條從解壓推進到「Python 正在跑」的後段。三處（這裡、`run.py`、`src/main.py`）都
+從這裡 import 常數，改字面文字只要改這一處，Tcl 那邊的比對不會跟著兜不起來。
+build.spec 在 import `tools.splash_progress`之前已經 `sys.path.insert(0, SPECPATH)`，
+build 時 `import src.splash` 讀得到這個模組；`pyi_splash` 那段 import 包在
+try/except ImportError 裡，build 環境沒有 `pyi_splash`，會安靜地走 except 分支，不會
+讓 build 掛掉。
 """
 from src.log import log
+
+# 兩個階段訊息：building 時 tools/splash_progress.py 會把這兩個字面值原封不動烤進
+# Tcl，跟 bootloader 回報的 status_text 做完全比對，藉此判斷「解壓已經結束，Python
+# 正在跑到哪個階段」——改這裡的文字，Tcl 那邊自動跟著換，不必去 build 腳本裡改一份
+# 複製的字串。
+PHASE_LOADING = "Loading components..."
+PHASE_STARTING = "Starting..."
 
 try:
     import pyi_splash as _splash

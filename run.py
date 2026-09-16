@@ -9,7 +9,7 @@ def _run() -> None:
     （先 update 再 import src.main）正是這裡的重點。
     """
     from src import splash
-    splash.update("Loading components...")
+    splash.update(splash.PHASE_LOADING)
     from src.main import main
     main()
 

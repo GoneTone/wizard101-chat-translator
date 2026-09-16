@@ -31,6 +31,16 @@ def _reset(monkeypatch, fake) -> None:
     monkeypatch.setattr(splash, "_pending_logs", [])
 
 
+def test_phase_constants_match_the_literals_run_py_and_main_py_used_to_pass():
+    """`tools/splash_progress.py` 在 build 時 import 這兩個常數、原封不動烤進 Tcl
+    去比對 bootloader 回報的 status_text；`run.py`／`src/main.py` 也改成傳常數而不是
+    字面值。這裡釘住常數本身的字面值——改了這裡卻沒對應更新 Tcl 那邊的比對邏輯，
+    進度條會卡在解壓上限、永遠推不到後段，但不會有任何測試變紅，除非釘住這兩個值。
+    """
+    assert splash.PHASE_LOADING == "Loading components..."
+    assert splash.PHASE_STARTING == "Starting..."
+
+
 def test_no_ops_without_pyi_splash(monkeypatch):
     _reset(monkeypatch, None)
     splash.update("anything")   # 開發模式的常態，不該拋例外

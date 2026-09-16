@@ -553,7 +553,7 @@ def main() -> None:
         log("[app] wizard completed, config saved")
         save_config(CONFIG_PATH, cfg)
 
-    splash.update("Starting...")
+    splash.update(splash.PHASE_STARTING)
     app = build_app(cfg, root, message_log)
     splash.close()
 

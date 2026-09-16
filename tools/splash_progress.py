@@ -25,6 +25,29 @@ basename 當 key 會撞名（實測 1121 個檔案裡 67 個 key 撞到 174 個�
 
 樣板是模組層級狀態，patch 會影響整個行程；本模組用一個字串錨點偵測是否已經改過，
 重複呼叫不會疊加兩份進度條。
+
+使用者實跑後回報兩個現象，這次一併修掉：(1) 進度條中段會跳一大截 —— 解壓順序裡
+`cv2.pyd` 前面 1000 多個小檔案只佔 7.6% 的位元組數，`cv2.pyd` 本身佔 37.6%，單一
+事件把進度條從 7.6% 推到 45.2% 是逐檔計分本身的限制，接受它、但用緩動動畫把「跳」
+感磨掉；(2) 進度條解壓完就滿格，接著卻還要再等約 0.78 秒（`import src.main` 約
+0.31 秒＋`[app] version=` 到 `[app] running` 實測 0.47～0.48 秒）畫面才真的可用 ——
+解壓只推進到 80%，剩下的 20% 交給 `run.py`／`src/main.py` 已經會送的兩個階段訊息
+（`PHASE_LOADING` 推到 90%、`PHASE_STARTING` 推到 97%），splash 在 `build_app()`
+之後立刻關閉，所以刻意不推到 100%——滿格之後還晾著不動，比停在 97% 更奇怪。
+
+`PHASE_LOADING`／`PHASE_STARTING` 定義在 `src/splash.py`（執行期真正呼叫
+`splash.update()` 的地方），這裡在 build 時原封不動 import 進來烤進 Tcl 的完全比對，
+不在這裡另外複製一份字面值 —— 兩邊字面值不同步只會讓進度條卡住，不會有任何測試
+變紅，除非兩邊都盯著同一個常數。
+
+進度條的推進改成緩動動畫而非瞬間跳到目標：bootloader 解壓期間 Tcl 的事件迴圈不
+保證會處理 `after` —— 若動畫只靠 `after` 排程，解壓密集時迴圈沒空跑，畫面就會卡住
+不動。因此每個 trace 事件（不論是解壓回報還是階段訊息）都無條件直接呼叫一次步進
+函式 `pyi_progress_step`，確保「`after` 完全沒機會跑」的最壞情況下進度條依然每個
+事件都會前進一點（解壓期間事件密集，逐次前進本身就有平滑效果）；`pyi_progress_step`
+另外用旗標 `_pyi_animating` 避免同時有兩條 `after` 排程鏈疊加，正常情況下（例如兩個
+階段訊息間隔數百毫秒）則會在約 200ms 內用 easing（每步移動剩餘距離的 25%、每 16ms
+一步）把動畫補完。
 """
 from __future__ import annotations
 
@@ -35,6 +58,7 @@ from itertools import chain
 from PyInstaller.building import splash_templates
 
 from src.log import log
+from src.splash import PHASE_LOADING, PHASE_STARTING
 from tools.splash_image import PROGRESS_FILL_COLOR, PROGRESS_TRACK_COLOR, SIZE
 
 # 進度條位置：畫面最下緣、整條寬度，跟狀態文字（左下角、TEXT_ORIGIN=(24, 276)）
@@ -43,6 +67,16 @@ _BAR_X0 = 0
 _BAR_Y0 = 292
 _BAR_X1 = SIZE[0]
 _BAR_Y1 = SIZE[1]
+_BAR_WIDTH = _BAR_X1 - _BAR_X0
+
+# 解壓只推進到 80%；剩下交給兩個階段訊息（見模組說明）。splash 在 build_app() 之後
+# 立刻關閉，`PHASE_STARTING` 刻意不設在 100%——滿格之後還晾著不動，比停在 97% 更奇怪。
+_EXTRACT_CEILING = 0.80
+_PHASE_LOADING_FRACTION = 0.90
+_PHASE_STARTING_FRACTION = 0.97
+_EXTRACT_MAX_PX = round(_BAR_WIDTH * _EXTRACT_CEILING)
+_LOADING_TARGET_PX = round(_BAR_WIDTH * _PHASE_LOADING_FRACTION)
+_STARTING_TARGET_PX = round(_BAR_WIDTH * _PHASE_STARTING_FRACTION)
 
 # 用來偵測樣板是否已經被本函式改過 —— 只要這個變數名還在，代表已經 patch 過。
 _SENTINEL = "_pyi_total"
@@ -95,40 +129,72 @@ def _size_table_tcl(table: dict[str, list[int]]) -> str:
 
 
 def _canvas_setup_addition(total: int, table: dict[str, list[int]]) -> str:
+    """畫布建立之後接的段落：初始化進度狀態、畫軌道／填色兩個矩形，並定義
+    `pyi_progress_step`——每個 trace 事件都會直接呼叫它一次（見模組說明），它自己
+    再視情況用 `after` 接力把動畫補到目標，兩者靠 `_pyi_animating` 旗標互相協調，
+    不會疊出兩條並行的 `after` 鏈。"""
     return (
         "\n"
         "set _pyi_done 0\n"
         f"set _pyi_total {total}\n"
         f"array set _pyi_sizes {{{_size_table_tcl(table)}}}\n"
+        "set _pyi_target 0\n"
+        "set _pyi_current 0\n"
+        "set _pyi_animating 0\n"
         f'.root.canvas create rectangle {_BAR_X0} {_BAR_Y0} {_BAR_X1} {_BAR_Y1} '
         f'-fill "{PROGRESS_TRACK_COLOR}" -outline "" -tag pyi_track\n'
         f'.root.canvas create rectangle {_BAR_X0} {_BAR_Y0} {_BAR_X0} {_BAR_Y1} '
-        f'-fill "{PROGRESS_FILL_COLOR}" -outline "" -tag pyi_fill'
+        f'-fill "{PROGRESS_FILL_COLOR}" -outline "" -tag pyi_fill\n'
+        "proc pyi_progress_step {} {\n"
+        "    global _pyi_current _pyi_target _pyi_animating\n"
+        "    set _pyi_current [expr {$_pyi_current + ($_pyi_target - $_pyi_current) * 0.25}]\n"
+        f"    .root.canvas coords pyi_fill {_BAR_X0} {_BAR_Y0} "
+        f"[expr {{{_BAR_X0} + int($_pyi_current)}}] {_BAR_Y1}\n"
+        "    if {[expr {abs($_pyi_target - $_pyi_current)}] > 1} {\n"
+        "        if {!$_pyi_animating} {\n"
+        "            set _pyi_animating 1\n"
+        "            after 16 pyi_progress_step\n"
+        "        }\n"
+        "    } else {\n"
+        "        set _pyi_current $_pyi_target\n"
+        "        set _pyi_animating 0\n"
+        "    }\n"
+        "}"
     )
 
 
 def _text_update_addition() -> str:
-    """`canvas_text_update` 本體新增的段落：依 basename 查表，每次報到彈出清單開頭
-    那個位元組數並累加，清單空了才 `unset` —— 撞名的檔案（同一 basename 對應多個
-    來源檔）靠這個機制都會被算到，不會被後面報到的同名項目蓋掉。"""
-    bar_width = _BAR_X1 - _BAR_X0
+    """`canvas_text_update` 本體新增的段落。先精確比對兩個階段字串（`PHASE_LOADING`／
+    `PHASE_STARTING`，從 `src.splash` import 進來，不在這裡另抄一份字面值），推進
+    到各自保留的目標；否則落到 basename 查表：每次報到彈出清單開頭那個位元組數並
+    累加，清單空了才 `unset`（撞名的檔案都會被算到，不會被後面報到的同名項目蓋掉），
+    上限壓在 `_EXTRACT_MAX_PX`（80%）而不是滿格——剩下留給兩個階段字串推進。三個
+    分支只要有動到 `_pyi_target` 就呼叫一次 `pyi_progress_step`，理由見模組說明。"""
     return (
         "\n"
-        "    global _pyi_done _pyi_total _pyi_sizes\n"
-        "    set _pyi_key [string tolower [file tail $var]]\n"
-        "    if {[info exists _pyi_sizes($_pyi_key)]} {\n"
-        "        set _pyi_list $_pyi_sizes($_pyi_key)\n"
-        "        incr _pyi_done [lindex $_pyi_list 0]\n"
-        "        set _pyi_list [lrange $_pyi_list 1 end]\n"
-        "        if {[llength $_pyi_list] > 0} {\n"
-        "            set _pyi_sizes($_pyi_key) $_pyi_list\n"
-        "        } else {\n"
-        "            unset _pyi_sizes($_pyi_key)\n"
+        "    global _pyi_done _pyi_total _pyi_sizes _pyi_target\n"
+        f"    if {{$var eq {{{PHASE_LOADING}}}}} {{\n"
+        f"        set _pyi_target {_LOADING_TARGET_PX}\n"
+        "        pyi_progress_step\n"
+        f"    }} elseif {{$var eq {{{PHASE_STARTING}}}}} {{\n"
+        f"        set _pyi_target {_STARTING_TARGET_PX}\n"
+        "        pyi_progress_step\n"
+        "    } else {\n"
+        "        set _pyi_key [string tolower [file tail $var]]\n"
+        "        if {[info exists _pyi_sizes($_pyi_key)]} {\n"
+        "            set _pyi_list $_pyi_sizes($_pyi_key)\n"
+        "            incr _pyi_done [lindex $_pyi_list 0]\n"
+        "            set _pyi_list [lrange $_pyi_list 1 end]\n"
+        "            if {[llength $_pyi_list] > 0} {\n"
+        "                set _pyi_sizes($_pyi_key) $_pyi_list\n"
+        "            } else {\n"
+        "                unset _pyi_sizes($_pyi_key)\n"
+        "            }\n"
+        "            set _pyi_target "
+        f"[expr {{int(double($_pyi_done) / $_pyi_total * {_EXTRACT_MAX_PX})}}]\n"
+        f"            if {{$_pyi_target > {_EXTRACT_MAX_PX}}} {{set _pyi_target {_EXTRACT_MAX_PX}}}\n"
+        "            pyi_progress_step\n"
         "        }\n"
-        f"        set _pyi_w [expr {{int(double($_pyi_done) / $_pyi_total * {bar_width})}}]\n"
-        f"        if {{$_pyi_w > {bar_width}}} {{set _pyi_w {bar_width}}}\n"
-        f"        $canvas coords pyi_fill {_BAR_X0} {_BAR_Y0} "
-        f"[expr {{{_BAR_X0} + $_pyi_w}}] {_BAR_Y1}\n"
         "    }"
     )
 
@@ -142,6 +208,16 @@ def install_progress_bar(binaries: Iterable[Sequence[str]], datas: Iterable[Sequ
     漏掉 rapidocr 的模型檔，這兩個檔案體積不小又排在解壓尾聲）。順序上必須排在
     ffmpeg 過濾之後 —— 過濾前算會把已排除的檔案也算進總數，進度條永遠到不了滿格。
     """
+    for phase in (PHASE_LOADING, PHASE_STARTING):
+        if "{" in phase or "}" in phase:
+            # 跟 basename 一樣的理由：大括號會破壞 `$var eq {...}` 的 Tcl 分組語法。
+            # 這兩個字串是本專案自己定義的常數，理論上不會發生，但生成出一份語法
+            # 錯誤的 Tcl 比 build 直接紅掉更難查。
+            raise ValueError(
+                f"splash progress bar: phase string {phase!r} contains Tcl brace characters "
+                "and can't be safely embedded in the generated script"
+            )
+
     table = _size_table(chain(binaries, datas))
     total = sum(chain.from_iterable(table.values()))
     if total <= 0:
@@ -194,6 +270,8 @@ def install_progress_bar(binaries: Iterable[Sequence[str]], datas: Iterable[Sequ
     entry_count = sum(len(sizes) for sizes in table.values())
     log(
         f"[build] splash progress bar installed: keys={len(table)} entries={entry_count} "
-        f"total_bytes={total} bar=({_BAR_X0},{_BAR_Y0})-({_BAR_X1},{_BAR_Y1})"
+        f"total_bytes={total} bar=({_BAR_X0},{_BAR_Y0})-({_BAR_X1},{_BAR_Y1}) "
+        f"extract_max_px={_EXTRACT_MAX_PX} loading_px={_LOADING_TARGET_PX} "
+        f"starting_px={_STARTING_TARGET_PX}"
     )
     return total

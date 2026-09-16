@@ -1,8 +1,9 @@
 """啟動畫面進度條：位元組加權對照表的計算，以及 patch PyInstaller 樣板的行為。
 
 不需要真的跑 PyInstaller —— 這裡只驗證 `tools/splash_progress.py` 自己的邏輯
-（對照表、Tcl 片段格式、錨點檢查、重複呼叫不疊加、撞名清單彈出）。Tcl 腳本實際
-長什麼樣，build 一次後開生成的 `*_script.tcl` 人工確認。
+（對照表、Tcl 片段格式、錨點檢查、重複呼叫不疊加、撞名清單彈出、解壓上限、階段
+目標、緩動動畫）。Tcl 腳本實際長什麼樣，build 一次後開生成的 `*_script.tcl` 人工
+確認。
 """
 import tkinter
 from itertools import chain
@@ -34,6 +35,28 @@ def _make_entries(tmp_path, sizes: dict[str, int]) -> list[tuple[str, str, str]]
         src.write_bytes(b"x" * size)
         entries.append((dest_name, str(src), "BINARY"))
     return entries
+
+
+def _tcl_interpreter_with_progress_state(total: int, table: dict[str, list[int]]) -> tkinter.Tcl:
+    """準備一個沒有視窗、沒有畫布的純 Tcl 直譯器：假的 `.root.canvas` proc 吞掉
+    `itemconfigure`／`coords`／`create` 呼叫，藉此在不建立任何 Tk 視窗的情況下實際
+    執行 `_canvas_setup_addition()`／`_text_update_addition()` 產生的 Tcl（含
+    `pyi_progress_step` 與 `canvas_text_update`），而不只是字串比對。"""
+    interp = tkinter.Tcl()
+    interp.eval("proc .root.canvas {args} {}")
+    interp.eval(splash_progress._canvas_setup_addition(total, table))
+    proc_body = (
+        "upvar $_var var\n"
+        "$canvas itemconfigure $tag -text $var\n" + splash_progress._text_update_addition()
+    )
+    interp.eval(f"proc canvas_text_update {{canvas tag _var}} {{{proc_body}}}")
+    return interp
+
+
+def _report(interp: tkinter.Tcl, text: str) -> None:
+    """模擬 bootloader 對 `status_text` 的一次寫入，觸發 `canvas_text_update`。"""
+    interp.eval(f"set status_text {{{text}}}")
+    interp.eval("canvas_text_update .root.canvas vartext status_text")
 
 
 # ---------------------------------------------------------------------------
@@ -109,13 +132,18 @@ def test_install_progress_bar_injects_the_size_table_and_bar_elements(tmp_path):
     assert "array set _pyi_sizes {{cv2.pyd} {1000}}" in canvas_setup
     assert "-tag pyi_track" in canvas_setup
     assert "-tag pyi_fill" in canvas_setup
+    assert "proc pyi_progress_step {}" in canvas_setup
+    assert ".root.canvas coords pyi_fill" in canvas_setup
 
     text_update = splash_templates.image_script
     # 文字更新那行原樣保留在最前面 —— 使用者要求檔名照舊顯示，不能被拿掉
     assert "$canvas itemconfigure $tag -text $var\n    global _pyi_done" in text_update
     assert "info exists _pyi_sizes($_pyi_key)" in text_update
     assert "lindex $_pyi_list 0" in text_update
-    assert "$canvas coords pyi_fill" in text_update
+    assert "pyi_progress_step" in text_update
+    # 兩個階段字串要精確比對，不能被 basename 那條路徑吃掉
+    assert "$var eq {Loading components...}" in text_update
+    assert "$var eq {Starting...}" in text_update
 
 
 def test_install_progress_bar_raises_if_nothing_has_a_readable_size():
@@ -170,38 +198,90 @@ def test_install_progress_bar_does_not_double_inject_on_repeated_calls(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# 用真正的 Tcl 直譯器驗證清單彈出邏輯（純字串比對測不出 Tcl 語法本身寫錯的地方）
+# 用真正的 Tcl 直譯器驗證清單彈出邏輯、解壓上限、階段目標、緩動動畫
+# （純字串比對測不出 Tcl 語法本身寫錯的地方）
 # ---------------------------------------------------------------------------
 
 
 def test_progress_tracking_pops_one_size_per_report_in_a_real_tcl_interpreter():
-    """`tkinter.Tcl()` 給一個沒有視窗、沒有畫布的純 Tcl 直譯器 —— 用假的
-    `.root.canvas` proc 吞掉 `itemconfigure`／`coords` 呼叫，藉此在不建立任何 Tk
-    視窗的情況下，實際執行 `_text_update_addition()` 產生的 Tcl，驗證：
-    (1) 撞名的兩個大小都會被算到、彼此獨立彈出；
-    (2) basename 比對真的有轉小寫；
-    (3) 清單彈完才 `unset` 該 key。
-    """
+    """驗證：(1) 撞名的兩個大小都會被算到、彼此獨立彈出；(2) basename 比對真的有
+    轉小寫；(3) 清單彈完才 `unset` 該 key。"""
     table = {"dup.dll": [10, 20], "solo.pyd": [5]}
     total = sum(size for sizes in table.values() for size in sizes)
+    interp = _tcl_interpreter_with_progress_state(total, table)
 
-    interp = tkinter.Tcl()
-    interp.eval("proc .root.canvas {args} {}")
-    interp.eval(f"set _pyi_total {total}")
-    interp.eval(f"array set _pyi_sizes {{{splash_progress._size_table_tcl(table)}}}")
-    interp.eval("set _pyi_done 0")
-    proc_body = (
-        "upvar $_var var\n"
-        "$canvas itemconfigure $tag -text $var\n" + splash_progress._text_update_addition()
-    )
-    interp.eval(f"proc canvas_text_update {{canvas tag _var}} {{{proc_body}}}")
-
-    interp.eval("set status_text dup.dll")
-    interp.eval("canvas_text_update .root.canvas vartext status_text")
-    interp.eval("set status_text DUP.DLL")   # 同一個 key 第二次報到，basename 要轉小寫比對
-    interp.eval("canvas_text_update .root.canvas vartext status_text")
-    interp.eval("set status_text solo.pyd")
-    interp.eval("canvas_text_update .root.canvas vartext status_text")
+    _report(interp, "dup.dll")
+    _report(interp, "DUP.DLL")   # 同一個 key 第二次報到，basename 要轉小寫比對
+    _report(interp, "solo.pyd")
 
     assert int(interp.eval("set _pyi_done")) == total
     assert interp.eval("array names _pyi_sizes") == ""
+
+
+def test_extraction_target_is_capped_at_the_reserved_ceiling_not_full_width():
+    """解壓只能推進到 `_EXTRACT_MAX_PX`（80%），不是滿格的 `_BAR_WIDTH`——剩下的
+    20% 留給 `PHASE_LOADING`／`PHASE_STARTING` 兩個階段字串。全部位元組數消耗完，
+    `_pyi_target` 要停在解壓上限，不會自己爬到滿格。"""
+    table = {"cv2.pyd": [1000]}
+    interp = _tcl_interpreter_with_progress_state(1000, table)
+
+    _report(interp, "cv2.pyd")   # 唯一一個檔案，消耗掉全部位元組數
+
+    assert int(interp.eval("set _pyi_target")) == splash_progress._EXTRACT_MAX_PX
+    assert splash_progress._EXTRACT_MAX_PX < splash_progress._BAR_WIDTH
+
+
+def test_phase_strings_move_the_target_to_their_reserved_percentage():
+    """`PHASE_LOADING`／`PHASE_STARTING` 這兩個字串要精確比對成功，把 `_pyi_target`
+    推到各自保留的百分比，而不是被誤判成一個查表查不到的檔名（那樣就完全不會動）。"""
+    table = {"cv2.pyd": [1000]}
+    interp = _tcl_interpreter_with_progress_state(1000, table)
+
+    _report(interp, splash_progress.PHASE_LOADING)
+    assert int(interp.eval("set _pyi_target")) == splash_progress._LOADING_TARGET_PX
+
+    _report(interp, splash_progress.PHASE_STARTING)
+    assert int(interp.eval("set _pyi_target")) == splash_progress._STARTING_TARGET_PX
+
+    # 排序要對得上使用者體感的順序：解壓上限 < Loading < Starting < 滿格
+    assert (
+        splash_progress._EXTRACT_MAX_PX
+        < splash_progress._LOADING_TARGET_PX
+        < splash_progress._STARTING_TARGET_PX
+        < splash_progress._BAR_WIDTH
+    )
+
+
+def test_progress_step_advances_on_a_direct_call_and_converges_when_driven_repeatedly():
+    """Change B 的核心保險：bootloader 解壓密集時 Tcl 的事件迴圈不保證會處理
+    `after`，所以每個 trace 事件都要無條件直接呼叫一次 `pyi_progress_step`——這裡
+    模擬「`after` 完全沒機會觸發」的最壞情況（只手動呼叫，不跑 Tcl 事件迴圈），
+    確認單次直接呼叫仍會前進，且重複驅動足夠次數會收斂到目標並把
+    `_pyi_animating` 歸零（不會停在半路，也不會超過目標）。"""
+    interp = _tcl_interpreter_with_progress_state(1000, {"a.dll": [1000]})
+    interp.eval("set _pyi_target 300")
+
+    interp.eval("pyi_progress_step")   # 唯一一次直接呼叫，模擬 after 從未觸發
+    first_current = float(interp.eval("set _pyi_current"))
+    assert 0 < first_current < 300, "直接呼叫應該讓畫面前進，但還沒瞬間到達目標"
+
+    for _ in range(60):   # 模擬 after 鏈持續觸發，直到收斂為止
+        interp.eval("pyi_progress_step")
+
+    assert abs(float(interp.eval("set _pyi_current")) - 300) <= 1
+    assert int(interp.eval("set _pyi_animating")) == 0
+
+
+def test_progress_step_does_not_stack_concurrent_after_chains():
+    """多個 trace 事件密集發生時（每個都直接呼叫一次 `pyi_progress_step`），只能有
+    一條 `after` 排程鏈在跑——`_pyi_animating` 旗標在第一次呼叫後應該保持為 1，不會
+    被後續呼叫重置後又各自排一條新的鏈。"""
+    interp = _tcl_interpreter_with_progress_state(1000, {"a.dll": [1000]})
+
+    interp.eval("set _pyi_target 100")
+    interp.eval("pyi_progress_step")
+    assert int(interp.eval("set _pyi_animating")) == 1
+
+    interp.eval("set _pyi_target 200")
+    interp.eval("pyi_progress_step")   # 第二個事件：旗標已經是 1，不該再重新排一條鏈
+    assert int(interp.eval("set _pyi_animating")) == 1
