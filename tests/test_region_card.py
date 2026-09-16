@@ -33,8 +33,8 @@ def test_pending_then_text(card, root):
 
 
 def test_show_text_with_source_puts_both_in_one_selectable_label(card, root):
-    # 原文與譯文現在放同一顆 RichLabel（set_blocks），中間空一行分隔 —— 拖曳選取
-    # 才能一路跨過去，不會卡在兩段文字的交界（見 richtext.RichLabel.set_blocks）
+    # 原文與譯文放同一顆 RichLabel（set_blocks），中間空一行分隔 —— 拖曳選取
+    # 才能一路跨過去，不會卡在兩段文字的交界
     card.show_pending(_RECT)
     root.update()
     card.show_text("譯文", source="Talk to Merle")

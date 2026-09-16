@@ -36,7 +36,7 @@ class RegionSelector:
         self._hint: tk.Toplevel | None = None
         self._hint_label: tk.Label | None = None
         self._canvas: tk.Canvas | None = None
-        self._band = None
+        self._rubber_band = None
         self._size_label = None
         self._spot = None
         self._dim_photo = None
@@ -82,8 +82,8 @@ class RegionSelector:
         canvas.create_image(*self._frame_pos, image=self._dim_photo, anchor="nw")
         # 建立順序決定疊放順序：聚光燈要蓋過暗化底，但框線與尺寸文字要蓋過聚光燈
         self._spot = canvas.create_image(0, 0, anchor="nw", state="hidden")
-        self._band = canvas.create_rectangle(0, 0, 0, 0, outline=FG_UPDATE,
-                                             width=_BAND_WIDTH, state="hidden")
+        self._rubber_band = canvas.create_rectangle(0, 0, 0, 0, outline=FG_UPDATE,
+                                                    width=_BAND_WIDTH, state="hidden")
         self._size_label = canvas.create_text(0, 0, text="", fill=FG_UPDATE,
                                               font=ui_font(9), anchor="sw", state="hidden")
         canvas.bind("<ButtonPress-1>", self._press)
@@ -137,7 +137,7 @@ class RegionSelector:
     def _destroy(self) -> None:
         self._win.destroy()
         self._hint.destroy()
-        self._win = self._canvas = self._band = self._size_label = None
+        self._win = self._canvas = self._rubber_band = self._size_label = None
         self._spot = self._dim_photo = self._spot_photo = self._backdrop_photo = None
         self._frame = None
         self._frame_pos = (0, 0)
@@ -146,15 +146,15 @@ class RegionSelector:
 
     def _press(self, e) -> None:
         self._start = (e.x, e.y)
-        self._canvas.coords(self._band, e.x, e.y, e.x, e.y)
-        self._canvas.itemconfigure(self._band, state="normal")
+        self._canvas.coords(self._rubber_band, e.x, e.y, e.x, e.y)
+        self._canvas.itemconfigure(self._rubber_band, state="normal")
         self._canvas.itemconfigure(self._spot, state="hidden")
 
     def _drag(self, e) -> None:
         if self._start is None:
             return
         x0, y0 = self._start
-        self._canvas.coords(self._band, x0, y0, e.x, e.y)
+        self._canvas.coords(self._rubber_band, x0, y0, e.x, e.y)
         self._canvas.coords(self._size_label, min(x0, e.x), min(y0, e.y) - 2)
         self._canvas.itemconfigure(self._size_label, state="normal",
                                    text=f"{abs(e.x - x0)}×{abs(e.y - y0)}")

@@ -6,7 +6,7 @@
   連 hit-test 都跳過，滑鼠穿過去落到底下的滑鼠層；線與把手本身收到的點擊也交給同一套
   處理，行為一致。
 - 滑鼠層（下）：幾乎全透明（`-alpha` 極小但不為零，全零 Windows 就不派事件給它），
-  蓋住整個框，邊帶（`GRAB`）縮放、框內移動。可抓範圍因此不受畫出來的線寬限制；
+  蓋住整個框，邊帶（`MARGIN + INNER_BAND`）縮放、框內移動。可抓範圍因此不受畫出來的線寬限制；
   代價是框開著時框內的遊戲畫面點不到，關卡片一起收掉就恢復。
 兩層都不奪焦點（`make_non_activating`）。
 邊線只拉該邊、角落拉兩軸（判定沿用 `geometry.edge_at`，見 `hit_at`），四角與四邊中點
@@ -15,7 +15,6 @@
 """
 import tkinter as tk
 
-from src.log import log
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
 from src.ui.palette import BG, FG_UPDATE
 from src.ui.winstyle import make_non_activating
@@ -23,7 +22,7 @@ from src.ui.winstyle import make_non_activating
 MARGIN = 6       # 矩形外側多留的寬度（px）：把手露在框外，也是邊帶在框外的那一半
 HANDLE = 10      # 把手方塊邊長（px）
 MIN_SIZE = 20    # 縮放時的最小寬高（px）
-GRAB = 4         # 邊帶在矩形內側的寬度（px）；與 MARGIN 合起來是整條邊帶
+INNER_BAND = 4   # 邊帶在矩形內側的寬度（px）；與 MARGIN 合起來是整條邊帶
 _LINE = 3        # 亮色框線寬度（px），以矩形邊為中心線畫
 _TRANSPARENT = "#010101"   # 框線層的透明色鍵
 _GRIP_ALPHA = 0.01         # 滑鼠層：看不見但收得到滑鼠（0 就收不到）
@@ -43,13 +42,13 @@ def _handles(w: int, h: int) -> dict[str, tuple[int, int]]:
 
 def hit_at(px: int, py: int, w: int, h: int) -> str:
     """視窗座標 (px, py) 壓在哪：邊帶回邊角代號（`"n"`／`"se"`…）、框內回 `"move"`、
-    視窗外回空字串。邊帶厚度＝框外留白加框線內側（`MARGIN + GRAB`），角落區再寬一點、
+    視窗外回空字串。邊帶厚度＝框外留白加框線內側（`MARGIN + INNER_BAND`），角落區再寬一點、
     才好抓到角落把手。"""
     outer_w, outer_h = w + 2 * MARGIN, h + 2 * MARGIN
     if not point_in_rect(px, py, 0, 0, outer_w, outer_h):
         return ""
     return edge_at(px, py, 0, 0, outer_w, outer_h,
-                   edge=MARGIN + GRAB, corner=MARGIN + GRAB + HANDLE // 2) or "move"
+                   edge=MARGIN + INNER_BAND, corner=MARGIN + INNER_BAND + HANDLE // 2) or "move"
 
 
 class RegionBox:
@@ -59,8 +58,8 @@ class RegionBox:
     def __init__(self, root: tk.Tk):
         self._root = root
         self.on_change = None
-        self._win: tk.Toplevel | None = None
-        self._grip: tk.Toplevel | None = None
+        self._line_layer: tk.Toplevel | None = None
+        self._mouse_layer: tk.Toplevel | None = None
         self._canvas: tk.Canvas | None = None
         self._items: dict[str, int] = {}
         self._rect = (0, 0, 0, 0)
@@ -68,42 +67,42 @@ class RegionBox:
 
     @property
     def is_open(self) -> bool:
-        return self._win is not None
+        return self._line_layer is not None
 
     def rect(self) -> tuple[int, int, int, int]:
         """目前的框選矩形（螢幕座標）。"""
         return self._rect
 
     def show(self, rect: tuple[int, int, int, int]) -> None:
-        if self._win is None:
+        if self._line_layer is None:
             self._build()
         self._drag = None
         self._apply(rect)
 
     def hide(self) -> None:
-        if self._win is not None:
-            self._win.destroy()
-            self._grip.destroy()
-            self._win = self._grip = self._canvas = None
+        if self._line_layer is not None:
+            self._line_layer.destroy()
+            self._mouse_layer.destroy()
+            self._line_layer = self._mouse_layer = self._canvas = None
             self._items = {}
             self._drag = None
 
     def _build(self) -> None:
         # 滑鼠層先建：兩層都 topmost，後建的疊在上面，框線層要在滑鼠層之上
-        grip = tk.Toplevel(self._root)
-        grip.withdraw()
-        grip.overrideredirect(True)
-        grip.attributes("-topmost", True)
-        grip.attributes("-alpha", _GRIP_ALPHA)
-        grip.configure(bg=BG)
+        mouse_layer = tk.Toplevel(self._root)
+        mouse_layer.withdraw()
+        mouse_layer.overrideredirect(True)
+        mouse_layer.attributes("-topmost", True)
+        mouse_layer.attributes("-alpha", _GRIP_ALPHA)
+        mouse_layer.configure(bg=BG)
 
-        win = tk.Toplevel(self._root)
-        win.withdraw()
-        win.overrideredirect(True)
-        win.attributes("-topmost", True)
-        win.attributes("-transparentcolor", _TRANSPARENT)
-        win.configure(bg=_TRANSPARENT)
-        canvas = tk.Canvas(win, bg=_TRANSPARENT, highlightthickness=0, bd=0)
+        line_layer = tk.Toplevel(self._root)
+        line_layer.withdraw()
+        line_layer.overrideredirect(True)
+        line_layer.attributes("-topmost", True)
+        line_layer.attributes("-transparentcolor", _TRANSPARENT)
+        line_layer.configure(bg=_TRANSPARENT)
+        canvas = tk.Canvas(line_layer, bg=_TRANSPARENT, highlightthickness=0, bd=0)
         canvas.pack(fill="both", expand=True)
         # 建立順序決定疊放順序：框線在下、把手在上
         self._items = {"line": canvas.create_rectangle(0, 0, 0, 0, outline=FG_UPDATE,
@@ -112,23 +111,23 @@ class RegionBox:
             self._items[edge] = canvas.create_rectangle(0, 0, 0, 0, fill=FG_UPDATE,
                                                         outline=FG_UPDATE, width=1)
         # 兩層同大小、同位置，視窗座標一致，同一套判定與拖曳處理
-        for layer in (grip, canvas):
+        for layer in (mouse_layer, canvas):
             layer.bind("<ButtonPress-1>", self._press)
             layer.bind("<B1-Motion>", self._motion)
             layer.bind("<ButtonRelease-1>", self._release)
             layer.bind("<Motion>", self._hover)
-        self._win, self._grip, self._canvas = win, grip, canvas
-        make_non_activating(grip)
-        make_non_activating(win)
-        grip.deiconify()
-        win.deiconify()
+        self._line_layer, self._mouse_layer, self._canvas = line_layer, mouse_layer, canvas
+        make_non_activating(mouse_layer)
+        make_non_activating(line_layer)
+        mouse_layer.deiconify()
+        line_layer.deiconify()
 
     def _apply(self, rect: tuple[int, int, int, int]) -> None:
         """把兩層視窗與畫面上的框線、把手都對到 rect。"""
         self._rect = rect
         x, y, w, h = rect
         win_w, win_h = w + 2 * MARGIN, h + 2 * MARGIN
-        for layer in (self._win, self._grip):
+        for layer in (self._line_layer, self._mouse_layer):
             layer.geometry(f"{win_w}x{win_h}+{x - MARGIN}+{y - MARGIN}")
         canvas = self._canvas
         canvas.coords(self._items["line"], MARGIN, MARGIN, MARGIN + w, MARGIN + h)
@@ -163,5 +162,4 @@ class RegionBox:
             self._apply(start)   # 誤觸：位置還原、不回報
             return
         if self._rect != start and self.on_change is not None:
-            log(f"[region] box adjusted (rect={self._rect})")
             self.on_change(self._rect)

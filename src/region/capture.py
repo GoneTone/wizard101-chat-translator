@@ -33,8 +33,7 @@ class SelectionOutsideGame(CaptureError):
 
 @dataclass(frozen=True)
 class Frame:
-    """一次 `capture_window` 拍到的完整遊戲 client 區畫面 —— 選取層顯示它、`crop_frame`
-    從它裁切，兩邊用的是同一幀，不會受擷取之後遊戲又畫了新內容影響。"""
+    """一次 `capture_window` 拍到的完整遊戲 client 區畫面，連同 client 區的螢幕位置與大小。"""
 
     image: Image.Image
     client_origin: tuple[int, int]
@@ -56,13 +55,8 @@ def window_region(screen_rect: tuple[int, int, int, int], client_origin: tuple[i
 
 
 def capture_window(hwnd: int) -> Frame:
-    """把遊戲視窗 hwnd 的整個 client 區拍成一張 `Frame`，做為這次框選要用的凍結畫面。
-
-    整段 Win32／PIL 呼叫集中在這個 try：熱鍵觸發到真正擷取之間遊戲視窗可能已經消失或
-    改變，`ClientToScreen`／`GetWindowRect`／`PrintWindow` 任一個都可能拋 pywintypes 或
-    win32ui 的例外、裁切也可能因為尺寸不合拋 ValueError —— 這些都不是呼叫端該處理的型別，
-    一律包成 CaptureError 讓 region_flow 能用單一 except 接住。
-    """
+    """把遊戲視窗 hwnd 的整個 client 區拍成一張 `Frame`。
+    Win32／PIL 任一層的例外（視窗消失、PrintWindow 失敗、尺寸不合）一律包成 CaptureError。"""
     try:
         client_origin = win32gui.ClientToScreen(hwnd, (0, 0))
         _, _, client_w, client_h = win32gui.GetClientRect(hwnd)
@@ -84,13 +78,8 @@ def capture_window(hwnd: int) -> Frame:
 
 
 def capture_screen(monitor: tuple[int, int, int, int]) -> Image.Image:
-    """把 monitor（螢幕矩形 x, y, w, h）整顆拍成圖片，做為選取層暗化背景用。
-
-    跟 `capture_window` 分開：`capture_window` 只拍遊戲自己畫的內容，凍結下來的 `Frame`
-    才是真正會被 `crop_frame` 裁切、送去辨識的來源；這裡拍到的整顆螢幕只是選取層的背景
-    畫面，讓使用者知道桌面其餘部分還在（暗一點，跟 Snipping Tool 一樣），不會被裁切也
-    不會被送去翻譯。因此失敗了也不影響框選本身：直接退回全黑背景，選取層照樣開得起來。
-    """
+    """把 monitor（螢幕矩形 x, y, w, h）整顆拍成圖片，只給選取層當暗化背景；
+    失敗退回全黑，框選本身不受影響。"""
     x, y, w, h = monitor
     try:
         return ImageGrab.grab(bbox=(x, y, x + w, y + h), all_screens=True)
@@ -100,8 +89,7 @@ def capture_screen(monitor: tuple[int, int, int, int]) -> Image.Image:
 
 
 def crop_frame(frame: Frame, screen_rect: tuple[int, int, int, int]) -> bytes:
-    """從已經凍結的 `Frame` 裁出框選矩形，編碼成 PNG bytes；不碰 Win32，畫面在
-    `capture_window` 當下就已經定格，這裡只需要座標換算與裁切。"""
+    """從凍結的 `Frame` 裁出框選矩形（螢幕座標），編碼成 PNG bytes；純座標換算與裁切。"""
     region = window_region(screen_rect, frame.client_origin, frame.client_size)
     if region is None:
         raise SelectionOutsideGame(

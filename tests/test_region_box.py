@@ -4,7 +4,7 @@
 import pytest
 
 from src.ui.palette import FG_UPDATE
-from src.ui.region_box import GRAB, MARGIN, MIN_SIZE, RegionBox, hit_at
+from src.ui.region_box import INNER_BAND, MARGIN, MIN_SIZE, RegionBox, hit_at
 
 _RECT = (100, 100, 300, 200)
 
@@ -36,7 +36,7 @@ def test_show_opens_a_window_around_the_rect_with_room_for_the_handles(box, root
     box.show(_RECT)
     root.update()
     assert box.is_open and box.rect() == _RECT
-    assert box._win.geometry().split("+")[0] == f"{300 + 2 * MARGIN}x{200 + 2 * MARGIN}"
+    assert box._line_layer.geometry().split("+")[0] == f"{300 + 2 * MARGIN}x{200 + 2 * MARGIN}"
 
 
 def test_dragging_a_corner_handle_resizes_and_reports_the_new_rect(box, root):
@@ -58,32 +58,32 @@ def test_dragging_an_edge_line_moves_only_that_edge(box, root):
 def test_dragging_inside_the_box_moves_it(box, root):
     box.show(_RECT)
     root.update()
-    grip = box._grip
-    grip.event_generate("<ButtonPress-1>", x=50, y=50, rootx=1150, rooty=1150)
-    grip.event_generate("<B1-Motion>", x=70, y=60, rootx=1170, rooty=1160)
+    mouse_layer = box._mouse_layer
+    mouse_layer.event_generate("<ButtonPress-1>", x=50, y=50, rootx=1150, rooty=1150)
+    mouse_layer.event_generate("<B1-Motion>", x=70, y=60, rootx=1170, rooty=1160)
     root.update()
-    grip.event_generate("<ButtonRelease-1>", x=70, y=60, rootx=1170, rooty=1160)
+    mouse_layer.event_generate("<ButtonRelease-1>", x=70, y=60, rootx=1170, rooty=1160)
     root.update()
     assert box.rect() == (120, 110, 300, 200)
     assert box.changes == [(120, 110, 300, 200)]
 
 
-def test_the_grip_is_nearly_invisible_and_covers_the_whole_box(box, root):
+def test_the_mouse_layer_is_nearly_invisible_and_covers_the_whole_box(box, root):
     box.show(_RECT)
     root.update()
-    assert 0 < float(box._grip.attributes("-alpha")) <= 0.02
-    assert box._grip.geometry().split("+")[0] == f"{300 + 2 * MARGIN}x{200 + 2 * MARGIN}"
+    assert 0 < float(box._mouse_layer.attributes("-alpha")) <= 0.02
+    assert box._mouse_layer.geometry().split("+")[0] == f"{300 + 2 * MARGIN}x{200 + 2 * MARGIN}"
 
 
-def test_dragging_an_edge_on_the_grip_layer_resizes_too(box, root):
+def test_dragging_an_edge_on_the_mouse_layer_resizes_too(box, root):
     box.show(_RECT)
     root.update()
-    grip = box._grip
-    y = MARGIN + GRAB - 1   # 線內側、仍在邊帶裡
-    grip.event_generate("<ButtonPress-1>", x=MARGIN + 60, y=y, rootx=1060, rooty=1000 + y)
-    grip.event_generate("<B1-Motion>", x=MARGIN + 60, y=y + 10, rootx=1060, rooty=1010 + y)
+    mouse_layer = box._mouse_layer
+    y = MARGIN + INNER_BAND - 1   # 線內側、仍在邊帶裡
+    mouse_layer.event_generate("<ButtonPress-1>", x=MARGIN + 60, y=y, rootx=1060, rooty=1000 + y)
+    mouse_layer.event_generate("<B1-Motion>", x=MARGIN + 60, y=y + 10, rootx=1060, rooty=1010 + y)
     root.update()
-    grip.event_generate("<ButtonRelease-1>", x=MARGIN + 60, y=y + 10, rootx=1060,
+    mouse_layer.event_generate("<ButtonRelease-1>", x=MARGIN + 60, y=y + 10, rootx=1060,
                         rooty=1010 + y)
     root.update()
     assert box.rect() == (100, 110, 300, 190)
@@ -112,13 +112,13 @@ def test_the_window_follows_the_box_while_dragging(box, root):
     canvas.event_generate("<B1-Motion>", x=MARGIN + 340, y=MARGIN + 230,
                           rootx=1345, rooty=1235)
     root.update()
-    assert box._win.geometry().split("+")[0] == f"{340 + 2 * MARGIN}x{230 + 2 * MARGIN}"
+    assert box._line_layer.geometry().split("+")[0] == f"{340 + 2 * MARGIN}x{230 + 2 * MARGIN}"
 
 
 def test_only_the_line_and_the_handles_are_painted(box, root):
     box.show(_RECT)
     root.update()
-    key = str(box._win.attributes("-transparentcolor"))
+    key = str(box._line_layer.attributes("-transparentcolor"))
     assert box._canvas.cget("bg") == key
     painted = {box._canvas.itemcget(item, "fill") for item in box._canvas.find_all()}
     painted |= {box._canvas.itemcget(item, "outline") for item in box._canvas.find_all()}
@@ -127,10 +127,10 @@ def test_only_the_line_and_the_handles_are_painted(box, root):
 
 def test_show_while_open_moves_the_existing_box(box, root):
     box.show(_RECT)
-    first = box._win
+    first = box._line_layer
     box.show((10, 20, 300, 200))
     root.update()
-    assert box._win is first and box.rect() == (10, 20, 300, 200)
+    assert box._line_layer is first and box.rect() == (10, 20, 300, 200)
 
 
 def test_hide_is_idempotent(box, root):
@@ -146,13 +146,13 @@ def test_hide_is_idempotent(box, root):
     ((MARGIN + 300, MARGIN + 100), "e"),                # 右緣中點把手
     ((MARGIN + 150, MARGIN + 200), "s"),                # 下緣中點把手
     ((MARGIN + 60, MARGIN), "n"),                       # 上緣框線：只拉上緣
-    ((MARGIN + 60, MARGIN + GRAB - 1), "n"),            # 線內側、邊帶最裡面一排
-    ((MARGIN + 60, MARGIN + GRAB), "move"),             # 再往內就是框內
+    ((MARGIN + 60, MARGIN + INNER_BAND - 1), "n"),            # 線內側、邊帶最裡面一排
+    ((MARGIN + 60, MARGIN + INNER_BAND), "move"),             # 再往內就是框內
     ((MARGIN + 60, 0), "n"),                            # 框外留白也算邊帶
     ((MARGIN + 300 + 1, MARGIN + 60), "e"),             # 右緣框線外側那 1px
     ((MARGIN + 150, MARGIN + 100), "move"),             # 框內：移動整個框
     ((-1, MARGIN + 100), ""),                           # 視窗外
 ])
 def test_hit_at_tells_corners_from_edges_from_the_inside(point, expected):
-    assert 3 <= GRAB <= 6   # 比 3px 的線寬一點才好抓，但實機回饋 8px 已嫌太寬
+    assert 3 <= INNER_BAND <= 6   # 比 3px 的線寬一點才好抓，但實機回饋 8px 已嫌太寬
     assert hit_at(*point, 300, 200) == expected

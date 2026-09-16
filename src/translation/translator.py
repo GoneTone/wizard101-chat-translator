@@ -331,21 +331,12 @@ class _OpenAICompatClient(_BaseClient):
         while True:
             body = self._body(system, turns, max_tokens)
             try:
-                with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
-                    if resp.status_code >= 400:
-                        resp.read()
-                        error = _status_error(resp.status_code, error_detail(resp.text))
-                    else:
-                        error = None
-                        with _cancellable(cancel, resp.close):
-                            content, finish_reason, completion_tokens = _read_sse(resp)
-            except (httpx.HTTPError, httpx.StreamError) as exc:
-                raise TranslatorOffline(_one_line(str(exc))) from exc
-            if error is None:
+                content, finish_reason, completion_tokens = self._stream_once(body, cancel)
                 break
-            param = rejected_parameter(error.detail) if error.status == 400 else None
-            if param is None or param not in body or not self._learn_rejection(param):
-                raise error
+            except TranslatorError as error:
+                param = rejected_parameter(error.detail) if error.status == 400 else None
+                if param is None or param not in body or not self._learn_rejection(param):
+                    raise
             # 每輪都拿掉（或換掉）一個 body 裡確實有的參數，且同一個名字不會試第二次
             log(f"[translate] endpoint rejected parameter {param} (model={self._model}); "
                 f"retrying without it")
@@ -353,6 +344,21 @@ class _OpenAICompatClient(_BaseClient):
         if finish_reason == "length":
             raise _truncated(max_tokens, completion_tokens, content)
         return strip_think(content).strip()
+
+    def _stream_once(self, body: dict, cancel: RequestHandle | None
+                     ) -> tuple[str, str | None, int | None]:
+        """送一次串流請求並讀完：回 (內容, finish_reason, completion_tokens)。
+        狀態碼錯誤映射成 TranslatorError 拋出（4xx 在串流開頭就會回，跟非串流一樣），
+        連線層例外一律 TranslatorOffline。"""
+        try:
+            with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
+                if resp.status_code >= 400:
+                    resp.read()
+                    raise _status_error(resp.status_code, error_detail(resp.text))
+                with _cancellable(cancel, resp.close):
+                    return _read_sse(resp)
+        except (httpx.HTTPError, httpx.StreamError) as exc:
+            raise TranslatorOffline(_one_line(str(exc))) from exc
 
     def list_models(self) -> list[str]:
         try:

@@ -114,11 +114,8 @@ def recognize(png: bytes) -> str:
     engine = _get_engine()
     image = Image.open(io.BytesIO(png)).convert("RGB")
     result = engine(image)
-    if result.txts is None:
-        log(f"[region] local OCR done (boxes=0, lines=0, "
-            f"ms={(time.monotonic() - started) * 1000:.0f})")
-        return ""
-    lines = merge_lines(list(zip(result.boxes, result.txts, strict=True)))
-    log(f"[region] local OCR done (boxes={len(result.txts)}, lines={len(lines)}, "
+    boxes = list(zip(result.boxes, result.txts, strict=True)) if result.txts else []
+    lines = merge_lines(boxes)
+    log(f"[region] local OCR done (boxes={len(boxes)}, lines={len(lines)}, "
         f"ms={(time.monotonic() - started) * 1000:.0f})")
     return "\n".join(lines)

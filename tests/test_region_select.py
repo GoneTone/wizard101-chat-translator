@@ -74,7 +74,7 @@ def test_rubber_band_is_drawn_while_dragging(selector, root):
     canvas.event_generate("<ButtonPress-1>", x=10, y=20)
     canvas.event_generate("<B1-Motion>", x=110, y=70)
     root.update()
-    assert [int(v) for v in canvas.coords(selector._band)] == [10, 20, 110, 70]
+    assert [int(v) for v in canvas.coords(selector._rubber_band)] == [10, 20, 110, 70]
 
 
 def test_show_displays_the_frozen_frame_at_full_opacity(selector, root):
@@ -99,7 +99,7 @@ def test_spotlight_shows_the_dragged_area_and_hides_on_the_next_press(selector, 
     root.update()
     assert canvas.itemcget(selector._spot, "state") == "normal"
     assert [int(v) for v in canvas.coords(selector._spot)] == [
-        int(v) for v in canvas.coords(selector._band)[:2]]
+        int(v) for v in canvas.coords(selector._rubber_band)[:2]]
     canvas.event_generate("<ButtonPress-1>", x=130, y=90)
     root.update()
     assert canvas.itemcget(selector._spot, "state") == "hidden"

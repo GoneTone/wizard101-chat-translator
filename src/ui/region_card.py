@@ -1,14 +1,12 @@
 """框選翻譯的結果卡片：貼在框選矩形正下方、與它同寬；辨識中／譯文／錯誤三態。
 
 不奪焦點（與彈出選單同一招）：遊戲的鍵盤操作不中斷，代價是收不到 Esc，
-關閉方式是點卡片任一處、或下一次框選時被換掉。位置每次重排：譯文回來後高度變了，
-下方放不下要翻到矩形上方。標頭右上角另放一個 ✕、內文下方帶一行提示文字，
-點擊關閉本來就存在，只是沒人知道，這兩處純粹是把既有行為講出來。
-譯文回來時若帶原文（本機 OCR 辨識出的文字），在譯文上方另用一段
-暗色小字顯示 —— 與聊天疊加視窗「原文在上、譯文在下」一致，也讓使用者能核對模型
-有沒有多翻或漏翻。原文與譯文放在同一顆 `RichLabel`（`richtext.RichLabel.set_blocks`）
-裡、中間空一行分隔，不再是兩顆各自獨立的 Text —— 拖曳選取才能一路跨過兩段文字，
-不會卡在原文與譯文的交界。
+關閉方式是點一下卡片、點 ✕、或下一次框選時被換掉；✕ 與內文下方的一行提示文字是
+讓使用者看得出怎麼關。位置每次重排：譯文回來後高度變了，下方放不下要翻到矩形上方。
+原文（本機 OCR 辨識出的文字）以暗色小字放在譯文上方 —— 與聊天疊加視窗「原文在上、
+譯文在下」一致，也讓使用者能核對模型有沒有多翻或漏翻。原文與譯文放在同一顆
+`RichLabel`（`richtext.RichLabel.set_blocks`）裡、中間空一行分隔，拖曳選取才能一路
+跨過兩段文字。
 內文可拖曳選取（沿用 Tk 對唯讀 Text 的原生選取，不必解除 `state="disabled"`）；
 純點擊（按下到放開沒有明顯位移，見 `geometry.is_click`）才關卡片，拖曳不關。
 拖曳選取結束後會比照疊加視窗跟 backdrop 借鍵盤焦點（`_focus_for_copy`），讓 Ctrl+C
@@ -129,7 +127,7 @@ class RegionCard:
     def show_text(self, text: str, source: str = "") -> None:
         """譯文回來了；空字串＝畫面上沒有文字，用暗色提示。
         `source` 非空時在譯文上方另放一段暗色小字顯示原文、中間空一行（見檔頭的
-        `set_blocks`）；空字串則跟過去一樣只放譯文一段。"""
+        `set_blocks`）；空字串則只放譯文一段。"""
         if self._label is None:
             return
         self._shown_source = source
@@ -171,8 +169,8 @@ class RegionCard:
             self._shown_source = ""
 
     def text(self) -> str:
-        """目前顯示的譯文（測試用）；原文與譯文現在同放一顆 Text，不能再從 widget
-        反推，改記錄 `show_text`／`show_pending`／`show_error` 實際放的字串。"""
+        """目前顯示的譯文（測試用）；原文與譯文同放一顆 Text，從 widget 反推不出來，
+        改記錄 `show_text`／`show_pending`／`show_error` 實際放的字串。"""
         return self._shown_text
 
     def source_text(self) -> str:
