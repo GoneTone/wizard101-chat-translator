@@ -535,15 +535,15 @@ def test_hide_while_translating_restores_an_editable_draft(root):
 
 
 def test_closing_the_box_while_translating_cancels_the_request(root):
-    import threading
-
     from src.translation.translator import TranslatorCancelled
 
     handles = []
+    started = threading.Event()
     released = threading.Event()
 
     def slow_translate(text, cancel):
         handles.append(cancel)
+        started.set()
         released.wait(5)
         raise TranslatorCancelled()
 
@@ -551,12 +551,13 @@ def test_closing_the_box_while_translating_cancels_the_request(root):
     sent = []
     box = InputBox(root, slow_translate, ui_queue, lambda *a: sent.append(a))
     box.show()
-    root.update()
     box._entry.insert(0, "哈囉")
-    box._entry.event_generate("<Return>")
-    root.update()
+    box._on_enter(None)
+    # 等翻譯真的在背景開始再關閉：模擬按鍵在平行測試下會被丟掉，時間差也賭不準
+    assert started.wait(5)
     box.close()
-    assert handles and handles[0].cancelled
+    released.set()
+    assert handles[0].cancelled
     released.set()
     for _ in range(50):
         root.update()
