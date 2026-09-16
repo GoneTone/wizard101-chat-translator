@@ -152,6 +152,8 @@ def install_progress_bar(binaries: Iterable[Sequence[str]], datas: Iterable[Sequ
 
     if _SENTINEL in splash_templates.splash_canvas_setup:
         log("[build] splash progress bar template already patched; skip re-injecting")
+        # 函式每次 build 只被呼叫一次，所以回傳的 total 跟模板裡寫死的 _pyi_total 相符；若被呼叫多次
+        # 且每次輸入不同，就會默默出現不符的情況。
         return total
 
     if _CANVAS_ANCHOR not in splash_templates.splash_canvas_setup:
@@ -167,11 +169,26 @@ def install_progress_bar(binaries: Iterable[Sequence[str]], datas: Iterable[Sequ
             "template before shipping a build with a silently broken splash screen."
         )
 
+    if splash_templates.splash_canvas_setup.count(_CANVAS_ANCHOR) != 1:
+        raise RuntimeError(
+            f"splash_progress: splash_canvas_setup anchor found "
+            f"{splash_templates.splash_canvas_setup.count(_CANVAS_ANCHOR)} times (expected 1). "
+            f"PyInstaller's splash template may have changed — update tools/splash_progress.py "
+            f"to match the new template before shipping a build."
+        )
     splash_templates.splash_canvas_setup = splash_templates.splash_canvas_setup.replace(
-        _CANVAS_ANCHOR, _CANVAS_ANCHOR + _canvas_setup_addition(total, table)
+        _CANVAS_ANCHOR, _CANVAS_ANCHOR + _canvas_setup_addition(total, table), count=1
     )
+
+    if splash_templates.image_script.count(_TEXT_UPDATE_ANCHOR) != 1:
+        raise RuntimeError(
+            f"splash_progress: canvas_text_update anchor found "
+            f"{splash_templates.image_script.count(_TEXT_UPDATE_ANCHOR)} times (expected 1). "
+            f"PyInstaller's splash template may have changed — update tools/splash_progress.py "
+            f"to match the new template before shipping a build."
+        )
     splash_templates.image_script = splash_templates.image_script.replace(
-        _TEXT_UPDATE_ANCHOR, _TEXT_UPDATE_ANCHOR + _text_update_addition()
+        _TEXT_UPDATE_ANCHOR, _TEXT_UPDATE_ANCHOR + _text_update_addition(), count=1
     )
 
     entry_count = sum(len(sizes) for sizes in table.values())

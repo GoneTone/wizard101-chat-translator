@@ -77,7 +77,7 @@ a = Analysis(
 a.binaries = [b for b in a.binaries if "opencv_videoio_ffmpeg" not in b[0]]
 # 進度條依位元組數加權，不是檔案數：少數大檔案佔掉大半體積，見
 # docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md。binaries 與 datas
-# 都要給——只算 binaries 會漏掉 rapidocr 的模型檔（a.datas）。必須排在 ffmpeg 過濾
+# 都要給 —— 只算 binaries 會漏掉 rapidocr 的模型檔（a.datas）。必須排在 ffmpeg 過濾
 # 之後、Splash(...) 建構之前 —— 過濾前算會把已排除的檔案也算進總數，Splash 建構後
 # 再改樣板已經來不及（見 tools/splash_progress.py 的模組說明）。
 install_progress_bar(a.binaries, a.datas)

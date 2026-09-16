@@ -137,6 +137,26 @@ def test_install_progress_bar_raises_if_text_update_anchor_is_missing(tmp_path, 
         splash_progress.install_progress_bar(binaries, [])
 
 
+def test_install_progress_bar_raises_if_canvas_anchor_appears_twice(tmp_path, monkeypatch):
+    """Unbounded replace would silently inject the addition twice; exact-once assertion
+    catches template drift before it ships a broken progress bar."""
+    canvas_setup_with_duplicate = _ORIGINAL_CANVAS_SETUP + "\n" + splash_progress._CANVAS_ANCHOR
+    monkeypatch.setattr(splash_templates, "splash_canvas_setup", canvas_setup_with_duplicate)
+    binaries = _make_entries(tmp_path, {"cv2.pyd": 1000})
+    with pytest.raises(RuntimeError, match="splash_canvas_setup anchor found 2 times"):
+        splash_progress.install_progress_bar(binaries, [])
+
+
+def test_install_progress_bar_raises_if_text_update_anchor_appears_twice(tmp_path, monkeypatch):
+    """Unbounded replace would silently inject the addition twice; exact-once assertion
+    catches template drift before it ships a broken progress bar."""
+    image_script_with_duplicate = _ORIGINAL_IMAGE_SCRIPT + "\n" + splash_progress._TEXT_UPDATE_ANCHOR
+    monkeypatch.setattr(splash_templates, "image_script", image_script_with_duplicate)
+    binaries = _make_entries(tmp_path, {"cv2.pyd": 1000})
+    with pytest.raises(RuntimeError, match="canvas_text_update anchor found 2 times"):
+        splash_progress.install_progress_bar(binaries, [])
+
+
 def test_install_progress_bar_does_not_double_inject_on_repeated_calls(tmp_path):
     binaries = _make_entries(tmp_path, {"cv2.pyd": 1000})
 
