@@ -241,3 +241,59 @@ A 與 B 仍可獨立保留，啟動時間一樣會從 2.8 秒降到約 2.0 秒�
   `build_app()`），但目前的實作計畫沒有任何任務涵蓋「把這件事寫進發布說明」，本專案
   也還沒有 `CHANGELOG`。下一次發布本次改動時，release note 需誠實描述這個差異，
   不能讓 Claude 官方 provider 的使用者誤以為自己也省下了 0.68 秒；記在這裡以免被忘記。
+
+## 事後修訂：啟動畫面進度條（Task 8，2026-09-16）
+
+使用者實跑打包版後回報：解壓期間畫面上有一堆檔名在飛，看不懂那是什麼。根因（查
+`runw.exe` 的字串與 PyInstaller 的樣板原始碼確認）：bootloader 每解壓一個檔就用
+`Tcl_SetVar2` 設一次 Tcl 變數 `status_text`，樣板的 `trace` 只會把它畫成文字；
+`Splash()` 的公開參數控制不了這件事。使用者的決定是**加進度條、文字不過濾**——
+檔名繼續顯示，只是額外加一條會動的進度條。
+
+### 為什麼是位元組加權，不是檔案數
+
+實測本專案封存內容裡最大的 5 個檔佔了 72.2% 的位元組數，卻只佔 0.45% 的檔案數；
+小於 100KB 的檔案佔了 94% 的檔案數，卻只佔 2.4% 的位元組數（`cv2\cv2.pyd` 單檔就
+佔 37.6%）。用檔案數推進度，進度條會在零點幾秒內衝到 9 成多，然後在剩下的大半時間
+裡完全不動——比檔名亂跳更像當機。改用每個檔案的未壓縮位元組數加權後，進度才會跟
+使用者實際等待的時間成比例。
+
+### 動了 PyInstaller 內部模板的風險與保險
+
+`Splash` 只公開版面與文字相關的參數，沒有任何 hook 能在解壓進度上做文章，唯一的
+入口是直接改寫 `PyInstaller.building.splash_templates` 模組層級的兩個字串
+（`splash_canvas_setup`、`image_script`）。這是**未公開的內部實作**，PyInstaller
+升級時可能改寫這兩個模板而不算破壞性變更。
+
+保險做法（`tools/splash_progress.py`）：
+
+- 兩處都用**精確錨點字串**尋找插入點；錨點找不到就 `raise RuntimeError`，讓 build
+  直接紅掉——default 是明顯失敗，不能默默出貨一個進度條壞掉（或者更糟，Tcl 語法
+  錯誤讓整個啟動畫面都壞掉）的版本。
+- 必須在 `Splash(...)` **建構之前**呼叫：`Splash.__init__` 結尾會呼叫
+  `__postinit__()` -> `assemble()`，Tcl 腳本在建構當下就組好寫進資源，事後再改
+  `splash.script` 已經來不及。`build.spec` 裡 `install_progress_bar(a.binaries)`
+  緊接在 ffmpeg 過濾之後、`splash = Splash(...)` 之前。
+- 樣板是模組層級的可變狀態，patch 會影響整個 Python 行程；用一個字串 sentinel
+  （`_pyi_total` 是否已經在 `splash_canvas_setup` 裡）偵測是否已經 patch 過，重複
+  呼叫不會疊加兩份進度條。本專案一次 build 只做一個 exe，這個限制可以接受。
+- basename 當比對 key（`file tail` 取檔名、`string tolower` 轉小寫）：不管 bootloader
+  回報的是相對路徑還是完整路徑都對得上；累加後立刻 `unset`，同一個檔案被回報兩次
+  （例如 tcl/tk 在 splash 啟動前後各解壓一次）不會重複計算進度。
+
+### 實測與 `Analysis.binaries` 的涵蓋範圍
+
+打包一次後，實際織進 Tcl 的對照表有 **78 個 entry，總計 190,343,960 bytes
+（約 181.5 MiB）**，`cv2.pyd`（86,293,504 bytes）獨佔其中 45%。這個數字比本任務
+一開始量測封存內容時看到的「1121 個 binary、229.3 MB」小很多——原因是 PyInstaller
+的 `Analysis()` 在回傳前會做一次「binary vs. data 重分類」（build log 可見
+`Performing binary vs. data reclassification (986 entries)`），把大量原本判成
+binary 的項目（dist-info 中繼資料、`.tm` Tcl 指令碼等）移進 `a.datas`；
+`install_progress_bar()` 依規格只吃 `Analysis.binaries`，看不到被重分類走的那些
+檔案。也就是說進度條會在**真正的大檔案**（`cv2.pyd`、`onnxruntime*`、
+`libscipy_openblas64_*`、`python314.dll` 等）解壓完後就衝到滿格，之後仍在解壓的
+中繼資料與資料檔不會再推動它——比原本的「檔名亂跳、看起來像當機」好上不少，但不是
+逐位元組精確對應到解壓終點。若之後要把涵蓋率補到接近 100%，需要另外把 `a.datas`
+也算進 `_size_table`，那是本任務刻意不做的範圍（YAGNI：目前的改善已經解決使用者
+回報的問題，多做這一步的邊際效益不明顯，且 `a.datas` 的檔名碰撞機率遠高於
+`a.binaries`）。

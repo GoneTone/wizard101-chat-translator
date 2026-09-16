@@ -18,6 +18,7 @@ from PyInstaller.utils.win32.versioninfo import (
 sys.path.insert(0, SPECPATH)   # SPECPATH 由 PyInstaller 注入 spec 的命名空間
 from src import __version__    # 版本號的唯一真實來源，不在這裡另抄一份
 from tools.splash_image import TEXT_COLOR, TEXT_ORIGIN, build_splash_image
+from tools.splash_progress import install_progress_bar
 
 # 檔案版本欄位只吃四個數字，預發布版（0.2.0-rc.1）的後綴只留在字串欄位。
 _numbers = tuple(int(n) for n in __version__.split("-")[0].split("."))
@@ -74,6 +75,11 @@ a = Analysis(
 # 它不是 Python 模組，`excludes` 管不到，而 `exclude_system_libraries()` 只對 POSIX
 # 有效（只掃 /lib*、/usr/lib*），所以只能在 Analysis 之後從 binaries 濾掉。
 a.binaries = [b for b in a.binaries if "opencv_videoio_ffmpeg" not in b[0]]
+# 進度條依位元組數加權，不是檔案數：少數大檔案佔掉大半體積，見
+# docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md。必須排在 ffmpeg
+# 過濾之後、Splash(...) 建構之前 —— 過濾前算會把已排除的檔案也算進總數，Splash
+# 建構後再改樣板已經來不及（見 tools/splash_progress.py 的模組說明）。
+install_progress_bar(a.binaries)
 splash = Splash(
     str(SPLASH_IMAGE),
     binaries=a.binaries,   # 讓它偵測到 tkinter 已經打包了 tcl/tk，沿用而不再塞一份

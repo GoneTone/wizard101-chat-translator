@@ -26,6 +26,11 @@ _TITLE_COLOR = "#f0f0f5"
 # 狀態文字沿用標題色（對比色取自 _BACKGROUND），build.spec 的 text_color 要用同一組值
 TEXT_COLOR = _TITLE_COLOR
 _VERSION_COLOR = "#9a9ab0"
+# 進度條（tools/splash_progress.py 織進 Tcl 樣板用）：軌道取比底色稍亮的色調，
+# 填色沿用文字色，跟標題／版本號同一套配色，不在 build.spec 或 splash_progress 裡
+# 另外寫一份色碼。
+PROGRESS_TRACK_COLOR = "#33334d"
+PROGRESS_FILL_COLOR = TEXT_COLOR
 _ICON_SIZE = 128             # icon.ico 的原生 frame，不放大
 _ICON_TOP = 40
 _TITLE_TOP = 186

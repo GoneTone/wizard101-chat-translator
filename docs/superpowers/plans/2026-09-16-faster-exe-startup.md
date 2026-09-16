@@ -913,6 +913,87 @@ git commit -m "docs(spec): record real-run verification results for exe startup 
 
 ---
 
+### Task 8：啟動畫面加上依位元組加權的進度條
+
+**背景（Task 7 之後才加）：** 使用者實跑打包版，回報解壓期間畫面上檔名亂飛看不懂。
+`Splash()` 的公開參數控制不了 bootloader 用 `Tcl_SetVar2` 設 `status_text` 這件事，
+使用者決定加進度條、文字不過濾（檔名照舊顯示）。詳見
+`docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md` 末尾的「事後修訂：
+啟動畫面進度條」一節。
+
+**Files:**
+- New: `tools/splash_progress.py`（patch `PyInstaller.building.splash_templates`）
+- New: `tests/test_splash_progress.py`
+- Modify: `tools/splash_image.py`（新增 `PROGRESS_TRACK_COLOR`／`PROGRESS_FILL_COLOR`）
+- Modify: `build.spec`（`Splash(...)` 建構前呼叫 `install_progress_bar(a.binaries)`）
+- Modify: `tests/test_resources.py`（釘住呼叫順序在 `Splash(` 之前）
+
+**Interfaces:**
+- Consumes: `Analysis.binaries`（ffmpeg 過濾後那份）、`tools.splash_image.SIZE`／
+  `PROGRESS_TRACK_COLOR`／`PROGRESS_FILL_COLOR`
+- Produces: `install_progress_bar(binaries) -> int`，回傳納入計算的總位元組數；
+  副作用是改寫 `splash_templates.splash_canvas_setup`／`image_script`
+
+- [x] **Step 1: `tools/splash_image.py` 補進度條顏色常數**
+
+`TEXT_COLOR` 之後加 `PROGRESS_TRACK_COLOR`（軌道，比底色稍亮）與
+`PROGRESS_FILL_COLOR`（填色，沿用 `TEXT_COLOR`）——色碼只在這一處寫死。
+
+- [x] **Step 2: 寫 `tools/splash_progress.py` 與測試**
+
+`_size_table(binaries)` 把 `(dest_name, src_path, typecode)` 轉成「basename（小寫）
+→ `os.path.getsize(src_path)`」對照表，讀不到的略過。`install_progress_bar()`：
+先用兩個精確錨點字串（`splash_canvas_setup` 結尾的畫布建立、`image_script` 裡
+`canvas_text_update` 的 `$canvas itemconfigure $tag -text $var` 那行）確認 PyInstaller
+的模板沒變，找不到就 `raise RuntimeError`；用 `_pyi_total` 是否已經出現在
+`splash_canvas_setup` 裡當 sentinel，偵測是否已經 patch 過，重複呼叫不疊加。
+測試涵蓋：對照表計算（含大小寫、collision、讀不到的路徑）、Tcl 清單格式化、兩個
+錨點各自缺失時 raise、`total<=0` 時 raise、重複呼叫不疊加。全部不需要真的跑
+PyInstaller。
+
+- [x] **Step 3: `build.spec` 接上 `install_progress_bar`**
+
+在 ffmpeg 過濾（`a.binaries = [b for b in a.binaries if ...]`）之後、
+`splash = Splash(...)` 之前呼叫 `install_progress_bar(a.binaries)`——順序錯了要嘛把
+已排除的檔案算進總數，要嘛 patch 晚於 `Splash.__init__` 內部的 `assemble()`，改了也
+沒用。
+
+- [x] **Step 4: `tests/test_resources.py` 釘住呼叫順序**
+
+新增測試斷言 `"install_progress_bar(a.binaries)"` 出現在 spec 原始碼裡，且其位置在
+`"splash = Splash("` 之前。
+
+- [x] **Step 5: 打包一次，開 `.tcl` 人工確認**
+
+`uv run pyinstaller build.spec --noconfirm`；本機這版 PyInstaller 把腳本寫到
+`build/build/Splash-00_script.tcl`（不是專案根目錄）。確認 `array set _pyi_sizes`、
+兩個 `create rectangle`（`pyi_track`／`pyi_fill`）、`canvas_text_update` 裡新增的
+進度推進段落都在，且原本的 `$canvas itemconfigure $tag -text $var` 那行原樣保留在
+最前面。
+
+- [x] **Step 6: Lint、全套測試、commit**
+
+```bash
+uv run ruff check src tests tools
+uv run pytest
+git add tools/splash_progress.py tests/test_splash_progress.py tools/splash_image.py \
+        build.spec tests/test_resources.py \
+        docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md \
+        docs/superpowers/plans/2026-09-16-faster-exe-startup.md
+git commit -m "feat(build): weight the splash progress bar by extracted byte size"
+```
+
+**已知落差（記在這裡，不算未完成）：** 實測織進去的對照表只有 78 個 entry、共
+190,343,960 bytes（約 181.5 MiB），比這個任務一開始量測封存內容看到的「1121 個
+binary、229.3 MB」小很多——`Analysis()` 回傳前會把大量原本判成 binary 的項目（如
+dist-info 中繼資料、`.tm` Tcl 指令碼）重分類進 `a.datas`，`install_progress_bar()`
+依規格只吃 `Analysis.binaries`，看不到那些檔案。進度條會在真正的大檔案（`cv2.pyd`
+等）解壓完就衝到滿格，之後仍在解壓的資料檔不會再推動它——比原本檔名亂跳好上不少，
+但不是逐位元組精確對應到解壓終點。要補到接近 100% 涵蓋率需要另外把 `a.datas` 也算
+進對照表，本任務刻意不做（YAGNI，且 `a.datas` 的檔名碰撞機率遠高於 `a.binaries`）。
+
+---
+
 ## 附錄：本次改動的預期數字
 
 | 項目 | 改動前 | 改動後 |
