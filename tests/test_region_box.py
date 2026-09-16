@@ -2,6 +2,7 @@
 放開才回報新矩形；框內是透明色鍵（點得到底下的遊戲）。"""
 import pytest
 
+from src.ui.palette import FG_UPDATE
 from src.ui.region_box import HANDLE, MARGIN, MIN_SIZE, RegionBox, hit_at
 
 _RECT = (100, 100, 300, 200)
@@ -79,10 +80,14 @@ def test_the_window_follows_the_box_while_dragging(box, root):
     assert box._win.geometry().split("+")[0] == f"{340 + 2 * MARGIN}x{230 + 2 * MARGIN}"
 
 
-def test_the_inside_is_the_transparent_key_colour(box, root):
+def test_only_the_line_and_the_handles_are_painted(box, root):
     box.show(_RECT)
     root.update()
-    assert box._canvas.cget("bg") == str(box._win.attributes("-transparentcolor"))
+    key = str(box._win.attributes("-transparentcolor"))
+    assert box._canvas.cget("bg") == key
+    painted = {box._canvas.itemcget(item, "fill") for item in box._canvas.find_all()}
+    painted |= {box._canvas.itemcget(item, "outline") for item in box._canvas.find_all()}
+    assert painted - {"", key} == {FG_UPDATE}   # 沒有暗色外圈、把手也沒有暗色邊
 
 
 def test_show_while_open_moves_the_existing_box(box, root):
@@ -106,7 +111,8 @@ def test_hide_is_idempotent(box, root):
     ((MARGIN + 300, MARGIN + 100), "e"),                # 右緣中點把手
     ((MARGIN + 150, MARGIN + 200), "s"),                # 下緣中點把手
     ((MARGIN + 60, MARGIN), "move"),                    # 上緣框線
-    ((MARGIN + 300 + MARGIN - 1, MARGIN + 60), "move"), # 右緣框線最外側
+    ((MARGIN + 300 + 1, MARGIN + 60), "move"),          # 右緣框線外側那 1px
+    ((MARGIN + 300 + MARGIN - 1, MARGIN + 60), ""),     # 框線外的留白：透明，只給把手用
     ((MARGIN + 150, MARGIN + 100), ""),                 # 框內：透明，實際上收不到點擊
     ((MARGIN + 150 - HANDLE, MARGIN + 100), ""),
 ])
