@@ -1,22 +1,37 @@
-"""translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
+"""translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。
+兩種後端都走串流：假 client 回 SSE 行（OpenAI 相容）或假的 MessageStream（Claude），
+取消測試用「卡住直到被 close」的回應模擬模型還在生成時客戶端主動斷線。"""
 import json
+import threading
+from contextlib import contextmanager
 
 import anthropic
 import httpx
 import httpx2
 import pytest
 
-from src.translation.postprocess import _PAREN_ENGLISH, has_stray_latin, strip_invented_english
+from src.translation.postprocess import (
+    _PAREN_ENGLISH,
+    has_stray_latin,
+    number_lines,
+    strip_invented_english,
+    unnumber_lines,
+)
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
     _game_noun_rule,
     build_incoming_system,
+    build_region_system,
     build_system_message_system,
 )
 from src.translation.translator import (
+    _MAX_TOKENS_REGION,
+    _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
+    RequestHandle,
     Translator,
     TranslatorBadOutput,
+    TranslatorCancelled,
     TranslatorConfigError,
     TranslatorNoModelList,
     TranslatorOffline,
@@ -25,15 +40,39 @@ from src.translation.translator import (
 )
 
 
+def _sse(chunks) -> list[str]:
+    return [f"data: {json.dumps(c, ensure_ascii=False)}" for c in chunks] + ["data: [DONE]"]
+
+
 class FakeResponse:
+    """替身串流回應：`iter_lines` 把 content 逐字拆成 SSE 塊送出（證明客戶端有把塊接回去），
+    finish_reason 跟在最後一塊、usage（若有）另成一塊，與 OpenAI 的串流格式一致。
+    `json()` 只給 list_models 的 GET 用。"""
+
     def __init__(self, status_code=200, content="譯文", finish_reason="stop",
                  completion_tokens=None, payload=None, text=""):
         self.status_code = status_code
         self.text = text
+        self.closed = False
         self._content = content
         self._finish_reason = finish_reason
         self._completion_tokens = completion_tokens
         self._payload = payload
+
+    def iter_lines(self):
+        pieces = list(self._content) or [""]
+        chunks = [{"choices": [{"delta": {"content": piece}, "finish_reason": None}]}
+                  for piece in pieces]
+        chunks[-1]["choices"][0]["finish_reason"] = self._finish_reason
+        if self._completion_tokens is not None:
+            chunks.append({"choices": [], "usage": {"completion_tokens": self._completion_tokens}})
+        yield from _sse(chunks)
+
+    def read(self):
+        return self.text.encode("utf-8")
+
+    def close(self):
+        self.closed = True
 
     def json(self):
         if self._payload is not None:
@@ -50,17 +89,19 @@ class FakeResponse:
 
 
 class FakeHttpxClient:
-    """替身 httpx.Client：post 回傳預設回應或拋出預設例外。"""
+    """替身 httpx.Client：stream 回傳預設回應或拋出預設例外。"""
     def __init__(self, response=None, raises=None):
         self._response = response or FakeResponse()
         self._raises = raises
         self.last_body = None
 
-    def post(self, url, json):
+    @contextmanager
+    def stream(self, method, url, json):
+        assert method == "POST"
         self.last_body = json
         if self._raises:
             raise self._raises
-        return self._response
+        yield self._response
 
     def get(self, url):
         self.last_url = url
@@ -101,21 +142,20 @@ def test_openai_compat_retryable_status_maps_to_offline(status):
         _make(fake).translate_incoming("[A] hi", [])
 
 
-class FakeAnthropicMessages:
-    def __init__(self, raises=None, stop_reason="end_turn"):
-        self._raises = raises
-        self._stop_reason = stop_reason
-        self.last_kwargs = None
+class FakeMessageStream:
+    """替身 MessageStream：`get_final_message` 回累積好的訊息。"""
 
-    def create(self, **kwargs):
-        self.last_kwargs = kwargs
-        if self._raises:
-            raise self._raises
+    def __init__(self, stop_reason, content):
+        self._stop_reason, self._content = stop_reason, content
+        self.closed = False
+
+    def get_final_message(self):
         stop_reason = self._stop_reason
+        content = self._content
 
         class Block:
             type = "text"
-            text = "克勞德譯文"
+            text = content
 
         class Resp:
             content = [Block()]
@@ -123,10 +163,30 @@ class FakeAnthropicMessages:
         Resp.stop_reason = stop_reason
         return Resp()
 
+    def close(self):
+        self.closed = True
+
+
+class FakeAnthropicMessages:
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
+        self._raises = raises
+        self._stop_reason = stop_reason
+        self._content = content
+        self.last_kwargs = None
+        self.last_stream = None
+
+    @contextmanager
+    def stream(self, **kwargs):
+        self.last_kwargs = kwargs
+        if self._raises:
+            raise self._raises
+        self.last_stream = FakeMessageStream(self._stop_reason, self._content)
+        yield self.last_stream
+
 
 class FakeAnthropicClient:
-    def __init__(self, raises=None, stop_reason="end_turn"):
-        self.messages = FakeAnthropicMessages(raises, stop_reason)
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
+        self.messages = FakeAnthropicMessages(raises, stop_reason, content)
 
 
 def _anthropic_status_error(status, body=None):
@@ -162,7 +222,7 @@ def test_claude_status_error_mapping(status, exc):
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
     # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
                target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
@@ -191,7 +251,6 @@ def test_openai_compat_missing_finish_reason_is_accepted():
 
 
 def test_claude_sends_max_tokens():
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
@@ -248,7 +307,7 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
 def test_openai_provider_uses_max_completion_tokens_and_no_temperature():
     # 官方端點：max_tokens 已棄用、GPT-5／o 系列直接回 400「use max_completion_tokens」；
     # 同一批模型也只接受預設 temperature（實測「Only the default (1) value is supported」）
-    from src.translation.translator import _MAX_TOKENS, _MAX_TOKENS_THINKING
+    from src.translation.translator import _MAX_TOKENS
 
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=False,
@@ -272,15 +331,18 @@ def test_custom_endpoint_keeps_max_tokens_and_temperature():
     assert fake.last_body["temperature"] == 0
 
 
-class SequenceClient:
-    """替身 httpx.Client：依序回傳 responses，並記下每次送出的 body。"""
+class SequenceClient(FakeHttpxClient):
+    """替身 httpx.Client：依序回傳 responses、用完重複最後一個，並記下每次送出的 body
+    （參數重送與重譯路徑都要看多次請求）。"""
     def __init__(self, *responses):
+        super().__init__()
         self._responses = list(responses)
         self.bodies = []
 
-    def post(self, url, json):
+    @contextmanager
+    def stream(self, method, url, json):
         self.bodies.append(json)
-        return self._responses.pop(0)
+        yield self._responses.pop(0) if len(self._responses) > 1 else self._responses[0]
 
 
 def _rejects(param: str, wording: str = "unrecognized"):
@@ -319,7 +381,6 @@ def test_other_openai_rejection_wordings_are_recognised(wording):
 
 def test_rejected_token_limit_is_swapped_not_dropped():
     # 長度上限是防 repetition loop 的保險，不能因為端點只認另一個名字就整個不帶
-    from src.translation.translator import _MAX_TOKENS_THINKING
     fake = SequenceClient(_rejects("max_completion_tokens"), FakeResponse())
     t = Translator(provider="openai", model="m", api_key="k",
                    target_language="繁體中文（台灣）", client=fake)
@@ -760,18 +821,9 @@ def test_translate_system_message_strips_invented_english():
     assert _make(fake).translate_system_message("迷幻木头") == "迷幻木頭"
 
 
-class FakeSequenceClient(FakeHttpxClient):
-    """依序回傳多個回應，並留下每一次的 request body：重譯路徑要看兩次請求。
-    回應用完後重複最後一個。"""
-
-    def __init__(self, contents):
-        super().__init__()
-        self._queue = [FakeResponse(content=c) for c in contents]
-        self.bodies = []
-
-    def post(self, url, json):
-        self.bodies.append(json)
-        return self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
+def _contents(*contents):
+    """依序回這些譯文的 SequenceClient。"""
+    return SequenceClient(*(FakeResponse(content=c) for c in contents))
 
 
 # --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---
@@ -820,21 +872,21 @@ def test_strict_system_message_prompt_calls_out_the_english_slip():
 
 
 def test_translate_system_message_retries_when_the_model_answers_in_english():
-    fake = FakeSequenceClient(["Snowspike Hat", "雪刺帽"])
+    fake = _contents("Snowspike Hat", "雪刺帽")
     assert _make(fake).translate_system_message("雪刺帽") == "雪刺帽"
     assert len(fake.bodies) == 2
     assert "上一次" in fake.bodies[1]["messages"][0]["content"]   # 重譯用更嚴格的提示詞
 
 
 def test_translate_system_message_does_not_retry_a_clean_translation():
-    fake = FakeSequenceClient(["雪刺帽"])
+    fake = _contents("雪刺帽")
     _make(fake).translate_system_message("雪刺帽")
     assert len(fake.bodies) == 1
 
 
 def test_translate_system_message_keeps_a_retry_that_is_still_english():
     # 實測音譯的玩家名重譯仍會英譯：照樣顯示（呼叫端負責不快取），不再多打第三次
-    fake = FakeSequenceClient(["Calamity 現在等級 {0}！"])
+    fake = _contents("Calamity 現在等級 {0}！")
     tr = _make(fake)
     assert tr.translate_system_message("卡拉米蒂 现在等级 {0}！") == "Calamity 現在等級 {0}！"
     assert len(fake.bodies) == 2
@@ -842,7 +894,7 @@ def test_translate_system_message_keeps_a_retry_that_is_still_english():
 
 def test_incoming_translation_is_not_retried():
     # 收訊有完整句子語境、實測不會落回英文；多打一次只是白花錢
-    fake = FakeSequenceClient(["Snowspike Hat"])
+    fake = _contents("Snowspike Hat")
     _make(fake).translate_incoming("雪刺帽", [])
     assert len(fake.bodies) == 1
 
@@ -969,3 +1021,236 @@ def test_sender_prefix_limit_is_shared_with_the_chat_parser():
            f"<link;GID:1,{longest},2>[{longest}]</link> 你好 </color>")
     assert [line.text for line in lines_from_chatlog(raw)] == [f"[{longest}] 你好"]
     assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False
+
+
+def test_region_text_sends_the_recognized_lines_numbered():
+    fake = FakeHttpxClient(response=FakeResponse(content="1. 跟莫爾談談\n2. 第二行"))
+    translator = _make(fake)
+    assert translator.translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+        "跟莫爾談談\n第二行"
+    assert fake.last_body["messages"][-1] == {
+        "role": "user", "content": "1. Talk to Merle Ambrose\n2. Second line"}
+    assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
+    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
+
+
+def test_region_text_fills_lines_the_model_dropped_with_the_original():
+    fake = FakeHttpxClient(response=FakeResponse(content="2. 第二行"))
+    assert _make(fake).translate_region_text("海报伙伴\nSecond line") == "海报伙伴\n第二行"
+
+
+def test_region_text_strips_english_the_model_invented_for_a_line_without_any():
+    # 實機：簡體中文原文「天国大本营」被譯成「天國大本營（Heavenly Headquarters）」，
+    # 遊戲畫面上根本沒有這個英文名
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 若有時間，我希望你再次拜訪天國大本營（Heavenly Headquarters）！"))
+    assert (_make(fake).translate_region_text("若有时间，我希望你再次拜访天国大本营！")
+            == "若有時間，我希望你再次拜訪天國大本營！")
+
+
+def test_region_text_keeps_english_copied_from_the_same_line_only():
+    # 逐行判定：第一行原文有英文，括號照抄可留；第二行沒有，括號英文必是憑空生成
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 跟莫爾·安布羅斯（Merle Ambrose）談談\n2. 天國大本營（Heavenly HQ）"))
+    assert (_make(fake).translate_region_text("Talk to Merle Ambrose\n天国大本营")
+            == "跟莫爾·安布羅斯（Merle Ambrose）談談\n天國大本營")
+
+
+def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
+    prompt = build_region_system("繁體中文（台灣）")
+    assert "一律用半形括號附上原文" not in prompt   # 舊規則：沒有英文可抄時模型會自己翻一個
+    assert "逐字照抄" in prompt
+
+
+def test_number_lines_skips_blank_lines():
+    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
+
+
+def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
+    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
+    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
+    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
+
+
+def test_translate_region_text_logs_no_translation_content(monkeypatch):
+    # 區域翻譯的原文可能整頁、譯文可能很長 —— log 只留字數，不留內容
+    import src.translation.translator as translator_module
+
+    messages = []
+    monkeypatch.setattr(translator_module, "log", messages.append)
+    fake = FakeHttpxClient()
+    text = "Talk to Merle Ambrose"
+    translated = _make(fake).translate_region_text(text)
+    assert translated == "譯文"
+    assert not any("譯文" in m or "Merle" in m for m in messages)
+    assert any(f"translated=<{len(translated)} chars>" in m and
+              f"source='<text {len(text)} chars, 1 lines>'" in m for m in messages)
+
+
+def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
+    prompt = build_region_system("日本語")
+    assert "日本語" in prompt
+    assert "[發送者]" not in prompt
+
+
+def test_region_system_prompt_speaks_of_recognized_text_not_of_an_image():
+    # 輸入固定是本機 OCR 的文字，看圖時代的句子（描述畫面、猜字、沒有文字）只是噪音
+    prompt = build_region_system("日本語")
+    for stale in ("圖片", "描述畫面", "沒有文字", "無法辨識"):
+        assert stale not in prompt
+
+
+# --- 串流與取消：請求進行中可以從別的執行緒斷線，伺服器停止生成、不再計費 ---
+def test_openai_compat_asks_for_a_stream_and_joins_the_chunks():
+    fake = FakeHttpxClient(response=FakeResponse(content="一段很長的譯文"))
+    assert _make(fake).translate_outgoing("哈囉", []) == "一段很長的譯文"
+    assert fake.last_body["stream"] is True
+
+
+def test_only_the_official_openai_endpoint_asks_for_usage_in_the_stream():
+    fake = FakeHttpxClient()
+    Translator(provider="openai", model="gpt-4o-mini", api_key="k",
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
+    assert fake.last_body["stream_options"] == {"include_usage": True}
+    fake = FakeHttpxClient()
+    _make(fake).translate_incoming("[A] hi", [])
+    assert "stream_options" not in fake.last_body   # 自架後端不一定認得，別冒 400 的險
+
+
+def test_openai_compat_truncation_is_read_from_the_stream():
+    fake = FakeHttpxClient(response=FakeResponse(content="呃 呃", finish_reason="length",
+                                                 completion_tokens=3))
+    with pytest.raises(TranslatorBadOutput) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert "completion_tokens=3" in str(ei.value)
+
+
+class BlockingResponse(FakeResponse):
+    """送出第一塊後卡住，直到被 close 才以連線錯誤結束：模擬模型還在生成時客戶端斷線。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.released = threading.Event()
+
+    def iter_lines(self):
+        yield _sse([{"choices": [{"delta": {"content": "譯"}, "finish_reason": None}]}])[0]
+        self.started.set()
+        self.released.wait(5)
+        raise httpx.ReadError("connection closed")
+
+    def close(self):
+        super().close()
+        self.released.set()
+
+
+def _run_in_thread(fn):
+    outcome = {}
+
+    def target():
+        try:
+            outcome["result"] = fn()
+        except Exception as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def test_cancelling_an_openai_compat_request_closes_the_stream():
+    resp = BlockingResponse()
+    fake = FakeHttpxClient(response=resp)
+    handle = RequestHandle()
+    thread, outcome = _run_in_thread(
+        lambda: _make(fake).translate_region_text("Hello", cancel=handle))
+    assert resp.started.wait(5)
+    handle.cancel()
+    thread.join(5)
+    assert resp.closed and handle.cancelled
+    assert isinstance(outcome.get("error"), TranslatorCancelled)
+
+
+def test_a_request_cancelled_before_it_starts_is_never_sent():
+    handle = RequestHandle()
+    handle.cancel()
+    fake = FakeHttpxClient()
+    with pytest.raises(TranslatorCancelled):
+        _make(fake).translate_outgoing("哈囉", [], cancel=handle)
+    assert fake.last_body is None
+
+
+def test_a_connection_error_without_a_cancel_is_still_offline():
+    resp = BlockingResponse()
+    resp.released.set()   # 沒人取消、連線自己斷了
+    fake = FakeHttpxClient(response=resp)
+    with pytest.raises(TranslatorOffline):
+        _make(fake).translate_outgoing("哈囉", [], cancel=RequestHandle())
+
+
+def test_the_request_handle_is_released_after_the_request_completes():
+    fake = FakeHttpxClient()
+    handle = RequestHandle()
+    _make(fake).translate_outgoing("哈囉", [], cancel=handle)
+    handle.cancel()   # 事後取消不該去關一個已經結束的回應
+    assert not fake._response.closed
+
+
+class BlockingMessageStream(FakeMessageStream):
+    def __init__(self):
+        super().__init__("end_turn", "克勞德譯文")
+        self.started = threading.Event()
+        self.released = threading.Event()
+
+    def get_final_message(self):
+        self.started.set()
+        self.released.wait(5)
+        raise httpx2.ReadError("connection closed")
+
+    def close(self):
+        super().close()
+        self.released.set()
+
+
+class BlockingAnthropicMessages(FakeAnthropicMessages):
+    @contextmanager
+    def stream(self, **kwargs):
+        self.last_kwargs = kwargs
+        self.last_stream = BlockingMessageStream()
+        yield self.last_stream
+
+
+def test_claude_uses_the_streaming_helper():
+    fake = FakeAnthropicClient()
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    assert t.translate_incoming("[A] hi", []) == "克勞德譯文"
+    assert fake.messages.last_stream is not None
+
+
+def test_cancelling_a_claude_request_closes_the_stream():
+    fake = FakeAnthropicClient()
+    fake.messages = BlockingAnthropicMessages()
+    handle = RequestHandle()
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    thread, outcome = _run_in_thread(lambda: t.translate_region_text("Hello", cancel=handle))
+    assert fake.messages.last_stream.started.wait(5)
+    handle.cancel()
+    thread.join(5)
+    assert fake.messages.last_stream.closed
+    assert isinstance(outcome.get("error"), TranslatorCancelled)
+
+
+def test_region_system_prompt_pins_the_order_of_name_and_parenthesized_original():
+    # 實機：模型寫成「CrownShop（皇冠商店）」，譯名與括號原文對調了
+    prompt = build_region_system("繁體中文（台灣）")
+    assert "譯名（原文）" in prompt and "不可對調" in prompt
+
+
+def test_game_noun_rule_pins_the_order_of_name_and_original_for_every_prompt():
+    # 框選實機撞到「CrownShop（皇冠商店）」；慣例只有一份，聊天翻譯要一起講死
+    rule = _game_noun_rule("繁體中文（台灣）")
+    assert "譯名（原文）" in rule and "不可對調" in rule
+    assert "不可對調" in build_incoming_system("繁體中文（台灣）")
+    assert "不可對調" in build_system_message_system("繁體中文（台灣）")

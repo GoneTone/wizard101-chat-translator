@@ -10,7 +10,9 @@ list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoMo
 """
 import json
 import re
+import threading
 import time
+from contextlib import contextmanager
 
 import anthropic
 import httpx
@@ -19,8 +21,10 @@ from src.config import EFFORT_AUTO
 from src.log import log
 from src.translation.postprocess import (
     has_stray_latin,
+    number_lines,
     strip_invented_english,
     strip_think,
+    unnumber_lines,
 )
 from src.translation.prompts import (
     CONTEXT_INTRO_INCOMING,
@@ -29,6 +33,7 @@ from src.translation.prompts import (
     OUTGOING_LANGUAGE,
     build_incoming_system,
     build_outgoing_system,
+    build_region_system,
     build_system_message_system,
     build_turns,
 )
@@ -52,6 +57,10 @@ _TIMEOUT = 60.0
 _MAX_TOKENS = 512
 # 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
 _MAX_TOKENS_THINKING = 2048
+# 區域翻譯固定用放寬的上限：一次可能是一整頁任務書的所有行一起送出，
+# 思考模式下 <think> 區塊還要跟譯文搶同一個預算；上限依然存在是為了
+# 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
+_MAX_TOKENS_REGION = 4096
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
 
 
@@ -97,6 +106,10 @@ class TranslatorConfigError(TranslatorError):
     """設定錯誤：4xx（金鑰無效、模型不存在、參數不被接受等）。
     可重試 —— pool 以固定的 CONFIG_ERROR_INTERVAL 間隔持續重試，
     使用者於執行期間修正 config.json 後即自動恢復，不必重啟程式。"""
+
+
+class TranslatorCancelled(Exception):
+    """請求被呼叫端取消（見 RequestHandle）：不是錯誤，呼叫端靜默丟掉即可。"""
 
 
 class TranslatorNoModelList(Exception):
@@ -176,6 +189,62 @@ def rejected_parameter(detail: str) -> str | None:
     return match.group(1) or match.group(2)
 
 
+class RequestHandle:
+    """可從別的執行緒撤銷的進行中請求。
+
+    兩個後端都走串流：請求送出後把回應的 `close` 掛上來（`_attach`），`cancel()`
+    從主執行緒關掉它，伺服器端隨即停止生成、只計已產生的 token —— 非串流請求做不到這點
+    （斷線後伺服器仍會生成完整段並全額計費）。請求正常結束後 `_detach`，之後再 `cancel()`
+    只立旗標、不會去關一個已經結束的回應。還沒送出就被取消的請求根本不會送。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._close = None
+        self._cancelled = False
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            close, self._close = self._close, None
+        if close is not None:
+            try:
+                close()
+            except Exception as exc:
+                log(f"[translate] closing a cancelled request failed: {type(exc).__name__}: {exc}")
+
+    def _attach(self, close) -> None:
+        with self._lock:
+            if self._cancelled:
+                raise TranslatorCancelled()
+            self._close = close
+
+    def _detach(self) -> None:
+        with self._lock:
+            self._close = None
+
+
+@contextmanager
+def _cancellable(cancel: RequestHandle | None, close):
+    """把已開啟的串流回應交給 cancel 管：期間任何例外若是取消造成的一律轉成
+    TranslatorCancelled（斷線在 httpx／SDK 那層冒出來的例外型別不一，靠旗標分辨）。"""
+    if cancel is None:
+        yield
+        return
+    cancel._attach(close)
+    try:
+        yield
+    except Exception as exc:
+        if cancel.cancelled:
+            raise TranslatorCancelled() from exc
+        raise
+    finally:
+        cancel._detach()
+
+
 class _BaseClient:
     """兩種後端共用的骨架：模型 ID 與連線池釋放。子類別各自實作 chat／list_models。"""
 
@@ -226,8 +295,13 @@ class _OpenAICompatClient(_BaseClient):
             "model": self._model,
             "messages": [{"role": "system", "content": system}, *turns],
             self._token_param: max_tokens,
+            "stream": True,
         }
-        if not self._official:
+        if self._official:
+            # 串流預設不回 usage；截斷診斷要 completion_tokens。自架後端不一定認得這個欄位，
+            # 為了不冒 400 的險只對官方端點帶。
+            body["stream_options"] = {"include_usage": True}
+        else:
             body["temperature"] = 0
         if not self._thinking:
             body.update(_DISABLE_THINKING_OPENAI if self._official else _DISABLE_THINKING)
@@ -247,33 +321,44 @@ class _OpenAICompatClient(_BaseClient):
             self._dropped.add(param)
         return True
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None,
+             cancel: RequestHandle | None = None) -> str:
+        """打一次串流的 /v1/chat/completions，把 SSE 塊接回整段文字。
+        串流是為了讓 `cancel` 能真的省 token（見 RequestHandle）；狀態碼錯誤在開頭就會回，
+        跟非串流時一樣走 `_status_error` 與參數重送。"""
+        if max_tokens is None:
+            max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
         while True:
             body = self._body(system, turns, max_tokens)
             try:
-                resp = self._client.post("/v1/chat/completions", json=body)
-            except httpx.HTTPError as exc:
-                raise TranslatorOffline(_one_line(str(exc))) from exc
-            error = _status_error(resp.status_code, error_detail(resp.text))
-            if error is None:
+                content, finish_reason, completion_tokens = self._stream_once(body, cancel)
                 break
-            param = rejected_parameter(error.detail) if error.status == 400 else None
-            if param is None or param not in body or not self._learn_rejection(param):
-                raise error
+            except TranslatorError as error:
+                param = rejected_parameter(error.detail) if error.status == 400 else None
+                if param is None or param not in body or not self._learn_rejection(param):
+                    raise
             # 每輪都拿掉（或換掉）一個 body 裡確實有的參數，且同一個名字不會試第二次
             log(f"[translate] endpoint rejected parameter {param} (model={self._model}); "
                 f"retrying without it")
-        resp.raise_for_status()
-        data = resp.json()
-        choice = data["choices"][0]
-        content = choice["message"]["content"]
         # 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
-        if choice.get("finish_reason") == "length":
-            raise _truncated(max_tokens,
-                             (data.get("usage") or {}).get("completion_tokens"),
-                             content or "")
+        if finish_reason == "length":
+            raise _truncated(max_tokens, completion_tokens, content)
         return strip_think(content).strip()
+
+    def _stream_once(self, body: dict, cancel: RequestHandle | None
+                     ) -> tuple[str, str | None, int | None]:
+        """送一次串流請求並讀完：回 (內容, finish_reason, completion_tokens)。
+        狀態碼錯誤映射成 TranslatorError 拋出（4xx 在串流開頭就會回，跟非串流一樣），
+        連線層例外一律 TranslatorOffline。"""
+        try:
+            with self._client.stream("POST", "/v1/chat/completions", json=body) as resp:
+                if resp.status_code >= 400:
+                    resp.read()
+                    raise _status_error(resp.status_code, error_detail(resp.text))
+                with _cancellable(cancel, resp.close):
+                    return _read_sse(resp)
+        except (httpx.HTTPError, httpx.StreamError) as exc:
+            raise TranslatorOffline(_one_line(str(exc))) from exc
 
     def list_models(self) -> list[str]:
         try:
@@ -288,6 +373,33 @@ class _OpenAICompatClient(_BaseClient):
         if not isinstance(data, list):
             raise TranslatorNoModelList("response has no data array")
         return sorted(str(m["id"]) for m in data if isinstance(m, dict) and m.get("id"))
+
+
+def _read_sse(resp) -> tuple[str, str | None, int | None]:
+    """讀完一條 chat completions 的 SSE 串流：回 (接起來的內容, finish_reason, completion_tokens)。
+    每塊是 `data: {...}`，`data: [DONE]` 收尾；finish_reason 在最後一塊帶內容的 choice 上，
+    usage（有帶 stream_options 才會有）另成一塊、choices 為空。"""
+    parts: list[str] = []
+    finish_reason = None
+    completion_tokens = None
+    for line in resp.iter_lines():
+        if not line.startswith("data:"):
+            continue
+        data = line[len("data:"):].strip()
+        if data == "[DONE]":
+            break
+        chunk = json.loads(data)
+        choices = chunk.get("choices") or []
+        if choices:
+            piece = (choices[0].get("delta") or {}).get("content")
+            if piece:
+                parts.append(piece)
+            if choices[0].get("finish_reason"):
+                finish_reason = choices[0]["finish_reason"]
+        usage = chunk.get("usage")
+        if usage and usage.get("completion_tokens") is not None:
+            completion_tokens = usage["completion_tokens"]
+    return "".join(parts), finish_reason, completion_tokens
 
 
 def _anthropic_detail(exc: anthropic.APIStatusError) -> str:
@@ -310,14 +422,24 @@ class _ClaudeClient(_BaseClient):
         self._model = model
         self._effort = effort
 
-    def chat(self, system: str, turns: list[dict]) -> str:
-        params = {"model": self._model, "max_tokens": _MAX_TOKENS_THINKING,
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None,
+             cancel: RequestHandle | None = None) -> str:
+        """打一次串流的 /v1/messages 請求（SDK 的 `messages.stream` 幫忙累積成完整訊息），
+        回傳文字內容。串流是為了讓 `cancel` 能真的省 token（見 RequestHandle）。
+        `max_tokens` 未指定（None）時沿用聊天路徑的 `_MAX_TOKENS_THINKING`——Claude 沒有
+        「不思考」模式，思考深度改由 `effort` 控制，不是靠調這個參數；區域翻譯路徑會
+        明確帶 `_MAX_TOKENS_REGION`（一次可能送出一整頁的辨識行，預算得放寬），截斷判定
+        也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
+        limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
+        params = {"model": self._model, "max_tokens": limit,
                   "system": system, "messages": turns}
         if self._effort != EFFORT_AUTO:
             params["output_config"] = {"effort": self._effort}
         try:
-            resp = self._client.messages.create(**params)
-        except anthropic.APIConnectionError as exc:
+            with (self._client.messages.stream(**params) as stream,
+                  _cancellable(cancel, stream.close)):
+                resp = stream.get_final_message()
+        except (anthropic.APIConnectionError, httpx.HTTPError, httpx.StreamError) as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
         except anthropic.APIStatusError as exc:
             error = _status_error(exc.status_code, _anthropic_detail(exc))
@@ -327,8 +449,7 @@ class _ClaudeClient(_BaseClient):
         content = "".join(b.text for b in resp.content if b.type == "text")
         if resp.stop_reason == "max_tokens":
             usage = getattr(resp, "usage", None)
-            raise _truncated(_MAX_TOKENS_THINKING,
-                             getattr(usage, "output_tokens", None), content)
+            raise _truncated(limit, getattr(usage, "output_tokens", None), content)
         return strip_think(content).strip()
 
     def list_models(self) -> list[str]:
@@ -390,20 +511,27 @@ class Translator:
         return self._target_language
 
     def _chat(self, kind: str, system: str, turns: list[dict], *,
-              source: str, context_lines: int, strip: bool = False) -> str:
+              source: str, context_lines: int, strip: bool = False,
+              max_tokens: int | None = None, redact: bool = False,
+              cancel: RequestHandle | None = None) -> str:
         """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
 
         三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
         實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
         例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        `redact=True` 只記字數不記內容：區域翻譯的原文可能整頁、譯文可能很長。
+        `cancel` 給的話請求可以中途撤銷（見 RequestHandle）；還沒送就被取消的不送。
         """
+        if cancel is not None and cancel.cancelled:
+            raise TranslatorCancelled()
         started = time.monotonic()
-        translated = self._impl.chat(system, turns)
+        translated = self._impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
         if strip:
             translated = strip_invented_english(source, translated)
+        shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
             f"(model={self._impl.model}, ctx={context_lines}): "
-            f"source={source!r} translated={translated!r}")
+            f"source={source!r} translated={shown}")
         return translated
 
     def translate_incoming(self, text: str, context: list[str]) -> str:
@@ -441,8 +569,10 @@ class Translator:
             [{"role": "user", "content": text}],
             source=text, context_lines=0, strip=True)
 
-    def translate_outgoing(self, text: str, context: list[str]) -> str:
+    def translate_outgoing(self, text: str, context: list[str],
+                           cancel: RequestHandle | None = None) -> str:
         """發話：把玩家輸入（任何語言）翻成遊戲聊天語言（固定）。
+        輸入框在等譯文時被關掉會經 `cancel` 撤銷請求，不白白付 token。
         發話內容不寫入上下文 —— 送出後遊戲會回顯成聊天行，由收訊路徑記錄。
         few-shot 一律帶：曾只在無上下文時帶，但遊戲內幾乎永遠有上下文，實測模型會把
         「不好意思我英文不好，用翻譯器」當成對它說的話回「No worries, I'll help you out!」，
@@ -452,7 +582,28 @@ class Translator:
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING),
-            source=text, context_lines=len(context))
+            source=text, context_lines=len(context), cancel=cancel)
+
+    def translate_region_text(self, text: str, cancel: RequestHandle | None = None) -> str:
+        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
+        使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
+        每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
+        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
+        括號英文逐行過濾（`strip_invented_english`）：提示詞要求括號只能照抄該行原文，
+        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
+        比對，同一頁另一行有英文時才不會替它放行。"""
+        originals, numbered = number_lines(text)
+        translated = self._chat(
+            "region text",
+            build_region_system(self._target_language),
+            [{"role": "user", "content": numbered}],
+            source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
+            max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
+        lines = unnumber_lines(translated, originals).split("\n")
+        if len(lines) != len(originals):
+            return strip_invented_english(text, "\n".join(lines))   # 對不上行時退回整段比對
+        return "\n".join(strip_invented_english(original, line)
+                         for original, line in zip(originals, lines, strict=True))
 
 
 def list_models(api: dict, client=None) -> list[str]:

@@ -124,5 +124,20 @@
   "input.hint": "输入消息后按下 Enter 会执行翻译并自动输入到游戏的输入框（不会自动发送）；按 Esc 或未输入直接按 Enter 可关闭此窗口",
   "input.translating": "翻译中…",
   "input.failed": "翻译失败：{error}",
-  "input.too_long": "译文 {count} 字，超过游戏上限 {limit} 字 —— 请删减或分段后重发"
+  "input.too_long": "译文 {count} 字，超过游戏上限 {limit} 字 —— 请删减或分段后重发",
+  "region.hint": "拖拽框选要翻译的区域，按 Esc 取消",
+  "region.no_text": "没有识别到文字",
+  "region.outside_game": "请框选游戏画面内的区域",
+  "region.capture_failed": "截取画面失败：{error}",
+  "region.ocr_unavailable": "本机文字识别无法启动",
+  "region.failed": "翻译失败：{error}",
+  "region.close_hint": "点一下即可关闭",
+  "region.no_game": "找不到游戏窗口，请先启动并登录游戏",
+  "region.working": "识别并翻译中…",
+  "tooltip.region": "框选画面翻译 ({hotkey})",
+  "tooltip.settings": "设置",
+  "tooltip.minimize": "缩小",
+  "tooltip.close": "关闭",
+  "settings.region_hotkey": "框选画面翻译的热键",
+  "error.hotkeys_same": "两个热键不可相同"
 }

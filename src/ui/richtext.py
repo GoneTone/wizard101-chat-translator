@@ -97,20 +97,48 @@ class RichLabel(tk.Text):
         self.configure(state="normal")
         self.delete("1.0", "end")
         self._links, self._ranges = [], []
-        for segment, url in parse_link_markup(linkify(text)):
-            if url is None:
-                self.insert("end", segment)
-                continue
-            tag = f"link{len(self._links)}"
-            start = self.index("end-1c")
-            self.insert("end", segment, ("link", tag))
-            self.tag_bind(tag, "<Button-1>", lambda e, u=url: self._open(u))
-            self._links.append((segment, url))
-            self._ranges.append((start, self.index("end-1c")))
+        self._insert_segments(text)
         if fg is not None:
             self.configure(fg=fg)
         self.configure(state="disabled")
         self._schedule_fit()
+
+    def set_blocks(self, blocks: list[tuple[str, str, tuple]]) -> None:
+        """一次放多個各自帶顏色／字型的區塊（`(文字, 字色, 字型)`），區塊間留一行
+        空白（`"\\n\\n"`）分隔，整體仍是同一顆 Text —— 拖曳選取因此能跨區塊
+        （region_card 用來讓原文與譯文能一次選到）。各區塊內的連結語法一樣走
+        `parse_link_markup(linkify(...))`；`link` tag 最後統一 `tag_raise`，
+        連結色／底線才不會被區塊自己的字色蓋掉。"""
+        self.configure(state="normal")
+        self.delete("1.0", "end")
+        self._links, self._ranges = [], []
+        for index, (text, fg, font) in enumerate(blocks):
+            if index > 0:
+                self.insert("end", "\n\n")
+            tag = f"block{index}"
+            self.tag_configure(tag, foreground=fg, font=font)
+            self._insert_segments(text, extra_tag=tag)
+        self.tag_raise("link")
+        self.configure(state="disabled")
+        self._schedule_fit()
+
+    def _insert_segments(self, text: str, extra_tag: str | None = None) -> None:
+        """把 text 依連結語法切段插到游標處（`end`）；`extra_tag` 非 None 時
+        每段都額外掛上它（`set_blocks` 用來讓區塊帶自己的顏色／字型 tag）。"""
+        extra = (extra_tag,) if extra_tag else ()
+        for segment, url in parse_link_markup(linkify(text)):
+            if url is None:
+                if extra:
+                    self.insert("end", segment, extra)
+                else:
+                    self.insert("end", segment)
+                continue
+            tag = f"link{len(self._links)}"
+            start = self.index("end-1c")
+            self.insert("end", segment, ("link", tag, *extra))
+            self.tag_bind(tag, "<Button-1>", lambda e, u=url: self._open(u))
+            self._links.append((segment, url))
+            self._ranges.append((start, self.index("end-1c")))
 
     def text(self) -> str:
         return self.get("1.0", "end-1c")

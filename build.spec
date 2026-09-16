@@ -3,6 +3,7 @@
 # （見 src/main.py 的 frozen 判斷），使用者回報問題附上該檔即可。
 import sys
 
+from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.win32.versioninfo import (
     FixedFileInfo,
     StringFileInfo,
@@ -52,8 +53,12 @@ a = Analysis(
     datas=[
         ("src/i18n/*.json", "i18n"),      # 語言檔：執行期由 src/i18n 依 _MEIPASS 讀取
         ("src/assets/*", "assets"),       # icon：exe 用 .ico，tkinter 用 .png，都經 src/resources 取用
+        # 本機 OCR（rapidocr）的模型與設定 yaml 都放在套件目錄裡、執行期用相對路徑讀取，
+        # 靜態分析不會把這些非 .py 檔一起打包；缺了會在建立引擎時報找不到
+        # default_models.yaml（見 src/region/ocr.py）
+        *collect_data_files("rapidocr"),
     ],
-    hiddenimports=[],  # spike 發現缺模組時補在這裡，並註明原因
+    hiddenimports=[],
     excludes=[],
 )
 pyz = PYZ(a.pure)
