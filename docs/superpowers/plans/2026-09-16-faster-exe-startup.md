@@ -1030,6 +1030,63 @@ git commit -m "feat(build): weight the splash progress bar by extracted byte siz
   git commit -m "fix(build): cover a.datas in the splash progress bar's size table"
   ```
 
+- [x] **Fix round 2：預留 Python 階段的頂端、緩動中段的跳動**
+
+  使用者實跑打包版後回報兩個現象：中段跳動過大（`cv2.pyd` 單一事件把進度條從
+  7.6% 推到 45.2%）、解壓完滿格後還要再空等約 0.78 秒（`import src.main` 0.31 秒
+  ＋ `[app] version=` 到 `[app] running` 0.47～0.48 秒）畫面才真的可用。
+
+  - 解壓只推進到 80%；`PHASE_LOADING`（`"Loading components..."`）推到 90%、
+    `PHASE_STARTING`（`"Starting..."`）推到 97%。兩個階段字串改成定義在
+    `src/splash.py`，`run.py`／`src/main.py`／`tools/splash_progress.py` 三處都
+    從那裡 import，不在 build 腳本裡複製一份字面值。
+  - 進度推進改成緩動動畫（每步移動剩餘距離的 25%、每 16ms 一步）：每個 trace
+    事件都無條件直接呼叫一次 `pyi_progress_step`（`after` 不保證會被處理，直接
+    呼叫確保最壞情況下仍會前進），步進函式再用排程旗標 `_pyi_animating` 決定要不要
+    額外排 `after` 接力。
+  - 用真正的 `tkinter.Tcl()` 直譯器（不建視窗）驗證清單彈出、解壓上限、階段目標、
+    動畫邏輯，涵蓋「單次直接呼叫在 `after` 從未觸發時仍會前進」與「不會疊出兩條
+    並行動畫鏈」。
+
+  ```bash
+  uv run ruff check src tests tools
+  uv run pytest
+  git add run.py src/main.py src/splash.py tests/test_main.py tests/test_splash.py \
+          tests/test_splash_progress.py tools/splash_progress.py
+  git commit -m "feat(build): reserve the bar's top for the Python phase, ease the jumps"
+  ```
+
+- [x] **Fix round 3：修復 after 鏈斷鏈，讓進度條真的能到滿格**
+
+  使用者實跑後回報：進度條卡在 9 成左右就不動，視窗接著就跳出來。根因：round 2 的
+  `_pyi_animating` 旗標只在排程當下設成 1，`after` 觸發重新進入時沒有清掉，鏈只接力
+  一次就斷了 —— 兩次直接呼叫之間只補得到兩步緩動（`432 -> 440.5 -> 446.9`，480 的
+  93.1%），跟「卡在 9 成左右」對得上；用 `tkinter.Tcl()` 獨立重現，目標 300 停在
+  131.25。round 2 的動畫測試只用直接呼叫驅動，沒有驅動過 `after` 接力鏈本身，才會
+  沒抓到。
+
+  - `pyi_progress_step` 把「排程旗標」換成「取消並重排」：用存下來的 `after` id，
+    每次進入（不論直接呼叫還是 `after` 觸發）都先 `after cancel` 掉上一次排的，
+    再決定要不要重排下一次 —— 不會漏接力、也不會疊出兩條並行的鏈。
+  - `PHASE_STARTING` 從 97% 改成滿格（100%）：一個視覺上永遠填不滿的進度條讀起來
+    就是壞掉，跟「留一點空白」的原始考量比起來代價更大。`Starting...` 到
+    `build_app()` 完成實測 0.47～0.48 秒，動畫約 200ms 收斂，滿格後只會多晾著約
+    0.27 秒才關閉，遠比原本要解決的 0.78 秒空窗小。
+  - 補一個用 `after` ＋ `vwait` 真的把 Tcl 事件迴圈跑起來的回歸測試，並用「暫時
+    還原成 round 2 舊版旗標邏輯」驗證這個新測試真的會紅（落證）。
+  - `pyi_progress_step` 更新畫布座標那一步包 `catch`：確認過 PyInstaller 出貨的
+    IPC 樣板在 `close()` 之後會同步 `exit`，但 bootloader 的 C 層事後到底是整個
+    行程結束還是只拆 Tcl 直譯器，本模組看不到原始碼、沒有驗證，`catch` 只是保險。
+  - 順手修了 round 2-3 引入的幾處破折號空格疏漏，並補上錨點字串「必須剛好出現
+    一次」的斷言（`count=1` 搭配測試涵蓋錨點出現兩次時要 raise）。
+
+  ```bash
+  uv run ruff check src tests tools
+  uv run pytest
+  git add tools/splash_progress.py tests/test_splash_progress.py build.spec
+  git commit -m "fix(build): repair the after-chain stall and let the bar reach 100%"
+  ```
+
 ---
 
 ### Task 9：第一份實例主動攔截第二次啟動
