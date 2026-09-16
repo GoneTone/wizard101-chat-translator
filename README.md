@@ -67,7 +67,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 6. To read text on screen (NPC dialogue, quest books, item descriptions…): press the region hotkey (`Ctrl+Shift+Space` by default) or click the region button (⛶) on the overlay's title bar → the screen freezes and dims → drag a rectangle around the text → a translation card appears right below it.
    - The frame stays on screen: drag inside it to move it or drag an edge to resize it, and the new area is translated again.
    - The card shows the recognized text above the translation for comparison; text can be highlighted and copied with `Ctrl+C` or the right-click menu. Click the card or its ✕ to dismiss it.
-   - The text is read by built-in offline text recognition and then translated by the AI you configured; screenshots never leave your computer.
+   - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
 7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart (the only exception is *Game path* on the *Advanced* tab, which takes effect on the next start).
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
 9. Every launch checks GitHub for a new version; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
