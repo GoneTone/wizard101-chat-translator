@@ -1,33 +1,33 @@
 """框選框：框選放開後留在畫面上的矩形，讓使用者事後拖邊線改大小、拖框內移動，
 放開時回報新矩形（`RegionFlow` 據此對遊戲當下畫面重新辨識翻譯）。
 
-兩層視窗：
-- 框線層：只比矩形大一圈 `MARGIN`（把手要露在框外），除了亮色框線與把手之外整片是
-  透明色鍵 —— Windows 對色鍵像素連 hit-test 都跳過，滑鼠只會落在畫出來的線與把手上。
-  沒辦法有「看不見又點得到」的區域，框線要好抓只能靠畫粗一點，不另外加暗色外圈。
-- 框內層：貼在框線內側、幾乎全透明（`-alpha` 極小但不為零，全零 Windows 就不派事件
-  給它）的視窗，接「拖框內移動整個框」的拖曳；代價是框開著時框內的遊戲畫面點不到，
-  關卡片一起收掉就恢復。
+兩層同大小的視窗（矩形外各多一圈 `MARGIN`，把手要露在框外）：
+- 框線層（上）：只負責畫。除了亮色框線與把手之外整片是透明色鍵 —— Windows 對色鍵像素
+  連 hit-test 都跳過，滑鼠穿過去落到底下的滑鼠層；線與把手本身收到的點擊也交給同一套
+  處理，行為一致。
+- 滑鼠層（下）：幾乎全透明（`-alpha` 極小但不為零，全零 Windows 就不派事件給它），
+  蓋住整個框，邊帶（`GRAB`）縮放、框內移動。可抓範圍因此不受畫出來的線寬限制；
+  代價是框開著時框內的遊戲畫面點不到，關卡片一起收掉就恢復。
 兩層都不奪焦點（`make_non_activating`）。
 邊線只拉該邊、角落拉兩軸（判定沿用 `geometry.edge_at`，見 `hit_at`），四角與四邊中點
-的方塊把手純粹是視覺提示；位移一律用螢幕座標算，視窗在拖曳中自己會動、canvas 座標會跟著跑。
+的方塊把手純粹是視覺提示；位移一律用螢幕座標算，視窗在拖曳中自己會動、視窗座標會跟著跑。
 放開時位移在點擊門檻內視為誤觸：矩形還原、不回報。
 """
 import tkinter as tk
 
 from src.log import log
-from src.ui.geometry import edge_at, is_click, moved_to, resized_edge
+from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
 from src.ui.palette import BG, FG_UPDATE
 from src.ui.winstyle import make_non_activating
 
-MARGIN = 5       # 矩形外側多留的寬度（px）：把手一半露在框外
+MARGIN = 8       # 矩形外側多留的寬度（px）：把手露在框外，也是邊帶在框外的那一半
 HANDLE = 10      # 把手方塊邊長（px）
 MIN_SIZE = 20    # 縮放時的最小寬高（px）
-BAND = 2         # 框線往矩形內側延伸的寬度（px）：框內層從這裡開始，留線給框線層抓
+GRAB = 8         # 邊帶在矩形內側的寬度（px）；與 MARGIN 合起來是整條邊帶
 _LINE = 3        # 亮色框線寬度（px），以矩形邊為中心線畫
 _TRANSPARENT = "#010101"   # 框線層的透明色鍵
-_GRIP_ALPHA = 0.01         # 框內層：看不見但收得到滑鼠（0 就收不到）
-_CURSORS = {"n": "size_ns", "s": "size_ns", "e": "size_we", "w": "size_we",
+_GRIP_ALPHA = 0.01         # 滑鼠層：看不見但收得到滑鼠（0 就收不到）
+_CURSORS = {"move": "fleur", "n": "size_ns", "s": "size_ns", "e": "size_we", "w": "size_we",
             "nw": "size_nw_se", "se": "size_nw_se", "ne": "size_ne_sw", "sw": "size_ne_sw"}
 
 
@@ -42,11 +42,14 @@ def _handles(w: int, h: int) -> dict[str, tuple[int, int]]:
 
 
 def hit_at(px: int, py: int, w: int, h: int) -> str:
-    """框線層 canvas 座標 (px, py) 壓在哪條邊／哪個角：`"n"`／`"se"`…；框內回空字串
-    （那裡是透明色鍵，實際上收不到點擊）。整個視窗就是一圈邊帶：邊帶厚度＝框外留白
-    加框線內側，角落區比邊帶寬、才好抓到角落把手。"""
-    return edge_at(px, py, 0, 0, w + 2 * MARGIN, h + 2 * MARGIN,
-                   edge=MARGIN + BAND, corner=MARGIN + HANDLE)
+    """視窗座標 (px, py) 壓在哪：邊帶回邊角代號（`"n"`／`"se"`…）、框內回 `"move"`、
+    視窗外回空字串。邊帶厚度＝框外留白加框線內側（`MARGIN + GRAB`），角落區再寬一點、
+    才好抓到角落把手。"""
+    outer_w, outer_h = w + 2 * MARGIN, h + 2 * MARGIN
+    if not point_in_rect(px, py, 0, 0, outer_w, outer_h):
+        return ""
+    return edge_at(px, py, 0, 0, outer_w, outer_h,
+                   edge=MARGIN + GRAB, corner=MARGIN + GRAB + HANDLE // 2) or "move"
 
 
 class RegionBox:
@@ -86,16 +89,13 @@ class RegionBox:
             self._drag = None
 
     def _build(self) -> None:
-        # 框內層先建：兩層都 topmost，後建的疊在上面，框線層要在框內層之上
+        # 滑鼠層先建：兩層都 topmost，後建的疊在上面，框線層要在滑鼠層之上
         grip = tk.Toplevel(self._root)
         grip.withdraw()
         grip.overrideredirect(True)
         grip.attributes("-topmost", True)
         grip.attributes("-alpha", _GRIP_ALPHA)
-        grip.configure(bg=BG, cursor="fleur")
-        grip.bind("<ButtonPress-1>", self._press_move)
-        grip.bind("<B1-Motion>", self._motion)
-        grip.bind("<ButtonRelease-1>", self._release)
+        grip.configure(bg=BG)
 
         win = tk.Toplevel(self._root)
         win.withdraw()
@@ -111,10 +111,12 @@ class RegionBox:
         for edge in _handles(1, 1):
             self._items[edge] = canvas.create_rectangle(0, 0, 0, 0, fill=FG_UPDATE,
                                                         outline=FG_UPDATE, width=1)
-        canvas.bind("<ButtonPress-1>", self._press)
-        canvas.bind("<B1-Motion>", self._motion)
-        canvas.bind("<ButtonRelease-1>", self._release)
-        canvas.bind("<Motion>", self._hover)
+        # 兩層同大小、同位置，視窗座標一致，同一套判定與拖曳處理
+        for layer in (grip, canvas):
+            layer.bind("<ButtonPress-1>", self._press)
+            layer.bind("<B1-Motion>", self._motion)
+            layer.bind("<ButtonRelease-1>", self._release)
+            layer.bind("<Motion>", self._hover)
         self._win, self._grip, self._canvas = win, grip, canvas
         make_non_activating(grip)
         make_non_activating(win)
@@ -126,9 +128,8 @@ class RegionBox:
         self._rect = rect
         x, y, w, h = rect
         win_w, win_h = w + 2 * MARGIN, h + 2 * MARGIN
-        self._win.geometry(f"{win_w}x{win_h}+{x - MARGIN}+{y - MARGIN}")
-        self._grip.geometry(f"{max(1, w - 2 * BAND)}x{max(1, h - 2 * BAND)}"
-                            f"+{x + BAND}+{y + BAND}")
+        for layer in (self._win, self._grip):
+            layer.geometry(f"{win_w}x{win_h}+{x - MARGIN}+{y - MARGIN}")
         canvas = self._canvas
         canvas.coords(self._items["line"], MARGIN, MARGIN, MARGIN + w, MARGIN + h)
         half = HANDLE // 2
@@ -137,14 +138,11 @@ class RegionBox:
 
     def _hover(self, e) -> None:
         if self._drag is None:
-            self._canvas.configure(cursor=_CURSORS.get(hit_at(e.x, e.y, *self._rect[2:]), ""))
+            e.widget.configure(cursor=_CURSORS.get(hit_at(e.x, e.y, *self._rect[2:]), ""))
 
     def _press(self, e) -> None:
         hit = hit_at(e.x, e.y, *self._rect[2:])
         self._drag = (hit, e.x_root, e.y_root, self._rect) if hit else None
-
-    def _press_move(self, e) -> None:
-        self._drag = ("move", e.x_root, e.y_root, self._rect)
 
     def _motion(self, e) -> None:
         if self._drag is None:

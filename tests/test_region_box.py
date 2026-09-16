@@ -1,10 +1,10 @@
 """框選框：框選後留在畫面上的可調整矩形 —— 拖角落改兩軸、拖邊線只拉該邊、拖框內移動、
-點一下不算、放開才回報新矩形；框線視窗只有線與把手是實體（透明色鍵），框內另有一片
-幾乎全透明的視窗接移動的拖曳。"""
+點一下不算、放開才回報新矩形；框線視窗只負責畫（透明色鍵），滑鼠由底下一片蓋住整個框、
+幾乎全透明的視窗接，邊帶可抓範圍不受畫出來的線寬限制。"""
 import pytest
 
 from src.ui.palette import FG_UPDATE
-from src.ui.region_box import BAND, HANDLE, MARGIN, MIN_SIZE, RegionBox, hit_at
+from src.ui.region_box import GRAB, MARGIN, MIN_SIZE, RegionBox, hit_at
 
 _RECT = (100, 100, 300, 200)
 
@@ -68,11 +68,25 @@ def test_dragging_inside_the_box_moves_it(box, root):
     assert box.changes == [(120, 110, 300, 200)]
 
 
-def test_the_grip_is_nearly_invisible_and_fills_the_inside_of_the_line(box, root):
+def test_the_grip_is_nearly_invisible_and_covers_the_whole_box(box, root):
     box.show(_RECT)
     root.update()
     assert 0 < float(box._grip.attributes("-alpha")) <= 0.02
-    assert box._grip.geometry().split("+")[0] == f"{300 - 2 * BAND}x{200 - 2 * BAND}"
+    assert box._grip.geometry().split("+")[0] == f"{300 + 2 * MARGIN}x{200 + 2 * MARGIN}"
+
+
+def test_dragging_an_edge_on_the_grip_layer_resizes_too(box, root):
+    box.show(_RECT)
+    root.update()
+    grip = box._grip
+    y = MARGIN + GRAB - 1   # 線內側、仍在邊帶裡
+    grip.event_generate("<ButtonPress-1>", x=MARGIN + 60, y=y, rootx=1060, rooty=1000 + y)
+    grip.event_generate("<B1-Motion>", x=MARGIN + 60, y=y + 10, rootx=1060, rooty=1010 + y)
+    root.update()
+    grip.event_generate("<ButtonRelease-1>", x=MARGIN + 60, y=y + 10, rootx=1060,
+                        rooty=1010 + y)
+    root.update()
+    assert box.rect() == (100, 110, 300, 190)
 
 
 def test_a_click_on_the_band_changes_nothing(box, root):
@@ -132,9 +146,13 @@ def test_hide_is_idempotent(box, root):
     ((MARGIN + 300, MARGIN + 100), "e"),                # 右緣中點把手
     ((MARGIN + 150, MARGIN + 200), "s"),                # 下緣中點把手
     ((MARGIN + 60, MARGIN), "n"),                       # 上緣框線：只拉上緣
+    ((MARGIN + 60, MARGIN + GRAB - 1), "n"),            # 線內側、邊帶最裡面一排
+    ((MARGIN + 60, MARGIN + GRAB), "move"),             # 再往內就是框內
+    ((MARGIN + 60, 0), "n"),                            # 框外留白也算邊帶
     ((MARGIN + 300 + 1, MARGIN + 60), "e"),             # 右緣框線外側那 1px
-    ((MARGIN + 150, MARGIN + 100), ""),                 # 框內：透明，實際上收不到點擊
-    ((MARGIN + 150 - HANDLE, MARGIN + 100), ""),
+    ((MARGIN + 150, MARGIN + 100), "move"),             # 框內：移動整個框
+    ((-1, MARGIN + 100), ""),                           # 視窗外
 ])
 def test_hit_at_tells_corners_from_edges_from_the_inside(point, expected):
+    assert GRAB >= 6   # 邊帶至少要比 3px 的線寬一倍以上才好抓
     assert hit_at(*point, 300, 200) == expected
