@@ -508,10 +508,16 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
 def main() -> None:
     redirect_output()
+    # 輸出已可寫入，先把 splash 在導向之前累積的診斷補寫出來，才不會憑空消失
+    splash.drain_logs()
     # 版本先印：app.log 分段標頭後第一行就是版本
     log(f"[app] version={__version__}")
-    log(f"[splash] startup screen {'active' if splash.is_available() else 'not present'} "
-        f"(frozen={getattr(sys, 'frozen', False)})")
+    status = "active" if splash.is_available() else "not present"
+    if splash.had_failure():
+        # is_available() 只看 pyi_splash 有沒有 import 成功，看不出 IPC socket 斷線；
+        # 沒有這行，socket 斷掉時這裡仍會印 active，使用者看到的卻是凍結的畫面
+        status += " but a call already failed (see [splash] lines above)"
+    log(f"[splash] startup screen {status} (frozen={getattr(sys, 'frozen', False)})")
 
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)

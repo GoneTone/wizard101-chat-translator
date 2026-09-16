@@ -17,7 +17,7 @@ from PyInstaller.utils.win32.versioninfo import (
 
 sys.path.insert(0, SPECPATH)   # SPECPATH 由 PyInstaller 注入 spec 的命名空間
 from src import __version__    # 版本號的唯一真實來源，不在這裡另抄一份
-from tools.splash_image import TEXT_ORIGIN, build_splash_image
+from tools.splash_image import TEXT_COLOR, TEXT_ORIGIN, build_splash_image
 
 # 檔案版本欄位只吃四個數字，預發布版（0.2.0-rc.1）的後綴只留在字串欄位。
 _numbers = tuple(int(n) for n in __version__.split("-")[0].split("."))
@@ -80,7 +80,7 @@ splash = Splash(
     datas=a.datas,
     text_pos=TEXT_ORIGIN,
     text_size=10,
-    text_color="#f0f0f5",
+    text_color=TEXT_COLOR,
     # 解壓期間顯示的字：打包時就寫死，那時 Python 還沒啟動、讀不到介面語言設定。
     # 一律 ASCII —— 這串字會被寫進 bootloader 的 Tcl 腳本。
     text_default="Initializing...",

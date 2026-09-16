@@ -21,9 +21,18 @@ class _FakeSplash:
         self.closed = True
 
 
-def test_no_ops_without_pyi_splash(monkeypatch):
-    monkeypatch.setattr(splash, "_splash", None)
+def _reset(monkeypatch, fake) -> None:
+    """每個測試獨立重置模組狀態：`_pending_logs`／`_failed` 是全域可變狀態，
+    上一個測試留下的殘值會讓斷言誤判成功或失敗；`monkeypatch.setattr` 收尾時
+    自動還原，不必額外寫 teardown。"""
+    monkeypatch.setattr(splash, "_splash", fake)
     monkeypatch.setattr(splash, "_closed", False)
+    monkeypatch.setattr(splash, "_failed", False)
+    monkeypatch.setattr(splash, "_pending_logs", [])
+
+
+def test_no_ops_without_pyi_splash(monkeypatch):
+    _reset(monkeypatch, None)
     splash.update("anything")   # 開發模式的常態，不該拋例外
     splash.close()
     assert splash.is_available() is False
@@ -31,8 +40,7 @@ def test_no_ops_without_pyi_splash(monkeypatch):
 
 def test_forwards_to_pyi_splash(monkeypatch):
     fake = _FakeSplash()
-    monkeypatch.setattr(splash, "_splash", fake)
-    monkeypatch.setattr(splash, "_closed", False)
+    _reset(monkeypatch, fake)
     splash.update("Loading components...")
     splash.close()
     assert fake.texts == ["Loading components..."]
@@ -44,8 +52,7 @@ def test_update_after_close_is_ignored(monkeypatch):
     """關掉之後再更新不該再碰 pyi_splash —— 首次執行精靈那條路徑就會這樣走，
     真的送出去只會換來一行誤導人的失敗 log。"""
     fake = _FakeSplash()
-    monkeypatch.setattr(splash, "_splash", fake)
-    monkeypatch.setattr(splash, "_closed", False)
+    _reset(monkeypatch, fake)
     splash.close()
     splash.update("Starting...")
     assert fake.texts == []
@@ -53,8 +60,7 @@ def test_update_after_close_is_ignored(monkeypatch):
 
 def test_close_is_idempotent(monkeypatch):
     fake = _FakeSplash()
-    monkeypatch.setattr(splash, "_splash", fake)
-    monkeypatch.setattr(splash, "_closed", False)
+    _reset(monkeypatch, fake)
     splash.close()
     fake.closed = False        # 第二次呼叫若真的轉過去，這裡會被改回 True
     splash.close()
@@ -62,7 +68,30 @@ def test_close_is_idempotent(monkeypatch):
 
 
 def test_failures_are_swallowed(monkeypatch):
-    monkeypatch.setattr(splash, "_splash", _FakeSplash(fail=True))
-    monkeypatch.setattr(splash, "_closed", False)
+    """update() 與 close() 各自的例外都要吞掉，但診斷不能跟著消失 —— 若兩個 except
+    子句被偷懶改成 `pass`，例外一樣不會逃出去，這個測試會是唯一抓到差異的地方。"""
+    _reset(monkeypatch, _FakeSplash(fail=True))
     splash.update("x")   # ConnectionError 不該逃出去
     splash.close()       # RuntimeError 同理
+
+    assert any(m.startswith("[splash] update failed") for m in splash._pending_logs)
+    assert any(m.startswith("[splash] close failed") for m in splash._pending_logs)
+    assert splash.had_failure() is True
+
+
+def test_drain_logs_flushes_buffer_then_switches_to_direct_logging(monkeypatch):
+    """`run.py` 在 `redirect_output()` 之前呼叫 `update()` 時，`log()` 還寫不出去；
+    `drain_logs()` 要把那段期間累積的訊息補寫出來，之後的訊息不再進 buffer、直接記 log。"""
+    recorded = []
+    monkeypatch.setattr(splash, "log", lambda msg: recorded.append(msg))
+    monkeypatch.setattr(splash, "_pending_logs", ["[splash] update failed: buffered"])
+
+    splash.drain_logs()
+    assert recorded == ["[splash] update failed: buffered"]
+    assert splash._pending_logs is None
+
+    splash._record("[splash] close failed: direct")
+    assert recorded == ["[splash] update failed: buffered", "[splash] close failed: direct"]
+
+    splash.drain_logs()   # 重複呼叫安全：已經是 None 就不再重放
+    assert recorded == ["[splash] update failed: buffered", "[splash] close failed: direct"]

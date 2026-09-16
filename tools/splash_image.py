@@ -23,6 +23,8 @@ _TITLE = "Wizard101 Chat Translator"
 # transparent_setup 模板），用到的話整塊會被挖成透明。
 _BACKGROUND = "#1b1b2f"
 _TITLE_COLOR = "#f0f0f5"
+# 狀態文字沿用標題色（對比色取自 _BACKGROUND），build.spec 的 text_color 要用同一組值
+TEXT_COLOR = _TITLE_COLOR
 _VERSION_COLOR = "#9a9ab0"
 _ICON_SIZE = 128             # icon.ico 的原生 frame，不放大
 _ICON_TOP = 40

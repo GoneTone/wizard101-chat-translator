@@ -56,5 +56,24 @@ def test_startup_path_does_not_import_anthropic():
     """
     code = "import src.main, sys; print('anthropic' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                         text=True, cwd=ROOT, check=True)
+                         text=True, cwd=ROOT, check=False)
+    # check=False 才讓下面兩個斷言都跑得到：check=True 遇到非 0 結束碼會直接拋
+    # CalledProcessError，訊息裡沒有 stdout／stderr，等於白寫了下面的診斷字串
+    assert out.returncode == 0, f"stderr={out.stderr!r}"
     assert out.stdout.strip() == "False", f"stdout={out.stdout!r} stderr={out.stderr!r}"
+
+
+def test_run_py_updates_splash_before_importing_main():
+    """`run.py` 唯一的存在理由就是這個順序：`import src.main` 要花約 0.3 秒（A 生效
+    後），提前到 `splash.update()` 之前會讓畫面在這段時間停在 bootloader 寫死的
+    `Initializing...`，退步在開發模式量不出來、也不會讓任何既有測試變紅。
+
+    只鎖連續兩行，抓的是「重排」而非「有沒有出現」：把兩個 import 提到模組頂層、
+    `update()` 挪到 import 之後，ruff／pytest 都還是綠的，只有這裡會抓到。
+    `run.py` 本身是純 LF（不像 Markdown 文件用 CRLF），這裡直接用 \\n 比對即可。
+    """
+    source = (ROOT / "run.py").read_text(encoding="utf-8")
+    assert (
+        'splash.update("Loading components...")\n'
+        "    from src.main import main\n"
+    ) in source
