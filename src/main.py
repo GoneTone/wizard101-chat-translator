@@ -34,6 +34,7 @@ from src.config import (
     save_config,
 )
 from src.i18n import current_language, detect_system_language, language_name, set_language, t
+from src.instance_watch import start_instance_watch
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
@@ -413,6 +414,10 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         on_region=lambda: ui_queue.put(lambda: region_flow.start_from_button()),
         region_hotkey=cfg["region_hotkey"],
     )
+    # 讓第一份實例主動攔截第二次啟動：先砍兄弟 bootloader、再喚起自己的視窗，
+    # 使用者不必再等新實例解壓完才看到既有視窗被喚起。frozen 模式才生效；
+    # 沒攔到（自我檢查失敗等）時，acquire_single_instance() 的 mutex 檢查仍是保底。
+    start_instance_watch(lambda: ui_queue.put(lambda: focus_running_instance(app_name())))
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:
         """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。"""

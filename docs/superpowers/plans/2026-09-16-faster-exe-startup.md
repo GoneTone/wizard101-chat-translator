@@ -1032,6 +1032,83 @@ git commit -m "feat(build): weight the splash progress bar by extracted byte siz
 
 ---
 
+### Task 9：第一份實例主動攔截第二次啟動
+
+**Files:**
+- Add: `src/instance_watch.py`
+- Test: `tests/test_instance_watch.py`（新增）
+- Modify: `src/main.py`（`build_app()` 接線）
+
+**Interfaces:**
+- Consumes：`src/reader/process.py` 的 `process_exe_path(pid) -> str | None`、
+  `pid_alive(pid) -> bool`；`src/main.py` 既有的 `focus_running_instance(title)`、
+  `app_name()`。
+- Produces：`start_instance_watch(on_preempted: Callable[[], None]) ->
+  threading.Thread | None`。
+
+使用者實跑後回報再次雙擊要等約 1.4 秒才看到既有視窗被喚起（詳見 spec「事後修訂：
+第一份實例攔截第二次啟動」一節）。解壓之前沒有我們的程式碼會執行，新實例自己救
+不了自己；改由**第一份**（活著的）實例監看 `%TEMP%`，偵測到兄弟 bootloader 剛建立
+`_MEI` 目錄就搶先砍掉它、喚起自己的視窗、清理殘留目錄。onefile 發布形式不變，
+既有的 mutex 檢查原封不動保留當保底。
+
+- [ ] **Step 1：寫失敗的測試**
+
+`tests/test_instance_watch.py` 覆蓋：`pid_from_mei_name()` 的三種輸入（合法十六
+進位、`_MEI` 開頭但非十六進位、非 `_MEI` 開頭）；`is_sibling()` 排除自己與父程序、
+路徑比對不分大小寫、`exe_path_of` 回 None 時回 False；`start_instance_watch()` 在
+非 frozen 下回 None 且不開執行緒；監看迴圈對 `tmp_path` 真的跑一次
+`ReadDirectoryChangesW`，其餘（`exe_path_of`／`terminate`／`alive`／`remove_tree`／
+`enum_pids`／`on_preempted`）全部注入假物件，斷言偵測到兄弟時 terminate、
+on_preempted 依序被呼叫且目錄被刪，偵測到非兄弟時兩者都不呼叫、目錄留著。
+
+- [ ] **Step 2：跑測試確認它失敗**（`src/instance_watch.py` 還不存在，import 就會炸）
+
+- [ ] **Step 3：實作 `src/instance_watch.py`**
+
+```python
+def pid_from_mei_name(name: str) -> int | None: ...
+def is_sibling(pid, *, own_pid, parent_pid, own_exe, exe_path_of) -> bool: ...
+def start_instance_watch(on_preempted: Callable[[], None]) -> threading.Thread | None: ...
+```
+
+自我檢查：`pid_from_mei_name(basename(sys._MEIPASS)) == os.getppid()` 不成立就
+`log` 一行並回 None，整個功能不啟用（理由見 spec）。監看迴圈用
+`ReadDirectoryChangesW` 事件驅動；緩衝區溢位（回空清單）時改一次性
+`EnumProcesses` 全掃描。動作順序：先砍兄弟 bootloader → 呼叫 `on_preempted()` →
+等對方死透（最多約 3 秒）再刪它的殘留目錄（只刪目錄名解出的 PID 與剛砍掉的 PID
+相符、且不是自己 `sys._MEIPASS` 的那個）。
+
+- [ ] **Step 4：跑測試確認它通過**
+
+- [ ] **Step 5：接線 `src/main.py`**
+
+`build_app()` 在 overlay 建好之後呼叫：
+
+```python
+start_instance_watch(lambda: ui_queue.put(lambda: focus_running_instance(app_name())))
+```
+
+- [ ] **Step 6：文件與驗收**
+
+spec 補一節記錄目標、為什麼不是客製 bootloader、`_MEI` 編 PID 的已驗證事實、自我
+檢查的理由；README 檢查「再次啟動」相關描述（`grep -n "第二\|再次\|已在執行\|
+already running" README*.md`），沒有就不加。
+
+  ```bash
+  uv run ruff check src tests tools
+  uv run pytest
+  git add src/instance_watch.py tests/test_instance_watch.py src/main.py \
+          docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md \
+          docs/superpowers/plans/2026-09-16-faster-exe-startup.md
+  git commit -m "feat(instance): preempt a sibling launch from the running instance"
+  ```
+
+驗收：不打包、不啟動 GUI 或 exe —— 實機驗證（第一份實例是否真的搶先砍掉並喚起、
+自我檢查在真實 PyInstaller build 上是否成立）由控制端安排。
+
+---
+
 ## 附錄：本次改動的預期數字
 
 | 項目 | 改動前 | 改動後 |

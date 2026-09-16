@@ -308,3 +308,76 @@ entries)`），把大量原本判成 binary 的項目（dist-info 中繼資料�
 修好之後再打包一次，對照表覆蓋 **1121 個 entry、229,343,117 bytes（約 218.7
 MiB）**——跟封存內容的 1121/229.3 MB 幾乎一致，`pp-ocrv6_det_small.onnx`
 （9,929,594 bytes）與 `pp-ocrv6_rec_small.onnx`（21,234,383 bytes）都在表裡。
+
+## 事後修訂：第一份實例攔截第二次啟動（Task 9，2026-09-16）
+
+使用者實跑後回報：exe 已經在跑時再雙擊一次，要等新實例把啟動畫面秀出來、解壓
+完、Python 啟動、被既有的 mutex 檢查發現，才會關掉啟動畫面、把舊視窗喚到前景 ——
+約 1.4 秒使用者只是在看自己早就開著的視窗重新出現一次。使用者要求維持 onefile
+不變的前提下解決這個等待。
+
+### 目標
+
+再次雙擊時，**第一份**（活著的）實例主動偵測到有兄弟 bootloader 正在啟動，搶在
+它顯示啟動畫面之前把它砍掉、把自己的視窗喚到前景、清掉它留下的半成品暫存目錄。
+既有的 `acquire_single_instance()` mutex 檢查原封不動保留，當保底：這裡沒攔到
+（自我檢查失敗、對方以系統管理員身分執行等），行為退回今天這樣。
+
+### 為什麼不是客製 bootloader
+
+解壓之前沒有我們的程式碼會執行，新實例自己救不了自己；理論上另一條路是直接改寫
+PyInstaller 的 C bootloader，在它自己解壓前先做這個檢查。放棄這條路的理由：
+
+- 需要 MSVC＋waf 的本機與 CI 建置鏈，這個專案目前完全不碰 C 工具鏈。
+- PyInstaller 每次升級都要重新對照原始碼、重套一次自製 patch，維護成本長期存在。
+- 而「活著的第一份實例監看 `%TEMP%`」不需要動 bootloader 一行程式碼，onefile 發布
+  形式完全不變，成本只是一條 daemon 監看執行緒＋一段砍程序邏輯。
+
+### 已驗證的事實：`_MEI` 目錄名編了 bootloader PID
+
+onefile 的 bootloader 第一件事就是在 `%TEMP%` 建立 `_MEIxxxxxxxx` 目錄，早於顯示
+啟動畫面（畫面要等 tcl/tk 相依解壓完才出現）—— 這給了監看方一個**解壓前**就能抓到
+的信號。實測：執行中的 bootloader PID 54736＝`0xd5d0`，它建立的目錄是
+`_MEI0000d5d02`；歷次 `app.log` 裡的 `_MEIPASS` 也都是 `_MEI` ＋ 8 位十六進位 ＋
+一個尾碼字元。**尾碼那個字元的意義未確認** —— 解析時取 `_MEI` 之後的十六進位部分
+即可（`pid_from_mei_name()`），但這個假設必須在 frozen 執行期自己驗證一次，不能
+只靠這次的實測結果外推到別台機器或別個 PyInstaller 版本。
+
+每次啟動是「父 bootloader → 子 Python」兩個程序，路徑相同；`os.getpid()` 是子、
+`os.getppid()` 是父，**兩個都絕不能砍**。
+
+### 自我檢查的理由
+
+`pid_from_mei_name(basename(sys._MEIPASS)) == os.getppid()` 在 `start_instance_watch()`
+啟動時檢查一次：這是「目錄名編了 bootloader 父程序 PID」這個假設，在**這台機器、
+這個 PyInstaller 版本**上的直接驗證。整套攔截邏輯（砍哪個 pid、刪哪個目錄）全部
+建立在這個假設上，一旦假設不成立卻照樣執行，後果是砍錯程序或刪錯目錄；不成立就
+記一行 log 並讓**整個功能不啟用**（回 None），此時退回既有的 mutex 檢查，使用者
+只是等回原本的 1.4 秒，不會有任何安全性代價。自我檢查通過同樣記一行 log（帶
+temp_root、own pid、parent pid），供實機驗證時對照。
+
+### 偵測機制：事件驅動，零輪詢
+
+用 `ReadDirectoryChangesW` 監看 `os.path.dirname(sys._MEIPASS)`（即 `%TEMP%`），
+只看 `FILE_ACTION_ADDED` 且名稱以 `_MEI` 開頭的項目 —— 不輪詢，成本幾乎是零。緩衝區
+溢位時 API 會回空清單，這種情況不能默默略過（可能剛好漏接一次兄弟啟動），改做一次
+性的 `EnumProcesses` 全掃描找兄弟程序。
+
+動作順序：**先砍**兄弟的 bootloader（`OpenProcess(PROCESS_TERMINATE)` ＋
+`TerminateProcess`；拒絕存取就放棄，交給對方自己的 mutex 檢查）→ 呼叫
+`on_preempted()` 喚起自己的視窗（`main.py` 傳入
+`lambda: ui_queue.put(lambda: focus_running_instance(app_name()))`）→ 等對方真的
+死透（最多約 3 秒）再清它的殘留目錄。順序不能反：啟動畫面 always-on-top，不先砍
+掉會蓋住喚起後的舊視窗。
+
+清理只刪 `temp_root` 底下「目錄名解出的 PID 剛好等於剛砍掉的 PID」的項目，且一律
+跳過自己的 `sys._MEIPASS` —— 寧可留下幾 MB 殘骸，也不能刪到別的程式的目錄。
+
+### 元件
+
+新模組 `src/instance_watch.py`：單一職責，偵測兄弟程序啟動並先發制人。公開
+`start_instance_watch(on_preempted) -> threading.Thread | None`；內部拆成
+`pid_from_mei_name()`、`is_sibling()` 等純函式，監看迴圈把砍程序、列舉程序、判斷
+存活、刪目錄全部當參數注入，測試時用假物件替換，真正碰系統只在 frozen 執行期
+發生。`src/main.py` 的 `build_app()` 在 overlay 建好之後啟動監看；非 frozen（
+`uv run run.py`）時直接回 None，開發模式行為不變。
