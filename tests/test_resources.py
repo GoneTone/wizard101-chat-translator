@@ -54,10 +54,8 @@ def test_build_spec_bundles_and_applies_the_icon():
 
 
 def test_build_spec_wires_up_the_splash_screen():
-    """啟動畫面要同時進 EXE 的 splash 與 splash.binaries，且要排在 a.binaries、a.datas
-    之前 —— onefile 模式靠這個順序才能顯示，順序錯了畫面不會出現，但只檢查字串「有出現」
-    抓不到重排，所以鎖住連續多行的呼叫順序（read_text 會把 CRLF 正規化成 \\n，這裡直接用
-    \\n 比對即可）。"""
+    """splash／splash.binaries 要排在 a.binaries、a.datas 之前，onefile 才能顯示；
+    鎖連續多行的順序，字串「有出現」抓不到重排。"""
     spec = BUILD_SPEC.read_text(encoding="utf-8")
     assert "Splash(" in spec
     # 狀態文字必須是 ASCII：它會被寫進 bootloader 的 Tcl 腳本
@@ -71,9 +69,8 @@ def test_build_spec_wires_up_the_splash_screen():
 
 
 def test_build_spec_installs_the_progress_bar_before_constructing_splash():
-    """`install_progress_bar` 要在 `Splash(...)` 建構之前呼叫 —— `Splash.__init__`
-    結尾就會組好 Tcl 腳本並寫進資源，事後再改樣板已經來不及（見
-    `tools/splash_progress.py` 的模組說明），順序錯了只檢查字串「有出現」抓不到。"""
+    """`install_progress_bar` 要在 `Splash(...)` 建構之前呼叫，否則樣板已經組好、
+    改不了；只檢查字串「有出現」抓不到順序錯誤。"""
     spec = BUILD_SPEC.read_text(encoding="utf-8")
     assert "install_progress_bar(a.binaries, a.datas)" in spec
     assert spec.index("install_progress_bar(a.binaries, a.datas)") < spec.index("splash = Splash(")

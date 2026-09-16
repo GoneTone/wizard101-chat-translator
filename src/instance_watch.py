@@ -1,15 +1,13 @@
 """偵測並攔截「兄弟」bootloader 的第二次啟動。
 
-onefile exe 被再次雙擊時，新的 bootloader 會先解壓（約 1.1 秒）、顯示啟動畫面，
-之後才由既有的 mutex 檢查（`src/main.py` 的 `acquire_single_instance`）發現已有
-實例、關掉啟動畫面、喚起舊視窗。解壓之前沒有我們的程式碼會執行，第二份實例救不了
-自己；本模組讓**第一份**（活著的）實例主動偵測到兄弟正在啟動，先砍掉它的 bootloader、
-再喚起自己的視窗、最後清掉它留下的半成品暫存目錄。mutex 檢查仍是保底：這裡沒攔到
-（自我檢查失敗、對方以系統管理員身分執行、緩衝區溢位又剛好漏接），行為退回今天這樣。
+onefile exe 被再次雙擊時，新的 bootloader 解壓、顯示啟動畫面之後才由既有的 mutex
+檢查發現已有實例、關掉畫面、喚起舊視窗；解壓之前我們的程式碼還沒執行，第二份
+實例救不了自己。本模組讓第一份存活的實例主動偵測到兄弟啟動，砍掉其 bootloader、
+喚起自己視窗、清掉它的半成品暫存目錄；沒攔到時（自我檢查失敗、權限不足等）mutex
+檢查仍是保底。
 
-只在 frozen（打包版）模式下生效，靠 `start_instance_watch()` 啟動一條 daemon 監看
-執行緒。內部拆成可獨立測試的純函式，真正的砍程序、列舉程序與刪目錄一律可注入替換，
-測試不得碰真實系統（專案規則：測試不可干擾使用者正在跑的程式）。
+只在 frozen（打包版）模式下生效。內部拆成可獨立測試的純函式，砍程序、列舉程序、
+刪目錄一律可注入替換，測試不得碰真實系統。
 """
 import os
 import shutil
@@ -191,12 +189,11 @@ def _handle_batch(results: list[tuple[int, str]], *,
 
 def _watch_iteration(handle, *, enum_pids: Callable[[], list[int]],
                      ready: threading.Event | None = None, **ctx) -> None:
-    """跑一輪監看：阻塞呼叫一次 `ReadDirectoryChangesW`，等到目錄有變動才返回，並處理
-    該批次結果。拆成單輪一個函式，`_watch_loop` 重複呼叫它即可；測試也能只跑一輪，
-    不必掛著一個永遠不停的迴圈。
+    """跑一輪監看：阻塞呼叫一次 `ReadDirectoryChangesW`，處理該批次結果；拆成單輪
+    函式讓測試能只跑一輪，不必掛著永遠不停的迴圈。
 
-    `ready`（測試專用掛鉤）：在真正發出阻塞呼叫之前設好，讓等待中的測試知道監看已經
-    開始，不必用固定 sleep 賭時間差；正式的 `_watch_loop` 不傳這個參數，行為不變。
+    `ready`（測試專用掛鉤）：在阻塞呼叫之前設好，讓測試知道監看已開始，不必用固定
+    sleep 賭時間差；正式呼叫不傳這個參數。
     """
     import win32con
     import win32file

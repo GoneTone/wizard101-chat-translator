@@ -24,10 +24,8 @@ def test_config_summary_covers_the_default_config_without_the_api_key():
 
 
 def test_splash_closes_before_focusing_an_existing_instance(monkeypatch):
-    """第二份實例：啟動畫面要在既有視窗被喚起「之前」關掉，否則會蓋在它上面。
-
-    這條路徑在建立任何視窗之前就 return，所以測得到；另外兩個出口（首次執行精靈、
-    正常啟動）會進 Tk 與 mainloop，改由打包後的實機驗證涵蓋。
+    """啟動畫面要在既有視窗被喚起之前關掉，否則會蓋在它上面；這條路徑在建立視窗前
+    就 return，其餘兩個出口交給實機驗證。
     """
     events = []
     monkeypatch.setattr(main, "redirect_output", lambda: None)
@@ -49,10 +47,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_startup_path_does_not_import_anthropic():
-    """啟動路徑不得載入 anthropic（約 0.7 秒，只有 Claude 官方 provider 用得到）。
-
-    必須另起乾淨的直譯器問：同一個 process 內別的測試早就把 anthropic 載進來了。
-    這條性質會被任何一次無心的 import 悄悄破壞，且不會有別的測試變紅。
+    """啟動路徑不得載入 anthropic（約 0.7 秒）；必須另起乾淨直譯器問，因為同一個
+    process 內別的測試早就載入過。
     """
     code = "import src.main, sys; print('anthropic' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True,
@@ -64,15 +60,8 @@ def test_startup_path_does_not_import_anthropic():
 
 
 def test_run_py_updates_splash_before_importing_main():
-    """`run.py` 唯一的存在理由就是這個順序：`import src.main` 要花約 0.3 秒（A 生效
-    後），提前到 `splash.update()` 之前會讓畫面在這段時間停在 bootloader 寫死的
-    `Initializing...`，退步在開發模式量不出來、也不會讓任何既有測試變紅。
-
-    只鎖連續兩行，抓的是「重排」而非「有沒有出現」：把兩個 import 提到模組頂層、
-    `update()` 挪到 import 之後，ruff／pytest 都還是綠的，只有這裡會抓到。
-    `run.py` 本身是純 LF（不像 Markdown 文件用 CRLF），這裡直接用 \\n 比對即可。
-    文字用 `splash.PHASE_LOADING` 常數而非字面值 —— 見 `src/splash.py` 的模組說明，
-    `tools/splash_progress.py` 在 build 時要 import 同一個常數烤進 Tcl。
+    """`run.py` 存在的理由是這個順序：`import src.main` 要花約 0.3 秒，必須排在
+    `splash.update()` 之後，否則畫面會停在 bootloader 寫死的 `Initializing...`。
     """
     source = (ROOT / "run.py").read_text(encoding="utf-8")
     assert (
@@ -82,8 +71,7 @@ def test_run_py_updates_splash_before_importing_main():
 
 
 def test_main_py_updates_splash_with_the_starting_phase_constant():
-    """跟上一個測試同一個理由：`tools/splash_progress.py` 在 build 時把
-    `splash.PHASE_STARTING` 的值烤進 Tcl 來判斷進度條該推進到哪個目標，這裡改回
-    字面值會讓那份耦合悄悄失效，卻不會有任何既有測試變紅。"""
+    """build 時 `tools/splash_progress.py` 把 `PHASE_STARTING` 的值烤進 Tcl 判斷
+    進度條目標；改回字面值會讓耦合悄悄失效，且不會有其他測試變紅。"""
     source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
     assert "splash.update(splash.PHASE_STARTING)" in source
