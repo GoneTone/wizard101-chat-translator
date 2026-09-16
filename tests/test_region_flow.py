@@ -43,6 +43,7 @@ class FakeCard:
     def __init__(self):
         self.events = []
         self.is_open = False
+        self.on_close = None
 
     def show_pending(self, rect):
         self.is_open = True
@@ -321,3 +322,106 @@ def test_describe_error_maps_each_failure_kind():
     assert describe_error(bad) == t("region.failed", error=bad)
     boom = RuntimeError("boom")
     assert describe_error(boom) == t("error.unexpected", error=boom)
+
+
+class FakeBox:
+    def __init__(self):
+        self.is_open = False
+        self.rects = []
+        self.on_change = None
+
+    def show(self, rect):
+        self.is_open = True
+        self.rects.append(rect)
+
+    def hide(self):
+        self.is_open = False
+
+    def adjust(self, rect):
+        """比照真的 RegionBox：使用者調整完放開，回報新矩形。"""
+        self.on_change(rect)
+
+
+def _flow_with_box(root, pipeline, **kwargs):
+    ui_queue = queue.Queue()
+    selector, card, box = FakeSelector(), FakeCard(), FakeBox()
+    flow = RegionFlow(root, pipeline, ui_queue, alpha=0.8, selector=selector, card=card,
+                      box=box, capture_screen=lambda monitor: None,
+                      monitor_at=lambda x, y: _MONITOR, foreground=lambda hwnd: None,
+                      **kwargs)
+    return flow, selector, card, box, ui_queue
+
+
+def test_selection_leaves_the_box_on_the_selected_rect(root):
+    flow, selector, card, box, ui_queue = _flow_with_box(
+        root, FakePipeline(RegionResult("譯文")), capture_window=lambda hwnd: _FRAME,
+        crop=lambda frame, rect: b"png")
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    assert box.is_open and box.rects == [_RECT]
+
+
+def test_adjusting_the_box_recaptures_the_live_game_and_retranslates(root):
+    frames = iter([_FRAME, "live frame"])
+    cropped = []
+
+    def recording_crop(frame, rect):
+        cropped.append((frame, rect))
+        return b"png"
+
+    flow, selector, card, box, ui_queue = _flow_with_box(
+        root, RectPipeline(), capture_window=lambda hwnd: next(frames), crop=recording_crop)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    new_rect = (120, 110, 340, 130)
+    box.adjust(new_rect)
+    _drain(ui_queue, flow)
+    assert cropped == [(_FRAME, _RECT), ("live frame", new_rect)]
+    assert card.events[-2:] == [("pending", new_rect), ("text", "譯文340", "")]
+    assert box.is_open
+
+
+def test_capture_failure_while_adjusting_is_shown_and_keeps_the_box(root):
+    boom = CaptureError("PrintWindow failed")
+    frames = iter([_FRAME])
+
+    def capture(hwnd):
+        try:
+            return next(frames)
+        except StopIteration:
+            raise boom from None
+
+    flow, selector, card, box, ui_queue = _flow_with_box(
+        root, FakePipeline(RegionResult("譯文")), capture_window=capture,
+        crop=lambda frame, rect: b"png")
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    box.adjust((0, 0, 50, 50))
+    assert card.events[-2:] == [("pending", (0, 0, 50, 50)),
+                                ("error", t("region.capture_failed", error=boom))]
+    assert box.is_open
+
+
+def test_closing_the_card_hides_the_box(root):
+    flow, selector, card, box, ui_queue = _flow_with_box(
+        root, FakePipeline(RegionResult("譯文")), capture_window=lambda hwnd: _FRAME,
+        crop=lambda frame, rect: b"png")
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    card.on_close()
+    assert not box.is_open
+
+
+def test_a_new_selection_hides_the_previous_box(root):
+    flow, selector, card, box, ui_queue = _flow_with_box(
+        root, FakePipeline(RegionResult("譯文")), capture_window=lambda hwnd: _FRAME,
+        crop=lambda frame, rect: b"png")
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    flow.toggle(0x1234)
+    assert not box.is_open and selector.is_open

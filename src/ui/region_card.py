@@ -14,6 +14,8 @@
 拖曳選取結束後會比照疊加視窗跟 backdrop 借鍵盤焦點（`_focus_for_copy`），讓 Ctrl+C
 收得到；右鍵會彈出單項的複製選單（與疊加視窗共用 `Popup`）——有選取就複製選取範圍，
 沒有就複製整顆內容（原文＋空行＋譯文，或單純譯文）。
+使用者自己關卡片（點一下、✕）會呼叫 `on_close`；流程換位置重開或自己收掉不算，
+`RegionFlow` 靠這個分別收掉留在畫面上的框選框。
 """
 import tkinter as tk
 
@@ -34,12 +36,13 @@ from src.ui.palette import (
     SELECT_BG,
 )
 from src.ui.popup import Popup
+from src.ui.region_box import HANDLE, MARGIN
 from src.ui.richtext import RichLabel
 from src.ui.tooltip import Tooltip
 from src.ui.winstyle import make_non_activating
 
 MIN_WIDTH = 240   # 矩形再窄也不跟：譯文會擠成一長條
-ANCHOR_GAP = 4    # 與框選矩形的垂直間距（px）
+ANCHOR_GAP = MARGIN + HANDLE // 2 + 2   # 與框選矩形的垂直間距（px）：讓出框選框露在框外的把手
 _PAD_X = 10
 _PAD_Y = 6
 
@@ -50,6 +53,7 @@ class RegionCard:
     def __init__(self, root: tk.Tk, alpha: float):
         self._root = root
         self._alpha = alpha
+        self.on_close = None      # 使用者自己關掉卡片時呼叫（流程換位置重開不算）
         self._win: tk.Toplevel | None = None
         self._label: RichLabel | None = None
         self._close: tk.Label | None = None
@@ -91,7 +95,7 @@ class RegionCard:
         self._close = tk.Label(header, text="✕", bg=BG, fg=FG_BAR, font=ui_font(10),
                                cursor="hand2", padx=6)
         self._close.pack(side="right")
-        self._close.bind("<Button-1>", lambda e: self.hide())
+        self._close.bind("<Button-1>", lambda e: self._close_by_user())
         self._close_tooltip = Tooltip(self._close, lambda: t("tooltip.close"))
         self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
@@ -187,9 +191,14 @@ class RegionCard:
         dy = event.y_root - self._press_pos[1]
         self._press_pos = None
         if is_click(dx, dy):
-            self.hide()
+            self._close_by_user()
         else:
             self._focus_for_copy()
+
+    def _close_by_user(self) -> None:
+        self.hide()
+        if self.on_close is not None:
+            self.on_close()
 
     def _focus_for_copy(self) -> None:
         """把鍵盤焦點交給卡片本體，Ctrl+C 才收得到 —— 卡片跟疊加視窗一樣用

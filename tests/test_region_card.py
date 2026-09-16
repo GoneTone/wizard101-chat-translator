@@ -263,3 +263,34 @@ def test_selection_stays_visible_without_keyboard_focus(card, root):
     root.update()
     label = card._label
     assert label.cget("inactiveselectbackground") == label.cget("selectbackground")
+
+
+def test_closing_by_click_or_the_close_button_notifies_on_close(card, root):
+    closed = []
+    card.on_close = lambda: closed.append(1)
+    card.show_pending(_RECT)
+    root.update()
+    card._label.event_generate("<ButtonPress-1>", x=2, y=2)
+    card._label.event_generate("<ButtonRelease-1>", x=3, y=2)
+    root.update()
+    assert closed == [1] and not card.is_open
+
+    card.show_pending(_RECT)
+    root.update()
+    card._close.event_generate("<Button-1>")
+    root.update()
+    assert closed == [1, 1] and not card.is_open
+
+
+def test_replacing_the_card_from_the_flow_does_not_count_as_closing(card, root):
+    closed = []
+    card.on_close = lambda: closed.append(1)
+    card.show_pending(_RECT)
+    card.show_pending((10, 10, 300, 100))   # 流程換位置重開
+    card.hide()                             # 流程自己收掉
+    assert closed == []
+
+
+def test_the_card_leaves_room_for_the_box_handles_below_the_rect():
+    from src.ui.region_box import HANDLE, MARGIN
+    assert ANCHOR_GAP >= MARGIN + HANDLE // 2
