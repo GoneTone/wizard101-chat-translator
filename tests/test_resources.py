@@ -54,13 +54,20 @@ def test_build_spec_bundles_and_applies_the_icon():
 
 
 def test_build_spec_wires_up_the_splash_screen():
-    """啟動畫面要同時進 EXE 的 splash 與 splash.binaries —— 少一個就不會顯示。"""
+    """啟動畫面要同時進 EXE 的 splash 與 splash.binaries，且要排在 a.binaries、a.datas
+    之前 —— onefile 模式靠這個順序才能顯示，順序錯了畫面不會出現，但只檢查字串「有出現」
+    抓不到重排，所以鎖住連續多行的呼叫順序（read_text 會把 CRLF 正規化成 \\n，這裡直接用
+    \\n 比對即可）。"""
     spec = BUILD_SPEC.read_text(encoding="utf-8")
     assert "Splash(" in spec
-    assert "splash," in spec
-    assert "splash.binaries," in spec
     # 狀態文字必須是 ASCII：它會被寫進 bootloader 的 Tcl 腳本
     assert 'text_default="Initializing..."' in spec
+    assert (
+        "    splash,\n"
+        "    splash.binaries,\n"
+        "    a.binaries,\n"
+        "    a.datas,\n"
+    ) in spec
 
 
 def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):
