@@ -14,7 +14,6 @@ import threading
 import time
 from contextlib import contextmanager
 
-import anthropic
 import httpx
 
 from src.config import EFFORT_AUTO
@@ -402,8 +401,13 @@ def _read_sse(resp) -> tuple[str, str | None, int | None]:
     return "".join(parts), finish_reason, completion_tokens
 
 
-def _anthropic_detail(exc: anthropic.APIStatusError) -> str:
-    """SDK 已把 body 解析成 dict（exc.body），取不到說明時退回 SDK 自己組的訊息。"""
+def _anthropic_detail(exc) -> str:
+    """`anthropic.APIStatusError` → 一行錯誤說明。
+
+    型別不寫進簽名：`anthropic` 已改成延遲 import（見 `_ClaudeClient.__init__`），
+    而 3.11／3.12 會在函式定義時求值註解，寫了會 NameError。
+    SDK 已把 body 解析成 dict（exc.body），取不到說明時退回 SDK 自己組的訊息。
+    """
     message = _message_of(exc.body)
     return _one_line(message if message is not None else exc.message)
 
@@ -417,6 +421,10 @@ class _ClaudeClient(_BaseClient):
 
     def __init__(self, model: str, api_key: str, effort: str = EFFORT_AUTO,
                  timeout: float = _TIMEOUT, client=None):
+        # anthropic 的 import 要約 0.7 秒（大量 pydantic model 定義），而只有選 Claude
+        # 官方 API 的使用者需要它 —— 放在這裡，啟動路徑就完全不碰。
+        import anthropic
+        self._sdk = anthropic
         self._client = client if client is not None else anthropic.Anthropic(
             api_key=api_key, timeout=timeout)
         self._model = model
@@ -439,9 +447,9 @@ class _ClaudeClient(_BaseClient):
             with (self._client.messages.stream(**params) as stream,
                   _cancellable(cancel, stream.close)):
                 resp = stream.get_final_message()
-        except (anthropic.APIConnectionError, httpx.HTTPError, httpx.StreamError) as exc:
+        except (self._sdk.APIConnectionError, httpx.HTTPError, httpx.StreamError) as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
-        except anthropic.APIStatusError as exc:
+        except self._sdk.APIStatusError as exc:
             error = _status_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
                 raise
@@ -455,9 +463,9 @@ class _ClaudeClient(_BaseClient):
     def list_models(self) -> list[str]:
         try:
             page = self._client.models.list()  # SDK 自動翻頁，直接迭代即可
-        except anthropic.APIConnectionError as exc:
+        except self._sdk.APIConnectionError as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
-        except anthropic.APIStatusError as exc:
+        except self._sdk.APIStatusError as exc:
             error = _model_list_error(exc.status_code, _anthropic_detail(exc))
             if error is None:
                 raise
