@@ -1047,6 +1047,29 @@ def test_region_text_fills_lines_the_model_dropped_with_the_original():
     assert _make(fake).translate_region_text("海报伙伴\nSecond line") == "海报伙伴\n第二行"
 
 
+def test_region_text_strips_english_the_model_invented_for_a_line_without_any():
+    # 實機：簡體中文原文「天国大本营」被譯成「天國大本營（Heavenly Headquarters）」，
+    # 遊戲畫面上根本沒有這個英文名
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 若有時間，我希望你再次拜訪天國大本營（Heavenly Headquarters）！"))
+    assert (_make(fake).translate_region_text("若有时间，我希望你再次拜访天国大本营！")
+            == "若有時間，我希望你再次拜訪天國大本營！")
+
+
+def test_region_text_keeps_english_copied_from_the_same_line_only():
+    # 逐行判定：第一行原文有英文，括號照抄可留；第二行沒有，括號英文必是憑空生成
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 跟莫爾·安布羅斯（Merle Ambrose）談談\n2. 天國大本營（Heavenly HQ）"))
+    assert (_make(fake).translate_region_text("Talk to Merle Ambrose\n天国大本营")
+            == "跟莫爾·安布羅斯（Merle Ambrose）談談\n天國大本營")
+
+
+def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
+    prompt = build_region_system("繁體中文（台灣）")
+    assert "一律用半形括號附上原文" not in prompt   # 舊規則：沒有英文可抄時模型會自己翻一個
+    assert "逐字照抄" in prompt
+
+
 def test_number_lines_skips_blank_lines():
     assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
 

@@ -588,7 +588,10 @@ class Translator:
         """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
         使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
         每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
-        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。"""
+        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
+        括號英文逐行過濾（`strip_invented_english`）：提示詞要求括號只能照抄該行原文，
+        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
+        比對，同一頁另一行有英文時才不會替它放行。"""
         originals, numbered = number_lines(text)
         translated = self._chat(
             "region text",
@@ -596,7 +599,11 @@ class Translator:
             [{"role": "user", "content": numbered}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
-        return unnumber_lines(translated, originals)
+        lines = unnumber_lines(translated, originals).split("\n")
+        if len(lines) != len(originals):
+            return strip_invented_english(text, "\n".join(lines))   # 對不上行時退回整段比對
+        return "\n".join(strip_invented_english(original, line)
+                         for original, line in zip(originals, lines, strict=True))
 
 
 def list_models(api: dict, client=None) -> list[str]:

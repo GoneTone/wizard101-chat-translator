@@ -217,8 +217,10 @@ def build_region_system(target_language: str) -> str:
         "3. 保留原文的段落、換行與條列結構，讓譯文能與畫面上的位置對應。\n"
         "4. 忠實傳達原文的意思與語氣，不要曲解或改變原意。\n"
         f"5. {_game_noun_rule(target_language)}"
-        "畫面上的專有名詞（地名、NPC 名、物品名、任務名）若原文不是 "
-        f"{target_language}，譯名後一律用半形括號附上原文，方便對照畫面。\n"
+        "畫面上的專有名詞（地名、NPC 名、物品名、任務名）可在譯名後用半形括號附上"
+        "該行原文裡的寫法，方便對照畫面 —— 括號裡只能逐字照抄該行原文裡出現的字串，"
+        "不得自行翻成英文或任何其他語言；原文與譯名是同一種文字（例如只是簡繁之差）"
+        "就不附括號。\n"
         f"6. 標點使用 {target_language} 慣用的樣式。"
     )
     if not is_game_language(target_language):
