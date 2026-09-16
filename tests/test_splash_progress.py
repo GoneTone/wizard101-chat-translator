@@ -163,8 +163,7 @@ def test_install_progress_bar_raises_if_text_update_anchor_is_missing(tmp_path, 
 
 
 def test_install_progress_bar_raises_if_canvas_anchor_appears_twice(tmp_path, monkeypatch):
-    """Unbounded replace would silently inject the addition twice; exact-once assertion
-    catches template drift before it ships a broken progress bar."""
+    """錨點出現兩次代表樣板漂移，必須讓 build 失敗，不能默默注入兩份。"""
     canvas_setup_with_duplicate = _ORIGINAL_CANVAS_SETUP + "\n" + splash_progress._CANVAS_ANCHOR
     monkeypatch.setattr(splash_templates, "splash_canvas_setup", canvas_setup_with_duplicate)
     binaries = _make_entries(tmp_path, {"cv2.pyd": 1000})
@@ -173,8 +172,7 @@ def test_install_progress_bar_raises_if_canvas_anchor_appears_twice(tmp_path, mo
 
 
 def test_install_progress_bar_raises_if_text_update_anchor_appears_twice(tmp_path, monkeypatch):
-    """Unbounded replace would silently inject the addition twice; exact-once assertion
-    catches template drift before it ships a broken progress bar."""
+    """錨點出現兩次代表樣板漂移，必須讓 build 失敗，不能默默注入兩份。"""
     image_script_with_duplicate = _ORIGINAL_IMAGE_SCRIPT + "\n" + splash_progress._TEXT_UPDATE_ANCHOR
     monkeypatch.setattr(splash_templates, "image_script", image_script_with_duplicate)
     binaries = _make_entries(tmp_path, {"cv2.pyd": 1000})
@@ -194,10 +192,8 @@ def test_install_progress_bar_does_not_double_inject_on_repeated_calls(tmp_path)
     assert splash_templates.image_script.count("global _pyi_done") == 1
 
 
-# ---------------------------------------------------------------------------
-# 用真正的 Tcl 直譯器驗證清單彈出邏輯、解壓上限、階段目標、緩動動畫
+# ── 用真正的 Tcl 直譯器驗證清單彈出、解壓上限、階段目標、緩動動畫
 # （純字串比對測不出 Tcl 語法本身寫錯的地方）
-# ---------------------------------------------------------------------------
 
 
 def test_progress_tracking_pops_one_size_per_report_in_a_real_tcl_interpreter():
@@ -284,7 +280,7 @@ def test_progress_step_after_chain_converges_when_the_event_loop_actually_runs()
     interp.eval("vwait _pyi_test_result")   # 讓事件迴圈真的跑，給 after 鏈機會接力
 
     assert interp.eval("set _pyi_test_result") == "converged", (
-        "after 鏈在 3 秒內沒有接力到收斂 —— 這正是 round 3 要修的 bug（鏈只接力一次就斷掉）"
+        "after 鏈在 3 秒內沒有接力到收斂（鏈只接力一次就斷掉）"
     )
 
 
