@@ -59,8 +59,16 @@ a = Analysis(
         *collect_data_files("rapidocr"),
     ],
     hiddenimports=[],
-    excludes=[],
+    excludes=[
+        # AVIF 解碼器（PIL/_avif.pyd，7.9 MB 未壓縮）：本專案只處理 PNG 與螢幕擷取。
+        # 切斷 import 鏈通常 .pyd 就不會被收 —— 打包後要用 Step 4 確認它真的不在。
+        "PIL.AvifImagePlugin",
+    ],
 )
+# cv2 的 ffmpeg 解碼器（30.9 MB 未壓縮）：rapidocr 只用影像處理 API，不碰 VideoCapture。
+# 它不是 Python 模組，`excludes` 管不到，而 `exclude_system_libraries()` 只對 POSIX
+# 有效（只掃 /lib*、/usr/lib*），所以只能在 Analysis 之後從 binaries 濾掉。
+a.binaries = [b for b in a.binaries if "opencv_videoio_ffmpeg" not in b[0]]
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
