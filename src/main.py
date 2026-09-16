@@ -15,7 +15,7 @@ import win32event
 import win32gui
 import winerror
 
-from src import __version__
+from src import __version__, splash
 from src.composer.paste import (
     PasteInterceptor,
     force_foreground,
@@ -34,6 +34,7 @@ from src.config import (
     save_config,
 )
 from src.i18n import current_language, detect_system_language, language_name, set_language, t
+from src.instance_watch import start_instance_watch
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import reader_loop
@@ -413,6 +414,10 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
         on_region=lambda: ui_queue.put(lambda: region_flow.start_from_button()),
         region_hotkey=cfg["region_hotkey"],
     )
+    # 讓第一份實例主動攔截第二次啟動：先砍兄弟 bootloader、再喚起自己的視窗，
+    # 使用者不必再等新實例解壓完才看到既有視窗被喚起。frozen 模式才生效；
+    # 沒攔到（自我檢查失敗等）時，acquire_single_instance() 的 mutex 檢查仍是保底。
+    start_instance_watch(lambda: ui_queue.put(lambda: focus_running_instance(app_name())))
 
     def deliver(msg_id: int, text: str, failed: bool) -> None:
         """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。"""
@@ -508,8 +513,16 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
 def main() -> None:
     redirect_output()
+    # 輸出已可寫入，先把 splash 在導向之前累積的診斷補寫出來，才不會憑空消失
+    splash.drain_logs()
     # 版本先印：app.log 分段標頭後第一行就是版本
     log(f"[app] version={__version__}")
+    status = "active" if splash.is_available() else "not present"
+    if splash.had_failure():
+        # is_available() 只看 pyi_splash 有沒有 import 成功，看不出 IPC socket 斷線；
+        # 沒有這行，socket 斷掉時這裡仍會印 active，使用者看到的卻是凍結的畫面
+        status += " but a call already failed (see [splash] lines above)"
+    log(f"[splash] startup screen {status} (frozen={getattr(sys, 'frozen', False)})")
 
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
@@ -522,6 +535,7 @@ def main() -> None:
     # instance_lock 必須留著：handle 一被回收，mutex 就釋放、放行下一份。
     instance_lock = acquire_single_instance()
     if instance_lock is None:
+        splash.close()   # 先關掉，否則會蓋在被喚起的既有視窗上
         focused = focus_running_instance(app_name())
         log(f"[app] another instance is already running (focused={focused}), exiting")
         return
@@ -535,6 +549,7 @@ def main() -> None:
 
     if not is_configured(cfg):
         from src.ui.wizard import run_wizard
+        splash.close()   # 精靈要跟使用者互動，啟動畫面不能擋在前面
         log("[app] config incomplete, launching first-run wizard")
         if not run_wizard(root, cfg):
             log("[app] wizard cancelled, exiting")
@@ -543,7 +558,9 @@ def main() -> None:
         log("[app] wizard completed, config saved")
         save_config(CONFIG_PATH, cfg)
 
+    splash.update(splash.PHASE_STARTING)
     app = build_app(cfg, root, message_log)
+    splash.close()
 
     def pump() -> None:
         drain_ui_queue(app.ui_queue)

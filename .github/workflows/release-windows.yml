@@ -74,7 +74,7 @@ jobs:
 
       # === D. Quality gate ==========================================
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests tools
 
       # 序列跑（覆蓋 pyproject 的 -n 4），理由與 ci.yml 相同：runner 上四個 worker 會
       # 搶同一個桌面的全域狀態，Tk 在 destroy 時 access violation。放版失敗的代價更高

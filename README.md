@@ -146,8 +146,8 @@ The rest of this file covers working from source: development, debugging and pac
 ### Checks
 
 ```
-uv run ruff check src tests   # lint: unused imports, undefined names, import order (rules in pyproject.toml)
-uv run pytest                 # unit tests (4 parallel workers by default; add -n 0 to run serially)
+uv run ruff check src tests tools   # lint: unused imports, undefined names, import order (rules in pyproject.toml)
+uv run pytest                       # unit tests (4 parallel workers by default; add -n 0 to run serially)
 ```
 
 Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same lint and tests on a Windows runner.

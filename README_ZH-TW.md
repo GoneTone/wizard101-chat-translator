@@ -146,8 +146,8 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 ### 檢查
 
 ```
-uv run ruff check src tests   # lint：未用的 import、未定義名稱、import 排序（規則見 pyproject.toml）
-uv run pytest                 # 單元測試（預設 4 個 worker 平行跑；要序列跑加 -n 0）
+uv run ruff check src tests tools   # lint：未用的 import、未定義名稱、import 排序（規則見 pyproject.toml）
+uv run pytest                       # 單元測試（預設 4 個 worker 平行跑；要序列跑加 -n 0）
 ```
 
 推上 GitHub 後 CI（`.github/workflows/ci.yml`）會在 Windows runner 上跑同樣的 lint 與測試。

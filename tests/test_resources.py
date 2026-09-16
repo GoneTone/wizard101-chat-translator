@@ -53,6 +53,29 @@ def test_build_spec_bundles_and_applies_the_icon():
     assert '("src/assets/*", "assets")' in spec
 
 
+def test_build_spec_wires_up_the_splash_screen():
+    """splash／splash.binaries 要排在 a.binaries、a.datas 之前，onefile 才能顯示；
+    鎖連續多行的順序，字串「有出現」抓不到重排。"""
+    spec = BUILD_SPEC.read_text(encoding="utf-8")
+    assert "Splash(" in spec
+    # 狀態文字必須是 ASCII：它會被寫進 bootloader 的 Tcl 腳本
+    assert 'text_default="Initializing..."' in spec
+    assert (
+        "    splash,\n"
+        "    splash.binaries,\n"
+        "    a.binaries,\n"
+        "    a.datas,\n"
+    ) in spec
+
+
+def test_build_spec_installs_the_progress_bar_before_constructing_splash():
+    """`install_progress_bar` 要在 `Splash(...)` 建構之前呼叫，否則樣板已經組好、
+    改不了；只檢查字串「有出現」抓不到順序錯誤。"""
+    spec = BUILD_SPEC.read_text(encoding="utf-8")
+    assert "install_progress_bar(a.binaries, a.datas)" in spec
+    assert spec.index("install_progress_bar(a.binaries, a.datas)") < spec.index("splash = Splash(")
+
+
 def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):
     monkeypatch.setattr("src.main.icon_path", lambda: tmp_path / "nope.ico")
     apply_window_icon(root)   # 只該留 log，不該把啟動流程帶掉
