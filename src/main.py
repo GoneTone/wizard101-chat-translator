@@ -15,7 +15,7 @@ import win32event
 import win32gui
 import winerror
 
-from src import __version__
+from src import __version__, splash
 from src.composer.paste import (
     PasteInterceptor,
     force_foreground,
@@ -510,6 +510,8 @@ def main() -> None:
     redirect_output()
     # 版本先印：app.log 分段標頭後第一行就是版本
     log(f"[app] version={__version__}")
+    log(f"[splash] startup screen {'active' if splash.is_available() else 'not present'} "
+        f"(frozen={getattr(sys, 'frozen', False)})")
 
     config_existed = CONFIG_PATH.exists()
     cfg = load_config(CONFIG_PATH)
@@ -522,6 +524,7 @@ def main() -> None:
     # instance_lock 必須留著：handle 一被回收，mutex 就釋放、放行下一份。
     instance_lock = acquire_single_instance()
     if instance_lock is None:
+        splash.close()   # 先關掉，否則會蓋在被喚起的既有視窗上
         focused = focus_running_instance(app_name())
         log(f"[app] another instance is already running (focused={focused}), exiting")
         return
@@ -535,6 +538,7 @@ def main() -> None:
 
     if not is_configured(cfg):
         from src.ui.wizard import run_wizard
+        splash.close()   # 精靈要跟使用者互動，啟動畫面不能擋在前面
         log("[app] config incomplete, launching first-run wizard")
         if not run_wizard(root, cfg):
             log("[app] wizard cancelled, exiting")
@@ -543,7 +547,9 @@ def main() -> None:
         log("[app] wizard completed, config saved")
         save_config(CONFIG_PATH, cfg)
 
+    splash.update("Starting...")
     app = build_app(cfg, root, message_log)
+    splash.close()
 
     def pump() -> None:
         drain_ui_queue(app.ui_queue)

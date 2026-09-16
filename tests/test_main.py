@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src import main
 from src.config import DEFAULT_CONFIG, active_api
 from src.main import config_summary
 
@@ -20,6 +21,28 @@ def test_config_summary_covers_the_default_config_without_the_api_key():
                 "paste_hotkey", "auto_show_input", "poll_interval", "fade_seconds",
                 "max_messages", "overlay_alpha", "translate_system_messages"):
         assert f"{key}=" in summary
+
+
+def test_splash_closes_before_focusing_an_existing_instance(monkeypatch):
+    """第二份實例：啟動畫面要在既有視窗被喚起「之前」關掉，否則會蓋在它上面。
+
+    這條路徑在建立任何視窗之前就 return，所以測得到；另外兩個出口（首次執行精靈、
+    正常啟動）會進 Tk 與 mainloop，改由打包後的實機驗證涵蓋。
+    """
+    events = []
+    monkeypatch.setattr(main, "redirect_output", lambda: None)
+    monkeypatch.setattr(main, "load_config", lambda path: copy.deepcopy(DEFAULT_CONFIG))
+    monkeypatch.setattr(main, "bootstrap_language", lambda cfg, existed: "en-US")
+    monkeypatch.setattr(main, "set_language", lambda code: None)
+    monkeypatch.setattr(main, "app_name", lambda: "Wizard101 Chat Translator")
+    monkeypatch.setattr(main, "acquire_single_instance", lambda: None)
+    monkeypatch.setattr(main.splash, "close", lambda: events.append("close"))
+    monkeypatch.setattr(main, "focus_running_instance",
+                        lambda title: events.append("focus") or False)
+
+    main.main()
+
+    assert events == ["close", "focus"]
 
 
 ROOT = Path(__file__).resolve().parents[1]
