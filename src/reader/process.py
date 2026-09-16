@@ -3,6 +3,8 @@
 """
 import os
 
+from src.log import log
+
 PROCESS_NAME = "WizardGraphicalClient.exe"
 
 
@@ -49,7 +51,9 @@ def find_game_window() -> int | None:
 
     try:
         win32gui.EnumWindows(visit, None)
-    except Exception:
+    except Exception as exc:
+        # 整輪列舉失敗要記下來：使用者從 app.log 才分得出「遊戲沒開」與「列舉本身炸了」
+        log(f"[reader] window scan failed: {type(exc).__name__}: {exc}")
         return None
     return found[0] if found else None
 

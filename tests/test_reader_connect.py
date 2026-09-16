@@ -407,3 +407,20 @@ def test_hook_state_save_failure_is_logged(monkeypatch, tmp_path):
     monkeypatch.setattr(hook_state, "save_state", boom)
     r._save_hook_state(77)
     assert any("hook state" in line and "disk full" in line for line in logged)
+
+
+def test_find_game_window_logs_when_the_window_scan_itself_fails(monkeypatch):
+    import win32gui
+
+    from src.reader import process
+
+    logged = []
+    monkeypatch.setattr(process, "log", logged.append)
+
+    def exploding(callback, extra):
+        raise OSError("EnumWindows failed")
+
+    monkeypatch.setattr(win32gui, "EnumWindows", exploding)
+
+    assert process.find_game_window() is None
+    assert any("window scan failed" in line and "EnumWindows failed" in line for line in logged)
