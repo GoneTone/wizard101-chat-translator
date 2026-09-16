@@ -157,12 +157,23 @@ Python 初始化與 import（0.99 s）之後才畫得出來，只能覆蓋最後
 
 ## 錯誤處理與 log
 
-`src/splash.py` 在模組載入時判斷一次可用性並記一行 log（`[splash] active` ／
-`[splash] not available: <原因>`），之後 `update()`／`close()` 失敗各記一行。整個生命週期
-只呼叫兩次 `update` 與一次 `close`，不會洗版。
+`src/splash.py` **刻意不在模組載入時記 log**：`run.py` 會在 `redirect_output()` 之前就
+呼叫 `update()`，而 windowed exe 在輸出導向之前 `stderr` 是 `None`（`log()` 會直接 return），
+那時寫出去的行會憑空消失 —— 正好是打包版這個最需要診斷的情境。
 
-開發模式必然 `ImportError`，該行 log 要寫清楚是 dev 模式而非故障。log 訊息一律英文，
-前綴 `[splash]`。
+可用性改由 `main()` 在 `redirect_output()` 之後記一次，並帶上 `frozen` 以區分兩種
+「沒有啟動畫面」：
+
+```
+[splash] startup screen not present (frozen=False)   ← 開發模式，預期如此
+[splash] startup screen not present (frozen=True)    ← 打包版漏掉 splash，真的有問題
+```
+
+`update()`／`close()` 失敗時各記一行。整個生命週期只呼叫兩次 `update` 與一次 `close`，
+不會洗版。`close()` 之後的 `update()` 直接忽略（不轉給 `pyi_splash`）—— 首次執行精靈那條
+路徑就會這樣走，真的送出去只會換來一行誤導人的失敗 log。
+
+log 訊息一律英文，前綴 `[splash]`。
 
 ## 測試
 
