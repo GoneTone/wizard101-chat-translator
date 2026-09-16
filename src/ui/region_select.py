@@ -53,8 +53,8 @@ class RegionSelector:
     def is_open(self) -> bool:
         return self._win is not None
 
-    def show(self, monitor: tuple[int, int, int, int], frame: Frame, on_select,
-             on_cancel=None, backdrop=None) -> None:
+    def show(self, monitor: tuple[int, int, int, int], frame: Frame, on_select, on_cancel,
+             backdrop=None) -> None:
         """在 monitor（螢幕矩形 x, y, w, h）上開選取層，顯示 frame 這張已經凍結的遊戲畫面；
         backdrop（同尺寸的整顆螢幕截圖，見 `capture_screen`）給的話墊在遊戲畫面底下暗化
         顯示，沒給就維持純黑。已開著就先關掉重開。"""
@@ -66,7 +66,6 @@ class RegionSelector:
         win = tk.Toplevel(self._root)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
-        win.attributes("-alpha", 1.0)
         win.configure(bg="black", cursor="crosshair")
         win.geometry(f"{monitor[2]}x{monitor[3]}+{monitor[0]}+{monitor[1]}")
         canvas = tk.Canvas(win, bg="black", highlightthickness=0, cursor="crosshair")
@@ -131,7 +130,7 @@ class RegionSelector:
         if self._win is None:
             return
         self._destroy()
-        if notify and self._on_cancel is not None:
+        if notify:
             self._on_cancel()
 
     def _destroy(self) -> None:

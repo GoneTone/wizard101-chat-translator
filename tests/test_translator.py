@@ -331,16 +331,18 @@ def test_custom_endpoint_keeps_max_tokens_and_temperature():
     assert fake.last_body["temperature"] == 0
 
 
-class SequenceClient:
-    """替身 httpx.Client：依序回傳 responses，並記下每次送出的 body。"""
+class SequenceClient(FakeHttpxClient):
+    """替身 httpx.Client：依序回傳 responses、用完重複最後一個，並記下每次送出的 body
+    （參數重送與重譯路徑都要看多次請求）。"""
     def __init__(self, *responses):
+        super().__init__()
         self._responses = list(responses)
         self.bodies = []
 
     @contextmanager
     def stream(self, method, url, json):
         self.bodies.append(json)
-        yield self._responses.pop(0)
+        yield self._responses.pop(0) if len(self._responses) > 1 else self._responses[0]
 
 
 def _rejects(param: str, wording: str = "unrecognized"):
@@ -819,19 +821,9 @@ def test_translate_system_message_strips_invented_english():
     assert _make(fake).translate_system_message("迷幻木头") == "迷幻木頭"
 
 
-class FakeSequenceClient(FakeHttpxClient):
-    """依序回傳多個回應，並留下每一次的 request body：重譯路徑要看兩次請求。
-    回應用完後重複最後一個。"""
-
-    def __init__(self, contents):
-        super().__init__()
-        self._queue = [FakeResponse(content=c) for c in contents]
-        self.bodies = []
-
-    @contextmanager
-    def stream(self, method, url, json):
-        self.bodies.append(json)
-        yield self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
+def _contents(*contents):
+    """依序回這些譯文的 SequenceClient。"""
+    return SequenceClient(*(FakeResponse(content=c) for c in contents))
 
 
 # --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---
@@ -880,21 +872,21 @@ def test_strict_system_message_prompt_calls_out_the_english_slip():
 
 
 def test_translate_system_message_retries_when_the_model_answers_in_english():
-    fake = FakeSequenceClient(["Snowspike Hat", "雪刺帽"])
+    fake = _contents("Snowspike Hat", "雪刺帽")
     assert _make(fake).translate_system_message("雪刺帽") == "雪刺帽"
     assert len(fake.bodies) == 2
     assert "上一次" in fake.bodies[1]["messages"][0]["content"]   # 重譯用更嚴格的提示詞
 
 
 def test_translate_system_message_does_not_retry_a_clean_translation():
-    fake = FakeSequenceClient(["雪刺帽"])
+    fake = _contents("雪刺帽")
     _make(fake).translate_system_message("雪刺帽")
     assert len(fake.bodies) == 1
 
 
 def test_translate_system_message_keeps_a_retry_that_is_still_english():
     # 實測音譯的玩家名重譯仍會英譯：照樣顯示（呼叫端負責不快取），不再多打第三次
-    fake = FakeSequenceClient(["Calamity 現在等級 {0}！"])
+    fake = _contents("Calamity 現在等級 {0}！")
     tr = _make(fake)
     assert tr.translate_system_message("卡拉米蒂 现在等级 {0}！") == "Calamity 現在等級 {0}！"
     assert len(fake.bodies) == 2
@@ -902,7 +894,7 @@ def test_translate_system_message_keeps_a_retry_that_is_still_english():
 
 def test_incoming_translation_is_not_retried():
     # 收訊有完整句子語境、實測不會落回英文；多打一次只是白花錢
-    fake = FakeSequenceClient(["Snowspike Hat"])
+    fake = _contents("Snowspike Hat")
     _make(fake).translate_incoming("雪刺帽", [])
     assert len(fake.bodies) == 1
 

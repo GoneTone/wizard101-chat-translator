@@ -112,62 +112,6 @@ class TranslatorCancelled(Exception):
     """請求被呼叫端取消（見 RequestHandle）：不是錯誤，呼叫端靜默丟掉即可。"""
 
 
-class RequestHandle:
-    """可從別的執行緒撤銷的進行中請求。
-
-    兩個後端都走串流：請求送出後把回應的 `close` 掛上來（`_attach`），`cancel()`
-    從主執行緒關掉它，伺服器端隨即停止生成、只計已產生的 token —— 非串流請求做不到這點
-    （斷線後伺服器仍會生成完整段並全額計費）。請求正常結束後 `_detach`，之後再 `cancel()`
-    只立旗標、不會去關一個已經結束的回應。還沒送出就被取消的請求根本不會送。"""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._close = None
-        self._cancelled = False
-
-    @property
-    def cancelled(self) -> bool:
-        return self._cancelled
-
-    def cancel(self) -> None:
-        with self._lock:
-            self._cancelled = True
-            close, self._close = self._close, None
-        if close is not None:
-            try:
-                close()
-            except Exception as exc:
-                log(f"[translate] closing a cancelled request failed: {type(exc).__name__}: {exc}")
-
-    def _attach(self, close) -> None:
-        with self._lock:
-            if self._cancelled:
-                raise TranslatorCancelled()
-            self._close = close
-
-    def _detach(self) -> None:
-        with self._lock:
-            self._close = None
-
-
-@contextmanager
-def _cancellable(cancel: RequestHandle | None, close):
-    """把已開啟的串流回應交給 cancel 管：期間任何例外若是取消造成的一律轉成
-    TranslatorCancelled（斷線在 httpx／SDK 那層冒出來的例外型別不一，靠旗標分辨）。"""
-    if cancel is None:
-        yield
-        return
-    cancel._attach(close)
-    try:
-        yield
-    except Exception as exc:
-        if cancel.cancelled:
-            raise TranslatorCancelled() from exc
-        raise
-    finally:
-        cancel._detach()
-
-
 class TranslatorNoModelList(Exception):
     """此端點不提供模型清單（/v1/models 回 404／405，或回應缺 data 陣列）。
     與 TranslatorConfigError 的 404（模型不存在）是兩回事：這裡只代表「問不到清單」，
@@ -243,6 +187,62 @@ def rejected_parameter(detail: str) -> str | None:
     if match is None:
         return None
     return match.group(1) or match.group(2)
+
+
+class RequestHandle:
+    """可從別的執行緒撤銷的進行中請求。
+
+    兩個後端都走串流：請求送出後把回應的 `close` 掛上來（`_attach`），`cancel()`
+    從主執行緒關掉它，伺服器端隨即停止生成、只計已產生的 token —— 非串流請求做不到這點
+    （斷線後伺服器仍會生成完整段並全額計費）。請求正常結束後 `_detach`，之後再 `cancel()`
+    只立旗標、不會去關一個已經結束的回應。還沒送出就被取消的請求根本不會送。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._close = None
+        self._cancelled = False
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            close, self._close = self._close, None
+        if close is not None:
+            try:
+                close()
+            except Exception as exc:
+                log(f"[translate] closing a cancelled request failed: {type(exc).__name__}: {exc}")
+
+    def _attach(self, close) -> None:
+        with self._lock:
+            if self._cancelled:
+                raise TranslatorCancelled()
+            self._close = close
+
+    def _detach(self) -> None:
+        with self._lock:
+            self._close = None
+
+
+@contextmanager
+def _cancellable(cancel: RequestHandle | None, close):
+    """把已開啟的串流回應交給 cancel 管：期間任何例外若是取消造成的一律轉成
+    TranslatorCancelled（斷線在 httpx／SDK 那層冒出來的例外型別不一，靠旗標分辨）。"""
+    if cancel is None:
+        yield
+        return
+    cancel._attach(close)
+    try:
+        yield
+    except Exception as exc:
+        if cancel.cancelled:
+            raise TranslatorCancelled() from exc
+        raise
+    finally:
+        cancel._detach()
 
 
 class _BaseClient:
