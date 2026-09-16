@@ -1248,3 +1248,9 @@ def test_cancelling_a_claude_request_closes_the_stream():
     thread.join(5)
     assert fake.messages.last_stream.closed
     assert isinstance(outcome.get("error"), TranslatorCancelled)
+
+
+def test_region_system_prompt_pins_the_order_of_name_and_parenthesized_original():
+    # 實機：模型寫成「CrownShop（皇冠商店）」，譯名與括號原文對調了
+    prompt = build_region_system("繁體中文（台灣）")
+    assert "譯名（原文）" in prompt and "不可對調" in prompt
