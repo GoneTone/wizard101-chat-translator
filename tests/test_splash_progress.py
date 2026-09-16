@@ -47,6 +47,13 @@ def test_size_table_skips_entries_whose_source_is_unreadable(tmp_path):
     assert splash_progress._size_table(binaries) == {}
 
 
+def test_size_table_skips_basenames_with_tcl_brace_characters(tmp_path):
+    """大括號在 Tcl 的 array set 清單語法裡有特殊意義，這種檔名塞不進去；略過即可，
+    不該讓整個 build 因為一個異常檔名而失敗。"""
+    binaries = _make_binaries(tmp_path, {"weird{name}.dll": 100, "normal.dll": 50})
+    assert splash_progress._size_table(binaries) == {"normal.dll": 50}
+
+
 def test_size_table_last_entry_wins_on_basename_collision(tmp_path):
     """兩個不同子目錄下同名的檔案：bootloader 回報的 status_text 只有檔名，
     區分不出是哪一份，後面的覆蓋前面的是刻意行為，不是 bug。"""
