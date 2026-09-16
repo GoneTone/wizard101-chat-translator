@@ -703,24 +703,46 @@ print(build_splash_image(Path('build/splash-preview.png')))
 ```
 然後開 `build/splash-preview.png` 確認排版沒有重疊、字沒有被切掉。看完刪掉這張預覽圖。
 
-- [ ] **Step 6: 把 `tools/` 納入 lint 範圍**
+- [ ] **Step 6: 把 `tools/` 納入 lint 範圍（9 處要一起改）**
 
 `tools/` 是新的原始碼目錄，而既有的 lint 指令只掃 `src tests` —— 不改的話這個檔案永遠
-不會被 ruff 檢查。三處要一起改成 `src tests tools`：
+不會被 ruff 檢查。`uv run ruff check src tests` 這條指令在版控中重複出現 9 次，全部要改
+成 `uv run ruff check src tests tools`：
 
-1. `.github/workflows/ci.yml` 的 lint 步驟
-2. `.github/workflows/release-windows.yml:77`
-3. `CLAUDE.md` 的「提交前品質檢查」第 1 點與「優先用 `uv`」段落裡的 lint 指令
+| 檔案 | 位置 |
+|---|---|
+| `.github/workflows/ci.yml` | 第 32 行 |
+| `.github/workflows/release-windows.yml` | 第 77 行 |
+| `CLAUDE.md` | 第 15 行（「優先用 `uv`」）、第 21 行（「提交前品質檢查」第 1 點） |
+| `AGENTS.md` | 第 15 行、第 21 行（與 CLAUDE.md 逐字相同） |
+| `README.md` | 第 149 行 |
+| `README_ZH-TW.md` | 第 149 行 |
+| `README_ZH-CN.md` | 第 149 行 |
 
-Run: `uv run ruff check src tests tools`
-Expected: `All checks passed!`
+兩點注意：
+
+- **`CLAUDE.md` 與 `AGENTS.md` 必須逐字相同**，改完用 `diff CLAUDE.md AGENTS.md` 確認
+  無輸出。
+- 三份 README 的那一行**各自帶該語言的註解文字**（英／繁中／簡中），只改指令本身，
+  不要把某一版的註解複製到另外兩份。
+- `.superpowers/sdd/` 底下的 followup 報告也有同一條指令，但那些是**歷史執行紀錄，
+  不要動**。
+
+Run:
+```bash
+uv run ruff check src tests tools
+diff CLAUDE.md AGENTS.md && echo "CLAUDE.md 與 AGENTS.md 一致"
+```
+Expected: `All checks passed!`，以及 `CLAUDE.md 與 AGENTS.md 一致`
 
 - [ ] **Step 7: Lint、全套測試、commit**
 
 ```bash
 uv run ruff check src tests tools
 uv run pytest
-git add tools/splash_image.py tests/test_splash_image.py CLAUDE.md .github/workflows/
+git add tools/splash_image.py tests/test_splash_image.py \
+        CLAUDE.md AGENTS.md README.md README_ZH-TW.md README_ZH-CN.md \
+        .github/workflows/ci.yml .github/workflows/release-windows.yml
 git commit -m "feat(build): generate the splash background image at build time"
 ```
 
