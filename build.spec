@@ -2,6 +2,7 @@
 # 定稿：console=False（windowed，無黑窗）；執行期輸出改導向 exe 旁的 app.log
 # （見 src/main.py 的 frozen 判斷），使用者回報問題附上該檔即可。
 import sys
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.win32.versioninfo import (
@@ -16,6 +17,7 @@ from PyInstaller.utils.win32.versioninfo import (
 
 sys.path.insert(0, SPECPATH)   # SPECPATH 由 PyInstaller 注入 spec 的命名空間
 from src import __version__    # 版本號的唯一真實來源，不在這裡另抄一份
+from tools.splash_image import TEXT_ORIGIN, build_splash_image
 
 # 檔案版本欄位只吃四個數字，預發布版（0.2.0-rc.1）的後綴只留在字串欄位。
 _numbers = tuple(int(n) for n in __version__.split("-")[0].split("."))
@@ -46,6 +48,9 @@ VERSION_INFO = VSVersionInfo(
     ],
 )
 
+# 啟動畫面的底圖：每次 build 重新生成，版本號才不會是舊的（見 tools/splash_image.py）
+SPLASH_IMAGE = build_splash_image(Path(SPECPATH) / "build" / "splash.png")
+
 a = Analysis(
     ["run.py"],
     pathex=[],
@@ -69,10 +74,24 @@ a = Analysis(
 # 它不是 Python 模組，`excludes` 管不到，而 `exclude_system_libraries()` 只對 POSIX
 # 有效（只掃 /lib*、/usr/lib*），所以只能在 Analysis 之後從 binaries 濾掉。
 a.binaries = [b for b in a.binaries if "opencv_videoio_ffmpeg" not in b[0]]
+splash = Splash(
+    str(SPLASH_IMAGE),
+    binaries=a.binaries,   # 讓它偵測到 tkinter 已經打包了 tcl/tk，沿用而不再塞一份
+    datas=a.datas,
+    text_pos=TEXT_ORIGIN,
+    text_size=10,
+    text_color="#f0f0f5",
+    # 解壓期間顯示的字：打包時就寫死，那時 Python 還沒啟動、讀不到介面語言設定。
+    # 一律 ASCII —— 這串字會被寫進 bootloader 的 Tcl 腳本。
+    text_default="Initializing...",
+    always_on_top=True,
+)
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    splash,
+    splash.binaries,
     a.binaries,
     a.datas,
     name="Wizard101ChatTranslator",

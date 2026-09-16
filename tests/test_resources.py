@@ -53,6 +53,16 @@ def test_build_spec_bundles_and_applies_the_icon():
     assert '("src/assets/*", "assets")' in spec
 
 
+def test_build_spec_wires_up_the_splash_screen():
+    """啟動畫面要同時進 EXE 的 splash 與 splash.binaries —— 少一個就不會顯示。"""
+    spec = BUILD_SPEC.read_text(encoding="utf-8")
+    assert "Splash(" in spec
+    assert "splash," in spec
+    assert "splash.binaries," in spec
+    # 狀態文字必須是 ASCII：它會被寫進 bootloader 的 Tcl 腳本
+    assert 'text_default="Initializing..."' in spec
+
+
 def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):
     monkeypatch.setattr("src.main.icon_path", lambda: tmp_path / "nope.ico")
     apply_window_icon(root)   # 只該留 log，不該把啟動流程帶掉
