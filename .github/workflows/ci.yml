@@ -29,7 +29,7 @@ jobs:
         run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests tools
 
       # 序列跑（覆蓋 pyproject 的 -n 4）：測試會真的開 tkinter 視窗，四個 worker 是四個
       # 程序在搶同一個桌面的全域狀態——前景視窗、AttachThreadInput 的輸入佇列、grab、

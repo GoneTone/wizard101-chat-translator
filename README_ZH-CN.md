@@ -146,7 +146,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 ### 检查
 
 ```
-uv run ruff check src tests   # lint：未使用的 import、未定义名称、import 排序（规则见 pyproject.toml）
+uv run ruff check src tests tools   # lint：未使用的 import、未定义名称、import 排序（规则见 pyproject.toml）
 uv run pytest                 # 单元测试（默认 4 个 worker 并行跑；要串行跑加 -n 0）
 ```
 
