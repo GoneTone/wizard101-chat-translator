@@ -283,17 +283,35 @@ def test_progress_step_after_chain_converges_when_the_event_loop_actually_runs()
 
     偽陽性檢查（見 round 3 報告的證據）：把 `tools/splash_progress.py` 的
     `pyi_progress_step` 暫時還原成 round 2 的舊版旗標邏輯後重跑這個測試，確認會
-    失敗（收斂到 131.25 附近就不動了）；改回目前這版修法後再確認會過。"""
+    失敗（收斂到 131.25 附近就不動了）；改回目前這版修法後再確認會過。
+
+    等待方式：不用固定 `after 500` —— 300px 距離、每步 25%、每 16ms 一步，收斂只
+    需要約 304ms，固定睡 500ms 留了近 200ms 的緩衝，且在跑整套測試時已經 flake
+    過一次。改成每 16ms 輪詢一次「`_pyi_current == _pyi_target`」，一收斂就讓
+    `vwait` 立刻返回；同時掛一個 3 秒的總體逾時，逾時代表 after 鏈根本沒有接力到
+    收斂，讓斷言失敗而不是安靜地放行 —— 保留了這個測試原本要驗證的落證性質：鏈
+    斷掉（round 2 的舊邏輯）時，這裡永遠等不到收斂，3 秒後逾時、斷言失敗。"""
     interp = _tcl_interpreter_with_progress_state(1000, {"a.dll": [1000]})
     interp.eval("set _pyi_target 300")
     interp.eval("pyi_progress_step")   # 只手動踢一次，後續全靠 after 鏈自己接力
 
-    interp.eval("set _pyi_test_done 0")
-    interp.eval("after 500 {set _pyi_test_done 1}")
-    interp.eval("vwait _pyi_test_done")   # 讓事件迴圈真的跑，給 after 鏈機會接力
+    interp.eval("set _pyi_test_result {}")
+    interp.eval(
+        "proc _pyi_test_poll {} {\n"
+        "    global _pyi_current _pyi_target _pyi_test_result\n"
+        "    if {$_pyi_current == $_pyi_target} {\n"
+        "        set _pyi_test_result converged\n"
+        "    } else {\n"
+        "        after 16 _pyi_test_poll\n"
+        "    }\n"
+        "}"
+    )
+    interp.eval("after 16 _pyi_test_poll")
+    interp.eval("after 3000 {set _pyi_test_result timeout}")
+    interp.eval("vwait _pyi_test_result")   # 讓事件迴圈真的跑，給 after 鏈機會接力
 
-    assert abs(float(interp.eval("set _pyi_current")) - 300) <= 1, (
-        "after 鏈沒有接力到收斂 —— 這正是 round 3 要修的 bug（鏈只接力一次就斷掉）"
+    assert interp.eval("set _pyi_test_result") == "converged", (
+        "after 鏈在 3 秒內沒有接力到收斂 —— 這正是 round 3 要修的 bug（鏈只接力一次就斷掉）"
     )
 
 

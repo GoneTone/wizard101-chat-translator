@@ -8,7 +8,6 @@ import os
 import shutil
 import sys
 import threading
-import time
 
 import win32con
 import win32file
@@ -134,6 +133,7 @@ def test_watch_iteration_preempts_sibling_and_cleans_up(tmp_path):
     def fake_enum_pids():
         raise AssertionError("a single clean event must not trigger the overflow fallback")
 
+    ready = threading.Event()
     handle = _open_watch_handle(tmp_path)
     try:
         thread = threading.Thread(
@@ -142,10 +142,13 @@ def test_watch_iteration_preempts_sibling_and_cleans_up(tmp_path):
                        temp_root=str(tmp_path), own_mei_name="_MEI00000000x",
                        exe_path_of=fake_exe_path_of, terminate=fake_terminate,
                        alive=fake_alive, remove_tree=shutil.rmtree,
-                       enum_pids=fake_enum_pids, on_preempted=fake_on_preempted),
+                       enum_pids=fake_enum_pids, on_preempted=fake_on_preempted,
+                       ready=ready),
             daemon=True)
         thread.start()
-        time.sleep(0.3)   # 讓 ReadDirectoryChangesW 先進入阻塞等待，才建立目錄觸發事件
+        # 等監看執行緒真的進入阻塞的 ReadDirectoryChangesW 呼叫，而不是賭一個固定
+        # sleep 夠不夠久——事件觸發在建立目錄之前才有意義。
+        assert ready.wait(timeout=5), "watch thread never signalled readiness"
         (tmp_path / sibling_dir).mkdir()
         thread.join(timeout=5)
         assert not thread.is_alive()
@@ -177,6 +180,7 @@ def test_watch_iteration_ignores_non_sibling_directory(tmp_path):
     def fake_enum_pids():
         raise AssertionError("a single clean event must not trigger the overflow fallback")
 
+    ready = threading.Event()
     handle = _open_watch_handle(tmp_path)
     try:
         thread = threading.Thread(
@@ -186,10 +190,11 @@ def test_watch_iteration_ignores_non_sibling_directory(tmp_path):
                        temp_root=str(tmp_path), own_mei_name="_MEI00000000x",
                        exe_path_of=fake_exe_path_of, terminate=fake_terminate,
                        alive=fake_alive, remove_tree=shutil.rmtree,
-                       enum_pids=fake_enum_pids, on_preempted=fake_on_preempted),
+                       enum_pids=fake_enum_pids, on_preempted=fake_on_preempted,
+                       ready=ready),
             daemon=True)
         thread.start()
-        time.sleep(0.3)
+        assert ready.wait(timeout=5), "watch thread never signalled readiness"
         (tmp_path / other_dir).mkdir()
         thread.join(timeout=5)
         assert not thread.is_alive()

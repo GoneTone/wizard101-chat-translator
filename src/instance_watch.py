@@ -189,14 +189,20 @@ def _handle_batch(results: list[tuple[int, str]], *,
             _maybe_preempt(name, **ctx)
 
 
-def _watch_iteration(handle, *, enum_pids: Callable[[], list[int]], **ctx) -> None:
+def _watch_iteration(handle, *, enum_pids: Callable[[], list[int]],
+                     ready: threading.Event | None = None, **ctx) -> None:
     """跑一輪監看：阻塞呼叫一次 `ReadDirectoryChangesW`，等到目錄有變動才返回，並處理
     該批次結果。拆成單輪一個函式，`_watch_loop` 重複呼叫它即可；測試也能只跑一輪，
     不必掛著一個永遠不停的迴圈。
+
+    `ready`（測試專用掛鉤）：在真正發出阻塞呼叫之前設好，讓等待中的測試知道監看已經
+    開始，不必用固定 sleep 賭時間差；正式的 `_watch_loop` 不傳這個參數，行為不變。
     """
     import win32con
     import win32file
 
+    if ready is not None:
+        ready.set()
     results = win32file.ReadDirectoryChangesW(
         handle, 8192, False, win32con.FILE_NOTIFY_CHANGE_DIR_NAME, None, None)
     _handle_batch(results, enum_pids=enum_pids, **ctx)
@@ -221,6 +227,7 @@ def _watch_loop(temp_root: str, *, own_pid: int, parent_pid: int, own_exe: str,
               temp_root=temp_root, own_mei_name=own_mei_name,
               exe_path_of=exe_path_of, terminate=terminate, alive=alive,
               remove_tree=remove_tree, on_preempted=on_preempted)
+    handle = None
     try:
         try:
             handle = win32file.CreateFile(
@@ -236,6 +243,13 @@ def _watch_loop(temp_root: str, *, own_pid: int, parent_pid: int, own_exe: str,
             except Exception as exc:
                 log(f"[instance] watch loop error: {type(exc).__name__}: {exc}")
     finally:
+        # 正常情況下這個迴圈不會退出（daemon 執行緒隨行程 os._exit 一起消失，handle
+        # 沒機會也不需要關）；這裡只是讓「萬一真的退出」時不留一個沒關的 handle。
+        if handle is not None:
+            try:
+                win32file.CloseHandle(handle)
+            except Exception:
+                pass
         log("[instance] watch loop exited")
 
 
