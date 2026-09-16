@@ -75,8 +75,8 @@ def test_build_spec_installs_the_progress_bar_before_constructing_splash():
     結尾就會組好 Tcl 腳本並寫進資源，事後再改樣板已經來不及（見
     `tools/splash_progress.py` 的模組說明），順序錯了只檢查字串「有出現」抓不到。"""
     spec = BUILD_SPEC.read_text(encoding="utf-8")
-    assert "install_progress_bar(a.binaries)" in spec
-    assert spec.index("install_progress_bar(a.binaries)") < spec.index("splash = Splash(")
+    assert "install_progress_bar(a.binaries, a.datas)" in spec
+    assert spec.index("install_progress_bar(a.binaries, a.datas)") < spec.index("splash = Splash(")
 
 
 def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):

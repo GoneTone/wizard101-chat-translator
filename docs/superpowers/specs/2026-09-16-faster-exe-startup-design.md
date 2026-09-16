@@ -272,28 +272,39 @@ A 與 B 仍可獨立保留，啟動時間一樣會從 2.8 秒降到約 2.0 秒�
   錯誤讓整個啟動畫面都壞掉）的版本。
 - 必須在 `Splash(...)` **建構之前**呼叫：`Splash.__init__` 結尾會呼叫
   `__postinit__()` -> `assemble()`，Tcl 腳本在建構當下就組好寫進資源，事後再改
-  `splash.script` 已經來不及。`build.spec` 裡 `install_progress_bar(a.binaries)`
-  緊接在 ffmpeg 過濾之後、`splash = Splash(...)` 之前。
+  `splash.script` 已經來不及。`build.spec` 裡
+  `install_progress_bar(a.binaries, a.datas)` 緊接在 ffmpeg 過濾之後、
+  `splash = Splash(...)` 之前。
 - 樣板是模組層級的可變狀態，patch 會影響整個 Python 行程；用一個字串 sentinel
   （`_pyi_total` 是否已經在 `splash_canvas_setup` 裡）偵測是否已經 patch 過，重複
   呼叫不會疊加兩份進度條。本專案一次 build 只做一個 exe，這個限制可以接受。
 - basename 當比對 key（`file tail` 取檔名、`string tolower` 轉小寫）：不管 bootloader
-  回報的是相對路徑還是完整路徑都對得上；累加後立刻 `unset`，同一個檔案被回報兩次
-  （例如 tcl/tk 在 splash 啟動前後各解壓一次）不會重複計算進度。
+  回報的是相對路徑還是完整路徑都對得上。撞名時**不是後者覆蓋前者**，而是把每個
+  來源檔的大小各自存進同一個 key 底下的 Tcl 清單；bootloader 每回報一次就彈出
+  清單開頭那個並累加，清單空了才 `unset`——這樣同名的檔案（不管是巧合撞名，還是
+  同一個檔案真的被回報兩次，例如 tcl/tk 在 splash 啟動前後各解壓一次）都各自被
+  算到剛剛好一次，不多不少。
 
-### 實測與 `Analysis.binaries` 的涵蓋範圍
+### 涵蓋範圍：`Analysis.binaries` 與 `Analysis.datas` 都要算（Fix round 1）
 
-打包一次後，實際織進 Tcl 的對照表有 **78 個 entry，總計 190,343,960 bytes
-（約 181.5 MiB）**，`cv2.pyd`（86,293,504 bytes）獨佔其中 45%。這個數字比本任務
-一開始量測封存內容時看到的「1121 個 binary、229.3 MB」小很多——原因是 PyInstaller
-的 `Analysis()` 在回傳前會做一次「binary vs. data 重分類」（build log 可見
-`Performing binary vs. data reclassification (986 entries)`），把大量原本判成
-binary 的項目（dist-info 中繼資料、`.tm` Tcl 指令碼等）移進 `a.datas`；
-`install_progress_bar()` 依規格只吃 `Analysis.binaries`，看不到被重分類走的那些
-檔案。也就是說進度條會在**真正的大檔案**（`cv2.pyd`、`onnxruntime*`、
-`libscipy_openblas64_*`、`python314.dll` 等）解壓完後就衝到滿格，之後仍在解壓的
-中繼資料與資料檔不會再推動它——比原本的「檔名亂跳、看起來像當機」好上不少，但不是
-逐位元組精確對應到解壓終點。若之後要把涵蓋率補到接近 100%，需要另外把 `a.datas`
-也算進 `_size_table`，那是本任務刻意不做的範圍（YAGNI：目前的改善已經解決使用者
-回報的問題，多做這一步的邊際效益不明顯，且 `a.datas` 的檔名碰撞機率遠高於
-`a.binaries`）。
+第一版只把 `Analysis.binaries` 織進對照表，打包一次後只有 78 個 entry、總計
+190,343,960 bytes（約 181.5 MiB），比封存內容實際的「1121 個 entry、229.3 MB」少
+了 17%。根因：PyInstaller 的 `Analysis()` 在回傳前會做一次「binary vs. data 重
+分類」（build log 可見 `Performing binary vs. data reclassification (986
+entries)`），把大量原本判成 binary 的項目（dist-info 中繼資料、`.tm` Tcl 指令碼、
+以及 `collect_data_files("rapidocr")` 帶進來的模型檔）移進 `a.datas`；只吃
+`Analysis.binaries` 就看不到這些檔案，而其中兩個 rapidocr 模型檔
+（`PP-OCRv6_rec_small.onnx` 21.2 MB、`PP-OCRv6_det_small.onnx` 9.9 MB）體積不小，
+又排在解壓尾聲——正好是使用者盯著畫面等最久的那段，進度條卻已經卡在滿格不動。
+
+修法：`install_progress_bar()` 改吃 `binaries` 與 `datas` 兩份清單（`build.spec`
+呼叫改成 `install_progress_bar(a.binaries, a.datas)`），撞名的疑慮也一併測過——
+量測封存內容的 1121 個檔案裡有 67 個 basename 撞名、涵蓋 174 個檔案，但撞名的
+清一色是 dist-info 中繼資料（`license.md` 11 個、`INSTALLER`／`METADATA`／
+`RECORD`／`REQUESTED` 各 6 個，都只有幾 KB），沒有大檔案撞名，所以「後者覆蓋
+前者」造成的視覺誤差本來就小；即使如此仍改成前一節說的清單彈出機制，讓撞名的
+檔案也都精確算到，不留下「理論上會少算，只是這次量到的資料剛好還好」的伏筆。
+
+修好之後再打包一次，對照表覆蓋 **1121 個 entry、229,343,117 bytes（約 218.7
+MiB）**——跟封存內容的 1121/229.3 MB 幾乎一致，`pp-ocrv6_det_small.onnx`
+（9,929,594 bytes）與 `pp-ocrv6_rec_small.onnx`（21,234,383 bytes）都在表裡。

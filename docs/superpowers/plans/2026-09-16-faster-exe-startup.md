@@ -925,14 +925,14 @@ git commit -m "docs(spec): record real-run verification results for exe startup 
 - New: `tools/splash_progress.py`（patch `PyInstaller.building.splash_templates`）
 - New: `tests/test_splash_progress.py`
 - Modify: `tools/splash_image.py`（新增 `PROGRESS_TRACK_COLOR`／`PROGRESS_FILL_COLOR`）
-- Modify: `build.spec`（`Splash(...)` 建構前呼叫 `install_progress_bar(a.binaries)`）
+- Modify: `build.spec`（`Splash(...)` 建構前呼叫 `install_progress_bar(a.binaries, a.datas)`）
 - Modify: `tests/test_resources.py`（釘住呼叫順序在 `Splash(` 之前）
 
-**Interfaces:**
-- Consumes: `Analysis.binaries`（ffmpeg 過濾後那份）、`tools.splash_image.SIZE`／
-  `PROGRESS_TRACK_COLOR`／`PROGRESS_FILL_COLOR`
-- Produces: `install_progress_bar(binaries) -> int`，回傳納入計算的總位元組數；
-  副作用是改寫 `splash_templates.splash_canvas_setup`／`image_script`
+**Interfaces（Fix round 1 之後的最終版）:**
+- Consumes: `Analysis.binaries`（ffmpeg 過濾後那份）與 `Analysis.datas`、
+  `tools.splash_image.SIZE`／`PROGRESS_TRACK_COLOR`／`PROGRESS_FILL_COLOR`
+- Produces: `install_progress_bar(binaries, datas) -> int`，回傳納入計算的總位元組
+  數；副作用是改寫 `splash_templates.splash_canvas_setup`／`image_script`
 
 - [x] **Step 1: `tools/splash_image.py` 補進度條顏色常數**
 
@@ -983,14 +983,52 @@ git add tools/splash_progress.py tests/test_splash_progress.py tools/splash_imag
 git commit -m "feat(build): weight the splash progress bar by extracted byte size"
 ```
 
-**已知落差（記在這裡，不算未完成）：** 實測織進去的對照表只有 78 個 entry、共
-190,343,960 bytes（約 181.5 MiB），比這個任務一開始量測封存內容看到的「1121 個
-binary、229.3 MB」小很多——`Analysis()` 回傳前會把大量原本判成 binary 的項目（如
-dist-info 中繼資料、`.tm` Tcl 指令碼）重分類進 `a.datas`，`install_progress_bar()`
-依規格只吃 `Analysis.binaries`，看不到那些檔案。進度條會在真正的大檔案（`cv2.pyd`
-等）解壓完就衝到滿格，之後仍在解壓的資料檔不會再推動它——比原本檔名亂跳好上不少，
-但不是逐位元組精確對應到解壓終點。要補到接近 100% 涵蓋率需要另外把 `a.datas` 也算
-進對照表，本任務刻意不做（YAGNI，且 `a.datas` 的檔名碰撞機率遠高於 `a.binaries`）。
+**已知落差（第一輪打包後發現，見下方 Fix round 1）：** 實測織進去的對照表只有 78
+個 entry、共 190,343,960 bytes（約 181.5 MiB），比這個任務一開始量測封存內容看到
+的「1121 個 binary、229.3 MB」小很多——`Analysis()` 回傳前會把大量原本判成 binary
+的項目（如 dist-info 中繼資料、`.tm` Tcl 指令碼、rapidocr 的模型檔）重分類進
+`a.datas`，`install_progress_bar()` 當時依規格只吃 `Analysis.binaries`，看不到那些
+檔案。控制者確認這是 brief 本身的數字寫錯（1121/229.3 MB 量的是最終封存內容，不是
+`Analysis.binaries`），設計本意就是「涵蓋 bootloader 實際會解壓的每一個檔案」，
+所以這不是刻意的 YAGNI 範圍縮減，而是要修的落差——見下方 Fix round 1。
+
+- [x] **Fix round 1：把 `Analysis.datas` 也算進去，撞名改用清單彈出**
+
+  控制者重新量測封存內容確認：漏掉的 17%（39.0 MB）大宗是
+  `collect_data_files("rapidocr")` 帶進來的兩個模型檔（`PP-OCRv6_rec_small.onnx`
+  21.2 MB、`PP-OCRv6_det_small.onnx` 9.9 MB），都在 `a.datas` 裡、且排在解壓尾聲；
+  同時量到 1121 個檔案裡有 67 個 basename 撞名、涵蓋 174 個檔案，但全是幾 KB 的
+  dist-info 中繼資料，沒有大檔案撞名——「後者覆蓋前者」造成的視覺誤差雖然小，仍
+  一併修掉，不留伏筆。
+
+  - `install_progress_bar(binaries, datas)` 改吃兩份清單（`build.spec` 呼叫改成
+    `install_progress_bar(a.binaries, a.datas)`，一樣要排在 ffmpeg 過濾之後、
+    `Splash(...)` 之前）。
+  - `_size_table` 回傳型別從 `dict[str, int]` 改成 `dict[str, list[int]]`：撞名時
+    兩個大小都留著（`table.setdefault(basename, []).append(size)`），不是後者
+    覆蓋前者。
+  - 對應的 Tcl 也從「單一整數」改成「一份清單」：`array set _pyi_sizes {name
+    {1024 2048} ...}`；`canvas_text_update` 新增段落改成
+    `incr _pyi_done [lindex $_pyi_list 0]` 彈出清單開頭那個、`lrange` 去掉它，
+    清單空了才 `unset`。
+  - 測試補了撞名情境（`test_size_table_keeps_both_sizes_on_basename_collision`、
+    `test_size_table_combines_binaries_and_datas`）與一個用 `tkinter.Tcl()`
+    （純 Tcl 直譯器，不建視窗）實際跑清單彈出邏輯的測試，純字串比對測不出 Tcl
+    語法本身寫錯的地方。
+  - 打包一次確認：對照表覆蓋 **1121 個 entry、229,343,117 bytes（約 218.7
+    MiB）**，跟封存內容的 1121/229.3 MB 幾乎一致；撞名數字（`license.md` 11 個、
+    `INSTALLER`／`METADATA`／`RECORD`／`REQUESTED` 各 6 個）與控制者量測的完全
+    吻合。
+
+  ```bash
+  uv run ruff check src tests tools
+  uv run pytest
+  git add tools/splash_progress.py tests/test_splash_progress.py build.spec \
+          tests/test_resources.py \
+          docs/superpowers/specs/2026-09-16-faster-exe-startup-design.md \
+          docs/superpowers/plans/2026-09-16-faster-exe-startup.md
+  git commit -m "fix(build): cover a.datas in the splash progress bar's size table"
+  ```
 
 ---
 
