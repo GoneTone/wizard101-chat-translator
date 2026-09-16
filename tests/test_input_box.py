@@ -4,6 +4,7 @@ import tkinter as tk
 
 import pytest
 
+from src.translation.translator import RequestHandle
 from src.ui import input_box as input_box_module
 from src.ui.geometry import anchored_position
 from src.ui.input_box import InputBox
@@ -17,7 +18,7 @@ def test_stale_session_discarded_on_cancel(root):
     ui_queue = queue.Queue()
     on_translated = []
 
-    def fake_translate(text):
+    def fake_translate(text, cancel):
         return "translated: " + text
 
     def on_translated_callback(english, hwnd):
@@ -51,7 +52,7 @@ def _status(win, text):
 
 
 def test_error_message_urls_are_clickable(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     try:
         box._show_error("HTTP 401: see https://a.example/keys for a key", box._session)
@@ -63,7 +64,7 @@ def test_error_message_urls_are_clickable(root):
 def test_finish_over_limit_keeps_window_and_blocks_send(root):
     from src.ui.input_box import GAME_INPUT_MAX_CHARS
     sent = []
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: sent.append(a))
     box.show()
     session = box._session
     box._finish("x" * (GAME_INPUT_MAX_CHARS + 1), None, session)
@@ -77,7 +78,7 @@ def test_finish_over_limit_keeps_window_and_blocks_send(root):
 def test_finish_within_limit_sends_and_closes(root):
     from src.ui.input_box import GAME_INPUT_MAX_CHARS
     sent = []
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: sent.append(a))
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: sent.append(a))
     box.show()
     box._finish("x" * GAME_INPUT_MAX_CHARS, None, box._session)
     assert box._win is None
@@ -85,7 +86,7 @@ def test_finish_within_limit_sends_and_closes(root):
 
 
 def test_close_with_stale_target_hwnd_does_not_crash(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._target_hwnd = 0x7FFFFFFF        # 已不存在的視窗
     box.close()
@@ -93,7 +94,7 @@ def test_close_with_stale_target_hwnd_does_not_crash(root):
 
 
 def test_enter_on_empty_input_closes_window(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     assert box._win is not None
     box._on_enter(None)          # 空白按 Enter → 關閉（等同 Esc）
@@ -105,7 +106,7 @@ def test_non_cancelled_translation_succeeds(root):
     ui_queue = queue.Queue()
     on_translated = []
 
-    def fake_translate(text):
+    def fake_translate(text, cancel):
         return "translated: " + text
 
     def on_translated_callback(english, hwnd):
@@ -130,7 +131,7 @@ def test_stale_error_discarded_on_cancel(root):
     ui_queue = queue.Queue()
     on_translated = []
 
-    def fake_translate(text):
+    def fake_translate(text, cancel):
         return "translated: " + text
 
     def on_translated_callback(english, hwnd):
@@ -160,7 +161,7 @@ def test_current_error_shown_on_error(root):
     ui_queue = queue.Queue()
     on_translated = []
 
-    def fake_translate(text):
+    def fake_translate(text, cancel):
         return "translated: " + text
 
     def on_translated_callback(english, hwnd):
@@ -189,7 +190,7 @@ def test_worker_failure_error_callback_runs(root):
 
     ui_queue = queue.Queue()
 
-    def failing_translate(text):
+    def failing_translate(text, cancel):
         raise httpx.HTTPError("boom")
 
     box = InputBox(root, failing_translate, ui_queue, lambda e, h: None)
@@ -198,7 +199,7 @@ def test_worker_failure_error_callback_runs(root):
     box._status = _status(box._win, "original")
     session = box._session
 
-    box._worker("你好", None, session)  # 直接呼叫：走 except 分支、排入錯誤回呼
+    box._worker("你好", None, session, RequestHandle())  # 直接呼叫：走 except 分支、排入錯誤回呼
     callback = ui_queue.get_nowait()
     callback()  # 修正前此處會 NameError: name 'exc' is not defined
 
@@ -229,7 +230,7 @@ _CHROME = (7, 0, 2, 32)
 def test_show_places_the_box_below_the_anchor(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.set_anchor((300, 400, 500, 40))
     box.show()
     box._win.update_idletasks()
@@ -244,7 +245,7 @@ def test_show_flips_above_using_the_visible_frame_height(root, monkeypatch):
     # 翻到上方時要用含標題列的可見高度，否則標題列會蓋到遊戲輸入框
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.set_anchor((300, 1000, 500, 40))
     box.show()
     box._win.update_idletasks()
@@ -262,7 +263,7 @@ def test_show_without_anchor_sits_at_the_cursor(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.show()
     box._win.update_idletasks()
     assert box._win.geometry().startswith("460x")
@@ -276,7 +277,7 @@ def test_clear_anchor_makes_show_use_the_cursor(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.set_anchor((300, 400, 500, 40))
     box.clear_anchor()
     box.show()
@@ -290,7 +291,7 @@ def test_anchor_set_while_open_applies_on_the_next_show(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda e, h: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.show()
     box.set_anchor((300, 400, 500, 40))
     box.close()
@@ -304,7 +305,7 @@ def test_show_uses_the_anchor_width(root, monkeypatch):
     # 寬度跟著遊戲輸入框：探測值 1920×1080 下容器寬 732 px；client 寬扣掉可見邊框
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.set_anchor((300, 400, 732, 44))
     box.show()
     box._win.update_idletasks()
@@ -322,7 +323,7 @@ def test_shown_box_visible_frame_matches_the_anchor(root, monkeypatch):
     from src.ui.winstyle import root_hwnd
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: (9000, 9000, 4000, 3000))
     monkeypatch.setattr(input_box_module, "force_foreground", lambda hwnd: None)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.set_anchor((10000, 10000, 732, 44))
     box.show()
     box._win.update_idletasks()
@@ -339,7 +340,7 @@ def test_box_placed_above_the_anchor_grows_upward(root, monkeypatch):
     # 放在錨點上方時，提示／錯誤文字換行長高要往上長、底邊釘住，否則會蓋到遊戲輸入框
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.set_anchor((300, 1000, 500, 40))
     box.show()
     box._win.update()
@@ -368,7 +369,7 @@ def test_visible_chrome_measures_the_frame_of_a_hidden_window(root):
 def test_show_clamps_the_anchor_width_to_minimum(root, monkeypatch):
     from src.ui.input_box import MIN_WIDTH
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.set_anchor((300, 400, 200, 44))
     box.show()
     box._win.update_idletasks()
@@ -379,7 +380,7 @@ def test_show_clamps_the_anchor_width_to_minimum(root, monkeypatch):
 def test_show_without_any_anchor_uses_the_default_width(root, monkeypatch):
     from src.ui.input_box import DEFAULT_WIDTH
     monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._win.update_idletasks()
     assert box._win.winfo_width() == DEFAULT_WIDTH
@@ -388,7 +389,7 @@ def test_show_without_any_anchor_uses_the_default_width(root, monkeypatch):
 
 def test_fit_height_shrinks_when_the_status_needs_fewer_lines(root):
     # 狀態文字從多行換回一行 → 高度要跟著貼回內容，不能停在較高的那次
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._win.update()
     box._status.set("很長的訊息 " * 30)
@@ -405,7 +406,7 @@ def test_shown_box_fits_the_wrapped_hint(root, monkeypatch):
     # 熱鍵路徑寬度是預設值、顯示時尺寸沒變：提示換成多行後視窗高度也要跟上，
     # 不能只露出第一行（實機回報）
     monkeypatch.setattr(input_box_module, "cursor_position", lambda: _CURSOR)
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._win.update()
     assert int(box._status.cget("height")) > 1
@@ -414,7 +415,7 @@ def test_shown_box_fits_the_wrapped_hint(root, monkeypatch):
 
 
 def test_box_is_not_resizable(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     assert tuple(int(v) for v in box._win.resizable()) == (0, 0)
     box.close()
@@ -430,14 +431,14 @@ def test_error_message_follows_language(root):
         i18n.set_language("en-US")
         ui_queue = queue.Queue()
 
-        def failing_translate(text):
+        def failing_translate(text, cancel):
             raise httpx.HTTPError("boom")
 
         box = InputBox(root, failing_translate, ui_queue, lambda e, h: None)
         box._win = tk.Toplevel(root)
         box._entry = tk.Entry(box._win)
         box._status = _status(box._win, "original")
-        box._worker("hello", None, box._session)
+        box._worker("hello", None, box._session, RequestHandle())
         ui_queue.get_nowait()()
         assert box._status.text().startswith("Translation failed:")
     finally:
@@ -445,7 +446,7 @@ def test_error_message_follows_language(root):
 
 
 def test_is_open_tracks_window_lifecycle(root):
-    box = InputBox(root, lambda text: text, queue.Queue(), lambda *_: None)
+    box = InputBox(root, lambda text, cancel: text, queue.Queue(), lambda *_: None)
     assert not box.is_open
     box._win = tk.Toplevel(root)
     assert box.is_open
@@ -460,17 +461,17 @@ def test_outgoing_translation_failure_is_logged(root, monkeypatch):
     logged = []
     monkeypatch.setattr(input_box_module, "log", logged.append)
 
-    def failing(text):
+    def failing(text, cancel):
         raise RuntimeError("HTTP 500: upstream down")
 
     box = InputBox(root, failing, queue.Queue(), lambda *a: None)
-    box._worker("hello", None, box._session)
+    box._worker("hello", None, box._session, RequestHandle())
     assert any("outgoing translation failed" in line and "upstream down" in line
                for line in logged)
 
 
 def test_hide_keeps_the_unsent_draft_for_the_next_show(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._entry.insert(0, "half typed")
     box.hide()                      # 遊戲關了聊天框：被動收起
@@ -484,7 +485,7 @@ def test_hide_keeps_the_unsent_draft_for_the_next_show(root):
 
 
 def test_manual_close_discards_the_draft(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._entry.insert(0, "half typed")
     box.close()                     # Esc／X／空白 Enter
@@ -496,7 +497,7 @@ def test_manual_close_discards_the_draft(root):
 
 
 def test_sent_text_is_not_restored(root):
-    box = InputBox(root, lambda t: t, queue.Queue(), lambda *a: None)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()
     box._entry.insert(0, "hello")
     box._finish("hello", None, box._session)
@@ -512,7 +513,7 @@ def test_hide_while_translating_restores_an_editable_draft(root):
     started = threading.Event()
     release = threading.Event()
 
-    def slow_translate(text):
+    def slow_translate(text, cancel):
         started.set()
         release.wait(5)
         return text
@@ -531,3 +532,34 @@ def test_hide_while_translating_restores_an_editable_draft(root):
         assert box._status.text() == t("input.hint")
     finally:
         box.close()
+
+
+def test_closing_the_box_while_translating_cancels_the_request(root):
+    import threading
+
+    from src.translation.translator import TranslatorCancelled
+
+    handles = []
+    released = threading.Event()
+
+    def slow_translate(text, cancel):
+        handles.append(cancel)
+        released.wait(5)
+        raise TranslatorCancelled()
+
+    ui_queue = queue.Queue()
+    sent = []
+    box = InputBox(root, slow_translate, ui_queue, lambda *a: sent.append(a))
+    box.show()
+    root.update()
+    box._entry.insert(0, "哈囉")
+    box._entry.event_generate("<Return>")
+    root.update()
+    box.close()
+    assert handles and handles[0].cancelled
+    released.set()
+    for _ in range(50):
+        root.update()
+        if not ui_queue.empty():
+            ui_queue.get_nowait()()
+    assert sent == []

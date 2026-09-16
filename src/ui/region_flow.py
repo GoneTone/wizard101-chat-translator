@@ -9,6 +9,8 @@
 放開後框選矩形留在畫面上（`RegionBox`），使用者拖把手或框線調整完，對遊戲**當下**畫面
 重新擷取、裁切、辨識翻譯 —— 這時已經沒有凍結畫面可用，也不需要（使用者看到的就是遊戲
 當下的內容）。框跟卡片同進退：使用者關卡片、或下一次開始框選時一起收掉。
+上一把辨識翻譯還在跑就被取代（調整框、重新框選）或沒人要了（關卡片）時，經
+`RequestHandle` 撤銷它的翻譯請求 —— 光靠 session 編號丟結果，伺服器還是會生成完、照樣計費。
 選取層、卡片、框選框、擷取、裁切、螢幕查詢都可注入替身供測試。
 """
 import queue
@@ -31,7 +33,12 @@ from src.region.capture import (
     crop_frame,
 )
 from src.region.ocr import OcrUnavailable
-from src.translation.translator import TranslatorBadOutput, TranslatorError
+from src.translation.translator import (
+    RequestHandle,
+    TranslatorBadOutput,
+    TranslatorCancelled,
+    TranslatorError,
+)
 from src.ui.form import friendly_error
 from src.ui.input_box import cursor_position
 from src.ui.monitors import monitor_rect_at
@@ -75,6 +82,7 @@ class RegionFlow:
         self._foreground = foreground
         self._find_game = find_game
         self._session = 0
+        self._request: RequestHandle | None = None   # 進行中的翻譯請求，換新的或沒人要時撤銷
         self._thread: threading.Thread | None = None
         self._game_hwnd = 0
 
@@ -99,6 +107,7 @@ class RegionFlow:
             return
         self._card.hide()
         self._box.hide()
+        self._cancel_request()
         self._game_hwnd = game_hwnd
         x, y = _window_center(game_hwnd)
         try:
@@ -139,8 +148,15 @@ class RegionFlow:
         self._foreground(self._game_hwnd)
 
     def _card_closed(self) -> None:
-        """使用者自己關了卡片：框選框跟著收，不留一個沒有譯文的空框在畫面上。"""
+        """使用者自己關了卡片：框選框跟著收，不留一個沒有譯文的空框在畫面上；
+        還在跑的請求也沒人要看了，撤銷。"""
         self._box.hide()
+        self._cancel_request()
+
+    def _cancel_request(self) -> None:
+        if self._request is not None and not self._request.cancelled:
+            log(f"[region] cancelling the previous request (session={self._session})")
+            self._request.cancel()
 
     def _selected(self, rect: tuple[int, int, int, int], game_hwnd: int, frame: Frame) -> None:
         self._foreground(game_hwnd)
@@ -173,15 +189,21 @@ class RegionFlow:
             log(f"[region] capture failed (hwnd={game_hwnd:#x}, rect={rect}): {exc}")
             self._card.show_error(t("region.capture_failed", error=exc))
             return
+        self._cancel_request()
         self._session += 1
         session = self._session
-        self._thread = threading.Thread(target=self._worker, args=(png, rect, session),
-                                        daemon=True)
+        self._request = RequestHandle()
+        self._thread = threading.Thread(target=self._worker,
+                                        args=(png, rect, session, self._request), daemon=True)
         self._thread.start()
 
-    def _worker(self, png: bytes, rect: tuple[int, int, int, int], session: int) -> None:
+    def _worker(self, png: bytes, rect: tuple[int, int, int, int], session: int,
+                cancel: RequestHandle) -> None:
         try:
-            result = self._pipeline.run(png, rect)
+            result = self._pipeline.run(png, rect, cancel=cancel)
+        except TranslatorCancelled:
+            log(f"[region] request cancelled (session={session})")
+            return
         except Exception as exc:
             if not isinstance(exc, (TranslatorError, TranslatorBadOutput, OcrUnavailable)):
                 log(f"[region] unexpected failure (rect={rect}): {type(exc).__name__}: {exc}\n"

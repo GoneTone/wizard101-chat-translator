@@ -14,8 +14,9 @@ class FakeTranslator:
         self._text, self._text_raises = text, text_raises
         self.text_calls = []
 
-    def translate_region_text(self, text):
+    def translate_region_text(self, text, cancel=None):
         self.text_calls.append(text)
+        self.last_cancel = cancel
         if self._text_raises:
             raise self._text_raises
         return self._text
@@ -57,3 +58,10 @@ def test_translator_offline_error_propagates():
     pipeline = RegionPipeline(translator, recognize=lambda png: "Hello")
     with pytest.raises(TranslatorOffline):
         pipeline.run(_PNG, _RECT)
+
+
+def test_the_cancel_handle_is_passed_to_the_translator():
+    translator = FakeTranslator(text="譯文")
+    handle = object()
+    RegionPipeline(translator, recognize=lambda png: "Hello").run(_PNG, _RECT, cancel=handle)
+    assert translator.last_cancel is handle

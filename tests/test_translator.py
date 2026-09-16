@@ -1,5 +1,9 @@
-"""translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。"""
+"""translator 的 provider 選擇與錯誤映射測試（mock client，不打真 API）。
+兩種後端都走串流：假 client 回 SSE 行（OpenAI 相容）或假的 MessageStream（Claude），
+取消測試用「卡住直到被 close」的回應模擬模型還在生成時客戶端主動斷線。"""
 import json
+import threading
+from contextlib import contextmanager
 
 import anthropic
 import httpx
@@ -24,8 +28,10 @@ from src.translation.translator import (
     _MAX_TOKENS_REGION,
     _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
+    RequestHandle,
     Translator,
     TranslatorBadOutput,
+    TranslatorCancelled,
     TranslatorConfigError,
     TranslatorNoModelList,
     TranslatorOffline,
@@ -34,15 +40,39 @@ from src.translation.translator import (
 )
 
 
+def _sse(chunks) -> list[str]:
+    return [f"data: {json.dumps(c, ensure_ascii=False)}" for c in chunks] + ["data: [DONE]"]
+
+
 class FakeResponse:
+    """替身串流回應：`iter_lines` 把 content 逐字拆成 SSE 塊送出（證明客戶端有把塊接回去），
+    finish_reason 跟在最後一塊、usage（若有）另成一塊，與 OpenAI 的串流格式一致。
+    `json()` 只給 list_models 的 GET 用。"""
+
     def __init__(self, status_code=200, content="譯文", finish_reason="stop",
                  completion_tokens=None, payload=None, text=""):
         self.status_code = status_code
         self.text = text
+        self.closed = False
         self._content = content
         self._finish_reason = finish_reason
         self._completion_tokens = completion_tokens
         self._payload = payload
+
+    def iter_lines(self):
+        pieces = list(self._content) or [""]
+        chunks = [{"choices": [{"delta": {"content": piece}, "finish_reason": None}]}
+                  for piece in pieces]
+        chunks[-1]["choices"][0]["finish_reason"] = self._finish_reason
+        if self._completion_tokens is not None:
+            chunks.append({"choices": [], "usage": {"completion_tokens": self._completion_tokens}})
+        yield from _sse(chunks)
+
+    def read(self):
+        return self.text.encode("utf-8")
+
+    def close(self):
+        self.closed = True
 
     def json(self):
         if self._payload is not None:
@@ -59,17 +89,19 @@ class FakeResponse:
 
 
 class FakeHttpxClient:
-    """替身 httpx.Client：post 回傳預設回應或拋出預設例外。"""
+    """替身 httpx.Client：stream 回傳預設回應或拋出預設例外。"""
     def __init__(self, response=None, raises=None):
         self._response = response or FakeResponse()
         self._raises = raises
         self.last_body = None
 
-    def post(self, url, json):
+    @contextmanager
+    def stream(self, method, url, json):
+        assert method == "POST"
         self.last_body = json
         if self._raises:
             raise self._raises
-        return self._response
+        yield self._response
 
     def get(self, url):
         self.last_url = url
@@ -110,17 +142,14 @@ def test_openai_compat_retryable_status_maps_to_offline(status):
         _make(fake).translate_incoming("[A] hi", [])
 
 
-class FakeAnthropicMessages:
-    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
-        self._raises = raises
-        self._stop_reason = stop_reason
-        self._content = content
-        self.last_kwargs = None
+class FakeMessageStream:
+    """替身 MessageStream：`get_final_message` 回累積好的訊息。"""
 
-    def create(self, **kwargs):
-        self.last_kwargs = kwargs
-        if self._raises:
-            raise self._raises
+    def __init__(self, stop_reason, content):
+        self._stop_reason, self._content = stop_reason, content
+        self.closed = False
+
+    def get_final_message(self):
         stop_reason = self._stop_reason
         content = self._content
 
@@ -133,6 +162,26 @@ class FakeAnthropicMessages:
 
         Resp.stop_reason = stop_reason
         return Resp()
+
+    def close(self):
+        self.closed = True
+
+
+class FakeAnthropicMessages:
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
+        self._raises = raises
+        self._stop_reason = stop_reason
+        self._content = content
+        self.last_kwargs = None
+        self.last_stream = None
+
+    @contextmanager
+    def stream(self, **kwargs):
+        self.last_kwargs = kwargs
+        if self._raises:
+            raise self._raises
+        self.last_stream = FakeMessageStream(self._stop_reason, self._content)
+        yield self.last_stream
 
 
 class FakeAnthropicClient:
@@ -288,9 +337,10 @@ class SequenceClient:
         self._responses = list(responses)
         self.bodies = []
 
-    def post(self, url, json):
+    @contextmanager
+    def stream(self, method, url, json):
         self.bodies.append(json)
-        return self._responses.pop(0)
+        yield self._responses.pop(0)
 
 
 def _rejects(param: str, wording: str = "unrecognized"):
@@ -778,9 +828,10 @@ class FakeSequenceClient(FakeHttpxClient):
         self._queue = [FakeResponse(content=c) for c in contents]
         self.bodies = []
 
-    def post(self, url, json):
+    @contextmanager
+    def stream(self, method, url, json):
         self.bodies.append(json)
-        return self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
+        yield self._queue.pop(0) if len(self._queue) > 1 else self._queue[0]
 
 
 # --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---
@@ -1027,3 +1078,143 @@ def test_region_system_prompt_carries_the_target_language_and_no_chat_format():
     assert "[發送者]" not in prompt
 
 
+# --- 串流與取消：請求進行中可以從別的執行緒斷線，伺服器停止生成、不再計費 ---
+def test_openai_compat_asks_for_a_stream_and_joins_the_chunks():
+    fake = FakeHttpxClient(response=FakeResponse(content="一段很長的譯文"))
+    assert _make(fake).translate_outgoing("哈囉", []) == "一段很長的譯文"
+    assert fake.last_body["stream"] is True
+
+
+def test_only_the_official_openai_endpoint_asks_for_usage_in_the_stream():
+    fake = FakeHttpxClient()
+    Translator(provider="openai", model="gpt-4o-mini", api_key="k",
+               target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
+    assert fake.last_body["stream_options"] == {"include_usage": True}
+    fake = FakeHttpxClient()
+    _make(fake).translate_incoming("[A] hi", [])
+    assert "stream_options" not in fake.last_body   # 自架後端不一定認得，別冒 400 的險
+
+
+def test_openai_compat_truncation_is_read_from_the_stream():
+    fake = FakeHttpxClient(response=FakeResponse(content="呃 呃", finish_reason="length",
+                                                 completion_tokens=3))
+    with pytest.raises(TranslatorBadOutput) as ei:
+        _make(fake).translate_incoming("[A] hi", [])
+    assert "completion_tokens=3" in str(ei.value)
+
+
+class BlockingResponse(FakeResponse):
+    """送出第一塊後卡住，直到被 close 才以連線錯誤結束：模擬模型還在生成時客戶端斷線。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.released = threading.Event()
+
+    def iter_lines(self):
+        yield _sse([{"choices": [{"delta": {"content": "譯"}, "finish_reason": None}]}])[0]
+        self.started.set()
+        self.released.wait(5)
+        raise httpx.ReadError("connection closed")
+
+    def close(self):
+        super().close()
+        self.released.set()
+
+
+def _run_in_thread(fn):
+    outcome = {}
+
+    def target():
+        try:
+            outcome["result"] = fn()
+        except Exception as exc:
+            outcome["error"] = exc
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread, outcome
+
+
+def test_cancelling_an_openai_compat_request_closes_the_stream():
+    resp = BlockingResponse()
+    fake = FakeHttpxClient(response=resp)
+    handle = RequestHandle()
+    thread, outcome = _run_in_thread(
+        lambda: _make(fake).translate_region_text("Hello", cancel=handle))
+    assert resp.started.wait(5)
+    handle.cancel()
+    thread.join(5)
+    assert resp.closed and handle.cancelled
+    assert isinstance(outcome.get("error"), TranslatorCancelled)
+
+
+def test_a_request_cancelled_before_it_starts_is_never_sent():
+    handle = RequestHandle()
+    handle.cancel()
+    fake = FakeHttpxClient()
+    with pytest.raises(TranslatorCancelled):
+        _make(fake).translate_outgoing("哈囉", [], cancel=handle)
+    assert fake.last_body is None
+
+
+def test_a_connection_error_without_a_cancel_is_still_offline():
+    resp = BlockingResponse()
+    resp.released.set()   # 沒人取消、連線自己斷了
+    fake = FakeHttpxClient(response=resp)
+    with pytest.raises(TranslatorOffline):
+        _make(fake).translate_outgoing("哈囉", [], cancel=RequestHandle())
+
+
+def test_the_request_handle_is_released_after_the_request_completes():
+    fake = FakeHttpxClient()
+    handle = RequestHandle()
+    _make(fake).translate_outgoing("哈囉", [], cancel=handle)
+    handle.cancel()   # 事後取消不該去關一個已經結束的回應
+    assert not fake._response.closed
+
+
+class BlockingMessageStream(FakeMessageStream):
+    def __init__(self):
+        super().__init__("end_turn", "克勞德譯文")
+        self.started = threading.Event()
+        self.released = threading.Event()
+
+    def get_final_message(self):
+        self.started.set()
+        self.released.wait(5)
+        raise httpx2.ReadError("connection closed")
+
+    def close(self):
+        super().close()
+        self.released.set()
+
+
+class BlockingAnthropicMessages(FakeAnthropicMessages):
+    @contextmanager
+    def stream(self, **kwargs):
+        self.last_kwargs = kwargs
+        self.last_stream = BlockingMessageStream()
+        yield self.last_stream
+
+
+def test_claude_uses_the_streaming_helper():
+    fake = FakeAnthropicClient()
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    assert t.translate_incoming("[A] hi", []) == "克勞德譯文"
+    assert fake.messages.last_stream is not None
+
+
+def test_cancelling_a_claude_request_closes_the_stream():
+    fake = FakeAnthropicClient()
+    fake.messages = BlockingAnthropicMessages()
+    handle = RequestHandle()
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=fake)
+    thread, outcome = _run_in_thread(lambda: t.translate_region_text("Hello", cancel=handle))
+    assert fake.messages.last_stream.started.wait(5)
+    handle.cancel()
+    thread.join(5)
+    assert fake.messages.last_stream.closed
+    assert isinstance(outcome.get("error"), TranslatorCancelled)

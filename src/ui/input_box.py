@@ -11,6 +11,7 @@ from src.composer.paste import force_foreground
 from src.config import app_name
 from src.i18n import t
 from src.log import log
+from src.translation.translator import RequestHandle, TranslatorCancelled
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_position
 from src.ui.monitors import work_area_at
@@ -38,8 +39,10 @@ class InputBox:
     `set_anchor(rect)`／`clear_anchor()` 跟著遊戲輸入框的開關走：有錨點就貼在它正下方、
     與它同寬，沒有就貼在游標處。Enter 把文字交給 `translate_fn`，譯文經
     `on_translated(text, hwnd)` 送進遊戲。每次開關 `_session` +1，背景執行緒的結果
-    對不上號就丟掉。`close()` 是使用者主動關（Esc／X／空白 Enter）或已送出，
-    未送出的文字一併丟掉；`hide()` 是遊戲關了聊天框被動收起，文字留到下次 `show()`。"""
+    對不上號就丟掉；關窗時進行中的翻譯請求也經 `RequestHandle` 撤銷（`translate_fn(text,
+    cancel)`），不然伺服器會把沒人要的譯文生成完、照樣計費。
+    `close()` 是使用者主動關（Esc／X／空白 Enter）或已送出，未送出的文字一併丟掉；
+    `hide()` 是遊戲關了聊天框被動收起，文字留到下次 `show()`。"""
 
     def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
         self._root = root
@@ -54,6 +57,7 @@ class InputBox:
         self._status: RichLabel | None = None
         self._target_hwnd: int | None = None
         self._session = 0
+        self._request: RequestHandle | None = None   # 進行中的翻譯請求，關窗時撤銷
         self._draft = ""  # hide() 收起時尚未送出的文字，下次 show() 還原
 
     @property
@@ -165,6 +169,9 @@ class InputBox:
         self._entry = None
         self._status = None
         self._session += 1
+        if self._request is not None:
+            self._request.cancel()
+            self._request = None
         # 前景還給呼出當下的視窗（遊戲）：關窗後 Windows 有時會把焦點交給別的視窗
         force_foreground(self._target_hwnd)
 
@@ -178,11 +185,17 @@ class InputBox:
         self._status.set(t("input.translating"), HINT_FG)
         hwnd = self._target_hwnd
         session = self._session
-        threading.Thread(target=self._worker, args=(text, hwnd, session), daemon=True).start()
+        self._request = RequestHandle()
+        threading.Thread(target=self._worker, args=(text, hwnd, session, self._request),
+                         daemon=True).start()
 
-    def _worker(self, text: str, hwnd: int | None, session: int) -> None:
+    def _worker(self, text: str, hwnd: int | None, session: int,
+                cancel: RequestHandle) -> None:
         try:
-            translated = self._translate(text)
+            translated = self._translate(text, cancel)
+        except TranslatorCancelled:
+            log(f"[input] outgoing translation cancelled (chars={len(text)})")
+            return
         except Exception as exc:
             log(f"[input] outgoing translation failed (chars={len(text)}): "
                 f"{type(exc).__name__}: {exc}")

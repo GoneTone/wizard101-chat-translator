@@ -29,14 +29,15 @@ class RegionPipeline:
         self._translator = translator
         self._recognize = recognize
 
-    def run(self, png: bytes, rect: tuple[int, int, int, int]) -> RegionResult:
-        """辨識並翻譯一張截圖；`rect` 只用來記 log。"""
+    def run(self, png: bytes, rect: tuple[int, int, int, int], cancel=None) -> RegionResult:
+        """辨識並翻譯一張截圖；`rect` 只用來記 log，`cancel`（RequestHandle）交給翻譯
+        請求，讓流程能中途撤銷；OCR 是本機、很快，不受它影響。"""
         started = time.monotonic()
         source = self._recognize(png)
         if not source:
             log(f"[region] local OCR found no text (rect={rect})")
             return RegionResult("", "")
-        text = self._translator.translate_region_text(source)
+        text = self._translator.translate_region_text(source, cancel=cancel)
         log(f"[region] done in {time.monotonic() - started:.1f}s "
             f"(rect={rect}, source_chars={len(source)}, chars={len(text)})")
         return RegionResult(text, source)

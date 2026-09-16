@@ -6,7 +6,12 @@ from src.i18n import t
 from src.region.capture import CaptureError, SelectionOutsideGame
 from src.region.ocr import OcrUnavailable
 from src.region.pipeline import RegionResult
-from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
+from src.translation.translator import (
+    TranslatorBadOutput,
+    TranslatorCancelled,
+    TranslatorConfigError,
+    TranslatorOffline,
+)
 from src.ui.region_flow import RegionFlow, describe_error
 
 _RECT = (100, 100, 300, 120)
@@ -67,8 +72,10 @@ class FakeCard:
 class FakePipeline:
     def __init__(self, result=None, raises=None):
         self._result, self._raises = result, raises
+        self.handles = []   # 每次 run 收到的 RequestHandle，測試看誰被取消了
 
-    def run(self, png, rect):
+    def run(self, png, rect, cancel=None):
+        self.handles.append(cancel)
         if self._raises:
             raise self._raises
         return self._result
@@ -194,7 +201,7 @@ def test_pipeline_errors_are_described_on_the_card(root):
 class RectPipeline:
     """譯文帶矩形寬度，兩輪框選的結果才分得出新舊。"""
 
-    def run(self, png, rect):
+    def run(self, png, rect, cancel=None):
         return RegionResult(f"譯文{rect[2]}")
 
 
@@ -425,3 +432,58 @@ def test_a_new_selection_hides_the_previous_box(root):
     _drain(ui_queue, flow)
     flow.toggle(0x1234)
     assert not box.is_open and selector.is_open
+
+
+def _pipeline_flow(root, pipeline):
+    return _flow_with_box(root, pipeline, capture_window=lambda hwnd: _FRAME,
+                          crop=lambda frame, rect: b"png")
+
+
+def test_each_request_gets_its_own_cancel_handle(root):
+    pipeline = FakePipeline(RegionResult("譯文"))
+    flow, selector, card, box, ui_queue = _pipeline_flow(root, pipeline)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    assert len(pipeline.handles) == 1 and pipeline.handles[0] is not None
+    assert not pipeline.handles[0].cancelled
+
+
+def test_adjusting_the_box_cancels_the_previous_request(root):
+    pipeline = FakePipeline(RegionResult("譯文"))
+    flow, selector, card, box, ui_queue = _pipeline_flow(root, pipeline)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    box.adjust((0, 0, 50, 50))
+    _drain(ui_queue, flow)
+    assert pipeline.handles[0].cancelled and not pipeline.handles[1].cancelled
+
+
+def test_a_new_selection_cancels_the_previous_request(root):
+    pipeline = FakePipeline(RegionResult("譯文"))
+    flow, selector, card, box, ui_queue = _pipeline_flow(root, pipeline)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    flow.toggle(0x1234)
+    assert pipeline.handles[0].cancelled
+
+
+def test_closing_the_card_cancels_the_request(root):
+    pipeline = FakePipeline(RegionResult("譯文"))
+    flow, selector, card, box, ui_queue = _pipeline_flow(root, pipeline)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    card.on_close()
+    assert pipeline.handles[0].cancelled
+
+
+def test_a_cancelled_request_leaves_the_card_alone(root):
+    pipeline = FakePipeline(raises=TranslatorCancelled())
+    flow, selector, card, box, ui_queue = _pipeline_flow(root, pipeline)
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    assert card.events == [("pending", _RECT)]

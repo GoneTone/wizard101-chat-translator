@@ -409,8 +409,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     translator, cache, pools = build_translation(cfg, api, deliver)
     pool, system_pool = pools
 
-    input_box = InputBox(root, lambda text: translator.translate_outgoing(
-        text, context.snapshot()), ui_queue,
+    input_box = InputBox(root, lambda text, cancel: translator.translate_outgoing(
+        text, context.snapshot(), cancel=cancel), ui_queue,
         lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]))
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
