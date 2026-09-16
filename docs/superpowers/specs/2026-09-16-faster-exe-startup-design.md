@@ -443,6 +443,11 @@ onefile 的 bootloader 第一件事就是在 `%TEMP%` 建立 `_MEIxxxxxxxx` 目�
 即可（`pid_from_mei_name()`），但這個假設必須在 frozen 執行期自己驗證一次，不能
 只靠這次的實測結果外推到別台機器或別個 PyInstaller 版本。
 
+事後補充（合併後查證）：掃描 PyInstaller 6.22.2 的 `runw.exe` 字串表，裡面有字面的格式
+字串 **`_MEI%08x`** —— 「`_MEI` ＋ 8 位十六進位」是 bootloader 自己寫死的格式，不再只是
+實測推論；尾碼那個字元是在這個格式字串之外另外接上的，意義仍未確認。前綴與位數都不可
+設定（`--runtime-tmpdir` 只改上層目錄），所以執行期的自我檢查仍然保留。
+
 每次啟動是「父 bootloader → 子 Python」兩個程序，路徑相同；`os.getpid()` 是子、
 `os.getppid()` 是父，**兩個都絕不能砍**。
 
