@@ -110,6 +110,18 @@ def region_hotkey_to_register(cfg: dict) -> str | None:
     return cfg["region_hotkey"]
 
 
+def register_region_hotkey(cfg: dict, callback) -> object | None:
+    """註冊框選熱鍵並把實際生效的鍵寫回 cfg；與輸入框熱鍵撞名就不註冊、回 None
+    （見 region_hotkey_to_register）。退回的預設值要用 region_hotkey 自己的，否則手改壞掉
+    的 config.json 會讓兩把熱鍵撞在一起。"""
+    hotkey = region_hotkey_to_register(cfg)
+    if hotkey is None:
+        return None
+    handle, cfg["region_hotkey"] = register_hotkey(hotkey, callback,
+                                                   fallback=DEFAULT_CONFIG["region_hotkey"])
+    return handle
+
+
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
     """依序取出並執行 ui_queue 裡的回呼；單一回呼拋錯不影響其餘回呼或呼叫端。"""
     while True:
@@ -192,32 +204,32 @@ def focus_running_instance(title: str) -> bool:
     return True
 
 
-def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
-    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：只有遊戲在前景才呼出翻譯輸入框，
-    其他視窗前景時當作沒按，免得在瀏覽器、聊天軟體裡誤觸。輸入框已開著時（它自己就是
-    前景）照舊重新對焦。"""
-    if input_box.is_open:
-        ui_queue.put(input_box.show)
-        return
+def foreground_game_hwnd(prefix: str) -> int | None:
+    """兩把熱鍵共用的前景守衛（keyboard 執行緒）：前景是遊戲就回它的 HWND，
+    否則記一行 log 回 None —— 在瀏覽器、聊天軟體裡按到熱鍵要當作沒按。"""
     exe = foreground_exe()
     if is_game_process_path(exe):
+        return win32gui.GetForegroundWindow()
+    log(f"[{prefix}] hotkey ignored: foreground is not the game window (exe={exe!r})")
+    return None
+
+
+def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
+    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：只有遊戲在前景才呼出翻譯輸入框。
+    輸入框已開著時（它自己就是前景）照舊重新對焦。"""
+    if input_box.is_open or foreground_game_hwnd("app") is not None:
         ui_queue.put(input_box.show)
-        return
-    log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
 def on_region_hotkey(flow: RegionFlow, ui_queue: queue.Queue) -> None:
     """框選熱鍵的回呼（keyboard 執行緒）：選取層開著就取消（此時前景是選取層本身）；
-    遊戲在前景才開始框選，其他視窗前景時當作沒按。"""
+    遊戲在前景才開始框選。"""
     if flow.is_selecting:
         ui_queue.put(lambda: flow.toggle(0))
         return
-    exe = foreground_exe()
-    if is_game_process_path(exe):
-        hwnd = win32gui.GetForegroundWindow()
+    hwnd = foreground_game_hwnd("region")
+    if hwnd is not None:
         ui_queue.put(lambda: flow.toggle(hwnd))
-        return
-    log(f"[region] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
 def should_intercept_paste(cfg: dict) -> bool:
@@ -416,14 +428,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
                                                    lambda: on_hotkey(input_box, ui_queue))
     region_pipeline = RegionPipeline(translator)
     region_flow = RegionFlow(root, region_pipeline, ui_queue, cfg["overlay_alpha"])
-    region_to_register = region_hotkey_to_register(cfg)
-    if region_to_register is None:
-        region_handle = None
-    else:
-        # 退回的預設值要用 region_hotkey 自己的，否則手改壞掉的 config.json 會讓兩把熱鍵撞在一起
-        region_handle, cfg["region_hotkey"] = register_hotkey(
-            region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
-            fallback=DEFAULT_CONFIG["region_hotkey"])
+    region_handle = register_region_hotkey(cfg, lambda: on_region_hotkey(region_flow, ui_queue))
     # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
     game_chat_open = threading.Event()
     # 攔截器每次都直接讀 cfg，設定視窗改開關不必重掛；關閉時由 shutdown 的 unhook_all 一併卸除
@@ -452,13 +457,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
             cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))
         if region_handle is not None:
             keyboard.remove_hotkey(region_handle)
-        region_to_register = region_hotkey_to_register(cfg)
-        if region_to_register is None:
-            region_handle = None
-        else:
-            region_handle, cfg["region_hotkey"] = register_hotkey(
-                region_to_register, lambda: on_region_hotkey(region_flow, ui_queue),
-                fallback=DEFAULT_CONFIG["region_hotkey"])
+        region_handle = register_region_hotkey(
+            cfg, lambda: on_region_hotkey(region_flow, ui_queue))
         overlay.set_region_hotkey(cfg["region_hotkey"])
         region_flow.set_alpha(cfg["overlay_alpha"])
         overlay.set_limits(cfg["max_messages"], cfg["fade_seconds"])

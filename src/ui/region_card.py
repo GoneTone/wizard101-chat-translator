@@ -21,6 +21,7 @@ import tkinter as tk
 
 from src.i18n import t
 from src.log import log
+from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_position, is_click
 from src.ui.monitors import work_area_at
@@ -227,9 +228,7 @@ class RegionCard:
         text = self._selected_text()
         if not text or self._win is None:
             return
-        self._win.clipboard_clear()
-        self._win.clipboard_append(text)
-        self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
+        copy_to_clipboard(self._win, text)
         log(f"[region] copied selection ({len(text)} chars)")
 
     def _right_click(self, event: tk.Event) -> None:
@@ -245,9 +244,7 @@ class RegionCard:
         selected = self._selected_text()
         text = selected or self._label.get("1.0", "end-1c")
         if text and self._win is not None:
-            self._win.clipboard_clear()
-            self._win.clipboard_append(text)
-            self._win.update()   # Windows 下要 flush 過，內容才真的落進系統剪貼簿
+            copy_to_clipboard(self._win, text)
             kind = "selection" if selected else "text"
             log(f"[region] copied {kind} ({len(text)} chars)")
         if self._popup is not None:

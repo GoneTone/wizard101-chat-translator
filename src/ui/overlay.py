@@ -12,6 +12,7 @@ from src.config import app_name
 from src.i18n import t
 from src.log import log
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
+from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
 from src.ui.geometry import centered_position, edge_at, moved_to, point_in_rect, resized_edge
 from src.ui.icons import load_icon
@@ -534,11 +535,9 @@ class OverlayWindow:
         text = self._selection.text()
         if not text:
             return
-        self._win.clipboard_clear()
-        self._win.clipboard_append(text)
-        # Windows 下要 flush 過，內容才真的落進系統剪貼簿；這會連帶清空 after 佇列，
-        # add_message／prune 可能在這裡重入執行，但 text 已存成區域變數，無害
-        self._win.update()
+        # copy_to_clipboard 會清空 after 佇列，add_message／prune 可能在這裡重入執行，
+        # 但 text 已存成區域變數，無害
+        copy_to_clipboard(self._win, text)
         log(f"[ui] copied selection chars={len(text)}")
 
     def _selection_menu(self, e) -> None:
