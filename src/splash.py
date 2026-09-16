@@ -28,7 +28,7 @@ from src.log import log
 
 # 兩個階段訊息：building 時 tools/splash_progress.py 會把這兩個字面值原封不動烤進
 # Tcl，跟 bootloader 回報的 status_text 做完全比對，藉此判斷「解壓已經結束，Python
-# 正在跑到哪個階段」——改這裡的文字，Tcl 那邊自動跟著換，不必去 build 腳本裡改一份
+# 正在跑到哪個階段」 —— 改這裡的文字，Tcl 那邊自動跟著換，不必去 build 腳本裡改一份
 # 複製的字串。
 PHASE_LOADING = "Loading components..."
 PHASE_STARTING = "Starting..."

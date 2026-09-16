@@ -71,7 +71,7 @@ def test_run_py_updates_splash_before_importing_main():
     只鎖連續兩行，抓的是「重排」而非「有沒有出現」：把兩個 import 提到模組頂層、
     `update()` 挪到 import 之後，ruff／pytest 都還是綠的，只有這裡會抓到。
     `run.py` 本身是純 LF（不像 Markdown 文件用 CRLF），這裡直接用 \\n 比對即可。
-    文字用 `splash.PHASE_LOADING` 常數而非字面值——見 `src/splash.py` 的模組說明，
+    文字用 `splash.PHASE_LOADING` 常數而非字面值 —— 見 `src/splash.py` 的模組說明，
     `tools/splash_progress.py` 在 build 時要 import 同一個常數烤進 Tcl。
     """
     source = (ROOT / "run.py").read_text(encoding="utf-8")

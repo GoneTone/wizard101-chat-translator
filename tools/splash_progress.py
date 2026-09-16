@@ -9,14 +9,14 @@ PyInstaller 內建樣板只把這個值畫成文字 —— 檔名滿天飛，使
 對照表涵蓋 `Analysis.binaries` 與 `Analysis.datas` 兩者：只算 binaries 實測只覆蓋
 封存內容的 83%（190.3 / 229.3 MB），漏掉的大宗是 `collect_data_files("rapidocr")`
 帶進來的模型檔（`PP-OCRv6_rec_small.onnx` 21.2 MB、`PP-OCRv6_det_small.onnx` 9.9
-MB）—— 這兩個檔案體積不小又排在解壓尾聲，正好是使用者盯著畫面等最久的那段，不能漏。
+MB） —— 這兩個檔案體積不小又排在解壓尾聲，正好是使用者盯著畫面等最久的那段，不能漏。
 
 basename 當 key 會撞名（實測 1121 個檔案裡 67 個 key 撞到 174 個檔案），但撞名的
 清一色是 dist-info 中繼資料（`license.md`／`INSTALLER`／`METADATA`／`RECORD`／
 `REQUESTED`，各僅幾 KB），沒有大檔案撞名，所以撞名不會讓進度條的視覺誤差有感。即
 使如此，仍選擇**清單彈出**而非「後者覆蓋前者」：同一個 basename 的每個位元組數各自
 進一個 Tcl 清單，bootloader 每回報一次就彈出清單開頭那個並累加，清單空了才 `unset`
-——撞名的檔案也都會被算到，不會漏算，成本只是清單長度撐大了 array set 一點點。
+—— 撞名的檔案也都會被算到，不會漏算，成本只是清單長度撐大了 array set 一點點。
 
 `PyInstaller.building.splash.Splash.__init__` 結尾會呼叫 `__postinit__()` ->
 `assemble()`，Tcl 腳本在建構當下就組好寫進資源，事後再改 `splash.script` 已經來不及。
@@ -32,8 +32,8 @@ basename 當 key 會撞名（實測 1121 個檔案裡 67 個 key 撞到 174 個�
 感磨掉；(2) 進度條解壓完就滿格，接著卻還要再等約 0.78 秒（`import src.main` 約
 0.31 秒＋`[app] version=` 到 `[app] running` 實測 0.47～0.48 秒）畫面才真的可用 ——
 解壓只推進到 80%，剩下的 20% 交給 `run.py`／`src/main.py` 已經會送的兩個階段訊息
-（`PHASE_LOADING` 推到 90%、`PHASE_STARTING` 推到 97%），splash 在 `build_app()`
-之後立刻關閉，所以刻意不推到 100%——滿格之後還晾著不動，比停在 97% 更奇怪。
+（`PHASE_LOADING` 推到 90%、`PHASE_STARTING` 推到滿格，理由見下方 Round 3 的第二個
+修正）。
 
 `PHASE_LOADING`／`PHASE_STARTING` 定義在 `src/splash.py`（執行期真正呼叫
 `splash.update()` 的地方），這裡在 build 時原封不動 import 進來烤進 Tcl 的完全比對，
@@ -44,10 +44,39 @@ basename 當 key 會撞名（實測 1121 個檔案裡 67 個 key 撞到 174 個�
 保證會處理 `after` —— 若動畫只靠 `after` 排程，解壓密集時迴圈沒空跑，畫面就會卡住
 不動。因此每個 trace 事件（不論是解壓回報還是階段訊息）都無條件直接呼叫一次步進
 函式 `pyi_progress_step`，確保「`after` 完全沒機會跑」的最壞情況下進度條依然每個
-事件都會前進一點（解壓期間事件密集，逐次前進本身就有平滑效果）；`pyi_progress_step`
-另外用旗標 `_pyi_animating` 避免同時有兩條 `after` 排程鏈疊加，正常情況下（例如兩個
-階段訊息間隔數百毫秒）則會在約 200ms 內用 easing（每步移動剩餘距離的 25%、每 16ms
-一步）把動畫補完。
+事件都會前進一點（解壓期間事件密集，逐次前進本身就有平滑效果）；正常情況下（例如
+兩個階段訊息間隔數百毫秒）則會在約 200ms 內用 easing（每步移動剩餘距離的 25%、每
+16ms 一步）把動畫補完。
+
+Round 3（實跑後修正）：使用者回報進度條卡在 9 成左右就不動、視窗接著就跳出來。
+根因是 round 2 的 `_pyi_animating` 旗標只在「排程當下」設成 1，`after` 觸發、重新
+進入 `pyi_progress_step` 時完全沒有清掉它 —— `after` 那次呼叫看到旗標已經是 1，
+就不再排下一次，整條鏈只走一次 `after` 就斷了。每個 trace 事件仍然會直接呼叫一次
+（所以看起來有在動），但少了 `after` 接力，兩次直接呼叫之間的間隔（例如
+`PHASE_LOADING` 到 `PHASE_STARTING`）就只補得到兩步緩動：`432 -> 440.5 -> 446.9`，
+剛好是 480 的 93.1%，跟使用者回報的「卡在 9 成左右」對得上。round 2 的動畫測試只
+用直接呼叫驅動（一定會前進，不受旗標影響），完全沒有驅動過 `after` 鏈本身，才會
+沒抓到 —— round 3 補的測試改用 `vwait` 真的把 Tcl 事件迴圈跑起來，讓 `after` 鏈自己
+接力，才踩得到這個問題（見 `tests/test_splash_progress.py` 的說明；已用還原成
+`_pyi_animating` 舊邏輯的方式驗證過這個新測試真的會紅）。
+
+修法是把「排程旗標」換成「取消並重排」：`pyi_progress_step` 一進來就先取消上一次
+排的 `after`（用 `after cancel` 搭配存下來的 id），再決定要不要重排下一次。不管是
+直接呼叫還是 `after` 觸發，任何一次進入都會先清掉舊排程再重排，既不會漏掉接力、
+也不會因為兩個事件間隔很近而疊出兩條並行的鏈（後一次呼叫的 `after cancel` 會先
+把前一次剛排好的取消掉）。
+
+修完鏈本身之後，「進度條收斂到目標才關閉」變成常態，於是「`close()` 時還有一次
+`after 16 pyi_progress_step` 排在路上」也從幾乎不會發生（舊版斷鏈跑得快，通常
+早就停了）變成正常情境。查得到的事實：bootloader 端的 IPC 樣板
+（`splash_templates.ipc_script`）在收到 EOF（`close()` 送出 `CLOSE_CONNECTION`
+之後）會同步呼叫 `chan close $channel; exit` —— `exit` 在同一輪事件處理內結束，
+控制權不會回到事件迴圈去派送下一個排定的事件，所以正常情況下不會有殘留的
+`after` 事件在 splash 關閉後才被觸發。bootloader 收到 `exit` 之後實際上是整個
+行程結束、還是只拆掉這個 Tcl 直譯器，屬於 C 層 bootloader 的實作細節，本模組看
+不到原始碼，不猜測。保守起見，`pyi_progress_step` 更新畫布座標那一步包了
+`catch`：萬一真的在拆除過程的極短暫窗口裡又被排到一次，畫布已經不在也只會讓那
+一步靜默失敗，不會丟出 Tcl 錯誤或跳出 bgerror 對話框。
 """
 from __future__ import annotations
 
@@ -69,11 +98,14 @@ _BAR_X1 = SIZE[0]
 _BAR_Y1 = SIZE[1]
 _BAR_WIDTH = _BAR_X1 - _BAR_X0
 
-# 解壓只推進到 80%；剩下交給兩個階段訊息（見模組說明）。splash 在 build_app() 之後
-# 立刻關閉，`PHASE_STARTING` 刻意不設在 100%——滿格之後還晾著不動，比停在 97% 更奇怪。
+# 解壓只推進到 80%；剩下交給兩個階段訊息（見模組說明）。`PHASE_STARTING` 推到滿格
+# （Round 3 修正）：`Starting...` 送出後到 `build_app()` 完成實測 0.47～0.48 秒，
+# 動畫約 200ms 收斂，滿格後大約還會晾著 0.27 秒才關閉。短暫的滿格比停在任何一個
+# 未滿的百分比都更像正常結束，而不是卡住 —— 使用者已經回報過一次「卡住」，不該
+# 再留一個機制上的理由讓它看起來卡住。
 _EXTRACT_CEILING = 0.80
 _PHASE_LOADING_FRACTION = 0.90
-_PHASE_STARTING_FRACTION = 0.97
+_PHASE_STARTING_FRACTION = 1.0
 _EXTRACT_MAX_PX = round(_BAR_WIDTH * _EXTRACT_CEILING)
 _LOADING_TARGET_PX = round(_BAR_WIDTH * _PHASE_LOADING_FRACTION)
 _STARTING_TARGET_PX = round(_BAR_WIDTH * _PHASE_STARTING_FRACTION)
@@ -130,9 +162,14 @@ def _size_table_tcl(table: dict[str, list[int]]) -> str:
 
 def _canvas_setup_addition(total: int, table: dict[str, list[int]]) -> str:
     """畫布建立之後接的段落：初始化進度狀態、畫軌道／填色兩個矩形，並定義
-    `pyi_progress_step`——每個 trace 事件都會直接呼叫它一次（見模組說明），它自己
-    再視情況用 `after` 接力把動畫補到目標，兩者靠 `_pyi_animating` 旗標互相協調，
-    不會疊出兩條並行的 `after` 鏈。"""
+    `pyi_progress_step` —— 每個 trace 事件都會直接呼叫它一次（見模組說明），它自己
+    再視情況用 `after` 接力把動畫補到目標。
+
+    Round 3 修正：舊版用一個「排程旗標」`_pyi_animating`，`after` 觸發重新進入時
+    沒有清掉它，導致鏈只接力一次就斷掉（詳見模組說明）。現在改成「取消並重排」：
+    每次進入都先 `after cancel` 掉上一次排的那個 id，再視距離決定要不要重排下一次，
+    不管是直接呼叫還是 `after` 觸發，效果一致，也不會疊出兩條並行的鏈。
+    """
     return (
         "\n"
         "set _pyi_done 0\n"
@@ -140,24 +177,26 @@ def _canvas_setup_addition(total: int, table: dict[str, list[int]]) -> str:
         f"array set _pyi_sizes {{{_size_table_tcl(table)}}}\n"
         "set _pyi_target 0\n"
         "set _pyi_current 0\n"
-        "set _pyi_animating 0\n"
         f'.root.canvas create rectangle {_BAR_X0} {_BAR_Y0} {_BAR_X1} {_BAR_Y1} '
         f'-fill "{PROGRESS_TRACK_COLOR}" -outline "" -tag pyi_track\n'
         f'.root.canvas create rectangle {_BAR_X0} {_BAR_Y0} {_BAR_X0} {_BAR_Y1} '
         f'-fill "{PROGRESS_FILL_COLOR}" -outline "" -tag pyi_fill\n'
         "proc pyi_progress_step {} {\n"
-        "    global _pyi_current _pyi_target _pyi_animating\n"
+        "    global _pyi_current _pyi_target _pyi_after_id\n"
+        "    if {[info exists _pyi_after_id]} {\n"
+        "        after cancel $_pyi_after_id\n"
+        "        unset _pyi_after_id\n"
+        "    }\n"
         "    set _pyi_current [expr {$_pyi_current + ($_pyi_target - $_pyi_current) * 0.25}]\n"
-        f"    .root.canvas coords pyi_fill {_BAR_X0} {_BAR_Y0} "
-        f"[expr {{{_BAR_X0} + int($_pyi_current)}}] {_BAR_Y1}\n"
-        "    if {[expr {abs($_pyi_target - $_pyi_current)}] > 1} {\n"
-        "        if {!$_pyi_animating} {\n"
-        "            set _pyi_animating 1\n"
-        "            after 16 pyi_progress_step\n"
-        "        }\n"
-        "    } else {\n"
+        "    if {[expr {abs($_pyi_target - $_pyi_current)}] <= 1} {\n"
         "        set _pyi_current $_pyi_target\n"
-        "        set _pyi_animating 0\n"
+        "    }\n"
+        "    catch {"
+        f".root.canvas coords pyi_fill {_BAR_X0} {_BAR_Y0} "
+        f"[expr {{{_BAR_X0} + int($_pyi_current)}}] {_BAR_Y1}"
+        "}\n"
+        "    if {$_pyi_current != $_pyi_target} {\n"
+        "        set _pyi_after_id [after 16 pyi_progress_step]\n"
         "    }\n"
         "}"
     )
@@ -168,7 +207,7 @@ def _text_update_addition() -> str:
     `PHASE_STARTING`，從 `src.splash` import 進來，不在這裡另抄一份字面值），推進
     到各自保留的目標；否則落到 basename 查表：每次報到彈出清單開頭那個位元組數並
     累加，清單空了才 `unset`（撞名的檔案都會被算到，不會被後面報到的同名項目蓋掉），
-    上限壓在 `_EXTRACT_MAX_PX`（80%）而不是滿格——剩下留給兩個階段字串推進。三個
+    上限壓在 `_EXTRACT_MAX_PX`（80%）而不是滿格 —— 剩下留給兩個階段字串推進。三個
     分支只要有動到 `_pyi_target` 就呼叫一次 `pyi_progress_step`，理由見模組說明。"""
     return (
         "\n"
