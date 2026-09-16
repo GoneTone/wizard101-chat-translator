@@ -93,7 +93,7 @@ from tools.splash_image import PROGRESS_FILL_COLOR, PROGRESS_TRACK_COLOR, SIZE
 # 進度條位置：畫面最下緣、整條寬度，跟狀態文字（左下角、TEXT_ORIGIN=(24, 276)）
 # 留約 16px 的間距。
 _BAR_X0 = 0
-_BAR_Y0 = 292
+_BAR_Y0 = 296
 _BAR_X1 = SIZE[0]
 _BAR_Y1 = SIZE[1]
 _BAR_WIDTH = _BAR_X1 - _BAR_X0
