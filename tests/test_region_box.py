@@ -1,9 +1,10 @@
-"""框選框：框選後留在畫面上的可調整矩形 —— 拖把手改大小、拖框線移動、點一下不算、
-放開才回報新矩形；框內是透明色鍵（點得到底下的遊戲）。"""
+"""框選框：框選後留在畫面上的可調整矩形 —— 拖角落改兩軸、拖邊線只拉該邊、拖框內移動、
+點一下不算、放開才回報新矩形；框線視窗只有線與把手是實體（透明色鍵），框內另有一片
+幾乎全透明的視窗接移動的拖曳。"""
 import pytest
 
 from src.ui.palette import FG_UPDATE
-from src.ui.region_box import HANDLE, MARGIN, MIN_SIZE, RegionBox, hit_at
+from src.ui.region_box import BAND, HANDLE, MARGIN, MIN_SIZE, RegionBox, hit_at
 
 _RECT = (100, 100, 300, 200)
 
@@ -46,12 +47,32 @@ def test_dragging_a_corner_handle_resizes_and_reports_the_new_rect(box, root):
     assert box.changes == [(100, 100, 340, 230)]
 
 
-def test_dragging_the_band_between_handles_moves_the_box(box, root):
+def test_dragging_an_edge_line_moves_only_that_edge(box, root):
     box.show(_RECT)
     root.update()
-    _drag(box, root, MARGIN + 60, MARGIN, 20, 10)   # 上緣框線，避開角落與中點把手
+    _drag(box, root, MARGIN + 60, MARGIN, 20, 10)   # 上緣框線：只有上緣往下 10，左右不動
+    assert box.rect() == (100, 110, 300, 190)
+    assert box.changes == [(100, 110, 300, 190)]
+
+
+def test_dragging_inside_the_box_moves_it(box, root):
+    box.show(_RECT)
+    root.update()
+    grip = box._grip
+    grip.event_generate("<ButtonPress-1>", x=50, y=50, rootx=1150, rooty=1150)
+    grip.event_generate("<B1-Motion>", x=70, y=60, rootx=1170, rooty=1160)
+    root.update()
+    grip.event_generate("<ButtonRelease-1>", x=70, y=60, rootx=1170, rooty=1160)
+    root.update()
     assert box.rect() == (120, 110, 300, 200)
     assert box.changes == [(120, 110, 300, 200)]
+
+
+def test_the_grip_is_nearly_invisible_and_fills_the_inside_of_the_line(box, root):
+    box.show(_RECT)
+    root.update()
+    assert 0 < float(box._grip.attributes("-alpha")) <= 0.02
+    assert box._grip.geometry().split("+")[0] == f"{300 - 2 * BAND}x{200 - 2 * BAND}"
 
 
 def test_a_click_on_the_band_changes_nothing(box, root):
@@ -110,11 +131,10 @@ def test_hide_is_idempotent(box, root):
     ((MARGIN, MARGIN), "nw"),
     ((MARGIN + 300, MARGIN + 100), "e"),                # 右緣中點把手
     ((MARGIN + 150, MARGIN + 200), "s"),                # 下緣中點把手
-    ((MARGIN + 60, MARGIN), "move"),                    # 上緣框線
-    ((MARGIN + 300 + 1, MARGIN + 60), "move"),          # 右緣框線外側那 1px
-    ((MARGIN + 300 + MARGIN - 1, MARGIN + 60), ""),     # 框線外的留白：透明，只給把手用
+    ((MARGIN + 60, MARGIN), "n"),                       # 上緣框線：只拉上緣
+    ((MARGIN + 300 + 1, MARGIN + 60), "e"),             # 右緣框線外側那 1px
     ((MARGIN + 150, MARGIN + 100), ""),                 # 框內：透明，實際上收不到點擊
     ((MARGIN + 150 - HANDLE, MARGIN + 100), ""),
 ])
-def test_hit_at_tells_handles_from_the_band_from_the_inside(point, expected):
+def test_hit_at_tells_corners_from_edges_from_the_inside(point, expected):
     assert hit_at(*point, 300, 200) == expected

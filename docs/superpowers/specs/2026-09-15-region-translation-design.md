@@ -265,3 +265,6 @@ log 一律 `[region]` 前綴、英文、帶 context；譯文本身不進 log（�
   （httpx `stream()`／SDK `messages.stream()`），`RequestHandle` 掛著回應的 `close`，主執行緒
   `cancel()` 一關連線伺服器就停止生成、只計已產生的 token；被撤銷的請求拋 `TranslatorCancelled`，
   呼叫端靜默丟掉。還沒送出就被取消的不送。設定視窗「測試連線」的請求只有幾十個 token，不動。
+- **框內可拖、邊線只拉該邊**（2026-09-16，實機回饋）：框線層原本「拖線移動」改成邊線只拉該邊、角落拉兩軸
+  （`geometry.edge_at`）；移動改成拖框內 —— 框內另放一片 `-alpha` 極小的視窗接拖曳（色鍵像素收不到點擊，
+  全零 alpha 也收不到），代價是框開著時框內的遊戲畫面點不到。暗色外圈也拿掉，只留 3px 亮線與把手。
