@@ -1,6 +1,6 @@
 [project]
 name = "wizard101-chat-translator"
-version = "0.2.0"
+version = "0.3.0"
 description = "Wizard101 Chat Translator — an AI translator for Wizard101's in-game chat, translating conversations both ways in real time."
 requires-python = ">=3.11"
 dependencies = [

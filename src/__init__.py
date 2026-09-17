@@ -4,4 +4,4 @@
 `importlib.metadata` 兩種情境都讀不到。`pyproject.toml` 的 version 只是中繼資料，
 由 tests/test_version.py 釘住兩者一致。
 """
-__version__ = "0.2.0"
+__version__ = "0.3.0"
