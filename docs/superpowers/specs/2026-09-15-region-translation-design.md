@@ -54,7 +54,7 @@ UI 元件照慣例放 `src/ui/`。
 | `translation/translator.py` | 新增區域方向：`translate_region_image(png)`／`translate_region_text(text)` | 既有 |
 | `translation/prompts.py` | 新增區域翻譯提示詞（目標語言當參數） | 既有 |
 | `ui/region_select.py` | 全螢幕選取層：拖矩形、Esc 取消、回傳螢幕座標 | Tk |
-| `ui/region_card.py` | 結果卡片：貼在矩形正下方、同寬；辨識中／譯文／錯誤三態 | `anchored_position`、`RichLabel`、`winstyle` |
+| `ui/region_card.py` | 結果卡片：貼在矩形正下方、同寬；辨識中／譯文／錯誤三態 | `anchored_geometry`、`RichLabel`、`ThinScrollbar`、`winstyle` |
 | `main.py` | 第二個全域熱鍵、接線、設定套用時重註冊熱鍵並 `reset()` pipeline | 既有 |
 | `config.py`／`ui/settings.py`／`ui/fields.py` | 新欄位 `region_hotkey`；設定視窗沿用熱鍵捕捉元件 | 既有 |
 
@@ -154,8 +154,11 @@ return translated                                       # 路徑 ocr
 
 - 無邊框、置頂、**不奪焦點**（`make_non_activating`，與彈出選單同一招）。關閉方式：點卡片
   任一處、再按熱鍵、或再次框選時自動換掉。不做自動消失計時。
-- 位置：`anchored_position` 貼在矩形正下方、左緣對齊、與矩形同寬（下限一個最小寬度，
-  上限工作區寬度）；下方不夠就翻到上方。高度隨內容，文字依寬度換行。
+- 位置：`anchored_geometry` 貼在矩形正下方、左緣對齊、與矩形同寬（下限一個最小寬度，
+  上限工作區寬度）、高隨內容但不低於最小高度；下方不夠就翻到上方；上方也不夠就移到
+  左右較寬的一側：寬度改用內文不換行的寬度（上限該側剩餘空間、下限側邊專用的較寬值，
+  蓋到矩形一角無妨），高度夾成工作區高（不低於最小高度），多出來的內容靠滾輪或細捲軸
+  捲動。側邊落點黏住到內容換掉為止（側邊比矩形寬時換行變矮，重判會在上下與側邊間來回跳）。
 - 三態：辨識中（`notice.pending`）→ 譯文 → 錯誤（紅色，文案來自 `banner_for()`）。
   配色、字型、不透明度沿用疊加視窗（`overlay_alpha`）。
 

@@ -1,4 +1,5 @@
 """無邊框視窗拖曳、縮放、命中判定與貼齊擺放的純幾何函式（overlay、泡泡、輸入框共用，不碰 Tk）。"""
+from typing import NamedTuple
 
 EDGE = 6        # 四邊的縮放感應寬度（px）
 _CORNER = 14     # 四角的縮放感應範圍（px）：比邊寬，角落才好抓
@@ -90,3 +91,52 @@ def anchored_position(anchor: tuple[int, int, int, int], w: int, h: int,
     x = max(area_x, min(ax, area_x + area_w - w))
     y = max(area_y, min(y, area_y + area_h - h))
     return x, y
+
+
+class Placement(NamedTuple):
+    """貼齊擺放的結果：視窗幾何加上落在錨點的哪一側（`below`／`above`／`left`／`right`）。"""
+    x: int
+    y: int
+    w: int
+    h: int
+    side: str
+
+
+def anchored_geometry(anchor: tuple[int, int, int, int], w: int, h: int,
+                      area: tuple[int, int, int, int], gap: int,
+                      side_w: int, min_w: int, min_h: int) -> Placement:
+    """把視窗貼在錨點矩形旁。順序：正下方 → 正上方 → 左右較寬的一側。
+    貼上下時寬 w（隨錨點）、高隨內容 h 但不低於 min_h；上下都放不下才走側邊，
+    改用內容不換行的寬度 side_w（見 `beside_geometry`）。"""
+    ax, ay, aw, ah = anchor
+    area_x, area_y, area_w, area_h = area
+    area_right, area_bottom = area_x + area_w, area_y + area_h
+    h = max(min_h, h)
+    x = max(area_x, min(ax, area_right - w))
+    below = ay + ah + gap
+    if below + h <= area_bottom:
+        return Placement(x, below, w, h, "below")
+    above = ay - h - gap
+    if above >= area_y:
+        return Placement(x, above, w, h, "above")
+    return beside_geometry(anchor, side_w, h, area, gap, min_w, min_h)
+
+
+def beside_geometry(anchor: tuple[int, int, int, int], w: int, h: int,
+                    area: tuple[int, int, int, int], gap: int,
+                    min_w: int, min_h: int) -> Placement:
+    """把視窗放在錨點左右較寬的一側、頂端對齊錨點。寬度取 w 與該側剩餘空間較小者、
+    不低於 min_w；高度夾成工作區高、不低於 min_h，內容多出來的部分交給呼叫端捲動；
+    最後夾進工作區，該側空間不足就蓋到錨點一角。"""
+    ax, ay, aw, ah = anchor
+    area_x, area_y, area_w, area_h = area
+    area_right, area_bottom = area_x + area_w, area_y + area_h
+    left_room = ax - gap - area_x
+    right_room = area_right - (ax + aw + gap)
+    side = "right" if right_room >= left_room else "left"
+    w = max(min_w, min(w, max(left_room, right_room)))
+    x = ax + aw + gap if side == "right" else ax - gap - w
+    h = max(min_h, min(h, area_h))
+    x = max(area_x, min(x, area_right - w))
+    y = max(area_y, min(ay, area_bottom - h))
+    return Placement(x, y, w, h, side)

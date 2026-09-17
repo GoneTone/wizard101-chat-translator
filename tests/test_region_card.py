@@ -1,15 +1,18 @@
 """結果卡片：三態文字、點擊關閉、貼在框選矩形正下方。"""
 import tkinter as tk
+from types import SimpleNamespace
 
 import pytest
 
 from src.i18n import t
 from src.ui import region_card as card_module
+from src.ui.geometry import Placement, anchored_geometry, beside_geometry
 from src.ui.palette import FG_ERROR, FG_PENDING, FG_TRANSLATED
-from src.ui.region_card import ANCHOR_GAP, RegionCard
+from src.ui.region_card import ANCHOR_GAP, MIN_HEIGHT, SIDE_MIN_WIDTH, RegionCard
 
 _RECT = (300, 200, 400, 120)
 _AREA = (0, 0, 1920, 1040)
+_SHORT_AREA = (0, 0, 1920, 300)   # 上下都塞不下長譯文的矮工作區
 
 
 @pytest.fixture
@@ -116,14 +119,86 @@ def test_hide_is_idempotent(card):
 def test_card_is_anchored_below_the_rect_with_the_rect_width(card, root, monkeypatch):
     calls = []
 
-    def spy(anchor, w, h, area, gap):
-        calls.append((anchor, w, area, gap))
-        return 10000, 10000   # 停在螢幕外：測試期間不在畫面上畫任何東西
-    monkeypatch.setattr(card_module, "anchored_position", spy)
+    def spy(anchor, w, h, area, gap, side_w, min_w, min_h):
+        calls.append((anchor, w, area, gap, min_w, min_h))
+        return Placement(10000, 10000, w, h, "below")   # 停在螢幕外：測試期間不在畫面上畫任何東西
+    monkeypatch.setattr(card_module, "anchored_geometry", spy)
     card.show_pending(_RECT)
     root.update()
-    assert calls and calls[-1] == (_RECT, _RECT[2], _AREA, ANCHOR_GAP)
+    assert calls and calls[-1] == (_RECT, _RECT[2], _AREA, ANCHOR_GAP, SIDE_MIN_WIDTH, MIN_HEIGHT)
     assert card._win.winfo_width() == _RECT[2]
+
+
+def test_card_below_the_rect_is_at_least_the_minimum_height(card, root):
+    card.show_pending(_RECT)   # 「翻譯中…」只有一行，自然高度比下限矮
+    root.update()
+    assert card._win.winfo_height() == MIN_HEIGHT
+
+
+def test_side_card_takes_the_text_width_instead_of_the_rect_width(card, root, monkeypatch):
+    monkeypatch.setattr(card_module, "work_area_at", lambda x, y: _SHORT_AREA)
+    card.show_pending((300, 100, 400, 100))
+    root.update()
+    card.show_text("這一行譯文很長，長到用矩形的寬度排會換成好幾行，" * 2)
+    for _ in range(4):
+        root.update()
+    assert card._win.winfo_width() == card._natural_width() > 400
+
+
+def test_side_card_stays_beside_the_rect_after_rewrapping_wider(card, root, monkeypatch):
+    # 側邊用文字寬度排版後行數變少、高度變矮，若拿這個高度重判「下方放得下」就會
+    # 跳回下方、再換行變高、再跳回側邊……落點要黏住直到內容換掉
+    monkeypatch.setattr(card_module, "work_area_at", lambda x, y: (0, 0, 1920, 380))
+    layouts = []
+    real_layout = card._layout
+
+    def budgeted_layout():
+        layouts.append(card._side)
+        if len(layouts) <= 20:   # 來回跳會無限重排、把 root.update() 卡死：超過預算就停
+            real_layout()
+    monkeypatch.setattr(card, "_layout", budgeted_layout)
+    card.show_pending((300, 100, 400, 100))   # 下方 167px：矩形寬排六行放不下，側邊排兩行放得下
+    root.update()
+    card.show_text("這一行譯文很長，長到用矩形的寬度排會換成好幾行，" * 6)
+    for _ in range(6):
+        root.update()
+
+    assert card._side == "right"
+    assert len(layouts) < 20
+
+
+def test_card_is_capped_to_the_work_area_and_scrolls_when_neither_side_fits(
+        card, root, monkeypatch):
+    monkeypatch.setattr(card_module, "work_area_at", lambda x, y: _SHORT_AREA)
+    card.show_pending((300, 100, 400, 100))
+    root.update()
+    card.show_text("\n".join(f"第 {i} 行" for i in range(60)))
+    root.update()
+    assert card.is_open
+    assert card._win.winfo_height() == _SHORT_AREA[3]
+    assert card._label.yview()[1] < 1.0   # 內容超出可視高度，剩下的要捲
+
+
+def test_wheel_scrolls_the_capped_card(card, root, monkeypatch):
+    monkeypatch.setattr(card_module, "work_area_at", lambda x, y: _SHORT_AREA)
+    card.show_pending((300, 100, 400, 100))
+    root.update()
+    card.show_text("\n".join(f"第 {i} 行" for i in range(60)))
+    root.update()
+
+    card._on_wheel(SimpleNamespace(delta=-120))
+    root.update()
+
+    assert card._label.yview()[0] > 0.0
+
+
+def test_clicking_the_scrollbar_does_not_close_the_card(card, root):
+    card.show_pending(_RECT)
+    root.update()
+    card._scrollbar.event_generate("<ButtonPress-1>", x=2, y=2)
+    card._scrollbar.event_generate("<ButtonRelease-1>", x=2, y=2)
+    root.update()
+    assert card.is_open
 
 
 def test_narrow_rect_gets_the_minimum_width(card, root):
@@ -294,3 +369,67 @@ def test_replacing_the_card_from_the_flow_does_not_count_as_closing(card, root):
 def test_the_card_leaves_room_for_the_box_handles_below_the_rect():
     from src.ui.region_box import HANDLE, MARGIN
     assert ANCHOR_GAP >= MARGIN + HANDLE // 2
+
+
+# --- anchored_geometry：下方 → 上方 → 左右較寬的一側，最後夾高度 ---
+_GAP, _MIN_W, _MIN_H = 4, 240, 120
+
+
+def _place(anchor, w, h, area=_AREA, side_w=None):
+    return anchored_geometry(anchor, w, h, area, gap=_GAP, side_w=side_w or w,
+                             min_w=_MIN_W, min_h=_MIN_H)
+
+
+def test_geometry_sits_below_when_it_fits():
+    assert _place((300, 200, 400, 120), 400, 200) == (300, 324, 400, 200, "below")
+
+
+def test_geometry_below_and_above_floor_the_height_at_the_minimum():
+    assert _place((300, 200, 400, 120), 400, 50) == (300, 324, 400, 120, "below")
+    assert _place((300, 900, 400, 120), 400, 50) == (300, 776, 400, 120, "above")
+
+
+def test_geometry_flips_above_when_no_room_below():
+    assert _place((300, 900, 400, 120), 400, 200) == (300, 696, 400, 200, "above")
+
+
+def test_geometry_moves_to_the_wider_side_when_neither_above_nor_below_fits():
+    assert _place((300, 100, 400, 900), 400, 200) == (704, 100, 400, 200, "right")
+    assert _place((1300, 100, 400, 900), 400, 200) == (896, 100, 400, 200, "left")
+
+
+def test_geometry_beside_the_rect_uses_the_text_width():
+    assert _place((300, 100, 400, 900), 400, 200, side_w=900) == (704, 100, 900, 200, "right")
+
+
+def test_geometry_beside_the_rect_caps_the_width_to_the_side_room():
+    assert _place((300, 100, 400, 900), 400, 200, side_w=2000) == (704, 100, 1216, 200, "right")
+
+
+def test_geometry_shrinks_to_the_side_room_but_not_below_the_minimum_width():
+    # 兩側都只剩兩百多 px：縮到最小寬度、再夾回工作區內，蓋到矩形一角是最終狀態
+    assert _place((200, 100, 1500, 900), 1500, 200) == (1680, 100, 240, 200, "right")
+    assert _place((300, 100, 400, 900), 400, 200, side_w=100) == (704, 100, 240, 200, "right")
+
+
+def test_side_minimum_width_is_wider_than_the_rect_minimum():
+    # 側邊卡片與矩形不同寬，太窄會變成一長條；蓋到矩形一部分無妨
+    assert SIDE_MIN_WIDTH > card_module.MIN_WIDTH
+
+
+def test_geometry_beside_the_rect_slides_up_to_stay_inside_the_work_area():
+    assert _place((300, 600, 400, 400), 400, 700) == (704, 340, 400, 700, "right")
+
+
+def test_geometry_caps_the_height_to_the_work_area():
+    assert _place((300, 100, 400, 900), 400, 3000) == (704, 0, 400, 1040, "right")
+
+
+def test_geometry_keeps_the_minimum_height_on_a_tiny_work_area():
+    assert _place((10, 10, 100, 80), 400, 500, area=(0, 0, 800, 100)) == (114, 0, 400, 120, "right")
+
+
+def test_beside_geometry_matches_the_side_branch_of_anchored_geometry():
+    # 側邊落點黏住後卡片直接呼叫 beside_geometry 重排，兩者必須算出同一個結果
+    beside = beside_geometry((300, 100, 400, 900), 900, 200, _AREA, _GAP, _MIN_W, _MIN_H)
+    assert beside == _place((300, 100, 400, 900), 400, 200, side_w=900)
