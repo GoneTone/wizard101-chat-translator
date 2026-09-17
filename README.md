@@ -64,7 +64,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - Characters dropped, or typed too fast, while the translation goes into the game → open the settings window (⚙) and raise *Typing delay (s)* on the *Advanced* tab.
    - Keep the cursor in the game's chat input box while it types. If you switch to another window, typing stops right there; the rest is never typed into the other window.
 5. To paste into the game: the game does not accept `Ctrl+V`, so with the game window in the foreground the software takes over `Ctrl+V` and **types the clipboard text character by character** instead (at the same typing delay). It works in any text field of the game, not just the chat box; while the game's chat input box is open, line breaks are typed as spaces so a multi-line clipboard does not send the message halfway through, elsewhere they are typed as Enter. `Ctrl+V` in any other window is untouched. It can be turned off in the settings.
-6. To read text on screen (NPC dialogue, quest books, item descriptions…): press the region hotkey (`Ctrl+Shift+Space` by default) or click the region button (⛶) on the overlay's title bar → the screen freezes and dims → drag a rectangle around the text → a translation card appears right below it.
+6. To read text on screen (NPC dialogue, quest books, item descriptions…): press the region hotkey (`Ctrl+Shift+Space` by default) or click the region button (⛶) on the overlay's title bar → the screen freezes and dims → drag a rectangle around the text → a translation card appears next to the selection.
    - The frame stays on screen: drag inside it to move it or drag an edge to resize it, and the new area is translated again.
    - The card shows the recognized text above the translation for comparison; text can be highlighted and copied with `Ctrl+C` or the right-click menu. Click the card or its ✕ to dismiss it.
    - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
@@ -78,7 +78,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **Speak in your own language**: open the game's chat input box and the translation input box appears on its own; type, press Enter, and the English translation is typed into the chat box — whether to send it is up to you
 - **Paste text into the game**: the game itself cannot paste text, so `Ctrl+V` with the game in the foreground types the clipboard for you, in any text field
 - **No misread characters, no missed messages**: the game's chat content is read directly rather than recognized off the screen, and both other people's lines and your own are covered
-- **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits right below the selection with the recognized text shown for comparison, and it can be highlighted and copied
+- **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI (ChatGPT), Anthropic (Claude), or your own OpenAI-compatible service; each keeps its own settings, so switching back and forth never makes you retype a key
 - **System messages, if you want them**: loot, XP, level-up broadcasts and the like are not translated by default — turn them on in the settings when you need them
@@ -109,9 +109,13 @@ The English translation is typed into the game's chat box character by character
 
 ![The game's chat box with the English translation typed into it](docs/images/3.png)
 
+Drag a box around any text on screen — NPC dialogue, quest books, item descriptions — and the translation card appears right by the selection, with the recognized text above it for comparison:
+
+![A box drawn around an in-game tip, with the translation card next to it](docs/images/4.png)
+
 The settings window: provider, API key, target language and hotkey, all applied without a restart:
 
-![The settings window on its Basic tab](docs/images/4.png)
+![The settings window on its Basic tab](docs/images/5.png)
 
 ## Known Limitations
 
