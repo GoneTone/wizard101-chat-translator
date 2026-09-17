@@ -37,7 +37,8 @@ class ThinScrollbar(tk.Canvas):
     """自繪細捲軸。軌道留 BG＝視窗的透明色鍵，露出底下那片半透明底板。"""
 
     def __init__(self, parent, command, width: int = _SCROLLBAR_WIDTH):
-        super().__init__(parent, width=width, bg=BG, highlightthickness=0, bd=0)
+        # Canvas 預設要求 7cm 高，會把靠內容決定高度的容器（框選結果卡片）撐大；高度交給容器
+        super().__init__(parent, width=width, height=1, bg=BG, highlightthickness=0, bd=0)
         self._command = command
         self._pad = 2
         self._thickness = width - self._pad * 2

@@ -2,7 +2,11 @@
 
 不奪焦點（與彈出選單同一招）：遊戲的鍵盤操作不中斷，代價是收不到 Esc，
 關閉方式是點一下卡片、點 ✕、或下一次框選時被換掉；✕ 與內文下方的一行提示文字是
-讓使用者看得出怎麼關。位置每次重排：譯文回來後高度變了，下方放不下要翻到矩形上方。
+讓使用者看得出怎麼關。位置每次重排：譯文回來後高度變了，下方放不下翻到矩形上方，
+上方也放不下就移到左右較寬的一側（`geometry.anchored_geometry`）。貼上下時與矩形同寬、
+高隨內容；貼側邊時改用內文不換行的寬度、高度夾在工作區內，多出來的內容靠滾輪／細捲軸
+捲動。側邊的落點會黏住直到內容換掉：側邊可能比矩形寬，換行後變矮，若拿這個高度重判
+會誤以為下方放得下而跳回去、再換行變高、再跳回側邊，來回不止。
 原文（本機 OCR 辨識出的文字）以暗色小字放在譯文上方 —— 與聊天疊加視窗「原文在上、
 譯文在下」一致，也讓使用者能核對模型有沒有多翻或漏翻。原文與譯文放在同一顆
 `RichLabel`（`richtext.RichLabel.set_blocks`）裡、中間空一行分隔，拖曳選取才能一路
@@ -21,7 +25,7 @@ from src.i18n import t
 from src.log import log
 from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
-from src.ui.geometry import anchored_position, is_click
+from src.ui.geometry import anchored_geometry, beside_geometry, is_click
 from src.ui.monitors import work_area_at
 from src.ui.palette import (
     BG,
@@ -37,10 +41,13 @@ from src.ui.palette import (
 from src.ui.popup import Popup
 from src.ui.region_box import HANDLE, MARGIN
 from src.ui.richtext import RichLabel
+from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.tooltip import Tooltip
 from src.ui.winstyle import make_non_activating
 
 MIN_WIDTH = 240   # 矩形再窄也不跟：譯文會擠成一長條
+SIDE_MIN_WIDTH = 360  # 移到側邊時的寬度下限：文字再短也不縮成窄條，蓋到矩形一角無妨
+MIN_HEIGHT = 120  # 高度下限：內文再短也留這麼高；側邊被夾矮時也不低於此，剩下的捲
 ANCHOR_GAP = MARGIN + HANDLE // 2 + 2   # 與框選矩形的垂直間距（px）：讓出框選框露在框外的把手
 _PAD_X = 10
 _PAD_Y = 6
@@ -55,6 +62,8 @@ class RegionCard:
         self.on_close = None      # 使用者自己關掉卡片時呼叫（流程換位置重開不算）
         self._win: tk.Toplevel | None = None
         self._label: RichLabel | None = None
+        self._scrollbar: ThinScrollbar | None = None
+        self._side: str | None = None   # 目前落點；貼側邊時黏住，內容換掉才重判（見檔頭）
         self._close: tk.Label | None = None
         self._close_tooltip: Tooltip | None = None
         self._hint: tk.Label | None = None
@@ -96,16 +105,31 @@ class RegionCard:
         self._close.pack(side="right")
         self._close.bind("<Button-1>", lambda e: self._close_by_user())
         self._close_tooltip = Tooltip(self._close, lambda: t("tooltip.close"))
-        self._label = RichLabel(body, fg=FG_PENDING, bg=BG, font=ui_font(11),
+        # 提示先 pack 在底部：卡片被夾矮時 pack 依序讓位，最後放進來的內文列才是被縮的那個
+        self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
+                              font=ui_font(8), anchor="w")
+        self._hint.pack(side="bottom", fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
+        row = tk.Frame(body, bg=BG)
+        row.pack(fill="both", expand=True, padx=_PAD_X, pady=_PAD_Y)
+        self._label = RichLabel(row, fg=FG_PENDING, bg=BG, font=ui_font(11),
                                 link_fg=FG_UPDATE, on_height_change=self._layout)
-        self._label.pack(fill="x", padx=_PAD_X, pady=_PAD_Y)
+        # 捲軸常駐（內容放得下時滑塊隱形）：隨需要 pack／pack_forget 會改內文寬度、
+        # 換行後高度又變，在臨界高度來回切換（見 scrollable.ScrollableFrame）
+        self._scrollbar = ThinScrollbar(row, command=self._label.yview)
+        self._scrollbar.pack(side="right", fill="y")
+        self._label.configure(yscrollcommand=self._scrollbar.set)
+        self._label.pack(side="left", fill="both", expand=True)
         # inactiveselectbackground 在 Windows 預設為空：文字欄沒有鍵盤焦點時選取不會畫出來，
         # 拖曳中與放開後看起來都像沒選到；設成同一個顏色，反白才留得住
         self._label.configure(selectbackground=SELECT_BG, selectforeground=FG_TRANSLATED,
                               inactiveselectbackground=SELECT_BG)
-        self._hint = tk.Label(body, text=t("region.close_hint"), bg=BG, fg=FG_PENDING,
-                              font=ui_font(8), anchor="w")
-        self._hint.pack(fill="x", padx=_PAD_X, pady=(0, _PAD_Y))
+        # 捲軸上的按放不往上傳到視窗層：點一下滑塊不能算「點卡片」而把卡片關掉
+        for sequence in ("<ButtonPress-1>", "<ButtonRelease-1>"):
+            self._scrollbar.bind(sequence, lambda e: "break", add="+")
+        # 滾輪比照 message_list：卡片不奪焦點，滾輪事件不保證落在內文元件上，
+        # 游標移入時 bind_all 接管、移出時還回去
+        win.bind("<Enter>", lambda e: win.bind_all("<MouseWheel>", self._on_wheel))
+        win.bind("<Leave>", lambda e: win.unbind_all("<MouseWheel>"))
         for widget in (win, body, self._label):
             widget.bind("<ButtonPress-1>", self._button_press, add="+")
             widget.bind("<ButtonRelease-1>", self._button_release, add="+")
@@ -143,14 +167,22 @@ class RegionCard:
             self._label.configure(fg=FG_TRANSLATED)   # 沒有落在任何區塊 tag 的殘餘字色也對齊譯文
         else:
             self._label.set(self._shown_text, color)
-        self._layout()
+        self._content_changed()
 
     def show_error(self, message: str) -> None:
         if self._label is None:
             return
         self._shown_text = message
         self._label.set(message, FG_ERROR)
-        self._layout()
+        self._content_changed()
+
+    def _content_changed(self) -> None:
+        """內容換了就重判落點。先把寬度收回矩形寬再量高：上一次若貼在側邊、寬度比矩形寬，
+        量到的高度會偏矮而誤判。重排排到 idle：RichLabel 也是在 idle 才量行數，排在它後面
+        才拿得到新高度（行數沒變時它不會回呼，這一次就是唯一的重排）。"""
+        self._side = None
+        self._win.geometry(f"{self._width}x{self._win.winfo_height()}")
+        self._win.after_idle(self._layout)
 
     def hide(self) -> None:
         if self._win is not None:
@@ -161,6 +193,8 @@ class RegionCard:
             self._win.destroy()
             self._win = None
             self._label = None
+            self._scrollbar = None
+            self._side = None
             self._close = None
             self._close_tooltip = None
             self._hint = None
@@ -249,13 +283,30 @@ class RegionCard:
             self._popup.hide()
 
     def _layout(self) -> None:
-        """依內容高度重新定位：貼在矩形下方、放不下翻到上方、夾在工作區內。"""
+        """依內容高度重新定位：下方 → 上方 → 左右較寬側（見檔頭）。
+        `winfo_reqheight` 是內容的自然高度，不受上一次夾過的視窗尺寸影響。"""
         if self._win is None or self._rect is None:
             return
         self._win.update_idletasks()
-        height = self._win.winfo_reqheight()
+        natural = self._win.winfo_reqheight()
         area = work_area_at(self._rect[0], self._rect[1])
-        x, y = anchored_position(self._rect, self._width, height, area, gap=ANCHOR_GAP)
-        self._win.geometry(f"{self._width}x{height}+{x}+{y}")
-        log(f"[region] card placed (rect={self._rect}, size={self._width}x{height}, "
-            f"at=({x}, {y}))")
+        if self._side in ("left", "right"):
+            placed = beside_geometry(self._rect, self._natural_width(), natural, area,
+                                     ANCHOR_GAP, SIDE_MIN_WIDTH, MIN_HEIGHT)
+        else:
+            placed = anchored_geometry(self._rect, self._width, natural, area, ANCHOR_GAP,
+                                       self._natural_width(), SIDE_MIN_WIDTH, MIN_HEIGHT)
+        self._side = placed.side
+        self._win.geometry(f"{placed.w}x{placed.h}+{placed.x}+{placed.y}")
+        log(f"[region] card placed (rect={self._rect}, natural_height={natural}, "
+            f"side={placed.side}, size={placed.w}x{placed.h}, at=({placed.x}, {placed.y}))")
+
+    def _natural_width(self) -> int:
+        """卡片不換行時的寬度：內文最寬一行加左右留白、捲軸與 1px 邊框。"""
+        return (self._label.natural_width() + 2 * _PAD_X
+                + self._scrollbar.winfo_reqwidth() + 2)
+
+    def _on_wheel(self, event: tk.Event) -> None:
+        """滾輪捲內文；內容放得下時 Text 的 yview 本來就不會動，不必另外判斷。"""
+        if self._label is not None:
+            self._label.yview_scroll(-int(event.delta / 120), "units")

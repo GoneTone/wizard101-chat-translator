@@ -80,6 +80,7 @@ class RichLabel(tk.Text):
                          cursor="", takefocus=0, state="disabled")
         self._links: list[tuple[str, str]] = []
         self._ranges: list[tuple[str, str]] = []
+        self._blocks: list[tuple[str, object]] = []   # （文字，字型）：natural_width 量寬用
         self._fit_pending = False
         self._on_height_change = on_height_change  # 行數變了才叫：外層據此重算視窗高度
         self._line_height = max(1, tkfont.Font(root=self, font=font).metrics("linespace"))
@@ -97,6 +98,7 @@ class RichLabel(tk.Text):
         self.configure(state="normal")
         self.delete("1.0", "end")
         self._links, self._ranges = [], []
+        self._blocks = [(text, self.cget("font"))]
         self._insert_segments(text)
         if fg is not None:
             self.configure(fg=fg)
@@ -112,6 +114,7 @@ class RichLabel(tk.Text):
         self.configure(state="normal")
         self.delete("1.0", "end")
         self._links, self._ranges = [], []
+        self._blocks = [(text, font) for text, _, font in blocks]
         for index, (text, fg, font) in enumerate(blocks):
             if index > 0:
                 self.insert("end", "\n\n")
@@ -142,6 +145,16 @@ class RichLabel(tk.Text):
 
     def text(self) -> str:
         return self.get("1.0", "end-1c")
+
+    def natural_width(self) -> int:
+        """內容不換行時的寬度（最寬一行的像素寬），各區塊用自己的字型量；
+        連結只算顯示文字，不算網址。"""
+        widest = 0
+        for text, font in self._blocks:
+            measure = tkfont.Font(root=self, font=font).measure
+            shown = "".join(segment for segment, _ in parse_link_markup(linkify(text)))
+            widest = max([widest, *(measure(line) for line in shown.split("\n"))])
+        return widest
 
     def links(self) -> list[tuple[str, str]]:
         """（顯示文字，網址）列表，測試與除錯用。"""

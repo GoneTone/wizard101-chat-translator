@@ -21,6 +21,7 @@ def test_linkify_wraps_bare_urls_in_link_markup(text, expected):
 
 
 import tkinter as tk  # noqa: E402
+from tkinter import font as tkfont  # noqa: E402
 
 from src.ui import richtext  # noqa: E402
 from src.ui.richtext import RichLabel  # noqa: E402
@@ -166,5 +167,36 @@ def test_rich_label_set_before_layout_never_balloons(root):
         final = int(label.cget("height"))
         assert 1 < final < 6
         assert max(requested) == final, requested   # 從未要求過比最終行數更高的高度
+    finally:
+        win.destroy()
+
+
+def test_rich_label_natural_width_is_the_widest_line_unwrapped(root):
+    win, label = _label(root, width=60)   # 窄到一定會換行：自然寬度不該受換行影響
+    try:
+        label.set("短\n這是一行比較長的文字")
+        font = tkfont.Font(root=root, font=("Segoe UI", 9))
+        assert label.natural_width() == font.measure("這是一行比較長的文字")
+    finally:
+        win.destroy()
+
+
+def test_rich_label_natural_width_measures_each_block_with_its_own_font(root):
+    win, label = _label(root, width=60)
+    try:
+        label.set_blocks([("同樣的字", "#111111", ("Segoe UI", 9)),
+                          ("同樣的字", "#222222", ("Segoe UI", 14))])
+        big = tkfont.Font(root=root, font=("Segoe UI", 14))
+        assert label.natural_width() == big.measure("同樣的字")
+    finally:
+        win.destroy()
+
+
+def test_rich_label_natural_width_counts_the_link_label_not_the_markup(root):
+    win, label = _label(root, width=60)
+    try:
+        label.set("[點我](https://a.example/very/long/path)")
+        font = tkfont.Font(root=root, font=("Segoe UI", 9))
+        assert label.natural_width() == font.measure("點我")
     finally:
         win.destroy()
