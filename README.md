@@ -16,6 +16,8 @@ Wizard101 Chat Translator — an AI translator for Wizard101's in-game chat, tra
 
 **Speaking**: open the chat input box in the game and the translation input box comes up on its own. Type in any language and press Enter, and the English translation is typed into the game's chat box character by character (the game does not accept pasted text). The translated line is **never sent for you** — you get to check it, then press Enter to send.
 
+**Reading the screen**: text outside chat — NPC dialogue, quest books, item descriptions — is translated too. Press a hotkey, drag a box around it while the screen is frozen, and the translation card appears next to the selection, with the recognized text above it for comparison.
+
 The language chat is translated into is up to you: write the language name straight into the settings (`繁體中文（台灣）`, `日本語`, `Español`, …). The language other people write in is detected by the AI automatically.
 
 Chat is read straight out of the game's chat window rather than off the screen: nothing is misread, nothing arrives out of order, everyone's lines are covered — yours included, along with who said them — and no network traffic is touched.
