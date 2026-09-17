@@ -1248,6 +1248,12 @@ def test_region_system_prompt_pins_the_order_of_name_and_parenthesized_original(
     assert "譯名（原文）" in prompt and "不可對調" in prompt
 
 
+def test_game_noun_rule_treats_joined_camel_case_names_as_nouns_not_code():
+    # 實機：`CrownShop`（連寫）被當成代碼保留、譯名進了括號；`Crown Shop` 就正常
+    rule = _game_noun_rule("繁體中文（台灣）")
+    assert "連寫" in rule and "不是代碼" in rule
+
+
 def test_game_noun_rule_pins_the_order_of_name_and_original_for_every_prompt():
     # 框選實機撞到「CrownShop（皇冠商店）」；慣例只有一份，聊天翻譯要一起講死
     rule = _game_noun_rule("繁體中文（台灣）")

@@ -11,7 +11,7 @@ OUTGOING_LANGUAGE = "English"
 # _game_noun_rule）就 +1 —— 只有這條路徑的譯文會落磁碟快取（見
 # translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留下。
 # 收訊與發話的提示詞不進快取，改動不必動版次。
-PROMPT_REVISION = 3
+PROMPT_REVISION = 4
 
 # 上下文以多輪對話傳遞（背景記錄當前一輪 user、assistant 確認、待翻句子單獨成最後一輪）
 # 而非段落標記：system prompt 因此不必列任何 header 字串 —— 小模型會把 header 回吐成
@@ -64,7 +64,9 @@ def _game_noun_rule(target_language: str) -> str:
     規則裡一個英文字都不能出現：曾以「火龍(Fire Dragon)」示範附註格式，實測反而把模型
     帶往英文 —— 裸名詞被直接譯成官方英文名（`雪刺帽` → `Snowspike Hat`），拿掉範例後
     才穩定翻成目標語言。玩家名與 NPC 名同理不翻：模型認得音譯名的英文來源
-    （卡拉米蒂 → Calamity），一翻就換成玩家認不出來的寫法。"""
+    （卡拉米蒂 → Calamity），一翻就換成玩家認不出來的寫法。
+    「連寫的名稱不是代碼」要講明：實機 `CrownShop` 被當成代碼保留、譯名反而進了括號
+    （`CrownShop（皇冠商店）`），同一句寫成 `Crown Shop` 就正常；講明後同一模型三次皆對。"""
     if is_game_language(target_language):
         return (
             f"遊戲相關名詞（魔法名、地名、物品名、材料名等）使用遊戲內慣用的 "
@@ -79,7 +81,9 @@ def _game_noun_rule(target_language: str) -> str:
         "原文本來就有英文時，可在譯名後用半形括號附上該英文原文，格式固定為「譯名（原文）」："
         "括號外永遠是譯名、括號內永遠是逐字照抄的原文，不可對調；"
         "原文沒有英文時只輸出譯名，不得自行翻譯或補上任何英文。"
-        "純代碼或確實無法翻譯的內容則保留原文。"
+        "純代碼（網址、指令、識別碼）或確實無法翻譯的內容則保留原文；"
+        "把幾個單字連寫成一個、大小寫混合的名稱不是代碼，是遊戲名詞，同樣要翻成"
+        f"{target_language} 並依上述格式附上原文。"
     )
 
 
