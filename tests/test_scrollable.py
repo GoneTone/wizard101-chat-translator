@@ -70,14 +70,10 @@ def _slave_order(win) -> list[str]:
 
 
 def test_settings_button_row_is_packed_before_the_notebook(root, tmp_path):
-    import copy
-
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     order = _slave_order(win._win)
@@ -149,14 +145,10 @@ def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
 
 
 def test_game_path_browse_button_is_packed_before_the_entry(root):
-    import copy
-
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     path_row = win._game_path_row

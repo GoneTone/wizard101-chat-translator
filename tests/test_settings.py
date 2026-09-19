@@ -1,5 +1,4 @@
 """設定視窗純邏輯與 overlay set_limits／set_alpha 測試。"""
-import copy
 import tkinter as tk
 
 import pytest
@@ -117,15 +116,13 @@ def test_parse_advanced_values_returns_error_key():
 
 def test_save_applies_ui_language(root, tmp_path):
     from src import i18n
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     before = i18n.current_language()
     try:
         i18n.set_language("zh-TW")
-        cfg = copy.deepcopy(DEFAULT_CONFIG)
-        cfg["api"]["provider"] = "custom"
-        cfg["api"]["custom"].update(base_url="http://x", model="m")
+        cfg = configured_cfg()
         saved = []
         win = SettingsWindow(root, cfg,
                              on_save=lambda: saved.append(i18n.current_language()))
@@ -142,12 +139,10 @@ def test_save_applies_ui_language(root, tmp_path):
 
 
 def test_save_stores_the_system_message_toggle(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._translate_system.get() is False   # 預設關閉
@@ -157,12 +152,10 @@ def test_save_stores_the_system_message_toggle(root):
 
 
 def test_reopening_settings_reflects_the_saved_toggle(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["translate_system_messages"] = True
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
@@ -170,13 +163,11 @@ def test_reopening_settings_reflects_the_saved_toggle(root):
 
 
 def _open_settings(root, on_language_preview=None):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None,
                          on_language_preview=on_language_preview)
@@ -344,13 +335,11 @@ def test_save_keeps_the_previewed_language(root):
 
 
 def _open_settings_with_checker(root, checker):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=checker)
     win.open()
@@ -412,16 +401,14 @@ def test_manual_check_reports_up_to_date(root):
 
 def test_manual_check_hands_a_new_version_to_on_update_found(root):
     """手動檢查查到新版時，除了關於分頁的連結，也要讓 overlay 顯示橫幅。"""
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
     from src.updater import Release
+    from tests.config_helpers import configured_cfg
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
     found = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: release,
                          on_update_found=found.append)
@@ -432,14 +419,12 @@ def test_manual_check_hands_a_new_version_to_on_update_found(root):
 
 
 def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     found = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: None,
                          on_update_found=found.append)
@@ -543,17 +528,10 @@ class FakeCache:
         return self.count
 
 
-def _configured_cfg():
-    from src.config import DEFAULT_CONFIG
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
-    return cfg
-
-
 def test_about_tab_hides_the_cache_row_without_a_cache(root):
     from src.ui.settings import SettingsWindow
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None)
+    from tests.config_helpers import configured_cfg
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None)
     win.open()
     assert not hasattr(win, "_cache_result"), "沒有快取就不該畫出那一列"
 
@@ -561,8 +539,9 @@ def test_about_tab_hides_the_cache_row_without_a_cache(root):
 def test_clear_cache_button_clears_and_reports_the_count(root):
     from src.i18n import t
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
     cache = FakeCache(count=42)
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
     win.open()
     assert win._cache_result.cget("text") == ""      # 還沒按之前不顯示任何結果
     win._clear_cache()
@@ -573,8 +552,9 @@ def test_clear_cache_button_clears_and_reports_the_count(root):
 def test_clear_cache_reports_zero_when_the_cache_was_already_empty(root):
     from src.i18n import t
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
     cache = FakeCache(count=0)
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
     win.open()
     win._clear_cache()
     assert win._cache_result.cget("text") == t("about.cache_cleared", count=0)
@@ -717,11 +697,10 @@ def test_releasing_topmost_survives_a_window_closed_in_the_meantime(root):
 def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
     from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     assert DEFAULT_CONFIG["paste_hotkey"] is True
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._paste_hotkey.get() is True
@@ -731,12 +710,10 @@ def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
 
 
 def test_save_stores_the_region_hotkey(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._region_hotkey.value() == "ctrl+shift+space"
@@ -746,17 +723,15 @@ def test_save_stores_the_region_hotkey(root):
 
 
 def test_save_rejects_identical_hotkeys(root, monkeypatch):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import t
     from src.ui import settings as settings_module
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     warnings = []
     monkeypatch.setattr(settings_module.messagebox, "showwarning",
                         lambda title, message, parent=None: warnings.append(message))
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     saved = []
     win = SettingsWindow(root, cfg, on_save=lambda: saved.append(1))
     win.open()

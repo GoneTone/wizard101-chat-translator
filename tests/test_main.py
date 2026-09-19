@@ -7,12 +7,11 @@ from pathlib import Path
 from src import main
 from src.config import DEFAULT_CONFIG, active_api
 from src.main import config_summary
+from tests.config_helpers import configured_cfg
 
 
 def test_config_summary_covers_the_default_config_without_the_api_key():
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["custom"].update(base_url="http://x", model="gemma", api_key="sk-secret")
-    cfg["api"]["provider"] = "custom"
+    cfg = configured_cfg(base_url="http://x", model="gemma", api_key="sk-secret")
     summary = config_summary(cfg, active_api(cfg))
     assert "model=gemma" in summary
     assert "sk-secret" not in summary
