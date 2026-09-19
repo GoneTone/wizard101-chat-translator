@@ -47,6 +47,18 @@ def test_no_language_file_has_keys_the_source_language_lacks():
         assert not extra, f"{code} 有來源語言沒有的 key：{sorted(extra)}"
 
 
+def test_the_hand_maintained_catalogs_carry_the_same_keys():
+    # 這三份是手動維護的（其餘由 Crowdin 匯出）。少一個 key 不會讓任何測試變紅，
+    # t() 會逐鍵 fallback —— 漏掉 en-US 時，所有未翻譯的語言都會顯示中文。
+    maintained = (i18n.SOURCE_LANGUAGE, i18n.DEFAULT_LANGUAGE, "zh-CN")
+    keys = {code: set(_load_raw(code)) for code in maintained}
+    source = keys[i18n.SOURCE_LANGUAGE]
+    for code in maintained:
+        assert keys[code] == source, (
+            f"{code} 與 {i18n.SOURCE_LANGUAGE} 的 key 不一致："
+            f"缺 {sorted(source - keys[code])}，多 {sorted(keys[code] - source)}")
+
+
 def test_placeholders_match_across_languages():
     import string
 
