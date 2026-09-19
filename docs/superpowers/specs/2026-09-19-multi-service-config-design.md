@@ -109,8 +109,9 @@
 
 1. **扁平 `api` → per-provider**：現有的 `_is_legacy_api()` 與 `_migrate_api()` 原樣保留。
 2. **per-provider → `services`**：三家中 `model`／`api_key`／`base_url` 任一非空的各轉成
-   一筆，名稱帶服務商短名（遷移當下的介面語言；名稱是一次性生成的資料值，日後換語言
-   不會、也不該跟著變）。原本 `api.provider` 選中的那家設為 `default_service`，三格全
+   一筆，名稱帶服務商短名。短名取英文 —— `load_config` 早於 `set_language` 執行，此時取不到
+   使用者的介面語言；名稱是一次性生成的資料值，使用者可自行改名，日後換語言不會、也不該跟著
+   變。原本 `api.provider` 選中的那家設為 `default_service`，三格全
    `null`。三家都沒填過 → 空清單。
 
 遷移後刪掉舊的 `api` 區塊並立刻重寫 config.json，不讓兩份格式並存。
@@ -122,6 +123,8 @@
 - 認不得的 `provider` → 整筆丟棄。
 - 缺欄位 → 依 `API_PROFILE_FIELDS` 補預設；多餘欄位 → 刪除。
 - 重複或缺少的 `id` → 重新產生。
+- 重複或缺少的 `name` → 補序號（同 `unique_name`）。分派下拉只顯示名稱，且是靠名稱換回 `id`，
+  所以唯一性必須由載入這一端保證，不能只靠寫入端。
 - `default_service` 指向不存在 → 退回清單第一筆（清單空則 `null`）。
 - `service_slots` 某格指向不存在 → 退回 `null`。
 - `service_slots` 出現不認得的鍵 → 刪除。
