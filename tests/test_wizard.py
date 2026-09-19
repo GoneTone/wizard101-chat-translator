@@ -94,7 +94,8 @@ def test_language_change_keeps_the_half_filled_service(root):
         i18n.set_language("zh-TW")
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         wizard = SetupWizard(root, cfg)
-        wizard._service_form.set_provider("claude")
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("claude")
         wizard._service_form._model.set("claude-x")
         wizard._service_form._api_key.set("sk-ant-secret")
         wizard._on_language_change("en-US")
@@ -120,7 +121,8 @@ def test_language_change_retitles_an_untouched_service(root):
         i18n.set_language("zh-TW")
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         wizard = SetupWizard(root, cfg)
-        wizard._service_form.set_provider("custom")   # 只有自訂端點的短名要翻譯
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")   # 只有自訂端點的短名要翻譯
         wizard._on_language_change("en-US")
         assert cfg["services"][0]["name"] == "Custom endpoint"
     finally:
@@ -168,7 +170,8 @@ def test_language_change_keeps_a_service_name_the_user_typed(root):
         i18n.set_language("zh-TW")
         cfg = copy.deepcopy(DEFAULT_CONFIG)
         wizard = SetupWizard(root, cfg)
-        wizard._service_form.set_provider("custom")
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")
         wizard._service_form.set_name("戰鬥用")
         wizard._on_language_change("en-US")
         assert cfg["services"][0]["name"] == "戰鬥用"
@@ -410,5 +413,111 @@ def test_language_change_does_not_let_the_rename_collide(root):
         wizard._on_language_change("en-US")
         names = [s["name"] for s in cfg["services"]]
         assert names == [f"{other['name']} (2)", other["name"]]
+    finally:
+        i18n.set_language(before)
+
+
+def _wizard_on_api_step(root, cfg):
+    """停在 API 步驟的精靈（第二步的兩種樣態都從這裡看）。"""
+    from src.ui.wizard import STEP_API, SetupWizard
+
+    wizard = SetupWizard(root, cfg)
+    wizard._step = STEP_API
+    wizard._show_step()
+    return wizard
+
+
+def _cards_on_body(wizard):
+    from src.ui.provider_picker import ProviderCards
+
+    return [w for w in wizard._body.pack_slaves() if isinstance(w, ProviderCards)]
+
+
+def test_step_api_asks_for_a_provider_before_the_form(root):
+    """沒有服務可編輯時第二步先選服務商：表單還不存在，〔下一步〕也就無從驗起。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    assert wizard._service_form is None
+    assert len(_cards_on_body(wizard)) == 1
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_picking_a_provider_replaces_the_cards_with_the_form(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import PROVIDERS
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    _cards_on_body(wizard)[0].pack_slaves()[1].event_generate("<Button-1>")
+    assert wizard._service_form is not None
+    assert wizard._service_form.values()["provider"] == list(PROVIDERS)[1]
+    assert _cards_on_body(wizard) == []
+    assert wizard._service_form in wizard._body.pack_slaves()
+    wizard._win.destroy()
+
+
+def test_an_existing_service_skips_the_cards(root):
+    """救援路徑：設定壞掉的老使用者被送回精靈時，服務商早就選過了，直接編輯那一筆。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["services"] = _three_services()
+    cfg["default_service"] = cfg["services"][1]["id"]
+    wizard = _wizard_on_api_step(root, cfg)
+    assert _cards_on_body(wizard) == []
+    assert wizard._service_form.values()["id"] == cfg["services"][1]["id"]
+    wizard._win.destroy()
+
+
+def test_language_change_while_picking_rebuilds_into_the_cards(root):
+    """還在選服務商時換語言：沒有服務可寫進 cfg，重建出來的精靈仍停在卡片。
+    同一步驟負責的其他欄位照寫。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = _wizard_on_api_step(root, cfg)
+        wizard._region_hotkey.set_value("ctrl+alt+r")
+        wizard._on_language_change("en-US")
+        assert cfg["services"] == []
+        assert cfg["default_service"] is None
+        assert cfg["region_hotkey"] == "ctrl+alt+r"
+        rebuilt = _wizard_on_api_step(root, cfg)
+        assert rebuilt._service_form is None
+        assert len(_cards_on_body(rebuilt)) == 1
+        rebuilt._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_after_picking_rebuilds_into_the_form(root):
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = _wizard_on_api_step(root, cfg)
+        wizard._pick_provider("claude")
+        wizard._on_language_change("en-US")
+        rebuilt = _wizard_on_api_step(root, cfg)
+        assert _cards_on_body(rebuilt) == []
+        assert rebuilt._service_form.values()["provider"] == "claude"
+        rebuilt._win.destroy()
     finally:
         i18n.set_language(before)

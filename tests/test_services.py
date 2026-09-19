@@ -412,3 +412,15 @@ def test_two_services_sharing_a_name_load_with_distinct_names():
     assert normalize(cfg) is True
     names = [s["name"] for s in cfg["services"]]
     assert names == [first["name"], f"{first['name']} (2)"]
+
+
+def test_every_provider_label_and_description_resolve():
+    """卡片的標題與說明都要有文案：新增一家忘了補，UI 會直接顯示文案 key 本身。"""
+    before = i18n.current_language()
+    try:
+        i18n.set_language(i18n.SOURCE_LANGUAGE)
+        for key, provider in PROVIDERS.items():
+            assert i18n.t(provider.label_key) != provider.label_key, key
+            assert i18n.t(provider.desc_key) != provider.desc_key, key
+    finally:
+        i18n.set_language(before)

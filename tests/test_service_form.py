@@ -5,7 +5,7 @@ from tkinter import ttk
 import pytest
 
 from src.i18n import t
-from src.services import EFFORT_LOW, new_service
+from src.services import EFFORT_LOW, PROVIDERS, new_service
 from src.translation.translator import TranslatorConfigError
 from src.ui.service_form import ServiceForm
 
@@ -171,3 +171,35 @@ def test_the_test_target_language_defaults_to_the_ui_language(root):
         assert form._target_language_fn() == "日本語"
     finally:
         i18n.set_language(before)
+
+
+def _descendants(parent):
+    for widget in parent.winfo_children():
+        yield widget
+        yield from _descendants(widget)
+
+
+def _change_button(form):
+    """服務商那一列的〔更改〕按鈕（表單裡唯一一顆用這個文案的按鈕）。"""
+    return next(w for w in _descendants(form)
+                if isinstance(w, ttk.Button) and str(w.cget("text")) == t("button.change"))
+
+
+def test_the_provider_row_shows_the_current_provider(blank):
+    assert blank._provider_label.cget("text") == t(PROVIDERS["openai"].label_key)
+
+
+def test_the_change_button_switches_the_provider(blank, monkeypatch):
+    monkeypatch.setattr("src.ui.service_form.open_provider_picker", lambda parent: "claude")
+    _change_button(blank).invoke()
+    assert blank.values()["provider"] == "claude"
+    assert blank.values()["name"] == "Claude"
+    assert blank._provider_label.cget("text") == t(PROVIDERS["claude"].label_key)
+
+
+def test_cancelling_the_provider_pick_changes_nothing(blank, monkeypatch):
+    monkeypatch.setattr("src.ui.service_form.open_provider_picker", lambda parent: None)
+    before = blank.values()
+    _change_button(blank).invoke()
+    assert blank.values() == before
+    assert blank._provider_label.cget("text") == t(PROVIDERS["openai"].label_key)

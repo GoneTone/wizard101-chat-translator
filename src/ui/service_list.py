@@ -5,10 +5,11 @@ from tkinter import messagebox, ttk
 
 from src.i18n import t
 from src.log import log
-from src.services import API_PROVIDERS, SLOTS, describe, new_service, unique_name, validate_service
+from src.services import SLOTS, describe, new_service, unique_name, validate_service
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, collapsible, hint_label
 from src.ui.geometry import centered_position
+from src.ui.provider_picker import open_provider_picker
 from src.ui.service_form import ServiceForm
 
 _DIALOG_SIZE = (560, 480)   # 容得下最長的一組欄位（自訂端點）與測試結果訊息
@@ -128,7 +129,11 @@ class ServicePane(ttk.Frame):
 
     # --- 清單操作 ---
     def add_service(self) -> None:
-        draft = new_service(API_PROVIDERS[0], self._services)
+        # 先問服務商再開表單：沒選就什麼都不開，那時還不知道該畫哪家的欄位
+        picked = open_provider_picker(self)
+        if picked is None:
+            return
+        draft = new_service(picked, self._services)
         result = open_service_dialog(self, draft, self._services,
                                      self._target_language_fn)
         if result is not None:

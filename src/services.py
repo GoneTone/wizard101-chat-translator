@@ -40,6 +40,7 @@ class Provider:
     """服務商的顯示資料。該畫哪些欄位一律問 API_PROFILE_FIELDS（has_field）。"""
     key: str
     label_key: str
+    desc_key: str
     key_url: str | None = None
     brand: str | None = None
 
@@ -57,11 +58,14 @@ class Provider:
 
 
 PROVIDERS: dict[str, Provider] = {p.key: p for p in (
-    Provider(key="openai", label_key="provider.openai", brand="ChatGPT",
+    Provider(key="openai", label_key="provider.openai",
+             desc_key="provider.openai_desc", brand="ChatGPT",
              key_url="https://platform.openai.com/api-keys"),
-    Provider(key="claude", label_key="provider.claude", brand="Claude",
+    Provider(key="claude", label_key="provider.claude",
+             desc_key="provider.claude_desc", brand="Claude",
              key_url="https://console.anthropic.com/settings/keys"),
-    Provider(key="custom", label_key="provider.custom"),
+    Provider(key="custom", label_key="provider.custom",
+             desc_key="provider.custom_desc"),
 )}
 
 

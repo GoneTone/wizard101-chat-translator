@@ -8,7 +8,6 @@ from src.log import log
 from src.services import (
     API_EFFORTS,
     API_PROFILE_FIELDS,
-    API_PROVIDERS,
     EFFORT_AUTO,
     PROVIDERS,
     validate_service,
@@ -24,6 +23,7 @@ from src.ui.form import (
     show_outcome,
 )
 from src.ui.model_field import ModelField
+from src.ui.provider_picker import open_provider_picker
 from src.ui.richtext import RichLabel, ttk_background
 
 
@@ -35,7 +35,6 @@ class ServiceForm(ttk.Frame):
         self._on_change = on_change
         self.test_passed = False
         self._id = service["id"]
-        self._provider_keys = list(API_PROVIDERS)
         self._provider = service["provider"]
         self._name_var = tk.StringVar(value=service.get("name", ""))
         self._api_key = tk.StringVar(value=service.get("api_key", ""))
@@ -69,9 +68,22 @@ class ServiceForm(ttk.Frame):
         self._name_var.set(name)
 
     def set_provider(self, provider: str) -> None:
-        """換服務商（測試與下拉共用同一條路）。"""
-        self._provider_shown.set(t(PROVIDERS[provider].label_key))
-        self._on_provider_selected()
+        """換服務商：名稱跟著走、欄位清空重建，先前的測試結果作廢。"""
+        if provider == self._provider:
+            return
+        previous = self._provider
+        self._provider = provider
+        self._provider_label.configure(text=t(PROVIDERS[provider].label_key))
+        # 名稱還是上一家的自動值就跟著換；使用者取過名字就不覆蓋
+        if self._name_var.get().strip() == PROVIDERS[previous].short_name:
+            self._name_var.set(PROVIDERS[provider].short_name)
+        for var in (self._api_key, self._model, self._base_url, self._effort):
+            var.set("")
+        self._thinking.set(False)
+        self._effort.set(EFFORT_AUTO)
+        self._test_result.set("")
+        log(f"[settings] service form provider switched {previous} -> {provider}")
+        self._rebuild_fields()
 
     def set_target_language_fn(self, fn) -> None:
         """測試連線時取得目標語言的 callback（精靈階段語言還沒選，用預設）。"""
@@ -99,14 +111,17 @@ class ServiceForm(ttk.Frame):
         row = ttk.Frame(self)
         row.pack(fill="x", pady=(0, 6))
         ttk.Label(row, text=t("field.provider"), width=LABEL_WIDTH).pack(side="left")
-        self._provider_names = [t(PROVIDERS[key].label_key) for key in self._provider_keys]
-        # 顯示用的變數要留在 self 上：只被 Combobox 參照的話會被 GC，欄位就空掉。
-        self._provider_shown = tk.StringVar(
-            value=t(PROVIDERS[self._provider].label_key))
-        combo = ttk.Combobox(row, textvariable=self._provider_shown,
-                             values=self._provider_names, state="readonly")
-        combo.pack(side="left", fill="x", expand=True)
-        combo.bind("<<ComboboxSelected>>", lambda e: self._on_provider_selected())
+        # 〔更改〕先 pack：後宣告會在視窗變窄時被 expand=True 的名稱標籤擠掉
+        ttk.Button(row, text=t("button.change"), width=7,
+                   command=self._change_provider).pack(side="right", padx=(4, 0))
+        self._provider_label = ttk.Label(
+            row, text=t(PROVIDERS[self._provider].label_key))
+        self._provider_label.pack(side="left", fill="x", expand=True)
+
+    def _change_provider(self) -> None:
+        picked = open_provider_picker(self)
+        if picked is not None:
+            self.set_provider(picked)
 
     def _test_row(self) -> None:
         row = ttk.Frame(self)
@@ -118,23 +133,6 @@ class ServiceForm(ttk.Frame):
         self._test_result = RichLabel(row, fg=ERROR_COLOR, bg=ttk_background(self),
                                       font="TkDefaultFont")
         self._test_result.pack(side="left", fill="x", expand=True, padx=8)
-
-    def _on_provider_selected(self) -> None:
-        target = self._provider_keys[self._provider_names.index(self._provider_shown.get())]
-        if target == self._provider:
-            return
-        previous = self._provider
-        self._provider = target
-        # 名稱還是上一家的自動值就跟著換；使用者取過名字就不覆蓋
-        if self._name_var.get().strip() == PROVIDERS[previous].short_name:
-            self._name_var.set(PROVIDERS[target].short_name)
-        for var in (self._api_key, self._model, self._base_url, self._effort):
-            var.set("")
-        self._thinking.set(False)
-        self._effort.set(EFFORT_AUTO)
-        self._test_result.set("")
-        log(f"[settings] service form provider switched {previous} -> {target}")
-        self._rebuild_fields()
 
     # --- 動態欄位 ---
     def _rebuild_fields(self) -> None:

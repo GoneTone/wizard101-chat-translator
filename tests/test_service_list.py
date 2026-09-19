@@ -157,3 +157,26 @@ def test_dialog_grabs_input_and_releases_it_on_close(root):
     assert dialog.win.grab_current() is dialog.win
     dialog._cancel()
     assert root.grab_current() is None
+
+
+def test_add_service_opens_nothing_when_the_pick_is_cancelled(two, monkeypatch):
+    # 沒選服務商就不該開一張空表單：那時還不知道要畫哪家的欄位
+    pane, _a, _b = two
+    before = pane.values()
+    opened = []
+    monkeypatch.setattr("src.ui.service_list.open_provider_picker", lambda parent: None)
+    monkeypatch.setattr("src.ui.service_list.open_service_dialog",
+                        lambda *args, **kwargs: opened.append(args) or None)
+    pane.add_service()
+    assert opened == []
+    assert pane.values() == before
+
+
+def test_add_service_drafts_the_picked_provider(two, monkeypatch):
+    pane, _a, _b = two
+    drafts = []
+    monkeypatch.setattr("src.ui.service_list.open_provider_picker", lambda parent: "custom")
+    monkeypatch.setattr("src.ui.service_list.open_service_dialog",
+                        lambda parent, service, *args, **kwargs: drafts.append(service) or None)
+    pane.add_service()
+    assert [d["provider"] for d in drafts] == ["custom"]
