@@ -5,8 +5,6 @@ from pathlib import Path
 import pytest
 
 from src.config import (
-    API_PROFILE_FIELDS,
-    API_PROVIDERS,
     DEFAULT_CONFIG,
     active_api,
     app_dir,
@@ -15,6 +13,7 @@ from src.config import (
     local_state_dir,
     save_config,
 )
+from src.services import API_PROFILE_FIELDS, API_PROVIDERS
 
 
 def test_load_missing_file_returns_defaults(tmp_path: Path):

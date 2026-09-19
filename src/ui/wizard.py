@@ -6,11 +6,11 @@ from tkinter import messagebox, ttk
 from src.config import app_name
 from src.i18n import current_language, language_name, set_language, t
 from src.log import log
+from src.services import validate_service
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, help_translate_link, translators_row
 from src.ui.geometry import centered_position
-from src.ui.providers import validate_api_form
 from src.ui.responsive import bind_wrap
 from src.ui.scrollable import ScrollableFrame
 
@@ -171,7 +171,7 @@ class SetupWizard:
         api = self._api_fields.active_values()
         ok = can_advance(self._step,
                          self._api_fields.test_passed or self._skip_test,
-                         validate_api_form(api))
+                         validate_service(api))
         self._next_btn.configure(state="normal" if ok else "disabled")
 
     def _do_skip_test(self) -> None:

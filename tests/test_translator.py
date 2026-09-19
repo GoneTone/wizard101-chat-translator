@@ -266,7 +266,7 @@ def test_claude_auto_effort_sends_no_output_config():
 
 
 def test_claude_low_effort_sends_output_config():
-    from src.config import EFFORT_LOW
+    from src.services import EFFORT_LOW
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k", effort=EFFORT_LOW,
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])

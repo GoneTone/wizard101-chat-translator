@@ -36,6 +36,7 @@
   "provider.openai": "ChatGPT（OpenAI）",
   "provider.claude": "Claude（Anthropic）",
   "provider.custom": "自訂端點（OpenAI API 相容）",
+  "provider.custom_short": "自訂端點",
   "field.model": "模型",
   "field.base_url": "伺服器網址",
   "field.api_key": "API 金鑰",

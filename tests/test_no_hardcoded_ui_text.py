@@ -16,7 +16,7 @@ SCAN_TARGETS = [
     "src/ui/fields.py",
     "src/ui/form.py",
     "src/ui/model_field.py",
-    "src/ui/providers.py",
+    "src/services.py",
     "src/ui/settings.py",
     "src/ui/wizard.py",
     "src/ui/fonts.py",

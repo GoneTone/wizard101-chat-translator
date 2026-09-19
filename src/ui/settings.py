@@ -12,6 +12,7 @@ from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t, translators
 from src.log import log
+from src.services import validate_service
 from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
@@ -24,7 +25,6 @@ from src.ui.form import (
     translators_row,
 )
 from src.ui.geometry import centered_position
-from src.ui.providers import validate_api_form
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
 from src.ui.scrollable import ScrollableFrame
@@ -482,7 +482,7 @@ class SettingsWindow:
     def _save(self) -> None:
         # 先整批解析再驗證：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         values, advanced_error = self._form_values()
-        errors = validate_api_form(self._api.active_values())
+        errors = validate_service(self._api.active_values())
         if values["hotkey"] == values["region_hotkey"]:
             errors.append("error.hotkeys_same")
         if not values["target_language"]:

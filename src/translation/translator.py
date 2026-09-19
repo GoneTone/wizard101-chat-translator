@@ -16,8 +16,8 @@ from contextlib import contextmanager
 
 import httpx
 
-from src.config import EFFORT_AUTO
 from src.log import log
+from src.services import EFFORT_AUTO
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
@@ -474,7 +474,7 @@ class _ClaudeClient(_BaseClient):
 
 
 # 欄位一律給預設值：呼叫端（Translator、list_models）直接展開某一家的設定，
-# 而每家有的欄位不同（見 config.API_PROFILE_FIELDS）。
+# 而每家有的欄位不同（見 services.API_PROFILE_FIELDS）。
 def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
                   api_key: str = "", thinking: bool = True, effort: str = EFFORT_AUTO,
                   timeout: float = _TIMEOUT, client=None):
@@ -494,7 +494,7 @@ class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
     `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
-    config.API_PROFILE_FIELDS），呼叫端直接把 active_api(cfg) 展開進來，缺的欄位
+    services.API_PROFILE_FIELDS），呼叫端直接把 active_api(cfg) 展開進來，缺的欄位
     由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.i18n import SOURCE_LANGUAGE, language_name, t
 from src.log import log
+from src.services import API_PROFILE_FIELDS, API_PROVIDERS, needs_base_url
 
 
 def app_name() -> str:
@@ -29,23 +30,6 @@ def local_state_dir() -> Path:
 
 
 CONFIG_PATH = app_dir() / "config.json"
-
-# 每家服務商各存一份設定（切換時互不覆蓋），只存自己用得到的欄位：官方端點網址寫死在
-# translator，Claude 不吃 thinking 開關而是 effort。這張表是服務商清單與欄位的單一真實
-# 來源：載入補值、UI 該畫哪些欄位（ui/fields.py 的 PROVIDERS）都看它。
-API_PROFILE_FIELDS: dict[str, dict] = {
-    "openai": {"model": "", "api_key": "", "thinking": False},
-    "claude": {"model": "", "api_key": "", "effort": "auto"},
-    "custom": {"base_url": "", "model": "", "api_key": "", "thinking": False},
-}
-
-API_PROVIDERS = tuple(API_PROFILE_FIELDS)
-
-# Claude 的思考深度：auto＝不帶參數、由模型自行決定（adaptive）；low＝壓到最低。
-# Claude 沒有「完全不思考」這個選項，故意不與另兩家的 thinking 開關共用欄位名。
-EFFORT_AUTO = "auto"
-EFFORT_LOW = "low"
-API_EFFORTS = (EFFORT_AUTO, EFFORT_LOW)
 
 
 def _default_api() -> dict:
@@ -191,11 +175,6 @@ def load_config(path: Path) -> dict:
 def save_config(path: Path, cfg: dict) -> None:
     """把整份設定寫回 config.json（UTF-8、縮排，方便手改）。"""
     path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def needs_base_url(provider: str) -> bool:
-    """這家服務商要不要自己填端點網址（官方端點的網址寫死在 translator）。"""
-    return "base_url" in API_PROFILE_FIELDS[provider]
 
 
 def is_configured(cfg: dict) -> bool:

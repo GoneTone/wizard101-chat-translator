@@ -36,6 +36,7 @@
   "provider.openai": "ChatGPT (OpenAI)",
   "provider.claude": "Claude (Anthropic)",
   "provider.custom": "Custom endpoint (OpenAI-compatible)",
+  "provider.custom_short": "Custom endpoint",
   "field.model": "Model",
   "field.base_url": "Server URL",
   "field.api_key": "API key",

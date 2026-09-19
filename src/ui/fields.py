@@ -1,13 +1,12 @@
 """精靈與設定視窗共用的欄位群：服務商選擇＋API 欄位＋測試連線、熱鍵捕捉、
 翻譯目標語言與介面語言選擇。小元件在 form.py、模型欄位在 model_field.py、
-服務商資料與表單驗證在 providers.py。"""
+服務商資料與表單驗證在 services.py。"""
 import copy
 import tkinter as tk
 from tkinter import ttk
 
 import keyboard
 
-from src.config import API_EFFORTS, API_PROFILE_FIELDS, API_PROVIDERS, EFFORT_AUTO
 from src.i18n import (
     DEFAULT_LANGUAGE,
     available_languages,
@@ -16,6 +15,14 @@ from src.i18n import (
     t,
 )
 from src.log import log
+from src.services import (
+    API_EFFORTS,
+    API_PROFILE_FIELDS,
+    API_PROVIDERS,
+    EFFORT_AUTO,
+    PROVIDERS,
+    validate_service,
+)
 from src.translation.translator import (
     test_translate,
 )
@@ -29,7 +36,6 @@ from src.ui.form import (
     show_outcome,
 )
 from src.ui.model_field import ModelField
-from src.ui.providers import PROVIDERS, validate_api_form
 from src.ui.richtext import RichLabel, ttk_background
 
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
@@ -95,7 +101,7 @@ class ApiFields(ttk.Frame):
         return {"provider": provider, **self._field_values(provider)}
 
     def _field_values(self, provider: str) -> dict:
-        """欄位上的值，只取這家有的那幾個（見 config.API_PROFILE_FIELDS）。
+        """欄位上的值，只取這家有的那幾個（見 services.API_PROFILE_FIELDS）。
         provider 要明講：換家的當下欄位裡放的還是上一家的值。"""
         values = {"api_key": self._api_key.get().strip(),
                   "model": self._model.get().strip(),
@@ -222,7 +228,7 @@ class ApiFields(ttk.Frame):
 
     def _start_test(self) -> None:
         api = self.active_values()
-        errors = validate_api_form(api)
+        errors = validate_service(api)
         if errors:
             self._show_test_result(False, t("sep.errors").join(t(e) for e in errors))
             return

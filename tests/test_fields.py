@@ -7,8 +7,9 @@ from tkinter import ttk
 
 import pytest
 
-from src.config import API_PROVIDERS, DEFAULT_CONFIG, active_api
+from src.config import DEFAULT_CONFIG, active_api
 from src.i18n import t
+from src.services import API_PROVIDERS, PROVIDERS, validate_endpoint_fields, validate_service
 from src.translation.translator import (
     TranslatorConfigError,
     TranslatorNoModelList,
@@ -18,7 +19,6 @@ from src.ui import form as form_module
 from src.ui.fields import ApiFields
 from src.ui.form import friendly_error
 from src.ui.model_field import ModelField, filter_models
-from src.ui.providers import PROVIDERS, validate_api_form, validate_endpoint_fields
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_providers_metadata():
 
 def test_provider_labels_are_translated():
     from src import i18n
-    from src.ui.providers import PROVIDERS
+    from src.services import PROVIDERS
 
     before = i18n.current_language()
     try:
@@ -70,13 +70,13 @@ def test_ui_language_field_round_trips_language_code(root):
 
 
 def test_validate_requires_model():
-    errs = validate_api_form({"provider": "openai", "model": "", "api_key": "k",
+    errs = validate_service({"provider": "openai", "model": "", "api_key": "k",
                               "base_url": "", "thinking": False})
     assert "error.need_model" in errs
 
 
 def test_validate_requires_key_for_official_providers():
-    errs = validate_api_form({"provider": "claude", "model": "claude-opus-5",
+    errs = validate_service({"provider": "claude", "model": "claude-opus-5",
                               "api_key": "", "base_url": "", "thinking": False})
     assert "error.need_api_key" in errs
 
@@ -84,9 +84,9 @@ def test_validate_requires_key_for_official_providers():
 def test_validate_requires_base_url_for_custom_only():
     api = {"provider": "custom", "model": "m", "api_key": "", "base_url": "",
            "thinking": False}
-    assert "error.need_base_url" in validate_api_form(api)
+    assert "error.need_base_url" in validate_service(api)
     api["base_url"] = "http://127.0.0.1:8000"
-    assert validate_api_form(api) == []  # custom 不需金鑰
+    assert validate_service(api) == []  # custom 不需金鑰
 
 
 def test_friendly_error_guesses_from_status_when_api_gave_no_message():
@@ -204,7 +204,7 @@ def test_openai_keeps_the_thinking_toggle(root):
 
 
 def test_effort_dropdown_shows_the_saved_choice(root):
-    from src.config import EFFORT_LOW
+    from src.services import EFFORT_LOW
 
     fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
                                       effort=EFFORT_LOW))
@@ -212,7 +212,7 @@ def test_effort_dropdown_shows_the_saved_choice(root):
 
 
 def test_choosing_an_effort_stores_its_code(root):
-    from src.config import EFFORT_LOW
+    from src.services import EFFORT_LOW
 
     fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5"))
     combo = _effort_combobox(fields)
@@ -223,7 +223,7 @@ def test_choosing_an_effort_stores_its_code(root):
 
 
 def test_effort_survives_switching_providers(root):
-    from src.config import EFFORT_LOW
+    from src.services import EFFORT_LOW
 
     fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
                                       effort=EFFORT_LOW))
