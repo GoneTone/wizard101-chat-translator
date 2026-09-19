@@ -117,6 +117,21 @@ def unique_name(name: str, services: list[dict], ignore_id: str | None = None) -
     return f"{name} ({number})"
 
 
+def is_auto_name(name: str, base: str) -> bool:
+    """`name` 是否可能是 `unique_name(base, ...)` 生成的形狀（緊鄰放置：改後綴格式兩處都要改）。"""
+    if name == base:
+        return True
+    prefix = f"{base} ("
+    if not (name.startswith(prefix) and name.endswith(")")):
+        return False
+    number = name[len(prefix):-1]
+    if not (number.isascii() and number.isdigit()):
+        return False
+    # 序號從 2 起跳、不帶前導零 —— 對齊 unique_name 的值域，不然 "(1)" 這種使用者可能
+    # 自己打的名字會被誤判成自動產生
+    return number[0] != "0" and int(number) >= 2
+
+
 def new_service(provider: str, services: list[dict]) -> dict:
     """新的一筆服務：新 id、依服務商短名自動命名、欄位填該家的預設值。"""
     return {"id": new_id(services),

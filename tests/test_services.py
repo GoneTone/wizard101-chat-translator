@@ -14,6 +14,7 @@ from src.services import (
     UNSUPPORTED_SERVICES,
     describe,
     find,
+    is_auto_name,
     needs_base_url,
     new_service,
     normalize,
@@ -104,6 +105,45 @@ def test_unique_name_numbers_collisions_from_two():
 def test_unique_name_does_not_collide_with_the_entry_being_edited():
     services = [{"id": "a", "name": "ChatGPT"}]
     assert unique_name("ChatGPT", services, ignore_id="a") == "ChatGPT"
+
+
+def test_is_auto_name_accepts_the_bare_base_and_numbered_suffixes():
+    assert is_auto_name("ChatGPT", "ChatGPT")
+    assert is_auto_name("ChatGPT (2)", "ChatGPT")
+    assert is_auto_name("ChatGPT (10)", "ChatGPT")
+
+
+def test_is_auto_name_rejects_shapes_unique_name_never_produces():
+    assert not is_auto_name("ChatGPT 我的", "ChatGPT")
+    assert not is_auto_name("Claude", "ChatGPT")
+    assert not is_auto_name("ChatGPT ()", "ChatGPT")
+    assert not is_auto_name("ChatGPT (x)", "ChatGPT")
+    assert not is_auto_name("ChatGPT (2) extra", "ChatGPT")
+    # unique_name 的序號從 2 起跳，(0)／(1)／前導零都不在它的值域內，
+    # 這些形狀比較像使用者自己打的名字，判斷式寧可漏判也不能誤蓋
+    assert not is_auto_name("ChatGPT (0)", "ChatGPT")
+    assert not is_auto_name("ChatGPT (1)", "ChatGPT")
+    assert not is_auto_name("ChatGPT (01)", "ChatGPT")
+
+
+def test_is_auto_name_matches_what_unique_name_actually_generates():
+    services = [{"id": "a", "name": "ChatGPT"}]
+    assert is_auto_name(unique_name("ChatGPT", services), "ChatGPT")
+
+
+def test_is_auto_name_accepts_exactly_the_numbers_unique_name_can_produce():
+    """反向釘住值域：不只「產生器吐出來的都被認得」，還要「認得的不多不少」——
+    這樣改動任一邊（起跳值、後綴格式）都會讓這則測試變紅。"""
+    base = "ChatGPT"
+    services = [{"id": "seed", "name": base}]
+    generated_numbers = set()
+    for n in range(2, 6):
+        name = unique_name(base, services)
+        assert name == f"{base} ({n})"
+        generated_numbers.add(n)
+        services.append({"id": name, "name": name})
+    accepted = {n for n in range(0, 6) if is_auto_name(f"{base} ({n})", base)}
+    assert accepted == generated_numbers
 
 
 def test_resolve_follows_the_default_when_a_slot_is_unset():

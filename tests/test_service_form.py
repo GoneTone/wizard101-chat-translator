@@ -76,6 +76,16 @@ def test_switching_provider_keeps_a_name_the_user_typed(blank):
     assert blank.values()["name"] == "戰鬥用"
 
 
+def test_switching_provider_rewrites_a_suffixed_untouched_name(root):
+    # 回歸：清單裡已經有一筆叫 ChatGPT，draft 的自動名稱是「ChatGPT (2)」——
+    # 換服務商時這仍算「使用者沒改過名字」，要跟著換成新服務商的短名。
+    existing = new_service("openai", [])
+    draft = new_service("openai", [existing])
+    form = ServiceForm(root, draft)
+    form.set_provider("claude")
+    assert form.values()["name"] == "Claude"
+
+
 def test_a_blank_name_falls_back_to_the_provider_short_name(blank):
     blank.set_name("   ")
     assert blank.values()["name"] == "ChatGPT"

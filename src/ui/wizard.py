@@ -14,6 +14,7 @@ from src.services import (
     PROVIDERS,
     SLOTS,
     find,
+    is_auto_name,
     new_service,
     unique_name,
     validate_service,
@@ -195,7 +196,7 @@ class SetupWizard:
         if self._cfg["target_language"] == old_default:
             self._cfg["target_language"] = language_name(code)
         # 服務名稱同理：還是自動取的服務商短名就跟著換，使用者取過名字就不碰。
-        if service is not None and service["name"] == old_short_name:
+        if service is not None and is_auto_name(service["name"], old_short_name):
             # 一樣要過去重：清單裡可能已經有一筆叫新語言的短名
             service["name"] = unique_name(PROVIDERS[service["provider"]].short_name,
                                           self._cfg["services"],

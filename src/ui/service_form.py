@@ -10,6 +10,7 @@ from src.services import (
     API_PROFILE_FIELDS,
     EFFORT_AUTO,
     PROVIDERS,
+    is_auto_name,
     validate_service,
 )
 from src.translation.translator import test_translate
@@ -75,7 +76,7 @@ class ServiceForm(ttk.Frame):
         self._provider = provider
         self._provider_label.configure(text=t(PROVIDERS[provider].label_key))
         # 名稱還是上一家的自動值就跟著換；使用者取過名字就不覆蓋
-        if self._name_var.get().strip() == PROVIDERS[previous].short_name:
+        if is_auto_name(self._name_var.get().strip(), PROVIDERS[previous].short_name):
             self._name_var.set(PROVIDERS[provider].short_name)
         for var in (self._api_key, self._model, self._base_url, self._effort):
             var.set("")

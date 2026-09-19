@@ -129,6 +129,31 @@ def test_language_change_retitles_an_untouched_service(root):
         i18n.set_language(before)
 
 
+def test_language_change_retitles_a_suffixed_untouched_service(root):
+    """回歸：draft 的自動名稱撞到既有服務時會帶序號（如「自訂端點 (2)」），
+    這仍算使用者沒改過名字，換介面語言時要照樣跟著換（潛在陷阱，非實際回報個案）。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        cfg["services"] = [new_service("custom", [])]   # 名稱＝zh-TW 的自訂端點短名
+        wizard = SetupWizard(root, cfg)
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")   # draft 撞名，取到「自訂端點 (2)」
+        assert wizard._service_form.values()["name"] == "自訂端點 (2)"
+        wizard._on_language_change("en-US")
+        assert cfg["services"][1]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
 def test_language_change_only_retitles_the_service_being_edited(root):
     """回歸：清單裡不只精靈編輯的那一筆，改名不能靠位置認人 ——
     索引 0 那個與精靈無關的服務必須原封不動。"""
