@@ -25,6 +25,7 @@
   "error.need_api_key": "請輸入 API 金鑰",
   "error.need_base_url": "請輸入伺服器網址",
   "error.need_model": "請選擇或輸入模型",
+  "error.need_service": "請先新增一組翻譯服務",
   "error.bad_key": "金鑰無效或過期，請確認 API 金鑰",
   "error.model_not_found": "找不到模型，請確認模型名稱",
   "error.api_http": "API 設定有誤（HTTP {status}），請檢查各欄位",

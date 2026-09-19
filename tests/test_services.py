@@ -30,8 +30,8 @@ def test_configured_cfg_passes_the_completeness_check():
 
 def test_configured_cfg_returns_an_independent_copy():
     first = configured_cfg()
-    first["api"]["custom"]["model"] = "mutated"
-    assert configured_cfg()["api"]["custom"]["model"] == "m"
+    first["services"][0]["model"] = "mutated"
+    assert configured_cfg()["services"][0]["model"] == "m"
 
 
 def test_every_provider_has_ui_metadata():
@@ -164,6 +164,16 @@ def test_migrates_the_flat_legacy_api_block():
     assert service["model"] == "gemma"
     assert service["api_key"] == "sk-1"
     assert cfg["default_service"] == service["id"]
+
+
+def test_migrates_a_legacy_block_without_a_provider_as_a_custom_endpoint():
+    # 最舊的設定連 provider 欄位都沒有（自架端點時代）：一律當自訂端點
+    cfg = _empty_section()
+    cfg["api"] = {"base_url": "http://127.0.0.1:8000", "model": "m1"}
+    assert normalize(cfg) is True
+    assert [s["provider"] for s in cfg["services"]] == ["custom"]
+    assert cfg["services"][0]["base_url"] == "http://127.0.0.1:8000"
+    assert cfg["default_service"] == cfg["services"][0]["id"]
 
 
 def test_migrates_the_per_provider_api_block_keeping_every_filled_provider():

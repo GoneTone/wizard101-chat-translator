@@ -77,13 +77,6 @@ class ServiceForm(ttk.Frame):
         """測試連線時取得目標語言的 callback（精靈階段語言還沒選，用預設）。"""
         self._target_language_fn = fn
 
-    def clear_test_result(self) -> None:
-        """作廢已顯示的測試結果：那句譯文是用當時的目標語言翻的，語言一改就不算數。"""
-        self._invalidate_test()
-        self._test_result.set("")
-        if self._on_change:
-            self._on_change()
-
     def _resolved_name(self) -> str:
         return self._name_var.get().strip() or PROVIDERS[self._provider].short_name
 

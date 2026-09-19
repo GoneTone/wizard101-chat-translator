@@ -80,6 +80,102 @@ def test_language_change_keeps_customised_target_language(root):
         i18n.set_language(before)
 
 
+def test_language_change_keeps_the_half_filled_service(root):
+    """回歸：在 API 步驟貼好金鑰後退回第一步換介面語言，精靈會整個重建 ——
+    重建出來的表單必須還帶著剛才填的值，不能逼使用者重貼一次金鑰。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        wizard._service_form.set_provider("claude")
+        wizard._service_form._model.set("claude-x")
+        wizard._service_form._api_key.set("sk-ant-secret")
+        wizard._on_language_change("en-US")
+        rebuilt = SetupWizard(root, cfg)
+        assert rebuilt._service_form.values()["provider"] == "claude"
+        assert rebuilt._service_form.values()["model"] == "claude-x"
+        assert rebuilt._service_form.values()["api_key"] == "sk-ant-secret"
+        rebuilt._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_retitles_an_untouched_service(root):
+    # 自動取的名字就是服務商短名：使用者沒改過就跟著介面語言走（與 target_language 同一招）
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        wizard._service_form.set_provider("custom")   # 只有自訂端點的短名要翻譯
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_only_retitles_the_service_being_edited(root):
+    """回歸：清單裡不只精靈編輯的那一筆，改名不能靠位置認人 ——
+    索引 0 那個與精靈無關的服務必須原封不動。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        # 兩筆都是自訂端點（唯一短名隨語言變的一家）且都停在自動取的名字，
+        # 「誰該被改名」的差別就只剩下位置
+        bystander = new_service("custom", [])
+        edited = new_service("custom", [bystander])
+        edited["name"] = bystander["name"]
+        cfg["services"] = [bystander, edited]
+        cfg["default_service"] = edited["id"]   # 精靈編輯的不是索引 0 那筆
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "自訂端點"
+        assert cfg["services"][1]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_keeps_a_service_name_the_user_typed(root):
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        wizard._service_form.set_provider("custom")
+        wizard._service_form.set_name("戰鬥用")
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "戰鬥用"
+    finally:
+        i18n.set_language(before)
+
+
 def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     """回歸測試：英文系統首次啟動時 bootstrap_language 把 target_language 設成介面語言的
     自稱（"English"），精靈再切到 zh-CN 時 `target_language == old_default` 才比對得到。
@@ -210,6 +306,44 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
     link.event_generate("<Button-1>")
     assert opened == [CROWDIN_URL]
     wizard._win.destroy()
+
+
+def _three_services():
+    """三組填好的服務（openai／claude／custom），回傳那份清單。"""
+    from src.services import new_service
+
+    services: list[dict] = []
+    for provider in ("openai", "claude", "custom"):
+        service = new_service(provider, services)
+        service.update(model="m", api_key=f"sk-{provider}")
+        services.append(service)
+    services[-1]["base_url"] = "http://x"
+    return services
+
+
+def test_finishing_the_wizard_keeps_the_other_services(root):
+    """回歸：精靈也是設定壞掉時的救援路徑 —— 按完成不能把其他服務與它們的金鑰刪掉。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import SLOT_REGION
+    from src.ui.wizard import SetupWizard
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["services"] = _three_services()
+    ids = [s["id"] for s in cfg["services"]]
+    cfg["default_service"] = ids[1]              # 預設是第二組
+    cfg["service_slots"][SLOT_REGION] = ids[2]
+    wizard = SetupWizard(root, cfg)
+    assert wizard._service_form.values()["id"] == ids[1]   # 草稿取自預設那一筆，不是第一筆
+    wizard._service_form._model.set("claude-x")
+    wizard._finish()
+    assert [s["id"] for s in cfg["services"]] == ids       # 三組都還在、順序不變
+    assert cfg["services"][0]["api_key"] == "sk-openai"
+    assert cfg["services"][2]["api_key"] == "sk-custom"
+    assert cfg["services"][1]["model"] == "claude-x"       # 編輯過的那一筆就地更新
+    assert cfg["default_service"] == ids[1]
+    assert cfg["service_slots"][SLOT_REGION] == ids[2]     # 既有的用途分派不被清掉
 
 
 def test_finish_stores_the_region_hotkey(root):

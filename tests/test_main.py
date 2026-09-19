@@ -5,16 +5,18 @@ import sys
 from pathlib import Path
 
 from src import main
-from src.config import DEFAULT_CONFIG, active_api
+from src.config import DEFAULT_CONFIG
 from src.main import config_summary
 from tests.config_helpers import configured_cfg
 
 
-def test_config_summary_covers_the_default_config_without_the_api_key():
-    cfg = configured_cfg(base_url="http://x", model="gemma", api_key="sk-secret")
-    summary = config_summary(cfg, active_api(cfg))
-    assert "model=gemma" in summary
+def test_config_summary_lists_every_slot_and_never_leaks_the_key():
+    cfg = configured_cfg("custom", base_url="http://x", model="gemma",
+                         api_key="sk-secret")
+    summary = config_summary(cfg)
     assert "sk-secret" not in summary
+    assert "has_key=True" in summary
+    assert "incoming=default" in summary and "region=default" in summary
     # 每個使用者可調的設定都要在摘要裡，回報問題時才不必追問
     for key in ("target_language", "hotkey", "region_hotkey",
                 "paste_hotkey", "auto_show_input", "poll_interval", "fade_seconds",

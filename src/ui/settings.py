@@ -12,8 +12,8 @@ from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t, translators
 from src.log import log
-from src.services import validate_service
-from src.ui.fields import ApiFields, HotkeyField, LanguageField, UiLanguageField
+from src.services import find, validate_service
+from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
     BackgroundButton,
@@ -28,6 +28,7 @@ from src.ui.geometry import centered_position
 from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
 from src.ui.scrollable import ScrollableFrame
+from src.ui.service_list import ServicePane
 from src.updater import AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
@@ -119,6 +120,7 @@ class SettingsWindow:
         self._nb = nb
 
         self._build_basic(nb, cfg)
+        self._build_services(nb, cfg)
         self._build_advanced(nb, cfg)
         self._build_about(nb)
 
@@ -134,7 +136,7 @@ class SettingsWindow:
             win.attributes("-topmost", False)
 
     def _build_basic(self, nb, cfg: dict) -> None:
-        """基本分頁：介面語言、翻譯目標語言、API 設定、熱鍵、自動呼出輸入框。"""
+        """基本分頁：介面語言、翻譯目標語言、熱鍵、自動呼出輸入框。"""
         basic_scroll = ScrollableFrame(nb, padding=12)
         basic = basic_scroll.body
         nb.add(basic_scroll, text=t("settings.tab.basic"))
@@ -151,13 +153,8 @@ class SettingsWindow:
         self._help_translate_link = help_translate_link(basic)
         self._help_translate_link.pack(anchor="w", pady=(0, 10))
         ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
-        self._language = LanguageField(
-            basic, cfg["target_language"],
-            on_change=lambda: self._api.clear_test_result())
+        self._language = LanguageField(basic, cfg["target_language"])
         self._language.pack(fill="x", pady=(2, 10))
-        self._api = ApiFields(basic, cfg["api"])
-        self._api.pack(fill="x")
-        self._api.set_target_language_fn(lambda: self._language.value())
         ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
@@ -171,6 +168,14 @@ class SettingsWindow:
         self._paste_hotkey = tk.BooleanVar(value=cfg["paste_hotkey"])
         ttk.Checkbutton(basic, text=t("field.paste_hotkey"),
                         variable=self._paste_hotkey).pack(anchor="w", pady=(4, 0))
+
+    def _build_services(self, nb, cfg: dict) -> None:
+        """翻譯服務分頁：預設服務、用途分派與服務清單。"""
+        scroll = ScrollableFrame(nb, padding=12)
+        nb.add(scroll, text=t("settings.tab.services"))
+        self._services = ServicePane(scroll.body, cfg,
+                                     target_language_fn=lambda: self._language.value())
+        self._services.pack(fill="x")
 
     def _build_advanced(self, nb, cfg: dict) -> None:
         """進階分頁：數值參數、不透明度、系統訊息開關、遊戲路徑。"""
@@ -416,7 +421,7 @@ class SettingsWindow:
         """讀取表單目前的值（不含介面語言，儲存路徑另外處理），回傳（欄位值，進階數值的
         錯誤文案 key 或 None）；進階數值解析失敗時就不含那幾個鍵。"""
         values = {
-            "api": self._api.get_values(),
+            **self._services.values(),
             "target_language": self._language.value(),
             "hotkey": self._hotkey.value(),
             "region_hotkey": self._region_hotkey.value(),
@@ -482,7 +487,9 @@ class SettingsWindow:
     def _save(self) -> None:
         # 先整批解析再驗證：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         values, advanced_error = self._form_values()
-        errors = validate_service(self._api.active_values())
+        # 預設服務要存在且填得完整：手改壞掉的設定不該被原樣存回去
+        default = find(values, values["default_service"])
+        errors = ["error.need_service"] if default is None or validate_service(default) else []
         if values["hotkey"] == values["region_hotkey"]:
             errors.append("error.hotkeys_same")
         if not values["target_language"]:

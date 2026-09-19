@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.i18n import SOURCE_LANGUAGE, language_name, t
 from src.log import log
-from src.services import API_PROFILE_FIELDS, API_PROVIDERS, needs_base_url
+from src.services import SLOTS, find, normalize, validate_service
 
 
 def app_name() -> str:
@@ -32,14 +32,10 @@ def local_state_dir() -> Path:
 CONFIG_PATH = app_dir() / "config.json"
 
 
-def _default_api() -> dict:
-    return {"provider": API_PROVIDERS[0],
-            **{name: copy.deepcopy(fields)
-               for name, fields in API_PROFILE_FIELDS.items()}}
-
-
 DEFAULT_CONFIG: dict = {
-    "api": _default_api(),
+    "services": [],           # 使用者建立的翻譯服務；空＝尚未設定，啟動時進精靈
+    "default_service": None,  # 預設服務的 id；未指定用途的都跟著它走
+    "service_slots": {slot: None for slot in SLOTS},  # None＝跟隨預設
     "ui_language": None,     # 介面語言；None＝尚未選過，啟動時依系統語言自動判定
     # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文。首次啟動會被
     # bootstrap_language 換成系統語言，這裡只是舊設定檔缺欄位時的補值
@@ -97,46 +93,6 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
-def active_api(cfg: dict) -> dict:
-    """目前選用那家的 API 設定（扁平副本，額外帶 provider）。
-    翻譯端與表單驗證都經過這裡，不必知道其他家的設定也在同一個區塊裡。"""
-    api = cfg["api"]
-    return {"provider": api["provider"], **copy.deepcopy(api[api["provider"]])}
-
-
-_LEGACY_API_FIELDS = {key for fields in API_PROFILE_FIELDS.values() for key in fields}
-
-
-def _is_legacy_api(api: dict) -> bool:
-    """舊版的 api 區塊是扁平的：設定欄位與 provider 並排（新版全收在各服務商底下）。"""
-    return any(key in api for key in _LEGACY_API_FIELDS)
-
-
-def _migrate_api(api: dict) -> dict:
-    """把舊版扁平的 api 區塊整組搬進所屬服務商的子區塊（不屬於那家的欄位丟掉）。
-    再更舊、連 provider 欄位都沒有的設定一律視為自訂端點。"""
-    provider = api.get("provider", "custom")
-    fields = API_PROFILE_FIELDS.get(provider, {})
-    profile = {key: value for key, value in api.items() if key in fields}
-    log(f"[config] migrated flat api block into provider={provider} profile "
-        f"(fields={sorted(profile)})")
-    return {"provider": provider, provider: profile}
-
-
-def _prune_profiles(api: dict) -> list[str]:
-    """就地刪掉每家 profile 裡不屬於它的欄位，回傳刪掉的 `服務商.欄位` 清單。
-    欄位表變動過（如 Claude 從 thinking 改成 effort）時，舊檔會留下不再生效的欄位。"""
-    dropped = []
-    for provider, fields in API_PROFILE_FIELDS.items():
-        profile = api.get(provider)
-        if not isinstance(profile, dict):
-            continue
-        for key in [k for k in profile if k not in fields]:
-            del profile[key]
-            dropped.append(f"{provider}.{key}")
-    return dropped
-
-
 def load_config(path: Path) -> dict:
     """讀 config.json 並補齊缺漏欄位；檔案不存在或壞掉（手改少逗號）時回預設值。
     壞檔不覆寫：使用者的金鑰還在裡面，留給他自己修，只在 log 說明原因。"""
@@ -150,23 +106,12 @@ def load_config(path: Path) -> dict:
         log(f"[config] {path.name} is unreadable, using defaults (fix the file to "
             f"restore your settings): {exc}")
         return copy.deepcopy(DEFAULT_CONFIG)
-    legacy = isinstance(data.get("api"), dict) and _is_legacy_api(data["api"])
-    if legacy:
-        data["api"] = _migrate_api(data["api"])
     cfg = clamp_advanced(_merge(DEFAULT_CONFIG, data))
-    # 手改 config.json 打錯服務商名稱時 active_api 會 KeyError，先在這裡擋掉
-    if cfg["api"]["provider"] not in API_PROVIDERS:
-        log(f"[config] unknown provider {cfg['api']['provider']!r}; falling back to "
-            f"{DEFAULT_CONFIG['api']['provider']}")
-        cfg["api"]["provider"] = DEFAULT_CONFIG["api"]["provider"]
-    dropped = _prune_profiles(cfg["api"])
-    if dropped:
-        log(f"[config] dropped stale api fields ({', '.join(dropped)})")
-    if legacy or dropped:
+    if normalize(cfg):
         # 整理後立刻落地，手開 config.json 看到的就是生效的結構；寫不進去不擋啟動
         try:
             save_config(path, cfg)
-            log(f"[config] rewrote {path.name} in the per-provider format")
+            log(f"[config] rewrote {path.name} in the service list format")
         except OSError as exc:
             log(f"[config] could not rewrite {path.name}: {exc}")
     return cfg
@@ -178,10 +123,6 @@ def save_config(path: Path, cfg: dict) -> None:
 
 
 def is_configured(cfg: dict) -> bool:
-    """API 設定是否完整（不完整 → 啟動時進首次設定精靈）。"""
-    api = active_api(cfg)
-    if not api["model"]:
-        return False
-    if needs_base_url(api["provider"]):
-        return bool(api["base_url"])
-    return bool(api["api_key"])
+    """預設服務存在且設定完整（不完整 → 啟動時進首次設定精靈）。"""
+    service = find(cfg, cfg["default_service"])
+    return service is not None and not validate_service(service)

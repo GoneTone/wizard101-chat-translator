@@ -494,7 +494,7 @@ class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
     `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
-    services.API_PROFILE_FIELDS），呼叫端直接把 active_api(cfg) 展開進來，缺的欄位
+    services.API_PROFILE_FIELDS），呼叫端直接把 services.resolve(cfg, slot) 展開進來，缺的欄位
     由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
