@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 
 from src.i18n import t
+from src.log import log
 
 # 每家服務商有哪些欄位與預設值：官方端點的網址寫死在 translator，Claude 不吃 thinking
 # 開關而是 effort。這張表是服務商清單與欄位的單一真實來源。
@@ -137,3 +138,111 @@ def resolve(cfg: dict, slot: str) -> dict:
 def describe(service: dict) -> str:
     """服務卡片的副標：服務商短名與模型。"""
     return f"{PROVIDERS[service['provider']].short_name} · {service['model']}"
+
+
+_LEGACY_FLAT_FIELDS = {key for fields in API_PROFILE_FIELDS.values() for key in fields}
+# 遷移時判定「這家使用者填過東西」的欄位；三個都空就不留空殼。
+_FILLED_MARKERS = ("model", "api_key", "base_url")
+
+
+def _unflatten_legacy(api: dict) -> dict:
+    """最舊的 api 區塊是扁平的：設定欄位與 provider 並排。整組搬進所屬服務商的子區塊，
+    不屬於那家的欄位丟掉；連 provider 都沒有的一律視為自訂端點。"""
+    provider = api.get("provider", "custom")
+    fields = API_PROFILE_FIELDS.get(provider, {})
+    profile = {key: value for key, value in api.items() if key in fields}
+    log(f"[config] unflattened the legacy api block into provider={provider} "
+        f"(fields={sorted(profile)})")
+    return {"provider": provider, provider: profile}
+
+
+def _migrate_api_block(cfg: dict) -> bool:
+    """把舊的 api 區塊（扁平或 per-provider）換成服務清單，並移除該區塊。"""
+    api = cfg.pop("api", None)
+    if not isinstance(api, dict):
+        return False
+    if any(key in api for key in _LEGACY_FLAT_FIELDS):
+        api = _unflatten_legacy(api)
+    services: list[dict] = []
+    default_id = None
+    for provider in API_PROVIDERS:
+        profile = api.get(provider)
+        if not isinstance(profile, dict):
+            continue
+        if not any(str(profile.get(key, "")).strip() for key in _FILLED_MARKERS):
+            continue
+        service = new_service(provider, services)
+        service.update({key: value for key, value in profile.items()
+                        if key in API_PROFILE_FIELDS[provider]})
+        services.append(service)
+        if api.get("provider") == provider:
+            default_id = service["id"]
+    cfg["services"] = services
+    cfg["default_service"] = default_id or (services[0]["id"] if services else None)
+    log(f"[config] migrated the api block into {len(services)} service(s); "
+        f"default={cfg['default_service']}")
+    return True
+
+
+def _sanitize_services(cfg: dict) -> bool:
+    """逐筆補齊欄位、刪掉過期欄位、補上缺漏或重複的 id 與名稱。"""
+    before = cfg.get("services")
+    clean: list[dict] = []
+    for entry in before if isinstance(before, list) else []:
+        provider = entry.get("provider") if isinstance(entry, dict) else None
+        if provider not in API_PROFILE_FIELDS:
+            log(f"[config] dropped a service with unknown provider {provider!r}")
+            continue
+        service = {"id": str(entry.get("id") or ""),
+                   "name": str(entry.get("name") or ""),
+                   "provider": provider,
+                   **{key: entry.get(key, default)
+                      for key, default in API_PROFILE_FIELDS[provider].items()}}
+        stale = sorted(key for key in entry if key not in service)
+        if stale:
+            log(f"[config] dropped stale fields on a {provider} service: "
+                f"{', '.join(stale)}")
+        if not service["id"] or any(service["id"] == s["id"] for s in clean):
+            service["id"] = new_id(clean)
+            log(f"[config] regenerated a missing or duplicate service id "
+                f"-> {service['id']}")
+        if not service["name"]:
+            service["name"] = unique_name(PROVIDERS[provider].short_name, clean)
+        clean.append(service)
+    cfg["services"] = clean
+    return clean != before
+
+
+def _sanitize_pointers(cfg: dict) -> bool:
+    """讓 default_service 與三個插槽只指向存在的服務。"""
+    ids = {s["id"] for s in cfg["services"]}
+    changed = False
+    default = cfg.get("default_service")
+    wanted = default if default in ids else (
+        cfg["services"][0]["id"] if cfg["services"] else None)
+    if wanted != default:
+        log(f"[config] default_service {default!r} is unknown; using {wanted!r}")
+        cfg["default_service"] = wanted
+        changed = True
+    slots = cfg.get("service_slots")
+    slots = slots if isinstance(slots, dict) else {}
+    clean = {}
+    for slot in SLOTS:
+        value = slots.get(slot)
+        if value is not None and value not in ids:
+            log(f"[config] service_slots.{slot} points at unknown service {value!r}; "
+                f"following the default instead")
+            value = None
+        clean[slot] = value
+    if clean != slots:
+        changed = True
+    cfg["service_slots"] = clean
+    return changed
+
+
+def normalize(cfg: dict) -> bool:
+    """就地遷移舊格式、補齊欄位、清掉指不到的參照；回傳是否有變動。
+    有變動代表呼叫端該把整理後的結果寫回 config.json。"""
+    changed = _migrate_api_block(cfg)
+    changed = _sanitize_services(cfg) or changed
+    return _sanitize_pointers(cfg) or changed
