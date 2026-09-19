@@ -29,7 +29,7 @@ from src.ui.scrollable import ScrollableFrame
 from src.ui.service_form import ServiceForm
 
 STEP_LANG, STEP_API, STEP_PREFS = 0, 1, 2
-_STEP_KEYS = ["wizard.step.language", "wizard.step.api", "wizard.step.prefs"]
+_STEP_KEYS = ["wizard.step.language", "wizard.step.service", "wizard.step.prefs"]
 
 MIN_HEIGHT = 380  # 視窗高度下限：步驟內容可捲動，只需容得下步驟標題與導覽列
 

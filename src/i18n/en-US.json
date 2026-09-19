@@ -137,7 +137,7 @@
   "dialog.game_path_restart": "The game path takes effect the next time the app starts.",
   "wizard.title": "{app} — Setup",
   "wizard.step.language": "Interface language",
-  "wizard.step.api": "API settings",
+  "wizard.step.service": "Create a translation service",
   "wizard.step.prefs": "Preferences",
   "wizard.language_hint": "Choose the language this app uses.",
   "wizard.intro": "This tool translates Wizard101 chat in real time, and lets you type in your own language and send it to the game in English.\nPick a translation service, fill in the settings, then use Test connection to confirm it works (it really does translate a sample line).",
