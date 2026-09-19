@@ -11,6 +11,7 @@ from src.services import (
     EFFORT_AUTO,
     PROVIDERS,
     is_auto_name,
+    unique_name,
     validate_service,
 )
 from src.translation.translator import test_translate
@@ -31,12 +32,13 @@ from src.ui.richtext import RichLabel, ttk_background
 class ServiceForm(ttk.Frame):
     """一筆服務的編輯表單；`values()` 回傳可直接存進清單的服務 dict。"""
 
-    def __init__(self, parent, service: dict, on_change=None):
+    def __init__(self, parent, service: dict, services=(), on_change=None):
         super().__init__(parent)
         self._on_change = on_change
         self.test_passed = False
         self._id = service["id"]
         self._provider = service["provider"]
+        self._services = list(services)
         self._name_var = tk.StringVar(value=service.get("name", ""))
         self._api_key = tk.StringVar(value=service.get("api_key", ""))
         self._model = tk.StringVar(value=service.get("model", ""))
@@ -77,7 +79,8 @@ class ServiceForm(ttk.Frame):
         self._provider_label.configure(text=t(PROVIDERS[provider].label_key))
         # 名稱還是上一家的自動值就跟著換；使用者取過名字就不覆蓋
         if is_auto_name(self._name_var.get().strip(), PROVIDERS[previous].short_name):
-            self._name_var.set(PROVIDERS[provider].short_name)
+            self._name_var.set(unique_name(PROVIDERS[provider].short_name, self._services,
+                                           ignore_id=self._id))
         for var in (self._api_key, self._model, self._base_url, self._effort):
             var.set("")
         self._thinking.set(False)
@@ -91,7 +94,12 @@ class ServiceForm(ttk.Frame):
         self._target_language_fn = fn
 
     def _resolved_name(self) -> str:
-        return self._name_var.get().strip() or PROVIDERS[self._provider].short_name
+        name = self._name_var.get().strip()
+        if name:
+            return name
+        # 欄位空白時的落底名稱一樣要去重，理由與 set_provider 相同
+        return unique_name(PROVIDERS[self._provider].short_name, self._services,
+                           ignore_id=self._id)
 
     def _field_values(self) -> dict:
         values = {"api_key": self._api_key.get().strip(),

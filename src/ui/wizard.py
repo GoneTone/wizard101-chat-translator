@@ -177,7 +177,8 @@ class SetupWizard:
 
     def _build_service_form(self, draft: dict) -> None:
         """建立第二步的服務表單（選過服務商之後才有）。"""
-        self._service_form = ServiceForm(self._body, draft, on_change=self._on_api_change)
+        self._service_form = ServiceForm(self._body, draft, self._cfg["services"],
+                                         on_change=self._on_api_change)
 
     def _on_language_change(self, code: str) -> None:
         """語言一改就整個精靈重建：跨步驟保留的欄位元件已帶著舊語言的標籤，

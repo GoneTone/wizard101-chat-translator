@@ -91,6 +91,46 @@ def test_a_blank_name_falls_back_to_the_provider_short_name(blank):
     assert blank.values()["name"] == "ChatGPT"
 
 
+def test_switching_provider_dedupes_the_new_name_in_the_field(root):
+    # 撞名要在換服務商當下就補序號，欄位裡看到的必須是實際會存的名字
+    existing = new_service("claude", [])
+    form = ServiceForm(root, new_service("openai", [existing]), services=[existing])
+    form.set_provider("claude")
+    assert form._name_var.get() == "Claude (2)"
+    assert form.values()["name"] == "Claude (2)"
+
+
+def test_switching_provider_to_a_free_short_name_has_no_suffix(root):
+    other = new_service("custom", [])
+    form = ServiceForm(root, new_service("openai", [other]), services=[other])
+    form.set_provider("claude")
+    assert form.values()["name"] == "Claude"
+
+
+def test_editing_a_service_switching_away_and_back_keeps_its_bare_name(root):
+    # 回歸：這筆本來就叫 Claude，切到別家再切回來不能跟自己撞名變成「Claude (2)」
+    service = new_service("claude", [])
+    form = ServiceForm(root, service, services=[service])
+    form.set_provider("openai")
+    form.set_provider("claude")
+    assert form.values()["name"] == "Claude"
+
+
+def test_switching_provider_keeps_a_typed_name_even_with_a_collision(root):
+    existing = new_service("claude", [])
+    form = ServiceForm(root, new_service("openai", [existing]), services=[existing])
+    form.set_name("戰鬥用")
+    form.set_provider("claude")
+    assert form.values()["name"] == "戰鬥用"
+
+
+def test_blank_name_falls_back_to_the_deduped_short_name(root):
+    existing = new_service("claude", [])
+    form = ServiceForm(root, new_service("claude", [existing]), services=[existing])
+    form.set_name("   ")
+    assert form.values()["name"] == "Claude (2)"
+
+
 def test_switching_provider_does_not_carry_values_across(root):
     service = new_service("openai", [])
     service.update(model="gpt-x", api_key="sk-1")

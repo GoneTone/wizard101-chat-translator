@@ -41,7 +41,7 @@ class ServiceDialog:
         ttk.Button(buttons, text=t("button.ok"), command=self._ok).pack(
             side="right", padx=(0, 8))
 
-        self.form = ServiceForm(self.win, service)
+        self.form = ServiceForm(self.win, service, services=services)
         if target_language_fn is not None:
             self.form.set_target_language_fn(target_language_fn)
         self.form.pack(fill="both", expand=True, padx=12, pady=12)

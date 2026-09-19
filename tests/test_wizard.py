@@ -442,6 +442,26 @@ def test_language_change_does_not_let_the_rename_collide(root):
         i18n.set_language(before)
 
 
+def test_switching_provider_in_the_wizard_dedupes_against_cfg_services(root):
+    """精靈把 cfg["services"] 傳給表單：編輯中的服務切到 Claude，
+    要跟清單裡另一筆已經叫 Claude 的服務去重。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    existing_claude = new_service("claude", [])
+    openai_service = new_service("openai", [existing_claude])
+    cfg["services"] = [existing_claude, openai_service]
+    cfg["default_service"] = openai_service["id"]
+    wizard = _wizard_on_api_step(root, cfg)
+    assert wizard._service_form.values()["id"] == openai_service["id"]
+    wizard._service_form.set_provider("claude")
+    assert wizard._service_form.values()["name"] == "Claude (2)"
+    wizard._win.destroy()
+
+
 def _wizard_on_api_step(root, cfg):
     """停在 API 步驟的精靈（第二步的兩種樣態都從這裡看）。"""
     from src.ui.wizard import STEP_API, SetupWizard
