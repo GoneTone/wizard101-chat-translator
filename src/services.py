@@ -19,6 +19,10 @@ API_PROFILE_FIELDS: dict[str, dict] = {
 
 API_PROVIDERS = tuple(API_PROFILE_FIELDS)
 
+# 這一版認不得 provider 的服務搬去的頂層鍵。丟棄等於使用者跑過一次舊版就失去金鑰，
+# 而隔離區裡的東西日後由認得它的版本自動搬回 services。
+UNSUPPORTED_SERVICES = "unsupported_services"
+
 # Claude 的思考深度：auto＝不帶參數、由模型自行決定；low＝壓到最低。
 # Claude 沒有「完全不思考」這個選項，故意不與另兩家的 thinking 開關共用欄位名。
 EFFORT_AUTO = "auto"
@@ -197,25 +201,78 @@ def _profile_field(entry: dict, provider: str, key: str, default):
     """一個服務商欄位的取值：型別與預設值不同就退回預設。
     JSON 是使用者手改的，型別不檢查會讓後面的 `.strip()` 在開窗前把程式帶掉。"""
     value = entry.get(key, default)
-    if type(value) is not type(default):
+    # 預設值是 None 的欄位不做型別比對：None 對不上任何真值，會把整欄（含金鑰）清掉
+    if default is not None and type(value) is not type(default):
         log(f"[config] {provider} service field {key} has type "
             f"{type(value).__name__}; using the default")
         return default
     return value
 
 
+def _as_list(value) -> list:
+    """清單欄位的取值：型別不符一律當成空清單（手改的 config.json 什麼都可能塞）。"""
+    return value if isinstance(value, list) else []
+
+
+def _is_known(entry) -> bool:
+    """這一筆是不是這一版看得懂的服務（是 dict 且 provider 認得）。"""
+    provider = entry.get("provider") if isinstance(entry, dict) else None
+    return isinstance(provider, str) and provider in API_PROFILE_FIELDS
+
+
+def quarantined(cfg: dict) -> list:
+    """隔離區現有的內容；手改成 list 以外的型別時整個當成一筆 —— 一樣不替使用者刪。"""
+    parked = cfg.get(UNSUPPORTED_SERVICES)
+    if isinstance(parked, list):
+        return parked
+    return [] if parked is None else [parked]
+
+
+def _promote_known_services(cfg: dict) -> bool:
+    """隔離區裡這一版已經認得的服務搬回 services，接著照常過一次補值與去重。
+    新增服務商的版本靠這段自動接回使用者的設定，不必知道隔離區的存在。"""
+    parked = quarantined(cfg)
+    promoted = [entry for entry in parked if _is_known(entry)]
+    if not promoted:
+        return False
+    cfg[UNSUPPORTED_SERVICES] = [entry for entry in parked if not _is_known(entry)]
+    cfg["services"] = [*_as_list(cfg.get("services")), *promoted]
+    for entry in promoted:
+        log(f"[config] promoted a quarantined {entry['provider']} service back into the "
+            f"service list (has_key={bool(entry.get('api_key'))})")
+    return True
+
+
+def _quarantine_unknown_services(cfg: dict) -> bool:
+    """認不得 provider 的服務原樣搬進隔離區，一個欄位都不動 —— 這一版看不懂它，
+    也就沒資格改寫它。搬走之後 _sanitize_services 只會看到認得的服務。"""
+    services = _as_list(cfg.get("services"))
+    unknown = [entry for entry in services if not _is_known(entry)]
+    if not unknown:
+        return False
+    cfg["services"] = [entry for entry in services if _is_known(entry)]
+    cfg[UNSUPPORTED_SERVICES] = [*quarantined(cfg), *unknown]
+    for entry in unknown:
+        provider = entry.get("provider") if isinstance(entry, dict) else None
+        # 形狀讀不懂的那些沒有任何一版認得，log 不能拿「日後會搬回來」誤導使用者
+        if isinstance(provider, str):
+            log(f"[config] quarantined a service with unknown provider {provider!r} into "
+                f"{UNSUPPORTED_SERVICES} (has_key={bool(entry.get('api_key'))}); a build "
+                f"that supports it will restore it")
+        else:
+            log(f"[config] quarantined an entry this build cannot read into "
+                f"{UNSUPPORTED_SERVICES} (type={type(entry).__name__}); it is kept "
+                f"verbatim, nothing will restore it, delete it yourself if it is junk")
+    return True
+
+
 def _sanitize_services(cfg: dict) -> bool:
-    """逐筆補齊欄位、刪掉過期欄位、補上缺漏或重複的 id 與名稱。"""
+    """逐筆補齊欄位、刪掉過期欄位、補上缺漏或重複的 id 與名稱。
+    認不得 provider 的服務已由 _quarantine_unknown_services 先搬走。"""
     before = cfg.get("services")
     clean: list[dict] = []
     for entry in before if isinstance(before, list) else []:
-        provider = entry.get("provider") if isinstance(entry, dict) else None
-        if not isinstance(provider, str) or provider not in API_PROFILE_FIELDS:
-            # 已知的降版資料遺失路徑：日後版本新增的服務商，被這一版讀過就連金鑰一起消失
-            has_key = isinstance(entry, dict) and bool(entry.get("api_key"))
-            log(f"[config] discarded a service with unknown provider {provider!r} "
-                f"(has_key={has_key}); its settings are gone from config.json")
-            continue
+        provider = entry["provider"]
         service = {"id": _text(entry.get("id")),
                    "name": _text(entry.get("name")),
                    "provider": provider,
@@ -271,5 +328,7 @@ def normalize(cfg: dict) -> bool:
     """就地遷移舊格式、補齊欄位、清掉指不到的參照；回傳是否有變動。
     有變動代表呼叫端該把整理後的結果寫回 config.json。"""
     changed = _migrate_api_block(cfg)
+    changed = _promote_known_services(cfg) or changed
+    changed = _quarantine_unknown_services(cfg) or changed
     changed = _sanitize_services(cfg) or changed
     return _sanitize_pointers(cfg) or changed

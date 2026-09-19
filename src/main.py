@@ -41,7 +41,15 @@ from src.reader.message_log import MessageLog
 from src.reader.process import is_game_process_path
 from src.region.pipeline import RegionPipeline
 from src.resources import icon_path
-from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, find, resolve
+from src.services import (
+    SLOT_INCOMING,
+    SLOT_OUTGOING,
+    SLOT_REGION,
+    SLOTS,
+    find,
+    quarantined,
+    resolve,
+)
 from src.translation.cache import (
     TranslationCache,
     fingerprint_of,
@@ -303,6 +311,8 @@ def redirect_output() -> None:
 def config_summary(cfg: dict) -> str:
     """一行設定摘要（啟動與套用設定時記錄，兩處同一份才不會漏欄位）；金鑰絕不列入。"""
     fields = [f"services={len(cfg['services'])}",
+              # 隔離筆數：使用者回報「服務不見了」時，這一格就是答案
+              f"quarantined={len(quarantined(cfg))}",
               f"default={_service_summary(find(cfg, cfg['default_service']))}"]
     fields += [f"{slot}=" + (_service_summary(find(cfg, cfg['service_slots'][slot]))
                              if cfg["service_slots"][slot] else "default")

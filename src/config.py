@@ -7,7 +7,7 @@ from pathlib import Path
 
 from src.i18n import SOURCE_LANGUAGE, language_name, t
 from src.log import log
-from src.services import SLOTS, find, normalize, validate_service
+from src.services import SLOTS, UNSUPPORTED_SERVICES, find, normalize, validate_service
 
 
 def app_name() -> str:
@@ -36,6 +36,8 @@ DEFAULT_CONFIG: dict = {
     "services": [],           # 使用者建立的翻譯服務；空＝尚未設定，啟動時進精靈
     "default_service": None,  # 預設服務的 id；未指定用途的都跟著它走
     "service_slots": {slot: None for slot in SLOTS},  # None＝跟隨預設
+    # 這一版認不得 provider 的服務暫放於此（原樣保留，含金鑰）；日後認得它的版本會自動搬回 services
+    UNSUPPORTED_SERVICES: [],
     "ui_language": None,     # 介面語言；None＝尚未選過，啟動時依系統語言自動判定
     # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文。首次啟動會被
     # bootstrap_language 換成系統語言，這裡只是舊設定檔缺欄位時的補值

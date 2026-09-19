@@ -13,6 +13,7 @@ from src.config import (
     local_state_dir,
     save_config,
 )
+from src.services import UNSUPPORTED_SERVICES
 from tests.config_helpers import configured_cfg
 
 
@@ -67,6 +68,22 @@ def test_legacy_api_block_is_migrated_and_rewritten(tmp_path):
     on_disk = json.loads(p.read_text(encoding="utf-8"))
     assert "api" not in on_disk
     assert on_disk["services"][0]["api_key"] == "sk-ant-1"
+
+
+def test_an_unsupported_service_survives_the_rewrite_and_a_roundtrip(tmp_path):
+    """這一版認不得的服務原樣留在檔案裡：跑過一次不該少掉任何欄位，金鑰尤其不能掉。"""
+    p = tmp_path / "config.json"
+    entry = {"id": "cccccccc", "name": "Future", "provider": "gemini",
+             "model": "g-2", "api_key": "sk-REAL-USER-KEY", "quirk": True}
+    p.write_text(json.dumps({"services": [copy.deepcopy(entry)]}), encoding="utf-8")
+
+    cfg = load_config(p)
+    assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == [entry]
+    assert json.loads(p.read_text(encoding="utf-8"))[UNSUPPORTED_SERVICES] == [entry]
+
+    save_config(p, cfg)
+    assert load_config(p)[UNSUPPORTED_SERVICES] == [entry]
 
 
 def test_load_does_not_rewrite_a_current_file(tmp_path, monkeypatch):

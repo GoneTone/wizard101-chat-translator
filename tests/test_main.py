@@ -17,6 +17,8 @@ def test_config_summary_lists_every_slot_and_never_leaks_the_key():
     assert "sk-secret" not in summary
     assert "has_key=True" in summary
     assert "incoming=default" in summary and "region=default" in summary
+    # 隔離筆數：不帶內容，但「服務不見了」的回報要看得出有沒有東西被隔離
+    assert "quarantined=0" in summary
     # 每個使用者可調的設定都要在摘要裡，回報問題時才不必追問
     for key in ("target_language", "hotkey", "region_hotkey",
                 "paste_hotkey", "auto_show_input", "poll_interval", "fade_seconds",
@@ -79,12 +81,13 @@ def test_main_py_updates_splash_with_the_starting_phase_constant():
 
 
 class _FakePool:
-    """翻譯池替身：真的那個會開 worker 執行緒，這裡只記下接到哪個翻譯器。"""
+    """翻譯池替身：真的那個會開 worker 執行緒，這裡只記下接到哪個翻譯器與翻譯函式。"""
 
     def __init__(self, translator, on_result, workers, failed_notice_fn,
                  translate_fn=None, gate=None):
         self.translator = translator
         self.workers = workers
+        self.translate_fn = translate_fn
 
     def resize(self, workers: int) -> None:
         self.workers = workers
@@ -142,6 +145,28 @@ def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkey
     assert [p.translator for p in pools] == [translators[SLOT_INCOMING]] * 2
     assert cache.fingerprint == fingerprint_of("openai", "incoming-model",
                                                cfg["target_language"])
+
+
+def test_the_system_pool_translates_through_the_incoming_service(monkeypatch):
+    """系統訊息那條池自帶翻譯函式（走快取），它接的必須是收訊那格 —— 這個 closure
+    改成別格一樣跑得完，只有在這裡釘住才看得出來。"""
+    from src.services import SLOT_INCOMING
+
+    _stub_translation(monkeypatch)
+    used = []
+
+    def _record(translator, cache, text):
+        used.append(translator)
+        return "translated"
+
+    monkeypatch.setattr(main, "translate_and_cache", _record)
+    cfg = _three_slot_cfg()
+    translators, _cache, pools = main.build_translation(cfg, lambda *a: None)
+    player_pool, system_pool = pools
+
+    assert player_pool.translate_fn is None   # 玩家對話走池內建的翻譯（吃上下文）
+    assert system_pool.translate_fn("hi", None) == "translated"
+    assert used == [translators[SLOT_INCOMING]]
 
 
 def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monkeypatch):

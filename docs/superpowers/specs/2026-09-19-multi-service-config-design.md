@@ -63,6 +63,7 @@
 - `service_slots` 的 `null` ＝跟隨預設。
 - 預設值：`services: []`、`default_service: null`、三格全 `null`（等同現在三家都空白的
   初始狀態，`is_configured()` 為 False 時照舊進首次設定精靈）。
+- `unsupported_services`：這一版認不得 `provider` 的服務暫放處，預設 `[]`（見「校驗」）。
 
 ### 模組配置
 
@@ -120,7 +121,16 @@
 
 手改 config.json 的防線，每條都留 log：
 
-- 認不得的 `provider` → 整筆丟棄。
+- 認不得的 `provider` → 整筆原樣搬進頂層的 `unsupported_services`，不丟棄、也不改寫任何欄位
+  （含金鑰）。丟棄等於使用者拿這一版讀過一次帶有新服務商的設定，那幾筆就永久消失。
+- 整筆不是物件（手改貼歪的裸字串等），或缺 `provider`／`provider` 不是字串 → 同樣搬進
+  `unsupported_services`。裸字串正是最可能夾帶金鑰的手改形狀，讀不懂也不代表可以刪；
+  但沒有任何一版認得它，log 要明說不會自動還原。`unsupported_services` 本身被手改成
+  list 以外的型別時，原值包成一筆留在隔離區，不被新搬進來的蓋掉。
+- `unsupported_services` 裡 `provider` 這一版認得的 → 搬回 `services`，接著照常補值與去重。
+  先寫好這個方向，日後新增服務商的版本才會自動接回使用者的設定，不必知道隔離區的存在。
+  被隔離的服務不在 `services` 裡，`resolve()`／`validate_service()`／`describe()` 與設定
+  視窗都看不到它，`default_service` 與三格也就指不到（指到了會照下面兩條退回）。
 - 缺欄位 → 依 `API_PROFILE_FIELDS` 補預設；多餘欄位 → 刪除。
 - 重複或缺少的 `id` → 重新產生。
 - 重複或缺少的 `name` → 補序號（同 `unique_name`）。分派下拉只顯示名稱，且是靠名稱換回 `id`，
@@ -272,7 +282,7 @@ for slot, tr in translators.items():
 - **遷移三段串接**：直接餵最舊的扁平格式，斷言一路走到新 schema 且金鑰沒掉。
 - **遷移的取捨**：三家都空 → 空清單；只填過一家 → 單筆且為預設；填過兩家但選中的是另一家
   → 兩筆、預設是原本選中那家。
-- **校驗防線**逐條：認不得的 provider 丟棄、重複 id 重生、`default_service` 失效退第一筆、
+- **校驗防線**逐條：認不得的 provider 隔離與搬回、重複 id 重生、`default_service` 失效退第一筆、
   slot 失效退 `null`。
 - **`resolve()`**：`null` 取到預設、指定則取該筆、回傳是副本（改它不回頭污染 cfg）。
 - **名稱去重**：`ChatGPT` → `ChatGPT (2)` → `ChatGPT (3)`；清空名稱退回自動值。

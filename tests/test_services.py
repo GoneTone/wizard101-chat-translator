@@ -1,4 +1,6 @@
 """翻譯服務資料層測試。"""
+import copy
+
 from src import i18n
 from src.config import is_configured
 from src.services import (
@@ -9,6 +11,7 @@ from src.services import (
     SLOT_OUTGOING,
     SLOT_REGION,
     SLOTS,
+    UNSUPPORTED_SERVICES,
     describe,
     find,
     needs_base_url,
@@ -221,12 +224,68 @@ def test_a_leftover_api_block_does_not_wipe_an_existing_service_list():
     assert cfg["default_service"] == cfg["services"][0]["id"]
 
 
-def test_drops_a_service_with_an_unknown_provider():
+def test_quarantines_a_service_with_an_unknown_provider():
+    """日後版本新增的服務商被這一版讀到時不能連金鑰一起消失，整筆原樣搬進隔離區。"""
     cfg = _empty_section()
-    cfg["services"] = [{"id": "aaaaaaaa", "name": "X", "provider": "gemini",
-                        "model": "g"}]
+    entry = {"id": "aaaaaaaa", "name": "X", "provider": "gemini", "model": "g",
+             "api_key": "sk-REAL-USER-KEY", "quirk": 1}
+    cfg["services"] = [entry]
     assert normalize(cfg) is True
     assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == [copy.deepcopy(entry)]
+    assert cfg["default_service"] is None
+
+
+def test_a_quarantined_service_is_never_pointed_at():
+    """認得的那筆不受影響，預設與插槽都不會留在被隔離的 id 上。"""
+    cfg = _empty_section()
+    known = new_service("openai", [])
+    known.update(model="m", api_key="k")
+    unknown = {"id": "bbbbbbbb", "name": "Future", "provider": "gemini",
+               "api_key": "sk-2"}
+    cfg["services"] = [known, unknown]
+    cfg["default_service"] = "bbbbbbbb"
+    cfg["service_slots"] = {SLOT_INCOMING: "bbbbbbbb", SLOT_OUTGOING: None,
+                            SLOT_REGION: None}
+    assert normalize(cfg) is True
+    assert cfg["services"] == [known]
+    assert cfg[UNSUPPORTED_SERVICES] == [copy.deepcopy(unknown)]
+    assert cfg["default_service"] == known["id"]
+    assert cfg["service_slots"] == {slot: None for slot in SLOTS}
+
+
+def test_a_hand_edited_quarantine_key_keeps_what_was_already_there():
+    """隔離區被手改成 list 以外的東西時，原值要變成隔離區裡的一筆 —— 最可能的形狀是
+    貼歪的裸金鑰字串，蓋掉它等於做了這次改動要杜絕的事。"""
+    cfg = _empty_section()
+    cfg[UNSUPPORTED_SERVICES] = "sk-PASTED-IN-THE-WRONG-PLACE"
+    cfg["services"] = ["sk-ANOTHER-STRAY-KEY"]
+    assert normalize(cfg) is True
+    assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == ["sk-PASTED-IN-THE-WRONG-PLACE",
+                                         "sk-ANOTHER-STRAY-KEY"]
+
+
+def test_a_quarantined_service_returns_once_its_provider_is_known():
+    """認得那家服務商的版本要自動把它搬回清單，並照常補值與去重。"""
+    cfg = _empty_section()
+    cfg["services"] = [new_service("openai", [])]
+    cfg[UNSUPPORTED_SERVICES] = [{"provider": "openai", "name": "ChatGPT",
+                                  "api_key": "sk-3"}]
+    assert normalize(cfg) is True
+    assert cfg[UNSUPPORTED_SERVICES] == []
+    restored = cfg["services"][1]
+    assert restored["api_key"] == "sk-3"
+    assert restored["model"] == ""
+    assert restored["id"] and restored["id"] != cfg["services"][0]["id"]
+    assert restored["name"] == "ChatGPT (2)"
+
+
+def test_a_field_whose_default_is_none_keeps_the_real_value():
+    """預設值若是 None，型別比對會把每個真值（含金鑰）判成型別不符整欄清掉。"""
+    from src.services import _profile_field
+
+    assert _profile_field({"api_key": "sk-1"}, "openai", "api_key", None) == "sk-1"
 
 
 def test_fills_missing_fields_and_drops_stale_ones():
