@@ -162,6 +162,7 @@ def test_migrates_the_flat_legacy_api_block():
     assert service["provider"] == "custom"
     assert service["base_url"] == "http://127.0.0.1:8000"
     assert service["model"] == "gemma"
+    assert service["api_key"] == "sk-1"
     assert cfg["default_service"] == service["id"]
 
 
@@ -175,6 +176,7 @@ def test_migrates_the_per_provider_api_block_keeping_every_filled_provider():
     assert normalize(cfg) is True
     assert [s["provider"] for s in cfg["services"]] == ["openai", "claude"]
     assert [s["name"] for s in cfg["services"]] == ["ChatGPT", "Claude"]
+    assert [s["api_key"] for s in cfg["services"]] == ["sk-1", "sk-ant"]
     # 原本選中的那家成為預設，沒填過的自訂端點不留空殼
     assert find(cfg, cfg["default_service"])["provider"] == "claude"
 
@@ -189,6 +191,24 @@ def test_migration_of_an_untouched_config_leaves_an_empty_list():
     normalize(cfg)
     assert cfg["services"] == []
     assert cfg["default_service"] is None
+
+
+def test_a_leftover_api_block_does_not_wipe_an_existing_service_list():
+    # 舊版 exe 可能寫回一份同時帶 services 與空 api 區塊的 config；不能讓 api 蓋掉金鑰。
+    cfg = _empty_section()
+    cfg["services"] = [new_service("claude", [])]
+    cfg["services"][0].update(model="claude-x", api_key="sk-ant-REAL-USER-KEY")
+    cfg["default_service"] = cfg["services"][0]["id"]
+    cfg["api"] = {"provider": "openai",
+                  "openai": {"model": "", "api_key": "", "thinking": False},
+                  "claude": {"model": "", "api_key": "", "effort": "auto"},
+                  "custom": {"base_url": "", "model": "", "api_key": "",
+                             "thinking": False}}
+    assert normalize(cfg) is True
+    assert "api" not in cfg
+    assert len(cfg["services"]) == 1
+    assert cfg["services"][0]["api_key"] == "sk-ant-REAL-USER-KEY"
+    assert cfg["default_service"] == cfg["services"][0]["id"]
 
 
 def test_drops_a_service_with_an_unknown_provider():
@@ -241,6 +261,6 @@ def test_a_tidy_config_reports_no_change():
     cfg = _empty_section()
     cfg["services"] = [new_service("openai", [])]
     cfg["services"][0].update(model="m", api_key="k")
-    cfg["default_service"] = cfg["services"][0]["id"]
-    normalize(cfg)
+    cfg["default_service"] = "nope"
+    assert normalize(cfg) is True
     assert normalize(cfg) is False

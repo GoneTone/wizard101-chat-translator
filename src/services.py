@@ -161,6 +161,9 @@ def _migrate_api_block(cfg: dict) -> bool:
     api = cfg.pop("api", None)
     if not isinstance(api, dict):
         return False
+    if isinstance(cfg.get("services"), list) and cfg["services"]:
+        log("[config] dropped a leftover api block; the service list already exists")
+        return True
     if any(key in api for key in _LEGACY_FLAT_FIELDS):
         api = _unflatten_legacy(api)
     services: list[dict] = []
@@ -169,7 +172,8 @@ def _migrate_api_block(cfg: dict) -> bool:
         profile = api.get(provider)
         if not isinstance(profile, dict):
             continue
-        if not any(str(profile.get(key, "")).strip() for key in _FILLED_MARKERS):
+        if not any(isinstance(profile.get(key), str) and profile.get(key).strip()
+                   for key in _FILLED_MARKERS):
             continue
         service = new_service(provider, services)
         service.update({key: value for key, value in profile.items()
