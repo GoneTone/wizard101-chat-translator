@@ -128,6 +128,7 @@
   "button.edit": "Edit",
   "button.delete": "Delete",
   "button.ok": "OK",
+  "button.manage": "Manage",
   "error.advanced_not_number": "Advanced values must be numbers.",
   "error.need_target_language": "Select or enter a target language.",
   "dialog.incomplete_title": "Incomplete settings",

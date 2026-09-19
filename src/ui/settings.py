@@ -123,6 +123,8 @@ class SettingsWindow:
         self._build_services(nb, cfg)
         self._build_advanced(nb, cfg)
         self._build_about(nb)
+        self._refresh_service_summary()
+        nb.bind("<<NotebookTabChanged>>", lambda e: self._refresh_service_summary())
 
         if self._restore_tab is not None:
             nb.select(self._restore_tab)
@@ -155,6 +157,16 @@ class SettingsWindow:
         ttk.Label(basic, text=t("settings.target_language")).pack(anchor="w")
         self._language = LanguageField(basic, cfg["target_language"])
         self._language.pack(fill="x", pady=(2, 10))
+        # 服務清單在「翻譯服務」分頁建立，此時還不存在：先擺空標籤，open() 全部分頁
+        # 建完後才填值（見 _refresh_service_summary）。
+        ttk.Label(basic, text=t("settings.tab.services")).pack(anchor="w", pady=(12, 0))
+        service_row = ttk.Frame(basic)
+        service_row.pack(fill="x", pady=(2, 10))
+        self._service_summary = ttk.Label(service_row, text="")
+        self._service_summary.pack(side="left")
+        self._manage_service_btn = ttk.Button(
+            service_row, text=t("button.manage"), command=self._select_services_tab)
+        self._manage_service_btn.pack(side="right")
         ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
@@ -173,9 +185,20 @@ class SettingsWindow:
         """翻譯服務分頁：預設服務、用途分派與服務清單。"""
         scroll = ScrollableFrame(nb, padding=12)
         nb.add(scroll, text=t("settings.tab.services"))
+        self._services_tab = scroll   # 基本分頁的〔管理〕按鈕要切過來的分頁
         self._services = ServicePane(scroll.body, cfg,
                                      target_language_fn=lambda: self._language.value())
         self._services.pack(fill="x")
+
+    def _select_services_tab(self) -> None:
+        self._nb.select(self._services_tab)
+
+    def _refresh_service_summary(self) -> None:
+        """基本分頁的服務摘要讀 draft（未儲存的編輯也在內），切回分頁時才看得到
+        剛在「翻譯服務」分頁選的新預設。"""
+        values = self._services.values()
+        default = find(values, values["default_service"])
+        self._service_summary.configure(text=default["name"] if default else "—")
 
     def _build_advanced(self, nb, cfg: dict) -> None:
         """進階分頁：數值參數、不透明度、系統訊息開關、遊戲路徑。"""

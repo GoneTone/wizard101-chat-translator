@@ -128,6 +128,7 @@
   "button.edit": "編輯",
   "button.delete": "刪除",
   "button.ok": "確定",
+  "button.manage": "管理",
   "error.advanced_not_number": "進階數值格式錯誤，請輸入數字",
   "error.need_target_language": "請選擇或輸入翻譯目標語言",
   "dialog.incomplete_title": "設定不完整",

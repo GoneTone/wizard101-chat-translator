@@ -235,6 +235,50 @@ def test_both_language_fields_come_before_the_hotkeys(root):
     win._win.destroy()
 
 
+def test_service_summary_row_sits_between_target_language_and_hotkey_label(root):
+    from tkinter import ttk
+
+    from src.i18n import t
+
+    win = _open_settings(root)
+    slaves = win._ui_language.master.pack_slaves()
+    target_at = slaves.index(win._language)
+    hotkey_label_at = next(i for i, w in enumerate(slaves)
+                           if isinstance(w, ttk.Label) and w.cget("text") == t("settings.hotkey"))
+    summary_row_at = slaves.index(win._service_summary.master)
+    assert target_at < summary_row_at < hotkey_label_at, (
+        f"版面順序不對：{[str(w) for w in slaves]}")
+    win._win.destroy()
+
+
+def test_manage_button_selects_the_services_tab(root):
+    win = _open_settings(root)
+    win._manage_service_btn.invoke()
+    assert win._nb.index("current") == win._nb.index(win._services_tab)
+    win._win.destroy()
+
+
+def test_service_summary_shows_the_draft_default_service_name(root):
+    win = _open_settings(root)
+    expected = win._services.values()["services"][0]["name"]
+    assert win._service_summary.cget("text") == expected
+    win._win.destroy()
+
+
+def test_service_summary_refreshes_when_the_default_changes_and_tabs_switch(root):
+    from src.services import new_service
+
+    win = _open_settings(root)
+    added = new_service("openai", win._services.values()["services"])
+    added.update(model="gpt-x", api_key="sk-1")
+    win._services.apply_dialog_result(added)
+    win._services._default_shown.set(added["name"])
+    win._services._default_combo.event_generate("<<ComboboxSelected>>")
+    win._nb.event_generate("<<NotebookTabChanged>>")
+    assert win._service_summary.cget("text") == added["name"]
+    win._win.destroy()
+
+
 def test_changing_ui_language_previews_it_without_touching_config(root):
     # 切換介面語言＝預覽：設定視窗以新語言重建、常駐介面跟著換，但 cfg 尚未寫入
     from src import i18n
