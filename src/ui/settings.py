@@ -166,7 +166,7 @@ class SettingsWindow:
         self._service_summary.pack(side="left")
         self._manage_service_btn = ttk.Button(
             service_row, text=t("button.manage"), command=self._select_services_tab)
-        self._manage_service_btn.pack(side="right")
+        self._manage_service_btn.pack(side="left", padx=8)
         ttk.Label(basic, text=t("settings.hotkey")).pack(anchor="w", pady=(12, 0))
         self._hotkey = HotkeyField(basic, cfg["hotkey"])
         self._hotkey.pack(anchor="w", pady=(2, 0))
