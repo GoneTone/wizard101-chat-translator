@@ -52,7 +52,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 ## How to Use
 
 1. Double-click the exe:
-   - When the **translation provider is not set up yet** (first launch, or `config.json` is missing the model, the API key or the self-hosted server URL) a **setup wizard** appears: step 1 picks the UI language, step 2 picks the translation provider, fills in the API key and tests the connection, step 3 picks the target language, the hotkey and whether the translation input box pops up automatically. Once saved, the main flow starts automatically.
+   - When the **translation provider is not set up yet** (first launch, or `config.json` is missing the model, the API key or the self-hosted server URL) a **setup wizard** appears: step 1 picks the UI language, step 2 creates your first translation service, fills in the API key and tests the connection, step 3 picks the target language, the hotkey and whether the translation input box pops up automatically. Once saved, the main flow starts automatically.
    - Once the provider is set up, every later launch goes straight to the main flow — no wizard. The UI language can still be changed at any time in the settings window (gear ⚙); saving applies it immediately, with no restart.
 2. Start Wizard101 and **log in, all the way into the game world** — only then can the overlay read chat.
 3. A chat message appears → the overlay shows **the original plus the translation** in your target language (newest at the bottom, scroll up for history; by default nothing fades away on a timer, and at most 200 messages are kept with the oldest dropped beyond that; both can be changed on the *Advanced* tab of the settings).
@@ -82,7 +82,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **No misread characters, no missed messages**: the game's chat content is read directly rather than recognized off the screen, and both other people's lines and your own are covered
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
-- **Pick the AI you want**: OpenAI (ChatGPT), Anthropic (Claude), or your own OpenAI-compatible service; each keeps its own settings, so switching back and forth never makes you retype a key
+- **Pick the AI you want**: OpenAI (ChatGPT), Anthropic (Claude), or your own OpenAI-compatible service — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and region translation each free to use a different one
 - **System messages, if you want them**: loot, XP, level-up broadcasts and the like are not translated by default — turn them on in the settings when you need them
 - **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble when you are not reading it; position and size are remembered and it comes back in the same place next time
 - **Copy anything worth keeping**: drag over the messages to select text, across several messages, then `Ctrl+C` or right-click to copy
@@ -115,7 +115,7 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 
 ![A box drawn around an in-game tip, with the translation card next to it](docs/images/4.png)
 
-The settings window: provider, API key, target language and hotkey, all applied without a restart:
+The settings window: translation services, target language and hotkey, all applied without a restart:
 
 ![The settings window on its Basic tab](docs/images/5.png)
 
