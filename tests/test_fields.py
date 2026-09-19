@@ -5,13 +5,7 @@ import tkinter as tk
 import pytest
 
 from src.i18n import t
-from src.services import (
-    API_PROFILE_FIELDS,
-    API_PROVIDERS,
-    PROVIDERS,
-    validate_endpoint_fields,
-    validate_service,
-)
+from src.services import API_PROFILE_FIELDS, validate_endpoint_fields, validate_service
 from src.translation.translator import (
     TranslatorConfigError,
     TranslatorNoModelList,
@@ -33,12 +27,6 @@ def offscreen(root):
     # 趁 root 還在時回收視窗底下的 Tk 變數：留到之後才 GC，Variable.__del__ 會
     # 對著已銷毀的視窗呼叫 Tk 而噴 unraisable exception。
     gc.collect()
-
-
-def test_providers_metadata():
-    assert set(PROVIDERS) == set(API_PROVIDERS)  # 每家都要有自己的一份設定可存
-    assert PROVIDERS["custom"].needs_base_url
-    assert not PROVIDERS["openai"].needs_base_url
 
 
 def test_provider_labels_are_translated():

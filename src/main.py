@@ -404,6 +404,19 @@ def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], Transl
     return translators, cache, [pool, system_pool]
 
 
+def reconfigure_translation(cfg: dict, translators: dict[str, Translator],
+                            cache: TranslationCache, pools: list[TranslationPool]) -> None:
+    """設定存檔後讓翻譯端跟上新設定（build_translation 的對應面）。"""
+    for slot, tr in translators.items():
+        tr.reconfigure(**resolve(cfg, slot), target_language=cfg["target_language"])
+    for p in pools:
+        p.resize(cfg["max_parallel_translations"])
+    # 收訊的服務商／模型／目標語言任一改變，舊譯文即失效；只改區域翻譯那格不該波及它
+    incoming = resolve(cfg, SLOT_INCOMING)
+    cache.rebind(fingerprint_of(incoming["provider"], incoming["model"],
+                                cfg["target_language"]))
+
+
 def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     """建構並接線所有元件（翻譯器與快取、overlay、翻譯池、輸入框與熱鍵、設定視窗），
     啟動 reader 執行緒與更新檢查。"""
@@ -469,15 +482,7 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     def apply_settings() -> None:
         nonlocal hotkey_handle, region_handle, ui_language
         save_config(CONFIG_PATH, cfg)
-        for slot, tr in translators.items():
-            tr.reconfigure(**resolve(cfg, slot),
-                           target_language=cfg["target_language"])
-        for p in pools:
-            p.resize(cfg["max_parallel_translations"])
-        # 收訊的服務商／模型／目標語言任一改變，舊譯文即失效
-        incoming = resolve(cfg, SLOT_INCOMING)
-        cache.rebind(fingerprint_of(incoming["provider"], incoming["model"],
-                                    cfg["target_language"]))
+        reconfigure_translation(cfg, translators, cache, pools)
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle, cfg["hotkey"] = register_hotkey(
             cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))

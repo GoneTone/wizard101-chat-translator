@@ -384,3 +384,31 @@ def test_finish_rejects_identical_hotkeys(root, monkeypatch):
     assert warnings == [t("error.hotkeys_same")]
     assert cfg["region_hotkey"] == "ctrl+shift+space"
     wizard._win.destroy()
+
+
+def test_language_change_does_not_let_the_rename_collide(root):
+    """自動改名同樣要去重：清單裡已經有一筆叫新語言短名的服務時，改名不能撞上它 ——
+    分派下拉只顯示名稱，同名的兩筆會讓使用者選到另一家。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        edited = new_service("custom", [])          # 名稱＝zh-TW 的自訂端點短名
+        i18n.set_language("en-US")
+        other = new_service("custom", [])           # 名稱＝en-US 的自訂端點短名
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        cfg["services"] = [edited, other]
+        cfg["default_service"] = edited["id"]
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        names = [s["name"] for s in cfg["services"]]
+        assert names == [f"{other['name']} (2)", other["name"]]
+    finally:
+        i18n.set_language(before)

@@ -203,7 +203,8 @@ def test_save_writes_the_edited_service_list_into_cfg(root):
 
 
 def test_save_refuses_an_incomplete_default_service(root, monkeypatch):
-    # 手改 config.json 把預設服務的金鑰清空：儲存要擋下來，不能把壞掉的設定原樣存回去
+    # 手改 config.json 把預設服務的金鑰清空：儲存要擋下來，而且要指出缺的是哪一欄
+    # （清單裡明明有一組服務，報「請先新增一組翻譯服務」只會讓人找不到問題）
     from src.i18n import t
     from src.ui import settings as settings_module
     from src.ui.settings import SettingsWindow
@@ -218,7 +219,7 @@ def test_save_refuses_an_incomplete_default_service(root, monkeypatch):
     win.open()
     win._save()
     assert saved == []
-    assert warnings == [t("error.need_service")]
+    assert warnings == [t("error.need_api_key")]
     win._win.destroy()
 
 
@@ -776,3 +777,27 @@ def test_save_rejects_identical_hotkeys(root, monkeypatch):
     assert t("error.hotkeys_same") in warnings[0]
     assert cfg["region_hotkey"] == "ctrl+shift+space"
     win._win.destroy()
+
+
+def test_language_preview_keeps_a_half_added_service(root):
+    """回歸：在服務分頁加了一筆還沒儲存，就回基本分頁換介面語言 —— 設定視窗會整個
+    重建，重建出來的清單必須還帶著那一筆（精靈那條路有對應的回歸測試）。"""
+    from src import i18n
+    from src.services import new_service
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        win = _open_settings(root)
+        added = new_service("openai", win._services.values()["services"])
+        added.update(model="gpt-x", api_key="sk-half")
+        win._services.apply_dialog_result(added)
+        win._on_language_change("en-US")
+        root.update()
+
+        rebuilt = win._services.values()["services"]
+        assert [s["id"] for s in rebuilt][-1] == added["id"]
+        assert rebuilt[-1]["api_key"] == "sk-half"
+        win._win.destroy()
+    finally:
+        i18n.set_language(before)

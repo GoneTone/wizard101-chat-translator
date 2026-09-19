@@ -1,4 +1,6 @@
 """ServicePane：服務清單分頁的行為。"""
+import tkinter as tk
+
 import pytest
 
 from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
@@ -69,7 +71,7 @@ def test_the_last_service_cannot_be_deleted(root):
     a = _service("openai", [])
     pane = ServicePane(root, {"services": [a], "default_service": a["id"],
                               "service_slots": {slot: None for slot in SLOTS}})
-    assert pane.delete_button_enabled(a["id"]) is False
+    assert pane.delete_button_enabled() is False
     pane.delete_service(a["id"])
     assert len(pane.values()["services"]) == 1
 
@@ -129,3 +131,29 @@ def test_dialog_cancel_leaves_result_none(root):
     dialog = ServiceDialog(root, draft, [])
     dialog._cancel()
     assert dialog.result is None
+
+
+def test_dialog_geometry_carries_a_position(root, monkeypatch):
+    """對話框要自己算好位置：conftest 的停放 fixture 只改寫帶 `+x+y` 的 geometry 字串，
+    少了座標就由視窗管理員自行擺放，測試會把視窗開在執行中的遊戲上面。"""
+    asked = []
+    original = tk.Wm.geometry
+
+    def spy(self, newGeometry=None):
+        if newGeometry:
+            asked.append(newGeometry)
+        return original(self, newGeometry)
+
+    monkeypatch.setattr(tk.Wm, "geometry", spy)
+    dialog = ServiceDialog(root, new_service("openai", []), [])
+    dialog._cancel()
+    assert asked and all("+" in geometry for geometry in asked)
+
+
+def test_dialog_grabs_input_and_releases_it_on_close(root):
+    """對話框開著時要擋住背後的設定視窗：在那裡按〔儲存〕會連對話框一起拆掉，
+    而 wait_window 還在等它。關閉時要放掉 grab，免得漏進同一個 Tk session 的後續視窗。"""
+    dialog = ServiceDialog(root, new_service("openai", []), [])
+    assert dialog.win.grab_current() is dialog.win
+    dialog._cancel()
+    assert root.grab_current() is None

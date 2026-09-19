@@ -76,3 +76,111 @@ def test_main_py_updates_splash_with_the_starting_phase_constant():
     進度條目標；改回字面值會讓耦合悄悄失效，且不會有其他測試變紅。"""
     source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
     assert "splash.update(splash.PHASE_STARTING)" in source
+
+
+class _FakePool:
+    """翻譯池替身：真的那個會開 worker 執行緒，這裡只記下接到哪個翻譯器。"""
+
+    def __init__(self, translator, on_result, workers, failed_notice_fn,
+                 translate_fn=None, gate=None):
+        self.translator = translator
+        self.workers = workers
+
+    def resize(self, workers: int) -> None:
+        self.workers = workers
+
+
+class _FakeCache:
+    """譯文快取替身：真的那個會讀寫磁碟，這裡只記下目前的指紋。"""
+
+    def __init__(self, fingerprint: str, *args, **kwargs):
+        self.fingerprint = fingerprint
+
+    def load(self) -> None:
+        pass
+
+    def rebind(self, fingerprint: str) -> None:
+        self.fingerprint = fingerprint
+
+
+def _three_slot_cfg():
+    """三個用途各指向一筆不同服務的 cfg（模型不同，才看得出誰接到誰）。"""
+    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, new_service
+
+    cfg = configured_cfg("openai", model="incoming-model")
+    incoming = cfg["services"][0]
+    outgoing = new_service("custom", cfg["services"])
+    outgoing.update(base_url="http://out", model="outgoing-model")
+    region = new_service("custom", [*cfg["services"], outgoing])
+    region.update(base_url="http://region", model="region-model")
+    cfg["services"] += [outgoing, region]
+    cfg["default_service"] = incoming["id"]
+    cfg["service_slots"] = {SLOT_INCOMING: incoming["id"],
+                            SLOT_OUTGOING: outgoing["id"],
+                            SLOT_REGION: region["id"]}
+    return cfg
+
+
+def _stub_translation(monkeypatch):
+    """換掉會開執行緒與碰磁碟的兩個元件，其餘（三個翻譯器、指紋）維持真貨。"""
+    monkeypatch.setattr(main, "TranslationPool", _FakePool)
+    monkeypatch.setattr(main, "TranslationCache", _FakeCache)
+
+
+def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkeypatch):
+    """三個用途各接到自己那格的服務，兩條翻譯池都吃收訊那格，快取指紋也綁收訊。"""
+    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION
+    from src.translation.cache import fingerprint_of
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+
+    assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
+    assert translators[SLOT_OUTGOING]._impl.model == "outgoing-model"
+    assert translators[SLOT_REGION]._impl.model == "region-model"
+    assert [p.translator for p in pools] == [translators[SLOT_INCOMING]] * 2
+    assert cache.fingerprint == fingerprint_of("openai", "incoming-model",
+                                               cfg["target_language"])
+
+
+def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monkeypatch):
+    """只換了區域翻譯用哪一組，收訊的翻譯器與譯文快取都不該被動到
+    （快取作廢＝使用者的系統訊息譯文全部重譯一次）。"""
+    from src.services import SLOT_INCOMING, SLOT_REGION, find
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    fingerprint_before = cache.fingerprint
+
+    find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert translators[SLOT_REGION]._impl.model == "region-model-2"
+    assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
+    assert cache.fingerprint == fingerprint_before
+
+
+def test_changing_the_incoming_slot_invalidates_the_cache(monkeypatch):
+    from src.services import SLOT_INCOMING, find
+    from src.translation.cache import fingerprint_of
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+
+    find(cfg, cfg["service_slots"][SLOT_INCOMING])["model"] = "incoming-model-2"
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert translators[SLOT_INCOMING]._impl.model == "incoming-model-2"
+    assert cache.fingerprint == fingerprint_of("openai", "incoming-model-2",
+                                               cfg["target_language"])
+
+
+def test_build_app_wires_each_consumer_to_its_own_slot():
+    """輸入框與區域翻譯的接線只在 build_app 裡（完整啟動才跑得到：開執行緒、掛熱鍵），
+    改用原始碼釘住 —— 這兩格打錯一個 token 就是整個功能默默走錯服務。"""
+    source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
+    assert "translators[SLOT_OUTGOING].translate_outgoing(" in source
+    assert "RegionPipeline(translators[SLOT_REGION])" in source

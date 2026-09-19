@@ -188,19 +188,38 @@ def _migrate_api_block(cfg: dict) -> bool:
     return True
 
 
+def _text(value) -> str:
+    """字串欄位的取值：型別不符一律當成沒填（手改的 config.json 什麼都可能塞）。"""
+    return value if isinstance(value, str) else ""
+
+
+def _profile_field(entry: dict, provider: str, key: str, default):
+    """一個服務商欄位的取值：型別與預設值不同就退回預設。
+    JSON 是使用者手改的，型別不檢查會讓後面的 `.strip()` 在開窗前把程式帶掉。"""
+    value = entry.get(key, default)
+    if type(value) is not type(default):
+        log(f"[config] {provider} service field {key} has type "
+            f"{type(value).__name__}; using the default")
+        return default
+    return value
+
+
 def _sanitize_services(cfg: dict) -> bool:
     """逐筆補齊欄位、刪掉過期欄位、補上缺漏或重複的 id 與名稱。"""
     before = cfg.get("services")
     clean: list[dict] = []
     for entry in before if isinstance(before, list) else []:
         provider = entry.get("provider") if isinstance(entry, dict) else None
-        if provider not in API_PROFILE_FIELDS:
-            log(f"[config] dropped a service with unknown provider {provider!r}")
+        if not isinstance(provider, str) or provider not in API_PROFILE_FIELDS:
+            # 已知的降版資料遺失路徑：日後版本新增的服務商，被這一版讀過就連金鑰一起消失
+            has_key = isinstance(entry, dict) and bool(entry.get("api_key"))
+            log(f"[config] discarded a service with unknown provider {provider!r} "
+                f"(has_key={has_key}); its settings are gone from config.json")
             continue
-        service = {"id": str(entry.get("id") or ""),
-                   "name": str(entry.get("name") or ""),
+        service = {"id": _text(entry.get("id")),
+                   "name": _text(entry.get("name")),
                    "provider": provider,
-                   **{key: entry.get(key, default)
+                   **{key: _profile_field(entry, provider, key, default)
                       for key, default in API_PROFILE_FIELDS[provider].items()}}
         stale = sorted(key for key in entry if key not in service)
         if stale:
@@ -210,8 +229,11 @@ def _sanitize_services(cfg: dict) -> bool:
             service["id"] = new_id(clean)
             log(f"[config] regenerated a missing or duplicate service id "
                 f"-> {service['id']}")
-        if not service["name"]:
-            service["name"] = unique_name(PROVIDERS[provider].short_name, clean)
+        # 每一筆都過一次去重：分派下拉只顯示名稱，同名會讓使用者選到另一筆服務
+        name = unique_name(service["name"] or PROVIDERS[provider].short_name, clean)
+        if name != service["name"]:
+            log(f"[config] renamed a missing or duplicate service name -> {name!r}")
+        service["name"] = name
         clean.append(service)
     cfg["services"] = clean
     return clean != before
@@ -222,7 +244,8 @@ def _sanitize_pointers(cfg: dict) -> bool:
     ids = {s["id"] for s in cfg["services"]}
     changed = False
     default = cfg.get("default_service")
-    wanted = default if default in ids else (
+    # 先確認是字串再比對：手改成 list 之類的東西，`in` 會直接拋 TypeError
+    wanted = default if isinstance(default, str) and default in ids else (
         cfg["services"][0]["id"] if cfg["services"] else None)
     if wanted != default:
         log(f"[config] default_service {default!r} is unknown; using {wanted!r}")
@@ -233,7 +256,7 @@ def _sanitize_pointers(cfg: dict) -> bool:
     clean = {}
     for slot in SLOTS:
         value = slots.get(slot)
-        if value is not None and value not in ids:
+        if value is not None and not (isinstance(value, str) and value in ids):
             log(f"[config] service_slots.{slot} points at unknown service {value!r}; "
                 f"following the default instead")
             value = None

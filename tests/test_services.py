@@ -274,3 +274,82 @@ def test_a_tidy_config_reports_no_change():
     cfg["default_service"] = "nope"
     assert normalize(cfg) is True
     assert normalize(cfg) is False
+
+
+def test_a_null_field_in_a_migrated_api_block_stays_usable():
+    """舊設定的 null 欄位遷移後要能通過 validate_service 的 .strip()：設定壞掉最多
+    退回精靈，不能在任何視窗開出來之前就把程式帶掉。"""
+    cfg = _empty_section()
+    cfg["api"] = {"provider": "openai", "openai": {"model": "gpt-x", "api_key": None}}
+    assert normalize(cfg) is True
+    assert cfg["services"][0]["api_key"] == ""
+    assert is_configured(cfg) is False
+
+
+def test_a_null_field_in_the_flat_legacy_block_keeps_the_key():
+    cfg = _empty_section()
+    cfg["api"] = {"provider": "custom", "base_url": "http://x", "model": None,
+                  "api_key": "sk-REAL-USER-KEY"}
+    assert normalize(cfg) is True
+    assert cfg["services"][0]["model"] == ""
+    assert cfg["services"][0]["api_key"] == "sk-REAL-USER-KEY"
+    assert is_configured(cfg) is False
+
+
+def test_a_field_of_the_wrong_type_falls_back_to_the_provider_default():
+    cfg = _empty_section()
+    cfg["services"] = [new_service("openai", [])]
+    cfg["services"][0].update(model=5, api_key="k", thinking="yes")
+    cfg["default_service"] = cfg["services"][0]["id"]
+    assert normalize(cfg) is True
+    assert cfg["services"][0]["model"] == ""
+    assert cfg["services"][0]["thinking"] is False
+    assert cfg["services"][0]["api_key"] == "k"
+    assert is_configured(cfg) is False
+
+
+def test_a_provider_of_the_wrong_type_drops_the_entry():
+    cfg = _empty_section()
+    cfg["services"] = [{"id": "aaaaaaaa", "name": "X", "provider": ["openai"],
+                        "model": "m"}]
+    assert normalize(cfg) is True
+    assert cfg["services"] == []
+
+
+def test_an_id_or_name_of_the_wrong_type_is_regenerated():
+    cfg = _empty_section()
+    cfg["services"] = [{"id": 7, "name": 42, "provider": "openai", "model": "m",
+                        "api_key": "k", "thinking": False}]
+    assert normalize(cfg) is True
+    assert cfg["services"][0]["id"] != 7 and len(cfg["services"][0]["id"]) == 8
+    assert cfg["services"][0]["name"] == PROVIDERS["openai"].short_name
+
+
+def test_a_default_service_of_the_wrong_type_falls_back_to_the_first_entry():
+    cfg = _empty_section()
+    cfg["services"] = [new_service("openai", [])]
+    cfg["default_service"] = []
+    assert normalize(cfg) is True
+    assert cfg["default_service"] == cfg["services"][0]["id"]
+
+
+def test_a_slot_of_the_wrong_type_falls_back_to_the_default():
+    cfg = _empty_section()
+    cfg["services"] = [new_service("openai", [])]
+    cfg["default_service"] = cfg["services"][0]["id"]
+    cfg["service_slots"] = {SLOT_INCOMING: ["x"], SLOT_OUTGOING: 3,
+                            SLOT_REGION: None}
+    assert normalize(cfg) is True
+    assert cfg["service_slots"] == {slot: None for slot in SLOTS}
+
+
+def test_two_services_sharing_a_name_load_with_distinct_names():
+    """分派下拉只顯示名稱、再靠名稱換回 id：同名會讓使用者選到另一筆服務。"""
+    cfg = _empty_section()
+    first = new_service("openai", [])
+    second = dict(new_service("openai", [first]), name=first["name"])
+    cfg["services"] = [first, second]
+    cfg["default_service"] = first["id"]
+    assert normalize(cfg) is True
+    names = [s["name"] for s in cfg["services"]]
+    assert names == [first["name"], f"{first['name']} (2)"]

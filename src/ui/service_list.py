@@ -8,6 +8,7 @@ from src.log import log
 from src.services import API_PROVIDERS, SLOTS, describe, new_service, unique_name, validate_service
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, collapsible, hint_label
+from src.ui.geometry import centered_position
 from src.ui.service_form import ServiceForm
 
 _DIALOG_SIZE = (560, 480)   # 容得下最長的一組欄位（自訂端點）與測試結果訊息
@@ -23,8 +24,13 @@ class ServiceDialog:
         self.result: dict | None = None
         self.win = tk.Toplevel(parent)
         self.win.title(t("service.dialog_title"))
-        self.win.geometry("{}x{}".format(*_DIALOG_SIZE))
+        win_w, win_h = _DIALOG_SIZE
+        x, y = centered_position(self.win.winfo_screenwidth(),
+                                 self.win.winfo_screenheight(), win_w, win_h)
+        self.win.geometry(f"{win_w}x{win_h}+{x}+{y}")
         self.win.transient(parent.winfo_toplevel())
+        # 抓住輸入：對話框開著時在背後按〔儲存〕會連這個視窗一起拆掉，wait_window 還在等
+        self.win.grab_set()
         self.win.protocol("WM_DELETE_WINDOW", self._cancel)
 
         buttons = ttk.Frame(self.win, padding=(8, 0, 8, 8))
@@ -52,9 +58,14 @@ class ServiceDialog:
         self.result = service
         log(f"[settings] service saved (provider={service['provider']}, "
             f"has_key={bool(service.get('api_key'))})")
-        self.win.destroy()
+        self._close()
 
     def _cancel(self) -> None:
+        self._close()
+
+    def _close(self) -> None:
+        # 先放掉輸入：grab 漏著不放會讓同一個 Tk session 之後的視窗收不到事件
+        self.win.grab_release()
         self.win.destroy()
 
 
@@ -111,7 +122,7 @@ class ServicePane(ttk.Frame):
     def slots_expanded(self) -> bool:
         return self._slots_body.is_expanded()
 
-    def delete_button_enabled(self, service_id: str) -> bool:
+    def delete_button_enabled(self) -> bool:
         """最後一筆不給刪：刪光就無從翻譯，擋在按鈕比擋在儲存清楚。"""
         return len(self._services) > 1
 
@@ -149,7 +160,7 @@ class ServicePane(ttk.Frame):
     def delete_service(self, service_id: str) -> None:
         """刪除一筆服務（先問確認）；連帶把指到它的用途退回跟隨預設，
         被刪的若是預設服務則交給清單第一筆接手。"""
-        if not self.delete_button_enabled(service_id):
+        if not self.delete_button_enabled():
             return
         target = next(s for s in self._services if s["id"] == service_id)
         if not messagebox.askyesno(t("dialog.confirm_title"),
@@ -209,7 +220,7 @@ class ServicePane(ttk.Frame):
             self._slot_shown[slot].get())
         self._slots[slot] = self.slot_options()[index]
         log(f"[settings] slot {slot} set to {self._slots[slot] or 'default'}")
-        # 不重畫：下拉自己的 StringVar 已顯示新選項，卡片與 values() 都不讀 _slots
+        # 不重畫：要更新的只有下拉自己的顯示，而它的 StringVar 已經拿著新選項了
 
     def _refresh(self) -> None:
         """下拉選項與卡片都由清單現況重畫（新增、刪除、改名共用同一條路）。"""
@@ -238,7 +249,7 @@ class ServicePane(ttk.Frame):
         delete = ttk.Button(top, text=t("button.delete"), width=7,
                             command=lambda: self.delete_service(service["id"]))
         delete.pack(side="right")
-        if not self.delete_button_enabled(service["id"]):
+        if not self.delete_button_enabled():
             delete.configure(state="disabled")
         ttk.Button(top, text=t("button.edit"), width=7,
                    command=lambda: self.edit_service(service["id"])).pack(

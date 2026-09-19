@@ -7,7 +7,15 @@ from tkinter import messagebox, ttk
 from src.config import app_name
 from src.i18n import current_language, language_name, set_language, t
 from src.log import log
-from src.services import API_PROVIDERS, PROVIDERS, SLOTS, find, new_service, validate_service
+from src.services import (
+    API_PROVIDERS,
+    PROVIDERS,
+    SLOTS,
+    find,
+    new_service,
+    unique_name,
+    validate_service,
+)
 from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, help_translate_link, translators_row
@@ -158,7 +166,10 @@ class SetupWizard:
             self._cfg["target_language"] = language_name(code)
         # 服務名稱同理：還是自動取的服務商短名就跟著換，使用者取過名字就不碰。
         if service is not None and service["name"] == old_short_name:
-            service["name"] = PROVIDERS[service["provider"]].short_name
+            # 一樣要過去重：清單裡可能已經有一筆叫新語言的短名
+            service["name"] = unique_name(PROVIDERS[service["provider"]].short_name,
+                                          self._cfg["services"],
+                                          ignore_id=service["id"])
         self.restart = True
         log(f"[ui] wizard restarting with language {code}")
         # after_idle：此處在 <<ComboboxSelected>> 事件內，ttk 類別 binding 還在處理同一事件，

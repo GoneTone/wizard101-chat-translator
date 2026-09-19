@@ -489,7 +489,8 @@ class SettingsWindow:
         values, advanced_error = self._form_values()
         # 預設服務要存在且填得完整：手改壞掉的設定不該被原樣存回去
         default = find(values, values["default_service"])
-        errors = ["error.need_service"] if default is None or validate_service(default) else []
+        # 有服務但填不完整時要指出缺哪一欄，不能報「請先新增一組翻譯服務」
+        errors = ["error.need_service"] if default is None else validate_service(default)
         if values["hotkey"] == values["region_hotkey"]:
             errors.append("error.hotkeys_same")
         if not values["target_language"]:
