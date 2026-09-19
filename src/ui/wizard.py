@@ -223,6 +223,8 @@ class SetupWizard:
         """把編輯中的服務併回 cfg 的清單，並讓它成為預設服務。"""
         service = self._service_form.values()
         services = self._cfg["services"]
+        # 清單裡永遠不會出現兩個一樣的名稱：三個分派下拉只顯示名稱，同名會讓人選錯
+        service["name"] = unique_name(service["name"], services, ignore_id=service["id"])
         if not services:
             self._cfg["service_slots"] = {slot: None for slot in SLOTS}
         # 依 id 併回清單而不是整份取代：精靈也是設定壞掉時的救援路徑，

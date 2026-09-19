@@ -374,6 +374,56 @@ def test_finishing_the_wizard_keeps_the_other_services(root):
     assert cfg["service_slots"][SLOT_REGION] == ids[2]     # 既有的用途分派不被清掉
 
 
+def test_finish_dedupes_a_name_typed_to_match_another_service(root):
+    """回歸個案：救援路徑編輯到另一筆服務時把名稱打成跟既有那筆一樣，完成精靈要補序號，
+    不能讓清單留下兩筆同名（分派下拉靠名稱認 id，同名就選錯家）。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    other = new_service("openai", [])
+    other["name"] = "X"
+    edited = new_service("claude", [other])
+    cfg["services"] = [other, edited]
+    cfg["default_service"] = edited["id"]
+    wizard = SetupWizard(root, cfg)
+    wizard._service_form.set_name("X")
+    wizard._finish()
+    assert cfg["services"][0]["name"] == "X"
+    assert cfg["services"][1]["name"] == "X (2)"
+
+
+def test_finish_does_not_collide_a_service_with_itself(root):
+    """回歸：精靈編輯的服務本來就在清單裡，去重不能拿它跟自己比對 ——
+    否則名稱會在每次 _collect_service() 呼叫（含每次切換介面語言）多疊一次序號。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        service = new_service("claude", [])
+        service["name"] = "X"
+        cfg["services"] = [service]
+        cfg["default_service"] = service["id"]
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "X"
+        rebuilt = SetupWizard(root, cfg)
+        rebuilt._finish()
+        assert cfg["services"][0]["name"] == "X"
+    finally:
+        i18n.set_language(before)
+
+
 def test_finish_stores_the_region_hotkey(root):
     import copy
 
