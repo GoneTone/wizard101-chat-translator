@@ -3,7 +3,7 @@ import threading
 import time
 from tkinter import ttk
 
-from src.ui.form import BackgroundButton
+from src.ui.form import BackgroundButton, collapsible
 
 
 def _pump_until(root, predicate, seconds: float = 30) -> None:
@@ -86,3 +86,32 @@ def test_a_slow_round_cannot_land_in_a_later_round(root):
     release_current.set()
     _pump_until(root, lambda: seen)
     assert seen == ["current"]
+
+
+def test_collapsible_starts_collapsed(root):
+    body = collapsible(root, "進階")
+    assert body.is_expanded() is False
+    assert body.winfo_manager() == ""   # 真的沒被 pack —— withdrawn 的 root 下 ismapped 恆為 0，驗不出東西
+
+
+def test_collapsible_can_start_expanded(root):
+    body = collapsible(root, "進階", expanded=True)
+    assert body.is_expanded()
+    assert body.winfo_manager() == "pack"
+
+
+def test_collapsible_toggles(root):
+    body = collapsible(root, "進階")
+    # holder 是直接 pack 在 root 的，body 也是 holder 的子元件；header 是 holder 底下的第一個子元件
+    header = body.master.winfo_children()[0]
+    assert header.cget("text") == "▸ 進階"
+
+    body.toggle()
+    assert body.is_expanded()
+    assert body.winfo_manager() == "pack"
+    assert header.cget("text") == "▾ 進階"
+
+    body.toggle()
+    assert not body.is_expanded()
+    assert body.winfo_manager() == ""
+    assert header.cget("text") == "▸ 進階"

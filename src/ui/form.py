@@ -166,3 +166,33 @@ def friendly_error(exc: Exception) -> tuple[str, dict]:
     if isinstance(exc, TranslatorOffline):
         return "error.offline", {}
     return "error.unexpected", {"error": exc}
+
+
+def collapsible(parent, text: str, expanded: bool = False) -> ttk.Frame:
+    """可摺疊的區塊：回傳裝內容的 frame（帶 toggle()／is_expanded()）。
+    tkinter 沒有現成的，標準組合是一個可點的標題列加一個 pack／pack_forget 的內容 frame。"""
+    holder = ttk.Frame(parent)
+    holder.pack(fill="x")
+    header = ttk.Label(holder, cursor="hand2")
+    header.pack(anchor="w")
+    body = ttk.Frame(holder)
+    state = {"expanded": False}
+
+    def relabel() -> None:
+        header.configure(text=f"{'▾' if state['expanded'] else '▸'} {text}")
+
+    def toggle() -> None:
+        state["expanded"] = not state["expanded"]
+        if state["expanded"]:
+            body.pack(fill="x", padx=(16, 0), pady=(2, 0))
+        else:
+            body.pack_forget()
+        relabel()
+
+    body.toggle = toggle
+    body.is_expanded = lambda: state["expanded"]
+    header.bind("<Button-1>", lambda e: toggle())
+    relabel()
+    if expanded:
+        toggle()
+    return body
