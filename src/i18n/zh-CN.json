@@ -37,6 +37,8 @@
   "provider.claude": "Claude（Anthropic）",
   "provider.custom": "自定义端点（OpenAI API 兼容）",
   "provider.custom_short": "自定义端点",
+  "field.service_name": "名称",
+  "field.provider": "服务商",
   "field.model": "模型",
   "field.base_url": "服务器网址",
   "field.api_key": "API 密钥",
