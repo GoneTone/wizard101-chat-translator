@@ -115,10 +115,6 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 
 ![A box drawn around an in-game tip, with the translation card next to it](docs/images/4.png)
 
-The settings window: translation services, target language and hotkey, all applied without a restart:
-
-![The settings window on its Basic tab](docs/images/5.png)
-
 ## Known Limitations
 
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
