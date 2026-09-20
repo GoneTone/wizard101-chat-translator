@@ -321,6 +321,163 @@ def test_a_quarantined_service_returns_once_its_provider_is_known():
     assert restored["name"] == "ChatGPT (2)"
 
 
+def test_an_api_block_survives_a_service_list_that_is_wholly_quarantined():
+    """整份 services 都被隔離時，舊 api 區塊不能被當成「已遷移過」而丟掉。"""
+    cfg = _empty_section()
+    unknown = {"id": "x1", "name": "Gemini", "provider": "gemini",
+               "api_key": "SK-GEMINI"}
+    cfg["services"] = [copy.deepcopy(unknown)]
+    cfg["api"] = {"provider": "openai",
+                  "openai": {"model": "gpt-x", "api_key": "SK-OPENAI",
+                             "thinking": False}}
+    assert normalize(cfg) is True
+    assert "api" not in cfg
+    assert cfg[UNSUPPORTED_SERVICES] == [unknown]
+    assert [s["provider"] for s in cfg["services"]] == ["openai"]
+    assert cfg["services"][0]["model"] == "gpt-x"
+    assert cfg["services"][0]["api_key"] == "SK-OPENAI"
+    assert cfg["default_service"] == cfg["services"][0]["id"]
+    assert normalize(cfg) is False
+
+
+def test_a_filled_api_block_still_loses_to_a_service_list_that_survives():
+    """兩種格式並存時（回滾後的 config）新格式才是真的：api 區塊照丟，服務不動。"""
+    cfg = _empty_section()
+    cfg["services"] = [new_service("claude", [])]
+    cfg["services"][0].update(model="claude-x", api_key="sk-ant-REAL-USER-KEY")
+    cfg["default_service"] = cfg["services"][0]["id"]
+    kept = copy.deepcopy(cfg["services"][0])
+    cfg["api"] = {"provider": "openai",
+                  "openai": {"model": "gpt-stale", "api_key": "SK-STALE",
+                             "thinking": False}}
+    assert normalize(cfg) is True
+    assert "api" not in cfg
+    assert cfg["services"] == [kept]
+    assert cfg["default_service"] == kept["id"]
+    assert normalize(cfg) is False
+
+
+def test_a_service_list_hand_edited_into_a_string_lands_in_quarantine():
+    """services 被手改成裸字串時最可能是貼歪的金鑰，整個當成一筆隔離而不是丟掉。"""
+    cfg = _empty_section()
+    cfg["services"] = "SK-PASTED"
+    assert normalize(cfg) is True
+    assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == ["SK-PASTED"]
+    assert normalize(cfg) is False
+
+
+def test_a_service_list_hand_edited_into_a_dict_lands_in_quarantine():
+    cfg = _empty_section()
+    parked = {"a": {"provider": "openai", "api_key": "SK-IN-DICT"}}
+    cfg["services"] = copy.deepcopy(parked)
+    assert normalize(cfg) is True
+    assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == [parked]
+    assert normalize(cfg) is False
+
+
+def test_a_non_list_service_list_survives_a_promotion_rewriting_it():
+    """搬回隔離區的服務會整個重寫 services 容器，原本的非 list 值要跟著進隔離區。"""
+    cfg = _empty_section()
+    cfg["services"] = "SK-PASTED"
+    cfg[UNSUPPORTED_SERVICES] = [{"provider": "openai", "name": "ChatGPT",
+                                  "api_key": "sk-3"}]
+    assert normalize(cfg) is True
+    assert cfg[UNSUPPORTED_SERVICES] == ["SK-PASTED"]
+    assert [s["api_key"] for s in cfg["services"]] == ["sk-3"]
+    assert normalize(cfg) is False
+
+
+def test_a_service_list_hand_edited_into_one_bare_service_is_wrapped():
+    """忘了外層中括號時整筆服務會落在容器的位置上，要包回一筆而不是無聲吞掉。"""
+    cfg = _empty_section()
+    cfg["services"] = {"id": "s1", "name": "GPT", "provider": "openai",
+                       "model": "gpt-x", "api_key": "SK-DICT-SERVICE",
+                       "thinking": False}
+    assert normalize(cfg) is True
+    assert UNSUPPORTED_SERVICES not in cfg
+    assert [s["api_key"] for s in cfg["services"]] == ["SK-DICT-SERVICE"]
+    assert cfg["services"][0]["provider"] == "openai"
+    assert cfg["default_service"] == "s1"
+    assert normalize(cfg) is False
+
+
+def test_a_bare_service_dict_this_build_cannot_read_lands_in_quarantine():
+    """同樣少了中括號、但 provider 這一版不認得：包回一筆之後照常進隔離區。"""
+    cfg = _empty_section()
+    parked = {"id": "s1", "name": "Gemini", "provider": "gemini",
+              "api_key": "SK-GEMINI"}
+    cfg["services"] = copy.deepcopy(parked)
+    assert normalize(cfg) is True
+    assert cfg["services"] == []
+    assert cfg[UNSUPPORTED_SERVICES] == [parked]
+    assert normalize(cfg) is False
+
+
+def test_an_api_block_survives_alongside_a_promoted_service():
+    """促轉搬回來的服務與這個 api 區塊毫無關係，不能被當成「已遷移過」的證據。"""
+    cfg = _empty_section()
+    cfg[UNSUPPORTED_SERVICES] = [{"id": "p1", "name": "ChatGPT", "provider": "openai",
+                                  "model": "gpt-x", "api_key": "SK-PROMOTED",
+                                  "thinking": False}]
+    cfg["api"] = {"provider": "claude",
+                  "claude": {"model": "claude-x", "api_key": "SK-CLAUDE-OLD",
+                             "effort": "auto"}}
+    assert normalize(cfg) is True
+    assert "api" not in cfg
+    assert cfg[UNSUPPORTED_SERVICES] == []
+    assert {s["provider"]: s["api_key"] for s in cfg["services"]} == {
+        "openai": "SK-PROMOTED", "claude": "SK-CLAUDE-OLD"}
+    assert normalize(cfg) is False
+
+
+def test_a_promoted_service_without_a_name_does_not_break_the_migration():
+    """隔離區原樣保留的項目不保證有 name，遷移時的去重不能因此讓程式開不起來。"""
+    cfg = _empty_section()
+    cfg[UNSUPPORTED_SERVICES] = [{"id": "zzz1", "provider": "openai",
+                                  "api_key": "SK-NONAME"}]
+    cfg["api"] = {"provider": "claude",
+                  "claude": {"model": "claude-x", "api_key": "SK-CLAUDE-OLD",
+                             "effort": "auto"}}
+    assert normalize(cfg) is True
+    assert {s["api_key"] for s in cfg["services"]} == {"SK-NONAME", "SK-CLAUDE-OLD"}
+    assert all(s["name"] for s in cfg["services"])
+    assert normalize(cfg) is False
+
+
+def test_the_default_follows_the_migrated_service_when_the_api_provider_is_junk():
+    """api 區塊的 provider 對不上時，預設仍該落在這個區塊遷移出來的那筆。"""
+    cfg = _empty_section()
+    cfg[UNSUPPORTED_SERVICES] = [{"id": "p1", "name": "ChatGPT", "provider": "openai",
+                                  "model": "gpt-x", "api_key": "SK-PROMOTED",
+                                  "thinking": False}]
+    cfg["api"] = {"provider": "nonsense",
+                  "claude": {"model": "claude-x", "api_key": "SK-CLAUDE-OLD",
+                             "effort": "auto"}}
+    assert normalize(cfg) is True
+    assert find(cfg, cfg["default_service"])["api_key"] == "SK-CLAUDE-OLD"
+    assert normalize(cfg) is False
+
+
+def test_a_config_without_a_service_list_reports_no_change():
+    """補一個空清單不是使用者看得到的變動，不該害每次啟動都重寫 config.json。"""
+    cfg = _empty_section()
+    del cfg["services"]
+    assert normalize(cfg) is False
+    assert cfg["services"] == []
+
+
+def test_sanitize_services_keeps_a_non_list_container():
+    """直接呼叫時也不丟東西：非 list 的容器包成一筆，與其他入口一致。"""
+    from src.services import _sanitize_services
+
+    cfg = {"services": {"id": "s1", "name": "GPT", "provider": "openai",
+                        "model": "m", "api_key": "SK-DIRECT", "thinking": False}}
+    assert _sanitize_services(cfg) is True
+    assert [s["api_key"] for s in cfg["services"]] == ["SK-DIRECT"]
+
+
 def test_a_field_whose_default_is_none_keeps_the_real_value():
     """預設值若是 None，型別比對會把每個真值（含金鑰）判成型別不符整欄清掉。"""
     from src.services import _profile_field
