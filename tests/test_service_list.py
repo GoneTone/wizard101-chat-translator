@@ -1,5 +1,6 @@
 """ServicePane：服務清單分頁的行為。"""
 import tkinter as tk
+from tkinter import ttk
 
 import pytest
 
@@ -209,3 +210,102 @@ def test_add_service_drafts_the_picked_provider(two, monkeypatch):
                         lambda parent, service, *args, **kwargs: drafts.append(service) or None)
     pane.add_service()
     assert [d["provider"] for d in drafts] == ["custom"]
+
+
+def _card_frames(pane):
+    """卡片區裡的卡片本體（同一區還可能有說明用的提示標籤）。"""
+    return [w for w in pane._cards.pack_slaves() if isinstance(w, ttk.Frame)]
+
+
+def _card_title(card):
+    return next(w for w in card.pack_slaves()[0].pack_slaves()
+                if isinstance(w, ttk.Label))
+
+
+def _card_buttons(card):
+    return [w for w in card.pack_slaves()[0].pack_slaves() if isinstance(w, ttk.Button)]
+
+
+def _drawn_labels(pane):
+    return [str(_card_title(card).cget("text")) for card in _card_frames(pane)]
+
+
+def _cards_area_hints(pane):
+    return [str(w.cget("text")) for w in pane._cards.pack_slaves()
+            if isinstance(w, ttk.Label)]
+
+
+def test_assigning_a_slot_rebadges_the_cards(root, two):
+    """回歸：卡片標記現在也畫用途分派，改下拉就得重畫卡片。"""
+    pane, _a, b = two
+    pane._slot_shown[SLOT_INCOMING].set(b["name"])
+    pane._slot_combos[SLOT_INCOMING].event_generate("<<ComboboxSelected>>")
+    root.update()
+    assert pane.values()["service_slots"][SLOT_INCOMING] == b["id"]
+    assert _drawn_labels(pane) == pane.card_labels()
+    assert _drawn_labels(pane)[1] == f"{b['name']}　{t('slot.incoming')}"
+
+
+def test_a_long_name_does_not_squeeze_the_card_buttons(root):
+    """名稱長到撐滿卡片時，被壓縮的要是標題文字而不是〔編輯〕〔刪除〕。"""
+    win = tk.Toplevel(root)
+    win.geometry("640x480+120+120")
+    try:
+        a = _service("openai", [])
+        a["name"] = "My self-hosted DeepSeek endpoint"
+        b = _service("claude", [a])
+        pane = ServicePane(win, {"services": [a, b], "default_service": a["id"],
+                                 "service_slots": {slot: a["id"] for slot in SLOTS}})
+        pane.pack(fill="both", expand=True)
+        win.update()
+        widths = [(btn.winfo_width(), btn.winfo_reqwidth())
+                  for btn in _card_buttons(_card_frames(pane)[0])]
+        assert all(drawn >= wanted for drawn, wanted in widths), widths
+    finally:
+        win.destroy()
+
+
+def test_dialog_escape_is_wired_to_cancel(root):
+    """鍵盤事件只送得到焦點視窗，而測試不搶焦點（開發者常開著遊戲跑測試），
+    所以只確認 <Escape> 綁上去了，關閉行為由〔取消〕那則測試涵蓋。"""
+    dialog = ServiceDialog(root, new_service("openai", []), [])
+    assert dialog.win.bind("<Escape>")
+    dialog._cancel()
+    assert root.grab_current() is None
+
+
+def test_the_last_service_says_why_delete_is_greyed_out(root):
+    """灰掉的按鈕自己不會說話：只剩一組時在卡片區寫明刪不掉的原因。"""
+    a = _service("openai", [])
+    pane = ServicePane(root, {"services": [a], "default_service": a["id"],
+                              "service_slots": {slot: None for slot in SLOTS}})
+    assert _cards_area_hints(pane) == [t("service.keep_one")]
+
+
+def test_the_keep_one_hint_goes_away_once_there_are_two(two):
+    pane, _a, _b = two
+    assert _cards_area_hints(pane) == []
+
+
+def test_deleting_an_assigned_service_says_its_slots_fall_back(root, monkeypatch):
+    """指定它的用途會被悄悄退回預設，確認框要先講。"""
+    asked = []
+    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno",
+                        lambda title, message, **kwargs: asked.append(message) or True)
+    a = _service("openai", [])
+    b = _service("claude", [a])
+    pane = ServicePane(root, {"services": [a, b], "default_service": a["id"],
+                              "service_slots": {SLOT_INCOMING: b["id"],
+                                                SLOT_OUTGOING: None,
+                                                SLOT_REGION: None}})
+    pane.delete_service(b["id"])
+    assert asked == [t("service.confirm_delete_in_use", name=b["name"])]
+
+
+def test_deleting_an_unassigned_service_keeps_the_plain_question(two, monkeypatch):
+    asked = []
+    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno",
+                        lambda title, message, **kwargs: asked.append(message) or True)
+    pane, _a, b = two
+    pane.delete_service(b["id"])
+    assert asked == [t("service.confirm_delete", name=b["name"])]

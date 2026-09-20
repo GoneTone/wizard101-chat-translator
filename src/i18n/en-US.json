@@ -59,6 +59,8 @@
   "service.dialog_title": "Translation service",
   "service.pick_provider": "Choose a provider",
   "service.confirm_delete": "Delete “{name}”?",
+  "service.confirm_delete_in_use": "Delete “{name}”? Anything set to use it will go back to the default service.",
+  "service.keep_one": "Keep at least one service — the last one cannot be deleted.",
   "service.badge_default": "Default",
   "slot.incoming": "Incoming chat",
   "slot.outgoing": "Outgoing chat",

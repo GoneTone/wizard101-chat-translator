@@ -653,3 +653,74 @@ def test_the_form_step_explains_what_to_do_with_the_form(root):
     assert t("wizard.intro") in texts
     assert t("wizard.intro_form") in texts
     wizard._win.destroy()
+
+
+def _wizard_with_a_filled_form(root):
+    """停在第二步、Claude 的欄位都填好的精靈。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    wizard._service_form._api_key.set("sk-ant")
+    wizard._service_form._model.set("claude-x")
+    return wizard
+
+
+def test_clearing_a_field_after_skipping_the_test_blocks_the_next_button(root):
+    """回歸：略過測試後把模型清空，〔下一步〕必須跟著變灰 ——
+    否則精靈會帶著 model="" 的服務走完，每次翻譯都失敗。"""
+    wizard = _wizard_with_a_filled_form(root)
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "normal"
+    wizard._service_form._model.set("")
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_editing_a_field_cancels_an_earlier_skip(root):
+    """略過測試後又改了金鑰：先前的放行不算數，要重測或再次明示略過。"""
+    wizard = _wizard_with_a_filled_form(root)
+    wizard._do_skip_test()
+    wizard._service_form._api_key.set("sk-ant-other")
+    assert wizard._skip_test is False
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_completing_the_fields_after_an_early_skip_recomputes_the_nav(root):
+    """欄位不全時就點過「略過測試」：補上模型時導覽列要跟著重算
+    （結果是先前的略過作廢，再次明示略過就走得下去）。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    wizard._service_form._api_key.set("sk-ant")
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._service_form._model.set("claude-x")
+    assert wizard._skip_test is False
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "normal"
+    wizard._win.destroy()
+
+
+def test_the_skip_test_link_is_keyboard_activatable(root):
+    """純鍵盤使用者測不成連線時，「略過測試」是第二步唯一的出路（同服務商卡片）。
+    鍵盤事件送不到非焦點視窗，所以只確認它停得住 Tab、兩顆鍵都綁上去了。"""
+    import copy
+    from tkinter import ttk
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    skip = next(w for w in wizard._body.pack_slaves()
+                if isinstance(w, ttk.Label) and str(w.cget("text")) == t("wizard.skip_test"))
+    assert str(skip.cget("takefocus")) == "1"
+    assert skip.bind("<Return>") and skip.bind("<space>")
+    wizard._win.destroy()

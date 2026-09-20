@@ -59,6 +59,8 @@
   "service.dialog_title": "翻譯服務",
   "service.pick_provider": "選擇服務商",
   "service.confirm_delete": "要刪除「{name}」嗎？",
+  "service.confirm_delete_in_use": "要刪除「{name}」嗎？目前指定它的用途會改回使用預設服務。",
+  "service.keep_one": "至少要保留一組服務，刪不掉最後一組。",
   "service.badge_default": "預設",
   "slot.incoming": "聊天收訊",
   "slot.outgoing": "聊天發話",

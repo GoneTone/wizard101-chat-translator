@@ -21,7 +21,12 @@ from src.services import (
 )
 from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
-from src.ui.form import HINT_COLOR, help_translate_link, translators_row
+from src.ui.form import (
+    HINT_COLOR,
+    help_translate_link,
+    keyboard_activatable,
+    translators_row,
+)
 from src.ui.geometry import centered_position
 from src.ui.provider_picker import ProviderCards
 from src.ui.responsive import bind_wrap
@@ -172,6 +177,7 @@ class SetupWizard:
                          cursor="hand2", font=ui_font(8))
         skip.pack(anchor="e", pady=(6, 0))
         skip.bind("<Button-1>", lambda e: self._do_skip_test())
+        keyboard_activatable(skip, self._do_skip_test)
 
     def _pick_provider(self, provider: str) -> None:
         """選好服務商：建出表單並重畫本步驟，卡片隨其他臨時元件一起被銷毀。"""

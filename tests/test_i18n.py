@@ -287,3 +287,18 @@ def test_set_language_keeps_previous_language_when_load_fails(monkeypatch):
     with pytest.raises(ValueError):
         i18n.set_language("en-US")
     assert i18n.current_language() == "zh-TW"
+
+
+def test_zh_cn_keeps_its_own_wording_for_chat_and_advanced():
+    """同一份語言檔裡用詞要一致：聊天訊息用「接收」（同 settings.poll_interval_hint），
+    進階區塊用「高级」（同 settings.tab.advanced）。"""
+    zh_cn = _load_raw("zh-CN")
+    assert zh_cn["slot.incoming"] == "聊天接收"
+    assert "高级" in zh_cn["service.slots_title"]
+
+
+def test_the_zh_cn_readme_speaks_the_same_words_as_the_catalog():
+    """README 講用途分派的那句要跟介面用詞一致，否則使用者照著找不到設定。"""
+    readme = (Path(i18n.__file__).parents[2] / "README_ZH-CN.md").read_text(
+        encoding="utf-8")
+    assert _load_raw("zh-CN")["slot.incoming"] in readme

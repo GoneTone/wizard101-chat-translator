@@ -3,7 +3,7 @@ import threading
 import time
 from tkinter import ttk
 
-from src.ui.form import BackgroundButton, collapsible
+from src.ui.form import BackgroundButton, collapsible, keyboard_activatable
 
 
 def _pump_until(root, predicate, seconds: float = 30) -> None:
@@ -115,3 +115,22 @@ def test_collapsible_toggles(root):
     assert not body.is_expanded()
     assert body.winfo_manager() == ""
     assert header.cget("text") == "▸ 進階"
+
+
+def test_collapsible_header_is_keyboard_activatable(root):
+    """鍵盤事件只送得到焦點視窗，而測試不搶焦點（開發者常開著遊戲跑測試），
+    所以只確認標題列停得住 Tab、兩顆鍵都綁上去了。"""
+    body = collapsible(root, "進階")
+    header = body.master.winfo_children()[0]
+    assert str(header.cget("takefocus")) == "1"
+    assert header.bind("<Return>") and header.bind("<space>")
+
+
+def test_keyboard_activatable_shows_and_clears_the_focus_border(root):
+    """ttk 沒有 highlightthickness：聚焦樣式靠把邊框畫粗，失焦要還原原樣。"""
+    frame = ttk.Frame(root, relief="solid", borderwidth=1)
+    keyboard_activatable(frame, lambda: None)
+    frame.event_generate("<FocusIn>")
+    assert int(frame.cget("borderwidth")) > 1
+    frame.event_generate("<FocusOut>")
+    assert int(frame.cget("borderwidth")) == 1

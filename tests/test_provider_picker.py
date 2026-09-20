@@ -136,3 +136,12 @@ def test_the_cards_keep_a_margin_below_the_window_top(root):
     top_pad = int(re.findall(r"\d+", str(picker.cards.pack_info()["pady"]))[0])
     picker._cancel()
     assert top_pad > 0
+
+
+def test_cards_are_reachable_and_activatable_by_keyboard(root):
+    """純鍵盤使用者在這一步沒有別的出路：〔下一步〕要選到服務商才會亮。
+    鍵盤事件送不到非焦點視窗（見 test_escape_is_wired_to_cancel），只確認綁定。"""
+    cards = ProviderCards(root, lambda key: None)
+    for card in cards.pack_slaves():
+        assert str(card.cget("takefocus")) == "1"
+        assert card.bind("<Return>") and card.bind("<space>")

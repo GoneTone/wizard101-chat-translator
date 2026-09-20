@@ -166,8 +166,6 @@ class ServiceForm(ttk.Frame):
             if prov.has_field("effort"):
                 self._effort_row()
         self._invalidate_test()
-        if self._on_change:
-            self._on_change()
 
     def _field_hint(self, text: str) -> None:
         """欄位下方的說明：左邊留一個與標籤等寬的空位，讓文字左緣對齊輸入框，
@@ -221,8 +219,11 @@ class ServiceForm(ttk.Frame):
 
     # --- 測試連線 ---
     def _invalidate_test(self) -> None:
+        """作廢先前的測試結果並通知呼叫端 —— 精靈的〔下一步〕只從 on_change 重算。"""
         self.test_passed = False
         self._test_task.invalidate()
+        if self._on_change:
+            self._on_change()
 
     def _start_test(self) -> None:
         api = self.api_values()

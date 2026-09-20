@@ -253,3 +253,23 @@ def test_cancelling_the_provider_pick_changes_nothing(blank, monkeypatch):
     _change_button(blank).invoke()
     assert blank.values() == before
     assert blank._provider_label.cget("text") == t(PROVIDERS["openai"].label_key)
+
+
+def test_editing_a_field_notifies_the_owner(root):
+    """回歸：欄位一改就得通知，否則精靈的〔下一步〕永遠停在上一次的判定。"""
+    changes = []
+    form = ServiceForm(root, new_service("openai", []),
+                       on_change=lambda: changes.append(1))
+    changes.clear()
+    form._model.set("gpt-x")
+    assert changes
+
+
+def test_rebuilding_the_fields_notifies_once(root):
+    """重建欄位只算一次變更：作廢測試與重建各通知一次就重複了。"""
+    changes = []
+    form = ServiceForm(root, new_service("openai", []),
+                       on_change=lambda: changes.append(1))
+    changes.clear()
+    form._rebuild_fields()
+    assert changes == [1]

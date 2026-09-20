@@ -10,14 +10,14 @@ from src.i18n import t
 from src.log import log
 from src.services import PROVIDERS
 from src.ui.fonts import ui_font
-from src.ui.form import hint_label
+from src.ui.form import hint_label, keyboard_activatable
 from src.ui.geometry import centered_position
 
 _PICKER_SIZE = (440, 360)   # 容得下三張卡片（最長的說明會折成兩行）與按鈕列
 
 
 class ProviderCards(ttk.Frame):
-    """每家服務商一張可點的卡片；點下去呼叫 `on_pick(provider_key)`。
+    """每家服務商一張卡片；點下去或用鍵盤選取都呼叫 `on_pick(provider_key)`。
     精靈直接內嵌這個元件，設定視窗則透過 `ProviderPicker` 用它。"""
 
     def __init__(self, parent, on_pick):
@@ -38,6 +38,7 @@ class ProviderCards(ttk.Frame):
         # 卡片被兩個標籤蓋滿，點在文字上收到事件的是標籤；Tk 不會把它往父層冒泡
         for widget in (card, title, description):
             widget.bind("<Button-1>", lambda event, k=key: self._on_pick(k))
+        keyboard_activatable(card, lambda k=key: self._on_pick(k))
 
 
 class ProviderPicker:

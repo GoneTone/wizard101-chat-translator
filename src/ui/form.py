@@ -22,6 +22,9 @@ HINT_COLOR = "#888888"
 OK_COLOR = "#2e8b57"
 ERROR_COLOR = "#cc3333"
 
+# 聚焦時的邊框粗細（keyboard_activatable 畫的焦點樣式）
+FOCUS_BORDER = 2
+
 
 def show_outcome(label, ok: bool, message: str) -> None:
     """把一次操作的結果寫進標籤：成功「✓ 」綠字、失敗「✗ 」紅字
@@ -77,6 +80,19 @@ def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:
     label = ttk.Label(parent, text=text, foreground=HINT_COLOR, justify="left")
     bind_wrap(label, trailing=trailing)
     return label
+
+
+def keyboard_activatable(widget, action) -> None:
+    """讓只吃滑鼠的元件也走得到鍵盤：Tab 停得住，Enter 與空白鍵觸發同一個動作。
+    ttk 沒有 highlightthickness，可見的聚焦樣式只能自己把邊框畫粗（失焦還原原樣）。"""
+    idle_border, idle_relief = widget.cget("borderwidth"), str(widget.cget("relief"))
+    widget.configure(takefocus=True)
+    for sequence in ("<Return>", "<space>"):
+        widget.bind(sequence, lambda event: action())
+    widget.bind("<FocusIn>", lambda event: widget.configure(
+        borderwidth=FOCUS_BORDER, relief="solid"))
+    widget.bind("<FocusOut>", lambda event: widget.configure(
+        borderwidth=idle_border, relief=idle_relief))
 
 
 def poll_queue(widget, result_queue: queue.Queue, on_result, interval_ms: int = 100):
@@ -192,6 +208,7 @@ def collapsible(parent, text: str, expanded: bool = False) -> ttk.Frame:
     body.toggle = toggle
     body.is_expanded = lambda: state["expanded"]
     header.bind("<Button-1>", lambda e: toggle())
+    keyboard_activatable(header, toggle)
     relabel()
     if expanded:
         toggle()

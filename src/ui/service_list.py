@@ -33,6 +33,7 @@ class ServiceDialog:
         # 抓住輸入：對話框開著時在背後按〔儲存〕會連這個視窗一起拆掉，wait_window 還在等
         self.win.grab_set()
         self.win.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.win.bind("<Escape>", lambda event: self._cancel())
 
         buttons = ttk.Frame(self.win, padding=(8, 0, 8, 8))
         buttons.pack(side="bottom", fill="x")
@@ -130,7 +131,8 @@ class ServicePane(ttk.Frame):
         return self._slots_body.is_expanded()
 
     def delete_button_enabled(self) -> bool:
-        """最後一筆不給刪：刪光就無從翻譯，擋在按鈕比擋在儲存清楚。"""
+        """最後一筆不給刪：刪光就無從翻譯，擋在按鈕比擋在儲存清楚
+        （灰按鈕自己不會說話，原因由 _refresh 補上的那行說明）。"""
         return len(self._services) > 1
 
     # --- 清單操作 ---
@@ -174,8 +176,10 @@ class ServicePane(ttk.Frame):
         if not self.delete_button_enabled():
             return
         target = next(s for s in self._services if s["id"] == service_id)
+        in_use = any(self._slots[slot] == service_id for slot in SLOTS)
+        question = "service.confirm_delete_in_use" if in_use else "service.confirm_delete"
         if not messagebox.askyesno(t("dialog.confirm_title"),
-                                   t("service.confirm_delete", name=target["name"]),
+                                   t(question, name=target["name"]),
                                    parent=self.winfo_toplevel()):
             return
         self._services = [s for s in self._services if s["id"] != service_id]
@@ -231,10 +235,10 @@ class ServicePane(ttk.Frame):
             self._slot_shown[slot].get())
         self._slots[slot] = self.slot_options()[index]
         log(f"[settings] slot {slot} set to {self._slots[slot] or 'default'}")
-        # 不重畫：要更新的只有下拉自己的顯示，而它的 StringVar 已經拿著新選項了
+        self._refresh()
 
     def _refresh(self) -> None:
-        """下拉選項與卡片都由清單現況重畫（新增、刪除、改名共用同一條路）。"""
+        """下拉選項與卡片都由清單現況重畫（新增、刪除、改名、改分派共用同一條路）。"""
         names = self._names()
         self._default_combo.configure(values=names)
         current = next((s for s in self._services if s["id"] == self._default), None)
@@ -250,13 +254,15 @@ class ServicePane(ttk.Frame):
             widget.destroy()
         for label, service in zip(self.card_labels(), self._services, strict=True):
             self._card(label, service)
+        if self._services and not self.delete_button_enabled():
+            hint_label(self._cards, t("service.keep_one")).pack(fill="x", pady=(2, 0))
 
     def _card(self, label: str, service: dict) -> None:
         card = ttk.Frame(self._cards, relief="solid", borderwidth=1, padding=8)
         card.pack(fill="x", pady=2)
         top = ttk.Frame(card)
         top.pack(fill="x")
-        ttk.Label(top, text=label, font=ui_font(10, "bold")).pack(side="left")
+        # 兩顆按鈕先 pack：後宣告會在名稱很長時被 expand=True 的標題擠掉
         delete = ttk.Button(top, text=t("button.delete"), width=7,
                             command=lambda: self.delete_service(service["id"]))
         delete.pack(side="right")
@@ -265,4 +271,6 @@ class ServicePane(ttk.Frame):
         ttk.Button(top, text=t("button.edit"), width=7,
                    command=lambda: self.edit_service(service["id"])).pack(
             side="right", padx=(0, 4))
+        ttk.Label(top, text=label, font=ui_font(10, "bold")).pack(
+            side="left", fill="x", expand=True)
         ttk.Label(card, text=describe(service), foreground=HINT_COLOR).pack(anchor="w")
