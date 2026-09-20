@@ -64,7 +64,7 @@
   "service.badge_default": "Default",
   "slot.incoming": "Incoming chat",
   "slot.outgoing": "Outgoing chat",
-  "slot.region": "Region translation",
+  "slot.region": "Area translation",
   "field.auto_input": "Open and close the translation input with the game chat box",
   "field.paste_hotkey": "Type the clipboard into the game when Ctrl+V is pressed in it (the game cannot paste)",
   "field.translate_system": "Translate game system messages (drops, XP, level-up broadcasts)",
