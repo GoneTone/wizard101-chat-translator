@@ -172,29 +172,47 @@ _FILLED_MARKERS = ("model", "api_key", "base_url")
 
 def _unflatten_legacy(api: dict) -> dict:
     """最舊的 api 區塊是扁平的：設定欄位與 provider 並排。整組搬進所屬服務商的子區塊，
-    不屬於那家的欄位丟掉；連 provider 都沒有的一律視為自訂端點。"""
+    認得的服務商只留它表上的欄位；連 provider 都沒有的一律視為自訂端點。"""
     provider = api.get("provider", "custom")
-    fields = API_PROFILE_FIELDS.get(provider, {})
-    profile = {key: value for key, value in api.items() if key in fields}
+    # 認不得的 provider 沒有欄位表可篩，篩了就是丟掉金鑰 —— 整組留著給隔離區接手
+    fields = API_PROFILE_FIELDS.get(provider)
+    profile = {key: value for key, value in api.items()
+               if key != "provider" and (fields is None or key in fields)}
     log(f"[config] unflattened the legacy api block into provider={provider} "
         f"(fields={sorted(profile)})")
     return {"provider": provider, provider: profile}
 
 
+def _quarantine_unknown_api_profiles(cfg: dict, api: dict) -> None:
+    """api 區塊裡這一版不認得的 provider 子區塊原樣搬進隔離區。
+    服務清單那一側早就這樣做了，只有這一側照丟的話，舊版寫下的金鑰會在遷移時蒸發。"""
+    for provider, profile in api.items():
+        if provider == "provider" or provider in API_PROFILE_FIELDS:
+            continue
+        if not isinstance(profile, dict) or not profile:
+            continue
+        cfg[UNSUPPORTED_SERVICES] = [*quarantined(cfg),
+                                     {"provider": provider, **profile}]
+        log(f"[config] quarantined the api block's unknown provider {provider!r} into "
+            f"{UNSUPPORTED_SERVICES} (has_key={bool(profile.get('api_key'))}); a build "
+            f"that supports it will restore it")
+
+
 def _migrate_api_block(cfg: dict, migrated_before: bool) -> bool:
     """把舊的 api 區塊（扁平或 per-provider）換成服務清單，並移除該區塊。
-    `migrated_before`＝這份設定本來就有這一版認得的服務，也就是已經遷移過了。"""
+    `migrated_before`＝這份設定本來就有這一版認得、而且填過欄位的服務，也就是遷移過了。
+    呼叫前 _quarantine_unknown_services 必須先跑過：清單裡每一筆都得是 dict。"""
     api = cfg.pop("api", None)
     if not isinstance(api, dict):
         return False
-    # 證據必須是「本來就有」：清單當下非空可能只是隔離區剛促轉回來，那些與 api 區塊
-    # 毫無關係，拿它們當遷移過的證據會把這個區塊連同金鑰一起丟掉
+    if any(key in api for key in _LEGACY_FLAT_FIELDS):
+        api = _unflatten_legacy(api)
+    # 隔離要在早退之前：丟得掉的只有這一版看得懂、而且確定重複的東西
+    _quarantine_unknown_api_profiles(cfg, api)
     if migrated_before:
         log("[config] dropped a leftover api block; the service list already exists")
         return True
-    if any(key in api for key in _LEGACY_FLAT_FIELDS):
-        api = _unflatten_legacy(api)
-    kept = cfg["services"]
+    kept = _as_entries(cfg.get("services"))
     services: list[dict] = []
     default_id = None
     for provider in API_PROVIDERS:
@@ -204,7 +222,7 @@ def _migrate_api_block(cfg: dict, migrated_before: bool) -> bool:
         if not any(isinstance(profile.get(key), str) and profile.get(key).strip()
                    for key in _FILLED_MARKERS):
             continue
-        # 促轉回來的服務也在清單裡，新的 id 與名稱要一起避開
+        # 新 id 要一起避開促轉回來的服務：撞號會讓 default_service 落到錯的那筆
         service = new_service(provider, [*kept, *services])
         service.update({key: value for key, value in profile.items()
                         if key in API_PROFILE_FIELDS[provider]})
@@ -255,8 +273,15 @@ def _is_known(entry) -> bool:
     return isinstance(provider, str) and provider in API_PROFILE_FIELDS
 
 
+def _is_migrated_service(entry) -> bool:
+    """這一筆算不算「api 區塊已經遷移過」的證據：provider 認得、而且填過至少一個欄位。
+    空殼也算證據的話，舊 api 區塊會被當成殘留丟掉，裡面的金鑰跟著消失。"""
+    return _is_known(entry) and any(_text(entry.get(key)).strip()
+                                    for key in _FILLED_MARKERS)
+
+
 def quarantined(cfg: dict) -> list:
-    """隔離區現有的內容；手改成 list 以外的型別時整個當成一筆 —— 一樣不替使用者刪。"""
+    """隔離區現有的內容；取值與 services 一致，非 list 的原值整個當成一筆。"""
     return _as_entries(cfg.get(UNSUPPORTED_SERVICES))
 
 
@@ -289,7 +314,7 @@ def _promote_known_services(cfg: dict) -> bool:
     if not promoted:
         return False
     cfg[UNSUPPORTED_SERVICES] = [entry for entry in parked if not _is_known(entry)]
-    cfg["services"] = [*cfg["services"], *promoted]
+    cfg["services"] = [*_as_entries(cfg.get("services")), *promoted]
     for entry in promoted:
         log(f"[config] promoted a quarantined {entry['provider']} service back into the "
             f"service list (has_key={bool(entry.get('api_key'))})")
@@ -299,7 +324,7 @@ def _promote_known_services(cfg: dict) -> bool:
 def _quarantine_unknown_services(cfg: dict) -> bool:
     """認不得 provider 的服務原樣搬進隔離區，一個欄位都不動 —— 這一版看不懂它，
     也就沒資格改寫它。搬走之後 _sanitize_services 只會看到認得的服務。"""
-    services = cfg["services"]
+    services = _as_entries(cfg.get("services"))
     unknown = [entry for entry in services if not _is_known(entry)]
     if not unknown:
         return False
@@ -321,10 +346,11 @@ def _quarantine_unknown_services(cfg: dict) -> bool:
 
 def _sanitize_services(cfg: dict) -> bool:
     """逐筆補齊欄位、刪掉過期欄位、補上缺漏或重複的 id 與名稱。
-    認不得 provider 的服務已由 _quarantine_unknown_services 先搬走。"""
-    before = cfg.get("services")
+    認不得 provider 的服務已由 _quarantine_unknown_services 先搬走，容器也已由
+    _normalize_containers 正規化成 list。"""
+    before = cfg["services"]
     clean: list[dict] = []
-    for entry in _as_entries(before):
+    for entry in before:
         provider = entry["provider"]
         service = {"id": _text(entry.get("id")),
                    "name": _text(entry.get("name")),
@@ -382,7 +408,7 @@ def normalize(cfg: dict) -> bool:
     有變動代表呼叫端該把整理後的結果寫回 config.json。"""
     changed = _normalize_containers(cfg)
     # 遷移與否的證據要在促轉之前取樣：促轉之後清單裡會混進與 api 區塊無關的服務
-    migrated_before = any(_is_known(entry) for entry in cfg["services"])
+    migrated_before = any(_is_migrated_service(entry) for entry in cfg["services"])
     changed = _promote_known_services(cfg) or changed
     changed = _quarantine_unknown_services(cfg) or changed
     changed = _migrate_api_block(cfg, migrated_before) or changed
