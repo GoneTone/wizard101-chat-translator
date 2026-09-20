@@ -163,6 +163,10 @@ class SetupWizard:
 
     def _form_step(self) -> None:
         """第二步的後半：服務商選好了，編輯那一筆服務。"""
+        # 填設定與測試連線要等表單真的畫出來才說得通，前半只有服務商卡片
+        howto = ttk.Label(self._body, text=t("wizard.intro_form"), justify="left")
+        howto.pack(fill="x", pady=(10, 0))
+        bind_wrap(howto)
         self._service_form.pack(fill="x", pady=(10, 0))
         skip = ttk.Label(self._body, text=t("wizard.skip_test"), foreground=HINT_COLOR,
                          cursor="hand2", font=ui_font(8))

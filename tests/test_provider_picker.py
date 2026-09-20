@@ -1,4 +1,5 @@
 """ProviderCards／ProviderPicker：選服務商的卡片清單與它的 modal 包裝。"""
+import re
 import tkinter as tk
 from tkinter import ttk
 
@@ -108,3 +109,30 @@ def test_the_cancel_button_closes_the_picker(root):
     _cancel_button(picker.win).invoke()
     assert picker.result is None
     assert root.grab_current() is None
+
+
+def _label_texts(parent):
+    """視窗裡所有 ttk.Label 的文字（含卡片內部的標題與說明）。"""
+    texts = []
+    for widget in parent.winfo_children():
+        if isinstance(widget, ttk.Label):
+            texts.append(str(widget.cget("text")))
+        texts.extend(_label_texts(widget))
+    return texts
+
+
+def test_the_window_title_is_not_repeated_inside_the_window(root):
+    """同一句話不畫兩次：視窗標題已經在講這件事，窗內再一個粗體標籤就是重複。"""
+    picker = ProviderPicker(root)
+    assert picker.win.title() == t("service.pick_provider")
+    assert t("service.pick_provider") not in _label_texts(picker.win)
+    picker._cancel()
+
+
+def test_the_cards_keep_a_margin_below_the_window_top(root):
+    """窗內標題拿掉後，上緣留白改由卡片區自己撐，否則第一張卡片會貼著視窗頂。"""
+    picker = ProviderPicker(root)
+    # pack_info 給的 pady 可能是 "12"、"0 12" 或 "(0, 12)"，取第一個數字就是上緣
+    top_pad = int(re.findall(r"\d+", str(picker.cards.pack_info()["pady"]))[0])
+    picker._cancel()
+    assert top_pad > 0

@@ -66,10 +66,8 @@ class ProviderPicker:
         buttons.pack(side="bottom", fill="x")
         ttk.Button(buttons, text=t("button.cancel"), command=self._cancel).pack(side="right")
 
-        ttk.Label(self.win, text=t("service.pick_provider"),
-                  font=ui_font(10, "bold")).pack(anchor="w", padx=12, pady=(12, 6))
         self.cards = ProviderCards(self.win, self._pick)
-        self.cards.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.cards.pack(fill="both", expand=True, padx=12, pady=12)
 
     def _pick(self, provider: str) -> None:
         self.result = provider

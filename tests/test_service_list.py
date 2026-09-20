@@ -3,6 +3,7 @@ import tkinter as tk
 
 import pytest
 
+from src.i18n import t
 from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
 from src.ui.service_list import ServiceDialog, ServicePane
 
@@ -35,10 +36,38 @@ def test_values_round_trip_unchanged(two):
                              "service_slots": {slot: None for slot in SLOTS}}
 
 
-def test_cards_are_listed_in_order_with_the_default_marked(two):
+def test_cards_are_listed_in_order_with_the_default_badged(two):
     pane, a, b = two
-    # 全形空白＋半形空格才與「● 」等寬對齊，非預設那列不能只有全形空白
-    assert pane.card_labels() == [f"● {a['name']}", f"　 {b['name']}"]
+    assert pane.card_labels() == [f"{a['name']}　{t('service.badge_default')}",
+                                  b["name"]]
+
+
+def test_a_card_with_no_role_shows_its_name_alone(two):
+    """沒有角色的服務不留前導空位：標記在名稱後面，沒什麼要對齊的。"""
+    pane, _a, b = two
+    assert pane.card_labels()[1] == b["name"]
+
+
+def test_the_default_badge_comes_before_the_slot_badges(root):
+    a = _service("openai", [])
+    b = _service("claude", [a])
+    pane = ServicePane(root, {"services": [a, b], "default_service": a["id"],
+                              "service_slots": {SLOT_INCOMING: None,
+                                                SLOT_OUTGOING: None,
+                                                SLOT_REGION: a["id"]}})
+    assert pane.card_labels()[0] == (
+        f"{a['name']}　{t('service.badge_default')} · {t('slot.region')}")
+
+
+def test_several_slots_on_one_service_are_badged_in_slot_order(root):
+    a = _service("openai", [])
+    b = _service("claude", [a])
+    pane = ServicePane(root, {"services": [a, b], "default_service": a["id"],
+                              "service_slots": {SLOT_INCOMING: b["id"],
+                                                SLOT_OUTGOING: None,
+                                                SLOT_REGION: b["id"]}})
+    assert pane.card_labels()[1] == (
+        f"{b['name']}　{t('slot.incoming')} · {t('slot.region')}")
 
 
 def test_deleting_the_default_hands_it_to_the_first_remaining(two):

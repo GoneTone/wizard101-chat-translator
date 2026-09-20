@@ -616,3 +616,40 @@ def test_language_change_after_picking_rebuilds_into_the_form(root):
         rebuilt._win.destroy()
     finally:
         i18n.set_language(before)
+
+
+def _body_label_texts(wizard):
+    """第二步 body 上直接擺著的說明文字。"""
+    from tkinter import ttk
+
+    return [str(w.cget("text")) for w in wizard._body.pack_slaves()
+            if isinstance(w, ttk.Label)]
+
+
+def test_the_form_instructions_wait_until_the_form_exists(root):
+    """前半只有服務商卡片：叫人填設定、按測試連線是在講畫面上還沒有的東西。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    texts = _body_label_texts(wizard)
+    assert t("wizard.intro") in texts
+    assert t("wizard.intro_form") not in texts
+    assert t("wizard.pick_provider") in texts
+    wizard._win.destroy()
+
+
+def test_the_form_step_explains_what_to_do_with_the_form(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    texts = _body_label_texts(wizard)
+    assert t("wizard.intro") in texts
+    assert t("wizard.intro_form") in texts
+    wizard._win.destroy()

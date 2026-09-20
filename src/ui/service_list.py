@@ -112,9 +112,15 @@ class ServicePane(ttk.Frame):
                 "service_slots": dict(self._slots)}
 
     def card_labels(self) -> list[str]:
-        """卡片的標題列文字（預設那張前綴 ●，其餘留等寬空位）。"""
-        return [f"{'●' if s['id'] == self._default else '　'} {s['name']}"
-                for s in self._services]
+        """卡片的標題列文字：服務名稱後面接它擔任的角色（預設、各用途）。"""
+        return [self._card_label(service) for service in self._services]
+
+    def _card_label(self, service: dict) -> str:
+        badges = [t("service.badge_default")] if service["id"] == self._default else []
+        badges += [t(f"slot.{slot}") for slot in SLOTS
+                   if self._slots[slot] == service["id"]]
+        # 分隔符與卡片副標的 describe() 一致
+        return f"{service['name']}　{' · '.join(badges)}" if badges else service["name"]
 
     def slot_options(self) -> list[str | None]:
         """分派下拉的選項順序：None（跟隨預設）在最前面。"""
