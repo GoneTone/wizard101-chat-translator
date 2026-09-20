@@ -12,7 +12,7 @@ from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
 from src.i18n import current_language, set_language, t, translators
 from src.log import log
-from src.services import find, validate_service
+from src.services import SLOTS, find, validate_service
 from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
@@ -158,8 +158,9 @@ class SettingsWindow:
         self._language = LanguageField(basic, cfg["target_language"])
         self._language.pack(fill="x", pady=(2, 10))
         # 服務清單在「翻譯服務」分頁建立，此時還不存在：先擺空標籤，open() 全部分頁
-        # 建完後才填值（見 _refresh_service_summary）。
-        ttk.Label(basic, text=t("settings.tab.services")).pack(anchor="w", pady=(12, 0))
+        # 建完後才填值（見 _refresh_service_summary）。標籤不沿用分頁標題：這一列的值
+        # 只是預設服務，建了三組的使用者會讀成「我只有一組」。
+        ttk.Label(basic, text=t("service.default")).pack(anchor="w", pady=(12, 0))
         service_row = ttk.Frame(basic)
         service_row.pack(fill="x", pady=(2, 10))
         self._service_summary = ttk.Label(service_row, text="")
@@ -507,13 +508,26 @@ class SettingsWindow:
         if chosen:
             self._game_path.set(chosen)
 
+    def _service_errors(self, values: dict) -> list[str]:
+        """預設服務與三個插槽實際指到的服務各自缺哪些必填欄位（錯誤文案 key，空＝通過）。
+
+        插槽指到的也要驗：執行期真的會拿它送請求（`model=""` 的請求送得出去），
+        收訊那格失敗後還會每 15 秒重試一次、橫幅一直掛著端點原文。"""
+        # 有服務但填不完整時要指出缺哪一欄，不能報「請先新增一組翻譯服務」
+        if find(values, values["default_service"]) is None:
+            return ["error.need_service"]
+        ids = [values["default_service"],
+               *(values["service_slots"][slot] for slot in SLOTS)]
+        errors: list[str] = []
+        for service in (find(values, service_id) for service_id in ids):
+            if service is not None:
+                errors += validate_service(service)
+        return list(dict.fromkeys(errors))   # 多格指到同一筆時，同一個缺漏只列一次
+
     def _save(self) -> None:
         # 先整批解析再驗證：格式錯誤也要走表單錯誤提示，不能讓 cfg 寫到一半。
         values, advanced_error = self._form_values()
-        # 預設服務要存在且填得完整：手改壞掉的設定不該被原樣存回去
-        default = find(values, values["default_service"])
-        # 有服務但填不完整時要指出缺哪一欄，不能報「請先新增一組翻譯服務」
-        errors = ["error.need_service"] if default is None else validate_service(default)
+        errors = self._service_errors(values)
         if values["hotkey"] == values["region_hotkey"]:
             errors.append("error.hotkeys_same")
         if not values["target_language"]:

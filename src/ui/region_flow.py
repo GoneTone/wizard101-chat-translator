@@ -209,7 +209,9 @@ class RegionFlow:
                 log(f"[region] unexpected failure (rect={rect}): {type(exc).__name__}: {exc}\n"
                     f"{traceback.format_exc()}")
             else:
-                log(f"[region] translate failed (rect={rect}): {type(exc).__name__}: {exc}")
+                log(f"[region] translate failed "
+                    f"(rect={rect}, {self._pipeline.describe()}): "
+                    f"{type(exc).__name__}: {exc}")
             message = describe_error(exc)
             self._queue.put(lambda: self._show_error(message, session))
             return

@@ -379,3 +379,9 @@ def test_translate_and_cache_stores_a_translation_that_kept_the_source_english(
 def test_fingerprint_covers_the_prompt_revision():
     # 提示詞改了，舊提示詞產出的譯文就該整份作廢 —— 否則翻壞的譯名會跨著更新留在磁碟上
     assert f"p{PROMPT_REVISION}" in fingerprint_of("custom", "gemma", "日本語")
+
+
+def test_fingerprint_separates_two_endpoints_that_share_a_model_name():
+    # 本機與遠端各有一個 qwen3：指紋不含端點的話，換掉服務後舊端點的譯文會繼續命中
+    assert (fingerprint_of("custom", "qwen3", "日本語", "http://127.0.0.1:11434")
+            != fingerprint_of("custom", "qwen3", "日本語", "https://remote.example"))

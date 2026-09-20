@@ -389,6 +389,14 @@ class App:
     reader_thread: threading.Thread
 
 
+def incoming_fingerprint(cfg: dict) -> str:
+    """收訊那格目前生效的譯文快取指紋（建構與套用設定共用同一份算法）。
+    端點只有自訂服務有，其餘服務商的網址寫死在 translator。"""
+    incoming = resolve(cfg, SLOT_INCOMING)
+    return fingerprint_of(incoming["provider"], incoming["model"],
+                          cfg["target_language"], incoming.get("base_url", ""))
+
+
 def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], TranslationCache,
                                                    list[TranslationPool]]:
     """翻譯端：三個用途各一個翻譯器、系統訊息譯文快取，以及兩條翻譯池（玩家對話吃上下文；
@@ -396,10 +404,8 @@ def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], Transl
     translators = {slot: Translator(**resolve(cfg, slot),
                                     target_language=cfg["target_language"])
                    for slot in SLOTS}
-    incoming = resolve(cfg, SLOT_INCOMING)
     gate = ConcurrencyGate(cfg["max_parallel_translations"])
-    cache = TranslationCache(fingerprint_of(incoming["provider"], incoming["model"],
-                                            cfg["target_language"]))
+    cache = TranslationCache(incoming_fingerprint(cfg))
     cache.load()
 
     def make_pool(translate_fn=None) -> TranslationPool:
@@ -416,15 +422,15 @@ def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], Transl
 
 def reconfigure_translation(cfg: dict, translators: dict[str, Translator],
                             cache: TranslationCache, pools: list[TranslationPool]) -> None:
-    """設定存檔後讓翻譯端跟上新設定（build_translation 的對應面）。"""
+    """設定存檔後讓翻譯端跟上新設定（build_translation 的對應面）。
+    沒改到的那幾格會原地不動（見 Translator.reconfigure）—— 一次存檔只該影響被改動的用途。"""
     for slot, tr in translators.items():
-        tr.reconfigure(**resolve(cfg, slot), target_language=cfg["target_language"])
+        if tr.reconfigure(**resolve(cfg, slot), target_language=cfg["target_language"]):
+            log(f"[translate] {slot} translator rebuilt: {tr.describe()}")
     for p in pools:
         p.resize(cfg["max_parallel_translations"])
-    # 收訊的服務商／模型／目標語言任一改變，舊譯文即失效；只改區域翻譯那格不該波及它
-    incoming = resolve(cfg, SLOT_INCOMING)
-    cache.rebind(fingerprint_of(incoming["provider"], incoming["model"],
-                                cfg["target_language"]))
+    # 收訊那格的服務（含端點）或目標語言一改，舊譯文即失效；只改區域翻譯那格不該波及它
+    cache.rebind(incoming_fingerprint(cfg))
 
 
 def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
@@ -470,7 +476,8 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
     input_box = InputBox(root, lambda text, cancel: translators[SLOT_OUTGOING].translate_outgoing(
         text, context.snapshot(), cancel=cancel), ui_queue,
-        lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]))
+        lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]),
+        describe_service=translators[SLOT_OUTGOING].describe)
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
                                                    lambda: on_hotkey(input_box, ui_queue))
     region_pipeline = RegionPipeline(translators[SLOT_REGION])

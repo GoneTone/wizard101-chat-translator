@@ -82,6 +82,9 @@ class FakePipeline:
             raise self._raises
         return self._result
 
+    def describe(self):
+        return "provider=custom, model=qwen3"
+
 
 def _flow(root, pipeline, capture_window=lambda hwnd: _FRAME,
          crop=lambda frame, rect: b"png", capture_screen=lambda monitor: None,
@@ -509,3 +512,15 @@ def test_a_cancelled_request_leaves_the_card_alone(root):
     selector.pick(_RECT)
     _drain(ui_queue, flow)
     assert card.events == [("pending", _RECT)]
+
+
+def test_the_failure_log_names_the_service(root, capsys):
+    """區域翻譯失敗沒有重試；log 要當場說出是哪一組服務，不必回頭翻啟動摘要。"""
+    flow, selector, _card, ui_queue = _flow(
+        root, FakePipeline(raises=TranslatorOffline("connection refused")))
+    flow.toggle(0x1234)
+    selector.pick(_RECT)
+    _drain(ui_queue, flow)
+    err = capsys.readouterr().err
+    assert "[region] translate failed" in err
+    assert "provider=custom, model=qwen3" in err

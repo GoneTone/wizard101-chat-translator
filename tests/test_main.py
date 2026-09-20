@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from src import main
 from src.config import DEFAULT_CONFIG
 from src.main import config_summary
@@ -209,3 +211,101 @@ def test_build_app_wires_each_consumer_to_its_own_slot():
     source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
     assert "translators[SLOT_OUTGOING].translate_outgoing(" in source
     assert "RegionPipeline(translators[SLOT_REGION])" in source
+
+
+def test_saving_unrelated_settings_rebuilds_no_translator(monkeypatch):
+    """只改了與服務無關的設定（拖了不透明度就按儲存）時，三個後端 client 都要原地不動：
+    重建會拆掉連線池，飛行中的請求收到 WinSock 斷線、被判成「翻譯伺服器離線」。"""
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    before = {slot: tr._impl for slot, tr in translators.items()}
+
+    cfg["overlay_alpha"] = 0.5
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert {slot: tr._impl for slot, tr in translators.items()} == before
+
+
+def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch):
+    """「我只改了區域翻譯那一格」不該連收訊與發話的連線一起拆掉。"""
+    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, find
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    before = {slot: tr._impl for slot, tr in translators.items()}
+
+    find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert translators[SLOT_REGION]._impl is not before[SLOT_REGION]
+    assert translators[SLOT_INCOMING]._impl is before[SLOT_INCOMING]
+    assert translators[SLOT_OUTGOING]._impl is before[SLOT_OUTGOING]
+
+
+@pytest.mark.parametrize("field, value, check", [
+    ("model", "outgoing-model-2", lambda impl: impl.model == "outgoing-model-2"),
+    ("api_key", "sk-new",
+     lambda impl: impl._client.headers["Authorization"] == "Bearer sk-new"),
+    ("base_url", "http://elsewhere",
+     lambda impl: str(impl._client.base_url) == "http://elsewhere"),
+])
+def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, check):
+    """真的改到服務欄位時照樣重建，新值要真的生效。"""
+    from src.services import SLOT_OUTGOING, find
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    before = translators[SLOT_OUTGOING]._impl
+
+    find(cfg, cfg["service_slots"][SLOT_OUTGOING])[field] = value
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert translators[SLOT_OUTGOING]._impl is not before
+    assert check(translators[SLOT_OUTGOING]._impl)
+
+
+def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
+    """目標語言也是 reconfigure 的參數：三格都要跟上。"""
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    before = {slot: tr._impl for slot, tr in translators.items()}
+
+    cfg["target_language"] = "日本語"
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    for slot, tr in translators.items():
+        assert tr._impl is not before[slot]
+        assert tr.target_language == "日本語"
+
+
+def _twin_endpoint_cfg():
+    """兩筆自訂服務、模型同名、端點不同（本機與遠端各有一個 qwen3）。"""
+    from src.services import SLOT_INCOMING, new_service
+
+    cfg = configured_cfg("custom", base_url="http://local", model="qwen3")
+    remote = new_service("custom", cfg["services"])
+    remote.update(base_url="http://remote", model="qwen3")
+    cfg["services"].append(remote)
+    cfg["service_slots"][SLOT_INCOMING] = cfg["services"][0]["id"]
+    return cfg, remote
+
+
+def test_switching_the_incoming_slot_between_same_named_models_invalidates_the_cache(
+        monkeypatch):
+    """兩個端點的模型同名時，換掉收訊那格必須讓舊譯文作廢 —— 指紋不含端點的話，
+    舊端點翻的系統訊息譯文會繼續命中。"""
+    from src.services import SLOT_INCOMING
+
+    _stub_translation(monkeypatch)
+    cfg, remote = _twin_endpoint_cfg()
+    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    before = cache.fingerprint
+
+    cfg["service_slots"][SLOT_INCOMING] = remote["id"]
+    main.reconfigure_translation(cfg, translators, cache, pools)
+
+    assert cache.fingerprint != before

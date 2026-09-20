@@ -845,3 +845,65 @@ def test_language_preview_keeps_a_half_added_service(root):
         win._win.destroy()
     finally:
         i18n.set_language(before)
+
+
+def test_save_refuses_a_service_a_slot_points_at(root, monkeypatch):
+    """插槽指到的服務也要填得完整：執行期真的會拿它送請求（`model=""` 的請求實測送得
+    出去），收訊那格更會每 15 秒重試一次、橫幅一直掛著端點原文。"""
+    from src.i18n import t
+    from src.services import SLOT_INCOMING, new_service
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = configured_cfg()
+    # 從舊版升級時留下的形狀：貼過金鑰、但還沒選模型
+    half_done = new_service("openai", cfg["services"])
+    half_done.update(api_key="sk-1", model="")
+    cfg["services"].append(half_done)
+    cfg["service_slots"][SLOT_INCOMING] = half_done["id"]
+    saved = []
+    win = SettingsWindow(root, cfg, on_save=lambda: saved.append(1))
+    win.open()
+    win._save()
+    assert saved == []
+    assert warnings == [t("error.need_model")]
+    win._win.destroy()
+
+
+def test_save_lists_a_shared_services_problem_only_once(root, monkeypatch):
+    """預設與某個插槽指到同一筆服務時，同一個缺漏不該被列兩次。"""
+    from src.i18n import t
+    from src.services import SLOT_OUTGOING
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = configured_cfg("openai", api_key="")
+    cfg["service_slots"][SLOT_OUTGOING] = cfg["default_service"]
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    win._save()
+    assert warnings == [t("error.need_api_key")]
+    win._win.destroy()
+
+
+def test_the_basic_tab_labels_the_service_row_with_the_default_service(root):
+    """那一列的值只是預設服務的名稱；沿用分頁標題「翻譯服務」當標籤，建了三組的
+    使用者會讀成「我只有一組」，而且譯者為了分頁寬度縮短它時會一併殃及這裡。"""
+    from tkinter import ttk
+
+    from src.i18n import t
+
+    win = _open_settings(root)
+    slaves = win._ui_language.master.pack_slaves()
+    label = slaves[slaves.index(win._service_summary.master) - 1]
+    assert isinstance(label, ttk.Label)
+    assert label.cget("text") == t("service.default")
+    win._win.destroy()
