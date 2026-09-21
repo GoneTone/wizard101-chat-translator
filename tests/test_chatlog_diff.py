@@ -497,7 +497,7 @@ def test_input_open_caches_node_and_refinds_after_failure():
             self.root_window = FakeRoot(node)
 
     node = FakeNode()
-    r = WizChatReader()
+    r = WizChatReader(0x1)
     r._connected = True
     r._loop = asyncio.new_event_loop()
     r._client = FakeClient(node)
@@ -517,7 +517,7 @@ def test_input_open_caches_node_and_refinds_after_failure():
 
 
 def test_input_open_false_when_not_connected():
-    r = WizChatReader()
+    r = WizChatReader(0x1)
     assert r.input_open() is False
 
 

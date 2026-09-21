@@ -74,7 +74,7 @@ class _Client:
 
 def _reader(monkeypatch, node, root_rect=(0, 0, 1370, 770)):
     root = _Root(root_rect, node)
-    r = WizChatReader()
+    r = WizChatReader(0x1)
     r._connected = True
     r._loop = asyncio.new_event_loop()
     r._client = _Client(root)
@@ -112,4 +112,4 @@ def test_input_box_screen_rect_none_when_node_read_fails(monkeypatch):
 
 
 def test_input_box_screen_rect_none_when_not_connected():
-    assert WizChatReader().input_box_screen_rect() is None
+    assert WizChatReader(0x1).input_box_screen_rect() is None

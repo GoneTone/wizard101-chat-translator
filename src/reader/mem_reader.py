@@ -23,7 +23,6 @@ from src.reader.diff import (
 from src.reader.markup import ChatLine, forget_warned_icons, lines_from_nodes, node_sizes
 from src.reader.message_log import MessageLog
 from src.reader.process import (
-    PROCESS_NAME,
     detect_install_path,
     pid_alive,
 )
@@ -104,8 +103,10 @@ class WizChatReader:
     對不齊（切到沒讀過的分頁視圖／relog）視情況吸收或過濾（見 _diff_new_lines 的 reset
     分支）。所有路徑共用一道出口防線：單輪超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊。"""
 
-    def __init__(self, game_path: str | None = None,
-                 message_log: MessageLog | None = None):
+    def __init__(self, hwnd: int, game_path: str | None = None,
+                 message_log: MessageLog | None = None, slot: int = 0):
+        self._hwnd = hwnd
+        self._slot = slot          # 只用在 log：雙開時分辨這條是哪個客戶端
         self._game_path = game_path
         # 玩家軌與系統軌各一份差分狀態、完全分離：共用同一個看過集合會讓掉寶刷屏把
         # 玩家說過的話擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
@@ -121,7 +122,6 @@ class WizChatReader:
         self._synced = False          # 是否已建立初始基準（建立後才開始回報新增）
         self._connected = False
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._handler = None
         self._client = None
         self._pid = 0
         self._edit_node = None  # chatEditContainer 節點快取（input_open 用）
@@ -515,20 +515,20 @@ class WizChatReader:
         return self._run(_grab())
 
     def _connect(self) -> None:
+        import wizwalker
         import wizwalker.utils
         from pymem.exception import CouldNotOpenProcess
-        from wizwalker import ClientHandler
 
         path = self._game_path or detect_install_path()
         log(f"[reader] game path: {path!r} "
-            f"(source={'config' if self._game_path else 'detected'})")
+            f"(source={'config' if self._game_path else 'detected'}, slot={self._slot})")
         if path:
             wizwalker.utils._OVERRIDE_PATH = path  # Steam 版無登錄檔安裝路徑，需覆寫
 
         self._loop = asyncio.new_event_loop()
-        self._handler = ClientHandler()
         try:
-            clients = self._handler.get_new_clients()
+            # 綁定指定視窗：雙開時每個 reader 各掛自己的客戶端，不能拿列舉結果的第一個
+            self._client = wizwalker.Client(self._hwnd)
         except CouldNotOpenProcess as exc:
             # 程序在、handle 開不了＝完整性等級對不上（medium 開不了 high）。
             # 這裡不 teardown 會每輪重試漏掉一個 event loop。
@@ -539,10 +539,6 @@ class WizChatReader:
         except Exception as exc:
             self._teardown()
             raise GameNotRunning(f"failed to open game process: {exc}") from exc
-        if not clients:
-            self._teardown()
-            raise GameNotRunning(f"game process not found: {PROCESS_NAME}")
-        self._client = clients[0]
         self._pid = self._client.process_id
         hook_state.sweep(pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
@@ -562,7 +558,8 @@ class WizChatReader:
                     f"hook does not match this game build: {exc}") from exc
             raise GameNotRunning(f"failed to attach to game: {exc}") from exc
         self._connected = True
-        log(f"[reader] attached to game (pid={self._pid}, hook_ready_in={waited:.1f}s)")
+        log(f"[reader] attached to game (slot={self._slot}, pid={self._pid}, "
+            f"hwnd={self._hwnd:#x}, hook_ready_in={waited:.1f}s)")
 
     def _run(self, coro):
         return self._loop.run_until_complete(coro)
@@ -590,8 +587,8 @@ class WizChatReader:
         elapsed = time.monotonic() - started
         if not ready:
             log(f"[reader] root window hook never fired within "
-                f"{HOOK_READY_TIMEOUT:.0f}s (pid={self._pid}); the hook pattern "
-                f"likely does not match this game build")
+                f"{HOOK_READY_TIMEOUT:.0f}s (slot={self._slot}, pid={self._pid}); "
+                f"the hook pattern likely does not match this game build")
             raise TimeoutError(
                 f"root window hook did not fire within {HOOK_READY_TIMEOUT:.0f}s")
         return elapsed
@@ -611,8 +608,8 @@ class WizChatReader:
         try:
             current_base = self._module_base()
         except Exception as exc:
-            log(f"[reader] cannot read module base, ignoring hook state (pid={pid}): "
-                f"{type(exc).__name__}: {exc}")
+            log(f"[reader] cannot read module base, ignoring hook state "
+                f"(slot={self._slot}, pid={pid}): {type(exc).__name__}: {exc}")
             current_base = None
         if current_base == saved_base:
             failed = 0
@@ -626,10 +623,11 @@ class WizChatReader:
             outcome = ("no game restart needed" if not failed
                        else "restart the game if chat stays silent")
             log(f"[reader] repaired hooks leaked by previous dirty exit "
-                f"(writes={len(ops) - failed}, failed={failed}, pid={pid}), {outcome}")
+                f"(writes={len(ops) - failed}, failed={failed}, "
+                f"slot={self._slot}, pid={pid}), {outcome}")
         elif current_base is not None:
-            log(f"[reader] stale hook state ignored (pid={pid} was reused: "
-                f"saved_base={saved_base:#x}, current_base={current_base:#x})")
+            log(f"[reader] stale hook state ignored (slot={self._slot}, pid={pid} "
+                f"was reused: saved_base={saved_base:#x}, current_base={current_base:#x})")
         hook_state.clear_state(pid)  # 套用或過期，一律刪除
 
     def _save_hook_state(self, pid: int) -> None:
@@ -649,15 +647,16 @@ class WizChatReader:
             hook_state.save_state(pid, self._module_base(), ops)
         except Exception as exc:
             # 存不了就修不回：下次髒退出後只能重開遊戲，得讓 app.log 看得出原因
-            log(f"[reader] could not save hook state (pid={pid}, ops={len(ops)}): "
+            log(f"[reader] could not save hook state "
+                f"(slot={self._slot}, pid={pid}, ops={len(ops)}): "
                 f"{type(exc).__name__}: {exc}")
 
     def _teardown(self) -> None:
         """關閉 wizwalker 連線與事件迴圈，回到未連線狀態（下次 read_new 會重連）。"""
         unhooked = False
         try:
-            if self._handler is not None and self._loop is not None:
-                self._loop.run_until_complete(self._handler.close())
+            if self._client is not None and self._loop is not None:
+                self._loop.run_until_complete(self._client.close())
                 unhooked = True
         except Exception as exc:
             # 狀態檔留著，下次啟動由 _repair_leaked_hooks 寫回原始 bytes。不能靜默吞：否則上層
@@ -671,7 +670,6 @@ class WizChatReader:
         except Exception:
             pass
         self._loop = None
-        self._handler = None
         self._client = None
         self._edit_node = None
         self._connected = False
