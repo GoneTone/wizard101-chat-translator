@@ -203,16 +203,14 @@ def test_paste_intercepted_only_when_enabled_and_game_is_foreground(monkeypatch)
 
 
 def test_paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open(monkeypatch):
-    import threading
-
     import src.main as main
     pasted = []
     monkeypatch.setattr(main, "paste_clipboard",
                         lambda hwnd, delay, single_line: pasted.append((hwnd, delay, single_line)))
     monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0x77)
-    chat_open = threading.Event()
+    tracker = main.ChatInputTracker()
     cfg = {"type_delay": 0.03}
-    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
-    chat_open.set()
-    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
+    main.on_paste_hotkey(cfg, tracker).join(timeout=5)
+    tracker.opened(0x77)
+    main.on_paste_hotkey(cfg, tracker).join(timeout=5)
     assert pasted == [(0x77, 0.03, False), (0x77, 0.03, True)]

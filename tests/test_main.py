@@ -309,3 +309,85 @@ def test_switching_the_incoming_slot_between_same_named_models_invalidates_the_c
     main.reconfigure_translation(cfg, translators, cache, pools)
 
     assert cache.fingerprint != before
+
+
+# --- 雙開：聊天框事件只認前景客戶端，Ctrl+V 單行判定看前景視窗 ---
+class _FakeInputBox:
+    def __init__(self):
+        self.calls: list = []
+
+    def set_anchor(self, rect):
+        self.calls.append(("anchor", rect))
+
+    def clear_anchor(self):
+        self.calls.append("clear_anchor")
+
+    def show(self):
+        self.calls.append("show")
+
+    def hide(self):
+        self.calls.append("hide")
+
+
+def _events(auto_show=True, foreground=0xA):
+    box = _FakeInputBox()
+    tracker = main.ChatInputTracker()
+    ev = main.GameInputEvents({"auto_show_input": auto_show}, box, tracker,
+                              foreground=lambda: foreground)
+    return ev, box, tracker
+
+
+def test_open_in_the_foreground_window_anchors_and_shows():
+    ev, box, tracker = _events(foreground=0xA)
+    ev.opened(0xA, (1, 2, 3, 4))
+    assert box.calls == [("anchor", (1, 2, 3, 4)), "show"]
+    assert tracker.is_open(0xA)
+
+
+def test_open_in_a_background_window_is_tracked_but_not_shown():
+    # 使用者正在玩 B，A 的聊天框開了：不彈框、不改錨點，但記得 A 開著（貼上判定要用）
+    ev, box, tracker = _events(foreground=0xB)
+    ev.opened(0xA, (1, 2, 3, 4))
+    assert box.calls == []
+    assert tracker.is_open(0xA)
+
+
+def test_close_from_another_window_does_not_hide_the_box():
+    ev, box, tracker = _events(foreground=0xB)
+    ev.opened(0xB, None)
+    ev.opened(0xA, None)     # A 在背景開著
+    ev.closed(0xA)           # A 關了：不能收掉為 B 呼出的框
+    assert "hide" not in box.calls
+    assert not tracker.is_open(0xA) and tracker.is_open(0xB)
+    ev.closed(0xB)
+    assert box.calls[-2:] == ["clear_anchor", "hide"]
+
+
+def test_auto_show_off_still_tracks_and_anchors():
+    ev, box, tracker = _events(auto_show=False, foreground=0xA)
+    ev.opened(0xA, (1, 2, 3, 4))
+    ev.closed(0xA)
+    assert box.calls == [("anchor", (1, 2, 3, 4)), "clear_anchor"]
+
+
+def test_paste_single_line_follows_the_foreground_window(monkeypatch):
+    # 在 B 貼多行、只有 B 的聊天框開著：要走單行；A 開著、前景是 B 且 B 沒開：多行
+    seen = []
+    monkeypatch.setattr(main, "paste_clipboard",
+                        lambda hwnd, delay, single_line: seen.append((hwnd, single_line)))
+    monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0xB)
+    tracker = main.ChatInputTracker()
+    tracker.opened(0xB)
+    main.on_paste_hotkey({"type_delay": 0}, tracker).join()
+    tracker.closed(0xB)
+    tracker.opened(0xA)
+    main.on_paste_hotkey({"type_delay": 0}, tracker).join()
+    assert seen == [(0xB, True), (0xB, False)]
+
+
+def test_build_app_spawns_readers_through_the_supervisor():
+    """接線只在 build_app 裡（完整啟動才跑得到），以原始碼釘住關鍵 token。"""
+    source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
+    assert "target=supervise" in source
+    assert "MessageLog(message_stream, slot=slot)" in source
+    assert "overlay.set_multi_client" in source

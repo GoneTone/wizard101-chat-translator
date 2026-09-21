@@ -64,6 +64,11 @@ class InputBox:
         self._draft = ""  # hide() 收起時尚未送出的文字，下次 show() 還原
 
     @property
+    def target_hwnd(self) -> int | None:
+        """呼出當下記住的前景遊戲視窗（譯文要打回去的那個）；未呼出過為 None。"""
+        return self._target_hwnd
+
+    @property
     def is_open(self) -> bool:
         return self._win is not None
 
