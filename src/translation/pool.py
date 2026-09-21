@@ -17,7 +17,8 @@ CONFIG_ERROR_INTERVAL = 15.0  # API 設定錯誤時的重試間隔（秒）；�
 class TranslationPool:
     """平行收訊翻譯。`on_result(msg_id, text, failed)` 於 worker 執行緒呼叫，
     failed＝放棄該則、text 是失敗提示而非譯文。
-    呼叫端負責把它轉交回 UI 執行緒。"""
+    呼叫端負責把它轉交回 UI 執行緒。
+    `translator` 另需 `describe()`：失敗 log 要指名是哪一組服務（見 _note_failure）。"""
 
     def __init__(self, translator, on_result, workers: int, failed_notice_fn,
                  translate_fn=None, gate=None):
@@ -195,8 +196,8 @@ class TranslationPool:
             self._error_state = state
             self._error_detail = (exc.status, exc.detail) if exc.detail else None
         if changed:
-            log(f"[translate] provider {state} error: {exc}; "
-                f"retrying with backoff")
+            log(f"[translate] provider {state} error ({self._translator.describe()}): "
+                f"{exc}; retrying with backoff")
 
     def _note_success(self) -> None:
         """任何一次成功都代表伺服器與設定已恢復：清狀態、重置退避、放開閘門。"""

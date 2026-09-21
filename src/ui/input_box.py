@@ -42,11 +42,14 @@ class InputBox:
     對不上號就丟掉；關窗時進行中的翻譯請求也經 `RequestHandle` 撤銷（`translate_fn(text,
     cancel)`），不然伺服器會把沒人要的譯文生成完、照樣計費。
     `close()` 是使用者主動關（Esc／X／空白 Enter）或已送出，未送出的文字一併丟掉；
-    `hide()` 是遊戲關了聊天框被動收起，文字留到下次 `show()`。"""
+    `hide()` 是遊戲關了聊天框被動收起，文字留到下次 `show()`。
+    `describe_service()` 給失敗 log 指名發話走的是哪一組服務。"""
 
-    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated):
+    def __init__(self, root: tk.Tk, translate_fn, ui_queue: queue.Queue, on_translated,
+                 describe_service=lambda: "provider=?, model=?"):
         self._root = root
         self._translate = translate_fn
+        self._describe_service = describe_service   # 失敗 log 的服務欄位
         self._queue = ui_queue
         self._on_translated = on_translated
         self._anchor: tuple[int, int, int, int] | None = None  # 遊戲輸入框的螢幕矩形
@@ -197,7 +200,8 @@ class InputBox:
             log(f"[input] outgoing translation cancelled (chars={len(text)})")
             return
         except Exception as exc:
-            log(f"[input] outgoing translation failed (chars={len(text)}): "
+            log(f"[input] outgoing translation failed "
+                f"(chars={len(text)}, {self._describe_service()}): "
                 f"{type(exc).__name__}: {exc}")
             # 先把訊息綁成區域變數：lambda 延後在主執行緒執行，屆時 except 的 exc 已被刪除
             msg = t("input.failed", error=exc)

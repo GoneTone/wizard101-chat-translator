@@ -16,8 +16,8 @@ from contextlib import contextmanager
 
 import httpx
 
-from src.config import EFFORT_AUTO
 from src.log import log
+from src.services import EFFORT_AUTO
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
@@ -474,7 +474,7 @@ class _ClaudeClient(_BaseClient):
 
 
 # 欄位一律給預設值：呼叫端（Translator、list_models）直接展開某一家的設定，
-# 而每家有的欄位不同（見 config.API_PROFILE_FIELDS）。
+# 而每家有的欄位不同（見 services.API_PROFILE_FIELDS）。
 def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
                   api_key: str = "", thinking: bool = True, effort: str = EFFORT_AUTO,
                   timeout: float = _TIMEOUT, client=None):
@@ -494,20 +494,34 @@ class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
     `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
-    config.API_PROFILE_FIELDS），呼叫端直接把 active_api(cfg) 展開進來，缺的欄位
+    services.API_PROFILE_FIELDS），呼叫端直接把 services.resolve(cfg, slot) 展開進來，缺的欄位
     由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
                  client=None, **api):
         self._impl = _build_client(**api, timeout=timeout, client=client)
+        self._api = api   # 目前生效的服務設定，reconfigure 據此判斷有沒有真的改到
         self._target_language = target_language
 
-    def reconfigure(self, *, target_language: str, **api) -> None:
-        """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例）。
+    def reconfigure(self, *, target_language: str, **api) -> bool:
+        """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例），回傳是否重建。
+
+        值與目前生效的相同時整個跳過：重建會關掉連線池，飛行中的請求收到 WinSock 斷線、
+        被判成「翻譯伺服器離線」（發話與區域沒有重試），端點學到的參數限制
+        （見 _OpenAICompatClient）也得重新付一輪 400 才學回來。
         舊 client 先關：否則每改一次設定就多留一個連線池。"""
+        if api == self._api and target_language == self._target_language:
+            return False
         self._impl.close()
         self._impl = _build_client(**api)
+        self._api = api
         self._target_language = target_language
+        return True
+
+    def describe(self) -> str:
+        """目前生效的服務，失敗 log 用的診斷欄位（`provider=…, model=…`）。
+        金鑰絕不列入 —— 這些欄位會寫進 app.log。"""
+        return f"provider={self._api.get('provider', 'custom')}, model={self._impl.model}"
 
     def close(self) -> None:
         """釋放後端的連線池（一次性用途如測試連線，用完即關）。"""
@@ -533,12 +547,14 @@ class Translator:
         if cancel is not None and cancel.cancelled:
             raise TranslatorCancelled()
         started = time.monotonic()
-        translated = self._impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
+        # 綁成區域變數：reconfigure() 可能落在請求與 log 之間，記的要是真正送出請求的那個
+        impl = self._impl
+        translated = impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
         if strip:
             translated = strip_invented_english(source, translated)
         shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
-            f"(model={self._impl.model}, ctx={context_lines}): "
+            f"(model={impl.model}, ctx={context_lines}): "
             f"source={source!r} translated={shown}")
         return translated
 

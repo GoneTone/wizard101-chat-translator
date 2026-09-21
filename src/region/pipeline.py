@@ -29,6 +29,10 @@ class RegionPipeline:
         self._translator = translator
         self._recognize = recognize
 
+    def describe(self) -> str:
+        """這條流程用的是哪一組翻譯服務（失敗 log 的診斷欄位；見 Translator.describe）。"""
+        return self._translator.describe()
+
     def run(self, png: bytes, rect: tuple[int, int, int, int], cancel=None) -> RegionResult:
         """辨識並翻譯一張截圖；`rect` 只用來記 log，`cancel`（RequestHandle）交給翻譯
         請求，讓流程能中途撤銷；OCR 是本機、很快，不受它影響。"""

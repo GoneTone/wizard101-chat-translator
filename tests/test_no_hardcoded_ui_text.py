@@ -16,7 +16,10 @@ SCAN_TARGETS = [
     "src/ui/fields.py",
     "src/ui/form.py",
     "src/ui/model_field.py",
-    "src/ui/providers.py",
+    "src/services.py",
+    "src/ui/provider_picker.py",
+    "src/ui/service_form.py",
+    "src/ui/service_list.py",
     "src/ui/settings.py",
     "src/ui/wizard.py",
     "src/ui/fonts.py",
@@ -31,8 +34,10 @@ SCAN_TARGETS = [
 ]
 
 # 例外：語言選單與翻譯目標語言清單一律顯示 endonym，任何介面語言下都不翻譯。
+# 全形空白（U+3000）是卡片標題列隔開名稱與標記的間隔，不是可譯文字。
 ALLOWED = {
     "繁體中文（台灣）", "简体中文（中国）", "日本語", "한국어",
+    "　",
 }
 
 

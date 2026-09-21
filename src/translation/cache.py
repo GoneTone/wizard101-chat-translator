@@ -57,10 +57,13 @@ MAX_ENTRIES = 2000    # 系統訊息的句型與材料名是有限集合，2000 
 FLUSH_EVERY = 20      # 累積這麼多筆新增才落盤一次（不逐筆寫）
 
 
-def fingerprint_of(provider: str, model: str, target_language: str) -> str:
-    """快取指紋：換服務商、模型、目標語言或提示詞版次時舊譯文整份作廢（不含版次的話，
-    舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。絕不含 API 金鑰 —— 指紋會寫進磁碟。"""
-    return f"{provider}|{model}|{target_language}|p{PROMPT_REVISION}"
+def fingerprint_of(provider: str, model: str, target_language: str,
+                   base_url: str = "") -> str:
+    """快取指紋：換服務商、端點、模型、目標語言或提示詞版次時舊譯文整份作廢（不含版次的
+    話，舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。端點也算：兩筆自訂服務可能有同名模型
+    （本機與遠端各有一個 qwen3），只看模型名會讓舊端點的譯文繼續命中；其餘服務商沒有這個
+    欄位（官方網址寫死在 translator）。絕不含 API 金鑰 —— 指紋會寫進磁碟。"""
+    return f"{provider}|{base_url}|{model}|{target_language}|p{PROMPT_REVISION}"
 
 
 class TranslationCache:
@@ -95,8 +98,8 @@ class TranslationCache:
     def put(self, text: str, translated_template: str, fingerprint: str) -> bool:
         """存入一筆；`translated_template` 是樣板的譯文（仍帶佔位符）。
         佔位符對不上就不存並回傳 False —— 呼叫端須改用原文直翻。
-        `fingerprint` 是譯文產出當下的指紋：翻譯飛行中使用者可能 rebind 換掉服務商／模型／
-        目標語言，舊設定翻好的譯文若照存會被當成新設定的寫進磁碟、跨重啟回吐錯誤語言。"""
+        `fingerprint` 是譯文產出當下的指紋：翻譯飛行中使用者可能 rebind 換掉收訊用的服務
+        或目標語言，舊設定翻好的譯文若照存會被當成新設定的寫進磁碟、跨重啟回吐錯誤語言。"""
         template, _ = normalize(text)
         if not placeholders_match(template, translated_template):
             log(f"[cache] placeholder mismatch, not cached: "
@@ -120,7 +123,7 @@ class TranslationCache:
         return True
 
     def rebind(self, fingerprint: str) -> None:
-        """指紋變更（換服務商／模型／目標語言）：先落盤舊的，再清空重來。"""
+        """指紋變更（換收訊用的服務或目標語言）：先落盤舊的，再清空重來。"""
         if fingerprint == self._fingerprint:
             return
         self.flush()

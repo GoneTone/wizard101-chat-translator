@@ -1,24 +1,19 @@
-"""fields 純邏輯測試：表單驗證、錯誤文案、熱鍵字串。"""
-import copy
+"""fields 純邏輯測試：表單驗證、錯誤文案、模型欄位。"""
 import gc
-import time
 import tkinter as tk
-from tkinter import ttk
 
 import pytest
 
-from src.config import API_PROVIDERS, DEFAULT_CONFIG, active_api
 from src.i18n import t
+from src.services import API_PROFILE_FIELDS, validate_endpoint_fields, validate_service
 from src.translation.translator import (
     TranslatorConfigError,
     TranslatorNoModelList,
     TranslatorOffline,
 )
 from src.ui import form as form_module
-from src.ui.fields import ApiFields
 from src.ui.form import friendly_error
 from src.ui.model_field import ModelField, filter_models
-from src.ui.providers import PROVIDERS, validate_api_form, validate_endpoint_fields
 
 
 @pytest.fixture
@@ -34,15 +29,9 @@ def offscreen(root):
     gc.collect()
 
 
-def test_providers_metadata():
-    assert set(PROVIDERS) == set(API_PROVIDERS)  # 每家都要有自己的一份設定可存
-    assert PROVIDERS["custom"].needs_base_url
-    assert not PROVIDERS["openai"].needs_base_url
-
-
 def test_provider_labels_are_translated():
     from src import i18n
-    from src.ui.providers import PROVIDERS
+    from src.services import PROVIDERS
 
     before = i18n.current_language()
     try:
@@ -70,13 +59,13 @@ def test_ui_language_field_round_trips_language_code(root):
 
 
 def test_validate_requires_model():
-    errs = validate_api_form({"provider": "openai", "model": "", "api_key": "k",
+    errs = validate_service({"provider": "openai", "model": "", "api_key": "k",
                               "base_url": "", "thinking": False})
     assert "error.need_model" in errs
 
 
 def test_validate_requires_key_for_official_providers():
-    errs = validate_api_form({"provider": "claude", "model": "claude-opus-5",
+    errs = validate_service({"provider": "claude", "model": "claude-opus-5",
                               "api_key": "", "base_url": "", "thinking": False})
     assert "error.need_api_key" in errs
 
@@ -84,9 +73,9 @@ def test_validate_requires_key_for_official_providers():
 def test_validate_requires_base_url_for_custom_only():
     api = {"provider": "custom", "model": "m", "api_key": "", "base_url": "",
            "thinking": False}
-    assert "error.need_base_url" in validate_api_form(api)
+    assert "error.need_base_url" in validate_service(api)
     api["base_url"] = "http://127.0.0.1:8000"
-    assert validate_api_form(api) == []  # custom 不需金鑰
+    assert validate_service(api) == []  # custom 不需金鑰
 
 
 def test_friendly_error_guesses_from_status_when_api_gave_no_message():
@@ -112,149 +101,6 @@ def test_friendly_error_shows_connection_failure_reason():
         ("error.offline_detail", {"message": "[Errno 11001] getaddrinfo failed"})
 
 
-
-
-def _initial(provider="openai", **profile):
-    """ApiFields 吃的是整個 api 區塊：provider 加上每家各一份設定。"""
-    api = copy.deepcopy(DEFAULT_CONFIG["api"])
-    api["provider"] = provider
-    api[provider].update(profile)
-    return api
-
-
-def _switch(fields, provider):
-    fields._provider.set(provider)
-    fields._rebuild_fields()
-
-
-def test_switch_provider_shows_that_providers_own_values(root):
-    # 模型 ID 跨服務商不通用：切過去看到的是那家自己的設定，不是上一家的殘值
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    _switch(fields, "claude")
-    assert fields.active_values()["model"] == ""
-
-
-def test_switch_back_restores_the_previous_provider_values(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol",
-                                      api_key="sk-1", thinking=True))
-    _switch(fields, "custom")
-    fields._base_url.set("http://x")
-    fields._model.set("qwen3")
-    _switch(fields, "openai")
-    assert fields.active_values() == {"provider": "openai", "model": "gpt-5.6-sol",
-                                      "api_key": "sk-1", "thinking": True}
-
-
-def test_get_values_keeps_every_provider_profile(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol",
-                                      api_key="sk-1"))
-    _switch(fields, "custom")
-    fields._base_url.set("http://x")
-    fields._model.set("qwen3")
-    api = fields.get_values()
-    assert api["provider"] == "custom"
-    assert api["custom"]["base_url"] == "http://x"      # 目前欄位值也寫了回去
-    assert api["openai"] == {"model": "gpt-5.6-sol", "api_key": "sk-1",
-                             "thinking": False}
-
-
-def test_rebuild_without_switching_keeps_model(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-terra"))
-    fields._rebuild_fields()
-    assert fields.active_values()["model"] == "gpt-5.6-terra"
-
-
-def _widget_texts(parent):
-    """遞迴收集元件上的文字，用來斷言某一欄有沒有被畫出來。"""
-    texts = []
-    for w in parent.winfo_children():
-        try:
-            texts.append(str(w.cget("text")))
-        except tk.TclError:
-            pass
-        texts.extend(_widget_texts(w))
-    return texts
-
-
-def _effort_combobox(fields):
-    """思考深度那個下拉：模型欄也是 Combobox，靠 textvariable 認人。"""
-    target = str(fields._effort_shown)
-    stack = [fields._fields]
-    while stack:
-        widget = stack.pop()
-        if isinstance(widget, ttk.Combobox) and str(widget.cget("textvariable")) == target:
-            return widget
-        stack.extend(widget.winfo_children())
-    return None
-
-
-def test_claude_shows_thinking_depth_instead_of_a_toggle(root):
-    # Claude 沒有「完全不思考」，做成與另兩家一樣的勾選會誤導
-    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5"))
-    texts = _widget_texts(fields._fields)
-    assert t("field.effort") in texts
-    assert t("field.thinking") not in texts
-
-
-def test_openai_keeps_the_thinking_toggle(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5"))
-    texts = _widget_texts(fields._fields)
-    assert t("field.thinking") in texts
-    assert t("field.effort") not in texts
-
-
-def test_effort_dropdown_shows_the_saved_choice(root):
-    from src.config import EFFORT_LOW
-
-    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
-                                      effort=EFFORT_LOW))
-    assert fields._effort_shown.get() == t("effort.low")
-
-
-def test_choosing_an_effort_stores_its_code(root):
-    from src.config import EFFORT_LOW
-
-    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5"))
-    combo = _effort_combobox(fields)
-    fields._effort_shown.set(t("effort.low"))
-    combo.event_generate("<<ComboboxSelected>>")
-    root.update()
-    assert fields.active_values()["effort"] == EFFORT_LOW
-
-
-def test_effort_survives_switching_providers(root):
-    from src.config import EFFORT_LOW
-
-    fields = ApiFields(root, _initial(provider="claude", model="claude-opus-5",
-                                      effort=EFFORT_LOW))
-    _switch(fields, "openai")
-    _switch(fields, "claude")
-    assert fields.active_values()["effort"] == EFFORT_LOW
-    assert fields._effort_shown.get() == t("effort.low")
-
-
-def test_switch_provider_clears_fetched_model_list(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    fields._model_field.show_models(["gpt-5.6-sol", "gpt-5.6-luna"])
-    _switch(fields, "custom")
-    assert fields._model_field.options() == []
-
-
-def test_switch_provider_clears_test_result_label(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    fields._show_test_result(True, "連線成功　範例：hi")
-    assert fields._test_result.text() != ""
-    _switch(fields, "claude")
-    assert fields._test_result.text() == ""
-
-
-def test_test_result_makes_urls_in_the_api_message_clickable(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol"))
-    fields._show_test_result(False, "HTTP 401: get a key at https://a.example/keys.")
-    assert fields._test_result.text() == "✗ HTTP 401: get a key at https://a.example/keys."
-    assert fields._test_result.links() == [("https://a.example/keys", "https://a.example/keys")]
-
-
 def test_filter_models_is_case_insensitive_substring():
     models = ["Qwen3-32B", "gemma-3-27b", "llama-4"]
     assert filter_models(models, "qwen") == ["Qwen3-32B"]
@@ -276,64 +122,65 @@ def test_validate_endpoint_fields_ignores_model():
     assert "error.need_api_key" in errs
 
 
+def _api(provider: str = "custom", **fields) -> dict:
+    """ModelField 只認目前生效的那家（扁平）：provider 加上那家自己的欄位。"""
+    return {"provider": provider, **API_PROFILE_FIELDS[provider], **fields}
+
+
+def _model_field(parent, api: dict | None = None):
+    field = ModelField(parent, tk.StringVar(), lambda: api or _api(base_url="http://x"))
+    field.pack(fill="x")
+    parent.update()
+    return field
+
+
 def test_model_field_shows_fetched_models(root):
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_models(["gemma3", "qwen3"])
-    assert fields._model_field.options() == ["gemma3", "qwen3"]
-    assert "2" in fields._model_field.status()
+    field = _model_field(root)
+    field.show_models(["gemma3", "qwen3"])
+    assert field.options() == ["gemma3", "qwen3"]
+    assert "2" in field.status()
 
 
 def test_model_field_unsupported_endpoint_hints_manual_input(root):
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_error(TranslatorNoModelList("HTTP 404"))
-    assert fields._model_field.status() == t("hint.model_no_list")
-    assert fields._model_field.options() == []
+    field = _model_field(root)
+    field.show_error(TranslatorNoModelList("HTTP 404"))
+    assert field.status() == t("hint.model_no_list")
+    assert field.options() == []
 
 
 def test_model_field_error_uses_friendly_message(root):
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_error(TranslatorOffline("refused"))
-    assert fields._model_field.status() == t("error.offline_detail", message="refused")
+    field = _model_field(root)
+    field.show_error(TranslatorOffline("refused"))
+    assert field.status() == t("error.offline_detail", message="refused")
 
 
 def test_refresh_result_reports_failures_for_providers_without_base_url(root):
     # 回歸：openai／claude 的設定檔沒有 base_url，失敗分支寫 log 時 KeyError，
     # 錯誤永遠顯示不出來、按鈕卡在「載入中」
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5.6-sol", api_key="sk-1"))
-    field = fields._model_field
-    field._on_refreshed(TranslatorConfigError("Incorrect API key", status=401),
-                        fields.active_values())
+    api = _api("openai", model="gpt-5.6-sol", api_key="sk-1")
+    field = _model_field(root, api)
+    field._on_refreshed(TranslatorConfigError("Incorrect API key", status=401), api)
     assert field.status() == t("error.api_response", status=401, message="Incorrect API key")
 
 
 def test_model_field_error_makes_urls_clickable(root):
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_error(
+    field = _model_field(root)
+    field.show_error(
         TranslatorConfigError("see https://a.example/docs for models", status=400))
-    assert "https://a.example/docs" in fields._model_field.status()
-    assert fields._model_field._status.links() == [
+    assert "https://a.example/docs" in field.status()
+    assert field._status.links() == [
         ("https://a.example/docs", "https://a.example/docs")]
 
 
 def test_model_field_typing_filters_fetched_options(root):
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_models(["gemma3", "qwen3-32b", "qwen3-8b"])
-    fields._model.set("qwen")
-    fields._model_field.refresh_options()
-    assert fields._model_field.options() == ["qwen3-32b", "qwen3-8b"]
-    fields._model.set("")
-    fields._model_field.refresh_options()
-    assert fields._model_field.options() == ["gemma3", "qwen3-32b", "qwen3-8b"]
-
-
-def _model_field(parent):
-    # ModelField 只認目前生效的那家（扁平），不需要看到其他家的設定
-    field = ModelField(parent, tk.StringVar(),
-                       lambda: active_api({"api": _initial(provider="custom",
-                                                           base_url="http://x")}))
-    field.pack(fill="x")
-    parent.update()
-    return field
+    field = _model_field(root)
+    field.show_models(["gemma3", "qwen3-32b", "qwen3-8b"])
+    field._var.set("qwen")
+    field.refresh_options()
+    assert field.options() == ["qwen3-32b", "qwen3-8b"]
+    field._var.set("")
+    field.refresh_options()
+    assert field.options() == ["gemma3", "qwen3-32b", "qwen3-8b"]
 
 
 def test_model_field_hint_aligns_with_input(offscreen):
@@ -375,9 +222,9 @@ def test_model_field_dropdown_closes_on_outside_click(offscreen):
 
 def test_model_field_status_says_custom_name_is_allowed(root):
     # 抓到清單後也要讓使用者知道清單外的模型名稱一樣能自己打
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    fields._model_field.show_models(["gemma3", "qwen3"])
-    assert fields._model_field.status() == t("hint.model_found", count=2)
+    field = _model_field(root)
+    field.show_models(["gemma3", "qwen3"])
+    assert field.status() == t("hint.model_found", count=2)
 
 
 def test_model_field_unpost_after_destroy_is_safe(offscreen):
@@ -437,63 +284,6 @@ def test_link_label_opens_the_url_on_click(root, monkeypatch):
     holder.destroy()
 
 
-def test_custom_endpoint_orders_fields_by_fill_in_sequence(root):
-    """自訂端點的欄位依填寫順序排：網址 → 金鑰 → 模型。
-
-    模型清單要靠網址與金鑰才取得到；官方端點本來就是金鑰在模型之前，兩者一致
-    切換服務商時欄位才不會跳動。"""
-    fields = ApiFields(root, _initial(provider="custom", base_url="http://x"))
-    texts = _widget_texts(fields._fields)
-    url_at = texts.index(t("field.base_url"))
-    key_at = texts.index(t("field.api_key_optional"))
-    model_at = texts.index(t("field.model"))
-    assert url_at < key_at < model_at, f"欄位順序不對：{texts}"
-
-
-def test_official_endpoint_keeps_key_before_model(root):
-    fields = ApiFields(root, _initial(provider="openai"))
-    texts = _widget_texts(fields._fields)
-    assert texts.index(t("field.api_key")) < texts.index(t("field.model"))
-
-
-def test_get_key_link_sits_under_the_api_key_field(root):
-    """取金鑰的連結是金鑰欄的輔助說明，要緊貼在它底下。
-
-    原本擺在所有欄位最後，與它要幫的欄位分家 —— 使用者卡在金鑰欄時視線不會落到那裡。"""
-    for provider in ("openai", "claude"):
-        fields = ApiFields(root, _initial(provider=provider))
-        texts = _widget_texts(fields._fields)
-        key_at = texts.index(t("field.api_key"))
-        link_at = texts.index(t("link.get_key"))
-        model_at = texts.index(t("field.model"))
-        assert key_at < link_at < model_at, f"{provider} 的連結位置不對：{texts}"
-
-
-def test_test_connection_defaults_to_the_ui_languages_name(root, monkeypatch):
-    # 精靈不呼叫 set_target_language_fn：預設要退到介面語言的自稱，而不是炸掉
-    from src import i18n
-    from src.ui import fields as fields_module
-
-    captured = {}
-
-    def fake_test_translate(api, target_language):
-        captured["target"] = target_language
-        return "[Tester] 你好"
-
-    monkeypatch.setattr(fields_module, "test_translate", fake_test_translate)
-    before = i18n.current_language()
-    try:
-        i18n.set_language("zh-TW")
-        fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
-        fields._start_test()
-        deadline = time.monotonic() + 30
-        while "target" not in captured and time.monotonic() < deadline:
-            time.sleep(0.01)   # 背景執行緒一啟動就會呼叫假的 test_translate
-    finally:
-        i18n.set_language(before)
-    assert captured["target"] == i18n.language_name("zh-TW")
-
-
 def test_parse_link_markup_plain_text_has_no_links():
     from src.ui.richtext import parse_link_markup
 
@@ -542,22 +332,3 @@ def test_linked_text_makes_only_the_link_segment_clickable(root, monkeypatch):
     link.event_generate("<Button-1>")
     root.update()
     assert opened == ["https://a.example"]
-
-
-def test_test_result_from_a_previous_provider_is_discarded(root):
-    # 測試連線還在跑時切換服務商：舊結果回來不能把新這家標成「已測過」
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
-    fields._test_btn.configure(state="disabled")
-    session = fields._test_task.session
-    _switch(fields, "claude")
-    fields._test_task._finish("[Tester] 你好", session)
-    assert fields.test_passed is False
-    assert fields._test_result.text() == ""
-    assert str(fields._test_btn.cget("state")) == "normal"   # 過期結果仍要把按鈕還原
-
-
-def test_test_result_from_the_current_run_is_applied(root):
-    fields = ApiFields(root, _initial(provider="openai", model="gpt-5", api_key="k"))
-    fields._on_tested("[Tester] 你好", fields.active_values())
-    assert fields.test_passed is True
-    assert fields._test_result.text() == "✓ " + t("test.success", sample="[Tester] 你好")

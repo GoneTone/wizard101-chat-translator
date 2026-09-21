@@ -266,7 +266,7 @@ def test_claude_auto_effort_sends_no_output_config():
 
 
 def test_claude_low_effort_sends_output_config():
-    from src.config import EFFORT_LOW
+    from src.services import EFFORT_LOW
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k", effort=EFFORT_LOW,
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
@@ -520,6 +520,56 @@ def test_reconfigure_switches_provider():
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
     from src.translation.translator import _ClaudeClient
     assert isinstance(t._impl, _ClaudeClient)
+
+
+def test_reconfigure_keeps_the_backend_when_nothing_changed():
+    """值沒變就不重建：拆連線池會讓飛行中的請求收到斷線錯誤，端點學到的參數限制
+    （實測 temperature 被拒）也要重新付一輪 400 才學得回來。"""
+    tr = _make(FakeHttpxClient())
+    before = tr._impl
+    before._dropped.add("temperature")
+
+    assert tr.reconfigure(provider="custom", base_url="http://x", model="m",
+                          target_language="繁體中文（台灣）") is False
+    assert tr._impl is before
+    assert tr._impl._dropped == {"temperature"}
+
+
+def test_reconfigure_rebuilds_when_a_value_changed():
+    tr = _make(FakeHttpxClient())
+    before = tr._impl
+
+    assert tr.reconfigure(provider="custom", base_url="http://x", model="m2",
+                          target_language="繁體中文（台灣）") is True
+    assert tr._impl is not before and tr._impl.model == "m2"
+
+
+def test_describe_names_the_service_and_never_the_key():
+    tr = Translator(provider="openai", model="gpt-x", api_key="sk-secret",
+                    target_language="繁體中文（台灣）", client=FakeHttpxClient())
+    assert tr.describe() == "provider=openai, model=gpt-x"
+
+
+class ReconfiguringClient(FakeHttpxClient):
+    """請求進行中設定就被換掉（使用者按下儲存）；`translator` 由測試接上。"""
+
+    translator = None
+
+    @contextmanager
+    def stream(self, method, url, json):
+        with super().stream(method, url, json) as response:
+            self.translator.reconfigure(provider="custom", base_url="http://x",
+                                        model="m2", target_language="日本語")
+            yield response
+
+
+def test_the_success_log_names_the_model_that_served_the_request(capsys):
+    # 重新讀一次 self._impl 的話，請求期間的 reconfigure() 會讓這一行記成新模型
+    fake = ReconfiguringClient()
+    fake.translator = tr = _make(fake)
+    tr.translate_incoming("[A] hi", [])
+    err = capsys.readouterr().err
+    assert "model=m," in err and "model=m2" not in err
 
 
 class FakeModel:

@@ -564,3 +564,20 @@ def test_closing_the_box_while_translating_cancels_the_request(root):
         if not ui_queue.empty():
             ui_queue.get_nowait()()
     assert sent == []
+
+
+def test_the_failure_log_names_the_service(root, capsys):
+    """發話失敗沒有重試，使用者直接看到錯誤；log 要當場說出是哪一組服務。"""
+    import httpx
+
+    def failing_translate(text, cancel):
+        raise httpx.HTTPError("boom")
+
+    box = InputBox(root, failing_translate, queue.Queue(), lambda e, h: None,
+                   describe_service=lambda: "provider=custom, model=qwen3")
+
+    box._worker("你好", None, box._session, RequestHandle())
+
+    err = capsys.readouterr().err
+    assert "[input] outgoing translation failed" in err
+    assert "provider=custom, model=qwen3" in err

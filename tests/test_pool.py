@@ -46,7 +46,14 @@ class Collector:
             self._event.clear()
 
 
-class OkTranslator:
+class FakeTranslator:
+    """假翻譯器的共同基底：pool 的失敗 log 會問它是哪一組服務在失敗。"""
+
+    def describe(self):
+        return "provider=fake, model=fake-model"
+
+
+class OkTranslator(FakeTranslator):
     def translate_incoming(self, text, context):
         return f"譯:{text}|ctx={len(context)}"
 
@@ -56,7 +63,7 @@ def _pool(translator, collector, workers=4):
                            workers=workers, failed_notice_fn=lambda: FAILED)
 
 
-class FailThenOk:
+class FailThenOk(FakeTranslator):
     """前 n 次拋出指定例外，之後成功。"""
 
     def __init__(self, exc, failures):
@@ -91,7 +98,7 @@ def test_blocked_line_does_not_block_the_others():
     # 需求核心：一則卡住時，其餘各則仍須照常完成
     release = threading.Event()
 
-    class BlockingTranslator:
+    class BlockingTranslator(FakeTranslator):
         def translate_incoming(self, text, context):
             if text == "[A] stuck":
                 release.wait()   # 不設逾時：逾時到期會讓它自己解除阻塞，見下方 finally
@@ -116,7 +123,7 @@ def test_in_flight_counts_outstanding_work():
     release = threading.Event()
     started = threading.Event()
 
-    class SlowTranslator:
+    class SlowTranslator(FakeTranslator):
         def translate_incoming(self, text, context):
             started.set()
             release.wait()   # 不設逾時：finally 一定會放行，逾時只會讓它提早跑完
@@ -202,7 +209,7 @@ def test_shutdown_cancels_queued_work_without_leaking_in_flight():
     release = threading.Event()
     started = threading.Event()
 
-    class SlowTranslator:
+    class SlowTranslator(FakeTranslator):
         def translate_incoming(self, text, context):
             started.set()
             release.wait()   # 不設逾時：finally 一定會放行，逾時只會讓它提早跑完
@@ -244,7 +251,7 @@ def test_offline_retries_until_success_and_clears_error_state():
 def test_offline_sets_error_state_while_failing():
     blocked = threading.Event()
 
-    class AlwaysOffline:
+    class AlwaysOffline(FakeTranslator):
         def translate_incoming(self, text, context):
             blocked.set()
             raise TranslatorOffline("down")
@@ -265,7 +272,7 @@ def test_offline_sets_error_state_while_failing():
 def test_error_detail_exposes_the_api_message_while_failing():
     blocked = threading.Event()
 
-    class AlwaysRejected:
+    class AlwaysRejected(FakeTranslator):
         def translate_incoming(self, text, context):
             blocked.set()
             raise TranslatorConfigError("Incorrect API key", status=401)
@@ -337,7 +344,7 @@ def test_backoff_gate_is_shared_across_workers():
     hits = []
     lock = threading.Lock()
 
-    class CountingOffline:
+    class CountingOffline(FakeTranslator):
         def translate_incoming(self, text, context):
             with lock:
                 hits.append(time.monotonic())
@@ -371,7 +378,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
     barrier = threading.Barrier(workers)
     proceed_round_2 = threading.Event()
 
-    class BurstOffline:
+    class BurstOffline(FakeTranslator):
         def __init__(self):
             self._count_lock = threading.Lock()
             self.calls = 0
@@ -410,7 +417,7 @@ def test_backoff_index_advances_once_per_burst_not_per_worker(monkeypatch):
 
 
 def test_uses_the_supplied_translate_fn():
-    class Tr:
+    class Tr(FakeTranslator):
         def translate_incoming(self, text, context):
             raise AssertionError("不該走收訊路徑")
 
@@ -444,7 +451,7 @@ def test_two_pools_sharing_a_gate_never_exceed_the_total_limit():
             running.remove(text)
         return f"譯:{text}"
 
-    class Tr:
+    class Tr(FakeTranslator):
         def translate_incoming(self, text, context):
             return translate(text, context)
 
@@ -468,7 +475,7 @@ def test_resize_also_raises_the_gate_limit():
 
     gate = ConcurrencyGate(1)
 
-    class Tr:
+    class Tr(FakeTranslator):
         def translate_incoming(self, text, context):
             return text
 
@@ -486,7 +493,7 @@ def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
     import src.translation.pool as pool_module
     monkeypatch.setattr(pool_module, "BACKOFF_STEPS", [0.02, 0.04, 0.08])
 
-    class RecordingOffline:
+    class RecordingOffline(FakeTranslator):
         def __init__(self, failures):
             self._left = failures
             self.observed_indices = []
@@ -509,3 +516,15 @@ def test_backoff_index_escalates_across_separate_failure_rounds(monkeypatch):
         assert tr.observed_indices == [0, 1, 2]   # 三輪各自獨立、逐階推進
     finally:
         pool.shutdown(wait=True)
+
+
+def test_the_failure_log_names_the_service(capsys):
+    """失敗現場要看得出是哪一組服務在失敗 —— 三個用途可各指一組，光看方向不夠。"""
+    collector = Collector()
+    pool = _pool(FailThenOk(TranslatorOffline("connection refused"), failures=1),
+                 collector)
+    pool.submit("[A] hi", [], msg_id=1)
+    collector.wait_for(1)
+    pool.shutdown()
+    err = capsys.readouterr().err
+    assert "provider=fake, model=fake-model" in err

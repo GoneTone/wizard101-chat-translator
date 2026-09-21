@@ -70,14 +70,10 @@ def _slave_order(win) -> list[str]:
 
 
 def test_settings_button_row_is_packed_before_the_notebook(root, tmp_path):
-    import copy
-
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     order = _slave_order(win._win)
@@ -128,15 +124,13 @@ def test_overlay_title_is_packed_after_the_bar_controls(root):
 
 
 def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
-    import copy
+    from src.services import new_service
+    from src.ui.service_form import ServiceForm
 
-    from src.config import DEFAULT_CONFIG
-    from src.ui.fields import ApiFields
-
-    api = copy.deepcopy(DEFAULT_CONFIG["api"])
-    api["openai"].update(api_key="k", model="m")
-    fields = ApiFields(root, api)
-    rows = [w for w in fields._fields.pack_slaves() if w.pack_slaves()]
+    service = new_service("openai", [])
+    service.update(api_key="k", model="m")
+    form = ServiceForm(root, service)
+    rows = [w for w in form._fields.pack_slaves() if w.pack_slaves()]
     reveal_rows = [r for r in rows
                    if any(isinstance(c, ttk.Button) for c in r.pack_slaves())]
     assert reveal_rows, "找不到帶「顯示」按鈕的金鑰欄位列"
@@ -149,14 +143,10 @@ def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
 
 
 def test_game_path_browse_button_is_packed_before_the_entry(root):
-    import copy
-
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     path_row = win._game_path_row

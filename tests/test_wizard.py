@@ -80,6 +80,130 @@ def test_language_change_keeps_customised_target_language(root):
         i18n.set_language(before)
 
 
+def test_language_change_keeps_the_half_filled_service(root):
+    """回歸：在 API 步驟貼好金鑰後退回第一步換介面語言，精靈會整個重建 ——
+    重建出來的表單必須還帶著剛才填的值，不能逼使用者重貼一次金鑰。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("claude")
+        wizard._service_form._model.set("claude-x")
+        wizard._service_form._api_key.set("sk-ant-secret")
+        wizard._on_language_change("en-US")
+        rebuilt = SetupWizard(root, cfg)
+        assert rebuilt._service_form.values()["provider"] == "claude"
+        assert rebuilt._service_form.values()["model"] == "claude-x"
+        assert rebuilt._service_form.values()["api_key"] == "sk-ant-secret"
+        rebuilt._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_retitles_an_untouched_service(root):
+    # 自動取的名字就是服務商短名：使用者沒改過就跟著介面語言走（與 target_language 同一招）
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")   # 只有自訂端點的短名要翻譯
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_retitles_a_suffixed_untouched_service(root):
+    """回歸：draft 的自動名稱撞到既有服務時會帶序號（如「自訂端點 (2)」），
+    這仍算使用者沒改過名字，換介面語言時要照樣跟著換（潛在陷阱，非實際回報個案）。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        cfg["services"] = [new_service("custom", [])]   # 名稱＝zh-TW 的自訂端點短名
+        wizard = SetupWizard(root, cfg)
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")   # draft 撞名，取到「自訂端點 (2)」
+        assert wizard._service_form.values()["name"] == "自訂端點 (2)"
+        wizard._on_language_change("en-US")
+        assert cfg["services"][1]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_only_retitles_the_service_being_edited(root):
+    """回歸：清單裡不只精靈編輯的那一筆，改名不能靠位置認人 ——
+    索引 0 那個與精靈無關的服務必須原封不動。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        # 兩筆都是自訂端點（唯一短名隨語言變的一家）且都停在自動取的名字，
+        # 「誰該被改名」的差別就只剩下位置
+        bystander = new_service("custom", [])
+        edited = new_service("custom", [bystander])
+        edited["name"] = bystander["name"]
+        cfg["services"] = [bystander, edited]
+        cfg["default_service"] = edited["id"]   # 精靈編輯的不是索引 0 那筆
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "自訂端點"
+        assert cfg["services"][1]["name"] == "Custom endpoint"
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_keeps_a_service_name_the_user_typed(root):
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = SetupWizard(root, cfg)
+        # 直接呼叫 STEP_API 的 handler 是刻意的：這幾則測的是換語言，不是步驟導航
+        wizard._pick_provider("custom")
+        wizard._service_form.set_name("戰鬥用")
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "戰鬥用"
+    finally:
+        i18n.set_language(before)
+
+
 def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     """回歸測試：英文系統首次啟動時 bootstrap_language 把 target_language 設成介面語言的
     自稱（"English"），精靈再切到 zh-CN 時 `target_language == old_default` 才比對得到。
@@ -212,6 +336,94 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
     wizard._win.destroy()
 
 
+def _three_services():
+    """三組填好的服務（openai／claude／custom），回傳那份清單。"""
+    from src.services import new_service
+
+    services: list[dict] = []
+    for provider in ("openai", "claude", "custom"):
+        service = new_service(provider, services)
+        service.update(model="m", api_key=f"sk-{provider}")
+        services.append(service)
+    services[-1]["base_url"] = "http://x"
+    return services
+
+
+def test_finishing_the_wizard_keeps_the_other_services(root):
+    """回歸：精靈也是設定壞掉時的救援路徑 —— 按完成不能把其他服務與它們的金鑰刪掉。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import SLOT_REGION
+    from src.ui.wizard import SetupWizard
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["services"] = _three_services()
+    ids = [s["id"] for s in cfg["services"]]
+    cfg["default_service"] = ids[1]              # 預設是第二組
+    cfg["service_slots"][SLOT_REGION] = ids[2]
+    wizard = SetupWizard(root, cfg)
+    assert wizard._service_form.values()["id"] == ids[1]   # 草稿取自預設那一筆，不是第一筆
+    wizard._service_form._model.set("claude-x")
+    wizard._finish()
+    assert [s["id"] for s in cfg["services"]] == ids       # 三組都還在、順序不變
+    assert cfg["services"][0]["api_key"] == "sk-openai"
+    assert cfg["services"][2]["api_key"] == "sk-custom"
+    assert cfg["services"][1]["model"] == "claude-x"       # 編輯過的那一筆就地更新
+    assert cfg["default_service"] == ids[1]
+    assert cfg["service_slots"][SLOT_REGION] == ids[2]     # 既有的用途分派不被清掉
+
+
+def test_finish_dedupes_a_name_typed_to_match_another_service(root):
+    """回歸個案：救援路徑編輯到另一筆服務時把名稱打成跟既有那筆一樣，完成精靈要補序號，
+    不能讓清單留下兩筆同名（分派下拉靠名稱認 id，同名就選錯家）。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    other = new_service("openai", [])
+    other["name"] = "X"
+    edited = new_service("claude", [other])
+    cfg["services"] = [other, edited]
+    cfg["default_service"] = edited["id"]
+    wizard = SetupWizard(root, cfg)
+    wizard._service_form.set_name("X")
+    wizard._finish()
+    assert cfg["services"][0]["name"] == "X"
+    assert cfg["services"][1]["name"] == "X (2)"
+
+
+def test_finish_does_not_collide_a_service_with_itself(root):
+    """回歸：精靈編輯的服務本來就在清單裡，去重不能拿它跟自己比對 ——
+    否則名稱會在每次 _collect_service() 呼叫（含每次切換介面語言）多疊一次序號。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        service = new_service("claude", [])
+        service["name"] = "X"
+        cfg["services"] = [service]
+        cfg["default_service"] = service["id"]
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        assert cfg["services"][0]["name"] == "X"
+        rebuilt = SetupWizard(root, cfg)
+        rebuilt._finish()
+        assert cfg["services"][0]["name"] == "X"
+    finally:
+        i18n.set_language(before)
+
+
 def test_finish_stores_the_region_hotkey(root):
     import copy
 
@@ -249,4 +461,266 @@ def test_finish_rejects_identical_hotkeys(root, monkeypatch):
     assert wizard.completed is False
     assert warnings == [t("error.hotkeys_same")]
     assert cfg["region_hotkey"] == "ctrl+shift+space"
+    wizard._win.destroy()
+
+
+def test_language_change_does_not_let_the_rename_collide(root):
+    """自動改名同樣要去重：清單裡已經有一筆叫新語言短名的服務時，改名不能撞上它 ——
+    分派下拉只顯示名稱，同名的兩筆會讓使用者選到另一家。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+    from src.ui.wizard import SetupWizard
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        edited = new_service("custom", [])          # 名稱＝zh-TW 的自訂端點短名
+        i18n.set_language("en-US")
+        other = new_service("custom", [])           # 名稱＝en-US 的自訂端點短名
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        cfg["services"] = [edited, other]
+        cfg["default_service"] = edited["id"]
+        wizard = SetupWizard(root, cfg)
+        wizard._on_language_change("en-US")
+        names = [s["name"] for s in cfg["services"]]
+        assert names == [f"{other['name']} (2)", other["name"]]
+    finally:
+        i18n.set_language(before)
+
+
+def test_switching_provider_in_the_wizard_dedupes_against_cfg_services(root):
+    """精靈把 cfg["services"] 傳給表單：編輯中的服務切到 Claude，
+    要跟清單裡另一筆已經叫 Claude 的服務去重。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import new_service
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    existing_claude = new_service("claude", [])
+    openai_service = new_service("openai", [existing_claude])
+    cfg["services"] = [existing_claude, openai_service]
+    cfg["default_service"] = openai_service["id"]
+    wizard = _wizard_on_api_step(root, cfg)
+    assert wizard._service_form.values()["id"] == openai_service["id"]
+    wizard._service_form.set_provider("claude")
+    assert wizard._service_form.values()["name"] == "Claude (2)"
+    wizard._win.destroy()
+
+
+def _wizard_on_api_step(root, cfg):
+    """停在 API 步驟的精靈（第二步的兩種樣態都從這裡看）。"""
+    from src.ui.wizard import STEP_API, SetupWizard
+
+    wizard = SetupWizard(root, cfg)
+    wizard._step = STEP_API
+    wizard._show_step()
+    return wizard
+
+
+def _cards_on_body(wizard):
+    from src.ui.provider_picker import ProviderCards
+
+    return [w for w in wizard._body.pack_slaves() if isinstance(w, ProviderCards)]
+
+
+def test_step_api_asks_for_a_provider_before_the_form(root):
+    """沒有服務可編輯時第二步先選服務商：表單還不存在，〔下一步〕也就無從驗起。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    assert wizard._service_form is None
+    assert len(_cards_on_body(wizard)) == 1
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_picking_a_provider_replaces_the_cards_with_the_form(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.services import PROVIDERS
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    _cards_on_body(wizard)[0].pack_slaves()[1].event_generate("<Button-1>")
+    assert wizard._service_form is not None
+    assert wizard._service_form.values()["provider"] == list(PROVIDERS)[1]
+    assert _cards_on_body(wizard) == []
+    assert wizard._service_form in wizard._body.pack_slaves()
+    wizard._win.destroy()
+
+
+def test_an_existing_service_skips_the_cards(root):
+    """救援路徑：設定壞掉的老使用者被送回精靈時，服務商早就選過了，直接編輯那一筆。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
+    cfg["services"] = _three_services()
+    cfg["default_service"] = cfg["services"][1]["id"]
+    wizard = _wizard_on_api_step(root, cfg)
+    assert _cards_on_body(wizard) == []
+    assert wizard._service_form.values()["id"] == cfg["services"][1]["id"]
+    wizard._win.destroy()
+
+
+def test_language_change_while_picking_rebuilds_into_the_cards(root):
+    """還在選服務商時換語言：沒有服務可寫進 cfg，重建出來的精靈仍停在卡片。
+    同一步驟負責的其他欄位照寫。"""
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = _wizard_on_api_step(root, cfg)
+        wizard._region_hotkey.set_value("ctrl+alt+r")
+        wizard._on_language_change("en-US")
+        assert cfg["services"] == []
+        assert cfg["default_service"] is None
+        assert cfg["region_hotkey"] == "ctrl+alt+r"
+        rebuilt = _wizard_on_api_step(root, cfg)
+        assert rebuilt._service_form is None
+        assert len(_cards_on_body(rebuilt)) == 1
+        rebuilt._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def test_language_change_after_picking_rebuilds_into_the_form(root):
+    import copy
+
+    from src import i18n
+    from src.config import DEFAULT_CONFIG
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        cfg = copy.deepcopy(DEFAULT_CONFIG)
+        wizard = _wizard_on_api_step(root, cfg)
+        wizard._pick_provider("claude")
+        wizard._on_language_change("en-US")
+        rebuilt = _wizard_on_api_step(root, cfg)
+        assert _cards_on_body(rebuilt) == []
+        assert rebuilt._service_form.values()["provider"] == "claude"
+        rebuilt._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def _body_label_texts(wizard):
+    """第二步 body 上直接擺著的說明文字。"""
+    from tkinter import ttk
+
+    return [str(w.cget("text")) for w in wizard._body.pack_slaves()
+            if isinstance(w, ttk.Label)]
+
+
+def test_the_form_instructions_wait_until_the_form_exists(root):
+    """前半只有服務商卡片：叫人填設定、按測試連線是在講畫面上還沒有的東西。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    texts = _body_label_texts(wizard)
+    assert t("wizard.intro") in texts
+    assert t("wizard.intro_form") not in texts
+    assert t("wizard.pick_provider") in texts
+    wizard._win.destroy()
+
+
+def test_the_form_step_explains_what_to_do_with_the_form(root):
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    texts = _body_label_texts(wizard)
+    assert t("wizard.intro") in texts
+    assert t("wizard.intro_form") in texts
+    wizard._win.destroy()
+
+
+def _wizard_with_a_filled_form(root):
+    """停在第二步、Claude 的欄位都填好的精靈。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    wizard._service_form._api_key.set("sk-ant")
+    wizard._service_form._model.set("claude-x")
+    return wizard
+
+
+def test_clearing_a_field_after_skipping_the_test_blocks_the_next_button(root):
+    """回歸：略過測試後把模型清空，〔下一步〕必須跟著變灰 ——
+    否則精靈會帶著 model="" 的服務走完，每次翻譯都失敗。"""
+    wizard = _wizard_with_a_filled_form(root)
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "normal"
+    wizard._service_form._model.set("")
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_editing_a_field_cancels_an_earlier_skip(root):
+    """略過測試後又改了金鑰：先前的放行不算數，要重測或再次明示略過。"""
+    wizard = _wizard_with_a_filled_form(root)
+    wizard._do_skip_test()
+    wizard._service_form._api_key.set("sk-ant-other")
+    assert wizard._skip_test is False
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._win.destroy()
+
+
+def test_completing_the_fields_after_an_early_skip_recomputes_the_nav(root):
+    """欄位不全時就點過「略過測試」：補上模型時導覽列要跟著重算
+    （結果是先前的略過作廢，再次明示略過就走得下去）。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    wizard._service_form._api_key.set("sk-ant")
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "disabled"
+    wizard._service_form._model.set("claude-x")
+    assert wizard._skip_test is False
+    wizard._do_skip_test()
+    assert str(wizard._next_btn.cget("state")) == "normal"
+    wizard._win.destroy()
+
+
+def test_the_skip_test_link_is_keyboard_activatable(root):
+    """純鍵盤使用者測不成連線時，「略過測試」是第二步唯一的出路（同服務商卡片）。
+    鍵盤事件送不到非焦點視窗，所以只確認它停得住 Tab、兩顆鍵都綁上去了。"""
+    import copy
+    from tkinter import ttk
+
+    from src.config import DEFAULT_CONFIG
+    from src.i18n import t
+
+    wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._pick_provider("claude")
+    skip = next(w for w in wizard._body.pack_slaves()
+                if isinstance(w, ttk.Label) and str(w.cget("text")) == t("wizard.skip_test"))
+    assert str(skip.cget("takefocus")) == "1"
+    assert skip.bind("<Return>") and skip.bind("<space>")
     wizard._win.destroy()

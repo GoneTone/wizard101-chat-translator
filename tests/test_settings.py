@@ -1,5 +1,4 @@
 """設定視窗純邏輯與 overlay set_limits／set_alpha 測試。"""
-import copy
 import tkinter as tk
 
 import pytest
@@ -117,15 +116,13 @@ def test_parse_advanced_values_returns_error_key():
 
 def test_save_applies_ui_language(root, tmp_path):
     from src import i18n
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     before = i18n.current_language()
     try:
         i18n.set_language("zh-TW")
-        cfg = copy.deepcopy(DEFAULT_CONFIG)
-        cfg["api"]["provider"] = "custom"
-        cfg["api"]["custom"].update(base_url="http://x", model="m")
+        cfg = configured_cfg()
         saved = []
         win = SettingsWindow(root, cfg,
                              on_save=lambda: saved.append(i18n.current_language()))
@@ -142,12 +139,10 @@ def test_save_applies_ui_language(root, tmp_path):
 
 
 def test_save_stores_the_system_message_toggle(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._translate_system.get() is False   # 預設關閉
@@ -157,12 +152,10 @@ def test_save_stores_the_system_message_toggle(root):
 
 
 def test_reopening_settings_reflects_the_saved_toggle(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["translate_system_messages"] = True
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
@@ -170,13 +163,11 @@ def test_reopening_settings_reflects_the_saved_toggle(root):
 
 
 def _open_settings(root, on_language_preview=None):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None,
                          on_language_preview=on_language_preview)
@@ -184,27 +175,107 @@ def _open_settings(root, on_language_preview=None):
     return win
 
 
-def test_changing_target_language_clears_the_test_result(root):
-    # 測試連線顯示的譯文是用當時的目標語言翻出來的，語言一改那句就過期了 ——
-    # 留著會讓使用者以為新語言已經驗證過。
+def test_the_services_tab_sits_between_basic_and_advanced(root):
+    # 服務是設定的主角，要緊接在基本分頁之後，不能被塞到「進階」裡
+    from src.i18n import t
+
     win = _open_settings(root)
-    win._api._show_test_result(True, "connected, sample translation")
-    assert win._api.test_passed
-    win._language.set_value("English")
-    assert not win._api.test_passed
-    assert win._api._test_result.text() == ""
+    tabs = [win._nb.tab(i, "text") for i in range(win._nb.index("end"))]
+    assert tabs == [t("settings.tab.basic"), t("settings.tab.services"),
+                    t("settings.tab.advanced"), t("settings.tab.about")]
     win._win.destroy()
 
 
-def test_both_language_fields_come_before_the_api_section(root):
-    # 介面語言與翻譯目標語言是最容易被搞混的一對，要相鄰且排在 API 設定之前
+def test_save_writes_the_edited_service_list_into_cfg(root):
+    from src.services import new_service
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    cfg = configured_cfg()
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    added = new_service("openai", win._services.values()["services"])
+    added.update(model="gpt-x", api_key="sk-1")
+    win._services.apply_dialog_result(added)
+    win._save()
+    assert [s["id"] for s in cfg["services"]][-1] == added["id"]
+    assert cfg["services"][-1]["api_key"] == "sk-1"
+
+
+def test_save_refuses_an_incomplete_default_service(root, monkeypatch):
+    # 手改 config.json 把預設服務的金鑰清空：儲存要擋下來，而且要指出缺的是哪一欄
+    # （清單裡明明有一組服務，報「請先新增一組翻譯服務」只會讓人找不到問題）
+    from src.i18n import t
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    saved = []
+    win = SettingsWindow(root, configured_cfg("openai", api_key=""),
+                         on_save=lambda: saved.append(1))
+    win.open()
+    win._save()
+    assert saved == []
+    assert warnings == [t("error.need_api_key")]
+    win._win.destroy()
+
+
+def test_both_language_fields_come_before_the_hotkeys(root):
+    # 介面語言與翻譯目標語言是最容易被搞混的一對，要相鄰且排在熱鍵設定之前
     win = _open_settings(root)
     basic = win._ui_language.master
     order = [str(w) for w in basic.pack_slaves()]
     ui_at = order.index(str(win._ui_language))
     target_at = order.index(str(win._language))
-    api_at = order.index(str(win._api))
-    assert ui_at < target_at < api_at, f"版面順序不對：{order}"
+    hotkey_at = order.index(str(win._hotkey))
+    assert ui_at < target_at < hotkey_at, f"版面順序不對：{order}"
+    win._win.destroy()
+
+
+def test_service_summary_row_sits_between_target_language_and_hotkey_label(root):
+    from tkinter import ttk
+
+    from src.i18n import t
+
+    win = _open_settings(root)
+    slaves = win._ui_language.master.pack_slaves()
+    target_at = slaves.index(win._language)
+    hotkey_label_at = next(i for i, w in enumerate(slaves)
+                           if isinstance(w, ttk.Label) and w.cget("text") == t("settings.hotkey"))
+    summary_row_at = slaves.index(win._service_summary.master)
+    assert target_at < summary_row_at < hotkey_label_at, (
+        f"版面順序不對：{[str(w) for w in slaves]}")
+    win._win.destroy()
+
+
+def test_manage_button_selects_the_services_tab(root):
+    win = _open_settings(root)
+    win._manage_service_btn.invoke()
+    assert win._nb.index("current") == win._nb.index(win._services_tab)
+    win._win.destroy()
+
+
+def test_service_summary_shows_the_draft_default_service_name(root):
+    win = _open_settings(root)
+    expected = win._services.values()["services"][0]["name"]
+    assert win._service_summary.cget("text") == expected
+    win._win.destroy()
+
+
+def test_service_summary_refreshes_when_the_default_changes_and_tabs_switch(root):
+    from src.services import new_service
+
+    win = _open_settings(root)
+    added = new_service("openai", win._services.values()["services"])
+    added.update(model="gpt-x", api_key="sk-1")
+    win._services.apply_dialog_result(added)
+    win._services._default_shown.set(added["name"])
+    win._services._default_combo.event_generate("<<ComboboxSelected>>")
+    win._nb.event_generate("<<NotebookTabChanged>>")
+    assert win._service_summary.cget("text") == added["name"]
     win._win.destroy()
 
 
@@ -344,13 +415,11 @@ def test_save_keeps_the_previewed_language(root):
 
 
 def _open_settings_with_checker(root, checker):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=checker)
     win.open()
@@ -367,7 +436,7 @@ def test_about_tab_shows_version_and_links(root, monkeypatch):
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
     win = _open_settings_with_checker(root, lambda: None)
     tabs = [win._nb.tab(i, "text") for i in range(win._nb.index("end"))]
-    assert tabs[2] == t("settings.tab.about")
+    assert tabs[-1] == t("settings.tab.about")
     assert win._version_label.cget("text") == f"v{__version__}"
     assert win._project_link.cget("text") == PROJECT_URL
     assert win._author_link.cget("text") == "GoneTone"
@@ -412,16 +481,14 @@ def test_manual_check_reports_up_to_date(root):
 
 def test_manual_check_hands_a_new_version_to_on_update_found(root):
     """手動檢查查到新版時，除了關於分頁的連結，也要讓 overlay 顯示橫幅。"""
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
     from src.updater import Release
+    from tests.config_helpers import configured_cfg
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
     found = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: release,
                          on_update_found=found.append)
@@ -432,14 +499,12 @@ def test_manual_check_hands_a_new_version_to_on_update_found(root):
 
 
 def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import current_language
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     found = []
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     cfg["ui_language"] = current_language()
     win = SettingsWindow(root, cfg, on_save=lambda: None, check_update=lambda: None,
                          on_update_found=found.append)
@@ -543,17 +608,10 @@ class FakeCache:
         return self.count
 
 
-def _configured_cfg():
-    from src.config import DEFAULT_CONFIG
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
-    return cfg
-
-
 def test_about_tab_hides_the_cache_row_without_a_cache(root):
     from src.ui.settings import SettingsWindow
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None)
+    from tests.config_helpers import configured_cfg
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None)
     win.open()
     assert not hasattr(win, "_cache_result"), "沒有快取就不該畫出那一列"
 
@@ -561,8 +619,9 @@ def test_about_tab_hides_the_cache_row_without_a_cache(root):
 def test_clear_cache_button_clears_and_reports_the_count(root):
     from src.i18n import t
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
     cache = FakeCache(count=42)
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
     win.open()
     assert win._cache_result.cget("text") == ""      # 還沒按之前不顯示任何結果
     win._clear_cache()
@@ -573,8 +632,9 @@ def test_clear_cache_button_clears_and_reports_the_count(root):
 def test_clear_cache_reports_zero_when_the_cache_was_already_empty(root):
     from src.i18n import t
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
     cache = FakeCache(count=0)
-    win = SettingsWindow(root, _configured_cfg(), on_save=lambda: None, cache=cache)
+    win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
     win.open()
     win._clear_cache()
     assert win._cache_result.cget("text") == t("about.cache_cleared", count=0)
@@ -717,11 +777,10 @@ def test_releasing_topmost_survives_a_window_closed_in_the_meantime(root):
 def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
     from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     assert DEFAULT_CONFIG["paste_hotkey"] is True
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._paste_hotkey.get() is True
@@ -731,12 +790,10 @@ def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
 
 
 def test_save_stores_the_region_hotkey(root):
-    from src.config import DEFAULT_CONFIG
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     win = SettingsWindow(root, cfg, on_save=lambda: None)
     win.open()
     assert win._region_hotkey.value() == "ctrl+shift+space"
@@ -746,17 +803,15 @@ def test_save_stores_the_region_hotkey(root):
 
 
 def test_save_rejects_identical_hotkeys(root, monkeypatch):
-    from src.config import DEFAULT_CONFIG
     from src.i18n import t
     from src.ui import settings as settings_module
     from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
 
     warnings = []
     monkeypatch.setattr(settings_module.messagebox, "showwarning",
                         lambda title, message, parent=None: warnings.append(message))
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    cfg["api"]["provider"] = "custom"
-    cfg["api"]["custom"].update(base_url="http://x", model="m")
+    cfg = configured_cfg()
     saved = []
     win = SettingsWindow(root, cfg, on_save=lambda: saved.append(1))
     win.open()
@@ -765,4 +820,90 @@ def test_save_rejects_identical_hotkeys(root, monkeypatch):
     assert saved == []
     assert t("error.hotkeys_same") in warnings[0]
     assert cfg["region_hotkey"] == "ctrl+shift+space"
+    win._win.destroy()
+
+
+def test_language_preview_keeps_a_half_added_service(root):
+    """回歸：在服務分頁加了一筆還沒儲存，就回基本分頁換介面語言 —— 設定視窗會整個
+    重建，重建出來的清單必須還帶著那一筆（精靈那條路有對應的回歸測試）。"""
+    from src import i18n
+    from src.services import new_service
+
+    before = i18n.current_language()
+    try:
+        i18n.set_language("zh-TW")
+        win = _open_settings(root)
+        added = new_service("openai", win._services.values()["services"])
+        added.update(model="gpt-x", api_key="sk-half")
+        win._services.apply_dialog_result(added)
+        win._on_language_change("en-US")
+        root.update()
+
+        rebuilt = win._services.values()["services"]
+        assert [s["id"] for s in rebuilt][-1] == added["id"]
+        assert rebuilt[-1]["api_key"] == "sk-half"
+        win._win.destroy()
+    finally:
+        i18n.set_language(before)
+
+
+def test_save_refuses_a_service_a_slot_points_at(root, monkeypatch):
+    """插槽指到的服務也要填得完整：執行期真的會拿它送請求（`model=""` 的請求實測送得
+    出去），收訊那格更會每 15 秒重試一次、橫幅一直掛著端點原文。"""
+    from src.i18n import t
+    from src.services import SLOT_INCOMING, new_service
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = configured_cfg()
+    # 從舊版升級時留下的形狀：貼過金鑰、但還沒選模型
+    half_done = new_service("openai", cfg["services"])
+    half_done.update(api_key="sk-1", model="")
+    cfg["services"].append(half_done)
+    cfg["service_slots"][SLOT_INCOMING] = half_done["id"]
+    saved = []
+    win = SettingsWindow(root, cfg, on_save=lambda: saved.append(1))
+    win.open()
+    win._save()
+    assert saved == []
+    assert warnings == [t("error.need_model")]
+    win._win.destroy()
+
+
+def test_save_lists_a_shared_services_problem_only_once(root, monkeypatch):
+    """預設與某個插槽指到同一筆服務時，同一個缺漏不該被列兩次。"""
+    from src.i18n import t
+    from src.services import SLOT_OUTGOING
+    from src.ui import settings as settings_module
+    from src.ui.settings import SettingsWindow
+    from tests.config_helpers import configured_cfg
+
+    warnings = []
+    monkeypatch.setattr(settings_module.messagebox, "showwarning",
+                        lambda title, message, parent=None: warnings.append(message))
+    cfg = configured_cfg("openai", api_key="")
+    cfg["service_slots"][SLOT_OUTGOING] = cfg["default_service"]
+    win = SettingsWindow(root, cfg, on_save=lambda: None)
+    win.open()
+    win._save()
+    assert warnings == [t("error.need_api_key")]
+    win._win.destroy()
+
+
+def test_the_basic_tab_labels_the_service_row_with_the_default_service(root):
+    """那一列自成一條文案：沿用分頁標題「翻譯服務」會讓建了三組的人讀成「我只有
+    一組」，沿用分頁內部的「預設服務」則在基本分頁少了上下文。"""
+    from tkinter import ttk
+
+    from src.i18n import t
+
+    win = _open_settings(root)
+    slaves = win._ui_language.master.pack_slaves()
+    label = slaves[slaves.index(win._service_summary.master) - 1]
+    assert isinstance(label, ttk.Label)
+    assert label.cget("text") == t("settings.default_service")
     win._win.destroy()
