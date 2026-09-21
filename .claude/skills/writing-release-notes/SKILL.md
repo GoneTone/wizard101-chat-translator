@@ -118,50 +118,50 @@ ls docs/superpowers/specs                                   # 設計文件：功
 | 熱鍵 | hotkey |
 | 系統訊息 | system messages |
 | 目標語言 | target language |
+| 多開（不寫「雙開」，功能不限兩個） | running several game accounts at once |
+| 遊戲客戶端（不寫「客戶端」，會與翻譯服務的 client 混淆） | game client |
+| 換你發言的時候（不寫「講回去」） | when it is your turn to talk |
 
 第三方站名／來源用「原文 英譯」雙語並列，中英版本字串相同（例如「原神資訊站 Genshin Impact Info」），不要在英文版只留英譯。
 
-## Gold Standard：v0.1.0（**暫定範本**）
+## Gold Standard：v0.4.0（使用者已校稿）
 
-> 這份是依 commit 歷史草擬的，**尚未經使用者校稿**。第一次真的放版、使用者改完稿之後，**回來用實際發布的版本覆蓋這一段**（中英都要），之後才有真正的風格基準。
+> 這份是 2026-09-21 使用者逐句校過的定稿，覆蓋了原本依 commit 歷史草擬的 v0.1.0 暫定範本。
+> 之後每次放版、使用者改完稿，回來用實際發布的版本覆蓋這一段（中英都要）。
 
 ```markdown
 ## What's New
 
-Wizard101 Chat Translator is here. It reads the chat straight out of the game's own chat control — no OCR, no packet sniffing, no guessing — and stacks every line in an overlay window: the original in smaller, dimmer text on top, the translation right underneath it. Pick your target language once and the chat keeps arriving in a language you actually read, your own lines included 💬
+You can now keep as many translation services as you like — two OpenAI keys, a Claude, an OpenAI-compatible server of your own — each with its own name, and switch the default between them whenever you want. If you would rather not run everything through one model, incoming chat, your outgoing lines and the on-screen area translation can each point at a different service; leave them alone and they simply follow the default 🔀
 
-Talking back is the other half of the problem. Press your hotkey, type in whatever language you think in, and the tool translates it to English and types it into the game's chat box character by character — the game won't take pasted text, so it does the typing for you. Then it stops on purpose: nothing is sent until you have read it over and pressed Enter yourself ⌨️
+The other big one: running several game accounts at once finally works the way you would expect. Every open game client gets its own hook, every message in the overlay is tagged with the game client it came from (①, ②, …) the moment a second one shows up, and the tags stay put even after one of them closes. When it is your turn to talk, same rule — the translation input box, the typed-in translation and Ctrl+V all go to the game client you are actually looking at, not the one that happened to start first 🎮
 
 On top of that, we also did:
-- First-run wizard in three steps: UI language; translation provider, API key and a connection test; target language and hotkey
-- Mouse selection on the overlay: drag across messages, Ctrl+C to copy, with a popup menu themed to match the overlay instead of the system default
-- System messages can be translated too — one toggle in Settings, off by default because drops and level-ups will bury the actual conversation — and they get a persistent cache that folds numbers into placeholders, so "500 Gold" and "300 Gold" reuse the same entry
-- Banners for the things that actually go wrong: update available, game version mismatch, not enough privileges
-- UI languages live in `src/i18n/` as JSON — adding one is a translation file, not a code change
-- Two logs next to the exe (`app.log`, `messages.log`), split per launch and pruned to the last 7 days
+- First-run wizard: step two now creates your first translation service instead of just filling in a key
+- Adding a service starts from provider cards with each one's logo, so you pick where it goes before you type anything
+- Old settings migrate on their own — every key you had is kept, and a service this version does not recognise is set aside rather than thrown away
+- The "game path" setting is gone from the advanced tab; the tool never needed it, and with several game clients it could not have been right anyway
 
 ## 此版本重點
 
-Wizard101 對話翻譯助手的第一個版本來了。它直接從遊戲自己的聊天控件把訊息讀出來——不靠 OCR、不攔封包、不用猜——每一則都排進疊加視窗：原文用比較小、比較暗的字擺在上面，譯文接在下面。目標語言選一次，之後聊天就持續用你看得懂的語言出現，連你自己的發言也在裡面 💬
+翻譯服務現在想建幾組就建幾組 —— 兩把 OpenAI 金鑰、一組 Claude、一台自己架的 OpenAI 相容伺服器 —— 各取一個名字，預設要用哪一組隨時切。不想全部走同一個模型的話，聊天收訊、你自己的發話、畫面框選翻譯可以各指定一組；不動它們就跟著預設走 🔀
 
-而「講回去」是另一半的麻煩。按下熱鍵，用你慣用的語言打字，工具會翻成英文，再逐字鍵入遊戲的聊天欄——遊戲不吃貼上，所以它替你一個字一個字敲進去。然後它就刻意停在那裡：在你自己看過、按下 Enter 之前，什麼都不會送出 ⌨️
+另一件大事：多開好幾個帳號終於是你預期的樣子。每個開著的遊戲客戶端都各自掛入，第二個遊戲客戶端一出現，疊加視窗裡每則訊息前面就標出它來自哪一個（①、②⋯⋯），其中一個關掉之後標記也不會消失。換你發言的時候也是同一套 —— 翻譯輸入框、打進去的譯文、Ctrl+V 貼上，全都對準你當下正在看的那個遊戲客戶端，而不是先啟動的那個 🎮
 
 除此之外，我們還做了：
-- 首次設定精靈三步走完：介面語言；翻譯服務、API 金鑰與測試連線；目標語言與熱鍵
-- 疊加視窗滑鼠選取：拖曳跨訊息選字、Ctrl+C 複製，彈出選單也照著疊加視窗的主題做，不是系統預設那個
-- 系統訊息也能翻——設定裡一個開關，預設關閉，因為掉寶、升等的量會把真正的對話埋掉——而且配了持久快取，數字會收成佔位符，「500 金幣」和「300 金幣」共用同一筆
-- 真的會出事的狀況都給橫幅：有新版本、遊戲版本不相容、權限不足
-- 介面語言以 JSON 放在 `src/i18n/`，新增一個語言是加一個翻譯檔，不是改程式
-- exe 旁邊兩份紀錄檔（`app.log`、`messages.log`），每次啟動分段、只留近 7 天
+- 首次設定精靈：第二步改成直接建立你的第一組翻譯服務，不再只是填一把金鑰
+- 新增服務先從帶各家標誌的服務商卡片選起，先決定要去哪裡再開始填
+- 舊設定會自己遷移 —— 你原本的金鑰一把都不會掉，這一版認不得的服務會先收在一旁而不是刪掉
+- 進階頁的「遊戲路徑」設定拿掉了；工具從來不需要它，多開時它也不可能填得對
 ```
 
 **注意這份範例做對的事**：
 
-- 中英文 hero 段落數相同（兩段）、bullet 條數相同（六條）、emoji 位置對齊（💬 / ⌨️）
-- 開場直述：第一句就說清楚它是什麼、怎麼讀到聊天內容，沒有反問句鋪陳
-- 把收訊側的多個子功能（讀聊天控件、疊加顯示、原文與譯文的排法、目標語言設定）壓在同一段內
-- 每個行為都對得上程式碼：原文在上／譯文在下（`overlay.py` 的 `add_message()`）、系統訊息預設關閉（`config.py`）
-- 把「逐字鍵入」和「不自動送出」綁在同段——情境上相關（發話流程 / 安心感）
+- 中英文 hero 段落數相同（兩段）、bullet 條數相同（四條）、emoji 位置對齊（🔀 / 🎮）
+- 開場直述：第一句就講這版做到什麼（想建幾組服務就建幾組），沒有反問句、沒有「本次更新包含」
+- 把同一主題的子功能壓在同一段：多組服務、預設服務、三個用途各指定一組合成一段；多開的掛入、標記、發話對準前景合成另一段
+- 每個行為都對得上程式碼／文件：三用途各指定（README 功能清單、multi-service spec）、標記在第二個遊戲客戶端出現才顯示且不消失（multi-client spec）、遊戲路徑設定移除（commit）
+- 用語照使用者校稿：「多開」不寫「雙開」、「遊戲客戶端」不寫「客戶端」、發話段用「換你發言的時候」
 - 沒有 `## 收訊 / ## 發話 / ## 底層` 之類分節
 - 沒有補防毒警告、封號風險、回報連結（footer 已有）
 - 兩個 H2 直接相鄰，**沒有** `---` 分隔線
