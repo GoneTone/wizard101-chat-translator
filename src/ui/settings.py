@@ -1,12 +1,11 @@
 """一般設定視窗：分「基本／進階」分頁，儲存即套用（不需重啟）。
-遊戲路徑例外：重掛 hook 需重啟，儲存後提示下次啟動生效。
 介面語言是唯一「改了就先看到」的欄位：換語言即時預覽（視窗以新語言重建、
 常駐介面 relabel），但仍要按下儲存才寫進設定，取消則還原成開窗時的語言。"""
 import copy
 import os
 import tkinter as tk
 import webbrowser
-from tkinter import filedialog, messagebox, ttk
+from tkinter import messagebox, ttk
 
 from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
@@ -202,7 +201,7 @@ class SettingsWindow:
         self._service_summary.configure(text=default["name"] if default else "—")
 
     def _build_advanced(self, nb, cfg: dict) -> None:
-        """進階分頁：數值參數、不透明度、系統訊息開關、遊戲路徑。"""
+        """進階分頁：數值參數、不透明度、系統訊息開關。"""
         adv_scroll = ScrollableFrame(nb, padding=12)
         adv = adv_scroll.body
         nb.add(adv_scroll, text=t("settings.tab.advanced"))
@@ -228,22 +227,6 @@ class SettingsWindow:
         ttk.Checkbutton(adv, text=t("field.translate_system"),
                         variable=self._translate_system).grid(
             row=6, column=0, columnspan=3, sticky="w", pady=(10, 2))
-
-        ttk.Label(adv, text=t("settings.game_path")).grid(row=7, column=0, sticky="w",
-                                                          pady=(10, 2))
-        # 路徑列比 Spinbox 寬得多：跨欄放進自己的 Frame，才不會把每一列的數值欄都撐開
-        path_row = ttk.Frame(adv)
-        path_row.grid(row=7, column=1, columnspan=2, sticky="ew", padx=(8, 0),
-                      pady=(10, 2))
-        self._game_path_row = path_row   # 版面順序測試取得這一列的入口
-        self._game_path = tk.StringVar(value=cfg["game_path"] or "")
-        # 「瀏覽…」先 pack：後宣告會在視窗變窄時被 expand=True 的輸入框擠掉
-        ttk.Button(path_row, text=t("button.browse"), width=7,
-                   command=self._browse_game_path).pack(side="right", padx=(4, 0))
-        ttk.Entry(path_row, textvariable=self._game_path).pack(
-            side="left", fill="x", expand=True)
-        hint_label(adv, t("settings.game_path_hint"), trailing=HINT_TRAILING).grid(
-            row=8, column=0, columnspan=3, sticky="ew")
 
     def _build_about(self, nb) -> None:
         """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、協助翻譯、紀錄檔位置。
@@ -452,7 +435,6 @@ class SettingsWindow:
             "auto_show_input": self._auto_input.get(),
             "paste_hotkey": self._paste_hotkey.get(),
             "translate_system_messages": self._translate_system.get(),
-            "game_path": self._game_path.get().strip() or None,
         }
         advanced, error = parse_advanced_values(
             self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
@@ -503,11 +485,6 @@ class SettingsWindow:
                                                 padx=8, pady=2)
         return var
 
-    def _browse_game_path(self) -> None:
-        chosen = filedialog.askdirectory(parent=self._win)
-        if chosen:
-            self._game_path.set(chosen)
-
     def _service_errors(self, values: dict) -> list[str]:
         """預設服務與三個插槽實際指到的服務各自缺哪些必填欄位（錯誤文案 key，空＝通過）。
 
@@ -539,14 +516,10 @@ class SettingsWindow:
                                    "\n".join(t(e) for e in errors), parent=self._win)
             return
         cfg = self._cfg
-        game_path_changed = values["game_path"] != cfg["game_path"]
         # 語言要在 on_save 之前套用：apply_settings 會依新語言重繪 overlay。
         cfg["ui_language"] = self._ui_language.value()
         set_language(cfg["ui_language"])
         cfg.update(values)
         self._on_save()
-        if game_path_changed:
-            messagebox.showinfo(t("dialog.notice_title"), t("dialog.game_path_restart"),
-                                parent=self._win)
         self._draft = None
         self._win.destroy()

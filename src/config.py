@@ -51,7 +51,6 @@ DEFAULT_CONFIG: dict = {
     "region_hotkey": "ctrl+shift+space",  # 框選畫面區域翻譯的熱鍵；不可與 hotkey 相同
     "auto_show_input": True,  # 遊戲開啟聊天輸入框時自動呼出翻譯輸入（關閉時自動收回）
     "paste_hotkey": True,     # 遊戲在前景時攔截 Ctrl+V，把剪貼簿文字自動鍵入（遊戲不支援貼上）
-    "game_path": None,       # 遊戲根目錄；null=自動偵測執行中的程序路徑（Steam 版需要）
     "type_delay": 0.02,      # 自動鍵入時每個字元間隔（秒），遊戲漏字就調大
     "overlay_alpha": 0.80,   # 視窗不透明度（半透明底板與泡泡），小＝更透明
     # x／y 為 null＝尚未拖曳過，首次啟動擺螢幕正中央（見 OverlayWindow）

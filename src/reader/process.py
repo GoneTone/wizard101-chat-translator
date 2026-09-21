@@ -1,4 +1,4 @@
-"""遊戲程序辨識與安裝路徑偵測（wizwalker 需要安裝路徑讀 Data/GameData 的 WAD）。
+"""遊戲程序辨識與安裝路徑偵測（路徑只用於診斷 log，wizwalker 用到的 API 不讀它）。
 只用 pywin32 列舉程序，不掃描記憶體。
 """
 import os

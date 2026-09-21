@@ -102,8 +102,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
     anchor＝遊戲輸入框的螢幕矩形 (x, y, w, h)，讀不到為 None。
     context 預設每條執行緒自建一份；呼叫端要拿去給發話用時可傳入。"""
     # 全用關鍵字：測試以 `lambda **kw` 替換 WizChatReader
-    reader = WizChatReader(hwnd=hwnd, game_path=cfg.get("game_path"),
-                           message_log=message_log, slot=slot)
+    reader = WizChatReader(hwnd=hwnd, message_log=message_log, slot=slot)
     context = context if context is not None else ChatContext()
     inputs = _InputWatch(reader, hwnd, slot, on_input_open, on_input_close)
     game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）

@@ -103,11 +103,9 @@ class WizChatReader:
     對不齊（切到沒讀過的分頁視圖／relog）視情況吸收或過濾（見 _diff_new_lines 的 reset
     分支）。所有路徑共用一道出口防線：單輪超過 MAX_NEW_LINES_PER_POLL 行視為差分誤對齊。"""
 
-    def __init__(self, hwnd: int, game_path: str | None = None,
-                 message_log: MessageLog | None = None, slot: int = 0):
+    def __init__(self, hwnd: int, message_log: MessageLog | None = None, slot: int = 0):
         self._hwnd = hwnd
         self._slot = slot          # 只用在 log：雙開時分辨這條是哪個客戶端
-        self._game_path = game_path
         # 玩家軌與系統軌各一份差分狀態、完全分離：共用同一個看過集合會讓掉寶刷屏把
         # 玩家說過的話擠出容量上限，視圖一切換那些玩家訊息就被當成沒見過而重吐重翻。
         self._player = Track()
@@ -521,7 +519,6 @@ class WizChatReader:
 
     def _connect(self) -> None:
         import wizwalker
-        import wizwalker.utils
         from pymem.exception import CouldNotOpenProcess
 
         self._loop = asyncio.new_event_loop()
@@ -539,12 +536,8 @@ class WizChatReader:
             self._teardown()
             raise GameNotRunning(f"failed to open game process: {exc}") from exc
         self._pid = self._client.process_id
-        path = self._game_path or install_path_of(self._pid)
-        log(f"[reader] game path: {path!r} "
-            f"(source={'config' if self._game_path else 'detected'}, "
-            f"slot={self._slot}, pid={self._pid})")
-        if path:
-            wizwalker.utils._OVERRIDE_PATH = path  # Steam 版無登錄檔安裝路徑，需覆寫
+        path = install_path_of(self._pid)
+        log(f"[reader] game path: {path!r} (slot={self._slot}, pid={self._pid})")
         hook_state.sweep(pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
         try:

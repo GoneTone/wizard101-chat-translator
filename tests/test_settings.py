@@ -340,7 +340,6 @@ def test_language_preview_keeps_unsaved_edits(root):
         i18n.set_language("zh-TW")
         win = _open_settings(root)
         win._hotkey.set_value("ctrl+alt+k")
-        win._game_path.set(r"D:\Games\Wizard101")
         win._language.set_value("日本語")
         win._max_msgs.set(321)
         win._auto_input.set(False)
@@ -349,7 +348,6 @@ def test_language_preview_keeps_unsaved_edits(root):
         root.update()
 
         assert win._hotkey.value() == "ctrl+alt+k"
-        assert win._game_path.get() == r"D:\Games\Wizard101"
         assert win._language.value() == "日本語"
         assert win._max_msgs.get() == 321
         assert win._auto_input.get() is False
