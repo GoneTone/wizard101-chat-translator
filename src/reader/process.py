@@ -75,20 +75,6 @@ def install_path_of(pid: int) -> str | None:
     return os.path.dirname(os.path.dirname(path))
 
 
-def detect_install_path() -> str | None:
-    """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
-    找不到回傳 None。用 pywin32 列舉程序，不掃描記憶體。"""
-    try:
-        import win32process
-    except ImportError:
-        return None
-    for pid in win32process.EnumProcesses():
-        path = install_path_of(pid)
-        if path:
-            return path
-    return None
-
-
 def pid_alive(pid: int) -> bool:
     """PID 是否仍在執行（供清掉殘留狀態檔）；判斷不了就當活著，不誤刪。"""
     try:
