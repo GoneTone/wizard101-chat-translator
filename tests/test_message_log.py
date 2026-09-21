@@ -146,3 +146,19 @@ def test_sizes_are_only_computed_when_the_snapshot_changed():
     log.snapshot([SAY], nodes=1, sizes_fn=sizes, input_open=False)
     log.snapshot([SAY], nodes=1, sizes_fn=sizes, input_open=False)
     assert len(calls) == 1
+
+
+def test_slot_prefix_marks_every_line(monkeypatch):
+    # 雙開時兩條 reader 共寫同一份 messages.log，沒前綴就分不出哪個帳號的判定
+    buf = io.StringIO()
+    mlog = MessageLog(buf, slot=2)
+    mlog.snapshot([SAY], nodes=1, sizes_fn=lambda: [1], input_open=False)
+    mlog.decision("append", 1, ["[Bob] hi <3"])
+    lines = buf.getvalue().splitlines()
+    assert lines and all(line.startswith("[slot=2] ") for line in lines)
+
+
+def test_no_slot_keeps_the_legacy_format():
+    buf, mlog = _log()
+    mlog.decision("append", 1, ["x"])
+    assert buf.getvalue().startswith("[poll=")
