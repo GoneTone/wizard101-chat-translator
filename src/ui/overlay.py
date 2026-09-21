@@ -550,9 +550,9 @@ class OverlayWindow:
     # --- 訊息（實作見 message_list.py） ---
     def add_message(self, original: str, translated: str, now: float | None = None,
                     msg_id: int | None = None, pending: bool = False,
-                    color: str | None = None) -> None:
+                    color: str | None = None, slot: int | None = None) -> None:
         """加入一則訊息（參數見 MessageList.add_message）；縮小成泡泡期間累計未讀數。"""
-        self._list.add_message(original, translated, now, msg_id, pending, color)
+        self._list.add_message(original, translated, now, msg_id, pending, color, slot)
         if self._minimized and self._bubble is not None:
             self._unread += 1
             self._bubble.set_unread(self._unread)
@@ -561,6 +561,10 @@ class OverlayWindow:
                        failed: bool = False) -> None:
         """把某則佔位訊息的譯文就地填入（見 MessageList.update_message）。"""
         self._list.update_message(msg_id, translated, failed)
+
+    def set_multi_client(self) -> None:
+        """偵測到第二個遊戲客戶端：訊息開始標示來源（見 MessageList.set_multi_client）。"""
+        self._list.set_multi_client()
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""

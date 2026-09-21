@@ -4,12 +4,21 @@ import queue
 import threading
 import time
 
+import pytest
+
 import src.reader.loop as loop_module
 from src.i18n import t
-from src.reader.loop import banner_for, reader_loop
+from src.reader.loop import MessageIds, banner_for, reader_loop
 from src.reader.markup import ChatLine
 from src.reader.mem_reader import GameAccessDenied, GameNotRunning, GameVersionMismatch
+from src.reader.status import StatusBoard
 from src.translation.context import ChatContext
+
+
+@pytest.fixture(autouse=True)
+def _window_present(monkeypatch):
+    """預設視窗一直存在；要測「視窗消失」的測試自己再覆寫。"""
+    monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: True)
 
 
 class FakePool:
@@ -33,12 +42,14 @@ class FakeOverlay:
         self.errors: list[str] = []
         self.clears = 0
         self.statuses: list[str] = []
+        self.slots: list[int | None] = []
 
     def add_message(self, original, translated, now=None, msg_id=None, pending=False,
-                    color=None):
+                    color=None, slot=None):
         self.messages.append((original, translated))
         self.pending_flags.append(pending)
         self.colors.append(color)
+        self.slots.append(slot)
 
     def update_message(self, msg_id, translated):
         pass
@@ -62,6 +73,7 @@ class FakeReader:
         self.anchored = anchored
         self.n = 0
         self.emit_system = False
+        self.closed = False
 
     def read_new(self):
         i = self.n
@@ -70,12 +82,23 @@ class FakeReader:
             self.stop.set()
         r = self.reads[i]
         if isinstance(r, Exception):
+            self.anchored = False  # 比照真實 reader：拋 GameNotRunning 前一律先 teardown
             raise r
         # 真實 reader 回傳 ChatLine；腳本可寫純字串（無色）省事
         return [line if isinstance(line, ChatLine) else ChatLine(line, None) for line in r]
 
     def close(self):
-        pass
+        self.closed = True
+
+
+def _loop(cfg, overlay, ui_queue, stop, pool, *, context=None, system_pool=None, cache=None,
+          on_input_open=None, on_input_close=None, hwnd=0x1, slot=1, board=None):
+    """以單一客戶端跑 reader_loop：board 一個編號時的行為等同舊的單執行緒版本。"""
+    board = board or StatusBoard(overlay, ui_queue, pool, system_pool)
+    reader_loop(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, MessageIds(),
+                on_input_open=on_input_open, on_input_close=on_input_close,
+                system_pool=system_pool, cache=cache, context=context)
+    return board
 
 
 def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
@@ -94,8 +117,8 @@ def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
         return reader
 
     monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
-    reader_loop(cfg, overlay, ui_queue, stop, context, pool,
-                system_pool=system_pool, cache=cache)
+    _loop(cfg, overlay, ui_queue, stop, pool, context=context,
+          system_pool=system_pool, cache=cache)
     _drain(ui_queue)
     return pool, context
 
@@ -176,7 +199,8 @@ def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypa
     sys_pool.error_state = "offline"
     run_scripted(cfg, ov, [[], []], monkeypatch, system_pool=sys_pool,
                  cache=FakeCache())
-    assert ov.errors == [("notice.offline", {})]
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
+    assert ov.errors == [("notice.offline", {}), ("notice.game_missing", {})]
 
 
 def test_system_lines_are_ignored_when_the_setting_is_off(monkeypatch):
@@ -224,8 +248,8 @@ def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
         return reader
 
     monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
-    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
-                system_pool=FakePool(), cache=FakeCache())
+    _loop(cfg, FakeOverlay(), ui_queue, stop, FakePool(),
+          system_pool=FakePool(), cache=FakeCache())
     _drain(ui_queue)
     assert created[0].emit_system_log == [False, True, True]
 
@@ -273,7 +297,8 @@ def test_banner_follows_pool_error_state(monkeypatch):
     pool = FakePool()
     pool.error_state = "offline"
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool)
-    assert ov.errors == [("notice.offline", {})]
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
+    assert ov.errors == [("notice.offline", {}), ("notice.game_missing", {})]
 
 
 def test_banner_prefers_game_issue_over_translation_error():
@@ -304,8 +329,10 @@ def test_loop_passes_the_pool_error_detail_to_the_banner(monkeypatch):
     pool.error_state = "config"
     pool.error_detail = (401, "Incorrect API key")
     run_scripted(cfg, ov, [[], []], monkeypatch, pool=pool, cache=FakeCache())
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
     assert ov.errors == [("notice.config_error_detail",
-                          {"status": 401, "message": "Incorrect API key"})]
+                          {"status": 401, "message": "Incorrect API key"}),
+                         ("notice.game_missing", {})]
 
 
 def test_status_shows_translating_while_pool_busy(monkeypatch):
@@ -342,9 +369,10 @@ def test_status_transitions(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: StatusFakeReader(reads, stop, pool, busy_at=1))
-    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), pool)
+    _loop(cfg, ov, ui_queue, stop, pool)
     _drain(ui_queue)
-    assert ov.statuses == ["listening", "translating", "listening"]
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「等待遊戲」
+    assert ov.statuses == ["listening", "translating", "listening", "waiting_game"]
 
 
 def test_status_locating_when_not_anchored(monkeypatch):
@@ -354,9 +382,10 @@ def test_status_locating_when_not_anchored(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader([[], []], stop, anchored=False))
-    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _loop(cfg, ov, ui_queue, stop, FakePool())
     _drain(ui_queue)
-    assert ov.statuses == ["locating"]  # 狀態未變不重複發
+    # 狀態未變不重複發；末尾多一次是 board.drop(slot) 把唯一編號收回、聚合變回「等待遊戲」
+    assert ov.statuses == ["locating", "waiting_game"]
 
 
 class InputFakeReader(FakeReader):
@@ -380,9 +409,9 @@ def _run_with_input(cfg, reads, input_states, monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: InputFakeReader(reads, stop, input_states))
-    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
-                on_input_open=lambda anchor: events.append(("open", anchor)),
-                on_input_close=lambda: events.append("close"))
+    _loop(cfg, FakeOverlay(), ui_queue, stop, FakePool(),
+          on_input_open=lambda hwnd, anchor: events.append(("open", anchor)),
+          on_input_close=lambda hwnd: events.append("close"))
     _drain(ui_queue)
     return events
 
@@ -412,7 +441,7 @@ def test_game_not_running_shows_banner_once(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _loop(cfg, ov, ui_queue, stop, FakePool())
     _drain(ui_queue)
     assert ov.errors == [("notice.game_missing", {})]
     assert ov.messages == []
@@ -429,9 +458,10 @@ def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _loop(cfg, ov, ui_queue, stop, FakePool())
     _drain(ui_queue)
-    assert ov.errors == [("notice.access_denied", {})]
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
+    assert ov.errors == [("notice.access_denied", {}), ("notice.game_missing", {})]
     assert "access_denied" in ov.statuses
 
 
@@ -446,9 +476,10 @@ def test_version_mismatch_shows_its_own_banner_and_status(monkeypatch):
     stop = threading.Event()
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: FakeReader(reads, stop))
-    reader_loop(cfg, ov, ui_queue, stop, ChatContext(), FakePool())
+    _loop(cfg, ov, ui_queue, stop, FakePool())
     _drain(ui_queue)
-    assert ov.errors == [("notice.version_mismatch", {})]
+    # 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
+    assert ov.errors == [("notice.version_mismatch", {}), ("notice.game_missing", {})]
     assert "version_mismatch" in ov.statuses
 
 
@@ -476,8 +507,64 @@ def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
     monkeypatch.setattr(loop_module, "WizChatReader",
                         lambda **kw: DelayedInputReader([[], []], stop, 0.1))
     start = time.monotonic()
-    reader_loop(cfg, FakeOverlay(), ui_queue, stop, ChatContext(), FakePool(),
-                on_input_open=lambda anchor: opened_at.append(time.monotonic() - start))
+    _loop(cfg, FakeOverlay(), ui_queue, stop, FakePool(),
+          on_input_open=lambda hwnd, anchor: opened_at.append(time.monotonic() - start))
     _drain(ui_queue)
     assert opened_at, "沒有偵測到輸入框開啟"
     assert opened_at[0] < 0.25, f"延遲 {opened_at[0]:.3f}s，等到了下一輪讀取"
+
+
+def test_loop_ends_and_closes_the_reader_when_its_window_is_gone(monkeypatch):
+    # 客戶端關掉：這條執行緒要 unhook 並結束，編號交還 supervisor
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    stop = threading.Event()
+    reader = FakeReader([[], [], []], stop)
+    monkeypatch.setattr(loop_module, "WizChatReader", lambda **kw: reader)
+    alive = iter([True, False])
+    monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: next(alive, False))
+    ui_queue: queue.Queue = queue.Queue()
+    board = _loop(cfg, ov, ui_queue, stop, FakePool())
+    _drain(ui_queue)
+    assert reader.closed
+    assert not stop.is_set(), "視窗消失只結束這一條，不該停掉整個程式"
+    assert board._slots == {}   # drop(slot) 已呼叫
+
+
+def test_messages_carry_the_slot(monkeypatch):
+    cfg = {"poll_interval": 0.01}
+    ov = FakeOverlay()
+    run_scripted(cfg, ov, [["[A] hi"], []], monkeypatch)
+    assert ov.slots == [1]
+
+
+def test_input_callbacks_carry_the_window_handle(monkeypatch):
+    cfg = {"poll_interval": 0.01, "auto_show_input": True}
+    events = []
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    monkeypatch.setattr(loop_module, "WizChatReader",
+                        lambda **kw: InputFakeReader([[], [], []], stop, [False, True, False]))
+    _loop(cfg, FakeOverlay(), ui_queue, stop, FakePool(), hwnd=0xABC,
+          on_input_open=lambda hwnd, anchor: events.append(("open", hwnd)),
+          on_input_close=lambda hwnd: events.append(("close", hwnd)))
+    assert events == [("open", 0xABC), ("close", 0xABC)]
+
+
+def test_message_ids_are_unique_across_threads():
+    ids = MessageIds()
+    got: list[int] = []
+    lock = threading.Lock()
+
+    def take():
+        for _ in range(500):
+            v = ids.next()
+            with lock:
+                got.append(v)
+
+    threads = [threading.Thread(target=take) for _ in range(4)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    assert len(set(got)) == 2000

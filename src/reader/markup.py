@@ -47,11 +47,12 @@ _LEADING_COLOR = re.compile(r"^\s*<color;")
 _OTHER_PLAYER_LINK = "<link;GID"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
-_warned_icons: set[str] = set()  # 每種未知圖示每個遊戲 session 只警告一次，避免洗版
+_warned_icons: set[str] = set()  # 所有客戶端共用的去重集合：任一客戶端斷線重連即清空，避免洗版
 
 
 def forget_warned_icons() -> None:
-    """清掉「已警告過的未知圖示」：斷線重連（遊戲可能已改版）後要能再警告一次。"""
+    """清掉「已警告過的未知圖示」：斷線重連（遊戲可能已改版）後要能再警告一次。
+    模組層全域、所有客戶端共用；雙開時任一客戶端斷線重連即清空，同一圖示可能再警告一次。"""
     _warned_icons.clear()
 
 # 遊戲表情以 <image;Emoticons/名稱.dds;24;24;..> 內嵌，保留成 :名稱: 文字（不轉 emoji），

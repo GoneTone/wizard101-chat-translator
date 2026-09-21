@@ -39,7 +39,7 @@ class FakeWiz(WizChatReader):
     """以腳本化的 chatLog 全文序列取代 wizwalker I/O。inputs＝每輪輸入框開關狀態。"""
 
     def __init__(self, texts, inputs=None, message_log=None):
-        super().__init__(message_log=message_log)
+        super().__init__(0x1, message_log=message_log)
         self.texts = texts
         self.inputs = list(inputs or [])
         self.n = 0

@@ -64,6 +64,11 @@ class InputBox:
         self._draft = ""  # hide() 收起時尚未送出的文字，下次 show() 還原
 
     @property
+    def target_hwnd(self) -> int | None:
+        """呼出當下記住的前景遊戲視窗（譯文要打回去的那個）；未呼出過為 None。"""
+        return self._target_hwnd
+
+    @property
     def is_open(self) -> bool:
         return self._win is not None
 
@@ -74,6 +79,12 @@ class InputBox:
     def clear_anchor(self) -> None:
         """遊戲輸入框關了：之後 show() 改貼游標。"""
         self._anchor = None
+
+    def retarget(self, hwnd: int | None) -> None:
+        """把譯文要打回去的遊戲視窗改成 hwnd（框已開著、使用者換到另一個客戶端時）。"""
+        if hwnd and hwnd != self._target_hwnd:
+            log(f"[input] retarget {self._target_hwnd or 0:#x} -> {hwnd:#x}")
+            self._target_hwnd = hwnd
 
     def show(self) -> None:
         """呼出輸入框：貼在遊戲輸入框正下方、與它同寬，沒有錨點就貼在游標處；

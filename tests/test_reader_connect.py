@@ -10,28 +10,19 @@ from src.reader.mem_reader import (
 from src.reader.process import is_game_process_path
 
 
-# --- 連線失敗的分類（不需遊戲：以假 ClientHandler 注入例外）---
-class _FailingHandler:
-    """get_new_clients 一律丟出指定例外；close 供 _teardown 呼叫。"""
-
-    def __init__(self, exc):
-        self._exc = exc
-
-    def get_new_clients(self):
-        raise self._exc
-
-    async def close(self):
-        pass
-
-
+# --- 連線失敗的分類（不需遊戲：以假 wizwalker.Client 注入例外）---
 def _reader_failing_to_open(monkeypatch, exc):
-    """讓 _connect 走到 get_new_clients 就丟出 exc 的 reader。"""
+    """讓 _connect 走到建 Client 就丟出 exc 的 reader。"""
     import wizwalker
 
     from src.reader import mem_reader
-    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
-    monkeypatch.setattr(wizwalker, "ClientHandler", lambda **kw: _FailingHandler(exc))
-    return WizChatReader()
+
+    def failing_client(hwnd):
+        raise exc
+
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
+    monkeypatch.setattr(wizwalker, "Client", failing_client)
+    return WizChatReader(0x1)
 
 
 def test_open_process_denied_raises_access_denied(monkeypatch):
@@ -121,12 +112,16 @@ class _StubClient:
     def __init__(self, hook_handler):
         self.hook_handler = hook_handler
         self._pymem = type("M", (), {"base_address": 0x400000})()
+        self.closed = False
+
+    async def close(self):
+        self.closed = True
 
 
 def _waiting_reader(hook_handler):
     """已連上假 client、只差等待 hook 就緒的 reader。"""
     import asyncio
-    r = WizChatReader()
+    r = WizChatReader(0x1)
     r._loop = asyncio.new_event_loop()
     r._client = _StubClient(hook_handler)
     return r
@@ -160,30 +155,17 @@ def test_wait_root_window_ready_times_out_instead_of_hanging_forever(monkeypatch
 
 
 # --- 掛入路徑的接線 ---
-class _StubHandler:
-    """get_new_clients 回傳固定的假 client；close 供 _teardown 呼叫。"""
-
-    def __init__(self, client):
-        self._client = client
-
-    def get_new_clients(self):
-        return [self._client]
-
-    async def close(self):
-        pass
-
-
 def _connecting_reader(monkeypatch, tmp_path, hook_handler):
     """讓 _connect 走完整條掛入路徑的 reader（狀態檔改寫進 tmp_path）。"""
     import wizwalker
 
     from src.reader import hook_state, mem_reader
-    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
     monkeypatch.setattr(mem_reader, "HOOK_READY_POLL", 0.0)
     monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     client = _StubClient(hook_handler)
-    monkeypatch.setattr(wizwalker, "ClientHandler", lambda **kw: _StubHandler(client))
-    return WizChatReader()
+    monkeypatch.setattr(wizwalker, "Client", lambda hwnd: client)
+    return WizChatReader(0x1)
 
 
 def test_pattern_failure_while_attaching_raises_version_mismatch(monkeypatch, tmp_path):
@@ -246,6 +228,69 @@ def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     r = _connecting_reader(monkeypatch, tmp_path, handler)
     r._connect()
     assert handler.activate_kwargs == {"wait_for_ready": False}
+
+
+def test_connect_binds_the_given_window_handle(monkeypatch, tmp_path):
+    """雙開時每個 reader 只能掛自己那個視窗：建 Client 時必須帶入指定的 hwnd。"""
+    import wizwalker
+
+    from src.reader import hook_state, mem_reader
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
+    monkeypatch.setattr(mem_reader, "HOOK_READY_POLL", 0.0)
+    monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
+    seen = []
+
+    def build(hwnd):
+        seen.append(hwnd)
+        return _StubClient(_StubHookHandler(values=[0x1234]))
+
+    monkeypatch.setattr(wizwalker, "Client", build)
+    r = WizChatReader(0xBEEF)
+    r._connect()
+    assert seen == [0xBEEF]
+    assert r.anchored
+
+
+def test_connect_logs_the_path_from_the_clients_own_pid(monkeypatch, tmp_path):
+    """雙開時每個 reader 要用自己 client 的 pid（4321）反查安裝路徑，不是列舉到的第一個。"""
+    from src.reader import mem_reader
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler(values=[0x1234]))
+    monkeypatch.setattr(mem_reader, "install_path_of",
+                        lambda pid: {4321: "D:/official/Wizard101"}.get(pid))
+    logged = []
+    monkeypatch.setattr(mem_reader, "log", logged.append)
+    r._connect()
+    assert any("game path: 'D:/official/Wizard101'" in line and "pid=4321" in line
+              for line in logged)
+
+
+def test_teardown_closes_the_client(monkeypatch, tmp_path):
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler(values=[0x1234]))
+    r._connect()
+    client = r._client
+    r.close()
+    assert client.closed
+    assert not r.anchored
+
+
+def test_install_path_of_derives_the_install_root_from_the_pid(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Games\W101\Bin\WizardGraphicalClient.exe")
+    assert process.install_path_of(123) == r"C:\Games\W101"
+
+
+def test_install_path_of_rejects_a_non_game_path(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Program Files\Mozilla Firefox\firefox.exe")
+    assert process.install_path_of(123) is None
+
+
+def test_install_path_of_handles_an_unopenable_process(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path", lambda pid: None)
+    assert process.install_path_of(123) is None
 
 
 def test_is_game_process_path_matches_game_exe():
@@ -370,7 +415,7 @@ def _repairing_reader(monkeypatch, tmp_path, base, fail_at=()):
     monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     logged = []
     monkeypatch.setattr(mem_reader, "log", logged.append)
-    r = WizChatReader()
+    r = WizChatReader(0x1)
     r._loop = asyncio.new_event_loop()
     r._client = _FakeClient(base, fail_at)
     return r, logged
@@ -424,3 +469,11 @@ def test_find_game_window_logs_when_the_window_scan_itself_fails(monkeypatch):
 
     assert process.find_game_window() is None
     assert any("window scan failed" in line and "EnumWindows failed" in line for line in logged)
+
+
+def test_window_exists_distinguishes_a_live_window_from_a_dead_handle():
+    import win32gui
+
+    from src.reader.process import window_exists
+    assert window_exists(win32gui.GetDesktopWindow())
+    assert not window_exists(0)

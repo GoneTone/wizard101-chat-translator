@@ -1,4 +1,5 @@
-"""進入點：reader 執行緒（wizwalker 收訊）+ 全域熱鍵 + tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
+"""進入點：supervisor 執行緒（每個遊戲客戶端一條 wizwalker 收訊執行緒）+ 全域熱鍵 +
+tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
 import ctypes
 import os
 import queue
@@ -36,9 +37,11 @@ from src.i18n import current_language, detect_system_language, language_name, se
 from src.instance_watch import start_instance_watch
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
-from src.reader.loop import reader_loop
+from src.reader.loop import MessageIds, reader_loop
 from src.reader.message_log import MessageLog
 from src.reader.process import is_game_process_path
+from src.reader.status import StatusBoard
+from src.reader.supervisor import JOIN_TIMEOUT, game_windows, supervise
 from src.region.pipeline import RegionPipeline
 from src.resources import icon_path
 from src.services import (
@@ -223,11 +226,26 @@ def foreground_game_hwnd(prefix: str) -> int | None:
     return None
 
 
+def _retarget_and_show(input_box: InputBox, hwnd: int) -> None:
+    """雙開切客戶端：先把翻譯輸入框改綁到新前景客戶端，再呼出。"""
+    input_box.retarget(hwnd)
+    input_box.show()
+
+
 def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
-    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：只有遊戲在前景才呼出翻譯輸入框。
-    輸入框已開著時（它自己就是前景）照舊重新對焦。"""
-    if input_box.is_open or foreground_game_hwnd("app") is not None:
+    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：遊戲在前景才呼出翻譯輸入框，並改綁
+    目標到這個前景客戶端（雙開時框可能還開著、綁在上一個客戶端）。輸入框已開著時（它自己
+    就是前景，讀不到遊戲 hwnd）只重新對焦、不改動 target_hwnd —— 這不算「忽略」，不記
+    ignored log；真的兩者皆非才記一行。不走 foreground_game_hwnd：那顆的 log 是為框選
+    熱鍵寫的，套在這裡會在框自己是前景時也誤報 ignored。"""
+    exe = foreground_exe()
+    if is_game_process_path(exe):
+        hwnd = win32gui.GetForegroundWindow()
+        ui_queue.put(lambda: _retarget_and_show(input_box, hwnd))
+    elif input_box.is_open:
         ui_queue.put(input_box.show)
+    else:
+        log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
 def on_region_hotkey(flow: RegionFlow, ui_queue: queue.Queue) -> None:
@@ -247,13 +265,71 @@ def should_intercept_paste(cfg: dict) -> bool:
     return bool(cfg["paste_hotkey"]) and is_game_process_path(foreground_exe())
 
 
-def on_paste_hotkey(cfg: dict, game_chat_open: threading.Event) -> threading.Thread:
+class ChatInputTracker:
+    """哪些遊戲視窗的聊天輸入框正開著。reader 執行緒（經 ui_queue）寫、貼上的鍵盤 hook 讀，
+    雙開時每個客戶端各自開關，不能用一個布林。"""
+
+    def __init__(self) -> None:
+        self._open: set[int] = set()
+        self._lock = threading.Lock()
+
+    def opened(self, hwnd: int) -> None:
+        with self._lock:
+            self._open.add(hwnd)
+
+    def closed(self, hwnd: int) -> None:
+        with self._lock:
+            self._open.discard(hwnd)
+
+    def is_open(self, hwnd: int) -> bool:
+        with self._lock:
+            return hwnd in self._open
+
+
+class GameInputEvents:
+    """遊戲聊天輸入框開／關事件的分派（UI 執行緒）。只認前景客戶端：使用者正在玩 B 時，
+    A 的聊天框開關不該彈出或收掉他的翻譯輸入框。"""
+
+    def __init__(self, cfg: dict, input_box: InputBox, tracker: ChatInputTracker,
+                 foreground=win32gui.GetForegroundWindow) -> None:
+        self._cfg = cfg
+        self._box = input_box
+        self._tracker = tracker
+        self._foreground = foreground
+        self._shown_for: int | None = None   # 目前的錨點／自動呼出是為哪個客戶端
+
+    def opened(self, hwnd: int, anchor) -> None:
+        """聊天框開了：記下來；是前景客戶端才設錨點（熱鍵呼出也要貼齊）、改綁翻譯目標、
+        依設定自動呼出。"""
+        self._tracker.opened(hwnd)
+        if self._foreground() != hwnd:
+            log(f"[app] game chat opened in a background client (hwnd={hwnd:#x}); ignoring")
+            return
+        self._shown_for = hwnd
+        if anchor is not None:
+            self._box.set_anchor(anchor)
+        self._box.retarget(hwnd)   # 框可能已開著、使用者換到這個客戶端：譯文改打回這裡
+        if self._cfg["auto_show_input"]:
+            self._box.show()
+
+    def closed(self, hwnd: int) -> None:
+        """聊天框關了：只有當初為它設錨點／呼出的那個客戶端才收起，打到一半的文字留到下次。"""
+        self._tracker.closed(hwnd)
+        if hwnd != self._shown_for:
+            return
+        self._shown_for = None
+        self._box.clear_anchor()
+        if self._cfg["auto_show_input"]:
+            self._box.hide()
+
+
+def on_paste_hotkey(cfg: dict, tracker: ChatInputTracker) -> threading.Thread:
     """攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
-    不能在 hook 回呼裡直接打字（Windows 會判定 hook 逾時而整個拔掉）。遊戲聊天輸入框
-    開著時走單行模式（換行改空格），其他地方換行照打。"""
+    不能在 hook 回呼裡直接打字（Windows 會判定 hook 逾時而整個拔掉）。**前景那個客戶端**
+    的聊天輸入框開著時走單行模式（換行改空格），其他地方換行照打。"""
     hwnd = win32gui.GetForegroundWindow()
     worker = threading.Thread(target=paste_clipboard,
-                              args=(hwnd, cfg["type_delay"], game_chat_open.is_set()),
+                              args=(hwnd, cfg["type_delay"], tracker.is_open(hwnd)),
                               daemon=True)
     worker.start()
     return worker
@@ -350,9 +426,9 @@ def log_startup_summary(cfg: dict) -> None:
 def shutdown(stop: threading.Event, pools: list[TranslationPool],
              reader_thread: threading.Thread, root: tk.Tk,
              cache: TranslationCache) -> None:
-    """乾淨關閉：停 reader（解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
+    """乾淨關閉：停下所有 reader（各自解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
     步驟順序見各段註解；本函式不返回。"""
-    log("[app] shutting down, waiting for reader to unhook")
+    log("[app] shutting down, waiting for readers to unhook")
     stop.set()
     for pool in pools:
         pool.shutdown()
@@ -361,9 +437,9 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     except Exception as exc:
         # 例外逃出會連 reader join、cache flush、os._exit 都跳過
         log(f"[app] keyboard.unhook_all failed: {exc}")
-    # 等 reader 跑完 reader.close()（解除 hook、還原遊戲記憶體）；daemon 執行緒被直接
-    # 砍掉會讓 hook 殘留，下次掛入 PatternFailed、需重開遊戲。
-    reader_thread.join(timeout=8)
+    # 等 supervisor 把每條 reader join 完（各自 unhook）；+2 秒讓 supervisor 自己的
+    # JOIN_TIMEOUT 預算永遠先跑完，「still alive」的診斷 log 才寫得出來。
+    reader_thread.join(timeout=JOIN_TIMEOUT + 2)
     try:
         root.destroy()
     except Exception:
@@ -433,11 +509,11 @@ def reconfigure_translation(cfg: dict, translators: dict[str, Translator],
     cache.rebind(incoming_fingerprint(cfg))
 
 
-def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
+def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
     """建構並接線所有元件（翻譯器與快取、overlay、翻譯池、輸入框與熱鍵、設定視窗），
-    啟動 reader 執行緒與更新檢查。"""
+    啟動 supervisor 執行緒與更新檢查。`message_stream`＝messages.log 的串流，每個客戶端
+    各建一個 `MessageLog` 共寫。"""
     log_startup_summary(cfg)
-    context = ChatContext()
     ui_queue: queue.Queue = queue.Queue()
 
     def save_field(key: str, value) -> None:
@@ -473,9 +549,15 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
 
     translators, cache, pools = build_translation(cfg, deliver)
     pool, system_pool = pools
+    contexts: dict[int, ChatContext] = {}
+
+    def context_for(hwnd: int | None) -> list[str]:
+        """發話時帶的上下文：譯文要打回哪個客戶端，就用那個客戶端的聊天。"""
+        ctx = contexts.get(hwnd) if hwnd is not None else None
+        return ctx.snapshot() if ctx is not None else []
 
     input_box = InputBox(root, lambda text, cancel: translators[SLOT_OUTGOING].translate_outgoing(
-        text, context.snapshot(), cancel=cancel), ui_queue,
+        text, context_for(input_box.target_hwnd), cancel=cancel), ui_queue,
         lambda translated, hwnd: type_into_window(hwnd, translated, delay=cfg["type_delay"]),
         describe_service=translators[SLOT_OUTGOING].describe)
     hotkey_handle, cfg["hotkey"] = register_hotkey(cfg["hotkey"],
@@ -483,11 +565,10 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
     region_pipeline = RegionPipeline(translators[SLOT_REGION])
     region_flow = RegionFlow(root, region_pipeline, ui_queue, cfg["overlay_alpha"])
     region_handle = register_region_hotkey(cfg, lambda: on_region_hotkey(region_flow, ui_queue))
-    # 遊戲聊天輸入框目前是否開著：reader 的邊緣觸發（經 ui_queue）設定，貼上執行緒讀取
-    game_chat_open = threading.Event()
+    tracker = ChatInputTracker()
     # 攔截器每次都直接讀 cfg，設定視窗改開關不必重掛；關閉時由 shutdown 的 unhook_all 一併卸除
     install_paste_hook(PasteInterceptor(lambda: should_intercept_paste(cfg),
-                                        lambda: on_paste_hotkey(cfg, game_chat_open)))
+                                        lambda: on_paste_hotkey(cfg, tracker)))
     ui_language = cfg["ui_language"]   # 用來判斷設定視窗是否改過介面語言
 
     def relabel_ui() -> None:
@@ -523,31 +604,33 @@ def build_app(cfg: dict, root: tk.Tk, message_log: MessageLog) -> App:
                               on_update_found=overlay.set_update,
                               cache=cache)
 
-    def on_game_input_open(anchor) -> None:
-        """遊戲聊天輸入框開了：記下錨點（熱鍵呼出也要貼齊），依設定決定是否自動呼出。"""
-        game_chat_open.set()
-        if anchor is not None:
-            input_box.set_anchor(anchor)
-        if cfg["auto_show_input"]:
-            input_box.show()
-
-    def on_game_input_close() -> None:
-        """遊戲聊天輸入框關了：被動收起翻譯輸入框，打到一半的文字留到下次呼出。"""
-        game_chat_open.clear()
-        input_box.clear_anchor()
-        if cfg["auto_show_input"]:
-            input_box.hide()
+    input_events = GameInputEvents(cfg, input_box, tracker)
 
     stop = threading.Event()
+    board = StatusBoard(overlay, ui_queue, pool, system_pool)
+    msg_ids = MessageIds()
+
+    def spawn(hwnd: int, slot: int) -> threading.Thread:
+        """supervisor 發現一個遊戲視窗：為它起一條收訊執行緒（上下文每客戶端一份）。"""
+        contexts[hwnd] = ChatContext()
+        thread = threading.Thread(
+            target=reader_loop,
+            args=(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, msg_ids),
+            kwargs={"on_input_open": lambda h, anchor: ui_queue.put(
+                        lambda: input_events.opened(h, anchor)),
+                    "on_input_close": lambda h: ui_queue.put(lambda: input_events.closed(h)),
+                    "message_log": MessageLog(message_stream, slot=slot),
+                    "system_pool": system_pool,
+                    "cache": cache,
+                    "context": contexts[hwnd]},
+            daemon=True, name=f"reader-{slot}")
+        thread.start()
+        return thread
+
     reader_thread = threading.Thread(
-        target=reader_loop, args=(cfg, overlay, ui_queue, stop, context, pool),
-        kwargs={"on_input_open": lambda anchor: ui_queue.put(
-                    lambda: on_game_input_open(anchor)),
-                "on_input_close": lambda: ui_queue.put(on_game_input_close),
-                "message_log": message_log,
-                "system_pool": system_pool,
-                "cache": cache},
-        daemon=True)
+        target=supervise,
+        args=(stop, spawn, game_windows, lambda: ui_queue.put(overlay.set_multi_client), board),
+        daemon=True, name="reader-supervisor")
     reader_thread.start()
 
     schedule_update_checks(root, ui_queue, overlay)
@@ -584,7 +667,7 @@ def main() -> None:
         return
 
     # 收訊原始內容另存一份，訊息類問題直接比對這份
-    message_log = MessageLog(TimestampedStream(open_session_log("messages.log")))
+    message_stream = TimestampedStream(open_session_log("messages.log"))
 
     root = tk.Tk()
     root.withdraw()
@@ -602,7 +685,7 @@ def main() -> None:
         save_config(CONFIG_PATH, cfg)
 
     splash.update(splash.PHASE_STARTING)
-    app = build_app(cfg, root, message_log)
+    app = build_app(cfg, root, message_stream)
     splash.close()
 
     def pump() -> None:

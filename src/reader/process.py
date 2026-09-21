@@ -1,4 +1,4 @@
-"""遊戲程序辨識與安裝路徑偵測（wizwalker 需要安裝路徑讀 Data/GameData 的 WAD）。
+"""遊戲程序辨識與安裝路徑偵測（路徑只用於診斷 log，wizwalker 用到的 API 不讀它）。
 只用 pywin32 列舉程序，不掃描記憶體。
 """
 import os
@@ -58,18 +58,21 @@ def find_game_window() -> int | None:
     return found[0] if found else None
 
 
-def detect_install_path() -> str | None:
-    """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
-    找不到回傳 None。用 pywin32 列舉程序，不掃描記憶體。"""
+def window_exists(hwnd: int) -> bool:
+    """視窗 handle 是否仍指向一個存在的視窗（客戶端關掉後為 False）；查不到當作不存在。"""
     try:
-        import win32process
-    except ImportError:
+        import win32gui
+        return bool(win32gui.IsWindow(hwnd))
+    except Exception:
+        return False
+
+
+def install_path_of(pid: int) -> str | None:
+    """該遊戲程序的安裝根目錄（`...\\Bin\\` 的上一層）；開不了程序或不是遊戲回 None。"""
+    path = process_exe_path(pid)
+    if not is_game_process_path(path):
         return None
-    for pid in win32process.EnumProcesses():
-        path = process_exe_path(pid)
-        if is_game_process_path(path):
-            return os.path.dirname(os.path.dirname(path))
-    return None
+    return os.path.dirname(os.path.dirname(path))
 
 
 def pid_alive(pid: int) -> bool:

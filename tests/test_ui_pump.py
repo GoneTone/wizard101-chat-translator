@@ -1,5 +1,6 @@
 """drain_ui_queue：單一回呼拋錯不能讓佇列裡其餘回呼被跳過，也不能讓例外往外傳。
-on_hotkey：只有遊戲在前景（或輸入框已開著）才把 input_box.show 排進佇列。"""
+on_hotkey：只有遊戲在前景（或輸入框已開著）才把 input_box.show 排進佇列；
+遊戲在前景時一併改綁 target_hwnd（雙開切客戶端）。"""
 import queue
 
 from src.main import drain_ui_queue
@@ -48,19 +49,33 @@ def test_empty_queue_is_a_noop():
 class _FakeInputBox:
     def __init__(self, is_open: bool):
         self.is_open = is_open
+        self.calls: list = []
+
+    def retarget(self, hwnd) -> None:
+        self.calls.append(("retarget", hwnd))
 
     def show(self) -> None:
-        pass
+        self.calls.append("show")
+
+
+def _drain(q: queue.Queue) -> None:
+    while True:
+        try:
+            q.get_nowait()()
+        except queue.Empty:
+            break
 
 
 def test_hotkey_opens_input_box_when_game_is_foreground(monkeypatch):
     import src.main as main
     monkeypatch.setattr(main, "foreground_exe",
                         lambda: r"C:\Wizard101\Bin\WizardGraphicalClient.exe")
+    monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0xA)
     q = queue.Queue()
     box = _FakeInputBox(is_open=False)
     main.on_hotkey(box, q)
-    assert q.get_nowait() == box.show
+    _drain(q)
+    assert box.calls == [("retarget", 0xA), "show"]
 
 
 def test_hotkey_ignored_when_other_window_is_foreground(monkeypatch):
@@ -80,13 +95,14 @@ def test_hotkey_ignored_when_foreground_unknown(monkeypatch):
 
 
 def test_hotkey_refocuses_open_input_box_regardless_of_foreground(monkeypatch):
-    # 輸入框已開著（它自己就是前景）再按熱鍵：照舊對焦，不做前景檢查
+    # 輸入框已開著（它自己就是前景）再按熱鍵：照舊對焦、不改 target_hwnd，不做前景檢查
     import src.main as main
     monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
     q = queue.Queue()
     box = _FakeInputBox(is_open=True)
     main.on_hotkey(box, q)
-    assert q.get_nowait() == box.show
+    _drain(q)
+    assert box.calls == ["show"]
 
 
 # --- 熱鍵註冊：config.json 手改成不認得的鍵名不能讓程式無聲退出 ---
@@ -203,16 +219,14 @@ def test_paste_intercepted_only_when_enabled_and_game_is_foreground(monkeypatch)
 
 
 def test_paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open(monkeypatch):
-    import threading
-
     import src.main as main
     pasted = []
     monkeypatch.setattr(main, "paste_clipboard",
                         lambda hwnd, delay, single_line: pasted.append((hwnd, delay, single_line)))
     monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0x77)
-    chat_open = threading.Event()
+    tracker = main.ChatInputTracker()
     cfg = {"type_delay": 0.03}
-    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
-    chat_open.set()
-    main.on_paste_hotkey(cfg, chat_open).join(timeout=5)
+    main.on_paste_hotkey(cfg, tracker).join(timeout=5)
+    tracker.opened(0x77)
+    main.on_paste_hotkey(cfg, tracker).join(timeout=5)
     assert pasted == [(0x77, 0.03, False), (0x77, 0.03, True)]

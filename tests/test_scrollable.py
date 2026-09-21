@@ -140,19 +140,3 @@ def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
     entry = [str(c) for c in row.pack_slaves() if isinstance(c, ttk.Entry)][0]
     assert order.index(button) < order.index(entry), (
         f"「顯示」按鈕應排在輸入框之前，實際版面：{order}")
-
-
-def test_game_path_browse_button_is_packed_before_the_entry(root):
-    from src.ui.settings import SettingsWindow
-    from tests.config_helpers import configured_cfg
-
-    cfg = configured_cfg()
-    win = SettingsWindow(root, cfg, on_save=lambda: None)
-    win.open()
-    path_row = win._game_path_row
-    order = _slave_order(path_row)
-    button = [str(c) for c in path_row.pack_slaves() if isinstance(c, ttk.Button)][0]
-    entry = [str(c) for c in path_row.pack_slaves() if isinstance(c, ttk.Entry)][0]
-    assert order.index(button) < order.index(entry), (
-        f"「瀏覽…」按鈕應排在輸入框之前，實際版面：{order}")
-    win._win.destroy()

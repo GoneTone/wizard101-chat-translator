@@ -181,6 +181,20 @@ def test_old_config_without_ui_language_loads(tmp_path):
     assert cfg["hotkey"] == "ctrl+alt+t"    # 既有設定不動
 
 
+def test_old_config_with_leftover_game_path_loads_without_error(tmp_path, monkeypatch):
+    # game_path 設定已移除；舊 config.json 裡的殘留鍵原樣留著（未知鍵不清、也不觸發回寫）
+    from src import config as config_module
+
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"hotkey": "ctrl+alt+t", "game_path": r"D:\Games\Wizard101"}),
+                 encoding="utf-8")
+    monkeypatch.setattr(config_module, "save_config",
+                        lambda *a, **kw: pytest.fail("殘留的 game_path 不該觸發回寫"))
+    cfg = load_config(p)
+    assert cfg["hotkey"] == "ctrl+alt+t"
+    assert cfg["game_path"] == r"D:\Games\Wizard101"  # 未知鍵原樣保留，不主動清除
+
+
 def test_local_state_dir_uses_localappdata(monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", r"C:\Users\test\AppData\Local")
     assert local_state_dir() == Path(r"C:\Users\test\AppData\Local") / "wizard101-chat-translator"

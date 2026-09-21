@@ -3,6 +3,7 @@
 原文不清理不過濾（只排除遊戲自己的除錯行，見 is_debug_line），與 `mem_reader` 送去
 翻譯的乾淨行（OUT）並排，一眼對照「遊戲送進來什麼 → 走哪條判定 → 實際翻了哪幾行」。
 內容沒變的輪不留痕跡（掛機不長檔案）。
+雙開時每個客戶端一個實例共寫同一串流，以 `[slot=N]` 前綴區分。
 """
 import re
 from collections import Counter
@@ -33,8 +34,9 @@ def new_raw_lines(prev: list[str], cur: list[str]) -> list[str]:
 class MessageLog:
     """把每輪的原始快照與判定結果寫進已開好的串流（時戳由 TimestampedStream 補）。"""
 
-    def __init__(self, stream):
+    def __init__(self, stream, slot: int | None = None):
         self._stream = stream
+        self._prefix = f"[slot={slot}] " if slot is not None else ""
         self._prev: list[str] = []
         self._poll = 0
         self._changed = False
@@ -67,4 +69,4 @@ class MessageLog:
             self._write(f"  OUT {text}")
 
     def _write(self, line: str) -> None:
-        self._stream.write(line + "\n")
+        self._stream.write(self._prefix + line + "\n")
