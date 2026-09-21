@@ -161,7 +161,7 @@ class WizChatReader:
             self._rebaseline_all(cur_texts, cur_system_texts)
             self._node_count = len(texts)
             self._synced = True
-            log(f"[reader] baseline established (lines={len(cur)}, "
+            log(f"[reader] baseline established (slot={self._slot}, lines={len(cur)}, "
                 f"nodes={len(texts)})")
             return _Outcome("baseline", [])
         # 暖機以輪數計且含空讀：重開遊戲後聊天常長時間空白，只數非空讀會讓暖機永不過期，
@@ -180,7 +180,7 @@ class WizChatReader:
         self._empty_streak = 0
         if baseline_stale:
             log(f"[reader] baseline stale after a long empty stretch, "
-                f"handling as reset (lines={len(cur)})")
+                f"handling as reset (slot={self._slot}, lines={len(cur)})")
         node_change = self._track_node_count(texts)
         if node_change == "decrease":
             self._rebaseline_all(cur_texts, cur_system_texts)
@@ -222,7 +222,7 @@ class WizChatReader:
         if mirrored != self._mirrored_nodes:
             # 只在鏡射節點數變動時印：組隊視窗開著時每輪都成立，逐輪印會洗版
             log(f"[reader] mirrored chatLog nodes {self._mirrored_nodes}->{mirrored} "
-                f"(nodes={len(texts)}, sizes={node_sizes(texts)}, "
+                f"(slot={self._slot}, nodes={len(texts)}, sizes={node_sizes(texts)}, "
                 f"merged_lines={len(cur_all)}); mirrored copies are not retranslated")
             self._mirrored_nodes = mirrored
         return texts, cur_all
@@ -244,7 +244,8 @@ class WizChatReader:
         else:
             change, action = "increase", "handling as reset"
         log(f"[reader] chatLog node count {change}d "
-            f"({self._node_count}->{len(texts)}, sizes={node_sizes(texts)}), {action}")
+            f"(slot={self._slot}, {self._node_count}->{len(texts)}, "
+            f"sizes={node_sizes(texts)}), {action}")
         self._node_count = len(texts)
         return change
 
@@ -255,8 +256,8 @@ class WizChatReader:
         path, appended = align(prev_texts, cur_texts, force_reset)
         if path == "recover":
             log(f"[reader] baseline misaligned, recovered via tail anchor "
-                f"(prev={len(prev_texts)}, cur={len(cur_texts)}, emitted={len(appended)}, "
-                f"nodes={len(texts)}, sizes={node_sizes(texts)})")
+                f"(slot={self._slot}, prev={len(prev_texts)}, cur={len(cur_texts)}, "
+                f"emitted={len(appended)}, nodes={len(texts)}, sizes={node_sizes(texts)})")
         if appended is not None:
             return path, appended
         # 與基準完全無重疊：首次切到沒讀過的分頁視圖、relog 成全新內容，或單行置換式
@@ -264,11 +265,12 @@ class WizChatReader:
         # 盲區），之後交由看過集合過濾；基準為空（連上時聊天是空的）不受暖機限制。
         if prev_texts and self._player.warmup_left > 0:
             log(f"[reader] no overlap with baseline during warmup, absorbed "
-                f"(lines={len(cur_texts)}, cur_head={cur_texts[0][:40]!r}, "
-                f"prev_tail={prev_texts[-1][:40]!r})")
+                f"(slot={self._slot}, lines={len(cur_texts)}, "
+                f"cur_head={cur_texts[0][:40]!r}, prev_tail={prev_texts[-1][:40]!r})")
             return path, None
         log(f"[reader] chat log has no overlap with baseline, treating as reset "
-            f"(lines={len(cur_texts)}, cur_head={cur_texts[0][:40]!r}, "
+            f"(slot={self._slot}, lines={len(cur_texts)}, "
+            f"cur_head={cur_texts[0][:40]!r}, "
             f"prev_tail={prev_texts[-1][:40] if prev_texts else ''!r})")
         return path, cur_texts
 
@@ -290,7 +292,7 @@ class WizChatReader:
             return emitted
         if baseline_stale and len(emitted) == 1 and content_changed:
             log(f"[reader] single line after an empty stretch kept as new "
-                f"(text={emitted[0].text[:40]!r}, path={path})")
+                f"(slot={self._slot}, text={emitted[0].text[:40]!r}, path={path})")
             return emitted
         return self._drop_resurfaced(emitted, path)
 
@@ -319,7 +321,7 @@ class WizChatReader:
         單行 append（正常訊息與重複的 lol/gg）永不過濾。"""
         if len(appended) >= 2 and all(t in self._player.seen for t in appended):
             log(f"[reader] append of {len(appended)} all-seen lines absorbed "
-                f"as view resurface (prev={prev_len})")
+                f"as view resurface (slot={self._slot}, prev={prev_len})")
             return []
         if len(appended) >= 3 and len(appended) > 2 * prev_len:
             # 一輪暴增超過基準兩倍＝不可能的人為速度，判定為切到內容較多的視圖（代價：
@@ -329,7 +331,7 @@ class WizChatReader:
             kept = self._drop_resurfaced(emitted, "append")
             if len(kept) > len(appended) // DUPLICATE_BURST_SEEN_RATIO:
                 log(f"[reader] implausible append burst absorbed as view switch "
-                    f"(appended={len(appended)}, unseen={len(kept)}, "
+                    f"(slot={self._slot}, appended={len(appended)}, unseen={len(kept)}, "
                     f"prev={prev_len})")
                 return []
             return kept
@@ -349,12 +351,13 @@ class WizChatReader:
             # 舊訊息當「剛送出」放行而重翻（實機回報）。每次開啟只放行一次：此機制分不出
             # 「重打同一句」與「切頁籤讓同一句重浮」，不設限後者每切回來就重複顯示。
             log(f"[reader] released tail line suppressed as resurfaced: input "
-                f"closed recently, treating as a just-sent message via {path}")
+                f"closed recently, treating as a just-sent message via {path} "
+                f"(slot={self._slot})")
             self._released_for_input = True
             kept = kept + [emitted[-1]]
         if len(kept) != len(emitted):
             log(f"[reader] suppressed {len(emitted) - len(kept)} resurfaced "
-                f"lines via {path} (kept={len(kept)}, "
+                f"lines via {path} (slot={self._slot}, kept={len(kept)}, "
                 f"seen={len(self._player.seen)})")
         return kept
 
@@ -379,13 +382,13 @@ class WizChatReader:
         if appended is None:
             if track.prev and track.warmup_left > 0:
                 log(f"[reader] system track absorbed during warmup "
-                    f"(lines={len(cur_texts)})")
+                    f"(slot={self._slot}, lines={len(cur_texts)})")
                 track.rebaseline(cur_texts)
                 return []
             reason = ("chatLog node count increased" if node_added
                       else "no overlap with baseline")
             log(f"[reader] system track handled as reset ({reason}): "
-                f"prev={prev_len}, cur={len(cur_texts)}")
+                f"slot={self._slot}, prev={prev_len}, cur={len(cur_texts)}")
             appended = cur_texts
         track.prev = cur_texts
         emitted_texts = appended
@@ -394,18 +397,19 @@ class WizChatReader:
             kept = filter_resurfaced(emitted_texts, track.seen, text=lambda line: line)
             if len(kept) != len(emitted_texts):
                 log(f"[reader] system track dropped {len(emitted_texts) - len(kept)} "
-                    f"resurfaced lines via {path}")
+                    f"resurfaced lines via {path} (slot={self._slot})")
             emitted_texts = kept
         track.seen.remember(cur_texts)
         if len(emitted_texts) > MAX_NEW_LINES_PER_POLL:
             log(f"[reader] implausible system burst suppressed via {path}: "
-                f"{len(emitted_texts)} new lines in one poll (prev={prev_len}, "
-                f"cur={len(cur_texts)}, nodes={len(texts)}); re-baselined without "
-                f"emitting")
+                f"{len(emitted_texts)} new lines in one poll (slot={self._slot}, "
+                f"prev={prev_len}, cur={len(cur_texts)}, nodes={len(texts)}); "
+                f"re-baselined without emitting")
             return []
         if len(emitted_texts) > SYSTEM_LARGE_BATCH_LOG_THRESHOLD:
             log(f"[reader] large system batch via {path}: {len(emitted_texts)} lines "
-                f"(prev={prev_len}, cur={len(cur_texts)}, nodes={len(texts)})")
+                f"(slot={self._slot}, prev={prev_len}, cur={len(cur_texts)}, "
+                f"nodes={len(texts)})")
         if not self.emit_system:
             return []            # 關閉中：基準已推進，只是不輸出
         # 換算回完整序列的索引：各路徑回傳的都是 cur_texts 的尾段
@@ -425,14 +429,14 @@ class WizChatReader:
         並為接近上限的批次留下診斷數據。基準已在呼叫端更新，擋下即等同靜默重建基準。"""
         if len(appended) > MAX_NEW_LINES_PER_POLL:
             log(f"[reader] implausible burst suppressed via {path}: {len(appended)} new "
-                f"lines in one poll (prev={prev_len}, cur={cur_len}, "
+                f"lines in one poll (slot={self._slot}, prev={prev_len}, cur={cur_len}, "
                 f"nodes={len(texts)}, sizes={node_sizes(texts)}); "
                 f"re-baselined without emitting")
             return []
         if len(appended) > LARGE_BATCH_LOG_THRESHOLD:
             log(f"[reader] large batch via {path}: {len(appended)} lines "
-                f"(prev={prev_len}, cur={cur_len}, nodes={len(texts)}, "
-                f"sizes={node_sizes(texts)})")
+                f"(slot={self._slot}, prev={prev_len}, cur={cur_len}, "
+                f"nodes={len(texts)}, sizes={node_sizes(texts)})")
         return appended
 
     def input_open(self) -> bool:
@@ -474,7 +478,8 @@ class WizChatReader:
             return self._run(self._input_rect_async())
         except Exception as exc:
             self._edit_node = None
-            log(f"[reader] game chat input rect unavailable: {type(exc).__name__}: {exc}")
+            log(f"[reader] game chat input rect unavailable (slot={self._slot}): "
+                f"{type(exc).__name__}: {exc}")
             return None
 
     async def _input_rect_async(self) -> tuple[int, int, int, int] | None:
@@ -619,7 +624,8 @@ class WizChatReader:
                 except Exception as exc:
                     failed += 1
                     log(f"[reader] hook repair write failed at {addr:#x} "
-                        f"(len={len(original)}): {type(exc).__name__}: {exc}")
+                        f"(slot={self._slot}, len={len(original)}): "
+                        f"{type(exc).__name__}: {exc}")
             outcome = ("no game restart needed" if not failed
                        else "restart the game if chat stays silent")
             log(f"[reader] repaired hooks leaked by previous dirty exit "
@@ -661,7 +667,8 @@ class WizChatReader:
         except Exception as exc:
             # 狀態檔留著，下次啟動由 _repair_leaked_hooks 寫回原始 bytes。不能靜默吞：否則上層
             # 照印 shutdown complete，下次啟動才冒出「repaired hooks leaked」而查不出原因。
-            log(f"[reader] unhook failed, leaving repair state for next launch: {exc}")
+            log(f"[reader] unhook failed, leaving repair state for next launch "
+                f"(slot={self._slot}): {exc}")
         if unhooked and self._pid:
             hook_state.clear_state(self._pid)  # 已乾淨 unhook → 無遺留，清除還原狀態
         try:

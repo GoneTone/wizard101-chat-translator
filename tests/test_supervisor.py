@@ -82,6 +82,26 @@ def test_freed_slot_is_reused_by_the_next_window():
     assert h.spawned == [(0xA, 1), (0xB, 2), (0xC, 1)]
 
 
+class ZombieHarness(Harness):
+    """視窗消失後不 join 假執行緒：模擬殭屍 reader（退出前有 5-20 秒空窗）還活著。"""
+
+    def enumerate(self):
+        if not self.script:
+            self.stop.set()
+            for ev in self.gone.values():
+                ev.set()
+            return self.current
+        self.current = self.script.pop(0)
+        return self.current
+
+
+def test_zombie_reader_thread_does_not_trigger_multi_client_mode():
+    # A 的視窗消失但假執行緒還沒退出、B 剛出現：active 有兩條但本輪只列舉到 B 一個視窗
+    h = ZombieHarness([[0xA], [0xB]])
+    h.run()
+    assert h.multi_calls == 0
+
+
 def test_multi_client_mode_fires_once_when_two_windows_coexist():
     h = Harness([[0xA], [0xA, 0xB], [0xB], [0xB, 0xC]])
     h.run()

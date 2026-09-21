@@ -43,13 +43,16 @@ def supervise(stop: threading.Event, spawn: Callable[[int, int], threading.Threa
                 if not thread.is_alive():
                     del active[hwnd]
                     log(f"[reader] reader thread exited hwnd={hwnd:#x} slot={slot} freed")
-            for hwnd in enumerate_windows():
+            windows = enumerate_windows()
+            for hwnd in windows:
                 if hwnd in active:
                     continue
                 slot = allocate_slot(s for s, _ in active.values())
                 log(f"[reader] client window appeared hwnd={hwnd:#x} slot={slot}")
                 active[hwnd] = (slot, spawn(hwnd, slot))
-            if not multi_client and len(active) >= 2:
+            # 看本輪列舉到的視窗數，不是 active 的執行緒數：殭屍執行緒（視窗已消失、
+            # 執行緒還沒退出）不算，否則「關遊戲、馬上重開」會誤觸發多客戶端模式且不會關
+            if not multi_client and len(windows) >= 2:
                 log(f"[reader] multi-client mode on (slots={sorted(s for s, _ in active.values())})")
                 on_multi_client()   # 先呼叫再鎖存：raise 時下一輪還會重試，不會永久跳過通知
                 multi_client = True   # 一次性：之後客戶端減回一個也不關（見 spec）

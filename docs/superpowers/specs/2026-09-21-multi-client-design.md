@@ -93,7 +93,8 @@ supervisor 只管生命週期。
   - `enumerate_windows()` 預設為 wizwalker 的 `get_all_wizard_handles`，測試注入假函式。
   - 維護 `active: dict[hwnd, (slot, thread)]`。新 hwnd → `slot = 最小未用正整數` → `spawn(hwnd, slot)`
     起執行緒。已結束的執行緒（`is_alive()` 為 False）→ 從 `active` 移除、釋號。
-  - 第一次觀察到 `len(active) >= 2` → 排 `overlay.set_multi_client()` 進 `ui_queue`，之後不再呼叫。
+  - 第一次觀察到本輪列舉到的遊戲視窗數（`len(windows)`，非 `active` 的執行緒數——殭屍執行緒不算）
+    ≥ 2 → 排 `overlay.set_multi_client()` 進 `ui_queue`，之後不再呼叫。
     先呼叫 `on_multi_client()` 成功後才鎖存，回呼拋例外時下一輪重試。
   - `stop` 設定後以**一個共用的** `JOIN_TIMEOUT`（8 秒）預算 join 所有子執行緒（每條各自
     `reader.close()` unhook）；`main.shutdown` 以 `JOIN_TIMEOUT + 2` 秒 join supervisor，確保
