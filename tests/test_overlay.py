@@ -3,7 +3,7 @@ import pytest
 from src.i18n import t
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
-from src.ui.message_list import should_stick_to_bottom
+from src.ui.message_list import should_stick_to_bottom, slot_marker
 from src.ui.overlay import (
     _GRIP_SIZE,
     BG,
@@ -1275,3 +1275,50 @@ def test_clear_update_does_not_count_as_dismissing(root):
     ov.offer_update(Release(version="0.2.0", url="https://example.invalid/rel"))
     assert ov.update_text() == t("update.available", version="0.2.0")
     ov.clear_update()
+
+
+def _original_text(ov, index=0):
+    """取某則訊息原文行實際畫出的字（本色那份）。"""
+    line = ov._list._messages[index].row.winfo_children()[0]
+    return line.itemcget(line.find_withtag("fg")[0], "text")
+
+
+def test_slot_marker_uses_circled_digits_then_falls_back():
+    assert slot_marker(1) == "①"
+    assert slot_marker(2) == "②"
+    assert slot_marker(20) == "⑳"
+    assert slot_marker(21) == "[21]"
+
+
+def test_single_client_rows_carry_no_marker(root):
+    # 單開的使用者外觀完全不變：有 slot 但沒進多客戶端模式就不畫
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲", slot=1)
+    assert _original_text(ov) == "[A] one"
+
+
+def test_multi_client_mode_marks_existing_and_new_rows(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲", slot=1)
+    ov.set_multi_client()
+    ov.add_message("[B] two", "乙", slot=2)
+    assert _original_text(ov, 0) == "① [A] one"
+    assert _original_text(ov, 1) == "② [B] two"
+    # 存的原文保持乾淨：選取複製拿到的不含標記
+    assert ov.visible_messages() == [("[A] one", "甲"), ("[B] two", "乙")]
+
+
+def test_rows_without_slot_stay_unmarked_in_multi_client_mode(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_multi_client()
+    ov.add_message("m", "t")
+    assert _original_text(ov) == "m"
+
+
+def test_multi_client_mode_never_turns_off(root):
+    # 第二次呼叫是 no-op：不重畫、不重複加標記
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("[A] one", "甲", slot=1)
+    ov.set_multi_client()
+    ov.set_multi_client()
+    assert _original_text(ov) == "① [A] one"

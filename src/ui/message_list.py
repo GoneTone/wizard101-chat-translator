@@ -62,6 +62,13 @@ def should_stick_to_bottom(view_bottom_fraction: float,
     return view_bottom_fraction >= threshold
 
 
+def slot_marker(slot: int) -> str:
+    """客戶端編號的顯示字：帶圈數字 ①…⑳，超過退回 `[n]`。"""
+    if 1 <= slot <= 20:
+        return chr(0x2460 + slot - 1)
+    return f"[{slot}]"
+
+
 class _Message(NamedTuple):
     """列表中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
     color 為該則在遊戲內的顯示色（None＝退回預設配色）。"""
@@ -71,6 +78,7 @@ class _Message(NamedTuple):
     row: "tk.Frame"
     msg_id: int | None
     color: str | None = None
+    slot: int | None = None   # 來自哪個遊戲客戶端（None＝不標示）
 
 
 class MessageList:
@@ -90,6 +98,8 @@ class MessageList:
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
+        # 多客戶端模式：偵測到第二個客戶端才開、開了不關（見 set_multi_client）
+        self._multi_client = False
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
@@ -230,13 +240,14 @@ class MessageList:
 
     def add_message(self, original: str, translated: str, now: float | None = None,
                     msg_id: int | None = None, pending: bool = False,
-                    color: str | None = None) -> None:
+                    color: str | None = None, slot: int | None = None) -> None:
         """加入一則訊息（最新在最下）。pending＝譯文欄位目前是佔位字樣，以較暗的顏色
         標示，待 update_message 填入真正的譯文時才恢復正常顏色。
-        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
+        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。
+        slot＝來源客戶端編號，只在多客戶端模式下畫成前綴。"""
         anchor = self._view_anchor()
         row = tk.Frame(self._inner, bg=BG)
-        original_line = _outlined_line(row, original,
+        original_line = _outlined_line(row, self._display_original(original, slot),
                                        dimmed(color) if color else FG_ORIGINAL,
                                        ui_font(9), self.wrap)
         original_line.pack(fill="x")
@@ -249,7 +260,7 @@ class MessageList:
         for line in (original_line, translated_line):
             self._bind_line(line)
         self._messages.append(_Message(now if now is not None else time.time(),
-                                       original, translated, row, msg_id, color))
+                                       original, translated, row, msg_id, color, slot))
         while len(self._messages) > self._max:
             self._drop_row(self._messages.pop(0))
 
@@ -275,6 +286,28 @@ class MessageList:
             self._messages[i] = m._replace(translated=translated)
             self.refresh_scroll(anchor)
             return
+
+    def _display_original(self, original: str, slot: int | None) -> str:
+        if self._multi_client and slot is not None:
+            return f"{slot_marker(slot)} {original}"
+        return original
+
+    def set_multi_client(self) -> None:
+        """進入多客戶端模式：既有各列補上來源標記，之後新列直接帶標記。只開不關 ——
+        剛關掉的那個客戶端的訊息還在淡出期內，此時正需要看清是誰的。"""
+        if self._multi_client:
+            return
+        self._multi_client = True
+        anchor = self._view_anchor()
+        for m in self._messages:
+            if m.slot is None:
+                continue
+            line = m.row.winfo_children()[0]  # 0＝原文行
+            if self._selection.holds(m.row):
+                self._selection.clear("original line relabelled")
+            line.itemconfigure("txt", text=self._display_original(m.original, m.slot))
+            _fit_line_height(line)
+        self.refresh_scroll(anchor)
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
