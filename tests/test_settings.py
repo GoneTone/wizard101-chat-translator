@@ -895,8 +895,8 @@ def test_save_lists_a_shared_services_problem_only_once(root, monkeypatch):
 
 
 def test_the_basic_tab_labels_the_service_row_with_the_default_service(root):
-    """那一列的值只是預設服務的名稱；沿用分頁標題「翻譯服務」當標籤，建了三組的
-    使用者會讀成「我只有一組」，而且譯者為了分頁寬度縮短它時會一併殃及這裡。"""
+    """那一列自成一條文案：沿用分頁標題「翻譯服務」會讓建了三組的人讀成「我只有
+    一組」，沿用分頁內部的「預設服務」則在基本分頁少了上下文。"""
     from tkinter import ttk
 
     from src.i18n import t
@@ -905,5 +905,5 @@ def test_the_basic_tab_labels_the_service_row_with_the_default_service(root):
     slaves = win._ui_language.master.pack_slaves()
     label = slaves[slaves.index(win._service_summary.master) - 1]
     assert isinstance(label, ttk.Label)
-    assert label.cget("text") == t("service.default")
+    assert label.cget("text") == t("settings.default_service")
     win._win.destroy()

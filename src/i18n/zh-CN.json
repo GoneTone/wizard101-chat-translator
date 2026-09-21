@@ -92,6 +92,7 @@
   "settings.tab.about": "关于",
   "settings.tab.services": "翻译服务",
   "settings.target_language": "翻译目标语言",
+  "settings.default_service": "默认翻译服务",
   "settings.hotkey": "呼出翻译输入框的热键",
   "settings.poll_interval": "轮询间隔（秒）",
   "settings.poll_interval_hint": "接收扫描频率，小＝更实时",

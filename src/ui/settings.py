@@ -158,9 +158,9 @@ class SettingsWindow:
         self._language = LanguageField(basic, cfg["target_language"])
         self._language.pack(fill="x", pady=(2, 10))
         # 服務清單在「翻譯服務」分頁建立，此時還不存在：先擺空標籤，open() 全部分頁
-        # 建完後才填值（見 _refresh_service_summary）。標籤不沿用分頁標題：這一列的值
-        # 只是預設服務，建了三組的使用者會讀成「我只有一組」。
-        ttk.Label(basic, text=t("service.default")).pack(anchor="w", pady=(12, 0))
+        # 建完後才填值（見 _refresh_service_summary）。標籤自成一條文案：分頁標題會讓
+        # 建了三組的人讀成「我只有一組」，而分頁內部的「預設服務」在這裡少了上下文。
+        ttk.Label(basic, text=t("settings.default_service")).pack(anchor="w", pady=(12, 0))
         service_row = ttk.Frame(basic)
         service_row.pack(fill="x", pady=(2, 10))
         self._service_summary = ttk.Label(service_row, text="")

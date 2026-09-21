@@ -92,6 +92,7 @@
   "settings.tab.about": "About",
   "settings.tab.services": "Services",
   "settings.target_language": "Translate messages into",
+  "settings.default_service": "Default translation service",
   "settings.hotkey": "Hotkey to open the translation input",
   "settings.poll_interval": "Poll interval (s)",
   "settings.poll_interval_hint": "How often incoming chat is scanned; lower is more responsive",
