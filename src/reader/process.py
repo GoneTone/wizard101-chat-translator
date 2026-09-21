@@ -58,6 +58,15 @@ def find_game_window() -> int | None:
     return found[0] if found else None
 
 
+def window_exists(hwnd: int) -> bool:
+    """視窗 handle 是否仍指向一個存在的視窗（客戶端關掉後為 False）；查不到當作不存在。"""
+    try:
+        import win32gui
+        return bool(win32gui.IsWindow(hwnd))
+    except Exception:
+        return False
+
+
 def detect_install_path() -> str | None:
     """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
     找不到回傳 None。用 pywin32 列舉程序，不掃描記憶體。"""

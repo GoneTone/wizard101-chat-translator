@@ -436,3 +436,11 @@ def test_find_game_window_logs_when_the_window_scan_itself_fails(monkeypatch):
 
     assert process.find_game_window() is None
     assert any("window scan failed" in line and "EnumWindows failed" in line for line in logged)
+
+
+def test_window_exists_distinguishes_a_live_window_from_a_dead_handle():
+    import win32gui
+
+    from src.reader.process import window_exists
+    assert window_exists(win32gui.GetDesktopWindow())
+    assert not window_exists(0)
