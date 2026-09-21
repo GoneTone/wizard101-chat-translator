@@ -80,6 +80,12 @@ class InputBox:
         """遊戲輸入框關了：之後 show() 改貼游標。"""
         self._anchor = None
 
+    def retarget(self, hwnd: int | None) -> None:
+        """把譯文要打回去的遊戲視窗改成 hwnd（框已開著、使用者換到另一個客戶端時）。"""
+        if hwnd and hwnd != self._target_hwnd:
+            log(f"[input] retarget {self._target_hwnd or 0:#x} -> {hwnd:#x}")
+            self._target_hwnd = hwnd
+
     def show(self) -> None:
         """呼出輸入框：貼在遊戲輸入框正下方、與它同寬，沒有錨點就貼在游標處；
         已開著就只是重新對焦。"""

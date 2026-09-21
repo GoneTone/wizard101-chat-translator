@@ -1,5 +1,6 @@
 """main 的純邏輯：設定摘要（啟動與套用設定共用）。"""
 import copy
+import queue
 import subprocess
 import sys
 from pathlib import Path
@@ -313,14 +314,18 @@ def test_switching_the_incoming_slot_between_same_named_models_invalidates_the_c
 
 # --- 雙開：聊天框事件只認前景客戶端，Ctrl+V 單行判定看前景視窗 ---
 class _FakeInputBox:
-    def __init__(self):
+    def __init__(self, is_open=False):
         self.calls: list = []
+        self.is_open = is_open
 
     def set_anchor(self, rect):
         self.calls.append(("anchor", rect))
 
     def clear_anchor(self):
         self.calls.append("clear_anchor")
+
+    def retarget(self, hwnd):
+        self.calls.append(("retarget", hwnd))
 
     def show(self):
         self.calls.append("show")
@@ -340,12 +345,19 @@ def _events(auto_show=True, foreground=0xA):
 def test_open_in_the_foreground_window_anchors_and_shows():
     ev, box, tracker = _events(foreground=0xA)
     ev.opened(0xA, (1, 2, 3, 4))
-    assert box.calls == [("anchor", (1, 2, 3, 4)), "show"]
+    assert box.calls == [("anchor", (1, 2, 3, 4)), ("retarget", 0xA), "show"]
     assert tracker.is_open(0xA)
 
 
+def test_open_in_the_foreground_window_retargets_before_showing():
+    # 框已開著、綁在別的客戶端：切過來開聊天框要先改綁再呼出，不能打進舊客戶端
+    ev, box, tracker = _events(foreground=0xB)
+    ev.opened(0xB, (1, 2, 3, 4))
+    assert box.calls.index(("retarget", 0xB)) < box.calls.index("show")
+
+
 def test_open_in_a_background_window_is_tracked_but_not_shown():
-    # 使用者正在玩 B，A 的聊天框開了：不彈框、不改錨點，但記得 A 開著（貼上判定要用）
+    # 使用者正在玩 B，A 的聊天框開了：不彈框、不改錨點、不改標，但記得 A 開著（貼上判定要用）
     ev, box, tracker = _events(foreground=0xB)
     ev.opened(0xA, (1, 2, 3, 4))
     assert box.calls == []
@@ -367,7 +379,7 @@ def test_auto_show_off_still_tracks_and_anchors():
     ev, box, tracker = _events(auto_show=False, foreground=0xA)
     ev.opened(0xA, (1, 2, 3, 4))
     ev.closed(0xA)
-    assert box.calls == [("anchor", (1, 2, 3, 4)), "clear_anchor"]
+    assert box.calls == [("anchor", (1, 2, 3, 4)), ("retarget", 0xA), "clear_anchor"]
 
 
 def test_paste_single_line_follows_the_foreground_window(monkeypatch):
@@ -383,6 +395,34 @@ def test_paste_single_line_follows_the_foreground_window(monkeypatch):
     tracker.opened(0xA)
     main.on_paste_hotkey({"type_delay": 0}, tracker).join()
     assert seen == [(0xB, True), (0xB, False)]
+
+
+def test_on_hotkey_retargets_before_showing_when_game_is_foreground(monkeypatch):
+    # 雙開：框開著、綁在客戶端 A，使用者切到 B 按熱鍵 → 先改綁再呼出
+    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: 0xB)
+    box = _FakeInputBox(is_open=True)
+    ui_queue: queue.Queue = queue.Queue()
+    main.on_hotkey(box, ui_queue)
+    main.drain_ui_queue(ui_queue)
+    assert box.calls == [("retarget", 0xB), "show"]
+
+
+def test_on_hotkey_only_refocuses_when_the_box_itself_is_foreground(monkeypatch):
+    # 前景讀不到遊戲（框自己是前景）：只重新對焦，不改動 target_hwnd
+    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: None)
+    box = _FakeInputBox(is_open=True)
+    ui_queue: queue.Queue = queue.Queue()
+    main.on_hotkey(box, ui_queue)
+    main.drain_ui_queue(ui_queue)
+    assert box.calls == ["show"]
+
+
+def test_on_hotkey_ignored_when_box_closed_and_game_not_foreground(monkeypatch):
+    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: None)
+    box = _FakeInputBox(is_open=False)
+    ui_queue: queue.Queue = queue.Queue()
+    main.on_hotkey(box, ui_queue)
+    assert ui_queue.empty()
 
 
 def test_build_app_spawns_readers_through_the_supervisor():

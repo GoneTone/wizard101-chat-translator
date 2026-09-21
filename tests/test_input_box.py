@@ -470,6 +470,36 @@ def test_outgoing_translation_failure_is_logged(root, monkeypatch):
                for line in logged)
 
 
+def test_retarget_changes_target_hwnd_while_open(root, monkeypatch):
+    # 雙開：框開著時使用者切到另一個客戶端，譯文要改打回新的那個
+    from src.ui import input_box as input_box_module
+    logged = []
+    monkeypatch.setattr(input_box_module, "log", logged.append)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    box.show()
+    original = box.target_hwnd
+    box.retarget(0xB)
+    assert box.target_hwnd == 0xB
+    assert original != 0xB
+    assert any("retarget" in line for line in logged)
+    box.close()
+
+
+def test_retarget_is_a_no_op_for_none_or_same_hwnd(root, monkeypatch):
+    from src.ui import input_box as input_box_module
+    logged = []
+    monkeypatch.setattr(input_box_module, "log", logged.append)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    box.show()
+    current = box.target_hwnd
+    logged.clear()
+    box.retarget(None)
+    box.retarget(current)
+    assert box.target_hwnd == current
+    assert logged == []   # 沒變動不記 log，避免洗版
+    box.close()
+
+
 def test_hide_keeps_the_unsent_draft_for_the_next_show(root):
     box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
     box.show()

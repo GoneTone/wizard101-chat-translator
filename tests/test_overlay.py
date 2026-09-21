@@ -1304,7 +1304,7 @@ def test_multi_client_mode_marks_existing_and_new_rows(root):
     ov.add_message("[B] two", "乙", slot=2)
     assert _original_text(ov, 0) == "① [A] one"
     assert _original_text(ov, 1) == "② [B] two"
-    # 存的原文保持乾淨：選取複製拿到的不含標記
+    # 存的原文保持乾淨供 visible_messages() 等程式面使用；選取複製走畫面層，會連標記一併複製
     assert ov.visible_messages() == [("[A] one", "甲"), ("[B] two", "乙")]
 
 

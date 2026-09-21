@@ -227,9 +227,13 @@ def foreground_game_hwnd(prefix: str) -> int | None:
 
 
 def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
-    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：只有遊戲在前景才呼出翻譯輸入框。
-    輸入框已開著時（它自己就是前景）照舊重新對焦。"""
-    if input_box.is_open or foreground_game_hwnd("app") is not None:
+    """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：遊戲在前景才呼出翻譯輸入框，並改綁
+    目標到這個前景客戶端（雙開時框可能還開著、綁在上一個客戶端）。輸入框已開著時（它自己
+    就是前景，讀不到遊戲 hwnd）照舊只重新對焦，不改動 target_hwnd。"""
+    hwnd = foreground_game_hwnd("app")
+    if hwnd is not None:
+        ui_queue.put(lambda: (input_box.retarget(hwnd), input_box.show()))
+    elif input_box.is_open:
         ui_queue.put(input_box.show)
 
 
@@ -284,7 +288,8 @@ class GameInputEvents:
         self._shown_for: int | None = None   # 目前的錨點／自動呼出是為哪個客戶端
 
     def opened(self, hwnd: int, anchor) -> None:
-        """聊天框開了：記下來；是前景客戶端才設錨點（熱鍵呼出也要貼齊）、依設定自動呼出。"""
+        """聊天框開了：記下來；是前景客戶端才設錨點（熱鍵呼出也要貼齊）、改綁翻譯目標、
+        依設定自動呼出。"""
         self._tracker.opened(hwnd)
         if self._foreground() != hwnd:
             log(f"[app] game chat opened in a background client (hwnd={hwnd:#x}); ignoring")
@@ -292,6 +297,7 @@ class GameInputEvents:
         self._shown_for = hwnd
         if anchor is not None:
             self._box.set_anchor(anchor)
+        self._box.retarget(hwnd)   # 框可能已開著、使用者換到這個客戶端：譯文改打回這裡
         if self._cfg["auto_show_input"]:
             self._box.show()
 
@@ -306,7 +312,7 @@ class GameInputEvents:
             self._box.hide()
 
 
-def on_paste_hotkey(cfg: dict, tracker: "ChatInputTracker") -> threading.Thread:
+def on_paste_hotkey(cfg: dict, tracker: ChatInputTracker) -> threading.Thread:
     """攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
     不能在 hook 回呼裡直接打字（Windows 會判定 hook 逾時而整個拔掉）。**前景那個客戶端**
     的聊天輸入框開著時走單行模式（換行改空格），其他地方換行照打。"""
@@ -409,7 +415,7 @@ def log_startup_summary(cfg: dict) -> None:
 def shutdown(stop: threading.Event, pools: list[TranslationPool],
              reader_thread: threading.Thread, root: tk.Tk,
              cache: TranslationCache) -> None:
-    """乾淨關閉：停 reader（解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
+    """乾淨關閉：停下所有 reader（各自解除 wizwalker hook）、停翻譯池、卸熱鍵、落盤快取，最後硬退出。
     步驟順序見各段註解；本函式不返回。"""
     log("[app] shutting down, waiting for readers to unhook")
     stop.set()
