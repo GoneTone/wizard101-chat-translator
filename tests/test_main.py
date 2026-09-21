@@ -399,7 +399,9 @@ def test_paste_single_line_follows_the_foreground_window(monkeypatch):
 
 def test_on_hotkey_retargets_before_showing_when_game_is_foreground(monkeypatch):
     # 雙開：框開著、綁在客戶端 A，使用者切到 B 按熱鍵 → 先改綁再呼出
-    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: 0xB)
+    monkeypatch.setattr(main, "foreground_exe",
+                        lambda: r"C:\Wizard101\Bin\WizardGraphicalClient.exe")
+    monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0xB)
     box = _FakeInputBox(is_open=True)
     ui_queue: queue.Queue = queue.Queue()
     main.on_hotkey(box, ui_queue)
@@ -409,7 +411,7 @@ def test_on_hotkey_retargets_before_showing_when_game_is_foreground(monkeypatch)
 
 def test_on_hotkey_only_refocuses_when_the_box_itself_is_foreground(monkeypatch):
     # 前景讀不到遊戲（框自己是前景）：只重新對焦，不改動 target_hwnd
-    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: None)
+    monkeypatch.setattr(main, "foreground_exe", lambda: None)
     box = _FakeInputBox(is_open=True)
     ui_queue: queue.Queue = queue.Queue()
     main.on_hotkey(box, ui_queue)
@@ -418,11 +420,24 @@ def test_on_hotkey_only_refocuses_when_the_box_itself_is_foreground(monkeypatch)
 
 
 def test_on_hotkey_ignored_when_box_closed_and_game_not_foreground(monkeypatch):
-    monkeypatch.setattr(main, "foreground_game_hwnd", lambda prefix: None)
+    monkeypatch.setattr(main, "foreground_exe", lambda: None)
     box = _FakeInputBox(is_open=False)
     ui_queue: queue.Queue = queue.Queue()
     main.on_hotkey(box, ui_queue)
     assert ui_queue.empty()
+
+
+def test_on_hotkey_does_not_log_ignored_when_box_open_and_foreground_is_not_the_game(monkeypatch):
+    # R1：框已開著、前景是別的視窗（如瀏覽器）—— 只是重新對焦，不該印出 ignored 的誤導 log
+    logged = []
+    monkeypatch.setattr(main, "log", lambda msg: logged.append(msg))
+    monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
+    box = _FakeInputBox(is_open=True)
+    ui_queue: queue.Queue = queue.Queue()
+    main.on_hotkey(box, ui_queue)
+    main.drain_ui_queue(ui_queue)
+    assert box.calls == ["show"]
+    assert not any("ignored" in msg for msg in logged)
 
 
 def test_build_app_spawns_readers_through_the_supervisor():

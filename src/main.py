@@ -226,15 +226,26 @@ def foreground_game_hwnd(prefix: str) -> int | None:
     return None
 
 
+def _retarget_and_show(input_box: InputBox, hwnd: int) -> None:
+    """雙開切客戶端：先把翻譯輸入框改綁到新前景客戶端，再呼出。"""
+    input_box.retarget(hwnd)
+    input_box.show()
+
+
 def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> None:
     """全域熱鍵的回呼（在 keyboard 套件的執行緒上跑）：遊戲在前景才呼出翻譯輸入框，並改綁
     目標到這個前景客戶端（雙開時框可能還開著、綁在上一個客戶端）。輸入框已開著時（它自己
-    就是前景，讀不到遊戲 hwnd）照舊只重新對焦，不改動 target_hwnd。"""
-    hwnd = foreground_game_hwnd("app")
-    if hwnd is not None:
-        ui_queue.put(lambda: (input_box.retarget(hwnd), input_box.show()))
+    就是前景，讀不到遊戲 hwnd）只重新對焦、不改動 target_hwnd —— 這不算「忽略」，不記
+    ignored log；真的兩者皆非才記一行。不走 foreground_game_hwnd：那顆的 log 是為框選
+    熱鍵寫的，套在這裡會在框自己是前景時也誤報 ignored。"""
+    exe = foreground_exe()
+    if is_game_process_path(exe):
+        hwnd = win32gui.GetForegroundWindow()
+        ui_queue.put(lambda: _retarget_and_show(input_box, hwnd))
     elif input_box.is_open:
         ui_queue.put(input_box.show)
+    else:
+        log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
 
 
 def on_region_hotkey(flow: RegionFlow, ui_queue: queue.Queue) -> None:

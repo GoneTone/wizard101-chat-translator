@@ -47,7 +47,7 @@ _LEADING_COLOR = re.compile(r"^\s*<color;")
 _OTHER_PLAYER_LINK = "<link;GID"
 # 任意 Art/ 圖示（診斷用）：長得像聊天行但圖示不在白名單 → 可能是漏接的頻道
 _ANY_ART_IMG = re.compile(r"<image;(Art/[^.;>]+)\.dds", re.IGNORECASE)
-_warned_icons: set[str] = set()  # 每種未知圖示每個遊戲 session 只警告一次，避免洗版
+_warned_icons: set[str] = set()  # 所有客戶端共用的去重集合：任一客戶端斷線重連即清空，避免洗版
 
 
 def forget_warned_icons() -> None:
