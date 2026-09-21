@@ -23,7 +23,7 @@ from src.reader.diff import (
 from src.reader.markup import ChatLine, forget_warned_icons, lines_from_nodes, node_sizes
 from src.reader.message_log import MessageLog
 from src.reader.process import (
-    detect_install_path,
+    install_path_of,
     pid_alive,
 )
 from src.reader.ui_rect import client_rect
@@ -524,12 +524,6 @@ class WizChatReader:
         import wizwalker.utils
         from pymem.exception import CouldNotOpenProcess
 
-        path = self._game_path or detect_install_path()
-        log(f"[reader] game path: {path!r} "
-            f"(source={'config' if self._game_path else 'detected'}, slot={self._slot})")
-        if path:
-            wizwalker.utils._OVERRIDE_PATH = path  # Steam 版無登錄檔安裝路徑，需覆寫
-
         self._loop = asyncio.new_event_loop()
         try:
             # 綁定指定視窗：雙開時每個 reader 各掛自己的客戶端，不能拿列舉結果的第一個
@@ -545,6 +539,12 @@ class WizChatReader:
             self._teardown()
             raise GameNotRunning(f"failed to open game process: {exc}") from exc
         self._pid = self._client.process_id
+        path = self._game_path or install_path_of(self._pid)
+        log(f"[reader] game path: {path!r} "
+            f"(source={'config' if self._game_path else 'detected'}, "
+            f"slot={self._slot}, pid={self._pid})")
+        if path:
+            wizwalker.utils._OVERRIDE_PATH = path  # Steam 版無登錄檔安裝路徑，需覆寫
         hook_state.sweep(pid_alive)          # 清掉已不在執行的程序的殘留狀態檔
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
         try:

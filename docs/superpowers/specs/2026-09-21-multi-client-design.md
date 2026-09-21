@@ -82,6 +82,7 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 - `_teardown`：改呼叫 `self._client.close()`；unhook 成功才清 hook 狀態檔，邏輯不變。
 - hook 狀態檔已按 PID 分檔，`sweep`／`_repair_leaked_hooks` 不動。
 - 其餘（差分、`input_open`、`input_box_screen_rect`、`HOOK_READY_TIMEOUT`）全部不動。
+- 安裝路徑改以該客戶端自己的 PID 反查（`install_path_of`），Steam 版與官網版雙開時 log 各印各的；wizwalker 的路徑覆寫是全域值、本專案用到的 API 都不讀它，只影響診斷。
 
 ### `src/reader/supervisor.py`（新）
 

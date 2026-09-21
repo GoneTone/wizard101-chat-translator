@@ -20,7 +20,7 @@ def _reader_failing_to_open(monkeypatch, exc):
     def failing_client(hwnd):
         raise exc
 
-    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
     monkeypatch.setattr(wizwalker, "Client", failing_client)
     return WizChatReader(0x1)
 
@@ -160,7 +160,7 @@ def _connecting_reader(monkeypatch, tmp_path, hook_handler):
     import wizwalker
 
     from src.reader import hook_state, mem_reader
-    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
     monkeypatch.setattr(mem_reader, "HOOK_READY_POLL", 0.0)
     monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     client = _StubClient(hook_handler)
@@ -235,7 +235,7 @@ def test_connect_binds_the_given_window_handle(monkeypatch, tmp_path):
     import wizwalker
 
     from src.reader import hook_state, mem_reader
-    monkeypatch.setattr(mem_reader, "detect_install_path", lambda: None)
+    monkeypatch.setattr(mem_reader, "install_path_of", lambda pid: None)
     monkeypatch.setattr(mem_reader, "HOOK_READY_POLL", 0.0)
     monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     seen = []
@@ -251,6 +251,19 @@ def test_connect_binds_the_given_window_handle(monkeypatch, tmp_path):
     assert r.anchored
 
 
+def test_connect_logs_the_path_from_the_clients_own_pid(monkeypatch, tmp_path):
+    """雙開時每個 reader 要用自己 client 的 pid（4321）反查安裝路徑，不是列舉到的第一個。"""
+    from src.reader import mem_reader
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler(values=[0x1234]))
+    monkeypatch.setattr(mem_reader, "install_path_of",
+                        lambda pid: {4321: "D:/official/Wizard101"}.get(pid))
+    logged = []
+    monkeypatch.setattr(mem_reader, "log", logged.append)
+    r._connect()
+    assert any("game path: 'D:/official/Wizard101'" in line and "pid=4321" in line
+              for line in logged)
+
+
 def test_teardown_closes_the_client(monkeypatch, tmp_path):
     r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler(values=[0x1234]))
     r._connect()
@@ -258,6 +271,26 @@ def test_teardown_closes_the_client(monkeypatch, tmp_path):
     r.close()
     assert client.closed
     assert not r.anchored
+
+
+def test_install_path_of_derives_the_install_root_from_the_pid(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Games\W101\Bin\WizardGraphicalClient.exe")
+    assert process.install_path_of(123) == r"C:\Games\W101"
+
+
+def test_install_path_of_rejects_a_non_game_path(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path",
+                        lambda pid: r"C:\Program Files\Mozilla Firefox\firefox.exe")
+    assert process.install_path_of(123) is None
+
+
+def test_install_path_of_handles_an_unopenable_process(monkeypatch):
+    from src.reader import process
+    monkeypatch.setattr(process, "process_exe_path", lambda pid: None)
+    assert process.install_path_of(123) is None
 
 
 def test_is_game_process_path_matches_game_exe():

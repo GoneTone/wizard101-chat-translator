@@ -67,6 +67,14 @@ def window_exists(hwnd: int) -> bool:
         return False
 
 
+def install_path_of(pid: int) -> str | None:
+    """該遊戲程序的安裝根目錄（`...\\Bin\\` 的上一層）；開不了程序或不是遊戲回 None。"""
+    path = process_exe_path(pid)
+    if not is_game_process_path(path):
+        return None
+    return os.path.dirname(os.path.dirname(path))
+
+
 def detect_install_path() -> str | None:
     """從執行中的 WizardGraphicalClient.exe 推導遊戲根目錄（...\\Bin\\ 的上一層）。
     找不到回傳 None。用 pywin32 列舉程序，不掃描記憶體。"""
@@ -75,9 +83,9 @@ def detect_install_path() -> str | None:
     except ImportError:
         return None
     for pid in win32process.EnumProcesses():
-        path = process_exe_path(pid)
-        if is_game_process_path(path):
-            return os.path.dirname(os.path.dirname(path))
+        path = install_path_of(pid)
+        if path:
+            return path
     return None
 
 
