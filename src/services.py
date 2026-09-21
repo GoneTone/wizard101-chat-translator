@@ -59,7 +59,7 @@ class Provider:
 
 PROVIDERS: dict[str, Provider] = {p.key: p for p in (
     Provider(key="openai", label_key="provider.openai",
-             desc_key="provider.openai_desc", brand="ChatGPT",
+             desc_key="provider.openai_desc", brand="OpenAI",
              key_url="https://platform.openai.com/api-keys"),
     Provider(key="claude", label_key="provider.claude",
              desc_key="provider.claude_desc", brand="Claude",

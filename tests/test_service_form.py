@@ -43,7 +43,7 @@ def _effort_combobox(form):
 def test_new_form_starts_from_the_providers_defaults(blank):
     values = blank.values()
     assert values["provider"] == "openai"
-    assert values["name"] == "ChatGPT"
+    assert values["name"] == "OpenAI"
     assert values["model"] == ""
 
 
@@ -88,7 +88,7 @@ def test_switching_provider_rewrites_a_suffixed_untouched_name(root):
 
 def test_a_blank_name_falls_back_to_the_provider_short_name(blank):
     blank.set_name("   ")
-    assert blank.values()["name"] == "ChatGPT"
+    assert blank.values()["name"] == "OpenAI"
 
 
 def test_switching_provider_dedupes_the_new_name_in_the_field(root):

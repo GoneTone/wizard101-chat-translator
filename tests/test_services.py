@@ -48,7 +48,7 @@ def test_short_names_are_brands_except_the_custom_endpoint():
     before = i18n.current_language()
     try:
         i18n.set_language("en-US")
-        assert PROVIDERS["openai"].short_name == "ChatGPT"
+        assert PROVIDERS["openai"].short_name == "OpenAI"
         assert PROVIDERS["claude"].short_name == "Claude"
         # 自訂端點沒有品牌名，短名要走語言檔（此處只確認它被翻過，不釘字面）
         assert PROVIDERS["custom"].short_name != "provider.custom_short"
@@ -228,7 +228,7 @@ def test_migrates_the_per_provider_api_block_keeping_every_filled_provider():
                              "thinking": False}}
     assert normalize(cfg) is True
     assert [s["provider"] for s in cfg["services"]] == ["openai", "claude"]
-    assert [s["name"] for s in cfg["services"]] == ["ChatGPT", "Claude"]
+    assert [s["name"] for s in cfg["services"]] == ["OpenAI", "Claude"]
     assert [s["api_key"] for s in cfg["services"]] == ["sk-1", "sk-ant"]
     # 原本選中的那家成為預設，沒填過的自訂端點不留空殼
     assert find(cfg, cfg["default_service"])["provider"] == "claude"
@@ -310,7 +310,7 @@ def test_a_quarantined_service_returns_once_its_provider_is_known():
     """認得那家服務商的版本要自動把它搬回清單，並照常補值與去重。"""
     cfg = _empty_section()
     cfg["services"] = [new_service("openai", [])]
-    cfg[UNSUPPORTED_SERVICES] = [{"provider": "openai", "name": "ChatGPT",
+    cfg[UNSUPPORTED_SERVICES] = [{"provider": "openai", "name": "OpenAI",
                                   "api_key": "sk-3"}]
     assert normalize(cfg) is True
     assert cfg[UNSUPPORTED_SERVICES] == []
@@ -318,7 +318,7 @@ def test_a_quarantined_service_returns_once_its_provider_is_known():
     assert restored["api_key"] == "sk-3"
     assert restored["model"] == ""
     assert restored["id"] and restored["id"] != cfg["services"][0]["id"]
-    assert restored["name"] == "ChatGPT (2)"
+    assert restored["name"] == "OpenAI (2)"
 
 
 def test_an_api_block_survives_a_service_list_that_is_wholly_quarantined():
