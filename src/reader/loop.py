@@ -19,6 +19,7 @@ from src.reader.mem_reader import (
     WizChatReader,
 )
 from src.reader.message_log import MessageLog
+from src.reader.status import banner_for, translation_banner  # noqa: F401  既有測試自此取用
 from src.translation.cache import TranslationCache
 from src.translation.context import ChatContext
 from src.translation.pool import TranslationPool
@@ -30,38 +31,6 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 # 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
 INPUT_POLL_INTERVAL = 0.05
-
-
-_PLAIN_NOTICE = {"config": "notice.config_error", "offline": "notice.offline"}
-
-
-def banner_for(game_issue: str | None, error_state: str | None,
-               error_detail: tuple[int | None, str] | None = None) -> tuple[str, dict] | None:
-    """決定該顯示哪一條錯誤橫幅：（文案 key，format 變數）或 None＝不顯示。
-    game_issue（遊戲端問題的文案 key）優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。
-    error_detail 是 pool 記下的（HTTP 狀態碼，API 說明）：有就照實顯示，
-    沒有才退回只靠狀態猜的固定文案。"""
-    if game_issue:
-        return game_issue, {}
-    if error_state not in _PLAIN_NOTICE:
-        return None
-    if not error_detail:
-        return _PLAIN_NOTICE[error_state], {}
-    status, message = error_detail
-    if error_state == "config":
-        return "notice.config_error_detail", {"status": status, "message": message}
-    if status is not None:
-        return "notice.offline_http", {"status": status, "message": message}
-    return "notice.offline_detail", {"message": message}
-
-
-def translation_banner(game_issue: str | None, pool: TranslationPool,
-                       system_pool: TranslationPool | None) -> tuple[str, dict] | None:
-    """兩條翻譯佇列任一有錯就顯示：玩家對話優先（它才是主要用途）。"""
-    failing = pool if pool.error_state else system_pool
-    if failing is None:
-        return banner_for(game_issue, None)
-    return banner_for(game_issue, failing.error_state, failing.error_detail)
 
 
 class _OverlayFeed:
