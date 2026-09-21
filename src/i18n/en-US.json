@@ -119,7 +119,6 @@
   "about.cache": "Translation cache",
   "about.cache_hint": "Cached translations of system messages; clearing them makes the next one translate again",
   "about.cache_cleared": "Cleared {count} entries",
-  "button.browse": "Browse…",
   "button.clear_cache": "Clear",
   "button.check_update": "Check for updates",
   "button.checking": "Checking…",

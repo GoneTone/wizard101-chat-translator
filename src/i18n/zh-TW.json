@@ -119,7 +119,6 @@
   "about.cache": "譯文快取",
   "about.cache_hint": "系統訊息的譯文快取；清除後會重新翻譯並自動重建",
   "about.cache_cleared": "已清除 {count} 筆",
-  "button.browse": "瀏覽…",
   "button.clear_cache": "清除",
   "button.check_update": "檢查更新",
   "button.checking": "檢查中…",

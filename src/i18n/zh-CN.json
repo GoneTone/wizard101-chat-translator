@@ -119,7 +119,6 @@
   "about.cache": "译文缓存",
   "about.cache_hint": "系统消息的译文缓存；清除后会重新翻译并自动重建",
   "about.cache_cleared": "已清除 {count} 条",
-  "button.browse": "浏览…",
   "button.clear_cache": "清除",
   "button.check_update": "检查更新",
   "button.checking": "检查中…",
