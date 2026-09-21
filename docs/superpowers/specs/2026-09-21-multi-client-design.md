@@ -1,7 +1,7 @@
 # Wizard101 聊天翻譯助手：多客戶端（雙開）收訊設計
 
 日期：2026-09-21
-狀態：設計完成，待實作。
+狀態：已實作。
 
 ## 目標
 
@@ -85,15 +85,21 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 
 ### `src/reader/supervisor.py`（新）
 
+實作時 `StatusBoard` 與橫幅函式獨立成 `src/reader/status.py`（避免 loop ↔ supervisor 循環匯入），
+supervisor 只管生命週期。
+
 - `supervise(stop, spawn, enumerate_windows, on_multi_client, board, interval)`：主迴圈。
   `spawn(hwnd, slot)` 由 `main` 提供、閉包帶著 cfg／pool／overlay 等共用物件。
   - `enumerate_windows()` 預設為 wizwalker 的 `get_all_wizard_handles`，測試注入假函式。
   - 維護 `active: dict[hwnd, (slot, thread)]`。新 hwnd → `slot = 最小未用正整數` → `spawn(hwnd, slot)`
     起執行緒。已結束的執行緒（`is_alive()` 為 False）→ 從 `active` 移除、釋號。
   - 第一次觀察到 `len(active) >= 2` → 排 `overlay.set_multi_client()` 進 `ui_queue`，之後不再呼叫。
-  - `stop` 設定後 join 所有子執行緒（每條各自 `reader.close()` unhook）再返回；`main.shutdown`
-    只 join 這一條（timeout 維持 8 秒）。
-- `StatusBoard`：加鎖；`report(slot, state, game_issue)`、`drop(slot)`、`report_no_clients()`。
+    先呼叫 `on_multi_client()` 成功後才鎖存，回呼拋例外時下一輪重試。
+  - `stop` 設定後以**一個共用的** `JOIN_TIMEOUT`（8 秒）預算 join 所有子執行緒（每條各自
+    `reader.close()` unhook）；`main.shutdown` 以 `JOIN_TIMEOUT + 2` 秒 join supervisor，確保
+    「仍存活」的 log 一定寫得出來。
+- `StatusBoard`：加鎖；`report(slot, state, game_issue)`、`drop(slot)`、`refresh()`。
+  零客戶端由空的回報表自然算出等待遊戲中＋找不到遊戲，不需專門方法。
   每次呼叫後重算整體狀態與橫幅，只在結果改變時 `ui_queue.put(...)`。
   - 狀態優先序：`translating` > `listening` > `locating` > `access_denied`／`version_mismatch`
     > `waiting_game`（無視窗或全部一般性失敗）。
@@ -108,7 +114,9 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 - 每輪開頭多一個結束條件：`IsWindow(hwnd)` 為 False → log、`reader.close()`、返回。
   視窗在但掛入失敗（更新器畫面等）照舊每 5 秒重試。
 - `overlay.add_message(..., slot=slot)`。
-- `ChatContext` 在迴圈內建立（每執行緒一份），不再由 `main` 傳入。
+- `ChatContext` 每客戶端一份，由 `main` 的 `spawn` 建立並登錄在 hwnd→context 對照表傳入
+  `reader_loop`：發話翻譯要帶的上下文改取「譯文要打回去的那個客戶端」的聊天
+  （`InputBox.target_hwnd`），不再有全域一份。
 - `_InputWatch` 回呼改為 `on_input_open(hwnd, anchor)`／`on_input_close(hwnd)`。
 - `msg_ids`：`itertools.count(1)` 包一把鎖的 `next()`，全域唯一。
 
@@ -119,7 +127,9 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 - `add_message(..., slot: int | None = None)`；`_Message` 新增 `slot`。
 - `set_multi_client()`：旗標打開；對既有每列以 `itemconfigure("txt", ...)` 把原文行改成
   `f"{slot_marker(slot)} {original}"`（沿用 `update_message` 的作法）。旗標開著時新列直接
-  帶標記。`_Message.original` 永遠存乾淨原文，選取複製不受影響。
+  帶標記。`_Message.original` 永遠存乾淨原文（`visible_messages()` 等程式面使用）；滑鼠選取
+  複製為所見即所得，拖到標記就會一併複製 —— `Selection` 讀的是畫面上的字，剝除標記得改游標
+  偏移計算，不值得。
 - 系統訊息同規則。旗標預設關 → 單開外觀不變。
 
 ### `main.py`
@@ -131,6 +141,8 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 - `on_game_input_close(hwnd)`：自集合移除；僅當 `hwnd == shown_for` 才清錨點、收起。
 - `on_paste_hotkey`：`single_line = hwnd in open_chat_windows`（hwnd 為當下前景視窗）。
 - `find_game_window()`、`on_hotkey`、`InputBox._target_hwnd` 不動（已是前景／最上層語意）。
+- 發話翻譯的上下文：`context_for(input_box.target_hwnd)` 取譯文要打回去的那個客戶端的
+  `ChatContext`；hwnd→context 對照表由 `spawn` 填入，不清理（每筆是有界 deque）。
 
 ## 錯誤處理
 
@@ -142,7 +154,7 @@ reader_loop(hwnd, slot)（每客戶端 1 條）
 ## log 與診斷
 
 - `[reader]` 既有訊息一律補 `slot=N`，例如 `attached to game (slot=1, pid=…, hook_ready_in=…)`。
-- supervisor 新增：`client window appeared hwnd=0x… slot=N`、`client window gone hwnd=0x… slot=N freed`、
+- supervisor 新增：`client window appeared hwnd=0x… slot=N`、`reader thread exited hwnd=0x… slot=N freed`、
   `multi-client mode on (slots=…)`。
 - `MessageLog` 每編號一個實例、共用同一串流，每行前綴 `[slot=N]`。
 - 全部英文；不記任何金鑰。
