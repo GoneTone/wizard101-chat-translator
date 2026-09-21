@@ -12,6 +12,7 @@ from src.services import PROVIDERS
 from src.ui.fonts import ui_font
 from src.ui.form import hint_label, keyboard_activatable
 from src.ui.geometry import centered_position
+from src.ui.icons import ProviderIcons
 
 _PICKER_SIZE = (440, 360)   # 容得下三張卡片（最長的說明會折成兩行）與按鈕列
 
@@ -23,20 +24,30 @@ class ProviderCards(ttk.Frame):
     def __init__(self, parent, on_pick):
         super().__init__(parent)
         self._on_pick = on_pick
+        self._icons = ProviderIcons(self)
         for key in PROVIDERS:
             self._card(key)
 
     def _card(self, key: str) -> None:
         card = ttk.Frame(self, relief="solid", borderwidth=1, padding=8, cursor="hand2")
         card.pack(fill="x", pady=2)
-        title = ttk.Label(card, text=t(PROVIDERS[key].label_key), font=ui_font(10, "bold"),
+        covering = [card]
+        icon = self._icons.get(key)
+        if icon is not None:
+            # pack 在垂直方向預設置中，圖示因此對齊整張卡片而不是標題那一行
+            icon_label = ttk.Label(card, image=icon, cursor="hand2")
+            icon_label.pack(side="left", padx=(0, 8))
+            covering.append(icon_label)
+        body = ttk.Frame(card)
+        body.pack(side="left", fill="x", expand=True)
+        title = ttk.Label(body, text=t(PROVIDERS[key].label_key), font=ui_font(10, "bold"),
                           cursor="hand2")
         title.pack(anchor="w")
-        description = hint_label(card, t(PROVIDERS[key].desc_key))
+        description = hint_label(body, t(PROVIDERS[key].desc_key))
         description.configure(cursor="hand2")
         description.pack(fill="x")
-        # 卡片被兩個標籤蓋滿，點在文字上收到事件的是標籤；Tk 不會把它往父層冒泡
-        for widget in (card, title, description):
+        # 卡片被子元件蓋滿，點在它們身上收到事件的是子元件；Tk 不會把它往父層冒泡
+        for widget in (*covering, title, description):
             widget.bind("<Button-1>", lambda event, k=key: self._on_pick(k))
         keyboard_activatable(card, lambda k=key: self._on_pick(k))
 

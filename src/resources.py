@@ -19,6 +19,11 @@ def icon_path() -> Path:
     return bundle_dir("assets") / "icon.ico"
 
 
+def provider_icon_path(key: str) -> Path:
+    """服務商標誌。只有原生 32px 一種 —— 卡片與服務商選單都用這個尺寸，不必縮。"""
+    return bundle_dir("assets") / f"provider_{key}_32.png"
+
+
 def png_icon_path(size: int) -> Path:
     """給 tkinter `PhotoImage` 用的 icon（它讀不了 ICO）。只提供原生尺寸：`PhotoImage`
     只能整數倍縮放且畫質很差，要新尺寸從 icon.ico 另外匯出，不在執行期縮。"""

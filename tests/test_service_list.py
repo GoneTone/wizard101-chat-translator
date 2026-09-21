@@ -5,6 +5,7 @@ from tkinter import ttk
 import pytest
 
 from src.i18n import t
+from src.resources import provider_icon_path
 from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
 from src.ui.service_list import ServiceDialog, ServicePane
 
@@ -217,13 +218,30 @@ def _card_frames(pane):
     return [w for w in pane._cards.pack_slaves() if isinstance(w, ttk.Frame)]
 
 
+def _text_labels(widget):
+    """卡片裡有文字的 Label，依排版順序遞迴取；圖示 Label 沒有文字，不會混進來。"""
+    found = []
+    for child in widget.pack_slaves():
+        if isinstance(child, ttk.Label) and str(child.cget("text")):
+            found.append(child)
+        else:
+            found.extend(_text_labels(child))
+    return found
+
+
 def _card_title(card):
-    return next(w for w in card.pack_slaves()[0].pack_slaves()
-                if isinstance(w, ttk.Label))
+    return _text_labels(card)[0]
 
 
 def _card_buttons(card):
-    return [w for w in card.pack_slaves()[0].pack_slaves() if isinstance(w, ttk.Button)]
+    """卡片上的〔編輯〕〔刪除〕，不論它們被包在第幾層。"""
+    found = []
+    for child in card.pack_slaves():
+        if isinstance(child, ttk.Button):
+            found.append(child)
+        elif isinstance(child, ttk.Frame):
+            found.extend(_card_buttons(child))
+    return found
 
 
 def _drawn_labels(pane):
@@ -309,3 +327,51 @@ def test_deleting_an_unassigned_service_keeps_the_plain_question(two, monkeypatc
     pane, _a, b = two
     pane.delete_service(b["id"])
     assert asked == [t("service.confirm_delete", name=b["name"])]
+
+
+def _icon_label(card):
+    """卡片左欄的圖示 Label：認 image 屬性，不靠位置。"""
+    return next((w for w in card.pack_slaves()
+                 if isinstance(w, ttk.Label) and str(w.cget("image"))), None)
+
+
+def test_every_provider_ships_an_icon():
+    """新增服務商時不會悄悄少一張圖。"""
+    from src.services import PROVIDERS
+    missing = [key for key in PROVIDERS if not provider_icon_path(key).is_file()]
+    assert missing == []
+
+
+def test_each_card_shows_its_providers_icon(two):
+    pane, a, b = two
+    assert [_icon_label(card) is not None for card in _card_frames(pane)] == [True, True]
+
+
+def test_the_card_icon_is_centred_against_the_whole_card(root):
+    """圖示跨整張卡片垂直置中，不是跟標題那一行對齊。"""
+    host = tk.Toplevel(root)
+    host.geometry("620x480")
+    a = _service("openai", [])
+    section = {"services": [a], "default_service": a["id"],
+               "service_slots": {slot: None for slot in SLOTS}}
+    pane = ServicePane(host, section)
+    pane.pack(fill="both", expand=True)
+    host.update()
+    card = _card_frames(pane)[0]
+    icon = _icon_label(card)
+    icon_middle = icon.winfo_y() + icon.winfo_height() / 2
+    card_middle = card.winfo_height() / 2
+    assert abs(icon_middle - card_middle) <= 2, (icon_middle, card_middle)
+    host.destroy()
+
+
+def test_a_card_without_its_icon_file_still_renders(root, monkeypatch):
+    """圖檔缺失或解碼失敗只是少一個圖示，設定視窗照開。"""
+    monkeypatch.setattr("src.ui.icons.load_provider_icon", lambda master, key: None)
+    a = _service("openai", [])
+    section = {"services": [a], "default_service": a["id"],
+               "service_slots": {slot: None for slot in SLOTS}}
+    pane = ServicePane(root, section)
+    card = _card_frames(pane)[0]
+    assert _icon_label(card) is None
+    assert pane.card_labels() == [f"{a['name']}　{t('service.badge_default')}"]

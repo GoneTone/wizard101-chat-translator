@@ -9,6 +9,7 @@ from src.services import SLOTS, describe, new_service, unique_name, validate_ser
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, collapsible, hint_label
 from src.ui.geometry import centered_position
+from src.ui.icons import ProviderIcons
 from src.ui.provider_picker import open_provider_picker
 from src.ui.service_form import ServiceForm
 
@@ -86,6 +87,7 @@ class ServicePane(ttk.Frame):
     def __init__(self, parent, section: dict, target_language_fn=None):
         super().__init__(parent)
         self._target_language_fn = target_language_fn
+        self._icons = ProviderIcons(self)
         self._services = copy.deepcopy(section["services"])
         self._default = section["default_service"]
         self._slots = dict(section["service_slots"])
@@ -260,7 +262,13 @@ class ServicePane(ttk.Frame):
     def _card(self, label: str, service: dict) -> None:
         card = ttk.Frame(self._cards, relief="solid", borderwidth=1, padding=8)
         card.pack(fill="x", pady=2)
-        top = ttk.Frame(card)
+        icon = self._icons.get(service["provider"])
+        if icon is not None:
+            # pack 在垂直方向預設置中，圖示因此對齊整張卡片而不是標題那一行
+            ttk.Label(card, image=icon).pack(side="left", padx=(0, 8))
+        body = ttk.Frame(card)
+        body.pack(side="left", fill="x", expand=True)
+        top = ttk.Frame(body)
         top.pack(fill="x")
         # 兩顆按鈕先 pack：後宣告會在名稱很長時被 expand=True 的標題擠掉
         delete = ttk.Button(top, text=t("button.delete"), width=7,
@@ -273,4 +281,4 @@ class ServicePane(ttk.Frame):
             side="right", padx=(0, 4))
         ttk.Label(top, text=label, font=ui_font(10, "bold")).pack(
             side="left", fill="x", expand=True)
-        ttk.Label(card, text=describe(service), foreground=HINT_COLOR).pack(anchor="w")
+        ttk.Label(body, text=describe(service), foreground=HINT_COLOR).pack(anchor="w")

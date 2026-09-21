@@ -19,6 +19,17 @@ def _cancel_button(parent):
     return None
 
 
+def _text_labels(widget):
+    """卡片裡有文字的 Label，依排版順序遞迴取；圖示 Label 沒有文字，不會混進來。"""
+    found = []
+    for child in widget.pack_slaves():
+        if isinstance(child, ttk.Label) and str(child.cget("text")):
+            found.append(child)
+        else:
+            found.extend(_text_labels(child))
+    return found
+
+
 def test_one_card_per_provider(root):
     cards = ProviderCards(root, lambda key: None)
     assert len(cards.pack_slaves()) == len(PROVIDERS)
@@ -26,13 +37,13 @@ def test_one_card_per_provider(root):
 
 def test_each_card_titles_its_provider(root):
     cards = ProviderCards(root, lambda key: None)
-    titles = [card.pack_slaves()[0].cget("text") for card in cards.pack_slaves()]
+    titles = [_text_labels(card)[0].cget("text") for card in cards.pack_slaves()]
     assert titles == [t(PROVIDERS[key].label_key) for key in PROVIDERS]
 
 
 def test_each_card_describes_its_provider(root):
     cards = ProviderCards(root, lambda key: None)
-    descriptions = [card.pack_slaves()[1].cget("text") for card in cards.pack_slaves()]
+    descriptions = [_text_labels(card)[1].cget("text") for card in cards.pack_slaves()]
     assert descriptions == [t(f"provider.{key}_desc") for key in PROVIDERS]
 
 
@@ -45,7 +56,7 @@ def test_clicking_a_card_reports_its_provider(root):
 def test_clicking_the_text_inside_a_card_counts_too(root):
     """整張卡都可點：卡片被子標籤蓋滿，點在文字上收到事件的是標籤而不是卡片。"""
     picker = ProviderPicker(root)
-    picker.cards.pack_slaves()[0].pack_slaves()[1].event_generate("<Button-1>")
+    _text_labels(picker.cards.pack_slaves()[0])[1].event_generate("<Button-1>")
     assert picker.result == list(PROVIDERS)[0]
 
 
@@ -145,3 +156,23 @@ def test_cards_are_reachable_and_activatable_by_keyboard(root):
     for card in cards.pack_slaves():
         assert str(card.cget("takefocus")) == "1"
         assert card.bind("<Return>") and card.bind("<space>")
+
+
+def _picker_icon(card):
+    """服務商卡片左欄的圖示 Label。"""
+    return next((w for w in card.pack_slaves()
+                 if isinstance(w, ttk.Label) and str(w.cget("image"))), None)
+
+
+def test_each_card_shows_its_providers_icon(root):
+    cards = ProviderCards(root, lambda key: None)
+    assert all(_picker_icon(card) is not None for card in cards.pack_slaves())
+
+
+def test_clicking_the_icon_picks_the_provider(root):
+    """圖示蓋住卡片左側，點在它上面也要算數。"""
+    picked = []
+    cards = ProviderCards(root, picked.append)
+    icon = _picker_icon(cards.pack_slaves()[0])
+    icon.event_generate("<Button-1>")
+    assert picked == [next(iter(PROVIDERS))]
