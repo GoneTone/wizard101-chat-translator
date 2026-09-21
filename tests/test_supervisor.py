@@ -1,7 +1,9 @@
 """supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒 → 多客戶端模式一次性觸發。
 以假列舉與假執行緒驗證，不需遊戲。"""
 import threading
+import time
 
+from src.reader import supervisor
 from src.reader.supervisor import allocate_slot, supervise
 
 
@@ -29,6 +31,8 @@ class Harness:
     def enumerate(self):
         if not self.script:
             self.stop.set()
+            for ev in self.gone.values():   # 跑完前先放行，shutdown join 才不用等 JOIN_TIMEOUT
+                ev.set()
             return self.current
         self.current = self.script.pop(0)
         for hwnd, ev in self.gone.items():
@@ -140,3 +144,41 @@ def test_enumeration_failure_does_not_kill_the_loop():
 
     supervise(stop, lambda h, s: None, flaky, lambda: None, FakeBoard(), interval=0.005)
     assert calls["n"] == 2
+
+
+def test_a_raising_on_multi_client_retries_next_scan_instead_of_latching():
+    # 先呼叫再鎖存：第一次 raise 不可讓通知永久跳過，第三輪已鎖存就不該再呼叫
+    h = Harness([[0xA], [0xA, 0xB], [0xA, 0xB], [0xA, 0xB]])
+    calls = {"n": 0}
+
+    def on_multi_client():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+
+    supervise(h.stop, h.spawn, h.enumerate, on_multi_client, FakeBoard(), interval=0.005)
+    for ev in h.gone.values():
+        ev.set()
+    assert calls["n"] == 2
+
+
+def test_shutdown_join_budget_is_shared_not_per_thread(monkeypatch):
+    monkeypatch.setattr(supervisor, "JOIN_TIMEOUT", 0.2)
+    stop = threading.Event()
+    calls = {"n": 0}
+
+    def enumerate():
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            stop.set()
+        return [0xA, 0xB]
+
+    def spawn(hwnd, slot):
+        th = threading.Thread(target=lambda: threading.Event().wait(), daemon=True)
+        th.start()
+        return th
+
+    start = time.monotonic()
+    supervise(stop, spawn, enumerate, lambda: None, FakeBoard(), interval=0.005)
+    elapsed = time.monotonic() - start
+    assert elapsed < 0.35   # 兩條卡死的 thread 共用一個 0.2s 預算，不是各等 0.2s（0.4s）
