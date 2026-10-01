@@ -1634,3 +1634,27 @@ def test_generate_examples_returns_the_fingerprint_of_the_settings_it_used(monke
     fp, examples = tr.generate_examples()
     assert fp == examples_fingerprint(api, "日本語") != tr.examples_fingerprint
     assert examples.complete and late.bodies == [] and len(fake.bodies) == 2
+
+
+def test_a_request_on_a_closed_client_is_offline_so_the_pool_retries_it():
+    # 請求開頭讀到的設定剛被 reconfigure 換掉時舊 client 已關，httpx 會拋 RuntimeError
+    tr = Translator(provider="custom", base_url="http://x", model="m",
+                    target_language="繁體中文（台灣）")
+    tr.close()
+    with pytest.raises(TranslatorOffline):
+        tr.translate_incoming("[A] hi", [])
+
+
+def test_a_request_on_a_closed_claude_client_is_offline():
+    tr = Translator(provider="claude", model="m", api_key="k", target_language="繁體中文（台灣）",
+                    client=anthropic.Anthropic(api_key="k", max_retries=0))
+    tr.close()
+    with pytest.raises(TranslatorOffline):
+        tr.translate_incoming("[A] hi", [])
+
+
+def test_an_unrelated_runtime_error_is_not_taken_for_offline():
+    tr = _make(FakeHttpxClient(raises=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom") as raised:
+        tr.translate_incoming("[A] hi", [])
+    assert not isinstance(raised.value, TranslatorOffline)

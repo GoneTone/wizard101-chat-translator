@@ -377,6 +377,11 @@ class _OpenAICompatClient(_BaseClient):
                     return _read_sse(resp)
         except (httpx.HTTPError, httpx.StreamError) as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
+        except RuntimeError as exc:
+            # 請求開頭讀到的設定剛被 reconfigure 換掉、舊 client 已關：當離線讓 pool 用新設定重試
+            if getattr(self._client, "is_closed", False):
+                raise TranslatorOffline(f"client closed by a settings change: {exc}") from exc
+            raise
 
     def list_models(self) -> list[str]:
         try:
