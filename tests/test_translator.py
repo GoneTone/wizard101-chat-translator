@@ -10,6 +10,13 @@ import httpx
 import httpx2
 import pytest
 
+from src.translation.examples import (
+    EMPTY,
+    GAME_LANGUAGE_EXAMPLES,
+    ExampleSet,
+    ExampleStore,
+    examples_fingerprint,
+)
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
@@ -38,8 +45,10 @@ from src.translation.translator import (
     TranslatorNoModelList,
     TranslatorOffline,
     error_detail,
+    generate_and_store,
     list_models,
 )
+from src.translation.translator import test_translate as run_test_translate
 
 
 def _sse(chunks) -> list[str]:
@@ -1412,3 +1421,106 @@ def test_game_noun_rule_pins_the_order_of_name_and_original_for_every_prompt():
     assert "譯名（原文）" in rule and "不可對調" in rule
     assert "不可對調" in build_incoming_system("繁體中文（台灣）")
     assert "不可對調" in build_system_message_system("繁體中文（台灣）")
+
+
+JA = "\n".join([
+    "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、"
+    "巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑",
+    "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
+    "3. 火猫（Fire Cat）に話しかける",
+    "4. 巨像大道（Colossus Boulevard）へ行く",
+    "5. そしてあなたは",
+])
+
+
+def test_translate_incoming_sends_the_example_before_the_context():
+    fake = FakeHttpxClient()
+    tr = _make(fake)
+    fp = tr.examples_fingerprint
+    assert tr.set_examples(ExampleSet(("src", "out"), None, None), fp)
+    tr.translate_incoming("[A] hi", ["[B] yo"])
+    turns = _turns(fake.last_body)
+    assert turns[:2] == [{"role": "user", "content": "src"}, {"role": "assistant", "content": "out"}]
+    assert turns[-1] == {"role": "user", "content": "[A] hi"}
+
+
+def test_without_examples_no_example_turns_are_sent():
+    fake = FakeHttpxClient()
+    _make(fake).translate_system_message("你获得了 {0} 金币！")
+    assert _turns(fake.last_body) == [{"role": "user", "content": "你获得了 {0} 金币！"}]
+
+
+def test_region_text_sends_the_region_example_first():
+    fake = FakeHttpxClient(response=FakeResponse(content="1. 譯文"))
+    tr = _make(fake)
+    tr.set_examples(ExampleSet(None, None, ("1. a", "1. b")), tr.examples_fingerprint)
+    tr.translate_region_text("hello")
+    assert _turns(fake.last_body)[:2] == [{"role": "user", "content": "1. a"},
+                                          {"role": "assistant", "content": "1. b"}]
+
+
+def test_set_examples_ignores_a_stale_fingerprint():
+    tr = _make(FakeHttpxClient())
+    assert not tr.set_examples(ExampleSet(("s", "o"), None, None), "other")
+    assert tr.examples is None
+
+
+def test_reconfigure_clears_the_examples():
+    tr = _make(FakeHttpxClient())
+    tr.set_examples(ExampleSet(("s", "o"), None, None), tr.examples_fingerprint)
+    tr.reconfigure(provider="custom", base_url="http://x", model="m", target_language="日本語")
+    assert tr.examples is None
+
+
+def test_reconfigure_without_changes_keeps_the_examples():
+    tr = _make(FakeHttpxClient())
+    tr.set_examples(ExampleSet(("s", "o"), None, None), tr.examples_fingerprint)
+    assert not tr.reconfigure(provider="custom", base_url="http://x", model="m",
+                              target_language="繁體中文（台灣）")
+    assert tr.examples is not None
+
+
+def test_generate_examples_retries_bad_output_and_merges():
+    good_but_no_system = JA.replace("{0} ゴールド", "ゴールド")
+    fake = _contents("garbage", good_but_no_system, JA)
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    fp, examples = tr.generate_examples()
+    assert examples.complete and len(fake.bodies) == 3 and fp == tr.examples_fingerprint
+    assert all("temperature" not in body for body in fake.bodies)
+
+
+def test_generate_examples_gives_up_after_six_requests():
+    fake = _contents(*["garbage"] * 7)
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    _, examples = tr.generate_examples()
+    assert examples == EMPTY and len(fake.bodies) == 6
+
+
+def test_generate_examples_does_not_retry_a_config_error():
+    fake = FakeHttpxClient(response=FakeResponse(status_code=401, text='{"error":{"message":"bad key"}}'))
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    with pytest.raises(TranslatorConfigError):
+        tr.generate_examples()
+
+
+def test_generate_examples_for_the_game_language_sends_nothing():
+    fake = FakeHttpxClient()
+    tr = Translator(target_language="English", client=fake, provider="custom", base_url="http://x", model="m")
+    assert tr.generate_examples()[1] == GAME_LANGUAGE_EXAMPLES and fake.last_body is None
+
+
+def test_generate_and_store_reuses_a_cached_set_without_a_request(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    cached = ExampleSet(("s", "o"), None, None)
+    store.put(examples_fingerprint(api, "日本語"), cached)
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: pytest.fail("no request expected"))
+    assert generate_and_store(api, "日本語", store) == cached
+
+
+def test_test_translate_survives_a_failing_example_generation(tmp_path, monkeypatch):
+    monkeypatch.setattr(Translator, "translate_incoming", lambda self, text, ctx: "譯文")
+    monkeypatch.setattr(Translator, "generate_examples",
+                        lambda self: (_ for _ in ()).throw(TranslatorOffline("down")))
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    assert run_test_translate(api, "日本語", example_store=ExampleStore(tmp_path / "ex.json")) == "譯文"
