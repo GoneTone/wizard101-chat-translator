@@ -6,14 +6,15 @@
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
 TranslatorBadOutput（譯文被截斷，翻譯路徑重試無用、該行應跳過；只有生成範例會重試它）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
-上下文由呼叫端提供（見 context.py）；Translator 只持有 few-shot 範例，
-每次請求只讀一次，平行呼叫仍安全。
+上下文由呼叫端提供（見 context.py）；Translator 只持有一份不可變的設定快照
+（後端、目標語言、few-shot 範例），每次請求只讀一次，平行呼叫仍安全。
 """
 import json
 import re
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -508,19 +509,34 @@ def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
                                thinking=thinking, timeout=timeout, client=client)
 
 
+@dataclass(frozen=True)
+class _Binding:
+    """一份生效中的設定：後端、服務設定、目標語言與範例；換設定就整份換掉，不改欄位。"""
+
+    impl: _BaseClient
+    api: dict
+    target_language: str
+    examples: ExampleSet | None = None
+
+    @property
+    def fingerprint(self) -> str:
+        return examples_fingerprint(self.api, self.target_language)
+
+
 class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
     `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
     services.API_PROFILE_FIELDS），呼叫端直接把 services.resolve(cfg, slot) 展開進來，缺的欄位
-    由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
+    由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。
+
+    設定一律整份換掉（見 _Binding）：每個請求開頭讀一次 `self._binding`、之後只用它，
+    請求期間的 reconfigure／set_examples 才不會讓提示詞、範例與後端混用兩份設定。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
                  client=None, **api):
-        self._impl = _build_client(**api, timeout=timeout, client=client)
-        self._api = api   # 目前生效的服務設定，reconfigure 據此判斷有沒有真的改到
-        self._target_language = target_language
-        self._examples: ExampleSet | None = None
+        self._binding = _Binding(_build_client(**api, timeout=timeout, client=client),
+                                 api, target_language)
 
     def reconfigure(self, *, target_language: str, **api) -> bool:
         """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例），回傳是否重建。
@@ -528,49 +544,49 @@ class Translator:
         值與目前生效的相同時整個跳過：重建會關掉連線池，飛行中的請求收到 WinSock 斷線、
         被判成「翻譯伺服器離線」（發話與區域沒有重試），端點學到的參數限制
         （見 _OpenAICompatClient）也得重新付一輪 400 才學回來。
-        舊 client 先關：否則每改一次設定就多留一個連線池。"""
-        if api == self._api and target_language == self._target_language:
+        舊 client 一定要關：否則每改一次設定就多留一個連線池。範例屬於舊設定，不帶過去。"""
+        old = self._binding
+        if api == old.api and target_language == old.target_language:
             return False
-        self._examples = None  # 先清：背景請求不能拿新語言的提示詞配舊語言的範例
-        self._impl.close()
-        self._impl = _build_client(**api)
-        self._api = api
-        self._target_language = target_language
+        self._binding = _Binding(_build_client(**api), api, target_language)
+        old.impl.close()
         return True
 
     def describe(self) -> str:
         """目前生效的服務，失敗 log 用的診斷欄位（`provider=…, model=…`）。
         金鑰絕不列入 —— 這些欄位會寫進 app.log。"""
-        return f"provider={self._api.get('provider', 'custom')}, model={self._impl.model}"
+        b = self._binding
+        return f"provider={b.api.get('provider', 'custom')}, model={b.impl.model}"
 
     def close(self) -> None:
         """釋放後端的連線池（一次性用途如測試連線，用完即關）。"""
-        self._impl.close()
+        self._binding.impl.close()
 
     @property
     def examples(self) -> ExampleSet | None:
         """目前套用的 few-shot 範例；尚未設定為 None（不放範例輪）。"""
-        return self._examples
+        return self._binding.examples
 
     @property
     def examples_fingerprint(self) -> str:
         """目前服務與目標語言對應的範例指紋（見 examples.examples_fingerprint）。"""
-        return examples_fingerprint(self._api, self._target_language)
+        return self._binding.fingerprint
 
     def set_examples(self, examples: ExampleSet | None, fingerprint: str) -> bool:
         """套用範例；指紋與目前設定不符（生成期間設定被改了）就不套用並回 False。"""
-        if fingerprint != self.examples_fingerprint:
+        b = self._binding
+        if fingerprint != b.fingerprint:
             log(f"[translate] ignoring examples for a stale fingerprint: {fingerprint}")
             return False
-        self._examples = examples
+        self._binding = replace(b, examples=examples)
         return True
 
     @property
     def target_language(self) -> str:
         """目前的目標語言。呼叫端要判斷譯文品質時需要它（見 has_stray_latin）。"""
-        return self._target_language
+        return self._binding.target_language
 
-    def _chat(self, kind: str, system: str, turns: list[dict], *,
+    def _chat(self, impl: _BaseClient, kind: str, system: str, turns: list[dict], *,
               source: str, context_lines: int, strip: bool = False,
               keep_sender: bool = False, max_tokens: int | None = None, redact: bool = False,
               cancel: RequestHandle | None = None) -> str:
@@ -586,8 +602,6 @@ class Translator:
         if cancel is not None and cancel.cancelled:
             raise TranslatorCancelled()
         started = time.monotonic()
-        # 綁成區域變數：reconfigure() 可能落在請求與 log 之間，記的要是真正送出請求的那個
-        impl = self._impl
         translated = impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
         if strip:
             translated = tidy_parentheses(source, translated)
@@ -606,12 +620,12 @@ class Translator:
     def translate_incoming(self, text: str, context: list[str]) -> str:
         """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
         context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
-        examples = self._examples
+        b = self._binding
         return self._chat(
-            "incoming",
-            build_incoming_system(self._target_language),
+            b.impl, "incoming",
+            build_incoming_system(b.target_language),
             build_turns(context, text, CONTEXT_INTRO_INCOMING,
-                        examples=example_turns(examples.incoming if examples else None)),
+                        examples=example_turns(b.examples.incoming if b.examples else None)),
             source=text, context_lines=len(context), strip=True, keep_sender=True)
 
     def translate_system_message(self, text: str) -> str:
@@ -623,23 +637,22 @@ class Translator:
         譯文落回英文時重譯一次（見 has_stray_latin）：裸名詞特別容易被改用官方英文名，
         實測重譯救得回約三分之一，救不回的（音譯玩家名）照樣回傳，呼叫端負責不寫進快取。
         只有這條路徑重譯：收訊有完整句子語境、實測不會落回英文。"""
-        examples = self._examples
-        translated = self._system_message_once(text, examples)
-        if has_stray_latin(text, translated, self._target_language):
+        b = self._binding
+        translated = self._system_message_once(b, text)
+        if has_stray_latin(text, translated, b.target_language):
             log(f"[translate] system message is not in the target language, retrying "
                 f"strictly: source={text!r} translated={translated!r}")
-            translated = self._system_message_once(text, examples, strict=True)
-            if has_stray_latin(text, translated, self._target_language):
+            translated = self._system_message_once(b, text, strict=True)
+            if has_stray_latin(text, translated, b.target_language):
                 log(f"[translate] strict retry is still not in the target language, "
                     f"using it as is: source={text!r} translated={translated!r}")
         return translated
 
-    def _system_message_once(self, text: str, examples: ExampleSet | None,
-                             strict: bool = False) -> str:
+    def _system_message_once(self, b: _Binding, text: str, strict: bool = False) -> str:
         return self._chat(
-            "system message (strict retry)" if strict else "system message",
-            build_system_message_system(self._target_language, strict=strict),
-            [*example_turns(examples.system if examples else None),
+            b.impl, "system message (strict retry)" if strict else "system message",
+            build_system_message_system(b.target_language, strict=strict),
+            [*example_turns(b.examples.system if b.examples else None),
              {"role": "user", "content": text}],
             source=text, context_lines=0, strip=True)
 
@@ -652,7 +665,7 @@ class Translator:
         「不好意思我英文不好，用翻譯器」當成對它說的話回「No worries, I'll help you out!」，
         而該回覆會被原樣送進遊戲聊天。"""
         return self._chat(
-            "outgoing",
+            self._binding.impl, "outgoing",
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING),
@@ -667,11 +680,11 @@ class Translator:
         但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
         比對，同一頁另一行有英文時才不會替它放行。"""
         originals, numbered = number_lines(text)
-        examples = self._examples
+        b = self._binding
         translated = self._chat(
-            "region text",
-            build_region_system(self._target_language),
-            [*example_turns(examples.region if examples else None),
+            b.impl, "region text",
+            build_region_system(b.target_language),
+            [*example_turns(b.examples.region if b.examples else None),
              {"role": "user", "content": numbered}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
@@ -685,10 +698,9 @@ class Translator:
     def generate_examples(self) -> tuple[str, ExampleSet]:
         """請目前的模型把示範改寫成目標語言，回傳（指紋, 範例集）；不套用，由呼叫端 set_examples。
 
-        開頭就綁定後端、目標語言與指紋，期間 reconfigure 也不會混用設定。
         驗證失敗與截斷會重送，最多送 _EXAMPLE_ATTEMPTS 次請求並合併各次通過的路徑；其他例外往上拋。"""
-        impl, api, target = self._impl, self._api, self._target_language
-        fingerprint = examples_fingerprint(api, target)
+        b = self._binding
+        impl, api, target, fingerprint = b.impl, b.api, b.target_language, b.fingerprint
         if is_game_language(target):
             return fingerprint, GAME_LANGUAGE_EXAMPLES
         system, turns = generation_request(target)

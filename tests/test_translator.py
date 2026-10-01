@@ -424,7 +424,7 @@ def test_rejection_of_a_parameter_we_did_not_send_is_not_retried_forever():
 def test_openai_provider_forces_official_base_url():
     t = Translator(provider="openai", base_url="http://evil.example", model="m",
                    api_key="k", target_language="繁體中文（台灣）")
-    assert str(t._impl._client.base_url) == OPENAI_BASE_URL
+    assert str(t._binding.impl._client.base_url) == OPENAI_BASE_URL
 
 
 def test_build_turns_without_context_is_single_user_turn():
@@ -530,29 +530,29 @@ def test_reconfigure_switches_provider():
                   thinking=False, target_language="日本語")
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
     from src.translation.translator import _ClaudeClient
-    assert isinstance(t._impl, _ClaudeClient)
+    assert isinstance(t._binding.impl, _ClaudeClient)
 
 
 def test_reconfigure_keeps_the_backend_when_nothing_changed():
     """值沒變就不重建：拆連線池會讓飛行中的請求收到斷線錯誤，端點學到的參數限制
     （實測 temperature 被拒）也要重新付一輪 400 才學得回來。"""
     tr = _make(FakeHttpxClient())
-    before = tr._impl
+    before = tr._binding.impl
     before._dropped.add("temperature")
 
     assert tr.reconfigure(provider="custom", base_url="http://x", model="m",
                           target_language="繁體中文（台灣）") is False
-    assert tr._impl is before
-    assert tr._impl._dropped == {"temperature"}
+    assert tr._binding.impl is before
+    assert tr._binding.impl._dropped == {"temperature"}
 
 
 def test_reconfigure_rebuilds_when_a_value_changed():
     tr = _make(FakeHttpxClient())
-    before = tr._impl
+    before = tr._binding.impl
 
     assert tr.reconfigure(provider="custom", base_url="http://x", model="m2",
                           target_language="繁體中文（台灣）") is True
-    assert tr._impl is not before and tr._impl.model == "m2"
+    assert tr._binding.impl is not before and tr._binding.impl.model == "m2"
 
 
 def test_describe_names_the_service_and_never_the_key():
@@ -575,7 +575,7 @@ class ReconfiguringClient(FakeHttpxClient):
 
 
 def test_the_success_log_names_the_model_that_served_the_request(capsys):
-    # 重新讀一次 self._impl 的話，請求期間的 reconfigure() 會讓這一行記成新模型
+    # 請求中途重讀設定的話，期間的 reconfigure() 會讓這一行記成新模型
     fake = ReconfiguringClient()
     fake.translator = tr = _make(fake)
     tr.translate_incoming("[A] hi", [])
@@ -1552,3 +1552,74 @@ def test_generate_and_store_skips_writing_an_empty_result(tmp_path, monkeypatch)
     monkeypatch.setattr(Translator, "generate_examples", lambda self: ("fp", EMPTY))
     assert generate_and_store(api, "日本語", store) is None
     assert store.get(examples_fingerprint(api, "日本語")) is None
+
+
+class ReconfiguringSequenceClient(SequenceClient):
+    """第一個請求送出後設定就被換成另一個目標語言；`translator` 由測試接上。"""
+
+    translator = None
+
+    @contextmanager
+    def stream(self, method, url, json):
+        with super().stream(method, url, json) as response:
+            if len(self.bodies) == 1:
+                self.translator.reconfigure(provider="custom", base_url="http://x",
+                                            model="m2", target_language="한국어")
+            yield response
+
+
+def _late_client(monkeypatch) -> SequenceClient:
+    """之後 reconfigure 重建的後端都接到回傳的假 client，用來看請求有沒有跑去新設定。"""
+    import src.translation.translator as module
+    late = SequenceClient(FakeResponse())
+    build = module._build_client
+    monkeypatch.setattr(module, "_build_client", lambda **api: build(**api, client=late))
+    return late
+
+
+def test_a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry(monkeypatch):
+    fake = ReconfiguringSequenceClient(FakeResponse(content="Gained gold"))
+    fake.translator = tr = _make(fake)
+    late = _late_client(monkeypatch)
+    tr.set_examples(ExampleSet(None, ("s", "o"), None), tr.examples_fingerprint)
+    tr.translate_system_message("Gained gold")
+    assert late.bodies == [] and len(fake.bodies) == 2
+    for body in fake.bodies:
+        assert body["messages"][0]["content"] == build_system_message_system(
+            "繁體中文（台灣）", strict=body is fake.bodies[1])
+        assert _turns(body)[:2] == [{"role": "user", "content": "s"},
+                                    {"role": "assistant", "content": "o"}]
+
+
+@pytest.mark.parametrize("builder, call", [
+    ("build_incoming_system", lambda tr: tr.translate_incoming("[A] hi", [])),
+    ("build_region_system", lambda tr: tr.translate_region_text("hello")),
+])
+def test_a_reconfigure_after_the_prompt_is_built_still_uses_the_same_backend(
+        monkeypatch, builder, call):
+    import src.translation.translator as module
+    fake = SequenceClient(FakeResponse(content="1. 譯文"))
+    tr = _make(fake)
+    late = _late_client(monkeypatch)
+    build = getattr(module, builder)
+
+    def build_then_reconfigure(target_language):
+        tr.reconfigure(provider="custom", base_url="http://x", model="m2",
+                       target_language="한국어")
+        return build(target_language)
+
+    monkeypatch.setattr(module, builder, build_then_reconfigure)
+    call(tr)
+    assert late.bodies == [] and len(fake.bodies) == 1
+    assert fake.bodies[0]["messages"][0]["content"] == build("繁體中文（台灣）")
+
+
+def test_generate_examples_returns_the_fingerprint_of_the_settings_it_used(monkeypatch):
+    fake = ReconfiguringSequenceClient(FakeResponse(content="garbage"), FakeResponse(content=JA))
+    fake.translator = tr = Translator(target_language="日本語", client=fake,
+                                      provider="custom", base_url="http://x", model="m")
+    late = _late_client(monkeypatch)
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    fp, examples = tr.generate_examples()
+    assert fp == examples_fingerprint(api, "日本語") != tr.examples_fingerprint
+    assert examples.complete and late.bodies == [] and len(fake.bodies) == 2

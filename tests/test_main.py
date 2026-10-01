@@ -166,9 +166,9 @@ def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkey
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
 
-    assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
-    assert translators[SLOT_OUTGOING]._impl.model == "outgoing-model"
-    assert translators[SLOT_REGION]._impl.model == "region-model"
+    assert translators[SLOT_INCOMING]._binding.impl.model == "incoming-model"
+    assert translators[SLOT_OUTGOING]._binding.impl.model == "outgoing-model"
+    assert translators[SLOT_REGION]._binding.impl.model == "region-model"
     assert [p.translator for p in pools] == [translators[SLOT_INCOMING]] * 2
     assert cache.fingerprint == fingerprint_of("openai", "incoming-model",
                                                cfg["target_language"])
@@ -209,8 +209,8 @@ def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monke
     find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
-    assert translators[SLOT_REGION]._impl.model == "region-model-2"
-    assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
+    assert translators[SLOT_REGION]._binding.impl.model == "region-model-2"
+    assert translators[SLOT_INCOMING]._binding.impl.model == "incoming-model"
     assert cache.fingerprint == fingerprint_before
 
 
@@ -225,7 +225,7 @@ def test_changing_the_incoming_slot_invalidates_the_cache(monkeypatch):
     find(cfg, cfg["service_slots"][SLOT_INCOMING])["model"] = "incoming-model-2"
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
-    assert translators[SLOT_INCOMING]._impl.model == "incoming-model-2"
+    assert translators[SLOT_INCOMING]._binding.impl.model == "incoming-model-2"
     assert cache.fingerprint == fingerprint_of("openai", "incoming-model-2",
                                                cfg["target_language"])
 
@@ -327,12 +327,12 @@ def test_saving_unrelated_settings_rebuilds_no_translator(monkeypatch):
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
     coordinator.ensured.clear()
-    before = {slot: tr._impl for slot, tr in translators.items()}
+    before = {slot: tr._binding.impl for slot, tr in translators.items()}
 
     cfg["overlay_alpha"] = 0.5
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
-    assert {slot: tr._impl for slot, tr in translators.items()} == before
+    assert {slot: tr._binding.impl for slot, tr in translators.items()} == before
 
 
 def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch):
@@ -342,14 +342,14 @@ def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
-    before = {slot: tr._impl for slot, tr in translators.items()}
+    before = {slot: tr._binding.impl for slot, tr in translators.items()}
 
     find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
-    assert translators[SLOT_REGION]._impl is not before[SLOT_REGION]
-    assert translators[SLOT_INCOMING]._impl is before[SLOT_INCOMING]
-    assert translators[SLOT_OUTGOING]._impl is before[SLOT_OUTGOING]
+    assert translators[SLOT_REGION]._binding.impl is not before[SLOT_REGION]
+    assert translators[SLOT_INCOMING]._binding.impl is before[SLOT_INCOMING]
+    assert translators[SLOT_OUTGOING]._binding.impl is before[SLOT_OUTGOING]
 
 
 @pytest.mark.parametrize("field, value, check", [
@@ -366,13 +366,13 @@ def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
-    before = translators[SLOT_OUTGOING]._impl
+    before = translators[SLOT_OUTGOING]._binding.impl
 
     find(cfg, cfg["service_slots"][SLOT_OUTGOING])[field] = value
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
-    assert translators[SLOT_OUTGOING]._impl is not before
-    assert check(translators[SLOT_OUTGOING]._impl)
+    assert translators[SLOT_OUTGOING]._binding.impl is not before
+    assert check(translators[SLOT_OUTGOING]._binding.impl)
 
 
 def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
@@ -383,13 +383,13 @@ def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
     coordinator.ensured.clear()
-    before = {slot: tr._impl for slot, tr in translators.items()}
+    before = {slot: tr._binding.impl for slot, tr in translators.items()}
 
     cfg["target_language"] = "日本語"
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     for slot, tr in translators.items():
-        assert tr._impl is not before[slot]
+        assert tr._binding.impl is not before[slot]
         assert tr.target_language == "日本語"
     assert coordinator.ensured == [translators[SLOT_INCOMING], translators[SLOT_REGION]]
 
