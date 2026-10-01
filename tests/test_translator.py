@@ -10,19 +10,28 @@ import httpx
 import httpx2
 import pytest
 
+from src.translation.examples import (
+    EMPTY,
+    GAME_LANGUAGE_EXAMPLES,
+    ExampleSet,
+    ExampleStore,
+    examples_fingerprint,
+)
 from src.translation.postprocess import (
-    _PAREN_ENGLISH,
     has_stray_latin,
     number_lines,
-    strip_invented_english,
+    restore_sender,
+    tidy_parentheses,
     unnumber_lines,
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
+    PROMPT_REVISION,
     _game_noun_rule,
     build_incoming_system,
     build_region_system,
     build_system_message_system,
+    example_turns,
 )
 from src.translation.translator import (
     _MAX_TOKENS_REGION,
@@ -36,8 +45,10 @@ from src.translation.translator import (
     TranslatorNoModelList,
     TranslatorOffline,
     error_detail,
+    generate_and_store,
     list_models,
 )
+from src.translation.translator import test_translate as run_test_translate
 
 
 def _sse(chunks) -> list[str]:
@@ -197,7 +208,7 @@ def _anthropic_status_error(status, body=None):
 def test_claude_provider_returns_text():
     t = Translator(provider="claude", model="claude-opus-5", api_key="k",
                    target_language="繁體中文（台灣）", client=FakeAnthropicClient())
-    assert t.translate_incoming("[A] hi", []) == "克勞德譯文"
+    assert t.translate_incoming("[A] hi", []) == "[A] 克勞德譯文"
 
 
 def test_claude_connection_error_maps_to_offline():
@@ -247,7 +258,7 @@ def test_openai_compat_truncated_output_maps_to_bad_output():
 def test_openai_compat_missing_finish_reason_is_accepted():
     # 部分後端不回 finish_reason，不得因此誤判為截斷
     fake = FakeHttpxClient(response=FakeResponse(finish_reason=None))
-    assert _make(fake).translate_incoming("[A] hi", []) == "譯文"
+    assert _make(fake).translate_incoming("[A] hi", []) == "[A] 譯文"
 
 
 def test_claude_sends_max_tokens():
@@ -363,7 +374,7 @@ def test_rejected_parameter_is_dropped_and_the_request_retried():
     fake = SequenceClient(_rejects("reasoning_effort"), FakeResponse())
     t = Translator(provider="openai", model="gpt-4o-mini", api_key="k", thinking=False,
                    target_language="繁體中文（台灣）", client=fake)
-    assert t.translate_incoming("[A] hi", []) == "譯文"
+    assert t.translate_incoming("[A] hi", []) == "[A] 譯文"
     assert "reasoning_effort" in fake.bodies[0]
     assert "reasoning_effort" not in fake.bodies[1]
     # 學到的規則記在 client 上：下一句不再多送一次被拒的請求
@@ -375,7 +386,7 @@ def test_rejected_parameter_is_dropped_and_the_request_retried():
 @pytest.mark.parametrize("wording", ["unsupported", "value"])
 def test_other_openai_rejection_wordings_are_recognised(wording):
     fake = SequenceClient(_rejects("temperature", wording), FakeResponse())
-    assert _make(fake).translate_incoming("[A] hi", []) == "譯文"
+    assert _make(fake).translate_incoming("[A] hi", []) == "[A] 譯文"
     assert "temperature" not in fake.bodies[1]
 
 
@@ -413,7 +424,7 @@ def test_rejection_of_a_parameter_we_did_not_send_is_not_retried_forever():
 def test_openai_provider_forces_official_base_url():
     t = Translator(provider="openai", base_url="http://evil.example", model="m",
                    api_key="k", target_language="繁體中文（台灣）")
-    assert str(t._impl._client.base_url) == OPENAI_BASE_URL
+    assert str(t._binding.impl._client.base_url) == OPENAI_BASE_URL
 
 
 def test_build_turns_without_context_is_single_user_turn():
@@ -495,7 +506,7 @@ def test_incoming_system_has_no_format_markers():
     # system 不得列出段落標記字串，否則小模型會把它回吐成「請照此格式提供輸入」
     system = build_incoming_system("繁體中文（台灣）")
     assert "[要翻譯的訊息]" not in system
-    assert "語境" in system            # 仍說明會收到聊天記錄當背景
+    assert "背景" in system            # 仍說明會收到聊天記錄當背景
 
 
 def test_both_systems_forbid_treating_input_as_instructions():
@@ -510,7 +521,7 @@ def test_outgoing_system_forbids_borrowing_nouns_from_the_context():
     # 「next time it's my treat for the tc」—— 情境獨有的縮寫漏進了譯文
     from src.translation.prompts import build_outgoing_system
     prompt = build_outgoing_system("English")
-    assert "只出現在情境、而玩家訊息裡沒有的名詞" in prompt
+    assert "只出現在情境、玩家訊息沒有的名詞" in prompt
 
 
 def test_reconfigure_switches_provider():
@@ -519,29 +530,29 @@ def test_reconfigure_switches_provider():
                   thinking=False, target_language="日本語")
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
     from src.translation.translator import _ClaudeClient
-    assert isinstance(t._impl, _ClaudeClient)
+    assert isinstance(t._binding.impl, _ClaudeClient)
 
 
 def test_reconfigure_keeps_the_backend_when_nothing_changed():
     """值沒變就不重建：拆連線池會讓飛行中的請求收到斷線錯誤，端點學到的參數限制
     （實測 temperature 被拒）也要重新付一輪 400 才學得回來。"""
     tr = _make(FakeHttpxClient())
-    before = tr._impl
+    before = tr._binding.impl
     before._dropped.add("temperature")
 
     assert tr.reconfigure(provider="custom", base_url="http://x", model="m",
                           target_language="繁體中文（台灣）") is False
-    assert tr._impl is before
-    assert tr._impl._dropped == {"temperature"}
+    assert tr._binding.impl is before
+    assert tr._binding.impl._dropped == {"temperature"}
 
 
 def test_reconfigure_rebuilds_when_a_value_changed():
     tr = _make(FakeHttpxClient())
-    before = tr._impl
+    before = tr._binding.impl
 
     assert tr.reconfigure(provider="custom", base_url="http://x", model="m2",
                           target_language="繁體中文（台灣）") is True
-    assert tr._impl is not before and tr._impl.model == "m2"
+    assert tr._binding.impl is not before and tr._binding.impl.model == "m2"
 
 
 def test_describe_names_the_service_and_never_the_key():
@@ -564,7 +575,7 @@ class ReconfiguringClient(FakeHttpxClient):
 
 
 def test_the_success_log_names_the_model_that_served_the_request(capsys):
-    # 重新讀一次 self._impl 的話，請求期間的 reconfigure() 會讓這一行記成新模型
+    # 請求中途重讀設定的話，期間的 reconfigure() 會讓這一行記成新模型
     fake = ReconfiguringClient()
     fake.translator = tr = _make(fake)
     tr.translate_incoming("[A] hi", [])
@@ -794,17 +805,30 @@ def test_game_noun_rule_is_shared_by_both_prompts():
 def test_game_noun_rule_forbids_inventing_english_for_non_english_source():
     # 原文非英文時模型不得自行翻一個英文塞進括號
     rule = _game_noun_rule("繁體中文（台灣）")
-    assert "不得自行翻譯或補上任何英文" in rule
+    assert "括號裡不得出現原文沒有的字串" in rule
 
 
-def test_game_noun_rule_still_keeps_english_when_the_source_is_english():
-    assert "原文本來就有英文時" in _game_noun_rule("繁體中文（台灣）")
+def test_game_noun_rule_always_appends_the_original_for_every_target():
+    # 使用者要求：收訊、系統訊息、區域的專有名詞一律附原文，目標是遊戲語言也一樣
+    for language in ("繁體中文（台灣）", OUTGOING_LANGUAGE):
+        assert "並在譯名後用括號逐字照抄原文寫法" in _game_noun_rule(language)
 
 
-def test_game_noun_rule_carries_no_english_example():
-    # 示範一次「譯名(English)」就會把模型帶往英文：實機「雪刺帽」被整個譯成 Snowspike Hat，
-    # 拿掉範例後穩定翻成中文。這裡用清理譯文的那條正則反過來擋住範例回流
-    assert _PAREN_ENGLISH.search(_game_noun_rule("繁體中文（台灣）")) is None
+def test_system_prompts_no_longer_embed_an_example():
+    for build in (build_incoming_system, build_system_message_system, build_region_system):
+        prompt = build("日本語")
+        assert "範例" not in prompt and "Fire Cat" not in prompt
+        assert prompt.rstrip().endswith("譯文一律使用 日本語，不論原文或本說明是什麼語言。")
+
+
+def test_example_turns_become_a_user_and_assistant_pair():
+    assert example_turns(None) == []
+    assert example_turns(("src", "out")) == [{"role": "user", "content": "src"},
+                                             {"role": "assistant", "content": "out"}]
+
+
+def test_prompt_revision_was_bumped_for_the_example_change():
+    assert PROMPT_REVISION == 6
 
 
 def test_game_noun_rule_keeps_player_and_npc_names_untranslated():
@@ -816,49 +840,104 @@ def test_game_noun_rule_names_the_target_language():
     assert "Español" in _game_noun_rule("Español")
 
 
-# --- strip_invented_english：原文沒有英文時，譯文的括號英文必然是模型生成的 ---
-def test_strip_invented_english_removes_parenthesised_english_for_cjk_source():
+# --- tidy_parentheses：括號只能是照抄的原文，且不得重複前面的譯名 ---
+def test_tidy_parentheses_removes_english_invented_for_a_cjk_source():
     # 實測：同一則簡中材料名，兩次翻譯分別補上 (Psychedelic Wood) 與 (Mystic Wood)
-    assert strip_invented_english("迷幻木头", "迷幻木頭(Mystic Wood)") == "迷幻木頭"
+    assert tidy_parentheses("迷幻木头", "迷幻木頭(Mystic Wood)") == "迷幻木頭"
 
 
-def test_strip_invented_english_keeps_english_when_the_source_has_english():
-    # 原文本來就有英文：括號可能是照抄的，不得動
-    assert strip_invented_english(
-        "Proud Pegasus Statue", "驕傲的飛馬雕像(Proud Pegasus Statue)"
-    ) == "驕傲的飛馬雕像(Proud Pegasus Statue)"
+def test_tidy_parentheses_keeps_english_copied_from_the_source():
+    assert tidy_parentheses("Proud Pegasus Statue", "驕傲的飛馬雕像(Proud Pegasus Statue)") \
+        == "驕傲的飛馬雕像(Proud Pegasus Statue)"
 
 
-def test_strip_invented_english_ignores_an_english_sender_name():
+def test_tidy_parentheses_removes_english_the_source_never_had():
+    # 原文有別的英文也不放行：逐個括號比對，不再只看「原文有沒有英文」
+    assert tidy_parentheses(
+        "Talk to Bartleby at 天国大本营", "和 Bartleby 談談，地點在天國大本營（Heavenly HQ）"
+    ) == "和 Bartleby 談談，地點在天國大本營"
+
+
+def test_tidy_parentheses_ignores_an_english_sender_name():
     # 判斷只看訊息內容：發送者名是英文不代表內容有英文
-    assert strip_invented_english(
-        "[Amy] 迷幻木头", "[Amy] 迷幻木頭(Mystic Wood)"
-    ) == "[Amy] 迷幻木頭"
+    assert tidy_parentheses("[Amy] 迷幻木头", "[Amy] 迷幻木頭(Mystic Wood)") == "[Amy] 迷幻木頭"
 
 
-def test_strip_invented_english_keeps_the_sender_prefix():
-    assert strip_invented_english("[艾米] 迷幻木头", "[艾米] 迷幻木頭(Mystic Wood)") \
-        == "[艾米] 迷幻木頭"
+def test_tidy_parentheses_handles_full_width_parentheses():
+    assert tidy_parentheses("迷幻木头", "迷幻木頭（Mystic Wood）") == "迷幻木頭"
 
 
-def test_strip_invented_english_handles_full_width_parentheses():
-    assert strip_invented_english("迷幻木头", "迷幻木頭（Mystic Wood）") == "迷幻木頭"
+def test_tidy_parentheses_leaves_placeholders_alone():
+    assert tidy_parentheses("你获得了 {0} 金币！", "你獲得了 {0} 金幣！") == "你獲得了 {0} 金幣！"
 
 
-def test_strip_invented_english_leaves_placeholders_alone():
-    assert strip_invented_english("你获得了 {0} 金币！", "你獲得了 {0} 金幣！") \
-        == "你獲得了 {0} 金幣！"
+def test_tidy_parentheses_leaves_target_language_notes_alone():
+    # 括號裡是譯文本身那種文字的說明就不是幻覺，原樣保留
+    assert tidy_parentheses("熔岩百合", "熔岩百合（一種材料）") == "熔岩百合（一種材料）"
+    assert tidy_parentheses("lava lily", "溶岩ユリ（素材の一つ）") == "溶岩ユリ（素材の一つ）"
 
 
-def test_strip_invented_english_leaves_cjk_parentheses_content_alone():
-    # 括號裡不是英文就不是幻覺，原樣保留
-    assert strip_invented_english("熔岩百合", "熔岩百合（一種材料）") == "熔岩百合（一種材料）"
-
-
-def test_strip_invented_english_removes_every_occurrence():
-    assert strip_invented_english(
+def test_tidy_parentheses_removes_every_invented_occurrence():
+    assert tidy_parentheses(
         "你获得了迷幻木头和熔岩百合", "你獲得了迷幻木頭(Mystic Wood)和熔岩百合(Lava Lily)"
     ) == "你獲得了迷幻木頭和熔岩百合"
+
+
+def test_tidy_parentheses_removes_cjk_invented_for_a_latin_translation():
+    # 實測（qwen，目標 English）：英文原文被仿照示範補上中文括號
+    assert tidy_parentheses("do i use sirens", "do I use Sirens (塞壬)") == "do I use Sirens"
+
+
+def test_tidy_parentheses_keeps_cjk_copied_from_the_source_for_a_latin_translation():
+    assert tidy_parentheses("你获得了:风暴", "You gained: Storm (风暴)") == "You gained: Storm (风暴)"
+
+
+def test_tidy_parentheses_keeps_accented_notes_for_a_latin_translation():
+    # 帶重音的拉丁字母仍是譯文本身的文字，不能當成外文括號
+    assert tidy_parentheses("hi", "hola (está aquí)") == "hola (está aquí)"
+
+
+def test_tidy_parentheses_ignores_punctuation_when_matching_the_source():
+    # 模型照抄時常換掉撇號或連字號，只比字母數字才不會把照抄的原文當成自創
+    assert tidy_parentheses("Wizard’s Hat", "巫師帽（Wizard's Hat）") == "巫師帽（Wizard's Hat）"
+    assert tidy_parentheses("ship of fools", "愚者之船（Ship-of-Fools）") == "愚者之船（Ship-of-Fools）"
+
+
+def test_tidy_parentheses_keeps_parentheses_the_player_typed():
+    # 原文本來就有的括號：譯成目標語言、或原樣照抄，兩種都要留著
+    assert tidy_parentheses("[Amy] wts Fire Dragon (rank 5)", "[Amy] 出售火龍（Fire Dragon）（等級 5）") \
+        == "[Amy] 出售火龍（Fire Dragon）（等級 5）"
+    assert tidy_parentheses("[Amy] wts Fire Dragon (rank 5)", "[Amy] 出售火龍（Fire Dragon）(rank 5)") \
+        == "[Amy] 出售火龍（Fire Dragon）(rank 5)"
+    assert tidy_parentheses("[Amy] brb (dinner)", "[Amy] 等我一下（吃晚餐）") == "[Amy] 等我一下（吃晚餐）"
+
+
+def test_tidy_parentheses_keeps_emoticons_built_from_parentheses():
+    assert tidy_parentheses("[Amy] gg (╯°□°)╯", "[Amy] 好遊戲 (╯°□°)╯") == "[Amy] 好遊戲 (╯°□°)╯"
+    assert tidy_parentheses("[Amy] hi (: ok :)", "[Amy] 嗨 (: ok :)") == "[Amy] 嗨 (: ok :)"
+
+
+def test_tidy_parentheses_keeps_game_text_in_parentheses():
+    # 框選與系統訊息常見的「(Rank 7)」「(x{0})」：出自原文就保留
+    assert tidy_parentheses("Storm Lord (Rank 7)", "風暴領主（Storm Lord）(Rank 7)") \
+        == "風暴領主（Storm Lord）(Rank 7)"
+    assert tidy_parentheses("你获得了 鱼鳞 (x{0})", "你獲得了 魚鱗 (x{0})") == "你獲得了 魚鱗 (x{0})"
+
+
+def test_tidy_parentheses_keeps_a_line_that_is_only_parentheses():
+    # 實測（框選）：整行都是括號時括號外沒有字可判斷文字，翻好的「（需要等級 45）」曾被當成外文刪光
+    assert tidy_parentheses("(Requires Level 45)", "（需要等級 45）") == "（需要等級 45）"
+    assert tidy_parentheses("(Requires Level 45)", "(Requires Level 45)") == "(Requires Level 45)"
+
+
+def test_tidy_parentheses_removes_an_original_that_only_echoes_the_name():
+    # 實測：名詞沒翻就在後面重複一次（Malistaire（Malistaire）、Novus (Novus)）
+    assert tidy_parentheses("farm Malistaire", "刷 Malistaire（Malistaire）") == "刷 Malistaire"
+    assert tidy_parentheses("help me in novus", "help me in Novus (Novus)") == "help me in Novus"
+
+
+def test_tidy_parentheses_keeps_a_repeated_number_the_player_typed():
+    assert tidy_parentheses("[Amy] lvl 50 (50)", "[Amy] 等級 50（50）") == "[Amy] 等級 50（50）"
 
 
 def test_translate_incoming_strips_invented_english():
@@ -874,6 +953,38 @@ def test_translate_system_message_strips_invented_english():
 def _contents(*contents):
     """依序回這些譯文的 SequenceClient。"""
     return SequenceClient(*(FakeResponse(content=c) for c in contents))
+
+
+# --- restore_sender：發送者名一律以原文為準，不交給模型 ---
+def test_restore_sender_replaces_a_sender_the_model_rewrote():
+    # 實測：漢化包的簡中玩家名被模型改字（贾斯廷 渡鸦 → 賈斯汀 渡鴉）
+    assert restore_sender("[贾斯廷 渡鸦] hi", "[賈斯汀 渡鴉] 嗨") == "[贾斯廷 渡鸦] 嗨"
+
+
+def test_restore_sender_puts_back_a_sender_the_model_dropped():
+    assert restore_sender("[Amy] hi", "嗨") == "[Amy] 嗨"
+
+
+def test_restore_sender_does_not_take_a_bracketed_message_for_the_sender():
+    # 內容本身也以中括號開頭：模型丟了發送者時，[出售] 不能被當成發送者換掉
+    assert restore_sender("[Amy] [WTS] gear", "[出售] 裝備") == "[Amy] [出售] 裝備"
+    assert restore_sender("[Amy] [WTS] gear", "[艾米] [出售] 裝備") == "[Amy] [出售] 裝備"
+
+
+def test_restore_sender_leaves_lines_without_a_sender_alone():
+    assert restore_sender("hi", "嗨") == "嗨"
+
+
+def test_translate_incoming_keeps_the_original_sender(capsys):
+    fake = FakeHttpxClient(response=FakeResponse(content="[賈斯汀 渡鴉] 嗨"))
+    assert _make(fake).translate_incoming("[贾斯廷 渡鸦] hi", []) == "[贾斯廷 渡鸦] 嗨"
+    assert "model altered the sender prefix" in capsys.readouterr().err
+
+
+def test_only_whitespace_after_the_sender_is_not_logged_as_an_altered_sender(capsys):
+    fake = FakeHttpxClient(response=FakeResponse(content="[Amy]嗨"))
+    assert _make(fake).translate_incoming("[Amy] hi", []) == "[Amy] 嗨"
+    assert "model altered the sender prefix" not in capsys.readouterr().err
 
 
 # --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---
@@ -912,7 +1023,7 @@ def test_has_stray_latin_looks_at_the_message_body_of_the_translation():
 
 # --- 系統訊息落回英文時重譯一次 ---
 def test_system_message_prompt_demands_the_whole_translation_in_the_target_language():
-    assert "整則譯文必須完全以 日本語 書寫" in build_system_message_system("日本語")
+    assert "整則以 日本語 書寫" in build_system_message_system("日本語")
 
 
 def test_strict_system_message_prompt_calls_out_the_english_slip():
@@ -1011,7 +1122,7 @@ def test_incoming_translation_logs_the_source_and_the_result(capsys):
     err = capsys.readouterr().err
     assert "[translate] incoming done in" in err
     assert "model=m" in err and "ctx=2" in err
-    assert "source='[A] hi'" in err and "translated='譯文'" in err
+    assert "source='[A] hi'" in err and "translated='[A] 譯文'" in err
 
 
 def test_outgoing_translation_logs_how_many_context_lines_it_carried(capsys):
@@ -1033,16 +1144,21 @@ def test_system_message_retry_is_logged_apart_from_the_first_attempt(capsys):
 def test_prompts_drop_the_no_english_clauses_when_the_target_is_the_game_language():
     rule = _game_noun_rule(OUTGOING_LANGUAGE)
     assert "不得改用英文" not in rule
-    assert "不得自行翻譯或補上任何英文" not in rule
     system = build_system_message_system(OUTGOING_LANGUAGE)
-    assert "一律不得出現在譯文裡" not in system
+    assert "原文沒有的英文不得出現" not in system
     assert OUTGOING_LANGUAGE in system
 
 
 def test_prompts_keep_the_no_english_clauses_for_other_latin_targets():
     # Español 仍要擋官方英文名：只有「目標＝遊戲語言」才拿掉，不是「拉丁字母就拿掉」
     assert "不得改用英文" in _game_noun_rule("Español")
-    assert "一律不得出現在譯文裡" in build_system_message_system("Español")
+    assert "原文沒有的英文不得出現" in build_system_message_system("Español")
+
+
+def test_incoming_slang_rule_keeps_abbreviations_when_the_target_is_the_game_language():
+    # 目標就是遊戲語言時「不要保留原縮寫」會逼模型把 lol 改寫掉
+    assert "縮寫原樣保留" in build_incoming_system(OUTGOING_LANGUAGE)
+    assert "縮寫原樣保留" not in build_incoming_system("日本語")
 
 
 def test_game_language_match_ignores_case_and_spacing():
@@ -1274,7 +1390,7 @@ def test_claude_uses_the_streaming_helper():
     fake = FakeAnthropicClient()
     t = Translator(provider="claude", model="m", api_key="k",
                    target_language="繁體中文（台灣）", client=fake)
-    assert t.translate_incoming("[A] hi", []) == "克勞德譯文"
+    assert t.translate_incoming("[A] hi", []) == "[A] 克勞德譯文"
     assert fake.messages.last_stream is not None
 
 
@@ -1298,6 +1414,12 @@ def test_region_system_prompt_pins_the_order_of_name_and_parenthesized_original(
     assert "譯名（原文）" in prompt and "不可對調" in prompt
 
 
+def test_prompts_ask_to_translate_parentheses_already_in_the_source():
+    # 括號被定義成「附原文用」後，模型會把玩家自己打的 (rank 5) 也當成原文照抄或刪掉
+    for build in (build_incoming_system, build_system_message_system, build_region_system):
+        assert "原文本來就有的括號" in build("日本語")
+
+
 def test_game_noun_rule_treats_joined_camel_case_names_as_nouns_not_code():
     # 實機：`CrownShop`（連寫）被當成代碼保留、譯名進了括號；`Crown Shop` 就正常
     rule = _game_noun_rule("繁體中文（台灣）")
@@ -1310,3 +1432,229 @@ def test_game_noun_rule_pins_the_order_of_name_and_original_for_every_prompt():
     assert "譯名（原文）" in rule and "不可對調" in rule
     assert "不可對調" in build_incoming_system("繁體中文（台灣）")
     assert "不可對調" in build_system_message_system("繁體中文（台灣）")
+
+
+JA = "\n".join([
+    "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、"
+    "巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑",
+    "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
+    "3. 火猫（Fire Cat）に話しかける",
+    "4. 巨像大道（Colossus Boulevard）へ行く",
+    "5. そしてあなたは",
+])
+
+
+def test_translate_incoming_sends_the_example_before_the_context():
+    fake = FakeHttpxClient()
+    tr = _make(fake)
+    fp = tr.examples_fingerprint
+    assert tr.set_examples(ExampleSet(("src", "out"), None, None), fp)
+    tr.translate_incoming("[A] hi", ["[B] yo"])
+    turns = _turns(fake.last_body)
+    assert turns[:2] == [{"role": "user", "content": "src"}, {"role": "assistant", "content": "out"}]
+    assert turns[-1] == {"role": "user", "content": "[A] hi"}
+
+
+def test_without_examples_no_example_turns_are_sent():
+    fake = FakeHttpxClient()
+    _make(fake).translate_system_message("你获得了 {0} 金币！")
+    assert _turns(fake.last_body) == [{"role": "user", "content": "你获得了 {0} 金币！"}]
+
+
+def test_region_text_sends_the_region_example_first():
+    fake = FakeHttpxClient(response=FakeResponse(content="1. 譯文"))
+    tr = _make(fake)
+    tr.set_examples(ExampleSet(None, None, ("1. a", "1. b")), tr.examples_fingerprint)
+    tr.translate_region_text("hello")
+    assert _turns(fake.last_body)[:2] == [{"role": "user", "content": "1. a"},
+                                          {"role": "assistant", "content": "1. b"}]
+
+
+def test_set_examples_ignores_a_stale_fingerprint():
+    tr = _make(FakeHttpxClient())
+    assert not tr.set_examples(ExampleSet(("s", "o"), None, None), "other")
+    assert tr.examples is None
+
+
+def test_reconfigure_clears_the_examples():
+    tr = _make(FakeHttpxClient())
+    tr.set_examples(ExampleSet(("s", "o"), None, None), tr.examples_fingerprint)
+    tr.reconfigure(provider="custom", base_url="http://x", model="m", target_language="日本語")
+    assert tr.examples is None
+
+
+def test_reconfigure_without_changes_keeps_the_examples():
+    tr = _make(FakeHttpxClient())
+    tr.set_examples(ExampleSet(("s", "o"), None, None), tr.examples_fingerprint)
+    assert not tr.reconfigure(provider="custom", base_url="http://x", model="m",
+                              target_language="繁體中文（台灣）")
+    assert tr.examples is not None
+
+
+def test_generate_examples_retries_bad_output_and_merges():
+    good_but_no_system = JA.replace("{0} ゴールド", "ゴールド")
+    good_but_no_incoming = JA.replace("[Amy] ", "")
+    fake = _contents("garbage", good_but_no_system, good_but_no_incoming)
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    fp, examples = tr.generate_examples()
+    assert examples.complete and len(fake.bodies) == 3 and fp == tr.examples_fingerprint
+    assert all("temperature" not in body for body in fake.bodies)
+
+
+def test_generate_examples_gives_up_after_six_requests():
+    fake = _contents(*["garbage"] * 7)
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    _, examples = tr.generate_examples()
+    assert examples == EMPTY and len(fake.bodies) == 6
+
+
+def test_generate_examples_does_not_retry_a_config_error():
+    fake = FakeHttpxClient(response=FakeResponse(status_code=401, text='{"error":{"message":"bad key"}}'))
+    tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
+    with pytest.raises(TranslatorConfigError):
+        tr.generate_examples()
+
+
+def test_generate_examples_for_the_game_language_sends_nothing():
+    fake = FakeHttpxClient()
+    tr = Translator(target_language="English", client=fake, provider="custom", base_url="http://x", model="m")
+    assert tr.generate_examples()[1] == GAME_LANGUAGE_EXAMPLES and fake.last_body is None
+
+
+def test_generate_and_store_reuses_a_cached_set_without_a_request(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    cached = ExampleSet(("s", "o"), None, None)
+    store.put(examples_fingerprint(api, "日本語"), cached)
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: pytest.fail("no request expected"))
+    assert generate_and_store(api, "日本語", store) == cached
+
+
+def test_test_translate_survives_a_failing_example_generation(tmp_path, monkeypatch):
+    monkeypatch.setattr(Translator, "translate_incoming", lambda self, text, ctx: "譯文")
+    monkeypatch.setattr(Translator, "generate_examples",
+                        lambda self: (_ for _ in ()).throw(TranslatorOffline("down")))
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    assert run_test_translate(api, "日本語", example_store=ExampleStore(tmp_path / "ex.json")) == "譯文"
+
+
+def test_strict_retry_sends_the_same_example_turns():
+    fake = _contents("Gained gold", "Gained gold")
+    tr = _make(fake)
+    tr.set_examples(ExampleSet(None, ("s", "o"), None), tr.examples_fingerprint)
+    tr.translate_system_message("Gained gold")
+    assert len(fake.bodies) == 2
+    assert _turns(fake.bodies[0])[:2] == _turns(fake.bodies[1])[:2] == [
+        {"role": "user", "content": "s"}, {"role": "assistant", "content": "o"}]
+
+
+def test_generate_and_store_persists_a_non_empty_result(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    made = ExampleSet(("s", "o"), None, None)
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: ("fp", made))
+    assert generate_and_store(api, "日本語", store) == made
+    assert store.get(examples_fingerprint(api, "日本語")) == made
+
+
+def test_generate_and_store_skips_writing_an_empty_result(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: ("fp", EMPTY))
+    assert generate_and_store(api, "日本語", store) is None
+    assert store.get(examples_fingerprint(api, "日本語")) is None
+
+
+class ReconfiguringSequenceClient(SequenceClient):
+    """第一個請求送出後設定就被換成另一個目標語言；`translator` 由測試接上。"""
+
+    translator = None
+
+    @contextmanager
+    def stream(self, method, url, json):
+        with super().stream(method, url, json) as response:
+            if len(self.bodies) == 1:
+                self.translator.reconfigure(provider="custom", base_url="http://x",
+                                            model="m2", target_language="한국어")
+            yield response
+
+
+def _late_client(monkeypatch) -> SequenceClient:
+    """之後 reconfigure 重建的後端都接到回傳的假 client，用來看請求有沒有跑去新設定。"""
+    import src.translation.translator as module
+    late = SequenceClient(FakeResponse())
+    build = module._build_client
+    monkeypatch.setattr(module, "_build_client", lambda **api: build(**api, client=late))
+    return late
+
+
+def test_a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry(monkeypatch):
+    fake = ReconfiguringSequenceClient(FakeResponse(content="Gained gold"))
+    fake.translator = tr = _make(fake)
+    late = _late_client(monkeypatch)
+    tr.set_examples(ExampleSet(None, ("s", "o"), None), tr.examples_fingerprint)
+    tr.translate_system_message("Gained gold")
+    assert late.bodies == [] and len(fake.bodies) == 2
+    for body in fake.bodies:
+        assert body["messages"][0]["content"] == build_system_message_system(
+            "繁體中文（台灣）", strict=body is fake.bodies[1])
+        assert _turns(body)[:2] == [{"role": "user", "content": "s"},
+                                    {"role": "assistant", "content": "o"}]
+
+
+@pytest.mark.parametrize("builder, call", [
+    ("build_incoming_system", lambda tr: tr.translate_incoming("[A] hi", [])),
+    ("build_region_system", lambda tr: tr.translate_region_text("hello")),
+])
+def test_a_reconfigure_after_the_prompt_is_built_still_uses_the_same_backend(
+        monkeypatch, builder, call):
+    import src.translation.translator as module
+    fake = SequenceClient(FakeResponse(content="1. 譯文"))
+    tr = _make(fake)
+    late = _late_client(monkeypatch)
+    build = getattr(module, builder)
+
+    def build_then_reconfigure(target_language):
+        tr.reconfigure(provider="custom", base_url="http://x", model="m2",
+                       target_language="한국어")
+        return build(target_language)
+
+    monkeypatch.setattr(module, builder, build_then_reconfigure)
+    call(tr)
+    assert late.bodies == [] and len(fake.bodies) == 1
+    assert fake.bodies[0]["messages"][0]["content"] == build("繁體中文（台灣）")
+
+
+def test_generate_examples_returns_the_fingerprint_of_the_settings_it_used(monkeypatch):
+    fake = ReconfiguringSequenceClient(FakeResponse(content="garbage"), FakeResponse(content=JA))
+    fake.translator = tr = Translator(target_language="日本語", client=fake,
+                                      provider="custom", base_url="http://x", model="m")
+    late = _late_client(monkeypatch)
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    fp, examples = tr.generate_examples()
+    assert fp == examples_fingerprint(api, "日本語") != tr.examples_fingerprint
+    assert examples.complete and late.bodies == [] and len(fake.bodies) == 2
+
+
+def test_a_request_on_a_closed_client_is_offline_so_the_pool_retries_it():
+    # 請求開頭讀到的設定剛被 reconfigure 換掉時舊 client 已關，httpx 會拋 RuntimeError
+    tr = Translator(provider="custom", base_url="http://x", model="m",
+                    target_language="繁體中文（台灣）")
+    tr.close()
+    with pytest.raises(TranslatorOffline):
+        tr.translate_incoming("[A] hi", [])
+
+
+def test_a_request_on_a_closed_claude_client_is_offline():
+    tr = Translator(provider="claude", model="m", api_key="k", target_language="繁體中文（台灣）",
+                    client=anthropic.Anthropic(api_key="k", max_retries=0))
+    tr.close()
+    with pytest.raises(TranslatorOffline):
+        tr.translate_incoming("[A] hi", [])
+
+
+def test_an_unrelated_runtime_error_is_not_taken_for_offline():
+    tr = _make(FakeHttpxClient(raises=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom") as raised:
+        tr.translate_incoming("[A] hi", [])
+    assert not isinstance(raised.value, TranslatorOffline)

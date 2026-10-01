@@ -6,6 +6,7 @@ import pytest
 
 from src.i18n import t
 from src.services import EFFORT_LOW, PROVIDERS, new_service
+from src.translation.examples import ExampleStore
 from src.translation.translator import TranslatorConfigError
 from src.ui.service_form import ServiceForm
 
@@ -273,3 +274,14 @@ def test_rebuilding_the_fields_notifies_once(root):
     changes.clear()
     form._rebuild_fields()
     assert changes == [1]
+
+
+def test_test_connection_also_generates_examples(blank, monkeypatch):
+    works, calls = [], {}
+    monkeypatch.setattr("src.ui.service_form.validate_service", lambda api: [])
+    monkeypatch.setattr(blank._test_task, "start", lambda work, on_done, busy: works.append(work))
+    monkeypatch.setattr("src.ui.service_form.test_translate",
+                        lambda api, target, example_store=None: calls.setdefault("store", example_store))
+    blank._start_test()
+    works[0]()
+    assert isinstance(calls["store"], ExampleStore)

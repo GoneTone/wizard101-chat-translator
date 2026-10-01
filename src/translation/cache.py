@@ -58,12 +58,12 @@ FLUSH_EVERY = 20      # 累積這麼多筆新增才落盤一次（不逐筆寫�
 
 
 def fingerprint_of(provider: str, model: str, target_language: str,
-                   base_url: str = "") -> str:
-    """快取指紋：換服務商、端點、模型、目標語言或提示詞版次時舊譯文整份作廢（不含版次的
+                   base_url: str = "", examples_digest: str = "-") -> str:
+    """快取指紋：換服務商、端點、模型、目標語言、範例或提示詞版次時舊譯文整份作廢（不含版次的
     話，舊提示詞翻壞的譯名會跨程式更新留在磁碟上）。端點也算：兩筆自訂服務可能有同名模型
     （本機與遠端各有一個 qwen3），只看模型名會讓舊端點的譯文繼續命中；其餘服務商沒有這個
     欄位（官方網址寫死在 translator）。絕不含 API 金鑰 —— 指紋會寫進磁碟。"""
-    return f"{provider}|{base_url}|{model}|{target_language}|p{PROMPT_REVISION}"
+    return f"{provider}|{base_url}|{model}|{target_language}|p{PROMPT_REVISION}|x{examples_digest}"
 
 
 class TranslationCache:
@@ -212,8 +212,9 @@ def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     不直接依賴 Translator 型別以避免模組互相 import。"""
     template, numbers = normalize(text)
     fingerprint = cache.fingerprint   # 先記下產出當下的指紋（翻譯期間可能換設定）
+    target_language = translator.target_language   # 同理：譯文要以請求當下的目標判定
     translated = translator.translate_system_message(template)
-    if has_stray_latin(template, translated, translator.target_language):
+    if has_stray_latin(template, translated, target_language):
         log(f"[cache] translation is not in the target language, not cached: "
             f"template={template!r} translated={translated!r}")
         return restore(translated, numbers)

@@ -14,6 +14,7 @@ from src.services import (
     unique_name,
     validate_service,
 )
+from src.translation.examples import ExampleStore
 from src.translation.translator import test_translate
 from src.ui.form import (
     ERROR_COLOR,
@@ -233,7 +234,7 @@ class ServiceForm(ttk.Frame):
             return
         self._test_result.set("")
         target = self._target_language_fn()
-        self._test_task.start(lambda: test_translate(api, target),
+        self._test_task.start(lambda: test_translate(api, target, example_store=ExampleStore()),
                               lambda result: self._on_tested(result, api),
                               t("button.testing"))
 

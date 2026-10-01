@@ -4,25 +4,38 @@
 來源語言一律自動判斷；提示詞在 prompts.py，譯文後處理與品質判定在 postprocess.py。
 
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
-TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
+TranslatorBadOutput（譯文被截斷，翻譯路徑重試無用、該行應跳過；只有生成範例會重試它）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
-上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
+上下文由呼叫端提供（見 context.py）；Translator 只持有一份不可變的設定快照
+（後端、目標語言、few-shot 範例），每次請求只讀一次，平行呼叫仍安全。
 """
 import json
 import re
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, replace
 
 import httpx
 
 from src.log import log
 from src.services import EFFORT_AUTO
+from src.translation.examples import (
+    EMPTY,
+    GAME_LANGUAGE_EXAMPLES,
+    ExampleSet,
+    ExampleStore,
+    examples_fingerprint,
+    generation_request,
+    parse_generated,
+)
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
-    strip_invented_english,
+    restore_sender,
+    sender_of,
     strip_think,
+    tidy_parentheses,
     unnumber_lines,
 )
 from src.translation.prompts import (
@@ -35,6 +48,8 @@ from src.translation.prompts import (
     build_region_system,
     build_system_message_system,
     build_turns,
+    example_turns,
+    is_game_language,
 )
 
 # thinking=False 時併入請求 body 的停用參數，涵蓋常見後端（伺服器通常忽略不認得的欄位）。
@@ -54,13 +69,15 @@ _TIMEOUT = 60.0
 # 遇到原文本身重複（「am chick um chick um chick」）會無限吐同一個字，180 秒仍不收斂，
 # 整條收訊流程被誤判成「翻譯伺服器離線」並卡在該行重試。最壞譯文實測約 80 token。
 _MAX_TOKENS = 512
-# 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
-_MAX_TOKENS_THINKING = 2048
+# 思考模式下推理本身就會吃掉大量 token，上限需放寬才不會砍在譯文之前：實測 qwen3.6-35b-a3b
+# 光推理就用完 2048，每句都被截斷、譯文是空的。
+_MAX_TOKENS_THINKING = 4096
 # 區域翻譯固定用放寬的上限：一次可能是一整頁任務書的所有行一起送出，
 # 思考模式下 <think> 區塊還要跟譯文搶同一個預算；上限依然存在是為了
 # 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
 _MAX_TOKENS_REGION = 4096
 TEST_SAMPLE = "[Tester] Hello! How are you?"  # 測試連線用固定原文
+_EXAMPLE_ATTEMPTS = 6
 
 
 class TranslatorError(Exception):
@@ -289,7 +306,8 @@ class _OpenAICompatClient(_BaseClient):
         self._dropped: set[str] = set()
         self._rejected_token_params: set[str] = set()
 
-    def _body(self, system: str, turns: list[dict], max_tokens: int) -> dict:
+    def _body(self, system: str, turns: list[dict], max_tokens: int,
+              deterministic: bool = True) -> dict:
         body = {
             "model": self._model,
             "messages": [{"role": "system", "content": system}, *turns],
@@ -300,7 +318,7 @@ class _OpenAICompatClient(_BaseClient):
             # 串流預設不回 usage；截斷診斷要 completion_tokens。自架後端不一定認得這個欄位，
             # 為了不冒 400 的險只對官方端點帶。
             body["stream_options"] = {"include_usage": True}
-        else:
+        elif deterministic:
             body["temperature"] = 0
         if not self._thinking:
             body.update(_DISABLE_THINKING_OPENAI if self._official else _DISABLE_THINKING)
@@ -321,14 +339,15 @@ class _OpenAICompatClient(_BaseClient):
         return True
 
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None,
-             cancel: RequestHandle | None = None) -> str:
+             cancel: RequestHandle | None = None, deterministic: bool = True) -> str:
         """打一次串流的 /v1/chat/completions，把 SSE 塊接回整段文字。
         串流是為了讓 `cancel` 能真的省 token（見 RequestHandle）；狀態碼錯誤在開頭就會回，
-        跟非串流時一樣走 `_status_error` 與參數重送。"""
+        跟非串流時一樣走 `_status_error` 與參數重送。
+        `deterministic=False` 時自架端點不送 temperature（生成範例的重試要靠隨機性換結果）。"""
         if max_tokens is None:
             max_tokens = _MAX_TOKENS_THINKING if self._thinking else _MAX_TOKENS
         while True:
-            body = self._body(system, turns, max_tokens)
+            body = self._body(system, turns, max_tokens, deterministic)
             try:
                 content, finish_reason, completion_tokens = self._stream_once(body, cancel)
                 break
@@ -358,6 +377,11 @@ class _OpenAICompatClient(_BaseClient):
                     return _read_sse(resp)
         except (httpx.HTTPError, httpx.StreamError) as exc:
             raise TranslatorOffline(_one_line(str(exc))) from exc
+        except RuntimeError as exc:
+            # 請求開頭讀到的設定剛被 reconfigure 換掉、舊 client 已關：當離線讓 pool 用新設定重試
+            if getattr(self._client, "is_closed", False):
+                raise TranslatorOffline(f"client closed by a settings change: {exc}") from exc
+            raise
 
     def list_models(self) -> list[str]:
         try:
@@ -431,13 +455,14 @@ class _ClaudeClient(_BaseClient):
         self._effort = effort
 
     def chat(self, system: str, turns: list[dict], max_tokens: int | None = None,
-             cancel: RequestHandle | None = None) -> str:
+             cancel: RequestHandle | None = None, deterministic: bool = True) -> str:
         """打一次串流的 /v1/messages 請求（SDK 的 `messages.stream` 幫忙累積成完整訊息），
         回傳文字內容。串流是為了讓 `cancel` 能真的省 token（見 RequestHandle）。
         `max_tokens` 未指定（None）時沿用聊天路徑的 `_MAX_TOKENS_THINKING`——Claude 沒有
         「不思考」模式，思考深度改由 `effort` 控制，不是靠調這個參數；區域翻譯路徑會
         明確帶 `_MAX_TOKENS_REGION`（一次可能送出一整頁的辨識行，預算得放寬），截斷判定
-        也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。"""
+        也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。
+        `deterministic` 不適用（本來就不送 temperature），收下後忽略。"""
         limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
         params = {"model": self._model, "max_tokens": limit,
                   "system": system, "messages": turns}
@@ -490,18 +515,35 @@ def _build_client(provider: str = "custom", base_url: str = "", model: str = "",
                                thinking=thinking, timeout=timeout, client=client)
 
 
+@dataclass(frozen=True)
+class _Binding:
+    """一份生效中的設定：後端、服務設定、目標語言與範例；換設定就整份換掉，不改欄位。"""
+
+    impl: _BaseClient
+    api: dict
+    target_language: str
+    examples: ExampleSet | None = None
+
+    @property
+    def fingerprint(self) -> str:
+        return examples_fingerprint(self.api, self.target_language)
+
+
 class Translator:
     """共用翻譯 client：依 provider 選擇後端，收訊/發話介面不變。
 
     `**api` 是某一家服務商的設定（provider、model、api_key…；每家欄位不同，見
     services.API_PROFILE_FIELDS），呼叫端直接把 services.resolve(cfg, slot) 展開進來，缺的欄位
-    由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。"""
+    由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。
+
+    設定一律整份換掉（見 _Binding）：每個請求開頭讀一次 `self._binding`、之後只用它，
+    請求期間的 reconfigure／set_examples 才不會讓提示詞、範例與後端混用兩份設定。
+    reconfigure／set_examples 只在 UI 執行緒呼叫（單一寫入者）。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
                  client=None, **api):
-        self._impl = _build_client(**api, timeout=timeout, client=client)
-        self._api = api   # 目前生效的服務設定，reconfigure 據此判斷有沒有真的改到
-        self._target_language = target_language
+        self._binding = _Binding(_build_client(**api, timeout=timeout, client=client),
+                                 api, target_language)
 
     def reconfigure(self, *, target_language: str, **api) -> bool:
         """設定變更後就地重建後端 client（呼叫端不需換 Translator 實例），回傳是否重建。
@@ -509,49 +551,73 @@ class Translator:
         值與目前生效的相同時整個跳過：重建會關掉連線池，飛行中的請求收到 WinSock 斷線、
         被判成「翻譯伺服器離線」（發話與區域沒有重試），端點學到的參數限制
         （見 _OpenAICompatClient）也得重新付一輪 400 才學回來。
-        舊 client 先關：否則每改一次設定就多留一個連線池。"""
-        if api == self._api and target_language == self._target_language:
+        舊 client 一定要關：否則每改一次設定就多留一個連線池。範例屬於舊設定，不帶過去。"""
+        old = self._binding
+        if api == old.api and target_language == old.target_language:
             return False
-        self._impl.close()
-        self._impl = _build_client(**api)
-        self._api = api
-        self._target_language = target_language
+        self._binding = _Binding(_build_client(**api), api, target_language)
+        old.impl.close()
         return True
 
     def describe(self) -> str:
         """目前生效的服務，失敗 log 用的診斷欄位（`provider=…, model=…`）。
         金鑰絕不列入 —— 這些欄位會寫進 app.log。"""
-        return f"provider={self._api.get('provider', 'custom')}, model={self._impl.model}"
+        b = self._binding
+        return f"provider={b.api.get('provider', 'custom')}, model={b.impl.model}"
 
     def close(self) -> None:
         """釋放後端的連線池（一次性用途如測試連線，用完即關）。"""
-        self._impl.close()
+        self._binding.impl.close()
+
+    @property
+    def examples(self) -> ExampleSet | None:
+        """目前套用的 few-shot 範例；尚未設定為 None（不放範例輪）。"""
+        return self._binding.examples
+
+    @property
+    def examples_fingerprint(self) -> str:
+        """目前服務與目標語言對應的範例指紋（見 examples.examples_fingerprint）。"""
+        return self._binding.fingerprint
+
+    def set_examples(self, examples: ExampleSet | None, fingerprint: str) -> bool:
+        """套用範例；指紋與目前設定不符（生成期間設定被改了）就不套用並回 False。"""
+        b = self._binding
+        if fingerprint != b.fingerprint:
+            log(f"[translate] ignoring examples for a stale fingerprint: {fingerprint}")
+            return False
+        self._binding = replace(b, examples=examples)
+        return True
 
     @property
     def target_language(self) -> str:
         """目前的目標語言。呼叫端要判斷譯文品質時需要它（見 has_stray_latin）。"""
-        return self._target_language
+        return self._binding.target_language
 
-    def _chat(self, kind: str, system: str, turns: list[dict], *,
+    def _chat(self, impl: _BaseClient, kind: str, system: str, turns: list[dict], *,
               source: str, context_lines: int, strip: bool = False,
-              max_tokens: int | None = None, redact: bool = False,
+              keep_sender: bool = False, max_tokens: int | None = None, redact: bool = False,
               cancel: RequestHandle | None = None) -> str:
         """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
 
         三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
         實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
         例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        `keep_sender=True` 把譯文的 `[發送者]` 換回原文那一個（見 restore_sender）。
         `redact=True` 只記字數不記內容：區域翻譯的原文可能整頁、譯文可能很長。
         `cancel` 給的話請求可以中途撤銷（見 RequestHandle）；還沒送就被取消的不送。
         """
         if cancel is not None and cancel.cancelled:
             raise TranslatorCancelled()
         started = time.monotonic()
-        # 綁成區域變數：reconfigure() 可能落在請求與 log 之間，記的要是真正送出請求的那個
-        impl = self._impl
         translated = impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
         if strip:
-            translated = strip_invented_english(source, translated)
+            translated = tidy_parentheses(source, translated)
+        if keep_sender:
+            restored = restore_sender(source, translated)
+            if sender_of(restored) != sender_of(translated):
+                log(f"[translate] model altered the sender prefix, restored: "
+                    f"source={source!r} model_output={translated!r}")
+            translated = restored
         shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
             f"(model={impl.model}, ctx={context_lines}): "
@@ -561,11 +627,13 @@ class Translator:
     def translate_incoming(self, text: str, context: list[str]) -> str:
         """收訊：把遊戲聊天（任何語言）翻成使用者設定的目標語言。
         context 為該行之前的原文行，由呼叫端依讀取順序維護（見 ChatContext）。"""
+        b = self._binding
         return self._chat(
-            "incoming",
-            build_incoming_system(self._target_language),
-            build_turns(context, text, CONTEXT_INTRO_INCOMING),
-            source=text, context_lines=len(context), strip=True)
+            b.impl, "incoming",
+            build_incoming_system(b.target_language),
+            build_turns(context, text, CONTEXT_INTRO_INCOMING,
+                        examples=example_turns(b.examples.incoming if b.examples else None)),
+            source=text, context_lines=len(context), strip=True, keep_sender=True)
 
     def translate_system_message(self, text: str) -> str:
         """系統訊息：把遊戲系統通知（任何語言）翻成使用者設定的目標語言。
@@ -576,21 +644,23 @@ class Translator:
         譯文落回英文時重譯一次（見 has_stray_latin）：裸名詞特別容易被改用官方英文名，
         實測重譯救得回約三分之一，救不回的（音譯玩家名）照樣回傳，呼叫端負責不寫進快取。
         只有這條路徑重譯：收訊有完整句子語境、實測不會落回英文。"""
-        translated = self._system_message_once(text)
-        if has_stray_latin(text, translated, self._target_language):
+        b = self._binding
+        translated = self._system_message_once(b, text)
+        if has_stray_latin(text, translated, b.target_language):
             log(f"[translate] system message is not in the target language, retrying "
                 f"strictly: source={text!r} translated={translated!r}")
-            translated = self._system_message_once(text, strict=True)
-            if has_stray_latin(text, translated, self._target_language):
+            translated = self._system_message_once(b, text, strict=True)
+            if has_stray_latin(text, translated, b.target_language):
                 log(f"[translate] strict retry is still not in the target language, "
                     f"using it as is: source={text!r} translated={translated!r}")
         return translated
 
-    def _system_message_once(self, text: str, strict: bool = False) -> str:
+    def _system_message_once(self, b: _Binding, text: str, strict: bool = False) -> str:
         return self._chat(
-            "system message (strict retry)" if strict else "system message",
-            build_system_message_system(self._target_language, strict=strict),
-            [{"role": "user", "content": text}],
+            b.impl, "system message (strict retry)" if strict else "system message",
+            build_system_message_system(b.target_language, strict=strict),
+            [*example_turns(b.examples.system if b.examples else None),
+             {"role": "user", "content": text}],
             source=text, context_lines=0, strip=True)
 
     def translate_outgoing(self, text: str, context: list[str],
@@ -602,7 +672,7 @@ class Translator:
         「不好意思我英文不好，用翻譯器」當成對它說的話回「No worries, I'll help you out!」，
         而該回覆會被原樣送進遊戲聊天。"""
         return self._chat(
-            "outgoing",
+            self._binding.impl, "outgoing",
             build_outgoing_system(OUTGOING_LANGUAGE),
             build_turns(context, text, CONTEXT_INTRO_OUTGOING,
                         examples=FEWSHOT_OUTGOING),
@@ -613,21 +683,73 @@ class Translator:
         使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
         每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
         編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
-        括號英文逐行過濾（`strip_invented_english`）：提示詞要求括號只能照抄該行原文，
+        括號原文逐行過濾（`tidy_parentheses`）：提示詞要求括號只能照抄該行原文，
         但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
         比對，同一頁另一行有英文時才不會替它放行。"""
         originals, numbered = number_lines(text)
+        b = self._binding
         translated = self._chat(
-            "region text",
-            build_region_system(self._target_language),
-            [{"role": "user", "content": numbered}],
+            b.impl, "region text",
+            build_region_system(b.target_language),
+            [*example_turns(b.examples.region if b.examples else None),
+             {"role": "user", "content": numbered}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
         lines = unnumber_lines(translated, originals).split("\n")
         if len(lines) != len(originals):
-            return strip_invented_english(text, "\n".join(lines))   # 對不上行時退回整段比對
-        return "\n".join(strip_invented_english(original, line)
+            # 對不上行時退回整段比對
+            return tidy_parentheses(text, "\n".join(lines))
+        return "\n".join(tidy_parentheses(original, line)
                          for original, line in zip(originals, lines, strict=True))
+
+    def generate_examples(self) -> tuple[str, ExampleSet]:
+        """請目前的模型把示範改寫成目標語言，回傳（指紋, 範例集）；不套用，由呼叫端 set_examples。
+
+        驗證失敗與截斷會重送，最多送 _EXAMPLE_ATTEMPTS 次請求並合併各次通過的路徑；其他例外往上拋。"""
+        b = self._binding
+        impl, api, target, fingerprint = b.impl, b.api, b.target_language, b.fingerprint
+        if is_game_language(target):
+            return fingerprint, GAME_LANGUAGE_EXAMPLES
+        system, turns = generation_request(target)
+        started = time.monotonic()
+        examples = EMPTY
+        attempt = 0
+        while attempt < _EXAMPLE_ATTEMPTS and not examples.complete:
+            attempt += 1
+            log(f"[translate] generating examples (provider={api.get('provider', 'custom')}, "
+                f"model={impl.model}, target={target}, attempt={attempt})")
+            try:
+                output = impl.chat(system, turns, max_tokens=_MAX_TOKENS_REGION,
+                                   deterministic=False)
+            except TranslatorBadOutput as exc:
+                log(f"[translate] example generation output rejected (attempt={attempt}): {exc}")
+                continue
+            parsed, failures = parse_generated(output)
+            if failures:
+                log(f"[translate] example validation failed (attempt={attempt}): "
+                    f"{failures}; output={output!r}")
+            examples = examples.merge(parsed)
+        log(f"[translate] examples generated in {time.monotonic() - started:.1f}s "
+            f"after {attempt} attempt(s): {examples.summary()}")
+        return fingerprint, examples
+
+
+def generate_and_store(api: dict, target_language: str, store: ExampleStore) -> ExampleSet | None:
+    """取得 api＋目標語言的範例：快取命中直接回傳，否則生成並存檔（全空不存、回 None）。"""
+    fingerprint = examples_fingerprint(api, target_language)
+    cached = store.get(fingerprint)
+    if cached is not None:
+        log(f"[translate] examples loaded from cache: {cached.summary()}")
+        return cached
+    translator = Translator(**api, target_language=target_language)
+    try:
+        _, examples = translator.generate_examples()
+    finally:
+        translator.close()
+    if examples.empty:
+        return None
+    store.put(fingerprint, examples)
+    return examples
 
 
 def list_models(api: dict, client=None) -> list[str]:
@@ -640,10 +762,20 @@ def list_models(api: dict, client=None) -> list[str]:
         impl.close()
 
 
-def test_translate(api: dict, target_language: str) -> str:
-    """測試連線：用表單當下的 api 設定實際翻一句固定文字，與正式翻譯同一條路。"""
+def test_translate(api: dict, target_language: str,
+                   example_store: ExampleStore | None = None) -> str:
+    """測試連線：用表單當下的 api 設定實際翻一句固定文字，與正式翻譯同一條路。
+
+    給 example_store 時翻譯成功後順便生成並快取範例；生成失敗只記 log，不影響回傳的譯文。"""
     translator = Translator(**api, target_language=target_language)
     try:
-        return translator.translate_incoming(TEST_SAMPLE, [])
+        translated = translator.translate_incoming(TEST_SAMPLE, [])
     finally:
         translator.close()
+    if example_store is not None:
+        try:
+            generate_and_store(api, target_language, example_store)
+        except Exception as exc:
+            log(f"[translate] example generation after the connection test failed: "
+                f"{type(exc).__name__}: {exc}")
+    return translated
