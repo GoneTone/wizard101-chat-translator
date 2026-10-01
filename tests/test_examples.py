@@ -147,11 +147,12 @@ def coordinator(tmp_path, applied=None):
 
 
 def test_cache_hit_applies_without_generating(tmp_path):
-    co = coordinator(tmp_path)
+    applied = []
+    co = coordinator(tmp_path, applied)
     co._store.put("fp", SET)
     tr = FakeTr("fp", SET)
     co.ensure(tr)
-    assert tr.examples == SET and tr.calls == 0
+    assert tr.examples == SET and tr.calls == 0 and applied == [tr]
 
 
 def test_a_miss_generates_stores_and_applies(tmp_path):
@@ -195,8 +196,55 @@ def test_a_result_for_an_outdated_fingerprint_is_stored_but_not_applied(tmp_path
     co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
     tr = FakeTr("fp-ja", SET)
     co.ensure(tr)
-    tr.examples_fingerprint = "fp-zh"
+    tr.examples_fingerprint = "fp-zh"  # 生成途中使用者切換了目標語言
     tr.generate_examples = lambda: ("fp-ja", SET)
     jobs[0]()
     assert tr.examples is None
     assert ExampleStore(tmp_path / "ex.json").get("fp-ja") == SET
+
+
+def test_a_result_is_applied_to_a_translator_that_now_matches_its_fingerprint(tmp_path):
+    jobs = []
+    co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
+    a, b = FakeTr("fp-ja", SET), FakeTr("fp-zh", SET)
+    co.ensure(a)
+    co.ensure(b)
+    b.examples_fingerprint = "fp-ja"
+    a.generate_examples = lambda: ("fp-ja", SET)
+    jobs[0]()
+    assert a.examples == SET and b.examples == SET
+
+
+def test_on_applied_is_skipped_when_set_examples_rejects(tmp_path):
+    applied = []
+    co = coordinator(tmp_path, applied)
+    co._store.put("fp", SET)
+    tr = FakeTr("fp", SET)
+    tr.set_examples = lambda ex, fp: False
+    co.ensure(tr)
+    assert applied == []
+
+
+def test_registering_the_same_translator_twice_applies_once(tmp_path):
+    applied = []
+    co = coordinator(tmp_path, applied)
+    tr = FakeTr("fp", SET)
+    co.ensure(tr)
+    co.ensure(tr)
+    assert applied == [tr, tr] and len(co._translators) == 1
+    assert tr.calls == 1
+
+
+def test_a_failure_after_the_settings_changed_does_not_block_a_later_retry(tmp_path):
+    jobs = []
+    co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
+    tr = FakeTr("fp-a", SET, error=RuntimeError("client closed"))
+    co.ensure(tr)
+    tr.examples_fingerprint = "fp-b"
+    jobs[0]()
+    tr.examples_fingerprint = "fp-a"
+    tr.error = None
+    co.ensure(tr)
+    assert len(jobs) == 2
+    jobs[1]()
+    assert tr.examples == SET

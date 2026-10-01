@@ -13,6 +13,7 @@ from src.config import local_state_dir
 from src.log import log
 from src.translation.postprocess import number_lines, unnumber_lines
 
+# 範例內容（含 GAME_LANGUAGE_EXAMPLES）或生成提示詞有變時要遞增，讓舊快取作廢。
 EXAMPLE_REVISION = 1
 EXAMPLES_PATH = local_state_dir() / "translation-examples.json"
 MAX_ENTRIES = 32
@@ -247,14 +248,17 @@ class ExampleCoordinator:
         cached = self._store.get(fingerprint)
         if cached is not None:
             self._apply(translator, cached, fingerprint)
-            log(f"[translate] examples cache hit ({translator.describe()}, {cached.summary()})")
+            log(f"[translate] examples cache hit ({translator.describe()}, fingerprint={fingerprint}, "
+                f"{cached.summary()})")
             return
         if fingerprint in self._pending or fingerprint in self._failed:
+            state = "pending" if fingerprint in self._pending else "failed"
             log(f"[translate] examples unavailable, translating without them "
-                f"({translator.describe()})")
+                f"({translator.describe()}, fingerprint={fingerprint}, {state})")
             return
         self._pending.add(fingerprint)
-        log(f"[translate] generating examples in background ({translator.describe()})")
+        log(f"[translate] generating examples in background ({translator.describe()}, "
+            f"fingerprint={fingerprint})")
         self._spawn(lambda: self._generate(translator, fingerprint))
 
     def _apply(self, translator, examples: ExampleSet, fingerprint: str) -> bool:
@@ -267,20 +271,27 @@ class ExampleCoordinator:
     def _generate(self, translator, requested: str) -> None:
         try:
             fingerprint, examples = translator.generate_examples()
-            if examples.empty:
-                raise ValueError("generated examples failed validation on every path")
-            self._store.put(fingerprint, examples)
         except Exception as exc:
-            log(f"[translate] example generation failed ({translator.describe()}): "
-                f"{type(exc).__name__}: {exc}")
+            log(f"[translate] example generation failed ({translator.describe()}, "
+                f"fingerprint={requested}): {type(exc).__name__}: {exc}")
             self._post(lambda: self._finish(requested, None, None))
             return
+        if examples.empty:
+            log(f"[translate] example generation failed validation on every path "
+                f"({translator.describe()}, fingerprint={requested})")
+            self._post(lambda: self._finish(requested, None, None))
+            return
+        self._store.put(fingerprint, examples)
         self._post(lambda: self._finish(requested, fingerprint, examples))
 
     def _finish(self, requested: str, fingerprint: str | None, examples: ExampleSet | None) -> None:
         self._pending.discard(requested)
         if examples is None:
-            self._failed.add(requested)
+            if any(t.examples_fingerprint == requested for t in self._translators):
+                self._failed.add(requested)
+            else:
+                log(f"[translate] example generation abandoned, settings changed "
+                    f"(fingerprint={requested})")
             return
         applied = [t for t in self._translators
                    if t.examples_fingerprint == fingerprint and self._apply(t, examples, fingerprint)]
@@ -288,4 +299,5 @@ class ExampleCoordinator:
             log(f"[translate] examples generated and applied to {len(applied)} translator(s) "
                 f"({examples.summary()})")
         else:
-            log("[translate] discarded examples for an outdated fingerprint")
+            log(f"[translate] examples stored but not applied, no translator matches "
+                f"(fingerprint={fingerprint})")
