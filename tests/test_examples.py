@@ -3,8 +3,10 @@ from src.translation.examples import (
     EMPTY,
     EXAMPLE_REVISION,
     GAME_LANGUAGE_EXAMPLES,
+    MAX_ENTRIES,
     SOURCE_LINES,
     ExampleSet,
+    ExampleStore,
     examples_fingerprint,
     generation_request,
     parse_generated,
@@ -82,3 +84,32 @@ def test_generation_request_names_the_target_and_numbers_the_sources():
 def test_game_language_examples_translate_into_english():
     assert "Fire Cat (火" in GAME_LANGUAGE_EXAMPLES.incoming[1]
     assert GAME_LANGUAGE_EXAMPLES.complete
+
+
+def test_store_round_trips_and_keeps_several_fingerprints(tmp_path):
+    store = ExampleStore(tmp_path / "ex.json")
+    a, b = ExampleSet(("s", "o"), None, None), ExampleSet(None, ("s", "o"), None)
+    store.put("fp-a", a)
+    store.put("fp-b", b)
+    assert ExampleStore(tmp_path / "ex.json").get("fp-a") == a
+    assert store.get("fp-b") == b and store.get("fp-c") is None
+
+
+def test_store_drops_the_oldest_beyond_the_limit(tmp_path):
+    examples = ExampleSet(("s", "o"), None, None)
+    store = ExampleStore(tmp_path / "ex.json")
+    for i in range(MAX_ENTRIES + 1):
+        store.put(f"fp-{i}", examples)
+    assert store.get("fp-0") is None and store.get(f"fp-{MAX_ENTRIES}") is not None
+
+
+def test_store_treats_a_corrupt_file_as_empty(tmp_path):
+    path = tmp_path / "ex.json"
+    path.write_text("{not json", encoding="utf-8")
+    assert ExampleStore(path).get("fp") is None
+
+
+def test_store_does_not_write_an_empty_set(tmp_path):
+    path = tmp_path / "ex.json"
+    ExampleStore(path).put("fp", EMPTY)
+    assert not path.exists()
