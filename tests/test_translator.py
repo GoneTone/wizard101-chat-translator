@@ -1482,7 +1482,8 @@ def test_reconfigure_without_changes_keeps_the_examples():
 
 def test_generate_examples_retries_bad_output_and_merges():
     good_but_no_system = JA.replace("{0} ゴールド", "ゴールド")
-    fake = _contents("garbage", good_but_no_system, JA)
+    good_but_no_incoming = JA.replace("[Amy] ", "")
+    fake = _contents("garbage", good_but_no_system, good_but_no_incoming)
     tr = Translator(target_language="日本語", client=fake, provider="custom", base_url="http://x", model="m")
     fp, examples = tr.generate_examples()
     assert examples.complete and len(fake.bodies) == 3 and fp == tr.examples_fingerprint
@@ -1524,3 +1525,30 @@ def test_test_translate_survives_a_failing_example_generation(tmp_path, monkeypa
                         lambda self: (_ for _ in ()).throw(TranslatorOffline("down")))
     api = {"provider": "custom", "base_url": "http://x", "model": "m"}
     assert run_test_translate(api, "日本語", example_store=ExampleStore(tmp_path / "ex.json")) == "譯文"
+
+
+def test_strict_retry_sends_the_same_example_turns():
+    fake = _contents("Gained gold", "Gained gold")
+    tr = _make(fake)
+    tr.set_examples(ExampleSet(None, ("s", "o"), None), tr.examples_fingerprint)
+    tr.translate_system_message("Gained gold")
+    assert len(fake.bodies) == 2
+    assert _turns(fake.bodies[0])[:2] == _turns(fake.bodies[1])[:2] == [
+        {"role": "user", "content": "s"}, {"role": "assistant", "content": "o"}]
+
+
+def test_generate_and_store_persists_a_non_empty_result(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    made = ExampleSet(("s", "o"), None, None)
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: ("fp", made))
+    assert generate_and_store(api, "日本語", store) == made
+    assert store.get(examples_fingerprint(api, "日本語")) == made
+
+
+def test_generate_and_store_skips_writing_an_empty_result(tmp_path, monkeypatch):
+    store = ExampleStore(tmp_path / "ex.json")
+    api = {"provider": "custom", "base_url": "http://x", "model": "m"}
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: ("fp", EMPTY))
+    assert generate_and_store(api, "日本語", store) is None
+    assert store.get(examples_fingerprint(api, "日本語")) is None

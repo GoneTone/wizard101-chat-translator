@@ -4,9 +4,10 @@
 來源語言一律自動判斷；提示詞在 prompts.py，譯文後處理與品質判定在 postprocess.py。
 
 失敗分三類：TranslatorOffline（可重試）、TranslatorConfigError（等使用者修設定）、
-TranslatorBadOutput（譯文被截斷，重試無用、該行應跳過）。
+TranslatorBadOutput（譯文被截斷，翻譯路徑重試無用、該行應跳過；只有生成範例會重試它）。
 list_models() 向端點取得模型清單，端點不支援時拋 TranslatorNoModelList。
-上下文由呼叫端提供（見 context.py），本類別不持有狀態，可安全平行呼叫。
+上下文由呼叫端提供（見 context.py）；Translator 只持有 few-shot 範例，
+每次請求只讀一次，平行呼叫仍安全。
 """
 import json
 import re
@@ -530,11 +531,11 @@ class Translator:
         舊 client 先關：否則每改一次設定就多留一個連線池。"""
         if api == self._api and target_language == self._target_language:
             return False
+        self._examples = None  # 先清：背景請求不能拿新語言的提示詞配舊語言的範例
         self._impl.close()
         self._impl = _build_client(**api)
         self._api = api
         self._target_language = target_language
-        self._examples = None
         return True
 
     def describe(self) -> str:
@@ -685,8 +686,9 @@ class Translator:
         """請目前的模型把示範改寫成目標語言，回傳（指紋, 範例集）；不套用，由呼叫端 set_examples。
 
         開頭就綁定後端、目標語言與指紋，期間 reconfigure 也不會混用設定。
-        驗證失敗與截斷最多重試 _EXAMPLE_ATTEMPTS 次並合併各次通過的路徑；其他例外往上拋。"""
-        impl, target, fingerprint = self._impl, self._target_language, self.examples_fingerprint
+        驗證失敗與截斷會重送，最多送 _EXAMPLE_ATTEMPTS 次請求並合併各次通過的路徑；其他例外往上拋。"""
+        impl, api, target = self._impl, self._api, self._target_language
+        fingerprint = examples_fingerprint(api, target)
         if is_game_language(target):
             return fingerprint, GAME_LANGUAGE_EXAMPLES
         system, turns = generation_request(target)
@@ -695,8 +697,8 @@ class Translator:
         attempt = 0
         while attempt < _EXAMPLE_ATTEMPTS and not examples.complete:
             attempt += 1
-            log(f"[translate] generating examples ({self.describe()}, target={target}, "
-                f"attempt={attempt})")
+            log(f"[translate] generating examples (provider={api.get('provider', 'custom')}, "
+                f"model={impl.model}, target={target}, attempt={attempt})")
             try:
                 output = impl.chat(system, turns, max_tokens=_MAX_TOKENS_REGION,
                                    deterministic=False)
