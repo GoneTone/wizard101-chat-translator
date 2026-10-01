@@ -138,6 +138,13 @@ class _FakeCoordinator:
         self.ensured.append(translator)
 
 
+class _FakeStore:
+    """範例儲存替身：磁碟上什麼都沒有。"""
+
+    def get(self, fingerprint):
+        return None
+
+
 def _build(cfg):
     return main.build_translation(cfg, lambda *a: None, lambda job: job())
 
@@ -147,7 +154,7 @@ def _stub_translation(monkeypatch):
     monkeypatch.setattr(main, "TranslationPool", _FakePool)
     monkeypatch.setattr(main, "TranslationCache", _FakeCache)
     monkeypatch.setattr(main, "ExampleCoordinator", _FakeCoordinator)
-    monkeypatch.setattr(main, "ExampleStore", lambda: None)
+    monkeypatch.setattr(main, "ExampleStore", _FakeStore)
 
 
 def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkeypatch):
@@ -252,9 +259,42 @@ def test_reconfigure_without_changes_keeps_examples_and_does_not_ensure(monkeypa
     incoming = translators[SLOT_INCOMING]
     examples = ExampleSet(("s", "o"), None, None)
     incoming.set_examples(examples, incoming.examples_fingerprint)
+    coordinator.on_applied(incoming)
     coordinator.ensured.clear()
     main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
     assert coordinator.ensured == [] and incoming.examples == examples
+    assert cache.fingerprint.endswith("|x" + examples.digest())
+
+
+def test_restart_keeps_the_persisted_cache_when_examples_are_already_stored(monkeypatch, tmp_path):
+    """範例已在磁碟時，啟動不可先用無範例指紋載入再 rebind —— 那會把上次的快取清空。"""
+    from functools import partial
+
+    from src.services import SLOT_INCOMING, SLOT_REGION, resolve
+    from src.translation.cache import TranslationCache
+    from src.translation.examples import ExampleCoordinator, ExampleStore
+    from src.translation.translator import Translator
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    probe = Translator(**resolve(cfg, SLOT_INCOMING), target_language=cfg["target_language"])
+    examples = ExampleSet(("s", "o"), ("s", "o"), ("s", "o"))
+    store_path, cache_file = tmp_path / "examples.json", tmp_path / "cache.json"
+    ExampleStore(store_path).put(probe.examples_fingerprint, examples)
+    region = Translator(**resolve(cfg, SLOT_REGION), target_language=cfg["target_language"])
+    ExampleStore(store_path).put(region.examples_fingerprint, examples)
+    seeded = TranslationCache(main.incoming_fingerprint(cfg, examples), cache_file)
+    seeded.put("hello", "bonjour", seeded.fingerprint)
+    seeded.flush()
+
+    monkeypatch.setattr(main, "TranslationCache", lambda fp: TranslationCache(fp, cache_file))
+    monkeypatch.setattr(main, "ExampleStore", lambda: ExampleStore(store_path))
+    monkeypatch.setattr(main, "ExampleCoordinator",
+                        partial(ExampleCoordinator, spawn=lambda job: job()))
+    _translators, cache, _pools, _coordinator = _build(cfg)
+
+    assert cache.get("hello") == "bonjour"
+    assert "bonjour" in cache_file.read_text(encoding="utf-8")
 
 
 def test_applying_incoming_examples_rebinds_the_system_message_cache(monkeypatch):
@@ -286,6 +326,7 @@ def test_saving_unrelated_settings_rebuilds_no_translator(monkeypatch):
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
+    coordinator.ensured.clear()
     before = {slot: tr._impl for slot, tr in translators.items()}
 
     cfg["overlay_alpha"] = 0.5
@@ -335,10 +376,13 @@ def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, 
 
 
 def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
-    """目標語言也是 reconfigure 的參數：三格都要跟上。"""
+    """目標語言也是 reconfigure 的參數：三格都要跟上，但發話那格不用範例。"""
+    from src.services import SLOT_INCOMING, SLOT_REGION
+
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
     translators, cache, pools, coordinator = _build(cfg)
+    coordinator.ensured.clear()
     before = {slot: tr._impl for slot, tr in translators.items()}
 
     cfg["target_language"] = "日本語"
@@ -347,6 +391,7 @@ def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
     for slot, tr in translators.items():
         assert tr._impl is not before[slot]
         assert tr.target_language == "日本語"
+    assert coordinator.ensured == [translators[SLOT_INCOMING], translators[SLOT_REGION]]
 
 
 def _twin_endpoint_cfg():

@@ -479,20 +479,21 @@ def build_translation(cfg: dict, deliver, post) -> tuple[
         dict[str, Translator], TranslationCache, list[TranslationPool], ExampleCoordinator]:
     """翻譯端：三個用途各一個翻譯器、系統訊息譯文快取、兩條翻譯池（玩家對話吃上下文；
     系統訊息不吃上下文、走快取），以及範例協調器。兩條池共用同一個總量閘與
-    `deliver(msg_id, text, failed)`；`post` 把回呼排進 UI 執行緒（須執行緒安全）。
-    啟動時就為收訊與框選兩格備妥目標語言範例。"""
+    `deliver(msg_id, text, failed)`；`post` 把回呼排進 UI 執行緒（須執行緒安全）。"""
     translators = {slot: Translator(**resolve(cfg, slot),
                                     target_language=cfg["target_language"])
                    for slot in SLOTS}
     gate = ConcurrencyGate(cfg["max_parallel_translations"])
-    cache = TranslationCache(incoming_fingerprint(cfg))
+    store = ExampleStore()
+    stored = store.get(translators[SLOT_INCOMING].examples_fingerprint)
+    cache = TranslationCache(incoming_fingerprint(cfg, stored))   # 與磁碟上次存的指紋一致才不會被清掉
     cache.load()
 
     def on_examples_applied(tr: Translator) -> None:
         if tr is translators[SLOT_INCOMING]:
             cache.rebind(incoming_fingerprint(cfg, tr.examples))
 
-    coordinator = ExampleCoordinator(ExampleStore(), post, on_applied=on_examples_applied)
+    coordinator = ExampleCoordinator(store, post, on_applied=on_examples_applied)
 
     def make_pool(translate_fn=None) -> TranslationPool:
         return TranslationPool(translator=translators[SLOT_INCOMING], on_result=deliver,
