@@ -11,7 +11,7 @@ OUTGOING_LANGUAGE = "English"
 # _game_noun_rule）就 +1 —— 只有這條路徑的譯文會落磁碟快取（見
 # translation.cache.fingerprint_of），舊提示詞翻壞的譯名才不會跨版本留下。
 # 收訊與發話的提示詞不進快取，改動不必動版次。
-PROMPT_REVISION = 5
+PROMPT_REVISION = 6
 
 # 上下文以多輪對話傳遞（背景記錄當前一輪 user、assistant 確認、待翻句子單獨成最後一輪）
 # 而非段落標記：system prompt 因此不必列任何 header 字串 —— 小模型會把 header 回吐成
@@ -45,6 +45,14 @@ def build_turns(context: list[str], text: str, intro: str,
         turns.append({"role": "assistant", "content": CONTEXT_ACK})
     turns.append({"role": "user", "content": text})
     return turns
+
+
+def example_turns(pair: tuple[str, str] | None) -> list[dict]:
+    """把一組（原文, 譯文）範例轉成 few-shot 的 user／assistant 對話輪；None 回傳空列表。"""
+    if pair is None:
+        return []
+    source, output = pair
+    return [{"role": "user", "content": source}, {"role": "assistant", "content": output}]
 
 
 def is_game_language(target_language: str) -> bool:
@@ -111,22 +119,8 @@ def _target_only_rule(target_language: str) -> str:
             "（括號照抄的原文除外）。\n")
 
 
-def _example(target_language: str, foreign: tuple[str, str], native: tuple[str, str]) -> str:
-    """附原文格式的示範：只寫規則時實測模型幾乎不附括號，加一組示範才穩定。
-
-    已知限制：示範的譯名固定是中文（foreign），非中文目標語言拿到的仍是中文示範；
-    結尾的 _closing 能減少但無法杜絕中文滲漏。目標是遊戲語言時改用中文→英文（native）；
-    此時英文原文會被模型仿照示範補上中文括號，_game_noun_rule 得明講「原文已是該語言就照抄」。
-    示範的名詞刻意不與常見測試句重疊，避免模型只會照抄示範裡的名詞。"""
-    if is_game_language(target_language):
-        source, output = native
-        return f"範例：{source}\n→ {output}"
-    source, output = foreign
-    return f"範例（以中文譯名示範格式，實際一律譯成 {target_language}）：{source}\n→ {output}"
-
-
 def _closing(target_language: str) -> str:
-    """結尾重申目標語言：提示詞與示範都是中文，短提示詞下日文目標曾整句譯成中文。"""
+    """結尾重申目標語言：提示詞是中文，短提示詞下日文目標曾整句譯成中文。"""
     return f"\n譯文一律使用 {target_language}，不論原文或本說明是什麼語言。"
 
 
@@ -139,15 +133,6 @@ def build_incoming_system(target_language: str) -> str:
         + _slang_rule(target_language)
         + _target_only_rule(target_language)
         + _game_noun_rule(target_language)
-        + _example(target_language,
-                   ("[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, "
-                    "brb my wand is trash",
-                    "[Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）"
-                    "學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛"),
-                   ("[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，"
-                    "等我一下，我的法杖超爛",
-                    "[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) "
-                    "at Colossus Boulevard (巨像大道) lol, brb my wand is trash"))
         + _closing(target_language)
     )
 
@@ -189,13 +174,6 @@ def build_system_message_system(target_language: str, strict: bool = False) -> s
         "- {0}、{1} 等佔位符原樣保留、數量不變。\n"
         + _target_only_rule(target_language)
         + _game_noun_rule(target_language)
-        + _example(target_language,
-                   ("Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
-                    "Kai 教會了你火貓（Fire Cat）！"
-                    "在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。"),
-                   ("Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
-                    "Kai taught you Fire Cat (火猫)! "
-                    "Gained {0} gold at Colossus Boulevard (巨像大道)."))
         + _closing(target_language)
     )
     if strict:
@@ -216,11 +194,5 @@ def build_region_system(target_language: str) -> str:
         f"- 畫面上的人名都是 NPC，比照專有名詞轉成 {target_language}。\n"
         + _target_only_rule(target_language)
         + _game_noun_rule(target_language, same_line=True)
-        + _example(target_language,
-                   ("\n1. Talk to the Fire Cat\n2. Go to Colossus Boulevard\n3. and then you must",
-                    "\n1. 和火貓（Fire Cat）談談\n2. 前往巨像大道（Colossus Boulevard）\n3. 然後你必須"),
-                   ("\n1. 和火猫谈谈\n2. 前往巨像大道\n3. 然后你必须",
-                    "\n1. Talk to the Fire Cat (火猫)\n2. Go to Colossus Boulevard (巨像大道)"
-                    "\n3. and then you must"))
         + _closing(target_language)
     )

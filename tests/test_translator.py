@@ -19,10 +19,12 @@ from src.translation.postprocess import (
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
+    PROMPT_REVISION,
     _game_noun_rule,
     build_incoming_system,
     build_region_system,
     build_system_message_system,
+    example_turns,
 )
 from src.translation.translator import (
     _MAX_TOKENS_REGION,
@@ -803,19 +805,21 @@ def test_game_noun_rule_always_appends_the_original_for_every_target():
         assert "並在譯名後用括號逐字照抄原文寫法" in _game_noun_rule(language)
 
 
-def test_every_parenthesis_prompt_shows_the_format_and_restates_the_target():
-    # 只寫規則時實測模型幾乎不附括號，要靠示範；示範是中文，結尾重申目標語言才壓得住滲漏
+def test_system_prompts_no_longer_embed_an_example():
     for build in (build_incoming_system, build_system_message_system, build_region_system):
         prompt = build("日本語")
-        assert "（Fire Cat）" in prompt
-        assert prompt.endswith("譯文一律使用 日本語，不論原文或本說明是什麼語言。")
+        assert "範例" not in prompt and "Fire Cat" not in prompt
+        assert prompt.rstrip().endswith("譯文一律使用 日本語，不論原文或本說明是什麼語言。")
 
 
-def test_game_language_example_translates_into_english_with_the_original_in_parentheses():
-    # 目標就是英文時，「中文譯名（英文）」的示範方向反了，要換成「英文名 (中文原文)」
-    prompt = build_incoming_system(OUTGOING_LANGUAGE)
-    assert "Fire Cat (火貓)" in prompt
-    assert "實際一律譯成" not in prompt
+def test_example_turns_become_a_user_and_assistant_pair():
+    assert example_turns(None) == []
+    assert example_turns(("src", "out")) == [{"role": "user", "content": "src"},
+                                             {"role": "assistant", "content": "out"}]
+
+
+def test_prompt_revision_was_bumped_for_the_example_change():
+    assert PROMPT_REVISION == 6
 
 
 def test_game_noun_rule_keeps_player_and_npc_names_untranslated():
