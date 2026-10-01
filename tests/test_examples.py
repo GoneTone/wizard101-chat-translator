@@ -28,8 +28,10 @@ def test_parse_generated_accepts_every_path():
     examples, failures = parse_generated(GOOD)
     assert examples.complete and failures == []
     assert examples.incoming == (SOURCE_LINES[0], GOOD.splitlines()[0][3:])
-    assert examples.region[0].startswith("1. Talk to the Fire Cat")
-    assert examples.region[1].splitlines()[2:] == ["3. オプション", "4. そしてあなたは"]
+    assert examples.region[0] == "\n".join(SOURCE_LINES[2:])     # 框選範例不帶編號
+    assert examples.region[1].splitlines() == [
+        "火猫（Fire Cat）に話しかける", "巨像大道（Colossus Boulevard）へ行く",
+        "オプション", "そしてあなたは"]
 
 
 def test_parse_generated_drops_only_the_failing_path():
@@ -119,7 +121,7 @@ def test_game_language_examples_translate_into_english():
 
 def test_game_language_region_example_keeps_the_interface_label_bare():
     source, output = GAME_LANGUAGE_EXAMPLES.region
-    assert "3. 选项" in source.splitlines() and "3. Options" in output.splitlines()
+    assert source.splitlines()[2] == "选项" and output.splitlines()[2] == "Options"
 
 
 def test_game_language_region_examples_have_no_surrounding_newlines():

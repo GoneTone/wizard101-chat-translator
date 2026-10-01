@@ -14,7 +14,7 @@ from src.log import log
 from src.translation.postprocess import number_lines, unnumber_lines
 
 # 範例內容（含 GAME_LANGUAGE_EXAMPLES）或生成提示詞有變時要遞增，讓舊快取作廢。
-EXAMPLE_REVISION = 2
+EXAMPLE_REVISION = 3
 EXAMPLES_PATH = local_state_dir() / "translation-examples.json"
 MAX_ENTRIES = 32
 
@@ -92,9 +92,9 @@ GAME_LANGUAGE_EXAMPLES = ExampleSet(
               "at Colossus Boulevard (巨像大道) lol, brb my wand is trash"),
     system=("Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
             "Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道)."),
-    region=("1. 和火猫谈谈\n2. 前往巨像大道\n3. 选项\n4. 然后你必须",
-            "1. Talk to the Fire Cat (火猫)\n2. Go to Colossus Boulevard (巨像大道)"
-            "\n3. Options\n4. and then you must"),
+    region=("和火猫谈谈\n前往巨像大道\n选项\n然后你必须",
+            "Talk to the Fire Cat (火猫)\nGo to Colossus Boulevard (巨像大道)"
+            "\nOptions\nand then you must"),
 )
 
 
@@ -155,12 +155,10 @@ def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
     incoming = _check_incoming(lines[0])
     system = _check_system(lines[1])
     region = _check_region(lines[2:])
-    _, region_source = number_lines("\n".join(SOURCE_LINES[2:]))
-    _, region_output = number_lines("\n".join(lines[2:]))
     return ExampleSet(
         incoming=None if incoming else (SOURCE_LINES[0], lines[0]),
         system=None if system else (SOURCE_LINES[1], lines[1]),
-        region=None if region else (region_source, region_output),
+        region=None if region else ("\n".join(SOURCE_LINES[2:]), "\n".join(lines[2:])),
     ), incoming + system + region
 
 

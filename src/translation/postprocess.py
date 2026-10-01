@@ -136,11 +136,15 @@ def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
 _NUMBERED_LINE = re.compile(r"^\s*(\d+)\s*[.．、)]\s*(.*)$")
 
 
+def nonblank_lines(text: str) -> list[str]:
+    """拆成去掉前後空白的非空白行。"""
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def number_lines(text: str) -> tuple[list[str], str]:
     """把多行文字拆成非空白行並加上 `1. `、`2. ` 編號，回傳（原始行, 編號後的文字）。
-    給區域翻譯的 OCR 路徑用：弱模型對「逐行對應」的文字規則常會漏行或合併行，
-    編號讓對應關係變成可由程式核對的結構。"""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    給範例生成用：每行是一條獨立的示範，編號讓逐行驗證可由程式核對。"""
+    lines = nonblank_lines(text)
     return lines, "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
 
 

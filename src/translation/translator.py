@@ -31,12 +31,11 @@ from src.translation.examples import (
 )
 from src.translation.postprocess import (
     has_stray_latin,
-    number_lines,
+    nonblank_lines,
     restore_sender,
     sender_of,
     strip_think,
     tidy_parentheses,
-    unnumber_lines,
 )
 from src.translation.prompts import (
     CONTEXT_INTRO_INCOMING,
@@ -681,24 +680,25 @@ class Translator:
     def translate_region_text(self, text: str, cancel: RequestHandle | None = None) -> str:
         """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
         使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
-        每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
-        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
-        括號原文逐行過濾（`tidy_parentheses`）：提示詞要求括號只能照抄該行原文，
-        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；只比對該行與
-        上下相鄰行而非整段，同一頁遠處有英文時才不會替它放行，折行句子依語序挪到鄰行的
-        名詞又不會被誤刪。"""
-        originals, numbered = number_lines(text)
+        原文逐行送出、不加編號：加了編號模型照樣會把折行的句子併起來，缺的編號只能補回原文，
+        卡片上反而多出已經翻過的英文；不加編號時併成的段落通順、內容完整。行數對不上就把
+        譯文整段顯示。
+        括號原文過濾（`tidy_parentheses`）：提示詞要求括號只能照抄原文，但實機仍會把簡體
+        中文地名譯成「天國大本營（Heavenly Headquarters）」。行數對得上時只比對該行與上下
+        相鄰行，同一頁遠處有英文時才不會替它放行，折行句子挪到鄰行的名詞又不會被誤刪。"""
+        originals = nonblank_lines(text)
         b = self._binding
         translated = self._chat(
             b.impl, "region text",
             build_region_system(b.target_language),
             [*example_turns(b.examples.region if b.examples else None),
-             {"role": "user", "content": numbered}],
+             {"role": "user", "content": "\n".join(originals)}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
-        lines = unnumber_lines(translated, originals).split("\n")
+        lines = nonblank_lines(translated)
         if len(lines) != len(originals):
-            # 對不上行時退回整段比對
+            log(f"[translate] region text came back as {len(lines)} lines for "
+                f"{len(originals)}; showing it as a whole")
             return tidy_parentheses(text, "\n".join(lines))
         return "\n".join(tidy_parentheses("\n".join(originals[max(i - 1, 0):i + 2]), line)
                          for i, line in enumerate(lines))
