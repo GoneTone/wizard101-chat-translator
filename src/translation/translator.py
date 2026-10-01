@@ -684,8 +684,9 @@ class Translator:
         每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
         編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
         括號原文逐行過濾（`tidy_parentheses`）：提示詞要求括號只能照抄該行原文，
-        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
-        比對，同一頁另一行有英文時才不會替它放行。"""
+        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；只比對該行與
+        上下相鄰行而非整段，同一頁遠處有英文時才不會替它放行，折行句子依語序挪到鄰行的
+        名詞又不會被誤刪。"""
         originals, numbered = number_lines(text)
         b = self._binding
         translated = self._chat(
@@ -699,8 +700,8 @@ class Translator:
         if len(lines) != len(originals):
             # 對不上行時退回整段比對
             return tidy_parentheses(text, "\n".join(lines))
-        return "\n".join(tidy_parentheses(original, line)
-                         for original, line in zip(originals, lines, strict=True))
+        return "\n".join(tidy_parentheses("\n".join(originals[max(i - 1, 0):i + 2]), line)
+                         for i, line in enumerate(lines))
 
     def generate_examples(self) -> tuple[str, ExampleSet]:
         """請目前的模型把示範改寫成目標語言，回傳（指紋, 範例集）；不套用，由呼叫端 set_examples。

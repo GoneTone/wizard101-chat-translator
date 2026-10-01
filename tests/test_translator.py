@@ -1214,12 +1214,27 @@ def test_region_text_strips_english_the_model_invented_for_a_line_without_any():
             == "若有時間，我希望你再次拜訪天國大本營！")
 
 
-def test_region_text_keeps_english_copied_from_the_same_line_only():
-    # 逐行判定：第一行原文有英文，括號照抄可留；第二行沒有，括號英文必是憑空生成
+def test_region_text_keeps_only_english_copied_from_nearby_lines():
+    # 逐行判定：第一行原文有英文，括號照抄可留；第二行與鄰行都沒有，括號英文必是憑空生成
     fake = FakeHttpxClient(response=FakeResponse(
         content="1. 跟莫爾·安布羅斯（Merle Ambrose）談談\n2. 天國大本營（Heavenly HQ）"))
     assert (_make(fake).translate_region_text("Talk to Merle Ambrose\n天国大本营")
             == "跟莫爾·安布羅斯（Merle Ambrose）談談\n天國大本營")
+
+
+def test_region_text_keeps_a_name_moved_into_the_adjacent_line():
+    # 實機 gpt-6-luna：折行的句子依中文語序重排，名詞連同括號挪到上一行
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 日安！我會在巫師城（Wizard City）等你\n2. ！"))
+    assert (_make(fake).translate_region_text("Good day! I'll be waiting for you\nin Wizard City!")
+            == "日安！我會在巫師城（Wizard City）等你\n！")
+
+
+def test_region_text_strips_english_found_only_two_lines_away():
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="1. 跟莫爾談談\n2. 第二行\n3. 天國大本營（Merle Ambrose）"))
+    assert (_make(fake).translate_region_text("Talk to Merle Ambrose\nSecond line\n天国大本营")
+            == "跟莫爾談談\n第二行\n天國大本營")
 
 
 def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
