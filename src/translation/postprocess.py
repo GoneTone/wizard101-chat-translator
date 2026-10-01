@@ -1,4 +1,4 @@
-"""譯文後處理與品質判定：去掉 <think> 區塊、清除模型自行補上的括號英文、
+"""譯文後處理與品質判定：去掉 <think> 區塊、清除模型自行補上的括號原文、還原發送者、
 判斷譯文有沒有落回拉丁文字（改用官方英文名或整句沒翻）。純字串函式，不碰網路。
 """
 import re
@@ -15,9 +15,10 @@ def strip_think(text: str) -> str:
 
 
 _SENDER_PREFIX = re.compile(rf"^{SENDER_PREFIX}\s*")
-# 半形或全形括號包住、以英文字母開頭的內容（模型補上的英文名長這樣）
-_PAREN_ENGLISH = re.compile(r"\s*[（(][A-Za-z][A-Za-z0-9 .'\-]*[)）]")
+_PARENTHESISED = re.compile(r"\s*[（(]([^（）()\n]+)[)）]")
 _LATIN = re.compile(r"[A-Za-z]")
+# 非拉丁字母的字（漢字、假名、諺文、西里爾等）；帶重音的拉丁字母（é、ñ）不算
+_NON_LATIN_LETTER = re.compile(r"[^\W\d_\u0000-ɏḀ-ỿ]")
 # 一段連續的拉丁文字（字母起頭，可含數字、詞內標點與空白）：
 # 「Received a friend request from Amy」算一段，而非被空白切成六段。
 _LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9 .,'’\-]*")
@@ -25,21 +26,63 @@ _LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9 .,'’\-]*")
 _NON_LATIN_WORD = re.compile(r"[^\W\d_]")
 
 
-def _content_has_latin(text: str) -> bool:
-    """訊息內容裡有沒有拉丁字母；`[發送者]` 前綴不算（發送者名是英文，與內容無關）。"""
-    return _LATIN.search(_SENDER_PREFIX.sub("", text)) is not None
+_NON_WORD_ONLY = re.compile(r"[\W\d_]*")
 
 
-def strip_invented_english(source: str, translated: str) -> str:
-    """原文不含英文時，移除譯文裡以括號補上的英文名。
+def _alnum(text: str) -> str:
+    """只留字母與數字並忽略大小寫：模型照抄原文時常換掉撇號、連字號或空白。"""
+    return re.sub(r"[\W_]+", "", text).casefold()
 
-    提示詞已要求括號英文只能照抄原文（見 _game_noun_rule），但小模型遵從度不穩：實測
-    同一則簡體中文材料名兩次分別補上 (Psychedelic Wood) 與 (Mystic Wood)，遊戲裡並沒有
-    這個英文名。原文一個英文字母都沒有時，括號英文必然是憑空生成。
-    括號裡不是英文（中文註解等）一律不動。"""
-    if _content_has_latin(source):
-        return translated   # 原文有英文，括號裡可能是照抄的
-    return _PAREN_ENGLISH.sub("", translated)
+
+def tidy_parentheses(source: str, translated: str) -> str:
+    """移除譯文裡不該有的括號原文：原文沒出現過的外文，以及只是重複前面譯名的。
+
+    提示詞要求括號只能照抄原文（見 _game_noun_rule），但模型遵從度不穩：實測替簡中材料名
+    自編 (Mystic Wood)、替英文原文自編 (塞壬)，或名詞沒翻就重複一次（Malistaire（Malistaire））。
+    「外文」以括號外的譯文用什麼文字判斷，不看目標語言名稱：名稱可自由輸入（Japanese 也行）。
+    括號裡是譯文本身那種文字的說明一律不動；`[發送者]` 不算原文。"""
+    body = _PARENTHESISED.sub("", _SENDER_PREFIX.sub("", translated))
+    latin_translation = _NON_LATIN_LETTER.search(body) is None
+    haystack = _alnum(_SENDER_PREFIX.sub("", source))
+
+    def foreign(content: str) -> bool:
+        if _NON_WORD_ONLY.fullmatch(body):
+            return False    # 括號外沒有字（整行都是括號）就無從判斷，一律保留
+        if latin_translation:
+            return _NON_LATIN_LETTER.search(content) is not None
+        return _LATIN.search(content) is not None and _NON_LATIN_LETTER.search(content) is None
+
+    def keep(match: re.Match) -> str:
+        content = _alnum(match.group(1))
+        if foreign(match.group(1)) and content not in haystack:
+            return ""
+        if len(content) > 1 and _alnum(translated[:match.start()]).endswith(content):
+            return ""
+        return match.group()
+
+    return _PARENTHESISED.sub(keep, translated)
+
+
+_LEADING_BRACKETS = re.compile(rf"^(?:{SENDER_PREFIX}\s*)+")
+
+
+def _leading_bracket_count(text: str) -> int:
+    match = _LEADING_BRACKETS.match(text)
+    return len(re.findall(SENDER_PREFIX, match.group())) if match else 0
+
+
+def restore_sender(source: str, translated: str) -> str:
+    """譯文開頭的 `[發送者]` 一律換回原文那一個；模型丟掉時補回去。
+
+    發送者名不交給模型：實測漢化包的簡中玩家名會被改字（贾斯廷 渡鸦 → 賈斯汀 渡鴉）。
+    以開頭連續的中括號組數判斷模型是改了還是丟了發送者，內容本身以 `[WTS]` 開頭時才不會誤換。"""
+    sender = _SENDER_PREFIX.match(source)
+    if sender is None:
+        return translated
+    prefix = sender.group().rstrip()
+    if _leading_bracket_count(translated) < _leading_bracket_count(source):
+        return f"{prefix} {translated.lstrip()}"
+    return f"{prefix} {_SENDER_PREFIX.sub('', translated, count=1)}"
 
 
 def uses_latin_script(language: str) -> bool:
@@ -58,8 +101,8 @@ def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
     """譯文是否出現了不該有的拉丁文字 —— 模型改用英文名，或整句沒翻。
 
     實機症狀：中文伺服器的裸名詞被翻成官方英文名（`雪刺帽` → `Snowspike Hat`），
-    音譯的玩家名被還原成英文（`卡拉米蒂` → `Calamity`）；strip_invented_english
-    只清括號裡的英文，抓不到這種整段或半段英譯。
+    音譯的玩家名被還原成英文（`卡拉米蒂` → `Calamity`）；tidy_parentheses
+    只清括號裡的外文，抓不到這種整段或半段英譯。
 
     兩條規則缺一不可：
     1. 譯文整段都是拉丁、沒有一個目標語言的字 —— 改用了英文名，或原文原樣吐回

@@ -21,8 +21,9 @@ from src.services import EFFORT_AUTO
 from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
-    strip_invented_english,
+    restore_sender,
     strip_think,
+    tidy_parentheses,
     unnumber_lines,
 )
 from src.translation.prompts import (
@@ -54,8 +55,9 @@ _TIMEOUT = 60.0
 # 遇到原文本身重複（「am chick um chick um chick」）會無限吐同一個字，180 秒仍不收斂，
 # 整條收訊流程被誤判成「翻譯伺服器離線」並卡在該行重試。最壞譯文實測約 80 token。
 _MAX_TOKENS = 512
-# 思考模式下 <think>…</think> 區塊本身就會吃掉數百 token，上限需放寬才不會砍在譯文之前。
-_MAX_TOKENS_THINKING = 2048
+# 思考模式下推理本身就會吃掉大量 token，上限需放寬才不會砍在譯文之前：實測 qwen3.6-35b-a3b
+# 光推理就用完 2048，每句都被截斷、譯文是空的。
+_MAX_TOKENS_THINKING = 4096
 # 區域翻譯固定用放寬的上限：一次可能是一整頁任務書的所有行一起送出，
 # 思考模式下 <think> 區塊還要跟譯文搶同一個預算；上限依然存在是為了
 # 界住 repetition loop（見 _MAX_TOKENS 的說明），不是為了省 token。
@@ -534,13 +536,14 @@ class Translator:
 
     def _chat(self, kind: str, system: str, turns: list[dict], *,
               source: str, context_lines: int, strip: bool = False,
-              max_tokens: int | None = None, redact: bool = False,
+              keep_sender: bool = False, max_tokens: int | None = None, redact: bool = False,
               cancel: RequestHandle | None = None) -> str:
         """打一次翻譯請求，回傳最終譯文並記錄一行診斷。
 
         三個方向共用的唯一成功路徑 log 點 —— 使用者匯出 app.log 後，能把每則原文與
         實際譯文並排對照（messages.log 只留原文，不留譯文）。失敗分支不在這裡記錄：
         例外往上拋，由 pool 依重試結果記錄（見 translation.pool）。
+        `keep_sender=True` 把譯文的 `[發送者]` 換回原文那一個（見 restore_sender）。
         `redact=True` 只記字數不記內容：區域翻譯的原文可能整頁、譯文可能很長。
         `cancel` 給的話請求可以中途撤銷（見 RequestHandle）；還沒送就被取消的不送。
         """
@@ -551,7 +554,13 @@ class Translator:
         impl = self._impl
         translated = impl.chat(system, turns, max_tokens=max_tokens, cancel=cancel)
         if strip:
-            translated = strip_invented_english(source, translated)
+            translated = tidy_parentheses(source, translated)
+        if keep_sender:
+            restored = restore_sender(source, translated)
+            if restored != translated:
+                log(f"[translate] model altered the sender prefix, restored: "
+                    f"source={source!r} model_output={translated!r}")
+            translated = restored
         shown = f"<{len(translated)} chars>" if redact else repr(translated)
         log(f"[translate] {kind} done in {time.monotonic() - started:.1f}s "
             f"(model={impl.model}, ctx={context_lines}): "
@@ -565,7 +574,7 @@ class Translator:
             "incoming",
             build_incoming_system(self._target_language),
             build_turns(context, text, CONTEXT_INTRO_INCOMING),
-            source=text, context_lines=len(context), strip=True)
+            source=text, context_lines=len(context), strip=True, keep_sender=True)
 
     def translate_system_message(self, text: str) -> str:
         """系統訊息：把遊戲系統通知（任何語言）翻成使用者設定的目標語言。
@@ -613,7 +622,7 @@ class Translator:
         使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
         每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
         編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
-        括號英文逐行過濾（`strip_invented_english`）：提示詞要求括號只能照抄該行原文，
+        括號原文逐行過濾（`tidy_parentheses`）：提示詞要求括號只能照抄該行原文，
         但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
         比對，同一頁另一行有英文時才不會替它放行。"""
         originals, numbered = number_lines(text)
@@ -625,8 +634,9 @@ class Translator:
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
         lines = unnumber_lines(translated, originals).split("\n")
         if len(lines) != len(originals):
-            return strip_invented_english(text, "\n".join(lines))   # 對不上行時退回整段比對
-        return "\n".join(strip_invented_english(original, line)
+            # 對不上行時退回整段比對
+            return tidy_parentheses(text, "\n".join(lines))
+        return "\n".join(tidy_parentheses(original, line)
                          for original, line in zip(originals, lines, strict=True))
 
 
