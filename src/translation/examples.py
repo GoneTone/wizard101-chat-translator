@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -215,3 +216,76 @@ class ExampleStore:
         finally:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
+
+
+class ExampleCoordinator:
+    """決定範例何時走快取、何時背景生成，並把結果交給符合指紋的 translator。
+
+    ensure 只能在 UI 執行緒呼叫；生成中與失敗集合只在 UI 執行緒讀寫，背景工作一律經 post 回來。
+    """
+
+    def __init__(self, store: ExampleStore, post: Callable[[Callable[[], None]], None],
+                 spawn: Callable[[Callable[[], None]], None] | None = None,
+                 on_applied: Callable[[object], None] | None = None):
+        self._store = store
+        self._post = post
+        self._spawn = spawn or self._spawn_thread
+        self._on_applied = on_applied
+        self._translators: list = []
+        self._pending: set[str] = set()
+        self._failed: set[str] = set()
+
+    @staticmethod
+    def _spawn_thread(job: Callable[[], None]) -> None:
+        threading.Thread(target=job, name="example-generation", daemon=True).start()
+
+    def ensure(self, translator) -> None:
+        """讓 translator 取得目前指紋的範例：命中快取就套用，否則背景生成（同指紋只生成一次）。"""
+        if not any(known is translator for known in self._translators):
+            self._translators.append(translator)
+        fingerprint = translator.examples_fingerprint
+        cached = self._store.get(fingerprint)
+        if cached is not None:
+            self._apply(translator, cached, fingerprint)
+            log(f"[translate] examples cache hit ({translator.describe()}, {cached.summary()})")
+            return
+        if fingerprint in self._pending or fingerprint in self._failed:
+            log(f"[translate] examples unavailable, translating without them "
+                f"({translator.describe()})")
+            return
+        self._pending.add(fingerprint)
+        log(f"[translate] generating examples in background ({translator.describe()})")
+        self._spawn(lambda: self._generate(translator, fingerprint))
+
+    def _apply(self, translator, examples: ExampleSet, fingerprint: str) -> bool:
+        if not translator.set_examples(examples, fingerprint):
+            return False
+        if self._on_applied is not None:
+            self._on_applied(translator)
+        return True
+
+    def _generate(self, translator, requested: str) -> None:
+        try:
+            fingerprint, examples = translator.generate_examples()
+            if examples.empty:
+                raise ValueError("generated examples failed validation on every path")
+            self._store.put(fingerprint, examples)
+        except Exception as exc:
+            log(f"[translate] example generation failed ({translator.describe()}): "
+                f"{type(exc).__name__}: {exc}")
+            self._post(lambda: self._finish(requested, None, None))
+            return
+        self._post(lambda: self._finish(requested, fingerprint, examples))
+
+    def _finish(self, requested: str, fingerprint: str | None, examples: ExampleSet | None) -> None:
+        self._pending.discard(requested)
+        if examples is None:
+            self._failed.add(requested)
+            return
+        applied = [t for t in self._translators
+                   if t.examples_fingerprint == fingerprint and self._apply(t, examples, fingerprint)]
+        if applied:
+            log(f"[translate] examples generated and applied to {len(applied)} translator(s) "
+                f"({examples.summary()})")
+        else:
+            log("[translate] discarded examples for an outdated fingerprint")

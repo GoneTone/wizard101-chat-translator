@@ -5,6 +5,7 @@ from src.translation.examples import (
     GAME_LANGUAGE_EXAMPLES,
     MAX_ENTRIES,
     SOURCE_LINES,
+    ExampleCoordinator,
     ExampleSet,
     ExampleStore,
     examples_fingerprint,
@@ -113,3 +114,89 @@ def test_store_does_not_write_an_empty_set(tmp_path):
     path = tmp_path / "ex.json"
     ExampleStore(path).put("fp", EMPTY)
     assert not path.exists()
+
+
+class FakeTr:
+    def __init__(self, fp, result=None, error=None):
+        self.examples_fingerprint, self.examples = fp, None
+        self.result, self.error, self.calls = result, error, 0
+
+    def set_examples(self, ex, fp):
+        if fp != self.examples_fingerprint:
+            return False
+        self.examples = ex
+        return True
+
+    def generate_examples(self):
+        self.calls += 1
+        if self.error:
+            raise self.error
+        return self.examples_fingerprint, self.result
+
+    def describe(self):
+        return "provider=custom, model=m"
+
+
+SET = ExampleSet(("s", "o"), ("s", "o"), ("s", "o"))
+
+
+def coordinator(tmp_path, applied=None):
+    applied = [] if applied is None else applied
+    return ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda job: job(),
+                              spawn=lambda job: job(), on_applied=applied.append)
+
+
+def test_cache_hit_applies_without_generating(tmp_path):
+    co = coordinator(tmp_path)
+    co._store.put("fp", SET)
+    tr = FakeTr("fp", SET)
+    co.ensure(tr)
+    assert tr.examples == SET and tr.calls == 0
+
+
+def test_a_miss_generates_stores_and_applies(tmp_path):
+    applied = []
+    co = coordinator(tmp_path, applied)
+    tr = FakeTr("fp", SET)
+    co.ensure(tr)
+    assert tr.examples == SET and tr.calls == 1 and applied == [tr]
+    assert ExampleStore(tmp_path / "ex.json").get("fp") == SET
+
+
+def test_two_translators_on_the_same_service_share_one_generation(tmp_path):
+    jobs = []
+    co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
+    a, b = FakeTr("fp", SET), FakeTr("fp", SET)
+    co.ensure(a)
+    co.ensure(b)
+    assert len(jobs) == 1
+    jobs[0]()
+    assert a.examples == SET and b.examples == SET
+
+
+def test_a_failed_fingerprint_is_not_retried_in_the_same_run(tmp_path):
+    co = coordinator(tmp_path)
+    tr = FakeTr("fp", error=RuntimeError("offline"))
+    co.ensure(tr)
+    co.ensure(tr)
+    assert tr.calls == 1 and tr.examples is None
+
+
+def test_an_empty_result_counts_as_a_failure(tmp_path):
+    co = coordinator(tmp_path)
+    tr = FakeTr("fp", EMPTY)
+    co.ensure(tr)
+    co.ensure(tr)
+    assert tr.calls == 1 and ExampleStore(tmp_path / "ex.json").get("fp") is None
+
+
+def test_a_result_for_an_outdated_fingerprint_is_stored_but_not_applied(tmp_path):
+    jobs = []
+    co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
+    tr = FakeTr("fp-ja", SET)
+    co.ensure(tr)
+    tr.examples_fingerprint = "fp-zh"
+    tr.generate_examples = lambda: ("fp-ja", SET)
+    jobs[0]()
+    assert tr.examples is None
+    assert ExampleStore(tmp_path / "ex.json").get("fp-ja") == SET
