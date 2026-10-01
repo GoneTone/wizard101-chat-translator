@@ -54,7 +54,34 @@ def test_parse_generated_rejects_a_wrong_line_count():
 
 def test_parse_generated_names_the_failed_region_condition():
     _, failures = parse_generated(GOOD.replace("3. 火猫（Fire Cat）に話しかける", "3. 火猫に話しかける"))
-    assert failures == ["line 3: needs Fire Cat in parentheses"]
+    assert failures == ["line 3: needs Fire Cat translated with the original in parentheses"]
+
+
+FR = "\n".join([
+    "1. [Amy] Je sais pas, Kai et moi on a eu de nouvelles armures et appris Chat de Feu (Fire Cat) "
+    "au boulevard du Colosse (Colossus Boulevard), lol",
+    "2. Kai t'a appris Chat de Feu (Fire Cat) ! Tu as gagné {0} or au boulevard du Colosse "
+    "(Colossus Boulevard).",
+    "3. Parle au Chat de Feu (Fire Cat)",
+    "4. Va au boulevard du Colosse (Colossus Boulevard)",
+    "5. OPTIONS",
+    "6. et ensuite tu dois",
+])
+
+
+def test_parse_generated_accepts_a_latin_script_target_with_translated_names():
+    examples, failures = parse_generated(FR)
+    assert examples.complete and failures == []
+
+
+def test_parse_generated_rejects_names_left_in_english_and_echoed_in_parentheses():
+    # 實測 qwen 德文：「Fire Cat (Fire Cat)」這種範例會教模型專有名詞不翻，括號又被當重複刪掉
+    examples, failures = parse_generated(FR.replace("Chat de Feu (Fire Cat)", "Fire Cat (Fire Cat)"))
+    assert examples == EMPTY
+    assert failures == [
+        "line 1: needs [Amy], Kai and both names translated with the original in parentheses",
+        "line 2: needs Kai, one {0} and both names translated with the original in parentheses",
+        "line 3: needs Fire Cat translated with the original in parentheses"]
 
 
 def test_parse_generated_tells_a_wrong_line_count_from_an_untranslated_line():
