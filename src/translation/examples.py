@@ -11,12 +11,14 @@ from pathlib import Path
 
 from src.config import local_state_dir
 from src.log import log
-from src.translation.postprocess import number_lines, unnumber_lines
+from src.translation.postprocess import number_lines, numbered_entries, unnumber_lines
 
 # 範例內容（含 GAME_LANGUAGE_EXAMPLES）或生成提示詞有變時要遞增，讓舊快取作廢。
-EXAMPLE_REVISION = 1
+EXAMPLE_REVISION = 3
 EXAMPLES_PATH = local_state_dir() / "translation-examples.json"
 MAX_ENTRIES = 32
+
+_INTERFACE_LABEL = "OPTIONS"
 
 SOURCE_LINES = (
     "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, "
@@ -24,6 +26,7 @@ SOURCE_LINES = (
     "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
     "Talk to the Fire Cat",
     "Go to Colossus Boulevard",
+    _INTERFACE_LABEL,
     "and then you must",
 )
 
@@ -33,6 +36,7 @@ DEMO_LINES = (
     "Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。",
     "和火貓（Fire Cat）談談",
     "前往巨像大道（Colossus Boulevard）",
+    "選項",
     "然後你必須",
 )
 
@@ -41,7 +45,7 @@ _Pair = tuple[str, str]
 _GENERATION_SYSTEM = (
     "把使用者給的每一行翻成 {t}，逐行對應、保留行首編號，只輸出譯文。"
     "格式照下面的中文示範：遊戲專有名詞翻成 {t} 後緊接括號照抄英文原文；"
-    "[Amy]、人名 Kai、{{0}} 照抄不翻；縮寫與一般名詞直接翻、不加括號；"
+    "[Amy]、人名 Kai、{{0}} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；"
     "最後一行是被截斷的句子，譯文也停在同一處。\n"
     "中文示範：\n{demo}"
 )
@@ -90,9 +94,9 @@ GAME_LANGUAGE_EXAMPLES = ExampleSet(
               "at Colossus Boulevard (巨像大道) lol, brb my wand is trash"),
     system=("Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
             "Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道)."),
-    region=("1. 和火猫谈谈\n2. 前往巨像大道\n3. 然后你必须",
-            "1. Talk to the Fire Cat (火猫)\n2. Go to Colossus Boulevard (巨像大道)"
-            "\n3. and then you must"),
+    region=("和火猫谈谈\n前往巨像大道\n选项\n然后你必须",
+            "Talk to the Fire Cat (火猫)\nGo to Colossus Boulevard (巨像大道)"
+            "\nOptions\nand then you must"),
 )
 
 
@@ -127,15 +131,18 @@ def _check_system(line: str) -> list[str]:
 
 
 def _check_region(lines: list[str]) -> list[str]:
+    # 介面標籤那行示範「不加括號」：少了它，小模型會替整排短標籤（選單、設定項目）都附原文
     checks = ((3, _in_parentheses(lines[0], "Fire Cat"), "needs Fire Cat in parentheses"),
               (4, _in_parentheses(lines[1], "Colossus Boulevard"),
                "needs Colossus Boulevard in parentheses"),
-              (5, bool(lines[2]), "must not be empty"))
+              (5, re.search(r"[（()）]", lines[2]) is None,
+               "interface label must not have parentheses"),
+              (6, bool(lines[3]), "must not be empty"))
     return [f"line {n}: {failure}" for n, ok, failure in checks if not ok]
 
 
 def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
-    """拆開模型生成的五行譯文並逐路徑驗證，回傳（通過的範例, 失敗說明）。
+    """拆開模型生成的各行譯文並逐路徑驗證，回傳（通過的範例, 失敗說明）。
 
     缺編號的行會被 unnumber_lines 補回原文，所以與原文相同的行視同缺行。
     """
@@ -143,19 +150,22 @@ def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
     if len(lines) != len(SOURCE_LINES):
         return EMPTY, [f"line count {len(lines)} != {len(SOURCE_LINES)}"]
     lines = [line.strip() for line in lines]
+    # 介面標籤在部分語言拼法與英文相同（法文 OPTIONS），模型真的寫了這行時照抄也算譯文；
+    # 漏掉而被補回原文的不算，否則範例會示範「標籤不翻」
+    label_n = SOURCE_LINES.index(_INTERFACE_LABEL) + 1
+    label_answered = bool(numbered_entries(output).get(label_n))
     untranslated = [f"line {n} untranslated" for n, (line, source)
-                    in enumerate(zip(lines, SOURCE_LINES, strict=True), 1) if line == source]
+                    in enumerate(zip(lines, SOURCE_LINES, strict=True), 1)
+                    if line == source and not (n == label_n and label_answered)]
     if untranslated:
         return EMPTY, untranslated
     incoming = _check_incoming(lines[0])
     system = _check_system(lines[1])
     region = _check_region(lines[2:])
-    _, region_source = number_lines("\n".join(SOURCE_LINES[2:]))
-    _, region_output = number_lines("\n".join(lines[2:]))
     return ExampleSet(
         incoming=None if incoming else (SOURCE_LINES[0], lines[0]),
         system=None if system else (SOURCE_LINES[1], lines[1]),
-        region=None if region else (region_source, region_output),
+        region=None if region else ("\n".join(SOURCE_LINES[2:]), "\n".join(lines[2:])),
     ), incoming + system + region
 
 

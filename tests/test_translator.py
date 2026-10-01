@@ -19,10 +19,8 @@ from src.translation.examples import (
 )
 from src.translation.postprocess import (
     has_stray_latin,
-    number_lines,
     restore_sender,
     tidy_parentheses,
-    unnumber_lines,
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
@@ -1189,37 +1187,78 @@ def test_sender_prefix_limit_is_shared_with_the_chat_parser():
     assert has_stray_latin(f"[{longest}] 你好", f"[{longest}] 哈囉", "繁體中文（台灣）") is False
 
 
-def test_region_text_sends_the_recognized_lines_numbered():
-    fake = FakeHttpxClient(response=FakeResponse(content="1. 跟莫爾談談\n2. 第二行"))
+def test_region_text_sends_the_recognized_lines_without_numbers():
+    fake = FakeHttpxClient(response=FakeResponse(content="跟莫爾談談\n第二行"))
     translator = _make(fake)
-    assert translator.translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+    assert translator.translate_region_text("Talk to Merle Ambrose\n\n  Second line ") == \
         "跟莫爾談談\n第二行"
     assert fake.last_body["messages"][-1] == {
-        "role": "user", "content": "1. Talk to Merle Ambrose\n2. Second line"}
+        "role": "user", "content": "Talk to Merle Ambrose\nSecond line"}
     assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
     assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
 
 
-def test_region_text_fills_lines_the_model_dropped_with_the_original():
-    fake = FakeHttpxClient(response=FakeResponse(content="2. 第二行"))
-    assert _make(fake).translate_region_text("海报伙伴\nSecond line") == "海报伙伴\n第二行"
+def test_region_text_shows_merged_lines_as_a_whole_without_adding_the_source_back(monkeypatch):
+    # 模型把折行的句子併成一句：照樣顯示整段，不補回原文（補了卡片上會多出翻過的英文）
+    import src.translation.translator as translator_module
+
+    messages = []
+    monkeypatch.setattr(translator_module, "log", messages.append)
+    fake = FakeHttpxClient(response=FakeResponse(content="在鬼屋洞穴（Haunted Cave）擊敗骷髏，找回鑰匙。"))
+    text = "Defeat the Rattlebones in\nthe Haunted Cave to\nrecover the stolen key."
+    assert _make(fake).translate_region_text(text) == "在鬼屋洞穴（Haunted Cave）擊敗骷髏，找回鑰匙。"
+    assert any("came back as 1 lines for 3" in m for m in messages)
+
+
+def test_region_text_drops_code_fences_around_the_translation():
+    fake = FakeHttpxClient(response=FakeResponse(content="```\n跟莫爾談談\n第二行\n```"))
+    assert _make(fake).translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+        "跟莫爾談談\n第二行"
+
+
+def test_region_text_with_no_translation_is_bad_output_not_an_empty_screen():
+    # 空字串在卡片上代表「畫面上沒有文字」；模型沒回東西要當成失敗顯示
+    fake = FakeHttpxClient(response=FakeResponse(content="```\n```"))
+    with pytest.raises(TranslatorBadOutput, match="no text"):
+        _make(fake).translate_region_text("Talk to Merle Ambrose")
+
+
+def test_region_text_strips_invented_english_from_merged_lines_too():
+    fake = FakeHttpxClient(response=FakeResponse(content="若有時間，請拜訪天國大本營（Heavenly HQ）！"))
+    assert (_make(fake).translate_region_text("若有时间，\n请拜访天国大本营！")
+            == "若有時間，請拜訪天國大本營！")
 
 
 def test_region_text_strips_english_the_model_invented_for_a_line_without_any():
     # 實機：簡體中文原文「天国大本营」被譯成「天國大本營（Heavenly Headquarters）」，
     # 遊戲畫面上根本沒有這個英文名
     fake = FakeHttpxClient(response=FakeResponse(
-        content="1. 若有時間，我希望你再次拜訪天國大本營（Heavenly Headquarters）！"))
+        content="若有時間，我希望你再次拜訪天國大本營（Heavenly Headquarters）！"))
     assert (_make(fake).translate_region_text("若有时间，我希望你再次拜访天国大本营！")
             == "若有時間，我希望你再次拜訪天國大本營！")
 
 
-def test_region_text_keeps_english_copied_from_the_same_line_only():
-    # 逐行判定：第一行原文有英文，括號照抄可留；第二行沒有，括號英文必是憑空生成
+def test_region_text_keeps_only_english_copied_from_nearby_lines():
+    # 逐行判定：第一行原文有英文，括號照抄可留；第二行與鄰行都沒有，括號英文必是憑空生成
     fake = FakeHttpxClient(response=FakeResponse(
-        content="1. 跟莫爾·安布羅斯（Merle Ambrose）談談\n2. 天國大本營（Heavenly HQ）"))
+        content="跟莫爾·安布羅斯（Merle Ambrose）談談\n天國大本營（Heavenly HQ）"))
     assert (_make(fake).translate_region_text("Talk to Merle Ambrose\n天国大本营")
             == "跟莫爾·安布羅斯（Merle Ambrose）談談\n天國大本營")
+
+
+def test_region_text_keeps_a_name_moved_into_the_adjacent_line():
+    # 實機 gpt-6-luna：折行的句子依中文語序重排，名詞連同括號挪到上一行
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="日安！我會在巫師城（Wizard City）等你\n！"))
+    assert (_make(fake).translate_region_text("Good day! I'll be waiting for you\nin Wizard City!")
+            == "日安！我會在巫師城（Wizard City）等你\n！")
+
+
+def test_region_text_strips_english_found_only_two_lines_away():
+    fake = FakeHttpxClient(response=FakeResponse(
+        content="跟莫爾談談\n第二行\n天國大本營（Merle Ambrose）"))
+    assert (_make(fake).translate_region_text("Talk to Merle Ambrose\nSecond line\n天国大本营")
+            == "跟莫爾談談\n第二行\n天國大本營")
 
 
 def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
@@ -1228,14 +1267,10 @@ def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
     assert "逐字照抄" in prompt
 
 
-def test_number_lines_skips_blank_lines():
-    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
-
-
-def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
-    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
-    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
-    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
+def test_region_system_prompt_asks_for_line_by_line_output_keeping_source_numbers():
+    prompt = build_region_system("繁體中文（台灣）")
+    assert "逐行翻譯" in prompt and "行首原有的編號照留" in prompt
+    assert "輸入每行有編號" not in prompt
 
 
 def test_translate_region_text_logs_no_translation_content(monkeypatch):
@@ -1440,7 +1475,8 @@ JA = "\n".join([
     "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
     "3. 火猫（Fire Cat）に話しかける",
     "4. 巨像大道（Colossus Boulevard）へ行く",
-    "5. そしてあなたは",
+    "5. オプション",
+    "6. そしてあなたは",
 ])
 
 

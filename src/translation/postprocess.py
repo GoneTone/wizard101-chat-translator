@@ -136,30 +136,36 @@ def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
 _NUMBERED_LINE = re.compile(r"^\s*(\d+)\s*[.．、)]\s*(.*)$")
 
 
+def nonblank_lines(text: str) -> list[str]:
+    """拆成去掉前後空白的非空白行。"""
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
 def number_lines(text: str) -> tuple[list[str], str]:
     """把多行文字拆成非空白行並加上 `1. `、`2. ` 編號，回傳（原始行, 編號後的文字）。
-    給區域翻譯的 OCR 路徑用：弱模型對「逐行對應」的文字規則常會漏行或合併行，
-    編號讓對應關係變成可由程式核對的結構。"""
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    給範例生成用：每行是一條獨立的示範，編號讓逐行驗證可由程式核對。"""
+    lines = nonblank_lines(text)
     return lines, "\n".join(f"{i}. {line}" for i, line in enumerate(lines, 1))
+
+
+def numbered_entries(output: str) -> dict[int, str]:
+    """模型回傳的編號行 → {編號: 內容}；沒帶編號的行不算。"""
+    entries: dict[int, str] = {}
+    for line in output.splitlines():
+        match = _NUMBERED_LINE.match(line)
+        if match:
+            entries[int(match.group(1))] = match.group(2).strip()
+    return entries
 
 
 def unnumber_lines(output: str, originals: list[str]) -> str:
     """把模型回傳的編號譯文依編號對回原始行；缺的編號以原文補上（寧可留原文也不漏行）。
     模型完全沒帶編號但行數剛好相同時視為逐行對應；其餘情況整段原樣回傳。"""
-    numbered: dict[int, str] = {}
-    plain: list[str] = []
-    for line in output.splitlines():
-        if not line.strip():
-            continue
-        match = _NUMBERED_LINE.match(line)
-        if match:
-            numbered[int(match.group(1))] = match.group(2).strip()
-        else:
-            plain.append(line.strip())
+    numbered = numbered_entries(output)
     if numbered:
         return "\n".join(numbered.get(i) or original
                          for i, original in enumerate(originals, 1))
+    plain = nonblank_lines(output)
     if len(plain) == len(originals):
         return "\n".join(plain)
     return output.strip()

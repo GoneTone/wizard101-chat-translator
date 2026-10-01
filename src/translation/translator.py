@@ -31,12 +31,11 @@ from src.translation.examples import (
 )
 from src.translation.postprocess import (
     has_stray_latin,
-    number_lines,
+    nonblank_lines,
     restore_sender,
     sender_of,
     strip_think,
     tidy_parentheses,
-    unnumber_lines,
 )
 from src.translation.prompts import (
     CONTEXT_INTRO_INCOMING,
@@ -679,28 +678,30 @@ class Translator:
             source=text, context_lines=len(context), cancel=cancel)
 
     def translate_region_text(self, text: str, cancel: RequestHandle | None = None) -> str:
-        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
-        使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
-        每一行加編號送出、依編號對回：實測弱模型對「逐行對應」的規則會漏行或合併行，
-        編號讓行數對應由程式保證，缺的行以原文補上（見 postprocess.unnumber_lines）。
-        括號原文逐行過濾（`tidy_parentheses`）：提示詞要求括號只能照抄該行原文，
-        但實機仍會把簡體中文地名譯成「天國大本營（Heavenly Headquarters）」；逐行而非整段
-        比對，同一頁另一行有英文時才不會替它放行。"""
-        originals, numbered = number_lines(text)
+        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言；`cancel` 撤銷還在跑的請求。
+
+        原文逐行送出、不加編號，模型把折行的句子併成一段時整段顯示。括號原文（`tidy_parentheses`）
+        行數對得上時逐行比對該行與上下相鄰行，對不上時比對整段；提示詞仍要求照抄同一行，刻意比判定嚴。"""
+        originals = nonblank_lines(text)
         b = self._binding
         translated = self._chat(
             b.impl, "region text",
             build_region_system(b.target_language),
             [*example_turns(b.examples.region if b.examples else None),
-             {"role": "user", "content": numbered}],
+             {"role": "user", "content": "\n".join(originals)}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
-        lines = unnumber_lines(translated, originals).split("\n")
+        lines = [line for line in nonblank_lines(translated) if not line.startswith("```")]
+        if not lines:
+            # 空字串在卡片上代表「畫面上沒有文字」，模型沒回東西得當成失敗
+            log(f"[translate] region text came back with no text for {len(originals)} lines")
+            raise TranslatorBadOutput("model returned no text")
         if len(lines) != len(originals):
-            # 對不上行時退回整段比對
+            log(f"[translate] region text came back as {len(lines)} lines for "
+                f"{len(originals)}; showing it as a whole")
             return tidy_parentheses(text, "\n".join(lines))
-        return "\n".join(tidy_parentheses(original, line)
-                         for original, line in zip(originals, lines, strict=True))
+        return "\n".join(tidy_parentheses("\n".join(originals[max(i - 1, 0):i + 2]), line)
+                         for i, line in enumerate(lines))
 
     def generate_examples(self) -> tuple[str, ExampleSet]:
         """請目前的模型把示範改寫成目標語言，回傳（指紋, 範例集）；不套用，由呼叫端 set_examples。
