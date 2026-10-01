@@ -59,6 +59,7 @@ from src.translation.cache import (
     translate_and_cache,
 )
 from src.translation.context import ChatContext
+from src.translation.examples import ExampleCoordinator, ExampleSet, ExampleStore
 from src.translation.gate import ConcurrencyGate
 from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
@@ -465,24 +466,33 @@ class App:
     reader_thread: threading.Thread
 
 
-def incoming_fingerprint(cfg: dict) -> str:
-    """收訊那格目前生效的譯文快取指紋（建構與套用設定共用同一份算法）。
-    端點只有自訂服務有，其餘服務商的網址寫死在 translator。"""
+def incoming_fingerprint(cfg: dict, examples: ExampleSet | None = None) -> str:
+    """收訊那格目前生效的譯文快取指紋（建構、套用設定與範例就緒共用同一份算法）。
+    端點只有自訂服務有，其餘服務商的網址寫死在 translator；`examples` 為已套用的範例（無則 None）。"""
     incoming = resolve(cfg, SLOT_INCOMING)
     return fingerprint_of(incoming["provider"], incoming["model"],
-                          cfg["target_language"], incoming.get("base_url", ""))
+                          cfg["target_language"], incoming.get("base_url", ""),
+                          examples.digest() if examples else "-")
 
 
-def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], TranslationCache,
-                                                   list[TranslationPool]]:
-    """翻譯端：三個用途各一個翻譯器、系統訊息譯文快取，以及兩條翻譯池（玩家對話吃上下文；
-    系統訊息不吃上下文、走快取）。兩條池共用同一個總量閘與 `deliver(msg_id, text, failed)`。"""
+def build_translation(cfg: dict, deliver, post) -> tuple[
+        dict[str, Translator], TranslationCache, list[TranslationPool], ExampleCoordinator]:
+    """翻譯端：三個用途各一個翻譯器、系統訊息譯文快取、兩條翻譯池（玩家對話吃上下文；
+    系統訊息不吃上下文、走快取），以及範例協調器。兩條池共用同一個總量閘與
+    `deliver(msg_id, text, failed)`；`post` 把回呼排進 UI 執行緒（須執行緒安全）。
+    啟動時就為收訊與框選兩格備妥目標語言範例。"""
     translators = {slot: Translator(**resolve(cfg, slot),
                                     target_language=cfg["target_language"])
                    for slot in SLOTS}
     gate = ConcurrencyGate(cfg["max_parallel_translations"])
     cache = TranslationCache(incoming_fingerprint(cfg))
     cache.load()
+
+    def on_examples_applied(tr: Translator) -> None:
+        if tr is translators[SLOT_INCOMING]:
+            cache.rebind(incoming_fingerprint(cfg, tr.examples))
+
+    coordinator = ExampleCoordinator(ExampleStore(), post, on_applied=on_examples_applied)
 
     def make_pool(translate_fn=None) -> TranslationPool:
         return TranslationPool(translator=translators[SLOT_INCOMING], on_result=deliver,
@@ -493,20 +503,26 @@ def build_translation(cfg: dict, deliver) -> tuple[dict[str, Translator], Transl
     pool = make_pool()
     system_pool = make_pool(
         lambda text, _ctx: translate_and_cache(translators[SLOT_INCOMING], cache, text))
-    return translators, cache, [pool, system_pool]
+    coordinator.ensure(translators[SLOT_INCOMING])
+    coordinator.ensure(translators[SLOT_REGION])
+    return translators, cache, [pool, system_pool], coordinator
 
 
 def reconfigure_translation(cfg: dict, translators: dict[str, Translator],
-                            cache: TranslationCache, pools: list[TranslationPool]) -> None:
+                            cache: TranslationCache, pools: list[TranslationPool],
+                            coordinator: ExampleCoordinator) -> None:
     """設定存檔後讓翻譯端跟上新設定（build_translation 的對應面）。
-    沒改到的那幾格會原地不動（見 Translator.reconfigure）—— 一次存檔只該影響被改動的用途。"""
+    沒改到的那幾格會原地不動（見 Translator.reconfigure）—— 一次存檔只該影響被改動的用途；
+    被重建的收訊／框選格會重新備妥範例。"""
     for slot, tr in translators.items():
         if tr.reconfigure(**resolve(cfg, slot), target_language=cfg["target_language"]):
             log(f"[translate] {slot} translator rebuilt: {tr.describe()}")
+            if slot in (SLOT_INCOMING, SLOT_REGION):
+                coordinator.ensure(tr)
     for p in pools:
         p.resize(cfg["max_parallel_translations"])
-    # 收訊那格的服務（含端點）或目標語言一改，舊譯文即失效；只改區域翻譯那格不該波及它
-    cache.rebind(incoming_fingerprint(cfg))
+    # 收訊那格的服務（含端點）、目標語言或範例一改，舊譯文即失效；只改區域翻譯那格不該波及它
+    cache.rebind(incoming_fingerprint(cfg, translators[SLOT_INCOMING].examples))
 
 
 def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
@@ -547,7 +563,8 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
         """譯完（worker 執行緒）：把結果轉交 UI 執行緒回填 overlay 的佔位列。"""
         ui_queue.put(lambda: overlay.update_message(msg_id, text, failed=failed))
 
-    translators, cache, pools = build_translation(cfg, deliver)
+    translators, cache, pools, example_coordinator = build_translation(
+        cfg, deliver, ui_queue.put)
     pool, system_pool = pools
     contexts: dict[int, ChatContext] = {}
 
@@ -580,7 +597,7 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
     def apply_settings() -> None:
         nonlocal hotkey_handle, region_handle, ui_language
         save_config(CONFIG_PATH, cfg)
-        reconfigure_translation(cfg, translators, cache, pools)
+        reconfigure_translation(cfg, translators, cache, pools, example_coordinator)
         keyboard.remove_hotkey(hotkey_handle)
         hotkey_handle, cfg["hotkey"] = register_hotkey(
             cfg["hotkey"], lambda: on_hotkey(input_box, ui_queue))

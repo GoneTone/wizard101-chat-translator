@@ -385,3 +385,8 @@ def test_fingerprint_separates_two_endpoints_that_share_a_model_name():
     # 本機與遠端各有一個 qwen3：指紋不含端點的話，換掉服務後舊端點的譯文會繼續命中
     assert (fingerprint_of("custom", "qwen3", "日本語", "http://127.0.0.1:11434")
             != fingerprint_of("custom", "qwen3", "日本語", "https://remote.example"))
+
+
+def test_fingerprint_includes_the_examples_digest():
+    assert fingerprint_of("custom", "m", "日本語").endswith("|x-")
+    assert fingerprint_of("custom", "m", "日本語", examples_digest="abc").endswith("|xabc")

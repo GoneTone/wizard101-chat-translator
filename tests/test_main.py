@@ -10,6 +10,7 @@ import pytest
 from src import main
 from src.config import DEFAULT_CONFIG
 from src.main import config_summary
+from src.translation.examples import ExampleSet
 from tests.config_helpers import configured_cfg
 
 
@@ -127,10 +128,26 @@ def _three_slot_cfg():
     return cfg
 
 
+class _FakeCoordinator:
+    """範例協調器替身：只記下 ensure 了誰，並留住 on_applied 讓測試直接觸發。"""
+
+    def __init__(self, store, post, spawn=None, on_applied=None):
+        self.ensured, self.on_applied = [], on_applied
+
+    def ensure(self, translator):
+        self.ensured.append(translator)
+
+
+def _build(cfg):
+    return main.build_translation(cfg, lambda *a: None, lambda job: job())
+
+
 def _stub_translation(monkeypatch):
-    """換掉會開執行緒與碰磁碟的兩個元件，其餘（三個翻譯器、指紋）維持真貨。"""
+    """換掉會開執行緒與碰磁碟的元件，其餘（三個翻譯器、指紋）維持真貨。"""
     monkeypatch.setattr(main, "TranslationPool", _FakePool)
     monkeypatch.setattr(main, "TranslationCache", _FakeCache)
+    monkeypatch.setattr(main, "ExampleCoordinator", _FakeCoordinator)
+    monkeypatch.setattr(main, "ExampleStore", lambda: None)
 
 
 def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkeypatch):
@@ -140,7 +157,7 @@ def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkey
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
 
     assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
     assert translators[SLOT_OUTGOING]._impl.model == "outgoing-model"
@@ -164,7 +181,7 @@ def test_the_system_pool_translates_through_the_incoming_service(monkeypatch):
 
     monkeypatch.setattr(main, "translate_and_cache", _record)
     cfg = _three_slot_cfg()
-    translators, _cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, _cache, pools, coordinator = _build(cfg)
     player_pool, system_pool = pools
 
     assert player_pool.translate_fn is None   # 玩家對話走池內建的翻譯（吃上下文）
@@ -179,11 +196,11 @@ def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monke
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     fingerprint_before = cache.fingerprint
 
     find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert translators[SLOT_REGION]._impl.model == "region-model-2"
     assert translators[SLOT_INCOMING]._impl.model == "incoming-model"
@@ -196,14 +213,63 @@ def test_changing_the_incoming_slot_invalidates_the_cache(monkeypatch):
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
 
     find(cfg, cfg["service_slots"][SLOT_INCOMING])["model"] = "incoming-model-2"
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert translators[SLOT_INCOMING]._impl.model == "incoming-model-2"
     assert cache.fingerprint == fingerprint_of("openai", "incoming-model-2",
                                                cfg["target_language"])
+
+
+def test_build_translation_ensures_examples_for_incoming_and_region(monkeypatch):
+    from src.services import SLOT_INCOMING, SLOT_REGION
+
+    _stub_translation(monkeypatch)
+    translators, _cache, _pools, coordinator = _build(_three_slot_cfg())
+    assert coordinator.ensured == [translators[SLOT_INCOMING], translators[SLOT_REGION]]
+
+
+def test_reconfigure_ensures_examples_only_for_rebuilt_slots(monkeypatch):
+    from src.services import SLOT_REGION, find
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools, coordinator = _build(cfg)
+    coordinator.ensured.clear()
+    find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
+    assert coordinator.ensured == [translators[SLOT_REGION]]
+
+
+def test_reconfigure_without_changes_keeps_examples_and_does_not_ensure(monkeypatch):
+    from src.services import SLOT_INCOMING
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    translators, cache, pools, coordinator = _build(cfg)
+    incoming = translators[SLOT_INCOMING]
+    examples = ExampleSet(("s", "o"), None, None)
+    incoming.set_examples(examples, incoming.examples_fingerprint)
+    coordinator.ensured.clear()
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
+    assert coordinator.ensured == [] and incoming.examples == examples
+
+
+def test_applying_incoming_examples_rebinds_the_system_message_cache(monkeypatch):
+    from src.services import SLOT_INCOMING, SLOT_REGION
+
+    _stub_translation(monkeypatch)
+    translators, cache, _pools, coordinator = _build(_three_slot_cfg())
+    incoming = translators[SLOT_INCOMING]
+    examples = ExampleSet(("s", "o"), None, None)
+    incoming.set_examples(examples, incoming.examples_fingerprint)
+    coordinator.on_applied(incoming)
+    assert cache.fingerprint.endswith("|x" + examples.digest())
+    before = cache.fingerprint
+    coordinator.on_applied(translators[SLOT_REGION])
+    assert cache.fingerprint == before
 
 
 def test_build_app_wires_each_consumer_to_its_own_slot():
@@ -219,11 +285,11 @@ def test_saving_unrelated_settings_rebuilds_no_translator(monkeypatch):
     重建會拆掉連線池，飛行中的請求收到 WinSock 斷線、被判成「翻譯伺服器離線」。"""
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     before = {slot: tr._impl for slot, tr in translators.items()}
 
     cfg["overlay_alpha"] = 0.5
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert {slot: tr._impl for slot, tr in translators.items()} == before
 
@@ -234,11 +300,11 @@ def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     before = {slot: tr._impl for slot, tr in translators.items()}
 
     find(cfg, cfg["service_slots"][SLOT_REGION])["model"] = "region-model-2"
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert translators[SLOT_REGION]._impl is not before[SLOT_REGION]
     assert translators[SLOT_INCOMING]._impl is before[SLOT_INCOMING]
@@ -258,11 +324,11 @@ def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, 
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     before = translators[SLOT_OUTGOING]._impl
 
     find(cfg, cfg["service_slots"][SLOT_OUTGOING])[field] = value
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert translators[SLOT_OUTGOING]._impl is not before
     assert check(translators[SLOT_OUTGOING]._impl)
@@ -272,11 +338,11 @@ def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
     """目標語言也是 reconfigure 的參數：三格都要跟上。"""
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     before = {slot: tr._impl for slot, tr in translators.items()}
 
     cfg["target_language"] = "日本語"
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     for slot, tr in translators.items():
         assert tr._impl is not before[slot]
@@ -303,11 +369,11 @@ def test_switching_the_incoming_slot_between_same_named_models_invalidates_the_c
 
     _stub_translation(monkeypatch)
     cfg, remote = _twin_endpoint_cfg()
-    translators, cache, pools = main.build_translation(cfg, lambda *a: None)
+    translators, cache, pools, coordinator = _build(cfg)
     before = cache.fingerprint
 
     cfg["service_slots"][SLOT_INCOMING] = remote["id"]
-    main.reconfigure_translation(cfg, translators, cache, pools)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
 
     assert cache.fingerprint != before
 
