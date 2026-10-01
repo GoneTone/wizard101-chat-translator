@@ -74,13 +74,24 @@ def test_foreground_exe_returns_none_when_lookup_fails(monkeypatch):
     assert paste.foreground_exe() is None
 
 
+V, CTRL, SHIFT = (paste.keyboard.key_to_scan_codes(n)[0] for n in ("v", "ctrl", "shift"))
+
+
 class _Event:
-    def __init__(self, event_type: str):
+    def __init__(self, event_type: str, scan_code: int = V):
         self.event_type = event_type
+        self.scan_code = scan_code
+
+
+def _hold(monkeypatch, *codes: int) -> set[int]:
+    """換掉 is_pressed，回傳目前按著的 scan code 集合（可在測試中途改）。"""
+    held = set(codes)
+    monkeypatch.setattr(paste.keyboard, "is_pressed", lambda code: code in held)
+    return held
 
 
 def _interceptor(monkeypatch, ctrl_down: bool, intercept: bool):
-    monkeypatch.setattr(paste.keyboard, "is_pressed", lambda key: ctrl_down)
+    _hold(monkeypatch, *([CTRL] if ctrl_down else []))
     pastes = []
     interceptor = paste.PasteInterceptor(should_intercept=lambda: intercept,
                                          on_paste=lambda: pastes.append(1))
@@ -109,6 +120,12 @@ def test_interceptor_swallows_ctrl_v_in_the_game_and_pastes_once(monkeypatch):
     assert pastes == [1]
 
 
+def test_interceptor_ignores_other_keys(monkeypatch):
+    interceptor, pastes = _interceptor(monkeypatch, ctrl_down=True, intercept=True)
+    assert interceptor.handle(_Event(paste.keyboard.KEY_DOWN, SHIFT)) is True
+    assert pastes == []
+
+
 def test_interceptor_ignores_key_repeat_until_released(monkeypatch):
     # 按住不放時 Windows 會連續送 KEY_DOWN：只算一次，放開後才重新武裝
     interceptor, pastes = _interceptor(monkeypatch, ctrl_down=True, intercept=True)
@@ -122,28 +139,15 @@ def test_interceptor_ignores_key_repeat_until_released(monkeypatch):
 
 def test_interceptor_keeps_swallowing_v_until_released_even_after_ctrl_is_up(monkeypatch):
     # 先放 Ctrl 再放 V 時，中間的自動重複 V 不能漏進遊戲變成一串 v
-    ctrl = {"down": True}
-    monkeypatch.setattr(paste.keyboard, "is_pressed", lambda key: ctrl["down"])
+    held = _hold(monkeypatch, CTRL)
     pastes = []
     interceptor = paste.PasteInterceptor(lambda: True, lambda: pastes.append(1))
     assert interceptor.handle(_Event(paste.keyboard.KEY_DOWN)) is False
-    ctrl["down"] = False
+    held.discard(CTRL)
     assert interceptor.handle(_Event(paste.keyboard.KEY_DOWN)) is False
     assert interceptor.handle(_Event(paste.keyboard.KEY_UP)) is False
     assert pastes == [1]
     assert interceptor.handle(_Event(paste.keyboard.KEY_DOWN)) is True  # 放開後的單獨 V 照常
-
-
-def test_install_paste_hook_blocks_the_v_key(monkeypatch):
-    hooked = {}
-
-    def fake_hook_key(key, callback, suppress=False):
-        hooked.update(key=key, callback=callback, suppress=suppress)
-        return "handle"
-    monkeypatch.setattr(paste.keyboard, "hook_key", fake_hook_key)
-    interceptor = paste.PasteInterceptor(lambda: True, lambda: None)
-    assert paste.install_paste_hook(interceptor) == "handle"
-    assert hooked == {"key": "v", "callback": interceptor.handle, "suppress": True}
 
 
 def test_clipboard_text_reads_unicode_text(monkeypatch):
@@ -282,7 +286,7 @@ def test_paste_clipboard_ignores_a_second_paste_while_typing(monkeypatch):
 def test_interceptor_swallows_v_while_typing_is_in_progress(monkeypatch):
     # 打字途中每個字都會先把使用者按著的 Ctrl 放開，第二次 Ctrl+V 的 Ctrl 狀態查不到：
     # 鍵入進行中 V 一律吞掉，否則會在訊息中途插進一個 v
-    monkeypatch.setattr(paste.keyboard, "is_pressed", lambda key: False)
+    _hold(monkeypatch)
     monkeypatch.setattr(paste, "typing_in_progress", lambda: True)
     pastes = []
     interceptor = paste.PasteInterceptor(lambda: True, lambda: pastes.append(1))

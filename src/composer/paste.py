@@ -12,6 +12,7 @@ import win32con
 import win32gui
 import win32process
 
+from src.hotkeys import HotkeyInterceptor
 from src.log import log
 from src.reader.process import process_exe_path
 
@@ -90,39 +91,23 @@ def type_into_window(hwnd: int | None, text: str, delay: float = 0.02) -> None:
     _type_chars(hwnd, text, delay)
 
 
-class PasteInterceptor:
-    """Ctrl+V 的逐次事件決策：`handle(event)` 回 True 放行、False 吞掉。
-    掛在 keyboard 的 blocking hook 上，跑在 Windows 低階 hook 裡，必須立刻返回 ——
-    `on_paste` 只能把工作丟給別的執行緒。Ctrl 沒按著或 `should_intercept()` 不成立
-    （前景不是遊戲、設定關閉）時原樣放行，不留 log：其他視窗的 Ctrl+V 很頻繁。"""
+class PasteInterceptor(HotkeyInterceptor):
+    """Ctrl+V 的攔截器：`should_intercept()` 成立（遊戲在前景、設定開啟）才吞掉並呼叫
+    `on_paste`，否則原樣放行、不留 log —— 其他視窗的 Ctrl+V 很頻繁。`on_paste` 跑在
+    低階 hook 裡，只能把工作丟給別的執行緒。"""
 
     def __init__(self, should_intercept, on_paste) -> None:
-        self._should_intercept = should_intercept
-        self._on_paste = on_paste
-        self._held = False  # 按住不放時 Windows 連續送 KEY_DOWN，只在第一次觸發
+        def trigger() -> bool:
+            if not should_intercept():
+                return False
+            on_paste()
+            return True
+        super().__init__(f"ctrl+{PASTE_KEY}", trigger)
 
-    def handle(self, event) -> bool:
-        # 接手後吞到 V 真的放開為止，不再看 Ctrl：先放 Ctrl 再放 V 時，中間自動重複的
-        # V 若放行會在遊戲裡打出一串 v
-        if self._held:
-            if event.event_type == keyboard.KEY_UP:
-                self._held = False
-            return False
+    def _should_swallow(self, event) -> bool:
         # 鍵入進行中每個字都會先把使用者按著的 Ctrl 放開，此時再按 Ctrl+V 查不到 Ctrl；
         # 一律吞掉，否則 v 會插進打到一半的訊息
-        if typing_in_progress():
-            return False
-        if not keyboard.is_pressed("ctrl") or not self._should_intercept():
-            return True
-        if event.event_type == keyboard.KEY_DOWN:
-            self._held = True
-            self._on_paste()
-        return False
-
-
-def install_paste_hook(interceptor: PasteInterceptor):
-    """把攔截器掛到 V 鍵上（suppress 模式才能逐次決定吞不吞），回傳 keyboard 的 handle。"""
-    return keyboard.hook_key(PASTE_KEY, interceptor.handle, suppress=True)
+        return typing_in_progress() or super()._should_swallow(event)
 
 
 def clipboard_text() -> str | None:
