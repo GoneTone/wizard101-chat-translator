@@ -11,10 +11,15 @@ from pathlib import Path
 
 from src.config import local_state_dir
 from src.log import log
-from src.translation.postprocess import number_lines, numbered_entries, unnumber_lines
+from src.translation.postprocess import (
+    number_lines,
+    numbered_entries,
+    tidy_parentheses,
+    unnumber_lines,
+)
 
 # 範例內容（含 GAME_LANGUAGE_EXAMPLES）或生成提示詞有變時要遞增，讓舊快取作廢。
-EXAMPLE_REVISION = 3
+EXAMPLE_REVISION = 4
 EXAMPLES_PATH = local_state_dir() / "translation-examples.json"
 MAX_ENTRIES = 32
 
@@ -115,26 +120,32 @@ def generation_request(target_language: str) -> tuple[str, list[dict]]:
 
 
 def _in_parentheses(line: str, name: str) -> bool:
-    return re.search(rf"[（(]\s*{re.escape(name)}\s*[)）]", line) is not None
+    """名稱譯過且括號附原文。「Fire Cat (Fire Cat)」這種只是照抄英文再重複一次的不算：
+    實測它教模型專有名詞不翻，括號又會被 tidy_parentheses 當成重複刪掉。"""
+    kept = tidy_parentheses(name, line)
+    return re.search(rf"[（(]\s*{re.escape(name)}\s*[)）]", kept) is not None
 
 
 def _check_incoming(line: str) -> list[str]:
     ok = "[Amy]" in line and "Kai" in line and _in_parentheses(line, "Fire Cat") \
         and _in_parentheses(line, "Colossus Boulevard")
-    return [] if ok else ["line 1: needs [Amy], Kai and both names in parentheses"]
+    return [] if ok else [
+        "line 1: needs [Amy], Kai and both names translated with the original in parentheses"]
 
 
 def _check_system(line: str) -> list[str]:
     ok = "Kai" in line and line.count("{0}") == 1 and _in_parentheses(line, "Fire Cat") \
         and _in_parentheses(line, "Colossus Boulevard")
-    return [] if ok else ["line 2: needs Kai, one {0} and both names in parentheses"]
+    return [] if ok else [
+        "line 2: needs Kai, one {0} and both names translated with the original in parentheses"]
 
 
 def _check_region(lines: list[str]) -> list[str]:
     # 介面標籤那行示範「不加括號」：少了它，小模型會替整排短標籤（選單、設定項目）都附原文
-    checks = ((3, _in_parentheses(lines[0], "Fire Cat"), "needs Fire Cat in parentheses"),
+    checks = ((3, _in_parentheses(lines[0], "Fire Cat"),
+               "needs Fire Cat translated with the original in parentheses"),
               (4, _in_parentheses(lines[1], "Colossus Boulevard"),
-               "needs Colossus Boulevard in parentheses"),
+               "needs Colossus Boulevard translated with the original in parentheses"),
               (5, re.search(r"[（()）]", lines[2]) is None,
                "interface label must not have parentheses"),
               (6, bool(lines[3]), "must not be empty"))
