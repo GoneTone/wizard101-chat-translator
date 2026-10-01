@@ -70,7 +70,9 @@ class ExampleSet:
         return self.incoming is None and self.system is None and self.region is None
 
     def digest(self) -> str:
-        """內容的 sha1 前 12 碼，供 log 比對範例有沒有變。"""
+        """內容的 sha1 前 12 碼，是系統訊息譯文快取指紋的一部分（見 main.incoming_fingerprint）。
+
+        改動這裡或 ExampleSet 的 repr 會讓使用者既有的譯文快取全部作廢。"""
         return hashlib.sha1(repr(self).encode("utf-8")).hexdigest()[:12]
 
     def summary(self) -> str:
@@ -125,10 +127,11 @@ def _check_system(line: str) -> list[str]:
 
 
 def _check_region(lines: list[str]) -> list[str]:
-    checks = ((3, _in_parentheses(lines[0], "Fire Cat")),
-              (4, _in_parentheses(lines[1], "Colossus Boulevard")),
-              (5, bool(lines[2].strip())))
-    return [f"line {n}: failed region check" for n, ok in checks if not ok]
+    checks = ((3, _in_parentheses(lines[0], "Fire Cat"), "needs Fire Cat in parentheses"),
+              (4, _in_parentheses(lines[1], "Colossus Boulevard"),
+               "needs Colossus Boulevard in parentheses"),
+              (5, bool(lines[2]), "must not be empty"))
+    return [f"line {n}: {failure}" for n, ok, failure in checks if not ok]
 
 
 def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
@@ -137,12 +140,16 @@ def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
     缺編號的行會被 unnumber_lines 補回原文，所以與原文相同的行視同缺行。
     """
     lines = unnumber_lines(output, list(SOURCE_LINES)).splitlines()
-    if len(lines) != len(SOURCE_LINES) or any(
-            line.strip() == source for line, source in zip(lines, SOURCE_LINES, strict=True)):
-        return EMPTY, [f"line count {len(lines)} does not match {len(SOURCE_LINES)} "
-                       "or a line was left untranslated"]
+    if len(lines) != len(SOURCE_LINES):
+        return EMPTY, [f"line count {len(lines)} != {len(SOURCE_LINES)}"]
     lines = [line.strip() for line in lines]
-    incoming, system, region = _check_incoming(lines[0]), _check_system(lines[1]), _check_region(lines[2:])
+    untranslated = [f"line {n} untranslated" for n, (line, source)
+                    in enumerate(zip(lines, SOURCE_LINES, strict=True), 1) if line == source]
+    if untranslated:
+        return EMPTY, untranslated
+    incoming = _check_incoming(lines[0])
+    system = _check_system(lines[1])
+    region = _check_region(lines[2:])
     _, region_source = number_lines("\n".join(SOURCE_LINES[2:]))
     _, region_output = number_lines("\n".join(lines[2:]))
     return ExampleSet(
@@ -159,10 +166,10 @@ _store_lock = threading.Lock()
 def _pair_from_json(value) -> _Pair | None:
     if value is None:
         return None
-    original, translated = value
-    if not (isinstance(original, str) and isinstance(translated, str)):
-        raise TypeError(f"pair holds {type(original).__name__}/{type(translated).__name__}")
-    return original, translated
+    if not (isinstance(value, list) and len(value) == 2
+            and all(isinstance(item, str) for item in value)):
+        raise TypeError(f"pair is not a list of two strings: {value!r:.80}")
+    return value[0], value[1]
 
 
 class ExampleStore:

@@ -22,8 +22,8 @@ _NON_LATIN_LETTER = re.compile(r"[^\W\d_\u0000-ɏḀ-ỿ]")
 # 一段連續的拉丁文字（字母起頭，可含數字、詞內標點與空白）：
 # 「Received a friend request from Amy」算一段，而非被空白切成六段。
 _LATIN_RUN = re.compile(r"[A-Za-z][A-Za-z0-9 .,'’\-]*")
-# 目標語言的「字」：漢字、假名、諺文、西里爾字母都是 \w，空白、數字與標點不是。
-_NON_LATIN_WORD = re.compile(r"[^\W\d_]")
+# 任何文字的字母（拉丁、漢字、假名、諺文、西里爾…）；空白、數字與標點不算。
+_LETTER = re.compile(r"[^\W\d_]")
 
 
 _NON_WORD_ONLY = re.compile(r"[\W\d_]*")
@@ -56,7 +56,9 @@ def tidy_parentheses(source: str, translated: str) -> str:
         content = _alnum(match.group(1))
         if foreign(match.group(1)) and content not in haystack:
             return ""
-        if len(content) > 1 and _alnum(translated[:match.start()]).endswith(content):
+        # 只認有字母的重複：玩家自己打的「lvl 50 (50)」不是模型的回聲
+        if (len(content) > 1 and _LETTER.search(content)
+                and _alnum(translated[:match.start()]).endswith(content)):
             return ""
         return match.group()
 
@@ -71,15 +73,20 @@ def _leading_bracket_count(text: str) -> int:
     return len(re.findall(SENDER_PREFIX, match.group())) if match else 0
 
 
+def sender_of(text: str) -> str | None:
+    """行首的 `[發送者]`（不含其後空白）；沒有回 None。"""
+    match = _SENDER_PREFIX.match(text)
+    return match.group().rstrip() if match else None
+
+
 def restore_sender(source: str, translated: str) -> str:
     """譯文開頭的 `[發送者]` 一律換回原文那一個；模型丟掉時補回去。
 
     發送者名不交給模型：實測漢化包的簡中玩家名會被改字（贾斯廷 渡鸦 → 賈斯汀 渡鴉）。
     以開頭連續的中括號組數判斷模型是改了還是丟了發送者，內容本身以 `[WTS]` 開頭時才不會誤換。"""
-    sender = _SENDER_PREFIX.match(source)
-    if sender is None:
+    prefix = sender_of(source)
+    if prefix is None:
         return translated
-    prefix = sender.group().rstrip()
     if _leading_bracket_count(translated) < _leading_bracket_count(source):
         return f"{prefix} {translated.lstrip()}"
     return f"{prefix} {_SENDER_PREFIX.sub('', translated, count=1)}"
@@ -120,7 +127,7 @@ def has_stray_latin(source: str, translated: str, target_language: str) -> bool:
     if not _LATIN.search(body):
         return False
     runs = [run.group() for run in _LATIN_RUN.finditer(body)]
-    if not _NON_LATIN_WORD.search(_LATIN_RUN.sub("", body)):
+    if not _LETTER.search(_LATIN_RUN.sub("", body)):
         return True     # 規則 1：整段沒有一個目標語言的字
     haystack = _squash(_SENDER_PREFIX.sub("", source))
     return any(_squash(run) not in haystack for run in runs)   # 規則 2

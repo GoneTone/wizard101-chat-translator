@@ -33,6 +33,7 @@ from src.translation.postprocess import (
     has_stray_latin,
     number_lines,
     restore_sender,
+    sender_of,
     strip_think,
     tidy_parentheses,
     unnumber_lines,
@@ -607,7 +608,7 @@ class Translator:
             translated = tidy_parentheses(source, translated)
         if keep_sender:
             restored = restore_sender(source, translated)
-            if restored != translated:
+            if sender_of(restored) != sender_of(translated):
                 log(f"[translate] model altered the sender prefix, restored: "
                     f"source={source!r} model_output={translated!r}")
             translated = restored

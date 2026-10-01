@@ -297,6 +297,39 @@ def test_restart_keeps_the_persisted_cache_when_examples_are_already_stored(monk
     assert "bonjour" in cache_file.read_text(encoding="utf-8")
 
 
+def test_a_settings_change_applies_the_new_fingerprints_examples_and_never_the_old(
+        monkeypatch, tmp_path):
+    """真的協調器與翻譯器：改設定前發出的生成晚到，也不能蓋掉新設定從快取取到的範例。"""
+    from functools import partial
+
+    from src.services import SLOT_INCOMING, SLOT_REGION, find, resolve
+    from src.translation.examples import ExampleCoordinator, ExampleStore, examples_fingerprint
+    from src.translation.translator import Translator
+
+    _stub_translation(monkeypatch)
+    cfg = _three_slot_cfg()
+    old_fp = examples_fingerprint(resolve(cfg, SLOT_INCOMING), cfg["target_language"])
+    old, new = ExampleSet(("s", "old"), None, None), ExampleSet(("s", "new"), None, None)
+    store = ExampleStore(tmp_path / "examples.json")
+    store.put(examples_fingerprint(resolve(cfg, SLOT_REGION), cfg["target_language"]), new)
+    jobs = []
+    monkeypatch.setattr(main, "ExampleStore", lambda: store)
+    monkeypatch.setattr(main, "ExampleCoordinator", partial(ExampleCoordinator, spawn=jobs.append))
+    monkeypatch.setattr(Translator, "generate_examples", lambda self: (old_fp, old))
+    translators, cache, pools, coordinator = _build(cfg)
+    incoming = translators[SLOT_INCOMING]
+
+    find(cfg, cfg["service_slots"][SLOT_INCOMING])["model"] = "incoming-model-2"
+    store.put(examples_fingerprint(resolve(cfg, SLOT_INCOMING), cfg["target_language"]), new)
+    main.reconfigure_translation(cfg, translators, cache, pools, coordinator)
+    assert incoming.examples == new
+    jobs[0]()
+
+    assert len(jobs) == 1 and store.get(old_fp) == old
+    assert incoming.examples == new
+    assert cache.fingerprint == main.incoming_fingerprint(cfg, new)
+
+
 def test_applying_incoming_examples_rebinds_the_system_message_cache(monkeypatch):
     from src.services import SLOT_INCOMING, SLOT_REGION
 

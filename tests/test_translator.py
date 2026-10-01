@@ -936,6 +936,10 @@ def test_tidy_parentheses_removes_an_original_that_only_echoes_the_name():
     assert tidy_parentheses("help me in novus", "help me in Novus (Novus)") == "help me in Novus"
 
 
+def test_tidy_parentheses_keeps_a_repeated_number_the_player_typed():
+    assert tidy_parentheses("[Amy] lvl 50 (50)", "[Amy] 等級 50（50）") == "[Amy] 等級 50（50）"
+
+
 def test_translate_incoming_strips_invented_english():
     fake = FakeHttpxClient(response=FakeResponse(content="[艾米] 迷幻木頭(Mystic Wood)"))
     assert _make(fake).translate_incoming("[艾米] 迷幻木头", []) == "[艾米] 迷幻木頭"
@@ -971,9 +975,16 @@ def test_restore_sender_leaves_lines_without_a_sender_alone():
     assert restore_sender("hi", "嗨") == "嗨"
 
 
-def test_translate_incoming_keeps_the_original_sender():
+def test_translate_incoming_keeps_the_original_sender(capsys):
     fake = FakeHttpxClient(response=FakeResponse(content="[賈斯汀 渡鴉] 嗨"))
     assert _make(fake).translate_incoming("[贾斯廷 渡鸦] hi", []) == "[贾斯廷 渡鸦] 嗨"
+    assert "model altered the sender prefix" in capsys.readouterr().err
+
+
+def test_only_whitespace_after_the_sender_is_not_logged_as_an_altered_sender(capsys):
+    fake = FakeHttpxClient(response=FakeResponse(content="[Amy]嗨"))
+    assert _make(fake).translate_incoming("[Amy] hi", []) == "[Amy] 嗨"
+    assert "model altered the sender prefix" not in capsys.readouterr().err
 
 
 # --- has_stray_latin：譯文冒出原文沒有的英文（模型把名詞換成官方英文名）---

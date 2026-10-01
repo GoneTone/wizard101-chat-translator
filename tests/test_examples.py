@@ -48,6 +48,29 @@ def test_parse_generated_rejects_a_wrong_line_count():
     assert examples == EMPTY and failures
 
 
+def test_parse_generated_names_the_failed_region_condition():
+    _, failures = parse_generated(GOOD.replace("3. 火猫（Fire Cat）に話しかける", "3. 火猫に話しかける"))
+    assert failures == ["line 3: needs Fire Cat in parentheses"]
+
+
+def test_parse_generated_tells_a_wrong_line_count_from_an_untranslated_line():
+    _, failures = parse_generated("\n".join(line[3:] for line in GOOD.splitlines()[:3]))
+    assert failures == [f"line count 3 != {len(SOURCE_LINES)}"]
+    _, failures = parse_generated(GOOD.replace("5. そしてあなたは", "5. and then you must"))
+    assert failures == ["line 5 untranslated"]
+
+
+def test_parse_generated_treats_a_line_echoing_its_source_as_missing():
+    missing_line_3 = "\n".join(line for line in GOOD.splitlines() if not line.startswith("3."))
+    assert parse_generated(missing_line_3) == (EMPTY, ["line 3 untranslated"])
+
+
+def test_parse_generated_counts_a_numbered_preamble_as_a_failure():
+    shifted = "\n".join(f"{i + 1}.{line[2:]}" for i, line in enumerate(GOOD.splitlines(), 1))
+    examples, failures = parse_generated("1. 以下是翻譯：\n" + shifted)
+    assert failures and examples.incoming is None and not examples.complete
+
+
 def test_parse_generated_ignores_a_preamble_and_code_fences():
     examples, _ = parse_generated("以下是翻譯：\n```\n" + GOOD + "\n```")
     assert examples.complete
@@ -87,6 +110,10 @@ def test_game_language_examples_translate_into_english():
     assert GAME_LANGUAGE_EXAMPLES.complete
 
 
+def test_game_language_region_examples_have_no_surrounding_newlines():
+    assert all(text == text.strip("\n") for text in GAME_LANGUAGE_EXAMPLES.region)
+
+
 def test_store_round_trips_and_keeps_several_fingerprints(tmp_path):
     store = ExampleStore(tmp_path / "ex.json")
     a, b = ExampleSet(("s", "o"), None, None), ExampleSet(None, ("s", "o"), None)
@@ -102,6 +129,34 @@ def test_store_drops_the_oldest_beyond_the_limit(tmp_path):
     for i in range(MAX_ENTRIES + 1):
         store.put(f"fp-{i}", examples)
     assert store.get("fp-0") is None and store.get(f"fp-{MAX_ENTRIES}") is not None
+
+
+def test_re_putting_a_fingerprint_moves_it_to_the_end(tmp_path):
+    examples = ExampleSet(("s", "o"), None, None)
+    store = ExampleStore(tmp_path / "ex.json")
+    for i in range(MAX_ENTRIES):
+        store.put(f"fp-{i}", examples)
+    store.put("fp-0", examples)
+    store.put("fp-new", examples)
+    assert store.get("fp-0") is not None and store.get("fp-1") is None
+
+
+def test_a_failed_write_leaves_no_temp_file(tmp_path, monkeypatch):
+    from src.translation import examples as module
+
+    def fail(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(module.os, "replace", fail)
+    ExampleStore(tmp_path / "ex.json").put("fp", ExampleSet(("s", "o"), None, None))
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_store_rejects_a_pair_that_is_not_a_list_of_two_strings(tmp_path):
+    path = tmp_path / "ex.json"
+    path.write_text('{"entries": {"fp": {"incoming": "ab", "system": null, "region": null}}}',
+                    encoding="utf-8")
+    assert ExampleStore(path).get("fp") is None
 
 
 def test_store_treats_a_corrupt_file_as_empty(tmp_path):
