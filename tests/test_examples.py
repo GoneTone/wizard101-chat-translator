@@ -203,16 +203,17 @@ def test_a_result_for_an_outdated_fingerprint_is_stored_but_not_applied(tmp_path
     assert ExampleStore(tmp_path / "ex.json").get("fp-ja") == SET
 
 
-def test_a_result_is_applied_to_a_translator_that_now_matches_its_fingerprint(tmp_path):
+def test_a_result_is_applied_by_its_own_fingerprint_not_the_requested_one(tmp_path):
     jobs = []
-    co = ExampleCoordinator(ExampleStore(tmp_path / "ex.json"), post=lambda j: j(), spawn=jobs.append)
+    store = ExampleStore(tmp_path / "ex.json")
+    co = ExampleCoordinator(store, post=lambda j: j(), spawn=jobs.append)
     a, b = FakeTr("fp-ja", SET), FakeTr("fp-zh", SET)
     co.ensure(a)
     co.ensure(b)
-    b.examples_fingerprint = "fp-ja"
-    a.generate_examples = lambda: ("fp-ja", SET)
+    a.generate_examples = lambda: ("fp-zh", SET)
     jobs[0]()
-    assert a.examples == SET and b.examples == SET
+    assert b.examples == SET and a.examples is None
+    assert store.get("fp-zh") == SET and store.get("fp-ja") is None
 
 
 def test_on_applied_is_skipped_when_set_examples_rejects(tmp_path):
@@ -225,7 +226,7 @@ def test_on_applied_is_skipped_when_set_examples_rejects(tmp_path):
     assert applied == []
 
 
-def test_registering_the_same_translator_twice_applies_once(tmp_path):
+def test_registering_the_same_translator_twice_registers_and_generates_once(tmp_path):
     applied = []
     co = coordinator(tmp_path, applied)
     tr = FakeTr("fp", SET)
