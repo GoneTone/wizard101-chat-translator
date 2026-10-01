@@ -12,6 +12,7 @@ dependencies = [
     "pillow>=12.3.0",
     "pywin32",
     "rapidocr>=3.9.2",
+    "windows-capture>=2.0.1",
     "wizwalker",
 ]
 

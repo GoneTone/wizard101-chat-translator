@@ -4467,6 +4467,20 @@ wheels = [
 ]
 
 [[package]]
+name = "windows-capture"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "opencv-python" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/00/326a51bc2b27bc53e2a3e6d0c8f320af7e65f8315fb0d1d149699ca45995/windows_capture-2.0.1.tar.gz", hash = "sha256:2c2b394f4587b067cf520456f7f64c11b00380851b077a4d061fe5356a9a7645", size = 148413, upload-time = "2026-08-08T16:07:07.162Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/02/cdb3c75e60863e94fbd53c2b3607e61af5d464a4f9301e45897fcb08dbfa/windows_capture-2.0.1-cp39-abi3-win_amd64.whl", hash = "sha256:209c2318e2168802b9afd1005e99499639e8835e71a1e188a3ddc77c7ccc3f04", size = 229121, upload-time = "2026-08-08T16:07:04.283Z" },
+]
+
+[[package]]
 name = "wizard101-chat-translator"
 version = "0.4.0"
 source = { virtual = "." }
@@ -4479,6 +4493,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pywin32" },
     { name = "rapidocr" },
+    { name = "windows-capture" },
     { name = "wizwalker" },
 ]
 
@@ -4500,6 +4515,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "pywin32" },
     { name = "rapidocr", specifier = ">=3.9.2" },
+    { name = "windows-capture", specifier = ">=2.0.1" },
     { name = "wizwalker", git = "https://codeberg.org/LaurenzNotHere/wizwalker.git?branch=development" },
 ]
 

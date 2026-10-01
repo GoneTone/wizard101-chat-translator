@@ -162,7 +162,7 @@ def test_frame_capture_failure_is_shown_at_the_cursor_without_opening_the_select
     from src.ui import region_flow as region_flow_module
 
     monkeypatch.setattr(region_flow_module, "cursor_position", lambda: (40, 50))
-    boom = CaptureError("PrintWindow failed")
+    boom = CaptureError("no frame within 2.0s")
 
     def failing(hwnd):
         raise boom
@@ -202,7 +202,7 @@ def test_capture_failure_is_shown_on_the_card_without_a_worker(root):
 
 
 def test_plain_capture_error_is_shown_as_capture_failed(root):
-    boom = CaptureError("PrintWindow failed")
+    boom = CaptureError("no frame within 2.0s")
 
     def failing(frame, rect):
         raise boom
@@ -416,7 +416,7 @@ def test_adjusting_the_box_recaptures_the_live_game_and_retranslates(root):
 
 
 def test_capture_failure_while_adjusting_is_shown_and_keeps_the_box(root):
-    boom = CaptureError("PrintWindow failed")
+    boom = CaptureError("no frame within 2.0s")
     frames = iter([_FRAME])
 
     def capture(hwnd):

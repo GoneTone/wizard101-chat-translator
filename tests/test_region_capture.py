@@ -1,7 +1,10 @@
 """框選矩形 → 遊戲 client 座標的換算（純函式）；`crop_frame` 對合成 Frame 的裁切；
-`capture_window` 的 Win32 例外一律變成 CaptureError；`capture_screen` 失敗時退回全黑。"""
+`capture_window` 從 WGC 影格裁出 client 區、單色畫面與 Win32 例外一律變成 CaptureError；
+`capture_screen` 失敗時退回全黑。"""
 import io
+import threading
 
+import numpy
 import pytest
 from PIL import Image, ImageDraw
 
@@ -43,6 +46,109 @@ def test_non_capture_error_during_capture_becomes_a_capture_error(monkeypatch):
     with pytest.raises(CaptureError) as ei:
         capture_module.capture_window(1)
     assert "gone" in str(ei.value)
+
+
+def _fake_window(monkeypatch, grabbed: Image.Image) -> None:
+    """client 區在螢幕 (720, 181)、大小 4×3；DWM 外框左上角在 (719, 150)，WGC 拍到 grabbed。"""
+    monkeypatch.setattr(capture_module.win32gui, "ClientToScreen", lambda hwnd, point: (720, 181))
+    monkeypatch.setattr(capture_module.win32gui, "GetClientRect", lambda hwnd: (0, 0, 4, 3))
+    monkeypatch.setattr(capture_module, "_frame_origin", lambda hwnd: (719, 150))
+    monkeypatch.setattr(capture_module, "_grab_window", lambda hwnd: grabbed)
+
+
+def test_capture_window_crops_the_client_area_out_of_the_dwm_frame(monkeypatch):
+    grabbed = Image.new("RGB", (6, 35), "white")
+    grabbed.paste(Image.new("RGB", (4, 3), "red"), (1, 31))
+    grabbed.putpixel((1, 31), (0, 0, 255))
+    _fake_window(monkeypatch, grabbed)
+    frame = capture_module.capture_window(1)
+    assert frame.client_origin == (720, 181)
+    assert frame.client_size == (4, 3)
+    assert frame.image.size == (4, 3)
+    assert frame.image.getpixel((0, 0)) == (0, 0, 255)
+    assert frame.image.getpixel((3, 2)) == (255, 0, 0)
+
+
+@pytest.mark.parametrize("colour", ["white", "black"])
+def test_single_colour_capture_is_a_capture_error(monkeypatch, colour):
+    _fake_window(monkeypatch, Image.new("RGB", (6, 35), colour))
+    with pytest.raises(CaptureError) as ei:
+        capture_module.capture_window(1)
+    assert "blank" in str(ei.value)
+
+
+class _FakeControl:
+    def __init__(self):
+        self.stopped = threading.Event()
+
+    def stop(self):
+        self.stopped.set()
+
+
+class _FakeSession:
+    """代替 WindowsCapture：start_free_threaded 後在另一條執行緒依序送出 events。"""
+
+    instances: list["_FakeSession"] = []
+
+    def __init__(self, events, **kwargs):
+        self.events, self.kwargs, self.handlers = events, kwargs, {}
+        self.control = _FakeControl()
+        _FakeSession.instances.append(self)
+
+    def event(self, handler):
+        self.handlers[handler.__name__] = handler
+        return handler
+
+    def start_free_threaded(self):
+        def run():
+            for name, payload in self.events:
+                if name == "frame":
+                    self.handlers["on_frame_arrived"](payload, self.control)
+                else:
+                    self.handlers["on_closed"]()
+        threading.Thread(target=run, daemon=True).start()
+        return self.control
+
+
+class _FakeFrame:
+    def __init__(self, bgra: numpy.ndarray):
+        self.frame_buffer = bgra
+        self.height, self.width = bgra.shape[:2]
+
+
+def _use_sessions(monkeypatch, events):
+    _FakeSession.instances = []
+    monkeypatch.setattr(capture_module, "WindowsCapture",
+                        lambda **kwargs: _FakeSession(events, **kwargs))
+
+
+def test_grab_window_converts_the_first_frame_from_bgra(monkeypatch):
+    bgra = numpy.zeros((2, 3, 4), dtype=numpy.uint8)
+    bgra[0, 0] = (255, 0, 0, 255)       # BGRA 的藍
+    _use_sessions(monkeypatch, [("frame", _FakeFrame(bgra))])
+    image = capture_module._grab_window(0x9b0fc8)
+    assert image.size == (3, 2)
+    assert image.getpixel((0, 0)) == (0, 0, 255)
+    session = _FakeSession.instances[0]
+    assert session.kwargs == {"cursor_capture": False, "draw_border": False,
+                              "window_hwnd": 0x9b0fc8}
+    assert session.control.stopped.is_set()
+
+
+def test_grab_window_times_out_when_no_frame_arrives(monkeypatch):
+    monkeypatch.setattr(capture_module, "_FRAME_TIMEOUT_S", 0.05)
+    _use_sessions(monkeypatch, [])
+    with pytest.raises(CaptureError) as ei:
+        capture_module._grab_window(1)
+    assert "no frame" in str(ei.value)
+    assert _FakeSession.instances[0].control.stopped.is_set()
+
+
+def test_grab_window_session_closed_before_a_frame_is_a_capture_error(monkeypatch):
+    _use_sessions(monkeypatch, [("closed", None)])
+    with pytest.raises(CaptureError) as ei:
+        capture_module._grab_window(1)
+    assert "closed" in str(ei.value)
 
 
 def _client_frame() -> Frame:
