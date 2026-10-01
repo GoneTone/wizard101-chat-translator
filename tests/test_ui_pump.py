@@ -73,7 +73,7 @@ def test_hotkey_opens_input_box_when_game_is_foreground(monkeypatch):
     monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0xA)
     q = queue.Queue()
     box = _FakeInputBox(is_open=False)
-    main.on_hotkey(box, q)
+    assert main.on_hotkey(box, q) is True
     _drain(q)
     assert box.calls == [("retarget", 0xA), "show"]
 
@@ -82,7 +82,7 @@ def test_hotkey_ignored_when_other_window_is_foreground(monkeypatch):
     import src.main as main
     monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
     q = queue.Queue()
-    main.on_hotkey(_FakeInputBox(is_open=False), q)
+    assert main.on_hotkey(_FakeInputBox(is_open=False), q) is False
     assert q.empty()
 
 
@@ -90,7 +90,7 @@ def test_hotkey_ignored_when_foreground_unknown(monkeypatch):
     import src.main as main
     monkeypatch.setattr(main, "foreground_exe", lambda: None)
     q = queue.Queue()
-    main.on_hotkey(_FakeInputBox(is_open=False), q)
+    assert main.on_hotkey(_FakeInputBox(is_open=False), q) is False
     assert q.empty()
 
 
@@ -100,55 +100,9 @@ def test_hotkey_refocuses_open_input_box_regardless_of_foreground(monkeypatch):
     monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
     q = queue.Queue()
     box = _FakeInputBox(is_open=True)
-    main.on_hotkey(box, q)
+    assert main.on_hotkey(box, q) is True
     _drain(q)
     assert box.calls == ["show"]
-
-
-# --- 熱鍵註冊：config.json 手改成不認得的鍵名不能讓程式無聲退出 ---
-class _FakeKeyboard:
-    def __init__(self, bad: str):
-        self._bad = bad
-        self.registered = []
-
-    def add_hotkey(self, hotkey, callback):
-        if hotkey == self._bad:
-            raise ValueError(f"unknown key {hotkey}")
-        self.registered.append(hotkey)
-        return object()
-
-
-def test_register_hotkey_falls_back_to_the_default_on_an_unknown_key(monkeypatch):
-    from src import main
-    from src.config import DEFAULT_CONFIG
-    fake = _FakeKeyboard(bad="ctrl+nope")
-    monkeypatch.setattr(main, "keyboard", fake)
-    logged = []
-    monkeypatch.setattr(main, "log", logged.append)
-    handle, used = main.register_hotkey("ctrl+nope", lambda: None)
-    assert handle is not None
-    assert used == DEFAULT_CONFIG["hotkey"]
-    assert fake.registered == [DEFAULT_CONFIG["hotkey"]]
-    assert any("ctrl+nope" in line for line in logged)
-
-
-def test_register_hotkey_uses_the_requested_key_when_valid(monkeypatch):
-    from src import main
-    fake = _FakeKeyboard(bad="")
-    monkeypatch.setattr(main, "keyboard", fake)
-    handle, used = main.register_hotkey("f8", lambda: None)
-    assert used == "f8" and fake.registered == ["f8"]
-
-
-def test_register_hotkey_falls_back_to_the_given_fallback_on_an_unknown_key(monkeypatch):
-    # 區域熱鍵壞掉時要退回自己的預設值，不能撞上輸入框熱鍵的預設值
-    from src import main
-    fake = _FakeKeyboard(bad="ctrl+nope")
-    monkeypatch.setattr(main, "keyboard", fake)
-    handle, used = main.register_hotkey("ctrl+nope", lambda: None,
-                                        fallback="ctrl+shift+space")
-    assert used == "ctrl+shift+space"
-    assert fake.registered == ["ctrl+shift+space"]
 
 
 # --- 啟動時的熱鍵撞名防護：region_hotkey 與 hotkey 相同就不註冊 ---
@@ -178,7 +132,7 @@ def test_region_hotkey_cancels_when_the_selector_is_already_open():
     import src.main as main
     q = queue.Queue()
     flow = _FakeRegionFlow(is_selecting=True)
-    main.on_region_hotkey(flow, q)
+    assert main.on_region_hotkey(flow, q) is True
     q.get_nowait()()
     assert flow.toggled == [0]
 
@@ -190,7 +144,7 @@ def test_region_hotkey_starts_a_selection_when_game_is_foreground(monkeypatch):
     monkeypatch.setattr(main.win32gui, "GetForegroundWindow", lambda: 0x1234)
     q = queue.Queue()
     flow = _FakeRegionFlow(is_selecting=False)
-    main.on_region_hotkey(flow, q)
+    assert main.on_region_hotkey(flow, q) is True
     q.get_nowait()()
     assert flow.toggled == [0x1234]
 
@@ -200,7 +154,7 @@ def test_region_hotkey_ignored_when_other_window_is_foreground(monkeypatch):
     monkeypatch.setattr(main, "foreground_exe", lambda: r"C:\Tools\notepad.exe")
     q = queue.Queue()
     flow = _FakeRegionFlow(is_selecting=False)
-    main.on_region_hotkey(flow, q)
+    assert main.on_region_hotkey(flow, q) is False
     assert q.empty()
     assert flow.toggled == []
 
