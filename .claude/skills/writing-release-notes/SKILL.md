@@ -77,7 +77,7 @@ git diff <prev-tag>..HEAD --stat | tail -30                 # 大致變動規模
 ls docs/superpowers/specs                                   # 設計文件：功能的 why 通常寫在這
 ```
 
-本專案沒有 PR 流程時就看 merge commit 的分支名（`feat/message-selection-copy` 之類）與 `docs/` 底下的 spec 標題，比逐條 commit 快。從中挑 2–3 個 hero，其餘進 bullet。**Dependabot / CI / 測試重構 / 機械 refactor 永遠進 bullet 區或省略。**
+本專案沒有 PR 流程時就看 merge commit 的分支名（`feat/message-selection-copy` 之類）與 `docs/` 底下的 spec 標題，比逐條 commit 快。從中挑 2–3 個 hero，其餘進 bullet。**Dependabot / CI / 測試修正 / 內部整合不進 hero，彙整成 bullet 區最後的「Maintenance:」／「維護：」條目（使用者要求要提到）。**
 
 ## 每個行為都要對過原始碼
 
@@ -124,47 +124,54 @@ ls docs/superpowers/specs                                   # 設計文件：功
 
 第三方站名／來源用「原文 英譯」雙語並列，中英版本字串相同（例如「原神資訊站 Genshin Impact Info」），不要在英文版只留英譯。
 
-## Gold Standard：v0.4.0（使用者已校稿）
+## Gold Standard：v0.4.1（使用者已校稿）
 
-> 這份是 2026-09-21 使用者逐句校過的定稿，覆蓋了原本依 commit 歷史草擬的 v0.1.0 暫定範本。
+> 這份是 2026-10-01 使用者校過的 v0.4.1 定稿，取代 v0.4.0 的範本。
 > 之後每次放版、使用者改完稿，回來用實際發布的版本覆蓋這一段（中英都要）。
 
 ```markdown
 ## What's New
 
-You can now keep as many translation services as you like — two OpenAI keys, a Claude, an OpenAI-compatible server of your own — each with its own name, and switch the default between them whenever you want. If you would rather not run everything through one model, incoming chat, your outgoing lines and the on-screen area translation can each point at a different service; leave them alone and they simply follow the default 🔀
+We reworked the prompts the tool sends to the AI: they are about half as long as before, and the translations hold up just as well. What makes the bigger difference is that every request now comes with a few worked examples, written in your own target language. The first time you use a service with a given target language, your own model writes those examples in the background, the tool checks them, and keeps them for next time. Startup, saving your settings and testing a connection all pick up the stored ones, so they are only ever written once. Until they are ready, translation carries on as usual, just without examples. The result: Japanese, Korean or Spanish translations no longer drift into Chinese halfway through 🧠
 
-The other big one: running several game accounts at once finally works the way you would expect. Every open game client gets its own hook, every message in the overlay is tagged with the game client it came from (①, ②, …) the moment a second one shows up, and the tags stay put even after one of them closes. When it is your turn to talk, same rule — the translation input box, the typed-in translation and Ctrl+V all go to the game client you are actually looking at, not the one that happened to start first 🎮
+Area translation got a proper repair, too. It now captures the game window a different way, so it no longer comes back with a blank screen and no text recognised. NPC lines that wrap across several rows are translated as one sentence instead of being chopped up at the line breaks, and menu or settings labels come back as plain translations without a pile of English in parentheses 🔍
 
 On top of that, we also did:
-- First-run wizard: step two now creates your first translation service instead of just filling in a key
-- Adding a service starts from provider cards with each one's logo, so you pick where it goes before you type anything
-- Old settings migrate on their own — every key you had is kept, and a service this version does not recognise is set aside rather than thrown away
-- The "game path" setting is gone from the advanced tab; the tool never needed it, and with several game clients it could not have been right anyway
+- Hotkeys: pressing one during an NPC conversation no longer skips to the next line. The key that completes the hotkey never reaches the game, and other programs still receive it as usual
+- Windows 10: a yellow border flashes around the game window for a moment when you start an area selection (Windows does not let us turn it off there; Windows 11 does not show it)
+- Changing settings while a message is mid-translation no longer drops it; it is retried with the new settings
+- Models with thinking turned on get twice the room, so they stop running out halfway through their reasoning
+- The first launch after updating writes the examples once in the background, which takes a few seconds, and system messages get translated afresh once
+- Maintenance: the Anthropic SDK is updated to 1.7.0, and hotkeys and Ctrl+V paste now share one piece of key-handling code
+- Maintenance: fixed a test that occasionally failed when the machine was busy, and updated the developer tools
 
 ## 此版本重點
 
-翻譯服務現在想建幾組就建幾組 —— 兩把 OpenAI 金鑰、一組 Claude、一台自己架的 OpenAI 相容伺服器 —— 各取一個名字，預設要用哪一組隨時切。不想全部走同一個模型的話，聊天收訊、你自己的發話、畫面框選翻譯可以各指定一組；不動它們就跟著預設走 🔀
+我們重新調整了送給 AI 的提示詞，長度大約只剩原本的一半，翻譯品質一樣好。差別更大的是，現在每次請求都會附上幾句用你的目標語言寫的示範。某組服務第一次搭配某個目標語言時，會請你設定的模型在背景寫好這幾句，驗證過後存起來；之後啟動、儲存設定、測試連線都直接拿存好的，只會寫一次。示範還沒好之前，翻譯照常進行，只是不附示範。成果是翻成日文、韓文、西班牙文時，不會再翻到一半變成中文 🧠
 
-另一件大事：多開好幾個帳號終於是你預期的樣子。每個開著的遊戲客戶端都各自掛入，第二個遊戲客戶端一出現，疊加視窗裡每則訊息前面就標出它來自哪一個（①、②⋯⋯），其中一個關掉之後標記也不會消失。換你發言的時候也是同一套 —— 翻譯輸入框、打進去的譯文、Ctrl+V 貼上，全都對準你當下正在看的那個遊戲客戶端，而不是先啟動的那個 🎮
+框選翻譯也徹底修好了。擷取遊戲畫面改用另一種方式，不會再拍到一片空白、辨識不到任何字。NPC 一句話折成好幾行時，會整句翻成通順的一段，不再照著換行切開；選單、設定這類介面文字直接翻譯，不再每個都掛著一串英文括號 🔍
 
 除此之外，我們還做了：
-- 首次設定精靈：第二步改成直接建立你的第一組翻譯服務，不再只是填一把金鑰
-- 新增服務先從帶各家標誌的服務商卡片選起，先決定要去哪裡再開始填
-- 舊設定會自己遷移 —— 你原本的金鑰一把都不會掉，這一版認不得的服務會先收在一旁而不是刪掉
-- 進階頁的「遊戲路徑」設定拿掉了；工具從來不需要它，多開時它也不可能填得對
+- 熱鍵：在 NPC 對話中按下熱鍵，對話不會再跳到下一句；湊齊熱鍵的那顆鍵不會傳進遊戲，其他程式照樣收得到
+- Windows 10：開始框選的瞬間，遊戲視窗周圍會閃一下黃框（Windows 10 不讓我們關掉，Windows 11 不會出現）
+- 訊息翻到一半時更改設定，那則訊息不會再消失，會用新設定重新翻譯
+- 開啟思考模式的模型能用的長度加倍，不會再想到一半就用完
+- 更新後第一次啟動，會在背景寫一次示範句（約幾秒鐘），系統訊息也會重新翻譯一次
+- 維護：Anthropic SDK 更新到 1.7.0；熱鍵和 Ctrl+V 貼上改用同一套按鍵處理
+- 維護：修好一個在電腦忙碌時偶爾會失敗的測試，並更新開發工具
 ```
 
 **注意這份範例做對的事**：
 
-- 中英文 hero 段落數相同（兩段）、bullet 條數相同（四條）、emoji 位置對齊（🔀 / 🎮）
-- 開場直述：第一句就講這版做到什麼（想建幾組服務就建幾組），沒有反問句、沒有「本次更新包含」
-- 把同一主題的子功能壓在同一段：多組服務、預設服務、三個用途各指定一組合成一段；多開的掛入、標記、發話對準前景合成另一段
-- 每個行為都對得上程式碼／文件：三用途各指定（README 功能清單、multi-service spec）、標記在第二個遊戲客戶端出現才顯示且不消失（multi-client spec）、遊戲路徑設定移除（commit）
-- 用語照使用者校稿：「多開」不寫「雙開」、「遊戲客戶端」不寫「客戶端」、發話段用「換你發言的時候」
-- 沒有 `## 收訊 / ## 發話 / ## 底層` 之類分節
-- 沒有補防毒警告、封號風險、回報連結（footer 已有）
-- 兩個 H2 直接相鄰，**沒有** `---` 分隔線
+- 中英文 hero 段落數相同（兩段）、bullet 條數相同（七條）、emoji 位置對齊（🧠 / 🔍）
+- 開場直述：第一句就講這版做了什麼（重新調整提示詞），沒有反問句、沒有「本次更新包含」
+- **翻譯品質類的改動講「最佳化提示詞＋示範句怎麼來」，不細講譯文格式規則**：使用者校稿時刪掉了「專有名詞附原文」的描述，只留提示詞變短、示範句由你的模型用目標語言生成並存起來、生成前照常翻譯，以及玩家感受得到的成果（不再翻到一半變中文）
+- 框選擷取、併句、介面標籤三個修正合成一段，都講玩家看到的結果，不講 WGC、編號這類實作
+- **維護項目要提**：依賴升級、測試修正、內部整合放在 bullet 區最後，以「Maintenance:」／「維護：」開頭，可把幾項合成一條
+- 有平台限制就直說（Windows 10 黃框），不藏
+- 每個行為都對得上程式碼／PR：提示詞長度減半（PR #28 實測）、示範句的觸發與退路（`ExampleCoordinator`）、思考模式上限加倍（`_MAX_TOKENS_THINKING` 2048 → 4096）
+- 快捷鍵組合不寫出來（使用者可自訂），只稱「熱鍵」；固定的 Ctrl+V 可以寫
+- 沒有分節、沒有補 footer 已有的內容、兩個 H2 直接相鄰沒有 `---`
 
 ## 重點群組範例
 
@@ -197,7 +204,8 @@ On top of that, we also did:
 | Emoji 灑滿每行 | 每段 1–2 個，挑自然停頓處 |
 | ✨ 主打 / ⚡ 底層 / 🎨 體驗 三段式 | 一段散文走完所有重點 |
 | 第三人稱客套（「使用者可以⋯」） | 第二人稱直接對讀者（「你⋯」） |
-| 把 Dependabot / CI / 測試重構拉到 hero | 永遠進 bullet 區或直接省略 |
+| 把 Dependabot / CI / 測試重構拉到 hero，或乾脆省略不提 | 放 bullet 區最後，以「Maintenance:」／「維護：」開頭彙整成一兩條 |
+| 細講譯文格式規則（「專有名詞會附原文」「介面標籤不加括號」之類的提示詞內容） | 翻譯品質類改動講「最佳化了給 AI 的提示詞」與示範句怎麼來，再講玩家感受得到的成果 |
 | 中文版逐字直譯英文稿（或反過來） | 兩邊各自寫成自然的母語文字，只對齊結構與節奏 |
 | 解釋「否則會怎樣」的反面情境（「翻到一半的語言不會變成半英文介面」） | 只講這個版本做到什麼；反面情境是設計理由，留在 commit／spec 裡 |
 | 寫維護者才在意的好處（「不必再維護一張對照表」「新增語言不用改程式碼」） | 只寫玩家在操作時感覺得到的差別 |
@@ -244,5 +252,5 @@ On top of that, we also did:
 - [ ] 有沒有第二人稱直接對讀者？
 - [ ] 是不是不小心又灑了「✨ ⚡ 🎨」三段式分節？
 - [ ] 有沒有拿 `_Track`／`reader_loop` 之類內部名詞當賣點？
-- [ ] Dependabot / CI / 機械 refactor 有沒有乖乖待在 bullet 區？
+- [ ] Dependabot / CI / 測試修正有沒有彙整成 bullet 區最後的「維護：」條目（不進 hero、也不省略）？
 - [ ] 兩邊讀起來都是自然的母語文字，不是互相直譯？
