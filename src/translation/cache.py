@@ -212,8 +212,9 @@ def translate_and_cache(translator, cache: TranslationCache, text: str) -> str:
     不直接依賴 Translator 型別以避免模組互相 import。"""
     template, numbers = normalize(text)
     fingerprint = cache.fingerprint   # 先記下產出當下的指紋（翻譯期間可能換設定）
+    target_language = translator.target_language   # 同理：譯文要以請求當下的目標判定
     translated = translator.translate_system_message(template)
-    if has_stray_latin(template, translated, translator.target_language):
+    if has_stray_latin(template, translated, target_language):
         log(f"[cache] translation is not in the target language, not cached: "
             f"template={template!r} translated={translated!r}")
         return restore(translated, numbers)

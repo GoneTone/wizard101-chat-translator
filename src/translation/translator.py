@@ -537,7 +537,8 @@ class Translator:
     由 _build_client 補預設值。`timeout`／`client` 供測試注入假 client。
 
     設定一律整份換掉（見 _Binding）：每個請求開頭讀一次 `self._binding`、之後只用它，
-    請求期間的 reconfigure／set_examples 才不會讓提示詞、範例與後端混用兩份設定。"""
+    請求期間的 reconfigure／set_examples 才不會讓提示詞、範例與後端混用兩份設定。
+    reconfigure／set_examples 只在 UI 執行緒呼叫（單一寫入者）。"""
 
     def __init__(self, *, target_language: str, timeout: float = _TIMEOUT,
                  client=None, **api):
