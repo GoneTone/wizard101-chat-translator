@@ -1440,7 +1440,8 @@ JA = "\n".join([
     "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
     "3. 火猫（Fire Cat）に話しかける",
     "4. 巨像大道（Colossus Boulevard）へ行く",
-    "5. そしてあなたは",
+    "5. オプション",
+    "6. そしてあなたは",
 ])
 
 

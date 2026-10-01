@@ -19,7 +19,8 @@ GOOD = "\n".join([
     "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
     "3. 火猫（Fire Cat）に話しかける",
     "4. 巨像大道（Colossus Boulevard）へ行く",
-    "5. そしてあなたは",
+    "5. オプション",
+    "6. そしてあなたは",
 ])
 
 
@@ -28,7 +29,7 @@ def test_parse_generated_accepts_every_path():
     assert examples.complete and failures == []
     assert examples.incoming == (SOURCE_LINES[0], GOOD.splitlines()[0][3:])
     assert examples.region[0].startswith("1. Talk to the Fire Cat")
-    assert examples.region[1].splitlines()[2] == "3. そしてあなたは"
+    assert examples.region[1].splitlines()[2:] == ["3. オプション", "4. そしてあなたは"]
 
 
 def test_parse_generated_drops_only_the_failing_path():
@@ -56,8 +57,14 @@ def test_parse_generated_names_the_failed_region_condition():
 def test_parse_generated_tells_a_wrong_line_count_from_an_untranslated_line():
     _, failures = parse_generated("\n".join(line[3:] for line in GOOD.splitlines()[:3]))
     assert failures == [f"line count 3 != {len(SOURCE_LINES)}"]
-    _, failures = parse_generated(GOOD.replace("5. そしてあなたは", "5. and then you must"))
-    assert failures == ["line 5 untranslated"]
+    _, failures = parse_generated(GOOD.replace("6. そしてあなたは", "6. and then you must"))
+    assert failures == ["line 6 untranslated"]
+
+
+def test_parse_generated_rejects_parentheses_on_the_interface_label():
+    examples, failures = parse_generated(GOOD.replace("5. オプション", "5. オプション（OPTIONS）"))
+    assert examples.region is None
+    assert failures == ["line 5: interface label must not have parentheses"]
 
 
 def test_parse_generated_treats_a_line_echoing_its_source_as_missing():
@@ -108,6 +115,11 @@ def test_generation_request_names_the_target_and_numbers_the_sources():
 def test_game_language_examples_translate_into_english():
     assert "Fire Cat (火" in GAME_LANGUAGE_EXAMPLES.incoming[1]
     assert GAME_LANGUAGE_EXAMPLES.complete
+
+
+def test_game_language_region_example_keeps_the_interface_label_bare():
+    source, output = GAME_LANGUAGE_EXAMPLES.region
+    assert "3. 选项" in source.splitlines() and "3. Options" in output.splitlines()
 
 
 def test_game_language_region_examples_have_no_surrounding_newlines():
