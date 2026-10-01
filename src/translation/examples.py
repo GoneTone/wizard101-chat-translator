@@ -11,12 +11,14 @@ from pathlib import Path
 
 from src.config import local_state_dir
 from src.log import log
-from src.translation.postprocess import number_lines, unnumber_lines
+from src.translation.postprocess import number_lines, numbered_entries, unnumber_lines
 
 # 範例內容（含 GAME_LANGUAGE_EXAMPLES）或生成提示詞有變時要遞增，讓舊快取作廢。
 EXAMPLE_REVISION = 3
 EXAMPLES_PATH = local_state_dir() / "translation-examples.json"
 MAX_ENTRIES = 32
+
+_INTERFACE_LABEL = "OPTIONS"
 
 SOURCE_LINES = (
     "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, "
@@ -24,7 +26,7 @@ SOURCE_LINES = (
     "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
     "Talk to the Fire Cat",
     "Go to Colossus Boulevard",
-    "OPTIONS",
+    _INTERFACE_LABEL,
     "and then you must",
 )
 
@@ -148,8 +150,13 @@ def parse_generated(output: str) -> tuple[ExampleSet, list[str]]:
     if len(lines) != len(SOURCE_LINES):
         return EMPTY, [f"line count {len(lines)} != {len(SOURCE_LINES)}"]
     lines = [line.strip() for line in lines]
+    # 介面標籤在部分語言拼法與英文相同（法文 OPTIONS），模型真的寫了這行時照抄也算譯文；
+    # 漏掉而被補回原文的不算，否則範例會示範「標籤不翻」
+    label_n = SOURCE_LINES.index(_INTERFACE_LABEL) + 1
+    label_answered = bool(numbered_entries(output).get(label_n))
     untranslated = [f"line {n} untranslated" for n, (line, source)
-                    in enumerate(zip(lines, SOURCE_LINES, strict=True), 1) if line == source]
+                    in enumerate(zip(lines, SOURCE_LINES, strict=True), 1)
+                    if line == source and not (n == label_n and label_answered)]
     if untranslated:
         return EMPTY, untranslated
     incoming = _check_incoming(lines[0])

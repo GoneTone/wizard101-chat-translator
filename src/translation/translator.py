@@ -678,14 +678,10 @@ class Translator:
             source=text, context_lines=len(context), cancel=cancel)
 
     def translate_region_text(self, text: str, cancel: RequestHandle | None = None) -> str:
-        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言。
-        使用者重新框選、調整框或關掉卡片時，流程會經 `cancel` 撤銷還在跑的請求。
-        原文逐行送出、不加編號：加了編號模型照樣會把折行的句子併起來，缺的編號只能補回原文，
-        卡片上反而多出已經翻過的英文；不加編號時併成的段落通順、內容完整。行數對不上就把
-        譯文整段顯示。
-        括號原文過濾（`tidy_parentheses`）：提示詞要求括號只能照抄原文，但實機仍會把簡體
-        中文地名譯成「天國大本營（Heavenly Headquarters）」。行數對得上時只比對該行與上下
-        相鄰行，同一頁遠處有英文時才不會替它放行，折行句子挪到鄰行的名詞又不會被誤刪。"""
+        """區域翻譯：本機 OCR 辨識出的畫面文字 → 目標語言；`cancel` 撤銷還在跑的請求。
+
+        原文逐行送出、不加編號，模型把折行的句子併成一段時整段顯示。括號原文（`tidy_parentheses`）
+        行數對得上時逐行比對該行與上下相鄰行，對不上時比對整段；提示詞仍要求照抄同一行，刻意比判定嚴。"""
         originals = nonblank_lines(text)
         b = self._binding
         translated = self._chat(
@@ -695,7 +691,11 @@ class Translator:
              {"role": "user", "content": "\n".join(originals)}],
             source=f"<text {len(text)} chars, {len(originals)} lines>", context_lines=0,
             max_tokens=_MAX_TOKENS_REGION, redact=True, cancel=cancel)
-        lines = nonblank_lines(translated)
+        lines = [line for line in nonblank_lines(translated) if not line.startswith("```")]
+        if not lines:
+            # 空字串在卡片上代表「畫面上沒有文字」，模型沒回東西得當成失敗
+            log(f"[translate] region text came back with no text for {len(originals)} lines")
+            raise TranslatorBadOutput("model returned no text")
         if len(lines) != len(originals):
             log(f"[translate] region text came back as {len(lines)} lines for "
                 f"{len(originals)}; showing it as a whole")

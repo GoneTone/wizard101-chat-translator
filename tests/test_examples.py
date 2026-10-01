@@ -12,6 +12,7 @@ from src.translation.examples import (
     generation_request,
     parse_generated,
 )
+from src.translation.postprocess import number_lines, numbered_entries, unnumber_lines
 
 GOOD = "\n".join([
     "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、"
@@ -61,6 +62,18 @@ def test_parse_generated_tells_a_wrong_line_count_from_an_untranslated_line():
     assert failures == [f"line count 3 != {len(SOURCE_LINES)}"]
     _, failures = parse_generated(GOOD.replace("6. そしてあなたは", "6. and then you must"))
     assert failures == ["line 6 untranslated"]
+
+
+def test_parse_generated_accepts_an_interface_label_spelled_like_its_source():
+    # 法文的 OPTIONS 就是 OPTIONS：照抄是正確譯文，不可當成沒翻而整份作廢
+    examples, failures = parse_generated(GOOD.replace("5. オプション", "5. OPTIONS"))
+    assert examples.complete and failures == []
+    assert examples.region[1].splitlines()[2] == "OPTIONS"
+
+
+def test_parse_generated_treats_a_missing_interface_label_as_untranslated():
+    missing_label = "\n".join(line for line in GOOD.splitlines() if not line.startswith("5."))
+    assert parse_generated(missing_label) == (EMPTY, ["line 5 untranslated"])
 
 
 def test_parse_generated_rejects_parentheses_on_the_interface_label():
@@ -318,3 +331,17 @@ def test_a_failure_after_the_settings_changed_does_not_block_a_later_retry(tmp_p
     assert len(jobs) == 2
     jobs[1]()
     assert tr.examples == SET
+
+
+def test_number_lines_skips_blank_lines():
+    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
+
+
+def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
+    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
+    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
+    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
+
+
+def test_numbered_entries_ignores_unnumbered_lines():
+    assert numbered_entries("以下是翻譯：\n1. 甲\n\n3. 丙") == {1: "甲", 3: "丙"}

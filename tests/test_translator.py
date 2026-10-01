@@ -19,10 +19,8 @@ from src.translation.examples import (
 )
 from src.translation.postprocess import (
     has_stray_latin,
-    number_lines,
     restore_sender,
     tidy_parentheses,
-    unnumber_lines,
 )
 from src.translation.prompts import (
     OUTGOING_LANGUAGE,
@@ -1212,6 +1210,19 @@ def test_region_text_shows_merged_lines_as_a_whole_without_adding_the_source_bac
     assert any("came back as 1 lines for 3" in m for m in messages)
 
 
+def test_region_text_drops_code_fences_around_the_translation():
+    fake = FakeHttpxClient(response=FakeResponse(content="```\n跟莫爾談談\n第二行\n```"))
+    assert _make(fake).translate_region_text("Talk to Merle Ambrose\nSecond line") == \
+        "跟莫爾談談\n第二行"
+
+
+def test_region_text_with_no_translation_is_bad_output_not_an_empty_screen():
+    # 空字串在卡片上代表「畫面上沒有文字」；模型沒回東西要當成失敗顯示
+    fake = FakeHttpxClient(response=FakeResponse(content="```\n```"))
+    with pytest.raises(TranslatorBadOutput, match="no text"):
+        _make(fake).translate_region_text("Talk to Merle Ambrose")
+
+
 def test_region_text_strips_invented_english_from_merged_lines_too():
     fake = FakeHttpxClient(response=FakeResponse(content="若有時間，請拜訪天國大本營（Heavenly HQ）！"))
     assert (_make(fake).translate_region_text("若有时间，\n请拜访天国大本营！")
@@ -1256,20 +1267,10 @@ def test_region_system_prompt_only_allows_parentheses_copied_from_the_line():
     assert "逐字照抄" in prompt
 
 
-def test_number_lines_skips_blank_lines():
-    assert number_lines("a\n\n b \n") == (["a", "b"], "1. a\n2. b")
-
-
 def test_region_system_prompt_asks_for_line_by_line_output_keeping_source_numbers():
     prompt = build_region_system("繁體中文（台灣）")
     assert "逐行翻譯" in prompt and "行首原有的編號照留" in prompt
     assert "輸入每行有編號" not in prompt
-
-
-def test_unnumber_lines_accepts_various_number_styles_and_plain_output():
-    assert unnumber_lines("1) 甲\n２．乙\n3、丙", ["a", "b", "c"]) == "甲\n乙\n丙"
-    assert unnumber_lines("甲\n乙", ["a", "b"]) == "甲\n乙"        # 沒編號但行數相同
-    assert unnumber_lines("一整段", ["a", "b"]) == "一整段"        # 對不上就原樣回傳
 
 
 def test_translate_region_text_logs_no_translation_content(monkeypatch):
