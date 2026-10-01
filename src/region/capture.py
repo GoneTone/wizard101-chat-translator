@@ -1,5 +1,5 @@
-"""遊戲視窗畫面擷取：分兩步 —— `capture_window` 對遊戲 HWND 用 PrintWindow 拍一次完整的
-client 區畫面，凍結成 `Frame`；`crop_frame` 再從這份凍結畫面依框選矩形裁成 PNG。
+"""遊戲視窗畫面擷取：分兩步 —— `capture_window` 對遊戲 HWND 用 Windows Graphics Capture
+拍一次完整的 client 區畫面，凍結成 `Frame`；`crop_frame` 再從這份凍結畫面依框選矩形裁成 PNG。
 另外 `capture_screen` 拍一次整顆螢幕，純粹給選取層當暗化背景用，跟前兩者的用途分開。
 
 分兩步是為了讓選取層顯示的畫面跟最終送去辨識的畫面是同一幀 —— 使用者拖曳框選矩形時看到
@@ -11,20 +11,23 @@ Win32 那層集中在 `capture_window`／`capture_screen`。
 """
 import ctypes
 import io
+import threading
+import time
+from ctypes import wintypes
 from dataclasses import dataclass
 
 import win32gui
-import win32ui
 from PIL import Image, ImageGrab
+from windows_capture import WindowsCapture
 
 from src.log import log
 
-# Win 8.1 起的旗標：連 DirectX 畫的內容也交給 DWM 渲染進 DC，沒有它 DX 視窗會拍到全黑
-_PW_RENDERFULLCONTENT = 0x2
+_DWMWA_EXTENDED_FRAME_BOUNDS = 9
+_FRAME_TIMEOUT_S = 2.0
 
 
 class CaptureError(Exception):
-    """擷取失敗：矩形落在遊戲視窗外、PrintWindow 回失敗、或拍到整張空白。"""
+    """擷取失敗：矩形落在遊戲視窗外、等不到影格、或拍到整張單色。"""
 
 
 class SelectionOutsideGame(CaptureError):
@@ -56,24 +59,32 @@ def window_region(screen_rect: tuple[int, int, int, int], client_origin: tuple[i
 
 def capture_window(hwnd: int) -> Frame:
     """把遊戲視窗 hwnd 的整個 client 區拍成一張 `Frame`。
-    Win32／PIL 任一層的例外（視窗消失、PrintWindow 失敗、尺寸不合）一律包成 CaptureError。"""
+    Win32／WGC／PIL 任一層的例外（視窗消失、等不到影格、尺寸不合）一律包成 CaptureError。"""
     try:
         client_origin = win32gui.ClientToScreen(hwnd, (0, 0))
         _, _, client_w, client_h = win32gui.GetClientRect(hwnd)
-        win_left, win_top, win_right, win_bottom = win32gui.GetWindowRect(hwnd)
-        image = _print_window(hwnd, win_right - win_left, win_bottom - win_top)
-        # PrintWindow 的原點是視窗外框左上角，client 區再往內偏一段邊框
-        dx, dy = client_origin[0] - win_left, client_origin[1] - win_top
+        frame_left, frame_top = _frame_origin(hwnd)
+        started = time.perf_counter()
+        image = _grab_window(hwnd)
+        elapsed_ms = round((time.perf_counter() - started) * 1000)
+        # WGC 影格的原點是 DWM 看得見的外框左上角，client 區再往內偏一段標題列與邊框
+        dx, dy = client_origin[0] - frame_left, client_origin[1] - frame_top
+        if dx < 0 or dy < 0 or dx + client_w > image.width or dy + client_h > image.height:
+            log(f"[region] frame {image.width}x{image.height} does not contain client "
+                f"{client_w}x{client_h} at offset ({dx}, {dy}); crop may be off (DPI scaling?)")
         client_image = image.crop((dx, dy, dx + client_w, dy + client_h))
-        if client_image.getextrema() == ((0, 0), (0, 0), (0, 0)):
-            raise CaptureError(f"blank capture (hwnd={hwnd:#x})")
+        extrema = client_image.getextrema()
+        # 單色畫面（全白、全黑）代表擷取沒拿到遊戲內容，送去 OCR 只會辨識不到字
+        if all(low == high for low, high in extrema):
+            raise CaptureError(f"blank capture (hwnd={hwnd:#x}, "
+                               f"colour={tuple(low for low, _ in extrema)})")
     except CaptureError:
         raise
     except Exception as exc:
         raise CaptureError(f"capture failed (hwnd={hwnd:#x}): "
                            f"{type(exc).__name__}: {exc}") from exc
     log(f"[region] frame captured (hwnd={hwnd:#x}, client={client_origin}, "
-        f"size={client_w}x{client_h})")
+        f"size={client_w}x{client_h}, frame={image.width}x{image.height}, ms={elapsed_ms})")
     return Frame(client_image, client_origin, (client_w, client_h))
 
 
@@ -104,27 +115,52 @@ def crop_frame(frame: Frame, screen_rect: tuple[int, int, int, int]) -> bytes:
     return buffer.getvalue()
 
 
-def _print_window(hwnd: int, width: int, height: int) -> Image.Image:
-    """整個視窗（含外框）的 PrintWindow 結果；GDI 物件在 finally 一律釋放。"""
-    hwnd_dc = win32gui.GetWindowDC(hwnd)
-    src_dc = win32ui.CreateDCFromHandle(hwnd_dc)
-    mem_dc = src_dc.CreateCompatibleDC()
-    bitmap = win32ui.CreateBitmap()
+def _frame_origin(hwnd: int) -> tuple[int, int]:
+    """DWM 看得見的視窗外框左上角（螢幕座標）；不含 GetWindowRect 算進去的隱形拖曳邊框。"""
+    rect = wintypes.RECT()
+    result = ctypes.windll.dwmapi.DwmGetWindowAttribute(
+        wintypes.HWND(hwnd), _DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(rect), ctypes.sizeof(rect))
+    if result != 0:
+        raise CaptureError(f"DwmGetWindowAttribute failed (hwnd={hwnd:#x}, "
+                           f"hresult={result & 0xFFFFFFFF:#010x})")
+    return rect.left, rect.top
+
+
+def _grab_window(hwnd: int) -> Image.Image:
+    """用 Windows Graphics Capture 拍 hwnd 的一張影格（範圍是 DWM 看得見的外框）。
+
+    擷取在套件自己的執行緒跑：程式已透過 pywin32 在主執行緒初始化 COM，直接在這裡
+    啟動會報 Failed to initialize WinRT。"""
+    arrived = threading.Event()
+    grabbed: dict[str, object] = {}
+    session = WindowsCapture(cursor_capture=False, draw_border=False, window_hwnd=hwnd)
+
+    @session.event
+    def on_frame_arrived(frame, control):
+        if not arrived.is_set():
+            try:
+                # 影格緩衝只在回呼期間有效，先複製成圖片
+                grabbed["image"] = Image.frombytes(
+                    "RGB", (frame.width, frame.height), frame.frame_buffer.tobytes(),
+                    "raw", "BGRX")
+            except Exception as exc:
+                grabbed["error"] = exc
+            arrived.set()
+        control.stop()
+
+    @session.event
+    def on_closed():
+        arrived.set()
+
+    control = session.start_free_threaded()
     try:
-        bitmap.CreateCompatibleBitmap(src_dc, width, height)
-        mem_dc.SelectObject(bitmap)
-        ok = ctypes.windll.user32.PrintWindow(hwnd, mem_dc.GetSafeHdc(), _PW_RENDERFULLCONTENT)
-        if not ok:
-            raise CaptureError(f"PrintWindow failed (hwnd={hwnd:#x}, size={width}x{height})")
-        info = bitmap.GetInfo()
-        if info["bmWidth"] != width or info["bmHeight"] != height:
-            log(f"[region] bitmap size {info['bmWidth']}x{info['bmHeight']} differs from "
-                f"window size {width}x{height}; crop may be off (DPI scaling?)")
-        data = bitmap.GetBitmapBits(True)
-        return Image.frombuffer("RGB", (info["bmWidth"], info["bmHeight"]), data,
-                                "raw", "BGRX", 0, 1).copy()
+        if not arrived.wait(_FRAME_TIMEOUT_S):
+            raise CaptureError(f"no frame within {_FRAME_TIMEOUT_S}s (hwnd={hwnd:#x})")
     finally:
-        win32gui.DeleteObject(bitmap.GetHandle())
-        mem_dc.DeleteDC()
-        src_dc.DeleteDC()
-        win32gui.ReleaseDC(hwnd, hwnd_dc)
+        control.stop()
+    if "error" in grabbed:
+        raise CaptureError(f"frame conversion failed (hwnd={hwnd:#x}): "
+                           f"{type(grabbed['error']).__name__}: {grabbed['error']}")
+    if "image" not in grabbed:
+        raise CaptureError(f"capture session closed before a frame arrived (hwnd={hwnd:#x})")
+    return grabbed["image"]
