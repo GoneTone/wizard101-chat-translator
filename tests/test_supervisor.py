@@ -1,7 +1,7 @@
 """supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒 → 多客戶端模式一次性觸發。
 以假列舉與假執行緒驗證，不需遊戲。"""
 import threading
-import time
+import types
 
 from src.reader import supervisor
 from src.reader.supervisor import allocate_slot, supervise
@@ -182,23 +182,32 @@ def test_a_raising_on_multi_client_retries_next_scan_instead_of_latching():
     assert calls["n"] == 2
 
 
+class _StuckThread:
+    """永遠不結束的 reader：join 把假時鐘往前撥 timeout 秒，並記下收到的 timeout。"""
+
+    def __init__(self, clock: list[float], timeouts: list[float]):
+        self.clock, self.timeouts = clock, timeouts
+
+    def is_alive(self):
+        return True
+
+    def join(self, timeout):
+        self.timeouts.append(timeout)
+        self.clock[0] += timeout
+
+
 def test_shutdown_join_budget_is_shared_not_per_thread(monkeypatch):
+    # 用假時鐘而非實際耗時：全套平行跑時機器一忙，牆鐘餘裕就不夠
     monkeypatch.setattr(supervisor, "JOIN_TIMEOUT", 0.2)
+    clock = [0.0]
+    monkeypatch.setattr(supervisor, "time", types.SimpleNamespace(monotonic=lambda: clock[0]))
     stop = threading.Event()
-    calls = {"n": 0}
+    timeouts: list[float] = []
 
     def enumerate():
-        calls["n"] += 1
-        if calls["n"] >= 2:
-            stop.set()
+        stop.set()
         return [0xA, 0xB]
 
-    def spawn(hwnd, slot):
-        th = threading.Thread(target=lambda: threading.Event().wait(), daemon=True)
-        th.start()
-        return th
-
-    start = time.monotonic()
-    supervise(stop, spawn, enumerate, lambda: None, FakeBoard(), interval=0.005)
-    elapsed = time.monotonic() - start
-    assert elapsed < 0.35   # 兩條卡死的 thread 共用一個 0.2s 預算，不是各等 0.2s（0.4s）
+    supervise(stop, lambda hwnd, slot: _StuckThread(clock, timeouts), enumerate,
+              lambda: None, FakeBoard(), interval=0)
+    assert timeouts == [0.2, 0.0]   # 兩條卡死的 thread 共用一個預算，不是各等 0.2s
