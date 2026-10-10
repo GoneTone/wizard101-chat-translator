@@ -435,12 +435,20 @@ def _anthropic_detail(exc) -> str:
     return _one_line(message if message is not None else exc.message)
 
 
+# Claude（尤其 Haiku）常不思考就在正文裡自我修正（先給譯文、再寫「Wait —」重來），
+# 限定成單一 JSON 字串欄位後實測不再發生；其他服務商沒有這個症狀，不套用。
+_CLAUDE_OUTPUT_FORMAT = {"type": "json_schema", "schema": {
+    "type": "object", "properties": {"translation": {"type": "string"}},
+    "required": ["translation"], "additionalProperties": False}}
+
+
 class _ClaudeClient(_BaseClient):
     """Claude 官方 API（anthropic SDK）：打 /v1/messages。
     Claude 5 系不接受 temperature（會 400），也沒有「完全不思考」這個選項：
     思考深度改由 effort 控制，EFFORT_AUTO 時連 output_config 都不帶、維持模型
     預設（adaptive）。刻意不走 thinking={"type": "disabled"} —— 那在 Opus 5 會把
-    <thinking> 標籤漏進回應，而 strip_think 只認 <think>。"""
+    <thinking> 標籤漏進回應，而 strip_think 只認 <think>。
+    回應一律走結構化輸出（_CLAUDE_OUTPUT_FORMAT），chat 解開 JSON 後回傳純文字。"""
 
     def __init__(self, model: str, api_key: str, effort: str = EFFORT_AUTO,
                  timeout: float = _TIMEOUT, client=None):
@@ -464,9 +472,10 @@ class _ClaudeClient(_BaseClient):
         `deterministic` 不適用（本來就不送 temperature），收下後忽略。"""
         limit = max_tokens if max_tokens is not None else _MAX_TOKENS_THINKING
         params = {"model": self._model, "max_tokens": limit,
-                  "system": system, "messages": turns}
+                  "system": system, "messages": turns,
+                  "output_config": {"format": _CLAUDE_OUTPUT_FORMAT}}
         if self._effort != EFFORT_AUTO:
-            params["output_config"] = {"effort": self._effort}
+            params["output_config"]["effort"] = self._effort
         try:
             with (self._client.messages.stream(**params) as stream,
                   _cancellable(cancel, stream.close)):
@@ -478,11 +487,18 @@ class _ClaudeClient(_BaseClient):
             if error is None:
                 raise
             raise error from exc
-        content = "".join(b.text for b in resp.content if b.type == "text")
+        # 文件只保證第一個 text 區塊是合法 JSON；實測此模式下也只會有一個 text 區塊
+        content = next((b.text for b in resp.content if b.type == "text"), "")
         if resp.stop_reason == "max_tokens":
             usage = getattr(resp, "usage", None)
             raise _truncated(limit, getattr(usage, "output_tokens", None), content)
-        return strip_think(content).strip()
+        try:
+            text = json.loads(content)["translation"]
+        except (ValueError, KeyError, TypeError) as exc:
+            log(f"[translate] claude output is not the expected JSON: model={self._model} "
+                f"stop_reason={resp.stop_reason} sample={content[:_TRUNCATED_SAMPLE_CHARS]!r}")
+            raise TranslatorBadOutput(f"unexpected output (stop_reason={resp.stop_reason})") from exc
+        return strip_think(text).strip()
 
     def list_models(self) -> list[str]:
         try:

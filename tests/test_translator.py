@@ -4,6 +4,7 @@
 import json
 import threading
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import anthropic
 import httpx
@@ -32,6 +33,7 @@ from src.translation.prompts import (
     example_turns,
 )
 from src.translation.translator import (
+    _CLAUDE_OUTPUT_FORMAT,
     _MAX_TOKENS_REGION,
     _MAX_TOKENS_THINKING,
     OPENAI_BASE_URL,
@@ -152,24 +154,19 @@ def test_openai_compat_retryable_status_maps_to_offline(status):
 
 
 class FakeMessageStream:
-    """替身 MessageStream：`get_final_message` 回累積好的訊息。"""
+    """替身 MessageStream：`get_final_message` 回累積好的訊息。
+    `content` 是譯文，包成結構化輸出的 JSON；`blocks` 給定時改回這串原樣 (type, text)。"""
 
-    def __init__(self, stop_reason, content):
-        self._stop_reason, self._content = stop_reason, content
+    def __init__(self, stop_reason, content, blocks=None):
+        self._stop_reason = stop_reason
+        self._blocks = blocks or [("text", json.dumps({"translation": content}))]
         self.closed = False
 
     def get_final_message(self):
-        stop_reason = self._stop_reason
-        content = self._content
-
-        class Block:
-            type = "text"
-            text = content
-
         class Resp:
-            content = [Block()]
+            content = [SimpleNamespace(type=kind, text=text) for kind, text in self._blocks]
+            stop_reason = self._stop_reason
 
-        Resp.stop_reason = stop_reason
         return Resp()
 
     def close(self):
@@ -177,10 +174,11 @@ class FakeMessageStream:
 
 
 class FakeAnthropicMessages:
-    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None):
         self._raises = raises
         self._stop_reason = stop_reason
         self._content = content
+        self._blocks = blocks
         self.last_kwargs = None
         self.last_stream = None
 
@@ -189,13 +187,13 @@ class FakeAnthropicMessages:
         self.last_kwargs = kwargs
         if self._raises:
             raise self._raises
-        self.last_stream = FakeMessageStream(self._stop_reason, self._content)
+        self.last_stream = FakeMessageStream(self._stop_reason, self._content, self._blocks)
         yield self.last_stream
 
 
 class FakeAnthropicClient:
-    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文"):
-        self.messages = FakeAnthropicMessages(raises, stop_reason, content)
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None):
+        self.messages = FakeAnthropicMessages(raises, stop_reason, content, blocks)
 
 
 def _anthropic_status_error(status, body=None):
@@ -266,12 +264,12 @@ def test_claude_sends_max_tokens():
     assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_THINKING
 
 
-def test_claude_auto_effort_sends_no_output_config():
-    # 自動＝維持模型預設（adaptive），連參數都不帶
+def test_claude_auto_effort_sends_no_effort():
+    # 自動＝維持模型預設（adaptive），不帶 effort；輸出格式照樣限定
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
-    assert "output_config" not in fake.messages.last_kwargs
+    assert fake.messages.last_kwargs["output_config"] == {"format": _CLAUDE_OUTPUT_FORMAT}
 
 
 def test_claude_low_effort_sends_output_config():
@@ -279,7 +277,8 @@ def test_claude_low_effort_sends_output_config():
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k", effort=EFFORT_LOW,
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
-    assert fake.messages.last_kwargs["output_config"] == {"effort": "low"}
+    assert fake.messages.last_kwargs["output_config"] == {
+        "format": _CLAUDE_OUTPUT_FORMAT, "effort": "low"}
     # 思考深度壓低不代表關閉思考：Claude 沒有 thinking 開關可送
     assert "thinking" not in fake.messages.last_kwargs
 
@@ -288,6 +287,23 @@ def test_claude_truncated_output_maps_to_bad_output():
     t = Translator(provider="claude", model="m", api_key="k",
                    target_language="繁體中文（台灣）",
                    client=FakeAnthropicClient(stop_reason="max_tokens"))
+    with pytest.raises(TranslatorBadOutput):
+        t.translate_incoming("[A] hi", [])
+
+
+def test_claude_reads_the_first_text_block():
+    blocks = [("text", json.dumps({"translation": "[A] 第一版"})), ("thinking", ""),
+              ("text", json.dumps({"translation": "[A] 第二版"}))]
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=FakeAnthropicClient(blocks=blocks))
+    assert t.translate_incoming("[A] hi", []) == "[A] 第一版"
+
+
+@pytest.mark.parametrize("blocks", [[("text", "")], [("text", "[A] 不是 JSON")],
+                                    [("text", '{"other": "x"}')], [("thinking", "")]])
+def test_claude_unexpected_output_maps_to_bad_output(blocks):
+    t = Translator(provider="claude", model="m", api_key="k",
+                   target_language="繁體中文（台灣）", client=FakeAnthropicClient(blocks=blocks))
     with pytest.raises(TranslatorBadOutput):
         t.translate_incoming("[A] hi", [])
 
