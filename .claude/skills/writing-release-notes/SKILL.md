@@ -124,52 +124,41 @@ ls docs/superpowers/specs                                   # 設計文件：功
 
 第三方站名／來源用「原文 英譯」雙語並列，中英版本字串相同（例如「原神資訊站 Genshin Impact Info」），不要在英文版只留英譯。
 
-## Gold Standard：v0.4.1（使用者已校稿）
+## Gold Standard：v0.4.2（使用者已校稿）
 
-> 這份是 2026-10-01 使用者校過的 v0.4.1 定稿，取代 v0.4.0 的範本。
+> 這份是 2026-10-10 使用者校過的 v0.4.2 定稿，取代 v0.4.1 的範本。
 > 之後每次放版、使用者改完稿，回來用實際發布的版本覆蓋這一段（中英都要）。
 
 ```markdown
 ## What's New
 
-We reworked the prompts the tool sends to the AI: they are about half as long as before, and the translations hold up just as well. What makes the bigger difference is that every request now comes with a few worked examples, written in your own target language. The first time you use a service with a given target language, your own model writes those examples in the background, the tool checks them, and keeps them for next time. Startup, saving your settings and testing a connection all pick up the stored ones, so they are only ever written once. Until they are ready, translation carries on as usual, just without examples. The result: Japanese, Korean or Spanish translations no longer drift into Chinese halfway through 🧠
+Outgoing translation now reads the conversation before it sends your message. Short messages that leave out who is doing what — the kind you type mid-fight — used to get a "you" or "me" filled in by guesswork, so asking whether healing is allowed in this fight went out as asking a teammate to heal you. We tuned the prompt so the AI works out who is talking to whom from the recent chat, your own messages included, and a question you ask still goes out as a question 💬
 
-Area translation got a proper repair, too. It now captures the game window a different way, so it no longer comes back with a blank screen and no text recognised. NPC lines that wrap across several rows are translated as one sentence instead of being chopped up at the line breaks, and menu or settings labels come back as plain translations without a pile of English in parentheses 🔍
+If you translate with Claude, the overlay no longer shows the AI arguing with itself. Claude — Haiku 5.5 especially — would sometimes write a translation, follow it with "Wait —" and a check of its own rules, then give a second version, and all of it landed in the overlay as one message. Claude's replies are now limited to the translation itself, for chat, system messages, area translation and what you send. Other translation services are unchanged 🧹
 
 On top of that, we also did:
-- Hotkeys: pressing one during an NPC conversation no longer skips to the next line. The key that completes the hotkey never reaches the game, and other programs still receive it as usual
-- Windows 10: a yellow border flashes around the game window for a moment when you start an area selection (Windows does not let us turn it off there; Windows 11 does not show it)
-- Changing settings while a message is mid-translation no longer drops it; it is retried with the new settings
-- Models with thinking turned on get twice the room, so they stop running out halfway through their reasoning
-- The first launch after updating writes the examples once in the background, which takes a few seconds, and system messages get translated afresh once
-- Maintenance: the Anthropic SDK is updated to 1.7.0, and hotkeys and Ctrl+V paste now share one piece of key-handling code
-- Maintenance: fixed a test that occasionally failed when the machine was busy, and updated the developer tools
+- Maintenance: the Anthropic SDK is updated to 1.8.0, and the developer tools are updated
 
 ## 此版本重點
 
-我們重新調整了送給 AI 的提示詞，長度大約只剩原本的一半，翻譯品質一樣好。差別更大的是，現在每次請求都會附上幾句用你的目標語言寫的示範。某組服務第一次搭配某個目標語言時，會請你設定的模型在背景寫好這幾句，驗證過後存起來；之後啟動、儲存設定、測試連線都直接拿存好的，只會寫一次。示範還沒好之前，翻譯照常進行，只是不附示範。成果是翻成日文、韓文、西班牙文時，不會再翻到一半變成中文 🧠
+發話翻英現在會先看懂對話再送出。戰鬥中隨手打的短句常常沒講「誰對誰做事」，以前 AI 會自己猜著補上 you 或 me，於是想問「這場能不能補血」，送出去卻變成請隊友幫你補血。我們調整了提示詞，讓 AI 從最近的聊天（包括你自己剛發的話）判斷是誰在跟誰說話，你問的問題送出去也照樣是問句 💬
 
-框選翻譯也徹底修好了。擷取遊戲畫面改用另一種方式，不會再拍到一片空白、辨識不到任何字。NPC 一句話折成好幾行時，會整句翻成通順的一段，不再照著換行切開；選單、設定這類介面文字直接翻譯，不再每個都掛著一串英文括號 🔍
+如果你用 Claude 翻譯，疊加視窗不會再出現 AI 自己跟自己爭論的內容。Claude（尤其是 Haiku 5.5）有時會先寫一版譯文，接著寫「Wait ——」檢查自己的規則，再給第二版，結果整段都被當成同一則譯文顯示出來。現在 Claude 的回覆只會是譯文本身，收訊、系統訊息、框選翻譯和發話都一樣；其他翻譯服務不受影響 🧹
 
 除此之外，我們還做了：
-- 熱鍵：在 NPC 對話中按下熱鍵，對話不會再跳到下一句；湊齊熱鍵的那顆鍵不會傳進遊戲，其他程式照樣收得到
-- Windows 10：開始框選的瞬間，遊戲視窗周圍會閃一下黃框（Windows 10 不讓我們關掉，Windows 11 不會出現）
-- 訊息翻到一半時更改設定，那則訊息不會再消失，會用新設定重新翻譯
-- 開啟思考模式的模型能用的長度加倍，不會再想到一半就用完
-- 更新後第一次啟動，會在背景寫一次示範句（約幾秒鐘），系統訊息也會重新翻譯一次
-- 維護：Anthropic SDK 更新到 1.7.0；熱鍵和 Ctrl+V 貼上改用同一套按鍵處理
-- 維護：修好一個在電腦忙碌時偶爾會失敗的測試，並更新開發工具
+- 維護：Anthropic SDK 更新到 1.8.0，並更新開發工具
 ```
 
 **注意這份範例做對的事**：
 
-- 中英文 hero 段落數相同（兩段）、bullet 條數相同（七條）、emoji 位置對齊（🧠 / 🔍）
-- 開場直述：第一句就講這版做了什麼（重新調整提示詞），沒有反問句、沒有「本次更新包含」
-- **翻譯品質類的改動講「最佳化提示詞＋示範句怎麼來」，不細講譯文格式規則**：使用者校稿時刪掉了「專有名詞附原文」的描述，只留提示詞變短、示範句由你的模型用目標語言生成並存起來、生成前照常翻譯，以及玩家感受得到的成果（不再翻到一半變中文）
-- 框選擷取、併句、介面標籤三個修正合成一段，都講玩家看到的結果，不講 WGC、編號這類實作
-- **維護項目要提**：依賴升級、測試修正、內部整合放在 bullet 區最後，以「Maintenance:」／「維護：」開頭，可把幾項合成一條
-- 有平台限制就直說（Windows 10 黃框），不藏
-- 每個行為都對得上程式碼／PR：提示詞長度減半（PR #28 實測）、示範句的觸發與退路（`ExampleCoordinator`）、思考模式上限加倍（`_MAX_TOKENS_THINKING` 2048 → 4096）
+- 中英文 hero 段落數相同（兩段）、bullet 條數相同（一條）、emoji 位置對齊（💬 / 🧹）
+- **改動少就寫少**：這版只有兩個修正加依賴升級，hero 兩段、bullet 只剩維護一條，不硬湊次要項
+- 開場直述：第一句就講這版做到什麼（發話會先看懂對話），沒有反問句、沒有「本次更新包含」
+- **用玩家遇過的實例講問題**：「想問能不能補血，送出去變成請隊友幫你補」比「補錯主詞」好懂；例子來自回報者的實際 log
+- **翻譯品質類的改動講「調整提示詞」與成果，不細講規則**：沒寫「推不出來用 we／it」「新增一組示範」這類提示詞內容，也沒提結構化輸出、JSON 這類實作
+- **限定範圍要講清楚**：Claude 的修正寫明只影響 Claude、四種翻譯都適用、其他服務不受影響
+- **維護項目要提**：依賴升級放在 bullet 區最後，以「Maintenance:」／「維護：」開頭，可把幾項合成一條
+- 每個行為都對得上程式碼／PR：上下文含玩家自己的訊息（`ChatContext.snapshot()`）、四種翻譯都走 `_ClaudeClient.chat`（PR #36、#37）；拒答時改顯示失敗提示這種玩家幾乎碰不到的邊角情況不寫
 - 快捷鍵組合不寫出來（使用者可自訂），只稱「熱鍵」；固定的 Ctrl+V 可以寫
 - 沒有分節、沒有補 footer 已有的內容、兩個 H2 直接相鄰沒有 `---`
 
