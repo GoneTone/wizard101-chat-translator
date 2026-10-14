@@ -14,7 +14,7 @@ WINDOW_PARENT_OFFSET = 0x88
 WINDOW_FLAGS_OFFSET = 0x9C
 FLAG_VISIBLE = 0x1
 
-# 依遊戲由左到右；編號 3、4、5–8 是靜態推論，待實機確認
+# 依遊戲由左到右；編號 0–3 已實機確認，4、5–8 是靜態推論
 TAB_BUTTONS: tuple[tuple[str, int], ...] = (
     ("MainFilterButton", 0),
     ("GroupFilterButton", 1),
