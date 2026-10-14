@@ -111,6 +111,10 @@ class FakeReader:
     def tab_state(self):
         return self.states[min(self.n - 1, len(self.states) - 1)] if self.states else None
 
+    def current_tab(self):
+        state = FakeReader.tab_state(self)  # 不經子類別覆寫：計數測試只數完整取樣
+        return state.current if state else None
+
     def close(self):
         self.closed = True
 
@@ -669,3 +673,14 @@ def test_tab_state_and_foreground_are_sampled_slower_than_chat(monkeypatch):
     assert len(pool.submitted) == 5
     assert CountingReader.tab_reads == 1
     assert ov.foreground_slots == [1]
+
+
+def test_a_tab_switch_is_reported_without_waiting_for_the_slow_sample(monkeypatch):
+    """目前分頁每輪都看：遊戲裡切分頁，下一輪就送完整分頁狀態，不等 TAB_POLL_INTERVAL。"""
+    monkeypatch.setattr(loop_module, "TAB_POLL_INTERVAL", 60.0)
+    main = TabState(0, ((0, "General"), (1, "Team")))
+    team = TabState(1, ((0, "General"), (1, "Team")))
+    ov = FakeOverlay()
+    run_scripted({"poll_interval": 0.01}, ov, [[], [], [], []], monkeypatch,
+                 states=[main, main, team, team])
+    assert ov.tab_states == [(1, main), (1, team)]

@@ -36,7 +36,7 @@ GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 # 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
 INPUT_POLL_INTERVAL = 0.05
-# 分頁狀態與前景的取樣間隔（秒）：分頁狀態一次要讀約 45 處記憶體，不必跟環形緩衝一樣密
+# 完整分頁狀態與前景的取樣間隔（秒）：一次要讀約 45 處記憶體；切換分頁另由每輪讀目前分頁偵測
 TAB_POLL_INTERVAL = 0.4
 
 
@@ -121,6 +121,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
     game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
     reported_tabs: TabState | None = None
     tabs_polled_at = float("-inf")
+    sampled_tab: int | None = None  # 上次完整取樣時的目前分頁
 
     def report_tabs(state: TabState | None) -> None:
         nonlocal reported_tabs
@@ -182,9 +183,15 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
                 game_issue = None
                 log(f"[reader] game back, resuming (slot={slot})")
 
-            if time.monotonic() - tabs_polled_at >= TAB_POLL_INTERVAL:
+            # 目前分頁只要一次讀取、每輪都看：遊戲裡切分頁不必等 TAB_POLL_INTERVAL 才同步
+            current = reader.current_tab()
+            if (time.monotonic() - tabs_polled_at >= TAB_POLL_INTERVAL
+                    or current is not None and current != sampled_tab):
                 tabs_polled_at = time.monotonic()
-                report_tabs(reader.tab_state())
+                state = reader.tab_state()
+                # 完整取樣失敗時記下這輪讀到的分頁，免得每輪都重試完整取樣
+                sampled_tab = state.current if state else current
+                report_tabs(state)
                 # 每次取樣都送（overlay 對同一客戶端是 no-op）：只送邊緣時，兩條執行緒錯開會漏掉快速 A→B→A
                 if foreground_window() == hwnd:
                     ui_queue.put(lambda: overlay.set_foreground_slot(slot))
