@@ -589,4 +589,3 @@ def test_build_app_spawns_readers_through_the_supervisor():
     source = (ROOT / "src" / "main.py").read_text(encoding="utf-8")
     assert "target=supervise" in source
     assert "MessageLog(message_stream, slot=slot)" in source
-    assert "overlay.set_multi_client" in source

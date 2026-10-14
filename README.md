@@ -80,7 +80,8 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **Speak in your own language**: open the game's chat input box and the translation input box appears on its own; type, press Enter, and the English translation is typed into the chat box — whether to send it is up to you
 - **Paste text into the game**: the game itself cannot paste text, so `Ctrl+V` with the game in the foreground types the clipboard for you, in any text field
 - **No misread characters, no missed messages**: the game's chat content is read directly rather than recognized off the screen, and both other people's lines and your own are covered
-- **Multiple game clients are covered**: with several clients running at once, every client's chat is translated and each message is marked with the client it came from; speaking and pasting go to the client you are currently using
+- **Multiple game clients are covered**: with several clients running at once, the translation window follows whichever game client is in the foreground; speaking and pasting go to the client you are currently using
+- **Tabs in sync with the game**: the translation window's tabs mirror the game's chat tabs, with names and unread counts shown just as in the game
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI, Claude, or your own OpenAI-compatible service — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
@@ -119,9 +120,9 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 ## Known Limitations
 
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
-- Translations do not appear instantly: chat is scanned every 0.4 seconds by default (adjustable on the *Advanced* tab), and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
+- Translations do not appear instantly: chat is scanned every 0.1 seconds by default (adjustable on the *Advanced* tab), and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
 - Player chat is never cached; every line is really sent for translation (so every line costs an API call). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
-- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
+- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated, unless the failing pattern is this project's own chat hook, in which case you wait for a new release of this project. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
 - Hooking into the game and the global hotkey (the `keyboard` package) only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
 ## Development
@@ -138,7 +139,7 @@ The rest of this file covers working from source: development, debugging and pac
 1. `uv sync` — creates `.venv` and installs everything in `pyproject.toml` (including wizwalker for the incoming side; `[tool.uv.sources]` already points at the [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker), which keeps up with the current client patterns, because the official PyPI release has stale patterns that no longer match the live client).
 2. `uv run run.py` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the project root, which is not version-controlled.
 
-> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns.
+> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns. If the log says the AddLine hook is the one that failed, that pattern lives in this project rather than the fork: updating the fork cannot fix it, so wait for a new release of this project.
 
 ### Running from source
 

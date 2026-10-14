@@ -33,6 +33,7 @@ CONFIG_PATH = app_dir() / "config.json"
 
 
 DEFAULT_CONFIG: dict = {
+    "config_version": 2,      # 設定檔格式版本；舊檔缺此欄＝1，載入時做一次性遷移
     "services": [],           # 使用者建立的翻譯服務；空＝尚未設定，啟動時進精靈
     "default_service": None,  # 預設服務的 id；未指定用途的都跟著它走
     "service_slots": {slot: None for slot in SLOTS},  # None＝跟隨預設
@@ -42,7 +43,7 @@ DEFAULT_CONFIG: dict = {
     # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文。首次啟動會被
     # bootstrap_language 換成系統語言，這裡只是舊設定檔缺欄位時的補值
     "target_language": language_name(SOURCE_LANGUAGE),
-    "poll_interval": 0.4,    # 收訊輪詢間隔（秒）；快掃很便宜，可設小一點更即時
+    "poll_interval": 0.1,    # 收訊輪詢間隔（秒）；讀 hook 環形緩衝很便宜，小＝更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
     "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊
     "max_parallel_translations": 4,  # 同時翻譯則數；實測 4 以上幾乎無額外收益，1＝逐則排隊
@@ -57,6 +58,10 @@ DEFAULT_CONFIG: dict = {
     "overlay": {"x": None, "y": None, "width": 640, "height": 420},
     "bubble_position": {"x": None, "y": None},  # 縮小泡泡位置（拖曳後記住；null＝overlay 右上角）
 }
+
+
+# hook 收訊之前的預設輪詢間隔：當時每輪要讀整份 chatLog，設定檔裡的這個值多半是沒動過的舊預設
+_OLD_DEFAULT_POLL_INTERVAL = 0.4
 
 
 # 進階數值的安全範圍：設定視窗的 Spinbox／提示文字與 load_config 共用同一份。
@@ -108,11 +113,17 @@ def load_config(path: Path) -> dict:
             f"restore your settings): {exc}")
         return copy.deepcopy(DEFAULT_CONFIG)
     cfg = clamp_advanced(_merge(DEFAULT_CONFIG, data))
-    if normalize(cfg):
+    changed = normalize(cfg)
+    if data.get("config_version", 1) < 2 and cfg["poll_interval"] == _OLD_DEFAULT_POLL_INTERVAL:
+        cfg["poll_interval"] = DEFAULT_CONFIG["poll_interval"]
+        log(f"[config] poll_interval {_OLD_DEFAULT_POLL_INTERVAL} (old default) "
+            f"migrated to {cfg['poll_interval']}")
+        changed = True
+    if changed:
         # 整理後立刻落地，手開 config.json 看到的就是生效的結構；寫不進去不擋啟動
         try:
             save_config(path, cfg)
-            log(f"[config] rewrote {path.name} in the service list format")
+            log(f"[config] rewrote {path.name} after normalizing it")
         except OSError as exc:
             log(f"[config] could not rewrite {path.name}: {exc}")
     return cfg

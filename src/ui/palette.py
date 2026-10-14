@@ -24,3 +24,8 @@ OUTLINE = "#0a0a10"
 # 框選反白底色。不可用 BG —— 那是本體的 -transparentcolor，畫上去等於沒畫（見檔頭）。
 # 用不透明色另有好處：反白過的區域從此接得到滑鼠，拖曳回頭經過時事件不會掉到 backdrop。
 SELECT_BG = "#2d4a7a"
+# 分頁列：比標題列暗一階，目前分頁用亮字＋底線強調
+TAB_BG = "#181828"
+TAB_FG = "#8a8aa0"
+TAB_FG_ACTIVE = "#f2f2f7"
+TAB_ACCENT = "#6fa8dc"

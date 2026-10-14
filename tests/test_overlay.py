@@ -1,9 +1,10 @@
 import pytest
 
 from src.i18n import t
+from src.reader.chat_tabs import TabState
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
-from src.ui.message_list import should_stick_to_bottom, slot_marker
+from src.ui.message_list import should_stick_to_bottom
 from src.ui.overlay import (
     _GRIP_SIZE,
     BG,
@@ -1277,48 +1278,150 @@ def test_clear_update_does_not_count_as_dismissing(root):
     ov.clear_update()
 
 
-def _original_text(ov, index=0):
-    """取某則訊息原文行實際畫出的字（本色那份）。"""
-    line = ov._list._messages[index].row.winfo_children()[0]
-    return line.itemcget(line.find_withtag("fg")[0], "text")
+def _bar_state(current):
+    return TabState(current, ((0, "主要的"), (1, "队伍"), (2, "房间(1)")))
 
 
-def test_slot_marker_uses_circled_digits_then_falls_back():
-    assert slot_marker(1) == "①"
-    assert slot_marker(2) == "②"
-    assert slot_marker(20) == "⑳"
-    assert slot_marker(21) == "[21]"
-
-
-def test_single_client_rows_carry_no_marker(root):
-    # 單開的使用者外觀完全不變：有 slot 但沒進多客戶端模式就不畫
+def test_tab_bar_shows_game_labels_and_highlights_current(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
-    ov.add_message("[A] one", "甲", slot=1)
-    assert _original_text(ov) == "[A] one"
+    ov.set_tabs(1, _bar_state(1))
+    assert ov.tab_labels() == [("主要的", False), ("队伍", True), ("房间(1)", False)]
+    # 排在標題列之下、訊息區之上
+    assert ov._win.pack_slaves().index(ov._tab_bar._frame) == 1
 
 
-def test_multi_client_mode_marks_existing_and_new_rows(root):
+def test_tab_bar_hidden_until_a_state_arrives(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
-    ov.add_message("[A] one", "甲", slot=1)
-    ov.set_multi_client()
-    ov.add_message("[B] two", "乙", slot=2)
-    assert _original_text(ov, 0) == "① [A] one"
-    assert _original_text(ov, 1) == "② [B] two"
-    # 存的原文保持乾淨供 visible_messages() 等程式面使用；選取複製走畫面層，會連標記一併複製
-    assert ov.visible_messages() == [("[A] one", "甲"), ("[B] two", "乙")]
+    assert ov.tab_labels() == []
 
 
-def test_rows_without_slot_stay_unmarked_in_multi_client_mode(root):
+def test_messages_are_kept_per_tab_and_follow_the_game_tab(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
-    ov.set_multi_client()
-    ov.add_message("m", "t")
-    assert _original_text(ov) == "m"
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("main", "主", slot=1, tabs=(0,))
+    ov.add_message("group", "隊", slot=1, tabs=(1,))
+    assert ov.visible_messages() == [("main", "主")]
+    ov.set_tabs(1, _bar_state(1))
+    assert ov.visible_messages() == [("group", "隊")]
 
 
-def test_multi_client_mode_never_turns_off(root):
-    # 第二次呼叫是 no-op：不重畫、不重複加標記
+def test_messages_for_a_tab_not_in_the_bar_are_kept(root):
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
-    ov.add_message("[A] one", "甲", slot=1)
-    ov.set_multi_client()
-    ov.set_multi_client()
-    assert _original_text(ov) == "① [A] one"
+    ov.set_tabs(1, TabState(0, ((0, "主要的"), (1, "队伍"))))
+    ov.add_message("friend", "友", slot=1, tabs=(3,))
+    assert ov.visible_messages() == []
+    ov.set_tabs(1, TabState(3, ((0, "主要的"), (1, "队伍"), (3, "好友"))))
+    assert ov.visible_messages() == [("friend", "友")]
+
+
+def test_broadcast_lands_in_every_listed_tab(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.add_message("news", "公告", slot=1, tabs=(0, 1, 2, 3))
+    for tab in (0, 1, 2, 3):
+        ov.set_tabs(1, TabState(tab, ((tab, "x"),)))
+        assert ov.visible_messages() == [("news", "公告")]
+
+
+def test_foreground_slot_switches_the_whole_view(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.set_tabs(2, TabState(1, ((0, "Main"), (1, "Group"))))
+    ov.add_message("one", "一", slot=1, tabs=(0,))
+    ov.add_message("two", "二", slot=2, tabs=(1,))
+    assert ov.visible_messages() == [("one", "一")]
+    ov.set_foreground_slot(2)
+    assert ov.tab_labels() == [("Main", False), ("Group", True)]
+    assert ov.visible_messages() == [("two", "二")]
+
+
+def test_repeating_the_foreground_slot_keeps_the_view(root):
+    # 收訊執行緒每輪都會送前景客戶端：同一個客戶端不可重建清單（會打斷捲動與選取）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("one", "一", slot=1, tabs=(0,))
+    rows = [m.row for m in ov._list._messages]
+    ov.set_foreground_slot(1)
+    assert [m.row for m in ov._list._messages] == rows
+
+
+def test_translation_fills_a_message_in_a_hidden_view(root):
+    from src.ui.palette import FG_TRANSLATED
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("group", "翻譯中…", msg_id=5, pending=True, slot=1, tabs=(1,))
+    ov.update_message(5, "隊")
+    ov.set_tabs(1, _bar_state(1))
+    assert ov.visible_messages() == [("group", "隊")]
+    assert _translation_fill(ov) == FG_TRANSLATED
+
+
+def test_hidden_pending_and_failed_rows_keep_their_colours(root):
+    from src.ui.palette import FG_PENDING
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("a", "翻譯中…", msg_id=1, pending=True, slot=1, tabs=(1,))
+    ov.add_message("b", "翻譯中…", msg_id=2, pending=True, slot=1, tabs=(1,))
+    ov.update_message(2, "⚠", failed=True)
+    ov.set_tabs(1, _bar_state(1))
+    assert _translation_fill(ov, 0) == FG_PENDING
+    assert _translation_fill(ov, 1) == FG_ERROR
+
+
+def test_unread_counts_only_the_foreground_client(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.minimize()
+    ov.add_message("x", "x", slot=2)
+    ov.add_message("y", "y", slot=2)
+    ov.add_message("news", "公告", slot=1, tabs=(0, 1, 2, 3))
+    assert ov.unread_count() == 1
+    ov.expand()
+
+
+def test_max_messages_applies_per_tab(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=2,
+                       fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("g", "隊", slot=1, tabs=(1,))
+    for i in range(3):
+        ov.add_message(f"m{i}", f"主{i}", slot=1, tabs=(0,))
+    assert ov.visible_messages() == [("m1", "主1"), ("m2", "主2")]
+    ov.set_tabs(1, _bar_state(1))
+    assert ov.visible_messages() == [("g", "隊")]
+
+
+def test_prune_drops_faded_messages_in_hidden_views_too(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=10)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("old", "舊", now=100.0, slot=1, tabs=(1,))
+    ov.add_message("new", "新", now=105.0, slot=1, tabs=(1,))
+    ov.prune(now=111.0)
+    ov.set_tabs(1, _bar_state(1))
+    assert ov.visible_messages() == [("new", "新")]
+
+
+def test_switching_views_clears_the_selection(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("main", "主", slot=1, tabs=(0,))
+    _select_whole_message(ov)
+    assert ov._selection.active is True
+    ov.set_tabs(1, _bar_state(1))
+    assert ov._selection.active is False
+
+
+def test_switching_views_returns_to_following_the_bottom(root):
+    ov = OverlayWindow(root, x=100, y=100, width=739, height=350, max_messages=200,
+                       fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    root.update()
+    for i in range(40):
+        ov.add_message(f"message number {i}: a chat line long enough to wrap",
+                       f"第 {i} 則譯文，內容夠長，窄視窗下一定會換行", slot=1, tabs=(0,))
+    root.update()
+    _scroll_up(ov)
+    ov.set_tabs(1, _bar_state(1))
+    ov.set_tabs(1, _bar_state(0))
+    root.update()
+    assert ov._list._follow
+    assert _at_bottom(ov)

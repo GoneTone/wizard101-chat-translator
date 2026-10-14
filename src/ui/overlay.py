@@ -1,9 +1,10 @@
 """疊加視窗：無邊框、置頂、半透明、可拖曳移動、可從四邊／四角縮放。
-顯示原文 + 譯文的列表在 message_list.py（含捲動定位）；本模組負責視窗殼、標題列、
-縮放、縮小成泡泡、橫幅，以及框選／複製的事件路由。
+顯示原文 + 譯文的列表在 message_list.py（含捲動定位）、分頁列在 tab_bar.py；本模組負責
+視窗殼、標題列、縮放、縮小成泡泡、橫幅、顯示哪個（客戶端, 分頁），以及框選／複製的事件路由。
 不滑鼠穿透 —— 視窗蓋住的區域點擊不會傳到遊戲，視窗永遠可互動。"""
 import tkinter as tk
 import webbrowser
+from typing import TYPE_CHECKING
 
 import win32con
 import win32gui
@@ -29,9 +30,13 @@ from src.ui.palette import (
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
 from src.ui.selection import Selection
+from src.ui.tab_bar import TabBar
 from src.ui.tooltip import Tooltip
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 from src.updater import is_newer
+
+if TYPE_CHECKING:
+    from src.reader.chat_tabs import TabState
 
 # 狀態指示的顏色（文字由 i18n 依 state key 取得）
 STATUS_COLORS = {
@@ -113,6 +118,9 @@ class OverlayWindow:
         self._drag_point: tuple[int, int] | None = None   # 框選拖曳的最後座標（自動捲動要用）
         self._autoscroll_job: str | None = None
         self._tooltips: list[Tooltip] = []   # 只為了不被 GC；文字經 lambda 現取，換語言免另外處理
+        self._tab_states: dict[int, TabState] = {}
+        self._client: int | None = None   # 顯示中的客戶端 slot（None 也是合法的客戶端）
+        self._client_decided = False
 
         self._build_backdrop(root)
         # master 用 root 而非 backdrop：Tk 的 master 連動 restack 會在點擊本體時
@@ -128,6 +136,7 @@ class OverlayWindow:
         self._apply_geometry(x if x is not None else cx, y if y is not None else cy,
                              self._w, self._h)
         self._build_title_bar(on_settings, on_close, on_region)
+        self._tab_bar = TabBar(self._win)
         self._build_message_area(max_messages, fade_seconds)
         self._build_resize_handles()
         self._attach_to_shell(on_close)
@@ -550,21 +559,40 @@ class OverlayWindow:
     # --- 訊息（實作見 message_list.py） ---
     def add_message(self, original: str, translated: str, now: float | None = None,
                     msg_id: int | None = None, pending: bool = False,
-                    color: str | None = None, slot: int | None = None) -> None:
-        """加入一則訊息（參數見 MessageList.add_message）；縮小成泡泡期間累計未讀數。"""
-        self._list.add_message(original, translated, now, msg_id, pending, color, slot)
-        if self._minimized and self._bubble is not None:
+                    color: str | None = None, slot: int | None = None,
+                    tabs: tuple[int, ...] = (0,)) -> None:
+        """把一則訊息加到該客戶端的每個 `tabs` 分頁（參數見 MessageList.add_message）。
+        縮小期間只有顯示中客戶端的訊息計入未讀，廣播進多個分頁也只算一則。"""
+        if not self._client_decided:
+            self.set_foreground_slot(slot)
+        for tab in tabs:
+            self._list.add_message((slot, tab), original, translated, now, msg_id,
+                                   pending, color)
+        if self._minimized and self._bubble is not None and slot == self._client:
             self._unread += 1
             self._bubble.set_unread(self._unread)
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:
-        """把某則佔位訊息的譯文就地填入（見 MessageList.update_message）。"""
+        """把某則佔位訊息的譯文填入（見 MessageList.update_message）。"""
         self._list.update_message(msg_id, translated, failed)
 
-    def set_multi_client(self) -> None:
-        """偵測到第二個遊戲客戶端：訊息開始標示來源（見 MessageList.set_multi_client）。"""
-        self._list.set_multi_client()
+    def set_tabs(self, slot: int, state: "TabState | None") -> None:
+        """記下某客戶端的遊戲分頁狀態（None＝讀不到）；是顯示中客戶端就跟著換分頁。"""
+        if state is None:
+            self._tab_states.pop(slot, None)
+        else:
+            self._tab_states[slot] = state
+        if not self._client_decided or slot == self._client:
+            self.set_foreground_slot(slot)
+
+    def set_foreground_slot(self, slot: int | None) -> None:
+        """改顯示該客戶端：分頁列與訊息清單換成它目前分頁的內容。"""
+        self._client_decided = True
+        self._client = slot
+        state = self._tab_states.get(slot)
+        self._tab_bar.set(state.tabs if state else (), state.current if state else None)
+        self._list.show((slot, state.current if state else 0))
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
         """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
@@ -676,6 +704,9 @@ class OverlayWindow:
     # --- 測試/除錯輔助 ---
     def visible_messages(self) -> list[tuple[str, str]]:
         return self._list.visible_messages()
+
+    def tab_labels(self) -> list[tuple[str, bool]]:
+        return self._tab_bar.labels()
 
     def error_text(self) -> str | None:
         return self._error_label.text() if self._error_label else None

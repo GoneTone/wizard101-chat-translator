@@ -165,7 +165,9 @@ def _connecting_reader(monkeypatch, tmp_path, hook_handler):
     monkeypatch.setattr(hook_state, "STATE_DIR", tmp_path)
     client = _StubClient(hook_handler)
     monkeypatch.setattr(wizwalker, "Client", lambda hwnd: client)
-    return WizChatReader(0x1)
+    r = WizChatReader(0x1)
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: 0x9000)
+    return r
 
 
 def test_pattern_failure_while_attaching_raises_version_mismatch(monkeypatch, tmp_path):
@@ -177,6 +179,22 @@ def test_pattern_failure_while_attaching_raises_version_mismatch(monkeypatch, tm
         raise AssertionError("應丟 GameVersionMismatch")
     except GameVersionMismatch:
         pass
+
+
+def test_chat_hook_pattern_failure_raises_version_mismatch(monkeypatch, tmp_path):
+    from wizwalker.errors import PatternFailed
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler(values=[0x1234]))
+
+    def fail():
+        raise PatternFailed(b"\x48\x89")
+
+    monkeypatch.setattr(r, "_install_chat_hook", fail)
+    try:
+        r._connect()
+        raise AssertionError("應丟 GameVersionMismatch")
+    except GameVersionMismatch:
+        pass
+    assert r._client is None
 
 
 def test_hook_never_firing_raises_version_mismatch(monkeypatch, tmp_path):
@@ -222,6 +240,64 @@ def test_hook_state_is_saved_before_waiting_for_the_hook_to_fire(monkeypatch, tm
         "等待 hook 就緒時，還原狀態檔必須已經存在"
 
 
+def test_attach_saves_state_around_each_hook_and_waits_before_addline(monkeypatch, tmp_path):
+    """root hook 一寫入就存檔；AddLine 等 root 就緒後才裝，裝完再存一次。"""
+    calls = []
+
+    class _Recording(_StubHookHandler):
+        async def read_current_root_window_base(self):
+            calls.append("wait")
+            return 0x1234
+
+    r = _connecting_reader(monkeypatch, tmp_path, _Recording())
+    monkeypatch.setattr(r, "_save_hook_state", lambda pid: calls.append("save"))
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: calls.append("addline") or 0x9000)
+    r._connect()
+    assert calls == ["save", "wait", "addline", "save"]
+    assert r._ring == 0x9000
+
+
+def test_addline_is_not_installed_when_the_root_hook_never_fires(monkeypatch, tmp_path):
+    # 逾時重試時不能每次都漏一塊 ring
+    from src.reader import mem_reader
+    monkeypatch.setattr(mem_reader, "HOOK_READY_TIMEOUT", 0.05)
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler())
+    installed = []
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: installed.append(1) or 0x9000)
+    try:
+        r._connect()
+        raise AssertionError("應丟 GameVersionMismatch")
+    except GameVersionMismatch:
+        pass
+    assert installed == []
+
+
+def test_addline_pattern_failure_names_the_addline_hook_in_the_log(monkeypatch):
+    # fork 更新修不了 AddLine 的 pattern：app.log 要看得出是哪一個 hook 失敗
+    from wizwalker.errors import PatternFailed
+
+    from src.reader import mem_reader
+
+    class _Failing:
+        def __init__(self, handler):
+            pass
+
+        async def hook(self):
+            raise PatternFailed(b"AddLine")
+
+    logged = []
+    monkeypatch.setattr(mem_reader, "log", logged.append)
+    monkeypatch.setattr(mem_reader, "AddLineHook", _Failing)
+    r = _waiting_reader(_StubHookHandler())
+    try:
+        r._install_chat_hook()
+        raise AssertionError("應丟 PatternFailed")
+    except PatternFailed:
+        pass
+    assert any("AddLine hook install failed" in m and "PatternFailed" in m for m in logged)
+    r._loop.close()
+
+
 def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     # wizwalker 內建的 wait_for_ready 預設無限等且不可中斷，一律自己等
     handler = _StubHookHandler([0x1234])
@@ -246,6 +322,7 @@ def test_connect_binds_the_given_window_handle(monkeypatch, tmp_path):
 
     monkeypatch.setattr(wizwalker, "Client", build)
     r = WizChatReader(0xBEEF)
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: 0x9000)
     r._connect()
     assert seen == [0xBEEF]
     assert r.anchored
@@ -452,6 +529,25 @@ def test_hook_state_save_failure_is_logged(monkeypatch, tmp_path):
     monkeypatch.setattr(hook_state, "save_state", boom)
     r._save_hook_state(77)
     assert any("hook state" in line and "disk full" in line for line in logged)
+
+
+def test_hook_state_saves_hook_jumps_before_autobot(monkeypatch, tmp_path):
+    # 修復時依序寫回：autobot 先還原的話，仍指向它的跳躍點會跑進被改回的原始程式碼
+    from types import SimpleNamespace
+
+    from src.reader import hook_state
+    from src.reader.chat_hook import AddLineHook
+    r, _ = _repairing_reader(monkeypatch, tmp_path, base=0x1000)
+    h = r._client.hook_handler
+    h._autobot_address = 0x5000
+    h._original_autobot_bytes = b"\x90" * 4
+    h._active_hooks = {
+        "RootWindowHook": SimpleNamespace(jump_address=0x2000, jump_original_bytecode=b"\xaa"),
+        AddLineHook: SimpleNamespace(jump_address=0x3000, jump_original_bytecode=b"\xbb"),
+    }
+    r._save_hook_state(77)
+    assert hook_state.load_state(77)[1] == [(0x2000, b"\xaa"), (0x3000, b"\xbb"),
+                                            (0x5000, b"\x90" * 4)]
 
 
 def test_find_game_window_logs_when_the_window_scan_itself_fails(monkeypatch):
