@@ -122,7 +122,7 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
 - Translations do not appear instantly: chat is scanned every 0.4 seconds by default (adjustable on the *Advanced* tab), and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
 - Player chat is never cached; every line is really sent for translation (so every line costs an API call). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
-- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
+- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated, unless the failing pattern is this project's own chat hook, in which case you wait for a new release of this project. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
 - Hooking into the game and the global hotkey (the `keyboard` package) only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
 ## Development
@@ -139,7 +139,7 @@ The rest of this file covers working from source: development, debugging and pac
 1. `uv sync` — creates `.venv` and installs everything in `pyproject.toml` (including wizwalker for the incoming side; `[tool.uv.sources]` already points at the [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker), which keeps up with the current client patterns, because the official PyPI release has stale patterns that no longer match the live client).
 2. `uv run run.py` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the project root, which is not version-controlled.
 
-> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns.
+> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns. If the log says the AddLine hook is the one that failed, that pattern lives in this project rather than the fork: updating the fork cannot fix it, so wait for a new release of this project.
 
 ### Running from source
 

@@ -122,7 +122,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 - 游戏聊天白名单：非白名单英文词可能被游戏自动过滤，任何翻译软件都绕不过。
 - 译文不会瞬间出现：默认每 0.4 秒扫一次聊天（「高级」标签页可调），再等翻译服务响应才显示，慢多少主要看你选的服务商与模型。
 - 玩家对话不缓存，每一条都会实际送一次翻译（也就是每条都算 API 费用）。原因有二：玩家讲的话几乎不会一字不差地重复，缓存几乎不会命中；而且每条翻译都会带上前几条对话当上下文，同一句话在不同语境下本来就该翻得不一样，硬套旧译文反而会翻错。只有句型固定的系统消息才缓存。
-- 依赖固定的内存特征（pattern）：游戏更新后 pattern 可能失效（挂入时报 `PatternFailed`，或 hook 挂上了却不被触发），需等支持跟进才会恢复；从源码运行时，是等接收消息用的依赖包更新后重跑 `uv sync`。两种情形叠加窗口都显示「⚠  游戏版本不兼容」横幅，与「游戏没开」分得开。
+- 依赖固定的内存特征（pattern）：游戏更新后 pattern 可能失效（挂入时报 `PatternFailed`，或 hook 挂上了却不被触发），需等支持跟进才会恢复；从源码运行时，是等接收消息用的依赖包更新后重跑 `uv sync`；若失效的是本项目自己的聊天 hook，则要等本项目的新版。两种情形叠加窗口都显示「⚠  游戏版本不兼容」横幅，与「游戏没开」分得开。
 - 挂入游戏与全局热键（keyboard 包）只在游戏以管理员身份运行时需要同样提权（完整性等级要对等），一般情况不必；权限不足时横幅会直接指出解法。
 
 ## 开发
@@ -139,7 +139,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 1. `uv sync` —— 创建 `.venv` 并依 `pyproject.toml` 装好所有依赖（含接收消息用的 wizwalker；已在 `[tool.uv.sources]` 指向有跟进最新 client pattern 的 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker)，官方 PyPI 版 pattern 过旧、对不上现行 client）。
 2. `uv run run.py` —— 第一次运行会跑首次设置向导（选服务商、填密钥或自建服务器网址、测试连接），设置写进项目根目录的 `config.json`（不进版本控制）。
 
-> 游戏更新导致挂入报 `PatternFailed` 时，更新 fork 后重跑 `uv sync`（或 `uv lock --upgrade-package wizwalker`）取得新 pattern。
+> 游戏更新导致挂入报 `PatternFailed` 时，更新 fork 后重跑 `uv sync`（或 `uv lock --upgrade-package wizwalker`）取得新 pattern。若 log 指出失败的是 AddLine hook，那组 pattern 在本项目而非 fork 里，更新 fork 修不了，只能等本项目的新版。
 
 ### 从源码运行
 
