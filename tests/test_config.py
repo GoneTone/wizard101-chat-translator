@@ -33,6 +33,31 @@ def test_load_merges_partial_file_with_defaults(tmp_path: Path):
     assert cfg["hotkey"] == "ctrl+space"
 
 
+def test_old_default_poll_interval_is_migrated_and_saved(tmp_path: Path):
+    # 0.4 是 hook 收訊之前的預設值；讀環形緩衝很便宜，舊設定檔跟著換成新預設
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"poll_interval": 0.4}), encoding="utf-8")
+    assert load_config(p)["poll_interval"] == DEFAULT_CONFIG["poll_interval"] == 0.1
+    assert json.loads(p.read_text(encoding="utf-8"))["poll_interval"] == 0.1
+
+
+def test_poll_interval_migration_runs_once(tmp_path: Path):
+    # 遷移過的設定檔裡，使用者事後刻意選的 0.4 不能每次啟動又被改掉
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"poll_interval": 0.4}), encoding="utf-8")
+    cfg = load_config(p)
+    cfg["poll_interval"] = 0.4
+    save_config(p, cfg)
+    assert load_config(p)["poll_interval"] == 0.4
+
+
+def test_other_poll_intervals_are_kept(tmp_path: Path):
+    p = tmp_path / "config.json"
+    p.write_text(json.dumps({"poll_interval": 0.5}), encoding="utf-8")
+    assert load_config(p)["poll_interval"] == 0.5
+    assert json.loads(p.read_text(encoding="utf-8"))["poll_interval"] == 0.5
+
+
 def test_save_then_load_roundtrip(tmp_path: Path):
     p = tmp_path / "config.json"
     cfg = load_config(p)

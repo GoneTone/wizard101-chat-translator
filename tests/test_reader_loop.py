@@ -26,6 +26,7 @@ def _window_present(monkeypatch):
     """預設視窗一直存在；要測「視窗消失」的測試自己再覆寫。"""
     monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: True)
     monkeypatch.setattr(loop_module, "foreground_window", lambda: 0)
+    monkeypatch.setattr(loop_module, "TAB_POLL_INTERVAL", 0.0)
 
 
 class FakePool:
@@ -637,3 +638,34 @@ def test_foreground_client_reports_its_slot_every_poll(monkeypatch):
     ov = FakeOverlay()
     run_scripted({"poll_interval": 0.01}, ov, [[], [], [], [], []], monkeypatch)
     assert ov.foreground_slots == [1, 1, 1, 1]
+
+
+def test_tab_state_and_foreground_are_sampled_slower_than_chat(monkeypatch):
+    """環形緩衝每輪都讀；分頁狀態（約 45 次記憶體讀取）與前景只按 TAB_POLL_INTERVAL 取樣。"""
+    monkeypatch.setattr(loop_module, "TAB_POLL_INTERVAL", 60.0)
+    monkeypatch.setattr(loop_module, "foreground_window", lambda: 0x1)
+    readers = []
+    ov = FakeOverlay()
+    reads = [[ChatEvent((0,), ChatLine(f"[A] {i}", None))] for i in range(5)]
+
+    class CountingReader(FakeReader):
+        tab_reads = 0
+
+        def tab_state(self):
+            CountingReader.tab_reads += 1
+            return None
+
+    def make_reader(**kw):
+        reader = CountingReader(reads, stop)
+        readers.append(reader)
+        return reader
+
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+    pool = FakePool()
+    monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
+    _loop({"poll_interval": 0.0, "translate_system_messages": False}, ov, ui_queue, stop, pool)
+    _drain(ui_queue)
+    assert len(pool.submitted) == 5
+    assert CountingReader.tab_reads == 1
+    assert ov.foreground_slots == [1]
