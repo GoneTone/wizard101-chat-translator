@@ -5,6 +5,7 @@ from src.reader.chat_tabs import TabState
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
 from src.ui.message_list import should_stick_to_bottom
+from src.ui.outlined_text import Line
 from src.ui.overlay import (
     _GRIP_SIZE,
     BG,
@@ -855,7 +856,8 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     rects = first.find_withtag("sel")
     assert ov._selection.text() == selected
     # 每個視覺行一個反白矩形：換行變了、矩形數就要跟著變
-    assert len(rects) == len(visual_lines(first, line_font(first)))
+    line = Line(first, first.find_withtag("fg")[0], "txt")
+    assert len(rects) == len(visual_lines(line, line_font(line)))
     # 沒有重畫的話，矩形仍是舊換行寬度下的幾何，右緣會超出新的換行寬度
     assert max(first.coords(i)[2] for i in rects) <= ov._list.wrap + TEXT_ORIGIN
 

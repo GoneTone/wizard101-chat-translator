@@ -12,6 +12,7 @@ from typing import NamedTuple
 from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE
+from src.ui.outlined_text import Line, draw_outlined
 from src.ui.palette import (
     BG,
     DIM_FACTOR,
@@ -20,13 +21,10 @@ from src.ui.palette import (
     FG_ORIGINAL,
     FG_PENDING,
     FG_TRANSLATED,
-    OUTLINE,
 )
-from src.ui.selection import TEXT_ORIGIN, Selection
+from src.ui.selection import Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 
-_OUTLINE_OFFSETS = ((-1, -1), (-1, 0), (-1, 1), (0, -1),
-                    (0, 1), (1, -1), (1, 0), (1, 1))
 _STICK_THRESHOLD = 0.999
 
 
@@ -37,18 +35,12 @@ def _fit_line_height(c: "tk.Canvas") -> None:
         c.configure(height=bbox[3] + 2)
 
 
-def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> "tk.Canvas":
-    """字幕式描邊文字行：canvas 先畫八方向 1px 偏移的描邊副本、再疊本色 ——
-    Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
+def _outlined_line(parent, text: str, fg: str, font: tuple, wrap: int) -> Line:
+    """單行畫布上的描邊文字行，回傳其 `Line`（canvas 在 `.canvas`）。"""
     c = tk.Canvas(parent, bg=BG, highlightthickness=0, bd=0)
-    for dx, dy in _OUTLINE_OFFSETS:
-        c.create_text(TEXT_ORIGIN + dx, TEXT_ORIGIN + dy, text=text, fill=OUTLINE, font=font,
-                      anchor="nw", width=wrap, tags="txt")
-    # 本色最後畫，疊在描邊之上。額外掛 "fg" tag：改色時只動本色，描邊不能跟著變
-    c.create_text(TEXT_ORIGIN, TEXT_ORIGIN, text=text, fill=fg, font=font, anchor="nw",
-                  width=wrap, tags=("txt", "fg"))
+    line = draw_outlined(c, 0, 0, text, fill=fg, font=font, wrap=wrap, tag="txt")
     _fit_line_height(c)
-    return c
+    return line
 
 
 def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
@@ -252,14 +244,14 @@ class MessageList:
         original_line = _outlined_line(row, m.original,
                                        dimmed(m.color) if m.color else FG_ORIGINAL,
                                        ui_font(9), self.wrap)
-        original_line.pack(fill="x")
+        original_line.canvas.pack(fill="x")
         translated_line = _outlined_line(row, m.translated, m.translated_fill(),
                                          ui_font(11), self.wrap)
-        translated_line.pack(fill="x")
+        translated_line.canvas.pack(fill="x")
         row.pack(side="top", fill="x", pady=2)
         self._selection.register(row, (original_line, translated_line))
         for line in (original_line, translated_line):
-            self._bind_line(line)
+            self._bind_line(line.canvas)
         return row
 
     def _trim(self, records: list[_Message]) -> bool:
