@@ -77,6 +77,36 @@ def test_broadcast_becomes_one_event_for_all_tabs(monkeypatch):
     assert any("across 4 tabs" in line for line in logged)
 
 
+def test_broadcast_split_across_polls_is_held_and_collapsed(monkeypatch):
+    notice = _broadcast("D9ABF8", "[Server Message] maintenance")
+    hi = _rec(1, _say(1, "Amy", "hi"))
+    head = [_rec(2, notice, tab=0), _rec(3, notice, tab=1)]
+    full = head + [_rec(4, notice, tab=2), _rec(5, notice, tab=3)]
+    buf = io.StringIO()
+    r, _ = _reader(monkeypatch, _ring(hi, *head), _ring(*full), buf=buf)
+    r.emit_system = True
+    assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
+    assert r._last_seq == 1
+    assert _texts(r.read_new()) == [((0, 1, 2, 3), "[Server Message] maintenance")]
+    assert buf.getvalue().count("[seq=2 ") == 1, "保留的記錄不該重複寫進 messages.log"
+
+
+def test_a_held_tail_is_released_when_nothing_follows(monkeypatch):
+    # 同一段尾巴只保留一輪：遊戲真的只寫了 0、1 兩筆時不能永遠卡住
+    line = _say(1, "Amy", "hi")
+    pair = [_rec(1, line, tab=0), _rec(2, line, tab=1)]
+    r, _ = _reader(monkeypatch, _ring(*pair), _ring(*pair))
+    assert r.read_new() == []
+    assert _texts(r.read_new()) == [((0,), "[Amy] hi"), ((1,), "[Amy] hi")]
+    assert r._last_seq == 2
+
+
+def test_a_lone_main_tab_line_is_not_held(monkeypatch):
+    r, _ = _reader(monkeypatch, _ring(_rec(1, _say(1, "Amy", "hi"))))
+    assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
+    assert r._last_seq == 1
+
+
 def test_unparseable_lines_are_dropped_and_logged(monkeypatch):
     unknown = ("<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> "
                "[Lars] hi </color>")
@@ -118,6 +148,17 @@ def test_missing_chatbox_does_not_mark_the_record_foreign(monkeypatch):
     assert r.read_new() == []
     assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
     assert buf.getvalue().startswith("[seq=1 tab=0 no-chatbox]")
+
+
+def test_missing_chatbox_is_refound_once_per_poll(monkeypatch):
+    line = _say(1, "Amy", "hi")
+    r, logged = _reader(monkeypatch, _ring(*[_rec(i, line) for i in (1, 2, 3)]), chatbox=None)
+    finds = []
+    monkeypatch.setattr(r, "_find_chatbox", lambda: finds.append(1))
+    assert r.read_new() == []
+    assert len(finds) == 1
+    dropped = [m for m in logged if "main chat box not found" in m]
+    assert len(dropped) == 1 and "dropped=3" in dropped[0]
 
 
 def test_chatbox_moving_clears_foreign_and_button_caches(monkeypatch):
@@ -289,6 +330,31 @@ def test_tab_buttons_are_refound_after_the_chatbox_moves(monkeypatch):
     r._chatbox, r._buttons = BOX, [(0, 0xDEAD0000)]  # 舊 ChatBox 的按鈕，已不可讀
     assert r._chatbox_verdict(_rec(1, _say(1, "Amy", "hi"), this=moved)) is None
     assert r.tab_state() == TabState(0, ((0, "主要的"),))
+    r._loop.close()
+
+
+def test_no_visible_tab_buttons_are_not_rescanned_every_poll(monkeypatch):
+    r, _ = _tab_reader(monkeypatch, {}, current=0)
+    scans = []
+
+    async def counting():
+        scans.append(1)
+        return []
+
+    monkeypatch.setattr(r, "_find_tab_buttons", counting)
+    r._chatbox, r._buttons = BOX, None
+    assert r.tab_state() == TabState(0, ())
+    assert r.tab_state() == TabState(0, ())
+    assert len(scans) == 1
+    r._loop.close()
+
+
+def test_out_of_range_current_tab_is_a_read_failure(monkeypatch):
+    # 登出入後讀到已釋放的舊 ChatBox：不回報垃圾分頁，下一輪重找
+    r, logged = _tab_reader(monkeypatch, {"MainFilterButton": "主要的"}, current=0x41414141)
+    assert r.tab_state() is None
+    assert r._buttons is None
+    assert any("read failed" in m for m in logged)
     r._loop.close()
 
 

@@ -118,7 +118,6 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
     inputs = _InputWatch(reader, hwnd, slot, on_input_open, on_input_close)
     game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
     reported_tabs: TabState | None = None
-    was_foreground = False
 
     def report_tabs(state: TabState | None) -> None:
         nonlocal reported_tabs
@@ -127,7 +126,6 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
         reported_tabs = state
         # 遊戲不在時分頁不明：發話上下文退回主分頁
         contexts.current_tab = state.current if state is not None else 0
-        log(f"[reader] tab state changed (slot={slot}): {state}")
         ui_queue.put(lambda: overlay.set_tabs(slot, state))
 
     def wait_watching_input(seconds: float) -> None:
@@ -149,6 +147,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
                 log(f"[reader] game window gone (slot={slot}, hwnd={hwnd:#x}); "
                     f"stopping this reader")
                 inputs.force_closed()
+                report_tabs(None)
                 break
             # 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
             reader.emit_system = cfg.get("translate_system_messages", False)
@@ -181,10 +180,9 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
                 log(f"[reader] game back, resuming (slot={slot})")
 
             report_tabs(reader.tab_state())
-            is_foreground = foreground_window() == hwnd
-            if is_foreground and not was_foreground:
+            # 每輪都送（overlay 對同一客戶端是 no-op）：只送邊緣時，兩條執行緒輪詢錯開會漏掉快速 A→B→A
+            if foreground_window() == hwnd:
                 ui_queue.put(lambda: overlay.set_foreground_slot(slot))
-            was_foreground = is_foreground
 
             for event in events:
                 line = event.line

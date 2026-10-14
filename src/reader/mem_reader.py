@@ -23,6 +23,7 @@ from src.reader.chat_hook import (
     HookRecord,
     RingRead,
     group_broadcasts,
+    pending_broadcast,
     read_ring,
 )
 from src.reader.chat_tabs import (
@@ -108,6 +109,9 @@ class WizChatReader:
         self._foreign: set[int] = set()   # 確認不是主 ChatBox 的 `this`
         self._tabs_logged: object = None  # 上次記進 app.log 的分頁狀態（只在變化時記）
         self._foreign_checked = 0.0       # 上次為外來記錄重找 ChatBox 的時間（monotonic）
+        self._held_from = 0               # 上一輪保留的廣播開頭序號（同一段只保留一輪）
+        self._refound = False             # 本輪 read_new 是否已重找過 ChatBox
+        self._no_chatbox: list[int] = []  # 本輪因找不到 ChatBox 而丟棄的序號
 
     @property
     def anchored(self) -> bool:
@@ -130,11 +134,24 @@ class WizChatReader:
         if got.lost:
             self._note(f"lost {got.lost} chat lines (ring overwritten)",
                        f"window={first}-{got.last_seq}")
+        records = got.records
+        held = pending_broadcast(records)
+        if held and records[-1].seq == got.last_seq and records[-held].seq != self._held_from:
+            # 廣播可能被這一輪切開：游標停在開頭之前，下一輪連同後段一起收斂
+            self._held_from = records[-held].seq
+            self._last_seq = self._held_from - 1
+            records = records[:-held]
+        self._refound = False
+        self._no_chatbox = []
         events = []
-        for tabs, rec in group_broadcasts(got.records):
+        for tabs, rec in group_broadcasts(records):
             line = self._judge(tabs, rec)
             if line is not None:
                 events.append(ChatEvent(tabs, line))
+        if self._no_chatbox:
+            log(f"[reader] AddLine dropped, main chat box not found (slot={self._slot}, "
+                f"pid={self._pid}, dropped={len(self._no_chatbox)}, "
+                f"seq={self._no_chatbox[0]}-{self._no_chatbox[-1]})")
         return events
 
     def _judge(self, tabs: tuple[int, ...], rec: HookRecord) -> ChatLine | None:
@@ -165,25 +182,26 @@ class WizChatReader:
     def _chatbox_verdict(self, rec: HookRecord) -> str | None:
         """`this` 是主 ChatBox 回 None（照收）；否則回 `foreign` 或 `no-chatbox`。
 
-        不認得的 `this` 先重找一次 ChatBox（登出入後 ChatBox 可能是新物件）。"""
+        不認得的 `this` 先重找 ChatBox（登出入後 ChatBox 可能是新物件），每輪 read_new 至多一次。"""
         if rec.this == self._chatbox:
             return None
         if (rec.this in self._foreign
                 and time.monotonic() - self._foreign_checked < FOREIGN_RECHECK_SECONDS):
             return "foreign"
-        self._foreign_checked = time.monotonic()
-        try:
-            self._refind_chatbox()
-        except Exception as exc:
-            self._chatbox = None
-            log(f"[reader] chat box lookup failed (slot={self._slot}, pid={self._pid}): "
-                f"{type(exc).__name__}: {exc}")
-        if rec.this == self._chatbox:
-            return None
+        if not self._refound:
+            self._refound = True
+            self._foreign_checked = time.monotonic()
+            try:
+                self._refind_chatbox()
+            except Exception as exc:
+                self._chatbox = None
+                log(f"[reader] chat box lookup failed (slot={self._slot}, pid={self._pid}): "
+                    f"{type(exc).__name__}: {exc}")
+            if rec.this == self._chatbox:
+                return None
         # 找不到 ChatBox（轉場中）時不記為外來，否則主 ChatBox 會被永久擋掉
         if self._chatbox is None:
-            log(f"[reader] AddLine dropped, main chat box not found (slot={self._slot}, "
-                f"pid={self._pid}, this={rec.this:#x}, seq={rec.seq}, tab={rec.tab})")
+            self._no_chatbox.append(rec.seq)
             return "no-chatbox"
         if rec.this not in self._foreign:
             self._foreign.add(rec.this)
@@ -232,9 +250,11 @@ class WizChatReader:
 
     async def _read_tab_state(self, chatbox: int) -> TabState:
         read = self._client.hook_handler.read_bytes
-        if not self._buttons:
+        if self._buttons is None:
             self._buttons = await self._find_tab_buttons()
         current = struct.unpack("<i", await read(chatbox + CUR_TAB_OFFSET, 4))[0]
+        if current not in {tab for _, tab in TAB_BUTTONS}:
+            raise ValueError(f"current tab {current} out of range (stale chat box {chatbox:#x}?)")
         tabs = []
         for tab, base in self._buttons:
             label = visible_label(await read_wstring(read, base + LABEL_OFFSET))
@@ -329,7 +349,13 @@ class WizChatReader:
         """掛上 AddLine hook 並登記給 wizwalker（client.close() 時一併 unhook），回傳 ring 位址。"""
         handler = self._client.hook_handler
         hook = AddLineHook(handler)
-        self._run(hook.hook())
+        try:
+            self._run(hook.hook())
+        except Exception as exc:
+            log(f"[reader] AddLine hook install failed (slot={self._slot}, pid={self._pid}): "
+                f"{type(exc).__name__}: {exc}; a pattern failure here needs chat_hook.PATTERN "
+                f"updated, not the wizwalker fork")
+            raise
         handler._active_hooks[AddLineHook] = hook
         log(f"[reader] AddLine hook installed (slot={self._slot}, pid={self._pid}, "
             f"jump={hook.jump_address - self._module_base() + IMAGE_BASE:#x}, "
@@ -361,13 +387,14 @@ class WizChatReader:
         self._repair_leaked_hooks(self._pid)  # 修復上次髒退出遺留的 hook（免重開遊戲）
         try:
             # 只掛 root_window（輸入框、ChatBox 定位）與 AddLine（收訊）兩個 hook，不啟
-            # player/duel/quest 等。wizwalker 內建的等待無限期（見 HOOK_READY_TIMEOUT），
-            # 且 hook 此刻已寫進遊戲記憶體，要先把還原狀態存起來，等待途中被硬砍才修得回來。
+            # player/duel/quest 等。每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；
+            # AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
             self._run(self._client.hook_handler.activate_root_window_hook(
                 wait_for_ready=False))
-            self._ring = self._install_chat_hook()
             self._save_hook_state(self._pid)
             waited = self._wait_root_window_ready()
+            self._ring = self._install_chat_hook()
+            self._save_hook_state(self._pid)
         except Exception as exc:
             self._teardown()
             if is_version_mismatch(exc):
@@ -501,6 +528,7 @@ class WizChatReader:
         self._buttons = None
         self._foreign.clear()
         self._tabs_logged = None
+        self._held_from = 0
         forget_warned_icons()
 
     def close(self) -> None:

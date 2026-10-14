@@ -544,6 +544,7 @@ def test_loop_ends_and_closes_the_reader_when_its_window_is_gone(monkeypatch):
     ov = FakeOverlay()
     stop = threading.Event()
     reader = FakeReader([[], [], []], stop)
+    reader.states = [TabState(0, ((0, "General"),))]
     monkeypatch.setattr(loop_module, "WizChatReader", lambda **kw: reader)
     alive = iter([True, False])
     monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: next(alive, False))
@@ -551,6 +552,7 @@ def test_loop_ends_and_closes_the_reader_when_its_window_is_gone(monkeypatch):
     board = _loop(cfg, ov, ui_queue, stop, FakePool())
     _drain(ui_queue)
     assert reader.closed
+    assert ov.tab_states[-1] == (1, None), "關掉的客戶端不該留下分頁列"
     assert not stop.is_set(), "視窗消失只結束這一條，不該停掉整個程式"
     assert board._slots == {}   # drop(slot) 已呼叫
 
@@ -628,9 +630,10 @@ def test_tab_state_is_cleared_when_the_game_goes_away(monkeypatch):
     assert ov.tab_states == [(1, state), (1, None)]
 
 
-def test_becoming_foreground_reports_the_slot_once(monkeypatch):
+def test_foreground_client_reports_its_slot_every_poll(monkeypatch):
+    # 兩條收訊執行緒各自輪詢：只在變成前景時送一次，快速 A→B→A 會讓 overlay 停在 B
     seq = iter([0x1, 0x1, 0x1, 0x9, 0x1])
     monkeypatch.setattr(loop_module, "foreground_window", lambda: next(seq, 0x1))
     ov = FakeOverlay()
     run_scripted({"poll_interval": 0.01}, ov, [[], [], [], [], []], monkeypatch)
-    assert ov.foreground_slots == [1, 1]
+    assert ov.foreground_slots == [1, 1, 1, 1]

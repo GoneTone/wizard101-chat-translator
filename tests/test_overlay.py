@@ -1334,6 +1334,16 @@ def test_foreground_slot_switches_the_whole_view(root):
     assert ov.visible_messages() == [("two", "二")]
 
 
+def test_repeating_the_foreground_slot_keeps_the_view(root):
+    # 收訊執行緒每輪都會送前景客戶端：同一個客戶端不可重建清單（會打斷捲動與選取）
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    ov.add_message("one", "一", slot=1, tabs=(0,))
+    rows = [m.row for m in ov._list._messages]
+    ov.set_foreground_slot(1)
+    assert [m.row for m in ov._list._messages] == rows
+
+
 def test_translation_fills_a_message_in_a_hidden_view(root):
     from src.ui.palette import FG_TRANSLATED
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)

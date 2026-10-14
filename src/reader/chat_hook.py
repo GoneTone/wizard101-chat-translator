@@ -136,7 +136,6 @@ def _continues_broadcast(run: list[HookRecord], rec: HookRecord) -> bool:
 
 def group_broadcasts(records: list[HookRecord]) -> list[tuple[tuple[int, ...], HookRecord]]:
     """把伺服器廣播（連號、同字、分頁 0,1,2,3 再接遞增的頻道分頁）收斂成一組，回傳（分頁組, 代表記錄）。"""
-    # shortcut: 一組廣播被兩輪讀取切開時會變成各分頁各一則；廣播極少且寫入在微秒內完成，真的發生再改成保留尾段
     groups = []
     i = 0
     while i < len(records):
@@ -149,3 +148,13 @@ def group_broadcasts(records: list[HookRecord]) -> list[tuple[tuple[int, ...], H
         groups.append((tuple(r.tab for r in run), run[0]))
         i += len(run)
     return groups
+
+
+def pending_broadcast(records: list[HookRecord]) -> int:
+    """結尾若是廣播的開頭（連號、同字、分頁 0,1 或 0,1,2）回傳其筆數，否則 0。"""
+    for n in (3, 2):
+        tail = records[-n:]
+        if len(tail) == n and tail[0].tab == 0 and all(
+                _continues_broadcast(tail[:i], tail[i]) for i in range(1, n)):
+            return n
+    return 0

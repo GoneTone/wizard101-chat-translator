@@ -39,7 +39,7 @@ def visible_label(raw: str) -> str | None:
 
 
 async def read_wstring(read_bytes: Callable[[int, int], Awaitable[bytes]], addr: int) -> str:
-    """讀 MSVC `std::wstring`；size 為 0 或超過上限回空字串。"""
+    """讀 MSVC `std::wstring`；size 為 0、超過上限或大於 capacity（讀到垃圾）回空字串。"""
     head = await read_bytes(addr, 0x20)
     size, capacity = struct.unpack_from("<QQ", head, 0x10)
     if not 0 < size <= min(MAX_LABEL_CHARS, capacity):

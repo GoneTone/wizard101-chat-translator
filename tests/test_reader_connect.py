@@ -240,6 +240,64 @@ def test_hook_state_is_saved_before_waiting_for_the_hook_to_fire(monkeypatch, tm
         "等待 hook 就緒時，還原狀態檔必須已經存在"
 
 
+def test_attach_saves_state_around_each_hook_and_waits_before_addline(monkeypatch, tmp_path):
+    """root hook 一寫入就存檔；AddLine 等 root 就緒後才裝，裝完再存一次。"""
+    calls = []
+
+    class _Recording(_StubHookHandler):
+        async def read_current_root_window_base(self):
+            calls.append("wait")
+            return 0x1234
+
+    r = _connecting_reader(monkeypatch, tmp_path, _Recording())
+    monkeypatch.setattr(r, "_save_hook_state", lambda pid: calls.append("save"))
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: calls.append("addline") or 0x9000)
+    r._connect()
+    assert calls == ["save", "wait", "addline", "save"]
+    assert r._ring == 0x9000
+
+
+def test_addline_is_not_installed_when_the_root_hook_never_fires(monkeypatch, tmp_path):
+    # 逾時重試時不能每次都漏一塊 ring
+    from src.reader import mem_reader
+    monkeypatch.setattr(mem_reader, "HOOK_READY_TIMEOUT", 0.05)
+    r = _connecting_reader(monkeypatch, tmp_path, _StubHookHandler())
+    installed = []
+    monkeypatch.setattr(r, "_install_chat_hook", lambda: installed.append(1) or 0x9000)
+    try:
+        r._connect()
+        raise AssertionError("應丟 GameVersionMismatch")
+    except GameVersionMismatch:
+        pass
+    assert installed == []
+
+
+def test_addline_pattern_failure_names_the_addline_hook_in_the_log(monkeypatch):
+    # fork 更新修不了 AddLine 的 pattern：app.log 要看得出是哪一個 hook 失敗
+    from wizwalker.errors import PatternFailed
+
+    from src.reader import mem_reader
+
+    class _Failing:
+        def __init__(self, handler):
+            pass
+
+        async def hook(self):
+            raise PatternFailed(b"AddLine")
+
+    logged = []
+    monkeypatch.setattr(mem_reader, "log", logged.append)
+    monkeypatch.setattr(mem_reader, "AddLineHook", _Failing)
+    r = _waiting_reader(_StubHookHandler())
+    try:
+        r._install_chat_hook()
+        raise AssertionError("應丟 PatternFailed")
+    except PatternFailed:
+        pass
+    assert any("AddLine hook install failed" in m and "PatternFailed" in m for m in logged)
+    r._loop.close()
+
+
 def test_attach_does_not_use_wizwalkers_unbounded_wait(monkeypatch, tmp_path):
     # wizwalker 內建的 wait_for_ready 預設無限等且不可中斷，一律自己等
     handler = _StubHookHandler([0x1234])

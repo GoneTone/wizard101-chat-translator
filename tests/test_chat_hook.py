@@ -29,6 +29,7 @@ from src.reader.chat_hook import (
     AddLineHook,
     HookRecord,
     group_broadcasts,
+    pending_broadcast,
     read_ring,
     stub_bytes,
 )
@@ -221,6 +222,20 @@ def test_group_broadcasts_keeps_ordinary_lines_apart():
     assert group_broadcasts(pair) == [((0,), pair[0]), ((1,), pair[1])]
     gapped = [_rec(s, t) for s, t in zip((1, 2, 4, 5), (0, 1, 2, 3), strict=True)]
     assert group_broadcasts(gapped) == [((r.tab,), r) for r in gapped]
+
+
+def test_pending_broadcast_counts_a_trailing_broadcast_prefix():
+    other = _rec(1, 0, "other")
+    assert pending_broadcast([other, _rec(2, 0), _rec(3, 1)]) == 2
+    assert pending_broadcast([other, _rec(2, 0), _rec(3, 1), _rec(4, 2)]) == 3
+
+
+def test_pending_broadcast_ignores_lone_lines_and_complete_broadcasts():
+    assert pending_broadcast([]) == 0
+    assert pending_broadcast([_rec(1, 0)]) == 0
+    assert pending_broadcast([_rec(s, t) for s, t in zip(range(1, 5), (0, 1, 2, 3), strict=True)]) == 0
+    assert pending_broadcast([_rec(1, 0), _rec(2, 1, "different")]) == 0
+    assert pending_broadcast([_rec(1, 0), _rec(3, 1)]) == 0
 
 
 def test_unhook_restores_the_jump_but_keeps_the_ring():
