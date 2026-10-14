@@ -103,8 +103,8 @@ class MessageList:
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
-        # 同一輪事件內連續新增只排一次捲動更新；值是第一則新增前的錨點與分頁
-        self._scroll_pending: tuple[ViewKey, tuple[str, int] | None] | None = None
+        # 同一輪事件內連續新增只排一次捲動更新；值是第一則新增前的錨點（包成 tuple，錨點本身可能是 None）
+        self._scroll_pending: tuple[tuple[str, int] | None] | None = None
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
@@ -162,8 +162,10 @@ class MessageList:
         view.rows.clear()
         for m in records:
             self._append(view, m)
-        log(f"[ui] view rewrapped (slot={key[0]}, tab={key[1]}, messages={len(records)}, "
-            f"wrap={self.wrap}, ms={(time.perf_counter() - start) * 1000:.0f})")
+        ms = (time.perf_counter() - start) * 1000
+        if records and ms >= 50:
+            log(f"[ui] view rewrapped (slot={key[0]}, tab={key[1]}, messages={len(records)}, "
+                f"wrap={self.wrap}, ms={ms:.0f})")
 
     def _region(self) -> tuple[float, float]:
         """顯示中分頁內容的捲動範圍（上緣, 下緣）；沒有訊息時為 (0, 0)。"""
@@ -292,9 +294,6 @@ class MessageList:
         translated = draw_outlined(c, 0, top + line_height(original), m.translated,
                                    fill=m.translated_fill(), font=ui_font(11),
                                    wrap=self.wrap, tag=f"{tag}.1")
-        for line in (original, translated):
-            for item in line_items(line):
-                c.addtag_withtag(tag, item)
         return m._replace(lines=(original, translated), tag=tag)
 
     def _append(self, view: _View, m: _Message) -> None:
@@ -325,13 +324,13 @@ class MessageList:
         if shown:
             self._refresh_placeholder()
             if self._scroll_pending is None:
-                self._scroll_pending = (key, anchor)
+                self._scroll_pending = (anchor,)
                 self._canvas.after_idle(self._flush_scroll)
 
     def _flush_scroll(self) -> None:
         """執行 add_message 排好的那一次捲動更新；期間若已有人同步刷新過（含換分頁）就略過。"""
         if self._scroll_pending is not None:
-            self.refresh_scroll(self._scroll_pending[1])
+            self.refresh_scroll(self._scroll_pending[0])
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:
@@ -359,7 +358,7 @@ class MessageList:
                             _move_line(later_line, delta)
                 if key == self.shown_key:
                     if delta:
-                        self._selection.redraw()   # 反白矩形不帶訊息 tag，不會跟著搬
+                        self._selection.redraw()   # 反白矩形不在 line_items 裡，不會跟著搬
                     self.refresh_scroll(anchor)
                 break
 

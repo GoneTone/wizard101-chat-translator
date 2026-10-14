@@ -428,7 +428,7 @@ def _at_bottom(ov) -> bool:
 def _row_offset(ov, msg_id: int) -> int:
     """某則訊息目前落在視口的哪個 y（畫面座標）。"""
     m = next(m for m in ov._list._messages if m.msg_id == msg_id)
-    return ov._list._canvas.bbox(m.tag)[1] - int(ov._list._canvas.canvasy(0))
+    return ov._list._canvas.bbox(m.lines[0].tag, m.lines[1].tag)[1] - int(ov._list._canvas.canvasy(0))
 
 
 def _scroll_up(ov, fraction: float = 0.3) -> None:
@@ -565,7 +565,7 @@ def test_messages_received_as_a_bubble_are_visible_after_expand(root):
     ov.expand()
     root.update()
     canvas = ov._list._canvas
-    _, top, _, bottom = canvas.bbox(ov._list._messages[-1].tag)
+    _, top, _, bottom = canvas.bbox(*(ln.tag for ln in ov._list._messages[-1].lines))
     view_top = canvas.canvasy(0)
     assert view_top <= top and bottom <= view_top + canvas.winfo_height()
 
@@ -1484,7 +1484,9 @@ def test_translation_growing_a_hidden_line_pushes_later_messages_down(root):
     _assert_rows_follow_the_layout(messages)
     canvas = ov._list._canvas
     for upper, lower in zip(messages, messages[1:], strict=False):
-        assert canvas.bbox(upper.tag)[3] < canvas.bbox(lower.tag)[1]
+        upper_box = canvas.bbox(*(ln.tag for ln in upper.lines))
+        lower_box = canvas.bbox(*(ln.tag for ln in lower.lines))
+        assert upper_box[3] < lower_box[1]
 
 
 def test_resize_while_hidden_rewraps_on_show(root):
@@ -1631,3 +1633,22 @@ def test_a_burst_of_adds_keeps_a_scrolled_up_view_in_place(root):
         ov.add_message(f"新{i}", f"新譯文{i}")
     ov._win.update_idletasks()
     assert canvas.canvasy(0) == before
+
+
+def test_showing_a_stale_tab_rewraps_it_before_it_is_visible(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    for _ in range(3):
+        ov.add_message("原文" * 20, "譯文" * 20, slot=1, tabs=(0, 1))
+    ov.set_tabs(1, _bar_state(1))
+    ov.set_tabs(1, _bar_state(0))
+    ov._win.update_idletasks()
+
+    class FakeEvent:
+        width = 240
+
+    ov._list._on_canvas_configure(FakeEvent())   # 分頁 1 隱藏中，實際畫布寬度不變
+    ov.set_tabs(1, _bar_state(1))
+    for m in ov._list._messages:
+        for line in m.lines:
+            assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap

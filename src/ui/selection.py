@@ -105,7 +105,7 @@ class Selection:
     def __init__(self):
         self._rows: dict = {}          # 訊息列 → 該列的 Line（插入順序＝顯示順序）
         self._fonts: dict = {}         # 字型描述 → Font；拖曳時每個事件都要量測，不能重建
-        self._drawn: list = []         # 目前畫著反白的 canvas；擦除只掃這些，不掃全部訊息
+        self._drawn: list = []         # 畫著反白的畫布；換分頁後舊畫布已不在登記表，擦除要靠這份記錄
         self._anchor: Caret | None = None
         self._focus: Caret | None = None
         self._dragging = False
@@ -236,24 +236,24 @@ class Selection:
         canvas = line.canvas
         return canvas.winfo_rooty() + round(line_origin(line)[1] - canvas.canvasy(0))
 
-    def _caret_in(self, line: Line, message: int, index: int,
+    def _caret_in(self, line: Line, message: int, n: int,
                   x_root: int, y_root: int) -> Caret:
         canvas = line.canvas
         ox, _ = line_origin(line)
         x = x_root - canvas.winfo_rootx() + round(canvas.canvasx(0) - ox)
-        return Caret(message, index, caret_at(line, x, y_root - self._screen_top(line)))
+        return Caret(message, n, caret_at(line, x, y_root - self._screen_top(line)))
 
     def _hit(self, x_root: int, y_root: int) -> Caret | None:
         """螢幕座標落在哪個 caret；都沒命中回 None。"""
         for message, lines in enumerate(self._rows.values()):
-            for index, line in enumerate(lines):
+            for n, line in enumerate(lines):
                 canvas = line.canvas
                 visible = (canvas.winfo_rooty() <= y_root
                            < canvas.winfo_rooty() + canvas.winfo_height())
                 if visible and point_in_rect(x_root, y_root,
                                              canvas.winfo_rootx(), self._screen_top(line),
                                              canvas.winfo_width(), line_height(line)):
-                    return self._caret_in(line, message, index, x_root, y_root)
+                    return self._caret_in(line, message, n, x_root, y_root)
         return None
 
     def _clamped(self, x_root: int, y_root: int) -> Caret:
@@ -263,9 +263,9 @@ class Selection:
         if y_root < self._screen_top(rows[0][0]):
             return Caret(0, 0, 0)
         for message, lines in enumerate(rows):
-            for index, line in enumerate(lines):
+            for n, line in enumerate(lines):
                 if y_root <= self._screen_top(line) + line_height(line) - 1:
-                    return self._caret_in(line, message, index, x_root, y_root)
+                    return self._caret_in(line, message, n, x_root, y_root)
         return Caret(len(rows) - 1, len(rows[-1]) - 1, len(line_text(rows[-1][-1])))
 
     def _erase(self) -> None:
@@ -282,12 +282,12 @@ class Selection:
         start, end = span
         rows = list(self._rows.values())
         for message in range(start.message, end.message + 1):
-            for index, line in enumerate(rows[message]):
-                if not ((start.message, start.line) <= (message, index)
+            for n, line in enumerate(rows[message]):
+                if not ((start.message, start.line) <= (message, n)
                         <= (end.message, end.line)):
                     continue
-                lo = start.index if (message, index) == (start.message, start.line) else 0
-                hi = (end.index if (message, index) == (end.message, end.line)
+                lo = start.index if (message, n) == (start.message, start.line) else 0
+                hi = (end.index if (message, n) == (end.message, end.line)
                       else len(line_text(line)))
                 rects = highlight_rects(line, self._font(line), lo, hi)
                 if not rects:

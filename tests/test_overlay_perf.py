@@ -31,9 +31,9 @@ def _resize(ov, width):
     _settle(ov)
 
 
-def _fill(ov, text="hello", count=COUNT):
+def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
     for i in range(count):
-        ov.add_message(f"{text} {i}", f"{text} 譯文 {i}", slot=1, tabs=(0, 1))
+        ov.add_message(f"{text} {i}", f"{text} 譯文 {i}", slot=1, tabs=tabs)
     _settle(ov)
 
 
@@ -64,9 +64,9 @@ def test_adding_a_message_stays_cheap(root):
 
 
 def _stale_rewrap_seconds(root, count):
-    """隱藏分頁的換行寬度過期後切過去的重排耗時（交替寬窄 3 次取最小）。"""
+    """隱藏分頁的換行寬度過期後切過去的重排耗時（只填分頁 1，故量到的是變窄那一向；3 次取最小）。"""
     ov = _overlay(root, max_messages=count)
-    _fill(ov, LONG, count)
+    _fill(ov, LONG, count, tabs=(1,))
     records = ov._list._views[(1, 1)].records
     times = []
     for width in (240, 460, 240):
