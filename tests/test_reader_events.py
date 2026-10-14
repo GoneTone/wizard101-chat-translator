@@ -385,3 +385,28 @@ def test_out_of_range_current_tab_is_a_read_failure(monkeypatch):
 def test_tab_state_is_none_when_not_connected():
     assert WizChatReader(0x1).tab_state() is None
 
+
+
+def test_current_tab_reads_only_the_current_tab(monkeypatch):
+    r, _ = _tab_reader(monkeypatch, {"MainFilterButton": "主要的"}, current=1)
+    r._chatbox = BOX
+    assert r.current_tab() == 1
+    r._loop.close()
+
+
+def test_current_tab_is_none_without_a_known_chatbox(monkeypatch):
+    # 只用已知的 ChatBox：重找成本高，交給完整取樣
+    r, _ = _tab_reader(monkeypatch, {}, current=0)
+    assert r.current_tab() is None
+    r._loop.close()
+
+
+def test_current_tab_out_of_range_is_none(monkeypatch):
+    r, _ = _tab_reader(monkeypatch, {}, current=0x41414141)
+    r._chatbox = BOX
+    assert r.current_tab() is None
+    r._loop.close()
+
+
+def test_current_tab_is_none_when_not_connected():
+    assert WizChatReader(0x1).current_tab() is None

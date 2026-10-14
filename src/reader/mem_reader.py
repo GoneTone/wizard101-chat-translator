@@ -60,6 +60,7 @@ HOOK_READY_POLL = 0.3
 
 # 新的主 ChatBox 可能重用外來的舊位址；外來記錄限頻重找，免得每筆都掃一次 UI 樹
 FOREIGN_RECHECK_SECONDS = 5.0
+_TAB_IDS = frozenset(tab for _, tab in TAB_BUTTONS)
 
 
 class ChatEvent(NamedTuple):
@@ -251,12 +252,24 @@ class WizChatReader:
             log(f"[reader] chat tabs {shown} (slot={self._slot}, pid={self._pid})")
         return state
 
+    def current_tab(self) -> int | None:
+        """只讀已知 ChatBox 的目前分頁（一次記憶體讀取）；沒有、讀不到或超出範圍回 None。"""
+        if not self._connected or self._chatbox is None:
+            return None
+        try:
+            raw = self._run(self._client.hook_handler.read_bytes(
+                self._chatbox + CUR_TAB_OFFSET, 4))
+        except Exception:
+            return None  # 重找 ChatBox 與記錄失敗交給 tab_state
+        current = struct.unpack("<i", raw)[0]
+        return current if current in _TAB_IDS else None
+
     async def _read_tab_state(self, chatbox: int) -> TabState:
         read = self._client.hook_handler.read_bytes
         if self._buttons is None:
             self._buttons = await self._find_tab_buttons()
         current = struct.unpack("<i", await read(chatbox + CUR_TAB_OFFSET, 4))[0]
-        if current not in {tab for _, tab in TAB_BUTTONS}:
+        if current not in _TAB_IDS:
             raise ValueError(f"current tab {current} out of range (stale chat box {chatbox:#x}?)")
         tabs = []
         for tab, base in self._buttons:
