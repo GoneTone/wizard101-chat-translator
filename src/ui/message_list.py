@@ -1,7 +1,8 @@
 """overlay 的訊息列表：可捲動的畫布、內層列容器、細捲軸與空狀態提示。
 
-負責訊息列的建立／就地更新／移除、訊息上限與淡出，以及捲動帳目：黏在底部時新訊息
-自動跟到底，往上讀歷史時不被搶走，內容變動前取錨、變動後復位。框選、右鍵選單與
+訊息依（客戶端, 分頁）分開保存，只有顯示中的那份建了畫面元件。負責訊息列的建立／
+就地更新／移除、訊息上限與淡出，以及捲動帳目：黏在底部時新訊息自動跟到底，往上讀
+歷史時不被搶走，內容變動前取錨、變動後復位。框選、右鍵選單與
 泡泡未讀數不在這裡 —— OverlayWindow 透過 `selection` 與 `bind_line` 接手。
 """
 import time
@@ -62,23 +63,25 @@ def should_stick_to_bottom(view_bottom_fraction: float,
     return view_bottom_fraction >= threshold
 
 
-def slot_marker(slot: int) -> str:
-    """客戶端編號的顯示字：帶圈數字 ①…⑳，超過退回 `[n]`。"""
-    if 1 <= slot <= 20:
-        return chr(0x2460 + slot - 1)
-    return f"[{slot}]"
+ViewKey = tuple[int | None, int]   # （客戶端 slot, 遊戲分頁編號）
 
 
 class _Message(NamedTuple):
-    """列表中的一則訊息。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
-    color 為該則在遊戲內的顯示色（None＝退回預設配色）。"""
+    """列表中的一則訊息記錄。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
+    color 為該則在遊戲內的顯示色（None＝退回預設配色）；row 只在顯示中的清單才有。"""
     ts: float
     original: str
     translated: str
-    row: "tk.Frame"
     msg_id: int | None
-    color: str | None = None
-    slot: int | None = None   # 來自哪個遊戲客戶端（None＝不標示）
+    color: str | None
+    pending: bool
+    failed: bool
+    row: "tk.Frame | None" = None
+
+    def translated_fill(self) -> str:
+        if self.pending:
+            return FG_PENDING
+        return FG_ERROR if self.failed else (self.color or FG_TRANSLATED)
 
 
 class MessageList:
@@ -94,12 +97,11 @@ class MessageList:
         self._max = max_messages
         self._fade = fade_seconds
         self.wrap = wrap
-        self._messages: list[_Message] = []
+        self.shown_key: ViewKey = (None, 0)
+        self._views: dict[ViewKey, list[_Message]] = {self.shown_key: []}
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
-        # 多客戶端模式：偵測到第二個客戶端才開、開了不關（見 set_multi_client）
-        self._multi_client = False
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
@@ -125,6 +127,10 @@ class MessageList:
         self._placeholder = tk.Label(self.frame, text="", bg=BG, fg=FG_BAR,
                                      font=ui_font(11))
         self._placeholder.place(relx=0.5, rely=0.5, anchor="center")
+
+    @property
+    def _messages(self) -> list[_Message]:
+        return self._views[self.shown_key]
 
     # --- 捲動 ---
     def _on_canvas_configure(self, e) -> None:
@@ -233,112 +239,126 @@ class MessageList:
 
     # --- 訊息 ---
     def _drop_row(self, entry: _Message) -> None:
-        """移除一則訊息的畫面元件。銷毀列與解除選取登記必須成對 —— 漏掉任一處，
-        選取就會指向已銷毀的 widget。"""
+        """移除一則訊息的畫面元件（沒有就略過）。銷毀列與解除選取登記必須成對 ——
+        漏掉任一處，選取就會指向已銷毀的 widget。"""
+        if entry.row is None:
+            return
         self._selection.forget(entry.row)
         entry.row.destroy()
 
-    def add_message(self, original: str, translated: str, now: float | None = None,
-                    msg_id: int | None = None, pending: bool = False,
-                    color: str | None = None, slot: int | None = None) -> None:
-        """加入一則訊息（最新在最下）。pending＝譯文欄位目前是佔位字樣，以較暗的顏色
-        標示，待 update_message 填入真正的譯文時才恢復正常顏色。
-        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。
-        slot＝來源客戶端編號，只在多客戶端模式下畫成前綴。"""
-        anchor = self._view_anchor()
+    def _build_row(self, m: _Message) -> "tk.Frame":
+        """依記錄建一則訊息的畫面元件（原文行＋譯文行），排在列表最下方。"""
         row = tk.Frame(self._inner, bg=BG)
-        original_line = _outlined_line(row, self._display_original(original, slot),
-                                       dimmed(color) if color else FG_ORIGINAL,
+        original_line = _outlined_line(row, m.original,
+                                       dimmed(m.color) if m.color else FG_ORIGINAL,
                                        ui_font(9), self.wrap)
         original_line.pack(fill="x")
-        translated_line = _outlined_line(row, translated,
-                                         FG_PENDING if pending else (color or FG_TRANSLATED),
+        translated_line = _outlined_line(row, m.translated, m.translated_fill(),
                                          ui_font(11), self.wrap)
         translated_line.pack(fill="x")
         row.pack(side="top", fill="x", pady=2)
         self._selection.register(row, (original_line, translated_line))
         for line in (original_line, translated_line):
             self._bind_line(line)
-        self._messages.append(_Message(now if now is not None else time.time(),
-                                       original, translated, row, msg_id, color, slot))
-        while len(self._messages) > self._max:
-            self._drop_row(self._messages.pop(0))
+        return row
 
-        self._refresh_placeholder()
-        self.refresh_scroll(anchor)
+    def _trim(self, records: list[_Message]) -> bool:
+        """把超過上限的最舊記錄移除；回傳是否有移除。"""
+        removed = len(records) > self._max
+        while len(records) > self._max:
+            self._drop_row(records.pop(0))
+        return removed
+
+    def add_message(self, key: ViewKey, original: str, translated: str,
+                    now: float | None = None, msg_id: int | None = None,
+                    pending: bool = False, color: str | None = None) -> None:
+        """把一則訊息加到 key 那份清單最下方。pending＝譯文欄位目前是佔位字樣，以較暗的
+        顏色標示，待 update_message 填入真正的譯文時才恢復正常顏色。
+        color＝該則在遊戲內的顯示色：譯文直接用它、原文用調暗版；None 退回預設配色。"""
+        shown = key == self.shown_key
+        anchor = self._view_anchor() if shown else None
+        m = _Message(now if now is not None else time.time(), original, translated,
+                     msg_id, color, pending, False)
+        if shown:
+            m = m._replace(row=self._build_row(m))
+        records = self._views.setdefault(key, [])
+        records.append(m)
+        self._trim(records)
+        if shown:
+            self._refresh_placeholder()
+            self.refresh_scroll(anchor)
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:
-        """把某則佔位訊息的譯文就地填入（原文與位置不動）。
-        failed＝這則翻不出來、填入的是失敗提示，改用錯誤色與一般對話區隔。
+        """把某則佔位訊息的譯文填入每份含它的清單（廣播會落在多個分頁），顯示中的
+        就地改畫面。failed＝填入的是失敗提示，改用錯誤色與一般對話區隔。
         找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
         anchor = self._view_anchor()
-        for i, m in enumerate(self._messages):
-            if m.msg_id != msg_id:
-                continue
-            line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
-            if self._selection.holds(m.row):
-                self._selection.clear("translated line replaced")
-            line.itemconfigure("txt", text=translated)
-            line.itemconfigure("fg", fill=FG_ERROR if failed
-                               else (m.color or FG_TRANSLATED))
-            _fit_line_height(line)
-            self._messages[i] = m._replace(translated=translated)
-            self.refresh_scroll(anchor)
-            return
+        for records in self._views.values():
+            for i, m in enumerate(records):
+                if m.msg_id != msg_id:
+                    continue
+                m = records[i] = m._replace(translated=translated, pending=False,
+                                            failed=failed)
+                if m.row is not None:
+                    line = m.row.winfo_children()[1]  # 0＝原文行，1＝譯文行
+                    if self._selection.holds(m.row):
+                        self._selection.clear("translated line replaced")
+                    line.itemconfigure("txt", text=translated)
+                    line.itemconfigure("fg", fill=m.translated_fill())
+                    _fit_line_height(line)
+                    self.refresh_scroll(anchor)
+                break
 
-    def _display_original(self, original: str, slot: int | None) -> str:
-        if self._multi_client and slot is not None:
-            return f"{slot_marker(slot)} {original}"
-        return original
-
-    def set_multi_client(self) -> None:
-        """進入多客戶端模式：既有各列補上來源標記，之後新列直接帶標記。只開不關 ——
-        剛關掉的那個客戶端的訊息還在淡出期內，此時正需要看清是誰的。"""
-        if self._multi_client:
+    def show(self, key: ViewKey) -> None:
+        """換成顯示 key 那份清單：銷毀舊列、依記錄重建，捲動回到跟隨底部。"""
+        if key == self.shown_key:
             return
-        self._multi_client = True
-        anchor = self._view_anchor()
-        for m in self._messages:
-            if m.slot is None:
-                continue
-            line = m.row.winfo_children()[0]  # 0＝原文行
-            if self._selection.holds(m.row):
-                self._selection.clear("original line relabelled")
-            line.itemconfigure("txt", text=self._display_original(m.original, m.slot))
-            _fit_line_height(line)
-        self.refresh_scroll(anchor)
+        self._selection.clear("view switched")
+        old = self._messages
+        for i, m in enumerate(old):
+            self._drop_row(m)
+            old[i] = m._replace(row=None)
+        self.shown_key = key
+        records = self._views.setdefault(key, [])
+        for i, m in enumerate(records):
+            records[i] = m._replace(row=self._build_row(m))
+        self._follow = True
+        self._refresh_placeholder()
+        self.refresh_scroll()
+        log(f"[ui] view switched (slot={key[0]}, tab={key[1]}, messages={len(records)})")
 
     def set_limits(self, max_messages: int, fade_seconds: int) -> None:
-        """套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。"""
+        """套用新的訊息上限與淡出秒數；每份清單超出上限的最舊訊息立即移除。"""
         anchor = self._view_anchor()
         self._max = max_messages
         self._fade = fade_seconds
         removed = False
-        while len(self._messages) > self._max:
-            self._drop_row(self._messages.pop(0))
-            removed = True
+        for key, records in self._views.items():
+            removed |= self._trim(records) and key == self.shown_key
         self._refresh_placeholder()
         if removed:
             self.refresh_scroll(anchor)
 
     def prune(self, now: float | None = None) -> None:
-        """移除已超過淡出秒數的訊息（fade_seconds <= 0 時不做）；`now` 供測試指定時刻。"""
+        """移除每份清單中已超過淡出秒數的訊息（fade_seconds <= 0 時不做）；`now` 供測試指定時刻。"""
         if self._fade <= 0:
             return  # fade_seconds <= 0：永不依時間清除訊息（可滾動看歷史）
         anchor = self._view_anchor()
         cutoff = (now if now is not None else time.time()) - self._fade
-        keep = []
-        for entry in self._messages:
-            if entry.ts <= cutoff:
-                self._drop_row(entry)
-            else:
-                keep.append(entry)
-        if len(keep) == len(self._messages):
-            return
-        self._messages = keep
-        self._refresh_placeholder()
-        self.refresh_scroll(anchor)
+        shown_changed = False
+        for key, records in self._views.items():
+            keep = [m for m in records if m.ts > cutoff]
+            if len(keep) == len(records):
+                continue
+            for m in records:
+                if m.ts <= cutoff:
+                    self._drop_row(m)
+            records[:] = keep
+            shown_changed |= key == self.shown_key
+        if shown_changed:
+            self._refresh_placeholder()
+            self.refresh_scroll(anchor)
 
     # --- 空狀態提示 ---
     def set_placeholder(self, text: str, color: str) -> None:

@@ -639,7 +639,7 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
 
     reader_thread = threading.Thread(
         target=supervise,
-        args=(stop, spawn, game_windows, lambda: ui_queue.put(overlay.set_multi_client), board),
+        args=(stop, spawn, game_windows, board),
         daemon=True, name="reader-supervisor")
     reader_thread.start()
 

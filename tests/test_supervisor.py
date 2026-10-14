@@ -1,4 +1,4 @@
-"""supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒 → 多客戶端模式一次性觸發。
+"""supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒。
 以假列舉與假執行緒驗證，不需遊戲。"""
 import threading
 import types
@@ -25,7 +25,6 @@ class Harness:
         self.spawned: list[tuple[int, int]] = []
         self.gone: dict[int, threading.Event] = {}
         self.threads: dict[int, threading.Thread] = {}
-        self.multi_calls = 0
         self.current: list[int] = []
 
     def enumerate(self):
@@ -50,13 +49,9 @@ class Harness:
         self.threads[hwnd] = th
         return th
 
-    def on_multi_client(self):
-        self.multi_calls += 1
-
     def run(self):
         board = FakeBoard()
-        supervise(self.stop, self.spawn, self.enumerate, self.on_multi_client, board,
-                  interval=0.005)
+        supervise(self.stop, self.spawn, self.enumerate, board, interval=0.005)
         for ev in self.gone.values():
             ev.set()
         return board
@@ -80,38 +75,6 @@ def test_freed_slot_is_reused_by_the_next_window():
     h = Harness([[0xA, 0xB], [0xB], [0xB, 0xC]])
     h.run()
     assert h.spawned == [(0xA, 1), (0xB, 2), (0xC, 1)]
-
-
-class ZombieHarness(Harness):
-    """視窗消失後不 join 假執行緒：模擬殭屍 reader（退出前有 5-20 秒空窗）還活著。"""
-
-    def enumerate(self):
-        if not self.script:
-            self.stop.set()
-            for ev in self.gone.values():
-                ev.set()
-            return self.current
-        self.current = self.script.pop(0)
-        return self.current
-
-
-def test_zombie_reader_thread_does_not_trigger_multi_client_mode():
-    # A 的視窗消失但假執行緒還沒退出、B 剛出現：active 有兩條但本輪只列舉到 B 一個視窗
-    h = ZombieHarness([[0xA], [0xB]])
-    h.run()
-    assert h.multi_calls == 0
-
-
-def test_multi_client_mode_fires_once_when_two_windows_coexist():
-    h = Harness([[0xA], [0xA, 0xB], [0xB], [0xB, 0xC]])
-    h.run()
-    assert h.multi_calls == 1
-
-
-def test_single_window_never_enters_multi_client_mode():
-    h = Harness([[0xA], [0xA], []])
-    h.run()
-    assert h.multi_calls == 0
 
 
 def test_board_is_refreshed_every_scan():
@@ -147,7 +110,7 @@ def test_stop_joins_every_reader_thread():
         h.current = h.script.pop(0)
         return h.current
 
-    supervise(h.stop, spawn, enumerate, h.on_multi_client, FakeBoard(), interval=0.005)
+    supervise(h.stop, spawn, enumerate, FakeBoard(), interval=0.005)
     assert sorted(joined) == [0xA, 0xB]
 
 
@@ -162,23 +125,7 @@ def test_enumeration_failure_does_not_kill_the_loop():
         stop.set()
         return []
 
-    supervise(stop, lambda h, s: None, flaky, lambda: None, FakeBoard(), interval=0.005)
-    assert calls["n"] == 2
-
-
-def test_a_raising_on_multi_client_retries_next_scan_instead_of_latching():
-    # 先呼叫再鎖存：第一次 raise 不可讓通知永久跳過，第三輪已鎖存就不該再呼叫
-    h = Harness([[0xA], [0xA, 0xB], [0xA, 0xB], [0xA, 0xB]])
-    calls = {"n": 0}
-
-    def on_multi_client():
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("boom")
-
-    supervise(h.stop, h.spawn, h.enumerate, on_multi_client, FakeBoard(), interval=0.005)
-    for ev in h.gone.values():
-        ev.set()
+    supervise(stop, lambda h, s: None, flaky, FakeBoard(), interval=0.005)
     assert calls["n"] == 2
 
 
@@ -209,5 +156,5 @@ def test_shutdown_join_budget_is_shared_not_per_thread(monkeypatch):
         return [0xA, 0xB]
 
     supervise(stop, lambda hwnd, slot: _StuckThread(clock, timeouts), enumerate,
-              lambda: None, FakeBoard(), interval=0)
+              FakeBoard(), interval=0)
     assert timeouts == [0.2, 0.0]   # 兩條卡死的 thread 共用一個預算，不是各等 0.2s
