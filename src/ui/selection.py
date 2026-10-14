@@ -104,7 +104,7 @@ class Selection:
 
     def __init__(self):
         self._rows: dict = {}          # 訊息列 → 該列的 Line（插入順序＝顯示順序）
-        self._fonts: dict = {}         # Line → Font；拖曳時每個事件都要量測，不能重建
+        self._fonts: dict = {}         # 字型描述 → Font；拖曳時每個事件都要量測，不能重建
         self._drawn: list = []         # 目前畫著反白的 canvas；擦除只掃這些，不掃全部訊息
         self._anchor: Caret | None = None
         self._focus: Caret | None = None
@@ -128,7 +128,6 @@ class Selection:
         """清除選取，改用呼叫端持有的 dict 當登記表（換顯示中的分頁時用）。"""
         self.clear("rows replaced")
         self._rows = rows
-        self._fonts.clear()
 
     def forget(self, row) -> None:
         """訊息即將被刪除：解除登記。
@@ -136,8 +135,7 @@ class Selection:
         列落在選取範圍內就一併清掉選取 —— 留著的話 caret 會指向已刪除的文字 item。
         列在選取**之前**則把兩個 caret 的序號各往前挪一格：訊息是以序號定位的，
         而 `prune` 每輪都可能砍掉最舊的一則，不挪的話選取會整段錯位。"""
-        lines = self._rows.get(row)
-        if lines is None:
+        if row not in self._rows:
             return
         message = list(self._rows).index(row)
         low = high = None
@@ -148,8 +146,6 @@ class Selection:
         if touched:
             self._erase()   # 趁該列還在時先擦掉反白，孤兒高亮不會留下來
         self._rows.pop(row, None)
-        for line in lines:
-            self._fonts.pop(line, None)
         if low is None:
             return
         if touched:
@@ -228,9 +224,11 @@ class Selection:
 
     # --- 內部 ---
     def _font(self, line: Line):
-        if line not in self._fonts:
-            self._fonts[line] = line_font(line)
-        return self._fonts[line]
+        # 以字型描述為鍵：實際只有原文／譯文兩種，行被刪除或重畫也不會留下孤兒快取
+        desc = line.canvas.itemcget(line.fg, "font")
+        if desc not in self._fonts:
+            self._fonts[desc] = line_font(line)
+        return self._fonts[desc]
 
     @staticmethod
     def _screen_top(line: Line) -> int:

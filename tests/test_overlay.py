@@ -1563,3 +1563,38 @@ def test_switching_views_keeps_each_views_canvas(root):
     ov.set_tabs(1, _bar_state(0))
     assert ov._list._canvas is canvas
     assert canvas.winfo_manager() == "pack"
+
+
+def test_rewrap_between_taking_and_restoring_the_anchor_keeps_the_view(root):
+    # refresh_scroll 的 update_idletasks() 可能剛好送來改變寬度的 <Configure>，整頁重畫後錨點仍要對得回去
+    ov = _filled_overlay(root)
+    _scroll_up(ov)
+    root.update()
+    newest = ov._list._messages[-1].msg_id
+    anchor = ov._list._view_anchor()
+    before = _row_offset(ov, newest)
+
+    class FakeEvent:
+        width = 420
+
+    ov._list._on_canvas_configure(FakeEvent())
+    ov._list.refresh_scroll(anchor)
+
+    assert _row_offset(ov, newest) == before
+
+
+def test_resizing_with_a_selection_does_not_grow_the_font_cache(root):
+    # 重排會重畫每一行；字型快取若以行為鍵，每次縮放都會多留下一批 Tcl 字型
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=10, fade_seconds=0)
+    ov.add_message("原文一" * 10, "譯文一" * 10)
+    _select_whole_message(ov)
+
+    class FakeEvent:
+        width = 240
+
+    for width in (240, 300, 240, 300):
+        FakeEvent.width = width
+        ov._list._on_canvas_configure(FakeEvent())
+
+    assert ov._selection.active
+    assert len(ov._selection._fonts) <= 2

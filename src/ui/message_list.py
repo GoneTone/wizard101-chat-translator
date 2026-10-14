@@ -28,7 +28,7 @@ from src.ui.selection import Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 
 _STICK_THRESHOLD = 0.999
-_ROW_PAD = 2   # 舊版每則訊息 pack(pady=2) 的上下間距，排版照舊重現
+_ROW_PAD = 2   # 每則訊息上下各留的間距（列與列之間共 4px）
 
 
 def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
@@ -57,7 +57,7 @@ class _Message(NamedTuple):
     color: str | None
     pending: bool
     failed: bool
-    lines: tuple[Line, Line] = ()
+    lines: tuple[Line, ...] = ()
     tag: str = ""
 
     def translated_fill(self) -> str:
@@ -146,10 +146,13 @@ class MessageList:
         view.canvas.pack(side="left", fill="both", expand=True)
 
     # --- 排版 ---
-    def _rewrap(self, view: _View) -> None:
-        """以目前的換行寬度重畫整個分頁（換行變了，行高與其下各則的位置都會變）。
+    def _rewrap(self, key: ViewKey) -> None:
+        """以目前的換行寬度重畫 key 那個分頁（換行變了，行高與其下各則的位置都會變）。
 
-        重畫而不是改寬度再搬移：文字物件每移動一次 Tk 就重新排版一次，搬移等於排兩次。"""
+        重畫而不是改寬度再搬移：文字物件每移動一次 Tk 就重新排版一次，搬移等於排兩次。
+        各則沿用原本的 tag，捲動錨點與選取登記因此不受重畫影響。"""
+        start = time.perf_counter()
+        view = self._views[key]
         view.wrap = self.wrap
         records = view.records[:]
         view.canvas.delete("txt")
@@ -157,6 +160,8 @@ class MessageList:
         view.rows.clear()
         for m in records:
             self._append(view, m)
+        log(f"[ui] view rewrapped (slot={key[0]}, tab={key[1]}, messages={len(records)}, "
+            f"wrap={self.wrap}, ms={(time.perf_counter() - start) * 1000:.0f})")
 
     def _region(self) -> tuple[float, float]:
         """顯示中分頁內容的捲動範圍（上緣, 下緣）；沒有訊息時為 (0, 0)。"""
@@ -169,9 +174,8 @@ class MessageList:
     def _on_canvas_configure(self, e) -> None:
         self.wrap = max(80, e.width - 12)
         # 既有訊息的換行寬度也要同步更新，否則縮小視窗後右緣被切；隱藏中的分頁切過去時才補
-        view = self._views[self.shown_key]
-        if view.wrap != self.wrap:
-            self._rewrap(view)
+        if self._views[self.shown_key].wrap != self.wrap:
+            self._rewrap(self.shown_key)
         self._selection.redraw()
         self._on_wrap_change(self.wrap)
         # 排到 idle 再貼底，不在事件處理中直接 update_idletasks() —— 那會讓下一個
@@ -223,8 +227,8 @@ class MessageList:
         self.note_scroll()
         return True
 
-    def _view_anchor(self) -> tuple[Line, int] | None:
-        """視圖目前對齊到的內容位置：（最新一則的原文行，它相對視口頂端的偏移）。
+    def _view_anchor(self) -> tuple[str, int] | None:
+        """視圖目前對齊到的內容位置：（最新一則的 tag，它的列頂相對視口頂端的偏移）。
 
         畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
         內容會整段滑動、正在讀的行就跳掉 —— 內容變動前取錨、變動後交給
@@ -233,23 +237,25 @@ class MessageList:
         訊息清掉會讓下方內容整段上移，沒有錨點補位的話游標下的字就會被換掉。"""
         if (self._follow and not self._selection.dragging) or not self._messages:
             return None
-        line = self._messages[-1].lines[0]
-        return line, round(line_origin(line)[1]) - int(self._canvas.canvasy(0))
+        newest = self._messages[-1]
+        return newest.tag, round(line_origin(newest.lines[0])[1]) - int(self._canvas.canvasy(0))
 
-    def _restore_anchor(self, line: Line, offset: int) -> None:
-        """把捲動位置移回「錨點那行仍在視口同一偏移」處（見 `_view_anchor`）。"""
+    def _restore_anchor(self, tag: str, offset: int) -> None:
+        """把捲動位置移回「錨點那則仍在視口同一偏移」處（見 `_view_anchor`）。"""
         top, bottom = self._region()
-        alive = bool(line.canvas.find_withtag(line.fg))
+        # 由新往舊找：錨點是取錨當下最新的一則，之後最多再多幾則新訊息
+        m = next((m for m in reversed(self._messages) if m.tag == tag), None)
+        alive = m is not None
         if not alive or bottom <= top:
             # 罕見（錨點那則被清光、內容量不出來）：放棄補位，視圖會跳一下
             log(f"[ui] scroll anchor unusable, view may jump "
                 f"(row_alive={alive} region=({top}, {bottom})) "
                 f"({self.scroll_debug()})")
             return
-        target = max(top, line_origin(line)[1] - offset)
+        target = max(top, line_origin(m.lines[0])[1] - offset)
         self._canvas.yview_moveto((target - top) / (bottom - top))
 
-    def refresh_scroll(self, anchor: tuple[Line, int] | None = None) -> None:
+    def refresh_scroll(self, anchor: tuple[str, int] | None = None) -> None:
         """重算捲動範圍；跟隨模式貼回底部，否則依 anchor 維持原位。
 
         任何改變畫布內容或幾何的動作都要呼叫（新增／更新／清除訊息、縮放、橫幅進出、
@@ -270,12 +276,12 @@ class MessageList:
         選取就會指向已刪除的物件。"""
         self._selection.forget(m.tag)
         view.rows.pop(m.tag, None)
-        view.canvas.delete(m.tag)
+        view.canvas.delete(*line_items(m.lines[0]), *line_items(m.lines[1]))
 
     def _draw(self, view: _View, m: _Message) -> _Message:
         """把一則訊息畫在該分頁畫布的最下方（原文行＋譯文行），回傳帶著行與 tag 的記錄。"""
         c = view.canvas
-        tag = f"msg{next(self._tags)}"   # 全域唯一：Selection.forget 只認 tag，跨分頁不能撞名
+        tag = m.tag or f"msg{next(self._tags)}"   # 全域唯一：Selection.forget 只認 tag，跨分頁不能撞名
         top = _row_bottom(view.records[-1]) + 2 * _ROW_PAD if view.records else _ROW_PAD
         original = draw_outlined(c, 0, top, m.original,
                                  fill=dimmed(m.color) if m.color else FG_ORIGINAL,
@@ -333,7 +339,8 @@ class MessageList:
                     self._selection.clear("translated line replaced")
                 line = m.lines[1]
                 before = line_height(line)
-                view.canvas.itemconfigure(line.tag, text=translated)
+                for item in line_items(line):
+                    view.canvas.itemconfigure(item, text=translated)
                 view.canvas.itemconfigure(line.fg, fill=m.translated_fill())
                 delta = line_height(line) - before
                 if delta:
@@ -358,7 +365,7 @@ class MessageList:
         view = self._view(key)
         self._attach(view)
         if view.wrap != self.wrap:
-            self._rewrap(view)
+            self._rewrap(key)
         self._follow = True
         self._refresh_placeholder()
         self.refresh_scroll()
