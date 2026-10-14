@@ -38,6 +38,8 @@ _VALID = re.compile(rf"^{SENDER_PREFIX} .+")
 _PLAYER_IMG_PREFIXES = ("<image;Art/Art_Chat", "<image;Art/chat_balloon",
                         "<image;Art/Art_Word_Balloon")
 _SYSTEM_IMG = "<image;Art/Art_Chat_System"
+# 組隊通知（加入／離開隊伍）實測沿用隊伍頻道圖示、沒有 [發送者] 前綴，當系統訊息處理
+_PARTY_IMG = "<image;Art/Art_Chat_Party"
 # 伺服器公告（維修預告等）實測連圖示都沒有，只有行首 <color;..>（見 _is_server_broadcast）
 _ART_IMG = "<image;Art/"
 _LEADING_COLOR = re.compile(r"^\s*<color;")
@@ -85,7 +87,7 @@ def parse_line(raw: str) -> ChatLine | None:
     """把單行渲染 markup 解析成乾淨聊天行；非聊天行（除錯行、未知圖示、去標記後為空）回傳 None。
 
     收玩家發言（含自己的 `[你]` 行與他人 `<link;GID>[名]` 行）、系統訊息
-    （Art_Chat_System）與伺服器公告（_is_server_broadcast）；濾掉遊戲除錯行
+    （Art_Chat_System 與組隊通知）與伺服器公告（_is_server_broadcast）；濾掉遊戲除錯行
     （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。玩家行必須是「[發送者] 內容」
     （_VALID）；系統訊息與公告沒有固定前綴，clean() 後非空即收。"""
     if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
@@ -96,7 +98,7 @@ def parse_line(raw: str) -> ChatLine | None:
         return None
     line = clean(raw)
     if not _VALID.match(line):
-        return None
+        return ChatLine(line, line_color(raw), False, True) if line and _PARTY_IMG in raw else None
     return ChatLine(line, line_color(raw), _OTHER_PLAYER_LINK not in raw)
 
 

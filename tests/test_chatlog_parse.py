@@ -144,6 +144,24 @@ def test_system_lines_do_not_need_a_sender_prefix():
     assert parse_line(_system_colored("AA00AA", "你获得了 3 经验值！")).text == "你获得了 3 经验值！"
 
 
+_PARTY = "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> "
+
+
+def test_party_notices_are_system_lines():
+    # 實機原文：組隊通知帶隊伍頻道圖示，但不是「[發送者] 內容」
+    for raw, text in ((f"{_PARTY}你加入了这个队伍</color>", "你加入了这个队伍"),
+                      (f"{_PARTY}你离开了这个队伍。</color>", "你离开了这个队伍。"),
+                      (f"{_PARTY}<link;191965934165243834,艾米 时空之翼,>艾米 时空之翼</link> 加入队伍"
+                       "</color>", "艾米 时空之翼 加入队伍")):
+        line = parse_line(raw)
+        assert (line.text, line.system, line.own) == (text, True, False), raw
+
+
+def test_party_chat_stays_a_player_line():
+    line = parse_line(f"{_PARTY}[你] 123 </color>")
+    assert (line.text, line.system, line.own) == ("[你] 123", False, True)
+
+
 def test_system_lines_that_clean_to_nothing_are_dropped():
     assert parse_line(_system_colored("00FF00", "")) is None
 
