@@ -45,6 +45,21 @@ def test_read_wstring_empty_and_absurd_sizes():
     assert _read("abc", 7, size=10**7) == ""
 
 
+def test_read_wstring_size_limit_boundary():
+    assert _read("a" * 4096, 4096) == "a" * 4096
+    assert _read("a" * 4097, 4097) == ""
+
+
+def test_read_wstring_sso_capacity_threshold():
+    assert _read("abcdefg", 7) == "abcdefg"
+    assert _read("abc", 8) == "abc"
+
+
+def test_read_wstring_size_beyond_capacity_is_rejected():
+    assert _read("abc", 7, size=8) == ""
+    assert _read("abc", 2, size=3) == ""
+
+
 def test_visible_label_hides_unresolved_tokens():
     assert visible_label("<string;GUI2_00000367>") is None
     assert visible_label("") is None
@@ -57,3 +72,6 @@ def test_visible_label_keeps_unread_suffix():
 def test_tab_buttons_cover_the_verified_mapping():
     mapping = dict(TAB_BUTTONS)
     assert [mapping[n] for n in ("MainFilterButton", "GroupFilterButton", "HouseFilterButton")] == [0, 1, 2]
+    assert len(TAB_BUTTONS) == 9
+    assert len({n for n, _ in TAB_BUTTONS}) == 9
+    assert len({i for _, i in TAB_BUTTONS}) == 9

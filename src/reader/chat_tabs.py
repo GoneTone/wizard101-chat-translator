@@ -3,6 +3,7 @@
 記憶體讀取以 `async (addr, size) -> bytes` 注入，不需遊戲即可測試。
 """
 import struct
+from collections.abc import Awaitable, Callable
 from typing import NamedTuple
 
 CHATBOX_WINDOW = "WizardChatBox"
@@ -37,11 +38,11 @@ def visible_label(raw: str) -> str | None:
     return None if not raw or raw.startswith("<string;") else raw
 
 
-async def read_wstring(read_bytes, addr: int) -> str:
+async def read_wstring(read_bytes: Callable[[int, int], Awaitable[bytes]], addr: int) -> str:
     """讀 MSVC `std::wstring`；size 為 0 或超過上限回空字串。"""
     head = await read_bytes(addr, 0x20)
     size, capacity = struct.unpack_from("<QQ", head, 0x10)
-    if not 0 < size <= MAX_LABEL_CHARS:
+    if not 0 < size <= min(MAX_LABEL_CHARS, capacity):
         return ""
     if capacity >= SSO_CAPACITY:
         raw = await read_bytes(struct.unpack_from("<Q", head)[0], size * 2)
