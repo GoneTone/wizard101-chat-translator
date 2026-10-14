@@ -2,6 +2,7 @@
 import asyncio
 import io
 import struct
+from types import SimpleNamespace
 
 from src.reader import mem_reader
 from src.reader.chat_hook import HookRecord, RingRead
@@ -130,6 +131,35 @@ def test_chatbox_moving_clears_foreign_and_button_caches(monkeypatch):
     assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
     assert r._foreign == set()
     assert r._buttons is None
+
+
+def test_foreign_address_is_rechecked_after_the_window(monkeypatch):
+    moved = 0xB000
+    line = _say(1, "Amy", "hi")
+    r, _ = _reader(monkeypatch, *[_ring(_rec(i, line, this=moved)) for i in (1, 2, 3)])
+    clock = [100.0]
+    monkeypatch.setattr(mem_reader, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    found = [BOX]
+    finds = []
+    monkeypatch.setattr(r, "_find_chatbox", lambda: finds.append(1) or found[0])
+    assert r.read_new() == []
+    found[0] = moved  # 主 ChatBox 重建在先前判定為外來的位址
+    clock[0] += mem_reader.FOREIGN_RECHECK_SECONDS - 0.1
+    assert r.read_new() == []
+    assert len(finds) == 1, "限頻窗內不該重找"
+    clock[0] += 0.2
+    assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
+    assert len(finds) == 2 and r._chatbox == moved and r._foreign == set()
+
+
+def test_refinding_the_same_chatbox_is_a_no_op(monkeypatch):
+    r, logged = _tab_reader(monkeypatch, {"MainFilterButton": "主要的"}, current=0)
+    r._chatbox, r._buttons = BOX, None  # 分頁讀取失敗後的狀態
+    r._foreign.add(0xB000)
+    assert r.tab_state() == TabState(0, ((0, "主要的"),))
+    assert r._foreign == {0xB000}
+    assert not any("main chat box" in m for m in logged)
+    r._loop.close()
 
 
 def test_lost_records_are_logged_with_the_count(monkeypatch):

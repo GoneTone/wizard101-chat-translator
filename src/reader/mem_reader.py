@@ -54,6 +54,9 @@ IMAGE_BASE = 0x140000000
 HOOK_READY_TIMEOUT = 15.0
 HOOK_READY_POLL = 0.3
 
+# 新的主 ChatBox 可能重用外來的舊位址；外來記錄限頻重找，免得每筆都掃一次 UI 樹
+FOREIGN_RECHECK_SECONDS = 5.0
+
 
 class ChatEvent(NamedTuple):
     """一則新聊天；`tabs` 是它所在的分頁，伺服器廣播收斂後含多個。"""
@@ -104,6 +107,7 @@ class WizChatReader:
         self._buttons: list[tuple[int, int]] | None = None  # 分頁按鈕（編號, 位址）快取
         self._foreign: set[int] = set()   # 確認不是主 ChatBox 的 `this`
         self._tabs_logged: object = None  # 上次記進 app.log 的分頁狀態（只在變化時記）
+        self._foreign_checked = 0.0       # 上次為外來記錄重找 ChatBox 的時間（monotonic）
 
     @property
     def anchored(self) -> bool:
@@ -164,8 +168,10 @@ class WizChatReader:
         不認得的 `this` 先重找一次 ChatBox（登出入後 ChatBox 可能是新物件）。"""
         if rec.this == self._chatbox:
             return None
-        if rec.this in self._foreign:
+        if (rec.this in self._foreign
+                and time.monotonic() - self._foreign_checked < FOREIGN_RECHECK_SECONDS):
             return "foreign"
+        self._foreign_checked = time.monotonic()
         try:
             self._refind_chatbox()
         except Exception as exc:
@@ -179,9 +185,10 @@ class WizChatReader:
             log(f"[reader] AddLine dropped, main chat box not found (slot={self._slot}, "
                 f"pid={self._pid}, this={rec.this:#x}, seq={rec.seq}, tab={rec.tab})")
             return "no-chatbox"
-        self._foreign.add(rec.this)
-        log(f"[reader] ignoring AddLine from another chat box (slot={self._slot}, "
-            f"pid={self._pid}, this={rec.this:#x}, tab={rec.tab}, main={self._chatbox:#x})")
+        if rec.this not in self._foreign:
+            self._foreign.add(rec.this)
+            log(f"[reader] ignoring AddLine from another chat box (slot={self._slot}, "
+                f"pid={self._pid}, this={rec.this:#x}, tab={rec.tab}, main={self._chatbox:#x})")
         return "foreign"
 
     def _refind_chatbox(self) -> None:
@@ -209,12 +216,12 @@ class WizChatReader:
             return None
         state = outcome = None
         try:
-            if self._chatbox is None:
+            if self._chatbox is None or self._buttons is None:
                 self._refind_chatbox()
             if self._chatbox is not None:
                 state = outcome = self._run(self._read_tab_state(self._chatbox))
         except Exception as exc:
-            self._chatbox = self._buttons = None  # 控件被遊戲重建：下一輪重找
+            self._buttons = None  # 控件可能被遊戲重建：下一輪重找 ChatBox 與按鈕
             outcome = f"read failed: {type(exc).__name__}: {exc}"
         if outcome != self._tabs_logged:
             self._tabs_logged = outcome
