@@ -22,11 +22,12 @@ PATTERN = (rb"\x48\x89\x5C\x24\x20\x55\x56\x57\x41\x54\x41\x55\x41\x56\x41\x57"
 
 
 class HookRecord(NamedTuple):
-    """一次 AddLine 呼叫；`len(text) < length` 代表內容被截斷。"""
+    """一次 AddLine 呼叫；`copied < length`（UTF-16 字元數）代表內容被截斷。"""
     seq: int
     caller: int
     this: int
     tab: int
+    copied: int
     length: int
     text: str
 
@@ -122,7 +123,7 @@ async def read_ring(read_bytes, ring: int, last_seq: int) -> RingRead:
         if struct.unpack("<Q", await read_bytes(slot, 8))[0] != seq:
             lost += 1  # 讀內容期間被覆寫
             continue
-        records.append(HookRecord(seq, caller, this, tab, length, text))
+        records.append(HookRecord(seq, caller, this, tab, copied, length, text))
     return RingRead(records, last_seq, lost)
 
 

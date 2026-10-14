@@ -8,15 +8,14 @@ from src.reader.chat_hook import HookRecord, RingRead
 from src.reader.chat_tabs import CUR_TAB_OFFSET, LABEL_OFFSET, TAB_BUTTONS, TabState
 from src.reader.mem_reader import WizChatReader
 from src.reader.message_log import MessageLog
+from tests.chat_hook_helpers import RING, THIS, _FakeRing, _units, _wstring
 from tests.chatlog_helpers import _broadcast, _own, _say, _system
-from tests.test_chat_hook import RING, _FakeRing
-from tests.test_chat_tabs import _wstring
 
 BOX = 0xA000
 
 
 def _rec(seq, text, tab=0, this=BOX):
-    return HookRecord(seq, 0x1407443B1, this, tab, len(text), text)
+    return HookRecord(seq, 0x1407443B1, this, tab, _units(text), _units(text), text)
 
 
 def _reader(monkeypatch, *reads, buf=None, chatbox=BOX):
@@ -110,18 +109,34 @@ def test_unknown_chatbox_triggers_one_refind_before_dropping(monkeypatch):
 def test_missing_chatbox_does_not_mark_the_record_foreign(monkeypatch):
     # 轉場中找不到 ChatBox 不能把主 ChatBox 永久當成外來
     line = _say(1, "Amy", "hi")
-    r, _ = _reader(monkeypatch, _ring(_rec(1, line)), _ring(_rec(2, line)), chatbox=None)
+    buf = io.StringIO()
+    r, _ = _reader(monkeypatch, _ring(_rec(1, line)), _ring(_rec(2, line)), buf=buf,
+                   chatbox=None)
     finds = iter([None, BOX])
     monkeypatch.setattr(r, "_find_chatbox", lambda: next(finds))
     assert r.read_new() == []
     assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
+    assert buf.getvalue().startswith("[seq=1 tab=0 no-chatbox]")
+
+
+def test_chatbox_moving_clears_foreign_and_button_caches(monkeypatch):
+    # 新的主 ChatBox 可能落在先前判定為外來的位址上
+    moved = 0xB000
+    line = _say(1, "Amy", "hi")
+    r, _ = _reader(monkeypatch, _ring(_rec(1, line, this=moved)))
+    r._foreign.add(moved + 0x100)
+    r._buttons = [(0, 0x10000)]
+    monkeypatch.setattr(r, "_find_chatbox", lambda: moved)
+    assert _texts(r.read_new()) == [((0,), "[Amy] hi")]
+    assert r._foreign == set()
+    assert r._buttons is None
 
 
 def test_lost_records_are_logged_with_the_count(monkeypatch):
     buf = io.StringIO()
     r, logged = _reader(monkeypatch, RingRead([_rec(5, _say(1, "Amy", "hi"))], 5, 3), buf=buf)
     assert len(r.read_new()) == 1
-    assert any("lost 3" in m and "slot=3" in m for m in logged)
+    assert any("lost 3" in m and "slot=3" in m and "window=1-5" in m for m in logged)
     assert "lost 3" in buf.getvalue()
 
 
@@ -130,6 +145,13 @@ def test_truncated_lines_are_logged_with_the_original_length(monkeypatch):
     r, logged = _reader(monkeypatch, _ring(_rec(1, line)._replace(length=1500)))
     assert len(r.read_new()) == 1
     assert any("truncated" in m and "length=1500" in m for m in logged)
+
+
+def test_non_bmp_text_is_not_reported_as_truncated(monkeypatch):
+    # emoji 在 UTF-16 是兩個單位：拿 Python 字元數比會誤判截斷
+    r, logged = _reader(monkeypatch, _ring(_rec(1, _say(1, "Amy", "nice 😂👀"))))
+    assert _texts(r.read_new()) == [((0,), "[Amy] nice 😂👀")]
+    assert not any("truncated" in m for m in logged)
 
 
 def test_teardown_resets_the_ring_cursor(monkeypatch):
@@ -150,7 +172,7 @@ def test_teardown_resets_the_ring_cursor(monkeypatch):
 
     r = WizChatReader(0x1)
     monkeypatch.setattr(r, "_connect", connect)
-    monkeypatch.setattr(r, "_find_chatbox", lambda: 0x7777)
+    monkeypatch.setattr(r, "_find_chatbox", lambda: THIS)
     for seq in range(1, 6):
         ring.put(seq, _say(1, "Amy", f"m{seq}"))
     assert len(r.read_new()) == 5
@@ -216,6 +238,27 @@ def test_tab_state_is_none_without_a_chatbox(monkeypatch):
     r, _ = _tab_reader(monkeypatch, {}, current=0)
     monkeypatch.setattr(r, "_find_chatbox", lambda: None)
     assert r.tab_state() is None
+    r._loop.close()
+
+
+def test_repeated_chatbox_lookup_failures_log_once(monkeypatch):
+    r, logged = _tab_reader(monkeypatch, {}, current=0)
+
+    def boom():
+        raise OSError("root window unreadable")
+
+    monkeypatch.setattr(r, "_find_chatbox", boom)
+    assert [r.tab_state() for _ in range(3)] == [None] * 3
+    assert sum("root window unreadable" in m for m in logged) == 1
+    r._loop.close()
+
+
+def test_tab_buttons_are_refound_after_the_chatbox_moves(monkeypatch):
+    moved = 0xB000
+    r, _ = _tab_reader(monkeypatch, {"MainFilterButton": "主要的"}, current=0, chatbox=moved)
+    r._chatbox, r._buttons = BOX, [(0, 0xDEAD0000)]  # 舊 ChatBox 的按鈕，已不可讀
+    assert r._chatbox_verdict(_rec(1, _say(1, "Amy", "hi"), this=moved)) is None
+    assert r.tab_state() == TabState(0, ((0, "主要的"),))
     r._loop.close()
 
 

@@ -125,7 +125,7 @@ class WizChatReader:
         self._last_seq = got.last_seq
         if got.lost:
             self._note(f"lost {got.lost} chat lines (ring overwritten)",
-                       f"seq={first}-{got.last_seq}")
+                       f"window={first}-{got.last_seq}")
         events = []
         for tabs, rec in group_broadcasts(got.records):
             line = self._judge(tabs, rec)
@@ -135,12 +135,12 @@ class WizChatReader:
 
     def _judge(self, tabs: tuple[int, ...], rec: HookRecord) -> ChatLine | None:
         """判定一組記錄（廣播收斂後的代表記錄）並寫進 messages.log；要回傳的回 ChatLine。"""
-        if len(rec.text) < rec.length:
+        if rec.copied < rec.length:
             self._note("chat line truncated",
-                       f"seq={rec.seq}, tab={rec.tab}, length={rec.length}, kept={len(rec.text)}")
+                       f"seq={rec.seq}, tab={rec.tab}, length={rec.length}, kept={rec.copied}")
         line = None
-        if not self._from_main_chatbox(rec):
-            verdict = "foreign"
+        if (rejected := self._chatbox_verdict(rec)) is not None:
+            verdict = rejected
         elif (line := parse_line(rec.text)) is None:
             verdict = "dropped"
         elif line.system and not self.emit_system:
@@ -158,25 +158,40 @@ class WizChatReader:
                 self._record(rec.seq + i, tab, rec.text, "broadcast-dup")
         return line
 
-    def _from_main_chatbox(self, rec: HookRecord) -> bool:
-        """`this` 是主 ChatBox 才收；不認得的先重找一次（登出入後 ChatBox 可能是新物件）。"""
+    def _chatbox_verdict(self, rec: HookRecord) -> str | None:
+        """`this` 是主 ChatBox 回 None（照收）；否則回 `foreign` 或 `no-chatbox`。
+
+        不認得的 `this` 先重找一次 ChatBox（登出入後 ChatBox 可能是新物件）。"""
         if rec.this == self._chatbox:
-            return True
+            return None
         if rec.this in self._foreign:
-            return False
-        self._chatbox = self._find_chatbox()
+            return "foreign"
+        try:
+            self._refind_chatbox()
+        except Exception as exc:
+            self._chatbox = None
+            log(f"[reader] chat box lookup failed (slot={self._slot}, pid={self._pid}): "
+                f"{type(exc).__name__}: {exc}")
         if rec.this == self._chatbox:
-            log(f"[reader] main chat box at {rec.this:#x} (slot={self._slot}, pid={self._pid})")
-            return True
+            return None
         # 找不到 ChatBox（轉場中）時不記為外來，否則主 ChatBox 會被永久擋掉
         if self._chatbox is None:
             log(f"[reader] AddLine dropped, main chat box not found (slot={self._slot}, "
                 f"pid={self._pid}, this={rec.this:#x}, seq={rec.seq}, tab={rec.tab})")
-            return False
+            return "no-chatbox"
         self._foreign.add(rec.this)
         log(f"[reader] ignoring AddLine from another chat box (slot={self._slot}, "
             f"pid={self._pid}, this={rec.this:#x}, tab={rec.tab}, main={self._chatbox:#x})")
-        return False
+        return "foreign"
+
+    def _refind_chatbox(self) -> None:
+        """重找主 ChatBox；位址變了就清掉按鈕快取與外來集合（新物件可能重用外來的舊位址）。"""
+        found = self._find_chatbox()
+        if found is not None and found != self._chatbox:
+            self._buttons = None
+            self._foreign.clear()
+            log(f"[reader] main chat box at {found:#x} (slot={self._slot}, pid={self._pid})")
+        self._chatbox = found
 
     def _record(self, seq: int, tab: int, raw: str, verdict: str) -> None:
         if self._msg_log is not None:
@@ -192,15 +207,15 @@ class WizChatReader:
         """遊戲聊天框的目前分頁與可見分頁；未連上、找不到 ChatBox 或讀取失敗回 None。"""
         if not self._connected:
             return None
-        if self._chatbox is None:
-            self._chatbox = self._find_chatbox()
         state = outcome = None
-        if self._chatbox is not None:
-            try:
+        try:
+            if self._chatbox is None:
+                self._refind_chatbox()
+            if self._chatbox is not None:
                 state = outcome = self._run(self._read_tab_state(self._chatbox))
-            except Exception as exc:
-                self._chatbox = self._buttons = None  # 控件被遊戲重建：下一輪重找
-                outcome = f"read failed: {type(exc).__name__}: {exc}"
+        except Exception as exc:
+            self._chatbox = self._buttons = None  # 控件被遊戲重建：下一輪重找
+            outcome = f"read failed: {type(exc).__name__}: {exc}"
         if outcome != self._tabs_logged:
             self._tabs_logged = outcome
             shown = (f"current={state.current}, visible={list(state.tabs)}" if state
@@ -296,17 +311,12 @@ class WizChatReader:
                                    self._last_seq))
 
     def _find_chatbox(self) -> int | None:
-        """root window 下 `WizardChatBox` 的位址；找不到或讀取失敗回 None。"""
+        """root window 下 `WizardChatBox` 的位址；找不到回 None，讀取失敗照拋。"""
         async def _find() -> int | None:
             nodes = await self._client.root_window.get_windows_with_name(CHATBOX_WINDOW)
             return await nodes[0].read_base_address() if nodes else None
 
-        try:
-            return self._run(_find())
-        except Exception as exc:
-            log(f"[reader] chat box lookup failed (slot={self._slot}, pid={self._pid}): "
-                f"{type(exc).__name__}: {exc}")
-            return None
+        return self._run(_find())
 
     def _install_chat_hook(self) -> int:
         """掛上 AddLine hook 並登記給 wizwalker（client.close() 時一併 unhook），回傳 ring 位址。"""

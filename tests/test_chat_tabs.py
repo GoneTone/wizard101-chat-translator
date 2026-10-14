@@ -2,18 +2,7 @@ import asyncio
 import struct
 
 from src.reader.chat_tabs import TAB_BUTTONS, read_wstring, visible_label
-
-
-def _wstring(text: str, cap: int, heap_addr: int | None = None) -> tuple[bytes, dict[int, bytes]]:
-    """組出 std::wstring 結構（位址 0x1000）與其堆積內容。"""
-    data = text.encode("utf-16-le")
-    if cap >= 8:
-        head = struct.pack("<Q", heap_addr) + bytes(8)
-        heap = {heap_addr: data}
-    else:
-        head = data.ljust(16, b"\0")
-        heap = {}
-    return head + struct.pack("<QQ", len(text), cap), heap
+from tests.chat_hook_helpers import _wstring
 
 
 def _read(text: str, cap: int, size: int | None = None) -> str:

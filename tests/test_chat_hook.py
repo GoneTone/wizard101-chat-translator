@@ -25,7 +25,6 @@ from src.reader.chat_hook import (
     DATA_OFF,
     HEADER,
     MAX_CHARS,
-    SLOT_SIZE,
     SLOTS,
     AddLineHook,
     HookRecord,
@@ -33,11 +32,9 @@ from src.reader.chat_hook import (
     read_ring,
     stub_bytes,
 )
+from tests.chat_hook_helpers import CALLER, RING, RING_SIZE, THIS, _FakeRing, _units
 
-RING, CODE, STACK, HEAP, STR = 0x10000000, 0x20000000, 0x30000000, 0x40000000, 0x50000000
-RING_SIZE = HEADER + SLOTS * SLOT_SIZE
-CALLER = 0x1407443B1
-THIS = 0x7777
+CODE, STACK, HEAP, STR = 0x20000000, 0x30000000, 0x40000000, 0x50000000
 DF = 0x400
 
 
@@ -98,7 +95,7 @@ def test_stub_copies_sso_and_heap_strings_and_restores_registers():
         assert struct.unpack("<Q", mu.mem_read(rsp + 0x20, 8))[0] == 0xB0B0
         assert struct.unpack("<Q", mu.mem_read(RING, 8))[0] == seq
         got = asyncio.run(read_ring(_reader(mu), RING, seq - 1))
-        assert got.records == [HookRecord(seq, CALLER, THIS, tab, len(text), text)]
+        assert got.records == [HookRecord(seq, CALLER, THIS, tab, len(text), len(text), text)]
         assert (got.last_seq, got.lost) == (seq, 0)
 
 
@@ -106,7 +103,7 @@ def test_stub_truncates_long_lines_and_keeps_original_length():
     mu, *_ = _emulate("x" * 1500, 5, 0)
     (record,) = asyncio.run(read_ring(_reader(mu), RING, 0)).records
     assert record.length == 1500
-    assert len(record.text) == MAX_CHARS
+    assert record.copied == len(record.text) == MAX_CHARS
 
 
 def test_stub_wraps_past_the_slot_count():
@@ -117,34 +114,6 @@ def test_stub_wraps_past_the_slot_count():
     assert struct.unpack("<Q", mu.mem_read(RING + HEADER, 8))[0] == SLOTS + 1
     (record,) = asyncio.run(read_ring(_reader(mu), RING, SLOTS)).records
     assert (record.seq, record.text) == (SLOTS + 1, "wrap me please")
-
-
-class _FakeRing:
-    """以 bytearray 模擬遊戲內的環形緩衝。"""
-
-    def __init__(self):
-        self.buf = bytearray(RING_SIZE)
-        self.after_read = None
-
-    def slot(self, seq):
-        return HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE
-
-    def put(self, seq, text, tab=0, slot_seq=None):
-        off = self.slot(seq)
-        struct.pack_into("<QQQIII", self.buf, off, seq if slot_seq is None else slot_seq,
-                         CALLER, THIS, tab, len(text), len(text))
-        self.buf[off + DATA_OFF:off + DATA_OFF + len(text) * 2] = text.encode("utf-16-le")
-        struct.pack_into("<Q", self.buf, 0, max(seq, self.count))
-
-    @property
-    def count(self):
-        return struct.unpack_from("<Q", self.buf)[0]
-
-    async def read_bytes(self, addr, size):
-        data = bytes(self.buf[addr - RING:addr - RING + size])
-        if self.after_read:
-            self.after_read(addr - RING, size)
-        return data
 
 
 def _read(ring, last_seq):
@@ -229,7 +198,7 @@ def test_read_ring_rereads_seq_to_detect_a_torn_read():
 
 
 def _rec(seq, tab, text="same"):
-    return HookRecord(seq, CALLER, THIS, tab, len(text), text)
+    return HookRecord(seq, CALLER, THIS, tab, _units(text), _units(text), text)
 
 
 def test_group_broadcasts_collapses_tabs_0_to_3_plus_channels():
