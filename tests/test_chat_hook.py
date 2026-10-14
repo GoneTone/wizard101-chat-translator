@@ -44,9 +44,11 @@ DF = 0x400
 @pytest.fixture(autouse=True)
 def _quiet_faulthandler():
     # unicorn 在 Windows 建立映射時會觸發並自行處理 access violation，faulthandler 會誤印成 fatal
+    was_enabled = faulthandler.is_enabled()
     faulthandler.disable()
     yield
-    faulthandler.enable(sys.__stderr__)
+    if was_enabled:
+        faulthandler.enable(sys.__stderr__)
 
 
 def _emulate(text, tab, start_count):
@@ -168,6 +170,26 @@ def test_read_ring_stops_at_a_slot_being_written():
     assert (got.last_seq, got.lost) == (1, 0)
 
 
+def test_read_ring_waits_for_a_slot_still_holding_the_previous_lap():
+    ring = _FakeRing()
+    ring.put(SLOTS + 1, "old lap", slot_seq=1)  # 累計數已更新、槽還留著上一圈的序號
+    got = _read(ring, SLOTS)
+    assert (got.records, got.last_seq, got.lost) == ([], SLOTS, 0)
+    ring.put(SLOTS + 1, "new lap")
+    (record,) = _read(ring, SLOTS).records
+    assert (record.seq, record.text) == (SLOTS + 1, "new lap")
+
+
+def test_read_ring_skips_the_content_read_for_an_empty_line():
+    ring = _FakeRing()
+    ring.put(1, "")
+    sizes = []
+    ring.after_read = lambda _off, size: sizes.append(size)
+    (record,) = _read(ring, 0).records
+    assert (record.text, record.length) == ("", 0)
+    assert 0 not in sizes
+
+
 def test_read_ring_counts_an_overwritten_slot_as_lost():
     ring = _FakeRing()
     ring.put(1, "a")
@@ -215,6 +237,16 @@ def test_group_broadcasts_collapses_tabs_0_to_3_plus_channels():
     assert group_broadcasts(records) == [((0, 1, 2, 3, 5), records[0])]
 
 
+def test_group_broadcasts_collapses_tabs_0_to_3_without_channels():
+    records = [_rec(s, t) for s, t in zip(range(1, 5), (0, 1, 2, 3), strict=True)]
+    assert group_broadcasts(records) == [((0, 1, 2, 3), records[0])]
+
+
+def test_group_broadcasts_leaves_team_up_tab_out_of_a_broadcast():
+    records = [_rec(s, t) for s, t in zip(range(1, 6), (0, 1, 2, 3, 4), strict=True)]
+    assert group_broadcasts(records) == [((0, 1, 2, 3), records[0]), ((4,), records[4])]
+
+
 def test_group_broadcasts_keeps_ordinary_lines_apart():
     pair = [_rec(1, 0), _rec(2, 1)]
     assert group_broadcasts(pair) == [((0,), pair[0]), ((1,), pair[1])]
@@ -229,3 +261,9 @@ def test_unhook_restores_the_jump_but_keeps_the_ring():
     asyncio.run(hook.unhook())
     hook.write_bytes.assert_awaited_once_with(0x1000, b"\x48\x89\x5C\x24\x20")
     hook.free.assert_not_awaited()
+
+
+def test_bytecode_generator_builds_the_stub_for_the_allocated_ring():
+    hook = AddLineHook.__new__(AddLineHook)
+    hook.ring = RING
+    assert asyncio.run(hook.bytecode_generator([("ring", b"")])) == stub_bytes(RING)

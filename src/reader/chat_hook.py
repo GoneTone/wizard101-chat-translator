@@ -32,6 +32,7 @@ class HookRecord(NamedTuple):
 
 
 class RingRead(NamedTuple):
+    """一輪讀取結果；`lost` 是本輪確定讀不到（已被覆寫）的記錄數。"""
     records: list[HookRecord]
     last_seq: int
     lost: int
@@ -90,7 +91,7 @@ class AddLineHook(SimpleHook):
         return await self.alloc(256)  # 預設 50 bytes 放不下這個 stub
 
     async def bytecode_generator(self, packed_exports):
-        return stub_bytes(struct.unpack("<Q", packed_exports[0][1])[0])
+        return stub_bytes(self.ring)  # SimpleHook.get_hook_bytecode 已先 setattr ring
 
     async def unhook(self):
         # 不釋放 ring：還原跳躍點的瞬間，遊戲執行緒可能還在 stub 內寫入
@@ -110,13 +111,14 @@ async def read_ring(read_bytes, ring: int, last_seq: int) -> RingRead:
         slot = ring + HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE
         got, caller, this, tab, copied, length = struct.unpack_from(
             "<QQQIII", await read_bytes(slot, DATA_OFF))
-        if got == 0:
-            break  # 寫入中，下一輪再讀
+        if got < seq:
+            break  # 0＝寫入中；更舊的序號＝stub 已更新累計數、還沒清槽，都是下一輪再讀
         last_seq = seq
-        if got != seq:
+        if got > seq:
             lost += 1
             continue
-        text = (await read_bytes(slot + DATA_OFF, copied * 2)).decode("utf-16-le", "replace")
+        raw = await read_bytes(slot + DATA_OFF, copied * 2) if copied else b""
+        text = raw.decode("utf-16-le", "replace")
         if struct.unpack("<Q", await read_bytes(slot, 8))[0] != seq:
             lost += 1  # 讀內容期間被覆寫
             continue
