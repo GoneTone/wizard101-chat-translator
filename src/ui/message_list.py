@@ -264,6 +264,7 @@ class MessageList:
         視窗重新顯示）。漏呼叫的後果是視圖從此停在舊位置 —— `_follow` 仍為真卻沒人
         貼底，之後每則新訊息都落在畫面外，看起來就像訊息漏掉了。
         框選拖曳期間不貼底：畫面被新訊息拉走的話，游標下的字會整個換掉。"""
+        self._scroll_pending = None
         self._canvas.update_idletasks()
         top, bottom = self._region()
         self._canvas.configure(scrollregion=(0, top, self._canvas.winfo_width(), bottom))
@@ -328,11 +329,9 @@ class MessageList:
                 self._canvas.after_idle(self._flush_scroll)
 
     def _flush_scroll(self) -> None:
-        """執行 add_message 排好的那一次捲動更新；期間已換分頁就略過（show 自己會處理）。"""
-        key, anchor = self._scroll_pending
-        self._scroll_pending = None
-        if key == self.shown_key:
-            self.refresh_scroll(anchor)
+        """執行 add_message 排好的那一次捲動更新；期間若已有人同步刷新過（含換分頁）就略過。"""
+        if self._scroll_pending is not None:
+            self.refresh_scroll(self._scroll_pending[1])
 
     def update_message(self, msg_id: int, translated: str,
                        failed: bool = False) -> None:

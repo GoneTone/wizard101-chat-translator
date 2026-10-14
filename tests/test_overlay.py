@@ -1599,3 +1599,35 @@ def test_resizing_with_a_selection_does_not_grow_the_font_cache(root):
 
     assert ov._selection.active
     assert len(ov._selection._fonts) <= 2
+
+
+def test_add_after_a_tab_switch_in_the_same_turn_still_sticks_to_bottom(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    for i in range(30):
+        ov.add_message(f"原文{i}", f"譯文{i}", slot=1, tabs=(0, 1))
+    for tab in (1, 0):   # 兩個畫布都先排版過，之後切換不再有 Configure 幫忙補刷新
+        ov.set_tabs(1, _bar_state(tab))
+        ov._win.update_idletasks()
+    ov.add_message("甲", "甲譯", slot=1, tabs=(0,))
+    ov.set_tabs(1, _bar_state(1))
+    ov.add_message("乙", "乙譯", slot=1, tabs=(1,))
+    ov._win.update_idletasks()
+    canvas = ov._list._canvas
+    assert canvas.yview()[1] == 1.0
+    assert float(canvas.cget("scrollregion").split()[3]) == ov._list._region()[1]
+
+
+def test_a_burst_of_adds_keeps_a_scrolled_up_view_in_place(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    for i in range(40):
+        ov.add_message(f"原文{i}", f"譯文{i}")
+    ov._win.update_idletasks()
+    canvas = ov._list._canvas
+    canvas.yview_moveto(0.3)
+    ov._list.note_scroll()
+    before = canvas.canvasy(0)
+    for i in range(5):
+        ov.add_message(f"新{i}", f"新譯文{i}")
+    ov._win.update_idletasks()
+    assert canvas.canvasy(0) == before
