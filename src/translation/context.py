@@ -27,3 +27,21 @@ class ChatContext:
         """取得目前上下文的複本。呼叫端可長期持有：後續 push 不會影響已取出的快照。"""
         with self._lock:
             return list(self._lines)
+
+
+class ClientContexts:
+    """單一遊戲客戶端的各分頁上下文：分頁之間的對話互不混入，current_tab 指向遊戲目前選中的分頁。"""
+
+    def __init__(self):
+        self._tabs: dict[int, ChatContext] = {}
+        self._lock = threading.Lock()
+        self.current_tab = 0
+
+    def for_tab(self, tab: int) -> ChatContext:
+        """取得該分頁的上下文，不存在就建立。"""
+        with self._lock:
+            return self._tabs.setdefault(tab, ChatContext())
+
+    def current(self) -> ChatContext:
+        """遊戲目前選中分頁的上下文（發話用）。"""
+        return self.for_tab(self.current_tab)

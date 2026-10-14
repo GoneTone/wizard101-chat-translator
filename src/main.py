@@ -58,7 +58,7 @@ from src.translation.cache import (
     fingerprint_of,
     translate_and_cache,
 )
-from src.translation.context import ChatContext
+from src.translation.context import ClientContexts
 from src.translation.examples import ExampleCoordinator, ExampleSet, ExampleStore
 from src.translation.gate import ConcurrencyGate
 from src.translation.pool import TranslationPool
@@ -558,12 +558,12 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
     translators, cache, pools, example_coordinator = build_translation(
         cfg, deliver, ui_queue.put)
     pool, system_pool = pools
-    contexts: dict[int, ChatContext] = {}
+    contexts: dict[int, ClientContexts] = {}
 
     def context_for(hwnd: int | None) -> list[str]:
         """發話時帶的上下文：譯文要打回哪個客戶端，就用那個客戶端的聊天。"""
-        ctx = contexts.get(hwnd) if hwnd is not None else None
-        return ctx.snapshot() if ctx is not None else []
+        client = contexts.get(hwnd) if hwnd is not None else None
+        return client.current().snapshot() if client is not None else []
 
     input_box = InputBox(root, lambda text, cancel: translators[SLOT_OUTGOING].translate_outgoing(
         text, context_for(input_box.target_hwnd), cancel=cancel), ui_queue,
@@ -622,7 +622,7 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
 
     def spawn(hwnd: int, slot: int) -> threading.Thread:
         """supervisor 發現一個遊戲視窗：為它起一條收訊執行緒（上下文每客戶端一份）。"""
-        contexts[hwnd] = ChatContext()
+        contexts[hwnd] = ClientContexts()
         thread = threading.Thread(
             target=reader_loop,
             args=(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, msg_ids),
@@ -632,7 +632,7 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
                     "message_log": MessageLog(message_stream, slot=slot),
                     "system_pool": system_pool,
                     "cache": cache,
-                    "context": contexts[hwnd]},
+                    "contexts": contexts[hwnd]},
             daemon=True, name=f"reader-{slot}")
         thread.start()
         return thread

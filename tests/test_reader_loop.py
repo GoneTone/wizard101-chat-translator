@@ -8,6 +8,7 @@ import pytest
 
 import src.reader.loop as loop_module
 from src.i18n import t
+from src.reader.chat_tabs import TabState
 from src.reader.loop import MessageIds, banner_for, reader_loop
 from src.reader.markup import ChatLine
 from src.reader.mem_reader import (
@@ -17,13 +18,14 @@ from src.reader.mem_reader import (
     GameVersionMismatch,
 )
 from src.reader.status import StatusBoard
-from src.translation.context import ChatContext
+from src.translation.context import ClientContexts
 
 
 @pytest.fixture(autouse=True)
 def _window_present(monkeypatch):
     """預設視窗一直存在；要測「視窗消失」的測試自己再覆寫。"""
     monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: True)
+    monkeypatch.setattr(loop_module, "foreground_window", lambda: 0)
 
 
 class FakePool:
@@ -48,9 +50,19 @@ class FakeOverlay:
         self.clears = 0
         self.statuses: list[str] = []
         self.slots: list[int | None] = []
+        self.tabs: list[tuple[int, ...]] = []
+        self.tab_states: list[tuple[int, TabState | None]] = []
+        self.foreground_slots: list[int] = []
+
+    def set_tabs(self, slot, state):
+        self.tab_states.append((slot, state))
+
+    def set_foreground_slot(self, slot):
+        self.foreground_slots.append(slot)
 
     def add_message(self, original, translated, now=None, msg_id=None, pending=False,
-                    color=None, slot=None):
+                    color=None, slot=None, tabs=(0,)):
+        self.tabs.append(tabs)
         self.messages.append((original, translated))
         self.pending_flags.append(pending)
         self.colors.append(color)
@@ -79,6 +91,7 @@ class FakeReader:
         self.n = 0
         self.emit_system = False
         self.closed = False
+        self.states: list[TabState | None] = []
 
     def read_new(self):
         i = self.n
@@ -90,34 +103,35 @@ class FakeReader:
             self.anchored = False  # 比照真實 reader：拋 GameNotRunning 前一律先 teardown
             raise r
         # 真實 reader 回傳 ChatEvent；腳本可寫純字串（無色）省事
-        return [ChatEvent((0,), line if isinstance(line, ChatLine) else ChatLine(line, None))
+        return [line if isinstance(line, ChatEvent)
+                else ChatEvent((0,), line if isinstance(line, ChatLine) else ChatLine(line, None))
                 for line in r]
 
     def tab_state(self):
-        return None
+        return self.states[min(self.n - 1, len(self.states) - 1)] if self.states else None
 
     def close(self):
         self.closed = True
 
 
-def _loop(cfg, overlay, ui_queue, stop, pool, *, context=None, system_pool=None, cache=None,
+def _loop(cfg, overlay, ui_queue, stop, pool, *, contexts=None, system_pool=None, cache=None,
           on_input_open=None, on_input_close=None, hwnd=0x1, slot=1, board=None):
     """以單一客戶端跑 reader_loop：board 一個編號時的行為等同舊的單執行緒版本。"""
     board = board or StatusBoard(overlay, ui_queue, pool, system_pool)
     reader_loop(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, MessageIds(),
                 on_input_open=on_input_open, on_input_close=on_input_close,
-                system_pool=system_pool, cache=cache, context=context)
+                system_pool=system_pool, cache=cache, contexts=contexts)
     return board
 
 
-def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
+def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, contexts=None,
                  system_pool=None, cache=None, readers=None):
     """readers（若提供）會被塞進建立出來的 FakeReader，供呼叫端檢查
     reader.emit_system 等屬性是否真的被 reader_loop 同步過。"""
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     pool = pool or FakePool()
-    context = context or ChatContext()
+    contexts = contexts or ClientContexts()
 
     def make_reader(**kw):
         reader = FakeReader(reads, stop)
@@ -126,10 +140,10 @@ def run_scripted(cfg, overlay, reads, monkeypatch, pool=None, context=None,
         return reader
 
     monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
-    _loop(cfg, overlay, ui_queue, stop, pool, context=context,
+    _loop(cfg, overlay, ui_queue, stop, pool, contexts=contexts,
           system_pool=system_pool, cache=cache)
     _drain(ui_queue)
-    return pool, context
+    return pool, contexts.current()
 
 
 def _drain(ui_queue):
@@ -577,3 +591,56 @@ def test_message_ids_are_unique_across_threads():
     for th in threads:
         th.join()
     assert len(set(got)) == 2000
+
+
+def _scripted_loop(monkeypatch, reads, states=(), contexts=None, ov=None):
+    ov = ov or FakeOverlay()
+    ui_queue: queue.Queue = queue.Queue()
+    stop = threading.Event()
+
+    def make_reader(**kw):
+        reader = FakeReader(reads, stop)
+        reader.states = list(states)
+        return reader
+
+    monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
+    pool = FakePool()
+    _loop({"poll_interval": 0.01}, ov, ui_queue, stop, pool, contexts=contexts)
+    _drain(ui_queue)
+    return ov, pool
+
+
+def test_events_carry_their_tabs_to_the_overlay(monkeypatch):
+    event = ChatEvent((1,), ChatLine("[A] hi", None))
+    ov, _ = _scripted_loop(monkeypatch, [[event], []])
+    assert ov.tabs == [(1,)]
+
+
+def test_player_lines_use_their_own_tab_context(monkeypatch):
+    reads = [[ChatEvent((0,), ChatLine("[A] zero", None)),
+              ChatEvent((1,), ChatLine("[B] one", None)),
+              ChatEvent((1,), ChatLine("[B] two", None))], []]
+    _, pool = _scripted_loop(monkeypatch, reads)
+    assert [ctx for _, ctx, _ in pool.submitted] == [[], [], ["[B] one"]]
+
+
+def test_tab_state_is_sent_only_when_it_changes(monkeypatch):
+    state = TabState(1, ((0, "General"), (1, "Team")))
+    contexts = ClientContexts()
+    ov, _ = _scripted_loop(monkeypatch, [[], [], []], states=[state], contexts=contexts)
+    assert ov.tab_states == [(1, state)]
+    assert contexts.current_tab == 1
+
+
+def test_tab_state_is_cleared_when_the_game_goes_away(monkeypatch):
+    monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
+    state = TabState(0, ((0, "General"),))
+    ov, _ = _scripted_loop(monkeypatch, [[], GameNotRunning("gone")], states=[state])
+    assert ov.tab_states == [(1, state), (1, None)]
+
+
+def test_becoming_foreground_reports_the_slot_once(monkeypatch):
+    seq = iter([0x1, 0x1, 0x1, 0x9, 0x1])
+    monkeypatch.setattr(loop_module, "foreground_window", lambda: next(seq, 0x1))
+    ov, _ = _scripted_loop(monkeypatch, [[], [], [], [], []])
+    assert ov.foreground_slots == [1, 1]

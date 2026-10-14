@@ -1,7 +1,7 @@
 """ChatContext：跨執行緒共用的近期原文行緩衝。"""
 import threading
 
-from src.translation.context import CONTEXT_LINES, ChatContext
+from src.translation.context import CONTEXT_LINES, ChatContext, ClientContexts
 
 
 def test_snapshot_returns_pushed_lines_in_order():
@@ -47,3 +47,17 @@ def test_concurrent_pushes_do_not_lose_lines():
     for t in threads:
         t.join()
     assert len(ctx.snapshot()) == 400
+
+
+def test_client_contexts_keep_tabs_apart():
+    contexts = ClientContexts()
+    contexts.for_tab(0).push("a")
+    assert contexts.for_tab(1).snapshot() == []
+    assert contexts.for_tab(0).snapshot() == ["a"]
+
+
+def test_client_contexts_current_follows_current_tab():
+    contexts = ClientContexts()
+    assert contexts.current() is contexts.for_tab(0)
+    contexts.current_tab = 1
+    assert contexts.current() is contexts.for_tab(1)
