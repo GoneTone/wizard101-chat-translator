@@ -82,28 +82,28 @@ def line_color(raw: str) -> str | None:
     return f"#{m.group(1)[-6:].lower()}" if m else None
 
 
-def lines_from_chatlog(text: str) -> list[ChatLine]:
-    """把 chatLog 全文（以 `\n` 分行的渲染 markup）解析成乾淨聊天行，保留順序與重複。
+def parse_line(raw: str) -> ChatLine | None:
+    """把單行渲染 markup 解析成乾淨聊天行；非聊天行（除錯行、未知圖示、去標記後為空）回傳 None。
 
     收玩家發言（含自己的 `[你]` 行與他人 `<link;GID>[名]` 行）、系統訊息
     （Art_Chat_System）與伺服器公告（_is_server_broadcast）；濾掉遊戲除錯行
     （[STAT]/[DBGL]/[DBGM]，既無頻道圖示也無行首顏色）。玩家行必須是「[發送者] 內容」
     （_VALID）；系統訊息與公告沒有固定前綴，clean() 後非空即收。"""
-    out: list[ChatLine] = []
-    for raw in text.split("\n"):
-        if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
-            line = clean(raw)
-            if line:
-                out.append(ChatLine(line, line_color(raw), False, True))
-            continue
-        if not any(p in raw for p in _PLAYER_IMG_PREFIXES):
-            _warn_unknown_icon(raw)
-            continue
+    if _SYSTEM_IMG in raw or _is_server_broadcast(raw):
         line = clean(raw)
-        if _VALID.match(line):
-            out.append(ChatLine(line, line_color(raw),
-                                _OTHER_PLAYER_LINK not in raw))
-    return out
+        return ChatLine(line, line_color(raw), False, True) if line else None
+    if not any(p in raw for p in _PLAYER_IMG_PREFIXES):
+        _warn_unknown_icon(raw)
+        return None
+    line = clean(raw)
+    if not _VALID.match(line):
+        return None
+    return ChatLine(line, line_color(raw), _OTHER_PLAYER_LINK not in raw)
+
+
+def lines_from_chatlog(text: str) -> list[ChatLine]:
+    """把 chatLog 全文（以 `\n` 分行）逐行 parse_line，保留順序與重複。"""
+    return [line for raw in text.split("\n") if (line := parse_line(raw))]
 
 
 def _is_server_broadcast(raw: str) -> bool:
