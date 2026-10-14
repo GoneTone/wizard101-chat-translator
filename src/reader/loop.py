@@ -125,6 +125,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
         if state == reported_tabs:
             return
         reported_tabs = state
+        # 遊戲不在時分頁不明：發話上下文退回主分頁
         contexts.current_tab = state.current if state is not None else 0
         log(f"[reader] tab state changed (slot={slot}): {state}")
         ui_queue.put(lambda: overlay.set_tabs(slot, state))
