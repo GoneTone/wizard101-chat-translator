@@ -67,7 +67,7 @@ class ThinScrollbar(tk.Canvas):
             return  # 不需捲動：整條隱形
         top, bottom = span
         # 先畫大一圈的深色描邊再疊本色：底板半透明，壓在亮色畫面上會整片提亮，沒有
-        # 描邊的滑塊就融進背景看不見（與 overlay 的 _outlined_line 同一套處理）。
+        # 描邊的滑塊就融進背景看不見（與訊息文字的描邊 outlined_text 同一套處理）。
         self._draw_thumb(top, bottom, OUTLINE, grow=1)
         self._draw_thumb(top, bottom, self._color, grow=0)
 

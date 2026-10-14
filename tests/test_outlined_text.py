@@ -3,7 +3,13 @@ import tkinter as tk
 import pytest
 
 from src.ui.fonts import ui_font
-from src.ui.outlined_text import TEXT_ORIGIN, draw_outlined, line_height, line_origin
+from src.ui.outlined_text import (
+    TEXT_ORIGIN,
+    draw_outlined,
+    line_height,
+    line_items,
+    line_origin,
+)
 from src.ui.palette import OUTLINE
 
 LONG = "Hello wizard friends 這是一段中英混排的訊息內容用來測試換行"
@@ -59,3 +65,10 @@ def test_draw_outlined_at_an_offset_moves_every_item(canvas):
     line = draw_outlined(canvas, 0, 50, "hi", fill="#fff", font=ui_font(9), wrap=100, tag="a")
     assert line_origin(line) == (0, 50)
     assert canvas.bbox(line.tag)[1] >= 50
+
+
+def test_line_items_are_exactly_that_lines_text_items(canvas):
+    draw_outlined(canvas, 0, 0, "a", fill="#fff", font=ui_font(9), wrap=100, tag="a")
+    line = draw_outlined(canvas, 0, 30, "b", fill="#fff", font=ui_font(9), wrap=100, tag="b")
+    draw_outlined(canvas, 0, 60, "c", fill="#fff", font=ui_font(9), wrap=100, tag="c")
+    assert tuple(line_items(line)) == canvas.find_withtag("b")

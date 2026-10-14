@@ -224,12 +224,12 @@ class OverlayWindow:
         # 底板空白處的滾輪也轉發給訊息區捲動
         self._backdrop.bind("<MouseWheel>", self._list.on_wheel)
 
-    def _bind_line(self, line: tk.Canvas) -> None:
-        """每一行文字 canvas 建好時接上框選與右鍵選單。"""
-        line.bind("<ButtonPress-1>", self._selection_press)
-        line.bind("<B1-Motion>", self._selection_drag)
-        line.bind("<ButtonRelease-1>", self._selection_release)
-        line.bind("<Button-3>", self._selection_menu)
+    def _bind_line(self, canvas: tk.Canvas) -> None:
+        """每個分頁的訊息畫布建好時接上框選與右鍵選單。"""
+        canvas.bind("<ButtonPress-1>", self._selection_press)
+        canvas.bind("<B1-Motion>", self._selection_drag)
+        canvas.bind("<ButtonRelease-1>", self._selection_release)
+        canvas.bind("<Button-3>", self._selection_menu)
 
     def _on_wrap_change(self, wrap: int) -> None:
         """換行寬度隨畫布寬更新後，更新橫幅也要跟著換行，否則縮小視窗後右緣被切。"""

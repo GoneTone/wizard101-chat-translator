@@ -22,12 +22,20 @@ def draw_outlined(canvas: tk.Canvas, x: int, y: int, text: str, *, fill: str,
 
     Label 無法描邊，透明度調低時文字壓在亮色遊戲畫面上會失去對比。"""
     ox, oy = x + TEXT_ORIGIN, y + TEXT_ORIGIN
+    # 9 個 item 必須連續建立：line_items 靠 id 連號找回它們
     for dx, dy in OUTLINE_OFFSETS:
         canvas.create_text(ox + dx, oy + dy, text=text, fill=OUTLINE, font=font,
                            anchor="nw", width=wrap, tags=("txt", tag))
     fg = canvas.create_text(ox, oy, text=text, fill=fill, font=font, anchor="nw",
                             width=wrap, tags=("txt", tag, "fg"))
     return Line(canvas, fg, tag)
+
+
+def line_items(line: Line) -> range:
+    """該行 9 個文字 item 的 id（描邊在前、本色最後）。
+
+    畫布上物件一多，以 tag 操作就慢（每次都要掃過整張畫布）；逐一以 id 操作則與物件數無關。"""
+    return range(line.fg - len(OUTLINE_OFFSETS), line.fg + 1)
 
 
 def line_origin(line: Line) -> tuple[float, float]:
@@ -38,4 +46,5 @@ def line_origin(line: Line) -> tuple[float, float]:
 
 def line_height(line: Line) -> int:
     """該行（換行後）佔的高度，含底部 2px 餘裕。"""
-    return round(line.canvas.bbox(line.tag)[3] - line_origin(line)[1]) + 2
+    # 只量本色（+1＝描邊副本往下多出的 1px）：以 tag 查 bbox 要掃過整張畫布的物件
+    return round(line.canvas.bbox(line.fg)[3] + 1 - line_origin(line)[1]) + 2

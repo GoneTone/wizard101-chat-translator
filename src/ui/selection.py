@@ -1,7 +1,7 @@
 """疊加視窗訊息的框選：把 Tk 的排版問出來，換算成反白矩形與選取字串。
 
 一則訊息由兩行描邊文字組成（原文行、譯文行，見 `outlined_text.Line`）。Tk 的 canvas
-原生選取全 app 只有一份、跨不了多行，所以反白自繪；但換行規則不自行實作 ——
+原生選取全 app 只有一份、跨不了多個文字 item，所以反白自繪；但換行規則不自行實作 ——
 逐行問 Tk「這個座標是第幾個字元」即可還原排版。行內座標一律以行原點為 (0, 0)。
 """
 import tkinter.font as tkfont
@@ -95,7 +95,7 @@ def selected_text(messages: list[list[str]], start: Caret, end: Caret) -> str:
 class Selection:
     """疊加視窗訊息的選取狀態：命中、夾取、反白繪製與取字。
 
-    只認螢幕座標 —— 事件從文字 canvas（墨跡像素）或 backdrop（其餘區域因透明色鍵
+    只認螢幕座標 —— 事件從訊息畫布（文字墨跡像素）或 backdrop（其餘區域因透明色鍵
     而穿透過去）進來都一樣，呼叫端負責換算。選取可跨訊息；拖出全部訊息的上下界
     就夾到最前／最後。
 
@@ -131,9 +131,9 @@ class Selection:
         self._fonts.clear()
 
     def forget(self, row) -> None:
-        """訊息列即將被銷毀：解除登記。
+        """訊息即將被刪除：解除登記。
 
-        列落在選取範圍內就一併清掉選取 —— 留著的話 caret 會指向已銷毀的 widget。
+        列落在選取範圍內就一併清掉選取 —— 留著的話 caret 會指向已刪除的文字 item。
         列在選取**之前**則把兩個 caret 的序號各往前挪一格：訊息是以序號定位的，
         而 `prune` 每輪都可能砍掉最舊的一則，不挪的話選取會整段錯位。"""
         lines = self._rows.get(row)
@@ -299,6 +299,7 @@ class Selection:
                     rect = line.canvas.create_rectangle(
                         x0 + ox, y0 + oy, x1 + ox, y1 + oy,
                         fill=SELECT_BG, outline="", tags="sel")
-                    line.canvas.tag_lower(rect, line.tag)
+                    # 壓到整張畫布最底：效果同壓在該行之下，但以 tag 為基準每次都要掃整張畫布
+                    line.canvas.tag_lower(rect)
                 if line.canvas not in self._drawn:
                     self._drawn.append(line.canvas)
