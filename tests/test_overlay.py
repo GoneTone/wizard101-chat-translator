@@ -1398,3 +1398,20 @@ def test_switching_views_clears_the_selection(root):
     assert ov._selection.active is True
     ov.set_tabs(1, _bar_state(1))
     assert ov._selection.active is False
+
+
+def test_switching_views_returns_to_following_the_bottom(root):
+    ov = OverlayWindow(root, x=100, y=100, width=739, height=350, max_messages=200,
+                       fade_seconds=0)
+    ov.set_tabs(1, _bar_state(0))
+    root.update()
+    for i in range(40):
+        ov.add_message(f"message number {i}: a chat line long enough to wrap",
+                       f"第 {i} 則譯文，內容夠長，窄視窗下一定會換行", slot=1, tabs=(0,))
+    root.update()
+    _scroll_up(ov)
+    ov.set_tabs(1, _bar_state(1))
+    ov.set_tabs(1, _bar_state(0))
+    root.update()
+    assert ov._list._follow
+    assert _at_bottom(ov)
