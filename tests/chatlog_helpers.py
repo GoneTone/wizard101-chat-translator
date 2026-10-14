@@ -1,5 +1,4 @@
-"""chatLog 測試共用的假資料產生器與腳本化的 FakeWiz（不需遊戲）。"""
-from src.reader.mem_reader import WizChatReader
+"""聊天 markup 測試共用的假資料產生器（不需遊戲）。"""
 
 
 def _texts(lines):
@@ -35,28 +34,6 @@ def _broadcast(color: str, text: str) -> str:
     return f"<color;{color}>{text}</color>"
 
 
-class FakeWiz(WizChatReader):
-    """以腳本化的 chatLog 全文序列取代 wizwalker I/O。inputs＝每輪輸入框開關狀態。"""
-
-    def __init__(self, texts, inputs=None, message_log=None):
-        super().__init__(0x1, message_log=message_log)
-        self.texts = texts
-        self.inputs = list(inputs or [])
-        self.n = 0
-        self._connected = True
-
-    def input_open(self):
-        return self.inputs.pop(0) if self.inputs else False
-
-    def _grab_texts(self) -> list[str]:
-        i = min(self.n, len(self.texts) - 1)
-        self.n += 1
-        t = self.texts[i]
-        if isinstance(t, Exception):
-            raise t
-        return t if isinstance(t, list) else [t]  # 腳本給 list＝多個 chatLog 節點
-
-
 def _log(*lines: str) -> str:
     return "\n".join(lines)
 
@@ -65,12 +42,3 @@ def _say_colored(color: str, name: str, text: str) -> str:
     return (f"<color;{color}><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
             f"<link;GID:1,{name},2>[{name}]</link> {text} </color>")
 
-
-def _burst_lines(n: int) -> list[str]:
-    return [_say(2, "B", f"old{i}") for i in range(n)]
-
-
-def _tab_switch_script(mine: str, other: str) -> list[str]:
-    """前 6 輪停在同一視圖（建立基準並耗掉 RESET_WARMUP_POLLS 的暖機吸收期），
-    其後在兩個視圖之間來回切，模擬切聊天頁籤。"""
-    return [mine] * 6 + [other, mine, other, mine]

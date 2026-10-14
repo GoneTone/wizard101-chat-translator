@@ -10,7 +10,12 @@ import src.reader.loop as loop_module
 from src.i18n import t
 from src.reader.loop import MessageIds, banner_for, reader_loop
 from src.reader.markup import ChatLine
-from src.reader.mem_reader import GameAccessDenied, GameNotRunning, GameVersionMismatch
+from src.reader.mem_reader import (
+    ChatEvent,
+    GameAccessDenied,
+    GameNotRunning,
+    GameVersionMismatch,
+)
 from src.reader.status import StatusBoard
 from src.translation.context import ChatContext
 
@@ -84,8 +89,12 @@ class FakeReader:
         if isinstance(r, Exception):
             self.anchored = False  # 比照真實 reader：拋 GameNotRunning 前一律先 teardown
             raise r
-        # 真實 reader 回傳 ChatLine；腳本可寫純字串（無色）省事
-        return [line if isinstance(line, ChatLine) else ChatLine(line, None) for line in r]
+        # 真實 reader 回傳 ChatEvent；腳本可寫純字串（無色）省事
+        return [ChatEvent((0,), line if isinstance(line, ChatLine) else ChatLine(line, None))
+                for line in r]
+
+    def tab_state(self):
+        return None
 
     def close(self):
         self.closed = True

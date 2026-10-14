@@ -109,8 +109,8 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
 
     def wait_watching_input(seconds: float) -> None:
         """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
-        input_open() 只讀一個已快取節點的旗標（實測 <0.1ms），讀聊天記錄則約 10ms，
-        故兩者節奏分開。不另開執行緒：WizChatReader 內部跑自己的 asyncio loop，
+        input_open() 只讀一個已快取節點的旗標（實測 <0.1ms），可比讀聊天取樣得更密。
+        不另開執行緒：WizChatReader 內部跑自己的 asyncio loop，
         跨執行緒併發呼叫會踩到彼此。"""
         deadline = time.monotonic() + seconds
         while not stop.is_set():
@@ -131,7 +131,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
             reader.emit_system = cfg.get("translate_system_messages", False)
             board.report(slot, "listening" if reader.anchored else "locating", game_issue)
             try:
-                new_lines = reader.read_new()
+                events = reader.read_new()
             except GameNotRunning as exc:
                 if isinstance(exc, GameAccessDenied):
                     status, issue = "access_denied", "notice.access_denied"
@@ -156,7 +156,8 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
                 game_issue = None
                 log(f"[reader] game back, resuming (slot={slot})")
 
-            for line in new_lines:
+            for event in events:
+                line = event.line
                 msg_id = msg_ids.next()
                 if line.system:
                     # 系統訊息不進上下文；快取命中就直接以完成態顯示，不佔位也不進 pool

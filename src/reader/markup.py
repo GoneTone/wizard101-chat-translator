@@ -1,7 +1,7 @@
-"""chatLog 富文字標記的純解析：去標記、判斷發言者／系統訊息、取遊戲顯示色、
-把多個 chatLog 節點串成單一行序列。全部是純函式，不需遊戲即可測試。
+"""聊天富文字標記的純解析：去標記、判斷發言者／系統訊息、取遊戲顯示色。
+全部是純函式，不需遊戲即可測試。
 
-聊天在顯示層是帶標記的富文字，每則一行、以 `\n` 分隔：
+聊天在顯示層是帶標記的富文字，每則一行：
     他人： <color;..><image;Art/Art_Chat_Say.dds;..> <link;GID:<id>,<名>,2>[<名>]</link> 內文 </color>
     自己： <color;..><image;Art/Art_Chat_Say.dds;..> [你] 內文 </color>          ← 無 <link;GID>
 玩家發言帶頻道圖示（Art_Chat_<頻道>，房間頻道為 chat_balloon_*）、系統訊息用
@@ -9,7 +9,6 @@ Art_Chat_System、除錯行無圖示，以此分流；去標記後回傳「[發�
 <color;..> 的遊戲顯示色一起帶出（ChatLine，供 overlay 對齊遊戲配色）。
 """
 import re
-from collections import Counter
 from typing import NamedTuple
 
 from src.log import log
@@ -19,7 +18,7 @@ class ChatLine(NamedTuple):
     """一行乾淨的聊天，帶遊戲顯示色（行內 <color;..>，overlay 用它對齊遊戲配色）。
     own＝這句是自己講的（見 _OTHER_PLAYER_LINK）；system＝遊戲系統訊息
     （掉寶／經驗／升等廣播等，見 _SYSTEM_IMG；伺服器公告見 _is_server_broadcast），
-    走與玩家對話分離的差分軌與翻譯路徑。"""
+    走與玩家對話分離的翻譯路徑。"""
     text: str
     color: str | None
     own: bool = False
@@ -101,11 +100,6 @@ def parse_line(raw: str) -> ChatLine | None:
     return ChatLine(line, line_color(raw), _OTHER_PLAYER_LINK not in raw)
 
 
-def lines_from_chatlog(text: str) -> list[ChatLine]:
-    """把 chatLog 全文（以 `\n` 分行）逐行 parse_line，保留順序與重複。"""
-    return [line for raw in text.split("\n") if (line := parse_line(raw))]
-
-
 def _is_server_broadcast(raw: str) -> bool:
     """有行首顏色、卻沒有任何 Art/ 圖示 → 伺服器公告。
 
@@ -129,39 +123,3 @@ def _warn_unknown_icon(raw: str) -> None:
         f"(add prefix to _PLAYER_IMG_PREFIXES if this is a player channel); "
         f"raw={raw[:160]!r}")
 
-
-def _mirrors(part: list[ChatLine], main: list[ChatLine]) -> bool:
-    """part 的每一行（含重複次數）都能在 main 裡找到 → part 只是 main 的鏡射。"""
-    remaining = Counter(line.text for line in main)
-    for line in part:
-        if not remaining[line.text]:
-            return False
-        remaining[line.text] -= 1
-    return True
-
-
-def lines_from_nodes(texts: list[str]) -> tuple[list[ChatLine], int]:
-    """把各 chatLog 節點的全文依傳入順序串接成單一聊天行序列，
-    回傳（行序列，被剔除的鏡射節點數）。
-
-    組隊等浮動聊天視窗各自是一個 chatLog 節點，且會把同一則訊息再渲染一份（實測開組隊
-    視窗後發話，同一句出現在兩個節點，sizes=[1, 1, 0]）；盲目串接會翻兩次，之後主視圖在
-    完整歷史與精簡視圖間跳動時，多出的那份還會被 align_append 當成尾端新增而每次重翻。
-    以玩家行數最多的節點為主視圖，玩家行被它完全涵蓋（含重複次數）的節點判定為鏡射；
-    代價是兩個視窗恰各出現一句一字不差的訊息時只翻一次。空節點不算鏡射，否則診斷 log
-    每輪都在響。鏡射判定只看玩家行 —— 系統訊息在不同節點的出現方式未經實測，
-    判定完成後才從保留的節點取出系統行。"""
-    parts = [lines_from_chatlog(t) for t in texts]
-    if len(parts) < 2:
-        return [line for p in parts for line in p], 0
-    players = [[line for line in p if not line.system] for p in parts]
-    main = max(range(len(parts)), key=lambda i: len(players[i]))
-    kept = [p for i, p in enumerate(parts)
-            if i == main or not (players[i] and _mirrors(players[i], players[main]))]
-    return [line for p in kept for line in p], len(parts) - len(kept)
-
-
-def node_sizes(texts: list[str]) -> list[int]:
-    """各 chatLog 節點的聊天行數（含系統訊息），依串接時的排序；診斷用，看得出哪個節點在
-    灌入完整歷史、sorted 名次有無翻轉。只在要印診斷 log 時呼叫 —— 每輪都算等於解析成本翻倍。"""
-    return [len(lines_from_chatlog(t)) for t in sorted(texts)]

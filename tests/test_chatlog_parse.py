@@ -1,7 +1,6 @@
-"""chatLog 標記解析：clean、parse_line、頻道圖示、系統訊息、伺服器公告、顏色。"""
+"""聊天標記解析：clean、parse_line、頻道圖示、系統訊息、伺服器公告、顏色。"""
 
-from src.reader.diff import player_out_with_idx
-from src.reader.markup import clean, lines_from_nodes, parse_line
+from src.reader.markup import clean, parse_line
 from tests.chatlog_helpers import (
     _broadcast,
     _log,
@@ -43,7 +42,8 @@ def test_clean_strips_emoticon_prefix_and_digits():
 
 
 def _lines(raw):
-    return [line for r in raw.split("\n") if (line := parse_line(r))]
+    """逐行 parse_line，略過解析不出來的行。"""
+    return [line for r in raw.split("\n") if (line := parse_line(r)) is not None]
 
 
 def test_lines_extracts_player_say_with_sender():
@@ -56,7 +56,7 @@ def test_lines_keeps_cjk_sender_and_spaces():
 
 
 def test_lines_flags_system_messages():
-    # 系統訊息（掉寶/經驗/升等）照收，但標上 system 旗標走另一條差分軌
+    # 系統訊息（掉寶/經驗/升等）照收，但標上 system 旗標走另一條翻譯路徑
     log = "\n".join([_say(1, "Amy", "hi"), _system("你獲得了 51 金幣！"),
                      _system("你現在等級 28！")])
     lines = _lines(log)
@@ -65,7 +65,7 @@ def test_lines_flags_system_messages():
 
 
 def test_lines_skips_debug_rows():
-    # 除錯 chatLog 節點的行（[DBGL]/[STAT] 無 <link;GID>）不得誤入
+    # 除錯行（[DBGL]/[STAT] 無 <link;GID>）不得誤入
     log = "\n".join(["[DBGL] HandleStatisticUpdate: new health 1783",
                      "[STAT] BuddyListManager::MSG_BuddyEntry Added",
                      _say(1, "Q", "back")])
@@ -81,7 +81,7 @@ def test_lines_keeps_own_and_others_together():
     log = "\n".join([_say(1, "Amy", "hi"), _own("我回你"), _system("你獲得了 51 金幣！"),
                      "[STAT] noise", _say(2, "Bob", "yo")])
     assert _texts(_lines(log)) == ["[Amy] hi", "[你] 我回你",
-                                               "你獲得了 51 金幣！", "[Bob] yo"]
+                                   "你獲得了 51 金幣！", "[Bob] yo"]
 
 
 def test_lines_preserves_order_and_repeats():
@@ -125,7 +125,7 @@ def test_lines_skips_debug_rows_without_icon():
     assert _lines(log) == []
 
 
-# --- 系統訊息：照收但標上 system 旗標（走獨立差分軌，見 _diff_system_lines）---
+# --- 系統訊息：照收但標上 system 旗標 ---
 
 
 def test_system_lines_are_emitted_with_the_system_flag():
@@ -154,7 +154,7 @@ def test_debug_lines_are_still_dropped():
     assert parse_line("[WARN] another one") is None
 
 
-# --- 伺服器公告：只有 <color;..>、連圖示都沒有，同樣走系統軌 ---
+# --- 伺服器公告：只有 <color;..>、連圖示都沒有，同樣標為系統訊息 ---
 
 
 def test_server_broadcast_without_any_icon_is_flagged_as_system():
@@ -196,38 +196,6 @@ def test_system_and_player_lines_keep_their_in_game_order():
     lines = _lines(raw)
     assert [line.text for line in lines] == ["你获得了 39 金币！", "[Lars] hi", "你获得了 3 经验值！"]
     assert [line.system for line in lines] == [True, False, True]
-
-
-def test_mirror_detection_still_only_considers_player_lines():
-    # 主視圖有玩家行＋系統行，副節點只鏡射玩家行 → 仍判定為鏡射並剔除
-    main = _log(_say_colored("FFFFFF", "Lars", "hi"), _system_colored("00FF00", "你获得了 39 金币！"))
-    mirror = _say_colored("FFFFFF", "Lars", "hi")
-    lines, mirrored = lines_from_nodes([main, mirror])
-    assert mirrored == 1
-    assert [line.text for line in lines] == ["[Lars] hi", "你获得了 39 金币！"]
-
-
-def test_player_index_mapping_skips_lines_filtered_out_of_the_tail():
-    # 慢路徑會從尾段「中間」剔除重浮歷史，剩下的不再是連續尾段：
-    # 若只取同長度的尾段索引，吐出的會是 b、c 而不是 a、c
-    cur_all = _lines(_log(_say_colored("FFFFFF", "P", "a"),
-                                      _system_colored("00FF00", "掉寶"),
-                                      _say_colored("FFFFFF", "P", "b"),
-                                      _say_colored("FFFFFF", "P", "c")))
-    player_idx = [0, 2, 3]
-    cur_player = [cur_all[i] for i in player_idx]
-    assert player_out_with_idx([cur_player[0], cur_player[2]], cur_player, player_idx) == [0, 3]
-    assert player_out_with_idx([], cur_player, player_idx) == []
-
-
-def test_player_index_mapping_tells_repeated_lines_apart():
-    # 重複行（lol／gg）文字一模一樣，只能以物件識別對回索引
-    cur_all = _lines(_log(_say_colored("FFFFFF", "P", "lol"),
-                                      _system_colored("00FF00", "掉寶"),
-                                      _say_colored("FFFFFF", "P", "lol")))
-    player_idx = [0, 2]
-    cur_player = [cur_all[i] for i in player_idx]
-    assert player_out_with_idx([cur_player[1]], cur_player, player_idx) == [2]
 
 
 # --- 行帶遊戲顏色：<color;RRGGBB> 解析成 ChatLine.color，供 overlay 對齊遊戲顯示色 ---
