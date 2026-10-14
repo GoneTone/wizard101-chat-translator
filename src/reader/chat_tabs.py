@@ -9,6 +9,10 @@ from typing import NamedTuple
 CHATBOX_WINDOW = "WizardChatBox"
 CUR_TAB_OFFSET = 0x7A0
 LABEL_OFFSET = 0x2E0
+# Window 的父視窗指標與旗標（同 wizwalker Window.parent／flags）；分頁隱藏時遊戲清掉按鈕或外層容器的 VISIBLE
+WINDOW_PARENT_OFFSET = 0x88
+WINDOW_FLAGS_OFFSET = 0x9C
+FLAG_VISIBLE = 0x1
 
 # 依遊戲由左到右；編號 3、4、5–8 是靜態推論，待實機確認
 TAB_BUTTONS: tuple[tuple[str, int], ...] = (

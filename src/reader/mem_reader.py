@@ -29,8 +29,11 @@ from src.reader.chat_hook import (
 from src.reader.chat_tabs import (
     CHATBOX_WINDOW,
     CUR_TAB_OFFSET,
+    FLAG_VISIBLE,
     LABEL_OFFSET,
     TAB_BUTTONS,
+    WINDOW_FLAGS_OFFSET,
+    WINDOW_PARENT_OFFSET,
     TabState,
     read_wstring,
     visible_label,
@@ -257,10 +260,22 @@ class WizChatReader:
             raise ValueError(f"current tab {current} out of range (stale chat box {chatbox:#x}?)")
         tabs = []
         for tab, base in self._buttons:
+            if not await self._button_shown(base):
+                continue
             label = visible_label(await read_wstring(read, base + LABEL_OFFSET))
             if label is not None:
                 tabs.append((tab, label))
         return TabState(current, tuple(tabs))
+
+    async def _button_shown(self, base: int) -> bool:
+        """按鈕與外層容器都帶 VISIBLE：顯示過又被隱藏的分頁（如解散隊伍）文字不會變回 token。"""
+        read = self._client.hook_handler.read_bytes
+        parent = struct.unpack("<Q", await read(base + WINDOW_PARENT_OFFSET, 8))[0]
+        for window in (base, parent) if parent else (base,):
+            flags = struct.unpack("<I", await read(window + WINDOW_FLAGS_OFFSET, 4))[0]
+            if not flags & FLAG_VISIBLE:
+                return False
+        return True
 
     async def _find_tab_buttons(self) -> list[tuple[int, int]]:
         found = []

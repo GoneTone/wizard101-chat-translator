@@ -6,7 +6,14 @@ from types import SimpleNamespace
 
 from src.reader import mem_reader
 from src.reader.chat_hook import HookRecord, RingRead
-from src.reader.chat_tabs import CUR_TAB_OFFSET, LABEL_OFFSET, TAB_BUTTONS, TabState
+from src.reader.chat_tabs import (
+    CUR_TAB_OFFSET,
+    LABEL_OFFSET,
+    TAB_BUTTONS,
+    WINDOW_FLAGS_OFFSET,
+    WINDOW_PARENT_OFFSET,
+    TabState,
+)
 from src.reader.mem_reader import WizChatReader
 from src.reader.message_log import MessageLog
 from tests.chat_hook_helpers import RING, THIS, _FakeRing, _units, _wstring
@@ -262,16 +269,23 @@ class _Node:
         return self.base
 
 
-def _tab_reader(monkeypatch, labels: dict[str, str], current: int, chatbox=BOX):
-    """假記憶體：ChatBox 的目前分頁與各按鈕文字（未列出的按鈕是隱藏分頁）。"""
+def _tab_reader(monkeypatch, labels: dict[str, str], current: int, chatbox=BOX,
+                hidden_buttons=(), hidden_containers=()):
+    """假記憶體：ChatBox 的目前分頁、各按鈕文字與按鈕／外層容器的 VISIBLE 旗標
+    （未列出文字的按鈕是從未顯示過的分頁）。"""
     mem = {chatbox + CUR_TAB_OFFSET: struct.pack("<i", current)}
     nodes = {}
     for i, (name, _tab) in enumerate(TAB_BUTTONS):
         base = 0x10000 * (i + 1)
+        container = base + 0x4000
         nodes[name] = [_Node(base)]
         raw, heap = _wstring(labels.get(name, "<string;GUI2_00001234>"), 23, base + 0x8000)
         mem[base + LABEL_OFFSET] = raw
         mem.update(heap)
+        mem[base + WINDOW_PARENT_OFFSET] = struct.pack("<Q", container)
+        mem[base + WINDOW_FLAGS_OFFSET] = struct.pack("<I", 0 if name in hidden_buttons else 1)
+        mem[container + WINDOW_FLAGS_OFFSET] = struct.pack(
+            "<I", 0 if name in hidden_containers else 1)
 
     class Handler:
         async def read_bytes(self, addr, size):
@@ -303,6 +317,16 @@ def test_tab_state_reads_current_tab_and_visible_labels(monkeypatch):
     assert r.tab_state() == expected
     assert sum("chat tabs" in m for m in logged) == 1, "分頁狀態沒變不該重複記錄"
     r._loop.close()
+
+
+def test_tab_hidden_after_being_shown_is_dropped(monkeypatch):
+    # 解散隊伍後遊戲只隱藏分頁，按鈕文字仍是轉換過的「队伍(3)」
+    labels = {"MainFilterButton": "主要的", "GroupFilterButton": "队伍(3)"}
+    for hide in ({"hidden_buttons": {"GroupFilterButton"}},
+                 {"hidden_containers": {"GroupFilterButton"}}):
+        r, _ = _tab_reader(monkeypatch, labels, current=0, **hide)
+        assert r.tab_state() == TabState(0, ((0, "主要的"),)), hide
+        r._loop.close()
 
 
 def test_tab_state_is_none_without_a_chatbox(monkeypatch):
