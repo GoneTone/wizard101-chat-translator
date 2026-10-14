@@ -103,6 +103,8 @@ class MessageList:
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
         self._follow = True
+        # 同一輪事件內連續新增只排一次捲動更新；值是第一則新增前的錨點與分頁
+        self._scroll_pending: tuple[ViewKey, tuple[str, int] | None] | None = None
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
@@ -321,6 +323,15 @@ class MessageList:
         self._trim(view)
         if shown:
             self._refresh_placeholder()
+            if self._scroll_pending is None:
+                self._scroll_pending = (key, anchor)
+                self._canvas.after_idle(self._flush_scroll)
+
+    def _flush_scroll(self) -> None:
+        """執行 add_message 排好的那一次捲動更新；期間已換分頁就略過（show 自己會處理）。"""
+        key, anchor = self._scroll_pending
+        self._scroll_pending = None
+        if key == self.shown_key:
             self.refresh_scroll(anchor)
 
     def update_message(self, msg_id: int, translated: str,

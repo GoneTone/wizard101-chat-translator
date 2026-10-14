@@ -40,7 +40,8 @@ testpaths = ["tests"]
 # （不是 -p no:xdist——那會讓這裡的 -n 沒人解析而直接報錯）。
 # CI 一律序列跑：runner 上四個程序搶同一個桌面的前景與 grab，Tk 會在 destroy 時
 # access violation，見 .github/workflows/ci.yml 的說明。
-addopts = "-n 4"
+# xdist_group 只有 loadgroup 模式才生效；未分組的測試行為與預設的 load 相同。
+addopts = "-n 4 --dist loadgroup"
 markers = [
     "real_position: 測試斷言視窗的實際位置，不套用 conftest 的螢幕外停放",
 ]

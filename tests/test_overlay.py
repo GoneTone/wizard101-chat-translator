@@ -1456,6 +1456,7 @@ def test_layout_follows_the_old_frame_geometry(root):
                        fade_seconds=0)
     ov.add_message("原文一", "譯文一")
     ov.add_message("原文二", "譯文二")
+    ov._win.update_idletasks()   # 捲動更新排在 idle
     first, second = ov._list._messages
     assert line_origin(first.lines[0]) == (0, 2)
     _assert_rows_follow_the_layout(ov._list._messages)
