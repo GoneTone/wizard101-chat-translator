@@ -93,9 +93,8 @@ class RegionSelector:
         self._win, self._canvas = win, canvas
         win.update_idletasks()
         self._build_hint(monitor)
-        # Tk 內部焦點：純 Tcl 層級操作，被系統前景鎖擋下時不會真的搶走 Windows 前景
-        # （沒有 force_foreground 那支 AttachThreadInput），但 <Escape> 綁定要收得到
-        # 事件非設不可，所以獨立於 _take_focus 之外、恆定執行，測試也不用停用它。
+        # Tk 焦點：沒有 force_foreground 那支 AttachThreadInput，但 <Escape> 綁定要收得到事件
+        # 非設不可，所以獨立於 _take_focus 之外、恆定執行（測試期間由 conftest 換成 focus_set）。
         win.focus_force()
         self._take_focus()
         # 啟用選取層會把它抬到 topmost 帶的最上面，提示視窗得在那之後再抬一次才不會被壓在底下

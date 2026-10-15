@@ -7,7 +7,7 @@
   改成讓新開的視窗維持真實座標、但強制全透明（`-alpha` 釘在 0.0）—— 座標、
   尺寸、DWM frame bounds、`event_generate` 都維持真實可測，畫面上就是看不到。
 - `_keep_foreground` 把 `force_foreground`（AttachThreadInput 硬切 Windows 前景）
-  換成無操作，避免 `InputBox.show()`／`_destroy()` 與
+  換成無操作、Tk 的 `focus_force` 換成 `focus_set`，避免 `InputBox.show()`／`_destroy()` 與
   `single_instance.focus_running_instance` 在測試途中把遊戲踢到背景。
 """
 import ast
@@ -128,9 +128,14 @@ def _keep_foreground():
 
     for m in modules:
         m.force_foreground = _noop
+    # Tk 的 focus_force 在使用者一段時間沒操作時也拿得到 Windows 前景；focus_set 只在程式
+    # 本身已是前景時移動焦點，搶不走遊戲
+    original_focus_force = tk.Misc.focus_force
+    tk.Misc.focus_force = tk.Misc.focus_set
     try:
         yield
     finally:
+        tk.Misc.focus_force = original_focus_force
         for m, original in zip(modules, originals, strict=True):
             m.force_foreground = original
 
