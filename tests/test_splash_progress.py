@@ -41,7 +41,14 @@ def _tcl_interpreter_with_progress_state(total: int, table: dict[str, list[int]]
     """準備一個沒有視窗的純 Tcl 直譯器：假的 `.root.canvas` proc 吞掉畫布呼叫，讓
     `_canvas_setup_addition()`／`_text_update_addition()` 產生的 Tcl 真的被執行
     （含 `pyi_progress_step`），而不只是字串比對。"""
-    interp = tkinter.Tcl()
+    # pytest 每項測試換掉 fd 0/1/2、同程序又有 Tk 時，新直譯器讀 init.tcl 偶爾失敗，重建即可
+    for attempt in range(3):
+        try:
+            interp = tkinter.Tcl()
+            break
+        except tkinter.TclError:
+            if attempt == 2:
+                raise
     interp.eval("proc .root.canvas {args} {}")
     interp.eval(splash_progress._canvas_setup_addition(total, table))
     proc_body = (

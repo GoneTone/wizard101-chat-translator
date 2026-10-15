@@ -341,6 +341,18 @@ def test_box_placed_above_the_anchor_grows_upward(root, monkeypatch):
     monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
     monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
     box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    # 偶發失敗（只長高沒上移）一直重現不出來：失敗時附上每次 _fit_height 進場的狀態
+    fits = []
+    fit_height = box._fit_height
+
+    def traced_fit_height():
+        if box._win is not None:
+            w = box._win
+            fits.append((w.winfo_reqheight(), w.winfo_height(), w.winfo_y(),
+                         w.winfo_viewable(), box._above_anchor, w.geometry()))
+        fit_height()
+
+    box._fit_height = traced_fit_height
     box.set_anchor((300, 1000, 500, 40))
     box.show()
     box._win.update()
@@ -348,8 +360,8 @@ def test_box_placed_above_the_anchor_grows_upward(root, monkeypatch):
     bottom = box._win.winfo_y() + height
     box._status.set("很長的錯誤訊息 " * 30)
     box._win.update()  # RichLabel 排到 idle 才量行數並回呼 _fit_height
-    assert box._win.winfo_height() > height
-    assert box._win.winfo_y() + box._win.winfo_height() == bottom
+    assert box._win.winfo_height() > height, fits
+    assert box._win.winfo_y() + box._win.winfo_height() == bottom, fits
     box.close()
 
 
