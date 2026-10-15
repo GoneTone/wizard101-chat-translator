@@ -53,7 +53,7 @@ def test_other_connect_failure_stays_game_not_running(monkeypatch):
 
 
 def test_failed_connect_closes_event_loop(monkeypatch):
-    # 連線失敗每 poll_interval 重試一輪，沒收掉 loop 會一輪洩漏一個
+    # 連線失敗每 POLL_INTERVAL 重試一輪，沒收掉 loop 會一輪洩漏一個
     r = _reader_failing_to_open(monkeypatch, RuntimeError("boom"))
     try:
         r._connect()

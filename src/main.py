@@ -391,7 +391,6 @@ def config_summary(cfg: dict) -> str:
                f"region_hotkey={cfg['region_hotkey']}",
                f"paste_hotkey={cfg['paste_hotkey']}",
                f"auto_show_input={cfg['auto_show_input']}",
-               f"poll_interval={cfg['poll_interval']}",
                f"parallel={cfg['max_parallel_translations']}",
                f"fade_seconds={cfg['fade_seconds']}",
                f"max_messages={cfg['max_messages']}",

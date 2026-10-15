@@ -25,48 +25,31 @@ def test_load_missing_file_returns_defaults(tmp_path: Path):
 
 def test_load_merges_partial_file_with_defaults(tmp_path: Path):
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"poll_interval": 3.0}), encoding="utf-8")
+    p.write_text(json.dumps({"fade_seconds": 30}), encoding="utf-8")
     cfg = load_config(p)
-    assert cfg["poll_interval"] == 3.0
+    assert cfg["fade_seconds"] == 30
     assert cfg["services"] == []
     assert cfg["default_service"] is None
     assert cfg["hotkey"] == "ctrl+space"
 
 
-def test_old_default_poll_interval_is_migrated_and_saved(tmp_path: Path):
-    # 0.4 是 hook 收訊之前的預設值；讀環形緩衝很便宜，舊設定檔跟著換成新預設
-    p = tmp_path / "config.json"
-    p.write_text(json.dumps({"poll_interval": 0.4}), encoding="utf-8")
-    assert load_config(p)["poll_interval"] == DEFAULT_CONFIG["poll_interval"] == 0.1
-    assert json.loads(p.read_text(encoding="utf-8"))["poll_interval"] == 0.1
-
-
-def test_poll_interval_migration_runs_once(tmp_path: Path):
-    # 遷移過的設定檔裡，使用者事後刻意選的 0.4 不能每次啟動又被改掉
-    p = tmp_path / "config.json"
-    p.write_text(json.dumps({"poll_interval": 0.4}), encoding="utf-8")
-    cfg = load_config(p)
-    cfg["poll_interval"] = 0.4
-    save_config(p, cfg)
-    assert load_config(p)["poll_interval"] == 0.4
-
-
-def test_other_poll_intervals_are_kept(tmp_path: Path):
+def test_removed_poll_interval_is_dropped_from_the_file(tmp_path: Path):
+    # 選項已移除：舊設定檔留著它，手改的人會以為還有作用
     p = tmp_path / "config.json"
     p.write_text(json.dumps({"poll_interval": 0.5}), encoding="utf-8")
-    assert load_config(p)["poll_interval"] == 0.5
-    assert json.loads(p.read_text(encoding="utf-8"))["poll_interval"] == 0.5
+    assert "poll_interval" not in load_config(p)
+    assert "poll_interval" not in json.loads(p.read_text(encoding="utf-8"))
 
 
 def test_save_then_load_roundtrip(tmp_path: Path):
     p = tmp_path / "config.json"
     cfg = load_config(p)
     cfg["overlay_position"] = {"x": 100, "y": 200}
-    cfg["poll_interval"] = 2.5  # 範圍內的值：出界值的夾限行為由 clamp 測試專門驗證
+    cfg["fade_seconds"] = 25  # 範圍內的值：出界值的夾限行為由 clamp 測試專門驗證
     save_config(p, cfg)
     reloaded = load_config(p)
     assert reloaded["overlay_position"] == {"x": 100, "y": 200}
-    assert reloaded["poll_interval"] == 2.5
+    assert reloaded["fade_seconds"] == 25
 
 
 def test_app_dir_dev_mode_is_project_root():
@@ -137,12 +120,11 @@ def test_load_survives_a_read_only_config_file(tmp_path, monkeypatch):
 
 
 def test_load_clamps_out_of_range_advanced_values(tmp_path):
-    # 手改 config.json 填出界值（如 poll_interval=0 會變熱迴圈）→ 載入時拉回安全範圍
+    # 手改 config.json 填出界值 → 載入時拉回安全範圍
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"poll_interval": 0.001, "fade_seconds": -5,
+    p.write_text(json.dumps({"fade_seconds": -5,
                              "max_messages": 99999, "type_delay": 9.0}), encoding="utf-8")
     cfg = load_config(p)
-    assert cfg["poll_interval"] == 0.1
     assert cfg["fade_seconds"] == 0
     assert cfg["max_messages"] == 1000
     assert cfg["type_delay"] == 0.5
@@ -164,7 +146,7 @@ def _others():
     """clamp_advanced 會遍歷所有 ADVANCED_LIMITS 的鍵，補齊其餘欄位避免 KeyError。"""
     from src.config import DEFAULT_CONFIG
     return {k: DEFAULT_CONFIG[k] for k in
-            ("poll_interval", "fade_seconds", "max_messages", "type_delay", "overlay_alpha")}
+            ("fade_seconds", "max_messages", "type_delay", "overlay_alpha")}
 
 
 def test_is_configured_needs_a_complete_default_service():
@@ -263,11 +245,11 @@ def test_load_config_with_non_numeric_advanced_value_uses_the_default(tmp_path, 
     logged = []
     monkeypatch.setattr(config_module, "log", logged.append)
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"poll_interval": "fast", "max_messages": None}), encoding="utf-8")
+    p.write_text(json.dumps({"type_delay": "fast", "max_messages": None}), encoding="utf-8")
     cfg = load_config(p)
-    assert cfg["poll_interval"] == DEFAULT_CONFIG["poll_interval"]
+    assert cfg["type_delay"] == DEFAULT_CONFIG["type_delay"]
     assert cfg["max_messages"] == DEFAULT_CONFIG["max_messages"]
-    assert any("poll_interval" in line for line in logged)
+    assert any("type_delay" in line for line in logged)
 
 
 def test_default_config_has_a_region_hotkey_distinct_from_the_input_hotkey():
