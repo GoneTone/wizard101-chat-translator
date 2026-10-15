@@ -19,6 +19,7 @@ from src.ui.settings.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.settings.form import (
     HINT_COLOR,
     BackgroundButton,
+    activate_when_shown,
     help_translate_link,
     hint_label,
     link_label,
@@ -87,6 +88,7 @@ class SettingsWindow:
         cfg = self._draft
         self._win = tk.Toplevel(self._root)
         self._win.title(t("settings.title", app=app_name()))
+        activate_when_shown(self._win, "settings window")
         # 開窗尺寸：「基本」分頁在英文下（三種語言中最高）要 512px 內容高，加上分頁標籤
         # 與按鈕列 620 放得下，640 再留給測試連線的結果訊息；寬 720 讓說明少換一兩行
         # （640 時「進階」分頁的說明多出約 40px）。

@@ -7,12 +7,16 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
+import win32gui
+
+from src.composer.paste import force_foreground
 from src.i18n import current_language, t, translators
 from src.logs import log
 from src.runtime.updater import CROWDIN_URL
 from src.translation.errors import TranslatorConfigError, TranslatorOffline
 from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup
 from src.ui.settings.responsive import bind_wrap
+from src.ui.winstyle import root_hwnd
 
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
@@ -80,6 +84,38 @@ def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:
     label = ttk.Label(parent, text=text, foreground=HINT_COLOR, justify="left")
     bind_wrap(label, trailing=trailing)
     return label
+
+
+def activate_when_shown(win: tk.Toplevel, name: str) -> None:
+    """視窗第一次顯示時主動搶前景並取得鍵盤焦點，並記下結果。
+    Windows 不會替 Tk 新開的對話框啟用視窗：標題列是灰的、Esc 也送不到。"""
+    shown = False
+
+    def on_map(event) -> None:
+        nonlocal shown
+        if event.widget is not win or shown:
+            return
+        shown = True
+        force_foreground(root_hwnd(win))
+        win.focus_set()
+        _log_focus(win, name)
+
+    win.bind("<Map>", on_map, add="+")
+
+
+def _log_focus(win: tk.Toplevel, name: str, delay_ms: int = 300) -> None:
+    """視窗顯示後記下它有沒有拿到鍵盤焦點、是不是前景視窗。"""
+    def report() -> None:
+        if not win.winfo_exists():
+            return
+        try:
+            focus = win.focus_get()
+            foreground = win32gui.GetForegroundWindow() == root_hwnd(win)
+        except Exception as exc:
+            log(f"[settings] {name} focus check failed: {type(exc).__name__}: {exc}")
+            return
+        log(f"[settings] {name} shown (focus={focus}, foreground={foreground})")
+    win.after(delay_ms, report)
 
 
 def keyboard_activatable(widget, action) -> None:

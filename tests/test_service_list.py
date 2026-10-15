@@ -375,3 +375,16 @@ def test_a_card_without_its_icon_file_still_renders(root, monkeypatch):
     card = _card_frames(pane)[0]
     assert _icon_label(card) is None
     assert pane.card_labels() == [f"{a['name']}　{t('service.badge_default')}"]
+
+
+def test_the_service_dialog_takes_the_foreground_when_shown(root, monkeypatch):
+    """同選服務商的框：對話框顯示時要主動搶前景，否則標題列灰、Esc 收不到。"""
+    from src.ui.settings import form as form_module
+    from src.ui.winstyle import root_hwnd
+    raised = []
+    monkeypatch.setattr(form_module, "force_foreground", raised.append)
+    parent = tk.Toplevel(root)   # 依附在隱藏的 root 上的對話框不會顯示，得有看得見的父視窗
+    dialog = ServiceDialog(parent, new_service("custom", []), [])
+    dialog.win.update()
+    assert raised == [root_hwnd(dialog.win)]
+    dialog._cancel()

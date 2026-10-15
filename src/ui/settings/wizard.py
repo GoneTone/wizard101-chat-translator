@@ -24,6 +24,7 @@ from src.ui.geometry import centered_position
 from src.ui.settings.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.settings.form import (
     HINT_COLOR,
+    activate_when_shown,
     help_translate_link,
     keyboard_activatable,
     translators_row,
@@ -60,6 +61,7 @@ class SetupWizard:
 
         self._win = tk.Toplevel(root)
         self._win.title(t("wizard.title", app=app_name()))
+        activate_when_shown(self._win, "setup wizard")
         # 預設高度留給第一步：說明＋服務商＋欄位＋思考說明＋測試列已達 460px，
         # 測試結果訊息（尤其多行錯誤）還會再撐高。
         win_w, win_h = 540, 540

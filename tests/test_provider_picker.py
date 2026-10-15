@@ -169,6 +169,23 @@ def test_each_card_shows_its_providers_icon(root):
     assert all(_picker_icon(card) is not None for card in cards.pack_slaves())
 
 
+def _descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _descendants(child)
+
+
+def test_clicking_anywhere_inside_a_card_picks_its_provider(root):
+    """卡片裡每一層子元件都要接點擊：標題只有文字那麼寬，旁邊的空白露出的是中間那層框架。"""
+    picked = []
+    cards = ProviderCards(root, picked.append)
+    for card, key in zip(cards.pack_slaves(), PROVIDERS, strict=True):
+        for widget in (card, *_descendants(card)):
+            picked.clear()
+            widget.event_generate("<Button-1>")
+            assert picked == [key], f"{widget.winfo_class()} {widget} in the {key} card"
+
+
 def test_clicking_the_icon_picks_the_provider(root):
     """圖示蓋住卡片左側，點在它上面也要算數。"""
     picked = []
@@ -176,3 +193,16 @@ def test_clicking_the_icon_picks_the_provider(root):
     icon = _picker_icon(cards.pack_slaves()[0])
     icon.event_generate("<Button-1>")
     assert picked == [next(iter(PROVIDERS))]
+
+
+def test_the_picker_takes_the_foreground_when_shown(root, monkeypatch):
+    """Windows 不會替新開的對話框啟用視窗（標題列灰、Esc 收不到）：顯示時要主動搶前景。"""
+    from src.ui.settings import form as form_module
+    from src.ui.winstyle import root_hwnd
+    raised = []
+    monkeypatch.setattr(form_module, "force_foreground", raised.append)
+    parent = tk.Toplevel(root)   # 依附在隱藏的 root 上的對話框不會顯示，得有看得見的父視窗
+    picker = ProviderPicker(parent)
+    picker.win.update()
+    assert raised == [root_hwnd(picker.win)]
+    picker._cancel()

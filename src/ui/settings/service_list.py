@@ -9,7 +9,7 @@ from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import centered_position
 from src.ui.icons import ProviderIcons
-from src.ui.settings.form import HINT_COLOR, collapsible, hint_label
+from src.ui.settings.form import HINT_COLOR, activate_when_shown, collapsible, hint_label
 from src.ui.settings.provider_picker import open_provider_picker
 from src.ui.settings.service_form import ServiceForm
 
@@ -47,6 +47,7 @@ class ServiceDialog:
         if target_language_fn is not None:
             self.form.set_target_language_fn(target_language_fn)
         self.form.pack(fill="both", expand=True, padx=12, pady=12)
+        activate_when_shown(self.win, "service dialog")
 
     def _ok(self) -> None:
         errors = validate_service(self.form.api_values())

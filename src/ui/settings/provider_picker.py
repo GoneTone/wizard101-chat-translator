@@ -12,7 +12,7 @@ from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import centered_position
 from src.ui.icons import ProviderIcons
-from src.ui.settings.form import hint_label, keyboard_activatable
+from src.ui.settings.form import activate_when_shown, hint_label, keyboard_activatable
 
 _PICKER_SIZE = (440, 360)   # 容得下三張卡片（最長的說明會折成兩行）與按鈕列
 
@@ -38,8 +38,9 @@ class ProviderCards(ttk.Frame):
             icon_label = ttk.Label(card, image=icon, cursor="hand2")
             icon_label.pack(side="left", padx=(0, 8))
             covering.append(icon_label)
-        body = ttk.Frame(card)
+        body = ttk.Frame(card, cursor="hand2")
         body.pack(side="left", fill="x", expand=True)
+        covering.append(body)
         title = ttk.Label(body, text=t(PROVIDERS[key].label_key), font=ui_font(10, "bold"),
                           cursor="hand2")
         title.pack(anchor="w")
@@ -80,6 +81,7 @@ class ProviderPicker:
 
         self.cards = ProviderCards(self.win, self._pick)
         self.cards.pack(fill="both", expand=True, padx=12, pady=12)
+        activate_when_shown(self.win, "provider picker")
 
     def _pick(self, provider: str) -> None:
         self.result = provider
