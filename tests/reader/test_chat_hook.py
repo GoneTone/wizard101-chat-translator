@@ -33,7 +33,7 @@ from src.reader.chat_hook import (
     read_ring,
     stub_bytes,
 )
-from tests.chat_hook_helpers import CALLER, RING, RING_SIZE, THIS, _FakeRing, _units
+from tests.reader.chat_hook_helpers import CALLER, RING, RING_SIZE, THIS, _FakeRing, _units
 
 CODE, STACK, HEAP, STR = 0x20000000, 0x30000000, 0x40000000, 0x50000000
 DF = 0x400

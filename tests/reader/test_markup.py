@@ -1,7 +1,7 @@
 """聊天標記解析：clean、parse_line、頻道圖示、系統訊息、伺服器公告、顏色。"""
 
 from src.reader.markup import clean, parse_line
-from tests.chatlog_helpers import (
+from tests.reader.chatlog_helpers import (
     _broadcast,
     _log,
     _own,

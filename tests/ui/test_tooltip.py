@@ -95,9 +95,11 @@ def test_button_press_cancels_and_hides(label, root):
 
 def test_tooltip_never_takes_keyboard_focus(label, root):
     tip = Tooltip(label, lambda: "文字", delay_ms=_DELAY_MS)
-    before = root.focus_get()
 
     label.event_generate("<Enter>")
     _pump_until_visible(label, tip)
 
-    assert root.focus_get() is before
+    # 只檢查焦點沒落進提示窗：同一 worker 的其他測試視窗開關可能讓系統啟用測試自己的視窗
+    focus = root.focus_get()
+    assert tip.visible
+    assert focus is None or focus.winfo_toplevel() is not tip._win

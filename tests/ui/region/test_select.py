@@ -51,10 +51,13 @@ def test_a_click_without_drag_cancels(selector, root):
 
 
 def test_escape_cancels(selector, root):
+    """鍵盤事件只送得到焦點視窗，而測試程序在背景時 Windows 不給它焦點（實測 focus_get 為 None、
+    Esc 被丟掉）：比照服務對話框的寫法，確認 <Escape> 綁上去，再直接走它呼叫的 cancel()。"""
     picked, cancelled = [], []
     selector.show(_MONITOR, _FRAME, on_select=picked.append, on_cancel=lambda: cancelled.append(1))
     root.update()
-    selector._win.event_generate("<Escape>")
+    assert selector._win.bind("<Escape>")
+    selector.cancel()
     root.update()
     assert picked == [] and cancelled == [1] and not selector.is_open
 

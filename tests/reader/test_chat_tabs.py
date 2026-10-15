@@ -2,7 +2,7 @@ import asyncio
 import struct
 
 from src.reader.chat_tabs import TAB_BUTTONS, read_wstring, visible_label
-from tests.chat_hook_helpers import _wstring
+from tests.reader.chat_hook_helpers import _wstring
 
 
 def _read(text: str, cap: int, size: int | None = None) -> str:
