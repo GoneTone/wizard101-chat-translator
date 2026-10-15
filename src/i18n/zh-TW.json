@@ -94,8 +94,6 @@
   "settings.target_language": "翻譯目標語言",
   "settings.default_service": "預設翻譯服務",
   "settings.hotkey": "呼出翻譯輸入框的熱鍵",
-  "settings.poll_interval": "輪詢間隔（秒）",
-  "settings.poll_interval_hint": "收訊掃描頻率，小＝更即時",
   "settings.fade": "訊息淡出（秒）",
   "settings.fade_hint": "0＝永不淡出，可滾動看歷史",
   "settings.max_messages": "訊息保留上限",

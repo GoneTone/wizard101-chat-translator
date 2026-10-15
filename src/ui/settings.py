@@ -36,14 +36,13 @@ MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁
 _GROUP_GAP = 32
 
 
-def parse_advanced_values(poll_var, fade_var, max_messages_var, type_delay_var,
+def parse_advanced_values(fade_var, max_messages_var, type_delay_var,
                           alpha_var, parallel_var) -> tuple[dict | None, str | None]:
     """讀取並轉型進階數值的 Tk 變數。手動鍵入非數字時 `.get()` 拋 `TclError`、
     轉型拋 `ValueError`，統一攔下回傳 `(None, 錯誤文案 key)` 讓呼叫端走表單錯誤提示，
     不讓 cfg 寫到一半；成功回傳 `(clamp_advanced(...), None)`。"""
     try:
         values = clamp_advanced({
-            "poll_interval": float(poll_var.get()),
             "fade_seconds": int(fade_var.get()),
             "max_messages": int(max_messages_var.get()),
             "type_delay": float(type_delay_var.get()),
@@ -208,25 +207,23 @@ class SettingsWindow:
         # grid 而非 pack：標籤欄寬度由最長的一條決定；固定字元寬（width=14）中文塞得下、
         # 英文（"Message fade-out (s)"）會被裁掉。
         adv.columnconfigure(2, weight=1)   # 說明欄吃掉剩餘寬度
-        self._poll = self._spin(adv, 0, "settings.poll_interval", cfg["poll_interval"],
-                                "poll_interval", 0.1, "settings.poll_interval_hint")
-        self._fade = self._spin(adv, 1, "settings.fade", cfg["fade_seconds"],
+        self._fade = self._spin(adv, 0, "settings.fade", cfg["fade_seconds"],
                                 "fade_seconds", 10, "settings.fade_hint")
-        self._max_msgs = self._spin(adv, 2, "settings.max_messages",
+        self._max_msgs = self._spin(adv, 1, "settings.max_messages",
                                     cfg["max_messages"], "max_messages", 10,
                                     "settings.max_messages_hint")
-        self._parallel = self._spin(adv, 3, "settings.parallel",
+        self._parallel = self._spin(adv, 2, "settings.parallel",
                                     cfg["max_parallel_translations"],
                                     "max_parallel_translations", 1,
                                     "settings.parallel_hint")
-        self._type_delay = self._spin(adv, 4, "settings.type_delay", cfg["type_delay"],
+        self._type_delay = self._spin(adv, 3, "settings.type_delay", cfg["type_delay"],
                                       "type_delay", 0.01, "settings.type_delay_hint")
-        self._alpha_var = self._alpha_slider(adv, 5, cfg["overlay_alpha"])
+        self._alpha_var = self._alpha_slider(adv, 4, cfg["overlay_alpha"])
 
         self._translate_system = tk.BooleanVar(value=cfg["translate_system_messages"])
         ttk.Checkbutton(adv, text=t("field.translate_system"),
                         variable=self._translate_system).grid(
-            row=6, column=0, columnspan=3, sticky="w", pady=(10, 2))
+            row=5, column=0, columnspan=3, sticky="w", pady=(10, 2))
 
     def _build_about(self, nb) -> None:
         """關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、協助翻譯、紀錄檔位置。
@@ -437,8 +434,7 @@ class SettingsWindow:
             "translate_system_messages": self._translate_system.get(),
         }
         advanced, error = parse_advanced_values(
-            self._poll, self._fade, self._max_msgs, self._type_delay, self._alpha_var,
-            self._parallel)
+            self._fade, self._max_msgs, self._type_delay, self._alpha_var, self._parallel)
         if advanced is not None:
             values.update(advanced)
         return values, error

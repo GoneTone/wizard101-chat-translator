@@ -33,7 +33,8 @@ if TYPE_CHECKING:   # 只當型別用：reader 不該在執行期依賴 ui
     from src.ui.overlay import OverlayWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
-# 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 poll_interval 密得多，
+POLL_INTERVAL = 0.1  # 收訊間隔（秒）：每輪只讀 hook 環形緩衝的計數器，很便宜
+# 遊戲聊天輸入框的取樣間隔（秒）：只讀一個可見性旗標，可比 POLL_INTERVAL 密得多，
 # 讓翻譯輸入框幾乎在聊天欄打開的當下就彈出
 INPUT_POLL_INTERVAL = 0.05
 # 完整分頁狀態與前景的取樣間隔（秒）：一次要讀約 45 處記憶體；切換分頁另由每輪讀目前分頁偵測
@@ -176,7 +177,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
             except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
                 log(f"[reader] poll skipped (slot={slot}): {type(exc).__name__}: {exc}\n"
                     f"{traceback.format_exc()}")
-                stop.wait(cfg["poll_interval"])
+                stop.wait(POLL_INTERVAL)
                 continue
 
             if game_issue:
@@ -227,7 +228,7 @@ def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
                 board.report(slot, "listening" if reader.anchored else "locating", game_issue)
 
             inputs.poll()
-            wait_watching_input(cfg["poll_interval"])
+            wait_watching_input(POLL_INTERVAL)
     finally:
         # 迴圈本體逃出例外也要收回編號、解除 hook，不留殭屍編號與未 unhook 的客戶端
         board.drop(slot)

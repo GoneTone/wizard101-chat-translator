@@ -290,7 +290,7 @@ def test_set_language_keeps_previous_language_when_load_fails(monkeypatch):
 
 
 def test_zh_cn_keeps_its_own_wording_for_chat_and_advanced():
-    """同一份語言檔裡用詞要一致：聊天訊息用「接收」（同 settings.poll_interval_hint），
+    """同一份語言檔裡用詞要一致：聊天訊息用「接收」，
     進階區塊用「高级」（同 settings.tab.advanced）。"""
     zh_cn = _load_raw("zh-CN")
     assert zh_cn["slot.incoming"] == "聊天接收"

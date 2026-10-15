@@ -27,6 +27,7 @@ def _window_present(monkeypatch):
     monkeypatch.setattr(loop_module, "window_exists", lambda hwnd: True)
     monkeypatch.setattr(loop_module, "foreground_window", lambda: 0)
     monkeypatch.setattr(loop_module, "TAB_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(loop_module, "POLL_INTERVAL", 0.01)
 
 
 class FakePool:
@@ -179,7 +180,7 @@ def _drop(text: str) -> ChatLine:
 
 def test_system_lines_skip_the_chat_context(monkeypatch):
     # 系統訊息不得進入上下文：8 行的窗會被掉寶洗光，玩家對話就失去語境
-    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    cfg = {"translate_system_messages": True}
     ov = FakeOverlay()
     reads = [[_drop("你获得了 39 金币！"), ChatLine("[Lars] hi", None)], []]
     sys_pool = FakePool()
@@ -193,7 +194,7 @@ def test_system_lines_skip_the_chat_context(monkeypatch):
 
 
 def test_cached_system_line_is_added_already_translated(monkeypatch):
-    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    cfg = {"translate_system_messages": True}
     ov = FakeOverlay()
     reads = [[_drop("你获得了 39 金币！")], []]
     sys_pool = FakePool()
@@ -207,7 +208,7 @@ def test_cached_system_line_is_added_already_translated(monkeypatch):
 
 
 def test_uncached_system_line_goes_to_the_system_pool(monkeypatch):
-    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    cfg = {"translate_system_messages": True}
     ov = FakeOverlay()
     reads = [[_drop("你获得了 39 金币！")], []]
     sys_pool = FakePool()
@@ -222,7 +223,7 @@ def test_uncached_system_line_goes_to_the_system_pool(monkeypatch):
 def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypatch):
     # API 掛掉時若剛好只有系統訊息在跑，玩家 pool 的 error_state 還是 None，
     # 橫幅仍然必須出現（見 reader_loop 的 or 合併）
-    cfg = {"poll_interval": 0.01, "translate_system_messages": True}
+    cfg = {"translate_system_messages": True}
     ov = FakeOverlay()
     sys_pool = FakePool()
     sys_pool.error_state = "offline"
@@ -233,7 +234,7 @@ def test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean(monkeypa
 
 
 def test_system_lines_are_ignored_when_the_setting_is_off(monkeypatch):
-    cfg = {"poll_interval": 0.01, "translate_system_messages": False}
+    cfg = {"translate_system_messages": False}
     ov = FakeOverlay()
     sys_pool = FakePool()
     # reader.emit_system 為 False 時真實 reader 根本不會吐系統行，
@@ -265,7 +266,7 @@ class TogglingEmitSystemReader(FakeReader):
 def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
     # 設定可能在執行中從設定視窗切換；若只在建立 reader 時同步一次，中途切換要等重開才生效。
     # 第一輪讀取後把 cfg 切成 True，驗證第二輪迴圈開頭已經跟上
-    cfg = {"poll_interval": 0.01, "translate_system_messages": False}
+    cfg = {"translate_system_messages": False}
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
     reads = [[], [], []]
@@ -284,7 +285,7 @@ def test_reader_emit_system_is_resynced_every_loop_iteration(monkeypatch):
 
 
 def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     reads = [[], ["[A] a"], ["[B] hi", "[B] hi"], []]
     pool, _ = run_scripted(cfg, ov, reads, monkeypatch)
@@ -298,7 +299,7 @@ def test_new_lines_are_placeheld_and_submitted_in_order(monkeypatch):
 
 def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
     # ChatLine 的顏色只進 overlay（對齊遊戲配色）；context 與翻譯只吃純文字
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     reads = [[ChatLine("[A] a", "#80ff00")], []]
     cache = FakeCache()
@@ -312,7 +313,7 @@ def test_game_color_flows_to_overlay_text_to_context_and_pool(monkeypatch):
 
 def test_context_advances_by_read_order_not_by_completion(monkeypatch):
     # 每則帶到的 context 是它「之前」的行 —— 平行翻譯時同批訊息仍看得到彼此
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     reads = [["[A] one", "[B] two", "[C] three"], []]
     pool, context = run_scripted(cfg, FakeOverlay(), reads, monkeypatch)
     assert [ctx for _, ctx, _ in pool.submitted] == [
@@ -321,7 +322,7 @@ def test_context_advances_by_read_order_not_by_completion(monkeypatch):
 
 
 def test_banner_follows_pool_error_state(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     pool = FakePool()
     pool.error_state = "offline"
@@ -352,7 +353,7 @@ def test_banner_shows_the_api_message_when_there_is_one():
 
 
 def test_loop_passes_the_pool_error_detail_to_the_banner(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     pool = FakePool()
     pool.error_state = "config"
@@ -365,7 +366,7 @@ def test_loop_passes_the_pool_error_detail_to_the_banner(monkeypatch):
 
 
 def test_status_shows_translating_while_pool_busy(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     pool = FakePool()
     pool.in_flight = 2
@@ -390,7 +391,7 @@ class StatusFakeReader(FakeReader):
 def test_status_transitions(monkeypatch):
     # 監聽 →（有新訊息、pool 忙碌）翻譯中 → 監聽：完整三段都要出現，
     # 不能只停在「翻譯中」 —— 回歸測試（重寫 reader_loop 時遺失的舊測試）。
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     pool = FakePool()
     reads = [[], ["[A] a"], []]
@@ -405,7 +406,7 @@ def test_status_transitions(monkeypatch):
 
 
 def test_status_locating_when_not_anchored(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
@@ -447,7 +448,7 @@ def _run_with_input(cfg, reads, input_states, monkeypatch):
 
 def test_game_input_edge_triggers_open_and_close(monkeypatch):
     # 只在「關→開」與「開→關」的邊緣各觸發一次，持續開著不重複觸發
-    cfg = {"poll_interval": 0.01, "auto_show_input": True}
+    cfg = {"auto_show_input": True}
     events = _run_with_input(cfg, [[], [], [], [], []],
                              [False, True, True, False, False], monkeypatch)
     assert events == [("open", (749, 893, 732, 44)), "close"]
@@ -455,7 +456,7 @@ def test_game_input_edge_triggers_open_and_close(monkeypatch):
 
 def test_game_input_edges_are_reported_even_when_auto_show_is_off(monkeypatch):
     # 要不要自動呼出由 main 決定；錨點一律回報，熱鍵呼出才知道遊戲輸入框在哪
-    cfg = {"poll_interval": 0.01, "auto_show_input": False}
+    cfg = {"auto_show_input": False}
     events = _run_with_input(cfg, [[], [], []],
                              [False, True, False], monkeypatch)
     assert events == [("open", (749, 893, 732, 44)), "close"]
@@ -463,7 +464,7 @@ def test_game_input_edges_are_reported_even_when_auto_show_is_off(monkeypatch):
 
 def test_game_not_running_shows_banner_once(monkeypatch):
     monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     reads = [GameNotRunning("no game"), GameNotRunning("no game")]
     ui_queue: queue.Queue = queue.Queue()
@@ -480,7 +481,7 @@ def test_game_not_running_shows_banner_once(monkeypatch):
 def test_access_denied_shows_its_own_banner_and_status(monkeypatch):
     # 權限不足與「找不到遊戲」是兩回事：橫幅要直接說出該以系統管理員身分重開
     monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     reads = [GameAccessDenied("denied"), GameAccessDenied("denied")]
     ui_queue: queue.Queue = queue.Queue()
@@ -498,7 +499,7 @@ def test_version_mismatch_shows_its_own_banner_and_status(monkeypatch):
     # 掛入點與遊戲版本對不上，跟「遊戲沒開」長得一樣但解法完全不同：
     # 橫幅要說出該更新遊戲與本程式，而不是叫使用者繼續等遊戲
     monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     reads = [GameVersionMismatch("pattern failed"), GameVersionMismatch("pattern failed")]
     ui_queue: queue.Queue = queue.Queue()
@@ -529,7 +530,8 @@ class DelayedInputReader(FakeReader):
 
 def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
     # 聊天欄在兩輪讀取之間被打開：翻譯輸入框不該等到下一輪才彈出
-    cfg = {"poll_interval": 0.5, "auto_show_input": True}
+    monkeypatch.setattr(loop_module, "POLL_INTERVAL", 0.5)
+    cfg = {"auto_show_input": True}
     opened_at = []
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
@@ -545,7 +547,7 @@ def test_game_input_detected_during_the_wait_between_polls(monkeypatch):
 
 def test_loop_ends_and_closes_the_reader_when_its_window_is_gone(monkeypatch):
     # 客戶端關掉：這條執行緒要 unhook 並結束，編號交還 supervisor
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     stop = threading.Event()
     reader = FakeReader([[], [], []], stop)
@@ -563,14 +565,14 @@ def test_loop_ends_and_closes_the_reader_when_its_window_is_gone(monkeypatch):
 
 
 def test_messages_carry_the_slot(monkeypatch):
-    cfg = {"poll_interval": 0.01}
+    cfg = {}
     ov = FakeOverlay()
     run_scripted(cfg, ov, [["[A] hi"], []], monkeypatch)
     assert ov.slots == [1]
 
 
 def test_input_callbacks_carry_the_window_handle(monkeypatch):
-    cfg = {"poll_interval": 0.01, "auto_show_input": True}
+    cfg = {"auto_show_input": True}
     events = []
     ui_queue: queue.Queue = queue.Queue()
     stop = threading.Event()
@@ -604,7 +606,7 @@ def test_message_ids_are_unique_across_threads():
 def test_events_carry_their_tabs_to_the_overlay(monkeypatch):
     event = ChatEvent((1,), ChatLine("[A] hi", None))
     ov = FakeOverlay()
-    run_scripted({"poll_interval": 0.01}, ov, [[event], []], monkeypatch)
+    run_scripted({}, ov, [[event], []], monkeypatch)
     assert ov.tabs == [(1,)]
 
 
@@ -612,7 +614,7 @@ def test_player_lines_use_their_own_tab_context(monkeypatch):
     reads = [[ChatEvent((0,), ChatLine("[A] zero", None)),
               ChatEvent((1,), ChatLine("[B] one", None)),
               ChatEvent((1,), ChatLine("[B] two", None))], []]
-    pool, _ = run_scripted({"poll_interval": 0.01}, FakeOverlay(), reads, monkeypatch)
+    pool, _ = run_scripted({}, FakeOverlay(), reads, monkeypatch)
     assert [ctx for _, ctx, _ in pool.submitted] == [[], [], ["[B] one"]]
 
 
@@ -620,7 +622,7 @@ def test_tab_state_is_sent_only_when_it_changes(monkeypatch):
     state = TabState(1, ((0, "General"), (1, "Team")))
     contexts = ClientContexts()
     ov = FakeOverlay()
-    run_scripted({"poll_interval": 0.01}, ov, [[], [], []], monkeypatch,
+    run_scripted({}, ov, [[], [], []], monkeypatch,
                  states=[state], contexts=contexts)
     assert ov.tab_states == [(1, state)]
     assert contexts.current_tab == 1
@@ -630,7 +632,7 @@ def test_tab_state_is_cleared_when_the_game_goes_away(monkeypatch):
     monkeypatch.setattr(loop_module, "GAME_MISSING_INTERVAL", 0.01)
     state = TabState(0, ((0, "General"),))
     ov = FakeOverlay()
-    run_scripted({"poll_interval": 0.01}, ov, [[], GameNotRunning("gone")], monkeypatch,
+    run_scripted({}, ov, [[], GameNotRunning("gone")], monkeypatch,
                  states=[state])
     assert ov.tab_states == [(1, state), (1, None)]
 
@@ -640,7 +642,7 @@ def test_foreground_client_reports_its_slot_every_poll(monkeypatch):
     seq = iter([0x1, 0x1, 0x1, 0x9, 0x1])
     monkeypatch.setattr(loop_module, "foreground_window", lambda: next(seq, 0x1))
     ov = FakeOverlay()
-    run_scripted({"poll_interval": 0.01}, ov, [[], [], [], [], []], monkeypatch)
+    run_scripted({}, ov, [[], [], [], [], []], monkeypatch)
     assert ov.foreground_slots == [1, 1, 1, 1]
 
 
@@ -668,7 +670,8 @@ def test_tab_state_and_foreground_are_sampled_slower_than_chat(monkeypatch):
     stop = threading.Event()
     pool = FakePool()
     monkeypatch.setattr(loop_module, "WizChatReader", make_reader)
-    _loop({"poll_interval": 0.0, "translate_system_messages": False}, ov, ui_queue, stop, pool)
+    monkeypatch.setattr(loop_module, "POLL_INTERVAL", 0.0)
+    _loop({"translate_system_messages": False}, ov, ui_queue, stop, pool)
     _drain(ui_queue)
     assert len(pool.submitted) == 5
     assert CountingReader.tab_reads == 1
@@ -681,6 +684,6 @@ def test_a_tab_switch_is_reported_without_waiting_for_the_slow_sample(monkeypatc
     main = TabState(0, ((0, "General"), (1, "Team")))
     team = TabState(1, ((0, "General"), (1, "Team")))
     ov = FakeOverlay()
-    run_scripted({"poll_interval": 0.01}, ov, [[], [], [], []], monkeypatch,
+    run_scripted({}, ov, [[], [], [], []], monkeypatch,
                  states=[main, main, team, team])
     assert ov.tab_states == [(1, main), (1, team)]

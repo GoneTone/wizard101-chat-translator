@@ -33,7 +33,7 @@ CONFIG_PATH = app_dir() / "config.json"
 
 
 DEFAULT_CONFIG: dict = {
-    "config_version": 2,      # 設定檔格式版本；舊檔缺此欄＝1，載入時做一次性遷移
+    "config_version": 2,      # 設定檔格式版本；舊檔缺此欄＝1，格式變動時據此遷移
     "services": [],           # 使用者建立的翻譯服務；空＝尚未設定，啟動時進精靈
     "default_service": None,  # 預設服務的 id；未指定用途的都跟著它走
     "service_slots": {slot: None for slot in SLOTS},  # None＝跟隨預設
@@ -43,7 +43,6 @@ DEFAULT_CONFIG: dict = {
     # 收訊的目標語言（人讀名稱，直接帶入提示詞）；發話固定翻英文。首次啟動會被
     # bootstrap_language 換成系統語言，這裡只是舊設定檔缺欄位時的補值
     "target_language": language_name(SOURCE_LANGUAGE),
-    "poll_interval": 0.1,    # 收訊輪詢間隔（秒）；讀 hook 環形緩衝很便宜，小＝更即時
     "fade_seconds": 0,       # <=0：訊息永不依時間淡出（可滾動看歷史）
     "max_messages": 200,     # 視窗保留的訊息則數上限，超過移除最舊
     "max_parallel_translations": 4,  # 同時翻譯則數；實測 4 以上幾乎無額外收益，1＝逐則排隊
@@ -60,13 +59,8 @@ DEFAULT_CONFIG: dict = {
 }
 
 
-# hook 收訊之前的預設輪詢間隔：當時每輪要讀整份 chatLog，設定檔裡的這個值多半是沒動過的舊預設
-_OLD_DEFAULT_POLL_INTERVAL = 0.4
-
-
 # 進階數值的安全範圍：設定視窗的 Spinbox／提示文字與 load_config 共用同一份。
 ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
-    "poll_interval": (0.1, 5.0),
     "fade_seconds": (0, 3600),
     "max_messages": (10, 1000),
     "max_parallel_translations": (1, 8),
@@ -77,8 +71,7 @@ ADVANCED_LIMITS: dict[str, tuple[float, float]] = {
 
 def clamp_advanced(values: dict) -> dict:
     """就地把進階數值夾在安全範圍並回傳同一個 dict。設定視窗儲存與 config.json 載入
-    都經過這裡 —— 手動編輯的出界值（如 poll_interval=0 會讓 reader 變熱迴圈）也會被拉回，
-    手改成非數值（字串、null）則退回預設值並留 log。"""
+    都經過這裡 —— 手動編輯的出界值也會被拉回，手改成非數值（字串、null）則退回預設值並留 log。"""
     for key, (lo, hi) in ADVANCED_LIMITS.items():
         value = values[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -114,10 +107,10 @@ def load_config(path: Path) -> dict:
         return copy.deepcopy(DEFAULT_CONFIG)
     cfg = clamp_advanced(_merge(DEFAULT_CONFIG, data))
     changed = normalize(cfg)
-    if data.get("config_version", 1) < 2 and cfg["poll_interval"] == _OLD_DEFAULT_POLL_INTERVAL:
-        cfg["poll_interval"] = DEFAULT_CONFIG["poll_interval"]
-        log(f"[config] poll_interval {_OLD_DEFAULT_POLL_INTERVAL} (old default) "
-            f"migrated to {cfg['poll_interval']}")
+    # 已移除的設定：留在檔案裡會讓手改的人以為它還有作用
+    if "poll_interval" in cfg:
+        del cfg["poll_interval"]
+        log("[config] dropped removed setting poll_interval")
         changed = True
     if changed:
         # 整理後立刻落地，手開 config.json 看到的就是生效的結構；寫不進去不擋啟動
