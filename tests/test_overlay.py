@@ -20,8 +20,9 @@ from src.ui.overlay import (
     OverlayWindow,
     autoscroll_pixels,
 )
-from src.ui.selection import TEXT_ORIGIN, Selection, line_font, visual_lines
+from src.ui.selection import TEXT_ORIGIN, Caret, Selection, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
+from tests.tk_helpers import settle_events
 
 
 def test_is_click_within_threshold():
@@ -1722,17 +1723,17 @@ def _covered(ov) -> bool:
 
 
 def test_resize_draws_only_the_viewport_then_completes_identically(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     view = ov._list._views[ov._list.shown_key]
-    assert view.hi == 300 and view.hi - view.lo < 60
+    assert view.hi == 120 and view.hi - view.lo < 30
     assert _covered(ov)
     ov._list.complete_layout()
     assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
 
 
 def test_wheeling_up_after_a_resize_never_shows_a_gap(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     for _ in range(400):
         ov._list.on_wheel(_Wheel(delta=120))
@@ -1740,7 +1741,7 @@ def test_wheeling_up_after_a_resize_never_shows_a_gap(root):
 
 
 def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     ov._list._user_scroll("moveto", 0.0)
     ov._win.update_idletasks()
@@ -1749,11 +1750,17 @@ def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message(root):
 
 
 def test_taller_window_during_partial_layout_shows_no_gap(root):
-    ov = _long_overlay(root, 300)
-    _configure_width(ov, 300)
-    ov._apply_geometry(10000, 10000, ov._list._canvas.winfo_width() + 12, 700)
-    ov._win.update_idletasks()
-    assert _covered(ov)
+    ov = _long_overlay(root, 120)
+    ov._apply_geometry(10000, 10000, 312, 300)
+    settle_events(ov._win)
+    assert _view(ov).lo > 0, "前置條件：跟隨底部的部分排版"
+    seen = []
+    # 記下 <Configure> 處理完當下（重繪之前）的覆蓋狀態，排在 idle 的補救來不及
+    ov._list._canvas.bind("<Configure>", lambda e: seen.append((e.height, _covered(ov))), add="+")
+    ov._apply_geometry(10000, 10000, 312, 900)
+    settle_events(ov._win)
+    assert seen and seen[-1] == (ov._list._canvas.winfo_height(), True)
+    assert seen[-1][0] > 600
 
 
 def test_resizing_an_empty_view_logs_nothing(root, monkeypatch):
@@ -1765,15 +1772,26 @@ def test_resizing_an_empty_view_logs_nothing(root, monkeypatch):
     assert not [line for line in logged if "relaid out" in line or "rewrapped" in line]
 
 
+def test_a_slow_viewport_fill_is_logged_but_not_inside_a_relayout(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)   # 有補畫的話一定會記
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    assert not [line for line in logged if "viewport filled" in line]   # 重排另有自己的 log
+    ov._list._user_scroll("moveto", 0.0)
+    assert [line for line in logged if "viewport filled" in line]
+
+
 def test_follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     ov._win.update_idletasks()
     assert ov._list._canvas.yview()[1] == 1.0
 
 
 def test_reading_history_keeps_the_viewport_top_message_in_place_on_resize(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     ov._list._user_scroll("moveto", 0.5)
     ov._win.update()
     tag, offset = ov._list._view_anchor()
@@ -1784,7 +1802,7 @@ def test_reading_history_keeps_the_viewport_top_message_in_place_on_resize(root)
 
 
 def test_updates_trims_and_adds_during_partial_layout_match_a_full_redraw(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     ov.update_message(ov._list._messages[5].msg_id, "補上的長譯文" * 20)
     ov.update_message(ov._list._messages[-1].msg_id, "補上的長譯文" * 20)
@@ -1809,15 +1827,31 @@ def test_dragging_the_scrollbar_to_the_bottom_lands_on_the_newest_message(root):
     assert _covered(ov)
 
 
+def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message_when_estimates_are_low(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=120, fade_seconds=0)
+    for i in range(120):
+        ov.add_message(f"wizard chat line number {i}", f"第 {i} 則一行放得下的譯文", msg_id=i)
+    ov._win.update()
+    ov._list.complete_layout()
+    ov._list._user_scroll("moveto", 0.7)
+    _configure_width(ov, 140)   # 變窄：單行訊息變多行，上方待補的估計高度偏低
+    assert _view(ov).lo > 0, "前置條件：第一則還沒畫"
+    ov._list._user_scroll("moveto", 0.0)
+    ov._win.update_idletasks()
+    assert _view(ov).lo == 0
+    assert ov._list._canvas.yview()[0] == 0.0
+    assert _covered(ov)
+
+
 def test_pruning_the_whole_drawn_range_during_partial_layout_matches_a_full_redraw(root):
-    ov = _long_overlay(root, 300, fade_seconds=60)
+    ov = _long_overlay(root, 120, fade_seconds=60)
     ov._list._user_scroll("moveto", 0.3)
     _configure_width(ov, 300)
     view = ov._list._views[ov._list.shown_key]
-    assert view.lo > 0 and view.hi < 290, "前置條件：已畫範圍在中段"
+    assert view.lo > 0 and view.hi < 110, "前置條件：已畫範圍在中段"
     hi = view.hi
     ov.prune(now=hi + 5 + 60)   # 時刻 ≤ hi + 5 的全部淡出，已畫範圍整段移光
-    assert len(view.records) == 300 - (hi + 6)
+    assert len(view.records) == 120 - (hi + 6)
     assert view.lo == 0 and view.hi > view.lo and _covered(ov)
     ov._list.complete_layout()
     assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
@@ -1864,9 +1898,9 @@ def _long_overlay_with_two_clients(root, n):
 
 
 def test_background_backfill_completes_without_further_input(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
-    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 300, timeout=60)
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 120, timeout=60)
     assert ov._list._canvas.yview()[1] == 1.0                # 往上補畫時仍貼底
     assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
 
@@ -1875,13 +1909,15 @@ def test_only_the_last_width_of_a_drag_is_backfilled(root, monkeypatch):
     logged = []
     monkeypatch.setattr(message_list_module, "log", logged.append)
     monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)
-    ov = _long_overlay(root, 300)
+    # 拖拉總長（1 秒）超過靜止判定，每段間隔（0.25 秒）遠短於它：沒取消的話第一輪會在拖拉中開跑
+    monkeypatch.setattr(message_list_module, "_BACKFILL_DELAY_MS", 600)
+    ov = _long_overlay(root, 120)
     for width in (420, 380, 340, 300):
         _configure_width(ov, width)
         lo = _view(ov).lo
-        _pump(root, seconds=0.1)
-        assert _view(ov).lo == lo                       # 寬度還在變（間隔 < 150 ms），不補畫
-    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 300, timeout=60)
+        _pump(root, seconds=0.25)
+        assert _view(ov).lo == lo                       # 寬度還在變（間隔短於靜止判定），不補畫
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 120, timeout=60)
     for m in ov._list._messages:
         for line in m.lines:
             assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap
@@ -1890,13 +1926,22 @@ def test_only_the_last_width_of_a_drag_is_backfilled(root, monkeypatch):
     assert len([line for line in logged if "relaid out" in line]) == 1   # 拖拉中只記一次同步階段
 
 
-def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
-    ov = _long_overlay_with_two_clients(root, 300)
+def test_one_event_loop_pass_runs_one_backfill_batch(root):
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     start = _view(ov).lo
-    _pump_until(root, lambda: _view(ov).lo < start, timeout=60)   # 先補一點，才分得出「沿用」與「重排」
+    _pump_until(root, lambda: _view(ov).lo < start, timeout=60)
+    # 批與批之間經 idle 讓出事件迴圈（重繪）；直接 after(1) 的話一次 update() 就會全部補完
+    assert _view(ov).lo > 0
+
+
+def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
+    ov = _long_overlay_with_two_clients(root, 120)
+    _configure_width(ov, 300)
+    start = _view(ov).lo
+    ov._list._backfill_once()                          # 先補一點，才分得出「沿用」與「重排」
     lo = _view(ov).lo
-    assert lo > 0, "一次 update() 只該跑一批：批與批之間要讓出事件迴圈"
+    assert 0 < lo < start
     ov.set_foreground_slot(2)
     _pump(root, seconds=0.5)
     ov.set_foreground_slot(1)
@@ -1905,30 +1950,40 @@ def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
 
 
 def test_switching_back_to_a_view_whose_newest_message_is_undrawn_relays_it_out(root):
-    ov = _long_overlay_with_two_clients(root, 300)
+    ov = _long_overlay_with_two_clients(root, 120)
     _scroll_up(ov, 0.2)
     _configure_width(ov, 300)                            # 錨點在上方，最新一則還沒畫
-    assert _view(ov).hi < 300
+    assert _view(ov).hi < 120
     ov.set_foreground_slot(2)
     ov.set_foreground_slot(1)
     ov._win.update_idletasks()
-    assert _view(ov).hi == 300 and _covered(ov) and ov._list._canvas.yview()[1] == 1.0
-    assert _view(ov).hi - _view(ov).lo < 60              # 從底部重排，而非把中間全部同步畫完
+    assert _view(ov).hi == 120 and _covered(ov) and ov._list._canvas.yview()[1] == 1.0
+    assert _view(ov).hi - _view(ov).lo < 30              # 從底部重排，而非把中間全部同步畫完
 
 
 def test_autoscrolling_a_selection_into_the_undrawn_area_keeps_it_on_the_same_text(root):
-    ov = _long_overlay(root, 300)
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
-    _select_whole_message(ov, index=_view(ov).lo)
-    before = ov._selection.text()
-    for _ in range(150):
+    sel = ov._selection
+    sel._anchor, sel._focus = Caret(80, 0, 0), Caret(119, 1, 3)   # 選取大半在未畫區
+    sel.redraw()
+    before = sel.text()
+    canvas = ov._list._canvas
+    for _ in range(300):
         ov._list.scroll_by(-40)                          # 框選拖到上緣時的自動捲動路徑
-        assert _covered(ov)
-    assert _view(ov).lo < 300 - 60 and ov._selection.text() == before
+        assert _covered(ov) and sel.text() == before
+        view = _view(ov)
+        for m in view.records[max(80, view.lo):view.hi]:
+            top, bottom = line_origin(m.lines[0])[1], _row_bottom(m)
+            assert [i for i in canvas.find_withtag("sel")
+                    if top <= canvas.coords(i)[1] < bottom], m.original
+        if view.lo < 75:
+            break
+    assert _view(ov).lo < 75
 
 
-def test_destroying_the_overlay_cancels_a_pending_backfill(root):
-    ov = _long_overlay(root, 300)
+def test_destroying_the_overlay_cancels_its_pending_work(root):
+    ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
     root.tk.eval("set ::bg_errors {}; proc bgerror msg {lappend ::bg_errors $msg}")
     try:
@@ -1937,4 +1992,4 @@ def test_destroying_the_overlay_cancels_a_pending_backfill(root):
         errors = root.tk.splitlist(root.tk.eval("set ::bg_errors"))
     finally:
         root.tk.eval("rename bgerror {}")
-    assert not [e for e in errors if "backfill" in e], errors   # 已排的批次呼叫到已刪除的 Tcl 命令
+    assert not errors   # 已排的工作呼叫到已刪除的 Tcl 命令

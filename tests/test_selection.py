@@ -30,6 +30,11 @@ def _stack(canvas, texts, y=0, gap=4):
     return lines
 
 
+def _register(sel, key, lines):
+    """把已畫好的行登記進選取（正式路徑由 MessageList 依訊息記錄登記）。"""
+    sel._rows[key] = Row(tuple(map(line_text, lines)), tuple(lines))
+
+
 @pytest.fixture
 def line(root):
     """一行描邊文字，寬度窄到一定會換行，畫在偏離原點的位置（行內座標要與位置無關）。"""
@@ -125,7 +130,7 @@ def message(root):
                                     ("translated text", "#f2f2f7", ui_font(11))])
     win.update()
     sel = Selection()
-    sel.register(frame, (first, second))
+    _register(sel, frame, (first, second))
     yield sel, frame, first, second
     win.destroy()
 
@@ -223,7 +228,7 @@ def three_messages(root):
         top, bottom = _stack(canvas, [(f"orig {n}", "#c0c0cd", ui_font(9)),
                                       (f"trans {n}", "#f2f2f7", ui_font(11))], y=y)
         y += 80 if n == "one" else 40   # 第二則故意不貼著第一則，行位置不能靠堆疊順序猜
-        sel.register(frame, (top, bottom))
+        _register(sel, frame, (top, bottom))
         rows.append((frame, top, bottom))
     win.update()
     yield sel, rows
@@ -325,7 +330,30 @@ def test_paint_adds_the_highlight_of_one_row_only(three_messages):
     canvas = rows[1][1].canvas
     canvas.delete("sel")
     sel.paint(rows[1][0])
-    assert canvas.find_withtag("sel")
+    _, top, bottom = rows[1]
+    first, last = line_origin(top)[1], line_origin(bottom)[1] + line_height(bottom)
+    ys = [canvas.coords(i)[1] for i in canvas.find_withtag("sel")]
+    assert ys and all(first <= y < last for y in ys)
+
+
+def test_dragging_above_everything_clamps_to_the_first_drawn_row(three_messages):
+    sel, rows = three_messages
+    sel._rows[rows[0][0]] = Row(("a", "b"), ())   # 第一則尚未畫
+    sel.begin(*_at(rows[1][2]))
+    x, y = _at(rows[1][1])
+    sel.extend(x, y - 500)
+    assert sel._focus == Caret(1, 0, 0)
+
+
+def test_paint_on_an_undrawn_row_draws_nothing(three_messages):
+    sel, rows = three_messages
+    sel.begin(*_at(rows[0][1]))
+    sel.extend(*_at(rows[2][2], dx=_width(rows[2][2]) - 1))
+    canvas = rows[1][1].canvas
+    count = len(canvas.find_withtag("sel"))
+    sel._rows[rows[1][0]] = Row(("中間原文", "中間譯文"), ())   # 範圍內那則尚未畫
+    sel.paint(rows[1][0])
+    assert len(canvas.find_withtag("sel")) == count
 
 
 def test_highlight_is_drawn_below_the_text(message):
@@ -377,7 +405,7 @@ def test_hit_accounts_for_canvas_scroll(root):
     sel = Selection()
     for n, y in enumerate((0, 100, 200)):
         (only,) = _stack(canvas, [(f"scroll {n}", "#f2f2f7", ui_font(11))], y=y)
-        sel.register(n, (only,))
+        _register(sel, n, (only,))
     win.update()
     x, y = canvas.winfo_rootx() + TEXT_ORIGIN, canvas.winfo_rooty() + 5
 

@@ -128,10 +128,11 @@ class MessageList:
         self._scroll_pending: tuple[tuple[str, int] | None] | None = None
         self._backfill_job: str | None = None
         self._backfill_gen = 0
+        self._idle_jobs: dict[str, str] = {}   # 名稱 → 已排未跑的 after_idle id，元件銷毀時要取消
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
-        self.frame.bind("<Destroy>", lambda e: self._cancel_backfill())
+        self.frame.bind("<Destroy>", lambda e: self._cancel_jobs())
         self._scrollbar = ThinScrollbar(self.frame, command=self._user_scroll)
         self._scrollbar.bind("<MouseWheel>", self.on_wheel)  # 游標壓在捲軸上也能滾
         # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
@@ -208,7 +209,7 @@ class MessageList:
         self._apply_region()
         if follow:
             c.yview_moveto(1.0)
-        self._fill_viewport()
+        self._fill_viewport(log_slow=False)
         # 上一輪還沒補完就再重排（拖拉邊框）算同一輪：同步階段只記第一次，免得每個 Configure 都記
         if view.rewrap_start is None:
             view.rewrap_start = start
@@ -229,6 +230,22 @@ class MessageList:
         if self._backfill_job is not None:
             self.frame.after_cancel(self._backfill_job)
             self._backfill_job = None
+
+    def _after_idle(self, name: str, func) -> None:
+        """把 func 排到 idle；同名的還沒跑就不重複排（跑的時候讀的是當下狀態，跑一次即可）。"""
+        def run():
+            del self._idle_jobs[name]
+            func()
+
+        if name not in self._idle_jobs:
+            self._idle_jobs[name] = self.frame.after_idle(run)
+
+    def _cancel_jobs(self) -> None:
+        """元件銷毀時取消所有已排的工作：留著的話會呼叫到已刪除的 Tcl 命令。"""
+        self._cancel_backfill()
+        for job in self._idle_jobs.values():
+            self.frame.after_cancel(job)
+        self._idle_jobs.clear()
 
     def _backfill_step(self, gen: int) -> None:
         """補畫一批，還有待補就讓出事件迴圈後接續；補完記 log。"""
@@ -291,19 +308,21 @@ class MessageList:
         top, bottom = self._region()
         self._canvas.configure(scrollregion=(0, top, self._canvas.winfo_width(), bottom))
 
-    def _fill_viewport(self) -> None:
+    def _fill_viewport(self, log_slow: bool = True) -> None:
         """視口上下緣離已畫範圍不足一個視口高度就同步補畫（呼叫端都在 Tk 重繪之前）。
 
-        視口原本停在捲動範圍底端就畫到最新一則並貼底；停在頂端或落到內容上方則畫到第一則並貼齊
-        —— 估計高度與實際有落差，不貼的話會停在半途。"""
+        視口原本停在捲動範圍底端就畫到最新一則並貼底；停在頂端就畫到第一則並貼頂；落到內容上方也貼頂
+        —— 估計高度與實際有落差，不貼的話會停在半途。log_slow＝耗時過久時記 log（重排另有自己的 log）。"""
+        start = time.perf_counter()
         view = self._views[self.shown_key]
+        before = view.hi - view.lo
         c = view.canvas
         at_top, at_bottom = c.yview()[0] <= 0, c.yview()[1] >= 1
         while view.records:
             height = c.winfo_height()
             top, bottom = c.canvasy(0) - height, c.canvasy(height) + height
             drew = False
-            while view.lo and line_origin(view.records[view.lo].lines[0])[1] > top:
+            while view.lo and (at_top or line_origin(view.records[view.lo].lines[0])[1] > top):
                 self._draw_up(view)
                 drew = True
             while view.hi < len(view.records) and (
@@ -311,21 +330,17 @@ class MessageList:
                 self._draw_down(view)
                 drew = True
             if not drew:
-                return
+                break
             self._apply_region()
             if at_bottom:
                 c.yview_moveto(1.0)
             elif view.lo == 0 and (at_top or c.canvasy(0) < self._region()[0]):
                 c.yview_moveto(0.0)
-
-    def complete_layout(self) -> None:
-        """把顯示中分頁剩下的訊息全部同步畫完（測試與極端跳轉用）。"""
-        view = self._views[self.shown_key]
-        while view.lo:
-            self._draw_up(view)
-        while view.hi < len(view.records):
-            self._draw_down(view)
-        self._apply_region()
+        ms = (time.perf_counter() - start) * 1000
+        drawn = view.hi - view.lo - before
+        if log_slow and drawn and ms >= _SLOW_RELAYOUT_MS:
+            log(f"[ui] viewport filled (slot={self.shown_key[0]}, tab={self.shown_key[1]}, "
+                f"drawn={drawn}, ms={ms:.0f})")
 
     @staticmethod
     def _top_drawn(view: _View) -> int:
@@ -346,7 +361,7 @@ class MessageList:
         self._fill_viewport()
         # 排到 idle 再貼底，不在事件處理中直接 update_idletasks() —— 那會讓下一個
         # Configure 事件重入本函式；此時排版也尚未完成，量到的高度是舊的。
-        self._canvas.after_idle(self.refresh_scroll)
+        self._after_idle("refresh", self.refresh_scroll)
 
     def on_wheel(self, e) -> None:
         """滾輪捲動（畫布、捲軸與底板的空白處共用）。"""
@@ -538,7 +553,7 @@ class MessageList:
             self._refresh_placeholder()
             if self._scroll_pending is None:
                 self._scroll_pending = (anchor,)
-                self._canvas.after_idle(self._flush_scroll)
+                self._after_idle("flush", self._flush_scroll)
 
     def _flush_scroll(self) -> None:
         """執行 add_message 排好的那一次捲動更新；期間若已有人同步刷新過（含換分頁）就略過。"""
@@ -596,6 +611,7 @@ class MessageList:
         self._follow = True
         # 最新一則沒畫時貼底要把中間全部同步畫完，不如從底部重排
         if view.wrap != self.wrap or view.hi < len(view.records):
+            view.rewrap_start = None   # 隱藏前沒補完的那輪作廢，ms 不該算進隱藏的時間
             self._relayout()
         else:
             self._schedule_backfill(_BACKFILL_DELAY_MS)
@@ -651,6 +667,15 @@ class MessageList:
             self._placeholder.lift()
 
     # --- 測試/除錯輔助 ---
+    def complete_layout(self) -> None:
+        """把顯示中分頁剩下的訊息全部同步畫完（測試用）。"""
+        view = self._views[self.shown_key]
+        while view.lo:
+            self._draw_up(view)
+        while view.hi < len(view.records):
+            self._draw_down(view)
+        self._apply_region()
+
     def visible_messages(self) -> list[tuple[str, str]]:
         return [(m.original, m.translated) for m in self._messages]
 

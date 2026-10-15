@@ -1,5 +1,5 @@
 """分頁切換與新增訊息的效能門檻：走正式的 `OverlayWindow` 路徑（停在螢幕外），不 mock 畫布。"""
-import _tkinter
+import gc
 import statistics
 import time
 
@@ -7,6 +7,7 @@ import pytest
 
 from src.reader.chat_tabs import TabState
 from src.ui.overlay import OverlayWindow
+from tests.tk_helpers import settle_events
 
 pytestmark = pytest.mark.xdist_group("overlay-perf")
 
@@ -28,11 +29,7 @@ def _settle(ov):
 
 def _resize(ov, width):
     ov._apply_geometry(10000, 10000, width, 300)
-    # 頂層視窗改尺寸後的 <Configure> 是視窗事件，idle 佇列送不到畫布；不跑計時器，背景補畫不算進同步部分
-    ov._win.update_idletasks()
-    while ov._win.tk.dooneevent(_tkinter.WINDOW_EVENTS | _tkinter.DONT_WAIT):
-        pass
-    ov._win.update_idletasks()
+    settle_events(ov._win, rounds=1)   # 不跑計時器：背景補畫不算進同步部分
 
 
 def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
@@ -81,9 +78,13 @@ def test_the_synchronous_part_of_a_resize_is_independent_of_message_count(root):
     _switch(large, 1)
 
     def cpu(ov, width):
+        view = ov._list._views[ov._list.shown_key]
+        wrap = view.wrap
         start = time.process_time()
         _resize(ov, width)
-        return time.process_time() - start
+        elapsed = time.process_time() - start
+        assert view.wrap != wrap, "前置條件：每次縮放都要真的重排"
+        return elapsed
 
     pairs = [(cpu(small, w), cpu(large, w)) for w in (240, 460, 240, 460, 240)]
     t1000 = statistics.median(p[1] for p in pairs)
@@ -97,10 +98,15 @@ def test_each_backfill_batch_stays_short(root):
     _switch(ov, 1)
     _resize(ov, 240)
     batches = []
-    while True:
-        start = time.process_time()
-        more = ov._list._backfill_once()
-        batches.append(time.process_time() - start)
-        if not more:
-            break
+    gc.disable()   # 回收一次大量物件的停頓會落在某一批裡，與補畫本身無關
+    try:
+        while True:
+            start = time.process_time()
+            more = ov._list._backfill_once()
+            batches.append(time.process_time() - start)
+            if not more:
+                break
+    finally:
+        gc.enable()
+    assert len(batches) > 1, "前置條件：要分成多批"
     assert max(batches) <= 0.060, max(batches)

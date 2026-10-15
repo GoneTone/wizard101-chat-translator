@@ -5,7 +5,6 @@
 逐行問 Tk「這個座標是第幾個字元」即可還原排版。行內座標一律以行原點為 (0, 0)。
 """
 import tkinter.font as tkfont
-from collections.abc import Sequence
 from typing import NamedTuple
 
 from src.log import log
@@ -125,10 +124,6 @@ class Selection:
     def dragging(self) -> bool:
         """目前是否正在拖曳選取（拖曳期間畫面不該自動貼底）。"""
         return self._dragging
-
-    def register(self, row, lines: Sequence[Line]) -> None:
-        """登記一則已畫出的訊息（行由上而下）。"""
-        self._rows[row] = Row(tuple(line_text(line) for line in lines), tuple(lines))
 
     def use_rows(self, rows: dict) -> None:
         """清除選取，改用呼叫端持有的 dict 當登記表（換顯示中的分頁時用）。"""
