@@ -1,10 +1,13 @@
+import time
+
 import pytest
 
+import src.ui.message_list as message_list_module
 from src.i18n import t
 from src.reader.chat_tabs import TabState
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
-from src.ui.message_list import should_stick_to_bottom
+from src.ui.message_list import _ROW_PAD, _row_bottom, should_stick_to_bottom
 from src.ui.outlined_text import line_height, line_origin
 from src.ui.overlay import (
     _GRIP_SIZE,
@@ -17,8 +20,9 @@ from src.ui.overlay import (
     OverlayWindow,
     autoscroll_pixels,
 )
-from src.ui.selection import TEXT_ORIGIN, Selection, line_font, visual_lines
+from src.ui.selection import TEXT_ORIGIN, Caret, Selection, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
+from tests.tk_helpers import settle_events
 
 
 def test_is_click_within_threshold():
@@ -42,6 +46,7 @@ def test_resize_updates_existing_message_wraplength(root):
         width = 240
 
     ov._list._on_canvas_configure(FakeEvent())
+    ov._list.complete_layout()
     expected = max(80, 240 - 12)
     for entry in ov._list._messages:
         for line in entry.lines:
@@ -861,7 +866,7 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     ov._list._on_canvas_configure(FakeEvent())
     ov._win.update_idletasks()
 
-    first, second = ov._list._messages[0].lines   # 換行寬度一變整個分頁重畫，行要重新取
+    first, second = ov._list._messages[0].lines   # 換行寬度一變就刪掉重畫，行要重新取
     canvas = first.canvas
     rects = [i for i in canvas.find_withtag("sel")
              if canvas.coords(i)[1] < line_origin(second)[1]]   # 只取原文行的反白
@@ -908,6 +913,7 @@ def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
     for i in range(20):
         ov.add_message(f"原文{i}", f"譯文{i}")
     ov._win.update()
+    ov._list.complete_layout()   # 首次 <Configure> 改了換行寬度、只重排視口附近，第一則可能還沒畫
     hidden_top, hidden_bottom = ov._list._messages[0].lines
     x, top, height = _line_box(hidden_top)
     assert top < ov._list._canvas.winfo_rooty(), \
@@ -1501,6 +1507,7 @@ def test_resize_while_hidden_rewraps_on_show(root):
     root.update()
     assert ov._list.wrap != old, "前置條件：縮放應該改變換行寬度"
     ov.set_tabs(1, _bar_state(1))
+    ov._list.complete_layout()
     assert line_height(ov._list._messages[0].lines[0]) > before, \
         "前置條件：原文行應該多換一行，下方內容才需要移動"
     for m in ov._list._messages:
@@ -1569,25 +1576,21 @@ def test_switching_views_keeps_each_views_canvas(root):
 
 
 def test_rewrap_between_taking_and_restoring_the_anchor_keeps_the_view(root):
-    # refresh_scroll 的 update_idletasks() 可能剛好送來改變寬度的 <Configure>，整頁重畫後錨點仍要對得回去
+    # refresh_scroll 的 update_idletasks() 可能剛好送來改變寬度的 <Configure>，重排後錨點仍要對得回去
     ov = _filled_overlay(root)
     _scroll_up(ov)
     root.update()
-    newest = ov._list._messages[-1].msg_id
     anchor = ov._list._view_anchor()
-    before = _row_offset(ov, newest)
+    tag, offset = anchor
 
-    class FakeEvent:
-        width = 420
-
-    ov._list._on_canvas_configure(FakeEvent())
+    _configure_width(ov, 420)
     ov._list.refresh_scroll(anchor)
 
-    assert _row_offset(ov, newest) == before
+    assert _offset_of(ov, tag) == offset
 
 
 def test_resizing_with_a_selection_does_not_grow_the_font_cache(root):
-    # 重排會重畫每一行；字型快取若以行為鍵，每次縮放都會多留下一批 Tcl 字型
+    # 重排會重畫行；字型快取若以行為鍵，每次縮放都會多留下一批 Tcl 字型
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=10, fade_seconds=0)
     ov.add_message("原文一" * 10, "譯文一" * 10)
     _select_whole_message(ov)
@@ -1649,6 +1652,344 @@ def test_showing_a_stale_tab_rewraps_it_before_it_is_visible(root):
 
     ov._list._on_canvas_configure(FakeEvent())   # 分頁 1 隱藏中，實際畫布寬度不變
     ov.set_tabs(1, _bar_state(1))
+    ov._list.complete_layout()
     for m in ov._list._messages:
         for line in m.lines:
             assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap
+
+
+class _Wheel:
+    """假的滾輪事件（只用到 delta）。"""
+
+    def __init__(self, delta):
+        self.delta = delta
+
+
+def _configure_width(ov, width):
+    """送一個指定寬度的假 <Configure> 給顯示中的畫布。"""
+    class FakeEvent:
+        pass
+
+    FakeEvent.width = width
+    ov._list._on_canvas_configure(FakeEvent())
+
+
+def _long_overlay(root, n, fade_seconds=0):
+    """n 則長度不一、會換行的中英文訊息（第 i 則的時刻為 i），視圖停在最底。"""
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n,
+                       fade_seconds=fade_seconds)
+    for i in range(n):
+        ov.add_message(f"message {i}: " + "wizard chat line " * (1 + i % 6),
+                       f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4), now=float(i), msg_id=i)
+    ov._win.update()
+    return ov
+
+
+def _layout(ov):
+    """每則兩行相對第一則的 y 偏移、行高與換行寬度。"""
+    messages = ov._list._messages
+    base = line_origin(messages[0].lines[0])[1]
+    return [(line_origin(line)[1] - base, line_height(line),
+             line.canvas.itemcget(line.fg, "width"))
+            for m in messages for line in m.lines]
+
+
+def _fresh_overlay_with_same_messages(root, ov, wrap):
+    """以 wrap 一次全部畫出 ov 現有訊息的新 overlay。"""
+    messages = ov._list._messages
+    fresh = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                          max_messages=len(messages) + 1, fade_seconds=0)
+    fresh._win.update()
+    _configure_width(fresh, wrap + 12)
+    for m in messages:
+        fresh.add_message(m.original, m.translated, msg_id=m.msg_id)
+    assert fresh._list.wrap == wrap
+    return fresh
+
+
+def _offset_of(ov, tag):
+    """tag 那則的列頂相對視口頂端的偏移。"""
+    m = next(m for m in ov._list._messages if m.tag == tag)
+    return round(line_origin(m.lines[0])[1]) - int(ov._list._canvas.canvasy(0))
+
+
+def _covered(ov) -> bool:
+    """視口範圍內沒有未畫的區域。"""
+    ml, view = ov._list, ov._list._views[ov._list.shown_key]
+    top, bottom = ml._canvas.canvasy(0), ml._canvas.canvasy(ml._canvas.winfo_height())
+    first, last = view.records[view.lo], view.records[view.hi - 1]
+    return ((view.lo == 0 or line_origin(first.lines[0])[1] <= top)
+            and (view.hi == len(view.records) or _row_bottom(last) >= bottom))
+
+
+def test_resize_draws_only_the_viewport_then_completes_identically(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    view = ov._list._views[ov._list.shown_key]
+    assert view.hi == 120 and view.hi - view.lo < 30
+    assert _covered(ov)
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_wheeling_up_after_a_resize_never_shows_a_gap(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    for _ in range(400):
+        ov._list.on_wheel(_Wheel(delta=120))
+        assert _covered(ov)
+
+
+def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    ov._list._user_scroll("moveto", 0.0)
+    ov._win.update_idletasks()
+    first = ov._list._messages[0]
+    assert first.lines and round(line_origin(first.lines[0])[1]) - ov._list._canvas.canvasy(0) == _ROW_PAD
+
+
+def test_taller_window_during_partial_layout_shows_no_gap(root):
+    ov = _long_overlay(root, 120)
+    ov._apply_geometry(10000, 10000, 312, 300)
+    settle_events(ov._win)
+    assert _view(ov).lo > 0, "前置條件：跟隨底部的部分排版"
+    seen = []
+    # 記下 <Configure> 處理完當下（重繪之前）的覆蓋狀態，排在 idle 的補救來不及
+    ov._list._canvas.bind("<Configure>", lambda e: seen.append((e.height, _covered(ov))), add="+")
+    ov._apply_geometry(10000, 10000, 312, 900)
+    settle_events(ov._win)
+    assert seen and seen[-1] == (ov._list._canvas.winfo_height(), True)
+    assert seen[-1][0] > 600
+
+
+def test_resizing_an_empty_view_logs_nothing(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)   # 有訊息的話一定會記
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    _configure_width(ov, 240)
+    assert not [line for line in logged if "relaid out" in line or "rewrapped" in line]
+
+
+def test_a_slow_viewport_fill_is_logged_but_not_inside_a_relayout(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)   # 有補畫的話一定會記
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    assert not [line for line in logged if "viewport filled" in line]   # 重排另有自己的 log
+    ov._list._user_scroll("moveto", 0.0)
+    assert [line for line in logged if "viewport filled" in line]
+
+
+def test_follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    ov._win.update_idletasks()
+    assert ov._list._canvas.yview()[1] == 1.0
+
+
+def test_reading_history_keeps_the_viewport_top_message_in_place_on_resize(root):
+    ov = _long_overlay(root, 120)
+    ov._list._user_scroll("moveto", 0.5)
+    ov._win.update()
+    tag, offset = ov._list._view_anchor()
+    assert 0 <= offset < ov._list._canvas.winfo_height(), "前置條件：錨點那則要在視口內"
+    _configure_width(ov, 300)
+    ov._win.update_idletasks()
+    assert abs(_offset_of(ov, tag) - offset) <= 1
+
+
+def test_updates_trims_and_adds_during_partial_layout_match_a_full_redraw(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    ov.update_message(ov._list._messages[5].msg_id, "補上的長譯文" * 20)
+    ov.update_message(ov._list._messages[-1].msg_id, "補上的長譯文" * 20)
+    ov.add_message("新來的", "擠掉最舊一則")
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_dragging_the_scrollbar_to_the_bottom_lands_on_the_newest_message(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=300, fade_seconds=0)
+    for i in range(300):
+        ov.add_message(f"wizard chat line number {i}", f"第 {i} 則一行放得下的譯文", msg_id=i)
+    ov._win.update()
+    ov._list.complete_layout()
+    ov._list._user_scroll("moveto", 0.3)
+    _configure_width(ov, 140)   # 變窄：單行訊息變多行，下方待補的估計高度偏低
+    assert ov._list._views[ov._list.shown_key].hi < 300, "前置條件：最新一則還沒畫"
+    ov._list._user_scroll("moveto", 1.0)
+    ov._win.update_idletasks()
+    assert ov._list._views[ov._list.shown_key].hi == 300
+    assert ov._list._canvas.yview()[1] == 1.0
+    assert _covered(ov)
+
+
+def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message_when_estimates_are_low(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=120, fade_seconds=0)
+    for i in range(120):
+        ov.add_message(f"wizard chat line number {i}", f"第 {i} 則一行放得下的譯文", msg_id=i)
+    ov._win.update()
+    ov._list.complete_layout()
+    ov._list._user_scroll("moveto", 0.7)
+    _configure_width(ov, 140)   # 變窄：單行訊息變多行，上方待補的估計高度偏低
+    assert _view(ov).lo > 0, "前置條件：第一則還沒畫"
+    ov._list._user_scroll("moveto", 0.0)
+    ov._win.update_idletasks()
+    assert _view(ov).lo == 0
+    assert ov._list._canvas.yview()[0] == 0.0
+    assert _covered(ov)
+
+
+def test_pruning_the_whole_drawn_range_during_partial_layout_matches_a_full_redraw(root):
+    ov = _long_overlay(root, 120, fade_seconds=60)
+    ov._list._user_scroll("moveto", 0.3)
+    _configure_width(ov, 300)
+    view = ov._list._views[ov._list.shown_key]
+    assert view.lo > 0 and view.hi < 110, "前置條件：已畫範圍在中段"
+    hi = view.hi
+    ov.prune(now=hi + 5 + 60)   # 時刻 ≤ hi + 5 的全部淡出，已畫範圍整段移光
+    assert len(view.records) == 120 - (hi + 6)
+    assert view.lo == 0 and view.hi > view.lo and _covered(ov)
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def _view(ov):
+    """顯示中的分頁。"""
+    return ov._list._views[ov._list.shown_key]
+
+
+def _pump(root, seconds):
+    """跑事件迴圈 seconds 秒（背景補畫靠 after 排程推進）。"""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+
+
+def _pump_until(root, condition, timeout):
+    """跑事件迴圈直到 condition 成立，逾時就失敗。"""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            pytest.fail(f"condition not met within {timeout}s")
+        root.update()
+        time.sleep(0.01)
+
+
+def _long_overlay_with_two_clients(root, n):
+    """slot 1、2 各一個分頁、各 n 則會換行的訊息，前景停在 slot 1（它的訊息全部畫完）。"""
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n, fade_seconds=0)
+    for slot in (1, 2):
+        ov.set_tabs(slot, TabState(0, ((0, "Main"),)))
+    # 兩個畫布都先排版過：之後切換不會再收到改寬度的 <Configure>
+    for slot in (2, 1):
+        for i in range(n):
+            ov.add_message(f"slot {slot} message {i}: " + "wizard chat line " * (1 + i % 6),
+                           f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4),
+                           slot=slot, tabs=(0,))
+        ov.set_foreground_slot(slot)
+        ov._win.update()
+    ov._list.complete_layout()
+    return ov
+
+
+def test_background_backfill_completes_without_further_input(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 120, timeout=60)
+    assert ov._list._canvas.yview()[1] == 1.0                # 往上補畫時仍貼底
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_only_the_last_width_of_a_drag_is_backfilled(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)
+    # 拖拉總長（1 秒）超過靜止判定，每段間隔（0.25 秒）遠短於它：沒取消的話第一輪會在拖拉中開跑
+    monkeypatch.setattr(message_list_module, "_BACKFILL_DELAY_MS", 600)
+    ov = _long_overlay(root, 120)
+    for width in (420, 380, 340, 300):
+        _configure_width(ov, width)
+        lo = _view(ov).lo
+        _pump(root, seconds=0.25)
+        assert _view(ov).lo == lo                       # 寬度還在變（間隔短於靜止判定），不補畫
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 120, timeout=60)
+    for m in ov._list._messages:
+        for line in m.lines:
+            assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap
+    rewrapped = [line for line in logged if "view rewrapped" in line]
+    assert len(rewrapped) == 1 and f"wrap={ov._list.wrap}," in rewrapped[0], rewrapped
+    assert len([line for line in logged if "relaid out" in line]) == 1   # 拖拉中只記一次同步階段
+
+
+def test_one_event_loop_pass_runs_one_backfill_batch(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    start = _view(ov).lo
+    _pump_until(root, lambda: _view(ov).lo < start, timeout=60)
+    # 批與批之間經 idle 讓出事件迴圈（重繪）；直接 after(1) 的話一次 update() 就會全部補完
+    assert _view(ov).lo > 0
+
+
+def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
+    ov = _long_overlay_with_two_clients(root, 120)
+    _configure_width(ov, 300)
+    start = _view(ov).lo
+    ov._list._backfill_once()                          # 先補一點，才分得出「沿用」與「重排」
+    lo = _view(ov).lo
+    assert 0 < lo < start
+    ov.set_foreground_slot(2)
+    _pump(root, seconds=0.5)
+    ov.set_foreground_slot(1)
+    assert _view(ov).lo == lo and _covered(ov)         # 隱藏期間沒補；切回沿用已畫範圍
+    _pump_until(root, lambda: _view(ov).lo == 0, timeout=60)
+
+
+def test_switching_back_to_a_view_whose_newest_message_is_undrawn_relays_it_out(root):
+    ov = _long_overlay_with_two_clients(root, 120)
+    _scroll_up(ov, 0.2)
+    _configure_width(ov, 300)                            # 錨點在上方，最新一則還沒畫
+    assert _view(ov).hi < 120
+    ov.set_foreground_slot(2)
+    ov.set_foreground_slot(1)
+    ov._win.update_idletasks()
+    assert _view(ov).hi == 120 and _covered(ov) and ov._list._canvas.yview()[1] == 1.0
+    assert _view(ov).hi - _view(ov).lo < 30              # 從底部重排，而非把中間全部同步畫完
+
+
+def test_autoscrolling_a_selection_into_the_undrawn_area_keeps_it_on_the_same_text(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    sel = ov._selection
+    sel._anchor, sel._focus = Caret(80, 0, 0), Caret(119, 1, 3)   # 選取大半在未畫區
+    sel.redraw()
+    before = sel.text()
+    canvas = ov._list._canvas
+    for _ in range(300):
+        ov._list.scroll_by(-40)                          # 框選拖到上緣時的自動捲動路徑
+        assert _covered(ov) and sel.text() == before
+        view = _view(ov)
+        for m in view.records[max(80, view.lo):view.hi]:
+            top, bottom = line_origin(m.lines[0])[1], _row_bottom(m)
+            assert [i for i in canvas.find_withtag("sel")
+                    if top <= canvas.coords(i)[1] < bottom], m.original
+        if view.lo < 75:
+            break
+    assert _view(ov).lo < 75
+
+
+def test_destroying_the_overlay_cancels_its_pending_work(root):
+    ov = _long_overlay(root, 120)
+    _configure_width(ov, 300)
+    root.tk.eval("set ::bg_errors {}; proc bgerror msg {lappend ::bg_errors $msg}")
+    try:
+        ov._win.destroy()
+        _pump(root, seconds=0.3)
+        errors = root.tk.splitlist(root.tk.eval("set ::bg_errors"))
+    finally:
+        root.tk.eval("rename bgerror {}")
+    assert not errors   # 已排的工作呼叫到已刪除的 Tcl 命令
