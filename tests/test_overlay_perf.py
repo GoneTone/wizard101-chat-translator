@@ -39,14 +39,15 @@ def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
 
 
 def _switch(ov, tab):
-    start = time.perf_counter()
+    """切到 tab 花的本程序 CPU 時間；牆鐘會算進平行 worker 搶 CPU 的等待。"""
+    start = time.process_time()
     ov.set_tabs(1, TabState(tab, TABS.tabs))
     _settle(ov)
-    return time.perf_counter() - start
+    return time.process_time() - start
 
 
 def test_switching_tabs_is_independent_of_message_count(root):
-    """兩分頁各 1000 則，來回切換的中位數 ≤ 0.1 秒。"""
+    """兩分頁各 1000 則，來回切換的中位數 ≤ 0.1 秒（CPU）。"""
     ov = _overlay(root)
     _fill(ov)
     times = [_switch(ov, (i + 1) % 2) for i in range(5)]

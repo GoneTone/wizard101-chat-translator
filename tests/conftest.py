@@ -10,8 +10,11 @@
   換成無操作，避免 `InputBox.show()`／`_destroy()` 與
   `single_instance.focus_running_instance` 在測試途中把遊戲踢到背景。
 """
+import ast
 import gc
+import importlib
 import tkinter as tk
+from pathlib import Path
 
 import pytest
 
@@ -88,25 +91,36 @@ def _park_windows(request):
         tk.Wm.wm_geometry, tk.Wm.geometry = original_wm, original_geo
 
 
+def _modules_binding_force_foreground() -> list[str]:
+    """src 底下把 `force_foreground` 綁進自己命名空間的模組（含定義它的 composer.paste）。
+
+    掃原始碼而不是手動列清單：新模組 import 它卻忘了登記，測試就會真的去搶遊戲前景，
+    而且不會有任何錯誤提醒。"""
+    root = Path(__file__).resolve().parents[1]
+    found = {"src.composer.paste"}
+    for path in (root / "src").rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if any(isinstance(node, ast.ImportFrom)
+               and any(alias.name == "force_foreground" for alias in node.names)
+               for node in ast.walk(tree)):
+            parts = path.relative_to(root).with_suffix("").parts
+            found.add(".".join(parts[:-1] if parts[-1] == "__init__" else parts))
+    return sorted(found)
+
+
+FOREGROUND_MODULES = _modules_binding_force_foreground()
+
+
 @pytest.fixture(autouse=True)
 def _keep_foreground():
     """把 `force_foreground` 換成無操作，避免測試搶走遊戲的 Windows 前景。
 
     不用 monkeypatch fixture，理由同 `_park_windows`：手動存還原，逐一覆寫
-    在 import 當下就把名稱綁進自己命名空間的六個模組（`from ... import
-    force_foreground`），而不是只改定義處的 `src.composer.paste` —— 否則已經
-    綁定的名稱不會跟著變。測試自己 `monkeypatch.setattr(..., "force_foreground", ...)`
-    時後蓋前，不受影響。
+    在 import 當下就把名稱綁進自己命名空間的模組（`FOREGROUND_MODULES`），而不是只改
+    定義處的 `src.composer.paste` —— 否則已經綁定的名稱不會跟著變。測試自己
+    `monkeypatch.setattr(..., "force_foreground", ...)` 時後蓋前，不受影響。
     """
-    import src.composer.paste as paste_module
-    import src.runtime.single_instance as single_instance_module
-    import src.ui.input_box as input_box_module
-    import src.ui.region.flow as region_flow_module
-    import src.ui.region.select as region_select_module
-    import src.ui.settings.form as settings_form_module
-
-    modules = (paste_module, single_instance_module, input_box_module, region_select_module,
-              region_flow_module, settings_form_module)
+    modules = [importlib.import_module(name) for name in FOREGROUND_MODULES]
     originals = [m.force_foreground for m in modules]
 
     def _noop(hwnd):
