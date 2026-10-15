@@ -1,13 +1,14 @@
 """overlay 的訊息列表：每個（客戶端, 分頁）一個畫布、細捲軸與空狀態提示。
 
 訊息依（客戶端, 分頁）分開保存，各自直接畫成自己畫布上的文字物件，切分頁只換顯示中的
-畫布；換行寬度改變後只重畫視口附近，其餘捲到時才補畫。負責訊息的繪製／就地更新／移除、
+畫布；換行寬度改變後只同步重畫視口附近，其餘在背景分批補畫、捲到時先補。負責訊息的繪製／就地更新／移除、
 訊息上限與淡出，以及捲動帳目：黏在底部時新訊息自動跟到底，往上讀歷史時不被搶走，
 內容變動前取錨、變動後復位。框選、右鍵選單與泡泡未讀數不在這裡 —— OverlayWindow 透過
 `selection` 與 `bind_line` 接手。
 """
 import bisect
 import itertools
+import math
 import time
 import tkinter as tk
 from dataclasses import dataclass, field
@@ -39,6 +40,8 @@ from src.ui.thin_scrollbar import ThinScrollbar
 _STICK_THRESHOLD = 0.999
 _ROW_PAD = 2   # 每則訊息上下各留的間距（列與列之間共 4px）
 _SLOW_RELAYOUT_MS = 50
+_BACKFILL_BUDGET = 0.020   # 秒
+_BACKFILL_DELAY_MS = 150
 
 
 def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
@@ -82,13 +85,14 @@ class _Message(NamedTuple):
 @dataclass
 class _View:
     """一個（客戶端, 分頁）的訊息：畫布、記錄、選取登記表、排版時用的換行寬度，
-    以及已畫範圍 `records[lo:hi]`（範圍外的記錄沒有文字物件）。"""
+    已畫範圍 `records[lo:hi]`（範圍外的記錄沒有文字物件），以及進行中那輪重排的開始時刻（沒有則 None）。"""
     canvas: tk.Canvas
     wrap: int
     records: list[_Message] = field(default_factory=list)
     rows: dict = field(default_factory=dict)
     lo: int = 0
     hi: int = 0
+    rewrap_start: float | None = None
 
 
 def _row_bottom(m: _Message) -> float:
@@ -122,9 +126,12 @@ class MessageList:
         self._follow = True
         # 同一輪事件內連續新增只排一次捲動更新；值是第一則新增前的錨點（包成 tuple，錨點本身可能是 None）
         self._scroll_pending: tuple[tuple[str, int] | None] | None = None
+        self._backfill_job: str | None = None
+        self._backfill_gen = 0
 
         self.frame = tk.Frame(parent, bg=BG)
         self.frame.pack(side="top", fill="both", expand=True)
+        self.frame.bind("<Destroy>", lambda e: self._cancel_backfill())
         self._scrollbar = ThinScrollbar(self.frame, command=self._user_scroll)
         self._scrollbar.bind("<MouseWheel>", self.on_wheel)  # 游標壓在捲軸上也能滾
         # 底部讓出縮放把手的高度：把手 place 在視窗右下角，捲軸鋪到底會被它壓住
@@ -166,15 +173,17 @@ class MessageList:
 
     # --- 排版 ---
     def _relayout(self) -> None:
-        """以目前的換行寬度重排顯示中的分頁：刪掉全部文字物件，從錨點同步只畫視口所需，其餘待補。
+        """以目前的換行寬度重排顯示中的分頁：刪掉全部文字物件，從錨點同步只畫視口所需，其餘排背景補畫。
 
         錨點：跟隨底部時是最新一則（底緣留在原本的內容底緣），否則是視口頂端那則（列頂不動）。"""
         start = time.perf_counter()
+        self._cancel_backfill()
         key = self.shown_key
         view = self._views[key]
         view.wrap = self.wrap
         records = view.records
         if not records:
+            view.rewrap_start = None
             return
         follow = self._follow
         if follow:
@@ -200,10 +209,66 @@ class MessageList:
         if follow:
             c.yview_moveto(1.0)
         self._fill_viewport()
-        ms = (time.perf_counter() - start) * 1000
-        if ms >= _SLOW_RELAYOUT_MS:
-            log(f"[ui] view relaid out (slot={key[0]}, tab={key[1]}, drawn={view.hi - view.lo}, "
-                f"messages={len(records)}, wrap={self.wrap}, ms={ms:.0f})")
+        # 上一輪還沒補完就再重排（拖拉邊框）算同一輪：同步階段只記第一次，免得每個 Configure 都記
+        if view.rewrap_start is None:
+            view.rewrap_start = start
+            ms = (time.perf_counter() - start) * 1000
+            if ms >= _SLOW_RELAYOUT_MS:
+                log(f"[ui] view relaid out (slot={key[0]}, tab={key[1]}, drawn={view.hi - view.lo}, "
+                    f"messages={len(records)}, wrap={self.wrap}, ms={ms:.0f})")
+        self._schedule_backfill(_BACKFILL_DELAY_MS)
+
+    def _schedule_backfill(self, delay_ms: int) -> None:
+        """delay_ms 後開始為顯示中分頁背景補畫；先前排的一併作廢。"""
+        self._cancel_backfill()
+        self._backfill_job = self.frame.after(delay_ms, self._backfill_step, self._backfill_gen)
+
+    def _cancel_backfill(self) -> None:
+        """取消已排的背景補畫（換行寬度又變、切走分頁、元件銷毀時）。"""
+        self._backfill_gen += 1
+        if self._backfill_job is not None:
+            self.frame.after_cancel(self._backfill_job)
+            self._backfill_job = None
+
+    def _backfill_step(self, gen: int) -> None:
+        """補畫一批，還有待補就讓出事件迴圈後接續；補完記 log。"""
+        self._backfill_job = None
+        if gen != self._backfill_gen:
+            return
+        if self._backfill_once():
+            # 經 idle 再排計時：批次耗時比 1 ms 長，直接 after(1) 會一直到期，Tk 的重繪（idle）輪不到
+            self._backfill_job = self.frame.after_idle(self._schedule_backfill, 1)
+            return
+        view = self._views[self.shown_key]
+        if view.rewrap_start is not None and view.records:
+            ms = (time.perf_counter() - view.rewrap_start) * 1000
+            log(f"[ui] view rewrapped (slot={self.shown_key[0]}, tab={self.shown_key[1]}, "
+                f"messages={len(view.records)}, wrap={view.wrap}, ms={ms:.0f})")
+        view.rewrap_start = None
+
+    def _backfill_once(self) -> bool:
+        """為顯示中分頁補畫一批（約 `_BACKFILL_BUDGET` 秒、至少一則），離視口近的先補；回傳是否還有待補。"""
+        view = self._views[self.shown_key]
+        records = view.records
+        c = view.canvas
+        middle = c.canvasy(c.winfo_height() / 2)
+        start = time.perf_counter()
+        drawn = 0
+        while view.lo or view.hi < len(records):
+            above = middle - line_origin(records[view.lo].lines[0])[1] if view.lo else math.inf
+            below = _row_bottom(records[view.hi - 1]) - middle if view.hi < len(records) else math.inf
+            if above <= below:
+                self._draw_up(view)
+            else:
+                self._draw_down(view)
+            drawn += 1
+            elapsed = time.perf_counter() - start
+            # 照本批平均每則耗時預估，再畫一則會超出預算就先停，而非超出後才停
+            if elapsed + elapsed / drawn >= _BACKFILL_BUDGET:
+                break
+        if drawn:
+            self._apply_region()
+        return bool(view.lo or view.hi < len(records))
 
     def _estimate(self, m: _Message) -> float:
         """不排版的估計高度：多行訊息依換行寬度比例放大，單行與沒畫過的以兩種字型各一行計。"""
@@ -515,9 +580,12 @@ class MessageList:
                 break
 
     def show(self, key: ViewKey) -> None:
-        """換成顯示 key 那個分頁的畫布（已畫好的直接沿用），捲動回到跟隨底部。"""
+        """換成顯示 key 那個分頁的畫布，捲動回到跟隨底部。
+
+        已畫範圍含最新一則且換行寬度沒變就沿用並恢復背景補畫，否則從底部重排。"""
         if key == self.shown_key:
             return
+        self._cancel_backfill()
         self._selection.clear("view switched")
         old = self._canvas
         old.pack_forget()
@@ -526,8 +594,11 @@ class MessageList:
         view = self._view(key)
         self._attach(view)
         self._follow = True
-        if view.wrap != self.wrap:
+        # 最新一則沒畫時貼底要把中間全部同步畫完，不如從底部重排
+        if view.wrap != self.wrap or view.hi < len(view.records):
             self._relayout()
+        else:
+            self._schedule_backfill(_BACKFILL_DELAY_MS)
         self._refresh_placeholder()
         self.refresh_scroll()
         log(f"[ui] view switched (slot={key[0]}, tab={key[1]}, "

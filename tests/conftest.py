@@ -117,3 +117,13 @@ def _keep_foreground():
     finally:
         for m, original in zip(modules, originals, strict=True):
             m.force_foreground = original
+
+
+@pytest.fixture(autouse=True)
+def _destroy_test_windows(request):
+    """測試結束後銷毀它在共用 root 底下開的視窗，排在 after 的背景補畫才不會漏到之後的測試裡跑。"""
+    root = request.getfixturevalue("root") if "root" in request.fixturenames else None
+    yield
+    if root is not None:
+        for widget in root.winfo_children():
+            widget.destroy()

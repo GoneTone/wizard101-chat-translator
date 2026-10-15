@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 import src.ui.message_list as message_list_module
@@ -1819,3 +1821,120 @@ def test_pruning_the_whole_drawn_range_during_partial_layout_matches_a_full_redr
     assert view.lo == 0 and view.hi > view.lo and _covered(ov)
     ov._list.complete_layout()
     assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def _view(ov):
+    """顯示中的分頁。"""
+    return ov._list._views[ov._list.shown_key]
+
+
+def _pump(root, seconds):
+    """跑事件迴圈 seconds 秒（背景補畫靠 after 排程推進）。"""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        root.update()
+        time.sleep(0.01)
+
+
+def _pump_until(root, condition, timeout):
+    """跑事件迴圈直到 condition 成立，逾時就失敗。"""
+    deadline = time.monotonic() + timeout
+    while not condition():
+        if time.monotonic() > deadline:
+            pytest.fail(f"condition not met within {timeout}s")
+        root.update()
+        time.sleep(0.01)
+
+
+def _long_overlay_with_two_clients(root, n):
+    """slot 1、2 各一個分頁、各 n 則會換行的訊息，前景停在 slot 1（它的訊息全部畫完）。"""
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n, fade_seconds=0)
+    for slot in (1, 2):
+        ov.set_tabs(slot, TabState(0, ((0, "Main"),)))
+    # 兩個畫布都先排版過：之後切換不會再收到改寬度的 <Configure>
+    for slot in (2, 1):
+        for i in range(n):
+            ov.add_message(f"slot {slot} message {i}: " + "wizard chat line " * (1 + i % 6),
+                           f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4),
+                           slot=slot, tabs=(0,))
+        ov.set_foreground_slot(slot)
+        ov._win.update()
+    ov._list.complete_layout()
+    return ov
+
+
+def test_background_backfill_completes_without_further_input(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 300, timeout=60)
+    assert ov._list._canvas.yview()[1] == 1.0                # 往上補畫時仍貼底
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_only_the_last_width_of_a_drag_is_backfilled(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)
+    ov = _long_overlay(root, 300)
+    for width in (420, 380, 340, 300):
+        _configure_width(ov, width)
+        lo = _view(ov).lo
+        _pump(root, seconds=0.1)
+        assert _view(ov).lo == lo                       # 寬度還在變（間隔 < 150 ms），不補畫
+    _pump_until(root, lambda: _view(ov).lo == 0 and _view(ov).hi == 300, timeout=60)
+    for m in ov._list._messages:
+        for line in m.lines:
+            assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap
+    rewrapped = [line for line in logged if "view rewrapped" in line]
+    assert len(rewrapped) == 1 and f"wrap={ov._list.wrap}," in rewrapped[0], rewrapped
+    assert len([line for line in logged if "relaid out" in line]) == 1   # 拖拉中只記一次同步階段
+
+
+def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
+    ov = _long_overlay_with_two_clients(root, 300)
+    _configure_width(ov, 300)
+    start = _view(ov).lo
+    _pump_until(root, lambda: _view(ov).lo < start, timeout=60)   # 先補一點，才分得出「沿用」與「重排」
+    lo = _view(ov).lo
+    assert lo > 0, "一次 update() 只該跑一批：批與批之間要讓出事件迴圈"
+    ov.set_foreground_slot(2)
+    _pump(root, seconds=0.5)
+    ov.set_foreground_slot(1)
+    assert _view(ov).lo == lo and _covered(ov)         # 隱藏期間沒補；切回沿用已畫範圍
+    _pump_until(root, lambda: _view(ov).lo == 0, timeout=60)
+
+
+def test_switching_back_to_a_view_whose_newest_message_is_undrawn_relays_it_out(root):
+    ov = _long_overlay_with_two_clients(root, 300)
+    _scroll_up(ov, 0.2)
+    _configure_width(ov, 300)                            # 錨點在上方，最新一則還沒畫
+    assert _view(ov).hi < 300
+    ov.set_foreground_slot(2)
+    ov.set_foreground_slot(1)
+    ov._win.update_idletasks()
+    assert _view(ov).hi == 300 and _covered(ov) and ov._list._canvas.yview()[1] == 1.0
+    assert _view(ov).hi - _view(ov).lo < 60              # 從底部重排，而非把中間全部同步畫完
+
+
+def test_autoscrolling_a_selection_into_the_undrawn_area_keeps_it_on_the_same_text(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    _select_whole_message(ov, index=_view(ov).lo)
+    before = ov._selection.text()
+    for _ in range(150):
+        ov._list.scroll_by(-40)                          # 框選拖到上緣時的自動捲動路徑
+        assert _covered(ov)
+    assert _view(ov).lo < 300 - 60 and ov._selection.text() == before
+
+
+def test_destroying_the_overlay_cancels_a_pending_backfill(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    root.tk.eval("set ::bg_errors {}; proc bgerror msg {lappend ::bg_errors $msg}")
+    try:
+        ov._win.destroy()
+        _pump(root, seconds=0.3)
+        errors = root.tk.splitlist(root.tk.eval("set ::bg_errors"))
+    finally:
+        root.tk.eval("rename bgerror {}")
+    assert not [e for e in errors if "backfill" in e], errors   # 已排的批次呼叫到已刪除的 Tcl 命令

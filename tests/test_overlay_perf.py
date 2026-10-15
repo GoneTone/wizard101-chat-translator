@@ -1,4 +1,5 @@
 """分頁切換與新增訊息的效能門檻：走正式的 `OverlayWindow` 路徑（停在螢幕外），不 mock 畫布。"""
+import _tkinter
 import statistics
 import time
 
@@ -27,8 +28,11 @@ def _settle(ov):
 
 def _resize(ov, width):
     ov._apply_geometry(10000, 10000, width, 300)
-    # update()（非 update_idletasks）：頂層視窗改尺寸後的 <Configure> 是事件，idle 佇列送不到畫布
-    ov._win.update()
+    # 頂層視窗改尺寸後的 <Configure> 是視窗事件，idle 佇列送不到畫布；不跑計時器，背景補畫不算進同步部分
+    ov._win.update_idletasks()
+    while ov._win.tk.dooneevent(_tkinter.WINDOW_EVENTS | _tkinter.DONT_WAIT):
+        pass
+    ov._win.update_idletasks()
 
 
 def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
@@ -85,3 +89,18 @@ def test_the_synchronous_part_of_a_resize_is_independent_of_message_count(root):
     t1000 = statistics.median(p[1] for p in pairs)
     assert t1000 <= 0.200, pairs
     assert t1000 / max(statistics.median(p[0] for p in pairs), 1e-3) <= 2, pairs
+
+
+def test_each_backfill_batch_stays_short(root):
+    """背景補畫每批 ≤ 60 ms（CPU；預算 20 ms 的三倍餘裕）。"""
+    ov = _stale_overlay(root, COUNT)
+    _switch(ov, 1)
+    _resize(ov, 240)
+    batches = []
+    while True:
+        start = time.process_time()
+        more = ov._list._backfill_once()
+        batches.append(time.process_time() - start)
+        if not more:
+            break
+    assert max(batches) <= 0.060, max(batches)
