@@ -37,11 +37,11 @@ def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
     _settle(ov)
 
 
-def _switch(ov, tab, clock=time.perf_counter):
-    start = clock()
+def _switch(ov, tab):
+    start = time.perf_counter()
     ov.set_tabs(1, TabState(tab, TABS.tabs))
     _settle(ov)
-    return clock() - start
+    return time.perf_counter() - start
 
 
 def test_switching_tabs_is_independent_of_message_count(root):

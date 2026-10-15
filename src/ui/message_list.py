@@ -1,9 +1,10 @@
 """overlay 的訊息列表：每個（客戶端, 分頁）一個畫布、細捲軸與空狀態提示。
 
 訊息依（客戶端, 分頁）分開保存，各自直接畫成自己畫布上的文字物件，切分頁只換顯示中的
-畫布；換行寬度改變後只重畫視口附近，其餘捲到時才補畫。負責訊息的繪製／就地更新／移除、訊息上限與淡出，以及捲動帳目：黏在底部時新訊息
-自動跟到底，往上讀歷史時不被搶走，內容變動前取錨、變動後復位。框選、右鍵選單與
-泡泡未讀數不在這裡 —— OverlayWindow 透過 `selection` 與 `bind_line` 接手。
+畫布；換行寬度改變後只重畫視口附近，其餘捲到時才補畫。負責訊息的繪製／就地更新／移除、
+訊息上限與淡出，以及捲動帳目：黏在底部時新訊息自動跟到底，往上讀歷史時不被搶走，
+內容變動前取錨、變動後復位。框選、右鍵選單與泡泡未讀數不在這裡 —— OverlayWindow 透過
+`selection` 與 `bind_line` 接手。
 """
 import bisect
 import itertools
@@ -37,6 +38,7 @@ from src.ui.thin_scrollbar import ThinScrollbar
 
 _STICK_THRESHOLD = 0.999
 _ROW_PAD = 2   # 每則訊息上下各留的間距（列與列之間共 4px）
+_SLOW_RELAYOUT_MS = 50
 
 
 def dimmed(color: str, factor: float = DIM_FACTOR) -> str:
@@ -163,11 +165,12 @@ class MessageList:
         view.canvas.pack(side="left", fill="both", expand=True)
 
     # --- 排版 ---
-    def _relayout(self, key: ViewKey) -> None:
-        """以目前的換行寬度重排 key 那個分頁：刪掉全部文字物件，從錨點同步只畫視口所需，其餘待補。
+    def _relayout(self) -> None:
+        """以目前的換行寬度重排顯示中的分頁：刪掉全部文字物件，從錨點同步只畫視口所需，其餘待補。
 
         錨點：跟隨底部時是最新一則（底緣留在原本的內容底緣），否則是視口頂端那則（列頂不動）。"""
         start = time.perf_counter()
+        key = self.shown_key
         view = self._views[key]
         view.wrap = self.wrap
         records = view.records
@@ -175,7 +178,8 @@ class MessageList:
             return
         follow = self._follow
         if follow:
-            anchor, edge = len(records) - 1, self._region()[1] - _ROW_PAD
+            # 估計高度可能帶小數，取整才與一次全部重畫逐像素一致
+            anchor, edge = len(records) - 1, round(self._region()[1] - _ROW_PAD)
         else:
             anchor = self._top_drawn(view)
             edge = line_origin(records[anchor].lines[0])[1]
@@ -197,7 +201,7 @@ class MessageList:
             c.yview_moveto(1.0)
         self._fill_viewport()
         ms = (time.perf_counter() - start) * 1000
-        if ms >= 50:
+        if ms >= _SLOW_RELAYOUT_MS:
             log(f"[ui] view relaid out (slot={key[0]}, tab={key[1]}, drawn={view.hi - view.lo}, "
                 f"messages={len(records)}, wrap={self.wrap}, ms={ms:.0f})")
 
@@ -225,10 +229,11 @@ class MessageList:
     def _fill_viewport(self) -> None:
         """視口上下緣離已畫範圍不足一個視口高度就同步補畫（呼叫端都在 Tk 重繪之前）。
 
-        畫到最頂端時，視口原本停在捲動範圍頂端或落到內容上方就貼齊第一則 —— 估計高度與實際有落差。"""
+        視口原本停在捲動範圍底端就畫到最新一則並貼底；停在頂端或落到內容上方則畫到第一則並貼齊
+        —— 估計高度與實際有落差，不貼的話會停在半途。"""
         view = self._views[self.shown_key]
         c = view.canvas
-        pinned = c.yview()[0] <= 0
+        at_top, at_bottom = c.yview()[0] <= 0, c.yview()[1] >= 1
         while view.records:
             height = c.winfo_height()
             top, bottom = c.canvasy(0) - height, c.canvasy(height) + height
@@ -236,13 +241,16 @@ class MessageList:
             while view.lo and line_origin(view.records[view.lo].lines[0])[1] > top:
                 self._draw_up(view)
                 drew = True
-            while view.hi < len(view.records) and _row_bottom(view.records[view.hi - 1]) < bottom:
+            while view.hi < len(view.records) and (
+                    at_bottom or _row_bottom(view.records[view.hi - 1]) < bottom):
                 self._draw_down(view)
                 drew = True
             if not drew:
                 return
             self._apply_region()
-            if view.lo == 0 and (pinned or c.canvasy(0) < self._region()[0]):
+            if at_bottom:
+                c.yview_moveto(1.0)
+            elif view.lo == 0 and (at_top or c.canvasy(0) < self._region()[0]):
                 c.yview_moveto(0.0)
 
     def complete_layout(self) -> None:
@@ -267,7 +275,7 @@ class MessageList:
         self.wrap = max(80, e.width - 12)
         # 既有訊息的換行寬度也要同步更新，否則縮小視窗後右緣被切；隱藏中的分頁切過去時才補
         if self._views[self.shown_key].wrap != self.wrap:
-            self._relayout(self.shown_key)
+            self._relayout()
         self._on_wrap_change(self.wrap)
         # 視窗拉高時視口變大：畫布重繪已排在 idle，補畫要趕在它之前
         self._fill_viewport()
@@ -519,7 +527,7 @@ class MessageList:
         self._attach(view)
         self._follow = True
         if view.wrap != self.wrap:
-            self._relayout(key)
+            self._relayout()
         self._refresh_placeholder()
         self.refresh_scroll()
         log(f"[ui] view switched (slot={key[0]}, tab={key[1]}, "

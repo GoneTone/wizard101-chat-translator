@@ -1671,12 +1671,13 @@ def _configure_width(ov, width):
     ov._list._on_canvas_configure(FakeEvent())
 
 
-def _long_overlay(root, n):
-    """n 則長度不一、會換行的中英文訊息，視圖停在最底。"""
-    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n, fade_seconds=0)
+def _long_overlay(root, n, fade_seconds=0):
+    """n 則長度不一、會換行的中英文訊息（第 i 則的時刻為 i），視圖停在最底。"""
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n,
+                       fade_seconds=fade_seconds)
     for i in range(n):
         ov.add_message(f"message {i}: " + "wizard chat line " * (1 + i % 6),
-                       f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4), msg_id=i)
+                       f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4), now=float(i), msg_id=i)
     ov._win.update()
     return ov
 
@@ -1756,6 +1757,7 @@ def test_taller_window_during_partial_layout_shows_no_gap(root):
 def test_resizing_an_empty_view_logs_nothing(root, monkeypatch):
     logged = []
     monkeypatch.setattr(message_list_module, "log", logged.append)
+    monkeypatch.setattr(message_list_module, "_SLOW_RELAYOUT_MS", -1)   # 有訊息的話一定會記
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     _configure_width(ov, 240)
     assert not [line for line in logged if "relaid out" in line or "rewrapped" in line]
@@ -1770,9 +1772,10 @@ def test_follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize(root)
 
 def test_reading_history_keeps_the_viewport_top_message_in_place_on_resize(root):
     ov = _long_overlay(root, 300)
-    _scroll_up(ov, 0.5)
+    ov._list._user_scroll("moveto", 0.5)
     ov._win.update()
     tag, offset = ov._list._view_anchor()
+    assert 0 <= offset < ov._list._canvas.winfo_height(), "前置條件：錨點那則要在視口內"
     _configure_width(ov, 300)
     ov._win.update_idletasks()
     assert abs(_offset_of(ov, tag) - offset) <= 1
@@ -1784,5 +1787,35 @@ def test_updates_trims_and_adds_during_partial_layout_match_a_full_redraw(root):
     ov.update_message(ov._list._messages[5].msg_id, "補上的長譯文" * 20)
     ov.update_message(ov._list._messages[-1].msg_id, "補上的長譯文" * 20)
     ov.add_message("新來的", "擠掉最舊一則")
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_dragging_the_scrollbar_to_the_bottom_lands_on_the_newest_message(root):
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=300, fade_seconds=0)
+    for i in range(300):
+        ov.add_message(f"wizard chat line number {i}", f"第 {i} 則一行放得下的譯文", msg_id=i)
+    ov._win.update()
+    ov._list.complete_layout()
+    ov._list._user_scroll("moveto", 0.3)
+    _configure_width(ov, 140)   # 變窄：單行訊息變多行，下方待補的估計高度偏低
+    assert ov._list._views[ov._list.shown_key].hi < 300, "前置條件：最新一則還沒畫"
+    ov._list._user_scroll("moveto", 1.0)
+    ov._win.update_idletasks()
+    assert ov._list._views[ov._list.shown_key].hi == 300
+    assert ov._list._canvas.yview()[1] == 1.0
+    assert _covered(ov)
+
+
+def test_pruning_the_whole_drawn_range_during_partial_layout_matches_a_full_redraw(root):
+    ov = _long_overlay(root, 300, fade_seconds=60)
+    ov._list._user_scroll("moveto", 0.3)
+    _configure_width(ov, 300)
+    view = ov._list._views[ov._list.shown_key]
+    assert view.lo > 0 and view.hi < 290, "前置條件：已畫範圍在中段"
+    hi = view.hi
+    ov.prune(now=hi + 5 + 60)   # 時刻 ≤ hi + 5 的全部淡出，已畫範圍整段移光
+    assert len(view.records) == 300 - (hi + 6)
+    assert view.lo == 0 and view.hi > view.lo and _covered(ov)
     ov._list.complete_layout()
     assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
