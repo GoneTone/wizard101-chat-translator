@@ -169,6 +169,23 @@ def test_each_card_shows_its_providers_icon(root):
     assert all(_picker_icon(card) is not None for card in cards.pack_slaves())
 
 
+def _descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _descendants(child)
+
+
+def test_clicking_anywhere_inside_a_card_picks_its_provider(root):
+    """卡片裡每一層子元件都要接點擊：標題只有文字那麼寬，旁邊的空白露出的是中間那層框架。"""
+    picked = []
+    cards = ProviderCards(root, picked.append)
+    for card, key in zip(cards.pack_slaves(), PROVIDERS, strict=True):
+        for widget in (card, *_descendants(card)):
+            picked.clear()
+            widget.event_generate("<Button-1>")
+            assert picked == [key], f"{widget.winfo_class()} {widget} in the {key} card"
+
+
 def test_clicking_the_icon_picks_the_provider(root):
     """圖示蓋住卡片左側，點在它上面也要算數。"""
     picked = []
