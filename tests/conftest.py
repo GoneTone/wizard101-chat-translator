@@ -10,6 +10,7 @@
   換成無操作，避免 `InputBox.show()`／`_destroy()` 與
   `main.focus_running_instance` 在測試途中把遊戲踢到背景。
 """
+import gc
 import tkinter as tk
 
 import pytest
@@ -124,6 +125,9 @@ def _destroy_test_windows(request):
     """測試結束後銷毀它在共用 root 底下開的視窗，排在 after 的背景補畫才不會漏到之後的測試裡跑。"""
     root = request.getfixturevalue("root") if "root" in request.fixturenames else None
     yield
-    if root is not None:
-        for widget in root.winfo_children():
-            widget.destroy()
+    children = root.winfo_children() if root is not None else []
+    for widget in children:
+        widget.destroy()
+    if children:
+        # 在主執行緒回收：Tk 物件的 __del__ 若被別的測試的執行緒觸發，每個都會卡約 1 秒等 mainloop
+        gc.collect()
