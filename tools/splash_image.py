@@ -12,8 +12,8 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from src import __version__
-from src.log import log
-from src.resources import icon_path
+from src.logs import log
+from src.runtime.resources import icon_path
 
 SIZE = (480, 300)
 TEXT_ORIGIN = (24, 276)      # 狀態文字的左下錨點，build.spec 的 text_pos 要用同一組值

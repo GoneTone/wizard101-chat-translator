@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import win32gui
 
 from src.i18n import t
-from src.log import log
+from src.logs import log
 from src.reader.chat_tabs import TabState
 from src.reader.mem_reader import (
     GameAccessDenied,

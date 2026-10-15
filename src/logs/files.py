@@ -6,12 +6,13 @@
 """
 import os
 import re
+import sys
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from src.config import app_dir
-from src.log import log
+from src.logs import log
 
 SESSION_HEADER_PREFIX = "===== session started "
 LOG_RETENTION_DAYS = 7        # log 保留天數（以 session 標頭日期判斷）
@@ -107,3 +108,18 @@ class TimestampedStream:
 
     def __getattr__(self, name):
         return getattr(self._stream, name)
+
+
+def redirect_output() -> None:
+    """把 stdout／stderr 接到帶時戳的輸出：打包版落入 exe 旁的 app.log，開發模式留在主控台。"""
+    if getattr(sys, "frozen", False):
+        # windowed exe 的 stdout／stderr 為 None，全部導到 exe 旁的 app.log
+        sys.stdout = sys.stderr = TimestampedStream(open_session_log("app.log"))
+        return
+    # 主控台編碼常是 cp950，UI 文字裡的 ✕ 之類字元會讓 print 拋 UnicodeEncodeError
+    # 把程式帶掉，故先放寬成無法編碼就替換；時戳同樣要補，才對得上 messages.log。
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+    sys.stdout = TimestampedStream(sys.stdout)
+    sys.stderr = TimestampedStream(sys.stderr)

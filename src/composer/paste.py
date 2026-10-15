@@ -12,8 +12,8 @@ import win32con
 import win32gui
 import win32process
 
-from src.hotkeys import HotkeyInterceptor
-from src.log import log
+from src.input.hotkeys import HotkeyInterceptor
+from src.logs import log
 from src.reader.process import process_exe_path
 
 FOCUS_DELAY = 0.15  # 切回遊戲視窗後、開始打字前的緩衝（秒）

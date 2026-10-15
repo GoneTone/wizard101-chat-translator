@@ -3,7 +3,7 @@ import copy
 
 from src import i18n
 from src.config import is_configured
-from src.services import (
+from src.config.services import (
     API_PROFILE_FIELDS,
     API_PROVIDERS,
     PROVIDERS,
@@ -564,7 +564,7 @@ def test_a_key_pasted_over_the_service_list_survives_an_api_migration():
 
 def test_the_service_list_steps_stand_on_their_own_without_a_container_pass():
     """三個步驟不靠前一步補出 services 鍵 —— 當時成立的前提最容易被後來的改動推翻。"""
-    from src.services import (
+    from src.config.services import (
         _migrate_api_block,
         _promote_known_services,
         _quarantine_unknown_services,
@@ -584,7 +584,7 @@ def test_the_service_list_steps_stand_on_their_own_without_a_container_pass():
 
 def test_a_field_whose_default_is_none_keeps_the_real_value():
     """預設值若是 None，型別比對會把每個真值（含金鑰）判成型別不符整欄清掉。"""
-    from src.services import _profile_field
+    from src.config.services import _profile_field
 
     assert _profile_field({"api_key": "sk-1"}, "openai", "api_key", None) == "sk-1"
 

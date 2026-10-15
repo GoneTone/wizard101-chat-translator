@@ -1,12 +1,12 @@
-"""偵測並攔截「兄弟」bootloader 的第二次啟動。
+"""單一實例：同時只跑一份，第二次啟動時喚起既有那份的視窗。
 
-onefile exe 被再次雙擊時，新的 bootloader 解壓、顯示啟動畫面之後才由既有的 mutex
-檢查發現已有實例、關掉畫面、喚起舊視窗；解壓之前我們的程式碼還沒執行，第二份
-實例救不了自己。本模組讓第一份存活的實例主動偵測到兄弟啟動，砍掉其 bootloader、
-喚起自己視窗、清掉它的半成品暫存目錄；沒攔到時（自我檢查失敗、權限不足等）mutex
-檢查仍是保底。
+mutex（`acquire_single_instance`）擋下已經開始執行的第二份，由它喚起既有視窗後自行結束。
+但 onefile exe 被再次雙擊時，新的 bootloader 要先解壓、顯示啟動畫面，我們的程式碼才開始
+執行，第二份實例救不了自己。所以第一份存活的實例另外主動偵測兄弟 bootloader 的啟動
+（`start_instance_watch`）：砍掉它、喚起自己的視窗、清掉它的半成品暫存目錄；沒攔到時
+（自我檢查失敗、權限不足等）mutex 仍是保底。
 
-只在 frozen（打包版）模式下生效。內部拆成可獨立測試的純函式，砍程序、列舉程序、
+攔截兄弟只在 frozen（打包版）模式下生效。內部拆成可獨立測試的純函式，砍程序、列舉程序、
 刪目錄一律可注入替換，測試不得碰真實系統。
 """
 import os
@@ -16,8 +16,61 @@ import threading
 import time
 from collections.abc import Callable
 
-from src.log import log
+import win32api
+import win32con
+import win32event
+import win32gui
+import winerror
+
+from src.composer.paste import force_foreground
+from src.logs import log
 from src.reader.process import pid_alive, process_exe_path
+
+# 第二份實例會搶著對遊戲掛 wizwalker hook，也會同時寫同一份 config.json 與 log。
+SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
+
+
+def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
+    """搶下單一實例的 mutex；已經有一份在跑時回 None。
+    呼叫端必須留住回傳的 handle 直到程序結束：mutex 隨 handle 關閉而釋放。
+    name 可覆寫讓測試各用各的名稱，不會被正在執行的本尊卡住。"""
+    handle = win32event.CreateMutex(None, False, name)
+    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
+        return None
+    return handle
+
+
+def focus_running_instance(title: str) -> bool:
+    """把既有實例的視窗帶到前景；找不到視窗或還原失敗時回 False。
+    切前景走 composer 的 force_foreground（AttachThreadInput），單純 SetForegroundWindow
+    會被前景鎖擋下；就算仍被擋，系統也會改成閃工作列按鈕，使用者看得到回應。"""
+    found = []
+
+    def collect(hwnd, _):
+        try:
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == title:
+                found.append(hwnd)
+        except Exception:
+            pass   # 單一視窗查詢失敗不該中斷整輪列舉
+        return True
+
+    try:
+        win32gui.EnumWindows(collect, None)
+    except Exception as exc:
+        log(f"[app] window scan failed: {exc}")
+        return False
+    if not found:
+        log(f"[app] no window titled {title!r} to focus")
+        return False
+    hwnd = found[0]
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+    except Exception as exc:
+        log(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}")
+        return False
+    force_foreground(hwnd)
+    return True
+
 
 _MEI_PREFIX = "_MEI"
 # pywin32 沒有把這兩個 Win32 常數包成 win32con 屬性，直接照官方文件的數值定義

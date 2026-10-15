@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from src.config import local_state_dir
-from src.log import log
+from src.logs import log
 
 STATE_DIR = local_state_dir()
 

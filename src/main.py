@@ -1,5 +1,6 @@
 """進入點：supervisor 執行緒（每個遊戲客戶端一條 wizwalker 收訊執行緒）+ 全域熱鍵 +
 tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
+import ctypes
 import os
 import queue
 import sys
@@ -10,16 +11,26 @@ from dataclasses import dataclass
 
 import keyboard
 
-from src import __version__, splash
+from src import __version__
 from src.composer.paste import PasteInterceptor, type_into_window
 from src.config import (
     CONFIG_PATH,
     app_name,
+    bootstrap_language,
+    config_summary,
     is_configured,
     load_config,
     save_config,
 )
-from src.game_input import (
+from src.config.services import (
+    SLOT_INCOMING,
+    SLOT_OUTGOING,
+    SLOT_REGION,
+    SLOTS,
+    resolve,
+)
+from src.i18n import current_language, set_language, t
+from src.input.dispatch import (
     ChatInputTracker,
     GameInputEvents,
     on_hotkey,
@@ -28,31 +39,17 @@ from src.game_input import (
     register_region_hotkey,
     should_intercept_paste,
 )
-from src.hotkeys import install, register_hotkey
-from src.i18n import current_language, set_language, t
-from src.instance_watch import start_instance_watch
-from src.log import log
-from src.logfiles import TimestampedStream, open_session_log
+from src.input.hotkeys import install, register_hotkey
+from src.logs import log
+from src.logs.files import TimestampedStream, open_session_log, redirect_output
 from src.reader.loop import MessageIds, ReaderShared, reader_loop
 from src.reader.message_log import MessageLog
 from src.reader.status import StatusBoard
 from src.reader.supervisor import JOIN_TIMEOUT, game_windows, supervise
 from src.region.pipeline import RegionPipeline
-from src.services import (
-    SLOT_INCOMING,
-    SLOT_OUTGOING,
-    SLOT_REGION,
-    SLOTS,
-    resolve,
-)
-from src.single_instance import acquire_single_instance, focus_running_instance
-from src.startup import (
-    apply_window_icon,
-    bootstrap_language,
-    config_summary,
-    log_startup_summary,
-    redirect_output,
-)
+from src.runtime import splash
+from src.runtime.single_instance import acquire_single_instance, focus_running_instance, start_instance_watch
+from src.runtime.updater import check_for_update
 from src.translation.cache import (
     TranslationCache,
     fingerprint_of,
@@ -63,13 +60,28 @@ from src.translation.examples import ExampleCoordinator, ExampleSet, ExampleStor
 from src.translation.gate import ConcurrencyGate
 from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
+from src.ui.icons import apply_window_icon
 from src.ui.input_box import InputBox
 from src.ui.overlay import OverlayWindow
 from src.ui.region_flow import RegionFlow
 from src.ui.settings import SettingsWindow
-from src.updater import check_for_update
 
 UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000   # 自動檢查更新的間隔
+
+
+def is_elevated() -> bool:
+    """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def log_startup_summary(cfg: dict) -> None:
+    """啟動摘要：回報問題時第一眼掌握環境。"""
+    log(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
+        f"elevated={is_elevated()}, active_language={current_language()}, "
+        f"{config_summary(cfg)}")
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:

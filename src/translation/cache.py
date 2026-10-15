@@ -15,7 +15,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from src.config import local_state_dir
-from src.log import log
+from src.logs import log
 from src.translation.postprocess import has_stray_latin
 from src.translation.prompts import PROMPT_REVISION
 

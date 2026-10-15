@@ -20,7 +20,7 @@ import traceback
 
 from src.composer.paste import force_foreground
 from src.i18n import t
-from src.log import log
+from src.logs import log
 from src.reader.process import find_game_window
 from src.region.capture import (
     CaptureError,

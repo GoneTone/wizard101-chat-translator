@@ -124,7 +124,7 @@ def test_overlay_title_is_packed_after_the_bar_controls(root):
 
 
 def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.service_form import ServiceForm
 
     service = new_service("openai", [])

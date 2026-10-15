@@ -2,7 +2,7 @@
 import copy
 
 from src.config import DEFAULT_CONFIG
-from src.services import new_service
+from src.config.services import new_service
 
 # 各服務商「剛好填滿必填欄位」的最小值；自訂端點不需金鑰，欄位最少，故為預設。
 _MINIMAL = {

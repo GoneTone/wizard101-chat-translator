@@ -6,9 +6,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+from src.config.services import PROVIDERS
 from src.i18n import t
-from src.log import log
-from src.services import PROVIDERS
+from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.form import hint_label, keyboard_activatable
 from src.ui.geometry import centered_position

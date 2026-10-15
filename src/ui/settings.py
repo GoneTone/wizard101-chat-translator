@@ -9,9 +9,10 @@ from tkinter import messagebox, ttk
 
 from src import __version__
 from src.config import ADVANCED_LIMITS, DEFAULT_CONFIG, app_dir, app_name, clamp_advanced
+from src.config.services import SLOTS, find, validate_service
 from src.i18n import current_language, set_language, t, translators
-from src.log import log
-from src.services import SLOTS, find, validate_service
+from src.logs import log
+from src.runtime.updater import AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, check_for_update
 from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.form import (
     HINT_COLOR,
@@ -28,7 +29,6 @@ from src.ui.responsive import HINT_TRAILING, bind_wrap
 from src.ui.richtext import LINK_COLOR
 from src.ui.scrollable import ScrollableFrame
 from src.ui.service_list import ServicePane
-from src.updater import AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, check_for_update
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列

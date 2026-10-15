@@ -14,7 +14,7 @@ import tkinter as tk
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
-from src.log import log
+from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE
 from src.ui.outlined_text import (

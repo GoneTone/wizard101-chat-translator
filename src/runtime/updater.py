@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import httpx
 
 from src import __version__
-from src.log import log
+from src.logs import log
 
 GITHUB_REPO = "GoneTone/wizard101-chat-translator"
 PROJECT_URL = f"https://github.com/{GITHUB_REPO}"

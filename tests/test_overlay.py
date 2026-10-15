@@ -639,7 +639,7 @@ def test_bubble_close_button_runs_the_clean_shutdown(root):
 
 
 def test_set_update_shows_a_clickable_banner(root):
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     assert ov.update_text() is None
@@ -653,7 +653,7 @@ def test_set_update_shows_a_clickable_banner(root):
 def test_update_banner_uses_an_opaque_background(root):
     """回歸測試：橫幅底色不可等於 BG —— 本體視窗把 BG 設成 `-transparentcolor`，
     符合該色的像素在 Windows 下連 hit-test 都跳過，整列與右側 ✕ 就都點不到。"""
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
@@ -670,7 +670,7 @@ def test_update_banner_leaves_room_for_the_resize_grip(root):
     """回歸測試：橫幅右側要讓出縮放把手的寬度。
 
     把手 place 在右下角、底色是透明色鍵，疊在不透明橫幅上會挖出缺口並蓋掉半個 ✕。"""
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
@@ -713,7 +713,7 @@ def test_error_banner_makes_urls_in_the_api_message_clickable(root):
 
 def test_update_banner_and_error_banner_coexist(root):
     # 兩者生命週期完全不同（錯誤隨狀態來去、更新是一次性），不該互相覆蓋
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_error("notice.offline")
@@ -726,7 +726,7 @@ def test_update_banner_and_error_banner_coexist(root):
 
 def test_update_banner_follows_language_and_width(root):
     from src import i18n
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     before = i18n.current_language()
     try:
@@ -1207,7 +1207,7 @@ def test_selection_entry_points_are_bound(root):
 
 
 def test_offer_update_shows_the_banner_when_nothing_was_dismissed(root):
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.offer_update(Release(version="0.2.0", url="https://example.invalid/rel"))
@@ -1218,7 +1218,7 @@ def test_offer_update_shows_the_banner_when_nothing_was_dismissed(root):
 def test_offer_update_skips_a_version_the_user_dismissed(root):
     """每小時自動檢查會反覆查到同一版：使用者按 ✕ 關掉後，同版（或更舊）不再跳出，
     只有更新的版本才再顯示。"""
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
@@ -1234,7 +1234,7 @@ def test_offer_update_skips_a_version_the_user_dismissed(root):
 
 def test_set_update_ignores_the_dismissed_version(root):
     """手動檢查走 set_update：使用者自己按了「檢查更新」，關掉過的版本也要再顯示。"""
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))
@@ -1284,7 +1284,7 @@ def test_set_region_hotkey_updates_the_tooltip_on_the_next_show(root):
 
 def test_clear_update_does_not_count_as_dismissing(root):
     """程式自己收橫幅（clear_update）不是使用者的決定，之後同版仍該再提醒。"""
-    from src.updater import Release
+    from src.runtime.updater import Release
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.set_update(Release(version="0.2.0", url="https://example.invalid/rel"))

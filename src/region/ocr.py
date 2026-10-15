@@ -14,7 +14,7 @@ import time
 
 from PIL import Image
 
-from src.log import log
+from src.logs import log
 
 # rapidocr 套件內部固定用這個名稱建立 logger（見 rapidocr/utils/log.py），
 # 且預設等級是 INFO、外加 ANSI 顏色碼 —— 原樣落進 app.log 會是一堆控制碼。

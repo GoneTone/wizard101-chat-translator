@@ -4,8 +4,8 @@ import tkinter as tk
 
 import pytest
 
+from src.config.services import API_PROFILE_FIELDS, validate_endpoint_fields, validate_service
 from src.i18n import t
-from src.services import API_PROFILE_FIELDS, validate_endpoint_fields, validate_service
 from src.translation.translator import (
     TranslatorConfigError,
     TranslatorNoModelList,
@@ -31,7 +31,7 @@ def offscreen(root):
 
 def test_provider_labels_are_translated():
     from src import i18n
-    from src.services import PROVIDERS
+    from src.config.services import PROVIDERS
 
     before = i18n.current_language()
     try:

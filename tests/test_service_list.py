@@ -4,9 +4,9 @@ from tkinter import ttk
 
 import pytest
 
+from src.config.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
 from src.i18n import t
-from src.resources import provider_icon_path
-from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
+from src.runtime.resources import provider_icon_path
 from src.ui.service_list import ServiceDialog, ServicePane
 
 
@@ -337,7 +337,7 @@ def _icon_label(card):
 
 def test_every_provider_ships_an_icon():
     """新增服務商時不會悄悄少一張圖。"""
-    from src.services import PROVIDERS
+    from src.config.services import PROVIDERS
     missing = [key for key in PROVIDERS if not provider_icon_path(key).is_file()]
     assert missing == []
 

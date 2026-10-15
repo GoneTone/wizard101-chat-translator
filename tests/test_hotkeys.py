@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.hotkeys as hotkeys
+import src.input.hotkeys as hotkeys
 from src.config import DEFAULT_CONFIG
 
 KEY_DOWN, KEY_UP = hotkeys.keyboard.KEY_DOWN, hotkeys.keyboard.KEY_UP

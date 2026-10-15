@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 
 from src.i18n import t
-from src.log import log
+from src.logs import log
 
 # 每家服務商有哪些欄位與預設值：官方端點的網址寫死在 translator，Claude 不吃 thinking
 # 開關而是 effort。這張表是服務商清單與欄位的單一真實來源。

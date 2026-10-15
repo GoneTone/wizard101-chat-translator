@@ -11,7 +11,7 @@ from src.i18n import (
     language_name,
     t,
 )
-from src.log import log
+from src.logs import log
 from src.ui.form import BackgroundButton, hint_label
 
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。

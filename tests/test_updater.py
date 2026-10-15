@@ -2,7 +2,7 @@
 import httpx
 import pytest
 
-from src.updater import (
+from src.runtime.updater import (
     LATEST_API,
     RELEASES_URL,
     Release,

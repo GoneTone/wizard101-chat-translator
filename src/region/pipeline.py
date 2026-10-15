@@ -7,7 +7,7 @@
 import time
 from dataclasses import dataclass
 
-from src.log import log
+from src.logs import log
 from src.region import ocr
 
 

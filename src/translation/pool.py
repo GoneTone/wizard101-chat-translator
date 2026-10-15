@@ -7,7 +7,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from src.log import log
+from src.logs import log
 from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 BACKOFF_STEPS = [5, 15, 30]   # 翻譯伺服器離線時的重試間隔（秒）

@@ -1,5 +1,5 @@
 """啟動畫面包裝：沒有 pyi_splash 時要安靜不動，有的時候要確實轉呼叫過去。"""
-from src import splash
+from src.runtime import splash
 
 
 class _FakeSplash:

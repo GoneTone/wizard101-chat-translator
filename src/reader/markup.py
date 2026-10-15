@@ -11,7 +11,7 @@ Art_Chat_System、除錯行無圖示，以此分流；去標記後回傳「[發�
 import re
 from typing import NamedTuple
 
-from src.log import log
+from src.logs import log
 
 
 class ChatLine(NamedTuple):

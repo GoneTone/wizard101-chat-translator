@@ -13,7 +13,7 @@ from typing import NamedTuple
 
 import win32gui
 
-from src.log import log
+from src.logs import log
 from src.reader import hook_state
 from src.reader.chat_hook import (
     HEADER,

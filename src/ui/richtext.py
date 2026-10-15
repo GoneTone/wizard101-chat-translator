@@ -10,7 +10,7 @@ import webbrowser
 from tkinter import font as tkfont
 from tkinter import ttk
 
-from src.log import log
+from src.logs import log
 
 # 淺色設定視窗上的連結藍（overlay 的深色底另有 palette.FG_UPDATE）
 LINK_COLOR = "#4a7ddc"

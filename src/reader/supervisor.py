@@ -9,7 +9,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterable
 
-from src.log import log
+from src.logs import log
 from src.reader.status import StatusBoard
 
 SCAN_INTERVAL = 5.0   # 列舉遊戲視窗的間隔（秒）；與舊版找不到遊戲的重試間隔相同

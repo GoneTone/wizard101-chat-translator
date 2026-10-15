@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.config import local_state_dir
-from src.log import log
+from src.logs import log
 from src.translation.postprocess import (
     number_lines,
     numbered_entries,
