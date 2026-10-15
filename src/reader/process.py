@@ -32,7 +32,7 @@ def find_game_window() -> int | None:
 
     供標題列按鈕（而非熱鍵）呼出框選：按鈕點下去時遊戲多半不是前景視窗，
     不能像熱鍵路徑那樣直接讀 `GetForegroundWindow`，只能自己列舉找。單一視窗
-    查詢失敗（權限、視窗剛消失）不該中斷整輪列舉，比照 `main.focus_running_instance`
+    查詢失敗（權限、視窗剛消失）不該中斷整輪列舉，比照 `single_instance.focus_running_instance`
     吞例外繼續。"""
     import win32gui
     import win32process
