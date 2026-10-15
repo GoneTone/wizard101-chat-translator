@@ -31,12 +31,8 @@ from src.region.capture import (
     crop_frame,
 )
 from src.region.ocr import OcrUnavailable
-from src.translation.translator import (
-    RequestHandle,
-    TranslatorBadOutput,
-    TranslatorCancelled,
-    TranslatorError,
-)
+from src.translation.clients import RequestHandle
+from src.translation.errors import TranslatorBadOutput, TranslatorCancelled, TranslatorError
 from src.ui.input_box import cursor_position
 from src.ui.monitors import monitor_rect_at
 from src.ui.region.box import RegionBox

@@ -149,7 +149,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     # cache.put()；os._exit 不跑 atexit，這是寫回磁碟的最後機會。
     cache.flush()
     log("[app] shutdown complete")
-    # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 _TIMEOUT=60 秒）時，一般 return 會讓
+    # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 clients.TIMEOUT=60 秒）時，一般 return 會讓
     # 直譯器在 concurrent.futures.thread._python_exit 等它們 join —— 視窗已關、程式卻在
     # 工作管理員多留 60 秒。該還原的都已還原（hook 已解除、log 為線緩衝），直接砍行程。
     os._exit(0)

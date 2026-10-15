@@ -7,7 +7,7 @@ from src.i18n import t
 from src.region.capture import CaptureError, SelectionOutsideGame
 from src.region.ocr import OcrUnavailable
 from src.region.pipeline import RegionResult
-from src.translation.translator import (
+from src.translation.errors import (
     TranslatorBadOutput,
     TranslatorCancelled,
     TranslatorConfigError,

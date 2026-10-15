@@ -11,7 +11,8 @@ from src.composer.paste import force_foreground
 from src.config import app_name
 from src.i18n import t
 from src.logs import log
-from src.translation.translator import RequestHandle, TranslatorCancelled
+from src.translation.clients import RequestHandle
+from src.translation.errors import TranslatorCancelled
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_position
 from src.ui.monitors import work_area_at

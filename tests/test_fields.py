@@ -6,11 +6,7 @@ import pytest
 
 from src.config.services import API_PROFILE_FIELDS, validate_endpoint_fields, validate_service
 from src.i18n import t
-from src.translation.translator import (
-    TranslatorConfigError,
-    TranslatorNoModelList,
-    TranslatorOffline,
-)
+from src.translation.errors import TranslatorConfigError, TranslatorNoModelList, TranslatorOffline
 from src.ui.settings import form as form_module
 from src.ui.settings.form import friendly_error
 from src.ui.settings.model_field import ModelField, filter_models

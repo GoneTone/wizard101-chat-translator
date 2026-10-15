@@ -6,8 +6,8 @@ import pytest
 
 from src.config.services import EFFORT_LOW, PROVIDERS, new_service
 from src.i18n import t
+from src.translation.errors import TranslatorConfigError
 from src.translation.examples import ExampleStore
-from src.translation.translator import TranslatorConfigError
 from src.ui.settings.service_form import ServiceForm
 
 

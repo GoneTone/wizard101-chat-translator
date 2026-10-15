@@ -34,6 +34,8 @@ SCAN_TARGETS = [
     "src/ui/region/flow.py",
     "src/ui/tooltip.py",
     "src/translation/pool.py",
+    "src/translation/clients.py",
+    "src/translation/errors.py",
     "src/translation/translator.py",
 ]
 

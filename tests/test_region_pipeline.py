@@ -3,7 +3,7 @@ import pytest
 
 from src.region.ocr import OcrUnavailable
 from src.region.pipeline import RegionPipeline, RegionResult
-from src.translation.translator import TranslatorConfigError, TranslatorOffline
+from src.translation.errors import TranslatorConfigError, TranslatorOffline
 
 _PNG = b"png"
 _RECT = (10, 20, 300, 100)
