@@ -2,7 +2,7 @@ import uuid
 
 import win32api
 
-from src.main import acquire_single_instance, focus_running_instance
+from src.single_instance import acquire_single_instance, focus_running_instance
 
 
 def unique_name() -> str:

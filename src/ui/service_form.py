@@ -54,7 +54,7 @@ class ServiceForm(ttk.Frame):
         self._fields = ttk.Frame(self)
         self._fields.pack(fill="x")
         self._test_row()
-        # 精靈階段目標語言還沒選：退到介面語言的自稱（與 main.bootstrap_language 同一套預設）
+        # 精靈階段目標語言還沒選：退到介面語言的自稱（與 startup.bootstrap_language 同一套預設）
         self._target_language_fn = lambda: language_name(current_language())
         self._rebuild_fields()
 

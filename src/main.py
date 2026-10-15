@@ -1,6 +1,5 @@
 """進入點：supervisor 執行緒（每個遊戲客戶端一條 wizwalker 收訊執行緒）+ 全域熱鍵 +
 tkinter 主迴圈（UI 事件經 ui_queue 序列化）。"""
-import ctypes
 import os
 import queue
 import sys
@@ -10,48 +9,49 @@ import traceback
 from dataclasses import dataclass
 
 import keyboard
-import win32api
-import win32con
-import win32event
-import win32gui
-import winerror
 
 from src import __version__, splash
-from src.composer.paste import (
-    PasteInterceptor,
-    force_foreground,
-    foreground_exe,
-    paste_clipboard,
-    type_into_window,
-)
+from src.composer.paste import PasteInterceptor, type_into_window
 from src.config import (
     CONFIG_PATH,
-    DEFAULT_CONFIG,
     app_name,
     is_configured,
     load_config,
     save_config,
 )
+from src.game_input import (
+    ChatInputTracker,
+    GameInputEvents,
+    on_hotkey,
+    on_paste_hotkey,
+    on_region_hotkey,
+    register_region_hotkey,
+    should_intercept_paste,
+)
 from src.hotkeys import install, register_hotkey
-from src.i18n import current_language, detect_system_language, language_name, set_language, t
+from src.i18n import current_language, set_language, t
 from src.instance_watch import start_instance_watch
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
 from src.reader.loop import MessageIds, ReaderShared, reader_loop
 from src.reader.message_log import MessageLog
-from src.reader.process import is_game_process_path
 from src.reader.status import StatusBoard
 from src.reader.supervisor import JOIN_TIMEOUT, game_windows, supervise
 from src.region.pipeline import RegionPipeline
-from src.resources import icon_path
 from src.services import (
     SLOT_INCOMING,
     SLOT_OUTGOING,
     SLOT_REGION,
     SLOTS,
-    find,
-    quarantined,
     resolve,
+)
+from src.single_instance import acquire_single_instance, focus_running_instance
+from src.startup import (
+    apply_window_icon,
+    bootstrap_language,
+    config_summary,
+    log_startup_summary,
+    redirect_output,
 )
 from src.translation.cache import (
     TranslationCache,
@@ -67,59 +67,9 @@ from src.ui.input_box import InputBox
 from src.ui.overlay import OverlayWindow
 from src.ui.region_flow import RegionFlow
 from src.ui.settings import SettingsWindow
-from src.ui.winstyle import root_hwnd
 from src.updater import check_for_update
 
-# 第二份實例會搶著對遊戲掛 wizwalker hook，也會同時寫同一份 config.json 與 log。
-SINGLE_INSTANCE_MUTEX = "wizard101-chat-translator.single-instance"
 UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000   # 自動檢查更新的間隔
-
-def is_elevated() -> bool:
-    """本程序是否以系統管理員權限執行。掛入權限問題的診斷欄位，查不到當作否。"""
-    try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
-    except Exception:
-        return False
-
-
-def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_language) -> str:
-    """決定啟動時的介面語言碼；真正首次執行時順便把 target_language 補成同語言。
-
-    首次執行只能看 `config_existed`，不能看 `ui_language` 是否為 None：pre-i18n 的舊
-    config 經 `load_config` 補值後同樣是 None，若據此判斷，升級的使用者會被當成首次
-    執行，自己選過的 target_language 被系統偵測值覆蓋，並在下一次 save_config 永久寫死。
-    首次執行時 target_language 跟著系統語言走，否則非 zh-TW 系統會在精靈看到不相關的
-    繁中預設值；舊設定檔 ui_language 仍為 None 時只偵測介面語言、不動 target_language；
-    ui_language 已是真實語言碼時不呼叫 `detect`。"""
-    if cfg["ui_language"] is None:
-        detected = detect()
-        if not config_existed:
-            cfg["target_language"] = language_name(detected)
-        return detected
-    return cfg["ui_language"]
-
-
-def region_hotkey_to_register(cfg: dict) -> str | None:
-    """框選熱鍵要不要註冊：與輸入框熱鍵相同就不註冊（回 None），否則回熱鍵字串。
-    舊設定檔補上預設的 region_hotkey 後可能與使用者自訂的 hotkey 撞名，兩把一起觸發
-    會同時開輸入框與選取層；設定視窗儲存時會擋，啟動時要自己擋。"""
-    if cfg["region_hotkey"] == cfg["hotkey"]:
-        log(f"[app] region_hotkey {cfg['region_hotkey']!r} collides with hotkey; "
-            f"region translation disabled until a different hotkey is saved in settings")
-        return None
-    return cfg["region_hotkey"]
-
-
-def register_region_hotkey(cfg: dict, callback) -> object | None:
-    """註冊框選熱鍵並把實際生效的鍵寫回 cfg，回傳解除用的函式；與輸入框熱鍵撞名就不註冊、
-    回 None（見 region_hotkey_to_register）。退回的預設值要用 region_hotkey 自己的，否則手改壞掉
-    的 config.json 會讓兩把熱鍵撞在一起。"""
-    hotkey = region_hotkey_to_register(cfg)
-    if hotkey is None:
-        return None
-    unregister, cfg["region_hotkey"] = register_hotkey(
-        hotkey, callback, fallback=DEFAULT_CONFIG["region_hotkey"])
-    return unregister
 
 
 def drain_ui_queue(ui_queue: queue.Queue) -> None:
@@ -160,258 +110,6 @@ def schedule_update_checks(root, ui_queue: queue.Queue, overlay,
     log(f"[update] next automatic check in {interval_ms // 60000} min")
     root.after(interval_ms, lambda: schedule_update_checks(
         root, ui_queue, overlay, checker=checker, interval_ms=interval_ms))
-
-
-def acquire_single_instance(name: str = SINGLE_INSTANCE_MUTEX) -> int | None:
-    """搶下單一實例的 mutex；已經有一份在跑時回 None。
-    呼叫端必須留住回傳的 handle 直到程序結束：mutex 隨 handle 關閉而釋放。
-    name 可覆寫讓測試各用各的名稱，不會被正在執行的本尊卡住。"""
-    handle = win32event.CreateMutex(None, False, name)
-    if win32api.GetLastError() == winerror.ERROR_ALREADY_EXISTS:
-        return None
-    return handle
-
-
-def focus_running_instance(title: str) -> bool:
-    """把既有實例的視窗帶到前景；找不到視窗或還原失敗時回 False。
-    切前景走 composer 的 force_foreground（AttachThreadInput），單純 SetForegroundWindow
-    會被前景鎖擋下；就算仍被擋，系統也會改成閃工作列按鈕，使用者看得到回應。"""
-    found = []
-
-    def collect(hwnd, _):
-        try:
-            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == title:
-                found.append(hwnd)
-        except Exception:
-            pass   # 單一視窗查詢失敗不該中斷整輪列舉
-        return True
-
-    try:
-        win32gui.EnumWindows(collect, None)
-    except Exception as exc:
-        log(f"[app] window scan failed: {exc}")
-        return False
-    if not found:
-        log(f"[app] no window titled {title!r} to focus")
-        return False
-    hwnd = found[0]
-    try:
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    except Exception as exc:
-        log(f"[app] focus existing instance failed: hwnd={hwnd:#x} error={exc}")
-        return False
-    force_foreground(hwnd)
-    return True
-
-
-def foreground_game_hwnd(prefix: str) -> int | None:
-    """兩把熱鍵共用的前景守衛（鍵盤 hook 裡）：前景是遊戲就回它的 HWND，
-    否則記一行 log 回 None —— 在瀏覽器、聊天軟體裡按到熱鍵要當作沒按。"""
-    exe = foreground_exe()
-    if is_game_process_path(exe):
-        return win32gui.GetForegroundWindow()
-    log(f"[{prefix}] hotkey ignored: foreground is not the game window (exe={exe!r})")
-    return None
-
-
-def _retarget_and_show(input_box: InputBox, hwnd: int) -> None:
-    """雙開切客戶端：先把翻譯輸入框改綁到新前景客戶端，再呼出。"""
-    input_box.retarget(hwnd)
-    input_box.show()
-
-
-def on_hotkey(input_box: InputBox, ui_queue: queue.Queue) -> bool:
-    """全域熱鍵的回呼（跑在鍵盤 hook 裡，回傳有沒有接手）：遊戲在前景才呼出翻譯輸入框，並改綁
-    目標到這個前景客戶端（雙開時框可能還開著、綁在上一個客戶端）。輸入框已開著時（它自己
-    就是前景，讀不到遊戲 hwnd）只重新對焦、不改動 target_hwnd —— 這不算「忽略」，不記
-    ignored log；真的兩者皆非才記一行。不走 foreground_game_hwnd：那顆的 log 是為框選
-    熱鍵寫的，套在這裡會在框自己是前景時也誤報 ignored。"""
-    exe = foreground_exe()
-    if is_game_process_path(exe):
-        hwnd = win32gui.GetForegroundWindow()
-        ui_queue.put(lambda: _retarget_and_show(input_box, hwnd))
-        return True
-    if input_box.is_open:
-        ui_queue.put(input_box.show)
-        return True
-    log(f"[app] hotkey ignored: foreground is not the game window (exe={exe!r})")
-    return False
-
-
-def on_region_hotkey(flow: RegionFlow, ui_queue: queue.Queue) -> bool:
-    """框選熱鍵的回呼（跑在鍵盤 hook 裡，回傳有沒有接手）：選取層開著就取消（此時前景是
-    選取層本身）；遊戲在前景才開始框選。"""
-    if flow.is_selecting:
-        ui_queue.put(lambda: flow.toggle(0))
-        return True
-    hwnd = foreground_game_hwnd("region")
-    if hwnd is None:
-        return False
-    ui_queue.put(lambda: flow.toggle(hwnd))
-    return True
-
-
-def should_intercept_paste(cfg: dict) -> bool:
-    """Ctrl+V 要不要由本程式接手：設定開啟且遊戲在前景。其他視窗一律不碰，
-    瀏覽器、聊天軟體裡的貼上照常。跑在鍵盤 hook 裡，每次按鍵都會問，要快。"""
-    return bool(cfg["paste_hotkey"]) and is_game_process_path(foreground_exe())
-
-
-class ChatInputTracker:
-    """哪些遊戲視窗的聊天輸入框正開著。reader 執行緒（經 ui_queue）寫、貼上的鍵盤 hook 讀，
-    雙開時每個客戶端各自開關，不能用一個布林。"""
-
-    def __init__(self) -> None:
-        self._open: set[int] = set()
-        self._lock = threading.Lock()
-
-    def opened(self, hwnd: int) -> None:
-        with self._lock:
-            self._open.add(hwnd)
-
-    def closed(self, hwnd: int) -> None:
-        with self._lock:
-            self._open.discard(hwnd)
-
-    def is_open(self, hwnd: int) -> bool:
-        with self._lock:
-            return hwnd in self._open
-
-
-class GameInputEvents:
-    """遊戲聊天輸入框開／關事件的分派（UI 執行緒）。只認前景客戶端：使用者正在玩 B 時，
-    A 的聊天框開關不該彈出或收掉他的翻譯輸入框。"""
-
-    def __init__(self, cfg: dict, input_box: InputBox, tracker: ChatInputTracker,
-                 foreground=win32gui.GetForegroundWindow) -> None:
-        self._cfg = cfg
-        self._box = input_box
-        self._tracker = tracker
-        self._foreground = foreground
-        self._shown_for: int | None = None   # 目前的錨點／自動呼出是為哪個客戶端
-
-    def opened(self, hwnd: int, anchor) -> None:
-        """聊天框開了：記下來；是前景客戶端才設錨點（熱鍵呼出也要貼齊）、改綁翻譯目標、
-        依設定自動呼出。"""
-        self._tracker.opened(hwnd)
-        if self._foreground() != hwnd:
-            log(f"[app] game chat opened in a background client (hwnd={hwnd:#x}); ignoring")
-            return
-        self._shown_for = hwnd
-        if anchor is not None:
-            self._box.set_anchor(anchor)
-        self._box.retarget(hwnd)   # 框可能已開著、使用者換到這個客戶端：譯文改打回這裡
-        if self._cfg["auto_show_input"]:
-            self._box.show()
-
-    def closed(self, hwnd: int) -> None:
-        """聊天框關了：只有當初為它設錨點／呼出的那個客戶端才收起，打到一半的文字留到下次。"""
-        self._tracker.closed(hwnd)
-        if hwnd != self._shown_for:
-            return
-        self._shown_for = None
-        self._box.clear_anchor()
-        if self._cfg["auto_show_input"]:
-            self._box.hide()
-
-
-def on_paste_hotkey(cfg: dict, tracker: ChatInputTracker) -> threading.Thread:
-    """攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
-    不能在 hook 回呼裡直接打字（Windows 會判定 hook 逾時而整個拔掉）。**前景那個客戶端**
-    的聊天輸入框開著時走單行模式（換行改空格），其他地方換行照打。"""
-    hwnd = win32gui.GetForegroundWindow()
-    worker = threading.Thread(target=paste_clipboard,
-                              args=(hwnd, cfg["type_delay"], tracker.is_open(hwnd)),
-                              daemon=True)
-    worker.start()
-    return worker
-
-
-def apply_window_icon(root: tk.Tk) -> int | None:
-    """把應用程式 icon 裝到視窗類別上，回傳 HICON；失敗回 None（icon 只是裝飾，不擋啟動）。
-
-    不用 tkinter 的 `iconbitmap`：它在 Windows 上挑錯 ICO frame，實測 32x32 是放大裁切
-    過的糊圖。改用 LoadImage 指定尺寸（會挑最接近的原生 frame）寫進視窗類別，之後每個
-    Toplevel 都自動沿用。類別得透過 TkTopLevel 視窗才設得到 —— withdraw 的 root 是
-    TkChild —— 故開一個隱藏 Toplevel 當跳板。小圖示（GCL_HICONSM）寫入回報成功卻讀不
-    回來，但 Windows 11 工作列看的是 exe 資源的圖示，不受影響（尺寸要齊全，見
-    src/assets/icon.ico）。"""
-    path = icon_path()
-    probe = None
-    try:
-        probe = tk.Toplevel(root)
-        probe.withdraw()
-        probe.update_idletasks()
-        hwnd = root_hwnd(probe)
-        size = win32api.GetSystemMetrics(win32con.SM_CXICON)
-        hicon = win32gui.LoadImage(0, str(path), win32con.IMAGE_ICON, size, size,
-                                   win32con.LR_LOADFROMFILE)
-        user32 = ctypes.windll.user32
-        user32.SetClassLongPtrW.argtypes = [ctypes.c_void_p, ctypes.c_int,
-                                            ctypes.c_void_p]
-        user32.SetClassLongPtrW.restype = ctypes.c_void_p
-        user32.SetClassLongPtrW(hwnd, win32con.GCL_HICON, hicon)
-        log(f"[ui] window icon applied: path={path} size={size} hicon={hicon:#x}")
-        return hicon
-    except Exception as exc:
-        log(f"[ui] window icon failed: path={path} error={exc}")
-        return None
-    finally:
-        if probe is not None:
-            probe.destroy()
-
-
-def redirect_output() -> None:
-    """把 stdout／stderr 接到帶時戳的輸出：打包版落入 exe 旁的 app.log，開發模式留在主控台。"""
-    if getattr(sys, "frozen", False):
-        # windowed exe 的 stdout／stderr 為 None，全部導到 exe 旁的 app.log
-        sys.stdout = sys.stderr = TimestampedStream(open_session_log("app.log"))
-        return
-    # 主控台編碼常是 cp950，UI 文字裡的 ✕ 之類字元會讓 print 拋 UnicodeEncodeError
-    # 把程式帶掉，故先放寬成無法編碼就替換；時戳同樣要補，才對得上 messages.log。
-    for stream in (sys.stdout, sys.stderr):
-        if hasattr(stream, "reconfigure"):
-            stream.reconfigure(errors="replace")
-    sys.stdout = TimestampedStream(sys.stdout)
-    sys.stderr = TimestampedStream(sys.stderr)
-
-
-def config_summary(cfg: dict) -> str:
-    """一行設定摘要（啟動與套用設定時記錄，兩處同一份才不會漏欄位）；金鑰絕不列入。"""
-    fields = [f"services={len(cfg['services'])}",
-              # 隔離筆數：使用者回報「服務不見了」時，這一格就是答案
-              f"quarantined={len(quarantined(cfg))}",
-              f"default={_service_summary(find(cfg, cfg['default_service']))}"]
-    fields += [f"{slot}=" + (_service_summary(find(cfg, cfg['service_slots'][slot]))
-                             if cfg["service_slots"][slot] else "default")
-               for slot in SLOTS]
-    fields += [f"target_language={cfg['target_language']!r}",
-               f"ui_language={cfg['ui_language']}",
-               f"hotkey={cfg['hotkey']}",
-               f"region_hotkey={cfg['region_hotkey']}",
-               f"paste_hotkey={cfg['paste_hotkey']}",
-               f"auto_show_input={cfg['auto_show_input']}",
-               f"parallel={cfg['max_parallel_translations']}",
-               f"fade_seconds={cfg['fade_seconds']}",
-               f"max_messages={cfg['max_messages']}",
-               f"overlay_alpha={cfg['overlay_alpha']}",
-               f"translate_system_messages={cfg['translate_system_messages']}"]
-    return ", ".join(fields)
-
-
-def _service_summary(service: dict | None) -> str:
-    """一筆服務在 log 裡的樣子；金鑰只記有沒有，絕不記內容。"""
-    if service is None:
-        return "none"
-    return (f"{service['name']}({service['provider']}/{service['model']},"
-            f"has_key={bool(service.get('api_key'))})")
-
-
-def log_startup_summary(cfg: dict) -> None:
-    """啟動摘要：回報問題時第一眼掌握環境。"""
-    log(f"[app] startup; frozen={getattr(sys, 'frozen', False)}, "
-        f"elevated={is_elevated()}, active_language={current_language()}, "
-        f"{config_summary(cfg)}")
 
 
 def shutdown(stop: threading.Event, pools: list[TranslationPool],

@@ -8,7 +8,7 @@
   尺寸、DWM frame bounds、`event_generate` 都維持真實可測，畫面上就是看不到。
 - `_keep_foreground` 把 `force_foreground`（AttachThreadInput 硬切 Windows 前景）
   換成無操作，避免 `InputBox.show()`／`_destroy()` 與
-  `main.focus_running_instance` 在測試途中把遊戲踢到背景。
+  `single_instance.focus_running_instance` 在測試途中把遊戲踢到背景。
 """
 import gc
 import tkinter as tk
@@ -99,12 +99,12 @@ def _keep_foreground():
     時後蓋前，不受影響。
     """
     import src.composer.paste as paste_module
-    import src.main as main_module
+    import src.single_instance as single_instance_module
     import src.ui.input_box as input_box_module
     import src.ui.region_flow as region_flow_module
     import src.ui.region_select as region_select_module
 
-    modules = (paste_module, main_module, input_box_module, region_select_module,
+    modules = (paste_module, single_instance_module, input_box_module, region_select_module,
               region_flow_module)
     originals = [m.force_foreground for m in modules]
 

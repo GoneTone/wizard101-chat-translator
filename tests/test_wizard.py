@@ -212,7 +212,7 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.main import bootstrap_language
+    from src.startup import bootstrap_language
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -237,7 +237,7 @@ def test_bootstrap_language_first_run_no_config_file():
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.main import bootstrap_language
+    from src.startup import bootstrap_language
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     assert cfg["ui_language"] is None
@@ -251,7 +251,7 @@ def test_bootstrap_language_first_run_no_config_file():
 def test_bootstrap_language_upgrading_user_keeps_target_language():
     """回歸測試：升級使用者的 config 已存在，只是舊版沒有 ui_language（被回填成 None），
     不代表沒走過精靈：介面語言仍依偵測，但使用者選好的 target_language 不可被覆蓋。"""
-    from src.main import bootstrap_language
+    from src.startup import bootstrap_language
 
     cfg = {"ui_language": None, "target_language": "日本語"}
 
@@ -263,7 +263,7 @@ def test_bootstrap_language_upgrading_user_keeps_target_language():
 
 def test_bootstrap_language_returning_user_uses_saved_language():
     """回頭使用者：config 已有真實的 ui_language，直接採用、不呼叫 detect，target_language 不動。"""
-    from src.main import bootstrap_language
+    from src.startup import bootstrap_language
 
     cfg = {"ui_language": "zh-CN", "target_language": "日本語"}
     calls = []
