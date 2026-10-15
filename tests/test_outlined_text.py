@@ -9,6 +9,7 @@ from src.ui.outlined_text import (
     line_height,
     line_items,
     line_origin,
+    measure_height,
 )
 from src.ui.palette import OUTLINE
 
@@ -72,3 +73,12 @@ def test_line_items_are_exactly_that_lines_text_items(canvas):
     line = draw_outlined(canvas, 0, 30, "b", fill="#fff", font=ui_font(9), wrap=100, tag="b")
     draw_outlined(canvas, 0, 60, "c", fill="#fff", font=ui_font(9), wrap=100, tag="c")
     assert tuple(line_items(line)) == canvas.find_withtag("b")
+
+
+@pytest.mark.parametrize("text,wrap", [("短", 300), ("很長的訊息" * 30, 200), ("word " * 60, 120)])
+def test_measured_height_matches_the_drawn_line(root, text, wrap):
+    c = tk.Canvas(root)
+    expected = line_height(draw_outlined(c, 0, 10, text, fill="#fff", font=ui_font(11), wrap=wrap, tag="x"))
+    before = len(c.find_all())
+    assert measure_height(c, text, font=ui_font(11), wrap=wrap) == expected
+    assert len(c.find_all()) == before

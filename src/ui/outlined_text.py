@@ -48,3 +48,12 @@ def line_height(line: Line) -> int:
     """該行（換行後）佔的高度，含底部 2px 餘裕。"""
     # 只量本色（+1＝描邊副本往下多出的 1px）：以 tag 查 bbox 要掃過整張畫布的物件
     return round(line.canvas.bbox(line.fg)[3] + 1 - line_origin(line)[1]) + 2
+
+
+def measure_height(canvas: tk.Canvas, text: str, *, font: tuple, wrap: int) -> int:
+    """不留下任何物件，量出以同參數 `draw_outlined` 畫出後的 `line_height`。"""
+    probe = canvas.create_text(TEXT_ORIGIN, TEXT_ORIGIN, text=text, font=font,
+                               anchor="nw", width=wrap)
+    height = line_height(Line(canvas, probe, ""))
+    canvas.delete(probe)
+    return height

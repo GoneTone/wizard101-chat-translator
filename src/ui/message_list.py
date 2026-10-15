@@ -1,10 +1,11 @@
 """overlay 的訊息列表：每個（客戶端, 分頁）一個畫布、細捲軸與空狀態提示。
 
 訊息依（客戶端, 分頁）分開保存，各自直接畫成自己畫布上的文字物件，切分頁只換顯示中的
-畫布。負責訊息的繪製／就地更新／移除、訊息上限與淡出，以及捲動帳目：黏在底部時新訊息
+畫布；換行寬度改變後只重畫視口附近，其餘捲到時才補畫。負責訊息的繪製／就地更新／移除、訊息上限與淡出，以及捲動帳目：黏在底部時新訊息
 自動跟到底，往上讀歷史時不被搶走，內容變動前取錨、變動後復位。框選、右鍵選單與
 泡泡未讀數不在這裡 —— OverlayWindow 透過 `selection` 與 `bind_line` 接手。
 """
+import bisect
 import itertools
 import time
 import tkinter as tk
@@ -14,7 +15,14 @@ from typing import NamedTuple
 from src.log import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE
-from src.ui.outlined_text import Line, draw_outlined, line_height, line_items, line_origin
+from src.ui.outlined_text import (
+    Line,
+    draw_outlined,
+    line_height,
+    line_items,
+    line_origin,
+    measure_height,
+)
 from src.ui.palette import (
     BG,
     DIM_FACTOR,
@@ -48,8 +56,9 @@ ViewKey = tuple[int | None, int]   # （客戶端 slot, 遊戲分頁編號）
 
 class _Message(NamedTuple):
     """列表中的一則訊息記錄。msg_id 為 None 代表不需要就地更新（例如測試直接塞完成品）；
-    color 為該則在遊戲內的顯示色（None＝退回預設配色）；lines＝（原文行, 譯文行），
-    tag＝該則所有文字物件共用的 tag，同時是它在選取登記表裡的鍵。"""
+    color 為該則在遊戲內的顯示色（None＝退回預設配色）；lines＝（原文行, 譯文行），空＝尚未畫出；
+    tag＝該則所有文字物件共用的 tag，同時是它在選取登記表裡的鍵；height／drawn_wrap＝上次畫出時的
+    整則高度（含上下間距）與當時的換行寬度，供未畫時估計高度。"""
     ts: float
     original: str
     translated: str
@@ -59,6 +68,8 @@ class _Message(NamedTuple):
     failed: bool
     lines: tuple[Line, ...] = ()
     tag: str = ""
+    height: float = 0
+    drawn_wrap: int = 0
 
     def translated_fill(self) -> str:
         if self.pending:
@@ -68,11 +79,14 @@ class _Message(NamedTuple):
 
 @dataclass
 class _View:
-    """一個（客戶端, 分頁）的訊息：畫布、記錄、選取登記表，以及排版時用的換行寬度。"""
+    """一個（客戶端, 分頁）的訊息：畫布、記錄、選取登記表、排版時用的換行寬度，
+    以及已畫範圍 `records[lo:hi]`（範圍外的記錄沒有文字物件）。"""
     canvas: tk.Canvas
     wrap: int
     records: list[_Message] = field(default_factory=list)
     rows: dict = field(default_factory=dict)
+    lo: int = 0
+    hi: int = 0
 
 
 def _row_bottom(m: _Message) -> float:
@@ -99,6 +113,7 @@ class MessageList:
         self._fade = fade_seconds
         self.wrap = wrap
         self._tags = itertools.count()
+        self._one_line = 0.0   # 兩種字型各一行的整則高度，估計未畫訊息用；每次重排時量
         self._views: dict[ViewKey, _View] = {}
         # 視圖是否黏在底部。只在使用者主動捲動時重新評估：縮放視窗／橫幅進出也會把視圖
         # 推離底部，每次加訊息時當場採樣會誤判成「使用者往上捲」。
@@ -148,40 +163,114 @@ class MessageList:
         view.canvas.pack(side="left", fill="both", expand=True)
 
     # --- 排版 ---
-    def _rewrap(self, key: ViewKey) -> None:
-        """以目前的換行寬度重畫 key 那個分頁（換行變了，行高與其下各則的位置都會變）。
+    def _relayout(self, key: ViewKey) -> None:
+        """以目前的換行寬度重排 key 那個分頁：刪掉全部文字物件，從錨點同步只畫視口所需，其餘待補。
 
-        重畫而不是改寬度再搬移：文字物件每移動一次 Tk 就重新排版一次，搬移等於排兩次。
-        各則沿用原本的 tag，捲動錨點與選取登記因此不受重畫影響。"""
+        錨點：跟隨底部時是最新一則（底緣留在原本的內容底緣），否則是視口頂端那則（列頂不動）。"""
         start = time.perf_counter()
         view = self._views[key]
         view.wrap = self.wrap
-        records = view.records[:]
-        view.canvas.delete("txt")
-        view.records.clear()
-        view.rows.clear()
-        for m in records:
-            self._append(view, m)
+        records = view.records
+        if not records:
+            return
+        follow = self._follow
+        if follow:
+            anchor, edge = len(records) - 1, self._region()[1] - _ROW_PAD
+        else:
+            anchor = self._top_drawn(view)
+            edge = line_origin(records[anchor].lines[0])[1]
+        c = view.canvas
+        c.delete("txt")
+        for i in range(view.lo, view.hi):
+            m = records[i] = records[i]._replace(lines=())
+            view.rows[m.tag] = view.rows[m.tag]._replace(lines=())
+        self._selection.redraw()
+        self._one_line = (measure_height(c, "x", font=ui_font(9), wrap=self.wrap)
+                          + measure_height(c, "x", font=ui_font(11), wrap=self.wrap) + 2 * _ROW_PAD)
+        view.lo, view.hi = anchor, anchor + 1
+        if follow:
+            self._draw_above(view, anchor, edge)
+        else:
+            self._draw(view, anchor, edge)
+        self._apply_region()
+        if follow:
+            c.yview_moveto(1.0)
+        self._fill_viewport()
         ms = (time.perf_counter() - start) * 1000
-        if records and ms >= 50:
-            log(f"[ui] view rewrapped (slot={key[0]}, tab={key[1]}, messages={len(records)}, "
-                f"wrap={self.wrap}, ms={ms:.0f})")
+        if ms >= 50:
+            log(f"[ui] view relaid out (slot={key[0]}, tab={key[1]}, drawn={view.hi - view.lo}, "
+                f"messages={len(records)}, wrap={self.wrap}, ms={ms:.0f})")
+
+    def _estimate(self, m: _Message) -> float:
+        """不排版的估計高度：多行訊息依換行寬度比例放大，單行與沒畫過的以兩種字型各一行計。"""
+        if m.height <= self._one_line:
+            return self._one_line
+        return max(self._one_line, m.height * m.drawn_wrap / self.wrap)
 
     def _region(self) -> tuple[float, float]:
-        """顯示中分頁內容的捲動範圍（上緣, 下緣）；沒有訊息時為 (0, 0)。"""
-        records = self._messages
+        """顯示中分頁的捲動範圍（上緣, 下緣）：已畫範圍加上兩側待補記錄的估計高度；沒有訊息時為 (0, 0)。"""
+        view = self._views[self.shown_key]
+        records = view.records
         if not records:
             return 0, 0
-        return line_origin(records[0].lines[0])[1] - _ROW_PAD, _row_bottom(records[-1]) + _ROW_PAD
+        above = sum(self._estimate(m) for m in records[:view.lo])
+        below = sum(self._estimate(m) for m in records[view.hi:])
+        return (line_origin(records[view.lo].lines[0])[1] - _ROW_PAD - above,
+                _row_bottom(records[view.hi - 1]) + _ROW_PAD + below)
+
+    def _apply_region(self) -> None:
+        top, bottom = self._region()
+        self._canvas.configure(scrollregion=(0, top, self._canvas.winfo_width(), bottom))
+
+    def _fill_viewport(self) -> None:
+        """視口上下緣離已畫範圍不足一個視口高度就同步補畫（呼叫端都在 Tk 重繪之前）。
+
+        畫到最頂端時，視口原本停在捲動範圍頂端或落到內容上方就貼齊第一則 —— 估計高度與實際有落差。"""
+        view = self._views[self.shown_key]
+        c = view.canvas
+        pinned = c.yview()[0] <= 0
+        while view.records:
+            height = c.winfo_height()
+            top, bottom = c.canvasy(0) - height, c.canvasy(height) + height
+            drew = False
+            while view.lo and line_origin(view.records[view.lo].lines[0])[1] > top:
+                self._draw_up(view)
+                drew = True
+            while view.hi < len(view.records) and _row_bottom(view.records[view.hi - 1]) < bottom:
+                self._draw_down(view)
+                drew = True
+            if not drew:
+                return
+            self._apply_region()
+            if view.lo == 0 and (pinned or c.canvasy(0) < self._region()[0]):
+                c.yview_moveto(0.0)
+
+    def complete_layout(self) -> None:
+        """把顯示中分頁剩下的訊息全部同步畫完（測試與極端跳轉用）。"""
+        view = self._views[self.shown_key]
+        while view.lo:
+            self._draw_up(view)
+        while view.hi < len(view.records):
+            self._draw_down(view)
+        self._apply_region()
+
+    @staticmethod
+    def _top_drawn(view: _View) -> int:
+        """視口頂端那則已畫訊息的位置：列頂落在視口內的第一則（都不在時取最後一則已畫的）。"""
+        # 不取被視口上緣切到的那則：它長高（譯文回填）時錨在它的列頂，視口內的內容就會整段下移
+        i = bisect.bisect_left(view.records, view.canvas.canvasy(0), view.lo, view.hi,
+                               key=lambda m: line_origin(m.lines[0])[1])
+        return min(i, view.hi - 1)
 
     # --- 捲動 ---
     def _on_canvas_configure(self, e) -> None:
         self.wrap = max(80, e.width - 12)
         # 既有訊息的換行寬度也要同步更新，否則縮小視窗後右緣被切；隱藏中的分頁切過去時才補
         if self._views[self.shown_key].wrap != self.wrap:
-            self._rewrap(self.shown_key)
-        self._selection.redraw()
+            self._relayout(self.shown_key)
         self._on_wrap_change(self.wrap)
+        # 視窗拉高時視口變大：畫布重繪已排在 idle，補畫要趕在它之前
+        self._fill_viewport()
         # 排到 idle 再貼底，不在事件處理中直接 update_idletasks() —— 那會讓下一個
         # Configure 事件重入本函式；此時排版也尚未完成，量到的高度是舊的。
         self._canvas.after_idle(self.refresh_scroll)
@@ -190,11 +279,13 @@ class MessageList:
         """滾輪捲動（畫布、捲軸與底板的空白處共用）。"""
         self._canvas.yview_scroll(int(-e.delta / 120), "units")
         self.note_scroll()
+        self._fill_viewport()
 
     def _user_scroll(self, *args) -> None:
         """捲軸拖曳入口：捲完記下使用者是否仍要跟隨底部。"""
         self._canvas.yview(*args)
         self.note_scroll()
+        self._fill_viewport()
 
     def scroll_debug(self) -> str:
         """捲動狀態快照，供 log 定位「訊息看不到／捲不到底」；region_h 與 content_h
@@ -229,31 +320,34 @@ class MessageList:
         self._canvas.yview_moveto(
             min(1.0, max(0.0, self._canvas.yview()[0] + pixels / height)))
         self.note_scroll()
+        self._fill_viewport()
         return True
 
     def _view_anchor(self) -> tuple[str, int] | None:
-        """視圖目前對齊到的內容位置：（最新一則的 tag，它的列頂相對視口頂端的偏移）。
+        """視圖目前對齊到的內容位置：（視口頂端那則已畫訊息的 tag，它的列頂相對視口頂端的偏移）。
 
         畫布記的是像素原點而非「看到哪一則」，清掉上方舊訊息或改變某列高度時底下
         內容會整段滑動、正在讀的行就跳掉 —— 內容變動前取錨、變動後交給
-        `refresh_scroll` 復位。跟隨底部時直接貼底不需要錨；最新一則不會被上方的
-        清除移走，拿它當錨最穩。拖曳框選中即使處於跟隨狀態也要給錨 —— prune 把上方
-        訊息清掉會讓下方內容整段上移，沒有錨點補位的話游標下的字就會被換掉。"""
+        `refresh_scroll` 復位。跟隨底部時直接貼底不需要錨。拖曳框選中即使處於跟隨狀態
+        也要給錨 —— prune 把上方訊息清掉會讓下方內容整段上移，沒有錨點補位的話游標下的字
+        就會被換掉。"""
         if (self._follow and not self._selection.dragging) or not self._messages:
             return None
-        newest = self._messages[-1]
-        return newest.tag, round(line_origin(newest.lines[0])[1]) - int(self._canvas.canvasy(0))
+        view = self._views[self.shown_key]
+        m = view.records[self._top_drawn(view)]
+        return m.tag, round(line_origin(m.lines[0])[1]) - int(self._canvas.canvasy(0))
 
     def _restore_anchor(self, tag: str, offset: int) -> None:
-        """把捲動位置移回「錨點那則仍在視口同一偏移」處（見 `_view_anchor`）。"""
+        """把捲動位置移回「錨點那則仍在視口同一偏移」處（見 `_view_anchor`）；
+        錨點那則已移除或未畫時改用第一則已畫訊息、偏移不變。"""
+        view = self._views[self.shown_key]
         top, bottom = self._region()
-        # 由新往舊找：錨點是取錨當下最新的一則，之後最多再多幾則新訊息
-        m = next((m for m in reversed(self._messages) if m.tag == tag), None)
-        alive = m is not None
-        if not alive or bottom <= top:
-            # 罕見（錨點那則被清光、內容量不出來）：放棄補位，視圖會跳一下
+        drawn = view.records[view.lo:view.hi]
+        m = next((m for m in drawn if m.tag == tag), drawn[0] if drawn else None)
+        if m is None or bottom <= top:
+            # 罕見（訊息被清光、內容量不出來）：放棄補位，視圖會跳一下
             log(f"[ui] scroll anchor unusable, view may jump "
-                f"(row_alive={alive} region=({top}, {bottom})) "
+                f"(drawn={len(drawn)} region=({top}, {bottom})) "
                 f"({self.scroll_debug()})")
             return
         target = max(top, line_origin(m.lines[0])[1] - offset)
@@ -268,46 +362,90 @@ class MessageList:
         框選拖曳期間不貼底：畫面被新訊息拉走的話，游標下的字會整個換掉。"""
         self._scroll_pending = None
         self._canvas.update_idletasks()
-        top, bottom = self._region()
-        self._canvas.configure(scrollregion=(0, top, self._canvas.winfo_width(), bottom))
+        self._apply_region()
         if self._follow and not self._selection.dragging:
             self._canvas.yview_moveto(1.0)
         elif anchor is not None:
             self._restore_anchor(*anchor)
+        self._fill_viewport()
 
     # --- 訊息 ---
     def _drop(self, view: _View, m: _Message) -> None:
-        """刪除一則訊息的文字物件並解除選取登記。兩者必須成對 —— 漏掉任一處，
+        """刪除一則訊息的文字物件（已畫時）並解除選取登記。兩者必須成對 —— 漏掉任一處，
         選取就會指向已刪除的物件。"""
         self._selection.forget(m.tag)
         view.rows.pop(m.tag, None)
-        view.canvas.delete(*line_items(m.lines[0]), *line_items(m.lines[1]))
+        if m.lines:
+            view.canvas.delete(*line_items(m.lines[0]), *line_items(m.lines[1]))
 
-    def _draw(self, view: _View, m: _Message) -> _Message:
-        """把一則訊息畫在該分頁畫布的最下方（原文行＋譯文行），回傳帶著行與 tag 的記錄。"""
+    def _draw(self, view: _View, i: int, top: float) -> None:
+        """把第 i 則畫成列頂在 top 的原文行＋譯文行，更新記錄與選取登記並補上反白。"""
         c = view.canvas
-        tag = m.tag or f"msg{next(self._tags)}"   # 全域唯一：Selection.forget 只認 tag，跨分頁不能撞名
-        top = _row_bottom(view.records[-1]) + 2 * _ROW_PAD if view.records else _ROW_PAD
+        m = view.records[i]
         original = draw_outlined(c, 0, top, m.original,
                                  fill=dimmed(m.color) if m.color else FG_ORIGINAL,
-                                 font=ui_font(9), wrap=self.wrap, tag=f"{tag}.0")
+                                 font=ui_font(9), wrap=self.wrap, tag=f"{m.tag}.0")
         translated = draw_outlined(c, 0, top + line_height(original), m.translated,
                                    fill=m.translated_fill(), font=ui_font(11),
-                                   wrap=self.wrap, tag=f"{tag}.1")
-        return m._replace(lines=(original, translated), tag=tag)
+                                   wrap=self.wrap, tag=f"{m.tag}.1")
+        m = view.records[i] = m._replace(
+            lines=(original, translated), drawn_wrap=self.wrap,
+            height=line_height(original) + line_height(translated) + 2 * _ROW_PAD)
+        view.rows[m.tag] = Row((m.original, m.translated), m.lines)
+        self._selection.paint(m.tag)
+
+    def _draw_above(self, view: _View, i: int, bottom: float) -> None:
+        """把第 i 則畫成底緣在 bottom：先量高度再畫，文字物件畫下後就不再搬移。"""
+        m = view.records[i]
+        height = (measure_height(view.canvas, m.original, font=ui_font(9), wrap=self.wrap)
+                  + measure_height(view.canvas, m.translated, font=ui_font(11), wrap=self.wrap))
+        self._draw(view, i, bottom - height)
+
+    def _draw_down(self, view: _View) -> None:
+        """往下多畫一則，接在已畫範圍下緣。"""
+        top = _row_bottom(view.records[view.hi - 1]) + 2 * _ROW_PAD if view.hi else _ROW_PAD
+        self._draw(view, view.hi, top)
+        view.hi += 1
+
+    def _draw_up(self, view: _View) -> None:
+        """往上多畫一則，接在已畫範圍上緣。"""
+        self._draw_above(view, view.lo - 1,
+                         line_origin(view.records[view.lo].lines[0])[1] - 2 * _ROW_PAD)
+        view.lo -= 1
 
     def _append(self, view: _View, m: _Message) -> None:
-        """畫出一則訊息、記進清單，並登記給選取（顯示中分頁的 rows 就是 Selection 的登記表）。"""
-        m = self._draw(view, m)
+        """記進清單並登記給選取（顯示中分頁的 rows 就是 Selection 的登記表）；
+        最新一則已畫時才畫在最下方，否則等補畫輪到它。"""
         view.records.append(m)
-        view.rows[m.tag] = Row((m.original, m.translated), m.lines)
+        view.rows[m.tag] = Row((m.original, m.translated), ())
+        if view.hi == len(view.records) - 1:
+            self._draw_down(view)
+
+    def _remove(self, view: _View, gone) -> None:
+        """移除這些位置（由小到大）的記錄並維護已畫範圍。
+
+        已畫的整段被移光時就地補畫一則：已畫範圍空了就沒有排版的基準點。"""
+        top = None
+        for i in reversed(gone):
+            m = view.records.pop(i)
+            if m.lines:
+                top = line_origin(m.lines[0])[1]
+            self._drop(view, m)
+            if i < view.lo:
+                view.lo -= 1
+            if i < view.hi:
+                view.hi -= 1
+        if view.records and view.lo == view.hi:
+            i = min(view.lo, len(view.records) - 1)
+            self._draw(view, i, top)
+            view.lo, view.hi = i, i + 1
 
     def _trim(self, view: _View) -> bool:
         """把超過上限的最舊記錄移除；回傳是否有移除。"""
-        removed = len(view.records) > self._max
-        while len(view.records) > self._max:
-            self._drop(view, view.records.pop(0))
-        return removed
+        excess = len(view.records) - self._max
+        if excess > 0:
+            self._remove(view, range(excess))
+        return excess > 0
 
     def add_message(self, key: ViewKey, original: str, translated: str,
                     now: float | None = None, msg_id: int | None = None,
@@ -318,8 +456,10 @@ class MessageList:
         shown = key == self.shown_key
         anchor = self._view_anchor() if shown else None
         view = self._view(key)
+        # tag 全域唯一：Selection.forget 只認 tag，跨分頁不能撞名
         self._append(view, _Message(now if now is not None else time.time(), original,
-                                    translated, msg_id, color, pending, False))
+                                    translated, msg_id, color, pending, False,
+                                    tag=f"msg{next(self._tags)}"))
         self._trim(view)
         if shown:
             self._refresh_placeholder()
@@ -347,14 +487,17 @@ class MessageList:
                 view.rows[m.tag] = view.rows[m.tag]._replace(texts=(m.original, translated))
                 if self._selection.holds(m.tag):
                     self._selection.clear("translated line replaced")
-                line = m.lines[1]
-                before = line_height(line)
-                for item in line_items(line):
-                    view.canvas.itemconfigure(item, text=translated)
-                view.canvas.itemconfigure(line.fg, fill=m.translated_fill())
-                delta = line_height(line) - before
+                delta = 0
+                if m.lines:
+                    line = m.lines[1]
+                    before = line_height(line)
+                    for item in line_items(line):
+                        view.canvas.itemconfigure(item, text=translated)
+                    view.canvas.itemconfigure(line.fg, fill=m.translated_fill())
+                    delta = line_height(line) - before
                 if delta:
-                    for later in view.records[i + 1:]:
+                    view.records[i] = m._replace(height=m.height + delta)
+                    for later in view.records[i + 1:view.hi]:
                         for later_line in later.lines:
                             _move_line(later_line, delta)
                 if key == self.shown_key:
@@ -374,9 +517,9 @@ class MessageList:
         self.shown_key = key
         view = self._view(key)
         self._attach(view)
-        if view.wrap != self.wrap:
-            self._rewrap(key)
         self._follow = True
+        if view.wrap != self.wrap:
+            self._relayout(key)
         self._refresh_placeholder()
         self.refresh_scroll()
         log(f"[ui] view switched (slot={key[0]}, tab={key[1]}, "
@@ -402,13 +545,10 @@ class MessageList:
         cutoff = (now if now is not None else time.time()) - self._fade
         shown_changed = False
         for key, view in self._views.items():
-            keep = [m for m in view.records if m.ts > cutoff]
-            if len(keep) == len(view.records):
+            gone = [i for i, m in enumerate(view.records) if m.ts <= cutoff]
+            if not gone:
                 continue
-            for m in view.records:
-                if m.ts <= cutoff:
-                    self._drop(view, m)
-            view.records[:] = keep
+            self._remove(view, gone)
             shown_changed |= key == self.shown_key
         if shown_changed:
             self._refresh_placeholder()

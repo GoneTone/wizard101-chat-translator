@@ -5,7 +5,6 @@ import time
 import pytest
 
 from src.reader.chat_tabs import TabState
-from src.ui.outlined_text import line_height
 from src.ui.overlay import OverlayWindow
 
 pytestmark = pytest.mark.xdist_group("overlay-perf")
@@ -28,7 +27,8 @@ def _settle(ov):
 
 def _resize(ov, width):
     ov._apply_geometry(10000, 10000, width, 300)
-    _settle(ov)
+    # update()（非 update_idletasks）：頂層視窗改尺寸後的 <Configure> 是事件，idle 佇列送不到畫布
+    ov._win.update()
 
 
 def _fill(ov, text="hello", count=COUNT, tabs=(0, 1)):
@@ -70,23 +70,18 @@ def _stale_overlay(root, count):
     return ov
 
 
-def _stale_rewrap_seconds(ov, width):
-    """把窗寬改成 width 再切到分頁 1 的重排 CPU 時間（本程序的，不受其他 worker 搶佔灌水）。"""
-    records = ov._list._views[(1, 1)].records
-    before = [line_height(ln) for m in records for ln in m.lines]
-    _resize(ov, width)
-    seconds = _switch(ov, 1, clock=time.process_time)
-    assert [line_height(ln) for m in records for ln in m.lines] != before, "行高沒變就量不到重排"
-    _switch(ov, 0)
-    return seconds
-
-
-def test_rewrapping_a_stale_tab_scales_linearly(root):
-    """重排耗時與訊息數成線性：1000 則 / 250 則 ≤ 7（線性約 4、平方約 16），且 ≤ 10 秒。"""
+def test_the_synchronous_part_of_a_resize_is_independent_of_message_count(root):
+    """縮放的同步部分：1000 則中位數 ≤ 0.2 秒（CPU），1000／250 ≤ 2。"""
     small, large = _stale_overlay(root, 250), _stale_overlay(root, 1000)
-    pairs = [(_stale_rewrap_seconds(small, w), _stale_rewrap_seconds(large, w))
-             for w in (240, 460, 240)]   # 兩者緊接著量，負載變動對兩邊一致；取比值最小的一輪
-    t250, t1000 = min(pairs, key=lambda p: p[1] / p[0])
-    print(f"REWRAP t250={t250:.3f} t1000={t1000:.3f} ratio={t1000 / t250:.2f}")
-    assert t1000 / t250 <= 7, (t250, t1000)
-    assert t1000 <= 10, t1000
+    _switch(small, 1)
+    _switch(large, 1)
+
+    def cpu(ov, width):
+        start = time.process_time()
+        _resize(ov, width)
+        return time.process_time() - start
+
+    pairs = [(cpu(small, w), cpu(large, w)) for w in (240, 460, 240, 460, 240)]
+    t1000 = statistics.median(p[1] for p in pairs)
+    assert t1000 <= 0.200, pairs
+    assert t1000 / max(statistics.median(p[0] for p in pairs), 1e-3) <= 2, pairs

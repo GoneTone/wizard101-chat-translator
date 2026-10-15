@@ -1,10 +1,11 @@
 import pytest
 
+import src.ui.message_list as message_list_module
 from src.i18n import t
 from src.reader.chat_tabs import TabState
 from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
-from src.ui.message_list import should_stick_to_bottom
+from src.ui.message_list import _ROW_PAD, _row_bottom, should_stick_to_bottom
 from src.ui.outlined_text import line_height, line_origin
 from src.ui.overlay import (
     _GRIP_SIZE,
@@ -42,6 +43,7 @@ def test_resize_updates_existing_message_wraplength(root):
         width = 240
 
     ov._list._on_canvas_configure(FakeEvent())
+    ov._list.complete_layout()
     expected = max(80, 240 - 12)
     for entry in ov._list._messages:
         for line in entry.lines:
@@ -861,7 +863,7 @@ def test_resize_redraws_the_highlight_to_the_new_wrapping(root):
     ov._list._on_canvas_configure(FakeEvent())
     ov._win.update_idletasks()
 
-    first, second = ov._list._messages[0].lines   # 換行寬度一變整個分頁重畫，行要重新取
+    first, second = ov._list._messages[0].lines   # 換行寬度一變就刪掉重畫，行要重新取
     canvas = first.canvas
     rects = [i for i in canvas.find_withtag("sel")
              if canvas.coords(i)[1] < line_origin(second)[1]]   # 只取原文行的反白
@@ -908,6 +910,7 @@ def test_press_on_a_row_scrolled_out_of_view_is_ignored(root):
     for i in range(20):
         ov.add_message(f"原文{i}", f"譯文{i}")
     ov._win.update()
+    ov._list.complete_layout()   # 首次 <Configure> 改了換行寬度、只重排視口附近，第一則可能還沒畫
     hidden_top, hidden_bottom = ov._list._messages[0].lines
     x, top, height = _line_box(hidden_top)
     assert top < ov._list._canvas.winfo_rooty(), \
@@ -1501,6 +1504,7 @@ def test_resize_while_hidden_rewraps_on_show(root):
     root.update()
     assert ov._list.wrap != old, "前置條件：縮放應該改變換行寬度"
     ov.set_tabs(1, _bar_state(1))
+    ov._list.complete_layout()
     assert line_height(ov._list._messages[0].lines[0]) > before, \
         "前置條件：原文行應該多換一行，下方內容才需要移動"
     for m in ov._list._messages:
@@ -1569,25 +1573,21 @@ def test_switching_views_keeps_each_views_canvas(root):
 
 
 def test_rewrap_between_taking_and_restoring_the_anchor_keeps_the_view(root):
-    # refresh_scroll 的 update_idletasks() 可能剛好送來改變寬度的 <Configure>，整頁重畫後錨點仍要對得回去
+    # refresh_scroll 的 update_idletasks() 可能剛好送來改變寬度的 <Configure>，重排後錨點仍要對得回去
     ov = _filled_overlay(root)
     _scroll_up(ov)
     root.update()
-    newest = ov._list._messages[-1].msg_id
     anchor = ov._list._view_anchor()
-    before = _row_offset(ov, newest)
+    tag, offset = anchor
 
-    class FakeEvent:
-        width = 420
-
-    ov._list._on_canvas_configure(FakeEvent())
+    _configure_width(ov, 420)
     ov._list.refresh_scroll(anchor)
 
-    assert _row_offset(ov, newest) == before
+    assert _offset_of(ov, tag) == offset
 
 
 def test_resizing_with_a_selection_does_not_grow_the_font_cache(root):
-    # 重排會重畫每一行；字型快取若以行為鍵，每次縮放都會多留下一批 Tcl 字型
+    # 重排會重畫行；字型快取若以行為鍵，每次縮放都會多留下一批 Tcl 字型
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=10, fade_seconds=0)
     ov.add_message("原文一" * 10, "譯文一" * 10)
     _select_whole_message(ov)
@@ -1649,6 +1649,140 @@ def test_showing_a_stale_tab_rewraps_it_before_it_is_visible(root):
 
     ov._list._on_canvas_configure(FakeEvent())   # 分頁 1 隱藏中，實際畫布寬度不變
     ov.set_tabs(1, _bar_state(1))
+    ov._list.complete_layout()
     for m in ov._list._messages:
         for line in m.lines:
             assert int(line.canvas.itemcget(line.fg, "width")) == ov._list.wrap
+
+
+class _Wheel:
+    """假的滾輪事件（只用到 delta）。"""
+
+    def __init__(self, delta):
+        self.delta = delta
+
+
+def _configure_width(ov, width):
+    """送一個指定寬度的假 <Configure> 給顯示中的畫布。"""
+    class FakeEvent:
+        pass
+
+    FakeEvent.width = width
+    ov._list._on_canvas_configure(FakeEvent())
+
+
+def _long_overlay(root, n):
+    """n 則長度不一、會換行的中英文訊息，視圖停在最底。"""
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, max_messages=n, fade_seconds=0)
+    for i in range(n):
+        ov.add_message(f"message {i}: " + "wizard chat line " * (1 + i % 6),
+                       f"第 {i} 則譯文" + "會換行的長譯文內容" * (1 + i % 4), msg_id=i)
+    ov._win.update()
+    return ov
+
+
+def _layout(ov):
+    """每則兩行相對第一則的 y 偏移、行高與換行寬度。"""
+    messages = ov._list._messages
+    base = line_origin(messages[0].lines[0])[1]
+    return [(line_origin(line)[1] - base, line_height(line),
+             line.canvas.itemcget(line.fg, "width"))
+            for m in messages for line in m.lines]
+
+
+def _fresh_overlay_with_same_messages(root, ov, wrap):
+    """以 wrap 一次全部畫出 ov 現有訊息的新 overlay。"""
+    messages = ov._list._messages
+    fresh = OverlayWindow(root, x=0, y=0, width=460, height=300,
+                          max_messages=len(messages) + 1, fade_seconds=0)
+    fresh._win.update()
+    _configure_width(fresh, wrap + 12)
+    for m in messages:
+        fresh.add_message(m.original, m.translated, msg_id=m.msg_id)
+    assert fresh._list.wrap == wrap
+    return fresh
+
+
+def _offset_of(ov, tag):
+    """tag 那則的列頂相對視口頂端的偏移。"""
+    m = next(m for m in ov._list._messages if m.tag == tag)
+    return round(line_origin(m.lines[0])[1]) - int(ov._list._canvas.canvasy(0))
+
+
+def _covered(ov) -> bool:
+    """視口範圍內沒有未畫的區域。"""
+    ml, view = ov._list, ov._list._views[ov._list.shown_key]
+    top, bottom = ml._canvas.canvasy(0), ml._canvas.canvasy(ml._canvas.winfo_height())
+    first, last = view.records[view.lo], view.records[view.hi - 1]
+    return ((view.lo == 0 or line_origin(first.lines[0])[1] <= top)
+            and (view.hi == len(view.records) or _row_bottom(last) >= bottom))
+
+
+def test_resize_draws_only_the_viewport_then_completes_identically(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    view = ov._list._views[ov._list.shown_key]
+    assert view.hi == 300 and view.hi - view.lo < 60
+    assert _covered(ov)
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
+
+
+def test_wheeling_up_after_a_resize_never_shows_a_gap(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    for _ in range(400):
+        ov._list.on_wheel(_Wheel(delta=120))
+        assert _covered(ov)
+
+
+def test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    ov._list._user_scroll("moveto", 0.0)
+    ov._win.update_idletasks()
+    first = ov._list._messages[0]
+    assert first.lines and round(line_origin(first.lines[0])[1]) - ov._list._canvas.canvasy(0) == _ROW_PAD
+
+
+def test_taller_window_during_partial_layout_shows_no_gap(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    ov._apply_geometry(10000, 10000, ov._list._canvas.winfo_width() + 12, 700)
+    ov._win.update_idletasks()
+    assert _covered(ov)
+
+
+def test_resizing_an_empty_view_logs_nothing(root, monkeypatch):
+    logged = []
+    monkeypatch.setattr(message_list_module, "log", logged.append)
+    ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
+    _configure_width(ov, 240)
+    assert not [line for line in logged if "relaid out" in line or "rewrapped" in line]
+
+
+def test_follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    ov._win.update_idletasks()
+    assert ov._list._canvas.yview()[1] == 1.0
+
+
+def test_reading_history_keeps_the_viewport_top_message_in_place_on_resize(root):
+    ov = _long_overlay(root, 300)
+    _scroll_up(ov, 0.5)
+    ov._win.update()
+    tag, offset = ov._list._view_anchor()
+    _configure_width(ov, 300)
+    ov._win.update_idletasks()
+    assert abs(_offset_of(ov, tag) - offset) <= 1
+
+
+def test_updates_trims_and_adds_during_partial_layout_match_a_full_redraw(root):
+    ov = _long_overlay(root, 300)
+    _configure_width(ov, 300)
+    ov.update_message(ov._list._messages[5].msg_id, "補上的長譯文" * 20)
+    ov.update_message(ov._list._messages[-1].msg_id, "補上的長譯文" * 20)
+    ov.add_message("新來的", "擠掉最舊一則")
+    ov._list.complete_layout()
+    assert _layout(ov) == _layout(_fresh_overlay_with_same_messages(root, ov, wrap=ov._list.wrap))
