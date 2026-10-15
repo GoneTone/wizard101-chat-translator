@@ -248,9 +248,11 @@ def test_show_flips_above_using_the_visible_frame_height(root, monkeypatch):
     box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda e, h: None)
     box.set_anchor((300, 1000, 500, 40))
     box.show()
-    box._win.update_idletasks()
+    box._win.update()
     visible_h = box._win.winfo_reqheight() + 32
-    assert box._win.geometry().endswith(f"+293+{1000 - input_box_module.ANCHOR_GAP - visible_h}")
+    # 放在上方時 geometry 改用從螢幕底部算的寫法（見 _pin_bottom），所以讀實際位置
+    assert (box._win.winfo_x(), box._win.winfo_y()) == (
+        293, 1000 - input_box_module.ANCHOR_GAP - visible_h)
     box.close()
 
 
@@ -333,6 +335,56 @@ def test_shown_box_visible_frame_matches_the_anchor(root, monkeypatch):
     box.close()
     assert (frame.left, frame.right - frame.left) == (10000, 732)
     assert frame.top == 10000 + 44 + input_box_module.ANCHOR_GAP
+
+
+@pytest.mark.real_position
+def test_growth_stays_pinned_when_tk_already_grew_the_window(root, monkeypatch):
+    """Tk 可能先依內容把視窗撐高（上緣不動）才輪到 _fit_height：底邊仍要釘住。"""
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    box.set_anchor((300, 1000, 500, 40))
+    box.show()
+    box._win.update()
+    bottom = box._win.winfo_y() + box._win.winfo_height()
+    status = box._status
+    status._on_height_change = None   # 先只讓標籤換行長高，不通知視窗
+    status.set("很長的錯誤訊息 " * 30)
+    status._fit_pending = False
+    status._fit()
+    box._win.update_idletasks()
+    box._win.geometry(f"{box._width}x{box._win.winfo_reqheight()}")   # 模擬 Tk 先撐高
+    box._win.update_idletasks()
+    box._fit_height()
+    box._win.update()
+    assert box._win.winfo_y() + box._win.winfo_height() == bottom
+    box.close()
+
+
+@pytest.mark.real_position
+def test_growth_after_dragging_pins_the_dragged_bottom(root, monkeypatch):
+    """使用者拖動標題列後長高：底邊釘在拖到的位置，不能彈回開窗時的錨點旁。"""
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "visible_chrome", lambda hwnd: _CHROME)
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    box.set_anchor((300, 1000, 500, 40))
+    box.show()
+    box._win.update()
+    # 模擬拖動：由 Windows 直接移動視窗（拖標題列就是這條路，Tk 會因此改回從上緣算的座標）
+    import win32con
+    import win32gui
+
+    from src.ui.winstyle import root_hwnd
+    hwnd = root_hwnd(box._win)
+    left, top, _, _ = win32gui.GetWindowRect(hwnd)
+    win32gui.SetWindowPos(hwnd, 0, left, top - 200, 0, 0, win32con.SWP_NOSIZE
+                          | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE)
+    box._win.update()
+    bottom = box._win.winfo_y() + box._win.winfo_height()
+    box._status.set("很長的錯誤訊息 " * 30)
+    box._win.update()
+    assert box._win.winfo_y() + box._win.winfo_height() == bottom
+    box.close()
 
 
 @pytest.mark.real_position

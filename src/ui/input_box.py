@@ -2,6 +2,7 @@
 遊戲聊天輸入框開著就貼在它正下方、同寬；沒開（熱鍵呼出）就貼在游標處。
 翻譯跑背景執行緒，結果經 ui_queue 回主執行緒。"""
 import queue
+import re
 import threading
 import tkinter as tk
 
@@ -26,6 +27,8 @@ HINT_FG = "#9a9aa8"
 GAME_INPUT_MAX_CHARS = 80  # 遊戲聊天輸入框的長度上限（實測）
 DEFAULT_WIDTH = 460  # 沒有錨點時的寬度；有錨點就跟遊戲輸入框同寬
 MIN_WIDTH = 320  # 遊戲輸入框再窄也不跟：提示文字會擠成一長條，且輸入欄放不下一句話
+# wm geometry 的 WxH±X±Y；Y 前的符號是 - 代表從螢幕底部算（見 _pin_bottom）
+_GEOMETRY = re.compile(r"\d+x\d+[+-]-?\d+([+-]-?\d+)")
 _INITIAL_HEIGHT = 84  # 開窗時的占位高度；建好內容後隨即由 _fit_height 貼合
 ANCHOR_GAP = 4  # 與遊戲輸入框／游標的垂直間距（px）
 
@@ -131,9 +134,13 @@ class InputBox:
         self._entry.bind("<Return>", self._on_enter)
         self._win.bind("<Escape>", lambda e: self.close())
         self._win.protocol("WM_DELETE_WINDOW", self.close)
+        self._win.bind("<Configure>", self._on_configure, add="+")
         self._fit_height()
         px, py = self._position(self._width + extra_w, self._win.winfo_reqheight() + extra_h)
         self._win.geometry(f"+{px - left_inset}+{py - top_inset}")
+        if self._above_anchor:
+            self._win.update_idletasks()
+            self._pin_bottom()
         self._force_focus()
 
     def _position(self, width: int, height: int) -> tuple[int, int]:
@@ -234,19 +241,27 @@ class InputBox:
         """依內容自動調整視窗高度（寬度不動）：提示／錯誤文字換行行數會隨
         DPI 縮放、視窗寬度與訊息長度變動，固定高度會把文字切在下緣。寬度一律用開窗時
         算好的值：尚未顯示時 winfo_width() 對不上 geometry 請求，不能讀回。
-        放在錨點上方時底邊釘住、往上長：顯示後才量得準的換行若往下長會蓋到遊戲輸入框。"""
+        放在錨點上方時底邊由 Tk 釘住（見 _pin_bottom），這裡只管高度。"""
         if self._win is None:
             return
         self._win.update_idletasks()
         height = self._win.winfo_reqheight()
-        current = self._win.winfo_height()
-        if height == current:
-            return
-        if self._above_anchor and self._win.winfo_viewable():
-            x, y = self._win.winfo_x(), self._win.winfo_y() - (height - current)
-            self._win.geometry(f"{self._width}x{height}+{x}+{y}")
-        else:
+        if height != self._win.winfo_height():
             self._win.geometry(f"{self._width}x{height}")
+
+    def _pin_bottom(self) -> None:
+        """改用從螢幕底部算的座標（geometry 的 -Y）：之後不論是 _fit_height 還是 Tk 依內容撐高，
+        Tk 都固定底邊、往上長，換行長高才不會往下蓋到遊戲輸入框。位置換算自外框實際的矩形。"""
+        left, _, _, bottom = win32gui.GetWindowRect(root_hwnd(self._win))
+        self._win.geometry(f"+{left}-{self._win.winfo_screenheight() - bottom}")
+
+    def _on_configure(self, event) -> None:
+        """使用者拖動標題列後 Tk 會改回從上緣算的座標：照拖到的位置換回底部座標，之後仍往上長。"""
+        if event.widget is not self._win or not self._above_anchor:
+            return
+        match = _GEOMETRY.fullmatch(self._win.geometry())
+        if match is not None and not match.group(1).startswith("-"):
+            self._pin_bottom()
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:
         if session != self._session:
