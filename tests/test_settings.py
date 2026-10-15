@@ -4,11 +4,11 @@ import tkinter as tk
 import pytest
 
 from src.config import clamp_advanced
-from src.ui import form as form_module
-from src.ui.bubble import BUBBLE_ALPHA_FACTOR, BUBBLE_ALPHA_FLOOR
-from src.ui.overlay import OverlayWindow
+from src.ui.overlay.bubble import BUBBLE_ALPHA_FACTOR, BUBBLE_ALPHA_FLOOR
+from src.ui.overlay.window import OverlayWindow
 from src.ui.richtext import LINK_COLOR
-from src.ui.settings import parse_advanced_values
+from src.ui.settings import form as form_module
+from src.ui.settings.window import parse_advanced_values
 
 
 def test_clamp_advanced_limits_ranges():
@@ -102,7 +102,7 @@ def test_parse_advanced_values_clamps_parallel(root):
 
 def test_parse_advanced_values_returns_error_key():
 
-    from src.ui.settings import parse_advanced_values
+    from src.ui.settings.window import parse_advanced_values
 
     class BadVar:
         def get(self):
@@ -115,7 +115,7 @@ def test_parse_advanced_values_returns_error_key():
 
 def test_save_applies_ui_language(root, tmp_path):
     from src import i18n
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     before = i18n.current_language()
@@ -138,7 +138,7 @@ def test_save_applies_ui_language(root, tmp_path):
 
 
 def test_save_stores_the_system_message_toggle(root):
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -151,7 +151,7 @@ def test_save_stores_the_system_message_toggle(root):
 
 
 def test_reopening_settings_reflects_the_saved_toggle(root):
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -163,7 +163,7 @@ def test_reopening_settings_reflects_the_saved_toggle(root):
 
 def _open_settings(root, on_language_preview=None):
     from src.i18n import current_language
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -187,7 +187,7 @@ def test_the_services_tab_sits_between_basic_and_advanced(root):
 
 def test_save_writes_the_edited_service_list_into_cfg(root):
     from src.config.services import new_service
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -205,8 +205,8 @@ def test_save_refuses_an_incomplete_default_service(root, monkeypatch):
     # 手改 config.json 把預設服務的金鑰清空：儲存要擋下來，而且要指出缺的是哪一欄
     # （清單裡明明有一組服務，報「請先新增一組翻譯服務」只會讓人找不到問題）
     from src.i18n import t
-    from src.ui import settings as settings_module
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings import window as settings_module
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     warnings = []
@@ -413,7 +413,7 @@ def test_save_keeps_the_previewed_language(root):
 
 def _open_settings_with_checker(root, checker):
     from src.i18n import current_language
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -427,7 +427,7 @@ def test_about_tab_shows_version_and_links(root, monkeypatch):
     from src import __version__
     from src.i18n import t
     from src.runtime.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL
-    from src.ui import settings as settings_module
+    from src.ui.settings import window as settings_module
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -480,7 +480,7 @@ def test_manual_check_hands_a_new_version_to_on_update_found(root):
     """手動檢查查到新版時，除了關於分頁的連結，也要讓 overlay 顯示橫幅。"""
     from src.i18n import current_language
     from src.runtime.updater import Release
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
@@ -497,7 +497,7 @@ def test_manual_check_hands_a_new_version_to_on_update_found(root):
 
 def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
     from src.i18n import current_language
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     found = []
@@ -514,7 +514,7 @@ def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
 def test_manual_check_reports_a_new_version(root, monkeypatch):
     from src.i18n import t
     from src.runtime.updater import Release
-    from src.ui import settings as settings_module
+    from src.ui.settings import window as settings_module
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
     win = _open_settings_with_checker(root, lambda: release)
@@ -606,7 +606,7 @@ class FakeCache:
 
 
 def test_about_tab_hides_the_cache_row_without_a_cache(root):
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
     win = SettingsWindow(root, configured_cfg(), on_save=lambda: None)
     win.open()
@@ -615,7 +615,7 @@ def test_about_tab_hides_the_cache_row_without_a_cache(root):
 
 def test_clear_cache_button_clears_and_reports_the_count(root):
     from src.i18n import t
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
     cache = FakeCache(count=42)
     win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
@@ -628,7 +628,7 @@ def test_clear_cache_button_clears_and_reports_the_count(root):
 
 def test_clear_cache_reports_zero_when_the_cache_was_already_empty(root):
     from src.i18n import t
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
     cache = FakeCache(count=0)
     win = SettingsWindow(root, configured_cfg(), on_save=lambda: None, cache=cache)
@@ -645,7 +645,7 @@ def _texts(frame):
 def _fake_translators(monkeypatch, credit):
     """假造各語言的譯者掛名。兩個模組各自取值：下拉底下那列走 form 的共用元件，
     關於分頁自己取（那一列是 grid 的兩欄，版面與共用元件不同）。"""
-    from src.ui import settings as settings_module
+    from src.ui.settings import window as settings_module
     for module in (form_module, settings_module):
         monkeypatch.setattr(module, "translators", credit)
 
@@ -773,7 +773,7 @@ def test_releasing_topmost_survives_a_window_closed_in_the_meantime(root):
 
 def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
     from src.config import DEFAULT_CONFIG
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     assert DEFAULT_CONFIG["paste_hotkey"] is True
@@ -787,7 +787,7 @@ def test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle(root):
 
 
 def test_save_stores_the_region_hotkey(root):
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -801,8 +801,8 @@ def test_save_stores_the_region_hotkey(root):
 
 def test_save_rejects_identical_hotkeys(root, monkeypatch):
     from src.i18n import t
-    from src.ui import settings as settings_module
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings import window as settings_module
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     warnings = []
@@ -849,8 +849,8 @@ def test_save_refuses_a_service_a_slot_points_at(root, monkeypatch):
     出去），收訊那格更會每 15 秒重試一次、橫幅一直掛著端點原文。"""
     from src.config.services import SLOT_INCOMING, new_service
     from src.i18n import t
-    from src.ui import settings as settings_module
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings import window as settings_module
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     warnings = []
@@ -875,8 +875,8 @@ def test_save_lists_a_shared_services_problem_only_once(root, monkeypatch):
     """預設與某個插槽指到同一筆服務時，同一個缺漏不該被列兩次。"""
     from src.config.services import SLOT_OUTGOING
     from src.i18n import t
-    from src.ui import settings as settings_module
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings import window as settings_module
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     warnings = []

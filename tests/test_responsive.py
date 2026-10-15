@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from src.ui.responsive import MIN_WRAP, apply_wrap, bind_wrap, wrap_width
+from src.ui.settings.responsive import MIN_WRAP, apply_wrap, bind_wrap, wrap_width
 
 
 def test_wrap_width_subtracts_reserved_space():

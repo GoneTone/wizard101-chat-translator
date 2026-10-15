@@ -10,9 +10,9 @@ from src.config.services import PROVIDERS
 from src.i18n import t
 from src.logs import log
 from src.ui.fonts import ui_font
-from src.ui.form import hint_label, keyboard_activatable
 from src.ui.geometry import centered_position
 from src.ui.icons import ProviderIcons
+from src.ui.settings.form import hint_label, keyboard_activatable
 
 _PICKER_SIZE = (440, 360)   # 容得下三張卡片（最長的說明會折成兩行）與按鈕列
 

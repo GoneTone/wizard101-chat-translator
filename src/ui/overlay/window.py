@@ -13,12 +13,14 @@ from src.config import app_name
 from src.i18n import t
 from src.logs import log
 from src.runtime.updater import is_newer
-from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
 from src.ui.geometry import centered_position, edge_at, moved_to, point_in_rect, resized_edge
 from src.ui.icons import load_icon
-from src.ui.message_list import MessageList
+from src.ui.overlay.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
+from src.ui.overlay.message_list import MessageList
+from src.ui.overlay.selection import Selection
+from src.ui.overlay.tab_bar import TabBar
 from src.ui.palette import (
     BAR,
     BG,
@@ -30,8 +32,6 @@ from src.ui.palette import (
 )
 from src.ui.popup import Popup
 from src.ui.richtext import RichLabel
-from src.ui.selection import Selection
-from src.ui.tab_bar import TabBar
 from src.ui.tooltip import Tooltip
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
 

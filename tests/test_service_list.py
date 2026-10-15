@@ -7,14 +7,14 @@ import pytest
 from src.config.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, SLOTS, new_service
 from src.i18n import t
 from src.runtime.resources import provider_icon_path
-from src.ui.service_list import ServiceDialog, ServicePane
+from src.ui.settings.service_list import ServiceDialog, ServicePane
 
 
 @pytest.fixture(autouse=True)
 def _always_confirm(monkeypatch):
     """刪除確認框一律答「是」、驗證失敗的警示框直接關掉，免得測試停在等人按鈕。"""
-    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno", lambda *a, **k: True)
-    monkeypatch.setattr("src.ui.service_list.messagebox.showwarning", lambda *a, **k: None)
+    monkeypatch.setattr("src.ui.settings.service_list.messagebox.askyesno", lambda *a, **k: True)
+    monkeypatch.setattr("src.ui.settings.service_list.messagebox.showwarning", lambda *a, **k: None)
 
 
 def _service(provider, services, **fields):
@@ -82,7 +82,7 @@ def test_deleting_the_default_hands_it_to_the_first_remaining(two):
 def test_cancelling_delete_changes_nothing(two, monkeypatch):
     pane, a, _b = two
     before = pane.values()
-    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno", lambda *a, **k: False)
+    monkeypatch.setattr("src.ui.settings.service_list.messagebox.askyesno", lambda *a, **k: False)
     pane.delete_service(a["id"])
     assert pane.values() == before
 
@@ -195,8 +195,8 @@ def test_add_service_opens_nothing_when_the_pick_is_cancelled(two, monkeypatch):
     pane, _a, _b = two
     before = pane.values()
     opened = []
-    monkeypatch.setattr("src.ui.service_list.open_provider_picker", lambda parent: None)
-    monkeypatch.setattr("src.ui.service_list.open_service_dialog",
+    monkeypatch.setattr("src.ui.settings.service_list.open_provider_picker", lambda parent: None)
+    monkeypatch.setattr("src.ui.settings.service_list.open_service_dialog",
                         lambda *args, **kwargs: opened.append(args) or None)
     pane.add_service()
     assert opened == []
@@ -206,8 +206,8 @@ def test_add_service_opens_nothing_when_the_pick_is_cancelled(two, monkeypatch):
 def test_add_service_drafts_the_picked_provider(two, monkeypatch):
     pane, _a, _b = two
     drafts = []
-    monkeypatch.setattr("src.ui.service_list.open_provider_picker", lambda parent: "custom")
-    monkeypatch.setattr("src.ui.service_list.open_service_dialog",
+    monkeypatch.setattr("src.ui.settings.service_list.open_provider_picker", lambda parent: "custom")
+    monkeypatch.setattr("src.ui.settings.service_list.open_service_dialog",
                         lambda parent, service, *args, **kwargs: drafts.append(service) or None)
     pane.add_service()
     assert [d["provider"] for d in drafts] == ["custom"]
@@ -308,7 +308,7 @@ def test_the_keep_one_hint_goes_away_once_there_are_two(two):
 def test_deleting_an_assigned_service_says_its_slots_fall_back(root, monkeypatch):
     """指定它的用途會被悄悄退回預設，確認框要先講。"""
     asked = []
-    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno",
+    monkeypatch.setattr("src.ui.settings.service_list.messagebox.askyesno",
                         lambda title, message, **kwargs: asked.append(message) or True)
     a = _service("openai", [])
     b = _service("claude", [a])
@@ -322,7 +322,7 @@ def test_deleting_an_assigned_service_says_its_slots_fall_back(root, monkeypatch
 
 def test_deleting_an_unassigned_service_keeps_the_plain_question(two, monkeypatch):
     asked = []
-    monkeypatch.setattr("src.ui.service_list.messagebox.askyesno",
+    monkeypatch.setattr("src.ui.settings.service_list.messagebox.askyesno",
                         lambda title, message, **kwargs: asked.append(message) or True)
     pane, _a, b = two
     pane.delete_service(b["id"])

@@ -5,8 +5,8 @@ from PIL import Image
 
 from src.i18n import t
 from src.region.capture import Frame
-from src.ui import region_select as select_module
-from src.ui.region_select import RegionSelector
+from src.ui.region import select as select_module
+from src.ui.region.select import RegionSelector
 
 _MONITOR = (1920, 0, 1600, 900)   # 第二顆螢幕：矩形要加上螢幕原點
 # 遊戲 client 區左上角落在螢幕 (1920 + 100, 50)，換算成這顆螢幕的 canvas 座標是 (100, 50)

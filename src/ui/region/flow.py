@@ -31,18 +31,14 @@ from src.region.capture import (
     crop_frame,
 )
 from src.region.ocr import OcrUnavailable
-from src.translation.translator import (
-    RequestHandle,
-    TranslatorBadOutput,
-    TranslatorCancelled,
-    TranslatorError,
-)
-from src.ui.form import friendly_error
+from src.translation.clients import RequestHandle
+from src.translation.errors import TranslatorBadOutput, TranslatorCancelled, TranslatorError
 from src.ui.input_box import cursor_position
 from src.ui.monitors import monitor_rect_at
-from src.ui.region_box import RegionBox
-from src.ui.region_card import RegionCard
-from src.ui.region_select import RegionSelector
+from src.ui.region.box import RegionBox
+from src.ui.region.card import RegionCard
+from src.ui.region.select import RegionSelector
+from src.ui.settings.form import friendly_error
 
 
 def describe_error(exc: Exception) -> str:

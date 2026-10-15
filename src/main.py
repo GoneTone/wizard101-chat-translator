@@ -62,9 +62,9 @@ from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
 from src.ui.icons import apply_window_icon
 from src.ui.input_box import InputBox
-from src.ui.overlay import OverlayWindow
-from src.ui.region_flow import RegionFlow
-from src.ui.settings import SettingsWindow
+from src.ui.overlay.window import OverlayWindow
+from src.ui.region.flow import RegionFlow
+from src.ui.settings.window import SettingsWindow
 
 UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000   # 自動檢查更新的間隔
 
@@ -149,7 +149,7 @@ def shutdown(stop: threading.Event, pools: list[TranslationPool],
     # cache.put()；os._exit 不跑 atexit，這是寫回磁碟的最後機會。
     cache.flush()
     log("[app] shutdown complete")
-    # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 _TIMEOUT=60 秒）時，一般 return 會讓
+    # 翻譯 worker 非 daemon，仍卡在 HTTP 請求（最長 clients.TIMEOUT=60 秒）時，一般 return 會讓
     # 直譯器在 concurrent.futures.thread._python_exit 等它們 join —— 視窗已關、程式卻在
     # 工作管理員多留 60 秒。該還原的都已還原（hook 已解除、log 為線緩衝），直接砍行程。
     os._exit(0)
@@ -392,7 +392,7 @@ def main() -> None:
     apply_window_icon(root)
 
     if not is_configured(cfg):
-        from src.ui.wizard import run_wizard
+        from src.ui.settings.wizard import run_wizard
         splash.close()   # 精靈要跟使用者互動，啟動畫面不能擋在前面
         log("[app] config incomplete, launching first-run wizard")
         if not run_wizard(root, cfg):

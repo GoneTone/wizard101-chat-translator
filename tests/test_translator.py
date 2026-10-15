@@ -11,6 +11,21 @@ import httpx
 import httpx2
 import pytest
 
+from src.translation.clients import (
+    _CLAUDE_OUTPUT_FORMAT,
+    MAX_TOKENS_REGION,
+    MAX_TOKENS_THINKING,
+    OPENAI_BASE_URL,
+    RequestHandle,
+    error_detail,
+)
+from src.translation.errors import (
+    TranslatorBadOutput,
+    TranslatorCancelled,
+    TranslatorConfigError,
+    TranslatorNoModelList,
+    TranslatorOffline,
+)
 from src.translation.examples import (
     EMPTY,
     GAME_LANGUAGE_EXAMPLES,
@@ -32,22 +47,7 @@ from src.translation.prompts import (
     build_system_message_system,
     example_turns,
 )
-from src.translation.translator import (
-    _CLAUDE_OUTPUT_FORMAT,
-    _MAX_TOKENS_REGION,
-    _MAX_TOKENS_THINKING,
-    OPENAI_BASE_URL,
-    RequestHandle,
-    Translator,
-    TranslatorBadOutput,
-    TranslatorCancelled,
-    TranslatorConfigError,
-    TranslatorNoModelList,
-    TranslatorOffline,
-    error_detail,
-    generate_and_store,
-    list_models,
-)
+from src.translation.translator import Translator, generate_and_store, list_models
 from src.translation.translator import test_translate as run_test_translate
 
 
@@ -229,15 +229,15 @@ def test_claude_status_error_mapping(status, exc):
 
 def test_openai_compat_sends_max_tokens_by_thinking_mode():
     # 無上限時模型 repetition loop 會生成到吃穿 timeout；思考模式需放寬讓 think 區塊放得下
-    from src.translation.translator import _MAX_TOKENS
+    from src.translation.clients import MAX_TOKENS
     off = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=False,
                target_language="繁體中文（台灣）", client=off).translate_incoming("[A] hi", [])
-    assert off.last_body["max_tokens"] == _MAX_TOKENS
+    assert off.last_body["max_tokens"] == MAX_TOKENS
     on = FakeHttpxClient()
     Translator(provider="custom", base_url="http://x", model="m", thinking=True,
                target_language="繁體中文（台灣）", client=on).translate_incoming("[A] hi", [])
-    assert on.last_body["max_tokens"] == _MAX_TOKENS_THINKING
+    assert on.last_body["max_tokens"] == MAX_TOKENS_THINKING
 
 
 def test_openai_compat_truncated_output_maps_to_bad_output():
@@ -261,7 +261,7 @@ def test_claude_sends_max_tokens():
     fake = FakeAnthropicClient()
     Translator(provider="claude", model="m", api_key="k",
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
-    assert fake.messages.last_kwargs["max_tokens"] == _MAX_TOKENS_THINKING
+    assert fake.messages.last_kwargs["max_tokens"] == MAX_TOKENS_THINKING
 
 
 def test_claude_auto_effort_sends_no_effort():
@@ -332,19 +332,19 @@ def test_openai_provider_thinking_on_sends_no_thinking_params():
 def test_openai_provider_uses_max_completion_tokens_and_no_temperature():
     # 官方端點：max_tokens 已棄用、GPT-5／o 系列直接回 400「use max_completion_tokens」；
     # 同一批模型也只接受預設 temperature（實測「Only the default (1) value is supported」）
-    from src.translation.translator import _MAX_TOKENS
+    from src.translation.clients import MAX_TOKENS
 
     fake = FakeHttpxClient()
     t = Translator(provider="openai", model="m", api_key="k", thinking=False,
                    target_language="繁體中文（台灣）", client=fake)
     t.translate_incoming("[A] hi", [])
-    assert fake.last_body["max_completion_tokens"] == _MAX_TOKENS
+    assert fake.last_body["max_completion_tokens"] == MAX_TOKENS
     assert "max_tokens" not in fake.last_body
     assert "temperature" not in fake.last_body
     fake = FakeHttpxClient()
     Translator(provider="openai", model="m", api_key="k", thinking=True,
                target_language="繁體中文（台灣）", client=fake).translate_incoming("[A] hi", [])
-    assert fake.last_body["max_completion_tokens"] == _MAX_TOKENS_THINKING
+    assert fake.last_body["max_completion_tokens"] == MAX_TOKENS_THINKING
 
 
 def test_custom_endpoint_keeps_max_tokens_and_temperature():
@@ -411,11 +411,11 @@ def test_rejected_token_limit_is_swapped_not_dropped():
                    target_language="繁體中文（台灣）", client=fake)
     t.translate_incoming("[A] hi", [])
     assert "max_completion_tokens" not in fake.bodies[1]
-    assert fake.bodies[1]["max_tokens"] == _MAX_TOKENS_THINKING
+    assert fake.bodies[1]["max_tokens"] == MAX_TOKENS_THINKING
     fake = SequenceClient(_rejects("max_tokens", "unsupported"), FakeResponse())
     _make(fake).translate_incoming("[A] hi", [])
     assert "max_tokens" not in fake.bodies[1]
-    assert fake.bodies[1]["max_completion_tokens"] == _MAX_TOKENS_THINKING
+    assert fake.bodies[1]["max_completion_tokens"] == MAX_TOKENS_THINKING
 
 
 def test_400_without_a_named_parameter_is_still_a_config_error():
@@ -543,7 +543,7 @@ def test_reconfigure_switches_provider():
     t.reconfigure(provider="claude", base_url="", model="claude-opus-5", api_key="k",
                   thinking=False, target_language="日本語")
     # reconfigure 後為 Claude client（真物件）；此處只驗證型別切換，不打 API
-    from src.translation.translator import _ClaudeClient
+    from src.translation.clients import _ClaudeClient
     assert isinstance(t._binding.impl, _ClaudeClient)
 
 
@@ -1211,7 +1211,7 @@ def test_region_text_sends_the_recognized_lines_without_numbers():
     assert fake.last_body["messages"][-1] == {
         "role": "user", "content": "Talk to Merle Ambrose\nSecond line"}
     assert fake.last_body["messages"][0]["content"] == build_region_system("繁體中文（台灣）")
-    assert fake.last_body["max_tokens"] == _MAX_TOKENS_REGION
+    assert fake.last_body["max_tokens"] == MAX_TOKENS_REGION
 
 
 def test_region_text_shows_merged_lines_as_a_whole_without_adding_the_source_back(monkeypatch):
@@ -1635,8 +1635,8 @@ def _late_client(monkeypatch) -> SequenceClient:
     """之後 reconfigure 重建的後端都接到回傳的假 client，用來看請求有沒有跑去新設定。"""
     import src.translation.translator as module
     late = SequenceClient(FakeResponse())
-    build = module._build_client
-    monkeypatch.setattr(module, "_build_client", lambda **api: build(**api, client=late))
+    build = module.build_client
+    monkeypatch.setattr(module, "build_client", lambda **api: build(**api, client=late))
     return late
 
 

@@ -2,14 +2,15 @@ import time
 
 import pytest
 
-import src.ui.message_list as message_list_module
+import src.ui.overlay.message_list as message_list_module
 from src.i18n import t
 from src.reader.chat_tabs import TabState
-from src.ui.bubble import should_auto_expand
 from src.ui.geometry import edge_at, is_click, moved_to, point_in_rect, resized_edge
-from src.ui.message_list import _ROW_PAD, _row_bottom, should_stick_to_bottom
-from src.ui.outlined_text import line_height, line_origin
-from src.ui.overlay import (
+from src.ui.overlay.bubble import should_auto_expand
+from src.ui.overlay.message_list import _ROW_PAD, _row_bottom, should_stick_to_bottom
+from src.ui.overlay.outlined_text import line_height, line_origin
+from src.ui.overlay.selection import TEXT_ORIGIN, Caret, Selection, line_font, visual_lines
+from src.ui.overlay.window import (
     _GRIP_SIZE,
     BG,
     BG_UPDATE,
@@ -20,7 +21,6 @@ from src.ui.overlay import (
     OverlayWindow,
     autoscroll_pixels,
 )
-from src.ui.selection import TEXT_ORIGIN, Caret, Selection, line_font, visual_lines
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
 from tests.tk_helpers import settle_events
 
@@ -289,7 +289,7 @@ def _original_fill(ov, index=0):
 
 
 def test_dimmed_scales_each_channel_toward_dark():
-    from src.ui.message_list import dimmed
+    from src.ui.overlay.message_list import dimmed
     assert dimmed("#ffffff") == "#b5b5b5"   # 各通道乘 DIM_FACTOR，原文明顯暗於譯文
     assert dimmed("#80ff00") == "#5bb500"
     assert dimmed("#000000") == "#000000"
@@ -297,7 +297,7 @@ def test_dimmed_scales_each_channel_toward_dark():
 
 def test_message_uses_game_color_translated_bright_original_dim(root):
     # 譯文用遊戲聊天的顯示色，原文用同色調暗版 —— 與遊戲內配色一眼對得上
-    from src.ui.message_list import dimmed
+    from src.ui.overlay.message_list import dimmed
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "甲", color="#80ff00")
     assert _translation_fill(ov) == "#80ff00"
@@ -306,7 +306,7 @@ def test_message_uses_game_color_translated_bright_original_dim(root):
 
 def test_pending_message_restores_game_color_on_update(root):
     # 佔位期間仍用暗灰（語意＝還沒翻好），真譯文落地才換成遊戲色
-    from src.ui.message_list import dimmed
+    from src.ui.overlay.message_list import dimmed
     from src.ui.palette import FG_PENDING
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300, fade_seconds=0)
     ov.add_message("[A] one", "翻譯中…", msg_id=1, pending=True, color="#80ff00")

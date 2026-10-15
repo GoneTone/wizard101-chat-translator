@@ -4,7 +4,7 @@ import tkinter as tk
 
 import pytest
 
-from src.translation.translator import RequestHandle
+from src.translation.clients import RequestHandle
 from src.ui import input_box as input_box_module
 from src.ui.geometry import anchored_position
 from src.ui.input_box import InputBox
@@ -577,7 +577,7 @@ def test_hide_while_translating_restores_an_editable_draft(root):
 
 
 def test_closing_the_box_while_translating_cancels_the_request(root):
-    from src.translation.translator import TranslatorCancelled
+    from src.translation.errors import TranslatorCancelled
 
     handles = []
     started = threading.Event()

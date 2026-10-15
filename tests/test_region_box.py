@@ -4,7 +4,7 @@
 import pytest
 
 from src.ui.palette import FG_UPDATE
-from src.ui.region_box import INNER_BAND, MARGIN, MIN_SIZE, RegionBox, hit_at
+from src.ui.region.box import INNER_BAND, MARGIN, MIN_SIZE, RegionBox, hit_at
 
 _RECT = (100, 100, 300, 200)
 

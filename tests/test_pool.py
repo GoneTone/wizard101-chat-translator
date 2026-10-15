@@ -4,8 +4,8 @@ import time
 
 import pytest
 
+from src.translation.errors import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 from src.translation.pool import TranslationPool
-from src.translation.translator import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
 
 FAILED = "⚠  這則訊息翻譯不出來"
 

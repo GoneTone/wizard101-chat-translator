@@ -39,7 +39,7 @@ from src.ui.palette import (
     SELECT_BG,
 )
 from src.ui.popup import Popup
-from src.ui.region_box import HANDLE, MARGIN
+from src.ui.region.box import HANDLE, MARGIN
 from src.ui.richtext import RichLabel
 from src.ui.thin_scrollbar import ThinScrollbar
 from src.ui.tooltip import Tooltip

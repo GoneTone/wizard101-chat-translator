@@ -6,7 +6,7 @@ import time
 import pytest
 
 from src.reader.chat_tabs import TabState
-from src.ui.overlay import OverlayWindow
+from src.ui.overlay.window import OverlayWindow
 from tests.tk_helpers import settle_events
 
 pytestmark = pytest.mark.xdist_group("overlay-perf")

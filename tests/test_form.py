@@ -3,7 +3,7 @@ import threading
 import time
 from tkinter import ttk
 
-from src.ui.form import BackgroundButton, collapsible, keyboard_activatable
+from src.ui.settings.form import BackgroundButton, collapsible, keyboard_activatable
 
 
 def _pump_until(root, predicate, seconds: float = 30) -> None:

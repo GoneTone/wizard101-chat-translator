@@ -12,7 +12,7 @@ from src.i18n import (
     t,
 )
 from src.logs import log
-from src.ui.form import BackgroundButton, hint_label
+from src.ui.settings.form import BackgroundButton, hint_label
 
 # 翻譯目標語言的常用選項：各語言的 endonym，任何介面語言下都不翻譯。
 COMMON_LANGUAGES = ["繁體中文（台灣）", "简体中文（中国）", "English", "日本語",

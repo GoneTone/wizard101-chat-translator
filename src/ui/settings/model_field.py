@@ -8,9 +8,10 @@ from tkinter import ttk
 from src.config.services import validate_endpoint_fields
 from src.i18n import t
 from src.logs import log
-from src.translation.translator import TranslatorNoModelList, list_models
-from src.ui.form import ERROR_COLOR, HINT_COLOR, LABEL_WIDTH, BackgroundButton, friendly_error
+from src.translation.errors import TranslatorNoModelList
+from src.translation.translator import list_models
 from src.ui.richtext import RichLabel, ttk_background
+from src.ui.settings.form import ERROR_COLOR, HINT_COLOR, LABEL_WIDTH, BackgroundButton, friendly_error
 
 
 def filter_models(models: list[str], query: str) -> list[str]:

@@ -7,11 +7,11 @@ from src.config.services import SLOTS, describe, new_service, unique_name, valid
 from src.i18n import t
 from src.logs import log
 from src.ui.fonts import ui_font
-from src.ui.form import HINT_COLOR, collapsible, hint_label
 from src.ui.geometry import centered_position
 from src.ui.icons import ProviderIcons
-from src.ui.provider_picker import open_provider_picker
-from src.ui.service_form import ServiceForm
+from src.ui.settings.form import HINT_COLOR, collapsible, hint_label
+from src.ui.settings.provider_picker import open_provider_picker
+from src.ui.settings.service_form import ServiceForm
 
 _DIALOG_SIZE = (560, 480)   # 容得下最長的一組欄位（自訂端點）與測試結果訊息
 
