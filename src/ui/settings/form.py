@@ -7,12 +7,15 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
+import win32gui
+
 from src.i18n import current_language, t, translators
 from src.logs import log
 from src.runtime.updater import CROWDIN_URL
 from src.translation.errors import TranslatorConfigError, TranslatorOffline
 from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup
 from src.ui.settings.responsive import bind_wrap
+from src.ui.winstyle import root_hwnd
 
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14
@@ -80,6 +83,21 @@ def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:
     label = ttk.Label(parent, text=text, foreground=HINT_COLOR, justify="left")
     bind_wrap(label, trailing=trailing)
     return label
+
+
+def log_focus_when_shown(win: tk.Toplevel, name: str, delay_ms: int = 300) -> None:
+    """對話框顯示後記下它有沒有拿到鍵盤焦點、是不是前景視窗（診斷「彈出視窗沒對焦」）。"""
+    def report() -> None:
+        if not win.winfo_exists():
+            return
+        try:
+            focus = win.focus_get()
+            foreground = win32gui.GetForegroundWindow() == root_hwnd(win)
+        except Exception as exc:
+            log(f"[settings] {name} focus check failed: {type(exc).__name__}: {exc}")
+            return
+        log(f"[settings] {name} shown (focus={focus}, foreground={foreground})")
+    win.after(delay_ms, report)
 
 
 def keyboard_activatable(widget, action) -> None:
