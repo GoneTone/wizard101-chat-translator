@@ -24,7 +24,7 @@ from src.ui.palette import (
     FG_PENDING,
     FG_TRANSLATED,
 )
-from src.ui.selection import Selection
+from src.ui.selection import Row, Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 
 _STICK_THRESHOLD = 0.999
@@ -300,7 +300,7 @@ class MessageList:
         """畫出一則訊息、記進清單，並登記給選取（顯示中分頁的 rows 就是 Selection 的登記表）。"""
         m = self._draw(view, m)
         view.records.append(m)
-        view.rows[m.tag] = m.lines
+        view.rows[m.tag] = Row((m.original, m.translated), m.lines)
 
     def _trim(self, view: _View) -> bool:
         """把超過上限的最舊記錄移除；回傳是否有移除。"""
@@ -344,6 +344,7 @@ class MessageList:
                     continue
                 m = view.records[i] = m._replace(translated=translated, pending=False,
                                                  failed=failed)
+                view.rows[m.tag] = view.rows[m.tag]._replace(texts=(m.original, translated))
                 if self._selection.holds(m.tag):
                     self._selection.clear("translated line replaced")
                 line = m.lines[1]

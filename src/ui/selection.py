@@ -23,6 +23,12 @@ class Caret(NamedTuple):
     index: int
 
 
+class Row(NamedTuple):
+    """一則訊息的登記內容。texts＝原文、譯文；lines＝畫布上的行，空代表尚未畫出。"""
+    texts: tuple[str, ...]
+    lines: tuple[Line, ...]
+
+
 def line_text(line: Line) -> str:
     """該行目前顯示的文字。本色 item 是唯一真實來源，不在別處另記一份。"""
     return line.canvas.itemcget(line.fg, "text")
@@ -103,7 +109,7 @@ class Selection:
     """
 
     def __init__(self):
-        self._rows: dict = {}          # 訊息列 → 該列的 Line（插入順序＝顯示順序）
+        self._rows: dict[object, Row] = {}   # 訊息列 → 該列的 Row（插入順序＝顯示順序）
         self._fonts: dict = {}         # 字型描述 → Font；拖曳時每個事件都要量測，不能重建
         self._drawn: list = []         # 畫著反白的畫布；換分頁後舊畫布已不在登記表，擦除要靠這份記錄
         self._anchor: Caret | None = None
@@ -121,8 +127,8 @@ class Selection:
         return self._dragging
 
     def register(self, row, lines: Sequence[Line]) -> None:
-        """登記一則訊息的行（由上而下）。"""
-        self._rows[row] = list(lines)
+        """登記一則已畫出的訊息（行由上而下）。"""
+        self._rows[row] = Row(tuple(line_text(line) for line in lines), tuple(lines))
 
     def use_rows(self, rows: dict) -> None:
         """清除選取，改用呼叫端持有的 dict 當登記表（換顯示中的分頁時用）。"""
@@ -174,8 +180,7 @@ class Selection:
         span = self.span()
         if span is None:
             return ""
-        messages = [[line_text(line) for line in lines] for lines in self._rows.values()]
-        return selected_text(messages, *span)
+        return selected_text([row.texts for row in self._rows.values()], *span)
 
     def begin(self, x_root: int, y_root: int) -> bool:
         """框選起手；回傳是否命中某一則訊息。"""
@@ -245,8 +250,8 @@ class Selection:
 
     def _hit(self, x_root: int, y_root: int) -> Caret | None:
         """螢幕座標落在哪個 caret；都沒命中回 None。"""
-        for message, lines in enumerate(self._rows.values()):
-            for n, line in enumerate(lines):
+        for message, row in enumerate(self._rows.values()):
+            for n, line in enumerate(row.lines):
                 canvas = line.canvas
                 visible = (canvas.winfo_rooty() <= y_root
                            < canvas.winfo_rooty() + canvas.winfo_height())
@@ -259,14 +264,15 @@ class Selection:
     def _clamped(self, x_root: int, y_root: int) -> Caret:
         """拖曳點換算成 caret。垂直方向決定落在哪一則的哪一行，超出全部訊息的
         上下界就夾到最前／最後；水平方向交給 Tk 自己夾（見 `caret_at`）。"""
-        rows = list(self._rows.values())
-        if y_root < self._screen_top(rows[0][0]):
-            return Caret(0, 0, 0)
-        for message, lines in enumerate(rows):
-            for n, line in enumerate(lines):
+        drawn = [(message, row) for message, row in enumerate(self._rows.values()) if row.lines]
+        first, last = drawn[0], drawn[-1]
+        if y_root < self._screen_top(first[1].lines[0]):
+            return Caret(first[0], 0, 0)
+        for message, row in drawn:
+            for n, line in enumerate(row.lines):
                 if y_root <= self._screen_top(line) + line_height(line) - 1:
                     return self._caret_in(line, message, n, x_root, y_root)
-        return Caret(len(rows) - 1, len(rows[-1]) - 1, len(line_text(rows[-1][-1])))
+        return Caret(last[0], len(last[1].texts) - 1, len(last[1].texts[-1]))
 
     def _erase(self) -> None:
         for canvas in self._drawn:
@@ -279,25 +285,33 @@ class Selection:
         span = self.span()
         if span is None:
             return
-        start, end = span
         rows = list(self._rows.values())
-        for message in range(start.message, end.message + 1):
-            for n, line in enumerate(rows[message]):
-                if not ((start.message, start.line) <= (message, n)
-                        <= (end.message, end.line)):
-                    continue
-                lo = start.index if (message, n) == (start.message, start.line) else 0
-                hi = (end.index if (message, n) == (end.message, end.line)
-                      else len(line_text(line)))
-                rects = highlight_rects(line, self._font(line), lo, hi)
-                if not rects:
-                    continue
-                ox, oy = line_origin(line)
-                for x0, y0, x1, y1 in rects:
-                    rect = line.canvas.create_rectangle(
-                        x0 + ox, y0 + oy, x1 + ox, y1 + oy,
-                        fill=SELECT_BG, outline="", tags="sel")
-                    # 壓到整張畫布最底：效果同壓在該行之下，但以 tag 為基準每次都要掃整張畫布
-                    line.canvas.tag_lower(rect)
-                if line.canvas not in self._drawn:
-                    self._drawn.append(line.canvas)
+        for message in range(span[0].message, span[1].message + 1):
+            self._draw_row(message, rows[message], *span)
+
+    def paint(self, row) -> None:
+        """補畫某一列的反白（該列在選取範圍內且已畫時），不動其他列。"""
+        span = self.span()
+        if span is not None and self.holds(row):
+            message = list(self._rows).index(row)
+            self._draw_row(message, self._rows[row], *span)
+
+    def _draw_row(self, message: int, row: Row, start: Caret, end: Caret) -> None:
+        for n, line in enumerate(row.lines):
+            if not (start.message, start.line) <= (message, n) <= (end.message, end.line):
+                continue
+            lo = start.index if (message, n) == (start.message, start.line) else 0
+            hi = (end.index if (message, n) == (end.message, end.line)
+                  else len(row.texts[n]))
+            rects = highlight_rects(line, self._font(line), lo, hi)
+            if not rects:
+                continue
+            ox, oy = line_origin(line)
+            for x0, y0, x1, y1 in rects:
+                rect = line.canvas.create_rectangle(
+                    x0 + ox, y0 + oy, x1 + ox, y1 + oy,
+                    fill=SELECT_BG, outline="", tags="sel")
+                # 壓到整張畫布最底：效果同壓在該行之下，但以 tag 為基準每次都要掃整張畫布
+                line.canvas.tag_lower(rect)
+            if line.canvas not in self._drawn:
+                self._drawn.append(line.canvas)
