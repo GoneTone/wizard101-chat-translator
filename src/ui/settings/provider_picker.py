@@ -12,7 +12,7 @@ from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import centered_position
 from src.ui.icons import ProviderIcons
-from src.ui.settings.form import hint_label, keyboard_activatable, log_focus_when_shown
+from src.ui.settings.form import activate_when_shown, hint_label, keyboard_activatable
 
 _PICKER_SIZE = (440, 360)   # 容得下三張卡片（最長的說明會折成兩行）與按鈕列
 
@@ -81,7 +81,7 @@ class ProviderPicker:
 
         self.cards = ProviderCards(self.win, self._pick)
         self.cards.pack(fill="both", expand=True, padx=12, pady=12)
-        log_focus_when_shown(self.win, "provider picker")
+        activate_when_shown(self.win, "provider picker")
 
     def _pick(self, provider: str) -> None:
         self.result = provider

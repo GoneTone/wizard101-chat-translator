@@ -193,3 +193,16 @@ def test_clicking_the_icon_picks_the_provider(root):
     icon = _picker_icon(cards.pack_slaves()[0])
     icon.event_generate("<Button-1>")
     assert picked == [next(iter(PROVIDERS))]
+
+
+def test_the_picker_takes_the_foreground_when_shown(root, monkeypatch):
+    """Windows 不會替新開的對話框啟用視窗（標題列灰、Esc 收不到）：顯示時要主動搶前景。"""
+    from src.ui.settings import form as form_module
+    from src.ui.winstyle import root_hwnd
+    raised = []
+    monkeypatch.setattr(form_module, "force_foreground", raised.append)
+    parent = tk.Toplevel(root)   # 依附在隱藏的 root 上的對話框不會顯示，得有看得見的父視窗
+    picker = ProviderPicker(parent)
+    picker.win.update()
+    assert raised == [root_hwnd(picker.win)]
+    picker._cancel()

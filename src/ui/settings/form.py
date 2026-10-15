@@ -9,6 +9,7 @@ from tkinter import ttk
 
 import win32gui
 
+from src.composer.paste import force_foreground
 from src.i18n import current_language, t, translators
 from src.logs import log
 from src.runtime.updater import CROWDIN_URL
@@ -85,8 +86,25 @@ def hint_label(parent, text: str, *, trailing: int = 8) -> ttk.Label:
     return label
 
 
-def log_focus_when_shown(win: tk.Toplevel, name: str, delay_ms: int = 300) -> None:
-    """對話框顯示後記下它有沒有拿到鍵盤焦點、是不是前景視窗（診斷「彈出視窗沒對焦」）。"""
+def activate_when_shown(win: tk.Toplevel, name: str) -> None:
+    """視窗第一次顯示時主動搶前景並取得鍵盤焦點，並記下結果。
+    Windows 不會替 Tk 新開的對話框啟用視窗：標題列是灰的、Esc 也送不到。"""
+    shown = False
+
+    def on_map(event) -> None:
+        nonlocal shown
+        if event.widget is not win or shown:
+            return
+        shown = True
+        force_foreground(root_hwnd(win))
+        win.focus_set()
+        _log_focus(win, name)
+
+    win.bind("<Map>", on_map, add="+")
+
+
+def _log_focus(win: tk.Toplevel, name: str, delay_ms: int = 300) -> None:
+    """視窗顯示後記下它有沒有拿到鍵盤焦點、是不是前景視窗。"""
     def report() -> None:
         if not win.winfo_exists():
             return

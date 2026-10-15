@@ -904,3 +904,14 @@ def test_the_basic_tab_labels_the_service_row_with_the_default_service(root):
     assert isinstance(label, ttk.Label)
     assert label.cget("text") == t("settings.default_service")
     win._win.destroy()
+
+
+def test_the_settings_window_takes_the_foreground_when_shown(root, monkeypatch):
+    """從不會被啟用的 overlay（⚙）叫出來：顯示時要主動搶前景，否則標題列灰、鍵盤收不到。"""
+    from src.ui.settings import form as form_module
+    from src.ui.winstyle import root_hwnd
+    raised = []
+    monkeypatch.setattr(form_module, "force_foreground", raised.append)
+    win = _open_settings(root)
+    win._win.update()
+    assert raised == [root_hwnd(win._win)]
