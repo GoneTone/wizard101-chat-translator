@@ -16,8 +16,8 @@ from src.reader.chat_tabs import (
 )
 from src.reader.mem_reader import WizChatReader
 from src.reader.message_log import MessageLog
-from tests.chat_hook_helpers import RING, THIS, _FakeRing, _units, _wstring
-from tests.chatlog_helpers import _broadcast, _own, _say, _system
+from tests.reader.chat_hook_helpers import RING, THIS, _FakeRing, _units, _wstring
+from tests.reader.chatlog_helpers import _broadcast, _own, _say, _system
 
 BOX = 0xA000
 

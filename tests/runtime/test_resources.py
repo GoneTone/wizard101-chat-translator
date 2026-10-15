@@ -3,8 +3,8 @@ from pathlib import Path
 from src.runtime.resources import bundle_dir, icon_path, png_icon_path
 from src.ui.icons import apply_window_icon
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-BUILD_SPEC = Path(__file__).resolve().parents[1] / "build.spec"
+SRC = Path(__file__).resolve().parents[2] / "src"
+BUILD_SPEC = Path(__file__).resolve().parents[2] / "build.spec"
 # Windows 各處要用的尺寸都得有原生 frame：16 標題列／20-24 工作列／32 Alt+Tab／
 # 40-48 檔案總管／64+ 大圖示。少了 24 的話工作列只能從 32 硬縮（1.33:1 非整數），
 # 整張圖連螺旋一起軟掉 —— 這正是「工作列圖示很模糊」的成因。

@@ -22,7 +22,7 @@ from src.ui.overlay.window import (
     autoscroll_pixels,
 )
 from src.ui.thin_scrollbar import scroll_fraction, thumb_span
-from tests.tk_helpers import settle_events
+from tests.ui.overlay.tk_helpers import settle_events
 
 
 def test_is_click_within_threshold():
@@ -752,7 +752,7 @@ def test_every_status_has_both_a_label_and_a_colour():
     import json
     from pathlib import Path
     catalog = json.loads(
-        (Path(__file__).resolve().parent.parent / "src" / "i18n" / "zh-TW.json")
+        (Path(__file__).resolve().parents[3] / "src" / "i18n" / "zh-TW.json")
         .read_text(encoding="utf-8"))
     labelled = {k.removeprefix("status.") for k in catalog if k.startswith("status.")}
     assert labelled == set(STATUS_COLORS)
