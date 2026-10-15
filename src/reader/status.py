@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:   # 只當型別用：reader 不該在執行期依賴 ui
     from src.translation.pool import TranslationPool
-    from src.ui.overlay import OverlayWindow
+    from src.ui.overlay.window import OverlayWindow
 
 _PLAIN_NOTICE = {"config": "notice.config_error", "offline": "notice.offline"}
 # 狀態字的優先序：只要有一個客戶端在忙就顯示忙；要使用者動手的永久性失敗排在「連線中」

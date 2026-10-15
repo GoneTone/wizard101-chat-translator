@@ -8,7 +8,7 @@ from src.config.services import EFFORT_LOW, PROVIDERS, new_service
 from src.i18n import t
 from src.translation.examples import ExampleStore
 from src.translation.translator import TranslatorConfigError
-from src.ui.service_form import ServiceForm
+from src.ui.settings.service_form import ServiceForm
 
 
 @pytest.fixture
@@ -241,7 +241,7 @@ def test_the_provider_row_shows_the_current_provider(blank):
 
 
 def test_the_change_button_switches_the_provider(blank, monkeypatch):
-    monkeypatch.setattr("src.ui.service_form.open_provider_picker", lambda parent: "claude")
+    monkeypatch.setattr("src.ui.settings.service_form.open_provider_picker", lambda parent: "claude")
     _change_button(blank).invoke()
     assert blank.values()["provider"] == "claude"
     assert blank.values()["name"] == "Claude"
@@ -249,7 +249,7 @@ def test_the_change_button_switches_the_provider(blank, monkeypatch):
 
 
 def test_cancelling_the_provider_pick_changes_nothing(blank, monkeypatch):
-    monkeypatch.setattr("src.ui.service_form.open_provider_picker", lambda parent: None)
+    monkeypatch.setattr("src.ui.settings.service_form.open_provider_picker", lambda parent: None)
     before = blank.values()
     _change_button(blank).invoke()
     assert blank.values() == before
@@ -278,9 +278,9 @@ def test_rebuilding_the_fields_notifies_once(root):
 
 def test_test_connection_also_generates_examples(blank, monkeypatch):
     works, calls = [], {}
-    monkeypatch.setattr("src.ui.service_form.validate_service", lambda api: [])
+    monkeypatch.setattr("src.ui.settings.service_form.validate_service", lambda api: [])
     monkeypatch.setattr(blank._test_task, "start", lambda work, on_done, busy: works.append(work))
-    monkeypatch.setattr("src.ui.service_form.test_translate",
+    monkeypatch.setattr("src.ui.settings.service_form.test_translate",
                         lambda api, target, example_store=None: calls.setdefault("store", example_store))
     blank._start_test()
     works[0]()

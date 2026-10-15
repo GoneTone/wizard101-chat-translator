@@ -31,7 +31,7 @@ from src.translation.context import ClientContexts
 from src.translation.pool import TranslationPool
 
 if TYPE_CHECKING:   # 只當型別用：reader 不該在執行期依賴 ui
-    from src.ui.overlay import OverlayWindow
+    from src.ui.overlay.window import OverlayWindow
 
 GAME_MISSING_INTERVAL = 5.0  # 找不到遊戲時的重試間隔（秒）
 POLL_INTERVAL = 0.1  # 收訊間隔（秒）：每輪只讀 hook 環形緩衝的計數器，很便宜

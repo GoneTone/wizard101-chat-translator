@@ -17,7 +17,7 @@ from typing import NamedTuple
 from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import EDGE
-from src.ui.outlined_text import (
+from src.ui.overlay.outlined_text import (
     Line,
     draw_outlined,
     line_height,
@@ -25,6 +25,7 @@ from src.ui.outlined_text import (
     line_origin,
     measure_height,
 )
+from src.ui.overlay.selection import Row, Selection
 from src.ui.palette import (
     BG,
     DIM_FACTOR,
@@ -34,7 +35,6 @@ from src.ui.palette import (
     FG_PENDING,
     FG_TRANSLATED,
 )
-from src.ui.selection import Row, Selection
 from src.ui.thin_scrollbar import ThinScrollbar
 
 _STICK_THRESHOLD = 0.999

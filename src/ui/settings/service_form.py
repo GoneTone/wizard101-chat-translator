@@ -16,7 +16,8 @@ from src.i18n import current_language, language_name, t
 from src.logs import log
 from src.translation.examples import ExampleStore
 from src.translation.translator import test_translate
-from src.ui.form import (
+from src.ui.richtext import RichLabel, ttk_background
+from src.ui.settings.form import (
     ERROR_COLOR,
     LABEL_WIDTH,
     BackgroundButton,
@@ -25,9 +26,8 @@ from src.ui.form import (
     link_label,
     show_outcome,
 )
-from src.ui.model_field import ModelField
-from src.ui.provider_picker import open_provider_picker
-from src.ui.richtext import RichLabel, ttk_background
+from src.ui.settings.model_field import ModelField
+from src.ui.settings.provider_picker import open_provider_picker
 
 
 class ServiceForm(ttk.Frame):

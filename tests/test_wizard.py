@@ -1,5 +1,5 @@
 """精靈步驟門檻的純邏輯測試（UI 互動靠實機驗證）。"""
-from src.ui.wizard import STEP_API, STEP_PREFS, can_advance
+from src.ui.settings.wizard import STEP_API, STEP_PREFS, can_advance
 
 
 def test_step_api_requires_valid_form():
@@ -16,7 +16,7 @@ def test_step_prefs_always_advances():
 
 
 def test_can_advance_allows_language_step():
-    from src.ui.wizard import STEP_LANG, can_advance
+    from src.ui.settings.wizard import STEP_LANG, can_advance
 
     # 語言頁沒有必填欄位，永遠可以往下一步
     assert can_advance(STEP_LANG, api_test_passed=False, api_errors=["error.need_model"])
@@ -27,7 +27,7 @@ def test_language_change_marks_restart_and_applies_language(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -47,7 +47,7 @@ def test_language_change_updates_untouched_target_language(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -66,7 +66,7 @@ def test_language_change_keeps_customised_target_language(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -87,7 +87,7 @@ def test_language_change_keeps_the_half_filled_service(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -114,7 +114,7 @@ def test_language_change_retitles_an_untouched_service(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -137,7 +137,7 @@ def test_language_change_retitles_a_suffixed_untouched_service(root):
     from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.config.services import new_service
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -162,7 +162,7 @@ def test_language_change_only_retitles_the_service_being_edited(root):
     from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.config.services import new_service
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -188,7 +188,7 @@ def test_language_change_keeps_a_service_name_the_user_typed(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -212,7 +212,7 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG, bootstrap_language
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -278,8 +278,8 @@ def test_language_step_shows_the_translators(root, monkeypatch):
 
     from src.config import DEFAULT_CONFIG
     from src.i18n import t
-    from src.ui import form as form_module
-    from src.ui.wizard import STEP_PREFS, SetupWizard
+    from src.ui.settings import form as form_module
+    from src.ui.settings.wizard import STEP_PREFS, SetupWizard
 
     monkeypatch.setattr(form_module, "translators",
                         lambda code: "[A](https://a.example)")
@@ -303,8 +303,8 @@ def test_language_step_without_translators_shows_no_row(root, monkeypatch):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.ui import form as form_module
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings import form as form_module
+    from src.ui.settings.wizard import SetupWizard
 
     monkeypatch.setattr(form_module, "translators", lambda code: "")
     wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
@@ -318,8 +318,8 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
     from src.config import DEFAULT_CONFIG
     from src.i18n import t
     from src.runtime.updater import CROWDIN_URL
-    from src.ui import form as form_module
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings import form as form_module
+    from src.ui.settings.wizard import SetupWizard
 
     monkeypatch.setattr(form_module, "translators", lambda code: "")
     opened = []
@@ -353,7 +353,7 @@ def test_finishing_the_wizard_keeps_the_other_services(root):
 
     from src.config import DEFAULT_CONFIG
     from src.config.services import SLOT_REGION
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     cfg["services"] = _three_services()
@@ -379,7 +379,7 @@ def test_finish_dedupes_a_name_typed_to_match_another_service(root):
 
     from src.config import DEFAULT_CONFIG
     from src.config.services import new_service
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     other = new_service("openai", [])
@@ -402,7 +402,7 @@ def test_finish_does_not_collide_a_service_with_itself(root):
     from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.config.services import new_service
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -426,7 +426,7 @@ def test_finish_stores_the_region_hotkey(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     wizard = SetupWizard(root, cfg)
@@ -444,8 +444,8 @@ def test_finish_rejects_identical_hotkeys(root, monkeypatch):
 
     from src.config import DEFAULT_CONFIG
     from src.i18n import t
-    from src.ui import wizard as wizard_module
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings import wizard as wizard_module
+    from src.ui.settings.wizard import SetupWizard
 
     warnings = []
     monkeypatch.setattr(wizard_module.messagebox, "showwarning",
@@ -470,7 +470,7 @@ def test_language_change_does_not_let_the_rename_collide(root):
     from src import i18n
     from src.config import DEFAULT_CONFIG
     from src.config.services import new_service
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     before = i18n.current_language()
     try:
@@ -512,7 +512,7 @@ def test_switching_provider_in_the_wizard_dedupes_against_cfg_services(root):
 
 def _wizard_on_api_step(root, cfg):
     """停在 API 步驟的精靈（第二步的兩種樣態都從這裡看）。"""
-    from src.ui.wizard import STEP_API, SetupWizard
+    from src.ui.settings.wizard import STEP_API, SetupWizard
 
     wizard = SetupWizard(root, cfg)
     wizard._step = STEP_API
@@ -521,7 +521,7 @@ def _wizard_on_api_step(root, cfg):
 
 
 def _cards_on_body(wizard):
-    from src.ui.provider_picker import ProviderCards
+    from src.ui.settings.provider_picker import ProviderCards
 
     return [w for w in wizard._body.pack_slaves() if isinstance(w, ProviderCards)]
 

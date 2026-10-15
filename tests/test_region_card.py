@@ -5,10 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from src.i18n import t
-from src.ui import region_card as card_module
 from src.ui.geometry import Placement, anchored_geometry, beside_geometry
 from src.ui.palette import FG_ERROR, FG_PENDING, FG_TRANSLATED
-from src.ui.region_card import ANCHOR_GAP, MIN_HEIGHT, SIDE_MIN_WIDTH, RegionCard
+from src.ui.region import card as card_module
+from src.ui.region.card import ANCHOR_GAP, MIN_HEIGHT, SIDE_MIN_WIDTH, RegionCard
 
 _RECT = (300, 200, 400, 120)
 _AREA = (0, 0, 1920, 1040)
@@ -367,7 +367,7 @@ def test_replacing_the_card_from_the_flow_does_not_count_as_closing(card, root):
 
 
 def test_the_card_leaves_room_for_the_box_handles_below_the_rect():
-    from src.ui.region_box import HANDLE, MARGIN
+    from src.ui.region.box import HANDLE, MARGIN
     assert ANCHOR_GAP >= MARGIN + HANDLE // 2
 
 

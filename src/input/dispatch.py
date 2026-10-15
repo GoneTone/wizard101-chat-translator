@@ -11,7 +11,7 @@ from src.input.hotkeys import register_hotkey
 from src.logs import log
 from src.reader.process import is_game_process_path
 from src.ui.input_box import InputBox
-from src.ui.region_flow import RegionFlow
+from src.ui.region.flow import RegionFlow
 
 
 def region_hotkey_to_register(cfg: dict) -> str | None:

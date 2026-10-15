@@ -13,8 +13,10 @@ from src.config.services import SLOTS, find, validate_service
 from src.i18n import current_language, set_language, t, translators
 from src.logs import log
 from src.runtime.updater import AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, check_for_update
-from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
-from src.ui.form import (
+from src.ui.geometry import centered_position
+from src.ui.richtext import LINK_COLOR
+from src.ui.settings.fields import HotkeyField, LanguageField, UiLanguageField
+from src.ui.settings.form import (
     HINT_COLOR,
     BackgroundButton,
     help_translate_link,
@@ -24,11 +26,9 @@ from src.ui.form import (
     show_outcome,
     translators_row,
 )
-from src.ui.geometry import centered_position
-from src.ui.responsive import HINT_TRAILING, bind_wrap
-from src.ui.richtext import LINK_COLOR
-from src.ui.scrollable import ScrollableFrame
-from src.ui.service_list import ServicePane
+from src.ui.settings.responsive import HINT_TRAILING, bind_wrap
+from src.ui.settings.scrollable import ScrollableFrame
+from src.ui.settings.service_list import ServicePane
 
 MIN_WIDTH = 640   # 視窗寬度下限：再窄欄位與說明會橫向擠壓，捲動救不了
 MIN_HEIGHT = 360  # 視窗高度下限：內容可捲動，只需容得下分頁標籤、幾行欄位與按鈕列

@@ -5,7 +5,7 @@ from tkinter import ttk
 
 from src.config.services import PROVIDERS
 from src.i18n import t
-from src.ui.provider_picker import ProviderCards, ProviderPicker
+from src.ui.settings.provider_picker import ProviderCards, ProviderPicker
 
 
 def _cancel_button(parent):

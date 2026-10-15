@@ -11,8 +11,8 @@ from src.i18n import current_language, t, translators
 from src.logs import log
 from src.runtime.updater import CROWDIN_URL
 from src.translation.translator import TranslatorConfigError, TranslatorOffline
-from src.ui.responsive import bind_wrap
 from src.ui.richtext import LINK_COLOR, RichLabel, parse_link_markup
+from src.ui.settings.responsive import bind_wrap
 
 # 欄位標籤欄的字元寬：標籤、模型欄與欄位說明共用同一個值才對得齊
 LABEL_WIDTH = 14

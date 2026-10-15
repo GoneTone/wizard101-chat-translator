@@ -19,19 +19,19 @@ from src.config.services import (
 )
 from src.i18n import current_language, language_name, set_language, t
 from src.logs import log
-from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
-from src.ui.form import (
+from src.ui.geometry import centered_position
+from src.ui.settings.fields import HotkeyField, LanguageField, UiLanguageField
+from src.ui.settings.form import (
     HINT_COLOR,
     help_translate_link,
     keyboard_activatable,
     translators_row,
 )
-from src.ui.geometry import centered_position
-from src.ui.provider_picker import ProviderCards
-from src.ui.responsive import bind_wrap
-from src.ui.scrollable import ScrollableFrame
-from src.ui.service_form import ServiceForm
+from src.ui.settings.provider_picker import ProviderCards
+from src.ui.settings.responsive import bind_wrap
+from src.ui.settings.scrollable import ScrollableFrame
+from src.ui.settings.service_form import ServiceForm
 
 STEP_LANG, STEP_API, STEP_PREFS = 0, 1, 2
 _STEP_KEYS = ["wizard.step.language", "wizard.step.service", "wizard.step.prefs"]

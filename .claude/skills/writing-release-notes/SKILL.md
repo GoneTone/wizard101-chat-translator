@@ -85,10 +85,10 @@ ls docs/superpowers/specs                                   # 設計文件：功
 
 | 這種句子 | 查哪裡 |
 |---------|--------|
-| 「原文在上、譯文在下」之類的版面描述 | `src/ui/overlay.py` 的 `add_message()`（字級、顏色、pack 順序） |
+| 「原文在上、譯文在下」之類的版面描述 | `src/ui/overlay/window.py` 的 `add_message()`（字級、顏色、pack 順序） |
 | 「預設會⋯⋯」「一啟動就⋯⋯」 | `src/config/__init__.py` 的預設值字典 |
 | 「按下熱鍵之後會⋯⋯」 | `src/composer/paste.py`、`src/ui/input_box.py` |
-| 「翻譯失敗時會⋯⋯」 | `src/translation/pool.py`、`src/ui/overlay.py` 的橫幅邏輯 |
+| 「翻譯失敗時會⋯⋯」 | `src/translation/pool.py`、`src/ui/overlay/window.py` 的橫幅邏輯 |
 | 「掛不進去時會顯示⋯⋯」 | `src/reader/hook_state.py`、README 的「遊戲改版後掛不進去」 |
 | 使用者流程（精靈幾步、點哪裡） | README 的「一般使用者」段 |
 

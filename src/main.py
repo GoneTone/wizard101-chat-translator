@@ -62,9 +62,9 @@ from src.translation.pool import TranslationPool
 from src.translation.translator import Translator
 from src.ui.icons import apply_window_icon
 from src.ui.input_box import InputBox
-from src.ui.overlay import OverlayWindow
-from src.ui.region_flow import RegionFlow
-from src.ui.settings import SettingsWindow
+from src.ui.overlay.window import OverlayWindow
+from src.ui.region.flow import RegionFlow
+from src.ui.settings.window import SettingsWindow
 
 UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000   # 自動檢查更新的間隔
 
@@ -392,7 +392,7 @@ def main() -> None:
     apply_window_icon(root)
 
     if not is_configured(cfg):
-        from src.ui.wizard import run_wizard
+        from src.ui.settings.wizard import run_wizard
         splash.close()   # 精靈要跟使用者互動，啟動畫面不能擋在前面
         log("[app] config incomplete, launching first-run wizard")
         if not run_wizard(root, cfg):

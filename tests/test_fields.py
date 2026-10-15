@@ -11,9 +11,9 @@ from src.translation.translator import (
     TranslatorNoModelList,
     TranslatorOffline,
 )
-from src.ui import form as form_module
-from src.ui.form import friendly_error
-from src.ui.model_field import ModelField, filter_models
+from src.ui.settings import form as form_module
+from src.ui.settings.form import friendly_error
+from src.ui.settings.model_field import ModelField, filter_models
 
 
 @pytest.fixture
@@ -44,13 +44,13 @@ def test_provider_labels_are_translated():
 
 
 def test_common_languages_include_english():
-    from src.ui.fields import COMMON_LANGUAGES
+    from src.ui.settings.fields import COMMON_LANGUAGES
 
     assert "English" in COMMON_LANGUAGES
 
 
 def test_ui_language_field_round_trips_language_code(root):
-    from src.ui.fields import UiLanguageField
+    from src.ui.settings.fields import UiLanguageField
 
     field = UiLanguageField(root, "zh-TW")
     assert field.value() == "zh-TW"
@@ -267,8 +267,8 @@ def test_dropdown_closes_when_nothing_matches(offscreen):
 def test_link_label_opens_the_url_on_click(root, monkeypatch):
     import tkinter as tk
 
-    from src.ui.form import link_label
     from src.ui.richtext import LINK_COLOR
+    from src.ui.settings.form import link_label
 
     opened = []
     monkeypatch.setattr(form_module.webbrowser, "open", opened.append)
@@ -318,8 +318,8 @@ def test_parse_link_markup_leaves_broken_syntax_as_text():
 
 
 def test_linked_text_makes_only_the_link_segment_clickable(root, monkeypatch):
-    from src.ui.form import linked_text
     from src.ui.richtext import LINK_COLOR
+    from src.ui.settings.form import linked_text
 
     opened = []
     monkeypatch.setattr(form_module.webbrowser, "open", opened.append)

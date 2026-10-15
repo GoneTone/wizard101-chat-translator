@@ -5,7 +5,7 @@ tkinter 的 pack 依宣告順序分配空間，expand=True 的內容區若排在
 """
 from tkinter import ttk
 
-from src.ui.scrollable import ScrollableFrame
+from src.ui.settings.scrollable import ScrollableFrame
 
 
 def _pump(widget) -> None:
@@ -70,7 +70,7 @@ def _slave_order(win) -> list[str]:
 
 
 def test_settings_button_row_is_packed_before_the_notebook(root, tmp_path):
-    from src.ui.settings import SettingsWindow
+    from src.ui.settings.window import SettingsWindow
     from tests.config_helpers import configured_cfg
 
     cfg = configured_cfg()
@@ -89,7 +89,7 @@ def test_wizard_nav_is_packed_before_the_body(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.ui.wizard import SetupWizard
+    from src.ui.settings.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     wizard = SetupWizard(root, cfg)
@@ -100,7 +100,7 @@ def test_wizard_nav_is_packed_before_the_body(root):
 
 
 def test_overlay_error_banner_is_packed_before_the_scroll_area(root):
-    from src.ui.overlay import OverlayWindow
+    from src.ui.overlay.window import OverlayWindow
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300)
     ov.set_error("notice.offline")
@@ -113,7 +113,7 @@ def test_overlay_error_banner_is_packed_before_the_scroll_area(root):
 def test_overlay_title_is_packed_after_the_bar_controls(root):
     # overlay 是無邊框視窗，✕ 是唯一的正常關閉途徑：標題（英文較長）先 pack 的話，
     # 視窗一縮窄就會把 ✕／⚙／─ 擠出畫面，程式再也關不掉。
-    from src.ui.overlay import OverlayWindow
+    from src.ui.overlay.window import OverlayWindow
 
     ov = OverlayWindow(root, x=0, y=0, width=460, height=300,
                        on_close=lambda: None, on_settings=lambda: None)
@@ -125,7 +125,7 @@ def test_overlay_title_is_packed_after_the_bar_controls(root):
 
 def test_secret_entry_reveal_button_is_packed_before_the_entry(root):
     from src.config.services import new_service
-    from src.ui.service_form import ServiceForm
+    from src.ui.settings.service_form import ServiceForm
 
     service = new_service("openai", [])
     service.update(api_key="k", model="m")

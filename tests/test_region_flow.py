@@ -13,7 +13,7 @@ from src.translation.translator import (
     TranslatorConfigError,
     TranslatorOffline,
 )
-from src.ui.region_flow import RegionFlow, describe_error
+from src.ui.region.flow import RegionFlow, describe_error
 
 _RECT = (100, 100, 300, 120)
 _MONITOR = (0, 0, 1920, 1080)
@@ -159,7 +159,7 @@ def test_selection_crops_the_same_frame_that_was_captured(root):
 
 def test_frame_capture_failure_is_shown_at_the_cursor_without_opening_the_selector(
         monkeypatch, root):
-    from src.ui import region_flow as region_flow_module
+    from src.ui.region import flow as region_flow_module
 
     monkeypatch.setattr(region_flow_module, "cursor_position", lambda: (40, 50))
     boom = CaptureError("no frame within 2.0s")
@@ -323,7 +323,7 @@ def test_start_from_button_opens_the_selector_with_the_found_window(root):
 
 
 def test_start_from_button_shows_an_error_card_when_no_game_window_is_found(monkeypatch, root):
-    from src.ui import region_flow as region_flow_module
+    from src.ui.region import flow as region_flow_module
 
     monkeypatch.setattr(region_flow_module, "cursor_position", lambda: (40, 50))
     flow, selector, card, _ = _flow(root, FakePipeline(), find_game=lambda: None)

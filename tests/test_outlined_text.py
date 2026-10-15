@@ -3,7 +3,7 @@ import tkinter as tk
 import pytest
 
 from src.ui.fonts import ui_font
-from src.ui.outlined_text import (
+from src.ui.overlay.outlined_text import (
     TEXT_ORIGIN,
     draw_outlined,
     line_height,
