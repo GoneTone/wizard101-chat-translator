@@ -136,7 +136,7 @@ def test_language_change_retitles_a_suffixed_untouched_service(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -161,7 +161,7 @@ def test_language_change_only_retitles_the_service_being_edited(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -211,8 +211,7 @@ def test_language_change_from_en_bootstrap_follows_to_zh_cn(root):
     import copy
 
     from src import i18n
-    from src.config import DEFAULT_CONFIG
-    from src.startup import bootstrap_language
+    from src.config import DEFAULT_CONFIG, bootstrap_language
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -236,8 +235,7 @@ def test_bootstrap_language_first_run_no_config_file():
     import copy
 
     from src import i18n
-    from src.config import DEFAULT_CONFIG
-    from src.startup import bootstrap_language
+    from src.config import DEFAULT_CONFIG, bootstrap_language
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     assert cfg["ui_language"] is None
@@ -251,7 +249,7 @@ def test_bootstrap_language_first_run_no_config_file():
 def test_bootstrap_language_upgrading_user_keeps_target_language():
     """回歸測試：升級使用者的 config 已存在，只是舊版沒有 ui_language（被回填成 None），
     不代表沒走過精靈：介面語言仍依偵測，但使用者選好的 target_language 不可被覆蓋。"""
-    from src.startup import bootstrap_language
+    from src.config import bootstrap_language
 
     cfg = {"ui_language": None, "target_language": "日本語"}
 
@@ -263,7 +261,7 @@ def test_bootstrap_language_upgrading_user_keeps_target_language():
 
 def test_bootstrap_language_returning_user_uses_saved_language():
     """回頭使用者：config 已有真實的 ui_language，直接採用、不呼叫 detect，target_language 不動。"""
-    from src.startup import bootstrap_language
+    from src.config import bootstrap_language
 
     cfg = {"ui_language": "zh-CN", "target_language": "日本語"}
     calls = []
@@ -319,9 +317,9 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
 
     from src.config import DEFAULT_CONFIG
     from src.i18n import t
+    from src.runtime.updater import CROWDIN_URL
     from src.ui import form as form_module
     from src.ui.wizard import SetupWizard
-    from src.updater import CROWDIN_URL
 
     monkeypatch.setattr(form_module, "translators", lambda code: "")
     opened = []
@@ -338,7 +336,7 @@ def test_language_step_links_to_crowdin_even_without_translators(root, monkeypat
 
 def _three_services():
     """三組填好的服務（openai／claude／custom），回傳那份清單。"""
-    from src.services import new_service
+    from src.config.services import new_service
 
     services: list[dict] = []
     for provider in ("openai", "claude", "custom"):
@@ -354,7 +352,7 @@ def test_finishing_the_wizard_keeps_the_other_services(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.services import SLOT_REGION
+    from src.config.services import SLOT_REGION
     from src.ui.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
@@ -380,7 +378,7 @@ def test_finish_dedupes_a_name_typed_to_match_another_service(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.wizard import SetupWizard
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
@@ -403,7 +401,7 @@ def test_finish_does_not_collide_a_service_with_itself(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -471,7 +469,7 @@ def test_language_change_does_not_let_the_rename_collide(root):
 
     from src import i18n
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.wizard import SetupWizard
 
     before = i18n.current_language()
@@ -498,7 +496,7 @@ def test_switching_provider_in_the_wizard_dedupes_against_cfg_services(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.services import new_service
+    from src.config.services import new_service
 
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     existing_claude = new_service("claude", [])
@@ -545,7 +543,7 @@ def test_picking_a_provider_replaces_the_cards_with_the_form(root):
     import copy
 
     from src.config import DEFAULT_CONFIG
-    from src.services import PROVIDERS
+    from src.config.services import PROVIDERS
 
     wizard = _wizard_on_api_step(root, copy.deepcopy(DEFAULT_CONFIG))
     _cards_on_body(wizard)[0].pack_slaves()[1].event_generate("<Button-1>")

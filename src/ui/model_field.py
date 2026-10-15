@@ -5,9 +5,9 @@
 import tkinter as tk
 from tkinter import ttk
 
+from src.config.services import validate_endpoint_fields
 from src.i18n import t
-from src.log import log
-from src.services import validate_endpoint_fields
+from src.logs import log
 from src.translation.translator import TranslatorNoModelList, list_models
 from src.ui.form import ERROR_COLOR, HINT_COLOR, LABEL_WIDTH, BackgroundButton, friendly_error
 from src.ui.richtext import RichLabel, ttk_background

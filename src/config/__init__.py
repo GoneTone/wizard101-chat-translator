@@ -5,9 +5,16 @@ import os
 import sys
 from pathlib import Path
 
-from src.i18n import SOURCE_LANGUAGE, language_name, t
-from src.log import log
-from src.services import SLOTS, UNSUPPORTED_SERVICES, find, normalize, validate_service
+from src.config.services import (
+    SLOTS,
+    UNSUPPORTED_SERVICES,
+    find,
+    normalize,
+    quarantined,
+    validate_service,
+)
+from src.i18n import SOURCE_LANGUAGE, detect_system_language, language_name, t
+from src.logs import log
 
 
 def app_name() -> str:
@@ -20,7 +27,7 @@ def app_dir() -> Path:
     打包執行（frozen）時為 exe 所在目錄；開發時為專案根目錄。"""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parents[2]
 
 
 def local_state_dir() -> Path:
@@ -131,3 +138,51 @@ def is_configured(cfg: dict) -> bool:
     """預設服務存在且設定完整（不完整 → 啟動時進首次設定精靈）。"""
     service = find(cfg, cfg["default_service"])
     return service is not None and not validate_service(service)
+
+
+def bootstrap_language(cfg: dict, config_existed: bool, detect=detect_system_language) -> str:
+    """決定啟動時的介面語言碼；真正首次執行時順便把 target_language 補成同語言。
+
+    首次執行只能看 `config_existed`，不能看 `ui_language` 是否為 None：pre-i18n 的舊
+    config 經 `load_config` 補值後同樣是 None，若據此判斷，升級的使用者會被當成首次
+    執行，自己選過的 target_language 被系統偵測值覆蓋，並在下一次 save_config 永久寫死。
+    首次執行時 target_language 跟著系統語言走，否則非 zh-TW 系統會在精靈看到不相關的
+    繁中預設值；舊設定檔 ui_language 仍為 None 時只偵測介面語言、不動 target_language；
+    ui_language 已是真實語言碼時不呼叫 `detect`。"""
+    if cfg["ui_language"] is None:
+        detected = detect()
+        if not config_existed:
+            cfg["target_language"] = language_name(detected)
+        return detected
+    return cfg["ui_language"]
+
+
+def config_summary(cfg: dict) -> str:
+    """一行設定摘要（啟動與套用設定時記錄，兩處同一份才不會漏欄位）；金鑰絕不列入。"""
+    fields = [f"services={len(cfg['services'])}",
+              # 隔離筆數：使用者回報「服務不見了」時，這一格就是答案
+              f"quarantined={len(quarantined(cfg))}",
+              f"default={_service_summary(find(cfg, cfg['default_service']))}"]
+    fields += [f"{slot}=" + (_service_summary(find(cfg, cfg['service_slots'][slot]))
+                             if cfg["service_slots"][slot] else "default")
+               for slot in SLOTS]
+    fields += [f"target_language={cfg['target_language']!r}",
+               f"ui_language={cfg['ui_language']}",
+               f"hotkey={cfg['hotkey']}",
+               f"region_hotkey={cfg['region_hotkey']}",
+               f"paste_hotkey={cfg['paste_hotkey']}",
+               f"auto_show_input={cfg['auto_show_input']}",
+               f"parallel={cfg['max_parallel_translations']}",
+               f"fade_seconds={cfg['fade_seconds']}",
+               f"max_messages={cfg['max_messages']}",
+               f"overlay_alpha={cfg['overlay_alpha']}",
+               f"translate_system_messages={cfg['translate_system_messages']}"]
+    return ", ".join(fields)
+
+
+def _service_summary(service: dict | None) -> str:
+    """一筆服務在 log 裡的樣子；金鑰只記有沒有，絕不記內容。"""
+    if service is None:
+        return "none"
+    return (f"{service['name']}({service['provider']}/{service['model']},"
+            f"has_key={bool(service.get('api_key'))})")

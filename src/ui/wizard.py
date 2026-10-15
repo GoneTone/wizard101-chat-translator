@@ -8,9 +8,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from src.config import app_name
-from src.i18n import current_language, language_name, set_language, t
-from src.log import log
-from src.services import (
+from src.config.services import (
     PROVIDERS,
     SLOTS,
     find,
@@ -19,6 +17,8 @@ from src.services import (
     unique_name,
     validate_service,
 )
+from src.i18n import current_language, language_name, set_language, t
+from src.logs import log
 from src.ui.fields import HotkeyField, LanguageField, UiLanguageField
 from src.ui.fonts import ui_font
 from src.ui.form import (

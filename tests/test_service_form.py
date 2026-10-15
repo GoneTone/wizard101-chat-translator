@@ -4,8 +4,8 @@ from tkinter import ttk
 
 import pytest
 
+from src.config.services import EFFORT_LOW, PROVIDERS, new_service
 from src.i18n import t
-from src.services import EFFORT_LOW, PROVIDERS, new_service
 from src.translation.examples import ExampleStore
 from src.translation.translator import TranslatorConfigError
 from src.ui.service_form import ServiceForm

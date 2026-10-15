@@ -186,7 +186,7 @@ def test_the_services_tab_sits_between_basic_and_advanced(root):
 
 
 def test_save_writes_the_edited_service_list_into_cfg(root):
-    from src.services import new_service
+    from src.config.services import new_service
     from src.ui.settings import SettingsWindow
     from tests.config_helpers import configured_cfg
 
@@ -265,7 +265,7 @@ def test_service_summary_shows_the_draft_default_service_name(root):
 
 
 def test_service_summary_refreshes_when_the_default_changes_and_tabs_switch(root):
-    from src.services import new_service
+    from src.config.services import new_service
 
     win = _open_settings(root)
     added = new_service("openai", win._services.values()["services"])
@@ -426,8 +426,8 @@ def _open_settings_with_checker(root, checker):
 def test_about_tab_shows_version_and_links(root, monkeypatch):
     from src import __version__
     from src.i18n import t
+    from src.runtime.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL
     from src.ui import settings as settings_module
-    from src.updater import AUTHOR_URL, ISSUES_URL, PROJECT_URL
 
     opened = []
     monkeypatch.setattr(settings_module.webbrowser, "open", opened.append)
@@ -479,8 +479,8 @@ def test_manual_check_reports_up_to_date(root):
 def test_manual_check_hands_a_new_version_to_on_update_found(root):
     """手動檢查查到新版時，除了關於分頁的連結，也要讓 overlay 顯示橫幅。"""
     from src.i18n import current_language
+    from src.runtime.updater import Release
     from src.ui.settings import SettingsWindow
-    from src.updater import Release
     from tests.config_helpers import configured_cfg
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
@@ -513,8 +513,8 @@ def test_manual_check_keeps_on_update_found_quiet_when_up_to_date(root):
 
 def test_manual_check_reports_a_new_version(root, monkeypatch):
     from src.i18n import t
+    from src.runtime.updater import Release
     from src.ui import settings as settings_module
-    from src.updater import Release
 
     release = Release(version="9.9.9", url="https://example.invalid/rel")
     win = _open_settings_with_checker(root, lambda: release)
@@ -533,7 +533,7 @@ def test_manual_check_reports_a_new_version(root, monkeypatch):
 
 def test_manual_check_reports_failure(root):
     from src.i18n import t
-    from src.updater import UpdateCheckError
+    from src.runtime.updater import UpdateCheckError
 
     def boom():
         raise UpdateCheckError("HTTP 403")
@@ -671,7 +671,7 @@ def test_translators_row_follows_the_ui_language_field(root, monkeypatch):
 
 def test_help_translate_link_opens_crowdin(root, monkeypatch):
     from src.i18n import t
-    from src.updater import CROWDIN_URL
+    from src.runtime.updater import CROWDIN_URL
 
     _fake_translators(monkeypatch, lambda code: "")
     opened = []
@@ -706,7 +706,7 @@ def test_about_tab_shows_the_translators(root, monkeypatch):
 
 def test_about_tab_links_to_crowdin(root, monkeypatch):
     from src.i18n import t
-    from src.updater import CROWDIN_URL
+    from src.runtime.updater import CROWDIN_URL
 
     _fake_translators(monkeypatch, lambda code: "")
     win = _open_settings_with_checker(root, lambda: None)
@@ -824,7 +824,7 @@ def test_language_preview_keeps_a_half_added_service(root):
     """回歸：在服務分頁加了一筆還沒儲存，就回基本分頁換介面語言 —— 設定視窗會整個
     重建，重建出來的清單必須還帶著那一筆（精靈那條路有對應的回歸測試）。"""
     from src import i18n
-    from src.services import new_service
+    from src.config.services import new_service
 
     before = i18n.current_language()
     try:
@@ -847,8 +847,8 @@ def test_language_preview_keeps_a_half_added_service(root):
 def test_save_refuses_a_service_a_slot_points_at(root, monkeypatch):
     """插槽指到的服務也要填得完整：執行期真的會拿它送請求（`model=""` 的請求實測送得
     出去），收訊那格更會每 15 秒重試一次、橫幅一直掛著端點原文。"""
+    from src.config.services import SLOT_INCOMING, new_service
     from src.i18n import t
-    from src.services import SLOT_INCOMING, new_service
     from src.ui import settings as settings_module
     from src.ui.settings import SettingsWindow
     from tests.config_helpers import configured_cfg
@@ -873,8 +873,8 @@ def test_save_refuses_a_service_a_slot_points_at(root, monkeypatch):
 
 def test_save_lists_a_shared_services_problem_only_once(root, monkeypatch):
     """預設與某個插槽指到同一筆服務時，同一個缺漏不該被列兩次。"""
+    from src.config.services import SLOT_OUTGOING
     from src.i18n import t
-    from src.services import SLOT_OUTGOING
     from src.ui import settings as settings_module
     from src.ui.settings import SettingsWindow
     from tests.config_helpers import configured_cfg

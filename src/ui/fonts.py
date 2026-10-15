@@ -7,7 +7,7 @@
 from langcodes import Language, LanguageTagError
 
 from src.i18n import current_language
-from src.log import log
+from src.logs import log
 
 # CJK 三家各自要專用字族：微軟正黑體雖然顯示得出簡體字，但字形是台灣標準，日韓漢字
 # 借用中文字族同樣會出現當地不用的字形。其餘文字系統（拉丁、斯拉夫、希臘、希伯來、

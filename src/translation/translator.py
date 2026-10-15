@@ -18,8 +18,8 @@ from dataclasses import dataclass, replace
 
 import httpx
 
-from src.log import log
-from src.services import EFFORT_AUTO
+from src.config.services import EFFORT_AUTO
+from src.logs import log
 from src.translation.examples import (
     EMPTY,
     GAME_LANGUAGE_EXAMPLES,

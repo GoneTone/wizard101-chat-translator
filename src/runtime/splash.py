@@ -7,7 +7,7 @@
 先存進 `_pending_logs`，等 `drain_logs()` 才補寫。`PHASE_LOADING`／`PHASE_STARTING`
 定義在這裡，因為 build 時 `tools/splash_progress.py` 要 import 同一組常數烤進 Tcl。
 """
-from src.log import log
+from src.logs import log
 
 # 兩個階段訊息：build 時 tools/splash_progress.py 會把這兩個字面值烤進 Tcl 樣板
 # 跟 status_text 比對，改文字只需改這裡。

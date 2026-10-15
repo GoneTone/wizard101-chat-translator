@@ -6,7 +6,7 @@
 import tkinter as tk
 
 from src.config import app_name
-from src.log import log
+from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import is_click, moved_to, point_in_rect
 from src.ui.icons import load_icon

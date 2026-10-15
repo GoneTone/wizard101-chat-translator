@@ -20,7 +20,7 @@ import win32gui
 from PIL import Image, ImageGrab
 from windows_capture import WindowsCapture
 
-from src.log import log
+from src.logs import log
 
 _DWMWA_EXTENDED_FRAME_BOUNDS = 9
 _FRAME_TIMEOUT_S = 2.0

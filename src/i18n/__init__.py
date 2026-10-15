@@ -14,8 +14,8 @@ import json
 
 from langcodes import LanguageTagError, closest_match
 
-from src.log import log
-from src.resources import bundle_dir
+from src.logs import log
+from src.runtime.resources import bundle_dir
 
 # 語言檔自帶的 metadata（不是一般文案）：自稱（選單顯示用，也是該語言使用者預設的
 # 翻譯目標）、這份譯文的譯者掛名。兩者都由該語言的譯者填，未填就當作沒有 —— 未翻譯的

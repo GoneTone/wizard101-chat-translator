@@ -3,8 +3,8 @@ import re
 import tkinter as tk
 from tkinter import ttk
 
+from src.config.services import PROVIDERS
 from src.i18n import t
-from src.services import PROVIDERS
 from src.ui.provider_picker import ProviderCards, ProviderPicker
 
 

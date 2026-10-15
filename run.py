@@ -8,7 +8,7 @@ def _run() -> None:
     兩個 import 都放在函式內：模組頂層的 import 會被 ruff 的 E402 擋下，而順序
     （先 update 再 import src.main）正是這裡的重點。
     """
-    from src import splash
+    from src.runtime import splash
     splash.update(splash.PHASE_LOADING)
     from src.main import main
     main()

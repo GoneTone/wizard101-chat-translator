@@ -7,7 +7,7 @@
 import tkinter.font as tkfont
 from typing import NamedTuple
 
-from src.log import log
+from src.logs import log
 from src.ui.geometry import point_in_rect
 from src.ui.outlined_text import TEXT_ORIGIN, Line, line_height, line_origin
 from src.ui.palette import SELECT_BG

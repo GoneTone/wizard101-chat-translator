@@ -94,7 +94,7 @@ class _FakeCache:
 
 def _three_slot_cfg():
     """三個用途各指向一筆不同服務的 cfg（模型不同，才看得出誰接到誰）。"""
-    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, new_service
+    from src.config.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, new_service
 
     cfg = configured_cfg("openai", model="incoming-model")
     incoming = cfg["services"][0]
@@ -141,7 +141,7 @@ def _stub_translation(monkeypatch):
 
 def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkeypatch):
     """三個用途各接到自己那格的服務，兩條翻譯池都吃收訊那格，快取指紋也綁收訊。"""
-    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION
+    from src.config.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION
     from src.translation.cache import fingerprint_of
 
     _stub_translation(monkeypatch)
@@ -159,7 +159,7 @@ def test_each_slot_gets_its_own_translator_and_the_cache_follows_incoming(monkey
 def test_the_system_pool_translates_through_the_incoming_service(monkeypatch):
     """系統訊息那條池自帶翻譯函式（走快取），它接的必須是收訊那格 —— 這個 closure
     改成別格一樣跑得完，只有在這裡釘住才看得出來。"""
-    from src.services import SLOT_INCOMING
+    from src.config.services import SLOT_INCOMING
 
     _stub_translation(monkeypatch)
     used = []
@@ -181,7 +181,7 @@ def test_the_system_pool_translates_through_the_incoming_service(monkeypatch):
 def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monkeypatch):
     """只換了區域翻譯用哪一組，收訊的翻譯器與譯文快取都不該被動到
     （快取作廢＝使用者的系統訊息譯文全部重譯一次）。"""
-    from src.services import SLOT_INCOMING, SLOT_REGION, find
+    from src.config.services import SLOT_INCOMING, SLOT_REGION, find
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -197,7 +197,7 @@ def test_changing_only_the_region_slot_leaves_incoming_and_the_cache_alone(monke
 
 
 def test_changing_the_incoming_slot_invalidates_the_cache(monkeypatch):
-    from src.services import SLOT_INCOMING, find
+    from src.config.services import SLOT_INCOMING, find
     from src.translation.cache import fingerprint_of
 
     _stub_translation(monkeypatch)
@@ -213,7 +213,7 @@ def test_changing_the_incoming_slot_invalidates_the_cache(monkeypatch):
 
 
 def test_build_translation_ensures_examples_for_incoming_and_region(monkeypatch):
-    from src.services import SLOT_INCOMING, SLOT_REGION
+    from src.config.services import SLOT_INCOMING, SLOT_REGION
 
     _stub_translation(monkeypatch)
     translators, _cache, _pools, coordinator = _build(_three_slot_cfg())
@@ -221,7 +221,7 @@ def test_build_translation_ensures_examples_for_incoming_and_region(monkeypatch)
 
 
 def test_reconfigure_ensures_examples_only_for_rebuilt_slots(monkeypatch):
-    from src.services import SLOT_REGION, find
+    from src.config.services import SLOT_REGION, find
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -233,7 +233,7 @@ def test_reconfigure_ensures_examples_only_for_rebuilt_slots(monkeypatch):
 
 
 def test_reconfigure_without_changes_keeps_examples_and_does_not_ensure(monkeypatch):
-    from src.services import SLOT_INCOMING
+    from src.config.services import SLOT_INCOMING
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -252,7 +252,7 @@ def test_restart_keeps_the_persisted_cache_when_examples_are_already_stored(monk
     """範例已在磁碟時，啟動不可先用無範例指紋載入再 rebind —— 那會把上次的快取清空。"""
     from functools import partial
 
-    from src.services import SLOT_INCOMING, SLOT_REGION, resolve
+    from src.config.services import SLOT_INCOMING, SLOT_REGION, resolve
     from src.translation.cache import TranslationCache
     from src.translation.examples import ExampleCoordinator, ExampleStore
     from src.translation.translator import Translator
@@ -284,7 +284,7 @@ def test_a_settings_change_applies_the_new_fingerprints_examples_and_never_the_o
     """真的協調器與翻譯器：改設定前發出的生成晚到，也不能蓋掉新設定從快取取到的範例。"""
     from functools import partial
 
-    from src.services import SLOT_INCOMING, SLOT_REGION, find, resolve
+    from src.config.services import SLOT_INCOMING, SLOT_REGION, find, resolve
     from src.translation.examples import ExampleCoordinator, ExampleStore, examples_fingerprint
     from src.translation.translator import Translator
 
@@ -313,7 +313,7 @@ def test_a_settings_change_applies_the_new_fingerprints_examples_and_never_the_o
 
 
 def test_applying_incoming_examples_rebinds_the_system_message_cache(monkeypatch):
-    from src.services import SLOT_INCOMING, SLOT_REGION
+    from src.config.services import SLOT_INCOMING, SLOT_REGION
 
     _stub_translation(monkeypatch)
     translators, cache, _pools, coordinator = _build(_three_slot_cfg())
@@ -352,7 +352,7 @@ def test_saving_unrelated_settings_rebuilds_no_translator(monkeypatch):
 
 def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch):
     """「我只改了區域翻譯那一格」不該連收訊與發話的連線一起拆掉。"""
-    from src.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, find
+    from src.config.services import SLOT_INCOMING, SLOT_OUTGOING, SLOT_REGION, find
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -376,7 +376,7 @@ def test_changing_only_the_region_slot_rebuilds_only_that_translator(monkeypatch
 ])
 def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, check):
     """真的改到服務欄位時照樣重建，新值要真的生效。"""
-    from src.services import SLOT_OUTGOING, find
+    from src.config.services import SLOT_OUTGOING, find
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -392,7 +392,7 @@ def test_editing_the_service_a_slot_uses_rebuilds_it(monkeypatch, field, value, 
 
 def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
     """目標語言也是 reconfigure 的參數：三格都要跟上，但發話那格不用範例。"""
-    from src.services import SLOT_INCOMING, SLOT_REGION
+    from src.config.services import SLOT_INCOMING, SLOT_REGION
 
     _stub_translation(monkeypatch)
     cfg = _three_slot_cfg()
@@ -411,7 +411,7 @@ def test_changing_the_target_language_rebuilds_every_translator(monkeypatch):
 
 def _twin_endpoint_cfg():
     """兩筆自訂服務、模型同名、端點不同（本機與遠端各有一個 qwen3）。"""
-    from src.services import SLOT_INCOMING, new_service
+    from src.config.services import SLOT_INCOMING, new_service
 
     cfg = configured_cfg("custom", base_url="http://local", model="qwen3")
     remote = new_service("custom", cfg["services"])
@@ -425,7 +425,7 @@ def test_switching_the_incoming_slot_between_same_named_models_invalidates_the_c
         monkeypatch):
     """兩個端點的模型同名時，換掉收訊那格必須讓舊譯文作廢 —— 指紋不含端點的話，
     舊端點翻的系統訊息譯文會繼續命中。"""
-    from src.services import SLOT_INCOMING
+    from src.config.services import SLOT_INCOMING
 
     _stub_translation(monkeypatch)
     cfg, remote = _twin_endpoint_cfg()

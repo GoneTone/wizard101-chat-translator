@@ -11,7 +11,7 @@ def bundle_dir(name: str) -> Path:
     """打包資源子目錄（開發時為 `src/<name>`，frozen 時為 `_MEIPASS/<name>`）。"""
     if getattr(sys, "frozen", False):
         return Path(sys._MEIPASS) / name
-    return Path(__file__).resolve().parent / name
+    return Path(__file__).resolve().parents[1] / name
 
 
 def icon_path() -> Path:

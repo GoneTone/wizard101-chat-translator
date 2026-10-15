@@ -1,5 +1,5 @@
 """全域熱鍵與遊戲聊天輸入框事件的分派：決定要不要接手，再交給輸入框、框選或貼上。
-按鍵攔截本身在 `src.hotkeys`；這裡的回呼跑在鍵盤 hook 裡，UI 動作一律排進 ui_queue。"""
+按鍵攔截本身在 `src.input.hotkeys`；這裡的回呼跑在鍵盤 hook 裡，UI 動作一律排進 ui_queue。"""
 import queue
 import threading
 
@@ -7,8 +7,8 @@ import win32gui
 
 from src.composer.paste import foreground_exe, paste_clipboard
 from src.config import DEFAULT_CONFIG
-from src.hotkeys import register_hotkey
-from src.log import log
+from src.input.hotkeys import register_hotkey
+from src.logs import log
 from src.reader.process import is_game_process_path
 from src.ui.input_box import InputBox
 from src.ui.region_flow import RegionFlow

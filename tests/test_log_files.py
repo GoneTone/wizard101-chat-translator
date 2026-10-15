@@ -2,7 +2,7 @@
 import io
 from datetime import UTC, datetime, timedelta, timezone
 
-from src.logfiles import (
+from src.logs.files import (
     LOG_RETENTION_DAYS,
     TimestampedStream,
     _prepare_log,
@@ -133,7 +133,7 @@ def test_concurrent_writers_keep_every_line_stamped():
 
 def test_log_writes_a_whole_line_in_one_call(monkeypatch):
     # print 會把內文與換行分兩次 write，行首時戳的狀態就可能被別的執行緒插隊
-    from src.log import log
+    from src.logs import log
 
     class Recorder:
         def __init__(self):

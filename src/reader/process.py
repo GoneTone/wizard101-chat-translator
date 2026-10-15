@@ -3,7 +3,7 @@
 """
 import os
 
-from src.log import log
+from src.logs import log
 
 PROCESS_NAME = "WizardGraphicalClient.exe"
 

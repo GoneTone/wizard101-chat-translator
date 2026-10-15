@@ -3,9 +3,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from src.i18n import current_language, language_name, t
-from src.log import log
-from src.services import (
+from src.config.services import (
     API_EFFORTS,
     API_PROFILE_FIELDS,
     EFFORT_AUTO,
@@ -14,6 +12,8 @@ from src.services import (
     unique_name,
     validate_service,
 )
+from src.i18n import current_language, language_name, t
+from src.logs import log
 from src.translation.examples import ExampleStore
 from src.translation.translator import test_translate
 from src.ui.form import (

@@ -7,7 +7,7 @@
 """
 import tkinter as tk
 
-from src.log import log
+from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.geometry import clamped_position
 from src.ui.palette import BAR, FG_BAR, FG_TRANSLATED, GRIP

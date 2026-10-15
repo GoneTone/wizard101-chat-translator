@@ -7,7 +7,7 @@ from ctypes import wintypes
 import win32con
 import win32gui
 
-from src.log import log
+from src.logs import log
 
 
 def root_hwnd(win: tk.Misc) -> int:

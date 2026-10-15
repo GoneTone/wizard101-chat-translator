@@ -6,7 +6,7 @@
 必須在 `Splash(...)` 建構之前呼叫，樣板組裝後無法再改；`_SENTINEL` 避免重複
 patch（見 `install_progress_bar`）。
 
-解壓只推進到 80%，其餘由 `src/splash.py` 的 `PHASE_LOADING`／`PHASE_STARTING`
+解壓只推進到 80%，其餘由 `src/runtime/splash.py` 的 `PHASE_LOADING`／`PHASE_STARTING`
 推到 90%／滿格；動畫細節見 `_canvas_setup_addition`。
 """
 from __future__ import annotations
@@ -17,8 +17,8 @@ from itertools import chain
 
 from PyInstaller.building import splash_templates
 
-from src.log import log
-from src.splash import PHASE_LOADING, PHASE_STARTING
+from src.logs import log
+from src.runtime.splash import PHASE_LOADING, PHASE_STARTING
 from tools.splash_image import PROGRESS_FILL_COLOR, PROGRESS_TRACK_COLOR, SIZE
 
 # 進度條位置：畫面最下緣、整條寬度，跟狀態文字（左下角、TEXT_ORIGIN=(24, 276)）
@@ -124,7 +124,7 @@ def _canvas_setup_addition(total: int, table: dict[str, list[int]]) -> str:
 
 def _text_update_addition() -> str:
     """`canvas_text_update` 本體新增的段落：精確比對 `PHASE_LOADING`／`PHASE_STARTING`
-    （從 `src.splash` import，不在此另抄字面值）推進到各自目標；否則落到 basename
+    （從 `src.runtime.splash` import，不在此另抄字面值）推進到各自目標；否則落到 basename
     查表，彈出清單頭部的位元組數累加，上限壓在 `_EXTRACT_MAX_PX`（80%），剩下留給
     兩個階段字串推進。"""
     return (

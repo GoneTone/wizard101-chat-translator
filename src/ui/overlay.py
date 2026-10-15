@@ -11,7 +11,8 @@ import win32gui
 
 from src.config import app_name
 from src.i18n import t
-from src.log import log
+from src.logs import log
+from src.runtime.updater import is_newer
 from src.ui.bubble import BUBBLE_SIZE, Bubble, bubble_alpha, should_auto_expand
 from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
@@ -33,7 +34,6 @@ from src.ui.selection import Selection
 from src.ui.tab_bar import TabBar
 from src.ui.tooltip import Tooltip
 from src.ui.winstyle import enable_taskbar_button, make_non_activating, root_hwnd
-from src.updater import is_newer
 
 if TYPE_CHECKING:
     from src.reader.chat_tabs import TabState

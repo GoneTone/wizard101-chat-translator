@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from src.resources import bundle_dir, icon_path, png_icon_path
-from src.startup import apply_window_icon
+from src.runtime.resources import bundle_dir, icon_path, png_icon_path
+from src.ui.icons import apply_window_icon
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 BUILD_SPEC = Path(__file__).resolve().parents[1] / "build.spec"
@@ -77,7 +77,7 @@ def test_build_spec_installs_the_progress_bar_before_constructing_splash():
 
 
 def test_apply_window_icon_survives_missing_file(root, monkeypatch, tmp_path):
-    monkeypatch.setattr("src.startup.icon_path", lambda: tmp_path / "nope.ico")
+    monkeypatch.setattr("src.ui.icons.icon_path", lambda: tmp_path / "nope.ico")
     apply_window_icon(root)   # 只該留 log，不該把啟動流程帶掉
 
 

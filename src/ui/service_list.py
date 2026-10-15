@@ -3,9 +3,9 @@ import copy
 import tkinter as tk
 from tkinter import messagebox, ttk
 
+from src.config.services import SLOTS, describe, new_service, unique_name, validate_service
 from src.i18n import t
-from src.log import log
-from src.services import SLOTS, describe, new_service, unique_name, validate_service
+from src.logs import log
 from src.ui.fonts import ui_font
 from src.ui.form import HINT_COLOR, collapsible, hint_label
 from src.ui.geometry import centered_position

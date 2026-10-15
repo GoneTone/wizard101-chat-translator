@@ -22,7 +22,7 @@
 import tkinter as tk
 
 from src.i18n import t
-from src.log import log
+from src.logs import log
 from src.ui.clipboard import copy_to_clipboard
 from src.ui.fonts import ui_font
 from src.ui.geometry import anchored_geometry, beside_geometry, is_click

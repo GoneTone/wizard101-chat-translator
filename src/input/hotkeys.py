@@ -3,7 +3,7 @@
 import keyboard
 
 from src.config import DEFAULT_CONFIG
-from src.log import log
+from src.logs import log
 
 MODIFIER_GROUPS = ("ctrl", "shift", "alt", "windows")
 

@@ -99,7 +99,7 @@ def _keep_foreground():
     時後蓋前，不受影響。
     """
     import src.composer.paste as paste_module
-    import src.single_instance as single_instance_module
+    import src.runtime.single_instance as single_instance_module
     import src.ui.input_box as input_box_module
     import src.ui.region_flow as region_flow_module
     import src.ui.region_select as region_select_module
