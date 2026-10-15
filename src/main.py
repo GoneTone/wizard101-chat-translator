@@ -37,7 +37,7 @@ from src.i18n import current_language, detect_system_language, language_name, se
 from src.instance_watch import start_instance_watch
 from src.log import log
 from src.logfiles import TimestampedStream, open_session_log
-from src.reader.loop import MessageIds, reader_loop
+from src.reader.loop import MessageIds, ReaderShared, reader_loop
 from src.reader.message_log import MessageLog
 from src.reader.process import is_game_process_path
 from src.reader.status import StatusBoard
@@ -617,20 +617,19 @@ def build_app(cfg: dict, root: tk.Tk, message_stream) -> App:
 
     stop = threading.Event()
     board = StatusBoard(overlay, ui_queue, pool, system_pool)
-    msg_ids = MessageIds()
+    shared = ReaderShared(cfg, overlay, ui_queue, stop, pool, board, MessageIds(),
+                          system_pool=system_pool, cache=cache)
 
     def spawn(hwnd: int, slot: int) -> threading.Thread:
         """supervisor 發現一個遊戲視窗：為它起一條收訊執行緒（上下文每客戶端一份）。"""
         contexts[hwnd] = ClientContexts()
         thread = threading.Thread(
             target=reader_loop,
-            args=(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, msg_ids),
+            args=(shared, hwnd, slot),
             kwargs={"on_input_open": lambda h, anchor: ui_queue.put(
                         lambda: input_events.opened(h, anchor)),
                     "on_input_close": lambda h: ui_queue.put(lambda: input_events.closed(h)),
                     "message_log": MessageLog(message_stream, slot=slot),
-                    "system_pool": system_pool,
-                    "cache": cache,
                     "contexts": contexts[hwnd]},
             daemon=True, name=f"reader-{slot}")
         thread.start()

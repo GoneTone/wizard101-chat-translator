@@ -9,7 +9,7 @@ import pytest
 import src.reader.loop as loop_module
 from src.i18n import t
 from src.reader.chat_tabs import TabState
-from src.reader.loop import MessageIds, banner_for, reader_loop
+from src.reader.loop import MessageIds, ReaderShared, banner_for, reader_loop
 from src.reader.markup import ChatLine
 from src.reader.mem_reader import (
     ChatEvent,
@@ -124,9 +124,10 @@ def _loop(cfg, overlay, ui_queue, stop, pool, *, contexts=None, system_pool=None
           on_input_open=None, on_input_close=None, hwnd=0x1, slot=1, board=None):
     """以單一客戶端跑 reader_loop：board 一個編號時的行為等同舊的單執行緒版本。"""
     board = board or StatusBoard(overlay, ui_queue, pool, system_pool)
-    reader_loop(cfg, hwnd, slot, overlay, ui_queue, stop, pool, board, MessageIds(),
-                on_input_open=on_input_open, on_input_close=on_input_close,
-                system_pool=system_pool, cache=cache, contexts=contexts)
+    shared = ReaderShared(cfg, overlay, ui_queue, stop, pool, board, MessageIds(),
+                          system_pool=system_pool, cache=cache)
+    reader_loop(shared, hwnd, slot, on_input_open=on_input_open,
+                on_input_close=on_input_close, contexts=contexts)
     return board
 
 

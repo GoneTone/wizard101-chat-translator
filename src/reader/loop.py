@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 import traceback
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import win32gui
@@ -101,135 +102,179 @@ class _InputWatch:
             self._on_close(self._hwnd)
 
 
-def reader_loop(cfg: dict, hwnd: int, slot: int, overlay: "OverlayWindow",
-                ui_queue: queue.Queue, stop: threading.Event, pool: TranslationPool,
-                board: StatusBoard, msg_ids: MessageIds,
+@dataclass(frozen=True)
+class ReaderShared:
+    """所有客戶端的收訊執行緒共用的物件；狀態一律經 board 回報，由它彙整多個客戶端。"""
+    cfg: dict
+    overlay: "OverlayWindow"
+    ui_queue: queue.Queue
+    stop: threading.Event
+    pool: TranslationPool
+    board: StatusBoard
+    msg_ids: MessageIds
+    system_pool: TranslationPool | None = None
+    cache: TranslationCache | None = None
+
+
+def reader_loop(shared: ReaderShared, hwnd: int, slot: int,
                 on_input_open=None, on_input_close=None,
                 message_log: MessageLog | None = None,
-                system_pool: TranslationPool | None = None,
-                cache: TranslationCache | None = None,
                 contexts: ClientContexts | None = None) -> None:
     """一個遊戲客戶端（hwnd）的收訊執行緒進入點；stop 被設定或該視窗消失後解除 hook 再返回。
-    slot＝這個客戶端的顯示編號；狀態一律經 board 回報，由它彙整多個客戶端。
+    slot＝這個客戶端的顯示編號。
     on_input_open(hwnd, anchor)／on_input_close(hwnd)＝遊戲聊天輸入框開關的邊緣觸發，
     不受 auto_show_input 影響（要不要自動呼出由呼叫端決定，錨點則熱鍵呼出也用得到）；
     anchor＝遊戲輸入框的螢幕矩形 (x, y, w, h)，讀不到為 None。
     contexts 預設每條執行緒自建一份；呼叫端要拿去給發話用時可傳入。"""
-    # 全用關鍵字：測試以 `lambda **kw` 替換 WizChatReader
-    reader = WizChatReader(hwnd=hwnd, message_log=message_log, slot=slot)
-    contexts = contexts if contexts is not None else ClientContexts()
-    inputs = _InputWatch(reader, hwnd, slot, on_input_open, on_input_close)
-    game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
-    reported_tabs: TabState | None = None
-    tabs_polled_at = float("-inf")
-    sampled_tab: int | None = None  # 上次完整取樣時的目前分頁
+    _ClientLoop(shared, hwnd, slot, on_input_open, on_input_close, message_log,
+                contexts if contexts is not None else ClientContexts()).run()
 
-    def report_tabs(state: TabState | None) -> None:
-        nonlocal reported_tabs
-        if state == reported_tabs:
+
+class _ClientLoop:
+    """reader_loop 的本體：一個客戶端的讀取、分頁同步與訊息分派。"""
+
+    def __init__(self, shared: ReaderShared, hwnd: int, slot: int, on_input_open,
+                 on_input_close, message_log: MessageLog | None, contexts: ClientContexts):
+        self._s = shared
+        self._hwnd = hwnd
+        self._slot = slot
+        self._contexts = contexts
+        # 全用關鍵字：測試以 `lambda **kw` 替換 WizChatReader
+        self._reader = WizChatReader(hwnd=hwnd, message_log=message_log, slot=slot)
+        self._inputs = _InputWatch(self._reader, hwnd, slot, on_input_open, on_input_close)
+        self._game_issue: str | None = None  # 遊戲端問題的橫幅文案 key（None＝遊戲正常）
+        self._reported_tabs: TabState | None = None
+        self._tabs_polled_at = float("-inf")
+        self._sampled_tab: int | None = None  # 上次完整取樣時的目前分頁
+
+    def run(self) -> None:
+        stop = self._s.stop
+        try:
+            while not stop.is_set():
+                if not window_exists(self._hwnd):
+                    log(f"[reader] game window gone (slot={self._slot}, hwnd={self._hwnd:#x}); "
+                        f"stopping this reader")
+                    self._inputs.force_closed()
+                    self._report_tabs(None)
+                    break
+                events = self._read()
+                if events is None:
+                    continue
+                self._sync_tabs()
+                for event in events:
+                    self._dispatch(event)
+                self._report_activity()
+                self._inputs.poll()
+                self._wait_watching_input(POLL_INTERVAL)
+        finally:
+            # 迴圈本體逃出例外也要收回編號、解除 hook，不留殭屍編號與未 unhook 的客戶端
+            self._s.board.drop(self._slot)
+            self._reader.close()
+
+    def _listening_status(self) -> str:
+        return "listening" if self._reader.anchored else "locating"
+
+    def _read(self) -> list | None:
+        """讀這輪的新聊天事件；遊戲不在或讀取出錯時已等過該等的間隔，回 None 讓迴圈重來。"""
+        s, slot = self._s, self._slot
+        # 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
+        self._reader.emit_system = s.cfg.get("translate_system_messages", False)
+        s.board.report(slot, self._listening_status(), self._game_issue)
+        try:
+            events = self._reader.read_new()
+        except GameNotRunning as exc:
+            if isinstance(exc, GameAccessDenied):
+                status, issue = "access_denied", "notice.access_denied"
+            elif isinstance(exc, GameVersionMismatch):
+                status, issue = "version_mismatch", "notice.version_mismatch"
+            else:
+                status, issue = "waiting_game", "notice.game_missing"
+            if issue != self._game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
+                log(f"[reader] game not ready (slot={slot}, hwnd={self._hwnd:#x}): {exc}")
+            self._game_issue = issue
+            s.board.report(slot, status, self._game_issue)
+            self._inputs.force_closed()
+            self._report_tabs(None)
+            s.stop.wait(GAME_MISSING_INTERVAL)
+            return None
+        except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
+            log(f"[reader] poll skipped (slot={slot}): {type(exc).__name__}: {exc}\n"
+                f"{traceback.format_exc()}")
+            s.stop.wait(POLL_INTERVAL)
+            return None
+        if self._game_issue:
+            self._game_issue = None
+            log(f"[reader] game back, resuming (slot={slot})")
+        return events
+
+    def _sync_tabs(self) -> None:
+        # 目前分頁只要一次讀取、每輪都看：遊戲裡切分頁不必等 TAB_POLL_INTERVAL 才同步
+        current = self._reader.current_tab()
+        if (time.monotonic() - self._tabs_polled_at < TAB_POLL_INTERVAL
+                and (current is None or current == self._sampled_tab)):
             return
-        reported_tabs = state
-        # 遊戲不在時分頁不明：發話上下文退回主分頁
-        contexts.current_tab = state.current if state is not None else 0
-        ui_queue.put(lambda: overlay.set_tabs(slot, state))
+        self._tabs_polled_at = time.monotonic()
+        state = self._reader.tab_state()
+        # 完整取樣失敗時記下這輪讀到的分頁，免得每輪都重試完整取樣
+        self._sampled_tab = state.current if state else current
+        self._report_tabs(state)
+        # 每次取樣都送（overlay 對同一客戶端是 no-op）：只送邊緣時，兩條執行緒錯開會漏掉快速 A→B→A
+        if foreground_window() == self._hwnd:
+            overlay, slot = self._s.overlay, self._slot
+            self._s.ui_queue.put(lambda: overlay.set_foreground_slot(slot))
 
-    def wait_watching_input(seconds: float) -> None:
+    def _report_tabs(self, state: TabState | None) -> None:
+        if state == self._reported_tabs:
+            return
+        self._reported_tabs = state
+        # 遊戲不在時分頁不明：發話上下文退回主分頁
+        self._contexts.current_tab = state.current if state is not None else 0
+        overlay, slot = self._s.overlay, self._slot
+        self._s.ui_queue.put(lambda: overlay.set_tabs(slot, state))
+
+    def _dispatch(self, event) -> None:
+        """一則新訊息：在 overlay 佔位並交給對應的翻譯池（系統訊息快取命中則直接顯示完成態）。"""
+        s, slot, line = self._s, self._slot, event.line
+        overlay = s.overlay
+        msg_id = s.msg_ids.next()
+        if line.system:
+            # 系統訊息不進上下文；快取命中就直接以完成態顯示，不佔位也不進 pool
+            cached = s.cache.get(line.text) if s.cache is not None else None
+            if cached is not None:
+                s.ui_queue.put(lambda o=line.text, tr=cached, c=line.color, tb=event.tabs:
+                               overlay.add_message(o, tr, color=c, slot=slot, tabs=tb))
+                return
+            s.ui_queue.put(lambda o=line.text, c=line.color, m=msg_id, tb=event.tabs:
+                           overlay.add_message(o, t("notice.pending"), msg_id=m,
+                                               pending=True, color=c, slot=slot, tabs=tb))
+            if s.system_pool is not None:
+                s.system_pool.submit(line.text, [], msg_id)
+            return
+        context = self._contexts.for_tab(event.tabs[0])
+        ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
+        context.push(line.text)
+        s.ui_queue.put(lambda o=line.text, c=line.color, m=msg_id, tb=event.tabs:
+                       overlay.add_message(o, t("notice.pending"), msg_id=m,
+                                           pending=True, color=c, slot=slot, tabs=tb))
+        s.pool.submit(line.text, ctx, msg_id)
+
+    def _report_activity(self) -> None:
+        s = self._s
+        if s.pool.in_flight or (s.system_pool is not None and s.system_pool.in_flight):
+            s.board.report(self._slot, "translating", self._game_issue)
+        else:
+            s.board.report(self._slot, self._listening_status(), self._game_issue)
+
+    def _wait_watching_input(self, seconds: float) -> None:
         """等待下一輪讀取，期間以 INPUT_POLL_INTERVAL 持續取樣輸入框狀態。
         input_open() 只讀一個已快取節點的旗標（實測 <0.1ms），可比讀聊天取樣得更密。
         不另開執行緒：WizChatReader 內部跑自己的 asyncio loop，
         跨執行緒併發呼叫會踩到彼此。"""
+        stop = self._s.stop
         deadline = time.monotonic() + seconds
         while not stop.is_set():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return
             stop.wait(min(INPUT_POLL_INTERVAL, remaining))
-            inputs.poll()
-
-    try:
-        while not stop.is_set():
-            if not window_exists(hwnd):
-                log(f"[reader] game window gone (slot={slot}, hwnd={hwnd:#x}); "
-                    f"stopping this reader")
-                inputs.force_closed()
-                report_tabs(None)
-                break
-            # 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
-            reader.emit_system = cfg.get("translate_system_messages", False)
-            board.report(slot, "listening" if reader.anchored else "locating", game_issue)
-            try:
-                events = reader.read_new()
-            except GameNotRunning as exc:
-                if isinstance(exc, GameAccessDenied):
-                    status, issue = "access_denied", "notice.access_denied"
-                elif isinstance(exc, GameVersionMismatch):
-                    status, issue = "version_mismatch", "notice.version_mismatch"
-                else:
-                    status, issue = "waiting_game", "notice.game_missing"
-                if issue != game_issue:  # 只在原因改變時記錄，否則每輪重試都灌一行
-                    log(f"[reader] game not ready (slot={slot}, hwnd={hwnd:#x}): {exc}")
-                game_issue = issue
-                board.report(slot, status, game_issue)
-                inputs.force_closed()
-                report_tabs(None)
-                stop.wait(GAME_MISSING_INTERVAL)
-                continue
-            except Exception as exc:  # 收訊偶發錯誤：略過該輪，不讓執行緒死掉
-                log(f"[reader] poll skipped (slot={slot}): {type(exc).__name__}: {exc}\n"
-                    f"{traceback.format_exc()}")
-                stop.wait(POLL_INTERVAL)
-                continue
-
-            if game_issue:
-                game_issue = None
-                log(f"[reader] game back, resuming (slot={slot})")
-
-            # 目前分頁只要一次讀取、每輪都看：遊戲裡切分頁不必等 TAB_POLL_INTERVAL 才同步
-            current = reader.current_tab()
-            if (time.monotonic() - tabs_polled_at >= TAB_POLL_INTERVAL
-                    or current is not None and current != sampled_tab):
-                tabs_polled_at = time.monotonic()
-                state = reader.tab_state()
-                # 完整取樣失敗時記下這輪讀到的分頁，免得每輪都重試完整取樣
-                sampled_tab = state.current if state else current
-                report_tabs(state)
-                # 每次取樣都送（overlay 對同一客戶端是 no-op）：只送邊緣時，兩條執行緒錯開會漏掉快速 A→B→A
-                if foreground_window() == hwnd:
-                    ui_queue.put(lambda: overlay.set_foreground_slot(slot))
-
-            for event in events:
-                line = event.line
-                msg_id = msg_ids.next()
-                if line.system:
-                    # 系統訊息不進上下文；快取命中就直接以完成態顯示，不佔位也不進 pool
-                    cached = cache.get(line.text) if cache is not None else None
-                    if cached is not None:
-                        ui_queue.put(lambda o=line.text, tr=cached, c=line.color, tb=event.tabs:
-                                     overlay.add_message(o, tr, color=c, slot=slot,
-                                                     tabs=tb))
-                        continue
-                    ui_queue.put(lambda o=line.text, c=line.color, m=msg_id, tb=event.tabs:
-                                 overlay.add_message(o, t("notice.pending"), msg_id=m,
-                                                     pending=True, color=c, slot=slot, tabs=tb))
-                    if system_pool is not None:
-                        system_pool.submit(line.text, [], msg_id)
-                    continue
-                context = contexts.for_tab(event.tabs[0])
-                ctx = context.snapshot()   # 該行之前的行；提交後即固定，重試不漂移
-                context.push(line.text)
-                ui_queue.put(lambda o=line.text, c=line.color, m=msg_id, tb=event.tabs:
-                             overlay.add_message(o, t("notice.pending"), msg_id=m,
-                                                 pending=True, color=c, slot=slot, tabs=tb))
-                pool.submit(line.text, ctx, msg_id)
-
-            if pool.in_flight or (system_pool is not None and system_pool.in_flight):
-                board.report(slot, "translating", game_issue)
-            else:
-                board.report(slot, "listening" if reader.anchored else "locating", game_issue)
-
-            inputs.poll()
-            wait_watching_input(POLL_INTERVAL)
-    finally:
-        # 迴圈本體逃出例外也要收回編號、解除 hook，不留殭屍編號與未 unhook 的客戶端
-        board.drop(slot)
-        reader.close()
+            self._inputs.poll()
