@@ -567,32 +567,36 @@ class MessageList:
         找不到 msg_id 代表該則已被 prune 或 max_messages 擠掉，安靜忽略。"""
         anchor = self._view_anchor()
         for key, view in self._views.items():
-            for i, m in enumerate(view.records):
-                if m.msg_id != msg_id:
-                    continue
-                m = view.records[i] = m._replace(translated=translated, pending=False,
-                                                 failed=failed)
-                view.rows[m.tag] = view.rows[m.tag]._replace(texts=(m.original, translated))
-                if self._selection.holds(m.tag):
-                    self._selection.clear("translated line replaced")
-                delta = 0
-                if m.lines:
-                    line = m.lines[1]
-                    before = line_height(line)
-                    for item in line_items(line):
-                        view.canvas.itemconfigure(item, text=translated)
-                    view.canvas.itemconfigure(line.fg, fill=m.translated_fill())
-                    delta = line_height(line) - before
+            i = next((i for i, m in enumerate(view.records) if m.msg_id == msg_id), None)
+            if i is None:
+                continue
+            delta = self._fill_translation(view, i, translated, failed)
+            if key == self.shown_key:
                 if delta:
-                    view.records[i] = m._replace(height=m.height + delta)
-                    for later in view.records[i + 1:view.hi]:
-                        for later_line in later.lines:
-                            _move_line(later_line, delta)
-                if key == self.shown_key:
-                    if delta:
-                        self._selection.redraw()   # 反白矩形不在 line_items 裡，不會跟著搬
-                    self.refresh_scroll(anchor)
-                break
+                    self._selection.redraw()   # 反白矩形不在 line_items 裡，不會跟著搬
+                self.refresh_scroll(anchor)
+
+    def _fill_translation(self, view: _View, i: int, translated: str, failed: bool) -> int:
+        """填入 view 第 i 則的譯文；已畫的就地改字並位移其下已畫的訊息，回傳高度變化（px）。"""
+        m = view.records[i] = view.records[i]._replace(translated=translated, pending=False,
+                                                       failed=failed)
+        view.rows[m.tag] = view.rows[m.tag]._replace(texts=(m.original, translated))
+        if self._selection.holds(m.tag):
+            self._selection.clear("translated line replaced")
+        if not m.lines:
+            return 0
+        line = m.lines[1]
+        before = line_height(line)
+        for item in line_items(line):
+            view.canvas.itemconfigure(item, text=translated)
+        view.canvas.itemconfigure(line.fg, fill=m.translated_fill())
+        delta = line_height(line) - before
+        if delta:
+            view.records[i] = m._replace(height=m.height + delta)
+            for later in view.records[i + 1:view.hi]:
+                for later_line in later.lines:
+                    _move_line(later_line, delta)
+        return delta
 
     def show(self, key: ViewKey) -> None:
         """換成顯示 key 那個分頁的畫布，捲動回到跟隨底部。
