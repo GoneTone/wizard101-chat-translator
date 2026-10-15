@@ -722,3 +722,18 @@ def test_the_skip_test_link_is_keyboard_activatable(root):
     assert str(skip.cget("takefocus")) == "1"
     assert skip.bind("<Return>") and skip.bind("<space>")
     wizard._win.destroy()
+
+
+def test_the_wizard_takes_the_foreground_when_shown(root, monkeypatch):
+    """第一次啟動時由啟動器帶起，Windows 不保證會啟用它：顯示時要主動搶前景。"""
+    import copy
+
+    from src.config import DEFAULT_CONFIG
+    from src.ui.settings import form as form_module
+    from src.ui.settings.wizard import SetupWizard
+    from src.ui.winstyle import root_hwnd
+    raised = []
+    monkeypatch.setattr(form_module, "force_foreground", raised.append)
+    wizard = SetupWizard(root, copy.deepcopy(DEFAULT_CONFIG))
+    wizard._win.update()
+    assert raised == [root_hwnd(wizard._win)]
