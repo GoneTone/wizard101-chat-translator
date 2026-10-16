@@ -86,6 +86,7 @@ def test_new_service_fills_the_provider_defaults_and_a_name():
     assert service["name"] == "Claude"
     assert service["model"] == "" and service["effort"] == "auto"
     assert len(service["id"]) == 8
+    assert new_service("gemini", [])["effort"] == "low"
 
 
 def test_new_services_never_share_an_id():

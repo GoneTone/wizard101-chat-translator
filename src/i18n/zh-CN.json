@@ -51,7 +51,7 @@
   "field.api_key_optional": "API 密钥（选填）",
   "field.thinking": "启用模型思考（thinking）",
   "field.effort": "思考深度",
-  "effort.auto": "自动（默认）",
+  "effort.auto": "自动",
   "effort.low": "精简",
   "service.default": "默认服务",
   "service.slots_title": "各用途指定不同服务（高级）",

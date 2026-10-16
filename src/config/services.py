@@ -11,10 +11,11 @@ from src.logs import log
 
 # 每家服務商有哪些欄位與預設值：官方端點的網址寫死在 translator，Claude／Gemini 不吃
 # thinking 開關而是 effort。這張表是服務商清單與欄位的單一真實來源。
+# effort 預設：Claude 維持 auto —— Haiku 4.5 帶 effort 會 400；Gemini 的 auto 實測每句多想約四百 token。
 API_PROFILE_FIELDS: dict[str, dict] = {
     "openai": {"model": "", "api_key": "", "thinking": False},
     "claude": {"model": "", "api_key": "", "effort": "auto"},
-    "gemini": {"model": "", "api_key": "", "effort": "auto"},
+    "gemini": {"model": "", "api_key": "", "effort": "low"},
     "custom": {"base_url": "", "model": "", "api_key": "", "thinking": False},
 }
 

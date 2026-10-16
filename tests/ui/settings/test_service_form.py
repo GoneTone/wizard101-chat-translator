@@ -148,6 +148,13 @@ def test_claude_keeps_its_effort_choice(root):
     assert form.values()["effort"] == EFFORT_LOW
 
 
+def test_switching_provider_takes_the_new_providers_effort_default(blank):
+    blank.set_provider("gemini")
+    assert blank.values()["effort"] == EFFORT_LOW
+    blank.set_provider("claude")
+    assert blank.values()["effort"] == "auto"
+
+
 def test_switching_provider_clears_the_test_result(blank):
     # 顯示中的結果是對上一家端點測出來的，換了一家就不算數
     blank._show_test_result(True, "connected, sample translation")

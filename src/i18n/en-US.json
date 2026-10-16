@@ -51,7 +51,7 @@
   "field.api_key_optional": "API key (optional)",
   "field.thinking": "Enable model thinking",
   "field.effort": "Thinking depth",
-  "effort.auto": "Auto (default)",
+  "effort.auto": "Auto",
   "effort.low": "Minimal",
   "service.default": "Default service",
   "service.slots_title": "Use a different service per feature (advanced)",
