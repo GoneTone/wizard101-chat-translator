@@ -1,0 +1,86 @@
+[
+ {
+  "input": "[Amy] 你好",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy] hello (world)",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[贾斯廷 渡鸦] 木头",
+  "output": "[贾斯廷 渡鸦]"
+ },
+ {
+  "input": "plain text",
+  "output": null
+ },
+ {
+  "input": "[A][B] hi",
+  "output": "[A]"
+ },
+ {
+  "input": "[WTS] gear",
+  "output": "[WTS]"
+ },
+ {
+  "input": "[Amy]   spaced",
+  "output": "[Amy]"
+ },
+ {
+  "input": "",
+  "output": null
+ },
+ {
+  "input": "[Amy]",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] ok",
+  "output": "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]"
+ },
+ {
+  "input": "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] ok",
+  "output": null
+ },
+ {
+  "input": "[Amy] 😀 test",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy] é combining",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy] line sep",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy] Straße strasse",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy] \u000b vt",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[ß] x",
+  "output": "[ß]"
+ },
+ {
+  "input": "[Amy]　全形空白",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[Amy]\u001fctl",
+  "output": "[Amy]"
+ },
+ {
+  "input": "[A] x",
+  "output": "[A]"
+ },
+ {
+  "input": "[A]  x",
+  "output": "[A]"
+ }
+]

@@ -4,4 +4,5 @@ pub mod config;
 pub mod i18n;
 pub mod logs;
 pub mod runtime;
+pub mod translation;
 pub mod ui;

@@ -434,6 +434,225 @@ EXPORTERS["config_summary"] = export_config_summary
 EXPORTERS["config_bootstrap_language"] = export_config_bootstrap_language
 
 
+_TARGETS = ["繁體中文 (台灣)", "English", "日本語", "Español", " english "]
+
+
+def export_prompts_systems() -> list[dict]:
+    """四條 system prompt：input 為 {kind, target, strict}，output 為提示詞全文。"""
+    from src.translation import prompts as p
+    cases = []
+    for target in _TARGETS:
+        cases.append({"input": {"kind": "incoming", "target": target, "strict": False},
+                      "output": p.build_incoming_system(target)})
+        cases.append({"input": {"kind": "outgoing", "target": target, "strict": False},
+                      "output": p.build_outgoing_system(target)})
+        cases.append({"input": {"kind": "region", "target": target, "strict": False},
+                      "output": p.build_region_system(target)})
+        for strict in (False, True):
+            cases.append({"input": {"kind": "system_message", "target": target, "strict": strict},
+                          "output": p.build_system_message_system(target, strict)})
+    return cases
+
+
+def export_prompts_turns() -> list[dict]:
+    """`build_turns`／`example_turns`／`is_game_language` 與常數。"""
+    from src.translation import prompts as p
+    ex = p.example_turns(("你好", "hello"))
+    turns = [
+        (["[A] hi", "[B] 你好"], "[C] 在嗎", p.CONTEXT_INTRO_INCOMING, None),
+        ([], "[C] 在嗎", p.CONTEXT_INTRO_INCOMING, None),
+        (["a"], "b", p.CONTEXT_INTRO_OUTGOING, p.FEWSHOT_OUTGOING),
+        ([], "b", p.CONTEXT_INTRO_OUTGOING, p.FEWSHOT_OUTGOING),
+        (["x", "y"], "z", "intro", ex),
+        ([], "z", "intro", []),
+    ]
+    cases = [{"input": {"fn": "build_turns", "context": c, "text": t, "intro": i, "examples": e or []},
+              "output": p.build_turns(c, t, i, e)} for c, t, i, e in turns]
+    for pair in (("你好", "hello"), None, ("", "")):
+        cases.append({"input": {"fn": "example_turns", "pair": pair},
+                      "output": p.example_turns(pair)})
+    for lang in ["English", "english", "  ENGLISH  ", "English (US)", "", "Español", "ſ", "日本語"]:
+        cases.append({"input": {"fn": "is_game_language", "lang": lang},
+                      "output": p.is_game_language(lang)})
+    cases.append({"input": {"fn": "constants"}, "output": {
+        "outgoing_language": p.OUTGOING_LANGUAGE, "prompt_revision": p.PROMPT_REVISION,
+        "intro_incoming": p.CONTEXT_INTRO_INCOMING, "intro_outgoing": p.CONTEXT_INTRO_OUTGOING,
+        "ack": p.CONTEXT_ACK, "fewshot": p.FEWSHOT_OUTGOING}})
+    return cases
+
+
+_SENDER_TEXTS = [
+    "[Amy] 你好", "[Amy] hello (world)", "[贾斯廷 渡鸦] 木头", "plain text", "[A][B] hi",
+    "[WTS] gear", "[Amy]   spaced", "", "[Amy]", "[" + "x" * 40 + "] ok", "[" + "x" * 41 + "] ok",
+    "[Amy] 😀 test", "[Amy] é combining", "[Amy] line sep", "[Amy] Straße strasse",
+    "[Amy] \x0b vt", "[ß] x", "[Amy]　全形空白", "[Amy]\x1fctl", "[A] x", "[A]  x",
+]
+
+
+def export_postprocess_strip_think() -> list[dict]:
+    """`strip_think`：input 為文字。"""
+    from src.translation.postprocess import strip_think
+    texts = [
+        "", "plain", "<think>x</think>y", "<THINK>x</THINK>\n\n y", "a<think>\nmulti\nline</think>   b",
+        "<think>a</think><think>b</think>c", "<think>unclosed", "no open </think> tag",
+        "<think></think>", "<Think>é</Think>\t　x", "x <think>😀</think> y",
+        "<think>a</think>\x0b\x1c\x85z", "<thinK>x</think>k", "<think>a</THINK>b</think>c",
+        "[Amy] <think>t</think>[Amy] 你好", "<think>a\r\nb</think>\r\nc", "<think\n>x</think>y",
+        "<thınk>x</think>y", "<think>a</thinK>b",
+    ]
+    return [{"input": t, "output": strip_think(t)} for t in texts]
+
+
+def export_postprocess_tidy() -> list[dict]:
+    """`tidy_parentheses`：input 為 {source, translated}。"""
+    from src.translation.postprocess import tidy_parentheses
+    pairs = [
+        ("[A] I got a Mystic Wood", "[A] 我拿到神秘木頭 (Mystic Wood)"),
+        ("[A] 我拿到神秘木头", "[A] I got a mystic wood (Mystic Wood)"),
+        ("[A] 木頭", "[A] Wood (木頭)"),
+        ("[A] Malistaire", "[A] 瑪莉斯泰（Malistaire）"),
+        ("[A] Malistaire", "[A] 瑪莉斯泰（Malistaire）（Malistaire）"),
+        ("[A] Malistaire", "[A] Malistaire（Malistaire）"),
+        ("[A] 好", "[A] 好（Siren）"),
+        ("[A] 好", "[A] 好 (Siren) 好 (Siren)"),
+        ("[A] 好", "[A] (好)"),
+        ("[A] lvl 50 (50)", "[A] 等級 50 (50)"),
+        ("[A] hi", "[A] 你好 :) (smile)"),
+        ("[A] hi", "[A] 你好 (^_^)"),
+        ("hi", "(Siren)"),
+        ("hi", "（Siren）"),
+        ("[A] hi", "[Amy (x)] 你好 (y)"),
+        ("[A] café", "[A] 咖啡 (café)"),
+        ("[A] cafe", "[A] 咖啡 (café)"),
+        ("[A] Español", "[A] hola (ñandú) (木頭)"),
+        ("[A] 木头", "[A] hola (木頭) amigo (木头)"),
+        ("[A] ß", "[A] x (SS)"),
+        ("[A] straße", "[A] 街 (STRASSE)"),
+        ("[A] a-b", "[A] 甲 (A B)"),
+        ("[A] 🐉", "[A] 龍 (🐉) (dragon)"),
+        ("[A] x", "[A] 文字 (foo)"),
+        ("[A] x", "[A] 日本語 (nihongo)\n(行)"),
+        ("[A] ², x", "[A] 好 (²)"),
+        ("[A] x", "[A] 好 (ée)"),
+        ("", ""),
+        ("[A] 日本語", "[A] 日本語（にほんご）"),
+        ("[A] Привет", "[A] 你好 (Привет) (Hello)"),
+    ]
+    return [{"input": {"source": s, "translated": t}, "output": tidy_parentheses(s, t)}
+            for s, t in pairs]
+
+
+def export_postprocess_sender() -> list[dict]:
+    """`sender_of`：input 為文字。"""
+    from src.translation.postprocess import sender_of
+    return [{"input": t, "output": sender_of(t)} for t in _SENDER_TEXTS]
+
+
+def export_postprocess_restore() -> list[dict]:
+    """`restore_sender`：input 為 {source, translated}。"""
+    from src.translation.postprocess import restore_sender
+    pairs = [
+        ("[Amy] hello", "[艾米] 你好"), ("[Amy] hello", "你好"), ("[Amy] hello", "  你好"),
+        ("[Amy] [WTS] gear", "[Amy] [WTS] 裝備"), ("[Amy] [WTS] gear", "[WTS] 裝備"),
+        ("[Amy] [WTS] gear", "[X] [Y] 裝備"), ("plain", "[X] 你好"), ("[Amy] hi", ""),
+        ("[Amy] hi", "[Amy]"), ("[贾斯廷 渡鸦] 木头", "[賈斯汀 渡鴉] 木頭"),
+        ("[Amy] hi", "[B]　你好"), ("[A][B] hi", "[C] 你好"),
+        ("[A] [B] hi", "[C][D] 你好"), ("[A] hi", "[" + "x" * 41 + "] 你好"),
+        ("[A] hi", "[x\ny] 你好"), ("[A] 😀", "[B] 😀"), ("[A] hi", "\x0b[B] 你好"),
+        ("[A]   hi", "[B]\x1c你好"), ("[ß] hi", "[ss] 你好"),
+    ]
+    return [{"input": {"source": s, "translated": t}, "output": restore_sender(s, t)}
+            for s, t in pairs]
+
+
+def export_postprocess_latin() -> list[dict]:
+    """`uses_latin_script`：input 為語言名稱。"""
+    from src.translation.postprocess import uses_latin_script
+    langs = ["English", "Español", "日本語", "繁體中文 (台灣)", "한국어", "Русский", "", "ไทย",
+             "Français", "العربية", "中文 (Chinese)", "Ελληνικά", "ａｂｃ", "ß", "Türkçe", "K"]
+    return [{"input": lang, "output": uses_latin_script(lang)} for lang in langs]
+
+
+def export_postprocess_stray() -> list[dict]:
+    """`has_stray_latin`：input 為 {source, translated, target}。"""
+    from src.translation.postprocess import has_stray_latin
+    zh = "繁體中文 (台灣)"
+    cases = [
+        ("[A] 雪刺帽", "[A] Snowspike Hat", zh), ("[A] 雪刺帽", "[A] 雪刺帽", zh),
+        ("[A] 收到 [Amy] 的邀請", "[A] 收到 Amy 的邀請", zh),
+        ("[A] Received a friend request from Amy", "[A] Received a friend request from Amy", zh),
+        ("[A] 收到 Amy 的邀請", "[A] 收到 Amy 的邀請 Calamity", zh),
+        ("[A] hi", "[A] 你好 Hi", zh), ("[A] hi", "[A] 你好 hi", zh),
+        ("[A] HI  there", "[A] 你好 hi there", zh), ("[A] x", "[A] 你好", zh),
+        ("[A] x", "[A] 1234", zh), ("[A] x", "[A] ...", zh), ("[A] x", "[A] x y", zh),
+        ("[A] Straße", "[A] 街 STRASSE", zh), ("[A] ß", "[A] 好 SS", zh),
+        ("[A] x", "[A] café", zh), ("[A] x", "[A] 你好 café", zh),
+        ("[A] x", "[A] Snowspike Hat", "English"), ("[A] x", "[A] Snowspike", "Español"),
+        ("[A] 木頭", "[A] 木頭 wood", "日本語"), ("[A] wood-x", "[A] 木 wood-x", "日本語"),
+        ("[A] it's", "[A] 好 it’s", zh), ("[A] a.b, c", "[A] 好 a.b, c", zh),
+        ("", "", zh), ("[A] ", "[A] ABC", zh), ("[A] x y", "[A] 好 x y", zh),
+        ("[A] x　y", "[A] 好 x y", zh), ("[A] 😀", "[A] 😀 ok", zh),
+        ("[A] x", "[A] 好 ok²", zh), ("[A] x", "[A] ² A", zh),
+        ("[A] x", "[A] ① A", zh), ("[A] x\x1fy", "[A] 好 x y", zh),
+    ]
+    return [{"input": {"source": s, "translated": t, "target": g},
+             "output": has_stray_latin(s, t, g)} for s, t, g in cases]
+
+
+_LINE_TEXTS = [
+    "", "a", "a\nb", "a\n\nb", "  a  \n  b  ", "a\r\nb\rc", "a\x0bb\x0cc", "a\x1cb\x1dc\x1ed",
+    "a\x85b", "a b c", "a  \n 　 \nb", "\n\n", "😀\né", "  \t ",
+    "1. a\n2. b", "1. a\r\n2．b\n3、c\n4) d", "x y ", "a\x0b\n\x0cb", "﻿a\nb",
+    "ß\n x ",
+]
+
+
+def export_postprocess_lines() -> list[dict]:
+    """`nonblank_lines`／`number_lines`：input 為文字。"""
+    from src.translation.postprocess import nonblank_lines, number_lines
+    cases = []
+    for t in _LINE_TEXTS:
+        cases.append({"input": {"fn": "nonblank_lines", "text": t}, "output": nonblank_lines(t)})
+        lines, numbered = number_lines(t)
+        cases.append({"input": {"fn": "number_lines", "text": t}, "output": [lines, numbered]})
+    return cases
+
+
+_NUM_OUTPUTS = [
+    "", "1. a\n2. b", "1.a\n2．b\n3、c\n4)d", "  2 . x\n1 、 y", "1. a\n1. b", "01. a\n002) b",
+    "no numbers\nat all", "1. a\nplain\n3. c", "１．全形\n２、二", "１２. x", "٣. arabic\n١. one",
+    "1. \n2. b", "1.\n2.", "a\n1. b", "1. a  2. b", "1. a\r\n2. b\r3. c",
+    "99999999999999999999999. big\n1. a", "1. 😀\n2. é", "𝟏. math\n𝟐. two",
+    "1) a ) b", "1。 a", " 1. nbsp", "1. x",
+]
+
+
+def export_postprocess_numbering() -> list[dict]:
+    """`numbered_entries`／`unnumber_lines`。"""
+    from src.translation.postprocess import numbered_entries, unnumber_lines
+    cases = []
+    for out in _NUM_OUTPUTS:
+        entries = numbered_entries(out)
+        cases.append({"input": {"fn": "numbered_entries", "output": out},
+                      "output": [[str(k), v] for k, v in entries.items()]})
+        for originals in (["o1", "o2"], ["o1", "o2", "o3"], ["only"], []):
+            cases.append({"input": {"fn": "unnumber_lines", "output": out, "originals": originals},
+                          "output": unnumber_lines(out, originals)})
+    return cases
+
+
+EXPORTERS["prompts_systems"] = export_prompts_systems
+EXPORTERS["prompts_turns"] = export_prompts_turns
+EXPORTERS["postprocess_strip_think"] = export_postprocess_strip_think
+EXPORTERS["postprocess_tidy"] = export_postprocess_tidy
+EXPORTERS["postprocess_sender"] = export_postprocess_sender
+EXPORTERS["postprocess_restore"] = export_postprocess_restore
+EXPORTERS["postprocess_latin"] = export_postprocess_latin
+EXPORTERS["postprocess_stray"] = export_postprocess_stray
+EXPORTERS["postprocess_lines"] = export_postprocess_lines
+EXPORTERS["postprocess_numbering"] = export_postprocess_numbering
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

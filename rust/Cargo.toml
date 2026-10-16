@@ -8,7 +8,9 @@ name = "Wizard101ChatTranslator"
 path = "src/main.rs"
 
 [dependencies]
+caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }

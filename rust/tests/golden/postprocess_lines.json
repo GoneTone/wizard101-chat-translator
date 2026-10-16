@@ -1,0 +1,456 @@
+[
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": ""
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": ""
+  },
+  "output": [
+   [],
+   ""
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a"
+  },
+  "output": [
+   "a"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a"
+  },
+  "output": [
+   [
+    "a"
+   ],
+   "1. a"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\nb"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\nb"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\n\nb"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\n\nb"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "  a  \n  b  "
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "  a  \n  b  "
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\r\nb\rc"
+  },
+  "output": [
+   "a",
+   "b",
+   "c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\r\nb\rc"
+  },
+  "output": [
+   [
+    "a",
+    "b",
+    "c"
+   ],
+   "1. a\n2. b\n3. c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\u000bb\fc"
+  },
+  "output": [
+   "a",
+   "b",
+   "c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\u000bb\fc"
+  },
+  "output": [
+   [
+    "a",
+    "b",
+    "c"
+   ],
+   "1. a\n2. b\n3. c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\u001cb\u001dc\u001ed"
+  },
+  "output": [
+   "a",
+   "b",
+   "c",
+   "d"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\u001cb\u001dc\u001ed"
+  },
+  "output": [
+   [
+    "a",
+    "b",
+    "c",
+    "d"
+   ],
+   "1. a\n2. b\n3. c\n4. d"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "ab"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "ab"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a b c"
+  },
+  "output": [
+   "a",
+   "b",
+   "c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a b c"
+  },
+  "output": [
+   [
+    "a",
+    "b",
+    "c"
+   ],
+   "1. a\n2. b\n3. c"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a  \n 　 \nb"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a  \n 　 \nb"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "\n\n"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "\n\n"
+  },
+  "output": [
+   [],
+   ""
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "😀\né"
+  },
+  "output": [
+   "😀",
+   "é"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "😀\né"
+  },
+  "output": [
+   [
+    "😀",
+    "é"
+   ],
+   "1. 😀\n2. é"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "  \t "
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "  \t "
+  },
+  "output": [
+   [],
+   ""
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "1. a\n2. b"
+  },
+  "output": [
+   "1. a",
+   "2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "1. a\n2. b"
+  },
+  "output": [
+   [
+    "1. a",
+    "2. b"
+   ],
+   "1. 1. a\n2. 2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "1. a\r\n2．b\n3、c\n4) d"
+  },
+  "output": [
+   "1. a",
+   "2．b",
+   "3、c",
+   "4) d"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "1. a\r\n2．b\n3、c\n4) d"
+  },
+  "output": [
+   [
+    "1. a",
+    "2．b",
+    "3、c",
+    "4) d"
+   ],
+   "1. 1. a\n2. 2．b\n3. 3、c\n4. 4) d"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "x y "
+  },
+  "output": [
+   "x",
+   "y"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "x y "
+  },
+  "output": [
+   [
+    "x",
+    "y"
+   ],
+   "1. x\n2. y"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\u000b\n\fb"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\u000b\n\fb"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "﻿a\nb"
+  },
+  "output": [
+   "﻿a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "﻿a\nb"
+  },
+  "output": [
+   [
+    "﻿a",
+    "b"
+   ],
+   "1. ﻿a\n2. b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "ß\n x "
+  },
+  "output": [
+   "ß",
+   "x"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "ß\n x "
+  },
+  "output": [
+   [
+    "ß",
+    "x"
+   ],
+   "1. ß\n2. x"
+  ]
+ }
+]

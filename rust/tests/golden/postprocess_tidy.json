@@ -1,0 +1,212 @@
+[
+ {
+  "input": {
+   "source": "[A] I got a Mystic Wood",
+   "translated": "[A] 我拿到神秘木頭 (Mystic Wood)"
+  },
+  "output": "[A] 我拿到神秘木頭 (Mystic Wood)"
+ },
+ {
+  "input": {
+   "source": "[A] 我拿到神秘木头",
+   "translated": "[A] I got a mystic wood (Mystic Wood)"
+  },
+  "output": "[A] I got a mystic wood"
+ },
+ {
+  "input": {
+   "source": "[A] 木頭",
+   "translated": "[A] Wood (木頭)"
+  },
+  "output": "[A] Wood (木頭)"
+ },
+ {
+  "input": {
+   "source": "[A] Malistaire",
+   "translated": "[A] 瑪莉斯泰（Malistaire）"
+  },
+  "output": "[A] 瑪莉斯泰（Malistaire）"
+ },
+ {
+  "input": {
+   "source": "[A] Malistaire",
+   "translated": "[A] 瑪莉斯泰（Malistaire）（Malistaire）"
+  },
+  "output": "[A] 瑪莉斯泰（Malistaire）"
+ },
+ {
+  "input": {
+   "source": "[A] Malistaire",
+   "translated": "[A] Malistaire（Malistaire）"
+  },
+  "output": "[A] Malistaire"
+ },
+ {
+  "input": {
+   "source": "[A] 好",
+   "translated": "[A] 好（Siren）"
+  },
+  "output": "[A] 好"
+ },
+ {
+  "input": {
+   "source": "[A] 好",
+   "translated": "[A] 好 (Siren) 好 (Siren)"
+  },
+  "output": "[A] 好 好"
+ },
+ {
+  "input": {
+   "source": "[A] 好",
+   "translated": "[A] (好)"
+  },
+  "output": "[A] (好)"
+ },
+ {
+  "input": {
+   "source": "[A] lvl 50 (50)",
+   "translated": "[A] 等級 50 (50)"
+  },
+  "output": "[A] 等級 50 (50)"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 :) (smile)"
+  },
+  "output": "[A] 你好 :)"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 (^_^)"
+  },
+  "output": "[A] 你好 (^_^)"
+ },
+ {
+  "input": {
+   "source": "hi",
+   "translated": "(Siren)"
+  },
+  "output": "(Siren)"
+ },
+ {
+  "input": {
+   "source": "hi",
+   "translated": "（Siren）"
+  },
+  "output": "（Siren）"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[Amy (x)] 你好 (y)"
+  },
+  "output": "[Amy] 你好"
+ },
+ {
+  "input": {
+   "source": "[A] café",
+   "translated": "[A] 咖啡 (café)"
+  },
+  "output": "[A] 咖啡 (café)"
+ },
+ {
+  "input": {
+   "source": "[A] cafe",
+   "translated": "[A] 咖啡 (café)"
+  },
+  "output": "[A] 咖啡"
+ },
+ {
+  "input": {
+   "source": "[A] Español",
+   "translated": "[A] hola (ñandú) (木頭)"
+  },
+  "output": "[A] hola (ñandú)"
+ },
+ {
+  "input": {
+   "source": "[A] 木头",
+   "translated": "[A] hola (木頭) amigo (木头)"
+  },
+  "output": "[A] hola amigo (木头)"
+ },
+ {
+  "input": {
+   "source": "[A] ß",
+   "translated": "[A] x (SS)"
+  },
+  "output": "[A] x (SS)"
+ },
+ {
+  "input": {
+   "source": "[A] straße",
+   "translated": "[A] 街 (STRASSE)"
+  },
+  "output": "[A] 街 (STRASSE)"
+ },
+ {
+  "input": {
+   "source": "[A] a-b",
+   "translated": "[A] 甲 (A B)"
+  },
+  "output": "[A] 甲 (A B)"
+ },
+ {
+  "input": {
+   "source": "[A] 🐉",
+   "translated": "[A] 龍 (🐉) (dragon)"
+  },
+  "output": "[A] 龍 (🐉)"
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 文字 (foo)"
+  },
+  "output": "[A] 文字"
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 日本語 (nihongo)\n(行)"
+  },
+  "output": "[A] 日本語\n(行)"
+ },
+ {
+  "input": {
+   "source": "[A] ², x",
+   "translated": "[A] 好 (²)"
+  },
+  "output": "[A] 好 (²)"
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 好 (ée)"
+  },
+  "output": "[A] 好"
+ },
+ {
+  "input": {
+   "source": "",
+   "translated": ""
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "source": "[A] 日本語",
+   "translated": "[A] 日本語（にほんご）"
+  },
+  "output": "[A] 日本語（にほんご）"
+ },
+ {
+  "input": {
+   "source": "[A] Привет",
+   "translated": "[A] 你好 (Привет) (Hello)"
+  },
+  "output": "[A] 你好 (Привет)"
+ }
+]

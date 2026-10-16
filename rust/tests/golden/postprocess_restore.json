@@ -1,0 +1,135 @@
+[
+ {
+  "input": {
+   "source": "[Amy] hello",
+   "translated": "[艾米] 你好"
+  },
+  "output": "[Amy] 你好"
+ },
+ {
+  "input": {
+   "source": "[Amy] hello",
+   "translated": "你好"
+  },
+  "output": "[Amy] 你好"
+ },
+ {
+  "input": {
+   "source": "[Amy] hello",
+   "translated": "  你好"
+  },
+  "output": "[Amy] 你好"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[Amy] [WTS] 裝備"
+  },
+  "output": "[Amy] [WTS] 裝備"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[WTS] 裝備"
+  },
+  "output": "[Amy] [WTS] 裝備"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[X] [Y] 裝備"
+  },
+  "output": "[Amy] [Y] 裝備"
+ },
+ {
+  "input": {
+   "source": "plain",
+   "translated": "[X] 你好"
+  },
+  "output": "[X] 你好"
+ },
+ {
+  "input": {
+   "source": "[Amy] hi",
+   "translated": ""
+  },
+  "output": "[Amy] "
+ },
+ {
+  "input": {
+   "source": "[Amy] hi",
+   "translated": "[Amy]"
+  },
+  "output": "[Amy] "
+ },
+ {
+  "input": {
+   "source": "[贾斯廷 渡鸦] 木头",
+   "translated": "[賈斯汀 渡鴉] 木頭"
+  },
+  "output": "[贾斯廷 渡鸦] 木頭"
+ },
+ {
+  "input": {
+   "source": "[Amy] hi",
+   "translated": "[B]　你好"
+  },
+  "output": "[Amy] 你好"
+ },
+ {
+  "input": {
+   "source": "[A][B] hi",
+   "translated": "[C] 你好"
+  },
+  "output": "[A] [C] 你好"
+ },
+ {
+  "input": {
+   "source": "[A] [B] hi",
+   "translated": "[C][D] 你好"
+  },
+  "output": "[A] [D] 你好"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] 你好"
+  },
+  "output": "[A] [xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] 你好"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[x\ny] 你好"
+  },
+  "output": "[A] 你好"
+ },
+ {
+  "input": {
+   "source": "[A] 😀",
+   "translated": "[B] 😀"
+  },
+  "output": "[A] 😀"
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "\u000b[B] 你好"
+  },
+  "output": "[A] [B] 你好"
+ },
+ {
+  "input": {
+   "source": "[A]   hi",
+   "translated": "[B]\u001c你好"
+  },
+  "output": "[A] 你好"
+ },
+ {
+  "input": {
+   "source": "[ß] hi",
+   "translated": "[ss] 你好"
+  },
+  "output": "[ß] 你好"
+ }
+]

@@ -1,0 +1,1274 @@
+[
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": ""
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. a\n2. b"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "2",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n2. b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n2. b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\nb\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n2. b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n2. b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1.a\n2．b\n3、c\n4)d"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "2",
+    "b"
+   ],
+   [
+    "3",
+    "c"
+   ],
+   [
+    "4",
+    "d"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.a\n2．b\n3、c\n4)d",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.a\n2．b\n3、c\n4)d",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\nb\nc"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.a\n2．b\n3、c\n4)d",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.a\n2．b\n3、c\n4)d",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "  2 . x\n1 、 y"
+  },
+  "output": [
+   [
+    "2",
+    "x"
+   ],
+   [
+    "1",
+    "y"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "  2 . x\n1 、 y",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "y\nx"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "  2 . x\n1 、 y",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "y\nx\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "  2 . x\n1 、 y",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "y"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "  2 . x\n1 、 y",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. a\n1. b"
+  },
+  "output": [
+   [
+    "1",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n1. b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "b\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n1. b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "b\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n1. b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "b"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\n1. b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "01. a\n002) b"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "2",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "01. a\n002) b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "01. a\n002) b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\nb\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "01. a\n002) b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "01. a\n002) b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "no numbers\nat all"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "no numbers\nat all",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "no numbers\nat all"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "no numbers\nat all",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "no numbers\nat all"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "no numbers\nat all",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "no numbers\nat all"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "no numbers\nat all",
+   "originals": []
+  },
+  "output": "no numbers\nat all"
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. a\nplain\n3. c"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "3",
+    "c"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\nplain\n3. c",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\nplain\n3. c",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\no2\nc"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\nplain\n3. c",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\nplain\n3. c",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "１．全形\n２、二"
+  },
+  "output": [
+   [
+    "1",
+    "全形"
+   ],
+   [
+    "2",
+    "二"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１．全形\n２、二",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "全形\n二"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１．全形\n２、二",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "全形\n二\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１．全形\n２、二",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "全形"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１．全形\n２、二",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "１２. x"
+  },
+  "output": [
+   [
+    "12",
+    "x"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１２. x",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "o1\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１２. x",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "o1\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１２. x",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "only"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "１２. x",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "٣. arabic\n١. one"
+  },
+  "output": [
+   [
+    "3",
+    "arabic"
+   ],
+   [
+    "1",
+    "one"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "٣. arabic\n١. one",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "one\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "٣. arabic\n١. one",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "one\no2\narabic"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "٣. arabic\n١. one",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "one"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "٣. arabic\n١. one",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. \n2. b"
+  },
+  "output": [
+   [
+    "1",
+    ""
+   ],
+   [
+    "2",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. \n2. b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "o1\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. \n2. b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "o1\nb\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. \n2. b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "only"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. \n2. b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1.\n2."
+  },
+  "output": [
+   [
+    "1",
+    ""
+   ],
+   [
+    "2",
+    ""
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.\n2.",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "o1\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.\n2.",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "o1\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.\n2.",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "only"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1.\n2.",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "a\n1. b"
+  },
+  "output": [
+   [
+    "1",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "a\n1. b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "b\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "a\n1. b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "b\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "a\n1. b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "b"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "a\n1. b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. a  2. b"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "2",
+    "b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a  2. b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a  2. b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\nb\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a  2. b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a  2. b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. a\r\n2. b\r3. c"
+  },
+  "output": [
+   [
+    "1",
+    "a"
+   ],
+   [
+    "2",
+    "b"
+   ],
+   [
+    "3",
+    "c"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\r\n2. b\r3. c",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\nb"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\r\n2. b\r3. c",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\nb\nc"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\r\n2. b\r3. c",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. a\r\n2. b\r3. c",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "99999999999999999999999. big\n1. a"
+  },
+  "output": [
+   [
+    "99999999999999999999999",
+    "big"
+   ],
+   [
+    "1",
+    "a"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "99999999999999999999999. big\n1. a",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "99999999999999999999999. big\n1. a",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "99999999999999999999999. big\n1. a",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "99999999999999999999999. big\n1. a",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. 😀\n2. é"
+  },
+  "output": [
+   [
+    "1",
+    "😀"
+   ],
+   [
+    "2",
+    "é"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. 😀\n2. é",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "😀\né"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. 😀\n2. é",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "😀\né\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. 😀\n2. é",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "😀"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. 😀\n2. é",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "𝟏. math\n𝟐. two"
+  },
+  "output": [
+   [
+    "1",
+    "math"
+   ],
+   [
+    "2",
+    "two"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "𝟏. math\n𝟐. two",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "math\ntwo"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "𝟏. math\n𝟐. two",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "math\ntwo\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "𝟏. math\n𝟐. two",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "math"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "𝟏. math\n𝟐. two",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1) a ) b"
+  },
+  "output": [
+   [
+    "1",
+    "a ) b"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) a ) b",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "a ) b\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) a ) b",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "a ) b\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) a ) b",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "a ) b"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) a ) b",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1。 a"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1。 a",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "1。 a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1。 a",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "1。 a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1。 a",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "1。 a"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1。 a",
+   "originals": []
+  },
+  "output": "1。 a"
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": " 1. nbsp"
+  },
+  "output": [
+   [
+    "1",
+    "nbsp"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": " 1. nbsp",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "nbsp\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": " 1. nbsp",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "nbsp\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": " 1. nbsp",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "nbsp"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": " 1. nbsp",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1. x"
+  },
+  "output": [
+   [
+    "1",
+    "x"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. x",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "x\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. x",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "x\no2\no3"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. x",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "x"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1. x",
+   "originals": []
+  },
+  "output": ""
+ }
+]

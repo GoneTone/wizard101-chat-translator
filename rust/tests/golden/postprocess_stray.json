@@ -1,0 +1,250 @@
+[
+ {
+  "input": {
+   "source": "[A] 雪刺帽",
+   "translated": "[A] Snowspike Hat",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] 雪刺帽",
+   "translated": "[A] 雪刺帽",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 收到 [Amy] 的邀請",
+   "translated": "[A] 收到 Amy 的邀請",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] Received a friend request from Amy",
+   "translated": "[A] Received a friend request from Amy",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] 收到 Amy 的邀請",
+   "translated": "[A] 收到 Amy 的邀請 Calamity",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 Hi",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 hi",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] HI  there",
+   "translated": "[A] 你好 hi there",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 你好",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 1234",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ...",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] Straße",
+   "translated": "[A] 街 STRASSE",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] ß",
+   "translated": "[A] 好 SS",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] café",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 你好 café",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] Snowspike Hat",
+   "target": "English"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] Snowspike",
+   "target": "Español"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 木頭",
+   "translated": "[A] 木頭 wood",
+   "target": "日本語"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] wood-x",
+   "translated": "[A] 木 wood-x",
+   "target": "日本語"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] it's",
+   "translated": "[A] 好 it’s",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] a.b, c",
+   "translated": "[A] 好 a.b, c",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "",
+   "translated": "",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] ",
+   "translated": "[A] ABC",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x y",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x　y",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 😀",
+   "translated": "[A] 😀 ok",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 好 ok²",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ² A",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ① A",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x\u001fy",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ }
+]
