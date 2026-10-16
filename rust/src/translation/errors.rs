@@ -1,0 +1,122 @@
+//! 翻譯失敗的分類，以及把 HTTP 錯誤回應整理成可顯示說明的共用函式。
+
+use std::fmt;
+use std::sync::LazyLock;
+
+use regex::Regex;
+use serde_json::Value;
+
+/// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TranslateError {
+    /// 可重試：連線失敗、逾時、429、5xx。
+    Offline { status: Option<u16>, detail: String },
+    /// 設定錯誤（4xx）：持續重試，使用者修好設定後自動恢復。
+    Config { status: Option<u16>, detail: String },
+    /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷。
+    BadOutput(String),
+    /// 請求被呼叫端取消，不是錯誤。
+    Cancelled,
+    /// 端點不提供模型清單，使用者仍可自行輸入模型名稱。
+    NoModelList,
+}
+
+impl TranslateError {
+    /// 連線層失敗（無狀態碼）。
+    pub fn offline(detail: impl Into<String>) -> Self {
+        Self::Offline {
+            status: None,
+            detail: detail.into(),
+        }
+    }
+
+    /// HTTP 狀態碼；連線層失敗與非 HTTP 類別為 `None`。
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            Self::Offline { status, .. } | Self::Config { status, .. } => *status,
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for TranslateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Offline { status, detail } | Self::Config { status, detail } => {
+                match (status, detail.is_empty()) {
+                    (Some(s), false) => write!(f, "HTTP {s}: {detail}"),
+                    (Some(s), true) => write!(f, "HTTP {s}"),
+                    (None, _) => f.write_str(detail),
+                }
+            }
+            Self::BadOutput(message) => f.write_str(message),
+            Self::Cancelled => f.write_str("request cancelled"),
+            Self::NoModelList => f.write_str("endpoint provides no model list"),
+        }
+    }
+}
+
+impl std::error::Error for TranslateError {}
+
+static HTML_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<[^>]+>").unwrap());
+static REJECTED_PARAM: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"Unrecognized request argument supplied: (\w+)|Unsupported (?:parameter|value): '(\w+)'",
+    )
+    .unwrap()
+});
+
+/// 折成單行（不截斷 —— 訊息尾端常是說明網址）。
+pub fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// OpenAI／Anthropic 的 `error.message`，或自架後端直接放字串的 `error`／`message`。
+fn message_of(body: &Value) -> Option<&str> {
+    let body = body.as_object()?;
+    match body.get("error") {
+        Some(Value::Object(error)) => {
+            if let Some(Value::String(message)) = error.get("message") {
+                return Some(message);
+            }
+        }
+        Some(Value::String(error)) => return Some(error),
+        _ => {}
+    }
+    body.get("message")?.as_str()
+}
+
+/// 把錯誤回應 body 整理成單行說明：JSON 取錯誤欄位，HTML 去標籤，其餘照原文。
+pub fn error_detail(text: &str) -> String {
+    let message = serde_json::from_str::<Value>(text)
+        .ok()
+        .and_then(|body| message_of(&body).map(str::to_owned))
+        .unwrap_or_else(|| HTML_TAG.replace_all(text, " ").into_owned());
+    one_line(&message)
+}
+
+/// 從 400 的說明文字抓出被拒的參數名；認不出來回 `None`。
+pub fn rejected_parameter(detail: &str) -> Option<String> {
+    let caps = REJECTED_PARAM.captures(detail)?;
+    caps.get(1)
+        .or_else(|| caps.get(2))
+        .map(|m| m.as_str().to_owned())
+}
+
+/// 翻譯請求的狀態碼對應：429／5xx 可重試，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
+pub fn status_error(status: u16, detail: &str) -> Option<TranslateError> {
+    let (status, detail) = (Some(status), detail.to_owned());
+    match status {
+        Some(429 | 500..) => Some(TranslateError::Offline { status, detail }),
+        Some(400..) => Some(TranslateError::Config { status, detail }),
+        _ => None,
+    }
+}
+
+/// 模型清單請求的狀態碼對應：404／405 是「端點不提供清單」，其餘沿用 [`status_error`]。
+pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
+    match status {
+        404 | 405 => Some(TranslateError::NoModelList),
+        _ => status_error(status, detail),
+    }
+}

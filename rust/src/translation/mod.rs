@@ -1,9 +1,17 @@
-//! 翻譯：提示詞、上下文與譯文後處理。
+//! 翻譯：提示詞、上下文、譯文後處理與各服務商的 client。
 
+pub mod clients;
 pub mod context;
+pub mod errors;
 pub mod postprocess;
 pub mod prompts;
 mod pystr;
+
+use std::future::Future;
+use std::pin::Pin;
+
+/// 可跨執行緒傳遞的 boxed future，供 trait 物件回傳非同步結果。
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// 對話輪的角色。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

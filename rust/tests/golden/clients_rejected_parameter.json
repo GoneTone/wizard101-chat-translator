@@ -1,0 +1,34 @@
+[
+ {
+  "input": "Unrecognized request argument supplied: reasoning_effort",
+  "output": "reasoning_effort"
+ },
+ {
+  "input": "Unsupported parameter: 'max_tokens' is not supported with this model.",
+  "output": "max_tokens"
+ },
+ {
+  "input": "Unsupported value: 'temperature' does not support 0 with this model.",
+  "output": "temperature"
+ },
+ {
+  "input": "Unsupported parameter: temperature",
+  "output": null
+ },
+ {
+  "input": "Unsupported parameter: 'max_completion_tokens' is not supported.",
+  "output": "max_completion_tokens"
+ },
+ {
+  "input": "bad request",
+  "output": null
+ },
+ {
+  "input": "",
+  "output": null
+ },
+ {
+  "input": "prefix Unrecognized request argument supplied: stream_options suffix",
+  "output": "stream_options"
+ }
+]

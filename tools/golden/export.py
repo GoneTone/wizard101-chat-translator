@@ -13,6 +13,7 @@ from pathlib import Path
 
 from src import i18n
 from src.logs.files import session_header, trim_log_sessions, utc_stamp
+from src.translation.clients import _OpenAICompatClient, error_detail, rejected_parameter
 from src.ui.fonts import font_family
 
 GOLDEN_DIR = Path(__file__).resolve().parents[2] / "rust" / "tests" / "golden"
@@ -699,6 +700,72 @@ EXPORTERS["postprocess_latin"] = export_postprocess_latin
 EXPORTERS["postprocess_stray"] = export_postprocess_stray
 EXPORTERS["postprocess_lines"] = export_postprocess_lines
 EXPORTERS["postprocess_numbering"] = export_postprocess_numbering
+
+
+def export_clients_error_detail() -> list[dict]:
+    """`error_detail`：input 為錯誤回應 body，output 為單行說明。"""
+    url = "https://platform.openai.com/account/api-keys"
+    texts = [
+        '{"error": {"message": "Incorrect API key provided: sk-abc***"}}',
+        '{"error": "model not found"}',
+        '{"message": "quota exceeded"}',
+        '{"error": {"code": 42}}',
+        '{"error": {"message": 5}}',
+        '{"error": {"message": "inner"}, "message": "outer"}',
+        '{"error": 7, "message": "fallback"}',
+        '{\n  "error": {\n    "message": "multi\nline   text"\n  }\n}',
+        "[1, 2]",
+        "42",
+        "null",
+        "  plain text \n body ",
+        "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1>"
+        "<hr><center>nginx</center></body></html>",
+        "line one\r\nline two\n\n\tline three",
+        "word " * 60 + "\n  " + url + " tail",
+        "中文  錯誤　訊息",
+        "",
+    ]
+    return [{"input": t, "output": error_detail(t)} for t in texts]
+
+
+def export_clients_rejected_parameter() -> list[dict]:
+    """`rejected_parameter`：input 為 400 說明文字，output 為參數名或 null。"""
+    texts = [
+        "Unrecognized request argument supplied: reasoning_effort",
+        "Unsupported parameter: 'max_tokens' is not supported with this model.",
+        "Unsupported value: 'temperature' does not support 0 with this model.",
+        "Unsupported parameter: temperature",
+        "Unsupported parameter: 'max_completion_tokens' is not supported.",
+        "bad request",
+        "",
+        "prefix Unrecognized request argument supplied: stream_options suffix",
+    ]
+    return [{"input": t, "output": rejected_parameter(t)} for t in texts]
+
+
+def export_clients_openai_body() -> list[dict]:
+    """`_OpenAICompatClient._body`：input 為組合參數，output 為請求 JSON。"""
+    turns = [{"role": "user", "content": "[A] hi"}, {"role": "assistant", "content": "譯文"}]
+    cases = []
+    for official in (False, True):
+        for thinking in (False, True):
+            for deterministic in (False, True):
+                for max_tokens in (512, 4096):
+                    client = _OpenAICompatClient(base_url="http://x", model="m",
+                                                 thinking=thinking, official=official,
+                                                 client=object())
+                    cases.append({
+                        "input": {"official": official, "thinking": thinking,
+                                  "deterministic": deterministic, "max_tokens": max_tokens,
+                                  "system": "sys", "turns": turns},
+                        "output": client._body("sys", turns, max_tokens, deterministic),
+                    })
+    return cases
+
+
+EXPORTERS["clients_error_detail"] = export_clients_error_detail
+EXPORTERS["clients_rejected_parameter"] = export_clients_rejected_parameter
+EXPORTERS["clients_openai_body"] = export_clients_openai_body
 
 
 def _render(cases: list[dict]) -> str:
