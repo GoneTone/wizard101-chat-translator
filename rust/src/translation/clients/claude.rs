@@ -272,7 +272,8 @@ impl ClaudeClient {
             };
             retries_taken += 1;
             log(format!(
-                "[translate] claude request failed ({reason}, model={});                  retry {retries_taken}/{MAX_RETRIES} in {:.2}s",
+                "[translate] claude request failed ({reason}, model={}); \
+                 retry {retries_taken}/{MAX_RETRIES} in {:.2}s",
                 self.model,
                 delay.as_secs_f64()
             ));

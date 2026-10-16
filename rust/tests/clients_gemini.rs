@@ -242,6 +242,19 @@ async fn gemini_models_error_mapping() {
 }
 
 #[tokio::test]
+async fn gemini_list_models_connection_error_maps_to_offline() {
+    let (url, accepted) = stream_server::dropping_server().await;
+    let c = GeminiClient::new("AIza-secret", "gemini-x", "auto", &url);
+    let error = c.list_models().await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, .. }),
+        "{error:?}"
+    );
+    assert!(!error.to_string().contains("AIza-secret"));
+    assert_eq!(accepted.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
 async fn gemini_retry_behavior_matches_sdk() {
     // genai 未設 retry_options 時 stop_after_attempt(1)：429／5xx 都只送一次
     for (status, message) in [(429, "quota"), (503, "overloaded"), (500, "internal")] {

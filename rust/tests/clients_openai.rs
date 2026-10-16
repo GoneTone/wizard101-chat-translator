@@ -334,13 +334,8 @@ async fn connection_failure_is_offline_without_status() {
 
 #[tokio::test]
 async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
-    let (url, server) = stream_server::stalled_stream(format!(
-        "data: {}
-
-",
-        delta("partial")
-    ))
-    .await;
+    let (url, server) =
+        stream_server::stalled_stream(format!("data: {}\n\n", delta("partial"))).await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let token = CancellationToken::new();
     let canceller = token.clone();

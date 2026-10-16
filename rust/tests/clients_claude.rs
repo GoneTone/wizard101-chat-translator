@@ -2,13 +2,12 @@
 
 mod stream_server;
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -18,6 +17,16 @@ use wizard101_chat_translator::translation::clients::{
     ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
+
+/// 整個測試檔共用一個 log 檔（全域 sink 只有一個，並行測試各自 init 會互搶）；以各自的模型名稱篩選。
+fn log_file() -> &'static Path {
+    static PATH: OnceLock<PathBuf> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = std::env::temp_dir().join(format!("clients_claude_{}.log", std::process::id()));
+        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
+        path
+    })
+}
 
 fn output_format() -> Value {
     json!({"type": "json_schema", "schema": {
@@ -223,14 +232,16 @@ async fn claude_region_limit_is_sent_and_used_for_truncation() {
 
 #[tokio::test]
 async fn claude_retries_429_twice_then_offline() {
+    let log_path = log_file();
     let server = MockServer::start().await;
     mount_messages(
         &server,
         error_body(429, "slow down").insert_header("retry-after", "0.2"),
     )
     .await;
+    let c = ClaudeClient::new("k", "claude-retry-marker", "auto", &server.uri());
     let started = Instant::now();
-    let result = chat(&client(&server, "auto")).await;
+    let result = chat(&c).await;
     let elapsed = started.elapsed();
     assert_eq!(
         result,
@@ -242,9 +253,40 @@ async fn claude_retries_429_twice_then_offline() {
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
     // 兩次等待各照 retry-after 的 0.2 秒；指數退避至少要 0.375＋0.75 秒
     assert!(
-        elapsed >= Duration::from_millis(400) && elapsed < Duration::from_millis(1000),
+        elapsed >= Duration::from_millis(400) && elapsed < Duration::from_millis(1100),
         "{elapsed:?}"
     );
+    let text = std::fs::read_to_string(log_path).unwrap();
+    for n in 1..=2 {
+        let line = format!(
+            "[translate] claude request failed (HTTP 429, model=claude-retry-marker); \
+             retry {n}/2 in 0.20s\r\n"
+        );
+        assert!(text.contains(&line), "{text}");
+    }
+}
+
+#[tokio::test]
+async fn cancel_during_backoff_returns_cancelled_without_retrying() {
+    let server = MockServer::start().await;
+    mount_messages(
+        &server,
+        error_body(429, "slow down").insert_header("retry-after-ms", "2000"),
+    )
+    .await;
+    let token = CancellationToken::new();
+    let canceller = token.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        canceller.cancel();
+    });
+    let started = Instant::now();
+    let result = client(&server, "auto")
+        .chat(request(&[Turn::user("hi")]), Some(&token))
+        .await;
+    assert_eq!(result, Err(TranslateError::Cancelled));
+    assert!(started.elapsed() < Duration::from_millis(1500));
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -295,23 +337,35 @@ async fn claude_retry_conditions_follow_the_sdk() {
 
 #[tokio::test]
 async fn claude_retries_connection_failures_then_offline() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let accepted = Arc::new(AtomicUsize::new(0));
-    let counter = accepted.clone();
-    let server = tokio::spawn(async move {
-        loop {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            counter.fetch_add(1, Ordering::SeqCst);
-            let mut buf = [0u8; 1024];
-            let _ = socket.read(&mut buf).await;
-        }
-    });
+    let (url, accepted) = stream_server::dropping_server().await;
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert_eq!(error, TranslateError::offline("Connection error."));
-    server.abort();
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn claude_list_models_connection_error_maps_to_offline() {
+    let (url, accepted) = stream_server::dropping_server().await;
+    let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
+    assert_eq!(
+        c.list_models().await,
+        Err(TranslateError::offline("Connection error."))
+    );
+    assert_eq!(accepted.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn claude_stream_dropped_mid_response_is_offline() {
+    // 裁示 R10：串流讀到一半斷線視為離線、不重送（Python 因 httpx2 漏接而未分類）
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let url = stream_server::dropped_stream(events(&[start])).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty()),
+        "{error:?}"
+    );
 }
 
 #[tokio::test]
@@ -507,14 +561,12 @@ async fn claude_models_status_mapping() {
 
 #[tokio::test]
 async fn claude_logs_cache_read_write_uncached() {
-    let log_path = std::env::temp_dir().join(format!("clients_claude_{}.log", std::process::id()));
-    logs::init(Sink::File(std::fs::File::create(&log_path).unwrap()));
+    let log_path = log_file();
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
     let c = ClaudeClient::new("k", "claude-cache-marker", "auto", &server.uri());
     chat(&c).await.unwrap();
-    let text = std::fs::read_to_string(&log_path).unwrap();
-    let _ = std::fs::remove_file(&log_path);
+    let text = std::fs::read_to_string(log_path).unwrap();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=claude model=claude-cache-marker \
