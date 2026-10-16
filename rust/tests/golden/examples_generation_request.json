@@ -1,0 +1,62 @@
+[
+ {
+  "input": "日本語",
+  "output": {
+   "system": "把使用者給的每一行翻成 日本語，逐行對應、保留行首編號，只輸出譯文。格式照下面的中文示範：遊戲專有名詞翻成 日本語 後緊接括號照抄英文原文；[Amy]、人名 Kai、{0} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；最後一行是被截斷的句子，譯文也停在同一處。\n中文示範：\n1. [Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛\n2. Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。\n3. 和火貓（Fire Cat）談談\n4. 前往巨像大道（Colossus Boulevard）\n5. 選項\n6. 然後你必須",
+   "turns": [
+    {
+     "role": "user",
+     "content": "1. [Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash\n2. Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.\n3. Talk to the Fire Cat\n4. Go to Colossus Boulevard\n5. OPTIONS\n6. and then you must"
+    }
+   ]
+  }
+ },
+ {
+  "input": "Deutsch",
+  "output": {
+   "system": "把使用者給的每一行翻成 Deutsch，逐行對應、保留行首編號，只輸出譯文。格式照下面的中文示範：遊戲專有名詞翻成 Deutsch 後緊接括號照抄英文原文；[Amy]、人名 Kai、{0} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；最後一行是被截斷的句子，譯文也停在同一處。\n中文示範：\n1. [Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛\n2. Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。\n3. 和火貓（Fire Cat）談談\n4. 前往巨像大道（Colossus Boulevard）\n5. 選項\n6. 然後你必須",
+   "turns": [
+    {
+     "role": "user",
+     "content": "1. [Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash\n2. Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.\n3. Talk to the Fire Cat\n4. Go to Colossus Boulevard\n5. OPTIONS\n6. and then you must"
+    }
+   ]
+  }
+ },
+ {
+  "input": " Español ",
+  "output": {
+   "system": "把使用者給的每一行翻成  Español ，逐行對應、保留行首編號，只輸出譯文。格式照下面的中文示範：遊戲專有名詞翻成  Español  後緊接括號照抄英文原文；[Amy]、人名 Kai、{0} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；最後一行是被截斷的句子，譯文也停在同一處。\n中文示範：\n1. [Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛\n2. Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。\n3. 和火貓（Fire Cat）談談\n4. 前往巨像大道（Colossus Boulevard）\n5. 選項\n6. 然後你必須",
+   "turns": [
+    {
+     "role": "user",
+     "content": "1. [Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash\n2. Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.\n3. Talk to the Fire Cat\n4. Go to Colossus Boulevard\n5. OPTIONS\n6. and then you must"
+    }
+   ]
+  }
+ },
+ {
+  "input": "繁體中文（台灣）",
+  "output": {
+   "system": "把使用者給的每一行翻成 繁體中文（台灣），逐行對應、保留行首編號，只輸出譯文。格式照下面的中文示範：遊戲專有名詞翻成 繁體中文（台灣） 後緊接括號照抄英文原文；[Amy]、人名 Kai、{0} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；最後一行是被截斷的句子，譯文也停在同一處。\n中文示範：\n1. [Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛\n2. Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。\n3. 和火貓（Fire Cat）談談\n4. 前往巨像大道（Colossus Boulevard）\n5. 選項\n6. 然後你必須",
+   "turns": [
+    {
+     "role": "user",
+     "content": "1. [Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash\n2. Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.\n3. Talk to the Fire Cat\n4. Go to Colossus Boulevard\n5. OPTIONS\n6. and then you must"
+    }
+   ]
+  }
+ },
+ {
+  "input": "English",
+  "output": {
+   "system": "把使用者給的每一行翻成 English，逐行對應、保留行首編號，只輸出譯文。格式照下面的中文示範：遊戲專有名詞翻成 English 後緊接括號照抄英文原文；[Amy]、人名 Kai、{0} 照抄不翻；縮寫、一般名詞與介面按鈕文字直接翻、不加括號；最後一行是被截斷的句子，譯文也停在同一處。\n中文示範：\n1. [Amy] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道（Colossus Boulevard）學會了火貓（Fire Cat），笑死，等我一下，我的法杖超爛\n2. Kai 教會了你火貓（Fire Cat）！在巨像大道（Colossus Boulevard）獲得了 {0} 金幣。\n3. 和火貓（Fire Cat）談談\n4. 前往巨像大道（Colossus Boulevard）\n5. 選項\n6. 然後你必須",
+   "turns": [
+    {
+     "role": "user",
+     "content": "1. [Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash\n2. Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.\n3. Talk to the Fire Cat\n4. Go to Colossus Boulevard\n5. OPTIONS\n6. and then you must"
+    }
+   ]
+  }
+ }
+]

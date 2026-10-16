@@ -34,6 +34,18 @@ impl TranslateError {
         }
     }
 
+    /// Python 版對應的例外類別名稱，log 沿用 `類別: 訊息` 的格式。
+    pub fn class_name(&self) -> &'static str {
+        match self {
+            Self::Offline { .. } => "TranslatorOffline",
+            Self::Config { .. } => "TranslatorConfigError",
+            Self::BadOutput(_) => "TranslatorBadOutput",
+            Self::Cancelled => "TranslatorCancelled",
+            Self::NoModelList => "TranslatorNoModelList",
+            Self::Unexpected(_) => "Exception",
+        }
+    }
+
     /// HTTP 狀態碼；連線層失敗與非 HTTP 類別為 `None`。
     pub fn status(&self) -> Option<u16> {
         match self {

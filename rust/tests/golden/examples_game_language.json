@@ -1,0 +1,21 @@
+[
+ {
+  "input": "GAME_LANGUAGE_EXAMPLES",
+  "output": {
+   "incoming": [
+    "[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛",
+    "[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash"
+   ],
+   "system": [
+    "Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
+    "Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道)."
+   ],
+   "region": [
+    "和火猫谈谈\n前往巨像大道\n选项\n然后你必须",
+    "Talk to the Fire Cat (火猫)\nGo to Colossus Boulevard (巨像大道)\nOptions\nand then you must"
+   ],
+   "repr": "ExampleSet(incoming=('[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛', '[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash'), system=('Kai 教会了你火猫！在巨像大道获得了 {0} 金币。', 'Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道).'), region=('和火猫谈谈\\n前往巨像大道\\n选项\\n然后你必须', 'Talk to the Fire Cat (火猫)\\nGo to Colossus Boulevard (巨像大道)\\nOptions\\nand then you must'))",
+   "digest": "0e59273c5958"
+  }
+ }
+]

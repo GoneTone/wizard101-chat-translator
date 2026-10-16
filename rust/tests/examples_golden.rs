@@ -220,3 +220,32 @@ fn merge_summary_and_digest() {
     assert_eq!(a.summary(), "incoming=ok system=failed region=failed");
     assert_ne!(a.digest(), ExampleSet::default().digest());
 }
+
+#[test]
+fn game_language_examples_match_python() {
+    let cases = common::golden("examples_game_language");
+    let out = &cases[0]["output"];
+    assert_eq!(*GAME_LANGUAGE_EXAMPLES, set_of(out));
+    // digest 是 repr 的 sha1，相等即 repr 逐字相同；它會進使用者的譯文快取指紋
+    assert_eq!(GAME_LANGUAGE_EXAMPLES.digest(), s(&out["digest"]));
+}
+
+#[test]
+fn generation_request_matches_python() {
+    let cases = common::golden("examples_generation_request");
+    assert_eq!(cases.len(), 5);
+    for c in cases {
+        let (system, turns) = generation_request(s(&c["input"]));
+        assert_eq!(system, s(&c["output"]["system"]), "{}", c["input"]);
+        let expected: Vec<Turn> = c["output"]["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| {
+                assert_eq!(s(&t["role"]), "user");
+                Turn::user(s(&t["content"]))
+            })
+            .collect();
+        assert_eq!(turns, expected, "{}", c["input"]);
+    }
+}

@@ -905,10 +905,27 @@ def export_examples_store_bytes() -> list[dict]:
     return cases
 
 
+def export_examples_game_language() -> list[dict]:
+    """`GAME_LANGUAGE_EXAMPLES`：output 為三條路徑、repr 與 digest（進使用者的快取指紋）。"""
+    from src.translation.examples import GAME_LANGUAGE_EXAMPLES as g
+    return [{"input": "GAME_LANGUAGE_EXAMPLES",
+             "output": {**_set_json(g), "repr": repr(g), "digest": g.digest()}}]
+
+
+def export_examples_generation_request() -> list[dict]:
+    """`generation_request`：input 為目標語言，output 為（system 提示詞, 對話輪）。"""
+    from src.translation.examples import generation_request
+    return [{"input": t, "output": {"system": system, "turns": turns}}
+            for t in ("日本語", "Deutsch", " Español ", "繁體中文（台灣）", "English")
+            for system, turns in [generation_request(t)]]
+
+
 EXPORTERS["pyrepr"] = export_pyrepr
 EXPORTERS["examples_digest"] = export_examples_digest
 EXPORTERS["examples_parse"] = export_examples_parse
 EXPORTERS["examples_store_bytes"] = export_examples_store_bytes
+EXPORTERS["examples_game_language"] = export_examples_game_language
+EXPORTERS["examples_generation_request"] = export_examples_generation_request
 
 
 def _render(cases: list[dict]) -> str:
