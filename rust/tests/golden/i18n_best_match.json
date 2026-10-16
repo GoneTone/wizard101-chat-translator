@@ -1,0 +1,445 @@
+[
+ {
+  "input": [
+   "af-ZA"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ar-SA"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ca-ES"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "cs-CZ"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "da-DK"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "de-DE"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "el-GR"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "en-US"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "es-ES"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "fi-FI"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "fr-FR"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "he-IL"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "hu-HU"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "it-IT"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ja-JP"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ko-KR"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "nl-NL"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "no-NO"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "pl-PL"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "pt-BR"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "pt-PT"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ro-RO"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ru-RU"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "sr-SP"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "sv-SE"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "tr-TR"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "uk-UA"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "vi-VN"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "zh-CN"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-TW"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-HK"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-SG"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-MO"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-Hant"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-Hans"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-Hant-CN"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-Hans-TW"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-CHT"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh_TW"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-tw"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "ZH-hk"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "zh-yue"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "yue-HK"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "yue"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "wuu"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "cmn-Hans-CN"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "zh-Latn"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "en"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "en-GB"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "en-AU"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "EN-us"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "en_US"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "pt"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "es-419"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "fr-CA"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "de-AT"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "sr-Latn-RS"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "nb"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "nn"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "nb-NO"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "no"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "iw"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "und"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "xx-XX"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "x-"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   ""
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "xx-XX",
+   "zh-CN",
+   "en-US"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "xx-XX",
+   "yy-YY"
+  ],
+  "output": "en-US"
+ },
+ {
+  "input": [
+   "ja-JP",
+   "zh-HK"
+  ],
+  "output": "zh-TW"
+ },
+ {
+  "input": [
+   "fr-FR",
+   "zh-SG",
+   "en-GB"
+  ],
+  "output": "zh-CN"
+ },
+ {
+  "input": [
+   "",
+   "zh-TW"
+  ],
+  "output": "zh-TW"
+ }
+]

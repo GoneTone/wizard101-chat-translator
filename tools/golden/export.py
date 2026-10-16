@@ -10,7 +10,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
+from src import i18n
 from src.logs.files import session_header, trim_log_sessions, utc_stamp
+from src.ui.fonts import font_family
 
 GOLDEN_DIR = Path(__file__).resolve().parents[2] / "rust" / "tests" / "golden"
 
@@ -63,6 +65,60 @@ def export_logs_stamp() -> list[dict]:
 
 EXPORTERS["logs_trim"] = export_logs_trim
 EXPORTERS["logs_stamp"] = export_logs_stamp
+
+LOCALES = sorted(path.stem for path in (Path(i18n.__file__).parent).glob("*.json"))
+_EXTRA_TAGS = [
+    "zh", "zh-HK", "zh-SG", "zh-MO", "zh-Hant", "zh-Hans", "zh-Hant-CN", "zh-Hans-TW",
+    "zh-CHT", "zh_TW", "zh-tw", "ZH-hk", "zh-yue", "yue-HK", "yue", "wuu", "cmn-Hans-CN",
+    "zh-Latn", "en", "en-GB", "en-AU", "EN-us", "en_US", "pt", "es-419", "fr-CA",
+    "de-AT", "sr-Latn-RS", "nb", "nn", "nb-NO", "no", "iw", "und", "xx-XX", "x-", "",
+]
+
+
+def export_i18n_best_match() -> list[dict]:
+    """`best_match`：input 為偏好標籤清單，output 為語言碼。"""
+    lists = [[tag] for tag in LOCALES + _EXTRA_TAGS]
+    lists += [[], ["xx-XX", "zh-CN", "en-US"], ["xx-XX", "yy-YY"], ["ja-JP", "zh-HK"],
+              ["fr-FR", "zh-SG", "en-GB"], ["", "zh-TW"]]
+    return [{"input": tags, "output": i18n.best_match(tags)} for tags in lists]
+
+
+def export_i18n_available() -> list[dict]:
+    """`available_languages`：output 為依序的 [語言碼, 自稱] 配對。"""
+    return [{"input": None, "output": [[c, n] for c, n in i18n.available_languages().items()]}]
+
+
+def export_i18n_t() -> list[dict]:
+    """`t`：input 為 {lang, key, args}，output 為字串（含缺 key、缺參數的退路）。"""
+    import re
+    keys = set()
+    for code in ("en-US", "zh-TW", "zh-CN"):
+        keys |= set(i18n._load(code))
+    cases = []
+    for lang in ("zh-TW", "en-US", "zh-CN", "ja-JP"):
+        i18n.set_language(lang)
+        for key in sorted(keys) + ["no.such.key"]:
+            names = set(re.findall(r"\{(\w+)\}", i18n._load("en-US").get(key, "")))
+            full = {n: f"<{n}>" for n in sorted(names)}
+            for args in (full, {}):
+                cases.append({"input": {"lang": lang, "key": key, "args": args},
+                              "output": i18n.t(key, **args)})
+                if not names:
+                    break
+    i18n.set_language("en-US")
+    return cases
+
+
+def export_fonts_family() -> list[dict]:
+    """`font_family`：input 為語言標籤，output 為字族。"""
+    tags = LOCALES + ["zh", "zh-HK", "zh-Hant", "zh-SG", "ja", "ko", "xx-XX", "yue"]
+    return [{"input": tag, "output": font_family(tag)} for tag in tags]
+
+
+EXPORTERS["i18n_best_match"] = export_i18n_best_match
+EXPORTERS["i18n_available"] = export_i18n_available
+EXPORTERS["i18n_t"] = export_i18n_t
+EXPORTERS["fonts_family"] = export_fonts_family
 
 
 def _render(cases: list[dict]) -> str:
