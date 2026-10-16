@@ -323,7 +323,7 @@ fn parse_entries(text: &str) -> Result<Entries, String> {
         .collect()
 }
 
-fn json_str(s: &str) -> String {
+pub(super) fn json_str(s: &str) -> String {
     Value::String(s.to_string()).to_string()
 }
 
@@ -411,7 +411,7 @@ impl ExampleStore {
 }
 
 /// 先寫同目錄暫存檔再 rename，讀者永遠看不到寫到一半的檔案；失敗時清掉暫存檔。
-fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
+pub(super) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }

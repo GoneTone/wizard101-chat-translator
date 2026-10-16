@@ -1,5 +1,6 @@
 //! 翻譯：提示詞、上下文、譯文後處理與各服務商的 client。
 
+pub mod cache;
 pub mod clients;
 pub mod context;
 pub mod errors;

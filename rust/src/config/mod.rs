@@ -1,6 +1,6 @@
 //! config.json 讀寫：缺漏欄位以預設值補齊、舊格式遷移後立刻落地，壞檔絕不覆寫。
 
-mod py;
+pub(crate) mod py;
 pub mod services;
 
 use std::fs;

@@ -928,6 +928,84 @@ EXPORTERS["examples_game_language"] = export_examples_game_language
 EXPORTERS["examples_generation_request"] = export_examples_generation_request
 
 
+def export_cache_normalize() -> list[dict]:
+    """快取 `normalize`／`restore`：input 為原文，output 為（樣板, 數字, 回填結果）。"""
+    from src.translation.cache import normalize, restore
+    texts = [
+        "", "熔岩百合", "你获得了 39 金币！", "你获得了 3 经验值和 39 金币！",
+        "你获得了 1,234 金币！", "耗时 3.5 秒", "v1.2.3 build 4,5,6", "1.", ".5", "1..2", "1,,2",
+        "3.5.", "10,000.50 gold", "{0} 已有 5", "٣٤ 个 １２ 个 १२", "a1b22c333", "0",
+        "x" * 3 + "99999999999999999999999",
+    ]
+    cases = []
+    for text in texts:
+        template, numbers = normalize(text)
+        cases.append({"input": text,
+                      "output": {"template": template, "numbers": numbers,
+                                 "restored": restore(template, numbers)}})
+    return cases
+
+
+def export_cache_fingerprint() -> list[dict]:
+    """快取 `fingerprint_of`：input 為五個欄位，output 為指紋字串。"""
+    from src.translation.cache import fingerprint_of
+    args = [
+        ("custom", "gemma-4-26b-a4b", "繁體中文（台灣）", "", "-"),
+        ("custom", "qwen3", "日本語", "http://127.0.0.1:11434", "abc123def456"),
+        ("claude", "claude-opus-5", "English", "", "-"),
+        ("openai", "gpt-5", "Español", "https://x.example/v1", "0123456789ab"),
+        ("gemini", "", "", "", ""),
+    ]
+    return [{"input": {"provider": p, "model": m, "target": t, "base_url": b, "digest": d},
+             "output": fingerprint_of(p, m, t, b, d)} for p, m, t, b, d in args]
+
+
+def _letters(i: int) -> str:
+    """數字會被快取正規化掉，測試鍵改用純字母。"""
+    return chr(97 + i // 676 % 26) + chr(97 + i // 26 % 26) + chr(97 + i % 26)
+
+
+def export_cache_file_bytes() -> list[dict]:
+    """快取 `flush` 寫出的檔案：input 為指紋與依序的 put／get，output 為檔案內容。"""
+    import contextlib
+    import io
+    import tempfile
+
+    from src.translation.cache import TranslationCache
+    fp = "custom||gemma|繁體中文（台灣）|p6|x-"
+    scenarios = [
+        [],
+        [("put", "熔岩百合", "熔岩百合(Lava Lily)")],
+        [("put", "你获得了 39 金币！", "你獲得了 {0} 金幣！"), ("put", "a", "A"),
+         ("get", "你获得了 7 金币！", None)],
+        [("put", "a", "A"), ("put", "b", "B"), ("get", "a", None), ("put", "c", "C")],
+        [("put", "quote\"'\\n\t\x1f", "tab\there"), ("put", " \x7f😀", "é퟿￿")],
+        [("put", _letters(i), _letters(i).upper()) for i in range(2003)],
+        [("put", "dup", "1"), ("put", "other", "2"), ("put", "dup", "3")],
+    ]
+    cases = []
+    for ops in scenarios:
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stderr(io.StringIO()):
+            path = Path(tmp) / "system-message-cache.json"
+            cache = TranslationCache(fp, path=path)
+            for op, text, translated in ops:
+                if op == "put":
+                    cache.put(text, translated, fp)
+                else:
+                    cache.get(text)
+            cache.flush()
+            data = path.read_bytes().decode("utf-8")
+        cases.append({"input": {"fingerprint": fp,
+                                "ops": [{"op": o, "text": t, "translated": r} for o, t, r in ops]},
+                      "output": data})
+    return cases
+
+
+EXPORTERS["cache_normalize"] = export_cache_normalize
+EXPORTERS["cache_fingerprint"] = export_cache_fingerprint
+EXPORTERS["cache_file_bytes"] = export_cache_file_bytes
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
