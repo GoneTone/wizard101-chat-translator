@@ -116,8 +116,9 @@ ls docs/superpowers/specs                                   # 設計文件：功
 | 修 bug | 修正…的問題 | Fixed | **先寫以前的錯誤現象**（標題列是灰的、會蓋住聊天框），再寫現在 |
 | 拿掉設定或功能 | 移除 | Removed | 講為什麼不再需要、舊設定值怎麼處理 |
 
-- **條列一律以類型動詞開頭**；hero 散文也要讓讀者分得出是新功能還是改進（例：「疊加視窗**新增**和遊戲一樣的聊天分頁」）。
-- **改了做法的功能，要點明舊做法與差別**：「收訊翻譯現在直接從遊戲拿到聊天內容」會讓人以為以前不是從遊戲拿；應寫「以前是比對聊天框前後的內容找新訊息，偶爾會重複或漏掉；現在遊戲每加一行就同時收到」。
+- **條列一律以類型動詞開頭**；hero 散文也要讓讀者分得出是新功能還是改進（例：「疊加視窗**新增**和遊戲一樣的聊天室分頁」）。
+- **改了做法的功能，要點明舊做法與差別**：「收訊翻譯現在直接從遊戲拿到聊天內容」會讓人以為以前不是從遊戲拿；應寫「以前是比對聊天框前後的內容來找出新訊息，偶爾會重複顯示或漏掉；現在改成 hook 掛入遊戲把訊息加進聊天框的那一步」。
+- **原理只在讀者需要時用一句話帶過，不展開**：說到「怎麼做到的」時，一句講清楚機制就好（hook 掛入哪一步、結果是什麼），不寫序號、緩衝區、記憶體這類細節——講太細玩家讀不下去。句子要順，避免「遊戲每把一行加進聊天框」這種拗口說法。
 - **修正項不能寫成新行為**：「新增服務的視窗開出來就能直接操作」聽起來像新功能；應寫「修正…開啟後沒有被選取的問題（標題列是灰的、按 Esc 沒反應）」。
 - **一個修正套用到多處就都列出來**（例：設定視窗、新增服務的視窗、首次設定精靈），不要只寫被回報的那一處。
 
@@ -128,7 +129,8 @@ ls docs/superpowers/specs                                   # 設計文件：功
 | 疊加視窗 | the overlay |
 | 收訊翻譯 | incoming translation |
 | 發話翻英 | outgoing translation（翻成英文送進遊戲） |
-| 掛入遊戲 | hook into the game |
+| hook 掛入遊戲（中文要帶出 hook，只寫「掛入」讀者不知道是用什麼掛入） | hook into the game |
+| 聊天室分頁（不寫「分頁」或「聊天分頁」） | chat tab |
 | 首次設定精靈 | the first-run wizard |
 | 橫幅 | banner |
 | 熱鍵 | hotkey |
@@ -140,43 +142,52 @@ ls docs/superpowers/specs                                   # 設計文件：功
 
 第三方站名／來源用「原文 英譯」雙語並列，中英版本字串相同（例如「原神資訊站 Genshin Impact Info」），不要在英文版只留英譯。
 
-## Gold Standard：v0.4.2（使用者已校稿）
+## Gold Standard：v0.4.2 之後的下一版（使用者已校稿）
 
-> 這份是 2026-10-10 使用者校過的 v0.4.2 定稿，取代 v0.4.1 的範本。
+> 這份是 2026-10-16 使用者校過的定稿（v0.4.2 之後的下一版），取代 v0.4.2 的範本。
 > 之後每次放版、使用者改完稿，回來用實際發布的版本覆蓋這一段（中英都要）。
 
 ```markdown
 ## What's New
 
-Outgoing translation now reads the conversation before it sends your message. Short messages that leave out who is doing what — the kind you type mid-fight — used to get a "you" or "me" filled in by guesswork, so asking whether healing is allowed in this fight went out as asking a teammate to heal you. We tuned the prompt so the AI works out who is talking to whom from the recent chat, your own messages included, and a question you ask still goes out as a question 💬
+Incoming translation now reads chat in a new way. It used to compare the chat box before and after each check to find new lines, which now and then showed a message twice or missed one. Now it hooks into the step where the game adds messages to the chat box, so the translator gets a copy of every message as the game handles it. Nothing is repeated or lost, and chat in tabs you are not looking at is picked up right away instead of waiting until you switch over. Chat is also checked every 0.1 seconds instead of the old default of 0.4, so translations start sooner 📨 If a game update ever breaks this, the overlay shows the version banner, and you will need a new release of the translator.
 
-If you translate with Claude, the overlay no longer shows the AI arguing with itself. Claude — Haiku 5.5 especially — would sometimes write a translation, follow it with "Wait —" and a check of its own rules, then give a second version, and all of it landed in the overlay as one message. Claude's replies are now limited to the translation itself, for chat, system messages, area translation and what you send. Other translation services are unchanged 🧹
+We added chat tabs to the overlay that match the game's, with the same names and unread counts, and the overlay switches tabs whenever you do in the game. Each tab keeps its own messages, so flipping back and forth is instant. When you run several game accounts at once, the overlay shows the game client you are playing on 🗂️
 
 On top of that, we also did:
-- Maintenance: the Anthropic SDK is updated to 1.8.0, and the developer tools are updated
+- Optimized resizing the overlay: dragging its edge no longer freezes the window, even with a long chat history; older messages are redrawn in the background
+- Fixed the settings window, the windows that open while you add a translation service, and the first-run wizard opening without being selected (grey title bar, Esc did nothing); also fixed clicks on the empty part of a provider card doing nothing, which sometimes took several clicks to pick one
+- Fixed the translation input box covering the game's chat box: when it opens above the chat box and its hint or error message gets longer, it now grows upward, and after you drag it somewhere else it grows upward from there
+- Removed the setting for how often chat is checked: with the new way of reading chat, checking for new lines costs almost nothing, so it is fixed at every 0.1 seconds and needs no tuning; the old value in your config is cleared automatically on startup
+- Maintenance: the Anthropic SDK is updated to 1.11.0, the developer tools are updated, and the code and tests were reorganized
 
 ## 此版本重點
 
-發話翻英現在會先看懂對話再送出。戰鬥中隨手打的短句常常沒講「誰對誰做事」，以前 AI 會自己猜著補上 you 或 me，於是想問「這場能不能補血」，送出去卻變成請隊友幫你補血。我們調整了提示詞，讓 AI 從最近的聊天（包括你自己剛發的話）判斷是誰在跟誰說話，你問的問題送出去也照樣是問句 💬
+收訊翻譯改用新的方式讀取聊天。以前是比對聊天框前後的內容來找出新訊息，偶爾會重複顯示或漏掉；現在改成 hook 掛入遊戲把訊息加進聊天框的那一步，遊戲每處理一則訊息，就同步交一份給翻譯助手。訊息不會再重複或遺漏，沒在看的聊天室分頁也會立刻收到，不用等你切過去。檢查頻率也從預設的 0.4 秒提高到每 0.1 秒，譯文更早開始翻 📨 萬一遊戲改版讓它失效，疊加視窗會顯示版本不相容的橫幅，需要等翻譯助手出新版。
 
-如果你用 Claude 翻譯，疊加視窗不會再出現 AI 自己跟自己爭論的內容。Claude（尤其是 Haiku 5.5）有時會先寫一版譯文，接著寫「Wait ——」檢查自己的規則，再給第二版，結果整段都被當成同一則譯文顯示出來。現在 Claude 的回覆只會是譯文本身，收訊、系統訊息、框選翻譯和發話都一樣；其他翻譯服務不受影響 🧹
+疊加視窗新增和遊戲一樣的聊天室分頁，名稱與未讀數都照遊戲顯示；你在遊戲裡切換聊天室分頁，它也跟著切。每個聊天室分頁各自保留訊息，來回切換一瞬間就好。多開遊戲的時候，疊加視窗會顯示你正在操作的那個遊戲客戶端 🗂️
 
 除此之外，我們還做了：
-- 維護：Anthropic SDK 更新到 1.8.0，並更新開發工具
+- 最佳化縮放疊加視窗的效能：拖邊框改大小不會再卡住，聊天紀錄再長也一樣；較舊的訊息會在背景陸續補畫
+- 修正設定視窗、新增翻譯服務時跳出的視窗，以及首次設定精靈開啟後沒有被選取的問題（標題列是灰的、按 Esc 沒反應）；也修正點服務商卡片的空白處沒反應、有時要點好幾下才選到的問題
+- 修正翻譯輸入框蓋住遊戲聊天框的問題：開在聊天框上方時，提示或錯誤訊息變長會改成往上長；拖到別處之後再變長，也會從你放的位置往上長
+- 移除收訊頻率的設定：改用新的讀取方式後，檢查有沒有新訊息幾乎不耗資源，因此固定每 0.1 秒檢查一次，不需要再調整；舊設定檔裡的這個值會在啟動時自動清除
+- 維護：Anthropic SDK 更新到 1.11.0、更新開發工具，並重新整理程式碼與測試
 ```
 
 **注意這份範例做對的事**：
 
-- 中英文 hero 段落數相同（兩段）、bullet 條數相同（一條）、emoji 位置對齊（💬 / 🧹）
-- **改動少就寫少**：這版只有兩個修正加依賴升級，hero 兩段、bullet 只剩維護一條，不硬湊次要項
-- 開場直述：第一句就講這版做到什麼（發話會先看懂對話），沒有反問句、沒有「本次更新包含」
-- **用玩家遇過的實例講問題**：「想問能不能補血，送出去變成請隊友幫你補」比「補錯主詞」好懂；例子來自回報者的實際 log
-- **翻譯品質類的改動講「調整提示詞」與成果，不細講規則**：沒寫「推不出來用 we／it」「新增一組示範」這類提示詞內容，也沒提結構化輸出、JSON 這類實作
-- **限定範圍要講清楚**：Claude 的修正寫明只影響 Claude、四種翻譯都適用、其他服務不受影響
-- **維護項目要提**：依賴升級放在 bullet 區最後，以「Maintenance:」／「維護：」開頭，可把幾項合成一條
-- 每個行為都對得上程式碼／PR：上下文含玩家自己的訊息（`ChatContext.snapshot()`）、四種翻譯都走 `_ClaudeClient.chat`（PR #36、#37）；拒答時改顯示失敗提示這種玩家幾乎碰不到的邊角情況不寫
-- 快捷鍵組合不寫出來（使用者可自訂），只稱「熱鍵」；固定的 Ctrl+V 可以寫
-- 沒有分節、沒有補 footer 已有的內容、兩個 H2 直接相鄰沒有 `---`
+- 中英文 hero 段落數相同（兩段）、bullet 條數相同（五條）、emoji 位置對齊（📨 / 🗂️）
+- **每項都寫明改動類型**：hero 用「改用新的方式」「新增」，bullet 以「最佳化／修正…的問題／移除／維護」開頭；修正項先寫以前的錯誤現象（標題列是灰的、按 Esc 沒反應；點空白處沒反應）
+- **改了做法要點明舊做法與差別，原理一句帶過**：舊做法只寫「比對聊天框前後的內容、偶爾重複或漏掉」，新做法只寫「hook 掛入遊戲把訊息加進聊天框的那一步」，不展開序號、緩衝區、切分頁時內容被換掉這類細節
+- **新做法帶來的限制要講**：遊戲改版可能讓它失效、會顯示橫幅、需要等新版
+- **一個修正套用到多處就全列**：設定視窗、新增服務的視窗、首次設定精靈
+- **移除設定講為什麼不再需要、舊值怎麼處理**；只寫「收訊頻率的設定」這種泛稱，不寫選項名稱或在哪個分頁
+- 數字都對過程式碼：0.4 秒是 v0.4.2 的預設值、0.1 秒是現在的固定值；縮放以前卡幾秒取決於訊息數，所以不寫秒數
+- 玩家感覺不到的不寫：只刪掉兩個字串的翻譯更新、README 與技能檔的修改
+- 固定按鍵（Esc）可以寫；可自訂的熱鍵組合不寫
+
+**沿用 v0.4.2 範本的原則**：用玩家遇過的實例講問題（「想問能不能補血，送出去變成請隊友幫你補」）；翻譯品質類的改動講「調整提示詞」與成果，不細講提示詞規則或結構化輸出這類實作；只影響部分服務的改動要寫明範圍（只影響 Claude、其他服務不受影響）。
 
 ## 重點群組範例
 
@@ -259,6 +270,7 @@ On top of that, we also did:
 - [ ] 每一項都看得出是新增、最佳化、修正還是移除？條列都以類型動詞開頭？
 - [ ] 有沒有哪句會讓人誤以為以前的行為不一樣？改了做法的地方有點明舊做法嗎？
 - [ ] 修正項有先寫以前的錯誤現象嗎？同一個修正套用到的地方都列了嗎？
+- [ ] 講原理的地方是不是一句就帶過？有沒有展開序號、緩衝區這類玩家讀不下去的細節？
 - [ ] 主打功能是不是散文？沒被我寫成 bullet？
 - [ ] 有沒有第二人稱直接對讀者？
 - [ ] 是不是不小心又灑了「✨ ⚡ 🎨」三段式分節？
