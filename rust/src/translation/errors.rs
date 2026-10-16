@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
+use super::pystr;
+
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslateError {
@@ -19,6 +21,8 @@ pub enum TranslateError {
     Cancelled,
     /// 端點不提供模型清單，使用者仍可自行輸入模型名稱。
     NoModelList,
+    /// 對應 Python 未分類的例外（回應格式異常等），呼叫端依「非預期錯誤」處理。
+    Unexpected(String),
 }
 
 impl TranslateError {
@@ -49,7 +53,7 @@ impl fmt::Display for TranslateError {
                     (None, _) => f.write_str(detail),
                 }
             }
-            Self::BadOutput(message) => f.write_str(message),
+            Self::BadOutput(message) | Self::Unexpected(message) => f.write_str(message),
             Self::Cancelled => f.write_str("request cancelled"),
             Self::NoModelList => f.write_str("endpoint provides no model list"),
         }
@@ -68,7 +72,10 @@ static REJECTED_PARAM: LazyLock<Regex> = LazyLock::new(|| {
 
 /// 折成單行（不截斷 —— 訊息尾端常是說明網址）。
 pub fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    text.split(pystr::is_space)
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// OpenAI／Anthropic 的 `error.message`，或自架後端直接放字串的 `error`／`message`。
@@ -118,5 +125,15 @@ pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
     match status {
         404 | 405 => Some(TranslateError::NoModelList),
         _ => status_error(status, detail),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::one_line;
+
+    #[test]
+    fn one_line_splits_on_python_whitespace() {
+        assert_eq!(one_line(" a\x1cb \u{3000}c\n"), "a b c");
     }
 }

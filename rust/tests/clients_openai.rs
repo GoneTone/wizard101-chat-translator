@@ -483,3 +483,82 @@ fn build_client_picks_endpoint_by_provider() {
     assert!(build_client(&spec("claude")).is_none());
     assert!(build_client(&spec("gemini")).is_none());
 }
+
+#[tokio::test]
+async fn malformed_stream_chunk_is_unexpected() {
+    for bad in ["data: not json\n\n", "data: 5\n\n"] {
+        let server = MockServer::start().await;
+        let response = ResponseTemplate::new(200).set_body_raw(bad, "text/event-stream");
+        mount_chat(&server, response).await;
+        let result = chat(&client(&server, true, false)).await;
+        assert!(
+            matches!(result, Err(TranslateError::Unexpected(_))),
+            "{bad:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn models_200_with_html_body_is_unexpected() {
+    for body in ["<html>oops</html>", "[1, 2]"] {
+        let server = MockServer::start().await;
+        mount_models(&server, ResponseTemplate::new(200).set_body_string(body)).await;
+        let result = client(&server, true, false).list_models().await;
+        assert!(
+            matches!(result, Err(TranslateError::Unexpected(_))),
+            "{body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn models_auth_errors_are_config() {
+    for status in [401, 403] {
+        let server = MockServer::start().await;
+        mount_models(&server, error_body(status, "bad key")).await;
+        assert_eq!(
+            client(&server, true, false).list_models().await,
+            Err(TranslateError::Config {
+                status: Some(status),
+                detail: "bad key".into()
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn models_retryable_statuses_are_offline() {
+    for status in [429, 500, 503] {
+        let server = MockServer::start().await;
+        mount_models(&server, error_body(status, "busy")).await;
+        assert_eq!(
+            client(&server, true, false).list_models().await,
+            Err(TranslateError::Offline {
+                status: Some(status),
+                detail: "busy".into()
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn models_connection_failure_is_offline() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    assert!(matches!(
+        c.list_models().await,
+        Err(TranslateError::Offline { status: None, .. })
+    ));
+}
+
+#[tokio::test]
+async fn redirects_are_not_followed() {
+    let server = MockServer::start().await;
+    let redirect = ResponseTemplate::new(302).insert_header("location", "/elsewhere");
+    mount_chat(&server, redirect).await;
+    // httpx 不跟隨轉址：<400 照串流讀，沒有 data 行就是空譯文
+    assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "");
+    assert_eq!(bodies(&server).await.len(), 1);
+}

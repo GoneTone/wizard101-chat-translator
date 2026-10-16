@@ -236,7 +236,11 @@ impl OpenAiCompatClient {
                 return Ok(ControlFlow::Break(()));
             }
             let chunk: Value = serde_json::from_str(data)
-                .map_err(|e| TranslateError::BadOutput(format!("malformed stream chunk: {e}")))?;
+                .ok()
+                .filter(Value::is_object)
+                .ok_or_else(|| {
+                    TranslateError::Unexpected(format!("malformed stream chunk: {data:?}"))
+                })?;
             if let Some(choice) = chunk.pointer("/choices/0") {
                 if let Some(piece) = choice.pointer("/delta/content").and_then(Value::as_str) {
                     out.content.push_str(piece);
@@ -272,7 +276,15 @@ impl OpenAiCompatClient {
         if let Some(error) = model_list_error(status, &error_detail(&text)) {
             return Err(error);
         }
-        let body: Value = serde_json::from_str(&text).map_err(|_| TranslateError::NoModelList)?;
+        if !(200..300).contains(&status) {
+            return Err(TranslateError::Unexpected(format!("HTTP {status}")));
+        }
+        let body: Value = serde_json::from_str(&text)
+            .ok()
+            .filter(Value::is_object)
+            .ok_or_else(|| {
+                TranslateError::Unexpected("models response is not a JSON object".into())
+            })?;
         let data = body
             .get("data")
             .and_then(Value::as_array)

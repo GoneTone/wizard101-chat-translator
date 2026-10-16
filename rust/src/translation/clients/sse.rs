@@ -6,6 +6,7 @@ use futures_util::StreamExt;
 
 use super::connection_error;
 use crate::translation::errors::TranslateError;
+use crate::translation::pystr;
 
 /// 把任意切分的位元組塊重組成行（以 `\n` 為界，去掉行尾 `\r`）。
 #[derive(Default)]
@@ -38,7 +39,7 @@ fn decode(line: &[u8]) -> String {
 
 /// `data:` 行的內容（去前後空白）；其他行（註解、`event:`、空行）回 `None`。
 pub fn data_of(line: &str) -> Option<&str> {
-    line.strip_prefix("data:").map(str::trim)
+    line.strip_prefix("data:").map(pystr::strip)
 }
 
 /// 逐筆把回應的 `data:` 內容交給 `on_data`；它回 `Break` 或串流結束即停止。

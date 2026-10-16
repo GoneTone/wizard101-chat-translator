@@ -133,11 +133,12 @@ pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
     TranslateError::offline(one_line(&parts.join(": ")))
 }
 
-/// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]。
+/// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
 pub(crate) fn http_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
         .read_timeout(TIMEOUT)
+        .redirect(reqwest::redirect::Policy::none())
         .default_headers(headers)
         .build()
         .expect("build HTTP client")
