@@ -13,11 +13,12 @@ def _sse(chunks) -> list[str]:
 
 class FakeResponse:
     """替身串流回應：`iter_lines` 把 content 逐字拆成 SSE 塊送出（證明客戶端有把塊接回去），
-    finish_reason 跟在最後一塊、usage（若有）另成一塊，與 OpenAI 的串流格式一致。
+    finish_reason 跟在最後一塊、usage（`usage` 整塊給定，或只給 completion_tokens）另成一塊，
+    與 OpenAI 的串流格式一致。
     `json()` 只給 list_models 的 GET 用。"""
 
     def __init__(self, status_code=200, content="譯文", finish_reason="stop",
-                 completion_tokens=None, payload=None, text=""):
+                 completion_tokens=None, payload=None, text="", usage=None):
         self.status_code = status_code
         self.text = text
         self.closed = False
@@ -25,13 +26,16 @@ class FakeResponse:
         self._finish_reason = finish_reason
         self._completion_tokens = completion_tokens
         self._payload = payload
+        self._usage = usage
 
     def iter_lines(self):
         pieces = list(self._content) or [""]
         chunks = [{"choices": [{"delta": {"content": piece}, "finish_reason": None}]}
                   for piece in pieces]
         chunks[-1]["choices"][0]["finish_reason"] = self._finish_reason
-        if self._completion_tokens is not None:
+        if self._usage is not None:
+            chunks.append({"choices": [], "usage": self._usage})
+        elif self._completion_tokens is not None:
             chunks.append({"choices": [], "usage": {"completion_tokens": self._completion_tokens}})
         yield from _sse(chunks)
 
