@@ -226,6 +226,9 @@ def _load_inputs() -> list[bytes]:
             "extra": [1e-05, 1e16, 123.0, -0.0, 1e100, 0.30000000000000004, 0.0001,
                       1.5e300, 12345678901234567, -0, 1e2, 5e-324]}),
         b'{"hotkey": "a", "fade_seconds": 5, "hotkey": "b", "poll_interval": 1}',
+        b'{"x": -0, "y": 123456789012345678901234567890, "w": [-0.0, 1E2, 1.5e-7, -12],'
+        b' "fade_seconds": -0, "poll_interval": 1}',
+        b'{"x": -0, "y": -123456789012345678901234567890, "max_messages": 1e400}',
         js({"overlay": {"x": 10, "extra": 1}, "bubble_position": None,
             "service_slots": {"incoming": "nope"}, "poll_interval": 2}),
     ]

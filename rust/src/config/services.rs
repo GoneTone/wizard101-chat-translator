@@ -2,6 +2,7 @@
 //!
 //! 「服務」是使用者建立的一筆具名設定 —— 某家服務商加上金鑰、模型等欄位。
 
+use std::fmt;
 use std::hash::{BuildHasher, Hasher, RandomState};
 
 use serde_json::{Map, Value};
@@ -129,7 +130,7 @@ impl ServiceSlot {
 }
 
 /// 某用途實際生效的服務；欄位不存在時為空字串或 `false`。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct ServiceSpec {
     /// 服務 id（尚未設定任何服務時為空）。
     pub id: String,
@@ -147,6 +148,22 @@ pub struct ServiceSpec {
     pub thinking: bool,
     /// Claude／Gemini 的思考深度。
     pub effort: String,
+}
+
+// 手寫 Debug：金鑰只顯示有沒有，`{:?}` 進 log 也不會外洩（裁示 R7）
+impl fmt::Debug for ServiceSpec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ServiceSpec")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("has_key", &!self.api_key.is_empty())
+            .field("base_url", &self.base_url)
+            .field("thinking", &self.thinking)
+            .field("effort", &self.effort)
+            .finish()
+    }
 }
 
 impl ServiceSpec {
@@ -682,6 +699,18 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), 50);
+    }
+
+    #[test]
+    fn debug_output_never_shows_the_api_key() {
+        let spec = ServiceSpec {
+            api_key: "sk-SECRET-KEY".into(),
+            model: "m".into(),
+            ..Default::default()
+        };
+        let text = format!("{spec:?} {spec:#?}");
+        assert!(!text.contains("sk-SECRET-KEY"), "{text}");
+        assert!(text.contains("has_key: true"), "{text}");
     }
 
     #[test]

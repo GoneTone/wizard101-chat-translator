@@ -110,9 +110,9 @@ fn clamp_advanced(values: &mut Config, defaults: &Config) {
             value = defaults[key].clone();
         }
         // 照 Python min(hi, max(lo, value)) 的取值：相等時留下先出現的那個（連同型別）
-        let x = value.as_f64().unwrap_or(lo);
+        let x = py::number(&value).unwrap_or(lo);
         let value = if x > lo { value } else { bound(lo, is_float) };
-        let x = value.as_f64().unwrap_or(hi);
+        let x = py::number(&value).unwrap_or(hi);
         let value = if x < hi { value } else { bound(hi, is_float) };
         values.insert(key.into(), value);
     }

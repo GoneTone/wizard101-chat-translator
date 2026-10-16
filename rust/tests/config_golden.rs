@@ -52,9 +52,25 @@ fn as_config(value: &Value) -> Config {
     value.as_object().unwrap().clone()
 }
 
-/// 比對時連鍵的順序一起比：serde_json 的 Map 相等不看順序。
+/// 比對時連鍵的順序一起比（serde_json 的 Map 相等不看順序），數字依 Python 的值與型別比。
 fn ordered(value: &Value) -> String {
-    serde_json::to_string(value).unwrap()
+    fn python_numbers(value: &Value) -> Value {
+        match value {
+            Value::Number(n) if n.as_str().contains(['.', 'e', 'E']) => {
+                Value::String(format!("float:{:?}", n.as_str().parse::<f64>().unwrap()))
+            }
+            Value::Number(n) if n.as_str() == "-0" => Value::String("int:0".into()),
+            Value::Number(n) => Value::String(format!("int:{n}")),
+            Value::Array(items) => Value::Array(items.iter().map(python_numbers).collect()),
+            Value::Object(map) => Value::Object(
+                map.iter()
+                    .map(|(k, v)| (k.clone(), python_numbers(v)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    serde_json::to_string(&python_numbers(value)).unwrap()
 }
 
 fn temp_dir(name: &str) -> PathBuf {

@@ -42,21 +42,63 @@ fn write_value(out: &mut String, value: &Value, depth: usize) {
             newline(out, depth);
             out.push('}');
         }
+        // json.dumps 對溢位成 inf 的浮點數寫 Infinity，不是 repr 的 inf
+        Value::Number(n) if is_float(n) && !to_f64(n).is_finite() => {
+            out.push_str(if to_f64(n) > 0.0 {
+                "Infinity"
+            } else {
+                "-Infinity"
+            });
+        }
         Value::Number(n) => out.push_str(&number_repr(n)),
         // serde_json 的字串跳脫（控制字元 \u00xx 小寫、不跳脫非 ASCII）與 Python 相同
         other => out.push_str(&other.to_string()),
     }
 }
 
+/// 數字字面值是不是 Python 的 float（json.loads 依有無 `.`／`e` 決定 int 或 float）。
+fn is_float(n: &Number) -> bool {
+    n.as_str().contains(['.', 'e', 'E'])
+}
+
+fn to_f64(n: &Number) -> f64 {
+    n.as_str().parse().unwrap_or(f64::NAN)
+}
+
+/// Python 數值比較用的值；bool 視為 0／1，超出 f64 的整數取近似值。
+pub(crate) fn number(value: &Value) -> Option<f64> {
+    match value {
+        Value::Bool(b) => Some(f64::from(u8::from(*b))),
+        Value::Number(n) => Some(to_f64(n)),
+        _ => None,
+    }
+}
+
+/// int 保留原字面值（大整數不失真），只把 JSON 的 `-0` 正規化成 Python 的 `0`。
+fn int_repr(n: &Number) -> &str {
+    match n.as_str() {
+        "-0" => "0",
+        s => s,
+    }
+}
+
 fn number_repr(n: &Number) -> String {
-    match n.as_f64() {
-        Some(x) if n.is_f64() => float_repr(x),
-        _ => n.to_string(),
+    if is_float(n) {
+        float_repr(to_f64(n))
+    } else {
+        int_repr(n).to_string()
     }
 }
 
 /// Python `repr(float)`：最短來回位數，指數小於 -4 或不小於 16 時改用科學記號。
 pub(crate) fn float_repr(x: f64) -> String {
+    if !x.is_finite() {
+        return match x {
+            x if x.is_nan() => "nan".into(),
+            x if x > 0.0 => "inf".into(),
+            _ => "-inf".into(),
+        };
+    }
     let sci = format!("{x:e}");
     let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
     let exp: i32 = exp.parse().unwrap_or(0);
@@ -161,7 +203,7 @@ pub(crate) fn type_name(value: &Value) -> &'static str {
     match value {
         Value::Null => "NoneType",
         Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
+        Value::Number(n) if is_float(n) => "float",
         Value::Number(_) => "int",
         Value::String(_) => "str",
         Value::Array(_) => "list",
@@ -174,7 +216,7 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(b)) => *b,
-        Some(Value::Number(n)) => n.as_f64() != Some(0.0),
+        Some(Value::Number(n)) => to_f64(n) != 0.0,
         Some(Value::String(s)) => !s.is_empty(),
         Some(Value::Array(a)) => !a.is_empty(),
         Some(Value::Object(m)) => !m.is_empty(),
@@ -183,19 +225,17 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
 
 /// Python `==`：bool 與數字互通（`False == 0`、`1 == 1.0`），dict 不看鍵順序。
 pub(crate) fn eq(a: &Value, b: &Value) -> bool {
-    let num = |v: &Value| match v {
-        Value::Bool(b) => Some(f64::from(u8::from(*b))),
-        Value::Number(n) => n.as_f64(),
-        _ => None,
-    };
     match (a, b) {
+        (Value::Number(x), Value::Number(y)) if !is_float(x) && !is_float(y) => {
+            int_repr(x) == int_repr(y)
+        }
         (Value::Array(x), Value::Array(y)) => {
             x.len() == y.len() && x.iter().zip(y).all(|(p, q)| eq(p, q))
         }
         (Value::Object(x), Value::Object(y)) => {
             x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| eq(v, w)))
         }
-        _ => match (num(a), num(b)) {
+        _ => match (number(a), number(b)) {
             (Some(x), Some(y)) => x == y,
             _ => a == b,
         },
@@ -242,6 +282,31 @@ mod tests {
             repr(&json!([null, true, 1, 2.0, {"k": "v"}])),
             "[None, True, 1, 2.0, {'k': 'v'}]"
         );
+    }
+
+    #[test]
+    fn dumps_keeps_python_int_and_float_literals() {
+        let value: Value = serde_json::from_str(
+            r#"{"a": -0, "b": 123456789012345678901234567890, "c": 1e400, "d": 1E2}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            dumps_indent2(&value),
+            "{\n  \"a\": 0,\n  \"b\": 123456789012345678901234567890,\n  \"c\": Infinity,\n  \"d\": 100.0\n}"
+        );
+        assert_eq!(repr(&value["c"]), "inf");
+        assert_eq!(type_name(&value["b"]), "int");
+    }
+
+    #[test]
+    fn eq_compares_big_ints_exactly() {
+        let parse = |s: &str| serde_json::from_str::<Value>(s).unwrap();
+        assert!(!eq(
+            &parse("123456789012345678901234567890"),
+            &parse("123456789012345678901234567891")
+        ));
+        assert!(eq(&parse("-0"), &parse("0")));
+        assert!(eq(&parse("-0"), &json!(false)));
     }
 
     #[test]
