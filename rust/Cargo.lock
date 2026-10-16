@@ -1938,6 +1938,7 @@ dependencies = [
  "tokio-util",
  "windows-sys 0.61.2",
  "wiremock",
+ "wizard101-chat-translator",
 ]
 
 [[package]]

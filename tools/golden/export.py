@@ -1006,6 +1006,62 @@ EXPORTERS["cache_fingerprint"] = export_cache_fingerprint
 EXPORTERS["cache_file_bytes"] = export_cache_file_bytes
 
 
+def _pattern_instance(pattern: bytes, filler: int) -> bytes:
+    """依 pattern 原文造一段命中位元組：`\\xHH` 照抄，`.`／`+` 以 filler 填。"""
+    out = bytearray()
+    i = 0
+    while i < len(pattern):
+        if pattern[i:i + 2] == b"\\x":
+            out.append(int(pattern[i + 2:i + 4], 16))
+            i += 4
+        elif pattern[i:i + 1] in (b".", b"+"):
+            out.append(filler)
+            i += 1
+        else:
+            raise ValueError(f"unsupported pattern token at {i}: {pattern!r}")
+    return bytes(out)
+
+
+def export_pattern_scan() -> list[dict]:
+    """pattern 掃描：input 為 pattern 原文與緩衝（hex），output 為 `regex.finditer(DOTALL)` 的 [起, 迄]。"""
+    import regex
+    from wizwalker.memory import hooks
+    from wizwalker.memory.handler import HookHandler
+
+    from src.reader import chat_hook
+
+    real = [
+        chat_hook.PATTERN,
+        HookHandler.AUTOBOT_PATTERN,
+        hooks.User32GetClassInfoBaseHook.AUTOBOT_PATTERN,
+        hooks.PlayerHook.pattern,
+        hooks.PlayerStatHook.pattern,
+        hooks.QuestHook.pattern,
+        hooks.ClientHook.pattern,
+        hooks.RootWindowHook.pattern,
+        hooks.RenderContextHook.pattern,
+        hooks.MovementTeleportHook.pattern,
+    ]
+    junk = bytes(range(64))  # 含 0x0A，驗證 `.` 跨換行
+    cases = []
+    for pattern in real:
+        hit = _pattern_instance(pattern, 0x0A)
+        for buf in (junk + hit + junk, hit + junk + _pattern_instance(pattern, 0x00),
+                    junk + hit[:-1]):
+            cases.append((pattern, buf))
+    cases += [
+        (rb"\x0A.\x0A", b"\n\n\n\n\n"),
+        (rb"\xAA.+\xBB", b"\xAA\n\xBB\n\xBB\xAA\xBB\xAA\x00\xBB"),
+        (rb"\x00[\x01-\x0A]{2}\xFF?", b"\x00\x01\x0A\xFF\x00\x0A\x0A\x00\x0B\x01"),
+    ]
+    return [{"input": {"pattern": p.decode("ascii"), "buffer": b.hex()},
+             "output": [list(m.span()) for m in regex.finditer(p, b, regex.DOTALL)]}
+            for p, b in cases]
+
+
+EXPORTERS["pattern_scan"] = export_pattern_scan
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
