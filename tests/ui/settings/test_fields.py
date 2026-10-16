@@ -80,7 +80,7 @@ def test_friendly_error_guesses_from_status_when_api_gave_no_message():
         ("error.model_not_found", {})
     assert friendly_error(TranslatorConfigError(status=400)) == \
         ("error.api_http", {"status": 400})
-    assert friendly_error(TranslatorOffline(status=503)) == ("error.offline", {})
+    assert friendly_error(TranslatorOffline(status=503)) == ("error.server_http", {"status": 503})
     assert friendly_error(TranslatorOffline()) == ("error.offline", {})
 
 

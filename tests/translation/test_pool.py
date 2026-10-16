@@ -290,7 +290,7 @@ def test_error_detail_exposes_the_api_message_while_failing():
         pool.shutdown(wait=True)
 
 
-def test_error_detail_is_none_without_a_message_and_after_recovery():
+def test_error_detail_keeps_the_status_without_a_message_and_clears_after_recovery():
     tr = FailThenOk(TranslatorOffline("upstream down", status=503), failures=1)
     c = Collector()
     pool = _pool(tr, c, workers=1)
@@ -308,7 +308,7 @@ def test_error_detail_is_none_without_a_message_and_after_recovery():
         while pool.error_state is None and time.monotonic() < deadline:
             time.sleep(0.01)
         assert pool.error_state == "offline"
-        assert pool.error_detail is None          # API 沒說明：橫幅退回固定文案
+        assert pool.error_detail == (503, "")     # API 沒說明：橫幅仍顯示狀態碼
     finally:
         pool.shutdown(wait=True)
 
