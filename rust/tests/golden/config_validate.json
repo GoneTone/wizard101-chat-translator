@@ -1,0 +1,87 @@
+[
+ {
+  "input": {
+   "provider": "openai",
+   "model": "",
+   "api_key": ""
+  },
+  "output": [
+   "error.need_model",
+   "error.need_api_key"
+  ]
+ },
+ {
+  "input": {
+   "provider": "openai",
+   "model": "m",
+   "api_key": "k"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "provider": "claude",
+   "model": "  ",
+   "api_key": "　"
+  },
+  "output": [
+   "error.need_model",
+   "error.need_api_key"
+  ]
+ },
+ {
+  "input": {
+   "provider": "gemini",
+   "model": "g",
+   "api_key": "\u001c\t"
+  },
+  "output": [
+   "error.need_api_key"
+  ]
+ },
+ {
+  "input": {
+   "provider": "custom",
+   "base_url": "",
+   "model": "m",
+   "api_key": ""
+  },
+  "output": [
+   "error.need_base_url"
+  ]
+ },
+ {
+  "input": {
+   "provider": "custom",
+   "base_url": "http://x",
+   "model": " ",
+   "api_key": ""
+  },
+  "output": [
+   "error.need_model"
+  ]
+ },
+ {
+  "input": {
+   "id": "s3",
+   "name": "Local",
+   "provider": "custom",
+   "base_url": "http://x",
+   "model": "gemma",
+   "api_key": "",
+   "thinking": true
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "id": "s2",
+   "name": "Claude",
+   "provider": "claude",
+   "model": "claude-x",
+   "api_key": "SK-CLAUDE",
+   "effort": "auto"
+  },
+  "output": []
+ }
+]

@@ -1,0 +1,335 @@
+[
+ {
+  "input": {
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "incoming"
+  },
+  "output": {
+   "provider": "openai",
+   "model": "",
+   "api_key": "",
+   "thinking": false,
+   "id": "",
+   "name": ""
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "outgoing"
+  },
+  "output": {
+   "provider": "openai",
+   "model": "",
+   "api_key": "",
+   "thinking": false,
+   "id": "",
+   "name": ""
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "region"
+  },
+  "output": {
+   "provider": "openai",
+   "model": "",
+   "api_key": "",
+   "thinking": false,
+   "id": "",
+   "name": ""
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": "s2",
+     "region": "s3"
+    }
+   },
+   "slot": "incoming"
+  },
+  "output": {
+   "provider": "openai",
+   "model": "gpt-x",
+   "api_key": "SK-OPENAI",
+   "thinking": false,
+   "id": "s1",
+   "name": "GPT"
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": "s2",
+     "region": "s3"
+    }
+   },
+   "slot": "outgoing"
+  },
+  "output": {
+   "provider": "claude",
+   "model": "claude-x",
+   "api_key": "SK-CLAUDE",
+   "effort": "auto",
+   "id": "s2",
+   "name": "Claude"
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": "s2",
+     "region": "s3"
+    }
+   },
+   "slot": "region"
+  },
+  "output": {
+   "provider": "custom",
+   "base_url": "http://x",
+   "model": "gemma",
+   "api_key": "",
+   "thinking": true,
+   "id": "s3",
+   "name": "Local"
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s3",
+    "service_slots": {
+     "incoming": "s2",
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "incoming"
+  },
+  "output": {
+   "provider": "claude",
+   "model": "claude-x",
+   "api_key": "SK-CLAUDE",
+   "effort": "auto",
+   "id": "s2",
+   "name": "Claude"
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s3",
+    "service_slots": {
+     "incoming": "s2",
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "outgoing"
+  },
+  "output": {
+   "provider": "custom",
+   "base_url": "http://x",
+   "model": "gemma",
+   "api_key": "",
+   "thinking": true,
+   "id": "s3",
+   "name": "Local"
+  }
+ },
+ {
+  "input": {
+   "cfg": {
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     },
+     {
+      "id": "s3",
+      "name": "Local",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s3",
+    "service_slots": {
+     "incoming": "s2",
+     "outgoing": null,
+     "region": null
+    }
+   },
+   "slot": "region"
+  },
+  "output": {
+   "provider": "custom",
+   "base_url": "http://x",
+   "model": "gemma",
+   "api_key": "",
+   "thinking": true,
+   "id": "s3",
+   "name": "Local"
+  }
+ }
+]

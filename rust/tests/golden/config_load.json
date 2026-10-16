@@ -1,0 +1,1673 @@
+[
+ {
+  "input": "",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22686f746b6579223a20226638222c7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "fffe7b22686f746b6579223a20226638227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "efbbbf7b22686f746b6579223a20226638227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "5b312c20325d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "226a757374206120737472696e6722",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "6e756c6c",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22666164655f7365636f6e6473223a2033307d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 30,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22686f746b6579223a20226374726c2b616c742b74222c202267616d655f70617468223a2022443a5c5c47616d65735c5c57697a617264313031227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+alt+t",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    },
+    "game_path": "D:\\Games\\Wizard101"
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22706f6c6c5f696e74657276616c223a20302e357d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22636f6e6669675f76657273696f6e223a20322c20227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d2c207b226964223a20227332222c20226e616d65223a2022436c61756465222c202270726f7669646572223a2022636c61756465222c20226d6f64656c223a2022636c617564652d78222c20226170695f6b6579223a2022534b2d434c41554445222c20226566666f7274223a20226175746f227d5d2c202264656661756c745f73657276696365223a20227331222c2022736572766963655f736c6f7473223a207b22696e636f6d696e67223a206e756c6c2c20226f7574676f696e67223a20227332222c2022726567696f6e223a206e756c6c7d2c2022756e737570706f727465645f7365727669636573223a205b5d2c202275695f6c616e6775616765223a20226a612d4a50222c20227461726765745f6c616e6775616765223a2022e697a5e69cace8aa9e222c2022666164655f7365636f6e6473223a20302c20226d61785f6d65737361676573223a203230302c20226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c20227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c2022686f746b6579223a20226374726c2b7370616365222c2022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c20226175746f5f73686f775f696e707574223a20747275652c202270617374655f686f746b6579223a20747275652c2022747970655f64656c6179223a20302e30322c20226f7665726c61795f616c706861223a20302e382c20226f7665726c6179223a207b2278223a206e756c6c2c202279223a206e756c6c2c20227769647468223a203634302c2022686569676874223a203432307d2c2022627562626c655f706f736974696f6e223a207b2278223a206e756c6c2c202279223a206e756c6c7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": "s2",
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": "ja-JP",
+    "target_language": "日本語",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d2c0d0a202020207b0d0a202020202020226964223a20227332222c0d0a202020202020226e616d65223a2022436c61756465222c0d0a2020202020202270726f7669646572223a2022636c61756465222c0d0a202020202020226d6f64656c223a2022636c617564652d78222c0d0a202020202020226170695f6b6579223a2022534b2d434c41554445222c0d0a202020202020226566666f7274223a20226175746f220d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a20227332222c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a20226a612d4a50222c0d0a2020227461726765745f6c616e6775616765223a2022e697a5e69cace8aa9e222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": "s2",
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": "ja-JP",
+    "target_language": "日本語",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22666164655f7365636f6e6473223a20747275652c20226d61785f6d65737361676573223a2022333030222c2022747970655f64656c6179223a206e756c6c2c20226f7665726c61795f616c706861223a205b315d2c20226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a207b7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22666164655f7365636f6e6473223a202d352c20226d61785f6d65737361676573223a2039393939392c2022747970655f64656c6179223a20392e302c20226f7665726c61795f616c706861223a20302e312c20226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20307d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 1000,
+    "max_parallel_translations": 1,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.5,
+    "overlay_alpha": 0.3,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b22666164655f7365636f6e6473223a20352e352c20226d61785f6d65737361676573223a2031302e302c2022747970655f64656c6179223a20302c20226f7665726c61795f616c706861223a20312c20226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20382e302c2022706f6c6c5f696e74657276616c223a20317d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 5.5,
+    "max_messages": 10,
+    "max_parallel_translations": 8,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.0,
+    "overlay_alpha": 1.0,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20352e352c0d0a2020226d61785f6d65737361676573223a2031302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20382c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e302c0d0a2020226f7665726c61795f616c706861223a20312e302c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a20307d5d2c202264656661756c745f73657276696365223a20227331227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a20317d5d2c202264656661756c745f73657276696365223a20227331227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20372c20226e616d65223a2034322c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20352c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d5d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a20224f70656e4149222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a2022222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a202240696431222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a2022637573746f6d222c2022626173655f75726c223a2022687474703a2f2f3132372e302e302e313a38303030222c20226d6f64656c223a202267656d6d61222c20226170695f6b6579223a2022736b2d31227d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "http://127.0.0.1:8000",
+      "model": "gemma",
+      "api_key": "sk-1",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a2022437573746f6d20656e64706f696e74222c0d0a2020202020202270726f7669646572223a2022637573746f6d222c0d0a20202020202022626173655f75726c223a2022687474703a2f2f3132372e302e302e313a38303030222c0d0a202020202020226d6f64656c223a202267656d6d61222c0d0a202020202020226170695f6b6579223a2022736b2d31222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a202240696431222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b22626173655f75726c223a2022687474703a2f2f3132372e302e302e313a38303030222c20226d6f64656c223a20226d31227d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "http://127.0.0.1:8000",
+      "model": "m1",
+      "api_key": "",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a2022437573746f6d20656e64706f696e74222c0d0a2020202020202270726f7669646572223a2022637573746f6d222c0d0a20202020202022626173655f75726c223a2022687474703a2f2f3132372e302e302e313a38303030222c0d0a202020202020226d6f64656c223a20226d31222c0d0a202020202020226170695f6b6579223a2022222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a202240696431222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a206e756c6c2c20226d6f64656c223a202267222c20226170695f6b6579223a2022534b2d4e554c4c227d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": null,
+      "model": "g",
+      "api_key": "SK-NULL"
+     }
+    ],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b0d0a202020207b0d0a2020202020202270726f7669646572223a206e756c6c2c0d0a202020202020226d6f64656c223a202267222c0d0a202020202020226170695f6b6579223a2022534b2d4e554c4c220d0a202020207d0d0a20205d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a20226d69737472616c222c20226d6f64656c223a202267222c20226170695f6b6579223a2022534b2d4d49535452414c2d464c4154227d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "SK-MISTRAL-FLAT"
+     }
+    ],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b0d0a202020207b0d0a2020202020202270726f7669646572223a20226d69737472616c222c0d0a202020202020226d6f64656c223a202267222c0d0a202020202020226170695f6b6579223a2022534b2d4d49535452414c2d464c4154220d0a202020207d0d0a20205d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a2022636c61756465222c20226f70656e6169223a207b226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022736b2d31222c20227468696e6b696e67223a2066616c73657d2c2022636c61756465223a207b226d6f64656c223a2022636c617564652d78222c20226170695f6b6579223a2022736b2d616e74222c20226566666f7274223a20226175746f227d2c2022637573746f6d223a207b22626173655f75726c223a2022222c20226d6f64656c223a2022222c20226170695f6b6579223a2022222c20227468696e6b696e67223a2066616c73657d7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "sk-1",
+      "thinking": false
+     },
+     {
+      "id": "@id2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "sk-ant",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "@id2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a20224f70656e4149222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022736b2d31222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d2c0d0a202020207b0d0a202020202020226964223a202240696432222c0d0a202020202020226e616d65223a2022436c61756465222c0d0a2020202020202270726f7669646572223a2022636c61756465222c0d0a202020202020226d6f64656c223a2022636c617564652d78222c0d0a202020202020226170695f6b6579223a2022736b2d616e74222c0d0a202020202020226566666f7274223a20226175746f220d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a202240696432222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a20226f70656e6169222c20226f70656e6169223a207b226d6f64656c223a2022222c20226170695f6b6579223a2022222c20227468696e6b696e67223a2066616c73657d2c2022636c61756465223a207b226d6f64656c223a2022222c20226170695f6b6579223a2022222c20226566666f7274223a20226175746f227d2c2022637573746f6d223a207b22626173655f75726c223a2022222c20226d6f64656c223a2022222c20226170695f6b6579223a2022222c20227468696e6b696e67223a2066616c73657d7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227332222c20226e616d65223a2022436c61756465222c202270726f7669646572223a2022636c61756465222c20226d6f64656c223a2022636c617564652d78222c20226170695f6b6579223a2022534b2d434c41554445222c20226566666f7274223a20226175746f227d5d2c202264656661756c745f73657276696365223a20227332222c2022617069223a207b2270726f7669646572223a20226f70656e6169222c20226f70656e6169223a207b226d6f64656c223a2022222c20226170695f6b6579223a2022222c20227468696e6b696e67223a2066616c73657d2c2022636c61756465223a207b226d6f64656c223a2022222c20226170695f6b6579223a2022222c20226566666f7274223a20226175746f227d2c2022637573746f6d223a207b22626173655f75726c223a2022222c20226d6f64656c223a2022222c20226170695f6b6579223a2022222c20227468696e6b696e67223a2066616c73657d7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227332222c0d0a202020202020226e616d65223a2022436c61756465222c0d0a2020202020202270726f7669646572223a2022636c61756465222c0d0a202020202020226d6f64656c223a2022636c617564652d78222c0d0a202020202020226170695f6b6579223a2022534b2d434c41554445222c0d0a202020202020226566666f7274223a20226175746f220d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227332222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a207b2270726f7669646572223a20226d69737472616c222c20226d69737472616c223a207b226170695f6b6579223a2022534b2d4d49535452414c227d2c20226f70656e6169223a207b226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149227d7d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "api_key": "SK-MISTRAL"
+     }
+    ],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a20224f70656e4149222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a202240696431222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b0d0a202020207b0d0a2020202020202270726f7669646572223a20226d69737472616c222c0d0a202020202020226170695f6b6579223a2022534b2d4d49535452414c220d0a202020207d0d0a20205d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22617069223a20226a756e6b222c2022686f746b6579223a202278227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "x",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": null
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20226161616161616161222c20226e616d65223a202258222c202270726f7669646572223a20226d69737472616c222c20226d6f64656c223a202267222c20226170695f6b6579223a2022736b2d5245414c2d555345522d4b4559222c2022717569726b223a20747275657d5d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "aaaaaaaa",
+      "name": "X",
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "sk-REAL-USER-KEY",
+      "quirk": true
+     }
+    ],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20226161616161616161222c0d0a202020202020226e616d65223a202258222c0d0a2020202020202270726f7669646572223a20226d69737472616c222c0d0a202020202020226d6f64656c223a202267222c0d0a202020202020226170695f6b6579223a2022736b2d5245414c2d555345522d4b4559222c0d0a20202020202022717569726b223a20747275650d0a202020207d0d0a20205d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d2c207b226964223a20227331222c20226e616d65223a20224f74686572222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d2c207b226964223a20227332222c20226e616d65223a2022475054222c202270726f7669646572223a2022636c61756465222c20226d6f64656c223a2022636c617564652d78222c20226170695f6b6579223a2022534b2d434c41554445222c20226566666f7274223a20226175746f227d5d2c202264656661756c745f73657276696365223a20226e6f7065222c2022736572766963655f736c6f7473223a207b22696e636f6d696e67223a20227339222c20226f7574676f696e67223a205b2278225d2c2022726567696f6e223a20332c2022626f677573223a202278227d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "Other",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s2",
+      "name": "GPT (2)",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d2c0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a20224f74686572222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d2c0d0a202020207b0d0a202020202020226964223a20227332222c0d0a202020202020226e616d65223a202247505420283229222c0d0a2020202020202270726f7669646572223a2022636c61756465222c0d0a202020202020226d6f64656c223a2022636c617564652d78222c0d0a202020202020226170695f6b6579223a2022534b2d434c41554445222c0d0a202020202020226566666f7274223a20226175746f220d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d5d2c202264656661756c745f73657276696365223a205b5d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a2022534b2d504153544544222c2022756e737570706f727465645f7365727669636573223a2022534b2d4f54484552227d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     "SK-OTHER",
+     "SK-PASTED"
+    ],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b0d0a2020202022534b2d4f54484552222c0d0a2020202022534b2d504153544544220d0a20205d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a207b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22756e737570706f727465645f7365727669636573223a205b7b2270726f7669646572223a20226f70656e6169222c20226e616d65223a2022475054222c20226170695f6b6579223a2022736b2d33227d5d2c20227365727669636573223a205b7b226964223a20227331222c20226e616d65223a2022475054222c202270726f7669646572223a20226f70656e6169222c20226d6f64656c223a20226770742d78222c20226170695f6b6579223a2022534b2d4f50454e4149222c20227468696e6b696e67223a2066616c73657d5d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "GPT (2)",
+      "provider": "openai",
+      "model": "",
+      "api_key": "sk-3",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227331222c0d0a202020202020226e616d65223a2022475054222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a20226770742d78222c0d0a202020202020226170695f6b6579223a2022534b2d4f50454e4149222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d2c0d0a202020207b0d0a202020202020226964223a202240696431222c0d0a202020202020226e616d65223a202247505420283229222c0d0a2020202020202270726f7669646572223a20226f70656e6169222c0d0a202020202020226d6f64656c223a2022222c0d0a202020202020226170695f6b6579223a2022736b2d33222c0d0a202020202020227468696e6b696e67223a2066616c73650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227331222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b227365727669636573223a205b7b226964223a20227333222c20226e616d65223a2022e68891e79a84e69c8de58b99205c22e5bc95e8999f5c2220277127205c5c205c753030303120e280a820f09f9880222c202270726f7669646572223a2022637573746f6d222c2022626173655f75726c223a2022687474703a2f2f78222c20226d6f64656c223a202267656d6d61222c20226170695f6b6579223a2022222c20227468696e6b696e67223a20747275652c20227374616c65223a20317d5d2c20227461726765745f6c616e6775616765223a2022e697a5e69cace8aa9e222c20226578747261223a205b31652d30352c2031652b31362c203132332e302c202d302e302c2031652b3130302c20302e33303030303030303030303030303030342c20302e303030312c20312e35652b3330302c2031323334353637383930313233343536372c20302c203130302e302c2035652d3332345d7d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [
+     {
+      "id": "s3",
+      "name": "我的服務 \"引號\" 'q' \\ \u0001   😀",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "gemma",
+      "api_key": "",
+      "thinking": true
+     }
+    ],
+    "default_service": "s3",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "日本語",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    },
+    "extra": [
+     1e-05,
+     1e+16,
+     123.0,
+     -0.0,
+     1e+100,
+     0.30000000000000004,
+     0.0001,
+     1.5e+300,
+     12345678901234567,
+     0,
+     100.0,
+     5e-324
+    ]
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b0d0a202020207b0d0a202020202020226964223a20227333222c0d0a202020202020226e616d65223a2022e68891e79a84e69c8de58b99205c22e5bc95e8999f5c2220277127205c5c205c753030303120e280a820f09f9880222c0d0a2020202020202270726f7669646572223a2022637573746f6d222c0d0a20202020202022626173655f75726c223a2022687474703a2f2f78222c0d0a202020202020226d6f64656c223a202267656d6d61222c0d0a202020202020226170695f6b6579223a2022222c0d0a202020202020227468696e6b696e67223a20747275650d0a202020207d0d0a20205d2c0d0a20202264656661756c745f73657276696365223a20227333222c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e697a5e69cace8aa9e222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d2c0d0a2020226578747261223a205b0d0a2020202031652d30352c0d0a2020202031652b31362c0d0a202020203132332e302c0d0a202020202d302e302c0d0a2020202031652b3130302c0d0a20202020302e33303030303030303030303030303030342c0d0a20202020302e303030312c0d0a20202020312e35652b3330302c0d0a2020202031323334353637383930313233343536372c0d0a20202020302c0d0a202020203130302e302c0d0a2020202035652d3332340d0a20205d0d0a7d"
+  }
+ },
+ {
+  "input": "7b22686f746b6579223a202261222c2022666164655f7365636f6e6473223a20352c2022686f746b6579223a202262222c2022706f6c6c5f696e74657276616c223a20317d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 5,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "b",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": null,
+     "y": null,
+     "width": 640,
+     "height": 420
+    },
+    "bubble_position": {
+     "x": null,
+     "y": null
+    }
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20352c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a202262222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432300d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a207b0d0a202020202278223a206e756c6c2c0d0a202020202279223a206e756c6c0d0a20207d0d0a7d"
+  }
+ },
+ {
+  "input": "7b226f7665726c6179223a207b2278223a2031302c20226578747261223a20317d2c2022627562626c655f706f736974696f6e223a206e756c6c2c2022736572766963655f736c6f7473223a207b22696e636f6d696e67223a20226e6f7065227d2c2022706f6c6c5f696e74657276616c223a20327d",
+  "output": {
+   "config": {
+    "config_version": 2,
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [],
+    "ui_language": null,
+    "target_language": "繁體中文（台灣）",
+    "fade_seconds": 0,
+    "max_messages": 200,
+    "max_parallel_translations": 4,
+    "translate_system_messages": false,
+    "hotkey": "ctrl+space",
+    "region_hotkey": "ctrl+shift+space",
+    "auto_show_input": true,
+    "paste_hotkey": true,
+    "type_delay": 0.02,
+    "overlay_alpha": 0.8,
+    "overlay": {
+     "x": 10,
+     "y": null,
+     "width": 640,
+     "height": 420,
+     "extra": 1
+    },
+    "bubble_position": null
+   },
+   "written": "7b0d0a202022636f6e6669675f76657273696f6e223a20322c0d0a2020227365727669636573223a205b5d2c0d0a20202264656661756c745f73657276696365223a206e756c6c2c0d0a202022736572766963655f736c6f7473223a207b0d0a2020202022696e636f6d696e67223a206e756c6c2c0d0a20202020226f7574676f696e67223a206e756c6c2c0d0a2020202022726567696f6e223a206e756c6c0d0a20207d2c0d0a202022756e737570706f727465645f7365727669636573223a205b5d2c0d0a20202275695f6c616e6775616765223a206e756c6c2c0d0a2020227461726765745f6c616e6775616765223a2022e7b981e9ab94e4b8ade69687efbc88e58fb0e781a3efbc89222c0d0a202022666164655f7365636f6e6473223a20302c0d0a2020226d61785f6d65737361676573223a203230302c0d0a2020226d61785f706172616c6c656c5f7472616e736c6174696f6e73223a20342c0d0a2020227472616e736c6174655f73797374656d5f6d65737361676573223a2066616c73652c0d0a202022686f746b6579223a20226374726c2b7370616365222c0d0a202022726567696f6e5f686f746b6579223a20226374726c2b73686966742b7370616365222c0d0a2020226175746f5f73686f775f696e707574223a20747275652c0d0a20202270617374655f686f746b6579223a20747275652c0d0a202022747970655f64656c6179223a20302e30322c0d0a2020226f7665726c61795f616c706861223a20302e382c0d0a2020226f7665726c6179223a207b0d0a202020202278223a2031302c0d0a202020202279223a206e756c6c2c0d0a20202020227769647468223a203634302c0d0a2020202022686569676874223a203432302c0d0a20202020226578747261223a20310d0a20207d2c0d0a202022627562626c655f706f736974696f6e223a206e756c6c0d0a7d"
+  }
+ }
+]

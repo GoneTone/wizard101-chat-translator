@@ -97,7 +97,11 @@ mod tests {
         let _ = std::panic::take_hook();
         init(Sink::Stderr);
         let text = std::fs::read_to_string(&path).unwrap();
-        let first = text.split("\r\n").next().unwrap();
+        // 其他單元測試同時在寫全域 sink，只認自己的那一行
+        let first = text
+            .split("\r\n")
+            .find(|l| l.contains("[app] panic: "))
+            .unwrap_or_else(|| panic!("{text}"));
         assert_eq!(first.as_bytes()[24], b' ');
         assert!(first[25..].starts_with("[app] panic: "), "{first}");
         assert!(text.contains("boom"), "{text}");
@@ -113,7 +117,7 @@ mod tests {
             .map(|tag| {
                 std::thread::spawn(move || {
                     for i in 0..300 {
-                        log(format!("[{tag}] line {i}"));
+                        log(format!("[logtest-{tag}] line {i}"));
                     }
                 })
             })
@@ -124,7 +128,8 @@ mod tests {
         init(Sink::Stderr);
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = text.split_terminator("\r\n").collect();
-        assert_eq!(lines.len(), 1200);
+        let ours = lines.iter().filter(|l| l.contains("[logtest-")).count();
+        assert_eq!(ours, 1200);
         assert!(
             lines
                 .iter()

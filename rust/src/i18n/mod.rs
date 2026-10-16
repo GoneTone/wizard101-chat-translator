@@ -11,7 +11,8 @@ use crate::logs::log;
 
 const META_NAME: &str = "language.name";
 const META_TRANSLATORS: &str = "language.translators";
-const SOURCE_LANGUAGE: &str = "zh-TW";
+/// 文案來源語言：缺字串時的最後一層退路。
+pub const SOURCE_LANGUAGE: &str = "zh-TW";
 const DEFAULT_LANGUAGE: &str = "en-US";
 const MINIMUM_COVERAGE: f64 = 0.6;
 
