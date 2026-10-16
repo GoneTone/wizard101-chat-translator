@@ -4,6 +4,7 @@
 - **嚴禁重複造輪子**：動手寫任何工具函式前，先確認專案內有沒有現成可用的；有則直接用，不要再寫一個類似的。若某段邏輯散在別處可共用，抽出來共用。
 - **專案要好維護**：架構清楚、讓其他協助開發者一眼看懂在做什麼；維持模組單一職責、小而聚焦（reader／composer／translator 各司其職，透過清楚介面溝通、可獨立測試）。需要時可引入套件寫得更簡潔，不要自行造輪子。
 - **翻譯語言不可寫死**：本工具支援使用者設定收訊的**目標語言**（config 頂層 `target_language`，人讀名稱字串直接帶入提示詞）；發話固定翻成英文（`translator.OUTGOING_LANGUAGE`）；來源語言一律自動判斷。**程式碼命名、註解、提示詞邏輯都不可寫死 `zh`／`en`／繁體中文之類** —— 用方向命名（`translate_incoming`／`translate_outgoing`）、把語言當參數／常數傳入。
+- **新增 AI 服務商要處理 prompt cache**：先查該家的快取是自動生效，還是要明確標記（Claude 要帶 `cache_control`，OpenAI 自動），以及最低可快取長度。要標記時，斷點放在固定前綴（系統提示詞）結尾，不要放在最後 —— 後面的上下文每句都變，放在最後只會一直寫入、讀不到；每句會變的內容也不可放進斷點之前。沿用 `[translate] prompt cache:` log 記下快取用量（見 `translation/clients.py`）。
 - **wizwalker 掛入須知**：收訊靠自訂 AddLine hook（`src/reader/chat_hook.py`）讀聊天事件，另掛 `root_window` hook 供輸入框偵測與分頁狀態；不啟 player／duel／quest 等其他 hook。掛入需遊戲已**登入進世界內**；只認 LaurenzNotHere fork 的最新 pattern，遊戲改版報 `PatternFailed` 時更新 fork 後重跑 `uv sync`；但若 app.log 指出失敗的是 AddLine hook，那組 pattern 在本專案（`chat_hook.PATTERN`），更新 fork 修不了，要重新反組譯 `ChatBox::AddLine` 並更新它。只跑純解析函式的測試不需遊戲，整合行為靠實機驗證。
 - **註解節制使用**：預設不寫實作層 `#` 註解；寫了就要有資訊增益。可寫的情境：(1) **WHY 不顯而易見** —— 隱藏限制、微妙 invariant、bug workaround、會讓讀者意外的行為；(2) **結構/段落導引** —— 在較長函式內標出段落意圖。判準：拿掉註解後讀者是否需要多花時間理解？需要 → 留，不需要 → 刪。**預設一行**，只寫 WHY，不敘述做了什麼；真的講不清才用到兩三行，三行是上限不是目標。反例：純粹重述下一行、檔頭路徑 banner、被註解掉的舊程式碼（直接刪）、變更歷史與設計取捨的長篇論述（那些放 spec／設計文件，不進程式碼）。
 - **模組與公開函式寫 docstring**：模組頂端與公開的 function／class 寫一段 `"""..."""` 說明其作用（沿用現有風格，如 `translation/translator.py`／`reader/mem_reader.py`）；簽名已自明的極簡函式可略。**長度：一行摘要**；只有呼叫者必須知道的非顯而易見限制才多加一個短段落（幾行內）。測試的 docstring 一行即可。
