@@ -84,8 +84,8 @@ pub fn window_rect(hwnd: isize) -> Rect {
     to_rect(r)
 }
 
-/// 以實體像素擺放視窗，不改疊序、不啟用。
-pub fn set_window_rect(hwnd: isize, (x, y, w, h): Rect) {
+/// 以實體像素擺放視窗，不改疊序、不啟用；失敗（如 HWND 無效）回 `false`。
+pub fn set_window_rect(hwnd: isize, (x, y, w, h): Rect) -> bool {
     let place = || unsafe {
         SetWindowPos(
             hwnd as HWND,
@@ -97,11 +97,14 @@ pub fn set_window_rect(hwnd: isize, (x, y, w, h): Rect) {
             SWP_NOZORDER | SWP_NOACTIVATE,
         )
     };
-    place();
+    if place() == 0 {
+        return false;
+    }
     // 移到不同 DPI 的螢幕時 winit 會按邏輯尺寸改大小，再擺一次才維持實體尺寸
     if window_rect(hwnd) != (x, y, w, h) {
         place();
     }
+    true
 }
 
 fn to_rect(r: RECT) -> Rect {

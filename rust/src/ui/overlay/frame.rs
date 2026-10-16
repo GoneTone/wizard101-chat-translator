@@ -11,7 +11,7 @@ use crate::logs::log;
 use crate::runtime::resources::icon_png;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{
-    Edge, Rect, centered_position, edge_at, moved_to, pull_onscreen, resized_edge,
+    Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen, resized_edge,
 };
 use crate::ui::palette::{BAR, BG, FG_BAR, FG_ERROR, OUTLINE};
 use crate::ui::win32;
@@ -50,8 +50,10 @@ pub trait Shell {
     fn cursor(&self) -> (i32, i32);
     /// 視窗目前的矩形。
     fn rect(&self) -> Rect;
-    /// 移動／縮放視窗。
-    fn set_rect(&mut self, rect: Rect);
+    /// 移動／縮放視窗；失敗（例如視窗還不存在）回 `false`。
+    fn set_rect(&mut self, rect: Rect) -> bool;
+    /// 所有螢幕的矩形。
+    fn monitors(&self) -> Vec<Rect>;
 }
 
 /// 以 HWND 操作真正的視窗。
@@ -64,8 +66,11 @@ impl Shell for Win32Shell {
     fn rect(&self) -> Rect {
         win32::window_rect(self.0)
     }
-    fn set_rect(&mut self, rect: Rect) {
-        win32::set_window_rect(self.0, rect);
+    fn set_rect(&mut self, rect: Rect) -> bool {
+        win32::set_window_rect(self.0, rect)
+    }
+    fn monitors(&self) -> Vec<Rect> {
+        win32::all_monitors()
     }
 }
 
@@ -82,12 +87,24 @@ pub enum Clicked {
     Close,
 }
 
+/// 最小尺寸換算成實體像素（`scale` 為每 DIP 的像素數）。
+fn min_size(scale: f32) -> (i32, i32) {
+    let px = |dip: i32| (dip as f32 * scale).round() as i32;
+    (px(MIN_WIDTH), px(MIN_HEIGHT))
+}
+
 /// 啟動時的視窗矩形：沒存過位置就擺主螢幕正中央，存過但整個在畫面外就拉回來。
 ///
-/// `screen` 是主螢幕尺寸，`monitors` 是所有螢幕矩形，皆為實體像素。
-pub fn initial_rect(saved: &Geometry, screen: (i32, i32), monitors: &[Rect]) -> Rect {
-    let (w, h) = (saved.width.max(MIN_WIDTH), saved.height.max(MIN_HEIGHT));
-    let (cx, cy) = centered_position(screen.0, screen.1, w, h);
+/// `monitors` 是所有螢幕矩形（實體像素，主螢幕含原點），`scale` 是每 DIP 的像素數。
+pub fn initial_rect(saved: &Geometry, monitors: &[Rect], scale: f32) -> Rect {
+    let (min_w, min_h) = min_size(scale);
+    let (w, h) = (saved.width.max(min_w), saved.height.max(min_h));
+    let primary = monitors
+        .iter()
+        .find(|&&(mx, my, mw, mh)| point_in_rect(0, 0, mx, my, mw, mh))
+        .or(monitors.first())
+        .map_or((0, 0), |&(_, _, mw, mh)| (mw, mh));
+    let (cx, cy) = centered_position(primary.0, primary.1, w, h);
     let (x, y) = (saved.x.unwrap_or(cx), saved.y.unwrap_or(cy));
     let (px, py) = pull_onscreen(x, y, w, h, monitors);
     if (px, py) != (x, y) {
@@ -110,22 +127,25 @@ struct Gesture {
 /// overlay 的外框；每幀由 `show` 畫出並處理拖曳與縮放。
 pub struct Frame {
     alpha: f32,
-    initial: Option<Rect>,
+    initial: Option<Geometry>,
+    placement_failed: bool,
     gesture: Option<Gesture>,
     icon: Option<TextureHandle>,
     on_geometry_change: Box<dyn FnMut(i32, i32, i32, i32)>,
 }
 
 impl Frame {
-    /// `initial` 在第一次 `show` 時套到視窗（`None` 表示不動）；拖曳或縮放放開時呼叫 `on_geometry_change`。
+    /// `initial`（設定裡存的位置大小）在視窗可擺放後經 `initial_rect` 套用一次，`None` 表示不動；
+    /// 拖曳或縮放放開時呼叫 `on_geometry_change`。
     pub fn new(
         alpha: f32,
-        initial: Option<Rect>,
+        initial: Option<Geometry>,
         on_geometry_change: impl FnMut(i32, i32, i32, i32) + 'static,
     ) -> Self {
         Self {
             alpha,
             initial,
+            placement_failed: false,
             gesture: None,
             icon: None,
             on_geometry_change: Box::new(on_geometry_change),
@@ -152,8 +172,19 @@ impl Frame {
         title: &str,
         status: Option<&str>,
     ) -> Option<Clicked> {
-        if let Some(rect) = self.initial.take() {
-            shell.set_rect(rect);
+        let ppp = ui.ctx().pixels_per_point();
+        if let Some(saved) = &self.initial {
+            let rect = initial_rect(saved, &shell.monitors(), ppp);
+            if shell.set_rect(rect) {
+                self.initial = None;
+            } else if !self.placement_failed {
+                // 視窗還沒建好時會失敗；保留設定值下一幀再試，只記一次
+                self.placement_failed = true;
+                log(format!(
+                    "[ui] overlay placement failed, will retry: geometry={}",
+                    describe(rect)
+                ));
+            }
         }
         let area = ui.max_rect();
         let bar = egui::Rect::from_min_size(area.min, Vec2::new(area.width(), BAR_HEIGHT));
@@ -208,9 +239,8 @@ impl Frame {
                 let (x, y, w, h) = g.start;
                 let next = match g.edge {
                     Some(edge) => {
-                        let ppp = ui.ctx().pixels_per_point();
-                        let min = |dip: i32| (dip as f32 * ppp).round() as i32;
-                        resized_edge(edge, x, y, w, h, dx, dy, min(MIN_WIDTH), min(MIN_HEIGHT))
+                        let (min_w, min_h) = min_size(ppp);
+                        resized_edge(edge, x, y, w, h, dx, dy, min_w, min_h)
                     }
                     None => {
                         let (nx, ny) = moved_to(x, y, dx, dy);
@@ -357,6 +387,8 @@ mod tests {
     struct FakeShell {
         cursor: (i32, i32),
         rect: Rect,
+        /// `false` 模擬視窗還沒建好（HWND 為 0）。
+        ready: bool,
     }
 
     impl Shell for FakeShell {
@@ -366,8 +398,14 @@ mod tests {
         fn rect(&self) -> Rect {
             self.rect
         }
-        fn set_rect(&mut self, rect: Rect) {
-            self.rect = rect;
+        fn set_rect(&mut self, rect: Rect) -> bool {
+            if self.ready {
+                self.rect = rect;
+            }
+            self.ready
+        }
+        fn monitors(&self) -> Vec<Rect> {
+            vec![(0, 0, 1920, 1080)]
         }
     }
 
@@ -393,6 +431,7 @@ mod tests {
             shell: FakeShell {
                 cursor: (0, 0),
                 rect: START,
+                ready: true,
             },
             title: title.into(),
             area: egui::Rect::NOTHING,
@@ -531,28 +570,71 @@ mod tests {
     }
 
     #[test]
-    fn close_button_click_closes_without_moving() {
-        let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
-        harness.get_by_label("✕").click();
-        harness.step();
-        assert_eq!(harness.state().clicked, Some(Clicked::Close));
-        assert!(saved.borrow().is_empty());
+    fn each_title_button_maps_to_its_action_without_moving() {
+        for (glyph, action) in [
+            ("✕", Clicked::Close),
+            ("─", Clicked::Minimize),
+            ("⚙", Clicked::Settings),
+            ("⛶", Clicked::Region),
+        ] {
+            let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+            harness.get_by_label(glyph).click();
+            harness.step();
+            assert_eq!(harness.state().clicked, Some(action), "{glyph}");
+            assert_eq!(harness.state().shell.rect, START, "{glyph}");
+            assert!(saved.borrow().is_empty(), "{glyph}");
+        }
     }
 
     #[test]
-    fn initial_rect_is_applied_on_first_show() {
-        let mut frame = Frame::new(0.8, Some((10, 20, 400, 250)), |_, _, _, _| {});
-        let mut shell = FakeShell {
-            cursor: (0, 0),
-            rect: START,
-        };
+    fn dragging_the_icon_name_or_status_moves_the_window() {
+        let status = t("status.listening", &[]);
+        for target in ["icon", "name", "status"] {
+            let (mut harness, saved) = setup("Title", Vec2::new(640.0, 420.0), 1.0);
+            let node = match target {
+                "icon" => harness.get_by_role(egui::accesskit::Role::Image),
+                "name" => harness.get_by(|n| n.value().as_deref() == Some("Title")),
+                _ => harness.get_by(|n| n.value().as_deref() == Some(status.as_str())),
+            };
+            let from = node.rect().center() - harness.state().area.min;
+            drag(&mut harness, from, from + Vec2::new(50.0, 30.0), 1.0);
+            assert_eq!(*saved.borrow(), [(1050, 530, 640, 420)], "{target}");
+        }
+    }
+
+    fn run_frame(frame: &mut Frame, shell: &mut FakeShell) {
         let ctx = egui::Context::default();
         fonts_egui::install(&ctx, "en-US");
         let mut output = ctx.run_ui(Default::default(), |ui| {
-            frame.show(ui, &mut shell, "t", None);
+            frame.show(ui, shell, "t", None);
         });
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn initial_placement_waits_for_the_window_then_applies_once() {
+        let saved = Geometry {
+            x: Some(10),
+            y: Some(20),
+            width: 400,
+            height: 250,
+        };
+        let mut frame = Frame::new(0.8, Some(saved), |_, _, _, _| {});
+        let mut shell = FakeShell {
+            cursor: (0, 0),
+            rect: START,
+            ready: false,
+        };
+        run_frame(&mut frame, &mut shell);
+        assert_eq!(shell.rect, START);
+
+        shell.ready = true;
+        run_frame(&mut frame, &mut shell);
         assert_eq!(shell.rect, (10, 20, 400, 250));
+
+        shell.rect = START;
+        run_frame(&mut frame, &mut shell);
+        assert_eq!(shell.rect, START, "placement must happen only once");
     }
 
     #[test]
@@ -564,10 +646,7 @@ mod tests {
             width: 640,
             height: 420,
         };
-        assert_eq!(
-            initial_rect(&unset, (1920, 1080), &screen),
-            (640, 330, 640, 420)
-        );
+        assert_eq!(initial_rect(&unset, &screen, 1.0), (640, 330, 640, 420));
         let saved = Geometry {
             x: Some(5),
             y: Some(6),
@@ -575,19 +654,27 @@ mod tests {
             height: 50,
         };
         assert_eq!(
-            initial_rect(&saved, (1920, 1080), &screen),
+            initial_rect(&saved, &screen, 1.0),
             (5, 6, MIN_WIDTH, MIN_HEIGHT)
         );
+        // 最小尺寸以 DIP 計：150% 螢幕上 250×100 實體像素只有 167×67 DIP，要撐到 200×90 DIP
+        let small = Geometry {
+            x: Some(5),
+            y: Some(6),
+            width: 250,
+            height: 100,
+        };
+        assert_eq!(initial_rect(&small, &screen, 1.5), (5, 6, 300, 135));
         let lost = Geometry {
             x: Some(2500),
             y: Some(300),
             width: 640,
             height: 420,
         };
-        assert_eq!(
-            initial_rect(&lost, (1920, 1080), &screen),
-            (1280, 300, 640, 420)
-        );
+        assert_eq!(initial_rect(&lost, &screen, 1.0), (1280, 300, 640, 420));
+        // 主螢幕是含原點的那顆，不是清單第一顆
+        let two = [(-1920, 0, 1920, 1200), (0, 0, 1920, 1080)];
+        assert_eq!(initial_rect(&unset, &two, 1.0), (640, 330, 640, 420));
     }
 
     #[test]
