@@ -97,6 +97,21 @@ fn check_range(addr: u64) -> Result<(), MemError> {
     Ok(())
 }
 
+/// UTF-16LE 解碼；位元組不成對時行為同 Python `decode("utf-16-le", "replace")`。
+pub fn decode_utf16le(bytes: &[u8]) -> String {
+    let units: Vec<u16> = bytes
+        .chunks_exact(2)
+        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    let mut text = String::from_utf16_lossy(&units);
+    // 結尾落單的位元組多一個 U+FFFD；前一個單位若是高代理，Python 把兩者併成同一個錯誤
+    let cut_pair = units.last().is_some_and(|u| (0xD800..0xDC00).contains(u));
+    if bytes.len() % 2 == 1 && !cut_pair {
+        text.push('\u{FFFD}');
+    }
+    text
+}
+
 fn read_array<const N: usize>(
     mem: &(impl ProcessMemory + ?Sized),
     addr: u64,
@@ -140,12 +155,7 @@ pub trait ProcessMemory: Send {
 
     /// 讀 `chars` 個 UTF-16LE 字元；無效的代理對以 U+FFFD 取代（同 Python `"replace"`）。
     fn read_wstring(&self, addr: u64, chars: usize) -> Result<String, MemError> {
-        let raw = self.read(addr, chars * 2)?;
-        let units: Vec<u16> = raw
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        Ok(String::from_utf16_lossy(&units))
+        Ok(decode_utf16le(&self.read(addr, chars * 2)?))
     }
 
     /// 讀 MSVC `std::string`（比照 wizwalker `read_string`）。

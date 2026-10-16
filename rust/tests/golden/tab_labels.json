@@ -1,0 +1,50 @@
+[
+ {
+  "input": "",
+  "output": null
+ },
+ {
+  "input": "<string;GUI2_00000367>",
+  "output": null
+ },
+ {
+  "input": "<string;",
+  "output": null
+ },
+ {
+  "input": "<string>",
+  "output": "<string>"
+ },
+ {
+  "input": " <string;x>",
+  "output": " <string;x>"
+ },
+ {
+  "input": "主要的",
+  "output": "主要的"
+ },
+ {
+  "input": "队伍(1)",
+  "output": "队伍(1)"
+ },
+ {
+  "input": "Party 1 (3)",
+  "output": "Party 1 (3)"
+ },
+ {
+  "input": "<String;x>",
+  "output": "<String;x>"
+ },
+ {
+  "input": "a<string;b>",
+  "output": "a<string;b>"
+ },
+ {
+  "input": "<",
+  "output": "<"
+ },
+ {
+  "input": "😀",
+  "output": "😀"
+ }
+]

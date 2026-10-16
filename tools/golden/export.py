@@ -1142,6 +1142,153 @@ EXPORTERS["hook_stubs"] = export_hook_stubs
 EXPORTERS["hookstate_bytes"] = export_hookstate_bytes
 
 
+def export_markup_parse() -> list[dict]:
+    """`parse_line`：input 為原始聊天行，output 為 null 或 [text, color, own, system]。"""
+    from src.reader.markup import parse_line
+
+    def icon(name: str) -> str:
+        return f"<image;Art/{name}.dds;24;24;FFFFFFFF>"
+
+    icons = [icon("Art_Chat_Say"), icon("Art_Chat_Team"), icon("chat_balloon_Owner"),
+             icon("chat_balloon_Guest"), icon("Art_Word_Balloon"), icon("Art_Chat_System"),
+             icon("Art_Chat_Party"), icon("Art_Chat_Unknown"),
+             "<image;Art/Other_Icon.dds;1;1;1>", icon("Art_Chat_Say").replace("image;Art", "IMAGE;ART"),
+             "<image;Art/Art_Chat_Say>", ""]
+    senders = ["<link;GID:123,Lars,2>[Lars]</link>", "[你]", "<link;GID:1,Ann Lee,2>[Ann Lee]</link>",
+               "<link;GID:9,x,2>[" + "x" * 40 + "]</link>", "<link;GID:9,x,2>[" + "x" * 41 + "]</link>",
+               "[]", "[a]b", "<link;GID:2,日本語,2>[日本語]</link>", ""]
+    bodies = ["hello there", "fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF>",
+              "a &lt;3 b &amp; c &gt; d", "a\x00b", "  spaced \t out text  ", "tab\x1ctab", "",
+              "<image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds>",
+              "<image;Emoticons/bad name!.dds;1;1;1> torn", "<image;EMOTICONS/Haha.DDS;1;1>x",
+              "emoji 😀 text",
+              "&amp;lt; double", "<unclosed", "new\nline", "<image;Emoticons/abc1\n.dds;1>x"]
+    colors = ["<color;FFFFFF>", "<color;FF00ff00>", "<color;abcdef12>", "<color;12345>", "<color;ZZZZZZ>", "",
+              "  <color;D9ABF8>"]
+    cases = []
+    for n, (icon, sender, body) in enumerate((i, s, b) for i in icons for s in senders for b in bodies):
+        if n % 4 and n % 5:
+            continue
+        cases.append(colors[n % len(colors)] + (f" {icon} " if icon else " ") + f"{sender} {body} </color>")
+    cases += [
+        "<color;D9ABF8>[Server Message] maintenance in 5 minutes</color>", "<color;D9ABF8></color>",
+        "<color;D9ABF8>Maintenance</color>", "RECEIVED STATUS UPDATE for [12345]", "[STAT] debug",
+        "[DBGL] x", "",
+        "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> Bob joined the party</color>",
+        "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,B,2>[B]</link> hi </color>",
+        "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> You gained 50 XP</color>",
+        "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> </color>",
+        "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <image;Emoticons/Wave.dds> </color>",
+        "<image;Art/Art_Chat_System.dds> no color", "<color;D9ABF8><image;Art/New_Channel.dds> [Zed] hi",
+        "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> "
+        "<link;GID:1,Ann,2>[Ann]</link> \U0001F600</color>",
+        "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你]</color>",
+        "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] x</color>",
+        "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] no color",
+    ]
+    out = []
+    for raw in cases:
+        r = parse_line(raw)
+        out.append({"input": raw, "output": None if r is None else [r.text, r.color, r.own, r.system]})
+    return out
+
+
+def export_hook_records() -> list[dict]:
+    """ring slot 解碼：input 為 slot 位元組（hex，標頭 0x30＋內容），output 為各欄位與 replace 解碼的文字。"""
+    import struct
+
+    def u16(*units: int) -> bytes:
+        return b"".join(struct.pack("<H", u) for u in units)
+
+    pair = "😀".encode("utf-16-le")
+    datas = [
+        b"", "hello".encode("utf-16-le"), "聊天 test".encode("utf-16-le"), pair, pair[:2], pair[2:],
+        u16(0xD800), u16(0xDC00), u16(0xD800, 0x41), u16(0xDC00, 0x41, 0xD800, 0xD800),
+        u16(0x41) + b"\x00", u16(0x41, 0xD800) + b"\x41", u16(0xD800) + b"\x41", b"\x41",
+        ("a" * 999).encode("utf-16-le") + pair[:2], ("a" * 999 + "😀").encode("utf-16-le")[:1000 * 2],
+        ("a" * 999 + "😀").encode("utf-16-le"), u16(0xD800, 0xD800, 0x41) + b"\x00",
+    ]
+    out = []
+    for n, data in enumerate(datas):
+        slot = struct.pack("<QQQIII", n + 1, 0x1407443B1 + n, 0x7777 + n, n % 9, len(data) // 2,
+                           len(data) // 2 + n % 3) + data
+        seq, caller, this, tab, copied, length = struct.unpack_from("<QQQIII", slot)
+        out.append({"input": slot.hex(), "output": {
+            "seq": seq, "ret": caller, "this": this, "tab": tab, "copied": copied, "length": length,
+            "text": slot[0x30:].decode("utf-16-le", "replace")}})
+    return out
+
+
+def export_broadcast_groups() -> list[dict]:
+    """`group_broadcasts`／`pending_broadcast`：input 為（seq, tab, text）序列，output 為各組與 pending。"""
+    from src.reader.chat_hook import HookRecord, group_broadcasts, pending_broadcast
+
+    def seqs(tabs, text="same", start=1):
+        return [(start + i, t, text) for i, t in enumerate(tabs)]
+
+    inputs = [
+        [], seqs([0]), seqs([0, 1]), seqs([0, 1, 2]), seqs([0, 1, 2, 3]), seqs([0, 1, 2, 3, 5]),
+        seqs([0, 1, 2, 3, 5, 6, 7, 8]), seqs([0, 1, 2, 3, 4]), seqs([0, 1, 2, 3, 5, 4]),
+        seqs([0, 1, 2, 3, 5, 5]),
+        seqs([0, 1, 2, 3, 6, 5]), seqs([0, 1, 2, 3, 5, 6, 6]),
+        [(1, 0, "a"), (2, 1, "a"), (4, 2, "a"), (5, 3, "a")],
+        [(1, 0, "a"), (2, 1, "b"), (3, 2, "a"), (4, 3, "a")],
+        [(1, 0, "x")] + seqs([0, 1], start=2), [(1, 0, "other")] + seqs([0, 1, 2], start=2),
+        seqs([0, 1, 2, 3]) + seqs([0, 1], start=5),
+        seqs([0, 1, 2, 3]) + seqs([0, 1, 2, 3, 5], text="o", start=5),
+        seqs([1, 2, 3, 0, 1, 2, 3]), seqs([0, 0, 0, 0]), seqs([0, 1, 1, 3]), seqs([0, 1, 2, 4, 5]),
+        [(1, 0, "a"), (2, 1, "b")], [(1, 0, "a"), (3, 1, "a")], seqs([0, 1, 2, 3, 8, 9]),
+    ]
+    out = []
+    for rows in inputs:
+        records = [HookRecord(s, 1, 2, t, len(x), len(x), x) for s, t, x in rows]
+        out.append({"input": rows, "output": {
+            "groups": [[list(tabs), rec.seq] for tabs, rec in group_broadcasts(records)],
+            "pending": pending_broadcast(records)}})
+    return out
+
+
+def export_tab_labels() -> list[dict]:
+    """`visible_label`：input 為按鈕文字，output 為字串或 null。"""
+    from src.reader.chat_tabs import visible_label
+
+    raws = ["", "<string;GUI2_00000367>", "<string;", "<string>", " <string;x>", "主要的", "队伍(1)",
+            "Party 1 (3)",
+            "<String;x>", "a<string;b>", "<", "😀"]
+    return [{"input": r, "output": visible_label(r)} for r in raws]
+
+
+def export_ui_rect() -> list[dict]:
+    """`client_rect`：input 為各參數，output 為矩形或 null（根視窗尺寸為 0）。"""
+    from src.reader.ui_rect import client_rect
+
+    chain = [(0, 190), (0, 0), (23, 300), (0, 0), (0, 0)]
+    rows = [
+        (chain, (524, 33), (1370, 770), (1920, 1080)), ([(0, 0)], (524, 33), (1370, 770), (1748, 983)),
+        ([(10, 20), (5, 5)], (100, 40), (800, 600), (800, 600)), (chain, (523, 32), (0, 770), (1920, 1080)),
+        (chain, (523, 32), (1370, 0), (1920, 1080)), ([], (0, 0), (1370, 770), (1920, 1080)),
+        ([(1, 1)], (1, 1), (3, 3), (5, 5)), ([(1, 1)], (1, 1), (2, 2), (5, 5)),
+        ([(-3, -3)], (7, 7), (1370, 770), (1000, 900)), ([(1, 1)], (1, 1), (4, 4), (10, 10)),
+        ([(0, 0)], (3, 3), (10, 10), (5, 5)), ([(0, 0)], (5, 5), (10, 10), (3, 3)),
+        ([(0, 0)], (7, 7), (10, 10), (5, 5)),
+    ]
+    out = []
+    for offs, size, root, client in rows:
+        try:
+            res = list(client_rect(offs, size, root, client))
+        except ValueError:
+            res = None
+        out.append({"input": {"offsets": offs, "size": size, "root": root, "client": client}, "output": res})
+    return out
+
+
+EXPORTERS["markup_parse"] = export_markup_parse
+EXPORTERS["hook_records"] = export_hook_records
+EXPORTERS["broadcast_groups"] = export_broadcast_groups
+EXPORTERS["tab_labels"] = export_tab_labels
+EXPORTERS["ui_rect"] = export_ui_rect
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

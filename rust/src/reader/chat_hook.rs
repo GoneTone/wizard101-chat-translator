@@ -3,7 +3,7 @@
 //! stub 在遊戲執行緒上執行，位元組與 Python 版 `chat_hook.stub_bytes` 逐一相同。
 
 use super::hooks::{AutobotCave, HookError, SimpleHook};
-use super::memory::ProcessMemory;
+use super::memory::{MemError, ProcessMemory, decode_utf16le};
 
 /// 環形緩衝的槽位數。
 pub const SLOTS: u64 = 256;
@@ -102,4 +102,138 @@ impl AddLineHook {
     pub fn ring_addr(&self) -> u64 {
         self.ring
     }
+}
+
+/// 一次 AddLine 呼叫；`copied < length`（UTF-16 字元數）代表內容被截斷。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookRecord {
+    pub seq: u64,
+    /// 呼叫端的回傳位址。
+    pub ret: u64,
+    pub this: u64,
+    pub tab: i32,
+    pub copied: u32,
+    pub length: u32,
+    pub text: String,
+}
+
+/// 一輪讀取結果；`lost` 是本輪確定讀不到（已被覆寫）的記錄數。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RingRead {
+    pub records: Vec<HookRecord>,
+    pub last_seq: u64,
+    pub lost: u64,
+}
+
+/// 解碼一個槽位：`bytes` 是 0x30 bytes 標頭加其後的 UTF-16LE 內容（缺的部分視為 0 或空）。
+pub fn decode_record(bytes: &[u8]) -> HookRecord {
+    let mut head = [0u8; DATA_OFF as usize];
+    let n = bytes.len().min(head.len());
+    head[..n].copy_from_slice(&bytes[..n]);
+    let u64_at = |at: usize| u64::from_le_bytes(head[at..at + 8].try_into().expect("8 bytes"));
+    let u32_at = |at: usize| u32::from_le_bytes(head[at..at + 4].try_into().expect("4 bytes"));
+    HookRecord {
+        seq: u64_at(0),
+        ret: u64_at(8),
+        this: u64_at(0x10),
+        tab: u32_at(0x18) as i32,
+        copied: u32_at(0x1C),
+        length: u32_at(0x20),
+        text: decode_utf16le(bytes.get(DATA_OFF as usize..).unwrap_or_default()),
+    }
+}
+
+/// 讀出序號 `last_seq` 之後的新記錄。
+pub fn read_ring(
+    mem: &dyn ProcessMemory,
+    ring: u64,
+    mut last_seq: u64,
+) -> Result<RingRead, MemError> {
+    let count = mem.read_u64(ring)?;
+    let mut lost = 0;
+    if count.saturating_sub(last_seq) > SLOTS {
+        lost += count - last_seq - SLOTS;
+        last_seq = count - SLOTS;
+    }
+    let mut records = Vec::new();
+    while last_seq < count {
+        let seq = last_seq + 1;
+        let slot = ring + HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE;
+        let mut bytes = mem.read(slot, DATA_OFF as usize)?;
+        let head = decode_record(&bytes);
+        // 0＝寫入中；更舊的序號＝stub 已更新累計數、還沒清槽，都是下一輪再讀
+        if head.seq < seq {
+            break;
+        }
+        last_seq = seq;
+        if head.seq > seq {
+            lost += 1;
+            continue;
+        }
+        // 讀到一半被覆寫的槽位 copied 可能是垃圾，先夾在 stub 的複製上限內
+        let chars = u64::from(head.copied).min(MAX_CHARS);
+        if chars > 0 {
+            bytes.extend(mem.read(slot + DATA_OFF, chars as usize * 2)?);
+        }
+        if mem.read_u64(slot)? != seq {
+            lost += 1;
+            continue;
+        }
+        records.push(decode_record(&bytes));
+    }
+    Ok(RingRead {
+        records,
+        last_seq,
+        lost,
+    })
+}
+
+fn continues_broadcast(run: &[HookRecord], rec: &HookRecord) -> bool {
+    let Some(prev) = run.last() else {
+        return false;
+    };
+    if rec.seq != prev.seq + 1 || rec.text != prev.text {
+        return false;
+    }
+    if run.len() < 4 {
+        rec.tab as usize == run.len()
+    } else {
+        rec.tab > prev.tab.max(4)
+    }
+}
+
+/// 把伺服器廣播（連號、同字、分頁 0,1,2,3 再接遞增的頻道分頁）收斂成一組，回傳（分頁組, 代表記錄）。
+pub fn group_broadcasts(records: &[HookRecord]) -> Vec<(Vec<i32>, HookRecord)> {
+    let mut groups = Vec::new();
+    let mut i = 0;
+    while i < records.len() {
+        let mut run = 1;
+        if records[i].tab == 0 {
+            while i + run < records.len()
+                && continues_broadcast(&records[i..i + run], &records[i + run])
+            {
+                run += 1;
+            }
+        }
+        if run < 4 {
+            run = 1;
+        }
+        let tabs = records[i..i + run].iter().map(|r| r.tab).collect();
+        groups.push((tabs, records[i].clone()));
+        i += run;
+    }
+    groups
+}
+
+/// 結尾若是廣播的開頭（連號、同字、分頁 0,1 或 0,1,2）回傳其筆數，否則 0。
+pub fn pending_broadcast(records: &[HookRecord]) -> usize {
+    for n in [3, 2] {
+        let Some(tail) = records.len().checked_sub(n).map(|from| &records[from..]) else {
+            continue;
+        };
+        if tail[0].tab == 0 && (1..n).all(|i| continues_broadcast(&tail[..i], &tail[i])) {
+            return n;
+        }
+    }
+    0
 }

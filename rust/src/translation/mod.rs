@@ -10,7 +10,7 @@ pub mod pool;
 pub mod postprocess;
 pub mod prompts;
 pub mod pyrepr;
-mod pystr;
+pub(crate) mod pystr;
 pub mod translator;
 
 use std::future::Future;

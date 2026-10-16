@@ -11,9 +11,7 @@ use std::sync::LazyLock;
 use regex::{Captures, Regex};
 
 use super::pystr::{self, casefold, lstrip, rstrip, strip};
-
-/// 發送者前綴 `[名稱]`（名稱 1–40 字、不含 `]`）的正規表示式片段，聊天解析共用。
-pub const SENDER_PREFIX: &str = r"\[[^\]]{1,40}\]";
+use crate::reader::markup::SENDER_PREFIX;
 
 pub(super) const SPACE: &str = r"[\s\x1c-\x1f]";
 const WORD: &str = r"\p{L}\p{N}_";
