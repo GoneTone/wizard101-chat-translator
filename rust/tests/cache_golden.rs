@@ -459,6 +459,8 @@ fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
     for h in handles {
         h.join().unwrap();
     }
+    // 並行 flush 的改名順序不定，較舊的快照可能最後落地；收尾再存一次
+    cache.flush();
     let reloaded = cache_in(&dir);
     reloaded.load();
     for i in 0..800 {

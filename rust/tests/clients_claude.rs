@@ -271,7 +271,7 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
     let server = MockServer::start().await;
     mount_messages(
         &server,
-        error_body(429, "slow down").insert_header("retry-after-ms", "2000"),
+        error_body(429, "slow down").insert_header("retry-after-ms", "30000"),
     )
     .await;
     let token = CancellationToken::new();
@@ -285,7 +285,8 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
         .chat(request(&[Turn::user("hi")]), Some(&token))
         .await;
     assert_eq!(result, Err(TranslateError::Cancelled));
-    assert!(started.elapsed() < Duration::from_millis(1500));
+    // 等待 30 秒，上限放寬到 10 秒：負載下也不會誤判，卻仍抓得到「沒取消就等完」
+    assert!(started.elapsed() < Duration::from_secs(10));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
