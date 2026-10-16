@@ -59,15 +59,17 @@ class FakeMessageStream:
     """替身 MessageStream：`get_final_message` 回累積好的訊息。
     `content` 是譯文，包成結構化輸出的 JSON；`blocks` 給定時改回這串原樣 (type, text)。"""
 
-    def __init__(self, stop_reason, content, blocks=None):
+    def __init__(self, stop_reason, content, blocks=None, usage=None):
         self._stop_reason = stop_reason
         self._blocks = blocks or [("text", json.dumps({"translation": content}))]
+        self._usage = usage
         self.closed = False
 
     def get_final_message(self):
         class Resp:
             content = [SimpleNamespace(type=kind, text=text) for kind, text in self._blocks]
             stop_reason = self._stop_reason
+            usage = self._usage
 
         return Resp()
 
@@ -76,11 +78,13 @@ class FakeMessageStream:
 
 
 class FakeAnthropicMessages:
-    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None):
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None,
+                 usage=None):
         self._raises = raises
         self._stop_reason = stop_reason
         self._content = content
         self._blocks = blocks
+        self._usage = usage
         self.last_kwargs = None
         self.last_stream = None
 
@@ -89,13 +93,15 @@ class FakeAnthropicMessages:
         self.last_kwargs = kwargs
         if self._raises:
             raise self._raises
-        self.last_stream = FakeMessageStream(self._stop_reason, self._content, self._blocks)
+        self.last_stream = FakeMessageStream(self._stop_reason, self._content, self._blocks,
+                                             self._usage)
         yield self.last_stream
 
 
 class FakeAnthropicClient:
-    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None):
-        self.messages = FakeAnthropicMessages(raises, stop_reason, content, blocks)
+    def __init__(self, raises=None, stop_reason="end_turn", content="克勞德譯文", blocks=None,
+                 usage=None):
+        self.messages = FakeAnthropicMessages(raises, stop_reason, content, blocks, usage)
 
 
 def _anthropic_status_error(status, body=None):
@@ -107,6 +113,24 @@ def test_claude_provider_returns_text():
     t = Translator(provider="claude", model="claude-opus-5", api_key="k",
                    target_language="繁體中文（台灣）", client=FakeAnthropicClient())
     assert t.translate_incoming("[A] hi", []) == "[A] 克勞德譯文"
+
+
+def test_claude_marks_the_system_prompt_as_the_cache_breakpoint():
+    fake = FakeAnthropicClient()
+    Translator(provider="claude", model="m", api_key="k", target_language="繁體中文（台灣）",
+               client=fake).translate_incoming("[A] hi", ["[B] earlier"])
+    (block,) = fake.messages.last_kwargs["system"]
+    assert block["type"] == "text" and block["text"]
+    assert block["cache_control"] == {"type": "ephemeral"}
+
+
+def test_claude_logs_prompt_cache_usage(capsys):
+    usage = SimpleNamespace(cache_read_input_tokens=1200, cache_creation_input_tokens=0,
+                            input_tokens=250, output_tokens=9)
+    Translator(provider="claude", model="m", api_key="k", target_language="繁體中文（台灣）",
+               client=FakeAnthropicClient(usage=usage)).translate_incoming("[A] hi", [])
+    assert ("prompt cache: provider=claude model=m read=1200 write=0 uncached=250"
+            in capsys.readouterr().err)
 
 
 def test_claude_connection_error_maps_to_offline():
@@ -151,6 +175,14 @@ def test_openai_compat_truncated_output_maps_to_bad_output():
     message = str(ei.value)
     assert "completion_tokens=7" in message
     assert "呃 呃 呃" in message
+
+
+def test_openai_compat_logs_cached_prompt_tokens(capsys):
+    usage = {"prompt_tokens": 1400, "completion_tokens": 5,
+             "prompt_tokens_details": {"cached_tokens": 1024}}
+    _make(FakeHttpxClient(response=FakeResponse(usage=usage))).translate_incoming("[A] hi", [])
+    assert ("prompt cache: provider=openai-compatible model=m prompt=1400 cached=1024"
+            in capsys.readouterr().err)
 
 
 def test_openai_compat_missing_finish_reason_is_accepted():

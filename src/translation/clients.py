@@ -287,7 +287,7 @@ class _OpenAICompatClient(BaseClient):
         while True:
             body = self._body(system, turns, max_tokens, deterministic)
             try:
-                content, finish_reason, completion_tokens = self._stream_once(body, cancel)
+                content, finish_reason, usage = self._stream_once(body, cancel)
                 break
             except TranslatorError as error:
                 param = rejected_parameter(error.detail) if error.status == 400 else None
@@ -296,14 +296,19 @@ class _OpenAICompatClient(BaseClient):
             # 每輪都拿掉（或換掉）一個 body 裡確實有的參數，且同一個名字不會試第二次
             log(f"[translate] endpoint rejected parameter {param} (model={self._model}); "
                 f"retrying without it")
+        usage = usage or {}
+        if "prompt_tokens" in usage:
+            cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+            log(f"[translate] prompt cache: provider=openai-compatible model={self._model} "
+                f"prompt={usage['prompt_tokens']} cached={cached}")
         # 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
         if finish_reason == "length":
-            raise _truncated(max_tokens, completion_tokens, content)
+            raise _truncated(max_tokens, usage.get("completion_tokens"), content)
         return strip_think(content).strip()
 
     def _stream_once(self, body: dict, cancel: RequestHandle | None
-                     ) -> tuple[str, str | None, int | None]:
-        """送一次串流請求並讀完：回 (內容, finish_reason, completion_tokens)。
+                     ) -> tuple[str, str | None, dict | None]:
+        """送一次串流請求並讀完：回 (內容, finish_reason, usage)。
         狀態碼錯誤映射成 TranslatorError 拋出（4xx 在串流開頭就會回，跟非串流一樣），
         連線層例外一律 TranslatorOffline。"""
         try:
@@ -336,13 +341,13 @@ class _OpenAICompatClient(BaseClient):
         return sorted(str(m["id"]) for m in data if isinstance(m, dict) and m.get("id"))
 
 
-def _read_sse(resp) -> tuple[str, str | None, int | None]:
-    """讀完一條 chat completions 的 SSE 串流：回 (接起來的內容, finish_reason, completion_tokens)。
+def _read_sse(resp) -> tuple[str, str | None, dict | None]:
+    """讀完一條 chat completions 的 SSE 串流：回 (接起來的內容, finish_reason, usage)。
     每塊是 `data: {...}`，`data: [DONE]` 收尾；finish_reason 在最後一塊帶內容的 choice 上，
     usage（有帶 stream_options 才會有）另成一塊、choices 為空。"""
     parts: list[str] = []
     finish_reason = None
-    completion_tokens = None
+    usage = None
     for line in resp.iter_lines():
         if not line.startswith("data:"):
             continue
@@ -357,10 +362,9 @@ def _read_sse(resp) -> tuple[str, str | None, int | None]:
                 parts.append(piece)
             if choices[0].get("finish_reason"):
                 finish_reason = choices[0]["finish_reason"]
-        usage = chunk.get("usage")
-        if usage and usage.get("completion_tokens") is not None:
-            completion_tokens = usage["completion_tokens"]
-    return "".join(parts), finish_reason, completion_tokens
+        if chunk.get("usage"):
+            usage = chunk["usage"]
+    return "".join(parts), finish_reason, usage
 
 
 def _anthropic_detail(exc) -> str:
@@ -410,8 +414,11 @@ class _ClaudeClient(BaseClient):
         也要用同一個值，否則沒超過真正上限的輸出會被誤判成截斷。
         `deterministic` 不適用（本來就不送 temperature），收下後忽略。"""
         limit = max_tokens if max_tokens is not None else MAX_TOKENS_THINKING
+        # 斷點放在 system 結尾：之後的上下文每句都變，放在最後只會一直寫入、讀不到
         params = {"model": self._model, "max_tokens": limit,
-                  "system": system, "messages": turns,
+                  "system": [{"type": "text", "text": system,
+                              "cache_control": {"type": "ephemeral"}}],
+                  "messages": turns,
                   "output_config": {"format": _CLAUDE_OUTPUT_FORMAT}}
         if self._effort != EFFORT_AUTO:
             params["output_config"]["effort"] = self._effort
@@ -426,10 +433,14 @@ class _ClaudeClient(BaseClient):
             if error is None:
                 raise
             raise error from exc
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            log(f"[translate] prompt cache: provider=claude model={self._model} "
+                f"read={usage.cache_read_input_tokens} write={usage.cache_creation_input_tokens} "
+                f"uncached={usage.input_tokens}")
         # 文件只保證第一個 text 區塊是合法 JSON；實測此模式下也只會有一個 text 區塊
         content = next((b.text for b in resp.content if b.type == "text"), "")
         if resp.stop_reason == "max_tokens":
-            usage = getattr(resp, "usage", None)
             raise _truncated(limit, getattr(usage, "output_tokens", None), content)
         try:
             text = json.loads(content)["translation"]
