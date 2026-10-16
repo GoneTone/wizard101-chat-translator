@@ -53,9 +53,20 @@ fn write_to(sink: &mut Sink, message: &str) {
     };
 }
 
+/// 掛上 panic hook：以 `[app] panic: ...` 與 backtrace 寫進 log。
+pub fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log(format!("[app] panic: {info}\n{backtrace}"));
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 動到全域 SINK（與 panic hook）的測試必須串行。
+    static GLOBAL_SINK_TESTS: Mutex<()> = Mutex::new(());
 
     fn temp_sink(name: &str) -> (std::path::PathBuf, Sink) {
         let path = std::env::temp_dir().join(format!("w101-logsink-{}-{name}", std::process::id()));
@@ -77,7 +88,24 @@ mod tests {
     }
 
     #[test]
+    fn panic_hook_logs_stamped_panic_line() {
+        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (path, sink) = temp_sink("panic");
+        init(sink);
+        install_panic_hook();
+        let _ = std::thread::spawn(|| panic!("boom")).join();
+        let _ = std::panic::take_hook();
+        init(Sink::Stderr);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let first = text.split("\r\n").next().unwrap();
+        assert_eq!(first.as_bytes()[24], b' ');
+        assert!(first[25..].starts_with("[app] panic: "), "{first}");
+        assert!(text.contains("boom"), "{text}");
+    }
+
+    #[test]
     fn log_from_many_threads_keeps_every_line_whole() {
+        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let (path, sink) = temp_sink("conc");
         init(sink);
         let threads: Vec<_> = "abcd"
