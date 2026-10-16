@@ -4514,7 +4514,7 @@ wheels = [
 
 [[package]]
 name = "wizard101-chat-translator"
-version = "0.5.0"
+version = "0.5.1"
 source = { virtual = "." }
 dependencies = [
     { name = "anthropic" },
