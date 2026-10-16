@@ -1,3 +1,5 @@
 //! 疊在遊戲上的譯文視窗：外框（標題列、拖曳、縮放）與其內容。
 
 pub mod frame;
+pub mod model;
+pub mod tab_bar;

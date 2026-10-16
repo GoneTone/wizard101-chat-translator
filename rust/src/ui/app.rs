@@ -2,6 +2,7 @@
 
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock};
+use std::time::Instant;
 
 use eframe::NativeOptions;
 use eframe::egui::{self, Color32, ViewportBuilder, ViewportCommand, ViewportId};
@@ -12,10 +13,13 @@ use crate::i18n::current_language;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::overlay::frame::{Clicked, Frame, Win32Shell};
+use crate::ui::overlay::model::OverlayModel;
 use crate::ui::palette::BAR;
 use crate::ui::{fonts_egui, win32};
 
 const BUBBLE_SIZE: f32 = 48.0;
+/// 設定接上之前的訊息上限（對應 config 預設值）。
+const DEFAULT_MAX_MESSAGES: usize = 200;
 
 /// UI 執行緒這一端：事件接收端與重繪用的 Context（`App::new` 時才綁上）。
 pub struct Inbox {
@@ -44,7 +48,7 @@ pub struct App {
     shown: bool,
     status: Option<&'static str>,
     error: Option<(&'static str, Vec<(&'static str, String)>)>,
-    foreground_slot: Option<u32>,
+    model: OverlayModel,
 }
 
 impl App {
@@ -59,7 +63,7 @@ impl App {
             shown: true,
             status: None,
             error: None,
-            foreground_slot: None,
+            model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
         }
     }
 
@@ -76,6 +80,7 @@ impl App {
     /// 縮成泡泡（隱藏 overlay）或展開回 overlay。
     pub fn set_minimized(&mut self, minimized: bool) {
         self.minimized = minimized;
+        self.model.set_minimized(minimized);
     }
 
     fn apply(&mut self, event: UiEvent) {
@@ -83,11 +88,31 @@ impl App {
             UiEvent::SetStatus(key) => self.status = Some(key),
             UiEvent::SetError { key, args } => self.error = Some((key, args)),
             UiEvent::ClearError => self.error = None,
-            UiEvent::SetForegroundSlot(slot) => self.foreground_slot = slot,
-            // shortcut: messages and tabs are dropped until the overlay model exists (Task 20)
-            UiEvent::AddMessage { .. }
-            | UiEvent::UpdateMessage { .. }
-            | UiEvent::SetTabs { .. } => {}
+            UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
+            UiEvent::AddMessage {
+                slot,
+                tabs,
+                original,
+                translated,
+                msg_id,
+                pending,
+                color,
+            } => self.model.add_message(
+                slot,
+                &tabs,
+                &original,
+                &translated,
+                msg_id,
+                pending,
+                color.as_deref(),
+                Instant::now(),
+            ),
+            UiEvent::UpdateMessage {
+                msg_id,
+                translated,
+                failed,
+            } => self.model.update_message(msg_id, &translated, failed),
+            UiEvent::SetTabs { slot, state } => self.model.set_tabs(slot, state),
         }
     }
 
@@ -225,8 +250,35 @@ mod tests {
         harness.step();
         let app = harness.state();
         assert_eq!(app.status, Some("listening"));
-        assert_eq!(app.foreground_slot, Some(2));
+        assert_eq!(app.model.client(), Some(2));
         assert_eq!(app.error.as_ref().map(|e| e.0), Some("error.offline"));
+    }
+
+    #[test]
+    fn app_routes_messages_into_the_overlay_model() {
+        let (poster, inbox) = channel();
+        poster.post(UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: "o".into(),
+            translated: "...".into(),
+            msg_id: Some(7),
+            pending: true,
+            color: None,
+        });
+        poster.post(UiEvent::UpdateMessage {
+            msg_id: 7,
+            translated: "t".into(),
+            failed: false,
+        });
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.step();
+        let view = harness.state().model.current_view().unwrap();
+        assert_eq!(view.messages[0].translated, "t");
+        assert!(!view.messages[0].pending);
     }
 
     #[test]
