@@ -88,14 +88,20 @@ const ADD_LINE: SimpleHook = SimpleHook {
 
 /// 把每次 ChatBox::AddLine 呼叫的（序號, 回傳位址, this, 分頁, 內容）寫進環形緩衝。
 pub struct AddLineHook {
+    jump: u64,
     ring: u64,
 }
 
 impl AddLineHook {
     /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除，環形緩衝刻意不釋放）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
-        let ring = ADD_LINE.install(mem, cave, stub_bytes)?;
-        Ok(Self { ring })
+        let (jump, ring) = ADD_LINE.install(mem, cave, stub_bytes)?;
+        Ok(Self { jump, ring })
+    }
+
+    /// 被改成跳轉的 `ChatBox::AddLine` 開頭位址。
+    pub fn jump_addr(&self) -> u64 {
+        self.jump
     }
 
     /// 環形緩衝的位址。

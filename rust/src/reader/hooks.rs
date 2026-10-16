@@ -54,6 +54,18 @@ impl fmt::Display for HookError {
 
 impl std::error::Error for HookError {}
 
+impl HookError {
+    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Scan(err) => err.type_name(),
+            Self::Mem(err) => err.type_name(),
+            Self::CaveFull => "RuntimeError",
+            Self::JumpOutOfRange => "error",
+        }
+    }
+}
+
 impl From<ScanError> for HookError {
     fn from(err: ScanError) -> Self {
         Self::Scan(err)
@@ -105,7 +117,7 @@ pub(crate) struct SimpleHook {
 }
 
 impl SimpleHook {
-    /// 照 `SimpleHook.hook()` 的順序掛上並登記到 cave（之後只能由 cave 解除），回傳 export 位址。
+    /// 照 `SimpleHook.hook()` 的順序掛上並登記到 cave（之後只能由 cave 解除），回傳（跳轉點, export）位址。
     ///
     /// `body` 由 export 位址產生 stub（不含回跳）。
     pub(crate) fn install(
@@ -113,7 +125,7 @@ impl SimpleHook {
         mem: &dyn ProcessMemory,
         cave: &mut AutobotCave,
         body: impl FnOnce(u64) -> Vec<u8>,
-    ) -> Result<u64, HookError> {
+    ) -> Result<(u64, u64), HookError> {
         let jump = pattern::scan(mem, MODULE, self.pattern)?;
         let hook = cave.alloc_stub(self.stub_size)?;
         let export = mem.alloc(self.export_size)?;
@@ -132,7 +144,7 @@ impl SimpleHook {
             original,
             free: self.free_export.then_some(export),
         });
-        Ok(export)
+        Ok((jump, export))
     }
 }
 
@@ -224,7 +236,7 @@ pub struct RootWindowHook {
 impl RootWindowHook {
     /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
-        let export = ROOT_WINDOW.install(mem, cave, |export| {
+        let (_, export) = ROOT_WINDOW.install(mem, cave, |export| {
             [
                 &[0x50][..],                                 // push rax
                 &[0x49, 0x8B, 0x85, 0xD8, 0x00, 0x00, 0x00], // mov rax,[r13+D8]

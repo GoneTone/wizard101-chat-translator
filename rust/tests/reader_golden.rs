@@ -4,14 +4,14 @@ mod common;
 
 use std::sync::Mutex;
 
+use common::fake_game::{put_button, put_children, put_name};
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{
     DATA_OFF, HEADER, HookRecord, MAX_CHARS, SLOT_SIZE, SLOTS, decode_record, group_broadcasts,
     pending_broadcast, read_ring,
 };
 use wizard101_chat_translator::reader::chat_tabs::{
-    CUR_TAB_OFFSET, LABEL_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state,
-    visible_label,
+    CUR_TAB_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state, visible_label,
 };
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, ProcessMemory, Region};
@@ -342,36 +342,6 @@ fn read_ring_empty_line_and_split_surrogate_at_the_cut() {
     assert_eq!(got.records[1].text, format!("{}\u{FFFD}", "a".repeat(999)));
 }
 
-fn put_name(mem: &FakeMemory, win: u64, name: &str) {
-    let mut head = [0u8; 0x20];
-    if name.len() >= 16 {
-        let heap = win + 0x300_000;
-        mem.set_bytes(heap, name.as_bytes());
-        head[..8].copy_from_slice(&heap.to_le_bytes());
-    } else {
-        head[..name.len()].copy_from_slice(name.as_bytes());
-    }
-    head[16..20].copy_from_slice(&(name.len() as i32).to_le_bytes());
-    mem.set_bytes(win + 0x50, &head);
-}
-
-fn put_children(mem: &FakeMemory, win: u64, kids: &[u64]) {
-    let vec_at = win + 0x100_000;
-    let raw: Vec<u8> = kids
-        .iter()
-        .flat_map(|k| [k.to_le_bytes(), [0; 8]].concat())
-        .collect();
-    if !raw.is_empty() {
-        mem.set_bytes(vec_at, &raw);
-    }
-    let header = [
-        vec_at.to_le_bytes(),
-        (vec_at + raw.len() as u64).to_le_bytes(),
-    ]
-    .concat();
-    mem.set_bytes(win + 0x70, &header);
-}
-
 #[test]
 fn ui_tree_find_by_name_skips_unreadable_nodes() {
     let mem = FakeMemory::new();
@@ -410,21 +380,6 @@ fn std_string_heap_when_length_ge_16() {
     head[16..20].copy_from_slice(&(text.len() as i32).to_le_bytes());
     mem.set_bytes(0x2000 + 0x50, &head);
     assert_eq!(Window { addr: 0x2000 }.name(&mem).unwrap(), text);
-}
-
-fn put_button(mem: &FakeMemory, win: u64, name: &str, label: &str, flags: u32, parent_flags: u32) {
-    put_name(mem, win, name);
-    put_children(mem, win, &[]);
-    let parent = win + 0x200_000;
-    mem.set_bytes(win + 0x88, &parent.to_le_bytes());
-    mem.set_bytes(win + 0x9C, &flags.to_le_bytes());
-    mem.set_bytes(parent + 0x9C, &parent_flags.to_le_bytes());
-    let data: Vec<u8> = label.encode_utf16().flat_map(u16::to_le_bytes).collect();
-    let mut head = vec![0u8; 0x20];
-    head[..data.len()].copy_from_slice(&data);
-    head[0x10..0x18].copy_from_slice(&(label.encode_utf16().count() as u64).to_le_bytes());
-    head[0x18..].copy_from_slice(&7u64.to_le_bytes());
-    mem.set_bytes(win + LABEL_OFFSET, &head);
 }
 
 #[test]

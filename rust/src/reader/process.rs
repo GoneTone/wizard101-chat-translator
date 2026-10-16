@@ -1,8 +1,14 @@
 //! 遊戲視窗與程序的辨識：列舉客戶端視窗、PID、前景視窗與 client 區座標。
 
-use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use std::path::Path;
+use std::ptr::null_mut;
+
+use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
-use windows_sys::Win32::System::ProcessStatus::EnumProcesses;
+use windows_sys::Win32::System::ProcessStatus::{EnumProcesses, GetModuleFileNameExW};
+use windows_sys::Win32::System::Threading::{
+    OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_VM_READ,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
     IsWindow,
@@ -15,6 +21,37 @@ const GAME_WINDOW_CLASS: &str = "Wizard Graphical Client";
 /// exe 路徑是否為遊戲主程式（依檔名比對，不分大小寫）。
 pub fn is_game_process_path(path: &str) -> bool {
     path.to_lowercase().ends_with(&PROCESS_NAME.to_lowercase())
+}
+
+/// PID 的主模組路徑；開不了程序（權限、已結束）回 None。
+fn process_exe_path(pid: u32) -> Option<String> {
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
+    if handle.is_null() {
+        return None;
+    }
+    let mut buf = vec![0u16; 1024];
+    let n = unsafe { GetModuleFileNameExW(handle, null_mut(), buf.as_mut_ptr(), buf.len() as u32) };
+    unsafe { CloseHandle(handle) };
+    (n != 0).then(|| String::from_utf16_lossy(&buf[..n as usize]))
+}
+
+/// exe 路徑是遊戲主程式時回其安裝根目錄（`...\Bin\` 的上一層），否則 None。
+pub fn install_root(exe: &str) -> Option<String> {
+    if !is_game_process_path(exe) {
+        return None;
+    }
+    Some(
+        Path::new(exe)
+            .parent()?
+            .parent()?
+            .to_string_lossy()
+            .into_owned(),
+    )
+}
+
+/// 遊戲程序的安裝根目錄（只用於診斷 log）；開不了程序或不是遊戲回 None。
+pub fn install_path_of(pid: u32) -> Option<String> {
+    install_root(&process_exe_path(pid)?)
 }
 
 unsafe extern "system" fn collect_game_window(hwnd: HWND, lparam: LPARAM) -> i32 {

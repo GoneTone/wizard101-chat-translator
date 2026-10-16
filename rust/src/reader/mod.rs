@@ -5,6 +5,7 @@ pub mod chat_tabs;
 pub mod hook_state;
 pub mod hooks;
 pub mod markup;
+pub mod mem_reader;
 pub mod memory;
 pub mod pattern;
 pub mod process;

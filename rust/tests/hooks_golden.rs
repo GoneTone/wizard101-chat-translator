@@ -4,15 +4,15 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use common::fake_game::place;
 use serde_json::Value;
-use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
 use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{
     AUTOBOT_PATTERN, AutobotCave, MODULE, ROOT_WINDOW_PATTERN, RootWindowHook,
 };
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp, Region};
+use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp};
 
 const BASE: u64 = 0x1_4000_0000;
 const RING_SIZE: usize = 0x80040;
@@ -26,39 +26,6 @@ fn unhex(s: &str) -> Vec<u8> {
 
 fn hex_of(v: &Value) -> Vec<u8> {
     unhex(v.as_str().unwrap())
-}
-
-/// 依 pattern 原文造一段命中位元組（同 golden exporter 的 `_pattern_instance`）。
-fn pattern_instance(pattern: &str) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut rest = pattern;
-    while !rest.is_empty() {
-        if let Some(hex) = rest.strip_prefix(r"\x") {
-            out.push(u8::from_str_radix(&hex[..2], 16).unwrap());
-            rest = &hex[2..];
-        } else {
-            assert!(rest.starts_with('.'), "unsupported token in {pattern}");
-            out.push(0x0A);
-            rest = &rest[1..];
-        }
-    }
-    out
-}
-
-fn place(mem: &FakeMemory, addr: u64, pattern: &str, size: usize) -> Vec<u8> {
-    let mut bytes = pattern_instance(pattern);
-    bytes.resize(size, 0xCC);
-    mem.add_region(
-        MODULE,
-        Region {
-            base: addr,
-            size,
-            protect: PAGE_EXECUTE_READ,
-            state: MEM_COMMIT,
-        },
-    );
-    mem.set_bytes(addr, &bytes);
-    bytes
 }
 
 struct Game {

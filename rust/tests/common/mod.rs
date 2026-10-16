@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+pub mod fake_game;
+
 /// 讀取 `tests/golden/<name>.json`，回傳 Python 匯出的案例清單。
 pub fn golden(name: &str) -> Vec<serde_json::Value> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
