@@ -5,6 +5,7 @@ description = "Wizard101 Chat Translator — an AI translator for Wizard101's in
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.0.0",
+    "google-genai>=2.31.0",
     "httpx",
     "keyboard",
     "langcodes>=3.5.1",

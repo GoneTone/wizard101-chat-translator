@@ -82,7 +82,7 @@ def test_legacy_api_block_is_migrated_and_rewritten(tmp_path):
 def test_an_unsupported_service_survives_the_rewrite_and_a_roundtrip(tmp_path):
     """這一版認不得的服務原樣留在檔案裡：跑過一次不該少掉任何欄位，金鑰尤其不能掉。"""
     p = tmp_path / "config.json"
-    entry = {"id": "cccccccc", "name": "Future", "provider": "gemini",
+    entry = {"id": "cccccccc", "name": "Future", "provider": "mistral",
              "model": "g-2", "api_key": "sk-REAL-USER-KEY", "quirk": True}
     p.write_text(json.dumps({"services": [copy.deepcopy(entry)]}), encoding="utf-8")
 

@@ -68,6 +68,7 @@ def test_validate_endpoint_fields_ignores_the_model():
 
 def test_profile_fields_cover_what_the_translator_takes():
     assert set(API_PROFILE_FIELDS["claude"]) == {"model", "api_key", "effort"}
+    assert set(API_PROFILE_FIELDS["gemini"]) == {"model", "api_key", "effort"}
     assert "base_url" not in API_PROFILE_FIELDS["openai"]
 
 
@@ -267,7 +268,7 @@ def test_a_leftover_api_block_does_not_wipe_an_existing_service_list():
 def test_quarantines_a_service_with_an_unknown_provider():
     """日後版本新增的服務商被這一版讀到時不能連金鑰一起消失，整筆原樣搬進隔離區。"""
     cfg = _empty_section()
-    entry = {"id": "aaaaaaaa", "name": "X", "provider": "gemini", "model": "g",
+    entry = {"id": "aaaaaaaa", "name": "X", "provider": "mistral", "model": "g",
              "api_key": "sk-REAL-USER-KEY", "quirk": 1}
     cfg["services"] = [entry]
     assert normalize(cfg) is True
@@ -281,7 +282,7 @@ def test_a_quarantined_service_is_never_pointed_at():
     cfg = _empty_section()
     known = new_service("openai", [])
     known.update(model="m", api_key="k")
-    unknown = {"id": "bbbbbbbb", "name": "Future", "provider": "gemini",
+    unknown = {"id": "bbbbbbbb", "name": "Future", "provider": "mistral",
                "api_key": "sk-2"}
     cfg["services"] = [known, unknown]
     cfg["default_service"] = "bbbbbbbb"
@@ -324,8 +325,8 @@ def test_a_quarantined_service_returns_once_its_provider_is_known():
 def test_an_api_block_survives_a_service_list_that_is_wholly_quarantined():
     """整份 services 都被隔離時，舊 api 區塊不能被當成「已遷移過」而丟掉。"""
     cfg = _empty_section()
-    unknown = {"id": "x1", "name": "Gemini", "provider": "gemini",
-               "api_key": "SK-GEMINI"}
+    unknown = {"id": "x1", "name": "Mistral", "provider": "mistral",
+               "api_key": "SK-MISTRAL"}
     cfg["services"] = [copy.deepcopy(unknown)]
     cfg["api"] = {"provider": "openai",
                   "openai": {"model": "gpt-x", "api_key": "SK-OPENAI",
@@ -406,8 +407,8 @@ def test_a_service_list_hand_edited_into_one_bare_service_is_wrapped():
 def test_a_bare_service_dict_this_build_cannot_read_lands_in_quarantine():
     """同樣少了中括號、但 provider 這一版不認得：包回一筆之後照常進隔離區。"""
     cfg = _empty_section()
-    parked = {"id": "s1", "name": "Gemini", "provider": "gemini",
-              "api_key": "SK-GEMINI"}
+    parked = {"id": "s1", "name": "Mistral", "provider": "mistral",
+              "api_key": "SK-MISTRAL"}
     cfg["services"] = copy.deepcopy(parked)
     assert normalize(cfg) is True
     assert cfg["services"] == []
@@ -463,13 +464,13 @@ def test_the_default_follows_the_migrated_service_when_the_api_provider_is_junk(
 def test_an_unknown_provider_in_the_api_block_lands_in_quarantine():
     """api 區塊裡這一版不認得的 provider 要原樣進隔離區 —— 丟掉等於金鑰永久消失。"""
     cfg = _empty_section()
-    cfg["api"] = {"provider": "gemini",
-                  "gemini": {"model": "g", "api_key": "SK-GEMINI"}}
+    cfg["api"] = {"provider": "mistral",
+                  "mistral": {"model": "g", "api_key": "SK-MISTRAL"}}
     assert normalize(cfg) is True
     assert "api" not in cfg
     assert cfg["services"] == []
-    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "gemini", "model": "g",
-                                          "api_key": "SK-GEMINI"}]
+    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "mistral", "model": "g",
+                                          "api_key": "SK-MISTRAL"}]
     assert cfg["default_service"] is None
     assert normalize(cfg) is False
 
@@ -477,25 +478,25 @@ def test_an_unknown_provider_in_the_api_block_lands_in_quarantine():
 def test_an_unknown_provider_in_the_flat_legacy_api_block_lands_in_quarantine():
     """最舊的扁平格式一樣要救：攤平那步不能把不認得的欄位篩掉。"""
     cfg = _empty_section()
-    cfg["api"] = {"provider": "gemini", "model": "g", "api_key": "SK-GEMINI-FLAT"}
+    cfg["api"] = {"provider": "mistral", "model": "g", "api_key": "SK-MISTRAL-FLAT"}
     assert normalize(cfg) is True
     assert cfg["services"] == []
-    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "gemini", "model": "g",
-                                          "api_key": "SK-GEMINI-FLAT"}]
+    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "mistral", "model": "g",
+                                          "api_key": "SK-MISTRAL-FLAT"}]
     assert normalize(cfg) is False
 
 
 def test_a_known_api_section_migrates_while_an_unknown_one_is_quarantined():
     """兩家並存時各走各的路，沒有一邊會被另一邊帶走。"""
     cfg = _empty_section()
-    cfg["api"] = {"provider": "gemini",
-                  "gemini": {"api_key": "SK-GEMINI"},
+    cfg["api"] = {"provider": "mistral",
+                  "mistral": {"api_key": "SK-MISTRAL"},
                   "openai": {"model": "gpt-x", "api_key": "SK-OPENAI",
                              "thinking": False}}
     assert normalize(cfg) is True
     assert [s["api_key"] for s in cfg["services"]] == ["SK-OPENAI"]
-    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "gemini",
-                                          "api_key": "SK-GEMINI"}]
+    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "mistral",
+                                          "api_key": "SK-MISTRAL"}]
     assert cfg["default_service"] == cfg["services"][0]["id"]
     assert normalize(cfg) is False
 
@@ -507,13 +508,13 @@ def test_a_leftover_api_block_still_rescues_its_unknown_sections():
     cfg["services"][0].update(model="gpt-x", api_key="SK-KEPT")
     cfg["default_service"] = cfg["services"][0]["id"]
     kept = copy.deepcopy(cfg["services"][0])
-    cfg["api"] = {"provider": "gemini",
-                  "gemini": {"model": "g", "api_key": "SK-GEMINI"}}
+    cfg["api"] = {"provider": "mistral",
+                  "mistral": {"model": "g", "api_key": "SK-MISTRAL"}}
     assert normalize(cfg) is True
     assert "api" not in cfg
     assert cfg["services"] == [kept]
-    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "gemini", "model": "g",
-                                          "api_key": "SK-GEMINI"}]
+    assert cfg[UNSUPPORTED_SERVICES] == [{"provider": "mistral", "model": "g",
+                                          "api_key": "SK-MISTRAL"}]
     assert normalize(cfg) is False
 
 

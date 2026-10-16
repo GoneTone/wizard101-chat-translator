@@ -1,5 +1,5 @@
 """clients 的 HTTP 協定測試：請求內容、錯誤碼對應、SSE 串流、取消與 token 上限（mock client，不打真 API）。
-兩種後端都走串流：假 client 回 SSE 行（OpenAI 相容）或假的 MessageStream（Claude），
+各後端都走串流：假 client 回 SSE 行（OpenAI 相容）、假的 MessageStream（Claude）或 chunk 序列（Gemini），
 取消測試用「卡住直到被 close」的回應模擬模型還在生成時客戶端主動斷線。"""
 import json
 import threading
@@ -10,11 +10,13 @@ import anthropic
 import httpx
 import httpx2
 import pytest
+from google.genai import errors as genai_errors
 
 from src.translation.clients import (
     _CLAUDE_OUTPUT_FORMAT,
     MAX_TOKENS_THINKING,
     RequestHandle,
+    build_client,
     error_detail,
 )
 from src.translation.errors import (
@@ -711,3 +713,124 @@ def test_an_unrelated_runtime_error_is_not_taken_for_offline():
     with pytest.raises(RuntimeError, match="boom") as raised:
         tr.translate_incoming("[A] hi", [])
     assert not isinstance(raised.value, TranslatorOffline)
+
+
+def _gemini_chunk(text, finish_reason=None, usage=None):
+    candidates = [SimpleNamespace(finish_reason=finish_reason)] if finish_reason else None
+    return SimpleNamespace(text=text, candidates=candidates, usage_metadata=usage)
+
+
+class FakeGeminiModels:
+    """替身 `client.models`：`generate_content_stream` 依序吐出 chunks；
+    `on_stream` 在吐第一塊前呼叫，給取消測試模擬 httpx 收到回應標頭。"""
+
+    def __init__(self, chunks=(), raises=None, models=(), on_stream=None):
+        self._chunks = chunks or (_gemini_chunk("雙子"), _gemini_chunk("譯文", "STOP"))
+        self._raises = raises
+        self._models = models
+        self._on_stream = on_stream
+        self.last_kwargs = None
+
+    def generate_content_stream(self, **kwargs):
+        self.last_kwargs = kwargs
+        if self._raises:
+            raise self._raises
+        if self._on_stream:
+            self._on_stream()
+        yield from self._chunks
+
+    def list(self):
+        if self._raises:
+            raise self._raises
+        return [SimpleNamespace(name=f"models/{name}", supported_actions=actions)
+                for name, actions in self._models]
+
+
+def _gemini(effort="auto", **fake):
+    client = SimpleNamespace(models=FakeGeminiModels(**fake))
+    return Translator(provider="gemini", model="gemini-x", api_key="k", effort=effort,
+                      target_language="繁體中文（台灣）", client=client), client.models
+
+
+def test_gemini_joins_streamed_chunks():
+    t, _ = _gemini()
+    assert t.translate_incoming("[A] hi", []) == "[A] 雙子譯文"
+
+
+def test_gemini_sends_system_instruction_and_model_role():
+    t, fake = _gemini()
+    t.translate_incoming("[A] hi", ["[B] earlier"])
+    config = fake.last_kwargs["config"]
+    assert config["system_instruction"] and config["max_output_tokens"] == MAX_TOKENS_THINKING
+    assert "temperature" not in config and "thinking_config" not in config
+    roles = [turn["role"] for turn in fake.last_kwargs["contents"]]
+    assert set(roles) == {"user", "model"} and roles[-1] == "user"
+
+
+def test_gemini_low_effort_sends_thinking_level():
+    t, fake = _gemini(effort="low")
+    t.translate_incoming("[A] hi", [])
+    assert fake.last_kwargs["config"]["thinking_config"] == {"thinking_level": "low"}
+
+
+def test_gemini_logs_prompt_cache_usage(capsys):
+    usage = SimpleNamespace(prompt_token_count=3000, cached_content_token_count=2048,
+                            candidates_token_count=9)
+    t, _ = _gemini(chunks=(_gemini_chunk("譯文", "STOP", usage),))
+    t.translate_incoming("[A] hi", [])
+    assert ("prompt cache: provider=gemini model=gemini-x prompt=3000 cached=2048"
+            in capsys.readouterr().err)
+
+
+def test_gemini_truncated_output_maps_to_bad_output():
+    t, _ = _gemini(chunks=(_gemini_chunk("am chick", "MAX_TOKENS"),))
+    with pytest.raises(TranslatorBadOutput):
+        t.translate_incoming("[A] hi", [])
+
+
+@pytest.mark.parametrize("error,exc", [
+    (genai_errors.ClientError(400, {"error": {"message": "API key not valid"}}), TranslatorConfigError),
+    (genai_errors.ClientError(429, {"error": {"message": "quota"}}), TranslatorOffline),
+    (genai_errors.ServerError(503, {"error": {"message": "overloaded"}}), TranslatorOffline),
+    (httpx.ConnectError("refused"), TranslatorOffline),
+])
+def test_gemini_error_mapping(error, exc):
+    t, _ = _gemini(raises=error)
+    with pytest.raises(exc):
+        t.translate_incoming("[A] hi", [])
+
+
+def test_gemini_cancel_closes_the_streamed_response():
+    response = SimpleNamespace(closed=False)
+    response.close = lambda: setattr(response, "closed", True)
+    handle = RequestHandle()
+
+    def headers_received():
+        # 模擬 SDK 經 httpx 收到標頭後觸發 hook，接著另一條執行緒取消
+        impl._on_response(response)
+        handle.cancel()
+        raise httpx.ReadError("connection closed")
+
+    client = SimpleNamespace(models=FakeGeminiModels(on_stream=headers_received))
+    impl = build_client(provider="gemini", model="m", api_key="k", client=client)
+    with pytest.raises(TranslatorCancelled):
+        impl.chat("system", [{"role": "user", "content": "hi"}], cancel=handle)
+    assert response.closed
+
+
+def test_list_models_gemini_keeps_generate_content_models():
+    models = (("gemini-x-flash", ["generateContent", "countTokens"]),
+              ("text-embedding-x", ["embedContent"]), ("gemini-a-pro", ["generateContent"]))
+    client = SimpleNamespace(models=FakeGeminiModels(models=models))
+    assert list_models(_api(provider="gemini"), client=client) == ["gemini-a-pro", "gemini-x-flash"]
+
+
+@pytest.mark.parametrize("error,exc", [
+    (genai_errors.ClientError(403, {"error": {"message": "denied"}}), TranslatorConfigError),
+    (genai_errors.ClientError(404, {"error": {"message": "nope"}}), TranslatorNoModelList),
+    (httpx.ConnectError("refused"), TranslatorOffline),
+])
+def test_list_models_gemini_error_mapping(error, exc):
+    client = SimpleNamespace(models=FakeGeminiModels(raises=error))
+    with pytest.raises(exc):
+        list_models(_api(provider="gemini"), client=client)

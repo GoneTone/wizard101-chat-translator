@@ -1,5 +1,6 @@
-"""各服務商的 HTTP 客戶端：OpenAI 相容 /v1/chat/completions（串流 SSE）與 Claude /v1/messages，
-以及 HTTP 錯誤的解析與分類、請求逾時與 token 上限、可從別的執行緒中斷請求的 RequestHandle。
+"""各服務商的 HTTP 客戶端：OpenAI 相容 /v1/chat/completions（串流 SSE）、Claude /v1/messages
+與 Gemini streamGenerateContent，以及 HTTP 錯誤的解析與分類、請求逾時與 token 上限、
+可從別的執行緒中斷請求的 RequestHandle。
 Translator（translator.py）只透過 build_client() 取得客戶端，不碰各家協定細節。"""
 import json
 import re
@@ -106,7 +107,7 @@ def error_detail(text: str) -> str:
 
 
 def _status_error(status: int, detail: str = "") -> TranslatorError | None:
-    """翻譯請求的 HTTP 狀態碼映射成例外（None＝可繼續解析回應）；兩種後端共用，判定一致。
+    """翻譯請求的 HTTP 狀態碼映射成例外（None＝可繼續解析回應）；各後端共用，判定一致。
     4xx 一律當設定錯誤：400 多半是模型不吃某個參數，改設定才會好。"""
     if status == 429 or status >= 500:
         return TranslatorOffline(detail, status=status)
@@ -141,7 +142,7 @@ def rejected_parameter(detail: str) -> str | None:
 class RequestHandle:
     """可從別的執行緒撤銷的進行中請求。
 
-    兩個後端都走串流：請求送出後把回應的 `close` 掛上來（`_attach`），`cancel()`
+    各後端都走串流：請求送出後把回應的 `close` 掛上來（`_attach`），`cancel()`
     從主執行緒關掉它，伺服器端隨即停止生成、只計已產生的 token —— 非串流請求做不到這點
     （斷線後伺服器仍會生成完整段並全額計費）。請求正常結束後 `_detach`，之後再 `cancel()`
     只立旗標、不會去關一個已經結束的回應。還沒送出就被取消的請求根本不會送。"""
@@ -195,7 +196,7 @@ def _cancellable(cancel: RequestHandle | None, close):
 
 
 class BaseClient:
-    """兩種後端共用的骨架：模型 ID 與連線池釋放。子類別各自實作 chat／list_models。"""
+    """各後端共用的骨架：模型 ID 與連線池釋放。子類別各自實作 chat／list_models。"""
 
     _client = None
     _model = ""
@@ -463,6 +464,95 @@ class _ClaudeClient(BaseClient):
         return sorted(m.id for m in page)
 
 
+def _gemini_detail(exc) -> str:
+    """`google.genai.errors.APIError` → 一行錯誤說明（SDK 取不到 message 時退回例外字串）。"""
+    return _one_line(exc.message or str(exc))
+
+
+class _GeminiClient(BaseClient):
+    """Gemini 官方 API（google-genai SDK）：打 streamGenerateContent。
+    不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易陷入重複輸出。
+    3 系列與 2.5 Pro 關不掉思考，故跟 Claude 一樣用 effort：EFFORT_AUTO 不帶
+    thinking_config、維持模型預設，其餘送 thinking_level。"""
+
+    def __init__(self, model: str, api_key: str, effort: str = EFFORT_AUTO,
+                 timeout: float = TIMEOUT, client=None):
+        # 延遲 import 的理由同 _ClaudeClient：只有選 Gemini 的使用者需要它
+        from google import genai
+        self._sdk = genai
+        self._local = threading.local()
+        # 空金鑰時 SDK 會改讀環境變數或直接拋 ValueError；改讓伺服器回 4xx，照一般設定錯誤處理
+        self._client = client if client is not None else genai.Client(
+            api_key=api_key or " ", http_options=genai.types.HttpOptions(
+                timeout=int(timeout * 1000),
+                client_args={"event_hooks": {"response": [self._on_response]}}))
+        self._model = model
+        self._effort = effort
+
+    def _on_response(self, response) -> None:
+        """SDK 不外露串流回應，只能在 httpx 收到標頭時把它的 close 交給這次請求的 cancel。"""
+        cancel = getattr(self._local, "cancel", None)
+        if cancel is not None:
+            cancel._attach(response.close)
+
+    def chat(self, system: str, turns: list[dict], max_tokens: int | None = None,
+             cancel: RequestHandle | None = None, deterministic: bool = True) -> str:
+        """打一次串流請求，把各塊文字接回整段。`max_tokens` 未指定時用
+        `MAX_TOKENS_THINKING`（理由同 _ClaudeClient.chat）；`deterministic` 不適用、收下後忽略。"""
+        limit = max_tokens if max_tokens is not None else MAX_TOKENS_THINKING
+        config = {"system_instruction": system, "max_output_tokens": limit}
+        if self._effort != EFFORT_AUTO:
+            config["thinking_config"] = {"thinking_level": self._effort}
+        contents = [{"role": "model" if turn["role"] == "assistant" else "user",
+                     "parts": [{"text": turn["content"]}]} for turn in turns]
+        parts: list[str] = []
+        finish_reason = usage = None
+        self._local.cancel = cancel
+        try:
+            # 先掛空的 close 只為沿用 _cancellable 的取消判定，真正的 close 由 _on_response 換上
+            with _cancellable(cancel, lambda: None):
+                for chunk in self._client.models.generate_content_stream(
+                        model=self._model, contents=contents, config=config):
+                    if chunk.text:
+                        parts.append(chunk.text)
+                    if chunk.candidates and chunk.candidates[0].finish_reason:
+                        finish_reason = chunk.candidates[0].finish_reason
+                    usage = chunk.usage_metadata or usage
+        except (httpx.HTTPError, httpx.StreamError) as exc:
+            raise TranslatorOffline(_one_line(str(exc))) from exc
+        except self._sdk.errors.APIError as exc:
+            error = _status_error(exc.code, _gemini_detail(exc))
+            if error is None:
+                raise
+            raise error from exc
+        finally:
+            self._local.cancel = None
+        content = "".join(parts)
+        if usage is not None:
+            log(f"[translate] prompt cache: provider=gemini model={self._model} "
+                f"prompt={usage.prompt_token_count} cached={usage.cached_content_token_count}")
+        if finish_reason == "MAX_TOKENS":
+            raise _truncated(limit, getattr(usage, "candidates_token_count", None), content)
+        if not content:
+            log(f"[translate] gemini returned no text: model={self._model} "
+                f"finish_reason={finish_reason}")
+        return strip_think(content).strip()
+
+    def list_models(self) -> list[str]:
+        try:
+            models = list(self._client.models.list())  # SDK 自動翻頁
+        except httpx.HTTPError as exc:
+            raise TranslatorOffline(_one_line(str(exc))) from exc
+        except self._sdk.errors.APIError as exc:
+            error = _model_list_error(exc.code, _gemini_detail(exc))
+            if error is None:
+                raise
+            raise error from exc
+        # 清單也含嵌入、生圖等模型，只留能拿來翻譯的；名稱帶 models/ 前綴
+        return sorted(m.name.removeprefix("models/") for m in models
+                      if "generateContent" in (m.supported_actions or []))
+
+
 # 欄位一律給預設值：呼叫端（Translator、list_models）直接展開某一家的設定，
 # 而每家有的欄位不同（見 services.API_PROFILE_FIELDS）。
 def build_client(provider: str = "custom", base_url: str = "", model: str = "",
@@ -470,6 +560,9 @@ def build_client(provider: str = "custom", base_url: str = "", model: str = "",
                   timeout: float = TIMEOUT, client=None):
     if provider == "claude":
         return _ClaudeClient(model=model, api_key=api_key, effort=effort,
+                             timeout=timeout, client=client)
+    if provider == "gemini":
+        return _GeminiClient(model=model, api_key=api_key, effort=effort,
                              timeout=timeout, client=client)
     if provider == "openai":
         # 官方端點固定 base_url；請求 body 的差異見 _OpenAICompatClient
