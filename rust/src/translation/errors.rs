@@ -79,7 +79,7 @@ pub fn one_line(text: &str) -> String {
 }
 
 /// OpenAI／Anthropic 的 `error.message`，或自架後端直接放字串的 `error`／`message`。
-fn message_of(body: &Value) -> Option<&str> {
+pub(crate) fn message_of(body: &Value) -> Option<&str> {
     let body = body.as_object()?;
     match body.get("error") {
         Some(Value::Object(error)) => {

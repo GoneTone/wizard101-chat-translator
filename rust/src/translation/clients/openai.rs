@@ -4,13 +4,14 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 
-use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, HeaderMap};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, cancellable, connection_error, http_client,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, cancellable, connection_error, count_of,
+    http_client, secret_header, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -19,8 +20,6 @@ use crate::translation::errors::{
 };
 use crate::translation::postprocess::strip_think;
 use crate::translation::pystr;
-
-const TRUNCATED_SAMPLE_CHARS: usize = 80;
 
 /// 長度上限的兩個名字互換而非拿掉：它是防 repetition loop 的保險。
 fn other_token_param(name: &str) -> Option<&'static str> {
@@ -65,12 +64,11 @@ impl OpenAiCompatClient {
     pub fn new(base_url: &str, api_key: &str, model: &str, thinking: bool, official: bool) -> Self {
         let mut headers = HeaderMap::new();
         if !api_key.is_empty() {
-            match HeaderValue::from_str(&format!("Bearer {api_key}")) {
-                Ok(mut value) => {
-                    value.set_sensitive(true);
+            match secret_header(&format!("Bearer {api_key}")) {
+                Some(value) => {
                     headers.insert(AUTHORIZATION, value);
                 }
-                Err(_) => log(
+                None => log(
                     "[translate] api key has characters invalid in an HTTP header; \
                      sending without Authorization",
                 ),
@@ -196,10 +194,7 @@ impl OpenAiCompatClient {
         };
         let usage = streamed.usage.unwrap_or(Value::Null);
         if let Some(prompt) = usage.get("prompt_tokens") {
-            let cached = usage
-                .pointer("/prompt_tokens_details/cached_tokens")
-                .filter(|v| !v.is_null())
-                .map_or("None".to_owned(), Value::to_string);
+            let cached = count_of(usage.pointer("/prompt_tokens_details/cached_tokens"));
             log(format!(
                 "[translate] prompt cache: provider=openai-compatible model={} \
                  prompt={prompt} cached={cached}",
@@ -297,18 +292,4 @@ impl OpenAiCompatClient {
         ids.sort();
         Ok(ids)
     }
-}
-
-/// 組出帶診斷資訊的截斷錯誤：token 數與樣本讓使用者從 app.log 分辨 repetition loop 與上限誤砍。
-fn truncated(max_tokens: u32, completion_tokens: Option<&Value>, sample: &str) -> TranslateError {
-    let head: String = sample
-        .chars()
-        .take(TRUNCATED_SAMPLE_CHARS)
-        .collect::<String>()
-        .replace('\n', " ");
-    let completion_tokens = completion_tokens.map_or("None".to_owned(), Value::to_string);
-    TranslateError::BadOutput(format!(
-        "output truncated at max_tokens={max_tokens}, completion_tokens={completion_tokens}, \
-         sample={head:?}"
-    ))
 }

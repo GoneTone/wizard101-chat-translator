@@ -1,9 +1,10 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
+mod stream_server;
+
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
@@ -333,34 +334,13 @@ async fn connection_failure_is_offline_without_status() {
 
 #[tokio::test]
 async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        let (mut socket, _) = listener.accept().await.unwrap();
-        let mut buf = vec![0u8; 8192];
-        let mut seen = Vec::new();
-        while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
-            let n = socket.read(&mut buf).await.unwrap();
-            seen.extend_from_slice(&buf[..n]);
-        }
-        let piece = format!("data: {}\n\n", delta("partial"));
-        let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
-                    transfer-encoding: chunked\r\n\r\n";
-        socket.write_all(head.as_bytes()).await.unwrap();
-        let chunk = format!("{:x}\r\n{piece}\r\n", piece.len());
-        socket.write_all(chunk.as_bytes()).await.unwrap();
-        // 客戶端斷線後 read 會讀到 EOF 或連線重置
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {}
-                }
-            }
-        })
-        .await
-        .is_ok()
-    });
+    let (url, server) = stream_server::stalled_stream(format!(
+        "data: {}
+
+",
+        delta("partial")
+    ))
+    .await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let token = CancellationToken::new();
     let canceller = token.clone();
@@ -476,12 +456,14 @@ fn build_client_picks_endpoint_by_provider() {
         ..Default::default()
     };
     for provider in ["custom", "openai", "something-else"] {
-        let client = build_client(&spec(provider)).unwrap();
+        let client = build_client(&spec(provider));
         assert!(matches!(client, Client::OpenAiCompat(_)));
         assert_eq!(client.model(), "m");
     }
-    assert!(build_client(&spec("claude")).is_none());
-    assert!(build_client(&spec("gemini")).is_none());
+    let claude = build_client(&spec("claude"));
+    assert!(matches!(claude, Client::Claude(_)) && claude.model() == "m");
+    let gemini = build_client(&spec("gemini"));
+    assert!(matches!(gemini, Client::Gemini(_)) && gemini.model() == "m");
 }
 
 #[tokio::test]

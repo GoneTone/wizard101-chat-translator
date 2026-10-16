@@ -55,6 +55,9 @@ impl Field {
     }
 }
 
+/// 思考深度「自動」：不帶 effort 相關參數，維持模型預設。
+pub const EFFORT_AUTO: &str = "auto";
+
 // 服務商清單與欄位的單一真實來源；Claude 的 effort 維持 auto —— Haiku 4.5 帶 effort 會 400。
 const PROVIDERS: &[Provider] = &[
     Provider {
@@ -72,7 +75,7 @@ const PROVIDERS: &[Provider] = &[
         fields: &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
-            ("effort", Field::Text("auto")),
+            ("effort", Field::Text(EFFORT_AUTO)),
         ],
     },
     Provider {

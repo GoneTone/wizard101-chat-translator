@@ -1,13 +1,19 @@
 //! 各服務商的 HTTP client：統一的 [`Client`] 入口、請求逾時與 token 上限、可取消的請求。
 
+mod claude;
+mod gemini;
 mod openai;
 pub mod sse;
 
 use std::error::Error as _;
 use std::time::Duration;
 
+use reqwest::header::HeaderValue;
+use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
+pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
+pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
 use super::errors::{TranslateError, one_line};
@@ -28,6 +34,8 @@ pub const MAX_TOKENS_REGION: u32 = 4096;
 
 /// ChatGPT preset 固定的官方端點。
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com";
+
+const TRUNCATED_SAMPLE_CHARS: usize = 80;
 
 /// 一次聊天請求的內容。
 pub struct ChatRequest<'a> {
@@ -58,6 +66,8 @@ pub trait ChatBackend: Send + Sync {
 /// 依服務商建立的 client。
 pub enum Client {
     OpenAiCompat(OpenAiCompatClient),
+    Claude(ClaudeClient),
+    Gemini(GeminiClient),
 }
 
 impl Client {
@@ -69,6 +79,8 @@ impl Client {
     ) -> Result<String, TranslateError> {
         match self {
             Self::OpenAiCompat(c) => c.chat(req, cancel).await,
+            Self::Claude(c) => c.chat(req, cancel).await,
+            Self::Gemini(c) => c.chat(req, cancel).await,
         }
     }
 
@@ -76,6 +88,8 @@ impl Client {
     pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
         match self {
             Self::OpenAiCompat(c) => c.list_models().await,
+            Self::Claude(c) => c.list_models().await,
+            Self::Gemini(c) => c.list_models().await,
         }
     }
 
@@ -83,6 +97,8 @@ impl Client {
     pub fn model(&self) -> &str {
         match self {
             Self::OpenAiCompat(c) => c.model(),
+            Self::Claude(c) => c.model(),
+            Self::Gemini(c) => c.model(),
         }
     }
 }
@@ -105,20 +121,74 @@ impl ChatBackend for Client {
     }
 }
 
-/// 依服務設定建立 client；`claude`／`gemini` 尚未移植，回 `None`。
-pub fn build_client(spec: &ServiceSpec) -> Option<Client> {
-    let (base_url, official) = match spec.provider.as_str() {
-        "claude" | "gemini" => return None,
-        "openai" => (OPENAI_BASE_URL, true),
-        _ => (spec.base_url.as_str(), false),
-    };
-    Some(Client::OpenAiCompat(OpenAiCompatClient::new(
-        base_url,
-        &spec.api_key,
-        &spec.model,
-        spec.thinking,
-        official,
-    )))
+/// 依服務設定建立 client：`claude`／`gemini`／`openai` 走各自官方端點，其餘為自訂端點。
+pub fn build_client(spec: &ServiceSpec) -> Client {
+    let (key, model, effort) = (&spec.api_key, &spec.model, &spec.effort);
+    match spec.provider.as_str() {
+        "claude" => Client::Claude(ClaudeClient::new(key, model, effort, CLAUDE_BASE_URL)),
+        "gemini" => Client::Gemini(GeminiClient::new(key, model, effort, GEMINI_BASE_URL)),
+        "openai" => Client::OpenAiCompat(OpenAiCompatClient::new(
+            OPENAI_BASE_URL,
+            key,
+            model,
+            spec.thinking,
+            true,
+        )),
+        _ => Client::OpenAiCompat(OpenAiCompatClient::new(
+            &spec.base_url,
+            key,
+            model,
+            spec.thinking,
+            false,
+        )),
+    }
+}
+
+/// 金鑰標頭值（標成敏感，不進 Debug 輸出）；含 HTTP 標頭不允許的字元時回 `None`。
+pub(crate) fn secret_header(value: &str) -> Option<HeaderValue> {
+    let mut value = HeaderValue::from_str(value).ok()?;
+    value.set_sensitive(true);
+    Some(value)
+}
+
+/// 錯誤狀態碼依 `map` 分類；分類不了（1xx／3xx 等）的對應 Python 未分類的例外。
+pub(crate) fn status_failure(
+    status: u16,
+    detail: String,
+    map: fn(u16, &str) -> Option<TranslateError>,
+) -> TranslateError {
+    map(status, &detail)
+        .unwrap_or_else(|| TranslateError::Unexpected(format!("HTTP {status}: {detail}")))
+}
+
+/// 組出帶診斷資訊的截斷錯誤：token 數與樣本讓使用者從 app.log 分辨 repetition loop 與上限誤砍。
+pub(crate) fn truncated(
+    max_tokens: u32,
+    completion_tokens: Option<&Value>,
+    sample: &str,
+) -> TranslateError {
+    TranslateError::BadOutput(format!(
+        "output truncated at max_tokens={max_tokens}, completion_tokens={}, sample={:?}",
+        count_of(completion_tokens),
+        sample_of(sample).replace('\n', " ")
+    ))
+}
+
+/// 在網址後加上一個編碼過的查詢參數（翻頁游標）。
+pub(crate) fn with_query(url: &str, name: &str, value: &str) -> reqwest::Url {
+    reqwest::Url::parse_with_params(url, &[(name, value)]).expect("valid endpoint URL")
+}
+
+/// 診斷用樣本：開頭 [`TRUNCATED_SAMPLE_CHARS`] 個字元，足以看出是不是同一個字重複。
+pub(crate) fn sample_of(text: &str) -> String {
+    text.chars().take(TRUNCATED_SAMPLE_CHARS).collect()
+}
+
+/// API 回應裡的整數欄位轉成 log 用文字；缺欄位或 null 印成 Python 的 `None`。
+pub(crate) fn count_of(value: Option<&Value>) -> String {
+    value
+        .filter(|v| !v.is_null())
+        .map_or("None".to_owned(), Value::to_string)
 }
 
 /// 連線層失敗一律視為離線；去掉 URL 與金鑰可能出現的位置，只留原因鏈。
