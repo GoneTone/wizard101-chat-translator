@@ -9,11 +9,13 @@ from dataclasses import dataclass
 from src.i18n import t
 from src.logs import log
 
-# 每家服務商有哪些欄位與預設值：官方端點的網址寫死在 translator，Claude 不吃 thinking
-# 開關而是 effort。這張表是服務商清單與欄位的單一真實來源。
+# 每家服務商有哪些欄位與預設值：官方端點的網址寫死在 translator，Claude／Gemini 不吃
+# thinking 開關而是 effort。這張表是服務商清單與欄位的單一真實來源。
+# effort 預設：Claude 維持 auto —— Haiku 4.5 帶 effort 會 400；Gemini 的 auto 實測每句多想約四百 token。
 API_PROFILE_FIELDS: dict[str, dict] = {
     "openai": {"model": "", "api_key": "", "thinking": False},
     "claude": {"model": "", "api_key": "", "effort": "auto"},
+    "gemini": {"model": "", "api_key": "", "effort": "low"},
     "custom": {"base_url": "", "model": "", "api_key": "", "thinking": False},
 }
 
@@ -23,8 +25,8 @@ API_PROVIDERS = tuple(API_PROFILE_FIELDS)
 # 而隔離區裡的東西日後由認得它的版本自動搬回 services。
 UNSUPPORTED_SERVICES = "unsupported_services"
 
-# Claude 的思考深度：auto＝不帶參數、由模型自行決定；low＝壓到最低。
-# Claude 沒有「完全不思考」這個選項，故意不與另兩家的 thinking 開關共用欄位名。
+# Claude／Gemini 的思考深度：auto＝不帶參數、由模型自行決定；low＝壓到最低。
+# 兩家（Gemini 指 3 系列與 2.5 Pro）都沒有「完全不思考」這個選項，故意不與 thinking 開關共用欄位名。
 EFFORT_AUTO = "auto"
 EFFORT_LOW = "low"
 API_EFFORTS = (EFFORT_AUTO, EFFORT_LOW)
@@ -64,6 +66,9 @@ PROVIDERS: dict[str, Provider] = {p.key: p for p in (
     Provider(key="claude", label_key="provider.claude",
              desc_key="provider.claude_desc", brand="Claude",
              key_url="https://console.anthropic.com/settings/keys"),
+    Provider(key="gemini", label_key="provider.gemini",
+             desc_key="provider.gemini_desc", brand="Gemini",
+             key_url="https://aistudio.google.com/apikey"),
     Provider(key="custom", label_key="provider.custom",
              desc_key="provider.custom_desc"),
 )}

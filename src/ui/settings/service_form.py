@@ -84,8 +84,9 @@ class ServiceForm(ttk.Frame):
                                            ignore_id=self._id))
         for var in (self._api_key, self._model, self._base_url, self._effort):
             var.set("")
-        self._thinking.set(False)
-        self._effort.set(EFFORT_AUTO)
+        defaults = API_PROFILE_FIELDS[provider]
+        self._thinking.set(defaults.get("thinking", False))
+        self._effort.set(defaults.get("effort", EFFORT_AUTO))
         self._test_result.set("")
         log(f"[settings] service form provider switched {previous} -> {provider}")
         self._rebuild_fields()
