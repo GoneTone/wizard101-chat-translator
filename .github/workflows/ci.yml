@@ -37,3 +37,37 @@ jobs:
       # 換一次執行就換一個 worker 中彈。本機開發者桌面穩定、平行仍然划算，故只改 CI。
       - name: Test
         run: uv run pytest -n 0
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: Format
+        run: cargo fmt --check
+        working-directory: rust
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: rust
+
+      - name: Test
+        run: cargo test
+        working-directory: rust
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # master 改到 Python 行為時，在這裡報出 golden fixture 過期
+      - name: Golden fixtures up to date
+        run: uv sync --locked && uv run python -m tools.golden.export --check
