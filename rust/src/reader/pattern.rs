@@ -8,6 +8,7 @@ use windows_sys::Win32::System::Memory::{
 };
 
 use super::memory::{MemError, ProcessMemory};
+use crate::translation::pyrepr::repr_str;
 
 /// 保護屬性必須「恰為」其中之一，帶 PAGE_GUARD 等修飾旗標的區段不掃（同 wizwalker）。
 const SCANNABLE: [u32; 4] = [
@@ -20,10 +21,10 @@ const SCANNABLE: [u32; 4] = [
 /// pattern 掃描錯誤。
 #[derive(Debug)]
 pub enum ScanError {
-    /// 沒有命中（對應 wizwalker `PatternFailed`）。
-    NotFound,
-    /// 命中不只一處（對應 wizwalker `PatternMultipleResults`）。
-    Multiple(usize),
+    /// 沒有命中（對應 wizwalker `PatternFailed`），帶 pattern 原文。
+    NotFound(String),
+    /// 命中不只一處（對應 wizwalker `PatternMultipleResults`），帶命中數與 pattern 原文。
+    Multiple(usize, String),
     /// pattern 無法編譯。
     Invalid(String),
     /// 讀取模組或區段失敗。
@@ -33,8 +34,12 @@ pub enum ScanError {
 impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotFound => write!(f, "pattern not found"),
-            Self::Multiple(n) => write!(f, "Got {n} results"),
+            Self::NotFound(p) => write!(
+                f,
+                "Pattern {} failed. You most likely need to restart the client.",
+                py_bytes(p)
+            ),
+            Self::Multiple(n, p) => write!(f, "Got {n} results for {}", py_bytes(p)),
             Self::Invalid(err) => write!(f, "invalid pattern: {err}"),
             Self::Mem(err) => err.fmt(f),
         }
@@ -42,6 +47,11 @@ impl fmt::Display for ScanError {
 }
 
 impl std::error::Error for ScanError {}
+
+/// Python 對 pattern bytes 的 repr；pattern 原文是 ASCII，與 `repr(str)` 只差 `b` 前綴。
+fn py_bytes(pattern: &str) -> String {
+    format!("b{}", repr_str(pattern))
+}
 
 impl From<MemError> for ScanError {
     fn from(err: MemError) -> Self {
@@ -70,9 +80,9 @@ pub fn scan(mem: &dyn ProcessMemory, module: &str, pattern: &str) -> Result<u64,
         );
     }
     match found[..] {
-        [] => Err(ScanError::NotFound),
+        [] => Err(ScanError::NotFound(pattern.to_owned())),
         [addr] => Ok(addr),
-        _ => Err(ScanError::Multiple(found.len())),
+        _ => Err(ScanError::Multiple(found.len(), pattern.to_owned())),
     }
 }
 
@@ -136,7 +146,7 @@ mod tests {
         let (mem, _) = memory_with(&allowed);
         assert!(matches!(
             scan(&mem, MODULE, PATTERN),
-            Err(ScanError::Multiple(4))
+            Err(ScanError::Multiple(4, _))
         ));
     }
 
@@ -149,7 +159,7 @@ mod tests {
         ]);
         assert!(matches!(
             scan(&mem, MODULE, PATTERN),
-            Err(ScanError::NotFound)
+            Err(ScanError::NotFound(_))
         ));
     }
 
@@ -159,7 +169,7 @@ mod tests {
         let (mem, _) = memory_with(&[(MEM_COMMIT, PAGE_EXECUTE_READ, &twice)]);
         assert!(matches!(
             scan(&mem, MODULE, PATTERN),
-            Err(ScanError::Multiple(2))
+            Err(ScanError::Multiple(2, _))
         ));
 
         let (mem, _) = memory_with(&[
@@ -168,7 +178,7 @@ mod tests {
         ]);
         assert!(matches!(
             scan(&mem, MODULE, PATTERN),
-            Err(ScanError::Multiple(2))
+            Err(ScanError::Multiple(2, _))
         ));
     }
 
@@ -188,5 +198,17 @@ mod tests {
             scan(&mem, MODULE, r"\x4"),
             Err(ScanError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn errors_display_wizwalker_messages() {
+        assert_eq!(
+            ScanError::NotFound(PATTERN.into()).to_string(),
+            r"Pattern b'\\x48\\x8B\\x01.\\xFF' failed. You most likely need to restart the client."
+        );
+        assert_eq!(
+            ScanError::Multiple(2, PATTERN.into()).to_string(),
+            r"Got 2 results for b'\\x48\\x8B\\x01.\\xFF'"
+        );
     }
 }

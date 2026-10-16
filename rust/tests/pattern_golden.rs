@@ -16,7 +16,9 @@ fn unhex(s: &str) -> Vec<u8> {
 
 #[test]
 fn scan_matches_python_regex_semantics() {
-    for case in common::golden("pattern_scan") {
+    let cases = common::golden("pattern_scan");
+    assert!(!cases.is_empty());
+    for case in cases {
         let pat = case["input"]["pattern"].as_str().unwrap();
         let buf = unhex(case["input"]["buffer"].as_str().unwrap());
         let want: Vec<(usize, usize)> = case["output"]
@@ -50,12 +52,12 @@ fn scan_matches_python_regex_semantics() {
         let scanned = pattern::scan(&mem, MODULE, pat);
         match want.as_slice() {
             [] => assert!(
-                matches!(scanned, Err(ScanError::NotFound)),
+                matches!(scanned, Err(ScanError::NotFound(_))),
                 "{pat}: {scanned:?}"
             ),
             [(start, _)] => assert_eq!(scanned.unwrap(), REGION_BASE + *start as u64, "{pat}"),
             many => assert!(
-                matches!(scanned, Err(ScanError::Multiple(n)) if n == many.len()),
+                matches!(scanned, Err(ScanError::Multiple(n, _)) if n == many.len()),
                 "{pat}: {scanned:?}"
             ),
         }

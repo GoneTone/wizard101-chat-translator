@@ -29,9 +29,13 @@ const MAX_STRING: i32 = 5_000;
 /// 一個記憶體區段（`VirtualQueryEx` 的結果）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Region {
+    /// 區段起點。
     pub base: u64,
+    /// 區段大小（位元組）。
     pub size: usize,
+    /// 保護屬性（`PAGE_*`）。
     pub protect: u32,
+    /// 狀態（`MEM_COMMIT` 等）。
     pub state: u32,
 }
 
@@ -58,9 +62,9 @@ impl fmt::Display for MemError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::AccessDenied(pid) => write!(f, "Could not open process: {pid}"),
-            Self::Closed => write!(f, "client closed"),
-            Self::Read(addr) => write!(f, "could not read memory at {addr:#x}"),
-            Self::Write(addr) => write!(f, "could not write memory at {addr:#x}"),
+            Self::Closed => write!(f, "Client must be running to preform this action."),
+            Self::Read(addr) => write!(f, "Unable to read memory at address {addr}."),
+            Self::Write(addr) => write!(f, "Unable to write memory at address {addr}."),
             Self::OutOfRange(addr) => write!(f, "Address {addr} out of bounds"),
             Self::ModuleNotFound(name) => write!(f, "{name} module not found."),
             Self::Alloc(size) => write!(f, "could not allocate {size} bytes"),
@@ -366,9 +370,19 @@ mod fake {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MemOp {
         /// 成功的寫入。
-        Write { addr: u64, bytes: Vec<u8> },
+        Write {
+            /// 寫入位址。
+            addr: u64,
+            /// 寫入的內容。
+            bytes: Vec<u8>,
+        },
         /// 配置。
-        Alloc { addr: u64, size: usize },
+        Alloc {
+            /// 配置到的位址。
+            addr: u64,
+            /// 要求的大小。
+            size: usize,
+        },
         /// 釋放。
         Free(u64),
     }
@@ -376,7 +390,8 @@ mod fake {
     #[derive(Default)]
     struct State {
         modules: HashMap<String, (u64, Vec<Region>)>,
-        segments: Vec<(u64, Vec<u8>)>,
+        bytes: HashMap<u64, u8>,
+        allocs: HashMap<u64, usize>,
         failing_reads: Vec<u64>,
         ops: Vec<MemOp>,
         next_alloc: u64,
@@ -384,12 +399,17 @@ mod fake {
     }
 
     impl State {
-        /// 最後放入、完整涵蓋 `[addr, addr + len)` 的片段。
-        fn segment(&mut self, addr: u64, len: usize) -> Option<&mut [u8]> {
-            self.segments.iter_mut().rev().find_map(|(base, bytes)| {
-                let start = addr.checked_sub(*base)? as usize;
-                bytes.get_mut(start..start.checked_add(len)?)
-            })
+        /// 每個位元組都有對應時才讀得到。
+        fn get(&self, addr: u64, len: usize) -> Option<Vec<u8>> {
+            (0..len as u64)
+                .map(|i| self.bytes.get(&addr.checked_add(i)?).copied())
+                .collect()
+        }
+
+        fn put(&mut self, addr: u64, bytes: &[u8]) {
+            for (i, &b) in bytes.iter().enumerate() {
+                self.bytes.insert(addr + i as u64, b);
+            }
         }
 
         fn module(&self, name: &str) -> Result<&(u64, Vec<Region>), MemError> {
@@ -449,11 +469,7 @@ mod fake {
 
         /// 直接放入位元組（不記入 [`FakeMemory::ops`]）。
         pub fn set_bytes(&self, addr: u64, bytes: &[u8]) {
-            let mut state = self.state();
-            match state.segment(addr, bytes.len()) {
-                Some(dst) => dst.copy_from_slice(bytes),
-                None => state.segments.push((addr, bytes.to_vec())),
-            }
+            self.state().put(addr, bytes);
         }
 
         /// 之後涵蓋此位址的讀取都回 [`MemError::Read`]。
@@ -475,7 +491,7 @@ mod fake {
     impl ProcessMemory for FakeMemory {
         fn read(&self, addr: u64, len: usize) -> Result<Vec<u8>, MemError> {
             check_range(addr)?;
-            let mut state = self.state();
+            let state = self.state();
             if state.dead {
                 return Err(MemError::Closed);
             }
@@ -487,10 +503,7 @@ mod fake {
             {
                 return Err(MemError::Read(addr));
             }
-            state
-                .segment(addr, len)
-                .map(|s| s.to_vec())
-                .ok_or(MemError::Read(addr))
+            state.get(addr, len).ok_or(MemError::Read(addr))
         }
 
         fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError> {
@@ -498,10 +511,10 @@ mod fake {
             if state.dead {
                 return Err(MemError::Closed);
             }
-            state
-                .segment(addr, bytes.len())
-                .ok_or(MemError::Write(addr))?
-                .copy_from_slice(bytes);
+            if state.get(addr, bytes.len()).is_none() {
+                return Err(MemError::Write(addr));
+            }
+            state.put(addr, bytes);
             state.ops.push(MemOp::Write {
                 addr,
                 bytes: bytes.to_vec(),
@@ -517,14 +530,23 @@ mod fake {
             let addr = state.next_alloc;
             state.next_alloc +=
                 (size as u64).div_ceil(ALLOC_GRANULARITY).max(1) * ALLOC_GRANULARITY;
-            state.segments.push((addr, vec![0; size]));
+            state.put(addr, &vec![0; size]);
+            state.allocs.insert(addr, size);
             state.ops.push(MemOp::Alloc { addr, size });
             Ok(addr)
         }
 
         fn free(&self, addr: u64) {
             let mut state = self.state();
-            state.segments.retain(|(base, _)| *base != addr);
+            // 對已結束程序的 VirtualFreeEx 什麼都不會發生
+            if state.dead {
+                return;
+            }
+            if let Some(size) = state.allocs.remove(&addr) {
+                for a in addr..addr + size as u64 {
+                    state.bytes.remove(&a);
+                }
+            }
             state.ops.push(MemOp::Free(addr));
         }
 
@@ -604,6 +626,47 @@ mod tests {
         assert_eq!(mem.read(0x1000, 8), Err(MemError::Closed));
         assert_eq!(mem.write(0x1000, &[1]), Err(MemError::Closed));
         assert_eq!(mem.module_base("Game.exe"), Err(MemError::Closed));
+        let ops = mem.ops();
+        mem.free(0x1000);
+        assert_eq!(mem.ops(), ops);
+    }
+
+    #[test]
+    fn fake_memory_overlapping_and_adjacent_bytes_merge() {
+        let mem = FakeMemory::new();
+        mem.set_bytes(0x1000, &[0; 0x20]);
+        mem.set_bytes(0x1018, &[1; 16]);
+        assert_eq!(mem.read(0x1010, 16).unwrap(), [[0; 8], [1; 8]].concat());
+        assert_eq!(mem.read(0x1020, 8).unwrap(), vec![1; 8]);
+        mem.set_bytes(0x1028, &[2; 4]);
+        assert_eq!(mem.read(0x1026, 4).unwrap(), vec![1, 1, 2, 2]);
+        mem.write(0x101E, &[3; 6]).unwrap();
+        assert_eq!(
+            mem.read(0x101C, 10).unwrap(),
+            [&[1, 1][..], &[3; 6], &[1, 1]].concat()
+        );
+        assert_eq!(mem.read(0x102A, 4), Err(MemError::Read(0x102A)));
+        assert_eq!(mem.write(0x102A, &[0; 4]), Err(MemError::Write(0x102A)));
+    }
+
+    #[test]
+    fn errors_display_wizwalker_messages() {
+        assert_eq!(
+            MemError::Closed.to_string(),
+            "Client must be running to preform this action."
+        );
+        assert_eq!(
+            MemError::Read(4096).to_string(),
+            "Unable to read memory at address 4096."
+        );
+        assert_eq!(
+            MemError::Write(4096).to_string(),
+            "Unable to write memory at address 4096."
+        );
+        assert_eq!(
+            MemError::OutOfRange(0).to_string(),
+            "Address 0 out of bounds"
+        );
     }
 
     #[test]
