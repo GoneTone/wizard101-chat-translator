@@ -18,6 +18,7 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use wizard101_chat_translator::logs::log;
 use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of};
 
 const PARK: f32 = 10000.0;
@@ -207,7 +208,8 @@ fn run_checks(
     match screenshot(ctx) {
         Some(img) => {
             let [w, height] = img.size;
-            let corner = img.pixels[(height - 2) * w + (w - 2)].a();
+            // 左下角：右下有抓取紋、上方是不透明的標題列
+            let corner = img.pixels[(height - 2) * w + 2].a();
             let max_a = img.pixels.iter().map(|p| p.a()).max().unwrap_or(0);
             let want = (ALPHA * 255.0).round() as i32;
             report.check(
@@ -355,7 +357,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
     let result = app::run(native, move |ctx| {
         let _ = ctx_slot.set(ctx.clone());
         Probe {
-            app: App::new(ctx, inbox, ALPHA),
+            app: App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {})),
             shared: wrapper_shared,
         }
     });

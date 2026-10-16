@@ -8,10 +8,11 @@ use eframe::egui::{self, Color32, ViewportBuilder, ViewportCommand, ViewportId};
 use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 
 use crate::config::app_name;
-use crate::i18n::{current_language, t};
+use crate::i18n::current_language;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::ui::palette::{BAR, BG, FG_TRANSLATED};
+use crate::ui::overlay::frame::{Clicked, Frame, Win32Shell};
+use crate::ui::palette::BAR;
 use crate::ui::{fonts_egui, win32};
 
 const BUBBLE_SIZE: f32 = 48.0;
@@ -38,7 +39,7 @@ pub fn channel() -> (UiPoster, Inbox) {
 pub struct App {
     rx: Receiver<UiEvent>,
     hwnd: isize,
-    alpha: f32,
+    frame: Frame,
     minimized: bool,
     shown: bool,
     status: Option<&'static str>,
@@ -47,13 +48,13 @@ pub struct App {
 }
 
 impl App {
-    /// 綁上 Context 讓投遞端能喚醒重繪；`alpha` 是底板不透明度。
-    pub fn new(ctx: &egui::Context, inbox: Inbox, alpha: f32) -> Self {
+    /// 綁上 Context 讓投遞端能喚醒重繪；`frame` 是 overlay 的外框（含底板不透明度與起始位置）。
+    pub fn new(ctx: &egui::Context, inbox: Inbox, frame: Frame) -> Self {
         let _ = inbox.ctx.set(ctx.clone());
         Self {
             rx: inbox.rx,
             hwnd: 0,
-            alpha,
+            frame,
             minimized: false,
             shown: true,
             status: None,
@@ -104,7 +105,7 @@ impl App {
         if let Some(corner) = corner {
             builder = builder.with_position(corner - egui::vec2(BUBBLE_SIZE, 0.0));
         }
-        let fill = BAR.gamma_multiply(self.alpha);
+        let fill = BAR.gamma_multiply(self.frame.alpha());
         ctx.show_viewport_immediate(ViewportId::from_hash_of("bubble"), builder, |ui, _| {
             let rect = ui.max_rect();
             ui.painter()
@@ -134,10 +135,18 @@ impl eframe::App for App {
         if self.hwnd != 0 {
             win32::make_non_activating(self.hwnd);
         }
-        ui.painter()
-            .rect_filled(ui.max_rect(), 0.0, BG.gamma_multiply(self.alpha));
-        if let Some(key) = self.status {
-            ui.colored_label(FG_TRANSLATED, t(&format!("status.{key}"), &[]));
+        let mut shell = Win32Shell(self.hwnd);
+        match self.frame.show(ui, &mut shell, &app_name(), self.status) {
+            Some(Clicked::Region) => {
+                log("[ui] region button clicked; region capture arrives in phase 3")
+            }
+            Some(Clicked::Settings) => {
+                log("[ui] settings button clicked; settings window arrives in phase 4")
+            }
+            Some(Clicked::Minimize) => self.set_minimized(true),
+            // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
+            Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
+            None => {}
         }
         if self.minimized {
             self.show_bubble(&ctx);
@@ -211,7 +220,7 @@ mod tests {
         });
         let mut harness = Harness::new_eframe(|cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, 0.8)
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
         });
         harness.step();
         let app = harness.state();
@@ -229,7 +238,7 @@ mod tests {
         ctx.set_request_repaint_callback(move |_| {
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         });
-        let _app = App::new(&ctx, inbox, 0.8);
+        let _app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
         poster.post(UiEvent::ClearError);
         assert!(hits.load(std::sync::atomic::Ordering::SeqCst) > 0);
     }

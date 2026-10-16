@@ -4,5 +4,7 @@ pub mod app;
 pub mod events;
 pub mod fonts;
 pub mod fonts_egui;
+pub mod geometry;
+pub mod overlay;
 pub mod palette;
 pub mod win32;

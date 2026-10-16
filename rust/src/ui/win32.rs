@@ -10,15 +10,15 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetForegroundWindow, GetWindowLongPtrW, GetWindowThreadProcessId, IsWindow,
-    SetForegroundWindow, SetWindowLongPtrW, WS_EX_NOACTIVATE,
+    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, IsWindow, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, WS_EX_NOACTIVATE,
 };
 
 use crate::logs::log;
 pub use crate::reader::process::foreground_window;
 
-/// 螢幕矩形 `(x, y, w, h)`，實體像素。
-pub type Rect = (i32, i32, i32, i32);
+pub use crate::ui::geometry::Rect;
 
 /// 視窗的 HWND；不是 Win32 視窗或取不到時回 0。
 pub fn hwnd_of(window: &impl HasWindowHandle) -> isize {
@@ -67,6 +67,40 @@ pub fn force_foreground(hwnd: isize) {
         AttachThreadInput(this_thread, fg_thread, 1);
         SetForegroundWindow(hwnd);
         AttachThreadInput(this_thread, fg_thread, 0);
+    }
+}
+
+/// 游標的螢幕座標（實體像素）。
+pub fn cursor_pos() -> (i32, i32) {
+    let mut p = POINT { x: 0, y: 0 };
+    unsafe { GetCursorPos(&mut p) };
+    (p.x, p.y)
+}
+
+/// 視窗外框矩形（實體像素）；取不到時全為 0。
+pub fn window_rect(hwnd: isize) -> Rect {
+    let mut r: RECT = unsafe { std::mem::zeroed() };
+    unsafe { GetWindowRect(hwnd as HWND, &mut r) };
+    to_rect(r)
+}
+
+/// 以實體像素擺放視窗，不改疊序、不啟用。
+pub fn set_window_rect(hwnd: isize, (x, y, w, h): Rect) {
+    let place = || unsafe {
+        SetWindowPos(
+            hwnd as HWND,
+            std::ptr::null_mut(),
+            x,
+            y,
+            w,
+            h,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+    place();
+    // 移到不同 DPI 的螢幕時 winit 會按邏輯尺寸改大小，再擺一次才維持實體尺寸
+    if window_rect(hwnd) != (x, y, w, h) {
+        place();
     }
 }
 

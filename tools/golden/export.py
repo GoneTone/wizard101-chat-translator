@@ -1326,6 +1326,80 @@ EXPORTERS["tab_labels"] = export_tab_labels
 EXPORTERS["ui_rect"] = export_ui_rect
 
 
+def export_geometry() -> list[dict]:
+    """`src/ui/geometry.py` 各函式：input 為 {fn, args}，output 為回傳值（edge 為字串、Placement 為陣列）。"""
+    import random
+
+    from src.ui import geometry as g
+
+    rng = random.Random(20261017)
+
+    def n(lo: int = -200, hi: int = 2200) -> int:
+        return rng.randint(lo, hi)
+
+    def rect() -> list[int]:
+        return [n(-100, 1900), n(-100, 1000), n(1, 900), n(1, 700)]
+
+    cases: list[dict] = []
+
+    def add(fn: str, *args) -> None:
+        out = getattr(g, fn)(*args)
+        cases.append({"input": {"fn": fn, "args": list(args)},
+                      "output": list(out) if isinstance(out, tuple) else out})
+
+    for _ in range(30):
+        add("moved_to", n(), n(), n(-500, 500), n(-500, 500))
+    for sw, sh, w, h in [(1920, 1080, 640, 420), (1920, 1080, 641, 421), (100, 100, 640, 420),
+                         (101, 99, 640, 421), (0, 0, 1, 1), (3, 3, 4, 4)]:
+        add("centered_position", sw, sh, w, h)
+    for _ in range(30):
+        add("centered_position", n(0, 3000), n(0, 2000), n(1, 3000), n(1, 2000))
+    for args in [(0, 0, 100, 50, 1920, 1080), (1900, 1070, 100, 50, 1920, 1080),
+                 (-50, -50, 100, 50, 1920, 1080), (10, 10, 3000, 3000, 1920, 1080)]:
+        add("clamped_position", *args)
+    for _ in range(30):
+        add("clamped_position", n(), n(), n(1, 600), n(1, 400), n(200, 2600), n(200, 1600))
+    for px, py in [(100, 200), (499, 499), (500, 499), (99, 200), (100, 199), (499, 500)]:
+        add("point_in_rect", px, py, 100, 200, 400, 300)
+    for _ in range(30):
+        add("point_in_rect", n(0, 700), n(0, 700), n(0, 300), n(0, 300), n(1, 400), n(1, 400))
+    for dx, dy in [(0, 0), (4, -4), (5, 0), (0, -5), (-4, 4), (4, 5), (-6, 0)]:
+        add("is_click", dx, dy)
+    for _ in range(30):
+        add("is_click", n(-10, 10), n(-10, 10))
+    x, y, w, h = 100, 200, 400, 300
+    for px in [99, 100, 105, 106, 113, 114, 300, 485, 486, 493, 494, 499, 500]:
+        for py in [199, 200, 205, 206, 213, 214, 350, 485, 486, 493, 494, 499, 500]:
+            add("edge_at", px, py, x, y, w, h)
+    for _ in range(30):
+        add("edge_at", n(0, 300), n(0, 300), 0, 0, n(1, 300), n(1, 300))
+    edges = ["n", "s", "w", "e", "nw", "ne", "sw", "se"]
+    for edge in edges:
+        for dx, dy in [(50, 20), (-50, -20), (-1000, -1000), (1000, 1000)]:
+            add("resized_edge", edge, 100, 200, 400, 300, dx, dy, 200, 90)
+    for _ in range(30):
+        add("resized_edge", rng.choice(edges), n(), n(), n(200, 900), n(90, 700),
+            n(-900, 900), n(-900, 900), 200, 90)
+    area = [0, 0, 1920, 1040]
+    for anchor in [[100, 100, 300, 40], [100, 1000, 300, 40], [1800, 500, 300, 40], [-50, 0, 10, 10]]:
+        add("anchored_position", anchor, 320, 200, area, 4)
+    for _ in range(30):
+        add("anchored_position", rect(), n(1, 900), n(1, 700), [n(-100, 100), n(-100, 100),
+                                                               n(800, 2600), n(600, 1600)], n(0, 10))
+    for anchor in [[100, 100, 300, 40], [100, 900, 300, 40], [100, 300, 300, 600],
+                   [1500, 100, 300, 900], [10, 10, 1900, 1020]]:
+        add("anchored_geometry", anchor, 300, 200, area, 4, 500, 160, 60)
+        add("beside_geometry", anchor, 500, 2000, area, 4, 160, 60)
+    for _ in range(30):
+        a = [n(-100, 100), n(-100, 100), n(800, 2600), n(600, 1600)]
+        add("anchored_geometry", rect(), n(1, 900), n(1, 1200), a, n(0, 10), n(1, 900), n(1, 300), n(1, 200))
+        add("beside_geometry", rect(), n(1, 900), n(1, 2000), a, n(0, 10), n(1, 300), n(1, 200))
+    return cases
+
+
+EXPORTERS["geometry"] = export_geometry
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
