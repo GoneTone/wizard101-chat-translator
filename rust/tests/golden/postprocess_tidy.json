@@ -208,5 +208,187 @@
    "translated": "[A] 你好 (Привет) (Hello)"
   },
   "output": "[A] 你好 (Привет)"
+ },
+ {
+  "input": {
+   "source": "迷幻木头",
+   "translated": "迷幻木頭(Mystic Wood)"
+  },
+  "output": "迷幻木頭"
+ },
+ {
+  "input": {
+   "source": "Proud Pegasus Statue",
+   "translated": "驕傲的飛馬雕像(Proud Pegasus Statue)"
+  },
+  "output": "驕傲的飛馬雕像(Proud Pegasus Statue)"
+ },
+ {
+  "input": {
+   "source": "Talk to Bartleby at 天国大本营",
+   "translated": "和 Bartleby 談談，地點在天國大本營（Heavenly HQ）"
+  },
+  "output": "和 Bartleby 談談，地點在天國大本營"
+ },
+ {
+  "input": {
+   "source": "[Amy] 迷幻木头",
+   "translated": "[Amy] 迷幻木頭(Mystic Wood)"
+  },
+  "output": "[Amy] 迷幻木頭"
+ },
+ {
+  "input": {
+   "source": "迷幻木头",
+   "translated": "迷幻木頭（Mystic Wood）"
+  },
+  "output": "迷幻木頭"
+ },
+ {
+  "input": {
+   "source": "你获得了 {0} 金币！",
+   "translated": "你獲得了 {0} 金幣！"
+  },
+  "output": "你獲得了 {0} 金幣！"
+ },
+ {
+  "input": {
+   "source": "熔岩百合",
+   "translated": "熔岩百合（一種材料）"
+  },
+  "output": "熔岩百合（一種材料）"
+ },
+ {
+  "input": {
+   "source": "lava lily",
+   "translated": "溶岩ユリ（素材の一つ）"
+  },
+  "output": "溶岩ユリ（素材の一つ）"
+ },
+ {
+  "input": {
+   "source": "你获得了迷幻木头和熔岩百合",
+   "translated": "你獲得了迷幻木頭(Mystic Wood)和熔岩百合(Lava Lily)"
+  },
+  "output": "你獲得了迷幻木頭和熔岩百合"
+ },
+ {
+  "input": {
+   "source": "do i use sirens",
+   "translated": "do I use Sirens (塞壬)"
+  },
+  "output": "do I use Sirens"
+ },
+ {
+  "input": {
+   "source": "你获得了:风暴",
+   "translated": "You gained: Storm (风暴)"
+  },
+  "output": "You gained: Storm (风暴)"
+ },
+ {
+  "input": {
+   "source": "hi",
+   "translated": "hola (está aquí)"
+  },
+  "output": "hola (está aquí)"
+ },
+ {
+  "input": {
+   "source": "Wizard’s Hat",
+   "translated": "巫師帽（Wizard's Hat）"
+  },
+  "output": "巫師帽（Wizard's Hat）"
+ },
+ {
+  "input": {
+   "source": "ship of fools",
+   "translated": "愚者之船（Ship-of-Fools）"
+  },
+  "output": "愚者之船（Ship-of-Fools）"
+ },
+ {
+  "input": {
+   "source": "[Amy] wts Fire Dragon (rank 5)",
+   "translated": "[Amy] 出售火龍（Fire Dragon）（等級 5）"
+  },
+  "output": "[Amy] 出售火龍（Fire Dragon）（等級 5）"
+ },
+ {
+  "input": {
+   "source": "[Amy] wts Fire Dragon (rank 5)",
+   "translated": "[Amy] 出售火龍（Fire Dragon）(rank 5)"
+  },
+  "output": "[Amy] 出售火龍（Fire Dragon）(rank 5)"
+ },
+ {
+  "input": {
+   "source": "[Amy] brb (dinner)",
+   "translated": "[Amy] 等我一下（吃晚餐）"
+  },
+  "output": "[Amy] 等我一下（吃晚餐）"
+ },
+ {
+  "input": {
+   "source": "[Amy] gg (╯°□°)╯",
+   "translated": "[Amy] 好遊戲 (╯°□°)╯"
+  },
+  "output": "[Amy] 好遊戲 (╯°□°)╯"
+ },
+ {
+  "input": {
+   "source": "[Amy] hi (: ok :)",
+   "translated": "[Amy] 嗨 (: ok :)"
+  },
+  "output": "[Amy] 嗨 (: ok :)"
+ },
+ {
+  "input": {
+   "source": "Storm Lord (Rank 7)",
+   "translated": "風暴領主（Storm Lord）(Rank 7)"
+  },
+  "output": "風暴領主（Storm Lord）(Rank 7)"
+ },
+ {
+  "input": {
+   "source": "你获得了 鱼鳞 (x{0})",
+   "translated": "你獲得了 魚鱗 (x{0})"
+  },
+  "output": "你獲得了 魚鱗 (x{0})"
+ },
+ {
+  "input": {
+   "source": "(Requires Level 45)",
+   "translated": "（需要等級 45）"
+  },
+  "output": "（需要等級 45）"
+ },
+ {
+  "input": {
+   "source": "(Requires Level 45)",
+   "translated": "(Requires Level 45)"
+  },
+  "output": "(Requires Level 45)"
+ },
+ {
+  "input": {
+   "source": "farm Malistaire",
+   "translated": "刷 Malistaire（Malistaire）"
+  },
+  "output": "刷 Malistaire"
+ },
+ {
+  "input": {
+   "source": "help me in novus",
+   "translated": "help me in Novus (Novus)"
+  },
+  "output": "help me in Novus"
+ },
+ {
+  "input": {
+   "source": "[Amy] lvl 50 (50)",
+   "translated": "[Amy] 等級 50（50）"
+  },
+  "output": "[Amy] 等級 50（50）"
  }
 ]

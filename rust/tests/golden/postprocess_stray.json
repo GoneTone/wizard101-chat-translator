@@ -246,5 +246,165 @@
    "target": "繁體中文 (台灣)"
   },
   "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "卡拉米蒂 现在等级 {0}！",
+   "translated": "Calamity 現在等級 {0}！",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "雪刺帽",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "death skeleturion",
+   "translated": "死亡骷髏戰士 (Death Skeleturion)",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "English"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Sombrero de Nieve",
+   "target": "Español"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[Amy] 雪刺帽",
+   "translated": "[Amy] 雪刺帽",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[艾米] 雪刺帽",
+   "translated": "[艾米] Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "You received Snowspike Hat",
+   "translated": "You received Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "You received Snowspike Hat",
+   "translated": "你獲得了 Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "Received a friend request from Amy",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "收到 Amy 的夥伴邀請",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "你获得了 Lava Lily",
+   "translated": "你獲得了  lava lily",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "收到 Snowspike Hat 的夥伴邀請",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "日本語"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "한국어"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "Русский"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "ภาษาไทย"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "Ελληνικά"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "你获得了 {0} 金币！",
+   "translated": "{0} ゴールドを手に入れた！",
+   "target": "日本語"
+  },
+  "output": false
  }
 ]

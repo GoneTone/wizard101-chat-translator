@@ -1270,5 +1270,219 @@
    "originals": []
   },
   "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "1) 甲\n２．乙\n3、丙"
+  },
+  "output": [
+   [
+    "1",
+    "甲"
+   ],
+   [
+    "2",
+    "乙"
+   ],
+   [
+    "3",
+    "丙"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) 甲\n２．乙\n3、丙",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "甲\n乙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) 甲\n２．乙\n3、丙",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "甲\n乙\n丙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) 甲\n２．乙\n3、丙",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "甲"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "1) 甲\n２．乙\n3、丙",
+   "originals": []
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "甲\n乙"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "甲\n乙",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "甲\n乙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "甲\n乙",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "甲\n乙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "甲\n乙",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "甲\n乙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "甲\n乙",
+   "originals": []
+  },
+  "output": "甲\n乙"
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "一整段"
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "一整段",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "一整段"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "一整段",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "一整段"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "一整段",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "一整段"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "一整段",
+   "originals": []
+  },
+  "output": "一整段"
+ },
+ {
+  "input": {
+   "fn": "numbered_entries",
+   "output": "以下是翻譯：\n1. 甲\n\n3. 丙"
+  },
+  "output": [
+   [
+    "1",
+    "甲"
+   ],
+   [
+    "3",
+    "丙"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "以下是翻譯：\n1. 甲\n\n3. 丙",
+   "originals": [
+    "o1",
+    "o2"
+   ]
+  },
+  "output": "甲\no2"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "以下是翻譯：\n1. 甲\n\n3. 丙",
+   "originals": [
+    "o1",
+    "o2",
+    "o3"
+   ]
+  },
+  "output": "甲\no2\n丙"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "以下是翻譯：\n1. 甲\n\n3. 丙",
+   "originals": [
+    "only"
+   ]
+  },
+  "output": "甲"
+ },
+ {
+  "input": {
+   "fn": "unnumber_lines",
+   "output": "以下是翻譯：\n1. 甲\n\n3. 丙",
+   "originals": []
+  },
+  "output": ""
  }
 ]

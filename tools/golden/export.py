@@ -500,6 +500,7 @@ def export_postprocess_strip_think() -> list[dict]:
         "[Amy] <think>t</think>[Amy] 你好", "<think>a\r\nb</think>\r\nc", "<think\n>x</think>y",
         "<thınk>x</think>y", "<think>a</thinK>b",
     ]
+    texts.append("<th" + chr(0x130) + "nk>x</th" + chr(0x130) + "nk>y")
     return [{"input": t, "output": strip_think(t)} for t in texts]
 
 
@@ -537,6 +538,32 @@ def export_postprocess_tidy() -> list[dict]:
         ("", ""),
         ("[A] 日本語", "[A] 日本語（にほんご）"),
         ("[A] Привет", "[A] 你好 (Привет) (Hello)"),
+        ("迷幻木头", "迷幻木頭(Mystic Wood)"),
+        ("Proud Pegasus Statue", "驕傲的飛馬雕像(Proud Pegasus Statue)"),
+        ("Talk to Bartleby at 天国大本营", "和 Bartleby 談談，地點在天國大本營（Heavenly HQ）"),
+        ("[Amy] 迷幻木头", "[Amy] 迷幻木頭(Mystic Wood)"),
+        ("迷幻木头", "迷幻木頭（Mystic Wood）"),
+        ("你获得了 {0} 金币！", "你獲得了 {0} 金幣！"),
+        ("熔岩百合", "熔岩百合（一種材料）"),
+        ("lava lily", "溶岩ユリ（素材の一つ）"),
+        ("你获得了迷幻木头和熔岩百合", "你獲得了迷幻木頭(Mystic Wood)和熔岩百合(Lava Lily)"),
+        ("do i use sirens", "do I use Sirens (塞壬)"),
+        ("你获得了:风暴", "You gained: Storm (风暴)"),
+        ("hi", "hola (está aquí)"),
+        ("Wizard" + chr(0x2019) + "s Hat", "巫師帽（Wizard's Hat）"),
+        ("ship of fools", "愚者之船（Ship-of-Fools）"),
+        ("[Amy] wts Fire Dragon (rank 5)", "[Amy] 出售火龍（Fire Dragon）（等級 5）"),
+        ("[Amy] wts Fire Dragon (rank 5)", "[Amy] 出售火龍（Fire Dragon）(rank 5)"),
+        ("[Amy] brb (dinner)", "[Amy] 等我一下（吃晚餐）"),
+        ("[Amy] gg (╯°□°)╯", "[Amy] 好遊戲 (╯°□°)╯"),
+        ("[Amy] hi (: ok :)", "[Amy] 嗨 (: ok :)"),
+        ("Storm Lord (Rank 7)", "風暴領主（Storm Lord）(Rank 7)"),
+        ("你获得了 鱼鳞 (x{0})", "你獲得了 魚鱗 (x{0})"),
+        ("(Requires Level 45)", "（需要等級 45）"),
+        ("(Requires Level 45)", "(Requires Level 45)"),
+        ("farm Malistaire", "刷 Malistaire（Malistaire）"),
+        ("help me in novus", "help me in Novus (Novus)"),
+        ("[Amy] lvl 50 (50)", "[Amy] 等級 50（50）"),
     ]
     return [{"input": {"source": s, "translated": t}, "output": tidy_parentheses(s, t)}
             for s, t in pairs]
@@ -560,6 +587,9 @@ def export_postprocess_restore() -> list[dict]:
         ("[A] [B] hi", "[C][D] 你好"), ("[A] hi", "[" + "x" * 41 + "] 你好"),
         ("[A] hi", "[x\ny] 你好"), ("[A] 😀", "[B] 😀"), ("[A] hi", "\x0b[B] 你好"),
         ("[A]   hi", "[B]\x1c你好"), ("[ß] hi", "[ss] 你好"),
+        ("[贾斯廷 渡鸦] hi", "[賈斯汀 渡鴉] 嗨"), ("[Amy] hi", "嗨"),
+        ("[Amy] [WTS] gear", "[出售] 裝備"), ("[Amy] [WTS] gear", "[艾米] [出售] 裝備"),
+        ("hi", "嗨"),
     ]
     return [{"input": {"source": s, "translated": t}, "output": restore_sender(s, t)}
             for s, t in pairs]
@@ -594,6 +624,23 @@ def export_postprocess_stray() -> list[dict]:
         ("[A] x　y", "[A] 好 x y", zh), ("[A] 😀", "[A] 😀 ok", zh),
         ("[A] x", "[A] 好 ok²", zh), ("[A] x", "[A] ² A", zh),
         ("[A] x", "[A] ① A", zh), ("[A] x\x1fy", "[A] 好 x y", zh),
+        ("雪刺帽", "Snowspike Hat", "繁體中文（台灣）"),
+        ("卡拉米蒂 现在等级 {0}！", "Calamity 現在等級 {0}！", "繁體中文（台灣）"),
+        ("雪刺帽", "雪刺帽", "繁體中文（台灣）"),
+        ("death skeleturion", "死亡骷髏戰士 (Death Skeleturion)", "繁體中文（台灣）"),
+        ("雪刺帽", "Snowspike Hat", "English"), ("雪刺帽", "Sombrero de Nieve", "Español"),
+        ("[Amy] 雪刺帽", "[Amy] 雪刺帽", "繁體中文（台灣）"),
+        ("[艾米] 雪刺帽", "[艾米] Snowspike Hat", "繁體中文（台灣）"),
+        ("You received Snowspike Hat", "You received Snowspike Hat", "繁體中文（台灣）"),
+        ("You received Snowspike Hat", "你獲得了 Snowspike Hat", "繁體中文（台灣）"),
+        ("收到 [Amy] 的伙伴邀请", "Received a friend request from Amy", "繁體中文（台灣）"),
+        ("收到 [Amy] 的伙伴邀请", "收到 Amy 的夥伴邀請", "繁體中文（台灣）"),
+        ("你获得了 Lava Lily", "你獲得了  lava lily", "繁體中文（台灣）"),
+        ("收到 [Amy] 的伙伴邀请", "收到 Snowspike Hat 的夥伴邀請", "繁體中文（台灣）"),
+        ("雪刺帽", "Snowspike Hat", "日本語"), ("雪刺帽", "Snowspike Hat", "한국어"),
+        ("雪刺帽", "Snowspike Hat", "Русский"), ("雪刺帽", "Snowspike Hat", "ภาษาไทย"),
+        ("雪刺帽", "Snowspike Hat", "Ελληνικά"),
+        ("你获得了 {0} 金币！", "{0} ゴールドを手に入れた！", "日本語"),
     ]
     return [{"input": {"source": s, "translated": t, "target": g},
              "output": has_stray_latin(s, t, g)} for s, t, g in cases]
@@ -611,7 +658,7 @@ def export_postprocess_lines() -> list[dict]:
     """`nonblank_lines`／`number_lines`：input 為文字。"""
     from src.translation.postprocess import nonblank_lines, number_lines
     cases = []
-    for t in _LINE_TEXTS:
+    for t in [*_LINE_TEXTS, "a\n\n b \n"]:
         cases.append({"input": {"fn": "nonblank_lines", "text": t}, "output": nonblank_lines(t)})
         lines, numbered = number_lines(t)
         cases.append({"input": {"fn": "number_lines", "text": t}, "output": [lines, numbered]})
@@ -631,7 +678,8 @@ def export_postprocess_numbering() -> list[dict]:
     """`numbered_entries`／`unnumber_lines`。"""
     from src.translation.postprocess import numbered_entries, unnumber_lines
     cases = []
-    for out in _NUM_OUTPUTS:
+    extra = ["1) 甲\n２．乙\n3、丙", "甲\n乙", "一整段", "以下是翻譯：\n1. 甲\n\n3. 丙"]
+    for out in [*_NUM_OUTPUTS, *extra]:
         entries = numbered_entries(out)
         cases.append({"input": {"fn": "numbered_entries", "output": out},
                       "output": [[str(k), v] for k, v in entries.items()]})

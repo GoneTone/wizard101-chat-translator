@@ -22,9 +22,9 @@ fn re(pattern: &str) -> Regex {
     Regex::new(pattern).unwrap_or_else(|e| panic!("bad regex {pattern}: {e}"))
 }
 
-// Python 的 IGNORECASE 讓 i 也吃無點的 ı（Rust 的簡單摺疊不會）
+// Python 的 IGNORECASE 讓 i 也吃 ı 與 İ（Rust 的簡單摺疊不會）
 static THINK_BLOCK: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!(r"(?is)<th[iı]nk>.*?</th[iı]nk>{SPACE}*")));
+    LazyLock::new(|| re(&format!(r"(?is)<th[iıİ]nk>.*?</th[iıİ]nk>{SPACE}*")));
 static SENDER_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"^{SENDER_PREFIX}{SPACE}*")));
 static LEADING_BRACKETS: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"^(?:{SENDER_PREFIX}{SPACE}*)+")));

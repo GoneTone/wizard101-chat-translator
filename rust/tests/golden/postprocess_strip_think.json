@@ -74,5 +74,9 @@
  {
   "input": "<think>a</thinK>b",
   "output": "b"
+ },
+ {
+  "input": "<thİnk>x</thİnk>y",
+  "output": "y"
  }
 ]

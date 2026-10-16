@@ -452,5 +452,28 @@
    ],
    "1. ß\n2. x"
   ]
+ },
+ {
+  "input": {
+   "fn": "nonblank_lines",
+   "text": "a\n\n b \n"
+  },
+  "output": [
+   "a",
+   "b"
+  ]
+ },
+ {
+  "input": {
+   "fn": "number_lines",
+   "text": "a\n\n b \n"
+  },
+  "output": [
+   [
+    "a",
+    "b"
+   ],
+   "1. a\n2. b"
+  ]
  }
 ]
