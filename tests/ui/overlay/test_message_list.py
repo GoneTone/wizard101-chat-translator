@@ -930,13 +930,17 @@ def test_only_the_last_width_of_a_drag_is_backfilled(root, monkeypatch):
     assert len([line for line in logged if "relaid out" in line]) == 1   # 拖拉中只記一次同步階段
 
 
-def test_one_event_loop_pass_runs_one_backfill_batch(root):
+def test_backfill_batches_yield_to_idle_between_them(root):
+    """一批只補一部分，下一批經 idle 才排：批與批之間 Tk 的重繪（idle）一定輪得到。
+
+    不用「跑一次 update() 只補一批」來量：機器忙時 1 ms 的計時器在同一次 update() 內就到期。"""
     ov = _long_overlay(root, 120)
     _configure_width(ov, 300)
+    lst = ov._list
     start = _view(ov).lo
-    _pump_until(root, lambda: _view(ov).lo < start, timeout=60)
-    # 批與批之間經 idle 讓出事件迴圈（重繪）；直接 after(1) 的話一次 update() 就會全部補完
-    assert _view(ov).lo > 0
+    lst._backfill_step(lst._backfill_gen)
+    assert 0 < _view(ov).lo < start
+    assert root.tk.call("after", "info", lst._backfill_job)[1] == "idle"
 
 
 def test_a_hidden_view_is_not_backfilled_and_resumes_when_shown(root):
