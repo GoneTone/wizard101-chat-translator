@@ -8,4 +8,5 @@ name = "Wizard101ChatTranslator"
 path = "src/main.rs"
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 serde_json = { version = "1", features = ["preserve_order"] }

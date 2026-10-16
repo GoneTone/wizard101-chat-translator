@@ -1,0 +1,72 @@
+[
+ {
+  "input": {
+   "text": "",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n"
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-15T11:00:00Z =====\n[app] just expired\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-15T12:00:00Z =====\n[app] exactly on cutoff\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-15T12:00:00Z =====\n[app] exactly on cutoff\n"
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-12T12:00:00Z =====\n[app] old stuff\n===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n"
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n===== session started 2026-08-12T12:00:00Z =====\n[app] old stuff\n===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n===== session started 2026-08-20T12:00:00Z =====\n[app] recent\n[reader] attached\n"
+ },
+ {
+  "input": {
+   "text": "[app] running without header\n===== session started 2026-08-22T12:00:00Z =====\n[app] new format\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-22T12:00:00Z =====\n[app] new format\n"
+ },
+ {
+  "input": {
+   "text": "===== session started not-a-date =====\n[app] noise\n===== session started 2026-08-22T12:00:00Z =====\n[app] good\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-22T12:00:00Z =====\n[app] good\n"
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-22T12:00:00Z =====\n[app] no trailing newline",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-22T12:00:00Z =====\n[app] no trailing newline"
+ },
+ {
+  "input": {
+   "text": "===== session started 2026-08-22T12:00:00Z =====\n[app] 中文 日本語\n",
+   "now": "2026-08-22T12:00:00Z"
+  },
+  "output": "===== session started 2026-08-22T12:00:00Z =====\n[app] 中文 日本語\n"
+ }
+]
