@@ -1,0 +1,290 @@
+//! 收訊翻譯工作池：每則一個 task 平行翻譯，單則卡住不影響其他則。
+//!
+//! 呼叫端只負責提交（line, context, msg_id）與接收 `on_result(msg_id, text, failed)`；
+//! 顯示順序不由完成順序決定 —— overlay 在提交當下就已佔好位置。
+
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+use tokio::runtime::Handle;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+use super::BoxFuture;
+use super::errors::TranslateError;
+use super::gate::ConcurrencyGate;
+use crate::logs::log;
+
+/// 一次翻譯請求：`(line, context)` → 譯文。
+pub type TranslateFn = Arc<
+    dyn Fn(String, Vec<String>) -> BoxFuture<'static, Result<String, TranslateError>> + Send + Sync,
+>;
+/// 結果回報 `(msg_id, text, failed)`；`failed` 時 `text` 是失敗提示而非譯文。
+pub type ResultFn = Arc<dyn Fn(u64, String, bool) + Send + Sync>;
+/// 回傳字串的 callable（失敗提示、服務描述），每次取用時才求值。
+pub type TextFn = Arc<dyn Fn() -> String + Send + Sync>;
+
+/// 翻譯伺服器離線時的重試間隔（秒），用完停在最後一階。
+pub const BACKOFF_STEPS: [u64; 3] = [5, 15, 30];
+/// API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復。
+pub const CONFIG_ERROR_INTERVAL: u64 = 15;
+/// 退避等待的分段長度：其他則成功放開閘門時，等待者能及時發現。
+const WAIT_SLICE: Duration = Duration::from_millis(500);
+
+/// 翻譯錯誤狀態，供上層決定錯誤橫幅。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorState {
+    Offline,
+    Config,
+}
+
+impl ErrorState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Offline => "offline",
+            Self::Config => "config",
+        }
+    }
+}
+
+#[derive(Default)]
+struct State {
+    workers: usize,
+    in_flight: usize,
+    error_state: Option<ErrorState>,
+    error_detail: Option<(Option<u16>, String)>,
+    backoff_index: usize,
+    /// 這之前不得送出新請求；全域退避閘門。
+    gate_until: Option<Instant>,
+}
+
+struct Inner {
+    translate: TranslateFn,
+    on_result: ResultFn,
+    gate: Arc<ConcurrencyGate>,
+    failed_notice: TextFn,
+    describe: TextFn,
+    stop: CancellationToken,
+    state: Mutex<State>,
+}
+
+/// 平行收訊翻譯；`on_result` 於 runtime 的 task 中呼叫，呼叫端負責轉交回 UI 執行緒。
+pub struct TranslationPool {
+    inner: Arc<Inner>,
+    rt: Handle,
+}
+
+impl TranslationPool {
+    /// 建立翻譯池；平行度即共用閘 `gate` 的上限。
+    ///
+    /// `failed_notice` 取 callable 而非字串：介面語言可能在執行中被改掉。
+    /// `describe` 指名目前是哪一組服務，失敗 log 用。
+    pub fn new(
+        translate: TranslateFn,
+        on_result: ResultFn,
+        gate: Arc<ConcurrencyGate>,
+        failed_notice: TextFn,
+        describe: TextFn,
+        rt: Handle,
+    ) -> Self {
+        let state = State {
+            workers: gate.limit(),
+            ..State::default()
+        };
+        Self {
+            inner: Arc::new(Inner {
+                translate,
+                on_result,
+                gate,
+                failed_notice,
+                describe,
+                stop: CancellationToken::new(),
+                state: Mutex::new(state),
+            }),
+            rt,
+        }
+    }
+
+    /// 提交一則翻譯；可在任何執行緒呼叫。context 為提交當下的快照，重試時沿用同一份。
+    pub fn submit(&self, line: String, context: Vec<String>, msg_id: u64) {
+        if self.inner.stop.is_cancelled() {
+            return;
+        }
+        self.inner.state().in_flight += 1;
+        let job = Job {
+            inner: Arc::clone(&self.inner),
+            pending: true,
+        };
+        self.rt.spawn(job.run(line, context, msg_id));
+    }
+
+    /// 已提交但尚未回報結果的則數（供狀態指示判斷是否顯示「翻譯中…」）。
+    pub fn in_flight(&self) -> usize {
+        self.inner.state().in_flight
+    }
+
+    /// 目前的翻譯錯誤狀態；`None` 表示正常。
+    pub fn error_state(&self) -> Option<ErrorState> {
+        self.inner.state().error_state
+    }
+
+    /// 最近一次失敗的（HTTP 狀態碼，API 說明）；沒在失敗，或兩者都沒有時為 `None`。
+    pub fn error_detail(&self) -> Option<(Option<u16>, String)> {
+        self.inner.state().error_detail.clone()
+    }
+
+    /// 變更平行度（調整共用閘的上限）；進行中的各則照常回報。
+    pub fn resize(&self, workers: usize) {
+        {
+            let mut state = self.inner.state();
+            if state.workers == workers {
+                return;
+            }
+            state.workers = workers;
+        }
+        self.inner.gate.set_limit(workers);
+        log(format!("[translate] pool resized to {workers} workers"));
+    }
+
+    /// 停止接受新工作；等待中的各則立即放棄（不回報），已送出的請求跑完照常回報。
+    pub fn shutdown(&self) {
+        self.inner.stop.cancel();
+    }
+}
+
+impl Inner {
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// 等到退避閘門開啟；關閉中回傳 `false`。
+    async fn wait_for_backoff(&self) -> bool {
+        while !self.stop.is_cancelled() {
+            let now = Instant::now();
+            let Some(until) = self.state().gate_until.filter(|&until| until > now) else {
+                return true;
+            };
+            tokio::select! {
+                _ = self.stop.cancelled() => return false,
+                _ = tokio::time::sleep((until - now).min(WAIT_SLICE)) => {}
+            }
+        }
+        false
+    }
+
+    /// 推進全域退避閘門並記錄狀態。閘門未到期代表同一輪已有別則推進過，沿用即可 ——
+    /// 否則 N 則同時失敗會把退避一口氣推 N 階。
+    fn note_failure(&self, kind: ErrorState, err: &TranslateError) {
+        let detail = match err {
+            TranslateError::Offline { detail, .. } | TranslateError::Config { detail, .. } => {
+                detail.clone()
+            }
+            _ => String::new(),
+        };
+        let changed = {
+            let mut state = self.state();
+            let now = Instant::now();
+            if state.gate_until.is_none_or(|until| now >= until) {
+                let delay = match kind {
+                    ErrorState::Config => CONFIG_ERROR_INTERVAL,
+                    ErrorState::Offline => {
+                        let step = BACKOFF_STEPS[state.backoff_index.min(BACKOFF_STEPS.len() - 1)];
+                        state.backoff_index += 1;
+                        step
+                    }
+                };
+                state.gate_until = Some(now + Duration::from_secs(delay));
+            }
+            let changed = state.error_state != Some(kind);
+            state.error_state = Some(kind);
+            let status = err.status();
+            state.error_detail =
+                (status.is_some() || !detail.is_empty()).then_some((status, detail));
+            changed
+        };
+        if changed {
+            log(format!(
+                "[translate] provider {} error ({}): {err}; retrying with backoff",
+                kind.as_str(),
+                (self.describe)()
+            ));
+        }
+    }
+
+    /// 任何一次成功都代表伺服器與設定已恢復：清狀態、重置退避、放開閘門。
+    fn note_success(&self) {
+        let changed = {
+            let mut state = self.state();
+            let changed = state.error_state.is_some();
+            state.error_state = None;
+            state.error_detail = None;
+            state.backoff_index = 0;
+            state.gate_until = None;
+            changed
+        };
+        if changed {
+            log("[translate] recovered, resuming normal speed");
+        }
+    }
+}
+
+/// 一則翻譯工作；未回報就結束（關閉中放棄、task 被丟棄）時由 Drop 補上 in_flight 遞減。
+struct Job {
+    inner: Arc<Inner>,
+    pending: bool,
+}
+
+impl Job {
+    async fn run(mut self, line: String, context: Vec<String>, msg_id: u64) {
+        let inner = Arc::clone(&self.inner);
+        let mut attempts = 0;
+        while inner.wait_for_backoff().await {
+            let Some(permit) = inner.gate.acquire(&inner.stop).await else {
+                return;
+            };
+            attempts += 1;
+            let result = (inner.translate)(line.clone(), context.clone()).await;
+            drop(permit);
+            let err = match result {
+                Ok(translated) => {
+                    inner.note_success();
+                    self.report(msg_id, translated, false);
+                    return;
+                }
+                Err(err) => err,
+            };
+            match err {
+                TranslateError::Offline { .. } => inner.note_failure(ErrorState::Offline, &err),
+                TranslateError::Config { .. } => inner.note_failure(ErrorState::Config, &err),
+                _ => {
+                    // temperature=0 下重試必得同一結果：直接放棄，讓 overlay 至少顯示失敗提示
+                    let reason = if matches!(err, TranslateError::BadOutput(_)) {
+                        "bad model output"
+                    } else {
+                        "unexpected error"
+                    };
+                    log(format!(
+                        "[translate] line dropped after {attempts} attempt(s), {reason} ({err}): {line}"
+                    ));
+                    self.report(msg_id, (inner.failed_notice)(), true);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// in_flight 先遞減再回報：on_result 內讀 in_flight 不該把這則算進行中。
+    fn report(&mut self, msg_id: u64, text: String, failed: bool) {
+        self.pending = false;
+        self.inner.state().in_flight -= 1;
+        (self.inner.on_result)(msg_id, text, failed);
+    }
+}
+
+impl Drop for Job {
+    fn drop(&mut self) {
+        if self.pending {
+            self.inner.state().in_flight -= 1;
+        }
+    }
+}

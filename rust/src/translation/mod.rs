@@ -5,6 +5,8 @@ pub mod clients;
 pub mod context;
 pub mod errors;
 pub mod examples;
+pub mod gate;
+pub mod pool;
 pub mod postprocess;
 pub mod prompts;
 pub mod pyrepr;
