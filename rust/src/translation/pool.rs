@@ -3,9 +3,12 @@
 //! 呼叫端只負責提交（line, context, msg_id）與接收 `on_result(msg_id, text, failed)`；
 //! 顯示順序不由完成順序決定 —— overlay 在提交當下就已佔好位置。
 
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use futures_util::FutureExt;
 use tokio::runtime::Handle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
@@ -34,7 +37,9 @@ const WAIT_SLICE: Duration = Duration::from_millis(500);
 /// 翻譯錯誤狀態，供上層決定錯誤橫幅。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorState {
+    /// 伺服器連不上或暫時無法服務（連線失敗、逾時、429、5xx）。
     Offline,
+    /// API 設定錯誤（4xx），等使用者修正。
     Config,
 }
 
@@ -152,21 +157,35 @@ impl TranslationPool {
     }
 }
 
+impl Drop for TranslationPool {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 impl Inner {
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// 退避閘門還要多久才開；已開為 `None`。
+    fn backoff_remaining(&self) -> Option<Duration> {
+        let now = Instant::now();
+        self.state()
+            .gate_until
+            .filter(|&until| until > now)
+            .map(|until| until - now)
+    }
+
     /// 等到退避閘門開啟；關閉中回傳 `false`。
     async fn wait_for_backoff(&self) -> bool {
         while !self.stop.is_cancelled() {
-            let now = Instant::now();
-            let Some(until) = self.state().gate_until.filter(|&until| until > now) else {
+            let Some(remaining) = self.backoff_remaining() else {
                 return true;
             };
             tokio::select! {
                 _ = self.stop.cancelled() => return false,
-                _ = tokio::time::sleep((until - now).min(WAIT_SLICE)) => {}
+                _ = tokio::time::sleep(remaining.min(WAIT_SLICE)) => {}
             }
         }
         false
@@ -242,34 +261,41 @@ impl Job {
             let Some(permit) = inner.gate.acquire(&inner.stop).await else {
                 return;
             };
+            // 等額度期間閘門可能已被別則的失敗推遠：放回額度重新等，排隊的各則才不會繞過退避
+            if inner.backoff_remaining().is_some() {
+                continue;
+            }
             attempts += 1;
-            let result = (inner.translate)(line.clone(), context.clone()).await;
-            drop(permit);
-            let err = match result {
-                Ok(translated) => {
+            let request = async { (inner.translate)(line.clone(), context.clone()).await };
+            // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
+            let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {
+                Ok(Ok(translated)) => {
                     inner.note_success();
+                    drop(permit);
                     self.report(msg_id, translated, false);
                     return;
                 }
-                Err(err) => err,
-            };
-            match err {
-                TranslateError::Offline { .. } => inner.note_failure(ErrorState::Offline, &err),
-                TranslateError::Config { .. } => inner.note_failure(ErrorState::Config, &err),
-                _ => {
-                    // temperature=0 下重試必得同一結果：直接放棄，讓 overlay 至少顯示失敗提示
-                    let reason = if matches!(err, TranslateError::BadOutput(_)) {
-                        "bad model output"
-                    } else {
-                        "unexpected error"
-                    };
-                    log(format!(
-                        "[translate] line dropped after {attempts} attempt(s), {reason} ({err}): {line}"
-                    ));
-                    self.report(msg_id, (inner.failed_notice)(), true);
-                    return;
+                Ok(Err(err @ TranslateError::Offline { .. })) => {
+                    inner.note_failure(ErrorState::Offline, &err);
+                    continue;
                 }
-            }
+                Ok(Err(err @ TranslateError::Config { .. })) => {
+                    inner.note_failure(ErrorState::Config, &err);
+                    continue;
+                }
+                // temperature=0 下重試必得同一結果：直接放棄，讓 overlay 至少顯示失敗提示
+                Ok(Err(err @ TranslateError::BadOutput(_))) => {
+                    ("bad model output", err.to_string())
+                }
+                Ok(Err(err)) => ("unexpected error", err.to_string()),
+                Err(panic) => ("unexpected error", panic_message(panic.as_ref())),
+            };
+            drop(permit);
+            log(format!(
+                "[translate] line dropped after {attempts} attempt(s), {reason} ({message}): {line}"
+            ));
+            self.report(msg_id, (inner.failed_notice)(), true);
+            return;
         }
     }
 
@@ -287,4 +313,12 @@ impl Drop for Job {
             self.inner.state().in_flight -= 1;
         }
     }
+}
+
+fn panic_message(payload: &(dyn Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "panic".to_owned())
 }

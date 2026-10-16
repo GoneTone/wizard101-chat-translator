@@ -670,3 +670,58 @@ async fn the_failure_log_names_the_service() {
         "[translate] provider offline error ({DESCRIBE}): connection refused; retrying with backoff"
     )));
 }
+
+#[tokio::test(start_paused = true)]
+async fn queued_lines_respect_backoff_set_while_waiting_for_a_slot() {
+    // 額度只有 1、三則排隊：每輪只能打一次伺服器，排隊的不得在退避中插隊送出。
+    // 請求先讓出一次，其餘兩則才會在第一則失敗前就通過退避檢查、排在額度上
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let translate = tfn(move |_, _| {
+        let _ = calls_tx.send(Instant::now());
+        async {
+            tokio::task::yield_now().await;
+            Err(offline("down"))
+        }
+    });
+    let (pool, _rx) = make_pool(translate, gate(1));
+    for i in 0..3 {
+        pool.submit(format!("[A] m{i}"), vec![], i);
+    }
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        times.push(next(&mut calls).await);
+    }
+    let t0 = times[0];
+    let rounds: Vec<u64> = times.iter().map(|t| secs(t0, *t)).collect();
+    assert_eq!(rounds, [0, 5, 20, 50, 80]);
+    pool.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
+async fn panicking_translate_gives_failed_notice() {
+    let shared = gate(1);
+    let translate = tfn(|line: String, _| async move {
+        if line.contains("boom") {
+            panic!("fake translate panicked");
+        }
+        Ok(line)
+    });
+    let (pool, mut rx) = make_pool(translate, shared.clone());
+    pool.submit("[A] boom".into(), vec![], 1);
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.in_flight(), 0);
+    assert_eq!(shared.in_use(), 0, "額度要歸還");
+    pool.submit("[A] fine".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[A] fine".into(), false));
+}
+
+#[tokio::test(start_paused = true)]
+async fn dropping_the_pool_stops_retries() {
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let (pool, _rx) = make_pool(recording(calls_tx, |_| Err(offline("down"))), gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    next(&mut calls).await;
+    drop(pool);
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert!(calls.try_recv().is_err(), "pool 丟棄後不該再重試");
+}
