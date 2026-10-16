@@ -4672,5 +4672,278 @@
    true,
    false
   ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:196751008724053815,沃尔夫 亡灵骑兵,2>[沃尔夫 亡灵骑兵]</link> wth </color>",
+  "output": [
+   "[沃尔夫 亡灵骑兵] wth",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你獲得了 51 金幣！</color>",
+  "output": [
+   "你獲得了 51 金幣！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你現在等級 28！</color>",
+  "output": [
+   "你現在等級 28！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你获得了 39 金币！</color>",
+  "output": [
+   "你获得了 39 金币！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;AA00AA><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你获得了 3 经验值！</color>",
+  "output": [
+   "你获得了 3 经验值！",
+   "#aa00aa",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "[DBGL] HandleStatisticUpdate: new health 1783",
+  "output": null
+ },
+ {
+  "input": "[STAT] BuddyListManager::MSG_BuddyEntry Added",
+  "output": null
+ },
+ {
+  "input": "[DBGM] MSG_SendBlob 114 CurrentZone 114</color>",
+  "output": null
+ },
+ {
+  "input": "[DBGM] some debug noise",
+  "output": null
+ },
+ {
+  "input": "[WARN] another one",
+  "output": null
+ },
+ {
+  "input": "RECEIVED STATUS UPDATE for [191965934165243834]",
+  "output": null
+ },
+ {
+  "input": "收到 [1688849928085385] 的伙伴邀请",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Amy,2>[Amy]</link> nice 😂👀 </color>",
+  "output": [
+   "[Amy] nice 😂👀",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] 測試 訊息 :) </color>",
+  "output": [
+   "[你] 測試 訊息 :)",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Lars,2>[Lars]</link> ty king <image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Lars] ty king :heart:",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<image;Emoticons/Emoticons_School_Death.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<image;Emoticons/Eyes001.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFF00><image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] Test1</color>",
+  "output": [
+   "[你] Test1",
+   "#ffff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFF00><image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,Amy,2>[Amy]</link> hi house</color>",
+  "output": [
+   "[Amy] hi house",
+   "#ffff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> 你加入了这个队伍</color>",
+  "output": [
+   "你加入了这个队伍",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> 你离开了这个队伍。</color>",
+  "output": [
+   "你离开了这个队伍。",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;191965934165243834,艾米 时空之翼,>艾米 时空之翼</link> 加入队伍</color>",
+  "output": [
+   "艾米 时空之翼 加入队伍",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] 123 </color>",
+  "output": [
+   "[你] 123",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>[Server Message] 服务器在2小时内关闭以进行维护</color>",
+  "output": [
+   "[Server Message] 服务器在2小时内关闭以进行维护",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>服务器即将关闭</color>",
+  "output": [
+   "服务器即将关闭",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> [Lars] hi </color>",
+  "output": null
+ },
+ {
+  "input": "<color;80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>",
+  "output": [
+   "[你] hi",
+   "#80ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>",
+  "output": [
+   "[你] hi",
+   "#80ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi",
+  "output": [
+   "[你] hi",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] ab c d　e\u001cf\u001fg\u000bh\fi </color>",
+  "output": [
+   "[你] a b c d e f g h i",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,A,2>[A]</link> hithere </color>",
+  "output": [
+   "[A] hi there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>",
+  "output": [
+   "[A] hi",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " \u001c<color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
  }
 ]

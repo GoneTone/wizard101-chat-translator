@@ -1,5 +1,7 @@
 //! 收訊端：讀遊戲聊天框的分頁狀態（目前分頁編號、各分頁按鈕上的文字）。
 
+use std::fmt;
+
 use super::memory::{MemError, ProcessMemory, decode_utf16le};
 use super::ui_tree::{FLAG_VISIBLE, Window, find_by_name};
 
@@ -56,13 +58,14 @@ fn read_label(mem: &dyn ProcessMemory, addr: u64) -> Result<String, MemError> {
     Ok(decode_utf16le(&raw))
 }
 
+fn is_tab_id(tab: i32) -> bool {
+    TAB_BUTTONS.iter().any(|&(_, id)| id == tab)
+}
+
 /// 只讀目前分頁編號（一次記憶體讀取）；讀不到或超出範圍回 None。
 pub fn read_current_tab(mem: &dyn ProcessMemory, chatbox: u64) -> Option<i32> {
     let current = mem.read_i32(chatbox + CUR_TAB_OFFSET).ok()?;
-    TAB_BUTTONS
-        .iter()
-        .any(|&(_, tab)| tab == current)
-        .then_some(current)
+    is_tab_id(current).then_some(current)
 }
 
 /// 按鈕與外層容器都帶 VISIBLE：顯示過又被隱藏的分頁（如解散隊伍）文字不會變回 token。
@@ -77,12 +80,71 @@ fn button_shown(mem: &dyn ProcessMemory, button: Window) -> Result<bool, MemErro
     Ok(true)
 }
 
-fn read_tabs(mem: &dyn ProcessMemory, chatbox: u64) -> Result<Vec<(i32, String)>, MemError> {
-    let mut tabs = Vec::new();
+/// 讀分頁狀態失敗的原因；`Display` 同 Python 版 log 的例外訊息。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TabError {
+    /// 目前分頁編號不在已知範圍（ChatBox 已失效）。
+    OutOfRange { current: i32, chatbox: u64 },
+    /// 記憶體讀取失敗。
+    Mem(MemError),
+}
+
+impl fmt::Display for TabError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::OutOfRange { current, chatbox } => write!(
+                f,
+                "current tab {current} out of range (stale chat box {chatbox:#x}?)"
+            ),
+            Self::Mem(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for TabError {}
+
+impl From<MemError> for TabError {
+    fn from(e: MemError) -> Self {
+        Self::Mem(e)
+    }
+}
+
+impl TabError {
+    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::OutOfRange { .. } => "ValueError",
+            Self::Mem(e) => e.type_name(),
+        }
+    }
+}
+
+/// 從 root window 找各分頁按鈕（依 `TAB_BUTTONS` 順序，找不到的略過）；結果由呼叫端快取。
+pub fn find_tab_buttons(
+    mem: &dyn ProcessMemory,
+    root: Window,
+) -> Result<Vec<(i32, Window)>, MemError> {
+    let mut found = Vec::new();
     for (name, tab) in TAB_BUTTONS {
-        let Some(&button) = find_by_name(mem, Window { addr: chatbox }, name).first() else {
-            continue;
-        };
+        if let Some(&node) = find_by_name(mem, root, name)?.first() {
+            found.push((tab, node));
+        }
+    }
+    Ok(found)
+}
+
+/// 聊天框的目前分頁與可見分頁；目前分頁超出範圍（ChatBox 已失效）或讀取失敗回 `TabError`。
+pub fn read_tab_state(
+    mem: &dyn ProcessMemory,
+    chatbox: u64,
+    buttons: &[(i32, Window)],
+) -> Result<TabState, TabError> {
+    let current = mem.read_i32(chatbox + CUR_TAB_OFFSET)?;
+    if !is_tab_id(current) {
+        return Err(TabError::OutOfRange { current, chatbox });
+    }
+    let mut tabs = Vec::new();
+    for &(tab, button) in buttons {
         if !button_shown(mem, button)? {
             continue;
         }
@@ -90,14 +152,7 @@ fn read_tabs(mem: &dyn ProcessMemory, chatbox: u64) -> Result<Vec<(i32, String)>
             tabs.push((tab, label));
         }
     }
-    Ok(tabs)
-}
-
-/// 聊天框的目前分頁與可見分頁；目前分頁超出範圍（ChatBox 已失效）或讀取失敗回 None。
-pub fn read_tab_state(mem: &dyn ProcessMemory, chatbox: u64) -> Option<TabState> {
-    let current = read_current_tab(mem, chatbox)?;
-    let tabs = read_tabs(mem, chatbox).ok()?;
-    Some(TabState { tabs, current })
+    Ok(TabState { tabs, current })
 }
 
 #[cfg(test)]

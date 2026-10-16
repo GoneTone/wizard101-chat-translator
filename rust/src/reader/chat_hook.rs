@@ -111,7 +111,7 @@ pub struct HookRecord {
     /// 呼叫端的回傳位址。
     pub ret: u64,
     pub this: u64,
-    pub tab: i32,
+    pub tab: u32,
     pub copied: u32,
     pub length: u32,
     pub text: String,
@@ -136,7 +136,7 @@ pub fn decode_record(bytes: &[u8]) -> HookRecord {
         seq: u64_at(0),
         ret: u64_at(8),
         this: u64_at(0x10),
-        tab: u32_at(0x18) as i32,
+        tab: u32_at(0x18),
         copied: u32_at(0x1C),
         length: u32_at(0x20),
         text: decode_utf16le(bytes.get(DATA_OFF as usize..).unwrap_or_default()),
@@ -203,7 +203,7 @@ fn continues_broadcast(run: &[HookRecord], rec: &HookRecord) -> bool {
 }
 
 /// 把伺服器廣播（連號、同字、分頁 0,1,2,3 再接遞增的頻道分頁）收斂成一組，回傳（分頁組, 代表記錄）。
-pub fn group_broadcasts(records: &[HookRecord]) -> Vec<(Vec<i32>, HookRecord)> {
+pub fn group_broadcasts(records: &[HookRecord]) -> Vec<(Vec<u32>, HookRecord)> {
     let mut groups = Vec::new();
     let mut i = 0;
     while i < records.len() {

@@ -35,16 +35,24 @@ pub struct Window {
 }
 
 impl Window {
-    /// 子節點；向量大小為 0、為負、超過上限或內容讀不到時回空（同 wizwalker）。
+    /// 子節點；向量大小為 0、為負、超過上限或讀不到時回空（同 wizwalker `Window.children`）。
     pub fn children(&self, mem: &dyn ProcessMemory) -> Result<Vec<Window>, MemError> {
-        let start = mem.read_u64(self.addr + CHILDREN_OFFSET)? as i64;
-        let end = mem.read_u64(self.addr + CHILDREN_OFFSET + 8)? as i64;
-        let size = i128::from(end) - i128::from(start);
+        let header = |at: u64| match mem.read_u64(self.addr + at) {
+            Err(MemError::Read(_)) => Ok(None),
+            other => other.map(Some),
+        };
+        let (Some(start), Some(end)) = (header(CHILDREN_OFFSET)?, header(CHILDREN_OFFSET + 8)?)
+        else {
+            return Ok(Vec::new());
+        };
+        let size = i128::from(end as i64) - i128::from(start as i64);
         if size <= 0 || size / SHARED_PTR_SIZE > MAX_CHILDREN {
             return Ok(Vec::new());
         }
-        let Ok(raw) = mem.read(start as u64, size as usize) else {
-            return Ok(Vec::new());
+        let raw = match mem.read(start, size as usize) {
+            Ok(raw) => raw,
+            Err(e) if suppressed(&e) => return Ok(Vec::new()),
+            Err(e) => return Err(e),
         };
         Ok(raw
             .chunks_exact(SHARED_PTR_SIZE as usize)
@@ -82,21 +90,36 @@ impl Window {
     }
 }
 
-/// 在 `root` 底下找所有名稱相符的後代：先列直屬子節點中的符合者，再逐一深入；讀不到的節點略過。
-pub fn find_by_name(mem: &dyn ProcessMemory, root: Window, name: &str) -> Vec<Window> {
+/// wizwalker 走訪時 `suppress` 掉的讀取錯誤（ValueError／MemoryReadError／AddressOutOfRange）。
+fn suppressed(err: &MemError) -> bool {
+    matches!(err, MemError::Read(_) | MemError::OutOfRange(_))
+}
+
+/// 在 `root` 底下找所有名稱相符的後代，行為同 wizwalker `get_windows_with_name`。
+///
+/// 先列直屬子節點中的符合者（名稱讀不到就回錯誤），再逐一深入；深層節點讀取失敗只中止該節點
+/// 剩下的子節點。
+pub fn find_by_name(
+    mem: &dyn ProcessMemory,
+    root: Window,
+    name: &str,
+) -> Result<Vec<Window>, MemError> {
     let mut found = Vec::new();
     // 已走過的節點：遊戲記憶體讀到壞資料時，環狀參照不致讓遞迴爆堆疊
     let mut seen = HashSet::from([root]);
-    let children = root.children(mem).unwrap_or_default();
+    let children = match root.children(mem) {
+        Err(e) if suppressed(&e) => Vec::new(),
+        other => other?,
+    };
     for &child in &children {
-        if child.name(mem).is_ok_and(|n| n == name) {
+        if child.name(mem)? == name {
             found.push(child);
         }
     }
     for child in children {
-        descend(mem, child, name, &mut seen, &mut found);
+        descend(mem, child, name, &mut seen, &mut found)?;
     }
-    found
+    Ok(found)
 }
 
 fn descend(
@@ -105,15 +128,22 @@ fn descend(
     name: &str,
     seen: &mut HashSet<Window>,
     found: &mut Vec<Window>,
-) {
+) -> Result<(), MemError> {
     if !seen.insert(node) {
-        return;
+        return Ok(());
     }
-    for child in node.children(mem).unwrap_or_default() {
-        if child.name(mem).is_ok_and(|n| n == name) {
-            found.push(child);
+    let walk = |found: &mut Vec<Window>, seen: &mut HashSet<Window>| {
+        for child in node.children(mem)? {
+            if child.name(mem)? == name {
+                found.push(child);
+            }
+            descend(mem, child, name, seen, found)?;
         }
-        descend(mem, child, name, seen, found);
+        Ok(())
+    };
+    match walk(found, seen) {
+        Err(e) if suppressed(&e) => Ok(()),
+        other => other,
     }
 }
 
@@ -150,7 +180,7 @@ mod tests {
         put_name(&mem, 0x4000, "Target");
         put_children(&mem, 0x3000, 0x9200, &[]);
         put_children(&mem, 0x4000, 0x9300, &[]);
-        let found = find_by_name(&mem, Window { addr: 0x1000 }, "Target");
+        let found = find_by_name(&mem, Window { addr: 0x1000 }, "Target").unwrap();
         let addrs: Vec<u64> = found.iter().map(|w| w.addr).collect();
         assert_eq!(addrs, [0x3000, 0x4000]);
     }

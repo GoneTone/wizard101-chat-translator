@@ -2,16 +2,19 @@
 
 mod common;
 
+use std::sync::Mutex;
+
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{
     DATA_OFF, HEADER, HookRecord, MAX_CHARS, SLOT_SIZE, SLOTS, decode_record, group_broadcasts,
     pending_broadcast, read_ring,
 };
 use wizard101_chat_translator::reader::chat_tabs::{
-    CUR_TAB_OFFSET, LABEL_OFFSET, read_current_tab, read_tab_state, visible_label,
+    CUR_TAB_OFFSET, LABEL_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state,
+    visible_label,
 };
 use wizard101_chat_translator::reader::markup::parse_line;
-use wizard101_chat_translator::reader::memory::{FakeMemory, ProcessMemory};
+use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, ProcessMemory, Region};
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::reader::ui_tree::{Window, find_by_name};
 
@@ -53,7 +56,7 @@ fn group_broadcasts_matches_python() {
                     seq: r[0].as_u64().unwrap(),
                     ret: 1,
                     this: 2,
-                    tab: r[1].as_i64().unwrap() as i32,
+                    tab: r[1].as_u64().unwrap() as u32,
                     copied: n,
                     length: n,
                     text,
@@ -117,7 +120,7 @@ fn ring_record_split_surrogate_matches_python() {
         assert_eq!(rec.seq, o["seq"].as_u64().unwrap());
         assert_eq!(rec.ret, o["ret"].as_u64().unwrap());
         assert_eq!(rec.this, o["this"].as_u64().unwrap());
-        assert_eq!(rec.tab as u64, o["tab"].as_u64().unwrap());
+        assert_eq!(u64::from(rec.tab), o["tab"].as_u64().unwrap());
         assert_eq!(u64::from(rec.copied), o["copied"].as_u64().unwrap());
         assert_eq!(u64::from(rec.length), o["length"].as_u64().unwrap());
         assert_eq!(rec.text, o["text"].as_str().unwrap(), "{}", c["input"]);
@@ -131,7 +134,7 @@ fn slot_addr(seq: u64) -> u64 {
 }
 
 /// 寫一個槽位並把累計數推到至少 `seq`；`slot_seq` 可偽造槽內序號。
-fn put(mem: &FakeMemory, seq: u64, units: &[u16], tab: u32, slot_seq: Option<u64>) {
+fn put(mem: &impl PutBytes, seq: u64, units: &[u16], tab: u32, slot_seq: Option<u64>) {
     let at = slot_addr(seq);
     let mut head = Vec::new();
     head.extend(slot_seq.unwrap_or(seq).to_le_bytes());
@@ -146,8 +149,120 @@ fn put(mem: &FakeMemory, seq: u64, units: &[u16], tab: u32, slot_seq: Option<u64
     if !data.is_empty() {
         mem.set_bytes(at + DATA_OFF, &data);
     }
-    let count = mem.read_u64(RING).unwrap_or(0).max(seq);
+    let count = mem.count().max(seq);
     mem.set_bytes(RING, &count.to_le_bytes());
+}
+
+trait PutBytes {
+    fn set_bytes(&self, addr: u64, bytes: &[u8]);
+    fn count(&self) -> u64;
+}
+
+impl PutBytes for FakeMemory {
+    fn set_bytes(&self, addr: u64, bytes: &[u8]) {
+        FakeMemory::set_bytes(self, addr, bytes);
+    }
+
+    fn count(&self) -> u64 {
+        self.read_u64(RING).unwrap_or(0)
+    }
+}
+
+type ReadHook = Box<dyn FnMut(u64, usize, &FakeMemory) + Send>;
+
+/// 包住 FakeMemory：記下每次讀取，並可在讀取之後插手改記憶體（模擬遊戲執行緒的覆寫）。
+struct SpyMemory {
+    inner: FakeMemory,
+    reads: Mutex<Vec<(u64, usize)>>,
+    after_read: Mutex<Option<ReadHook>>,
+}
+
+impl SpyMemory {
+    fn new() -> Self {
+        Self {
+            inner: FakeMemory::new(),
+            reads: Mutex::default(),
+            after_read: Mutex::default(),
+        }
+    }
+}
+
+impl PutBytes for SpyMemory {
+    fn set_bytes(&self, addr: u64, bytes: &[u8]) {
+        self.inner.set_bytes(addr, bytes);
+    }
+
+    fn count(&self) -> u64 {
+        self.inner.read_u64(RING).unwrap_or(0)
+    }
+}
+
+impl ProcessMemory for SpyMemory {
+    fn read(&self, addr: u64, len: usize) -> Result<Vec<u8>, MemError> {
+        let out = self.inner.read(addr, len);
+        self.reads.lock().unwrap().push((addr, len));
+        if let Some(hook) = self.after_read.lock().unwrap().as_mut() {
+            hook(addr, len, &self.inner);
+        }
+        out
+    }
+
+    fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError> {
+        self.inner.write(addr, bytes)
+    }
+
+    fn alloc(&self, size: usize) -> Result<u64, MemError> {
+        self.inner.alloc(size)
+    }
+
+    fn free(&self, addr: u64) {
+        self.inner.free(addr);
+    }
+
+    fn module_base(&self, name: &str) -> Result<u64, MemError> {
+        self.inner.module_base(name)
+    }
+
+    fn regions(&self, module: &str) -> Result<Vec<Region>, MemError> {
+        self.inner.regions(module)
+    }
+
+    fn is_alive(&self) -> bool {
+        self.inner.is_alive()
+    }
+}
+
+#[test]
+fn read_ring_rereads_seq_to_detect_a_torn_read() {
+    let mem = SpyMemory::new();
+    put(&mem, 1, &units("a"), 0, None);
+    put(&mem, 2, &units("torn"), 0, None);
+    *mem.after_read.lock().unwrap() = Some(Box::new(|addr, _, inner| {
+        if addr == slot_addr(2) + DATA_OFF {
+            inner.set_bytes(slot_addr(2), &(2 + SLOTS).to_le_bytes());
+        }
+    }));
+    let got = read_ring(&mem, RING, 0).unwrap();
+    let texts: Vec<_> = got.records.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, ["a"]);
+    assert_eq!((got.last_seq, got.lost), (2, 1));
+}
+
+#[test]
+fn read_ring_skips_the_content_read_for_an_empty_line() {
+    let mem = SpyMemory::new();
+    put(&mem, 1, &[], 0, None);
+    let got = read_ring(&mem, RING, 0).unwrap();
+    assert_eq!(
+        (got.records[0].text.as_str(), got.records[0].length),
+        ("", 0)
+    );
+    let reads = mem.reads.lock().unwrap();
+    assert!(
+        reads
+            .iter()
+            .all(|&(addr, len)| len > 0 && addr != slot_addr(1) + DATA_OFF)
+    );
 }
 
 fn units(text: &str) -> Vec<u16> {
@@ -260,19 +375,29 @@ fn put_children(mem: &FakeMemory, win: u64, kids: &[u64]) {
 #[test]
 fn ui_tree_find_by_name_skips_unreadable_nodes() {
     let mem = FakeMemory::new();
-    put_children(&mem, 0x1000, &[0x2000, 0x3000, 0x4000, 0x5000]);
+    put_children(&mem, 0x1000, &[0x2000, 0x3000, 0x5000]);
     put_name(&mem, 0x2000, "Target");
-    put_children(&mem, 0x2000, &[]);
-    // 0x3000 的名稱讀得到、子節點向量讀不到
     put_name(&mem, 0x3000, "Target");
-    // 0x4000 完全讀不到
     put_name(&mem, 0x5000, "Other");
-    put_children(&mem, 0x5000, &[0x6000]);
+    // 0x2000 的子節點向量讀不到：Window.children 回空，走訪繼續
+    // 0x3000 同樣讀不到子節點
+    put_children(&mem, 0x5000, &[0x6000, 0x7000, 0x8000]);
     put_name(&mem, 0x6000, "Target");
     put_children(&mem, 0x6000, &[]);
-    let found = find_by_name(&mem, Window { addr: 0x1000 }, "Target");
+    // 0x7000 名稱讀不到：中止 0x5000 剩下的子節點（0x8000 不會被看到）
+    put_name(&mem, 0x8000, "Target");
+    let found = find_by_name(&mem, Window { addr: 0x1000 }, "Target").unwrap();
     let addrs: Vec<u64> = found.iter().map(|w| w.addr).collect();
     assert_eq!(addrs, [0x2000, 0x3000, 0x6000]);
+}
+
+#[test]
+fn ui_tree_find_by_name_propagates_unreadable_direct_child_name() {
+    let mem = FakeMemory::new();
+    put_children(&mem, 0x1000, &[0x2000, 0x3000]);
+    put_name(&mem, 0x3000, "Target");
+    let err = find_by_name(&mem, Window { addr: 0x1000 }, "Target").unwrap_err();
+    assert!(matches!(err, MemError::Read(_)), "{err:?}");
 }
 
 #[test]
@@ -305,20 +430,37 @@ fn put_button(mem: &FakeMemory, win: u64, name: &str, label: &str, flags: u32, p
 #[test]
 fn read_tab_state_lists_visible_tabs_in_button_order() {
     let mem = FakeMemory::new();
-    let chatbox = 0x10_000;
+    let (root, chatbox) = (0x10_000, 0x11_000);
     mem.set_bytes(chatbox + CUR_TAB_OFFSET, &1i32.to_le_bytes());
-    put_children(&mem, chatbox, &[0x20_000, 0x30_000, 0x40_000, 0x50_000]);
+    put_children(&mem, root, &[0x20_000, 0x30_000, 0x40_000, 0x50_000]);
     put_button(&mem, 0x20_000, "GroupFilterButton", "Party", 1, 1);
     put_button(&mem, 0x30_000, "MainFilterButton", "Main", 1, 1);
     put_button(&mem, 0x40_000, "HouseFilterButton", "<string;GUI2_1>", 1, 1);
     put_button(&mem, 0x50_000, "FriendFilterButton", "Friends", 1, 0);
-    let state = read_tab_state(&mem, chatbox).unwrap();
+    let buttons = find_tab_buttons(&mem, Window { addr: root }).unwrap();
+    let ids: Vec<i32> = buttons.iter().map(|b| b.0).collect();
+    assert_eq!(ids, [0, 1, 2, 3]);
+    let state = read_tab_state(&mem, chatbox, &buttons).unwrap();
     assert_eq!(state.current, 1);
     assert_eq!(
         state.tabs,
         [(0, "Main".to_owned()), (1, "Party".to_owned())]
     );
     assert_eq!(read_current_tab(&mem, chatbox), Some(1));
+
     mem.set_bytes(chatbox + CUR_TAB_OFFSET, &42i32.to_le_bytes());
-    assert_eq!(read_tab_state(&mem, chatbox), None);
+    let err = read_tab_state(&mem, chatbox, &buttons).unwrap_err();
+    assert_eq!(
+        err,
+        TabError::OutOfRange {
+            current: 42,
+            chatbox
+        }
+    );
+    assert_eq!(
+        err.to_string(),
+        "current tab 42 out of range (stale chat box 0x11000?)"
+    );
+    assert_eq!(err.type_name(), "ValueError");
+    assert_eq!(read_current_tab(&mem, chatbox), None);
 }

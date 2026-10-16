@@ -1142,6 +1142,40 @@ EXPORTERS["hook_stubs"] = export_hook_stubs
 EXPORTERS["hookstate_bytes"] = export_hookstate_bytes
 
 
+def _markup_test_samples() -> list[str]:
+    """tests/reader/test_markup.py 與 chatlog_helpers 的實機樣本，外加 \x85／\xa0 等空白。"""
+    say, party = "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>", "<image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>"  # noqa: E501
+    system = "<image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>"
+    return [
+        f"<color;FFFFFF>{say} <link;GID:196751008724053815,沃尔夫 亡灵骑兵,2>[沃尔夫 亡灵骑兵]</link> wth </color>",  # noqa: E501
+        f"<color;00FF00>{system} 你獲得了 51 金幣！</color>", f"<color;00FF00>{system} 你現在等級 28！</color>",  # noqa: E501
+        f"<color;00FF00>{system} 你获得了 39 金币！</color>", f"<color;AA00AA>{system} 你获得了 3 经验值！</color>",  # noqa: E501
+        f"<color;00FF00>{system} </color>",
+        "[DBGL] HandleStatisticUpdate: new health 1783", "[STAT] BuddyListManager::MSG_BuddyEntry Added",
+        "[DBGM] MSG_SendBlob 114 CurrentZone 114</color>", "[DBGM] some debug noise", "[WARN] another one",
+        "RECEIVED STATUS UPDATE for [191965934165243834]", "收到 [1688849928085385] 的伙伴邀请",
+        f"<color;FFFFFF>{say} <link;GID:1,Amy,2>[Amy]</link> nice 😂👀 </color>",
+        f"<color;FFFFFF>{say} [你] 測試 訊息 :) </color>",
+        f"<color;FFFFFF>{say} <link;GID:1,Lars,2>[Lars]</link> ty king "
+        "<image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>",
+        "<image;Emoticons/Emoticons_School_Death.dds;24;24;FFFFFFFF>", "<image;Emoticons/Eyes001.dds;24;24;FFFFFFFF>",  # noqa: E501
+        "<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>",
+        "<color;FFFF00><image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] Test1</color>",
+        "<color;FFFF00><image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> "
+        "<link;GID:9,Amy,2>[Amy]</link> hi house</color>",
+        f"<color;FFFFFF>{party} 你加入了这个队伍</color>", f"<color;FFFFFF>{party} 你离开了这个队伍。</color>",  # noqa: E501
+        f"<color;FFFFFF>{party} <link;191965934165243834,艾米 时空之翼,>艾米 时空之翼</link> 加入队伍</color>",  # noqa: E501
+        f"<color;FFFFFF>{party} [你] 123 </color>",
+        "<color;D9ABF8>[Server Message] 服务器在2小时内关闭以进行维护</color>", "<color;D9ABF8>服务器即将关闭</color>",  # noqa: E501
+        "<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> [Lars] hi </color>",
+        f"<color;80FF00>{say} [你] hi </color>", f"<color;FF80FF00>{say} [你] hi </color>", f"{say} [你] hi",
+        f"<color;FFFFFF>{say} [你] ab c d　efghi </color>",
+        f"<color;FFFFFF>{say} <link;GID:1,A,2>[A]</link> hithere </color>",
+        f"<color;FFFFFF>{say} [A] hi </color>", "<color;D9ABF8>notice</color>",
+        " <color;D9ABF8>notice</color>", " <color;D9ABF8>notice</color>",
+    ]
+
+
 def export_markup_parse() -> list[dict]:
     """`parse_line`：input 為原始聊天行，output 為 null 或 [text, color, own, system]。"""
     from src.reader.markup import parse_line
@@ -1186,6 +1220,7 @@ def export_markup_parse() -> list[dict]:
         "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] x</color>",
         "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] no color",
     ]
+    cases += _markup_test_samples()
     out = []
     for raw in cases:
         r = parse_line(raw)
@@ -1210,12 +1245,14 @@ def export_hook_records() -> list[dict]:
     ]
     out = []
     for n, data in enumerate(datas):
-        slot = struct.pack("<QQQIII", n + 1, 0x1407443B1 + n, 0x7777 + n, n % 9, len(data) // 2,
-                           len(data) // 2 + n % 3) + data
+        head = struct.pack("<QQQIII", n + 1, 0x1407443B1 + n, 0x7777 + n, n % 9, len(data) // 2,
+                           len(data) // 2 + n % 3)
+        slot = head.ljust(0x30, b"\x00") + data
         seq, caller, this, tab, copied, length = struct.unpack_from("<QQQIII", slot)
         out.append({"input": slot.hex(), "output": {
             "seq": seq, "ret": caller, "this": this, "tab": tab, "copied": copied, "length": length,
             "text": slot[0x30:].decode("utf-16-le", "replace")}})
+    assert all(c["output"]["text"] for c, d in zip(out, datas, strict=True) if d)
     return out
 
 
