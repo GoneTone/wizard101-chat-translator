@@ -15,7 +15,7 @@ use super::pystr::{self, casefold, lstrip, rstrip, strip};
 /// 發送者前綴 `[名稱]`（名稱 1–40 字、不含 `]`）的正規表示式片段，聊天解析共用。
 pub const SENDER_PREFIX: &str = r"\[[^\]]{1,40}\]";
 
-const SPACE: &str = r"[\s\x1c-\x1f]";
+pub(super) const SPACE: &str = r"[\s\x1c-\x1f]";
 const WORD: &str = r"\p{L}\p{N}_";
 
 fn re(pattern: &str) -> Regex {

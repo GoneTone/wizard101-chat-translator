@@ -164,38 +164,9 @@ pub(crate) fn py_bool(b: bool) -> &'static str {
     if b { "True" } else { "False" }
 }
 
-/// Python `repr(str)`：引號選擇與跳脫規則同 CPython。
+/// Python `repr(str)`。
 pub(crate) fn str_repr(s: &str) -> String {
-    let quote = if s.contains('\'') && !s.contains('"') {
-        '"'
-    } else {
-        '\''
-    };
-    let mut out = String::from(quote);
-    for c in s.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\t' => out.push_str("\\t"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            c if c == quote => {
-                out.push('\\');
-                out.push(c);
-            }
-            // shortcut: 不可列印只認控制字元與空白類，Cf／Co／Cn 照原樣輸出；只影響 log 文字
-            c if c.is_control() || (c.is_whitespace() && c != ' ') => {
-                let code = c as u32;
-                out.push_str(&match code {
-                    0..=0xff => format!("\\x{code:02x}"),
-                    0x100..=0xffff => format!("\\u{code:04x}"),
-                    _ => format!("\\U{code:08x}"),
-                });
-            }
-            c => out.push(c),
-        }
-    }
-    out.push(quote);
-    out
+    crate::translation::pyrepr::repr_str(s)
 }
 
 /// Python `type(value).__name__`。

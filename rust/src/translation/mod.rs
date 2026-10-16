@@ -3,8 +3,10 @@
 pub mod clients;
 pub mod context;
 pub mod errors;
+pub mod examples;
 pub mod postprocess;
 pub mod prompts;
+pub mod pyrepr;
 mod pystr;
 
 use std::future::Future;

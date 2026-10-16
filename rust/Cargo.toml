@@ -15,10 +15,12 @@ regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+sha1 = "0.11.0"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time"] }
 tokio-util = "0.7.20"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["net", "io-util", "rt-multi-thread", "macros", "time"] }
 wiremock = "0.6.5"

@@ -1,0 +1,599 @@
+[
+ {
+  "input": [
+   {
+    "fingerprint": "fp-a",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   }
+  ],
+  "output": "{\"entries\": {\"fp-a\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}}}"
+ },
+ {
+  "input": [
+   {
+    "fingerprint": "fp-a",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-b",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-a",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   }
+  ],
+  "output": "{\"entries\": {\"fp-b\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-a\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}}}"
+ },
+ {
+  "input": [
+   {
+    "fingerprint": "empty",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": null
+    }
+   }
+  ],
+  "output": null
+ },
+ {
+  "input": [
+   {
+    "fingerprint": "日本語|model|e4",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "quote\"'\\\n\t\u001f",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": " 😀",
+    "examples": {
+     "incoming": [
+      "[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛",
+      "[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash"
+     ],
+     "system": [
+      "Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
+      "Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道)."
+     ],
+     "region": [
+      "和火猫谈谈\n前往巨像大道\n选项\n然后你必须",
+      "Talk to the Fire Cat (火猫)\nGo to Colossus Boulevard (巨像大道)\nOptions\nand then you must"
+     ]
+    }
+   }
+  ],
+  "output": "{\"entries\": {\"日本語|model|e4\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"quote\\\"'\\\\\\n\\t\\u001f\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \" 😀\": {\"incoming\": [\"[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛\", \"[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash\"], \"system\": [\"Kai 教会了你火猫！在巨像大道获得了 {0} 金币。\", \"Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道).\"], \"region\": [\"和火猫谈谈\\n前往巨像大道\\n选项\\n然后你必须\", \"Talk to the Fire Cat (火猫)\\nGo to Colossus Boulevard (巨像大道)\\nOptions\\nand then you must\"]}}}"
+ },
+ {
+  "input": [
+   {
+    "fingerprint": "fp-0",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-1",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-2",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-3",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-4",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-5",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-6",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-7",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-8",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-9",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-10",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-11",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-12",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-13",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-14",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-15",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-16",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-17",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-18",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-19",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-20",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-21",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-22",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-23",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-24",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-25",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-26",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-27",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-28",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-29",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-30",
+    "examples": {
+     "incoming": [
+      "s",
+      "o"
+     ],
+     "system": null,
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-31",
+    "examples": {
+     "incoming": null,
+     "system": [
+      "it's",
+      "say \"hi\""
+     ],
+     "region": null
+    }
+   },
+   {
+    "fingerprint": "fp-32",
+    "examples": {
+     "incoming": null,
+     "system": null,
+     "region": [
+      "a\nb",
+      "c\\d\te"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-33",
+    "examples": {
+     "incoming": [
+      "both ' and \"",
+      "​﻿"
+     ],
+     "system": [
+      "😀",
+      ""
+     ],
+     "region": [
+      " ",
+      "͸"
+     ]
+    }
+   },
+   {
+    "fingerprint": "fp-34",
+    "examples": {
+     "incoming": [
+      "[Amy] 火貓",
+      "[Amy] Fire Cat (火貓)"
+     ],
+     "system": [
+      "",
+      ""
+     ],
+     "region": [
+      "x",
+      "y"
+     ]
+    }
+   }
+  ],
+  "output": "{\"entries\": {\"fp-3\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-4\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-5\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-6\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-7\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-8\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-9\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-10\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-11\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-12\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-13\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-14\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-15\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-16\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-17\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-18\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-19\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-20\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-21\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-22\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-23\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-24\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-25\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-26\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-27\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-28\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-29\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}, \"fp-30\": {\"incoming\": [\"s\", \"o\"], \"system\": null, \"region\": null}, \"fp-31\": {\"incoming\": null, \"system\": [\"it's\", \"say \\\"hi\\\"\"], \"region\": null}, \"fp-32\": {\"incoming\": null, \"system\": null, \"region\": [\"a\\nb\", \"c\\\\d\\te\"]}, \"fp-33\": {\"incoming\": [\"both ' and \\\"\", \"​﻿\"], \"system\": [\"😀\", \"\"], \"region\": [\" \", \"͸\"]}, \"fp-34\": {\"incoming\": [\"[Amy] 火貓\", \"[Amy] Fire Cat (火貓)\"], \"system\": [\"\", \"\"], \"region\": [\"x\", \"y\"]}}}"
+ }
+]

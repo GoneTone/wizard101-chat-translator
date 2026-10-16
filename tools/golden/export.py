@@ -768,6 +768,149 @@ EXPORTERS["clients_rejected_parameter"] = export_clients_rejected_parameter
 EXPORTERS["clients_openai_body"] = export_clients_openai_body
 
 
+def _pair_json(pair) -> list[str] | None:
+    return None if pair is None else list(pair)
+
+
+def _set_json(examples) -> dict:
+    return {name: _pair_json(getattr(examples, name))
+            for name in ("incoming", "system", "region")}
+
+
+def _set_from_json(data: dict):
+    from src.translation.examples import ExampleSet
+    return ExampleSet(*(None if data[name] is None else tuple(data[name])
+                        for name in ("incoming", "system", "region")))
+
+
+def _repr_inputs() -> list[str]:
+    import random
+
+    pool = ["a", "Z", " ", "'", '"', "\\", "\t", "\n", "\r", "\x00", "\x07", "\x1b", "\x7f",
+            "\x80", "\x85", "\x9f", "\xa0", "\xad", "é", "ß", "中", "あ", "한", "😀", "𝒳",
+            "\U0001f1fa", "\u2028", "\u2029", "\u200b", "\u200d", "\ufeff", "\u2003",
+            "\u3000", "\ue000", "\U000f0000", "\U0010ffff", "\u0378", "\U0001fffe", "\u061c",
+            "\u180e", "\u2060", "\u00ad", "\ufffe", "\ud7ff", "̀"]
+    fixed = ["", "'", '"', "'\"", "it's", 'say "hi"', "both ' and \"", "back\\slash",
+             "\'", "tab\there", "line\nbreak", "cr\rlf\r\n", "\x00\x01\x1f", "del\x7f",
+             "nbsp\xa0here", "zero\u200bwidth", "bom\ufeff", "ls\u2028ps\u2029", "emoji 😀",
+             "非BMP 𝒳", "[Amy] 火貓（Fire Cat）", "Kai {0} gold", "unassigned \u0378",
+             "private \ue000", "noncharacter \U0001fffe", "plain ascii"]
+    rng = random.Random(20261017)
+    cases = list(fixed)
+    while len(cases) < 200:
+        cases.append("".join(rng.choice(pool) for _ in range(rng.randint(1, 8))))
+    return cases
+
+
+def export_pyrepr() -> list[dict]:
+    """`repr(str)`：input 為字串，output 為 Python 的 repr。"""
+    return [{"input": s, "output": repr(s)} for s in _repr_inputs()]
+
+
+def _example_sets() -> list:
+    from src.translation.examples import EMPTY, GAME_LANGUAGE_EXAMPLES, ExampleSet
+    return [
+        EMPTY,
+        GAME_LANGUAGE_EXAMPLES,
+        ExampleSet(("s", "o"), None, None),
+        ExampleSet(None, ("it's", 'say "hi"'), None),
+        ExampleSet(None, None, ("a\nb", "c\\d\te")),
+        ExampleSet(("both ' and \"", "\u200b\ufeff"), ("😀", "\x7f"), ("\u2028", "\u0378")),
+        ExampleSet(("[Amy] 火貓", "[Amy] Fire Cat (火貓)"), ("", ""), ("x", "y")),
+    ]
+
+
+def export_examples_digest() -> list[dict]:
+    """`ExampleSet.digest()`：input 為三條路徑，output 為 12 碼 sha1。"""
+    return [{"input": _set_json(e), "output": {"digest": e.digest(), "repr": repr(e)}}
+            for e in _example_sets()]
+
+
+def export_examples_parse() -> list[dict]:
+    """`parse_generated`：input 為模型輸出，output 為（範例集, 失敗說明）。"""
+    from src.translation.examples import parse_generated
+    good = "\n".join([
+        "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、"
+        "巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑",
+        "2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。",
+        "3. 火猫（Fire Cat）に話しかける",
+        "4. 巨像大道（Colossus Boulevard）へ行く",
+        "5. オプション",
+        "6. そしてあなたは",
+    ])
+    fr = "\n".join([
+        "1. [Amy] Je sais pas, Kai et moi on a eu de nouvelles armures et appris Chat de Feu "
+        "(Fire Cat) au boulevard du Colosse (Colossus Boulevard), lol",
+        "2. Kai t'a appris Chat de Feu (Fire Cat) ! Tu as gagné {0} or au boulevard du Colosse "
+        "(Colossus Boulevard).",
+        "3. Parle au Chat de Feu (Fire Cat)",
+        "4. Va au boulevard du Colosse (Colossus Boulevard)",
+        "5. OPTIONS",
+        "6. et ensuite tu dois",
+    ])
+    lines = good.splitlines()
+    shifted = "\n".join(f"{i + 1}.{line[2:]}" for i, line in enumerate(lines, 1))
+    outputs = [
+        "", good, fr, "\n".join(lines[:3]), good.replace("{0} ゴールド", "ゴールド"),
+        good.replace("火猫（Fire Cat）を覚えた", "火猫を覚えた"),
+        good.replace("3. 火猫（Fire Cat）に話しかける", "3. 火猫に話しかける"),
+        fr.replace("Chat de Feu (Fire Cat)", "Fire Cat (Fire Cat)"),
+        "\n".join(line[3:] for line in lines[:3]),
+        good.replace("6. そしてあなたは", "6. and then you must"),
+        good.replace("5. オプション", "5. OPTIONS"),
+        "\n".join(line for line in lines if not line.startswith("5.")),
+        good.replace("5. オプション", "5. オプション（OPTIONS）"),
+        "\n".join(line for line in lines if not line.startswith("3.")),
+        "1. 以下是翻譯：\n" + shifted,
+        "以下是翻譯：\n```\n" + good + "\n```",
+        "\n".join(line[3:] for line in lines),
+        good.replace("4. 巨像大道（Colossus Boulevard）へ行く", "4. "),
+        good.replace("（", "(").replace("）", ")"),
+        good.replace("（Fire Cat）", "（ Fire Cat ）"),
+        good.replace("{0}", "{0} {0}"),
+        good.replace("\n", "\r\n"),
+        good.replace("\n", "\u2028"),
+        good.replace("Kai が", "が"),
+    ]
+    return [{"input": o, "output": {**_set_json(ex), "failures": failures}}
+            for o in outputs for ex, failures in [parse_generated(o)]]
+
+
+def export_examples_store_bytes() -> list[dict]:
+    """`ExampleStore.put` 寫出的檔案：input 為依序的 put，output 為檔案內容。"""
+    import contextlib
+    import io
+    import tempfile
+
+    from src.translation.examples import ExampleStore
+    sets = _example_sets()
+    scenarios = [
+        [("fp-a", sets[2])],
+        [("fp-a", sets[2]), ("fp-b", sets[5]), ("fp-a", sets[4])],
+        [("empty", sets[0])],
+        [("日本語|model|e4", sets[6]), ("quote\"'\\\n\t\x1f", sets[3]), ("\u2028\x7f😀", sets[1])],
+        [(f"fp-{i}", sets[2 + i % 5]) for i in range(35)],
+    ]
+    cases = []
+    for puts in scenarios:
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stderr(io.StringIO()):
+            path = Path(tmp) / "translation-examples.json"
+            store = ExampleStore(path)
+            for fingerprint, examples in puts:
+                store.put(fingerprint, examples)
+            text = path.read_bytes().decode("utf-8") if path.exists() else None
+        cases.append({"input": [{"fingerprint": fp, "examples": _set_json(e)} for fp, e in puts],
+                      "output": text})
+    return cases
+
+
+EXPORTERS["pyrepr"] = export_pyrepr
+EXPORTERS["examples_digest"] = export_examples_digest
+EXPORTERS["examples_parse"] = export_examples_parse
+EXPORTERS["examples_store_bytes"] = export_examples_store_bytes
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
