@@ -49,12 +49,18 @@ fn acquire_named(name: &str) -> Option<InstanceLock> {
     Some(InstanceLock(handle))
 }
 
+/// `buf` 前 `n` 個字元是否與 `title` 完全相同（`buf` 比 `title` 至少長 2，截斷會讓 `n` 變大）。
+fn is_exact_title(buf: &[u16], n: usize, title: &[u16]) -> bool {
+    n == title.len() && buf[..n] == *title
+}
+
 unsafe extern "system" fn collect(hwnd: HWND, lparam: LPARAM) -> i32 {
     let (title, found) = unsafe { &mut *(lparam as *mut (Vec<u16>, Vec<HWND>)) };
     if unsafe { IsWindowVisible(hwnd) } != 0 {
-        let mut buf = vec![0u16; title.len() + 1];
+        // 多留一格才分得出「剛好等長」與「被截斷的更長標題」
+        let mut buf = vec![0u16; title.len() + 2];
         let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
-        if n as usize == title.len() && buf[..title.len()] == title[..] {
+        if is_exact_title(&buf, n.max(0) as usize, title) {
             found.push(hwnd);
         }
     }
@@ -67,7 +73,12 @@ pub fn focus_running_instance(title: &str) -> bool {
         title.encode_utf16().collect::<Vec<u16>>(),
         Vec::<HWND>::new(),
     );
-    unsafe { EnumWindows(Some(collect), &mut ctx as *mut _ as LPARAM) };
+    if unsafe { EnumWindows(Some(collect), &mut ctx as *mut _ as LPARAM) } == 0 {
+        log(format!("[app] window scan failed: error={}", unsafe {
+            GetLastError()
+        }));
+        return false;
+    }
     let Some(&hwnd) = ctx.1.first() else {
         log(format!("[app] no window titled {title:?} to focus"));
         return false;
@@ -113,6 +124,25 @@ mod tests {
         let first = acquire_named(&name);
         assert!(first.is_some());
         assert!(acquire_named(&name).is_none());
+    }
+
+    #[test]
+    fn title_must_match_exactly() {
+        let title: Vec<u16> = "App".encode_utf16().collect();
+        let read = |s: &str| {
+            let mut buf = vec![0u16; title.len() + 2];
+            let w: Vec<u16> = s.encode_utf16().take(buf.len() - 1).collect();
+            buf[..w.len()].copy_from_slice(&w);
+            (buf, w.len())
+        };
+        let check = |s: &str| {
+            let (buf, n) = read(s);
+            is_exact_title(&buf, n, &title)
+        };
+        assert!(check("App"));
+        assert!(!check("App - settings"));
+        assert!(!check("Ap"));
+        assert!(!check("Apx"));
     }
 
     #[test]
