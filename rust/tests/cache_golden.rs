@@ -438,3 +438,33 @@ async fn stores_a_translation_that_kept_the_source_english() {
         Some("死亡骷髏戰士")
     );
 }
+
+#[test]
+fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = Arc::new(cache_in(&dir));
+    let handles: Vec<_> = (0..8)
+        .map(|t| {
+            let cache = Arc::clone(&cache);
+            std::thread::spawn(move || {
+                for i in 0..100 {
+                    let key = letters(t * 100 + i);
+                    assert!(cache.put(&key, &key.to_uppercase(), FP));
+                    cache.get(&key);
+                    cache.flush();
+                }
+            })
+        })
+        .collect();
+    for h in handles {
+        h.join().unwrap();
+    }
+    let reloaded = cache_in(&dir);
+    reloaded.load();
+    for i in 0..800 {
+        let key = letters(i);
+        assert_eq!(reloaded.get(&key), Some(key.to_uppercase()));
+    }
+    let leftovers = std::fs::read_dir(dir.path()).unwrap().count();
+    assert_eq!(leftovers, 1, "no temp files left behind");
+}

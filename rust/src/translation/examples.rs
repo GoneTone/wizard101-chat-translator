@@ -3,6 +3,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use regex::Regex;
@@ -416,7 +417,13 @@ pub(super) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     let mut tmp_name = path.as_os_str().to_owned();
-    tmp_name.push(format!(".{}.tmp", std::process::id()));
+    // 每次呼叫獨立的暫存檔，重疊的寫入才不會互相截斷
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    tmp_name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     let tmp = PathBuf::from(tmp_name);
     let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
     if result.is_err() {
