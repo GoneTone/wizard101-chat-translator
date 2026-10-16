@@ -59,6 +59,7 @@ class InputBox:
         self._anchor: tuple[int, int, int, int] | None = None  # 遊戲輸入框的螢幕矩形
         self._width = DEFAULT_WIDTH  # 本次開窗的 client 寬度（見 show）
         self._above_anchor = False   # 本次是否放在錨點上方（高度變化要往上長）
+        self._pinned_rect: tuple[int, int, int, int] | None = None  # 上次 _pin_bottom 後的外框
         self._win: tk.Toplevel | None = None
         self._entry: tk.Entry | None = None
         self._status: RichLabel | None = None
@@ -254,13 +255,18 @@ class InputBox:
         Tk 都固定底邊、往上長，換行長高才不會往下蓋到遊戲輸入框。位置換算自外框實際的矩形。"""
         left, _, _, bottom = win32gui.GetWindowRect(root_hwnd(self._win))
         self._win.geometry(f"+{left}-{self._win.winfo_screenheight() - bottom}")
+        self._win.update_idletasks()
+        self._pinned_rect = win32gui.GetWindowRect(root_hwnd(self._win))
 
     def _on_configure(self, event) -> None:
         """使用者拖動標題列後 Tk 會改回從上緣算的座標：照拖到的位置換回底部座標，之後仍往上長。"""
         if event.widget is not self._win or not self._above_anchor:
             return
         match = _GEOMETRY.fullmatch(self._win.geometry())
-        if match is not None and not match.group(1).startswith("-"):
+        if match is None or match.group(1).startswith("-"):
+            return
+        # 外框沒動就不是拖動（-Y 被改寫回 +Y 卻沒移動）：再重設會在 <Configure> 裡無限迴圈
+        if win32gui.GetWindowRect(root_hwnd(self._win)) != self._pinned_rect:
             self._pin_bottom()
 
     def _finish(self, translated: str, hwnd: int | None, session: int) -> None:

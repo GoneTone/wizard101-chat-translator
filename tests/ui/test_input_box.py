@@ -451,6 +451,17 @@ def test_show_without_any_anchor_uses_the_default_width(root, monkeypatch):
     box.close()
 
 
+def test_bottom_pin_does_not_loop_when_the_geometry_is_rewritten(root, monkeypatch):
+    """-Y 寫法被改回 +Y 而視窗沒移動（例如測試的停放機制）時，不可在 <Configure> 裡無限重設。"""
+    monkeypatch.setattr(input_box_module, "work_area_at", lambda x, y: _AREA)
+    monkeypatch.setattr(input_box_module, "cursor_position", lambda: (640, _AREA[3] - 20))
+    box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
+    box.show()   # 游標下方放不下 → 開在上方，走 _pin_bottom
+    box._win.update()
+    assert box._above_anchor
+    box.close()
+
+
 def test_fit_height_shrinks_when_the_status_needs_fewer_lines(root):
     # 狀態文字從多行換回一行 → 高度要跟著貼回內容，不能停在較高的那次
     box = InputBox(root, lambda t, cancel: t, queue.Queue(), lambda *a: None)
