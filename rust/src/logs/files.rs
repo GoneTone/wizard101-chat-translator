@@ -94,24 +94,32 @@ impl<W: Write> TimestampedWriter<W> {
     }
 }
 
-impl<W: Write> Write for TimestampedWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        for part in buf.split_inclusive(|&b| b == b'\n') {
-            if self.at_line_start {
-                write!(self.inner, "{} ", utc_stamp(Utc::now()))?;
+/// 把 `data` 逐行補上時戳、換行換成 `eol` 後附加到 `out`；`at_line_start` 跨呼叫記錄是否停在行首。
+pub(crate) fn push_stamped(out: &mut Vec<u8>, data: &[u8], at_line_start: &mut bool, eol: &[u8]) {
+    for part in data.split_inclusive(|&b| b == b'\n') {
+        if *at_line_start {
+            out.extend_from_slice(utc_stamp(Utc::now()).as_bytes());
+            out.push(b' ');
+        }
+        match part.strip_suffix(b"\n") {
+            Some(body) => {
+                out.extend_from_slice(body);
+                out.extend_from_slice(eol);
+                *at_line_start = true;
             }
-            match part.strip_suffix(b"\n") {
-                Some(body) => {
-                    self.inner.write_all(body)?;
-                    self.inner.write_all(b"\r\n")?;
-                    self.at_line_start = true;
-                }
-                None => {
-                    self.inner.write_all(part)?;
-                    self.at_line_start = false;
-                }
+            None => {
+                out.extend_from_slice(part);
+                *at_line_start = false;
             }
         }
+    }
+}
+
+impl<W: Write> Write for TimestampedWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut out = Vec::with_capacity(buf.len() + 32);
+        push_stamped(&mut out, buf, &mut self.at_line_start, b"\r\n");
+        self.inner.write_all(&out)?;
         Ok(buf.len())
     }
 
@@ -143,13 +151,24 @@ mod tests {
     #[test]
     fn open_session_log_caps_oversized_file() {
         let path = temp("cap");
-        std::fs::write(&path, vec![b'x'; 6 * 1024 * 1024]).unwrap();
+        // 多個近期 session：砍到尾端後第一段殘缺被丟，其後完整段落必須留下
+        let mut big = String::new();
+        let mut i = 0;
+        while big.len() < 6 * 1024 * 1024 {
+            big.push_str(&format!("{}\r\n", day_header(1)));
+            big.push_str(&format!("[app] filler {i} {}\r\n", "x".repeat(100_000)));
+            i += 1;
+        }
+        let last = big.lines().last().unwrap().to_string();
+        std::fs::write(&path, &big).unwrap();
         open_session_log(&path, now()).unwrap();
-        let len = std::fs::metadata(&path).unwrap().len() as usize;
+        let out = std::fs::read_to_string(&path).unwrap();
         assert!(
-            len <= LOG_KEEP_TAIL + session_header(now()).len() + 2,
-            "len={len}"
+            out.len() <= LOG_KEEP_TAIL + session_header(now()).len() + 2,
+            "len={}",
+            out.len()
         );
+        assert!(out.contains(&last));
     }
 
     #[test]
