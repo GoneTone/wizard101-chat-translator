@@ -3,14 +3,13 @@
 #[allow(dead_code)]
 mod common;
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::fake_game::{place, put_button, put_children, put_name};
+use common::reader_fixture::log_lines_with;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::reader::chat_hook::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
@@ -60,22 +59,6 @@ fn hwnd() -> isize {
 
 fn pid() -> u32 {
     window_pid(hwnd())
-}
-
-/// 整個測試檔共用一個 log 檔（全域 sink 只有一個）；各測試以自己的 slot 篩選。
-fn log_lines_with(marker: &str) -> Vec<String> {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    let path = PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("mem_reader_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    });
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .filter(|l| l.contains(marker))
-        .map(str::to_owned)
-        .collect()
 }
 
 fn logged(slot: u32, needle: &str) -> Vec<String> {
