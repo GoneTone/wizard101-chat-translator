@@ -1,11 +1,12 @@
 """測試用的共用 fixture。
 
 開發者常常一邊玩遊戲一邊跑測試，套件不該打斷遊戲畫面或搶走前景，但也不能因此
-跳過測試。兩支 autouse fixture 各擋一種打斷，兩者都不跳過任何測試：
+跳過測試。下列 autouse fixture 各擋一種干擾，都不跳過任何測試：
 - `_park_windows` 把測試建立的視窗停到螢幕外；但 `@pytest.mark.real_position`
   測試斷言的就是視窗的真實座標，停到螢幕外會直接改壞被測目標，所以這類測試
   改成讓新開的視窗維持真實座標、但強制全透明（`-alpha` 釘在 0.0）—— 座標、
   尺寸、DWM frame bounds、`event_generate` 都維持真實可測，畫面上就是看不到。
+- `_fixed_cursor` 把真實滑鼠位置換成固定點，測試結果不隨開發者當下的游標位置改變。
 - `_keep_foreground` 把 `force_foreground`（AttachThreadInput 硬切 Windows 前景）
   換成無操作、Tk 的 `focus_force` 換成 `focus_set`，避免 `InputBox.show()`／`_destroy()` 與
   `single_instance.focus_running_instance` 在測試途中把遊戲踢到背景。
@@ -91,24 +92,26 @@ def _park_windows(request):
         tk.Wm.wm_geometry, tk.Wm.geometry = original_wm, original_geo
 
 
-def _modules_binding_force_foreground() -> list[str]:
-    """src 底下把 `force_foreground` 綁進自己命名空間的模組（含定義它的 composer.paste）。
+def _modules_binding(name: str) -> list[str]:
+    """src 底下定義 `name`，或以 `from ... import name` 把它綁進自己命名空間的模組。
 
-    掃原始碼而不是手動列清單：新模組 import 它卻忘了登記，測試就會真的去搶遊戲前景，
+    掃原始碼而不是手動列清單：新模組 import 它卻忘了登記，替換就漏掉那一處，
     而且不會有任何錯誤提醒。"""
     root = Path(__file__).resolve().parents[1]
-    found = {"src.composer.paste"}
+    found = set()
     for path in (root / "src").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        if any(isinstance(node, ast.ImportFrom)
-               and any(alias.name == "force_foreground" for alias in node.names)
+        if any(isinstance(node, ast.FunctionDef) and node.name == name
+               or isinstance(node, ast.ImportFrom) and any(a.name == name for a in node.names)
                for node in ast.walk(tree)):
             parts = path.relative_to(root).with_suffix("").parts
             found.add(".".join(parts[:-1] if parts[-1] == "__init__" else parts))
     return sorted(found)
 
 
-FOREGROUND_MODULES = _modules_binding_force_foreground()
+FOREGROUND_MODULES = _modules_binding("force_foreground")
+CURSOR_MODULES = _modules_binding("cursor_position")
+FIXED_CURSOR = (640, 500)
 
 
 @pytest.fixture(autouse=True)
@@ -138,6 +141,21 @@ def _keep_foreground():
         tk.Misc.focus_force = original_focus_force
         for m, original in zip(modules, originals, strict=True):
             m.force_foreground = original
+
+
+@pytest.fixture(autouse=True)
+def _fixed_cursor():
+    """把真實滑鼠位置換成固定點：輸入框沒有錨點時貼著游標開，游標在螢幕哪裡會走不同路徑，
+    測試結果不能取決於開發者當下的滑鼠。測試自己 monkeypatch 時後蓋前。"""
+    modules = [importlib.import_module(name) for name in CURSOR_MODULES]
+    originals = [m.cursor_position for m in modules]
+    for m in modules:
+        m.cursor_position = lambda: FIXED_CURSOR
+    try:
+        yield
+    finally:
+        for m, original in zip(modules, originals, strict=True):
+            m.cursor_position = original
 
 
 @pytest.fixture(autouse=True)

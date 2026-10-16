@@ -19,3 +19,11 @@ def test_tk_focus_force_cannot_take_the_foreground_during_tests():
     """Tk 的 focus_force 在使用者閒置時拿得到 Windows 前景：測試期間要換成只在程式內移動焦點的 focus_set。"""
     import tkinter as tk
     assert tk.Misc.focus_force is tk.Misc.focus_set
+
+
+def test_every_module_binding_cursor_position_gets_the_fixed_cursor():
+    """輸入框與框選流程會讀游標：測試期間一律拿到固定點，不取決於開發者當下的滑鼠。"""
+    from tests.conftest import CURSOR_MODULES, FIXED_CURSOR
+    assert {"src.ui.input_box", "src.ui.region.flow"} <= set(CURSOR_MODULES)
+    for name in CURSOR_MODULES:
+        assert importlib.import_module(name).cursor_position() == FIXED_CURSOR, name
