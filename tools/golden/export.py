@@ -1062,6 +1062,86 @@ def export_pattern_scan() -> list[dict]:
 EXPORTERS["pattern_scan"] = export_pattern_scan
 
 
+def export_hook_stubs() -> list[dict]:
+    """hook 機器碼：input 為 cave／跳轉點／export／ring 位址，output 為 wizwalker 流程算出的 stub 與跳轉。"""
+    import asyncio
+    from types import SimpleNamespace
+
+    from loguru import logger
+    from wizwalker.memory.handler import HookHandler
+    from wizwalker.memory.hooks import RootWindowHook
+
+    from src.reader.chat_hook import AddLineHook, stub_bytes
+
+    async def install(hook_cls, handler, jump):
+        hook = hook_cls(handler)
+        hook.jump_address = jump
+        hook.hook_address = await hook.get_hook_address(50)
+        code = await hook.get_hook_bytecode()
+        return {"stub_addr": hook.hook_address, "stub": code.hex(),
+                "jump": (await hook.get_jump_bytecode()).hex()}
+
+    cases = [
+        (0x1_4000_1000, 0x1_4080_0000, 0x1_4120_0000, 0x1F2_3456_0000, 0x1F2_3460_0000),
+        (0x1_4200_0000, 0x1_4000_2000, 0x1_4001_0000, 0x7FFE_DCBA_9876_0000, 0x2_0000),
+        (0x7FF6_8000_0000, 0x7FF6_8000_0000 - 0x7FFF_0000, 0x7FF6_8000_0000 + 0x7FFF_0000,
+         0x8000, 0x7FFF_FFFF_0000),
+    ]
+    out = []
+    logger.disable("wizwalker")
+    try:
+        for cave, root_jump, addline_jump, export, ring in cases:
+            handler = HookHandler.__new__(HookHandler)
+            handler._autobot_address, handler._autobot_pos = cave, 0
+            allocs = iter([export, ring])
+            handler.process = SimpleNamespace(allocate=lambda _size, a=allocs: next(a))
+            root = asyncio.run(install(RootWindowHook, handler, root_jump))
+            addline = asyncio.run(install(AddLineHook, handler, addline_jump))
+            out.append({"input": {"cave": cave, "root_jump": root_jump,
+                                  "addline_jump": addline_jump, "export": export, "ring": ring},
+                        "output": {"root": root, "addline": addline,
+                                   "stub_bytes": stub_bytes(ring).hex()}})
+    finally:
+        logger.enable("wizwalker")
+    return out
+
+
+def export_hookstate_bytes() -> list[dict]:
+    """`hook_state.save_state` 寫出的檔案：input 為 pid／base／ops（hex），output 為檔案內容。"""
+    import tempfile
+
+    from wizwalker.memory.handler import HookHandler
+
+    from src.reader import hook_state
+
+    autobot = (_pattern_instance(HookHandler.AUTOBOT_PATTERN, 0x0A) + bytes(range(256)))[:208]
+    cases = [
+        (4321, 0x1_4000_0000, [(0x1_4080_0000, bytes.fromhex("488b8dd8000000")),
+                               (0x1_4120_0000, b"\x48\x89\x5C\x24\x20"),
+                               (0x1_4000_1000, autobot)]),
+        (7, 0x1000, []),
+        (4294967295, 0x7FF6_1234_0000, [(0x7FFF_FFFF_FFFF, b"\x00\xff")]),
+    ]
+    out = []
+    saved = hook_state.STATE_DIR
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            hook_state.STATE_DIR = Path(tmp)
+            for pid, base, ops in cases:
+                hook_state.save_state(pid, base, ops)
+                text = (Path(tmp) / f"hookstate-{pid}.json").read_bytes().decode("utf-8")
+                out.append({"input": {"pid": pid, "base": base,
+                                      "ops": [[addr, b.hex()] for addr, b in ops]},
+                            "output": text})
+    finally:
+        hook_state.STATE_DIR = saved
+    return out
+
+
+EXPORTERS["hook_stubs"] = export_hook_stubs
+EXPORTERS["hookstate_bytes"] = export_hookstate_bytes
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

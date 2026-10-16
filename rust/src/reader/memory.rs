@@ -74,6 +74,21 @@ impl fmt::Display for MemError {
 
 impl std::error::Error for MemError {}
 
+impl MemError {
+    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::AccessDenied(_) => "CouldNotOpenProcess",
+            Self::Closed => "ClientClosedError",
+            Self::Read(_) => "MemoryReadError",
+            Self::Write(_) => "MemoryWriteError",
+            Self::OutOfRange(_) => "AddressOutOfRange",
+            Self::ModuleNotFound(_) => "ValueError",
+            Self::Alloc(_) => "MemoryError",
+        }
+    }
+}
+
 /// 與 wizwalker `read_bytes` 相同的位址檢查。
 fn check_range(addr: u64) -> Result<(), MemError> {
     if addr == 0 || addr > 0x7FFF_FFFF_FFFF_FFFF {
@@ -475,6 +490,11 @@ mod fake {
         /// 之後涵蓋此位址的讀取都回 [`MemError::Read`]。
         pub fn fail_reads_at(&self, addr: u64) {
             self.state().failing_reads.push(addr);
+        }
+
+        /// 指定下一次 [`ProcessMemory::alloc`] 回傳的位址。
+        pub fn set_next_alloc(&self, addr: u64) {
+            self.state().next_alloc = addr;
         }
 
         /// 模擬程序結束：之後的存取都回 [`MemError::Closed`]。
