@@ -211,20 +211,6 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_file_returns_empty() {
-        let dir = tmp();
-        for text in [
-            "{ not json",
-            r#"{"base": 1, "ops": [{"addr": 2, "bytes": "+f"}]}"#,
-            r#"{"base": 1, "ops": [{"addr": 2, "bytes": "abc"}]}"#,
-            r#"{"ops": []}"#,
-        ] {
-            fs::write(state_path(dir.path(), 4321), text).unwrap();
-            assert_eq!(load_state(dir.path(), 4321), (None, vec![]), "{text}");
-        }
-    }
-
-    #[test]
     fn empty_ops_roundtrip() {
         let dir = tmp();
         save_state(dir.path(), 4321, 0x1000, &[]).unwrap();

@@ -189,8 +189,8 @@ fn cave_saves_208_and_zeroes_4100() {
         }]
     );
     assert_eq!(cave.restore_ops(), [(g.cave, g.cave_bytes[..208].to_vec())]);
-    assert_eq!(cave.alloc_stub(50), g.cave);
-    assert_eq!(cave.alloc_stub(256), g.cave + 50);
+    assert_eq!(cave.alloc_stub(50).unwrap(), g.cave);
+    assert_eq!(cave.alloc_stub(256).unwrap(), g.cave + 50);
 }
 
 struct Installed {
@@ -282,15 +282,21 @@ fn ring_is_never_freed() {
 
     let g = default_game();
     let mut cave = AutobotCave::install(&g.mem).unwrap();
-    let hook = AddLineHook::install(&g.mem, &mut cave).unwrap();
+    AddLineHook::install(&g.mem, &mut cave).unwrap();
     let before = g.mem.ops().len();
-    hook.uninstall(&g.mem).unwrap();
+    cave.uninstall_with(&g.mem, |_| {}).unwrap();
     assert_eq!(
         g.mem.ops()[before..],
-        [MemOp::Write {
-            addr: g.addline_jump,
-            bytes: g.addline_bytes[..5].to_vec()
-        }]
+        [
+            MemOp::Write {
+                addr: g.addline_jump,
+                bytes: g.addline_bytes[..5].to_vec()
+            },
+            MemOp::Write {
+                addr: g.cave,
+                bytes: g.cave_bytes[..208].to_vec()
+            },
+        ]
     );
 }
 
@@ -479,5 +485,56 @@ fn repair_without_state_touches_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mem = FakeMemory::new();
     mem.kill();
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 0), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_020, 0), 0);
+}
+
+#[test]
+fn repair_ignores_state_when_module_base_is_unreadable() {
+    log_lines_with("");
+    let dir = tempfile::tempdir().unwrap();
+    hook_state::save_state(dir.path(), 770_003, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
+    let mem = FakeMemory::new();
+    mem.set_bytes(0x2000, &[0]);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 4), 0);
+    assert!(mem.ops().is_empty());
+    assert!(!state_file(dir.path(), 770_003).exists());
+    let lines = log_lines_with("pid=770003");
+    assert!(
+        lines.iter().any(|l| l.contains(
+            "[reader] cannot read module base, ignoring hook state (slot=4, pid=770003): ValueError: WizardGraphicalClient.exe module not found."
+        )),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn corrupt_state_file_is_logged_and_ignored() {
+    log_lines_with("");
+    let dir = tempfile::tempdir().unwrap();
+    let cases = [
+        (770_010, "{ not json", "JSONDecodeError: "),
+        (
+            770_011,
+            r#"{"base": 1, "ops": [{"addr": 2, "bytes": "+f"}]}"#,
+            "ValueError: ",
+        ),
+        (
+            770_012,
+            r#"{"base": 1, "ops": [{"addr": 2, "bytes": "abc"}]}"#,
+            "ValueError: ",
+        ),
+        (770_013, r#"{"ops": []}"#, "ValueError: "),
+    ];
+    for (pid, text, kind) in cases {
+        std::fs::write(state_file(dir.path(), pid), text).unwrap();
+        assert_eq!(
+            hook_state::load_state(dir.path(), pid),
+            (None, vec![]),
+            "{text}"
+        );
+        let want = format!(
+            "[reader] hook state unreadable, leaked hooks cannot be repaired (pid={pid}, file=hookstate-{pid}.json): {kind}"
+        );
+        assert_eq!(log_lines_with(&want).len(), 1, "{text}");
+    }
 }

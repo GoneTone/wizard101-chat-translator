@@ -2,8 +2,8 @@
 //!
 //! stub 在遊戲執行緒上執行，位元組與 Python 版 `chat_hook.stub_bytes` 逐一相同。
 
-use super::hooks::{AutobotCave, HookError, JumpPatch, SimpleHook};
-use super::memory::{MemError, ProcessMemory};
+use super::hooks::{AutobotCave, HookError, SimpleHook};
+use super::memory::ProcessMemory;
 
 /// 環形緩衝的槽位數。
 pub const SLOTS: u64 = 256;
@@ -88,24 +88,18 @@ const ADD_LINE: SimpleHook = SimpleHook {
 
 /// 把每次 ChatBox::AddLine 呼叫的（序號, 回傳位址, this, 分頁, 內容）寫進環形緩衝。
 pub struct AddLineHook {
-    patch: JumpPatch,
     ring: u64,
 }
 
 impl AddLineHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 一併解除）。
+    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除，環形緩衝刻意不釋放）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
-        let (patch, ring) = ADD_LINE.install(mem, cave, stub_bytes)?;
-        Ok(Self { patch, ring })
+        let ring = ADD_LINE.install(mem, cave, stub_bytes)?;
+        Ok(Self { ring })
     }
 
     /// 環形緩衝的位址。
     pub fn ring_addr(&self) -> u64 {
         self.ring
-    }
-
-    /// 單獨解除：只寫回原碼，環形緩衝刻意不釋放。
-    pub fn uninstall(&self, mem: &dyn ProcessMemory) -> Result<(), MemError> {
-        self.patch.undo(mem)
     }
 }
