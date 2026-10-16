@@ -10,6 +10,7 @@
 - `_keep_foreground` 把 `force_foreground`（AttachThreadInput 硬切 Windows 前景）
   換成無操作、Tk 的 `focus_force` 換成 `focus_set`，避免 `InputBox.show()`／`_destroy()` 與
   `single_instance.focus_running_instance` 在測試途中把遊戲踢到背景。
+- `_no_mask_key` 把熱鍵吞鍵時補送的遮罩鍵換成無操作，不對系統注入按鍵。
 """
 import ast
 import gc
@@ -18,6 +19,8 @@ import tkinter as tk
 from pathlib import Path
 
 import pytest
+
+import src.input.hotkeys as hotkeys
 
 # 停放座標：夠遠，任何合理的桌面（含多螢幕橫向排列）都涵蓋不到。
 _PARK_X, _PARK_Y = 10000, 10000
@@ -169,3 +172,13 @@ def _destroy_test_windows(request):
     if children:
         # 在主執行緒回收：Tk 物件的 __del__ 若被別的測試的執行緒觸發，每個都會卡約 1 秒等 mainloop
         gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def _no_mask_key():
+    """熱鍵吞鍵時補送的遮罩鍵改成無操作；測試要斷言時自己再 monkeypatch 一次蓋過。
+    不用 monkeypatch fixture：autouse 先建立它會改變其他測試的 teardown 順序。"""
+    original = hotkeys._mask_modifiers
+    hotkeys._mask_modifiers = lambda: None
+    yield
+    hotkeys._mask_modifiers = original

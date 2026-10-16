@@ -53,6 +53,21 @@ def test_passes_the_key_through_when_the_callback_does_not_handle_it(pressed):
     assert triggers == [1]
 
 
+def test_masks_modifiers_only_when_swallowing(pressed, monkeypatch):
+    # 吞掉觸發鍵後 Ctrl+Shift 看起來是單獨按放，會切換輸入法；補送遮罩鍵擋掉
+    masked = []
+    monkeypatch.setattr(hotkeys, "_mask_modifiers", lambda: masked.append(1))
+    interceptor, _ = _interceptor("ctrl+shift+space")
+    pressed.update({CTRL, SHIFT})
+    interceptor.handle(_event(KEY_DOWN, SPACE))
+    interceptor.handle(_event(KEY_DOWN, SPACE))   # 自動重複
+    interceptor.handle(_event(KEY_UP, SPACE))
+    assert masked == [1]
+    passthrough, _ = _interceptor("ctrl+shift+space", handled=False)
+    passthrough.handle(_event(KEY_DOWN, SPACE))
+    assert masked == [1]
+
+
 def test_passes_the_bare_trigger_key_through(pressed):
     interceptor, triggers = _interceptor("ctrl+space")
     assert interceptor.handle(_event(KEY_DOWN, SPACE)) is True

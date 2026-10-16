@@ -1,11 +1,14 @@
 """全域熱鍵：在按鍵送達前景程式之前決定吞不吞，熱鍵生效時遊戲就不會收到那顆鍵
 （例如空白鍵讓 NPC 對話跳到下一句）。"""
 import keyboard
+import win32api
+import win32con
 
 from src.config import DEFAULT_CONFIG
 from src.logs import log
 
 MODIFIER_GROUPS = ("ctrl", "shift", "alt", "windows")
+MASK_VK = 0xE8  # 未指派的虛擬鍵，AutoHotkey 的 MenuMaskKey 預設也用它
 
 
 class CannotSwallow(ValueError):
@@ -19,6 +22,7 @@ class HotkeyInterceptor:
     有接手，就吞掉這顆鍵直到放開；先按下的鍵早已送出，吞不回來。"""
 
     def __init__(self, hotkey: str, on_trigger) -> None:
+        self._hotkey = hotkey
         steps = keyboard.parse_hotkey(hotkey)
         if len(steps) != 1:
             raise CannotSwallow(f"{hotkey!r} is a multi-step hotkey")
@@ -48,11 +52,20 @@ class HotkeyInterceptor:
         if not self._on_trigger():
             return False
         self._held.add(event.scan_code)
+        _mask_modifiers()
+        log(f"[hotkey] {self._hotkey!r} swallowed; injected mask key vk={MASK_VK:#x}")
         return True
 
     def _completes_combo(self, code: int) -> bool:
         others_held = all(_any_pressed(key) for key in self._keys if code not in key)
         return others_held and not any(_any_pressed(codes) for codes in self._unwanted_modifiers)
+
+
+def _mask_modifiers() -> None:
+    """補送一下遮罩鍵：觸發鍵被吞後系統只看到修飾鍵單獨按放，會當成 Ctrl+Shift／Shift 切換
+    輸入法（Alt 叫選單、Win 開開始功能表同理）；中間夾一顆別的鍵就不成立。"""
+    win32api.keybd_event(MASK_VK, 0, 0, 0)
+    win32api.keybd_event(MASK_VK, 0, win32con.KEYEVENTF_KEYUP, 0)
 
 
 def _scan_codes(name: str) -> set[int]:
