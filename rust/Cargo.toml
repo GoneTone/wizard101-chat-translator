@@ -13,7 +13,9 @@ test-support = []
 [dependencies]
 caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit"] }
 futures-util = "0.3.34"
+raw-window-handle = "0.6.2"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "json"] }
 serde = { version = "1.0.229", features = ["derive"] }
@@ -21,10 +23,17 @@ serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order
 sha1 = "0.11.0"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time", "sync"] }
 tokio-util = "0.7.20"
+wgpu = { version = "30.0.1", default-features = false, features = ["dx12", "wgsl", "std", "parking_lot"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_Graphics_Gdi", "Win32_Security", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_ProcessStatus", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 
 [dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["eframe"] }
+log = "0.4.34"
 tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["net", "io-util", "rt-multi-thread", "macros", "time", "test-util"] }
+winit = { version = "0.30.13", default-features = false }
 wiremock = "0.6.5"
 wizard101-chat-translator = { path = ".", features = ["test-support"] }
+
+[build-dependencies]
+embed-resource = "3.0.12"

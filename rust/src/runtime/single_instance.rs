@@ -5,14 +5,14 @@ use std::ptr::null;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
 };
-use windows_sys::Win32::System::Threading::{AttachThreadInput, CreateMutexW, GetCurrentThreadId};
+use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
-    IsWindowVisible, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    EnumWindows, GetWindowTextW, IsWindowVisible, SW_RESTORE, ShowWindow,
 };
 
 use crate::logs::log;
+use crate::ui::win32::force_foreground;
 
 /// 第二份實例會搶著對遊戲掛 hook，也會同時寫同一份 config.json 與 log。
 const SINGLE_INSTANCE_MUTEX: &str = "wizard101-chat-translator.single-instance";
@@ -84,22 +84,8 @@ pub fn focus_running_instance(title: &str) -> bool {
         return false;
     };
     unsafe { ShowWindow(hwnd, SW_RESTORE) };
-    force_foreground(hwnd);
+    force_foreground(hwnd as isize);
     true
-}
-
-/// 掛上目前前景視窗的執行緒再切前景，才繞得過前景鎖。
-fn force_foreground(hwnd: HWND) {
-    unsafe {
-        if IsWindow(hwnd) == 0 {
-            return;
-        }
-        let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
-        let this_thread = GetCurrentThreadId();
-        AttachThreadInput(this_thread, fg_thread, 1);
-        SetForegroundWindow(hwnd);
-        AttachThreadInput(this_thread, fg_thread, 0);
-    }
 }
 
 /// 本程序是否以系統管理員權限執行。
