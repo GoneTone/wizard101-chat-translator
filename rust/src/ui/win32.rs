@@ -1,5 +1,7 @@
 //! 視窗的 Win32 補強：取 HWND、點擊不奪焦點、前景切換與螢幕查詢。
 
+use std::sync::atomic::{AtomicIsize, Ordering};
+
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -46,7 +48,9 @@ pub fn make_non_activating(hwnd: isize) {
             (style | WS_EX_NOACTIVATE) as isize,
         )
     };
-    if ex_style(hwnd) & WS_EX_NOACTIVATE == 0 {
+    // 每幀都會重試，同一個視窗只記一次
+    static FAILED: AtomicIsize = AtomicIsize::new(0);
+    if ex_style(hwnd) & WS_EX_NOACTIVATE == 0 && FAILED.swap(hwnd, Ordering::Relaxed) != hwnd {
         log(format!("[ui] non-activating setup failed: hwnd={hwnd:#x}"));
     }
 }

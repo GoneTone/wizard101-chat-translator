@@ -95,13 +95,16 @@ impl Report {
     }
 }
 
-fn wait_for(timeout: Duration, ctx: &egui::Context, mut cond: impl FnMut() -> bool) -> bool {
+/// 輪詢 `cond`；`ctx` 給定時每輪都要求重繪，`None` 則只靠 app 自己排的幀。
+fn poll(timeout: Duration, ctx: Option<&egui::Context>, mut cond: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         if cond() {
             return true;
         }
-        ctx.request_repaint();
+        if let Some(ctx) = ctx {
+            ctx.request_repaint();
+        }
         std::thread::sleep(Duration::from_millis(20));
     }
     cond()
@@ -158,7 +161,7 @@ fn screenshot(ctx: &egui::Context) -> Option<Arc<ColorImage>> {
     ctx.send_viewport_cmd(ViewportCommand::Screenshot(egui::ScreenshotCallback::new(
         move |image| *sink.lock().unwrap() = Some(image),
     )));
-    wait_for(Duration::from_secs(3), ctx, || {
+    poll(Duration::from_secs(3), Some(ctx), || {
         slot.lock().unwrap().is_some()
     });
     slot.lock().unwrap().take()
@@ -173,7 +176,8 @@ fn run_checks(
     fg_before: isize,
 ) {
     let hwnd = || shared.lock().unwrap().hwnd;
-    let ready = wait_for(Duration::from_secs(10), ctx, || {
+    // 不額外要求重繪：winit 顯示視窗時會洗掉 NOACTIVATE，app 必須自己補回
+    let ready = poll(Duration::from_secs(10), None, || {
         let h = hwnd();
         h != 0 && visible(h) && ex_style(h) & WS_EX_NOACTIVATE != 0
     });
@@ -246,7 +250,7 @@ fn run_checks(
     // 4. overlay 隱藏、只剩泡泡時事件仍被處理
     shared.lock().unwrap().minimize = true;
     let mut bubble = 0isize;
-    let swapped = wait_for(Duration::from_secs(5), ctx, || {
+    let swapped = poll(Duration::from_secs(5), Some(ctx), || {
         bubble = own_visible_windows()
             .into_iter()
             .find(|w| *w != h)
@@ -267,7 +271,7 @@ fn run_checks(
     }
     let bex = ex_style(bubble);
     report.check(
-        swapped && drained.is_some(),
+        swapped && drained.is_some() && bex & WS_EX_APPWINDOW != 0 && bex & WS_EX_TOPMOST != 0,
         format!(
             "check4 overlay hidden={} bubble={bubble:#x} bubble ex-style={bex:#x} \
              (APPWINDOW={} TOPMOST={}) event drained after {drained:?}",
@@ -277,16 +281,35 @@ fn run_checks(
         ),
     );
 
+    // 一次重繪代表展開的那一下點擊；之後不再要求重繪，量「已顯示但還沒有 NOACTIVATE」的空窗
     shared.lock().unwrap().minimize = false;
-    let back = wait_for(Duration::from_secs(5), ctx, || {
-        visible(hwnd()) && ex_style(hwnd()) & WS_EX_NOACTIVATE != 0
-    });
+    ctx.request_repaint();
+    let shown = poll(Duration::from_secs(1), None, || visible(hwnd()));
+    // 顯示後取樣 300 ms：winit 在顯示之後才重寫 extended style，最長的空窗才是點擊會搶焦點的時段
+    let sampled = Instant::now();
+    let (mut gap_start, mut longest) = (None::<Instant>, Duration::ZERO);
+    while sampled.elapsed() < Duration::from_millis(300) {
+        let missing = ex_style(hwnd()) & WS_EX_NOACTIVATE == 0;
+        match (missing, gap_start) {
+            (true, None) => gap_start = Some(Instant::now()),
+            (false, Some(at)) => {
+                longest = longest.max(at.elapsed());
+                gap_start = None;
+            }
+            _ => {}
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let gap = match gap_start {
+        Some(_) => None,
+        None => Some(longest),
+    };
     let fg = unsafe { GetForegroundWindow() as isize };
     report.check(
-        back && fg != h && fg != bubble,
+        shown && gap.is_some_and(|g| g < Duration::from_millis(100)) && fg != h && fg != bubble,
         format!(
-            "expand: overlay visible again={back} ex-style={:#x} foreground={fg:#x}",
-            ex_style(h)
+            "expand: shown={shown}, longest stretch without NOACTIVATE {gap:?} (None = never restored) ex-style={:#x} foreground={fg:#x}",
+            ex_style(hwnd())
         ),
     );
 }

@@ -128,6 +128,8 @@ impl eframe::App for App {
         if self.shown == self.minimized {
             self.shown = !self.minimized;
             ctx.send_viewport_cmd(ViewportCommand::Visible(self.shown));
+            // winit 處理 Visible 時會重寫 extended style 洗掉 NOACTIVATE，要保證下一幀補回
+            ctx.request_repaint();
         }
         if self.hwnd != 0 {
             win32::make_non_activating(self.hwnd);
