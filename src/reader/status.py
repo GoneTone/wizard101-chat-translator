@@ -24,8 +24,8 @@ def banner_for(game_issue: str | None, error_state: str | None,
                error_detail: tuple[int | None, str] | None = None) -> tuple[str, dict] | None:
     """決定該顯示哪一條錯誤橫幅：（文案 key，format 變數）或 None＝不顯示。
     game_issue（遊戲端問題的文案 key）優先於翻譯錯誤：連不上遊戲時翻譯狀態已無意義。
-    error_detail 是 pool 記下的（HTTP 狀態碼，API 說明）：有就照實顯示，
-    沒有才退回只靠狀態猜的固定文案。"""
+    error_detail 是 pool 記下的（HTTP 狀態碼，API 說明）：有說明就照實顯示，
+    只有狀態碼就顯示狀態碼，兩者都沒有才退回固定文案。"""
     if game_issue:
         return game_issue, {}
     if error_state not in _PLAIN_NOTICE:
@@ -33,6 +33,9 @@ def banner_for(game_issue: str | None, error_state: str | None,
     if not error_detail:
         return _PLAIN_NOTICE[error_state], {}
     status, message = error_detail
+    if not message:
+        key = "notice.config_error_http" if error_state == "config" else "notice.offline_status"
+        return key, {"status": status}
     if error_state == "config":
         return "notice.config_error_detail", {"status": status, "message": message}
     if status is not None:

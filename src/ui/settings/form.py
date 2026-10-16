@@ -216,6 +216,8 @@ def friendly_error(exc: Exception) -> tuple[str, dict]:
             return "error.model_not_found", {}
         return "error.api_http", {"status": exc.status}
     if isinstance(exc, TranslatorOffline):
+        if exc.status is not None:
+            return "error.server_http", {"status": exc.status}
         return "error.offline", {}
     return "error.unexpected", {"error": exc}
 

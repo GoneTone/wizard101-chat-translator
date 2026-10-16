@@ -348,6 +348,9 @@ def test_banner_shows_the_api_message_when_there_is_one():
         "notice.offline_http", {"status": 503, "message": "upstream down"})
     assert banner_for(None, "offline", (None, "getaddrinfo failed")) == (
         "notice.offline_detail", {"message": "getaddrinfo failed"})
+    # 只有狀態碼沒有說明：顯示狀態碼，不退回「伺服器離線」這類猜測的固定文案
+    assert banner_for(None, "offline", (429, "")) == ("notice.offline_status", {"status": 429})
+    assert banner_for(None, "config", (400, "")) == ("notice.config_error_http", {"status": 400})
     # 遊戲端問題仍優先於翻譯錯誤，不管有沒有 API 說明
     assert banner_for("notice.game_missing", "config", (401, "x")) == (
         "notice.game_missing", {})

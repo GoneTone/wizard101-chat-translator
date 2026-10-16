@@ -57,8 +57,8 @@ class TranslationPool:
 
     @property
     def error_detail(self) -> tuple[int | None, str] | None:
-        """最近一次失敗的（HTTP 狀態碼，API 說明）；沒在失敗或 API 沒給說明時為 None，
-        橫幅據此決定要照實顯示 API 訊息還是退回固定文案。"""
+        """最近一次失敗的（HTTP 狀態碼，API 說明）；沒在失敗，或狀態碼與說明都沒有時為 None，
+        橫幅據此決定要照實顯示 API 訊息、只顯示狀態碼，還是退回固定文案。"""
         with self._lock:
             return self._error_detail
 
@@ -194,7 +194,8 @@ class TranslationPool:
                 self._gate_until = now + delay
             changed = self._error_state != state
             self._error_state = state
-            self._error_detail = (exc.status, exc.detail) if exc.detail else None
+            self._error_detail = ((exc.status, exc.detail)
+                                  if exc.detail or exc.status is not None else None)
         if changed:
             log(f"[translate] provider {state} error ({self._translator.describe()}): "
                 f"{exc}; retrying with backoff")
