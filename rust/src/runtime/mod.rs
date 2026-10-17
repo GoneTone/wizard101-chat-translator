@@ -2,6 +2,7 @@
 
 pub mod resources;
 pub mod single_instance;
+pub mod updater;
 
 pub use single_instance::{
     InstanceLock, acquire_single_instance, focus_running_instance, is_elevated,

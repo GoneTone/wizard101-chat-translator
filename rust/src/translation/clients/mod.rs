@@ -203,10 +203,15 @@ pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
     TranslateError::offline(one_line(&parts.join(": ")))
 }
 
-/// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
-pub(crate) fn http_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
+/// 裝上 rustls 的 ring crypto provider；任何要建 HTTPS client 的地方都得先呼叫。
+pub(crate) fn install_crypto_provider() {
     // 用 ring 而非 rustls 預設的 aws-lc-rs（建置要 cmake／NASM）；已裝過時回 Err，忽略即可
     let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
+/// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
+pub(crate) fn http_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
+    install_crypto_provider();
     reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
         .read_timeout(TIMEOUT)

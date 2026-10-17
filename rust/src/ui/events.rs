@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::reader::chat_tabs::TabState;
 use crate::region::pipeline::RegionResult;
+use crate::runtime::updater::Release;
 use crate::ui::geometry::Rect;
 
 /// 一則 overlay 更新。
@@ -39,6 +40,8 @@ pub enum UiEvent {
     },
     /// 收起錯誤橫幅。
     ClearError,
+    /// 自動檢查發現新版；關掉過的版本不會再跳出。
+    UpdateFound(Release),
     /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。
     ShowInputBox { retarget: Option<isize> },
     /// 遊戲聊天輸入框開了；`anchor` 是它的螢幕矩形。

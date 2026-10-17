@@ -1669,6 +1669,30 @@ def export_errors_friendly() -> list[dict]:
 EXPORTERS["errors_friendly"] = export_errors_friendly
 
 
+def export_updater_is_newer() -> list[dict]:
+    """`is_newer`：input 為 [latest, current]，output 為布林。"""
+    from src.runtime.updater import is_newer
+
+    pairs = [
+        ("0.2.0", "0.1.0"), ("v0.10.0", "0.9.9"), ("0.1.0", "0.1.0"), ("0.1.0", "0.2.0"),
+        ("1.0.0", "0.99.99"), ("0.0.1", "0.0.0"), (" v1.20.300 ", "1.20.299"),
+        ("0.2.0", "0.2.0-rc.1"), ("0.2.0-rc.1", "0.2.0"), ("0.2.0-rc.1", "0.2.0-rc.1"),
+        ("0.2.0-rc.2", "0.2.0-rc.1"), ("0.2.0-rc.10", "0.2.0-rc.9"),
+        ("0.2.0-alpha.beta", "0.2.0-alpha.1"), ("0.2.0-alpha.1", "0.2.0-alpha.beta"),
+        ("0.2.0-beta", "0.2.0-alpha"), ("0.2.0-rc.1", "0.2.0-rc"), ("0.2.0-rc", "0.2.0-rc.1"),
+        ("0.2.0-1", "0.2.0-alpha"), ("0.2.0-alpha", "0.2.0-1"),
+        ("0.2.0+build.2", "0.2.0+build.1"), ("0.2.0-rc.1+build.2", "0.2.0-rc.1"),
+        ("0.2.1+build.1", "0.2.0"), ("0.2.0-rc.1", "0.1.9"),
+        ("nightly", "0.1.0"), ("0.2.0", "unknown"), ("", "0.1.0"), ("0.2.0", ""),
+        ("v1.2", "0.1.0"), ("1.2.x", "1.2.0"), ("release-2026", "0.1.0"),
+    ]
+    return [{"input": [latest, current], "output": is_newer(latest, current)}
+            for latest, current in pairs]
+
+
+EXPORTERS["updater_is_newer"] = export_updater_is_newer
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

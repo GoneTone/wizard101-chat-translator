@@ -9,6 +9,8 @@ use eframe::egui::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::reader::status::Banner;
+pub use crate::runtime::updater::Release;
+use crate::runtime::updater::is_newer;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE};
@@ -18,13 +20,6 @@ const BANNER_PT: f32 = 10.0;
 const CLOSE_PT: f32 = 9.0;
 const PAD_Y: f32 = 2.0;
 const CLOSE_PAD: (f32, f32) = (4.0, 6.0);
-
-/// GitHub 上的一個 release：版本號（已去 `v` 前綴）與該 release 的網頁網址。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Release {
-    pub version: String,
-    pub url: String,
-}
 
 /// 錯誤橫幅與更新橫幅的狀態，以及使用者這次執行內關掉的版本。
 #[derive(Default)]
@@ -53,10 +48,13 @@ impl Banners {
         Some(t(key, &args))
     }
 
-    /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本不再跳出；手動檢查直接走 `set_update`。
+    /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出；手動檢查直接走 `set_update`。
     pub fn offer_update(&mut self, release: Release) {
-        // shortcut: 只擋同一版；第 4 段移植 SemVer 比較後改成「不比關掉的版本新就略過」
-        if let Some(dismissed) = self.dismissed.as_ref().filter(|d| **d == release.version) {
+        if let Some(dismissed) = self
+            .dismissed
+            .as_ref()
+            .filter(|d| !is_newer(&release.version, d))
+        {
             log(format!(
                 "[update] banner skipped: {} not newer than dismissed {dismissed}",
                 release.version
@@ -309,6 +307,23 @@ mod tests {
         banners.dismissed = Some("0.3.0".into());
         banners.set_update(release("0.3.0"));
         assert!(banners.update_text().is_some());
+    }
+
+    #[test]
+    fn offer_update_skips_versions_not_newer_than_dismissed() {
+        let mut banners = Banners {
+            dismissed: Some("0.2.0".into()),
+            ..Default::default()
+        };
+        for version in ["0.2.0", "0.1.9"] {
+            banners.offer_update(release(version));
+            assert_eq!(banners.update_text(), None, "{version} must stay hidden");
+        }
+        banners.offer_update(release("0.2.1"));
+        assert_eq!(
+            banners.update_text(),
+            Some(t("update.available", &[("version", "0.2.1")]))
+        );
     }
 
     #[test]

@@ -221,6 +221,7 @@ impl App {
             UiEvent::SetStatus(key) => self.status = Some(key),
             UiEvent::SetError { key, args } => self.banners.set_error(key, args),
             UiEvent::ClearError => self.banners.clear_error(),
+            UiEvent::UpdateFound(release) => self.banners.offer_update(release),
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
             UiEvent::AddMessage {
                 slot,
