@@ -575,6 +575,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
             app.set_input_desktop(Desktop {
                 force_foreground: |_| false,
                 work_area_at: |_, _| BOX_AREA,
+                trigger_held: || false,
             });
             Probe {
                 app,

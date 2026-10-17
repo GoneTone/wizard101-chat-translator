@@ -1,6 +1,7 @@
 //! 在 App 裡托管翻譯輸入框：immediate viewport 的建立、找 HWND、擺放、顯示與前景交接，並分派輸入框相關的 UI 事件。
 
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use eframe::egui::{
     self, Align, CursorIcon, FontId, Label, Layout, RichText, Sense, UiBuilder, Vec2,
@@ -20,6 +21,11 @@ use crate::ui::palette::{BAR, FG_BAR};
 use crate::ui::win32;
 use crate::util::read;
 
+/// 等熱鍵觸發鍵放開的上限；漏收放開時不讓輸入框永遠不出現。
+const RELEASE_WAIT: Duration = Duration::from_secs(1);
+/// 等放開期間重繪的間隔。
+const RELEASE_POLL: Duration = Duration::from_millis(15);
+
 /// 建立那一幀的暫定高度（DIP）；量到內容高度後隨即貼合。
 const INITIAL_HEIGHT: f32 = 84.0;
 
@@ -30,6 +36,8 @@ pub struct Desktop {
     pub force_foreground: fn(isize) -> bool,
     /// 含 (x, y) 那顆螢幕的工作區。
     pub work_area_at: fn(i32, i32) -> Rect,
+    /// 熱鍵吞掉的觸發鍵是否還按著（見 [`crate::input::hotkeys::swallowed_key_held`]）。
+    pub trigger_held: fn() -> bool,
 }
 
 impl Desktop {
@@ -38,6 +46,7 @@ impl Desktop {
         Self {
             force_foreground: win32::force_foreground,
             work_area_at: win32::work_area_at,
+            trigger_held: crate::input::hotkeys::swallowed_key_held,
         }
     }
 }
@@ -56,6 +65,8 @@ pub struct InputHost {
     above: bool,
     /// 上次擺放或貼合時的內容高度（DIP）。
     content_dip: f32,
+    /// 開始等觸發鍵放開的時間；沒在等是 `None`。
+    release_wait: Option<Instant>,
 }
 
 impl InputHost {
@@ -72,6 +83,7 @@ impl InputHost {
             raise: false,
             above: false,
             content_dip: 0.0,
+            release_wait: None,
         }
     }
 
@@ -113,13 +125,25 @@ impl InputHost {
         if !self.input.is_open() {
             // shortcut: 同一輪 logic 先關後開時沿用原視窗與位置（Python 會重建、重新貼齊）；實機遇到再改成關閉就換新的 viewport id
             (self.hwnd, self.created, self.shown, self.raise) = (0, false, false, false);
+            self.release_wait = None;
             if let Some(target) = self.input.take_restore_foreground() {
                 (self.desktop.force_foreground)(target);
             }
             return;
         }
+        self.raise |= self.input.take_focus_request();
+        let pending = (self.created && !self.shown) || self.raise;
+        let defer = defer_for_release(
+            pending,
+            (self.desktop.trigger_held)(),
+            &mut self.release_wait,
+            Instant::now(),
+        );
+        if defer {
+            ctx.request_repaint_after(RELEASE_POLL);
+        }
         let creating = !self.created;
-        let reveal = self.created && !self.shown;
+        let reveal = self.created && !self.shown && !defer;
         let mut builder = ViewportBuilder::default()
             .with_title(app_name())
             .with_decorations(false)
@@ -174,8 +198,7 @@ impl InputHost {
         if creating {
             ctx.request_repaint();
         }
-        self.raise |= self.input.take_focus_request();
-        if self.raise && self.shown && self.hwnd != 0 {
+        if self.raise && self.shown && self.hwnd != 0 && !defer {
             (self.desktop.force_foreground)(self.hwnd);
             self.raise = false;
         }
@@ -247,4 +270,51 @@ fn drag_strip(ui: &mut egui::Ui, bar: egui::Rect) -> bool {
         close
     })
     .inner
+}
+
+/// 要顯示或搶前景（`pending`）時，熱鍵吞掉的觸發鍵還按著就先等，最多等 [`RELEASE_WAIT`]；回 true 表示這幀先別動。
+fn defer_for_release(
+    pending: bool,
+    trigger_held: bool,
+    since: &mut Option<Instant>,
+    now: Instant,
+) -> bool {
+    if !pending || !trigger_held {
+        *since = None;
+        return false;
+    }
+    now.duration_since(*since.get_or_insert(now)) < RELEASE_WAIT
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn showing_waits_for_the_trigger_key_release_up_to_a_second() {
+        let t0 = Instant::now();
+        let mut since = None;
+        assert!(defer_for_release(true, true, &mut since, t0));
+        assert!(defer_for_release(
+            true,
+            true,
+            &mut since,
+            t0 + Duration::from_millis(900)
+        ));
+        assert!(
+            !defer_for_release(true, true, &mut since, t0 + RELEASE_WAIT),
+            "a missed release never hides the box for good"
+        );
+        assert!(!defer_for_release(
+            true,
+            false,
+            &mut since,
+            t0 + RELEASE_WAIT
+        ));
+        assert_eq!(since, None, "released: the next wait starts afresh");
+        assert!(
+            !defer_for_release(false, true, &mut since, t0),
+            "nothing to show"
+        );
+    }
 }

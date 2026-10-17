@@ -983,6 +983,7 @@ mod tests {
                     true
                 },
                 work_area_at: |_, _| (0, 0, 1920, 1040),
+                trigger_held: || false,
             });
             app
         });

@@ -2,6 +2,7 @@
 //! （例如空白鍵讓 NPC 對話跳到下一句）。
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::input::dispatcher::{
     Blocking, HandlerId, KeyEvent, Pressed, SharedDispatcher, is_pressed,
@@ -15,6 +16,16 @@ use crate::util::lock;
 pub const MASK_VK: u16 = 0xE8;
 /// 熱鍵沒列到的修飾鍵群組按著時不算湊齊組合（按 `ctrl+shift+space` 不會觸發 `ctrl+space`）。
 pub const MODIFIER_GROUPS: [&str; 4] = ["ctrl", "shift", "alt", "windows"];
+
+/// 所有攔截器吞掉、還沒放開的觸發鍵數。
+static SWALLOWED_HELD: AtomicUsize = AtomicUsize::new(0);
+
+/// 有熱鍵吞掉的觸發鍵還按著。
+///
+/// 熱鍵開出的視窗要等它放開才搶前景：前景在按鍵按著時換手，那次放開不會進到 hook，下一次熱鍵就被當成沒放開而吞掉。
+pub fn swallowed_key_held() -> bool {
+    SWALLOWED_HELD.load(Ordering::Relaxed) > 0
+}
 
 /// 熱鍵組合沒辦法逐鍵攔截的原因。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +121,7 @@ impl HotkeyInterceptor {
             return false;
         }
         self.held.push(ev.code);
+        SWALLOWED_HELD.fetch_add(1, Ordering::Relaxed);
         self.repeat_logged = false;
         (self.mask)();
         log(format!(
@@ -138,6 +150,7 @@ impl Blocking for HotkeyInterceptor {
         if let Some(i) = self.held.iter().position(|&c| c == ev.code) {
             if !ev.down {
                 self.held.swap_remove(i);
+                SWALLOWED_HELD.fetch_sub(1, Ordering::Relaxed);
             } else if !self.repeat_logged {
                 self.repeat_logged = true;
                 log(format!(
@@ -151,6 +164,12 @@ impl Blocking for HotkeyInterceptor {
             return true;
         }
         !self.should_swallow(ev, pressed)
+    }
+}
+
+impl Drop for HotkeyInterceptor {
+    fn drop(&mut self) {
+        SWALLOWED_HELD.fetch_sub(self.held.len(), Ordering::Relaxed);
     }
 }
 
