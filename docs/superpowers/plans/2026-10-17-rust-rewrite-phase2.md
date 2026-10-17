@@ -22,7 +22,8 @@
 
 ## Global Constraints
 
-- 第 1 段計畫的 Global Constraints 全部沿用：五項提交前檢查、log 規則、註解規則、i18n 不新增 key、測試不干擾桌面、移植測試、commit 格式。
+- **提交前檢查依改動範圍**（使用者 2026-10-17 決定，取代第 1 段「五項全跑」）：只動 `rust/` 時跑三項 cargo 檢查（`fmt --check`、`clippy --all-targets -D warnings`、`test`）；有動到 `src/`、`tests/`、`tools/` 或 `pyproject.toml` 時另跑 `uv run ruff check src tests tools` 與 `uv run pytest`；只動文件不必跑。
+- 第 1 段計畫的 Global Constraints 其餘全部沿用：log 規則、註解規則、i18n 不新增 key、測試不干擾桌面、移植測試、commit 格式。
 - **測試絕不可安裝真的鍵盤 hook，也不可呼叫 `SendInput`／`keybd_event`。**
   - 測試會攔到使用者的實體鍵盤，或把字打進使用者的前景視窗。
   - 所有 Win32 動作都經可注入的介面（trait 或 fn 欄位），測試換成假的。
@@ -105,7 +106,7 @@
   - `parse_hotkey` 的切分要重現 `re.split(r',\s?')` 與 `re.split(r'\s?\+\s?')`。字串長度為 1 時直接當單一鍵。
 - [ ] **Step 4:** 再跑同一個測試，預期 PASS。
 - [ ] **Step 5:** 若 CI 的 `--check` 與本機產生的 `keyboard_names` 不同（鍵盤配置差異），把差異寫進 commit body 並回報 controller，不要自行刪減清單。
-- [ ] **Step 6:** 跑五項檢查後 commit：`feat(rust): port keyboard key-name tables and hotkey parsing`。
+- [ ] **Step 6:** 跑提交前檢查後 commit：`feat(rust): port keyboard key-name tables and hotkey parsing`。
 
 ### Task 2: 快捷鍵攔截器與按鍵分派器（純邏輯）
 
@@ -193,7 +194,7 @@
 
   其中 `{exc}` 是 `{hotkey!r} is a multi-step hotkey` 或 `{hotkey!r} has only modifier keys`。
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): add hotkey interceptor and key event dispatcher`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): add hotkey interceptor and key event dispatcher`。
 
 ### Task 3: 低階鍵盤 hook 執行緒與按鍵注入
 
@@ -247,7 +248,7 @@
   - 裝不上時為 `None`，並記 `[hotkey] cannot install keyboard hook: {err}`。
   - `shutdown()` 傳入的卸除閉包在有 hook 時呼叫 `uninstall()`，`None` 時什麼都不做。
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): add low-level keyboard hook thread and key injection`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): add low-level keyboard hook thread and key injection`。
 
 ### Task 4: composer（逐字鍵入、Ctrl+V 貼上）
 
@@ -331,7 +332,7 @@
   - `get_text` 失敗的 log 沿用 `[composer] clipboard open failed: ...` 與 `[composer] clipboard has no text: ...`，由 `paste_clipboard` 記。
   - `get_text` 與既有的 `set_text` 共用開關剪貼簿的流程，不重複寫。
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): add composer typing and clipboard paste`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): add composer typing and clipboard paste`。
 
 ### Task 5: 熱鍵與遊戲輸入框事件的分派
 
@@ -399,7 +400,7 @@
   - `[app] region_hotkey ... collides with hotkey; ...`
   - `[app] game chat opened in a background client (hwnd=0x..); ignoring`
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): add hotkey and game chat input dispatch`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): add hotkey and game chat input dispatch`。
 
 ### Task 6: reader 回報遊戲輸入框開關、上下文改為可共用
 
@@ -421,7 +422,7 @@
 - [ ] **Step 2:** 跑測試，預期 FAIL。
 - [ ] **Step 3:** 在既有的 log 旁邊投遞事件，並刪掉「開關事件在第 2 段接上 UI」的註解；`app_main.rs` 的 spawn 改用 `ContextMap`。
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): report game chat input open and close to the UI`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): report game chat input open and close to the UI`。
 
 ### Task 7: 翻譯輸入框（狀態、內容、幾何）
 
@@ -524,7 +525,7 @@
 
   IME：若 egui 的 `TextEdit` 在組字中仍回報 Enter，就在 `content` 裡自行追蹤 `ImeEvent` 的 Preedit 狀態擋掉。
 - [ ] **Step 4:** 跑測試，預期 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): add the outgoing translation input box`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): add the outgoing translation input box`。
 
 ### Task 8: 在 App 裡托管輸入框視窗
 
@@ -573,7 +574,7 @@
   - `Quit` 在 `logic` 裡處理，送 `ViewportCommand::Close` 給 ROOT。
   - 輸入框關閉後的 `take_restore_foreground()` 在下一幀呼叫 `force_foreground`。
 - [ ] **Step 4:** 跑測試，並跑 probe：`cargo test --release --manifest-path rust/Cargo.toml --test ui_probe -- --ignored`，預期全部 PASS。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): host the input box viewport in the app`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): host the input box viewport in the app`。
 
 ### Task 9: 主程式接線、Ctrl+C 關閉、啟動 log
 
@@ -613,7 +614,7 @@
 
   `shutdown()` 依 Task 3 的順序呼叫 `keyboard.uninstall()`。
 - [ ] **Step 4:** 跑測試，預期 PASS。另外跑 `cargo build --release --manifest-path rust/Cargo.toml`；確認沒有執行中的 `_test\Wizard101ChatTranslator.exe` 後，把 exe 複製到 `rust/target/release/_test/`。
-- [ ] **Step 5:** 跑五項檢查後 commit：`feat(rust): wire hotkeys, input box and paste into the app`。
+- [ ] **Step 5:** 跑提交前檢查後 commit：`feat(rust): wire hotkeys, input box and paste into the app`。
 
 ---
 
