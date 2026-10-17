@@ -1,0 +1,501 @@
+//! 框選用的全螢幕選取畫面：蓋滿遊戲所在的螢幕，顯示事先凍結的遊戲畫面，拖曳畫矩形、放開回報螢幕座標。
+//!
+//! 這裡只有狀態與 egui 內容；視窗由 App 托管。整層不透明：暗化的整顆螢幕截圖上疊暗化的遊戲畫面，
+//! 拖曳中的範圍內用原亮度的遊戲畫面聚光（只作用在遊戲畫面範圍內）。點一下沒拖動、Esc、右鍵都算取消。
+
+use std::sync::Arc;
+
+use eframe::egui::{
+    self, Align2, Color32, ColorImage, CursorIcon, FontId, Key, Margin, RichText, Stroke,
+    StrokeKind, TextureHandle, TextureOptions, Vec2, pos2, vec2,
+};
+use image::RgbImage;
+
+use crate::i18n::t;
+use crate::region::capture::Frame;
+use crate::ui::fonts_egui::tk_pt;
+use crate::ui::geometry::{Rect, is_click};
+use crate::ui::palette::{BAR, FG_TRANSLATED, FG_UPDATE, GRIP};
+
+/// 底圖的暗化係數。
+pub const DIM_FACTOR: f32 = 0.45;
+/// 框線寬度（DIP）。
+pub const BAND_WIDTH: f32 = 2.0;
+/// 提示文字與螢幕頂端的距離（DIP）。
+pub const HINT_Y: f32 = 40.0;
+
+const FULL_UV: egui::Rect = egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+
+/// `content` 這一幀的結果。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectorAction {
+    /// 放開滑鼠：框選的螢幕矩形（實體像素）。
+    Selected(Rect),
+    /// 點一下沒拖動、Esc 或右鍵。
+    Cancelled,
+}
+
+struct Textures {
+    backdrop: TextureHandle,
+    dim_frame: TextureHandle,
+    frame: TextureHandle,
+}
+
+/// 選取畫面的狀態；每次框選建一個新的。
+///
+/// 三張貼圖在第一次 `content` 時上傳（需要 egui Context），之後每幀沿用。
+pub struct Selector {
+    monitor: Rect,
+    frame: Arc<Frame>,
+    frame_pos: (i32, i32),
+    backdrop: Option<RgbImage>,
+    textures: Option<Textures>,
+    /// 按下的位置（相對選取畫面左上角的 DIP）。
+    start: Option<Vec2>,
+}
+
+impl Selector {
+    /// `monitor` 是遊戲所在螢幕的矩形，`backdrop` 是同一顆螢幕的整張截圖（都是實體像素）。
+    pub fn new(monitor: Rect, frame: Arc<Frame>, backdrop: RgbImage) -> Self {
+        let frame_pos = (
+            frame.client_origin.0 - monitor.0,
+            frame.client_origin.1 - monitor.1,
+        );
+        Self {
+            monitor,
+            frame,
+            frame_pos,
+            backdrop: Some(backdrop),
+            textures: None,
+            start: None,
+        }
+    }
+
+    /// 畫出選取畫面並處理滑鼠與 Esc；選取畫面要佔滿 `ui` 的範圍、與螢幕左上角對齊。
+    pub fn content(&mut self, ui: &mut egui::Ui) -> Option<SelectorAction> {
+        let ctx = ui.ctx().clone();
+        let ppp = ctx.pixels_per_point();
+        let area = ui.max_rect();
+        let (pressed, released, secondary, escape, pointer) = ctx.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_released(),
+                i.pointer.secondary_pressed(),
+                i.key_pressed(Key::Escape),
+                i.pointer.interact_pos().map(|p| p - area.min),
+            )
+        });
+        ctx.set_cursor_icon(CursorIcon::Crosshair);
+
+        let mut action = None;
+        if escape || secondary {
+            self.start = None;
+            action = Some(SelectorAction::Cancelled);
+        } else {
+            if pressed {
+                self.start = pointer;
+            }
+            if released && let (Some(start), Some(end)) = (self.start.take(), pointer) {
+                action = Some(self.finish(start, end, ppp));
+            }
+        }
+        self.paint(ui, area, ppp, pointer);
+        hint(ui);
+        action
+    }
+
+    fn finish(&self, start: Vec2, end: Vec2, ppp: f32) -> SelectorAction {
+        let (a, b) = (to_physical(start, ppp), to_physical(end, ppp));
+        if is_click(b.0 - a.0, b.1 - a.1) {
+            return SelectorAction::Cancelled;
+        }
+        let (x, y, w, h) = drag_rect(a, b);
+        SelectorAction::Selected((self.monitor.0 + x, self.monitor.1 + y, w, h))
+    }
+
+    fn paint(&mut self, ui: &mut egui::Ui, area: egui::Rect, ppp: f32, pointer: Option<Vec2>) {
+        let to_points = |(x, y, w, h): Rect| {
+            egui::Rect::from_min_size(
+                area.min + vec2(x as f32, y as f32) / ppp,
+                vec2(w as f32, h as f32) / ppp,
+            )
+        };
+        let (fx, fy) = self.frame_pos;
+        let textures = self.textures(ui.ctx());
+        let [bw, bh] = textures.backdrop.size();
+        let [iw, ih] = textures.frame.size();
+        let (backdrop, dim_frame, frame) = (
+            textures.backdrop.id(),
+            textures.dim_frame.id(),
+            textures.frame.id(),
+        );
+
+        let painter = ui.painter().clone();
+        painter.rect_filled(area, 0.0, Color32::BLACK);
+        painter.image(
+            backdrop,
+            to_points((0, 0, bw as i32, bh as i32)),
+            FULL_UV,
+            Color32::WHITE,
+        );
+        painter.image(
+            dim_frame,
+            to_points((fx, fy, iw as i32, ih as i32)),
+            FULL_UV,
+            Color32::WHITE,
+        );
+
+        let (Some(start), Some(end)) = (self.start, pointer) else {
+            return;
+        };
+        let (a, b) = (to_physical(start, ppp), to_physical(end, ppp));
+        let drag = drag_rect(a, b);
+        if let Some(spot) = spotlight_rect(drag, self.frame_pos, self.frame.client_size) {
+            let (x, y, w, h) = spot;
+            let uv = egui::Rect::from_min_size(
+                pos2((x - fx) as f32 / iw as f32, (y - fy) as f32 / ih as f32),
+                vec2(w as f32 / iw as f32, h as f32 / ih as f32),
+            );
+            painter.image(frame, to_points(spot), uv, Color32::WHITE);
+        }
+        let band = to_points(drag);
+        painter.rect_stroke(
+            band,
+            0.0,
+            Stroke::new(BAND_WIDTH, FG_UPDATE),
+            StrokeKind::Middle,
+        );
+        if a != b {
+            let galley = painter.layout_no_wrap(
+                format!("{}×{}", drag.2, drag.3),
+                FontId::proportional(tk_pt(9.0)),
+                FG_UPDATE,
+            );
+            let size = galley.size();
+            let at = pos2(band.min.x, band.min.y - 2.0 - size.y);
+            ui.put(
+                egui::Rect::from_min_size(at, size),
+                egui::Label::new(galley).selectable(false),
+            );
+        }
+    }
+
+    fn textures(&mut self, ctx: &egui::Context) -> &Textures {
+        let (frame, backdrop) = (&self.frame, &mut self.backdrop);
+        self.textures.get_or_insert_with(|| {
+            let backdrop = backdrop.take().unwrap_or_default();
+            let load = |name: &str, image: &RgbImage| {
+                let size = [image.width() as usize, image.height() as usize];
+                ctx.load_texture(
+                    name,
+                    ColorImage::from_rgb(size, image.as_raw()),
+                    TextureOptions::NEAREST,
+                )
+            };
+            Textures {
+                backdrop: load("region_backdrop", &dim(&backdrop, DIM_FACTOR)),
+                dim_frame: load("region_dim_frame", &dim(&frame.image, DIM_FACTOR)),
+                frame: load("region_frame", &frame.image),
+            }
+        })
+    }
+}
+
+/// 提示文字：頂端置中、不透明底，不接滑鼠（拖曳經過時照樣框得到底下）。
+fn hint(ui: &egui::Ui) {
+    egui::Area::new(egui::Id::unique("region_hint"))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::CENTER_TOP, vec2(0.0, HINT_Y))
+        .interactable(false)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(BAR)
+                .stroke(Stroke::new(1.0, GRIP))
+                .inner_margin(Margin::symmetric(16, 8))
+                .show(ui, |ui| {
+                    let text = RichText::new(t("region.hint", &[]))
+                        .font(FontId::proportional(tk_pt(13.0)))
+                        .color(FG_TRANSLATED);
+                    ui.add(egui::Label::new(text).extend().selectable(false));
+                });
+        });
+}
+
+/// 選取畫面內的 DIP 座標換成實體像素（螢幕內座標）。
+fn to_physical(v: Vec2, ppp: f32) -> (i32, i32) {
+    ((v.x * ppp).round() as i32, (v.y * ppp).round() as i32)
+}
+
+/// 兩個角點圍出的正規化矩形（左上角加寬高）。
+fn drag_rect(a: (i32, i32), b: (i32, i32)) -> Rect {
+    (
+        a.0.min(b.0),
+        a.1.min(b.1),
+        (b.0 - a.0).abs(),
+        (b.1 - a.1).abs(),
+    )
+}
+
+/// 拖曳矩形與遊戲畫面範圍的交集（螢幕內座標、實體像素）；沒有交集時回 `None`。
+pub fn spotlight_rect(drag: Rect, frame_pos: (i32, i32), frame_size: (i32, i32)) -> Option<Rect> {
+    let left = drag.0.max(frame_pos.0);
+    let top = drag.1.max(frame_pos.1);
+    let right = (drag.0 + drag.2).min(frame_pos.0 + frame_size.0);
+    let bottom = (drag.1 + drag.3).min(frame_pos.1 + frame_size.1);
+    (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
+}
+
+/// 與 PIL `ImageEnhance.Brightness(image).enhance(factor)` 相同：每個通道以 float32 乘上係數後截尾。
+pub fn dim(image: &RgbImage, factor: f32) -> RgbImage {
+    let mut out = image.clone();
+    for channel in out.iter_mut() {
+        *channel = (f32::from(*channel) * factor) as u8;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{Event, Key, Modifiers, PointerButton, Shape, TextureId, Vec2, vec2};
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    use image::Rgb;
+
+    use super::*;
+    use crate::i18n::t;
+    use crate::ui::fonts_egui;
+
+    // 第二顆螢幕：矩形要加上螢幕原點
+    const MONITOR: Rect = (1920, 0, 800, 600);
+
+    /// 遊戲 client 區左上角在螢幕 (1920 + 100, 50)，換成這顆螢幕內的座標是 (100, 50)。
+    fn frame() -> Arc<Frame> {
+        Arc::new(Frame {
+            image: RgbImage::from_pixel(400, 300, Rgb([255, 255, 255])),
+            client_origin: (1920 + 100, 50),
+            client_size: (400, 300),
+        })
+    }
+
+    struct State {
+        selector: Selector,
+        actions: Vec<SelectorAction>,
+        area: egui::Rect,
+    }
+
+    fn harness(ppp: f32) -> Harness<'static, State> {
+        let state = State {
+            selector: Selector::new(MONITOR, frame(), RgbImage::new(800, 600)),
+            actions: Vec::new(),
+            area: egui::Rect::NOTHING,
+        };
+        let mut harness = Harness::builder()
+            .with_size(vec2(800.0 / ppp + 16.0, 600.0 / ppp + 16.0))
+            .with_pixels_per_point(ppp)
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+            .build_ui_state(
+                |ui, s: &mut State| {
+                    s.area = ui.max_rect();
+                    s.actions.extend(s.selector.content(ui));
+                },
+                state,
+            );
+        harness.step();
+        harness
+    }
+
+    /// 在 `from`（相對選取畫面左上角的 DIP）按下並移到 `to`，不放開。
+    fn press_and_move(h: &mut Harness<State>, from: Vec2, to: Vec2) {
+        let origin = h.state().area.min;
+        h.hover_at(origin + from);
+        h.drag_at(origin + from);
+        h.step();
+        h.hover_at(origin + to);
+        h.step();
+    }
+
+    fn drag(h: &mut Harness<State>, from: Vec2, to: Vec2) {
+        press_and_move(h, from, to);
+        h.drop_at(h.state().area.min + to);
+        h.step();
+    }
+
+    /// 這幀畫出的貼圖：（貼圖、位置、UV 範圍），依疊放順序。
+    fn images(h: &Harness<State>) -> Vec<(TextureId, egui::Rect, egui::Rect)> {
+        h.output()
+            .shapes
+            .iter()
+            .filter_map(|clipped| match &clipped.shape {
+                Shape::Mesh(mesh) if mesh.texture_id != TextureId::default() => {
+                    let uv = mesh.vertices.iter().fold(egui::Rect::NOTHING, |r, v| {
+                        r.union(egui::Rect::from_pos(v.uv))
+                    });
+                    Some((mesh.texture_id, mesh.calc_bounds(), uv))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn texture_ids(h: &Harness<State>) -> (TextureId, TextureId, TextureId) {
+        let t = h.state().selector.textures.as_ref().unwrap();
+        (t.backdrop.id(), t.dim_frame.id(), t.frame.id())
+    }
+
+    #[test]
+    fn drag_reports_the_screen_rect() {
+        let mut h = harness(1.0);
+        // 從右下拖到左上也要正規化
+        drag(&mut h, vec2(400.0, 300.0), vec2(100.0, 150.0));
+        assert_eq!(
+            h.state().actions,
+            [SelectorAction::Selected((1920 + 100, 150, 300, 150))]
+        );
+    }
+
+    #[test]
+    fn drag_reports_physical_pixels_on_scaled_displays() {
+        let mut h = harness(2.0);
+        drag(&mut h, vec2(200.0, 150.0), vec2(50.0, 75.0));
+        assert_eq!(
+            h.state().actions,
+            [SelectorAction::Selected((1920 + 100, 150, 300, 150))]
+        );
+    }
+
+    #[test]
+    fn points_convert_to_physical_pixels() {
+        assert_eq!(to_physical(vec2(10.0, 20.0), 1.0), (10, 20));
+        assert_eq!(to_physical(vec2(10.0, 20.0), 1.25), (13, 25));
+        assert_eq!(to_physical(vec2(10.4, 0.2), 1.5), (16, 0));
+    }
+
+    #[test]
+    fn a_click_without_drag_cancels() {
+        let mut h = harness(1.0);
+        drag(&mut h, vec2(100.0, 100.0), vec2(102.0, 101.0));
+        assert_eq!(h.state().actions, [SelectorAction::Cancelled]);
+    }
+
+    #[test]
+    fn escape_cancels() {
+        let mut h = harness(1.0);
+        press_and_move(&mut h, vec2(10.0, 20.0), vec2(130.0, 60.0));
+        h.key_press(Key::Escape);
+        h.step();
+        assert_eq!(h.state().actions, [SelectorAction::Cancelled]);
+    }
+
+    #[test]
+    fn right_click_cancels() {
+        let mut h = harness(1.0);
+        h.event(Event::PointerButton {
+            pos: h.state().area.min + vec2(50.0, 50.0),
+            button: PointerButton::Secondary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        h.step();
+        assert_eq!(h.state().actions, [SelectorAction::Cancelled]);
+    }
+
+    #[test]
+    fn spotlight_is_clipped_to_the_game_frame() {
+        let (pos, size) = ((100, 50), (400, 300));
+        assert_eq!(
+            spotlight_rect((120, 80, 100, 70), pos, size),
+            Some((120, 80, 100, 70))
+        );
+        assert_eq!(
+            spotlight_rect((50, 20, 200, 100), pos, size),
+            Some((100, 50, 150, 70))
+        );
+        assert_eq!(
+            spotlight_rect((450, 300, 200, 100), pos, size),
+            Some((450, 300, 50, 50))
+        );
+        assert_eq!(spotlight_rect((0, 0, 100, 50), pos, size), None);
+        assert_eq!(spotlight_rect((600, 400, 50, 50), pos, size), None);
+    }
+
+    #[test]
+    fn backdrop_and_dimmed_frame_are_placed_in_order() {
+        let h = harness(1.0);
+        let origin = h.state().area.min;
+        let (backdrop, dim_frame, _) = texture_ids(&h);
+        let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        assert_eq!(
+            images(&h),
+            [
+                (
+                    backdrop,
+                    egui::Rect::from_min_size(origin, vec2(800.0, 600.0)),
+                    full
+                ),
+                (
+                    dim_frame,
+                    egui::Rect::from_min_size(origin + vec2(100.0, 50.0), vec2(400.0, 300.0)),
+                    full
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn dimmed_frame_is_placed_in_points_on_scaled_displays() {
+        let h = harness(2.0);
+        let origin = h.state().area.min;
+        let placed = images(&h)[1].1;
+        assert_eq!(
+            placed,
+            egui::Rect::from_min_size(origin + vec2(50.0, 25.0), vec2(200.0, 150.0))
+        );
+    }
+
+    #[test]
+    fn spotlight_shows_the_dragged_area_and_hides_on_the_next_press() {
+        let mut h = harness(1.0);
+        let origin = h.state().area.min;
+        let (_, _, full_frame) = texture_ids(&h);
+        // 拖出遊戲畫面左上角外的部分不聚光
+        press_and_move(&mut h, vec2(50.0, 20.0), vec2(220.0, 150.0));
+        let spot = images(&h)[2];
+        assert_eq!(spot.0, full_frame);
+        assert_eq!(
+            spot.1,
+            egui::Rect::from_min_size(origin + vec2(100.0, 50.0), vec2(120.0, 100.0))
+        );
+        assert_eq!(
+            spot.2,
+            egui::Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(120.0 / 400.0, 100.0 / 300.0))
+        );
+        h.drop_at(origin + vec2(220.0, 150.0));
+        h.step();
+        h.drag_at(origin + vec2(130.0, 90.0));
+        h.step();
+        assert_eq!(images(&h).len(), 2);
+    }
+
+    #[test]
+    fn size_label_shows_w_x_h_while_dragging() {
+        let mut h = harness(1.0);
+        press_and_move(&mut h, vec2(10.0, 20.0), vec2(130.0, 60.0));
+        h.get_by_label("120×40");
+    }
+
+    #[test]
+    fn dim_scales_each_channel() {
+        let image = RgbImage::from_pixel(2, 1, Rgb([200, 100, 50]));
+        let out = dim(&image, DIM_FACTOR);
+        // PIL 以 float32 相乘後截尾：50 × 0.45 = 22.5 → 22，255 × 0.45 = 114.75 → 114
+        assert_eq!(out.get_pixel(1, 0), &Rgb([90, 45, 22]));
+        let white = dim(&RgbImage::from_pixel(1, 1, Rgb([255, 20, 0])), DIM_FACTOR);
+        assert_eq!(white.get_pixel(0, 0), &Rgb([114, 9, 0]));
+    }
+
+    #[test]
+    fn hint_text_is_shown() {
+        let h = harness(1.0);
+        h.get_by_label(&t("region.hint", &[]));
+    }
+}
