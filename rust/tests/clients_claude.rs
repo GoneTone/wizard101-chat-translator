@@ -251,11 +251,8 @@ async fn claude_retries_429_twice_then_offline() {
         })
     );
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
-    // 兩次等待各照 retry-after 的 0.2 秒；指數退避至少要 0.375＋0.75 秒
-    assert!(
-        elapsed >= Duration::from_millis(400) && elapsed < Duration::from_millis(1100),
-        "{elapsed:?}"
-    );
+    // 等待秒數由下方 log 驗證是照 retry-after 而非指數退避；只驗下限，負載只會讓它更久
+    assert!(elapsed >= Duration::from_millis(400), "{elapsed:?}");
     let text = std::fs::read_to_string(log_path).unwrap();
     for n in 1..=2 {
         let line = format!(
@@ -268,25 +265,31 @@ async fn claude_retries_429_twice_then_offline() {
 
 #[tokio::test]
 async fn cancel_during_backoff_returns_cancelled_without_retrying() {
+    let log_path = log_file();
     let server = MockServer::start().await;
     mount_messages(
         &server,
-        error_body(429, "slow down").insert_header("retry-after-ms", "30000"),
+        error_body(429, "slow down").insert_header("retry-after-ms", "3600000"),
     )
     .await;
+    let c = ClaudeClient::new("k", "claude-backoff-marker", "auto", &server.uri());
     let token = CancellationToken::new();
     let canceller = token.clone();
+    // 重試 log 一印出就進入退避等待：看到它才取消，不靠固定延遲猜請求何時送達
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let line = "model=claude-backoff-marker); retry 1/2 in 3600.00s";
+        while !std::fs::read_to_string(log_path).unwrap().contains(line) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         canceller.cancel();
     });
-    let started = Instant::now();
-    let result = client(&server, "auto")
-        .chat(request(&[Turn::user("hi")]), Some(&token))
-        .await;
-    assert_eq!(result, Err(TranslateError::Cancelled));
-    // 等待 30 秒，上限放寬到 10 秒：負載下也不會誤判，卻仍抓得到「沒取消就等完」
-    assert!(started.elapsed() < Duration::from_secs(10));
+    // 退避長達一小時，取消沒打斷等待就必定逾時
+    let result = tokio::time::timeout(
+        Duration::from_secs(60),
+        c.chat(request(&[Turn::user("hi")]), Some(&token)),
+    )
+    .await;
+    assert_eq!(result, Ok(Err(TranslateError::Cancelled)));
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
@@ -580,14 +583,9 @@ async fn claude_logs_cache_read_write_uncached() {
 #[tokio::test]
 async fn cancel_mid_stream_returns_cancelled() {
     let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
-    let (url, server) = stream_server::stalled_stream(events(&[start])).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
     let token = CancellationToken::new();
-    let canceller = token.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        canceller.cancel();
-    });
+    let (url, server) = stream_server::stalled_stream(events(&[start]), token.clone()).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(

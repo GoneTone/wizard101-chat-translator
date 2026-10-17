@@ -2,8 +2,6 @@
 
 mod stream_server;
 
-use std::time::Duration;
-
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -393,14 +391,9 @@ async fn gemini_logs_prompt_cache_usage() {
 #[tokio::test]
 async fn cancel_mid_stream_returns_cancelled() {
     let first = format!("data: {}\r\n\r\n", chunk(text("半"), None, None));
-    let (url, server) = stream_server::stalled_stream(first).await;
-    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
     let token = CancellationToken::new();
-    let canceller = token.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        canceller.cancel();
-    });
+    let (url, server) = stream_server::stalled_stream(first, token.clone()).await;
+    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(

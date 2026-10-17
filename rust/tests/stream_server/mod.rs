@@ -10,6 +10,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 
 async fn bind() -> (TcpListener, String) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -24,6 +25,7 @@ async fn start_stream(listener: TcpListener, first_event: &str) -> TcpStream {
     let mut seen = Vec::new();
     while !seen.windows(4).any(|w| w == b"\r\n\r\n") {
         let n = socket.read(&mut buf).await.unwrap();
+        assert!(n > 0, "client closed before sending the request headers");
         seen.extend_from_slice(&buf[..n]);
     }
     let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\n\
@@ -34,11 +36,17 @@ async fn start_stream(listener: TcpListener, first_event: &str) -> TcpStream {
     socket
 }
 
-/// 串流停住不收尾；handle 的結果為「5 秒內看到客戶端斷線」。
-pub async fn stalled_stream(first_event: String) -> (String, JoinHandle<bool>) {
+/// 串流停住不收尾，送出第一段後觸發 `cancel`；handle 的結果為「5 秒內看到客戶端斷線」。
+///
+/// 等請求確實送達才取消，取消時機不受機器負載影響。
+pub async fn stalled_stream(
+    first_event: String,
+    cancel: CancellationToken,
+) -> (String, JoinHandle<bool>) {
     let (listener, url) = bind().await;
     let server = tokio::spawn(async move {
         let mut socket = start_stream(listener, &first_event).await;
+        cancel.cancel();
         let mut buf = vec![0u8; 8192];
         // 客戶端斷線後 read 會讀到 EOF 或連線重置
         tokio::time::timeout(Duration::from_secs(5), async {

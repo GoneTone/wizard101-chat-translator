@@ -2,8 +2,6 @@
 
 mod stream_server;
 
-use std::time::Duration;
-
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -334,15 +332,11 @@ async fn connection_failure_is_offline_without_status() {
 
 #[tokio::test]
 async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
-    let (url, server) =
-        stream_server::stalled_stream(format!("data: {}\n\n", delta("partial"))).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let token = CancellationToken::new();
-    let canceller = token.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        canceller.cancel();
-    });
+    let (url, server) =
+        stream_server::stalled_stream(format!("data: {}\n\n", delta("partial")), token.clone())
+            .await;
+    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(
