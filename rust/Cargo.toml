@@ -13,7 +13,7 @@ test-support = []
 [dependencies]
 caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
-eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit"] }
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit", "links"] }
 futures-util = "0.3.34"
 raw-window-handle = "0.6.2"
 regex = "1.13.1"

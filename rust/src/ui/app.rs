@@ -12,6 +12,7 @@ use crate::config::app_name;
 use crate::i18n::current_language;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::ui::overlay::banners::Banners;
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
@@ -50,7 +51,8 @@ pub struct App {
     minimized: bool,
     shown: bool,
     status: Option<&'static str>,
-    error: Option<(&'static str, Vec<(&'static str, String)>)>,
+    banners: Banners,
+    region_hotkey: String,
     model: OverlayModel,
     list: MessageList,
     selection: Selection,
@@ -60,6 +62,7 @@ impl App {
     /// 綁上 Context 讓投遞端能喚醒重繪；`frame` 是 overlay 的外框（含底板不透明度與起始位置）。
     pub fn new(ctx: &egui::Context, inbox: Inbox, frame: Frame) -> Self {
         let _ = inbox.ctx.set(ctx.clone());
+        ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 0.5);
         Self {
             rx: inbox.rx,
             hwnd: 0,
@@ -67,7 +70,8 @@ impl App {
             minimized: false,
             shown: true,
             status: None,
-            error: None,
+            banners: Banners::default(),
+            region_hotkey: String::new(),
             model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
             list: MessageList::new(),
             selection: Selection::default(),
@@ -77,6 +81,25 @@ impl App {
     /// 目前狀態列的 state key。
     pub fn status(&self) -> Option<&'static str> {
         self.status
+    }
+
+    /// 錯誤與更新橫幅（更新檢查經 `offer_update` 提示新版）。
+    pub fn banners_mut(&mut self) -> &mut Banners {
+        &mut self.banners
+    }
+
+    /// 設定裡的框選熱鍵，顯示在 ⛶ 的提示框；下一次顯示提示就生效。
+    pub fn set_region_hotkey(&mut self, hotkey: &str) {
+        self.region_hotkey = hotkey.to_owned();
+    }
+
+    /// 介面語言變更後重新翻譯常駐文字：狀態、橫幅、選單與提示存的是 key、每幀才翻譯，
+    /// 這裡只需換字型與視窗標題。已經顯示的訊息是聊天內容，不回溯改寫。
+    pub fn relabel(&mut self, ctx: &egui::Context) {
+        let language = current_language();
+        fonts_egui::install(ctx, &language);
+        ctx.send_viewport_cmd(ViewportCommand::Title(app_name()));
+        log(format!("[ui] overlay relabeled language={language}"));
     }
 
     /// overlay 的 HWND；第一幀之前是 0。
@@ -96,8 +119,8 @@ impl App {
     fn apply(&mut self, event: UiEvent) {
         match event {
             UiEvent::SetStatus(key) => self.status = Some(key),
-            UiEvent::SetError { key, args } => self.error = Some((key, args)),
-            UiEvent::ClearError => self.error = None,
+            UiEvent::SetError { key, args } => self.banners.set_error(key, args),
+            UiEvent::ClearError => self.banners.clear_error(),
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
             UiEvent::AddMessage {
                 slot,
@@ -126,7 +149,7 @@ impl App {
         }
     }
 
-    /// 標題列以下：分頁列（沒有分頁時隱藏）與訊息清單（含框選與右鍵選單）。
+    /// 標題列以下：分頁列（沒有分頁時隱藏）、底部橫幅與其間的訊息清單（含框選與右鍵選單）。
     fn content(&mut self, ui: &mut egui::Ui) {
         let mut rect = ui.max_rect();
         rect.min.y += BAR_HEIGHT;
@@ -134,6 +157,7 @@ impl App {
         let (tabs, current) = self.model.current_tabs();
         tab_bar::show(&mut content, tabs, current);
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
+        let rect = self.banners.show(ui, rect);
         self.selection
             .show(ui, &mut self.list, &self.model, &mut Win32Shell(self.hwnd));
         self.list
@@ -185,7 +209,13 @@ impl eframe::App for App {
             win32::make_non_activating(self.hwnd);
         }
         let mut shell = Win32Shell(self.hwnd);
-        match self.frame.show(ui, &mut shell, &app_name(), self.status) {
+        match self.frame.show(
+            ui,
+            &mut shell,
+            &app_name(),
+            self.status,
+            &self.region_hotkey,
+        ) {
             Some(Clicked::Region) => {
                 log("[ui] region button clicked; region capture arrives in phase 3")
             }
@@ -277,7 +307,10 @@ mod tests {
         let app = harness.state();
         assert_eq!(app.status, Some("listening"));
         assert_eq!(app.model.client(), Some(2));
-        assert_eq!(app.error.as_ref().map(|e| e.0), Some("error.offline"));
+        assert_eq!(
+            app.banners.error_text(),
+            Some(crate::i18n::t("error.offline", &[]))
+        );
     }
 
     #[test]
@@ -335,6 +368,46 @@ mod tests {
         let row = harness.state().list.rows()[0].lines[0].0;
         assert!(tab.min.y >= BAR_HEIGHT, "{tab:?}");
         assert!(row.y >= tab.max.y, "{row:?} {tab:?}");
+    }
+
+    #[test]
+    fn error_banner_not_squeezed_by_list() {
+        let (poster, inbox) = channel();
+        for _ in 0..50 {
+            poster.post(UiEvent::AddMessage {
+                slot: 1,
+                tabs: vec![0],
+                original: "original".into(),
+                translated: "譯文".into(),
+                msg_id: None,
+                pending: false,
+                color: None,
+            });
+        }
+        poster.post(UiEvent::SetError {
+            key: "notice.game_missing",
+            args: Vec::new(),
+        });
+        let size = egui::vec2(200.0, 120.0);
+        let mut harness = Harness::builder().with_size(size).build_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.step();
+        let banner = harness
+            .get_by_label(&crate::i18n::t("notice.game_missing", &[]))
+            .rect();
+        assert!(
+            banner.min.y >= BAR_HEIGHT && banner.max.y <= size.y,
+            "{banner:?}"
+        );
+        let list = &harness.state().list;
+        assert!(!list.rows().is_empty());
+        assert!(
+            list.viewport().max.y <= banner.min.y,
+            "{:?}",
+            list.viewport()
+        );
     }
 
     #[test]

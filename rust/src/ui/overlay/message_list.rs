@@ -11,11 +11,10 @@ use eframe::egui::{
     Color32, Event, FontId, Galley, Label, MouseWheelUnit, Painter, Pos2, Rect, RichText, Ui, Vec2,
 };
 
-use crate::i18n::t;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::EDGE;
-use crate::ui::overlay::frame::{GRIP_SIZE, status_color};
+use crate::ui::overlay::frame::{GRIP_SIZE, status_color, status_text};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{self, TEXT_ORIGIN, line_height};
 use crate::ui::overlay::scrollbar::{self, Scrollbar};
@@ -315,7 +314,7 @@ fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
 }
 
 fn placeholder(ui: &mut Ui, rect: Rect, state: &str) {
-    let text = t(&format!("status.{state}"), &[]);
+    let text = status_text(state);
     let font = FontId::proportional(tk_pt(PLACEHOLDER_PT));
     let size = ui
         .painter()
@@ -494,6 +493,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+    use crate::i18n::t;
     use crate::reader::chat_tabs::TabState;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};

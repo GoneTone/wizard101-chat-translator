@@ -38,6 +38,11 @@ const BAR_ICON: f32 = 16.0;
 /// 右下角抓取紋的邊長（DIP）。
 pub const GRIP_SIZE: f32 = 16.0;
 
+/// 狀態 key 對應的文字（標題列小字與空清單大字共用）。
+pub fn status_text(state: &str) -> String {
+    t(&format!("status.{state}"), &[])
+}
+
 /// 狀態 key 對應的顏色；未知的 key 用標題列文字色。
 pub fn status_color(state: &str) -> Color32 {
     STATUS_COLORS
@@ -164,7 +169,7 @@ impl Frame {
         self.alpha = alpha;
     }
 
-    /// 畫出外框並處理拖曳與縮放；回傳這幀被按下的標題列按鈕。
+    /// 畫出外框並處理拖曳與縮放；回傳這幀被按下的標題列按鈕。`region_hotkey` 顯示在 ⛶ 的提示框。
     ///
     /// 要在內容之前呼叫：之後加入的元件疊在外框的拖曳區之上、優先接到滑鼠。
     pub fn show(
@@ -173,6 +178,7 @@ impl Frame {
         shell: &mut dyn Shell,
         title: &str,
         status: Option<&str>,
+        region_hotkey: &str,
     ) -> Option<Clicked> {
         let ppp = ui.ctx().pixels_per_point();
         if let Some(saved) = &self.initial {
@@ -271,7 +277,7 @@ impl Frame {
             UiBuilder::new()
                 .max_rect(bar)
                 .layout(Layout::right_to_left(Align::Center)),
-            |ui| title_bar(ui, &icon, title, status),
+            |ui| title_bar(ui, &icon, title, status, region_hotkey),
         )
         .inner
     }
@@ -303,15 +309,16 @@ fn title_bar(
     icon: &TextureHandle,
     title: &str,
     status: Option<&str>,
+    region_hotkey: &str,
 ) -> Option<Clicked> {
     ui.spacing_mut().item_spacing.x = 0.0;
     let small = FontId::proportional(tk_pt(8.0));
     let mut clicked = None;
-    for (glyph, gap, action) in [
-        ("✕", 6.0, Clicked::Close),
-        ("─", 4.0, Clicked::Minimize),
-        ("⚙", 4.0, Clicked::Settings),
-        ("⛶", 4.0, Clicked::Region),
+    for (glyph, gap, action, tooltip) in [
+        ("✕", 6.0, Clicked::Close, "tooltip.close"),
+        ("─", 4.0, Clicked::Minimize, "tooltip.minimize"),
+        ("⚙", 4.0, Clicked::Settings, "tooltip.settings"),
+        ("⛶", 4.0, Clicked::Region, "tooltip.region"),
     ] {
         ui.add_space(gap);
         let text = RichText::new(glyph)
@@ -323,13 +330,19 @@ fn title_bar(
                 .selectable(false)
                 .sense(Sense::click_and_drag()),
         );
-        if button.on_hover_cursor(CursorIcon::PointingHand).clicked() {
+        let button = button
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_ui_at_pointer(|ui| {
+                let text = t(tooltip, &[("hotkey", region_hotkey)]);
+                ui.label(RichText::new(text).font(FontId::proportional(tk_pt(9.0))));
+            });
+        if button.clicked() {
             clicked = Some(action);
         }
     }
     ui.add_space(6.0);
     if let Some(state) = status {
-        let text = RichText::new(t(&format!("status.{state}"), &[]))
+        let text = RichText::new(status_text(state))
             .font(small.clone())
             .color(status_color(state));
         ui.add(Label::new(text).selectable(false));
@@ -390,6 +403,7 @@ mod tests {
 
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::overlay::banners::{Banners, Release};
     use crate::ui::overlay::message_list::MessageList;
     use crate::ui::overlay::model::OverlayModel;
 
@@ -426,8 +440,8 @@ mod tests {
         title: String,
         area: egui::Rect,
         clicked: Option<Clicked>,
-        /// 疊在外框上的訊息清單（驗證內容不擋縮放帶）。
-        content: Option<(MessageList, OverlayModel)>,
+        /// 疊在外框上的橫幅與訊息清單（驗證內容不擋縮放帶）。
+        content: Option<(Banners, MessageList, OverlayModel)>,
     }
 
     fn setup(
@@ -458,11 +472,18 @@ mod tests {
             .build_ui_state(
                 |ui, s: &mut State| {
                     s.area = ui.max_rect();
-                    let clicked = s.frame.show(ui, &mut s.shell, &s.title, Some("listening"));
+                    let clicked = s.frame.show(
+                        ui,
+                        &mut s.shell,
+                        &s.title,
+                        Some("listening"),
+                        "ctrl+shift+space",
+                    );
                     s.clicked = s.clicked.or(clicked);
-                    if let Some((list, model)) = &mut s.content {
+                    if let Some((banners, list, model)) = &mut s.content {
                         let mut rect = s.area;
                         rect.min.y += BAR_HEIGHT;
+                        let rect = banners.show(ui, rect);
                         list.show(ui, rect, model, None, None);
                     }
                 },
@@ -511,6 +532,22 @@ mod tests {
             name.max.x <= status.min.x,
             "name {name:?} runs under status {status:?}"
         );
+    }
+
+    #[test]
+    fn region_tooltip_shows_the_hotkey_after_a_pause() {
+        let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let text = t("tooltip.region", &[("hotkey", "ctrl+shift+space")]);
+        harness.get_by_label("⛶").hover();
+        harness.step();
+        assert!(
+            harness.query_by_label(&text).is_none(),
+            "shown before the delay"
+        );
+        for _ in 0..40 {
+            harness.step();
+        }
+        harness.get_by_label(&text);
     }
 
     #[test]
@@ -622,9 +659,9 @@ mod tests {
     }
 
     #[test]
-    fn message_list_keeps_the_resize_bands_and_grip_reachable() {
+    fn message_list_and_banners_keep_the_resize_bands_and_grip_reachable() {
         let size = Vec2::new(640.0, 420.0);
-        let with_list = || {
+        let with_content = |banners: bool| {
             let (mut harness, saved) = setup("t", size, 1.0);
             let mut model = OverlayModel::new(100, 0);
             for _ in 0..100 {
@@ -639,29 +676,47 @@ mod tests {
                     Instant::now(),
                 );
             }
-            harness.state_mut().content = Some((MessageList::new(), model));
+            let mut shown = Banners::default();
+            if banners {
+                shown.set_error(
+                    "notice.offline_detail",
+                    vec![("message", "see https://a.example/keys".into())],
+                );
+                shown.set_update(Release {
+                    version: "0.2.0".into(),
+                    url: "https://example.invalid/rel".into(),
+                });
+            }
+            harness.state_mut().content = Some((shown, MessageList::new(), model));
             harness.step();
             (harness, saved)
         };
-        let area = with_list().0.state().area.size();
-        // 右緣帶（捲軸右側）、下緣帶與右下角抓取紋
-        for (from, expected) in [
-            (Vec2::new(area.x - 2.0, 200.0), (1000, 500, 660, 420)),
-            (Vec2::new(300.0, area.y - 2.0), (1000, 500, 640, 440)),
-            (area - Vec2::splat(3.0), (1000, 500, 660, 440)),
-        ] {
-            let (mut harness, saved) = with_list();
-            assert!(harness.state().content.as_ref().unwrap().0.rows().len() > 1);
-            drag(&mut harness, from, from + Vec2::new(20.0, 20.0), 1.0);
-            assert_eq!(*saved.borrow(), [expected], "{from:?}");
+        let area = with_content(false).0.state().area.size();
+        // 右緣帶（捲軸右側）、下緣帶（橫幅底下）、左緣帶（錯誤橫幅左端）與右下角抓取紋
+        for banners in [false, true] {
+            for (from, expected) in [
+                (Vec2::new(area.x - 2.0, 200.0), (1000, 500, 660, 420)),
+                (Vec2::new(300.0, area.y - 2.0), (1000, 500, 640, 440)),
+                (area - Vec2::splat(3.0), (1000, 500, 660, 440)),
+            ] {
+                let (mut harness, saved) = with_content(banners);
+                assert!(harness.state().content.as_ref().unwrap().1.rows().len() > 1);
+                drag(&mut harness, from, from + Vec2::new(20.0, 20.0), 1.0);
+                assert_eq!(*saved.borrow(), [expected], "{from:?} banners={banners}");
+            }
         }
+        let (mut harness, saved) = with_content(true);
+        let link = harness.get_by_label("https://a.example/keys").rect();
+        let from = Vec2::new(2.0, link.center().y);
+        drag(&mut harness, from, from + Vec2::new(-20.0, 0.0), 1.0);
+        assert_eq!(*saved.borrow(), [(980, 500, 660, 420)]);
     }
 
     fn run_frame(frame: &mut Frame, shell: &mut FakeShell) {
         let ctx = egui::Context::default();
         fonts_egui::install(&ctx, "en-US");
         let mut output = ctx.run_ui(Default::default(), |ui| {
-            frame.show(ui, shell, "t", None);
+            frame.show(ui, shell, "t", None, "");
         });
         output.textures_delta.clear();
     }

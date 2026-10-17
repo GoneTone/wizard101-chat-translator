@@ -8,4 +8,5 @@ pub mod fonts_egui;
 pub mod geometry;
 pub mod overlay;
 pub mod palette;
+pub mod richtext;
 pub mod win32;

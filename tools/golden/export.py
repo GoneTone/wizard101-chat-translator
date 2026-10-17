@@ -1400,6 +1400,42 @@ def export_geometry() -> list[dict]:
 EXPORTERS["geometry"] = export_geometry
 
 
+def export_richtext() -> list[dict]:
+    """`parse_link_markup`／`linkify`：input 為 {fn, text}，output 為段落清單或改寫後文字。"""
+    from src.ui.richtext import linkify, parse_link_markup
+
+    markups = [
+        "", "plain text", "[docs](https://a.example/d)", "see [docs](http://a.example/d) now",
+        "[a](https://x.example)[b](https://y.example)", "[bad](javascript:alert(1))",
+        "[file](file:///C:/x)", "[upper](HTTPS://A.EXAMPLE/U)", "[mixed](HtTp://a.example)",
+        "[no scheme](a.example/x)", "[](https://a.example)", "[x]()", "[x](https://a.example/a b)",
+        "[multi\nline](https://a.example)", "[x](https://a.example/(p))", "[[x]](https://a.example)",
+        "前文[連結](https://a.example/zh)後文", "[x](https://a.example) tail", "head [x](mailto:a@b.c)",
+        "[x] (https://a.example)", "](https://a.example)", "[x](https://a.example",
+        "a [b](https://c.example/d?e=f&g=h#i) j", "😀[e](https://e.example)😀",
+        "[x](data:text/html,hi)", "[x](//a.example)", "[x](https:a.example)",
+        "[a](https://a.example) and [b](ftp://b.example)", "[x](HTTP://)", "[x](vbscript:msgbox)",
+    ]
+    links = [
+        "", "no links here", "see https://a.example/x for help", "key at https://a.example/keys.",
+        "(https://a.example/p), then", "ftp://a.example/f", "[docs](https://a.example/d) stays",
+        "至 https://a.example/keys，請檢查", "https://a.example/k。", "HTTPS://A.EXAMPLE/UP",
+        "http://a.example/?q=1&r=2#frag", "trailing punct https://a.example/x?!;:,.'",
+        "two https://a.example/1 and http://b.example/2.", "[https://a.example/l](https://a.example/l)",
+        "https://", "http://.", "https://a.example/(paren)", "https://a.example/[bracket]",
+        "x https://a.example/a'b' y", "url\nhttps://a.example/nl\nnext", "https://a.example/%E4%B8%AD",
+        "https://a.example/中文", "[x](https://a.example/m) and https://b.example/n",
+        "httpss://a.example", "mailto:a@b.c", "https://a.example/~user/@me", "Https://a.example/Mixed",
+        "😀https://a.example/e😀", "see:https://a.example/colon", "https://a.example/k\u212a",
+    ]
+    return ([{"input": {"fn": "parse_link_markup", "text": t},
+              "output": [list(s) for s in parse_link_markup(t)]} for t in markups]
+            + [{"input": {"fn": "linkify", "text": t}, "output": linkify(t)} for t in links])
+
+
+EXPORTERS["richtext"] = export_richtext
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
