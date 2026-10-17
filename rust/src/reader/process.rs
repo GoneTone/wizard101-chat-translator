@@ -68,29 +68,28 @@ unsafe extern "system" fn collect_game_window(hwnd: HWND, lparam: LPARAM) -> i32
     1
 }
 
-unsafe extern "system" fn collect_visible_game_window(hwnd: HWND, lparam: LPARAM) -> i32 {
-    let found = unsafe { &mut *(lparam as *mut Vec<isize>) };
-    let hwnd = hwnd as isize;
-    if unsafe { IsWindowVisible(hwnd as HWND) } != 0
-        && process_exe_path(window_pid(hwnd)).is_some_and(|exe| is_game_process_path(&exe))
-    {
-        found.push(hwnd);
-    }
+unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> i32 {
+    unsafe { &mut *(lparam as *mut Vec<isize>) }.push(hwnd as isize);
     1
+}
+
+/// `hwnds` 中第一個可見、且 exe 是遊戲主程式的視窗；`exe_of` 回 `None`（查詢失敗）就跳過該視窗。
+pub fn first_game_window(
+    hwnds: &[isize],
+    is_visible: impl Fn(isize) -> bool,
+    exe_of: impl Fn(isize) -> Option<String>,
+) -> Option<isize> {
+    hwnds.iter().copied().find(|&hwnd| {
+        is_visible(hwnd) && exe_of(hwnd).is_some_and(|exe| is_game_process_path(&exe))
+    })
 }
 
 /// 可見、且屬於遊戲程序的第一個頂層視窗；找不到回 `None`。
 ///
 /// 給 ⛶ 按鈕用：按下時遊戲多半不在前景，不能像熱鍵那樣讀前景視窗。
 pub fn find_game_window() -> Option<isize> {
-    let mut found = Vec::<isize>::new();
-    if unsafe {
-        EnumWindows(
-            Some(collect_visible_game_window),
-            &mut found as *mut _ as LPARAM,
-        )
-    } == 0
-    {
+    let mut hwnds = Vec::<isize>::new();
+    if unsafe { EnumWindows(Some(collect_window), &mut hwnds as *mut _ as LPARAM) } == 0 {
         // 使用者從 app.log 才分得出「遊戲沒開」與「列舉本身失敗」
         log(format!(
             "[reader] window scan failed: {}",
@@ -98,7 +97,11 @@ pub fn find_game_window() -> Option<isize> {
         ));
         return None;
     }
-    found.first().copied()
+    first_game_window(
+        &hwnds,
+        |hwnd| unsafe { IsWindowVisible(hwnd as HWND) } != 0,
+        |hwnd| process_exe_path(window_pid(hwnd)),
+    )
 }
 
 /// 目前所有遊戲客戶端的視窗 handle（以視窗類別名辨識，同 wizwalker）。
@@ -184,5 +187,32 @@ mod tests {
         assert_eq!(window_pid(0), 0);
         assert_eq!(client_size(0), None);
         assert_eq!(client_to_screen(0, 0, 0), None);
+    }
+
+    const GAME: &str = r"C:\Games\Wizard101\Bin\WizardGraphicalClient.exe";
+    const FIREFOX: &str = r"C:\Program Files\Mozilla Firefox\firefox.exe";
+
+    #[test]
+    fn find_game_window_returns_the_first_matching_visible_window() {
+        let exe = |hwnd| Some(if hwnd == 1 { FIREFOX } else { GAME }.to_owned());
+        assert_eq!(first_game_window(&[1, 2, 3], |_| true, exe), Some(2));
+    }
+
+    #[test]
+    fn find_game_window_returns_none_when_the_game_is_not_running() {
+        let exe = |_| Some(FIREFOX.to_owned());
+        assert_eq!(first_game_window(&[1, 2], |_| true, exe), None);
+    }
+
+    #[test]
+    fn find_game_window_skips_invisible_windows() {
+        let exe = |_| Some(GAME.to_owned());
+        assert_eq!(first_game_window(&[1], |_| false, exe), None);
+    }
+
+    #[test]
+    fn find_game_window_ignores_a_single_window_query_failure() {
+        let exe = |hwnd| (hwnd != 1).then(|| GAME.to_owned());
+        assert_eq!(first_game_window(&[1, 2], |_| true, exe), Some(2));
     }
 }
