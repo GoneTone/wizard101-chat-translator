@@ -1,6 +1,7 @@
 //! 低階鍵盤 hook：專屬執行緒掛 `WH_KEYBOARD_LL`，把每個按鍵事件交給分派器決定吞不吞。
 
 use std::cell::Cell;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{OnceLock, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,14 +18,19 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::input::dispatcher::{KeyEvent, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
+use crate::util::{Clock, join_until, panic_message};
 
 const VK_PACKET: u32 = 0xE7;
+const VK_LCONTROL: u32 = 0xA2;
+const VK_RMENU: u32 = 0xA5;
+const ALT_GR_SCAN: u32 = 541;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 
 static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();
 
 thread_local! {
     static INSIDE_PROCESS: Cell<bool> = const { Cell::new(false) };
+    static IGNORE_NEXT_RIGHT_ALT: Cell<bool> = const { Cell::new(false) };
 }
 
 /// 已安裝的鍵盤 hook；`uninstall` 卸除並收掉執行緒。
@@ -58,13 +64,11 @@ impl KeyboardHook {
         // SAFETY: 純 Win32 呼叫，thread_id 由 hook 執行緒自己回報。
         unsafe { PostThreadMessageW(self.thread_id, WM_QUIT, 0, 0) };
         let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-        while !self.thread.is_finished() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        if self.thread.is_finished() {
-            let _ = self.thread.join();
-        } else {
-            log("[hotkey] keyboard hook thread still running after 1.0s; continuing shutdown");
+        if !join_until(self.thread, deadline, &Clock::default()) {
+            log(format!(
+                "[hotkey] keyboard hook thread still running after {:.1}s; continuing shutdown",
+                UNINSTALL_TIMEOUT.as_secs_f64()
+            ));
         }
     }
 }
@@ -96,22 +100,39 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     if code >= 0 {
         // SAFETY: nCode >= 0 時 lParam 指向系統提供的 KBDLLHOOKSTRUCT。
         let k = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-        if let (Some(ev), Some(d)) = (
-            to_event(k.vkCode, k.scanCode, k.flags, wparam as u32),
-            DISPATCHER.get(),
-        ) {
-            let pass = INSIDE_PROCESS.with(|inside| {
-                reentrant_guard(inside, || {
-                    d.lock().unwrap_or_else(|e| e.into_inner()).process(ev)
-                })
-            });
-            if !pass {
-                return 1;
-            }
+        // panic 不可穿過 extern "system"（會直接中止程序、跳過關閉流程），出錯就放行
+        let pass = catch_unwind(AssertUnwindSafe(|| should_pass(k, wparam as u32))).unwrap_or_else(
+            |payload| {
+                log(format!(
+                    "[hotkey] error in keyboard hook: {}",
+                    panic_message(payload.as_ref())
+                ));
+                true
+            },
+        );
+        if !pass {
+            return 1;
         }
     }
     // SAFETY: 原樣轉交給下一個 hook。
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
+    let (Some(ev), Some(d)) = (
+        to_event(k.vkCode, k.scanCode, k.flags, msg),
+        DISPATCHER.get(),
+    ) else {
+        return true;
+    };
+    if IGNORE_NEXT_RIGHT_ALT.with(|ignore| is_alt_gr_echo(ignore, k.vkCode, k.scanCode)) {
+        return true;
+    }
+    INSIDE_PROCESS.with(|inside| {
+        reentrant_guard(inside, || {
+            d.lock().unwrap_or_else(|e| e.into_inner()).process(ev)
+        })
+    })
 }
 
 /// 把 hook 收到的原始欄位轉成按鍵事件；Unicode 注入、假 alt 與未知訊息回 `None`（照常放行）。
@@ -132,20 +153,33 @@ pub fn to_event(vk: u32, scan: u32, flags: u32, msg: u32) -> Option<KeyEvent> {
 
 /// handler 經 `SendInput` 注入的事件可能同步重入 hook；此時分派器的鎖還握著，直接放行以免自鎖。
 fn reentrant_guard(inside: &Cell<bool>, process: impl FnOnce() -> bool) -> bool {
+    struct Reset<'a>(&'a Cell<bool>);
+    impl Drop for Reset<'_> {
+        fn drop(&mut self) {
+            self.0.set(false);
+        }
+    }
     if inside.replace(true) {
         return true;
     }
-    let pass = process();
-    inside.set(false);
-    pass
+    let _reset = Reset(inside);
+    process()
+}
+
+/// Alt Gr 送出 scan 541 的 left ctrl 後會多一個 right alt；那個 right alt 放行但不分派（`_winkeyboard.process_key`）。
+fn is_alt_gr_echo(ignore_next_right_alt: &Cell<bool>, vk: u32, scan: u32) -> bool {
+    if vk == VK_RMENU && ignore_next_right_alt.replace(false) {
+        return true;
+    }
+    if scan == ALT_GR_SCAN && vk == VK_LCONTROL {
+        ignore_next_right_alt.set(true);
+    }
+    false
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
-    };
 
     #[test]
     fn vk_packet_events_are_ignored() {
@@ -204,5 +238,34 @@ mod tests {
         assert!(!swallowed);
         assert!(!inside.get(), "the flag is cleared after processing");
         assert!(!reentrant_guard(&inside, || false));
+    }
+
+    #[test]
+    fn guard_flag_is_cleared_when_processing_panics() {
+        let inside = Cell::new(false);
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            reentrant_guard(&inside, || std::panic::resume_unwind(Box::new(())))
+        }));
+        assert!(unwound.is_err());
+        assert!(!inside.get());
+    }
+
+    #[test]
+    fn right_alt_after_alt_gr_ctrl_is_passed_without_dispatching() {
+        let ignore = Cell::new(false);
+        assert!(
+            !is_alt_gr_echo(&ignore, 0xA2, 541),
+            "the alt gr ctrl itself is dispatched"
+        );
+        assert!(is_alt_gr_echo(&ignore, 0xA5, 56));
+        assert!(
+            !is_alt_gr_echo(&ignore, 0xA5, 56),
+            "only the next right alt is skipped"
+        );
+        assert!(
+            !is_alt_gr_echo(&ignore, 0xA2, 29),
+            "a plain left ctrl does not arm it"
+        );
+        assert!(!is_alt_gr_echo(&ignore, 0xA5, 56));
     }
 }

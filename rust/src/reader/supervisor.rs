@@ -12,14 +12,12 @@ use tokio_util::sync::CancellationToken;
 use super::run_loop::wait;
 use super::status::StatusBoard;
 use crate::logs::log;
-use crate::util::{Clock, panic_message};
+use crate::util::{Clock, join_until, panic_message};
 
 /// 列舉遊戲視窗的間隔。
 pub const SCAN_INTERVAL: Duration = Duration::from_secs(5);
 /// 關閉時等所有收訊執行緒 unhook 的總預算（全體共用，不是每條各等）。
 pub const JOIN_TIMEOUT: Duration = Duration::from_secs(8);
-/// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
-const JOIN_POLL: Duration = Duration::from_millis(10);
 
 /// 最小的未使用正整數：客戶端關掉後編號釋出，下一個新視窗補進來。
 pub fn allocate_slot(used: impl IntoIterator<Item = u32>) -> u32 {
@@ -82,19 +80,10 @@ pub fn supervise_with(
     }
     let deadline = (clock.now)() + JOIN_TIMEOUT;
     for (hwnd, slot, thread) in active {
-        loop {
-            if thread.is_finished() {
-                let _ = thread.join();
-                break;
-            }
-            let remaining = deadline.saturating_duration_since((clock.now)());
-            if remaining.is_zero() {
-                log(format!(
-                    "[reader] reader thread still alive after shutdown budget (slot={slot}, hwnd={hwnd:#x}); hooks may be left for next-launch repair"
-                ));
-                break;
-            }
-            (clock.sleep)(remaining.min(JOIN_POLL));
+        if !join_until(thread, deadline, clock) {
+            log(format!(
+                "[reader] reader thread still alive after shutdown budget (slot={slot}, hwnd={hwnd:#x}); hooks may be left for next-launch repair"
+            ));
         }
     }
 }

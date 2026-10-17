@@ -1,7 +1,11 @@
-//! 跨模組共用的小工具：可替換的時鐘與 panic 訊息擷取。
+//! 跨模組共用的小工具：可替換的時鐘、限時 join 與 panic 訊息擷取。
 
 use std::any::Any;
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+/// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
+const JOIN_POLL: Duration = Duration::from_millis(10);
 
 /// 讀取器用的時鐘；測試換成假的就不必真的等。
 pub struct Clock {
@@ -17,6 +21,21 @@ impl Default for Clock {
             now: Box::new(Instant::now),
             sleep: Box::new(std::thread::sleep),
         }
+    }
+}
+
+/// 等執行緒結束到 `deadline` 為止：結束了就 join 並回 true，逾時回 false（執行緒留著不管）。
+pub fn join_until(thread: JoinHandle<()>, deadline: Instant, clock: &Clock) -> bool {
+    loop {
+        if thread.is_finished() {
+            let _ = thread.join();
+            return true;
+        }
+        let remaining = deadline.saturating_duration_since((clock.now)());
+        if remaining.is_zero() {
+            return false;
+        }
+        (clock.sleep)(remaining.min(JOIN_POLL));
     }
 }
 

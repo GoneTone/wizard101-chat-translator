@@ -30,6 +30,7 @@ use crate::translation::gate::ConcurrencyGate;
 use crate::translation::pool::{ResultFn, TranslateFn, TranslationPool};
 use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::util::{Clock, join_until};
 
 /// 啟動摘要：回報問題時第一眼掌握環境。
 pub fn log_startup_summary(cfg: &Config) {
@@ -283,12 +284,7 @@ pub fn shutdown_steps(
     unhook_keyboard();
     if let Some(supervisor) = supervisor {
         let deadline = Instant::now() + join_budget;
-        while !supervisor.is_finished() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        if supervisor.is_finished() {
-            let _ = supervisor.join();
-        } else {
+        if !join_until(supervisor, deadline, &Clock::default()) {
             log(format!(
                 "[app] reader supervisor still running after {:.1}s; continuing shutdown",
                 join_budget.as_secs_f64()
