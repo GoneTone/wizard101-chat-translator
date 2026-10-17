@@ -231,7 +231,7 @@
    "key": "button.refresh",
    "args": {}
   },
-  "output": "重新整理"
+  "output": "更新清單"
  },
  {
   "input": {
@@ -644,7 +644,7 @@
    "key": "hint.model_idle",
    "args": {}
   },
-  "output": "按「重新整理」從伺服器取得可用模型清單；也可以自行輸入模型名稱。"
+  "output": "按「更新清單」從伺服器取得可用模型清單；也可以自行輸入模型名稱。"
  },
  {
   "input": {
@@ -1443,6 +1443,32 @@
  {
   "input": {
    "lang": "zh-TW",
+   "key": "test.connected",
+   "args": {
+    "seconds": "<seconds>"
+   }
+  },
+  "output": "連線成功（耗時 <seconds> 秒）"
+ },
+ {
+  "input": {
+   "lang": "zh-TW",
+   "key": "test.connected",
+   "args": {}
+  },
+  "output": "test.connected"
+ },
+ {
+  "input": {
+   "lang": "zh-TW",
+   "key": "test.source",
+   "args": {}
+  },
+  "output": "原文"
+ },
+ {
+  "input": {
+   "lang": "zh-TW",
    "key": "test.success",
    "args": {
     "sample": "<sample>"
@@ -1457,6 +1483,14 @@
    "args": {}
   },
   "output": "test.success"
+ },
+ {
+  "input": {
+   "lang": "zh-TW",
+   "key": "test.translation",
+   "args": {}
+  },
+  "output": "譯文"
  },
  {
   "input": {
@@ -1874,7 +1908,7 @@
    "key": "button.refresh",
    "args": {}
   },
-  "output": "Refresh"
+  "output": "Refresh list"
  },
  {
   "input": {
@@ -2287,7 +2321,7 @@
    "key": "hint.model_idle",
    "args": {}
   },
-  "output": "Click Refresh to fetch the model list from the server, or type a model name yourself."
+  "output": "Click Refresh list to fetch the model list from the server, or type a model name yourself."
  },
  {
   "input": {
@@ -3086,6 +3120,32 @@
  {
   "input": {
    "lang": "en-US",
+   "key": "test.connected",
+   "args": {
+    "seconds": "<seconds>"
+   }
+  },
+  "output": "Connected (<seconds>s)"
+ },
+ {
+  "input": {
+   "lang": "en-US",
+   "key": "test.connected",
+   "args": {}
+  },
+  "output": "test.connected"
+ },
+ {
+  "input": {
+   "lang": "en-US",
+   "key": "test.source",
+   "args": {}
+  },
+  "output": "Source"
+ },
+ {
+  "input": {
+   "lang": "en-US",
    "key": "test.success",
    "args": {
     "sample": "<sample>"
@@ -3100,6 +3160,14 @@
    "args": {}
   },
   "output": "test.success"
+ },
+ {
+  "input": {
+   "lang": "en-US",
+   "key": "test.translation",
+   "args": {}
+  },
+  "output": "Translation"
  },
  {
   "input": {
@@ -3517,7 +3585,7 @@
    "key": "button.refresh",
    "args": {}
   },
-  "output": "刷新"
+  "output": "刷新列表"
  },
  {
   "input": {
@@ -3930,7 +3998,7 @@
    "key": "hint.model_idle",
    "args": {}
   },
-  "output": "点“刷新”从服务器获取可用模型列表；也可以自行输入模型名称。"
+  "output": "点“刷新列表”从服务器获取可用模型列表；也可以自行输入模型名称。"
  },
  {
   "input": {
@@ -4729,6 +4797,32 @@
  {
   "input": {
    "lang": "zh-CN",
+   "key": "test.connected",
+   "args": {
+    "seconds": "<seconds>"
+   }
+  },
+  "output": "连接成功（耗时 <seconds> 秒）"
+ },
+ {
+  "input": {
+   "lang": "zh-CN",
+   "key": "test.connected",
+   "args": {}
+  },
+  "output": "test.connected"
+ },
+ {
+  "input": {
+   "lang": "zh-CN",
+   "key": "test.source",
+   "args": {}
+  },
+  "output": "原文"
+ },
+ {
+  "input": {
+   "lang": "zh-CN",
    "key": "test.success",
    "args": {
     "sample": "<sample>"
@@ -4743,6 +4837,14 @@
    "args": {}
   },
   "output": "test.success"
+ },
+ {
+  "input": {
+   "lang": "zh-CN",
+   "key": "test.translation",
+   "args": {}
+  },
+  "output": "译文"
  },
  {
   "input": {
@@ -5160,7 +5262,7 @@
    "key": "button.refresh",
    "args": {}
   },
-  "output": "Refresh"
+  "output": "Refresh list"
  },
  {
   "input": {
@@ -5573,7 +5675,7 @@
    "key": "hint.model_idle",
    "args": {}
   },
-  "output": "Click Refresh to fetch the model list from the server, or type a model name yourself."
+  "output": "Click Refresh list to fetch the model list from the server, or type a model name yourself."
  },
  {
   "input": {
@@ -6372,6 +6474,32 @@
  {
   "input": {
    "lang": "ja-JP",
+   "key": "test.connected",
+   "args": {
+    "seconds": "<seconds>"
+   }
+  },
+  "output": "Connected (<seconds>s)"
+ },
+ {
+  "input": {
+   "lang": "ja-JP",
+   "key": "test.connected",
+   "args": {}
+  },
+  "output": "test.connected"
+ },
+ {
+  "input": {
+   "lang": "ja-JP",
+   "key": "test.source",
+   "args": {}
+  },
+  "output": "Source"
+ },
+ {
+  "input": {
+   "lang": "ja-JP",
    "key": "test.success",
    "args": {
     "sample": "<sample>"
@@ -6386,6 +6514,14 @@
    "args": {}
   },
   "output": "test.success"
+ },
+ {
+  "input": {
+   "lang": "ja-JP",
+   "key": "test.translation",
+   "args": {}
+  },
+  "output": "Translation"
  },
  {
   "input": {

@@ -1,4 +1,4 @@
-//! 設定介面的輸入欄位：可自行輸入的下拉與帶 −／＋ 的數值欄。
+//! 設定介面的輸入欄位：單行輸入框、金鑰欄、可自行輸入的下拉與帶 −／＋ 的數值欄。
 
 use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::text_edit::TextEditState;
@@ -9,7 +9,7 @@ use eframe::egui::{
 
 use crate::py::pystr;
 use crate::ui::settings::theme::{self, icon};
-use crate::ui::settings::widgets::{filter_models, focus_ring, name_by_row};
+use crate::ui::settings::widgets::{filter_models, focus_ring, icon_button, name_by_row};
 
 /// 消耗沒按修飾鍵的 `key`，回傳按了幾次。
 fn consume_unmodified(input: &mut InputState, key: Key) -> usize {
@@ -68,17 +68,7 @@ pub fn editable_combo(
         });
     }
 
-    let (rect, _) = ui.allocate_exact_size(
-        vec2(ui.spacing().combo_width, theme::CONTROL_HEIGHT),
-        Sense::hover(),
-    );
-    ui.painter().rect(
-        rect,
-        theme::CONTROL_RADIUS,
-        theme::CONTROL_BG,
-        Stroke::new(1.0, theme::CONTROL_BORDER),
-        StrokeKind::Inside,
-    );
+    let rect = control_box(ui, ui.spacing().combo_width);
     let chevron_rect = Rect::from_min_max(pos2(rect.right() - 28.0, rect.top()), rect.max);
     let edit_rect = Rect::from_min_max(
         pos2(rect.left() + 10.0, rect.top()),
@@ -185,6 +175,66 @@ pub fn editable_combo(
     response
 }
 
+/// 單行輸入框，寬度占滿；`password` 時以圓點遮住。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
+pub fn text_field(ui: &mut Ui, text: &mut String, password: bool) -> Response {
+    let rect = control_box(ui, ui.available_width());
+    let response = boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, password);
+    underline(ui, rect, response.has_focus());
+    response
+}
+
+/// 預設遮住的金鑰欄：框內右側的眼睛鈕切換 `revealed`，`tooltip` 是它的提示與無障礙名稱。
+///
+/// 不在 `setting_row` 裡時，呼叫端要對回傳值命名。
+pub fn secret_field(
+    ui: &mut Ui,
+    text: &mut String,
+    revealed: &mut bool,
+    tooltip: &str,
+) -> Response {
+    let rect = control_box(ui, ui.available_width());
+    let eye = Rect::from_min_max(
+        pos2(rect.right() - theme::CONTROL_HEIGHT, rect.top()),
+        rect.max,
+    );
+    let edit_rect = Rect::from_min_max(pos2(rect.left() + 10.0, rect.top()), eye.left_bottom());
+    let response = boxed_edit(ui, edit_rect, text, !*revealed);
+    if ui
+        .put(eye, |ui: &mut Ui| icon_button(ui, icon::SHOW_KEY, tooltip))
+        .clicked()
+    {
+        *revealed = !*revealed;
+    }
+    underline(ui, rect, response.has_focus());
+    response
+}
+
+/// 控制項的底：配置 `width`×控制項高，畫底色與外框。
+fn control_box(ui: &mut Ui, width: f32) -> Rect {
+    let (rect, _) = ui.allocate_exact_size(vec2(width, theme::CONTROL_HEIGHT), Sense::hover());
+    ui.painter().rect(
+        rect,
+        theme::CONTROL_RADIUS,
+        theme::CONTROL_BG,
+        Stroke::new(1.0, theme::CONTROL_BORDER),
+        StrokeKind::Inside,
+    );
+    rect
+}
+
+/// 放在控制項底上的無框輸入框，占滿 `rect`。
+fn boxed_edit(ui: &mut Ui, rect: Rect, text: &mut String, password: bool) -> Response {
+    let response = ui.put(
+        rect,
+        TextEdit::singleline(text)
+            .password(password)
+            .desired_width(f32::INFINITY)
+            .frame(Frame::NONE)
+            .align(Align2::LEFT_CENTER),
+    );
+    name_by_row(ui, response)
+}
+
 /// 輸入框底線：聚焦時 2 寬 `ACCENT`，否則 1 寬 `CONTROL_UNDERLINE`。
 fn underline(ui: &Ui, rect: Rect, focused: bool) {
     let (width, color) = if focused {
@@ -208,28 +258,12 @@ fn decimals(step: f64) -> usize {
 pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)) -> Response {
     let (min, max) = range;
     let button_width = 30.0;
-    let (rect, _) = ui.allocate_exact_size(
-        vec2(theme::NUMBER_WIDTH, theme::CONTROL_HEIGHT),
-        Sense::hover(),
-    );
-    ui.painter().rect(
-        rect,
-        theme::CONTROL_RADIUS,
-        theme::CONTROL_BG,
-        Stroke::new(1.0, theme::CONTROL_BORDER),
-        StrokeKind::Inside,
-    );
+    let rect = control_box(ui, theme::NUMBER_WIDTH);
     let edit_rect = Rect::from_min_max(
         pos2(rect.left() + 10.0, rect.top()),
         pos2(rect.right() - 2.0 * button_width, rect.bottom()),
     );
-    let mut response = ui.put(
-        edit_rect,
-        TextEdit::singleline(text)
-            .frame(Frame::NONE)
-            .align(Align2::LEFT_CENTER),
-    );
-    response = name_by_row(ui, response);
+    let mut response = boxed_edit(ui, edit_rect, text, false);
     let buttons = [(icon::DECREASE, "−", -step), (icon::INCREASE, "+", step)];
     for (i, (glyph, label, delta)) in buttons.into_iter().enumerate() {
         let left = rect.right() - (2 - i) as f32 * button_width;

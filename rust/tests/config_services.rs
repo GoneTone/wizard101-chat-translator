@@ -62,6 +62,16 @@ fn short_names_are_brands_except_the_custom_endpoint() {
 }
 
 #[test]
+fn provider_labels_are_translated() {
+    let _guard = language_lock();
+    let label = provider("custom").unwrap().label_key;
+    i18n::set_language("en-US");
+    assert_eq!(i18n::t(label, &[]), "Custom endpoint (OpenAI-compatible)");
+    i18n::set_language("zh-CN");
+    assert_eq!(i18n::t(label, &[]), "自定义端点（OpenAI API 兼容）");
+}
+
+#[test]
 fn every_provider_label_and_description_resolve() {
     let _guard = language_lock();
     i18n::set_language("zh-TW");

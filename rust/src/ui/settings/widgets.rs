@@ -51,7 +51,7 @@ pub(super) fn name_by_row(ui: &Ui, response: Response) -> Response {
 }
 
 /// 用 `richtext::show` 顯示一段可含連結的文字，字級 `size`。
-fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
+pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     ui.scope(|ui| {
         ui.style_mut().override_font_id = Some(FontId::proportional(size));
         richtext::show(ui, text, color);
@@ -209,6 +209,19 @@ pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
 /// 次要按鈕：控制項底色加外框。
 pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
     styled_button(ui, text, None)
+}
+
+/// 次要按鈕，文字前有一個圖示；無障礙名稱只取文字。
+pub fn secondary_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
+    let atoms = (RichText::new(glyph).font(theme::icons(12.0)), text);
+    let response = ui.add(
+        Button::new(atoms)
+            .corner_radius(theme::CONTROL_RADIUS)
+            .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
+    );
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    response
 }
 
 /// 危險操作（刪除確認）按鈕：`DANGER` 底。

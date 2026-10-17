@@ -2,5 +2,6 @@
 
 pub mod env;
 pub mod fields;
+pub mod service_form;
 pub mod theme;
 pub mod widgets;

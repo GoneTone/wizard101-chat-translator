@@ -45,6 +45,14 @@ impl Provider {
         self.has_field("base_url")
     }
 
+    /// 該家的欄位與預設值，依欄位表順序。
+    pub fn defaults(&self) -> Map<String, Value> {
+        self.fields
+            .iter()
+            .map(|(k, f)| ((*k).to_string(), f.to_value()))
+            .collect()
+    }
+
     /// 新建服務時的預設名稱；品牌名不進語言檔，只有自訂端點要翻譯。
     pub fn short_name(&self) -> String {
         self.brand.map_or_else(
@@ -219,7 +227,8 @@ impl fmt::Debug for ServiceSpec {
 }
 
 impl ServiceSpec {
-    fn from_service(service: &Value) -> Self {
+    /// 從一筆服務（或去掉 id、名稱的 API 欄位）建立；缺的欄位取空字串或 `false`。
+    pub fn from_service(service: &Value) -> Self {
         let text = |k: &str| str_field(service, k).to_owned();
         ServiceSpec {
             id: text("id"),
@@ -283,18 +292,11 @@ pub fn resolve(cfg: &Config, slot: ServiceSlot) -> ServiceSpec {
         Some(service) => ServiceSpec::from_service(service),
         None => {
             let fallback = &PROVIDERS[0];
-            let mut blank = defaults(fallback);
+            let mut blank = fallback.defaults();
             blank.insert("provider".into(), fallback.key.into());
             ServiceSpec::from_service(&Value::Object(blank))
         }
     }
-}
-
-fn defaults(p: &Provider) -> Map<String, Value> {
-    p.fields
-        .iter()
-        .map(|(k, f)| ((*k).to_string(), f.to_value()))
-        .collect()
 }
 
 fn ids_and_names<'a>(services: &'a [Value], key: &str) -> impl Iterator<Item = &'a str> {
@@ -357,7 +359,7 @@ fn service_map(p: &Provider, services: &[Value]) -> Map<String, Value> {
         unique_name(&p.short_name(), services, None).into(),
     );
     service.insert("provider".into(), p.key.into());
-    service.extend(defaults(p));
+    service.extend(p.defaults());
     service
 }
 
