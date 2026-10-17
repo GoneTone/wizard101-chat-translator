@@ -29,6 +29,8 @@ use crate::translation::pyrepr::repr_str;
 
 /// 遊戲聊天輸入區容器：開啟輸入時帶 VISIBLE 旗標（實測）。
 pub const INPUT_CONTAINER: &str = "chatEditContainer";
+/// 輸入框往上找父節點的層數上限（實機只有 4 層）。
+const MAX_PARENT_DEPTH: usize = 64;
 /// exe 的偏好載入位址：log 把跳轉點換算回靜態位址，才對得上反組譯。
 const IMAGE_BASE: u64 = 0x1_4000_0000;
 /// 等 root window hook 第一次被執行的上限；逾時視為 hook 與遊戲版本對不上。
@@ -529,6 +531,12 @@ impl WizChatReader {
         let mut offsets = vec![(rect.x1, rect.y1)];
         let mut current = node;
         while let Some(parent) = current.parent(mem).map_err(mem_error)? {
+            // 讀到撕裂的父指標可能成環；沒有上限的話 reader 執行緒會卡死、關閉時 join 不回來
+            if offsets.len() > MAX_PARENT_DEPTH {
+                return Err(format!(
+                    "error: window parent chain deeper than {MAX_PARENT_DEPTH}"
+                ));
+            }
             let rect = parent.rect(mem).map_err(mem_error)?;
             offsets.push((rect.x1, rect.y1));
             current = parent;

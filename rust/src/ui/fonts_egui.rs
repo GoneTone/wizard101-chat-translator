@@ -1,9 +1,10 @@
 //! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型與符號字型當 fallback。
 
+use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 use std::os::windows::io::AsRawHandle;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -16,7 +17,6 @@ use windows_sys::Win32::System::Memory::{
 use crate::logs::log;
 use crate::ui::fonts::font_family;
 
-const FONTS_DIR: &str = r"C:\Windows\Fonts";
 /// CJK 字型檔，依 fallback 順序排列。
 const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf"];
 /// 最後的 fallback：⛶⚙─✕ 等符號。
@@ -46,15 +46,22 @@ pub fn font_files(language_code: &str) -> Vec<&'static str> {
     files
 }
 
+/// 系統字型資料夾：`%WINDIR%\Fonts`（Windows 不一定裝在 C 槽），讀不到環境變數才用 `C:\Windows`。
+fn fonts_dir(windir: Option<OsString>) -> PathBuf {
+    windir
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
+        .join("Fonts")
+}
+
 /// Tk 的字級（pt）換成 egui 的 point（DIP）。
 pub fn tk_pt(pt: f32) -> f32 {
     pt * 96.0 / 72.0
 }
 
-/// 從 `C:\Windows\Fonts` 載入介面字型；讀不到的檔案略過並記 log。
+/// 從系統字型資料夾載入介面字型；讀不到的檔案略過並記 log。
 pub fn install(ctx: &Context, language_code: &str) {
     let started = Instant::now();
-    install_from(ctx, Path::new(FONTS_DIR), language_code);
+    install_from(ctx, &fonts_dir(std::env::var_os("WINDIR")), language_code);
     log(format!(
         "[ui] fonts installed in {} ms",
         started.elapsed().as_millis()
@@ -164,9 +171,19 @@ mod tests {
 
     #[test]
     fn mapped_file_matches_its_bytes() {
-        let path = Path::new(FONTS_DIR).join("segoeui.ttf");
+        let dir = fonts_dir(std::env::var_os("WINDIR"));
+        let path = dir.join("segoeui.ttf");
         assert_eq!(map_file(&path).unwrap(), std::fs::read(&path).unwrap());
-        assert!(map_file(&Path::new(FONTS_DIR).join("no-such-font.ttf")).is_err());
+        assert!(map_file(&dir.join("no-such-font.ttf")).is_err());
+    }
+
+    #[test]
+    fn fonts_dir_follows_windir() {
+        assert_eq!(
+            fonts_dir(Some(r"D:\WINNT".into())),
+            Path::new(r"D:\WINNT\Fonts")
+        );
+        assert_eq!(fonts_dir(None), Path::new(r"C:\Windows\Fonts"));
     }
 
     #[test]

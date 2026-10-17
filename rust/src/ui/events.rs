@@ -1,7 +1,7 @@
 //! 收訊與翻譯執行緒送往 UI 執行緒的事件；UI 執行緒依序取出套用到 overlay。
 
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
 use crate::reader::chat_tabs::TabState;
 
@@ -44,13 +44,23 @@ pub enum UiEvent {
 pub struct UiPoster {
     tx: Sender<UiEvent>,
     repaint: Arc<dyn Fn() + Send + Sync>,
+    /// 所有投遞端共用的「最後送出的前景客戶端」（`None`＝還沒送過）。
+    foreground: Arc<Mutex<Option<Option<u32>>>>,
 }
 
 impl UiPoster {
     /// 建立投遞端與 UI 執行緒的接收端；`repaint` 在每次投遞後呼叫。
     pub fn new(repaint: Arc<dyn Fn() + Send + Sync>) -> (Self, Receiver<UiEvent>) {
         let (tx, rx) = mpsc::channel();
-        (Self { tx, repaint }, rx)
+        let foreground = Arc::default();
+        (
+            Self {
+                tx,
+                repaint,
+                foreground,
+            },
+            rx,
+        )
     }
 
     /// 測試用：不重繪，事件留在回傳的接收端。
@@ -59,8 +69,56 @@ impl UiPoster {
     }
 
     /// 投遞一則事件；UI 已關閉（接收端不在）時丟棄。
+    ///
+    /// 前景客戶端與上一次（任一投遞端）送出的相同時直接略過：overlay 套用後不會變，免得遊戲在前景時每 400ms 整窗重繪。
     pub fn post(&self, event: UiEvent) {
-        let _ = self.tx.send(event);
+        if let UiEvent::SetForegroundSlot(slot) = event {
+            // 鎖住到送出為止，兩條 reader 執行緒的送出順序才與記下的值一致
+            let mut last = self.foreground.lock().unwrap_or_else(|e| e.into_inner());
+            if *last == Some(slot) {
+                return;
+            }
+            *last = Some(slot);
+            let _ = self.tx.send(event);
+        } else {
+            let _ = self.tx.send(event);
+        }
         (self.repaint)();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn repeated_foreground_slot_neither_queues_nor_repaints() {
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&wakes);
+        let (a, rx) = UiPoster::new(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }));
+        let b = a.clone();
+        for (poster, slot) in [(&a, 1), (&a, 1), (&b, 2), (&a, 1), (&a, 1)] {
+            poster.post(UiEvent::SetForegroundSlot(Some(slot)));
+        }
+        b.post(UiEvent::SetForegroundSlot(None));
+        a.post(UiEvent::SetStatus("ready"));
+        a.post(UiEvent::SetStatus("ready"));
+        let got: Vec<UiEvent> = rx.try_iter().collect();
+        assert_eq!(
+            got,
+            [
+                UiEvent::SetForegroundSlot(Some(1)),
+                UiEvent::SetForegroundSlot(Some(2)),
+                UiEvent::SetForegroundSlot(Some(1)),
+                UiEvent::SetForegroundSlot(None),
+                UiEvent::SetStatus("ready"),
+                UiEvent::SetStatus("ready"),
+            ]
+        );
+        assert_eq!(wakes.load(Ordering::SeqCst), got.len());
     }
 }

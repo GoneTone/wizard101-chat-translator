@@ -1408,6 +1408,23 @@ fn input_box_screen_rect_none_when_node_read_fails() {
 }
 
 #[test]
+fn input_box_screen_rect_none_when_the_parent_chain_cycles() {
+    let g = input_game([0, 0, 1370, 770]);
+    g.mem.set_bytes(EDIT + 0x88, &EDIT.to_le_bytes());
+    let mut r = g.connected(405);
+    assert_eq!(r.input_box_screen_rect(), None);
+    assert_eq!(
+        logged(
+            405,
+            "[reader] game chat input rect unavailable (slot=405): error: window parent chain \
+             deeper than 64"
+        )
+        .len(),
+        1
+    );
+}
+
+#[test]
 fn input_box_screen_rect_none_for_a_degenerate_root() {
     let g = input_game([0, 0, 0, 770]);
     let mut r = g.connected(404);

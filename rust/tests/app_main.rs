@@ -266,3 +266,23 @@ fn second_instance_focuses_and_exits() {
         "the first instance focuses nothing"
     );
 }
+
+#[test]
+fn exe_embeds_the_app_icon_resource() {
+    use windows_sys::Win32::UI::Shell::ExtractIconExW;
+    // Windows 11 工作列讀的是 exe 資源裡的圖示，不是執行期設到視窗上的那一份
+    let exe: Vec<u16> = env!("CARGO_BIN_EXE_Wizard101ChatTranslator")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let count = unsafe {
+        ExtractIconExW(
+            exe.as_ptr(),
+            -1,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    assert_eq!(count, 1);
+}

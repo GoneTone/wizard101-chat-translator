@@ -827,17 +827,34 @@ fn tab_state_is_cleared_when_the_game_goes_away() {
 fn foreground_slot_posted_on_each_full_sample() {
     // 每次完整取樣都送（不只在變成前景的邊緣）：兩條執行緒錯開時快速 A→B→A 才不會停在 B
     let mut s = Setup::new();
-    s.foreground = Box::new(|| 0x1);
+    // 另一條 reader 在每次取樣之間把前景送成客戶端 2
+    let other = s.ui.clone();
+    s.foreground = Box::new(move || {
+        other.post(UiEvent::SetForegroundSlot(Some(2)));
+        0x1
+    });
     // 每輪 POLL_INTERVAL，完整取樣每 TAB_POLL_INTERVAL 一次：第 0、4、8 輪
     let events = s.run(empty(9));
     assert_eq!(s.probe.lock().unwrap().tab_reads, 3);
-    assert_eq!(foreground_events(&events), [Some(1), Some(1), Some(1)]);
+    let ours: Vec<_> = foreground_events(&events)
+        .into_iter()
+        .filter(|slot| *slot == Some(1))
+        .collect();
+    assert_eq!(ours, [Some(1), Some(1), Some(1)]);
     // 取樣當下不在前景就不送
     let mut s = Setup::new();
+    let other = s.ui.clone();
     let mut seq = [0x1, 0x9, 0x1].into_iter();
-    s.foreground = Box::new(move || seq.next().unwrap_or(0));
+    s.foreground = Box::new(move || {
+        other.post(UiEvent::SetForegroundSlot(Some(2)));
+        seq.next().unwrap_or(0)
+    });
     let events = s.run(empty(9));
-    assert_eq!(foreground_events(&events), [Some(1), Some(1)]);
+    let ours: Vec<_> = foreground_events(&events)
+        .into_iter()
+        .filter(|slot| *slot == Some(1))
+        .collect();
+    assert_eq!(ours, [Some(1), Some(1)]);
 }
 
 #[test]

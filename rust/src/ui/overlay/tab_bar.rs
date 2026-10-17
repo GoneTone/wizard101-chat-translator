@@ -1,6 +1,6 @@
 //! overlay 標題列下方的分頁列：照抄遊戲聊天分頁按鈕的文字，高亮目前分頁，不可點擊。
 
-use eframe::egui::{self, FontId, Label, RichText, Ui, Vec2};
+use eframe::egui::{self, FontId, Label, RichText, TextWrapMode, Ui, Vec2};
 
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::palette::{TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE};
@@ -25,7 +25,11 @@ pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>) {
                     let label = RichText::new(text)
                         .font(FontId::proportional(tk_pt(8.0)))
                         .color(color);
-                    let width = ui.add(Label::new(label).selectable(false)).rect.width();
+                    // 窄 overlay 也不換行：換行會把整列撐高、擠掉訊息清單
+                    let label = Label::new(label)
+                        .selectable(false)
+                        .wrap_mode(TextWrapMode::Extend);
+                    let width = ui.add(label).rect.width();
                     let (_, line) = ui.allocate_space(Vec2::new(width, ACCENT_HEIGHT));
                     if active {
                         ui.painter().rect_filled(line, 0.0, TAB_ACCENT);
@@ -45,8 +49,16 @@ mod tests {
     use crate::ui::fonts_egui;
 
     fn harness(tabs: Vec<(i32, String)>, current: Option<i32>) -> Harness<'static> {
+        harness_of_width(300.0, tabs, current)
+    }
+
+    fn harness_of_width(
+        width: f32,
+        tabs: Vec<(i32, String)>,
+        current: Option<i32>,
+    ) -> Harness<'static> {
         let mut harness = Harness::builder()
-            .with_size(Vec2::new(300.0, 60.0))
+            .with_size(Vec2::new(width, 60.0))
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
             .build_ui(move |ui| show(ui, &tabs, current));
         harness.step();
@@ -66,6 +78,23 @@ mod tests {
         let bar = harness(tabs(), Some(1));
         for label in ["Main", "Group", "Room(1)"] {
             bar.get_by_label(label);
+        }
+    }
+
+    #[test]
+    fn labels_stay_on_one_line_in_a_narrow_overlay() {
+        let long = vec![
+            (0, "Main Channel".to_owned()),
+            (1, "Group Channel".to_owned()),
+        ];
+        let wide = harness_of_width(400.0, long.clone(), Some(0));
+        let narrow = harness_of_width(40.0, long, Some(0));
+        for label in ["Main Channel", "Group Channel"] {
+            assert_eq!(
+                narrow.get_by_label(label).rect().height(),
+                wide.get_by_label(label).rect().height(),
+                "{label}"
+            );
         }
     }
 

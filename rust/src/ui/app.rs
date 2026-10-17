@@ -13,6 +13,7 @@ use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 use crate::config::app_name;
 use crate::i18n::current_language;
 use crate::logs::log;
+use crate::runtime::resources::icon_png;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
 use crate::ui::overlay::banners::Banners;
@@ -63,6 +64,7 @@ pub struct App {
     bubble: Option<Bubble>,
     bubble_position: (Option<i32>, Option<i32>),
     on_bubble_move: Box<dyn FnMut(i32, i32)>,
+    on_close: Option<Box<dyn FnOnce()>>,
 }
 
 impl App {
@@ -85,6 +87,7 @@ impl App {
             bubble: None,
             bubble_position: (None, None),
             on_bubble_move: Box::new(|_, _| {}),
+            on_close: None,
         }
     }
 
@@ -96,6 +99,14 @@ impl App {
     ) -> Self {
         self.bubble_position = saved;
         self.on_bubble_move = Box::new(on_move);
+        self
+    }
+
+    /// 根視窗收到關閉要求（✕、Alt+F4、工作列）時、在 eframe 銷毀視窗之前呼叫 `on_close` 一次。
+    ///
+    /// 關閉流程在這裡跑，視窗就留到 reader 卸完 hook：期間重開的第二份還找得到它並喚起。
+    pub fn with_on_close(mut self, on_close: impl FnOnce() + 'static) -> Self {
+        self.on_close = Some(Box::new(on_close));
         self
     }
 
@@ -275,6 +286,11 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if ctx.input(|i| i.viewport().close_requested())
+            && let Some(on_close) = self.on_close.take()
+        {
+            on_close();
+        }
         while let Ok(event) = self.rx.try_recv() {
             self.apply(event);
         }
@@ -348,7 +364,12 @@ pub fn native_options() -> NativeOptions {
             .with_transparent(true)
             .with_always_on_top()
             .with_taskbar(true)
-            .with_active(false),
+            .with_active(false)
+            // 不給的話 eframe 會裝上 egui 標誌；泡泡 viewport 沿用根 viewport 的 icon
+            .with_icon(Arc::new(
+                eframe::icon_data::from_png_bytes(icon_png(48))
+                    .expect("embedded icon is a valid PNG"),
+            )),
         wgpu_options,
         ..Default::default()
     }
@@ -682,6 +703,16 @@ mod tests {
         }
     }
 
+    #[test]
+    fn root_viewport_carries_the_app_icon() {
+        // 沒給 icon 時 eframe 會換上 egui 標誌；泡泡沿用根 viewport 的這一份
+        for native in [native_options(), warp_options()] {
+            let icon = native.viewport.icon.expect("root viewport has an icon");
+            assert_eq!((icon.width, icon.height), (48, 48));
+            assert_ne!(*icon, egui::IconData::default());
+        }
+    }
+
     fn app_harness(inbox: Inbox) -> Harness<'static, App> {
         Harness::new_eframe(|cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
@@ -743,6 +774,31 @@ mod tests {
         harness.step();
         let commands = &harness.output().viewport_output[&ViewportId::ROOT].commands;
         assert!(commands.contains(&ViewportCommand::Close), "{commands:?}");
+    }
+
+    #[test]
+    fn close_request_runs_on_close_once_before_the_window_goes() {
+        let (_poster, inbox) = channel();
+        let closes = Rc::new(RefCell::new(0));
+        let count = Rc::clone(&closes);
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+                .with_on_close(move || *count.borrow_mut() += 1)
+        });
+        harness.step();
+        assert_eq!(*closes.borrow(), 0);
+        for _ in 0..2 {
+            harness
+                .input_mut()
+                .viewports
+                .entry(ViewportId::ROOT)
+                .or_default()
+                .events
+                .push(egui::ViewportEvent::Close);
+            harness.step();
+        }
+        assert_eq!(*closes.borrow(), 1);
     }
 
     #[test]

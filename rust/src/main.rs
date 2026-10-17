@@ -1,6 +1,8 @@
 //! Wizard101 聊天翻譯器的程式進入點：收訊（supervisor 執行緒）＋翻譯（tokio）＋ overlay（eframe 主迴圈）。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
 use serde_json::json;
@@ -57,7 +59,14 @@ fn main() {
     let region_hotkey = cfg["region_hotkey"].as_str().unwrap_or_default().to_owned();
     let shared_cfg = Arc::new(RwLock::new(cfg));
     let (poster, inbox) = app::channel();
-    let running = build_app(Arc::clone(&shared_cfg), rt.handle(), poster, messages);
+    // 關閉流程只跑一次：正常關閉在視窗還在時由 App 觸發，UI 意外結束（panic、錯誤）才由 run_ui_then 補跑
+    let running = Rc::new(RefCell::new(Some(build_app(
+        Arc::clone(&shared_cfg),
+        rt.handle(),
+        poster,
+        messages,
+    ))));
+    let closing = Rc::clone(&running);
     log(format!(
         "[app] running; hotkey={hotkey} opens the input box, region_hotkey={region_hotkey} starts region translation; quit via the overlay ✕"
     ));
@@ -73,17 +82,20 @@ fn main() {
                     save_field(&geometry_cfg, &config_path(), "overlay", value);
                 },
             );
-            let mut app = App::new(ctx, inbox, frame).with_bubble_position(
-                settings.bubble_position,
-                move |x, y| {
+            let mut app = App::new(ctx, inbox, frame)
+                .with_bubble_position(settings.bubble_position, move |x, y| {
                     save_field(
                         &shared_cfg,
                         &config_path(),
                         "bubble_position",
                         json!({"x": x, "y": y}),
                     )
-                },
-            );
+                })
+                .with_on_close(move || {
+                    if let Some(running) = closing.borrow_mut().take() {
+                        shutdown(running)
+                    }
+                });
             app.set_limits(settings.max_messages, settings.fade_seconds.into());
             app.set_region_hotkey(&region_hotkey);
             app
@@ -92,5 +104,9 @@ fn main() {
             log(format!("[ui] overlay exited with an error: {e}"));
         }
     };
-    run_ui_then(ui, || shutdown(running));
+    run_ui_then(ui, || {
+        if let Some(running) = running.borrow_mut().take() {
+            shutdown(running)
+        }
+    });
 }
