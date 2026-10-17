@@ -4,6 +4,8 @@
 
 mod common;
 
+use std::sync::{Mutex, MutexGuard};
+
 use eframe::egui::accesskit::{Role, Toggled};
 use eframe::egui::{self, OutputCommand, Rect, Ui};
 use egui_kittest::Harness;
@@ -345,14 +347,97 @@ fn the_footer_stays_visible_in_a_small_window() {
 
 // --- 儲存 ---
 
+/// 設定視窗管的鍵；儲存只送這些，由 App 併進目前共用的設定。
+const OWNED_KEYS: [&str; 15] = [
+    "services",
+    "default_service",
+    "service_slots",
+    "target_language",
+    "hotkey",
+    "region_hotkey",
+    "auto_show_input",
+    "paste_hotkey",
+    "translate_system_messages",
+    "fade_seconds",
+    "max_messages",
+    "max_parallel_translations",
+    "type_delay",
+    "overlay_alpha",
+    "ui_language",
+];
+
 #[test]
-fn saving_an_unchanged_window_sends_the_config_with_the_ui_language() {
+fn saving_an_unchanged_window_sends_its_own_keys_with_the_ui_language() {
     let cfg = configured_cfg();
     let mut h = harness(cfg.clone());
     let saved = save(&mut h).expect("saved");
     let mut expected = cfg;
     expected.insert("ui_language".into(), json!(LANGUAGE));
+    expected.retain(|key, _| OWNED_KEYS.contains(&key.as_str()));
     assert_eq!(saved, expected);
+}
+
+#[test]
+fn save_carries_only_the_keys_the_window_owns() {
+    // overlay 位置等鍵在設定視窗開著時仍會被別處改寫，送開窗時的舊值會把它們蓋回去
+    let mut cfg = configured_cfg();
+    cfg.insert("unknown_key".into(), json!("kept elsewhere"));
+    let mut h = harness(cfg);
+    let saved = save(&mut h).unwrap();
+    let mut keys: Vec<&str> = saved.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    let mut owned = OWNED_KEYS.to_vec();
+    owned.sort_unstable();
+    assert_eq!(keys, owned);
+    for foreign in [
+        "overlay",
+        "bubble_position",
+        "config_version",
+        "unknown_key",
+    ] {
+        assert!(!saved.contains_key(foreign), "{foreign} must not be saved");
+    }
+}
+
+#[test]
+fn unknown_service_slot_keys_survive_a_save() {
+    let mut cfg = configured_cfg();
+    cfg["service_slots"]["future_slot"] = json!("x");
+    let mut h = harness(cfg);
+    assert_eq!(
+        save(&mut h).unwrap()["service_slots"]["future_slot"],
+        json!("x")
+    );
+}
+
+#[test]
+fn toggles_follow_python_truthiness() {
+    // 手改設定檔寫成 1／0 也要照 Python 的真值顯示
+    let mut cfg = configured_cfg();
+    cfg.insert("translate_system_messages".into(), json!(1));
+    cfg.insert("paste_hotkey".into(), json!(0));
+    let mut h = harness(cfg);
+    let label = tr("field.paste_hotkey");
+    let paste = h.get_by_label(&label).accesskit_node().toggled();
+    assert_eq!(paste, Some(Toggled::False));
+    go(&mut h, "settings.tab.advanced");
+    let label = tr("field.translate_system");
+    let system = h.get_by_label(&label).accesskit_node().toggled();
+    assert_eq!(system, Some(Toggled::True));
+    let saved = save(&mut h).unwrap();
+    assert_eq!(saved["translate_system_messages"], json!(true));
+    assert_eq!(saved["paste_hotkey"], json!(false));
+}
+
+#[test]
+fn a_missing_alpha_falls_back_to_the_default() {
+    let mut cfg = configured_cfg();
+    cfg.insert("overlay_alpha".into(), json!(null));
+    let mut h = harness(cfg);
+    assert_eq!(
+        save(&mut h).unwrap()["overlay_alpha"],
+        default_config()["overlay_alpha"]
+    );
 }
 
 #[test]
@@ -692,6 +777,8 @@ fn about_tab_shows_version_and_links() {
         h.get_by_role_and_label(Role::Link, url.trim_start_matches("https://"));
     }
     assert_eq!(click_link(&mut h, "GoneTone"), [AUTHOR_URL]);
+    let project = PROJECT_URL.trim_start_matches("https://");
+    assert_eq!(click_link(&mut h, project), [PROJECT_URL]);
 }
 
 #[test]
@@ -715,6 +802,14 @@ fn about_tab_shows_the_translators() {
     assert!(author < translators && translators < contribute && contribute < issues);
     let label = text(&h, &tr("credit.translators")).rect();
     assert!((label.top() - translators).abs() < 24.0);
+}
+
+const UP_TO_DATE_LOG: &str = "[update] manual check: already up to date";
+
+/// 會記 `UP_TO_DATE_LOG` 的測試排隊跑，log 的筆數才算得準。
+fn up_to_date_log_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 fn check_update(h: &mut Harness<State>, result: Result<Option<Release>, String>) {
@@ -742,6 +837,7 @@ fn update_button_enabled(h: &Harness<State>) -> bool {
 
 #[test]
 fn checking_disables_the_button_until_the_result() {
+    let _log = up_to_date_log_lock();
     let mut h = harness(configured_cfg());
     go(&mut h, "settings.tab.about");
     click(&mut h, Role::Button, &tr("button.check_update"));
@@ -760,16 +856,20 @@ fn checking_disables_the_button_until_the_result() {
 
 #[test]
 fn manual_check_reports_up_to_date() {
+    let _log = up_to_date_log_lock();
     capture_logs();
+    let logged = || log_lines_with(UP_TO_DATE_LOG).len();
+    let before = logged();
     let mut h = harness(configured_cfg());
     check_update(&mut h, Ok(None));
     text(&h, &tr("update.latest"));
     assert!(update_button_enabled(&h));
-    assert!(!log_lines_with("[update] manual check: already up to date").is_empty());
+    assert_eq!(logged(), before + 1);
 }
 
 #[test]
 fn manual_check_keeps_update_found_quiet_when_up_to_date() {
+    let _log = up_to_date_log_lock();
     let mut h = harness(configured_cfg());
     check_update(&mut h, Ok(None));
     assert!(

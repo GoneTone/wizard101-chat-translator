@@ -68,7 +68,8 @@ pub enum SettingsAction {
     PreviewLanguage,
     /// 手動檢查查到新版。
     UpdateFound(Release),
-    /// 完整的新設定，已含 `ui_language`；視窗該關了。
+    /// 這個視窗管的鍵（服務三鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。
     Cancel,
@@ -76,8 +77,8 @@ pub enum SettingsAction {
 
 /// 設定視窗的內容與編輯中的草稿；`ui` 每幀畫一次並回傳這一幀要 App 做的事。
 pub struct SettingsWindow {
-    /// 開窗時的設定；儲存時以它為底，草稿以外的鍵原樣保留。
-    base: Config,
+    /// 開窗時的 `service_slots`；寫回時保留其中認不得的鍵。
+    slots_at_open: Option<Value>,
     page: Page,
     language_at_open: String,
     alpha_at_open: f64,
@@ -107,17 +108,20 @@ fn text_setting(cfg: &Config, key: &str) -> String {
     setting(cfg, key).as_str().unwrap_or_default().to_owned()
 }
 
+/// 開關值照 Python 真值判定：手改成 `1` 也算開。
 fn flag_setting(cfg: &Config, key: &str) -> bool {
-    setting(cfg, key).as_bool().unwrap_or_default()
+    py::truthy(Some(&setting(cfg, key)))
 }
 
 impl SettingsWindow {
     /// 從 `cfg` 取一份草稿，記下開窗時的介面語言與透明度。
     pub fn new(cfg: &Config) -> Self {
-        let alpha = py::number(&setting(cfg, "overlay_alpha")).unwrap_or(0.8);
+        let alpha = py::number(&setting(cfg, "overlay_alpha"))
+            .or_else(|| py::number(&default_config()["overlay_alpha"]))
+            .unwrap_or_default();
         let number = |key: &str| py::display(&setting(cfg, key));
         Self {
-            base: cfg.clone(),
+            slots_at_open: cfg.get("service_slots").cloned(),
             page: Page::Basic,
             language_at_open: current_language(),
             alpha_at_open: alpha,
@@ -226,9 +230,12 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::PreviewLanguage);
     }
 
-    /// 草稿寫成完整的設定，連同擋下儲存的原因（錯誤文案 key，依序：服務、熱鍵、目標語言、進階數值）。
+    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（錯誤文案 key，依序：服務、熱鍵、目標語言、進階數值）。
     fn collect(&self) -> (Config, Vec<String>) {
-        let mut cfg = self.base.clone();
+        let mut cfg = Config::new();
+        if let Some(slots) = &self.slots_at_open {
+            cfg.insert("service_slots".into(), slots.clone());
+        }
         self.services.draft().write_into(&mut cfg);
         let target = pystr::strip(&self.target_language);
         let (input, region) = (

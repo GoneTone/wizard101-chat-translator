@@ -99,11 +99,14 @@ fn saved(h: &Harness<State>) -> Option<Config> {
 fn changing_ui_language_previews_it_without_touching_config() {
     let _lock = language_lock();
     capture_logs();
+    // 語言鎖讓同一時間只有本測試在記這行，前後筆數相減才準
+    let logged = || log_lines_with("[ui] settings previewing language en-US").len();
+    let before = logged();
     let mut h = harness("zh-TW");
     pick_language(&mut h, "en-US");
     assert_eq!(current_language(), "en-US");
     assert_eq!(h.state().actions, [SettingsAction::PreviewLanguage]);
-    assert!(!log_lines_with("[ui] settings previewing language en-US").is_empty());
+    assert_eq!(logged(), before + 1);
     // 視窗以新語言重畫
     h.get_by_role_and_label(Role::Tab, "Basic");
     h.get_by_role_and_label(Role::Button, "Save");
@@ -140,13 +143,15 @@ fn language_preview_keeps_the_draft_and_cancel_reverts() {
     assert_eq!(field.value(), typed);
 
     h.state_mut().actions.clear();
+    let reverted = || log_lines_with("[ui] settings language preview reverted to zh-TW").len();
+    let before = reverted();
     click(&mut h, Role::Button, "Cancel");
     assert_eq!(current_language(), "zh-TW");
     assert_eq!(
         h.state().actions,
         [SettingsAction::PreviewLanguage, SettingsAction::Cancel]
     );
-    assert!(!log_lines_with("[ui] settings language preview reverted to zh-TW").is_empty());
+    assert_eq!(reverted(), before + 1);
 }
 
 #[test]
