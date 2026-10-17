@@ -17,7 +17,9 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
 use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
 use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
 use windows_sys::Win32::System::SystemServices::IMAGE_DOS_HEADER;
-use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::System::Threading::{
+    AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
+};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -287,18 +289,19 @@ unsafe fn patch_create_window_import() -> Result<usize, String> {
     Ok(patched)
 }
 
-/// 切到前景：系統允許就直接切，被前景鎖擋下才掛上前景視窗的執行緒再切；視窗不存在或切換失敗回 `false`。
+/// 切到前景：前景本來就是本程式時直接切，否則掛上前景視窗的執行緒再切；視窗不存在或切換失敗回 `false`。
 pub fn force_foreground(hwnd: isize) -> bool {
     let hwnd = hwnd as HWND;
     unsafe {
         if IsWindow(hwnd) == 0 {
             return false;
         }
-        // 系統允許時直接切：實測輸入框開窗從約 200ms 降到約 40ms
-        if SetForegroundWindow(hwnd) != 0 && GetForegroundWindow() == hwnd {
-            return true;
+        let mut fg_pid = 0u32;
+        let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), &mut fg_pid);
+        // 被前景鎖擋下的直接切換會讓工作列按鈕閃爍，只在一定會成功時才直接切
+        if fg_pid == GetCurrentProcessId() {
+            return SetForegroundWindow(hwnd) != 0;
         }
-        let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
         let this_thread = GetCurrentThreadId();
         AttachThreadInput(this_thread, fg_thread, 1);
         let switched = SetForegroundWindow(hwnd) != 0;

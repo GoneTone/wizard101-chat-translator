@@ -198,7 +198,12 @@ impl InputHost {
             ctx.request_repaint();
         }
         if self.raise && self.shown && self.hwnd != 0 && !defer {
-            (self.desktop.force_foreground)(self.hwnd);
+            if !(self.desktop.force_foreground)(self.hwnd) {
+                log(format!(
+                    "[input] box could not take the foreground (hwnd={:#x})",
+                    self.hwnd
+                ));
+            }
             self.raise = false;
         }
     }
