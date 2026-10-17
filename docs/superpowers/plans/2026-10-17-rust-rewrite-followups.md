@@ -14,6 +14,7 @@
 
 - 框選快捷鍵目前只在遊戲內攔下按鍵並記 `[ui] region hotkey pressed ...`，要換成真的框選流程；`on_region_hotkey` 的 `selecting` 旗標目前恆為 false，要接上選取層是否開著。
 - `Registration::unregister` 目前沒有正式呼叫端；第 4 段套用設定時要用它重新註冊熱鍵。
+- 框選選取層由熱鍵開啟時，要等觸發鍵放開才顯示並搶前景（同輸入框的 `defer_for_release`，判斷用 `input::hotkeys::swallowed_key_held()`）。觸發鍵按著時換前景，那次放開不會進到鍵盤 hook，下一次熱鍵會被吞掉。
 
 ## 第 4 段
 
