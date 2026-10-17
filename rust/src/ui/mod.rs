@@ -6,6 +6,7 @@ pub mod events;
 pub mod fonts;
 pub mod fonts_egui;
 pub mod geometry;
+pub mod input_box;
 pub mod overlay;
 pub mod palette;
 pub mod richtext;
