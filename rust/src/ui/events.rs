@@ -4,6 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::reader::chat_tabs::TabState;
+use crate::ui::geometry::Rect;
 
 /// 一則 overlay 更新。
 #[derive(Debug, Clone, PartialEq)]
@@ -37,6 +38,21 @@ pub enum UiEvent {
     },
     /// 收起錯誤橫幅。
     ClearError,
+    /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。
+    ShowInputBox { retarget: Option<isize> },
+    /// 遊戲聊天輸入框開了；`anchor` 是它的螢幕矩形。
+    GameInputOpened { hwnd: isize, anchor: Option<Rect> },
+    /// 遊戲聊天輸入框關了。
+    GameInputClosed { hwnd: isize },
+    /// 發話翻譯結果；`Err` 是已在地化的錯誤訊息。
+    OutgoingDone {
+        session: u64,
+        result: Result<String, String>,
+    },
+    /// 框選熱鍵；`hwnd` 為 0 表示取消目前的選取層。
+    RegionHotkey { hwnd: isize },
+    /// 結束程式。
+    Quit,
 }
 
 /// 任何執行緒都能用的 UI 事件投遞端：送進 channel 後喚醒 UI 重繪。

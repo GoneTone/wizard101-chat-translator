@@ -203,6 +203,12 @@ impl App {
                 failed,
             } => self.model.update_message(msg_id, &translated, failed),
             UiEvent::SetTabs { slot, state } => self.model.set_tabs(slot, state),
+            UiEvent::ShowInputBox { .. }
+            | UiEvent::GameInputOpened { .. }
+            | UiEvent::GameInputClosed { .. }
+            | UiEvent::OutgoingDone { .. }
+            | UiEvent::RegionHotkey { .. }
+            | UiEvent::Quit => {}
         }
     }
 
