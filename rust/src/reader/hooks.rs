@@ -87,22 +87,12 @@ fn jmp(from: u64, to: u64) -> Result<[u8; 5], HookError> {
     Ok(out)
 }
 
-/// 已寫入的跳轉：解除時寫回原碼，有 export 要釋放就一併釋放；只由 cave 持有與解除。
+/// 已寫入的跳轉：解除時寫回原碼，有 export 要釋放就在 cave 等待後釋放；只由 cave 持有與解除。
 #[derive(Debug)]
 struct JumpPatch {
     addr: u64,
     original: Vec<u8>,
     free: Option<u64>,
-}
-
-impl JumpPatch {
-    fn undo(&self, mem: &dyn ProcessMemory) -> Result<(), MemError> {
-        mem.write(self.addr, &self.original)?;
-        if let Some(addr) = self.free {
-            mem.free(addr);
-        }
-        Ok(())
-    }
 }
 
 /// wizwalker `SimpleHook` 的參數。
@@ -191,7 +181,7 @@ impl AutobotCave {
             .collect()
     }
 
-    /// 依掛入順序解除每個 hook，等 0.5 秒後在內容不同時還原 cave 的 208 bytes；唯一的解除途徑。
+    /// 依掛入順序寫回各跳轉點，等 0.5 秒後釋放 export、在內容不同時還原 cave 的 208 bytes；唯一的解除途徑。
     pub fn uninstall(self, mem: &dyn ProcessMemory) -> Result<(), MemError> {
         self.uninstall_with(mem, std::thread::sleep)
     }
@@ -207,11 +197,15 @@ impl AutobotCave {
             return Ok(());
         }
         for hook in &self.hooks {
-            hook.undo(mem)?;
+            mem.write(hook.addr, &hook.original)?;
         }
         let current = mem.read(self.addr, self.original.len())?;
         // 讓執行點離開 stub
         wait(Duration::from_millis(500));
+        // wizwalker 在等待前就釋放 export，仍在 stub 裡的遊戲執行緒會寫進已釋放的頁面
+        for addr in self.hooks.iter().filter_map(|h| h.free) {
+            mem.free(addr);
+        }
         if current != self.original {
             mem.write(self.addr, &self.original)?;
         }

@@ -289,19 +289,17 @@ impl Game {
 
     /// cave 解除時依序的寫回與釋放；`addline` 為 false 表示 AddLine 沒掛上。
     fn restore_ops(&self, addline: bool) -> Vec<MemOp> {
-        let mut ops = vec![
-            MemOp::Write {
-                addr: ROOT_JUMP,
-                bytes: self.root_bytes[..7].to_vec(),
-            },
-            MemOp::Free(EXPORT),
-        ];
+        let mut ops = vec![MemOp::Write {
+            addr: ROOT_JUMP,
+            bytes: self.root_bytes[..7].to_vec(),
+        }];
         if addline {
             ops.push(MemOp::Write {
                 addr: ADDLINE_JUMP,
                 bytes: self.addline_bytes[..5].to_vec(),
             });
         }
+        ops.push(MemOp::Free(EXPORT));
         ops.push(MemOp::Write {
             addr: CAVE,
             bytes: self.cave_bytes[..208].to_vec(),

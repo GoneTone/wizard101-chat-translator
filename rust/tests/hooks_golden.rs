@@ -201,11 +201,12 @@ fn uninstall_restores_only_208_when_different() {
     let mut waited = None;
     // 比對內容在等待之前就讀好（同 wizwalker）：等待中被改回也照樣寫回
     cave.uninstall_with(&g.mem, |d| {
-        waited = Some(d);
+        waited = Some((d, g.mem.ops().len()));
         g.mem.set_bytes(g.cave, &g.cave_bytes[..208]);
     })
     .unwrap();
-    assert_eq!(waited, Some(Duration::from_millis(500)));
+    // export 要等執行點離開 stub 才釋放（刻意與 wizwalker 不同）
+    assert_eq!(waited, Some((Duration::from_millis(500), before + 2)));
     assert_eq!(
         g.mem.ops()[before..],
         [
@@ -213,11 +214,11 @@ fn uninstall_restores_only_208_when_different() {
                 addr: g.root_jump,
                 bytes: g.root_bytes[..7].to_vec()
             },
-            MemOp::Free(export),
             MemOp::Write {
                 addr: g.addline_jump,
                 bytes: g.addline_bytes[..5].to_vec()
             },
+            MemOp::Free(export),
             MemOp::Write {
                 addr: g.cave,
                 bytes: g.cave_bytes[..208].to_vec()
