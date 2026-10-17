@@ -5,7 +5,8 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use wizard101_chat_translator::app_main::{
-    build_app, claim_instance, log_startup_summary, open_messages_log, save_field, shutdown,
+    build_app, claim_instance, log_startup_summary, open_messages_log, run_ui_then, save_field,
+    shutdown,
 };
 use wizard101_chat_translator::config::{
     Settings, app_dir, bootstrap_language, config_path, is_configured, load_config,
@@ -13,7 +14,7 @@ use wizard101_chat_translator::config::{
 use wizard101_chat_translator::i18n::set_language;
 use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::runtime::{acquire_single_instance, focus_running_instance};
-use wizard101_chat_translator::ui::app::{self, App, forward_library_warnings};
+use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 
 fn main() {
@@ -24,7 +25,7 @@ fn main() {
         }
     }
     logs::install_panic_hook();
-    forward_library_warnings();
+    logs::forward_library_logs();
     // 版本先印：app.log 分段標頭後第一行就是版本
     log(format!("[app] version={}", env!("CARGO_PKG_VERSION")));
 
@@ -61,33 +62,35 @@ fn main() {
         "[app] running; hotkey={hotkey} opens the input box, region_hotkey={region_hotkey} starts region translation; quit via the overlay ✕"
     ));
 
-    let result = app::run_with_warp_fallback(move |ctx| {
-        let geometry_cfg = Arc::clone(&shared_cfg);
-        let frame = Frame::new(
-            settings.overlay_alpha,
-            Some(settings.overlay.clone()),
-            move |x, y, width, height| {
-                let value = json!({"x": x, "y": y, "width": width, "height": height});
-                save_field(&geometry_cfg, &config_path(), "overlay", value);
-            },
-        );
-        let mut app = App::new(ctx, inbox, frame).with_bubble_position(
-            settings.bubble_position,
-            move |x, y| {
-                save_field(
-                    &shared_cfg,
-                    &config_path(),
-                    "bubble_position",
-                    json!({"x": x, "y": y}),
-                )
-            },
-        );
-        app.set_limits(settings.max_messages, settings.fade_seconds.into());
-        app.set_region_hotkey(&region_hotkey);
-        app
-    });
-    if let Err(e) = result {
-        log(format!("[ui] overlay exited with an error: {e}"));
-    }
-    shutdown(running);
+    let ui = move || {
+        let result = app::run_with_warp_fallback(move |ctx| {
+            let geometry_cfg = Arc::clone(&shared_cfg);
+            let frame = Frame::new(
+                settings.overlay_alpha,
+                Some(settings.overlay.clone()),
+                move |x, y, width, height| {
+                    let value = json!({"x": x, "y": y, "width": width, "height": height});
+                    save_field(&geometry_cfg, &config_path(), "overlay", value);
+                },
+            );
+            let mut app = App::new(ctx, inbox, frame).with_bubble_position(
+                settings.bubble_position,
+                move |x, y| {
+                    save_field(
+                        &shared_cfg,
+                        &config_path(),
+                        "bubble_position",
+                        json!({"x": x, "y": y}),
+                    )
+                },
+            );
+            app.set_limits(settings.max_messages, settings.fade_seconds.into());
+            app.set_region_hotkey(&region_hotkey);
+            app
+        });
+        if let Err(e) = result {
+            log(format!("[ui] overlay exited with an error: {e}"));
+        }
+    };
+    run_ui_then(ui, || shutdown(running));
 }

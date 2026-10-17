@@ -187,8 +187,8 @@ pub struct Running {
     pub stop: CancellationToken,
     /// 翻譯端。
     pub translation: Translation,
-    /// supervisor 執行緒（關閉時等它把每條收訊執行緒收完）。
-    pub supervisor: JoinHandle<()>,
+    /// supervisor 執行緒（關閉時等它把每條收訊執行緒收完）；起不了時為 `None`。
+    pub supervisor: Option<JoinHandle<()>>,
 }
 
 /// 建構翻譯端並啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
@@ -239,17 +239,20 @@ pub fn build_app(
         reader.slot = slot;
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
+        let name = format!("reader-{slot}");
         std::thread::Builder::new()
-            .name(format!("reader-{slot}"))
+            .name(name.clone())
             .spawn(move || reader_loop(shared, hwnd, slot, reader, Arc::new(ClientContexts::new())))
-            .expect("spawn reader thread")
+            .inspect_err(|e| log(format!("[reader] cannot spawn {name}: {e}")))
+            .ok()
     };
     let supervisor = {
         let stop = stop.clone();
         std::thread::Builder::new()
             .name("reader-supervisor".into())
             .spawn(move || supervise(&stop, spawn, game_windows, &board))
-            .expect("spawn supervisor thread")
+            .inspect_err(|e| log(format!("[reader] cannot spawn reader-supervisor: {e}")))
+            .ok()
     };
     Running {
         stop,
@@ -258,23 +261,33 @@ pub fn build_app(
     }
 }
 
-/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 等 supervisor 收完 reader → 落盤快取。
+/// 等 supervisor 的上限：多 2 秒讓它自己的 `JOIN_TIMEOUT` 先跑完，「still alive」的診斷 log 才寫得出來。
+pub const SUPERVISOR_JOIN_BUDGET: Duration = JOIN_TIMEOUT.saturating_add(Duration::from_secs(2));
+
+/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
 pub fn shutdown_steps(
     stop: &CancellationToken,
     close_pools: impl FnOnce(),
-    supervisor: JoinHandle<()>,
+    supervisor: Option<JoinHandle<()>>,
+    join_budget: Duration,
     flush_cache: impl FnOnce(),
 ) {
     log("[app] shutting down, waiting for readers to unhook");
     stop.cancel();
     close_pools();
-    // 多 2 秒讓 supervisor 自己的 JOIN_TIMEOUT 先跑完，「still alive」的診斷 log 才寫得出來
-    let deadline = Instant::now() + JOIN_TIMEOUT + Duration::from_secs(2);
-    while !supervisor.is_finished() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    if supervisor.is_finished() {
-        let _ = supervisor.join();
+    if let Some(supervisor) = supervisor {
+        let deadline = Instant::now() + join_budget;
+        while !supervisor.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        if supervisor.is_finished() {
+            let _ = supervisor.join();
+        } else {
+            log(format!(
+                "[app] reader supervisor still running after {:.1}s; continuing shutdown",
+                join_budget.as_secs_f64()
+            ));
+        }
     }
     // 放在池與 reader 之後，飛行中的翻譯才有機會先寫完 put()
     flush_cache();
@@ -295,9 +308,20 @@ pub fn shutdown(running: Running) -> ! {
             translation.system_pool.shutdown();
         },
         supervisor,
+        SUPERVISOR_JOIN_BUDGET,
         || translation.cache.flush(),
     );
     std::process::exit(0)
+}
+
+/// 跑 UI 直到結束（含 panic），之後一律走 `then`（關閉流程）。
+///
+/// winit 會把 UI 回呼裡的 panic 拋出 `run_native`；不攔下就跳過 unhook 與快取落盤。
+pub fn run_ui_then(ui: impl FnOnce(), then: impl FnOnce()) {
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(ui)).is_err() {
+        log("[ui] overlay panicked; shutting down");
+    }
+    then();
 }
 
 /// messages.log 的串流；開不了檔時丟棄寫入（windowed 模式沒有主控台，不能讓它把程式帶掉）。

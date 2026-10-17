@@ -3,10 +3,12 @@
 //! 訊息一律英文、帶 `[模組]` 前綴，內容要有足夠 context；API 金鑰絕不可寫入。
 
 mod files;
+mod library;
 
 pub use files::{
     TimestampedWriter, open_session_log, session_header, trim_log_sessions, utc_stamp,
 };
+pub use library::forward_library_logs;
 
 use std::fs::File;
 use std::io::{self, Write};

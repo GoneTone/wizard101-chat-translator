@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use eframe::NativeOptions;
 use eframe::egui::{self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId};
@@ -28,8 +28,6 @@ use crate::ui::{fonts_egui, win32};
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
 const DEFAULT_MAX_MESSAGES: usize = 200;
-/// 有設淡出時檢查過期訊息的間隔。
-const PRUNE_INTERVAL: Duration = Duration::from_millis(50);
 
 /// UI 執行緒這一端：事件接收端與重繪用的 Context（`App::new` 時才綁上）。
 pub struct Inbox {
@@ -60,7 +58,6 @@ pub struct App {
     banners: Banners,
     region_hotkey: String,
     model: OverlayModel,
-    fading: bool,
     list: MessageList,
     selection: Selection,
     bubble: Option<Bubble>,
@@ -83,7 +80,6 @@ impl App {
             banners: Banners::default(),
             region_hotkey: String::new(),
             model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
-            fading: false,
             list: MessageList::new(),
             selection: Selection::default(),
             bubble: None,
@@ -106,7 +102,6 @@ impl App {
     /// 套用訊息上限與淡出秒數（0＝不淡出）。
     pub fn set_limits(&mut self, max_messages: usize, fade_seconds: u64) {
         self.model.set_limits(max_messages, fade_seconds);
-        self.fading = fade_seconds > 0;
     }
 
     /// 目前狀態列的 state key。
@@ -283,10 +278,11 @@ impl eframe::App for App {
         while let Ok(event) = self.rx.try_recv() {
             self.apply(event);
         }
-        // 沒設淡出就不排程，免得閒置時每 50ms 空轉一幀
-        if self.fading {
-            self.model.prune(Instant::now());
-            ctx.request_repaint_after(PRUNE_INTERVAL);
+        let now = Instant::now();
+        self.model.prune(now);
+        // 只在下一則該淡出時醒來，閒置時不空轉重繪
+        if let Some(wait) = self.model.next_fade(now) {
+            ctx.request_repaint_after(wait);
         }
     }
 
@@ -396,34 +392,6 @@ pub fn run_with_warp_fallback<A: eframe::App + 'static>(
     }
 }
 
-struct LibraryWarnings;
-
-impl ::log::Log for LibraryWarnings {
-    fn enabled(&self, metadata: &::log::Metadata) -> bool {
-        metadata.level() <= ::log::Level::Warn
-    }
-
-    fn log(&self, record: &::log::Record) {
-        if self.enabled(record.metadata()) {
-            log(format!(
-                "[ui] {} {}: {}",
-                record.level(),
-                record.target(),
-                record.args()
-            ));
-        }
-    }
-
-    fn flush(&self) {}
-}
-
-/// 把 wgpu／egui 經 `log` crate 發出的警告與錯誤轉進 app.log。
-pub fn forward_library_warnings() {
-    if ::log::set_logger(&LibraryWarnings).is_ok() {
-        ::log::set_max_level(::log::LevelFilter::Warn);
-    }
-}
-
 /// 開啟 UI 並跑到視窗關閉；`build` 在第一幀前以 egui Context 建立 app。
 pub fn run<A: eframe::App + 'static>(
     native: NativeOptions,
@@ -456,6 +424,7 @@ mod tests {
     use crate::ui::overlay::bubble::POLL_INTERVAL;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
+    use std::time::Duration;
 
     #[test]
     fn app_drains_events_each_frame() {
@@ -831,23 +800,35 @@ mod tests {
     }
 
     #[test]
-    fn limits_trim_messages_and_fading_schedules_pruning() {
+    fn limits_trim_messages_and_fading_wakes_at_the_next_expiry() {
         let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let delay = |h: &Harness<App>| h.output().viewport_output[&ViewportId::ROOT].repaint_delay;
+        harness.state_mut().set_limits(10, 30);
+        harness.run();
+        assert!(
+            delay(&harness) > Duration::from_secs(60),
+            "empty view: no wake"
+        );
         for i in 0..15 {
             poster.post(message(&format!("m{i}")));
         }
-        let mut harness = app_harness(inbox);
-        let delay = |h: &Harness<App>| h.output().viewport_output[&ViewportId::ROOT].repaint_delay;
-        harness.state_mut().set_limits(10, 0);
-        harness.step();
+        harness.run();
         assert_eq!(
             harness.state().model.current_view().unwrap().messages.len(),
             10
         );
-        assert!(delay(&harness) > PRUNE_INTERVAL);
-        harness.state_mut().set_limits(10, 30);
-        harness.step();
-        assert!(delay(&harness) <= PRUNE_INTERVAL);
+        let wait = delay(&harness);
+        assert!(
+            wait > Duration::from_secs(25) && wait <= Duration::from_secs(30),
+            "{wait:?}"
+        );
+        harness.state_mut().set_limits(10, 0);
+        harness.run();
+        assert!(
+            delay(&harness) > Duration::from_secs(60),
+            "fading off: no wake"
+        );
     }
 
     #[test]

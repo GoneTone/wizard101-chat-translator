@@ -58,13 +58,13 @@ impl Harness {
     fn run(self, clock: &Clock) -> (Vec<(isize, u32)>, Vec<UiEvent>) {
         let (board, rx, _rt) = board();
         let (spawned, gone) = (Arc::clone(&self.spawned), Arc::clone(&self.gone));
-        let spawn = move |hwnd: isize, slot: u32| -> JoinHandle<()> {
+        let spawn = move |hwnd: isize, slot: u32| -> Option<JoinHandle<()>> {
             spawned.lock().unwrap().push((hwnd, slot));
             let (tx, rx) = mpsc::channel::<()>();
             gone.lock().unwrap().insert(hwnd, tx);
-            std::thread::spawn(move || {
+            Some(std::thread::spawn(move || {
                 let _ = rx.recv();
-            })
+            }))
         };
         let mut script = self.script.into_iter();
         let mut current: Vec<isize> = Vec::new();
@@ -174,13 +174,13 @@ fn stop_joins_every_reader_thread() {
     let (token, done) = (stop.clone(), Arc::clone(&joined));
     let spawn = move |hwnd: isize, _slot: u32| {
         let (token, done) = (token.clone(), Arc::clone(&done));
-        std::thread::spawn(move || {
+        Some(std::thread::spawn(move || {
             while !token.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(1));
             }
             std::thread::sleep(Duration::from_millis(20));
             done.lock().unwrap().push(hwnd);
-        })
+        }))
     };
     let halt = stop.clone();
     let windows = move || {
@@ -217,6 +217,25 @@ fn scan_failure_does_not_kill_the_loop() {
 }
 
 #[test]
+fn failed_spawn_frees_the_slot_and_retries_next_scan() {
+    let stop = CancellationToken::new();
+    let (board, _rx, _rt) = board();
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let (seen, halt) = (Arc::clone(&attempts), stop.clone());
+    let spawn = move |hwnd: isize, slot: u32| {
+        let mut seen = seen.lock().unwrap();
+        seen.push((hwnd, slot));
+        if seen.len() == 2 {
+            halt.cancel();
+            return Some(std::thread::spawn(|| {}));
+        }
+        None
+    };
+    supervise_with(&stop, spawn, || vec![0xA6], &board, &fast_clock());
+    assert_eq!(*attempts.lock().unwrap(), [(0xA6, 1), (0xA6, 1)]);
+}
+
+#[test]
 fn join_budget_shared_8s() {
     // 兩條卡死的 reader 共用一個預算，不是各等 JOIN_TIMEOUT
     let virtual_clock = VirtualClock::new();
@@ -227,9 +246,9 @@ fn join_budget_shared_8s() {
     let spawn = move |_hwnd: isize, _slot: u32| {
         let (tx, rx) = mpsc::channel::<()>();
         senders.lock().unwrap().push(tx);
-        std::thread::spawn(move || {
+        Some(std::thread::spawn(move || {
             let _ = rx.recv();
-        })
+        }))
     };
     let halt = stop.clone();
     let windows = move || {

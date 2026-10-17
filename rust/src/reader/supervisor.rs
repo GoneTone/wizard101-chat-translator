@@ -1,6 +1,7 @@
 //! 收訊端的 supervisor：定期列舉遊戲視窗，每個視窗配一個編號並起一條收訊執行緒，視窗消失就釋出編號。
 //!
-//! 收訊執行緒怎麼跑由 `spawn(hwnd, slot)` 決定（呼叫端的閉包帶著共用物件），這裡只管生命週期。
+//! 收訊執行緒怎麼跑由 `spawn(hwnd, slot)` 決定（呼叫端的閉包帶著共用物件），這裡只管生命週期；
+//! `spawn` 回 `None`（起不了執行緒）時不佔編號，下一輪列舉再試。
 
 use std::panic::{self, AssertUnwindSafe};
 use std::thread::JoinHandle;
@@ -30,7 +31,7 @@ pub fn allocate_slot(used: impl IntoIterator<Item = u32>) -> u32 {
 /// supervisor 執行緒的進入點；stop 被設定後等所有收訊執行緒結束再返回。
 pub fn supervise(
     stop: &CancellationToken,
-    spawn: impl FnMut(isize, u32) -> JoinHandle<()>,
+    spawn: impl FnMut(isize, u32) -> Option<JoinHandle<()>>,
     windows: impl FnMut() -> Vec<isize>,
     board: &StatusBoard,
 ) {
@@ -40,7 +41,7 @@ pub fn supervise(
 /// 同 [`supervise`]，時鐘由呼叫端提供。
 pub fn supervise_with(
     stop: &CancellationToken,
-    mut spawn: impl FnMut(isize, u32) -> JoinHandle<()>,
+    mut spawn: impl FnMut(isize, u32) -> Option<JoinHandle<()>>,
     mut windows: impl FnMut() -> Vec<isize>,
     board: &StatusBoard,
     clock: &Clock,
@@ -66,7 +67,9 @@ pub fn supervise_with(
                 log(format!(
                     "[reader] client window appeared hwnd={hwnd:#x} slot={slot}"
                 ));
-                active.push((hwnd, slot, spawn(hwnd, slot)));
+                if let Some(thread) = spawn(hwnd, slot) {
+                    active.push((hwnd, slot, thread));
+                }
             }
             board.refresh();
         }));

@@ -221,6 +221,18 @@ impl OverlayModel {
         }
     }
 
+    /// 顯示中那份清單的下一則訊息還要多久淡出；不淡出或清單是空的時回 `None`（不必排程重繪）。
+    pub fn next_fade(&self, now: Instant) -> Option<Duration> {
+        if self.fade.is_zero() {
+            return None;
+        }
+        self.current_view()?
+            .messages
+            .iter()
+            .map(|m| (m.added_at + self.fade).saturating_duration_since(now))
+            .min()
+    }
+
     /// 顯示中的（客戶端, 分頁）；還沒決定客戶端時為 None。
     pub fn current_key(&self) -> Option<ViewKey> {
         let slot = self.client?;
@@ -264,6 +276,30 @@ mod tests {
                 .map(|m| (m.original.clone(), m.translated.clone()))
                 .collect()
         })
+    }
+
+    #[test]
+    fn next_fade_waits_for_the_oldest_shown_message() {
+        let t0 = Instant::now();
+        let mut model = OverlayModel::new(200, 30);
+        assert_eq!(
+            model.next_fade(t0),
+            None,
+            "nothing shown, nothing to schedule"
+        );
+        for (text, at) in [("a", t0), ("b", t0 + Duration::from_secs(5))] {
+            model.add_message(1, &[0], text, text, None, false, None, at);
+        }
+        assert_eq!(
+            model.next_fade(t0 + Duration::from_secs(10)),
+            Some(Duration::from_secs(20))
+        );
+        assert_eq!(
+            model.next_fade(t0 + Duration::from_secs(40)),
+            Some(Duration::ZERO)
+        );
+        model.set_limits(200, 0);
+        assert_eq!(model.next_fade(t0), None, "fading off");
     }
 
     fn add(model: &mut OverlayModel, slot: u32, tabs: &[i32], original: &str, translated: &str) {

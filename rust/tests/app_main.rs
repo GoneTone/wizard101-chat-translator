@@ -1,15 +1,22 @@
 //! 主程式接線：收訊指紋、翻譯端的建構、單一實例與關閉順序。
 
+#[allow(dead_code)]
+mod common;
+
 use std::sync::{Arc, Mutex, RwLock, mpsc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+use common::reader_fixture::{EXPECTED_PANIC, capture_logs, log_lines_with, quiet_panics};
 
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
-    build_translation, claim_instance, incoming_fingerprint, shutdown_steps,
+    SUPERVISOR_JOIN_BUDGET, build_translation, claim_instance, incoming_fingerprint, run_ui_then,
+    shutdown_steps,
 };
 use wizard101_chat_translator::config::services::resolve;
 use wizard101_chat_translator::config::{Config, ServiceSlot, app_name};
+use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::translation::examples::{
     ExampleSet, ExampleStore, examples_fingerprint,
@@ -187,11 +194,59 @@ fn shutdown_flushes_cache_after_pools_and_readers() {
             pools_done.send(()).unwrap();
         }
     };
-    shutdown_steps(&stop, close_pools, supervisor, record("cache flushed"));
+    shutdown_steps(
+        &stop,
+        close_pools,
+        Some(supervisor),
+        SUPERVISOR_JOIN_BUDGET,
+        record("cache flushed"),
+    );
     assert_eq!(
         *calls.lock().unwrap(),
         ["pools shut down", "readers joined", "cache flushed"]
     );
+}
+
+#[test]
+fn shutdown_gives_up_on_a_stuck_supervisor_after_the_budget() {
+    capture_logs();
+    assert_eq!(
+        SUPERVISOR_JOIN_BUDGET,
+        JOIN_TIMEOUT + Duration::from_secs(2)
+    );
+    let (_release, stuck) = mpsc::channel::<()>();
+    let supervisor = std::thread::spawn(move || {
+        let _ = stuck.recv();
+    });
+    let flushed = Mutex::new(false);
+    let started = Instant::now();
+    shutdown_steps(
+        &CancellationToken::new(),
+        || {},
+        Some(supervisor),
+        Duration::from_millis(100),
+        || *flushed.lock().unwrap() = true,
+    );
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(*flushed.lock().unwrap(), "the cache is still flushed");
+    assert_eq!(
+        log_lines_with("[app] reader supervisor still running after 0.1s; continuing shutdown")
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn shutdown_still_runs_when_the_ui_panics() {
+    capture_logs();
+    quiet_panics();
+    let ran = Mutex::new(false);
+    run_ui_then(
+        || panic!("{EXPECTED_PANIC} overlay frame exploded"),
+        || *ran.lock().unwrap() = true,
+    );
+    assert!(*ran.lock().unwrap());
+    assert!(!log_lines_with("[ui] overlay panicked; shutting down").is_empty());
 }
 
 #[test]
