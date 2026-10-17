@@ -98,7 +98,9 @@ pub fn crop_frame(frame: &Frame, screen_rect: Rect) -> Result<Vec<u8>, CaptureEr
 
 /// 把遊戲視窗 hwnd 的整個 client 區用 WGC 拍成一張 `Frame`；任一層失敗都變成 `CaptureError`。
 pub fn capture_window(hwnd: isize) -> Result<Frame, CaptureError> {
-    capture_window_with(hwnd, grab_window, client_geometry(hwnd)?)
+    // 幾何先取：視窗已消失時在這裡就失敗，不會啟動 WGC。
+    let client = client_geometry(hwnd)?;
+    capture_window_with(hwnd, grab_window, client)
 }
 
 /// `capture_window` 的本體：影格由 `grab` 提供（測試注入假的），再從中切出 client 區。
@@ -109,7 +111,7 @@ pub fn capture_window_with(
 ) -> Result<Frame, CaptureError> {
     let started = Instant::now();
     let image = grab(hwnd, FRAME_TIMEOUT)?;
-    let elapsed_ms = started.elapsed().as_millis();
+    let elapsed_ms = (started.elapsed().as_secs_f64() * 1000.0).round() as u64;
     let (cw, ch) = client.client_size;
     let (dx, dy) = (
         client.client_origin.0 - client.frame_origin.0,
@@ -264,7 +266,11 @@ fn grab_window(hwnd: isize, timeout: Duration) -> Result<RgbImage, CaptureError>
     let control = Grab::start_free_threaded(settings)
         .map_err(|e| CaptureError::Failed(format!("capture failed (hwnd={hwnd:#x}): {e}")))?;
     let image = wait_for_frame(&received, hwnd, timeout);
-    let _ = control.stop();
+    if let Err(e) = control.stop() {
+        log(format!(
+            "[region] capture stop failed (hwnd={hwnd:#x}): {e}"
+        ));
+    }
     image
 }
 
@@ -302,7 +308,9 @@ fn grab_screen((x, y, w, h): Rect) -> Result<RgbImage, String> {
         }
         let memory = CreateCompatibleDC(screen);
         let bitmap = CreateCompatibleBitmap(screen, w, h);
-        let result = if memory.is_null() || bitmap.is_null() {
+        let result = if memory.is_null() {
+            Err("CreateCompatibleDC failed")
+        } else if bitmap.is_null() {
             Err("CreateCompatibleBitmap failed")
         } else {
             let previous = SelectObject(memory, bitmap);

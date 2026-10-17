@@ -1522,6 +1522,9 @@ def export_region_window_region() -> list[dict]:
             for origin, size in client for rect in rects]
 
 
+EXPORTERS["region_window_region"] = export_region_window_region
+
+
 def export_ocr_merge_lines() -> list[dict]:
     """`merge_lines`：input 為 [box, text] 清單（box 為 4 個角點），output 為合併後的行。"""
     from src.region.ocr import merge_lines
@@ -1576,7 +1579,6 @@ def export_ocr_recognize() -> list[dict]:
 
 
 EXPORTERS["ocr_merge_lines"] = export_ocr_merge_lines
-EXPORTERS["region_window_region"] = export_region_window_region
 EXPORTERS["ocr_recognize"] = export_ocr_recognize
 
 

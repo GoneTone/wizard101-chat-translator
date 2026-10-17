@@ -5,8 +5,8 @@ mod common;
 
 use image::{Rgb, RgbImage};
 use wizard101_chat_translator::region::capture::{
-    CaptureError, ClientGeometry, FRAME_TIMEOUT, Frame, capture_window_with, crop_frame,
-    window_region,
+    CaptureError, ClientGeometry, FRAME_TIMEOUT, Frame, capture_screen, capture_window,
+    capture_window_with, crop_frame, window_region,
 };
 
 use common::log_capture::{capture_logs, log_lines_with, logged};
@@ -171,4 +171,26 @@ fn capture_failures_are_wrapped_as_failed() {
     );
     assert_eq!(err.unwrap().to_string(), "capture failed (hwnd=0x77): gone");
     assert!(log_lines_with("frame captured (hwnd=0x77,").is_empty());
+}
+
+#[test]
+fn capture_window_of_a_missing_window_fails_before_wgc() {
+    // ClientToScreen(NULL) 只是一個必然失敗的查詢，不會拍到任何東西。
+    assert_eq!(
+        capture_window(0).err(),
+        Some(CaptureError::Failed(
+            "capture failed (hwnd=0x0): ClientToScreen failed".into()
+        ))
+    );
+}
+
+#[test]
+fn capture_screen_falls_back_to_black_when_grab_fails() {
+    capture_logs();
+    // 寬度 0 在 GetDC 之前就失敗，不會碰到螢幕。
+    let image = capture_screen((100, 200, 0, 150));
+    assert_eq!(image.dimensions(), (0, 150));
+    assert!(logged(
+        "[region] screen grab failed (monitor=(100, 200, 0, 150)): empty monitor 0x150"
+    ));
 }
