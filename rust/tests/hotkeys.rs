@@ -6,7 +6,7 @@ mod common;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use common::log_capture::{capture_logs, log_lines_with};
+use common::log_capture::{capture_logs, log_lines_with, logged};
 use wizard101_chat_translator::input::dispatcher::{
     Blocking, Dispatcher, KeyEvent, Pressed, SharedDispatcher,
 };
@@ -95,10 +95,6 @@ impl Setup {
     fn process(&self, ev: KeyEvent) -> bool {
         self.dispatcher.lock().unwrap().process(ev)
     }
-}
-
-fn logged(line: &str) -> bool {
-    log_lines_with(line).iter().any(|l| l.ends_with(line))
 }
 
 #[test]

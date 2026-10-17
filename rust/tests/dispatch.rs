@@ -6,7 +6,7 @@ mod common;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use common::log_capture::{capture_logs, log_lines_with};
+use common::log_capture::{capture_logs, log_lines_with, logged};
 use egui_kittest::Harness;
 use serde_json::json;
 use wizard101_chat_translator::input::dispatch::{
@@ -70,10 +70,6 @@ fn region_hotkey_logs_until_phase_3() {
             .collect::<Vec<_>>(),
         ["[ui] region hotkey pressed (hwnd=0x5e61); region capture arrives in phase 3"]
     );
-}
-
-fn logged(line: &str) -> bool {
-    log_lines_with(line).iter().any(|l| l.ends_with(line))
 }
 
 #[test]

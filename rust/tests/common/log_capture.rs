@@ -46,3 +46,8 @@ pub fn log_lines_with(marker: &str) -> Vec<String> {
         .map(str::to_owned)
         .collect()
 }
+
+/// log 中是否有以 `line` 結尾的一行（略過時間戳，比對整行內容）。
+pub fn logged(line: &str) -> bool {
+    log_lines_with(line).iter().any(|l| l.ends_with(line))
+}

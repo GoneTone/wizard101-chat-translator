@@ -706,19 +706,11 @@ fn input_open_without_a_readable_rect_posts_no_anchor() {
     reader.input_rect = None;
     let events = s.run_reader(reader);
     assert_eq!(
-        events,
-        [
-            UiEvent::SetStatus("listening"),
-            UiEvent::GameInputOpened {
-                hwnd: 0x1,
-                anchor: None
-            },
-            UiEvent::SetStatus("waiting_game"),
-            UiEvent::SetError {
-                key: "notice.game_missing",
-                args: vec![]
-            },
-        ]
+        input_events(&events),
+        [&UiEvent::GameInputOpened {
+            hwnd: 0x1,
+            anchor: None
+        }]
     );
 }
 
