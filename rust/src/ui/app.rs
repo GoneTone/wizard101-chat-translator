@@ -258,6 +258,9 @@ impl App {
             let found = pick_bubble_window(&before, &win32::thread_windows(), self.hwnd, || {
                 win32::find_thread_window(&app_name(), self.hwnd)
             });
+            if found != 0 {
+                win32::remove_system_frame(found);
+            }
             bubble.attach(found, win32::foreground_window());
         }
         let now = Instant::now();
@@ -306,6 +309,9 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         if self.hwnd == 0 {
             self.hwnd = win32::hwnd_of(frame);
+            if self.hwnd != 0 {
+                win32::remove_system_frame(self.hwnd);
+            }
         }
         if self.shown == self.minimized {
             self.shown = !self.minimized;

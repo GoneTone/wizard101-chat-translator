@@ -240,6 +240,35 @@ fn composed_matches(hwnd: isize, drawn: [u8; 4]) -> (bool, Option<[u8; 4]>) {
     (ok, composed)
 }
 
+/// 合成結果與 egui 畫的不同的一點：x、y、合成值、egui 值。
+type Mismatch = (u32, u32, [u8; 4], [u8; 4]);
+
+/// 合成結果在四角與四邊中點與 egui 畫的不同之處；系統的圓角、邊框與陰影都落在這些點上。
+fn edge_mismatches(hwnd: isize, drawn: &ColorImage) -> Option<Vec<Mismatch>> {
+    let c = compose_capture(hwnd)?;
+    let (w, h) = (c.0, c.1);
+    if [w as usize, h as usize] != drawn.size {
+        return None;
+    }
+    let points = [
+        (0, 0),
+        (w / 2, 0),
+        (w - 1, 0),
+        (0, h / 2),
+        (w - 1, h / 2),
+        (0, h - 1),
+        (w / 2, h - 1),
+        (w - 1, h - 1),
+    ];
+    let differs = |(x, y)| {
+        let got = pixel_at(&c, x, y);
+        let want = drawn.pixels[y as usize * w as usize + x as usize].to_array();
+        let close = got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
+        (!close).then_some((x, y, got, want))
+    };
+    Some(points.into_iter().filter_map(differs).collect())
+}
+
 /// 檢查執行緒：依序驗證各項，結束時關掉視窗。
 fn run_checks(
     report: &mut Report,
@@ -278,7 +307,8 @@ fn run_checks(
         .cloned()
         .collect();
     let mut drawn = None;
-    match screenshot(ctx) {
+    let shot = screenshot(ctx);
+    match &shot {
         Some(img) => {
             let [w, height] = img.size;
             // 左下角：右下有抓取紋、上方是不透明的標題列
@@ -306,6 +336,13 @@ fn run_checks(
             "check1b composed background {composed:?} == drawn {drawn:?} (ex-style={:#x})",
             ex_style(h)
         ),
+    );
+
+    // 1c. 邊緣沒有系統畫的圓角、邊框或陰影
+    let edges = shot.as_deref().and_then(|img| edge_mismatches(h, img));
+    report.check(
+        edges.as_ref().is_some_and(Vec::is_empty),
+        format!("check1c composed edges differing from drawn (x, y, composed, drawn): {edges:?}"),
     );
 
     // 2. 不奪焦點、有工作列按鈕、置頂
@@ -368,11 +405,14 @@ fn run_checks(
         ),
     );
 
-    // 泡泡圖示外的角落要全透明（RGB 也是 0），不能透出白色；再往外是系統畫的圓角邊框
-    let corner = compose_capture(bubble).map(|c| pixel_at(&c, 6, 6));
+    // 圖示外的三個角要全透明：不能透出白色的重導向表面，也不能有系統畫的圓角邊框（右下角是圖示本身）
+    let corners = compose_capture(bubble).map(|c| {
+        let (w, h) = (c.0 - 1, c.1 - 1);
+        [(0, 0), (w, 0), (0, h)].map(|(x, y)| pixel_at(&c, x, y))
+    });
     report.check(
-        corner.is_some_and(|p| p.iter().all(|&v| v <= 2)),
-        format!("check4b bubble composed corner {corner:?} (want ~[0, 0, 0, 0])"),
+        corners.is_some_and(|ps| ps.iter().all(|p| *p == [0; 4])),
+        format!("check4b bubble composed corners {corners:?} (top-left, top-right, bottom-left; want all [0, 0, 0, 0])"),
     );
 
     // 一次重繪代表展開的那一下點擊；之後不再要求重繪，量「已顯示但還沒有 NOACTIVATE」的空窗
@@ -413,6 +453,12 @@ fn run_checks(
     report.check(
         ok,
         format!("expand: composed background {composed:?} == drawn {drawn:?}"),
+    );
+    // winit 顯示視窗時會重算外框：展開後邊緣也要維持
+    let edges = shot.as_deref().and_then(|img| edge_mismatches(hwnd(), img));
+    report.check(
+        edges.as_ref().is_some_and(Vec::is_empty),
+        format!("expand: composed edges differing from drawn: {edges:?}"),
     );
 }
 

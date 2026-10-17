@@ -1,11 +1,11 @@
-//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、前景切換與螢幕查詢。
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Once, OnceLock};
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, POINT, RECT};
+use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
     MonitorFromPoint,
@@ -17,11 +17,13 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress
 use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
 use windows_sys::Win32::System::SystemServices::IMAGE_DOS_HEADER;
 use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumThreadWindows, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW,
     GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, HMENU, IsWindow, IsWindowVisible,
-    SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
-    WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, WM_NCCALCSIZE, WM_NCDESTROY, WS_EX_NOACTIVATE,
+    WS_EX_NOREDIRECTIONBITMAP,
 };
 use windows_sys::core::PCWSTR;
 
@@ -63,6 +65,42 @@ pub fn make_non_activating(hwnd: isize) {
     if ex_style(hwnd) & WS_EX_NOACTIVATE == 0 && FAILED.swap(hwnd, Ordering::Relaxed) != hwnd {
         log(format!("[ui] non-activating setup failed: hwnd={hwnd:#x}"));
     }
+}
+
+unsafe extern "system" fn frameless_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    // 搶在 winit 之前：它對無邊框視窗把工作區頂端讓出 1px 給系統陰影
+    if msg == WM_NCCALCSIZE && wparam != 0 {
+        return 0;
+    }
+    if msg == WM_NCDESTROY {
+        unsafe { RemoveWindowSubclass(hwnd, Some(frameless_proc), 0) };
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+/// 讓工作區蓋滿整個視窗，拿掉 Windows 11 畫的圓角、1px 邊框與陰影；重複呼叫無妨。
+///
+/// egui-winit 對無邊框視窗一律開 winit 的 undecorated shadow 且沒開放關閉（`has_shadow` 只管 macOS），
+/// 留下的 1px 非工作區讓 DWM 當成一般視窗加框。子類別化後 winit 每次重算外框也都經過這裡。
+pub fn remove_system_frame(hwnd: isize) {
+    let hwnd_ = hwnd as HWND;
+    if unsafe { SetWindowSubclass(hwnd_, Some(frameless_proc), 0, 0) } == 0 {
+        log(format!(
+            "[ui] system frame left on: hwnd={hwnd:#x} error={}",
+            std::io::Error::last_os_error()
+        ));
+        return;
+    }
+    let flags = SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+    unsafe { SetWindowPos(hwnd_, std::ptr::null_mut(), 0, 0, 0, 0, flags) };
+    log(format!("[ui] system frame removed: hwnd={hwnd:#x}"));
 }
 
 /// winit 的視窗類別名稱；egui 的每個 viewport 都用它建立。
