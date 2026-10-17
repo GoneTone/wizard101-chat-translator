@@ -16,6 +16,7 @@ use wizard101_chat_translator::translation::clients::{
     ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
+use wizard101_chat_translator::translation::translator::list_models;
 
 fn sse(chunks: &[Value]) -> String {
     let mut out: String = chunks.iter().map(|c| format!("data: {c}\n\n")).collect();
@@ -532,4 +533,24 @@ async fn redirects_are_not_followed() {
     // httpx 不跟隨轉址：<400 照串流讀，沒有 data 行就是空譯文
     assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "");
     assert_eq!(bodies(&server).await.len(), 1);
+}
+
+#[tokio::test]
+async fn list_models_goes_through_the_built_client() {
+    let server = MockServer::start().await;
+    mount_models(
+        &server,
+        ResponseTemplate::new(200)
+            .set_body_json(json!({"data": [{"id": "b-model"}, {"id": "a-model"}]})),
+    )
+    .await;
+    let spec = ServiceSpec {
+        provider: "custom".into(),
+        base_url: server.uri(),
+        ..ServiceSpec::default()
+    };
+    assert_eq!(
+        list_models(&spec).await.unwrap(),
+        vec!["a-model".to_string(), "b-model".to_string()]
+    );
 }

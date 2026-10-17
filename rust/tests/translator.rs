@@ -22,7 +22,7 @@ use wizard101_chat_translator::translation::prompts::{
     build_region_system, build_system_message_system, fewshot_outgoing_turns,
 };
 use wizard101_chat_translator::translation::translator::{
-    ExampleCoordinator, TEST_SAMPLE, Translator,
+    ExampleCoordinator, TEST_SAMPLE, Translator, generate_and_store, test_translate,
 };
 
 const ZH: &str = "繁體中文（台灣）";
@@ -827,4 +827,110 @@ fn a_generation_panic_marks_the_fingerprint_failed_instead_of_pending_forever() 
         ))
         .is_empty()
     );
+}
+
+// --- 測試連線與範例快取 ---
+
+fn store_in(dir: &tempfile::TempDir) -> Arc<ExampleStore> {
+    Arc::new(ExampleStore::new(dir.path().join("examples.json")))
+}
+
+/// 第一次回譯文、之後回完整可驗證的範例改寫。
+fn fake_with_examples() -> Arc<Fake> {
+    Fake::texts(&["[Tester] 你好！", JA])
+}
+
+#[tokio::test]
+async fn test_translate_times_only_the_sample_translation() {
+    let fake = fake_with_examples();
+    fake.on_call(|n| {
+        if n == 2 {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir)))
+        .await
+        .unwrap();
+    assert_eq!(out.translated, "[Tester] 你好！");
+    assert!(out.elapsed < std::time::Duration::from_millis(150));
+    assert_eq!(fake.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn test_translate_generates_and_stores_examples() {
+    let fake = fake_with_examples();
+    let tr = make_with(&fake, "日本語");
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+    test_translate(Arc::clone(&tr), Some(Arc::clone(&store)))
+        .await
+        .unwrap();
+    assert!(store.get(&tr.examples_fingerprint()).unwrap().complete());
+    assert_eq!(fake.calls()[0].turns.last().unwrap().content, TEST_SAMPLE);
+}
+
+#[tokio::test]
+async fn test_translate_without_a_store_skips_examples() {
+    let fake = fake_with_examples();
+    test_translate(make_with(&fake, "日本語"), None)
+        .await
+        .unwrap();
+    assert_eq!(fake.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn example_failure_after_a_good_test_still_returns_the_translation() {
+    let fake = Fake::new(
+        "m",
+        vec![
+            Ok("[Tester] 你好！".into()),
+            Err(TranslateError::Config {
+                status: Some(429),
+                detail: "quota".into(),
+            }),
+        ],
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir)))
+        .await
+        .unwrap();
+    assert_eq!(out.translated, "[Tester] 你好！");
+    assert!(log_text().contains(
+        "[translate] example generation after the connection test failed: TranslatorConfigError"
+    ));
+}
+
+#[tokio::test]
+async fn test_translate_returns_the_translation_error() {
+    let err = TranslateError::Unexpected("boom".into());
+    let fake = Fake::new("m", vec![Err(err.clone())]);
+    let dir = tempfile::tempdir().unwrap();
+    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir))).await;
+    assert_eq!(out, Err(err));
+    assert_eq!(fake.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn generate_and_store_uses_the_cache_and_skips_empty_results() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+
+    let empty = Fake::texts(&["garbage"]);
+    let tr = make_with(&empty, "日本語");
+    assert_eq!(generate_and_store(&tr, &store).await, Ok(None));
+    assert!(store.get(&tr.examples_fingerprint()).is_none());
+
+    let fake = Fake::texts(&[JA]);
+    let tr = make_with(&fake, "日本語");
+    let generated = generate_and_store(&tr, &store).await.unwrap().unwrap();
+    assert_eq!(
+        store.get(&tr.examples_fingerprint()),
+        Some(generated.clone())
+    );
+    let calls = fake.calls().len();
+
+    assert_eq!(generate_and_store(&tr, &store).await, Ok(Some(generated)));
+    assert_eq!(fake.calls().len(), calls);
+    assert!(log_text().contains("[translate] examples loaded from cache:"));
 }

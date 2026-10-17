@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
@@ -452,6 +452,62 @@ impl Translator {
         ));
         Ok((fingerprint, examples))
     }
+}
+
+/// 取得端點上可用的模型 ID；用設定表單當下的值，與翻譯走同一條分派。
+pub async fn list_models(spec: &ServiceSpec) -> Result<Vec<String>, TranslateError> {
+    build_client(spec).list_models().await
+}
+
+/// 測試連線的結果：譯文與翻譯那一次的耗時。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestOutcome {
+    pub translated: String,
+    pub elapsed: Duration,
+}
+
+/// 取得目前服務與目標語言的範例：快取命中直接回傳，否則生成並存檔（全空不存、回 `None`）。
+pub async fn generate_and_store(
+    tr: &Translator,
+    store: &ExampleStore,
+) -> Result<Option<ExampleSet>, TranslateError> {
+    if let Some(cached) = store.get(&tr.examples_fingerprint()) {
+        log(format!(
+            "[translate] examples loaded from cache: {}",
+            cached.summary()
+        ));
+        return Ok(Some(cached));
+    }
+    let (fingerprint, examples) = tr.generate_examples().await?;
+    if examples.empty() {
+        return Ok(None);
+    }
+    store.put(&fingerprint, &examples);
+    Ok(Some(examples))
+}
+
+/// 測試連線：實際翻一句固定文字，與正式翻譯同一條路。
+///
+/// 給 `store` 時翻譯成功後順便生成並快取範例；生成失敗只記 log，不影響回傳的譯文。
+pub async fn test_translate(
+    tr: Arc<Translator>,
+    store: Option<Arc<ExampleStore>>,
+) -> Result<TestOutcome, TranslateError> {
+    let started = Instant::now();
+    let translated = tr.translate_incoming(TEST_SAMPLE, &[]).await?;
+    let elapsed = started.elapsed();
+    if let Some(store) = store
+        && let Err(err) = generate_and_store(&tr, &store).await
+    {
+        log(format!(
+            "[translate] example generation after the connection test failed: {}: {err}",
+            err.class_name()
+        ));
+    }
+    Ok(TestOutcome {
+        translated,
+        elapsed,
+    })
 }
 
 /// 背景生成沒走到收尾（panic 或 task 被丟掉）時照失敗收尾，指紋才不會永遠停在「生成中」。
