@@ -49,16 +49,17 @@
 - 第 1 段計畫的其他 Global Constraints 照樣沿用：log 規則、註解規則、移植測試、commit 格式（英文 conventional commits，結尾附 trailer）。
 - **i18n**：
   - 只新增三個 key，其餘文字一律用現有 key。
-  - 只改 `zh-TW.json` 與 `en-US.json`，其他語系等 Crowdin。
+  - 有翻譯這幾個 key 的語系都要改（使用者 2026-10-18 要求）：目前是 `zh-TW`、`en-US`、`zh-CN`，其餘語系檔沒有翻到這一區。動手前再用 `grep '"button.refresh"' src/i18n/*.json` 確認一次，有新語系翻到就一併補上。
 
-  | key | zh-TW | en-US |
-  |---|---|---|
-  | `test.connected`（新） | `連線成功（耗時 {seconds} 秒）` | `Connected ({seconds}s)` |
-  | `test.source`（新） | `原文` | `Source` |
-  | `test.translation`（新） | `譯文` | `Translation` |
-  | `button.refresh`（改） | `更新清單` | `Refresh list` |
-  | `hint.model_idle`（改） | `按「更新清單」從伺服器取得可用模型清單；也可以自行輸入模型名稱。` | `Click Refresh list to fetch the model list from the server, or type a model name yourself.` |
+  | key | zh-TW | en-US | zh-CN |
+  |---|---|---|---|
+  | `test.connected`（新） | `連線成功（耗時 {seconds} 秒）` | `Connected ({seconds}s)` | `连接成功（耗时 {seconds} 秒）` |
+  | `test.source`（新） | `原文` | `Source` | `原文` |
+  | `test.translation`（新） | `譯文` | `Translation` | `译文` |
+  | `button.refresh`（改） | `更新清單` | `Refresh list` | `刷新列表` |
+  | `hint.model_idle`（改） | `按「更新清單」從伺服器取得可用模型清單；也可以自行輸入模型名稱。` | `Click Refresh list to fetch the model list from the server, or type a model name yourself.` | `点“刷新列表”从服务器获取可用模型列表；也可以自行输入模型名称。` |
 
+  - 新 key 放在各檔 `test.success` 的下一行，三個檔案位置一致。
   - `test.success` 保留不刪（Python 版還在用）。
   - 改完若 `rust/tests/golden/i18n_t.json` 涵蓋到改過的 key，重跑 `uv run python -m tools.golden.export i18n_t`。
 - **log**：
@@ -444,7 +445,7 @@
 
 **Files:**
 - Create: `rust/src/ui/settings/service_form.rs`
-- Modify: `src/i18n/zh-TW.json`、`src/i18n/en-US.json`（見 Global Constraints 的 i18n 表）
+- Modify: `src/i18n/zh-TW.json`、`src/i18n/en-US.json`、`src/i18n/zh-CN.json`（見 Global Constraints 的 i18n 表）
 - Test: `rust/tests/service_form.rs`（新）
 - 移植：
   - `tests/ui/settings/test_service_form.py` 全部；
@@ -489,7 +490,7 @@
   - `test_errors_make_urls_clickable`：錯誤訊息裡的網址是 Hyperlink。
   - `the_api_key_is_masked_until_revealed`
 - [ ] **Step 2:** 跑測試，預期 FAIL。
-- [ ] **Step 3:** 實作，並改 i18n 兩個 JSON；若有 Python 測試斷言舊的「重新整理」文字，跟著改。
+- [ ] **Step 3:** 實作，並改 i18n 三個 JSON；若有 Python 測試斷言舊的「重新整理」文字，跟著改。
 - [ ] **Step 4:** 跑三項 cargo 檢查以及 ruff／pytest，全過。
 - [ ] **Step 5:** Commit：`feat(rust): add the service form with timed connection tests`
 
