@@ -8,6 +8,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
+use common::fake_backend::{Fake, JA, spec};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 
@@ -42,7 +43,7 @@ use wizard101_chat_translator::translation::examples::{
 };
 use wizard101_chat_translator::translation::pool::ResultFn;
 use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
-use wizard101_chat_translator::translation::translator::Translator;
+use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
 use wizard101_chat_translator::translation::{BoxFuture, Turn};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
@@ -376,12 +377,15 @@ fn changing_only_the_region_slot_rebuilds_only_that_translator() {
 
 #[test]
 fn editing_the_service_a_slot_uses_rebuilds_it() {
-    for (field, value) in [
-        ("model", "gpt-y-edit_model"),
-        ("api_key", "sk-edit_api_key"),
-        ("base_url", "http://elsewhere-edit_base_url"),
+    for (field, tag, value) in [
+        ("model", "edit_model", "gpt-y-edit_model"),
+        ("api_key", "edit_api_key", "sk-edit_api_key"),
+        (
+            "base_url",
+            "edit_base_url",
+            "http://elsewhere-edit_base_url",
+        ),
     ] {
-        let tag = format!("edit_{field}").leak() as &'static str;
         let s = saved(tag);
         // 發話格跟隨預設服務（第二筆）；金鑰與端點不在 describe 裡，以重建與否判斷
         s.save(|c| c["services"][1][field] = json!(value));
@@ -463,42 +467,72 @@ fn offline_cfg(tag: &str) -> Config {
 }
 
 #[test]
-fn a_settings_change_applies_the_new_fingerprints_examples_and_never_the_old() {
+fn a_stale_generation_is_never_applied_and_lands_only_under_the_old_fingerprint() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
-    let rt = paused_rt();
-    let mut cfg = offline_cfg("never_old");
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    let applied = Arc::new(Mutex::new(Vec::new()));
+    let coordinator = {
+        let applied = Arc::clone(&applied);
+        ExampleCoordinator::new(
+            Arc::clone(&store),
+            rt.handle().clone(),
+            Arc::new(move |tr: &Translator| applied.lock().unwrap().push(tr.examples())),
+        )
+    };
+    let fake = Fake::new("m", vec![Ok(JA.to_owned())]);
+    let tr = {
+        let fake = Arc::clone(&fake);
+        Translator::with_client(move |_| fake.clone(), spec("m"), "日本語".into())
+    };
+    let old_fingerprint = tr.examples_fingerprint();
     let new = ExampleSet {
         incoming: Some(("s".into(), "new".into())),
         ..examples()
     };
-    let settings = Arc::new(RwLock::new(cfg.clone()));
-    let built = build_translation(
-        &settings,
-        no_results(),
-        rt.handle(),
-        Arc::clone(&store),
-        dir.path().join("cache.json"),
-    );
-    let old_fingerprint = built.incoming.examples_fingerprint();
+    // 生成請求途中使用者按儲存：換服務、新指紋的範例已在快取，ensure 直接套用
+    fake.on_call({
+        let (weak, coordinator, store, new) = (
+            Arc::downgrade(&tr),
+            Arc::clone(&coordinator),
+            Arc::clone(&store),
+            new.clone(),
+        );
+        move |_| {
+            let tr = weak.upgrade().unwrap();
+            assert!(tr.reconfigure(spec("m2"), "日本語".into()));
+            store.put(&tr.examples_fingerprint(), &new);
+            assert!(
+                coordinator.ensure(&tr).is_none(),
+                "the cache hit needs no generation"
+            );
+        }
+    });
 
-    set_model(&mut cfg, 0, "qwen3-new-never_old");
-    *settings.write().unwrap() = cfg.clone();
-    seed(&store, &cfg, &new);
-    reconfigure_translation(&cfg, &built);
-    assert_eq!(built.incoming.examples(), Some(new));
-    let new_fingerprint = built.incoming.examples_fingerprint();
+    let generation = coordinator
+        .ensure(&tr)
+        .expect("the old fingerprint is generated");
+    rt.block_on(async { generation.await.unwrap() });
 
-    let_background_finish(&rt);
-    // 舊設定發出的生成讀的是當下的綁定，所以晚到時不會以舊指紋套用
-    let applied = built.incoming.examples();
-    assert!(applied.is_some());
-    assert_eq!(built.incoming.examples_fingerprint(), new_fingerprint);
+    let new_fingerprint = tr.examples_fingerprint();
     assert_ne!(new_fingerprint, old_fingerprint);
     assert_eq!(
-        built.cache.fingerprint(),
-        incoming_fingerprint(&cfg, applied.as_ref())
+        tr.examples(),
+        Some(new.clone()),
+        "the stale set is not applied"
+    );
+    assert_eq!(
+        *applied.lock().unwrap(),
+        [Some(new.clone())],
+        "only the new set was applied"
+    );
+    assert_eq!(store.get(&new_fingerprint), Some(new));
+    assert!(
+        store
+            .get(&old_fingerprint)
+            .is_some_and(|set| set.complete()),
+        "the stale result is kept under the old fingerprint"
     );
 }
 

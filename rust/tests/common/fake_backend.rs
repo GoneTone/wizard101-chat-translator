@@ -12,6 +12,14 @@ use wizard101_chat_translator::translation::{BoxFuture, Turn};
 
 use super::log_capture::capture_logs;
 
+/// 合格的範例生成回覆（日文，六行齊全）。
+pub const JA: &str = "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n\
+2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n\
+3. 火猫（Fire Cat）に話しかける\n\
+4. 巨像大道（Colossus Boulevard）へ行く\n\
+5. オプション\n\
+6. そしてあなたは";
+
 pub struct Call {
     pub system: String,
     pub turns: Vec<Turn>,

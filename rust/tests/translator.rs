@@ -6,7 +6,7 @@ mod common;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
-use common::fake_backend::{Fake, spec};
+use common::fake_backend::{Fake, JA, spec};
 use common::log_capture::{log_lines_with, log_text};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use tokio_util::sync::CancellationToken;
@@ -26,13 +26,6 @@ use wizard101_chat_translator::translation::translator::{
 };
 
 const ZH: &str = "繁體中文（台灣）";
-
-const JA: &str = "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n\
-2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n\
-3. 火猫（Fire Cat）に話しかける\n\
-4. 巨像大道（Colossus Boulevard）へ行く\n\
-5. オプション\n\
-6. そしてあなたは";
 
 /// 每次（含 reconfigure）都接到同一個假 backend。
 fn make_with(fake: &Arc<Fake>, target: &str) -> Arc<Translator> {
