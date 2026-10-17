@@ -88,24 +88,39 @@ pub fn is_click(dx: i32, dy: i32) -> bool {
 ///
 /// 角落的判定帶比邊寬，且兩軸都落在角落帶內才算角 —— 否則靠近角的邊會很難單軸縮放。
 pub fn edge_at(px: i32, py: i32, x: i32, y: i32, w: i32, h: i32) -> Option<Edge> {
+    edge_at_bands(px, py, x, y, w, h, EDGE, CORNER)
+}
+
+/// 同 `edge_at`，但邊與角的判定帶寬度（`edge`、`corner`）由呼叫端指定。
+#[allow(clippy::too_many_arguments)]
+pub fn edge_at_bands(
+    px: i32,
+    py: i32,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    edge: i32,
+    corner: i32,
+) -> Option<Edge> {
     if !point_in_rect(px, py, x, y, w, h) {
         return None;
     }
     let (left, right) = (px - x, x + w - 1 - px);
     let (top, bottom) = (py - y, y + h - 1 - py);
-    let north = top < CORNER;
-    let south = !north && bottom < CORNER;
-    let west = left < CORNER;
-    let east = !west && right < CORNER;
+    let north = top < corner;
+    let south = !north && bottom < corner;
+    let west = left < corner;
+    let east = !west && right < corner;
     Some(match () {
         _ if north && west => Edge::Nw,
         _ if north && east => Edge::Ne,
         _ if south && west => Edge::Sw,
         _ if south && east => Edge::Se,
-        _ if top < EDGE => Edge::N,
-        _ if bottom < EDGE => Edge::S,
-        _ if left < EDGE => Edge::W,
-        _ if right < EDGE => Edge::E,
+        _ if top < edge => Edge::N,
+        _ if bottom < edge => Edge::S,
+        _ if left < edge => Edge::W,
+        _ if right < edge => Edge::E,
         _ => return None,
     })
 }
