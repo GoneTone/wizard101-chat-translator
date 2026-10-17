@@ -85,6 +85,21 @@ pub fn initial_position(
     pulled
 }
 
+/// 從泡泡建立前後的執行緒視窗清單認出泡泡：新出現的那個（略過 overlay）；
+/// 沒有新視窗（不是建立的那一幀）才退回 `by_title` —— 同標題的視窗不只泡泡一個。
+pub fn pick_bubble_window(
+    before: &[isize],
+    after: &[isize],
+    overlay: isize,
+    by_title: impl FnOnce() -> isize,
+) -> isize {
+    after
+        .iter()
+        .copied()
+        .find(|h| *h != overlay && !before.contains(h))
+        .unwrap_or_else(by_title)
+}
+
 /// 泡泡這一幀要 overlay 做的事。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -134,14 +149,18 @@ impl Bubble {
         self.pending
     }
 
+    /// 下一次檢查前景的時間。
+    pub fn next_poll(&self) -> Instant {
+        self.next_poll
+    }
+
     /// 記下找到的 HWND（0＝還沒找到）；以當下的 `foreground` 為前景基準 —— 泡泡建立時可能已被啟用，
     /// 否則第一輪就會誤判成「使用者切回本工具」。
     pub fn attach(&mut self, hwnd: isize, foreground: isize) {
         self.hwnd = hwnd;
         self.prev_foreground = foreground;
-        if hwnd == 0 && !self.lookup_logged {
-            self.lookup_logged = true;
-            log("[ui] bubble hwnd lookup failed: no visible bubble window on the UI thread");
+        if hwnd != 0 && self.lookup_logged {
+            log(format!("[ui] bubble hwnd found after retrying: 0x{hwnd:x}"));
         }
     }
 
@@ -151,9 +170,14 @@ impl Bubble {
             return false;
         }
         self.next_poll = now + POLL_INTERVAL;
+        if self.hwnd == 0 && !self.lookup_logged {
+            self.lookup_logged = true;
+            log("[ui] bubble hwnd lookup failed: no bubble window on the UI thread");
+        }
         let (px, py) = shell.cursor();
         let (x, y, w, h) = shell.rect();
-        let pointer_over = point_in_rect(px, py, x, y, w, h);
+        // 快速拖曳時游標會一時甩出 48px 外，按著不放仍算在操作泡泡
+        let pointer_over = self.press.is_some() || point_in_rect(px, py, x, y, w, h);
         let expand = should_auto_expand(foreground, self.prev_foreground, self.hwnd, pointer_over);
         self.prev_foreground = foreground;
         if expand {
@@ -230,7 +254,7 @@ impl Bubble {
         let (dx, dy) = (cx - sx, cy - sy);
         if primary_down {
             let (nx, ny) = moved_to(x, y, dx, dy);
-            if shell.rect() != (nx, ny, w, h) {
+            if self.hwnd != 0 && shell.rect() != (nx, ny, w, h) {
                 shell.set_rect((nx, ny, w, h));
             }
             return None;
@@ -238,6 +262,10 @@ impl Bubble {
         self.press = None;
         if is_click(dx, dy) {
             return Some(Action::Expand);
+        }
+        // 沒有 HWND 時視窗沒動、矩形也讀不到，回報出去會把 (0, 0) 存進設定
+        if self.hwnd == 0 {
+            return None;
         }
         let (x, y, _, _) = shell.rect();
         Some(Action::Moved(x, y))
@@ -294,6 +322,28 @@ mod tests {
     }
 
     #[test]
+    fn holding_the_bubble_blocks_auto_expand_even_off_the_rect() {
+        let t0 = Instant::now();
+        let shell = FakeShell {
+            cursor: (900, 900),
+            rect: (500, 500, 48, 48),
+            ready: true,
+        };
+        let mut bubble = Bubble::new((500, 500), t0);
+        bubble.attach(101, 202);
+        bubble.press = Some(((520, 520), (500, 500, 48, 48)));
+        assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
+    }
+
+    #[test]
+    fn new_window_wins_over_a_same_titled_one() {
+        let by_title = || 7;
+        assert_eq!(pick_bubble_window(&[1, 7], &[1, 7, 9], 1, by_title), 9);
+        assert_eq!(pick_bubble_window(&[7], &[1, 7], 1, by_title), 7);
+        assert_eq!(pick_bubble_window(&[1, 9], &[1, 9], 1, by_title), 7);
+    }
+
+    #[test]
     fn badge_caps_at_99_plus() {
         assert_eq!(badge_text(0), None);
         assert_eq!(badge_text(7).as_deref(), Some("7"));
@@ -320,8 +370,14 @@ mod tests {
     }
 
     fn harness() -> Harness<'static, State> {
+        harness_with_hwnd(1)
+    }
+
+    fn harness_with_hwnd(hwnd: isize) -> Harness<'static, State> {
+        let mut bubble = Bubble::new((500, 300), Instant::now());
+        bubble.attach(hwnd, 0);
         let state = State {
-            bubble: Bubble::new((500, 300), Instant::now()),
+            bubble,
             shell: FakeShell {
                 cursor: (520, 320),
                 rect: (0, 0, 48, 48),
@@ -373,6 +429,15 @@ mod tests {
         press_move_release(&mut harness, (5, 0));
         assert_eq!(harness.state().actions, [Action::Moved(505, 300)]);
         assert_eq!(harness.state().shell.rect, (505, 300, 48, 48));
+    }
+
+    #[test]
+    fn drag_without_hwnd_neither_moves_nor_reports() {
+        let mut harness = harness_with_hwnd(0);
+        harness.state_mut().shell.rect = (500, 300, 48, 48);
+        press_move_release(&mut harness, (30, 0));
+        assert!(harness.state().actions.is_empty());
+        assert_eq!(harness.state().shell.rect, (500, 300, 48, 48));
     }
 
     #[test]

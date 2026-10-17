@@ -160,41 +160,40 @@ pub fn all_monitors() -> Vec<Rect> {
     found
 }
 
-struct TitleSearch {
-    title: Vec<u16>,
-    except: isize,
-    found: isize,
+unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> i32 {
+    let found = unsafe { &mut *(lparam as *mut Vec<isize>) };
+    found.push(hwnd as isize);
+    1
 }
 
-unsafe extern "system" fn match_title(hwnd: HWND, lparam: LPARAM) -> i32 {
-    let search = unsafe { &mut *(lparam as *mut TitleSearch) };
-    let mut buf = vec![0u16; search.title.len() + 2];
-    let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) } as usize;
-    if hwnd as isize != search.except
-        && unsafe { IsWindowVisible(hwnd) } != 0
-        && buf[..len] == search.title[..]
-    {
-        search.found = hwnd as isize;
-        return 0;
-    }
-    1
+/// 目前執行緒建立的所有頂層視窗（含隱藏的）。
+pub fn thread_windows() -> Vec<isize> {
+    let mut found = Vec::<isize>::new();
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(collect_window),
+            &mut found as *mut _ as LPARAM,
+        )
+    };
+    found
+}
+
+/// 視窗標題；取不到時為空字串。
+pub fn window_title(hwnd: isize) -> String {
+    let mut buf = [0u16; 512];
+    let len = unsafe { GetWindowTextW(hwnd as HWND, buf.as_mut_ptr(), buf.len() as i32) };
+    String::from_utf16_lossy(&buf[..len.max(0) as usize])
 }
 
 /// 目前執行緒上標題為 `title` 的可見視窗（略過 `except`）；找不到回 0。
 pub fn find_thread_window(title: &str, except: isize) -> isize {
-    let mut search = TitleSearch {
-        title: title.encode_utf16().collect(),
-        except,
-        found: 0,
-    };
-    unsafe {
-        EnumThreadWindows(
-            GetCurrentThreadId(),
-            Some(match_title),
-            &mut search as *mut _ as LPARAM,
-        )
-    };
-    search.found
+    thread_windows()
+        .into_iter()
+        .find(|&h| {
+            h != except && unsafe { IsWindowVisible(h as HWND) } != 0 && window_title(h) == title
+        })
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -211,6 +210,7 @@ mod tests {
 
     #[test]
     fn find_thread_window_is_zero_on_a_thread_without_windows() {
+        assert!(thread_windows().is_empty());
         assert_eq!(find_thread_window("Wizard101 Chat Translator", 0), 0);
     }
 

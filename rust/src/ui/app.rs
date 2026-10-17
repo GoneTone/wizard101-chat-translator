@@ -12,9 +12,10 @@ use crate::config::app_name;
 use crate::i18n::current_language;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::ui::geometry::Rect;
 use crate::ui::overlay::banners::Banners;
 use crate::ui::overlay::bubble::{
-    Action, BUBBLE_SIZE, Bubble, POLL_INTERVAL, bubble_alpha, initial_position,
+    Action, BUBBLE_SIZE, Bubble, bubble_alpha, initial_position, pick_bubble_window,
 };
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
 use crate::ui::overlay::message_list::MessageList;
@@ -142,7 +143,16 @@ impl App {
         } else {
             "expanded"
         };
-        log(format!("[ui] {what} (follow={})", self.list.follow()));
+        let messages = self.model.current_view().map_or(0, |v| v.messages.len());
+        let follow = if self.list.follow() { "True" } else { "False" };
+        log(format!("[ui] {what} (messages={messages} follow={follow})"));
+    }
+
+    /// 開出泡泡：起點記成這次執行期間的泡泡位置（不寫回設定），之後縮小都沿用，overlay 移動也不跟著跑。
+    fn open_bubble(&mut self, overlay: Rect, size: i32, monitors: &[Rect]) {
+        let (x, y) = initial_position(self.bubble_position, overlay, size, monitors);
+        self.bubble_position = (Some(x), Some(y));
+        self.bubble = Some(Bubble::new((x, y), Instant::now()));
     }
 
     fn apply(&mut self, event: UiEvent) {
@@ -196,13 +206,13 @@ impl App {
     /// 縮小期間每幀顯示泡泡、處理它的點擊／拖曳／關閉，並每 300ms 檢查一次是否該自動展開。
     fn show_bubble(&mut self, ctx: &egui::Context) {
         let ppp = ctx.pixels_per_point();
-        let (saved, overlay) = (self.bubble_position, self.hwnd);
-        let bubble = self.bubble.get_or_insert_with(|| {
+        if self.bubble.is_none() {
             let size = (BUBBLE_SIZE as f32 * ppp).round() as i32;
-            let overlay = win32::window_rect(overlay);
-            let start = initial_position(saved, overlay, size, &win32::all_monitors());
-            Bubble::new(start, Instant::now())
-        });
+            self.open_bubble(win32::window_rect(self.hwnd), size, &win32::all_monitors());
+        }
+        let Some(bubble) = self.bubble.as_mut() else {
+            return;
+        };
         let size = BUBBLE_SIZE as f32;
         let mut builder = ViewportBuilder::default()
             .with_title(app_name())
@@ -217,22 +227,24 @@ impl App {
         }
         let (hwnd, unread) = (bubble.hwnd(), self.model.unread());
         let alpha = bubble_alpha(self.frame.alpha());
+        let before = if hwnd == 0 {
+            win32::thread_windows()
+        } else {
+            Vec::new()
+        };
         let action =
             ctx.show_viewport_immediate(ViewportId::from_hash_of("bubble"), builder, |ui, _| {
                 bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
             });
-        if bubble.hwnd() == 0 {
-            bubble.attach(
-                win32::find_thread_window(&app_name(), self.hwnd),
-                win32::foreground_window(),
-            );
+        if hwnd == 0 {
+            let found = pick_bubble_window(&before, &win32::thread_windows(), self.hwnd, || {
+                win32::find_thread_window(&app_name(), self.hwnd)
+            });
+            bubble.attach(found, win32::foreground_window());
         }
-        let expand = bubble.watch(
-            Instant::now(),
-            win32::foreground_window(),
-            &Win32Shell(bubble.hwnd()),
-        );
-        ctx.request_repaint_after(POLL_INTERVAL);
+        let now = Instant::now();
+        let expand = bubble.watch(now, win32::foreground_window(), &Win32Shell(bubble.hwnd()));
+        ctx.request_repaint_after(bubble.next_poll().saturating_duration_since(now));
         match action {
             Some(action) => self.bubble_action(ctx, action),
             None if expand => self.set_minimized(false),
@@ -358,6 +370,7 @@ mod tests {
 
     use super::*;
     use crate::ui::overlay::banners::Release;
+    use crate::ui::overlay::bubble::POLL_INTERVAL;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
@@ -709,6 +722,29 @@ mod tests {
         harness.step();
         let bubble = harness.state().bubble.as_ref().unwrap();
         assert_eq!(bubble.pending(), Some((30, 40)));
+    }
+
+    #[test]
+    fn default_bubble_position_sticks_after_the_overlay_moves() {
+        let (_poster, inbox) = channel();
+        let ctx = egui::Context::default();
+        let saved = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&saved);
+        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+            .with_bubble_position((None, None), move |x, y| sink.borrow_mut().push((x, y)));
+        let monitors = [(0, 0, 1920, 1080)];
+        app.set_minimized(true);
+        app.open_bubble((100, 200, 640, 420), 48, &monitors);
+        let pending = |app: &App| app.bubble.as_ref().unwrap().pending();
+        assert_eq!(pending(&app), Some((100 + 640 - 48, 200)));
+        app.set_minimized(false);
+        app.set_minimized(true);
+        app.open_bubble((900, 700, 640, 420), 48, &monitors);
+        assert_eq!(pending(&app), Some((692, 200)));
+        assert!(
+            saved.borrow().is_empty(),
+            "the default is not written to config"
+        );
     }
 
     #[test]
