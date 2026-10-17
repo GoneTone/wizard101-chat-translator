@@ -5,21 +5,15 @@
 use std::time::Duration;
 
 use eframe::egui::text::CharIndex;
-use eframe::egui::{
-    Area, Color32, Event, FontId, Galley, Id, Key, Order, Pos2, Rect, Sense, Stroke, StrokeKind,
-    Ui, Vec2,
-};
+use eframe::egui::{Event, Galley, Id, Key, Pos2, Rect, Ui, Vec2};
 
-use crate::i18n::t;
 use crate::logs::log;
 use crate::ui::clipboard;
-use crate::ui::fonts_egui::tk_pt;
-use crate::ui::geometry::clamped_position;
+use crate::ui::copy_menu::{self, MenuOutcome};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Win32Shell, edge_under};
 use crate::ui::overlay::message_list::{MessageList, Row};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
-use crate::ui::palette::{BAR, FG_BAR, FG_TRANSLATED, GRIP};
 use crate::ui::win32;
 
 /// 拖出視口時的自動捲動節奏（秒）。
@@ -27,11 +21,6 @@ const AUTOSCROLL_INTERVAL: f64 = 0.040;
 /// 每輪最少捲幾像素：剛越界時要慢，才停得準。
 const AUTOSCROLL_MIN: i32 = 2;
 const AUTOSCROLL_MAX: i32 = 24;
-const MENU_PAD_X: f32 = 10.0;
-const MENU_PAD_Y: f32 = 5.0;
-const MENU_GAP: f32 = 6.0;
-const MENU_ICON: f32 = 13.0;
-const MENU_SHEET_OFFSET: f32 = 4.0;
 
 /// 選取端點：第幾則訊息、該則第幾行（0＝原文、1＝譯文）、行內第幾個字元；欄位順序即閱讀順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -314,8 +303,6 @@ impl Selection {
             && self.span().is_some()
         {
             self.menu = Some(p);
-            // 下一次 show_menu 把它當成新開的，夾好位置後記 log
-            self.menu_rect = None;
         }
         if copy {
             self.copy(messages, desktop);
@@ -362,76 +349,27 @@ impl Selection {
     }
 
     fn close_menu(&mut self) {
+        self.menu_rect = None;
         if self.menu.take().is_some() {
             log("[ui] copy popup hidden");
         }
     }
 
-    /// 只有「複製」一項的右鍵選單：浮在 overlay 最上層、不超出視窗，點它複製並關閉。
+    /// 右鍵選單：點「複製」複製選取並關閉，在選單外按下就關閉。
     fn show_menu(&mut self, ui: &Ui, messages: &[Message], desktop: &mut dyn Desktop) {
         if self.span().is_none() {
             self.close_menu();
         }
-        let fresh = self.menu_rect.take().is_none();
         let Some(at) = self.menu else {
             return;
         };
-        let galley = ui.painter().layout_no_wrap(
-            t("menu.copy", &[]),
-            FontId::proportional(tk_pt(9.0)),
-            Color32::PLACEHOLDER,
-        );
-        let inner = Vec2::new(
-            MENU_PAD_X + MENU_ICON + MENU_GAP + galley.size().x + MENU_PAD_X,
-            MENU_PAD_Y + MENU_ICON.max(galley.size().y) + MENU_PAD_Y,
-        );
-        let size = inner + Vec2::splat(2.0);
-        let area = ui.max_rect();
-        let (x, y) = clamped_position(
-            (at.x - area.min.x) as i32,
-            (at.y - area.min.y) as i32,
-            size.x.ceil() as i32,
-            size.y.ceil() as i32,
-            area.width() as i32,
-            area.height() as i32,
-        );
-        if fresh {
-            log(format!("[ui] copy popup shown at {x},{y}"));
-        }
-        let min = area.min + Vec2::new(x as f32, y as f32);
-        self.menu_rect = Some(Rect::from_min_size(min, size));
-        let clicked = Area::new(Id::unique("overlay_copy_menu"))
-            .order(Order::Foreground)
-            .fixed_pos(min)
-            .show(ui.ctx(), |ui| {
-                let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-                let (bg, fg) = if response.hovered() {
-                    (GRIP, FG_TRANSLATED)
-                } else {
-                    (BAR, FG_BAR)
-                };
-                let painter = ui.painter();
-                painter.rect_filled(rect, 0.0, GRIP);
-                let row = rect.shrink(1.0);
-                painter.rect_filled(row, 0.0, bg);
-                // 「兩張疊起來的紙」：後面那張只露出左上角
-                let icon = Pos2::new(row.min.x + MENU_PAD_X, row.center().y - MENU_ICON / 2.0);
-                let back = Rect::from_min_size(icon, Vec2::splat(MENU_ICON - MENU_SHEET_OFFSET));
-                let front = back.translate(Vec2::splat(MENU_SHEET_OFFSET));
-                painter.rect_stroke(back, 0.0, Stroke::new(1.0, fg), StrokeKind::Inside);
-                painter.rect_filled(front, 0.0, bg);
-                painter.rect_stroke(front, 0.0, Stroke::new(1.0, fg), StrokeKind::Inside);
-                let text = Pos2::new(
-                    icon.x + MENU_ICON + MENU_GAP,
-                    row.center().y - galley.size().y / 2.0,
-                );
-                painter.galley(text, galley, fg);
-                response.clicked()
-            })
-            .inner;
-        if clicked {
-            self.close_menu();
-            self.copy(messages, desktop);
+        match copy_menu::show(ui, Id::unique("overlay_copy_menu"), at) {
+            MenuOutcome::Open => self.menu_rect = Some(copy_menu::rect(ui, at)),
+            MenuOutcome::Copy => {
+                self.close_menu();
+                self.copy(messages, desktop);
+            }
+            MenuOutcome::Dismissed => self.close_menu(),
         }
     }
 }
@@ -522,12 +460,13 @@ fn clamped(list: &MessageList, messages: &[Message], pos: Pos2) -> Option<Caret>
 mod tests {
     use std::time::Instant;
 
-    use eframe::egui::{Context, Modifiers, PointerButton, Shape};
+    use eframe::egui::{Color32, Context, FontId, Modifiers, PointerButton, Shape};
     use egui_kittest::Harness;
 
     use super::*;
-    use crate::ui::fonts_egui;
-    use crate::ui::palette::SELECT_BG;
+    use crate::i18n::t;
+    use crate::ui::fonts_egui::{self, tk_pt};
+    use crate::ui::palette::{BAR, GRIP, SELECT_BG};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
     /// 清單左側留白：讓行首字元落在左緣縮放帶之外，按得到第 0 個字。

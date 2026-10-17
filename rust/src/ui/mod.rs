@@ -2,6 +2,7 @@
 
 pub mod app;
 pub mod clipboard;
+pub mod copy_menu;
 pub mod events;
 pub mod fonts;
 pub mod fonts_egui;
