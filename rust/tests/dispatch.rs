@@ -6,11 +6,15 @@ mod common;
 use std::sync::atomic::AtomicBool;
 
 use common::log_capture::{capture_logs, log_lines_with};
+use egui_kittest::Harness;
 use serde_json::json;
 use wizard101_chat_translator::input::dispatch::{
     Foreground, on_hotkey, region_hotkey_to_register,
 };
-use wizard101_chat_translator::ui::events::UiPoster;
+use wizard101_chat_translator::ui::app::{App, channel};
+use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::ui::fonts_egui;
+use wizard101_chat_translator::ui::overlay::frame::Frame;
 
 fn fg(exe: fn() -> Option<String>) -> Foreground {
     Foreground { hwnd: || 0xB, exe }
@@ -43,5 +47,24 @@ fn ignored_hotkey_logs_the_foreground_exe() {
     assert!(
         !log_lines_with("[app] hotkey ignored: foreground is not the game window (exe=None)")
             .is_empty()
+    );
+}
+
+#[test]
+fn region_hotkey_logs_until_phase_3() {
+    capture_logs();
+    let (poster, inbox) = channel();
+    poster.post(UiEvent::RegionHotkey { hwnd: 0x5E61 });
+    let mut harness = Harness::new_eframe(|cc| {
+        fonts_egui::install(&cc.egui_ctx, "en-US");
+        App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+    });
+    harness.step();
+    assert_eq!(
+        log_lines_with("[ui] region hotkey pressed (hwnd=0x5e61)")
+            .iter()
+            .map(|l| l.split_once(' ').unwrap().1)
+            .collect::<Vec<_>>(),
+        ["[ui] region hotkey pressed (hwnd=0x5e61); region capture arrives in phase 3"]
     );
 }

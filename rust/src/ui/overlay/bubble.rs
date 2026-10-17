@@ -85,21 +85,6 @@ pub fn initial_position(
     pulled
 }
 
-/// 從泡泡建立前後的執行緒視窗清單認出泡泡：新出現的那個（略過 overlay）；
-/// 沒有新視窗（不是建立的那一幀）才退回 `by_title` —— 同標題的視窗不只泡泡一個。
-pub fn pick_bubble_window(
-    before: &[isize],
-    after: &[isize],
-    overlay: isize,
-    by_title: impl FnOnce() -> isize,
-) -> isize {
-    after
-        .iter()
-        .copied()
-        .find(|h| *h != overlay && !before.contains(h))
-        .unwrap_or_else(by_title)
-}
-
 /// 泡泡這一幀要 overlay 做的事。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -332,14 +317,6 @@ mod tests {
         bubble.attach(101, 202);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
         assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
-    }
-
-    #[test]
-    fn new_window_wins_over_a_same_titled_one() {
-        let by_title = || 7;
-        assert_eq!(pick_bubble_window(&[1, 7], &[1, 7, 9], 1, by_title), 9);
-        assert_eq!(pick_bubble_window(&[7], &[1, 7], 1, by_title), 7);
-        assert_eq!(pick_bubble_window(&[1, 9], &[1, 9], 1, by_title), 7);
     }
 
     #[test]

@@ -1,9 +1,10 @@
-//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay 與泡泡、停在螢幕外，以程式讀回各項行為。
+//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay、泡泡與翻譯輸入框、停在螢幕外，以程式讀回各項行為。
 //!
 //! 會短暫出現螢幕外視窗與工作列按鈕，所以預設略過；手動跑：
 //! `cargo test --manifest-path rust/Cargo.toml --test ui_probe -- --ignored --nocapture`
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ColorImage, ViewportCommand};
@@ -23,13 +24,21 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
 };
 use winit::platform::windows::EventLoopBuilderExtWindows;
+use wizard101_chat_translator::config::Config;
+use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::log;
 use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::ui::input_box::{self, InputBox};
+use wizard101_chat_translator::ui::input_host::Desktop;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
+use wizard101_chat_translator::ui::palette::BAR;
 use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of};
 
 const PARK: f32 = 10000.0;
+/// 輸入框的螢幕外游標位置（實體像素）與假的工作區：box 貼在游標下、不被拉回真的螢幕。
+const BOX_CURSOR: (i32, i32) = (10000, 10000);
+const BOX_AREA: (i32, i32, i32, i32) = (9000, 9000, 4000, 4000);
 const ALPHA: f32 = 0.8;
 /// 取背景像素時離左下角的距離：避開 Windows 11 的圓角。
 const BG_INSET: usize = 10;
@@ -269,6 +278,29 @@ fn edge_mismatches(hwnd: isize, drawn: &ColorImage) -> Option<Vec<Mismatch>> {
     Some(points.into_iter().filter_map(differs).collect())
 }
 
+/// 輸入框合成後四角與四邊中點和應有底色（上緣是拖曳條、其餘是 BG）不同之處。
+fn input_box_edges(hwnd: isize) -> Option<(u32, u32, Vec<Mismatch>)> {
+    let c = compose_capture(hwnd)?;
+    let (w, h) = (c.0, c.1);
+    let (bar, bg) = (BAR.to_array(), input_box::BG.to_array());
+    let points = [
+        ((0, 0), bar),
+        ((w / 2, 0), bar),
+        ((w - 1, 0), bar),
+        ((0, h / 2), bg),
+        ((w - 1, h / 2), bg),
+        ((0, h - 1), bg),
+        ((w / 2, h - 1), bg),
+        ((w - 1, h - 1), bg),
+    ];
+    let differs = |((x, y), want): ((u32, u32), [u8; 4])| {
+        let got = pixel_at(&c, x, y);
+        let close = got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
+        (!close).then_some((x, y, got, want))
+    };
+    Some((w, h, points.into_iter().filter_map(differs).collect()))
+}
+
 /// 檢查執行緒：依序驗證各項，結束時關掉視窗。
 fn run_checks(
     report: &mut Report,
@@ -460,6 +492,30 @@ fn run_checks(
         edges.as_ref().is_some_and(Vec::is_empty),
         format!("expand: composed edges differing from drawn: {edges:?}"),
     );
+
+    // 6. 無錨點的翻譯輸入框（螢幕外、不搶前景）：四邊沒有 Windows 11 的灰邊與圓角，底色為 BG
+    // 擷取本身也會留下本程序的小視窗：只認開框之後才出現的那個
+    let existing = own_visible_windows();
+    poster.post(UiEvent::ShowInputBox { retarget: None });
+    let mut input = 0isize;
+    let opened = poll(Duration::from_secs(5), Some(ctx), || {
+        input = own_visible_windows()
+            .into_iter()
+            .find(|w| !existing.contains(w))
+            .unwrap_or(0);
+        input != 0
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let edges = if opened { input_box_edges(input) } else { None };
+    let fg = unsafe { GetForegroundWindow() as isize };
+    report.check(
+        edges.as_ref().is_some_and(|(_, _, e)| e.is_empty()) && fg != input,
+        format!(
+            "check6 input box={input:#x} composed (width, height, edges differing (x, y, composed, want)) \
+             {edges:?} ex-style={:#x} foreground={fg:#x}",
+            ex_style(input)
+        ),
+    );
 }
 
 fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
@@ -500,13 +556,28 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
     };
 
     let wrapper_shared = Arc::clone(&shared);
-    let result = app::run(native, move |ctx| {
-        let _ = ctx_slot.set(ctx.clone());
-        Probe {
-            app: App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {})),
-            shared: wrapper_shared,
-        }
-    });
+    let result =
+        app::run(native, move |ctx| {
+            let _ = ctx_slot.set(ctx.clone());
+            let input = InputBox::new(
+                Box::new(|_| {}),
+                Box::new(|_, _| {}),
+                Arc::new(AtomicBool::new(false)),
+                || 0,
+                || BOX_CURSOR,
+            );
+            let events = GameInputEvents::new(Arc::default(), || 0);
+            let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}))
+                .with_input(input, events, Arc::new(RwLock::new(Config::new())));
+            app.set_input_desktop(Desktop {
+                force_foreground: |_| false,
+                work_area_at: |_, _| BOX_AREA,
+            });
+            Probe {
+                app,
+                shared: wrapper_shared,
+            }
+        });
     let mut report = checker.join().unwrap();
     report.check(result.is_ok(), format!("eframe exit {result:?}"));
     report

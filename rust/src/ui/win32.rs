@@ -351,13 +351,30 @@ pub fn window_title(hwnd: isize) -> String {
 }
 
 /// 目前執行緒上標題為 `title` 的可見視窗（略過 `except`）；找不到回 0。
-pub fn find_thread_window(title: &str, except: isize) -> isize {
+pub fn find_thread_window(title: &str, except: &[isize]) -> isize {
     thread_windows()
         .into_iter()
-        .find(|&h| {
-            h != except && unsafe { IsWindowVisible(h as HWND) } != 0 && window_title(h) == title
+        .find(|h| {
+            !except.contains(h)
+                && unsafe { IsWindowVisible(*h as HWND) } != 0
+                && window_title(*h) == title
         })
         .unwrap_or(0)
+}
+
+/// 從建立 viewport 前後的執行緒視窗清單認出它的 HWND：新出現、且不在 `known` 裡的那個；
+/// 沒有新視窗（不是建立的那一幀）才退回 `by_title` —— 同標題的視窗不只一個，`by_title` 也要略過 `known`。
+pub fn pick_new_window(
+    before: &[isize],
+    after: &[isize],
+    known: &[isize],
+    by_title: impl FnOnce() -> isize,
+) -> isize {
+    after
+        .iter()
+        .copied()
+        .find(|h| !known.contains(h) && !before.contains(h))
+        .unwrap_or_else(by_title)
 }
 
 #[cfg(test)]
@@ -384,7 +401,18 @@ mod tests {
     #[test]
     fn find_thread_window_is_zero_on_a_thread_without_windows() {
         assert!(thread_windows().is_empty());
-        assert_eq!(find_thread_window("Wizard101 Chat Translator", 0), 0);
+        assert_eq!(find_thread_window("Wizard101 Chat Translator", &[0]), 0);
+    }
+
+    #[test]
+    fn pick_new_window_skips_known_windows() {
+        let by_title = || 7;
+        assert_eq!(pick_new_window(&[1, 7], &[1, 7, 9], &[1], by_title), 9);
+        assert_eq!(pick_new_window(&[7], &[1, 7], &[1], by_title), 7);
+        assert_eq!(pick_new_window(&[1, 9], &[1, 9], &[1], by_title), 7);
+        // 同標題的輸入框（5）與泡泡（9）在同一段期間出現：已知的輸入框不會被當成泡泡
+        assert_eq!(pick_new_window(&[1], &[1, 5, 9], &[1, 5], by_title), 9);
+        assert_eq!(pick_new_window(&[1], &[1, 5], &[1, 5], || 0), 0);
     }
 
     #[test]

@@ -1,25 +1,26 @@
-//! egui 應用程式外殼：overlay 是根 viewport、泡泡是 immediate viewport，每幀先取完 UI 事件再繪製。
+//! egui 應用程式外殼：overlay 是根 viewport、泡泡與翻譯輸入框是 immediate viewport，每幀先取完 UI 事件再繪製。
 
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
 use eframe::NativeOptions;
 use eframe::egui::{self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId};
 use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 
-use crate::config::app_name;
+use crate::config::{Config, app_name};
 use crate::i18n::current_language;
+use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
 use crate::runtime::resources::icon_png;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
+use crate::ui::input_box::InputBox;
+use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
-use crate::ui::overlay::bubble::{
-    Action, BUBBLE_SIZE, Bubble, bubble_alpha, initial_position, pick_bubble_window,
-};
+use crate::ui::overlay::bubble::{Action, BUBBLE_SIZE, Bubble, bubble_alpha, initial_position};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
@@ -48,7 +49,7 @@ pub fn channel() -> (UiPoster, Inbox) {
     (poster, Inbox { rx, ctx })
 }
 
-/// overlay 與泡泡的狀態；所有方法都在 UI 執行緒呼叫。
+/// overlay、泡泡與翻譯輸入框的狀態；所有方法都在 UI 執行緒呼叫。
 pub struct App {
     rx: Receiver<UiEvent>,
     hwnd: isize,
@@ -65,6 +66,7 @@ pub struct App {
     bubble_position: (Option<i32>, Option<i32>),
     on_bubble_move: Box<dyn FnMut(i32, i32)>,
     on_close: Option<Box<dyn FnOnce()>>,
+    input: Option<InputHost>,
 }
 
 impl App {
@@ -88,6 +90,25 @@ impl App {
             bubble_position: (None, None),
             on_bubble_move: Box::new(|_, _| {}),
             on_close: None,
+            input: None,
+        }
+    }
+
+    /// 接上翻譯輸入框與遊戲聊天框事件；`settings` 用來讀 `auto_show_input`。
+    pub fn with_input(
+        mut self,
+        input_box: InputBox,
+        events: GameInputEvents,
+        settings: Arc<RwLock<Config>>,
+    ) -> Self {
+        self.input = Some(InputHost::new(input_box, events, settings));
+        self
+    }
+
+    /// 換掉輸入框視窗的桌面操作（測試與 probe 用：不搶前景、擺在螢幕外）；沒接輸入框時不動。
+    pub fn set_input_desktop(&mut self, desktop: Desktop) {
+        if let Some(host) = &mut self.input {
+            host.desktop = desktop;
         }
     }
 
@@ -173,7 +194,7 @@ impl App {
         self.bubble = Some(Bubble::new((x, y), Instant::now()));
     }
 
-    fn apply(&mut self, event: UiEvent) {
+    fn apply(&mut self, ctx: &egui::Context, event: UiEvent) {
         match event {
             UiEvent::SetStatus(key) => self.status = Some(key),
             UiEvent::SetError { key, args } => self.banners.set_error(key, args),
@@ -203,12 +224,19 @@ impl App {
                 failed,
             } => self.model.update_message(msg_id, &translated, failed),
             UiEvent::SetTabs { slot, state } => self.model.set_tabs(slot, state),
-            UiEvent::ShowInputBox { .. }
+            event @ (UiEvent::ShowInputBox { .. }
             | UiEvent::GameInputOpened { .. }
             | UiEvent::GameInputClosed { .. }
-            | UiEvent::OutgoingDone { .. }
-            | UiEvent::RegionHotkey { .. }
-            | UiEvent::Quit => {}
+            | UiEvent::OutgoingDone { .. }) => {
+                if let Some(host) = &mut self.input {
+                    host.apply(event);
+                }
+            }
+            UiEvent::RegionHotkey { hwnd } => log(format!(
+                "[ui] region hotkey pressed (hwnd={hwnd:#x}); region capture arrives in phase 3"
+            )),
+            // 與 ✕ 同一條路：關掉根 viewport
+            UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
     }
 
@@ -261,8 +289,9 @@ impl App {
                 bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
             });
         if hwnd == 0 {
-            let found = pick_bubble_window(&before, &win32::thread_windows(), self.hwnd, || {
-                win32::find_thread_window(&app_name(), self.hwnd)
+            let known = [self.hwnd, self.input.as_ref().map_or(0, InputHost::hwnd)];
+            let found = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
+                win32::find_thread_window(&app_name(), &known)
             });
             if found != 0 {
                 win32::remove_system_frame(found);
@@ -301,7 +330,7 @@ impl eframe::App for App {
             on_close();
         }
         while let Ok(event) = self.rx.try_recv() {
-            self.apply(event);
+            self.apply(ctx, event);
         }
         let now = Instant::now();
         self.model.prune(now);
@@ -350,6 +379,10 @@ impl eframe::App for App {
         self.content(ui);
         if self.minimized {
             self.show_bubble(&ctx);
+        }
+        if let Some(host) = &mut self.input {
+            let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
+            host.show(&ctx, &[self.hwnd, bubble]);
         }
     }
 
@@ -452,8 +485,10 @@ pub fn run<A: eframe::App + 'static>(
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::atomic::AtomicBool;
 
     use super::*;
+    use crate::ui::input_box::OutgoingRequest;
     use crate::ui::overlay::banners::Release;
     use crate::ui::overlay::bubble::POLL_INTERVAL;
     use egui_kittest::Harness;
@@ -898,6 +933,149 @@ mod tests {
             delay(&harness) > Duration::from_secs(60),
             "fading off: no wake"
         );
+    }
+
+    type Sent = Rc<RefCell<Vec<(String, isize)>>>;
+    type Requests = Rc<RefCell<Vec<OutgoingRequest>>>;
+
+    thread_local! {
+        static RAISED: RefCell<Vec<isize>> = const { RefCell::new(Vec::new()) };
+    }
+
+    struct Wired {
+        requests: Requests,
+        sent: Sent,
+        settings: Arc<RwLock<Config>>,
+    }
+
+    /// 接上輸入框的 App：前景與游標是假的，搶前景只記下對象、不碰真的視窗。
+    fn input_harness(inbox: Inbox) -> (Harness<'static, App>, Wired) {
+        let wired = Wired {
+            requests: Requests::default(),
+            sent: Sent::default(),
+            settings: Arc::new(RwLock::new(
+                serde_json::json!({"auto_show_input": false})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            )),
+        };
+        let (r, s, settings) = (
+            wired.requests.clone(),
+            wired.sent.clone(),
+            wired.settings.clone(),
+        );
+        let harness = Harness::new_eframe(move |cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            let input = InputBox::new(
+                Box::new(move |req| r.borrow_mut().push(req)),
+                Box::new(move |text, hwnd| s.borrow_mut().push((text, hwnd))),
+                Arc::new(AtomicBool::new(false)),
+                || 0xA,
+                || (640, 500),
+            );
+            let events = GameInputEvents::new(Arc::default(), || 0xA);
+            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+                .with_input(input, events, settings);
+            app.set_input_desktop(Desktop {
+                force_foreground: |hwnd| {
+                    RAISED.with(|r| r.borrow_mut().push(hwnd));
+                    true
+                },
+                work_area_at: |_, _| (0, 0, 1920, 1040),
+            });
+            app
+        });
+        (harness, wired)
+    }
+
+    fn input_box<'a>(harness: &'a Harness<'_, App>) -> &'a InputBox {
+        &harness.state().input.as_ref().unwrap().input
+    }
+
+    #[test]
+    fn game_input_events_reach_the_input_box() {
+        let (poster, inbox) = channel();
+        let (mut harness, wired) = input_harness(inbox);
+        let anchor = (300, 400, 500, 40);
+        poster.post(UiEvent::GameInputOpened {
+            hwnd: 0xA,
+            anchor: Some(anchor),
+        });
+        poster.post(UiEvent::ShowInputBox {
+            retarget: Some(0xA),
+        });
+        harness.step();
+        let input = input_box(&harness);
+        assert!(input.is_open());
+        assert_eq!(input.placement_anchor().0, Some(anchor));
+        assert_eq!(input.target_hwnd(), 0xA);
+        // 自動顯示每次都從設定讀：關閉時已開啟，所以跟著收起
+        wired
+            .settings
+            .write()
+            .unwrap()
+            .insert("auto_show_input".into(), true.into());
+        poster.post(UiEvent::GameInputClosed { hwnd: 0xA });
+        harness.step();
+        assert!(!input_box(&harness).is_open());
+    }
+
+    #[test]
+    fn outgoing_done_is_forwarded_with_its_session() {
+        RAISED.with(|r| r.borrow_mut().clear());
+        let (poster, inbox) = channel();
+        let (mut harness, wired) = input_harness(inbox);
+        poster.post(UiEvent::ShowInputBox { retarget: None });
+        harness.run_steps(2);
+        harness.event(egui::Event::Text("hello".into()));
+        harness.step();
+        harness.key_press(egui::Key::Enter);
+        harness.step();
+        let session = wired.requests.borrow()[0].session;
+        poster.post(UiEvent::OutgoingDone {
+            session: session + 1,
+            result: Ok("stale".into()),
+        });
+        harness.step();
+        assert!(wired.sent.borrow().is_empty());
+        poster.post(UiEvent::OutgoingDone {
+            session,
+            result: Ok("hi".into()),
+        });
+        harness.step();
+        assert_eq!(*wired.sent.borrow(), [("hi".to_owned(), 0xA)]);
+        assert!(!input_box(&harness).is_open());
+        // 前景交還給打字對象
+        harness.step();
+        assert_eq!(RAISED.with(|r| r.borrow().clone()), [0xA]);
+    }
+
+    #[test]
+    fn quit_closes_the_root_viewport() {
+        let (poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        harness.step();
+        poster.post(UiEvent::Quit);
+        harness.step();
+        let commands = &harness.output().viewport_output[&ViewportId::ROOT].commands;
+        assert!(commands.contains(&ViewportCommand::Close), "{commands:?}");
+    }
+
+    #[test]
+    fn hotkey_opens_the_input_box_while_minimized() {
+        let (poster, inbox) = channel();
+        let (mut harness, _wired) = input_harness(inbox);
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        poster.post(UiEvent::ShowInputBox {
+            retarget: Some(0xA),
+        });
+        harness.run_steps(2);
+        let app = harness.state();
+        assert!(app.input.as_ref().unwrap().input.is_open());
+        assert!(app.minimized && app.bubble.is_some());
+        harness.get_by_role(egui::accesskit::Role::TextInput);
     }
 
     #[test]
