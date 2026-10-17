@@ -3,12 +3,17 @@
 #[allow(dead_code)]
 mod common;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
 use common::reader_fixture::{banners, drain, echo, failing_pool, pool, runtime, statuses};
 use wizard101_chat_translator::reader::status::{
     SlotReport, StatusBoard, aggregate_game_issue, aggregate_state, banner_for,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
-use wizard101_chat_translator::translation::pool::ErrorState;
+use wizard101_chat_translator::translation::gate::ConcurrencyGate;
+use wizard101_chat_translator::translation::pool::{ErrorState, TranslateFn, TranslationPool};
 use wizard101_chat_translator::ui::events::UiPoster;
 
 fn report(state: &'static str, game_issue: Option<&'static str>) -> SlotReport {
@@ -223,4 +228,44 @@ fn board_refresh_with_no_slots_reports_waiting_game() {
     let events = drain(&rx);
     assert_eq!(statuses(&events), ["waiting_game"]);
     assert_eq!(banners(&events), [("notice.game_missing", vec![])]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn banner_clears_after_the_pool_recovers_from_offline() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let translate: TranslateFn = Arc::new(move |line, _| {
+        let first = calls.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if first {
+                Err(TranslateError::offline(""))
+            } else {
+                Ok(line)
+            }
+        })
+    });
+    let pool = Arc::new(TranslationPool::new(
+        translate,
+        Arc::new(|_, _, _| {}),
+        Arc::new(ConcurrencyGate::new(1)),
+        Arc::new(|| "failed".to_owned()),
+        Arc::new(|| "provider=fake".to_owned()),
+        tokio::runtime::Handle::current(),
+    ));
+    let (ui, rx) = UiPoster::for_test();
+    let board = StatusBoard::new(ui, pool.clone(), pool.clone());
+    board.report(1, "listening", None);
+
+    pool.submit("hello".into(), Vec::new(), 1);
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    board.refresh();
+    assert_eq!(pool.error_state(), Some(ErrorState::Offline));
+
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    board.refresh();
+    assert_eq!(pool.error_state(), None);
+    assert_eq!(
+        banners(&drain(&rx)),
+        [("notice.offline", vec![]), ("<clear>", vec![])]
+    );
+    pool.shutdown();
 }
