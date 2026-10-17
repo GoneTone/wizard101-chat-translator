@@ -178,7 +178,7 @@ enum Dialog {
 }
 
 /// 對話框這一幀的結果。
-enum Choice<T> {
+pub(super) enum Choice<T> {
     Open,
     Cancel,
     Done(T),
@@ -638,7 +638,8 @@ fn add_button(ui: &mut Ui) -> Response {
     response
 }
 
-fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
+/// 服務商選擇對話框（新增服務的第一步，或表單上按了〔更改〕）。
+pub(super) fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
     let spec = DialogSpec {
         salt: "provider_picker",
         width: theme::PICKER_DIALOG_WIDTH,

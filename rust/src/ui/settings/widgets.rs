@@ -50,6 +50,13 @@ pub(super) fn name_by_row(ui: &Ui, response: Response) -> Response {
     }
 }
 
+/// `add` 裡的開關、下拉以 `label` 這個元件當無障礙名稱（同 `setting_row` 的控制項）。
+pub(super) fn named_by<R>(ui: &mut Ui, label: Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let info = UiStackInfo::default().with_tag_value(ROW_LABEL_TAG, label);
+    ui.scope_builder(UiBuilder::new().ui_stack_info(info), add)
+        .inner
+}
+
 /// 用 `richtext::show` 顯示一段可含連結的文字，字級 `size`。
 pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     ui.scope(|ui| {

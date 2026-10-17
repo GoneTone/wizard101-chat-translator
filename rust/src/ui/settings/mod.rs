@@ -11,3 +11,4 @@ pub mod service_list;
 pub mod theme;
 pub mod widgets;
 pub mod window;
+pub mod wizard;

@@ -104,12 +104,12 @@ fn setting(cfg: &Config, key: &str) -> Value {
         .unwrap_or_else(|| default_config()[key].clone())
 }
 
-fn text_setting(cfg: &Config, key: &str) -> String {
+pub(super) fn text_setting(cfg: &Config, key: &str) -> String {
     setting(cfg, key).as_str().unwrap_or_default().to_owned()
 }
 
 /// 開關值照 Python 真值判定：手改成 `1` 也算開。
-fn flag_setting(cfg: &Config, key: &str) -> bool {
+pub(super) fn flag_setting(cfg: &Config, key: &str) -> bool {
     py::truthy(Some(&setting(cfg, key)))
 }
 
@@ -440,7 +440,7 @@ fn service_errors(cfg: &Config) -> Vec<String> {
 }
 
 /// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
-fn thin_scrollbar(ui: &mut Ui) {
+pub(super) fn thin_scrollbar(ui: &mut Ui) {
     let style = ui.style_mut();
     style.spacing.scroll = ScrollStyle {
         bar_width: scrollbar::WIDTH,
