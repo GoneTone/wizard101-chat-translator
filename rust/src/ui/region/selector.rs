@@ -77,6 +77,11 @@ impl Selector {
         }
     }
 
+    /// 選取畫面蓋住的螢幕矩形（實體像素）。
+    pub fn monitor(&self) -> Rect {
+        self.monitor
+    }
+
     /// 選取畫面顯示的凍結畫面；框選完從同一張裁切。
     pub fn frame(&self) -> &Arc<Frame> {
         &self.frame

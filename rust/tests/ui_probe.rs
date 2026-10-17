@@ -1,4 +1,4 @@
-//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay、泡泡與翻譯輸入框、停在螢幕外，以程式讀回各項行為。
+//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay、泡泡、翻譯輸入框與框選的框和結果卡、停在螢幕外，以程式讀回各項行為。
 //!
 //! 會短暫出現螢幕外視窗與工作列按鈕，所以預設略過；手動跑：
 //! `cargo test --manifest-path rust/Cargo.toml --test ui_probe -- --ignored --nocapture`
@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ColorImage, ViewportCommand};
 use eframe::egui_wgpu::wgpu;
+use image::{Rgb, RgbImage};
+use tokio_util::sync::CancellationToken;
 use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame as WgcFrame;
 use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -27,12 +29,19 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::log;
+use wizard101_chat_translator::region::capture::{CaptureError, Frame as CaptureFrame};
+use wizard101_chat_translator::region::pipeline::RegionResult;
 use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::ui::geometry::Rect;
 use wizard101_chat_translator::ui::input_box::{self, InputBox};
 use wizard101_chat_translator::ui::input_host::Desktop;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
-use wizard101_chat_translator::ui::palette::BAR;
+use wizard101_chat_translator::ui::palette::{BAR, BG, GRIP};
+use wizard101_chat_translator::ui::region::card::ANCHOR_GAP;
+use wizard101_chat_translator::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
+use wizard101_chat_translator::ui::region::region_box;
+use wizard101_chat_translator::ui::region::selector::SelectorAction;
 use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of, owner_of, window_rect};
 
 const PARK: f32 = 10000.0;
@@ -40,6 +49,10 @@ const PARK: f32 = 10000.0;
 const BOX_CURSOR: (i32, i32) = (10000, 10000);
 const BOX_AREA: (i32, i32, i32, i32) = (9000, 9000, 4000, 4000);
 const ALPHA: f32 = 0.8;
+/// 框選用的假遊戲視窗與它螢幕外的 client 區，以及其中的框選矩形（實體像素）。
+const REGION_GAME: isize = 0x5EED;
+const REGION_CLIENT: Rect = (11000, 11000, 800, 600);
+const REGION_RECT: Rect = (11100, 11100, 300, 120);
 /// 取背景像素時離左下角的距離：避開 Windows 11 的圓角。
 const BG_INSET: usize = 10;
 
@@ -68,6 +81,8 @@ struct Shared {
     hwnd: isize,
     status: Option<&'static str>,
     minimize: bool,
+    /// 選取畫面一開就直接以這個矩形完成框選（不經滑鼠，選取畫面也就不會建立）。
+    select: Option<Rect>,
     adapter: Option<wgpu::AdapterInfo>,
 }
 
@@ -83,6 +98,12 @@ impl eframe::App for Probe {
         let mut s = self.shared.lock().unwrap();
         s.status = self.app.status();
         self.app.set_minimized(s.minimize);
+        if let Some(flow) = self.app.region_flow_mut()
+            && flow.selector_mut().is_some()
+            && let Some(rect) = s.select.take()
+        {
+            flow.on_selector(SelectorAction::Selected(rect));
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -96,6 +117,48 @@ impl eframe::App for Probe {
 
     fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
         self.app.clear_color(visuals)
+    }
+}
+
+/// 框選的桌面替身：凍結畫面是螢幕外 client 區的漸層圖，不截圖、不切前景。
+struct RegionFake;
+
+impl RegionDesktop for RegionFake {
+    fn capture_window(&mut self, _hwnd: isize) -> Result<Arc<CaptureFrame>, CaptureError> {
+        let (x, y, w, h) = REGION_CLIENT;
+        Ok(Arc::new(CaptureFrame {
+            image: RgbImage::from_fn(w as u32, h as u32, |x, y| Rgb([x as u8, y as u8, 0])),
+            client_origin: (x, y),
+            client_size: (w, h),
+        }))
+    }
+    fn capture_screen(&mut self, _monitor: Rect) -> RgbImage {
+        RgbImage::new(1, 1)
+    }
+    fn monitor_at(&self, _x: i32, _y: i32) -> Rect {
+        REGION_CLIENT
+    }
+    fn foreground(&mut self, _hwnd: isize) {}
+    fn find_game(&self) -> Option<isize> {
+        Some(REGION_GAME)
+    }
+    fn cursor(&self) -> (i32, i32) {
+        BOX_CURSOR
+    }
+}
+
+/// 立刻回一筆譯文，卡片才會從辨識中換成譯文。
+struct RegionAnswer(UiPoster);
+
+impl RegionRunner for RegionAnswer {
+    fn run(&self, _png: Vec<u8>, _rect: Rect, session: u64, _cancel: CancellationToken) {
+        self.0.post(UiEvent::RegionDone {
+            session,
+            result: Ok(RegionResult {
+                text: "譯文".into(),
+                source: "Talk to Merle".into(),
+            }),
+        });
     }
 }
 
@@ -519,6 +582,74 @@ fn run_checks(
             hwnd()
         ),
     );
+
+    // 7. 框選框與結果卡（螢幕外）：不搶前景、沒有工作列按鈕、四邊沒有系統灰邊，卡片底色的不透明度等於 overlay
+    let existing = own_visible_windows();
+    shared.lock().unwrap().select = Some(REGION_RECT);
+    poster.post(UiEvent::RegionHotkey { hwnd: REGION_GAME });
+    let want_box = region_box::window_rect(REGION_RECT);
+    let card_at = (REGION_RECT.0, REGION_RECT.1 + REGION_RECT.3 + ANCHOR_GAP);
+    let (mut boxed, mut card) = (0isize, 0isize);
+    let opened = poll(Duration::from_secs(5), Some(ctx), || {
+        for w in own_visible_windows()
+            .into_iter()
+            .filter(|w| !existing.contains(w))
+        {
+            let rect = window_rect(w);
+            if rect == want_box {
+                boxed = w;
+            } else if (rect.0, rect.1) == card_at {
+                card = w;
+            }
+        }
+        boxed != 0 && card != 0
+    });
+    std::thread::sleep(Duration::from_millis(300));
+    let fg = unsafe { GetForegroundWindow() as isize };
+    for (name, w) in [("box", boxed), ("card", card)] {
+        let (ex, owner) = (ex_style(w), owner_of(w));
+        report.check(
+            opened && ex & WS_EX_APPWINDOW == 0 && owner == hwnd() && fg == fg_before,
+            format!(
+                "check7 region {name}={w:#x} rect={:?} ex-style={ex:#x} APPWINDOW={} \
+                 owner={owner:#x} (overlay={:#x}) foreground before={fg_before:#x} after={fg:#x}",
+                window_rect(w),
+                ex & WS_EX_APPWINDOW != 0,
+                hwnd()
+            ),
+        );
+    }
+    // 框只畫框線與把手：四邊全透明，但整個視窗都收得到滑鼠
+    let edges = opened
+        .then(|| edge_mismatches(boxed, |_, _, _, _| Some([0; 4])))
+        .flatten();
+    let hit = hit_test_center(boxed);
+    report.check(
+        edges.as_ref().is_some_and(Vec::is_empty)
+            && hit.is_some_and(|c| c != HTTRANSPARENT as u32 && c != 0),
+        format!(
+            "check7b region box composed edges differing (x, y, composed, want) {edges:?} \
+             WM_NCHITTEST center={hit:?}"
+        ),
+    );
+    let (border, bg) = (
+        GRIP.gamma_multiply(ALPHA).to_array(),
+        BG.gamma_multiply(ALPHA).to_array(),
+    );
+    let edges = opened
+        .then(|| edge_mismatches(card, |_, _, _, _| Some(border)))
+        .flatten();
+    // 左側留白裡、邊框內側的一點：只有底色
+    let inside = compose_capture(card).map(|c| pixel_at(&c, 4, c.1 / 2));
+    let want_a = (ALPHA * 255.0).round() as u8;
+    report.check(
+        edges.as_ref().is_some_and(Vec::is_empty)
+            && inside.is_some_and(|p| p.iter().zip(bg).all(|(a, b)| a.abs_diff(b) <= 2)),
+        format!(
+            "check7c region card composed edges differing (x, y, composed, want) {edges:?} \
+             background {inside:?} (want {bg:?}, alpha ~{want_a})"
+        ),
+    );
 }
 
 fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
@@ -533,6 +664,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
     let ctx_slot = Arc::new(OnceLock::<egui::Context>::new());
     let (poster, inbox) = app::channel();
     poster.post(UiEvent::SetStatus("listening"));
+    let region_poster = poster.clone();
     let fg_before = unsafe { GetForegroundWindow() as isize };
 
     let checker = {
@@ -559,29 +691,36 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
     };
 
     let wrapper_shared = Arc::clone(&shared);
-    let result =
-        app::run(native, move |ctx| {
-            let _ = ctx_slot.set(ctx.clone());
-            let input = InputBox::new(
-                Box::new(|_| {}),
-                Box::new(|_, _| {}),
-                Arc::new(AtomicBool::new(false)),
-                || 0,
-                || BOX_CURSOR,
-            );
-            let events = GameInputEvents::new(Arc::default(), || 0);
-            let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}))
-                .with_input(input, events, Arc::new(RwLock::new(Config::new())));
-            app.set_input_desktop(Desktop {
-                force_foreground: |_| false,
-                work_area_at: |_, _| BOX_AREA,
-                trigger_held: || false,
-            });
-            Probe {
-                app,
-                shared: wrapper_shared,
-            }
-        });
+    let result = app::run(native, move |ctx| {
+        let _ = ctx_slot.set(ctx.clone());
+        let input = InputBox::new(
+            Box::new(|_| {}),
+            Box::new(|_, _| {}),
+            Arc::new(AtomicBool::new(false)),
+            || 0,
+            || BOX_CURSOR,
+        );
+        let events = GameInputEvents::new(Arc::default(), || 0);
+        let region = RegionFlow::new(
+            Box::new(RegionFake),
+            Box::new(RegionAnswer(region_poster)),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}))
+            .with_input(input, events, Arc::new(RwLock::new(Config::new())))
+            .with_region(region);
+        let desktop = Desktop {
+            force_foreground: |_| false,
+            work_area_at: |_, _| BOX_AREA,
+            trigger_held: || false,
+        };
+        app.set_input_desktop(desktop);
+        app.set_region_desktop(desktop);
+        Probe {
+            app,
+            shared: wrapper_shared,
+        }
+    });
     let mut report = checker.join().unwrap();
     report.check(result.is_ok(), format!("eframe exit {result:?}"));
     report

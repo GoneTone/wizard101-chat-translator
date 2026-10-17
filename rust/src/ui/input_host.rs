@@ -24,7 +24,7 @@ use crate::util::read;
 /// 等熱鍵觸發鍵放開的上限；漏收放開時不讓輸入框永遠不出現。
 const RELEASE_WAIT: Duration = Duration::from_secs(1);
 /// 等放開期間重繪的間隔。
-const RELEASE_POLL: Duration = Duration::from_millis(15);
+pub(crate) const RELEASE_POLL: Duration = Duration::from_millis(15);
 
 /// 建立那一幀的暫定高度（DIP）；量到內容高度後隨即貼合。
 const INITIAL_HEIGHT: f32 = 84.0;
@@ -58,7 +58,7 @@ pub struct InputHost {
     settings: Arc<RwLock<Config>>,
     pub(crate) desktop: Desktop,
     /// 這次開窗的 HWND；還沒找到是 0。
-    hwnd: isize,
+    pub(crate) hwnd: isize,
     created: bool,
     shown: bool,
     raise: bool,
@@ -118,10 +118,10 @@ impl InputHost {
         truthy(read(&self.settings).get("auto_show_input"))
     }
 
-    /// 每幀呼叫：開著就畫出視窗，關了就把前景交還；找 HWND 時略過 overlay 與泡泡（0＝沒有），輸入框由 overlay 擁有。
+    /// 每幀呼叫：開著就畫出視窗，關了就把前景交還；找 HWND 時略過 `known`（其他 viewport，0＝沒有），輸入框由 overlay 擁有。
     ///
     /// 建立那一幀先藏著量內容高度、以實體像素擺好，下一幀才顯示並搶前景。
-    pub fn show(&mut self, ctx: &egui::Context, overlay: isize, bubble: isize) {
+    pub fn show(&mut self, ctx: &egui::Context, overlay: isize, known: &[isize]) {
         if !self.input.is_open() {
             // shortcut: 同一輪 logic 先關後開時沿用原視窗與位置（Python 會重建、重新貼齊）；實機遇到再改成關閉就換新的 viewport id
             (self.hwnd, self.created, self.shown, self.raise) = (0, false, false, false);
@@ -180,9 +180,8 @@ impl InputHost {
             return;
         }
         if self.hwnd == 0 {
-            let known = [overlay, bubble];
-            self.hwnd = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
-                win32::find_thread_window(&app_name(), &known)
+            self.hwnd = win32::pick_new_window(&before, &win32::thread_windows(), known, || {
+                win32::find_thread_window(&app_name(), known)
             });
             if self.hwnd != 0 {
                 self.place(height, overlay);
@@ -273,7 +272,7 @@ fn drag_strip(ui: &mut egui::Ui, bar: egui::Rect) -> bool {
 }
 
 /// 要顯示或搶前景（`pending`）時，熱鍵吞掉的觸發鍵還按著就先等，最多等 [`RELEASE_WAIT`]；回 true 表示這幀先別動。
-fn defer_for_release(
+pub(crate) fn defer_for_release(
     pending: bool,
     trigger_held: bool,
     since: &mut Option<Instant>,

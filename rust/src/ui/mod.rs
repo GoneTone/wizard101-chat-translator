@@ -12,6 +12,7 @@ pub mod input_host;
 pub mod overlay;
 pub mod palette;
 pub mod region;
+pub mod region_host;
 pub mod richtext;
 pub mod text_select;
 pub mod win32;

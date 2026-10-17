@@ -3,7 +3,7 @@
 //! 視窗比矩形四邊各大 `MARGIN`（把手露在框外），只用一個 viewport：畫面只有框線與把手，
 //! 其餘透明但整個視窗都收得到滑鼠。位移一律用螢幕座標算，視窗在拖曳中自己會動。
 
-use eframe::egui::{self, Stroke, StrokeKind, vec2};
+use eframe::egui::{self, CursorIcon, Stroke, StrokeKind, vec2};
 
 use crate::logs::log;
 use crate::ui::geometry::{
@@ -42,6 +42,22 @@ pub fn hit_at(px: i32, py: i32, w: i32, h: i32) -> Option<Hit> {
     let band = MARGIN + INNER_BAND;
     let edge = edge_at_bands(px, py, 0, 0, outer_w, outer_h, band, band + HANDLE / 2);
     Some(edge.map_or(Hit::Move, Hit::Edge))
+}
+
+/// 框選框視窗的外框（螢幕 px）：矩形四邊各擴 `MARGIN`。
+pub fn window_rect((x, y, w, h): Rect) -> Rect {
+    (x - MARGIN, y - MARGIN, w + 2 * MARGIN, h + 2 * MARGIN)
+}
+
+/// 游標壓在 `hit` 時的滑鼠游標：框內是移動，邊角是對應方向的縮放。
+pub fn cursor(hit: Hit) -> CursorIcon {
+    match hit {
+        Hit::Move => CursorIcon::Move,
+        Hit::Edge(Edge::N | Edge::S) => CursorIcon::ResizeVertical,
+        Hit::Edge(Edge::E | Edge::W) => CursorIcon::ResizeHorizontal,
+        Hit::Edge(Edge::Nw | Edge::Se) => CursorIcon::ResizeNwSe,
+        Hit::Edge(Edge::Ne | Edge::Sw) => CursorIcon::ResizeNeSw,
+    }
 }
 
 /// 八個把手在視窗座標的中心點（矩形本身從 `(MARGIN, MARGIN)` 起算）。
@@ -130,20 +146,27 @@ impl RegionBox {
         Some(self.rect)
     }
 
-    /// 畫框線與八個把手；`ui` 的左上角對齊視窗左上角。
+    /// 正在拖曳的是框內還是哪條邊；沒在拖曳回 `None`。
+    pub fn dragging(&self) -> Option<Hit> {
+        self.drag.as_ref().map(|d| d.hit)
+    }
+
+    /// 畫框線與八個把手；`ui` 的左上角對齊視窗左上角，px 依縮放換成 DIP。
     pub fn paint(&self, ui: &mut egui::Ui) {
         let (_, _, w, h) = self.rect;
         let origin = ui.max_rect().min;
+        let ppp = ui.ctx().pixels_per_point();
+        let at = |x: i32, y: i32| origin + vec2(x as f32, y as f32) / ppp;
         let painter = ui.painter();
-        let line = egui::Rect::from_min_size(
-            origin + vec2(MARGIN as f32, MARGIN as f32),
-            vec2(w as f32, h as f32),
-        );
+        let line = egui::Rect::from_min_size(at(MARGIN, MARGIN), vec2(w as f32, h as f32) / ppp);
         painter.rect_stroke(line, 0.0, Stroke::new(LINE, FG_UPDATE), StrokeKind::Middle);
-        let size = vec2(HANDLE as f32, HANDLE as f32);
+        let size = vec2(HANDLE as f32, HANDLE as f32) / ppp;
         for (_, (cx, cy)) in handles(w, h) {
-            let center = origin + vec2(cx as f32, cy as f32);
-            painter.rect_filled(egui::Rect::from_center_size(center, size), 0.0, FG_UPDATE);
+            painter.rect_filled(
+                egui::Rect::from_center_size(at(cx, cy), size),
+                0.0,
+                FG_UPDATE,
+            );
         }
     }
 }
@@ -255,5 +278,53 @@ mod tests {
         assert_eq!(at(Edge::Se), (MARGIN + 300, MARGIN + 200));
         assert_eq!(at(Edge::N), (MARGIN + 150, MARGIN));
         assert_eq!(at(Edge::E), (MARGIN + 300, MARGIN + 100));
+    }
+
+    #[test]
+    fn window_rect_extends_the_rect_by_the_margin_on_each_side() {
+        assert_eq!(
+            window_rect(RECT),
+            (
+                100 - MARGIN,
+                100 - MARGIN,
+                300 + 2 * MARGIN,
+                200 + 2 * MARGIN
+            )
+        );
+    }
+
+    #[test]
+    fn paint_converts_pixels_to_points_on_scaled_displays() {
+        use eframe::egui::Shape;
+        use egui_kittest::Harness;
+
+        let b = RegionBox::new(RECT);
+        let mut h = Harness::builder()
+            .with_pixels_per_point(2.0)
+            .build_ui(move |ui| b.paint(ui));
+        h.step();
+        let line = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.stroke.width == LINE => Some(r.rect),
+                _ => None,
+            })
+            .expect("frame line drawn");
+        let origin = line.min - vec2(MARGIN as f32, MARGIN as f32) / 2.0;
+        assert_eq!(line.size(), vec2(150.0, 100.0));
+        let handle = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.fill == FG_UPDATE => Some(r.rect),
+                _ => None,
+            })
+            .expect("handle drawn");
+        let nw = vec2(MARGIN as f32, MARGIN as f32) / 2.0;
+        assert_eq!(handle.center(), origin + nw);
+        assert_eq!(handle.size(), vec2(HANDLE as f32, HANDLE as f32) / 2.0);
     }
 }

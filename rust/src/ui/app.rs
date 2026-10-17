@@ -1,4 +1,4 @@
-//! egui 應用程式外殼：overlay 是根 viewport、泡泡與翻譯輸入框是 immediate viewport，每幀先取完 UI 事件再繪製。
+//! egui 應用程式外殼：overlay 是根 viewport、泡泡、翻譯輸入框與框選的視窗是 immediate viewport，每幀先取完 UI 事件再繪製。
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -26,6 +26,8 @@ use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
 use crate::ui::overlay::selection::Selection;
 use crate::ui::overlay::tab_bar;
+use crate::ui::region::flow::RegionFlow;
+use crate::ui::region_host::RegionHost;
 use crate::ui::{fonts_egui, win32};
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
@@ -49,7 +51,7 @@ pub fn channel() -> (UiPoster, Inbox) {
     (poster, Inbox { rx, ctx })
 }
 
-/// overlay、泡泡與翻譯輸入框的狀態；所有方法都在 UI 執行緒呼叫。
+/// overlay、泡泡、翻譯輸入框與框選的狀態；所有方法都在 UI 執行緒呼叫。
 pub struct App {
     rx: Receiver<UiEvent>,
     hwnd: isize,
@@ -67,6 +69,7 @@ pub struct App {
     on_bubble_move: Box<dyn FnMut(i32, i32)>,
     on_close: Option<Box<dyn FnOnce()>>,
     input: Option<InputHost>,
+    region: Option<RegionHost>,
 }
 
 impl App {
@@ -91,6 +94,7 @@ impl App {
             on_bubble_move: Box::new(|_, _| {}),
             on_close: None,
             input: None,
+            region: None,
         }
     }
 
@@ -110,6 +114,24 @@ impl App {
         if let Some(host) = &mut self.input {
             host.desktop = desktop;
         }
+    }
+
+    /// 接上框選翻譯（熱鍵、⛶ 與辨識結果都交給它）；卡片背景不透明度跟著 overlay。
+    pub fn with_region(mut self, flow: RegionFlow) -> Self {
+        self.region = Some(RegionHost::new(flow));
+        self
+    }
+
+    /// 換掉框選視窗的桌面操作（測試與 probe 用：不搶前景、假的工作區）；沒接框選時不動。
+    pub fn set_region_desktop(&mut self, desktop: Desktop) {
+        if let Some(host) = &mut self.region {
+            host.desktop = desktop;
+        }
+    }
+
+    /// 框選流程（probe 用：不經滑鼠直接完成框選）；沒接框選時是 `None`。
+    pub fn region_flow_mut(&mut self) -> Option<&mut RegionFlow> {
+        self.region.as_mut().map(|host| &mut host.flow)
     }
 
     /// 泡泡位置：`saved`（設定裡的實體像素，未設為 None）縮小時沿用，拖曳放開時呼叫 `on_move`。
@@ -232,14 +254,31 @@ impl App {
                     host.apply(event);
                 }
             }
-            UiEvent::RegionHotkey { hwnd } => log(format!(
-                "[ui] region hotkey pressed (hwnd={hwnd:#x}); region capture arrives in phase 3"
-            )),
-            // 框選流程還沒接進 App，也還沒有投遞端
-            UiEvent::RegionDone { .. } => {}
+            UiEvent::RegionHotkey { hwnd } => {
+                if let Some(host) = &mut self.region {
+                    host.toggle(hwnd);
+                }
+            }
+            UiEvent::RegionDone { session, result } => {
+                if let Some(host) = &mut self.region {
+                    host.finish(session, result);
+                }
+            }
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
+    }
+
+    /// 所有已知 viewport 的 HWND（overlay、泡泡、輸入框、選取畫面、框、卡片；0 不列）：找新視窗時一律略過。
+    fn viewport_hwnds(&self) -> Vec<isize> {
+        let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
+        let input = self.input.as_ref().map_or(0, InputHost::hwnd);
+        let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
+        [self.hwnd, bubble, input]
+            .into_iter()
+            .chain(region)
+            .filter(|&h| h != 0)
+            .collect()
     }
 
     /// 標題列以下：分頁列（沒有分頁時隱藏）、底部橫幅與其間的訊息清單（含框選與右鍵選單）。
@@ -264,6 +303,7 @@ impl App {
             let size = (BUBBLE_SIZE as f32 * ppp).round() as i32;
             self.open_bubble(win32::window_rect(self.hwnd), size, &win32::all_monitors());
         }
+        let known = self.viewport_hwnds();
         let Some(bubble) = self.bubble.as_mut() else {
             return;
         };
@@ -291,7 +331,6 @@ impl App {
                 bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
             });
         if hwnd == 0 {
-            let known = [self.hwnd, self.input.as_ref().map_or(0, InputHost::hwnd)];
             let found = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
                 win32::find_thread_window(&app_name(), &known)
             });
@@ -368,7 +407,9 @@ impl eframe::App for App {
             &self.region_hotkey,
         ) {
             Some(Clicked::Region) => {
-                log("[ui] region button clicked; region capture arrives in phase 3")
+                if let Some(host) = &mut self.region {
+                    host.start_from_button();
+                }
             }
             Some(Clicked::Settings) => {
                 log("[ui] settings button clicked; settings window arrives in phase 4")
@@ -382,9 +423,14 @@ impl eframe::App for App {
         if self.minimized {
             self.show_bubble(&ctx);
         }
+        let known = self.viewport_hwnds();
         if let Some(host) = &mut self.input {
-            let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
-            host.show(&ctx, self.hwnd, bubble);
+            host.show(&ctx, self.hwnd, &known);
+        }
+        let known = self.viewport_hwnds();
+        if let Some(host) = &mut self.region {
+            host.set_alpha(self.frame.alpha());
+            host.show(&ctx, self.hwnd, &known);
         }
     }
 
@@ -490,9 +536,12 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use super::*;
+    use crate::region::pipeline::RegionResult;
     use crate::ui::input_box::OutgoingRequest;
     use crate::ui::overlay::banners::Release;
     use crate::ui::overlay::bubble::POLL_INTERVAL;
+    use crate::ui::region::selector::SelectorAction;
+    use crate::ui::region_host::fakes;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use std::time::Duration;
@@ -1100,6 +1149,149 @@ mod tests {
         assert!(app.input.as_ref().unwrap().input.is_open());
         assert!(app.minimized && app.bubble.is_some());
         harness.get_by_role(egui::accesskit::Role::TextInput);
+    }
+
+    /// 接上框選流程（替身桌面與 runner）的 App：搶前景不碰真的視窗。
+    fn region_harness(inbox: Inbox) -> (Harness<'static, App>, fakes::Calls) {
+        let (flow, calls) = fakes::flow();
+        let harness = Harness::new_eframe(move |cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+                .with_region(flow);
+            app.set_region_desktop(Desktop {
+                force_foreground: |_| true,
+                work_area_at: |_, _| (0, 0, 1920, 1040),
+                trigger_held: || false,
+            });
+            app
+        });
+        (harness, calls)
+    }
+
+    fn selecting(harness: &mut Harness<'_, App>) -> bool {
+        let region = harness.state_mut().region.as_mut().unwrap();
+        region.flow.selector_mut().is_some()
+    }
+
+    #[test]
+    fn region_hotkey_toggles_the_flow() {
+        let (poster, inbox) = channel();
+        let (mut harness, calls) = region_harness(inbox);
+        poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        assert!(selecting(&mut harness));
+        poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        assert!(!selecting(&mut harness));
+        assert_eq!(*calls.borrow(), ["capture 0x1234", "foreground 0x1234"]);
+    }
+
+    #[test]
+    fn region_button_starts_from_the_button() {
+        let (_poster, inbox) = channel();
+        let (mut harness, calls) = region_harness(inbox);
+        harness.step();
+        harness.get_by_label("⛶").click();
+        harness.step();
+        assert!(selecting(&mut harness));
+        assert_eq!(*calls.borrow(), ["capture 0x9999"]);
+    }
+
+    #[test]
+    fn region_done_is_forwarded_with_its_session() {
+        let (poster, inbox) = channel();
+        let (mut harness, calls) = region_harness(inbox);
+        poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        let region = harness.state_mut().region.as_mut().unwrap();
+        region
+            .flow
+            .on_selector(SelectorAction::Selected(fakes::RECT));
+        assert_eq!(calls.borrow().last().unwrap(), "run 1");
+        let card_text = |h: &mut Harness<'_, App>| {
+            let region = h.state_mut().region.as_mut().unwrap();
+            region.flow.card_mut().unwrap().all_text()
+        };
+        let pending = card_text(&mut harness);
+        let done = |session| UiEvent::RegionDone {
+            session,
+            result: Ok(RegionResult {
+                text: "譯文".into(),
+                source: String::new(),
+            }),
+        };
+        poster.post(done(2));
+        harness.step();
+        assert_eq!(card_text(&mut harness), pending, "stale session dropped");
+        poster.post(done(1));
+        harness.step();
+        assert_eq!(card_text(&mut harness), "譯文");
+    }
+
+    #[test]
+    fn overlay_alpha_reaches_the_region_card() {
+        let (poster, inbox) = channel();
+        let (mut harness, _calls) = region_harness(inbox);
+        poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        let region = harness.state_mut().region.as_mut().unwrap();
+        region
+            .flow
+            .on_selector(SelectorAction::Selected(fakes::RECT));
+        harness.step();
+        let region = harness.state_mut().region.as_mut().unwrap();
+        assert_eq!(region.flow.card_mut().unwrap().alpha(), 0.8);
+    }
+
+    #[test]
+    fn every_viewport_lookup_skips_the_other_viewports() {
+        let (_poster, inbox) = channel();
+        let ctx = egui::Context::default();
+        let input = InputBox::new(
+            Box::new(|_| {}),
+            Box::new(|_, _| {}),
+            Arc::new(AtomicBool::new(false)),
+            || 0xA,
+            || (640, 500),
+        );
+        let events = GameInputEvents::new(Arc::default(), || 0xA);
+        let settings = Arc::new(RwLock::new(Config::new()));
+        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+            .with_input(input, events, settings)
+            .with_region(fakes::flow().0);
+        app.hwnd = 1;
+        app.bubble = Some(Bubble::new((0, 0), Instant::now()));
+        let set = |app: &mut App, role: usize, hwnd: isize| match role {
+            0 => app.hwnd = hwnd,
+            1 => app.bubble.as_mut().unwrap().attach(hwnd, 0),
+            2 => app.input.as_mut().unwrap().hwnd = hwnd,
+            3 => app.region.as_mut().unwrap().selector.hwnd = hwnd,
+            4 => app.region.as_mut().unwrap().region_box.hwnd = hwnd,
+            _ => app.region.as_mut().unwrap().card.hwnd = hwnd,
+        };
+        let titled: Vec<isize> = (1..=6).collect();
+        for (role, &hwnd) in titled.iter().enumerate() {
+            set(&mut app, role, hwnd);
+        }
+        assert_eq!(app.viewport_hwnds(), titled);
+        // 每個視窗建立時（自己還是 0）認標題只會認到自己，不會認成其他同標題的視窗
+        for (role, &hwnd) in titled.iter().enumerate() {
+            set(&mut app, role, 0);
+            let known = app.viewport_hwnds();
+            let by_title = || {
+                titled
+                    .iter()
+                    .copied()
+                    .find(|h| !known.contains(h))
+                    .unwrap_or(0)
+            };
+            assert_eq!(
+                win32::pick_new_window(&titled, &titled, &known, by_title),
+                hwnd,
+                "role {role}"
+            );
+            set(&mut app, role, hwnd);
+        }
     }
 
     #[test]

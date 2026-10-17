@@ -10,7 +10,7 @@ use std::time::Duration;
 use eframe::egui::text::{CharIndex, LayoutJob, TextFormat};
 use eframe::egui::{
     self, Color32, Context, CursorIcon, Event, FontId, Galley, Id, OpenUrl, PointerButton, Pos2,
-    Sense, Stroke, Vec2, pos2, vec2,
+    Sense, Stroke, StrokeKind, Vec2, pos2, vec2,
 };
 
 use crate::i18n::t;
@@ -513,8 +513,9 @@ impl Card {
 
         // ---- 繪製 ----
         let painter = ui.painter().clone();
-        painter.rect_filled(area, 0.0, GRIP.gamma_multiply(self.alpha));
         painter.rect_filled(inner, 0.0, BG.gamma_multiply(self.alpha));
+        let border = Stroke::new(BORDER, GRIP.gamma_multiply(self.alpha));
+        painter.rect_stroke(area, 0.0, border, StrokeKind::Inside);
         if ui.rect_contains_pointer(area) {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }
@@ -895,6 +896,21 @@ mod tests {
         h.state_mut().card.set_alpha(0.5);
         h.step();
         assert!(fills(&h).contains(&BG.gamma_multiply(0.5)));
+    }
+
+    #[test]
+    fn border_surrounds_the_background_instead_of_stacking_under_it() {
+        let h = harness(CardContent::Pending);
+        let grip = GRIP.gamma_multiply(0.8);
+        let rects = || {
+            h.output().shapes.iter().filter_map(|c| match &c.shape {
+                Shape::Rect(r) => Some(r.clone()),
+                _ => None,
+            })
+        };
+        // 半透明的底色疊在半透明的邊框色上，合成後的不透明度會比 overlay 高
+        assert!(!rects().any(|r| r.fill == grip));
+        assert!(rects().any(|r| r.stroke.color == grip));
     }
 
     #[test]
