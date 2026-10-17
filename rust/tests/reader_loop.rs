@@ -99,6 +99,7 @@ struct FakeReader {
     reads: Vec<Read>,
     states: Vec<Option<TabState>>,
     inputs: Vec<bool>,
+    input_rect: Option<(i32, i32, i32, i32)>,
     anchored: bool,
     emit_system: bool,
     on_read: Option<Box<dyn FnMut(usize) + Send>>,
@@ -168,7 +169,7 @@ impl ChatSource for FakeReader {
     }
 
     fn input_box_screen_rect(&mut self) -> Option<(i32, i32, i32, i32)> {
-        Some((749, 893, 732, 44))
+        self.input_rect
     }
 
     fn set_emit_system(&mut self, emit: bool) {
@@ -241,6 +242,7 @@ impl Setup {
             reads,
             states: Vec::new(),
             inputs: Vec::new(),
+            input_rect: Some((749, 893, 732, 44)),
             anchored: true,
             emit_system: false,
             on_read: None,
@@ -663,6 +665,80 @@ fn game_input_edges_are_logged_once_per_change() {
         log_lines_with("[reader] game chat input closed (slot=17, hwnd=0xabc)").len(),
         1
     );
+}
+
+fn input_events(events: &[UiEvent]) -> Vec<&UiEvent> {
+    events
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                UiEvent::GameInputOpened { .. } | UiEvent::GameInputClosed { .. }
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn input_open_and_close_are_posted_with_the_anchor() {
+    let mut s = Setup::new();
+    s.hwnd = 0xABC;
+    let mut reader = s.reader(empty(4));
+    reader.inputs = vec![false, true, true, false];
+    let events = s.run_reader(reader);
+    assert_eq!(
+        input_events(&events),
+        [
+            &UiEvent::GameInputOpened {
+                hwnd: 0xABC,
+                anchor: Some((749, 893, 732, 44))
+            },
+            &UiEvent::GameInputClosed { hwnd: 0xABC },
+        ]
+    );
+}
+
+#[test]
+fn input_open_without_a_readable_rect_posts_no_anchor() {
+    let mut s = Setup::new();
+    let mut reader = s.reader(empty(2));
+    reader.inputs = vec![true];
+    reader.input_rect = None;
+    let events = s.run_reader(reader);
+    assert_eq!(
+        input_events(&events)[0],
+        &UiEvent::GameInputOpened {
+            hwnd: 0x1,
+            anchor: None
+        }
+    );
+}
+
+#[test]
+fn game_window_gone_posts_input_closed_when_it_was_open() {
+    let mut s = Setup::new();
+    let mut reader = s.reader(empty(5));
+    reader.inputs = vec![true];
+    let calls = Arc::new(Mutex::new(0));
+    s.window_exists = Box::new(move |_| {
+        let mut n = calls.lock().unwrap();
+        *n += 1;
+        *n <= 1
+    });
+    let events = s.run_reader(reader);
+    let posted = input_events(&events);
+    assert!(matches!(posted[0], UiEvent::GameInputOpened { .. }));
+    assert_eq!(posted[1], &UiEvent::GameInputClosed { hwnd: 0x1 });
+    assert_eq!(posted.len(), 2);
+}
+
+#[test]
+fn input_events_are_edge_triggered() {
+    let mut s = Setup::new();
+    let mut reader = s.reader(empty(4));
+    reader.inputs = vec![false, false, false, false];
+    let events = s.run_reader(reader);
+    assert!(input_events(&events).is_empty());
 }
 
 #[test]

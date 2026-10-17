@@ -3,6 +3,9 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+/// hwnd → 該客戶端的上下文；收訊執行緒與發話翻譯共用。
+pub type ContextMap = Arc<Mutex<HashMap<isize, Arc<ClientContexts>>>>;
+
 /// 帶進提示詞的近期對話行數：短窗涵蓋眼前的對話線，避免遠處舊話題污染判斷。
 pub const CONTEXT_LINES: usize = 8;
 

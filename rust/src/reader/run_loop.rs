@@ -369,7 +369,7 @@ impl<R: ChatSource> ClientLoop<R> {
         s.board.report(self.slot, state, self.game_issue);
     }
 
-    /// 取樣一次遊戲聊天輸入框，狀態翻轉才記錄（開關事件在第 2 段接上 UI）。
+    /// 取樣一次遊戲聊天輸入框，狀態翻轉才記錄並投遞開關事件。
     fn poll_input(&mut self) {
         let now_open = self.reader.input_open();
         if now_open == self.input_open {
@@ -377,7 +377,8 @@ impl<R: ChatSource> ClientLoop<R> {
         }
         self.input_open = now_open;
         if now_open {
-            let anchor = match self.reader.input_box_screen_rect() {
+            let rect = self.reader.input_box_screen_rect();
+            let anchor = match rect {
                 Some((x, y, w, h)) => format!("({x}, {y}, {w}, {h})"),
                 None => "None".to_owned(),
             };
@@ -385,6 +386,10 @@ impl<R: ChatSource> ClientLoop<R> {
                 "[reader] game chat input opened (slot={}, hwnd={:#x}, anchor={anchor})",
                 self.slot, self.hwnd
             ));
+            self.s.ui.post(UiEvent::GameInputOpened {
+                hwnd: self.hwnd,
+                anchor: rect,
+            });
         } else {
             self.log_input_closed();
         }
@@ -403,6 +408,7 @@ impl<R: ChatSource> ClientLoop<R> {
             "[reader] game chat input closed (slot={}, hwnd={:#x})",
             self.slot, self.hwnd
         ));
+        self.s.ui.post(UiEvent::GameInputClosed { hwnd: self.hwnd });
     }
 
     /// 等待下一輪讀取，期間以 `INPUT_POLL_INTERVAL` 持續取樣輸入框狀態。

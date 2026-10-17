@@ -24,7 +24,7 @@ use crate::reader::status::StatusBoard;
 use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
 use crate::runtime::is_elevated;
 use crate::translation::cache::{TranslationCache, fingerprint_of, translate_and_cache};
-use crate::translation::context::ClientContexts;
+use crate::translation::context::{ClientContexts, ContextMap};
 use crate::translation::examples::{ExampleSet, ExampleStore};
 use crate::translation::gate::ConcurrencyGate;
 use crate::translation::pool::{ResultFn, TranslateFn, TranslationPool};
@@ -193,6 +193,8 @@ pub struct Running {
     pub supervisor: Option<JoinHandle<()>>,
     /// 低階鍵盤 hook；裝不上時為 `None`。
     pub keyboard: Option<KeyboardHook>,
+    /// 各客戶端（hwnd）的聊天上下文。
+    pub contexts: ContextMap,
 }
 
 /// 建構翻譯端並啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
@@ -235,6 +237,8 @@ pub fn build_app(
         msg_ids: Arc::new(MessageIds::default()),
         cache: Arc::clone(&translation.cache),
     });
+    let contexts = ContextMap::default();
+    let spawn_contexts = Arc::clone(&contexts);
     let spawn = move |hwnd: isize, slot: u32| {
         let mut reader = WizChatReader::new(
             hwnd,
@@ -243,10 +247,15 @@ pub fn build_app(
         reader.slot = slot;
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
+        let client = Arc::new(ClientContexts::new());
+        spawn_contexts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(hwnd, Arc::clone(&client));
         let name = format!("reader-{slot}");
         std::thread::Builder::new()
             .name(name.clone())
-            .spawn(move || reader_loop(shared, hwnd, slot, reader, Arc::new(ClientContexts::new())))
+            .spawn(move || reader_loop(shared, hwnd, slot, reader, client))
             .inspect_err(|e| log(format!("[reader] cannot spawn {name}: {e}")))
             .ok()
     };
@@ -263,6 +272,7 @@ pub fn build_app(
         translation,
         supervisor,
         keyboard: None,
+        contexts,
     }
 }
 
@@ -303,6 +313,7 @@ pub fn shutdown(running: Running) -> ! {
         translation,
         supervisor,
         keyboard,
+        ..
     } = running;
     shutdown_steps(
         &stop,
