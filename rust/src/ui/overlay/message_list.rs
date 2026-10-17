@@ -297,7 +297,7 @@ fn anchored(anchor: Option<(u64, f32)>, messages: &[Message], dy: f32) -> Start 
 }
 
 /// 本幀的滾輪量換成內容位移（DIP）：一格捲視口高度的十分之一，與 Tk 的 `yview_scroll(units)` 相同。
-fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
+pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
     ui.input(|i| {
         i.events
             .iter()

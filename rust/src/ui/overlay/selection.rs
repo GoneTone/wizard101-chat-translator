@@ -17,7 +17,7 @@ use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
 use crate::ui::win32;
 
 /// 拖出視口時的自動捲動節奏（秒）。
-const AUTOSCROLL_INTERVAL: f64 = 0.040;
+pub const AUTOSCROLL_INTERVAL: f64 = 0.040;
 /// 每輪最少捲幾像素：剛越界時要慢，才停得準。
 const AUTOSCROLL_MIN: i32 = 2;
 const AUTOSCROLL_MAX: i32 = 24;
@@ -374,7 +374,8 @@ impl Selection {
     }
 }
 
-fn is_copy(event: &Event) -> bool {
+/// 這個輸入事件是不是複製（Ctrl+C，含 Ctrl+Shift+C）。
+pub fn is_copy(event: &Event) -> bool {
     // egui-winit 只把不帶 Shift 的 Ctrl+C 轉成 Copy；Ctrl+Shift+C（Tk 的 <Control-C>）仍是 Key
     match event {
         Event::Copy => true,
