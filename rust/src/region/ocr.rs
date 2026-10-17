@@ -165,7 +165,10 @@ pub fn recognize_with(
     };
     let result = engine
         .detect_text(&ImageSource::Bytes(png.to_vec()), &OcrRunOptions::default())
-        .map_err(|e| OcrError::Failed(format!("rusto detection failed: {e}")))?;
+        .map_err(|e| {
+            log(format!("[region] rusto detection failed: {e}"));
+            OcrError::Failed(e.to_string())
+        })?;
     let DetectTextResult::Structured(results) = result else {
         unreachable!("line output is always structured");
     };

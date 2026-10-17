@@ -97,7 +97,13 @@ fn a_recognition_error_is_a_failure_not_unavailable() {
     let tmp = tempfile::tempdir().unwrap();
     let mut engine = None;
     let err = recognize_with(&mut engine, None, tmp.path(), b"not a png").unwrap_err();
-    assert!(matches!(err, OcrError::Failed(_)), "{err:?}");
+    let OcrError::Failed(message) = err else {
+        panic!("{err:?}")
+    };
+    assert!(
+        !message.is_empty() && !message.contains("rusto detection failed"),
+        "the card shows the bare rusto error: {message}"
+    );
     assert!(engine.is_some(), "a working engine stays cached");
 }
 
