@@ -585,6 +585,40 @@ fn editing_after_a_passed_test_voids_it() {
     finish_test(&mut h, round, translated("x", 100));
     type_into(&mut h, &tr("field.model"), "2");
     assert!(!h.state().form.test_passed());
+    assert!(!painted_texts(&h).contains(&TEST_SAMPLE.to_owned()));
+}
+
+#[test]
+fn a_failed_test_stays_visible_after_editing() {
+    // 失敗原因留著方便對照修改；成功的綠字才會誤導
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    finish_test(&mut h, round, Err(TranslateError::offline("refused")));
+    type_into(&mut h, &tr("field.model"), "2");
+    assert!(!h.state().form.test_passed());
+    let expected = t("error.offline_detail", &[("message", "refused")]);
+    assert!(painted_texts(&h).concat().contains(&expected));
+}
+
+#[test]
+fn the_form_leaves_the_callers_spacing_alone() {
+    i18n::set_language(LANGUAGE);
+    let state = (blank(), FakeEnv::default(), None);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(540.0, 760.0))
+        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
+        .build_ui_state(
+            |ui: &mut Ui, s: &mut (ServiceForm, FakeEnv, Option<(f32, f32)>)| {
+                theme::apply(ui.style_mut());
+                let before = ui.spacing().item_spacing.y;
+                s.0.ui(ui, &s.1, TARGET);
+                s.2 = Some((before, ui.spacing().item_spacing.y));
+            },
+            state,
+        );
+    h.run_steps(2);
+    let (before, after) = h.state().2.expect("form drawn");
+    assert_eq!(before, after);
 }
 
 #[test]

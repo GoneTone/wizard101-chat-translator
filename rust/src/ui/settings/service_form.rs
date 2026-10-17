@@ -198,6 +198,10 @@ impl ServiceForm {
         env: &dyn SettingsEnv,
         target_language: &str,
     ) -> FormResponse {
+        ui.scope(|ui| self.body(ui, env, target_language)).inner
+    }
+
+    fn body(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) -> FormResponse {
         let before = self.api_values();
         let mut response = FormResponse {
             changed: std::mem::take(&mut self.pending_change),
@@ -228,7 +232,11 @@ impl ServiceForm {
 
         let after = self.api_values();
         if after != before {
-            self.void_test();
+            self.test_round.invalidate();
+            // 失敗原因留著供對照；成功結果已不代表目前的欄位
+            if self.test_passed() {
+                self.test_result = None;
+            }
             let endpoint =
                 |api: &Value| (api.get("api_key").cloned(), api.get("base_url").cloned());
             if endpoint(&after) != endpoint(&before) {
