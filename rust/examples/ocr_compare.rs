@@ -15,8 +15,15 @@ fn main() {
     pngs.sort();
     let mut results = Map::new();
     for path in pngs {
-        let text = recognize(&fs::read(&path).expect("read png")).expect("ocr");
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        let text = match fs::read(&path) {
+            Ok(png) => recognize(&png).map_err(|e| e.0),
+            Err(e) => Err(e.to_string()),
+        }
+        .unwrap_or_else(|msg| {
+            eprintln!("failed: {name}: {msg}");
+            format!("(error: {msg})")
+        });
         results.insert(name, Value::String(text));
     }
     let dest = dir.join("rust.json");

@@ -11,26 +11,42 @@ from src.region.ocr import recognize
 
 def write_baseline(folder: Path) -> Path:
     """辨識 `folder/*.png`，寫出 `python.json`（{檔名: 文字}）。"""
-    results = {p.name: recognize(p.read_bytes()) for p in sorted(folder.glob("*.png"))}
+    results = {}
+    for p in sorted(folder.glob("*.png")):
+        try:
+            results[p.name] = recognize(p.read_bytes())
+        except Exception as exc:
+            print(f"failed: {p.name}: {exc}", file=sys.stderr)
+            results[p.name] = f"(error: {type(exc).__name__}: {exc})"
     dest = folder / "python.json"
     dest.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     return dest
 
 
+_MISSING = "(missing)"
+
+
+def _load(path: Path, hint: str) -> dict:
+    if not path.is_file():
+        sys.exit(f"{path} not found: {hint}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def write_report(folder: Path) -> Path:
     """讀 `python.json` 與 `rust.json`，寫出 `report.md`（相同標 `=`，不同標 `⚠`）。"""
-    python = json.loads((folder / "python.json").read_text(encoding="utf-8"))
-    rust = json.loads((folder / "rust.json").read_text(encoding="utf-8"))
+    python, rust = (_load(folder / name, hint) for name, hint in (
+        ("python.json", "run `baseline` first"), ("rust.json", "run the Rust example first")))
     lines = ["# OCR 新舊對照", ""]
     same = 0
-    for name in sorted(python):
-        old, new = python[name], rust.get(name)
+    names = sorted(python.keys() | rust.keys())
+    for name in names:
+        old, new = python.get(name, _MISSING), rust.get(name, _MISSING)
         if old == new:
             same += 1
             lines += [f"= {name}", "", "```", old, "```", ""]
         else:
-            lines += [f"⚠ {name}", "", "Python：", "```", old, "```", "Rust：", "```", str(new), "```", ""]
-    total = len(python)
+            lines += [f"⚠ {name}", "", "Python：", "```", old, "```", "Rust：", "```", new, "```", ""]
+    total = len(names)
     lines.append(f"共 {total} 張，相同 {same} 張，不同 {total - same} 張")
     dest = folder / "report.md"
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
