@@ -28,6 +28,7 @@ use wizard101_chat_translator::input::dispatcher::{
 use wizard101_chat_translator::input::inject::Injector;
 use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
+use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
     Recognize, RegionError, RegionPipeline, RegionResult, describe_error,
 };
@@ -625,8 +626,12 @@ const REGION_RECT: (i32, i32, i32, i32) = (1, 2, 30, 40);
 impl Outgoing {
     /// 用假辨識（固定回 `source`）跑一次框選翻譯。
     fn run_region(&self, source: &'static str, session: u64) -> Receiver<UiEvent> {
+        self.run_region_with(Arc::new(move |_| Ok(source.to_owned())), session)
+    }
+
+    /// 用注入的辨識跑一次框選翻譯。
+    fn run_region_with(&self, recognize: Recognize, session: u64) -> Receiver<UiEvent> {
         let (ui, rx) = UiPoster::for_test();
-        let recognize: Recognize = Arc::new(move |_| Ok(source.to_owned()));
         let runner = region_runner(
             RegionPipeline::new(Arc::clone(&self.translator), recognize),
             self.rt.handle().clone(),
@@ -691,6 +696,45 @@ fn region_runner_failure_logs_the_service() {
         "[region] translate failed (rect=(1, 2, 30, 40), \
          provider=custom, model=fake-model): TranslatorOffline: region refused"
     ));
+}
+
+/// 辨識出錯或 panic 都走意外錯誤：卡片顯示 `error.unexpected`、記下 unexpected failure。
+fn assert_region_unexpected(recognize: Recognize, session: u64, message: &str) {
+    let o = outgoing(Ok("unused".into()));
+    let rx = o.run_region_with(recognize, session);
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        UiEvent::RegionDone {
+            session,
+            result: Err(t("error.unexpected", &[("error", message)]))
+        }
+    );
+    let lines = log_lines_with(message);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].ends_with(&format!(
+            "[region] unexpected failure (rect=(1, 2, 30, 40)): {message}"
+        )),
+        "{lines:?}"
+    );
+    assert!(o.backend.turns.lock().unwrap().is_empty());
+}
+
+#[test]
+fn region_runner_recognition_error_is_unexpected() {
+    assert_region_unexpected(
+        Arc::new(|_| Err(OcrError::Failed("runner detect boom".into()))),
+        8,
+        "runner detect boom",
+    );
+}
+
+#[test]
+fn region_runner_recognize_panic_is_unexpected() {
+    quiet_panics();
+    let message = format!("{EXPECTED_PANIC} runner recognize exploded");
+    let panicking = message.clone();
+    assert_region_unexpected(Arc::new(move |_| panic!("{panicking}")), 9, &message);
 }
 
 #[test]

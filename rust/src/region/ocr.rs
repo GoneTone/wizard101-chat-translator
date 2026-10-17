@@ -33,9 +33,22 @@ pub struct Models {
     pub keys: &'static [u8],
 }
 
-/// 本機 OCR 不可用：模型解不出來、引擎建立失敗或辨識出錯；附上原因。
+/// 本機 OCR 不可用：模型解不出來或引擎建立失敗；附上原因。
 #[derive(Debug, Clone, PartialEq)]
 pub struct OcrUnavailable(pub String);
+
+/// 辨識失敗：引擎起不來（`Unavailable`），或引擎已建好、辨識這張圖時出錯（`Failed`，附上原因）。
+#[derive(Debug, Clone, PartialEq)]
+pub enum OcrError {
+    Unavailable(OcrUnavailable),
+    Failed(String),
+}
+
+impl From<OcrUnavailable> for OcrError {
+    fn from(e: OcrUnavailable) -> Self {
+        Self::Unavailable(e)
+    }
+}
 
 /// 一個辨識框：4 個角點（左上、右上、右下、左下）與框內文字。
 pub struct OcrBox {
@@ -127,7 +140,7 @@ pub fn merge_lines(items: &[OcrBox]) -> Vec<String> {
 /// 辨識 PNG 裡的文字，各行以 `\n` 連接（見 `merge_lines`）；沒有文字回空字串。
 ///
 /// 會阻塞到辨識完成（第一次還要建立引擎），不可在 UI 或 async worker 執行緒上呼叫。
-pub fn recognize(png: &[u8]) -> Result<String, OcrUnavailable> {
+pub fn recognize(png: &[u8]) -> Result<String, OcrError> {
     recognize_with(
         &mut lock(&ENGINE),
         REGISTERED.get(),
@@ -144,7 +157,7 @@ pub fn recognize_with(
     models: Option<&Models>,
     extract_root: &Path,
     png: &[u8],
-) -> Result<String, OcrUnavailable> {
+) -> Result<String, OcrError> {
     let started = Instant::now();
     let engine = match engine {
         Some(engine) => engine,
@@ -152,7 +165,7 @@ pub fn recognize_with(
     };
     let result = engine
         .detect_text(&ImageSource::Bytes(png.to_vec()), &OcrRunOptions::default())
-        .map_err(|e| unavailable(format!("rusto detection failed: {e}")))?;
+        .map_err(|e| OcrError::Failed(format!("rusto detection failed: {e}")))?;
     let DetectTextResult::Structured(results) = result else {
         unreachable!("line output is always structured");
     };
@@ -183,9 +196,19 @@ fn create_engine(models: Option<&Models>, extract_root: &Path) -> Result<RustO, 
         })?,
         None => PathBuf::from(ASSETS_DIR),
     };
-    // 偵測參數照 RapidOCR 3.9.2；mean/std 改用 ImageNet 官方值（spec 唯一刻意的行為改變）。
-    // Global 前處理（min/max_side_len、min_height、width_height_ratio）rusto-rs 預設即與 RapidOCR 相同。
-    let config = InitializeConfig::ppv6(dir.join(DET), dir.join(REC), dir.join(KEYS))
+    let engine = RustO::initialize(engine_config(&dir))
+        .map_err(|e| unavailable(format!("failed to create rusto engine: {e}")))?;
+    log("[region] local OCR engine ready (rusto)");
+    Ok(engine)
+}
+
+/// 引擎參數照 RapidOCR 3.9.2 的 config.yaml；mean/std 改用 ImageNet 官方值（spec 唯一刻意的行為改變）。
+fn engine_config(dir: &Path) -> InitializeConfig {
+    InitializeConfig::ppv6(dir.join(DET), dir.join(REC), dir.join(KEYS))
+        .with_min_side_len(30.0)
+        .with_max_side_len(2000.0)
+        .with_min_height(30.0)
+        .with_width_height_ratio(8.0)
         .with_det_box_thresh(0.5)
         .with_unclip_ratio(1.6)
         .with_use_dilation(true)
@@ -195,14 +218,29 @@ fn create_engine(models: Option<&Models>, extract_root: &Path) -> Result<RustO, 
         .with_cls_threshold(dir.join(CLS), 0.9)
         .with_text_score(0.5)
         .with_det_mean([0.485, 0.456, 0.406])
-        .with_det_std([0.229, 0.224, 0.225]);
-    let engine = RustO::initialize(config)
-        .map_err(|e| unavailable(format!("failed to create rusto engine: {e}")))?;
-    log("[region] local OCR engine ready (rusto)");
-    Ok(engine)
+        .with_det_std([0.229, 0.224, 0.225])
 }
 
 fn unavailable(reason: String) -> OcrUnavailable {
     log(format!("[region] local OCR unavailable: {reason}"));
     OcrUnavailable(reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_preprocessing_matches_rapidocr() {
+        let g = engine_config(Path::new(ASSETS_DIR)).global;
+        assert_eq!(
+            (
+                g.min_side_len,
+                g.max_side_len,
+                g.min_height,
+                g.width_height_ratio
+            ),
+            (30.0, 2000.0, 30.0, 8.0)
+        );
+    }
 }

@@ -1,7 +1,7 @@
 //! 框選翻譯的主流程：熱鍵 → 擷取一張凍結畫面 → 選取畫面 → 從凍結畫面裁切 → 背景辨識翻譯 → 結果卡。
 //!
 //! 一律在 UI 執行緒呼叫；辨識翻譯交給 `RegionRunner`，結果經 `UiEvent::RegionDone` 回到 `finish`。
-//! 每次送出 session +1、過期結果丟掉；被取代或沒人要的請求經 `CancellationToken` 撤銷，伺服器才不會照樣生成、計費。
+//! 每次送出或改顯示錯誤時 session +1、過期結果丟掉；被取代或沒人要的請求經 `CancellationToken` 撤銷，伺服器才不會照樣生成、計費。
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -238,20 +238,23 @@ impl RegionFlow {
 
     /// 從 `frame` 裁出 `rect`、開辨識中卡片、交給 runner（首次框選與事後調整共用）。
     fn translate(&mut self, rect: Rect, hwnd: isize, frame: &Frame) {
-        self.card = Some(Card::new(rect, self.alpha));
         let png = match self.desktop.crop(frame, rect) {
             Ok(png) => png,
             Err(e) => {
                 log(format!(
                     "[region] capture failed (hwnd={hwnd:#x}, rect={rect:?}): {e}"
                 ));
-                self.set_card(CardContent::Error(match e {
-                    CaptureError::OutsideGame(_) => t("region.outside_game", &[]),
-                    CaptureError::Failed(_) => capture_failed(&e),
-                }));
+                self.show_error(
+                    rect,
+                    match e {
+                        CaptureError::OutsideGame(_) => t("region.outside_game", &[]),
+                        CaptureError::Failed(_) => capture_failed(&e),
+                    },
+                );
                 return;
             }
         };
+        self.card = Some(Card::new(rect, self.alpha));
         self.cancel_request();
         self.session += 1;
         let cancel = CancellationToken::new();
@@ -259,7 +262,10 @@ impl RegionFlow {
         self.runner.run(png, rect, self.session, cancel);
     }
 
+    /// 換成錯誤卡片；進行中的請求一併撤銷並換 session，晚到的結果才不會蓋掉錯誤（Python 版會蓋掉）。
     fn show_error(&mut self, rect: Rect, message: String) {
+        self.cancel_request();
+        self.session += 1;
         self.card = Some(Card::new(rect, self.alpha));
         self.set_card(CardContent::Error(message));
     }
@@ -322,6 +328,8 @@ mod tests {
         Png,
         Real,
         Fail(CaptureError),
+        /// 只有裁這個矩形時失敗。
+        FailAt(Rect, CaptureError),
     }
 
     struct FakeDesktop {
@@ -375,6 +383,8 @@ mod tests {
                 Crop::Png => Ok(b"png".to_vec()),
                 Crop::Real => crop_frame(frame, rect),
                 Crop::Fail(e) => Err(e.clone()),
+                Crop::FailAt(at, e) if *at == rect => Err(e.clone()),
+                Crop::FailAt(..) => Ok(b"png".to_vec()),
             }
         }
     }
@@ -827,13 +837,62 @@ mod tests {
         assert!(h.token(0).is_cancelled());
     }
 
-    #[test]
-    fn a_cancelled_request_leaves_the_card_alone() {
-        let mut h = H::new(desktop());
+    /// 先送出一個請求，再讓 `fail` 把卡片換成錯誤：那個請求被撤銷，晚到的結果與錯誤都蓋不掉錯誤卡片。
+    fn late_results_leave_the_error_card(desktop: FakeDesktop, fail: impl FnOnce(&mut H)) {
+        let mut h = H::new(desktop);
         h.flow.toggle(GAME);
         h.pick(RECT);
-        // 被撤銷的請求不投遞 RegionDone（runner 的約定），卡片停在辨識中
         assert_eq!(h.sessions(), [1]);
-        assert_eq!(h.card(), Some((RECT, pending())));
+        fail(&mut h);
+        let card = h.card().expect("an error card");
+        assert_ne!(card.1, pending());
+        assert!(h.token(0).is_cancelled());
+        h.flow.finish(1, result("late", ""));
+        h.flow.finish(1, Err("late error".into()));
+        assert_eq!(h.card(), Some(card));
+    }
+
+    #[test]
+    fn a_recapture_failure_cancels_the_request_and_keeps_its_error() {
+        late_results_leave_the_error_card(
+            FakeDesktop {
+                frames: VecDeque::from([Ok(frame()), Err(boom())]),
+                ..desktop()
+            },
+            |h| h.flow.on_box_changed((0, 0, 50, 50)),
+        );
+    }
+
+    #[test]
+    fn a_crop_failure_cancels_the_request_and_keeps_its_error() {
+        late_results_leave_the_error_card(
+            FakeDesktop {
+                crop: Crop::FailAt((0, 0, 50, 50), boom()),
+                ..desktop()
+            },
+            |h| h.flow.on_box_changed((0, 0, 50, 50)),
+        );
+    }
+
+    #[test]
+    fn a_frame_capture_failure_on_toggle_keeps_its_error() {
+        late_results_leave_the_error_card(
+            FakeDesktop {
+                frames: VecDeque::from([Ok(frame()), Err(boom())]),
+                ..desktop()
+            },
+            |h| h.flow.toggle(GAME),
+        );
+    }
+
+    #[test]
+    fn no_game_for_the_button_keeps_its_error() {
+        late_results_leave_the_error_card(
+            FakeDesktop {
+                game: None,
+                ..desktop()
+            },
+            |h| h.flow.start_from_button(),
+        );
     }
 }

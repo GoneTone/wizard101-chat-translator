@@ -17,7 +17,7 @@ fn main() {
     for path in pngs {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         let text = match fs::read(&path) {
-            Ok(png) => recognize(&png).map_err(|e| e.0),
+            Ok(png) => recognize(&png).map_err(|e| format!("{e:?}")),
             Err(e) => Err(e.to_string()),
         }
         .unwrap_or_else(|msg| {

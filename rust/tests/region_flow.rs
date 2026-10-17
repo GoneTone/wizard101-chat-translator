@@ -57,13 +57,13 @@ impl RegionDesktop for Desktop {
     }
 }
 
-type Runs = Rc<RefCell<Vec<(Vec<u8>, u64)>>>;
+type Runs = Rc<RefCell<Vec<(Vec<u8>, u64, CancellationToken)>>>;
 
 struct Runner(Runs);
 
 impl RegionRunner for Runner {
-    fn run(&self, png: Vec<u8>, _rect: Rect, session: u64, _cancel: CancellationToken) {
-        self.0.borrow_mut().push((png, session));
+    fn run(&self, png: Vec<u8>, _rect: Rect, session: u64, cancel: CancellationToken) {
+        self.0.borrow_mut().push((png, session, cancel));
     }
 }
 
@@ -92,6 +92,7 @@ fn stale_result_is_dropped_and_the_replaced_request_cancelled_with_logs() {
         runs.borrow().iter().map(|r| r.1).collect::<Vec<_>>(),
         [1, 2]
     );
+    assert!(runs.borrow()[0].2.is_cancelled() && !runs.borrow()[1].2.is_cancelled());
     flow.finish(1, Ok(RegionResult::default()));
     assert!(logged("[region] selection started (game_hwnd=0x5050)"));
     assert!(logged(

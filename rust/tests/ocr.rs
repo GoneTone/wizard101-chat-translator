@@ -1,4 +1,4 @@
-//! 本機 OCR：模型解出、失敗重試、細長區域，以及（手動）實圖比對。
+//! 本機 OCR：模型解出、失敗分類與重試、細長區域，以及（手動）實圖比對。
 
 use std::fs;
 use std::io::Cursor;
@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use wizard101_chat_translator::region::ocr::{
-    Models, OcrUnavailable, ensure_extracted, recognize, recognize_with,
+    Models, OcrError, ensure_extracted, recognize, recognize_with,
 };
 use wizard101_chat_translator::util::sha1_head;
 
@@ -81,7 +81,7 @@ fn extraction_failure_is_ocr_unavailable_and_retried() {
 
     let mut engine = None;
     let err = recognize_with(&mut engine, Some(models()), &blocked.join("ocr"), &png).unwrap_err();
-    assert!(matches!(err, OcrUnavailable(_)));
+    assert!(matches!(err, OcrError::Unavailable(_)), "{err:?}");
     assert!(engine.is_none(), "a failed load must not be cached");
 
     let writable = tmp.path().join("ocr");
@@ -90,6 +90,15 @@ fn extraction_failure_is_ocr_unavailable_and_retried() {
         Ok(String::new())
     );
     assert!(engine.is_some());
+}
+
+#[test]
+fn a_recognition_error_is_a_failure_not_unavailable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut engine = None;
+    let err = recognize_with(&mut engine, None, tmp.path(), b"not a png").unwrap_err();
+    assert!(matches!(err, OcrError::Failed(_)), "{err:?}");
+    assert!(engine.is_some(), "a working engine stays cached");
 }
 
 #[test]

@@ -9,13 +9,14 @@ use tokio_util::sync::CancellationToken;
 
 use crate::i18n::t;
 use crate::logs::log;
-use crate::region::ocr::OcrUnavailable;
+use crate::region::ocr::{OcrError, OcrUnavailable};
 use crate::translation::errors::{TranslateError, friendly_error};
 use crate::translation::translator::Translator;
 use crate::ui::geometry::Rect;
+use crate::util::panic_message;
 
 /// 辨識函式：PNG bytes → 文字；測試注入替身，正式用 `ocr::recognize`。
-pub type Recognize = Arc<dyn Fn(&[u8]) -> Result<String, OcrUnavailable> + Send + Sync>;
+pub type Recognize = Arc<dyn Fn(&[u8]) -> Result<String, OcrError> + Send + Sync>;
 
 /// 一次框選的結果：`text` 是譯文（空字串代表畫面上沒有文字），`source` 是 OCR 原文。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -24,11 +25,21 @@ pub struct RegionResult {
     pub source: String,
 }
 
-/// 流程失敗：OCR 不可用，或翻譯失敗；由 UI 端用 [`describe_error`] 轉成文案。
+/// 流程失敗：OCR 不可用、翻譯失敗，或意料外的錯誤（辨識出錯、辨識 panic）；由 UI 端用 [`describe_error`] 轉成文案。
 #[derive(Debug, Clone, PartialEq)]
 pub enum RegionError {
     Ocr(OcrUnavailable),
     Translate(TranslateError),
+    Unexpected(String),
+}
+
+impl From<OcrError> for RegionError {
+    fn from(e: OcrError) -> Self {
+        match e {
+            OcrError::Unavailable(e) => Self::Ocr(e),
+            OcrError::Failed(message) => Self::Unexpected(message),
+        }
+    }
 }
 
 impl From<TranslateError> for RegionError {
@@ -70,10 +81,11 @@ impl RegionPipeline {
         let source = tokio::task::spawn_blocking(move || recognize(&png))
             .await
             .map_err(|e| {
-                log(format!("[region] OCR task failed: {e}"));
-                RegionError::Ocr(OcrUnavailable(format!("OCR task failed: {e}")))
-            })?
-            .map_err(RegionError::Ocr)?;
+                RegionError::Unexpected(match e.try_into_panic() {
+                    Ok(panic) => panic_message(panic.as_ref()),
+                    Err(e) => e.to_string(),
+                })
+            })??;
         if source.is_empty() {
             log(format!("[region] local OCR found no text (rect={rect:?})"));
             return Ok(RegionResult::default());
@@ -96,6 +108,7 @@ impl RegionPipeline {
 pub fn describe_error(e: &RegionError) -> String {
     let (key, args) = match e {
         RegionError::Ocr(_) => return t("region.ocr_unavailable", &[]),
+        RegionError::Unexpected(message) => ("error.unexpected", vec![("error", message.clone())]),
         RegionError::Translate(TranslateError::BadOutput(message)) => {
             ("region.failed", vec![("error", message.clone())])
         }

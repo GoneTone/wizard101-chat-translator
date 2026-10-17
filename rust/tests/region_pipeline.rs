@@ -1,4 +1,4 @@
-//! 辨識加翻譯的流程：OCR 與翻譯 backend 都用替身；另驗證 OCR 不佔用 async worker 與錯誤文案。
+//! 辨識加翻譯的流程：OCR 與翻譯 backend 都用替身；另驗證 OCR 不佔用 async worker、錯誤分類與文案。
 
 #[allow(dead_code)]
 mod common;
@@ -8,11 +8,12 @@ use std::thread::{self, ThreadId};
 
 use common::fake_backend::Fake;
 use common::log_capture::log_lines_with;
+use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::i18n::t;
-use wizard101_chat_translator::region::ocr::OcrUnavailable;
+use wizard101_chat_translator::region::ocr::{OcrError, OcrUnavailable};
 use wizard101_chat_translator::region::pipeline::{
-    RegionError, RegionPipeline, RegionResult, describe_error,
+    Recognize, RegionError, RegionPipeline, RegionResult, describe_error,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::Translator;
@@ -97,7 +98,7 @@ async fn errors_propagate() {
     let fake = Fake::texts(&["unused"]);
     let unavailable = RegionPipeline::new(
         translator(&fake),
-        Arc::new(|_| Err(OcrUnavailable("no models".into()))),
+        Arc::new(|_| Err(OcrError::Unavailable(OcrUnavailable("no models".into())))),
     );
     let result = unavailable
         .run(b"png".to_vec(), RECT, &CancellationToken::new())
@@ -105,6 +106,31 @@ async fn errors_propagate() {
     assert_eq!(
         result,
         Err(RegionError::Ocr(OcrUnavailable("no models".into())))
+    );
+    assert!(fake.calls().is_empty());
+}
+
+#[tokio::test]
+async fn recognition_errors_and_panics_are_unexpected() {
+    quiet_panics();
+    let fake = Fake::texts(&["unused"]);
+    let run = |recognize: Recognize| {
+        let pipeline = RegionPipeline::new(translator(&fake), recognize);
+        async move {
+            pipeline
+                .run(b"png".to_vec(), RECT, &CancellationToken::new())
+                .await
+        }
+    };
+    assert_eq!(
+        run(Arc::new(|_| Err(OcrError::Failed("detect boom".into())))).await,
+        Err(RegionError::Unexpected("detect boom".into()))
+    );
+    let message = format!("{EXPECTED_PANIC} recognize exploded");
+    let panicking = message.clone();
+    assert_eq!(
+        run(Arc::new(move |_| panic!("{panicking}"))).await,
+        Err(RegionError::Unexpected(message))
     );
     assert!(fake.calls().is_empty());
 }
@@ -166,5 +192,9 @@ fn describe_error_maps_each_failure_kind() {
     assert_eq!(
         translate(TranslateError::Unexpected("boom".into())),
         t("error.unexpected", &[("error", "boom")])
+    );
+    assert_eq!(
+        describe_error(&RegionError::Unexpected("detect boom".into())),
+        t("error.unexpected", &[("error", "detect boom")])
     );
 }

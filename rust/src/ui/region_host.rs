@@ -1,6 +1,6 @@
 //! 在 App 裡托管框選翻譯的三個視窗：選取畫面、框選框與結果卡的 immediate viewport，使用者操作回報給 `RegionFlow`。
 //!
-//! 三個視窗都在建立那一幀藏著、找到 HWND 後以實體像素擺好，下一幀才顯示；選取畫面另外等熱鍵觸發鍵放開才顯示並搶前景。
+//! 三個視窗都在建立那一幀藏著、找到 HWND 後以實體像素擺好，下一幀才顯示；選取畫面另外等熱鍵觸發鍵放開、HWND 找到才顯示並搶前景。
 
 use std::time::Instant;
 
@@ -66,7 +66,7 @@ pub struct RegionHost {
     pub(crate) selector: HostedWindow,
     pub(crate) region_box: HostedWindow,
     pub(crate) card: HostedWindow,
-    /// 開始等觸發鍵放開的時間；沒在等是 `None`。
+    /// 選取畫面開始等觸發鍵放開或 HWND 的時間；沒在等是 `None`。
     release_wait: Option<Instant>,
     alpha: Option<f32>,
 }
@@ -155,9 +155,10 @@ impl RegionHost {
         let monitor = selector.monitor();
         let win = &mut self.selector;
         let pending = win.created && !win.shown;
+        // 沒有 HWND 就搶不了前景：與等觸發鍵放開共用 1 秒上限，逾時照樣顯示
         let defer = defer_for_release(
             pending,
-            (self.desktop.trigger_held)(),
+            (self.desktop.trigger_held)() || win.hwnd == 0,
             &mut self.release_wait,
             Instant::now(),
         );
@@ -188,7 +189,9 @@ impl RegionHost {
             ctx.request_repaint();
         }
         // 顯示與搶前景在同一幀：先顯示晚點才給焦點的話，這段空檔打的字會進遊戲
-        if reveal && win.hwnd != 0 && !(self.desktop.force_foreground)(win.hwnd) {
+        if reveal && win.hwnd == 0 {
+            log("[region] selector window not found; shown without focus");
+        } else if reveal && !(self.desktop.force_foreground)(win.hwnd) {
             log(format!(
                 "[region] selector focus failed: SetForegroundWindow refused (hwnd={:#x})",
                 win.hwnd
@@ -561,6 +564,31 @@ mod tests {
     }
 
     #[test]
+    fn selector_waits_for_its_window_before_showing() {
+        let mut h = harness();
+        h.state_mut().toggle(GAME);
+        h.run_steps(3);
+        assert!(h.state().selector.created && !h.state().selector.shown);
+        assert_eq!(raised(), 0);
+        h.state_mut().selector.hwnd = FAKE_HWND;
+        h.step();
+        assert!(h.state().selector.shown);
+        assert_eq!(RAISED.with(|r| r.borrow().clone()), [FAKE_HWND]);
+    }
+
+    #[test]
+    fn selector_without_a_window_is_shown_unfocused_after_the_wait() {
+        let mut h = harness();
+        h.state_mut().toggle(GAME);
+        h.run_steps(2);
+        assert!(!h.state().selector.shown);
+        h.state_mut().release_wait = Some(Instant::now() - Duration::from_secs(2));
+        h.step();
+        assert!(h.state().selector.shown);
+        assert_eq!(raised(), 0);
+    }
+
+    #[test]
     fn selector_closing_starts_a_fresh_window_for_the_next_selection() {
         let mut h = harness();
         h.state_mut().toggle(GAME);
@@ -606,6 +634,8 @@ mod tests {
     fn dismissing_the_selector_tears_its_window_down_on_the_next_frame() {
         let mut h = harness();
         h.state_mut().toggle(GAME);
+        h.step();
+        h.state_mut().selector.hwnd = FAKE_HWND;
         h.run();
         assert!(h.state().selector.shown && !repaints_now(&h));
         clear_causes();

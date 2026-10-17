@@ -399,30 +399,30 @@ impl RegionRunner for PipelineRunner {
         self.rt.spawn(async move {
             let outcome = AssertUnwindSafe(pipeline.run(png, rect, &cancel))
                 .catch_unwind()
-                .await;
+                .await
+                .unwrap_or_else(|panic| {
+                    Err(RegionError::Unexpected(panic_message(panic.as_ref())))
+                });
             let result = match outcome {
-                Ok(Ok(result)) => Ok(result),
-                Ok(Err(RegionError::Translate(TranslateError::Cancelled))) => {
+                Ok(result) => Ok(result),
+                Err(RegionError::Translate(TranslateError::Cancelled)) => {
                     log(format!("[region] request cancelled (session={session})"));
                     return;
                 }
-                Ok(Err(err)) => {
-                    // OCR 不可用已在 ocr.rs 記過
-                    if let RegionError::Translate(e) = &err {
-                        log(format!(
+                Err(err) => {
+                    match &err {
+                        // OCR 不可用已在 ocr.rs 記過
+                        RegionError::Ocr(_) => {}
+                        RegionError::Translate(e) => log(format!(
                             "[region] translate failed (rect={rect:?}, {}): {}: {e}",
                             pipeline.describe(),
                             e.class_name()
-                        ));
+                        )),
+                        RegionError::Unexpected(message) => log(format!(
+                            "[region] unexpected failure (rect={rect:?}): {message}"
+                        )),
                     }
                     Err(describe_error(&err))
-                }
-                Err(panic) => {
-                    let message = panic_message(panic.as_ref());
-                    log(format!(
-                        "[region] unexpected failure (rect={rect:?}): {message}"
-                    ));
-                    Err(t("error.unexpected", &[("error", &message)]))
                 }
             };
             ui.post(UiEvent::RegionDone { session, result });
