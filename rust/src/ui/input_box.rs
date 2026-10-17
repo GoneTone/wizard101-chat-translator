@@ -70,7 +70,8 @@ pub struct InputBox {
     open: bool,
     target: isize,
     session: u64,
-    cancel: Option<CancellationToken>,
+    /// 進行中的請求：關窗時 cancel；譯文打回送出當下的 hwnd（與 Python 相同，不跟 retarget）。
+    pending: Option<(CancellationToken, isize)>,
     text: String,
     translating: bool,
     error: Option<String>,
@@ -99,7 +100,7 @@ impl InputBox {
             open: false,
             target: 0,
             session: 0,
-            cancel: None,
+            pending: None,
             text: String::new(),
             translating: false,
             error: None,
@@ -148,7 +149,7 @@ impl InputBox {
             self.error = Some(t("input.too_long", &[("count", &count), ("limit", &limit)]));
             return;
         }
-        let target = self.target;
+        let target = self.pending.take().map_or(self.target, |(_, hwnd)| hwnd);
         self.close();
         (self.send)(translated, target);
     }
@@ -239,7 +240,7 @@ impl InputBox {
         self.translating = true;
         self.error = None;
         let cancel = CancellationToken::new();
-        self.cancel = Some(cancel.clone());
+        self.pending = Some((cancel.clone(), self.target));
         (self.translate)(OutgoingRequest {
             text,
             target: self.target,
@@ -265,7 +266,7 @@ impl InputBox {
         self.open = false;
         self.open_flag.store(false, Ordering::SeqCst);
         self.session += 1;
-        if let Some(cancel) = self.cancel.take() {
+        if let Some((cancel, _)) = self.pending.take() {
             cancel.cancel();
         }
         self.restore_foreground = Some(self.target);
@@ -504,8 +505,10 @@ mod tests {
         f.input.retarget(0xB);
         assert_eq!(f.input.target_hwnd(), 0xB);
         let session = submit(&mut f, "hi");
+        f.input.retarget(0xC);
         f.input.finish(session, Ok("x".into()));
         assert_eq!(*f.sent.borrow(), [("x".to_owned(), 0xB)]);
+        assert_eq!(f.input.take_restore_foreground(), Some(0xC));
     }
 
     #[test]
