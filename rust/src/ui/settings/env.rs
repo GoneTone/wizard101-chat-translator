@@ -119,7 +119,10 @@ impl SettingsEnv for RealEnv {
         self.post_later(async move {
             let result = check_for_update(&http_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
                 .await
-                .map_err(|e| e.to_string());
+                .map_err(|e| {
+                    log(format!("[update] manual check failed: {e}"));
+                    e.to_string()
+                });
             SettingsEvent::UpdateChecked { round, result }
         });
     }
@@ -185,13 +188,24 @@ static NEXT_ROUND: AtomicU64 = AtomicU64::new(1);
 /// 一個按鈕觸發的背景工作的輪次：結果回來時比對編號，過期或作廢的結果丟掉。
 ///
 /// 編號全域遞增，不同元件的結果就算走同一種事件也不會撞號。
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Round {
+    /// log 用的工作名稱。
+    label: &'static str,
     current: Option<u64>,
     invalidated: bool,
 }
 
 impl Round {
+    /// `label` 是 log 用的工作名稱（如 `"test connection"`）。
+    pub fn new(label: &'static str) -> Self {
+        Self {
+            label,
+            current: None,
+            invalidated: false,
+        }
+    }
+
     /// 開始新的一輪（舊的一輪就此過期），回傳本輪編號。
     pub fn start(&mut self) -> u64 {
         let round = NEXT_ROUND.fetch_add(1, Ordering::Relaxed);
@@ -205,18 +219,22 @@ impl Round {
         self.invalidated = self.current.is_some();
     }
 
+    /// 放棄本輪：立刻解除忙碌，之後回來的結果一律丟掉（給不會再有結果的工作，如取消錄熱鍵）。
+    pub fn cancel(&mut self) {
+        self.current = None;
+        self.invalidated = false;
+    }
+
     /// 結果回來：只有本輪且沒被作廢才回 `true`；本輪的結果一律解除忙碌。
     pub fn finish(&mut self, round: u64) -> bool {
-        if self.current != Some(round) {
-            log(format!(
-                "[ui] background result discarded: round {round} is not the current one"
-            ));
-            return false;
+        let current = self.current == Some(round);
+        if current {
+            self.current = None;
         }
-        self.current = None;
-        if self.invalidated {
+        if !current || self.invalidated {
             log(format!(
-                "[ui] background result discarded: state changed meanwhile (round {round})"
+                "[ui] {} result discarded: state changed meanwhile",
+                self.label
             ));
             return false;
         }

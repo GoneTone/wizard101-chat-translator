@@ -155,7 +155,9 @@ pub fn icons(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(ICONS.into()))
 }
 
-/// 把設定介面的深色樣式套到 `style`（給 `Context::all_styles_mut` 用）。
+/// 把設定介面的深色樣式套到設定視窗／精靈根 Ui：`theme::apply(ui.style_mut())`。
+///
+/// 不可套到 `Context` 全域樣式：overlay、泡泡、輸入框與框選卡片共用同一個 `Context`。
 pub fn apply(style: &mut Style) {
     let control = CornerRadius::same(CONTROL_RADIUS);
     let mut v = Visuals::dark();

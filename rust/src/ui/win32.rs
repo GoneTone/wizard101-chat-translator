@@ -549,7 +549,10 @@ mod tests {
     }
 
     #[test]
-    fn dark_caption_on_a_missing_window_only_logs() {
+    fn dark_caption_on_a_missing_window_fails_without_panicking() {
+        for attribute in [DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_CAPTION_COLOR] {
+            assert_ne!(set_dwm_attribute(0, attribute, 1), 0);
+        }
         dark_caption(0);
     }
 }

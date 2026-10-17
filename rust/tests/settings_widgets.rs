@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use eframe::egui::{self, Id, Key, Ui};
+use eframe::egui::{self, Color32, Id, Key, Shape, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
@@ -10,23 +10,27 @@ use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, Round, SettingsEnv, SettingsEvent};
+use wizard101_chat_translator::ui::settings::fields::{editable_combo, number_field};
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::{
-    card, collapsible, editable_combo, filter_models, keycaps, number_field, outcome, setting_row,
-    toggle,
+    card, collapsible, filter_models, keycaps, outcome, setting_row, toggle,
 };
 
+/// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
 fn harness<S: 'static>(
     state: S,
-    content: impl FnMut(&mut Ui, &mut S) + 'static,
+    mut content: impl FnMut(&mut Ui, &mut S) + 'static,
 ) -> Harness<'static, S> {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(480.0, 360.0))
-        .with_context_setup(|ctx| {
-            fonts_egui::install(ctx, "en-US");
-            ctx.all_styles_mut(theme::apply);
-        })
-        .build_ui_state(content, state);
+        .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+        .build_ui_state(
+            move |ui, state| {
+                theme::apply(ui.style_mut());
+                content(ui, state);
+            },
+            state,
+        );
     harness.run_steps(2);
     harness
 }
@@ -213,6 +217,33 @@ fn editable_combo_filters_while_typing_and_picks_with_enter() {
     assert!(h.query_by_label("claude-3-5-haiku-latest").is_none());
 }
 
+/// 畫面上文字是 `text` 的那個字形的顏色。
+fn painted_color(h: &Harness<Combo>, text: &str) -> Option<Color32> {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            Shape::Text(shape) if shape.galley.text() == text => Some(shape.fallback_color),
+            _ => None,
+        })
+}
+
+#[test]
+fn the_theme_stays_on_the_settings_ui_and_reaches_the_combo_popup() {
+    let mut h = combo_harness("");
+    type_into_combo(&mut h, "sonnet");
+    assert_eq!(painted_color(&h, "claude-sonnet-4-5"), Some(theme::TEXT));
+    let global = h.ctx.global_style();
+    assert_ne!(global.visuals.override_text_color, Some(theme::TEXT));
+    assert_ne!(global.spacing.interact_size.y, theme::CONTROL_HEIGHT);
+    assert_ne!(global.visuals.panel_fill, theme::WINDOW_BG);
+    assert_ne!(global.spacing.button_padding.x, 16.0);
+    assert_ne!(
+        global.text_styles[&egui::TextStyle::Body].size,
+        theme::TEXT_SIZE
+    );
+}
+
 #[test]
 fn editable_combo_escape_closes_and_keeps_the_typed_text() {
     let mut h = combo_harness("");
@@ -300,7 +331,7 @@ fn number_field_steps_within_the_range() {
 
 #[test]
 fn round_discards_invalidated_and_stale_results() {
-    let mut r = Round::default();
+    let mut r = Round::new("probe");
     assert!(!r.busy());
 
     // 正常結果送達
@@ -325,8 +356,18 @@ fn round_discards_invalidated_and_stale_results() {
     assert!(r.finish(current));
 
     // 序號全域遞增：別的元件的輪次不會撞號
-    let mut other = Round::default();
+    let mut other = Round::new("other");
     assert!(other.start() > current);
+}
+
+#[test]
+fn a_cancelled_round_is_idle_and_drops_its_late_result() {
+    let mut r = Round::new("hotkey capture");
+    let recording = r.start();
+    r.cancel();
+    assert!(!r.busy());
+    assert!(!r.finish(recording));
+    assert!(!r.busy());
 }
 
 #[test]
