@@ -3,6 +3,7 @@
 use std::path::Path;
 
 pub mod fake_game;
+pub mod log_capture;
 pub mod reader_fixture;
 
 /// 讀取 `tests/golden/<name>.json`，回傳 Python 匯出的案例清單。

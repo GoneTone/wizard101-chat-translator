@@ -1,13 +1,16 @@
 //! Translator 與 ExampleCoordinator 的行為測試：假 backend 記錄收到的 system 與對話輪，不打真 API。
 
-use std::collections::VecDeque;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+#[allow(dead_code)]
+mod common;
 
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+
+use common::log_capture::{capture_logs, log_lines_with, log_text};
+use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::config::ServiceSpec;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::clients::{
     ChatBackend, ChatRequest, MAX_TOKENS_REGION,
 };
@@ -33,28 +36,6 @@ const JA: &str = "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れ�
 5. オプション\n\
 6. そしてあなたは";
 
-/// 整個測試檔共用一個 log 檔（全域 sink 只有一個）；各測試以自己的原文篩選。
-fn log_file() -> &'static Path {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("translator_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    })
-}
-
-fn log_text() -> String {
-    std::fs::read_to_string(log_file()).unwrap()
-}
-
-fn log_lines_with(marker: &str) -> Vec<String> {
-    log_text()
-        .lines()
-        .filter(|l| l.contains(marker))
-        .map(str::to_owned)
-        .collect()
-}
-
 struct Call {
     system: String,
     turns: Vec<Turn>,
@@ -74,7 +55,7 @@ struct Fake {
 
 impl Fake {
     fn new(model: &str, replies: Vec<Result<String, TranslateError>>) -> Arc<Self> {
-        log_file();
+        capture_logs();
         Arc::new(Self {
             model: model.into(),
             replies: Mutex::new(replies.into()),
@@ -913,4 +894,28 @@ fn a_failure_after_the_settings_changed_does_not_block_a_later_retry() {
     tr.reconfigure(spec("m"), "日本語".into());
     h.run(h.co.ensure(&tr));
     assert!(tr.examples().is_some_and(|e| e.complete()));
+}
+
+#[test]
+fn a_generation_panic_marks_the_fingerprint_failed_instead_of_pending_forever() {
+    quiet_panics();
+    let h = harness();
+    let fake = Fake::texts(&[JA]);
+    fake.on_call(|_| panic!("{EXPECTED_PANIC} generation"));
+    let tr = make_with(&fake, "panic-target");
+    let job = h.co.ensure(&tr).expect("a background generation");
+    assert!(h.rt.block_on(job).unwrap_err().is_panic());
+    assert!(h.co.ensure(&tr).is_none());
+    let fingerprint = tr.examples_fingerprint();
+    let verdicts = log_lines_with(&format!("fingerprint={fingerprint}, "));
+    assert!(
+        verdicts.last().unwrap().ends_with(", failed)"),
+        "{verdicts:?}"
+    );
+    assert!(
+        !log_lines_with(&format!(
+            "[translate] example generation panicked (fingerprint={fingerprint})"
+        ))
+        .is_empty()
+    );
 }

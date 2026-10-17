@@ -1,14 +1,16 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
+#[allow(dead_code)]
+mod common;
 mod stream_server;
 
+use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
     ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
@@ -411,8 +413,7 @@ async fn models_error_statuses_map_like_chat() {
 
 #[tokio::test]
 async fn logs_prompt_cache_usage() {
-    let log_path = std::env::temp_dir().join(format!("clients_openai_{}.log", std::process::id()));
-    logs::init(Sink::File(std::fs::File::create(&log_path).unwrap()));
+    capture_logs();
     let server = MockServer::start().await;
     mount_chat(
         &server,
@@ -425,8 +426,7 @@ async fn logs_prompt_cache_usage() {
     .await;
     let c = OpenAiCompatClient::new(&server.uri(), "", "cache-marker-model", true, true);
     chat(&c).await.unwrap();
-    let text = std::fs::read_to_string(&log_path).unwrap();
-    let _ = std::fs::remove_file(&log_path);
+    let text = log_text();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=openai-compatible model=cache-marker-model \

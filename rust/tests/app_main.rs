@@ -6,7 +6,8 @@ mod common;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
-use common::reader_fixture::{EXPECTED_PANIC, capture_logs, log_lines_with, quiet_panics};
+use common::log_capture::{capture_logs, log_lines_with};
+use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;

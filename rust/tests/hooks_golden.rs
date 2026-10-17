@@ -1,12 +1,11 @@
 mod common;
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use common::fake_game::place;
+use common::log_capture::log_lines_with;
 use serde_json::Value;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{
@@ -367,22 +366,6 @@ fn sweep_removes_dead_pids_only() {
     assert!(dir.path().join("notes.txt").exists());
     assert!(dir.path().join("hookstate-abc.json").exists());
     hook_state::sweep(&dir.path().join("missing"), |_| false);
-}
-
-/// 整個測試檔共用一個 log 檔（全域 sink 只有一個）；各測試以自己的 pid 篩選。
-fn log_lines_with(marker: &str) -> Vec<String> {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    let path = PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("hooks_golden_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    });
-    std::fs::read_to_string(path)
-        .unwrap()
-        .lines()
-        .filter(|l| l.contains(marker))
-        .map(str::to_owned)
-        .collect()
 }
 
 #[test]

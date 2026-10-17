@@ -35,7 +35,9 @@ pub struct Window {
 }
 
 impl Window {
-    /// 子節點；向量大小為 0、為負、超過上限或讀不到時回空（同 wizwalker `Window.children`）。
+    /// 子節點；向量大小為 0、為負、超過上限，或向量標頭／內容讀不到（`Read`）時回空（同 wizwalker `Window.children`）。
+    ///
+    /// 標頭讀取的其他錯誤（如 `OutOfRange`）照樣往外傳；內容的 `OutOfRange` 則同樣回空。
     pub fn children(&self, mem: &dyn ProcessMemory) -> Result<Vec<Window>, MemError> {
         let header = |at: u64| match mem.read_u64(self.addr + at) {
             Err(MemError::Read(_)) => Ok(None),

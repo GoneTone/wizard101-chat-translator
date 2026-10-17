@@ -1,32 +1,22 @@
 //! Claude client 的 HTTP 協定測試：請求內容照 anthropic SDK、重試策略、串流解析、取消（wiremock，不打真 API）。
 
+#[allow(dead_code)]
+mod common;
 mod stream_server;
 
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
     ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
-
-/// 整個測試檔共用一個 log 檔（全域 sink 只有一個，並行測試各自 init 會互搶）；以各自的模型名稱篩選。
-fn log_file() -> &'static Path {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("clients_claude_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    })
-}
 
 fn output_format() -> Value {
     json!({"type": "json_schema", "schema": {
@@ -232,7 +222,7 @@ async fn claude_region_limit_is_sent_and_used_for_truncation() {
 
 #[tokio::test]
 async fn claude_retries_429_twice_then_offline() {
-    let log_path = log_file();
+    capture_logs();
     let server = MockServer::start().await;
     mount_messages(
         &server,
@@ -253,7 +243,7 @@ async fn claude_retries_429_twice_then_offline() {
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
     // 等待秒數由下方 log 驗證是照 retry-after 而非指數退避；只驗下限，負載只會讓它更久
     assert!(elapsed >= Duration::from_millis(400), "{elapsed:?}");
-    let text = std::fs::read_to_string(log_path).unwrap();
+    let text = log_text();
     for n in 1..=2 {
         let line = format!(
             "[translate] claude request failed (HTTP 429, model=claude-retry-marker); \
@@ -265,7 +255,7 @@ async fn claude_retries_429_twice_then_offline() {
 
 #[tokio::test]
 async fn cancel_during_backoff_returns_cancelled_without_retrying() {
-    let log_path = log_file();
+    capture_logs();
     let server = MockServer::start().await;
     mount_messages(
         &server,
@@ -278,7 +268,7 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
     // 重試 log 一印出就進入退避等待：看到它才取消，不靠固定延遲猜請求何時送達
     tokio::spawn(async move {
         let line = "model=claude-backoff-marker); retry 1/2 in 3600.00s";
-        while !std::fs::read_to_string(log_path).unwrap().contains(line) {
+        while !log_text().contains(line) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         canceller.cancel();
@@ -565,12 +555,12 @@ async fn claude_models_status_mapping() {
 
 #[tokio::test]
 async fn claude_logs_cache_read_write_uncached() {
-    let log_path = log_file();
+    capture_logs();
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
     let c = ClaudeClient::new("k", "claude-cache-marker", "auto", &server.uri());
     chat(&c).await.unwrap();
-    let text = std::fs::read_to_string(log_path).unwrap();
+    let text = log_text();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=claude model=claude-cache-marker \

@@ -8,9 +8,10 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{
-    EXPECTED_PANIC, VirtualClock, banners, capture_logs, drain, echo, failing_pool, log_lines_with,
-    pool, quiet_panics, runtime, statuses, submitted,
+    EXPECTED_PANIC, VirtualClock, banners, drain, echo, failing_pool, pool, quiet_panics, runtime,
+    statuses, submitted,
 };
 use serde_json::json;
 use tokio::runtime::Runtime;
@@ -433,7 +434,7 @@ fn banner_shows_a_system_pool_error_when_the_player_pool_is_clean() {
     let mut s = Setup::new().system_messages(true);
     s.system_pool = failing_pool(&s.rt, TranslateError::offline(""));
     let events = s.run(empty(2));
-    // 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
+    // 執行緒結束時 board.remove(slot) 把唯一的編號收回，聚合結果變回「找不到遊戲」
     assert_eq!(
         banners(&events),
         [("notice.offline", vec![]), ("notice.game_missing", vec![])]
@@ -625,7 +626,7 @@ fn status_transitions() {
         }
     }));
     let events = s.run_reader(reader);
-    // 執行緒結束時 board.drop(slot) 把唯一的編號收回，聚合結果變回「等待遊戲」
+    // 執行緒結束時 board.remove(slot) 把唯一的編號收回，聚合結果變回「等待遊戲」
     assert_eq!(
         statuses(&events),
         ["listening", "translating", "listening", "waiting_game"]
@@ -638,7 +639,7 @@ fn status_locating_when_not_anchored() {
     let mut reader = s.reader(empty(2));
     reader.anchored = false;
     let events = s.run_reader(reader);
-    // 狀態未變不重複發；末尾是 board.drop(slot) 把唯一編號收回
+    // 狀態未變不重複發；末尾是 board.remove(slot) 把唯一編號收回
     assert_eq!(statuses(&events), ["locating", "waiting_game"]);
 }
 

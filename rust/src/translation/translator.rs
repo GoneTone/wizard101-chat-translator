@@ -454,6 +454,28 @@ impl Translator {
     }
 }
 
+/// 背景生成沒走到收尾（panic 或 task 被丟掉）時照失敗收尾，指紋才不會永遠停在「生成中」。
+struct PendingGuard<'a> {
+    coordinator: &'a ExampleCoordinator,
+    requested: &'a str,
+    armed: bool,
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if std::thread::panicking() {
+            log(format!(
+                "[translate] example generation panicked (fingerprint={})",
+                self.requested
+            ));
+        }
+        self.coordinator.finish(self.requested, None);
+    }
+}
+
 #[derive(Default)]
 struct CoordinatorState {
     translators: Vec<Arc<Translator>>,
@@ -494,14 +516,29 @@ impl ExampleCoordinator {
     ///
     /// 有開始背景生成時回傳它的 handle，呼叫端不必等待。
     pub fn ensure(self: &Arc<Self>, translator: &Arc<Translator>) -> Option<JoinHandle<()>> {
-        {
+        let fingerprint = translator.examples_fingerprint();
+        let cached = {
             let mut state = self.state();
             if !state.translators.iter().any(|t| Arc::ptr_eq(t, translator)) {
                 state.translators.push(Arc::clone(translator));
             }
-        }
-        let fingerprint = translator.examples_fingerprint();
-        if let Some(cached) = self.store.get(&fingerprint) {
+            // 查快取與登記 pending 在同一把鎖內：生成若在兩者之間寫完快取並收尾，會再付費生成一次
+            let cached = self.store.get(&fingerprint);
+            if cached.is_none() {
+                let pending = state.pending.contains(&fingerprint);
+                if pending || state.failed.contains(&fingerprint) {
+                    log(format!(
+                        "[translate] examples unavailable, translating without them ({}, fingerprint={fingerprint}, {})",
+                        translator.describe(),
+                        if pending { "pending" } else { "failed" }
+                    ));
+                    return None;
+                }
+                state.pending.insert(fingerprint.clone());
+            }
+            cached
+        };
+        if let Some(cached) = cached {
             self.apply(translator, &cached, &fingerprint);
             log(format!(
                 "[translate] examples cache hit ({}, fingerprint={fingerprint}, {})",
@@ -509,19 +546,6 @@ impl ExampleCoordinator {
                 cached.summary()
             ));
             return None;
-        }
-        {
-            let mut state = self.state();
-            let pending = state.pending.contains(&fingerprint);
-            if pending || state.failed.contains(&fingerprint) {
-                log(format!(
-                    "[translate] examples unavailable, translating without them ({}, fingerprint={fingerprint}, {})",
-                    translator.describe(),
-                    if pending { "pending" } else { "failed" }
-                ));
-                return None;
-            }
-            state.pending.insert(fingerprint.clone());
         }
         log(format!(
             "[translate] generating examples in background ({}, fingerprint={fingerprint})",
@@ -543,6 +567,11 @@ impl ExampleCoordinator {
     }
 
     async fn generate(&self, translator: &Translator, requested: String) {
+        let mut guard = PendingGuard {
+            coordinator: self,
+            requested: &requested,
+            armed: true,
+        };
         let outcome = match translator.generate_examples().await {
             Err(err) => {
                 log(format!(
@@ -564,6 +593,7 @@ impl ExampleCoordinator {
                 Some((fingerprint, examples))
             }
         };
+        guard.armed = false;
         self.finish(&requested, outcome);
     }
 

@@ -1,14 +1,12 @@
-//! 收訊迴圈／supervisor／狀態彙整測試共用：翻譯池、虛擬時鐘、log 擷取與預期中的 panic。
+//! 收訊迴圈／supervisor／狀態彙整測試共用：翻譯池、虛擬時鐘與預期中的 panic。
 #![allow(dead_code)]
 
 use std::panic;
-use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex, Once, OnceLock};
+use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
 
 use tokio::runtime::Runtime;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::gate::ConcurrencyGate;
 use wizard101_chat_translator::translation::pool::{ResultFn, TranslateFn, TranslationPool};
@@ -137,28 +135,6 @@ impl VirtualClock {
             }),
         }
     }
-}
-
-/// 把全域 log 導到整個測試檔共用的 log 檔（全域 sink 只有一個）；要斷言 log 的測試開頭先呼叫。
-pub fn capture_logs() -> &'static PathBuf {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let exe = std::env::current_exe().unwrap();
-        let stem = exe.file_stem().unwrap().to_string_lossy().into_owned();
-        let path = std::env::temp_dir().join(format!("{stem}_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    })
-}
-
-/// 回傳 log 檔中含 `marker` 的行（各測試以自己的 slot／hwnd 篩選）。
-pub fn log_lines_with(marker: &str) -> Vec<String> {
-    std::fs::read_to_string(capture_logs())
-        .unwrap()
-        .lines()
-        .filter(|l| l.contains(marker))
-        .map(str::to_owned)
-        .collect()
 }
 
 /// 不印出帶 `EXPECTED_PANIC` 的 panic，其餘照舊交給原本的 hook。

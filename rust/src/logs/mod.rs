@@ -70,15 +70,16 @@ mod tests {
     /// 動到全域 SINK（與 panic hook）的測試必須串行。
     static GLOBAL_SINK_TESTS: Mutex<()> = Mutex::new(());
 
-    fn temp_sink(name: &str) -> (std::path::PathBuf, Sink) {
-        let path = std::env::temp_dir().join(format!("w101-logsink-{}-{name}", std::process::id()));
+    fn temp_sink() -> (tempfile::TempDir, std::path::PathBuf, Sink) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
         let file = File::create(&path).unwrap();
-        (path, Sink::File(file))
+        (dir, path, Sink::File(file))
     }
 
     #[test]
     fn multiline_message_stamps_and_crlfs_every_line() {
-        let (path, mut sink) = temp_sink("multi");
+        let (_dir, path, mut sink) = temp_sink();
         write_to(&mut sink, "[app] panic: x\nframe 1\nframe 2");
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = text.split("\r\n").collect();
@@ -92,7 +93,7 @@ mod tests {
     #[test]
     fn panic_hook_logs_stamped_panic_line() {
         let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-        let (path, sink) = temp_sink("panic");
+        let (_dir, path, sink) = temp_sink();
         init(sink);
         install_panic_hook();
         let _ = std::thread::spawn(|| panic!("boom")).join();
@@ -112,7 +113,7 @@ mod tests {
     #[test]
     fn log_from_many_threads_keeps_every_line_whole() {
         let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
-        let (path, sink) = temp_sink("conc");
+        let (_dir, path, sink) = temp_sink();
         init(sink);
         let threads: Vec<_> = "abcd"
             .chars()

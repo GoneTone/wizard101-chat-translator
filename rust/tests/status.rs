@@ -166,7 +166,7 @@ fn board_drop_recomputes() {
     let board = StatusBoard::new(ui, pool(&rt, echo()).0, pool(&rt, echo()).0);
     board.report(1, "listening", None);
     board.report(2, "locating", None);
-    board.drop(1);
+    board.remove(1);
     assert_eq!(statuses(&drain(&rx)), ["listening", "locating"]);
 }
 

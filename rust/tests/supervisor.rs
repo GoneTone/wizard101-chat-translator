@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{
-    EXPECTED_PANIC, VirtualClock, capture_logs, drain, echo, log_lines_with, pool, quiet_panics,
-    runtime, statuses,
+    EXPECTED_PANIC, VirtualClock, drain, echo, pool, quiet_panics, runtime, statuses,
 };
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::reader::status::StatusBoard;

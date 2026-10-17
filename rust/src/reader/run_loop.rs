@@ -112,6 +112,7 @@ impl ChatSource for WizChatReader {
 pub struct ReaderShared {
     /// 執行中的設定（設定視窗可能隨時改）。
     pub settings: Arc<RwLock<Config>>,
+    /// 送往 overlay 的事件投遞端。
     pub ui: UiPoster,
     /// 程式關閉的訊號。
     pub stop: CancellationToken,
@@ -119,7 +120,9 @@ pub struct ReaderShared {
     pub pool: Arc<TranslationPool>,
     /// 系統訊息的翻譯池。
     pub system_pool: Arc<TranslationPool>,
+    /// 各客戶端狀態彙整（狀態列與橫幅）。
     pub board: Arc<StatusBoard>,
+    /// 跨收訊執行緒共用的訊息序號（翻譯池以它回填佔位列）。
     pub msg_ids: Arc<MessageIds>,
     /// 系統訊息譯文快取。
     pub cache: Arc<TranslationCache>,
@@ -127,6 +130,7 @@ pub struct ReaderShared {
 
 /// 迴圈對外界的依賴：時鐘、視窗是否存在、前景視窗；測試換成假的。
 pub struct LoopEnv {
+    /// 等待與計時用的時鐘。
     pub clock: Clock,
     /// 視窗是否仍存在。
     pub window_exists: Box<dyn FnMut(isize) -> bool + Send>,
@@ -203,7 +207,7 @@ struct ClientLoop<R: ChatSource> {
 impl<R: ChatSource> Drop for ClientLoop<R> {
     // 迴圈本體 panic 也要收回編號、解除 hook，不留殭屍編號與未 unhook 的客戶端
     fn drop(&mut self) {
-        StatusBoard::drop(&self.s.board, self.slot);
+        self.s.board.remove(self.slot);
         self.reader.close();
     }
 }

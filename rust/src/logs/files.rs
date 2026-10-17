@@ -137,11 +137,10 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 8, 22, 12, 0, 0).unwrap()
     }
 
-    fn temp(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("w101-logs-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("app.log")
+    fn temp() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        (dir, path)
     }
 
     fn day_header(days_ago: i64) -> String {
@@ -150,7 +149,7 @@ mod tests {
 
     #[test]
     fn open_session_log_caps_oversized_file() {
-        let path = temp("cap");
+        let (_dir, path) = temp();
         // 多個近期 session：砍到尾端後第一段殘缺被丟，其後完整段落必須留下
         let mut big = String::new();
         let mut i = 0;
@@ -173,7 +172,7 @@ mod tests {
 
     #[test]
     fn lines_are_crlf() {
-        let path = temp("crlf");
+        let (_dir, path) = temp();
         let old = format!("{}\r\n[app] old\r\n", day_header(10));
         let recent = format!("{}\r\n[app] a\r\n", day_header(1));
         std::fs::write(&path, format!("{old}{recent}")).unwrap();
@@ -189,7 +188,7 @@ mod tests {
 
     #[test]
     fn stacked_carriage_returns_are_repaired() {
-        let path = temp("stack");
+        let (_dir, path) = temp();
         std::fs::write(&path, format!("{}\r\r\r\n[app] a\r\r\r\n", day_header(1))).unwrap();
         prepare_log(&path, now()).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
@@ -199,7 +198,7 @@ mod tests {
 
     #[test]
     fn healthy_file_is_left_untouched() {
-        let path = temp("healthy");
+        let (_dir, path) = temp();
         let body = format!("{}\r\n[app] fine\r\n", day_header(1));
         std::fs::write(&path, &body).unwrap();
         let before = std::fs::metadata(&path).unwrap().modified().unwrap();

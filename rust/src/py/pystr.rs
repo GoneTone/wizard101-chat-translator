@@ -25,7 +25,7 @@ pub fn casefold(s: &str) -> String {
     caseless::default_case_fold_str(s)
 }
 
-/// Python `str.splitlines()`：依 `\n \r \r\n \v \f \x1c-\x1e \x85    ` 切行，不保留換行符。
+/// Python `str.splitlines()`：依 `\n \r \r\n \v \f \x1c-\x1e \x85 \u{2028} \u{2029}` 切行，不保留換行符。
 pub fn splitlines(s: &str) -> Vec<&str> {
     let mut lines = Vec::new();
     let mut start = 0;

@@ -948,6 +948,43 @@ mod tests {
     }
 
     #[test]
+    fn narrowing_window_keeps_following_new_messages() {
+        // 變窄 → 重新換行變高 → 內容把視圖推離底部；自動跟隨要自己貼回，否則新訊息都落在畫面外
+        let mut h = filled(40, 200, 0);
+        h.set_size(Vec2::new(300.0, 350.0));
+        h.step();
+        assert!(at_bottom(&h));
+        add(&mut h, 40, &[0], false);
+        h.step();
+        assert!(at_bottom(&h));
+    }
+
+    #[test]
+    fn wheel_scrolls_a_newly_created_view() {
+        let mut h = harness(OverlayModel::new(50, 0));
+        let tabs = |current| TabState {
+            tabs: vec![(0, "Main".into()), (1, "Group".into())],
+            current,
+        };
+        h.state_mut().model.set_tabs(1, Some(tabs(0)));
+        h.step();
+        h.state_mut().model.set_tabs(1, Some(tabs(1)));
+        for i in 0..20 {
+            add(&mut h, i, &[1], false);
+        }
+        h.step();
+        let first = messages(&h)[0].seq;
+        assert_eq!(
+            row_y(&h, first),
+            None,
+            "precondition: tall enough to scroll up"
+        );
+        let (seq, y) = reading(&h);
+        wheel(&mut h, 1.0);
+        assert!(row_y(&h, seq).unwrap() > y);
+    }
+
+    #[test]
     fn scrollbar_hidden_when_content_fits() {
         let mut h = harness(OverlayModel::new(10, 0));
         add(&mut h, 0, &[0], false);

@@ -485,8 +485,8 @@ def export_prompts_turns() -> list[dict]:
 _SENDER_TEXTS = [
     "[Amy] 你好", "[Amy] hello (world)", "[贾斯廷 渡鸦] 木头", "plain text", "[A][B] hi",
     "[WTS] gear", "[Amy]   spaced", "", "[Amy]", "[" + "x" * 40 + "] ok", "[" + "x" * 41 + "] ok",
-    "[Amy] 😀 test", "[Amy] é combining", "[Amy] line sep", "[Amy] Straße strasse",
-    "[Amy] \x0b vt", "[ß] x", "[Amy]　全形空白", "[Amy]\x1fctl", "[A] x", "[A]  x",
+    "[Amy] 😀 test", "[Amy] é combining", "[Amy] line\u2028sep", "[Amy] Straße strasse",
+    "[Amy] \x0b vt", "[ß] x", "[Amy]\u3000全形空白", "[Amy]\x1fctl", "[A]\xa0x", "[A]\u2003 x",
 ]
 
 
@@ -496,7 +496,7 @@ def export_postprocess_strip_think() -> list[dict]:
     texts = [
         "", "plain", "<think>x</think>y", "<THINK>x</THINK>\n\n y", "a<think>\nmulti\nline</think>   b",
         "<think>a</think><think>b</think>c", "<think>unclosed", "no open </think> tag",
-        "<think></think>", "<Think>é</Think>\t　x", "x <think>😀</think> y",
+        "<think></think>", "<Think>é</Think>\t\u3000x", "x <think>😀</think>\u2028y",
         "<think>a</think>\x0b\x1c\x85z", "<thinK>x</think>k", "<think>a</THINK>b</think>c",
         "[Amy] <think>t</think>[Amy] 你好", "<think>a\r\nb</think>\r\nc", "<think\n>x</think>y",
         "<thınk>x</think>y", "<think>a</thinK>b",
@@ -532,7 +532,7 @@ def export_postprocess_tidy() -> list[dict]:
         ("[A] straße", "[A] 街 (STRASSE)"),
         ("[A] a-b", "[A] 甲 (A B)"),
         ("[A] 🐉", "[A] 龍 (🐉) (dragon)"),
-        ("[A] x", "[A] 文字 (foo)"),
+        ("[A] x", "[A] 文字\u2028(foo)"),
         ("[A] x", "[A] 日本語 (nihongo)\n(行)"),
         ("[A] ², x", "[A] 好 (²)"),
         ("[A] x", "[A] 好 (ée)"),
@@ -584,7 +584,7 @@ def export_postprocess_restore() -> list[dict]:
         ("[Amy] [WTS] gear", "[Amy] [WTS] 裝備"), ("[Amy] [WTS] gear", "[WTS] 裝備"),
         ("[Amy] [WTS] gear", "[X] [Y] 裝備"), ("plain", "[X] 你好"), ("[Amy] hi", ""),
         ("[Amy] hi", "[Amy]"), ("[贾斯廷 渡鸦] 木头", "[賈斯汀 渡鴉] 木頭"),
-        ("[Amy] hi", "[B]　你好"), ("[A][B] hi", "[C] 你好"),
+        ("[Amy]\xa0hi", "[B]\u3000你好"), ("[A][B] hi", "[C] 你好"),
         ("[A] [B] hi", "[C][D] 你好"), ("[A] hi", "[" + "x" * 41 + "] 你好"),
         ("[A] hi", "[x\ny] 你好"), ("[A] 😀", "[B] 😀"), ("[A] hi", "\x0b[B] 你好"),
         ("[A]   hi", "[B]\x1c你好"), ("[ß] hi", "[ss] 你好"),
@@ -621,8 +621,8 @@ def export_postprocess_stray() -> list[dict]:
         ("[A] x", "[A] Snowspike Hat", "English"), ("[A] x", "[A] Snowspike", "Español"),
         ("[A] 木頭", "[A] 木頭 wood", "日本語"), ("[A] wood-x", "[A] 木 wood-x", "日本語"),
         ("[A] it's", "[A] 好 it’s", zh), ("[A] a.b, c", "[A] 好 a.b, c", zh),
-        ("", "", zh), ("[A] ", "[A] ABC", zh), ("[A] x y", "[A] 好 x y", zh),
-        ("[A] x　y", "[A] 好 x y", zh), ("[A] 😀", "[A] 😀 ok", zh),
+        ("", "", zh), ("[A] ", "[A] ABC", zh), ("[A] x\xa0y", "[A] 好 x y", zh),
+        ("[A] x\u3000y", "[A] 好 x y", zh), ("[A] 😀", "[A] 😀 ok", zh),
         ("[A] x", "[A] 好 ok²", zh), ("[A] x", "[A] ² A", zh),
         ("[A] x", "[A] ① A", zh), ("[A] x\x1fy", "[A] 好 x y", zh),
         ("雪刺帽", "Snowspike Hat", "繁體中文（台灣）"),
@@ -649,9 +649,9 @@ def export_postprocess_stray() -> list[dict]:
 
 _LINE_TEXTS = [
     "", "a", "a\nb", "a\n\nb", "  a  \n  b  ", "a\r\nb\rc", "a\x0bb\x0cc", "a\x1cb\x1dc\x1ed",
-    "a\x85b", "a b c", "a  \n 　 \nb", "\n\n", "😀\né", "  \t ",
-    "1. a\n2. b", "1. a\r\n2．b\n3、c\n4) d", "x y ", "a\x0b\n\x0cb", "﻿a\nb",
-    "ß\n x ",
+    "a\x85b", "a\u2028b\u2029c", "a\xa0 \n \u3000 \nb", "\n\n", "😀\né", "  \t ",
+    "1. a\n2. b", "1. a\r\n2．b\n3、c\n4) d", "x\u2028y\u2029", "a\x0b\n\x0cb", "\ufeffa\nb",
+    "ß\n\u2003x\u2003",
 ]
 
 
@@ -669,9 +669,9 @@ def export_postprocess_lines() -> list[dict]:
 _NUM_OUTPUTS = [
     "", "1. a\n2. b", "1.a\n2．b\n3、c\n4)d", "  2 . x\n1 、 y", "1. a\n1. b", "01. a\n002) b",
     "no numbers\nat all", "1. a\nplain\n3. c", "１．全形\n２、二", "１２. x", "٣. arabic\n١. one",
-    "1. \n2. b", "1.\n2.", "a\n1. b", "1. a  2. b", "1. a\r\n2. b\r3. c",
+    "1. \n2. b", "1.\n2.", "a\n1. b", "1. a\u2028 2. b", "1. a\r\n2. b\r3. c",
     "99999999999999999999999. big\n1. a", "1. 😀\n2. é", "𝟏. math\n𝟐. two",
-    "1) a ) b", "1。 a", " 1. nbsp", "1. x",
+    "1) a ) b", "1。 a", "\xa01. nbsp", "1.\xa0x",
 ]
 
 
@@ -722,7 +722,7 @@ def export_clients_error_detail() -> list[dict]:
         "<hr><center>nginx</center></body></html>",
         "line one\r\nline two\n\n\tline three",
         "word " * 60 + "\n  " + url + " tail",
-        "中文  錯誤　訊息",
+        "中文  錯誤\u3000訊息",
         "",
     ]
     return [{"input": t, "output": error_detail(t)} for t in texts]
@@ -775,12 +775,6 @@ def _pair_json(pair) -> list[str] | None:
 def _set_json(examples) -> dict:
     return {name: _pair_json(getattr(examples, name))
             for name in ("incoming", "system", "region")}
-
-
-def _set_from_json(data: dict):
-    from src.translation.examples import ExampleSet
-    return ExampleSet(*(None if data[name] is None else tuple(data[name])
-                        for name in ("incoming", "system", "region")))
 
 
 def _repr_inputs() -> list[str]:
@@ -979,7 +973,7 @@ def export_cache_file_bytes() -> list[dict]:
         [("put", "你获得了 39 金币！", "你獲得了 {0} 金幣！"), ("put", "a", "A"),
          ("get", "你获得了 7 金币！", None)],
         [("put", "a", "A"), ("put", "b", "B"), ("get", "a", None), ("put", "c", "C")],
-        [("put", "quote\"'\\n\t\x1f", "tab\there"), ("put", " \x7f😀", "é퟿￿")],
+        [("put", "quote\"'\\n\t\x1f", "tab\there"), ("put", "\u2028\x7f😀", "é\ud7ff\uffff")],
         [("put", _letters(i), _letters(i).upper()) for i in range(2003)],
         [("put", "dup", "1"), ("put", "other", "2"), ("put", "dup", "3")],
     ]
@@ -1169,10 +1163,10 @@ def _markup_test_samples() -> list[str]:
         "<color;D9ABF8>[Server Message] 服务器在2小时内关闭以进行维护</color>", "<color;D9ABF8>服务器即将关闭</color>",  # noqa: E501
         "<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> [Lars] hi </color>",
         f"<color;80FF00>{say} [你] hi </color>", f"<color;FF80FF00>{say} [你] hi </color>", f"{say} [你] hi",
-        f"<color;FFFFFF>{say} [你] ab c d　efghi </color>",
-        f"<color;FFFFFF>{say} <link;GID:1,A,2>[A]</link> hithere </color>",
-        f"<color;FFFFFF>{say} [A] hi </color>", "<color;D9ABF8>notice</color>",
-        " <color;D9ABF8>notice</color>", " <color;D9ABF8>notice</color>",
+        f"<color;FFFFFF>{say} [你] a\x85b\xa0c\u2003d\u3000e\x1cf\x1fg\x0bh\x0ci </color>",
+        f"<color;FFFFFF>{say} <link;GID:1,A,2>[A]</link>\xa0hi\x85there </color>",
+        f"<color;FFFFFF>{say} [A]\xa0hi </color>", "\x85<color;D9ABF8>notice</color>",
+        "\xa0\x1c<color;D9ABF8>notice</color>", "\u2003<color;D9ABF8>notice</color>",
     ]
 
 
@@ -1192,7 +1186,7 @@ def export_markup_parse() -> list[dict]:
                "<link;GID:9,x,2>[" + "x" * 40 + "]</link>", "<link;GID:9,x,2>[" + "x" * 41 + "]</link>",
                "[]", "[a]b", "<link;GID:2,日本語,2>[日本語]</link>", ""]
     bodies = ["hello there", "fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF>",
-              "a &lt;3 b &amp; c &gt; d", "a\x00b", "  spaced \t out text  ", "tab\x1ctab", "",
+              "a &lt;3 b &amp; c &gt; d", "a\x00b", "  spaced \t out\xa0text  ", "tab\x1ctab", "",
               "<image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds>",
               "<image;Emoticons/bad name!.dds;1;1;1> torn", "<image;EMOTICONS/Haha.DDS;1;1>x",
               "emoji 😀 text",

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use common::fake_game::{place, put_button, put_children, put_name};
-use common::reader_fixture::log_lines_with;
+use common::log_capture::log_lines_with;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
 use wizard101_chat_translator::reader::chat_hook::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
@@ -583,7 +583,8 @@ fn other_attach_failure_stays_game_not_running() {
         hwnd(),
         Box::new(|_| Ok(Box::new(FakeMemory::new()) as Box<dyn ProcessMemory>)),
     );
-    r.state_dir = tempfile::tempdir().unwrap().path().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    r.state_dir = dir.path().to_owned();
     assert_eq!(
         r.read_new().unwrap_err(),
         GameNotRunning::Missing(

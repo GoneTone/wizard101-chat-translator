@@ -2,6 +2,9 @@
 
 mod common;
 
+use std::sync::Mutex;
+
+use wizard101_chat_translator::config::app_name;
 use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::ui::fonts::font_family;
 
@@ -34,9 +37,12 @@ fn available_languages_match_python() {
     assert_eq!(i18n::available_languages(), expected);
 }
 
+/// 全域介面語言只有一份：本檔切換語言的測試互相排隊（lib 單元測試一律不切換）。
+static LANGUAGE: Mutex<()> = Mutex::new(());
+
 #[test]
 fn t_matches_python() {
-    // 全域語言狀態：本檔只有這個測試會 set_language。
+    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
     for case in common::golden("i18n_t") {
         let input = &case["input"];
         let lang = input["lang"].as_str().unwrap();
@@ -54,6 +60,16 @@ fn t_matches_python() {
             "{lang} {key} {args:?}"
         );
     }
+}
+
+#[test]
+fn app_name_follows_language() {
+    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
+    i18n::set_language("zh-TW");
+    let zh = app_name();
+    i18n::set_language("en-US");
+    assert_eq!(zh, "Wizard101 對話翻譯助手");
+    assert_eq!(app_name(), "Wizard101 Chat Translator");
 }
 
 #[test]

@@ -44,9 +44,13 @@ pub const FOREIGN_RECHECK_SECONDS: u64 = 5;
 /// 一則新聊天；`tabs` 是它所在的分頁，伺服器廣播收斂後含多個。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ChatEvent {
+    /// 解析後的聊天內容。
     pub line: ChatLine,
+    /// 所在的分頁編號。
     pub tabs: Vec<i32>,
+    /// hook 環形緩衝裡的序號。
     pub seq: u64,
+    /// 遊戲原始字串（含標記）。
     pub raw: String,
 }
 

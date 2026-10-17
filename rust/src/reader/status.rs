@@ -79,7 +79,9 @@ fn translation_banner(
 /// 一個客戶端最近一次回報：狀態字 key 與遊戲端問題的文案 key（`None`＝遊戲正常）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlotReport {
+    /// 狀態字的 key（`status.*`）。
     pub state: &'static str,
+    /// 遊戲端問題的文案 key；`None`＝遊戲正常。
     pub game_issue: Option<&'static str>,
 }
 
@@ -153,7 +155,7 @@ impl StatusBoard {
     }
 
     /// 某編號的執行緒結束了。
-    pub fn drop(&self, slot: u32) {
+    pub fn remove(&self, slot: u32) {
         let mut board = self.lock();
         board.slots.retain(|(s, _)| *s != slot);
         self.push(&mut board);

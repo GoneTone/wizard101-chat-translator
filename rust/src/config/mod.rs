@@ -36,7 +36,12 @@ pub fn app_dir() -> PathBuf {
 
 /// 本機狀態目錄：跨啟動保留、但不屬於使用者資料的檔案（hook 修復狀態、譯文快取）。
 pub fn local_state_dir() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA")
+    state_dir_under(std::env::var_os("LOCALAPPDATA"))
+}
+
+/// `local_state_dir` 的本體：`localappdata` 沒設或是空字串時退回使用者家目錄。
+fn state_dir_under(localappdata: Option<std::ffi::OsString>) -> PathBuf {
+    localappdata
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
         .or_else(std::env::home_dir)
@@ -367,12 +372,16 @@ mod tests {
     }
 
     #[test]
-    fn app_name_follows_language() {
-        crate::i18n::set_language("zh-TW");
-        let zh = app_name();
-        crate::i18n::set_language("en-US");
-        assert_eq!(zh, "Wizard101 對話翻譯助手");
-        assert_eq!(app_name(), "Wizard101 Chat Translator");
+    fn local_state_dir_falls_back_to_home_without_localappdata() {
+        let home = std::env::home_dir()
+            .unwrap()
+            .join("wizard101-chat-translator");
+        assert_eq!(state_dir_under(None), home);
+        assert_eq!(state_dir_under(Some("".into())), home);
+        assert_eq!(
+            state_dir_under(Some(r"X:\Local".into())),
+            Path::new(r"X:\Local\wizard101-chat-translator")
+        );
     }
 
     #[test]

@@ -1,15 +1,17 @@
 //! ConcurrencyGate 與 TranslationPool：總量上限、平行翻譯、失敗退避與重試、resize／shutdown。
 
+#[allow(dead_code)]
+mod common;
+
 use std::future::Future;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
+use common::log_capture::{capture_logs, log_text};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::gate::ConcurrencyGate;
 use wizard101_chat_translator::translation::pool::{
@@ -642,18 +644,9 @@ fn submit_survives_concurrent_resize() {
     assert_eq!(pool.in_flight(), 0);
 }
 
-fn log_file() -> &'static Path {
-    static PATH: OnceLock<PathBuf> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let path = std::env::temp_dir().join(format!("pool_{}.log", std::process::id()));
-        logs::init(Sink::File(std::fs::File::create(&path).unwrap()));
-        path
-    })
-}
-
 #[tokio::test(start_paused = true)]
 async fn the_failure_log_names_the_service() {
-    log_file();
+    capture_logs();
     let (calls_tx, _calls) = mpsc::unbounded_channel();
     let translate = recording(calls_tx, |n| {
         if n == 0 {
@@ -665,7 +658,7 @@ async fn the_failure_log_names_the_service() {
     let (pool, mut rx) = make_pool(translate, gate(1));
     pool.submit("[A] log-marker".into(), vec![], 1);
     next(&mut rx).await;
-    let text = std::fs::read_to_string(log_file()).unwrap();
+    let text = log_text();
     assert!(text.contains(&format!(
         "[translate] provider offline error ({DESCRIBE}): connection refused; retrying with backoff"
     )));

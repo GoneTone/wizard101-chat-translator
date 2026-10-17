@@ -1,13 +1,15 @@
 //! Gemini client 的 HTTP 協定測試：請求內容照 google-genai SDK、不重試、串流解析、取消（wiremock，不打真 API）。
 
+#[allow(dead_code)]
+mod common;
 mod stream_server;
 
+use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
-use wizard101_chat_translator::logs::{self, Sink};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
     ChatRequest, GeminiClient, MAX_TOKENS_THINKING,
@@ -363,8 +365,7 @@ async fn gemini_model_prefix_is_kept() {
 
 #[tokio::test]
 async fn gemini_logs_prompt_cache_usage() {
-    let log_path = std::env::temp_dir().join(format!("clients_gemini_{}.log", std::process::id()));
-    logs::init(Sink::File(std::fs::File::create(&log_path).unwrap()));
+    capture_logs();
     let server = MockServer::start().await;
     let usage = json!({"promptTokenCount": 3000, "cachedContentTokenCount": 2048,
         "candidatesTokenCount": 9});
@@ -377,8 +378,7 @@ async fn gemini_logs_prompt_cache_usage() {
         .await;
     let c = GeminiClient::new("k", "gemini-cache-marker", "auto", &server.uri());
     chat(&c).await.unwrap();
-    let text = std::fs::read_to_string(&log_path).unwrap();
-    let _ = std::fs::remove_file(&log_path);
+    let text = log_text();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=gemini model=gemini-cache-marker \

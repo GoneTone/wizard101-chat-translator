@@ -103,6 +103,18 @@ const LEGACY_FLAT_FIELDS: &[&str] = &["model", "api_key", "thinking", "effort", 
 // 遷移時判定「這家使用者填過東西」的欄位；三個都空就不留空殼。
 const FILLED_MARKERS: &[&str] = &["model", "api_key", "base_url"];
 
+/// 字串欄位的值；缺值或不是字串時為空字串。
+fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
+    entry.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+/// 使用者是否填過這筆的任一 `FILLED_MARKERS` 欄位。
+fn any_filled(entry: &Value) -> bool {
+    FILLED_MARKERS
+        .iter()
+        .any(|k| !py::is_blank(str_field(entry, k)))
+}
+
 fn provider(key: &str) -> Option<&'static Provider> {
     PROVIDERS.iter().find(|p| p.key == key)
 }
@@ -171,13 +183,7 @@ impl fmt::Debug for ServiceSpec {
 
 impl ServiceSpec {
     fn from_service(service: &Value) -> Self {
-        let text = |k: &str| {
-            service
-                .get(k)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
+        let text = |k: &str| str_field(service, k).to_owned();
         ServiceSpec {
             id: text("id"),
             name: text("name"),
@@ -196,7 +202,7 @@ impl ServiceSpec {
 
 /// 檢查一筆服務的必填欄位，回傳錯誤文案 key 列表（空＝通過）。
 pub fn validate_service(service: &Value) -> Vec<String> {
-    let text = |k: &str| service.get(k).and_then(Value::as_str).unwrap_or("");
+    let text = |k: &str| str_field(service, k);
     let needs_base_url = provider(text("provider")).is_some_and(|p| p.has_field("base_url"));
     let mut errors = Vec::new();
     if py::is_blank(text("model")) {
@@ -304,13 +310,7 @@ fn known_provider(entry: &Value) -> Option<&'static Provider> {
 }
 
 fn is_migrated_service(entry: &Value) -> bool {
-    known_provider(entry).is_some()
-        && FILLED_MARKERS.iter().any(|k| {
-            entry
-                .get(*k)
-                .and_then(Value::as_str)
-                .is_some_and(|s| !py::is_blank(s))
-        })
+    known_provider(entry).is_some() && any_filled(entry)
 }
 
 fn has_key(entry: &Value) -> &'static str {
@@ -470,20 +470,14 @@ fn migrate_api_block(cfg: &mut Config, migrated_before: bool) -> bool {
     let mut migrated = 0;
     let mut default_id = None;
     for p in PROVIDERS {
-        let Some(Value::Object(profile)) = sections
+        let Some(entry @ Value::Object(profile)) = sections
             .iter()
             .find(|(name, _)| name.as_str() == Some(p.key))
             .map(|(_, v)| v)
         else {
             continue;
         };
-        let filled = FILLED_MARKERS.iter().any(|k| {
-            profile
-                .get(*k)
-                .and_then(Value::as_str)
-                .is_some_and(|s| !py::is_blank(s))
-        });
-        if !filled {
+        if !any_filled(entry) {
             continue;
         }
         // 新 id 要一起避開促轉回來的服務：撞號會讓 default_service 落到錯的那筆
@@ -540,16 +534,9 @@ fn sanitize_services(cfg: &mut Config) -> bool {
         let Some(p) = known_provider(entry) else {
             continue;
         };
-        let text = |k: &str| {
-            entry
-                .get(k)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
         let mut service = Map::new();
-        service.insert("id".into(), text("id").into());
-        service.insert("name".into(), text("name").into());
+        service.insert("id".into(), str_field(entry, "id").into());
+        service.insert("name".into(), str_field(entry, "name").into());
         service.insert("provider".into(), p.key.into());
         for (key, default) in p.fields {
             service.insert((*key).into(), profile_field(entry, p.key, key, default));
@@ -569,7 +556,7 @@ fn sanitize_services(cfg: &mut Config) -> bool {
                 stale.join(", ")
             ));
         }
-        let id = text("id");
+        let id = str_field(entry, "id");
         if id.is_empty() || ids_and_names(&clean, "id").any(|other| other == id) {
             let fresh = new_id(&clean);
             log(format!(
@@ -578,12 +565,12 @@ fn sanitize_services(cfg: &mut Config) -> bool {
             service.insert("id".into(), fresh.into());
         }
         // 每一筆都過一次去重：分派下拉只顯示名稱，同名會讓使用者選到另一筆服務
-        let name = text("name");
+        let name = str_field(entry, "name");
         let unique = unique_name(
             if name.is_empty() {
                 p.short_name()
             } else {
-                name.clone()
+                name.to_owned()
             }
             .as_str(),
             &clean,

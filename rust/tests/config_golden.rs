@@ -73,15 +73,10 @@ fn ordered(value: &Value) -> String {
     serde_json::to_string(&python_numbers(value)).unwrap()
 }
 
-fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("w101-config-{}-{name}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 #[test]
 fn load_matches_python() {
-    let dir = temp_dir("load");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     for (i, case) in common::golden("config_load").iter().enumerate() {
         let raw = hex_decode(case["input"].as_str().unwrap());
         let path = dir.join(format!("{i}.json"));
@@ -111,12 +106,12 @@ fn load_matches_python() {
             "case {i}: {source}"
         );
     }
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn corrupt_file_is_never_overwritten() {
-    let dir = temp_dir("corrupt");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let defaults = load_config(&dir.join("missing.json"));
     let corrupt: &[&[u8]] = &[
         b"",
@@ -137,13 +132,13 @@ fn corrupt_file_is_never_overwritten() {
         assert_eq!(&fs::read(&path).unwrap(), raw, "case {i}");
     }
     // 讀不到（路徑是目錄）也退回預設值。
-    assert_eq!(load_config(&dir), defaults);
-    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(load_config(dir), defaults);
 }
 
 #[test]
 fn read_only_file_still_loads_after_migration() {
-    let dir = temp_dir("readonly");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let path = dir.join("config.json");
     let raw = br#"{"api": {"provider": "custom", "base_url": "http://x", "model": "m"}}"#;
     fs::write(&path, raw).unwrap();
@@ -156,12 +151,12 @@ fn read_only_file_still_loads_after_migration() {
     #[allow(clippy::permissions_set_readonly_false)]
     perms.set_readonly(false);
     fs::set_permissions(&path, perms).unwrap();
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn save_bytes_match_python() {
-    let dir = temp_dir("save");
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path();
     let path = dir.join("config.json");
     let mut checked = 0;
     for case in common::golden("config_load") {
@@ -173,7 +168,6 @@ fn save_bytes_match_python() {
         checked += 1;
     }
     assert!(checked > 10);
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
