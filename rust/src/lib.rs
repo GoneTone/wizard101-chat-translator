@@ -3,6 +3,7 @@
 pub mod app_main;
 pub mod config;
 pub mod i18n;
+pub mod input;
 pub mod logs;
 pub mod py;
 pub mod reader;

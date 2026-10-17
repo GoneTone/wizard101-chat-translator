@@ -1,0 +1,474 @@
+[
+ {
+  "input": "ctrl+space",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+shift+space",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     42,
+     54
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "Ctrl + Space",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "CTRL+SPACE",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl +space",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+ space",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "control+spacebar",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "win+a",
+  "output": [
+   [
+    [
+     57435,
+     91,
+     57436,
+     92
+    ],
+    [
+     30
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "left windows+e",
+  "output": [
+   [
+    [
+     57435,
+     91
+    ],
+    [
+     18
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "right ctrl+a",
+  "output": [
+   [
+    [
+     57629,
+     29,
+     57373
+    ],
+    [
+     30
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "alt gr+e",
+  "output": [
+   [
+    [
+     541
+    ],
+    [
+     18
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "shift+alt+a",
+  "output": [
+   [
+    [
+     42,
+     54
+    ],
+    [
+     56,
+     57400
+    ],
+    [
+     30
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "a",
+  "output": [
+   [
+    [
+     30
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "A",
+  "output": [
+   [
+    [
+     30
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "+",
+  "output": [
+   [
+    [
+     78,
+     13
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "!",
+  "output": [
+   [
+    [
+     2
+    ]
+   ]
+  ]
+ },
+ {
+  "input": ",",
+  "output": [
+   [
+    [
+     51
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+5",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     6,
+     76
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+`",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     41
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+,",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "f1",
+  "output": [
+   [
+    [
+     59
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "shift+f12",
+  "output": [
+   [
+    [
+     42,
+     54
+    ],
+    [
+     88
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "num 1",
+  "output": [
+   [
+    [
+     2,
+     79
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+up",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     72
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+a, s",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     30
+    ]
+   ],
+   [
+    [
+     31
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+a,s",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     30
+    ]
+   ],
+   [
+    [
+     31
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+a,  s",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ctrl+shift",
+  "output": [
+   [
+    [
+     29,
+     57629,
+     57373
+    ],
+    [
+     42,
+     54
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "alt",
+  "output": [
+   [
+    [
+     56,
+     57400
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "esc",
+  "output": [
+   [
+    [
+     1
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "Escape",
+  "output": [
+   [
+    [
+     1
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "page_down",
+  "output": [
+   [
+    [
+     81
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+foo",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ctrl++",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": " ",
+  "output": [
+   [
+    [
+     57
+    ]
+   ]
+  ]
+ },
+ {
+  "input": "ctrl+",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ctrl  +a",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": ",a",
+  "output": {
+   "error": true
+  }
+ }
+]

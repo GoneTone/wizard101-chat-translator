@@ -1433,6 +1433,70 @@ def export_richtext() -> list[dict]:
 EXPORTERS["richtext"] = export_richtext
 
 
+def _keyboard():
+    """匯入 `keyboard` 並建好它的名稱表（依本機鍵盤配置）。"""
+    import keyboard
+
+    keyboard._winkeyboard._setup_name_tables()
+    return keyboard
+
+
+def export_keyboard_tables() -> list[dict]:
+    """`keyboard` 的靜態資料表：只有一筆，Rust 端 `include_str!` 當資料來源。"""
+    from keyboard import _canonical_names, _winkeyboard
+
+    _keyboard()
+    return [{"input": "tables", "output": {
+        "canonical_names": _canonical_names.canonical_names,
+        "official_virtual_keys": {vk: list(v) for vk, v in _winkeyboard.official_virtual_keys.items()},
+        "keypad_keys": [list(k) for k in _winkeyboard.keypad_keys],
+        "distinct_modifiers": [list(m) for m in _winkeyboard.distinct_modifiers],
+        "sided_modifiers": sorted(_canonical_names.sided_modifiers),
+        "all_modifiers": sorted(_canonical_names.all_modifiers),
+    }}]
+
+
+def export_keyboard_names() -> list[dict]:
+    """`key_to_scan_codes`：input 為名稱表與 canonical_names 的每個名稱，output 為 code 清單。"""
+    from keyboard._canonical_names import canonical_names
+
+    keyboard = _keyboard()
+
+    def codes(name: str):
+        try:
+            return list(keyboard.key_to_scan_codes(name))
+        except ValueError:
+            return {"error": True}
+
+    names = sorted(keyboard._winkeyboard.from_name) + list(canonical_names)
+    return [{"input": name, "output": codes(name)} for name in names]
+
+
+def export_keyboard_parse() -> list[dict]:
+    """`parse_hotkey`：input 為快捷鍵字串，output 為 steps → keys → codes。"""
+    keyboard = _keyboard()
+    hotkeys = [
+        "ctrl+space", "ctrl+shift+space", "Ctrl + Space", "CTRL+SPACE", "ctrl +space", "ctrl+ space",
+        "control+spacebar", "win+a", "left windows+e", "right ctrl+a", "alt gr+e", "shift+alt+a",
+        "a", "A", "+", "!", ",", "ctrl+5", "ctrl+`", "ctrl+,", "f1", "shift+f12", "num 1", "ctrl+up",
+        "ctrl+a, s", "ctrl+a,s", "ctrl+a,  s", "ctrl+shift", "alt", "esc", "Escape", "page_down",
+        "ctrl+foo", "ctrl++", "", " ", "ctrl+", "ctrl  +a", ",a",
+    ]
+
+    def parsed(hotkey: str):
+        try:
+            return [[list(codes) for codes in step] for step in keyboard.parse_hotkey(hotkey)]
+        except ValueError:
+            return {"error": True}
+
+    return [{"input": hotkey, "output": parsed(hotkey)} for hotkey in hotkeys]
+
+
+EXPORTERS["keyboard_tables"] = export_keyboard_tables
+EXPORTERS["keyboard_names"] = export_keyboard_names
+EXPORTERS["keyboard_parse"] = export_keyboard_parse
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 
