@@ -1,6 +1,6 @@
 //! 低階鍵盤 hook：專屬執行緒掛 `WH_KEYBOARD_LL`，把每個按鍵事件交給分派器決定吞不吞。
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{OnceLock, mpsc};
 use std::thread::JoinHandle;
@@ -31,6 +31,18 @@ static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();
 thread_local! {
     static INSIDE_PROCESS: Cell<bool> = const { Cell::new(false) };
     static IGNORE_NEXT_RIGHT_ALT: Cell<bool> = const { Cell::new(false) };
+    static DEFERRED: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// 分派中（hook 執行緒握著分派器的鎖）就把 `f` 延到放鎖後才跑，否則立刻跑。
+///
+/// 給 handler 裡的 `SendInput` 用：注入的事件可能同步重入 hook，握著鎖時只能放行不處理，會漏記按鍵放開。
+pub fn after_dispatch(f: impl FnOnce() + 'static) {
+    if INSIDE_PROCESS.with(Cell::get) {
+        DEFERRED.with(|queue| queue.borrow_mut().push(Box::new(f)));
+    } else {
+        f();
+    }
 }
 
 /// 已安裝的鍵盤 hook；`uninstall` 卸除並收掉執行緒。
@@ -128,7 +140,15 @@ fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if IGNORE_NEXT_RIGHT_ALT.with(|ignore| is_alt_gr_echo(ignore, k.vkCode, k.scanCode)) {
         return true;
     }
-    INSIDE_PROCESS.with(|inside| reentrant_guard(inside, || lock(d).process(ev)))
+    let pass = INSIDE_PROCESS.with(|inside| reentrant_guard(inside, ev, || lock(d).process(ev)));
+    run_deferred();
+    pass
+}
+
+fn run_deferred() {
+    for f in DEFERRED.with(|queue| std::mem::take(&mut *queue.borrow_mut())) {
+        f();
+    }
 }
 
 /// 把 hook 收到的原始欄位轉成按鍵事件；Unicode 注入、假 alt 與未知訊息回 `None`（照常放行）。
@@ -148,7 +168,7 @@ pub fn to_event(vk: u32, scan: u32, flags: u32, msg: u32) -> Option<KeyEvent> {
 }
 
 /// handler 經 `SendInput` 注入的事件可能同步重入 hook；此時分派器的鎖還握著，直接放行以免自鎖。
-fn reentrant_guard(inside: &Cell<bool>, process: impl FnOnce() -> bool) -> bool {
+fn reentrant_guard(inside: &Cell<bool>, ev: KeyEvent, process: impl FnOnce() -> bool) -> bool {
     struct Reset<'a>(&'a Cell<bool>);
     impl Drop for Reset<'_> {
         fn drop(&mut self) {
@@ -156,6 +176,10 @@ fn reentrant_guard(inside: &Cell<bool>, process: impl FnOnce() -> bool) -> bool 
         }
     }
     if inside.replace(true) {
+        log(format!(
+            "[hotkey] re-entrant key event passed through unprocessed (code={}, down={})",
+            ev.code, ev.down
+        ));
         return true;
     }
     let _reset = Reset(inside);
@@ -224,23 +248,46 @@ mod tests {
         assert_eq!(to_event(0x41, 30, 0, 0x0100 + 7), None);
     }
 
+    const SPACE: KeyEvent = KeyEvent {
+        down: false,
+        code: 57,
+    };
+
+    #[test]
+    fn work_queued_during_dispatch_runs_after_the_lock_is_released() {
+        use std::rc::Rc;
+        let ran = Rc::new(Cell::new(0));
+        let (during, after) = (Rc::clone(&ran), Rc::clone(&ran));
+        INSIDE_PROCESS.with(|inside| {
+            reentrant_guard(inside, SPACE, || {
+                after_dispatch(move || during.set(during.get() + 1));
+                assert_eq!(ran.get(), 0, "deferred while dispatching");
+                true
+            })
+        });
+        run_deferred();
+        assert_eq!(ran.get(), 1);
+        after_dispatch(move || after.set(after.get() + 1));
+        assert_eq!(ran.get(), 2, "runs at once outside dispatch");
+    }
+
     #[test]
     fn reentrant_calls_pass_without_processing() {
         let inside = Cell::new(false);
-        let swallowed = reentrant_guard(&inside, || {
-            assert!(reentrant_guard(&inside, || unreachable!()));
+        let swallowed = reentrant_guard(&inside, SPACE, || {
+            assert!(reentrant_guard(&inside, SPACE, || unreachable!()));
             false
         });
         assert!(!swallowed);
         assert!(!inside.get(), "the flag is cleared after processing");
-        assert!(!reentrant_guard(&inside, || false));
+        assert!(!reentrant_guard(&inside, SPACE, || false));
     }
 
     #[test]
     fn guard_flag_is_cleared_when_processing_panics() {
         let inside = Cell::new(false);
         let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            reentrant_guard(&inside, || std::panic::resume_unwind(Box::new(())))
+            reentrant_guard(&inside, SPACE, || std::panic::resume_unwind(Box::new(())))
         }));
         assert!(unwound.is_err());
         assert!(!inside.get());

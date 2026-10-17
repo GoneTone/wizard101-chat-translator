@@ -39,6 +39,8 @@ pub struct HotkeyInterceptor {
     swallow_override: Option<Box<dyn Fn() -> bool + Send>>,
     /// 已接手、吞到放開為止的鍵；按住時 Windows 會連續送 down。
     held: Vec<Code>,
+    /// 這次吞掉後是否已記過「放開前又收到按下」（自動重複或漏收放開）。
+    repeat_logged: bool,
 }
 
 impl HotkeyInterceptor {
@@ -90,6 +92,7 @@ impl HotkeyInterceptor {
             mask,
             swallow_override: None,
             held: Vec::new(),
+            repeat_logged: false,
         })
     }
 
@@ -107,6 +110,7 @@ impl HotkeyInterceptor {
             return false;
         }
         self.held.push(ev.code);
+        self.repeat_logged = false;
         (self.mask)();
         log(format!(
             "[hotkey] {} swallowed; injected mask key vk={MASK_VK:#x}",
@@ -134,6 +138,12 @@ impl Blocking for HotkeyInterceptor {
         if let Some(i) = self.held.iter().position(|&c| c == ev.code) {
             if !ev.down {
                 self.held.swap_remove(i);
+            } else if !self.repeat_logged {
+                self.repeat_logged = true;
+                log(format!(
+                    "[hotkey] {} trigger key pressed again before its release was seen; swallowing until release",
+                    repr_str(&self.hotkey)
+                ));
             }
             return false;
         }

@@ -247,7 +247,10 @@ pub fn install_input(
     let fallback = |key: &str| defaults[key].as_str().unwrap_or_default().to_owned();
     let mask: Arc<dyn Fn() + Send + Sync> = {
         let inject = Arc::clone(&typing.inject);
-        Arc::new(move || inject.mask())
+        Arc::new(move || {
+            let inject = Arc::clone(&inject);
+            crate::input::hook::after_dispatch(move || inject.mask())
+        })
     };
 
     let hotkey = read(settings)["hotkey"]
