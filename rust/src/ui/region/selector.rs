@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    self, Align2, Color32, ColorImage, CursorIcon, FontId, Key, Margin, RichText, Stroke,
-    StrokeKind, TextureHandle, TextureOptions, Vec2, pos2, vec2,
+    self, Align2, Color32, ColorImage, CursorIcon, Event, FontId, Key, Margin, PointerButton,
+    RichText, Stroke, StrokeKind, TextureHandle, TextureOptions, Vec2, pos2, vec2,
 };
 use image::RgbImage;
 
@@ -43,12 +43,13 @@ struct Textures {
 
 /// 選取畫面的狀態；每次框選建一個新的。
 ///
-/// 三張貼圖在第一次 `content` 時上傳（需要 egui Context），之後每幀沿用。
+/// 三張圖在 `new` 時就轉好，第一次 `content` 才上傳成貼圖（需要 egui Context），之後每幀沿用。
 pub struct Selector {
     monitor: Rect,
     frame: Arc<Frame>,
     frame_pos: (i32, i32),
-    backdrop: Option<RgbImage>,
+    /// 待上傳的暗化 backdrop、暗化遊戲畫面、原亮度遊戲畫面；上傳後清空。
+    images: Option<[ColorImage; 3]>,
     textures: Option<Textures>,
     /// 按下的位置（相對選取畫面左上角的 DIP）。
     start: Option<Vec2>,
@@ -61,11 +62,16 @@ impl Selector {
             frame.client_origin.0 - monitor.0,
             frame.client_origin.1 - monitor.1,
         );
+        let images = [
+            color_image(&dim(&backdrop, DIM_FACTOR)),
+            color_image(&dim(&frame.image, DIM_FACTOR)),
+            color_image(&frame.image),
+        ];
         Self {
             monitor,
             frame,
             frame_pos,
-            backdrop: Some(backdrop),
+            images: Some(images),
             textures: None,
             start: None,
         }
@@ -76,13 +82,26 @@ impl Selector {
         let ctx = ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
         let area = ui.max_rect();
-        let (pressed, released, secondary, escape, pointer) = ctx.input(|i| {
+        // 起訖點取按鍵事件自帶的位置：eframe 會把兩次重繪間的事件併成一幀，interact_pos 只剩最後一個
+        let (buttons, secondary, escape, pointer) = ctx.input(|i| {
+            let buttons: Vec<(Vec2, bool)> = i
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        ..
+                    } => Some((*pos - area.min, *pressed)),
+                    _ => None,
+                })
+                .collect();
             (
-                i.pointer.primary_pressed(),
-                i.pointer.primary_released(),
+                buttons,
                 i.pointer.secondary_pressed(),
                 i.key_pressed(Key::Escape),
-                i.pointer.interact_pos().map(|p| p - area.min),
+                i.pointer.latest_pos().map(|p| p - area.min),
             )
         });
         ctx.set_cursor_icon(CursorIcon::Crosshair);
@@ -92,11 +111,13 @@ impl Selector {
             self.start = None;
             action = Some(SelectorAction::Cancelled);
         } else {
-            if pressed {
-                self.start = pointer;
-            }
-            if released && let (Some(start), Some(end)) = (self.start.take(), pointer) {
-                action = Some(self.finish(start, end, ppp));
+            for (pos, pressed) in buttons {
+                if pressed {
+                    self.start = Some(pos);
+                } else if let Some(start) = self.start.take() {
+                    action = Some(self.finish(start, pos, ppp));
+                    break;
+                }
             }
         }
         self.paint(ui, area, ppp, pointer);
@@ -181,24 +202,23 @@ impl Selector {
     }
 
     fn textures(&mut self, ctx: &egui::Context) -> &Textures {
-        let (frame, backdrop) = (&self.frame, &mut self.backdrop);
-        self.textures.get_or_insert_with(|| {
-            let backdrop = backdrop.take().unwrap_or_default();
-            let load = |name: &str, image: &RgbImage| {
-                let size = [image.width() as usize, image.height() as usize];
-                ctx.load_texture(
-                    name,
-                    ColorImage::from_rgb(size, image.as_raw()),
-                    TextureOptions::NEAREST,
-                )
-            };
-            Textures {
-                backdrop: load("region_backdrop", &dim(&backdrop, DIM_FACTOR)),
-                dim_frame: load("region_dim_frame", &dim(&frame.image, DIM_FACTOR)),
-                frame: load("region_frame", &frame.image),
-            }
-        })
+        if let Some([backdrop, dim_frame, frame]) = self.images.take() {
+            let load = |name: &str, image| ctx.load_texture(name, image, TextureOptions::NEAREST);
+            self.textures = Some(Textures {
+                backdrop: load("region_backdrop", backdrop),
+                dim_frame: load("region_dim_frame", dim_frame),
+                frame: load("region_frame", frame),
+            });
+        }
+        self.textures
+            .as_ref()
+            .expect("images are uploaded on the first frame")
     }
+}
+
+fn color_image(image: &RgbImage) -> ColorImage {
+    let size = [image.width() as usize, image.height() as usize];
+    ColorImage::from_rgb(size, image.as_raw())
 }
 
 /// 提示文字：頂端置中、不透明底，不接滑鼠（拖曳經過時照樣框得到底下）。
@@ -361,6 +381,43 @@ mod tests {
             h.state().actions,
             [SelectorAction::Selected((1920 + 100, 150, 300, 150))]
         );
+    }
+
+    #[test]
+    fn press_move_and_release_in_one_frame_use_the_button_positions() {
+        let mut h = harness(1.0);
+        let origin = h.state().area.min;
+        let button = |at: Vec2, pressed| Event::PointerButton {
+            pos: origin + at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        // kittest 的 step 一幀只送一個排隊事件；直接塞進 RawInput 才能模擬 eframe 併成一幀
+        h.input_mut().events.extend([
+            button(vec2(100.0, 150.0), true),
+            Event::PointerMoved(origin + vec2(300.0, 250.0)),
+            button(vec2(400.0, 300.0), false),
+            Event::PointerMoved(origin + vec2(500.0, 500.0)),
+        ]);
+        h.step();
+        assert_eq!(
+            h.state().actions,
+            [SelectorAction::Selected((1920 + 100, 150, 300, 150))]
+        );
+    }
+
+    #[test]
+    fn rubber_band_is_drawn_while_dragging() {
+        let mut h = harness(1.0);
+        let origin = h.state().area.min;
+        press_and_move(&mut h, vec2(10.0, 20.0), vec2(110.0, 70.0));
+        let band = egui::Rect::from_min_max(origin + vec2(10.0, 20.0), origin + vec2(110.0, 70.0));
+        let drawn = h.output().shapes.iter().any(|clipped| {
+            matches!(&clipped.shape, Shape::Rect(r)
+                if r.rect == band && r.stroke == Stroke::new(BAND_WIDTH, FG_UPDATE))
+        });
+        assert!(drawn);
     }
 
     #[test]
