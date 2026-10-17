@@ -6,6 +6,9 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use eframe::egui::text::CCursor;
+use eframe::egui::text_edit::TextEditState;
+use eframe::egui::text_selection::CCursorRange;
 use eframe::egui::{self, Color32, Event, FontId, ImeEvent, Key, Margin, TextEdit, Ui};
 use tokio_util::sync::CancellationToken;
 
@@ -76,6 +79,7 @@ pub struct InputBox {
     translating: bool,
     error: Option<String>,
     composing: bool,
+    cursor_to_end: bool,
     focus_request: bool,
     restore_foreground: Option<isize>,
     placement: (Option<Rect>, (i32, i32)),
@@ -105,6 +109,7 @@ impl InputBox {
             translating: false,
             error: None,
             composing: false,
+            cursor_to_end: false,
             focus_request: false,
             restore_foreground: None,
             placement: (None, (0, 0)),
@@ -151,6 +156,8 @@ impl InputBox {
         }
         let target = self.pending.take().map_or(self.target, |(_, hwnd)| hwnd);
         self.close();
+        // 前景要交還給打字對象：交給 retarget 後的視窗會被打字的前景檢查判定切走而中止
+        self.restore_foreground = Some(target);
         (self.send)(translated, target);
     }
 
@@ -182,7 +189,7 @@ impl InputBox {
                 left: 8,
                 right: 8,
                 top: 10,
-                bottom: 8,
+                bottom: 0,
             })
             .show(ui, |ui| {
                 let entry = TextEdit::singleline(&mut self.text)
@@ -190,7 +197,14 @@ impl InputBox {
                     .text_color(FG)
                     .background_color(ENTRY_BG)
                     .desired_width(f32::INFINITY);
+                ui.visuals_mut().text_cursor.stroke.color = FG;
                 let response = ui.add_enabled(!self.translating, entry);
+                if std::mem::take(&mut self.cursor_to_end) {
+                    let mut state = TextEditState::load(ui.ctx(), response.id).unwrap_or_default();
+                    let end = CCursor::new(self.text.chars().count());
+                    state.cursor.set_char_range(Some(CCursorRange::one(end)));
+                    state.store(ui.ctx(), response.id);
+                }
                 ui.ctx().accesskit_node_builder(response.id, |node| {
                     node.set_label(t("input.hint", &[]));
                 });
@@ -266,6 +280,7 @@ impl InputBox {
         self.open = false;
         self.open_flag.store(false, Ordering::SeqCst);
         self.session += 1;
+        self.focus_request = false;
         if let Some((cancel, _)) = self.pending.take() {
             cancel.cancel();
         }
@@ -311,6 +326,7 @@ impl InputBoxControl for InputBox {
         self.composing = false;
         self.restore_foreground = None;
         if !self.text.is_empty() {
+            self.cursor_to_end = true;
             log(format!(
                 "[input] draft restored (chars={})",
                 self.text.chars().count()
@@ -508,6 +524,12 @@ mod tests {
         f.input.retarget(0xC);
         f.input.finish(session, Ok("x".into()));
         assert_eq!(*f.sent.borrow(), [("x".to_owned(), 0xB)]);
+        // 前景交還與打字對象一致，否則宿主搶前景會打斷打字
+        assert_eq!(f.input.take_restore_foreground(), Some(0xB));
+
+        f.input.show();
+        f.input.retarget(0xC);
+        f.input.close();
         assert_eq!(f.input.take_restore_foreground(), Some(0xC));
     }
 
@@ -596,6 +618,9 @@ mod tests {
         f.input.close();
         assert_eq!(f.input.take_restore_foreground(), Some(0xA));
         assert_eq!(f.input.take_restore_foreground(), None);
+        f.input.show();
+        f.input.hide();
+        assert!(!f.input.take_focus_request());
     }
 
     // 幾何
@@ -778,6 +803,19 @@ mod tests {
             .finish(session, Err("boom".into()));
         harness.run_steps(2);
         assert!(!entry(&harness));
+    }
+
+    #[test]
+    fn restored_draft_puts_the_cursor_at_the_end() {
+        let mut harness = opened_harness();
+        type_text(&mut harness, "half typed");
+        harness.key_press(Key::Home);
+        harness.step();
+        harness.state_mut().f.input.hide();
+        harness.state_mut().f.input.show();
+        harness.run_steps(2);
+        type_text(&mut harness, "!");
+        assert_eq!(harness.state().f.input.text, "half typed!");
     }
 
     #[test]
