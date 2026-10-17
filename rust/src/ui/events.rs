@@ -7,6 +7,7 @@ use crate::reader::chat_tabs::TabState;
 use crate::region::pipeline::RegionResult;
 use crate::runtime::updater::Release;
 use crate::ui::geometry::Rect;
+use crate::ui::settings::env::SettingsEvent;
 
 /// 一則 overlay 更新。
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +61,8 @@ pub enum UiEvent {
         session: u64,
         result: Result<RegionResult, String>,
     },
+    /// 設定視窗背景工作的結果。
+    Settings(SettingsEvent),
     /// 結束程式。
     Quit,
 }

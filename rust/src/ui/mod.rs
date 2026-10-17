@@ -14,5 +14,6 @@ pub mod palette;
 pub mod region;
 pub mod region_host;
 pub mod richtext;
+pub mod settings;
 pub mod text_select;
 pub mod win32;

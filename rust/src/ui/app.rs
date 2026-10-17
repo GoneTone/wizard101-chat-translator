@@ -265,6 +265,8 @@ impl App {
                     host.finish(session, result);
                 }
             }
+            // 設定視窗還沒托管在 App 裡，沒有人等這些結果
+            UiEvent::Settings(_) => {}
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }

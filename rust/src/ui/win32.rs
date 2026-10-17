@@ -1,4 +1,4 @@
-//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、深色標題列、前景切換與螢幕查詢。
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -6,7 +6,10 @@ use std::sync::{Once, OnceLock};
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Dwm::{DWMWA_TRANSITIONS_FORCEDISABLED, DwmSetWindowAttribute};
+use windows_sys::Win32::Graphics::Dwm::{
+    DWMWA_CAPTION_COLOR, DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_USE_IMMERSIVE_DARK_MODE,
+    DwmSetWindowAttribute,
+};
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
     MonitorFromPoint,
@@ -33,6 +36,7 @@ use windows_sys::core::PCWSTR;
 
 use crate::logs::log;
 pub use crate::reader::process::foreground_window;
+use crate::ui::palette;
 
 pub use crate::ui::geometry::Rect;
 
@@ -89,22 +93,44 @@ unsafe extern "system" fn frameless_proc(
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
-/// 關掉 DWM 在視窗顯示與關閉時的淡入淡出動畫；失敗只記 log。
-pub fn disable_transitions(hwnd: isize) {
-    let disabled: i32 = 1;
-    let hr = unsafe {
+/// 設定一個 4 位元組的 DWM 視窗屬性，回傳 HRESULT。
+fn set_dwm_attribute(hwnd: isize, attribute: i32, value: u32) -> i32 {
+    unsafe {
         DwmSetWindowAttribute(
             hwnd as HWND,
-            DWMWA_TRANSITIONS_FORCEDISABLED as u32,
-            (&disabled as *const i32).cast(),
-            size_of::<i32>() as u32,
+            attribute as u32,
+            (&value as *const u32).cast(),
+            size_of::<u32>() as u32,
         )
-    };
+    }
+}
+
+/// 關掉 DWM 在視窗顯示與關閉時的淡入淡出動畫；失敗只記 log。
+pub fn disable_transitions(hwnd: isize) {
+    let hr = set_dwm_attribute(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, 1);
     if hr != 0 {
         log(format!(
             "[ui] disabling window transitions failed (hwnd={hwnd:#x}, hresult={:#010x})",
             hr as u32
         ));
+    }
+}
+
+/// 系統標題列改用深色、底色同側欄；失敗只記 log（Win10 不支援自訂標題列底色）。
+pub fn dark_caption(hwnd: isize) {
+    let bg = palette::BG;
+    let colorref = u32::from_le_bytes([bg.r(), bg.g(), bg.b(), 0]);
+    for (name, attribute, value) in [
+        ("dark mode", DWMWA_USE_IMMERSIVE_DARK_MODE, 1),
+        ("caption color", DWMWA_CAPTION_COLOR, colorref),
+    ] {
+        let hr = set_dwm_attribute(hwnd, attribute, value);
+        if hr != 0 {
+            log(format!(
+                "[ui] dark caption {name} not applied (hwnd={hwnd:#x}, hresult={:#010x})",
+                hr as u32
+            ));
+        }
     }
 }
 
@@ -520,5 +546,10 @@ mod tests {
     #[test]
     fn all_monitors_includes_the_nearest_one() {
         assert!(all_monitors().contains(&monitor_rect_at(0, 0)));
+    }
+
+    #[test]
+    fn dark_caption_on_a_missing_window_only_logs() {
+        dark_caption(0);
     }
 }

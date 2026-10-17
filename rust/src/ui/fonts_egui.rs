@@ -1,4 +1,4 @@
-//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型與符號字型當 fallback。
+//! 把 Windows 系統字型裝進 egui：主字型依介面語言，其餘 CJK 字型與符號字型當 fallback；另有粗體與圖示字族。
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -21,6 +21,13 @@ use crate::ui::fonts::font_family;
 const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf"];
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
+/// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
+const ICON_FILES: [&str; 2] = ["SegoeIcons.ttf", "segmdl2.ttf"];
+
+/// 粗體字族（`FontFamily::Name`）；字型檔讀不到時與一般字型相同。
+pub const BOLD: &str = "bold";
+/// 圖示字族（`FontFamily::Name`）；字型檔讀不到時與一般字型相同。
+pub const ICONS: &str = "icons";
 
 fn primary_file(family: &str) -> &'static str {
     match family {
@@ -32,9 +39,20 @@ fn primary_file(family: &str) -> &'static str {
     }
 }
 
-/// 字型集（.ttc）裡要用的字型索引：YuGothM.ttc 的 0 是 Yu Gothic Medium，1 才是 Python 指定的 Yu Gothic UI。
+/// 主字型對應的粗體檔。
+fn bold_file(primary: &str) -> &'static str {
+    match primary {
+        "msjh.ttc" => "msjhbd.ttc",
+        "msyh.ttc" => "msyhbd.ttc",
+        "YuGothM.ttc" => "YuGothB.ttc",
+        "malgun.ttf" => "malgunbd.ttf",
+        _ => "segoeuib.ttf",
+    }
+}
+
+/// 字型集（.ttc）裡要用的字型索引：YuGoth*.ttc 的 0 是 Yu Gothic，1 才是 Python 指定的 Yu Gothic UI。
 fn face_index(file: &str) -> u32 {
-    u32::from(file == "YuGothM.ttc")
+    u32::from(matches!(file, "YuGothM.ttc" | "YuGothB.ttc"))
 }
 
 /// 介面語言要載入的字型檔，依優先順序。
@@ -96,28 +114,53 @@ fn map_file(path: &Path) -> io::Result<&'static [u8]> {
     }
 }
 
-fn install_from(ctx: &Context, dir: &Path, language_code: &str) {
-    let mut defs = FontDefinitions::default();
-    let mut loaded = Vec::new();
-    for file in font_files(language_code) {
-        let path = dir.join(file);
-        match map_file(&path) {
-            Ok(bytes) => {
-                let mut data = FontData::from_static(bytes);
-                data.index = face_index(file);
-                defs.font_data.insert(file.to_owned(), Arc::new(data));
-                loaded.push(file.to_owned());
-            }
-            Err(err) => log(format!(
+/// 載入一個字型檔進 `defs`；讀不到記 log 並回 `false`。
+fn load(defs: &mut FontDefinitions, dir: &Path, file: &str) -> bool {
+    let path = dir.join(file);
+    match map_file(&path) {
+        Ok(bytes) => {
+            let mut data = FontData::from_static(bytes);
+            data.index = face_index(file);
+            defs.font_data.insert(file.to_owned(), Arc::new(data));
+            true
+        }
+        Err(err) => {
+            log(format!(
                 "[ui] font skipped: path={} error={err}",
                 path.display()
-            )),
+            ));
+            false
         }
     }
+}
+
+fn install_from(ctx: &Context, dir: &Path, language_code: &str) {
+    let mut defs = FontDefinitions::default();
+    let files = font_files(language_code);
+    let loaded: Vec<String> = files
+        .iter()
+        .filter(|file| load(&mut defs, dir, file))
+        .map(|file| (*file).to_owned())
+        .collect();
     // egui 內建字型留在最後，系統字型全缺時仍顯示得出拉丁字
     for family in [FontFamily::Proportional, FontFamily::Monospace] {
         let list = defs.families.entry(family).or_default();
         list.splice(0..0, loaded.iter().cloned());
+    }
+    let regular = defs.families[&FontFamily::Proportional].clone();
+    let bold = Some(bold_file(files[0])).filter(|file| load(&mut defs, dir, file));
+    let icons = ICON_FILES
+        .into_iter()
+        .find(|file| load(&mut defs, dir, file));
+    for (name, file) in [(BOLD, bold), (ICONS, icons)] {
+        if file.is_none() {
+            log(format!(
+                "[ui] {name} font unavailable; using the regular font"
+            ));
+        }
+        let list = file.map(str::to_owned).into_iter().chain(regular.clone());
+        defs.families
+            .insert(FontFamily::Name(name.into()), list.collect());
     }
     ctx.set_fonts(defs);
 }
@@ -162,8 +205,27 @@ mod tests {
     }
 
     #[test]
+    fn bold_file_follows_the_primary_font() {
+        let bold: Vec<_> = ["zh-TW", "zh-CN", "ja", "ko", "en-US"]
+            .iter()
+            .map(|code| bold_file(font_files(code)[0]))
+            .collect();
+        assert_eq!(
+            bold,
+            [
+                "msjhbd.ttc",
+                "msyhbd.ttc",
+                "YuGothB.ttc",
+                "malgunbd.ttf",
+                "segoeuib.ttf"
+            ]
+        );
+    }
+
+    #[test]
     fn yu_gothic_uses_the_ui_face() {
         assert_eq!(face_index("YuGothM.ttc"), 1);
+        assert_eq!(face_index("YuGothB.ttc"), 1);
         assert_eq!(face_index("msjh.ttc"), 0);
         assert_eq!(face_index("msyh.ttc"), 0);
         assert_eq!(face_index("malgun.ttf"), 0);
@@ -203,5 +265,35 @@ mod tests {
         let builtin = FontDefinitions::default().families[&FontFamily::Proportional].clone();
         let installed = ctx.fonts(|f| f.definitions().families[&FontFamily::Proportional].clone());
         assert_eq!(installed, builtin);
+    }
+
+    #[test]
+    fn missing_bold_and_icon_fonts_fall_back_to_the_regular_family() {
+        let ctx = Context::default();
+        let empty = tempfile::tempdir().unwrap();
+        install_from(&ctx, empty.path(), "zh-TW");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let families = ctx.fonts(|f| f.definitions().families.clone());
+        for name in [BOLD, ICONS] {
+            assert_eq!(
+                families[&FontFamily::Name(name.into())],
+                families[&FontFamily::Proportional]
+            );
+        }
+    }
+
+    #[test]
+    fn system_fonts_put_bold_and_icon_files_first() {
+        let ctx = Context::default();
+        install_from(&ctx, &fonts_dir(std::env::var_os("WINDIR")), "zh-TW");
+        ctx.run_ui(Default::default(), |_| {})
+            .textures_delta
+            .clear();
+        let families = ctx.fonts(|f| f.definitions().families.clone());
+        assert_eq!(families[&FontFamily::Name(BOLD.into())][0], "msjhbd.ttc");
+        assert_eq!(families[&FontFamily::Name(BOLD.into())][1], "msjh.ttc");
+        assert!(ICON_FILES.contains(&families[&FontFamily::Name(ICONS.into())][0].as_str()));
     }
 }
