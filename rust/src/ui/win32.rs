@@ -289,7 +289,7 @@ unsafe fn patch_create_window_import() -> Result<usize, String> {
     Ok(patched)
 }
 
-/// 切到前景：前景本來就是本程式時直接切，否則掛上前景視窗的執行緒再切；視窗不存在或切換失敗回 `false`。
+/// 切到前景：前景是本程式時直接切；否則先送遮罩鍵取得前景權再切，仍被擋才掛上前景視窗的執行緒；視窗不存在或切換失敗回 `false`。
 pub fn force_foreground(hwnd: isize) -> bool {
     let hwnd = hwnd as HWND;
     unsafe {
@@ -298,10 +298,20 @@ pub fn force_foreground(hwnd: isize) -> bool {
         }
         let mut fg_pid = 0u32;
         let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), &mut fg_pid);
-        // 被前景鎖擋下的直接切換會讓工作列按鈕閃爍，只在一定會成功時才直接切
         if fg_pid == GetCurrentProcessId() {
             return SetForegroundWindow(hwnd) != 0;
         }
+        // 本程式送出最後一個輸入事件後前景鎖就放行；被擋下的直接切換會讓工作列按鈕閃爍，
+        // 掛前景執行緒則要等遊戲回應、常要上百毫秒，只當退路
+        use crate::input::inject::{Injector, SendInputInjector};
+        SendInputInjector.mask();
+        if SetForegroundWindow(hwnd) != 0 && GetForegroundWindow() == hwnd {
+            return true;
+        }
+        log(format!(
+            "[ui] foreground lock not released by input; attaching (hwnd={:#x})",
+            hwnd as isize
+        ));
         let this_thread = GetCurrentThreadId();
         AttachThreadInput(this_thread, fg_thread, 1);
         let switched = SetForegroundWindow(hwnd) != 0;
