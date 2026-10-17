@@ -427,12 +427,42 @@ def export_config_bootstrap_language() -> list[dict]:
     return cases
 
 
+def export_config_unique_name() -> list[dict]:
+    """`unique_name`：input 為 {name, services, ignore_id}，output 為去重後的名稱。"""
+    from src.config.services import unique_name
+    a, b = {"id": "a", "name": "ChatGPT"}, {"id": "b", "name": "ChatGPT (2)"}
+    inputs = [
+        ("ChatGPT", [], None),
+        ("Claude", [a, b], None),
+        ("ChatGPT", [a], None),
+        ("ChatGPT", [a, b], None),
+        ("ChatGPT", [a], "a"),
+        ("ChatGPT", [a, b], "b"),
+        ("ChatGPT", [a, b], "zzz"),
+        ("ChatGPT", [{"id": "a"}, {"id": "c", "name": "ChatGPT"}], None),
+        ("ChatGPT", [{"name": "ChatGPT"}], None),
+        ("ChatGPT", [{"name": "ChatGPT"}], "a"),
+    ]
+    return [{"input": {"name": n, "services": s, "ignore_id": i},
+             "output": unique_name(n, s, i)} for n, s, i in inputs]
+
+
+def export_config_is_auto_name() -> list[dict]:
+    """`is_auto_name`：input 為 {name, base}，output 為布林。"""
+    from src.config.services import is_auto_name
+    names = ["X", "X (2)", "X (10)", "X (1)", "X (0)", "X (02)", "X (２)", "X(2)",
+             "X (2) ", "X ()", "X (x)", "X (2) extra", "Y", "X (123456789012345678901234567890)"]
+    return [{"input": {"name": n, "base": "X"}, "output": is_auto_name(n, "X")} for n in names]
+
+
 EXPORTERS["config_load"] = export_config_load
 EXPORTERS["config_normalize"] = export_config_normalize
 EXPORTERS["config_resolve"] = export_config_resolve
 EXPORTERS["config_validate"] = export_config_validate
 EXPORTERS["config_summary"] = export_config_summary
 EXPORTERS["config_bootstrap_language"] = export_config_bootstrap_language
+EXPORTERS["config_unique_name"] = export_config_unique_name
+EXPORTERS["config_is_auto_name"] = export_config_is_auto_name
 
 
 _TARGETS = ["繁體中文 (台灣)", "English", "日本語", "Español", " english "]

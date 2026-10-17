@@ -20,18 +20,33 @@ enum Field {
     Flag(bool),
 }
 
-struct Provider {
-    key: &'static str,
+/// 服務商的顯示資料與欄位表；該畫哪些欄位一律問 `has_field`。
+pub struct Provider {
+    /// 存在 config.json 的鍵名。
+    pub key: &'static str,
+    /// 服務商名稱的語言檔 key。
+    pub label_key: &'static str,
+    /// 服務商說明的語言檔 key。
+    pub desc_key: &'static str,
+    /// 取得 API 金鑰的網址；自訂端點沒有。
+    pub key_url: Option<&'static str>,
     brand: Option<&'static str>,
     fields: &'static [(&'static str, Field)],
 }
 
 impl Provider {
-    fn has_field(&self, name: &str) -> bool {
+    /// 這家服務商有沒有該欄位。
+    pub fn has_field(&self, name: &str) -> bool {
         self.fields.iter().any(|(n, _)| *n == name)
     }
 
-    fn short_name(&self) -> String {
+    /// 這家要不要自己填端點網址（官方端點的網址寫死在 translator）。
+    pub fn needs_base_url(&self) -> bool {
+        self.has_field("base_url")
+    }
+
+    /// 新建服務時的預設名稱；品牌名不進語言檔，只有自訂端點要翻譯。
+    pub fn short_name(&self) -> String {
         self.brand.map_or_else(
             || t(&format!("provider.{}_short", self.key), &[]),
             str::to_string,
@@ -57,11 +72,18 @@ impl Field {
 
 /// 思考深度「自動」：不帶 effort 相關參數，維持模型預設。
 pub const EFFORT_AUTO: &str = "auto";
+/// 思考深度「低」：壓到最低。
+pub const EFFORT_LOW: &str = "low";
+/// Claude／Gemini 的思考深度選項，依顯示順序。
+pub const EFFORTS: [&str; 2] = [EFFORT_AUTO, EFFORT_LOW];
 
 // 服務商清單與欄位的單一真實來源；Claude 的 effort 維持 auto —— Haiku 4.5 帶 effort 會 400。
 const PROVIDERS: &[Provider] = &[
     Provider {
         key: "openai",
+        label_key: "provider.openai",
+        desc_key: "provider.openai_desc",
+        key_url: Some("https://platform.openai.com/api-keys"),
         brand: Some("OpenAI"),
         fields: &[
             ("model", Field::Text("")),
@@ -71,6 +93,9 @@ const PROVIDERS: &[Provider] = &[
     },
     Provider {
         key: "claude",
+        label_key: "provider.claude",
+        desc_key: "provider.claude_desc",
+        key_url: Some("https://console.anthropic.com/settings/keys"),
         brand: Some("Claude"),
         fields: &[
             ("model", Field::Text("")),
@@ -80,15 +105,21 @@ const PROVIDERS: &[Provider] = &[
     },
     Provider {
         key: "gemini",
+        label_key: "provider.gemini",
+        desc_key: "provider.gemini_desc",
+        key_url: Some("https://aistudio.google.com/apikey"),
         brand: Some("Gemini"),
         fields: &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
-            ("effort", Field::Text("low")),
+            ("effort", Field::Text(EFFORT_LOW)),
         ],
     },
     Provider {
         key: "custom",
+        label_key: "provider.custom",
+        desc_key: "provider.custom_desc",
+        key_url: None,
         brand: None,
         fields: &[
             ("base_url", Field::Text("")),
@@ -115,8 +146,14 @@ fn any_filled(entry: &Value) -> bool {
         .any(|k| !py::is_blank(str_field(entry, k)))
 }
 
-fn provider(key: &str) -> Option<&'static Provider> {
-    PROVIDERS.iter().find(|p| p.key == key)
+/// 全部服務商，依顯示順序。
+pub fn providers() -> &'static [Provider] {
+    PROVIDERS
+}
+
+/// 依鍵名取服務商；不認得回 `None`。
+pub fn provider(key: &str) -> Option<&'static Provider> {
+    providers().iter().find(|p| p.key == key)
 }
 
 /// 用途插槽：三個用途可各自指定服務，未指定就跟隨預設。
@@ -200,20 +237,29 @@ impl ServiceSpec {
     }
 }
 
-/// 檢查一筆服務的必填欄位，回傳錯誤文案 key 列表（空＝通過）。
-pub fn validate_service(service: &Value) -> Vec<String> {
+/// 檢查連上端點所需的欄位（不含模型），回傳錯誤文案 key 列表（空＝通過）。
+///
+/// 取模型清單時模型欄還沒填，故與 [`validate_service`] 分開。
+pub fn validate_endpoint_fields(service: &Value) -> Vec<String> {
     let text = |k: &str| str_field(service, k);
-    let needs_base_url = provider(text("provider")).is_some_and(|p| p.has_field("base_url"));
+    let needs_base_url = provider(text("provider")).is_some_and(Provider::needs_base_url);
     let mut errors = Vec::new();
-    if py::is_blank(text("model")) {
-        errors.push("error.need_model".to_string());
-    }
     if !needs_base_url && py::is_blank(text("api_key")) {
         errors.push("error.need_api_key".to_string());
     }
     if needs_base_url && py::is_blank(text("base_url")) {
         errors.push("error.need_base_url".to_string());
     }
+    errors
+}
+
+/// 檢查一筆服務的必填欄位，回傳錯誤文案 key 列表（空＝通過）。
+pub fn validate_service(service: &Value) -> Vec<String> {
+    let mut errors = Vec::new();
+    if py::is_blank(str_field(service, "model")) {
+        errors.push("error.need_model".to_string());
+    }
+    errors.extend(validate_endpoint_fields(service));
     errors
 }
 
@@ -267,9 +313,16 @@ fn new_id(services: &[Value]) -> String {
     }
 }
 
-/// 撞名就補序號：第一筆無後綴，之後 `名稱 (2)`、`名稱 (3)`。
-fn unique_name(name: &str, services: &[Value]) -> String {
-    let taken = |candidate: &str| ids_and_names(services, "name").any(|n| n == candidate);
+/// 撞名就補序號：第一筆無後綴，之後 `名稱 (2)`、`名稱 (3)`；`ignore_id` 那筆（編輯中的自己）不算。
+///
+/// 括號一律半形：它是識別用的序號，不隨介面語言換形。
+pub fn unique_name(name: &str, services: &[Value], ignore_id: Option<&str>) -> String {
+    let taken = |candidate: &str| {
+        services
+            .iter()
+            .filter(|s| s.get("id").and_then(Value::as_str) != ignore_id)
+            .any(|s| s.get("name").and_then(Value::as_str) == Some(candidate))
+    };
     if !taken(name) {
         return name.to_string();
     }
@@ -279,13 +332,48 @@ fn unique_name(name: &str, services: &[Value]) -> String {
         .unwrap_or_default()
 }
 
-fn new_service(p: &Provider, services: &[Value]) -> Map<String, Value> {
+/// `unique_name` 生成的名稱形狀：`base` 本身，或序號 2 起、不帶前導零的 `base (N)`。
+///
+/// 緊鄰 `unique_name`：改後綴格式兩處都要改。
+pub fn is_auto_name(name: &str, base: &str) -> bool {
+    if name == base {
+        return true;
+    }
+    let number = name
+        .strip_prefix(base)
+        .and_then(|rest| rest.strip_prefix(" ("))
+        .and_then(|rest| rest.strip_suffix(')'));
+    // 序號從 2 起跳：(0)／(1)／前導零比較像使用者自己打的名字，寧可漏判也不誤蓋
+    number.is_some_and(|n| {
+        !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && !n.starts_with('0') && n != "1"
+    })
+}
+
+fn service_map(p: &Provider, services: &[Value]) -> Map<String, Value> {
     let mut service = Map::new();
     service.insert("id".into(), new_id(services).into());
-    service.insert("name".into(), unique_name(&p.short_name(), services).into());
+    service.insert(
+        "name".into(),
+        unique_name(&p.short_name(), services, None).into(),
+    );
     service.insert("provider".into(), p.key.into());
     service.extend(defaults(p));
     service
+}
+
+/// 新的一筆服務：新 id、依服務商短名自動命名、欄位填該家的預設值。
+///
+/// `provider` 必須是 [`providers`] 裡的鍵。
+pub fn new_service(provider: &str, services: &[Value]) -> Value {
+    let p = self::provider(provider).unwrap_or_else(|| panic!("unknown provider {provider:?}"));
+    Value::Object(service_map(p, services))
+}
+
+/// 服務卡片的副標：服務商短名與模型。
+pub fn describe(service: &Value) -> String {
+    let key = str_field(service, "provider");
+    let short = provider(key).map_or_else(|| key.to_owned(), Provider::short_name);
+    format!("{short} · {}", str_field(service, "model"))
 }
 
 /// 服務清單欄位的取值：非 list 的原值整個當成一筆（最可能是貼歪的金鑰），缺值或 null 為空清單。
@@ -481,7 +569,7 @@ fn migrate_api_block(cfg: &mut Config, migrated_before: bool) -> bool {
             continue;
         }
         // 新 id 要一起避開促轉回來的服務：撞號會讓 default_service 落到錯的那筆
-        let mut service = new_service(p, &all);
+        let mut service = service_map(p, &all);
         for (k, v) in profile.iter().filter(|(k, _)| p.has_field(k)) {
             service.insert(k.clone(), v.clone());
         }
@@ -574,6 +662,7 @@ fn sanitize_services(cfg: &mut Config) -> bool {
             }
             .as_str(),
             &clean,
+            None,
         );
         if unique != name {
             log(format!(
@@ -658,32 +747,29 @@ mod tests {
     #[test]
     fn unique_name_numbers_collisions_from_two() {
         let mut services = vec![json!({"id": "a", "name": "ChatGPT"})];
-        assert_eq!(unique_name("ChatGPT", &services), "ChatGPT (2)");
+        assert_eq!(unique_name("ChatGPT", &services, None), "ChatGPT (2)");
         services.push(json!({"id": "b", "name": "ChatGPT (2)"}));
-        assert_eq!(unique_name("ChatGPT", &services), "ChatGPT (3)");
-        assert_eq!(unique_name("Claude", &services), "Claude");
+        assert_eq!(unique_name("ChatGPT", &services, None), "ChatGPT (3)");
+        assert_eq!(unique_name("Claude", &services, None), "Claude");
     }
 
     #[test]
     fn new_service_fills_the_provider_defaults_and_a_name() {
-        let service = new_service(provider("claude").unwrap(), &[]);
+        let service = new_service("claude", &[]);
         assert_eq!(service["provider"], "claude");
         assert_eq!(service["name"], "Claude");
         assert_eq!(service["model"], "");
         assert_eq!(service["effort"], "auto");
         assert_eq!(service["id"].as_str().unwrap().len(), 8);
-        assert_eq!(
-            new_service(provider("gemini").unwrap(), &[])["effort"],
-            "low"
-        );
+        assert_eq!(new_service("gemini", &[])["effort"], "low");
     }
 
     #[test]
     fn new_services_never_share_an_id() {
         let mut services = Vec::new();
         for _ in 0..50 {
-            let service = new_service(provider("openai").unwrap(), &services);
-            services.push(Value::Object(service));
+            let service = new_service("openai", &services);
+            services.push(service);
         }
         let mut ids: Vec<&str> = ids_and_names(&services, "id").collect();
         ids.sort();

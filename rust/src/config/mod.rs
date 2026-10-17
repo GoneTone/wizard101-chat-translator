@@ -124,6 +124,77 @@ fn clamp_advanced(values: &mut Config, defaults: &Config) {
     }
 }
 
+/// 某個進階數值的安全範圍 `(下限, 上限)`；鍵不在表內時 panic（呼叫端只傳固定鍵）。
+pub fn advanced_limits(key: &str) -> (f64, f64) {
+    ADVANCED_LIMITS
+        .iter()
+        .find(|(k, ..)| *k == key)
+        .map(|&(_, lo, hi, _)| (lo, hi))
+        .unwrap_or_else(|| panic!("unknown advanced key {key:?}"))
+}
+
+/// 設定頁進階分頁的欄位原文；透明度來自滑桿，本來就是數字。
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdvancedText {
+    /// 淡出秒數的輸入文字。
+    pub fade_seconds: String,
+    /// 訊息則數上限的輸入文字。
+    pub max_messages: String,
+    /// 同時翻譯則數的輸入文字。
+    pub max_parallel_translations: String,
+    /// 逐字輸入間隔的輸入文字。
+    pub type_delay: String,
+    /// 視窗不透明度。
+    pub overlay_alpha: f64,
+}
+
+/// 整數欄位照 Tk `IntVar.get`：先試整數，不行就以浮點數解析後向零截斷。
+fn parse_int(text: &str) -> Option<Value> {
+    let text = text.trim();
+    let n = text
+        .parse::<i64>()
+        .ok()
+        .or_else(|| parse_float(text).map(|x| x.trunc() as i64))?;
+    Some(Value::Number(n.into()))
+}
+
+fn parse_float(text: &str) -> Option<f64> {
+    text.trim().parse::<f64>().ok().filter(|x| x.is_finite())
+}
+
+/// 解析並夾住進階數值；任何一欄不是有限數字就回錯誤文案 key，不動設定。
+pub fn parse_advanced(text: &AdvancedText) -> Result<Config, &'static str> {
+    const NOT_NUMBER: &str = "error.advanced_not_number";
+    let float = |x: f64| Number::from_f64(x).map(Value::Number).ok_or(NOT_NUMBER);
+    let mut values = Config::new();
+    values.insert(
+        "fade_seconds".into(),
+        parse_int(&text.fade_seconds).ok_or(NOT_NUMBER)?,
+    );
+    values.insert(
+        "max_messages".into(),
+        parse_int(&text.max_messages).ok_or(NOT_NUMBER)?,
+    );
+    values.insert(
+        "type_delay".into(),
+        float(parse_float(&text.type_delay).ok_or(NOT_NUMBER)?)?,
+    );
+    values.insert(
+        "overlay_alpha".into(),
+        float(
+            Some(text.overlay_alpha)
+                .filter(|x| x.is_finite())
+                .ok_or(NOT_NUMBER)?,
+        )?,
+    );
+    values.insert(
+        "max_parallel_translations".into(),
+        parse_int(&text.max_parallel_translations).ok_or(NOT_NUMBER)?,
+    );
+    clamp_advanced(&mut values, &default_config());
+    Ok(values)
+}
+
 fn merge(base: &Config, overrides: &Config) -> Config {
     let mut out = base.clone();
     for (key, value) in overrides {

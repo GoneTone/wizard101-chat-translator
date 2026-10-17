@@ -289,3 +289,27 @@ fn load_config_from_env_path() {
         save_config(&path, &cfg).unwrap();
     }
 }
+
+#[test]
+fn unique_name_matches_python() {
+    for case in common::golden("config_unique_name") {
+        let input = &case["input"];
+        let services = input["services"].as_array().unwrap();
+        let result = services::unique_name(
+            input["name"].as_str().unwrap(),
+            services,
+            input["ignore_id"].as_str(),
+        );
+        assert_eq!(result, case["output"].as_str().unwrap(), "{input}");
+    }
+}
+
+#[test]
+fn is_auto_name_matches_python() {
+    for case in common::golden("config_is_auto_name") {
+        let input = &case["input"];
+        let name = input["name"].as_str().unwrap();
+        let result = services::is_auto_name(name, input["base"].as_str().unwrap());
+        assert_eq!(result, case["output"].as_bool().unwrap(), "{input}");
+    }
+}
