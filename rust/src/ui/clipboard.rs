@@ -1,8 +1,8 @@
-//! 系統剪貼簿寫入（`CF_UNICODETEXT`）。
+//! 系統剪貼簿讀寫（`CF_UNICODETEXT`）。
 
 use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
@@ -25,15 +25,46 @@ pub fn set_text(owner: isize, text: &str) -> bool {
     }
 }
 
+/// 讀取系統剪貼簿的文字；`Err` 是開不了剪貼簿，`Ok(None)` 是裡面沒有文字。
+pub fn get_text() -> Result<Option<String>, String> {
+    unsafe { with_open(std::ptr::null_mut(), || read()) }
+        .map_err(|(step, code)| format!("clipboard {step} failed: error={code}"))
+}
+
+/// 開啟剪貼簿跑 `f`，不論結果都會關閉。
+unsafe fn with_open<T>(owner: HWND, f: impl FnOnce() -> T) -> Result<T, (&'static str, u32)> {
+    if unsafe { OpenClipboard(owner) } == 0 {
+        return Err(("open", unsafe { GetLastError() }));
+    }
+    let result = f();
+    unsafe { CloseClipboard() };
+    Ok(result)
+}
+
+unsafe fn read() -> Option<String> {
+    unsafe {
+        let mem = GetClipboardData(u32::from(CF_UNICODETEXT));
+        if mem.is_null() {
+            return None;
+        }
+        let src = GlobalLock(mem) as *const u16;
+        if src.is_null() {
+            return None;
+        }
+        let len = (0..).take_while(|&i| *src.add(i) != 0).count();
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(src, len));
+        GlobalUnlock(mem);
+        Some(text)
+    }
+}
+
 unsafe fn write(owner: HWND, wide: &[u16]) -> Result<(), (&'static str, u32)> {
     let fail = |step| Err((step, unsafe { GetLastError() }));
-    if unsafe { OpenClipboard(owner) } == 0 {
-        return fail("open");
-    }
-    let result = unsafe {
-        if EmptyClipboard() == 0 {
-            fail("empty")
-        } else {
+    unsafe {
+        with_open(owner, || {
+            if EmptyClipboard() == 0 {
+                return fail("empty");
+            }
             let mem = GlobalAlloc(GMEM_MOVEABLE, size_of_val(wide));
             let dst = if mem.is_null() {
                 std::ptr::null_mut()
@@ -43,21 +74,19 @@ unsafe fn write(owner: HWND, wide: &[u16]) -> Result<(), (&'static str, u32)> {
             if dst.is_null() {
                 let result = fail("alloc");
                 GlobalFree(mem);
+                return result;
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
+            GlobalUnlock(mem);
+            // 成功後記憶體歸系統所有，只有失敗才要自己釋放
+            if SetClipboardData(u32::from(CF_UNICODETEXT), mem).is_null() {
+                let result = fail("set");
+                GlobalFree(mem);
                 result
             } else {
-                std::ptr::copy_nonoverlapping(wide.as_ptr(), dst, wide.len());
-                GlobalUnlock(mem);
-                // 成功後記憶體歸系統所有，只有失敗才要自己釋放
-                if SetClipboardData(u32::from(CF_UNICODETEXT), mem).is_null() {
-                    let result = fail("set");
-                    GlobalFree(mem);
-                    result
-                } else {
-                    Ok(())
-                }
+                Ok(())
             }
-        }
-    };
-    unsafe { CloseClipboard() };
-    result
+        })
+    }
+    .and_then(|result| result)
 }

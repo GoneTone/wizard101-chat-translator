@@ -1,6 +1,7 @@
 //! Wizard101 聊天翻譯器的函式庫根。
 
 pub mod app_main;
+pub mod composer;
 pub mod config;
 pub mod i18n;
 pub mod input;

@@ -24,7 +24,7 @@ pub fn is_game_process_path(path: &str) -> bool {
 }
 
 /// PID 的主模組路徑；開不了程序（權限、已結束）回 None。
-fn process_exe_path(pid: u32) -> Option<String> {
+pub fn process_exe_path(pid: u32) -> Option<String> {
     let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, 0, pid) };
     if handle.is_null() {
         return None;
