@@ -19,7 +19,9 @@ use crate::ui::region::flow::RegionFlow;
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
 use crate::ui::win32;
 
-/// 一個框選視窗的 HWND 與顯示狀態；元件關掉就換下一個 viewport id，同一幀先關後開也不沿用舊視窗。
+/// 一個框選視窗的 HWND 與顯示狀態；宿主看到元件關掉就換下一個 viewport id，同一幀先關後開也不沿用舊視窗。
+///
+/// 流程在同一次呼叫裡換掉的卡片（宿主看不到中間的關閉）沿用原視窗：每幀重新擺放、重設剪貼簿。
 #[derive(Default)]
 pub(crate) struct HostedWindow {
     serial: u64,
@@ -186,7 +188,7 @@ impl RegionHost {
             ctx.request_repaint();
         }
         // 顯示與搶前景在同一幀：先顯示晚點才給焦點的話，這段空檔打的字會進遊戲
-        if reveal && !(self.desktop.force_foreground)(win.hwnd) {
+        if reveal && win.hwnd != 0 && !(self.desktop.force_foreground)(win.hwnd) {
             log(format!(
                 "[region] selector focus failed: SetForegroundWindow refused (hwnd={:#x})",
                 win.hwnd
@@ -194,6 +196,8 @@ impl RegionHost {
         }
         if let Some(action) = action {
             self.flow.on_selector(action);
+            // 不等下一次輸入：全螢幕置頂的選取畫面要在下一幀就收掉
+            ctx.request_repaint();
         }
     }
 
@@ -281,13 +285,22 @@ impl RegionHost {
         }
         match action {
             Some(CardAction::FocusForCopy) => self.focus_card(),
-            Some(action) => self.flow.on_card(action),
+            Some(action) => {
+                self.flow.on_card(action);
+                if action == CardAction::Close {
+                    ctx.request_repaint();
+                }
+            }
             None => {}
         }
     }
 
     /// 拖曳選字結束：卡片不奪焦點，這裡是唯一例外，Ctrl+C 才收得到。
     fn focus_card(&mut self) {
+        if self.card.hwnd == 0 {
+            log("[region] selection focus skipped: card window not found");
+            return;
+        }
         log("[region] forcing keyboard focus");
         if (self.desktop.force_foreground)(self.card.hwnd) {
             log("[region] selection took keyboard focus");
@@ -478,6 +491,7 @@ pub(crate) mod fakes {
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
+    use std::time::Duration;
 
     use egui_kittest::Harness;
 
@@ -489,6 +503,8 @@ mod tests {
     thread_local! {
         static HELD: Cell<bool> = const { Cell::new(false) };
         static RAISED: RefCell<Vec<isize>> = const { RefCell::new(Vec::new()) };
+        /// 每一幀開始時記下的上一幀重繪原因（呼叫端檔名）。
+        static CAUSES: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
     }
 
     /// 只托管框選的 harness：搶前景只記下次數，觸發鍵狀態由 `HELD` 決定。
@@ -507,10 +523,17 @@ mod tests {
         Harness::builder()
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
             .build_ui_state(
-                |ui, host: &mut RegionHost| host.show(&ui.ctx().clone(), 0, &[]),
+                |ui, host: &mut RegionHost| {
+                    let causes = ui.ctx().repaint_causes();
+                    CAUSES.with(|c| c.borrow_mut().extend(causes.iter().map(|c| c.file)));
+                    host.show(&ui.ctx().clone(), 0, &[]);
+                },
                 host,
             )
     }
+
+    /// 只交給注入的 `force_foreground` 的假 HWND。
+    const FAKE_HWND: isize = 0x5E1EC7;
 
     fn raised() -> usize {
         RAISED.with(|r| r.borrow().len())
@@ -521,7 +544,10 @@ mod tests {
         let mut h = harness();
         HELD.with(|held| held.set(true));
         h.state_mut().toggle(GAME);
-        for _ in 0..3 {
+        h.step();
+        // kittest 找不到真的 HWND；換成假的，搶前景只交給注入的替身
+        h.state_mut().selector.hwnd = FAKE_HWND;
+        for _ in 0..2 {
             h.step();
         }
         assert!(h.state().selector.created && !h.state().selector.shown);
@@ -544,7 +570,6 @@ mod tests {
         h.state_mut().toggle(GAME);
         h.run_steps(2);
         assert_ne!(h.state().selector.id("region_selector"), first);
-        assert_eq!(raised(), 2);
     }
 
     #[test]
@@ -561,6 +586,75 @@ mod tests {
         assert!(host.region_box.shown && host.card.shown);
         assert!(h.state_mut().flow.selector_mut().is_none());
         assert_eq!(raised(), raised_before);
+    }
+
+    /// 這一幀之後是否立刻要求下一幀。
+    fn repaints_now(h: &Harness<'_, RegionHost>) -> bool {
+        h.output().viewport_output[&ViewportId::ROOT].repaint_delay == Duration::ZERO
+    }
+
+    /// 清掉之後是否有宿主自己要求的重繪：egui 收到輸入本來就會再畫一幀，要分開來看。
+    fn host_requested_repaint() -> bool {
+        CAUSES.with(|c| c.borrow().iter().any(|f| f.ends_with("region_host.rs")))
+    }
+
+    fn clear_causes() {
+        CAUSES.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn dismissing_the_selector_tears_its_window_down_on_the_next_frame() {
+        let mut h = harness();
+        h.state_mut().toggle(GAME);
+        h.run();
+        assert!(h.state().selector.shown && !repaints_now(&h));
+        clear_causes();
+        h.key_press(egui::Key::Escape);
+        h.step();
+        assert!(repaints_now(&h));
+        h.step();
+        assert!(host_requested_repaint(), "not left to the input repaint");
+        assert!(!h.state().selector.created);
+        let textured = h.output().shapes.iter().any(|c| {
+            matches!(&c.shape, egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default())
+        });
+        assert!(!textured, "the frozen frame is no longer drawn");
+    }
+
+    #[test]
+    fn closing_the_card_tears_its_window_down_on_the_next_frame() {
+        let mut h = harness();
+        h.state_mut().toggle(GAME);
+        h.run_steps(2);
+        h.state_mut()
+            .flow
+            .on_selector(SelectorAction::Selected(RECT));
+        h.run();
+        assert!(h.state().card.shown && !repaints_now(&h));
+        let close = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == "✕" => {
+                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
+                }
+                _ => None,
+            })
+            .expect("close button drawn");
+        clear_causes();
+        h.event(Event::PointerButton {
+            pos: close,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.step();
+        assert!(repaints_now(&h));
+        h.step();
+        assert!(host_requested_repaint(), "not left to the input repaint");
+        let host = h.state();
+        assert!(!host.card.created && !host.region_box.created);
     }
 
     #[test]
