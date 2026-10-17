@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use crate::config::services::resolve;
 use crate::config::{Config, ServiceSlot, Settings, app_name, config_summary, py, save_config};
 use crate::i18n::{current_language, t};
+use crate::input::hook::KeyboardHook;
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::memory::{ProcessMemory, WinProcess};
@@ -189,6 +190,8 @@ pub struct Running {
     pub translation: Translation,
     /// supervisor 執行緒（關閉時等它把每條收訊執行緒收完）；起不了時為 `None`。
     pub supervisor: Option<JoinHandle<()>>,
+    /// 低階鍵盤 hook；裝不上時為 `None`。
+    pub keyboard: Option<KeyboardHook>,
 }
 
 /// 建構翻譯端並啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
@@ -258,16 +261,18 @@ pub fn build_app(
         stop,
         translation,
         supervisor,
+        keyboard: None,
     }
 }
 
 /// 等 supervisor 的上限：多 2 秒讓它自己的 `JOIN_TIMEOUT` 先跑完，「still alive」的診斷 log 才寫得出來。
 pub const SUPERVISOR_JOIN_BUDGET: Duration = JOIN_TIMEOUT.saturating_add(Duration::from_secs(2));
 
-/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
+/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 卸鍵盤 hook → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
 pub fn shutdown_steps(
     stop: &CancellationToken,
     close_pools: impl FnOnce(),
+    unhook_keyboard: impl FnOnce(),
     supervisor: Option<JoinHandle<()>>,
     join_budget: Duration,
     flush_cache: impl FnOnce(),
@@ -275,6 +280,7 @@ pub fn shutdown_steps(
     log("[app] shutting down, waiting for readers to unhook");
     stop.cancel();
     close_pools();
+    unhook_keyboard();
     if let Some(supervisor) = supervisor {
         let deadline = Instant::now() + join_budget;
         while !supervisor.is_finished() && Instant::now() < deadline {
@@ -300,12 +306,18 @@ pub fn shutdown(running: Running) -> ! {
         stop,
         translation,
         supervisor,
+        keyboard,
     } = running;
     shutdown_steps(
         &stop,
         || {
             translation.pool.shutdown();
             translation.system_pool.shutdown();
+        },
+        || {
+            if let Some(hook) = keyboard {
+                hook.uninstall();
+            }
         },
         supervisor,
         SUPERVISOR_JOIN_BUDGET,

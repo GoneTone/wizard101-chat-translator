@@ -168,17 +168,17 @@ fn restart_keeps_the_persisted_cache_when_examples_are_already_stored() {
 }
 
 #[test]
-fn shutdown_flushes_cache_after_pools_and_readers() {
+fn shutdown_unhooks_the_keyboard_after_pools_and_before_joining_readers() {
     let calls = Arc::new(Mutex::new(Vec::new()));
     let stop = CancellationToken::new();
-    let (pools_done, readers_may_exit) = mpsc::channel();
+    let (unhooked, readers_may_exit) = mpsc::channel();
     let supervisor = {
         let (calls, stop) = (Arc::clone(&calls), stop.clone());
         std::thread::spawn(move || {
             while !stop.is_cancelled() {
                 std::thread::sleep(Duration::from_millis(5));
             }
-            // 等池關完才結束，記錄順序才不受執行緒排程影響
+            // 等卸完 hook 才結束，記錄順序才不受執行緒排程影響
             readers_may_exit.recv().unwrap();
             calls.lock().unwrap().push("readers joined");
         })
@@ -192,19 +192,31 @@ fn shutdown_flushes_cache_after_pools_and_readers() {
         move || {
             assert!(stop.is_cancelled(), "stop is set before the pools close");
             record();
-            pools_done.send(()).unwrap();
+        }
+    };
+    let unhook_keyboard = {
+        let record = record("keyboard unhooked");
+        move || {
+            record();
+            unhooked.send(()).unwrap();
         }
     };
     shutdown_steps(
         &stop,
         close_pools,
+        unhook_keyboard,
         Some(supervisor),
         SUPERVISOR_JOIN_BUDGET,
         record("cache flushed"),
     );
     assert_eq!(
         *calls.lock().unwrap(),
-        ["pools shut down", "readers joined", "cache flushed"]
+        [
+            "pools shut down",
+            "keyboard unhooked",
+            "readers joined",
+            "cache flushed"
+        ]
     );
 }
 
@@ -223,6 +235,7 @@ fn shutdown_gives_up_on_a_stuck_supervisor_after_the_budget() {
     let started = Instant::now();
     shutdown_steps(
         &CancellationToken::new(),
+        || {},
         || {},
         Some(supervisor),
         Duration::from_millis(100),
