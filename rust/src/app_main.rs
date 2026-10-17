@@ -1,12 +1,15 @@
 //! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）、熱鍵與貼上、關閉流程。
 
 use std::io::Write;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use futures_util::FutureExt;
+use image::RgbImage;
 use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -31,10 +34,12 @@ use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::memory::{ProcessMemory, WinProcess};
 use crate::reader::message_log::{MessageLog, SharedWriter};
-use crate::reader::process::game_windows;
+use crate::reader::process::{find_game_window, game_windows};
 use crate::reader::run_loop::{MessageIds, ReaderShared, reader_loop};
 use crate::reader::status::StatusBoard;
 use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
+use crate::region::capture::{self, CaptureError, Frame};
+use crate::region::pipeline::{RegionError, RegionPipeline, describe_error};
 use crate::runtime::is_elevated;
 use crate::translation::cache::{TranslationCache, fingerprint_of, translate_and_cache};
 use crate::translation::context::{ClientContexts, ContextMap};
@@ -44,8 +49,11 @@ use crate::translation::gate::ConcurrencyGate;
 use crate::translation::pool::{ResultFn, TranslateFn, TranslationPool};
 use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::ui::geometry::Rect;
 use crate::ui::input_box::OutgoingRequest;
-use crate::util::{Clock, join_until, lock, read, write};
+use crate::ui::region::flow::{RegionDesktop, RegionRunner};
+use crate::ui::win32::{cursor_pos, force_foreground, monitor_rect_at};
+use crate::util::{Clock, join_until, lock, panic_message, read, write};
 
 /// 啟動摘要：回報問題時第一眼掌握環境。
 pub fn log_startup_summary(cfg: &Config) {
@@ -218,6 +226,8 @@ pub struct InputWiring {
     pub tracker: Arc<ChatInputTracker>,
     /// 翻譯輸入框是否開著（熱鍵回呼讀）。
     pub box_open: Arc<AtomicBool>,
+    /// 框選的選取畫面是否開著（`RegionFlow` 寫、框選熱鍵回呼讀）。
+    pub selecting: Arc<AtomicBool>,
 }
 
 fn write_hotkey(settings: &RwLock<Config>, key: &str, used: String) {
@@ -272,9 +282,7 @@ pub fn install_input(
 
     let region = region_hotkey_to_register(&read(settings));
     let region = region.map(|region| {
-        let ui = ui.clone();
-        // 選取層是第 3 段的功能，在那之前永遠沒在選取
-        let selecting = AtomicBool::new(false);
+        let (ui, selecting) = (ui.clone(), Arc::clone(&wiring.selecting));
         let (registration, used) = register_hotkey(
             dispatcher,
             &region,
@@ -369,6 +377,87 @@ pub fn outgoing_translate(
 }
 
 static CONSOLE_QUIT: OnceLock<UiPoster> = OnceLock::new();
+
+/// 框選的 `RegionRunner`：在 tokio 上跑 `pipeline`，結果以 `UiEvent::RegionDone` 送回；撤銷時只記 log、不送結果。
+pub fn region_runner(pipeline: RegionPipeline, rt: Handle, ui: UiPoster) -> Box<dyn RegionRunner> {
+    Box::new(PipelineRunner {
+        pipeline: Arc::new(pipeline),
+        rt,
+        ui,
+    })
+}
+
+struct PipelineRunner {
+    pipeline: Arc<RegionPipeline>,
+    rt: Handle,
+    ui: UiPoster,
+}
+
+impl RegionRunner for PipelineRunner {
+    fn run(&self, png: Vec<u8>, rect: Rect, session: u64, cancel: CancellationToken) {
+        let (pipeline, ui) = (Arc::clone(&self.pipeline), self.ui.clone());
+        self.rt.spawn(async move {
+            let outcome = AssertUnwindSafe(pipeline.run(png, rect, &cancel))
+                .catch_unwind()
+                .await;
+            let result = match outcome {
+                Ok(Ok(result)) => Ok(result),
+                Ok(Err(RegionError::Translate(TranslateError::Cancelled))) => {
+                    log(format!("[region] request cancelled (session={session})"));
+                    return;
+                }
+                Ok(Err(err)) => {
+                    // OCR 不可用已在 ocr.rs 記過
+                    if let RegionError::Translate(e) = &err {
+                        log(format!(
+                            "[region] translate failed (rect={rect:?}, {}): {}: {e}",
+                            pipeline.describe(),
+                            e.class_name()
+                        ));
+                    }
+                    Err(describe_error(&err))
+                }
+                Err(panic) => {
+                    let message = panic_message(panic.as_ref());
+                    log(format!(
+                        "[region] unexpected failure (rect={rect:?}): {message}"
+                    ));
+                    Err(t("error.unexpected", &[("error", &message)]))
+                }
+            };
+            ui.post(UiEvent::RegionDone { session, result });
+        });
+    }
+}
+
+/// 框選流程的正式桌面操作：WGC 與螢幕擷取、Win32 的螢幕、前景與游標。
+pub struct WinRegionDesktop;
+
+impl RegionDesktop for WinRegionDesktop {
+    fn capture_window(&mut self, hwnd: isize) -> Result<Arc<Frame>, CaptureError> {
+        capture::capture_window(hwnd).map(Arc::new)
+    }
+
+    fn capture_screen(&mut self, monitor: Rect) -> RgbImage {
+        capture::capture_screen(monitor)
+    }
+
+    fn monitor_at(&self, x: i32, y: i32) -> Rect {
+        monitor_rect_at(x, y)
+    }
+
+    fn foreground(&mut self, hwnd: isize) {
+        force_foreground(hwnd);
+    }
+
+    fn find_game(&self) -> Option<isize> {
+        find_game_window()
+    }
+
+    fn cursor(&self) -> (i32, i32) {
+        cursor_pos()
+    }
+}
 
 /// 主控台的 Ctrl+C 改投遞 `UiEvent::Quit`，走與 ✕ 相同的關閉流程；其他主控台事件照預設處理。
 pub fn install_console_quit(ui: UiPoster) {

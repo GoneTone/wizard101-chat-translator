@@ -7,8 +7,9 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use wizard101_chat_translator::app_main::{
-    build_app, claim_instance, install_console_quit, log_startup_summary, open_messages_log,
-    outgoing_translate, run_ui_then, save_field, shutdown, type_delay,
+    WinRegionDesktop, build_app, claim_instance, install_console_quit, log_startup_summary,
+    open_messages_log, outgoing_translate, region_runner, run_ui_then, save_field, shutdown,
+    type_delay,
 };
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
@@ -18,10 +19,13 @@ use wizard101_chat_translator::i18n::set_language;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::reader::process::foreground_window;
+use wizard101_chat_translator::region::ocr::{self, Models, register_models};
+use wizard101_chat_translator::region::pipeline::RegionPipeline;
 use wizard101_chat_translator::runtime::{acquire_single_instance, focus_running_instance};
 use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
+use wizard101_chat_translator::ui::region::flow::RegionFlow;
 use wizard101_chat_translator::ui::win32::cursor_pos;
 use wizard101_chat_translator::util::read;
 
@@ -50,6 +54,12 @@ fn main() {
         return;
     };
     let messages = open_messages_log(&app_dir().join("messages.log"));
+    register_models(Models {
+        det: include_bytes!("../assets/ocr/PP-OCRv6_det_small.onnx"),
+        rec: include_bytes!("../assets/ocr/PP-OCRv6_rec_small.onnx"),
+        cls: include_bytes!("../assets/ocr/ch_ppocr_mobile_v2.0_cls_mobile.onnx"),
+        keys: include_bytes!("../assets/ocr/ppocrv6_keys.txt"),
+    });
 
     if !is_configured(&cfg) {
         log("[app] config incomplete; first-run wizard arrives in phase 4");
@@ -87,12 +97,24 @@ fn main() {
             Arc::clone(&built.translation.outgoing),
             Arc::clone(&built.contexts),
             rt.handle().clone(),
-            poster,
+            poster.clone(),
         ),
         Box::new(send),
         Arc::clone(&built.input.box_open),
         foreground_window,
         cursor_pos,
+    );
+    let region_flow = RegionFlow::new(
+        Box::new(WinRegionDesktop),
+        region_runner(
+            RegionPipeline::new(
+                Arc::clone(&built.translation.region),
+                Arc::new(ocr::recognize),
+            ),
+            rt.handle().clone(),
+            poster,
+        ),
+        Arc::clone(&built.input.selecting),
     );
     let input_events = GameInputEvents::new(Arc::clone(&built.input.tracker), foreground_window);
     let (hotkey, region_hotkey) = {
@@ -121,6 +143,7 @@ fn main() {
             );
             let mut app = App::new(ctx, inbox, frame)
                 .with_input(input_box, input_events, input_cfg)
+                .with_region(region_flow)
                 .with_bubble_position(settings.bubble_position, move |x, y| {
                     save_field(
                         &shared_cfg,

@@ -11,8 +11,10 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
-    IsWindow,
+    IsWindow, IsWindowVisible,
 };
+
+use crate::logs::log;
 
 /// 遊戲主程式的檔名。
 pub const PROCESS_NAME: &str = "WizardGraphicalClient.exe";
@@ -64,6 +66,39 @@ unsafe extern "system" fn collect_game_window(hwnd: HWND, lparam: LPARAM) -> i32
         found.push(hwnd as isize);
     }
     1
+}
+
+unsafe extern "system" fn collect_visible_game_window(hwnd: HWND, lparam: LPARAM) -> i32 {
+    let found = unsafe { &mut *(lparam as *mut Vec<isize>) };
+    let hwnd = hwnd as isize;
+    if unsafe { IsWindowVisible(hwnd as HWND) } != 0
+        && process_exe_path(window_pid(hwnd)).is_some_and(|exe| is_game_process_path(&exe))
+    {
+        found.push(hwnd);
+    }
+    1
+}
+
+/// 可見、且屬於遊戲程序的第一個頂層視窗；找不到回 `None`。
+///
+/// 給 ⛶ 按鈕用：按下時遊戲多半不在前景，不能像熱鍵那樣讀前景視窗。
+pub fn find_game_window() -> Option<isize> {
+    let mut found = Vec::<isize>::new();
+    if unsafe {
+        EnumWindows(
+            Some(collect_visible_game_window),
+            &mut found as *mut _ as LPARAM,
+        )
+    } == 0
+    {
+        // 使用者從 app.log 才分得出「遊戲沒開」與「列舉本身失敗」
+        log(format!(
+            "[reader] window scan failed: {}",
+            std::io::Error::last_os_error()
+        ));
+        return None;
+    }
+    found.first().copied()
 }
 
 /// 目前所有遊戲客戶端的視窗 handle（以視窗類別名辨識，同 wizwalker）。

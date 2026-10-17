@@ -3,7 +3,7 @@
 #[allow(dead_code)]
 mod common;
 
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
     InputWiring, SUPERVISOR_JOIN_BUDGET, build_translation, claim_instance, incoming_fingerprint,
-    install_input, on_paste_hotkey, outgoing_translate, run_ui_then, shutdown_steps,
+    install_input, on_paste_hotkey, outgoing_translate, region_runner, run_ui_then, shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
@@ -28,6 +28,9 @@ use wizard101_chat_translator::input::dispatcher::{
 use wizard101_chat_translator::input::inject::Injector;
 use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
+use wizard101_chat_translator::region::pipeline::{
+    Recognize, RegionError, RegionPipeline, RegionResult, describe_error,
+};
 use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::translation::clients::{ChatBackend, ChatRequest};
 use wizard101_chat_translator::translation::context::{ClientContexts, ContextMap};
@@ -377,6 +380,7 @@ fn wiring(box_open: bool) -> InputWiring {
     InputWiring {
         tracker: Arc::default(),
         box_open: Arc::new(AtomicBool::new(box_open)),
+        selecting: Arc::default(),
     }
 }
 
@@ -614,6 +618,93 @@ fn outgoing_translate_cancel_logs_and_posts_nothing() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+const REGION_RECT: (i32, i32, i32, i32) = (1, 2, 30, 40);
+
+impl Outgoing {
+    /// 用假辨識（固定回 `source`）跑一次框選翻譯。
+    fn run_region(&self, source: &'static str, session: u64) -> Receiver<UiEvent> {
+        let (ui, rx) = UiPoster::for_test();
+        let recognize: Recognize = Arc::new(move |_| Ok(source.to_owned()));
+        let runner = region_runner(
+            RegionPipeline::new(Arc::clone(&self.translator), recognize),
+            self.rt.handle().clone(),
+            ui,
+        );
+        runner.run(
+            vec![1, 2, 3],
+            REGION_RECT,
+            session,
+            CancellationToken::new(),
+        );
+        rx
+    }
+}
+
+#[test]
+fn region_runner_posts_the_result_with_its_session() {
+    let o = outgoing(Ok("hi".into()));
+    let rx = o.run_region("hello", 5);
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        UiEvent::RegionDone {
+            session: 5,
+            result: Ok(RegionResult {
+                text: "hi".into(),
+                source: "hello".into()
+            })
+        }
+    );
+}
+
+#[test]
+fn region_runner_cancel_posts_nothing() {
+    let o = outgoing(Err(TranslateError::Cancelled));
+    let rx = o.run_region("hello", 41);
+    let marker = "[region] request cancelled (session=41)";
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while log_lines_with(marker).is_empty() {
+        assert!(Instant::now() < deadline, "no cancel log");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn region_runner_failure_logs_the_service() {
+    let o = outgoing(Err(TranslateError::offline("region refused")));
+    let rx = o.run_region("hello", 6);
+    let expected = describe_error(&RegionError::Translate(TranslateError::offline(
+        "region refused",
+    )));
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        UiEvent::RegionDone {
+            session: 6,
+            result: Err(expected)
+        }
+    );
+    let lines = log_lines_with("region refused");
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].ends_with(
+        "[region] translate failed (rect=(1, 2, 30, 40), \
+         provider=custom, model=fake-model): TranslatorOffline: region refused"
+    ));
+}
+
+#[test]
+fn region_hotkey_cancels_while_selecting() {
+    capture_logs();
+    let (ui, rx) = UiPoster::for_test();
+    let settings = input_cfg("ctrl+space", "ctrl+shift+space", false);
+    let d = dispatcher();
+    let wiring = wiring(false);
+    wiring.selecting.store(true, Ordering::SeqCst);
+    let keys = Arc::new(Keys::default());
+    let _registered = install_input(&settings, &ui, &d, &wiring, typing_env(&keys));
+    assert!(!press(&d, &["ctrl", "shift", "space"]));
+    assert_eq!(rx.try_recv(), Ok(UiEvent::RegionHotkey { hwnd: 0 }));
 }
 
 #[test]
