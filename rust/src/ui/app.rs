@@ -16,9 +16,9 @@ use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
-use crate::runtime::resources::icon_png;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
+use crate::ui::icon::app_icon;
 use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
@@ -240,6 +240,9 @@ impl App {
 
     /// 首次設定模式：精靈（呼叫端先 `open`）開著時根視窗藏著；完成時關掉精靈、呼叫 `start`，再顯示根視窗。
     pub fn with_first_run(mut self, wizard: WizardHost, start: OnStart) -> Self {
+        if !wizard.is_open() {
+            log("[app] first-run wizard host was not opened; the overlay stays hidden");
+        }
         self.first_run = Some(FirstRun {
             host: wizard,
             start,
@@ -505,9 +508,9 @@ impl App {
         }
     }
 
-    /// 精靈開著時根視窗藏著。
+    /// 首次設定模式（精靈開著，或已取消、等根視窗關閉）時根視窗藏著；完成時 `first_run` 才清掉。
     fn in_first_run(&self) -> bool {
-        self.first_run.as_ref().is_some_and(|w| w.host.is_open())
+        self.first_run.is_some()
     }
 
     /// 每幀畫出開著的設定視窗與精靈，並處理它們要 App 做的事。
@@ -533,12 +536,7 @@ impl App {
     fn settings_action(&mut self, ctx: &egui::Context, action: SettingsAction) {
         match action {
             SettingsAction::PreviewAlpha(alpha) => self.frame.set_alpha(alpha),
-            SettingsAction::PreviewLanguage => {
-                self.relabel(ctx);
-                if let Some(wiring) = &mut self.settings {
-                    wiring.host.retitle();
-                }
-            }
+            SettingsAction::PreviewLanguage => self.relabel(ctx),
             SettingsAction::UpdateFound(release) => self.banners.set_update(release),
             SettingsAction::Save(cfg) => {
                 let Some(wiring) = &mut self.settings else {
@@ -560,22 +558,20 @@ impl App {
 
     fn wizard_action(&mut self, ctx: &egui::Context, action: WizardAction) {
         match action {
-            WizardAction::PreviewLanguage => {
-                self.relabel(ctx);
-                if let Some(first_run) = &mut self.first_run {
-                    first_run.host.retitle();
-                }
-            }
+            WizardAction::PreviewLanguage => self.relabel(ctx),
             WizardAction::Finish(cfg) => {
                 let Some(FirstRun { mut host, start }) = self.first_run.take() else {
                     return;
                 };
                 host.close();
+                let language = cfg.get("ui_language").and_then(Value::as_str);
+                self.ui_language = language.map_or_else(current_language, str::to_owned);
                 start(self, cfg);
                 ctx.request_repaint();
             }
             WizardAction::Cancel => {
                 log("[app] wizard cancelled, exiting");
+                // `first_run` 留著：關閉要求排隊的那幾幀根視窗也要藏著，不閃出來
                 if let Some(first_run) = &mut self.first_run {
                     first_run.host.close();
                 }
@@ -673,16 +669,6 @@ impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         Color32::TRANSPARENT.to_normalized_gamma_f32()
     }
-}
-
-/// 程式圖示（48px）；只解碼一次，每幀交給 viewport 的都是同一份，egui 不會當成變更。
-pub(crate) fn app_icon() -> Arc<egui::IconData> {
-    static ICON: OnceLock<Arc<egui::IconData>> = OnceLock::new();
-    let icon = ICON.get_or_init(|| {
-        let icon = eframe::icon_data::from_png_bytes(icon_png(48));
-        Arc::new(icon.expect("embedded icon is a valid PNG"))
-    });
-    Arc::clone(icon)
 }
 
 /// overlay 根視窗的 eframe 設定：DX12 經 DirectComposition 才有每像素透明；沒有硬體 adapter 時 wgpu 自動退到 WARP。

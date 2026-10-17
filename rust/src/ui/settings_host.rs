@@ -7,8 +7,8 @@ use eframe::egui::{self, Ui, Vec2, ViewportBuilder, ViewportCommand, ViewportId,
 use crate::config::{Config, app_name};
 use crate::i18n::t;
 use crate::logs::log;
-use crate::ui::app::app_icon;
 use crate::ui::geometry::Rect;
+use crate::ui::icon::app_icon;
 use crate::ui::settings::env::{SettingsEnv, SettingsEvent};
 use crate::ui::settings::theme;
 use crate::ui::settings::window::{SettingsAction, SettingsWindow};
@@ -101,8 +101,6 @@ struct HostedWindow {
     shown: bool,
     /// 找到 HWND 且顯示後要搶前景。
     raise: bool,
-    /// 下一幀要送新標題（介面語言換了）。
-    retitle: bool,
 }
 
 impl HostedWindow {
@@ -115,7 +113,6 @@ impl HostedWindow {
             created: None,
             shown: false,
             raise: false,
-            retitle: false,
         }
     }
 
@@ -200,9 +197,6 @@ impl HostedWindow {
             if self.spec.topmost_once {
                 commands.push(ViewportCommand::WindowLevel(WindowLevel::Normal));
             }
-        }
-        if std::mem::take(&mut self.retitle) {
-            commands.push(ViewportCommand::Title(title.clone()));
         }
         let before = if self.hwnd == 0 {
             (self.ops.thread_windows)()
@@ -307,11 +301,6 @@ impl SettingsHost {
         }
     }
 
-    /// 介面語言換了：下一幀換視窗標題。
-    pub fn retitle(&mut self) {
-        self.win.retitle = true;
-    }
-
     /// 關窗（儲存或取消之後）。
     pub fn close(&mut self) {
         if self.window.take().is_some() {
@@ -386,11 +375,6 @@ impl WizardHost {
         if let Some(wizard) = &mut self.wizard {
             wizard.apply(&event);
         }
-    }
-
-    /// 介面語言換了：下一幀換視窗標題。
-    pub fn retitle(&mut self) {
-        self.win.retitle = true;
     }
 
     /// 關掉精靈（完成或取消之後）。

@@ -182,23 +182,40 @@ fn eframe_harness(
 }
 
 /// 接上設定視窗的 App：`cfg` 是共用設定，`on_save` 記下收到的設定並回報生效的熱鍵。
-fn settings_app(cfg: Config) -> (Harness<'static, App>, Wired) {
+///
+/// overlay 起始透明度是 `alpha`；`on_save` 回報的框選熱鍵是 `region`（`None`＝沒註冊）。
+fn settings_app_with(
+    cfg: Config,
+    alpha: f32,
+    region: Option<&'static str>,
+) -> (Harness<'static, App>, Wired) {
     let env = Rc::new(FakeEnv::default());
     let saved = Saved::default();
     let (host_env, sink) = (Rc::clone(&env), Rc::clone(&saved));
     let (harness, poster, _recorder) = eframe_harness(move |ctx, inbox| {
         let mut host = SettingsHost::new(Box::new(SharedEnv(host_env)));
         host.set_window_ops(fake_ops());
-        App::new(ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {})).with_settings(
+        App::new(ctx, inbox, Frame::new(alpha, None, |_, _, _, _| {})).with_settings(
             host,
             Arc::new(RwLock::new(cfg)),
             Box::new(move |cfg| {
                 sink.borrow_mut().push(cfg);
-                ("f8".into(), Some("ctrl+alt+r".into()))
+                ("f8".into(), region.map(str::to_owned))
             }),
         )
     });
     (harness, Wired { env, saved, poster })
+}
+
+fn settings_app(cfg: Config) -> (Harness<'static, App>, Wired) {
+    settings_app_with(cfg, 0.8, Some("ctrl+alt+r"))
+}
+
+/// 停在 ⛶ 上等提示框出來，看它是否帶著 `hotkey`。
+fn region_tooltip_shows(h: &mut Harness<'_, App>, hotkey: &str) -> bool {
+    h.get_by_label("⛶").hover();
+    h.run_steps(40);
+    has_label(h, &t("tooltip.region", &[("hotkey", hotkey)]))
 }
 
 fn run(h: &mut Harness<'_, App>) {
@@ -273,17 +290,36 @@ fn gear_opens_settings_and_save_applies_to_the_overlay() {
         !saved[0].contains_key("overlay"),
         "only the window's own keys"
     );
+    drop(saved);
     let app = h.state();
     assert_eq!(app.alpha(), 0.5);
     assert_eq!(app.limits(), (50, 30));
     assert!(!has_label(&h, &tr("button.save")), "window closed");
+    assert!(
+        region_tooltip_shows(&mut h, "ctrl+alt+r"),
+        "registered hotkey"
+    );
+}
+
+#[test]
+fn save_without_a_registered_region_hotkey_shows_the_saved_one() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let mut cfg = settings_cfg();
+    cfg.insert("region_hotkey".into(), json!("ctrl+alt+q"));
+    let (mut h, _wired) = settings_app_with(cfg, 0.8, None);
+    open_settings(&mut h);
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert!(region_tooltip_shows(&mut h, "ctrl+alt+q"));
 }
 
 #[test]
 fn cancel_restores_alpha_and_language() {
     let _lock = language_lock();
     i18n::set_language("zh-TW");
-    let (mut h, _wired) = settings_app(settings_cfg());
+    // overlay 起始透明度與設定相同：取消後要回到這個值
+    let (mut h, _wired) = settings_app_with(settings_cfg(), 0.5, Some("ctrl+alt+r"));
+    assert_eq!(h.state().alpha(), 0.5);
     open_settings(&mut h);
     click(&mut h, Role::Tab, &tr("settings.tab.advanced"));
     h.get_by_role(Role::Slider).set_value_accesskit(0.3);
@@ -294,21 +330,16 @@ fn cancel_restores_alpha_and_language() {
     h.get_by_role_and_label(Role::Button, &language_name("en-US"))
         .click();
     h.step();
-    let titles: Vec<_> = root_commands(&h)
-        .into_iter()
-        .filter(|c| matches!(c, ViewportCommand::Title(_)))
-        .collect();
-    let settings_title = t("settings.title", &[("app", &app_name())]);
+    let commands = root_commands(&h);
     assert!(
-        titles.contains(&ViewportCommand::Title(settings_title.clone())),
-        "{titles:?}"
-    );
-    assert!(
-        titles.contains(&ViewportCommand::Title(app_name())),
-        "{titles:?}"
+        commands.contains(&ViewportCommand::Title(app_name())),
+        "overlay relabeled: {commands:?}"
     );
     run(&mut h);
     assert_eq!(current_language(), "en-US");
+    // kittest 把視窗嵌成 egui 視窗，標題顯示在它的標題列
+    let settings_title = t("settings.title", &[("app", &app_name())]);
+    assert!(has_label(&h, &settings_title), "retitled");
     // ✕ 與 Alt+F4 走同一條路
     close_request(&mut h);
     run(&mut h);
@@ -465,6 +496,13 @@ fn wizard_cancel_closes_the_root() {
     assert!(root_commands(&h).contains(&ViewportCommand::Close));
     assert!(started.borrow().is_empty());
     assert_eq!(logged(), before + 1);
+    // 關閉要求排隊期間還會再跑幾幀：根視窗不可在結束前閃出來
+    let seen = frames(&mut h, 5);
+    assert!(
+        seen.iter()
+            .all(|c| !c.contains(&ViewportCommand::Visible(true))),
+        "{seen:?}"
+    );
 }
 
 #[test]
@@ -498,13 +536,10 @@ fn the_wizard_language_preview_retitles_its_window() {
     click(&mut h, Role::ComboBox, &tr("field.ui_language"));
     h.get_by_role_and_label(Role::Button, &language_name("zh-TW"))
         .click();
-    h.step();
+    run(&mut h);
     let title = t("wizard.title", &[("app", &app_name())]);
-    let commands = root_commands(&h);
     assert_eq!(current_language(), "zh-TW");
-    assert!(
-        commands.contains(&ViewportCommand::Title(title)),
-        "{commands:?}"
-    );
+    let shown = has_label(&h, &title);
     i18n::set_language("en-US");
+    assert!(shown, "retitled to {title:?}");
 }
