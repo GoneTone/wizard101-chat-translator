@@ -4,7 +4,9 @@ use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
-use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows_sys::Win32::System::Memory::{
+    GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock,
+};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 
 use crate::logs::log;
@@ -28,7 +30,7 @@ pub fn set_text(owner: isize, text: &str) -> bool {
 /// 讀取系統剪貼簿的文字；`Err` 是開不了剪貼簿，`Ok(None)` 是裡面沒有文字。
 pub fn get_text() -> Result<Option<String>, String> {
     unsafe { with_open(std::ptr::null_mut(), || read()) }
-        .map_err(|(step, code)| format!("clipboard {step} failed: error={code}"))
+        .map_err(|(step, code)| format!("{step} error={code}"))
 }
 
 /// 開啟剪貼簿跑 `f`，不論結果都會關閉。
@@ -51,7 +53,9 @@ unsafe fn read() -> Option<String> {
         if src.is_null() {
             return None;
         }
-        let len = (0..).take_while(|&i| *src.add(i) != 0).count();
+        // 別的程式放的文字可能沒有結尾 NUL，長度以記憶體區塊大小為界
+        let max = GlobalSize(mem) / 2;
+        let len = (0..max).take_while(|&i| *src.add(i) != 0).count();
         let text = String::from_utf16_lossy(std::slice::from_raw_parts(src, len));
         GlobalUnlock(mem);
         Some(text)

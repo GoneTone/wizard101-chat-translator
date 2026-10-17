@@ -23,6 +23,7 @@ pub const FOCUS_DELAY: Duration = Duration::from_millis(150);
 pub const PASTE_KEY: &str = "v";
 /// 貼上前等使用者放開 Ctrl／V 的上限。
 pub const MODIFIER_RELEASE_TIMEOUT: Duration = Duration::from_secs(3);
+/// 等待放開時的輪詢間隔。
 pub const KEY_RELEASE_POLL: Duration = Duration::from_millis(10);
 
 /// 譯文與貼上兩條路共用：鍵入進行中就持有，也讓兩者不交錯。
@@ -253,6 +254,7 @@ mod tests {
     struct Fake {
         calls: Mutex<Vec<Call>>,
         typing_seen: Mutex<Vec<bool>>,
+        paste_locked: Mutex<Vec<bool>>,
     }
 
     impl Injector for Fake {
@@ -264,6 +266,10 @@ mod tests {
         }
         fn unicode(&self, ch: char) {
             self.typing_seen.lock().unwrap().push(typing_in_progress());
+            self.paste_locked
+                .lock()
+                .unwrap()
+                .push(PASTE_IN_PROGRESS.try_lock().is_err());
             self.calls.lock().unwrap().push(Call::Unicode(ch));
         }
         fn mask(&self) {}
@@ -348,6 +354,10 @@ mod tests {
 
     fn setup() -> (Arc<Fake>, TypingEnv) {
         set_foreground(&[0]);
+        set_clipboard(Ok(None));
+        SLEPT.with(|s| s.borrow_mut().clear());
+        FORCED.with(|f| f.borrow_mut().clear());
+        CLOCK.with(|c| c.set(Duration::ZERO));
         let fake = Arc::new(Fake::default());
         let env = fake_env(&fake);
         (fake, env)
@@ -535,10 +545,19 @@ mod tests {
     fn paste_clipboard_skips_unreadable_clipboard() {
         let _g = serial();
         let (fake, env) = setup();
-        for clip in [Err("open failed"), Ok(None), Ok(Some(""))] {
+        for clip in [Err("error=5"), Ok(None)] {
             set_clipboard(clip);
             assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
         }
+        assert!(fake.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn paste_clipboard_skips_empty_clipboard() {
+        let _g = serial();
+        let (fake, env) = setup();
+        set_clipboard(Ok(Some("")));
+        assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
         assert!(fake.calls.lock().unwrap().is_empty());
     }
 
@@ -590,8 +609,10 @@ mod tests {
         env.pressed = Arc::new(move || {
             let mut n = polls.lock().unwrap();
             *n += 1;
-            if *n <= 3 {
+            if *n <= 2 {
                 [ctrl, v].into()
+            } else if *n == 3 {
+                [v].into()
             } else {
                 Pressed::new()
             }
@@ -633,6 +654,7 @@ mod tests {
         drop(running);
         assert!(fake.calls.lock().unwrap().is_empty());
         assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert_eq!(*fake.paste_locked.lock().unwrap(), [true; 4]);
     }
 
     #[test]
