@@ -8,7 +8,6 @@ use std::sync::{LazyLock, Mutex};
 
 use regex::Regex;
 use serde_json::Value;
-use sha1::{Digest, Sha1};
 
 use super::postprocess::{SPACE, number_lines, numbered_entries, tidy_parentheses, unnumber_lines};
 use super::{Role, Turn};
@@ -96,9 +95,7 @@ impl ExampleSet {
     ///
     /// 改動這裡或 `py_repr` 會讓使用者既有的譯文快取全部作廢。
     pub fn digest(&self) -> String {
-        let hash = Sha1::digest(self.py_repr().as_bytes());
-        let hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-        hex[..12].to_string()
+        crate::util::sha1_head(&[self.py_repr().as_bytes()])
     }
 
     /// 各路徑成敗的一行摘要，給 log 用。

@@ -7,20 +7,13 @@ use wizard101_chat_translator::reader::pattern::{self, ScanError};
 const MODULE: &str = "WizardGraphicalClient.exe";
 const REGION_BASE: u64 = 0x1_4000_1000;
 
-fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-        .collect()
-}
-
 #[test]
 fn scan_matches_python_regex_semantics() {
     let cases = common::golden("pattern_scan");
     assert!(!cases.is_empty());
     for case in cases {
         let pat = case["input"]["pattern"].as_str().unwrap();
-        let buf = unhex(case["input"]["buffer"].as_str().unwrap());
+        let buf = common::unhex(case["input"]["buffer"].as_str().unwrap());
         let want: Vec<(usize, usize)> = case["output"]
             .as_array()
             .unwrap()

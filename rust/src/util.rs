@@ -1,9 +1,11 @@
-//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取與不怕 poison 的上鎖。
+//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖與內容指紋。
 
 use std::any::Any;
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use sha1::{Digest, Sha1};
 
 /// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
 const JOIN_POLL: Duration = Duration::from_millis(10);
@@ -62,4 +64,18 @@ pub fn read<T: ?Sized>(l: &RwLock<T>) -> RwLockReadGuard<'_, T> {
 /// 取寫鎖；poison 也照樣拿到內容。
 pub fn write<T: ?Sized>(l: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     l.write().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 依序串接 `parts` 的 sha1 前 12 碼（小寫 hex），當內容指紋用。
+pub fn sha1_head(parts: &[&[u8]]) -> String {
+    let mut hasher = Sha1::new();
+    for part in parts {
+        hasher.update(part);
+    }
+    let hex: String = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    hex[..12].to_string()
 }

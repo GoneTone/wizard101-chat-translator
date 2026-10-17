@@ -1506,6 +1506,63 @@ EXPORTERS["keyboard_is_modifier"] = export_keyboard_is_modifier
 EXPORTERS["keyboard_parse"] = export_keyboard_parse
 
 
+def export_ocr_merge_lines() -> list[dict]:
+    """`merge_lines`：input 為 [box, text] 清單（box 為 4 個角點），output 為合併後的行。"""
+    from src.region.ocr import merge_lines
+
+    def box(x: float, y: float, w: float, h: float, skew: float = 0) -> list[list[float]]:
+        return [[x, y], [x + w, y + skew], [x + w, y + h + skew], [x, y + h]]
+
+    cases = [
+        [],
+        [(box(0, 0, 40, 20), "only")],
+        [(box(0, 0, 60, 20), "Items"), (box(70, 1, 230, 20), "Recommended For Your"),
+         (box(310, 0, 70, 21), "Wizard")],
+        [(box(0, 0, 80, 20), "first line"), (box(0, 40, 90, 20), "second line")],
+        # 高度中位數 20 → 門檻 10：y 差剛好 10 換行，9.5 仍算同一行。
+        [(box(0, 0, 40, 20), "a"), (box(50, 10, 40, 20), "b")],
+        [(box(0, 0, 40, 20), "a"), (box(50, 9.5, 40, 20), "b")],
+        [(box(200, 2, 50, 20), "c"), (box(0, 0, 50, 20), "a"), (box(100, 1, 50, 20), "b"),
+         (box(100, 41, 50, 20), "e"), (box(0, 40, 50, 20), "d")],
+        [(box(0, 0, 200, 20, skew=8), "tilted one"), (box(210, 8, 100, 20, skew=4), "tail"),
+         (box(0, 50, 200, 20, skew=-6), "tilted two")],
+        # 偶數個框取中位數平均；同一行的中心 y 會隨新框更新。
+        [(box(0, 0, 30, 10), "s"), (box(40, 4, 30, 30), "t"), (box(80, 12, 30, 10), "u"),
+         (box(0, 60, 30, 30), "v")],
+    ]
+    return [{"input": [[b, t] for b, t in items], "output": merge_lines(items)} for items in cases]
+
+
+def export_ocr_recognize() -> list[dict]:
+    """`recognize`：input 為 {name, png（hex）}，output 為辨識出的文字（圖同 tests/region/test_ocr.py）。"""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    from src.region.ocr import recognize
+
+    def png(mode: str, background, text: str | None) -> bytes:
+        image = Image.new(mode, (640, 120), background)
+        if text:
+            ImageDraw.Draw(image).text((20, 30), text, fill="black", font=ImageFont.load_default(size=40))
+        buffer = io.BytesIO()
+        image.save(buffer, "PNG")
+        return buffer.getvalue()
+
+    images = {
+        "rendered": png("RGB", "white", "Hello Wizard"),
+        # 透明但底色白：(0, 0, 0, 0) 的 RGB 與黑字相同，測不出丟掉 alpha 這一步。
+        "transparent": png("RGBA", (255, 255, 255, 0), "Hello Wizard"),
+        "blank": png("RGB", "white", None),
+    }
+    return [{"input": {"name": name, "png": data.hex()}, "output": recognize(data)}
+            for name, data in images.items()]
+
+
+EXPORTERS["ocr_merge_lines"] = export_ocr_merge_lines
+EXPORTERS["ocr_recognize"] = export_ocr_recognize
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

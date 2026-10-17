@@ -15,11 +15,13 @@ caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit", "links"] }
 futures-util = "0.3.34"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 log = "0.4.34"
 raw-window-handle = "0.6.2"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "json"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rusto-rs = "0.3.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 sha1 = "0.11.0"
@@ -39,3 +41,17 @@ wizard101-chat-translator = { path = ".", features = ["test-support"] }
 
 [build-dependencies]
 embed-resource = "3.0.12"
+
+# 推論在未最佳化的 debug 建置下一張圖要十幾秒，測試與開發時跑不動。
+[profile.dev.package.rten]
+opt-level = 3
+[profile.dev.package.rten-gemm]
+opt-level = 3
+[profile.dev.package.rten-simd]
+opt-level = 3
+[profile.dev.package.rten-vecmath]
+opt-level = 3
+[profile.dev.package.rten-tensor]
+opt-level = 3
+[profile.dev.package.rusto-rs]
+opt-level = 3

@@ -18,13 +18,6 @@ use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, ProcessMem
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::reader::ui_tree::{Window, find_by_name};
 
-fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-        .collect()
-}
-
 fn pair(v: &Value) -> (i32, i32) {
     let a = v.as_array().unwrap();
     (a[0].as_i64().unwrap() as i32, a[1].as_i64().unwrap() as i32)
@@ -115,7 +108,7 @@ fn ring_record_split_surrogate_matches_python() {
     let cases = common::golden("hook_records");
     assert!(cases.len() >= 15);
     for c in cases {
-        let rec = decode_record(&unhex(c["input"].as_str().unwrap()));
+        let rec = decode_record(&common::unhex(c["input"].as_str().unwrap()));
         let o = &c["output"];
         assert_eq!(rec.seq, o["seq"].as_u64().unwrap());
         assert_eq!(rec.ret, o["ret"].as_u64().unwrap());

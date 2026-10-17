@@ -1,1 +1,2 @@
 rust/tests/golden/*.json text eol=lf
+rust/assets/ocr/* -text
