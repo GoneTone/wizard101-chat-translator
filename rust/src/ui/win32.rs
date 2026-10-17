@@ -1,4 +1,4 @@
-//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、前景切換與螢幕查詢。
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -17,13 +17,14 @@ use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress
 use windows_sys::Win32::System::Memory::{PAGE_READWRITE, VirtualProtect};
 use windows_sys::Win32::System::SystemServices::IMAGE_DOS_HEADER;
 use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumThreadWindows, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW,
-    GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, HMENU, IsWindow, IsWindowVisible,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, WM_NCCALCSIZE, WM_NCDESTROY, WS_EX_NOACTIVATE,
-    WS_EX_NOREDIRECTIONBITMAP,
+    EnumThreadWindows, GW_OWNER, GWL_EXSTYLE, GWLP_HWNDPARENT, GetCursorPos, GetForegroundWindow,
+    GetWindow, GetWindowLongPtrW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, HMENU,
+    IsWindow, IsWindowVisible, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+    SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, WM_NCCALCSIZE,
+    WM_NCDESTROY, WM_STYLECHANGING, WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP,
 };
 use windows_sys::core::PCWSTR;
 
@@ -101,6 +102,52 @@ pub fn remove_system_frame(hwnd: isize) {
     let flags = SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
     unsafe { SetWindowPos(hwnd_, std::ptr::null_mut(), 0, 0, 0, 0, flags) };
     log(format!("[ui] system frame removed: hwnd={hwnd:#x}"));
+}
+
+unsafe extern "system" fn no_taskbar_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    // winit 每次套用狀態（如顯示）都整個重寫 extended style 並加回 APPWINDOW，只能在這裡攔
+    if msg == WM_STYLECHANGING && wparam as i32 == GWL_EXSTYLE {
+        let change = unsafe { &mut *(lparam as *mut STYLESTRUCT) };
+        change.styleNew &= !WS_EX_APPWINDOW;
+    }
+    if msg == WM_NCDESTROY {
+        unsafe { RemoveWindowSubclass(hwnd, Some(no_taskbar_proc), 0) };
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+/// 讓視窗由 `owner` 擁有且永不帶 `WS_EX_APPWINDOW`，就沒有工作列按鈕；要在顯示之前呼叫。
+///
+/// egui 的 `with_taskbar(false)` 只在建立（還隱藏）時刪一次工作列按鈕，顯示時又會加回來。
+pub fn hide_from_taskbar(hwnd: isize, owner: isize) {
+    let hwnd_ = hwnd as HWND;
+    if unsafe { SetWindowSubclass(hwnd_, Some(no_taskbar_proc), 0, 0) } == 0 {
+        log(format!(
+            "[ui] taskbar button left on: hwnd={hwnd:#x} error={}",
+            std::io::Error::last_os_error()
+        ));
+        return;
+    }
+    unsafe {
+        SetWindowLongPtrW(hwnd_, GWLP_HWNDPARENT, owner);
+        SetWindowLongPtrW(
+            hwnd_,
+            GWL_EXSTYLE,
+            (ex_style(hwnd) & !WS_EX_APPWINDOW) as isize,
+        );
+    }
+}
+
+/// 視窗的擁有者；沒有時回 0。
+pub fn owner_of(hwnd: isize) -> isize {
+    unsafe { GetWindow(hwnd as HWND, GW_OWNER) as isize }
 }
 
 /// winit 的視窗類別名稱；egui 的每個 viewport 都用它建立。
@@ -294,6 +341,17 @@ pub fn work_area_at(x: i32, y: i32) -> Rect {
     to_rect(monitor_info(x, y).rcWork)
 }
 
+/// 含 (x, y) 那顆螢幕的縮放比例（每 DIP 的實體像素數）；取不到時為 1.0。
+pub fn scale_at(x: i32, y: i32) -> f32 {
+    let (mut dpi_x, mut dpi_y) = (0u32, 0u32);
+    let monitor = unsafe { MonitorFromPoint(POINT { x, y }, MONITOR_DEFAULTTONEAREST) };
+    let hr = unsafe { GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) };
+    if hr < 0 || dpi_x == 0 {
+        return 1.0;
+    }
+    dpi_x as f32 / 96.0
+}
+
 /// 含 (x, y) 那顆螢幕的整個矩形（含工作列）。
 pub fn monitor_rect_at(x: i32, y: i32) -> Rect {
     to_rect(monitor_info(x, y).rcMonitor)
@@ -413,6 +471,13 @@ mod tests {
         // 同標題的輸入框（5）與泡泡（9）在同一段期間出現：已知的輸入框不會被當成泡泡
         assert_eq!(pick_new_window(&[1], &[1, 5, 9], &[1, 5], by_title), 9);
         assert_eq!(pick_new_window(&[1], &[1, 5], &[1, 5], || 0), 0);
+    }
+
+    #[test]
+    fn scale_at_reads_a_plausible_monitor_scale() {
+        // Windows 的縮放下限是 100%，上限 500%
+        let scale = scale_at(0, 0);
+        assert!((1.0..=5.0).contains(&scale), "{scale}");
     }
 
     #[test]

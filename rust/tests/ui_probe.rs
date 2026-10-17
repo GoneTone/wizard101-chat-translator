@@ -33,7 +33,7 @@ use wizard101_chat_translator::ui::input_box::{self, InputBox};
 use wizard101_chat_translator::ui::input_host::Desktop;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::palette::BAR;
-use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of};
+use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of, owner_of, window_rect};
 
 const PARK: f32 = 10000.0;
 /// 輸入框的螢幕外游標位置（實體像素）與假的工作區：box 貼在游標下、不被拉回真的螢幕。
@@ -252,13 +252,15 @@ fn composed_matches(hwnd: isize, drawn: [u8; 4]) -> (bool, Option<[u8; 4]>) {
 /// 合成結果與 egui 畫的不同的一點：x、y、合成值、egui 值。
 type Mismatch = (u32, u32, [u8; 4], [u8; 4]);
 
-/// 合成結果在四角與四邊中點與 egui 畫的不同之處；系統的圓角、邊框與陰影都落在這些點上。
-fn edge_mismatches(hwnd: isize, drawn: &ColorImage) -> Option<Vec<Mismatch>> {
+/// 合成結果在四角與四邊中點與 `want` 不同之處；系統的圓角、邊框與陰影都落在這些點上。
+///
+/// `want` 收 (x, y, 寬, 高) 回應有的像素，回 `None`（例如尺寸對不上）時整個回 `None`。
+fn edge_mismatches(
+    hwnd: isize,
+    want: impl Fn(u32, u32, u32, u32) -> Option<[u8; 4]>,
+) -> Option<Vec<Mismatch>> {
     let c = compose_capture(hwnd)?;
     let (w, h) = (c.0, c.1);
-    if [w as usize, h as usize] != drawn.size {
-        return None;
-    }
     let points = [
         (0, 0),
         (w / 2, 0),
@@ -269,36 +271,22 @@ fn edge_mismatches(hwnd: isize, drawn: &ColorImage) -> Option<Vec<Mismatch>> {
         (w / 2, h - 1),
         (w - 1, h - 1),
     ];
-    let differs = |(x, y)| {
-        let got = pixel_at(&c, x, y);
-        let want = drawn.pixels[y as usize * w as usize + x as usize].to_array();
-        let close = got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
-        (!close).then_some((x, y, got, want))
-    };
-    Some(points.into_iter().filter_map(differs).collect())
+    let mut found = Vec::new();
+    for (x, y) in points {
+        let (got, want) = (pixel_at(&c, x, y), want(x, y, w, h)?);
+        if !got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2) {
+            found.push((x, y, got, want));
+        }
+    }
+    Some(found)
 }
 
-/// 輸入框合成後四角與四邊中點和應有底色（上緣是拖曳條、其餘是 BG）不同之處。
-fn input_box_edges(hwnd: isize) -> Option<(u32, u32, Vec<Mismatch>)> {
-    let c = compose_capture(hwnd)?;
-    let (w, h) = (c.0, c.1);
-    let (bar, bg) = (BAR.to_array(), input_box::BG.to_array());
-    let points = [
-        ((0, 0), bar),
-        ((w / 2, 0), bar),
-        ((w - 1, 0), bar),
-        ((0, h / 2), bg),
-        ((w - 1, h / 2), bg),
-        ((0, h - 1), bg),
-        ((w / 2, h - 1), bg),
-        ((w - 1, h - 1), bg),
-    ];
-    let differs = |((x, y), want): ((u32, u32), [u8; 4])| {
-        let got = pixel_at(&c, x, y);
-        let close = got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
-        (!close).then_some((x, y, got, want))
-    };
-    Some((w, h, points.into_iter().filter_map(differs).collect()))
+/// egui 自己畫出的像素（截圖與擷取尺寸相同時）。
+fn drawn_pixel(img: &ColorImage) -> impl Fn(u32, u32, u32, u32) -> Option<[u8; 4]> + '_ {
+    |x, y, w, h| {
+        ([w as usize, h as usize] == img.size)
+            .then(|| img.pixels[y as usize * w as usize + x as usize].to_array())
+    }
 }
 
 /// 檢查執行緒：依序驗證各項，結束時關掉視窗。
@@ -371,7 +359,9 @@ fn run_checks(
     );
 
     // 1c. 邊緣沒有系統畫的圓角、邊框或陰影
-    let edges = shot.as_deref().and_then(|img| edge_mismatches(h, img));
+    let edges = shot
+        .as_deref()
+        .and_then(|img| edge_mismatches(h, drawn_pixel(img)));
     report.check(
         edges.as_ref().is_some_and(Vec::is_empty),
         format!("check1c composed edges differing from drawn (x, y, composed, drawn): {edges:?}"),
@@ -487,7 +477,9 @@ fn run_checks(
         format!("expand: composed background {composed:?} == drawn {drawn:?}"),
     );
     // winit 顯示視窗時會重算外框：展開後邊緣也要維持
-    let edges = shot.as_deref().and_then(|img| edge_mismatches(hwnd(), img));
+    let edges = shot
+        .as_deref()
+        .and_then(|img| edge_mismatches(hwnd(), drawn_pixel(img)));
     report.check(
         edges.as_ref().is_some_and(Vec::is_empty),
         format!("expand: composed edges differing from drawn: {edges:?}"),
@@ -506,14 +498,25 @@ fn run_checks(
         input != 0
     });
     std::thread::sleep(Duration::from_millis(300));
-    let edges = if opened { input_box_edges(input) } else { None };
+    // 上緣是拖曳條，其餘是 BG
+    let (bar, bg) = (BAR.to_array(), input_box::BG.to_array());
+    let edges = opened
+        .then(|| edge_mismatches(input, |_, y, _, _| Some(if y == 0 { bar } else { bg })))
+        .flatten();
+    let (ex, owner) = (ex_style(input), owner_of(input));
     let fg = unsafe { GetForegroundWindow() as isize };
     report.check(
-        edges.as_ref().is_some_and(|(_, _, e)| e.is_empty()) && fg != input,
+        edges.as_ref().is_some_and(Vec::is_empty)
+            && ex & WS_EX_APPWINDOW == 0
+            && owner == hwnd()
+            && fg == fg_before,
         format!(
-            "check6 input box={input:#x} composed (width, height, edges differing (x, y, composed, want)) \
-             {edges:?} ex-style={:#x} foreground={fg:#x}",
-            ex_style(input)
+            "check6 input box={input:#x} rect={:?} composed edges differing (x, y, composed, want) \
+             {edges:?} ex-style={ex:#x} APPWINDOW={} owner={owner:#x} (overlay={:#x}) \
+             foreground before={fg_before:#x} after={fg:#x}",
+            window_rect(input),
+            ex & WS_EX_APPWINDOW != 0,
+            hwnd()
         ),
     );
 }

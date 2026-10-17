@@ -53,7 +53,8 @@ pub struct InputHost {
     shown: bool,
     raise: bool,
     above: bool,
-    content_h: i32,
+    /// 上次擺放或貼合時的內容高度（DIP）。
+    content_dip: f32,
 }
 
 impl InputHost {
@@ -69,7 +70,7 @@ impl InputHost {
             shown: false,
             raise: false,
             above: false,
-            content_h: 0,
+            content_dip: 0.0,
         }
     }
 
@@ -105,11 +106,12 @@ impl InputHost {
         truthy(cfg.get("auto_show_input"))
     }
 
-    /// 每幀呼叫：開著就畫出視窗，關了就把前景交還；`known` 是本執行緒其他視窗（overlay、泡泡），找 HWND 時略過。
+    /// 每幀呼叫：開著就畫出視窗，關了就把前景交還；找 HWND 時略過 overlay 與泡泡（0＝沒有），輸入框由 overlay 擁有。
     ///
     /// 建立那一幀先藏著量內容高度、以實體像素擺好，下一幀才顯示並搶前景。
-    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) {
+    pub fn show(&mut self, ctx: &egui::Context, overlay: isize, bubble: isize) {
         if !self.input.is_open() {
+            // shortcut: 同一輪 logic 先關後開時沿用原視窗與位置（Python 會重建、重新貼齊）；實機遇到再改成關閉就換新的 viewport id
             (self.hwnd, self.created, self.shown, self.raise) = (0, false, false, false);
             if let Some(target) = self.input.take_restore_foreground() {
                 (self.desktop.force_foreground)(target);
@@ -126,8 +128,8 @@ impl InputHost {
             .with_taskbar(false);
         if creating {
             // 概略的位置與寬度（寬度決定提示換行、也就決定內容高度），找到 HWND 後再以實體像素擺正
+            let (x, y, w, h) = self.open_rect(INITIAL_HEIGHT).0;
             let ppp = ctx.pixels_per_point();
-            let (x, y, w, h) = self.open_rect((INITIAL_HEIGHT * ppp).round() as i32, ppp).0;
             let dip = |v: i32| v as f32 / ppp;
             builder = builder
                 .with_visible(false)
@@ -154,20 +156,21 @@ impl InputHost {
             ctx.request_repaint();
             return;
         }
-        let content_h = (height * ppp).round() as i32;
         if self.hwnd == 0 {
-            self.hwnd = win32::pick_new_window(&before, &win32::thread_windows(), known, || {
-                win32::find_thread_window(&app_name(), known)
+            let known = [overlay, bubble];
+            self.hwnd = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
+                win32::find_thread_window(&app_name(), &known)
             });
             if self.hwnd != 0 {
-                self.place(content_h, ppp);
+                self.place(height, overlay);
             } else if creating {
                 log("[ui] input box hwnd lookup failed: no new window on the UI thread");
             }
-        } else if content_h != self.content_h {
+        } else if height != self.content_dip {
+            let content_h = (height * ppp).round() as i32;
             let rect = refit(win32::window_rect(self.hwnd), content_h, self.above);
             win32::set_window_rect(self.hwnd, rect);
-            self.content_h = content_h;
+            self.content_dip = height;
         }
         if creating {
             ctx.request_repaint();
@@ -179,28 +182,27 @@ impl InputHost {
         }
     }
 
-    /// 拿掉系統外框，依內容高度貼齊錨點或游標。
-    fn place(&mut self, content_h: i32, ppp: f32) {
+    /// 拿掉系統外框與工作列按鈕，依內容高度（DIP）貼齊錨點或游標。
+    fn place(&mut self, content_dip: f32, overlay: isize) {
         win32::remove_system_frame(self.hwnd);
-        let (rect, above) = self.open_rect(content_h, ppp);
+        win32::hide_from_taskbar(self.hwnd, overlay);
+        let (rect, above) = self.open_rect(content_dip);
         win32::set_window_rect(self.hwnd, rect);
-        (self.above, self.content_h) = (above, content_h);
+        (self.above, self.content_dip) = (above, content_dip);
         log(format!(
             "[ui] input box placed: hwnd={:#x} rect={rect:?} above_anchor={above}",
             self.hwnd
         ));
     }
 
-    fn open_rect(&self, content_h: i32, scale: f32) -> (Rect, bool) {
+    /// 開窗外框（實體像素）：以錨點或游標所在螢幕的縮放換算，不是視窗剛好落在哪顆螢幕。
+    fn open_rect(&self, content_dip: f32) -> (Rect, bool) {
         let (anchor, cursor) = self.input.placement_anchor();
         let (x, y) = anchor.map_or(cursor, |(x, y, _, _)| (x, y));
-        open_rect(
-            anchor,
-            cursor,
-            content_h,
-            scale,
-            (self.desktop.work_area_at)(x, y),
-        )
+        let scale = win32::scale_at(x, y);
+        let content_h = (content_dip * scale).round() as i32;
+        let area = (self.desktop.work_area_at)(x, y);
+        open_rect(anchor, cursor, content_h, scale, area)
     }
 }
 
@@ -211,6 +213,7 @@ fn content(ui: &mut egui::Ui, input: &mut InputBox) -> f32 {
     let bar = egui::Rect::from_min_size(full.min, Vec2::new(full.width(), BAR_HEIGHT));
     if drag_strip(ui, bar) || ui.input(|i| i.viewport().close_requested()) {
         input.close();
+        return BAR_HEIGHT;
     }
     let mut body = ui.new_child(UiBuilder::new().max_rect(full.with_min_y(bar.max.y)));
     input.content(&mut body);

@@ -382,7 +382,7 @@ impl eframe::App for App {
         }
         if let Some(host) = &mut self.input {
             let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
-            host.show(&ctx, &[self.hwnd, bubble]);
+            host.show(&ctx, self.hwnd, bubble);
         }
     }
 
@@ -1046,9 +1046,30 @@ mod tests {
         harness.step();
         assert_eq!(*wired.sent.borrow(), [("hi".to_owned(), 0xA)]);
         assert!(!input_box(&harness).is_open());
-        // 前景交還給打字對象
-        harness.step();
+        // logic 裡 finish 關窗，同一幀的 ui 就把前景交還給打字對象
         assert_eq!(RAISED.with(|r| r.borrow().clone()), [0xA]);
+    }
+
+    #[test]
+    fn enter_in_the_frame_the_box_closes_submits_nothing() {
+        let (poster, inbox) = channel();
+        let (mut harness, wired) = input_harness(inbox);
+        poster.post(UiEvent::ShowInputBox { retarget: None });
+        harness.run_steps(2);
+        harness.event(egui::Event::Text("hello".into()));
+        harness.step();
+        // kittest 把輸入框嵌在根 viewport 裡，Alt+F4 因此從根送進來
+        harness
+            .input_mut()
+            .viewports
+            .entry(ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        harness.key_press(egui::Key::Enter);
+        harness.step();
+        assert!(!input_box(&harness).is_open());
+        assert!(wired.requests.borrow().is_empty());
     }
 
     #[test]
