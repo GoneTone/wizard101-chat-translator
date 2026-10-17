@@ -164,13 +164,14 @@ impl Bubble {
         }
     }
 
-    /// 輪詢時間到才檢查前景；泡泡這一輪才變成前景、游標又不在它上面就回 `true`。
+    /// 每一幀都檢查前景（點工作列按鈕的啟用事件當幀就展開），輪詢只負責沒有事件時的喚醒；
+    /// 泡泡這一幀才變成前景、游標又不在它上面就回 `true`。
     pub fn watch(&mut self, now: Instant, foreground: isize, shell: &dyn Shell) -> bool {
-        if now < self.next_poll {
-            return false;
+        let due = now >= self.next_poll;
+        if due {
+            self.next_poll = now + POLL_INTERVAL;
         }
-        self.next_poll = now + POLL_INTERVAL;
-        if self.hwnd == 0 && !self.lookup_logged {
+        if due && self.hwnd == 0 && !self.lookup_logged {
             self.lookup_logged = true;
             log("[ui] bubble hwnd lookup failed: no bubble window on the UI thread");
         }
@@ -302,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn watch_polls_every_300ms_from_the_attach_baseline() {
+    fn watch_reacts_on_the_frame_the_bubble_becomes_foreground() {
         let t0 = Instant::now();
         let shell = FakeShell {
             cursor: (0, 0),
@@ -312,13 +313,11 @@ mod tests {
         let mut bubble = Bubble::new((500, 500), t0);
         // 建立時被啟用、找到的當下已經是前景：拿它當基準，不算切回
         bubble.attach(101, 101);
-        assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
-        assert!(!bubble.watch(t0 + POLL_INTERVAL * 2, 202, &shell));
-        assert!(
-            !bubble.watch(t0 + POLL_INTERVAL * 2, 101, &shell),
-            "not yet"
-        );
-        assert!(bubble.watch(t0 + POLL_INTERVAL * 3, 101, &shell));
+        assert!(!bubble.watch(t0, 101, &shell));
+        assert!(!bubble.watch(t0, 202, &shell));
+        // 點工作列按鈕帶來的那一幀就要展開，不等下一輪輪詢
+        assert!(bubble.watch(t0, 101, &shell));
+        assert!(!bubble.watch(t0, 101, &shell), "already foreground");
     }
 
     #[test]
