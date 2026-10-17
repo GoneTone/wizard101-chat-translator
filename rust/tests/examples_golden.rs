@@ -4,12 +4,12 @@ mod common;
 
 use serde_json::Value;
 use wizard101_chat_translator::config::ServiceSpec;
+use wizard101_chat_translator::py::pyrepr::repr_str;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::examples::{
     EXAMPLE_REVISION, ExampleSet, ExampleStore, GAME_LANGUAGE_EXAMPLES, MAX_ENTRIES, SOURCE_LINES,
     examples_fingerprint, generation_request, parse_generated,
 };
-use wizard101_chat_translator::translation::pyrepr::repr_str;
 
 fn s(v: &Value) -> &str {
     v.as_str().unwrap()

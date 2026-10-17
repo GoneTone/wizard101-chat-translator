@@ -13,9 +13,9 @@ use super::{
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
+use crate::py::pystr;
 use crate::translation::errors::{TranslateError, model_list_error, one_line, status_error};
 use crate::translation::postprocess::strip_think;
-use crate::translation::pystr;
 use crate::translation::{Role, Turn};
 
 /// Gemini 官方端點。

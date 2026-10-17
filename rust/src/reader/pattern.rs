@@ -8,7 +8,7 @@ use windows_sys::Win32::System::Memory::{
 };
 
 use super::memory::{MemError, ProcessMemory};
-use crate::translation::pyrepr::repr_str;
+use crate::py::pyrepr::repr_str;
 
 /// 保護屬性必須「恰為」其中之一，帶 PAGE_GUARD 等修飾旗標的區段不掃（同 wizwalker）。
 const SCANNABLE: [u32; 4] = [

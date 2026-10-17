@@ -15,12 +15,12 @@ use super::{
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
+use crate::py::pystr;
 use crate::translation::Turn;
 use crate::translation::errors::{
     TranslateError, message_of, model_list_error, one_line, status_error,
 };
 use crate::translation::postprocess::strip_think;
-use crate::translation::pystr;
 
 /// Claude 官方端點。
 pub const CLAUDE_BASE_URL: &str = "https://api.anthropic.com";

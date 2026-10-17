@@ -9,11 +9,10 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
-use super::mem_reader::Clock;
 use super::run_loop::wait;
 use super::status::StatusBoard;
 use crate::logs::log;
-use crate::translation::pool::panic_message;
+use crate::util::{Clock, panic_message};
 
 /// 列舉遊戲視窗的間隔。
 pub const SCAN_INTERVAL: Duration = Duration::from_secs(5);

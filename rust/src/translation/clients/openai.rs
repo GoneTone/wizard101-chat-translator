@@ -14,12 +14,12 @@ use super::{
     http_client, secret_header, truncated,
 };
 use crate::logs::log;
+use crate::py::pystr;
 use crate::translation::Turn;
 use crate::translation::errors::{
     TranslateError, error_detail, model_list_error, rejected_parameter, status_error,
 };
 use crate::translation::postprocess::strip_think;
-use crate::translation::pystr;
 
 /// 長度上限的兩個名字互換而非拿掉：它是防 repetition loop 的保險。
 fn other_token_param(name: &str) -> Option<&'static str> {

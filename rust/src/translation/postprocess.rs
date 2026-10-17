@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
-use super::pystr::{self, casefold, lstrip, rstrip, strip};
+use crate::py::pystr::{self, casefold, lstrip, rstrip, strip};
 use crate::reader::markup::SENDER_PREFIX;
 
 pub(super) const SPACE: &str = r"[\s\x1c-\x1f]";

@@ -15,7 +15,7 @@ use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
 use wizard101_chat_translator::reader::mem_reader::{
-    Clock, GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
+    GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
     WizChatReader,
 };
 use wizard101_chat_translator::reader::memory::{
@@ -25,6 +25,7 @@ use wizard101_chat_translator::reader::process::{
     client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
 };
 use wizard101_chat_translator::reader::ui_rect::client_rect;
+use wizard101_chat_translator::util::Clock;
 
 const BASE: u64 = 0x1_4000_0000;
 const CAVE: u64 = 0x1_4000_1000;

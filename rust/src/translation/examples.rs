@@ -11,11 +11,11 @@ use serde_json::Value;
 use sha1::{Digest, Sha1};
 
 use super::postprocess::{SPACE, number_lines, numbered_entries, tidy_parentheses, unnumber_lines};
-use super::pyrepr::repr_str;
-use super::pystr;
 use super::{Role, Turn};
 use crate::config::{ServiceSpec, local_state_dir};
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
+use crate::py::pystr;
 
 /// 範例內容（含 `GAME_LANGUAGE_EXAMPLES`）或生成提示詞有變時要遞增，讓舊快取作廢。
 pub const EXAMPLE_REVISION: u32 = 4;

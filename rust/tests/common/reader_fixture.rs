@@ -9,11 +9,11 @@ use std::time::{Duration, Instant};
 
 use tokio::runtime::Runtime;
 use wizard101_chat_translator::logs::{self, Sink};
-use wizard101_chat_translator::reader::mem_reader::Clock;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::gate::ConcurrencyGate;
 use wizard101_chat_translator::translation::pool::{ResultFn, TranslateFn, TranslationPool};
 use wizard101_chat_translator::ui::events::UiEvent;
+use wizard101_chat_translator::util::Clock;
 
 /// 測試刻意觸發的 panic 訊息帶這個標記，`quiet_panics` 不印出它。
 pub const EXPECTED_PANIC: &str = "[expected test panic]";

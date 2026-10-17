@@ -3,7 +3,6 @@
 //! 呼叫端只負責提交（line, context, msg_id）與接收 `on_result(msg_id, text, failed)`；
 //! 顯示順序不由完成順序決定 —— overlay 在提交當下就已佔好位置。
 
-use std::any::Any;
 use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -17,6 +16,7 @@ use super::BoxFuture;
 use super::errors::TranslateError;
 use super::gate::ConcurrencyGate;
 use crate::logs::log;
+use crate::util::panic_message;
 
 /// 一次翻譯請求：`(line, context)` → 譯文。
 pub type TranslateFn = Arc<
@@ -313,12 +313,4 @@ impl Drop for Job {
             self.inner.state().in_flight -= 1;
         }
     }
-}
-
-pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|s| (*s).to_owned())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "panic".to_owned())
 }

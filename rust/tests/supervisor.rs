@@ -15,12 +15,12 @@ use common::reader_fixture::{
     runtime, statuses,
 };
 use tokio_util::sync::CancellationToken;
-use wizard101_chat_translator::reader::mem_reader::Clock;
 use wizard101_chat_translator::reader::status::StatusBoard;
 use wizard101_chat_translator::reader::supervisor::{
     JOIN_TIMEOUT, SCAN_INTERVAL, allocate_slot, supervise_with,
 };
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::util::Clock;
 
 fn board() -> (
     StatusBoard,

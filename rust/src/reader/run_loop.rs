@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use super::chat_tabs::TabState;
-use super::mem_reader::{ChatEvent, Clock, GameNotRunning, WizChatReader};
+use super::mem_reader::{ChatEvent, GameNotRunning, WizChatReader};
 use super::process;
 use super::status::StatusBoard;
 use crate::config::{Config, py};
@@ -20,6 +20,7 @@ use crate::translation::cache::TranslationCache;
 use crate::translation::context::ClientContexts;
 use crate::translation::pool::TranslationPool;
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::util::Clock;
 
 /// 收訊間隔：每輪只讀 hook 環形緩衝的計數器，很便宜。
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);

@@ -4,7 +4,7 @@
 //! 不綁定特定語言；HTTP 與後端差異在 translator。
 
 use super::Turn;
-use super::pystr;
+use crate::py::pystr;
 
 /// 發話固定翻成的語言（遊戲聊天語言）；固定產品設定，不進 config。
 pub const OUTGOING_LANGUAGE: &str = "English";

@@ -11,8 +11,8 @@ use std::sync::{LazyLock, Mutex};
 use regex::{Captures, Regex};
 
 use crate::logs::log;
-use crate::translation::pyrepr::repr_str;
-use crate::translation::pystr;
+use crate::py::pyrepr::repr_str;
+use crate::py::pystr;
 
 /// 發送者前綴 `[名稱]`（名稱 1–40 字、不含 `]`）的正規表示式片段；玩家行判定與譯文後處理共用同一條。
 pub const SENDER_PREFIX: &str = r"\[[^\]]{1,40}\]";

@@ -5,8 +5,8 @@ use std::ops::ControlFlow;
 use futures_util::StreamExt;
 
 use super::connection_error;
+use crate::py::pystr;
 use crate::translation::errors::TranslateError;
-use crate::translation::pystr;
 
 /// 把任意切分的位元組塊重組成行（以 `\n` 為界，去掉行尾 `\r`）。
 #[derive(Default)]

@@ -25,7 +25,8 @@ use super::ui_rect::client_rect;
 use super::ui_tree::{FLAG_VISIBLE, Window, find_by_name};
 use crate::config::local_state_dir;
 use crate::logs::log;
-use crate::translation::pyrepr::repr_str;
+use crate::py::pyrepr::repr_str;
+use crate::util::Clock;
 
 /// 遊戲聊天輸入區容器：開啟輸入時帶 VISIBLE 旗標（實測）。
 pub const INPUT_CONTAINER: &str = "chatEditContainer";
@@ -78,21 +79,6 @@ pub trait MessageSink: Send {
     fn record(&mut self, seq: u64, tab: u32, raw: &str, verdict: &str);
     /// 記一則事件（遺失、截斷等）。
     fn note(&mut self, text: &str);
-}
-
-/// 讀取器用的時鐘；測試換成假的就不必真的等。
-pub struct Clock {
-    pub now: Box<dyn Fn() -> Instant + Send>,
-    pub sleep: Box<dyn Fn(Duration) + Send>,
-}
-
-impl Default for Clock {
-    fn default() -> Self {
-        Self {
-            now: Box::new(Instant::now),
-            sleep: Box::new(std::thread::sleep),
-        }
-    }
 }
 
 /// 依 PID 開啟遊戲程序記憶體（實機用 `WinProcess::open`，測試注入 `FakeMemory`）。

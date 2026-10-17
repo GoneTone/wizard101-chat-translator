@@ -166,7 +166,7 @@ pub(crate) fn py_bool(b: bool) -> &'static str {
 
 /// Python `repr(str)`。
 pub(crate) fn str_repr(s: &str) -> String {
-    crate::translation::pyrepr::repr_str(s)
+    crate::py::pyrepr::repr_str(s)
 }
 
 /// Python `type(value).__name__`。

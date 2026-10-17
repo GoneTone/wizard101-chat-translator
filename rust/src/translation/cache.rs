@@ -15,10 +15,10 @@ use super::errors::TranslateError;
 use super::examples::{json_str, write_atomic};
 use super::postprocess::has_stray_latin;
 use super::prompts::PROMPT_REVISION;
-use super::pyrepr::repr_str;
 use super::translator::Translator;
 use crate::config::{local_state_dir, py};
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
 
 /// 系統訊息的句型與材料名是有限集合，2000 筆足以涵蓋。
 pub const MAX_ENTRIES: usize = 2000;

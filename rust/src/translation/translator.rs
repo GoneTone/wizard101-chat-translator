@@ -27,9 +27,9 @@ use super::prompts::{
     build_outgoing_system, build_region_system, build_system_message_system, build_turns,
     example_turns, fewshot_outgoing_turns, is_game_language,
 };
-use super::pyrepr::repr_str;
 use crate::config::ServiceSpec;
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
 
 /// 測試連線用的固定原文。
 pub const TEST_SAMPLE: &str = "[Tester] Hello! How are you?";

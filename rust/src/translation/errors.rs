@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
-use super::pystr;
+use crate::py::pystr;
 
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
