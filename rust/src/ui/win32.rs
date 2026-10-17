@@ -267,12 +267,16 @@ unsafe fn patch_create_window_import() -> Result<usize, String> {
     Ok(patched)
 }
 
-/// 掛上目前前景視窗的執行緒再切前景，才繞得過前景鎖；視窗不存在或切換失敗回 `false`。
+/// 切到前景：系統允許就直接切，被前景鎖擋下才掛上前景視窗的執行緒再切；視窗不存在或切換失敗回 `false`。
 pub fn force_foreground(hwnd: isize) -> bool {
     let hwnd = hwnd as HWND;
     unsafe {
         if IsWindow(hwnd) == 0 {
             return false;
+        }
+        // 系統允許時直接切：實測輸入框開窗從約 200ms 降到約 40ms
+        if SetForegroundWindow(hwnd) != 0 && GetForegroundWindow() == hwnd {
+            return true;
         }
         let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
         let this_thread = GetCurrentThreadId();
