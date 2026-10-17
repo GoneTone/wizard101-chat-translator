@@ -8,8 +8,12 @@
 
 ## 第 2 段
 
-- 開發版從主控台按 Ctrl+C 會直接結束，不走關閉流程，hook 要等下次啟動才修復。Python 版會接住 `KeyboardInterrupt`，再走 `finally`。
-- 輸入框使用 `app_name()` 當視窗標題。泡泡改用「建立前後比對視窗」來找自己的 HWND，所以不會撞名；新增的 viewport 也不可以靠標題找 HWND。
+原列的兩項（主控台 Ctrl+C 走關閉流程、新 viewport 不靠標題找 HWND）已在第 2 段完成。第 2 段實作完成、待使用者實機驗收（`2026-10-17-rust-rewrite-phase2.md` 檔尾清單）。
+
+## 第 3 段
+
+- 框選快捷鍵目前只在遊戲內攔下按鍵並記 `[ui] region hotkey pressed ...`，要換成真的框選流程；`on_region_hotkey` 的 `selecting` 旗標目前恆為 false，要接上選取層是否開著。
+- `Registration::unregister` 目前沒有正式呼叫端；第 4 段套用設定時要用它重新註冊熱鍵。
 
 ## 第 4 段
 
@@ -49,3 +53,17 @@
   - 泡泡未讀數不是粗體，因為沒有載入粗體字型；
   - 混合 DPI 下，拖曳泡泡或 overlay 跨螢幕時，實體尺寸的處理要再實機確認；
   - `config::save_config` 不是原子寫入，與 Python 相同。
+
+## 第 2 段審查列為可保留的小問題（附理由，合併前再看一次）
+
+- **CI 上的鍵盤名稱 fixture**：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 golden `--check` 或 `keys_golden` 失敗，是配置差異，要調整 fixture。
+- **golden 抓不到「Rust 接受、Python 不認得」的鍵名**：名稱表建法逐行相同，只影響手改成 Python 會拒絕的設定字串。
+- **handler panic 時，全域 panic hook 會在鍵盤 hook 裡抓 backtrace**：可能超過 hook 逾時。handler 裡實際可能 panic 的只有資源耗盡時的 `thread::spawn`。
+- **鍵盤 hook 一個程序只能裝一次**，第一次失敗後無法重試；Python 也沒有重試。
+- **`SendInput` 回傳值沒檢查**：與 Python 的 `keybd_event` 相同。
+- **lib 單元測試會把假剪貼簿的 `clipboard open failed: error=5` 印到 stderr**：只是雜訊。
+- **設定缺 `hotkey`／`region_hotkey` 時 `region_hotkey_to_register` 會 panic**：與 Python 的 KeyError 等價，`load_config` 一定會補上預設。
+- **`scale_at` 不能注入**，沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
+- **overlay 的 HWND 還是 0 時開輸入框，會沒有擁有者而出現工作列按鈕**：overlay 第一幀就拿到 HWND，實際不會發生。
+- **`install_input` 寫死 `Foreground::real()`**：測試會唯讀查詢真實前景，斷言因此兩個分支都接受。
+- **`on_paste_hotkey` 用 `std::thread::spawn`**：資源耗盡時 panic，但會被 handler 的 `catch_unwind` 接住並放行；回傳 `JoinHandle` 是計畫定的簽名。
