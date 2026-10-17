@@ -18,6 +18,7 @@
 
 ## 第 4 段
 
+- 設定視窗裡顯示 API 錯誤的地方，網址都要能點（Python 用 `RichLabel`）：測試連線結果（`service_form.py`）、模型清單狀態（`model_field.py`）、`form.py` 的結果呈現。一律走 `ui::richtext::show`，不要另寫。
 - `translator.py` 的 `generate_and_store`、`list_models`、`test_translate` 還沒移植，設定視窗的「測試連線」和「重新整理模型」需要它們。
 - 更新橫幅的 `offer_update` 目前只擋「同一個版本」。Python 版的規則是用 SemVer `is_newer` 跟已關閉的版本比較，程式碼留有 `shortcut:` 註解。另外，更新檢查要接到 `banners_mut().offer_update`。
 - 套用設定（reconfigure）時，改完 cfg 要重新綁定系統訊息快取的指紋。否則背景晚到的範例結果，可能讓快取留在舊指紋上。
