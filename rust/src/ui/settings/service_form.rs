@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use eframe::egui::style::StyleModifier;
 use eframe::egui::{
-    Align, Color32, ColorImage, ComboBox, Context, Hyperlink, Id, Label, Layout, Rect, RichText,
-    Sense, Separator, TextureHandle, TextureId, TextureOptions, Ui, Vec2, pos2, vec2,
+    Align, ComboBox, Hyperlink, Id, Label, Layout, RichText, Sense, Separator, Ui, Vec2, vec2,
 };
 use serde_json::{Map, Value};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
+use super::provider_picker::{paint_provider_icon, provider_texture};
 use super::theme::{self, icon};
 use super::widgets::{focus_ring, outcome, rich, secondary_button, secondary_icon_button, toggle};
 use crate::config::py::py_bool;
@@ -21,7 +21,6 @@ use crate::config::services::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::runtime::resources::provider_icon;
 use crate::translation::errors::{TranslateError, friendly_error};
 use crate::translation::translator::{TEST_SAMPLE, TestOutcome};
 
@@ -73,7 +72,6 @@ pub struct ServiceForm {
     test_request: (String, String),
     test_result: Option<TestResult>,
     pending_change: bool,
-    icon: Option<(&'static str, TextureHandle)>,
 }
 
 impl ServiceForm {
@@ -117,7 +115,6 @@ impl ServiceForm {
             test_request: Default::default(),
             test_result: None,
             pending_change: false,
-            icon: None,
         }
     }
 
@@ -282,15 +279,14 @@ impl ServiceForm {
     }
 
     fn provider_row(&mut self, ui: &mut Ui) -> bool {
-        let icon = self.icon_texture(ui.ctx());
+        let key = self.provider.key;
         let label = t(self.provider.label_key, &[]);
         form_row(ui, &t("field.provider", &[]), |ui, _| {
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
-                if let Some(texture) = icon {
+                if provider_texture(ui.ctx(), key).is_some() {
                     let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
-                    let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-                    ui.painter().image(texture, rect, uv, Color32::WHITE);
+                    paint_provider_icon(ui, key, rect);
                 }
                 ui.add(Label::new(label).truncate());
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -300,21 +296,6 @@ impl ServiceForm {
             })
             .inner
         })
-    }
-
-    fn icon_texture(&mut self, ctx: &Context) -> Option<TextureId> {
-        let key = self.provider.key;
-        if self.icon.as_ref().is_none_or(|(loaded, _)| *loaded != key) {
-            self.icon = provider_icon(key)
-                .and_then(|png| eframe::icon_data::from_png_bytes(png).ok())
-                .map(|data| {
-                    let size = [data.width as usize, data.height as usize];
-                    let image = ColorImage::from_rgba_unmultiplied(size, &data.rgba);
-                    let name = format!("provider_icon_{key}");
-                    (key, ctx.load_texture(name, image, TextureOptions::LINEAR))
-                });
-        }
-        self.icon.as_ref().map(|(_, texture)| texture.id())
     }
 
     fn key_row(&mut self, ui: &mut Ui) {

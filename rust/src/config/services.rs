@@ -143,7 +143,7 @@ const LEGACY_FLAT_FIELDS: &[&str] = &["model", "api_key", "thinking", "effort", 
 const FILLED_MARKERS: &[&str] = &["model", "api_key", "base_url"];
 
 /// 字串欄位的值；缺值或不是字串時為空字串。
-fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
     entry.get(key).and_then(Value::as_str).unwrap_or("")
 }
 

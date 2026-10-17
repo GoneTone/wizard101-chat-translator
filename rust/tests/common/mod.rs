@@ -6,8 +6,10 @@ pub mod fake_backend;
 pub mod fake_game;
 pub mod log_capture;
 pub mod reader_fixture;
+pub mod settings_env;
 
 /// 讀取 `tests/golden/<name>.json`，回傳 Python 匯出的案例清單。
+#[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub fn golden(name: &str) -> Vec<serde_json::Value> {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/golden")

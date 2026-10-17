@@ -1,19 +1,20 @@
 //! 單筆服務編輯表單（移植自 Python 的 test_service_form 與 test_fields 的模型欄位部分）。
 
-use std::cell::RefCell;
-use std::path::Path;
+mod common;
+
 use std::time::Duration;
 
+use common::settings_env::FakeEnv;
 use eframe::egui::{self, Event, Shape, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
-use wizard101_chat_translator::config::services::{EFFORT_LOW, ServiceSpec, new_service, provider};
+use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
 use wizard101_chat_translator::ui::fonts_egui;
-use wizard101_chat_translator::ui::settings::env::{SettingsEnv, SettingsEvent};
+use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::service_form::{
     FormResponse, ServiceForm, format_seconds,
 };
@@ -22,31 +23,6 @@ use wizard101_chat_translator::ui::settings::theme;
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
 const LANGUAGE: &str = "en-US";
 const TARGET: &str = "Japanese";
-
-#[derive(Default)]
-struct FakeEnv {
-    tests: RefCell<Vec<(u64, ServiceSpec, String)>>,
-    lists: RefCell<Vec<(u64, ServiceSpec)>>,
-}
-
-impl SettingsEnv for FakeEnv {
-    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) {
-        self.tests.borrow_mut().push((round, spec, target));
-    }
-    fn list_models(&self, round: u64, spec: ServiceSpec) {
-        self.lists.borrow_mut().push((round, spec));
-    }
-    fn check_update(&self, _round: u64) {}
-    fn record_hotkey(&self, _round: u64) {}
-    fn cancel_recording(&self) {}
-    fn open_folder(&self, _path: &Path) {}
-    fn has_cache(&self) -> bool {
-        false
-    }
-    fn clear_cache(&self) -> usize {
-        0
-    }
-}
 
 struct State {
     form: ServiceForm,
