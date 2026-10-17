@@ -369,6 +369,55 @@ mod tests {
     }
 
     #[test]
+    fn minimizing_closes_the_copy_menu() {
+        let (poster, inbox) = channel();
+        poster.post(UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: "原文一".into(),
+            translated: "譯文一".into(),
+            msg_id: None,
+            pending: false,
+            color: None,
+        });
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.step();
+        let app = harness.state_mut();
+        let messages = &app.model.current_view().unwrap().messages;
+        let [(first, _), (second, _)] = &app.list.rows()[0].lines;
+        app.selection
+            .begin(&app.list, messages, *first + egui::vec2(20.0, 5.0));
+        app.selection
+            .extend(&app.list, messages, *second + egui::vec2(1000.0, 5.0));
+        let spot = egui::pos2(200.0, 150.0);
+        harness.hover_at(spot);
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos: spot,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        harness.step();
+        harness.step();
+        let label = crate::i18n::t("menu.copy", &[]);
+        let menu_shown = |h: &Harness<App>| {
+            h.output()
+                .shapes
+                .iter()
+                .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == label))
+        };
+        assert!(menu_shown(&harness));
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        assert!(!menu_shown(&harness));
+    }
+
+    #[test]
     fn posting_after_start_requests_repaint() {
         let (poster, inbox) = channel();
         let ctx = egui::Context::default();

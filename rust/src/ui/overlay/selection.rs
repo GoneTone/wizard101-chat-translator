@@ -116,18 +116,18 @@ pub fn highlight_rects(galley: &Galley, lo: usize, hi: usize) -> Vec<Rect> {
 
 /// 框選對桌面的操作；測試換成假的。
 pub trait Desktop {
-    /// 讓 overlay 取得鍵盤焦點，Ctrl+C 才收得到。
-    fn take_focus(&mut self);
+    /// 讓 overlay 取得鍵盤焦點，Ctrl+C 才收得到；失敗回 `false`。
+    fn take_focus(&mut self) -> bool;
     /// 把文字寫進系統剪貼簿；失敗回 `false`。
     fn copy(&mut self, text: &str) -> bool;
 }
 
 impl Desktop for Win32Shell {
-    fn take_focus(&mut self) {
-        win32::force_foreground(self.0);
+    fn take_focus(&mut self) -> bool {
+        win32::force_foreground(self.0)
     }
     fn copy(&mut self, text: &str) -> bool {
-        clipboard::set_text(text)
+        clipboard::set_text(self.0, text)
     }
 }
 
@@ -278,8 +278,11 @@ impl Selection {
                 && self.begin(list, messages, p)
             {
                 log("[ui] forcing keyboard focus");
-                desktop.take_focus();
-                log("[ui] selection took keyboard focus");
+                if desktop.take_focus() {
+                    log("[ui] selection took keyboard focus");
+                } else {
+                    log("[ui] selection focus failed: SetForegroundWindow refused");
+                }
                 self.next_tick = time + AUTOSCROLL_INTERVAL;
             }
         }
@@ -311,10 +314,8 @@ impl Selection {
             && self.span().is_some()
         {
             self.menu = Some(p);
-            log(format!(
-                "[ui] copy popup shown at {},{}",
-                p.x as i32, p.y as i32
-            ));
+            // 下一次 show_menu 把它當成新開的，夾好位置後記 log
+            self.menu_rect = None;
         }
         if copy {
             self.copy(messages, desktop);
@@ -336,7 +337,7 @@ impl Selection {
     fn sync(&mut self, key: Option<ViewKey>, messages: &[Message]) {
         if key != self.key {
             self.key = key;
-            self.clear("rows replaced");
+            self.clear("view switched");
         }
         let (Some(anchor), Some(focus)) = (self.anchor, self.focus) else {
             return;
@@ -371,7 +372,7 @@ impl Selection {
         if self.span().is_none() {
             self.close_menu();
         }
-        self.menu_rect = None;
+        let fresh = self.menu_rect.take().is_none();
         let Some(at) = self.menu else {
             return;
         };
@@ -394,6 +395,9 @@ impl Selection {
             area.width() as i32,
             area.height() as i32,
         );
+        if fresh {
+            log(format!("[ui] copy popup shown at {x},{y}"));
+        }
         let min = area.min + Vec2::new(x as f32, y as f32);
         self.menu_rect = Some(Rect::from_min_size(min, size));
         let clicked = Area::new(Id::unique("overlay_copy_menu"))
@@ -541,8 +545,9 @@ mod tests {
     }
 
     impl Desktop for FakeDesktop {
-        fn take_focus(&mut self) {
+        fn take_focus(&mut self) -> bool {
             self.focused += 1;
+            true
         }
         fn copy(&mut self, text: &str) -> bool {
             self.copied.push(text.to_owned());
@@ -899,6 +904,43 @@ mod tests {
         h.step();
         assert_eq!(messages(&h).len(), 2);
         assert_eq!(text(&h), before);
+    }
+
+    #[test]
+    fn max_messages_overflow_clears_a_selection_in_the_dropped_row() {
+        let mut h = numbered(2);
+        let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
+        select(&mut h, from, to);
+        let t0 = h.state().t0;
+        let model = &mut h.state_mut().model;
+        model.set_limits(2, 60);
+        add(model, t0, 2, "orig 2", "trans 2");
+        h.step();
+        assert_eq!(h.state().selection.span(), None);
+    }
+
+    #[test]
+    fn switching_views_clears_the_selection() {
+        use crate::reader::chat_tabs::TabState;
+        let tabs = |current| TabState {
+            tabs: vec![(0, "Main".into()), (1, "Group".into())],
+            current,
+        };
+        for switch in ["tab", "client"] {
+            let mut h = numbered(1);
+            h.state_mut().model.set_tabs(1, Some(tabs(0)));
+            h.step();
+            let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
+            select(&mut h, from, to);
+            assert!(h.state().selection.span().is_some(), "{switch}");
+            let model = &mut h.state_mut().model;
+            match switch {
+                "tab" => model.set_tabs(1, Some(tabs(1))),
+                _ => model.set_foreground_slot(Some(2)),
+            }
+            h.step();
+            assert_eq!(h.state().selection.span(), None, "{switch}");
+        }
     }
 
     #[test]

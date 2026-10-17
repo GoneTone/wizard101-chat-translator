@@ -1,6 +1,6 @@
 //! 系統剪貼簿寫入（`CF_UNICODETEXT`）。
 
-use windows_sys::Win32::Foundation::{GetLastError, GlobalFree};
+use windows_sys::Win32::Foundation::{GetLastError, GlobalFree, HWND};
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
 };
@@ -9,10 +9,12 @@ use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 
 use crate::logs::log;
 
-/// 把 `text` 寫進系統剪貼簿；失敗時記 log 並回 `false`。
-pub fn set_text(text: &str) -> bool {
+/// 以視窗 `owner` 的名義把 `text` 寫進系統剪貼簿；失敗時記 log 並回 `false`。
+///
+/// 擁有者不可為 NULL：那樣 `EmptyClipboard` 會把擁有者設成 NULL，`SetClipboardData` 可能失敗。
+pub fn set_text(owner: isize, text: &str) -> bool {
     let wide: Vec<u16> = text.encode_utf16().chain([0]).collect();
-    match unsafe { write(&wide) } {
+    match unsafe { write(owner as HWND, &wide) } {
         Ok(()) => true,
         Err((step, code)) => {
             log(format!(
@@ -23,9 +25,9 @@ pub fn set_text(text: &str) -> bool {
     }
 }
 
-unsafe fn write(wide: &[u16]) -> Result<(), (&'static str, u32)> {
+unsafe fn write(owner: HWND, wide: &[u16]) -> Result<(), (&'static str, u32)> {
     let fail = |step| Err((step, unsafe { GetLastError() }));
-    if unsafe { OpenClipboard(std::ptr::null_mut()) } == 0 {
+    if unsafe { OpenClipboard(owner) } == 0 {
         return fail("open");
     }
     let result = unsafe {

@@ -55,18 +55,19 @@ pub fn make_non_activating(hwnd: isize) {
     }
 }
 
-/// 掛上目前前景視窗的執行緒再切前景，才繞得過前景鎖。
-pub fn force_foreground(hwnd: isize) {
+/// 掛上目前前景視窗的執行緒再切前景，才繞得過前景鎖；視窗不存在或切換失敗回 `false`。
+pub fn force_foreground(hwnd: isize) -> bool {
     let hwnd = hwnd as HWND;
     unsafe {
         if IsWindow(hwnd) == 0 {
-            return;
+            return false;
         }
         let fg_thread = GetWindowThreadProcessId(GetForegroundWindow(), std::ptr::null_mut());
         let this_thread = GetCurrentThreadId();
         AttachThreadInput(this_thread, fg_thread, 1);
-        SetForegroundWindow(hwnd);
+        let switched = SetForegroundWindow(hwnd) != 0;
         AttachThreadInput(this_thread, fg_thread, 0);
+        switched
     }
 }
 

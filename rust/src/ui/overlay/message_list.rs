@@ -75,7 +75,7 @@ pub struct MessageList {
     dragging: bool,
     /// 拖曳選取放開後維持原位，直到內容或視口大小改變。
     held: bool,
-    /// 拖曳或維持原位期間上一幀的（內容雜湊, 視口大小）。
+    /// 拖曳或維持原位期間上一幀的（內容雜湊, 視口大小）；剛放開時為 None，下一幀重新取樣。
     seen: Option<(u64, Vec2)>,
     /// 待套用的捲動量（內容往下移的 DIP），框選自動捲動用。
     pending: f32,
@@ -122,7 +122,11 @@ impl MessageList {
     ///
     /// 放開後也先不貼底，等內容或視口大小改變才恢復，免得右鍵複製前選取就被拉走。
     pub fn set_dragging(&mut self, dragging: bool) {
-        self.held |= self.dragging && !dragging;
+        if self.dragging && !dragging {
+            // 放開那幀之前剛進來的訊息不算「放開後的改變」：從放開那幀重新取樣
+            self.held = true;
+            self.seen = None;
+        }
         self.dragging = dragging;
     }
 
@@ -198,7 +202,7 @@ impl MessageList {
         }
         if self.dragging || self.held {
             let seen = Some((fingerprint(messages), viewport.size()));
-            self.held &= seen == self.seen;
+            self.held &= self.seen.is_none() || seen == self.seen;
             self.seen = seen;
         }
 
@@ -745,6 +749,22 @@ mod tests {
         h.step();
         assert_eq!(row_y(&h, seq), Some(y));
         // 放開後畫面留在原處，右鍵複製前選取不會被拉走；等下一則訊息進來才貼底
+        h.state_mut().list.set_dragging(false);
+        h.step();
+        h.step();
+        assert_eq!(row_y(&h, seq), Some(y));
+        add(&mut h, 41, &[0], false);
+        h.step();
+        assert!(at_bottom(&h));
+    }
+
+    #[test]
+    fn a_message_arriving_in_the_release_frame_does_not_snap_to_the_bottom() {
+        let mut h = filled(40, 200, 0);
+        h.state_mut().list.set_dragging(true);
+        h.step();
+        let (seq, y) = reading(&h);
+        add(&mut h, 40, &[0], false);
         h.state_mut().list.set_dragging(false);
         h.step();
         h.step();
