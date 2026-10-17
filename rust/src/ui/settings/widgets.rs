@@ -3,9 +3,9 @@
 //! 用到 `fonts_egui` 的粗體與圖示字族，畫之前要先 `fonts_egui::install`。
 
 use eframe::egui::{
-    Align, Align2, Button, Color32, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Rect,
-    Response, RichText, Role, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Tooltip, Ui,
-    UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText, lerp, pos2, vec2,
+    Align, Align2, Atoms, Button, Color32, CornerRadius, FontId, Frame, Id, Label, Layout, Margin,
+    Rect, Response, RichText, Role, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Tooltip,
+    Ui, UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
 use crate::py::pystr;
@@ -221,34 +221,58 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     response
 }
 
-fn styled_button(ui: &mut Ui, text: &str, fill: Option<(Color32, Color32)>) -> Response {
-    let button = match fill {
-        Some((fill, ink)) => Button::new(
-            RichText::new(text)
-                .color(ink)
-                .font(theme::bold(theme::CONTROL_TEXT_SIZE)),
-        )
-        .fill(fill)
-        .stroke(Stroke::new(1.0, fill)),
-        None => Button::new(text),
-    };
+/// `fill` 是（底色, 字色），`None` 用預設的次要樣式；`trailing` 是文字後的圖示，無障礙名稱只取文字。
+fn styled_button(
+    ui: &mut Ui,
+    text: &str,
+    fill: Option<(Color32, Color32)>,
+    trailing: Option<char>,
+) -> Response {
+    let mut label = RichText::new(text);
+    let mut glyph = trailing.map(|g| RichText::new(g).font(theme::icons(11.0)));
+    if let Some((_, ink)) = fill {
+        label = label.color(ink).font(theme::bold(theme::CONTROL_TEXT_SIZE));
+        glyph = glyph.map(|g| g.color(ink));
+    }
+    let mut atoms = Atoms::default();
+    atoms.push_right(label);
+    if let Some(glyph) = glyph {
+        atoms.push_right(glyph);
+    }
+    let mut button = Button::new(atoms);
+    if let Some((fill, _)) = fill {
+        button = button.fill(fill).stroke(Stroke::new(1.0, fill));
+    }
     let response = ui.add(
         button
             .corner_radius(theme::CONTROL_RADIUS)
             .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
     );
+    if trailing.is_some() {
+        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    }
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
     response
 }
 
 /// 主要按鈕：`ACCENT` 底、粗體深色字。
 pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, Some((theme::ACCENT, theme::ON_ACCENT)))
+    styled_button(ui, text, Some((theme::ACCENT, theme::ON_ACCENT)), None)
+}
+
+/// 主要按鈕，文字後接一個圖示（如〔下一步〕的箭頭）；無障礙名稱只取文字。
+pub fn primary_icon_button(ui: &mut Ui, text: &str, glyph: char) -> Response {
+    styled_button(
+        ui,
+        text,
+        Some((theme::ACCENT, theme::ON_ACCENT)),
+        Some(glyph),
+    )
 }
 
 /// 次要按鈕：控制項底色加外框。
 pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, None)
+    styled_button(ui, text, None, None)
 }
 
 /// 次要按鈕，文字前有一個圖示；無障礙名稱只取文字。
@@ -266,7 +290,7 @@ pub fn secondary_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
 
 /// 危險操作（刪除確認）按鈕：`DANGER` 底。
 pub fn danger_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, Some((theme::DANGER, theme::ON_DANGER)))
+    styled_button(ui, text, Some((theme::DANGER, theme::ON_DANGER)), None)
 }
 
 /// 只有圖示的方形按鈕；`tooltip` 同時是無障礙名稱。

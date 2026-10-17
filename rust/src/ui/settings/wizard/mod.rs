@@ -5,17 +5,16 @@
 mod steps;
 
 use eframe::egui::{
-    Align, Button, Id, Layout, Rect, Response, RichText, Role, Stroke, TextureHandle, Ui,
-    UiBuilder, WidgetInfo, pos2, vec2,
+    Align, Id, Layout, Rect, Response, Stroke, TextureHandle, Ui, UiBuilder, pos2, vec2,
 };
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
 use super::hotkeys::{HotkeyEditor, HotkeyKind};
 use super::service_form::ServiceForm;
-use super::service_list::{Choice, ServiceDraft, picker_dialog};
+use super::service_list::{ServiceDraft, pick_provider_over};
 use super::theme::{self, icon};
-use super::widgets::{focus_ring, primary_button, right_aligned, secondary_icon_button};
+use super::widgets::{primary_button, primary_icon_button, right_aligned, secondary_icon_button};
 use super::window::{flag_setting, text_setting};
 use crate::config::Config;
 use crate::config::services::{
@@ -279,9 +278,10 @@ impl Wizard {
             if draft.services.is_empty() {
                 draft.slots = Default::default();
             }
+            // 預設先指好，「第一筆服務」的 log 才不會在換語言或救援時誤記
+            draft.default = Some(id);
             // 依 id 併回清單而不是整份取代：精靈也是設定壞掉時的救援路徑，不能刪掉其他服務與金鑰
             draft.apply_dialog_result(service);
-            draft.default = Some(id);
             draft.write_into(&mut self.cfg);
         }
         let target = pystr::strip(&self.target_language);
@@ -372,18 +372,8 @@ impl Wizard {
 
     /// 表單上按了〔更改〕：疊上服務商選擇。
     fn show_picker(&mut self, ui: &Ui) {
-        if !self.picking {
-            return;
-        }
-        match picker_dialog(ui) {
-            Choice::Open => {}
-            Choice::Cancel => self.picking = false,
-            Choice::Done(key) => {
-                if let Some(form) = &mut self.form {
-                    form.set_provider(key);
-                }
-                self.picking = false;
-            }
+        if let Some(form) = &mut self.form {
+            pick_provider_over(ui, form, &mut self.picking);
         }
     }
 }
@@ -391,25 +381,8 @@ impl Wizard {
 /// 〔下一步〕（文字後接箭頭）或最後一步的〔完成〕。
 fn next_button(ui: &mut Ui, finish: bool) -> Response {
     if finish {
-        return primary_button(ui, &t("button.finish", &[]));
+        primary_button(ui, &t("button.finish", &[]))
+    } else {
+        primary_icon_button(ui, &t("button.next", &[]), icon::NEXT)
     }
-    let text = t("button.next", &[]);
-    let atoms = (
-        RichText::new(&text)
-            .font(theme::bold(theme::CONTROL_TEXT_SIZE))
-            .color(theme::ON_ACCENT),
-        RichText::new(icon::NEXT)
-            .font(theme::icons(11.0))
-            .color(theme::ON_ACCENT),
-    );
-    let response = ui.add(
-        Button::new(atoms)
-            .fill(theme::ACCENT)
-            .stroke(Stroke::new(1.0, theme::ACCENT))
-            .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
-    );
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &text));
-    focus_ring(ui, &response, theme::CONTROL_RADIUS);
-    response
 }

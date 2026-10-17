@@ -365,9 +365,13 @@ fn changing_the_provider_cancels_an_earlier_skip() {
         .get_by_role_and_label(Role::Button, &tr("provider.openai"))
         .click();
     run(&mut h);
+    assert!(!next_enabled(&h));
+    // 欄位補齊後仍要擋：先前的略過隨換服務商作廢，不是只因為欄位被清空
     type_into(&mut h, &tr("field.api_key"), "sk-1");
     type_into(&mut h, &tr("field.model"), "gpt-x");
     assert!(!next_enabled(&h));
+    skip(&mut h);
+    assert!(next_enabled(&h));
 }
 
 // --- 完成 ---

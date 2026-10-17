@@ -17,9 +17,7 @@ use crate::ui::settings::hotkeys::HotkeyKind;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::{CardLayout, provider_cards};
 use crate::ui::settings::theme::{self, icon};
-use crate::ui::settings::widgets::{
-    callout, card, focus_ring, named_by, rich, setting_row, toggle,
-};
+use crate::ui::settings::widgets::{callout, card, focus_ring, named_by, rich};
 use crate::ui::settings::window::thin_scrollbar;
 
 /// 步驟條的左右內距、圓點直徑與步驟內容的內距。
@@ -127,14 +125,19 @@ impl Wizard {
             .icon
             .get_or_insert_with(|| load_icon(ui.ctx(), 48))
             .id();
-        ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 12.0;
-            ui.add_space(22.0);
-            let (rect, _) = ui.allocate_exact_size(Vec2::splat(64.0), Sense::hover());
-            let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-            ui.painter().image(texture, rect, uv, Color32::WHITE);
-            ui.add(Label::new(RichText::new(app_name()).font(theme::bold(22.0))).wrap());
-            ui.add_space(14.0);
+        let hero = Margin {
+            top: 36,
+            bottom: 28,
+            ..Margin::ZERO
+        };
+        Frame::new().inner_margin(hero).show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 12.0;
+                let (rect, _) = ui.allocate_exact_size(Vec2::splat(64.0), Sense::hover());
+                let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                ui.painter().image(texture, rect, uv, Color32::WHITE);
+                ui.add(Label::new(RichText::new(app_name()).font(theme::bold(22.0))).wrap());
+            });
         });
         let label = ui
             .scope(|ui| {
@@ -212,16 +215,8 @@ impl Wizard {
             );
         });
         ui.add_space(4.0);
-        // 每把熱鍵底下緊接著它自己的選項，與設定視窗的基本分頁同一個順序
         ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
-        card(ui, |ui| {
-            self.hotkeys.row(ui, env, HotkeyKind::Input);
-            let label = t("field.auto_input", &[]);
-            setting_row(ui, &label, None, |ui| {
-                toggle(ui, &mut self.auto_show_input, &label);
-            });
-        });
-        card(ui, |ui| self.hotkeys.row(ui, env, HotkeyKind::Region));
+        self.hotkeys.cards(ui, env, &mut self.auto_show_input);
         let same = self.hotkeys.value(HotkeyKind::Input) == self.hotkeys.value(HotkeyKind::Region);
         self.hotkeys_blocked &= same;
         if self.hotkeys_blocked {
@@ -245,7 +240,7 @@ fn step_dot(ui: &Ui, center: Pos2, index: usize, current: usize) {
             center,
             Align2::CENTER_CENTER,
             icon::SUCCESS,
-            theme::icons(12.0),
+            theme::icons(11.0),
             theme::ON_ACCENT,
         );
         return;

@@ -7,7 +7,6 @@ use crate::config::services::str_field;
 use crate::i18n::t;
 use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::fields::editable_combo;
-use crate::ui::settings::hotkeys::HotkeyKind;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::{paint_provider_icon, provider_texture};
 use crate::ui::settings::widgets::{card, secondary_button, setting_row, toggle};
@@ -49,15 +48,7 @@ impl SettingsWindow {
             self.switch_page(Page::Services, env);
         }
 
-        // 每把熱鍵底下緊接著它自己的選項，看得出哪個開關管哪個功能
-        card(ui, |ui| {
-            self.hotkeys.row(ui, env, HotkeyKind::Input);
-            let label = t("field.auto_input", &[]);
-            setting_row(ui, &label, None, |ui| {
-                toggle(ui, &mut self.auto_show_input, &label);
-            });
-        });
-        card(ui, |ui| self.hotkeys.row(ui, env, HotkeyKind::Region));
+        self.hotkeys.cards(ui, env, &mut self.auto_show_input);
         card(ui, |ui| {
             let label = t("field.paste_hotkey", &[]);
             setting_row(ui, &label, None, |ui| {

@@ -5,7 +5,7 @@ use eframe::egui::{WidgetText, vec2};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::theme;
-use super::widgets::{keycap_row, secondary_button, setting_row};
+use super::widgets::{card, keycap_row, secondary_button, setting_row, toggle};
 use crate::i18n::t;
 use crate::logs::log;
 
@@ -89,6 +89,19 @@ impl HotkeyEditor {
         let round = self.recording.start();
         self.target = Some(kind);
         env.record_hotkey(round);
+    }
+
+    /// 兩張熱鍵卡片：輸入框熱鍵底下接 `field.auto_input` 開關，框選熱鍵自成一張（設定基本頁與精靈共用）。
+    pub fn cards(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, auto_show_input: &mut bool) {
+        // 每把熱鍵底下緊接著它自己的選項，看得出哪個開關管哪個功能
+        card(ui, |ui| {
+            self.row(ui, env, HotkeyKind::Input);
+            let label = t("field.auto_input", &[]);
+            setting_row(ui, &label, None, |ui| {
+                toggle(ui, auto_show_input, &label);
+            });
+        });
+        card(ui, |ui| self.row(ui, env, HotkeyKind::Region));
     }
 
     /// 收下錄製結果：`esc` 或空字串不改值。回傳是否收下了本輪的結果。

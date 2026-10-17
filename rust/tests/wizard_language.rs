@@ -322,3 +322,17 @@ fn picking_a_provider_is_logged() {
     pick_provider(&mut h, "provider.gemini");
     assert_eq!(logged(), before + 1);
 }
+
+#[test]
+fn a_language_change_does_not_log_a_settings_service_add() {
+    // 精靈寫回自己的草稿不是設定視窗的「新增第一筆服務」，那行 log 會誤導讀 app.log 的人
+    let _lock = language_lock();
+    capture_logs();
+    let logged = || log_lines_with("[settings] first service added").len();
+    let before = logged();
+    let mut h = open("zh-TW", blank);
+    next(&mut h);
+    pick_provider(&mut h, "provider.claude");
+    change_language_from_service_step(&mut h, "en-US");
+    assert_eq!(logged(), before);
+}

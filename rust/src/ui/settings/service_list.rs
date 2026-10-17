@@ -178,7 +178,7 @@ enum Dialog {
 }
 
 /// 對話框這一幀的結果。
-pub(super) enum Choice<T> {
+enum Choice<T> {
     Open,
     Cancel,
     Done(T),
@@ -449,16 +449,7 @@ impl ServicePane {
             } => {
                 let (choice, change) = form_dialog(ui, form, errors, env, target_language);
                 *picking |= change;
-                if *picking {
-                    match picker_dialog(ui) {
-                        Choice::Open => {}
-                        Choice::Cancel => *picking = false,
-                        Choice::Done(key) => {
-                            form.set_provider(key);
-                            *picking = false;
-                        }
-                    }
-                }
+                pick_provider_over(ui, form, picking);
                 match choice {
                     Choice::Open => {}
                     Choice::Cancel => self.dialog = Dialog::Closed,
@@ -638,8 +629,22 @@ fn add_button(ui: &mut Ui) -> Response {
     response
 }
 
-/// 服務商選擇對話框（新增服務的第一步，或表單上按了〔更改〕）。
-pub(super) fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
+/// 表單上按了〔更改〕時疊上服務商選擇：選定就換服務商；選定或取消後收起（`picking` 回到 `false`）。
+pub(super) fn pick_provider_over(ui: &Ui, form: &mut ServiceForm, picking: &mut bool) {
+    if !*picking {
+        return;
+    }
+    match picker_dialog(ui) {
+        Choice::Open => {}
+        Choice::Cancel => *picking = false,
+        Choice::Done(key) => {
+            form.set_provider(key);
+            *picking = false;
+        }
+    }
+}
+
+fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
     let spec = DialogSpec {
         salt: "provider_picker",
         width: theme::PICKER_DIALOG_WIDTH,
