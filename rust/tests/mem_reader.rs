@@ -83,7 +83,7 @@ impl ProcessMemory for Shared {
             self.export_reads.fetch_add(1, Ordering::SeqCst);
             let failing = &self.failing_export_reads;
             if failing
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                 .is_ok()
             {
                 return Err(MemError::Read(addr));

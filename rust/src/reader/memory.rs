@@ -100,8 +100,10 @@ fn check_range(addr: u64) -> Result<(), MemError> {
 /// UTF-16LE 解碼；位元組不成對時行為同 Python `decode("utf-16-le", "replace")`。
 pub fn decode_utf16le(bytes: &[u8]) -> String {
     let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&c| u16::from_le_bytes(c))
         .collect();
     let mut text = String::from_utf16_lossy(&units);
     // 結尾落單的位元組多一個 U+FFFD；前一個單位若是高代理，Python 把兩者併成同一個錯誤

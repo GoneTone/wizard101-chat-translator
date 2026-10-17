@@ -57,7 +57,9 @@ impl Window {
             Err(e) => return Err(e),
         };
         Ok(raw
-            .chunks_exact(SHARED_PTR_SIZE as usize)
+            .as_chunks::<{ SHARED_PTR_SIZE as usize }>()
+            .0
+            .iter()
             .map(|c| u64::from_le_bytes(c[..8].try_into().expect("chunk has 16 bytes")))
             .filter(|&addr| addr != 0)
             .map(|addr| Window { addr })
