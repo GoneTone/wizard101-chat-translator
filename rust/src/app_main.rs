@@ -219,6 +219,38 @@ pub fn build_translation(
     }
 }
 
+/// 設定存檔後讓翻譯端跟上新設定；沒改到的那格原地不動。
+///
+/// 呼叫前必須先把 `cfg` 寫進共用的設定：`build_translation` 的範例套用回呼讀的是那份，否則晚到的範例會把快取綁回舊指紋。
+pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
+    let target = Settings::from_config(cfg);
+    let slots = [
+        (ServiceSlot::Incoming, &translation.incoming),
+        (ServiceSlot::Outgoing, &translation.outgoing),
+        (ServiceSlot::Region, &translation.region),
+    ];
+    for (slot, translator) in slots {
+        if translator.reconfigure(resolve(cfg, slot), target.target_language.clone()) {
+            log(format!(
+                "[translate] {} translator rebuilt: {}",
+                slot.key(),
+                translator.describe()
+            ));
+            if slot != ServiceSlot::Outgoing {
+                translation.coordinator.ensure(translator);
+            }
+        }
+    }
+    for pool in [&translation.pool, &translation.system_pool] {
+        pool.resize(target.max_parallel_translations);
+    }
+    // 只改框選那格不該波及收訊的快取
+    translation.cache.rebind(&incoming_fingerprint(
+        cfg,
+        translation.incoming.examples().as_ref(),
+    ));
+}
+
 /// 輸入端各元件共用的狀態。
 #[derive(Default)]
 pub struct InputWiring {

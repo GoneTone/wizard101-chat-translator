@@ -14,12 +14,13 @@ use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
-    InputWiring, SUPERVISOR_JOIN_BUDGET, build_translation, claim_instance, incoming_fingerprint,
-    install_input, on_paste_hotkey, outgoing_translate, region_runner, run_ui_then, shutdown_steps,
+    InputWiring, SUPERVISOR_JOIN_BUDGET, Translation, build_translation, claim_instance,
+    incoming_fingerprint, install_input, on_paste_hotkey, outgoing_translate,
+    reconfigure_translation, region_runner, run_ui_then, shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
-use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, app_name};
+use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::ChatInputTracker;
 use wizard101_chat_translator::input::dispatcher::{
@@ -40,6 +41,7 @@ use wizard101_chat_translator::translation::examples::{
     ExampleSet, ExampleStore, examples_fingerprint,
 };
 use wizard101_chat_translator::translation::pool::ResultFn;
+use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::Translator;
 use wizard101_chat_translator::translation::{BoxFuture, Turn};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -186,6 +188,349 @@ fn restart_keeps_the_persisted_cache_when_examples_are_already_stored() {
         cache_path,
     );
     assert_eq!(built.cache.get("hello").as_deref(), Some("bonjour"));
+}
+
+/// 設定存檔的一組測試環境：共用設定、磁碟上的範例、已建好的翻譯端。
+///
+/// log 是整個執行檔共用的，各測試以 `tag` 夾進模型名稱，靠它篩出自己的 log。
+struct Saved {
+    _dir: tempfile::TempDir,
+    _rt: tokio::runtime::Runtime,
+    store: Arc<ExampleStore>,
+    settings: Arc<RwLock<Config>>,
+    built: Translation,
+    tag: &'static str,
+}
+
+/// 三格模型名稱都帶上 `tag` 的設定。
+fn tagged(tag: &str) -> Config {
+    let mut cfg = cfg();
+    for (index, model) in ["qwen3", "gpt-x", "region-model"].iter().enumerate() {
+        cfg["services"][index]["model"] = json!(format!("{model}-{tag}"));
+    }
+    cfg
+}
+
+/// 所有格的範例都已在磁碟上：建構與之後的重建都走快取、不碰網路。
+fn saved(tag: &'static str) -> Saved {
+    saved_from(tag, tagged(tag))
+}
+
+fn saved_from(tag: &'static str, cfg: Config) -> Saved {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    seed(&store, &cfg, &examples());
+    let settings = Arc::new(RwLock::new(cfg));
+    let built = build_translation(
+        &settings,
+        no_results(),
+        rt.handle(),
+        Arc::clone(&store),
+        dir.path().join("cache.json"),
+    );
+    Saved {
+        _dir: dir,
+        _rt: rt,
+        store,
+        settings,
+        built,
+        tag,
+    }
+}
+
+/// 為 `cfg` 的收訊與框選兩格備妥磁碟上的範例。
+fn seed(store: &ExampleStore, cfg: &Config, set: &ExampleSet) {
+    let target = Settings::from_config(cfg).target_language;
+    for slot in [ServiceSlot::Incoming, ServiceSlot::Region] {
+        store.put(&examples_fingerprint(&resolve(cfg, slot), &target), set);
+    }
+}
+
+impl Saved {
+    /// 照呼叫端的規矩：先寫共用設定，再重設翻譯端；改完新設定的範例也已在磁碟上。
+    fn save(&self, edit: impl FnOnce(&mut Config)) {
+        let cfg = {
+            let mut cfg = self.settings.write().unwrap();
+            edit(&mut cfg);
+            cfg.clone()
+        };
+        seed(&self.store, &cfg, &examples());
+        reconfigure_translation(&cfg, &self.built);
+    }
+
+    fn describes(&self) -> [String; 3] {
+        let b = &self.built;
+        [&b.incoming, &b.outgoing, &b.region].map(|t| t.describe())
+    }
+
+    /// 這個測試重建過哪幾格（依 log 的 slot 鍵）。
+    fn rebuilt_slots(&self) -> Vec<&'static str> {
+        ServiceSlot::ALL
+            .into_iter()
+            .map(ServiceSlot::key)
+            .filter(|key| {
+                log_lines_with(&format!("[translate] {key} translator rebuilt"))
+                    .iter()
+                    .any(|line| line.contains(self.tag))
+            })
+            .collect()
+    }
+}
+
+fn set_model(cfg: &mut Config, index: usize, model: &str) {
+    cfg["services"][index]["model"] = json!(model);
+}
+
+#[test]
+fn changing_only_the_region_slot_leaves_incoming_and_the_cache_alone() {
+    let s = saved("region_only");
+    let before = s.describes();
+    let fingerprint = s.built.cache.fingerprint();
+    s.save(|c| set_model(c, 2, "region-model-2-region_only"));
+    let after = s.describes();
+    assert!(after[2].contains("model=region-model-2-region_only"));
+    assert_eq!((&after[0], &after[1]), (&before[0], &before[1]));
+    assert_eq!(s.built.cache.fingerprint(), fingerprint);
+    assert_eq!(s.rebuilt_slots(), ["region"]);
+    let line = log_lines_with("[translate] region translator rebuilt");
+    assert!(
+        line.iter().any(|l| l.ends_with(
+            "[translate] region translator rebuilt: \
+             provider=custom, model=region-model-2-region_only"
+        )),
+        "{line:?}"
+    );
+}
+
+#[test]
+fn changing_the_incoming_slot_invalidates_the_cache() {
+    let s = saved("incoming_change");
+    s.save(|c| set_model(c, 0, "qwen3-2-incoming_change"));
+    assert!(
+        s.built
+            .incoming
+            .describe()
+            .contains("model=qwen3-2-incoming_change")
+    );
+    assert_eq!(
+        s.built.cache.fingerprint(),
+        incoming_fingerprint(&s.settings.read().unwrap(), Some(&examples()))
+    );
+    assert!(
+        s.built
+            .cache
+            .fingerprint()
+            .contains("qwen3-2-incoming_change")
+    );
+    assert_eq!(s.rebuilt_slots(), ["incoming"]);
+}
+
+#[test]
+fn reconfigure_ensures_examples_only_for_rebuilt_slots() {
+    let s = saved("ensure_rebuilt");
+    let newer = ExampleSet {
+        system: Some(("s2".into(), "o2".into())),
+        ..examples()
+    };
+    let mut changed = tagged("ensure_rebuilt");
+    set_model(&mut changed, 2, "region-model-3-ensure_rebuilt");
+    *s.settings.write().unwrap() = changed.clone();
+    seed(&s.store, &changed, &newer);
+    reconfigure_translation(&changed, &s.built);
+    // 只有被重建的框選格換上新指紋的範例；收訊格沒被碰
+    assert_eq!(s.built.region.examples(), Some(newer));
+    assert_eq!(s.built.incoming.examples(), Some(examples()));
+    assert_eq!(s.built.outgoing.examples(), None);
+}
+
+#[test]
+fn reconfigure_without_changes_keeps_examples_and_the_cache() {
+    let s = saved("no_change");
+    let fingerprint = s.built.cache.fingerprint();
+    s.save(|_| {});
+    assert!(s.rebuilt_slots().is_empty());
+    assert_eq!(s.built.incoming.examples(), Some(examples()));
+    assert_eq!(s.built.region.examples(), Some(examples()));
+    assert_eq!(s.built.cache.fingerprint(), fingerprint);
+}
+
+#[test]
+fn saving_unrelated_settings_rebuilds_no_translator() {
+    let s = saved("unrelated");
+    let before = s.describes();
+    s.save(|c| {
+        c.insert("overlay_alpha".into(), json!(0.5));
+    });
+    assert_eq!(s.describes(), before);
+    assert!(s.rebuilt_slots().is_empty());
+}
+
+#[test]
+fn changing_only_the_region_slot_rebuilds_only_that_translator() {
+    let s = saved("region_rebuild");
+    s.save(|c| set_model(c, 2, "region-model-4-region_rebuild"));
+    assert_eq!(s.rebuilt_slots(), ["region"]);
+}
+
+#[test]
+fn editing_the_service_a_slot_uses_rebuilds_it() {
+    for (field, value) in [
+        ("model", "gpt-y-edit_model"),
+        ("api_key", "sk-edit_api_key"),
+        ("base_url", "http://elsewhere-edit_base_url"),
+    ] {
+        let tag = format!("edit_{field}").leak() as &'static str;
+        let s = saved(tag);
+        // 發話格跟隨預設服務（第二筆）；金鑰與端點不在 describe 裡，以重建與否判斷
+        s.save(|c| c["services"][1][field] = json!(value));
+        assert_eq!(s.rebuilt_slots(), ["outgoing"], "{field}");
+        if field == "model" {
+            assert!(
+                s.built
+                    .outgoing
+                    .describe()
+                    .contains("model=gpt-y-edit_model")
+            );
+        }
+        assert!(
+            log_lines_with("sk-edit_api_key").is_empty(),
+            "the key must never reach the log"
+        );
+    }
+}
+
+#[test]
+fn changing_the_target_language_rebuilds_every_translator() {
+    let s = saved("target_language");
+    s.save(|c| {
+        c.insert("target_language".into(), json!("한국어"));
+    });
+    for t in [&s.built.incoming, &s.built.outgoing, &s.built.region] {
+        assert_eq!(t.target_language(), "한국어");
+    }
+    assert_eq!(s.rebuilt_slots(), ["incoming", "outgoing", "region"]);
+    assert_eq!(s.built.incoming.examples(), Some(examples()));
+    assert_eq!(s.built.region.examples(), Some(examples()));
+    assert_eq!(s.built.outgoing.examples(), None);
+}
+
+#[test]
+fn switching_the_incoming_slot_between_same_named_models_invalidates_the_cache() {
+    let mut twin = tagged("twin");
+    twin["services"].as_array_mut().unwrap().push(json!(
+        {"id": "aaaa0004", "name": "Remote", "provider": "custom",
+         "base_url": "http://remote-twin", "model": "qwen3-twin", "api_key": "",
+         "thinking": false}
+    ));
+    let s = saved_from("twin", twin);
+    let before = s.built.cache.fingerprint();
+    s.save(|c| c["service_slots"]["incoming"] = json!("aaaa0004"));
+    assert_ne!(s.built.cache.fingerprint(), before);
+    assert!(s.built.cache.fingerprint().contains("http://remote-twin"));
+}
+
+#[test]
+fn reconfigure_resizes_both_pools() {
+    let s = saved("resize");
+    s.save(|c| {
+        c.insert("max_parallel_translations".into(), json!(7));
+    });
+    assert_eq!(
+        log_lines_with("[translate] pool resized to 7 workers").len(),
+        2
+    );
+}
+
+/// 單執行緒 runtime 在 `block_on` 之前不跑背景工作：生成停在「已發出、未完成」，由測試決定何時晚到。
+fn paused_rt() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+
+fn let_background_finish(rt: &tokio::runtime::Runtime) {
+    rt.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
+}
+
+/// 目標語言是遊戲原生語言時，範例生成不打網路、直接給內建的一組。
+fn offline_cfg(tag: &str) -> Config {
+    let mut cfg = tagged(tag);
+    cfg.insert("target_language".into(), json!(OUTGOING_LANGUAGE));
+    cfg
+}
+
+#[test]
+fn a_settings_change_applies_the_new_fingerprints_examples_and_never_the_old() {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let rt = paused_rt();
+    let mut cfg = offline_cfg("never_old");
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    let new = ExampleSet {
+        incoming: Some(("s".into(), "new".into())),
+        ..examples()
+    };
+    let settings = Arc::new(RwLock::new(cfg.clone()));
+    let built = build_translation(
+        &settings,
+        no_results(),
+        rt.handle(),
+        Arc::clone(&store),
+        dir.path().join("cache.json"),
+    );
+    let old_fingerprint = built.incoming.examples_fingerprint();
+
+    set_model(&mut cfg, 0, "qwen3-new-never_old");
+    *settings.write().unwrap() = cfg.clone();
+    seed(&store, &cfg, &new);
+    reconfigure_translation(&cfg, &built);
+    assert_eq!(built.incoming.examples(), Some(new));
+    let new_fingerprint = built.incoming.examples_fingerprint();
+
+    let_background_finish(&rt);
+    // 舊設定發出的生成讀的是當下的綁定，所以晚到時不會以舊指紋套用
+    let applied = built.incoming.examples();
+    assert!(applied.is_some());
+    assert_eq!(built.incoming.examples_fingerprint(), new_fingerprint);
+    assert_ne!(new_fingerprint, old_fingerprint);
+    assert_eq!(
+        built.cache.fingerprint(),
+        incoming_fingerprint(&cfg, applied.as_ref())
+    );
+}
+
+#[test]
+fn late_examples_after_a_save_bind_the_cache_to_the_new_fingerprint() {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let rt = paused_rt();
+    let mut cfg = offline_cfg("late_bind");
+    let settings = Arc::new(RwLock::new(cfg.clone()));
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    let built = build_translation(
+        &settings,
+        no_results(),
+        rt.handle(),
+        store,
+        dir.path().join("cache.json"),
+    );
+
+    // 新設定的範例不在磁碟上：生成在存檔之後才跑完，回呼讀到的必須是新設定
+    set_model(&mut cfg, 0, "qwen3-new-late_bind");
+    *settings.write().unwrap() = cfg.clone();
+    reconfigure_translation(&cfg, &built);
+    assert!(built.incoming.examples().is_none());
+    assert!(built.cache.fingerprint().ends_with("x-"));
+
+    let_background_finish(&rt);
+    let applied = built.incoming.examples();
+    assert!(applied.is_some(), "the late generation was applied");
+    let fingerprint = built.cache.fingerprint();
+    assert_eq!(fingerprint, incoming_fingerprint(&cfg, applied.as_ref()));
+    assert!(fingerprint.contains("qwen3-new-late_bind"));
 }
 
 #[test]
