@@ -32,9 +32,11 @@ pub const STATUS_COLORS: [(&str, Color32); 6] = [
     ("version_mismatch", FG_ERROR),
 ];
 
-const BAR_HEIGHT: f32 = 20.0;
+/// 標題列高度（DIP）。
+pub const BAR_HEIGHT: f32 = 20.0;
 const BAR_ICON: f32 = 16.0;
-const GRIP_SIZE: f32 = 16.0;
+/// 右下角抓取紋的邊長（DIP）。
+pub const GRIP_SIZE: f32 = 16.0;
 
 /// 狀態 key 對應的顏色；未知的 key 用標題列文字色。
 pub fn status_color(state: &str) -> Color32 {
@@ -375,12 +377,15 @@ fn describe((x, y, w, h): Rect) -> String {
 mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::time::Instant;
 
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::overlay::message_list::MessageList;
+    use crate::ui::overlay::model::OverlayModel;
 
     const START: Rect = (1000, 500, 640, 420);
 
@@ -415,6 +420,8 @@ mod tests {
         title: String,
         area: egui::Rect,
         clicked: Option<Clicked>,
+        /// 疊在外框上的訊息清單（驗證內容不擋縮放帶）。
+        content: Option<(MessageList, OverlayModel)>,
     }
 
     fn setup(
@@ -436,6 +443,7 @@ mod tests {
             title: title.into(),
             area: egui::Rect::NOTHING,
             clicked: None,
+            content: None,
         };
         let mut harness = Harness::builder()
             .with_size(size)
@@ -446,6 +454,11 @@ mod tests {
                     s.area = ui.max_rect();
                     let clicked = s.frame.show(ui, &mut s.shell, &s.title, Some("listening"));
                     s.clicked = s.clicked.or(clicked);
+                    if let Some((list, model)) = &mut s.content {
+                        let mut rect = s.area;
+                        rect.min.y += BAR_HEIGHT;
+                        list.show(ui, rect, model, None);
+                    }
                 },
                 state,
             );
@@ -599,6 +612,42 @@ mod tests {
             let from = node.rect().center() - harness.state().area.min;
             drag(&mut harness, from, from + Vec2::new(50.0, 30.0), 1.0);
             assert_eq!(*saved.borrow(), [(1050, 530, 640, 420)], "{target}");
+        }
+    }
+
+    #[test]
+    fn message_list_keeps_the_resize_bands_and_grip_reachable() {
+        let size = Vec2::new(640.0, 420.0);
+        let with_list = || {
+            let (mut harness, saved) = setup("t", size, 1.0);
+            let mut model = OverlayModel::new(100, 0);
+            for _ in 0..100 {
+                model.add_message(
+                    1,
+                    &[0],
+                    "original",
+                    "譯文",
+                    None,
+                    false,
+                    None,
+                    Instant::now(),
+                );
+            }
+            harness.state_mut().content = Some((MessageList::new(), model));
+            harness.step();
+            (harness, saved)
+        };
+        let area = with_list().0.state().area.size();
+        // 右緣帶（捲軸右側）、下緣帶與右下角抓取紋
+        for (from, expected) in [
+            (Vec2::new(area.x - 2.0, 200.0), (1000, 500, 660, 420)),
+            (Vec2::new(300.0, area.y - 2.0), (1000, 500, 640, 440)),
+            (area - Vec2::splat(3.0), (1000, 500, 660, 440)),
+        ] {
+            let (mut harness, saved) = with_list();
+            assert!(harness.state().content.as_ref().unwrap().0.rows().len() > 1);
+            drag(&mut harness, from, from + Vec2::new(20.0, 20.0), 1.0);
+            assert_eq!(*saved.borrow(), [expected], "{from:?}");
         }
     }
 

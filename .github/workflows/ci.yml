@@ -63,6 +63,11 @@ jobs:
         run: cargo test
         working-directory: rust
 
+      # 效能門檻只在 release 下有意義，平常的 cargo test 把它標成 ignored
+      - name: Relayout budget
+        run: cargo test --release -- --ignored relayout
+        working-directory: rust
+
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
         with:

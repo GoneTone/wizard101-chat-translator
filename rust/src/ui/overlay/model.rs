@@ -29,6 +29,8 @@ pub struct Message {
     /// 該則在遊戲內的顯示色；None 退回預設配色。
     pub color: Option<Color32>,
     pub added_at: Instant,
+    /// 加入順序的流水號（廣播進多個分頁的各份相同）；繪製端以它認出同一則，不受前方訊息被移除影響。
+    pub seq: u64,
 }
 
 impl Message {
@@ -72,6 +74,7 @@ pub struct OverlayModel {
     fade: Duration,
     minimized: bool,
     unread: u32,
+    next_seq: u64,
 }
 
 impl OverlayModel {
@@ -86,6 +89,7 @@ impl OverlayModel {
             fade: Duration::from_secs(fade_seconds),
             minimized: false,
             unread: 0,
+            next_seq: 0,
         }
     }
 
@@ -129,6 +133,8 @@ impl OverlayModel {
             self.set_foreground_slot(Some(slot));
         }
         let color = color.and_then(|c| Color32::from_hex(c).ok());
+        let seq = self.next_seq;
+        self.next_seq += 1;
         for &tab in tabs {
             let view = self.views.entry((slot, tab)).or_default();
             view.messages.push(Message {
@@ -139,6 +145,7 @@ impl OverlayModel {
                 failed: false,
                 color,
                 added_at: now,
+                seq,
             });
             view.trim(self.max_messages);
         }
@@ -201,11 +208,15 @@ impl OverlayModel {
         }
     }
 
+    /// 顯示中的（客戶端, 分頁）；還沒決定客戶端時為 None。
+    pub fn current_key(&self) -> Option<ViewKey> {
+        let slot = self.client?;
+        Some((slot, self.tab_states.get(&slot).map_or(0, |s| s.current)))
+    }
+
     /// 顯示中的（客戶端, 分頁）的訊息；還沒有任何訊息進過那份清單時為 None。
     pub fn current_view(&self) -> Option<&View> {
-        let slot = self.client?;
-        let tab = self.tab_states.get(&slot).map_or(0, |s| s.current);
-        self.views.get(&(slot, tab))
+        self.views.get(&self.current_key()?)
     }
 
     /// 沒有訊息可畫時，由呼叫端改畫狀態佔位字。
