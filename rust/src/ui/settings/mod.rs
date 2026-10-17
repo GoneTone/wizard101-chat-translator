@@ -3,8 +3,11 @@
 mod dialog;
 pub mod env;
 pub mod fields;
+pub mod hotkeys;
+pub mod language;
 pub mod provider_picker;
 pub mod service_form;
 pub mod service_list;
 pub mod theme;
 pub mod widgets;
+pub mod window;

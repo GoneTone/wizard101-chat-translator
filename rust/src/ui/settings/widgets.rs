@@ -25,7 +25,7 @@ pub(super) fn focus_ring(ui: &Ui, response: &Response, radius: u8) {
 }
 
 /// 畫一個圖示字（不產生無障礙節點，旁邊的文字就是它的意思）。
-fn glyph(ui: &mut Ui, glyph: char, size: f32, color: Color32) {
+pub(super) fn glyph(ui: &mut Ui, glyph: char, size: f32, color: Color32) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
     ui.painter().text(
         rect.center(),
@@ -97,6 +97,21 @@ pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
 /// 開關與 `fields` 的下拉、數值欄放在這裡時以這一列的名稱當無障礙名稱。
 /// 控制項的寬高與左欄高度取上一幀量到的值排版，變了就重排一次（`request_discard`）。
 pub fn setting_row(ui: &mut Ui, label: &str, hint: Option<&str>, control: impl FnOnce(&mut Ui)) {
+    let details = |ui: &mut Ui| {
+        if let Some(hint) = hint {
+            rich(ui, hint, theme::HINT_SIZE, theme::TEXT_SECONDARY);
+        }
+    };
+    setting_row_with(ui, label, details, control);
+}
+
+/// 同 `setting_row`，但名稱下方的內容由 `details` 自己畫（例如路徑加說明兩行）。
+pub fn setting_row_with(
+    ui: &mut Ui,
+    label: &str,
+    details: impl FnOnce(&mut Ui),
+    control: impl FnOnce(&mut Ui),
+) {
     let id = ui.scope_id().with(("setting_row", label));
     let first = ui.cursor().top() <= ui.max_rect().top() + 0.5;
     let (pad_x, pad_y) = theme::ROW_PADDING;
@@ -122,9 +137,7 @@ pub fn setting_row(ui: &mut Ui, label: &str, hint: Option<&str>, control: impl F
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 3.0;
                     let label_id = ui.add(Label::new(label).wrap()).id;
-                    if let Some(hint) = hint {
-                        rich(ui, hint, theme::HINT_SIZE, theme::TEXT_SECONDARY);
-                    }
+                    details(ui);
                     label_id
                 },
             );
@@ -395,19 +408,27 @@ pub fn keycap_row(ui: &mut Ui, hotkey: &str) {
                 if j > 0 {
                     separator(ui, "+");
                 }
-                Frame::new()
-                    .fill(theme::KEYCAP_BG)
-                    .stroke(Stroke::new(1.0, theme::KEYCAP_BORDER))
-                    .corner_radius(5)
-                    .inner_margin(Margin::symmetric(9, 4))
-                    .show(ui, |ui| {
-                        ui.add(
-                            Label::new(RichText::new(key).size(theme::HINT_SIZE)).selectable(false),
-                        );
-                    });
+                keycap(ui, key);
             }
         }
     });
+}
+
+/// 一個按鍵帽：高 26、左右內距 9，外框 1 寬、底邊 2 寬。
+fn keycap(ui: &mut Ui, key: &str) {
+    let text = RichText::new(key).size(theme::HINT_SIZE).color(theme::TEXT);
+    let galley = WidgetText::from(text.clone()).into_galley(
+        ui,
+        Some(TextWrapMode::Extend),
+        f32::INFINITY,
+        TextStyle::Body,
+    );
+    let (rect, _) = ui.allocate_exact_size(vec2(galley.size().x + 18.0, 26.0), Sense::hover());
+    let face = Rect::from_min_max(rect.min + vec2(1.0, 1.0), rect.max - vec2(1.0, 2.0));
+    let painter = ui.painter();
+    painter.rect_filled(rect, 5, theme::KEYCAP_BORDER);
+    painter.rect_filled(face, 4, theme::KEYCAP_BG);
+    ui.put(face, Label::new(text).selectable(false));
 }
 
 /// 依關鍵字篩選模型清單：不分大小寫的子字串比對；關鍵字空白時回傳全部。

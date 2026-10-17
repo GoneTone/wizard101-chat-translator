@@ -1,0 +1,214 @@
+//! 關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置與譯文快取。
+
+use eframe::egui::{
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Layout, Rect, RichText, Sense,
+    TextureHandle, Ui, Vec2, pos2, vec2,
+};
+
+use super::{SettingsAction, SettingsWindow};
+use crate::config::{app_dir, app_name};
+use crate::i18n::{current_language, t, translators};
+use crate::logs::log;
+use crate::runtime::updater::{AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release};
+use crate::ui::overlay::frame::load_icon;
+use crate::ui::palette;
+use crate::ui::settings::env::{Round, SettingsEnv};
+use crate::ui::settings::theme::{self, icon};
+use crate::ui::settings::widgets::{
+    card, glyph, outcome, rich, right_aligned, right_aligned_width, secondary_button,
+    secondary_icon_button, setting_row, setting_row_with,
+};
+
+/// 關於分頁自己的狀態：檢查更新的輪次與結果、清除快取的結果與圖示貼圖。
+pub(super) struct AboutState {
+    update: Round,
+    /// 最近一次檢查更新的結果：`Ok(None)` 已是最新、`Ok(Some)` 有新版、`Err` 失敗原因。
+    result: Option<Result<Option<Release>, String>>,
+    cache_cleared: Option<usize>,
+    icon: Option<TextureHandle>,
+}
+
+impl Default for AboutState {
+    fn default() -> Self {
+        Self {
+            update: Round::new("update check"),
+            result: None,
+            cache_cleared: None,
+            icon: None,
+        }
+    }
+}
+
+/// 外部連結：文字後面接一個外部連結圖示；點下去以系統瀏覽器開啟。
+fn link(ui: &mut Ui, text: &str, url: &str) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        let text = RichText::new(text).size(theme::CONTROL_TEXT_SIZE);
+        if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
+            log(format!("[ui] opening link from settings: {url}"));
+        }
+        glyph(ui, icon::EXTERNAL_LINK, 11.0, theme::LINK);
+    });
+}
+
+/// 網址去掉 `https://` 當連結文字。
+fn bare(url: &str) -> &str {
+    url.trim_start_matches("https://")
+}
+
+impl SettingsWindow {
+    /// 手動檢查更新的結果；查到新版時另外送出 `UpdateFound`，讓 overlay 也掛橫幅。
+    pub(super) fn apply_update(&mut self, round: u64, result: &Result<Option<Release>, String>) {
+        if !self.about.update.finish(round) {
+            return;
+        }
+        match result {
+            Ok(None) => log("[update] manual check: already up to date"),
+            Ok(Some(release)) => {
+                log(format!(
+                    "[update] manual check: {} available",
+                    release.version
+                ));
+                self.pending
+                    .push(SettingsAction::UpdateFound(release.clone()));
+            }
+            // 失敗原因已由 env 記過
+            Err(_) => {}
+        }
+        self.about.result = Some(result.clone());
+    }
+
+    pub(super) fn about_page(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
+        self.hero_card(ui, env);
+        card(ui, |ui| {
+            setting_row(ui, &t("about.project", &[]), None, |ui| {
+                link(ui, bare(PROJECT_URL), PROJECT_URL);
+            });
+            // 開發者名稱是識別碼不是文案，不進語言檔
+            setting_row(ui, &t("about.author", &[]), None, |ui| {
+                link(ui, "GoneTone", AUTHOR_URL);
+            });
+            let credit = translators(&current_language());
+            if !credit.is_empty() {
+                setting_row(ui, &t("credit.translators", &[]), None, |ui| {
+                    rich(ui, &credit, theme::CONTROL_TEXT_SIZE, theme::TEXT);
+                });
+            }
+            setting_row(ui, &t("about.help_translate", &[]), None, |ui| {
+                link(ui, bare(CROWDIN_URL), CROWDIN_URL);
+            });
+            setting_row(ui, &t("about.issues", &[]), None, |ui| {
+                link(ui, bare(ISSUES_URL), ISSUES_URL);
+            });
+        });
+        card(ui, |ui| {
+            let path = app_dir().display().to_string();
+            let details = |ui: &mut Ui| {
+                let font = FontId::monospace(theme::HINT_SIZE);
+                ui.add(Label::new(RichText::new(&path).font(font).color(palette::FG_BAR)).wrap());
+                rich(
+                    ui,
+                    &t("about.logs_hint", &[]),
+                    theme::HINT_SIZE,
+                    theme::TEXT_SECONDARY,
+                );
+            };
+            setting_row_with(ui, &t("about.logs", &[]), details, |ui| {
+                let text = t("button.open_folder", &[]);
+                if secondary_icon_button(ui, icon::OPEN_FOLDER, &text).clicked() {
+                    env.open_folder(&app_dir());
+                }
+            });
+            if env.has_cache() {
+                let hint = t("about.cache_hint", &[]);
+                setting_row(ui, &t("about.cache", &[]), Some(&hint), |ui| {
+                    if let Some(count) = self.about.cache_cleared {
+                        let count = count.to_string();
+                        outcome(ui, true, &t("about.cache_cleared", &[("count", &count)]));
+                        ui.add_space(8.0);
+                    }
+                    // 不加確認：快取會自動重建，誤按的代價只是下一則同樣的系統訊息重翻一次
+                    if secondary_button(ui, &t("button.clear_cache", &[])).clicked() {
+                        self.about.cache_cleared = Some(env.clear_cache());
+                    }
+                });
+            }
+        });
+    }
+
+    /// 頭卡：圖示、名稱、版本與檢查更新的結果，〔檢查更新〕靠右。
+    fn hero_card(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
+        let texture = self
+            .about
+            .icon
+            .get_or_insert_with(|| load_icon(ui.ctx(), 48))
+            .id();
+        let buttons = Id::unique("about_hero_buttons");
+        let mut check = false;
+        card(ui, |ui| {
+            Frame::new().inner_margin(16).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 16.0;
+                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), Sense::hover());
+                    let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+                    ui.painter().image(texture, rect, uv, Color32::WHITE);
+                    let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
+                    ui.allocate_ui_with_layout(
+                        vec2(room.max(80.0), 0.0),
+                        Layout::top_down(Align::Min),
+                        |ui| {
+                            ui.spacing_mut().item_spacing.y = 3.0;
+                            self.hero_text(ui);
+                        },
+                    );
+                    check = right_aligned(ui, buttons, |ui| {
+                        let busy = self.about.update.busy();
+                        let text = if busy {
+                            t("button.checking", &[])
+                        } else {
+                            t("button.check_update", &[])
+                        };
+                        ui.add_enabled_ui(!busy, |ui| {
+                            secondary_icon_button(ui, icon::CHECK_UPDATE, &text)
+                        })
+                        .inner
+                        .clicked()
+                    });
+                });
+            });
+        });
+        if check {
+            self.about.result = None;
+            let round = self.about.update.start();
+            env.check_update(round);
+        }
+    }
+
+    fn hero_text(&self, ui: &mut Ui) {
+        ui.add(Label::new(
+            RichText::new(app_name()).font(theme::bold(17.0)),
+        ));
+        let version = format!("{} v{}", t("about.version", &[]), env!("CARGO_PKG_VERSION"));
+        ui.add(Label::new(
+            RichText::new(version)
+                .size(theme::HINT_SIZE)
+                .color(theme::TEXT_SECONDARY),
+        ));
+        match &self.about.result {
+            None => {}
+            Some(Ok(None)) => outcome(ui, true, &t("update.latest", &[])),
+            Some(Err(error)) => outcome(ui, false, &t("update.failed", &[("error", error)])),
+            Some(Ok(Some(release))) => {
+                // 有新版：整行文字是連結，用連結藍、不加成功／失敗圖示
+                let text = t("update.available", &[("version", &release.version)]);
+                let text = RichText::new(text).size(theme::CONTROL_TEXT_SIZE);
+                if ui
+                    .add(Hyperlink::from_label_and_url(text, &release.url))
+                    .clicked()
+                {
+                    log(format!("[update] opening release page: {}", release.url));
+                }
+            }
+        }
+    }
+}

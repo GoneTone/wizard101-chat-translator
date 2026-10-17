@@ -19,6 +19,8 @@ use crate::ui::fonts::font_family;
 
 /// CJK 字型檔，依 fallback 順序排列。
 const CJK_FILES: [&str; 4] = ["msjh.ttc", "msyh.ttc", "YuGothM.ttc", "malgun.ttf"];
+/// 泰文的 fallback：翻譯目標語言的說明以「ภาษาไทย」舉例，Tk 靠系統字型連結畫得出來。
+const THAI_FILE: &str = "LeelawUI.ttf";
 /// 最後的 fallback：⛶⚙─✕ 等符號。
 const SYMBOL_FILE: &str = "seguisym.ttf";
 /// 圖示字型：Win11 的 Segoe Fluent Icons，沒有就用 Win10 的 Segoe MDL2 Assets。
@@ -60,6 +62,7 @@ pub fn font_files(language_code: &str) -> Vec<&'static str> {
     let primary = primary_file(font_family(language_code));
     let mut files = vec![primary];
     files.extend(CJK_FILES.iter().filter(|f| **f != primary));
+    files.push(THAI_FILE);
     files.push(SYMBOL_FILE);
     files
 }
@@ -170,7 +173,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn primary_font_first_then_other_cjk_then_symbols() {
+    fn primary_font_first_then_other_cjk_then_thai_and_symbols() {
         assert_eq!(
             font_files("zh-TW"),
             [
@@ -178,6 +181,7 @@ mod tests {
                 "msyh.ttc",
                 "YuGothM.ttc",
                 "malgun.ttf",
+                "LeelawUI.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -188,6 +192,7 @@ mod tests {
                 "msjh.ttc",
                 "msyh.ttc",
                 "malgun.ttf",
+                "LeelawUI.ttf",
                 "seguisym.ttf"
             ]
         );
@@ -199,6 +204,7 @@ mod tests {
                 "msyh.ttc",
                 "YuGothM.ttc",
                 "malgun.ttf",
+                "LeelawUI.ttf",
                 "seguisym.ttf"
             ]
         );
