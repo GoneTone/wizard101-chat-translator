@@ -1506,6 +1506,22 @@ EXPORTERS["keyboard_is_modifier"] = export_keyboard_is_modifier
 EXPORTERS["keyboard_parse"] = export_keyboard_parse
 
 
+def export_region_window_region() -> list[dict]:
+    """`window_region`：input 為 {rect, origin, size}，output 為 client 內矩形（完全在外為 null）。"""
+    from src.region.capture import window_region
+
+    client = [((100, 200), (1280, 720)), ((-8, -31), (800, 600)), ((-1920, 120), (1600, 900)),
+              ((2560, -300), (1920, 1080)), ((0, 0), (1, 1))]
+    rects = [(150, 220, 300, 100), (50, 150, 300, 100), (1300, 850, 300, 100), (0, 0, 50, 50),
+             (2000, 1000, 50, 50), (1380, 300, 50, 50), (90, 300, 20, 40), (500, 190, 30, 20),
+             (1370, 400, 20, 30), (600, 910, 30, 20), (0, 0, 5000, 5000), (100, 200, 0, 10),
+             (-1900, 130, 400, 300), (-400, 500, 600, 100), (2600, -320, 100, 50),
+             (4400, 700, 200, 500), (-20, -40, 30, 50), (790, 590, 20, 20), (0, 0, 1, 1)]
+    return [{"input": {"rect": rect, "origin": origin, "size": size},
+             "output": window_region(rect, origin, size)}
+            for origin, size in client for rect in rects]
+
+
 def export_ocr_merge_lines() -> list[dict]:
     """`merge_lines`：input 為 [box, text] 清單（box 為 4 個角點），output 為合併後的行。"""
     from src.region.ocr import merge_lines
@@ -1560,6 +1576,7 @@ def export_ocr_recognize() -> list[dict]:
 
 
 EXPORTERS["ocr_merge_lines"] = export_ocr_merge_lines
+EXPORTERS["region_window_region"] = export_region_window_region
 EXPORTERS["ocr_recognize"] = export_ocr_recognize
 
 
