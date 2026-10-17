@@ -4,6 +4,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::reader::chat_tabs::TabState;
+use crate::region::pipeline::RegionResult;
 use crate::ui::geometry::Rect;
 
 /// 一則 overlay 更新。
@@ -51,6 +52,11 @@ pub enum UiEvent {
     },
     /// 框選熱鍵；`hwnd` 為 0 表示取消目前的選取層。
     RegionHotkey { hwnd: isize },
+    /// 框選辨識翻譯結果；`Err` 是 `describe_error` 的文案。
+    RegionDone {
+        session: u64,
+        result: Result<RegionResult, String>,
+    },
     /// 結束程式。
     Quit,
 }

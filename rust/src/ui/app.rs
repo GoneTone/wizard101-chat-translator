@@ -235,6 +235,8 @@ impl App {
             UiEvent::RegionHotkey { hwnd } => log(format!(
                 "[ui] region hotkey pressed (hwnd={hwnd:#x}); region capture arrives in phase 3"
             )),
+            // 框選流程還沒接進 App，也還沒有投遞端
+            UiEvent::RegionDone { .. } => {}
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }

@@ -255,6 +255,16 @@ impl Card {
         self.alpha = alpha;
     }
 
+    #[cfg(test)]
+    pub(crate) fn alpha(&self) -> f32 {
+        self.alpha
+    }
+
+    /// 卡片貼著的框選矩形（螢幕 px）。
+    pub fn rect(&self) -> Rect {
+        self.rect
+    }
+
     /// 依目前內容算出卡片位置與大小（px），`area` 是框選矩形所在螢幕的工作區。
     ///
     /// 落在側邊時以目前的側邊寬度量高、沿用側邊（見 `place`），直到 `set_content` 換掉內容。

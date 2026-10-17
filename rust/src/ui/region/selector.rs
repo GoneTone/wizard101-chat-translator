@@ -77,6 +77,17 @@ impl Selector {
         }
     }
 
+    /// 選取畫面顯示的凍結畫面；框選完從同一張裁切。
+    pub fn frame(&self) -> &Arc<Frame> {
+        &self.frame
+    }
+
+    /// 還沒上傳成貼圖的 backdrop 大小（測試用）。
+    #[cfg(test)]
+    pub(crate) fn backdrop_size(&self) -> Option<[usize; 2]> {
+        self.images.as_ref().map(|[backdrop, _, _]| backdrop.size)
+    }
+
     /// 畫出選取畫面並處理滑鼠與 Esc；選取畫面要佔滿 `ui` 的範圍、與螢幕左上角對齊。
     pub fn content(&mut self, ui: &mut egui::Ui) -> Option<SelectorAction> {
         let ctx = ui.ctx().clone();
