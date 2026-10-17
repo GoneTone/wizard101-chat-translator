@@ -4,7 +4,6 @@
 //! galley 裡，選取能一路跨過兩段。選取自己做（同 overlay）：egui label 的選取拖出字外就不跟、收成游標時
 //! 還會把全文當成選取。
 
-use std::ops::Range;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,16 +18,15 @@ use crate::logs::log;
 use crate::ui::copy_menu::{self, MenuOutcome};
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Placement, Rect, Side, anchored_geometry, beside_geometry, is_click};
-use crate::ui::overlay::message_list::wheel_delta;
 use crate::ui::overlay::scrollbar::{self, Scrollbar};
-use crate::ui::overlay::selection::{
-    AUTOSCROLL_INTERVAL, Caret, autoscroll_pixels, highlight_rects, is_copy, selected_text,
-};
 use crate::ui::palette::{
     BG, FG_BAR, FG_ERROR, FG_ORIGINAL, FG_PENDING, FG_TRANSLATED, FG_UPDATE, GRIP, SELECT_BG,
 };
 use crate::ui::region::region_box::{HANDLE, MARGIN};
 use crate::ui::richtext::{linkify, parse_link_markup};
+use crate::ui::text_select::{
+    AUTOSCROLL_INTERVAL, autoscroll_pixels, char_range_text, highlight_rects, is_copy, wheel_delta,
+};
 
 /// 卡片寬度下限（px）：矩形再窄也不跟，譯文會擠成一長條。
 pub const MIN_WIDTH: i32 = 240;
@@ -193,14 +191,6 @@ fn char_under(galley: &Galley, local: Vec2) -> Option<usize> {
     None
 }
 
-fn caret(index: usize) -> Caret {
-    Caret {
-        msg: 0,
-        line: 0,
-        index,
-    }
-}
-
 /// 結果卡的狀態；每次框選建一張新的。
 pub struct Card {
     rect: Rect,
@@ -343,18 +333,14 @@ impl Card {
 
     fn selection_text(&self) -> Option<String> {
         let (lo, hi) = self.span()?;
-        Some(selected_text(
-            &[vec![self.all_text()]],
-            caret(lo),
-            caret(hi),
-        ))
+        Some(char_range_text(&self.all_text(), lo, hi))
     }
 
     /// 第 `index` 個字元所在連結的網址。
     fn link_at(&self, index: usize) -> Option<&str> {
         let mut start = 0;
         for segment in &self.segments {
-            let range: Range<usize> = start..start + segment.text.chars().count();
+            let range = start..start + segment.text.chars().count();
             if range.contains(&index) {
                 return segment.url.as_deref();
             }

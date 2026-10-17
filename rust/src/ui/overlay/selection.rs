@@ -4,8 +4,7 @@
 
 use std::time::Duration;
 
-use eframe::egui::text::CharIndex;
-use eframe::egui::{Event, Galley, Id, Key, Pos2, Rect, Ui, Vec2};
+use eframe::egui::{Id, Pos2, Rect, Ui, Vec2};
 
 use crate::logs::log;
 use crate::ui::clipboard;
@@ -14,13 +13,8 @@ use crate::ui::overlay::frame::{BAR_HEIGHT, Win32Shell, edge_under};
 use crate::ui::overlay::message_list::{MessageList, Row};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
+use crate::ui::text_select::{AUTOSCROLL_INTERVAL, autoscroll_pixels, char_range_text, is_copy};
 use crate::ui::win32;
-
-/// 拖出視口時的自動捲動節奏（秒）。
-pub const AUTOSCROLL_INTERVAL: f64 = 0.040;
-/// 每輪最少捲幾像素：剛越界時要慢，才停得準。
-const AUTOSCROLL_MIN: i32 = 2;
-const AUTOSCROLL_MAX: i32 = 24;
 
 /// 選取端點：第幾則訊息、該則第幾行（0＝原文、1＝譯文）、行內第幾個字元；欄位順序即閱讀順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,49 +52,12 @@ pub fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> Stri
         .map(|msg| {
             let lines = messages[msg].iter().enumerate().filter_map(|(line, text)| {
                 let (lo, hi) = line_range((start, end), msg, line)?;
-                Some(
-                    text.chars()
-                        .skip(lo)
-                        .take(hi.saturating_sub(lo))
-                        .collect::<String>(),
-                )
+                Some(char_range_text(text, lo, hi))
             });
             lines.collect::<Vec<_>>().join("\n")
         })
         .collect::<Vec<_>>()
         .join("\n\n")
-}
-
-/// 拖到訊息區之外時每一輪要捲動的像素（負值往上，落在區內回 0）；離邊界越遠越快，但設上限才選得準。
-pub fn autoscroll_pixels(y: i32, top: i32, bottom: i32) -> i32 {
-    if y < top {
-        -AUTOSCROLL_MAX.min(AUTOSCROLL_MIN + (top - y) / 4)
-    } else if y > bottom {
-        AUTOSCROLL_MAX.min(AUTOSCROLL_MIN + (y - bottom) / 4)
-    } else {
-        0
-    }
-}
-
-/// 排版 `galley` 中 `[lo, hi)` 要反白的矩形（相對 galley 原點，每個視覺行一個）。
-pub fn highlight_rects(galley: &Galley, lo: usize, hi: usize) -> Vec<Rect> {
-    let mut rects = Vec::new();
-    let mut first = 0;
-    for row in &galley.rows {
-        let (a, b) = (
-            lo.max(first),
-            hi.min(first + row.char_count_excluding_newline().0),
-        );
-        if a < b {
-            let x = |i: usize| row.pos.x + row.x_offset(CharIndex(i - first));
-            rects.push(Rect::from_x_y_ranges(
-                x(a)..=x(b),
-                row.min_y()..=row.max_y(),
-            ));
-        }
-        first += row.char_count_including_newline().0;
-    }
-    rects
 }
 
 /// 框選對桌面的操作；測試換成假的。
@@ -374,21 +331,6 @@ impl Selection {
     }
 }
 
-/// 這個輸入事件是不是複製（Ctrl+C，含 Ctrl+Shift+C）。
-pub fn is_copy(event: &Event) -> bool {
-    // egui-winit 只把不帶 Shift 的 Ctrl+C 轉成 Copy；Ctrl+Shift+C（Tk 的 <Control-C>）仍是 Key
-    match event {
-        Event::Copy => true,
-        Event::Key {
-            key: Key::C,
-            pressed: true,
-            modifiers,
-            ..
-        } => modifiers.ctrl || modifiers.command,
-        _ => false,
-    }
-}
-
 /// 上一幀畫出、且與視口相交的訊息列與它在 `messages` 中的索引，由上到下。
 fn visible<'a>(list: &'a MessageList, messages: &[Message]) -> Vec<(usize, &'a Row)> {
     let viewport = list.viewport();
@@ -461,18 +403,17 @@ fn clamped(list: &MessageList, messages: &[Message], pos: Pos2) -> Option<Caret>
 mod tests {
     use std::time::Instant;
 
-    use eframe::egui::{Color32, Context, FontId, Modifiers, PointerButton, Shape};
+    use eframe::egui::{Event, Key, Modifiers, PointerButton, Shape};
     use egui_kittest::Harness;
 
     use super::*;
     use crate::i18n::t;
-    use crate::ui::fonts_egui::{self, tk_pt};
+    use crate::ui::fonts_egui;
     use crate::ui::palette::{BAR, GRIP, SELECT_BG};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
     /// 清單左側留白：讓行首字元落在左緣縮放帶之外，按得到第 0 個字。
     const LEFT: f32 = 20.0;
-    const WRAPPED: &str = "Hello wizard friends 這是一段中英混排的訊息內容用來測試換行";
 
     fn caret(msg: usize, line: usize, index: usize) -> Caret {
         Caret { msg, line, index }
@@ -628,22 +569,6 @@ mod tests {
         rows.iter().find(|r| r.seq == seq).map(|r| r.lines[0].0)
     }
 
-    fn layout(text: &str, wrap: f32) -> std::sync::Arc<Galley> {
-        let ctx = Context::default();
-        fonts_egui::install(&ctx, "zh-TW");
-        let mut galley = None;
-        let mut output = ctx.run_ui(Default::default(), |ui| {
-            galley = Some(ui.painter().layout(
-                text.to_owned(),
-                FontId::proportional(tk_pt(11.0)),
-                Color32::PLACEHOLDER,
-                wrap,
-            ));
-        });
-        output.textures_delta.clear();
-        galley.unwrap()
-    }
-
     #[test]
     fn selected_text_matches_python() {
         let v = |rows: &[&[&str]]| -> Vec<Vec<String>> {
@@ -673,47 +598,6 @@ mod tests {
             selected_text(&cjk, caret(0, 0, 0), caret(1, 1, 3)),
             "原文一\n譯文一\n\n原文二\n譯文二"
         );
-    }
-
-    #[test]
-    fn autoscroll_pixels_matches_python() {
-        assert_eq!(autoscroll_pixels(500, 400, 600), 0);
-        assert_eq!(autoscroll_pixels(400, 400, 600), 0);
-        assert_eq!(autoscroll_pixels(600, 400, 600), 0);
-        assert!(autoscroll_pixels(392, 400, 600) < 0);
-        assert!(autoscroll_pixels(608, 400, 600) > 0);
-        let (near, far) = (
-            autoscroll_pixels(610, 400, 600),
-            autoscroll_pixels(650, 400, 600),
-        );
-        assert!(0 < near && near < far && far < 24);
-        assert_eq!(autoscroll_pixels(9000, 400, 600), 24);
-        assert_eq!(autoscroll_pixels(-9000, 400, 600), -24);
-    }
-
-    #[test]
-    fn highlight_x_agrees_with_hit_test() {
-        // 反白的 x 與 hit-test 必須認同同一個字元位置，否則反白會整片偏掉
-        let galley = layout(WRAPPED, 120.0);
-        assert!(galley.rows.len() > 1, "test text must wrap");
-        let first = galley.rows[0].char_count_excluding_newline().0;
-        let middle = first / 2;
-        let rect = highlight_rects(&galley, middle, first)[0];
-        assert_eq!(rect.min.y, galley.rows[0].min_y());
-        let probe = Vec2::new(rect.min.x + 0.5, rect.center().y);
-        assert_eq!(galley.cursor_from_pos(probe).index.0, middle);
-    }
-
-    #[test]
-    fn highlight_spans_every_visual_line_and_empty_ranges_have_none() {
-        let galley = layout(WRAPPED, 120.0);
-        let count = WRAPPED.chars().count();
-        assert_eq!(highlight_rects(&galley, 0, count).len(), galley.rows.len());
-        assert_eq!(
-            highlight_rects(&galley, 0, usize::MAX).len(),
-            galley.rows.len()
-        );
-        assert!(highlight_rects(&galley, 5, 5).is_empty());
     }
 
     #[test]

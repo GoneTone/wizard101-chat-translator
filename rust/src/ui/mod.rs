@@ -13,4 +13,5 @@ pub mod overlay;
 pub mod palette;
 pub mod region;
 pub mod richtext;
+pub mod text_select;
 pub mod win32;

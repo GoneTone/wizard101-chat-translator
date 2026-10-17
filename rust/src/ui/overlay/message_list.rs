@@ -7,9 +7,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
-use eframe::egui::{
-    Color32, Event, FontId, Galley, Label, MouseWheelUnit, Painter, Pos2, Rect, RichText, Ui, Vec2,
-};
+use eframe::egui::{Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText, Ui, Vec2};
 
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
@@ -20,6 +18,7 @@ use crate::ui::overlay::outlined::{self, TEXT_ORIGIN, line_height};
 use crate::ui::overlay::scrollbar::{self, Scrollbar};
 use crate::ui::overlay::selection::{self, Caret};
 use crate::ui::palette::SELECT_BG;
+use crate::ui::text_select::{highlight_rects, wheel_delta};
 
 /// 視圖底緣比例達到這個值就算在底部。
 pub const STICK_THRESHOLD: f64 = 0.999;
@@ -257,7 +256,7 @@ impl MessageList {
                     selected.and_then(|s| selection::line_range(s, p.index, line))
                 {
                     let text = origin.to_vec2() + Vec2::splat(TEXT_ORIGIN);
-                    for r in selection::highlight_rects(galley, lo, hi) {
+                    for r in highlight_rects(galley, lo, hi) {
                         painter.rect_filled(r.translate(text), 0.0, SELECT_BG);
                     }
                 }
@@ -294,23 +293,6 @@ fn anchored(anchor: Option<(u64, f32)>, messages: &[Message], dy: f32) -> Start 
     } else {
         Start::At(index, top + dy)
     }
-}
-
-/// 本幀的滾輪量換成內容位移（DIP）：一格捲視口高度的十分之一，與 Tk 的 `yview_scroll(units)` 相同。
-pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
-    ui.input(|i| {
-        i.events
-            .iter()
-            .map(|e| match e {
-                Event::MouseWheel { unit, delta, .. } => match unit {
-                    MouseWheelUnit::Point => delta.y,
-                    MouseWheelUnit::Line => delta.y * viewport_h / 10.0,
-                    MouseWheelUnit::Page => delta.y * viewport_h,
-                },
-                _ => 0.0,
-            })
-            .sum()
-    })
 }
 
 fn placeholder(ui: &mut Ui, rect: Rect, state: &str) {
@@ -488,7 +470,9 @@ fn shift(placed: &mut VecDeque<Placed>, dy: f32) {
 mod tests {
     use std::time::Duration;
 
-    use eframe::egui::{self, Modifiers, MouseWheelSource, RawInput, Shape, TouchPhase};
+    use eframe::egui::{
+        self, Event, Modifiers, MouseWheelSource, MouseWheelUnit, RawInput, Shape, TouchPhase,
+    };
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
