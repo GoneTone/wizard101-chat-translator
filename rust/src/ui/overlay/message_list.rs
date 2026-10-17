@@ -16,9 +16,11 @@ use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::EDGE;
 use crate::ui::overlay::frame::{GRIP_SIZE, status_color};
-use crate::ui::overlay::model::{Message, OverlayModel, ViewKey};
-use crate::ui::overlay::outlined::{self, line_height};
+use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
+use crate::ui::overlay::outlined::{self, TEXT_ORIGIN, line_height};
 use crate::ui::overlay::scrollbar::{self, Scrollbar};
+use crate::ui::overlay::selection::{self, Caret};
+use crate::ui::palette::SELECT_BG;
 
 /// 視圖底緣比例達到這個值就算在底部。
 pub const STICK_THRESHOLD: f64 = 0.999;
@@ -71,6 +73,13 @@ pub struct MessageList {
     key: Option<ViewKey>,
     follow: bool,
     dragging: bool,
+    /// 拖曳選取放開後維持原位，直到內容或視口大小改變。
+    held: bool,
+    /// 拖曳或維持原位期間上一幀的（內容雜湊, 視口大小）。
+    seen: Option<(u64, Vec2)>,
+    /// 待套用的捲動量（內容往下移的 DIP），框選自動捲動用。
+    pending: f32,
+    viewport: Rect,
     anchor: Option<(u64, f32)>,
     /// 每個分頁、每則訊息上次排版時的（換行寬度, 整列高度），估計未排版訊息的高度用。
     heights: HashMap<ViewKey, BTreeMap<u64, (f32, f32)>>,
@@ -92,6 +101,10 @@ impl MessageList {
             key: None,
             follow: true,
             dragging: false,
+            held: false,
+            seen: None,
+            pending: 0.0,
+            viewport: Rect::NOTHING,
             anchor: None,
             heights: HashMap::new(),
             wrap: 0.0,
@@ -106,8 +119,21 @@ impl MessageList {
     }
 
     /// 拖曳選取期間暫停自動捲到底：畫面被新訊息拉走的話，游標下的字會整個換掉。
+    ///
+    /// 放開後也先不貼底，等內容或視口大小改變才恢復，免得右鍵複製前選取就被拉走。
     pub fn set_dragging(&mut self, dragging: bool) {
+        self.held |= self.dragging && !dragging;
         self.dragging = dragging;
+    }
+
+    /// 下一幀把內容往下移 `dy`（DIP，負值往上），框選拖出視口時的自動捲動用。
+    pub fn scroll_by(&mut self, dy: f32) {
+        self.pending += dy;
+    }
+
+    /// 上一幀的訊息視口（不含捲軸與右側縮放帶）。
+    pub fn viewport(&self) -> Rect {
+        self.viewport
     }
 
     /// 上一幀畫出的可見訊息，由上到下。
@@ -115,12 +141,22 @@ impl MessageList {
         &self.rows
     }
 
-    /// 在 `rect`（標題列與分頁列以下的整塊內容區）畫出顯示中分頁的訊息；沒有訊息時大字置中顯示狀態。
-    pub fn show(&mut self, ui: &mut Ui, rect: Rect, model: &OverlayModel, status: Option<&str>) {
+    /// 在 `rect`（標題列與分頁列以下的整塊內容區）畫出顯示中分頁的訊息，`selected` 範圍內的字墊上反白；
+    /// 沒有訊息時大字置中顯示狀態。
+    pub fn show(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        model: &OverlayModel,
+        status: Option<&str>,
+        selected: Option<(Caret, Caret)>,
+    ) {
         let viewport = Rect::from_min_max(
             rect.min,
             Pos2::new(rect.max.x - scrollbar::WIDTH - EDGE as f32, rect.max.y),
         );
+        self.viewport = viewport;
+        let mut dy = std::mem::take(&mut self.pending);
         // 底部讓出縮放把手：捲軸鋪到底會被它壓住，也會蓋到右下角的縮放帶
         let track = Rect::from_min_max(
             Pos2::new(viewport.max.x, rect.min.y),
@@ -131,6 +167,7 @@ impl MessageList {
         if key != self.key {
             self.key = key;
             self.follow = true;
+            self.held = false;
             self.anchor = None;
             if let Some((slot, tab)) = key {
                 log(format!(
@@ -154,10 +191,15 @@ impl MessageList {
         self.wrap = wrap;
         let mut scroll = self.scrollbar.drag(ui, track).map(Scroll::To);
         if ui.rect_contains_pointer(rect) {
-            let dy = wheel_delta(ui, viewport.height());
-            if dy != 0.0 {
-                scroll = Some(Scroll::By(dy));
-            }
+            dy += wheel_delta(ui, viewport.height());
+        }
+        if dy != 0.0 {
+            scroll = Some(Scroll::By(dy));
+        }
+        if self.dragging || self.held {
+            let seen = Some((fingerprint(messages), viewport.size()));
+            self.held &= seen == self.seen;
+            self.seen = seen;
         }
 
         let painter = ui.painter_at(viewport);
@@ -173,7 +215,7 @@ impl MessageList {
         let start = match scroll {
             Some(Scroll::To(fraction)) => layout.start_at_fraction(fraction, one_line),
             Some(Scroll::By(dy)) => anchored(self.anchor, messages, dy),
-            None if self.follow && !self.dragging => Start::Bottom,
+            None if self.follow && !self.dragging && !self.held => Start::Bottom,
             None => anchored(self.anchor, messages, 0.0),
         };
         let placed = layout.place(start);
@@ -203,13 +245,21 @@ impl MessageList {
             let message = &messages[p.index];
             let original = viewport.min + Vec2::new(0.0, p.top + ROW_PAD);
             let translated = original + Vec2::new(0.0, line_height(&p.original));
-            outlined::paint(&painter, original, &p.original, message.original_color());
-            outlined::paint(
-                &painter,
-                translated,
-                &p.translated,
-                message.translated_color(),
-            );
+            let lines = [
+                (original, &p.original, message.original_color()),
+                (translated, &p.translated, message.translated_color()),
+            ];
+            for (line, (origin, galley, color)) in lines.into_iter().enumerate() {
+                if let Some((lo, hi)) =
+                    selected.and_then(|s| selection::line_range(s, p.index, line))
+                {
+                    let text = origin.to_vec2() + Vec2::splat(TEXT_ORIGIN);
+                    for r in selection::highlight_rects(galley, lo, hi) {
+                        painter.rect_filled(r.translate(text), 0.0, SELECT_BG);
+                    }
+                }
+                outlined::paint(&painter, origin, galley, color);
+            }
             self.rows.push(Row {
                 seq: message.seq,
                 lines: [(original, p.original), (translated, p.translated)],
@@ -468,7 +518,7 @@ mod tests {
             .build_ui_state(
                 |ui, s: &mut State| {
                     s.rect = ui.max_rect();
-                    s.list.show(ui, s.rect, &s.model, s.status);
+                    s.list.show(ui, s.rect, &s.model, s.status, None);
                 },
                 state,
             );
@@ -683,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn dragging_a_selection_suspends_auto_follow() {
+    fn dragging_a_selection_suspends_auto_follow_until_content_changes() {
         let mut h = filled(40, 200, 60);
         h.state_mut().list.set_dragging(true);
         let (seq, y) = reading(&h);
@@ -694,9 +744,39 @@ mod tests {
         h.state_mut().model.prune(t0 + Duration::from_secs(5 + 60));
         h.step();
         assert_eq!(row_y(&h, seq), Some(y));
+        // 放開後畫面留在原處，右鍵複製前選取不會被拉走；等下一則訊息進來才貼底
         h.state_mut().list.set_dragging(false);
         h.step();
+        h.step();
+        assert_eq!(row_y(&h, seq), Some(y));
+        add(&mut h, 41, &[0], false);
+        h.step();
         assert!(at_bottom(&h));
+    }
+
+    #[test]
+    fn a_resize_after_releasing_a_selection_resumes_following() {
+        let mut h = filled(40, 200, 0);
+        h.state_mut().list.set_dragging(true);
+        h.step();
+        add(&mut h, 40, &[0], false);
+        h.step();
+        h.state_mut().list.set_dragging(false);
+        h.step();
+        assert!(!at_bottom(&h));
+        h.set_size(Vec2::new(300.0, SIZE.y));
+        h.step();
+        assert!(at_bottom(&h));
+    }
+
+    #[test]
+    fn scroll_by_moves_the_content_on_the_next_frame() {
+        let mut h = filled(40, 200, 0);
+        let (seq, y) = reading(&h);
+        h.state_mut().list.scroll_by(30.0);
+        h.step();
+        assert_eq!(row_y(&h, seq), Some(y + 30.0));
+        assert!(!h.state().list.follow());
     }
 
     #[test]
@@ -916,7 +996,7 @@ mod tests {
             };
             let started = Instant::now();
             let mut output = ctx.run_ui(input, |ui| {
-                list.show(ui, ui.max_rect(), &model, None);
+                list.show(ui, ui.max_rect(), &model, None, None);
             });
             let elapsed = started.elapsed();
             output.textures_delta.clear();

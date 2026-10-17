@@ -15,6 +15,7 @@ use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
+use crate::ui::overlay::selection::Selection;
 use crate::ui::overlay::tab_bar;
 use crate::ui::palette::BAR;
 use crate::ui::{fonts_egui, win32};
@@ -52,6 +53,7 @@ pub struct App {
     error: Option<(&'static str, Vec<(&'static str, String)>)>,
     model: OverlayModel,
     list: MessageList,
+    selection: Selection,
 }
 
 impl App {
@@ -68,6 +70,7 @@ impl App {
             error: None,
             model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
             list: MessageList::new(),
+            selection: Selection::default(),
         }
     }
 
@@ -83,6 +86,9 @@ impl App {
 
     /// 縮成泡泡（隱藏 overlay）或展開回 overlay。
     pub fn set_minimized(&mut self, minimized: bool) {
+        if minimized {
+            self.selection.clear("minimized to bubble");
+        }
         self.minimized = minimized;
         self.model.set_minimized(minimized);
     }
@@ -120,7 +126,7 @@ impl App {
         }
     }
 
-    /// 標題列以下：分頁列（沒有分頁時隱藏）與訊息清單。
+    /// 標題列以下：分頁列（沒有分頁時隱藏）與訊息清單（含框選與右鍵選單）。
     fn content(&mut self, ui: &mut egui::Ui) {
         let mut rect = ui.max_rect();
         rect.min.y += BAR_HEIGHT;
@@ -128,7 +134,10 @@ impl App {
         let (tabs, current) = self.model.current_tabs();
         tab_bar::show(&mut content, tabs, current);
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
-        self.list.show(ui, rect, &self.model, self.status);
+        self.selection
+            .show(ui, &mut self.list, &self.model, &mut Win32Shell(self.hwnd));
+        self.list
+            .show(ui, rect, &self.model, self.status, self.selection.span());
     }
 
     fn show_bubble(&self, ctx: &egui::Context) {
@@ -326,6 +335,37 @@ mod tests {
         let row = harness.state().list.rows()[0].lines[0].0;
         assert!(tab.min.y >= BAR_HEIGHT, "{tab:?}");
         assert!(row.y >= tab.max.y, "{row:?} {tab:?}");
+    }
+
+    #[test]
+    fn minimizing_clears_the_selection() {
+        let (poster, inbox) = channel();
+        poster.post(UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: "原文一".into(),
+            translated: "譯文一".into(),
+            msg_id: None,
+            pending: false,
+            color: None,
+        });
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.step();
+        let app = harness.state_mut();
+        let messages = &app.model.current_view().unwrap().messages;
+        let [(first, _), (second, _)] = &app.list.rows()[0].lines;
+        assert!(
+            app.selection
+                .begin(&app.list, messages, *first + egui::vec2(20.0, 5.0))
+        );
+        app.selection
+            .extend(&app.list, messages, *second + egui::vec2(1000.0, 5.0));
+        assert!(app.selection.span().is_some());
+        app.set_minimized(true);
+        assert_eq!(app.selection.span(), None);
     }
 
     #[test]

@@ -5,4 +5,5 @@ pub mod message_list;
 pub mod model;
 pub mod outlined;
 pub mod scrollbar;
+pub mod selection;
 pub mod tab_bar;

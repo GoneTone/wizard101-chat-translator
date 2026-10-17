@@ -190,28 +190,14 @@ impl Frame {
         }
         let area = ui.max_rect();
         let bar = egui::Rect::from_min_size(area.min, Vec2::new(area.width(), BAR_HEIGHT));
-        let grip =
-            egui::Rect::from_min_size(area.max - Vec2::splat(GRIP_SIZE), Vec2::splat(GRIP_SIZE));
+        let grip = grip_rect(area);
         let painter = ui.painter();
         painter.rect_filled(area, 0.0, BG.gamma_multiply(self.alpha));
         painter.rect_filled(bar, 0.0, BAR);
         paint_grip(painter, grip);
 
         let response = ui.interact(area, ui.scope_id().with("overlay_frame"), Sense::drag());
-        let edge_under = |p: Pos2| {
-            if grip.contains(p) {
-                return Some(Edge::Se);
-            }
-            let v = p - area.min;
-            edge_at(
-                v.x.floor() as i32,
-                v.y.floor() as i32,
-                0,
-                0,
-                area.width() as i32,
-                area.height() as i32,
-            )
-        };
+        let edge_under = |p: Pos2| edge_under(area, p);
         if response.drag_started()
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -289,6 +275,26 @@ impl Frame {
         )
         .inner
     }
+}
+
+/// 視窗 `area` 內的 `p` 壓在哪條縮放邊／角（右下角抓取紋算右下角），都不是則 `None`。
+pub fn edge_under(area: egui::Rect, p: Pos2) -> Option<Edge> {
+    if grip_rect(area).contains(p) {
+        return Some(Edge::Se);
+    }
+    let v = p - area.min;
+    edge_at(
+        v.x.floor() as i32,
+        v.y.floor() as i32,
+        0,
+        0,
+        area.width() as i32,
+        area.height() as i32,
+    )
+}
+
+fn grip_rect(area: egui::Rect) -> egui::Rect {
+    egui::Rect::from_min_size(area.max - Vec2::splat(GRIP_SIZE), Vec2::splat(GRIP_SIZE))
 }
 
 /// 標題列內容；按鈕與狀態先由右往左排，名稱只拿剩下的寬度，太長時被截的是名稱。
@@ -457,7 +463,7 @@ mod tests {
                     if let Some((list, model)) = &mut s.content {
                         let mut rect = s.area;
                         rect.min.y += BAR_HEIGHT;
-                        list.show(ui, rect, model, None);
+                        list.show(ui, rect, model, None, None);
                     }
                 },
                 state,

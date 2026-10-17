@@ -1,6 +1,7 @@
 //! overlay 的訊息資料：每個（客戶端, 分頁）一份清單，決定顯示哪個客戶端，並維護上限、淡出與未讀。
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::time::{Duration, Instant};
 
 use eframe::egui::Color32;
@@ -16,6 +17,15 @@ pub type ViewKey = (u32, i32);
 pub fn dimmed(color: Color32, factor: f64) -> Color32 {
     let scale = |c: u8| (f64::from(c) * factor).round_ties_even() as u8;
     Color32::from_rgb(scale(color.r()), scale(color.g()), scale(color.b()))
+}
+
+/// 一段訊息的內容雜湊：訊息增刪或譯文回填都會讓它改變。
+pub fn fingerprint(messages: &[Message]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for m in messages {
+        (m.seq, &m.translated).hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// 列表中的一則訊息；`msg_id` 為 None 代表不需要就地回填。
