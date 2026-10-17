@@ -97,26 +97,41 @@ impl Setup {
     }
 }
 
+fn logged(line: &str) -> bool {
+    log_lines_with(line).iter().any(|l| l.ends_with(line))
+}
+
 #[test]
 fn register_hotkey_installs_a_swallowing_handler() {
-    let (s, registration, used) = register("ctrl+space", "ctrl+space");
-    assert_eq!(used, "ctrl+space");
-    let (ctrl, space) = (code("ctrl"), code("space"));
+    // 用其他測試沒用到的熱鍵，log 才分得出是這個測試寫的
+    let (s, registration, used) = register("ctrl+f9", "ctrl+space");
+    assert_eq!(used, "ctrl+f9");
+    assert!(logged(
+        "[hotkey] 'ctrl+f9' registered; its trigger key is swallowed when handled"
+    ));
+    let (ctrl, f9) = (code("ctrl"), code("f9"));
     assert!(s.process(down(ctrl)));
-    assert!(!s.process(down(space)));
-    assert!(!s.process(up(space)));
+    assert!(!s.process(down(f9)));
+    assert!(!s.process(up(f9)));
     assert_eq!(s.triggers.load(Ordering::SeqCst), 1);
     assert_eq!(s.masks.load(Ordering::SeqCst), 1);
+    assert!(logged(
+        "[hotkey] 'ctrl+f9' swallowed; injected mask key vk=0xe8"
+    ));
     registration.unregister();
-    assert!(s.process(down(space)));
+    assert!(s.process(down(f9)));
     assert_eq!(s.triggers.load(Ordering::SeqCst), 1);
 }
 
 #[test]
 fn register_hotkey_falls_back_to_passive_when_it_cannot_swallow() {
-    for (hotkey, presses) in [
-        ("ctrl+shift", vec!["ctrl", "shift"]),
-        ("ctrl+a, s", vec!["ctrl", "a"]),
+    for (hotkey, presses, why) in [
+        (
+            "ctrl+shift",
+            vec!["ctrl", "shift"],
+            "has only modifier keys",
+        ),
+        ("ctrl+a, s", vec!["ctrl", "a"], "is a multi-step hotkey"),
     ] {
         let (s, registration, used) = register(hotkey, "ctrl+space");
         assert_eq!(used, hotkey);
@@ -131,11 +146,10 @@ fn register_hotkey_falls_back_to_passive_when_it_cannot_swallow() {
         assert!(s.process(down(s_code)));
         assert!(s.process(up(s_code)));
         assert_eq!(s.triggers.load(Ordering::SeqCst), 1, "{hotkey}");
-        let quoted = format!("'{hotkey}'");
         assert!(
-            log_lines_with("registered without swallowing")
-                .iter()
-                .any(|l| l.contains(&quoted)),
+            logged(&format!(
+                "[hotkey] '{hotkey}' {why}; registered without swallowing, its keys still reach the game"
+            )),
             "{hotkey}"
         );
         registration.unregister();

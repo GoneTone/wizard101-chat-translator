@@ -2,8 +2,8 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -45,7 +45,7 @@ use crate::translation::pool::{ResultFn, TranslateFn, TranslationPool};
 use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::input_box::OutgoingRequest;
-use crate::util::{Clock, join_until};
+use crate::util::{Clock, join_until, lock, read, write};
 
 /// 啟動摘要：回報問題時第一眼掌握環境。
 pub fn log_startup_summary(cfg: &Config) {
@@ -80,9 +80,22 @@ pub fn claim_instance<L>(
 
 /// 使用者拖過視窗／泡泡就立刻落地，不等按儲存。
 pub fn save_field(settings: &RwLock<Config>, path: &Path, key: &str, value: Value) {
-    let mut cfg = settings.write().unwrap_or_else(|e| e.into_inner());
-    cfg.insert(key.to_owned(), value);
-    if let Err(e) = save_config(path, &cfg) {
+    set_then_save(settings, key, value, |cfg| save_config(path, cfg));
+}
+
+/// 寫鎖只包住插入：鍵盤 hook 每次 Ctrl+V 都要讀設定，存檔的 I/O 卡住它會被 Windows 拔掉。
+fn set_then_save(
+    settings: &RwLock<Config>,
+    key: &str,
+    value: Value,
+    save: impl FnOnce(&Config) -> std::io::Result<()>,
+) {
+    let cfg = {
+        let mut cfg = write(settings);
+        cfg.insert(key.to_owned(), value);
+        cfg.clone()
+    };
+    if let Err(e) = save(&cfg) {
         log(format!("[config] could not save {key} to config.json: {e}"));
     }
 }
@@ -207,13 +220,8 @@ pub struct InputWiring {
     pub box_open: Arc<AtomicBool>,
 }
 
-fn read(settings: &RwLock<Config>) -> RwLockReadGuard<'_, Config> {
-    settings.read().unwrap_or_else(|e| e.into_inner())
-}
-
 fn write_hotkey(settings: &RwLock<Config>, key: &str, used: String) {
-    let mut cfg = settings.write().unwrap_or_else(|e| e.into_inner());
-    cfg.insert(key.to_owned(), Value::String(used));
+    write(settings).insert(key.to_owned(), Value::String(used));
 }
 
 /// 設定裡的逐字鍵入間隔。
@@ -291,10 +299,7 @@ pub fn install_input(
         Box::new(on_paste),
         Box::new(move || mask()),
     );
-    dispatcher
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .add_blocking(Box::new(paste));
+    lock(dispatcher).add_blocking(Box::new(paste));
     (box_hotkey, region)
 }
 
@@ -325,9 +330,7 @@ pub fn outgoing_translate(
     ui: UiPoster,
 ) -> Box<dyn Fn(OutgoingRequest)> {
     Box::new(move |req| {
-        let context = contexts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let context = lock(&contexts)
             .get(&req.target)
             .map(|client| client.current().snapshot())
             .unwrap_or_default();
@@ -379,14 +382,20 @@ pub fn install_console_quit(ui: UiPoster) {
 }
 
 unsafe extern "system" fn console_ctrl(ctrl: u32) -> BOOL {
+    static POSTED: AtomicBool = AtomicBool::new(false);
     match CONSOLE_QUIT.get() {
-        Some(ui) if quit_on_ctrl_c(ctrl, ui) => TRUE,
+        Some(ui) if quit_on_ctrl_c(ctrl, ui, &POSTED) => TRUE,
         _ => FALSE,
     }
 }
 
-fn quit_on_ctrl_c(ctrl: u32, ui: &UiPoster) -> bool {
+/// 第二次 Ctrl+C 回 false 交給預設處理（結束程序）：UI 卡住時才關得掉。
+fn quit_on_ctrl_c(ctrl: u32, ui: &UiPoster, posted: &AtomicBool) -> bool {
     if ctrl != CTRL_C_EVENT {
+        return false;
+    }
+    if posted.swap(true, Ordering::SeqCst) {
+        log("[app] Ctrl+C received again; terminating without the normal shutdown");
         return false;
     }
     log("[app] Ctrl+C received; closing via the normal shutdown");
@@ -442,10 +451,7 @@ pub fn build_app(
         let d = Arc::clone(&dispatcher);
         // 複製出來立刻放鎖：鍵入時注入的按鍵會回到 hook，hook 要拿同一把鎖
         Arc::new(TypingEnv::real(Arc::new(move || {
-            d.lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .pressed()
-                .clone()
+            lock(&d).pressed().clone()
         })))
     };
     install_input(&settings, &ui, &dispatcher, &input, Arc::clone(&typing));
@@ -479,10 +485,7 @@ pub fn build_app(
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
         let client = Arc::new(ClientContexts::new());
-        spawn_contexts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(hwnd, Arc::clone(&client));
+        lock(&spawn_contexts).insert(hwnd, Arc::clone(&client));
         let name = format!("reader-{slot}");
         std::thread::Builder::new()
             .name(name.clone())
@@ -596,9 +599,30 @@ mod tests {
     #[test]
     fn only_ctrl_c_posts_quit() {
         let (ui, rx) = UiPoster::for_test();
-        assert!(!quit_on_ctrl_c(CTRL_BREAK_EVENT, &ui));
+        let posted = AtomicBool::new(false);
+        assert!(!quit_on_ctrl_c(CTRL_BREAK_EVENT, &ui, &posted));
         assert!(rx.try_recv().is_err());
-        assert!(quit_on_ctrl_c(CTRL_C_EVENT, &ui));
+        assert!(quit_on_ctrl_c(CTRL_C_EVENT, &ui, &posted));
         assert_eq!(rx.try_recv(), Ok(UiEvent::Quit));
+    }
+
+    #[test]
+    fn second_ctrl_c_falls_through_to_default_termination() {
+        let (ui, rx) = UiPoster::for_test();
+        let posted = AtomicBool::new(false);
+        assert!(quit_on_ctrl_c(CTRL_C_EVENT, &ui, &posted));
+        assert!(!quit_on_ctrl_c(CTRL_C_EVENT, &ui, &posted));
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::Quit]);
+    }
+
+    #[test]
+    fn save_field_releases_the_settings_lock_before_saving() {
+        let settings = RwLock::new(Config::new());
+        set_then_save(&settings, "k", Value::from(1), |cfg| {
+            assert!(settings.try_write().is_ok(), "lock held during save");
+            assert_eq!(cfg["k"], 1);
+            Ok(())
+        });
+        assert_eq!(read(&settings)["k"], 1);
     }
 }

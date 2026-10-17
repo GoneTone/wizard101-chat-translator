@@ -1472,6 +1472,14 @@ def export_keyboard_names() -> list[dict]:
     return [{"input": name, "output": codes(name)} for name in names]
 
 
+def export_keyboard_is_modifier() -> list[dict]:
+    """`is_modifier`：input 為 keyboard_names 出現過的每個 code，output 為它是否算修飾鍵。"""
+    keyboard = _keyboard()
+    outputs = [case["output"] for case in export_keyboard_names()]
+    codes = {code for output in outputs if isinstance(output, list) for code in output}
+    return [{"input": code, "output": keyboard.is_modifier(code)} for code in sorted(codes)]
+
+
 def export_keyboard_parse() -> list[dict]:
     """`parse_hotkey`：input 為快捷鍵字串，output 為 steps → keys → codes。"""
     keyboard = _keyboard()
@@ -1494,6 +1502,7 @@ def export_keyboard_parse() -> list[dict]:
 
 EXPORTERS["keyboard_tables"] = export_keyboard_tables
 EXPORTERS["keyboard_names"] = export_keyboard_names
+EXPORTERS["keyboard_is_modifier"] = export_keyboard_is_modifier
 EXPORTERS["keyboard_parse"] = export_keyboard_parse
 
 

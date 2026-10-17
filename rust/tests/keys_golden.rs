@@ -30,17 +30,15 @@ fn parse_hotkey_matches_python() {
 }
 
 #[test]
-fn modifier_codes_match_python() {
-    let tables = &common::golden("keyboard_tables")[0]["output"];
-    for name in tables["all_modifiers"].as_array().unwrap() {
-        for code in key_codes_or_empty(name.as_str().unwrap()) {
-            assert!(is_modifier(code), "{name} {code}");
-        }
-    }
-    for name in ["a", "space"] {
-        for code in key_to_scan_codes(name).unwrap() {
-            assert!(!is_modifier(code), "{name} {code}");
-        }
+fn is_modifier_matches_python() {
+    let cases = common::golden("keyboard_is_modifier");
+    assert!(
+        cases.iter().any(|c| c["output"] == true),
+        "no modifier codes"
+    );
+    for c in cases {
+        let code = c["input"].as_i64().unwrap() as i32;
+        assert_eq!(json!(is_modifier(code)), c["output"], "{code}");
     }
 }
 

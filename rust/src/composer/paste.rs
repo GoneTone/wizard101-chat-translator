@@ -16,6 +16,7 @@ use crate::input::keys::{Code, key_codes_or_empty};
 use crate::logs::log;
 use crate::reader::process::{foreground_window, process_exe_path, window_exists, window_pid};
 use crate::ui::{clipboard, win32};
+use crate::util::lock;
 
 /// 切回遊戲視窗後、開始打字前的緩衝。
 pub const FOCUS_DELAY: Duration = Duration::from_millis(150);
@@ -88,7 +89,7 @@ fn type_chars(env: &TypingEnv, hwnd: isize, text: &str, delay: Duration) {
     let guarded = hwnd != 0 && (env.is_window)(hwnd);
     let (enter, backspace) = (key_code("enter"), key_code("backspace"));
     let total = text.chars().count();
-    let _typing = TYPING.lock().unwrap_or_else(|e| e.into_inner());
+    let _typing = lock(&TYPING);
     for (index, ch) in text.chars().enumerate() {
         if guarded && (env.foreground)() != hwnd {
             log(format!(
@@ -330,7 +331,7 @@ mod tests {
     /// TYPING／PASTE_IN_PROGRESS 是全域的，碰到它們的測試一律排隊跑。
     fn serial() -> MutexGuard<'static, ()> {
         static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&LOCK)
     }
 
     fn typed(fake: &Fake) -> String {

@@ -3,17 +3,20 @@
 #[allow(dead_code)]
 mod common;
 
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use common::log_capture::{capture_logs, log_lines_with};
 use egui_kittest::Harness;
 use serde_json::json;
 use wizard101_chat_translator::input::dispatch::{
-    Foreground, on_hotkey, region_hotkey_to_register,
+    ChatInputTracker, Foreground, GameInputEvents, InputBoxControl, foreground_game_hwnd,
+    on_hotkey, region_hotkey_to_register,
 };
 use wizard101_chat_translator::ui::app::{App, channel};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
+use wizard101_chat_translator::ui::geometry::Rect;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 
 fn fg(exe: fn() -> Option<String>) -> Foreground {
@@ -67,4 +70,38 @@ fn region_hotkey_logs_until_phase_3() {
             .collect::<Vec<_>>(),
         ["[ui] region hotkey pressed (hwnd=0x5e61); region capture arrives in phase 3"]
     );
+}
+
+fn logged(line: &str) -> bool {
+    log_lines_with(line).iter().any(|l| l.ends_with(line))
+}
+
+#[test]
+fn region_guard_logs_the_foreground_exe_with_its_prefix() {
+    capture_logs();
+    let f = fg(|| Some("region_guard_probe.exe".into()));
+    assert_eq!(foreground_game_hwnd(&f, "region"), None);
+    assert!(logged(
+        "[region] hotkey ignored: foreground is not the game window (exe='region_guard_probe.exe')"
+    ));
+}
+
+struct NoBox;
+
+impl InputBoxControl for NoBox {
+    fn set_anchor(&mut self, _: Rect) {}
+    fn clear_anchor(&mut self) {}
+    fn retarget(&mut self, _: isize) {}
+    fn show(&mut self) {}
+    fn hide(&mut self) {}
+}
+
+#[test]
+fn background_client_chat_open_is_logged_and_ignored() {
+    capture_logs();
+    let mut events = GameInputEvents::new(Arc::new(ChatInputTracker::default()), || 0xB);
+    events.opened(0x7AC1, None, true, &mut NoBox);
+    assert!(logged(
+        "[app] game chat opened in a background client (hwnd=0x7ac1); ignoring"
+    ));
 }

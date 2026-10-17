@@ -18,6 +18,7 @@ use crate::ui::input_box::{BG, InputBox, open_rect, refit};
 use crate::ui::overlay::frame::BAR_HEIGHT;
 use crate::ui::palette::{BAR, FG_BAR};
 use crate::ui::win32;
+use crate::util::read;
 
 /// 建立那一幀的暫定高度（DIP）；量到內容高度後隨即貼合。
 const INITIAL_HEIGHT: f32 = 84.0;
@@ -102,8 +103,7 @@ impl InputHost {
     }
 
     fn auto_show(&self) -> bool {
-        let cfg = self.settings.read().unwrap_or_else(|e| e.into_inner());
-        truthy(cfg.get("auto_show_input"))
+        truthy(read(&self.settings).get("auto_show_input"))
     }
 
     /// 每幀呼叫：開著就畫出視窗，關了就把前景交還；找 HWND 時略過 overlay 與泡泡（0＝沒有），輸入框由 overlay 擁有。
@@ -128,9 +128,8 @@ impl InputHost {
             .with_taskbar(false);
         if creating {
             // 概略的位置與寬度（寬度決定提示換行、也就決定內容高度），找到 HWND 後再以實體像素擺正
-            let (x, y, w, h) = self.open_rect(INITIAL_HEIGHT).0;
-            let ppp = ctx.pixels_per_point();
-            let dip = |v: i32| v as f32 / ppp;
+            let ((x, y, w, h), _, scale) = self.open_rect(INITIAL_HEIGHT);
+            let dip = |v: i32| v as f32 / scale;
             builder = builder
                 .with_visible(false)
                 .with_position([dip(x), dip(y)])
@@ -186,7 +185,7 @@ impl InputHost {
     fn place(&mut self, content_dip: f32, overlay: isize) {
         win32::remove_system_frame(self.hwnd);
         win32::hide_from_taskbar(self.hwnd, overlay);
-        let (rect, above) = self.open_rect(content_dip);
+        let (rect, above, _) = self.open_rect(content_dip);
         win32::set_window_rect(self.hwnd, rect);
         (self.above, self.content_dip) = (above, content_dip);
         log(format!(
@@ -195,14 +194,15 @@ impl InputHost {
         ));
     }
 
-    /// 開窗外框（實體像素）：以錨點或游標所在螢幕的縮放換算，不是視窗剛好落在哪顆螢幕。
-    fn open_rect(&self, content_dip: f32) -> (Rect, bool) {
+    /// 開窗外框（實體像素）、是否在錨點上方與換算用的縮放：以錨點或游標所在螢幕為準，不是視窗剛好落在哪顆螢幕。
+    fn open_rect(&self, content_dip: f32) -> (Rect, bool, f32) {
         let (anchor, cursor) = self.input.placement_anchor();
         let (x, y) = anchor.map_or(cursor, |(x, y, _, _)| (x, y));
         let scale = win32::scale_at(x, y);
         let content_h = (content_dip * scale).round() as i32;
         let area = (self.desktop.work_area_at)(x, y);
-        open_rect(anchor, cursor, content_h, scale, area)
+        let (rect, above) = open_rect(anchor, cursor, content_h, scale, area);
+        (rect, above, scale)
     }
 }
 

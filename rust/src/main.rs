@@ -23,6 +23,7 @@ use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::win32::cursor_pos;
+use wizard101_chat_translator::util::read;
 
 fn main() {
     if !cfg!(debug_assertions) {
@@ -73,7 +74,7 @@ fn main() {
         let (input_cfg, typing) = (Arc::clone(&shared_cfg), Arc::clone(&built.typing));
         // 在背景打字，UI 不凍結；TYPING 鎖保證不與貼上交錯
         move |text: String, hwnd: isize| {
-            let delay = type_delay(&input_cfg.read().unwrap_or_else(|e| e.into_inner()));
+            let delay = type_delay(&read(&input_cfg));
             let typing = Arc::clone(&typing);
             let _ = std::thread::Builder::new()
                 .name("type-outgoing".into())
@@ -95,7 +96,7 @@ fn main() {
     );
     let input_events = GameInputEvents::new(Arc::clone(&built.input.tracker), foreground_window);
     let (hotkey, region_hotkey) = {
-        let cfg = shared_cfg.read().unwrap_or_else(|e| e.into_inner());
+        let cfg = read(&shared_cfg);
         let field = |key: &str| cfg[key].as_str().unwrap_or_default().to_owned();
         (field("hotkey"), field("region_hotkey"))
     };

@@ -1,6 +1,7 @@
-//! 跨模組共用的小工具：可替換的時鐘、限時 join 與 panic 訊息擷取。
+//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取與不怕 poison 的上鎖。
 
 use std::any::Any;
+use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -46,4 +47,19 @@ pub(crate) fn panic_message(payload: &(dyn Any + Send)) -> String {
         .map(|s| (*s).to_owned())
         .or_else(|| payload.downcast_ref::<String>().cloned())
         .unwrap_or_else(|| "panic".to_owned())
+}
+
+/// 上鎖；持有者 panic 過（poison）也照樣拿到內容。
+pub fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 取讀鎖；poison 也照樣拿到內容。
+pub fn read<T: ?Sized>(l: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    l.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// 取寫鎖；poison 也照樣拿到內容。
+pub fn write<T: ?Sized>(l: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    l.write().unwrap_or_else(|e| e.into_inner())
 }

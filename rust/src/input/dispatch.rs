@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use crate::composer::paste::foreground_exe;
 use crate::config::Config;
@@ -14,6 +14,7 @@ use crate::py::pyrepr::repr_str;
 use crate::reader::process::{foreground_window, is_game_process_path};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
+use crate::util::lock;
 
 /// 前景視窗的查詢入口；測試換成假的。
 pub struct Foreground {
@@ -117,23 +118,19 @@ pub struct ChatInputTracker {
 }
 
 impl ChatInputTracker {
-    fn lock(&self) -> MutexGuard<'_, HashSet<isize>> {
-        self.open.lock().unwrap_or_else(|e| e.into_inner())
-    }
-
     /// 記下該視窗的聊天框開了。
     pub fn opened(&self, hwnd: isize) {
-        self.lock().insert(hwnd);
+        lock(&self.open).insert(hwnd);
     }
 
     /// 記下該視窗的聊天框關了。
     pub fn closed(&self, hwnd: isize) {
-        self.lock().remove(&hwnd);
+        lock(&self.open).remove(&hwnd);
     }
 
     /// 該視窗的聊天框是否開著。
     pub fn is_open(&self, hwnd: isize) -> bool {
-        self.lock().contains(&hwnd)
+        lock(&self.open).contains(&hwnd)
     }
 }
 

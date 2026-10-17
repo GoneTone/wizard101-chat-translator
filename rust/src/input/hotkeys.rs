@@ -4,14 +4,16 @@
 use std::sync::Arc;
 
 use crate::input::dispatcher::{
-    Blocking, Dispatcher, HandlerId, KeyEvent, Pressed, SharedDispatcher, is_pressed,
+    Blocking, HandlerId, KeyEvent, Pressed, SharedDispatcher, is_pressed,
 };
 use crate::input::keys::{Code, Key, is_modifier, key_codes_or_empty, parse_hotkey};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
+use crate::util::lock;
 
 /// 未指派的虛擬鍵，AutoHotkey 的 MenuMaskKey 預設也用它。
 pub const MASK_VK: u16 = 0xE8;
+/// 熱鍵沒列到的修飾鍵群組按著時不算湊齊組合（按 `ctrl+shift+space` 不會觸發 `ctrl+space`）。
 pub const MODIFIER_GROUPS: [&str; 4] = ["ctrl", "shift", "alt", "windows"];
 
 /// 熱鍵組合沒辦法逐鍵攔截的原因。
@@ -46,11 +48,25 @@ impl HotkeyInterceptor {
         on_trigger: Box<dyn FnMut() -> bool + Send>,
         mask: Box<dyn Fn() + Send>,
     ) -> Result<Result<Self, CannotSwallow>, String> {
-        let mut steps = parse_hotkey(hotkey)?;
-        if steps.len() != 1 {
-            return Ok(Err(CannotSwallow::MultiStep));
-        }
-        let keys = steps.remove(0);
+        Ok(Self::from_steps(
+            hotkey,
+            &parse_hotkey(hotkey)?,
+            on_trigger,
+            mask,
+        ))
+    }
+
+    /// 同 `new`，但吃已解析好的 `parse_hotkey` 結果。
+    fn from_steps(
+        hotkey: &str,
+        steps: &[Vec<Key>],
+        on_trigger: Box<dyn FnMut() -> bool + Send>,
+        mask: Box<dyn Fn() + Send>,
+    ) -> Result<Self, CannotSwallow> {
+        let [keys] = steps else {
+            return Err(CannotSwallow::MultiStep);
+        };
+        let keys = keys.clone();
         let trigger_codes: Vec<Code> = keys
             .iter()
             .filter(|key| !key.iter().any(|&c| is_modifier(c)))
@@ -58,14 +74,14 @@ impl HotkeyInterceptor {
             .copied()
             .collect();
         if trigger_codes.is_empty() {
-            return Ok(Err(CannotSwallow::OnlyModifiers));
+            return Err(CannotSwallow::OnlyModifiers);
         }
         let unwanted_modifiers = MODIFIER_GROUPS
             .iter()
             .map(|name| key_codes_or_empty(name))
             .filter(|group| !keys.iter().flatten().any(|c| group.contains(c)))
             .collect();
-        Ok(Ok(Self {
+        Ok(Self {
             hotkey: hotkey.to_string(),
             keys,
             trigger_codes,
@@ -74,7 +90,7 @@ impl HotkeyInterceptor {
             mask,
             swallow_override: None,
             held: Vec::new(),
-        }))
+        })
     }
 
     /// `f()` 成立時，觸發鍵一律吞掉、不呼叫 `on_trigger`（不記入按住、不補遮罩鍵）。
@@ -171,8 +187,14 @@ fn register(
     callback: &Arc<dyn Fn() -> bool + Send + Sync>,
     mask: &Arc<dyn Fn() + Send + Sync>,
 ) -> Result<Registration, String> {
+    let steps = parse_hotkey(hotkey)?;
     let (cb, m) = (callback.clone(), mask.clone());
-    let id = match HotkeyInterceptor::new(hotkey, Box::new(move || cb()), Box::new(move || m()))? {
+    let id = match HotkeyInterceptor::from_steps(
+        hotkey,
+        &steps,
+        Box::new(move || cb()),
+        Box::new(move || m()),
+    ) {
         Ok(interceptor) => {
             log(format!(
                 "[hotkey] {} registered; its trigger key is swallowed when handled",
@@ -191,7 +213,7 @@ fn register(
             ));
             let cb = callback.clone();
             lock(d).add_passive(
-                parse_hotkey(hotkey)?,
+                steps,
                 Box::new(move || {
                     cb();
                 }),
@@ -202,10 +224,6 @@ fn register(
         dispatcher: d.clone(),
         id,
     })
-}
-
-fn lock(d: &SharedDispatcher) -> std::sync::MutexGuard<'_, Dispatcher> {
-    d.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]

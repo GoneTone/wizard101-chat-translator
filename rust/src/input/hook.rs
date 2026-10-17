@@ -18,7 +18,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::input::dispatcher::{KeyEvent, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
-use crate::util::{Clock, join_until, panic_message};
+use crate::util::{Clock, join_until, lock, panic_message};
 
 const VK_PACKET: u32 = 0xE7;
 const VK_LCONTROL: u32 = 0xA2;
@@ -128,11 +128,7 @@ fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if IGNORE_NEXT_RIGHT_ALT.with(|ignore| is_alt_gr_echo(ignore, k.vkCode, k.scanCode)) {
         return true;
     }
-    INSIDE_PROCESS.with(|inside| {
-        reentrant_guard(inside, || {
-            d.lock().unwrap_or_else(|e| e.into_inner()).process(ev)
-        })
-    })
+    INSIDE_PROCESS.with(|inside| reentrant_guard(inside, || lock(d).process(ev)))
 }
 
 /// 把 hook 收到的原始欄位轉成按鍵事件；Unicode 注入、假 alt 與未知訊息回 `None`（照常放行）。

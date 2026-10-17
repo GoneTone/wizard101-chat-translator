@@ -1,17 +1,15 @@
 //! 收訊與發話共用的近期聊天原文行緩衝（執行緒安全）。
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
+
+use crate::util::lock;
 
 /// hwnd → 該客戶端的上下文；收訊執行緒與發話翻譯共用。
 pub type ContextMap = Arc<Mutex<HashMap<isize, Arc<ClientContexts>>>>;
 
 /// 帶進提示詞的近期對話行數：短窗涵蓋眼前的對話線，避免遠處舊話題污染判斷。
 pub const CONTEXT_LINES: usize = 8;
-
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    m.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// 近期聊天原文行的環狀緩衝。
 pub struct ChatContext {
