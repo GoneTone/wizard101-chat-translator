@@ -358,9 +358,10 @@ fn find(before: &[isize], known: &[isize], creating: bool, what: &str) -> isize 
     hwnd
 }
 
-/// 拿掉系統外框與工作列按鈕，由 overlay 擁有。
+/// 拿掉系統外框、工作列按鈕與開關動畫，由 overlay 擁有。
 fn setup(hwnd: isize, overlay: isize) {
     win32::remove_system_frame(hwnd);
+    win32::disable_transitions(hwnd);
     win32::hide_from_taskbar(hwnd, overlay);
 }
 

@@ -6,6 +6,7 @@ use std::sync::{Once, OnceLock};
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Graphics::Dwm::{DWMWA_TRANSITIONS_FORCEDISABLED, DwmSetWindowAttribute};
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
     MonitorFromPoint,
@@ -84,6 +85,25 @@ unsafe extern "system" fn frameless_proc(
         unsafe { RemoveWindowSubclass(hwnd, Some(frameless_proc), 0) };
     }
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+/// 關掉 DWM 在視窗顯示與關閉時的淡入淡出動畫；失敗只記 log。
+pub fn disable_transitions(hwnd: isize) {
+    let disabled: i32 = 1;
+    let hr = unsafe {
+        DwmSetWindowAttribute(
+            hwnd as HWND,
+            DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+            (&disabled as *const i32).cast(),
+            size_of::<i32>() as u32,
+        )
+    };
+    if hr != 0 {
+        log(format!(
+            "[ui] disabling window transitions failed (hwnd={hwnd:#x}, hresult={:#010x})",
+            hr as u32
+        ));
+    }
 }
 
 /// 讓工作區蓋滿整個視窗，拿掉 Windows 11 畫的圓角、1px 邊框與陰影；重複呼叫無妨。
