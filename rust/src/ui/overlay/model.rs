@@ -118,8 +118,11 @@ impl OverlayModel {
         self.unread
     }
 
-    /// 進出縮小狀態；兩個方向都把未讀歸零。
+    /// 進出縮小狀態；真的切換時才把未讀歸零，重複呼叫不動。
     pub fn set_minimized(&mut self, minimized: bool) {
+        if self.minimized == minimized {
+            return;
+        }
         self.minimized = minimized;
         self.unread = 0;
     }
@@ -449,6 +452,19 @@ mod tests {
         assert_eq!(model.current_view().unwrap().messages.len(), 2); // 縮小期間的訊息沒遺失
         add(&mut model, 1, &[0], "z", "z");
         assert_eq!(model.unread(), 0); // 沒縮小就不累積
+    }
+
+    #[test]
+    fn repeated_minimize_or_expand_keeps_unread() {
+        let mut model = OverlayModel::new(10, 0);
+        model.set_tabs(1, Some(state(0)));
+        model.set_minimized(true);
+        add(&mut model, 1, &[0], "a", "甲");
+        model.set_minimized(true);
+        assert_eq!(model.unread(), 1);
+        model.set_minimized(false);
+        model.set_minimized(false);
+        assert_eq!(model.unread(), 0);
     }
 
     #[test]

@@ -13,15 +13,16 @@ use crate::i18n::current_language;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::overlay::banners::Banners;
+use crate::ui::overlay::bubble::{
+    Action, BUBBLE_SIZE, Bubble, POLL_INTERVAL, bubble_alpha, initial_position,
+};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
 use crate::ui::overlay::selection::Selection;
 use crate::ui::overlay::tab_bar;
-use crate::ui::palette::BAR;
 use crate::ui::{fonts_egui, win32};
 
-const BUBBLE_SIZE: f32 = 48.0;
 /// 設定接上之前的訊息上限（對應 config 預設值）。
 const DEFAULT_MAX_MESSAGES: usize = 200;
 
@@ -56,6 +57,9 @@ pub struct App {
     model: OverlayModel,
     list: MessageList,
     selection: Selection,
+    bubble: Option<Bubble>,
+    bubble_position: (Option<i32>, Option<i32>),
+    on_bubble_move: Box<dyn FnMut(i32, i32)>,
 }
 
 impl App {
@@ -75,7 +79,21 @@ impl App {
             model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
             list: MessageList::new(),
             selection: Selection::default(),
+            bubble: None,
+            bubble_position: (None, None),
+            on_bubble_move: Box::new(|_, _| {}),
         }
+    }
+
+    /// 泡泡位置：`saved`（設定裡的實體像素，未設為 None）縮小時沿用，拖曳放開時呼叫 `on_move`。
+    pub fn with_bubble_position(
+        mut self,
+        saved: (Option<i32>, Option<i32>),
+        on_move: impl FnMut(i32, i32) + 'static,
+    ) -> Self {
+        self.bubble_position = saved;
+        self.on_bubble_move = Box::new(on_move);
+        self
     }
 
     /// 目前狀態列的 state key。
@@ -107,13 +125,24 @@ impl App {
         self.hwnd
     }
 
-    /// 縮成泡泡（隱藏 overlay）或展開回 overlay。
+    /// 縮成泡泡（隱藏 overlay，訊息照常累積）或展開回 overlay；已在該狀態時不動。
     pub fn set_minimized(&mut self, minimized: bool) {
+        if self.minimized == minimized {
+            return;
+        }
         if minimized {
             self.selection.clear("minimized to bubble");
+        } else {
+            self.bubble = None;
         }
         self.minimized = minimized;
         self.model.set_minimized(minimized);
+        let what = if minimized {
+            "minimized to bubble"
+        } else {
+            "expanded"
+        };
+        log(format!("[ui] {what} (follow={})", self.list.follow()));
     }
 
     fn apply(&mut self, event: UiEvent) {
@@ -164,26 +193,64 @@ impl App {
             .show(ui, rect, &self.model, self.status, self.selection.span());
     }
 
-    fn show_bubble(&self, ctx: &egui::Context) {
-        let corner = ctx
-            .input(|i| i.viewport().outer_rect)
-            .map(|r| r.right_top());
+    /// 縮小期間每幀顯示泡泡、處理它的點擊／拖曳／關閉，並每 300ms 檢查一次是否該自動展開。
+    fn show_bubble(&mut self, ctx: &egui::Context) {
+        let ppp = ctx.pixels_per_point();
+        let (saved, overlay) = (self.bubble_position, self.hwnd);
+        let bubble = self.bubble.get_or_insert_with(|| {
+            let size = (BUBBLE_SIZE as f32 * ppp).round() as i32;
+            let overlay = win32::window_rect(overlay);
+            let start = initial_position(saved, overlay, size, &win32::all_monitors());
+            Bubble::new(start, Instant::now())
+        });
+        let size = BUBBLE_SIZE as f32;
         let mut builder = ViewportBuilder::default()
             .with_title(app_name())
-            .with_inner_size([BUBBLE_SIZE, BUBBLE_SIZE])
+            .with_inner_size([size, size])
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
             .with_always_on_top();
-        if let Some(corner) = corner {
-            builder = builder.with_position(corner - egui::vec2(BUBBLE_SIZE, 0.0));
+        // 只是建立時的概略位置（混合 DPI 下會偏），找到 HWND 後再以實體像素擺正
+        if let Some((x, y)) = bubble.pending() {
+            builder = builder.with_position([x as f32 / ppp, y as f32 / ppp]);
         }
-        let fill = BAR.gamma_multiply(self.frame.alpha());
-        ctx.show_viewport_immediate(ViewportId::from_hash_of("bubble"), builder, |ui, _| {
-            let rect = ui.max_rect();
-            ui.painter()
-                .circle_filled(rect.center(), rect.width() / 2.0 - 2.0, fill);
-        });
+        let (hwnd, unread) = (bubble.hwnd(), self.model.unread());
+        let alpha = bubble_alpha(self.frame.alpha());
+        let action =
+            ctx.show_viewport_immediate(ViewportId::from_hash_of("bubble"), builder, |ui, _| {
+                bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
+            });
+        if bubble.hwnd() == 0 {
+            bubble.attach(
+                win32::find_thread_window(&app_name(), self.hwnd),
+                win32::foreground_window(),
+            );
+        }
+        let expand = bubble.watch(
+            Instant::now(),
+            win32::foreground_window(),
+            &Win32Shell(bubble.hwnd()),
+        );
+        ctx.request_repaint_after(POLL_INTERVAL);
+        match action {
+            Some(action) => self.bubble_action(ctx, action),
+            None if expand => self.set_minimized(false),
+            None => {}
+        }
+    }
+
+    fn bubble_action(&mut self, ctx: &egui::Context, action: Action) {
+        match action {
+            Action::Expand => self.set_minimized(false),
+            Action::Moved(x, y) => {
+                log(format!("[ui] bubble moved: +{x}+{y}"));
+                self.bubble_position = (Some(x), Some(y));
+                (self.on_bubble_move)(x, y);
+            }
+            // 與 ✕ 同一條路：關掉根 viewport
+            Action::Close => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
+        }
     }
 }
 
@@ -286,6 +353,9 @@ pub fn run<A: eframe::App + 'static>(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
     use super::*;
     use crate::ui::overlay::banners::Release;
     use egui_kittest::Harness;
@@ -533,6 +603,112 @@ mod tests {
         harness.state_mut().set_minimized(true);
         harness.step();
         assert!(!menu_shown(&harness));
+    }
+
+    fn message(original: &str) -> UiEvent {
+        UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: original.into(),
+            translated: "t".into(),
+            msg_id: None,
+            pending: false,
+            color: None,
+        }
+    }
+
+    fn app_harness(inbox: Inbox) -> Harness<'static, App> {
+        Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        })
+    }
+
+    #[test]
+    fn minimize_counts_unread_and_expand_resets() {
+        let (poster, inbox) = channel();
+        poster.post(message("m0"));
+        let mut harness = app_harness(inbox);
+        harness.step();
+        harness.get_by_label("─").click();
+        harness.step();
+        assert!(harness.state().bubble.is_some());
+        poster.post(message("m1"));
+        poster.post(message("m2"));
+        harness.step();
+        assert_eq!(harness.state().model.unread(), 2);
+        harness.state_mut().set_minimized(false);
+        harness.step();
+        let app = harness.state();
+        assert!(!app.minimized && app.bubble.is_none());
+        assert_eq!(app.model.unread(), 0);
+        assert_eq!(app.model.current_view().unwrap().messages.len(), 3);
+    }
+
+    #[test]
+    fn foreground_poll_runs_only_while_minimized() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        let delay = |h: &Harness<App>| h.output().viewport_output[&ViewportId::ROOT].repaint_delay;
+        harness.step();
+        assert!(delay(&harness) > POLL_INTERVAL);
+        // 切換顯示時會為了補 NOACTIVATE 立即重繪，等它停下來再看
+        harness.state_mut().set_minimized(true);
+        harness.run();
+        assert!(delay(&harness) <= POLL_INTERVAL);
+        harness.state_mut().set_minimized(false);
+        harness.run();
+        assert!(delay(&harness) > POLL_INTERVAL);
+    }
+
+    #[test]
+    fn bubble_close_takes_the_root_close_path() {
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        // kittest 把泡泡嵌在根 viewport 裡，關閉要求因此從根送進來
+        harness
+            .input_mut()
+            .viewports
+            .entry(ViewportId::ROOT)
+            .or_default()
+            .events
+            .push(egui::ViewportEvent::Close);
+        harness.step();
+        let commands = &harness.output().viewport_output[&ViewportId::ROOT].commands;
+        assert!(commands.contains(&ViewportCommand::Close), "{commands:?}");
+    }
+
+    #[test]
+    fn bubble_move_is_saved_and_reused_on_next_minimize() {
+        let (_poster, inbox) = channel();
+        let saved = Rc::new(RefCell::new(Vec::new()));
+        let sink = Rc::clone(&saved);
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+                .with_bubble_position((Some(-100_000), Some(10)), move |x, y| {
+                    sink.borrow_mut().push((x, y))
+                })
+        });
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        let pending = harness.state().bubble.as_ref().unwrap().pending().unwrap();
+        assert!(
+            pending.0 > -100_000,
+            "saved offscreen position pulled back: {pending:?}"
+        );
+        let ctx = harness.ctx.clone();
+        let app = harness.state_mut();
+        app.bubble_action(&ctx, Action::Moved(30, 40));
+        assert_eq!(*saved.borrow(), [(30, 40)]);
+        app.bubble_action(&ctx, Action::Expand);
+        assert!(!app.minimized);
+        app.set_minimized(true);
+        harness.step();
+        let bubble = harness.state().bubble.as_ref().unwrap();
+        assert_eq!(bubble.pending(), Some((30, 40)));
     }
 
     #[test]

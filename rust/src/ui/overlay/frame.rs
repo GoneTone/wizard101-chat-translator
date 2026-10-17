@@ -272,7 +272,10 @@ impl Frame {
             ui.ctx().set_cursor_icon(CursorIcon::Move);
         }
 
-        let icon = self.icon.get_or_insert_with(|| load_icon(ui.ctx())).clone();
+        let icon = self
+            .icon
+            .get_or_insert_with(|| load_icon(ui.ctx(), 16))
+            .clone();
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(bar)
@@ -368,14 +371,15 @@ fn paint_grip(painter: &egui::Painter, grip: egui::Rect) {
     }
 }
 
-fn load_icon(ctx: &egui::Context) -> TextureHandle {
+/// 把內嵌的 app 圖示（`size` px）載成貼圖。
+pub(crate) fn load_icon(ctx: &egui::Context, size: u32) -> TextureHandle {
     let data =
-        eframe::icon_data::from_png_bytes(icon_png(16)).expect("embedded icon is a valid PNG");
+        eframe::icon_data::from_png_bytes(icon_png(size)).expect("embedded icon is a valid PNG");
     let image = egui::ColorImage::from_rgba_unmultiplied(
         [data.width as usize, data.height as usize],
         &data.rgba,
     );
-    ctx.load_texture("overlay_bar_icon", image, TextureOptions::LINEAR)
+    ctx.load_texture(format!("app_icon_{size}"), image, TextureOptions::LINEAR)
 }
 
 fn resize_cursor(edge: Edge) -> CursorIcon {
@@ -393,7 +397,7 @@ fn describe((x, y, w, h): Rect) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::time::Instant;
@@ -409,11 +413,11 @@ mod tests {
 
     const START: Rect = (1000, 500, 640, 420);
 
-    struct FakeShell {
-        cursor: (i32, i32),
-        rect: Rect,
+    pub(crate) struct FakeShell {
+        pub(crate) cursor: (i32, i32),
+        pub(crate) rect: Rect,
         /// `false` 模擬視窗還沒建好（HWND 為 0）。
-        ready: bool,
+        pub(crate) ready: bool,
     }
 
     impl Shell for FakeShell {

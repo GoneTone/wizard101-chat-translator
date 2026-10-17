@@ -1,4 +1,4 @@
-//! 視窗的 Win32 補強：取 HWND、點擊不奪焦點、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、前景切換與螢幕查詢。
 
 use std::sync::atomic::{AtomicIsize, Ordering};
 
@@ -10,9 +10,10 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
-    GetWindowThreadProcessId, IsWindow, SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, WS_EX_NOACTIVATE,
+    EnumThreadWindows, GWL_EXSTYLE, GetCursorPos, GetForegroundWindow, GetWindowLongPtrW,
+    GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow, IsWindowVisible,
+    SWP_NOACTIVATE, SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos,
+    WS_EX_NOACTIVATE,
 };
 
 use crate::logs::log;
@@ -159,6 +160,43 @@ pub fn all_monitors() -> Vec<Rect> {
     found
 }
 
+struct TitleSearch {
+    title: Vec<u16>,
+    except: isize,
+    found: isize,
+}
+
+unsafe extern "system" fn match_title(hwnd: HWND, lparam: LPARAM) -> i32 {
+    let search = unsafe { &mut *(lparam as *mut TitleSearch) };
+    let mut buf = vec![0u16; search.title.len() + 2];
+    let len = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) } as usize;
+    if hwnd as isize != search.except
+        && unsafe { IsWindowVisible(hwnd) } != 0
+        && buf[..len] == search.title[..]
+    {
+        search.found = hwnd as isize;
+        return 0;
+    }
+    1
+}
+
+/// 目前執行緒上標題為 `title` 的可見視窗（略過 `except`）；找不到回 0。
+pub fn find_thread_window(title: &str, except: isize) -> isize {
+    let mut search = TitleSearch {
+        title: title.encode_utf16().collect(),
+        except,
+        found: 0,
+    };
+    unsafe {
+        EnumThreadWindows(
+            GetCurrentThreadId(),
+            Some(match_title),
+            &mut search as *mut _ as LPARAM,
+        )
+    };
+    search.found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,6 +207,11 @@ mod tests {
         let (wx, wy, ww, wh) = work_area_at(0, 0);
         assert!(mw > 0 && mh > 0);
         assert!(wx >= mx && wy >= my && wx + ww <= mx + mw && wy + wh <= my + mh);
+    }
+
+    #[test]
+    fn find_thread_window_is_zero_on_a_thread_without_windows() {
+        assert_eq!(find_thread_window("Wizard101 Chat Translator", 0), 0);
     }
 
     #[test]
