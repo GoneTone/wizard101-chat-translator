@@ -431,12 +431,14 @@ fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
         passed = d.process(KeyEvent {
             down: true,
             code: key(name),
+            raw: None,
         });
     }
     for name in names.iter().rev() {
         d.process(KeyEvent {
             down: false,
             code: key(name),
+            raw: None,
         });
     }
     passed

@@ -18,11 +18,19 @@ fn code(name: &str) -> Code {
 }
 
 fn down(code: Code) -> KeyEvent {
-    KeyEvent { down: true, code }
+    KeyEvent {
+        down: true,
+        code,
+        raw: None,
+    }
 }
 
 fn up(code: Code) -> KeyEvent {
-    KeyEvent { down: false, code }
+    KeyEvent {
+        down: false,
+        code,
+        raw: None,
+    }
 }
 
 struct Panics;

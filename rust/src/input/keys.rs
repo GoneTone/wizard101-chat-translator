@@ -2,8 +2,8 @@
 //!
 //! 名稱表依本機鍵盤配置在第一次查詢時建立，與 Python 版同一套 Win32 呼叫與優先順序。
 
-use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
 use regex::Regex;
 use serde::Deserialize;
@@ -13,6 +13,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use crate::py::pyrepr::repr_str;
+use crate::util::lock;
 
 /// 與 `keyboard` 事件的 `scan_code` 相同：原始 scan code，scan code 為 0 時是 `-vk`。
 pub type Code = i32;
@@ -82,6 +83,31 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
     Ok(TABLES.canonical_names.get(&name).cloned().unwrap_or(name))
 }
 
+/// `_winkeyboard.get_event_names` 的第一個名稱（經 `normalize_name`）；modifiers 是 `shift`、`alt gr`、`caps lock` 等。
+pub fn event_name(scan: u32, vk: u32, extended: bool, modifiers: &[&str]) -> Option<String> {
+    let mods: Vec<String> = modifiers.iter().map(|m| (*m).to_string()).collect();
+    let names = lock(&BUFFERS).event_names(scan, vk, u32::from(extended), &mods);
+    let first = names.first()?;
+    normalize_name(first).ok()
+}
+
+/// `keyboard.get_hotkey_name(names)`：去掉左右前綴、`+` 換成 `plus`，修飾鍵依 ctrl、alt、shift、windows 排前面。
+pub fn hotkey_name(names: &[String]) -> String {
+    const ORDER: [&str; 4] = ["ctrl", "alt", "shift", "windows"];
+    let clean: BTreeSet<String> = names
+        .iter()
+        .filter_map(|name| normalize_name(name).ok())
+        .map(|name| {
+            name.replace("left ", "")
+                .replace("right ", "")
+                .replace('+', "plus")
+        })
+        .collect();
+    let mut sorted: Vec<String> = clean.into_iter().collect();
+    sorted.sort_by_key(|k| ORDER.iter().position(|m| m == k).unwrap_or(5));
+    sorted.join("+")
+}
+
 /// `keyboard.key_to_scan_codes`：名稱對應的所有 code；對不到任何鍵時回錯誤。
 pub fn key_to_scan_codes(name: &str) -> Result<Key, String> {
     scan_codes(name, true)
@@ -148,7 +174,7 @@ pub fn scan_code_to_vk(code: Code) -> u16 {
 
 fn setup_name_tables() -> Names {
     let modifiers = &TABLES.distinct_modifiers;
-    let mut buffers = Buffers::default();
+    let mut buffers = lock(&BUFFERS);
     let mut from_name: HashMap<String, Vec<(usize, Entry)>> = HashMap::new();
     let mut scan_code_to_vk = HashMap::new();
     // SAFETY：純查表呼叫，HKL 傳 NULL 與 Python 版相同。
@@ -216,15 +242,11 @@ struct Buffers {
     name: [u16; 32],
 }
 
-impl Default for Buffers {
-    fn default() -> Self {
-        Self {
-            state: [0; 256],
-            unicode: [0; 32],
-            name: [0; 32],
-        }
-    }
-}
+static BUFFERS: Mutex<Buffers> = Mutex::new(Buffers {
+    state: [0; 256],
+    unicode: [0; 32],
+    name: [0; 32],
+});
 
 impl Buffers {
     /// `_winkeyboard.get_event_names`：依優先順序列出這組按鍵狀態的名稱。

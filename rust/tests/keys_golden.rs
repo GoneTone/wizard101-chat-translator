@@ -4,7 +4,8 @@ mod common;
 
 use serde_json::{Value, json};
 use wizard101_chat_translator::input::keys::{
-    is_modifier, key_codes_or_empty, key_to_scan_codes, parse_hotkey, scan_code_to_vk,
+    event_name, hotkey_name, is_modifier, key_codes_or_empty, key_to_scan_codes, parse_hotkey,
+    scan_code_to_vk,
 };
 
 fn or_error<T: serde::Serialize>(result: Result<T, String>) -> Value {
@@ -55,4 +56,34 @@ fn missing_key_error_matches_python() {
 fn scan_code_to_vk_maps_negative_codes_and_letters() {
     assert_eq!(scan_code_to_vk(-0x41), 0x41);
     assert_eq!(scan_code_to_vk(key_to_scan_codes("a").unwrap()[0]), 0x41);
+}
+
+#[test]
+fn hotkey_name_matches_python() {
+    for c in common::golden("keyboard_hotkey_name") {
+        let names: Vec<String> = serde_json::from_value(c["input"].clone()).unwrap();
+        assert_eq!(json!(hotkey_name(&names)), c["output"], "{names:?}");
+    }
+}
+
+#[test]
+fn event_name_matches_python() {
+    let cases = common::golden("keyboard_event_names");
+    assert!(cases.len() >= 7, "only {} cases", cases.len());
+    for c in cases {
+        let i = &c["input"];
+        let modifiers: Vec<&str> = i["modifiers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m.as_str().unwrap())
+            .collect();
+        let name = event_name(
+            i["scan"].as_u64().unwrap() as u32,
+            i["vk"].as_u64().unwrap() as u32,
+            i["extended"].as_bool().unwrap(),
+            &modifiers,
+        );
+        assert_eq!(json!(name), c["output"], "{i}");
+    }
 }

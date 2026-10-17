@@ -10,12 +10,12 @@ use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_INJECTED, MSG, PM_NOREMOVE, PeekMessageW,
-    PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN,
-    WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG, PM_NOREMOVE,
+    PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use crate::input::dispatcher::{KeyEvent, SharedDispatcher};
+use crate::input::dispatcher::{KeyEvent, RawKey, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
@@ -164,7 +164,14 @@ pub fn to_event(vk: u32, scan: u32, flags: u32, msg: u32) -> Option<KeyEvent> {
         _ => return None,
     };
     let code = if scan == 0 { -(vk as i32) } else { scan as i32 };
-    Some(KeyEvent { down, code })
+    Some(KeyEvent {
+        down,
+        code,
+        raw: Some(RawKey {
+            vk,
+            extended: flags & LLKHF_EXTENDED != 0,
+        }),
+    })
 }
 
 /// handler 經 `SendInput` 注入的事件可能同步重入 hook；此時分派器的鎖還握著，直接放行以免自鎖。
@@ -213,7 +220,11 @@ mod tests {
             to_event(0x41, 30, 0x10, WM_KEYDOWN),
             Some(KeyEvent {
                 down: true,
-                code: 30
+                code: 30,
+                raw: Some(RawKey {
+                    vk: 0x41,
+                    extended: false
+                })
             })
         );
     }
@@ -224,7 +235,11 @@ mod tests {
             to_event(0xE8, 0, 0x10, WM_KEYUP),
             Some(KeyEvent {
                 down: false,
-                code: -0xE8
+                code: -0xE8,
+                raw: Some(RawKey {
+                    vk: 0xE8,
+                    extended: false
+                })
             })
         );
     }
@@ -235,14 +250,22 @@ mod tests {
             to_event(0x12, 56, 0x20, WM_SYSKEYDOWN),
             Some(KeyEvent {
                 down: true,
-                code: 56
+                code: 56,
+                raw: Some(RawKey {
+                    vk: 0x12,
+                    extended: false
+                })
             })
         );
         assert_eq!(
             to_event(0x12, 56, 0xA0, WM_SYSKEYUP),
             Some(KeyEvent {
                 down: false,
-                code: 56
+                code: 56,
+                raw: Some(RawKey {
+                    vk: 0x12,
+                    extended: false
+                })
             })
         );
         assert_eq!(to_event(0x41, 30, 0, 0x0100 + 7), None);
@@ -251,6 +274,7 @@ mod tests {
     const SPACE: KeyEvent = KeyEvent {
         down: false,
         code: 57,
+        raw: None,
     };
 
     #[test]

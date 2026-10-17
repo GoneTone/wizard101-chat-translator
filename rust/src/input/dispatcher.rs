@@ -10,11 +10,19 @@ use std::time::{Duration, Instant};
 use crate::input::keys::{Code, Key};
 use crate::logs::log;
 
-/// 一次按下或放開。
+/// hook 收到的原始 vk 與 extended 旗標，給需要算按鍵名稱的錄製器用。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RawKey {
+    pub vk: u32,
+    pub extended: bool,
+}
+
+/// 一次按下或放開；`raw` 在測試或合成事件裡可能沒有。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct KeyEvent {
     pub down: bool,
     pub code: Code,
+    pub raw: Option<RawKey>,
 }
 
 /// 目前按著（且未被吞掉）的鍵。
@@ -95,6 +103,11 @@ impl Dispatcher {
     pub fn remove(&mut self, id: HandlerId) {
         self.blocking.retain(|(h, _)| *h != id);
         self.passive.retain(|(h, _)| *h != id);
+    }
+
+    /// 目前掛著的攔截器與被動熱鍵總數。
+    pub fn handler_count(&self) -> usize {
+        self.blocking.len() + self.passive.len()
     }
 
     /// 處理一次按鍵事件，回 true 放行、false 吞掉。
@@ -197,11 +210,19 @@ mod tests {
     const SPACE: Code = 57;
 
     fn down(code: Code) -> KeyEvent {
-        KeyEvent { down: true, code }
+        KeyEvent {
+            down: true,
+            code,
+            raw: None,
+        }
     }
 
     fn up(code: Code) -> KeyEvent {
-        KeyEvent { down: false, code }
+        KeyEvent {
+            down: false,
+            code,
+            raw: None,
+        }
     }
 
     /// 吞掉 `swallow` 這顆鍵、記下每次呼叫的假攔截器。

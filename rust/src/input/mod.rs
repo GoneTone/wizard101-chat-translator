@@ -6,3 +6,4 @@ pub mod hook;
 pub mod hotkeys;
 pub mod inject;
 pub mod keys;
+pub mod recorder;

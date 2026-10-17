@@ -1530,10 +1530,44 @@ def export_keyboard_parse() -> list[dict]:
     return [{"input": hotkey, "output": parsed(hotkey)} for hotkey in hotkeys]
 
 
+def export_keyboard_hotkey_name() -> list[dict]:
+    """`get_hotkey_name`：input 為按鍵名稱清單，output 為組好的快捷鍵字串。"""
+    keyboard = _keyboard()
+    cases = [
+        ["space", "ctrl"], ["left ctrl", "right shift", "a"], ["+", "ctrl"], ["a", "a", "ctrl"],
+        ["ctrl", "shift"], ["windows", "alt", "shift", "ctrl", "f1"], ["right alt", "left windows", "b"],
+        ["Ctrl", "SPACE"], ["!", "shift"], ["a"], ["f2", "f10", "f1"], ["num 5"],
+    ]
+    return [{"input": names, "output": keyboard.get_hotkey_name(names)} for names in cases]
+
+
+def export_keyboard_event_names() -> list[dict]:
+    """`get_event_names(...)[0]` 經 `normalize_name`：input 為 {scan, vk, extended, modifiers}。"""
+    from keyboard._canonical_names import normalize_name
+
+    keyboard = _keyboard()
+    cases = [
+        (57, 0x20, 0, ()), (30, 0x41, 0, ()), (2, 0x31, 0, ("shift",)), (30, 0x41, 0, ("caps lock",)),
+        (30, 0x41, 0, ("shift", "caps lock")), (76, 0x65, 0, ("num lock",)), (76, 0x65, 0, ()),
+        (29, 0xA3, 1, ()), (29, 0xA2, 0, ()), (42, 0xA0, 0, ()), (59, 0x70, 0, ()), (56, 0xA4, 0, ()),
+        (2, 0x31, 0, ()), (18, 0x45, 0, ("alt gr",)),
+    ]
+
+    def first_name(scan: int, vk: int, extended: int, modifiers: tuple):
+        names = list(keyboard._winkeyboard.get_event_names(scan, vk, extended, modifiers))
+        return normalize_name(names[0]) if names else None
+
+    return [{"input": {"scan": scan, "vk": vk, "extended": bool(extended), "modifiers": list(mods)},
+             "output": first_name(scan, vk, extended, mods)}
+            for scan, vk, extended, mods in cases]
+
+
 EXPORTERS["keyboard_tables"] = export_keyboard_tables
 EXPORTERS["keyboard_names"] = export_keyboard_names
 EXPORTERS["keyboard_is_modifier"] = export_keyboard_is_modifier
 EXPORTERS["keyboard_parse"] = export_keyboard_parse
+EXPORTERS["keyboard_hotkey_name"] = export_keyboard_hotkey_name
+EXPORTERS["keyboard_event_names"] = export_keyboard_event_names
 
 
 def export_region_window_region() -> list[dict]:

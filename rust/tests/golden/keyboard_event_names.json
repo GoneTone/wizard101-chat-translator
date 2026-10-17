@@ -1,0 +1,139 @@
+[
+ {
+  "input": {
+   "scan": 57,
+   "vk": 32,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "space"
+ },
+ {
+  "input": {
+   "scan": 30,
+   "vk": 65,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "scan": 2,
+   "vk": 49,
+   "extended": false,
+   "modifiers": [
+    "shift"
+   ]
+  },
+  "output": "!"
+ },
+ {
+  "input": {
+   "scan": 30,
+   "vk": 65,
+   "extended": false,
+   "modifiers": [
+    "caps lock"
+   ]
+  },
+  "output": "A"
+ },
+ {
+  "input": {
+   "scan": 30,
+   "vk": 65,
+   "extended": false,
+   "modifiers": [
+    "shift",
+    "caps lock"
+   ]
+  },
+  "output": "a"
+ },
+ {
+  "input": {
+   "scan": 76,
+   "vk": 101,
+   "extended": false,
+   "modifiers": [
+    "num lock"
+   ]
+  },
+  "output": "5"
+ },
+ {
+  "input": {
+   "scan": 76,
+   "vk": 101,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "5"
+ },
+ {
+  "input": {
+   "scan": 29,
+   "vk": 163,
+   "extended": true,
+   "modifiers": []
+  },
+  "output": "right ctrl"
+ },
+ {
+  "input": {
+   "scan": 29,
+   "vk": 162,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "ctrl"
+ },
+ {
+  "input": {
+   "scan": 42,
+   "vk": 160,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "shift"
+ },
+ {
+  "input": {
+   "scan": 59,
+   "vk": 112,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "f1"
+ },
+ {
+  "input": {
+   "scan": 56,
+   "vk": 164,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "alt"
+ },
+ {
+  "input": {
+   "scan": 2,
+   "vk": 49,
+   "extended": false,
+   "modifiers": []
+  },
+  "output": "1"
+ },
+ {
+  "input": {
+   "scan": 18,
+   "vk": 69,
+   "extended": false,
+   "modifiers": [
+    "alt gr"
+   ]
+  },
+  "output": "E"
+ }
+]
