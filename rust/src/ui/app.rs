@@ -1,8 +1,10 @@
 //! egui 應用程式外殼：overlay 是根 viewport、泡泡是 immediate viewport，每幀先取完 UI 事件再繪製。
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use eframe::NativeOptions;
 use eframe::egui::{self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId};
@@ -26,6 +28,8 @@ use crate::ui::{fonts_egui, win32};
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
 const DEFAULT_MAX_MESSAGES: usize = 200;
+/// 有設淡出時檢查過期訊息的間隔。
+const PRUNE_INTERVAL: Duration = Duration::from_millis(50);
 
 /// UI 執行緒這一端：事件接收端與重繪用的 Context（`App::new` 時才綁上）。
 pub struct Inbox {
@@ -56,6 +60,7 @@ pub struct App {
     banners: Banners,
     region_hotkey: String,
     model: OverlayModel,
+    fading: bool,
     list: MessageList,
     selection: Selection,
     bubble: Option<Bubble>,
@@ -78,6 +83,7 @@ impl App {
             banners: Banners::default(),
             region_hotkey: String::new(),
             model: OverlayModel::new(DEFAULT_MAX_MESSAGES, 0),
+            fading: false,
             list: MessageList::new(),
             selection: Selection::default(),
             bubble: None,
@@ -95,6 +101,12 @@ impl App {
         self.bubble_position = saved;
         self.on_bubble_move = Box::new(on_move);
         self
+    }
+
+    /// 套用訊息上限與淡出秒數（0＝不淡出）。
+    pub fn set_limits(&mut self, max_messages: usize, fade_seconds: u64) {
+        self.model.set_limits(max_messages, fade_seconds);
+        self.fading = fade_seconds > 0;
     }
 
     /// 目前狀態列的 state key。
@@ -267,9 +279,14 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         while let Ok(event) = self.rx.try_recv() {
             self.apply(event);
+        }
+        // 沒設淡出就不排程，免得閒置時每 50ms 空轉一幀
+        if self.fading {
+            self.model.prune(Instant::now());
+            ctx.request_repaint_after(PRUNE_INTERVAL);
         }
     }
 
@@ -338,6 +355,72 @@ pub fn native_options() -> NativeOptions {
             .with_active(false),
         wgpu_options,
         ..Default::default()
+    }
+}
+
+/// 強制走 WARP 軟體 adapter 的 eframe 設定（硬體 adapter 建立裝置或 surface 失敗時的退路）。
+pub fn warp_options() -> NativeOptions {
+    let mut native = native_options();
+    if let WgpuSetup::CreateNew(setup) = &mut native.wgpu_options.wgpu_setup {
+        setup.native_adapter_selector = Some(Arc::new(|adapters, _surface| {
+            adapters
+                .iter()
+                .find(|a| a.get_info().device_type == wgpu::DeviceType::Cpu)
+                .cloned()
+                .ok_or_else(|| "no WARP adapter".to_owned())
+        }));
+    }
+    native
+}
+
+/// 同 [`run`]，但 app 建立前就失敗（硬體 adapter 列得出來卻開不了）時改用 WARP 再試一次。
+pub fn run_with_warp_fallback<A: eframe::App + 'static>(
+    build: impl FnOnce(&egui::Context) -> A + 'static,
+) -> Result<(), eframe::Error> {
+    let build = Rc::new(RefCell::new(Some(build)));
+    let attempt = |native| {
+        let build = Rc::clone(&build);
+        run(native, move |ctx| {
+            let build = build.borrow_mut().take().expect("app is built once");
+            build(ctx)
+        })
+    };
+    match attempt(native_options()) {
+        Err(e) if build.borrow().is_some() => {
+            log(format!(
+                "[ui] hardware renderer failed before the overlay opened: {e}; retrying with WARP"
+            ));
+            attempt(warp_options())
+        }
+        other => other,
+    }
+}
+
+struct LibraryWarnings;
+
+impl ::log::Log for LibraryWarnings {
+    fn enabled(&self, metadata: &::log::Metadata) -> bool {
+        metadata.level() <= ::log::Level::Warn
+    }
+
+    fn log(&self, record: &::log::Record) {
+        if self.enabled(record.metadata()) {
+            log(format!(
+                "[ui] {} {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            ));
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// 把 wgpu／egui 經 `log` crate 發出的警告與錯誤轉進 app.log。
+pub fn forward_library_warnings() {
+    if ::log::set_logger(&LibraryWarnings).is_ok() {
+        ::log::set_max_level(::log::LevelFilter::Warn);
     }
 }
 
@@ -745,6 +828,26 @@ mod tests {
             saved.borrow().is_empty(),
             "the default is not written to config"
         );
+    }
+
+    #[test]
+    fn limits_trim_messages_and_fading_schedules_pruning() {
+        let (poster, inbox) = channel();
+        for i in 0..15 {
+            poster.post(message(&format!("m{i}")));
+        }
+        let mut harness = app_harness(inbox);
+        let delay = |h: &Harness<App>| h.output().viewport_output[&ViewportId::ROOT].repaint_delay;
+        harness.state_mut().set_limits(10, 0);
+        harness.step();
+        assert_eq!(
+            harness.state().model.current_view().unwrap().messages.len(),
+            10
+        );
+        assert!(delay(&harness) > PRUNE_INTERVAL);
+        harness.state_mut().set_limits(10, 30);
+        harness.step();
+        assert!(delay(&harness) <= PRUNE_INTERVAL);
     }
 
     #[test]

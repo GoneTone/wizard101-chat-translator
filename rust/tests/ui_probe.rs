@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ColorImage, ViewportCommand};
-use eframe::egui_wgpu::{WgpuSetup, wgpu};
+use eframe::egui_wgpu::wgpu;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HTCLIENT,
@@ -375,17 +375,7 @@ fn ui_probe() {
     let hardware = run_probe("hardware", app::native_options());
 
     // 5. 強制走 WARP：同一套檢查再跑一次（eframe 在同一執行緒重用事件迴圈）
-    let mut warp = app::native_options();
-    if let WgpuSetup::CreateNew(setup) = &mut warp.wgpu_options.wgpu_setup {
-        setup.native_adapter_selector = Some(Arc::new(|adapters, _surface| {
-            adapters
-                .iter()
-                .find(|a| a.get_info().device_type == wgpu::DeviceType::Cpu)
-                .cloned()
-                .ok_or_else(|| "no WARP adapter".to_owned())
-        }));
-    }
-    let warp = run_probe("warp", warp);
+    let warp = run_probe("warp", app::warp_options());
 
     let failed: Vec<_> = [hardware, warp]
         .iter()

@@ -291,3 +291,14 @@ fn is_configured_needs_a_complete_default_service() {
     assert!(!config::is_configured(&cfg(openai)));
     assert!(!config::is_configured(&Config::new()));
 }
+
+/// 手動對照：`W101_LOAD_CONFIG` 指向一份真實 config.json 的副本，以 Rust 載入它；設了 `W101_SAVE_CONFIG` 就再寫回。
+#[test]
+#[ignore = "runs the loader on a file named by W101_LOAD_CONFIG; used for manual byte-compares"]
+fn load_config_from_env_path() {
+    let path = PathBuf::from(std::env::var_os("W101_LOAD_CONFIG").expect("W101_LOAD_CONFIG"));
+    let cfg = load_config(&path);
+    if std::env::var_os("W101_SAVE_CONFIG").is_some() {
+        save_config(&path, &cfg).unwrap();
+    }
+}

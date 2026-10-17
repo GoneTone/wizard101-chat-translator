@@ -15,6 +15,7 @@ caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 eframe = { version = "0.37.0", default-features = false, features = ["wgpu_no_default_features", "default_fonts", "accesskit", "links"] }
 futures-util = "0.3.34"
+log = "0.4.34"
 raw-window-handle = "0.6.2"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "json"] }
@@ -28,7 +29,6 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globa
 
 [dev-dependencies]
 egui_kittest = { version = "0.37.0", features = ["eframe"] }
-log = "0.4.34"
 tempfile = "3.27.0"
 tokio = { version = "1.53.3", features = ["net", "io-util", "rt-multi-thread", "macros", "time", "test-util"] }
 winit = { version = "0.30.13", default-features = false }
