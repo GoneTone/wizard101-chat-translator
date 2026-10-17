@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+pub mod fake_backend;
 pub mod fake_game;
 pub mod log_capture;
 pub mod reader_fixture;

@@ -1582,6 +1582,29 @@ EXPORTERS["ocr_merge_lines"] = export_ocr_merge_lines
 EXPORTERS["ocr_recognize"] = export_ocr_recognize
 
 
+def export_errors_friendly() -> list[dict]:
+    """`friendly_error`：input 為 {kind, status, detail}，output 為 [文案 key, 變數（皆轉成字串）]。"""
+    from src.translation.errors import TranslatorBadOutput, TranslatorConfigError, TranslatorOffline
+    from src.ui.settings.form import friendly_error
+
+    makers = {"config": TranslatorConfigError, "offline": TranslatorOffline,
+              "bad_output": lambda detail, status: TranslatorBadOutput(detail),
+              "unexpected": lambda detail, status: RuntimeError(detail)}
+    statuses = [None, 401, 403, 404, 400, 429, 500, 503]
+    cases = [(kind, status, detail) for kind in ("config", "offline")
+             for status in statuses for detail in ("", "bad key")]
+    cases += [("bad_output", None, "truncated"), ("unexpected", None, "boom")]
+    out = []
+    for kind, status, detail in cases:
+        key, kwargs = friendly_error(makers[kind](detail, status))
+        out.append({"input": {"kind": kind, "status": status, "detail": detail},
+                    "output": [key, {k: str(v) for k, v in kwargs.items()}]})
+    return out
+
+
+EXPORTERS["errors_friendly"] = export_errors_friendly
+
+
 def _render(cases: list[dict]) -> str:
     return json.dumps(cases, ensure_ascii=False, indent=1) + "\n"
 

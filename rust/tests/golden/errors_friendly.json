@@ -1,0 +1,450 @@
+[
+ {
+  "input": {
+   "kind": "config",
+   "status": null,
+   "detail": ""
+  },
+  "output": [
+   "error.api_http",
+   {
+    "status": "None"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": null,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.offline_detail",
+   {
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 401,
+   "detail": ""
+  },
+  "output": [
+   "error.bad_key",
+   {}
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 401,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "401",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 403,
+   "detail": ""
+  },
+  "output": [
+   "error.bad_key",
+   {}
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 403,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "403",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 404,
+   "detail": ""
+  },
+  "output": [
+   "error.model_not_found",
+   {}
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 404,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "404",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 400,
+   "detail": ""
+  },
+  "output": [
+   "error.api_http",
+   {
+    "status": "400"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 400,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "400",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 429,
+   "detail": ""
+  },
+  "output": [
+   "error.api_http",
+   {
+    "status": "429"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 429,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "429",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 500,
+   "detail": ""
+  },
+  "output": [
+   "error.api_http",
+   {
+    "status": "500"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 500,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "500",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 503,
+   "detail": ""
+  },
+  "output": [
+   "error.api_http",
+   {
+    "status": "503"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "config",
+   "status": 503,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "503",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": null,
+   "detail": ""
+  },
+  "output": [
+   "error.offline",
+   {}
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": null,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.offline_detail",
+   {
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 401,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "401"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 401,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "401",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 403,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "403"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 403,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "403",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 404,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "404"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 404,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "404",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 400,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "400"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 400,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "400",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 429,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "429"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 429,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "429",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 500,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "500"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 500,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "500",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 503,
+   "detail": ""
+  },
+  "output": [
+   "error.server_http",
+   {
+    "status": "503"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "offline",
+   "status": 503,
+   "detail": "bad key"
+  },
+  "output": [
+   "error.api_response",
+   {
+    "status": "503",
+    "message": "bad key"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "bad_output",
+   "status": null,
+   "detail": "truncated"
+  },
+  "output": [
+   "error.unexpected",
+   {
+    "error": "truncated"
+   }
+  ]
+ },
+ {
+  "input": {
+   "kind": "unexpected",
+   "status": null,
+   "detail": "boom"
+  },
+  "output": [
+   "error.unexpected",
+   {
+    "error": "boom"
+   }
+  ]
+ }
+]

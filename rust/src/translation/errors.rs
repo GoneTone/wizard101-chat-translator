@@ -140,6 +140,44 @@ pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
     }
 }
 
+/// 翻譯例外 → （文案 key，format 變數），顯示端一律 `t(key, args)`。
+///
+/// 有 API 說明（detail）就照實顯示；狀態碼猜的提示會誤導，只在 API 什麼都沒說時才用。
+pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, String)>) {
+    use TranslateError::{Config, Offline};
+    match e {
+        Config { status, detail } | Offline { status, detail } if !detail.is_empty() => {
+            match status {
+                Some(status) => (
+                    "error.api_response",
+                    vec![("status", status.to_string()), ("message", detail.clone())],
+                ),
+                None => ("error.offline_detail", vec![("message", detail.clone())]),
+            }
+        }
+        Config {
+            status: Some(401 | 403),
+            ..
+        } => ("error.bad_key", vec![]),
+        Config {
+            status: Some(404), ..
+        } => ("error.model_not_found", vec![]),
+        Config { status, .. } => (
+            "error.api_http",
+            vec![(
+                "status",
+                status.map_or_else(|| "None".to_owned(), |s| s.to_string()),
+            )],
+        ),
+        Offline {
+            status: Some(status),
+            ..
+        } => ("error.server_http", vec![("status", status.to_string())]),
+        Offline { status: None, .. } => ("error.offline", vec![]),
+        other => ("error.unexpected", vec![("error", other.to_string())]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::one_line;
