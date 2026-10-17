@@ -712,14 +712,23 @@ pub fn warp_options() -> NativeOptions {
     native
 }
 
-/// 同 [`run`]，但 app 建立前就失敗（硬體 adapter 列得出來卻開不了）時改用 WARP 再試一次。
+/// `visible` 為 false 時根視窗建立時就藏著（首次設定精靈：overlay 不會先閃一下）。
+fn with_root_visibility(mut native: NativeOptions, visible: bool) -> NativeOptions {
+    if !visible {
+        native.viewport = native.viewport.with_visible(false);
+    }
+    native
+}
+
+/// 同 [`run`]，但 app 建立前就失敗（硬體 adapter 列得出來卻開不了）時改用 WARP 再試一次；`visible` 見 [`with_root_visibility`]。
 pub fn run_with_warp_fallback<A: eframe::App + 'static>(
+    visible: bool,
     build: impl FnOnce(&egui::Context) -> A + 'static,
 ) -> Result<(), eframe::Error> {
     let build = Rc::new(RefCell::new(Some(build)));
     let attempt = |native| {
         let build = Rc::clone(&build);
-        run(native, move |ctx| {
+        run(with_root_visibility(native, visible), move |ctx| {
             let build = build.borrow_mut().take().expect("app is built once");
             build(ctx)
         })
@@ -1039,6 +1048,20 @@ mod tests {
             assert_eq!((icon.width, icon.height), (48, 48));
             assert_ne!(*icon, egui::IconData::default());
         }
+    }
+
+    #[test]
+    fn root_viewport_can_start_hidden() {
+        for native in [native_options(), warp_options()] {
+            let hidden = with_root_visibility(native, false);
+            assert_eq!(hidden.viewport.visible, Some(false));
+        }
+        assert_eq!(
+            with_root_visibility(native_options(), true)
+                .viewport
+                .visible,
+            None
+        );
     }
 
     fn app_harness(inbox: Inbox) -> Harness<'static, App> {

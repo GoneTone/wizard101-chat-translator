@@ -1,4 +1,4 @@
-//! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）、熱鍵與貼上、關閉流程。
+//! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）、熱鍵與貼上、套用設定、關閉流程。
 
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
@@ -28,7 +28,7 @@ use crate::input::dispatch::{
     should_intercept_paste,
 };
 use crate::input::dispatcher::SharedDispatcher;
-use crate::input::hook::{self, KeyboardHook};
+use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
@@ -275,25 +275,27 @@ pub fn type_delay(cfg: &Config) -> Duration {
     )
 }
 
-/// 依序註冊輸入框熱鍵、框選熱鍵與 Ctrl+V 攔截器（順序同 Python），實際生效的熱鍵寫回 `settings`（不存檔）。
+/// 熱鍵與貼上攔截器吞鍵後要補的遮罩鍵（延到分派器放鎖後才注入）。
+pub fn hotkey_mask(typing: &TypingEnv) -> Arc<dyn Fn() + Send + Sync> {
+    let inject = Arc::clone(&typing.inject);
+    Arc::new(move || {
+        let inject = Arc::clone(&inject);
+        crate::input::hook::after_dispatch(move || inject.mask())
+    })
+}
+
+/// 依序註冊輸入框熱鍵與框選熱鍵，實際生效的熱鍵寫回 `settings`（不存檔）。
 ///
 /// 回傳（輸入框熱鍵，框選熱鍵）；框選熱鍵與輸入框熱鍵相同時不註冊、回 `None`。
-pub fn install_input(
+pub fn register_hotkeys(
     settings: &Arc<RwLock<Config>>,
     ui: &UiPoster,
     dispatcher: &SharedDispatcher,
     wiring: &InputWiring,
-    typing: Arc<TypingEnv>,
+    mask: Arc<dyn Fn() + Send + Sync>,
 ) -> (Registration, Option<Registration>) {
     let defaults = default_config();
     let fallback = |key: &str| defaults[key].as_str().unwrap_or_default().to_owned();
-    let mask: Arc<dyn Fn() + Send + Sync> = {
-        let inject = Arc::clone(&typing.inject);
-        Arc::new(move || {
-            let inject = Arc::clone(&inject);
-            crate::input::hook::after_dispatch(move || inject.mask())
-        })
-    };
 
     let hotkey = read(settings)["hotkey"]
         .as_str()
@@ -320,12 +322,24 @@ pub fn install_input(
             &region,
             Arc::new(move || on_region_hotkey(&Foreground::real(), &selecting, &ui)),
             &fallback("region_hotkey"),
-            Arc::clone(&mask),
+            mask,
         );
         write_hotkey(settings, "region_hotkey", used);
         registration
     });
+    (box_hotkey, region)
+}
 
+/// 掛上 Ctrl+V 攔截器；每次都直接讀 `settings`，改設定不必重掛，所以只在啟動時掛一次。
+///
+/// 要排在 [`register_hotkeys`] 之後：鍵入進行中它會吞掉 v，排在前面的熱鍵才收得到。
+pub fn install_paste(
+    settings: &Arc<RwLock<Config>>,
+    dispatcher: &SharedDispatcher,
+    wiring: &InputWiring,
+    typing: Arc<TypingEnv>,
+) {
+    let mask = hotkey_mask(&typing);
     let should_intercept = {
         let settings = Arc::clone(settings);
         move || should_intercept_paste(&read(&settings), &Foreground::real())
@@ -343,7 +357,52 @@ pub fn install_input(
         Box::new(move || mask()),
     );
     lock(dispatcher).add_blocking(Box::new(paste));
-    (box_hotkey, region)
+}
+
+/// 設定視窗按儲存：`new_cfg`（只含視窗管的鍵）併入共用設定、存檔、翻譯端跟上、兩把熱鍵重新註冊。
+///
+/// 順序同 Python `apply_settings` 的前半；回傳實際生效的（輸入框熱鍵，框選熱鍵），框選停用時為 `None`。
+pub fn apply_settings(
+    running: &mut Running,
+    settings: &Arc<RwLock<Config>>,
+    new_cfg: Config,
+    ui: &UiPoster,
+) -> (String, Option<String>) {
+    // 只併入不取代：視窗開著時拖過的 overlay／泡泡位置不在 new_cfg 裡
+    let cfg = {
+        let mut cfg = write(settings);
+        cfg.extend(new_cfg);
+        cfg.clone()
+    };
+    if let Err(e) = save_config(&running.config_path, &cfg) {
+        log(format!(
+            "[settings] could not save {}: {e}",
+            running.config_path.display()
+        ));
+    }
+    reconfigure_translation(&cfg, &running.translation);
+    // 新的先註冊再解除舊的：Registration 只能整個交出去 unregister
+    let fresh = register_hotkeys(
+        settings,
+        ui,
+        &running.dispatcher,
+        &running.input,
+        hotkey_mask(&running.typing),
+    );
+    let (old_box, old_region) = std::mem::replace(&mut running.hotkeys, fresh);
+    old_box.unregister();
+    if let Some(old_region) = old_region {
+        old_region.unregister();
+    }
+    let cfg = read(settings);
+    log(format!("[settings] applied; {}", config_summary(&cfg)));
+    let hotkey = cfg["hotkey"].as_str().unwrap_or_default().to_owned();
+    let region = running
+        .hotkeys
+        .1
+        .as_ref()
+        .map(|_| cfg["region_hotkey"].as_str().unwrap_or_default().to_owned());
+    (hotkey, region)
 }
 
 /// 攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
@@ -543,14 +602,24 @@ pub struct Running {
     pub input: InputWiring,
     /// 譯文與貼上共用的鍵入環境。
     pub typing: Arc<TypingEnv>,
+    /// 目前掛著的（輸入框熱鍵，框選熱鍵）；套用設定時換新。
+    pub hotkeys: (Registration, Option<Registration>),
+    /// 鍵盤 hook 的分派器（熱鍵與錄製器都掛在上面）。
+    pub dispatcher: SharedDispatcher,
+    /// 套用設定時寫入的設定檔。
+    pub config_path: PathBuf,
 }
 
-/// 建構翻譯端、註冊熱鍵並裝上鍵盤 hook、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
+/// 建構翻譯端、在 `dispatcher` 上註冊熱鍵與貼上攔截器、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
+///
+/// 鍵盤 hook 由呼叫端先裝好（精靈錄熱鍵也要用），`keyboard` 交給這裡、關閉時卸除。
 pub fn build_app(
     settings: Arc<RwLock<Config>>,
     rt: &Handle,
     ui: UiPoster,
     messages: SharedWriter,
+    dispatcher: SharedDispatcher,
+    keyboard: Option<KeyboardHook>,
 ) -> Running {
     let deliver: ResultFn = {
         let ui = ui.clone();
@@ -569,7 +638,6 @@ pub fn build_app(
         Arc::new(ExampleStore::default()),
         crate::translation::cache::default_path(),
     );
-    let dispatcher = SharedDispatcher::default();
     let input = InputWiring::default();
     let typing = {
         let d = Arc::clone(&dispatcher);
@@ -578,10 +646,8 @@ pub fn build_app(
             lock(&d).pressed().clone()
         })))
     };
-    install_input(&settings, &ui, &dispatcher, &input, Arc::clone(&typing));
-    let keyboard = hook::install(dispatcher)
-        .inspect_err(|err| log(format!("[hotkey] cannot install keyboard hook: {err}")))
-        .ok();
+    let hotkeys = register_hotkeys(&settings, &ui, &dispatcher, &input, hotkey_mask(&typing));
+    install_paste(&settings, &dispatcher, &input, Arc::clone(&typing));
     let stop = CancellationToken::new();
     let board = Arc::new(StatusBoard::new(
         ui.clone(),
@@ -633,6 +699,9 @@ pub fn build_app(
         contexts,
         input,
         typing,
+        hotkeys,
+        dispatcher,
+        config_path: crate::config::config_path(),
     }
 }
 

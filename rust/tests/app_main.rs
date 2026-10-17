@@ -1,4 +1,4 @@
-//! 主程式接線：收訊指紋、翻譯端的建構、單一實例與關閉順序。
+//! 主程式接線：收訊指紋、翻譯端的建構、熱鍵註冊與套用設定、單一實例與關閉順序。
 
 #[allow(dead_code)]
 mod common;
@@ -15,9 +15,10 @@ use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
-    InputWiring, SUPERVISOR_JOIN_BUDGET, Translation, build_translation, claim_instance,
-    incoming_fingerprint, install_input, on_paste_hotkey, outgoing_translate,
-    reconfigure_translation, region_runner, run_ui_then, shutdown_steps,
+    InputWiring, Running, SUPERVISOR_JOIN_BUDGET, Translation, apply_settings, build_translation,
+    claim_instance, hotkey_mask, incoming_fingerprint, install_paste, on_paste_hotkey,
+    outgoing_translate, reconfigure_translation, region_runner, register_hotkeys, run_ui_then,
+    shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
@@ -764,19 +765,17 @@ fn wiring(box_open: bool) -> InputWiring {
     }
 }
 
+fn no_mask() -> Arc<dyn Fn() + Send + Sync> {
+    Arc::new(|| {})
+}
+
 #[test]
-fn install_input_writes_the_effective_hotkeys_back() {
+fn register_hotkeys_writes_the_effective_hotkeys_back() {
     capture_logs();
     let (ui, _rx) = UiPoster::for_test();
-    let keys = Arc::new(Keys::default());
     let settings = input_cfg("ctrl+nope", "ctrl+space", false);
-    let (_hotkey, region) = install_input(
-        &settings,
-        &ui,
-        &dispatcher(),
-        &wiring(false),
-        typing_env(&keys),
-    );
+    let (_hotkey, region) =
+        register_hotkeys(&settings, &ui, &dispatcher(), &wiring(false), no_mask());
     assert!(region.is_none());
     let cfg = settings.read().unwrap();
     assert_eq!(cfg["hotkey"], "ctrl+space");
@@ -784,13 +783,8 @@ fn install_input_writes_the_effective_hotkeys_back() {
     drop(cfg);
 
     let settings = input_cfg("ctrl+space", "ctrl+bogus", false);
-    let (_hotkey, region) = install_input(
-        &settings,
-        &ui,
-        &dispatcher(),
-        &wiring(false),
-        typing_env(&keys),
-    );
+    let (_hotkey, region) =
+        register_hotkeys(&settings, &ui, &dispatcher(), &wiring(false), no_mask());
     assert!(region.is_some());
     assert_eq!(
         settings.read().unwrap()["region_hotkey"],
@@ -824,14 +818,16 @@ fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
 }
 
 #[test]
-fn install_input_registers_paste_last() {
+fn paste_installed_after_the_hotkeys_runs_last() {
     let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     capture_logs();
     let (ui, rx) = UiPoster::for_test();
     let settings = input_cfg("ctrl+v", "shift+v", false);
     let d = dispatcher();
-    let keys = Arc::new(Keys::default());
-    let _registered = install_input(&settings, &ui, &d, &wiring(true), typing_env(&keys));
+    let (keys, input) = (Arc::new(Keys::default()), wiring(true));
+    let typing = typing_env(&keys);
+    let _registered = register_hotkeys(&settings, &ui, &d, &input, hotkey_mask(&typing));
+    install_paste(&settings, &d, &input, typing);
 
     // 鍵入進行中，貼上攔截器會吞掉每一顆 v；排在它前面的熱鍵才收得到
     let (release, gate) = mpsc::channel();
@@ -1126,8 +1122,7 @@ fn region_hotkey_cancels_while_selecting() {
     let d = dispatcher();
     let wiring = wiring(false);
     wiring.selecting.store(true, Ordering::SeqCst);
-    let keys = Arc::new(Keys::default());
-    let _registered = install_input(&settings, &ui, &d, &wiring, typing_env(&keys));
+    let _registered = register_hotkeys(&settings, &ui, &d, &wiring, no_mask());
     assert!(!press(&d, &["ctrl", "shift", "space"]));
     assert_eq!(rx.try_recv(), Ok(UiEvent::RegionHotkey { hwnd: 0 }));
 }
@@ -1150,4 +1145,175 @@ fn paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open() {
     assert_eq!(*keys.typed.lock().unwrap(), "a\nba b");
     let delay = Duration::from_secs_f64(0.03);
     assert!(SLEPT.lock().unwrap().contains(&delay));
+}
+
+/// 已接好線的執行期：tempdir 的設定檔、不裝 hook 的分派器、範例都在磁碟上（不碰網路）。
+struct Live {
+    dir: tempfile::TempDir,
+    _rt: tokio::runtime::Runtime,
+    store: Arc<ExampleStore>,
+    settings: Arc<RwLock<Config>>,
+    running: Running,
+    ui: UiPoster,
+    rx: Receiver<UiEvent>,
+    d: SharedDispatcher,
+}
+
+const OVERLAY: &str = r#"{"x": 10, "y": 20, "width": 300, "height": 400}"#;
+
+fn live(tag: &'static str) -> Live {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    let mut cfg = tagged(tag);
+    cfg.insert("hotkey".into(), json!("ctrl+alt+j"));
+    cfg.insert("region_hotkey".into(), json!("ctrl+alt+r"));
+    cfg.insert("paste_hotkey".into(), json!(false));
+    cfg.insert("overlay".into(), serde_json::from_str(OVERLAY).unwrap());
+    seed(&store, &cfg, &examples());
+    let settings = Arc::new(RwLock::new(cfg));
+    let translation = build_translation(
+        &settings,
+        no_results(),
+        rt.handle(),
+        Arc::clone(&store),
+        dir.path().join("cache.json"),
+    );
+    let (ui, rx) = UiPoster::for_test();
+    let d = dispatcher();
+    let input = wiring(true);
+    let typing = typing_env(&Arc::new(Keys::default()));
+    let hotkeys = register_hotkeys(&settings, &ui, &d, &input, hotkey_mask(&typing));
+    install_paste(&settings, &d, &input, Arc::clone(&typing));
+    let running = Running {
+        stop: CancellationToken::new(),
+        translation,
+        supervisor: None,
+        keyboard: None,
+        contexts: ContextMap::default(),
+        input,
+        typing,
+        hotkeys,
+        dispatcher: Arc::clone(&d),
+        config_path: dir.path().join("config.json"),
+    };
+    Live {
+        dir,
+        _rt: rt,
+        store,
+        settings,
+        running,
+        ui,
+        rx,
+        d,
+    }
+}
+
+impl Live {
+    /// 合併後的完整設定，先把它的範例放上磁碟再套用。
+    fn apply(&mut self, partial: Config) -> (String, Option<String>) {
+        let mut merged = self.settings.read().unwrap().clone();
+        merged.extend(partial.clone());
+        seed(&self.store, &merged, &examples());
+        apply_settings(&mut self.running, &self.settings, partial, &self.ui)
+    }
+
+    fn input_box_shown(&self) -> usize {
+        self.rx
+            .try_iter()
+            .filter(|e| matches!(e, UiEvent::ShowInputBox { .. }))
+            .count()
+    }
+
+    fn handlers(&self) -> usize {
+        self.d.lock().unwrap().handler_count()
+    }
+
+    fn saved_file(&self) -> Value {
+        let text = std::fs::read_to_string(self.dir.path().join("config.json")).unwrap();
+        serde_json::from_str(&text).unwrap()
+    }
+}
+
+fn partial(pairs: &[(&str, Value)]) -> Config {
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), v.clone()))
+        .collect()
+}
+
+#[test]
+fn apply_settings_saves_rebinds_and_reregisters() {
+    let mut l = live("apply_rebind");
+    assert!(!press(&l.d, &["ctrl", "alt", "j"]));
+    assert_eq!(l.input_box_shown(), 1);
+    let handlers = l.handlers();
+
+    let mut services = l.settings.read().unwrap()["services"].clone();
+    services[0]["model"] = json!("qwen3-2-apply_rebind");
+    let (hotkey, region) = l.apply(partial(&[
+        ("hotkey", json!("ctrl+alt+k")),
+        ("services", services),
+    ]));
+
+    assert_eq!(hotkey, "ctrl+alt+k");
+    assert_eq!(region.as_deref(), Some("ctrl+alt+r"));
+    assert_eq!(l.handlers(), handlers);
+    assert!(press(&l.d, &["ctrl", "alt", "j"]), "the old hotkey passes");
+    assert_eq!(l.input_box_shown(), 0);
+    assert!(!press(&l.d, &["ctrl", "alt", "k"]));
+    assert_eq!(l.input_box_shown(), 1);
+
+    let saved = l.saved_file();
+    assert_eq!(saved["hotkey"], "ctrl+alt+k");
+    assert_eq!(saved["services"][0]["model"], "qwen3-2-apply_rebind");
+    let fingerprint = l.running.translation.cache.fingerprint();
+    assert_eq!(
+        fingerprint,
+        incoming_fingerprint(&l.settings.read().unwrap(), Some(&examples()))
+    );
+    assert!(fingerprint.contains("qwen3-2-apply_rebind"));
+    let applied = log_lines_with("[settings] applied; ");
+    assert!(
+        applied.iter().any(|l| l.contains("qwen3-2-apply_rebind")),
+        "{applied:?}"
+    );
+}
+
+#[test]
+fn apply_settings_merges_the_partial_map_into_the_live_config() {
+    let mut l = live("apply_merge");
+    l.apply(partial(&[("max_messages", json!(50))]));
+    let overlay: Value = serde_json::from_str(OVERLAY).unwrap();
+    assert_eq!(l.settings.read().unwrap()["overlay"], overlay);
+    assert_eq!(l.settings.read().unwrap()["max_messages"], 50);
+    let saved = l.saved_file();
+    assert_eq!(saved["overlay"], overlay);
+    assert_eq!(saved["max_messages"], 50);
+    assert_eq!(saved["hotkey"], "ctrl+alt+j");
+}
+
+#[test]
+fn region_hotkey_equal_to_the_input_hotkey_is_not_registered() {
+    let mut l = live("apply_collide");
+    let handlers = l.handlers();
+    let (hotkey, region) = l.apply(partial(&[("region_hotkey", json!("ctrl+alt+j"))]));
+    assert_eq!(hotkey, "ctrl+alt+j");
+    assert_eq!(region, None);
+    assert!(l.running.hotkeys.1.is_none());
+    assert_eq!(l.handlers(), handlers - 1);
+    assert!(
+        press(&l.d, &["ctrl", "alt", "r"]),
+        "the old region hotkey passes"
+    );
+    assert!(!press(&l.d, &["ctrl", "alt", "j"]));
+    assert_eq!(l.input_box_shown(), 1);
+
+    let (ui, _rx) = UiPoster::for_test();
+    let d = dispatcher();
+    let settings = input_cfg("ctrl+space", "ctrl+space", false);
+    let (_hotkey, region) = register_hotkeys(&settings, &ui, &d, &wiring(false), no_mask());
+    assert!(region.is_none());
+    assert_eq!(d.lock().unwrap().handler_count(), 1);
 }

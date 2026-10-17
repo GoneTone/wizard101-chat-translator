@@ -25,14 +25,52 @@
 
 ## 第 4 段
 
-- 設定視窗裡顯示 API 錯誤的地方，網址都要能點（Python 用 `RichLabel`）：測試連線結果（`service_form.py`）、模型清單狀態（`model_field.py`）、`form.py` 的結果呈現。一律走 `ui::richtext::show`，不要另寫。
-- `translator.py` 的 `generate_and_store`、`list_models`、`test_translate` 還沒移植，設定視窗的「測試連線」和「重新整理模型」需要它們。
-- 更新橫幅的 `offer_update` 目前只擋「同一個版本」。Python 版的規則是用 SemVer `is_newer` 跟已關閉的版本比較，程式碼留有 `shortcut:` 註解。另外，更新檢查要接到 `banners_mut().offer_update`。
-- 套用設定（reconfigure）時，改完 cfg 要重新綁定系統訊息快取的指紋。否則背景晚到的範例結果，可能讓快取留在舊指紋上。
-- 啟動摘要要移到首次設定精靈之後再記，Python 是在 `build_app` 裡記。目前被擋下的第二份實例也會寫一行 startup。
-- 新的無邊框 egui 視窗要呼叫 `ui::win32::remove_system_frame`，才不會出現 Win11 的圓角和灰邊。
-- 程序內所有 winit 視窗都經由 `CreateWindowExW` 匯入 shim 拿掉了 redirection bitmap（裁定 R34）。這類視窗不可再用 GDI 繪圖。
-- 泡泡建立的第一幀可能閃一下舊外框；這個在螢幕外量不到，需要時在實機確認。
+第 4 段（設定視窗、首次設定精靈、服務管理、更新檢查）已實作完成、待使用者實機驗收（`2026-10-18-rust-rewrite-phase4.md` 檔尾清單）。原列各項的處理：
+
+- 設定視窗裡顯示 API 錯誤的地方，網址都能點：測試連線結果、模型清單狀態一律經 `ui::settings::widgets` 走 `ui::richtext::show`。
+- `generate_and_store`、`list_models`、`test_translate` 已移植（`translation/translator.rs`）。
+- `offer_update` 改用 SemVer `is_newer` 跟已關閉的版本比較；自動更新檢查（啟動時與每 60 分鐘）以 `UiEvent::UpdateFound` 接到 `offer_update`。
+- 套用設定時先寫共用設定，`reconfigure_translation` 再重新綁定系統訊息快取的指紋。
+- 啟動摘要改在接線時（精靈完成之後）才記；被擋下的第二份實例不再寫 startup。
+- 無邊框視窗呼叫 `remove_system_frame` 的規則照舊；設定視窗與精靈是有系統標題列的一般視窗，不適用。
+- redirection bitmap：設定視窗與精靈都用 egui 繪圖，沒有 GDI。
+- 泡泡建立的第一幀可能閃一下舊外框：沒處理，仍待實機確認。
+
+- **刻意與 Python 不同**：
+  - 測試連線成功時多顯示耗時與原文，共三行；模型清單按鈕在繁中改叫「更新清單」（使用者 2026-10-18 核可）。
+  - 改了 API 欄位後，已顯示的「連線成功」會清掉（避免留著過期的綠字）；失敗訊息照 Python 保留。
+  - 首次設定精靈與 overlay 在同一個 eframe 事件迴圈裡跑（winit 一個程序只能開一次），精靈期間根視窗建立時就藏著。
+  - 套用設定時新的熱鍵先註冊、再解除舊的（`Registration` 只能整個交出去解除）；結果與 Python 相同，只是 log 先後不同。
+  - Python 的 `[settings] hotkey capture failed` 不會出現：Rust 的錄製器沒有失敗路徑。
+- **只能實機確認**：精靈與設定視窗的深色標題列、工作列按鈕與搶前景；小螢幕與高縮放下的初始大小；`main.rs` 的 `start_main` 接線（兩條路：設定完整、精靈完成）沒有自動化測試，依實機驗收清單確認。
+- **可保留的小問題**（附理由）：
+  - **重複程式碼**：
+    - `unique_name`／`new_service` 的單元測試在 `services.rs` 與 `tests/config_services.rs` 各一份；
+    - `ALT_GR_SCAN`／`VK_LCONTROL` 在 `recorder.rs` 與 `hook.rs` 各定義一次；
+    - PNG 轉 texture 在 `provider_picker.rs` 與 `overlay/frame.rs` 各寫一次；
+    - `SettingsHost` 與 `WizardHost` 幾乎相同（可改成泛型 host）；
+    - 設定視窗的預設值 helper 與 `Settings::from_config` 重複；
+    - `secondary_icon_button` 與 `styled_button` 的收尾重複；`updater::http_client` 與 `clients::http_client` 同名但設定不同。
+  - **檔案偏大**：`ui/app.rs` 約 1550 行（`native_options`／`run*` 可搬出去）、`service_list.rs` 約 750 行。
+  - **與 Python 的小差異**：
+    - `parse_int` 不接受 Tcl 的 `0x10` 寫法；`unique_name` 遇到非字串 id 的處理不同（`sanitize` 已正規化，實際不會發生）；
+    - 錄製器遇到沒有名稱的按下不出聲、沒有名稱的放開直接丟掉（Python 會拋例外）；
+    - 更新檢查的連線錯誤只記 reqwest 最上層訊息，沒有沿用 `clients::connection_error` 的原因鏈。
+  - **邊界情況**：
+    - `schedule_update_checks` 的 `found` 回呼 panic 時，排程 task 會無聲結束（回呼只投遞事件）；
+    - `number_field` 在 min>max 時 clamp 會 panic（呼叫端都給合法範圍）；
+    - 疊開服務商選擇的同一幀按 Esc 會連表單一起關（實際按不出來）；
+    - 混合 DPI 下設定視窗置中沒有再以實體像素擺正；
+    - 套用設定後重新註冊的熱鍵排在 Ctrl+V 攔截器之後，鍵入進行中含 `v` 的熱鍵會被貼上攔截器先吞掉（Python 相同）；
+    - 精靈中途取消時鍵盤 hook 不另外卸除，程序隨即結束、由系統移除。
+  - **測試覆蓋缺口**：
+    - combo 的滑鼠操作、`icon_button` 提示框的配色、精靈完成時同步 `ui_language` 與 `with_first_run` 的 log；
+    - 範例過期的測試沒有分別釘住 `finish()` 與 `set_examples()` 兩道防線；`let_background_finish` 用固定 300ms 等待；
+    - 錄製器測試讀真實的 `GetKeyState`（Caps Lock 開著時結果與機器有關）；
+    - `every_provider_has_ui_metadata` 沒驗 openai／gemini 的 `key_url`；
+    - `up_to_date_log_lock` 是約定，新增不加鎖的 `Ok(None)` 測試會打破 +1 的計數。
+  - **外觀細節**：精靈的測試列放在表單卡片內（設計稿在卡片下方）、下拉高 32（設計稿 36）、48px 圖示放大到 64；提示框顯示時每幀重算 `collect()`；設定頁連結的 log 寫成「from message」。
+  - `parse_advanced` 每次都建一份 `default_config()`、`text_field` 的 `password` 參數沒用到：只是效能與整潔。
 
 ## 第 5 段
 
@@ -79,5 +117,5 @@
 - **設定缺 `hotkey`／`region_hotkey` 時 `region_hotkey_to_register` 會 panic**：與 Python 的 KeyError 等價，`load_config` 一定會補上預設。
 - **`scale_at` 不能注入**，沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
 - **overlay 的 HWND 還是 0 時開輸入框，會沒有擁有者而出現工作列按鈕**：overlay 第一幀就拿到 HWND，實際不會發生。
-- **`install_input` 寫死 `Foreground::real()`**：測試會唯讀查詢真實前景，斷言因此兩個分支都接受。
+- **`register_hotkeys`／`install_paste` 寫死 `Foreground::real()`**（原 `install_input`）：測試會唯讀查詢真實前景，斷言因此兩個分支都接受。
 - **`on_paste_hotkey` 用 `std::thread::spawn`**：資源耗盡時 panic，但會被 handler 的 `catch_unwind` 接住並放行；回傳 `JoinHandle` 是計畫定的簽名。
