@@ -201,6 +201,11 @@ impl OverlayModel {
         self.client = slot;
     }
 
+    /// 目前的訊息上限與淡出秒數。
+    pub fn limits(&self) -> (usize, u64) {
+        (self.max_messages, self.fade.as_secs())
+    }
+
     /// 套用新的訊息上限與淡出秒數；超出上限的最舊訊息立即移除。
     pub fn set_limits(&mut self, max_messages: usize, fade_seconds: u64) {
         self.max_messages = max_messages;

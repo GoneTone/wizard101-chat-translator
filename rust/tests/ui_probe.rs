@@ -1,9 +1,11 @@
 //! 視窗架構驗證（egui 的退場條件）：開出真的 overlay、泡泡、翻譯輸入框與框選的框和結果卡、停在螢幕外，以程式讀回各項行為。
 //!
-//! 會短暫出現螢幕外視窗與工作列按鈕，所以預設略過；手動跑：
-//! `cargo test --manifest-path rust/Cargo.toml --test ui_probe -- --ignored --nocapture`
+//! 會短暫出現螢幕外視窗與工作列按鈕，所以預設略過；一個程序只能建一次事件迴圈，每個 probe 要各自依名稱手動跑：
+//! `cargo test --manifest-path rust/Cargo.toml --test ui_probe <名稱> -- --ignored --exact --nocapture`
+//! （`ui_probe`、`settings_window_has_a_dark_caption_and_a_taskbar_button`）
 
-use std::sync::atomic::AtomicBool;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
@@ -21,12 +23,15 @@ use windows_capture::settings::{
 use windows_capture::window::Window;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HTCLIENT,
-    HTTRANSPARENT, IsWindowVisible, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_NCHITTEST,
-    WS_EX_APPWINDOW, WS_EX_NOACTIVATE, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+    EnumWindows, GWL_STYLE, GetForegroundWindow, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, HTCLIENT, HTTRANSPARENT, IsWindowVisible, SMTO_ABORTIFHUNG,
+    SendMessageTimeoutW, WM_NCHITTEST, WS_CAPTION, WS_EX_APPWINDOW, WS_EX_NOACTIVATE,
+    WS_EX_TOPMOST, WS_EX_TRANSPARENT,
 };
 use winit::platform::windows::EventLoopBuilderExtWindows;
-use wizard101_chat_translator::config::Config;
+use wizard101_chat_translator::config::services::ServiceSpec;
+use wizard101_chat_translator::config::{Config, app_name};
+use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::log;
 use wizard101_chat_translator::region::capture::{CaptureError, Frame as CaptureFrame};
@@ -42,7 +47,12 @@ use wizard101_chat_translator::ui::region::card::ANCHOR_GAP;
 use wizard101_chat_translator::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
 use wizard101_chat_translator::ui::region::region_box;
 use wizard101_chat_translator::ui::region::selector::SelectorAction;
-use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of, owner_of, window_rect};
+use wizard101_chat_translator::ui::settings::env::SettingsEnv;
+use wizard101_chat_translator::ui::settings::theme;
+use wizard101_chat_translator::ui::settings_host::{SettingsHost, WindowOps};
+use wizard101_chat_translator::ui::win32::{
+    ex_style, hwnd_of, owner_of, scale_at, window_rect, window_title,
+};
 
 const PARK: f32 = 10000.0;
 /// 輸入框的螢幕外游標位置（實體像素）與假的工作區：box 貼在游標下、不被拉回真的螢幕。
@@ -742,6 +752,209 @@ fn ui_probe() {
         .flat_map(|r| r.lines.iter().map(move |l| (r.label, l)))
         .filter(|(_, (ok, _))| !ok)
         .map(|(label, (_, line))| format!("{label}: {line}"))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}
+
+/// 設定視窗 probe 用的 env：背景工作一律不做。
+struct NoopEnv;
+
+impl SettingsEnv for NoopEnv {
+    fn test_connection(&self, _round: u64, _spec: ServiceSpec, _target: String) {}
+    fn list_models(&self, _round: u64, _spec: ServiceSpec) {}
+    fn check_update(&self, _round: u64) {}
+    fn record_hotkey(&self, _round: u64) {}
+    fn cancel_recording(&self) {}
+    fn open_folder(&self, _path: &Path) {}
+    fn has_cache(&self) -> bool {
+        false
+    }
+    fn clear_cache(&self) -> usize {
+        0
+    }
+}
+
+/// 包住 App：檢查執行緒要求時按一次 ⚙，並回報 overlay 的 HWND。
+struct SettingsProbe {
+    app: App,
+    open: Arc<AtomicBool>,
+    hwnd: Arc<AtomicIsize>,
+}
+
+impl eframe::App for SettingsProbe {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.app.logic(ctx, frame);
+        if self.open.swap(false, Ordering::SeqCst) {
+            self.app.open_settings();
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        self.app.ui(ui, frame);
+        self.hwnd.store(hwnd_of(frame), Ordering::SeqCst);
+    }
+
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        self.app.clear_color(visuals)
+    }
+}
+
+/// 兩個顏色每個通道都差不到 `tolerance`。
+fn close_to(got: [u8; 4], want: [u8; 4], tolerance: u8) -> bool {
+    got.iter()
+        .zip(want)
+        .all(|(a, b)| a.abs_diff(b) <= tolerance)
+}
+
+/// 檢查執行緒：等 overlay 出來、按 ⚙、找到設定視窗後讀回樣式與合成後的顏色，結束時關掉 overlay。
+fn check_settings_window(
+    report: &mut Report,
+    ctx: &egui::Context,
+    overlay: &AtomicIsize,
+    open: &AtomicBool,
+) {
+    let ready = poll(Duration::from_secs(10), Some(ctx), || {
+        let h = overlay.load(Ordering::SeqCst);
+        h != 0 && visible(h)
+    });
+    if !ready {
+        report.check(false, "overlay never became visible".into());
+        return;
+    }
+    let existing = own_visible_windows();
+    let fg_before = unsafe { GetForegroundWindow() as isize };
+    open.store(true, Ordering::SeqCst);
+    let title = t("settings.title", &[("app", &app_name())]);
+    let mut win = 0isize;
+    let opened = poll(Duration::from_secs(5), Some(ctx), || {
+        win = own_visible_windows()
+            .into_iter()
+            .find(|w| !existing.contains(w) && window_title(*w) == title)
+            .unwrap_or(0);
+        win != 0
+    });
+    if !opened {
+        report.check(
+            false,
+            format!("settings window {title:?} never became visible"),
+        );
+        return;
+    }
+    // 讓 DWM 套上深色標題列、egui 畫完第一幀
+    std::thread::sleep(Duration::from_millis(500));
+    let style = unsafe { GetWindowLongPtrW(win as HWND, GWL_STYLE) } as u32;
+    let (ex, owner) = (ex_style(win), owner_of(win));
+    // 搶前景換成了替身，但一般視窗顯示時系統仍可能直接啟用它：前景只記下、不當成檢查項
+    let fg = unsafe { GetForegroundWindow() as isize };
+    report.check(
+        style & WS_CAPTION == WS_CAPTION
+            && (ex & WS_EX_APPWINDOW != 0 || owner == 0)
+            && ex & WS_EX_TOPMOST == 0,
+        format!(
+            "settings window={win:#x} rect={:?} style={style:#x} CAPTION={} ex-style={ex:#x} \
+             APPWINDOW={} TOPMOST={} owner={owner:#x} foreground before={fg_before:#x} after={fg:#x}",
+            window_rect(win),
+            style & WS_CAPTION == WS_CAPTION,
+            ex & WS_EX_APPWINDOW != 0,
+            ex & WS_EX_TOPMOST != 0
+        ),
+    );
+
+    let (x, y, _, _) = window_rect(win);
+    let scale = scale_at(x, y);
+    let capture = compose_capture(win);
+    let caption_want = BG.to_array();
+    let caption = capture
+        .as_ref()
+        .map(|c| pixel_at(c, c.0 / 2, (10.0 * scale) as u32));
+    report.check(
+        caption.is_some_and(|p| close_to(p, caption_want, 6)),
+        format!("settings caption composed {caption:?} (want ~{caption_want:?})"),
+    );
+    // 底部按鈕列左側（側欄右邊、儲存被擋提示的位置，沒被擋時只有底色）
+    let content_want = theme::WINDOW_BG.to_array();
+    let content = capture.as_ref().map(|c| {
+        let px = ((theme::SIDEBAR_WIDTH + 16.0) * scale) as u32;
+        pixel_at(c, px, c.1 - (8.0 * scale) as u32)
+    });
+    report.check(
+        content.is_some_and(|p| close_to(p, content_want, 2) && p[3] == 255),
+        format!("settings content composed {content:?} (want {content_want:?}, opaque)"),
+    );
+}
+
+#[test]
+#[ignore = "opens a real (offscreen) window; run manually"]
+fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
+    let mut options = app::native_options();
+    options.viewport = options
+        .viewport
+        .with_position([PARK, PARK])
+        .with_inner_size([320.0, 200.0]);
+    options.event_loop_builder = Some(Box::new(|b| {
+        b.with_any_thread(true);
+    }));
+    let ctx_slot = Arc::new(OnceLock::<egui::Context>::new());
+    let (open, overlay) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicIsize::new(0)),
+    );
+    let (_poster, inbox) = app::channel();
+
+    let checker = {
+        let (ctx_slot, open, overlay) = (
+            Arc::clone(&ctx_slot),
+            Arc::clone(&open),
+            Arc::clone(&overlay),
+        );
+        std::thread::spawn(move || {
+            let mut report = Report {
+                label: "settings",
+                lines: Vec::new(),
+            };
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while ctx_slot.get().is_none() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            match ctx_slot.get() {
+                Some(ctx) => {
+                    check_settings_window(&mut report, ctx, &overlay, &open);
+                    ctx.send_viewport_cmd(ViewportCommand::Close);
+                    ctx.request_repaint();
+                }
+                None => report.check(false, "eframe never started".into()),
+            }
+            report
+        })
+    };
+
+    let (probe_open, probe_hwnd) = (Arc::clone(&open), Arc::clone(&overlay));
+    let result = app::run(options, move |ctx| {
+        let _ = ctx_slot.set(ctx.clone());
+        let mut host = SettingsHost::new(Box::new(NoopEnv));
+        host.set_window_ops(WindowOps {
+            force_foreground: |_| false,
+            cursor_work_area: || (BOX_AREA, scale_at(BOX_AREA.0, BOX_AREA.1)),
+            ..WindowOps::real()
+        });
+        let app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {})).with_settings(
+            host,
+            Arc::new(RwLock::new(Config::new())),
+            Box::new(|_| (String::new(), None)),
+        );
+        SettingsProbe {
+            app,
+            open: probe_open,
+            hwnd: probe_hwnd,
+        }
+    });
+    let mut report = checker.join().unwrap();
+    report.check(result.is_ok(), format!("eframe exit {result:?}"));
+    let failed: Vec<_> = report
+        .lines
+        .iter()
+        .filter(|(ok, _)| !ok)
+        .map(|(_, line)| line.clone())
         .collect();
     assert!(failed.is_empty(), "{failed:#?}");
 }

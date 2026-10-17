@@ -10,7 +10,9 @@ use eframe::NativeOptions;
 use eframe::egui::{self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId};
 use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 
-use crate::config::{Config, app_name};
+use serde_json::Value;
+
+use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
@@ -28,7 +30,11 @@ use crate::ui::overlay::selection::Selection;
 use crate::ui::overlay::tab_bar;
 use crate::ui::region::flow::RegionFlow;
 use crate::ui::region_host::RegionHost;
+use crate::ui::settings::window::SettingsAction;
+use crate::ui::settings::wizard::WizardAction;
+use crate::ui::settings_host::{SettingsHost, WizardHost};
 use crate::ui::{fonts_egui, win32};
+use crate::util::read;
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
 const DEFAULT_MAX_MESSAGES: usize = 200;
@@ -51,7 +57,25 @@ pub fn channel() -> (UiPoster, Inbox) {
     (poster, Inbox { rx, ctx })
 }
 
-/// overlay、泡泡、翻譯輸入框與框選的狀態；所有方法都在 UI 執行緒呼叫。
+/// 設定視窗按儲存：收到視窗管的那些鍵（不是完整設定），回傳實際生效的輸入框與框選熱鍵。
+pub type OnSave = Box<dyn FnMut(Config) -> (String, Option<String>)>;
+/// 精靈完成後接上其餘功能並開始執行；收到完整設定。
+pub type OnStart = Box<dyn FnOnce(&mut App, Config)>;
+
+/// 設定視窗、⚙ 開窗時取快照的共用設定與儲存回呼。
+struct SettingsWiring {
+    host: SettingsHost,
+    cfg: Arc<RwLock<Config>>,
+    on_save: OnSave,
+}
+
+/// 首次設定精靈與完成後的接線。
+struct FirstRun {
+    host: WizardHost,
+    start: OnStart,
+}
+
+/// overlay、泡泡、翻譯輸入框、框選與設定視窗的狀態；所有方法都在 UI 執行緒呼叫。
 pub struct App {
     rx: Receiver<UiEvent>,
     hwnd: isize,
@@ -70,6 +94,10 @@ pub struct App {
     on_close: Option<Box<dyn FnOnce()>>,
     input: Option<InputHost>,
     region: Option<RegionHost>,
+    /// 上次套用的介面語言；儲存設定時不同才 relabel。
+    ui_language: String,
+    settings: Option<SettingsWiring>,
+    first_run: Option<FirstRun>,
 }
 
 impl App {
@@ -95,6 +123,9 @@ impl App {
             on_close: None,
             input: None,
             region: None,
+            ui_language: current_language(),
+            settings: None,
+            first_run: None,
         }
     }
 
@@ -105,8 +136,18 @@ impl App {
         events: GameInputEvents,
         settings: Arc<RwLock<Config>>,
     ) -> Self {
-        self.input = Some(InputHost::new(input_box, events, settings));
+        self.set_input(input_box, events, settings);
         self
+    }
+
+    /// 同 [`Self::with_input`]，給建好之後才接線（精靈完成後）。
+    pub fn set_input(
+        &mut self,
+        input_box: InputBox,
+        events: GameInputEvents,
+        settings: Arc<RwLock<Config>>,
+    ) {
+        self.input = Some(InputHost::new(input_box, events, settings));
     }
 
     /// 換掉輸入框視窗的桌面操作（測試與 probe 用：不搶前景、擺在螢幕外）；沒接輸入框時不動。
@@ -118,8 +159,13 @@ impl App {
 
     /// 接上框選翻譯（熱鍵、⛶ 與辨識結果都交給它）；卡片背景不透明度跟著 overlay。
     pub fn with_region(mut self, flow: RegionFlow) -> Self {
-        self.region = Some(RegionHost::new(flow));
+        self.set_region(flow);
         self
+    }
+
+    /// 同 [`Self::with_region`]，給建好之後才接線。
+    pub fn set_region(&mut self, flow: RegionFlow) {
+        self.region = Some(RegionHost::new(flow));
     }
 
     /// 換掉框選視窗的桌面操作（測試與 probe 用：不搶前景、假的工作區）；沒接框選時不動。
@@ -140,17 +186,118 @@ impl App {
         saved: (Option<i32>, Option<i32>),
         on_move: impl FnMut(i32, i32) + 'static,
     ) -> Self {
+        self.set_bubble_position(saved, on_move);
+        self
+    }
+
+    /// 同 [`Self::with_bubble_position`]，給建好之後才接線。
+    pub fn set_bubble_position(
+        &mut self,
+        saved: (Option<i32>, Option<i32>),
+        on_move: impl FnMut(i32, i32) + 'static,
+    ) {
         self.bubble_position = saved;
         self.on_bubble_move = Box::new(on_move);
-        self
     }
 
     /// 根視窗收到關閉要求（✕、Alt+F4、工作列）時、在 eframe 銷毀視窗之前呼叫 `on_close` 一次。
     ///
     /// 關閉流程在這裡跑，視窗就留到 reader 卸完 hook：期間重開的第二份還找得到它並喚起。
     pub fn with_on_close(mut self, on_close: impl FnOnce() + 'static) -> Self {
-        self.on_close = Some(Box::new(on_close));
+        self.set_on_close(on_close);
         self
+    }
+
+    /// 同 [`Self::with_on_close`]，給建好之後才接線。
+    pub fn set_on_close(&mut self, on_close: impl FnOnce() + 'static) {
+        self.on_close = Some(Box::new(on_close));
+    }
+
+    /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定。
+    pub fn with_settings(
+        mut self,
+        host: SettingsHost,
+        settings: Arc<RwLock<Config>>,
+        on_save: OnSave,
+    ) -> Self {
+        self.set_settings(host, settings, on_save);
+        self
+    }
+
+    /// 同 [`Self::with_settings`]，給建好之後才接線。
+    pub fn set_settings(
+        &mut self,
+        host: SettingsHost,
+        settings: Arc<RwLock<Config>>,
+        on_save: OnSave,
+    ) {
+        self.settings = Some(SettingsWiring {
+            host,
+            cfg: settings,
+            on_save,
+        });
+    }
+
+    /// 首次設定模式：精靈（呼叫端先 `open`）開著時根視窗藏著；完成時關掉精靈、呼叫 `start`，再顯示根視窗。
+    pub fn with_first_run(mut self, wizard: WizardHost, start: OnStart) -> Self {
+        self.first_run = Some(FirstRun {
+            host: wizard,
+            start,
+        });
+        self
+    }
+
+    /// ⚙：以目前的共用設定開設定視窗；已開著就叫到前景。
+    pub fn open_settings(&mut self) {
+        match &mut self.settings {
+            Some(wiring) => {
+                let cfg = read(&wiring.cfg).clone();
+                wiring.host.open(&cfg);
+            }
+            None => log("[ui] settings button clicked but no settings window is wired"),
+        }
+    }
+
+    /// overlay 端套用儲存後的設定（`cfg` 可以只含設定視窗管的鍵），順序同 Python `apply_settings` 的後半；
+    /// `region_hotkey` 是實際註冊到的框選熱鍵，`None`（沒註冊）時顯示設定裡的值。
+    pub fn apply_settings(
+        &mut self,
+        ctx: &egui::Context,
+        cfg: &Config,
+        region_hotkey: Option<String>,
+    ) {
+        let values = Settings::from_config(cfg);
+        let region_hotkey = region_hotkey.unwrap_or_else(|| {
+            let saved = cfg.get("region_hotkey").and_then(Value::as_str);
+            saved.unwrap_or_default().to_owned()
+        });
+        self.set_region_hotkey(&region_hotkey);
+        if let Some(region) = &mut self.region {
+            region.set_alpha(values.overlay_alpha);
+        }
+        self.set_limits(values.max_messages, values.fade_seconds.into());
+        self.frame.set_alpha(values.overlay_alpha);
+        log(format!(
+            "[ui] overlay settings applied: alpha={} max_messages={} fade_seconds={} region_hotkey={region_hotkey}",
+            values.overlay_alpha, values.max_messages, values.fade_seconds
+        ));
+        // 預覽時通常已 relabel 過，這裡是沒經過預覽路徑的保底
+        if let Some(language) = cfg.get("ui_language").and_then(Value::as_str)
+            && language != self.ui_language
+        {
+            self.ui_language = language.to_owned();
+            self.relabel(ctx);
+        }
+    }
+
+    /// overlay 底板目前的不透明度（含預覽中的值）。
+    pub fn alpha(&self) -> f32 {
+        self.frame.alpha()
+    }
+
+    /// 目前的訊息上限與淡出秒數。
+    pub fn limits(&self) -> (usize, u64) {
+        self.model.limits()
     }
 
     /// 套用訊息上限與淡出秒數（0＝不淡出）。
@@ -265,21 +412,27 @@ impl App {
                     host.finish(session, result);
                 }
             }
-            // 設定視窗還沒托管在 App 裡，沒有人等這些結果
-            UiEvent::Settings(_) => {}
+            UiEvent::Settings(event) => match (&mut self.first_run, &mut self.settings) {
+                (Some(first_run), _) if first_run.host.is_open() => first_run.host.apply(event),
+                (_, Some(wiring)) => wiring.host.apply(event),
+                _ => {}
+            },
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、泡泡、輸入框、選取畫面、框、卡片；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、泡泡、輸入框、選取畫面、框、卡片、設定視窗、精靈；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
         let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
+        let settings = self.settings.as_ref().map_or(0, |s| s.host.hwnd());
+        let wizard = self.first_run.as_ref().map_or(0, |w| w.host.hwnd());
         [self.hwnd, bubble, input]
             .into_iter()
             .chain(region)
+            .chain([settings, wizard])
             .filter(|&h| h != 0)
             .collect()
     }
@@ -352,6 +505,86 @@ impl App {
         }
     }
 
+    /// 精靈開著時根視窗藏著。
+    fn in_first_run(&self) -> bool {
+        self.first_run.as_ref().is_some_and(|w| w.host.is_open())
+    }
+
+    /// 每幀畫出開著的設定視窗與精靈，並處理它們要 App 做的事。
+    fn show_settings(&mut self, ctx: &egui::Context) {
+        let known = self.viewport_hwnds();
+        let actions = match &mut self.settings {
+            Some(wiring) => wiring.host.show(ctx, &known),
+            None => Vec::new(),
+        };
+        for action in actions {
+            self.settings_action(ctx, action);
+        }
+        let known = self.viewport_hwnds();
+        let action = self
+            .first_run
+            .as_mut()
+            .and_then(|w| w.host.show(ctx, &known));
+        if let Some(action) = action {
+            self.wizard_action(ctx, action);
+        }
+    }
+
+    fn settings_action(&mut self, ctx: &egui::Context, action: SettingsAction) {
+        match action {
+            SettingsAction::PreviewAlpha(alpha) => self.frame.set_alpha(alpha),
+            SettingsAction::PreviewLanguage => {
+                self.relabel(ctx);
+                if let Some(wiring) = &mut self.settings {
+                    wiring.host.retitle();
+                }
+            }
+            SettingsAction::UpdateFound(release) => self.banners.set_update(release),
+            SettingsAction::Save(cfg) => {
+                let Some(wiring) = &mut self.settings else {
+                    return;
+                };
+                let (_, region_hotkey) = (wiring.on_save)(cfg.clone());
+                self.apply_settings(ctx, &cfg, region_hotkey);
+                self.close_settings();
+            }
+            SettingsAction::Cancel => self.close_settings(),
+        }
+    }
+
+    fn close_settings(&mut self) {
+        if let Some(wiring) = &mut self.settings {
+            wiring.host.close();
+        }
+    }
+
+    fn wizard_action(&mut self, ctx: &egui::Context, action: WizardAction) {
+        match action {
+            WizardAction::PreviewLanguage => {
+                self.relabel(ctx);
+                if let Some(first_run) = &mut self.first_run {
+                    first_run.host.retitle();
+                }
+            }
+            WizardAction::Finish(cfg) => {
+                let Some(FirstRun { mut host, start }) = self.first_run.take() else {
+                    return;
+                };
+                host.close();
+                start(self, cfg);
+                ctx.request_repaint();
+            }
+            WizardAction::Cancel => {
+                log("[app] wizard cancelled, exiting");
+                if let Some(first_run) = &mut self.first_run {
+                    first_run.host.close();
+                }
+                // 這時還沒接上 on_close：根視窗一關程序就結束
+                ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close);
+            }
+        }
+    }
+
     fn bubble_action(&mut self, ctx: &egui::Context, action: Action) {
         match action {
             Action::Expand => self.set_minimized(false),
@@ -392,8 +625,9 @@ impl eframe::App for App {
                 win32::remove_system_frame(self.hwnd);
             }
         }
-        if self.shown == self.minimized {
-            self.shown = !self.minimized;
+        let visible = !self.minimized && !self.in_first_run();
+        if self.shown != visible {
+            self.shown = visible;
             ctx.send_viewport_cmd(ViewportCommand::Visible(self.shown));
             // winit 處理 Visible 時會重寫 extended style 洗掉 NOACTIVATE，要保證下一幀補回
             ctx.request_repaint();
@@ -414,9 +648,7 @@ impl eframe::App for App {
                     host.start_from_button();
                 }
             }
-            Some(Clicked::Settings) => {
-                log("[ui] settings button clicked; settings window arrives in phase 4")
-            }
+            Some(Clicked::Settings) => self.open_settings(),
             Some(Clicked::Minimize) => self.set_minimized(true),
             // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
             Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
@@ -435,11 +667,22 @@ impl eframe::App for App {
             host.set_alpha(self.frame.alpha());
             host.show(&ctx, self.hwnd, &known);
         }
+        self.show_settings(&ctx);
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         Color32::TRANSPARENT.to_normalized_gamma_f32()
     }
+}
+
+/// 程式圖示（48px）；只解碼一次，每幀交給 viewport 的都是同一份，egui 不會當成變更。
+pub(crate) fn app_icon() -> Arc<egui::IconData> {
+    static ICON: OnceLock<Arc<egui::IconData>> = OnceLock::new();
+    let icon = ICON.get_or_init(|| {
+        let icon = eframe::icon_data::from_png_bytes(icon_png(48));
+        Arc::new(icon.expect("embedded icon is a valid PNG"))
+    });
+    Arc::clone(icon)
 }
 
 /// overlay 根視窗的 eframe 設定：DX12 經 DirectComposition 才有每像素透明；沒有硬體 adapter 時 wgpu 自動退到 WARP。
@@ -462,10 +705,7 @@ pub fn native_options() -> NativeOptions {
             .with_taskbar(true)
             .with_active(false)
             // 不給的話 eframe 會裝上 egui 標誌；泡泡 viewport 沿用根 viewport 的 icon
-            .with_icon(Arc::new(
-                eframe::icon_data::from_png_bytes(icon_png(48))
-                    .expect("embedded icon is a valid PNG"),
-            )),
+            .with_icon(app_icon()),
         wgpu_options,
         ..Default::default()
     }
