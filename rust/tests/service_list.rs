@@ -350,6 +350,55 @@ fn deleting_needs_confirmation_and_cancel_changes_nothing() {
     assert!(!left.contains(&id(&b)));
 }
 
+/// 依序按 Tab，記下每次拿到焦點的按鈕名稱。
+fn tab_through<S>(h: &mut Harness<S>, presses: usize) -> Vec<String> {
+    (0..presses)
+        .filter_map(|_| {
+            press(h, Key::Tab);
+            h.query_by(|n| n.is_focused())
+                .and_then(|n| n.accesskit_node().label())
+        })
+        .collect()
+}
+
+#[test]
+fn tab_order_follows_the_cards_left_to_right() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    let buttons: Vec<String> = tab_through(&mut h, 12)
+        .into_iter()
+        .filter(|l| *l == tr("button.edit") || *l == tr("button.delete"))
+        .collect();
+    assert_eq!(
+        buttons[..2],
+        [tr("button.edit"), tr("button.delete")],
+        "{buttons:?}"
+    );
+}
+
+#[test]
+fn the_first_tab_in_the_confirm_dialog_lands_on_cancel() {
+    // 刪除是破壞性操作，鍵盤第一站不可以是它
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    click_card(&mut h, &tr("button.delete"), 1);
+    assert_eq!(
+        tab_through(&mut h, 2),
+        [tr("button.cancel"), tr("button.delete")]
+    );
+}
+
+#[test]
+fn the_form_footer_tabs_cancel_before_ok() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    click_card(&mut h, &tr("button.edit"), 0);
+    let labels = tab_through(&mut h, 20);
+    let at = |label: String| labels.iter().position(|l| *l == label);
+    let (cancel, ok) = (at(tr("button.cancel")), at(tr("button.ok")));
+    assert!(cancel.is_some() && cancel < ok, "{labels:?}");
+}
+
 #[test]
 fn deleting_an_assigned_service_says_its_slots_fall_back() {
     // 指定它的用途會被悄悄退回預設，確認框要先講
@@ -778,6 +827,29 @@ fn picking_from_the_form_switches_its_provider_and_keeps_it_modal() {
     click_at(&mut h, behind.center());
     assert!(!has_dialog(&h, &tr("service.pick_provider")));
     assert!(has_dialog(&h, &tr("service.dialog_title")));
+}
+
+#[test]
+fn the_picker_cards_keep_a_margin_below_the_header() {
+    // 第一張卡片不可貼著標題列；標題列底＝關閉鈕底加 8 的下內距
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    h.get_by_label(&tr("button.add_service")).click();
+    run(&mut h);
+    let title = tr("service.pick_provider");
+    let dialog = h.get_by_role_and_label(Role::Dialog, &title);
+    let header_bottom = dialog
+        .get_by_role_and_label(Role::Button, &tr("tooltip.close"))
+        .rect()
+        .bottom()
+        + 8.0;
+    let first = dialog
+        .get_by_role_and_label(Role::Button, &tr(providers()[0].label_key))
+        .rect();
+    assert!(
+        first.top() >= header_bottom + 8.0,
+        "{first:?} vs {header_bottom}"
+    );
 }
 
 #[test]

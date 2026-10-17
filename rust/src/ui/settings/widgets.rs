@@ -58,6 +58,26 @@ pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     });
 }
 
+/// 把 `add` 加入的元件推到這一列的右緣；元件依加入順序由左往右排，Tab 順序與畫面一致。
+///
+/// 寬度取上一幀以 `id` 量到的值（`right_aligned_width`）排版，變了就重排一次（`request_discard`）。
+pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let width = right_aligned_width(ui, id);
+    ui.add_space((ui.available_width() - width).max(0.0));
+    let shown = ui.scope(add);
+    let used = shown.response.rect.width();
+    if (used - width).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(id, used));
+        ui.ctx().request_discard("right-aligned row resized");
+    }
+    shown.inner
+}
+
+/// `right_aligned` 上一幀量到的寬度；還沒量過是 0。
+pub(super) fn right_aligned_width(ui: &Ui, id: Id) -> f32 {
+    ui.data(|d| d.get_temp(id)).unwrap_or(0.0)
+}
+
 /// 卡片：圓角深底加外框，內容占滿可用寬度，內部列與列之間不留空。
 pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
     Frame::new()

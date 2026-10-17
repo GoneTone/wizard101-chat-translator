@@ -3,19 +3,19 @@
 use eframe::egui::accesskit;
 use eframe::egui::style::StyleModifier;
 use eframe::egui::{
-    Align, Align2, Atoms, Button, Color32, ComboBox, CornerRadius, FontId, Frame, Id, Image, Key,
-    Label, Layout, Margin, Modal, Modifiers, Response, RichText, Role, ScrollArea, Sense, Shape,
-    Stroke, Ui, UiKind, Vec2, vec2,
+    Align, Atoms, Button, Color32, ComboBox, FontId, Frame, Id, Image, Label, Layout, Margin,
+    Response, RichText, Role, Sense, Shape, Stroke, Ui, UiBuilder, Vec2, vec2,
 };
 use serde_json::Value;
 
+use super::dialog::{DialogSpec, dialog};
 use super::env::{SettingsEnv, SettingsEvent};
 use super::provider_picker::{CardLayout, paint_provider_icon, provider_cards, provider_texture};
 use super::service_form::ServiceForm;
-use super::theme::{self, icon};
+use super::theme;
 use super::widgets::{
-    callout, card, collapsible, danger_button, focus_ring, icon_button, name_by_row,
-    primary_button, secondary_button, setting_row,
+    callout, card, collapsible, danger_button, focus_ring, name_by_row, primary_button,
+    right_aligned, right_aligned_width, secondary_button, setting_row,
 };
 use crate::config::Config;
 use crate::config::py::py_bool;
@@ -369,37 +369,46 @@ impl ServicePane {
                     let name_h = name_h.max(pill_h + 2.0);
                     let column_h = name_h + 3.0 + hint_h;
                     let size = vec2(ui.available_width(), column_h.max(theme::CONTROL_HEIGHT));
-                    ui.allocate_ui_with_layout(size, Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        let delete = ui
-                            .add_enabled_ui(can_delete, |ui| {
-                                secondary_button(ui, &t("button.delete", &[]))
-                            })
-                            .inner
-                            .clicked();
-                        let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
-                        ui.add_space(8.0);
-                        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                            ui.spacing_mut().item_spacing.x = 14.0;
-                            if provider_texture(ui.ctx(), key).is_some() {
-                                let (rect, _) =
-                                    ui.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
-                                paint_provider_icon(ui, key, rect);
-                            }
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 3.0;
-                                ui.add_space((size.y - column_h) / 2.0);
-                                let name = str_field(service, "name");
-                                name_line(ui, name, &badges, name_font, name_h);
-                                ui.add(
-                                    Label::new(
-                                        RichText::new(describe(service))
-                                            .font(hint_font)
-                                            .color(theme::TEXT_SECONDARY),
-                                    )
-                                    .truncate(),
-                                );
-                            });
+                    let buttons = Id::unique(("service_card_buttons", id));
+                    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 14.0;
+                        if provider_texture(ui.ctx(), key).is_some() {
+                            let (rect, _) =
+                                ui.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
+                            paint_provider_icon(ui, key, rect);
+                        }
+                        let reserved = right_aligned_width(ui, buttons);
+                        let text_width = (ui.available_width() - reserved - 16.0).max(24.0);
+                        let (column, _) =
+                            ui.allocate_exact_size(vec2(text_width, size.y), Sense::hover());
+                        let layout = UiBuilder::new()
+                            .max_rect(column)
+                            .layout(Layout::top_down(Align::Min));
+                        // 不經父層配置空間：角色標記太多時截掉，不可把按鈕擠出卡片
+                        let mut text = ui.new_child(layout);
+                        text.shrink_clip_rect(column);
+                        text.spacing_mut().item_spacing.y = 3.0;
+                        text.add_space((size.y - column_h) / 2.0);
+                        let name = str_field(service, "name");
+                        name_line(&mut text, name, &badges, name_font, name_h);
+                        text.add(
+                            Label::new(
+                                RichText::new(describe(service))
+                                    .font(hint_font)
+                                    .color(theme::TEXT_SECONDARY),
+                            )
+                            .truncate(),
+                        );
+                        let (edit, delete) = right_aligned(ui, buttons, |ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
+                            let delete = ui
+                                .add_enabled_ui(can_delete, |ui| {
+                                    secondary_button(ui, &t("button.delete", &[]))
+                                })
+                                .inner
+                                .clicked();
+                            (edit, delete)
                         });
                         if edit {
                             Some(CardAction::Edit(id.to_owned()))
@@ -511,8 +520,8 @@ impl ServicePane {
                     });
             },
             |ui| {
-                let delete = danger_button(ui, &t("button.delete", &[])).clicked();
                 let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
+                let delete = danger_button(ui, &t("button.delete", &[])).clicked();
                 (delete, cancel)
             },
         );
@@ -702,8 +711,8 @@ fn form_dialog(
                 .inner
         },
         |ui| {
-            let ok = primary_button(ui, &t("button.ok", &[])).clicked();
             let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
+            let ok = primary_button(ui, &t("button.ok", &[])).clicked();
             (ok, cancel)
         },
     );
@@ -736,138 +745,4 @@ fn save(form: &ServiceForm, errors: &mut Vec<String>) -> Choice<Value> {
         py_bool(!str_field(&service, "api_key").is_empty())
     ));
     Choice::Done(service)
-}
-
-/// `dialog` 這一幀的結果：內容與按鈕列各自的回傳值，以及是否按了 Esc 或關閉鈕。
-struct Shown<B, F> {
-    body: B,
-    footer: F,
-    cancel: bool,
-}
-
-const DIALOG_MARGIN: f32 = 24.0;
-const HEADER_HEIGHT: f32 = 58.0;
-const FOOTER_HEIGHT: f32 = 60.0;
-
-struct DialogSpec {
-    /// 對話框的 Id 來源。
-    salt: &'static str,
-    width: f32,
-    title: String,
-    /// 標題列右側有關閉鈕。
-    closable: bool,
-    /// 上緣固定在視窗頂端下方；否則置中。
-    pinned_top: bool,
-}
-
-/// modal 對話框：標題列、可捲動的內容、底部按鈕列（由右往左排）；點遮罩不關閉，只有最上層的對話框收 Esc。
-fn dialog<B, F>(
-    parent: &Ui,
-    spec: DialogSpec,
-    body: impl FnOnce(&mut Ui) -> B,
-    footer: impl FnOnce(&mut Ui) -> F,
-) -> Shown<B, F> {
-    let ctx = parent.ctx().clone();
-    // 對話框的 Ui 從全域樣式建立，要帶上設定介面自己的樣式
-    let style = parent.style().clone();
-    let frame = Frame::new()
-        .fill(theme::CARD_BG)
-        .stroke(Stroke::new(1.0, theme::CONTROL_BORDER))
-        .corner_radius(theme::DIALOG_RADIUS)
-        .shadow(style.visuals.window_shadow);
-    let max_body =
-        ctx.content_rect().height() - 2.0 * DIALOG_MARGIN - HEADER_HEIGHT - FOOTER_HEIGHT;
-    let id = Id::unique(("settings_dialog", spec.salt));
-    let mut area = Modal::default_area(id);
-    if spec.pinned_top {
-        area = area.anchor(Align2::CENTER_TOP, vec2(0.0, DIALOG_MARGIN));
-    }
-    let modal = Modal::new(id)
-        .area(area)
-        .backdrop_color(theme::SCRIM)
-        .frame(frame)
-        .show(&ctx, |ui| {
-            ui.set_style(style);
-            name_modal(ui, &spec.title);
-            ui.set_width(spec.width - 2.0);
-            ui.spacing_mut().item_spacing.y = 0.0;
-            let close = dialog_header(ui, &spec.title, spec.closable);
-            let body = ScrollArea::vertical()
-                .max_height(max_body.max(120.0))
-                .auto_shrink([false, true])
-                .show(ui, body)
-                .inner;
-            let foot = Frame::new()
-                .fill(theme::MODAL_FOOT)
-                .corner_radius(CornerRadius {
-                    nw: 0,
-                    ne: 0,
-                    sw: theme::DIALOG_RADIUS,
-                    se: theme::DIALOG_RADIUS,
-                })
-                .inner_margin(Margin::symmetric(20, 14))
-                .show(ui, |ui| {
-                    let size = vec2(ui.available_width(), theme::CONTROL_HEIGHT);
-                    ui.allocate_ui_with_layout(size, Layout::right_to_left(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        footer(ui)
-                    })
-                    .inner
-                });
-            let line = foot.response.rect;
-            ui.painter().hline(
-                line.x_range(),
-                line.top(),
-                Stroke::new(1.0, theme::CARD_BORDER),
-            );
-            (body, foot.inner, close)
-        });
-    let escape = modal.is_top_modal
-        && !modal.any_popup_open
-        && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
-    let (body, footer, close) = modal.inner;
-    Shown {
-        body,
-        footer,
-        cancel: close || escape,
-    }
-}
-
-/// 以標題當對話框的無障礙名稱。
-fn name_modal(ui: &Ui, title: &str) {
-    let modal = ui
-        .stack()
-        .iter()
-        .find(|frame| frame.kind() == Some(UiKind::Modal))
-        .map(|frame| frame.unique_id);
-    if let Some(id) = modal {
-        ui.ctx()
-            .accesskit_node_builder(id, |node| node.set_label(title));
-    }
-}
-
-/// 標題列；回傳是否按了關閉鈕。
-fn dialog_header(ui: &mut Ui, title: &str, closable: bool) -> bool {
-    let margin = Margin {
-        left: 24,
-        right: 20,
-        top: 18,
-        bottom: 8,
-    };
-    Frame::new()
-        .inner_margin(margin)
-        .show(ui, |ui| {
-            let size = vec2(ui.available_width(), theme::CONTROL_HEIGHT);
-            ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
-                ui.add(Label::new(RichText::new(title).font(theme::bold(17.0))).truncate());
-                closable
-                    && ui
-                        .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            icon_button(ui, icon::CLOSE, &t("tooltip.close", &[])).clicked()
-                        })
-                        .inner
-            })
-            .inner
-        })
-        .inner
 }
