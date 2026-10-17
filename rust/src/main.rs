@@ -7,17 +7,22 @@ use std::sync::{Arc, RwLock};
 
 use serde_json::json;
 use wizard101_chat_translator::app_main::{
-    build_app, claim_instance, log_startup_summary, open_messages_log, run_ui_then, save_field,
-    shutdown,
+    build_app, claim_instance, install_console_quit, log_startup_summary, open_messages_log,
+    outgoing_translate, run_ui_then, save_field, shutdown, type_delay,
 };
+use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
     Settings, app_dir, bootstrap_language, config_path, is_configured, load_config,
 };
 use wizard101_chat_translator::i18n::set_language;
+use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::{self, Sink, log};
+use wizard101_chat_translator::reader::process::foreground_window;
 use wizard101_chat_translator::runtime::{acquire_single_instance, focus_running_instance};
 use wizard101_chat_translator::ui::app::{self, App};
+use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
+use wizard101_chat_translator::ui::win32::cursor_pos;
 
 fn main() {
     if !cfg!(debug_assertions) {
@@ -55,17 +60,47 @@ fn main() {
         .build()
         .expect("build tokio runtime");
     let settings = Settings::from_config(&cfg);
-    let hotkey = cfg["hotkey"].as_str().unwrap_or_default().to_owned();
-    let region_hotkey = cfg["region_hotkey"].as_str().unwrap_or_default().to_owned();
     let shared_cfg = Arc::new(RwLock::new(cfg));
     let (poster, inbox) = app::channel();
-    // 關閉流程只跑一次：正常關閉在視窗還在時由 App 觸發，UI 意外結束（panic、錯誤）才由 run_ui_then 補跑
-    let running = Rc::new(RefCell::new(Some(build_app(
+    install_console_quit(poster.clone());
+    let built = build_app(
         Arc::clone(&shared_cfg),
         rt.handle(),
-        poster,
+        poster.clone(),
         messages,
-    ))));
+    );
+    let send = {
+        let (input_cfg, typing) = (Arc::clone(&shared_cfg), Arc::clone(&built.typing));
+        // 在背景打字，UI 不凍結；TYPING 鎖保證不與貼上交錯
+        move |text: String, hwnd: isize| {
+            let delay = type_delay(&input_cfg.read().unwrap_or_else(|e| e.into_inner()));
+            let typing = Arc::clone(&typing);
+            let _ = std::thread::Builder::new()
+                .name("type-outgoing".into())
+                .spawn(move || type_into_window(&typing, hwnd, &text, delay))
+                .inspect_err(|e| log(format!("[composer] cannot spawn type-outgoing: {e}")));
+        }
+    };
+    let input_box = InputBox::new(
+        outgoing_translate(
+            Arc::clone(&built.translation.outgoing),
+            Arc::clone(&built.contexts),
+            rt.handle().clone(),
+            poster,
+        ),
+        Box::new(send),
+        Arc::clone(&built.input.box_open),
+        foreground_window,
+        cursor_pos,
+    );
+    let input_events = GameInputEvents::new(Arc::clone(&built.input.tracker), foreground_window);
+    let (hotkey, region_hotkey) = {
+        let cfg = shared_cfg.read().unwrap_or_else(|e| e.into_inner());
+        let field = |key: &str| cfg[key].as_str().unwrap_or_default().to_owned();
+        (field("hotkey"), field("region_hotkey"))
+    };
+    // 關閉流程只跑一次：正常關閉在視窗還在時由 App 觸發，UI 意外結束（panic、錯誤）才由 run_ui_then 補跑
+    let running = Rc::new(RefCell::new(Some(built)));
     let closing = Rc::clone(&running);
     log(format!(
         "[app] running; hotkey={hotkey} opens the input box, region_hotkey={region_hotkey} starts region translation; quit via the overlay ✕"
@@ -74,6 +109,7 @@ fn main() {
     let ui = move || {
         let result = app::run_with_warp_fallback(move |ctx| {
             let geometry_cfg = Arc::clone(&shared_cfg);
+            let input_cfg = Arc::clone(&shared_cfg);
             let frame = Frame::new(
                 settings.overlay_alpha,
                 Some(settings.overlay.clone()),
@@ -83,6 +119,7 @@ fn main() {
                 },
             );
             let mut app = App::new(ctx, inbox, frame)
+                .with_input(input_box, input_events, input_cfg)
                 .with_bubble_position(settings.bubble_position, move |x, y| {
                     save_field(
                         &shared_cfg,

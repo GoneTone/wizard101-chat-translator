@@ -54,7 +54,8 @@ pub fn config_path() -> PathBuf {
     app_dir().join("config.json")
 }
 
-fn default_config() -> Config {
+/// 預設設定（缺漏欄位與無效熱鍵都退回這裡的值）。
+pub fn default_config() -> Config {
     let slots: Map<String, Value> = ServiceSlot::ALL
         .iter()
         .map(|s| (s.key().to_string(), Value::Null))

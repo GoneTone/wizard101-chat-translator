@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 mod common;
 
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
@@ -12,17 +14,32 @@ use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
-    SUPERVISOR_JOIN_BUDGET, build_translation, claim_instance, incoming_fingerprint, run_ui_then,
-    shutdown_steps,
+    InputWiring, SUPERVISOR_JOIN_BUDGET, build_translation, claim_instance, incoming_fingerprint,
+    install_input, on_paste_hotkey, outgoing_translate, run_ui_then, shutdown_steps,
 };
+use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
-use wizard101_chat_translator::config::{Config, ServiceSlot, app_name};
+use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, app_name};
+use wizard101_chat_translator::i18n::t;
+use wizard101_chat_translator::input::dispatch::ChatInputTracker;
+use wizard101_chat_translator::input::dispatcher::{
+    Dispatcher, KeyEvent, Pressed, SharedDispatcher,
+};
+use wizard101_chat_translator::input::inject::Injector;
+use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::translation::cache::TranslationCache;
+use wizard101_chat_translator::translation::clients::{ChatBackend, ChatRequest};
+use wizard101_chat_translator::translation::context::{ClientContexts, ContextMap};
+use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::examples::{
     ExampleSet, ExampleStore, examples_fingerprint,
 };
 use wizard101_chat_translator::translation::pool::ResultFn;
+use wizard101_chat_translator::translation::translator::Translator;
+use wizard101_chat_translator::translation::{BoxFuture, Turn};
+use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
+use wizard101_chat_translator::ui::input_box::OutgoingRequest;
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
 fn cfg() -> Config {
@@ -299,4 +316,322 @@ fn exe_embeds_the_app_icon_resource() {
         )
     };
     assert_eq!(count, 1);
+}
+
+/// 假鍵盤：記下打出的字（Enter 記成 `\n`）；`gate` 有值時每個字都等它放行。
+#[derive(Default)]
+struct Keys {
+    typed: Mutex<String>,
+    gate: Mutex<Option<Receiver<()>>>,
+}
+
+impl Injector for Keys {
+    fn press(&self, code: Code) {
+        if code == key("enter") {
+            self.typed.lock().unwrap().push('\n');
+        }
+    }
+    fn release(&self, _: Code) {}
+    fn unicode(&self, ch: char) {
+        if let Some(gate) = self.gate.lock().unwrap().as_ref() {
+            let _ = gate.recv();
+        }
+        self.typed.lock().unwrap().push(ch);
+    }
+    fn mask(&self) {}
+}
+
+static SLEPT: Mutex<Vec<Duration>> = Mutex::new(Vec::new());
+
+/// 鍵入的全域鎖整個執行檔共用，碰到它的測試排隊跑。
+static TYPING_TESTS: Mutex<()> = Mutex::new(());
+
+/// 不碰桌面的鍵入環境：前景固定 0x77、剪貼簿固定 "a\nb"。
+fn typing_env(keys: &Arc<Keys>) -> Arc<TypingEnv> {
+    Arc::new(TypingEnv {
+        inject: Arc::clone(keys) as Arc<dyn Injector>,
+        foreground: || 0x77,
+        is_window: |_| true,
+        force_foreground: |_| true,
+        sleep: |d| SLEPT.lock().unwrap().push(d),
+        now: Instant::now,
+        pressed: Arc::new(Pressed::new),
+        clipboard: || Ok(Some("a\nb".into())),
+    })
+}
+
+fn input_cfg(hotkey: &str, region: &str, paste: bool) -> Arc<RwLock<Config>> {
+    let mut c = cfg();
+    c.insert("hotkey".into(), json!(hotkey));
+    c.insert("region_hotkey".into(), json!(region));
+    c.insert("paste_hotkey".into(), json!(paste));
+    c.insert("type_delay".into(), json!(0.03));
+    Arc::new(RwLock::new(c))
+}
+
+fn dispatcher() -> SharedDispatcher {
+    Arc::new(Mutex::new(Dispatcher::new()))
+}
+
+fn wiring(box_open: bool) -> InputWiring {
+    InputWiring {
+        tracker: Arc::default(),
+        box_open: Arc::new(AtomicBool::new(box_open)),
+    }
+}
+
+#[test]
+fn install_input_writes_the_effective_hotkeys_back() {
+    capture_logs();
+    let (ui, _rx) = UiPoster::for_test();
+    let keys = Arc::new(Keys::default());
+    let settings = input_cfg("ctrl+nope", "ctrl+space", false);
+    let (_hotkey, region) = install_input(
+        &settings,
+        &ui,
+        &dispatcher(),
+        &wiring(false),
+        typing_env(&keys),
+    );
+    assert!(region.is_none());
+    let cfg = settings.read().unwrap();
+    assert_eq!(cfg["hotkey"], "ctrl+space");
+    assert_eq!(cfg["region_hotkey"], "ctrl+space");
+    drop(cfg);
+
+    let settings = input_cfg("ctrl+space", "ctrl+bogus", false);
+    let (_hotkey, region) = install_input(
+        &settings,
+        &ui,
+        &dispatcher(),
+        &wiring(false),
+        typing_env(&keys),
+    );
+    assert!(region.is_some());
+    assert_eq!(
+        settings.read().unwrap()["region_hotkey"],
+        "ctrl+shift+space"
+    );
+}
+
+fn key(name: &str) -> Code {
+    key_to_scan_codes(name).unwrap()[0]
+}
+
+/// 依序按下 `names` 再反序放開，回傳最後一顆按下時有沒有放行。
+fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
+    let mut d = d.lock().unwrap();
+    let mut passed = true;
+    for name in names {
+        passed = d.process(KeyEvent {
+            down: true,
+            code: key(name),
+        });
+    }
+    for name in names.iter().rev() {
+        d.process(KeyEvent {
+            down: false,
+            code: key(name),
+        });
+    }
+    passed
+}
+
+#[test]
+fn install_input_registers_paste_last() {
+    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    capture_logs();
+    let (ui, rx) = UiPoster::for_test();
+    let settings = input_cfg("ctrl+v", "shift+v", false);
+    let d = dispatcher();
+    let keys = Arc::new(Keys::default());
+    let _registered = install_input(&settings, &ui, &d, &wiring(true), typing_env(&keys));
+
+    // 鍵入進行中，貼上攔截器會吞掉每一顆 v；排在它前面的熱鍵才收得到
+    let (release, gate) = mpsc::channel();
+    let blocked = Arc::new(Keys::default());
+    *blocked.gate.lock().unwrap() = Some(gate);
+    let env = typing_env(&blocked);
+    let typing = std::thread::spawn(move || type_into_window(&env, 0, "x", Duration::ZERO));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !typing_in_progress() {
+        assert!(Instant::now() < deadline, "typing never started");
+        std::thread::yield_now();
+    }
+
+    assert!(!press(&d, &["ctrl", "v"]));
+    assert!(
+        matches!(rx.try_recv(), Ok(UiEvent::ShowInputBox { .. })),
+        "the input box hotkey runs before paste"
+    );
+    let ignored = || log_lines_with("[region] hotkey ignored").len();
+    let before = ignored();
+    assert!(!press(&d, &["shift", "v"]));
+    let region_ran =
+        matches!(rx.try_recv(), Ok(UiEvent::RegionHotkey { .. })) || ignored() > before;
+    assert!(region_ran, "the region hotkey runs before paste");
+    assert!(!press(&d, &["v"]), "paste swallows v while typing");
+
+    release.send(()).unwrap();
+    typing.join().unwrap();
+}
+
+/// 假 backend：記下每次請求的對話輪，回固定結果。
+struct Backend {
+    reply: Result<String, TranslateError>,
+    turns: Mutex<Vec<Vec<Turn>>>,
+}
+
+impl ChatBackend for Backend {
+    fn chat<'a>(
+        &'a self,
+        req: ChatRequest<'a>,
+        _cancel: Option<&'a CancellationToken>,
+    ) -> BoxFuture<'a, Result<String, TranslateError>> {
+        self.turns.lock().unwrap().push(req.turns.to_vec());
+        let reply = self.reply.clone();
+        Box::pin(async move { reply })
+    }
+
+    fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>, TranslateError>> {
+        Box::pin(async { Ok(vec![]) })
+    }
+
+    fn model(&self) -> &str {
+        "fake-model"
+    }
+}
+
+struct Outgoing {
+    rt: tokio::runtime::Runtime,
+    backend: Arc<Backend>,
+    translator: Arc<Translator>,
+    contexts: ContextMap,
+}
+
+fn outgoing(reply: Result<String, TranslateError>) -> Outgoing {
+    capture_logs();
+    let backend = Arc::new(Backend {
+        reply,
+        turns: Mutex::default(),
+    });
+    let fake = Arc::clone(&backend);
+    let spec = ServiceSpec {
+        provider: "custom".into(),
+        base_url: "http://x".into(),
+        model: "fake-model".into(),
+        ..ServiceSpec::default()
+    };
+    Outgoing {
+        rt: tokio::runtime::Runtime::new().unwrap(),
+        translator: Translator::with_client(
+            move |_| fake.clone() as Arc<dyn ChatBackend>,
+            spec,
+            "日本語".into(),
+        ),
+        backend,
+        contexts: ContextMap::default(),
+    }
+}
+
+impl Outgoing {
+    fn submit(&self, text: &str, target: isize, session: u64) -> Receiver<UiEvent> {
+        let (ui, rx) = UiPoster::for_test();
+        let translate = outgoing_translate(
+            Arc::clone(&self.translator),
+            Arc::clone(&self.contexts),
+            self.rt.handle().clone(),
+            ui,
+        );
+        translate(OutgoingRequest {
+            text: text.into(),
+            target,
+            session,
+            cancel: CancellationToken::new(),
+        });
+        rx
+    }
+}
+
+#[test]
+fn outgoing_translate_uses_the_target_clients_current_tab_context() {
+    let o = outgoing(Ok("hi".into()));
+    let client = Arc::new(ClientContexts::new());
+    client.set_current_tab(2);
+    client.for_tab(1).push("other-tab-line");
+    client.for_tab(2).push("current-tab-line");
+    o.contexts.lock().unwrap().insert(0x10, client);
+
+    let rx = o.submit("hello there", 0x10, 3);
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        UiEvent::OutgoingDone {
+            session: 3,
+            result: Ok("hi".into())
+        }
+    );
+    let rx = o.submit("hello again", 0x99, 4);
+    rx.recv_timeout(Duration::from_secs(5)).unwrap();
+
+    let turns = o.backend.turns.lock().unwrap();
+    let mentions = |call: &[Turn], s: &str| call.iter().any(|t| t.content.contains(s));
+    assert!(mentions(&turns[0], "current-tab-line"));
+    assert!(!mentions(&turns[0], "other-tab-line"));
+    assert!(!mentions(&turns[1], "current-tab-line"));
+    assert!(
+        turns[1].len() < turns[0].len(),
+        "no client means no context"
+    );
+}
+
+#[test]
+fn outgoing_translate_posts_the_localized_error_and_logs_the_service() {
+    let o = outgoing(Err(TranslateError::offline("conn refused")));
+    let rx = o.submit("err-case-text", 0, 7);
+    assert_eq!(
+        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        UiEvent::OutgoingDone {
+            session: 7,
+            result: Err(t("input.failed", &[("error", "conn refused")]))
+        }
+    );
+    let lines = log_lines_with("[input] outgoing translation failed (chars=13,");
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].ends_with(
+        "[input] outgoing translation failed \
+         (chars=13, provider=custom, model=fake-model): TranslatorOffline: conn refused"
+    ));
+}
+
+#[test]
+fn outgoing_translate_cancel_logs_and_posts_nothing() {
+    let o = outgoing(Err(TranslateError::Cancelled));
+    let rx = o.submit("cancelled-text-17", 0, 9);
+    let marker = "[input] outgoing translation cancelled (chars=17)";
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while log_lines_with(marker).is_empty() {
+        assert!(Instant::now() < deadline, "no cancel log");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+}
+
+#[test]
+fn paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open() {
+    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    capture_logs();
+    let settings = input_cfg("ctrl+space", "ctrl+shift+space", true);
+    let tracker = ChatInputTracker::default();
+    let keys = Arc::new(Keys::default());
+    let env = typing_env(&keys);
+    on_paste_hotkey(&settings, &tracker, Arc::clone(&env), || 0x77)
+        .join()
+        .unwrap();
+    tracker.opened(0x77);
+    on_paste_hotkey(&settings, &tracker, env, || 0x77)
+        .join()
+        .unwrap();
+    assert_eq!(*keys.typed.lock().unwrap(), "a\nba b");
+    let delay = Duration::from_secs_f64(0.03);
+    assert!(SLEPT.lock().unwrap().contains(&delay));
 }

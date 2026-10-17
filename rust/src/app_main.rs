@@ -1,19 +1,32 @@
-//! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）與關閉流程。
+//! 主程式接線：翻譯端（翻譯器、快取、兩條翻譯池、範例）、收訊端（supervisor）、熱鍵與貼上、關閉流程。
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, OnceLock, RwLock, RwLockReadGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
+use windows_sys::Win32::Foundation::{FALSE, TRUE};
+use windows_sys::Win32::System::Console::{CTRL_C_EVENT, SetConsoleCtrlHandler};
+use windows_sys::core::BOOL;
 
+use crate::composer::paste::{TypingEnv, paste_clipboard, paste_interceptor};
 use crate::config::services::resolve;
-use crate::config::{Config, ServiceSlot, Settings, app_name, config_summary, py, save_config};
+use crate::config::{
+    Config, ServiceSlot, Settings, app_name, config_summary, default_config, py, save_config,
+};
 use crate::i18n::{current_language, t};
-use crate::input::hook::KeyboardHook;
+use crate::input::dispatch::{
+    ChatInputTracker, Foreground, on_hotkey, on_region_hotkey, region_hotkey_to_register,
+    should_intercept_paste,
+};
+use crate::input::dispatcher::SharedDispatcher;
+use crate::input::hook::{self, KeyboardHook};
+use crate::input::hotkeys::{Registration, register_hotkey};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::memory::{ProcessMemory, WinProcess};
@@ -25,11 +38,13 @@ use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
 use crate::runtime::is_elevated;
 use crate::translation::cache::{TranslationCache, fingerprint_of, translate_and_cache};
 use crate::translation::context::{ClientContexts, ContextMap};
+use crate::translation::errors::TranslateError;
 use crate::translation::examples::{ExampleSet, ExampleStore};
 use crate::translation::gate::ConcurrencyGate;
 use crate::translation::pool::{ResultFn, TranslateFn, TranslationPool};
 use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::ui::input_box::OutgoingRequest;
 use crate::util::{Clock, join_until};
 
 /// 啟動摘要：回報問題時第一眼掌握環境。
@@ -183,6 +198,202 @@ pub fn build_translation(
     }
 }
 
+/// 輸入端各元件共用的狀態。
+#[derive(Default)]
+pub struct InputWiring {
+    /// 各遊戲視窗的聊天輸入框開關。
+    pub tracker: Arc<ChatInputTracker>,
+    /// 翻譯輸入框是否開著（熱鍵回呼讀）。
+    pub box_open: Arc<AtomicBool>,
+}
+
+fn read(settings: &RwLock<Config>) -> RwLockReadGuard<'_, Config> {
+    settings.read().unwrap_or_else(|e| e.into_inner())
+}
+
+fn write_hotkey(settings: &RwLock<Config>, key: &str, used: String) {
+    let mut cfg = settings.write().unwrap_or_else(|e| e.into_inner());
+    cfg.insert(key.to_owned(), Value::String(used));
+}
+
+/// 設定裡的逐字鍵入間隔。
+pub fn type_delay(cfg: &Config) -> Duration {
+    Duration::from_secs_f64(
+        cfg.get("type_delay")
+            .and_then(Value::as_f64)
+            .unwrap_or_default(),
+    )
+}
+
+/// 依序註冊輸入框熱鍵、框選熱鍵與 Ctrl+V 攔截器（順序同 Python），實際生效的熱鍵寫回 `settings`（不存檔）。
+///
+/// 回傳（輸入框熱鍵，框選熱鍵）；框選熱鍵與輸入框熱鍵相同時不註冊、回 `None`。
+pub fn install_input(
+    settings: &Arc<RwLock<Config>>,
+    ui: &UiPoster,
+    dispatcher: &SharedDispatcher,
+    wiring: &InputWiring,
+    typing: Arc<TypingEnv>,
+) -> (Registration, Option<Registration>) {
+    let defaults = default_config();
+    let fallback = |key: &str| defaults[key].as_str().unwrap_or_default().to_owned();
+    let mask: Arc<dyn Fn() + Send + Sync> = {
+        let inject = Arc::clone(&typing.inject);
+        Arc::new(move || inject.mask())
+    };
+
+    let hotkey = read(settings)["hotkey"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let on_box_hotkey = {
+        let (ui, open) = (ui.clone(), Arc::clone(&wiring.box_open));
+        Arc::new(move || on_hotkey(&Foreground::real(), &open, &ui))
+    };
+    let (box_hotkey, used) = register_hotkey(
+        dispatcher,
+        &hotkey,
+        on_box_hotkey,
+        &fallback("hotkey"),
+        Arc::clone(&mask),
+    );
+    write_hotkey(settings, "hotkey", used);
+
+    let region = region_hotkey_to_register(&read(settings));
+    let region = region.map(|region| {
+        let ui = ui.clone();
+        // 選取層是第 3 段的功能，在那之前永遠沒在選取
+        let selecting = AtomicBool::new(false);
+        let (registration, used) = register_hotkey(
+            dispatcher,
+            &region,
+            Arc::new(move || on_region_hotkey(&Foreground::real(), &selecting, &ui)),
+            &fallback("region_hotkey"),
+            Arc::clone(&mask),
+        );
+        write_hotkey(settings, "region_hotkey", used);
+        registration
+    });
+
+    let should_intercept = {
+        let settings = Arc::clone(settings);
+        move || should_intercept_paste(&read(&settings), &Foreground::real())
+    };
+    let on_paste = {
+        let (settings, tracker) = (Arc::clone(settings), Arc::clone(&wiring.tracker));
+        let foreground = typing.foreground;
+        move || {
+            on_paste_hotkey(&settings, &tracker, Arc::clone(&typing), foreground);
+        }
+    };
+    let paste = paste_interceptor(
+        Box::new(should_intercept),
+        Box::new(on_paste),
+        Box::new(move || mask()),
+    );
+    dispatcher
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .add_blocking(Box::new(paste));
+    (box_hotkey, region)
+}
+
+/// 攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
+///
+/// 那個客戶端的聊天輸入框開著時走單行模式（換行改空格），其他地方換行照打。
+pub fn on_paste_hotkey(
+    settings: &RwLock<Config>,
+    tracker: &ChatInputTracker,
+    typing: Arc<TypingEnv>,
+    foreground: fn() -> isize,
+) -> JoinHandle<()> {
+    let hwnd = foreground();
+    let delay = type_delay(&read(settings));
+    let single_line = tracker.is_open(hwnd);
+    std::thread::spawn(move || {
+        paste_clipboard(&typing, hwnd, delay, single_line);
+    })
+}
+
+/// 翻譯輸入框的 `translate`：在 tokio 上翻成發話語言，結果以 `UiEvent::OutgoingDone` 送回。
+///
+/// 上下文取譯文要打回的那個客戶端目前分頁的聊天；取消時只記 log、不送結果。
+pub fn outgoing_translate(
+    translator: Arc<Translator>,
+    contexts: ContextMap,
+    rt: Handle,
+    ui: UiPoster,
+) -> Box<dyn Fn(OutgoingRequest)> {
+    Box::new(move |req| {
+        let context = contexts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&req.target)
+            .map(|client| client.current().snapshot())
+            .unwrap_or_default();
+        let (tr, ui) = (Arc::clone(&translator), ui.clone());
+        rt.spawn(async move {
+            let chars = req.text.chars().count();
+            let result = match tr
+                .translate_outgoing(&req.text, &context, Some(&req.cancel))
+                .await
+            {
+                Ok(translated) => Ok(translated),
+                Err(TranslateError::Cancelled) => {
+                    log(format!(
+                        "[input] outgoing translation cancelled (chars={chars})"
+                    ));
+                    return;
+                }
+                Err(err) => {
+                    log(format!(
+                        "[input] outgoing translation failed (chars={chars}, {}): {}: {err}",
+                        tr.describe(),
+                        err.class_name()
+                    ));
+                    Err(t("input.failed", &[("error", &err.to_string())]))
+                }
+            };
+            ui.post(UiEvent::OutgoingDone {
+                session: req.session,
+                result,
+            });
+        });
+    })
+}
+
+static CONSOLE_QUIT: OnceLock<UiPoster> = OnceLock::new();
+
+/// 主控台的 Ctrl+C 改投遞 `UiEvent::Quit`，走與 ✕ 相同的關閉流程；其他主控台事件照預設處理。
+pub fn install_console_quit(ui: UiPoster) {
+    if CONSOLE_QUIT.set(ui).is_err() {
+        return;
+    }
+    // SAFETY: 回呼是 static 函式，程序存活期間都有效。
+    if unsafe { SetConsoleCtrlHandler(Some(console_ctrl), TRUE) } == 0 {
+        log(format!(
+            "[app] cannot install console Ctrl+C handler: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+}
+
+unsafe extern "system" fn console_ctrl(ctrl: u32) -> BOOL {
+    match CONSOLE_QUIT.get() {
+        Some(ui) if quit_on_ctrl_c(ctrl, ui) => TRUE,
+        _ => FALSE,
+    }
+}
+
+fn quit_on_ctrl_c(ctrl: u32, ui: &UiPoster) -> bool {
+    if ctrl != CTRL_C_EVENT {
+        return false;
+    }
+    log("[app] Ctrl+C received; closing via the normal shutdown");
+    ui.post(UiEvent::Quit);
+    true
+}
+
 /// `build_app` 接好線、關閉流程需要的執行期物件。
 pub struct Running {
     /// 程式關閉的訊號。
@@ -195,9 +406,13 @@ pub struct Running {
     pub keyboard: Option<KeyboardHook>,
     /// 各客戶端（hwnd）的聊天上下文。
     pub contexts: ContextMap,
+    /// 輸入端共用狀態。
+    pub input: InputWiring,
+    /// 譯文與貼上共用的鍵入環境。
+    pub typing: Arc<TypingEnv>,
 }
 
-/// 建構翻譯端並啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
+/// 建構翻譯端、註冊熱鍵並裝上鍵盤 hook、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
 pub fn build_app(
     settings: Arc<RwLock<Config>>,
     rt: &Handle,
@@ -221,6 +436,22 @@ pub fn build_app(
         Arc::new(ExampleStore::default()),
         crate::translation::cache::default_path(),
     );
+    let dispatcher = SharedDispatcher::default();
+    let input = InputWiring::default();
+    let typing = {
+        let d = Arc::clone(&dispatcher);
+        // 複製出來立刻放鎖：鍵入時注入的按鍵會回到 hook，hook 要拿同一把鎖
+        Arc::new(TypingEnv::real(Arc::new(move || {
+            d.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .pressed()
+                .clone()
+        })))
+    };
+    install_input(&settings, &ui, &dispatcher, &input, Arc::clone(&typing));
+    let keyboard = hook::install(dispatcher)
+        .inspect_err(|err| log(format!("[hotkey] cannot install keyboard hook: {err}")))
+        .ok();
     let stop = CancellationToken::new();
     let board = Arc::new(StatusBoard::new(
         ui.clone(),
@@ -271,8 +502,10 @@ pub fn build_app(
         stop,
         translation,
         supervisor,
-        keyboard: None,
+        keyboard,
         contexts,
+        input,
+        typing,
     }
 }
 
@@ -351,5 +584,21 @@ pub fn open_messages_log(path: &Path) -> SharedWriter {
             log(format!("[log] cannot open messages.log: {e}"));
             Arc::new(Mutex::new(std::io::sink())) as Arc<Mutex<dyn Write + Send>>
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use windows_sys::Win32::System::Console::CTRL_BREAK_EVENT;
+
+    use super::*;
+
+    #[test]
+    fn only_ctrl_c_posts_quit() {
+        let (ui, rx) = UiPoster::for_test();
+        assert!(!quit_on_ctrl_c(CTRL_BREAK_EVENT, &ui));
+        assert!(rx.try_recv().is_err());
+        assert!(quit_on_ctrl_c(CTRL_C_EVENT, &ui));
+        assert_eq!(rx.try_recv(), Ok(UiEvent::Quit));
     }
 }
