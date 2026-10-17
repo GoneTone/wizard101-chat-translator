@@ -8,6 +8,14 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, ColorImage, ViewportCommand};
 use eframe::egui_wgpu::wgpu;
+use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
+use windows_capture::frame::Frame as WgcFrame;
+use windows_capture::graphics_capture_api::InternalCaptureControl;
+use windows_capture::settings::{
+    ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
+    MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
+};
+use windows_capture::window::Window;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId, HTCLIENT,
@@ -23,6 +31,8 @@ use wizard101_chat_translator::ui::win32::{ex_style, hwnd_of};
 
 const PARK: f32 = 10000.0;
 const ALPHA: f32 = 0.8;
+/// 取背景像素時離左下角的距離：避開 Windows 11 的圓角。
+const BG_INSET: usize = 10;
 
 /// 收集 egui-wgpu 透過 `log` crate 發出的警告（透明 swapchain 不支援時會在這裡出聲）。
 struct Warnings(Mutex<Vec<String>>);
@@ -168,6 +178,68 @@ fn screenshot(ctx: &egui::Context) -> Option<Arc<ColorImage>> {
     slot.lock().unwrap().take()
 }
 
+/// 一張 WGC 影格：寬、高、RGBA 像素。
+type Capture = (u32, u32, Vec<u8>);
+
+/// 收第一張影格就停的 WGC 擷取。
+struct Grab(Arc<Mutex<Option<Capture>>>);
+
+impl GraphicsCaptureApiHandler for Grab {
+    type Flags = Arc<Mutex<Option<Capture>>>;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
+        Ok(Self(ctx.flags))
+    }
+
+    fn on_frame_arrived(
+        &mut self,
+        frame: &mut WgcFrame,
+        control: InternalCaptureControl,
+    ) -> Result<(), Self::Error> {
+        let (w, h) = (frame.width(), frame.height());
+        let buffer = frame.buffer()?;
+        let pixels = buffer.as_nopadding_buffer(&mut Vec::new()).to_vec();
+        *self.0.lock().unwrap() = Some((w, h, pixels));
+        control.stop();
+        Ok(())
+    }
+}
+
+/// 用 Windows Graphics Capture 拍視窗經 DWM 合成後的樣子（螢幕外的視窗也拍得到）。
+fn compose_capture(hwnd: isize) -> Option<Capture> {
+    let slot = Arc::new(Mutex::new(None));
+    let settings = Settings::new(
+        Window::from_raw_hwnd(hwnd as *mut _),
+        CursorCaptureSettings::WithoutCursor,
+        DrawBorderSettings::WithoutBorder,
+        SecondaryWindowSettings::Default,
+        MinimumUpdateIntervalSettings::Default,
+        DirtyRegionSettings::Default,
+        ColorFormat::Rgba8,
+        Arc::clone(&slot),
+    );
+    let control = Grab::start_free_threaded(settings).ok()?;
+    poll(Duration::from_secs(3), None, || {
+        slot.lock().unwrap().is_some()
+    });
+    let _ = control.stop();
+    slot.lock().unwrap().take()
+}
+
+fn pixel_at((w, _, pixels): &Capture, x: u32, y: u32) -> [u8; 4] {
+    let i = ((y * w + x) * 4) as usize;
+    [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
+}
+
+/// 合成後的左下角背景像素是否與 egui 自己畫出的一致（重導向表面透白時 RGB 會偏亮）。
+fn composed_matches(hwnd: isize, drawn: [u8; 4]) -> (bool, Option<[u8; 4]>) {
+    let inset = BG_INSET as u32;
+    let composed = compose_capture(hwnd).map(|c| pixel_at(&c, inset, c.1 - inset));
+    let ok = composed.is_some_and(|c| c.iter().zip(drawn).all(|(a, b)| a.abs_diff(b) <= 2));
+    (ok, composed)
+}
+
 /// 檢查執行緒：依序驗證各項，結束時關掉視窗。
 fn run_checks(
     report: &mut Report,
@@ -205,10 +277,12 @@ fn run_checks(
         .filter(|w| w.contains("CompositeAlphaMode"))
         .cloned()
         .collect();
+    let mut drawn = None;
     match screenshot(ctx) {
         Some(img) => {
             let [w, height] = img.size;
             // 左下角：右下有抓取紋、上方是不透明的標題列
+            drawn = Some(img.pixels[(height - BG_INSET) * w + BG_INSET].to_array());
             let corner = img.pixels[(height - 2) * w + 2].a();
             let max_a = img.pixels.iter().map(|p| p.a()).max().unwrap_or(0);
             let want = (ALPHA * 255.0).round() as i32;
@@ -222,6 +296,17 @@ fn run_checks(
         }
         None => report.check(false, "check1 per-pixel alpha: no screenshot".into()),
     }
+
+    // 1b. DWM 合成結果與 egui 畫的相同：底下沒有透白的重導向表面
+    let drawn = drawn.unwrap_or_default();
+    let (ok, composed) = composed_matches(h, drawn);
+    report.check(
+        ok,
+        format!(
+            "check1b composed background {composed:?} == drawn {drawn:?} (ex-style={:#x})",
+            ex_style(h)
+        ),
+    );
 
     // 2. 不奪焦點、有工作列按鈕、置頂
     let ex = ex_style(h);
@@ -283,6 +368,13 @@ fn run_checks(
         ),
     );
 
+    // 泡泡圖示外的角落要全透明（RGB 也是 0），不能透出白色；再往外是系統畫的圓角邊框
+    let corner = compose_capture(bubble).map(|c| pixel_at(&c, 6, 6));
+    report.check(
+        corner.is_some_and(|p| p.iter().all(|&v| v <= 2)),
+        format!("check4b bubble composed corner {corner:?} (want ~[0, 0, 0, 0])"),
+    );
+
     // 一次重繪代表展開的那一下點擊；之後不再要求重繪，量「已顯示但還沒有 NOACTIVATE」的空窗
     shared.lock().unwrap().minimize = false;
     ctx.request_repaint();
@@ -313,6 +405,14 @@ fn run_checks(
             "expand: shown={shown}, longest stretch without NOACTIVATE {gap:?} (None = never restored) ex-style={:#x} foreground={fg:#x}",
             ex_style(hwnd())
         ),
+    );
+
+    // 系統在每次顯示時重填重導向表面：展開後再比一次
+    std::thread::sleep(Duration::from_millis(200));
+    let (ok, composed) = composed_matches(hwnd(), drawn);
+    report.check(
+        ok,
+        format!("expand: composed background {composed:?} == drawn {drawn:?}"),
     );
 }
 

@@ -418,6 +418,7 @@ pub fn run<A: eframe::App + 'static>(
     native: NativeOptions,
     build: impl FnOnce(&egui::Context) -> A + 'static,
 ) -> Result<(), eframe::Error> {
+    win32::disable_redirection_bitmap();
     eframe::run_native(
         &app_name(),
         native,
