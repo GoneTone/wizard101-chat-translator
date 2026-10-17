@@ -287,6 +287,7 @@ pub fn run<A: eframe::App + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::overlay::banners::Release;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
@@ -408,6 +409,50 @@ mod tests {
             "{:?}",
             list.viewport()
         );
+    }
+
+    #[test]
+    fn tall_update_banner_never_covers_the_title_buttons() {
+        let (_poster, inbox) = channel();
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(200.0, 90.0))
+            .build_eframe(|cc| {
+                fonts_egui::install(&cc.egui_ctx, "en-US");
+                App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+            });
+        harness.state_mut().banners_mut().set_update(Release {
+            version: format!("0.2.0-{}", "rc.".repeat(20)),
+            url: "https://example.invalid/rel".into(),
+        });
+        harness.step();
+        harness.get_by_label("─").click();
+        harness.step();
+        assert!(harness.state().minimized);
+    }
+
+    #[test]
+    fn region_tooltip_shows_the_set_hotkey_after_half_a_second() {
+        let (_poster, inbox) = channel();
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            // 換掉 egui 的預設值：提示要等 0.5 秒是 App 自己設的
+            cc.egui_ctx
+                .all_styles_mut(|style| style.interaction.tooltip_delay = 10.0);
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.state_mut().set_region_hotkey("ctrl+alt+r");
+        harness.step();
+        let text = crate::i18n::t("tooltip.region", &[("hotkey", "ctrl+alt+r")]);
+        harness.get_by_label("⛶").hover();
+        harness.step();
+        assert!(
+            harness.query_by_label(&text).is_none(),
+            "shown before the delay"
+        );
+        for _ in 0..40 {
+            harness.step();
+        }
+        harness.get_by_label(&text);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use crate::i18n::t;
 use crate::logs::log;
 use crate::reader::status::Banner;
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::overlay::frame::GRIP_SIZE;
+use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE};
 use crate::ui::richtext;
 
@@ -86,11 +86,13 @@ impl Banners {
     /// 在 `rect` 底部由下往上畫出更新與錯誤橫幅，回傳留給清單的上半部。
     ///
     /// 橫幅先分到高度：視窗再小也看得到（「遊戲未就緒」正是最該看到的訊息），超出的部分被裁掉。
+    /// `ui` 是整個視窗：縮放帶依它的 `max_rect` 判斷。
     pub fn show(&mut self, ui: &mut Ui, rect: Rect) -> Rect {
         let clip = rect.intersect(ui.clip_rect());
+        let on_band = over_resize_band(ui);
         let mut bottom = rect.max.y;
-        if let (Some(text), Some(release)) = (self.update_text(), self.update.clone()) {
-            bottom = self.update_row(ui, rect, bottom, clip, &text, &release);
+        if let Some(release) = self.update.clone() {
+            bottom = self.update_row(ui, rect, clip, on_band, &release);
         }
         if let Some(text) = self.error_text() {
             // 換行後的高度要排完才知道：先用上一輪量到的高度定位，高度變了就重跑這一輪
@@ -100,6 +102,10 @@ impl Banners {
             child.set_clip_rect(clip);
             child.style_mut().override_font_id = Some(FontId::proportional(tk_pt(BANNER_PT)));
             child.visuals_mut().hyperlink_color = FG_UPDATE;
+            if on_band {
+                child.visuals_mut().disabled_alpha = 1.0;
+                child.disable();
+            }
             richtext::show(&mut child, &text, FG_ERROR);
             let height = child.min_rect().height();
             if height != self.error_height {
@@ -112,16 +118,16 @@ impl Banners {
         Rect::from_min_max(rect.min, pos2(rect.max.x, bottom.max(rect.min.y)))
     }
 
-    /// 畫在 `bottom` 之上，回傳這列的上緣。
+    /// 貼著 `rect` 底部畫，回傳這列的上緣。
     fn update_row(
         &mut self,
         ui: &mut Ui,
         rect: Rect,
-        bottom: f32,
         clip: Rect,
-        text: &str,
+        on_band: bool,
         release: &Release,
     ) -> f32 {
+        let text = &self.update_text().unwrap_or_default();
         let painter = ui.painter_at(clip);
         let close =
             painter.layout_no_wrap("✕".into(), FontId::proportional(tk_pt(CLOSE_PT)), FG_UPDATE);
@@ -136,11 +142,12 @@ impl Banners {
         );
         let height = galley.size().y.max(close.size().y);
         let row_rect = Rect::from_min_size(
-            pos2(rect.min.x, bottom - PAD_Y - height),
+            pos2(rect.min.x, rect.max.y - PAD_Y - height),
             vec2(width, height),
         );
+        // 只在看得到的部分接滑鼠：視窗太矮時被裁掉的上半截不可蓋住分頁列與標題列的按鈕
         let row = ui.interact(
-            row_rect,
+            row_rect.intersect(clip),
             ui.scope_id().with("update_banner"),
             Sense::click(),
         );
@@ -153,13 +160,20 @@ impl Banners {
             close.size(),
         );
         // 晚於整列登記：重疊處由 ✕ 接到點擊
-        let dismiss = ui.interact(close_rect, row.id.with("close"), Sense::click());
+        let dismiss = ui.interact(
+            close_rect.intersect(clip),
+            row.id.with("close"),
+            Sense::click(),
+        );
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
         painter.rect_filled(row_rect, 0.0, BG_UPDATE);
         let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
         painter.galley(pos2(row_rect.min.x, text_top), galley, FG_UPDATE);
         painter.galley(close_rect.min, close, FG_UPDATE);
 
+        if on_band {
+            return row_rect.min.y - PAD_Y;
+        }
         if dismiss.on_hover_cursor(CursorIcon::PointingHand).clicked() {
             log(format!(
                 "[update] banner dismissed version={}",
@@ -178,6 +192,17 @@ impl Banners {
     }
 }
 
+/// 游標或按壓起點壓在外框的縮放帶上：橫幅讓給縮放，不換手指游標、不開連結。
+fn over_resize_band(ui: &Ui) -> bool {
+    let window = ui.max_rect();
+    ui.input(|i| {
+        [i.pointer.latest_pos(), i.pointer.press_origin()]
+            .into_iter()
+            .flatten()
+            .any(|p| edge_under(window, p).is_some())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use eframe::egui;
@@ -189,27 +214,56 @@ mod tests {
 
     struct State {
         banners: Banners,
+        /// 內容區頂端距視窗頂端的距離（模擬標題列與分頁列）。
+        top: f32,
         area: Rect,
         rest: Rect,
     }
 
     fn harness(banners: Banners) -> Harness<'static, State> {
+        sized(banners, vec2(460.0, 300.0), 0.0)
+    }
+
+    fn sized(banners: Banners, size: egui::Vec2, top: f32) -> Harness<'static, State> {
         let mut harness = Harness::builder()
-            .with_size(vec2(460.0, 300.0))
+            .with_size(size)
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
             .build_ui_state(
                 |ui, s: &mut State| {
                     s.area = ui.max_rect();
-                    s.rest = s.banners.show(ui, s.area);
+                    let mut rect = s.area;
+                    rect.min.y += s.top;
+                    s.rest = s.banners.show(ui, rect);
                 },
                 State {
                     banners,
+                    top,
                     area: Rect::NOTHING,
                     rest: Rect::NOTHING,
                 },
             );
         harness.step();
         harness
+    }
+
+    fn click_at(harness: &mut Harness<State>, pos: egui::Pos2) {
+        harness.hover_at(pos);
+        harness.step();
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        harness.step();
+    }
+
+    fn cursor(harness: &mut Harness<State>, pos: egui::Pos2) -> egui::CursorIcon {
+        harness.hover_at(pos);
+        harness.step();
+        harness.output().platform_output.cursor_icon
     }
 
     fn release(version: &str) -> Release {
@@ -290,6 +344,64 @@ mod tests {
         let row = harness.get_by_label(&label).rect();
         assert_eq!(row.max.x, harness.state().area.max.x - GRIP_SIZE);
         assert!(harness.get_by_label("✕").rect().max.x <= row.max.x);
+    }
+
+    #[test]
+    fn update_row_yields_to_the_resize_bands() {
+        let mut banners = Banners::default();
+        banners.set_update(release("0.2.0"));
+        let mut harness = harness(banners);
+        let label = t("update.available", &[("version", "0.2.0")]);
+        let row = harness.get_by_label(&label).rect();
+        let band = egui::pos2(row.min.x + 2.0, row.center().y);
+        assert_ne!(cursor(&mut harness, band), CursorIcon::PointingHand);
+        click_at(&mut harness, band);
+        assert!(
+            opened_urls(&harness).is_empty(),
+            "a press on the band resizes"
+        );
+        assert_eq!(cursor(&mut harness, row.center()), CursorIcon::PointingHand);
+    }
+
+    #[test]
+    fn error_banner_link_yields_to_the_left_resize_band() {
+        let mut banners = Banners::default();
+        let url = format!("https://a.example/{}", "x".repeat(30));
+        banners.set_error("notice.offline_detail", vec![("message", url.clone())]);
+        let mut harness = sized(banners, vec2(240.0, 200.0), 0.0);
+        let link = harness.get_by_label(&url).rect();
+        let area = harness.state().area;
+        assert!(
+            link.min.x < area.min.x + 6.0,
+            "link {link:?} must reach the left band"
+        );
+        let band = egui::pos2(area.min.x + 2.0, link.max.y - 4.0);
+        assert_ne!(cursor(&mut harness, band), CursorIcon::PointingHand);
+        click_at(&mut harness, band);
+        assert!(
+            opened_urls(&harness).is_empty(),
+            "a press on the band resizes"
+        );
+        click_at(
+            &mut harness,
+            egui::pos2(area.min.x + 30.0, link.max.y - 4.0),
+        );
+        assert_eq!(opened_urls(&harness), [url]);
+    }
+
+    #[test]
+    fn update_row_hit_area_stays_inside_the_visible_strip() {
+        let mut banners = Banners::default();
+        banners.set_update(release(&format!("0.2.0-{}", "rc.".repeat(20))));
+        let mut harness = sized(banners, vec2(200.0, 90.0), 60.0);
+        let label = harness.state().banners.update_text().unwrap();
+        let (area, row) = (harness.state().area, harness.get_by_label(&label).rect());
+        assert!(row.min.y >= area.min.y + 60.0, "{row:?}");
+        click_at(&mut harness, egui::pos2(area.center().x, area.min.y + 30.0));
+        assert!(
+            opened_urls(&harness).is_empty(),
+            "the clipped part must not take clicks"
+        );
     }
 
     #[test]

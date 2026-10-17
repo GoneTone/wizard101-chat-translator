@@ -623,5 +623,12 @@
    "text": "https://a.example/kK"
   },
   "output": "[https://a.example/kK](https://a.example/kK)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/xıy"
+  },
+  "output": "[https://a.example/xıy](https://a.example/xıy)"
  }
 ]

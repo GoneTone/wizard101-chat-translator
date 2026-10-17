@@ -1427,6 +1427,9 @@ def export_richtext() -> list[dict]:
         "https://a.example/中文", "[x](https://a.example/m) and https://b.example/n",
         "httpss://a.example", "mailto:a@b.c", "https://a.example/~user/@me", "Https://a.example/Mixed",
         "😀https://a.example/e😀", "see:https://a.example/colon", "https://a.example/k\u212a",
+        # 已知分歧：re.I 讓 [A-Za-z] 也收 ı／İ，Rust regex 只收 ASCII；
+        # Rust 測試釘住這筆
+        "https://a.example/x\u0131y",
     ]
     return ([{"input": {"fn": "parse_link_markup", "text": t},
               "output": [list(s) for s in parse_link_markup(t)]} for t in markups]
