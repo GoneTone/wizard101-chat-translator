@@ -2,7 +2,7 @@
 name = "wizard101-chat-translator"
 version = "0.6.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 
 [[bin]]
 name = "Wizard101ChatTranslator"
