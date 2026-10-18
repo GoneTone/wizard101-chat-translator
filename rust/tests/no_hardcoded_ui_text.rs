@@ -15,22 +15,29 @@ const ALLOWED: &[&str] = &[
 ];
 
 /// 內容本來就是中文的模組：提示詞、範例示範、後處理用的全形標點正規式。
-const EXEMPT_FILES: &[&str] = &["prompts.rs", "examples.rs", "postprocess.rs"];
+const EXEMPT_FILES: &[&str] = &[
+    "translation/prompts.rs",
+    "translation/examples.rs",
+    "translation/postprocess.rs",
+];
 
 fn is_cjk(c: char) -> bool {
     matches!(c,
         '\u{3000}'..='\u{9FFF}' | '\u{AC00}'..='\u{D7AF}' | '\u{FF00}'..='\u{FFEF}')
 }
 
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
+fn sources(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).unwrap() {
         let path = entry.unwrap().path();
+        let relative = path
+            .strip_prefix(root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         if path.is_dir() {
-            sources(&path, out);
+            sources(root, &path, out);
         } else if path.extension().is_some_and(|e| e == "rs")
-            && path
-                .file_name()
-                .is_some_and(|n| !EXEMPT_FILES.contains(&n.to_string_lossy().as_ref()))
+            && !EXEMPT_FILES.contains(&relative.as_str())
         {
             out.push(path);
         }
@@ -128,10 +135,8 @@ fn string_literals(code: &str) -> Vec<(usize, String)> {
 #[test]
 fn no_hardcoded_cjk_string_literals() {
     let mut files = Vec::new();
-    sources(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
-        &mut files,
-    );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    sources(&root, &root, &mut files);
     let mut offenders = Vec::new();
     for path in files {
         let text = fs::read_to_string(&path).unwrap();

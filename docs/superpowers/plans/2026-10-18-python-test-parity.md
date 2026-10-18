@@ -147,7 +147,7 @@
 - `test_language_names_are_unique` → `tests/i18n_golden.rs::language_names_are_unique`
 - `test_a_new_language_file_needs_no_code_change` → 不移植：Rust 的語言檔以 `include_str!` 編進 exe（規格「單一 exe 與資源」節），新增語言要在 `CATALOG_SOURCES` 加一行，也沒有執行期替換語言檔目錄的機制；「選單只看語言檔內容」的部分由 `offered_languages` 的三則測試覆蓋
 - `test_same_language_different_scripts_are_told_apart` → `tests/i18n_golden.rs::best_match_matches_python`
-- `test_regional_variants_are_told_apart` → 不移植：Python 以 langcodes 的 CLDR 距離區分同字集的地區變體；規格「I. 介面語言」節決定 Rust 版不移植 CLDR 距離資料、改以 golden 對照表確保選中同一語言（`best_match` 的文件註解同）。目前只有 en-US／zh-CN／zh-TW 達完成度門檻，不存在 pt-BR／pt-PT 這類同語言多地區的語言檔
+- `test_regional_variants_are_told_apart` → 不移植：已知缺口，不是規格豁免：Rust 的 `best_match` 對同語言的多個語言檔取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）；目前每個語言只有一份語言檔（en-US、zh-CN、zh-TW），所以不影響結果，後續處理見 `2026-10-17-rust-rewrite-followups.md` 的「第 5 段」
 - `test_a_language_without_an_endonym_is_not_offered` → `src/i18n/mod.rs::a_language_without_an_endonym_is_not_offered`
 - `test_a_barely_translated_language_is_not_offered` → `src/i18n/mod.rs::a_barely_translated_language_is_not_offered`
 - `test_the_source_and_default_languages_are_always_offered` → `src/i18n/mod.rs::the_source_and_default_languages_are_always_offered`

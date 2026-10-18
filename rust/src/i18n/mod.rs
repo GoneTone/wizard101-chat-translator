@@ -394,6 +394,7 @@ pub fn detect_system_language() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn every_embedded_catalog_parses_without_duplicates() {
@@ -428,6 +429,24 @@ mod tests {
             names.insert(name);
         }
         names
+    }
+
+    #[test]
+    fn every_language_file_is_registered() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/i18n");
+        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| {
+                let name = e.unwrap().file_name().to_string_lossy().into_owned();
+                name.strip_suffix(".json").map(str::to_owned)
+            })
+            .collect();
+        on_disk.sort();
+        let registered: Vec<&str> = CATALOG_SOURCES.iter().map(|(code, _)| *code).collect();
+        assert_eq!(
+            on_disk, registered,
+            "add new language files to CATALOG_SOURCES"
+        );
     }
 
     #[test]

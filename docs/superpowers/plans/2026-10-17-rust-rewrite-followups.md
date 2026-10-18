@@ -78,6 +78,10 @@
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
   - `Cargo.toml` 加 `rust-version`（程式用到 let chains，至少 1.88）。
   - CI 改讀 toolchain 檔，不再固定抓 stable。
+- **`best_match` 對同語言多地區的語言檔沒有區分**（Python 對照稽核發現的已知缺口）：
+  - 現況：同語言有多份語言檔時，Rust 取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）。
+  - 觸發條件：同一語言的第二份地區語言檔（例如 pt-BR 與 pt-PT）達到覆蓋率門檻、進入語言選單。目前每個語言只有一份，沒有影響。
+  - 處理方向：同語言內改依地區取最接近者，例如用 CLDR 的 parent locales 資料；並補 golden 案例。
 
 ## 合併前清掉的小問題（第 1 段審查列為可延後）
 
