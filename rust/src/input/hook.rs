@@ -21,9 +21,9 @@ use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
 
 const VK_PACKET: u32 = 0xE7;
-const VK_LCONTROL: u32 = 0xA2;
+pub(crate) const VK_LCONTROL: u32 = 0xA2;
 const VK_RMENU: u32 = 0xA5;
-const ALT_GR_SCAN: u32 = 541;
+pub(crate) const ALT_GR_SCAN: u32 = 541;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 
 static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();

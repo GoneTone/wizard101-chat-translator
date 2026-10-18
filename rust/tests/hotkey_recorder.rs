@@ -106,3 +106,28 @@ fn dropping_a_recording_removes_its_handler() {
     process(&d, key(false, SPACE));
     assert!(out.lock().unwrap().is_empty());
 }
+
+#[test]
+fn a_release_of_a_key_pressed_before_recording_is_ignored() {
+    const ENTER: (i32, u32) = (28, 0x0D);
+    let d = shared();
+    let (out, done) = collector();
+    let _recording = record(&d, done);
+    assert!(process(&d, key(false, ENTER)));
+    assert!(out.lock().unwrap().is_empty());
+    process(&d, key(true, CTRL));
+    process(&d, key(true, SPACE));
+    process(&d, key(false, SPACE));
+    assert_eq!(*out.lock().unwrap(), ["ctrl+space"]);
+}
+
+#[test]
+fn escape_pressed_while_recording_is_reported() {
+    const ESC: (i32, u32) = (1, 0x1B);
+    let d = shared();
+    let (out, done) = collector();
+    let _recording = record(&d, done);
+    process(&d, key(true, ESC));
+    process(&d, key(false, ESC));
+    assert_eq!(*out.lock().unwrap(), ["esc"]);
+}

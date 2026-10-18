@@ -4,10 +4,10 @@
 
 mod common;
 
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use eframe::egui::accesskit::{Role, Toggled};
-use eframe::egui::{self, OutputCommand, Rect, Ui};
+use eframe::egui::{self, Key, OutputCommand, Rect, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
@@ -17,6 +17,7 @@ use common::settings_env::FakeEnv;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
@@ -659,6 +660,44 @@ fn recording_shows_the_press_key_prompt_and_releases_the_recorder_after() {
     assert!(!has_label(&h, &tr("button.press_key")));
     assert!(has_label(&h, "K"));
     assert_eq!(save(&mut h).unwrap()["hotkey"], json!("ctrl+alt+k"));
+}
+
+#[test]
+fn enter_on_a_focused_change_button_does_not_record_enter() {
+    let dispatcher = Arc::new(Mutex::new(Dispatcher::new()));
+    let env = FakeEnv {
+        dispatcher: Some(dispatcher.clone()),
+        ..FakeEnv::default()
+    };
+    let mut h = harness_with(configured_cfg(), env, egui::vec2(840.0, 660.0));
+    let change = tr("button.change");
+    for _ in 0..40 {
+        if h.query_by(|n| n.is_focused() && n.label().as_deref() == Some(change.as_str()))
+            .is_some()
+        {
+            break;
+        }
+        h.key_press(Key::Tab);
+        run(&mut h);
+    }
+    h.key_down(Key::Enter);
+    run(&mut h);
+    assert_eq!(h.state().env.recordings.borrow().len(), 1);
+    // 鍵盤 hook 看到的是錄製開始後才來的 Enter 放開
+    let enter_up = KeyEvent {
+        down: false,
+        code: 28,
+        raw: Some(RawKey {
+            vk: 0x0D,
+            extended: false,
+        }),
+    };
+    dispatcher.lock().unwrap().process(enter_up);
+    h.key_up(Key::Enter);
+    run(&mut h);
+    assert!(h.state().env.recorded.lock().unwrap().is_empty());
+    assert!(has_label(&h, &tr("button.press_key")));
+    assert_eq!(save(&mut h).unwrap()["hotkey"], json!("ctrl+space"));
 }
 
 #[test]
