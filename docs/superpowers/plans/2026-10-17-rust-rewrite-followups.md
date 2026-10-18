@@ -78,7 +78,7 @@
 - `rust/tests/real_fingerprint.rs` 的文件寫「只讀副本」，但 `load_config` 在正規化有變動時會寫回檔案。要改文件，或改成測試自己先複製再讀。
 - `fonts_dir` 遇到空字串的 `WINDIR` 時沒有過濾掉。
 - **鎖定 Rust 版本**（使用者 2026-10-18 決定放在這段）：
-  - 現況：沒有 `rust-toolchain.toml`，`Cargo.toml` 沒寫 `rust-version`，CI 用 `dtolnay/rust-toolchain@stable`；本機是 1.95.0。
+  - 現況：沒有 `rust-toolchain.toml`，`Cargo.toml` 沒寫 `rust-version`，CI 用 `dtolnay/rust-toolchain@stable`；本機是 1.99.1（`f16e7ce` 已配合 clippy 1.99 的新規則修過一次）。
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
   - `Cargo.toml` 加 `rust-version`（程式用到 let chains，至少 1.88）。
   - CI 改讀 toolchain 檔，不再固定抓 stable。
