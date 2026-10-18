@@ -25,7 +25,7 @@
 
 ## 第 4 段
 
-第 4 段（設定視窗、首次設定精靈、服務管理、更新檢查）已實作完成、待使用者實機驗收（`2026-10-18-rust-rewrite-phase4.md` 檔尾清單）。原列各項的處理：
+第 4 段（設定視窗、首次設定精靈、服務管理、更新檢查）已實作完成，使用者 2026-10-18 實機驗收通過（`2026-10-18-rust-rewrite-phase4.md` 檔尾清單；驗收中修正的問題見 git 歷史 a0da784..fabf62f）。原列各項的處理：
 
 - 設定視窗裡顯示 API 錯誤的地方，網址都能點：測試連線結果、模型清單狀態一律經 `ui::settings::widgets` 走 `ui::richtext::show`。
 - `generate_and_store`、`list_models`、`test_translate` 已移植（`translation/translator.rs`）。
