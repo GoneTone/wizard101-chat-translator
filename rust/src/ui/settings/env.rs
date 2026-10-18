@@ -3,10 +3,12 @@
 //! 介面只透過 `SettingsEnv` 發起工作，結果以 `UiEvent::Settings` 回到 UI 執行緒；測試換成假的 env。
 
 use std::os::windows::ffi::OsStrExt;
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use futures_util::FutureExt;
 use tokio::runtime::Handle;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -22,7 +24,7 @@ use crate::translation::errors::TranslateError;
 use crate::translation::examples::ExampleStore;
 use crate::translation::translator::{self, TestOutcome, Translator, test_translate};
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::util::lock;
+use crate::util::{lock, panic_message};
 
 /// 設定介面要用的外部動作；耗時的在背景跑，結果以 `UiEvent::Settings` 投遞，帶著呼叫時給的 `round`。
 pub trait SettingsEnv {
@@ -92,39 +94,72 @@ impl RealEnv {
         }
     }
 
-    fn post_later(&self, work: impl Future<Output = SettingsEvent> + Send + 'static) {
+    /// 在背景跑 `work` 並投遞結果；panic 時改投 `on_panic` 做的失敗事件，按鈕才不會停在進行中。
+    fn post_later(
+        &self,
+        work: impl Future<Output = SettingsEvent> + Send + 'static,
+        on_panic: impl FnOnce(String) -> SettingsEvent + Send + 'static,
+    ) {
         let ui = self.ui.clone();
-        self.rt
-            .spawn(async move { ui.post(UiEvent::Settings(work.await)) });
+        self.rt.spawn(async move {
+            let event = match AssertUnwindSafe(work).catch_unwind().await {
+                Ok(event) => event,
+                Err(panic) => {
+                    let message = panic_message(panic.as_ref());
+                    log(format!("[settings] background task panicked: {message}"));
+                    on_panic(message)
+                }
+            };
+            ui.post(UiEvent::Settings(event));
+        });
     }
 }
 
 impl SettingsEnv for RealEnv {
     fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) {
-        self.post_later(async move {
-            let store = Arc::new(ExampleStore::default());
-            let result = test_translate(Translator::new(spec, target), Some(store)).await;
-            SettingsEvent::TestDone { round, result }
-        });
+        self.post_later(
+            async move {
+                let store = Arc::new(ExampleStore::default());
+                let result = test_translate(Translator::new(spec, target), Some(store)).await;
+                SettingsEvent::TestDone { round, result }
+            },
+            move |message| SettingsEvent::TestDone {
+                round,
+                result: Err(TranslateError::Unexpected(message)),
+            },
+        );
     }
 
     fn list_models(&self, round: u64, spec: ServiceSpec) {
-        self.post_later(async move {
-            let result = translator::list_models(&spec).await;
-            SettingsEvent::ModelsDone { round, result }
-        });
+        self.post_later(
+            async move {
+                let result = translator::list_models(&spec).await;
+                SettingsEvent::ModelsDone { round, result }
+            },
+            move |message| SettingsEvent::ModelsDone {
+                round,
+                result: Err(TranslateError::Unexpected(message)),
+            },
+        );
     }
 
     fn check_update(&self, round: u64) {
-        self.post_later(async move {
-            let result = check_for_update(&http_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
-                .await
-                .map_err(|e| {
-                    log(format!("[update] manual check failed: {e}"));
-                    e.to_string()
-                });
-            SettingsEvent::UpdateChecked { round, result }
-        });
+        self.post_later(
+            async move {
+                let result =
+                    check_for_update(&http_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
+                        .await
+                        .map_err(|e| {
+                            log(format!("[update] manual check failed: {e}"));
+                            e.to_string()
+                        });
+                SettingsEvent::UpdateChecked { round, result }
+            },
+            move |message| SettingsEvent::UpdateChecked {
+                round,
+                result: Err(message),
+            },
+        );
     }
 
     fn record_hotkey(&self, round: u64) {
@@ -244,5 +279,35 @@ impl Round {
     /// 本輪還在等結果。
     pub fn busy(&self) -> bool {
         self.current.is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::input::dispatcher::Dispatcher;
+
+    #[test]
+    fn a_panicking_task_still_delivers_its_failure_event() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let (poster, inbox) = UiPoster::for_test();
+        let dispatcher = Arc::new(Mutex::new(Dispatcher::new()));
+        let env = RealEnv::new(rt.handle().clone(), poster, dispatcher, None);
+        env.post_later(async { panic!("boom") }, |message| {
+            SettingsEvent::UpdateChecked {
+                round: 3,
+                result: Err(message),
+            }
+        });
+        let event = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            event,
+            UiEvent::Settings(SettingsEvent::UpdateChecked {
+                round: 3,
+                result: Err("boom".into()),
+            })
+        );
     }
 }
