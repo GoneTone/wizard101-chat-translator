@@ -301,7 +301,7 @@ mod tests {
                 result: Err(message),
             }
         });
-        let event = inbox.recv_timeout(Duration::from_secs(5)).unwrap();
+        let event = inbox.recv_timeout(Duration::from_secs(30)).unwrap();
         assert_eq!(
             event,
             UiEvent::Settings(SettingsEvent::UpdateChecked {

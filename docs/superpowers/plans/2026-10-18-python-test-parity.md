@@ -1301,7 +1301,7 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_dragging_an_edge_on_the_mouse_layer_resizes_too` → `src/ui/region/region_box.rs::hit_at_reports_edges_corners_and_move`, `src/ui/region/region_box.rs::dragging_an_edge_resizes_only_that_edge`（Rust 只有一條滑鼠路徑；邊帶最內側一排仍算邊由 `hit_at_reports_edges_corners_and_move` 守住）
 - `test_a_click_on_the_band_changes_nothing` → `src/ui/region/region_box.rs::a_click_restores_the_rect_and_reports_nothing`
 - `test_the_opposite_corner_stays_put_and_the_size_never_drops_below_the_minimum` → `src/ui/region/region_box.rs::resizing_stops_at_the_minimum_size`
-- `test_the_window_follows_the_box_while_dragging` → `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates`, `src/ui/region/region_box.rs::a_click_restores_the_rect_and_reports_nothing`（拖曳中 `RegionBox::drag` 回傳新矩形、宿主 `show_box` 每幀依它搬視窗；搬視窗那一步（`set_window_rect`）需要真實視窗，沒有自動測試，以實機驗證）
+- `test_the_window_follows_the_box_while_dragging` → `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates`, `src/ui/region/region_box.rs::a_click_restores_the_rect_and_reports_nothing`（拖曳中框回傳新矩形（`src/ui/region/region_box.rs::dragging_the_inside_moves_the_rect`）、宿主 `show_box` 每幀依它搬視窗；搬視窗那一步（`set_window_rect`）需要真實視窗，沒有自動測試，以實機驗證）
 - `test_only_the_line_and_the_handles_are_painted` → `src/ui/region/region_box.rs::only_the_line_and_the_handles_are_painted`（新補；Python 以色鍵透明色與畫布項目顏色斷言，Rust 斷言畫出的矩形只有一條框線與八個把手、全是同一個亮色）
 - `test_show_while_open_moves_the_existing_box` → 不移植：Rust 的框以 `RegionBox::new(rect)` 建立，重新框選會先收掉舊框（`src/ui/region/flow.rs::a_new_selection_hides_the_previous_box`）再開新的，沒有「開著時再 show 換位置」這條路徑；框跟著矩形走由 `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates` 與宿主每幀 `place` 負責
 - `test_hide_is_idempotent` → 不移植：Rust 的框是否開著由 flow 持有的 `Option<RegionBox>` 表示，關閉就是設為 `None`，沒有 `hide()` 可重複呼叫
@@ -1336,7 +1336,7 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_control_c_entry_points_are_bound` → `src/ui/region/card.rs::ctrl_c_copies_the_selection_through_our_clipboard`（Rust 直接送出 Ctrl+C 事件驗證複製結果，不是檢查綁定）
 - `test_selection_stays_visible_without_keyboard_focus` → `src/ui/region/card.rs::drag_selection_asks_to_borrow_focus`（egui 的選取反白是卡片自己畫的，與鍵盤焦點無關，沒有 Tk 的 `inactiveselectbackground` 設定可斷言；測試確認拖曳後有畫出反白）
 - `test_closing_by_click_or_the_close_button_notifies_on_close` → `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`, `src/ui/region/card.rs::close_button_closes_on_press`, `src/ui/region/flow.rs::closing_the_card_hides_the_box`（Rust 以 `CardAction::Close` 回報，不用 `on_close` 回呼）
-- `test_replacing_the_card_from_the_flow_does_not_count_as_closing` → 不移植：Rust 的卡片沒有 `on_close` 回呼；`CardAction::Close` 只在使用者點卡片或 ✕ 時產生，flow 自己換卡片或收卡片不會經過這條路
+- `test_replacing_the_card_from_the_flow_does_not_count_as_closing` → 不移植：Rust 的卡片沒有 `on_close` 回呼；`CardAction::Close` 只在使用者點卡片或 ✕ 時產生，flow 自己換卡片或收卡片不會經過這條路；點擊與 ✕ 才會關閉由 `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`、`src/ui/region/card.rs::close_button_closes_on_press` 守住
 - `test_the_card_leaves_room_for_the_box_handles_below_the_rect` → `src/ui/region/card.rs::the_card_leaves_room_for_the_box_handles_below_the_rect`（新補）
 - `test_geometry_sits_below_when_it_fits` → `tests/geometry_golden.rs::geometry_matches_python`
 - `test_geometry_below_and_above_floor_the_height_at_the_minimum` → `tests/geometry_golden.rs::geometry_matches_python`
@@ -1442,7 +1442,7 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 ## tests/ui/settings/test_form.py
 
 - `test_start_disables_the_button_and_delivers_the_result_on_the_main_thread` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`, `tests/service_form.rs::testing_disables_the_button_until_the_result_arrives`（Rust 的結果以 `UiEvent` 送回 UI 執行緒，沒有 Python 的背景執行緒與佇列）
-- `test_an_exception_in_work_is_handed_to_on_done` → 不移植：Python 才有的機制：背景執行緒丟出的例外要接住交給 `on_done`。Rust 的工作回傳 `Result`，錯誤走 `TestDone`／`ModelsDone`／`UpdateChecked` 事件（`tests/service_form.rs::a_failed_test_shows_the_friendly_error`），按鈕照樣還原。已知缺口：任務內若 panic 不會轉成事件，按鈕會停在進行中，僅 bug 才會發生，未處理
+- `test_an_exception_in_work_is_handed_to_on_done` → `src/ui/settings/env.rs::a_panicking_task_still_delivers_its_failure_event`, `tests/service_form.rs::a_failed_test_shows_the_friendly_error`（新補；Rust 的工作回傳 `Result`，一般錯誤走 `TestDone`／`ModelsDone`／`UpdateChecked` 事件；背景任務 panic 時 `RealEnv::post_later` 改投該事件的失敗版本，按鈕離開進行中，見 `fix(rust)` 提交）
 - `test_a_result_that_arrives_after_invalidate_is_discarded_but_the_button_recovers` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`, `tests/service_form.rs::a_result_after_editing_is_discarded_and_the_button_recovers`
 - `test_a_slow_round_cannot_land_in_a_later_round` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`
 - `test_collapsible_starts_collapsed` → `tests/settings_widgets.rs::collapsible_starts_as_asked_and_toggles_on_click`

@@ -135,12 +135,22 @@ fn the_step_bar_names_all_three_steps() {
 
 #[test]
 fn wizard_nav_is_packed_before_the_body() {
-    // 內容比視窗高的第二步，導覽鈕仍停在視窗底部，內容區才是捲動的那塊
-    let h = with_a_filled_form();
+    // 內容比視窗高的第二步，導覽鈕仍整顆停在視窗底部，內容區才是捲動的那塊
+    let mut h = on_service_step(blank_cfg());
+    pick_provider(&mut h, "provider.custom");
     let window = theme::WIZARD_SIZE;
+    let tail = h
+        .get_by_role_and_label(Role::Link, &tr("wizard.skip_test"))
+        .rect();
+    let nav_top = h
+        .get_by_role_and_label(Role::Button, &tr("button.next"))
+        .rect()
+        .top();
+    assert!(tail.bottom() > nav_top, "body should overflow: {tail:?}");
     for key in ["button.back", "button.next"] {
         let button = h.get_by_role_and_label(Role::Button, &tr(key)).rect();
         assert!(button.bottom() <= window.y, "{key}: {button:?}");
+        assert!(button.top() >= 0.0, "{key}: {button:?}");
     }
 }
 
