@@ -519,8 +519,11 @@ impl Card {
         if ui.rect_contains_pointer(area) {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }
-        ui.interact(close_rect, Id::unique("region_card_close"), Sense::hover())
-            .on_hover_text(t("tooltip.close", &[]));
+        let close_button = ui.interact(close_rect, Id::unique("region_card_close"), Sense::click());
+        // 按住期間收起提示，與舊版按下即收一致
+        if !close_button.is_pointer_button_down_on() {
+            close_button.on_hover_text(t("tooltip.close", &[]));
+        }
         painter.galley(
             close_rect.min + vec2(CLOSE_PAD_X, CLOSE_PAD_Y),
             chrome.close,
@@ -911,6 +914,21 @@ mod tests {
             h.step();
         }
         assert!(shape_with(&h, &t("tooltip.close", &[])).is_some());
+    }
+
+    #[test]
+    fn close_button_press_hides_the_tooltip() {
+        let mut h = harness(CardContent::Pending);
+        let tooltip = t("tooltip.close", &[]);
+        let close = label_rect(&h, "✕");
+        h.hover_at(close.center());
+        for _ in 0..3 {
+            h.step();
+        }
+        assert!(shape_with(&h, &tooltip).is_some());
+        press(&mut h, close.center());
+        h.step();
+        assert!(shape_with(&h, &tooltip).is_none());
     }
 
     #[test]
