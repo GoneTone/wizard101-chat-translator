@@ -14,7 +14,7 @@
 
 第 3 段（框選翻譯）已實作完成，使用者 2026-10-18 實機驗收通過（`2026-10-17-rust-rewrite-phase3.md` 檔尾清單）。原列三項（框選快捷鍵佔位、`selecting` 旗標、等觸發鍵放開）都已完成。
 
-- **OCR 截圖驗證**（spec 規定）：2026-10-18 用使用者的 5 張截圖跑 `tools/ocr_compare` 新舊對照：2 張新參數讀對（`It ems`→`Items`、`Welcome to i the`→`Welcome to the`），3 張（含中英混排的任務卡與 NPC 對話）相同，沒有任何一張變差。Rust 版辨識速度約為 Python 版的 5～10 倍。之後若有更多截圖，用同一套工具再跑。
+- **OCR 截圖驗證**（spec 規定）：2026-10-18 用使用者的 5 張截圖跑 `tools/ocr_compare` 與 `examples/ocr_compare.rs` 新舊對照：2 張新參數讀對（`It ems`→`Items`、`Welcome to i the`→`Welcome to the`），3 張（含中英混排的任務卡與 NPC 對話）相同，沒有任何一張變差。Rust 版辨識速度約為 Python 版的 5～10 倍。之後若有更多截圖，原本的新舊對照工具已在第 5 段整個移除（Python 與 Rust 兩側都刪了），之後沒有現成的對照工具可用。
 - **刻意與 Python 不同**：調整框時重新擷取或裁切失敗，會撤銷進行中的請求並進入新 session，晚到的結果不再蓋掉錯誤卡片（使用者 2026-10-18 要求，Python 版仍有此問題）。
 - **只能實機確認**：WGC 擷取的顏色、DWM 外框偏移與高 DPI、截整顆螢幕時 CAPTUREBLT 是否讓游標閃爍、混合 DPI 下選取畫面是否蓋滿螢幕、框的拖曳手感、卡片邊框在 125%／150% 是否有接縫。
 - **已於第 5 段處理**（`c3105b8..9e57646`）：OCR 模型舊目錄在解出新模型時清掉；選取畫面「找不到視窗」那行 log 有斷言了（新增 `logs::capture`）；視窗查找測試改成直接斷言已知清單，不再自己重寫一份比對邏輯。
@@ -60,9 +60,9 @@
 
 ## 第 5 段
 
-- 把 `rust/` 搬到 repo 根目錄時，使用者的測試資料夾 `rust/target/release/_test`（不進版控，裡面有使用者的 config 和 log）要一起搬。搬之前先問使用者。
+- **已於第 5 段 Task 4 處理**：把 `rust/` 搬到 repo 根目錄時，使用者的測試資料夾 `rust/target/release/_test`（不進版控，裡面有使用者的 config 和 log）要一起搬。搬之前先問使用者。
 - **已於第 5 段處理**（`c3105b8..9e57646`）：`real_fingerprint.rs` 改成先複製到暫存資料夾再讀，文件寫實；`fonts_dir` 過濾空字串的 `WINDIR`。
-- **鎖定 Rust 版本**（使用者 2026-10-18 決定放在這段）：
+- **鎖定 Rust 版本**（已於第 5 段 Task 3／4 處理；`rust-version = "1.95"` 依裁定 R10，因為測試用到 1.95 的 API，下列為當時的原始需求）（使用者 2026-10-18 決定放在這段）：
   - 現況：沒有 `rust-toolchain.toml`，`Cargo.toml` 沒寫 `rust-version`，CI 用 `dtolnay/rust-toolchain@stable`；本機是 1.99.1（`f16e7ce` 已配合 clippy 1.99 的新規則修過一次）。
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
   - `Cargo.toml` 加 `rust-version`（程式用到 let chains，至少 1.88）。
@@ -101,6 +101,7 @@
 
 保留：
 
-- **CI 上的鍵盤名稱 fixture**（需要在 CI 上驗證）：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 golden `--check` 或 `keys_golden` 失敗，是配置差異，要調整 fixture。
+- **CI 上的鍵盤名稱 fixture**（需要在 CI 上驗證）：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 `keys_golden` 或 `input::keys::tests::the_name_table_has_no_name_python_does_not_know` 失敗，是配置差異，要調整 fixture。
+- **golden fixture 已凍結**：fixture 的匯出工具只存在於 git 歷史裡；有意改變行為時，要直接手動編輯 fixture JSON。
 - **鍵盤 hook 一個程序只能裝一次**（要改架構）：第一次失敗後無法重試，要重做 hook 執行緒與分派器的生命週期；Python 也沒有重試。
 - **`scale_at` 不能注入**（需要實機才能驗證）：沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
