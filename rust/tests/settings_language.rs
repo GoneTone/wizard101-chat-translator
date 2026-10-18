@@ -16,6 +16,7 @@ use wizard101_chat_translator::config::services::new_service;
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
 use wizard101_chat_translator::ui::fonts_egui;
+use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
 
@@ -176,6 +177,32 @@ fn save_keeps_the_previewed_language() {
     click(&mut h, Role::Button, "Save");
     assert_eq!(current_language(), "en-US");
     assert_eq!(saved(&h).unwrap()["ui_language"], json!("en-US"));
+}
+
+#[test]
+fn language_preview_keeps_unsaved_edits() {
+    let _lock = language_lock();
+    let mut h = harness("zh-TW");
+    let change = tr("button.change");
+    let mut buttons: Vec<_> = h
+        .query_all_by_role_and_label(Role::Button, &change)
+        .collect();
+    buttons.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    buttons[1].click();
+    run(&mut h);
+    let round = *h.state().env.recordings.borrow().last().unwrap();
+    h.state_mut().win.apply(&SettingsEvent::HotkeyRecorded {
+        round,
+        combo: "ctrl+alt+r".into(),
+    });
+    run(&mut h);
+    click(&mut h, Role::Switch, &tr("field.auto_input"));
+
+    pick_language(&mut h, "en-US");
+    click(&mut h, Role::Button, "Save");
+    let cfg = saved(&h).unwrap();
+    assert_eq!(cfg["region_hotkey"], json!("ctrl+alt+r"));
+    assert_eq!(cfg["auto_show_input"], json!(false));
 }
 
 #[test]

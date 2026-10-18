@@ -1290,3 +1290,378 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_text_fn_is_re_evaluated_on_each_show` → `src/ui/app.rs::region_tooltip_shows_the_set_hotkey_after_half_a_second`, `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（提示文字每幀現取（`t()` 加目前熱鍵），換熱鍵、換語言後下一次顯示即更新）
 - `test_button_press_cancels_and_hides` → `src/ui/overlay/frame.rs::button_press_hides_the_tooltip`（新補；原本 Rust 按住按鈕時提示不會收起，已修（見 `fix(rust)` 提交）；放開後游標仍停在按鈕上時，egui 會再顯示提示，舊版要離開再進入才會再現）
 - `test_tooltip_never_takes_keyboard_focus` → 不移植：Rust 提示框是 egui 在同一 viewport 內畫的浮層（`on_hover_ui_at_pointer`），不是獨立視窗，沒有焦點可取
+
+## tests/ui/region/test_box.py
+
+- `test_show_opens_a_window_around_the_rect_with_room_for_the_handles` → `src/ui/region/region_box.rs::window_rect_extends_the_rect_by_the_margin_on_each_side`
+- `test_dragging_a_corner_handle_resizes_and_reports_the_new_rect` → `src/ui/region/region_box.rs::dragging_an_edge_resizes_only_that_edge`
+- `test_dragging_an_edge_line_moves_only_that_edge` → `src/ui/region/region_box.rs::dragging_an_edge_resizes_only_that_edge`
+- `test_dragging_inside_the_box_moves_it` → `src/ui/region/region_box.rs::dragging_the_inside_moves_the_rect`, `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates`
+- `test_the_mouse_layer_is_nearly_invisible_and_covers_the_whole_box` → 不移植：Tk 專屬：Tk 靠另一片幾乎全透明（alpha 不超過 0.02）的視窗蓋住整個框來接滑鼠；Rust 只有一個透明 viewport，整個視窗本來就收得到滑鼠（見 `src/ui/region/region_box.rs` 檔頭），沒有第二層視窗可斷言
+- `test_dragging_an_edge_on_the_mouse_layer_resizes_too` → `src/ui/region/region_box.rs::hit_at_reports_edges_corners_and_move`, `src/ui/region/region_box.rs::dragging_an_edge_resizes_only_that_edge`（Rust 只有一條滑鼠路徑；邊帶最內側一排仍算邊由 `hit_at_reports_edges_corners_and_move` 守住）
+- `test_a_click_on_the_band_changes_nothing` → `src/ui/region/region_box.rs::a_click_restores_the_rect_and_reports_nothing`
+- `test_the_opposite_corner_stays_put_and_the_size_never_drops_below_the_minimum` → `src/ui/region/region_box.rs::resizing_stops_at_the_minimum_size`
+- `test_the_window_follows_the_box_while_dragging` → `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates`, `src/ui/region/region_box.rs::a_click_restores_the_rect_and_reports_nothing`（拖曳中 `RegionBox::drag` 回傳新矩形、宿主 `show_box` 每幀依它搬視窗；搬視窗那一步（`set_window_rect`）需要真實視窗，沒有自動測試，以實機驗證）
+- `test_only_the_line_and_the_handles_are_painted` → `src/ui/region/region_box.rs::only_the_line_and_the_handles_are_painted`（新補；Python 以色鍵透明色與畫布項目顏色斷言，Rust 斷言畫出的矩形只有一條框線與八個把手、全是同一個亮色）
+- `test_show_while_open_moves_the_existing_box` → 不移植：Rust 的框以 `RegionBox::new(rect)` 建立，重新框選會先收掉舊框（`src/ui/region/flow.rs::a_new_selection_hides_the_previous_box`）再開新的，沒有「開著時再 show 換位置」這條路徑；框跟著矩形走由 `src/ui/region_host.rs::box_follows_its_rect_on_screen_coordinates` 與宿主每幀 `place` 負責
+- `test_hide_is_idempotent` → 不移植：Rust 的框是否開著由 flow 持有的 `Option<RegionBox>` 表示，關閉就是設為 `None`，沒有 `hide()` 可重複呼叫
+- `test_hit_at_tells_corners_from_edges_from_the_inside` → `src/ui/region/region_box.rs::hit_at_reports_edges_corners_and_move`
+
+## tests/ui/region/test_card.py
+
+- `test_pending_then_text` → `src/ui/region/card.rs::pending_shows_the_working_notice_in_the_pending_colour`, `src/ui/region/card.rs::text_replaces_the_pending_notice_in_the_translated_colour`
+- `test_show_text_with_source_puts_both_in_one_selectable_label` → `src/ui/region/card.rs::source_sits_dimmed_and_smaller_above_the_translation_after_a_blank_line`, `src/ui/region/card.rs::dragging_past_the_text_selects_to_its_end`
+- `test_show_text_without_source_shows_only_the_translation` → `src/ui/region/card.rs::text_without_source_shows_only_the_translation`
+- `test_empty_text_shows_the_no_text_notice` → `src/ui/region/card.rs::empty_text_shows_the_no_text_notice`
+- `test_error_is_red` → `src/ui/region/card.rs::error_is_red`
+- `test_click_anywhere_hides` → `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`
+- `test_close_affordance_is_shown` → `src/ui/region/card.rs::close_affordances_are_shown_apart_from_the_content`
+- `test_close_button_tooltip_shows_close_text` → `src/ui/region/card.rs::close_button_tooltip_says_close`, `src/ui/region/card.rs::close_button_press_hides_the_tooltip`（後者新補：Tk 的提示按下即收，Rust 原本按住 ✕ 時提示不收，已修，見 `fix(rust)` 提交）
+- `test_close_button_hides` → `src/ui/region/card.rs::close_button_closes_on_press`
+- `test_hide_is_idempotent` → 不移植：Rust 的卡片沒有 `hide()`；開著與否由 flow 持有的 `Option<Card>` 表示，關閉就是設為 `None`
+- `test_card_is_anchored_below_the_rect_with_the_rect_width` → `src/ui/region/card.rs::card_sits_below_the_rect_with_its_width`
+- `test_card_below_the_rect_is_at_least_the_minimum_height` → `src/ui/region/card.rs::card_sits_below_the_rect_with_its_width`
+- `test_side_card_takes_the_text_width_instead_of_the_rect_width` → `src/ui/region/card.rs::card_moves_to_the_wider_side_when_neither_fits`
+- `test_side_card_stays_beside_the_rect_after_rewrapping_wider` → `src/ui/region/card.rs::side_placement_sticks_until_the_content_changes`
+- `test_card_is_capped_to_the_work_area_and_scrolls_when_neither_side_fits` → `src/ui/region/card.rs::capped_card_scrolls_with_the_wheel_and_shows_a_thin_scrollbar`
+- `test_wheel_scrolls_the_capped_card` → `src/ui/region/card.rs::capped_card_scrolls_with_the_wheel_and_shows_a_thin_scrollbar`
+- `test_clicking_the_scrollbar_does_not_close_the_card` → `src/ui/region/card.rs::clicking_the_scrollbar_keeps_the_card_and_the_selection`
+- `test_narrow_rect_gets_the_minimum_width` → `src/ui/region/card.rs::card_sits_below_the_rect_with_its_width`
+- `test_right_click_on_translation_shows_the_copy_menu` → `src/ui/region/card.rs::right_click_menu_copies_selection_or_everything`, `src/ui/region/card.rs::right_click_does_not_close_the_card`
+- `test_right_click_does_not_close_the_card` → `src/ui/region/card.rs::right_click_does_not_close_the_card`
+- `test_click_without_drag_closes_the_card` → `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`
+- `test_drag_on_the_translation_label_selects_instead_of_closing` → `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`, `src/ui/region/card.rs::drag_selection_asks_to_borrow_focus`
+- `test_copy_selection_and_menu_copy_share_the_clipboard` → `src/ui/region/card.rs::right_click_menu_copies_selection_or_everything`, `src/ui/region/card.rs::ctrl_c_copies_the_selection_through_our_clipboard`, `src/ui/region/card.rs::dragging_past_the_text_selects_to_its_end`, `src/ui/region/card.rs::a_collapsed_selection_is_no_selection`
+- `test_focus_for_copy_swallows_a_tcl_error_when_the_window_is_gone` → 不移植：Tk 專屬：視窗已被銷毀時 `focus_force` 會丟 `TclError`；Rust 的卡片只回報 `CardAction::FocusForCopy`，由宿主決定怎麼搶焦點，沒有可丟例外的 Tk 呼叫
+- `test_control_c_entry_points_are_bound` → `src/ui/region/card.rs::ctrl_c_copies_the_selection_through_our_clipboard`（Rust 直接送出 Ctrl+C 事件驗證複製結果，不是檢查綁定）
+- `test_selection_stays_visible_without_keyboard_focus` → `src/ui/region/card.rs::drag_selection_asks_to_borrow_focus`（egui 的選取反白是卡片自己畫的，與鍵盤焦點無關，沒有 Tk 的 `inactiveselectbackground` 設定可斷言；測試確認拖曳後有畫出反白）
+- `test_closing_by_click_or_the_close_button_notifies_on_close` → `src/ui/region/card.rs::a_click_closes_and_a_drag_does_not`, `src/ui/region/card.rs::close_button_closes_on_press`, `src/ui/region/flow.rs::closing_the_card_hides_the_box`（Rust 以 `CardAction::Close` 回報，不用 `on_close` 回呼）
+- `test_replacing_the_card_from_the_flow_does_not_count_as_closing` → 不移植：Rust 的卡片沒有 `on_close` 回呼；`CardAction::Close` 只在使用者點卡片或 ✕ 時產生，flow 自己換卡片或收卡片不會經過這條路
+- `test_the_card_leaves_room_for_the_box_handles_below_the_rect` → `src/ui/region/card.rs::the_card_leaves_room_for_the_box_handles_below_the_rect`（新補）
+- `test_geometry_sits_below_when_it_fits` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_below_and_above_floor_the_height_at_the_minimum` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_flips_above_when_no_room_below` → `tests/geometry_golden.rs::geometry_matches_python`, `src/ui/region/card.rs::card_flips_above_when_no_room_below`
+- `test_geometry_moves_to_the_wider_side_when_neither_above_nor_below_fits` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_beside_the_rect_uses_the_text_width` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_beside_the_rect_caps_the_width_to_the_side_room` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_shrinks_to_the_side_room_but_not_below_the_minimum_width` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_side_minimum_width_is_wider_than_the_rect_minimum` → `src/ui/region/card.rs::side_minimum_width_is_wider_than_the_rect_minimum`（新補）
+- `test_geometry_beside_the_rect_slides_up_to_stay_inside_the_work_area` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_caps_the_height_to_the_work_area` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_geometry_keeps_the_minimum_height_on_a_tiny_work_area` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_beside_geometry_matches_the_side_branch_of_anchored_geometry` → `tests/geometry_golden.rs::geometry_matches_python`
+
+## tests/ui/region/test_flow.py
+
+- `test_toggle_opens_the_selector_and_a_second_toggle_cancels_it` → `src/ui/region/flow.rs::toggle_opens_the_selector_and_a_second_toggle_cancels_it`
+- `test_toggle_passes_the_captured_frame_to_the_selector` → `src/ui/region/flow.rs::toggle_passes_the_captured_frame_to_the_selector`
+- `test_toggle_passes_the_captured_backdrop_to_the_selector` → `src/ui/region/flow.rs::toggle_passes_the_captured_backdrop_to_the_selector`
+- `test_selection_captures_and_fills_the_card_with_the_translation` → `src/ui/region/flow.rs::selection_captures_and_fills_the_card_with_the_translation`
+- `test_selection_passes_the_source_text_to_the_card` → `src/ui/region/flow.rs::selection_passes_the_source_text_to_the_card`
+- `test_selection_crops_the_same_frame_that_was_captured` → `src/ui/region/flow.rs::selection_crops_the_same_frame_that_was_captured`
+- `test_frame_capture_failure_is_shown_at_the_cursor_without_opening_the_selector` → `src/ui/region/flow.rs::frame_capture_failure_is_shown_at_the_cursor_without_opening_the_selector`
+- `test_the_selector_covers_the_monitor_under_the_middle_of_the_game_client_area` → `src/ui/region/flow.rs::the_selector_covers_the_monitor_under_the_middle_of_the_game_client_area`
+- `test_capture_failure_is_shown_on_the_card_without_a_worker` → `src/ui/region/flow.rs::capture_failure_is_shown_on_the_card_without_a_worker`
+- `test_plain_capture_error_is_shown_as_capture_failed` → `src/ui/region/flow.rs::plain_capture_error_is_shown_as_capture_failed`
+- `test_pipeline_errors_are_described_on_the_card` → `src/ui/region/flow.rs::pipeline_errors_are_described_on_the_card`
+- `test_stale_result_is_dropped_after_a_new_selection` → `src/ui/region/flow.rs::stale_result_is_dropped_after_a_new_selection`
+- `test_stale_error_is_dropped_after_a_new_selection` → `src/ui/region/flow.rs::stale_error_is_dropped_after_a_new_selection`
+- `test_selection_moves_foreground_before_showing_the_pending_card` → `src/ui/region/flow.rs::selection_moves_foreground_before_showing_the_pending_card`
+- `test_toggle_hides_a_previous_card` → `src/ui/region/flow.rs::toggle_hides_a_previous_card`
+- `test_esc_style_cancel_restores_the_games_foreground` → `src/ui/region/flow.rs::esc_style_cancel_restores_the_games_foreground`
+- `test_hotkey_cancel_restores_the_games_foreground` → `src/ui/region/flow.rs::hotkey_cancel_restores_the_games_foreground`
+- `test_toggle_with_hwnd_zero_is_ignored_once_the_selector_is_already_closed` → `src/ui/region/flow.rs::toggle_with_hwnd_zero_is_ignored_once_the_selector_is_already_closed`
+- `test_set_alpha_forwards_to_the_card` → `src/ui/region/flow.rs::set_alpha_forwards_to_the_card`
+- `test_start_from_button_opens_the_selector_with_the_found_window` → `src/ui/region/flow.rs::start_from_button_opens_the_selector_with_the_found_window`
+- `test_start_from_button_shows_an_error_card_when_no_game_window_is_found` → `src/ui/region/flow.rs::start_from_button_shows_an_error_card_when_no_game_window_is_found`
+- `test_start_from_button_cancels_an_already_open_selector` → `src/ui/region/flow.rs::start_from_button_cancels_an_already_open_selector`
+- `test_describe_error_maps_each_failure_kind` → `tests/region_pipeline.rs::describe_error_maps_each_failure_kind`
+- `test_selection_leaves_the_box_on_the_selected_rect` → `src/ui/region/flow.rs::selection_leaves_the_box_on_the_selected_rect`
+- `test_adjusting_the_box_recaptures_the_live_game_and_retranslates` → `src/ui/region/flow.rs::adjusting_the_box_recaptures_the_live_game_and_retranslates`
+- `test_capture_failure_while_adjusting_is_shown_and_keeps_the_box` → `src/ui/region/flow.rs::capture_failure_while_adjusting_is_shown_and_keeps_the_box`
+- `test_closing_the_card_hides_the_box` → `src/ui/region/flow.rs::closing_the_card_hides_the_box`
+- `test_a_new_selection_hides_the_previous_box` → `src/ui/region/flow.rs::a_new_selection_hides_the_previous_box`
+- `test_each_request_gets_its_own_cancel_handle` → `src/ui/region/flow.rs::each_request_gets_its_own_cancel_handle`
+- `test_adjusting_the_box_cancels_the_previous_request` → `src/ui/region/flow.rs::adjusting_the_box_cancels_the_previous_request`
+- `test_a_new_selection_cancels_the_previous_request` → `src/ui/region/flow.rs::a_new_selection_cancels_the_previous_request`
+- `test_closing_the_card_cancels_the_request` → `src/ui/region/flow.rs::closing_the_card_cancels_the_request`
+- `test_a_cancelled_request_leaves_the_card_alone` → `tests/app_main.rs::region_runner_cancel_posts_nothing`
+- `test_the_failure_log_names_the_service` → `tests/app_main.rs::region_runner_failure_logs_the_service`
+
+## tests/ui/region/test_select.py
+
+- `test_drag_reports_a_normalized_rect_in_screen_coordinates` → `src/ui/region/selector.rs::drag_reports_the_screen_rect`, `src/ui/region/selector.rs::drag_reports_physical_pixels_on_scaled_displays`
+- `test_a_click_without_drag_cancels` → `src/ui/region/selector.rs::a_click_without_drag_cancels`
+- `test_escape_cancels` → `src/ui/region/selector.rs::escape_cancels`
+- `test_show_while_open_replaces_the_previous_layer` → `src/ui/region_host.rs::selector_closing_starts_a_fresh_window_for_the_next_selection`, `src/ui/region/flow.rs::toggle_opens_the_selector_and_a_second_toggle_cancels_it`
+- `test_rubber_band_is_drawn_while_dragging` → `src/ui/region/selector.rs::rubber_band_is_drawn_while_dragging`
+- `test_show_displays_the_frozen_frame_at_full_opacity` → `src/ui/region/selector.rs::backdrop_and_dimmed_frame_are_placed_in_order`（Python 該測試沒有任何斷言；凍結畫面與暗化底圖的位置由此守住）
+- `test_dim_image_is_placed_at_the_games_client_origin` → `src/ui/region/selector.rs::backdrop_and_dimmed_frame_are_placed_in_order`, `src/ui/region/selector.rs::dimmed_frame_is_placed_in_points_on_scaled_displays`
+- `test_spotlight_shows_the_dragged_area_and_hides_on_the_next_press` → `src/ui/region/selector.rs::spotlight_shows_the_dragged_area_and_hides_on_the_next_press`
+- `test_backdrop_is_placed_below_the_game_frame_when_given` → `src/ui/region/selector.rs::backdrop_and_dimmed_frame_are_placed_in_order`
+- `test_hint_shows_in_its_own_opaque_window` → `src/ui/region/selector.rs::hint_text_is_shown`（Python 為避免提示畫在明暗變化的底圖上而另開一層不透明視窗；Rust 在同一個 viewport 內畫在最上層，沒有獨立視窗可斷言）
+- `test_hint_window_closes_with_the_layer` → 不移植：Tk 專屬：提示是獨立的 Toplevel，要手動跟著選取層關閉；Rust 的提示每幀畫在選取畫面內，選取畫面一關就跟著沒了
+- `test_hint_window_closes_after_a_completed_drag` → 不移植：Tk 專屬：同上，獨立 Toplevel 的生命週期；Rust 的提示不是獨立視窗
+- `test_show_while_open_leaves_exactly_one_hint_window` → 不移植：Tk 專屬：同上，獨立 Toplevel 的數量；Rust 的提示不是獨立視窗
+
+## tests/ui/settings/test_fields.py
+
+- `test_provider_labels_are_translated` → `tests/config_services.rs::provider_labels_are_translated`
+- `test_common_languages_include_english` → `tests/settings_window.rs::the_target_language_offers_the_common_languages`
+- `test_ui_language_field_round_trips_language_code` → `tests/settings_language.rs::save_keeps_the_previewed_language`, `tests/settings_window.rs::saving_an_unchanged_window_sends_its_own_keys_with_the_ui_language`
+- `test_validate_requires_model` → `tests/config_golden.rs::validate_matches_python`, `tests/config_services.rs::validate_service_reports_every_missing_required_field`
+- `test_validate_requires_key_for_official_providers` → `tests/config_golden.rs::validate_matches_python`, `tests/config_services.rs::validate_service_reports_every_missing_required_field`
+- `test_validate_requires_base_url_for_custom_only` → `tests/config_golden.rs::validate_matches_python`, `tests/config_services.rs::validate_service_reports_every_missing_required_field`
+- `test_friendly_error_guesses_from_status_when_api_gave_no_message` → `tests/service_form.rs::friendly_error_guesses_from_status_when_api_gave_no_message`
+- `test_friendly_error_prefers_the_api_message_over_status_guess` → `tests/service_form.rs::friendly_error_prefers_the_api_message_over_status_guess`
+- `test_friendly_error_shows_connection_failure_reason` → `tests/service_form.rs::friendly_error_shows_connection_failure_reason`
+- `test_filter_models_is_case_insensitive_substring` → `tests/settings_widgets.rs::filter_models_is_case_insensitive_substring`
+- `test_filter_models_blank_query_returns_all` → `tests/settings_widgets.rs::filter_models_blank_query_returns_all`
+- `test_validate_endpoint_fields_ignores_model` → `tests/config_services.rs::validate_endpoint_fields_ignores_the_model`
+- `test_model_field_shows_fetched_models` → `tests/service_form.rs::model_field_shows_fetched_models`
+- `test_model_field_unsupported_endpoint_hints_manual_input` → `tests/service_form.rs::model_field_unsupported_endpoint_hints_manual_input`
+- `test_model_field_error_uses_friendly_message` → `tests/service_form.rs::model_field_error_uses_friendly_message`
+- `test_refresh_result_reports_failures_for_providers_without_base_url` → `tests/service_form.rs::refresh_result_reports_failures_for_providers_without_base_url`（新補；Python 的回歸是寫 log 時對沒有 base_url 的服務商 KeyError，Rust 沒有該路徑，改守同一個使用者可見結果：錯誤顯示出來、按鈕不卡在載入中）
+- `test_model_field_error_makes_urls_clickable` → `tests/service_form.rs::model_field_error_makes_urls_clickable`
+- `test_model_field_typing_filters_fetched_options` → `tests/service_form.rs::model_field_typing_filters_fetched_options`
+- `test_model_field_hint_aligns_with_input` → `tests/service_form.rs::model_field_hint_aligns_with_input`
+- `test_model_field_posted_dropdown_keeps_no_grab` → 不移植：Tk 專屬：ttk Combobox 原生清單會 grab 滑鼠，要拆掉才能邊開邊改關鍵字；Rust 清單是 egui 彈窗，沒有 grab，開著時繼續打字照樣篩選（`tests/service_form.rs::model_field_typing_filters_fetched_options`）
+- `test_model_field_unpost_closes_dropdown` → `tests/settings_widgets.rs::editable_combo_escape_closes_and_keeps_the_typed_text`
+- `test_model_field_dropdown_closes_on_outside_click` → `tests/service_form.rs::model_dropdown_closes_on_outside_click_and_when_nothing_matches`
+- `test_model_field_status_says_custom_name_is_allowed` → `tests/service_form.rs::model_field_shows_fetched_models`
+- `test_model_field_unpost_after_destroy_is_safe` → 不移植：Tk 專屬：元件被銷毀後延遲排程的收合仍會觸發 `TclError`；egui 沒有會被銷毀的 widget 物件，彈窗狀態每幀重建
+- `test_posted_dropdown_reloads_while_typing` → `tests/service_form.rs::model_field_typing_filters_fetched_options`, `tests/settings_widgets.rs::editable_combo_filters_while_typing_and_picks_with_enter`
+- `test_dropdown_closes_when_nothing_matches` → `tests/service_form.rs::model_dropdown_closes_on_outside_click_and_when_nothing_matches`, `tests/settings_widgets.rs::editable_combo_stays_closed_when_nothing_matches`
+- `test_link_label_opens_the_url_on_click` → `tests/settings_window.rs::about_tab_shows_version_and_links`（點作者連結開出作者網址）
+- `test_parse_link_markup_plain_text_has_no_links` → `tests/richtext_golden.rs::link_markup_matches_python`
+- `test_parse_link_markup_splits_links_from_surrounding_text` → `tests/richtext_golden.rs::link_markup_matches_python`
+- `test_parse_link_markup_rejects_non_http_urls` → `tests/richtext_golden.rs::link_markup_matches_python`
+- `test_parse_link_markup_leaves_broken_syntax_as_text` → `tests/richtext_golden.rs::link_markup_matches_python`
+- `test_linked_text_makes_only_the_link_segment_clickable` → `tests/settings_window.rs::about_tab_shows_the_translators`, `tests/settings_language.rs::translators_follow_the_previewed_language`（掛名文字中只有連結段是 `Role::Link`）
+
+## tests/ui/settings/test_form.py
+
+- `test_start_disables_the_button_and_delivers_the_result_on_the_main_thread` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`, `tests/service_form.rs::testing_disables_the_button_until_the_result_arrives`（Rust 的結果以 `UiEvent` 送回 UI 執行緒，沒有 Python 的背景執行緒與佇列）
+- `test_an_exception_in_work_is_handed_to_on_done` → 不移植：Python 才有的機制：背景執行緒丟出的例外要接住交給 `on_done`。Rust 的工作回傳 `Result`，錯誤走 `TestDone`／`ModelsDone`／`UpdateChecked` 事件（`tests/service_form.rs::a_failed_test_shows_the_friendly_error`），按鈕照樣還原。已知缺口：任務內若 panic 不會轉成事件，按鈕會停在進行中，僅 bug 才會發生，未處理
+- `test_a_result_that_arrives_after_invalidate_is_discarded_but_the_button_recovers` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`, `tests/service_form.rs::a_result_after_editing_is_discarded_and_the_button_recovers`
+- `test_a_slow_round_cannot_land_in_a_later_round` → `tests/settings_widgets.rs::round_discards_invalidated_and_stale_results`
+- `test_collapsible_starts_collapsed` → `tests/settings_widgets.rs::collapsible_starts_as_asked_and_toggles_on_click`
+- `test_collapsible_can_start_expanded` → `tests/settings_widgets.rs::collapsible_starts_as_asked_and_toggles_on_click`
+- `test_collapsible_toggles` → `tests/settings_widgets.rs::collapsible_starts_as_asked_and_toggles_on_click`
+- `test_collapsible_header_is_keyboard_activatable` → `tests/settings_widgets.rs::collapsible_header_is_keyboard_activatable`
+- `test_keyboard_activatable_shows_and_clears_the_focus_border` → 不移植：Tk 專屬：ttk 沒有 highlightthickness，聚焦樣式靠把邊框畫粗再還原；Rust 的 `collapsible` 在 `has_focus()` 時自己畫強調色框，鍵盤走得到、切得動由 `tests/settings_widgets.rs::collapsible_header_is_keyboard_activatable` 守住
+
+## tests/ui/settings/test_provider_picker.py
+
+- `test_one_card_per_provider` → `tests/service_list.rs::one_titled_card_per_provider`
+- `test_each_card_titles_its_provider` → `tests/service_list.rs::one_titled_card_per_provider`
+- `test_each_card_describes_its_provider` → `tests/service_list.rs::each_card_describes_its_provider`
+- `test_clicking_a_card_reports_its_provider` → `tests/service_list.rs::clicking_anywhere_inside_a_card_picks_its_provider`
+- `test_clicking_the_text_inside_a_card_counts_too` → `tests/service_list.rs::clicking_anywhere_inside_a_card_picks_its_provider`
+- `test_cancel_leaves_the_result_none` → `tests/service_list.rs::add_service_opens_nothing_when_the_pick_is_cancelled`, `tests/service_list.rs::escape_cancels_the_provider_pick`
+- `test_picker_geometry_carries_a_position` → 不移植：Tk 專屬：測試用的視窗停放 fixture 只改寫帶 `+x+y` 的 geometry 字串；Rust 的選擇框是設定視窗內的 egui 對話層，沒有獨立視窗位置
+- `test_picker_grabs_input_and_releases_it_on_close` → `tests/service_list.rs::an_open_dialog_blocks_the_pane_behind_it`, `tests/service_list.rs::picking_from_the_form_switches_its_provider_and_keeps_it_modal`
+- `test_picker_hands_the_grab_back_to_a_modal_parent` → `tests/service_list.rs::picking_from_the_form_switches_its_provider_and_keeps_it_modal`
+- `test_escape_is_wired_to_cancel` → `tests/service_list.rs::escape_cancels_the_provider_pick`
+- `test_the_cancel_button_closes_the_picker` → `tests/service_list.rs::the_cancel_button_closes_the_picker`（新補；第 4 段經使用者核可的重新設計：選擇框以標題列的關閉鈕取消，沒有獨立的〔取消〕鈕）
+- `test_the_window_title_is_not_repeated_inside_the_window` → `tests/service_list.rs::the_picker_title_appears_once`
+- `test_the_cards_keep_a_margin_below_the_window_top` → `tests/service_list.rs::the_picker_cards_keep_a_margin_below_the_header`
+- `test_cards_are_reachable_and_activatable_by_keyboard` → `tests/service_list.rs::cards_are_reachable_and_activatable_by_keyboard`
+- `test_each_card_shows_its_providers_icon` → `tests/service_list.rs::each_card_shows_its_providers_icon`
+- `test_clicking_anywhere_inside_a_card_picks_its_provider` → `tests/service_list.rs::clicking_anywhere_inside_a_card_picks_its_provider`
+- `test_clicking_the_icon_picks_the_provider` → `tests/service_list.rs::clicking_anywhere_inside_a_card_picks_its_provider`（該測試的點擊位置含圖示）
+- `test_the_picker_takes_the_foreground_when_shown` → 不移植：第 4 段經使用者核可的重新設計：選擇框是設定視窗或精靈視窗內的 egui 對話層，不是另一個作業系統視窗，沒有「新視窗不被啟用」的問題；宿主視窗本身搶前景由 `tests/settings_host.rs::the_settings_window_takes_the_foreground_when_shown` 與 `the_wizard_takes_the_foreground_when_shown` 守住
+
+## tests/ui/settings/test_responsive.py
+
+- `test_wrap_width_subtracts_reserved_space` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_wrap_width_never_goes_below_minimum` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_apply_wrap_sets_wraplength_and_reports_change` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_apply_wrap_reports_no_change_when_width_is_same` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_bind_wrap_follows_container_width` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_bind_wrap_reserves_space_taken_by_earlier_widgets_in_the_row` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_bind_wrap_ignores_unmapped_container` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_apply_wrap_handles_label_without_wraplength` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+- `test_bind_wrap_settles_on_the_same_width_regardless_of_history` → 不移植：Tk 專屬：`wraplength` 要自己依容器寬度算並寫回（避免 Configure 回圈、過渡寬度）；egui 的 Label 每幀以實際可用寬度排版換行，沒有可斷言的換行寬度。窄列不溢出的使用者可見結果由 `tests/settings_widgets.rs::dropdowns_give_way_to_the_label_in_a_narrow_row` 守住
+
+## tests/ui/settings/test_scrollable.py
+
+- `test_body_is_where_content_goes` → 不移植：Tk 專屬：自製 `ScrollableFrame` 的 body 容器；Rust 的捲動區是 `egui::ScrollArea`，滾輪與內容寬度由 egui 處理
+- `test_scrollbar_packs_before_the_canvas` → 不移植：Tk 專屬：pack 順序（捲軸先於 canvas）；Rust 的捲動區是 `egui::ScrollArea`，滾輪與內容寬度由 egui 處理
+- `test_wheel_does_nothing_when_content_fits` → 不移植：Tk 專屬：Canvas 的滾輪處理（內容未溢出時不捲）；Rust 的捲動區是 `egui::ScrollArea`，滾輪與內容寬度由 egui 處理
+- `test_wheel_scrolls_when_content_overflows` → 不移植：Tk 專屬：Canvas 的滾輪處理（內容溢出時捲動）；Rust 的捲動區是 `egui::ScrollArea`，滾輪與內容寬度由 egui 處理
+- `test_inner_width_follows_canvas` → 不移植：Tk 專屬：內層 frame 要手動跟著 canvas 寬度；Rust 的捲動區是 `egui::ScrollArea`，滾輪與內容寬度由 egui 處理
+- `test_settings_button_row_is_packed_before_the_notebook` → `tests/settings_window.rs::the_footer_stays_visible_in_a_small_window`（pack 順序是 Tk 機制，改守其使用者可見結果：視窗變矮時按鈕列仍在視窗內）
+- `test_wizard_nav_is_packed_before_the_body` → `tests/wizard.rs::wizard_nav_is_packed_before_the_body`（新補；改守使用者可見結果：內容比視窗高時，上一步／下一步仍在視窗內）
+- `test_overlay_error_banner_is_packed_before_the_scroll_area` → `src/ui/app.rs::error_banner_not_squeezed_by_list`（改守使用者可見結果：橫幅不被訊息列表擠掉）
+- `test_overlay_title_is_packed_after_the_bar_controls` → `src/ui/overlay/frame.rs::title_buttons_never_clipped_by_long_name`（改守使用者可見結果：標題再長也不會把 ✕／⚙／─ 擠出視窗）
+- `test_secret_entry_reveal_button_is_packed_before_the_entry` → `tests/settings_widgets.rs::the_secret_eye_stays_inside_the_field_and_flips_its_icon`（改守使用者可見結果：顯示金鑰的眼睛按鈕留在欄位內）
+
+## tests/ui/settings/test_service_form.py
+
+- `test_new_form_starts_from_the_providers_defaults` → `tests/service_form.rs::new_form_starts_from_the_providers_defaults`
+- `test_editing_keeps_the_id` → `tests/service_form.rs::editing_keeps_the_id`
+- `test_values_only_carry_the_fields_that_provider_has` → `tests/service_form.rs::values_only_carry_the_fields_that_provider_has`
+- `test_api_values_drop_the_bookkeeping_fields` → `tests/service_form.rs::api_values_drop_the_bookkeeping_fields`
+- `test_switching_provider_rewrites_an_untouched_name` → `tests/service_form.rs::switching_provider_rewrites_an_untouched_name`
+- `test_switching_provider_keeps_a_name_the_user_typed` → `tests/service_form.rs::switching_provider_keeps_a_name_the_user_typed`
+- `test_switching_provider_rewrites_a_suffixed_untouched_name` → `tests/service_form.rs::switching_provider_rewrites_a_suffixed_untouched_name`
+- `test_a_blank_name_falls_back_to_the_provider_short_name` → `tests/service_form.rs::a_blank_name_falls_back_to_the_provider_short_name`
+- `test_switching_provider_dedupes_the_new_name_in_the_field` → `tests/service_form.rs::switching_provider_dedupes_the_new_name_in_the_field`
+- `test_switching_provider_to_a_free_short_name_has_no_suffix` → `tests/service_form.rs::switching_provider_to_a_free_short_name_has_no_suffix`
+- `test_editing_a_service_switching_away_and_back_keeps_its_bare_name` → `tests/service_form.rs::editing_a_service_switching_away_and_back_keeps_its_bare_name`
+- `test_switching_provider_keeps_a_typed_name_even_with_a_collision` → `tests/service_form.rs::switching_provider_keeps_a_typed_name_even_with_a_collision`
+- `test_blank_name_falls_back_to_the_deduped_short_name` → `tests/service_form.rs::blank_name_falls_back_to_the_deduped_short_name`
+- `test_switching_provider_does_not_carry_values_across` → `tests/service_form.rs::switching_provider_does_not_carry_values_across`
+- `test_claude_keeps_its_effort_choice` → `tests/service_form.rs::claude_keeps_its_effort_choice`
+- `test_switching_provider_takes_the_new_providers_effort_default` → `tests/service_form.rs::switching_provider_takes_the_new_providers_effort_default`
+- `test_switching_provider_clears_the_test_result` → `tests/service_form.rs::switching_provider_clears_the_test_result`
+- `test_claude_shows_thinking_depth_instead_of_a_toggle` → `tests/service_form.rs::claude_shows_thinking_depth_instead_of_a_toggle`
+- `test_the_other_providers_keep_the_thinking_toggle` → `tests/service_form.rs::the_other_providers_keep_the_thinking_toggle`
+- `test_the_effort_dropdown_shows_the_saved_choice` → `tests/service_form.rs::the_effort_dropdown_shows_the_saved_choice`
+- `test_choosing_an_effort_stores_its_code` → `tests/service_form.rs::choosing_an_effort_stores_its_code`
+- `test_switching_provider_clears_the_fetched_model_list` → `tests/service_form.rs::switching_provider_clears_the_fetched_model_list`
+- `test_a_successful_test_shows_the_sample_translation` → `tests/service_form.rs::a_successful_test_shows_time_source_and_translation`（第 4 段經使用者核可的重新設計：成功訊息改為顯示耗時秒數，並分列原文與譯文）
+- `test_a_failed_test_shows_the_friendly_error` → `tests/service_form.rs::a_failed_test_shows_the_friendly_error`
+- `test_the_test_target_language_defaults_to_the_ui_language` → `tests/wizard.rs::the_test_translates_into_the_interface_language`, `tests/service_form.rs::test_connection_sends_the_form_values_and_target`
+- `test_the_provider_row_shows_the_current_provider` → `tests/service_form.rs::the_provider_row_shows_the_current_provider`
+- `test_the_change_button_switches_the_provider` → `tests/service_form.rs::the_change_button_asks_the_owner_to_pick_a_provider`, `tests/service_list.rs::picking_from_the_form_switches_its_provider_and_keeps_it_modal`
+- `test_cancelling_the_provider_pick_changes_nothing` → `tests/service_list.rs::cancelling_the_provider_pick_changes_nothing`（新補）
+- `test_editing_a_field_notifies_the_owner` → `tests/service_form.rs::editing_a_field_notifies_the_owner`
+- `test_rebuilding_the_fields_notifies_once` → `tests/service_form.rs::switching_provider_notifies_once`
+- `test_test_connection_also_generates_examples` → `tests/translator.rs::test_translate_generates_and_stores_examples`（`test_translate` 帶 `ExampleStore` 時會生成並存範例；`RealEnv::test_connection` 傳入該 store 的那一行接線需要真實網路與檔案，沒有自動測試）
+
+## tests/ui/settings/test_service_list.py
+
+- `test_values_round_trip_unchanged` → `tests/service_list.rs::values_round_trip_unchanged`
+- `test_cards_are_listed_in_order_with_the_default_badged` → `tests/service_list.rs::cards_are_listed_in_order_with_the_default_badged`
+- `test_a_card_with_no_role_shows_its_name_alone` → `tests/service_list.rs::a_card_with_no_role_shows_its_name_alone`
+- `test_the_default_badge_comes_before_the_slot_badges` → `tests/service_list.rs::the_default_badge_comes_before_the_slot_badges`
+- `test_several_slots_on_one_service_are_badged_in_slot_order` → `tests/service_list.rs::several_slots_on_one_service_are_badged_in_slot_order`
+- `test_deleting_the_default_hands_it_to_the_first_remaining` → `tests/service_list.rs::deleting_the_default_hands_it_to_the_first_remaining`
+- `test_cancelling_delete_changes_nothing` → `tests/service_list.rs::deleting_needs_confirmation_and_cancel_changes_nothing`
+- `test_deleting_an_assigned_service_frees_that_slot` → `tests/service_list.rs::deleting_an_assigned_service_frees_that_slot`
+- `test_the_last_service_cannot_be_deleted` → `tests/service_list.rs::the_last_service_cannot_be_deleted`
+- `test_adding_to_an_empty_list_makes_it_the_default` → `tests/service_list.rs::adding_to_an_empty_list_makes_it_the_default`
+- `test_a_saved_name_never_collides` → `tests/service_list.rs::a_saved_name_never_collides`
+- `test_slots_collapsed_when_everything_follows_the_default` → `tests/service_list.rs::slots_collapsed_when_everything_follows_the_default`
+- `test_slots_expanded_when_one_is_assigned` → `tests/service_list.rs::slots_expanded_when_one_is_assigned`
+- `test_slot_options_start_with_follow_the_default` → `tests/service_list.rs::slot_options_start_with_follow_the_default`
+- `test_dialog_ok_keeps_result_none_when_invalid` → `tests/service_list.rs::dialog_ok_keeps_the_dialog_open_when_invalid`
+- `test_dialog_ok_saves_full_service_when_valid` → `tests/service_list.rs::dialog_ok_saves_the_full_service_when_valid`
+- `test_dialog_cancel_leaves_result_none` → `tests/service_list.rs::dialog_cancel_changes_nothing`
+- `test_dialog_geometry_carries_a_position` → 不移植：Tk 專屬：測試用的視窗停放 fixture 只改寫帶 `+x+y` 的 geometry 字串；Rust 的服務對話框是設定視窗內的 egui 對話層，沒有獨立視窗位置
+- `test_dialog_grabs_input_and_releases_it_on_close` → `tests/service_list.rs::an_open_dialog_blocks_the_pane_behind_it`, `tests/service_list.rs::clicking_the_scrim_does_not_close_the_dialog`
+- `test_add_service_opens_nothing_when_the_pick_is_cancelled` → `tests/service_list.rs::add_service_opens_nothing_when_the_pick_is_cancelled`
+- `test_add_service_drafts_the_picked_provider` → `tests/service_list.rs::add_service_drafts_the_picked_provider`
+- `test_assigning_a_slot_rebadges_the_cards` → `tests/service_list.rs::assigning_a_slot_rebadges_the_cards`
+- `test_a_long_name_does_not_squeeze_the_card_buttons` → `tests/service_list.rs::a_long_name_does_not_squeeze_the_card_buttons`
+- `test_dialog_escape_is_wired_to_cancel` → `tests/service_list.rs::dialog_escape_cancels`
+- `test_the_last_service_says_why_delete_is_greyed_out` → `tests/service_list.rs::the_last_service_says_why_delete_is_greyed_out`
+- `test_the_keep_one_hint_goes_away_once_there_are_two` → `tests/service_list.rs::the_keep_one_hint_goes_away_once_there_are_two`
+- `test_deleting_an_assigned_service_says_its_slots_fall_back` → `tests/service_list.rs::deleting_an_assigned_service_says_its_slots_fall_back`
+- `test_deleting_an_unassigned_service_keeps_the_plain_question` → `tests/service_list.rs::deleting_an_unassigned_service_keeps_the_plain_question`
+- `test_every_provider_ships_an_icon` → `tests/service_list.rs::every_provider_ships_an_icon`
+- `test_each_card_shows_its_providers_icon` → `tests/service_list.rs::each_card_shows_its_providers_icon`
+- `test_the_card_icon_is_centred_against_the_whole_card` → `tests/service_list.rs::each_card_shows_its_providers_icon`
+- `test_a_card_without_its_icon_file_still_renders` → `tests/service_list.rs::a_card_without_its_icon_still_renders`
+- `test_the_service_dialog_takes_the_foreground_when_shown` → 不移植：第 4 段經使用者核可的重新設計：服務對話框是設定視窗內的 egui 對話層，不是另一個作業系統視窗，沒有「新視窗不被啟用」的問題；宿主視窗搶前景由 `tests/settings_host.rs::the_settings_window_takes_the_foreground_when_shown` 守住
+
+## tests/ui/settings/test_window.py
+
+- `test_clamp_advanced_limits_ranges` → `tests/config_services.rs::parse_advanced_clamps_valid_numeric_input`, `tests/config_golden.rs::load_matches_python`
+- `test_clamp_advanced_passes_valid_values` → `tests/config_services.rs::parse_advanced_passes_valid_values_through`
+- `test_overlay_set_limits_trims_messages` → `src/ui/app.rs::limits_trim_messages_and_fading_wakes_at_the_next_expiry`, `src/ui/overlay/model.rs::max_messages_drops_oldest`
+- `test_overlay_set_alpha_applies_to_backdrop_and_bubble` → `src/ui/overlay/frame.rs::set_alpha_applies_immediately`, `src/ui/overlay/bubble.rs::bubble_alpha_floor`（泡泡比主視窗再透一成由 `bubble_alpha_floor` 守住；Rust 是單層視窗，沒有 backdrop 與文字層之分，「文字層維持不透明」無從斷言）
+- `test_bubble_alpha_stops_at_the_floor` → `src/ui/overlay/bubble.rs::bubble_alpha_floor`
+- `test_overlay_backdrop_follows_geometry` → 不移植：Tk 專屬：雙層視窗（底板 backdrop 與文字層）要各自同步位置與大小；Rust 的 overlay 只有一個視窗
+- `test_parse_advanced_values_returns_error_on_non_numeric_input` → `tests/config_services.rs::parse_advanced_rejects_non_numbers_and_non_finite`, `tests/settings_window.rs::a_non_number_advanced_value_blocks_the_save`
+- `test_parse_advanced_values_clamps_valid_numeric_input` → `tests/config_services.rs::parse_advanced_clamps_valid_numeric_input`
+- `test_parse_advanced_values_clamps_parallel` → `tests/config_services.rs::parse_advanced_clamps_parallel`
+- `test_parse_advanced_values_returns_error_key` → `tests/config_services.rs::parse_advanced_rejects_non_numbers_and_non_finite`
+- `test_save_applies_ui_language` → `tests/settings_language.rs::save_keeps_the_previewed_language`, `tests/settings_host.rs::gear_opens_settings_and_save_applies_to_the_overlay`
+- `test_save_stores_the_system_message_toggle` → `tests/settings_window.rs::save_stores_the_system_message_toggle`
+- `test_reopening_settings_reflects_the_saved_toggle` → `tests/settings_window.rs::reopening_settings_reflects_the_saved_toggle`
+- `test_the_services_tab_sits_between_basic_and_advanced` → `tests/settings_window.rs::the_services_tab_sits_between_basic_and_advanced`
+- `test_save_writes_the_edited_service_list_into_cfg` → `tests/settings_window.rs::save_writes_the_edited_service_list_into_cfg`
+- `test_save_refuses_an_incomplete_default_service` → `tests/settings_window.rs::save_refuses_an_incomplete_default_service`
+- `test_both_language_fields_come_before_the_hotkeys` → `tests/settings_window.rs::both_language_fields_come_before_the_hotkeys`
+- `test_service_summary_row_sits_between_target_language_and_hotkey_label` → `tests/settings_window.rs::service_summary_row_sits_between_target_language_and_hotkey_label`
+- `test_manage_button_selects_the_services_tab` → `tests/settings_window.rs::manage_button_switches_to_the_services_page`
+- `test_service_summary_shows_the_draft_default_service_name` → `tests/settings_window.rs::service_summary_shows_the_draft_default_service_name`
+- `test_service_summary_refreshes_when_the_default_changes_and_tabs_switch` → `tests/settings_window.rs::service_summary_refreshes_when_the_default_changes`
+- `test_changing_ui_language_previews_it_without_touching_config` → `tests/settings_language.rs::changing_ui_language_previews_it_without_touching_config`
+- `test_language_preview_flushes_the_overlay_repaint_before_rebuilding` → 不移植：Tk 專屬：換語言要先 `root.update()` 讓 overlay 重繪，再重建設定視窗，否則舊語言多出的字會殘留約 0.3 秒；Rust 的視窗不重建，egui 每幀整個重畫，沒有殘影。overlay 隨語言重貼標籤由 `tests/overlay_relabel.rs::status_key_relabels_on_language_change` 守住
+- `test_language_preview_keeps_unsaved_edits` → `tests/settings_language.rs::language_preview_keeps_unsaved_edits`, `tests/settings_language.rs::language_preview_keeps_the_draft_and_cancel_reverts`（`language_preview_keeps_unsaved_edits` 新補，涵蓋框選熱鍵與自動開輸入框開關）
+- `test_language_preview_keeps_the_current_tab` → `tests/settings_language.rs::language_preview_keeps_the_draft_and_cancel_reverts`（換語言後仍在原頁；Rust 的介面語言下拉只在基本頁，視窗不重建，頁面狀態原樣保留）
+- `test_cancel_restores_the_previewed_language` → `tests/settings_language.rs::language_preview_keeps_the_draft_and_cancel_reverts`, `tests/settings_language.rs::cancel_through_the_window_close_reverts_too`
+- `test_save_keeps_the_previewed_language` → `tests/settings_language.rs::save_keeps_the_previewed_language`
+- `test_about_tab_shows_version_and_links` → `tests/settings_window.rs::about_tab_shows_version_and_links`
+- `test_about_tab_shows_the_log_folder` → `tests/settings_window.rs::about_tab_shows_the_log_folder`
+- `test_manual_check_reports_up_to_date` → `tests/settings_window.rs::manual_check_reports_up_to_date`
+- `test_manual_check_hands_a_new_version_to_on_update_found` → `tests/settings_window.rs::manual_check_hands_a_new_version_to_update_found`
+- `test_manual_check_keeps_on_update_found_quiet_when_up_to_date` → `tests/settings_window.rs::manual_check_keeps_update_found_quiet_when_up_to_date`
+- `test_manual_check_reports_a_new_version` → `tests/settings_window.rs::manual_check_reports_a_new_version`
+- `test_manual_check_reports_failure` → `tests/settings_window.rs::manual_check_reports_failure`
+- `test_check_button_runs_the_real_thread_and_poll_path` → `tests/settings_window.rs::checking_disables_the_button_until_the_result`, `tests/settings_host.rs::settings_events_reach_the_open_window`（結果經 `UiEvent` 回 UI 執行緒，沒有 Python 的執行緒與 `poll_queue`）
+- `test_update_result_is_only_clickable_over_its_text` → `tests/settings_window.rs::update_result_is_only_clickable_over_its_text`
+- `test_about_tab_hides_the_cache_row_without_a_cache` → `tests/settings_window.rs::about_tab_hides_the_cache_row_without_a_cache`
+- `test_clear_cache_button_clears_and_reports_the_count` → `tests/settings_window.rs::clear_cache_button_clears_and_reports_the_count`
+- `test_clear_cache_reports_zero_when_the_cache_was_already_empty` → `tests/settings_window.rs::clear_cache_reports_zero_when_the_cache_was_already_empty`
+- `test_translators_row_follows_the_ui_language_field` → `tests/settings_window.rs::translators_row_follows_the_ui_language_field`
+- `test_help_translate_link_opens_crowdin` → `tests/settings_window.rs::help_translate_link_opens_crowdin`
+- `test_about_tab_shows_the_translators` → `tests/settings_window.rs::about_tab_shows_the_translators`
+- `test_about_tab_links_to_crowdin` → `tests/settings_window.rs::about_tab_shows_version_and_links`, `tests/settings_window.rs::about_tab_shows_the_translators`（Crowdin 連結在關於頁、排在譯者之後、回報問題之前）
+- `test_translators_rows_are_hidden_when_the_language_credits_nobody` → `tests/settings_language.rs::translators_rows_are_hidden_when_the_language_credits_nobody`
+- `test_translators_follow_the_previewed_language` → `tests/settings_language.rs::translators_follow_the_previewed_language`
+- `test_settings_window_does_not_stay_on_top` → `tests/settings_host.rs::settings_window_does_not_stay_on_top`
+- `test_releasing_topmost_survives_a_window_closed_in_the_meantime` → `tests/settings_host.rs::releasing_topmost_survives_a_window_closed_in_the_meantime`
+- `test_paste_hotkey_defaults_on_and_saves_from_the_settings_toggle` → `tests/settings_window.rs::paste_hotkey_defaults_on_and_saves_from_the_settings_toggle`
+- `test_save_stores_the_region_hotkey` → `tests/settings_window.rs::save_stores_the_region_hotkey`
+- `test_save_rejects_identical_hotkeys` → `tests/settings_window.rs::save_rejects_identical_hotkeys`
+- `test_language_preview_keeps_a_half_added_service` → `tests/settings_language.rs::language_preview_keeps_a_half_added_service`
+- `test_save_refuses_a_service_a_slot_points_at` → `tests/settings_window.rs::save_refuses_a_service_a_slot_points_at`
+- `test_save_lists_a_shared_services_problem_only_once` → `tests/settings_window.rs::save_lists_a_shared_services_problem_only_once`
+- `test_the_basic_tab_labels_the_service_row_with_the_default_service` → `tests/settings_window.rs::the_basic_tab_labels_the_service_row_with_the_default_service`
+- `test_the_settings_window_takes_the_foreground_when_shown` → `tests/settings_host.rs::the_settings_window_takes_the_foreground_when_shown`
+
+## tests/ui/settings/test_wizard.py
+
+- `test_step_api_requires_valid_form` → `tests/wizard.rs::step_service_requires_valid_form`
+- `test_step_api_requires_passed_or_skipped_test` → `tests/wizard.rs::step_service_requires_passed_or_skipped_test`
+- `test_step_prefs_always_advances` → `tests/wizard.rs::step_prefs_always_advances`
+- `test_can_advance_allows_language_step` → `tests/wizard.rs::can_advance_allows_language_step`
+- `test_language_change_marks_restart_and_applies_language` → `tests/wizard_language.rs::language_change_relabels_the_same_wizard`（Rust 的精靈就地換語言、不重建視窗，沒有 `restart` 旗標；換語言立即套用，完成時寫入的設定帶新語言）
+- `test_language_change_updates_untouched_target_language` → `tests/wizard_language.rs::language_change_updates_untouched_target_language`
+- `test_language_change_keeps_customised_target_language` → `tests/wizard_language.rs::language_change_keeps_customised_target_language`
+- `test_language_change_keeps_the_half_filled_service` → `tests/wizard_language.rs::language_change_keeps_the_half_filled_service`
+- `test_language_change_retitles_an_untouched_service` → `tests/wizard_language.rs::language_change_retitles_an_untouched_service`
+- `test_language_change_retitles_a_suffixed_untouched_service` → `tests/wizard_language.rs::language_change_retitles_a_suffixed_untouched_service`
+- `test_language_change_only_retitles_the_service_being_edited` → `tests/wizard_language.rs::language_change_only_retitles_the_service_being_edited`
+- `test_language_change_keeps_a_service_name_the_user_typed` → `tests/wizard_language.rs::language_change_keeps_a_service_name_the_user_typed`
+- `test_language_change_from_en_bootstrap_follows_to_zh_cn` → `tests/wizard_language.rs::language_change_from_en_bootstrap_follows_to_zh_cn`
+- `test_bootstrap_language_first_run_no_config_file` → `tests/config_golden.rs::bootstrap_matches_python`
+- `test_bootstrap_language_upgrading_user_keeps_target_language` → `tests/config_golden.rs::bootstrap_matches_python`
+- `test_bootstrap_language_returning_user_uses_saved_language` → `tests/config_golden.rs::bootstrap_matches_python`
+- `test_language_step_shows_the_translators` → `tests/wizard.rs::language_step_shows_the_translators`
+- `test_language_step_without_translators_shows_no_row` → `tests/wizard_language.rs::translators_follow_the_language`
+- `test_language_step_links_to_crowdin_even_without_translators` → `tests/wizard_language.rs::translators_follow_the_language`, `tests/wizard.rs::language_step_links_to_crowdin`
+- `test_finishing_the_wizard_keeps_the_other_services` → `tests/wizard.rs::finishing_the_wizard_keeps_the_other_services`
+- `test_finish_dedupes_a_name_typed_to_match_another_service` → `tests/wizard.rs::finish_dedupes_a_name_typed_to_match_another_service`
+- `test_finish_does_not_collide_a_service_with_itself` → `tests/wizard_language.rs::finish_does_not_collide_a_service_with_itself`
+- `test_finish_stores_the_region_hotkey` → `tests/wizard.rs::finish_stores_the_preferences`
+- `test_finish_rejects_identical_hotkeys` → `tests/wizard.rs::finish_rejects_identical_hotkeys`
+- `test_language_change_does_not_let_the_rename_collide` → `tests/wizard_language.rs::language_change_does_not_let_the_rename_collide`
+- `test_switching_provider_in_the_wizard_dedupes_against_cfg_services` → `tests/wizard.rs::switching_provider_in_the_wizard_dedupes_against_cfg_services`
+- `test_step_api_asks_for_a_provider_before_the_form` → `tests/wizard.rs::step_service_asks_for_a_provider_before_the_form`
+- `test_picking_a_provider_replaces_the_cards_with_the_form` → `tests/wizard.rs::picking_a_provider_replaces_the_cards_with_the_form`
+- `test_an_existing_service_skips_the_cards` → `tests/wizard.rs::an_existing_service_skips_the_cards`
+- `test_language_change_while_picking_rebuilds_into_the_cards` → `tests/wizard_language.rs::language_change_while_picking_stays_on_the_cards`
+- `test_language_change_after_picking_rebuilds_into_the_form` → `tests/wizard_language.rs::language_change_after_picking_keeps_the_form`
+- `test_the_form_instructions_wait_until_the_form_exists` → `tests/wizard.rs::the_form_instructions_wait_until_the_form_exists`
+- `test_the_form_step_explains_what_to_do_with_the_form` → `tests/wizard.rs::the_form_step_explains_what_to_do_with_the_form`
+- `test_clearing_a_field_after_skipping_the_test_blocks_the_next_button` → `tests/wizard.rs::clearing_a_field_after_skipping_the_test_blocks_the_next_button`
+- `test_editing_a_field_cancels_an_earlier_skip` → `tests/wizard.rs::editing_a_field_cancels_an_earlier_skip`
+- `test_completing_the_fields_after_an_early_skip_recomputes_the_nav` → `tests/wizard.rs::completing_the_fields_after_an_early_skip_recomputes_the_nav`
+- `test_the_skip_test_link_is_keyboard_activatable` → `tests/wizard.rs::the_skip_test_link_is_keyboard_activatable`
+- `test_the_wizard_takes_the_foreground_when_shown` → `tests/settings_host.rs::the_wizard_takes_the_foreground_when_shown`

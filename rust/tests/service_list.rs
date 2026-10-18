@@ -780,6 +780,33 @@ fn escape_cancels_the_provider_pick() {
 }
 
 #[test]
+fn the_cancel_button_closes_the_picker() {
+    // 重新設計後選擇框以標題列的關閉鈕取消，沒有獨立的取消鈕
+    let (d, _a, _b) = two();
+    let mut h = harness(d.clone());
+    h.get_by_label(&tr("button.add_service")).click();
+    run(&mut h);
+    click_in_dialog(&mut h, &tr("service.pick_provider"), &tr("tooltip.close"));
+    assert!(!has_dialog(&h, &tr("service.pick_provider")));
+    assert!(!has_dialog(&h, &tr("service.dialog_title")));
+    assert_eq!(h.state().pane.draft(), &d);
+}
+
+#[test]
+fn cancelling_the_provider_pick_changes_nothing() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d.clone());
+    click_card(&mut h, &tr("button.edit"), 0);
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.change"));
+    press(&mut h, Key::Escape);
+    assert!(!has_dialog(&h, &tr("service.pick_provider")));
+    assert!(has_dialog(&h, &tr("service.dialog_title")));
+    assert!(!has_label(&h, &tr("field.base_url")));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    assert_eq!(h.state().pane.draft(), &d);
+}
+
+#[test]
 fn add_service_drafts_the_picked_provider() {
     let (d, _a, _b) = two();
     let mut h = harness(d);

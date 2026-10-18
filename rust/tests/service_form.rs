@@ -672,6 +672,23 @@ fn model_field_error_uses_friendly_message() {
 }
 
 #[test]
+fn refresh_result_reports_failures_for_providers_without_base_url() {
+    // 回歸：openai／claude 沒有 base_url，失敗結果仍要顯示出來，按鈕也不能卡在載入中
+    let mut h = harness(form(filled("openai"), vec![]));
+    let error = TranslateError::Config {
+        status: Some(401),
+        detail: "Incorrect API key".into(),
+    };
+    refresh_models(&mut h, Err(error));
+    let expected = t(
+        "error.api_response",
+        &[("status", "401"), ("message", "Incorrect API key")],
+    );
+    assert!(painted_texts(&h).concat().contains(&expected));
+    assert!(button_enabled(&h, &tr("button.refresh")));
+}
+
+#[test]
 fn model_field_error_makes_urls_clickable() {
     let mut h = harness(form(filled("openai"), vec![]));
     let error = TranslateError::Config {

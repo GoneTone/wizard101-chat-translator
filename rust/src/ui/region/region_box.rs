@@ -327,4 +327,29 @@ mod tests {
         assert_eq!(handle.center(), origin + nw);
         assert_eq!(handle.size(), vec2(HANDLE as f32, HANDLE as f32) / 2.0);
     }
+
+    #[test]
+    fn only_the_line_and_the_handles_are_painted() {
+        use eframe::egui::Shape;
+        use egui_kittest::Harness;
+
+        let b = RegionBox::new(RECT);
+        let mut h = Harness::builder().build_ui(move |ui| b.paint(ui));
+        h.step();
+        let colours: Vec<_> = h
+            .output()
+            .shapes
+            .iter()
+            // 第一個是 harness 自己的面板底色
+            .skip(1)
+            .filter_map(|c| match &c.shape {
+                Shape::Rect(r) if r.stroke.width > 0.0 => Some(r.stroke.color),
+                Shape::Rect(r) => Some(r.fill),
+                _ => None,
+            })
+            .collect();
+        // 1 條框線 + 8 個把手，沒有暗色外圈、把手也沒有暗色邊
+        assert_eq!(colours.len(), 9);
+        assert!(colours.iter().all(|c| *c == FG_UPDATE));
+    }
 }

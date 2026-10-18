@@ -134,6 +134,17 @@ fn the_step_bar_names_all_three_steps() {
 }
 
 #[test]
+fn wizard_nav_is_packed_before_the_body() {
+    // 內容比視窗高的第二步，導覽鈕仍停在視窗底部，內容區才是捲動的那塊
+    let h = with_a_filled_form();
+    let window = theme::WIZARD_SIZE;
+    for key in ["button.back", "button.next"] {
+        let button = h.get_by_role_and_label(Role::Button, &tr(key)).rect();
+        assert!(button.bottom() <= window.y, "{key}: {button:?}");
+    }
+}
+
+#[test]
 fn the_step_bar_fits_the_wizard_width() {
     // 英文的步驟名稱最長：三步加連接線仍要擠得進預設寬度
     let h = open(blank_cfg());

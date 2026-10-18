@@ -987,6 +987,18 @@ mod tests {
     }
 
     #[test]
+    fn the_card_leaves_room_for_the_box_handles_below_the_rect() {
+        use crate::ui::region::region_box::{HANDLE, MARGIN};
+        const { assert!(ANCHOR_GAP >= MARGIN + HANDLE / 2) };
+    }
+
+    #[test]
+    fn side_minimum_width_is_wider_than_the_rect_minimum() {
+        // 側邊卡片與矩形不同寬，太窄會變成一長條；蓋到矩形一部分無妨
+        const { assert!(SIDE_MIN_WIDTH > MIN_WIDTH) };
+    }
+
+    #[test]
     fn card_flips_above_when_no_room_below() {
         let placed = place((300, 900, 400, 120), 400, 200, 400, AREA, None);
         assert_eq!(
