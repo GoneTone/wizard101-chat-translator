@@ -24,6 +24,7 @@ use windows_sys::Win32::System::Threading::{
     AttachThreadInput, GetCurrentProcessId, GetCurrentThreadId,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows_sys::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_REMOVE, RegisterRawInputDevices};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumThreadWindows, GW_OWNER, GWL_EXSTYLE, GWLP_HWNDPARENT, GetCursorPos, GetForegroundWindow,
@@ -39,6 +40,40 @@ pub use crate::reader::process::foreground_window;
 use crate::ui::palette;
 
 pub use crate::ui::geometry::Rect;
+
+/// HID usage page「Generic Desktop」與其中的鍵盤 usage。
+const HID_USAGE_PAGE_GENERIC: u16 = 0x01;
+const HID_USAGE_GENERIC_KEYBOARD: u16 = 0x06;
+
+/// 取消本程序的鍵盤 raw input 註冊（`RIDEV_REMOVE` 必須搭配空的目標視窗）。
+fn raw_keyboard_removal() -> RAWINPUTDEVICE {
+    RAWINPUTDEVICE {
+        usUsagePage: HID_USAGE_PAGE_GENERIC,
+        usUsage: HID_USAGE_GENERIC_KEYBOARD,
+        dwFlags: RIDEV_REMOVE,
+        hwndTarget: std::ptr::null_mut(),
+    }
+}
+
+/// 取消 winit 建立事件迴圈時註冊的鍵盤 raw input，滑鼠的保留；要在事件迴圈建立之後呼叫。
+///
+/// 註冊了鍵盤 raw input 時，本程序的視窗在前景期間 Windows 不呼叫我們的 `WH_KEYBOARD_LL` hook（錄熱鍵收不到鍵）。
+/// winit 的鍵盤事件來自 `WM_KEYDOWN` 等一般訊息，raw input 只餵 `DeviceEvent::Key`，egui 用不到。
+pub fn stop_raw_keyboard_input() {
+    let device = raw_keyboard_removal();
+    let size = std::mem::size_of::<RAWINPUTDEVICE>() as u32;
+    // SAFETY：傳入一個區域變數的 RAWINPUTDEVICE，數量與大小相符。
+    if unsafe { RegisterRawInputDevices(&device, 1, size) } != 0 {
+        log(
+            "[ui] raw keyboard input unregistered so the keyboard hook keeps receiving keys while our windows are focused",
+        );
+    } else {
+        log(format!(
+            "[ui] could not unregister raw keyboard input; the keyboard hook may miss keys while our windows are focused: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+}
 
 /// 視窗的 HWND；不是 Win32 視窗或取不到時回 0。
 pub fn hwnd_of(window: &impl HasWindowHandle) -> isize {
@@ -501,6 +536,17 @@ pub fn pick_new_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_keyboard_removal_targets_only_the_keyboard() {
+        let device = raw_keyboard_removal();
+        assert_eq!((device.usUsagePage, device.usUsage), (0x01, 0x06));
+        assert_eq!(device.dwFlags, RIDEV_REMOVE);
+        assert!(
+            device.hwndTarget.is_null(),
+            "RIDEV_REMOVE needs a null target"
+        );
+    }
 
     #[test]
     fn is_winit_class_matches_only_the_winit_class_name() {

@@ -792,6 +792,8 @@ pub fn run<A: eframe::App + 'static>(
                     info.backend, info.name, info.device_type
                 ));
             }
+            // 事件迴圈此時已建立（winit 建立時註冊了 raw input），每次啟動（含 WARP 重試、精靈）都經過這裡
+            win32::stop_raw_keyboard_input();
             fonts_egui::install(&cc.egui_ctx, &current_language());
             Ok(Box::new(build(&cc.egui_ctx)))
         }),
