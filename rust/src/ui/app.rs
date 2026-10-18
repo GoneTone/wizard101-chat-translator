@@ -524,11 +524,11 @@ impl App {
             self.settings_action(ctx, action);
         }
         let known = self.viewport_hwnds();
-        let action = self
-            .first_run
-            .as_mut()
-            .and_then(|w| w.host.show(ctx, &known));
-        if let Some(action) = action {
+        let actions = match &mut self.first_run {
+            Some(first_run) => first_run.host.show(ctx, &known),
+            None => Vec::new(),
+        };
+        for action in actions {
             self.wizard_action(ctx, action);
         }
     }

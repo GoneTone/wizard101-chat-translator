@@ -183,13 +183,16 @@ impl HostedWindow {
         }
     }
 
-    /// 每幀呼叫：畫出視窗（`content` 另收到這一幀有沒有關閉要求），找 HWND 時略過 `known`。
-    fn show<T>(
+    /// 每幀呼叫：畫出視窗（`content` 另收到這一幀有沒有關閉要求），找 HWND 時略過 `known`；回傳這一幀各 pass 的結果。
+    ///
+    /// 版面重排（`request_discard`）時 `content` 在同一幀跑不只一次，只有第一次收得到輸入，
+    /// 所以每次回傳的動作都要收下，不能只留最後一次的。
+    fn show<A>(
         &mut self,
         ctx: &egui::Context,
         known: &[isize],
-        mut content: impl FnMut(&mut Ui, bool) -> T,
-    ) -> T {
+        mut content: impl FnMut(&mut Ui, bool) -> Vec<A>,
+    ) -> Vec<A> {
         // 以幀而不是 pass 計：同一幀內 discard 重跑的 pass 不算「下一幀」
         let frame = ctx.cumulative_frame_nr();
         let creating = self.created.is_none();
@@ -211,19 +214,22 @@ impl HostedWindow {
             Vec::new()
         };
         let builder = self.builder(creating, &title);
-        let (out, closing) = ctx.show_viewport_immediate(self.id(), builder, |ui, _| {
-            let closing = ui.input(|i| i.viewport().close_requested());
+        let mut out = Vec::new();
+        let mut closing = false;
+        ctx.show_viewport_immediate(self.id(), builder, |ui, _| {
+            let close_requested = ui.input(|i| i.viewport().close_requested());
+            closing |= close_requested;
             // 這一幀就要關掉的視窗不再顯示、也不再改它
             if !closing {
-                for command in &commands {
-                    ui.ctx().send_viewport_cmd(command.clone());
+                for command in std::mem::take(&mut commands) {
+                    ui.ctx().send_viewport_cmd(command);
                 }
             }
             // 根視窗的 clear_color 是透明的，內容區要自己鋪滿底色
             ui.painter()
                 .rect_filled(ui.max_rect(), 0.0, theme::WINDOW_BG);
             theme::apply(ui.style_mut());
-            (content(ui, closing), closing)
+            out.extend(content(ui, close_requested));
         });
         self.created.get_or_insert(frame);
         if closing {
@@ -393,17 +399,101 @@ impl WizardHost {
     }
 
     /// 每幀呼叫：開著就畫出精靈，回傳這一幀要 App 做的事；✕、Alt+F4 當成取消。
-    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Option<WizardAction> {
-        let wizard = self.wizard.as_mut()?;
+    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Vec<WizardAction> {
+        let Some(wizard) = self.wizard.as_mut() else {
+            return Vec::new();
+        };
         let env = self.env.as_ref();
         self.win.show(ctx, known, |ui, closing| {
             let action = wizard.ui(ui, env);
             let done = matches!(action, Some(WizardAction::Finish(_) | WizardAction::Cancel));
             if closing && !done {
-                Some(wizard.cancel(env))
+                vec![wizard.cancel(env)]
             } else {
-                action
+                action.into_iter().collect()
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use eframe::egui::{Context, RawInput, ViewportEvent, ViewportInfo};
+
+    use super::*;
+
+    thread_local! {
+        static CLOSE_NEXT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    fn offscreen_ops() -> WindowOps {
+        WindowOps {
+            thread_windows: Vec::new,
+            find_new: |_, _, _| 0,
+            dark_caption: |_| {},
+            force_foreground: |_| true,
+            cursor_work_area: || ((0, 0, 1920, 1080), 1.0),
+        }
+    }
+
+    /// 同 eframe：immediate viewport 在自己的 `run_ui` 裡跑，`request_discard` 只重跑這個 viewport。
+    fn native_like_context() -> Context {
+        let ctx = Context::default();
+        ctx.set_embed_viewports(false);
+        Context::set_immediate_viewport_renderer(|ctx, mut viewport| {
+            let mut info = ViewportInfo::default();
+            if CLOSE_NEXT.take() {
+                info.events.push(ViewportEvent::Close);
+            }
+            let mut input = RawInput {
+                viewport_id: viewport.ids.this,
+                ..Default::default()
+            };
+            input.viewports.insert(viewport.ids.this, info);
+            ctx.run_ui(input, |ui| (viewport.viewport_ui_cb)(ui))
+                .textures_delta
+                .clear();
+        });
+        ctx
+    }
+
+    /// 跑一幀；`content` 第一個 pass 要求重排，回傳（pass 數，收到的動作，各 pass 收到的關閉要求）。
+    fn relaid_frame(close: bool) -> (usize, Vec<&'static str>, Vec<bool>) {
+        let ctx = native_like_context();
+        let mut win = HostedWindow::new(SETTINGS);
+        win.ops = offscreen_ops();
+        CLOSE_NEXT.set(close);
+        let mut closing = Vec::new();
+        let mut got = Vec::new();
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            got = win.show(ui.ctx(), &[], |ui, close| {
+                closing.push(close);
+                if closing.len() == 1 {
+                    // 換語言後版面變了：這一 pass 會被丟掉重跑，但它收到的點擊已經發生
+                    ui.ctx().request_discard("test relayout");
+                    vec!["picked in the first pass"]
+                } else {
+                    Vec::new()
+                }
+            });
+        });
+        output.textures_delta.clear();
+        (closing.len(), got, closing)
+    }
+
+    #[test]
+    fn actions_from_every_pass_of_a_discarded_frame_are_kept() {
+        let (passes, got, closing) = relaid_frame(false);
+        assert_eq!(passes, 2, "the frame was laid out twice");
+        assert_eq!(got, ["picked in the first pass"]);
+        assert_eq!(closing, [false, false]);
+    }
+
+    #[test]
+    fn a_close_request_reaches_only_the_pass_that_received_it() {
+        let (_, _, closing) = relaid_frame(true);
+        assert_eq!(closing, [true, false]);
     }
 }

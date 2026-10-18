@@ -1,6 +1,8 @@
 //! overlay 換介面語言後的重繪；本檔是唯一切換全域語言的 UI 測試，獨立成一個測試執行檔免得與其他測試互相干擾。
 
-use eframe::egui::{Event, Modifiers, PointerButton, Pos2, Shape, ViewportCommand, ViewportId};
+use eframe::egui::{
+    Event, FontFamily, Modifiers, PointerButton, Pos2, Shape, ViewportCommand, ViewportId,
+};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use wizard101_chat_translator::i18n::{self, t};
@@ -78,6 +80,22 @@ fn status_key_relabels_on_language_change() {
     );
     assert!(shows_text(&harness, "Copy"));
     assert!(!shows_text(&harness, &zh_copy));
+    assert_eq!(first_fonts(&harness), ["segoeui.ttf", "segoeuib.ttf"]);
+
+    i18n::set_language("zh-CN");
+    harness.state_mut().relabel(&ctx);
+    harness.step();
+    assert_eq!(first_fonts(&harness), ["msyh.ttc", "msyhbd.ttc"]);
+}
+
+/// 目前一般字族與粗體字族的第一個字型檔。
+fn first_fonts(harness: &Harness<App>) -> [String; 2] {
+    let families = harness.ctx.fonts(|f| f.definitions().families.clone());
+    [
+        FontFamily::Proportional,
+        FontFamily::Name(fonts_egui::BOLD.into()),
+    ]
+    .map(|family| families[&family][0].clone())
 }
 
 /// 懸停 ⛶ 超過提示延遲後讀出提示框文字，之後把游標移開。
