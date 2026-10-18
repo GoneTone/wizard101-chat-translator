@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align, CursorIcon, FontId, Label, Layout, RichText, Sense, UiBuilder, Vec2,
-    ViewportBuilder, ViewportCommand, ViewportId,
+    self, Align, FontId, Label, Layout, RichText, Sense, UiBuilder, Vec2, ViewportBuilder,
+    ViewportCommand, ViewportId,
 };
 
 use crate::config::py::truthy;
@@ -16,7 +16,7 @@ use crate::ui::events::UiEvent;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::Rect;
 use crate::ui::input_box::{BG, InputBox, open_rect, refit};
-use crate::ui::overlay::frame::BAR_HEIGHT;
+use crate::ui::overlay::frame::{BAR_HEIGHT, bar_button};
 use crate::ui::palette::{BAR, FG_BAR};
 use crate::ui::win32;
 use crate::util::read;
@@ -256,18 +256,11 @@ fn drag_strip(ui: &mut egui::Ui, bar: egui::Rect) -> bool {
     }
     let layout = Layout::right_to_left(Align::Center);
     ui.scope_builder(UiBuilder::new().max_rect(bar).layout(layout), |ui| {
-        ui.add_space(6.0);
-        let close = RichText::new("✕")
-            .font(FontId::proportional(tk_pt(9.0)))
-            .color(FG_BAR);
-        let close = ui
-            .add(Label::new(close).selectable(false).sense(Sense::click()))
-            .on_hover_cursor(CursorIcon::PointingHand)
-            .clicked();
+        let close = bar_button(ui, "✕", true, bar).clicked();
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
             ui.add_space(6.0);
             let title = RichText::new(app_name())
-                .font(FontId::proportional(tk_pt(8.0)))
+                .font(FontId::proportional(tk_pt(9.0)))
                 .color(FG_BAR);
             ui.add(Label::new(title).selectable(false).truncate());
         });
@@ -292,7 +285,34 @@ pub(crate) fn defer_for_release(
 
 #[cfg(test)]
 mod tests {
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
     use super::*;
+    use crate::ui::fonts_egui;
+
+    #[test]
+    fn drag_strip_close_is_a_bar_tall_square_that_closes() {
+        let mut harness = Harness::builder()
+            .with_size(Vec2::new(300.0, 100.0))
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+            .build_ui_state(
+                |ui, (bar, closed): &mut (egui::Rect, bool)| {
+                    let full = ui.max_rect();
+                    *bar = egui::Rect::from_min_size(full.min, Vec2::new(full.width(), BAR_HEIGHT));
+                    *closed |= drag_strip(ui, *bar);
+                },
+                (egui::Rect::NOTHING, false),
+            );
+        harness.step();
+        let bar = harness.state().0;
+        let close = harness.get_by_label("✕").rect();
+        assert_eq!(close.size(), Vec2::splat(BAR_HEIGHT));
+        assert_eq!((close.min.y, close.max.x), (bar.min.y, bar.max.x));
+        harness.get_by_label("✕").click();
+        harness.step();
+        assert!(harness.state().1);
+    }
 
     #[test]
     fn showing_waits_for_the_trigger_key_release_up_to_a_second() {

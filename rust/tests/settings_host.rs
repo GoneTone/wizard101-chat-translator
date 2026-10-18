@@ -235,6 +235,23 @@ fn open_settings(h: &mut Harness<'_, App>) {
     run(h);
 }
 
+/// 設定視窗開著時再按 ⚙。
+///
+/// 測試裡設定視窗嵌在同一個 viewport、上緣的縮放帶壓在標題列中段，按在按鈕上緣才不會落到它身上。
+fn click_gear_while_open(h: &mut Harness<'_, App>) {
+    let gear = h.get_by_label("⚙").rect();
+    let at = egui::pos2(gear.center().x, gear.min.y + 12.0);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+}
+
 fn root_commands(h: &Harness<'_, App>) -> Vec<ViewportCommand> {
     h.output().viewport_output[&ViewportId::ROOT]
         .commands
@@ -438,7 +455,7 @@ fn the_settings_window_takes_the_foreground_when_shown() {
     run(&mut h);
     assert_eq!(raised(), [FAKE_HWND]);
     // 已經開著時再按 ⚙：只把它叫到前景
-    h.get_by_label("⚙").click();
+    click_gear_while_open(&mut h);
     run(&mut h);
     assert_eq!(raised(), [FAKE_HWND, FAKE_HWND]);
 }
@@ -452,7 +469,7 @@ fn reopening_restores_a_minimized_settings_window() {
     let restore = ViewportCommand::Minimized(false);
     assert!(frames(&mut h, 3).iter().all(|c| !c.contains(&restore)));
     // 最小化到工作列後再按 ⚙：只搶前景叫不回來，要先還原
-    h.get_by_label("⚙").click();
+    click_gear_while_open(&mut h);
     let seen = frames(&mut h, 3);
     assert_eq!(
         seen.iter().filter(|c| c.contains(&restore)).count(),

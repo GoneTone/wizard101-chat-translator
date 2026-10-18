@@ -29,6 +29,8 @@ pub const FG_ERROR: Color32 = hex(0xff5f5f);
 pub const FG_UPDATE: Color32 = hex(0x6fa8ff);
 /// 標題列文字與按鈕。
 pub const FG_BAR: Color32 = hex(0xc8c8d8);
+/// 滑過標題列 ✕ 的底色（Windows 關閉鈕的紅）。
+pub const CLOSE_HOVER: Color32 = hex(0xc42b1c);
 /// 字幕描邊色。
 pub const OUTLINE: Color32 = hex(0x0a0a10);
 /// 框選反白底色。

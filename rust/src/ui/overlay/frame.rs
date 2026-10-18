@@ -1,8 +1,9 @@
 //! overlay 視窗外框：半透明底、標題列（圖示、名稱、狀態、⛶⚙─✕）、拖曳移動、四邊四角縮放與記憶位置。
 
 use eframe::egui::{
-    self, Align, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, RichText, Sense, Stroke,
-    TextureHandle, Ui, UiBuilder, Vec2,
+    self, Align, Align2, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response,
+    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, Vec2,
+    WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
@@ -11,10 +12,11 @@ use crate::logs::log;
 use crate::runtime::resources::icon_png;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{
-    Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen, resized_edge,
+    EDGE, Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen,
+    resized_edge,
 };
 use crate::ui::icon::png_texture;
-use crate::ui::palette::{BAR, BG, FG_BAR, FG_ERROR, OUTLINE};
+use crate::ui::palette::{BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, GRIP, OUTLINE, TAB_FG_ACTIVE};
 use crate::ui::win32;
 
 /// 視窗最小寬度（DIP）。
@@ -34,8 +36,8 @@ pub const STATUS_COLORS: [(&str, Color32); 6] = [
 ];
 
 /// 標題列高度（DIP）。
-pub const BAR_HEIGHT: f32 = 20.0;
-const BAR_ICON: f32 = 16.0;
+pub const BAR_HEIGHT: f32 = 28.0;
+const BAR_ICON: f32 = 18.0;
 /// 右下角抓取紋的邊長（DIP）。
 pub const GRIP_SIZE: f32 = 16.0;
 
@@ -275,7 +277,7 @@ impl Frame {
 
         let icon = self
             .icon
-            .get_or_insert_with(|| load_icon(ui.ctx(), 16))
+            .get_or_insert_with(|| load_icon(ui.ctx(), 48))
             .clone();
         ui.scope_builder(
             UiBuilder::new()
@@ -317,26 +319,22 @@ fn title_bar(
 ) -> Option<Clicked> {
     ui.spacing_mut().item_spacing.x = 0.0;
     let small = FontId::proportional(tk_pt(8.0));
+    let bar = ui.max_rect();
+    // 視窗上緣與右緣的縮放帶不給按鈕；egui 會把半徑內的按壓吸給附近按鈕，要多讓出這段
+    let inset = EDGE as f32 + ui.style().interaction.interact_radius;
+    let hit = egui::Rect::from_min_max(
+        bar.min + Vec2::new(inset, inset),
+        Pos2::new(bar.max.x - inset, bar.max.y),
+    );
     let mut clicked = None;
-    for (glyph, gap, action, tooltip) in [
-        ("✕", 6.0, Clicked::Close, "tooltip.close"),
-        ("─", 4.0, Clicked::Minimize, "tooltip.minimize"),
-        ("⚙", 4.0, Clicked::Settings, "tooltip.settings"),
-        ("⛶", 4.0, Clicked::Region, "tooltip.region"),
+    for (glyph, action, tooltip) in [
+        ("✕", Clicked::Close, "tooltip.close"),
+        ("─", Clicked::Minimize, "tooltip.minimize"),
+        ("⚙", Clicked::Settings, "tooltip.settings"),
+        ("⛶", Clicked::Region, "tooltip.region"),
     ] {
-        ui.add_space(gap);
-        let text = RichText::new(glyph)
-            .font(FontId::proportional(tk_pt(9.0)))
-            .color(FG_BAR);
-        // 也接拖曳：否則按鈕上的按壓會被底下的拖曳區當成移動視窗
-        let button = ui.add(
-            Label::new(text)
-                .selectable(false)
-                .sense(Sense::click_and_drag()),
-        );
-        let button = button
-            .on_hover_cursor(CursorIcon::PointingHand)
-            .on_hover_ui_at_pointer(|ui| {
+        let button =
+            bar_button(ui, glyph, action == Clicked::Close, hit).on_hover_ui_at_pointer(|ui| {
                 let text = t(tooltip, &[("hotkey", region_hotkey)]);
                 ui.label(RichText::new(text).font(FontId::proportional(tk_pt(9.0))));
             });
@@ -347,7 +345,7 @@ fn title_bar(
     ui.add_space(6.0);
     if let Some(state) = status {
         let text = RichText::new(status_text(state))
-            .font(small.clone())
+            .font(small)
             .color(status_color(state));
         ui.add(Label::new(text).selectable(false));
         ui.add_space(6.0);
@@ -356,10 +354,60 @@ fn title_bar(
         ui.add_space(6.0);
         ui.add(Image::new((icon.id(), Vec2::splat(BAR_ICON))));
         ui.add_space(4.0);
-        let text = RichText::new(title).font(small).color(FG_BAR);
-        ui.add(Label::new(text).selectable(false).truncate());
+        let text = RichText::new(title)
+            .font(FontId::proportional(tk_pt(9.0)))
+            .color(FG_BAR);
+        let room = ui.available_width();
+        let name = WidgetText::from(text).into_galley(
+            ui,
+            Some(TextWrapMode::Truncate),
+            room,
+            TextStyle::Body,
+        );
+        // 窄到連「…」都放不下時不畫名稱，免得壓到狀態字
+        if name.size().x <= room {
+            ui.add(Label::new(name).selectable(false));
+        }
     });
     clicked
+}
+
+/// 標題列按鈕：與標題列同高的正方形，滑過時填底、按下再亮一階；`close` 用紅底白字。
+///
+/// 只有落在 `hit` 內的部分接滑鼠；也接拖曳，否則按鈕上的按壓會被底下的拖曳區當成移動視窗。
+pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect) -> Response {
+    let (square, node) = ui.allocate_exact_size(Vec2::splat(BAR_HEIGHT), Sense::hover());
+    node.widget_info(|| WidgetInfo::labeled(Role::Button, true, glyph));
+    let button = ui
+        .interact(
+            square.intersect(hit),
+            node.id.with("hit"),
+            Sense::click_and_drag(),
+        )
+        .on_hover_cursor(CursorIcon::PointingHand);
+    let (hover_fill, hover_fg) = if close {
+        (CLOSE_HOVER, Color32::WHITE)
+    } else {
+        (GRIP, TAB_FG_ACTIVE)
+    };
+    let fg = if button.is_pointer_button_down_on() {
+        ui.painter()
+            .rect_filled(square, 0.0, hover_fill.lerp_to_gamma(Color32::WHITE, 0.12));
+        hover_fg
+    } else if button.hovered() {
+        ui.painter().rect_filled(square, 0.0, hover_fill);
+        hover_fg
+    } else {
+        FG_BAR
+    };
+    ui.painter().text(
+        square.center(),
+        Align2::CENTER_CENTER,
+        glyph,
+        FontId::proportional(tk_pt(10.0)),
+        fg,
+    );
+    button
 }
 
 /// 右下角抓取紋：三道斜線，亮色配描邊，任何背景上都看得到。
@@ -511,27 +559,134 @@ pub(crate) mod tests {
         harness.step();
     }
 
+    /// `square` 這幀被填的底色（沒填為 `None`）與 `glyph` 的字色。
+    fn painted(
+        harness: &Harness<State>,
+        square: egui::Rect,
+        glyph: &str,
+    ) -> (Option<Color32>, Color32) {
+        let shapes = &harness.output().shapes;
+        let fill = shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Rect(r) if r.rect == square => Some(r.fill),
+            _ => None,
+        });
+        let fg = shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.text() == glyph => Some(t.fallback_color),
+                _ => None,
+            })
+            .unwrap();
+        (fill, fg)
+    }
+
+    #[test]
+    fn title_bar_items_are_vertically_centred_and_buttons_are_bar_tall_squares() {
+        let (harness, _) = setup("Title", Vec2::new(640.0, 420.0), 1.0);
+        let area = harness.state().area;
+        let mid = area.min.y + BAR_HEIGHT / 2.0;
+        let mut right = area.max.x;
+        for glyph in ["✕", "─", "⚙", "⛶"] {
+            let r = harness.get_by_label(glyph).rect();
+            assert_eq!(r.size(), Vec2::splat(BAR_HEIGHT), "{glyph}");
+            assert_eq!((r.min.y, r.max.x), (area.min.y, right), "{glyph}");
+            right = r.min.x;
+        }
+        let status = t("status.listening", &[]);
+        for node in [
+            harness.get_by_role(egui::accesskit::Role::Image),
+            harness.get_by(|n| n.value().as_deref() == Some("Title")),
+            harness.get_by(|n| n.value().as_deref() == Some(status.as_str())),
+        ] {
+            let r = node.rect();
+            assert!(
+                (r.center().y - mid).abs() <= 0.5,
+                "{r:?} not centred on {mid}"
+            );
+        }
+    }
+
+    #[test]
+    fn hovering_or_pressing_a_title_button_fills_it() {
+        for (glyph, fill, fg) in [
+            ("⚙", GRIP, TAB_FG_ACTIVE),
+            ("─", GRIP, TAB_FG_ACTIVE),
+            ("✕", CLOSE_HOVER, Color32::WHITE),
+        ] {
+            let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+            let square = harness.get_by_label(glyph).rect();
+            assert_eq!(
+                painted(&harness, square, glyph),
+                (None, FG_BAR),
+                "{glyph} idle"
+            );
+            harness.hover_at(square.center());
+            harness.run_steps(2);
+            assert_eq!(
+                painted(&harness, square, glyph),
+                (Some(fill), fg),
+                "{glyph} hover"
+            );
+            harness.drag_at(square.center());
+            harness.run_steps(2);
+            let pressed = fill.lerp_to_gamma(Color32::WHITE, 0.12);
+            assert_eq!(
+                painted(&harness, square, glyph),
+                (Some(pressed), fg),
+                "{glyph} pressed"
+            );
+        }
+    }
+
+    #[test]
+    fn window_edge_bands_over_a_title_button_still_resize() {
+        let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let gear = harness.get_by_label("⚙").rect().center() - harness.state().area.min;
+        drag(
+            &mut harness,
+            Vec2::new(gear.x, 2.0),
+            Vec2::new(gear.x, -28.0),
+            1.0,
+        );
+        assert_eq!(*saved.borrow(), [(1000, 470, 640, 450)]);
+
+        let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let right = harness.state().area.width() - 2.0;
+        drag(
+            &mut harness,
+            Vec2::new(right, 2.0),
+            Vec2::new(right + 20.0, -18.0),
+            1.0,
+        );
+        assert_eq!(*saved.borrow(), [(1000, 480, 660, 440)]);
+    }
+
     #[test]
     fn title_buttons_never_clipped_by_long_name() {
         let title = "Wizard101 Chat Translator ".repeat(20);
-        let (harness, _) = setup(&title, Vec2::new(MIN_WIDTH as f32 + 16.0, 120.0), 1.0);
-        let area = harness.state().area;
-        let status = harness.get_by_label(&t("status.listening", &[])).rect();
-        for glyph in ["✕", "─", "⚙", "⛶"] {
-            let r = harness.get_by_label(glyph).rect();
-            assert!(
-                r.min.x >= area.min.x && r.max.x <= area.max.x,
-                "{glyph} {r:?} {area:?}"
-            );
-            assert!(r.min.x >= status.max.x, "{glyph} overlaps status");
+        // 最小寬度下名稱整個讓出去，寬一點時被截短
+        for (width, name_shown) in [(MIN_WIDTH as f32, false), (320.0, true)] {
+            let (harness, _) = setup(&title, Vec2::new(width + 16.0, 120.0), 1.0);
+            let area = harness.state().area;
+            let status = harness.get_by_label(&t("status.listening", &[])).rect();
+            for glyph in ["✕", "─", "⚙", "⛶"] {
+                let r = harness.get_by_label(glyph).rect();
+                assert!(
+                    r.min.x >= area.min.x && r.max.x <= area.max.x,
+                    "{glyph} {r:?} {area:?}"
+                );
+                assert!(r.min.x >= status.max.x, "{glyph} overlaps status");
+            }
+            let name = harness.query_by(|n| n.value().is_some_and(|v| v.starts_with("Wizard101")));
+            assert_eq!(name.is_some(), name_shown, "width={width}");
+            if let Some(name) = name {
+                let name = name.rect();
+                assert!(
+                    name.max.x <= status.min.x,
+                    "name {name:?} runs under status {status:?}"
+                );
+            }
         }
-        let name = harness
-            .get_by(|n| n.value().is_some_and(|v| v.starts_with("Wizard101")))
-            .rect();
-        assert!(
-            name.max.x <= status.min.x,
-            "name {name:?} runs under status {status:?}"
-        );
     }
 
     #[test]
@@ -639,6 +794,18 @@ pub(crate) mod tests {
             assert_eq!(harness.state().clicked, Some(action), "{glyph}");
             assert_eq!(harness.state().shell.rect, START, "{glyph}");
             assert!(saved.borrow().is_empty(), "{glyph}");
+        }
+    }
+
+    #[test]
+    fn dragging_from_a_title_button_neither_moves_nor_clicks() {
+        for glyph in ["✕", "─", "⚙", "⛶"] {
+            let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+            let from = harness.get_by_label(glyph).rect().center() - harness.state().area.min;
+            drag(&mut harness, from, from + Vec2::new(-50.0, 30.0), 1.0);
+            assert_eq!(harness.state().shell.rect, START, "{glyph}");
+            assert!(saved.borrow().is_empty(), "{glyph}");
+            assert_eq!(harness.state().clicked, None, "{glyph}");
         }
     }
 
