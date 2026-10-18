@@ -83,10 +83,12 @@ impl ProcessMemory for Shared {
         if addr == EXPORT {
             self.export_reads.fetch_add(1, Ordering::SeqCst);
             let failing = &self.failing_export_reads;
-            if failing
-                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-            {
+            // try_update 1.95 才穩定、低於 rust-version；fetch_update 在 1.99 被標為 deprecated
+            #[allow(deprecated)]
+            let consumed = failing
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                .is_ok();
+            if consumed {
                 return Err(MemError::Read(addr));
             }
         }
