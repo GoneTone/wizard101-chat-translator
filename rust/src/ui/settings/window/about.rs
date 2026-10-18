@@ -39,6 +39,11 @@ impl Default for AboutState {
     }
 }
 
+/// 頭卡圖示的邊長。
+const HERO_ICON: f32 = 48.0;
+/// 頭卡圖示與文字欄的間距。
+const HERO_GAP: f32 = 16.0;
+
 /// 外部連結：文字後面接一個外部連結圖示；點下去以系統瀏覽器開啟。
 fn link(ui: &mut Ui, text: &str, url: &str) {
     ui.horizontal(|ui| {
@@ -137,7 +142,7 @@ impl SettingsWindow {
         });
     }
 
-    /// 頭卡：圖示、名稱、版本與檢查更新的結果，〔檢查更新〕靠右。
+    /// 頭卡：圖示、名稱與版本，〔檢查更新〕靠右；檢查結果另起一列、對齊名稱，名稱與版本不因結果出現而移動。
     fn hero_card(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
         let texture = self
             .about
@@ -149,11 +154,11 @@ impl SettingsWindow {
         card(ui, |ui| {
             Frame::new().inner_margin(16).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 16.0;
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(48.0), Sense::hover());
+                    ui.spacing_mut().item_spacing.x = HERO_GAP;
+                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(HERO_ICON), Sense::hover());
                     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                     ui.painter().image(texture, rect, uv, Color32::WHITE);
-                    let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
+                    let room = ui.available_width() - right_aligned_width(ui, buttons) - HERO_GAP;
                     let column = Id::unique("about_hero_text");
                     centered_column(ui, column, room.max(80.0), |ui| {
                         ui.spacing_mut().item_spacing.y = 3.0;
@@ -173,6 +178,14 @@ impl SettingsWindow {
                         .clicked()
                     });
                 });
+                if self.about.result.is_some() {
+                    ui.add_space(10.0);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        ui.add_space(HERO_ICON + HERO_GAP);
+                        ui.vertical(|ui| self.update_result(ui));
+                    });
+                }
             });
         });
         if check {
@@ -192,6 +205,9 @@ impl SettingsWindow {
                 .size(theme::HINT_SIZE)
                 .color(theme::TEXT_SECONDARY),
         ));
+    }
+
+    fn update_result(&self, ui: &mut Ui) {
         match &self.about.result {
             None => {}
             Some(Ok(None)) => outcome(ui, true, &t("update.latest", &[])),

@@ -26,7 +26,9 @@ pub fn app_name() -> String {
 /// 應用程式目錄：config.json 與 log 的存放處；發行版為 exe 所在目錄，開發時為專案根目錄。
 pub fn app_dir() -> PathBuf {
     if cfg!(debug_assertions) {
-        return PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/.."));
+        // 取上一層而不是接 "/.."：關於頁會把這個路徑原樣顯示出來
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        return manifest.parent().unwrap_or(manifest).to_path_buf();
     }
     std::env::current_exe()
         .ok()
@@ -432,6 +434,14 @@ mod tests {
     #[test]
     fn app_dir_in_debug_is_the_project_root() {
         assert!(app_dir().join("pyproject.toml").exists());
+        // 關於頁原樣顯示這個路徑：結尾的 ".." 看起來像被截斷
+        assert!(
+            !app_dir()
+                .components()
+                .any(|c| c == std::path::Component::ParentDir),
+            "{}",
+            app_dir().display()
+        );
     }
 
     #[test]

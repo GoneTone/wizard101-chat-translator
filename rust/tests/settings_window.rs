@@ -1120,3 +1120,70 @@ fn nothing_but_the_custom_knob_is_painted_on_the_opacity_slider() {
         }
     }
 }
+
+/// 關於頁頭卡的名稱與版本兩行的位置。
+fn hero_lines(h: &Harness<State>) -> (Rect, Rect) {
+    let name = h
+        .get_by_label(&wizard101_chat_translator::config::app_name())
+        .rect();
+    let version = format!("{} v{}", tr("about.version"), env!("CARGO_PKG_VERSION"));
+    (name, h.get_by_label(&version).rect())
+}
+
+#[test]
+fn an_update_result_does_not_move_the_name_and_version() {
+    let results: [Result<Option<Release>, String>; 3] = [
+        Ok(None),
+        Err("HTTP 403: API rate limit exceeded for 203.0.113.7".into()),
+        Ok(Some(release())),
+    ];
+    let texts = [
+        tr("update.latest"),
+        t(
+            "update.failed",
+            &[("error", "HTTP 403: API rate limit exceeded for 203.0.113.7")],
+        ),
+        t("update.available", &[("version", "9.9.9")]),
+    ];
+    for (result, text) in results.into_iter().zip(texts) {
+        let mut h = harness(configured_cfg());
+        go(&mut h, "settings.tab.about");
+        let before = hero_lines(&h);
+        check_update(&mut h, result);
+        assert_eq!(hero_lines(&h), before, "{text}");
+        let line = h.get_by_label(&text).rect();
+        assert!(line.top() > before.1.bottom(), "{text}: below the header");
+        assert!(line.left() >= before.0.left() - 1.0, "{text}: {line:?}");
+    }
+}
+
+#[test]
+fn the_log_folder_path_is_shown_in_full_beside_the_button() {
+    let mut h = harness_with(
+        configured_cfg(),
+        FakeEnv::default(),
+        egui::vec2(640.0, 360.0),
+    );
+    go(&mut h, "settings.tab.about");
+    h.get_by_role_and_label(Role::Button, &tr("button.open_folder"))
+        .scroll_to_me();
+    run(&mut h);
+    let path = app_dir().display().to_string();
+    let galley = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(s) if s.galley.text() == path => Some((s.galley.clone(), s.pos)),
+            _ => None,
+        })
+        .expect("the whole path is painted");
+    let (galley, pos) = galley;
+    let button = h
+        .get_by_role_and_label(Role::Button, &tr("button.open_folder"))
+        .rect();
+    assert!(
+        pos.x + galley.rect.right() < button.left(),
+        "the path stays left of the button"
+    );
+}
