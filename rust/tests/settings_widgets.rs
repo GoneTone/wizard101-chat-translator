@@ -16,8 +16,8 @@ use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    card, collapsible, filter_models, keycaps, outcome, primary_button, secondary_button,
-    secondary_icon_button, setting_row, toggle,
+    card, collapsible, dashed_button, filter_models, keycaps, outcome, primary_button,
+    secondary_button, secondary_icon_button, setting_row, toggle,
 };
 
 /// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
@@ -537,6 +537,7 @@ fn buttons_light_up_while_hovered() {
             secondary_button(ui, "Cancel");
             primary_button(ui, "Save");
         });
+        dashed_button(ui, "Add service", 40.0);
     });
     let cancel = h.get_by_role_and_label(Role::Button, "Cancel").rect();
     let save = h.get_by_role_and_label(Role::Button, "Save").rect();
@@ -549,6 +550,15 @@ fn buttons_light_up_while_hovered() {
     h.run_steps(2);
     let hovered = fill_at(&h, save).unwrap();
     assert_ne!(hovered, theme::ACCENT, "primary button shows hover");
+    let add = h.get_by_role_and_label(Role::Button, "Add service").rect();
+    assert_ne!(fill_at(&h, add), Some(theme::HOT_BG));
+    h.hover_at(add.center());
+    h.run_steps(2);
+    assert_eq!(
+        fill_at(&h, add),
+        Some(theme::HOT_BG),
+        "dashed button shows hover"
+    );
 }
 
 #[test]

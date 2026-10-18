@@ -2,8 +2,8 @@
 
 use eframe::egui::accesskit;
 use eframe::egui::{
-    Align, Atoms, Button, Color32, FontId, Frame, Id, Image, Label, Layout, Margin, Response,
-    RichText, Role, Sense, Shape, Stroke, Ui, UiBuilder, Vec2, vec2,
+    Align, Atoms, FontId, Frame, Id, Image, Label, Layout, Margin, RichText, Role, Sense, Ui,
+    UiBuilder, Vec2, vec2,
 };
 use serde_json::Value;
 
@@ -13,8 +13,8 @@ use super::provider_picker::{CardLayout, paint_provider_icon, provider_cards, pr
 use super::service_form::ServiceForm;
 use super::theme;
 use super::widgets::{
-    callout, card, collapsible, combo_box, danger_button, focus_ring, name_by_row, primary_button,
-    right_aligned, right_aligned_width, secondary_button, setting_row,
+    callout, card, collapsible, combo_box, danger_button, dashed_button, focus_ring, name_by_row,
+    primary_button, right_aligned, right_aligned_width, secondary_button, setting_row,
 };
 use crate::config::Config;
 use crate::config::py::py_bool;
@@ -234,7 +234,7 @@ impl ServicePane {
                         .color(theme::TEXT_SECONDARY),
                 ));
             }
-            if add_button(ui).clicked() {
+            if dashed_button(ui, &t("button.add_service", &[]), 40.0).clicked() {
                 self.dialog = Dialog::Pick;
             }
             match action {
@@ -597,33 +597,6 @@ fn service_atoms(ui: &Ui, service: Option<&Value>, fallback: &str) -> Atoms<'sta
         None => atoms.push_right(RichText::new(fallback).color(theme::TEXT_SECONDARY)),
     }
     atoms
-}
-
-/// 〔＋ 新增翻譯服務〕：占滿寬度的虛線框按鈕。
-fn add_button(ui: &mut Ui) -> Response {
-    let response = ui.add(
-        Button::new(t("button.add_service", &[]))
-            .fill(Color32::TRANSPARENT)
-            .stroke(Stroke::NONE)
-            .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(vec2(ui.available_width(), 40.0)),
-    );
-    let rect = response.rect.shrink(0.5);
-    let outline = [
-        rect.left_top(),
-        rect.right_top(),
-        rect.right_bottom(),
-        rect.left_bottom(),
-        rect.left_top(),
-    ];
-    ui.painter().extend(Shape::dashed_line(
-        &outline,
-        Stroke::new(1.0, theme::CONTROL_BORDER),
-        4.0,
-        3.0,
-    ));
-    focus_ring(ui, &response, theme::CONTROL_RADIUS);
-    response
 }
 
 /// 表單上按了〔更改〕時疊上服務商選擇：選定就換服務商；選定或取消後收起（`picking` 回到 `false`）。

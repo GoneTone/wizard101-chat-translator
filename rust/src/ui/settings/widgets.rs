@@ -7,7 +7,7 @@ use std::sync::Arc;
 use eframe::egui::style::{StyleModifier, WidgetVisuals};
 use eframe::egui::{
     Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, Frame, Galley, Id, Label,
-    Layout, Margin, Pos2, Rect, Response, RichText, Role, Sense, Stroke, StrokeKind, Style,
+    Layout, Margin, Pos2, Rect, Response, RichText, Role, Sense, Shape, Stroke, StrokeKind, Style,
     TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText,
     lerp, pos2, vec2,
 };
@@ -390,6 +390,43 @@ pub fn secondary_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
 /// 危險操作（刪除確認）按鈕：`DANGER` 底。
 pub fn danger_button(ui: &mut Ui, text: &str) -> Response {
     styled_button(ui, text, Some((theme::DANGER, theme::ON_DANGER)), None)
+}
+
+/// 占滿寬度、高 `height` 的虛線框按鈕（如〔＋ 新增翻譯服務〕）：平時透明，hover／按下時同控制項的樣式。
+pub fn dashed_button(ui: &mut Ui, text: &str, height: f32) -> Response {
+    let size = vec2(ui.available_width(), height);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    if ui.is_rect_visible(rect) {
+        let (fill, border) = if response.hovered() || response.is_pointer_button_down_on() {
+            let visuals = ui.style().interact(&response);
+            (visuals.bg_fill, visuals.bg_stroke.color)
+        } else {
+            (Color32::TRANSPARENT, theme::CONTROL_BORDER)
+        };
+        let painter = ui.painter();
+        painter.rect_filled(rect, theme::CONTROL_RADIUS, fill);
+        let edge = rect.shrink(0.5);
+        let outline = [
+            edge.left_top(),
+            edge.right_top(),
+            edge.right_bottom(),
+            edge.left_bottom(),
+            edge.left_top(),
+        ];
+        painter.extend(Shape::dashed_line(
+            &outline,
+            Stroke::new(1.0, border),
+            4.0,
+            3.0,
+        ));
+        let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
+        let galley = painter.layout_no_wrap(text.to_owned(), font, theme::TEXT);
+        let pos = rect.center() - galley.size() / 2.0;
+        painter.galley(pos, galley, theme::TEXT);
+    }
+    focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    response
 }
 
 /// 只有圖示的方形按鈕；`tooltip` 同時是無障礙名稱。

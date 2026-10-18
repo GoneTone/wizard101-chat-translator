@@ -384,8 +384,16 @@ fn settings_window_does_not_stay_on_top() {
     let at: Vec<usize> = (0..seen.len())
         .filter(|&i| seen[i].contains(&normal))
         .collect();
-    // 第一幀建立（置頂、藏著）、overlay 降為一般層級（kittest 的子視窗指令也落在根），下一幀顯示並放掉置頂
+    // kittest 把子視窗的指令也記在根上：第一幀的 Normal 是 overlay 自己降級（不帶顯示），
+    // 設定視窗的 Normal 只在下一幀、與 Visible(true) 一起出現（第一幀建立時置頂、藏著）
     assert_eq!(at, [0, 1], "{seen:?}");
+    let count = |frame: &[ViewportCommand]| frame.iter().filter(|c| **c == normal).count();
+    assert_eq!(count(&seen[0]), 1, "only the overlay's: {seen:?}");
+    assert!(
+        !seen[0].contains(&ViewportCommand::Visible(true)),
+        "{seen:?}"
+    );
+    assert_eq!(count(&seen[1]), 1, "only the settings window's: {seen:?}");
     assert_eq!(h.state().overlay_level(), WindowLevel::Normal);
     assert!(
         seen[1].contains(&ViewportCommand::Visible(true)),
