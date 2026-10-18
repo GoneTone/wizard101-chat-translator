@@ -22,7 +22,8 @@ use wizard101_chat_translator::reader::memory::{
     FakeMemory, MemError, MemOp, ProcessMemory, Region,
 };
 use wizard101_chat_translator::reader::process::{
-    client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
+    client_size, client_to_screen, find_game_window_in, install_path_of, install_root,
+    window_exists, window_pid,
 };
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::util::Clock;
@@ -705,6 +706,17 @@ fn install_path_is_the_parent_of_bin() {
     assert_eq!(install_path_of(std::process::id()), None);
     assert_eq!(install_path_of(0), None);
     assert!(window_exists(hwnd()));
+}
+
+#[test]
+fn find_game_window_logs_when_the_window_scan_itself_fails() {
+    log_lines_with("");
+    let scan = || Err(std::io::Error::other("EnumWindows failed"));
+    assert_eq!(find_game_window_in(scan, |_| true, |_| None), None);
+    assert_eq!(
+        log_lines_with("[reader] window scan failed: EnumWindows failed").len(),
+        1
+    );
 }
 
 // --- 事件 ---

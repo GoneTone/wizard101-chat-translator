@@ -184,6 +184,7 @@ mod tests {
     #[test]
     fn read_label_inline_heap_and_rejected_sizes() {
         assert_eq!(label("主要的", 7, None), "主要的");
+        assert_eq!(label("队伍(2)", 7, None), "队伍(2)");
         assert_eq!(label("Party 1 (3)", 15, None), "Party 1 (3)");
         assert_eq!(label("", 7, None), "");
         assert_eq!(label("abc", 7, Some(10_000_000)), "");
@@ -194,6 +195,17 @@ mod tests {
         let long = "a".repeat(4096);
         assert_eq!(label(&long, 4096, None), long);
         assert_eq!(label(&"a".repeat(4097), 4097, None), "");
+    }
+
+    #[test]
+    fn tab_buttons_cover_the_verified_mapping() {
+        let id = |name| TAB_BUTTONS.iter().find(|b| b.0 == name).map(|b| b.1);
+        assert_eq!(id("MainFilterButton"), Some(0));
+        assert_eq!(id("GroupFilterButton"), Some(1));
+        assert_eq!(id("HouseFilterButton"), Some(2));
+        let names: std::collections::HashSet<_> = TAB_BUTTONS.iter().map(|b| b.0).collect();
+        let ids: std::collections::HashSet<_> = TAB_BUTTONS.iter().map(|b| b.1).collect();
+        assert_eq!((names.len(), ids.len()), (9, 9));
     }
 
     #[test]

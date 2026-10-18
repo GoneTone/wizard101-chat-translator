@@ -194,6 +194,21 @@ mod tests {
     }
 
     #[test]
+    fn clean_strips_markup_and_collapses_space() {
+        let raw = "<color;FFFFFF><image;Art/x.dds;24;24;FFFFFFFF> [你] hi there </color>";
+        assert_eq!(clean(raw), "[你] hi there");
+    }
+
+    #[test]
+    fn clean_strips_emoticon_prefix_and_digits() {
+        let emote = |name: &str| clean(&format!("<image;Emoticons/{name}.dds;24;24;FFFFFFFF>"));
+        assert_eq!(emote("Emoticons_Heart"), ":heart:");
+        assert_eq!(emote("Emoticons_School_Death"), ":school_death:");
+        assert_eq!(emote("Eyes001"), ":eyes:");
+        assert_eq!(emote("TeaCup001"), ":teacup:");
+    }
+
+    #[test]
     fn clean_keeps_emoticons_and_unescapes_entities() {
         let raw = "<link;GID:1,A,2>[Amy]</link> a &lt;3 <image;Emoticons/Laughter001.dds;24;24;1> &amp; c\0d";
         assert_eq!(clean(raw), "[Amy] a <3 :laughter: & c d");

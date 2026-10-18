@@ -88,20 +88,35 @@ pub fn first_game_window(
 ///
 /// 給 ⛶ 按鈕用：按下時遊戲多半不在前景，不能像熱鍵那樣讀前景視窗。
 pub fn find_game_window() -> Option<isize> {
-    let mut hwnds = Vec::<isize>::new();
-    if unsafe { EnumWindows(Some(collect_window), &mut hwnds as *mut _ as LPARAM) } == 0 {
-        // 使用者從 app.log 才分得出「遊戲沒開」與「列舉本身失敗」
-        log(format!(
-            "[reader] window scan failed: {}",
-            std::io::Error::last_os_error()
-        ));
-        return None;
-    }
-    first_game_window(
-        &hwnds,
+    find_game_window_in(
+        enum_windows,
         |hwnd| unsafe { IsWindowVisible(hwnd as HWND) } != 0,
         |hwnd| process_exe_path(window_pid(hwnd)),
     )
+}
+
+fn enum_windows() -> std::io::Result<Vec<isize>> {
+    let mut hwnds = Vec::<isize>::new();
+    if unsafe { EnumWindows(Some(collect_window), &mut hwnds as *mut _ as LPARAM) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(hwnds)
+}
+
+/// [`find_game_window`] 的可注入版本；列舉本身失敗時寫 log 並回 `None`。
+pub fn find_game_window_in(
+    scan: impl FnOnce() -> std::io::Result<Vec<isize>>,
+    is_visible: impl Fn(isize) -> bool,
+    exe_of: impl Fn(isize) -> Option<String>,
+) -> Option<isize> {
+    match scan() {
+        Ok(hwnds) => first_game_window(&hwnds, is_visible, exe_of),
+        Err(err) => {
+            // 使用者從 app.log 才分得出「遊戲沒開」與「列舉本身失敗」
+            log(format!("[reader] window scan failed: {err}"));
+            None
+        }
+    }
 }
 
 /// 目前所有遊戲客戶端的視窗 handle（以視窗類別名辨識，同 wizwalker）。

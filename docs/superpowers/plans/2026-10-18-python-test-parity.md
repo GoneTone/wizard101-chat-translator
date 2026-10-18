@@ -416,3 +416,242 @@
 - `test_progress_step_advances_on_a_single_direct_call_with_no_after_ever_firing` → 不移植：PyInstaller／啟動畫面專屬；Rust 版是單一 exe、不需要啟動畫面（規格「單一 exe 與資源」節）
 - `test_progress_step_after_chain_converges_when_the_event_loop_actually_runs` → 不移植：PyInstaller／啟動畫面專屬；Rust 版是單一 exe、不需要啟動畫面（規格「單一 exe 與資源」節）
 - `test_progress_step_cancels_the_previous_after_before_scheduling_a_new_one` → 不移植：PyInstaller／啟動畫面專屬；Rust 版是單一 exe、不需要啟動畫面（規格「單一 exe 與資源」節）
+
+## tests/reader/test_chat_hook.py
+
+stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本靠 unicorn 模擬 x86 執行驗證；Rust 版不引入 x86 模擬器，改以 golden 釘死 stub 位元組與 Python 版完全相同（Python 的模擬已驗證過該位元組串的行為），stub 執行行為本身要靠實機驗證。
+
+- `test_stub_copies_sso_and_heap_strings_and_restores_registers` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
+- `test_stub_truncates_long_lines_and_keeps_original_length` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
+- `test_stub_wraps_past_the_slot_count` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
+- `test_read_ring_returns_new_records_in_order` → `tests/reader_golden.rs::read_ring_returns_new_records_in_order`
+- `test_read_ring_stops_at_a_slot_being_written` → `tests/reader_golden.rs::read_ring_stops_at_a_slot_being_written_or_still_on_the_previous_lap`
+- `test_read_ring_waits_for_a_slot_still_holding_the_previous_lap` → `tests/reader_golden.rs::read_ring_stops_at_a_slot_being_written_or_still_on_the_previous_lap`
+- `test_read_ring_skips_the_content_read_for_an_empty_line` → `tests/reader_golden.rs::read_ring_skips_the_content_read_for_an_empty_line`
+- `test_read_ring_counts_an_overwritten_slot_as_lost` → `tests/reader_golden.rs::read_ring_counts_an_overwritten_slot_as_lost`
+- `test_overflow_reports_lost_and_resumes_at_oldest_valid_slot` → `tests/reader_golden.rs::read_ring_overflow_reports_lost_and_resumes_at_oldest_valid_slot`
+- `test_read_ring_rereads_seq_to_detect_a_torn_read` → `tests/reader_golden.rs::read_ring_rereads_seq_to_detect_a_torn_read`
+- `test_group_broadcasts_collapses_tabs_0_to_3_plus_channels` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_group_broadcasts_collapses_tabs_0_to_3_without_channels` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_group_broadcasts_leaves_team_up_tab_out_of_a_broadcast` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_group_broadcasts_keeps_ordinary_lines_apart` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_pending_broadcast_counts_a_trailing_broadcast_prefix` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_pending_broadcast_ignores_lone_lines_and_complete_broadcasts` → `tests/reader_golden.rs::group_broadcasts_matches_python`
+- `test_unhook_restores_the_jump_but_keeps_the_ring` → `tests/hooks_golden.rs::ring_is_never_freed`, `tests/mem_reader.rs::close_unhooks_and_clears_hook_state`
+- `test_bytecode_generator_builds_the_stub_for_the_allocated_ring` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
+
+## tests/reader/test_chat_tabs.py
+
+- `test_read_wstring_inline_short_string` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_five_chars_inline` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_heap_string` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_empty_and_absurd_sizes` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_size_limit_boundary` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_sso_capacity_threshold` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_read_wstring_size_beyond_capacity_is_rejected` → `src/reader/chat_tabs.rs::read_label_inline_heap_and_rejected_sizes`
+- `test_visible_label_hides_unresolved_tokens` → `tests/reader_golden.rs::visible_label_matches_python`
+- `test_visible_label_keeps_unread_suffix` → `tests/reader_golden.rs::visible_label_matches_python`
+- `test_tab_buttons_cover_the_verified_mapping` → `src/reader/chat_tabs.rs::tab_buttons_cover_the_verified_mapping`
+
+## tests/reader/test_hook_state.py
+
+- `test_save_load_roundtrip` → `src/reader/hook_state.rs::save_load_roundtrip`
+- `test_load_missing_returns_empty` → `src/reader/hook_state.rs::load_missing_returns_empty`
+- `test_clear_removes_file` → `src/reader/hook_state.rs::clear_removes_file_and_missing_is_noop`
+- `test_clear_missing_is_noop` → `src/reader/hook_state.rs::clear_removes_file_and_missing_is_noop`
+- `test_corrupt_file_returns_empty` → `tests/hooks_golden.rs::corrupt_state_file_is_logged_and_ignored`
+- `test_empty_ops_roundtrip` → `src/reader/hook_state.rs::empty_ops_roundtrip`
+- `test_sweep_removes_dead_pid_files_only` → `tests/hooks_golden.rs::sweep_removes_dead_pids_only`
+- `test_sweep_ignores_non_state_files` → `tests/hooks_golden.rs::sweep_removes_dead_pids_only`
+
+## tests/reader/test_input_anchor.py
+
+- `test_client_rect_scales_summed_offsets_by_client_over_root` → `tests/reader_golden.rs::client_rect_matches_python`
+- `test_client_rect_rounds_instead_of_truncating` → `tests/reader_golden.rs::client_rect_matches_python`
+- `test_client_rect_is_identity_when_root_matches_client` → `tests/reader_golden.rs::client_rect_matches_python`
+- `test_client_rect_rejects_degenerate_root` → `tests/reader_golden.rs::client_rect_matches_python`, `tests/mem_reader.rs::input_box_screen_rect_none_for_a_degenerate_root`
+- `test_input_box_screen_rect_walks_parents_and_offsets_by_window_origin` → `tests/mem_reader.rs::input_box_screen_rect_walks_parents_and_offsets_by_window_origin`
+- `test_input_box_screen_rect_none_when_node_read_fails` → `tests/mem_reader.rs::input_box_screen_rect_none_when_node_read_fails`
+- `test_input_box_screen_rect_none_when_not_connected` → `tests/mem_reader.rs::tab_queries_are_empty_when_not_connected`
+
+## tests/reader/test_loop.py
+
+- `test_system_lines_skip_the_chat_context` → `tests/reader_loop.rs::system_lines_skip_the_chat_context`
+- `test_cached_system_line_is_added_already_translated` → `tests/reader_loop.rs::system_cache_hit_shown_without_pool`
+- `test_uncached_system_line_goes_to_the_system_pool` → `tests/reader_loop.rs::uncached_system_line_goes_to_the_system_pool`
+- `test_banner_shows_a_system_pool_error_when_the_player_pool_is_clean` → `tests/reader_loop.rs::banner_shows_a_system_pool_error_when_the_player_pool_is_clean`
+- `test_system_lines_are_ignored_when_the_setting_is_off` → `tests/reader_loop.rs::system_lines_are_ignored_when_the_setting_is_off`
+- `test_reader_emit_system_is_resynced_every_loop_iteration` → `tests/reader_loop.rs::reader_emit_system_is_resynced_every_loop_iteration`
+- `test_new_lines_are_placeheld_and_submitted_in_order` → `tests/reader_loop.rs::new_lines_are_placeheld_and_submitted_in_order`
+- `test_game_color_flows_to_overlay_text_to_context_and_pool` → `tests/reader_loop.rs::game_color_flows_to_overlay_text_to_context_and_pool`
+- `test_context_advances_by_read_order_not_by_completion` → `tests/reader_loop.rs::player_line_context_snapshot_before_push`
+- `test_banner_follows_pool_error_state` → `tests/reader_loop.rs::banner_follows_pool_error_state`
+- `test_banner_prefers_game_issue_over_translation_error` → `tests/status.rs::banner_prefers_game_issue_over_translation_error`
+- `test_banner_shows_the_api_message_when_there_is_one` → `tests/status.rs::banner_shows_the_api_message_when_there_is_one`
+- `test_loop_passes_the_pool_error_detail_to_the_banner` → `tests/reader_loop.rs::loop_passes_the_pool_error_detail_to_the_banner`
+- `test_status_shows_translating_while_pool_busy` → `tests/reader_loop.rs::status_shows_translating_while_pool_busy`
+- `test_status_transitions` → `tests/reader_loop.rs::status_transitions`
+- `test_status_locating_when_not_anchored` → `tests/reader_loop.rs::status_locating_when_not_anchored`
+- `test_game_input_edge_triggers_open_and_close` → `tests/reader_loop.rs::input_open_and_close_are_posted_with_the_anchor`, `tests/reader_loop.rs::input_events_are_edge_triggered`
+- `test_game_input_edges_are_reported_even_when_auto_show_is_off` → `tests/reader_loop.rs::input_open_and_close_are_posted_with_the_anchor`
+- `test_game_not_running_shows_banner_once` → `tests/reader_loop.rs::game_missing_retries_every_5s_and_logs_once_per_issue`
+- `test_access_denied_shows_its_own_banner_and_status` → `tests/reader_loop.rs::game_missing_retries_every_5s_and_logs_once_per_issue`
+- `test_version_mismatch_shows_its_own_banner_and_status` → `tests/reader_loop.rs::version_mismatch_shows_its_own_banner_and_status`
+- `test_game_input_detected_during_the_wait_between_polls` → `tests/reader_loop.rs::input_box_is_sampled_during_the_wait_between_polls`
+- `test_loop_ends_and_closes_the_reader_when_its_window_is_gone` → `tests/reader_loop.rs::window_gone_stops_reader`
+- `test_messages_carry_the_slot` → `tests/reader_loop.rs::new_lines_are_placeheld_and_submitted_in_order`
+- `test_input_callbacks_carry_the_window_handle` → `tests/reader_loop.rs::input_open_and_close_are_posted_with_the_anchor`
+- `test_message_ids_are_unique_across_threads` → `tests/reader_loop.rs::message_ids_are_unique_across_threads`
+- `test_events_carry_their_tabs_to_the_overlay` → `tests/reader_loop.rs::events_carry_their_tabs_to_the_overlay`
+- `test_player_lines_use_their_own_tab_context` → `tests/reader_loop.rs::player_lines_use_their_own_tab_context`
+- `test_tab_state_is_sent_only_when_it_changes` → `tests/reader_loop.rs::tab_state_is_sent_only_when_it_changes`
+- `test_tab_state_is_cleared_when_the_game_goes_away` → `tests/reader_loop.rs::tab_state_is_cleared_when_the_game_goes_away`
+- `test_foreground_client_reports_its_slot_every_poll` → `tests/reader_loop.rs::foreground_slot_posted_on_each_full_sample`
+- `test_tab_state_and_foreground_are_sampled_slower_than_chat` → `tests/reader_loop.rs::tab_state_and_foreground_are_sampled_slower_than_chat`
+- `test_a_tab_switch_is_reported_without_waiting_for_the_slow_sample` → `tests/reader_loop.rs::a_tab_switch_is_reported_without_waiting_for_the_slow_sample`
+
+## tests/reader/test_markup.py
+
+- `test_clean_strips_markup_and_collapses_space` → `src/reader/markup.rs::clean_strips_markup_and_collapses_space`
+- `test_clean_unescapes_player_typed_entities` → `src/reader/markup.rs::clean_keeps_emoticons_and_unescapes_entities`
+- `test_clean_keeps_emoticon_as_name` → `src/reader/markup.rs::clean_keeps_emoticons_and_unescapes_entities`
+- `test_clean_strips_emoticon_prefix_and_digits` → `src/reader/markup.rs::clean_strips_emoticon_prefix_and_digits`
+- `test_lines_extracts_player_say_with_sender` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_cjk_sender_and_spaces` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_flags_system_messages` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_skips_debug_rows` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_own_message` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_own_and_others_together` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_preserves_order_and_repeats` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_emoticon_line` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_astral_emoji_text` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_empty_for_empty_input` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_house_channel_message_with_balloon_icon` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_keeps_house_guest_variant` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_skips_debug_rows_without_icon` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_system_lines_are_emitted_with_the_system_flag` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_player_lines_are_not_flagged_as_system` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_system_lines_do_not_need_a_sender_prefix` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_party_notices_are_system_lines` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_party_chat_stays_a_player_line` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_system_lines_that_clean_to_nothing_are_dropped` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_debug_lines_are_still_dropped` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_server_broadcast_without_any_icon_is_flagged_as_system` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_server_broadcast_does_not_need_a_sender_prefix` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_server_broadcast_that_cleans_to_nothing_is_dropped` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_iconless_lines_without_a_leading_color_tag_are_still_dropped` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_with_an_unknown_art_icon_are_not_taken_as_broadcasts` → `tests/reader_golden.rs::parse_line_matches_python`, `src/reader/markup.rs::unknown_icons_are_warned_once_per_icon`
+- `test_system_and_player_lines_keep_their_in_game_order` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_carry_game_color` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_color_normalized_lowercase_hex` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_color_takes_last_six_of_eight_digit_hex` → `tests/reader_golden.rs::parse_line_matches_python`
+- `test_lines_color_missing_is_none` → `tests/reader_golden.rs::parse_line_matches_python`
+
+## tests/reader/test_message_log.py
+
+- `test_record_writes_seq_tab_verdict_and_raw_markup` → `src/reader/message_log.rs::record_writes_seq_tab_verdict_and_raw_markup`
+- `test_note_writes_the_text_as_is` → `src/reader/message_log.rs::note_writes_the_text_as_is`
+- `test_debug_lines_are_not_recorded` → `src/reader/message_log.rs::debug_lines_are_not_recorded`
+- `test_game_debug_tags_are_recognised` → `src/reader/message_log.rs::game_debug_tags_are_recognised`
+- `test_chat_lines_are_not_debug_lines` → `src/reader/message_log.rs::chat_lines_are_not_debug_lines`
+- `test_slot_prefix_marks_every_line` → `src/reader/message_log.rs::slot_prefix_marks_every_line`
+
+## tests/reader/test_reader_connect.py
+
+- `test_open_process_denied_raises_access_denied` → `tests/mem_reader.rs::open_failure_is_access_denied`
+- `test_access_denied_is_a_game_not_running` → `tests/reader_loop.rs::game_missing_retries_every_5s_and_logs_once_per_issue`
+- `test_other_connect_failure_stays_game_not_running` → `tests/mem_reader.rs::open_failure_is_access_denied`, `tests/mem_reader.rs::other_attach_failure_stays_game_not_running`
+- `test_failed_connect_closes_event_loop` → 不移植：Python 專屬機制；Python 版每次連線建一個 asyncio event loop，失敗要手動收掉，Rust 版是同步呼叫、沒有 event loop 可洩漏
+- `test_pattern_failures_are_classified_as_version_mismatch` → `tests/mem_reader.rs::pattern_failure_is_version_mismatch_and_leaves_no_partial_hook`
+- `test_hook_ready_timeout_is_classified_as_version_mismatch` → `tests/mem_reader.rs::readiness_timeout_is_version_mismatch`
+- `test_unrelated_connect_failures_are_not_version_mismatch` → `tests/mem_reader.rs::other_attach_failure_stays_game_not_running`, `tests/mem_reader.rs::open_failure_is_access_denied`
+- `test_version_mismatch_is_a_game_not_running` → `tests/reader_loop.rs::version_mismatch_shows_its_own_banner_and_status`, `tests/reader_loop.rs::game_missing_retries_every_5s_and_logs_once_per_issue`
+- `test_wait_root_window_ready_returns_once_the_address_is_set` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_wait_root_window_ready_ignores_transient_read_errors` → `tests/mem_reader.rs::connect_waits_through_transient_read_errors`
+- `test_wait_root_window_ready_times_out_instead_of_hanging_forever` → `tests/mem_reader.rs::readiness_timeout_is_version_mismatch`
+- `test_pattern_failure_while_attaching_raises_version_mismatch` → `tests/mem_reader.rs::pattern_failure_is_version_mismatch_and_leaves_no_partial_hook`
+- `test_chat_hook_pattern_failure_raises_version_mismatch` → `tests/mem_reader.rs::pattern_failure_is_version_mismatch_and_leaves_no_partial_hook`
+- `test_hook_never_firing_raises_version_mismatch` → `tests/mem_reader.rs::readiness_timeout_is_version_mismatch`
+- `test_other_attach_failure_stays_game_not_running` → `tests/mem_reader.rs::other_attach_failure_stays_game_not_running`
+- `test_hook_state_is_saved_before_waiting_for_the_hook_to_fire` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_attach_saves_state_around_each_hook_and_waits_before_addline` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_addline_is_not_installed_when_the_root_hook_never_fires` → `tests/mem_reader.rs::readiness_timeout_is_version_mismatch`
+- `test_addline_pattern_failure_names_the_addline_hook_in_the_log` → `tests/mem_reader.rs::pattern_failure_is_version_mismatch_and_leaves_no_partial_hook`
+- `test_attach_does_not_use_wizwalkers_unbounded_wait` → 不移植：Python 套件專屬；測的是不使用 wizwalker 內建的無限等待（`wait_for_ready`），Rust 版沒有 wizwalker，自己的等待逾時由 `tests/mem_reader.rs::readiness_timeout_is_version_mismatch` 覆蓋
+- `test_connect_binds_the_given_window_handle` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_connect_logs_the_path_from_the_clients_own_pid` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_teardown_closes_the_client` → `tests/mem_reader.rs::close_unhooks_and_clears_hook_state`, `tests/mem_reader.rs::dropping_the_reader_unhooks_like_close`
+- `test_install_path_of_derives_the_install_root_from_the_pid` → `tests/mem_reader.rs::install_path_is_the_parent_of_bin`
+- `test_install_path_of_rejects_a_non_game_path` → `tests/mem_reader.rs::install_path_is_the_parent_of_bin`
+- `test_install_path_of_handles_an_unopenable_process` → `tests/mem_reader.rs::install_path_is_the_parent_of_bin`
+- `test_is_game_process_path_matches_game_exe` → `src/reader/process.rs::game_process_path_matches_file_name_case_insensitively`
+- `test_is_game_process_path_rejects_other_or_missing` → `src/reader/process.rs::game_process_path_matches_file_name_case_insensitively`
+- `test_find_game_window_returns_the_first_matching_visible_window` → `src/reader/process.rs::find_game_window_returns_the_first_matching_visible_window`
+- `test_find_game_window_returns_none_when_the_game_is_not_running` → `src/reader/process.rs::find_game_window_returns_none_when_the_game_is_not_running`
+- `test_find_game_window_skips_invisible_windows` → `src/reader/process.rs::find_game_window_skips_invisible_windows`
+- `test_find_game_window_ignores_a_single_window_query_failure` → `src/reader/process.rs::find_game_window_ignores_a_single_window_query_failure`
+- `test_repair_reports_write_failures_instead_of_claiming_success` → `tests/hooks_golden.rs::repair_reports_write_failures_instead_of_claiming_success`
+- `test_repair_skips_and_logs_a_stale_state_file` → `tests/hooks_golden.rs::repair_skips_and_logs_a_stale_state_file`
+- `test_hook_state_save_failure_is_logged` → `tests/mem_reader.rs::hook_state_save_failure_is_logged`
+- `test_hook_state_saves_hook_jumps_before_autobot` → `tests/mem_reader.rs::connect_order_matches_python`
+- `test_find_game_window_logs_when_the_window_scan_itself_fails` → `tests/mem_reader.rs::find_game_window_logs_when_the_window_scan_itself_fails`
+- `test_window_exists_distinguishes_a_live_window_from_a_dead_handle` → `tests/mem_reader.rs::install_path_is_the_parent_of_bin`, `src/reader/process.rs::process_queries_handle_missing_targets`
+
+## tests/reader/test_reader_events.py
+
+- `test_records_become_events_in_order` → `tests/mem_reader.rs::records_become_events_in_order`
+- `test_identical_consecutive_lines_both_emit` → `tests/mem_reader.rs::identical_consecutive_lines_both_emit`
+- `test_system_lines_are_skipped_when_emit_system_off` → `tests/mem_reader.rs::system_lines_suppressed_but_seq_advances`
+- `test_broadcast_becomes_one_event_for_all_tabs` → `tests/mem_reader.rs::broadcast_becomes_one_event_for_all_tabs`
+- `test_broadcast_split_across_polls_is_held_and_collapsed` → `tests/mem_reader.rs::partial_broadcast_held_one_round`
+- `test_a_held_tail_is_released_when_nothing_follows` → `tests/mem_reader.rs::a_held_tail_is_released_when_nothing_follows`
+- `test_a_lone_main_tab_line_is_not_held` → `tests/mem_reader.rs::a_lone_main_tab_line_is_not_held`
+- `test_unparseable_lines_are_dropped_and_logged` → `tests/mem_reader.rs::unparseable_lines_are_dropped_and_logged`
+- `test_unknown_chatbox_triggers_one_refind_before_dropping` → `tests/mem_reader.rs::unknown_this_relooks_chatbox_once_per_round`, `tests/mem_reader.rs::only_wizardchatbox_this_is_accepted`
+- `test_missing_chatbox_does_not_mark_the_record_foreign` → `tests/mem_reader.rs::missing_chatbox_does_not_mark_the_record_foreign`
+- `test_missing_chatbox_is_refound_once_per_poll` → `tests/mem_reader.rs::missing_chatbox_is_refound_once_per_poll`
+- `test_chatbox_moving_clears_foreign_and_button_caches` → `tests/mem_reader.rs::chatbox_moving_clears_foreign_and_button_caches`
+- `test_foreign_address_is_rechecked_after_the_window` → `tests/mem_reader.rs::foreign_address_is_rechecked_after_the_window`
+- `test_refinding_the_same_chatbox_is_a_no_op` → `tests/mem_reader.rs::refinding_the_same_chatbox_is_a_no_op`
+- `test_lost_records_are_logged_with_the_count` → `tests/mem_reader.rs::lost_records_are_logged_with_the_count`
+- `test_truncated_lines_are_logged_with_the_original_length` → `tests/mem_reader.rs::truncated_lines_are_logged_with_the_original_length`
+- `test_non_bmp_text_is_not_reported_as_truncated` → `tests/mem_reader.rs::non_bmp_text_is_not_reported_as_truncated`
+- `test_teardown_resets_the_ring_cursor` → `tests/mem_reader.rs::teardown_resets_the_ring_cursor`
+- `test_tab_state_reads_current_tab_and_visible_labels` → `tests/mem_reader.rs::tab_state_reads_current_tab_and_visible_labels`
+- `test_tab_hidden_after_being_shown_is_dropped` → `tests/mem_reader.rs::tab_hidden_after_being_shown_is_dropped`
+- `test_tab_state_is_none_without_a_chatbox` → `tests/mem_reader.rs::tab_state_is_none_without_a_chatbox`
+- `test_repeated_chatbox_lookup_failures_log_once` → `tests/mem_reader.rs::repeated_chatbox_lookup_failures_log_once`
+- `test_tab_buttons_are_refound_after_the_chatbox_moves` → `tests/mem_reader.rs::tab_buttons_are_refound_after_the_chatbox_moves`
+- `test_no_visible_tab_buttons_are_not_rescanned_every_poll` → `tests/mem_reader.rs::no_visible_tab_buttons_are_not_rescanned_every_poll`
+- `test_out_of_range_current_tab_is_a_read_failure` → `tests/mem_reader.rs::out_of_range_current_tab_is_a_read_failure`
+- `test_tab_state_is_none_when_not_connected` → `tests/mem_reader.rs::tab_queries_are_empty_when_not_connected`
+- `test_current_tab_reads_only_the_current_tab` → `tests/mem_reader.rs::current_tab_reads_only_the_known_chatbox`
+- `test_current_tab_is_none_without_a_known_chatbox` → `tests/mem_reader.rs::current_tab_reads_only_the_known_chatbox`
+- `test_current_tab_out_of_range_is_none` → `tests/mem_reader.rs::current_tab_reads_only_the_known_chatbox`
+- `test_current_tab_is_none_when_not_connected` → `tests/mem_reader.rs::tab_queries_are_empty_when_not_connected`
+
+## tests/reader/test_status.py
+
+- `test_state_priority_translating_beats_everything` → `tests/status.rs::state_priority_translating_beats_everything`
+- `test_state_priority_listening_beats_locating_and_failures` → `tests/status.rs::state_priority_listening_beats_locating_and_failures`
+- `test_permanent_failure_shows_when_nothing_is_attached` → `tests/status.rs::permanent_failure_shows_when_nothing_is_attached`
+- `test_no_slots_means_waiting_for_the_game` → `tests/status.rs::no_slots_means_waiting_for_the_game`
+- `test_permanent_issue_is_reported_even_if_another_slot_works` → `tests/status.rs::permanent_issue_wins_and_attached_suppresses_missing`
+- `test_transient_failure_on_one_slot_is_hidden_while_another_listens` → `tests/status.rs::permanent_issue_wins_and_attached_suppresses_missing`
+- `test_all_slots_failing_reports_game_missing` → `tests/status.rs::all_slots_failing_reports_game_missing`
+- `test_no_slots_reports_game_missing` → `tests/status.rs::no_slots_reports_game_missing`
+- `test_all_slots_still_locating_shows_no_banner` → `tests/status.rs::all_slots_still_locating_shows_no_banner`
+- `test_board_pushes_only_on_change` → `tests/status.rs::board_pushes_only_on_change`
+- `test_board_drop_recomputes` → `tests/status.rs::board_drop_recomputes`
+- `test_board_banner_follows_game_issue_and_pool_errors` → `tests/status.rs::board_banner_follows_game_issue_and_pool_errors`
+- `test_board_refresh_with_no_slots_reports_waiting_game` → `tests/status.rs::board_refresh_with_no_slots_reports_waiting_game`
+
+## tests/reader/test_supervisor.py
+
+- `test_allocate_slot_takes_the_smallest_free_number` → `tests/supervisor.rs::allocate_slot_takes_the_smallest_free_number`
+- `test_each_new_window_gets_a_thread_and_the_next_slot` → `tests/supervisor.rs::each_new_window_gets_a_thread_and_the_next_slot`
+- `test_freed_slot_is_reused_by_the_next_window` → `tests/supervisor.rs::smallest_free_slot_reused`
+- `test_board_is_refreshed_every_scan` → `tests/supervisor.rs::board_is_refreshed_every_scan`
+- `test_stop_joins_every_reader_thread` → `tests/supervisor.rs::stop_joins_every_reader_thread`
+- `test_enumeration_failure_does_not_kill_the_loop` → `tests/supervisor.rs::scan_failure_does_not_kill_the_loop`
+- `test_shutdown_join_budget_is_shared_not_per_thread` → `tests/supervisor.rs::join_budget_shared_8s`
