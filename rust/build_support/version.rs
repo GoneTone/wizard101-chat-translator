@@ -26,6 +26,11 @@ pub fn version_rc(version: &str, manifest: &str, icon: &str) -> String {
 1 VERSIONINFO
 FILEVERSION {a},{b},{c},{d}
 PRODUCTVERSION {a},{b},{c},{d}
+FILEFLAGSMASK 0x3f
+FILEFLAGS 0x0
+FILEOS 0x40004
+FILETYPE 0x1
+FILESUBTYPE 0x0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN

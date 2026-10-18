@@ -18,6 +18,9 @@ fn version_rc_matches_the_pyinstaller_strings() {
     for expected in [
         "FILEVERSION 0,6,12,0",
         "PRODUCTVERSION 0,6,12,0",
+        "FILEFLAGSMASK 0x3f",
+        "FILEOS 0x40004",
+        "FILETYPE 0x1",
         "BLOCK \"040904b0\"",
         "VALUE \"CompanyName\", \"GoneTone\"",
         "VALUE \"FileDescription\", \"Wizard101 Chat Translator\"",
