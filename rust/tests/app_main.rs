@@ -429,6 +429,141 @@ fn switching_the_incoming_slot_between_same_named_models_invalidates_the_cache()
     assert!(s.built.cache.fingerprint().contains("http://remote-twin"));
 }
 
+/// 三格各指向自己的假伺服器：只有收訊那台會回覆，其餘兩台若被呼叫會留下請求紀錄。
+struct Endpoints {
+    rt: tokio::runtime::Runtime,
+    servers: Vec<wiremock::MockServer>,
+}
+
+impl Endpoints {
+    fn start() -> Self {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let servers: Vec<_> = (0..3).map(|_| rt.block_on(MockServer::start())).collect();
+        let sse = "data: {\"choices\": [{\"delta\": {\"content\": \"嗨\"}}]}\n\ndata: [DONE]\n\n";
+        rt.block_on(
+            Mock::given(method("POST"))
+                .and(path("/v1/chat/completions"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(sse, "text/event-stream"))
+                .mount(&servers[0]),
+        );
+        Self { rt, servers }
+    }
+
+    /// 三格服務都是自訂端點，網址指向各自的假伺服器。
+    fn config(&self) -> Config {
+        let mut cfg = cfg();
+        for (index, model) in ["qwen3", "gpt-x", "region-model"].iter().enumerate() {
+            cfg["services"][index] = json!({
+                "id": format!("aaaa000{}", index + 1), "name": format!("Slot {index}"),
+                "provider": "custom", "base_url": self.servers[index].uri(),
+                "model": model, "api_key": "", "thinking": false,
+            });
+        }
+        cfg
+    }
+
+    fn requests(&self, index: usize) -> usize {
+        self.rt
+            .block_on(self.servers[index].received_requests())
+            .unwrap()
+            .len()
+    }
+}
+
+/// 建好翻譯端、照 `submit` 送進翻譯池，收齊 `expected` 筆（msg_id，譯文，是否失敗）。
+fn deliveries_through(
+    endpoints: &Endpoints,
+    submit: impl FnOnce(&Translation),
+    expected: usize,
+) -> Vec<(u64, String, bool)> {
+    capture_logs();
+    let cfg = endpoints.config();
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    seed(&store, &cfg, &examples());
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(tx);
+    let deliver: ResultFn = Arc::new(move |id, text, failed| {
+        let _ = tx.lock().unwrap().send((id, text, failed));
+    });
+    let built = build_translation(
+        &Arc::new(RwLock::new(cfg)),
+        deliver,
+        endpoints.rt.handle(),
+        store,
+        dir.path().join("cache.json"),
+    );
+    submit(&built);
+    (0..expected)
+        .map(|_| rx.recv_timeout(Duration::from_secs(10)).expect("delivery"))
+        .collect()
+}
+
+#[test]
+fn both_pools_translate_through_the_incoming_service() {
+    let endpoints = Endpoints::start();
+    let results = deliveries_through(
+        &endpoints,
+        |built| {
+            built.pool.submit("[Amy] hi".into(), vec![], 1);
+            built
+                .system_pool
+                .submit("Server restarting".into(), vec![], 2);
+        },
+        2,
+    );
+    assert!(results.iter().all(|(_, _, failed)| !failed), "{results:?}");
+    assert_eq!(
+        [
+            endpoints.requests(0),
+            endpoints.requests(1),
+            endpoints.requests(2)
+        ],
+        [2, 0, 0],
+        "both pools translate through the incoming service only"
+    );
+}
+
+#[test]
+fn the_system_pool_translates_through_the_incoming_service() {
+    let endpoints = Endpoints::start();
+    let results = deliveries_through(
+        &endpoints,
+        |built| {
+            built
+                .system_pool
+                .submit("Server restarting".into(), vec![], 7);
+        },
+        1,
+    );
+    assert_eq!(results[0].0, 7);
+    assert!(!results[0].2, "{results:?}");
+    assert_eq!(
+        [
+            endpoints.requests(0),
+            endpoints.requests(1),
+            endpoints.requests(2)
+        ],
+        [1, 0, 0]
+    );
+}
+
+#[test]
+fn build_app_wires_each_consumer_to_its_own_slot() {
+    let source = include_str!("../src/main.rs");
+    assert!(source.contains("Arc::clone(&built.translation.outgoing)"));
+    assert!(source.contains("Arc::clone(&built.translation.region)"));
+}
+
+#[test]
+fn build_app_spawns_readers_through_the_supervisor() {
+    let source = include_str!("../src/app_main.rs");
+    assert!(source.contains("supervise(&stop, spawn, game_windows, &board)"));
+    assert!(source.contains("MessageLog::new(Arc::clone(&messages), slot)"));
+}
+
 #[test]
 fn reconfigure_resizes_both_pools() {
     let s = saved("resize");

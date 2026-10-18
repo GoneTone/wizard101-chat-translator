@@ -137,4 +137,9 @@ mod tests {
         drop(acquire_named(&name).unwrap());
         assert!(acquire_named(&name).is_some());
     }
+
+    #[test]
+    fn focus_reports_failure_when_no_window_matches() {
+        assert!(!focus_running_instance(&unique("no-such-window")));
+    }
 }

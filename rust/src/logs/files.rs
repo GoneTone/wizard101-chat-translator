@@ -223,4 +223,68 @@ mod tests {
         assert!(lines[1].ends_with("Z "));
         assert!(lines[2].ends_with("Z next"));
     }
+
+    fn stamped_lines(out: Vec<u8>) -> Vec<String> {
+        let text = String::from_utf8(out).unwrap();
+        text.split_terminator("\r\n").map(str::to_owned).collect()
+    }
+
+    #[test]
+    fn each_line_gets_a_stamp_prefix() {
+        let mut out = Vec::new();
+        TimestampedWriter::new(&mut out)
+            .write_all(b"[app] one\n[reader] two\n")
+            .unwrap();
+        let lines = stamped_lines(out);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Z [app] one") && lines[0].as_bytes()[24] == b' ');
+        assert!(lines[1].ends_with("Z [reader] two") && lines[1].as_bytes()[24] == b' ');
+    }
+
+    #[test]
+    fn next_line_after_split_write_gets_new_stamp() {
+        let mut out = Vec::new();
+        let mut w = TimestampedWriter::new(&mut out);
+        w.write_all(b"[app] a\n").unwrap();
+        w.write_all(b"[app] b\n").unwrap();
+        let lines = stamped_lines(out);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Z [app] a") && lines[1].ends_with("Z [app] b"));
+    }
+
+    #[test]
+    fn empty_write_emits_nothing() {
+        let mut out = Vec::new();
+        TimestampedWriter::new(&mut out).write_all(b"").unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn flush_reaches_the_wrapped_writer() {
+        #[derive(Default)]
+        struct Counting {
+            bytes: Vec<u8>,
+            flushes: usize,
+        }
+        impl Write for Counting {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                self.bytes.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                self.flushes += 1;
+                Ok(())
+            }
+        }
+        let mut sink = Counting::default();
+        let mut w = TimestampedWriter::new(&mut sink);
+        w.write_all(b"[app] x\n").unwrap();
+        w.flush().unwrap();
+        assert_eq!(sink.flushes, 1);
+        assert!(
+            String::from_utf8(sink.bytes)
+                .unwrap()
+                .ends_with("Z [app] x\r\n")
+        );
+    }
 }

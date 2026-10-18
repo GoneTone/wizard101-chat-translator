@@ -92,3 +92,39 @@ fn system_language_detection_returns_an_offered_code() {
     let code = i18n::detect_system_language();
     assert!(i18n::available_languages().iter().any(|(c, _)| *c == code));
 }
+
+#[test]
+fn unknown_language_code_falls_back_to_default() {
+    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
+    i18n::set_language("xx-XX");
+    assert_eq!(i18n::current_language(), "en-US");
+    i18n::set_language("zh-TW");
+    i18n::set_language("xx-XX");
+    assert_eq!(i18n::current_language(), "en-US");
+}
+
+#[test]
+fn languages_are_listed_as_endonyms() {
+    let languages = i18n::available_languages();
+    let codes: Vec<&String> = languages.iter().map(|(c, _)| c).collect();
+    let mut sorted = codes.clone();
+    sorted.sort();
+    assert_eq!(codes, sorted);
+    let source = languages.iter().find(|(c, _)| c == i18n::SOURCE_LANGUAGE);
+    assert_eq!(
+        source.map(|(_, name)| name.as_str()),
+        Some("繁體中文（台灣）")
+    );
+}
+
+#[test]
+fn language_names_are_unique() {
+    let names: Vec<String> = i18n::available_languages()
+        .into_iter()
+        .map(|(_, name)| name)
+        .collect();
+    let mut unique = names.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(names.len(), unique.len(), "duplicate endonyms: {names:?}");
+}

@@ -841,6 +841,20 @@ mod tests {
     }
 
     #[test]
+    fn empty_queue_is_a_noop() {
+        let (_poster, inbox) = channel();
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+        });
+        harness.step();
+        let app = harness.state();
+        assert_eq!(app.status, None);
+        assert_eq!(app.model.client(), None);
+        assert_eq!(app.banners.error_text(), None);
+    }
+
+    #[test]
     fn app_routes_messages_into_the_overlay_model() {
         let (poster, inbox) = channel();
         poster.post(UiEvent::AddMessage {

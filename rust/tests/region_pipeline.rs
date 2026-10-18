@@ -111,6 +111,16 @@ async fn errors_propagate() {
 }
 
 #[tokio::test]
+async fn translator_offline_error_propagates() {
+    let offline = TranslateError::offline("down");
+    let fake = Fake::new("m", vec![Err(offline.clone())]);
+    let result = pipeline(&fake, "Hello")
+        .run(b"png".to_vec(), RECT, &CancellationToken::new())
+        .await;
+    assert_eq!(result, Err(RegionError::Translate(offline)));
+}
+
+#[tokio::test]
 async fn recognition_errors_and_panics_are_unexpected() {
     quiet_panics();
     let fake = Fake::texts(&["unused"]);

@@ -4,10 +4,10 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{
-    EFFORTS, describe, is_auto_name, new_service, provider, providers, unique_name,
+    EFFORTS, describe, find, is_auto_name, new_service, provider, providers, unique_name,
     validate_endpoint_fields, validate_service,
 };
-use wizard101_chat_translator::config::{AdvancedText, advanced_limits, parse_advanced};
+use wizard101_chat_translator::config::{AdvancedText, Config, advanced_limits, parse_advanced};
 use wizard101_chat_translator::i18n;
 
 /// 介面語言是全域狀態，會翻文案的測試要排隊。
@@ -256,4 +256,29 @@ fn parse_advanced_follows_tk_intvar_for_integer_fields() {
 fn advanced_limits_report_the_clamp_ranges() {
     assert_eq!(advanced_limits("fade_seconds"), (0.0, 3600.0));
     assert_eq!(advanced_limits("overlay_alpha"), (0.3, 1.0));
+}
+
+#[test]
+fn profile_fields_cover_what_the_translator_takes() {
+    let fields = |key: &str| {
+        let mut keys: Vec<String> = provider(key).unwrap().defaults().keys().cloned().collect();
+        keys.sort();
+        keys
+    };
+    assert_eq!(fields("claude"), ["api_key", "effort", "model"]);
+    assert_eq!(fields("gemini"), ["api_key", "effort", "model"]);
+    assert!(!provider("openai").unwrap().has_field("base_url"));
+}
+
+#[test]
+fn find_returns_none_for_an_unknown_id() {
+    let mut cfg = Config::new();
+    cfg.insert(
+        "services".into(),
+        Value::Array(vec![new_service("openai", &[])]),
+    );
+    assert!(find(&cfg, Some("nope")).is_none());
+    assert!(find(&cfg, None).is_none());
+    let id = cfg["services"][0]["id"].as_str().unwrap().to_owned();
+    assert!(find(&cfg, Some(&id)).is_some());
 }

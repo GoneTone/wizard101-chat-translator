@@ -111,12 +111,48 @@ fn meta(code: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn coverage(code: &str, source: &Catalog) -> f64 {
+fn coverage(catalog: &Catalog, source: &Catalog) -> f64 {
     if source.is_empty() {
         return 1.0;
     }
-    let have = catalog(code).map_or(0, |c| source.keys().filter(|k| c.contains_key(*k)).count());
+    let have = source.keys().filter(|k| catalog.contains_key(*k)).count();
     have as f64 / source.len() as f64
+}
+
+/// 從語言檔挑出語言選單要列的語言：來源與預設語言一律列，其餘須宣告自稱且完成度達門檻。
+fn offered_languages(catalogs: &[(&str, &Catalog)]) -> Vec<(String, String)> {
+    let empty = Catalog::new();
+    let source = catalogs
+        .iter()
+        .find(|(code, _)| *code == SOURCE_LANGUAGE)
+        .map_or(&empty, |(_, catalog)| *catalog);
+    let mut found = Vec::new();
+    for (code, catalog) in catalogs {
+        let name = catalog.get(META_NAME).cloned().unwrap_or_default();
+        if *code != SOURCE_LANGUAGE && *code != DEFAULT_LANGUAGE {
+            let coverage = coverage(catalog, source) * 100.0;
+            if name.is_empty() {
+                log(format!(
+                    "[i18n] catalog without {META_NAME}, not offered: {code} coverage={coverage:.0}%"
+                ));
+                continue;
+            }
+            if coverage < MINIMUM_COVERAGE * 100.0 {
+                log(format!(
+                    "[i18n] catalog below {:.0}%, not offered: {code} coverage={coverage:.0}%",
+                    MINIMUM_COVERAGE * 100.0
+                ));
+                continue;
+            }
+        }
+        let name = if name.is_empty() {
+            (*code).to_string()
+        } else {
+            name
+        };
+        found.push(((*code).to_string(), name));
+    }
+    found
 }
 
 /// 可選的介面語言：（語言碼，自稱），依語言碼字母序；完成度與自稱門檻同 Python。
@@ -124,29 +160,11 @@ pub fn available_languages() -> Vec<(String, String)> {
     static LANGUAGES: OnceLock<Vec<(String, String)>> = OnceLock::new();
     LANGUAGES
         .get_or_init(|| {
-            let source = catalog(SOURCE_LANGUAGE).cloned().unwrap_or_default();
-            let mut found = Vec::new();
-            for (code, _) in CATALOG_SOURCES {
-                let name = meta(code, META_NAME);
-                if *code != SOURCE_LANGUAGE && *code != DEFAULT_LANGUAGE {
-                    let coverage = coverage(code, &source) * 100.0;
-                    if name.is_empty() {
-                        log(format!(
-                            "[i18n] catalog without {META_NAME}, not offered: {code} coverage={coverage:.0}%"
-                        ));
-                        continue;
-                    }
-                    if coverage < MINIMUM_COVERAGE * 100.0 {
-                        log(format!(
-                            "[i18n] catalog below {:.0}%, not offered: {code} coverage={coverage:.0}%",
-                            MINIMUM_COVERAGE * 100.0
-                        ));
-                        continue;
-                    }
-                }
-                let name = if name.is_empty() { (*code).to_string() } else { name };
-                found.push(((*code).to_string(), name));
-            }
+            let all: Vec<(&str, &Catalog)> = CATALOG_SOURCES
+                .iter()
+                .filter_map(|(code, _)| catalog(code).map(|c| (*code, c)))
+                .collect();
+            let found = offered_languages(&all);
             let codes: Vec<&str> = found.iter().map(|(c, _)| c.as_str()).collect();
             log(format!("[i18n] catalogs offered: {}", codes.join(",")));
             found
@@ -227,17 +245,26 @@ fn format_template(template: &str, args: &[(&str, &str)]) -> Result<String, Stri
     Ok(out)
 }
 
-/// 取當前語言的文案並代入變數；缺字串或格式失敗往下一層語言退，全失敗回 key。
-pub fn t(key: &str, args: &[(&str, &str)]) -> String {
-    let current = current_language();
-    let mut order = vec![current.as_str()];
+/// 查詢文案的語言順序：目前語言 → 預設語言 → 來源語言（去重）。
+fn fallback_order(current: &str) -> Vec<&str> {
+    let mut order = vec![current];
     for code in [DEFAULT_LANGUAGE, SOURCE_LANGUAGE] {
         if !order.contains(&code) {
             order.push(code);
         }
     }
+    order
+}
+
+/// 依 `order` 逐語言查 `key` 並代入變數；缺字串或格式失敗往下一層退，全失敗回 key。
+fn translate<'a>(
+    order: &[&str],
+    lookup: impl Fn(&str) -> Option<&'a Catalog>,
+    key: &str,
+    args: &[(&str, &str)],
+) -> String {
     for code in order {
-        let Some(template) = catalog(code).and_then(|c| c.get(key)) else {
+        let Some(template) = lookup(code).and_then(|c| c.get(key)) else {
             log(format!("[i18n] missing key: {key} lang={code}"));
             continue;
         };
@@ -249,6 +276,12 @@ pub fn t(key: &str, args: &[(&str, &str)]) -> String {
         }
     }
     key.to_string()
+}
+
+/// 取當前語言的文案並代入變數；缺字串或格式失敗往下一層語言退，全失敗回 key。
+pub fn t(key: &str, args: &[(&str, &str)]) -> String {
+    let current = current_language();
+    translate(&fallback_order(&current), catalog, key, args)
 }
 
 /// 中文標籤的字體系：`Some(true)` 繁體、`Some(false)` 簡體、非中文 `None`。
@@ -367,6 +400,251 @@ mod tests {
         for (code, text) in CATALOG_SOURCES {
             parse_catalog(text).unwrap_or_else(|e| panic!("{code}: {e}"));
         }
+    }
+
+    fn catalog_of(pairs: &[(&str, &str)]) -> Catalog {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect()
+    }
+
+    fn embedded(code: &str) -> &'static Catalog {
+        catalog(code).unwrap_or_else(|| panic!("no embedded catalog: {code}"))
+    }
+
+    fn placeholders(text: &str) -> std::collections::BTreeSet<String> {
+        let mut names = std::collections::BTreeSet::new();
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '{' {
+                continue;
+            }
+            if chars.peek() == Some(&'{') {
+                chars.next();
+                continue;
+            }
+            let name: String = chars.by_ref().take_while(|&ch| ch != '}').collect();
+            names.insert(name);
+        }
+        names
+    }
+
+    #[test]
+    fn no_language_file_has_keys_the_source_language_lacks() {
+        let source = embedded(SOURCE_LANGUAGE);
+        for (code, _) in available_languages() {
+            let extra: Vec<&String> = embedded(&code)
+                .keys()
+                .filter(|k| !source.contains_key(*k))
+                .collect();
+            assert!(
+                extra.is_empty(),
+                "{code} has keys the source lacks: {extra:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_hand_maintained_catalogs_carry_the_same_keys() {
+        let source = embedded(SOURCE_LANGUAGE);
+        for code in [SOURCE_LANGUAGE, DEFAULT_LANGUAGE, "zh-CN"] {
+            let mut missing: Vec<&String> = source
+                .keys()
+                .filter(|k| !embedded(code).contains_key(*k))
+                .collect();
+            let mut extra: Vec<&String> = embedded(code)
+                .keys()
+                .filter(|k| !source.contains_key(*k))
+                .collect();
+            missing.sort();
+            extra.sort();
+            assert!(
+                missing.is_empty() && extra.is_empty(),
+                "{code} differs from {SOURCE_LANGUAGE}: missing {missing:?}, extra {extra:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn placeholders_match_across_languages() {
+        let source = embedded(SOURCE_LANGUAGE);
+        for (code, _) in available_languages() {
+            for (key, template) in source {
+                let Some(translated) = embedded(&code).get(key) else {
+                    continue;
+                };
+                assert_eq!(
+                    placeholders(translated),
+                    placeholders(template),
+                    "{code} {key}: placeholders differ from the source language"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn zh_cn_keeps_its_own_wording_for_chat_and_advanced() {
+        let zh_cn = embedded("zh-CN");
+        assert_eq!(zh_cn["slot.incoming"], "聊天接收");
+        assert!(zh_cn["service.slots_title"].contains("高级"));
+    }
+
+    #[test]
+    fn the_zh_cn_readme_speaks_the_same_words_as_the_catalog() {
+        let readme = include_str!("../../../README_ZH-CN.md");
+        assert!(readme.contains(embedded("zh-CN")["slot.incoming"].as_str()));
+    }
+
+    #[test]
+    fn fallback_order_is_current_then_english_then_source() {
+        assert_eq!(fallback_order("zh-CN"), ["zh-CN", "en-US", "zh-TW"]);
+        assert_eq!(fallback_order("en-US"), ["en-US", "zh-TW"]);
+        assert_eq!(fallback_order("zh-TW"), ["zh-TW", "en-US"]);
+    }
+
+    fn lookup_in<'a>(
+        catalogs: &'a HashMap<&'static str, Catalog>,
+    ) -> impl Fn(&str) -> Option<&'a Catalog> {
+        |code| catalogs.get(code)
+    }
+
+    #[test]
+    fn t_formats_named_placeholders() {
+        let catalogs = HashMap::from([("zh-TW", catalog_of(&[("test.greet", "你好 {name}")]))]);
+        let text = translate(
+            &["zh-TW"],
+            lookup_in(&catalogs),
+            "test.greet",
+            &[("name", "Amy")],
+        );
+        assert_eq!(text, "你好 Amy");
+    }
+
+    #[test]
+    fn missing_key_falls_back_to_english_before_source() {
+        let catalogs = HashMap::from([
+            ("zh-CN", catalog_of(&[])),
+            ("en-US", catalog_of(&[("test.partial", "English copy")])),
+            ("zh-TW", catalog_of(&[("test.partial", "繁中文案")])),
+        ]);
+        let order = fallback_order("zh-CN");
+        assert_eq!(
+            translate(&order, lookup_in(&catalogs), "test.partial", &[]),
+            "English copy"
+        );
+    }
+
+    #[test]
+    fn missing_key_falls_back_to_source_language_last() {
+        let catalogs = HashMap::from([
+            ("zh-CN", catalog_of(&[])),
+            ("en-US", catalog_of(&[])),
+            (
+                "zh-TW",
+                catalog_of(&[("test.only_source", "只有來源語言有")]),
+            ),
+        ]);
+        let order = fallback_order("zh-CN");
+        assert_eq!(
+            translate(&order, lookup_in(&catalogs), "test.only_source", &[]),
+            "只有來源語言有"
+        );
+    }
+
+    #[test]
+    fn missing_everywhere_returns_the_key_itself() {
+        let catalogs = HashMap::from([("en-US", catalog_of(&[]))]);
+        let order = fallback_order("en-US");
+        assert_eq!(
+            translate(&order, lookup_in(&catalogs), "test.nowhere", &[]),
+            "test.nowhere"
+        );
+    }
+
+    #[test]
+    fn broken_placeholder_falls_back_to_the_next_language() {
+        let catalogs = HashMap::from([
+            ("zh-CN", catalog_of(&[("test.count", "共 {conut} 条")])),
+            ("en-US", catalog_of(&[("test.count", "{count} in total")])),
+        ]);
+        let order = fallback_order("zh-CN");
+        assert_eq!(
+            translate(
+                &order,
+                lookup_in(&catalogs),
+                "test.count",
+                &[("count", "3")]
+            ),
+            "3 in total"
+        );
+    }
+
+    #[test]
+    fn system_preferences_are_valid_language_tags() {
+        let tags = preferred_ui_languages().unwrap();
+        assert!(!tags.is_empty(), "the system always has a UI language");
+        for tag in &tags {
+            assert!(
+                !tag.is_empty() && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'),
+                "not a BCP-47 style tag: {tag:?}"
+            );
+        }
+        assert!(
+            available_languages()
+                .iter()
+                .any(|(c, _)| *c == detect_system_language())
+        );
+    }
+
+    #[test]
+    fn a_language_without_an_endonym_is_not_offered() {
+        let en = catalog_of(&[("language.name", "English")]);
+        let ja = catalog_of(&[("app.name", "ウィザード")]);
+        let offered = offered_languages(&[("en-US", &en), ("ja-JP", &ja)]);
+        assert_eq!(offered, [("en-US".to_string(), "English".to_string())]);
+    }
+
+    #[test]
+    fn a_barely_translated_language_is_not_offered() {
+        let mut source = catalog_of(&[("language.name", "繁體中文（台灣）")]);
+        let mut korean = catalog_of(&[("language.name", "한국어")]);
+        for n in 0..9 {
+            source.insert(format!("key.{n}"), "來源".into());
+        }
+        for n in 0..8 {
+            korean.insert(format!("key.{n}"), "번역".into());
+        }
+        let japanese = catalog_of(&[
+            ("language.name", "日本語"),
+            ("key.0", "ひとつ"),
+            ("key.1", "ふたつ"),
+        ]);
+        let offered =
+            offered_languages(&[("ja-JP", &japanese), ("ko-KR", &korean), ("zh-TW", &source)]);
+        let codes: Vec<&str> = offered.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(codes, ["ko-KR", "zh-TW"]);
+        assert_eq!(offered[0].1, "한국어");
+    }
+
+    #[test]
+    fn the_source_and_default_languages_are_always_offered() {
+        let source: Catalog = (0..10)
+            .map(|n| (format!("key.{n}"), "來源".into()))
+            .collect();
+        let default = Catalog::new();
+        let offered = offered_languages(&[("en-US", &default), ("zh-TW", &source)]);
+        let codes: Vec<&str> = offered.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(codes, ["en-US", "zh-TW"]);
+    }
+
+    #[test]
+    fn translators_are_never_borrowed_from_another_language() {
+        for (code, _) in CATALOG_SOURCES {
+            let own = embedded(code).get(META_TRANSLATORS).cloned();
+            assert_eq!(translators(code), own.unwrap_or_default(), "{code}");
+        }
+        assert_eq!(translators("xx-XX"), "");
     }
 
     #[test]

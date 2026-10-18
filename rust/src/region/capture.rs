@@ -231,10 +231,7 @@ impl GraphicsCaptureApiHandler for Grab {
                 .buffer()
                 .map_err(|e| e.to_string())
                 .and_then(|buffer| {
-                    let rgba = buffer.as_nopadding_buffer(&mut Vec::new()).to_vec();
-                    RgbaImage::from_raw(w, h, rgba)
-                        .map(|rgba| image::DynamicImage::ImageRgba8(rgba).to_rgb8())
-                        .ok_or_else(|| format!("buffer does not match {w}x{h}"))
+                    rgba_to_rgb(w, h, buffer.as_nopadding_buffer(&mut Vec::new()).to_vec())
                 });
             let _ = self.arrivals.send(Arrival::Frame(image));
         }
@@ -246,6 +243,13 @@ impl GraphicsCaptureApiHandler for Grab {
         let _ = self.arrivals.send(Arrival::Closed);
         Ok(())
     }
+}
+
+/// WGC 的 RGBA 影格緩衝 → RGB 圖；緩衝大小與寬高對不上時回錯誤。
+fn rgba_to_rgb(w: u32, h: u32, rgba: Vec<u8>) -> Result<RgbImage, String> {
+    RgbaImage::from_raw(w, h, rgba)
+        .map(|rgba| image::DynamicImage::ImageRgba8(rgba).to_rgb8())
+        .ok_or_else(|| format!("buffer does not match {w}x{h}"))
 }
 
 /// 用 WGC 拍 hwnd 的一張影格（範圍是 DWM 看得見的外框）。
@@ -361,6 +365,19 @@ fn grab_screen((x, y, w, h): Rect) -> Result<RgbImage, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grab_window_converts_the_first_frame_from_rgba() {
+        let mut rgba = vec![0u8; 3 * 2 * 4];
+        rgba[..4].copy_from_slice(&[0, 0, 255, 255]);
+        let image = rgba_to_rgb(3, 2, rgba).unwrap();
+        assert_eq!(image.dimensions(), (3, 2));
+        assert_eq!(image.get_pixel(0, 0), &Rgb([0, 0, 255]));
+        assert_eq!(
+            rgba_to_rgb(3, 2, vec![0; 5]),
+            Err("buffer does not match 3x2".to_string())
+        );
+    }
 
     #[test]
     fn grab_times_out_after_two_seconds() {

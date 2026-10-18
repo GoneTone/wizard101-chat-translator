@@ -194,3 +194,10 @@ fn capture_screen_falls_back_to_black_when_grab_fails() {
         "[region] screen grab failed (monitor=(100, 200, 0, 150)): empty monitor 0x150"
     ));
 }
+
+#[test]
+fn capture_screen_returns_the_grabbed_image_on_success() {
+    capture_logs();
+    let image = capture_screen((0, 0, 4, 3));
+    assert_eq!(image.dimensions(), (4, 3));
+}

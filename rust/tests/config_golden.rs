@@ -313,3 +313,55 @@ fn is_auto_name_matches_python() {
         assert_eq!(result, case["output"].as_bool().unwrap(), "{input}");
     }
 }
+
+#[test]
+fn load_missing_file_returns_defaults() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("nope.json");
+    assert_eq!(load_config(&path), config::default_config());
+    assert!(!path.exists(), "a missing file is not created by loading");
+}
+
+#[test]
+fn save_then_load_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.json");
+    let mut cfg = load_config(&path);
+    cfg.insert(
+        "overlay_position".into(),
+        serde_json::json!({"x": 100, "y": 200}),
+    );
+    cfg.insert("fade_seconds".into(), 25.into());
+    save_config(&path, &cfg).unwrap();
+    let reloaded = load_config(&path);
+    assert_eq!(
+        reloaded["overlay_position"],
+        serde_json::json!({"x": 100, "y": 200})
+    );
+    assert_eq!(reloaded["fade_seconds"], 25);
+}
+
+#[test]
+fn load_config_with_broken_json_falls_back_to_defaults() {
+    common::log_capture::capture_logs();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("broken-json.json");
+    fs::write(&path, r#"{"hotkey": "f8",}"#).unwrap();
+    assert_eq!(load_config(&path), config::default_config());
+    let lines = common::log_capture::log_lines_with("broken-json.json is unreadable");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+}
+
+#[test]
+fn load_config_with_non_numeric_advanced_value_uses_the_default() {
+    common::log_capture::capture_logs();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("config.json");
+    fs::write(&path, r#"{"type_delay": "fast", "max_messages": null}"#).unwrap();
+    let cfg = load_config(&path);
+    let defaults = config::default_config();
+    assert_eq!(cfg["type_delay"], defaults["type_delay"]);
+    assert_eq!(cfg["max_messages"], defaults["max_messages"]);
+    let lines = common::log_capture::log_lines_with("[config] type_delay is not a number");
+    assert!(!lines.is_empty(), "{lines:?}");
+}
