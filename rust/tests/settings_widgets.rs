@@ -18,8 +18,8 @@ use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, keycaps, outcome,
-    primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
+    INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, icon_button,
+    keycaps, outcome, primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
 };
 
 /// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
@@ -221,6 +221,81 @@ fn editable_combo_filters_while_typing_and_picks_with_enter() {
     h.run_steps(2);
     assert_eq!(h.state().text, "claude-haiku-4-5");
     assert!(h.query_by_label("claude-3-5-haiku-latest").is_none());
+}
+
+fn click_at(h: &mut Harness<Combo>, pos: egui::Pos2) {
+    h.event(egui::Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+}
+
+#[test]
+fn icon_button_tooltip_uses_the_settings_theme() {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(200.0, 100.0))
+        .with_context_setup(|ctx| {
+            fonts_egui::install(ctx, "en-US");
+            ctx.all_styles_mut(|style| style.interaction.tooltip_delay = 0.0);
+        })
+        .build_ui(|ui| {
+            theme::apply(ui.style_mut());
+            icon_button(ui, icon::CLOSE, "Close tip");
+        });
+    h.run_steps(2);
+    let button = h.get_by_label("Close tip").rect();
+    h.hover_at(button.center());
+    h.run_steps(4);
+    let color = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            Shape::Text(shape) if shape.galley.text() == "Close tip" => Some(shape.fallback_color),
+            _ => None,
+        });
+    assert_eq!(color, Some(theme::TEXT));
+}
+
+#[test]
+fn editable_combo_picks_the_option_that_is_clicked() {
+    let mut h = combo_harness("");
+    type_into_combo(&mut h, "haiku");
+    h.get_by_label("claude-haiku-4-5").click();
+    h.run_steps(3);
+    assert_eq!(h.state().text, "claude-haiku-4-5");
+    assert!(h.query_by_label("claude-3-5-haiku-latest").is_none());
+}
+
+#[test]
+fn editable_combo_closes_on_a_click_elsewhere_and_keeps_the_text() {
+    let mut h = combo_harness("");
+    type_into_combo(&mut h, "sonnet");
+    h.get_by_label("claude-sonnet-4-5");
+    click_at(&mut h, egui::pos2(460.0, 340.0));
+    assert!(h.query_by_label("claude-sonnet-4-5").is_none());
+    assert_eq!(h.state().text, "sonnet");
+}
+
+#[test]
+fn editable_combo_chevron_opens_the_full_list() {
+    let mut h = combo_harness("");
+    let edit = h.get_by_label("Model").rect();
+    assert!(h.query_by_label("claude-haiku-4-5").is_none());
+    click_at(&mut h, egui::pos2(edit.right() + 10.0, edit.center().y));
+    for option in [
+        "claude-3-5-haiku-latest",
+        "claude-haiku-4-5",
+        "claude-sonnet-4-5",
+    ] {
+        h.get_by_label(option);
+    }
 }
 
 /// 畫面上文字是 `text` 的那個字形的顏色。

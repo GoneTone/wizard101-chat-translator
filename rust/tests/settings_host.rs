@@ -527,6 +527,40 @@ fn wizard_mode_keeps_the_root_hidden_until_finish() {
 }
 
 #[test]
+fn wizard_finish_syncs_the_overlay_language() {
+    let _lock = language_lock();
+    // App 建立時記下的語言與精靈結束時的不同，才分得出有沒有同步
+    i18n::set_language("zh-CN");
+    let (mut h, started, _recorder) = wizard_app(wizard_cfg());
+    i18n::set_language("en-US");
+    run(&mut h);
+    assert_eq!(h.state().ui_language(), "zh-CN");
+    click(&mut h, Role::Button, &tr("button.next"));
+    click(&mut h, Role::Link, &tr("wizard.skip_test"));
+    click(&mut h, Role::Button, &tr("button.next"));
+    h.get_by_role_and_label(Role::Button, &tr("button.finish"))
+        .click();
+    frames(&mut h, 3);
+    assert_eq!(started.borrow()[0]["ui_language"], json!("en-US"));
+    assert_eq!(h.state().ui_language(), "en-US");
+}
+
+#[test]
+fn a_wizard_host_that_was_never_opened_is_logged() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    capture_logs();
+    let not_opened = || log_lines_with("[app] first-run wizard host was not opened").len();
+    let before = not_opened();
+    let (_h, _poster, _recorder) = eframe_harness(|ctx, inbox| {
+        let wizard = WizardHost::new(Box::new(FakeEnv::default()));
+        App::new(ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+            .with_first_run(wizard, Box::new(|_, _| {}))
+    });
+    assert_eq!(not_opened(), before + 1);
+}
+
+#[test]
 fn wizard_cancel_closes_the_root() {
     let _lock = language_lock();
     i18n::set_language("en-US");

@@ -668,6 +668,13 @@ fn a_stale_generation_is_never_applied_and_lands_only_under_the_old_fingerprint(
             .is_some_and(|set| set.complete()),
         "the stale result is kept under the old fingerprint"
     );
+    // finish() 自己就挑不出符合的 translator；set_examples 的防線另由 tests/translator.rs 釘住
+    let not_applied = format!(
+        "[translate] examples stored but not applied, no translator matches (fingerprint={old_fingerprint})"
+    );
+    assert_eq!(log_lines_with(&not_applied).len(), 1);
+    let rejected = format!("ignoring examples for a stale fingerprint: {old_fingerprint}");
+    assert!(log_lines_with(&rejected).is_empty());
 }
 
 #[test]

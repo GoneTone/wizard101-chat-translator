@@ -299,6 +299,11 @@ impl App {
         self.frame.alpha()
     }
 
+    /// 目前畫面套用的介面語言碼。
+    pub fn ui_language(&self) -> &str {
+        &self.ui_language
+    }
+
     /// 目前的訊息上限與淡出秒數。
     pub fn limits(&self) -> (usize, u64) {
         self.model.limits()

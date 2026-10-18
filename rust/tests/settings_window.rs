@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 
 use eframe::egui::accesskit::{Role, Toggled};
 use eframe::egui::{self, Key, OutputCommand, Rect, Ui};
@@ -845,20 +845,30 @@ fn about_tab_shows_the_translators() {
 
 const UP_TO_DATE_LOG: &str = "[update] manual check: already up to date";
 
-/// 會記 `UP_TO_DATE_LOG` 的測試排隊跑，log 的筆數才算得準。
-fn up_to_date_log_lock() -> MutexGuard<'static, ()> {
+/// 把檢查結果交給視窗，回傳這一次多記了幾行 `UP_TO_DATE_LOG`；所有送 `UpdateChecked` 的測試都走這裡，
+/// 鎖才能讓各測試的 log 筆數互不干擾。
+fn deliver_check(
+    h: &mut Harness<State>,
+    round: u64,
+    result: Result<Option<Release>, String>,
+) -> usize {
     static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-fn check_update(h: &mut Harness<State>, result: Result<Option<Release>, String>) {
-    go(h, "settings.tab.about");
-    click(h, Role::Button, &tr("button.check_update"));
-    let round = *h.state().env.checks.borrow().last().unwrap();
+    let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    capture_logs();
+    let before = log_lines_with(UP_TO_DATE_LOG).len();
     h.state_mut()
         .win
         .apply(&SettingsEvent::UpdateChecked { round, result });
     run(h);
+    log_lines_with(UP_TO_DATE_LOG).len() - before
+}
+
+/// 在關於頁按〔檢查更新〕並送回 `result`；回傳多記的 `UP_TO_DATE_LOG` 行數。
+fn check_update(h: &mut Harness<State>, result: Result<Option<Release>, String>) -> usize {
+    go(h, "settings.tab.about");
+    click(h, Role::Button, &tr("button.check_update"));
+    let round = *h.state().env.checks.borrow().last().unwrap();
+    deliver_check(h, round, result)
 }
 
 fn release() -> Release {
@@ -876,7 +886,6 @@ fn update_button_enabled(h: &Harness<State>) -> bool {
 
 #[test]
 fn checking_disables_the_button_until_the_result() {
-    let _log = up_to_date_log_lock();
     let mut h = harness(configured_cfg());
     go(&mut h, "settings.tab.about");
     click(&mut h, Role::Button, &tr("button.check_update"));
@@ -885,30 +894,21 @@ fn checking_disables_the_button_until_the_result() {
     let checking = h.get_by_role_and_label(Role::Button, &label);
     assert!(checking.accesskit_node().is_disabled());
     let round = h.state().env.checks.borrow()[0];
-    h.state_mut().win.apply(&SettingsEvent::UpdateChecked {
-        round,
-        result: Ok(None),
-    });
-    run(&mut h);
+    deliver_check(&mut h, round, Ok(None));
     assert!(update_button_enabled(&h));
 }
 
 #[test]
 fn manual_check_reports_up_to_date() {
-    let _log = up_to_date_log_lock();
-    capture_logs();
-    let logged = || log_lines_with(UP_TO_DATE_LOG).len();
-    let before = logged();
     let mut h = harness(configured_cfg());
-    check_update(&mut h, Ok(None));
+    let logged = check_update(&mut h, Ok(None));
     text(&h, &tr("update.latest"));
     assert!(update_button_enabled(&h));
-    assert_eq!(logged(), before + 1);
+    assert_eq!(logged, 1);
 }
 
 #[test]
 fn manual_check_keeps_update_found_quiet_when_up_to_date() {
-    let _log = up_to_date_log_lock();
     let mut h = harness(configured_cfg());
     check_update(&mut h, Ok(None));
     assert!(

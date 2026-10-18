@@ -55,9 +55,20 @@ fn write_to(sink: &mut Sink, message: &str) {
     };
 }
 
+/// 低階鍵盤 hook 執行緒的名稱；`input::hook` 以它命名執行緒，panic hook 靠它認出自己跑在 hook 裡。
+pub const KEYBOARD_HOOK_THREAD: &str = "keyboard-hook";
+
 /// 掛上 panic hook：以 `[app] panic: ...` 與 backtrace 寫進 log。
+///
+/// 鍵盤 hook 執行緒上的 panic 不抓 backtrace：擷取要花時間，超過系統的 hook 逾時整個 hook 會被拿掉。
 pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
+        if std::thread::current().name() == Some(KEYBOARD_HOOK_THREAD) {
+            log(format!(
+                "[app] panic: {info} (backtrace skipped inside the keyboard hook)"
+            ));
+            return;
+        }
         let backtrace = std::backtrace::Backtrace::force_capture();
         log(format!("[app] panic: {info}\n{backtrace}"));
     }));
@@ -123,6 +134,30 @@ mod tests {
         assert_eq!(first.as_bytes()[24], b' ');
         assert!(first[25..].starts_with("[app] panic: "), "{first}");
         assert!(text.contains("boom"), "{text}");
+    }
+
+    #[test]
+    fn a_panic_inside_the_keyboard_hook_is_logged_without_a_backtrace() {
+        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (_dir, path, sink) = temp_sink();
+        init(sink);
+        install_panic_hook();
+        let _ = std::thread::Builder::new()
+            .name(KEYBOARD_HOOK_THREAD.into())
+            .spawn(|| panic!("hook boom"))
+            .unwrap()
+            .join();
+        let _ = std::panic::take_hook();
+        init(Sink::Stderr);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let line = text
+            .split("\r\n")
+            .find(|l| l.contains("hook boom"))
+            .unwrap_or_else(|| panic!("{text}"));
+        assert!(
+            line.ends_with("(backtrace skipped inside the keyboard hook)"),
+            "{line}"
+        );
     }
 
     #[test]

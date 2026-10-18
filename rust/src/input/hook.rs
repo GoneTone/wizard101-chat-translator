@@ -71,7 +71,7 @@ pub fn install(d: SharedDispatcher) -> Result<KeyboardHook, String> {
         .map_err(|_| "keyboard hook already installed".to_owned())?;
     let (ready, started) = mpsc::channel();
     let thread = std::thread::Builder::new()
-        .name("keyboard-hook".into())
+        .name(crate::logs::KEYBOARD_HOOK_THREAD.into())
         .spawn(move || hook_thread(&ready))
         .map_err(|e| format!("cannot spawn keyboard-hook: {e}"))?;
     let thread_id = started
