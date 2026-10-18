@@ -60,6 +60,7 @@ pub struct Dispatcher {
     blocking: Vec<(HandlerId, Box<dyn Blocking>)>,
     passive: Vec<(HandlerId, Passive)>,
     pressed: Pressed,
+    processed: u64,
 }
 
 impl Dispatcher {
@@ -120,12 +121,18 @@ impl Dispatcher {
         &self.pressed
     }
 
+    /// 到目前為止處理過的按鍵事件數（診斷 hook 是否還活著用）。
+    pub fn processed(&self) -> u64 {
+        self.processed
+    }
+
     fn next_id(&mut self) -> HandlerId {
         self.next_id += 1;
         HandlerId(self.next_id)
     }
 
     fn process_at(&mut self, ev: KeyEvent, now: Instant) -> bool {
+        self.processed += 1;
         let Self {
             blocking, pressed, ..
         } = self;
@@ -359,6 +366,20 @@ mod tests {
         assert!(d.process(down(SPACE)));
         d.process(down(A));
         assert_eq!(*count.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn processed_counts_every_event_including_swallowed_ones() {
+        let mut d = Dispatcher::new();
+        d.add_blocking(Box::new(Fake {
+            name: "x",
+            swallow: SPACE,
+            calls: Arc::new(Mutex::new(Vec::new())),
+        }));
+        assert_eq!(d.processed(), 0);
+        d.process(down(A));
+        d.process(down(SPACE));
+        assert_eq!(d.processed(), 2);
     }
 
     #[test]

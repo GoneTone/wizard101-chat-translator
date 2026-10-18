@@ -131,3 +131,37 @@ fn escape_pressed_while_recording_is_reported() {
     process(&d, key(false, ESC));
     assert_eq!(*out.lock().unwrap(), ["esc"]);
 }
+
+#[test]
+fn logs_each_event_it_sees_until_the_first_release() {
+    common::log_capture::capture_logs();
+    let d = shared();
+    process(&d, key(true, ONE));
+    let (_out, done) = collector();
+    let recording = record(&d, done);
+    process(&d, key(true, SPACE));
+    process(&d, key(false, SPACE));
+    process(&d, key(true, (88, 0x7B)));
+    drop(recording);
+    let log = common::log_capture::log_text();
+    assert!(
+        log.contains("[hotkey] recording started (events processed so far=1)"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[hotkey] recorder saw code=57 vk=0x20 down=true name=Some(\"space\")"),
+        "{log}"
+    );
+    assert!(
+        log.contains("[hotkey] recorder saw code=57 vk=0x20 down=false"),
+        "{log}"
+    );
+    assert!(
+        !log.contains("[hotkey] recorder saw code=88"),
+        "nothing is logged after the first release: {log}"
+    );
+    assert!(
+        log.contains("[hotkey] recording stopped (events processed so far=4)"),
+        "{log}"
+    );
+}

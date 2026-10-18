@@ -28,8 +28,12 @@ pub struct Recording {
 
 impl Drop for Recording {
     fn drop(&mut self) {
-        lock(&self.dispatcher).remove(self.id);
-        log("[hotkey] recording stopped");
+        let mut d = lock(&self.dispatcher);
+        d.remove(self.id);
+        log(format!(
+            "[hotkey] recording stopped (events processed so far={})",
+            d.processed()
+        ));
     }
 }
 
@@ -37,13 +41,19 @@ impl Drop for Recording {
 ///
 /// `done` 只能做投遞，不可做 I/O，也不可在裡面 drop 回傳的 `Recording`。
 pub fn record(d: &SharedDispatcher, done: Box<dyn FnOnce(String) + Send>) -> Recording {
-    let id = lock(d).add_blocking(Box::new(Recorder {
+    let mut dispatcher = lock(d);
+    let id = dispatcher.add_blocking(Box::new(Recorder {
         pressed: BTreeMap::new(),
         shift: false,
         alt_gr: false,
         done: Some(done),
     }));
-    log("[hotkey] recording started");
+    // 開始與結束時的計數相同，表示錄製期間 hook 一個按鍵都沒送進來
+    log(format!(
+        "[hotkey] recording started (events processed so far={})",
+        dispatcher.processed()
+    ));
+    drop(dispatcher);
     Recording {
         dispatcher: d.clone(),
         id,
@@ -95,6 +105,11 @@ impl Blocking for Recorder {
             return true;
         }
         let name = self.name_of(ev, raw);
+        // 錄製只到第一次放開為止，記下的按鍵不會洩漏打字內容
+        log(format!(
+            "[hotkey] recorder saw code={} vk={:#x} down={} name={name:?}",
+            ev.code, raw.vk, ev.down
+        ));
         self.track_modifiers(ev, raw);
         if ev.down {
             self.pressed.insert(ev.code, name);

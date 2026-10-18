@@ -2,6 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -25,8 +26,11 @@ pub(crate) const VK_LCONTROL: u32 = 0xA2;
 const VK_RMENU: u32 = 0xA5;
 pub(crate) const ALT_GR_SCAN: u32 = 541;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
+/// 回呼超過這個時間就記 log：Windows 會默默移除超過 `LowLevelHooksTimeout` 的 hook。
+const SLOW_CALLBACK: Duration = Duration::from_millis(200);
 
 static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();
+static FIRST_EVENT_SEEN: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static INSIDE_PROCESS: Cell<bool> = const { Cell::new(false) };
@@ -67,6 +71,9 @@ pub fn install(d: SharedDispatcher) -> Result<KeyboardHook, String> {
     let thread_id = started
         .recv()
         .map_err(|_| "keyboard-hook exited before reporting".to_owned())??;
+    log(format!(
+        "[hotkey] keyboard hook installed (thread_id={thread_id})"
+    ));
     Ok(KeyboardHook { thread, thread_id })
 }
 
@@ -103,13 +110,25 @@ fn hook_thread(ready: &mpsc::Sender<Result<u32, String>>) {
             return;
         }
         let _ = ready.send(Ok(GetCurrentThreadId()));
-        while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {}
+        let ended = loop {
+            let got = GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0);
+            if got <= 0 {
+                break got;
+            }
+        };
+        log(format!(
+            "[hotkey] keyboard hook message loop ended (GetMessageW returned {ended}); unhooking"
+        ));
         UnhookWindowsHookEx(hook);
     }
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
+        let started = Instant::now();
+        if !FIRST_EVENT_SEEN.swap(true, Ordering::Relaxed) {
+            log("[hotkey] keyboard hook active (first key event seen)");
+        }
         // SAFETY: nCode >= 0 時 lParam 指向系統提供的 KBDLLHOOKSTRUCT。
         let k = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         // panic 不可穿過 extern "system"（會直接中止程序、跳過關閉流程），出錯就放行
@@ -122,6 +141,14 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
                 true
             },
         );
+        let took = started.elapsed();
+        if took >= SLOW_CALLBACK {
+            log(format!(
+                "[hotkey] slow keyboard hook callback: {} ms (vk={:#x}); Windows silently removes a hook that exceeds LowLevelHooksTimeout",
+                took.as_millis(),
+                k.vkCode
+            ));
+        }
         if !pass {
             return 1;
         }
