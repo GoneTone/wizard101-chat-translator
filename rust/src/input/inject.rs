@@ -1,11 +1,13 @@
 //! 按鍵注入：以 `SendInput` 送出按下、放開、Unicode 字元與遮罩鍵，對應 `_winkeyboard` 的同名函式。
 
+use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput,
 };
 
 use crate::input::hotkeys::MASK_VK;
 use crate::input::keys::{Code, scan_code_to_vk};
+use crate::logs::log;
 
 /// 送出按鍵的介面；測試換成假的，不可真的送鍵。
 pub trait Injector: Send + Sync {
@@ -87,13 +89,23 @@ fn key_input(vk: u16, scan: u16, flags: u32) -> INPUT {
 fn send(inputs: impl IntoIterator<Item = INPUT>) {
     let inputs: Vec<INPUT> = inputs.into_iter().collect();
     // SAFETY: inputs 是連續的 INPUT 陣列，長度與大小如實傳入。
-    unsafe {
+    let sent = unsafe {
         SendInput(
             inputs.len() as u32,
             inputs.as_ptr(),
             size_of::<INPUT>() as i32,
         )
     };
+    if sent as usize != inputs.len() {
+        // SAFETY: 無參數的查詢呼叫，緊接在失敗的 SendInput 之後讀。
+        let error = unsafe { GetLastError() };
+        log(short_send_message(sent, inputs.len(), error));
+    }
+}
+
+/// `SendInput` 沒送完（被 UIPI 擋下、輸入桌面被鎖等）時的 log 內容。
+fn short_send_message(sent: u32, total: usize, error: u32) -> String {
+    format!("[input] SendInput injected {sent} of {total} events: error={error}")
 }
 
 /// 字元的 UTF-16 單元，依送出順序：先全部按下，再全部放開（`bool` 為是否放開）。
@@ -108,6 +120,14 @@ pub fn encode_units(ch: char) -> Vec<(u16, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_short_send_reports_counts_and_the_win32_error() {
+        assert_eq!(
+            short_send_message(0, 2, 5),
+            "[input] SendInput injected 0 of 2 events: error=5"
+        );
+    }
 
     #[test]
     fn units_are_all_downs_then_all_ups() {

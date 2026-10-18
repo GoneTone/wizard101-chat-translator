@@ -24,7 +24,7 @@ use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, ty
 use wizard101_chat_translator::config::services::resolve;
 use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
-use wizard101_chat_translator::input::dispatch::ChatInputTracker;
+use wizard101_chat_translator::input::dispatch::{ChatInputTracker, Foreground};
 use wizard101_chat_translator::input::dispatcher::{
     Dispatcher, KeyEvent, Pressed, SharedDispatcher,
 };
@@ -898,6 +898,10 @@ fn wiring(box_open: bool) -> InputWiring {
         tracker: Arc::default(),
         box_open: Arc::new(AtomicBool::new(box_open)),
         selecting: Arc::default(),
+        foreground: || Foreground {
+            hwnd: || 0x77,
+            exe: || Some(r"C:\Wizard101\Bin\WizardGraphicalClient.exe".into()),
+        },
     }
 }
 
@@ -982,12 +986,11 @@ fn paste_installed_after_the_hotkeys_runs_last() {
         matches!(rx.try_recv(), Ok(UiEvent::ShowInputBox { .. })),
         "the input box hotkey runs before paste"
     );
-    let ignored = || log_lines_with("[region] hotkey ignored").len();
-    let before = ignored();
     assert!(!press(&d, &["shift", "v"]));
-    let region_ran =
-        matches!(rx.try_recv(), Ok(UiEvent::RegionHotkey { .. })) || ignored() > before;
-    assert!(region_ran, "the region hotkey runs before paste");
+    assert!(
+        matches!(rx.try_recv(), Ok(UiEvent::RegionHotkey { .. })),
+        "the region hotkey runs before paste"
+    );
     assert!(!press(&d, &["v"]), "paste swallows v while typing");
 
     release.send(()).unwrap();

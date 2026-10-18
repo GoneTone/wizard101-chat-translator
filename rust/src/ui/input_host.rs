@@ -211,6 +211,11 @@ impl InputHost {
     /// 拿掉系統外框與工作列按鈕，依內容高度（DIP）貼齊錨點或游標。
     fn place(&mut self, content_dip: f32, overlay: isize) {
         win32::remove_system_frame(self.hwnd);
+        if overlay == 0 {
+            log(
+                "[ui] input box opened before the overlay window was found: it has no owner and may show a taskbar button",
+            );
+        }
         win32::hide_from_taskbar(self.hwnd, overlay);
         let (rect, above, _) = self.open_rect(content_dip);
         win32::set_window_rect(self.hwnd, rect);

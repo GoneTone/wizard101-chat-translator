@@ -18,7 +18,7 @@ use crate::config::services::ServiceSpec;
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
 use crate::logs::log;
-use crate::runtime::updater::{LATEST_API, Release, check_for_update, http_client};
+use crate::runtime::updater::{LATEST_API, Release, check_for_update, update_client};
 use crate::translation::cache::TranslationCache;
 use crate::translation::errors::TranslateError;
 use crate::translation::examples::ExampleStore;
@@ -147,7 +147,7 @@ impl SettingsEnv for RealEnv {
         self.post_later(
             async move {
                 let result =
-                    check_for_update(&http_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
+                    check_for_update(&update_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
                         .await
                         .map_err(|e| {
                             log(format!("[update] manual check failed: {e}"));

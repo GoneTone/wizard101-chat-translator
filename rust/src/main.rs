@@ -35,6 +35,7 @@ use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::region::flow::RegionFlow;
+use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
 use wizard101_chat_translator::ui::win32::cursor_pos;
@@ -75,9 +76,11 @@ fn main() {
         .build()
         .expect("build tokio runtime");
     let dispatcher = SharedDispatcher::default();
-    let keyboard = hook::install(Arc::clone(&dispatcher))
-        .inspect_err(|err| log(format!("[hotkey] cannot install keyboard hook: {err}")))
-        .ok();
+    let keyboard = Rc::new(RefCell::new(
+        hook::install(Arc::clone(&dispatcher))
+            .inspect_err(|err| log(format!("[hotkey] cannot install keyboard hook: {err}")))
+            .ok(),
+    ));
 
     let configured = is_configured(&cfg);
     let settings = Settings::from_config(&cfg);
@@ -92,7 +95,7 @@ fn main() {
         ui: poster.clone(),
         messages,
         dispatcher: Arc::clone(&dispatcher),
-        keyboard,
+        keyboard: Rc::clone(&keyboard),
         running: Rc::clone(&running),
     };
     let wizard_rt = rt.handle().clone();
@@ -101,7 +104,7 @@ fn main() {
     }
 
     let ui = move || {
-        let result = app::run_with_warp_fallback(configured, move |ctx| {
+        let result = run::run_with_warp_fallback(configured, move |ctx| {
             let geometry_cfg = Arc::clone(&shared_cfg);
             let frame = Frame::new(
                 settings.overlay_alpha,
@@ -145,6 +148,10 @@ fn main() {
         if let Some(running) = running.borrow_mut().take() {
             shutdown(running)
         }
+        // 精靈中途取消：主流程沒接手，hook 還在這裡
+        if let Some(keyboard) = keyboard.borrow_mut().take() {
+            keyboard.uninstall();
+        }
     });
 }
 
@@ -155,7 +162,8 @@ struct Startup {
     ui: UiPoster,
     messages: SharedWriter,
     dispatcher: SharedDispatcher,
-    keyboard: Option<KeyboardHook>,
+    /// 主流程接手前留在這裡；精靈取消時由收尾卸除。
+    keyboard: Rc<RefCell<Option<KeyboardHook>>>,
     running: Rc<RefCell<Option<Running>>>,
 }
 
@@ -177,7 +185,7 @@ fn start_main(app: &mut App, startup: Startup) {
         ui.clone(),
         messages,
         Arc::clone(&dispatcher),
-        keyboard,
+        keyboard.borrow_mut().take(),
     );
     let settings = Settings::from_config(&read(&shared_cfg));
     let send = {

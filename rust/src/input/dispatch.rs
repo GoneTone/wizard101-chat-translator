@@ -44,8 +44,8 @@ fn exe_repr(exe: &Option<String>) -> String {
 
 /// 框選熱鍵要不要註冊：與輸入框熱鍵相同就不註冊（回 `None`），否則回熱鍵字串。
 pub fn region_hotkey_to_register(cfg: &Config) -> Option<String> {
-    let region = cfg["region_hotkey"].as_str().unwrap_or_default();
-    if cfg["region_hotkey"] == cfg["hotkey"] {
+    let region = cfg.get("region_hotkey")?.as_str().unwrap_or_default();
+    if cfg.get("region_hotkey") == cfg.get("hotkey") {
         log(format!(
             "[app] region_hotkey {} collides with hotkey; \
              region translation disabled until a different hotkey is saved in settings",
@@ -416,6 +416,13 @@ mod tests {
             region_hotkey_to_register(&c).as_deref(),
             Some("ctrl+shift+space")
         );
+    }
+
+    #[test]
+    fn a_config_without_the_hotkeys_does_not_panic() {
+        assert_eq!(region_hotkey_to_register(&cfg(json!({}))), None);
+        let c = cfg(json!({"region_hotkey": "f9"}));
+        assert_eq!(region_hotkey_to_register(&c).as_deref(), Some("f9"));
     }
 
     #[test]

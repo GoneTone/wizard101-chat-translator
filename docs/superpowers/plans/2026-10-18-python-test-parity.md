@@ -1203,7 +1203,7 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 ## tests/ui/test_icons.py
 
 - `test_apply_window_icon_survives_missing_file` → 不移植：Rust 的圖示以 `include_bytes!` 編進 exe（規格「單一 exe 與資源」），沒有可能遺失的 .ico 檔；解碼失敗是程式錯誤，由 `app_icon()` 的 `expect` 直接擋下
-- `test_apply_window_icon_installs_it_on_the_window_class` → `src/ui/app.rs::root_viewport_carries_the_app_icon`, `tests/app_main.rs::exe_embeds_the_app_icon_resource`（Rust 在根 viewport 與設定視窗各自 `with_icon`，沒有 Win32 視窗類別圖示可讀；輸入框、框選等無工作列的子視窗不帶圖示）
+- `test_apply_window_icon_installs_it_on_the_window_class` → `src/ui/run.rs::root_viewport_carries_the_app_icon`, `tests/app_main.rs::exe_embeds_the_app_icon_resource`（Rust 在根 viewport 與設定視窗各自 `with_icon`，沒有 Win32 視窗類別圖示可讀；輸入框、框選等無工作列的子視窗不帶圖示）
 
 ## tests/ui/test_input_box.py
 

@@ -14,8 +14,8 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::runtime::updater::{
-    RELEASES_URL, Release, UpdateCheckError, check_for_update, fetch_latest_release, http_client,
-    is_newer, parse_version, schedule_update_checks,
+    RELEASES_URL, Release, UpdateCheckError, check_for_update, fetch_latest_release, is_newer,
+    parse_version, schedule_update_checks, update_client,
 };
 
 const TAG_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator/releases/tag/v0.2.0";
@@ -117,7 +117,7 @@ async fn fetch_latest_release_reads_tag_and_url() {
         .expect(1)
         .mount(&server)
         .await;
-    let release = fetch_latest_release(&http_client(), &latest_url(&server)).await;
+    let release = fetch_latest_release(&update_client(), &latest_url(&server)).await;
     assert_eq!(
         release,
         Ok(Some(Release {
@@ -131,7 +131,7 @@ async fn fetch_latest_release_reads_tag_and_url() {
 async fn fetch_latest_release_returns_none_when_no_release_exists() {
     let server = server_with(ResponseTemplate::new(404)).await;
     assert_eq!(
-        fetch_latest_release(&http_client(), &latest_url(&server)).await,
+        fetch_latest_release(&update_client(), &latest_url(&server)).await,
         Ok(None)
     );
 }
@@ -140,7 +140,7 @@ async fn fetch_latest_release_returns_none_when_no_release_exists() {
 async fn fetch_latest_release_errors_on_other_status_codes() {
     for status in [403u16, 429, 500] {
         let server = server_with(ResponseTemplate::new(status)).await;
-        let err = fetch_latest_release(&http_client(), &latest_url(&server))
+        let err = fetch_latest_release(&update_client(), &latest_url(&server))
             .await
             .unwrap_err();
         assert_eq!(err, UpdateCheckError(format!("HTTP {status}")));
@@ -156,7 +156,7 @@ async fn fetch_latest_release_errors_when_connection_fails() {
         .unwrap()
         .port();
     let url = format!("http://127.0.0.1:{port}/latest");
-    let err = fetch_latest_release(&http_client(), &url)
+    let err = fetch_latest_release(&update_client(), &url)
         .await
         .expect_err("a refused connection must be an error");
     // reqwest 頂層訊息只有 "error sending request"，原因（被拒絕的 OS 錯誤）在原因鏈裡
@@ -171,12 +171,12 @@ async fn fetch_latest_release_errors_when_connection_fails() {
 async fn fetch_latest_release_errors_on_unusable_payload() {
     let server = server_with(ResponseTemplate::new(200).set_body_json(json!({}))).await;
     assert!(
-        fetch_latest_release(&http_client(), &latest_url(&server))
+        fetch_latest_release(&update_client(), &latest_url(&server))
             .await
             .is_err()
     );
     let server = server_with(ResponseTemplate::new(200).set_body_string("not json")).await;
-    let err = fetch_latest_release(&http_client(), &latest_url(&server))
+    let err = fetch_latest_release(&update_client(), &latest_url(&server))
         .await
         .unwrap_err();
     assert!(err.0.contains("line 1 column"), "{err}");
@@ -187,7 +187,7 @@ async fn fetch_latest_release_falls_back_to_releases_page_without_html_url() {
     let server =
         server_with(ResponseTemplate::new(200).set_body_json(json!({"tag_name": "v0.3.0"}))).await;
     assert_eq!(
-        fetch_latest_release(&http_client(), &latest_url(&server)).await,
+        fetch_latest_release(&update_client(), &latest_url(&server)).await,
         Ok(Some(Release {
             version: "0.3.0".into(),
             url: RELEASES_URL.into()
@@ -209,14 +209,14 @@ async fn fetch_latest_release_follows_redirects() {
         .mount(&server)
         .await;
     let url = format!("{}/old", server.uri());
-    let release = fetch_latest_release(&http_client(), &url).await.unwrap();
+    let release = fetch_latest_release(&update_client(), &url).await.unwrap();
     assert_eq!(release.unwrap().version, "0.2.0");
 }
 
 #[tokio::test]
 async fn check_for_update_returns_release_only_when_newer() {
     let server = server_with(ResponseTemplate::new(200).set_body_json(release_json())).await;
-    let (client, url) = (http_client(), latest_url(&server));
+    let (client, url) = (update_client(), latest_url(&server));
     let found = check_for_update(&client, &url, "0.1.0").await.unwrap();
     assert_eq!(found.unwrap().version, "0.2.0");
     assert_eq!(check_for_update(&client, &url, "0.2.0").await, Ok(None));
@@ -227,7 +227,7 @@ async fn check_for_update_returns_release_only_when_newer() {
 async fn check_for_update_returns_none_when_no_release_exists() {
     let server = server_with(ResponseTemplate::new(404)).await;
     assert_eq!(
-        check_for_update(&http_client(), &latest_url(&server), "0.1.0").await,
+        check_for_update(&update_client(), &latest_url(&server), "0.1.0").await,
         Ok(None)
     );
 }
@@ -291,6 +291,27 @@ async fn schedule_update_checks_checks_now_and_again_after_the_interval() {
         }
     );
     assert!(log_text().contains("[update] next automatic check in 0 min"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_panicking_callback_is_logged_and_checks_go_on() {
+    capture_logs();
+    let body = json!({"tag_name": "v99.0.0", "html_url": TAG_URL});
+    let server = server_with(ResponseTemplate::new(200).set_body_json(body)).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&calls);
+    let found: Found = Arc::new(move |_| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        panic!("callback boom");
+    });
+    let (stop, task) = start(&server, Duration::from_millis(30), found);
+    wait_until("a second call after the panic", async || {
+        calls.load(Ordering::SeqCst) >= 2
+    })
+    .await;
+    stop.cancel();
+    task.await.unwrap();
+    assert!(log_text().contains("[update] announce callback panicked: callback boom"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

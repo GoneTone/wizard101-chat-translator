@@ -302,7 +302,7 @@ pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)
                     .ok()
                     .filter(|v| v.is_finite())
                     .unwrap_or(min);
-                *text = format!("{:.*}", decimals(step), (current + delta).clamp(min, max));
+                *text = format!("{:.*}", decimals(step), (current + delta).max(min).min(max));
                 response.mark_changed();
             }
             let painter = ui.painter();

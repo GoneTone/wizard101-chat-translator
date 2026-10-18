@@ -17,6 +17,18 @@ const LOCK_KEYS: [(i32, &str); 3] = [
     (0x91, "scroll lock"),
 ];
 
+/// 目前亮著的鎖定鍵名稱（影響按鍵名稱的算法）。
+pub type LockKeys = fn() -> Vec<&'static str>;
+
+fn lit_lock_keys() -> Vec<&'static str> {
+    LOCK_KEYS
+        .iter()
+        // SAFETY：GetKeyState 只讀目前執行緒的按鍵狀態表。
+        .filter(|(vk, _)| unsafe { GetKeyState(*vk) } & 1 != 0)
+        .map(|(_, name)| *name)
+        .collect()
+}
+
 /// 進行中的錄製；drop 時從分派器移除 handler，之後的按鍵不再被記錄。
 ///
 /// drop 會鎖分派器，所以不可在 `done` 或任何 handler 裡 drop（hook 執行緒握著同一把鎖，會死鎖）；
@@ -42,11 +54,21 @@ impl Drop for Recording {
 ///
 /// `done` 只能做投遞，不可做 I/O，也不可在裡面 drop 回傳的 `Recording`。
 pub fn record(d: &SharedDispatcher, done: Box<dyn FnOnce(String) + Send>) -> Recording {
+    record_with(d, done, lit_lock_keys)
+}
+
+/// 同 [`record`]，鎖定鍵狀態由 `lock_keys` 提供（測試用，免得結果隨 Caps Lock 變）。
+pub fn record_with(
+    d: &SharedDispatcher,
+    done: Box<dyn FnOnce(String) + Send>,
+    lock_keys: LockKeys,
+) -> Recording {
     let mut dispatcher = lock(d);
     let id = dispatcher.add_blocking(Box::new(Recorder {
         pressed: BTreeMap::new(),
         shift: false,
         alt_gr: false,
+        lock_keys,
         done: Some(done),
     }));
     // 開始與結束時的計數相同，表示錄製期間 hook 一個按鍵都沒送進來
@@ -67,6 +89,7 @@ struct Recorder {
     pressed: BTreeMap<Code, Option<String>>,
     shift: bool,
     alt_gr: bool,
+    lock_keys: LockKeys,
     done: Option<Box<dyn FnOnce(String) + Send>>,
 }
 
@@ -80,13 +103,7 @@ impl Recorder {
         if self.alt_gr {
             mods.push("alt gr");
         }
-        mods.extend(
-            LOCK_KEYS
-                .iter()
-                // SAFETY：GetKeyState 只讀目前執行緒的按鍵狀態表。
-                .filter(|(vk, _)| unsafe { GetKeyState(*vk) } & 1 != 0)
-                .map(|(_, name)| *name),
-        );
+        mods.extend((self.lock_keys)());
         event_name(ev.code.max(0) as u32, raw.vk, raw.extended, &mods)
     }
 
@@ -107,6 +124,12 @@ impl Blocking for Recorder {
             return true;
         }
         let name = self.name_of(ev, raw);
+        if name.is_none() && ev.down {
+            log(format!(
+                "[hotkey] key without a name ignored: code={} vk={:#x}",
+                ev.code, raw.vk
+            ));
+        }
         self.track_modifiers(ev, raw);
         if ev.down {
             self.pressed.insert(ev.code, name);

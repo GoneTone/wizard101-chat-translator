@@ -554,10 +554,16 @@ mod tests {
     fn paste_clipboard_skips_unreadable_clipboard() {
         let _g = serial();
         let (fake, env) = setup();
-        for clip in [Err("error=5"), Ok(None)] {
-            set_clipboard(clip);
+        set_clipboard(Ok(None));
+        assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
+        set_clipboard(Err("error=5"));
+        let text = crate::logs::capture(|| {
             assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
-        }
+        });
+        assert!(
+            text.contains("[composer] clipboard open failed: error=5"),
+            "{text}"
+        );
         assert!(fake.calls.lock().unwrap().is_empty());
     }
 

@@ -11,8 +11,9 @@ use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
 use super::hotkeys::{HotkeyEditor, HotkeyKind};
+use super::service_draft::ServiceDraft;
 use super::service_form::ServiceForm;
-use super::service_list::{ServiceDraft, pick_provider_over};
+use super::service_list::pick_provider_over;
 use super::theme::{self, icon};
 use super::widgets::{primary_button, primary_icon_button, right_aligned, secondary_icon_button};
 use super::{flag_setting, text_setting};

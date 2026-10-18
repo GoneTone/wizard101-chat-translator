@@ -15,7 +15,8 @@ use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
 use super::hotkeys::{HotkeyEditor, HotkeyKind};
-use super::service_list::{ServiceDraft, ServicePane};
+use super::service_draft::ServiceDraft;
+use super::service_list::ServicePane;
 use super::theme::{self, icon};
 use super::widgets::{
     callout, focus_ring, primary_button, right_aligned, right_aligned_width, secondary_button,

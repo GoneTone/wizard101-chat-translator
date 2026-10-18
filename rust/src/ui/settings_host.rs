@@ -64,9 +64,9 @@ impl WindowOps {
 
 /// 一種托管視窗的固定設定。
 #[derive(Clone, Copy)]
-struct Spec {
+pub struct Spec {
     /// log 用的名稱。
-    name: &'static str,
+    pub name: &'static str,
     title_key: &'static str,
     size: Vec2,
     min_size: Vec2,
@@ -265,20 +265,86 @@ impl HostedWindow {
     }
 }
 
-/// 設定視窗與它的 viewport；所有方法都在 UI 執行緒呼叫。
-pub struct SettingsHost {
+/// 托管視窗裡的內容（設定視窗或首次設定精靈）。
+pub trait HostedContent {
+    /// 每一幀回給 App 的動作。
+    type Action;
+    /// 視窗固定的名稱、標題與大小。
+    const SPEC: Spec;
+    /// 以目前設定建立內容。
+    fn create(cfg: &Config) -> Self;
+    /// 背景工作的結果。
+    fn apply(&mut self, event: &SettingsEvent);
+    /// 畫一幀；`closing` 是這一幀有沒有關閉要求（✕、Alt+F4 當成取消）。
+    fn run(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, closing: bool) -> Vec<Self::Action>;
+}
+
+impl HostedContent for SettingsWindow {
+    type Action = SettingsAction;
+    const SPEC: Spec = SETTINGS;
+
+    fn create(cfg: &Config) -> Self {
+        SettingsWindow::new(cfg)
+    }
+
+    fn apply(&mut self, event: &SettingsEvent) {
+        SettingsWindow::apply(self, event);
+    }
+
+    fn run(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, closing: bool) -> Vec<SettingsAction> {
+        let mut actions = self.ui(ui, env);
+        let done = actions
+            .iter()
+            .any(|a| matches!(a, SettingsAction::Save(_) | SettingsAction::Cancel));
+        if closing && !done {
+            actions.extend(self.cancel(env));
+        }
+        actions
+    }
+}
+
+impl HostedContent for Wizard {
+    type Action = WizardAction;
+    const SPEC: Spec = WIZARD;
+
+    fn create(cfg: &Config) -> Self {
+        Wizard::new(cfg.clone())
+    }
+
+    fn apply(&mut self, event: &SettingsEvent) {
+        Wizard::apply(self, event);
+    }
+
+    fn run(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, closing: bool) -> Vec<WizardAction> {
+        let action = self.ui(ui, env);
+        let done = matches!(action, Some(WizardAction::Finish(_) | WizardAction::Cancel));
+        if closing && !done {
+            vec![self.cancel(env)]
+        } else {
+            action.into_iter().collect()
+        }
+    }
+}
+
+/// 內容與它的 viewport；所有方法都在 UI 執行緒呼叫。
+pub struct Host<C: HostedContent> {
     env: Box<dyn SettingsEnv>,
-    window: Option<SettingsWindow>,
+    content: Option<C>,
     win: HostedWindow,
 }
 
-impl SettingsHost {
+/// 設定視窗的托管。
+pub type SettingsHost = Host<SettingsWindow>;
+/// 首次設定精靈的托管。
+pub type WizardHost = Host<Wizard>;
+
+impl<C: HostedContent> Host<C> {
     /// `env` 跑測試連線、抓模型清單、檢查更新與錄熱鍵。
     pub fn new(env: Box<dyn SettingsEnv>) -> Self {
         Self {
             env,
-            window: None,
-            win: HostedWindow::new(SETTINGS),
+            content: None,
+            win: HostedWindow::new(C::SPEC),
         }
     }
 
@@ -289,130 +355,50 @@ impl SettingsHost {
 
     /// 以 `cfg` 開窗；已開著就叫到前景。
     pub fn open(&mut self, cfg: &Config) {
-        if self.window.is_some() {
-            log("[ui] settings window already open; bringing it to the front");
+        let name = C::SPEC.name;
+        if self.content.is_some() {
+            log(format!(
+                "[ui] {name} already open; bringing it to the front"
+            ));
             self.win.bring_to_front();
             return;
         }
-        log("[ui] settings window opened");
-        self.window = Some(SettingsWindow::new(cfg));
+        log(format!("[ui] {name} opened"));
+        self.content = Some(C::create(cfg));
     }
 
     pub fn is_open(&self) -> bool {
-        self.window.is_some()
+        self.content.is_some()
     }
 
-    /// 設定視窗的 HWND；沒開或還沒找到是 0。
+    /// 視窗的 HWND；沒開或還沒找到是 0。
     pub fn hwnd(&self) -> isize {
         self.win.hwnd
     }
 
     /// 背景工作的結果；沒開窗時丟掉。
     pub fn apply(&mut self, event: SettingsEvent) {
-        if let Some(window) = &mut self.window {
-            window.apply(&event);
+        if let Some(content) = &mut self.content {
+            content.apply(&event);
         }
     }
 
-    /// 關窗（儲存或取消之後）。
+    /// 關窗（完成或取消之後）。
     pub fn close(&mut self) {
-        if self.window.take().is_some() {
-            log("[ui] settings window closed");
+        if self.content.take().is_some() {
+            log(format!("[ui] {} closed", C::SPEC.name));
             self.win.reset();
         }
     }
 
-    /// 每幀呼叫：開著就畫出視窗，回傳這一幀要 App 做的事；✕、Alt+F4 當成取消。
-    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Vec<SettingsAction> {
-        let Some(window) = &mut self.window else {
+    /// 每幀呼叫：開著就畫出視窗，回傳這一幀要 App 做的事。
+    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Vec<C::Action> {
+        let Some(content) = &mut self.content else {
             return Vec::new();
         };
         let env = self.env.as_ref();
-        self.win.show(ctx, known, |ui, closing| {
-            let mut actions = window.ui(ui, env);
-            let done = actions
-                .iter()
-                .any(|a| matches!(a, SettingsAction::Save(_) | SettingsAction::Cancel));
-            if closing && !done {
-                actions.extend(window.cancel(env));
-            }
-            actions
-        })
-    }
-}
-
-/// 首次設定精靈與它的 viewport；所有方法都在 UI 執行緒呼叫。
-pub struct WizardHost {
-    env: Box<dyn SettingsEnv>,
-    wizard: Option<Wizard>,
-    win: HostedWindow,
-}
-
-impl WizardHost {
-    /// `env` 跑測試連線、抓模型清單與錄熱鍵。
-    pub fn new(env: Box<dyn SettingsEnv>) -> Self {
-        Self {
-            env,
-            wizard: None,
-            win: HostedWindow::new(WIZARD),
-        }
-    }
-
-    /// 換掉視窗操作（測試與 probe 用：不搶前景、假的工作區）。
-    pub fn set_window_ops(&mut self, ops: WindowOps) {
-        self.win.ops = ops;
-    }
-
-    /// 以 `cfg` 開精靈；已開著就叫到前景。
-    pub fn open(&mut self, cfg: &Config) {
-        if self.wizard.is_some() {
-            log("[ui] wizard already open; bringing it to the front");
-            self.win.bring_to_front();
-            return;
-        }
-        log("[ui] wizard opened");
-        self.wizard = Some(Wizard::new(cfg.clone()));
-    }
-
-    pub fn is_open(&self) -> bool {
-        self.wizard.is_some()
-    }
-
-    /// 精靈的 HWND；沒開或還沒找到是 0。
-    pub fn hwnd(&self) -> isize {
-        self.win.hwnd
-    }
-
-    /// 背景工作的結果；沒開時丟掉。
-    pub fn apply(&mut self, event: SettingsEvent) {
-        if let Some(wizard) = &mut self.wizard {
-            wizard.apply(&event);
-        }
-    }
-
-    /// 關掉精靈（完成或取消之後）。
-    pub fn close(&mut self) {
-        if self.wizard.take().is_some() {
-            log("[ui] wizard closed");
-            self.win.reset();
-        }
-    }
-
-    /// 每幀呼叫：開著就畫出精靈，回傳這一幀要 App 做的事；✕、Alt+F4 當成取消。
-    pub fn show(&mut self, ctx: &egui::Context, known: &[isize]) -> Vec<WizardAction> {
-        let Some(wizard) = self.wizard.as_mut() else {
-            return Vec::new();
-        };
-        let env = self.env.as_ref();
-        self.win.show(ctx, known, |ui, closing| {
-            let action = wizard.ui(ui, env);
-            let done = matches!(action, Some(WizardAction::Finish(_) | WizardAction::Cancel));
-            if closing && !done {
-                vec![wizard.cancel(env)]
-            } else {
-                action.into_iter().collect()
-            }
-        })
+        self.win
+            .show(ctx, known, |ui, closing| content.run(ui, env, closing))
     }
 }
 

@@ -15,6 +15,7 @@ pub mod palette;
 pub mod region;
 pub mod region_host;
 pub mod richtext;
+pub mod run;
 pub mod settings;
 pub mod settings_host;
 pub mod text_select;

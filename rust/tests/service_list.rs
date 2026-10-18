@@ -20,7 +20,8 @@ use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::provider_picker::{
     CardLayout, lighten_dark_monochrome, provider_cards,
 };
-use wizard101_chat_translator::ui::settings::service_list::{ServiceDraft, ServicePane};
+use wizard101_chat_translator::ui::settings::service_draft::ServiceDraft;
+use wizard101_chat_translator::ui::settings::service_list::ServicePane;
 use wizard101_chat_translator::ui::settings::theme;
 
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
@@ -840,6 +841,31 @@ fn escape_closes_only_the_top_dialog() {
     assert!(has_dialog(&h, &tr("service.dialog_title")));
     press(&mut h, Key::Escape);
     assert!(!has_dialog(&h, &tr("service.dialog_title")));
+}
+
+#[test]
+fn escape_in_the_frame_the_picker_opens_closes_only_the_picker() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    click_card(&mut h, &tr("button.edit"), 0);
+    let change = h
+        .get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
+        .get_by_role_and_label(Role::Button, &tr("button.change"))
+        .rect();
+    let pos = change.center();
+    h.event(Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        h.event(Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::default(),
+        });
+    }
+    h.key_press(Key::Escape);
+    run(&mut h);
+    assert!(!has_dialog(&h, &tr("service.pick_provider")));
+    assert!(has_dialog(&h, &tr("service.dialog_title")));
 }
 
 #[test]

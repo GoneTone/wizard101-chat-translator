@@ -317,3 +317,26 @@ fn until_nul(buffer: &[u16]) -> String {
     let end = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
     String::from_utf16_lossy(&buffer[..end])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_name_table_has_no_name_python_does_not_know() {
+        let python: std::collections::HashSet<String> =
+            serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
+                "../../tests/golden/keyboard_names.json"
+            ))
+            .unwrap()
+            .iter()
+            .map(|case| case["input"].as_str().unwrap().to_owned())
+            .collect();
+        let extra: Vec<&String> = NAMES
+            .from_name
+            .keys()
+            .filter(|name| !python.contains(*name))
+            .collect();
+        assert!(extra.is_empty(), "names only Rust accepts: {extra:?}");
+    }
+}

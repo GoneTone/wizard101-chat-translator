@@ -144,6 +144,25 @@ fn unique_name_does_not_collide_with_the_entry_being_edited() {
 }
 
 #[test]
+fn unique_name_ignores_only_entries_whose_id_equals_the_ignored_one() {
+    // 缺 id、null、非字串的 id 都不等於字串 id；缺 id 與 null 等於 None（同 Python 的 `==`）
+    let services = vec![
+        json!({"name": "A"}),
+        json!({"id": null, "name": "B"}),
+        json!({"id": 5, "name": "C"}),
+    ];
+    for name in ["A", "B", "C"] {
+        assert_eq!(
+            unique_name(name, &services, Some("x")),
+            format!("{name} (2)")
+        );
+    }
+    assert_eq!(unique_name("A", &services, None), "A");
+    assert_eq!(unique_name("B", &services, None), "B");
+    assert_eq!(unique_name("C", &services, None), "C (2)");
+}
+
+#[test]
 fn is_auto_name_accepts_the_bare_base_and_numbered_suffixes() {
     assert!(is_auto_name("ChatGPT", "ChatGPT"));
     assert!(is_auto_name("ChatGPT (2)", "ChatGPT"));

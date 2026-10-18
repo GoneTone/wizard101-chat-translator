@@ -336,6 +336,20 @@ fn number_field_steps_within_the_range() {
 }
 
 #[test]
+fn number_field_with_a_reversed_range_does_not_panic() {
+    let mut h = harness("3".to_owned(), |ui, text: &mut String| {
+        card(ui, |ui| {
+            setting_row(ui, "Reversed", None, |ui| {
+                number_field(ui, text, 1.0, (5.0, 1.0));
+            });
+        });
+    });
+    h.get_by_label("+").click();
+    h.run_steps(2);
+    assert_eq!(h.state(), "1");
+}
+
+#[test]
 fn pasting_into_a_text_field_inserts_the_clipboard_text() {
     let mut h = harness(String::new(), |ui, text: &mut String| {
         card(ui, |ui| {

@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::logs::log;
 use crate::translation::clients::{error_chain, install_crypto_provider};
+use crate::util::panic_message;
 
 pub const PROJECT_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator";
 pub const RELEASES_URL: &str =
@@ -105,7 +106,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 }
 
 /// 檢查更新用的 HTTP client：逾時 [`TIMEOUT`]、跟隨轉址（repo 改名時 GitHub API 會回 301）。
-pub fn http_client() -> reqwest::Client {
+pub fn update_client() -> reqwest::Client {
     install_crypto_provider();
     reqwest::Client::builder()
         .timeout(TIMEOUT)
@@ -184,7 +185,7 @@ pub fn schedule_update_checks(
     found: Arc<dyn Fn(Release) + Send + Sync>,
 ) -> JoinHandle<()> {
     rt.spawn(async move {
-        let client = http_client();
+        let client = update_client();
         loop {
             log(format!(
                 "[update] next automatic check in {} min",
@@ -196,7 +197,15 @@ pub fn schedule_update_checks(
                 result = check_for_update(&client, &url, env!("CARGO_PKG_VERSION")) => result,
             };
             match checked {
-                Ok(Some(release)) => found(release),
+                Ok(Some(release)) => {
+                    let announce = std::panic::AssertUnwindSafe(|| found(release));
+                    if let Err(panic) = std::panic::catch_unwind(announce) {
+                        log(format!(
+                            "[update] announce callback panicked: {}",
+                            panic_message(panic.as_ref())
+                        ));
+                    }
+                }
                 Ok(None) => {}
                 Err(e) => log(format!("[update] check failed: {e}")),
             }

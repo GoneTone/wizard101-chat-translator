@@ -315,6 +315,15 @@ fn new_id(services: &[Value]) -> String {
     }
 }
 
+/// 這筆的 id 是不是 `ignore_id`（Python 的 `id == ignore_id`；缺欄位、null 都當 `None`，非字串的 id 不會相等）。
+fn is_ignored(id: Option<&Value>, ignore_id: Option<&str>) -> bool {
+    match id {
+        None | Some(Value::Null) => ignore_id.is_none(),
+        Some(Value::String(id)) => Some(id.as_str()) == ignore_id,
+        Some(_) => false,
+    }
+}
+
 /// 撞名就補序號：第一筆無後綴，之後 `名稱 (2)`、`名稱 (3)`；`ignore_id` 那筆（編輯中的自己）不算。
 ///
 /// 括號一律半形：它是識別用的序號，不隨介面語言換形。
@@ -322,7 +331,7 @@ pub fn unique_name(name: &str, services: &[Value], ignore_id: Option<&str>) -> S
     let taken = |candidate: &str| {
         services
             .iter()
-            .filter(|s| s.get("id").and_then(Value::as_str) != ignore_id)
+            .filter(|s| !is_ignored(s.get("id"), ignore_id))
             .any(|s| s.get("name").and_then(Value::as_str) == Some(candidate))
     };
     if !taken(name) {

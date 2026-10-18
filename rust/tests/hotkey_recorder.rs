@@ -7,12 +7,13 @@ use std::sync::{Arc, Mutex};
 use wizard101_chat_translator::input::dispatcher::{
     Dispatcher, KeyEvent, RawKey, SharedDispatcher,
 };
-use wizard101_chat_translator::input::recorder::record;
+use wizard101_chat_translator::input::recorder::record_with;
 
 const CTRL: (i32, u32) = (29, 0xA2);
 const SPACE: (i32, u32) = (57, 0x20);
 const SHIFT: (i32, u32) = (42, 0xA0);
 const ONE: (i32, u32) = (2, 0x31);
+const A: (i32, u32) = (30, 0x41);
 
 fn key(down: bool, (code, vk): (i32, u32)) -> KeyEvent {
     KeyEvent {
@@ -34,6 +35,17 @@ fn process(d: &SharedDispatcher, ev: KeyEvent) -> bool {
 }
 
 type Done = Box<dyn FnOnce(String) + Send>;
+
+fn no_locks() -> Vec<&'static str> {
+    Vec::new()
+}
+
+fn record(
+    d: &SharedDispatcher,
+    done: Done,
+) -> wizard101_chat_translator::input::recorder::Recording {
+    record_with(d, done, no_locks)
+}
 
 fn collector() -> (Arc<Mutex<Vec<String>>>, Done) {
     let out = Arc::new(Mutex::new(Vec::new()));
@@ -152,4 +164,36 @@ fn logs_the_event_counts_when_recording_starts_and_stops() {
         log.contains("[hotkey] recording stopped (events processed so far=4, hook calls so far="),
         "{log}"
     );
+}
+
+#[test]
+fn a_key_without_a_name_is_logged_and_left_out_of_the_hotkey() {
+    common::log_capture::capture_logs();
+    let d = shared();
+    let (out, done) = collector();
+    let _recording = record(&d, done);
+    let nameless = (0x1fe, 0xFF);
+    process(&d, key(true, CTRL));
+    process(&d, key(true, nameless));
+    process(&d, key(false, nameless));
+    assert_eq!(*out.lock().unwrap(), ["ctrl"]);
+    let log = common::log_capture::log_text();
+    assert!(
+        log.contains("[hotkey] key without a name ignored: code=510 vk=0xff"),
+        "{log}"
+    );
+}
+
+#[test]
+fn a_lit_lock_key_changes_the_recorded_name() {
+    let name_with = |locks: fn() -> Vec<&'static str>| {
+        let d = shared();
+        let (out, done) = collector();
+        let _recording = record_with(&d, done, locks);
+        process(&d, key(true, A));
+        process(&d, key(false, A));
+        std::mem::take(&mut *out.lock().unwrap())
+    };
+    assert_eq!(name_with(no_locks), ["a"]);
+    assert_eq!(name_with(|| vec!["caps lock"]), ["A"]);
 }

@@ -47,6 +47,7 @@ use wizard101_chat_translator::ui::region::card::ANCHOR_GAP;
 use wizard101_chat_translator::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
 use wizard101_chat_translator::ui::region::region_box;
 use wizard101_chat_translator::ui::region::selector::SelectorAction;
+use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WindowOps};
@@ -701,7 +702,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
     };
 
     let wrapper_shared = Arc::clone(&shared);
-    let result = app::run(native, move |ctx| {
+    let result = run::run(native, move |ctx| {
         let _ = ctx_slot.set(ctx.clone());
         let input = InputBox::new(
             Box::new(|_| {}),
@@ -742,10 +743,10 @@ fn ui_probe() {
     log::set_logger(&WARNINGS).unwrap();
     log::set_max_level(log::LevelFilter::Warn);
 
-    let hardware = run_probe("hardware", app::native_options());
+    let hardware = run_probe("hardware", run::native_options());
 
     // 5. 強制走 WARP：同一套檢查再跑一次（eframe 在同一執行緒重用事件迴圈）
-    let warp = run_probe("warp", app::warp_options());
+    let warp = run_probe("warp", run::warp_options());
 
     let failed: Vec<_> = [hardware, warp]
         .iter()
@@ -886,7 +887,7 @@ fn check_settings_window(
 #[test]
 #[ignore = "opens a real (offscreen) window; run manually"]
 fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
-    let mut options = app::native_options();
+    let mut options = run::native_options();
     options.viewport = options
         .viewport
         .with_position([PARK, PARK])
@@ -929,7 +930,7 @@ fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
     };
 
     let (probe_open, probe_hwnd) = (Arc::clone(&open), Arc::clone(&overlay));
-    let result = app::run(options, move |ctx| {
+    let result = run::run(options, move |ctx| {
         let _ = ctx_slot.set(ctx.clone());
         let mut host = SettingsHost::new(Box::new(NoopEnv));
         host.set_window_ops(WindowOps {

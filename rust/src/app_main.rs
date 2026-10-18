@@ -252,7 +252,6 @@ pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
 }
 
 /// 輸入端各元件共用的狀態。
-#[derive(Default)]
 pub struct InputWiring {
     /// 各遊戲視窗的聊天輸入框開關。
     pub tracker: Arc<ChatInputTracker>,
@@ -260,6 +259,19 @@ pub struct InputWiring {
     pub box_open: Arc<AtomicBool>,
     /// 框選的選取畫面是否開著（`RegionFlow` 寫、框選熱鍵回呼讀）。
     pub selecting: Arc<AtomicBool>,
+    /// 熱鍵回呼查前景用的入口；測試換成假的。
+    pub foreground: fn() -> Foreground,
+}
+
+impl Default for InputWiring {
+    fn default() -> Self {
+        Self {
+            tracker: Arc::default(),
+            box_open: Arc::default(),
+            selecting: Arc::default(),
+            foreground: Foreground::real,
+        }
+    }
 }
 
 fn write_hotkey(settings: &RwLock<Config>, key: &str, used: String) {
@@ -297,13 +309,15 @@ pub fn register_hotkeys(
     let defaults = default_config();
     let fallback = |key: &str| defaults[key].as_str().unwrap_or_default().to_owned();
 
-    let hotkey = read(settings)["hotkey"]
-        .as_str()
+    let hotkey = read(settings)
+        .get("hotkey")
+        .and_then(Value::as_str)
         .unwrap_or_default()
         .to_owned();
     let on_box_hotkey = {
         let (ui, open) = (ui.clone(), Arc::clone(&wiring.box_open));
-        Arc::new(move || on_hotkey(&Foreground::real(), &open, &ui))
+        let foreground = wiring.foreground;
+        Arc::new(move || on_hotkey(&foreground(), &open, &ui))
     };
     let (box_hotkey, used) = register_hotkey(
         dispatcher,
@@ -317,10 +331,11 @@ pub fn register_hotkeys(
     let region = region_hotkey_to_register(&read(settings));
     let region = region.map(|region| {
         let (ui, selecting) = (ui.clone(), Arc::clone(&wiring.selecting));
+        let foreground = wiring.foreground;
         let (registration, used) = register_hotkey(
             dispatcher,
             &region,
-            Arc::new(move || on_region_hotkey(&Foreground::real(), &selecting, &ui)),
+            Arc::new(move || on_region_hotkey(&foreground(), &selecting, &ui)),
             &fallback("region_hotkey"),
             mask,
         );
@@ -341,8 +356,8 @@ pub fn install_paste(
 ) {
     let mask = hotkey_mask(&typing);
     let should_intercept = {
-        let settings = Arc::clone(settings);
-        move || should_intercept_paste(&read(&settings), &Foreground::real())
+        let (settings, foreground) = (Arc::clone(settings), wiring.foreground);
+        move || should_intercept_paste(&read(&settings), &foreground())
     };
     let on_paste = {
         let (settings, tracker) = (Arc::clone(settings), Arc::clone(&wiring.tracker));
