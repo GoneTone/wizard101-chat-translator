@@ -101,6 +101,8 @@ struct HostedWindow {
     shown: bool,
     /// 找到 HWND 且顯示後要搶前景。
     raise: bool,
+    /// 下一幀要送還原：最小化的視窗光搶前景叫不回來。
+    restore: bool,
 }
 
 impl HostedWindow {
@@ -113,6 +115,7 @@ impl HostedWindow {
             created: None,
             shown: false,
             raise: false,
+            restore: false,
         }
     }
 
@@ -133,9 +136,10 @@ impl HostedWindow {
         };
     }
 
-    /// 已開著的視窗再叫到前景；還沒顯示就等顯示那一幀。
+    /// 已開著的視窗再叫到前景（最小化了就還原）；還沒顯示就等顯示那一幀。
     fn bring_to_front(&mut self) {
         self.raise = true;
+        self.restore = true;
         if self.shown && self.hwnd != 0 {
             self.foreground();
         }
@@ -197,6 +201,9 @@ impl HostedWindow {
             if self.spec.topmost_once {
                 commands.push(ViewportCommand::WindowLevel(WindowLevel::Normal));
             }
+        }
+        if std::mem::take(&mut self.restore) && self.shown {
+            commands.push(ViewportCommand::Minimized(false));
         }
         let before = if self.hwnd == 0 {
             (self.ops.thread_windows)()

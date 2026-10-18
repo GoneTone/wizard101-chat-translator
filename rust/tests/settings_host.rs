@@ -434,6 +434,24 @@ fn the_settings_window_takes_the_foreground_when_shown() {
     assert_eq!(raised(), [FAKE_HWND, FAKE_HWND]);
 }
 
+#[test]
+fn reopening_restores_a_minimized_settings_window() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, _wired) = settings_app(settings_cfg());
+    open_settings(&mut h);
+    let restore = ViewportCommand::Minimized(false);
+    assert!(frames(&mut h, 3).iter().all(|c| !c.contains(&restore)));
+    // 最小化到工作列後再按 ⚙：只搶前景叫不回來，要先還原
+    h.get_by_label("⚙").click();
+    let seen = frames(&mut h, 3);
+    assert_eq!(
+        seen.iter().filter(|c| c.contains(&restore)).count(),
+        1,
+        "{seen:?}"
+    );
+}
+
 /// 首次設定模式的 App：`started` 記下 `start` 收到的設定。
 fn wizard_app(cfg: Config) -> (Harness<'static, App>, Saved, Recorder) {
     let started = Saved::default();
