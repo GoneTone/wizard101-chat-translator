@@ -1,8 +1,8 @@
-//! 手動驗證：以使用者真實檔案的副本算出的收訊快取指紋，須等於 Python 算出的值與快取檔裡存的值。
+//! 手動驗證：以使用者真實檔案的副本算出的收訊快取指紋，須等於快取檔裡存的值。
 //!
 //! 環境變數 `W101_CONFIG`、`W101_EXAMPLES`、`W101_CACHE` 指向的檔案，測試會先複製到暫存資料夾再讀（`load_config` 可能寫回），原檔不動。
 //!
-//! `W101_PYTHON_FINGERPRINT` 是 Python 算出的值。
+//! 另給 `W101_PYTHON_FINGERPRINT` 時，一併比對舊版（Python）算出的值。
 //! 執行：`cargo test --test real_fingerprint -- --ignored`。
 
 use std::path::{Path, PathBuf};
@@ -23,7 +23,7 @@ fn copy_of(key: &str, dir: &Path) -> PathBuf {
 
 #[test]
 #[ignore = "reads copies of the user's real files named by env vars"]
-fn incoming_fingerprint_matches_python_and_the_stored_cache() {
+fn incoming_fingerprint_matches_the_stored_cache() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = load_config(&copy_of("W101_CONFIG", dir.path()));
     let target = Settings::from_config(&cfg).target_language;
@@ -34,9 +34,9 @@ fn incoming_fingerprint_matches_python_and_the_stored_cache() {
     ));
     let rust = incoming_fingerprint(&cfg, stored.as_ref());
 
-    let python =
-        std::env::var("W101_PYTHON_FINGERPRINT").expect("W101_PYTHON_FINGERPRINT is not set");
-    assert_eq!(rust, python, "mismatch: rust vs python");
+    if let Ok(python) = std::env::var("W101_PYTHON_FINGERPRINT") {
+        assert_eq!(rust, python, "mismatch: rust vs python");
+    }
     let cache: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(copy_of("W101_CACHE", dir.path())).unwrap())
             .unwrap();

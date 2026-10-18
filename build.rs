@@ -14,7 +14,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/version.rs");
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-changed=assets/icon.ico");
-    println!("cargo:rerun-if-env-changed=CARGO_PKG_VERSION");
 
     let rc = version_rc(
         &env::var("CARGO_PKG_VERSION").unwrap(),
