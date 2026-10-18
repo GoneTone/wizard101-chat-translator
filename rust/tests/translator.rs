@@ -552,11 +552,7 @@ async fn reconfigure_keeps_learned_parameters_when_nothing_changed() {
         .await;
     chat()
         .respond_with(ResponseTemplate::new(200).set_body_raw(
-            "data: {\"choices\": [{\"delta\": {\"content\": \"譯文\"}}]}
-
-data: [DONE]
-
-",
+            "data: {\"choices\": [{\"delta\": {\"content\": \"譯文\"}}]}\n\ndata: [DONE]\n\n",
             "text/event-stream",
         ))
         .mount(&server)

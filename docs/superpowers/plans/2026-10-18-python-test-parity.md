@@ -763,8 +763,8 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_the_request_handle_is_released_after_the_request_completes` → 不移植：Python 的 `RequestHandle` 要登記當下的回應物件、結束後撤銷，事後 `cancel()` 才不會去關已結束的回應；Rust 只傳 `CancellationToken` 並在請求期間 select 它，沒有登記的回應物件可誤關，請求結束後取消符記沒有任何作用
 - `test_claude_uses_the_streaming_helper` → `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`（斷言 body 的 `stream: true` 並解析 SSE；Python 的 `messages.stream` 輔助函式是 SDK 機制）
 - `test_cancelling_a_claude_request_closes_the_stream` → `tests/clients_claude.rs::cancel_mid_stream_returns_cancelled`
-- `test_a_request_on_a_closed_client_is_offline_so_the_pool_retries_it` → 不移植：Python 的 `reconfigure` 會關掉舊 client，競速時 httpx 對已關閉的 client 拋 `RuntimeError`，因此特地把它歸為離線；Rust 的 `reconfigure` 不關舊後端（飛行中的請求持有舊快照照常跑完，見 `Translator::reconfigure`），不會出現已關閉的 client
-- `test_a_request_on_a_closed_claude_client_is_offline` → 不移植：同上（Anthropic SDK 的 client 被關閉後的行為），Rust 沒有已關閉的 client
+- `test_a_request_on_a_closed_client_is_offline_so_the_pool_retries_it` → 不移植：Python 的 `reconfigure` 會關掉舊 client，競速時 httpx 對已關閉的 client 拋 `RuntimeError`，因此特地把它歸為離線；Rust 的 `reconfigure` 不關舊後端（飛行中的請求持有舊快照照常跑完，見 `Translator::reconfigure`），不會出現已關閉的 client（這也是行為差異：Python 的 `reconfigure` 關掉舊 client，仍在飛行中的請求會失敗；Rust 的該請求會以舊設定完成，因此舊設定翻出的譯文可能再回傳一次）
+- `test_a_request_on_a_closed_claude_client_is_offline` → 不移植：同上（Anthropic SDK 的 client 被關閉後的行為），Rust 沒有已關閉的 client（這也是行為差異：Python 的 `reconfigure` 關掉舊 client，仍在飛行中的請求會失敗；Rust 的該請求會以舊設定完成，因此舊設定翻出的譯文可能再回傳一次）
 - `test_an_unrelated_runtime_error_is_not_taken_for_offline` → 不移植：它只驗證上一組「已關閉 client」判斷不會把無關的 `RuntimeError` 誤當離線；Rust 沒有該判斷，錯誤皆由 reqwest／HTTP 狀態明確分類
 - `test_gemini_joins_streamed_chunks` → `tests/clients_gemini.rs::gemini_maps_roles_and_system_instruction`
 - `test_gemini_sends_system_instruction_and_model_role` → `tests/clients_gemini.rs::gemini_maps_roles_and_system_instruction`

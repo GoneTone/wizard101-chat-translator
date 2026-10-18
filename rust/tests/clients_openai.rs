@@ -350,13 +350,7 @@ async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
 
 #[tokio::test]
 async fn stream_dropped_mid_response_is_offline() {
-    let url = stream_server::dropped_stream(format!(
-        "data: {}
-
-",
-        delta("partial")
-    ))
-    .await;
+    let url = stream_server::dropped_stream(format!("data: {}\n\n", delta("partial"))).await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(

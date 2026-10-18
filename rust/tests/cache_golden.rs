@@ -5,9 +5,10 @@ mod common;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
-use wizard101_chat_translator::config::ServiceSpec;
+use wizard101_chat_translator::app_main::incoming_fingerprint;
+use wizard101_chat_translator::config::{Config, ServiceSpec};
 use wizard101_chat_translator::translation::cache::{
     FLUSH_EVERY, MAX_ENTRIES, TranslationCache, fingerprint_of, normalize, placeholders_match,
     restore, translate_and_cache,
@@ -27,6 +28,7 @@ fn letters(i: usize) -> String {
         .collect()
 }
 
+const SECRET_KEY: &str = "sk-test-secret-key";
 const OTHER_FP: &str = "custom||gemma|日本語|p6|x-";
 
 fn s(v: &Value) -> &str {
@@ -301,11 +303,24 @@ fn cache_still_usable_after_clear() {
     assert_eq!(cache.get("迷幻木头").as_deref(), Some("迷幻木頭"));
 }
 
+/// 收訊服務帶金鑰的完整設定，走真正的指紋組裝路徑（`incoming_fingerprint`）。
+fn keyed_config() -> Config {
+    let Value::Object(cfg) = json!({
+        "services": [{"id": "aaaa0001", "name": "In", "provider": "custom",
+            "base_url": "http://in", "model": "gemma", "api_key": SECRET_KEY, "thinking": false}],
+        "default_service": "aaaa0001",
+        "target_language": "日本語",
+    }) else {
+        unreachable!()
+    };
+    cfg
+}
+
 #[test]
 fn fingerprint_never_contains_the_api_key() {
-    let fp = fingerprint_of("custom", "gemma-4-26b-a4b", ZH, "", "-");
-    assert!(fp.contains("gemma-4-26b-a4b"));
-    assert!(!fp.contains("sk-"));
+    let fp = incoming_fingerprint(&keyed_config(), None);
+    assert!(fp.contains("gemma"), "{fp}");
+    assert!(!fp.contains(SECRET_KEY), "{fp}");
 }
 
 #[test]
@@ -313,11 +328,12 @@ fn cache_file_never_contains_the_api_key() {
     let dir = tempfile::tempdir().unwrap();
     let cache = TranslationCache::new(
         dir.path().join("cache.json"),
-        fingerprint_of("custom", "gemma", ZH, "", "-"),
+        incoming_fingerprint(&keyed_config(), None),
     );
     cache.put("熔岩百合", "熔岩百合(Lava Lily)", &cache.fingerprint());
     cache.flush();
-    assert!(!file_text(&dir).contains("sk-"));
+    assert!(file_text(&dir).contains("gemma"));
+    assert!(!file_text(&dir).contains(SECRET_KEY));
 }
 
 /// 假 backend：依「最後一輪 user 內容」查表回覆，記錄每次請求；`hook` 在請求途中被呼叫。
