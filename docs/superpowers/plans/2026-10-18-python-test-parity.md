@@ -421,9 +421,9 @@
 
 stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本靠 unicorn 模擬 x86 執行驗證；Rust 版不引入 x86 模擬器，改以 golden 釘死 stub 位元組與 Python 版完全相同（Python 的模擬已驗證過該位元組串的行為），stub 執行行為本身要靠實機驗證。
 
-- `test_stub_copies_sso_and_heap_strings_and_restores_registers` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
-- `test_stub_truncates_long_lines_and_keeps_original_length` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
-- `test_stub_wraps_past_the_slot_count` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`
+- `test_stub_copies_sso_and_heap_strings_and_restores_registers` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`（僅釘機器碼與 Python 逐位元組相同；執行行為由 Python 的模擬器測試證明，Rust 端靠實機驗證）
+- `test_stub_truncates_long_lines_and_keeps_original_length` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`（僅釘機器碼與 Python 逐位元組相同；執行行為由 Python 的模擬器測試證明，Rust 端靠實機驗證）
+- `test_stub_wraps_past_the_slot_count` → `tests/hooks_golden.rs::addline_stub_bytes_match_python`（僅釘機器碼與 Python 逐位元組相同；執行行為由 Python 的模擬器測試證明，Rust 端靠實機驗證）
 - `test_read_ring_returns_new_records_in_order` → `tests/reader_golden.rs::read_ring_returns_new_records_in_order`
 - `test_read_ring_stops_at_a_slot_being_written` → `tests/reader_golden.rs::read_ring_stops_at_a_slot_being_written_or_still_on_the_previous_lap`
 - `test_read_ring_waits_for_a_slot_still_holding_the_previous_lap` → `tests/reader_golden.rs::read_ring_stops_at_a_slot_being_written_or_still_on_the_previous_lap`
