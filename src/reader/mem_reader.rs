@@ -653,7 +653,7 @@ impl WizChatReader {
             Err(err) => {
                 log(format!(
                     "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {}: {err}; \
-                     a pattern failure here needs chat_hook.PATTERN updated, not the wizwalker fork",
+                     a pattern failure here needs chat_hook::PATTERN updated in a new release",
                     err.type_name()
                 ));
                 return Err(err);

@@ -509,7 +509,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
     assert!(
         failed[0].contains("): PatternFailed: Pattern b'")
             && failed[0].ends_with(
-                "; a pattern failure here needs chat_hook.PATTERN updated, not the wizwalker fork"
+                "; a pattern failure here needs chat_hook::PATTERN updated in a new release"
             ),
         "{failed:?}"
     );
