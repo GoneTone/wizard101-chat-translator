@@ -10,7 +10,7 @@ use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, Round, SettingsEnv, SettingsEvent};
-use wizard101_chat_translator::ui::settings::fields::{editable_combo, number_field};
+use wizard101_chat_translator::ui::settings::fields::{editable_combo, number_field, text_field};
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::widgets::{
     card, collapsible, filter_models, keycaps, outcome, setting_row, toggle,
@@ -327,6 +327,22 @@ fn number_field_steps_within_the_range() {
         "0.00",
         "unparsable text restarts from the minimum"
     );
+}
+
+#[test]
+fn pasting_into_a_text_field_inserts_the_clipboard_text() {
+    let mut h = harness(String::new(), |ui, text: &mut String| {
+        card(ui, |ui| {
+            setting_row(ui, "Server URL", None, |ui| {
+                text_field(ui, text);
+            });
+        });
+    });
+    h.get_by_label("Server URL").click();
+    h.run_steps(2);
+    h.event(egui::Event::Paste("http://127.0.0.1:8000".into()));
+    h.run_steps(2);
+    assert_eq!(h.state(), "http://127.0.0.1:8000");
 }
 
 #[test]
