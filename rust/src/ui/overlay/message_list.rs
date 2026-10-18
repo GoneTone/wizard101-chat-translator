@@ -28,7 +28,8 @@ const ORIGINAL_PT: f32 = 9.0;
 const TRANSLATED_PT: f32 = 11.0;
 const PLACEHOLDER_PT: f32 = 11.0;
 const MIN_WRAP: f32 = 80.0;
-const WRAP_MARGIN: f32 = 12.0;
+/// 字與視窗左右緣的距離（兩側相同）：右側容得下縮放帶、捲軸與 4px 間隙；左側同寬，從行首拖曳才不會抓到縮放帶。
+const TEXT_INSET: f32 = EDGE as f32 + scrollbar::WIDTH + 4.0;
 const SLOW_RELAYOUT_MS: u128 = 50;
 
 /// 視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。
@@ -133,7 +134,7 @@ impl MessageList {
         self.pending += dy;
     }
 
-    /// 上一幀的訊息視口（不含捲軸與右側縮放帶）。
+    /// 上一幀的訊息視口（不含捲軸與左、右、下三邊的縮放帶）。
     pub fn viewport(&self) -> Rect {
         self.viewport
     }
@@ -153,9 +154,13 @@ impl MessageList {
         status: Option<&str>,
         selected: Option<(Caret, Caret)>,
     ) {
+        // 底緣讓出縮放帶而不是只墊高最新一則：捲上去時下緣被切的那則也不會畫進縮放帶、按得到卻選不到
         let viewport = Rect::from_min_max(
-            rect.min,
-            Pos2::new(rect.max.x - scrollbar::WIDTH - EDGE as f32, rect.max.y),
+            Pos2::new(rect.min.x + EDGE as f32, rect.min.y),
+            Pos2::new(
+                rect.max.x - scrollbar::WIDTH - EDGE as f32,
+                rect.max.y - EDGE as f32,
+            ),
         );
         self.viewport = viewport;
         let mut dy = std::mem::take(&mut self.pending);
@@ -188,7 +193,7 @@ impl MessageList {
         };
 
         let started = Instant::now();
-        let wrap = (viewport.width() - WRAP_MARGIN).max(MIN_WRAP);
+        let wrap = (rect.width() - 2.0 * TEXT_INSET).max(MIN_WRAP);
         let rewrapped = wrap != self.wrap;
         self.wrap = wrap;
         let mut scroll = self.scrollbar.drag(ui, track).map(Scroll::To);
@@ -243,9 +248,10 @@ impl MessageList {
             }
         }
 
+        let left = rect.min.x + TEXT_INSET - TEXT_ORIGIN;
         for p in placed {
             let message = &messages[p.index];
-            let original = viewport.min + Vec2::new(0.0, p.top + ROW_PAD);
+            let original = Pos2::new(left, viewport.min.y + p.top + ROW_PAD);
             let translated = original + Vec2::new(0.0, line_height(&p.original));
             let lines = [
                 (original, &p.original, message.original_color()),
@@ -480,6 +486,7 @@ mod tests {
     use crate::i18n::t;
     use crate::reader::chat_tabs::TabState;
     use crate::ui::fonts_egui;
+    use crate::ui::geometry::CORNER;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
@@ -551,7 +558,7 @@ mod tests {
     fn at_bottom(h: &Harness<State>) -> bool {
         let last = h.state().list.rows().last().unwrap();
         last.seq == messages(h).last().unwrap().seq
-            && (row_bottom(last) - h.state().rect.max.y).abs() < 0.01
+            && (row_bottom(last) - h.state().list.viewport().max.y).abs() < 0.01
     }
 
     /// 該則原文行在螢幕上的 y；不在可見範圍時為 None。
@@ -571,15 +578,16 @@ mod tests {
     /// 可見的列上下相接、且蓋滿視口（內容比視口矮或捲到頭時例外）。
     fn covered(h: &Harness<State>) -> bool {
         let rows = h.state().list.rows();
-        let rect = h.state().rect;
+        let viewport = h.state().list.viewport();
         let all = messages(h);
         let contiguous = rows
             .windows(2)
             .all(|w| (w[1].lines[0].0.y - row_bottom(&w[0]) - ROW_PAD).abs() < 0.01);
         let top = rows[0].lines[0].0.y - ROW_PAD;
         let bottom = row_bottom(rows.last().unwrap());
-        let top_ok = top <= rect.min.y || (rows[0].seq == all[0].seq && top == rect.min.y);
-        let bottom_ok = bottom >= rect.max.y || rows.last().unwrap().seq == all.last().unwrap().seq;
+        let top_ok = top <= viewport.min.y || (rows[0].seq == all[0].seq && top == viewport.min.y);
+        let bottom_ok =
+            bottom >= viewport.max.y || rows.last().unwrap().seq == all.last().unwrap().seq;
         contiguous && top_ok && bottom_ok
     }
 
@@ -661,7 +669,8 @@ mod tests {
         let mut h = filled(40, 200, 0);
         let (seq, y) = reading(&h);
         wheel(&mut h, 1.0);
-        assert_eq!(row_y(&h, seq), Some(y + h.state().rect.height() / 10.0));
+        let viewport = h.state().list.viewport();
+        assert_eq!(row_y(&h, seq), Some(y + viewport.height() / 10.0));
     }
 
     #[test]
@@ -805,15 +814,13 @@ mod tests {
         let rows = h.state().list.rows();
         let rect = h.state().rect;
         assert_eq!(rows.len(), 2);
-        // 兩行上下相接、列與列之間 4px，第一則的行原點在內容頂端下 2px
+        // 兩行上下相接、列與列之間 4px，第一則的行原點在內容頂端下 2px；字從左緣內縮 TEXT_INSET 處起畫
         let mut top = rect.min.y + ROW_PAD;
+        let left = rect.min.x + TEXT_INSET - TEXT_ORIGIN;
         for row in rows {
             let [(original, galley), (translated, _)] = &row.lines;
-            assert_eq!(*original, Pos2::new(rect.min.x, top));
-            assert_eq!(
-                *translated,
-                Pos2::new(rect.min.x, top + line_height(galley))
-            );
+            assert_eq!(*original, Pos2::new(left, top));
+            assert_eq!(*translated, Pos2::new(left, top + line_height(galley)));
             top = row_bottom(row) + ROW_PAD;
         }
         // 譯文回填變高：下方的訊息跟著往下推
@@ -823,6 +830,30 @@ mod tests {
         h.step();
         assert!(row_y(&h, 1).unwrap() > before);
         assert!(covered(&h));
+    }
+
+    #[test]
+    fn text_has_equal_side_margins_clear_of_the_scrollbar_and_resize_bands() {
+        let mut h = filled(40, 200, 0);
+        let rect = h.state().rect;
+        let track_left = rect.max.x - EDGE as f32 - scrollbar::WIDTH;
+        assert!(thumb(&h).unwrap().min.x >= track_left);
+        for size in [SIZE, Vec2::new(240.0, SIZE.y)] {
+            h.set_size(size);
+            h.step();
+            let rect = h.state().rect;
+            for (origin, galley) in h.state().list.rows().iter().flat_map(|r| &r.lines) {
+                let text_left = origin.x + TEXT_ORIGIN;
+                let wrap_right = text_left + galley.job.wrap.max_width;
+                assert_eq!(text_left - rect.min.x, rect.max.x - wrap_right, "{size:?}");
+                assert!(text_left + galley.size().x <= wrap_right + 0.5, "{size:?}");
+                assert!(wrap_right < rect.max.x - EDGE as f32 - scrollbar::WIDTH);
+                assert!(text_left - rect.min.x >= CORNER as f32, "{size:?}");
+            }
+        }
+        // 最新一則貼在下緣縮放帶之上
+        let last = h.state().list.rows().last().unwrap();
+        assert!(row_bottom(last) <= h.state().rect.max.y - EDGE as f32);
     }
 
     #[test]
@@ -861,7 +892,7 @@ mod tests {
             // 只排視口內的訊息，且全部用新的換行寬度
             let rows = h.state().list.rows();
             assert!(rows.len() < 60, "{size:?} laid out {}", rows.len());
-            let wrap = h.state().rect.width() - scrollbar::WIDTH - EDGE as f32 - WRAP_MARGIN;
+            let wrap = h.state().rect.width() - 2.0 * TEXT_INSET;
             for (_, galley) in rows.iter().flat_map(|r| &r.lines) {
                 assert!(galley.size().x <= wrap + 0.5, "{size:?}");
             }
@@ -873,7 +904,7 @@ mod tests {
         let mut h = filled(120, 200, 0);
         h.set_size(Vec2::new(300.0, SIZE.y));
         h.step();
-        for _ in 0..120 {
+        for _ in 0..160 {
             wheel(&mut h, 3.0);
             assert!(covered(&h));
         }

@@ -409,11 +409,14 @@ mod tests {
     use super::*;
     use crate::i18n::t;
     use crate::ui::fonts_egui;
+    use crate::ui::geometry::{EDGE, Edge};
+    use crate::ui::overlay::frame::Frame;
+    use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::palette::{BAR, SELECT_BG};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
-    /// 清單左側留白：讓行首字元落在左緣縮放帶之外，按得到第 0 個字。
-    const LEFT: f32 = 20.0;
+    /// 假視窗的螢幕位置與大小；被縮放或移動過就會變。
+    const WINDOW: (i32, i32, i32, i32) = (1000, 500, 460, 300);
 
     fn caret(msg: usize, line: usize, index: usize) -> Caret {
         Caret { msg, line, index }
@@ -437,6 +440,9 @@ mod tests {
     }
 
     struct State {
+        /// 外框與內容疊法同 overlay：邊上的按壓由外框拿去縮放。
+        frame: Frame,
+        shell: FakeShell,
         model: OverlayModel,
         list: MessageList,
         selection: Selection,
@@ -458,6 +464,12 @@ mod tests {
             add(&mut model, t0, i as u64, original, translated);
         }
         let state = State {
+            frame: Frame::new(1.0, None, |_, _, _, _| {}),
+            shell: FakeShell {
+                cursor: (WINDOW.0, WINDOW.1),
+                rect: WINDOW,
+                ready: true,
+            },
             model,
             list: MessageList::new(),
             selection: Selection::default(),
@@ -472,7 +484,8 @@ mod tests {
                 |ui, s: &mut State| {
                     let area = ui.max_rect();
                     s.area = area;
-                    let rect = Rect::from_min_max(area.min + Vec2::new(LEFT, BAR_HEIGHT), area.max);
+                    s.frame.show(ui, &mut s.shell, "t", None, "");
+                    let rect = Rect::from_min_max(area.min + Vec2::new(0.0, BAR_HEIGHT), area.max);
                     s.selection.show(ui, &mut s.list, &s.model, &mut s.desktop);
                     s.list.show(ui, rect, &s.model, None, s.selection.span());
                 },
@@ -518,18 +531,26 @@ mod tests {
         Pos2::new(right, at(h, msg, line, 0.0).y)
     }
 
-    fn press(h: &mut Harness<State>, p: Pos2) {
+    /// 假游標跟著指標換算成螢幕座標：外框若在縮放，視窗大小就會跟著變。
+    fn point(h: &mut Harness<State>, p: Pos2) {
+        let v = p - h.state().area.min;
+        h.state_mut().shell.cursor = (WINDOW.0 + v.x as i32, WINDOW.1 + v.y as i32);
         h.hover_at(p);
+    }
+
+    fn press(h: &mut Harness<State>, p: Pos2) {
+        point(h, p);
         h.drag_at(p);
         h.step();
     }
 
     fn move_to(h: &mut Harness<State>, p: Pos2) {
-        h.hover_at(p);
+        point(h, p);
         h.step();
     }
 
     fn release(h: &mut Harness<State>, p: Pos2) {
+        point(h, p);
         h.drop_at(p);
         h.step();
     }
@@ -812,7 +833,7 @@ mod tests {
     fn hit_testing_follows_the_scroll_position() {
         let mut h = numbered(40);
         let p = Pos2::new(
-            h.state().area.min.x + LEFT + 40.0,
+            h.state().list.viewport().min.x + 40.0,
             h.state().area.center().y,
         );
         let under = |h: &Harness<State>| {
@@ -853,17 +874,35 @@ mod tests {
     }
 
     #[test]
-    fn press_in_the_bottom_resize_band_does_not_select() {
+    fn press_in_a_resize_band_resizes_instead_of_selecting() {
+        // 下緣帶、最新一則譯文那一行高度的左緣帶
+        for edge in [Edge::S, Edge::W] {
+            let mut h = numbered(40);
+            let (area, last) = (h.state().area, messages(&h).len() - 1);
+            let p = match edge {
+                Edge::S => Pos2::new(200.0, area.max.y - EDGE as f32 / 2.0),
+                _ => Pos2::new(area.min.x + EDGE as f32 / 2.0, start_of(&h, last, 1).y),
+            };
+            assert_eq!(edge_under(h.state().area, p), Some(edge), "precondition");
+            press(&mut h, p);
+            move_to(&mut h, p + Vec2::new(-20.0, 20.0));
+            assert!(!h.state().selection.dragging(), "{edge:?}");
+            assert_eq!(h.state().desktop.focused, 0, "{edge:?}");
+            release(&mut h, p + Vec2::new(-20.0, 20.0));
+            assert_ne!(h.state().shell.rect, WINDOW, "{edge:?} should resize");
+        }
+    }
+
+    #[test]
+    fn dragging_from_the_first_character_selects_instead_of_resizing() {
         let mut h = numbered(40);
-        let bottom = h.state().area.max.y;
-        assert_eq!(
-            h.state().list.viewport().max.y,
-            bottom,
-            "precondition: list at the bottom edge"
-        );
-        press(&mut h, Pos2::new(200.0, bottom - 2.0));
-        assert!(!h.state().selection.dragging());
-        assert_eq!(h.state().desktop.focused, 0);
+        let last = messages(&h).len() - 1;
+        // 最新一則最靠近左下角的縮放帶
+        let (from, to) = (start_of(&h, last, 1), end_of(&h, last, 1));
+        assert_eq!(edge_under(h.state().area, from), None);
+        select(&mut h, from, to);
+        assert_eq!(text(&h), format!("trans {last}"));
+        assert_eq!(h.state().shell.rect, WINDOW);
     }
 
     #[test]
@@ -872,7 +911,8 @@ mod tests {
         let last = messages(&h).len() - 1;
         let from = start_of(&h, last, 0);
         press(&mut h, from);
-        let above = Pos2::new(LEFT + 40.0, h.state().list.viewport().min.y - 60.0);
+        let viewport = h.state().list.viewport();
+        let above = Pos2::new(viewport.min.x + 40.0, viewport.min.y - 60.0);
         move_to(&mut h, above);
         let (first_seq, grown) = (h.state().list.rows()[0].seq, text(&h).len());
         for _ in 0..10 {
