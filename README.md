@@ -70,7 +70,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - The frame stays on screen: drag inside it to move it or drag an edge to resize it, and the new area is translated again.
    - The card shows the recognized text above the translation for comparison; text can be highlighted and copied with `Ctrl+C` or the right-click menu. Click the card or its ✕ to dismiss it.
    - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
-7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart (the only exception is *Game path* on the *Advanced* tab, which takes effect on the next start).
+7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart.
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
 9. Every launch checks GitHub for a new version; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
@@ -122,8 +122,8 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
 - Translations do not appear instantly: the game is checked for new chat every 0.1 seconds, and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
 - Player chat is never cached; every line is really sent for translation (so every line costs an API call). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
-- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated, unless the failing pattern is this project's own chat hook, in which case you wait for a new release of this project. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
-- Hooking into the game and the global hotkey (the `keyboard` package) only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
+- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires), and it only works again once a new release of this project updates the patterns. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
+- Hooking into the game and the global hotkey only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
 ## Development
 
@@ -132,43 +132,43 @@ The rest of this file covers working from source: development, debugging and pac
 ### Prerequisites
 
 - Windows
-- [uv](https://docs.astral.sh/uv/) — the Python version is pinned by `.python-version`, and `uv sync` downloads a matching interpreter, so local and CI environments agree
+- [rustup](https://rustup.rs/) — the Rust version is pinned by `rust-toolchain.toml` and installed automatically on first use, so local and CI environments agree
 
 ### Install
 
-1. `uv sync` — creates `.venv` and installs everything in `pyproject.toml` (including wizwalker for the incoming side; `[tool.uv.sources]` already points at the [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker), which keeps up with the current client patterns, because the official PyPI release has stale patterns that no longer match the live client).
-2. `uv run run.py` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the project root, which is not version-controlled.
-
-> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns. If the log says the AddLine hook is the one that failed, that pattern lives in this project rather than the fork: updating the fork cannot fix it, so wait for a new release of this project.
+`cargo build` — downloads the dependencies and builds a debug binary.
 
 ### Running from source
 
 1. Start Wizard101 and log in, all the way into the game world.
-2. `uv run run.py` (equivalent to `uv run python -m src.main`).
+2. `cargo run` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the repository root, which is not version-controlled.
 3. It works exactly as described in [How to Use](#how-to-use); when a banner shows up, see [Troubleshooting](#troubleshooting).
+
+> When a game update makes hooking fail with `PatternFailed`, the memory patterns in the source have to be updated (the chat hook and the input-box hook each keep their own, in `src/reader/`).
 
 ### Checks
 
 ```
-uv run ruff check src tests tools   # lint: unused imports, undefined names, import order (rules in pyproject.toml)
-uv run pytest                       # unit tests (4 parallel workers by default; add -n 0 to run serially)
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same lint and tests on a Windows runner.
+Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same checks on a Windows runner.
 
 ### Packaging (exe)
 
 ```
-uv run pyinstaller build.spec --noconfirm
+cargo build --release
 ```
 
-The result is `dist/Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run (see [Download](#download)).
+The result is `target\release\Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run (see [Download](#download)).
 
 ### Logs
 
 Both logs are split per launch, keep the last 7 days only, and start every line with a UTC+0 timestamp:
 
-- `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …).
+- `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …). When running from source (`cargo run`) it goes to the terminal (stderr) instead of a file; `messages.log` is written as usual.
 - `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (`RAW` is the original line including markup and system messages, excluding only the `[WARN]` / `[ERRO]` / `[DBGM]`-style debug lines the game itself pushes into the chat control; `OUT` is the line actually sent for translation). Attach this one for missed or duplicated translations.
 
 ## Icon

@@ -70,7 +70,7 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
    - 框選框會留在畫面上：拖框內移動、拖邊線改大小，新範圍會自動重新翻譯。
    - 卡片上方附辨識到的原文供對照；文字可反白，`Ctrl+C` 或右鍵複製。點卡片或 ✕ 關掉。
    - 文字由內建的離線文字辨識讀出，再交給你設定的 AI 翻譯；畫面不會離開你的電腦。
-7. 想改設定（服務商、金鑰、目標語言、熱鍵…）時，點疊加視窗標題列的齒輪（⚙）開啟設定視窗，存檔即套用，不必重開程式（只有「進階」分頁的「遊戲路徑」要下次啟動才生效）。
+7. 想改設定（服務商、金鑰、目標語言、熱鍵…）時，點疊加視窗標題列的齒輪（⚙）開啟設定視窗，存檔即套用，不必重開程式。
 8. 要結束程式時，點疊加視窗標題列右上角的 ✕（會先解除遊戲掛入再退出）。
 9. 每次啟動會自動檢查 GitHub 上有沒有新版本，有的話疊加視窗會多出一條藍色橫幅（點橫幅開下載頁，點右側 ✕ 關掉這次提醒）；也可以在設定視窗的「關於」分頁手動檢查更新、查看專案連結與紀錄檔所在資料夾。
 
@@ -122,8 +122,8 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 - 遊戲聊天白名單：非白名單英文詞可能被遊戲自動過濾，任何翻譯軟體都繞不過。
 - 譯文不會瞬間出現：每 0.1 秒檢查一次有沒有新聊天，再等翻譯服務回應才顯示，慢多少主要看你選的服務商與模型。
 - 玩家對話不快取，每一則都會實際送一次翻譯（也就是每則都算 API 費用）。原因有二：玩家講的話幾乎不會一字不差地重複，快取幾乎不會命中；而且每則翻譯都會帶上前幾則對話當上下文，同一句話在不同脈絡下本來就該翻得不一樣，硬套舊譯文反而會翻錯。只有句型固定的系統訊息才快取。
-- 依賴固定的記憶體特徵（pattern）：遊戲改版後 pattern 可能失效（掛入時報 `PatternFailed`，或 hook 掛上了卻不被觸發），需等支援跟進才會恢復；從原始碼執行時，是等收訊用的相依套件更新後重跑 `uv sync`；若失效的是本專案自己的聊天 hook，則要等本專案的新版。兩種情形疊加視窗都顯示「⚠  遊戲版本不相容」橫幅，與「遊戲沒開」分得開。
-- 掛入遊戲與全域熱鍵（keyboard 套件）只在遊戲以系統管理員身分執行時需要同樣提權（完整性等級要對等），一般情況不必；權限不足時橫幅會直接指出解法。
+- 依賴固定的記憶體特徵（pattern）：遊戲改版後 pattern 可能失效（掛入時報 `PatternFailed`，或 hook 掛上了卻不被觸發），需等本專案釋出更新 pattern 的新版本才會恢復。兩種情形視窗都顯示「⚠  遊戲版本不相容」橫幅，與「遊戲沒開」分得開。
+- 掛入遊戲與全域熱鍵只在遊戲以系統管理員身分執行時需要同樣提權（完整性等級要對等），一般情況不必；權限不足時橫幅會直接指出解法。
 
 ## 開發
 
@@ -132,43 +132,43 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 ### 前置需求
 
 - Windows
-- [uv](https://docs.astral.sh/uv/) —— Python 版本由 `.python-version` 釘住，`uv sync` 會自動下載對應版本，本機與 CI 一致
+- [rustup](https://rustup.rs/) —— Rust 版本由 `rust-toolchain.toml` 釘住，第一次使用時自動安裝對應版本，本機與 CI 一致
 
 ### 安裝
 
-1. `uv sync` —— 建立 `.venv` 並依 `pyproject.toml` 裝好所有相依（含收訊用的 wizwalker；已於 `[tool.uv.sources]` 指向有跟進最新 client pattern 的 [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker)，官方 PyPI 版 pattern 過舊、對不上現行 client）。
-2. `uv run run.py` —— 第一次執行會跑首次設定精靈（選服務商、填金鑰或自架伺服器網址、測試連線），設定寫進專案根目錄的 `config.json`（不進版控）。
-
-> 遊戲改版導致掛入報 `PatternFailed` 時，更新 fork 後重跑 `uv sync`（或 `uv lock --upgrade-package wizwalker`）取得新 pattern。若 log 指出失敗的是 AddLine hook，那組 pattern 在本專案而非 fork 裡，更新 fork 修不了，只能等本專案的新版。
+`cargo build` —— 下載相依套件並建置 debug 版。
 
 ### 從原始碼執行
 
 1. 開啟並登入 Wizard101 到遊戲世界內。
-2. `uv run run.py`（等同 `uv run python -m src.main`）。
+2. `cargo run` —— 第一次執行會跑首次設定精靈（選服務商、填金鑰或自架伺服器網址、測試連線），設定寫進 repo 根目錄的 `config.json`（不進版控）。
 3. 操作方式與[使用方式](#使用方式)一節相同；出現橫幅時見[疑難排解](#疑難排解)。
+
+> 遊戲改版導致掛入報 `PatternFailed` 時，要更新原始碼裡的記憶體 pattern（聊天 hook 與輸入框 hook 各有一組，位於 `src/reader/`）。
 
 ### 檢查
 
 ```
-uv run ruff check src tests tools   # lint：未用的 import、未定義名稱、import 排序（規則見 pyproject.toml）
-uv run pytest                       # 單元測試（預設 4 個 worker 平行跑；要序列跑加 -n 0）
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-推上 GitHub 後 CI（`.github/workflows/ci.yml`）會在 Windows runner 上跑同樣的 lint 與測試。
+推上 GitHub 後 CI（`.github/workflows/ci.yml`）會在 Windows runner 上跑同樣的檢查。
 
 ### 打包（exe）
 
 ```
-uv run pyinstaller build.spec --noconfirm
+cargo build --release
 ```
 
-產物在 `dist/Wizard101ChatTranslator.exe`，單一 windowed exe（無主控台黑窗）。分發時只需這個 exe，`config.json`、`app.log` 與 `messages.log` 會在使用者第一次執行時自動建立在 exe 同一個資料夾（見[下載](#下載)）。
+產物在 `target\release\Wizard101ChatTranslator.exe`，單一 windowed exe（無主控台黑窗）。分發時只需這個 exe，`config.json`、`app.log` 與 `messages.log` 會在使用者第一次執行時自動建立在 exe 同一個資料夾（見[下載](#下載)）。
 
 ### 紀錄檔
 
 兩份紀錄都以「每次啟動一段」分段、只保留近 7 天，每行開頭是 UTC＋0 時戳：
 
-- `app.log`：程式診斷輸出（掛入、翻譯請求、設定套用、例外等）。
+- `app.log`：程式診斷輸出（掛入、翻譯請求、設定套用、例外等）。從原始碼執行（`cargo run`）時改輸出到終端機（stderr），不寫檔；`messages.log` 照寫。
 - `messages.log`：收訊端讀到的**原始**聊天內容，不做任何清理與過濾（`RAW` 為含標記的原文、含系統訊息，只排除遊戲自己灌進聊天控件的 `[WARN]`／`[ERRO]`／`[DBGM]` 之類的除錯行；`OUT` 為實際送去翻譯的行）。訊息漏翻／重複翻譯之類的問題請一併附上這份。
 
 ## 圖示

@@ -1,4 +1,4 @@
-//! OCR 新舊對照的 Rust 側：辨識資料夾內的 `*.png`，寫出 `rust.json`。
+//! 辨識資料夾內的 `*.png`，把各檔的辨識結果寫成 `rust.json`。
 
 use std::{env, fs, path::PathBuf};
 
