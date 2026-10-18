@@ -16,7 +16,7 @@ use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    card, collapsible, dashed_button, filter_models, keycaps, outcome, primary_button,
+    callout, card, collapsible, dashed_button, filter_models, keycaps, outcome, primary_button,
     secondary_button, secondary_icon_button, setting_row, toggle,
 };
 
@@ -696,4 +696,54 @@ fn toggles_steppers_and_section_headers_react_to_hover() {
     h.hover_at(header.center());
     h.run_steps(2);
     assert!(painted_fill(&h, theme::CONTROL_BG, header.shrink(4.0)));
+}
+
+#[test]
+fn glyphs_sit_on_the_first_line_of_the_text_they_lead() {
+    const FAILED: &str = "伺服器回應 HTTP 401：invalid x-api-key";
+    let h = harness((), |ui, _| {
+        outcome(ui, false, FAILED);
+        outcome(ui, true, "已是最新版本");
+        callout(ui, "設定不完整", &["兩個熱鍵不可相同".to_owned()]);
+    });
+    let cases = [
+        (icon::FAILURE, FAILED),
+        (icon::SUCCESS, "已是最新版本"),
+        (icon::WARNING, "設定不完整"),
+    ];
+    for (glyph, text) in cases {
+        let icon = text_rect(&h, &glyph.to_string());
+        let line = text_rect(&h, text);
+        assert!(
+            (icon.center().y - line.center().y).abs() <= 1.0,
+            "{text}: icon {icon:?} vs line {line:?}"
+        );
+        assert!(icon.right() < line.left(), "{text}: same row");
+    }
+}
+
+#[test]
+fn dropdowns_give_way_to_the_label_in_a_narrow_row() {
+    let h = harness(String::new(), |ui, text: &mut String| {
+        card(ui, |ui| {
+            setting_row(ui, "Interface language", Some("Help us translate"), |ui| {
+                ui_language_combo(ui);
+            });
+            setting_row(ui, "Target language", None, |ui| {
+                editable_combo(ui, Id::unique("target"), text, &[], false);
+            });
+        });
+    });
+    let row = h
+        .get_by(|n| n.role() == Role::Label && n.value().as_deref() == Some("Interface language"))
+        .rect();
+    let combo = h.get_by_role(Role::ComboBox).rect();
+    let room = combo.right() - row.left();
+    assert!(combo.width() < theme::COMBO_WIDTH, "{combo:?}");
+    assert!(combo.width() <= 0.5 * room, "{combo:?} in a row of {room}");
+    let edit = h.get_by_role(Role::TextInput).rect();
+    assert!(
+        edit.left() >= combo.left() - 1.0,
+        "both dropdowns shrink alike"
+    );
 }

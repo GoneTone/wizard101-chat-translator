@@ -43,11 +43,12 @@ impl Default for AboutState {
 fn link(ui: &mut Ui, text: &str, url: &str) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let text = RichText::new(text).size(theme::CONTROL_TEXT_SIZE);
+        let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
+        let text = RichText::new(text).font(font.clone());
         if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
             log(format!("[ui] opening link from settings: {url}"));
         }
-        glyph(ui, icon::EXTERNAL_LINK, 11.0, theme::LINK);
+        glyph(ui, icon::EXTERNAL_LINK, 11.0, theme::LINK, &font);
     });
 }
 

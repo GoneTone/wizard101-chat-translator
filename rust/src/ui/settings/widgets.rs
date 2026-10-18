@@ -28,9 +28,12 @@ pub(super) fn focus_ring(ui: &Ui, response: &Response, radius: u8) {
     }
 }
 
-/// 畫一個圖示字（不產生無障礙節點，旁邊的文字就是它的意思）。
-pub(super) fn glyph(ui: &mut Ui, glyph: char, size: f32, color: Color32) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+/// 畫一個圖示字，置中在 `size` 寬、`text_font` 一行高的框裡（不產生無障礙節點，旁邊的文字就是它的意思）。
+///
+/// 放在一段文字前面、靠上對齊時，圖示就與文字的第一行垂直置中；圖示字型的行高與文字字型不同，不能用正方形的框。
+pub(super) fn glyph(ui: &mut Ui, glyph: char, size: f32, color: Color32, text_font: &FontId) {
+    let line = ui.fonts_mut(|f| f.row_height(text_font));
+    let (rect, _) = ui.allocate_exact_size(vec2(size, line.max(size)), Sense::hover());
     ui.painter().text(
         rect.center(),
         Align2::CENTER_CENTER,
@@ -65,6 +68,9 @@ pub(super) fn named_by<R>(ui: &mut Ui, label: Id, add: impl FnOnce(&mut Ui) -> R
 pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     ui.scope(|ui| {
         ui.style_mut().override_font_id = Some(FontId::proportional(size));
+        // 換行排版的每一列至少 `interact_size.y` 高，設定介面把它拉到控制項高 32：
+        // 不歸零的話一行字會置中在 32 高的列裡，比前面的圖示低、行距也被撐大
+        ui.spacing_mut().interact_size.y = 0.0;
         richtext::show(ui, text, color);
     });
 }
@@ -149,6 +155,9 @@ pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
+/// 設定列裡下拉最多占整列寬度的比例。
+const MAX_CONTROL_SHARE: f32 = 0.45;
+
 /// 卡片裡的一列：左邊名稱與說明（說明可含連結），右邊控制項，兩邊垂直置中；不是第一列時上方畫分隔線。
 ///
 /// 開關與 `fields` 的下拉、數值欄放在這裡時以這一列的名稱當無障礙名稱。
@@ -217,6 +226,9 @@ pub fn setting_row_with(
                         ),
                     |ui| {
                         ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+                        // 視窗窄時下拉讓出寬度，名稱與說明才不會被擠成一欄幾個字
+                        let spacing = ui.spacing_mut();
+                        spacing.combo_width = spacing.combo_width.min(width * MAX_CONTROL_SHARE);
                         control(ui);
                     },
                 )
@@ -626,12 +638,13 @@ pub fn callout(ui: &mut Ui, title: &str, lines: &[String]) {
         .show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
-                glyph(ui, icon::WARNING, 14.0, theme::WARN_TEXT);
+                let title_font = theme::bold(13.0);
+                glyph(ui, icon::WARNING, 14.0, theme::WARN_TEXT, &title_font);
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
                     ui.add(Label::new(
                         RichText::new(title)
-                            .font(theme::bold(13.0))
+                            .font(title_font)
                             .color(theme::WARN_TEXT),
                     ));
                     for line in lines {
@@ -653,7 +666,7 @@ pub fn outcome(ui: &mut Ui, ok: bool, text: &str) {
     };
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        glyph(ui, mark, 13.0, color);
+        glyph(ui, mark, 13.0, color, &FontId::proportional(13.0));
         ui.vertical(|ui| rich(ui, text, 13.0, color));
     });
 }
