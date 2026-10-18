@@ -12,6 +12,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
 use crate::ui::win32::force_foreground;
 
 /// 第二份實例會搶著對遊戲掛 hook，也會同時寫同一份 config.json 與 log。
@@ -80,7 +81,10 @@ pub fn focus_running_instance(title: &str) -> bool {
         return false;
     }
     let Some(&hwnd) = ctx.1.first() else {
-        log(format!("[app] no window titled {title:?} to focus"));
+        log(format!(
+            "[app] no window titled {} to focus",
+            repr_str(title)
+        ));
         return false;
     };
     unsafe { ShowWindow(hwnd, SW_RESTORE) };

@@ -9,6 +9,7 @@ use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, is_click, moved_to, point_in_rect, pull_onscreen};
 use crate::ui::overlay::frame::{Shell, load_icon};
 use crate::ui::palette::{BAR, GRIP};
+use crate::ui::settings::theme;
 
 /// 泡泡邊長（DIP）。
 pub const BUBBLE_SIZE: i32 = 48;
@@ -25,6 +26,11 @@ const BADGE_HOME: (f32, f32) = (0.18, 0.82);
 /// 泡泡的不透明度：跟著主視窗的設定走，但再透一些（不低於下限）。
 pub fn bubble_alpha(alpha: f32) -> f32 {
     ALPHA_FLOOR.max(alpha * ALPHA_FACTOR)
+}
+
+/// 未讀數徽章的字型：粗體；要先 `fonts_egui::install`。
+fn badge_font() -> FontId {
+    theme::bold(tk_pt(BADGE_FONT_PT))
 }
 
 /// 泡泡被切成前景（點工作列按鈕／Alt+Tab）時是否該自動展開回 overlay。
@@ -201,11 +207,7 @@ impl Bubble {
             .paint_at(ui, rect);
         if let Some(text) = badge_text(unread) {
             let painter = ui.painter();
-            let galley = painter.layout_no_wrap(
-                text,
-                FontId::proportional(tk_pt(BADGE_FONT_PT)),
-                BADGE_FG.gamma_multiply(alpha),
-            );
+            let galley = painter.layout_no_wrap(text, badge_font(), BADGE_FG.gamma_multiply(alpha));
             let (center, radius) = badge_ellipse(galley.size());
             let center = rect.min + center.to_vec2();
             painter.add(Shape::ellipse_filled(
@@ -263,7 +265,9 @@ mod tests {
     use egui_kittest::Harness;
 
     use super::*;
+    use crate::ui::fonts_egui;
     use crate::ui::overlay::frame::tests::FakeShell;
+    use eframe::egui::FontFamily;
 
     const OVERLAY: Rect = (100, 200, 640, 420);
 
@@ -320,6 +324,14 @@ mod tests {
     }
 
     #[test]
+    fn badge_uses_the_bold_family() {
+        assert_eq!(
+            badge_font().family,
+            FontFamily::Name(fonts_egui::BOLD.into())
+        );
+    }
+
+    #[test]
     fn badge_caps_at_99_plus() {
         assert_eq!(badge_text(0), None);
         assert_eq!(badge_text(7).as_deref(), Some("7"));
@@ -363,6 +375,7 @@ mod tests {
         };
         let mut harness = Harness::builder()
             .with_size(Vec2::splat(BUBBLE_SIZE as f32))
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
             .build_ui_state(
                 |ui, s: &mut State| {
                     if let Some(action) = s.bubble.show(ui, &mut s.shell, 3, 0.64) {

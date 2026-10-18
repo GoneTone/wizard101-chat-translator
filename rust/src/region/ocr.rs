@@ -61,7 +61,7 @@ pub fn register_models(models: Models) {
     let _ = REGISTERED.set(models);
 }
 
-/// 把模型解到 `dir/<四個檔案合起來的 sha1 前 12 碼>/` 並回傳該目錄；內容相同的檔案不重寫。
+/// 把模型解到 `dir/<四個檔案合起來的 sha1 前 12 碼>/` 並回傳該目錄；內容相同的檔案不重寫，舊版模型的資料夾順手清掉。
 pub fn ensure_extracted(dir: &Path, models: &Models) -> io::Result<PathBuf> {
     let files = [
         (DET, models.det),
@@ -77,7 +77,27 @@ pub fn ensure_extracted(dir: &Path, models: &Models) -> io::Result<PathBuf> {
             fs::write(&path, bytes)?;
         }
     }
+    remove_stale_dirs(dir, &target);
     Ok(target)
+}
+
+/// 刪掉 `dir` 底下除了 `keep` 以外的資料夾（換模型後留下的舊解出目錄）；刪不掉只記 log。
+fn remove_stale_dirs(dir: &Path, keep: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for path in entries.filter_map(Result::ok).map(|e| e.path()) {
+        if path == keep || !path.is_dir() {
+            continue;
+        }
+        match fs::remove_dir_all(&path) {
+            Ok(()) => log(format!("[ocr] removed stale model dir {}", path.display())),
+            Err(error) => log(format!(
+                "[ocr] could not remove stale model dir {}: {error}",
+                path.display()
+            )),
+        }
+    }
 }
 
 /// 把逐框辨識的結果併回可讀的行（同 Python `merge_lines`）。

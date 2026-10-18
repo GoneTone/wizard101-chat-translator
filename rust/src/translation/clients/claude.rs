@@ -15,7 +15,7 @@ use super::{
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
-use crate::py::pystr;
+use crate::py::{pyrepr::repr_str, pystr};
 use crate::translation::Turn;
 use crate::translation::errors::{
     TranslateError, message_of, model_list_error, one_line, status_error,
@@ -155,9 +155,9 @@ impl ClaudeClient {
         let Some(translation) = translation else {
             log(format!(
                 "[translate] claude output is not the expected JSON: model={} \
-                 stop_reason={stop_reason} sample={:?}",
+                 stop_reason={stop_reason} sample={}",
                 self.model,
-                sample_of(content)
+                repr_str(&sample_of(content))
             ));
             return Err(TranslateError::BadOutput(format!(
                 "unexpected output (stop_reason={stop_reason})"

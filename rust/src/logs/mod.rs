@@ -63,12 +63,27 @@ pub fn install_panic_hook() {
     }));
 }
 
+/// 動到全域 SINK（與 panic hook）的測試必須串行。
+#[cfg(test)]
+static GLOBAL_SINK_TESTS: Mutex<()> = Mutex::new(());
+
+/// 跑 `run` 並回傳這段期間寫進 log 的全部文字；其他執行緒同時寫的行也會混進來，斷言請用 `contains`。
+#[cfg(test)]
+pub(crate) fn capture(run: impl FnOnce()) -> String {
+    let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().expect("temp dir for the log capture");
+    let path = dir.path().join("capture.log");
+    init(Sink::File(
+        File::create(&path).expect("create the capture log"),
+    ));
+    run();
+    init(Sink::Stderr);
+    std::fs::read_to_string(&path).expect("read the capture log")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// 動到全域 SINK（與 panic hook）的測試必須串行。
-    static GLOBAL_SINK_TESTS: Mutex<()> = Mutex::new(());
 
     fn temp_sink() -> (tempfile::TempDir, std::path::PathBuf, Sink) {
         let dir = tempfile::tempdir().unwrap();

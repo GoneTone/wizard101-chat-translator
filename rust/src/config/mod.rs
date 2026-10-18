@@ -261,10 +261,18 @@ pub fn load_config(path: &Path) -> Config {
     cfg
 }
 
-/// 把整份設定寫回 config.json；與 Python 的 `json.dumps(indent=2)` 經 `write_text` 逐 byte 相同（CRLF、無結尾換行）。
+/// 把整份設定寫回 config.json；內容與 Python 的 `json.dumps(indent=2)` 經 `write_text` 逐 byte 相同（CRLF、無結尾換行）。
+///
+/// 先寫同資料夾的暫存檔再改名：寫到一半當機時，原本的設定（含金鑰）還在。
 pub fn save_config(path: &Path, cfg: &Config) -> io::Result<()> {
     let text = py::dumps_indent2(&Value::Object(cfg.clone()));
-    fs::write(path, text.replace('\n', "\r\n"))
+    let mut temp_name = path.as_os_str().to_owned();
+    temp_name.push(".tmp");
+    let temp = PathBuf::from(temp_name);
+    fs::write(&temp, text.replace('\n', "\r\n"))?;
+    fs::rename(&temp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&temp);
+    })
 }
 
 /// 預設服務存在且設定完整（不完整 → 啟動時進首次設定精靈）。
@@ -513,5 +521,28 @@ mod tests {
         assert_eq!(cfg["type_delay"], json!(0.0));
         assert_eq!(cfg["max_messages"], json!(10));
         assert_eq!(cfg["overlay_alpha"], json!(1.0));
+    }
+
+    #[test]
+    fn save_config_replaces_the_file_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "old").unwrap();
+        save_config(&path, &default_config()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("{\r\n") && !text.ends_with('\n'));
+        let names: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(names.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_save_keeps_the_previous_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "precious").unwrap();
+        // 暫存檔的位置被資料夾佔住：寫入失敗
+        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
+        assert!(save_config(&path, &default_config()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "precious");
     }
 }

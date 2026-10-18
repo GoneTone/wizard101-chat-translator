@@ -385,6 +385,22 @@ mod tests {
     }
 
     #[test]
+    fn update_of_a_broadcast_fills_every_tab_it_landed_in() {
+        let mut model = OverlayModel::new(10, 0);
+        let now = Instant::now();
+        model.add_message(1, &[0, 1, 2], "news", "...", Some(7), true, None, now);
+        model.update_message(7, "公告", false);
+        for tab in 0..3 {
+            model.set_tabs(1, Some(state(tab)));
+            assert_eq!(texts(&model), [pair("news", "公告")], "tab {tab}");
+            assert!(
+                !model.current_view().unwrap().messages[0].pending,
+                "tab {tab}"
+            );
+        }
+    }
+
+    #[test]
     fn update_fills_hidden_view_and_ignores_unknown_id() {
         let mut model = OverlayModel::new(1, 0);
         model.set_tabs(1, Some(state(0)));

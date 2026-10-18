@@ -72,6 +72,17 @@ fn extracts_models_once_and_rewrites_on_hash_mismatch() {
 }
 
 #[test]
+fn extracting_removes_the_directories_of_older_models() {
+    let tmp = tempfile::tempdir().unwrap();
+    let stale = tmp.path().join("0123456789ab");
+    fs::create_dir(&stale).unwrap();
+    fs::write(stale.join(FILES[0]), b"old model").unwrap();
+    let dir = ensure_extracted(tmp.path(), models()).unwrap();
+    assert!(!stale.exists());
+    assert!(dir.join(FILES[0]).is_file());
+}
+
+#[test]
 fn extraction_failure_is_ocr_unavailable_and_retried() {
     let tmp = tempfile::tempdir().unwrap();
     // 以一般檔案當父目錄：底下建不了資料夾，等同唯讀／磁碟滿的解出失敗。

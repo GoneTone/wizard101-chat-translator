@@ -411,6 +411,17 @@ async fn models_without_data_array_is_no_model_list() {
 }
 
 #[tokio::test]
+async fn models_redirect_is_an_unexpected_status() {
+    let server = MockServer::start().await;
+    let redirect = ResponseTemplate::new(302).insert_header("location", "/elsewhere");
+    mount_models(&server, redirect).await;
+    assert_eq!(
+        client(&server, true, false).list_models().await,
+        Err(TranslateError::Unexpected("HTTP 302".into()))
+    );
+}
+
+#[tokio::test]
 async fn models_error_statuses_map_like_chat() {
     let server = MockServer::start().await;
     mount_models(&server, error_body(403, "region not supported")).await;

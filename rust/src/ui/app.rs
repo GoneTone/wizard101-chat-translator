@@ -14,6 +14,7 @@ use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 
 use serde_json::Value;
 
+use crate::config::py::py_bool;
 use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
@@ -385,7 +386,7 @@ impl App {
             "expanded"
         };
         let messages = self.model.current_view().map_or(0, |v| v.messages.len());
-        let follow = if self.list.follow() { "True" } else { "False" };
+        let follow = py_bool(self.list.follow());
         log(format!("[ui] {what} (messages={messages} follow={follow})"));
     }
 
@@ -1646,22 +1647,11 @@ mod tests {
             set(&mut app, role, hwnd);
         }
         assert_eq!(app.viewport_hwnds(), titled);
-        // 每個視窗建立時（自己還是 0）認標題只會認到自己，不會認成其他同標題的視窗
+        // 每個視窗建立時（自己還是 0），已知清單要列出其餘五個，認標題才不會認錯
         for (role, &hwnd) in titled.iter().enumerate() {
             set(&mut app, role, 0);
-            let known = app.viewport_hwnds();
-            let by_title = || {
-                titled
-                    .iter()
-                    .copied()
-                    .find(|h| !known.contains(h))
-                    .unwrap_or(0)
-            };
-            assert_eq!(
-                win32::pick_new_window(&titled, &titled, &known, by_title),
-                hwnd,
-                "role {role}"
-            );
+            let others: Vec<isize> = titled.iter().copied().filter(|h| *h != hwnd).collect();
+            assert_eq!(app.viewport_hwnds(), others, "role {role}");
             set(&mut app, role, hwnd);
         }
     }

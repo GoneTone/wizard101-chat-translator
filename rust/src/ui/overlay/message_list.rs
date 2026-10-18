@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use eframe::egui::{Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText, Ui, Vec2};
 
+use crate::config::py::py_bool;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::EDGE;
@@ -240,9 +241,10 @@ impl MessageList {
             if follow != self.follow {
                 self.follow = follow;
                 log(format!(
-                    "[ui] auto-follow {} by user scroll (messages={} follow={follow} yview_bottom={last:.4} content_h={content_h:.0} canvas_h={:.0})",
+                    "[ui] auto-follow {} by user scroll (messages={} follow={} yview_bottom={last:.4} content_h={content_h:.0} canvas_h={:.0})",
                     if follow { "enabled" } else { "disabled" },
                     messages.len(),
+                    py_bool(follow),
                     viewport.height()
                 ));
             }
@@ -726,6 +728,19 @@ mod tests {
         h.state_mut().model.update_message(500, &long, false);
         h.step();
         assert_eq!(row_y(&h, seq), Some(y));
+    }
+
+    #[test]
+    fn the_last_translation_growing_keeps_the_view_stuck_to_the_bottom() {
+        let mut h = filled(40, 200, 0);
+        add(&mut h, 500, &[0], true);
+        h.step();
+        assert!(at_bottom(&h));
+        let long = "終於補上的譯文，刻意寫得很長，長到足以讓那一列撐成好幾行。".repeat(4);
+        h.state_mut().model.update_message(500, &long, false);
+        h.step();
+        assert!(h.state().list.follow());
+        assert!(at_bottom(&h));
     }
 
     #[test]

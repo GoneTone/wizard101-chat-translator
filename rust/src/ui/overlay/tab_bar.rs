@@ -135,4 +135,33 @@ mod tests {
         assert!(accents[0].min.y >= group.max.y - 1.0);
         assert!(accent_rects(&harness(tabs(), None)).is_empty());
     }
+
+    /// 以 label 字串找出畫出來的文字顏色。
+    fn text_color(harness: &Harness<'_>, label: &str) -> egui::Color32 {
+        fn find(shape: &egui::Shape, label: &str) -> Option<egui::Color32> {
+            match shape {
+                egui::Shape::Text(text) if text.galley.text() == label => {
+                    Some(text.galley.job.sections[0].format.color)
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, label)),
+                _ => None,
+            }
+        }
+        harness
+            .output()
+            .shapes
+            .iter()
+            .find_map(|clipped| find(&clipped.shape, label))
+            .unwrap_or_else(|| panic!("no text shape for {label}"))
+    }
+
+    #[test]
+    fn current_tab_text_is_bright_and_the_others_are_dim() {
+        let bar = harness(tabs(), Some(1));
+        assert_eq!(text_color(&bar, "Group"), TAB_FG_ACTIVE);
+        assert_eq!(text_color(&bar, "Main"), TAB_FG);
+        assert_eq!(text_color(&bar, "Room(1)"), TAB_FG);
+        let none = harness(tabs(), None);
+        assert_eq!(text_color(&none, "Group"), TAB_FG);
+    }
 }

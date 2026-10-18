@@ -19,6 +19,7 @@ pub use openai::OpenAiCompatClient;
 use super::errors::{TranslateError, one_line};
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
+use crate::py::pyrepr::repr_str;
 
 /// 請求逾時：連線與每次讀取各自計時，串流不受總長度限制。
 pub const TIMEOUT: Duration = Duration::from_secs(60);
@@ -168,9 +169,9 @@ pub(crate) fn truncated(
     sample: &str,
 ) -> TranslateError {
     TranslateError::BadOutput(format!(
-        "output truncated at max_tokens={max_tokens}, completion_tokens={}, sample={:?}",
+        "output truncated at max_tokens={max_tokens}, completion_tokens={}, sample={}",
         count_of(completion_tokens),
-        sample_of(sample).replace('\n', " ")
+        repr_str(&sample_of(sample).replace('\n', " "))
     ))
 }
 
@@ -250,5 +251,22 @@ mod tests {
         // 沒裝 crypto provider 的話 reqwest 在 build 時直接 panic
         let _client = http_client(reqwest::header::HeaderMap::new());
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn truncated_error_quotes_the_sample_like_python_repr() {
+        let error = truncated(
+            64,
+            None,
+            "it's
+a loop",
+        );
+        assert_eq!(
+            error,
+            TranslateError::BadOutput(
+                "output truncated at max_tokens=64, completion_tokens=None, sample=\"it's a loop\""
+                    .into()
+            )
+        );
     }
 }

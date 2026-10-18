@@ -260,6 +260,60 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_newline_at_line_start_stamps_a_blank_line() {
+        let mut out = Vec::new();
+        let mut w = TimestampedWriter::new(&mut out);
+        w.write_all(b"\n").unwrap();
+        w.write_all(b"[app] after\n").unwrap();
+        let lines = stamped_lines(out);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Z ") && lines[1].ends_with("Z [app] after"));
+    }
+
+    #[test]
+    fn a_write_finishing_one_line_and_starting_another_stamps_only_the_new_one() {
+        let mut out = Vec::new();
+        let mut w = TimestampedWriter::new(&mut out);
+        w.write_all(b"[app] he").unwrap();
+        w.write_all(b"llo\n[app] next").unwrap();
+        w.write_all(b"\n").unwrap();
+        let lines = stamped_lines(out);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].ends_with("Z [app] hello") && lines[1].ends_with("Z [app] next"));
+        assert_eq!(lines[0].matches('Z').count(), 1);
+    }
+
+    #[test]
+    fn non_ascii_text_passes_through_and_write_reports_the_input_length() {
+        let mut out = Vec::new();
+        let mut w = TimestampedWriter::new(&mut out);
+        let text = "[app] 你好 ✓\n".as_bytes();
+        assert_eq!(w.write(text).unwrap(), text.len());
+        assert!(
+            String::from_utf8(out)
+                .unwrap()
+                .ends_with("Z [app] 你好 ✓\r\n")
+        );
+    }
+
+    #[test]
+    fn a_failing_inner_writer_surfaces_the_error() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("disk full"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let error = TimestampedWriter::new(Broken)
+            .write_all(b"[app] x\n")
+            .unwrap_err();
+        assert_eq!(error.to_string(), "disk full");
+    }
+
+    #[test]
     fn flush_reaches_the_wrapped_writer() {
         #[derive(Default)]
         struct Counting {

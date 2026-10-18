@@ -8,6 +8,7 @@ use serde::Deserialize;
 use serde::de::{Deserializer, MapAccess, Visitor};
 
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
 
 const META_NAME: &str = "language.name";
 const META_TRANSLATORS: &str = "language.translators";
@@ -331,7 +332,7 @@ pub fn best_match(tags: &[String]) -> String {
     let codes: Vec<String> = available_languages().into_iter().map(|(c, _)| c).collect();
     for tag in tags {
         if tag.is_empty() {
-            log(format!("[i18n] unparsable language tag: {tag:?}"));
+            log(format!("[i18n] unparsable language tag: {}", repr_str(tag)));
             continue;
         }
         match match_tag(tag, &codes) {
@@ -395,6 +396,16 @@ pub fn detect_system_language() -> String {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn offered_languages_are_the_ones_match_tag_was_checked_against() {
+        let codes: Vec<String> = available_languages().into_iter().map(|(c, _)| c).collect();
+        assert_eq!(
+            codes,
+            ["en-US", "zh-CN", "zh-TW"],
+            "a new language entered the menu: add best_match cases (nb/nn, iw, pt regions, sr-Latn)              to the golden fixtures and compare against langcodes before accepting it"
+        );
+    }
 
     #[test]
     fn every_embedded_catalog_parses_without_duplicates() {

@@ -584,9 +584,13 @@ mod tests {
         h.run_steps(2);
         assert!(!h.state().selector.shown);
         h.state_mut().release_wait = Some(Instant::now() - Duration::from_secs(2));
-        h.step();
+        let text = crate::logs::capture(|| h.step());
         assert!(h.state().selector.shown);
         assert_eq!(raised(), 0);
+        assert!(
+            text.contains("[region] selector window not found; shown without focus"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -694,15 +698,8 @@ mod tests {
         let (overlay, bubble, input) = (1, 2, 3);
         host.selector.hwnd = 4;
         host.region_box.hwnd = 5;
-        // 所有 viewport 同標題：認標題時只能靠略過已知的視窗
-        let titled = [1, 2, 3, 4, 5, 6];
         let known = host.known(&[overlay, bubble, input, 0]);
         assert_eq!(known, [1, 2, 3, 4, 5]);
-        let by_title = || titled.into_iter().find(|h| !known.contains(h)).unwrap_or(0);
-        assert_eq!(
-            win32::pick_new_window(&titled, &titled, &known, by_title),
-            6
-        );
         assert_eq!(
             win32::pick_new_window(&[1, 2, 3, 4], &[1, 2, 3, 4, 5, 6], &known, || 0),
             6,

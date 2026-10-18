@@ -70,6 +70,7 @@ pub fn font_files(language_code: &str) -> Vec<&'static str> {
 /// 系統字型資料夾：`%WINDIR%\Fonts`（Windows 不一定裝在 C 槽），讀不到環境變數才用 `C:\Windows`。
 fn fonts_dir(windir: Option<OsString>) -> PathBuf {
     windir
+        .filter(|dir| !dir.is_empty())
         .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from)
         .join("Fonts")
 }
@@ -252,6 +253,11 @@ mod tests {
             Path::new(r"D:\WINNT\Fonts")
         );
         assert_eq!(fonts_dir(None), Path::new(r"C:\Windows\Fonts"));
+    }
+
+    #[test]
+    fn fonts_dir_ignores_an_empty_windir() {
+        assert_eq!(fonts_dir(Some("".into())), Path::new(r"C:\Windows\Fonts"));
     }
 
     #[test]

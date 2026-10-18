@@ -49,8 +49,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn hex_matches_python_color_strings() {
-        assert_eq!(BG, Color32::from_hex("#101018").unwrap());
-        assert_eq!(TAB_ACCENT, Color32::from_hex("#6fa8dc").unwrap());
+    fn every_color_matches_the_python_palette() {
+        let expected = [
+            (BG, "#101018"),
+            (BAR, "#23233a"),
+            (GRIP, "#3a3a55"),
+            (BG_UPDATE, "#1b2740"),
+            (FG_ORIGINAL, "#c0c0cd"),
+            (FG_TRANSLATED, "#f2f2f7"),
+            (FG_PENDING, "#9398a8"),
+            (FG_ERROR, "#ff5f5f"),
+            (FG_UPDATE, "#6fa8ff"),
+            (FG_BAR, "#c8c8d8"),
+            (CLOSE_HOVER, "#c42b1c"),
+            (OUTLINE, "#0a0a10"),
+            (SELECT_BG, "#2d4a7a"),
+            (TAB_BG, "#181828"),
+            (TAB_FG, "#8a8aa0"),
+            (TAB_FG_ACTIVE, "#f2f2f7"),
+            (TAB_ACCENT, "#6fa8dc"),
+        ];
+        for (color, hex_string) in expected {
+            assert_eq!(
+                color,
+                Color32::from_hex(hex_string).unwrap(),
+                "{hex_string}"
+            );
+        }
+        assert_eq!(DIM_FACTOR, 0.71);
     }
 }
