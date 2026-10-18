@@ -6,38 +6,46 @@ use crate::ui::fonts_egui::tk_pt;
 use crate::ui::palette::{TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE};
 
 const ACCENT_HEIGHT: f32 = 2.0;
-const CELL_GAP: f32 = 6.0;
+const CELL_GAP: f32 = 10.0;
+const TEXT_PT: f32 = 9.0;
+const PAD_TOP: i8 = 3;
 
 /// 畫出分頁列；沒有分頁時什麼都不畫（整列隱藏）。文字是遊戲內容，不經 i18n。
 pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>) {
     if tabs.is_empty() {
         return;
     }
-    egui::Frame::new().fill(TAB_BG).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::ZERO;
-            for (index, text) in tabs {
-                ui.add_space(CELL_GAP);
-                let active = Some(*index) == current;
-                let color = if active { TAB_FG_ACTIVE } else { TAB_FG };
-                ui.vertical(|ui| {
-                    let label = RichText::new(text)
-                        .font(FontId::proportional(tk_pt(8.0)))
-                        .color(color);
-                    // 窄 overlay 也不換行：換行會把整列撐高、擠掉訊息清單
-                    let label = Label::new(label)
-                        .selectable(false)
-                        .wrap_mode(TextWrapMode::Extend);
-                    let width = ui.add(label).rect.width();
-                    let (_, line) = ui.allocate_space(Vec2::new(width, ACCENT_HEIGHT));
-                    if active {
-                        ui.painter().rect_filled(line, 0.0, TAB_ACCENT);
-                    }
-                });
-            }
+    egui::Frame::new()
+        .fill(TAB_BG)
+        .inner_margin(egui::Margin {
+            top: PAD_TOP,
+            ..Default::default()
+        })
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::ZERO;
+                for (index, text) in tabs {
+                    ui.add_space(CELL_GAP);
+                    let active = Some(*index) == current;
+                    let color = if active { TAB_FG_ACTIVE } else { TAB_FG };
+                    ui.vertical(|ui| {
+                        let label = RichText::new(text)
+                            .font(FontId::proportional(tk_pt(TEXT_PT)))
+                            .color(color);
+                        // 窄 overlay 也不換行：換行會把整列撐高、擠掉訊息清單
+                        let label = Label::new(label)
+                            .selectable(false)
+                            .wrap_mode(TextWrapMode::Extend);
+                        let width = ui.add(label).rect.width();
+                        let (_, line) = ui.allocate_space(Vec2::new(width, ACCENT_HEIGHT));
+                        if active {
+                            ui.painter().rect_filled(line, 0.0, TAB_ACCENT);
+                        }
+                    });
+                }
+            });
         });
-    });
 }
 
 #[cfg(test)]
