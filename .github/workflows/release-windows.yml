@@ -34,17 +34,17 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # === B. Toolchain =============================================
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
+      # 版本與元件（clippy、rustfmt）由 rust-toolchain.toml 決定
+      - name: Setup Rust toolchain
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo --version
 
-      - name: Install dependencies
-        run: uv sync --locked
+      - uses: Swatinem/rust-cache@v2
 
       # === C. Version bump ==========================================
-      # 版本號的唯一真實來源是 src/__init__.py 的 __version__；pyproject.toml 的
-      # version 與 uv.lock 裡的專案版本要跟著同步，tests/test_version.py 會釘住前兩者。
+      # 版本號的唯一真實來源是 Cargo.toml 的 version；Cargo.lock 裡本 crate 的版本要跟著同步。
       - name: Parse tag & bump version
         shell: pwsh
         run: |
@@ -54,18 +54,14 @@ jobs:
           }
           $semver = $Matches[1]
 
-          $init = Get-Content src/__init__.py -Raw -Encoding UTF8
-          $init = [regex]::Replace($init, '(?m)^__version__ = "[^"]*"', "__version__ = `"$semver`"", 1)
-          Set-Content src/__init__.py -Value $init -Encoding UTF8 -NoNewline
-
-          $toml = Get-Content pyproject.toml -Raw -Encoding UTF8
+          $toml = Get-Content Cargo.toml -Raw -Encoding UTF8
           $toml = [regex]::Replace($toml, '(?m)^version = "[^"]*"', "version = `"$semver`"", 1)
-          Set-Content pyproject.toml -Value $toml -Encoding UTF8 -NoNewline
+          Set-Content Cargo.toml -Value $toml -Encoding UTF8 -NoNewline
 
-          uv lock
-          if ($LASTEXITCODE -ne 0) { throw "uv lock failed" }
+          cargo update --workspace
+          if ($LASTEXITCODE -ne 0) { throw "cargo update failed" }
 
-          if (git status --porcelain src/__init__.py pyproject.toml uv.lock) {
+          if (git status --porcelain Cargo.toml Cargo.lock) {
             "VERSION_CHANGED=true" | Out-File $env:GITHUB_ENV -Append
           } else {
             "VERSION_CHANGED=false" | Out-File $env:GITHUB_ENV -Append
@@ -73,14 +69,15 @@ jobs:
           "SEMVER=$semver" | Out-File $env:GITHUB_ENV -Append
 
       # === D. Quality gate ==========================================
-      - name: Lint
-        run: uv run ruff check src tests tools
+      # 放版失敗的代價較高：版本號 bump 已經 push，Release 卻還沒建立。
+      - name: Format
+        run: cargo fmt --check
 
-      # 序列跑（覆蓋 pyproject 的 -n 4），理由與 ci.yml 相同：runner 上四個 worker 會
-      # 搶同一個桌面的全域狀態，Tk 在 destroy 時 access violation。放版失敗的代價更高
-      # ——版本號 bump 已經 push，Release 卻還沒建立。
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
       - name: Test
-        run: uv run pytest -n 0
+        run: cargo test
 
       # === E. Commit bump ===========================================
       - name: Commit version bump
@@ -89,7 +86,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/__init__.py pyproject.toml uv.lock
+          git add Cargo.toml Cargo.lock
           git commit -m "chore(release): bump version to v${{ env.SEMVER }} [skip ci]"
           git push origin HEAD:master
 
@@ -102,12 +99,12 @@ jobs:
 
       # === F. Build =================================================
       - name: Build exe
-        run: uv run pyinstaller build.spec --noconfirm
+        run: cargo build --release --locked
 
       - name: Locate exe
         shell: pwsh
         run: |
-          $exe = Get-Item dist\Wizard101ChatTranslator.exe -ErrorAction Stop
+          $exe = Get-Item target\release\Wizard101ChatTranslator.exe -ErrorAction Stop
           "EXE_PATH=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
           "EXE_NAME=$($exe.Name)" | Out-File $env:GITHUB_ENV -Append
 
@@ -151,7 +148,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-exe-${{ env.SEMVER }}
-          path: dist/Wizard101ChatTranslator.exe
+          path: target/release/Wizard101ChatTranslator.exe
           retention-days: 30
           if-no-files-found: warn
 
