@@ -28,8 +28,8 @@ const ORIGINAL_PT: f32 = 9.0;
 const TRANSLATED_PT: f32 = 11.0;
 const PLACEHOLDER_PT: f32 = 11.0;
 const MIN_WRAP: f32 = 80.0;
-/// 字與視窗左右緣的距離（兩側相同）：右側剛好容得下縮放帶與捲軸；左側同寬，從行首拖曳才不會抓到縮放帶。
-const TEXT_INSET: f32 = EDGE as f32 + scrollbar::WIDTH;
+/// 字的左右留白（兩側相同）：左側從視窗邊緣算、要大於縮放帶，從行首拖曳才不會抓到縮放帶；右側從捲軸左緣算。
+const TEXT_MARGIN: f32 = 8.0;
 const SLOW_RELAYOUT_MS: u128 = 50;
 
 /// 視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。
@@ -193,7 +193,7 @@ impl MessageList {
         };
 
         let started = Instant::now();
-        let wrap = (rect.width() - 2.0 * TEXT_INSET).max(MIN_WRAP);
+        let wrap = (viewport.max.x - rect.min.x - 2.0 * TEXT_MARGIN).max(MIN_WRAP);
         let rewrapped = wrap != self.wrap;
         self.wrap = wrap;
         let mut scroll = self.scrollbar.drag(ui, track).map(Scroll::To);
@@ -248,7 +248,7 @@ impl MessageList {
             }
         }
 
-        let left = rect.min.x + TEXT_INSET - TEXT_ORIGIN;
+        let left = rect.min.x + TEXT_MARGIN - TEXT_ORIGIN;
         for p in placed {
             let message = &messages[p.index];
             let original = Pos2::new(left, viewport.min.y + p.top + ROW_PAD);
@@ -486,7 +486,6 @@ mod tests {
     use crate::i18n::t;
     use crate::reader::chat_tabs::TabState;
     use crate::ui::fonts_egui;
-    use crate::ui::geometry::CORNER;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
@@ -814,9 +813,9 @@ mod tests {
         let rows = h.state().list.rows();
         let rect = h.state().rect;
         assert_eq!(rows.len(), 2);
-        // 兩行上下相接、列與列之間 4px，第一則的行原點在內容頂端下 2px；字從左緣內縮 TEXT_INSET 處起畫
+        // 兩行上下相接、列與列之間 4px，第一則的行原點在內容頂端下 2px；字從左緣內縮 TEXT_MARGIN 處起畫
         let mut top = rect.min.y + ROW_PAD;
-        let left = rect.min.x + TEXT_INSET - TEXT_ORIGIN;
+        let left = rect.min.x + TEXT_MARGIN - TEXT_ORIGIN;
         for row in rows {
             let [(original, galley), (translated, _)] = &row.lines;
             assert_eq!(*original, Pos2::new(left, top));
@@ -832,6 +831,10 @@ mod tests {
         assert!(covered(&h));
     }
 
+    fn track_left_of(rect: Rect) -> f32 {
+        rect.max.x - EDGE as f32 - scrollbar::WIDTH
+    }
+
     #[test]
     fn text_has_equal_side_margins_clear_of_the_scrollbar_and_resize_bands() {
         let mut h = filled(40, 200, 0);
@@ -845,10 +848,14 @@ mod tests {
             for (origin, galley) in h.state().list.rows().iter().flat_map(|r| &r.lines) {
                 let text_left = origin.x + TEXT_ORIGIN;
                 let wrap_right = text_left + galley.job.wrap.max_width;
-                assert_eq!(text_left - rect.min.x, rect.max.x - wrap_right, "{size:?}");
+                assert_eq!(
+                    text_left - rect.min.x,
+                    track_left_of(rect) - wrap_right,
+                    "{size:?}"
+                );
                 assert!(text_left + galley.size().x <= wrap_right + 0.5, "{size:?}");
-                assert!(wrap_right <= rect.max.x - EDGE as f32 - scrollbar::WIDTH);
-                assert!(text_left - rect.min.x >= CORNER as f32, "{size:?}");
+                assert!(wrap_right < track_left_of(rect));
+                assert!(text_left - rect.min.x > EDGE as f32, "{size:?}");
             }
         }
         // 最新一則貼在下緣縮放帶之上
@@ -892,7 +899,8 @@ mod tests {
             // 只排視口內的訊息，且全部用新的換行寬度
             let rows = h.state().list.rows();
             assert!(rows.len() < 60, "{size:?} laid out {}", rows.len());
-            let wrap = h.state().rect.width() - 2.0 * TEXT_INSET;
+            let rect = h.state().rect;
+            let wrap = track_left_of(rect) - rect.min.x - 2.0 * TEXT_MARGIN;
             for (_, galley) in rows.iter().flat_map(|r| &r.lines) {
                 assert!(galley.size().x <= wrap + 0.5, "{size:?}");
             }
