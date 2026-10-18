@@ -101,6 +101,10 @@ jobs:
       - name: Build exe
         run: cargo build --release --locked
 
+      - name: Verify exe resources
+        shell: pwsh
+        run: .github/scripts/verify-exe.ps1 -Exe target/release/Wizard101ChatTranslator.exe -Version $env:SEMVER
+
       - name: Locate exe
         shell: pwsh
         run: |

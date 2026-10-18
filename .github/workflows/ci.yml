@@ -48,28 +48,8 @@ jobs:
       - name: Verify exe resources
         shell: pwsh
         run: |
-          $exe = Get-Item target\release\Wizard101ChatTranslator.exe -ErrorAction Stop
-          $version = ((Get-Content Cargo.toml) | Where-Object { $_ -match '^version = "([^"]*)"' } | Select-Object -First 1) -replace '^version = "([^"]*)".*', '$1'
-          $info = $exe.VersionInfo
-          $expected = [ordered]@{
-            ProductName      = 'Wizard101 Chat Translator'
-            FileDescription  = 'Wizard101 Chat Translator'
-            OriginalFilename = 'Wizard101ChatTranslator.exe'
-            ProductVersion   = $version
-          }
-          foreach ($key in $expected.Keys) {
-            $actual = $info.$key
-            Write-Host "$key = '$actual' (expected '$($expected[$key])')"
-            if ($actual -ne $expected[$key]) { throw "exe $key mismatch: '$actual' vs '$($expected[$key])'" }
-          }
-
-          Add-Type -AssemblyName System.Drawing
-          if (-not [System.Drawing.Icon]::ExtractAssociatedIcon($exe.FullName)) { throw "exe has no icon resource" }
-
-          $bytes = [System.IO.File]::ReadAllBytes($exe.FullName)
-          $text = [System.Text.Encoding]::Latin1.GetString($bytes)
-          if (-not $text.Contains('PerMonitorV2')) { throw "exe manifest lacks PerMonitorV2" }
-          Write-Host "exe resources OK (version $version)"
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          .github/scripts/verify-exe.ps1 -Exe target/release/Wizard101ChatTranslator.exe -Version $version
 
       - name: Upload exe
         uses: actions/upload-artifact@v7
