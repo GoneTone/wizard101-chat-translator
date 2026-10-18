@@ -2,10 +2,14 @@
 //!
 //! 用到 `fonts_egui` 的粗體與圖示字族，畫之前要先 `fonts_egui::install`。
 
+use std::sync::Arc;
+
+use eframe::egui::style::{StyleModifier, WidgetVisuals};
 use eframe::egui::{
-    Align, Align2, Atoms, Button, Color32, CornerRadius, FontId, Frame, Id, Label, Layout, Margin,
-    Rect, Response, RichText, Role, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Tooltip,
-    Ui, UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText, lerp, pos2, vec2,
+    Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, Frame, Galley, Id, Label,
+    Layout, Margin, Pos2, Rect, Response, RichText, Role, Sense, Stroke, StrokeKind, Style,
+    TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText,
+    lerp, pos2, vec2,
 };
 
 use crate::py::pystr;
@@ -63,6 +67,52 @@ pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
         ui.style_mut().override_font_id = Some(FontId::proportional(size));
         richtext::show(ui, text, color);
     });
+}
+
+/// 下拉彈出層的樣式：設定介面的樣式，清單項目間距固定（不受下拉所在版面的 `item_spacing` 影響）。
+pub(super) fn popup_style(ui: &Ui) -> Style {
+    let mut style = (**ui.style()).clone();
+    style.spacing.item_spacing.y = theme::POPUP_ITEM_GAP;
+    style
+}
+
+/// 下拉右側的箭頭，畫在距控制項右緣 `CHEVRON_INSET` 處。
+pub(super) fn paint_chevron(ui: &Ui, center: Pos2) {
+    ui.painter().text(
+        center,
+        Align2::CENTER_CENTER,
+        icon::EXPAND,
+        theme::icons(10.0),
+        theme::TEXT_SECONDARY,
+    );
+}
+
+/// 設定介面的唯讀下拉：彈出層用 `popup_style`，箭頭與可輸入的下拉（`fields::editable_combo`）相同。
+pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
+    ComboBox::from_id_salt(id_salt)
+        .popup_style(StyleModifier::from(popup_style(ui)))
+        .icon(|ui: &Ui, rect: Rect, _: &WidgetVisuals, _| {
+            // egui 把圖示放在右內距之內；換算回控制項右緣
+            let right = rect.right() + ui.spacing().button_padding.x;
+            paint_chevron(ui, pos2(right - theme::CHEVRON_INSET, rect.center().y));
+        })
+}
+
+/// 在水平列裡放一欄由上往下的內容，整欄與列垂直置中；高度取上一幀以 `id` 量到的值，變了就重排一次。
+pub(super) fn centered_column<R>(
+    ui: &mut Ui,
+    id: Id,
+    width: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let height: f32 = ui.data(|d| d.get_temp(id)).unwrap_or(0.0);
+    let shown = ui.allocate_ui_with_layout(vec2(width, height), Layout::top_down(Align::Min), add);
+    let used = shown.response.rect.height();
+    if (used - height).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(id, used));
+        ui.ctx().request_discard("centered column resized");
+    }
+    shown.inner
 }
 
 /// 把 `add` 加入的元件推到這一列的右緣；元件依加入順序由左往右排，Tab 順序與畫面一致。
@@ -202,12 +252,17 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     if ui.is_rect_visible(rect) {
         let t = ui.ctx().animate_bool_responsive(response.id, *on);
         let radius = CornerRadius::same((rect.height() / 2.0) as u8);
+        let (off_fill, off_border, on_fill) = if response.hovered() {
+            (theme::CONTROL_BG, theme::NAV_TEXT, lighter(theme::ACCENT))
+        } else {
+            (Color32::TRANSPARENT, theme::TEXT_MUTED, theme::ACCENT)
+        };
         let painter = ui.painter();
         painter.rect(
             rect,
             radius,
-            Color32::TRANSPARENT.lerp_to_gamma(theme::ACCENT, t),
-            Stroke::new(1.0, theme::TEXT_MUTED.lerp_to_gamma(theme::ACCENT, t)),
+            off_fill.lerp_to_gamma(on_fill, t),
+            Stroke::new(1.0, off_border.lerp_to_gamma(on_fill, t)),
             StrokeKind::Inside,
         );
         let x = lerp(rect.left() + 10.0..=rect.right() - 10.0, t);
@@ -228,45 +283,80 @@ enum Glyph {
     Trailing(char),
 }
 
-/// `fill` 是（底色, 字色），`None` 用預設的次要樣式；有 `glyph` 時無障礙名稱只取文字。
+/// 按鈕裡圖示與文字的間距。
+const GLYPH_GAP: f32 = 6.0;
+
+/// hover 時亮一階的實心底色（主要、危險按鈕與開著的開關）。
+fn lighter(color: Color32) -> Color32 {
+    color.lerp_to_gamma(Color32::WHITE, 0.15)
+}
+
+/// 自己畫的按鈕：高 `CONTROL_HEIGHT`、內容水平垂直置中；egui 的 `Button` 會依外層 Layout 對齊內容，
+/// 在 `Align::Max`／`Align::Min` 的列裡字會貼底或貼頂。
+///
+/// `fill` 是（底色, 字色），`None` 用控制項的樣式（hover、按下跟 `theme::apply` 的 widgets 一致）；
+/// 無障礙名稱只取文字。
 fn styled_button(
     ui: &mut Ui,
     text: &str,
     fill: Option<(Color32, Color32)>,
     glyph: Option<Glyph>,
 ) -> Response {
-    let mut label = RichText::new(text);
-    let mut icon = glyph.map(|g| match g {
-        Glyph::Leading(c) => RichText::new(c).font(theme::icons(12.0)),
-        Glyph::Trailing(c) => RichText::new(c).font(theme::icons(11.0)),
+    let (ink, font) = match fill {
+        Some((_, ink)) => (ink, theme::bold(theme::CONTROL_TEXT_SIZE)),
+        None => (theme::TEXT, FontId::proportional(theme::CONTROL_TEXT_SIZE)),
+    };
+    let painter = ui.painter();
+    let label = painter.layout_no_wrap(text.to_owned(), font, ink);
+    let icon = glyph.map(|g| {
+        let (c, size) = match g {
+            Glyph::Leading(c) => (c, 12.0),
+            Glyph::Trailing(c) => (c, 11.0),
+        };
+        painter.layout_no_wrap(c.to_string(), theme::icons(size), ink)
     });
-    if let Some((_, ink)) = fill {
-        label = label.color(ink).font(theme::bold(theme::CONTROL_TEXT_SIZE));
-        icon = icon.map(|g| g.color(ink));
-    }
-    let mut atoms = Atoms::default();
-    match (glyph, icon) {
-        (Some(Glyph::Leading(_)), Some(icon)) => {
-            atoms.push_right(icon);
-            atoms.push_right(label);
+    let icon_width = icon.as_ref().map_or(0.0, |g| g.size().x + GLYPH_GAP);
+    let content_width = label.size().x + icon_width;
+    let padding = ui.spacing().button_padding.x;
+    let size = vec2(content_width + 2.0 * padding, theme::CONTROL_HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
+    if ui.is_rect_visible(rect) {
+        let (bg, border) = match fill {
+            Some((fill, _)) if response.hovered() || response.is_pointer_button_down_on() => {
+                (lighter(fill), lighter(fill))
+            }
+            Some((fill, _)) => (fill, fill),
+            None => {
+                let visuals = ui.style().interact(&response);
+                (visuals.bg_fill, visuals.bg_stroke.color)
+            }
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            theme::CONTROL_RADIUS,
+            bg,
+            Stroke::new(1.0, border),
+            StrokeKind::Inside,
+        );
+        let mut x = rect.center().x - content_width / 2.0;
+        let mut put = |galley: Arc<Galley>| {
+            let pos = pos2(x, rect.center().y - galley.size().y / 2.0);
+            x += galley.size().x + GLYPH_GAP;
+            painter.galley(pos, galley, ink);
+        };
+        match (glyph, icon) {
+            (Some(Glyph::Leading(_)), Some(icon)) => {
+                put(icon);
+                put(label);
+            }
+            (_, Some(icon)) => {
+                put(label);
+                put(icon);
+            }
+            (_, None) => put(label),
         }
-        (_, Some(icon)) => {
-            atoms.push_right(label);
-            atoms.push_right(icon);
-        }
-        (_, None) => atoms.push_right(label),
-    }
-    let mut button = Button::new(atoms);
-    if let Some((fill, _)) = fill {
-        button = button.fill(fill).stroke(Stroke::new(1.0, fill));
-    }
-    let response = ui.add(
-        button
-            .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
-    );
-    if glyph.is_some() {
-        response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
     }
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
     response
@@ -377,6 +467,10 @@ pub fn collapsible(
         .accesskit_node_builder(response.id, |node| node.set_expanded(open));
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();
+        let hovered = response.hovered();
+        if hovered {
+            painter.rect_filled(rect.shrink(1.0), theme::CARD_RADIUS, theme::CONTROL_BG);
+        }
         let mut pos = pos2(rect.left() + pad_x, rect.center().y - text_height / 2.0);
         let title_height = title_galley.size().y;
         painter.galley(pos, title_galley, theme::TEXT);
@@ -389,7 +483,11 @@ pub fn collapsible(
             Align2::CENTER_CENTER,
             if open { icon::COLLAPSE } else { icon::EXPAND },
             theme::icons(chevron),
-            theme::TEXT_SECONDARY,
+            if hovered {
+                theme::TEXT
+            } else {
+                theme::TEXT_SECONDARY
+            },
         );
         if response.has_focus() {
             painter.rect_stroke(

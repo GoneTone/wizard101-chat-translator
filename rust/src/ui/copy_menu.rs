@@ -10,7 +10,7 @@ use crate::i18n::t;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::clamped_position;
-use crate::ui::palette::{BAR, FG_BAR, FG_TRANSLATED, GRIP};
+use crate::ui::palette::{BAR, FG_BAR, FG_TRANSLATED, GRIP, SELECT_BG, TAB_ACCENT};
 
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 5.0;
@@ -90,13 +90,14 @@ pub fn show(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
         .fixed_pos(menu.min)
         .show(ui.ctx(), |ui| {
             let (rect, response) = ui.allocate_exact_size(menu.size(), Sense::click());
-            let (bg, fg) = if response.hovered() {
-                (GRIP, FG_TRANSLATED)
+            // hover 要一眼看得出來：整列換成反白藍、外框換強調色
+            let (border, bg, fg) = if response.hovered() {
+                (TAB_ACCENT, SELECT_BG, FG_TRANSLATED)
             } else {
-                (BAR, FG_BAR)
+                (GRIP, BAR, FG_BAR)
             };
             let painter = ui.painter();
-            painter.rect_filled(rect, 0.0, GRIP);
+            painter.rect_filled(rect, 0.0, border);
             let row = rect.shrink(1.0);
             painter.rect_filled(row, 0.0, bg);
             // 「兩張疊起來的紙」：後面那張只露出左上角
@@ -115,5 +116,47 @@ pub fn show(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
         MenuOutcome::Copy
     } else {
         MenuOutcome::Open
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use eframe::egui::{Shape, vec2};
+    use egui_kittest::Harness;
+
+    use super::*;
+    use crate::ui::fonts_egui;
+
+    /// 選單那一列（外框內縮 1）的底色。
+    fn row_fill(h: &Harness<'_>, menu: Rect) -> Option<Color32> {
+        h.output().shapes.iter().find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.rect == menu.shrink(1.0) => Some(r.fill),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_item_is_highlighted_while_hovered() {
+        let at = Pos2::new(100.0, 100.0);
+        let mut h = Harness::builder()
+            .with_size(vec2(480.0, 360.0))
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+            .build_ui(move |ui| {
+                show(ui, Id::unique("menu"), at);
+            });
+        h.run_steps(2);
+        let menu = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Rect(r) if r.rect.min == at => Some(r.rect),
+                _ => None,
+            })
+            .expect("menu painted");
+        assert_eq!(row_fill(&h, menu), Some(BAR));
+        h.hover_at(menu.center());
+        h.run_steps(2);
+        assert_eq!(row_fill(&h, menu), Some(SELECT_BG));
     }
 }

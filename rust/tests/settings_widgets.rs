@@ -2,7 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use eframe::egui::{self, Color32, Id, Key, Shape, Ui};
+use eframe::egui::accesskit::Role;
+use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
@@ -11,9 +12,12 @@ use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, Round, SettingsEnv, SettingsEvent};
 use wizard101_chat_translator::ui::settings::fields::{editable_combo, number_field, text_field};
+use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
+use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    card, collapsible, filter_models, keycaps, outcome, setting_row, toggle,
+    card, collapsible, filter_models, keycaps, outcome, primary_button, secondary_button,
+    secondary_icon_button, setting_row, toggle,
 };
 
 /// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
@@ -465,4 +469,221 @@ fn real_env_clears_the_cache_and_reports_the_count() {
     assert!(env.has_cache());
     assert_eq!(env.clear_cache(), 1);
     assert_eq!(env.clear_cache(), 0);
+}
+
+/// 畫面上文字是 `text` 的字形範圍。
+fn text_rect<S>(h: &Harness<S>, text: &str) -> Rect {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            Shape::Text(shape) if shape.galley.text() == text => {
+                Some(shape.galley.rect.translate(shape.pos.to_vec2()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{text} not painted"))
+}
+
+/// 外框正好是 `rect` 的那個方塊的底色。
+fn fill_at<S>(h: &Harness<S>, rect: Rect) -> Option<Color32> {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            Shape::Rect(shape) if shape.rect == rect => Some(shape.fill),
+            _ => None,
+        })
+}
+
+#[test]
+fn button_labels_are_centred_whatever_the_row_alignment() {
+    let h = harness((), |ui, _| {
+        // 設定視窗底部按鈕列靠下對齊、服務表單的測試列靠上對齊、精靈裡有直排
+        ui.allocate_ui_with_layout(
+            egui::vec2(400.0, theme::CONTROL_HEIGHT),
+            Layout::left_to_right(Align::Max),
+            |ui| {
+                secondary_button(ui, "取消");
+                primary_button(ui, "儲存");
+            },
+        );
+        ui.horizontal_top(|ui| {
+            secondary_button(ui, "測試連線");
+            secondary_icon_button(ui, icon::REFRESH, "更新清單");
+        });
+        ui.vertical(|ui| {
+            secondary_button(ui, "更改");
+        });
+    });
+    for label in ["取消", "儲存", "測試連線", "更新清單", "更改"] {
+        let button = h.get_by_role_and_label(Role::Button, label).rect();
+        let text = text_rect(&h, label);
+        assert!(
+            (text.center().y - button.center().y).abs() <= 1.0,
+            "{label}: text {text:?} in button {button:?}"
+        );
+        assert_eq!(button.height(), theme::CONTROL_HEIGHT, "{label}");
+    }
+    let button = h.get_by_role_and_label(Role::Button, "取消").rect();
+    let text = text_rect(&h, "取消");
+    assert!((text.center().x - button.center().x).abs() <= 1.0);
+}
+
+#[test]
+fn buttons_light_up_while_hovered() {
+    let mut h = harness((), |ui, _| {
+        ui.horizontal(|ui| {
+            secondary_button(ui, "Cancel");
+            primary_button(ui, "Save");
+        });
+    });
+    let cancel = h.get_by_role_and_label(Role::Button, "Cancel").rect();
+    let save = h.get_by_role_and_label(Role::Button, "Save").rect();
+    assert_eq!(fill_at(&h, cancel), Some(theme::CONTROL_BG));
+    assert_eq!(fill_at(&h, save), Some(theme::ACCENT));
+    h.hover_at(cancel.center());
+    h.run_steps(2);
+    assert_eq!(fill_at(&h, cancel), Some(theme::HOT_BG));
+    h.hover_at(save.center());
+    h.run_steps(2);
+    let hovered = fill_at(&h, save).unwrap();
+    assert_ne!(hovered, theme::ACCENT, "primary button shows hover");
+}
+
+#[test]
+fn a_control_after_a_field_starts_after_the_whole_field() {
+    let h = harness(String::new(), |ui, text: &mut String| {
+        setting_row(ui, "Model", None, |ui| {
+            ui.spacing_mut().combo_width = 200.0;
+            editable_combo(ui, Id::unique("model"), text, &[], true);
+            secondary_icon_button(ui, icon::REFRESH, "Refresh");
+        });
+    });
+    let edit = h.get_by_role(Role::TextInput).rect();
+    let field_right = edit.right() + 2.0 * theme::CHEVRON_INSET;
+    let button = h.get_by_role_and_label(Role::Button, "Refresh").rect();
+    assert!(
+        button.left() >= field_right + 1.0,
+        "{button:?} overlaps the field ending at {field_right}"
+    );
+}
+
+/// 打開介面語言下拉，回傳前兩個項目的間距（下一項頂端減上一項頂端）與它們之間的空隙。
+fn popup_pitch(mut content: impl FnMut(&mut Ui) + 'static) -> (f32, f32) {
+    let mut h = harness((), move |ui, _| content(ui));
+    h.get_by_role(Role::ComboBox).click();
+    h.run_steps(3);
+    let mut items: Vec<Rect> = wizard101_chat_translator::i18n::available_languages()
+        .iter()
+        .map(|(_, name)| h.get_by_role_and_label(Role::Button, name).rect())
+        .collect();
+    items.sort_by(|a, b| a.top().total_cmp(&b.top()));
+    (
+        items[1].top() - items[0].top(),
+        items[1].top() - items[0].bottom(),
+    )
+}
+
+#[test]
+fn dropdown_items_are_spaced_the_same_in_the_settings_window_and_the_wizard() {
+    let settings = popup_pitch(|ui| {
+        card(ui, |ui| {
+            setting_row(ui, "Interface language", None, |ui| {
+                ui_language_combo(ui);
+            });
+        });
+    });
+    // 精靈的下拉不在卡片裡，外層的列距是 12
+    let wizard = popup_pitch(|ui| {
+        ui.spacing_mut().item_spacing.y = 12.0;
+        setting_row(ui, "Interface language", None, |ui| {
+            ui_language_combo(ui);
+        });
+    });
+    assert_eq!(settings, wizard);
+    assert_eq!(settings.1, theme::POPUP_ITEM_GAP);
+}
+
+#[test]
+fn both_language_dropdowns_draw_the_same_chevron() {
+    let h = harness(String::new(), |ui, text: &mut String| {
+        card(ui, |ui| {
+            setting_row(ui, "Interface language", None, |ui| {
+                ui_language_combo(ui);
+            });
+            setting_row(ui, "Target language", None, |ui| {
+                editable_combo(ui, Id::unique("target"), text, &[], false);
+            });
+        });
+    });
+    let chevrons: Vec<egui::Pos2> = h
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            Shape::Text(s) if s.galley.text() == icon::EXPAND.to_string() => {
+                Some(s.galley.rect.translate(s.pos.to_vec2()).center())
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(chevrons.len(), 2, "{chevrons:?}");
+    assert!((chevrons[0].x - chevrons[1].x).abs() <= 1.0, "{chevrons:?}");
+    let combo = h.get_by_role(Role::ComboBox).rect();
+    assert!((combo.right() - theme::CHEVRON_INSET - chevrons[0].x).abs() <= 1.0);
+}
+
+/// 有沒有畫出底色是 `fill`、與 `area` 相交的方塊。
+fn painted_fill<S>(h: &Harness<S>, fill: Color32, area: Rect) -> bool {
+    h.output().shapes.iter().any(|clipped| {
+        matches!(&clipped.shape, Shape::Rect(s) if s.fill == fill && s.rect.intersects(area))
+    })
+}
+
+#[test]
+fn toggles_steppers_and_section_headers_react_to_hover() {
+    struct Hover {
+        on: bool,
+        number: String,
+    }
+    let state = Hover {
+        on: false,
+        number: "1".into(),
+    };
+    let mut h = harness(state, |ui, s: &mut Hover| {
+        card(ui, |ui| {
+            setting_row(ui, "Auto open", None, |ui| {
+                toggle(ui, &mut s.on, "Auto open");
+            });
+            setting_row(ui, "Parallel", None, |ui| {
+                number_field(ui, &mut s.number, 1.0, (1.0, 8.0));
+            });
+            collapsible(
+                ui,
+                Id::unique("section"),
+                "Per-use services",
+                None,
+                false,
+                |_| {},
+            );
+        });
+    });
+    let switch = h.get_by_label("Auto open").rect();
+    assert_eq!(fill_at(&h, switch), Some(Color32::TRANSPARENT));
+    h.hover_at(switch.center());
+    h.run_steps(2);
+    assert_eq!(fill_at(&h, switch), Some(theme::CONTROL_BG));
+
+    let plus = h.get_by_label("+").rect();
+    assert_eq!(fill_at(&h, plus.shrink(1.0)), None);
+    h.hover_at(plus.center());
+    h.run_steps(2);
+    assert_eq!(fill_at(&h, plus.shrink(1.0)), Some(theme::HOT_BG));
+
+    let header = h.get_by_label("Per-use services").rect();
+    assert!(!painted_fill(&h, theme::CONTROL_BG, header.shrink(4.0)));
+    h.hover_at(header.center());
+    h.run_steps(2);
+    assert!(painted_fill(&h, theme::CONTROL_BG, header.shrink(4.0)));
 }

@@ -1,10 +1,9 @@
 //! 「翻譯服務」分頁：預設服務、各用途指定與服務清單，外加服務表單、服務商選擇與刪除確認三種對話框。
 
 use eframe::egui::accesskit;
-use eframe::egui::style::StyleModifier;
 use eframe::egui::{
-    Align, Atoms, Button, Color32, ComboBox, FontId, Frame, Id, Image, Label, Layout, Margin,
-    Response, RichText, Role, Sense, Shape, Stroke, Ui, UiBuilder, Vec2, vec2,
+    Align, Atoms, Button, Color32, FontId, Frame, Id, Image, Label, Layout, Margin, Response,
+    RichText, Role, Sense, Shape, Stroke, Ui, UiBuilder, Vec2, vec2,
 };
 use serde_json::Value;
 
@@ -14,7 +13,7 @@ use super::provider_picker::{CardLayout, paint_provider_icon, provider_cards, pr
 use super::service_form::ServiceForm;
 use super::theme;
 use super::widgets::{
-    callout, card, collapsible, danger_button, focus_ring, name_by_row, primary_button,
+    callout, card, collapsible, combo_box, danger_button, focus_ring, name_by_row, primary_button,
     right_aligned, right_aligned_width, secondary_button, setting_row,
 };
 use crate::config::Config;
@@ -262,10 +261,9 @@ impl ServicePane {
         let current = self.draft.default.clone();
         let selected = service_atoms(ui, self.draft.find(current.as_deref()), "");
         let mut chosen = None;
-        let response = ComboBox::from_id_salt("default_service")
+        let response = combo_box(ui, "default_service")
             .selected_text(selected)
             .truncate()
-            .popup_style(StyleModifier::from((**ui.style()).clone()))
             .show_ui(ui, |ui| {
                 for service in &self.draft.services {
                     let id = id_of(service);
@@ -317,10 +315,9 @@ impl ServicePane {
                 let label = ui.add(Label::new(t(&format!("slot.{}", slot.key()), &[])));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let selected = service_atoms(ui, self.draft.find(current.as_deref()), &follow);
-                    let combo = ComboBox::from_id_salt(("service_slot", slot.key()))
+                    let combo = combo_box(ui, ("service_slot", slot.key()))
                         .selected_text(selected)
                         .truncate()
-                        .popup_style(StyleModifier::from((**ui.style()).clone()))
                         .show_ui(ui, |ui| {
                             let muted = RichText::new(follow.as_str()).color(theme::TEXT_SECONDARY);
                             if ui.selectable_label(current.is_none(), muted).clicked() {

@@ -1,5 +1,6 @@
 //! 進階分頁：四個數值、透明度滑桿（拖動即預覽）與系統訊息開關。
 
+use eframe::egui::style::HandleShape;
 use eframe::egui::{
     Align, CornerRadius, Label, Layout, RichText, Slider, Stroke, Ui, lerp, pos2, vec2,
 };
@@ -118,6 +119,16 @@ fn alpha_slider(ui: &mut Ui, alpha: &mut f64) -> bool {
             style.visuals.selection.bg_fill = theme::ACCENT;
             style.visuals.widgets.inactive.bg_fill = theme::CONTROL_BORDER;
             style.visuals.widgets.inactive.corner_radius = CornerRadius::same(2);
+            // egui 自己的把手（預設是圓角方塊、白框）會從下面那顆圓鈕旁露出來：改成同大小的圓、不畫框
+            style.visuals.handle_shape = HandleShape::Circle;
+            let widgets = &mut style.visuals.widgets;
+            for state in [
+                &mut widgets.inactive,
+                &mut widgets.hovered,
+                &mut widgets.active,
+            ] {
+                state.fg_stroke = Stroke::NONE;
+            }
             ui.add(
                 Slider::new(alpha, lo..=hi)
                     .step_by(0.01)
@@ -140,7 +151,7 @@ fn alpha_slider(ui: &mut Ui, alpha: &mut f64) -> bool {
         rect.center().y,
     );
     let ring = if response.hovered() || response.dragged() {
-        theme::CONTROL_UNDERLINE
+        theme::ACCENT
     } else {
         theme::CONTROL_BORDER
     };

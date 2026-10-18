@@ -464,9 +464,9 @@ fn nav_item(ui: &mut Ui, page: Page, selected: bool) -> eframe::egui::Response {
             );
             painter.rect_filled(bar, 2, theme::ACCENT);
         } else if response.hovered() {
-            painter.rect_filled(rect, radius, theme::NAV_SELECTED.gamma_multiply(0.5));
+            painter.rect_filled(rect, radius, theme::NAV_HOVER);
         }
-        let color = if selected {
+        let color = if selected || response.hovered() {
             theme::TEXT
         } else {
             theme::NAV_TEXT

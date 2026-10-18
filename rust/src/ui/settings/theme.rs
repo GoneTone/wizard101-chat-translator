@@ -62,6 +62,8 @@ pub const KEYCAP_BG: Color32 = hex(0x2b2b42);
 pub const KEYCAP_BORDER: Color32 = hex(0x40405c);
 /// 服務商卡片 hover（外框改 `ACCENT`）。
 pub const HOT_BG: Color32 = hex(0x24304a);
+/// 未選中的導覽項 hover。
+pub const NAV_HOVER: Color32 = hex(0x1c1c2c);
 /// 對話框按鈕列底、精靈步驟條底。
 pub const MODAL_FOOT: Color32 = hex(0x181826);
 /// 對話框背後的遮罩：rgba(6,6,12,0.62)。
@@ -97,6 +99,10 @@ pub const CONTROL_HEIGHT: f32 = 32.0;
 pub const CONTROL_RADIUS: u8 = 6;
 /// 下拉寬。
 pub const COMBO_WIDTH: f32 = 240.0;
+/// 下拉清單項目之間的間距。
+pub const POPUP_ITEM_GAP: f32 = 2.0;
+/// 下拉箭頭中心到控制項右緣的距離。
+pub const CHEVRON_INSET: f32 = 14.0;
 /// 數值欄寬（含 −／＋）。
 pub const NUMBER_WIDTH: f32 = 132.0;
 /// 滑桿寬。

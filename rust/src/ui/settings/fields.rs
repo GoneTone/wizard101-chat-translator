@@ -3,13 +3,16 @@
 use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{
-    Align2, Button, Event, Frame, Id, InputState, Key, LayerId, Popup, PopupKind, Rect, Response,
-    Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui, WidgetInfo, pos2, vec2,
+    Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup, PopupKind,
+    Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui, WidgetInfo,
+    pos2, vec2,
 };
 
 use crate::py::pystr;
 use crate::ui::settings::theme::{self, icon};
-use crate::ui::settings::widgets::{filter_models, focus_ring, icon_button, name_by_row};
+use crate::ui::settings::widgets::{
+    filter_models, focus_ring, icon_button, name_by_row, paint_chevron, popup_style,
+};
 
 /// 消耗沒按修飾鍵的 `key`，回傳按了幾次。
 fn consume_unmodified(input: &mut InputState, key: Key) -> usize {
@@ -68,13 +71,6 @@ pub fn editable_combo(
         });
     }
 
-    let rect = control_box(ui, ui.spacing().combo_width);
-    let chevron_rect = Rect::from_min_max(pos2(rect.right() - 28.0, rect.top()), rect.max);
-    let edit_rect = Rect::from_min_max(
-        pos2(rect.left() + 10.0, rect.top()),
-        chevron_rect.left_bottom(),
-    );
-
     // 點清單時不讓輸入框失焦，否則清單會在點擊生效前收起
     let popup_layer = LayerId::new(PopupKind::Popup.order(), popup_id);
     let ctx = ui.ctx().clone();
@@ -83,21 +79,31 @@ pub fn editable_combo(
             .pointer_interact_pos()
             .and_then(|pos| ctx.layer_id_at(pos))
             == Some(popup_layer);
-    let surrender = ctx.options(|o| o.input_options.surrender_focus_on);
-    if pointer_on_popup {
-        ctx.options_mut(|o| o.input_options.surrender_focus_on = SurrenderFocusOn::Never);
-    }
-    let mut response = ui.put(
-        edit_rect,
-        TextEdit::singleline(text)
-            .id(edit_id)
-            .frame(Frame::NONE)
-            .align(Align2::LEFT_CENTER),
-    );
-    ctx.options_mut(|o| o.input_options.surrender_focus_on = surrender);
-    response = name_by_row(ui, response);
-
-    let chevron = ui.interact(chevron_rect, id.with("chevron"), Sense::CLICK);
+    let (rect, (mut response, chevron)) = control_box(ui, ui.spacing().combo_width, |ui, rect| {
+        let chevron_rect = Rect::from_min_max(
+            pos2(rect.right() - 2.0 * theme::CHEVRON_INSET, rect.top()),
+            rect.max,
+        );
+        let edit_rect = Rect::from_min_max(
+            pos2(rect.left() + 10.0, rect.top()),
+            chevron_rect.left_bottom(),
+        );
+        let surrender = ctx.options(|o| o.input_options.surrender_focus_on);
+        if pointer_on_popup {
+            ctx.options_mut(|o| o.input_options.surrender_focus_on = SurrenderFocusOn::Never);
+        }
+        let response = ui.put(
+            edit_rect,
+            TextEdit::singleline(text)
+                .id(edit_id)
+                .frame(Frame::NONE)
+                .align(Align2::LEFT_CENTER),
+        );
+        ctx.options_mut(|o| o.input_options.surrender_focus_on = surrender);
+        let chevron = ui.interact(chevron_rect, id.with("chevron"), Sense::CLICK);
+        paint_chevron(ui, chevron_rect.center());
+        (name_by_row(ui, response), chevron)
+    });
     if chevron.clicked() {
         response.request_focus();
         state.open = !state.open;
@@ -131,12 +137,11 @@ pub fn editable_combo(
         // 彈出層的 Ui 從全域樣式建立，要帶上設定視窗自己的樣式
         Popup::new(popup_id, ctx.clone(), rect, ui.layer_id())
             .kind(PopupKind::Popup)
-            .style((**ui.style()).clone())
+            .style(popup_style(ui))
             .open(true)
             .width(rect.width())
             .frame(Frame::popup(ui.style()).inner_margin(4))
             .show(|ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
                 let moved = ui.input(|i| i.pointer.is_moving());
                 for (i, option) in list.iter().enumerate() {
                     let item = ui.add(
@@ -163,22 +168,15 @@ pub fn editable_combo(
         response.mark_changed();
     }
     ui.data_mut(|d| d.insert_temp(id, state));
-
-    ui.painter().text(
-        chevron_rect.center(),
-        Align2::CENTER_CENTER,
-        icon::EXPAND,
-        theme::icons(10.0),
-        theme::TEXT_SECONDARY,
-    );
     underline(ui, rect, response.has_focus());
     response
 }
 
 /// 單行輸入框，寬度占滿。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
 pub fn text_field(ui: &mut Ui, text: &mut String) -> Response {
-    let rect = control_box(ui, ui.available_width());
-    let response = boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, false);
+    let (rect, response) = control_box(ui, ui.available_width(), |ui, rect| {
+        boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, false)
+    });
     underline(ui, rect, response.has_focus());
     response
 }
@@ -192,34 +190,45 @@ pub fn secret_field(
     revealed: &mut bool,
     tooltip: &str,
 ) -> Response {
-    let rect = control_box(ui, ui.available_width());
-    let eye = Rect::from_min_max(
-        pos2(rect.right() - theme::CONTROL_HEIGHT, rect.top()),
-        rect.max,
-    );
-    let edit_rect = Rect::from_min_max(pos2(rect.left() + 10.0, rect.top()), eye.left_bottom());
-    let response = boxed_edit(ui, edit_rect, text, !*revealed);
-    if ui
-        .put(eye, |ui: &mut Ui| icon_button(ui, icon::SHOW_KEY, tooltip))
-        .clicked()
-    {
-        *revealed = !*revealed;
-    }
+    let (rect, response) = control_box(ui, ui.available_width(), |ui, rect| {
+        let eye = Rect::from_min_max(
+            pos2(rect.right() - theme::CONTROL_HEIGHT, rect.top()),
+            rect.max,
+        );
+        let edit_rect = Rect::from_min_max(pos2(rect.left() + 10.0, rect.top()), eye.left_bottom());
+        let response = boxed_edit(ui, edit_rect, text, !*revealed);
+        if ui
+            .put(eye, |ui: &mut Ui| icon_button(ui, icon::SHOW_KEY, tooltip))
+            .clicked()
+        {
+            *revealed = !*revealed;
+        }
+        response
+    });
     underline(ui, rect, response.has_focus());
     response
 }
 
-/// 控制項的底：配置 `width`×控制項高，畫底色與外框。
-fn control_box(ui: &mut Ui, width: f32) -> Rect {
+/// 控制項的底：配置 `width`×控制項高、畫底色與外框（hover 用 `theme::apply` 的 hovered 樣式），
+/// 再交給 `contents` 把輸入框等放進範圍內；回傳範圍與 `contents` 的結果。
+fn control_box<R>(ui: &mut Ui, width: f32, contents: impl FnOnce(&mut Ui, Rect) -> R) -> (Rect, R) {
     let (rect, _) = ui.allocate_exact_size(vec2(width, theme::CONTROL_HEIGHT), Sense::hover());
+    let visuals = if ui.is_enabled() && ui.rect_contains_pointer(rect) {
+        ui.visuals().widgets.hovered
+    } else {
+        ui.visuals().widgets.inactive
+    };
     ui.painter().rect(
         rect,
         theme::CONTROL_RADIUS,
-        theme::CONTROL_BG,
-        Stroke::new(1.0, theme::CONTROL_BORDER),
+        visuals.bg_fill,
+        visuals.bg_stroke,
         StrokeKind::Inside,
     );
-    rect
+    let inner = contents(ui, rect);
+    // `ui.put` 會把水平排版的游標拉回放入處，要推回整個控制項之後，下一個元件才不會疊上來
+    ui.advance_cursor_after_rect(rect);
+    (rect, inner)
 }
 
 /// 放在控制項底上的無框輸入框，占滿 `rect`。
@@ -258,50 +267,67 @@ fn decimals(step: f64) -> usize {
 pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)) -> Response {
     let (min, max) = range;
     let button_width = 30.0;
-    let rect = control_box(ui, theme::NUMBER_WIDTH);
-    let edit_rect = Rect::from_min_max(
-        pos2(rect.left() + 10.0, rect.top()),
-        pos2(rect.right() - 2.0 * button_width, rect.bottom()),
-    );
-    let mut response = boxed_edit(ui, edit_rect, text, false);
-    let buttons = [(icon::DECREASE, "−", -step), (icon::INCREASE, "+", step)];
-    for (i, (glyph, label, delta)) in buttons.into_iter().enumerate() {
-        let left = rect.right() - (2 - i) as f32 * button_width;
-        let button_rect = Rect::from_min_max(
-            pos2(left, rect.top()),
-            pos2(left + button_width, rect.bottom()),
+    let (rect, response) = control_box(ui, theme::NUMBER_WIDTH, |ui, rect| {
+        let edit_rect = Rect::from_min_max(
+            pos2(rect.left() + 10.0, rect.top()),
+            pos2(rect.right() - 2.0 * button_width, rect.bottom()),
         );
-        let button = ui.interact(button_rect, response.id.with(label), Sense::click());
-        button.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
-        if button.clicked() {
-            let current = pystr::strip(text)
-                .parse::<f64>()
-                .ok()
-                .filter(|v| v.is_finite())
-                .unwrap_or(min);
-            *text = format!("{:.*}", decimals(step), (current + delta).clamp(min, max));
-            response.mark_changed();
+        let mut response = boxed_edit(ui, edit_rect, text, false);
+        let buttons = [(icon::DECREASE, "−", -step), (icon::INCREASE, "+", step)];
+        for (i, (glyph, label, delta)) in buttons.into_iter().enumerate() {
+            let left = rect.right() - (2 - i) as f32 * button_width;
+            let button_rect = Rect::from_min_max(
+                pos2(left, rect.top()),
+                pos2(left + button_width, rect.bottom()),
+            );
+            let button = ui.interact(button_rect, response.id.with(label), Sense::click());
+            button.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
+            if button.clicked() {
+                let current = pystr::strip(text)
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|v| v.is_finite())
+                    .unwrap_or(min);
+                *text = format!("{:.*}", decimals(step), (current + delta).clamp(min, max));
+                response.mark_changed();
+            }
+            let painter = ui.painter();
+            let hovered = button.hovered();
+            if hovered {
+                // 最右邊那一鈕的右側兩角跟著控制項是圓的
+                let r = theme::CONTROL_RADIUS - 1;
+                let corners = if i == 1 {
+                    CornerRadius {
+                        ne: r,
+                        se: r,
+                        ..CornerRadius::ZERO
+                    }
+                } else {
+                    CornerRadius::ZERO
+                };
+                painter.rect_filled(button_rect.shrink(1.0), corners, theme::HOT_BG);
+            }
+            painter.vline(
+                left,
+                rect.y_range().shrink(1.0),
+                Stroke::new(1.0, theme::CONTROL_BORDER),
+            );
+            let color = if hovered {
+                theme::TEXT
+            } else {
+                theme::NAV_TEXT
+            };
+            painter.text(
+                button_rect.center(),
+                Align2::CENTER_CENTER,
+                glyph,
+                theme::icons(11.0),
+                color,
+            );
+            focus_ring(ui, &button, theme::CONTROL_RADIUS);
         }
-        let painter = ui.painter();
-        painter.vline(
-            left,
-            rect.y_range().shrink(1.0),
-            Stroke::new(1.0, theme::CONTROL_BORDER),
-        );
-        let color = if button.hovered() {
-            theme::TEXT
-        } else {
-            theme::NAV_TEXT
-        };
-        painter.text(
-            button_rect.center(),
-            Align2::CENTER_CENTER,
-            glyph,
-            theme::icons(11.0),
-            color,
-        );
-        focus_ring(ui, &button, theme::CONTROL_RADIUS);
-    }
+        response
+    });
     underline(ui, rect, response.has_focus());
     response
 }

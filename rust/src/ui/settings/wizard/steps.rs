@@ -277,7 +277,13 @@ fn skip_link(ui: &mut Ui) -> Response {
         );
         let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::click());
         response.widget_info(|| WidgetInfo::labeled(Role::Link, ui.is_enabled(), &text));
-        ui.painter().galley(rect.min, galley, theme::TEXT_SECONDARY);
+        let color = if response.hovered() {
+            theme::TEXT
+        } else {
+            theme::TEXT_SECONDARY
+        };
+        ui.painter()
+            .galley_with_override_text_color(rect.min, galley, color);
         focus_ring(ui, &response, 4);
         response.on_hover_cursor(CursorIcon::PointingHand)
     })

@@ -1,8 +1,8 @@
 //! 關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置與譯文快取。
 
 use eframe::egui::{
-    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Layout, Rect, RichText, Sense,
-    TextureHandle, Ui, Vec2, pos2, vec2,
+    Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Sense, TextureHandle, Ui, Vec2,
+    pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -15,8 +15,8 @@ use crate::ui::palette;
 use crate::ui::settings::env::{Round, SettingsEnv};
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
-    card, glyph, outcome, rich, right_aligned, right_aligned_width, secondary_button,
-    secondary_icon_button, setting_row, setting_row_with,
+    card, centered_column, glyph, outcome, rich, right_aligned, right_aligned_width,
+    secondary_button, secondary_icon_button, setting_row, setting_row_with,
 };
 
 /// 關於分頁自己的狀態：檢查更新的輪次與結果、清除快取的結果與圖示貼圖。
@@ -153,14 +153,11 @@ impl SettingsWindow {
                     let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                     ui.painter().image(texture, rect, uv, Color32::WHITE);
                     let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-                    ui.allocate_ui_with_layout(
-                        vec2(room.max(80.0), 0.0),
-                        Layout::top_down(Align::Min),
-                        |ui| {
-                            ui.spacing_mut().item_spacing.y = 3.0;
-                            self.hero_text(ui);
-                        },
-                    );
+                    let column = Id::unique("about_hero_text");
+                    centered_column(ui, column, room.max(80.0), |ui| {
+                        ui.spacing_mut().item_spacing.y = 3.0;
+                        self.hero_text(ui);
+                    });
                     check = right_aligned(ui, buttons, |ui| {
                         let busy = self.about.update.busy();
                         let text = if busy {

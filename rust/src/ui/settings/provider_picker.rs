@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    Align2, Color32, Context, FontId, Galley, Id, Rect, Response, Role, Sense, Stroke, StrokeKind,
-    TextureHandle, TextureId, Ui, Vec2, WidgetInfo, pos2, vec2,
+    Align2, Color32, Context, CursorIcon, FontId, Galley, Id, Rect, Response, Role, Sense, Stroke,
+    StrokeKind, TextureHandle, TextureId, Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use super::theme::{self, icon};
@@ -176,7 +176,7 @@ fn provider_card(
         }
     }
     focus_ring(ui, &response, radius);
-    response
+    response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
 /// 服務商圖示的貼圖：第一次用到時載入並快取在 `ctx` 裡；沒有圖檔或解不開時回 `None`。

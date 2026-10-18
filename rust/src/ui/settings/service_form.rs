@@ -2,9 +2,8 @@
 
 use std::time::Duration;
 
-use eframe::egui::style::StyleModifier;
 use eframe::egui::{
-    Align, ComboBox, Hyperlink, Id, Label, Layout, RichText, Sense, Separator, Ui, Vec2, vec2,
+    Align, Hyperlink, Id, Label, Layout, RichText, Sense, Separator, Ui, Vec2, vec2,
 };
 use serde_json::{Map, Value};
 
@@ -12,7 +11,9 @@ use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
 use super::provider_picker::{paint_provider_icon, provider_texture};
 use super::theme::{self, icon};
-use super::widgets::{focus_ring, outcome, rich, secondary_button, secondary_icon_button, toggle};
+use super::widgets::{
+    combo_box, focus_ring, outcome, rich, secondary_button, secondary_icon_button, toggle,
+};
 use crate::config::py::py_bool;
 use crate::config::services::{
     EFFORT_AUTO, EFFORTS, Provider, ServiceSpec, is_auto_name, provider, unique_name,
@@ -381,12 +382,9 @@ impl ServiceForm {
                 .find(|code| *code == self.effort)
                 .unwrap_or(EFFORT_AUTO);
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
-            // 彈出層的 Ui 從全域樣式建立，要帶上設定視窗自己的樣式
-            let popup_style = StyleModifier::from((**ui.style()).clone());
-            let combo = ComboBox::from_id_salt("effort")
+            let combo = combo_box(ui, "effort")
                 .selected_text(name(shown))
                 .width(EFFORT_WIDTH)
-                .popup_style(popup_style)
                 .show_ui(ui, |ui| {
                     for code in EFFORTS {
                         if ui.selectable_label(code == shown, name(code)).clicked() {

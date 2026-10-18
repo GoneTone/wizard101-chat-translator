@@ -1,10 +1,9 @@
 //! 介面語言下拉與翻譯目標語言的常用選項（設定視窗與首次設定精靈共用）。
 
-use eframe::egui::style::StyleModifier;
-use eframe::egui::{ComboBox, Ui};
+use eframe::egui::Ui;
 
 use super::theme;
-use super::widgets::{focus_ring, name_by_row};
+use super::widgets::{combo_box, focus_ring, name_by_row};
 use crate::i18n::{available_languages, current_language, language_name, t, translators};
 use crate::runtime::updater::CROWDIN_URL;
 
@@ -30,10 +29,9 @@ pub fn common_languages() -> Vec<String> {
 pub fn ui_language_combo(ui: &mut Ui) -> Option<String> {
     let current = current_language();
     let mut chosen = None;
-    let response = ComboBox::from_id_salt("ui_language")
+    let response = combo_box(ui, "ui_language")
         .selected_text(language_name(&current))
         .truncate()
-        .popup_style(StyleModifier::from((**ui.style()).clone()))
         .show_ui(ui, |ui| {
             for (code, name) in available_languages() {
                 if ui.selectable_label(code == current, name).clicked() {

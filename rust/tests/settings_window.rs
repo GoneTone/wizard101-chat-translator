@@ -939,16 +939,18 @@ fn update_result_is_only_clickable_over_its_text() {
     // 「有新版」整行是連結，但只到文字為止；不可撐滿整列讓空白也可點
     let mut h = harness(configured_cfg());
     check_update(&mut h, Ok(Some(release())));
-    let link = h
-        .get_by_role_and_label(Role::Link, &t("update.available", &[("version", "9.9.9")]))
-        .rect();
-    let button = h
-        .get_by_role_and_label(Role::Button, &tr("button.check_update"))
-        .rect();
-    assert!(
-        link.right() + 40.0 < button.left(),
-        "{link:?} vs {button:?}"
-    );
+    let label = t("update.available", &[("version", "9.9.9")]);
+    let link = h.get_by_role_and_label(Role::Link, &label).rect();
+    let text = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Text(s) if s.galley.text() == label => Some(s.galley.rect.width()),
+            _ => None,
+        })
+        .expect("link text painted");
+    assert!((link.width() - text).abs() < 1.0, "{link:?} vs text {text}");
 }
 
 #[test]
@@ -1041,4 +1043,80 @@ fn the_target_language_offers_the_common_languages() {
     let rect: Rect = h.get_by_role_and_label(Role::Button, "日本語").rect();
     assert!(rect.width() > 0.0);
     h.get_by_role_and_label(Role::Button, "English");
+}
+
+#[test]
+fn footer_buttons_sit_inside_the_window_with_centred_labels() {
+    let h = harness(configured_cfg());
+    let window = h.ctx.content_rect();
+    for label in [tr("button.cancel"), tr("button.save")] {
+        let button = h.get_by_role_and_label(Role::Button, &label).rect();
+        assert!(window.contains_rect(button), "{label}: {button:?}");
+        assert!(
+            window.bottom() - button.bottom() >= 10.0,
+            "{label}: {button:?}"
+        );
+        let text = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::Shape::Text(s) if s.galley.text() == label => {
+                    Some(s.galley.rect.translate(s.pos.to_vec2()))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            (text.center().y - button.center().y).abs() <= 1.0,
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn about_name_and_version_are_centred_on_the_icon() {
+    let mut h = harness(configured_cfg());
+    h.state_mut().win.set_page(Page::About);
+    run(&mut h);
+    let icon = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::Shape::Mesh(m) => Some(m.calc_bounds()),
+            _ => None,
+        })
+        .filter(|r| r.width() == 48.0)
+        .expect("48 pt icon painted");
+    let name = h
+        .get_by_label(&wizard101_chat_translator::config::app_name())
+        .rect();
+    let version = format!("{} v{}", tr("about.version"), env!("CARGO_PKG_VERSION"));
+    let version = h.get_by_label(&version).rect();
+    let column = name.union(version);
+    assert!(
+        (column.center().y - icon.center().y).abs() <= 1.0,
+        "text {column:?} vs icon {icon:?}"
+    );
+}
+
+#[test]
+fn nothing_but_the_custom_knob_is_painted_on_the_opacity_slider() {
+    let mut h = harness(configured_cfg());
+    h.state_mut().win.set_page(Page::Advanced);
+    run(&mut h);
+    let slider = h.get_by_role(Role::Slider).rect();
+    for clipped in &h.output().shapes {
+        match &clipped.shape {
+            // 軌道與填色高 4；egui 預設的方形把手比軌道高
+            egui::Shape::Rect(r) if slider.expand(1.0).contains_rect(r.rect) => {
+                assert!(r.rect.height() <= 4.5, "extra handle {r:?}");
+            }
+            egui::Shape::Circle(c) if slider.contains(c.center) => {
+                assert_ne!(c.stroke.color, theme::TEXT, "egui's own handle {c:?}");
+            }
+            _ => {}
+        }
+    }
 }
