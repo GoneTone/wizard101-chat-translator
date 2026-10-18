@@ -409,7 +409,7 @@ mod tests {
     use super::*;
     use crate::i18n::t;
     use crate::ui::fonts_egui;
-    use crate::ui::palette::{BAR, GRIP, SELECT_BG};
+    use crate::ui::palette::{BAR, SELECT_BG};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
     /// 清單左側留白：讓行首字元落在左緣縮放帶之外，按得到第 0 個字。
@@ -991,7 +991,7 @@ mod tests {
         h.hover_at(menu.center());
         h.step();
         h.step();
-        assert_eq!(row_fill(&h), Some(GRIP));
+        assert_eq!(row_fill(&h), Some(SELECT_BG));
     }
 
     #[test]

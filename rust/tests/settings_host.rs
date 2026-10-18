@@ -384,8 +384,9 @@ fn settings_window_does_not_stay_on_top() {
     let at: Vec<usize> = (0..seen.len())
         .filter(|&i| seen[i].contains(&normal))
         .collect();
-    // 第一幀建立（置頂、藏著），下一幀顯示並放掉置頂
-    assert_eq!(at, [1], "{seen:?}");
+    // 第一幀建立（置頂、藏著）、overlay 降為一般層級（kittest 的子視窗指令也落在根），下一幀顯示並放掉置頂
+    assert_eq!(at, [0, 1], "{seen:?}");
+    assert_eq!(h.state().overlay_level(), WindowLevel::Normal);
     assert!(
         seen[1].contains(&ViewportCommand::Visible(true)),
         "{seen:?}"
