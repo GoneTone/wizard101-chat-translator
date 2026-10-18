@@ -1259,7 +1259,7 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_label_follows_what_is_passed_each_time` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（換語言後選單文字由「複製」變 "Copy"）
 - `test_hide_makes_it_invisible` → `src/ui/overlay/selection.rs::pressing_anywhere_else_closes_the_menu`
 - `test_clicking_the_row_fires_the_callback_and_closes` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
-- `test_the_popup_never_takes_keyboard_focus` → 不移植：Rust 選單是 overlay 同一 viewport 內的 `egui::Area`（`src/ui/copy_menu.rs`），不是獨立視窗，沒有焦點可被取走；選單開著時 Ctrl+C 仍有效由 `src/ui/overlay/selection.rs::ctrl_c_with_caps_lock_copies` 守住
+- `test_the_popup_never_takes_keyboard_focus` → 不移植：Rust 選單是 overlay 同一 viewport 內的 `egui::Area`（`src/ui/copy_menu.rs`），不是獨立視窗，沒有焦點可被取走；選單開著時 Ctrl+C 仍有效由 `src/ui/overlay/selection.rs::ctrl_c_copies_while_the_copy_menu_is_open` 守住（新補）
 - `test_hover_swaps_the_row_colours` → `src/ui/overlay/selection.rs::hovering_the_menu_swaps_its_colours`
 - `test_hiding_an_already_hidden_popup_is_harmless` → 不移植：Rust 選單沒有 `hide()`，開關由 `menu_rect: Option` 表示，關閉就是設為 `None`，不存在「對已隱藏者再隱藏」的呼叫
 - `test_the_popup_never_becomes_the_active_window` → 不移植：Tk 獨立 Toplevel 的 `WS_EX_NOACTIVATE` 樣式；Rust 選單與 overlay 同一視窗、不是另一個可被啟用的視窗

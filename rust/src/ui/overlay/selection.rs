@@ -981,6 +981,24 @@ mod tests {
     }
 
     #[test]
+    fn ctrl_c_copies_while_the_copy_menu_is_open() {
+        let mut h = numbered(1);
+        let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
+        select(&mut h, from, to);
+        right_click(&mut h, Pos2::new(200.0, 150.0));
+        h.step();
+        assert!(h.state().selection.menu_rect.is_some(), "menu must be open");
+        h.event(Event::Copy);
+        h.step();
+        assert_eq!(
+            h.state().desktop.copied,
+            ["orig 0
+trans 0"]
+        );
+        assert!(h.state().selection.span().is_some());
+    }
+
+    #[test]
     fn context_menu_only_with_selection() {
         let mut h = numbered(1);
         let spot = Pos2::new(200.0, 150.0);
