@@ -28,8 +28,8 @@ const ORIGINAL_PT: f32 = 9.0;
 const TRANSLATED_PT: f32 = 11.0;
 const PLACEHOLDER_PT: f32 = 11.0;
 const MIN_WRAP: f32 = 80.0;
-/// 字與視窗左右緣的距離（兩側相同）：右側容得下縮放帶、捲軸與 4px 間隙；左側同寬，從行首拖曳才不會抓到縮放帶。
-const TEXT_INSET: f32 = EDGE as f32 + scrollbar::WIDTH + 4.0;
+/// 字與視窗左右緣的距離（兩側相同）：右側剛好容得下縮放帶與捲軸；左側同寬，從行首拖曳才不會抓到縮放帶。
+const TEXT_INSET: f32 = EDGE as f32 + scrollbar::WIDTH;
 const SLOW_RELAYOUT_MS: u128 = 50;
 
 /// 視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。
@@ -847,7 +847,7 @@ mod tests {
                 let wrap_right = text_left + galley.job.wrap.max_width;
                 assert_eq!(text_left - rect.min.x, rect.max.x - wrap_right, "{size:?}");
                 assert!(text_left + galley.size().x <= wrap_right + 0.5, "{size:?}");
-                assert!(wrap_right < rect.max.x - EDGE as f32 - scrollbar::WIDTH);
+                assert!(wrap_right <= rect.max.x - EDGE as f32 - scrollbar::WIDTH);
                 assert!(text_left - rect.min.x >= CORNER as f32, "{size:?}");
             }
         }
