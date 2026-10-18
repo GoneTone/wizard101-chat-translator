@@ -7,7 +7,9 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
 use eframe::NativeOptions;
-use eframe::egui::{self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId};
+use eframe::egui::{
+    self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId, WindowLevel,
+};
 use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup, wgpu};
 
 use serde_json::Value;
@@ -98,6 +100,8 @@ pub struct App {
     ui_language: String,
     settings: Option<SettingsWiring>,
     first_run: Option<FirstRun>,
+    /// overlay 根視窗與泡泡目前的疊放層級；設定視窗開著時降為一般層級。
+    overlay_level: WindowLevel,
 }
 
 impl App {
@@ -126,6 +130,7 @@ impl App {
             ui_language: current_language(),
             settings: None,
             first_run: None,
+            overlay_level: WindowLevel::AlwaysOnTop,
         }
     }
 
@@ -332,6 +337,31 @@ impl App {
         log(format!("[ui] overlay relabeled language={language}"));
     }
 
+    /// overlay 根視窗與泡泡目前的疊放層級。
+    pub fn overlay_level(&self) -> WindowLevel {
+        self.overlay_level
+    }
+
+    /// 設定視窗開著時 overlay 與泡泡降為一般層級，免得置頂的 overlay 蓋住它；關窗（儲存、取消、✕）後恢復置頂。
+    fn sync_overlay_level(&mut self, ctx: &egui::Context) {
+        let open = self.settings.as_ref().is_some_and(|w| w.host.is_open());
+        let level = if open {
+            WindowLevel::Normal
+        } else {
+            WindowLevel::AlwaysOnTop
+        };
+        if level == self.overlay_level {
+            return;
+        }
+        self.overlay_level = level;
+        ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(level));
+        // 泡泡的層級跟著下一幀的 builder 走
+        ctx.request_repaint();
+        log(format!(
+            "[ui] overlay window level set to {level:?} (settings window open={open})"
+        ));
+    }
+
     /// overlay 的 HWND；第一幀之前是 0。
     pub fn hwnd(&self) -> isize {
         self.hwnd
@@ -473,7 +503,7 @@ impl App {
             .with_decorations(false)
             .with_transparent(true)
             .with_resizable(false)
-            .with_always_on_top();
+            .with_window_level(self.overlay_level);
         // 只是建立時的概略位置（混合 DPI 下會偏），找到 HWND 後再以實體像素擺正
         if let Some((x, y)) = bubble.pending() {
             builder = builder.with_position([x as f32 / ppp, y as f32 / ppp]);
@@ -664,6 +694,7 @@ impl eframe::App for App {
             host.show(&ctx, self.hwnd, &known);
         }
         self.show_settings(&ctx);
+        self.sync_overlay_level(&ctx);
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {

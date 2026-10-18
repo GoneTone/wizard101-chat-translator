@@ -561,3 +561,40 @@ fn the_wizard_language_preview_retitles_its_window() {
     i18n::set_language("en-US");
     assert!(shown, "retitled to {title:?}");
 }
+
+#[test]
+fn the_overlay_drops_below_the_settings_window_while_it_is_open() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, _wired) = settings_app(settings_cfg());
+    h.step();
+    assert_eq!(h.state().overlay_level(), WindowLevel::AlwaysOnTop);
+    for close in [tr("button.cancel"), tr("button.save")] {
+        h.get_by_label("⚙").click();
+        h.step();
+        let opened = root_commands(&h);
+        assert_eq!(h.state().overlay_level(), WindowLevel::Normal);
+        assert!(
+            opened.contains(&ViewportCommand::WindowLevel(WindowLevel::Normal)),
+            "{opened:?}"
+        );
+        // 開著的期間不會被別的路徑改回置頂
+        let open: Vec<_> = frames(&mut h, 3).concat();
+        assert!(
+            !open.contains(&ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop)),
+            "{open:?}"
+        );
+        h.get_by_role_and_label(Role::Button, &close).click();
+        h.step();
+        assert_eq!(
+            h.state().overlay_level(),
+            WindowLevel::AlwaysOnTop,
+            "{close}"
+        );
+        assert!(
+            root_commands(&h).contains(&ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop)),
+            "{close}"
+        );
+        run(&mut h);
+    }
+}
