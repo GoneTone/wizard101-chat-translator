@@ -17,11 +17,8 @@
 - **OCR 截圖驗證**（spec 規定）：2026-10-18 用使用者的 5 張截圖跑 `tools/ocr_compare` 新舊對照：2 張新參數讀對（`It ems`→`Items`、`Welcome to i the`→`Welcome to the`），3 張（含中英混排的任務卡與 NPC 對話）相同，沒有任何一張變差。Rust 版辨識速度約為 Python 版的 5～10 倍。之後若有更多截圖，用同一套工具再跑。
 - **刻意與 Python 不同**：調整框時重新擷取或裁切失敗，會撤銷進行中的請求並進入新 session，晚到的結果不再蓋掉錯誤卡片（使用者 2026-10-18 要求，Python 版仍有此問題）。
 - **只能實機確認**：WGC 擷取的顏色、DWM 外框偏移與高 DPI、截整顆螢幕時 CAPTUREBLT 是否讓游標閃爍、混合 DPI 下選取畫面是否蓋滿螢幕、框的拖曳手感、卡片邊框在 125%／150% 是否有接縫。
-- **可保留的小問題**（附理由）：
-  - `HostedWindow::place` 比對的是上次設定的矩形，不是視窗實際矩形；混合 DPI 下 winit 改了大小時不會再拉正。實機遇到再改成與 `window_rect` 比對。
-  - OCR 模型目錄以雜湊命名，換模型會留下舊目錄（約 31 MB）；模型目前不會變。
-  - 選取畫面「找不到視窗、未取得焦點」那行 log 沒有自動化斷言（lib 單元測試沒有 log 擷取）。
-  - 視窗查找測試有一半是套套邏輯，有實質意義的部分（`viewport_hwnds` 列出全部六個角色）已涵蓋。
+- **已於第 5 段處理**（`cb99d8e..9e57646`）：OCR 模型舊目錄在解出新模型時清掉；選取畫面「找不到視窗」那行 log 有斷言了（新增 `logs::capture`）；視窗查找測試改成直接斷言已知清單，不再自己重寫一份比對邏輯。
+- **保留**（需要實機才能驗證）：`HostedWindow::place` 比對的是上次設定的矩形，不是視窗實際矩形；混合 DPI 下 winit 改了大小時不會再拉正。實機遇到再改成與 `window_rect` 比對。
 
 ## 第 4 段
 
@@ -44,35 +41,27 @@
   - 套用設定時新的熱鍵先註冊、再解除舊的（`Registration` 只能整個交出去解除）；結果與 Python 相同，只是 log 先後不同。
   - Python 的 `[settings] hotkey capture failed` 不會出現：Rust 的錄製器沒有失敗路徑。
 - **只能實機確認**：精靈與設定視窗的深色標題列、工作列按鈕與搶前景；小螢幕與高縮放下的初始大小；`main.rs` 的 `start_main` 接線（兩條路：設定完整、精靈完成）沒有自動化測試，依實機驗收清單確認。
-- **可保留的小問題**（附理由）：
-  - **重複程式碼**：
-    - `SettingsHost` 與 `WizardHost` 幾乎相同（可改成泛型 host）；
-    - 設定視窗的預設值 helper 與 `Settings::from_config` 重複；
-    - `updater::http_client` 與 `clients::http_client` 同名但設定不同（呼叫端都帶模組前綴）。
-  - **檔案偏大**：`ui/app.rs` 約 1550 行（`native_options`／`run*` 可搬出去）、`service_list.rs` 約 750 行。
-  - **與 Python 的小差異**：
-    - `parse_int` 不接受 Tcl 的 `0x10` 寫法；`unique_name` 遇到非字串 id 的處理不同（`sanitize` 已正規化，實際不會發生）；
-    - 錄製器遇到沒有名稱的鍵不出聲（Python 會拋例外）；錄製開始前就按著的修飾鍵，放開時不算進組合（例如按著 Ctrl 點〔更改〕再按 K，得 `k`）。
-  - **邊界情況**：
-    - `schedule_update_checks` 的 `found` 回呼 panic 時，排程 task 會無聲結束（回呼只投遞事件）；
-    - `number_field` 在 min>max 時 clamp 會 panic（呼叫端都給合法範圍）；
-    - 疊開服務商選擇的同一幀按 Esc 會連表單一起關（實際按不出來）；
-    - 混合 DPI 下設定視窗置中沒有再以實體像素擺正；
-    - 套用設定後重新註冊的熱鍵排在 Ctrl+V 攔截器之後，鍵入進行中含 `v` 的熱鍵會被貼上攔截器先吞掉（Python 相同）；
-    - 精靈中途取消時鍵盤 hook 不另外卸除，程序隨即結束、由系統移除。
-  - **測試覆蓋缺口**：
-    - combo 的滑鼠操作、`icon_button` 提示框的配色、精靈完成時同步 `ui_language` 與 `with_first_run` 的 log；
-    - 範例過期的測試沒有分別釘住 `finish()` 與 `set_examples()` 兩道防線；
-    - 錄製器測試讀真實的 `GetKeyState`（Caps Lock 開著時結果與機器有關）；
-    - `up_to_date_log_lock` 是約定，新增不加鎖的 `Ok(None)` 測試會打破 +1 的計數。
-  - **外觀細節**：精靈的測試列放在表單卡片內（設計稿在卡片下方）、下拉高 32（設計稿 36）、48px 圖示放大到 64；提示框顯示時每幀重算 `collect()`；設定頁連結的 log 寫成「from message」。
-  - `parse_advanced` 每次都建一份 `default_config()`：只在儲存與提示框顯示時跑，成本可忽略。
+- **已於第 5 段處理**（`cb99d8e..9e57646`）：
+  - 設定視窗與精靈共用同一個泛型 host（`Host<C: HostedContent>`）；`ServiceDraft` 搬到 `service_draft.rs`（`service_list.rs` 剩約 590 行）、eframe 啟動碼搬到 `ui/run.rs`（`ui/app.rs` 剩約 1550 行，其中測試佔大半）；`updater::http_client` 改名 `update_client`。
+  - `unique_name` 的 id 比對改成同 Python（缺欄位、null 當 `None`，非字串 id 不相等）；`number_field` 在範圍反向時不再 panic；`schedule_update_checks` 的回呼 panic 會記 log 並繼續排程；設定缺 `hotkey` 鍵時不再 panic。
+  - 錄製器遇到沒有名稱的鍵會記 log；精靈中途取消時鍵盤 hook 會卸除。
+  - 補測試：combo 的滑鼠操作、`icon_button` 提示框配色、精靈完成時同步 `ui_language`、`with_first_run` 的 log、範例過期的兩道防線、錄製器改注入鎖定鍵狀態（不再讀真實的 `GetKeyState`）、`up_to_date_log_lock` 改成單一 helper（新增測試不會再破壞計數）。
+  - Esc 與開啟服務商選擇在同一幀：實測只會關掉選擇框、表單留著，已用測試釘住。
+- **保留**（需要實機才能驗證）：
+  - 混合 DPI 下設定視窗置中沒有再以實體像素擺正。
+  - 精靈的測試列放在表單卡片內（設計稿在卡片下方）、下拉高 32（設計稿 36）、48px 圖示放大到 64：這些尺寸已由使用者實機調整並驗收，改動要再實機確認。
+  - 錄製開始前就按著的修飾鍵，放開時不算進組合（例如按著 Ctrl 點〔更改〕再按 K，得 `k`；Python 會得 `ctrl+k`）：要改成納入開始前的按鍵狀態，得在真實鍵盤事件下驗證。
+- **刻意與 Python 不同／相同**：
+  - `parse_int` 把 `010` 讀成十（Tcl 會讀成八），不接受 `0x10` 這類前綴寫法：使用者打的是十進位，照 Tcl 反而違反直覺。
+  - 套用設定後重新註冊的熱鍵排在 Ctrl+V 攔截器之後，鍵入進行中含 `v` 的熱鍵會被貼上攔截器先吞掉（Python 相同）。
+  - 設定視窗的預設值 helper 與 `Settings::from_config` 看似重複，其實語意不同：設定視窗沿用 Python 的比較方式（布林當 0／1、顯示用文字），`from_config` 取執行期的型別值，不合併。
+  - 設定頁連結的 log 寫成「from message」：Python 的 `RichLabel` 也是同一行。
+  - `parse_advanced` 與提示框顯示時的 `collect()` 每次都建一份 `default_config()`：只在儲存與提示框顯示時跑，成本可忽略，不處理。
 
 ## 第 5 段
 
 - 把 `rust/` 搬到 repo 根目錄時，使用者的測試資料夾 `rust/target/release/_test`（不進版控，裡面有使用者的 config 和 log）要一起搬。搬之前先問使用者。
-- `rust/tests/real_fingerprint.rs` 的文件寫「只讀副本」，但 `load_config` 在正規化有變動時會寫回檔案。要改文件，或改成測試自己先複製再讀。
-- `fonts_dir` 遇到空字串的 `WINDIR` 時沒有過濾掉。
+- **已於第 5 段處理**（`cb99d8e..9e57646`）：`real_fingerprint.rs` 改成先複製到暫存資料夾再讀，文件寫實；`fonts_dir` 過濾空字串的 `WINDIR`。
 - **鎖定 Rust 版本**（使用者 2026-10-18 決定放在這段）：
   - 現況：沒有 `rust-toolchain.toml`，`Cargo.toml` 沒寫 `rust-version`，CI 用 `dtolnay/rust-toolchain@stable`；本機是 1.99.1（`f16e7ce` 已配合 clippy 1.99 的新規則修過一次）。
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
@@ -85,37 +74,33 @@
 
 ## 合併前清掉的小問題（第 1 段審查列為可延後）
 
-- **log 文字與 Python 的細節差異**：多數只是診斷用字串，例如：
-  - `null` 與 `None` 的寫法；
-  - 截斷樣本用 `{:?}` 而非 `repr`；
-  - hookstate 壞檔的例外名稱；
-  - auto-follow／relaid-out 的欄位。
-- **測試覆蓋缺口**：
-  - exporter 的 exit 2；
-  - TimestampedWriter 的邊界情況；
-  - 3xx `/v1/models`；
-  - 黏底時最後一則譯文長高；
-  - 左緣縮放帶的拖曳；
-  - 廣播訊息 msg_id 跨分頁更新；
-  - 分頁列未選取的顏色；
-  - palette 只驗了 2 種顏色。
-- **語言比對**：目前只用主語言標籤比對。新語系的完成度超過 60% 時，要補 langcodes 距離比對的守門測試，例如 nb／nn、iw、pt 的地區、sr-Latn。
-- **訊息清單**：沒有在背景補排版，從沒進過可視範圍的列，捲軸位置只是估計值。
-- **其他**：
-  - 泡泡未讀數不是粗體，因為沒有載入粗體字型；
-  - 混合 DPI 下，拖曳泡泡或 overlay 跨螢幕時，實體尺寸的處理要再實機確認；
-  - `config::save_config` 不是原子寫入，與 Python 相同。
+已於第 5 段處理（`cb99d8e..9e57646`）：
 
-## 第 2 段審查列為可保留的小問題（附理由，合併前再看一次）
+- **log 文字與 Python 的細節差異**：截斷樣本、語言標籤、視窗標題改用 Python `repr` 的引號寫法，`follow` 印成 `True`／`False`；`null` 與 `None` 的寫法原本就已對齊。其餘差異是 Python 才有的東西（Tk 的 `region_h`、例外類別名稱），照 spec「log 不逐字相同」保留。
+- **測試覆蓋缺口**：exporter 的 exit 2（Python 端新增測試，`tools/` 在搬到根目錄時會一起刪掉）、`TimestampedWriter` 的邊界、3xx `/v1/models`、黏底時最後一則譯文長高、廣播訊息 msg_id 跨分頁更新、分頁列未選取的顏色、整張 palette 的顏色都補了測試；左緣縮放帶的拖曳早已有 `left_edge_resizes_and_keeps_right_edge`。
+- **語言比對**：新增 `offered_languages_are_the_ones_match_tag_was_checked_against`，語言選單多出第四種語言就會失敗，提醒補 nb／nn、iw、pt 地區、sr-Latn 的案例；距離比對本身見「第 5 段」的 `best_match` 一項。
+- **其他**：泡泡未讀數改用粗體（`FontFamily::Name("bold")`）；`config::save_config` 改成先寫暫存檔再改名，寫到一半當機不會毀掉設定。
 
-- **CI 上的鍵盤名稱 fixture**：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 golden `--check` 或 `keys_golden` 失敗，是配置差異，要調整 fixture。
-- **golden 抓不到「Rust 接受、Python 不認得」的鍵名**：名稱表建法逐行相同，只影響手改成 Python 會拒絕的設定字串。
-- **handler panic 時，全域 panic hook 會在鍵盤 hook 裡抓 backtrace**：可能超過 hook 逾時。handler 裡實際可能 panic 的只有資源耗盡時的 `thread::spawn`。
-- **鍵盤 hook 一個程序只能裝一次**，第一次失敗後無法重試；Python 也沒有重試。
-- **`SendInput` 回傳值沒檢查**：與 Python 的 `keybd_event` 相同。
-- **lib 單元測試會把假剪貼簿的 `clipboard open failed: error=5` 印到 stderr**：只是雜訊。
-- **設定缺 `hotkey`／`region_hotkey` 時 `region_hotkey_to_register` 會 panic**：與 Python 的 KeyError 等價，`load_config` 一定會補上預設。
-- **`scale_at` 不能注入**，沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
-- **overlay 的 HWND 還是 0 時開輸入框，會沒有擁有者而出現工作列按鈕**：overlay 第一幀就拿到 HWND，實際不會發生。
-- **`register_hotkeys`／`install_paste` 寫死 `Foreground::real()`**（原 `install_input`）：測試會唯讀查詢真實前景，斷言因此兩個分支都接受。
-- **`on_paste_hotkey` 用 `std::thread::spawn`**：資源耗盡時 panic，但會被 handler 的 `catch_unwind` 接住並放行；回傳 `JoinHandle` 是計畫定的簽名。
+保留：
+
+- **訊息清單沒有在背景補排版**（要改架構）：從沒進過可視範圍的列，捲軸位置只是估計值。
+- **混合 DPI 下拖曳泡泡或 overlay 跨螢幕時，實體尺寸的處理**（需要實機才能驗證）。
+
+## 第 2 段審查列為可保留的小問題
+
+已於第 5 段處理（`cb99d8e..9e57646`）：
+
+- 鍵盤名稱表多出 Python 不認得的名稱：新增測試比對整張名稱表。
+- `SendInput` 回傳值：沒送完會記 log（含已送出數與 Win32 錯誤碼）。
+- lib 單元測試印到 stderr 的剪貼簿雜訊：測試改用 `logs::capture` 接住並斷言。
+- 設定缺 `hotkey`／`region_hotkey` 時 panic：改成不 panic。
+- `register_hotkeys`／`install_paste` 寫死 `Foreground::real()`：改由 `InputWiring.foreground` 注入，測試不再讀真實前景，斷言只剩一個分支。
+- handler panic 時 backtrace 擷取過久：鍵盤 hook 執行緒上的 panic 不抓 backtrace。
+- overlay 的 HWND 還是 0 時開輸入框：記一行 log 說明（正式程式不會發生）。
+- `on_paste_hotkey` 的 `std::thread::spawn`：資源耗盡時的 panic 會被 handler 的 `catch_unwind` 接住並放行 Ctrl+V，行為正確，不改簽名。
+
+保留：
+
+- **CI 上的鍵盤名稱 fixture**（需要在 CI 上驗證）：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 golden `--check` 或 `keys_golden` 失敗，是配置差異，要調整 fixture。
+- **鍵盤 hook 一個程序只能裝一次**（要改架構）：第一次失敗後無法重試，要重做 hook 執行緒與分派器的生命週期；Python 也沒有重試。
+- **`scale_at` 不能注入**（需要實機才能驗證）：沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
