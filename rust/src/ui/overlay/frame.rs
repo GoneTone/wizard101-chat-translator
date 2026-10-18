@@ -333,11 +333,16 @@ fn title_bar(
         ("⚙", Clicked::Settings, "tooltip.settings"),
         ("⛶", Clicked::Region, "tooltip.region"),
     ] {
-        let button =
-            bar_button(ui, glyph, action == Clicked::Close, hit).on_hover_ui_at_pointer(|ui| {
+        let button = bar_button(ui, glyph, action == Clicked::Close, hit);
+        // 按住期間收起提示，與舊版按下即收一致
+        let button = if button.is_pointer_button_down_on() {
+            button
+        } else {
+            button.on_hover_ui_at_pointer(|ui| {
                 let text = t(tooltip, &[("hotkey", region_hotkey)]);
                 ui.label(RichText::new(text).font(FontId::proportional(tk_pt(9.0))));
-            });
+            })
+        };
         if button.clicked() {
             clicked = Some(action);
         }
@@ -703,6 +708,27 @@ pub(crate) mod tests {
             harness.step();
         }
         harness.get_by_label(&text);
+    }
+
+    /// 懸停 ⛶ 滿延遲後提示框已出現。
+    fn hovered_tooltip() -> (Harness<'static, State>, String) {
+        let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let text = t("tooltip.region", &[("hotkey", "ctrl+shift+space")]);
+        harness.get_by_label("⛶").hover();
+        for _ in 0..40 {
+            harness.step();
+        }
+        harness.get_by_label(&text);
+        (harness, text)
+    }
+
+    #[test]
+    fn button_press_hides_the_tooltip() {
+        let (mut harness, text) = hovered_tooltip();
+        let button = harness.get_by_label("⛶").rect().center();
+        harness.drag_at(button);
+        harness.run_steps(2);
+        assert!(harness.query_by_label(&text).is_none());
     }
 
     #[test]
