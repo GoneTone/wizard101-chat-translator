@@ -132,7 +132,7 @@ The rest of this file covers working from source: development, debugging and pac
 ### Prerequisites
 
 - Windows
-- [rustup](https://rustup.rs/) — the Rust version is pinned by `rust-toolchain.toml` and installed automatically on first use, so local and CI environments agree
+- [rustup](https://rustup.rs/) — the Rust version is pinned by `rust-toolchain.toml`; run `rustup toolchain install` once in the repository to install that version and its components (the same command CI uses), so local and CI environments agree
 
 ### Install
 
@@ -154,7 +154,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same checks on a Windows runner.
+Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs these checks on a Windows runner, plus the release-build checks.
 
 ### Packaging (exe)
 

@@ -132,7 +132,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 ### 前置需求
 
 - Windows
-- [rustup](https://rustup.rs/) —— Rust 版本由 `rust-toolchain.toml` 锁定，第一次使用时自动安装对应版本，本机与 CI 一致
+- [rustup](https://rustup.rs/) —— Rust 版本由 `rust-toolchain.toml` 锁定，在项目里执行一次 `rustup toolchain install` 就会装好该版本与组件（CI 用的也是这个命令），本机与 CI 一致
 
 ### 安装
 
@@ -141,7 +141,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 ### 从源码运行
 
 1. 打开并登录 Wizard101 到游戏世界内。
-2. `cargo run` —— 第一次运行会跑首次设置向导（选服务商、填密钥或自建服务器网址、测试连接），设置写进仓库根目录的 `config.json`（不进版本控制）。
+2. `cargo run` —— 第一次运行会跑首次设置向导（选服务商、填密钥或自建服务器网址、测试连接），设置写进项目根目录的 `config.json`（不进版本控制）。
 3. 操作方式与[使用方式](#使用方式)一节相同；出现横幅时见[故障排除](#故障排除)。
 
 > 游戏更新导致挂入报 `PatternFailed` 时，要更新源码里的内存 pattern（聊天 hook 与输入框 hook 各有一组，位于 `src/reader/`）。
@@ -154,7 +154,7 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-推上 GitHub 后 CI（`.github/workflows/ci.yml`）会在 Windows runner 上跑同样的检查。
+推上 GitHub 后 CI（`.github/workflows/ci.yml`）会在 Windows runner 上跑这些检查，另外还跑发行版的检查。
 
 ### 打包（exe）
 
