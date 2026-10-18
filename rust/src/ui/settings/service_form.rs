@@ -207,12 +207,12 @@ impl ServiceForm {
         ui.spacing_mut().item_spacing.y = ROW_GAP;
 
         form_row(ui, &t("field.service_name", &[]), |ui, label| {
-            text_field(ui, &mut self.name, false).labelled_by(label);
+            text_field(ui, &mut self.name).labelled_by(label);
         });
         response.change_provider = self.provider_row(ui);
         if self.provider.needs_base_url() {
             form_row(ui, &t("field.base_url", &[]), |ui, label| {
-                text_field(ui, &mut self.base_url, false).labelled_by(label);
+                text_field(ui, &mut self.base_url).labelled_by(label);
                 hint(ui, &t("hint.custom_endpoint", &[]));
             });
         }

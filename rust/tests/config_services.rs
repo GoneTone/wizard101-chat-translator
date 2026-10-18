@@ -38,8 +38,16 @@ fn every_provider_has_ui_metadata() {
     assert!(!provider("openai").unwrap().needs_base_url());
     assert!(provider("nope").is_none());
     assert_eq!(
+        provider("openai").unwrap().key_url,
+        Some("https://platform.openai.com/api-keys")
+    );
+    assert_eq!(
         provider("claude").unwrap().key_url,
         Some("https://console.anthropic.com/settings/keys")
+    );
+    assert_eq!(
+        provider("gemini").unwrap().key_url,
+        Some("https://aistudio.google.com/apikey")
     );
     assert_eq!(provider("custom").unwrap().key_url, None);
     assert_eq!(provider("gemini").unwrap().label_key, "provider.gemini");

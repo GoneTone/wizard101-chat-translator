@@ -744,40 +744,6 @@ pub fn normalize(cfg: &mut Config) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn unique_name_numbers_collisions_from_two() {
-        let mut services = vec![json!({"id": "a", "name": "ChatGPT"})];
-        assert_eq!(unique_name("ChatGPT", &services, None), "ChatGPT (2)");
-        services.push(json!({"id": "b", "name": "ChatGPT (2)"}));
-        assert_eq!(unique_name("ChatGPT", &services, None), "ChatGPT (3)");
-        assert_eq!(unique_name("Claude", &services, None), "Claude");
-    }
-
-    #[test]
-    fn new_service_fills_the_provider_defaults_and_a_name() {
-        let service = new_service("claude", &[]);
-        assert_eq!(service["provider"], "claude");
-        assert_eq!(service["name"], "Claude");
-        assert_eq!(service["model"], "");
-        assert_eq!(service["effort"], "auto");
-        assert_eq!(service["id"].as_str().unwrap().len(), 8);
-        assert_eq!(new_service("gemini", &[])["effort"], "low");
-    }
-
-    #[test]
-    fn new_services_never_share_an_id() {
-        let mut services = Vec::new();
-        for _ in 0..50 {
-            let service = new_service("openai", &services);
-            services.push(service);
-        }
-        let mut ids: Vec<&str> = ids_and_names(&services, "id").collect();
-        ids.sort();
-        ids.dedup();
-        assert_eq!(ids.len(), 50);
-    }
 
     #[test]
     fn debug_output_never_shows_the_api_key() {

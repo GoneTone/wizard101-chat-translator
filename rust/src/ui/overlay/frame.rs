@@ -2,7 +2,7 @@
 
 use eframe::egui::{
     self, Align, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, RichText, Sense, Stroke,
-    TextureHandle, TextureOptions, Ui, UiBuilder, Vec2,
+    TextureHandle, Ui, UiBuilder, Vec2,
 };
 
 use crate::config::Geometry;
@@ -13,6 +13,7 @@ use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{
     Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen, resized_edge,
 };
+use crate::ui::icon::png_texture;
 use crate::ui::palette::{BAR, BG, FG_BAR, FG_ERROR, OUTLINE};
 use crate::ui::win32;
 
@@ -373,13 +374,8 @@ fn paint_grip(painter: &egui::Painter, grip: egui::Rect) {
 
 /// 把內嵌的 app 圖示（`size` px）載成貼圖。
 pub(crate) fn load_icon(ctx: &egui::Context, size: u32) -> TextureHandle {
-    let data =
-        eframe::icon_data::from_png_bytes(icon_png(size)).expect("embedded icon is a valid PNG");
-    let image = egui::ColorImage::from_rgba_unmultiplied(
-        [data.width as usize, data.height as usize],
-        &data.rgba,
-    );
-    ctx.load_texture(format!("app_icon_{size}"), image, TextureOptions::LINEAR)
+    png_texture(ctx, format!("app_icon_{size}"), icon_png(size))
+        .expect("embedded icon is a valid PNG")
 }
 
 fn resize_cursor(edge: Edge) -> CursorIcon {

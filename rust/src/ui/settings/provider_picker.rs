@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use eframe::egui::{
-    Align2, Color32, ColorImage, Context, FontId, Galley, Id, Rect, Response, Role, Sense, Stroke,
-    StrokeKind, TextureHandle, TextureId, TextureOptions, Ui, Vec2, WidgetInfo, pos2, vec2,
+    Align2, Color32, Context, FontId, Galley, Id, Rect, Response, Role, Sense, Stroke, StrokeKind,
+    TextureHandle, TextureId, Ui, Vec2, WidgetInfo, pos2, vec2,
 };
 
 use super::theme::{self, icon};
@@ -13,6 +13,7 @@ use crate::config::services::{Provider, providers};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::runtime::resources::provider_icon;
+use crate::ui::icon::png_texture;
 
 /// 服務商卡片的排法：選擇對話框一列一張，精靈兩欄。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -184,17 +185,10 @@ pub(super) fn provider_texture(ctx: &Context, key: &str) -> Option<TextureId> {
     if let Some(cached) = ctx.data(|d| d.get_temp::<Option<TextureHandle>>(id)) {
         return cached.map(|texture| texture.id());
     }
-    let texture = provider_icon(key).and_then(|png| match eframe::icon_data::from_png_bytes(png) {
-        Ok(data) => {
-            let size = [data.width as usize, data.height as usize];
-            let image = ColorImage::from_rgba_unmultiplied(size, &data.rgba);
-            let name = format!("provider_icon_{key}");
-            Some(ctx.load_texture(name, image, TextureOptions::LINEAR))
-        }
-        Err(e) => {
-            log(format!("[ui] provider icon {key} failed to decode: {e}"));
-            None
-        }
+    let texture = provider_icon(key).and_then(|png| {
+        png_texture(ctx, format!("provider_icon_{key}"), png)
+            .inspect_err(|e| log(format!("[ui] provider icon {key} failed to decode: {e}")))
+            .ok()
     });
     let found = texture.as_ref().map(TextureHandle::id);
     ctx.data_mut(|d| d.insert_temp(id, texture));

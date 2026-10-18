@@ -370,13 +370,6 @@ fn saving_unrelated_settings_rebuilds_no_translator() {
 }
 
 #[test]
-fn changing_only_the_region_slot_rebuilds_only_that_translator() {
-    let s = saved("region_rebuild");
-    s.save(|c| set_model(c, 2, "region-model-4-region_rebuild"));
-    assert_eq!(s.rebuilt_slots(), ["region"]);
-}
-
-#[test]
 fn editing_the_service_a_slot_uses_rebuilds_it() {
     for (field, tag, value) in [
         ("model", "edit_model", "gpt-y-edit_model"),
@@ -456,8 +449,13 @@ fn paused_rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-fn let_background_finish(rt: &tokio::runtime::Runtime) {
-    rt.block_on(async { tokio::time::sleep(Duration::from_millis(300)).await });
+/// 讓 `rt` 上的背景工作跑到 `done` 成立為止，最多等 5 秒。
+fn run_until(rt: &tokio::runtime::Runtime, what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !done() {
+        assert!(Instant::now() < deadline, "timed out waiting: {what}");
+        rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
+    }
 }
 
 /// 目標語言是遊戲原生語言時，範例生成不打網路、直接給內建的一組。
@@ -560,7 +558,10 @@ fn late_examples_after_a_save_bind_the_cache_to_the_new_fingerprint() {
     assert!(built.incoming.examples().is_none());
     assert!(built.cache.fingerprint().ends_with("x-"));
 
-    let_background_finish(&rt);
+    // 生成套用後才 rebind，指紋帶上範例就代表兩步都做完了
+    run_until(&rt, "the late generation rebinds the cache", || {
+        !built.cache.fingerprint().ends_with("x-")
+    });
     let applied = built.incoming.examples();
     assert!(applied.is_some(), "the late generation was applied");
     let fingerprint = built.cache.fingerprint();

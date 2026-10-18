@@ -15,7 +15,7 @@ use super::service_form::ServiceForm;
 use super::service_list::{ServiceDraft, pick_provider_over};
 use super::theme::{self, icon};
 use super::widgets::{primary_button, primary_icon_button, right_aligned, secondary_icon_button};
-use super::window::{flag_setting, text_setting};
+use super::{flag_setting, text_setting};
 use crate::config::Config;
 use crate::config::services::{
     find, is_auto_name, new_service, provider, str_field, unique_name, validate_service,

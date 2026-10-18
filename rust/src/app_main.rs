@@ -332,7 +332,7 @@ pub fn register_hotkeys(
 
 /// 掛上 Ctrl+V 攔截器；每次都直接讀 `settings`，改設定不必重掛，所以只在啟動時掛一次。
 ///
-/// 要排在 [`register_hotkeys`] 之後：鍵入進行中它會吞掉 v，排在前面的熱鍵才收得到。
+/// 啟動時排在 [`register_hotkeys`] 之後（鍵入進行中它會吞掉 v）；儲存後重掛的熱鍵改排在它後面，與 Python 相同。
 pub fn install_paste(
     settings: &Arc<RwLock<Config>>,
     dispatcher: &SharedDispatcher,

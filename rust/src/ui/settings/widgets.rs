@@ -221,23 +221,40 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     response
 }
 
-/// `fill` 是（底色, 字色），`None` 用預設的次要樣式；`trailing` 是文字後的圖示，無障礙名稱只取文字。
+/// 按鈕文字旁的圖示：`Leading` 在文字前、`Trailing` 在文字後。
+#[derive(Clone, Copy)]
+enum Glyph {
+    Leading(char),
+    Trailing(char),
+}
+
+/// `fill` 是（底色, 字色），`None` 用預設的次要樣式；有 `glyph` 時無障礙名稱只取文字。
 fn styled_button(
     ui: &mut Ui,
     text: &str,
     fill: Option<(Color32, Color32)>,
-    trailing: Option<char>,
+    glyph: Option<Glyph>,
 ) -> Response {
     let mut label = RichText::new(text);
-    let mut glyph = trailing.map(|g| RichText::new(g).font(theme::icons(11.0)));
+    let mut icon = glyph.map(|g| match g {
+        Glyph::Leading(c) => RichText::new(c).font(theme::icons(12.0)),
+        Glyph::Trailing(c) => RichText::new(c).font(theme::icons(11.0)),
+    });
     if let Some((_, ink)) = fill {
         label = label.color(ink).font(theme::bold(theme::CONTROL_TEXT_SIZE));
-        glyph = glyph.map(|g| g.color(ink));
+        icon = icon.map(|g| g.color(ink));
     }
     let mut atoms = Atoms::default();
-    atoms.push_right(label);
-    if let Some(glyph) = glyph {
-        atoms.push_right(glyph);
+    match (glyph, icon) {
+        (Some(Glyph::Leading(_)), Some(icon)) => {
+            atoms.push_right(icon);
+            atoms.push_right(label);
+        }
+        (_, Some(icon)) => {
+            atoms.push_right(label);
+            atoms.push_right(icon);
+        }
+        (_, None) => atoms.push_right(label),
     }
     let mut button = Button::new(atoms);
     if let Some((fill, _)) = fill {
@@ -248,7 +265,7 @@ fn styled_button(
             .corner_radius(theme::CONTROL_RADIUS)
             .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
     );
-    if trailing.is_some() {
+    if glyph.is_some() {
         response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
     }
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
@@ -266,7 +283,7 @@ pub fn primary_icon_button(ui: &mut Ui, text: &str, glyph: char) -> Response {
         ui,
         text,
         Some((theme::ACCENT, theme::ON_ACCENT)),
-        Some(glyph),
+        Some(Glyph::Trailing(glyph)),
     )
 }
 
@@ -277,15 +294,7 @@ pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
 
 /// 次要按鈕，文字前有一個圖示；無障礙名稱只取文字。
 pub fn secondary_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
-    let atoms = (RichText::new(glyph).font(theme::icons(12.0)), text);
-    let response = ui.add(
-        Button::new(atoms)
-            .corner_radius(theme::CONTROL_RADIUS)
-            .min_size(vec2(0.0, theme::CONTROL_HEIGHT)),
-    );
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
-    focus_ring(ui, &response, theme::CONTROL_RADIUS);
-    response
+    styled_button(ui, text, None, Some(Glyph::Leading(glyph)))
 }
 
 /// 危險操作（刪除確認）按鈕：`DANGER` 底。

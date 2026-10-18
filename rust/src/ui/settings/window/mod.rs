@@ -20,6 +20,7 @@ use super::theme::{self, icon};
 use super::widgets::{
     callout, focus_ring, primary_button, right_aligned, right_aligned_width, secondary_button,
 };
+use super::{flag_setting, setting, text_setting};
 use crate::config::services::{ServiceSlot, find, validate_service};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, set_language, t};
@@ -95,22 +96,6 @@ pub struct SettingsWindow {
     pending: Vec<SettingsAction>,
     /// 下一幀要呼叫 `env.cancel_recording()`（收下錄製結果或換頁時手上沒有 env）。
     release_recorder: bool,
-}
-
-/// 設定值；缺鍵時取預設值。
-fn setting(cfg: &Config, key: &str) -> Value {
-    cfg.get(key)
-        .cloned()
-        .unwrap_or_else(|| default_config()[key].clone())
-}
-
-pub(super) fn text_setting(cfg: &Config, key: &str) -> String {
-    setting(cfg, key).as_str().unwrap_or_default().to_owned()
-}
-
-/// 開關值照 Python 真值判定：手改成 `1` 也算開。
-pub(super) fn flag_setting(cfg: &Config, key: &str) -> bool {
-    py::truthy(Some(&setting(cfg, key)))
 }
 
 impl SettingsWindow {

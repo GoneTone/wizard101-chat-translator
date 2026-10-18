@@ -175,10 +175,10 @@ pub fn editable_combo(
     response
 }
 
-/// 單行輸入框，寬度占滿；`password` 時以圓點遮住。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
-pub fn text_field(ui: &mut Ui, text: &mut String, password: bool) -> Response {
+/// 單行輸入框，寬度占滿。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
+pub fn text_field(ui: &mut Ui, text: &mut String) -> Response {
     let rect = control_box(ui, ui.available_width());
-    let response = boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, password);
+    let response = boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, false);
     underline(ui, rect, response.has_focus());
     response
 }
