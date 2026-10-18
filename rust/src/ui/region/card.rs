@@ -840,6 +840,40 @@ mod tests {
         assert!(shape_with(&h, "docs here").is_some());
     }
 
+    /// 不換行時 `text` 以 `pt` 排出的寬度，加上卡片自己的邊框、內距與捲軸。
+    fn width_of(h: &Harness<State>, text: &str, pt: f32) -> f32 {
+        let galley = h
+            .ctx
+            .fonts_mut(|f| f.layout_no_wrap(text.to_owned(), font(pt), Color32::WHITE));
+        galley.size().x + 2.0 * BORDER + 2.0 * PAD.x + scrollbar::WIDTH
+    }
+
+    #[test]
+    fn rich_label_natural_width_is_the_widest_line_unwrapped() {
+        let h = harness(text(
+            "短
+這是一行比較長的文字",
+            "",
+        ));
+        let natural = h.state().card.natural_width(&h.ctx);
+        assert_eq!(natural, width_of(&h, "這是一行比較長的文字", 11.0));
+    }
+
+    #[test]
+    fn rich_label_natural_width_measures_each_block_with_its_own_font() {
+        let h = harness(text("同樣的字", "同樣的字"));
+        let natural = h.state().card.natural_width(&h.ctx);
+        assert_eq!(natural, width_of(&h, "同樣的字", 11.0));
+        assert!(natural > width_of(&h, "同樣的字", 9.0));
+    }
+
+    #[test]
+    fn rich_label_natural_width_counts_the_link_label_not_the_markup() {
+        let h = harness(text("[點我](https://a.example/very/long/path)", ""));
+        let natural = h.state().card.natural_width(&h.ctx);
+        assert_eq!(natural, width_of(&h, "點我", 11.0));
+    }
+
     #[test]
     fn clicking_a_link_opens_it_and_closes_the_card() {
         let mut h = harness(CardContent::Error("https://example.com/keys".into()));

@@ -457,8 +457,9 @@ pub(crate) mod tests {
     use super::*;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::banners::{Banners, Release};
-    use crate::ui::overlay::message_list::MessageList;
+    use crate::ui::overlay::message_list::{self, MessageList};
     use crate::ui::overlay::model::OverlayModel;
+    use crate::ui::overlay::outlined;
 
     const START: Rect = (1000, 500, 640, 420);
 
@@ -722,6 +723,34 @@ pub(crate) mod tests {
         (harness, text)
     }
 
+    fn move_away(harness: &mut Harness<State>) {
+        let away = harness.state().area.center();
+        harness.hover_at(away);
+        for _ in 0..4 {
+            harness.step();
+        }
+    }
+
+    #[test]
+    fn leaving_hides_the_tooltip() {
+        let (mut harness, text) = hovered_tooltip();
+        move_away(&mut harness);
+        assert!(harness.query_by_label(&text).is_none());
+    }
+
+    #[test]
+    fn leaving_before_the_delay_elapses_cancels_the_show() {
+        let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let text = t("tooltip.region", &[("hotkey", "ctrl+shift+space")]);
+        harness.get_by_label("⛶").hover();
+        harness.step();
+        move_away(&mut harness);
+        for _ in 0..40 {
+            harness.step();
+        }
+        assert!(harness.query_by_label(&text).is_none());
+    }
+
     #[test]
     fn button_press_hides_the_tooltip() {
         let (mut harness, text) = hovered_tooltip();
@@ -729,6 +758,38 @@ pub(crate) mod tests {
         harness.drag_at(button);
         harness.run_steps(2);
         assert!(harness.query_by_label(&text).is_none());
+    }
+
+    fn banners_of<'a>(harness: &'a mut Harness<State>) -> &'a mut Banners {
+        &mut harness.state_mut().content.as_mut().unwrap().0
+    }
+
+    #[test]
+    fn error_banner_keeps_following_new_messages() {
+        let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let mut model = OverlayModel::new(100, 0);
+        for _ in 0..40 {
+            let now = Instant::now();
+            model.add_message(1, &[0], "original", "譯文", None, false, None, now);
+        }
+        harness.state_mut().content = Some((Banners::default(), MessageList::new(), model));
+        harness.step();
+        let at_bottom = |harness: &Harness<State>| {
+            let (_, list, model) = harness.state().content.as_ref().unwrap();
+            let last = list.rows().last().unwrap();
+            let (origin, galley) = &last.lines[1];
+            let bottom = origin.y + outlined::line_height(galley) + message_list::ROW_PAD;
+            last.seq == model.current_view().unwrap().messages.last().unwrap().seq
+                && (bottom - list.viewport().max.y).abs() < 0.01
+        };
+        assert!(at_bottom(&harness));
+
+        banners_of(&mut harness).set_error("notice.offline", Vec::new());
+        harness.step();
+        assert!(at_bottom(&harness));
+        banners_of(&mut harness).clear_error();
+        harness.step();
+        assert!(at_bottom(&harness));
     }
 
     #[test]

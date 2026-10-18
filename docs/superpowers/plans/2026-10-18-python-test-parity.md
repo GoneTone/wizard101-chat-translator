@@ -985,3 +985,308 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry` → `tests/translator.rs::a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry`
 - `test_a_reconfigure_after_the_prompt_is_built_still_uses_the_same_backend` → `tests/translator.rs::a_reconfigure_mid_request_keeps_the_same_backend_for_incoming_and_region`（本批新增；Python 在「提示詞建好之後、送出之前」插入 reconfigure，Rust 的 `translate_*` 在開頭取一次後端快照、中間沒有可插入的點，所以改在請求進行中 reconfigure，驗證請求仍用原後端與原提示詞）
 - `test_generate_examples_returns_the_fingerprint_of_the_settings_it_used` → `tests/translator.rs::generate_examples_returns_the_fingerprint_of_the_settings_it_used`
+
+## tests/ui/overlay/test_message_list.py
+
+- `test_resize_updates_existing_message_wraplength` → `src/ui/overlay/message_list.rs::text_has_equal_side_margins_clear_of_the_scrollbar_and_resize_bands`, `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`
+- `test_stick_to_bottom_when_view_at_bottom` → `src/ui/overlay/message_list.rs::stick_threshold_matches_python`
+- `test_do_not_stick_when_scrolled_up` → `src/ui/overlay/message_list.rs::stick_threshold_matches_python`
+- `test_add_message_appends_and_caps_at_max` → `src/ui/overlay/model.rs::max_messages_drops_oldest`
+- `test_prune_removes_expired` → `src/ui/overlay/model.rs::fade_prunes_after_seconds_and_zero_disables`
+- `test_no_fade_when_fade_seconds_zero` → `src/ui/overlay/model.rs::fade_prunes_after_seconds_and_zero_disables`
+- `test_placeholder_centered_when_empty_hidden_after_message` → `src/ui/overlay/message_list.rs::placeholder_shown_when_empty`
+- `test_update_message_fills_translation_in_place` → `src/ui/overlay/model.rs::update_fills_in_place_keeps_order`
+- `test_pending_placeholder_uses_dimmer_colour_until_filled` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`
+- `test_completed_message_is_not_dimmed` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`, `src/ui/overlay/message_list.rs::rows_are_painted_in_the_message_colours`
+- `test_dimmed_scales_each_channel_toward_dark` → `src/ui/overlay/model.rs::dimmed_matches_python`
+- `test_message_uses_game_color_translated_bright_original_dim` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`, `src/ui/overlay/message_list.rs::rows_are_painted_in_the_message_colours`
+- `test_pending_message_restores_game_color_on_update` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`
+- `test_message_without_color_falls_back_to_default_palette` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`
+- `test_update_message_ignores_unknown_id` → `src/ui/overlay/model.rs::update_fills_hidden_view_and_ignores_unknown_id`
+- `test_failed_translation_line_is_shown_in_error_colour` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`
+- `test_successful_translation_keeps_the_game_colour` → `src/ui/overlay/model.rs::colors_follow_pending_failed_and_game_color`
+- `test_narrowing_window_keeps_following_new_messages` → `src/ui/overlay/message_list.rs::narrowing_window_keeps_following_new_messages`
+- `test_shortening_window_keeps_following_new_messages` → `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`（該測試的縮放序列含只縮矮視窗的一步）
+- `test_error_banner_keeps_following_new_messages` → `src/ui/overlay/frame.rs::error_banner_keeps_following_new_messages`（新補）
+- `test_scrolling_up_stops_following_until_back_at_bottom` → `src/ui/overlay/message_list.rs::does_not_follow_after_user_scrolls_up`
+- `test_message_cap_keeps_scrolled_view_in_place` → `src/ui/overlay/message_list.rs::message_cap_keeps_scrolled_view_in_place`
+- `test_prune_keeps_scrolled_view_in_place` → `src/ui/overlay/message_list.rs::anchor_keeps_reading_position_on_prune`
+- `test_filling_a_pending_translation_keeps_scrolled_view_in_place` → `src/ui/overlay/message_list.rs::filling_a_pending_translation_above_keeps_scrolled_view_in_place`
+- `test_prune_clears_a_selection_in_the_removed_row` → `src/ui/overlay/selection.rs::prune_of_selected_message_clears_selection`
+- `test_max_messages_overflow_clears_a_selection_in_the_dropped_row` → `src/ui/overlay/selection.rs::max_messages_overflow_clears_a_selection_in_the_dropped_row`
+- `test_update_message_clears_a_selection_in_that_row` → `src/ui/overlay/selection.rs::filling_a_selected_translation_clears_the_selection`
+- `test_resize_redraws_the_highlight_to_the_new_wrapping` → `src/ui/overlay/selection.rs::selected_text_survives_scrolling_out_of_view_and_rewrapping`, `src/ui/text_select.rs::highlight_spans_every_visual_line_and_empty_ranges_have_none`（Rust 反白每幀依目前換行重算，沒有「重畫舊矩形」這一步）
+- `test_prune_during_a_drag_keeps_the_selected_text` → `src/ui/overlay/message_list.rs::dragging_a_selection_suspends_auto_follow_until_content_changes`, `src/ui/overlay/selection.rs::prune_before_the_selection_keeps_the_text`
+- `test_translation_fills_a_message_in_a_hidden_view` → `src/ui/overlay/model.rs::update_fills_hidden_view_and_ignores_unknown_id`
+- `test_hidden_pending_and_failed_rows_keep_their_colours` → `src/ui/overlay/model.rs::hidden_pending_and_failed_rows_keep_their_colours`（新補）
+- `test_max_messages_applies_per_tab` → `src/ui/overlay/model.rs::max_messages_applies_per_tab`
+- `test_prune_drops_faded_messages_in_hidden_views_too` → `src/ui/overlay/model.rs::fade_prunes_after_seconds_and_zero_disables`
+- `test_switching_views_clears_the_selection` → `src/ui/overlay/selection.rs::switching_views_clears_the_selection`
+- `test_switching_views_returns_to_following_the_bottom` → `src/ui/overlay/message_list.rs::switching_views_returns_to_following_the_bottom`
+- `test_layout_follows_the_old_frame_geometry` → `src/ui/overlay/message_list.rs::layout_follows_the_old_frame_geometry`
+- `test_translation_growing_a_hidden_line_pushes_later_messages_down` → `src/ui/overlay/message_list.rs::layout_follows_the_old_frame_geometry`, `src/ui/overlay/model.rs::update_fills_hidden_view_and_ignores_unknown_id`
+- `test_resize_while_hidden_rewraps_on_show` → `src/ui/overlay/message_list.rs::resize_while_hidden_rewraps_on_show`（新補）
+- `test_pruning_above_a_selection_keeps_text_and_highlight` → `src/ui/overlay/selection.rs::prune_before_the_selection_keeps_the_text`
+- `test_wheel_scrolls_a_newly_created_view` → `src/ui/overlay/message_list.rs::wheel_scrolls_a_newly_created_view`
+- `test_switching_views_keeps_each_views_canvas` → 不移植：Tk 專屬：每個分頁一個 canvas 控件並以 `pack` 掛卸；Rust 單一清單每幀依目前 view 的訊息繪製，沒有控件可保留。切回分頁的可見行為由 `switching_views_returns_to_following_the_bottom` 守住
+- `test_rewrap_between_taking_and_restoring_the_anchor_keeps_the_view` → `src/ui/overlay/message_list.rs::reading_history_keeps_the_viewport_top_message_in_place_on_resize`（Python 守的是 `update_idletasks` 夾在取錨點與還原之間的競態，Rust 沒有這個中間事件；同一個使用者可見結果（縮放後閱讀位置不動）仍由該測試守住）
+- `test_resizing_with_a_selection_does_not_grow_the_font_cache` → 不移植：Python 專屬：逐行 Tcl 字型物件的快取洩漏；Rust 沒有逐行字型物件，字型取自 egui 字型表
+- `test_add_after_a_tab_switch_in_the_same_turn_still_sticks_to_bottom` → `src/ui/overlay/message_list.rs::add_after_a_tab_switch_in_the_same_turn_still_sticks_to_bottom`（新補）
+- `test_a_burst_of_adds_keeps_a_scrolled_up_view_in_place` → `src/ui/overlay/message_list.rs::does_not_follow_after_user_scrolls_up`
+- `test_showing_a_stale_tab_rewraps_it_before_it_is_visible` → `src/ui/overlay/message_list.rs::showing_a_stale_tab_rewraps_it_before_it_is_visible`（新補）
+- `test_resize_draws_only_the_viewport_then_completes_identically` → `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`（斷言縮放後只排視口內的列、且全部用新換行寬度；Rust 沒有「先排視口、再背景補完」的兩階段，所以沒有「補完後與全部重畫相同」要比對（規格 F「Rust 版只要達到同樣的不卡頓即可」））
+- `test_wheeling_up_after_a_resize_never_shows_a_gap` → `src/ui/overlay/message_list.rs::wheeling_up_after_a_resize_never_shows_a_gap`
+- `test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message` → `src/ui/overlay/message_list.rs::dragging_the_scrollbar_to_the_top_lands_on_the_first_message`
+- `test_taller_window_during_partial_layout_shows_no_gap` → `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`（該測試的縮放序列含視窗變高，每步都斷言 `covered`（視口無空白）；「部分排版」階段 Rust 不存在）
+- `test_resizing_an_empty_view_logs_nothing` → 不移植：Python 以 monkeypatch 把慢速門檻降為 −1 來強制觸發分段重排 log；Rust 只在實際換行且耗時 ≥50 ms 時記一行 `view relaid out`（`SLOW_RELAYOUT_MS`），沒有可注入門檻的鉤子，空清單提早返回、到不了該 log。已知未測：空視圖不記 log 靠程式碼路徑，沒有自動化斷言
+- `test_a_slow_viewport_fill_is_logged_but_not_inside_a_relayout` → 不移植：Tk 專屬：分批補畫（viewport fill）機制；Rust 沒有補畫階段，不產生該 log
+- `test_follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize` → `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`
+- `test_reading_history_keeps_the_viewport_top_message_in_place_on_resize` → `src/ui/overlay/message_list.rs::reading_history_keeps_the_viewport_top_message_in_place_on_resize`
+- `test_updates_trims_and_adds_during_partial_layout_match_a_full_redraw` → 不移植：Tk 專屬：部分排版／回填狀態下更新、裁剪、新增要與完整重畫一致；Rust 每幀由訊息與寬度重算視口，沒有可與完整重畫分歧的中間狀態。更新、裁剪、新增後的位置分別由 `layout_follows_the_old_frame_geometry`、`message_cap_keeps_scrolled_view_in_place`、`filling_a_pending_translation_above_keeps_scrolled_view_in_place` 守住
+- `test_dragging_the_scrollbar_to_the_bottom_lands_on_the_newest_message` → `src/ui/overlay/message_list.rs::dragging_the_scrollbar_to_the_bottom_lands_on_the_newest_message`
+- `test_dragging_the_scrollbar_to_the_top_lands_on_the_first_message_when_estimates_are_low` → `src/ui/overlay/message_list.rs::dragging_the_scrollbar_to_the_top_lands_on_the_first_message`（該測試先變窄讓上方估計高度偏低再拖到頂）
+- `test_pruning_the_whole_drawn_range_during_partial_layout_matches_a_full_redraw` → `src/ui/overlay/message_list.rs::pruning_the_rows_in_view_lands_on_the_oldest_remaining_message`
+- `test_background_backfill_completes_without_further_input` → 不移植：Tk 專屬：背景分批補畫；規格 F 僅要求達到同樣的不卡頓，Rust 只排視口內的列，沒有補畫
+- `test_only_the_last_width_of_a_drag_is_backfilled` → 不移植：Tk 專屬：拖拉縮放時取消／重排補畫計時器；Rust 沒有補畫
+- `test_backfill_batches_yield_to_idle_between_them` → 不移植：Tk 專屬：補畫批次與 idle 佇列的讓出；Rust 沒有補畫
+- `test_a_hidden_view_is_not_backfilled_and_resumes_when_shown` → 不移植：Tk 專屬：隱藏分頁暫停補畫、顯示後續補；Rust 沒有補畫，隱藏分頁不排版、顯示時依當前寬度排版（見 `resize_while_hidden_rewraps_on_show`）
+- `test_switching_back_to_a_view_whose_newest_message_is_undrawn_relays_it_out` → `src/ui/overlay/message_list.rs::switching_views_returns_to_following_the_bottom`
+- `test_destroying_the_overlay_cancels_its_pending_work` → 不移植：Tk 專屬：已排的 `after` 工作在視窗銷毀後呼叫已刪除的 Tcl 命令；Rust 沒有排程中的補畫工作
+
+## tests/ui/overlay/test_outlined_text.py
+
+- `test_draw_outlined_matches_the_old_per_line_canvas` → `src/ui/overlay/outlined.rs::outline_copies_first_then_the_fill_on_top`
+- `test_line_height_matches_the_old_canvas_height` → `src/ui/overlay/outlined.rs::line_height_adds_origin_outline_and_margin`
+- `test_draw_outlined_at_an_offset_moves_every_item` → `src/ui/overlay/outlined.rs::outline_copies_first_then_the_fill_on_top`（該測試以行原點 (0, 50) 驗證九份文字的座標）
+- `test_line_items_are_exactly_that_lines_text_items` → 不移植：Tk 專屬：canvas item id 與 tag 的對應；egui 即時繪製，沒有 item 可列舉
+- `test_measured_height_matches_the_drawn_line` → 不移植：Python 專屬：`measure_height` 為了不建立 canvas item 而與繪製分開量測；Rust 排版一次得到 `Galley`，高度與繪製用同一份，沒有兩條路徑需要比對
+
+## tests/ui/overlay/test_perf.py
+
+- `test_switching_tabs_is_independent_of_message_count` → `src/ui/overlay/message_list.rs::switching_tabs_is_independent_of_message_count`（新補；以「每幀排版列數」取代 CPU 時間門檻（時間門檻在共用機器上不穩）：兩分頁各 1000 則，來回切換每幀都只排視口內不到 60 列）
+- `test_adding_a_message_stays_cheap` → `src/ui/overlay/message_list.rs::adding_a_message_stays_cheap`（新補；同樣以每幀排版列數取代平均耗時門檻）
+- `test_the_synchronous_part_of_a_resize_is_independent_of_message_count` → `src/ui/overlay/message_list.rs::relayout_1000_messages_within_budget`, `src/ui/overlay/message_list.rs::follow_mode_keeps_the_newest_message_at_the_bottom_after_a_resize`（前者是 `#[ignore]` 的 release 限定耗時門檻（CI 另跑 `cargo test --release -- --ignored relayout`），後者斷言縮放後只排視口內的列）
+- `test_each_backfill_batch_stays_short` → 不移植：Tk 專屬：背景補畫批次；Rust 沒有補畫
+
+## tests/ui/overlay/test_selection.py
+
+- `test_line_text_reads_the_foreground_item` → 不移植：Tk 專屬：從 canvas 的前景 item 讀文字；Rust 選取直接用訊息文字與 `Galley`
+- `test_visual_lines_cover_the_whole_text` → `src/ui/text_select.rs::highlight_spans_every_visual_line_and_empty_ranges_have_none`
+- `test_visual_line_starts_agree_with_tk` → 不移植：Tk 專屬：視覺行首索引是向 Tk 的 text index 探測出來的；Rust 的視覺行直接取自 `Galley.rows`，沒有第二條探測路徑
+- `test_highlight_x_agrees_with_tk_hit_test` → `src/ui/text_select.rs::highlight_x_agrees_with_hit_test`
+- `test_highlight_spans_every_visual_line` → `src/ui/text_select.rs::highlight_spans_every_visual_line_and_empty_ranges_have_none`
+- `test_empty_selection_has_no_rects` → `src/ui/text_select.rs::highlight_spans_every_visual_line_and_empty_ranges_have_none`
+- `test_selected_text_within_one_line` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_selected_text_across_both_lines` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_selected_text_of_an_empty_span` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_selected_text_includes_whole_lines_in_between` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_selected_text_separates_messages_with_a_blank_line` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_selected_text_of_two_whole_messages` → `src/ui/overlay/selection.rs::selected_text_matches_python`
+- `test_begin_on_a_line_reports_a_hit` → `src/ui/overlay/selection.rs::press_on_a_line_starts_a_selection_and_takes_focus`
+- `test_begin_outside_every_message_reports_no_hit` → `src/ui/overlay/selection.rs::press_outside_every_message_starts_nothing`
+- `test_begin_far_to_the_right_of_a_line_reports_no_hit` → `src/ui/overlay/selection.rs::press_outside_every_message_starts_nothing`（涵蓋視口右側（捲軸區）按下不起手；兩軸都要命中由 `hit_testing_follows_the_scroll_position` 補）
+- `test_a_bare_press_is_not_a_selection` → `src/ui/overlay/selection.rs::a_bare_press_is_not_a_selection`
+- `test_dragging_across_both_lines_selects_both` → `src/ui/overlay/selection.rs::dragging_across_both_lines_selects_both`
+- `test_reverse_drag_selects_the_same_text` → `src/ui/overlay/selection.rs::reverse_drag_normalizes_span`
+- `test_dragging_below_the_message_clamps_to_its_end` → `src/ui/overlay/selection.rs::dragging_past_the_messages_clamps_to_their_ends`
+- `test_dragging_above_the_message_clamps_to_its_start` → `src/ui/overlay/selection.rs::dragging_past_the_messages_clamps_to_their_ends`
+- `test_selection_spans_messages_with_a_blank_line_between` → `src/ui/overlay/selection.rs::selection_spans_messages`
+- `test_selection_spans_three_messages` → `src/ui/overlay/selection.rs::selection_spans_three_messages_and_highlights_every_line_under_its_text`
+- `test_dragging_below_everything_clamps_to_the_last_message` → `src/ui/overlay/selection.rs::dragging_past_the_messages_clamps_to_their_ends`
+- `test_dragging_above_everything_clamps_to_the_first_message` → `src/ui/overlay/selection.rs::dragging_past_the_messages_clamps_to_their_ends`
+- `test_highlight_is_drawn_on_every_spanned_message` → `src/ui/overlay/selection.rs::selection_spans_three_messages_and_highlights_every_line_under_its_text`
+- `test_forgetting_a_row_before_the_selection_keeps_the_text` → `src/ui/overlay/selection.rs::prune_before_the_selection_keeps_the_text`
+- `test_forgetting_a_row_inside_the_selection_clears_it` → `src/ui/overlay/selection.rs::prune_of_selected_message_clears_selection`
+- `test_text_of_a_span_over_an_undrawn_row_comes_from_its_texts` → `src/ui/overlay/selection.rs::selected_text_survives_scrolling_out_of_view_and_rewrapping`
+- `test_hit_testing_skips_undrawn_rows` → `src/ui/overlay/selection.rs::rows_scrolled_out_of_view_are_not_hit`
+- `test_paint_adds_the_highlight_of_one_row_only` → 不移植：Tk 專屬：逐列重繪（`paint(row)`）；Rust 每幀依可見列整批繪製高亮，每行一塊且壓在該行文字之下由 `selection_spans_three_messages_and_highlights_every_line_under_its_text` 守住
+- `test_dragging_above_everything_clamps_to_the_first_drawn_row` → `src/ui/overlay/selection.rs::dragging_above_the_viewport_scrolls_and_grows_the_selection`（Rust 沒有「未畫列」，拖到視口上方會自動捲動並延伸選取到更早的訊息）
+- `test_paint_on_an_undrawn_row_draws_nothing` → 不移植：Tk 專屬：對尚未畫出的列呼叫 `paint`；Rust 只對本幀排版出的列產生高亮，不存在未畫列的繪製呼叫
+- `test_highlight_is_drawn_below_the_text` → `src/ui/overlay/selection.rs::selection_spans_three_messages_and_highlights_every_line_under_its_text`
+- `test_clear_removes_the_highlight_and_the_selection` → `src/ui/overlay/selection.rs::clear_removes_the_highlight_and_the_selection`
+- `test_forget_clears_a_selection_in_that_row` → `src/ui/overlay/selection.rs::prune_of_selected_message_clears_selection`
+- `test_redraw_keeps_the_selected_text` → `src/ui/overlay/selection.rs::selected_text_survives_scrolling_out_of_view_and_rewrapping`
+- `test_hit_accounts_for_canvas_scroll` → `src/ui/overlay/selection.rs::hit_testing_follows_the_scroll_position`
+
+## tests/ui/overlay/test_window.py
+
+- `test_is_click_within_threshold` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_is_click_beyond_threshold_is_drag` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_minimize_counts_unread_and_expand_resets` → `src/ui/app.rs::minimize_counts_unread_and_expand_resets`, `src/ui/overlay/model.rs::unread_counts_once_per_broadcast_only_for_shown_client`
+- `test_moved_to_adds_delta` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_south_east_grows_without_moving` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_south_east_clamps_to_minimum` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_west_moves_origin_and_keeps_right_edge` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_north_moves_origin_and_keeps_bottom_edge` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_west_freezes_origin_at_minimum_width` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_resized_edge_north_west_resizes_both_axes` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_edge_at_outside_window_is_no_edge` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_edge_at_interior_is_no_edge` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_edge_at_each_side` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_edge_at_corners_take_priority_over_sides` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_edge_at_ignores_corner_band_away_from_the_other_axis` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_error_banner_toggle` → `src/ui/overlay/banners.rs::error_and_update_banners_coexist_above_the_list`
+- `test_explicit_position_and_size_applied` → `src/ui/overlay/frame.rs::initial_placement_waits_for_the_window_then_applies_once`, `src/ui/overlay/frame.rs::first_launch_is_centered_and_saved_geometry_is_kept`
+- `test_geometry_change_callback_fires_on_manual_apply` → `src/ui/overlay/frame.rs::release_after_drag_reports_geometry_once`
+- `test_set_status_updates_bar_label` → `src/ui/overlay/frame.rs::title_bar_items_are_vertically_centred_and_buttons_are_bar_tall_squares`, `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（前者驗證標題列顯示 `status.listening` 文字，後者驗證換狀態／語言後重繪）
+- `test_thumb_hidden_when_content_fits` → `src/ui/overlay/scrollbar.rs::thumb_span_matches_python`
+- `test_thumb_span_follows_view_fraction` → `src/ui/overlay/scrollbar.rs::thumb_span_matches_python`
+- `test_thumb_span_keeps_minimum_length_inside_track` → `src/ui/overlay/scrollbar.rs::thumb_span_matches_python`
+- `test_scrollbar_stops_above_resize_grip` → `src/ui/overlay/message_list.rs::scrollbar_stays_clear_of_the_resize_bands_and_grip`
+- `test_scroll_fraction_subtracts_grab_offset_and_clamps` → `src/ui/overlay/scrollbar.rs::scroll_fraction_matches_python`
+- `test_point_in_rect_edges` → `tests/geometry_golden.rs::geometry_matches_python`
+- `test_should_auto_expand_when_bubble_becomes_foreground` → `src/ui/overlay/bubble.rs::auto_expand_only_on_becoming_foreground_without_pointer`
+- `test_no_auto_expand_while_cursor_on_bubble` → `src/ui/overlay/bubble.rs::auto_expand_only_on_becoming_foreground_without_pointer`, `src/ui/overlay/bubble.rs::holding_the_bubble_blocks_auto_expand_even_off_the_rect`
+- `test_no_auto_expand_when_bubble_already_foreground` → `src/ui/overlay/bubble.rs::auto_expand_only_on_becoming_foreground_without_pointer`
+- `test_no_auto_expand_for_other_windows` → `src/ui/overlay/bubble.rs::auto_expand_only_on_becoming_foreground_without_pointer`
+- `test_minimize_starts_foreground_watch_and_expand_stops_it` → `src/ui/app.rs::foreground_poll_runs_only_while_minimized`
+- `test_bubble_release_without_press_is_ignored` → `src/ui/overlay/bubble.rs::release_without_press_is_ignored`
+- `test_expand_reanchors_view_to_bottom` → `src/ui/app.rs::expand_reanchors_view_to_bottom`（新補）
+- `test_messages_received_as_a_bubble_are_visible_after_expand` → `src/ui/app.rs::messages_received_as_a_bubble_are_visible_after_expand`（新補）
+- `test_refresh_labels_retranslates_status_and_banner` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`
+- `test_message_font_follows_language` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（換語言後一般與粗體字族的主字型檔跟著換（zh-CN → msyh））
+- `test_window_close_button_runs_the_clean_shutdown` → `src/ui/app.rs::close_request_runs_on_close_once_before_the_window_goes`
+- `test_bubble_close_button_runs_the_clean_shutdown` → `src/ui/app.rs::bubble_close_takes_the_root_close_path`, `src/ui/overlay/bubble.rs::close_request_takes_the_shutdown_path`
+- `test_set_update_shows_a_clickable_banner` → `src/ui/overlay/banners.rs::clicking_the_update_row_opens_the_release_page`, `src/ui/overlay/banners.rs::dismissed_update_version_not_reoffered`
+- `test_update_banner_uses_an_opaque_background` → 不移植：Tk 專屬：視窗以 `-transparentcolor` 色鍵挖空，與底色同色的像素連 hit-test 都跳過；Rust 是逐像素 alpha，沒有色鍵。整列與 ✕ 可點的使用者可見行為由 `clicking_the_update_row_opens_the_release_page` 與 `dismissed_update_version_not_reoffered` 守住
+- `test_update_banner_leaves_room_for_the_resize_grip` → `src/ui/overlay/banners.rs::update_row_leaves_room_for_the_resize_grip`
+- `test_error_banner_formats_the_api_message_and_survives_language_switch` → `src/ui/overlay/banners.rs::error_banner_formats_args_and_links_urls`, `tests/overlay_relabel.rs::status_key_relabels_on_language_change`
+- `test_error_banner_makes_urls_in_the_api_message_clickable` → `src/ui/overlay/banners.rs::error_banner_formats_args_and_links_urls`, `src/ui/overlay/banners.rs::error_banner_link_yields_to_the_left_resize_band`
+- `test_update_banner_and_error_banner_coexist` → `src/ui/overlay/banners.rs::error_and_update_banners_coexist_above_the_list`
+- `test_update_banner_follows_language_and_width` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`, `src/ui/overlay/banners.rs::update_row_hit_area_stays_inside_the_visible_strip`（語言由前者驗證；窄寬度換行由後者以長文字在窄視窗驗證，Rust 無 Tk `wraplength` 可斷言）
+- `test_every_status_has_both_a_label_and_a_colour` → `src/ui/overlay/frame.rs::every_status_has_a_colour`
+- `test_wrapped_banners_stay_left_aligned` → 不移植：Tk 專屬：`tk.Label` 多行預設置中、要設 `justify="left"`；egui 標籤預設靠左，沒有這項設定可斷言
+- `test_refresh_labels_keeps_the_title_free_of_the_old_menu_glyph` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`, `src/ui/overlay/frame.rs::title_bar_items_are_vertically_centred_and_buttons_are_bar_tall_squares`（前者斷言換語言後視窗標題仍是 app 名稱；標題列文字就是傳入的名稱，Rust 沒有 ≡ 字元的來源）
+- `test_minimize_clears_the_selection` → `src/ui/app.rs::minimizing_clears_the_selection`
+- `test_press_on_a_message_starts_a_selection` → `src/ui/overlay/selection.rs::press_on_a_line_starts_a_selection_and_takes_focus`, `src/ui/overlay/selection.rs::dragging_across_both_lines_selects_both`
+- `test_press_on_a_row_scrolled_out_of_view_is_ignored` → `src/ui/overlay/selection.rs::rows_scrolled_out_of_view_are_not_hit`
+- `test_backdrop_press_away_from_any_edge_starts_a_selection` → `src/ui/overlay/selection.rs::dragging_from_the_first_character_selects_instead_of_resizing`（Rust 沒有底窗／畫布兩層事件路徑，只有一條；起手位置貼近縮放帶但不在帶內時仍選取）
+- `test_backdrop_press_on_an_edge_still_resizes` → `src/ui/overlay/selection.rs::press_in_a_resize_band_resizes_instead_of_selecting`
+- `test_view_does_not_jump_to_the_bottom_while_selecting` → `src/ui/overlay/message_list.rs::dragging_a_selection_suspends_auto_follow_until_content_changes`, `src/ui/overlay/message_list.rs::a_message_arriving_in_the_release_frame_does_not_snap_to_the_bottom`
+- `test_copy_writes_only_when_something_is_selected` → `src/ui/overlay/selection.rs::ctrl_c_with_caps_lock_copies`
+- `test_right_click_without_a_selection_pops_no_menu` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
+- `test_right_click_with_a_selection_pops_the_themed_menu` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
+- `test_choosing_copy_from_the_menu_copies_and_closes` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
+- `test_clicking_a_message_closes_the_menu` → `src/ui/overlay/selection.rs::pressing_anywhere_else_closes_the_menu`
+- `test_clicking_the_title_bar_closes_the_menu` → `src/ui/overlay/selection.rs::pressing_anywhere_else_closes_the_menu`
+- `test_autoscroll_is_still_inside_the_viewport` → `src/ui/text_select.rs::autoscroll_pixels_matches_python`
+- `test_autoscroll_goes_up_above_the_viewport_and_down_below_it` → `src/ui/text_select.rs::autoscroll_pixels_matches_python`
+- `test_autoscroll_speeds_up_with_distance_but_is_capped` → `src/ui/text_select.rs::autoscroll_pixels_matches_python`
+- `test_dragging_above_the_viewport_scrolls_and_grows_the_selection` → `src/ui/overlay/selection.rs::dragging_above_the_viewport_scrolls_and_grows_the_selection`
+- `test_autoscroll_stops_once_the_drag_ends` → `src/ui/overlay/selection.rs::dragging_above_the_viewport_scrolls_and_grows_the_selection`（同一測試的後半段斷言放開後不再捲動）
+- `test_minimize_closes_the_menu` → `src/ui/app.rs::minimizing_closes_the_copy_menu`
+- `test_selection_entry_points_are_bound` → 不移植：Tk 專屬：檢查 `bind` 是否掛上事件序列；Rust 沒有綁定表，入口行為由會真的送出事件的測試覆蓋（`ctrl_c_with_caps_lock_copies`、`context_menu_only_with_selection`、`press_on_a_line_starts_a_selection_and_takes_focus`）
+- `test_offer_update_shows_the_banner_when_nothing_was_dismissed` → `src/ui/overlay/banners.rs::clear_update_does_not_count_as_dismissing`, `src/ui/overlay/banners.rs::offer_update_skips_versions_not_newer_than_dismissed`
+- `test_offer_update_skips_a_version_the_user_dismissed` → `src/ui/overlay/banners.rs::dismissed_update_version_not_reoffered`, `src/ui/overlay/banners.rs::offer_update_skips_versions_not_newer_than_dismissed`
+- `test_set_update_ignores_the_dismissed_version` → `src/ui/overlay/banners.rs::dismissed_update_version_not_reoffered`
+- `test_region_button_invokes_the_callback_when_provided` → `src/ui/overlay/frame.rs::each_title_button_maps_to_its_action_without_moving`
+- `test_region_button_absent_without_a_callback` → 不移植：Rust 的 ⛶ 按鈕一律存在（`Clicked::Region` 由宿主處理），沒有「未提供回呼就隱藏」的分支；正式程式兩邊都固定提供，使用者可見行為一致。已知：此分支在 Rust 不存在，不是測試缺口
+- `test_region_button_tooltip_shows_the_configured_hotkey` → `src/ui/overlay/frame.rs::region_tooltip_shows_the_hotkey_after_a_pause`
+- `test_set_region_hotkey_updates_the_tooltip_on_the_next_show` → `src/ui/app.rs::region_tooltip_shows_the_set_hotkey_after_half_a_second`
+- `test_clear_update_does_not_count_as_dismissing` → `src/ui/overlay/banners.rs::clear_update_does_not_count_as_dismissing`
+- `test_tab_bar_shows_game_labels_and_highlights_current` → `src/ui/overlay/tab_bar.rs::shows_every_game_label`, `src/ui/overlay/tab_bar.rs::only_the_current_tab_gets_a_two_pixel_accent_underline`, `src/ui/app.rs::tab_bar_sits_between_the_title_bar_and_the_list`
+- `test_tab_bar_hidden_until_a_state_arrives` → `src/ui/overlay/tab_bar.rs::hidden_without_tabs`
+- `test_messages_are_kept_per_tab_and_follow_the_game_tab` → `src/ui/overlay/model.rs::messages_go_to_each_tab_view`
+- `test_messages_for_a_tab_not_in_the_bar_are_kept` → `src/ui/overlay/model.rs::messages_go_to_each_tab_view`
+- `test_broadcast_lands_in_every_listed_tab` → `src/ui/overlay/model.rs::broadcast_lands_in_every_listed_tab`
+- `test_foreground_slot_switches_the_whole_view` → `src/ui/overlay/model.rs::foreground_slot_switches_the_whole_view`
+- `test_repeating_the_foreground_slot_keeps_the_view` → `src/ui/overlay/message_list.rs::repeating_the_foreground_slot_keeps_the_view`, `src/ui/events.rs::repeated_foreground_slot_neither_queues_nor_repaints`（前者新補）
+- `test_unread_counts_only_the_foreground_client` → `src/ui/overlay/model.rs::unread_counts_once_per_broadcast_only_for_shown_client`
+- `test_autoscrolling_a_selection_into_the_undrawn_area_keeps_it_on_the_same_text` → `src/ui/overlay/selection.rs::selected_text_survives_scrolling_out_of_view_and_rewrapping`, `src/ui/overlay/selection.rs::dragging_above_the_viewport_scrolls_and_grows_the_selection`
+
+## tests/ui/test_fonts.py
+
+- `test_font_family_follows_language` → `tests/i18n_golden.rs::font_family_matches_python`, `src/ui/fonts_egui.rs::primary_font_first_then_other_cjk_then_thai_and_symbols`
+- `test_font_family_comes_from_the_script` → `tests/i18n_golden.rs::font_family_matches_python`
+- `test_font_accepts_weight` → `src/ui/fonts_egui.rs::bold_file_follows_the_primary_font`, `src/ui/fonts_egui.rs::system_fonts_put_bold_and_icon_files_first`
+
+## tests/ui/test_icons.py
+
+- `test_apply_window_icon_survives_missing_file` → 不移植：Rust 的圖示以 `include_bytes!` 編進 exe（規格「單一 exe 與資源」），沒有可能遺失的 .ico 檔；解碼失敗是程式錯誤，由 `app_icon()` 的 `expect` 直接擋下
+- `test_apply_window_icon_installs_it_on_the_window_class` → `src/ui/app.rs::root_viewport_carries_the_app_icon`, `tests/app_main.rs::exe_embeds_the_app_icon_resource`（Rust 在根 viewport 與設定視窗各自 `with_icon`，沒有 Win32 視窗類別圖示可讀；輸入框、框選等無工作列的子視窗不帶圖示）
+
+## tests/ui/test_input_box.py
+
+- `test_stale_session_discarded_on_cancel` → `src/ui/input_box.rs::stale_session_discarded_on_cancel`
+- `test_error_message_urls_are_clickable` → `src/ui/input_box.rs::error_message_urls_are_clickable`
+- `test_finish_over_limit_keeps_window_and_blocks_send` → `src/ui/input_box.rs::finish_over_limit_keeps_window_and_blocks_send`
+- `test_finish_within_limit_sends_and_closes` → `src/ui/input_box.rs::finish_within_limit_sends_and_closes`
+- `test_close_with_stale_target_hwnd_does_not_crash` → `src/ui/input_box.rs::close_with_stale_target_hwnd_does_not_crash`（新補；同時斷言 `win32::force_foreground` 對已不存在的 hwnd 回 false 而不 panic）
+- `test_enter_on_empty_input_closes_window` → `src/ui/input_box.rs::enter_on_empty_input_closes_window`
+- `test_non_cancelled_translation_succeeds` → `src/ui/input_box.rs::non_cancelled_translation_succeeds`
+- `test_stale_error_discarded_on_cancel` → `src/ui/input_box.rs::stale_error_discarded_on_cancel`
+- `test_current_error_shown_on_error` → `src/ui/input_box.rs::current_error_shown_on_error`
+- `test_worker_failure_error_callback_runs` → `tests/app_main.rs::outgoing_translate_posts_the_localized_error_and_logs_the_service`, `src/ui/input_box.rs::current_error_shown_on_error`（Python 的 `NameError` 是 except 區塊變數出範圍的 Python 專屬 bug；Rust 驗證失敗確實以 `UiEvent::OutgoingDone` 送回並顯示）
+- `test_anchored_position_sits_below_the_anchor` → `src/ui/input_box.rs::anchored_position_sits_below_the_anchor`
+- `test_anchored_position_flips_above_when_no_room_below` → `src/ui/input_box.rs::anchored_position_flips_above_when_no_room_below`
+- `test_anchored_position_clamps_into_the_work_area` → `src/ui/input_box.rs::anchored_position_clamps_into_the_work_area`
+- `test_show_places_the_box_below_the_anchor` → `src/ui/input_box.rs::show_uses_the_anchor_width`（驗證錨點正下方、左緣對齊、與錨點同寬；Python 要扣 Tk 視窗的隱形邊框（寬 −2、左 −7），Rust 以 `win32::remove_system_frame` 去掉系統外框，外框矩形就是可見矩形，無須扣除）
+- `test_show_flips_above_using_the_visible_frame_height` → `src/ui/input_box.rs::box_placed_above_the_anchor_grows_upward`, `src/ui/input_box.rs::anchored_position_flips_above_when_no_room_below`（Rust 以含標題條的整體內容高度算翻到上方的位置，沒有 Tk 的「client 高 + 標題列」換算）
+- `test_show_without_anchor_sits_at_the_cursor` → `src/ui/input_box.rs::show_without_anchor_sits_at_the_cursor`
+- `test_clear_anchor_makes_show_use_the_cursor` → `src/ui/input_box.rs::clear_anchor_makes_show_use_the_cursor`
+- `test_anchor_set_while_open_applies_on_the_next_show` → `src/ui/input_box.rs::anchor_set_while_open_applies_on_the_next_show`
+- `test_show_uses_the_anchor_width` → `src/ui/input_box.rs::show_uses_the_anchor_width`, `src/ui/input_box.rs::width_follows_the_anchor_in_physical_pixels_at_150_percent`
+- `test_shown_box_visible_frame_matches_the_anchor` → `src/ui/input_box.rs::show_uses_the_anchor_width`, `src/ui/input_box.rs::width_follows_the_anchor_in_physical_pixels_at_150_percent`（Python 以 DWM 讀回實際可見邊界；Rust 因無系統外框，矩形運算即可見矩形，實際視窗擺放（`set_window_rect`）靠實機驗收）
+- `test_growth_stays_pinned_when_tk_already_grew_the_window` → `src/ui/input_box.rs::box_placed_above_the_anchor_grows_upward`, `src/ui/input_box.rs::growth_after_dragging_pins_the_dragged_bottom`（「Tk 先自行撐高再補 `_fit_height`」的競態在 Rust 不存在：`refit` 是以量到的內容高度與目前外框一次算出的純函式）
+- `test_growth_after_dragging_pins_the_dragged_bottom` → `src/ui/input_box.rs::growth_after_dragging_pins_the_dragged_bottom`
+- `test_box_placed_above_the_anchor_grows_upward` → `src/ui/input_box.rs::box_placed_above_the_anchor_grows_upward`
+- `test_visible_chrome_measures_the_frame_of_a_hidden_window` → 不移植：Rust 輸入框用 `win32::remove_system_frame` 去掉系統外框與標題列（規格允許外觀改變），沒有需要量測的隱形邊框與標題列；擺放仍用同一份錨點定位語意（`open_rect`）
+- `test_show_clamps_the_anchor_width_to_minimum` → `src/ui/input_box.rs::show_clamps_the_anchor_width_to_minimum`
+- `test_show_without_any_anchor_uses_the_default_width` → `src/ui/input_box.rs::show_without_any_anchor_uses_the_default_width`
+- `test_bottom_pin_does_not_loop_when_the_geometry_is_rewritten` → 不移植：Tk 專屬：`-Y` 幾何寫法在 `<Configure>` 回呼裡重入的無限迴圈；Rust 沒有事件回呼重入，`input_host.rs` 只在量到的內容高度改變時才套用一次 `refit`
+- `test_fit_height_shrinks_when_the_status_needs_fewer_lines` → `src/ui/input_host.rs::fit_height_shrinks_when_the_status_needs_fewer_lines`（新補）
+- `test_shown_box_fits_the_wrapped_hint` → `src/ui/input_host.rs::shown_box_fits_the_wrapped_hint`（新補；斷言提示在窄寬度換行且內容高度涵蓋整段提示）
+- `test_box_is_not_resizable` → 不移植：Tk 視窗組態（`resizable()`）；Rust 輸入框無系統外框，只設 `ViewportBuilder::with_resizable(false)`，沒有可拖的縮放邊，亦無可斷言的狀態
+- `test_error_message_follows_language` → `tests/app_main.rs::outgoing_translate_posts_the_localized_error_and_logs_the_service`（錯誤文案由 `t("input.failed")` 在失敗當下現取；各語系字串由 i18n golden 與語言檔檢查把關，該測試以 `t()` 取期望值、未固定為英文字面）
+- `test_is_open_tracks_window_lifecycle` → `src/ui/input_box.rs::is_open_tracks_window_lifecycle`
+- `test_outgoing_translation_failure_is_logged` → `tests/app_main.rs::outgoing_translate_posts_the_localized_error_and_logs_the_service`
+- `test_retarget_changes_target_hwnd_while_open` → `src/ui/input_box.rs::retarget_changes_target_hwnd_while_open`, `tests/input_box.rs::retarget_logs_only_real_changes`
+- `test_retarget_is_a_no_op_for_none_or_same_hwnd` → `src/ui/input_box.rs::retarget_is_a_no_op_for_none_or_same_hwnd`, `tests/input_box.rs::retarget_logs_only_real_changes`
+- `test_hide_keeps_the_unsent_draft_for_the_next_show` → `src/ui/input_box.rs::hide_keeps_the_unsent_draft_for_the_next_show`, `src/ui/input_box.rs::restored_draft_puts_the_cursor_at_the_end`
+- `test_manual_close_discards_the_draft` → `src/ui/input_box.rs::manual_close_discards_the_draft`
+- `test_sent_text_is_not_restored` → `src/ui/input_box.rs::sent_text_is_not_restored`
+- `test_hide_while_translating_restores_an_editable_draft` → `src/ui/input_box.rs::hide_while_translating_restores_an_editable_draft`
+- `test_closing_the_box_while_translating_cancels_the_request` → `src/ui/input_box.rs::closing_the_box_while_translating_cancels_the_request`
+- `test_the_failure_log_names_the_service` → `tests/app_main.rs::outgoing_translate_posts_the_localized_error_and_logs_the_service`
+
+## tests/ui/test_popup.py
+
+- `test_clamped_position_keeps_a_fitting_popup_where_it_is` → `tests/geometry_golden.rs::geometry_matches_python`（`clamped_position` 的 golden 案例）
+- `test_clamped_position_pulls_back_from_the_right_edge` → `tests/geometry_golden.rs::geometry_matches_python`（`clamped_position` 的 golden 案例）
+- `test_clamped_position_pulls_back_from_the_bottom_edge` → `tests/geometry_golden.rs::geometry_matches_python`（`clamped_position` 的 golden 案例）
+- `test_clamped_position_never_goes_past_the_top_left` → `tests/geometry_golden.rs::geometry_matches_python`（`clamped_position` 的 golden 案例）
+- `test_show_makes_it_visible_with_the_given_label` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
+- `test_label_follows_what_is_passed_each_time` → `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（換語言後選單文字由「複製」變 "Copy"）
+- `test_hide_makes_it_invisible` → `src/ui/overlay/selection.rs::pressing_anywhere_else_closes_the_menu`
+- `test_clicking_the_row_fires_the_callback_and_closes` → `src/ui/overlay/selection.rs::context_menu_only_with_selection`
+- `test_the_popup_never_takes_keyboard_focus` → 不移植：Rust 選單是 overlay 同一 viewport 內的 `egui::Area`（`src/ui/copy_menu.rs`），不是獨立視窗，沒有焦點可被取走；選單開著時 Ctrl+C 仍有效由 `src/ui/overlay/selection.rs::ctrl_c_with_caps_lock_copies` 守住
+- `test_hover_swaps_the_row_colours` → `src/ui/overlay/selection.rs::hovering_the_menu_swaps_its_colours`
+- `test_hiding_an_already_hidden_popup_is_harmless` → 不移植：Rust 選單沒有 `hide()`，開關由 `menu_rect: Option` 表示，關閉就是設為 `None`，不存在「對已隱藏者再隱藏」的呼叫
+- `test_the_popup_never_becomes_the_active_window` → 不移植：Tk 獨立 Toplevel 的 `WS_EX_NOACTIVATE` 樣式；Rust 選單與 overlay 同一視窗、不是另一個可被啟用的視窗
+- `test_the_popup_is_a_borderless_topmost_window` → 不移植：Tk 獨立 Toplevel 的 overrideredirect／topmost 屬性；Rust 選單以 `Order::Foreground` 疊在 overlay 之上，位置不超出視窗由 `src/ui/overlay/selection.rs::menu_stays_inside_the_overlay` 守住
+
+## tests/ui/test_richtext.py
+
+- `test_linkify_wraps_bare_urls_in_link_markup` → `tests/richtext_golden.rs::linkify_matches_python`
+- `test_rich_label_shows_plain_text_and_reports_it_back` → `src/ui/richtext.rs::plain_text_has_no_links`
+- `test_rich_label_turns_bare_urls_into_link_segments` → `tests/richtext_golden.rs::linkify_matches_python`, `tests/richtext_golden.rs::link_markup_matches_python`, `src/ui/richtext.rs::clicking_a_bare_url_opens_it`
+- `test_rich_label_grows_to_fit_wrapped_lines` → `src/ui/richtext.rs::long_text_wraps_within_the_width`
+- `test_rich_label_click_on_link_opens_browser` → `src/ui/richtext.rs::clicking_a_bare_url_opens_it`
+- `test_rich_label_fits_a_long_unbreakable_word` → `src/ui/richtext.rs::rich_label_fits_a_long_unbreakable_word`（新補；Python 守的是 Tk `count displaylines` 少算一行，Rust 守同一個使用者可見結果：超長無空白字串後的文字仍完整畫在區域內）
+- `test_rich_label_reports_height_changes` → `src/ui/input_host.rs::fit_height_shrinks_when_the_status_needs_fewer_lines`, `src/ui/input_host.rs::shown_box_fits_the_wrapped_hint`（Rust 沒有高度變動回呼，`content()` 每幀回傳內容高度給宿主）
+- `test_rich_label_set_blocks_joins_blocks_with_a_blank_line` → `src/ui/region/card.rs::source_sits_dimmed_and_smaller_above_the_translation_after_a_blank_line`
+- `test_rich_label_set_blocks_colours_each_block` → `src/ui/region/card.rs::source_sits_dimmed_and_smaller_above_the_translation_after_a_blank_line`
+- `test_rich_label_set_blocks_keeps_links_clickable` → `src/ui/region/card.rs::urls_are_underlined_links_and_markup_shows_only_its_text`, `src/ui/region/card.rs::clicking_a_link_opens_it_and_closes_the_card`
+- `test_rich_label_set_before_layout_never_balloons` → 不移植：Tk 專屬：先 `set` 再 `pack` 時寬度還是佔位的 1px，長句被算成一字一行；egui 每幀以實際可用寬度排版，沒有佔位寬度階段
+- `test_rich_label_natural_width_is_the_widest_line_unwrapped` → `src/ui/region/card.rs::rich_label_natural_width_is_the_widest_line_unwrapped`（新補；`natural_width` 在 Rust 屬框選結果卡）
+- `test_rich_label_natural_width_measures_each_block_with_its_own_font` → `src/ui/region/card.rs::rich_label_natural_width_measures_each_block_with_its_own_font`（新補）
+- `test_rich_label_natural_width_counts_the_link_label_not_the_markup` → `src/ui/region/card.rs::rich_label_natural_width_counts_the_link_label_not_the_markup`（新補）
+
+## tests/ui/test_tooltip.py
+
+- `test_hovering_shows_the_tooltip_after_a_delay` → `src/ui/overlay/frame.rs::region_tooltip_shows_the_hotkey_after_a_pause`, `src/ui/app.rs::region_tooltip_shows_the_set_hotkey_after_half_a_second`
+- `test_leaving_hides_the_tooltip` → `src/ui/overlay/frame.rs::leaving_hides_the_tooltip`（新補）
+- `test_leaving_before_the_delay_elapses_cancels_the_show` → `src/ui/overlay/frame.rs::leaving_before_the_delay_elapses_cancels_the_show`（新補）
+- `test_text_fn_is_re_evaluated_on_each_show` → `src/ui/app.rs::region_tooltip_shows_the_set_hotkey_after_half_a_second`, `tests/overlay_relabel.rs::status_key_relabels_on_language_change`（提示文字每幀現取（`t()` 加目前熱鍵），換熱鍵、換語言後下一次顯示即更新）
+- `test_button_press_cancels_and_hides` → `src/ui/overlay/frame.rs::button_press_hides_the_tooltip`（新補；原本 Rust 按住按鈕時提示不會收起，已修（見 `fix(rust)` 提交）；放開後游標仍停在按鈕上時，egui 會再顯示提示，舊版要離開再進入才會再現）
+- `test_tooltip_never_takes_keyboard_focus` → 不移植：Rust 提示框是 egui 在同一 viewport 內畫的浮層（`on_hover_ui_at_pointer`），不是獨立視窗，沒有焦點可取

@@ -314,6 +314,75 @@ mod tests {
         assert!(harness.state().1);
     }
 
+    type Requests = std::rc::Rc<std::cell::RefCell<Vec<crate::ui::input_box::OutgoingRequest>>>;
+
+    /// 開著的輸入框內容（寬 `width` DIP）；狀態是（輸入框, 最近一幀的內容高度, 內容頂端 y）。
+    fn content_harness(width: f32) -> (Harness<'static, (InputBox, f32, f32)>, Requests) {
+        let requests = Requests::default();
+        let sink = std::rc::Rc::clone(&requests);
+        let mut input = InputBox::new(
+            Box::new(move |request| sink.borrow_mut().push(request)),
+            Box::new(|_, _| {}),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            || 0xA,
+            || (0, 0),
+        );
+        input.show();
+        let mut harness = Harness::builder()
+            .with_size(Vec2::new(width, 400.0))
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+            .build_ui_state(
+                |ui, (input, height, top): &mut (InputBox, f32, f32)| {
+                    *top = ui.max_rect().min.y;
+                    *height = content(ui, input);
+                },
+                (input, 0.0, 0.0),
+            );
+        harness.run_steps(3);
+        (harness, requests)
+    }
+
+    #[test]
+    fn fit_height_shrinks_when_the_status_needs_fewer_lines() {
+        let (mut harness, requests) = content_harness(460.0);
+        harness.event(egui::Event::Text("hi".into()));
+        harness.key_press(egui::Key::Enter);
+        harness.run_steps(3);
+        let session = requests.borrow()[0].session;
+        let long = "a long error message that needs several lines ".repeat(8);
+        harness.state_mut().0.finish(session, Err(long));
+        harness.run_steps(3);
+        let taller = harness.state().1;
+        harness.key_press(egui::Key::Enter);
+        harness.run_steps(3);
+        assert!(
+            harness.state().1 < taller,
+            "{} !< {taller}",
+            harness.state().1
+        );
+    }
+
+    #[test]
+    fn shown_box_fits_the_wrapped_hint() {
+        let hint = crate::i18n::t("input.hint", &[]);
+        let height_at = |width: f32| {
+            let harness = content_harness(width).0;
+            let hint_bottom = harness
+                .get_by(|n| n.value().is_some_and(|v| v == hint))
+                .rect()
+                .max
+                .y
+                - harness.state().2;
+            let height = harness.state().1;
+            assert!(
+                hint_bottom <= height,
+                "hint cut off: {hint_bottom} > {height}"
+            );
+            height
+        };
+        assert!(height_at(460.0) > height_at(1400.0), "the hint must wrap");
+    }
+
     #[test]
     fn showing_waits_for_the_trigger_key_release_up_to_a_second() {
         let t0 = Instant::now();

@@ -421,6 +421,20 @@ mod tests {
     }
 
     #[test]
+    fn hidden_pending_and_failed_rows_keep_their_colours() {
+        let mut model = OverlayModel::new(10, 0);
+        model.set_tabs(1, Some(state(0)));
+        let now = Instant::now();
+        model.add_message(1, &[1], "a", "...", Some(1), true, None, now);
+        model.add_message(1, &[1], "b", "...", Some(2), true, None, now);
+        model.update_message(2, "⚠", true);
+        model.set_tabs(1, Some(state(1)));
+        let messages = &model.current_view().unwrap().messages;
+        assert_eq!(messages[0].translated_color(), FG_PENDING);
+        assert_eq!(messages[1].translated_color(), FG_ERROR);
+    }
+
+    #[test]
     fn max_messages_drops_oldest() {
         let mut model = OverlayModel::new(3, 0);
         for i in 0..5 {

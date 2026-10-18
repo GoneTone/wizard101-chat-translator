@@ -811,6 +811,8 @@ mod tests {
     use crate::ui::input_box::OutgoingRequest;
     use crate::ui::overlay::banners::Release;
     use crate::ui::overlay::bubble::POLL_INTERVAL;
+    use crate::ui::overlay::message_list::ROW_PAD;
+    use crate::ui::overlay::outlined::line_height;
     use crate::ui::region::selector::SelectorAction;
     use crate::ui::region_host::fakes;
     use egui_kittest::Harness;
@@ -1137,6 +1139,77 @@ mod tests {
         assert!(!app.minimized && app.bubble.is_none());
         assert_eq!(app.model.unread(), 0);
         assert_eq!(app.model.current_view().unwrap().messages.len(), 3);
+    }
+
+    fn long_message(i: usize) -> UiEvent {
+        UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: format!("message {i}: a chat line long enough to wrap in a narrow window"),
+            translated: format!("第 {i} 則譯文，長度足以換行，窄視窗下一定會換成兩行以上"),
+            msg_id: None,
+            pending: false,
+            color: None,
+        }
+    }
+
+    /// 最新一則完整落在清單視口底緣。
+    fn newest_is_in_view(app: &App) -> bool {
+        let Some(last) = app.list.rows().last() else {
+            return false;
+        };
+        let newest = app
+            .model
+            .current_view()
+            .unwrap()
+            .messages
+            .last()
+            .unwrap()
+            .seq;
+        let (origin, galley) = &last.lines[1];
+        let bottom = origin.y + line_height(galley) + ROW_PAD;
+        last.seq == newest && (bottom - app.list.viewport().max.y).abs() < 0.01
+    }
+
+    #[test]
+    fn expand_reanchors_view_to_bottom() {
+        let (poster, inbox) = channel();
+        for i in 0..40 {
+            poster.post(long_message(i));
+        }
+        let mut harness = app_harness(inbox);
+        harness.step();
+        assert!(newest_is_in_view(harness.state()));
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        for i in 100..106 {
+            poster.post(long_message(i));
+            harness.step();
+        }
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(3);
+        assert!(harness.state().list.follow());
+        assert!(newest_is_in_view(harness.state()));
+    }
+
+    #[test]
+    fn messages_received_as_a_bubble_are_visible_after_expand() {
+        let (poster, inbox) = channel();
+        for i in 0..40 {
+            poster.post(long_message(i));
+        }
+        let mut harness = app_harness(inbox);
+        harness.step();
+        harness.get_by_label("─").click();
+        harness.step();
+        assert!(harness.state().bubble.is_some());
+        for i in 200..204 {
+            poster.post(long_message(i));
+            harness.step();
+        }
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(3);
+        assert!(newest_is_in_view(harness.state()));
     }
 
     #[test]

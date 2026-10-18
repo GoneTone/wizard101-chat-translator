@@ -459,6 +459,18 @@ mod tests {
     }
 
     #[test]
+    fn close_with_stale_target_hwnd_does_not_crash() {
+        let mut f = fixture();
+        f.input.show();
+        f.input.retarget(0x7FFF_FFFF);
+        f.input.close();
+        assert!(!f.input.is_open());
+        let stale = f.input.take_restore_foreground().unwrap();
+        assert_eq!(stale, 0x7FFF_FFFF);
+        assert!(!crate::ui::win32::force_foreground(stale));
+    }
+
+    #[test]
     fn enter_on_empty_input_closes_window() {
         let mut f = fixture();
         f.input.show();

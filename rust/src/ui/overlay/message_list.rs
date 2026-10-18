@@ -1007,6 +1007,135 @@ mod tests {
         assert!(row_y(&h, seq).unwrap() > y);
     }
 
+    fn two_tabs(current: i32) -> TabState {
+        TabState {
+            tabs: vec![(0, "Main".into()), (1, "Group".into())],
+            current,
+        }
+    }
+
+    #[test]
+    fn resize_while_hidden_rewraps_on_show() {
+        let mut h = harness(OverlayModel::new(50, 0));
+        h.state_mut().model.set_tabs(1, Some(two_tabs(0)));
+        h.step();
+        let now = h.state().t0;
+        for _ in 0..2 {
+            let model = &mut h.state_mut().model;
+            let (original, translated) =
+                ("group chat line ".repeat(12), "隊伍頻道的譯文 ".repeat(12));
+            model.add_message(1, &[1], &original, &translated, None, false, None, now);
+        }
+        h.step();
+        h.set_size(Vec2::new(300.0, SIZE.y));
+        h.step();
+        h.state_mut().model.set_tabs(1, Some(two_tabs(1)));
+        h.step();
+        let rect = h.state().rect;
+        let wrap = track_left_of(rect) - rect.min.x - 2.0 * TEXT_MARGIN;
+        let rows = h.state().list.rows();
+        assert!(!rows.is_empty());
+        for (origin, galley) in rows.iter().flat_map(|r| &r.lines) {
+            assert!(galley.size().x <= wrap + 0.5, "{origin:?}");
+            assert!(galley.rows.len() > 1, "the narrow wrap must add lines");
+        }
+        assert!(covered(&h));
+    }
+
+    #[test]
+    fn showing_a_stale_tab_rewraps_it_before_it_is_visible() {
+        let mut h = harness(OverlayModel::new(50, 0));
+        h.state_mut().model.set_tabs(1, Some(two_tabs(0)));
+        let now = h.state().t0;
+        for _ in 0..3 {
+            let model = &mut h.state_mut().model;
+            model.add_message(
+                1,
+                &[0, 1],
+                &"原文".repeat(20),
+                &"譯文".repeat(20),
+                None,
+                false,
+                None,
+                now,
+            );
+        }
+        h.step();
+        for tab in [1, 0] {
+            h.state_mut().model.set_tabs(1, Some(two_tabs(tab)));
+            h.step();
+        }
+        h.set_size(Vec2::new(240.0, SIZE.y));
+        h.step();
+        h.state_mut().model.set_tabs(1, Some(two_tabs(1)));
+        h.step();
+        let rect = h.state().rect;
+        let wrap = track_left_of(rect) - rect.min.x - 2.0 * TEXT_MARGIN;
+        for (_, galley) in h.state().list.rows().iter().flat_map(|r| &r.lines) {
+            assert!(galley.size().x <= wrap + 0.5);
+        }
+    }
+
+    #[test]
+    fn add_after_a_tab_switch_in_the_same_turn_still_sticks_to_bottom() {
+        let mut h = harness(OverlayModel::new(200, 0));
+        h.state_mut().model.set_tabs(1, Some(two_tabs(0)));
+        for i in 0..30 {
+            add(&mut h, i, &[0, 1], false);
+        }
+        h.step();
+        for tab in [1, 0] {
+            h.state_mut().model.set_tabs(1, Some(two_tabs(tab)));
+            h.step();
+        }
+        add(&mut h, 30, &[0], false);
+        h.state_mut().model.set_tabs(1, Some(two_tabs(1)));
+        add(&mut h, 31, &[1], false);
+        h.step();
+        assert!(at_bottom(&h));
+    }
+
+    #[test]
+    fn repeating_the_foreground_slot_keeps_the_view() {
+        let mut h = filled(40, 200, 0);
+        wheel(&mut h, 5.0);
+        let (seq, y) = reading(&h);
+        assert!(!h.state().list.follow());
+        h.state_mut().model.set_foreground_slot(Some(1));
+        h.step();
+        assert_eq!(row_y(&h, seq), Some(y));
+        assert!(!h.state().list.follow());
+    }
+
+    #[test]
+    fn switching_tabs_is_independent_of_message_count() {
+        let mut h = harness(OverlayModel::new(1000, 0));
+        h.state_mut().model.set_tabs(1, Some(two_tabs(0)));
+        for i in 0..1000 {
+            add(&mut h, i, &[0, 1], false);
+        }
+        h.step();
+        for tab in [1, 0, 1, 0] {
+            h.state_mut().model.set_tabs(1, Some(two_tabs(tab)));
+            h.step();
+            let laid_out = h.state().list.rows().len();
+            assert!(laid_out < 60, "tab {tab} laid out {laid_out} rows");
+            assert!(at_bottom(&h) && covered(&h));
+        }
+    }
+
+    #[test]
+    fn adding_a_message_stays_cheap() {
+        let mut h = harness(OverlayModel::new(1000, 0));
+        for i in 0..1000 {
+            add(&mut h, i, &[0], false);
+            h.step();
+            let laid_out = h.state().list.rows().len();
+            assert!(laid_out < 60, "message {i} laid out {laid_out} rows");
+        }
+        assert!(at_bottom(&h));
+    }
+
     #[test]
     fn scrollbar_hidden_when_content_fits() {
         let mut h = harness(OverlayModel::new(10, 0));

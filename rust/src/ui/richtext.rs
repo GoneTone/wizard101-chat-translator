@@ -180,4 +180,30 @@ mod tests {
             .rect();
         assert!(rect.max.x <= 240.0 && rect.height() > 20.0, "{rect:?}");
     }
+
+    #[test]
+    fn rich_label_fits_a_long_unbreakable_word() {
+        let text = format!(
+            "see https://a.example/{}end，請開啟設定檢查",
+            "verylongpath/".repeat(8)
+        );
+        let mut harness = Harness::builder()
+            .with_size(egui::vec2(200.0, 400.0))
+            .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
+            .build_ui(move |ui| show(ui, &text, Color32::RED));
+        harness.step();
+        let bounds = harness.ctx.content_rect();
+        let mut tail_seen = false;
+        for clipped in &harness.output().shapes {
+            if let egui::Shape::Text(shape) = &clipped.shape {
+                let rect = shape.visual_bounding_rect();
+                assert!(
+                    bounds.contains_rect(rect.shrink(0.5)),
+                    "{rect:?} {bounds:?}"
+                );
+                tail_seen |= shape.galley.text().contains("請開啟設定檢查");
+            }
+        }
+        assert!(tail_seen, "the last word must be drawn inside the area");
+    }
 }
