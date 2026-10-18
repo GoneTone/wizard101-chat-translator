@@ -15,7 +15,8 @@ use wizard101_chat_translator::translation::examples::{ExampleStore, examples_fi
 /// 把環境變數指向的檔案複製進暫存資料夾，回傳副本路徑。
 fn copy_of(key: &str, dir: &Path) -> PathBuf {
     let source = PathBuf::from(std::env::var(key).unwrap_or_else(|_| panic!("{key} is not set")));
-    let copy = dir.join(source.file_name().expect("env path has a file name"));
+    let name = source.file_name().expect("env path has a file name");
+    let copy = dir.join(format!("{key}-{}", name.to_string_lossy()));
     std::fs::copy(&source, &copy).unwrap_or_else(|e| panic!("copy {key}: {e}"));
     copy
 }

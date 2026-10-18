@@ -255,12 +255,7 @@ mod tests {
 
     #[test]
     fn truncated_error_quotes_the_sample_like_python_repr() {
-        let error = truncated(
-            64,
-            None,
-            "it's
-a loop",
-        );
+        let error = truncated(64, None, "it's\na loop");
         assert_eq!(
             error,
             TranslateError::BadOutput(

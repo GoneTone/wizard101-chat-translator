@@ -17,7 +17,7 @@
 - **OCR 截圖驗證**（spec 規定）：2026-10-18 用使用者的 5 張截圖跑 `tools/ocr_compare` 新舊對照：2 張新參數讀對（`It ems`→`Items`、`Welcome to i the`→`Welcome to the`），3 張（含中英混排的任務卡與 NPC 對話）相同，沒有任何一張變差。Rust 版辨識速度約為 Python 版的 5～10 倍。之後若有更多截圖，用同一套工具再跑。
 - **刻意與 Python 不同**：調整框時重新擷取或裁切失敗，會撤銷進行中的請求並進入新 session，晚到的結果不再蓋掉錯誤卡片（使用者 2026-10-18 要求，Python 版仍有此問題）。
 - **只能實機確認**：WGC 擷取的顏色、DWM 外框偏移與高 DPI、截整顆螢幕時 CAPTUREBLT 是否讓游標閃爍、混合 DPI 下選取畫面是否蓋滿螢幕、框的拖曳手感、卡片邊框在 125%／150% 是否有接縫。
-- **已於第 5 段處理**（`cb99d8e..9e57646`）：OCR 模型舊目錄在解出新模型時清掉；選取畫面「找不到視窗」那行 log 有斷言了（新增 `logs::capture`）；視窗查找測試改成直接斷言已知清單，不再自己重寫一份比對邏輯。
+- **已於第 5 段處理**（`c3105b8..9e57646`）：OCR 模型舊目錄在解出新模型時清掉；選取畫面「找不到視窗」那行 log 有斷言了（新增 `logs::capture`）；視窗查找測試改成直接斷言已知清單，不再自己重寫一份比對邏輯。
 - **保留**（需要實機才能驗證）：`HostedWindow::place` 比對的是上次設定的矩形，不是視窗實際矩形；混合 DPI 下 winit 改了大小時不會再拉正。實機遇到再改成與 `window_rect` 比對。
 
 ## 第 4 段
@@ -41,7 +41,7 @@
   - 套用設定時新的熱鍵先註冊、再解除舊的（`Registration` 只能整個交出去解除）；結果與 Python 相同，只是 log 先後不同。
   - Python 的 `[settings] hotkey capture failed` 不會出現：Rust 的錄製器沒有失敗路徑。
 - **只能實機確認**：精靈與設定視窗的深色標題列、工作列按鈕與搶前景；小螢幕與高縮放下的初始大小；`main.rs` 的 `start_main` 接線（兩條路：設定完整、精靈完成）沒有自動化測試，依實機驗收清單確認。
-- **已於第 5 段處理**（`cb99d8e..9e57646`）：
+- **已於第 5 段處理**（`c3105b8..9e57646`）：
   - 設定視窗與精靈共用同一個泛型 host（`Host<C: HostedContent>`）；`ServiceDraft` 搬到 `service_draft.rs`（`service_list.rs` 剩約 590 行）、eframe 啟動碼搬到 `ui/run.rs`（`ui/app.rs` 剩約 1550 行，其中測試佔大半）；`updater::http_client` 改名 `update_client`。
   - `unique_name` 的 id 比對改成同 Python（缺欄位、null 當 `None`，非字串 id 不相等）；`number_field` 在範圍反向時不再 panic；`schedule_update_checks` 的回呼 panic 會記 log 並繼續排程；設定缺 `hotkey` 鍵時不再 panic。
   - 錄製器遇到沒有名稱的鍵會記 log；精靈中途取消時鍵盤 hook 會卸除。
@@ -50,7 +50,7 @@
 - **保留**（需要實機才能驗證）：
   - 混合 DPI 下設定視窗置中沒有再以實體像素擺正。
   - 精靈的測試列放在表單卡片內（設計稿在卡片下方）、下拉高 32（設計稿 36）、48px 圖示放大到 64：這些尺寸已由使用者實機調整並驗收，改動要再實機確認。
-  - 錄製開始前就按著的修飾鍵，放開時不算進組合（例如按著 Ctrl 點〔更改〕再按 K，得 `k`；Python 會得 `ctrl+k`）：要改成納入開始前的按鍵狀態，得在真實鍵盤事件下驗證。
+  - 錄製開始前就按著的修飾鍵，放開時不算進組合（例如按著 Ctrl 點〔更改〕再按 K，得 `k`；Python 會得 `ctrl+k`）：要改成納入開始前的按鍵狀態，得改掉錄製器「錄製前按下的 Enter／Space 放開不算」的既有設計（半個架構變更）。
 - **刻意與 Python 不同／相同**：
   - `parse_int` 把 `010` 讀成十（Tcl 會讀成八），不接受 `0x10` 這類前綴寫法：使用者打的是十進位，照 Tcl 反而違反直覺。
   - 套用設定後重新註冊的熱鍵排在 Ctrl+V 攔截器之後，鍵入進行中含 `v` 的熱鍵會被貼上攔截器先吞掉（Python 相同）。
@@ -61,7 +61,7 @@
 ## 第 5 段
 
 - 把 `rust/` 搬到 repo 根目錄時，使用者的測試資料夾 `rust/target/release/_test`（不進版控，裡面有使用者的 config 和 log）要一起搬。搬之前先問使用者。
-- **已於第 5 段處理**（`cb99d8e..9e57646`）：`real_fingerprint.rs` 改成先複製到暫存資料夾再讀，文件寫實；`fonts_dir` 過濾空字串的 `WINDIR`。
+- **已於第 5 段處理**（`c3105b8..9e57646`）：`real_fingerprint.rs` 改成先複製到暫存資料夾再讀，文件寫實；`fonts_dir` 過濾空字串的 `WINDIR`。
 - **鎖定 Rust 版本**（使用者 2026-10-18 決定放在這段）：
   - 現況：沒有 `rust-toolchain.toml`，`Cargo.toml` 沒寫 `rust-version`，CI 用 `dtolnay/rust-toolchain@stable`；本機是 1.99.1（`f16e7ce` 已配合 clippy 1.99 的新規則修過一次）。
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
@@ -74,7 +74,7 @@
 
 ## 合併前清掉的小問題（第 1 段審查列為可延後）
 
-已於第 5 段處理（`cb99d8e..9e57646`）：
+已於第 5 段處理（`c3105b8..9e57646`）：
 
 - **log 文字與 Python 的細節差異**：截斷樣本、語言標籤、視窗標題改用 Python `repr` 的引號寫法，`follow` 印成 `True`／`False`；`null` 與 `None` 的寫法原本就已對齊。其餘差異是 Python 才有的東西（Tk 的 `region_h`、例外類別名稱），照 spec「log 不逐字相同」保留。
 - **測試覆蓋缺口**：exporter 的 exit 2（Python 端新增測試，`tools/` 在搬到根目錄時會一起刪掉）、`TimestampedWriter` 的邊界、3xx `/v1/models`、黏底時最後一則譯文長高、廣播訊息 msg_id 跨分頁更新、分頁列未選取的顏色、整張 palette 的顏色都補了測試；左緣縮放帶的拖曳早已有 `left_edge_resizes_and_keeps_right_edge`。
@@ -88,7 +88,7 @@
 
 ## 第 2 段審查列為可保留的小問題
 
-已於第 5 段處理（`cb99d8e..9e57646`）：
+已於第 5 段處理（`c3105b8..9e57646`）：
 
 - 鍵盤名稱表多出 Python 不認得的名稱：新增測試比對整張名稱表。
 - `SendInput` 回傳值：沒送完會記 log（含已送出數與 Win32 錯誤碼）。

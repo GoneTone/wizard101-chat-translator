@@ -269,10 +269,11 @@ pub fn save_config(path: &Path, cfg: &Config) -> io::Result<()> {
     let mut temp_name = path.as_os_str().to_owned();
     temp_name.push(".tmp");
     let temp = PathBuf::from(temp_name);
-    fs::write(&temp, text.replace('\n', "\r\n"))?;
-    fs::rename(&temp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&temp);
-    })
+    fs::write(&temp, text.replace('\n', "\r\n"))
+        .and_then(|()| fs::rename(&temp, path))
+        .inspect_err(|_| {
+            let _ = fs::remove_file(&temp);
+        })
 }
 
 /// 預設服務存在且設定完整（不完整 → 啟動時進首次設定精靈）。

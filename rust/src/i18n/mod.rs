@@ -403,7 +403,8 @@ mod tests {
         assert_eq!(
             codes,
             ["en-US", "zh-CN", "zh-TW"],
-            "a new language entered the menu: add best_match cases (nb/nn, iw, pt regions, sr-Latn)              to the golden fixtures and compare against langcodes before accepting it"
+            "a new language entered the menu: add best_match cases (nb/nn, iw, pt regions, sr-Latn) \
+             to the golden fixtures and compare against langcodes before accepting it"
         );
     }
 
