@@ -306,8 +306,9 @@ impl ServiceForm {
             "field.api_key"
         };
         form_row(ui, &t(label, &[]), |ui, label| {
-            let show = t("button.show", &[]);
-            secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show).labelled_by(label);
+            let (show, hide) = (t("button.show", &[]), t("button.hide", &[]));
+            secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
+                .labelled_by(label);
             if let Some(url) = self.provider.key_url {
                 let text = RichText::new(t("link.get_key", &[])).size(13.0);
                 if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {

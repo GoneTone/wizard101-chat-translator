@@ -443,14 +443,37 @@ pub fn dashed_button(ui: &mut Ui, text: &str, height: f32) -> Response {
 
 /// 只有圖示的方形按鈕；`tooltip` 同時是無障礙名稱。
 pub fn icon_button(ui: &mut Ui, glyph: char, tooltip: &str) -> Response {
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::splat(theme::CONTROL_HEIGHT), Sense::click());
+    icon_button_with(ui, glyph, tooltip, theme::CONTROL_HEIGHT, theme::CONTROL_BG)
+}
+
+/// 框內圖示按鈕與控制項外框的間距。
+pub const INLINE_ICON_INSET: f32 = 4.0;
+
+/// 放在控制項框內的圖示按鈕（例如金鑰欄的顯示切換）：比框矮一圈，hover 底色要和框底分得出來。
+pub fn inline_icon_button(ui: &mut Ui, glyph: char, tooltip: &str) -> Response {
+    icon_button_with(
+        ui,
+        glyph,
+        tooltip,
+        theme::CONTROL_HEIGHT - 2.0 * INLINE_ICON_INSET,
+        theme::CONTROL_BORDER,
+    )
+}
+
+fn icon_button_with(
+    ui: &mut Ui,
+    glyph: char,
+    tooltip: &str,
+    size: f32,
+    hover_fill: Color32,
+) -> Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), tooltip));
     if ui.is_rect_visible(rect) {
         let hovered = response.hovered() && ui.is_enabled();
         if hovered {
             ui.painter()
-                .rect_filled(rect, theme::CONTROL_RADIUS, theme::CONTROL_BG);
+                .rect_filled(rect, theme::CONTROL_RADIUS, hover_fill);
         }
         let color = if hovered {
             theme::TEXT

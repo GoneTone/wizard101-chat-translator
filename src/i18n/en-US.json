@@ -79,6 +79,7 @@
   "button.test": "Test connection",
   "button.testing": "Testing…",
   "button.show": "Show",
+  "button.hide": "Hide",
   "button.change": "Change",
   "button.press_key": "Press a key… (Esc to cancel)",
   "link.get_key": "Get a key ↗",

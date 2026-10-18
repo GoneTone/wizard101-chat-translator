@@ -79,6 +79,7 @@
   "button.test": "測試連線",
   "button.testing": "測試中…",
   "button.show": "顯示",
+  "button.hide": "隱藏",
   "button.change": "更改",
   "button.press_key": "請按鍵…（Esc 取消）",
   "link.get_key": "取得金鑰 ↗",

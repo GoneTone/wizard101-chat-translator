@@ -11,7 +11,8 @@ use eframe::egui::{
 use crate::py::pystr;
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
-    filter_models, focus_ring, icon_button, name_by_row, paint_chevron, popup_style,
+    INLINE_ICON_INSET, filter_models, focus_ring, inline_icon_button, name_by_row, paint_chevron,
+    popup_style,
 };
 
 /// 消耗沒按修飾鍵的 `key`，回傳按了幾次。
@@ -188,17 +189,30 @@ pub fn secret_field(
     ui: &mut Ui,
     text: &mut String,
     revealed: &mut bool,
-    tooltip: &str,
+    show_tooltip: &str,
+    hide_tooltip: &str,
 ) -> Response {
     let (rect, response) = control_box(ui, ui.available_width(), |ui, rect| {
-        let eye = Rect::from_min_max(
-            pos2(rect.right() - theme::CONTROL_HEIGHT, rect.top()),
-            rect.max,
+        let side = theme::CONTROL_HEIGHT - 2.0 * INLINE_ICON_INSET;
+        let eye = Rect::from_min_size(
+            pos2(
+                rect.right() - INLINE_ICON_INSET - side,
+                rect.center().y - side / 2.0,
+            ),
+            vec2(side, side),
         );
-        let edit_rect = Rect::from_min_max(pos2(rect.left() + 10.0, rect.top()), eye.left_bottom());
+        let edit_rect = Rect::from_min_max(
+            pos2(rect.left() + 10.0, rect.top()),
+            pos2(eye.left() - INLINE_ICON_INSET, rect.bottom()),
+        );
         let response = boxed_edit(ui, edit_rect, text, !*revealed);
+        let (glyph, tooltip) = if *revealed {
+            (icon::HIDE_KEY, hide_tooltip)
+        } else {
+            (icon::SHOW_KEY, show_tooltip)
+        };
         if ui
-            .put(eye, |ui: &mut Ui| icon_button(ui, icon::SHOW_KEY, tooltip))
+            .put(eye, |ui: &mut Ui| inline_icon_button(ui, glyph, tooltip))
             .clicked()
         {
             *revealed = !*revealed;

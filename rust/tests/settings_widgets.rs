@@ -11,13 +11,15 @@ use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::{RealEnv, Round, SettingsEnv, SettingsEvent};
-use wizard101_chat_translator::ui::settings::fields::{editable_combo, number_field, text_field};
+use wizard101_chat_translator::ui::settings::fields::{
+    editable_combo, number_field, secret_field, text_field,
+};
 use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    callout, card, collapsible, dashed_button, filter_models, keycaps, outcome, primary_button,
-    secondary_button, secondary_icon_button, setting_row, toggle,
+    INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, keycaps, outcome,
+    primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
 };
 
 /// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
@@ -746,4 +748,30 @@ fn dropdowns_give_way_to_the_label_in_a_narrow_row() {
         edit.left() >= combo.left() - 1.0,
         "both dropdowns shrink alike"
     );
+}
+
+#[test]
+fn the_secret_eye_stays_inside_the_field_and_flips_its_icon() {
+    let mut h = harness(
+        (String::from("sk-secret"), false),
+        |ui, (text, revealed): &mut (String, bool)| {
+            ui.set_width(300.0);
+            let label = ui.label("API key").id;
+            secret_field(ui, text, revealed, "Show", "Hide").labelled_by(label);
+        },
+    );
+    let edit = h.get_by_role(Role::PasswordInput).rect();
+    let eye = h.get_by_role_and_label(Role::Button, "Show").rect();
+    // 按鈕縮在框內一圈，hover 底色碰不到外框
+    let side = theme::CONTROL_HEIGHT - 2.0 * INLINE_ICON_INSET;
+    assert_eq!(eye.size(), egui::vec2(side, side), "{eye:?}");
+    assert!(edit.right() <= eye.left(), "{edit:?} {eye:?}");
+    h.hover_at(eye.center());
+    h.run_steps(2);
+    assert_eq!(fill_at(&h, eye), Some(theme::CONTROL_BORDER));
+    h.get_by_role_and_label(Role::Button, "Show").click();
+    h.run_steps(2);
+    assert!(h.state().1, "click reveals the key");
+    assert!(h.query_by_label("Show").is_none());
+    h.get_by_role_and_label(Role::Button, "Hide");
 }

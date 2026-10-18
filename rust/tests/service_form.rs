@@ -404,7 +404,9 @@ fn the_api_key_is_masked_until_revealed() {
             .iter()
             .any(|s| s.contains("sk-secret-123"))
     );
-    click(&mut h, &tr("button.show"));
+    // 顯示中按鈕改成「隱藏」
+    assert!(h.query_by_label(&tr("button.show")).is_none());
+    click(&mut h, &tr("button.hide"));
     assert!(
         !painted_texts(&h)
             .iter()

@@ -144,6 +144,7 @@ pub mod icon {
     pub const OPEN_FOLDER: char = '\u{E838}';
     pub const CHECK_UPDATE: char = '\u{E895}';
     pub const SHOW_KEY: char = '\u{E890}';
+    pub const HIDE_KEY: char = '\u{ED1A}';
     pub const FAILURE: char = '\u{E783}';
     pub const WARNING: char = '\u{E7BA}';
     pub const DECREASE: char = '\u{E738}';
