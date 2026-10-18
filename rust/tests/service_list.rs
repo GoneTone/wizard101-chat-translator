@@ -17,7 +17,9 @@ use wizard101_chat_translator::runtime::resources::provider_icon;
 use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
-use wizard101_chat_translator::ui::settings::provider_picker::{CardLayout, provider_cards};
+use wizard101_chat_translator::ui::settings::provider_picker::{
+    CardLayout, lighten_dark_monochrome, provider_cards,
+};
 use wizard101_chat_translator::ui::settings::service_list::{ServiceDraft, ServicePane};
 use wizard101_chat_translator::ui::settings::theme;
 
@@ -975,5 +977,44 @@ fn cards_are_reachable_and_activatable_by_keyboard() {
         assert!(h.get_by_role_and_label(Role::Button, &second).is_focused());
         press(&mut h, Key::Space);
         assert_eq!(h.state().picked, [providers()[0].key, providers()[1].key]);
+    }
+}
+
+#[test]
+fn only_dark_single_colour_provider_icons_are_lightened_for_the_dark_theme() {
+    for (key, expect) in [
+        ("openai", true),
+        ("custom", true),
+        ("claude", false),
+        ("gemini", false),
+    ] {
+        let data = eframe::icon_data::from_png_bytes(provider_icon(key).unwrap()).unwrap();
+        let mut rgba = data.rgba.clone();
+        assert_eq!(
+            lighten_dark_monochrome(&mut rgba, theme::TEXT),
+            expect,
+            "{key}"
+        );
+        let alpha = |px: &[u8]| {
+            px.as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| p[3])
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            alpha(&rgba),
+            alpha(&data.rgba),
+            "{key}: shape and transparency kept"
+        );
+        if expect {
+            let lit = rgba.as_chunks::<4>().0.iter().find(|p| p[3] > 0).unwrap();
+            assert_eq!(
+                &lit[..3],
+                &[theme::TEXT.r(), theme::TEXT.g(), theme::TEXT.b()]
+            );
+        } else {
+            assert_eq!(rgba, data.rgba, "{key}: coloured logo untouched");
+        }
     }
 }

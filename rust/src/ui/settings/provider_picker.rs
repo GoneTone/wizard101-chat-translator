@@ -13,7 +13,7 @@ use crate::config::services::{Provider, providers};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::runtime::resources::provider_icon;
-use crate::ui::icon::png_texture;
+use crate::ui::icon::png_texture_with;
 
 /// 服務商卡片的排法：選擇對話框一列一張，精靈兩欄。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -186,13 +186,30 @@ pub(super) fn provider_texture(ctx: &Context, key: &str) -> Option<TextureId> {
         return cached.map(|texture| texture.id());
     }
     let texture = provider_icon(key).and_then(|png| {
-        png_texture(ctx, format!("provider_icon_{key}"), png)
-            .inspect_err(|e| log(format!("[ui] provider icon {key} failed to decode: {e}")))
-            .ok()
+        png_texture_with(ctx, format!("provider_icon_{key}"), png, |rgba| {
+            lighten_dark_monochrome(rgba, theme::TEXT);
+        })
+        .inspect_err(|e| log(format!("[ui] provider icon {key} failed to decode: {e}")))
+        .ok()
     });
     let found = texture.as_ref().map(TextureHandle::id);
     ctx.data_mut(|d| d.insert_temp(id, texture));
     found
+}
+
+/// 只有黑灰單色的圖示（OpenAI、自訂端點）在深色底上看不見：把它改畫成 `color`，保留形狀與透明度。
+/// 有顏色的品牌圖示不動；回傳是否改了色。
+pub fn lighten_dark_monochrome(rgba: &mut [u8], color: Color32) -> bool {
+    let visible = || rgba.as_chunks::<4>().0.iter().filter(|p| p[3] >= 32);
+    let grey = |p: &[u8; 4]| p[0].abs_diff(p[1]) <= 8 && p[1].abs_diff(p[2]) <= 8;
+    let dark = |p: &[u8; 4]| u16::from(p[0]) + u16::from(p[1]) + u16::from(p[2]) < 3 * 128;
+    if visible().next().is_none() || !visible().all(|p| grey(p) && dark(p)) {
+        return false;
+    }
+    for p in rgba.as_chunks_mut::<4>().0 {
+        p[..3].copy_from_slice(&[color.r(), color.g(), color.b()]);
+    }
+    true
 }
 
 /// 在 `rect` 畫服務商圖示；沒有圖示就不畫。

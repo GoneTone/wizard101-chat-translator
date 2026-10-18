@@ -22,7 +22,18 @@ pub fn png_texture(
     name: String,
     png: &[u8],
 ) -> Result<TextureHandle, image::ImageError> {
-    let data = eframe::icon_data::from_png_bytes(png)?;
+    png_texture_with(ctx, name, png, |_| {})
+}
+
+/// 同 `png_texture`，但上傳前先以 `edit` 改 RGBA 像素（未預乘）。
+pub fn png_texture_with(
+    ctx: &Context,
+    name: String,
+    png: &[u8],
+    edit: impl FnOnce(&mut [u8]),
+) -> Result<TextureHandle, image::ImageError> {
+    let mut data = eframe::icon_data::from_png_bytes(png)?;
+    edit(&mut data.rgba);
     let size = [data.width as usize, data.height as usize];
     let image = ColorImage::from_rgba_unmultiplied(size, &data.rgba);
     Ok(ctx.load_texture(name, image, TextureOptions::LINEAR))
