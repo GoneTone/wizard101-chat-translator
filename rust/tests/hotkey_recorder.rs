@@ -133,7 +133,7 @@ fn escape_pressed_while_recording_is_reported() {
 }
 
 #[test]
-fn logs_each_event_it_sees_until_the_first_release() {
+fn logs_the_event_counts_when_recording_starts_and_stops() {
     common::log_capture::capture_logs();
     let d = shared();
     process(&d, key(true, ONE));
@@ -145,23 +145,11 @@ fn logs_each_event_it_sees_until_the_first_release() {
     drop(recording);
     let log = common::log_capture::log_text();
     assert!(
-        log.contains("[hotkey] recording started (events processed so far=1,"),
+        log.contains("[hotkey] recording started (events processed so far=1, hook calls so far="),
         "{log}"
     );
     assert!(
-        log.contains("[hotkey] recorder saw code=57 vk=0x20 down=true name=Some(\"space\")"),
-        "{log}"
-    );
-    assert!(
-        log.contains("[hotkey] recorder saw code=57 vk=0x20 down=false"),
-        "{log}"
-    );
-    assert!(
-        !log.contains("[hotkey] recorder saw code=88"),
-        "nothing is logged after the first release: {log}"
-    );
-    assert!(
-        log.contains("[hotkey] recording stopped (events processed so far=4,"),
+        log.contains("[hotkey] recording stopped (events processed so far=4, hook calls so far="),
         "{log}"
     );
 }

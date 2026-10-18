@@ -2,7 +2,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{OnceLock, mpsc};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -32,22 +32,10 @@ const SLOW_CALLBACK: Duration = Duration::from_millis(200);
 static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();
 static FIRST_EVENT_SEEN: AtomicBool = AtomicBool::new(false);
 static HOOK_CALLS: AtomicU64 = AtomicU64::new(0);
-static HOOK_THREAD: AtomicU32 = AtomicU32::new(0);
-static TRACE: AtomicBool = AtomicBool::new(false);
 
 /// hook 回呼被系統呼叫的總次數（含 `code < 0`）；與分派器的計數比對，分得出事件是沒進 hook 還是進了沒分派。
 pub fn hook_calls() -> u64 {
     HOOK_CALLS.load(Ordering::Relaxed)
-}
-
-/// hook 執行緒的 thread id；還沒裝是 0。
-pub fn hook_thread_id() -> u32 {
-    HOOK_THREAD.load(Ordering::Relaxed)
-}
-
-/// 開啟時逐筆記錄 hook 收到的原始事件與它的去向（錄熱鍵期間的診斷）。
-pub fn trace_events(on: bool) {
-    TRACE.store(on, Ordering::Relaxed);
 }
 
 thread_local! {
@@ -89,7 +77,6 @@ pub fn install(d: SharedDispatcher) -> Result<KeyboardHook, String> {
     let thread_id = started
         .recv()
         .map_err(|_| "keyboard-hook exited before reporting".to_owned())??;
-    HOOK_THREAD.store(thread_id, Ordering::Relaxed);
     log(format!(
         "[hotkey] keyboard hook installed (thread_id={thread_id})"
     ));
@@ -144,12 +131,6 @@ fn hook_thread(ready: &mpsc::Sender<Result<u32, String>>) {
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     HOOK_CALLS.fetch_add(1, Ordering::Relaxed);
-    let trace = TRACE.load(Ordering::Relaxed);
-    if code < 0 && trace {
-        log(format!(
-            "[hotkey] hook call code={code} passed on unprocessed"
-        ));
-    }
     if code >= 0 {
         let started = Instant::now();
         if !FIRST_EVENT_SEEN.swap(true, Ordering::Relaxed) {
@@ -158,20 +139,15 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         // SAFETY: nCode >= 0 時 lParam 指向系統提供的 KBDLLHOOKSTRUCT。
         let k = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
         // panic 不可穿過 extern "system"（會直接中止程序、跳過關閉流程），出錯就放行
-        let (pass, fate) = catch_unwind(AssertUnwindSafe(|| should_pass(k, wparam as u32)))
-            .unwrap_or_else(|payload| {
+        let pass = catch_unwind(AssertUnwindSafe(|| should_pass(k, wparam as u32))).unwrap_or_else(
+            |payload| {
                 log(format!(
                     "[hotkey] error in keyboard hook: {}",
                     panic_message(payload.as_ref())
                 ));
-                (true, "panicked")
-            });
-        if trace {
-            log(format!(
-                "[hotkey] hook call code={code} vk={:#x} scan={} flags={:#x} msg={:#x} -> {fate}",
-                k.vkCode, k.scanCode, k.flags, wparam
-            ));
-        }
+                true
+            },
+        );
         let took = started.elapsed();
         if took >= SLOW_CALLBACK {
             log(format!(
@@ -188,28 +164,19 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
     unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
 }
 
-/// 回傳（放不放行，事件的去向）；去向只給診斷 log 用。
-fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> (bool, &'static str) {
-    let Some(ev) = to_event(k.vkCode, k.scanCode, k.flags, msg) else {
-        return (true, "not a key event");
-    };
-    let Some(d) = DISPATCHER.get() else {
-        return (true, "no dispatcher");
+fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
+    let (Some(ev), Some(d)) = (
+        to_event(k.vkCode, k.scanCode, k.flags, msg),
+        DISPATCHER.get(),
+    ) else {
+        return true;
     };
     if IGNORE_NEXT_RIGHT_ALT.with(|ignore| is_alt_gr_echo(ignore, k.vkCode, k.scanCode)) {
-        return (true, "alt gr echo");
+        return true;
     }
-    let reentrant = INSIDE_PROCESS.with(Cell::get);
     let pass = INSIDE_PROCESS.with(|inside| reentrant_guard(inside, ev, || lock(d).process(ev)));
     run_deferred();
-    (
-        pass,
-        if reentrant {
-            "re-entrant"
-        } else {
-            "dispatched"
-        },
-    )
+    pass
 }
 
 fn run_deferred() {
@@ -274,29 +241,6 @@ fn is_alt_gr_echo(ignore_next_right_alt: &Cell<bool>, vk: u32, scan: u32) -> boo
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn hook_event(vk: u32, scan: u32) -> KBDLLHOOKSTRUCT {
-        KBDLLHOOKSTRUCT {
-            vkCode: vk,
-            scanCode: scan,
-            flags: 0,
-            time: 0,
-            dwExtraInfo: 0,
-        }
-    }
-
-    #[test]
-    fn filtered_events_report_why_they_were_not_dispatched() {
-        assert_eq!(
-            should_pass(&hook_event(VK_PACKET, 0), WM_KEYDOWN),
-            (true, "not a key event")
-        );
-        // 單元測試沒裝 hook，分派器不存在
-        assert_eq!(
-            should_pass(&hook_event(0x1B, 1), WM_KEYDOWN),
-            (true, "no dispatcher")
-        );
-    }
 
     #[test]
     fn vk_packet_events_are_ignored() {

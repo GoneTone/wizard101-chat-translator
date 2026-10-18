@@ -2,9 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use windows_sys::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 use crate::input::dispatcher::{Blocking, HandlerId, KeyEvent, Pressed, RawKey, SharedDispatcher};
 use crate::input::hook::{self, ALT_GR_SCAN, VK_LCONTROL};
@@ -30,7 +28,6 @@ pub struct Recording {
 
 impl Drop for Recording {
     fn drop(&mut self) {
-        hook::trace_events(false);
         let mut d = lock(&self.dispatcher);
         d.remove(self.id);
         log(format!(
@@ -54,34 +51,15 @@ pub fn record(d: &SharedDispatcher, done: Box<dyn FnOnce(String) + Send>) -> Rec
     }));
     // 開始與結束時的計數相同，表示錄製期間 hook 一個按鍵都沒送進來
     log(format!(
-        "[hotkey] recording started (events processed so far={}, hook calls so far={}; {})",
+        "[hotkey] recording started (events processed so far={}, hook calls so far={})",
         dispatcher.processed(),
-        hook::hook_calls(),
-        thread_context()
+        hook::hook_calls()
     ));
     drop(dispatcher);
-    hook::trace_events(true);
     Recording {
         dispatcher: d.clone(),
         id,
     }
-}
-
-/// 前景視窗與相關執行緒，給錄製開始的診斷 log：鍵盤事件沒進來時看得出當下誰在前景。
-fn thread_context() -> String {
-    // SAFETY：純查詢的 Win32 呼叫，pid 是本地變數。
-    let (foreground, thread, pid) = unsafe {
-        let hwnd = GetForegroundWindow();
-        let mut pid = 0;
-        let thread = GetWindowThreadProcessId(hwnd, &mut pid);
-        (hwnd as isize, thread, pid)
-    };
-    // SAFETY：同上。
-    let (ui_thread, own_pid) = unsafe { (GetCurrentThreadId(), GetCurrentProcessId()) };
-    format!(
-        "foreground hwnd={foreground:#x} thread={thread} pid={pid}, ui thread={ui_thread}, hook thread={}, this pid={own_pid}",
-        hook::hook_thread_id()
-    )
 }
 
 struct Recorder {
@@ -129,11 +107,6 @@ impl Blocking for Recorder {
             return true;
         }
         let name = self.name_of(ev, raw);
-        // 錄製只到第一次放開為止，記下的按鍵不會洩漏打字內容
-        log(format!(
-            "[hotkey] recorder saw code={} vk={:#x} down={} name={name:?}",
-            ev.code, raw.vk, ev.down
-        ));
         self.track_modifiers(ev, raw);
         if ev.down {
             self.pressed.insert(ev.code, name);
