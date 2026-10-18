@@ -156,9 +156,14 @@ async fn fetch_latest_release_errors_when_connection_fails() {
         .unwrap()
         .port();
     let url = format!("http://127.0.0.1:{port}/latest");
+    let err = fetch_latest_release(&http_client(), &url)
+        .await
+        .expect_err("a refused connection must be an error");
+    // reqwest 頂層訊息只有 "error sending request"，原因（被拒絕的 OS 錯誤）在原因鏈裡
+    assert!(err.0.contains("os error"), "{err}");
     assert!(
-        fetch_latest_release(&http_client(), &url).await.is_err(),
-        "a refused connection must be an error"
+        !err.0.contains(&port.to_string()),
+        "URL must be stripped: {err}"
     );
 }
 
@@ -171,11 +176,10 @@ async fn fetch_latest_release_errors_on_unusable_payload() {
             .is_err()
     );
     let server = server_with(ResponseTemplate::new(200).set_body_string("not json")).await;
-    assert!(
-        fetch_latest_release(&http_client(), &latest_url(&server))
-            .await
-            .is_err()
-    );
+    let err = fetch_latest_release(&http_client(), &latest_url(&server))
+        .await
+        .unwrap_err();
+    assert!(err.0.contains("line 1 column"), "{err}");
 }
 
 #[tokio::test]

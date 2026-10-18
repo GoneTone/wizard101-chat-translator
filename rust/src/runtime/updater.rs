@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::logs::log;
-use crate::translation::clients::install_crypto_provider;
+use crate::translation::clients::{error_chain, install_crypto_provider};
 
 pub const PROJECT_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator";
 pub const RELEASES_URL: &str =
@@ -129,7 +129,7 @@ pub async fn fetch_latest_release(
         )
         .send()
         .await
-        .map_err(|e| UpdateCheckError(e.without_url().to_string()))?;
+        .map_err(|e| UpdateCheckError(error_chain(e)))?;
     let status = response.status();
     if status.as_u16() == 404 {
         log("[update] no release published yet (404)");
@@ -141,7 +141,7 @@ pub async fn fetch_latest_release(
     let data: Value = response
         .json()
         .await
-        .map_err(|e| UpdateCheckError(format!("unexpected response: {}", e.without_url())))?;
+        .map_err(|e| UpdateCheckError(format!("unexpected response: {}", error_chain(e))))?;
     let tag = data["tag_name"]
         .as_str()
         .ok_or_else(|| UpdateCheckError("unexpected response: missing tag_name".into()))?;

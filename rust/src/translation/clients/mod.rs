@@ -193,6 +193,11 @@ pub(crate) fn count_of(value: Option<&Value>) -> String {
 
 /// 連線層失敗一律視為離線；去掉 URL 與金鑰可能出現的位置，只留原因鏈。
 pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
+    TranslateError::offline(error_chain(error))
+}
+
+/// reqwest 錯誤去掉 URL 後，連同整條原因鏈折成一行（頂層訊息常只有 "error sending request"）。
+pub(crate) fn error_chain(error: reqwest::Error) -> String {
     let error = error.without_url();
     let mut parts = vec![error.to_string()];
     let mut source = error.source();
@@ -200,7 +205,7 @@ pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
         parts.push(cause.to_string());
         source = cause.source();
     }
-    TranslateError::offline(one_line(&parts.join(": ")))
+    one_line(&parts.join(": "))
 }
 
 /// 裝上 rustls 的 ring crypto provider；任何要建 HTTPS client 的地方都得先呼叫。
