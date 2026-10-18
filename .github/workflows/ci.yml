@@ -23,6 +23,7 @@ jobs:
       - name: Setup Rust toolchain
         run: |
           rustup toolchain install
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           rustc --version
           cargo --version
 
@@ -32,18 +33,18 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       # 測試用 kittest 的離屏 UI，不開可見視窗，所以可以平行跑
       - name: Test
-        run: cargo test
+        run: cargo test --locked
 
       # 效能門檻只在 release 下有意義，平常的 cargo test 把它標成 ignored
       - name: Relayout budget
-        run: cargo test --release -- --ignored relayout
+        run: cargo test --locked --release -- --ignored relayout
 
       - name: Build exe
-        run: cargo build --release
+        run: cargo build --release --locked
 
       - name: Verify exe resources
         shell: pwsh

@@ -38,6 +38,7 @@ jobs:
       - name: Setup Rust toolchain
         run: |
           rustup toolchain install
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           rustc --version
           cargo --version
 
