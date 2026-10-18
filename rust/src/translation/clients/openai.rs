@@ -293,3 +293,24 @@ impl OpenAiCompatClient {
         Ok(ids)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::config::ServiceSpec;
+    use crate::translation::clients::{Client, OPENAI_BASE_URL, build_client};
+
+    #[test]
+    fn openai_provider_forces_official_base_url() {
+        let spec = ServiceSpec {
+            provider: "openai".into(),
+            base_url: "http://evil.example".into(),
+            model: "m".into(),
+            api_key: "k".into(),
+            ..ServiceSpec::default()
+        };
+        let Client::OpenAiCompat(client) = build_client(&spec) else {
+            panic!("openai provider must use the OpenAI-compatible client");
+        };
+        assert_eq!(client.base_url, OPENAI_BASE_URL);
+    }
+}

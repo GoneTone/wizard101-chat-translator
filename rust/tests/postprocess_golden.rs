@@ -3,6 +3,7 @@
 mod common;
 
 use serde_json::Value;
+use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::translation::postprocess as pp;
 
 fn s(v: &Value) -> &str {
@@ -136,4 +137,20 @@ fn numbering_matches_python() {
             other => panic!("unknown fn {other}"),
         }
     }
+}
+
+#[test]
+fn sender_prefix_limit_is_shared_with_the_chat_parser() {
+    let longest = "A".repeat(40);
+    let raw = format!(
+        "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> \
+         <link;GID:1,{longest},2>[{longest}]</link> 你好 </color>"
+    );
+    let line = parse_line(&raw).unwrap();
+    assert_eq!(line.text, format!("[{longest}] 你好"));
+    assert!(!pp::has_stray_latin(
+        &line.text,
+        &format!("[{longest}] 哈囉"),
+        "繁體中文（台灣）"
+    ));
 }

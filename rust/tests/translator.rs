@@ -9,7 +9,10 @@ use std::sync::{Arc, Weak};
 use common::fake_backend::{Fake, JA, spec};
 use common::log_capture::{log_lines_with, log_text};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
+use serde_json::json;
 use tokio_util::sync::CancellationToken;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{ChatBackend, MAX_TOKENS_REGION};
@@ -517,6 +520,81 @@ fn new_builds_the_backend_for_the_provider() {
     let tr = Translator::new(s, "日本語".into());
     assert_eq!(tr.describe(), "provider=claude, model=claude-opus-5");
     assert_eq!(tr.target_language(), "日本語");
+}
+
+#[tokio::test]
+async fn a_reconfigure_mid_request_keeps_the_same_backend_for_incoming_and_region() {
+    let fake = Fake::texts(&["1. 譯文"]);
+    let (tr, late) = make_with_late(&fake, ZH);
+    reconfigure_on_call(&fake, &tr, 1, "한국어");
+    tr.translate_incoming("[A] hi", &[]).await.unwrap();
+    let (tr, late_region) = make_with_late(&fake, ZH);
+    reconfigure_on_call(&fake, &tr, 2, "한국어");
+    tr.translate_region_text("hello", None).await.unwrap();
+    assert!(late.calls().is_empty() && late_region.calls().is_empty());
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].system, build_incoming_system(ZH));
+    assert_eq!(calls[1].system, build_region_system(ZH));
+}
+
+#[tokio::test]
+async fn reconfigure_keeps_learned_parameters_when_nothing_changed() {
+    let server = MockServer::start().await;
+    let chat = || Mock::given(method("POST")).and(path("/v1/chat/completions"));
+    chat()
+        .respond_with(
+            ResponseTemplate::new(400).set_body_json(json!({"error": {"message":
+            "Unsupported parameter: 'temperature' is not supported with this model."}})),
+        )
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    chat()
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            "data: {\"choices\": [{\"delta\": {\"content\": \"譯文\"}}]}
+
+data: [DONE]
+
+",
+            "text/event-stream",
+        ))
+        .mount(&server)
+        .await;
+    let custom = ServiceSpec {
+        provider: "custom".into(),
+        base_url: server.uri(),
+        model: "m".into(),
+        ..ServiceSpec::default()
+    };
+    let tr = Translator::new(custom.clone(), ZH.into());
+    tr.translate_incoming("[A] one", &[]).await.unwrap();
+    assert!(!tr.reconfigure(custom, ZH.into()));
+    tr.translate_incoming("[A] two", &[]).await.unwrap();
+    let sent: Vec<serde_json::Value> = server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect();
+    assert_eq!(sent.len(), 3, "rejected once, then learned for good");
+    assert!(sent[0].get("temperature").is_some());
+    assert!(sent[1].get("temperature").is_none() && sent[2].get("temperature").is_none());
+}
+
+#[test]
+fn reconfigure_switches_provider() {
+    let tr = Translator::new(spec("m"), ZH.into());
+    assert_eq!(tr.describe(), "provider=custom, model=m");
+    let claude = ServiceSpec {
+        provider: "claude".into(),
+        model: "claude-opus-5".into(),
+        api_key: "k".into(),
+        ..ServiceSpec::default()
+    };
+    assert!(tr.reconfigure(claude, "日本語".into()));
+    assert_eq!(tr.describe(), "provider=claude, model=claude-opus-5");
 }
 
 #[tokio::test]

@@ -145,6 +145,7 @@ fn load_discards_mismatched_corrupt_and_malformed_files() {
 
 #[test]
 fn load_truncates_to_the_cap_keeping_the_newest() {
+    common::log_capture::capture_logs();
     let dir = tempfile::tempdir().unwrap();
     let entries: Vec<String> = (0..MAX_ENTRIES + 2)
         .map(|i| format!("\"{0}\": \"{0}\"", letters(i)))
@@ -160,6 +161,14 @@ fn load_truncates_to_the_cap_keeping_the_newest() {
     assert_eq!(cache.get(&letters(2)), Some(letters(2)));
     let last = letters(MAX_ENTRIES + 1);
     assert_eq!(cache.get(&last), Some(last));
+    let path = dir.path().join("cache.json").display().to_string();
+    let logged = common::log_capture::log_lines_with(&path);
+    assert!(
+        logged
+            .iter()
+            .any(|l| l.contains(&format!("loaded {MAX_ENTRIES} entries"))),
+        "log reports the stored count, got {logged:?}"
+    );
 }
 
 #[test]
@@ -282,6 +291,35 @@ fn clear_removes_entries_and_file_without_writing_back() {
     assert_eq!(cache_in(&tempfile::tempdir().unwrap()).clear(), 0);
 }
 
+#[test]
+fn cache_still_usable_after_clear() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_in(&dir);
+    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.clear();
+    cache.put("迷幻木头", "迷幻木頭", FP);
+    assert_eq!(cache.get("迷幻木头").as_deref(), Some("迷幻木頭"));
+}
+
+#[test]
+fn fingerprint_never_contains_the_api_key() {
+    let fp = fingerprint_of("custom", "gemma-4-26b-a4b", ZH, "", "-");
+    assert!(fp.contains("gemma-4-26b-a4b"));
+    assert!(!fp.contains("sk-"));
+}
+
+#[test]
+fn cache_file_never_contains_the_api_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = TranslationCache::new(
+        dir.path().join("cache.json"),
+        fingerprint_of("custom", "gemma", ZH, "", "-"),
+    );
+    cache.put("熔岩百合", "熔岩百合(Lava Lily)", &cache.fingerprint());
+    cache.flush();
+    assert!(!file_text(&dir).contains("sk-"));
+}
+
 /// 假 backend：依「最後一輪 user 內容」查表回覆，記錄每次請求；`hook` 在請求途中被呼叫。
 struct Fake {
     replies: Mutex<Vec<(String, String)>>,
@@ -341,6 +379,10 @@ impl ChatBackend for Fake {
 }
 
 fn translator(fake: &Arc<Fake>) -> Arc<Translator> {
+    translator_for(fake, ZH)
+}
+
+fn translator_for(fake: &Arc<Fake>, target: &str) -> Arc<Translator> {
     let fake = Arc::clone(fake);
     let spec = ServiceSpec {
         provider: "custom".into(),
@@ -348,7 +390,7 @@ fn translator(fake: &Arc<Fake>) -> Arc<Translator> {
         model: "m".into(),
         ..ServiceSpec::default()
     };
-    Translator::with_client(move |_| fake.clone(), spec, ZH.into())
+    Translator::with_client(move |_| fake.clone(), spec, target.into())
 }
 
 #[tokio::test]
@@ -436,6 +478,33 @@ async fn stores_a_translation_that_kept_the_source_english() {
     assert_eq!(
         cache.get("death skeleturion").as_deref(),
         Some("死亡骷髏戰士")
+    );
+}
+
+#[tokio::test]
+async fn judges_with_the_target_captured_before_the_request() {
+    let fake = Fake::new(&[("雪刺帽", "Sombrero de Nieve")]);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_in(&dir);
+    let tr = translator_for(&fake, "Español");
+    let swapped = Arc::clone(&tr);
+    fake.hook.lock().unwrap().push_back(Box::new(move || {
+        swapped.reconfigure(
+            ServiceSpec {
+                provider: "custom".into(),
+                base_url: "http://x".into(),
+                model: "m".into(),
+                ..ServiceSpec::default()
+            },
+            ZH.into(),
+        );
+    }));
+    let out = translate_and_cache(&tr, &cache, "雪刺帽").await.unwrap();
+    assert_eq!(out, "Sombrero de Nieve");
+    assert_eq!(
+        cache.get("雪刺帽").as_deref(),
+        Some("Sombrero de Nieve"),
+        "judged against the target in force when the request left"
     );
 }
 

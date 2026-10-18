@@ -655,3 +655,333 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_stop_joins_every_reader_thread` → `tests/supervisor.rs::stop_joins_every_reader_thread`
 - `test_enumeration_failure_does_not_kill_the_loop` → `tests/supervisor.rs::scan_failure_does_not_kill_the_loop`
 - `test_shutdown_join_budget_is_shared_not_per_thread` → `tests/supervisor.rs::join_budget_shared_8s`
+
+## tests/translation/test_cache.py
+
+- `test_normalize_replaces_numbers_with_placeholders` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_normalize_numbers_the_placeholders_in_order` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_normalize_keeps_decimals_and_thousands_separators_whole` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_normalize_leaves_text_without_numbers_untouched` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_restore_puts_the_numbers_back` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_restore_follows_the_translated_word_order` → `tests/cache_golden.rs::restore_follows_placeholder_numbers_not_positions`
+- `test_normalize_restore_round_trips` → `tests/cache_golden.rs::normalize_matches_python`
+- `test_placeholders_match_accepts_a_faithful_translation` → `tests/cache_golden.rs::placeholders_match_checks_counts`
+- `test_placeholders_match_rejects_a_dropped_placeholder` → `tests/cache_golden.rs::placeholders_match_checks_counts`
+- `test_placeholders_match_rejects_an_invented_placeholder` → `tests/cache_golden.rs::placeholders_match_checks_counts`
+- `test_placeholders_match_rejects_a_duplicated_placeholder` → `tests/cache_golden.rs::placeholders_match_checks_counts`
+- `test_get_returns_none_when_empty` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`
+- `test_put_then_get_round_trips_with_the_number_restored` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`
+- `test_a_different_number_hits_the_same_entry` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`
+- `test_put_rejects_a_translation_with_broken_placeholders` → `tests/cache_golden.rs::put_rejects_broken_placeholders`
+- `test_put_expects_the_translation_of_the_normalized_template` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`, `tests/cache_golden.rs::flush_bytes_match_python`
+- `test_put_takes_the_raw_text_not_the_template` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`（含「傳樣板查不到」的斷言）
+- `test_evicts_the_least_recently_used_entry` → `tests/cache_golden.rs::lru_caps_at_2000`（Rust 以常數 2000 為上限測試，不像 Python 以 monkeypatch 縮小上限）
+- `test_flush_writes_the_file_with_the_fingerprint` → `tests/cache_golden.rs::flush_bytes_match_python`
+- `test_load_restores_entries_from_disk` → `tests/cache_golden.rs::loads_python_written_cache`
+- `test_load_discards_everything_when_the_fingerprint_differs` → `tests/cache_golden.rs::load_discards_mismatched_corrupt_and_malformed_files`
+- `test_load_survives_a_corrupt_file` → `tests/cache_golden.rs::load_discards_mismatched_corrupt_and_malformed_files`
+- `test_load_survives_a_structurally_malformed_file` → `tests/cache_golden.rs::load_discards_mismatched_corrupt_and_malformed_files`
+- `test_load_truncates_to_the_cap_and_logs_the_stored_count` → `tests/cache_golden.rs::load_truncates_to_the_cap_keeping_the_newest`（本批補上 log 筆數斷言）
+- `test_load_survives_a_missing_file` → `tests/cache_golden.rs::load_discards_mismatched_corrupt_and_malformed_files`
+- `test_autoflushes_after_enough_new_entries` → `tests/cache_golden.rs::flushes_every_20_puts`
+- `test_rebind_flushes_the_old_fingerprint_and_starts_empty` → `tests/cache_golden.rs::fingerprint_change_clears_on_rebind`
+- `test_put_accepts_a_translation_produced_under_the_current_fingerprint` → `tests/cache_golden.rs::put_get_round_trips_and_other_numbers_hit_the_same_entry`, `tests/cache_golden.rs::fingerprint_change_clears_on_rebind`
+- `test_put_rejects_a_translation_produced_under_a_previous_fingerprint` → `tests/cache_golden.rs::fingerprint_change_clears_on_rebind`, `tests/cache_golden.rs::does_not_store_when_fingerprint_changed_mid_flight`
+- `test_rebind_is_a_no_op_when_the_fingerprint_is_unchanged` → `tests/cache_golden.rs::rebind_to_the_same_fingerprint_is_a_no_op`
+- `test_translate_and_cache_stores_the_normalized_template` → `tests/cache_golden.rs::translate_and_cache_stores_the_normalized_template`
+- `test_translate_and_cache_falls_back_when_the_model_mangles_a_placeholder` → `tests/cache_golden.rs::does_not_store_on_placeholder_mismatch_and_translates_original`
+- `test_translate_and_cache_discards_a_translation_that_finished_after_a_rebind` → `tests/cache_golden.rs::does_not_store_when_fingerprint_changed_mid_flight`
+- `test_fingerprint_never_contains_the_api_key` → `tests/cache_golden.rs::fingerprint_never_contains_the_api_key`（本批新增；`fingerprint_of` 本來就沒有金鑰參數）
+- `test_cache_file_never_contains_the_api_key` → `tests/cache_golden.rs::cache_file_never_contains_the_api_key`（本批新增）
+- `test_clear_empties_the_cache_and_reports_the_count` → `tests/cache_golden.rs::clear_removes_entries_and_file_without_writing_back`
+- `test_clear_removes_the_file_from_disk` → `tests/cache_golden.rs::clear_removes_entries_and_file_without_writing_back`
+- `test_clear_survives_a_missing_file` → `tests/cache_golden.rs::clear_removes_entries_and_file_without_writing_back`
+- `test_clear_does_not_write_the_discarded_entries_back` → `tests/cache_golden.rs::clear_removes_entries_and_file_without_writing_back`
+- `test_cache_still_usable_after_clear` → `tests/cache_golden.rs::cache_still_usable_after_clear`（本批新增）
+- `test_translate_and_cache_does_not_store_a_translation_that_slipped_into_english` → `tests/cache_golden.rs::does_not_store_stray_latin`
+- `test_translate_and_cache_stores_a_translation_that_kept_the_source_english` → `tests/cache_golden.rs::stores_a_translation_that_kept_the_source_english`
+- `test_translate_and_cache_judges_with_the_target_captured_before_the_request` → `tests/cache_golden.rs::judges_with_the_target_captured_before_the_request`（本批新增）
+- `test_fingerprint_covers_the_prompt_revision` → `tests/cache_golden.rs::fingerprint_matches_python`（golden 期望值含 `p6`，即提示詞版次）
+- `test_fingerprint_separates_two_endpoints_that_share_a_model_name` → `tests/cache_golden.rs::fingerprint_matches_python`（golden 含帶端點網址的案例）
+- `test_fingerprint_includes_the_examples_digest` → `tests/cache_golden.rs::fingerprint_matches_python`（golden 含 `x-` 與 `xabc…` 兩種結尾）
+
+## tests/translation/test_clients.py
+
+- `test_openai_compat_sends_temperature_zero` → `tests/clients_openai.rs::custom_keeps_max_tokens_and_temperature_by_thinking_mode`, `tests/clients_golden.rs::request_body_matches_python`
+- `test_openai_compat_connection_error_maps_to_offline` → `tests/clients_openai.rs::connection_failure_is_offline_without_status`
+- `test_openai_compat_auth_or_model_error_maps_to_config_error` → `tests/clients_openai.rs::status_4xx_is_config_with_detail`
+- `test_openai_compat_retryable_status_maps_to_offline` → `tests/clients_openai.rs::status_429_and_5xx_are_offline`
+- `test_claude_provider_returns_text` → `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`
+- `test_claude_marks_the_system_prompt_as_the_cache_breakpoint` → `tests/clients_claude.rs::claude_system_has_cache_control_at_end`, `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`
+- `test_claude_logs_prompt_cache_usage` → `tests/clients_claude.rs::claude_logs_cache_read_write_uncached`
+- `test_claude_connection_error_maps_to_offline` → `tests/clients_claude.rs::claude_retries_connection_failures_then_offline`
+- `test_claude_status_error_mapping` → `tests/clients_claude.rs::claude_retry_conditions_follow_the_sdk`, `tests/clients_claude.rs::claude_retries_429_twice_then_offline`
+- `test_openai_compat_sends_max_tokens_by_thinking_mode` → `tests/clients_openai.rs::custom_keeps_max_tokens_and_temperature_by_thinking_mode`, `tests/clients_golden.rs::request_body_matches_python`
+- `test_openai_compat_truncated_output_maps_to_bad_output` → `tests/clients_openai.rs::length_finish_is_bad_output_with_sample`
+- `test_openai_compat_logs_cached_prompt_tokens` → `tests/clients_openai.rs::logs_prompt_cache_usage`
+- `test_openai_compat_missing_finish_reason_is_accepted` → `tests/clients_openai.rs::missing_finish_reason_is_accepted`
+- `test_claude_sends_max_tokens` → `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`
+- `test_claude_auto_effort_sends_no_effort` → `tests/clients_claude.rs::claude_effort_only_when_not_auto`
+- `test_claude_low_effort_sends_output_config` → `tests/clients_claude.rs::claude_effort_only_when_not_auto`
+- `test_claude_truncated_output_maps_to_bad_output` → `tests/clients_claude.rs::claude_max_tokens_stop_is_bad_output`
+- `test_claude_reads_the_first_text_block` → `tests/clients_claude.rs::claude_reads_the_first_text_block`
+- `test_claude_unexpected_output_maps_to_bad_output` → `tests/clients_claude.rs::claude_unexpected_output_is_bad_output`
+- `test_openai_provider_disables_thinking_with_official_param_only` → `tests/clients_golden.rs::request_body_matches_python`, `tests/clients_openai.rs::official_uses_max_completion_tokens_and_no_temperature`
+- `test_openai_provider_thinking_on_sends_no_thinking_params` → `tests/clients_golden.rs::request_body_matches_python`
+- `test_openai_provider_uses_max_completion_tokens_and_no_temperature` → `tests/clients_openai.rs::official_uses_max_completion_tokens_and_no_temperature`, `tests/clients_golden.rs::request_body_matches_python`
+- `test_custom_endpoint_keeps_max_tokens_and_temperature` → `tests/clients_openai.rs::custom_keeps_max_tokens_and_temperature_by_thinking_mode`, `tests/clients_golden.rs::request_body_matches_python`
+- `test_rejected_parameter_is_dropped_and_the_request_retried` → `tests/clients_openai.rs::rejected_400_naming_param_drops_it_and_retries_once`, `tests/clients_openai.rs::learned_params_persist_on_instance`
+- `test_other_openai_rejection_wordings_are_recognised` → `tests/clients_openai.rs::other_rejection_wordings_are_recognised`, `tests/clients_golden.rs::rejected_parameter_matches_python`
+- `test_rejected_token_limit_is_swapped_not_dropped` → `tests/clients_openai.rs::rejected_token_limit_is_swapped_not_dropped`
+- `test_400_without_a_named_parameter_is_still_a_config_error` → `tests/clients_openai.rs::bad_request_without_named_param_is_config_error_once`
+- `test_rejection_of_a_parameter_we_did_not_send_is_not_retried_forever` → `tests/clients_openai.rs::rejected_param_not_sent_is_not_retried`
+- `test_list_models_openai_compat_returns_sorted_ids` → `tests/clients_openai.rs::models_sorted`, `tests/clients_openai.rs::list_models_goes_through_the_built_client`
+- `test_list_models_missing_endpoint_maps_to_no_model_list` → `tests/clients_openai.rs::models_404_is_no_model_list`
+- `test_list_models_response_without_data_maps_to_no_model_list` → `tests/clients_openai.rs::models_without_data_array_is_no_model_list`
+- `test_list_models_auth_error_maps_to_config_error` → `tests/clients_openai.rs::models_auth_errors_are_config`
+- `test_list_models_connection_error_maps_to_offline` → `tests/clients_openai.rs::models_connection_failure_is_offline`
+- `test_list_models_retryable_status_maps_to_offline` → `tests/clients_openai.rs::models_retryable_statuses_are_offline`
+- `test_list_models_claude_uses_models_api` → `tests/clients_claude.rs::claude_models_paginate`
+- `test_list_models_claude_status_error_mapping` → `tests/clients_claude.rs::claude_models_status_mapping`
+- `test_list_models_claude_connection_error_maps_to_offline` → `tests/clients_claude.rs::claude_list_models_connection_error_maps_to_offline`
+- `test_error_detail_extracts_api_message` → `tests/clients_golden.rs::error_detail_matches_python`
+- `test_error_detail_keeps_the_whole_message` → `tests/clients_golden.rs::error_detail_matches_python`（golden 含超長多行訊息案例）
+- `test_openai_compat_config_error_carries_api_message` → `tests/clients_openai.rs::status_4xx_is_config_with_detail`
+- `test_openai_compat_other_4xx_maps_to_config_error` → `tests/clients_openai.rs::bad_request_without_named_param_is_config_error_once`
+- `test_openai_compat_offline_status_carries_api_message` → `tests/clients_openai.rs::status_429_and_5xx_are_offline`
+- `test_openai_compat_connection_error_carries_reason` → `tests/clients_openai.rs::connection_failure_is_offline_without_status`（只斷言原因非空且不含金鑰；Python 釘的是 httpx 的 `[Errno 11001] getaddrinfo failed` 字樣，Rust 的原因字串來自 reqwest／系統，字樣不同，已知差異）
+- `test_claude_status_error_carries_api_message` → `tests/clients_claude.rs::claude_status_error_carries_api_message`
+- `test_claude_other_4xx_maps_to_config_error` → `tests/clients_claude.rs::claude_retry_conditions_follow_the_sdk`
+- `test_list_models_config_error_carries_api_message` → `tests/clients_openai.rs::models_error_statuses_map_like_chat`
+- `test_token_limit_rejected_under_both_names_raises_instead_of_looping` → `tests/clients_openai.rs::token_limit_rejected_under_both_names_stops`
+- `test_openai_compat_asks_for_a_stream_and_joins_the_chunks` → `tests/clients_openai.rs::streams_and_joins_deltas`
+- `test_only_the_official_openai_endpoint_asks_for_usage_in_the_stream` → `tests/clients_openai.rs::official_uses_max_completion_tokens_and_no_temperature`, `tests/clients_openai.rs::custom_keeps_max_tokens_and_temperature_by_thinking_mode`
+- `test_openai_compat_truncation_is_read_from_the_stream` → `tests/clients_openai.rs::length_finish_is_bad_output_with_sample`
+- `test_cancelling_an_openai_compat_request_closes_the_stream` → `tests/clients_openai.rs::cancel_mid_stream_returns_cancelled_and_closes_connection`
+- `test_a_request_cancelled_before_it_starts_is_never_sent` → `tests/clients_openai.rs::request_cancelled_before_start_is_never_sent`
+- `test_a_connection_error_without_a_cancel_is_still_offline` → `tests/clients_openai.rs::stream_dropped_mid_response_is_offline`（本批新增）
+- `test_the_request_handle_is_released_after_the_request_completes` → 不移植：Python 的 `RequestHandle` 要登記當下的回應物件、結束後撤銷，事後 `cancel()` 才不會去關已結束的回應；Rust 只傳 `CancellationToken` 並在請求期間 select 它，沒有登記的回應物件可誤關，請求結束後取消符記沒有任何作用
+- `test_claude_uses_the_streaming_helper` → `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`（斷言 body 的 `stream: true` 並解析 SSE；Python 的 `messages.stream` 輔助函式是 SDK 機制）
+- `test_cancelling_a_claude_request_closes_the_stream` → `tests/clients_claude.rs::cancel_mid_stream_returns_cancelled`
+- `test_a_request_on_a_closed_client_is_offline_so_the_pool_retries_it` → 不移植：Python 的 `reconfigure` 會關掉舊 client，競速時 httpx 對已關閉的 client 拋 `RuntimeError`，因此特地把它歸為離線；Rust 的 `reconfigure` 不關舊後端（飛行中的請求持有舊快照照常跑完，見 `Translator::reconfigure`），不會出現已關閉的 client
+- `test_a_request_on_a_closed_claude_client_is_offline` → 不移植：同上（Anthropic SDK 的 client 被關閉後的行為），Rust 沒有已關閉的 client
+- `test_an_unrelated_runtime_error_is_not_taken_for_offline` → 不移植：它只驗證上一組「已關閉 client」判斷不會把無關的 `RuntimeError` 誤當離線；Rust 沒有該判斷，錯誤皆由 reqwest／HTTP 狀態明確分類
+- `test_gemini_joins_streamed_chunks` → `tests/clients_gemini.rs::gemini_maps_roles_and_system_instruction`
+- `test_gemini_sends_system_instruction_and_model_role` → `tests/clients_gemini.rs::gemini_maps_roles_and_system_instruction`
+- `test_gemini_low_effort_sends_thinking_level` → `tests/clients_gemini.rs::gemini_thinking_level_only_when_not_auto`
+- `test_gemini_logs_prompt_cache_usage` → `tests/clients_gemini.rs::gemini_logs_prompt_cache_usage`
+- `test_gemini_truncated_output_maps_to_bad_output` → `tests/clients_gemini.rs::gemini_max_tokens_finish_is_bad_output`
+- `test_gemini_error_mapping` → `tests/clients_gemini.rs::gemini_error_mapping`, `tests/clients_gemini.rs::gemini_retry_behavior_matches_sdk`
+- `test_gemini_cancel_closes_the_streamed_response` → `tests/clients_gemini.rs::cancel_mid_stream_returns_cancelled`
+- `test_list_models_gemini_keeps_generate_content_models` → `tests/clients_gemini.rs::gemini_models_filtered_and_prefix_stripped`
+- `test_list_models_gemini_error_mapping` → `tests/clients_gemini.rs::gemini_models_error_mapping`, `tests/clients_gemini.rs::gemini_list_models_connection_error_maps_to_offline`
+
+## tests/translation/test_context.py
+
+- `test_snapshot_returns_pushed_lines_in_order` → `src/translation/context.rs::snapshot_returns_pushed_lines_in_order`
+- `test_snapshot_is_a_copy` → `src/translation/context.rs::snapshot_is_a_copy`
+- `test_oldest_lines_drop_beyond_capacity` → `src/translation/context.rs::context_keeps_last_8_lines_per_tab`
+- `test_concurrent_pushes_do_not_lose_lines` → `src/translation/context.rs::concurrent_pushes_do_not_lose_lines`
+- `test_client_contexts_keep_tabs_apart` → `src/translation/context.rs::client_contexts_keep_tabs_apart`
+- `test_client_contexts_current_follows_current_tab` → `src/translation/context.rs::client_contexts_current_follows_current_tab`
+
+## tests/translation/test_examples.py
+
+- `test_parse_generated_accepts_every_path` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_drops_only_the_failing_path` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_requires_the_original_in_parentheses` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_rejects_a_wrong_line_count` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_names_the_failed_region_condition` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_accepts_a_latin_script_target_with_translated_names` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_rejects_names_left_in_english_and_echoed_in_parentheses` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_tells_a_wrong_line_count_from_an_untranslated_line` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_accepts_an_interface_label_spelled_like_its_source` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_treats_a_missing_interface_label_as_untranslated` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_rejects_parentheses_on_the_interface_label` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_treats_a_line_echoing_its_source_as_missing` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_counts_a_numbered_preamble_as_a_failure` → `tests/examples_golden.rs::parse_matches_python`
+- `test_parse_generated_ignores_a_preamble_and_code_fences` → `tests/examples_golden.rs::parse_matches_python`
+- `test_merge_keeps_existing_paths_and_fills_missing_ones` → `tests/examples_golden.rs::merge_summary_and_digest`
+- `test_summary_and_digest` → `tests/examples_golden.rs::merge_summary_and_digest`, `tests/examples_golden.rs::digest_matches_python`
+- `test_fingerprint_contains_service_target_and_revision_but_no_key` → `tests/examples_golden.rs::fingerprint_has_service_target_and_revision_but_no_key`
+- `test_fingerprint_ignores_surrounding_whitespace_in_the_target` → `tests/examples_golden.rs::fingerprint_has_service_target_and_revision_but_no_key`（測試傳入 `" 日本語 "`，期望去空白後的指紋）
+- `test_generation_request_names_the_target_and_numbers_the_sources` → `tests/examples_golden.rs::generation_request_names_the_target_and_numbers_the_sources`, `tests/examples_golden.rs::generation_request_matches_python`
+- `test_game_language_examples_translate_into_english` → `tests/examples_golden.rs::game_language_examples_match_python`, `tests/examples_golden.rs::game_language_examples_are_complete_and_bare_label`
+- `test_game_language_region_example_keeps_the_interface_label_bare` → `tests/examples_golden.rs::game_language_examples_are_complete_and_bare_label`
+- `test_game_language_region_examples_have_no_surrounding_newlines` → `tests/examples_golden.rs::game_language_examples_are_complete_and_bare_label`
+- `test_store_round_trips_and_keeps_several_fingerprints` → `tests/examples_golden.rs::store_round_trips_and_ignores_bad_files`
+- `test_store_drops_the_oldest_beyond_the_limit` → `tests/examples_golden.rs::store_evicts_lru_beyond_32`
+- `test_re_putting_a_fingerprint_moves_it_to_the_end` → `tests/examples_golden.rs::re_putting_moves_to_the_end`
+- `test_a_failed_write_leaves_no_temp_file` → `tests/examples_golden.rs::a_failed_write_leaves_no_temp_file`（Rust 以「目標路徑是資料夾」製造寫入失敗，Python 以 monkeypatch `os.replace`）
+- `test_store_rejects_a_pair_that_is_not_a_list_of_two_strings` → `tests/examples_golden.rs::store_round_trips_and_ignores_bad_files`
+- `test_store_treats_a_corrupt_file_as_empty` → `tests/examples_golden.rs::store_round_trips_and_ignores_bad_files`
+- `test_store_does_not_write_an_empty_set` → `tests/examples_golden.rs::store_does_not_write_an_empty_set`
+- `test_cache_hit_applies_without_generating` → `tests/translator.rs::cache_hit_applies_without_generating`
+- `test_a_miss_generates_stores_and_applies` → `tests/translator.rs::a_miss_generates_stores_and_applies`
+- `test_two_translators_on_the_same_service_share_one_generation` → `tests/translator.rs::two_translators_on_the_same_service_share_one_generation`
+- `test_a_failed_fingerprint_is_not_retried_in_the_same_run` → `tests/translator.rs::a_failed_fingerprint_is_not_retried_in_the_same_run`
+- `test_an_empty_result_counts_as_a_failure` → `tests/translator.rs::an_empty_result_counts_as_a_failure`
+- `test_a_result_for_an_outdated_fingerprint_is_stored_but_not_applied` → `tests/translator.rs::a_result_for_an_outdated_fingerprint_is_stored_but_not_applied`
+- `test_a_result_is_applied_by_its_own_fingerprint_not_the_requested_one` → `tests/translator.rs::a_result_is_applied_by_its_own_fingerprint_not_the_requested_one`
+- `test_on_applied_is_skipped_when_set_examples_rejects` → `tests/translator.rs::a_result_for_an_outdated_fingerprint_is_stored_but_not_applied`（該測試斷言 `set_examples` 因指紋過期而拒絕時 on_applied 為 0 次；Rust 的 `set_examples` 不能像 Python 換成假函式，只能用過期指紋觸發拒絕）
+- `test_registering_the_same_translator_twice_registers_and_generates_once` → `tests/translator.rs::registering_the_same_translator_twice_registers_and_generates_once`
+- `test_a_failure_after_the_settings_changed_does_not_block_a_later_retry` → `tests/translator.rs::a_failure_after_the_settings_changed_does_not_block_a_later_retry`
+- `test_number_lines_skips_blank_lines` → `tests/postprocess_golden.rs::line_helpers_match_python`
+- `test_unnumber_lines_accepts_various_number_styles_and_plain_output` → `tests/postprocess_golden.rs::numbering_matches_python`
+- `test_numbered_entries_ignores_unnumbered_lines` → `tests/postprocess_golden.rs::numbering_matches_python`
+
+## tests/translation/test_gate.py
+
+- `test_allows_up_to_the_limit` → `tests/pool.rs::gate_allows_up_to_the_limit`
+- `test_blocks_beyond_the_limit_until_released` → `tests/pool.rs::gate_blocks_beyond_the_limit_until_released`
+- `test_stop_event_aborts_a_waiter` → `tests/pool.rs::shutdown_stops_waiting_acquires`
+- `test_raising_the_limit_wakes_waiters` → `tests/pool.rs::gate_raising_the_limit_wakes_waiters`
+- `test_lowering_the_limit_does_not_overcommit` → `tests/pool.rs::gate_lowering_the_limit_does_not_overcommit`
+
+## tests/translation/test_pool.py
+
+- `test_submitted_lines_are_translated_and_reported` → `tests/pool.rs::submitted_lines_are_translated_and_reported`
+- `test_blocked_line_does_not_block_the_others` → `tests/pool.rs::blocked_line_does_not_block_the_others`
+- `test_in_flight_counts_outstanding_work` → `tests/pool.rs::in_flight_counts_outstanding_work`
+- `test_resize_keeps_pool_usable` → `tests/pool.rs::resize_changes_parallelism`
+- `test_submit_survives_concurrent_resize` → `tests/pool.rs::submit_survives_concurrent_resize`
+- `test_shutdown_cancels_queued_work_without_leaking_in_flight` → `tests/pool.rs::shutdown_cancels_queued_work_without_leaking_in_flight`
+- `test_offline_retries_until_success_and_clears_error_state` → `tests/pool.rs::success_resets_backoff`
+- `test_offline_sets_error_state_while_failing` → `tests/pool.rs::offline_backoff_5_15_30_then_stays_30`
+- `test_error_detail_exposes_the_api_message_while_failing` → `tests/pool.rs::config_error_retries_every_15s`
+- `test_error_detail_keeps_the_status_without_a_message_and_clears_after_recovery` → `tests/pool.rs::success_resets_backoff`, `tests/pool.rs::error_detail_is_none_without_status_or_message`
+- `test_config_error_retries_and_reports_config_state` → `tests/pool.rs::config_error_retries_and_reports_config_state`, `tests/pool.rs::config_error_retries_every_15s`（前者為本批新增，補上設定錯誤恢復後狀態清除）
+- `test_bad_output_is_not_retried` → `tests/pool.rs::bad_output_gives_failed_notice`
+- `test_backoff_gate_is_shared_across_workers` → `tests/pool.rs::backoff_is_shared_across_workers`
+- `test_backoff_index_advances_once_per_burst_not_per_worker` → `tests/pool.rs::backoff_is_shared_across_workers`
+- `test_uses_the_supplied_translate_fn` → `tests/pool.rs::submitted_lines_are_translated_and_reported`（Rust 的 `TranslationPool::new` 只收 `TranslateFn`，沒有「預設走收訊翻譯」的分支，所以每個 pool 測試走的都是注入的翻譯函式）
+- `test_two_pools_sharing_a_gate_never_exceed_the_total_limit` → `tests/pool.rs::two_pools_sharing_a_gate_never_exceed_the_total_limit`
+- `test_resize_also_raises_the_gate_limit` → `tests/pool.rs::resize_changes_parallelism`
+- `test_backoff_index_escalates_across_separate_failure_rounds` → `tests/pool.rs::offline_backoff_5_15_30_then_stays_30`
+- `test_the_failure_log_names_the_service` → `tests/pool.rs::the_failure_log_names_the_service`
+
+## tests/translation/test_translator.py
+
+- `test_openai_provider_forces_official_base_url` → `src/translation/clients/openai.rs::openai_provider_forces_official_base_url`（本批新增）
+- `test_build_turns_without_context_is_single_user_turn` → `tests/prompts_golden.rs::turns_and_helpers_match_python`
+- `test_build_turns_prepends_fewshot_examples` → `tests/prompts_golden.rs::turns_and_helpers_match_python`
+- `test_outgoing_uses_fewshot_when_no_context` → `tests/translator.rs::outgoing_uses_fixed_fewshot_and_english`
+- `test_incoming_uses_given_context` → `tests/translator.rs::incoming_uses_context_and_examples`
+- `test_incoming_without_context_is_single_turn` → `tests/translator.rs::incoming_without_context_is_single_turn_and_keeps_no_history`
+- `test_translator_keeps_no_internal_history` → `tests/translator.rs::incoming_without_context_is_single_turn_and_keeps_no_history`
+- `test_outgoing_keeps_fewshot_even_with_context` → `tests/translator.rs::outgoing_uses_fixed_fewshot_and_english`
+- `test_build_turns_with_context_is_multi_turn` → `tests/prompts_golden.rs::turns_and_helpers_match_python`
+- `test_incoming_system_has_no_format_markers` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_both_systems_forbid_treating_input_as_instructions` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_outgoing_system_forbids_borrowing_nouns_from_the_context` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_reconfigure_switches_provider` → `tests/translator.rs::reconfigure_switches_provider`（本批新增；以 `describe()` 驗證換成 claude）
+- `test_reconfigure_keeps_the_backend_when_nothing_changed` → `tests/translator.rs::reconfigure_untouched_slot_returns_false`, `tests/translator.rs::reconfigure_keeps_learned_parameters_when_nothing_changed`（後者為本批新增，驗證端點學到的參數限制在無變更的 reconfigure 後仍保留）
+- `test_reconfigure_rebuilds_when_a_value_changed` → `tests/translator.rs::reconfigure_rebuilds_when_a_value_changed_and_clears_examples`
+- `test_describe_names_the_service_and_never_the_key` → `tests/translator.rs::describe_names_the_service_and_never_the_key`
+- `test_the_success_log_names_the_model_that_served_the_request` → `tests/translator.rs::the_success_log_names_the_model_that_served_the_request`
+- `test_system_message_prompt_names_the_target_language` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_system_message_prompt_does_not_mention_a_sender_prefix` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_system_message_prompt_protects_placeholders` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_translate_system_message_sends_no_context_turns` → `tests/translator.rs::system_message_sends_no_context_turns_and_strips_invented_english`
+- `test_translate_system_message_strips_think_blocks` → `tests/clients_openai.rs::think_blocks_are_stripped`, `tests/clients_claude.rs::claude_sends_structured_output_and_parses_translation`（Rust 與 Python 一樣在 client 層剝除 think；translator 層的假 backend 不經過它）
+- `test_game_noun_rule_is_shared_by_both_prompts` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_game_noun_rule_forbids_inventing_english_for_non_english_source` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_game_noun_rule_always_appends_the_original_for_every_target` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_system_prompts_no_longer_embed_an_example` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_example_turns_become_a_user_and_assistant_pair` → `tests/prompts_golden.rs::turns_and_helpers_match_python`
+- `test_prompt_revision_was_bumped_for_the_example_change` → `tests/prompts_golden.rs::turns_and_helpers_match_python`（constants 案例釘 `prompt_revision`）
+- `test_game_noun_rule_keeps_player_and_npc_names_untranslated` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_game_noun_rule_names_the_target_language` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_tidy_parentheses_removes_english_invented_for_a_cjk_source` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_english_copied_from_the_source` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_removes_english_the_source_never_had` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_ignores_an_english_sender_name` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_handles_full_width_parentheses` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_leaves_placeholders_alone` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_leaves_target_language_notes_alone` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_removes_every_invented_occurrence` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_removes_cjk_invented_for_a_latin_translation` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_cjk_copied_from_the_source_for_a_latin_translation` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_accented_notes_for_a_latin_translation` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_ignores_punctuation_when_matching_the_source` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_parentheses_the_player_typed` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_emoticons_built_from_parentheses` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_game_text_in_parentheses` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_a_line_that_is_only_parentheses` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_removes_an_original_that_only_echoes_the_name` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_tidy_parentheses_keeps_a_repeated_number_the_player_typed` → `tests/postprocess_golden.rs::tidy_parentheses_matches_python`
+- `test_translate_incoming_strips_invented_english` → `tests/translator.rs::incoming_strips_invented_english`
+- `test_translate_system_message_strips_invented_english` → `tests/translator.rs::system_message_sends_no_context_turns_and_strips_invented_english`
+- `test_restore_sender_replaces_a_sender_the_model_rewrote` → `tests/postprocess_golden.rs::restore_sender_matches_python`, `tests/postprocess_golden.rs::sender_of_matches_python`
+- `test_restore_sender_puts_back_a_sender_the_model_dropped` → `tests/postprocess_golden.rs::restore_sender_matches_python`, `tests/postprocess_golden.rs::sender_of_matches_python`
+- `test_restore_sender_does_not_take_a_bracketed_message_for_the_sender` → `tests/postprocess_golden.rs::restore_sender_matches_python`, `tests/postprocess_golden.rs::sender_of_matches_python`
+- `test_restore_sender_leaves_lines_without_a_sender_alone` → `tests/postprocess_golden.rs::restore_sender_matches_python`, `tests/postprocess_golden.rs::sender_of_matches_python`
+- `test_translate_incoming_keeps_the_original_sender` → `tests/translator.rs::incoming_keeps_the_original_sender_and_logs_the_change`
+- `test_only_whitespace_after_the_sender_is_not_logged_as_an_altered_sender` → `tests/translator.rs::only_whitespace_after_the_sender_is_not_logged_as_altered`
+- `test_has_stray_latin_flags_a_translation_that_switched_to_english` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_flags_a_partly_englished_translation` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_accepts_a_translation_in_the_target_language` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_allows_english_the_source_already_had` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_is_off_for_a_latin_script_target_language` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_ignores_an_english_sender_name` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_looks_at_the_message_body_of_the_translation` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_system_message_prompt_demands_the_whole_translation_in_the_target_language` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_strict_system_message_prompt_calls_out_the_english_slip` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_translate_system_message_retries_when_the_model_answers_in_english` → `tests/translator.rs::system_message_strict_retry_on_stray_latin_only_once`
+- `test_translate_system_message_does_not_retry_a_clean_translation` → `tests/translator.rs::system_message_does_not_retry_a_clean_translation`
+- `test_translate_system_message_keeps_a_retry_that_is_still_english` → `tests/translator.rs::system_message_strict_retry_on_stray_latin_only_once`
+- `test_incoming_translation_is_not_retried` → `tests/translator.rs::incoming_translation_is_not_retried`
+- `test_translator_exposes_the_target_language` → `tests/translator.rs::new_builds_the_backend_for_the_provider`, `tests/translator.rs::reconfigure_rebuilds_when_a_value_changed_and_clears_examples`
+- `test_reconfigure_updates_the_exposed_target_language` → `tests/translator.rs::reconfigure_rebuilds_when_a_value_changed_and_clears_examples`
+- `test_has_stray_latin_flags_a_source_echoed_back_untranslated` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_accepts_a_translation_that_has_target_language_words` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_flags_an_english_sentence_built_around_a_player_name` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_allows_a_player_name_copied_from_the_source` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_ignores_case_and_spacing_when_matching_the_source` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_flags_a_name_the_model_swapped_in` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_covers_non_latin_target_languages` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_has_stray_latin_accepts_a_translation_without_any_latin` → `tests/postprocess_golden.rs::has_stray_latin_matches_python`
+- `test_incoming_translation_logs_the_source_and_the_result` → `tests/translator.rs::incoming_logs_the_source_and_the_result`
+- `test_outgoing_translation_logs_how_many_context_lines_it_carried` → `tests/translator.rs::outgoing_logs_how_many_context_lines_it_carried`
+- `test_system_message_retry_is_logged_apart_from_the_first_attempt` → `tests/translator.rs::system_message_strict_retry_on_stray_latin_only_once`
+- `test_prompts_drop_the_no_english_clauses_when_the_target_is_the_game_language` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_prompts_keep_the_no_english_clauses_for_other_latin_targets` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_incoming_slang_rule_keeps_abbreviations_when_the_target_is_the_game_language` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_game_language_match_ignores_case_and_spacing` → `tests/prompts_golden.rs::system_prompts_match_python`, `tests/prompts_golden.rs::turns_and_helpers_match_python`（`" english "` 的提示詞案例與 `is_game_language` 案例）
+- `test_sender_prefix_limit_is_shared_with_the_chat_parser` → `tests/postprocess_golden.rs::sender_prefix_limit_is_shared_with_the_chat_parser`（本批新增）
+- `test_region_text_sends_the_recognized_lines_without_numbers` → `tests/translator.rs::region_lines_roundtrip_without_numbers`
+- `test_region_text_shows_merged_lines_as_a_whole_without_adding_the_source_back` → `tests/translator.rs::region_mismatched_count_returns_block`
+- `test_region_text_drops_code_fences_around_the_translation` → `tests/translator.rs::region_drops_code_fences_around_the_translation`
+- `test_region_text_with_no_translation_is_bad_output_not_an_empty_screen` → `tests/translator.rs::region_empty_is_bad_output`
+- `test_region_text_strips_invented_english_from_merged_lines_too` → `tests/translator.rs::region_parentheses_are_judged_against_nearby_lines`
+- `test_region_text_strips_english_the_model_invented_for_a_line_without_any` → `tests/translator.rs::region_parentheses_are_judged_against_nearby_lines`
+- `test_region_text_keeps_only_english_copied_from_nearby_lines` → `tests/translator.rs::region_parentheses_are_judged_against_nearby_lines`
+- `test_region_text_keeps_a_name_moved_into_the_adjacent_line` → `tests/translator.rs::region_parentheses_are_judged_against_nearby_lines`
+- `test_region_text_strips_english_found_only_two_lines_away` → `tests/translator.rs::region_parentheses_are_judged_against_nearby_lines`
+- `test_region_system_prompt_only_allows_parentheses_copied_from_the_line` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_region_system_prompt_asks_for_line_by_line_output_keeping_source_numbers` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_translate_region_text_logs_no_translation_content` → `tests/translator.rs::region_logs_no_translation_content`
+- `test_region_system_prompt_carries_the_target_language_and_no_chat_format` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_region_system_prompt_speaks_of_recognized_text_not_of_an_image` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_region_system_prompt_pins_the_order_of_name_and_parenthesized_original` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_prompts_ask_to_translate_parentheses_already_in_the_source` → `tests/prompts_golden.rs::system_prompts_match_python`
+- `test_game_noun_rule_treats_joined_camel_case_names_as_nouns_not_code` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_game_noun_rule_pins_the_order_of_name_and_original_for_every_prompt` → `tests/prompts_golden.rs::system_prompts_match_python`（整份提示詞逐 byte 比對；Rust 沒有獨立匯出的 `_game_noun_rule`，規則文字含在各提示詞內）
+- `test_translate_incoming_sends_the_example_before_the_context` → `tests/translator.rs::incoming_uses_context_and_examples`
+- `test_without_examples_no_example_turns_are_sent` → `tests/translator.rs::system_message_sends_no_context_turns_and_strips_invented_english`
+- `test_region_text_sends_the_region_example_first` → `tests/translator.rs::region_sends_the_region_example_first`
+- `test_set_examples_ignores_a_stale_fingerprint` → `tests/translator.rs::set_examples_ignores_a_stale_fingerprint`
+- `test_reconfigure_clears_the_examples` → `tests/translator.rs::reconfigure_rebuilds_when_a_value_changed_and_clears_examples`
+- `test_reconfigure_without_changes_keeps_the_examples` → `tests/translator.rs::reconfigure_untouched_slot_returns_false`
+- `test_generate_examples_retries_bad_output_and_merges` → `tests/translator.rs::generate_examples_retries_bad_output_and_merges`
+- `test_generate_examples_gives_up_after_six_requests` → `tests/translator.rs::generate_examples_gives_up_after_six_requests`
+- `test_generate_examples_does_not_retry_a_config_error` → `tests/translator.rs::generate_examples_does_not_retry_other_errors`
+- `test_generate_examples_for_the_game_language_sends_nothing` → `tests/translator.rs::english_target_uses_game_language_examples`
+- `test_generate_and_store_reuses_a_cached_set_without_a_request` → `tests/translator.rs::generate_and_store_uses_the_cache_and_skips_empty_results`
+- `test_test_translate_survives_a_failing_example_generation` → `tests/translator.rs::example_failure_after_a_good_test_still_returns_the_translation`
+- `test_strict_retry_sends_the_same_example_turns` → `tests/translator.rs::strict_retry_sends_the_same_example_turns`
+- `test_generate_and_store_persists_a_non_empty_result` → `tests/translator.rs::generate_and_store_uses_the_cache_and_skips_empty_results`
+- `test_generate_and_store_skips_writing_an_empty_result` → `tests/translator.rs::generate_and_store_uses_the_cache_and_skips_empty_results`
+- `test_a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry` → `tests/translator.rs::a_reconfigure_mid_request_does_not_mix_settings_in_the_strict_retry`
+- `test_a_reconfigure_after_the_prompt_is_built_still_uses_the_same_backend` → `tests/translator.rs::a_reconfigure_mid_request_keeps_the_same_backend_for_incoming_and_region`（本批新增；Python 在「提示詞建好之後、送出之前」插入 reconfigure，Rust 的 `translate_*` 在開頭取一次後端快照、中間沒有可插入的點，所以改在請求進行中 reconfigure，驗證請求仍用原後端與原提示詞）
+- `test_generate_examples_returns_the_fingerprint_of_the_settings_it_used` → `tests/translator.rs::generate_examples_returns_the_fingerprint_of_the_settings_it_used`

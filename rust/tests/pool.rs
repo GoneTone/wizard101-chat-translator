@@ -376,6 +376,28 @@ async fn config_error_retries_every_15s() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn config_error_retries_and_reports_config_state() {
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let translate = recording(calls_tx, |n| match n {
+        0 => Err(TranslateError::Config {
+            status: Some(401),
+            detail: "bad key".into(),
+        }),
+        _ => Ok("ok".into()),
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    next(&mut calls).await;
+    settle().await;
+    assert_eq!(pool.error_state(), Some(ErrorState::Config));
+    assert_eq!(next(&mut rx).await, (1, "ok".into(), false));
+    assert_eq!(pool.error_state(), None);
+    assert_eq!(pool.error_detail(), None);
+    next(&mut calls).await;
+    assert!(calls.try_recv().is_err(), "failed once, succeeded once");
+}
+
+#[tokio::test(start_paused = true)]
 async fn success_resets_backoff() {
     // 前兩次離線、第三次成功；之後再離線一次，退避要從 5 秒重新算起
     let (calls_tx, mut calls) = mpsc::unbounded_channel();
