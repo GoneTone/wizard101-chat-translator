@@ -173,4 +173,4 @@ uv run pyinstaller build.spec --noconfirm
 
 ## 图标
 
-程序图标（`src/assets/icon.ico`）改作自 Wizard101 的游戏图标，右上角叠上「文A」翻译徽章，exe 与所有窗口共用同一份。底图版权属 KingsIsle Entertainment，本项目与其并无隶属关系。
+程序图标（`assets/icon.ico`）改作自 Wizard101 的游戏图标，右上角叠上「文A」翻译徽章，exe 与所有窗口共用同一份。底图版权属 KingsIsle Entertainment，本项目与其并无隶属关系。

@@ -1,2 +1,2 @@
-rust/tests/golden/*.json text eol=lf
-rust/assets/ocr/* -text
+tests/golden/*.json text eol=lf
+assets/ocr/* -text

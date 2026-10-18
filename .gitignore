@@ -1,11 +1,5 @@
-*.pyc
-.pytest_cache/
-.venv/
-__pycache__/
 config.json
-build/
-dist/
 .idea/*
-!.idea/runConfigurations/
 app.log
 messages.log
+/target

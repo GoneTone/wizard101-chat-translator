@@ -173,4 +173,4 @@ Both logs are split per launch, keep the last 7 days only, and start every line 
 
 ## Icon
 
-The program icon (`src/assets/icon.ico`) is adapted from the Wizard101 game icon with a "文A" translation badge in the top-right corner, shared by the exe and every window. The base artwork is copyright KingsIsle Entertainment; this project is not affiliated with them.
+The program icon (`assets/icon.ico`) is adapted from the Wizard101 game icon with a "文A" translation badge in the top-right corner, shared by the exe and every window. The base artwork is copyright KingsIsle Entertainment; this project is not affiliated with them.
