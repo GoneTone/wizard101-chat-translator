@@ -1121,6 +1121,23 @@ fn nothing_but_the_custom_knob_is_painted_on_the_opacity_slider() {
     }
 }
 
+#[test]
+fn keys_the_window_receives_while_recording_are_logged() {
+    capture_logs();
+    let marker = "[ui] settings window key event while recording: key=F7 pressed=true";
+    let mut h = harness(configured_cfg());
+    h.key_press(Key::F7);
+    run(&mut h);
+    assert!(
+        log_lines_with(marker).is_empty(),
+        "not logged before recording"
+    );
+    click_change(&mut h, 0);
+    h.key_press(Key::F7);
+    run(&mut h);
+    assert_eq!(log_lines_with(marker).len(), 1);
+}
+
 /// 關於頁頭卡的名稱與版本兩行的位置。
 fn hero_lines(h: &Harness<State>) -> (Rect, Rect) {
     let name = h

@@ -1,6 +1,8 @@
 //! 兩把熱鍵（呼出輸入框、框選翻譯）的設定列與錄製（設定視窗與首次設定精靈共用）。
 
-use eframe::egui::{Label, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui};
+use eframe::egui::{
+    Event, Label, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui,
+};
 use eframe::egui::{WidgetText, vec2};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
@@ -93,6 +95,9 @@ impl HotkeyEditor {
 
     /// 兩張熱鍵卡片：輸入框熱鍵底下接 `field.auto_input` 開關，框選熱鍵自成一張（設定基本頁與精靈共用）。
     pub fn cards(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, auto_show_input: &mut bool) {
+        if self.recording.busy() {
+            log_key_events(ui);
+        }
         // 每把熱鍵底下緊接著它自己的選項，看得出哪個開關管哪個功能
         card(ui, |ui| {
             self.row(ui, env, HotkeyKind::Input);
@@ -132,6 +137,25 @@ impl HotkeyEditor {
         self.target = None;
         was
     }
+}
+
+/// 錄製中這個視窗收到的按鍵（診斷用）：分得出按鍵是沒進到視窗，還是進了視窗卻沒進鍵盤 hook。
+fn log_key_events(ui: &Ui) {
+    ui.input(|input| {
+        for event in &input.events {
+            if let Event::Key {
+                key,
+                pressed,
+                repeat,
+                ..
+            } = event
+            {
+                log(format!(
+                    "[ui] settings window key event while recording: key={key:?} pressed={pressed} repeat={repeat}"
+                ));
+            }
+        }
+    });
 }
 
 /// 錄製中的提示：`ACCENT` 外框的框，不可聚焦也不可點，免得錄製時按的鍵觸發它。

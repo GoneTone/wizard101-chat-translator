@@ -145,7 +145,7 @@ fn logs_each_event_it_sees_until_the_first_release() {
     drop(recording);
     let log = common::log_capture::log_text();
     assert!(
-        log.contains("[hotkey] recording started (events processed so far=1)"),
+        log.contains("[hotkey] recording started (events processed so far=1,"),
         "{log}"
     );
     assert!(
@@ -161,7 +161,7 @@ fn logs_each_event_it_sees_until_the_first_release() {
         "nothing is logged after the first release: {log}"
     );
     assert!(
-        log.contains("[hotkey] recording stopped (events processed so far=4)"),
+        log.contains("[hotkey] recording stopped (events processed so far=4,"),
         "{log}"
     );
 }
