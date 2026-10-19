@@ -262,6 +262,11 @@ impl<R: ChatSource> ClientLoop<R> {
                         "notice.version_mismatch",
                         VERSION_MISMATCH_INTERVAL,
                     ),
+                    GameNotRunning::HookNotFiring(_) => (
+                        "version_mismatch",
+                        "notice.version_mismatch",
+                        GAME_MISSING_INTERVAL,
+                    ),
                     GameNotRunning::Missing(_) => {
                         ("waiting_game", "notice.game_missing", GAME_MISSING_INTERVAL)
                     }

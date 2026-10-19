@@ -838,6 +838,25 @@ fn window_closing_during_the_version_mismatch_wait_ends_the_reader_early() {
 }
 
 #[test]
+fn hook_not_firing_shows_the_mismatch_banner_but_retries_at_the_short_interval() {
+    // 還在登入畫面時 hook 不會觸發：登入後不能被 60 秒退避拖住
+    let mut s = Setup::new();
+    let idle = || Read::Fail(GameNotRunning::HookNotFiring("p".into()));
+    let events = s.run(vec![idle(), idle(), lines(&[])]);
+    let read_at = s.probe.lock().unwrap().read_at.clone();
+    assert_eq!(
+        read_at,
+        [
+            Duration::ZERO,
+            GAME_MISSING_INTERVAL,
+            GAME_MISSING_INTERVAL * 2
+        ]
+    );
+    assert_eq!(banners(&events)[0], ("notice.version_mismatch", vec![]));
+    assert!(statuses(&events).contains(&"version_mismatch"));
+}
+
+#[test]
 fn version_mismatch_shows_its_own_banner_and_status() {
     let mut s = Setup::new();
     let mismatch = || Read::Fail(GameNotRunning::VersionMismatch("pattern failed".into()));

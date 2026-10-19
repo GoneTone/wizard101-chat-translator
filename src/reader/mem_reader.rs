@@ -39,7 +39,7 @@ pub const INPUT_CONTAINER: &str = "chatEditContainer";
 const MAX_PARENT_DEPTH: usize = 64;
 /// exe 的偏好載入位址：log 把跳轉點換算回靜態位址，才對得上反組譯。
 const IMAGE_BASE: u64 = 0x1_4000_0000;
-/// 等 root window hook 第一次被執行的上限；逾時多半是還沒登入進世界。
+/// 等 root window hook 第一次被執行的上限；逾時可能是改版，也可能還沒登入進世界。
 pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// 等 root window hook 時的輪詢間隔。
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
@@ -62,16 +62,19 @@ pub enum GameNotRunning {
     Missing(String),
     /// 開不了程序 handle（多半是遊戲以系統管理員身分執行、本程式沒有）。
     AccessDenied(String),
-    /// 掛入點與這個遊戲版本對不上（pattern 掃不到、多重命中或 hook 遲遲沒被執行）。
+    /// 掛入點與這個遊戲版本對不上（pattern 掃不到或多重命中）；同一個程序重試不會好。
     VersionMismatch(String),
+    /// hook 裝好了卻遲遲沒被執行：改版的常見症狀，但也可能只是還在登入畫面，所以照常短間隔重試。
+    HookNotFiring(String),
 }
 
 impl fmt::Display for GameNotRunning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing(msg) | Self::AccessDenied(msg) | Self::VersionMismatch(msg) => {
-                f.write_str(msg)
-            }
+            Self::Missing(msg)
+            | Self::AccessDenied(msg)
+            | Self::VersionMismatch(msg)
+            | Self::HookNotFiring(msg) => f.write_str(msg),
         }
     }
 }
@@ -122,8 +125,8 @@ impl fmt::Display for AttachError {
 }
 
 impl AttachError {
-    /// pattern 掃不到或多重命中（都在寫入遊戲之前）；逾時不算，登入畫面時 hook 本來就不會觸發。
-    fn is_version_mismatch(&self) -> bool {
+    /// pattern 掃不到或多重命中（都在寫入遊戲之前）：同一個程序重試也不會好。
+    fn is_pattern_failure(&self) -> bool {
         matches!(
             self,
             Self::Hook(HookError::Scan(
@@ -599,10 +602,11 @@ impl WizChatReader {
             Ok(waited) => waited,
             Err(err) => {
                 self.teardown();
-                return Err(if err.is_version_mismatch() {
-                    GameNotRunning::VersionMismatch(format!(
-                        "hook does not match this game build: {err}"
-                    ))
+                let mismatch = format!("hook does not match this game build: {err}");
+                return Err(if err.is_pattern_failure() {
+                    GameNotRunning::VersionMismatch(mismatch)
+                } else if matches!(err, AttachError::Timeout) {
+                    GameNotRunning::HookNotFiring(mismatch)
                 } else {
                     GameNotRunning::Missing(format!("failed to attach to game: {err}"))
                 });
