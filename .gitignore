@@ -3,3 +3,4 @@ config.json
 app.log
 messages.log
 /target
+/_exe_test
