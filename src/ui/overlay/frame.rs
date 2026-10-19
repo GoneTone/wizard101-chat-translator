@@ -2,20 +2,19 @@
 
 use eframe::egui::{
     self, Align, Align2, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response,
-    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureHandle, Tooltip, Ui, UiBuilder,
+    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui, UiBuilder,
     Vec2, WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
 use crate::i18n::t;
 use crate::logs::log;
-use crate::runtime::resources::icon_png;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{
     EDGE, Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen,
     resized_edge,
 };
-use crate::ui::icon::png_texture;
+use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
     BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_FG_ACTIVE,
 };
@@ -157,7 +156,6 @@ pub struct Frame {
     initial: Option<Geometry>,
     placement_failed: bool,
     gesture: Option<Gesture>,
-    icon: Option<TextureHandle>,
     on_geometry_change: Box<dyn FnMut(i32, i32, i32, i32)>,
 }
 
@@ -174,7 +172,6 @@ impl Frame {
             initial,
             placement_failed: false,
             gesture: None,
-            icon: None,
             on_geometry_change: Box::new(on_geometry_change),
         }
     }
@@ -292,15 +289,12 @@ impl Frame {
             ui.ctx().set_cursor_icon(CursorIcon::Move);
         }
 
-        let icon = self
-            .icon
-            .get_or_insert_with(|| load_icon(ui.ctx(), 48))
-            .clone();
+        let icon = app_icon_texture(ui.ctx(), 48);
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(bar)
                 .layout(Layout::right_to_left(Align::Center)),
-            |ui| title_bar(ui, &icon, title, status, region_hotkey),
+            |ui| title_bar(ui, icon, title, status, region_hotkey),
         )
         .inner
     }
@@ -329,7 +323,7 @@ fn grip_rect(area: egui::Rect) -> egui::Rect {
 /// 標題列內容；按鈕與狀態先由右往左排，名稱只拿剩下的寬度，太長時被截的是名稱。
 fn title_bar(
     ui: &mut Ui,
-    icon: &TextureHandle,
+    icon: TextureId,
     title: &str,
     status: Option<&str>,
     region_hotkey: &str,
@@ -384,7 +378,7 @@ fn title_bar(
     }
     ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
         ui.add_space(6.0);
-        ui.add(Image::new((icon.id(), Vec2::splat(BAR_ICON))));
+        ui.add(Image::new((icon, Vec2::splat(BAR_ICON))));
         ui.add_space(4.0);
         let text = RichText::new(title)
             .font(FontId::proportional(tk_pt(9.0)))
@@ -473,12 +467,6 @@ fn paint_grip(painter: &egui::Painter, grip: egui::Rect) {
         painter.line_segment([a, b], Stroke::new(4.0, OUTLINE));
         painter.line_segment([a, b], Stroke::new(2.0, FG_BAR));
     }
-}
-
-/// 把內嵌的 app 圖示（`size` px）載成貼圖。
-pub(crate) fn load_icon(ctx: &egui::Context, size: u32) -> TextureHandle {
-    png_texture(ctx, format!("app_icon_{size}"), icon_png(size))
-        .expect("embedded icon is a valid PNG")
 }
 
 fn resize_cursor(edge: Edge) -> CursorIcon {

@@ -6,10 +6,9 @@ mod about;
 mod advanced;
 mod basic;
 
-use eframe::egui::style::ScrollStyle;
 use eframe::egui::{
-    Align, Align2, Color32, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Rect, RichText,
-    Role, ScrollArea, Sense, Stroke, Ui, UiBuilder, WidgetInfo, pos2, vec2,
+    Align, Align2, FontId, Frame, Id, Label, Layout, Margin, Rect, RichText, Role, Sense, Stroke,
+    Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 use serde_json::Value;
 
@@ -19,7 +18,8 @@ use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
 use super::widgets::{
-    callout, focus_ring, primary_button, right_aligned, right_aligned_width, secondary_button,
+    callout, focus_ring, primary_button, right_aligned, right_aligned_width, scroll_page,
+    secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
 use crate::config::services::{ServiceSlot, find, validate_service};
@@ -28,7 +28,6 @@ use crate::i18n::{current_language, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
-use crate::ui::overlay::scrollbar;
 
 /// 設定視窗的分頁，依側欄順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -347,38 +346,22 @@ impl SettingsWindow {
 
     /// 目前分頁：頁標題加內容，各頁各自記住捲動位置。
     fn page_ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
-        let style = ui.style().clone();
-        thin_scrollbar(ui);
-        let (top, right, bottom, left) = theme::CONTENT_MARGIN;
-        let margin = Margin {
-            left: left as i8,
-            right: right as i8,
-            top: top as i8,
-            bottom: bottom as i8,
-        };
-        ScrollArea::vertical()
-            .id_salt(("settings_page", self.page))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_style(style);
-                Frame::new().inner_margin(margin).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
-                    let title = RichText::new(t(self.page.title_key(), &[]))
-                        .font(theme::bold(theme::TITLE_SIZE));
-                    ui.add(Label::new(title));
-                    ui.add_space(6.0);
-                    match self.page {
-                        Page::Basic => self.basic_page(ui, env),
-                        Page::Services => {
-                            let target = pystr::strip(&self.target_language).to_owned();
-                            self.services.ui(ui, env, &target);
-                        }
-                        Page::Advanced => self.advanced_page(ui),
-                        Page::About => self.about_page(ui, env),
-                    }
-                });
-            });
+        let salt = ("settings_page", self.page);
+        scroll_page(ui, salt, theme::CONTENT_MARGIN, theme::CARD_GAP, |ui| {
+            let title =
+                RichText::new(t(self.page.title_key(), &[])).font(theme::bold(theme::TITLE_SIZE));
+            ui.add(Label::new(title));
+            ui.add_space(6.0);
+            match self.page {
+                Page::Basic => self.basic_page(ui, env),
+                Page::Services => {
+                    let target = pystr::strip(&self.target_language).to_owned();
+                    self.services.ui(ui, env, &target);
+                }
+                Page::Advanced => self.advanced_page(ui),
+                Page::About => self.about_page(ui, env),
+            }
+        });
     }
 }
 
@@ -406,29 +389,6 @@ fn service_errors(cfg: &Config) -> Vec<String> {
         }
     }
     errors
-}
-
-/// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
-pub(super) fn thin_scrollbar(ui: &mut Ui) {
-    let style = ui.style_mut();
-    style.spacing.scroll = ScrollStyle {
-        bar_width: scrollbar::WIDTH,
-        handle_min_length: scrollbar::MIN_THUMB as f32,
-        bar_inner_margin: 2.0,
-        bar_outer_margin: 2.0,
-        ..ScrollStyle::solid()
-    };
-    let visuals = &mut style.visuals;
-    visuals.extreme_bg_color = Color32::TRANSPARENT;
-    let widgets = &mut visuals.widgets;
-    for (state, color) in [
-        (&mut widgets.inactive, scrollbar::THUMB),
-        (&mut widgets.hovered, scrollbar::THUMB_HOVER),
-        (&mut widgets.active, scrollbar::THUMB_HOVER),
-    ] {
-        state.bg_fill = color;
-        state.corner_radius = CornerRadius::same(4);
-    }
 }
 
 /// 側欄的一個導覽項：圖示加名稱；選中的有底色與左側 `ACCENT` 指示條。

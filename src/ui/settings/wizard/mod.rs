@@ -4,9 +4,7 @@
 
 mod steps;
 
-use eframe::egui::{
-    Align, Id, Layout, Rect, Response, Stroke, TextureHandle, Ui, UiBuilder, pos2, vec2,
-};
+use eframe::egui::{Align, Id, Layout, Rect, Response, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
@@ -88,7 +86,6 @@ pub struct Wizard {
     hotkeys_blocked: bool,
     /// 提示剛出現，下一次畫的時候捲到它。
     reveal_callout: bool,
-    icon: Option<TextureHandle>,
 }
 
 impl Wizard {
@@ -104,7 +101,6 @@ impl Wizard {
             auto_show_input: flag_setting(&cfg, "auto_show_input"),
             hotkeys_blocked: false,
             reveal_callout: false,
-            icon: None,
             cfg,
         };
         let draft = ServiceDraft::from_config(&wizard.cfg);

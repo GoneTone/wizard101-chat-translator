@@ -2,12 +2,13 @@
 
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, FontId, Image, Pos2, Sense, Shape, Stroke, TextureHandle, Vec2};
+use eframe::egui::{self, Color32, FontId, Image, Pos2, Sense, Shape, Stroke, Vec2};
 
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, is_click, moved_to, point_in_rect, pull_onscreen};
-use crate::ui::overlay::frame::{Shell, load_icon};
+use crate::ui::icon::app_icon_texture;
+use crate::ui::overlay::frame::Shell;
 use crate::ui::palette::{BAR, GRIP};
 use crate::ui::settings::theme;
 
@@ -110,7 +111,6 @@ pub struct Bubble {
     moved: bool,
     prev_foreground: isize,
     next_poll: Instant,
-    icon: Option<TextureHandle>,
 }
 
 impl Bubble {
@@ -123,7 +123,6 @@ impl Bubble {
             moved: false,
             prev_foreground: foreground,
             next_poll: now + POLL_INTERVAL,
-            icon: None,
         }
     }
 
@@ -161,11 +160,8 @@ impl Bubble {
         alpha: f32,
     ) -> Option<Action> {
         let rect = ui.max_rect();
-        let icon = self
-            .icon
-            .get_or_insert_with(|| load_icon(ui.ctx(), BUBBLE_SIZE as u32))
-            .clone();
-        Image::new((icon.id(), rect.size()))
+        let icon = app_icon_texture(ui.ctx(), BUBBLE_SIZE as u32);
+        Image::new((icon, rect.size()))
             .tint(Color32::WHITE.gamma_multiply(alpha))
             .paint_at(ui, rect);
         if let Some(text) = badge_text(unread) {

@@ -781,8 +781,7 @@ fn escape_cancels_the_provider_pick() {
 }
 
 #[test]
-fn the_cancel_button_closes_the_picker() {
-    // 重新設計後選擇框以標題列的關閉鈕取消，沒有獨立的取消鈕
+fn the_close_button_closes_the_picker() {
     let (d, _a, _b) = two();
     let mut h = harness(d.clone());
     h.get_by_label(&tr("button.add_service")).click();
