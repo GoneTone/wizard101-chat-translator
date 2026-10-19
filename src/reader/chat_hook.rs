@@ -194,6 +194,9 @@ pub fn read_ring(
     })
 }
 
+/// 暫留廣播的筆數上限（分頁 0～3 加上頻道分頁）。
+const MAX_HELD_BROADCAST: usize = 16;
+
 fn continues_broadcast(run: &[HookRecord], rec: &HookRecord) -> bool {
     let Some(prev) = run.last() else {
         return false;
@@ -231,12 +234,10 @@ pub fn group_broadcasts(records: &[HookRecord]) -> Vec<(Vec<u32>, HookRecord)> {
     groups
 }
 
-/// 結尾若是廣播的開頭（連號、同字、分頁 0,1 或 0,1,2）回傳其筆數，否則 0。
+/// 結尾若是廣播的開頭（連號、同字、分頁 0 起；含已湊滿 4 筆但還可能接頻道分頁者）回傳其筆數，否則 0。
 pub fn pending_broadcast(records: &[HookRecord]) -> usize {
-    for n in [3, 2] {
-        let Some(tail) = records.len().checked_sub(n).map(|from| &records[from..]) else {
-            continue;
-        };
+    for n in (2..=records.len().min(MAX_HELD_BROADCAST)).rev() {
+        let tail = &records[records.len() - n..];
         if tail[0].tab == 0 && (1..n).all(|i| continues_broadcast(&tail[..i], &tail[i])) {
             return n;
         }

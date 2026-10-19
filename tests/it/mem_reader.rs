@@ -782,6 +782,11 @@ fn broadcast_becomes_one_event_for_all_tabs() {
         g.put(i + 1, &notice, i as u32, BOX);
     }
     assert_eq!(
+        r.read_new().unwrap(),
+        vec![],
+        "a 4-tab run is held for channel tabs"
+    );
+    assert_eq!(
         texts(&mut r),
         [(vec![0, 1, 2, 3], "[Server Message] maintenance".to_owned())]
     );
@@ -821,6 +826,43 @@ fn partial_broadcast_held_one_round() {
         [(vec![0, 1, 2, 3], "[Server Message] maintenance".to_owned())]
     );
     assert_eq!(lines.count("[seq=2 "), 1, "held records are logged once");
+}
+
+#[test]
+fn broadcast_split_after_four_tabs_is_one_event() {
+    let g = Game::new();
+    let mut r = g.connected(208);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    for (seq, tab) in [(1, 0), (2, 1), (3, 2), (4, 3)] {
+        g.put(seq, &notice, tab, BOX);
+    }
+    let first = texts(&mut r);
+    g.put(5, &notice, 5, BOX);
+    g.put(6, &notice, 6, BOX);
+    let mut all = first;
+    all.extend(texts(&mut r));
+    assert_eq!(
+        all,
+        [(
+            vec![0, 1, 2, 3, 5, 6],
+            "[Server Message] maintenance".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_held_four_tab_run_is_released_when_no_channel_tabs_follow() {
+    let g = Game::new();
+    let mut r = g.connected(209);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    for (seq, tab) in [(1, 0), (2, 1), (3, 2), (4, 3)] {
+        g.put(seq, &notice, tab, BOX);
+    }
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    assert_eq!(texts(&mut r).len(), 1);
+    assert_eq!(r.read_new().unwrap(), vec![]);
 }
 
 #[test]
