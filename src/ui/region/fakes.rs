@@ -22,7 +22,7 @@ pub(crate) const GAME: isize = 0x1234;
 pub(crate) const FOUND: isize = 0x9999;
 pub(crate) const CURSOR: (i32, i32) = (40, 50);
 
-/// 凍結畫面的影像內容與流程無關；流程只讀 client 區的位置與大小。
+/// 凍結畫面的影像內容與流程無關；流程只讀 client 區的位置與大小，所以 4x4 影像與 `client_size` 不必一致。
 pub(crate) fn frame() -> Arc<Frame> {
     Arc::new(Frame {
         image: RgbImage::new(4, 4),

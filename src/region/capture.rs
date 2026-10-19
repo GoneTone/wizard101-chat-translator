@@ -98,7 +98,7 @@ pub fn crop_frame(frame: &Frame, screen_rect: Rect) -> Result<Vec<u8>, CaptureEr
 
 /// 把遊戲視窗 hwnd 的整個 client 區用 WGC 拍成一張 `Frame`；任一層失敗都變成 `CaptureError`。
 pub fn capture_window(hwnd: isize) -> Result<Frame, CaptureError> {
-    // 幾何先取：視窗已消失時在這裡就失敗，不會啟動 WGC。
+    // 最小化或視窗已消失都在啟動 WGC 之前失敗。
     reject_minimized(hwnd, is_minimized(hwnd))?;
     let client = client_geometry(hwnd)?;
     capture_window_with(hwnd, grab_window, client)
