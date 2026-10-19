@@ -355,7 +355,7 @@ fn title_bar(
         let button = if button.is_pointer_button_down_on() {
             button
         } else {
-            let mut tip = Tooltip::for_enabled(&button);
+            let mut tip = flat_tooltip(&button);
             tip.popup = tip
                 .popup
                 .at_position(tooltip_anchor(ui.ctx(), button.id))
@@ -406,6 +406,14 @@ fn title_bar(
 
 /// 提示框與游標的距離（右下方），避免蓋住游標。
 const TOOLTIP_OFFSET: f32 = 12.0;
+
+/// 不帶陰影的提示框（egui 預設樣式的彈出框有往右下偏的陰影，舊版沒有）。
+pub(crate) fn flat_tooltip(response: &Response) -> Tooltip<'static> {
+    let mut tip = Tooltip::for_enabled(response);
+    let frame = egui::Frame::popup(&response.ctx.global_style()).shadow(egui::Shadow::NONE);
+    tip.popup = tip.popup.frame(frame);
+    tip
+}
 
 /// 提示框的錨點：出現那一刻的游標位置，之後不跟著游標走（同舊版）。
 fn tooltip_anchor(ctx: &egui::Context, widget: egui::Id) -> Pos2 {
@@ -786,6 +794,24 @@ pub(crate) mod tests {
             _ => None,
         });
         assert_eq!(color, Some(FG_TRANSLATED));
+    }
+
+    /// 這一幀有沒有畫出帶模糊的陰影。
+    pub(crate) fn has_shadow(output: &egui::FullOutput) -> bool {
+        fn blurred(shape: &egui::Shape) -> bool {
+            match shape {
+                egui::Shape::Rect(r) => r.blur_width > 0.0,
+                egui::Shape::Vec(shapes) => shapes.iter().any(blurred),
+                _ => false,
+            }
+        }
+        output.shapes.iter().any(|c| blurred(&c.shape))
+    }
+
+    #[test]
+    fn the_tooltip_has_no_shadow() {
+        let (harness, _) = hovered_tooltip();
+        assert!(!has_shadow(harness.output()));
     }
 
     #[test]
