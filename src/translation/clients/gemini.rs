@@ -49,7 +49,7 @@ impl GeminiClient {
     /// 金鑰照 SDK 去頭尾空白後放 `x-goog-api-key` 標頭（空金鑰送空值，讓伺服器回 4xx 照設定錯誤處理）。
     pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
         Self {
-            http: http_client(Default::default()),
+            http: http_client(Default::default(), endpoint),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             api_key: secret_header(pystr::strip(api_key)),
             model: model.to_owned(),

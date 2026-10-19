@@ -74,7 +74,7 @@ impl ClaudeClient {
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
         Self {
-            http: http_client(headers),
+            http: http_client(headers, endpoint),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             // SDK 遇到空金鑰在送出前就拋錯，含非法字元的金鑰也送不出去
             api_key: secret_header(api_key).filter(|_| !api_key.is_empty()),

@@ -146,13 +146,16 @@ impl SettingsEnv for RealEnv {
     fn check_update(&self, round: u64) {
         self.post_later(
             async move {
-                let result =
-                    check_for_update(&update_client(), LATEST_API, env!("CARGO_PKG_VERSION"))
-                        .await
-                        .map_err(|e| {
-                            log(format!("[update] manual check failed: {e}"));
-                            e.to_string()
-                        });
+                let result = check_for_update(
+                    &update_client(LATEST_API),
+                    LATEST_API,
+                    env!("CARGO_PKG_VERSION"),
+                )
+                .await
+                .map_err(|e| {
+                    log(format!("[update] manual check failed: {e}"));
+                    e.to_string()
+                });
                 SettingsEvent::UpdateChecked { round, result }
             },
             move |message| SettingsEvent::UpdateChecked {

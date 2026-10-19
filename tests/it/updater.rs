@@ -117,7 +117,8 @@ async fn fetch_latest_release_reads_tag_and_url() {
         .expect(1)
         .mount(&server)
         .await;
-    let release = fetch_latest_release(&update_client(), &latest_url(&server)).await;
+    let release =
+        fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server)).await;
     assert_eq!(
         release,
         Ok(Some(Release {
@@ -131,7 +132,7 @@ async fn fetch_latest_release_reads_tag_and_url() {
 async fn fetch_latest_release_returns_none_when_no_release_exists() {
     let server = server_with(ResponseTemplate::new(404)).await;
     assert_eq!(
-        fetch_latest_release(&update_client(), &latest_url(&server)).await,
+        fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server)).await,
         Ok(None)
     );
 }
@@ -140,7 +141,7 @@ async fn fetch_latest_release_returns_none_when_no_release_exists() {
 async fn fetch_latest_release_errors_on_other_status_codes() {
     for status in [403u16, 429, 500] {
         let server = server_with(ResponseTemplate::new(status)).await;
-        let err = fetch_latest_release(&update_client(), &latest_url(&server))
+        let err = fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server))
             .await
             .unwrap_err();
         assert_eq!(err, UpdateCheckError(format!("HTTP {status}")));
@@ -156,7 +157,7 @@ async fn fetch_latest_release_errors_when_connection_fails() {
         .unwrap()
         .port();
     let url = format!("http://127.0.0.1:{port}/latest");
-    let err = fetch_latest_release(&update_client(), &url)
+    let err = fetch_latest_release(&update_client("http://127.0.0.1"), &url)
         .await
         .expect_err("a refused connection must be an error");
     // reqwest 頂層訊息只有 "error sending request"，原因（被拒絕的 OS 錯誤）在原因鏈裡
@@ -171,12 +172,12 @@ async fn fetch_latest_release_errors_when_connection_fails() {
 async fn fetch_latest_release_errors_on_unusable_payload() {
     let server = server_with(ResponseTemplate::new(200).set_body_json(json!({}))).await;
     assert!(
-        fetch_latest_release(&update_client(), &latest_url(&server))
+        fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server))
             .await
             .is_err()
     );
     let server = server_with(ResponseTemplate::new(200).set_body_string("not json")).await;
-    let err = fetch_latest_release(&update_client(), &latest_url(&server))
+    let err = fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server))
         .await
         .unwrap_err();
     assert!(err.0.contains("line 1 column"), "{err}");
@@ -187,7 +188,7 @@ async fn fetch_latest_release_falls_back_to_releases_page_without_html_url() {
     let server =
         server_with(ResponseTemplate::new(200).set_body_json(json!({"tag_name": "v0.3.0"}))).await;
     assert_eq!(
-        fetch_latest_release(&update_client(), &latest_url(&server)).await,
+        fetch_latest_release(&update_client("http://127.0.0.1"), &latest_url(&server)).await,
         Ok(Some(Release {
             version: "0.3.0".into(),
             url: RELEASES_URL.into()
@@ -209,14 +210,16 @@ async fn fetch_latest_release_follows_redirects() {
         .mount(&server)
         .await;
     let url = format!("{}/old", server.uri());
-    let release = fetch_latest_release(&update_client(), &url).await.unwrap();
+    let release = fetch_latest_release(&update_client("http://127.0.0.1"), &url)
+        .await
+        .unwrap();
     assert_eq!(release.unwrap().version, "0.2.0");
 }
 
 #[tokio::test]
 async fn check_for_update_returns_release_only_when_newer() {
     let server = server_with(ResponseTemplate::new(200).set_body_json(release_json())).await;
-    let (client, url) = (update_client(), latest_url(&server));
+    let (client, url) = (update_client("http://127.0.0.1"), latest_url(&server));
     let found = check_for_update(&client, &url, "0.1.0").await.unwrap();
     assert_eq!(found.unwrap().version, "0.2.0");
     assert_eq!(check_for_update(&client, &url, "0.2.0").await, Ok(None));
@@ -227,7 +230,12 @@ async fn check_for_update_returns_release_only_when_newer() {
 async fn check_for_update_returns_none_when_no_release_exists() {
     let server = server_with(ResponseTemplate::new(404)).await;
     assert_eq!(
-        check_for_update(&update_client(), &latest_url(&server), "0.1.0").await,
+        check_for_update(
+            &update_client("http://127.0.0.1"),
+            &latest_url(&server),
+            "0.1.0"
+        )
+        .await,
         Ok(None)
     );
 }

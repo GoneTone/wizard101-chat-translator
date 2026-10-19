@@ -75,7 +75,7 @@ impl OpenAiCompatClient {
             }
         }
         Self {
-            http: http_client(headers),
+            http: http_client(headers, base_url),
             base_url: base_url.trim_end_matches('/').to_owned(),
             model: model.to_owned(),
             thinking,

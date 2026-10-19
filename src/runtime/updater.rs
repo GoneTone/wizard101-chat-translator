@@ -10,7 +10,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::logs::log;
-use crate::translation::clients::{error_chain, install_crypto_provider};
+use crate::translation::clients::{
+    bypass_proxy_for_loopback, error_chain, install_crypto_provider,
+};
 use crate::util::panic_message;
 
 pub const PROJECT_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator";
@@ -105,12 +107,13 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
-/// 檢查更新用的 HTTP client：逾時 [`TIMEOUT`]、跟隨轉址（repo 改名時 GitHub API 會回 301）。
-pub fn update_client() -> reqwest::Client {
+/// 檢查更新用、連往 `url` 的 HTTP client：逾時 [`TIMEOUT`]、跟隨轉址（repo 改名時 GitHub API 會回 301）。
+pub fn update_client(url: &str) -> reqwest::Client {
     install_crypto_provider();
-    reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(10))
+        .redirect(reqwest::redirect::Policy::limited(10));
+    bypass_proxy_for_loopback(builder, url)
         .build()
         .expect("build HTTP client")
 }
@@ -185,7 +188,7 @@ pub fn schedule_update_checks(
     found: Arc<dyn Fn(Release) + Send + Sync>,
 ) -> JoinHandle<()> {
     rt.spawn(async move {
-        let client = update_client();
+        let client = update_client(&url);
         loop {
             log(format!(
                 "[update] next automatic check in {} min",

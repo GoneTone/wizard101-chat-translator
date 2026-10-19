@@ -19,6 +19,7 @@ pub use openai::OpenAiCompatClient;
 use super::errors::{TranslateError, one_line};
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
+use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 
 /// 請求逾時：連線與每次讀取各自計時，串流不受總長度限制。
@@ -216,15 +217,49 @@ pub(crate) fn install_crypto_provider() {
 }
 
 /// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
-pub(crate) fn http_client(headers: reqwest::header::HeaderMap) -> reqwest::Client {
+pub(crate) fn http_client(headers: reqwest::header::HeaderMap, base_url: &str) -> reqwest::Client {
     install_crypto_provider();
-    reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
         .read_timeout(TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
-        .default_headers(headers)
+        .default_headers(headers);
+    bypass_proxy_for_loopback(builder, base_url)
         .build()
         .expect("build HTTP client")
+}
+
+/// 連往本機（`localhost`、`127.0.0.0/8`、`::1`）時不用環境變數設定的 proxy：本機的 LLM 伺服器繞去 proxy 只會連不到。
+pub(crate) fn bypass_proxy_for_loopback(
+    builder: reqwest::ClientBuilder,
+    url: &str,
+) -> reqwest::ClientBuilder {
+    if !is_loopback(url) {
+        return builder;
+    }
+    let proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
+    if proxy_vars.iter().any(|name| {
+        std::env::var_os(name).is_some() || std::env::var_os(name.to_lowercase()).is_some()
+    }) {
+        log(format!(
+            "[translate] {url} is a loopback address; not using the proxy from the environment"
+        ));
+    }
+    builder.no_proxy()
+}
+
+fn is_loopback(url: &str) -> bool {
+    let Some(host) = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+    else {
+        return false;
+    };
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .trim_matches(['[', ']'])
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// 跑 `work`；`cancel` 觸發時丟掉它（連線隨之關閉，伺服器停止生成）並回 `Cancelled`。
@@ -247,9 +282,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loopback_hosts_are_recognised() {
+        for url in [
+            "http://localhost:11434/v1",
+            "http://LOCALHOST:1234",
+            "http://127.0.0.1:8080/v1",
+            "http://127.5.6.7",
+            "http://[::1]:11434/v1",
+        ] {
+            assert!(is_loopback(url), "{url}");
+        }
+        for url in [
+            "https://api.anthropic.com",
+            "http://192.168.1.10:11434/v1",
+            "http://localhost.example.com",
+            "not a url",
+        ] {
+            assert!(!is_loopback(url), "{url}");
+        }
+    }
+
+    #[test]
     fn https_client_builds_with_the_ring_provider() {
         // 沒裝 crypto provider 的話 reqwest 在 build 時直接 panic
-        let _client = http_client(reqwest::header::HeaderMap::new());
+        let _client = http_client(reqwest::header::HeaderMap::new(), "https://example.com");
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 
