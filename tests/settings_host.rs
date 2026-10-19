@@ -51,7 +51,7 @@ fn fake_ops() -> WindowOps {
     RAISED.with(|r| r.borrow_mut().clear());
     DARKENED.with(|r| r.borrow_mut().clear());
     WindowOps {
-        thread_windows: Vec::new,
+        windows_before: |_| Vec::new(),
         find_new: |_, known, _| {
             if known.contains(&FAKE_HWND) {
                 0

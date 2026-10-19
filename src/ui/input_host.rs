@@ -4,8 +4,8 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Align, FontId, Label, Layout, RichText, Sense, UiBuilder, Vec2, ViewportBuilder,
-    ViewportCommand, ViewportId,
+    self, Align, FontId, Label, Layout, RichText, Sense, UiBuilder, Vec2, ViewportCommand,
+    ViewportId,
 };
 
 use crate::config::py::truthy;
@@ -144,26 +144,13 @@ impl InputHost {
         }
         let creating = !self.created;
         let reveal = self.created && !self.shown && !defer;
-        let mut builder = ViewportBuilder::default()
-            .with_title(app_name())
-            .with_decorations(false)
-            .with_resizable(false)
-            .with_always_on_top()
-            .with_taskbar(false);
-        if creating {
-            // 概略的位置與寬度（寬度決定提示換行、也就決定內容高度），找到 HWND 後再以實體像素擺正
-            let ((x, y, w, h), _, scale) = self.open_rect(INITIAL_HEIGHT);
-            let dip = |v: i32| v as f32 / scale;
-            builder = builder
-                .with_visible(false)
-                .with_position([dip(x), dip(y)])
-                .with_inner_size([dip(w), dip(h)]);
-        }
-        let mut before = if self.hwnd == 0 {
-            win32::thread_windows()
-        } else {
-            Vec::new()
-        };
+        // 概略的位置與寬度（寬度決定提示換行、也就決定內容高度），找到 HWND 後再以實體像素擺正
+        let rough = creating.then(|| {
+            let (rect, _, scale) = self.open_rect(INITIAL_HEIGHT);
+            (rect, scale)
+        });
+        let builder = viewport::borderless_builder(rough);
+        let mut before = viewport::windows_before(self.hwnd);
         let input = &mut self.input;
         let id = ViewportId::from_hash_of("input_box");
         let Some((height, ppp)) =
@@ -184,9 +171,7 @@ impl InputHost {
             return;
         }
         if self.hwnd == 0 {
-            self.hwnd = win32::pick_new_window(&before, &win32::thread_windows(), known, || {
-                win32::find_thread_window(&app_name(), known)
-            });
+            self.hwnd = viewport::find_new_window(&before, known, &app_name());
             if self.hwnd != 0 {
                 self.place(height, overlay);
             } else if creating {
@@ -212,15 +197,14 @@ impl InputHost {
         }
     }
 
-    /// 拿掉系統外框與工作列按鈕，依內容高度（DIP）貼齊錨點或游標。
+    /// 拿掉系統外框、工作列按鈕與開關動畫，依內容高度（DIP）貼齊錨點或游標。
     fn place(&mut self, content_dip: f32, overlay: isize) {
-        win32::remove_system_frame(self.hwnd);
         if overlay == 0 {
             log(
                 "[ui] input box opened before the overlay window was found: it has no owner and may show a taskbar button",
             );
         }
-        win32::hide_from_taskbar(self.hwnd, overlay);
+        viewport::frameless_setup(self.hwnd, overlay);
         let (rect, above, _) = self.open_rect(content_dip);
         win32::set_window_rect(self.hwnd, rect);
         (self.above, self.content_dip) = (above, content_dip);

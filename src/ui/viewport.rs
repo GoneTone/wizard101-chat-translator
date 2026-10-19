@@ -2,10 +2,14 @@
 //!
 //! 根視窗隱藏（首次設定精靈期間）或被 Windows 最小化時 eframe 從沒有事件迴圈的路徑重繪，immediate viewport 在那裡建不了視窗、egui 直接 panic；
 //! 登記過的 viewport 由 eframe 在下一幀開頭建好視窗，這條路徑也一樣。
+//! 另有托管視窗共用的小工具：認出新 viewport 的 HWND，以及框選與輸入框共用的無邊框視窗設定。
 
 use eframe::egui::{self, Id, Ui, ViewportBuilder, ViewportClass, ViewportId};
 
+use crate::config::app_name;
 use crate::logs::log;
+use crate::ui::geometry::Rect;
+use crate::ui::win32;
 
 /// 畫出 immediate viewport 並回傳 `content` 的結果；視窗還沒建好時這一幀只登記（不畫內容）、要求重繪並回 `None`。
 ///
@@ -49,6 +53,49 @@ pub fn show_immediate<T>(
     ctx.data_mut(|d| d.insert_temp(stash, std::mem::take(before)));
     ctx.request_repaint();
     None
+}
+
+/// 建立前的執行緒視窗清單；HWND 已知時不必列舉。
+pub fn windows_before(hwnd: isize) -> Vec<isize> {
+    if hwnd == 0 {
+        win32::thread_windows()
+    } else {
+        Vec::new()
+    }
+}
+
+/// 認出新 viewport 的 HWND：比對 `before` 與目前的執行緒視窗，沒有新視窗才以 `title` 找（都略過 `known`）；找不到回 0。
+pub fn find_new_window(before: &[isize], known: &[isize], title: &str) -> isize {
+    win32::pick_new_window(before, &win32::thread_windows(), known, || {
+        win32::find_thread_window(title, known)
+    })
+}
+
+/// 框選與輸入框共用的 viewport 設定：無邊框、置頂、不上工作列；`creating` 是建立那一幀的概略外框（實體像素）與縮放，這一幀藏著。
+///
+/// 位置以 DIP 給、混合 DPI 下會偏，所以只是概略，找到 HWND 後再以實體像素擺正。
+pub fn borderless_builder(creating: Option<(Rect, f32)>) -> ViewportBuilder {
+    let builder = ViewportBuilder::default()
+        .with_title(app_name())
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_always_on_top()
+        .with_taskbar(false);
+    let Some(((x, y, w, h), scale)) = creating else {
+        return builder;
+    };
+    let dip = |v: i32| v as f32 / scale;
+    builder
+        .with_visible(false)
+        .with_position([dip(x), dip(y)])
+        .with_inner_size([dip(w), dip(h)])
+}
+
+/// 拿掉系統外框、工作列按鈕與開關動畫，由 `owner` 擁有；要在顯示之前呼叫。
+pub fn frameless_setup(hwnd: isize, owner: isize) {
+    win32::remove_system_frame(hwnd);
+    win32::disable_transitions(hwnd);
+    win32::hide_from_taskbar(hwnd, owner);
 }
 
 #[cfg(test)]
