@@ -147,7 +147,11 @@
 - `test_language_names_are_unique` → `tests/i18n_golden.rs::language_names_are_unique`
 - `test_a_new_language_file_needs_no_code_change` → 不移植：Rust 的語言檔以 `include_str!` 編進 exe（規格「單一 exe 與資源」節），新增語言要在 `CATALOG_SOURCES` 加一行，也沒有執行期替換語言檔目錄的機制；「選單只看語言檔內容」的部分由 `offered_languages` 的三則測試覆蓋
 - `test_same_language_different_scripts_are_told_apart` → `tests/i18n_golden.rs::best_match_matches_python`
-- `test_regional_variants_are_told_apart` → `tests/it/i18n_match_golden.rs::closest_regional_catalog_matches_python`（fixture 的產生方式見文末附錄）
+- `test_regional_variants_are_told_apart` → `tests/it/i18n_match_golden.rs::closest_regional_catalog_matches_python`、`tests/it/i18n_match_golden.rs::ties_go_to_the_languages_default_region`（fixture 的產生方式見文末附錄）
+  - **刻意與 Python 不同**：同距離時 Python 取清單先出現者（語言檔依字母序），Rust 改取該語言預設地區的語言檔（likely subtags：fr→FR、es→ES、pt→BR、en→US、zh-Hant→TW），都不是才維持清單順序。fixture 因此只有下列 18 筆與 langcodes 原樣不同，全是 fr 系統標籤遇到 fr-CA 排在 fr-FR 前面的情形（「全部」指全部語言檔加上假想的 es-MX、es-419、en-GB、fr-CA、zh-HK）：
+    - 語言檔清單「全部」：fr-BE、fr-CH、fr-LU、fr-HT、fr-GF、fr-PM、fr-MA、fr-SN、偏好清單 [fr-CH, en-AU]，Python 得 fr-CA，Rust 得 fr-FR
+    - 語言檔清單 [fr-CA, fr-FR]：同上 9 組標籤，Python 得 fr-CA，Rust 得 fr-FR
+    - 現行選單與全部 30 個實際語言檔都沒有受影響的案例（目前每個語言只有一份語言檔，不會同距離）。
 - `test_a_language_without_an_endonym_is_not_offered` → `src/i18n/mod.rs::a_language_without_an_endonym_is_not_offered`
 - `test_a_barely_translated_language_is_not_offered` → `src/i18n/mod.rs::a_barely_translated_language_is_not_offered`
 - `test_the_source_and_default_languages_are_always_offered` → `src/i18n/mod.rs::the_source_and_default_languages_are_always_offered`
@@ -1668,18 +1672,29 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 
 ## 附錄：`tests/golden/i18n_closest_match.json` 的產生方式
 
-Python 版與 `tools/golden/export.py` 已在第 5 段刪除，這份 fixture 是之後補的，產生腳本記在這裡、不放回 repo。版本照 `old-python` 分支 `uv.lock` 鎖定的 langcodes 3.5.1，比對呼叫與 Python 版 `best_match` 相同（`closest_match` 預設 `max_distance=25`、`und` 換下一個標籤、解析失敗略過、全部落空退 `en-US`），只是語言檔清單改由參數帶入。涵蓋現行選單、全部語言檔、全部語言檔加上假想的地區語言檔（es-MX、es-419、en-GB、fr-CA、zh-HK），以及各組地區語言檔正反兩種順序（驗證同距離取先出現者）。
+Python 版與 `tools/golden/export.py` 已在第 5 段刪除，這份 fixture 是之後補的，產生腳本記在這裡、不放回 repo。版本照 `old-python` 分支 `uv.lock` 鎖定的 langcodes 3.5.1，比對呼叫與 Python 版 `best_match` 相同（`closest_match` 預設 `max_distance=25`、`und` 換下一個標籤、解析失敗略過、全部落空退 `en-US`），只是語言檔清單改由參數帶入。涵蓋現行選單、全部語言檔、全部語言檔加上假想的地區語言檔（es-MX、es-419、en-GB、fr-CA、zh-HK），以及各組地區語言檔正反兩種順序。同距離的取捨不照 langcodes：腳本的 `closest` 先取 `closest_match` 的結果，再在同距離的語言檔中改取預設地區者（見上方 `test_regional_variants_are_told_apart` 一列的說明）。
 
 ```python
 # uv run --no-project --with langcodes==3.5.1 python -I gen.py <repo>/src/i18n > i18n_closest_match.json
 import json, sys
 from pathlib import Path
-from langcodes import LanguageTagError, closest_match
+from langcodes import Language, LanguageTagError, closest_match, tag_distance
+
+def default_region(code):  # 語言檔的地區就是該語言（＋字體系）的可能地區
+    full = Language.get(code).maximize()
+    return Language.make(language=full.language, script=full.script).maximize().territory == full.territory
+
+def closest(tag, codes):  # closest_match 之外，同距離時改取預設地區的語言檔（刻意與 Python 版不同）
+    code, distance = closest_match(tag, codes)
+    if code == "und" or code == tag:
+        return code, distance
+    ties = [c for c in codes if tag_distance(tag, c) == distance]
+    return next((c for c in ties if default_region(c)), code), distance
 
 def best_match(tags, codes):  # old-python 的 src/i18n best_match，語言檔清單改由參數帶入
     for tag in tags:
         try:
-            code, _ = closest_match(tag, codes)
+            code, _ = closest(tag, codes)
         except LanguageTagError:
             continue
         if code != "und":

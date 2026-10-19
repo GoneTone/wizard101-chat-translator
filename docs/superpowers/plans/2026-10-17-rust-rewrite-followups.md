@@ -71,6 +71,7 @@
   - 原況：同語言有多份語言檔時，Rust 取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）。
   - 做法：`src/i18n/closest.rs` 移植 langcodes 3.5.1 的 `closest_match` 距離規則（語言距離表、Maghreb／美國屬地／港澳／拉丁美洲／美洲地區群），likely subtags 與別名交給 ICU4X 的 `icu_locale`；不分語言、不寫死 pt。
   - 驗證：`tests/golden/i18n_closest_match.json`（現行選單、全部語言檔、加上假想的 es-MX／es-419／en-GB／fr-CA／zh-HK 等地區語言檔）逐筆與 langcodes 相同，產生方式見 `2026-10-18-python-test-parity.md` 附錄。
+  - 同距離時改取語言預設地區的語言檔（fr-BE 在 fr-CA、fr-FR 之間取 fr-FR），刻意與 Python 的字母序不同（`fix(i18n): break distance ties in favour of the language's default region`）；受影響的 golden 案例列在 parity 文件。
 
 ## 合併前清掉的小問題（第 1 段審查列為可延後）
 

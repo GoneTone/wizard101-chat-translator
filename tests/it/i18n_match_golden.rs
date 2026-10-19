@@ -1,4 +1,4 @@
-//! 系統語言配對對照 langcodes 3.5.1 的 `closest_match`（產生方式見 Python 測試對照文件附錄）。
+//! 系統語言配對對照 langcodes 3.5.1 的 `closest_match`，同距離改取預設地區（產生方式與刻意不同處見 Python 測試對照文件）。
 
 use crate::common;
 
@@ -28,4 +28,17 @@ fn closest_regional_catalog_matches_python() {
         }
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
+}
+
+#[test]
+fn ties_go_to_the_languages_default_region() {
+    let pick = |tag: &str, offered: &[&str]| {
+        let offered: Vec<String> = offered.iter().map(|s| s.to_string()).collect();
+        i18n::best_match_among(&[tag.to_string()], &offered)
+    };
+    assert_eq!(pick("fr-BE", &["fr-CA", "fr-FR"]), "fr-FR");
+    assert_eq!(pick("es-GQ", &["es-PH", "es-ES"]), "es-ES");
+    assert_eq!(pick("en-PR", &["en-VI", "en-US"]), "en-US");
+    // 同距離的語言檔都不是預設地區時維持清單順序。
+    assert_eq!(pick("es-US", &["es-MX", "es-419"]), "es-MX");
 }

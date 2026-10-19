@@ -165,7 +165,20 @@ fn distance(desired: &Triple, supported: &Triple) -> u32 {
     distance
 }
 
-/// 語言標籤 → `offered` 中距離最近的語言碼與距離（同距離取先出現者），都太遠回 `None`；標籤解析失敗回錯誤。
+/// 語言檔的地區是否為該語言（＋字體系）的可能地區，例如 fr-FR、pt-BR、zh-Hant-TW。
+fn is_default_region(catalog: &Triple) -> bool {
+    let base = if catalog.script.is_empty() {
+        catalog.language.clone()
+    } else {
+        format!("{}-{}", catalog.language, catalog.script)
+    };
+    maximize(&base).is_ok_and(|t| t.region == catalog.region)
+}
+
+/// 語言標籤 → `offered` 中距離最近的語言碼與距離，都太遠回 `None`；標籤解析失敗回錯誤。
+///
+/// 同距離時取語言預設地區的語言檔（fr-BE 在 fr-CA、fr-FR 之間取 fr-FR），都不是才取先出現者；
+/// Python 版只取先出現者，這裡刻意不同。
 pub fn closest_match<'a>(
     tag: &str,
     offered: &'a [String],
@@ -174,9 +187,21 @@ pub fn closest_match<'a>(
         return Ok(Some((code, 0)));
     }
     let desired = maximize(tag)?;
-    Ok(offered
+    let candidates: Vec<(&str, u32, Triple)> = offered
         .iter()
-        .filter_map(|code| Some((code.as_str(), distance(&desired, &maximize(code).ok()?))))
-        .filter(|(_, d)| *d <= MAX_DISTANCE)
-        .min_by_key(|(_, d)| *d))
+        .filter_map(|code| {
+            let supported = maximize(code).ok()?;
+            let d = distance(&desired, &supported);
+            (d <= MAX_DISTANCE).then_some((code.as_str(), d, supported))
+        })
+        .collect();
+    let Some(best) = candidates.iter().map(|(_, d, _)| *d).min() else {
+        return Ok(None);
+    };
+    let ties: Vec<_> = candidates.iter().filter(|(_, d, _)| *d == best).collect();
+    let chosen = ties
+        .iter()
+        .find(|(_, _, supported)| is_default_region(supported))
+        .unwrap_or(&ties[0]);
+    Ok(Some((chosen.0, best)))
 }
