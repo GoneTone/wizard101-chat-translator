@@ -30,7 +30,7 @@ use wizard101_chat_translator::util;
 
 const LANGUAGE: &str = "en-US";
 
-/// 一份有單一預設服務、設定完整的設定；`fields` 覆寫該服務的欄位（同 Python 的 configured_cfg）。
+/// 一份有單一預設服務（金鑰與模型已填）的設定；`fields` 覆寫該服務的欄位。
 fn configured(provider: &str, fields: Value) -> Config {
     i18n::set_language(LANGUAGE);
     let mut cfg = default_config();
