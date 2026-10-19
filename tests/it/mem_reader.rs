@@ -3,6 +3,7 @@
 #[allow(dead_code)]
 use crate::common;
 
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
@@ -151,6 +152,37 @@ impl Lines {
 /// 警告過的圖示集合是全程序共用的：連線成功的測試持讀鎖，要斷言它的測試持寫鎖。
 static ICON_SET: RwLock<()> = RwLock::new(());
 
+/// 同一執行緒的巢狀 `Game` 共用一把讀鎖：已有寫者在等時再取一次讀鎖會死鎖。
+struct IconGuard;
+
+thread_local! {
+    static ICON_READ: RefCell<(usize, Option<RwLockReadGuard<'static, ()>>)> =
+        const { RefCell::new((0, None)) };
+}
+
+impl IconGuard {
+    fn acquire() -> Self {
+        ICON_READ.with_borrow_mut(|(depth, guard)| {
+            if *depth == 0 {
+                *guard = Some(ICON_SET.read().unwrap_or_else(|e| e.into_inner()));
+            }
+            *depth += 1;
+        });
+        Self
+    }
+}
+
+impl Drop for IconGuard {
+    fn drop(&mut self) {
+        ICON_READ.with_borrow_mut(|(depth, guard)| {
+            *depth -= 1;
+            if *depth == 0 {
+                *guard = None;
+            }
+        });
+    }
+}
+
 struct Game {
     mem: Arc<FakeMemory>,
     dir: tempfile::TempDir,
@@ -168,7 +200,7 @@ struct Game {
     addline_bytes: Vec<u8>,
     cave_bytes: Vec<u8>,
     /// 存活期間擋住「清空警告過的圖示」的測試（連線成功會清）。
-    _icons: Option<RwLockReadGuard<'static, ()>>,
+    _icons: Option<IconGuard>,
 }
 
 impl Game {
@@ -177,9 +209,8 @@ impl Game {
     }
 
     fn with(root_pattern: bool, addline_pattern: bool) -> Self {
-        let guard = ICON_SET.read().unwrap_or_else(|e| e.into_inner());
         Self {
-            _icons: Some(guard),
+            _icons: Some(IconGuard::acquire()),
             ..Self::bare(root_pattern, addline_pattern)
         }
     }
