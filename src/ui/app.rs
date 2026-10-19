@@ -745,8 +745,8 @@ mod tests {
     use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::overlay::message_list::ROW_PAD;
     use crate::ui::overlay::outlined::line_height;
+    use crate::ui::region::fakes;
     use crate::ui::region::selector::SelectorAction;
-    use crate::ui::region_host::fakes;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use std::time::Duration;
@@ -1643,7 +1643,7 @@ mod tests {
     }
 
     /// 接上框選流程（替身桌面與 runner）的 App：搶前景不碰真的視窗。
-    fn region_harness(inbox: Inbox) -> (Harness<'static, App>, fakes::Calls) {
+    fn region_harness(inbox: Inbox) -> (Harness<'static, App>, fakes::Shared) {
         let (flow, calls) = fakes::flow();
         let harness = Harness::new_eframe(move |cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
@@ -1674,7 +1674,8 @@ mod tests {
         poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
         harness.step();
         assert!(!selecting(&mut harness));
-        assert_eq!(*calls.borrow(), ["capture 0x1234", "foreground 0x1234"]);
+        assert_eq!(calls.borrow().captured, [fakes::GAME]);
+        assert_eq!(calls.borrow().foreground, [fakes::GAME]);
     }
 
     #[test]
@@ -1685,7 +1686,7 @@ mod tests {
         harness.get_by_label("⛶").click();
         harness.step();
         assert!(selecting(&mut harness));
-        assert_eq!(*calls.borrow(), ["capture 0x9999"]);
+        assert_eq!(calls.borrow().captured, [fakes::FOUND]);
     }
 
     #[test]
@@ -1698,7 +1699,7 @@ mod tests {
         region
             .flow
             .on_selector(SelectorAction::Selected(fakes::RECT));
-        assert_eq!(calls.borrow().last().unwrap(), "run 1");
+        assert_eq!(calls.borrow().order.last().unwrap(), "run 1");
         let card_text = |h: &mut Harness<'_, App>| {
             let region = h.state_mut().region.as_mut().unwrap();
             region.flow.card_mut().unwrap().all_text()

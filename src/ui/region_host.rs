@@ -387,94 +387,15 @@ fn box_content(ui: &mut egui::Ui, region_box: &mut RegionBox, origin: (i32, i32)
 }
 
 #[cfg(test)]
-pub(crate) mod fakes {
-    //! 框選流程的替身：桌面操作與 runner 只記下呼叫，不碰真的視窗、截圖或網路。
-
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-
-    use image::RgbImage;
-    use tokio_util::sync::CancellationToken;
-
-    use crate::region::capture::{CaptureError, Frame};
-    use crate::ui::geometry::Rect;
-    use crate::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
-
-    /// 熱鍵帶來的遊戲視窗。
-    pub(crate) const GAME: isize = 0x1234;
-    /// ⛶ 列舉視窗找到的遊戲視窗。
-    pub(crate) const FOUND: isize = 0x9999;
-    /// 落在凍結畫面內的框選矩形。
-    pub(crate) const RECT: Rect = (100, 100, 300, 120);
-
-    /// 依序記下的呼叫：`capture 0x..`、`foreground 0x..`、`run N`。
-    pub(crate) type Calls = Rc<RefCell<Vec<String>>>;
-
-    struct FakeDesktop(Calls);
-
-    impl RegionDesktop for FakeDesktop {
-        fn capture_window(&mut self, hwnd: isize) -> Result<Arc<Frame>, CaptureError> {
-            self.0.borrow_mut().push(format!("capture {hwnd:#x}"));
-            Ok(Arc::new(Frame {
-                image: RgbImage::new(800, 600),
-                client_origin: (0, 0),
-                client_size: (800, 600),
-            }))
-        }
-
-        fn capture_screen(&mut self, _monitor: Rect) -> RgbImage {
-            RgbImage::new(1, 1)
-        }
-
-        fn monitor_at(&self, _x: i32, _y: i32) -> Rect {
-            (0, 0, 800, 600)
-        }
-
-        fn foreground(&mut self, hwnd: isize) {
-            self.0.borrow_mut().push(format!("foreground {hwnd:#x}"));
-        }
-
-        fn find_game(&self) -> Option<isize> {
-            Some(FOUND)
-        }
-
-        fn cursor(&self) -> (i32, i32) {
-            (40, 50)
-        }
-    }
-
-    struct FakeRunner(Calls);
-
-    impl RegionRunner for FakeRunner {
-        fn run(&self, _png: Vec<u8>, _rect: Rect, session: u64, _cancel: CancellationToken) {
-            self.0.borrow_mut().push(format!("run {session}"));
-        }
-    }
-
-    /// 接上替身的流程與它的呼叫紀錄。
-    pub(crate) fn flow() -> (RegionFlow, Calls) {
-        let calls = Calls::default();
-        let flow = RegionFlow::new(
-            Box::new(FakeDesktop(Rc::clone(&calls))),
-            Box::new(FakeRunner(Rc::clone(&calls))),
-            Arc::new(AtomicBool::new(false)),
-        );
-        (flow, calls)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
     use std::time::Duration;
 
     use egui_kittest::Harness;
 
-    use super::fakes::{GAME, RECT, flow};
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::region::fakes::{GAME, RECT, flow};
     use crate::ui::region::selector::SelectorAction;
 
     thread_local! {
