@@ -4,8 +4,9 @@
 //! `BadOutput`（譯文被截斷或沒有文字）在翻譯路徑重試無用、該行應跳過；只有生成範例會重試它。
 //! 上下文由呼叫端提供；Translator 只持有一份不可變的設定快照，每次請求只讀一次，平行呼叫仍安全。
 
-use std::collections::HashSet;
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use tokio::runtime::Handle;
@@ -476,24 +477,54 @@ pub struct TestOutcome {
     pub elapsed: Duration,
 }
 
-/// 取得目前服務與目標語言的範例：快取命中直接回傳，否則生成並存檔（全空不存、回 `None`）。
+type GenerationSlots = Mutex<HashMap<(PathBuf, String), Arc<tokio::sync::Mutex<()>>>>;
+
+/// 每個（快取檔, 指紋）一把鎖：測試連線與背景生成用的是不同的 Translator／ExampleStore，靠它避免重複付費生成。
+static GENERATING: LazyLock<GenerationSlots> = LazyLock::new(Mutex::default);
+
+/// 取得目前服務與目標語言的範例並回傳（指紋, 範例集）：快取命中直接回傳，否則生成並存檔（全空不存、回 `None`）。
+///
+/// 同一快取檔與指紋已在生成中時等它結束再查快取；它失敗就輪到這次生成。
 pub async fn generate_and_store(
     tr: &Translator,
     store: &ExampleStore,
-) -> Result<Option<ExampleSet>, TranslateError> {
-    if let Some(cached) = store.get(&tr.examples_fingerprint()) {
+) -> Result<Option<(String, ExampleSet)>, TranslateError> {
+    let fingerprint = tr.examples_fingerprint();
+    // 每個鍵留一個空鎖不清：鍵數只隨本次執行換過的設定成長
+    let slot = Arc::clone(
+        GENERATING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry((store.path().to_path_buf(), fingerprint.clone()))
+            .or_default(),
+    );
+    let _turn = match slot.try_lock() {
+        Ok(turn) => turn,
+        Err(_) => {
+            log(format!(
+                "[translate] examples already generating, waiting for it ({}, fingerprint={fingerprint})",
+                tr.describe()
+            ));
+            slot.lock().await
+        }
+    };
+    if let Some(cached) = store.get(&fingerprint) {
         log(format!(
-            "[translate] examples loaded from cache: {}",
+            "[translate] examples loaded from cache (fingerprint={fingerprint}): {}",
             cached.summary()
         ));
-        return Ok(Some(cached));
+        return Ok(Some((fingerprint, cached)));
     }
     let (fingerprint, examples) = tr.generate_examples().await?;
     if examples.empty() {
+        log(format!(
+            "[translate] example generation failed validation on every path ({}, fingerprint={fingerprint})",
+            tr.describe()
+        ));
         return Ok(None);
     }
     store.put(&fingerprint, &examples);
-    Ok(Some(examples))
+    Ok(Some((fingerprint, examples)))
 }
 
 /// 測試連線：實際翻一句固定文字，與正式翻譯同一條路。
@@ -638,7 +669,7 @@ impl ExampleCoordinator {
             requested: &requested,
             armed: true,
         };
-        let outcome = match translator.generate_examples().await {
+        let outcome = match generate_and_store(translator, &self.store).await {
             Err(err) => {
                 log(format!(
                     "[translate] example generation failed ({}, fingerprint={requested}): {}: {err}",
@@ -647,17 +678,7 @@ impl ExampleCoordinator {
                 ));
                 None
             }
-            Ok((_, examples)) if examples.empty() => {
-                log(format!(
-                    "[translate] example generation failed validation on every path ({}, fingerprint={requested})",
-                    translator.describe()
-                ));
-                None
-            }
-            Ok((fingerprint, examples)) => {
-                self.store.put(&fingerprint, &examples);
-                Some((fingerprint, examples))
-            }
+            Ok(outcome) => outcome,
         };
         guard.armed = false;
         self.finish(&requested, outcome);

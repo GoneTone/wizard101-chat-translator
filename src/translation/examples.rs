@@ -1,7 +1,7 @@
 //! few-shot 範例集：請設定的模型把固定示範改寫成目標語言，驗證三條路徑並以指紋快取在磁碟。
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 
 use regex::Regex;
@@ -344,6 +344,11 @@ impl ExampleStore {
     /// 以指定檔案路徑建立快取。
     pub fn new(path: PathBuf) -> Self {
         Self { path }
+    }
+
+    /// 快取檔的路徑。
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// 查指紋對應的範例集，沒有（或檔案壞掉）回傳 `None`。

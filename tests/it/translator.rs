@@ -1006,14 +1006,72 @@ async fn generate_and_store_uses_the_cache_and_skips_empty_results() {
 
     let fake = Fake::texts(&[JA]);
     let tr = make_with(&fake, "日本語");
-    let generated = generate_and_store(&tr, &store).await.unwrap().unwrap();
-    assert_eq!(
-        store.get(&tr.examples_fingerprint()),
-        Some(generated.clone())
-    );
+    let (fingerprint, generated) = generate_and_store(&tr, &store).await.unwrap().unwrap();
+    assert_eq!(fingerprint, tr.examples_fingerprint());
+    assert_eq!(store.get(&fingerprint), Some(generated.clone()));
     let calls = fake.calls().len();
 
-    assert_eq!(generate_and_store(&tr, &store).await, Ok(Some(generated)));
+    assert_eq!(
+        generate_and_store(&tr, &store).await,
+        Ok(Some((fingerprint.clone(), generated)))
+    );
     assert_eq!(fake.calls().len(), calls);
-    assert!(log_text().contains("[translate] examples loaded from cache:"));
+    assert!(log_text().contains(&format!(
+        "[translate] examples loaded from cache (fingerprint={fingerprint}):"
+    )));
+}
+
+#[test]
+fn a_connection_test_and_the_coordinator_share_one_generation() {
+    let h = harness();
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    let release_rx = std::sync::Mutex::new(release_rx);
+    let fa = fake_with_examples();
+    fa.on_call(move |n| {
+        if n == 2 {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    let (ta, store) = (make_with(&fa, "日本語"), Arc::clone(&h.store));
+    let test = std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(test_translate(ta, Some(store))).unwrap();
+    });
+    entered.recv().unwrap();
+
+    let fb = Fake::texts(&[JA]);
+    let tb = make_with(&fb, "日本語");
+    let mut job = h.co.ensure(&tb).expect("a cache miss starts a generation");
+    h.rt.block_on(async {
+        let waited = tokio::time::timeout(std::time::Duration::from_millis(200), &mut job).await;
+        assert!(
+            waited.is_err(),
+            "the coordinator must wait for the running generation"
+        );
+        release.send(()).unwrap();
+        job.await.unwrap();
+    });
+    test.join().unwrap();
+
+    assert_eq!((fa.calls().len(), fb.calls().len()), (2, 0));
+    assert!(tb.examples().is_some_and(|e| e.complete()));
+    assert_eq!(h.applied(), 1);
+}
+
+#[tokio::test]
+async fn a_failed_generation_does_not_block_a_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+    let down = Fake::new("m", vec![Err(TranslateError::offline("down"))]);
+    assert!(
+        generate_and_store(&make_with(&down, "日本語"), &store)
+            .await
+            .is_err()
+    );
+    let fake = Fake::texts(&[JA]);
+    let tr = make_with(&fake, "日本語");
+    assert!(generate_and_store(&tr, &store).await.unwrap().is_some());
+    assert_eq!(fake.calls().len(), 1);
 }
