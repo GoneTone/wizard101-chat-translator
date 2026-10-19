@@ -12,7 +12,7 @@ use super::widgets::focus_ring;
 use crate::config::services::{Provider, providers};
 use crate::i18n::t;
 use crate::logs::log;
-use crate::runtime::resources::provider_icon;
+use crate::runtime::resources::provider_icon as provider_icon_png;
 use crate::ui::icon::png_texture_with;
 
 /// 服務商卡片的排法：選擇對話框一列一張，精靈兩欄。
@@ -185,7 +185,7 @@ pub(super) fn provider_texture(ctx: &Context, key: &str) -> Option<TextureId> {
     if let Some(cached) = ctx.data(|d| d.get_temp::<Option<TextureHandle>>(id)) {
         return cached.map(|texture| texture.id());
     }
-    let texture = provider_icon(key).and_then(|png| {
+    let texture = provider_icon_png(key).and_then(|png| {
         png_texture_with(ctx, format!("provider_icon_{key}"), png, |rgba| {
             lighten_dark_monochrome(rgba, theme::TEXT);
         })
@@ -210,6 +210,14 @@ pub fn lighten_dark_monochrome(rgba: &mut [u8], color: Color32) -> bool {
         p[..3].copy_from_slice(&[color.r(), color.g(), color.b()]);
     }
     true
+}
+
+/// 在目前位置配置 `size` 見方的空間並畫服務商圖示；沒有圖示就什麼都不配置。
+pub(super) fn provider_icon(ui: &mut Ui, key: &str, size: f32) {
+    if provider_texture(ui.ctx(), key).is_some() {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), Sense::hover());
+        paint_provider_icon(ui, key, rect);
+    }
 }
 
 /// 在 `rect` 畫服務商圖示；沒有圖示就不畫。

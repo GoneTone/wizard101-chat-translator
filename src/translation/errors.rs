@@ -6,6 +6,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::i18n::t;
 use crate::py::pystr;
 
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
@@ -154,6 +155,18 @@ pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
         404 | 405 => Some(TranslateError::NoModelList),
         _ => status_error(status, detail),
     }
+}
+
+/// （文案 key，format 變數）→ 已翻譯的字串。
+pub fn localized(key: &str, args: &[(&str, String)]) -> String {
+    let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    t(key, &args)
+}
+
+/// 翻譯例外 → 已翻譯的訊息（[`friendly_error`] 加 [`localized`]）。
+pub fn friendly_text(e: &TranslateError) -> String {
+    let (key, args) = friendly_error(e);
+    localized(key, &args)
 }
 
 /// 翻譯例外 → （文案 key，format 變數），顯示端一律 `t(key, args)`。

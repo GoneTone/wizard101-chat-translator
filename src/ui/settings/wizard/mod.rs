@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
 use super::hotkeys::HotkeyEditor;
-use super::service_draft::ServiceDraft;
+use super::service_draft::{ServiceDraft, id_of};
 use super::service_form::ServiceForm;
 use super::service_list::pick_provider_over;
 use super::theme::{self, icon};
@@ -107,11 +107,11 @@ impl Wizard {
             icon: None,
             cfg,
         };
-        let default = wizard.cfg.get("default_service").and_then(Value::as_str);
-        let existing = find(&wizard.cfg, default).map(|s| str_field(s, "id").to_owned());
-        let services = ServiceDraft::from_config(&wizard.cfg).services;
-        let first = services.first().map(|s| str_field(s, "id").to_owned());
-        if let Some(id) = existing.or(first) {
+        let draft = ServiceDraft::from_config(&wizard.cfg);
+        let first = draft
+            .find(draft.default.as_deref())
+            .or(draft.services.first());
+        if let Some(id) = first.map(|s| id_of(s).to_owned()) {
             wizard.edit_service(&id);
         }
         wizard
@@ -174,11 +174,10 @@ impl Wizard {
 
     /// 以 `cfg` 裡 `id` 那一筆服務建表單；命名去重對照整份清單。
     fn edit_service(&mut self, id: &str) {
-        let services = ServiceDraft::from_config(&self.cfg).services;
-        self.form = services
-            .iter()
-            .find(|s| str_field(s, "id") == id)
-            .map(|s| Box::new(ServiceForm::new(s.clone(), services.clone())));
+        let draft = ServiceDraft::from_config(&self.cfg);
+        self.form = draft
+            .find(Some(id))
+            .map(|s| Box::new(ServiceForm::new(s.clone(), draft.services.clone())));
     }
 
     fn pick_provider(&mut self, key: &str) {
@@ -213,10 +212,7 @@ impl Wizard {
         let old_default = language_name(&current_language());
         self.collect_into_cfg();
         // 依 id 認人：清單裡不只精靈編輯的這一筆，位置不可假設
-        let edited = self
-            .form
-            .as_ref()
-            .map(|f| str_field(&f.values(), "id").to_owned());
+        let edited = self.form.as_ref().map(|f| id_of(&f.values()).to_owned());
         let old_short_name = edited
             .as_deref()
             .and_then(|id| find(&self.cfg, Some(id)))
@@ -243,7 +239,7 @@ impl Wizard {
     /// 服務名稱還是舊語言的自動短名就換成新語言的，一樣要去重。
     fn retitle(&mut self, id: &str, old_short_name: &str) {
         let services = ServiceDraft::from_config(&self.cfg).services;
-        let Some(service) = services.iter().find(|s| str_field(s, "id") == id) else {
+        let Some(service) = find(&self.cfg, Some(id)) else {
             return;
         };
         let Some(provider) = provider(str_field(service, "provider")) else {
@@ -254,7 +250,7 @@ impl Wizard {
         }
         let name = unique_name(&provider.short_name(), &services, Some(id));
         let list = self.cfg.get_mut("services").and_then(Value::as_array_mut);
-        if let Some(service) = list.and_then(|l| l.iter_mut().find(|s| str_field(s, "id") == id)) {
+        if let Some(service) = list.and_then(|l| l.iter_mut().find(|s| id_of(s) == id)) {
             service["name"] = name.into();
         }
     }
@@ -263,7 +259,7 @@ impl Wizard {
     fn collect_into_cfg(&mut self) {
         if let Some(form) = &self.form {
             let service = form.values();
-            let id = str_field(&service, "id").to_owned();
+            let id = id_of(&service).to_owned();
             let mut draft = ServiceDraft::from_config(&self.cfg);
             if draft.services.is_empty() {
                 draft.slots = Default::default();
