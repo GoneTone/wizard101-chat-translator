@@ -15,6 +15,7 @@
 - **簡單改動免 spec**：純字串／提示詞小改、單檔 typo、單一 bug fix、純機械重構（重新命名、抽常數）、config 欄位增減等，可直接動手，不必走 brainstorming → spec → plan；使用者已自帶明確設計判斷（what + why）時同樣免 spec。需要走流程的判準：跨多檔影響架構、新增元件／資料流、驗收條件超過「`cargo test` 全綠」的功能。
 - **版本號單一真實來源**：`Cargo.toml` 的 `version`（程式內一律讀 `env!("CARGO_PKG_VERSION")`，不另存一份）。SemVer、tag 用 `v` 前綴、發布版本的步驟見 `docs/releasing.md`。
 - **用 `cargo`**：本專案以 cargo 管理（`Cargo.toml` + `Cargo.lock`），toolchain 由 `rust-toolchain.toml` 鎖定。建置用 `cargo build`（發行版 `cargo build --release`）；執行用 `cargo run`；lint 用 `cargo fmt --check` 與 `cargo clippy --all-targets -- -D warnings`；測試用 `cargo test`。翻譯設定與 API 金鑰在 `config.json`（gitignore、不進版控）。
+- **整合測試放 `tests/it/`**：新的整合測試寫成 `tests/it/` 底下的模組（在 `tests/it/main.rs` 宣告），不要在 `tests/` 另開檔 —— 每個 `tests/*.rs` 都會各自連結整個相依樹，檔案一多完整 `cargo test` 就回到十幾分鐘。例外只有會切換全域介面語言的測試：它們跟同程序的其他測試互相干擾，才在 `tests/` 獨立成檔，並在檔頭註明原因。
 
 ## 提交前品質檢查
 
