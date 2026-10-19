@@ -125,7 +125,7 @@ fn thin_strip_goes_through_vertical_padding_without_panicking() {
 
 /// 手動執行：`W101_OCR_SAMPLES` 指向含 `*.png` 與同名 `*.txt`（期望文字）的資料夾。
 #[test]
-#[ignore]
+#[ignore = "needs W101_OCR_SAMPLES pointing at a folder of *.png with matching *.txt"]
 fn samples_match_expected_text() {
     let dir = PathBuf::from(std::env::var_os("W101_OCR_SAMPLES").expect("set W101_OCR_SAMPLES"));
     let mut checked = 0;

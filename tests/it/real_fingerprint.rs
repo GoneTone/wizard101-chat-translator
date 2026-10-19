@@ -22,7 +22,7 @@ fn copy_of(key: &str, dir: &Path) -> PathBuf {
 }
 
 #[test]
-#[ignore = "reads copies of the user's real files named by env vars"]
+#[ignore = "needs W101_CONFIG, W101_EXAMPLES and W101_CACHE pointing at the user's real files"]
 fn incoming_fingerprint_matches_the_stored_cache() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = load_config(&copy_of("W101_CONFIG", dir.path()));

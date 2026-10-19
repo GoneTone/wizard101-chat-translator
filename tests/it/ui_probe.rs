@@ -738,7 +738,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
 }
 
 #[test]
-#[ignore = "opens real (offscreen) windows; run manually"]
+#[ignore = "opens real offscreen windows; needs a desktop session, run alone with --exact"]
 fn ui_probe() {
     log::set_logger(&WARNINGS).unwrap();
     log::set_max_level(log::LevelFilter::Warn);
@@ -885,7 +885,7 @@ fn check_settings_window(
 }
 
 #[test]
-#[ignore = "opens a real (offscreen) window; run manually"]
+#[ignore = "opens a real offscreen window; needs a desktop session, run alone with --exact"]
 fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
     let mut options = run::native_options();
     options.viewport = options
