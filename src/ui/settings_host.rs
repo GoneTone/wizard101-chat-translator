@@ -13,7 +13,7 @@ use crate::ui::settings::env::{SettingsEnv, SettingsEvent};
 use crate::ui::settings::theme;
 use crate::ui::settings::window::{SettingsAction, SettingsWindow};
 use crate::ui::settings::wizard::{Wizard, WizardAction};
-use crate::ui::win32;
+use crate::ui::{viewport, win32};
 
 /// 視窗與工作區每邊留的邊距（point）。
 const SCREEN_MARGIN: f32 = 24.0;
@@ -208,7 +208,7 @@ impl HostedWindow {
         if std::mem::take(&mut self.restore) && self.shown {
             commands.push(ViewportCommand::Minimized(false));
         }
-        let before = if self.hwnd == 0 {
+        let mut before = if self.hwnd == 0 {
             (self.ops.thread_windows)()
         } else {
             Vec::new()
@@ -216,7 +216,8 @@ impl HostedWindow {
         let builder = self.builder(creating, &title);
         let mut out = Vec::new();
         let mut closing = false;
-        ctx.show_viewport_immediate(self.id(), builder, |ui, _| {
+        let (id, name) = (self.id(), self.spec.name);
+        let shown = viewport::show_immediate(ctx, id, name, builder, &mut before, |ui, _| {
             let close_requested = ui.input(|i| i.viewport().close_requested());
             closing |= close_requested;
             // 這一幀就要關掉的視窗不再顯示、也不再改它
@@ -231,6 +232,9 @@ impl HostedWindow {
             theme::apply(ui.style_mut());
             out.extend(content(ui, close_requested));
         });
+        if shown.is_none() {
+            return out;
+        }
         self.created.get_or_insert(frame);
         if closing {
             return out;
@@ -445,15 +449,29 @@ mod tests {
         ctx
     }
 
-    /// 跑一幀；`content` 第一個 pass 要求重排，回傳（pass 數，收到的動作，各 pass 收到的關閉要求）。
+    /// 視窗建好之後跑一幀；`content` 第一個 pass 要求重排，回傳（pass 數，收到的動作，各 pass 收到的關閉要求）。
     fn relaid_frame(close: bool) -> (usize, Vec<&'static str>, Vec<bool>) {
         let ctx = native_like_context();
         let mut win = HostedWindow::new(SETTINGS);
         win.ops = offscreen_ops();
+        let mut registered = ctx.run_ui(RawInput::default(), |ui| {
+            assert!(win.show(ui.ctx(), &[], |_, _| vec![""]).is_empty());
+        });
+        assert!(registered.viewport_output.contains_key(&win.id()));
+        registered.textures_delta.clear();
+        let mut input = RawInput::default();
+        input
+            .viewports
+            .insert(ViewportId::ROOT, ViewportInfo::default());
+        let window = ViewportInfo {
+            native_pixels_per_point: Some(1.0),
+            ..Default::default()
+        };
+        input.viewports.insert(win.id(), window);
         CLOSE_NEXT.set(close);
         let mut closing = Vec::new();
         let mut got = Vec::new();
-        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+        let mut output = ctx.run_ui(input, |ui| {
             got = win.show(ui.ctx(), &[], |ui, close| {
                 closing.push(close);
                 if closing.len() == 1 {

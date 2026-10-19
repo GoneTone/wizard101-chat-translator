@@ -17,6 +17,7 @@ use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
 use crate::ui::region::flow::RegionFlow;
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
+use crate::ui::viewport::show_immediate;
 use crate::ui::win32;
 
 /// 一個框選視窗的 HWND 與顯示狀態；宿主看到元件關掉就換下一個 viewport id，同一幀先關後開也不沿用舊視窗。
@@ -168,13 +169,16 @@ impl RegionHost {
         let creating = !win.created;
         let reveal = pending && !defer;
         let builder = viewport_builder(creating, monitor);
-        let before = windows_before(win.hwnd);
-        let action = ctx.show_viewport_immediate(win.id("region_selector"), builder, |ui, _| {
+        let mut before = windows_before(win.hwnd);
+        let id = win.id("region_selector");
+        let Some(action) = show_immediate(ctx, id, "selector", builder, &mut before, |ui, _| {
             if reveal {
                 ui.ctx().send_viewport_cmd(ViewportCommand::Visible(true));
             }
             selector.content(ui)
-        });
+        }) else {
+            return;
+        };
         win.created = true;
         win.shown |= reveal;
         if win.hwnd == 0 {
@@ -216,14 +220,17 @@ impl RegionHost {
         let builder = viewport_builder(creating, rect)
             .with_transparent(true)
             .with_active(false);
-        let before = windows_before(win.hwnd);
+        let mut before = windows_before(win.hwnd);
         let origin = win.placed.unwrap_or(rect);
-        let changed = ctx.show_viewport_immediate(win.id("region_box"), builder, |ui, _| {
+        let id = win.id("region_box");
+        let Some(changed) = show_immediate(ctx, id, "box", builder, &mut before, |ui, _| {
             if reveal {
                 ui.ctx().send_viewport_cmd(ViewportCommand::Visible(true));
             }
             box_content(ui, region_box, (origin.0, origin.1))
-        });
+        }) else {
+            return;
+        };
         win.created = true;
         win.shown |= reveal;
         if win.hwnd == 0 {
@@ -260,17 +267,21 @@ impl RegionHost {
         let builder = viewport_builder(creating, rough)
             .with_transparent(true)
             .with_active(false);
-        let before = windows_before(win.hwnd);
+        let mut before = windows_before(win.hwnd);
         // 卡片每次回到辨識中都是新的一張，剪貼簿每幀重設才跟得上新卡片與新視窗
         let owner = win.hwnd;
         card.set_clipboard(move |text| clipboard::set_text(owner, text));
-        let (placed, action) =
-            ctx.show_viewport_immediate(win.id("region_card"), builder, |ui, _| {
+        let id = win.id("region_card");
+        let Some((placed, action)) =
+            show_immediate(ctx, id, "card", builder, &mut before, |ui, _| {
                 if reveal {
                     ui.ctx().send_viewport_cmd(ViewportCommand::Visible(true));
                 }
                 (card.layout(ui.ctx(), area), card.content(ui))
-            });
+            })
+        else {
+            return;
+        };
         win.created = true;
         win.shown |= reveal;
         if win.hwnd == 0 {

@@ -18,7 +18,7 @@ use crate::ui::geometry::Rect;
 use crate::ui::input_box::{BG, InputBox, open_rect, refit};
 use crate::ui::overlay::frame::{BAR_HEIGHT, bar_button};
 use crate::ui::palette::{BAR, FG_BAR};
-use crate::ui::win32;
+use crate::ui::{viewport, win32};
 use crate::util::read;
 
 /// 等熱鍵觸發鍵放開的上限；漏收放開時不讓輸入框永遠不出現。
@@ -159,19 +159,23 @@ impl InputHost {
                 .with_position([dip(x), dip(y)])
                 .with_inner_size([dip(w), dip(h)]);
         }
-        let before = if self.hwnd == 0 {
+        let mut before = if self.hwnd == 0 {
             win32::thread_windows()
         } else {
             Vec::new()
         };
         let input = &mut self.input;
-        let (height, ppp) =
-            ctx.show_viewport_immediate(ViewportId::from_hash_of("input_box"), builder, |ui, _| {
+        let id = ViewportId::from_hash_of("input_box");
+        let Some((height, ppp)) =
+            viewport::show_immediate(ctx, id, "input box", builder, &mut before, |ui, _| {
                 if reveal {
                     ui.ctx().send_viewport_cmd(ViewportCommand::Visible(true));
                 }
                 (content(ui, input), ui.ctx().pixels_per_point())
-            });
+            })
+        else {
+            return;
+        };
         self.created = true;
         self.shown |= reveal;
         if !self.input.is_open() {

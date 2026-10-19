@@ -31,7 +31,7 @@ use crate::ui::region_host::RegionHost;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
-use crate::ui::{fonts_egui, win32};
+use crate::ui::{fonts_egui, viewport, win32};
 use crate::util::read;
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
@@ -511,15 +511,19 @@ impl App {
         }
         let (hwnd, unread) = (bubble.hwnd(), self.model.unread());
         let alpha = bubble_alpha(self.frame.alpha());
-        let before = if hwnd == 0 {
+        let mut before = if hwnd == 0 {
             win32::thread_windows()
         } else {
             Vec::new()
         };
-        let action =
-            ctx.show_viewport_immediate(ViewportId::from_hash_of("bubble"), builder, |ui, _| {
+        let id = ViewportId::from_hash_of("bubble");
+        let Some(action) =
+            viewport::show_immediate(ctx, id, "bubble", builder, &mut before, |ui, _| {
                 bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
-            });
+            })
+        else {
+            return;
+        };
         if hwnd == 0 {
             let found = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
                 win32::find_thread_window(&app_name(), &known)
