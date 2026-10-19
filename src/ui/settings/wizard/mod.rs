@@ -291,7 +291,7 @@ impl Wizard {
         let default = self.cfg.get("default_service").and_then(Value::as_str);
         log(format!(
             "[ui] wizard finished (default_service={})",
-            default.unwrap_or("None")
+            default.unwrap_or("none")
         ));
         Some(WizardAction::Finish(self.cfg.clone()))
     }

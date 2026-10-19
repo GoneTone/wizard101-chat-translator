@@ -195,13 +195,10 @@ pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, S
         Config {
             status: Some(404), ..
         } => ("error.model_not_found", vec![]),
-        Config { status, .. } => (
-            "error.api_http",
-            vec![(
-                "status",
-                status.map_or_else(|| "None".to_owned(), |s| s.to_string()),
-            )],
-        ),
+        Config {
+            status: Some(status),
+            ..
+        } => ("error.api_http", vec![("status", status.to_string())]),
         Offline {
             status: Some(status),
             ..

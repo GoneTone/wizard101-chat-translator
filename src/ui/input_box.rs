@@ -298,7 +298,7 @@ impl InputBoxControl for InputBox {
         self.target = (self.foreground)();
         let anchor = self
             .anchor
-            .map_or_else(|| "None".to_owned(), |r| format!("{r:?}"));
+            .map_or_else(|| "none".to_owned(), |r| format!("{r:?}"));
         log(format!(
             "[input] box opened (target_hwnd={:#x}, anchor={anchor})",
             self.target

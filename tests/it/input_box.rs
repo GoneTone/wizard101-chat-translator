@@ -42,7 +42,7 @@ fn show_records_the_foreground_as_target_and_logs_the_anchor() {
     input_box(|| 0x5A12).show();
     assert_eq!(
         logged("target_hwnd=0x5a12"),
-        ["[input] box opened (target_hwnd=0x5a12, anchor=None)"]
+        ["[input] box opened (target_hwnd=0x5a12, anchor=none)"]
     );
 }
 

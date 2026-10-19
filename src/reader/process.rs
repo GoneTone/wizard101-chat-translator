@@ -88,7 +88,7 @@ pub fn find_game_window() -> Option<isize> {
     visible
         .iter()
         .copied()
-        .find(|&hwnd| unsafe { IsIconic(hwnd as HWND) } == 0)
+        .find(|&hwnd| !is_minimized(hwnd))
         .or_else(|| visible.first().copied())
 }
 
