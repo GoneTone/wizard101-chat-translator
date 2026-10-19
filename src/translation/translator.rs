@@ -508,6 +508,13 @@ pub async fn generate_and_store(
             slot.lock().await
         }
     };
+    if tr.examples_fingerprint() != fingerprint {
+        log(format!(
+            "[translate] example generation skipped, settings changed while waiting ({}, fingerprint={fingerprint})",
+            tr.describe()
+        ));
+        return Ok(None);
+    }
     if let Some(cached) = store.get(&fingerprint) {
         log(format!(
             "[translate] examples loaded from cache (fingerprint={fingerprint}): {}",
