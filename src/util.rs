@@ -1,7 +1,11 @@
-//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖與內容指紋。
+//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖、內容指紋與原子寫檔。
 
 use std::any::Any;
+use std::fs;
 use std::hash::{BuildHasher, Hasher, RandomState};
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -84,4 +88,25 @@ pub fn sha1_head(parts: &[&[u8]]) -> String {
 /// 一個隨機的 `u64`：借用標準庫每次不同種子的雜湊，只求分散與不撞，不需密碼學強度。
 pub fn random_u64() -> u64 {
     RandomState::new().build_hasher().finish()
+}
+
+/// 先寫同目錄暫存檔再 rename，讀者永遠看不到寫到一半的檔案；會建父資料夾，失敗時清掉暫存檔。
+pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp_name = path.as_os_str().to_owned();
+    // 每次呼叫獨立的暫存檔，重疊的寫入才不會互相截斷
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    tmp_name.push(format!(
+        ".{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    let tmp = PathBuf::from(tmp_name);
+    let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
 }

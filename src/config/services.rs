@@ -10,6 +10,8 @@ use super::Config;
 use super::py;
 use crate::i18n::t;
 use crate::logs::log;
+use crate::py::pyrepr::repr_str;
+use crate::py::pystr;
 use crate::util::random_u64;
 
 /// 這一版認不得 provider 的服務搬去的頂層鍵；日後認得它的版本會自動搬回 services。
@@ -151,7 +153,7 @@ pub(crate) fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
 fn any_filled(entry: &Value) -> bool {
     FILLED_MARKERS
         .iter()
-        .any(|k| !py::is_blank(str_field(entry, k)))
+        .any(|k| !pystr::strip(str_field(entry, k)).is_empty())
 }
 
 /// 全部服務商，依顯示順序。
@@ -253,10 +255,10 @@ pub fn validate_endpoint_fields(service: &Value) -> Vec<String> {
     let text = |k: &str| str_field(service, k);
     let needs_base_url = provider(text("provider")).is_some_and(Provider::needs_base_url);
     let mut errors = Vec::new();
-    if !needs_base_url && py::is_blank(text("api_key")) {
+    if !needs_base_url && pystr::strip(text("api_key")).is_empty() {
         errors.push("error.need_api_key".to_string());
     }
-    if needs_base_url && py::is_blank(text("base_url")) {
+    if needs_base_url && pystr::strip(text("base_url")).is_empty() {
         errors.push("error.need_base_url".to_string());
     }
     errors
@@ -265,7 +267,7 @@ pub fn validate_endpoint_fields(service: &Value) -> Vec<String> {
 /// 檢查一筆服務的必填欄位，回傳錯誤文案 key 列表（空＝通過）。
 pub fn validate_service(service: &Value) -> Vec<String> {
     let mut errors = Vec::new();
-    if py::is_blank(str_field(service, "model")) {
+    if pystr::strip(str_field(service, "model")).is_empty() {
         errors.push("error.need_model".to_string());
     }
     errors.extend(validate_endpoint_fields(service));
@@ -484,7 +486,7 @@ fn quarantine_unknown_services(cfg: &mut Config) -> bool {
             Some(Value::String(name)) => log(format!(
                 "[config] quarantined a service with unknown provider {} into {UNSUPPORTED_SERVICES} \
                  (has_key={}); a build that supports it will restore it",
-                py::str_repr(name),
+                repr_str(name),
                 has_key(entry)
             )),
             // 形狀讀不懂的那些沒有任何一版認得，log 不能拿「日後會搬回來」誤導使用者
@@ -677,7 +679,7 @@ fn sanitize_services(cfg: &mut Config) -> bool {
         if unique != name {
             log(format!(
                 "[config] renamed a missing or duplicate service name -> {}",
-                py::str_repr(&unique)
+                repr_str(&unique)
             ));
         }
         service.insert("name".into(), unique.into());

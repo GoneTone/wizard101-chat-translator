@@ -9,16 +9,16 @@ use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use regex::{Captures, Regex};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use super::errors::TranslateError;
-use super::examples::{json_str, write_atomic};
 use super::postprocess::has_stray_latin;
 use super::prompts::PROMPT_REVISION;
 use super::translator::Translator;
 use crate::config::{local_state_dir, py};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
+use crate::util::write_atomic;
 
 /// 系統訊息的句型與材料名是有限集合，2000 筆足以涵蓋。
 pub const MAX_ENTRIES: usize = 2000;
@@ -295,16 +295,12 @@ impl TranslationCache {
         let (text, count) = {
             let mut inner = self.lock();
             inner.unflushed = 0;
-            let body: Vec<String> = inner
+            let entries: Map<String, Value> = inner
                 .ordered()
                 .into_iter()
-                .map(|(k, v)| format!("{}: {}", json_str(k), json_str(v)))
+                .map(|(k, v)| (k.clone(), Value::from(v.as_str())))
                 .collect();
-            let text = format!(
-                "{{\"fingerprint\": {}, \"entries\": {{{}}}}}",
-                json_str(&inner.fingerprint),
-                body.join(", ")
-            );
+            let text = json!({ "fingerprint": inner.fingerprint, "entries": entries }).to_string();
             (text, inner.entries.len())
         };
         match write_atomic(&self.path, &text) {

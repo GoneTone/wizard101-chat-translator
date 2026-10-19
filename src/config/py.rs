@@ -1,60 +1,8 @@
-//! Python 相容的 JSON 輸出與值的表示法：寫回的 config.json 與 log 文字要和 Python 版逐字相同。
+//! 沿用 Python 語意的值判斷與表示法：int／float 區分、真值、相等，以及 log 與錯誤訊息裡的 repr。
 
 use serde_json::{Number, Value};
 
-/// 等同 Python `json.dumps(value, ensure_ascii=False, indent=2)`。
-pub(crate) fn dumps_indent2(value: &Value) -> String {
-    let mut out = String::new();
-    write_value(&mut out, value, 0);
-    out
-}
-
-fn newline(out: &mut String, depth: usize) {
-    out.push('\n');
-    out.push_str(&"  ".repeat(depth));
-}
-
-fn write_value(out: &mut String, value: &Value, depth: usize) {
-    match value {
-        Value::Array(items) if !items.is_empty() => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                newline(out, depth + 1);
-                write_value(out, item, depth + 1);
-            }
-            newline(out, depth);
-            out.push(']');
-        }
-        Value::Object(map) if !map.is_empty() => {
-            out.push('{');
-            for (i, (key, item)) in map.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                newline(out, depth + 1);
-                out.push_str(&Value::String(key.clone()).to_string());
-                out.push_str(": ");
-                write_value(out, item, depth + 1);
-            }
-            newline(out, depth);
-            out.push('}');
-        }
-        // json.dumps 對溢位成 inf 的浮點數寫 Infinity，不是 repr 的 inf
-        Value::Number(n) if is_float(n) && !to_f64(n).is_finite() => {
-            out.push_str(if to_f64(n) > 0.0 {
-                "Infinity"
-            } else {
-                "-Infinity"
-            });
-        }
-        Value::Number(n) => out.push_str(&number_repr(n)),
-        // serde_json 的字串跳脫（控制字元 \u00xx 小寫、不跳脫非 ASCII）與 Python 相同
-        other => out.push_str(&other.to_string()),
-    }
-}
+use crate::py::pyrepr::repr_str;
 
 /// 數字字面值是不是 Python 的 float（json.loads 依有無 `.`／`e` 決定 int 或 float）。
 fn is_float(n: &Number) -> bool {
@@ -136,7 +84,7 @@ pub(crate) fn repr(value: &Value) -> String {
         Value::Null => "None".into(),
         Value::Bool(b) => py_bool(*b).into(),
         Value::Number(n) => number_repr(n),
-        Value::String(s) => str_repr(s),
+        Value::String(s) => repr_str(s),
         Value::Array(items) => {
             let items: Vec<String> = items.iter().map(repr).collect();
             format!("[{}]", items.join(", "))
@@ -144,7 +92,7 @@ pub(crate) fn repr(value: &Value) -> String {
         Value::Object(map) => {
             let items: Vec<String> = map
                 .iter()
-                .map(|(k, v)| format!("{}: {}", str_repr(k), repr(v)))
+                .map(|(k, v)| format!("{}: {}", repr_str(k), repr(v)))
                 .collect();
             format!("{{{}}}", items.join(", "))
         }
@@ -162,11 +110,6 @@ pub(crate) fn display(value: &Value) -> String {
 /// Python 的 `True`／`False`。
 pub(crate) fn py_bool(b: bool) -> &'static str {
     if b { "True" } else { "False" }
-}
-
-/// Python `repr(str)`。
-pub(crate) fn str_repr(s: &str) -> String {
-    crate::py::pyrepr::repr_str(s)
 }
 
 /// Python `type(value).__name__`。
@@ -213,12 +156,6 @@ pub(crate) fn eq(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// `not s.strip()`：Python 的空白比 Rust 多認 U+001C～U+001F。
-pub(crate) fn is_blank(s: &str) -> bool {
-    s.chars()
-        .all(|c| c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,17 +193,12 @@ mod tests {
     }
 
     #[test]
-    fn dumps_keeps_python_int_and_float_literals() {
-        let value: Value = serde_json::from_str(
-            r#"{"a": -0, "b": 123456789012345678901234567890, "c": 1e400, "d": 1E2}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            dumps_indent2(&value),
-            "{\n  \"a\": 0,\n  \"b\": 123456789012345678901234567890,\n  \"c\": Infinity,\n  \"d\": 100.0\n}"
-        );
+    fn big_ints_and_overflowing_floats_keep_their_type() {
+        let value: Value =
+            serde_json::from_str(r#"{"b": 123456789012345678901234567890, "c": 1e400}"#).unwrap();
         assert_eq!(repr(&value["c"]), "inf");
         assert_eq!(type_name(&value["b"]), "int");
+        assert_eq!(type_name(&value["c"]), "float");
     }
 
     #[test]
@@ -287,11 +219,5 @@ mod tests {
         assert!(eq(&json!({"a": 1, "b": 2}), &json!({"b": 2, "a": 1})));
         assert!(!eq(&json!(null), &json!(false)));
         assert!(!eq(&json!("1"), &json!(1)));
-    }
-
-    #[test]
-    fn blank_follows_python_strip() {
-        assert!(is_blank(" \u{3000}\u{1c}\t"));
-        assert!(!is_blank(" x "));
     }
 }

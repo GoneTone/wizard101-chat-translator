@@ -1,15 +1,14 @@
 //! 持久化 hook 的還原狀態：髒退出（硬砍／當機）後，下次對同一個仍在執行的遊戲程序啟動時自動修復殘留的 hook。
 //!
-//! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`，
-//! 格式與 Python 版逐 byte 相同，兩版可互讀。PID 可能被重用給新的遊戲程序（ASLR 後基址不同），
-//! 故基址不符即視為過期不套用。
+//! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`。
+//! PID 可能被重用給新的遊戲程序（ASLR 後基址不同），故基址不符即視為過期不套用。
 
 use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::hooks::MODULE;
 use super::memory::ProcessMemory;
@@ -42,12 +41,14 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 /// 存還原操作與模組基址；`dir` 為 state 目錄（實機用 `config::local_state_dir()`）。
 pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io::Result<()> {
     fs::create_dir_all(dir)?;
-    let ops: Vec<String> = ops
+    let ops: Vec<Value> = ops
         .iter()
-        .map(|(addr, b)| format!("{{\"addr\": {addr}, \"bytes\": \"{}\"}}", hex(b)))
+        .map(|(addr, b)| json!({ "addr": addr, "bytes": hex(b) }))
         .collect();
-    let text = format!("{{\"base\": {base}, \"ops\": [{}]}}", ops.join(", "));
-    fs::write(state_path(dir, pid), text)
+    fs::write(
+        state_path(dir, pid),
+        json!({ "base": base, "ops": ops }).to_string(),
+    )
 }
 
 fn parse(text: &str) -> Result<(u64, RestoreOps), String> {

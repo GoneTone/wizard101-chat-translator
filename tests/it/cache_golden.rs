@@ -86,7 +86,7 @@ fn fingerprint_matches_python() {
 }
 
 #[test]
-fn flush_bytes_match_python() {
+fn flush_writes_the_golden_content() {
     let cases = common::golden("cache_file_bytes");
     assert_eq!(cases.len(), 7);
     for c in cases {
@@ -97,12 +97,17 @@ fn flush_bytes_match_python() {
         );
         replay(&cache, &c["input"]["ops"]);
         cache.flush();
-        assert_eq!(file_text(&dir), s(&c["output"]), "{}", c["input"]["ops"]);
+        assert_eq!(
+            common::json_content(&file_text(&dir)),
+            common::json_content(s(&c["output"])),
+            "{}",
+            c["input"]["ops"]
+        );
     }
 }
 
 #[test]
-fn loads_python_written_cache() {
+fn loads_an_old_format_cache() {
     for c in common::golden("cache_file_bytes") {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("cache.json"), s(&c["output"])).unwrap();
@@ -113,8 +118,8 @@ fn loads_python_written_cache() {
         cache.load();
         cache.flush();
         assert_eq!(
-            file_text(&dir),
-            s(&c["output"]),
+            common::json_content(&file_text(&dir)),
+            common::json_content(s(&c["output"])),
             "load then flush must round-trip"
         );
     }
@@ -227,11 +232,12 @@ fn fingerprint_change_clears_on_rebind() {
     cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
     cache.rebind(OTHER_FP);
     assert_eq!(cache.get("熔岩百合"), None);
-    assert!(
-        file_text(&dir).contains(&format!("\"fingerprint\": \"{FP}\"")),
+    let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
+    assert_eq!(
+        saved["fingerprint"], FP,
         "old content flushed under the old fingerprint"
     );
-    assert!(file_text(&dir).contains("熔岩百合(Lava Lily)"));
+    assert_eq!(saved["entries"]["熔岩百合"], "熔岩百合(Lava Lily)");
     assert!(!cache.put("a", "A", FP), "stale fingerprint is rejected");
     assert!(cache.put("a", "A", OTHER_FP));
 }
@@ -289,7 +295,8 @@ fn clear_removes_entries_and_file_without_writing_back() {
     assert!(!dir.path().join("cache.json").exists());
     assert_eq!(cache.get("熔岩百合"), None);
     cache.flush();
-    assert!(file_text(&dir).ends_with("\"entries\": {}}"));
+    let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
+    assert_eq!(saved["entries"], json!({}));
     assert_eq!(cache_in(&tempfile::tempdir().unwrap()).clear(), 0);
 }
 

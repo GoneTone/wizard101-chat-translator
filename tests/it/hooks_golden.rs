@@ -284,7 +284,7 @@ fn pid_of(input: &Value) -> u32 {
 }
 
 #[test]
-fn hookstate_bytes_match_python() {
+fn hookstate_roundtrips_the_golden_inputs() {
     let cases = common::golden("hookstate_bytes");
     assert!(!cases.is_empty());
     let dir = tempfile::tempdir().unwrap();
@@ -292,8 +292,11 @@ fn hookstate_bytes_match_python() {
         let input = &case["input"];
         let pid = pid_of(input);
         hook_state::save_state(dir.path(), pid, n(&input["base"]), &ops_of(input)).unwrap();
-        let written = std::fs::read(dir.path().join(format!("hookstate-{pid}.json"))).unwrap();
-        assert_eq!(written, case["output"].as_str().unwrap().as_bytes());
+        let base = n(&input["base"]);
+        assert_eq!(
+            hook_state::load_state(dir.path(), pid),
+            (Some(base), ops_of(input))
+        );
     }
 }
 
