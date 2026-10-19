@@ -23,7 +23,7 @@ use wizard101_chat_translator::reader::markup::ChatLine;
 use wizard101_chat_translator::reader::mem_reader::{ChatEvent, GameNotRunning, WizChatReader};
 use wizard101_chat_translator::reader::run_loop::{
     ChatSource, GAME_MISSING_INTERVAL, INPUT_POLL_INTERVAL, LoopEnv, MessageIds, POLL_INTERVAL,
-    ReaderShared, reader_loop_with,
+    ReaderShared, VERSION_MISMATCH_INTERVAL, reader_loop,
 };
 use wizard101_chat_translator::reader::status::StatusBoard;
 use wizard101_chat_translator::translation::cache::TranslationCache;
@@ -49,8 +49,6 @@ fn ev(text: &str) -> ChatEvent {
             system: false,
         },
         tabs: vec![0],
-        seq: 0,
-        raw: String::new(),
     }
 }
 
@@ -275,7 +273,7 @@ impl Setup {
             foreground_window: std::mem::replace(&mut self.foreground, Box::new(|| 0)),
         };
         let contexts = Arc::clone(&self.contexts);
-        reader_loop_with(env, shared, self.hwnd, self.slot, reader, contexts);
+        reader_loop(env, shared, self.hwnd, self.slot, reader, contexts);
         drain(&self.ui_rx)
     }
 
@@ -597,8 +595,12 @@ fn status_shows_translating_while_pool_busy() {
     let mut s = Setup::new();
     let (busy, _) = pool(&s.rt, Arc::new(|_, _| Box::pin(std::future::pending())));
     s.pool = busy;
-    let events = s.run(vec![lines(&["[A] a"]), lines(&[])]);
-    assert!(statuses(&events).contains(&"translating"));
+    let events = s.run(vec![lines(&["[A] a"]), lines(&[]), lines(&[])]);
+    // 讀取前的回報不可把「翻譯中」蓋回「監聽」造成來回跳
+    assert_eq!(
+        statuses(&events),
+        ["listening", "translating", "waiting_game"]
+    );
 }
 
 #[test]
@@ -803,6 +805,22 @@ fn game_missing_retries_every_5s_and_logs_once_per_issue() {
     let statuses = statuses(&events);
     assert!(statuses.contains(&"waiting_game") && statuses.contains(&"access_denied"));
     assert!(texts(&events).is_empty());
+}
+
+#[test]
+fn version_mismatch_retries_every_60s() {
+    let mut s = Setup::new();
+    let mismatch = || Read::Fail(GameNotRunning::VersionMismatch("pattern failed".into()));
+    s.run(vec![mismatch(), mismatch(), lines(&[])]);
+    let read_at = s.probe.lock().unwrap().read_at.clone();
+    assert_eq!(
+        read_at,
+        [
+            Duration::ZERO,
+            VERSION_MISMATCH_INTERVAL,
+            VERSION_MISMATCH_INTERVAL * 2
+        ]
+    );
 }
 
 #[test]

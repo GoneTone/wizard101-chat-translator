@@ -109,16 +109,6 @@ impl From<MemError> for TabError {
     }
 }
 
-impl TabError {
-    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::OutOfRange { .. } => "ValueError",
-            Self::Mem(e) => e.type_name(),
-        }
-    }
-}
-
 /// 從 root window 找各分頁按鈕（依 `TAB_BUTTONS` 順序，找不到的略過）；結果由呼叫端快取。
 pub fn find_tab_buttons(
     mem: &dyn ProcessMemory,

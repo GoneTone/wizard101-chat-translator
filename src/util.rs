@@ -1,6 +1,7 @@
 //! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖、內容指紋與原子寫檔。
 
 use std::any::Any;
+use std::fmt::Write as _;
 use std::fs;
 use std::hash::{BuildHasher, Hasher, RandomState};
 use std::io;
@@ -15,7 +16,7 @@ use sha1::{Digest, Sha1};
 /// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
 const JOIN_POLL: Duration = Duration::from_millis(10);
 
-/// 讀取器用的時鐘；測試換成假的就不必真的等。
+/// 等待與計時用的時鐘；測試換成假的就不必真的等。
 pub struct Clock {
     /// 目前時刻。
     pub now: Box<dyn Fn() -> Instant + Send>,
@@ -77,12 +78,15 @@ pub fn sha1_head(parts: &[&[u8]]) -> String {
     for part in parts {
         hasher.update(part);
     }
-    let hex: String = hasher
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    hex[..12].to_string()
+    hex(&hasher.finalize())[..12].to_string()
+}
+
+/// 位元組轉小寫 hex 字串。
+pub fn hex(bytes: &[u8]) -> String {
+    bytes.iter().fold(String::new(), |mut s, b| {
+        let _ = write!(s, "{b:02x}");
+        s
+    })
 }
 
 /// 一個隨機的 `u64`：借用標準庫每次不同種子的雜湊，只求分散與不撞，不需密碼學強度。

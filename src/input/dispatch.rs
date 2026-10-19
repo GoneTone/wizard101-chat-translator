@@ -6,12 +6,11 @@ use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::composer::paste::foreground_exe;
 use crate::config::Config;
 use crate::config::py::truthy;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
-use crate::reader::process::{foreground_window, is_game_process_path};
+use crate::reader::process::{foreground_window, is_game_process_path, window_exe};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
 use crate::util::lock;
@@ -29,7 +28,7 @@ impl Foreground {
     pub fn real() -> Self {
         Self {
             hwnd: foreground_window,
-            exe: foreground_exe,
+            exe: || window_exe(foreground_window()),
         }
     }
 }

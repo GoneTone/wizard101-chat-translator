@@ -48,18 +48,6 @@ impl fmt::Display for ScanError {
 
 impl std::error::Error for ScanError {}
 
-impl ScanError {
-    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::NotFound(_) => "PatternFailed",
-            Self::Multiple(..) => "PatternMultipleResults",
-            Self::Invalid(_) => "error",
-            Self::Mem(err) => err.type_name(),
-        }
-    }
-}
-
 /// Python 對 pattern bytes 的 repr；pattern 原文是 ASCII，與 `repr(str)` 只差 `b` 前綴。
 fn py_bytes(pattern: &str) -> String {
     format!("b{}", repr_str(pattern))

@@ -14,6 +14,7 @@ use wizard101_chat_translator::reader::chat_hook::{self, DATA_OFF, HEADER, SLOT_
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
+use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
     GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
     WizChatReader,
@@ -22,8 +23,7 @@ use wizard101_chat_translator::reader::memory::{
     FakeMemory, MemError, MemOp, ProcessMemory, Region,
 };
 use wizard101_chat_translator::reader::process::{
-    client_size, client_to_screen, find_game_window_in, install_path_of, install_root,
-    window_exists, window_pid,
+    client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
 };
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::util::Clock;
@@ -438,7 +438,7 @@ fn connect_order_matches_python() {
     assert_eq!(hook_state::load_state(g.dir.path(), dead), (None, vec![]));
     let p = pid();
     for line in [
-        format!("[reader] game path: None (slot=101, pid={p})"),
+        format!("[reader] game path: unknown (slot=101, pid={p})"),
         format!(
             "[reader] AddLine hook installed (slot=101, pid={p}, jump=0x141200000, \
              ring=0x20010000, ring_size=0x80040)"
@@ -507,7 +507,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
     let failed = logged(103, "[reader] AddLine hook install failed (slot=103, ");
     assert_eq!(failed.len(), 1);
     assert!(
-        failed[0].contains("): PatternFailed: Pattern b'")
+        failed[0].contains("): Pattern b'")
             && failed[0].ends_with(
                 "; a pattern failure here needs chat_hook::PATTERN updated in a new release"
             ),
@@ -538,6 +538,56 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
         })
     );
     assert!(!g.state_file_exists());
+}
+
+#[test]
+fn unknown_icon_warnings_survive_failed_connects_but_not_successful_ones() {
+    // 警告去重集合是全程序共用的，其他測試成功連線時會清掉它：失控的清除才會每次都重洗，故重試幾次
+    let warns = |icon: &str| {
+        let line = format!("<color;FFFFFF><image;Art/{icon}.dds;24;24;FFFFFFFF> [Zed] hi </color>");
+        assert!(parse_line(&line).is_none());
+        log_lines_with(&format!("unrecognized chat icon 'Art/{icon}'")).len()
+    };
+    let survived = (0..20).any(|i| {
+        let game = Game::with(true, false);
+        let mut failing = game.reader(150);
+        let icon = format!("Retry_Probe_Icon_{i}");
+        assert_eq!(warns(&icon), 1);
+        assert!(failing.read_new().is_err());
+        warns(&icon) == 1
+    });
+    assert!(survived, "a failed connect cleared the warned-icon set");
+
+    let icon = "Reset_Probe_Icon";
+    assert_eq!(warns(icon), 1);
+    let _connected = Game::new().connected(151);
+    assert_eq!(warns(icon), 2);
+}
+
+#[test]
+fn repeated_attach_failures_log_the_same_reason_once() {
+    let g = Game::with(true, false);
+    let mut r = g.reader(152);
+    for _ in 0..3 {
+        assert!(matches!(
+            r.read_new(),
+            Err(GameNotRunning::VersionMismatch(_))
+        ));
+    }
+    assert_eq!(logged(152, "[reader] game path:").len(), 1);
+    assert_eq!(logged(152, "[reader] AddLine hook install failed").len(), 1);
+
+    let g = Game::new();
+    g.fires.store(false, Ordering::SeqCst);
+    let mut r = g.reader(153);
+    for _ in 0..3 {
+        assert!(r.read_new().is_err());
+    }
+    assert_eq!(logged(153, "[reader] game path:").len(), 1);
+    assert_eq!(
+        logged(153, "[reader] root window hook never fired").len(),
+        1
+    );
 }
 
 #[test]
@@ -657,8 +707,8 @@ fn hook_state_save_failure_is_logged() {
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
     assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): OSError: ")));
-    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): OSError: ")));
+    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): ")));
+    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): ")));
 }
 
 #[test]
@@ -708,38 +758,20 @@ fn install_path_is_the_parent_of_bin() {
     assert!(window_exists(hwnd()));
 }
 
-#[test]
-fn find_game_window_logs_when_the_window_scan_itself_fails() {
-    log_lines_with("");
-    let scan = || Err(std::io::Error::other("EnumWindows failed"));
-    assert_eq!(find_game_window_in(scan, |_| true, |_| None), None);
-    assert_eq!(
-        log_lines_with("[reader] window scan failed: EnumWindows failed").len(),
-        1
-    );
-}
-
 // --- 事件 ---
 
 #[test]
 fn records_become_events_in_order() {
     let g = Game::new();
     let mut r = g.connected(201);
-    let (hi, yo) = (say("Amy", "hi"), own("yo"));
-    g.put(1, &hi, 0, BOX);
-    g.put(2, &yo, 1, BOX);
+    g.put(1, &say("Amy", "hi"), 0, BOX);
+    g.put(2, &own("yo"), 1, BOX);
     let events = r.read_new().unwrap();
     let got: Vec<_> = events
         .iter()
-        .map(|e| (e.tabs.clone(), e.line.text.as_str(), e.seq, e.raw.as_str()))
+        .map(|e| (e.tabs.clone(), e.line.text.as_str()))
         .collect();
-    assert_eq!(
-        got,
-        [
-            (vec![0], "[Amy] hi", 1, hi.as_str()),
-            (vec![1], "[你] yo", 2, yo.as_str())
-        ]
-    );
+    assert_eq!(got, [(vec![0], "[Amy] hi"), (vec![1], "[你] yo")]);
 }
 
 #[test]
@@ -991,7 +1023,7 @@ fn chatbox_lookup_failure_is_logged_and_drops_the_record() {
         logged(
             213,
             &format!(
-                "[reader] chat box lookup failed (slot=213, pid={}): MemoryReadError: Unable to \
+                "[reader] chat box lookup failed (slot=213, pid={}): Unable to \
                  read memory at address {}.",
                 pid(),
                 OTHER + 0x50 + 16
@@ -1246,7 +1278,7 @@ fn repeated_chatbox_lookup_failures_log_once() {
         [r.tab_state(), r.tab_state(), r.tab_state()],
         [None, None, None]
     );
-    let lines = logged(304, "[reader] chat tabs read failed: MemoryReadError: ");
+    let lines = logged(304, "[reader] chat tabs read failed: Unable to read memory");
     assert_eq!(lines.len(), 1, "{lines:?}");
 }
 
@@ -1293,7 +1325,7 @@ fn out_of_range_current_tab_is_a_read_failure() {
     let failed = logged(
         307,
         &format!(
-            "[reader] chat tabs read failed: ValueError: current tab 1094795585 out of range \
+            "[reader] chat tabs read failed: current tab 1094795585 out of range \
              (stale chat box {BOX:#x}?) (slot=307, pid={})",
             pid()
         ),
@@ -1405,7 +1437,7 @@ fn input_box_screen_rect_none_when_node_read_fails() {
         logged(
             403,
             &format!(
-                "[reader] game chat input rect unavailable (slot=403): MemoryReadError: Unable \
+                "[reader] game chat input rect unavailable (slot=403): Unable \
                  to read memory at address {}.",
                 EDIT + 0xA0
             )
@@ -1428,7 +1460,7 @@ fn input_box_screen_rect_none_when_the_parent_chain_cycles() {
     assert_eq!(
         logged(
             405,
-            "[reader] game chat input rect unavailable (slot=405): error: window parent chain \
+            "[reader] game chat input rect unavailable (slot=405): window parent chain \
              deeper than 64"
         )
         .len(),
@@ -1444,7 +1476,7 @@ fn input_box_screen_rect_none_for_a_degenerate_root() {
     assert_eq!(
         logged(
             404,
-            "[reader] game chat input rect unavailable (slot=404): ValueError: degenerate root \
+            "[reader] game chat input rect unavailable (slot=404): degenerate root \
              window size (0, 770)"
         )
         .len(),

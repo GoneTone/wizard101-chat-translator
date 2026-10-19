@@ -30,6 +30,8 @@ pub const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub const TAB_POLL_INTERVAL: Duration = Duration::from_millis(400);
 /// 找不到遊戲時的重試間隔。
 pub const GAME_MISSING_INTERVAL: Duration = Duration::from_secs(5);
+/// 掛入點與遊戲版本對不上時的重試間隔：重試也不會自己好起來，不必每 5 秒重掃一次。
+pub const VERSION_MISMATCH_INTERVAL: Duration = Duration::from_secs(60);
 /// 長時間等待切成這麼長的片段，停止時最多延遲一段才醒來。
 const WAIT_SLICE: Duration = Duration::from_millis(50);
 
@@ -150,20 +152,9 @@ impl Default for LoopEnv {
 
 /// 一個遊戲客戶端（`hwnd`）的收訊執行緒進入點；stop 被設定或該視窗消失後解除 hook 再返回。
 ///
-/// `slot`＝這個客戶端的顯示編號；`reader` 由呼叫端建好（含 messages.log）。
+/// `slot`＝這個客戶端的顯示編號；`reader` 由呼叫端建好（含 messages.log），外界依賴由 `env` 提供。
 /// 結束時（含 panic）一定收回編號並 `close` reader。
 pub fn reader_loop<R: ChatSource>(
-    shared: Arc<ReaderShared>,
-    hwnd: isize,
-    slot: u32,
-    reader: R,
-    contexts: Arc<ClientContexts>,
-) {
-    reader_loop_with(LoopEnv::default(), shared, hwnd, slot, reader, contexts);
-}
-
-/// 同 [`reader_loop`]，外界依賴由 `env` 提供。
-pub fn reader_loop_with<R: ChatSource>(
     env: LoopEnv,
     shared: Arc<ReaderShared>,
     hwnd: isize,
@@ -257,9 +248,7 @@ impl<R: ChatSource> ClientLoop<R> {
                 .get("translate_system_messages"),
         );
         self.reader.set_emit_system(emit);
-        self.s
-            .board
-            .report(slot, self.listening_status(), self.game_issue);
+        self.report_activity();
         match self.reader.read_new() {
             Ok(events) => {
                 if self.game_issue.take().is_some() {
@@ -268,12 +257,20 @@ impl<R: ChatSource> ClientLoop<R> {
                 Some(events)
             }
             Err(err) => {
-                let (status, issue) = match err {
-                    GameNotRunning::AccessDenied(_) => ("access_denied", "notice.access_denied"),
-                    GameNotRunning::VersionMismatch(_) => {
-                        ("version_mismatch", "notice.version_mismatch")
+                let (status, issue, retry_in) = match err {
+                    GameNotRunning::AccessDenied(_) => (
+                        "access_denied",
+                        "notice.access_denied",
+                        GAME_MISSING_INTERVAL,
+                    ),
+                    GameNotRunning::VersionMismatch(_) => (
+                        "version_mismatch",
+                        "notice.version_mismatch",
+                        VERSION_MISMATCH_INTERVAL,
+                    ),
+                    GameNotRunning::Missing(_) => {
+                        ("waiting_game", "notice.game_missing", GAME_MISSING_INTERVAL)
                     }
-                    GameNotRunning::Missing(_) => ("waiting_game", "notice.game_missing"),
                 };
                 // 只在原因改變時記錄，否則每輪重試都灌一行
                 if self.game_issue != Some(issue) {
@@ -286,7 +283,7 @@ impl<R: ChatSource> ClientLoop<R> {
                 self.s.board.report(slot, status, self.game_issue);
                 self.force_input_closed();
                 self.report_tabs(None);
-                wait(&self.env.clock, &self.s.stop, GAME_MISSING_INTERVAL);
+                wait(&self.env.clock, &self.s.stop, retry_in);
                 None
             }
         }
@@ -380,7 +377,7 @@ impl<R: ChatSource> ClientLoop<R> {
             let rect = self.reader.input_box_screen_rect();
             let anchor = match rect {
                 Some((x, y, w, h)) => format!("({x}, {y}, {w}, {h})"),
-                None => "None".to_owned(),
+                None => "unavailable".to_owned(),
             };
             log(format!(
                 "[reader] game chat input opened (slot={}, hwnd={:#x}, anchor={anchor})",
@@ -421,11 +418,7 @@ impl<R: ChatSource> ClientLoop<R> {
             if remaining.is_zero() {
                 return;
             }
-            wait(
-                &self.env.clock,
-                &self.s.stop,
-                remaining.min(INPUT_POLL_INTERVAL),
-            );
+            (self.env.clock.sleep)(remaining.min(INPUT_POLL_INTERVAL));
             self.poll_input();
         }
     }

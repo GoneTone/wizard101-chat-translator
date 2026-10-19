@@ -409,6 +409,5 @@ fn read_tab_state_lists_visible_tabs_in_button_order() {
         err.to_string(),
         "current tab 42 out of range (stale chat box 0x11000?)"
     );
-    assert_eq!(err.type_name(), "ValueError");
     assert_eq!(read_current_tab(&mem, chatbox), None);
 }

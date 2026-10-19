@@ -397,7 +397,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
     );
     assert_eq!(
         log_lines_with(
-            "[reader] hook repair write failed at 0x3000 (slot=2, len=1): MemoryWriteError: \
+            "[reader] hook repair write failed at 0x3000 (slot=2, len=1): \
              Unable to write memory at address 12288."
         )
         .len(),
@@ -448,7 +448,7 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
     let lines = log_lines_with("pid=770003");
     assert!(
         lines.iter().any(|l| l.contains(
-            "[reader] cannot read module base, ignoring hook state (slot=4, pid=770003): ValueError: WizardGraphicalClient.exe module not found."
+            "[reader] cannot read module base, ignoring hook state (slot=4, pid=770003): WizardGraphicalClient.exe module not found."
         )),
         "{lines:?}"
     );
@@ -459,18 +459,18 @@ fn corrupt_state_file_is_logged_and_ignored() {
     log_lines_with("");
     let dir = tempfile::tempdir().unwrap();
     let cases = [
-        (770_010, "{ not json", "JSONDecodeError: "),
+        (770_010, "{ not json", "key must be a string"),
         (
             770_011,
             r#"{"base": 1, "ops": [{"addr": 2, "bytes": "+f"}]}"#,
-            "ValueError: ",
+            "malformed hook state",
         ),
         (
             770_012,
             r#"{"base": 1, "ops": [{"addr": 2, "bytes": "abc"}]}"#,
-            "ValueError: ",
+            "malformed hook state",
         ),
-        (770_013, r#"{"ops": []}"#, "ValueError: "),
+        (770_013, r#"{"ops": []}"#, "malformed hook state"),
     ];
     for (pid, text, kind) in cases {
         std::fs::write(state_file(dir.path(), pid), text).unwrap();

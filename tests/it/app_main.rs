@@ -551,20 +551,6 @@ fn the_system_pool_translates_through_the_incoming_service() {
 }
 
 #[test]
-fn build_app_wires_each_consumer_to_its_own_slot() {
-    let source = include_str!("../../src/main.rs");
-    assert!(source.contains("Arc::clone(&built.translation.outgoing)"));
-    assert!(source.contains("Arc::clone(&built.translation.region)"));
-}
-
-#[test]
-fn build_app_spawns_readers_through_the_supervisor() {
-    let source = include_str!("../../src/app_main.rs");
-    assert!(source.contains("supervise(&stop, spawn, game_windows, &board)"));
-    assert!(source.contains("MessageLog::new(Arc::clone(&messages), slot)"));
-}
-
-#[test]
 fn reconfigure_resizes_both_pools() {
     let s = saved("resize");
     s.save(|c| {

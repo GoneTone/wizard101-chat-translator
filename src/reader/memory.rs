@@ -74,21 +74,6 @@ impl fmt::Display for MemError {
 
 impl std::error::Error for MemError {}
 
-impl MemError {
-    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::AccessDenied(_) => "CouldNotOpenProcess",
-            Self::Closed => "ClientClosedError",
-            Self::Read(_) => "MemoryReadError",
-            Self::Write(_) => "MemoryWriteError",
-            Self::OutOfRange(_) => "AddressOutOfRange",
-            Self::ModuleNotFound(_) => "ValueError",
-            Self::Alloc(_) => "MemoryError",
-        }
-    }
-}
-
 /// 與 wizwalker `read_bytes` 相同的位址檢查。
 fn check_range(addr: u64) -> Result<(), MemError> {
     if addr == 0 || addr > 0x7FFF_FFFF_FFFF_FFFF {
@@ -153,11 +138,6 @@ pub trait ProcessMemory: Send {
     /// 讀小端序 u32。
     fn read_u32(&self, addr: u64) -> Result<u32, MemError> {
         read_array(self, addr).map(u32::from_le_bytes)
-    }
-
-    /// 讀 `chars` 個 UTF-16LE 字元；無效的代理對以 U+FFFD 取代（同 Python `"replace"`）。
-    fn read_wstring(&self, addr: u64, chars: usize) -> Result<String, MemError> {
-        Ok(decode_utf16le(&self.read(addr, chars * 2)?))
     }
 
     /// 讀 MSVC `std::string`（比照 wizwalker `read_string`）。
@@ -714,7 +694,10 @@ mod tests {
             .flat_map(u16::to_le_bytes)
             .collect();
         mem.set_bytes(0x2000, &text);
-        assert_eq!(mem.read_wstring(0x2000, 3).unwrap(), "聊天\u{FFFD}");
+        assert_eq!(
+            decode_utf16le(&mem.read(0x2000, 6).unwrap()),
+            "聊天\u{FFFD}"
+        );
     }
 
     fn std_string(mem: &FakeMemory, at: u64, len: i32, data: u64) {

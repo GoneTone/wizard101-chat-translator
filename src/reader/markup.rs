@@ -42,7 +42,7 @@ static ANY_ART_IMG: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)<[iıİ]mage;(Ar
 static EMOTE_AFFIX: LazyLock<Regex> = LazyLock::new(|| re(r"^emoticons?_|\d+$"));
 static EMOTE_NAME: LazyLock<Regex> = LazyLock::new(|| re(r"^[a-z0-9_]+$"));
 
-// 所有客戶端共用的去重集合：任一客戶端斷線重連即清空，避免洗版
+// 所有客戶端共用的去重集合：任一客戶端連線成功時清空（失敗重試不清，否則每輪重洗）
 static WARNED_ICONS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
 /// 一行乾淨的聊天，帶遊戲顯示色。
@@ -56,7 +56,7 @@ pub struct ChatLine {
     pub system: bool,
 }
 
-/// 清掉「已警告過的未知圖示」：斷線重連（遊戲可能已改版）後要能再警告一次。
+/// 清掉「已警告過的未知圖示」：重新連上（遊戲可能已改版）後要能再警告一次。
 pub fn forget_warned_icons() {
     WARNED_ICONS
         .lock()
@@ -157,8 +157,8 @@ fn warn_unknown_icon(raw: &str) {
     if newly_seen {
         let head: String = raw.chars().take(160).collect();
         log(format!(
-            "[reader] unrecognized chat icon {}, line dropped (add prefix to _PLAYER_IMG_PREFIXES \
-             if this is a player channel); raw={}",
+            "[reader] unrecognized chat icon {}, line dropped (add its prefix to \
+             PLAYER_IMG_PREFIXES if this is a player channel); raw={}",
             repr_str(icon),
             repr_str(&head)
         ));

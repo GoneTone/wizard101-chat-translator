@@ -93,7 +93,7 @@ pub struct AddLineHook {
 }
 
 impl AddLineHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除，環形緩衝刻意不釋放）。
+    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall_with`] 解除，環形緩衝刻意不釋放）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
         let (jump, ring) = ADD_LINE.install(mem, cave, stub_bytes)?;
         Ok(Self { jump, ring })

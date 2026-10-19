@@ -14,7 +14,7 @@ use crate::input::hotkeys::HotkeyInterceptor;
 use crate::input::inject::{Injector, SendInputInjector};
 use crate::input::keys::{Code, key_codes_or_empty};
 use crate::logs::log;
-use crate::reader::process::{foreground_window, process_exe_path, window_exists, window_pid};
+use crate::reader::process::{foreground_window, window_exists};
 use crate::ui::{clipboard, win32};
 use crate::util::lock;
 
@@ -32,21 +32,6 @@ static TYPING: Mutex<()> = Mutex::new(());
 static PASTE_IN_PROGRESS: Mutex<()> = Mutex::new(());
 
 static LINE_BREAKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\r\n]+").unwrap());
-
-/// 視窗所屬程序的 exe 路徑；沒有視窗或查不到回 `None`。
-fn exe_of_window(hwnd: isize) -> Option<String> {
-    if hwnd == 0 {
-        return None;
-    }
-    process_exe_path(window_pid(hwnd))
-}
-
-/// 目前前景視窗所屬程序的 exe 路徑；沒有前景視窗或查不到回 `None`。
-///
-/// 搭配 `is_game_process_path` 判斷使用者是否正在遊戲畫面。
-pub fn foreground_exe() -> Option<String> {
-    exe_of_window(foreground_window())
-}
 
 /// 目前是否正在逐字鍵入（譯文或貼上）。
 pub fn typing_in_progress() -> bool {
@@ -434,11 +419,6 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Call::Press(_)))
         );
-    }
-
-    #[test]
-    fn foreground_exe_returns_none_when_lookup_fails() {
-        assert_eq!(exe_of_window(0), None);
     }
 
     fn down(code: Code) -> KeyEvent {

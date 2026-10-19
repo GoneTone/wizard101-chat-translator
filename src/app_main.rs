@@ -34,8 +34,8 @@ use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::memory::{ProcessMemory, WinProcess};
 use crate::reader::message_log::{MessageLog, SharedWriter};
-use crate::reader::process::{find_game_window, game_windows};
-use crate::reader::run_loop::{MessageIds, ReaderShared, reader_loop};
+use crate::reader::process::{find_game_window, game_windows, window_exists};
+use crate::reader::run_loop::{LoopEnv, MessageIds, ReaderShared, reader_loop};
 use crate::reader::status::StatusBoard;
 use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
 use crate::region::capture::{self, CaptureError, Frame};
@@ -690,11 +690,16 @@ pub fn build_app(
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
         let client = Arc::new(ClientContexts::new());
-        lock(&spawn_contexts).insert(hwnd, Arc::clone(&client));
+        {
+            // 已關掉的視窗不會再被查：新增前順手清掉，免得一直累積
+            let mut map = lock(&spawn_contexts);
+            map.retain(|&known, _| window_exists(known));
+            map.insert(hwnd, Arc::clone(&client));
+        }
         let name = format!("reader-{slot}");
         std::thread::Builder::new()
             .name(name.clone())
-            .spawn(move || reader_loop(shared, hwnd, slot, reader, client))
+            .spawn(move || reader_loop(LoopEnv::default(), shared, hwnd, slot, reader, client))
             .inspect_err(|e| log(format!("[reader] cannot spawn {name}: {e}")))
             .ok()
     };
@@ -702,7 +707,7 @@ pub fn build_app(
         let stop = stop.clone();
         std::thread::Builder::new()
             .name("reader-supervisor".into())
-            .spawn(move || supervise(&stop, spawn, game_windows, &board))
+            .spawn(move || supervise(&stop, spawn, game_windows, &board, &Clock::default()))
             .inspect_err(|e| log(format!("[reader] cannot spawn reader-supervisor: {e}")))
             .ok()
     };

@@ -3,7 +3,6 @@
 //! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`。
 //! PID 可能被重用給新的遊戲程序（ASLR 後基址不同），故基址不符即視為過期不套用。
 
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,20 +12,13 @@ use serde_json::{Value, json};
 use super::hooks::MODULE;
 use super::memory::ProcessMemory;
 use crate::logs::log;
-use crate::util::write_atomic;
+use crate::util::{hex, write_atomic};
 
 /// 一組依序寫回的還原操作（位址，原始 bytes）。
 pub type RestoreOps = Vec<(u64, Vec<u8>)>;
 
 fn state_path(dir: &Path, pid: u32) -> PathBuf {
     dir.join(format!("hookstate-{pid}.json"))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
@@ -52,8 +44,8 @@ pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io
 }
 
 fn parse(text: &str) -> Result<(u64, RestoreOps), String> {
-    let data: Value = serde_json::from_str(text).map_err(|e| format!("JSONDecodeError: {e}"))?;
-    let bad = || "ValueError: malformed hook state".to_owned();
+    let data: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let bad = || "malformed hook state".to_owned();
     let ops = data["ops"]
         .as_array()
         .ok_or_else(bad)?
@@ -70,7 +62,7 @@ pub fn load_state(dir: &Path, pid: u32) -> (Option<u64>, RestoreOps) {
     let text = match fs::read_to_string(&path) {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == io::ErrorKind::NotFound => return (None, Vec::new()),
-        Err(e) => Err(format!("OSError: {e}")),
+        Err(e) => Err(e.to_string()),
     };
     match text.and_then(|t| parse(&t)) {
         Ok((base, ops)) => (Some(base), ops),
@@ -136,8 +128,7 @@ pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usi
         Err(e) => {
             log(format!(
                 "[reader] cannot read module base, ignoring hook state \
-                 (slot={slot}, pid={pid}): {}: {e}",
-                e.type_name()
+                 (slot={slot}, pid={pid}): {e}"
             ));
             None
         }
@@ -152,9 +143,8 @@ pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usi
                     failed += 1;
                     log(format!(
                         "[reader] hook repair write failed at {addr:#x} \
-                         (slot={slot}, len={}): {}: {e}",
-                        original.len(),
-                        e.type_name()
+                         (slot={slot}, len={}): {e}",
+                        original.len()
                     ));
                 }
             }
