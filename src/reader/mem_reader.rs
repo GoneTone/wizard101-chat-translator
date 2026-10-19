@@ -170,7 +170,8 @@ pub struct WizChatReader {
     foreign: HashSet<u64>,
     foreign_checked: Option<Instant>,
     tabs_logged: Option<Result<TabState, String>>,
-    held_from: u64,
+    /// 上一輪暫留的廣播（起始 seq, 筆數）；同一段沒有變長就不再暫留。
+    held: (u64, usize),
     refound: bool,
     no_chatbox: Vec<u64>,
 }
@@ -206,7 +207,7 @@ impl WizChatReader {
             foreign: HashSet::new(),
             foreign_checked: None,
             tabs_logged: None,
-            held_from: 0,
+            held: (0, 0),
             refound: false,
             no_chatbox: Vec::new(),
         }
@@ -255,9 +256,12 @@ impl WizChatReader {
         let held = pending_broadcast(&records);
         if held > 0 {
             let head = records[records.len() - held].seq;
-            if records.last().map(|r| r.seq) == Some(got.last_seq) && head != self.held_from {
+            if records.last().map(|r| r.seq) == Some(got.last_seq)
+                && (head, held) != self.held
+                && (head != self.held.0 || held > self.held.1)
+            {
                 // 廣播可能被這一輪切開：游標停在開頭之前，下一輪連同後段一起收斂
-                self.held_from = head;
+                self.held = (head, held);
                 self.last_seq = head - 1;
                 records.truncate(records.len() - held);
             }
@@ -735,7 +739,7 @@ impl WizChatReader {
         self.buttons = None;
         self.foreign.clear();
         self.tabs_logged = None;
-        self.held_from = 0;
+        self.held = (0, 0);
     }
 
     /// 停止時呼叫：解除 hook、清掉 hookstate、關閉連線。

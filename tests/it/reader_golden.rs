@@ -6,7 +6,8 @@ use common::fake_game::{put_button, put_children, put_name, put_slot};
 use common::spy_memory::SpyMemory;
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{
-    DATA_OFF, HookRecord, MAX_CHARS, SLOTS, decode_record, group_broadcasts, read_ring,
+    DATA_OFF, HookRecord, MAX_CHARS, SLOTS, decode_record, group_broadcasts, pending_broadcast,
+    read_ring,
 };
 use wizard101_chat_translator::reader::chat_tabs::{
     CUR_TAB_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state, visible_label,
@@ -64,6 +65,16 @@ fn group_broadcasts_matches_python() {
             "{}",
             c["input"]
         );
+        // 結尾已湊滿 4 筆以上的廣播改為暫留（刻意與 Python 不同）
+        let groups = group_broadcasts(&records);
+        if groups.last().is_none_or(|(tabs, _)| tabs.len() < 4) {
+            assert_eq!(
+                pending_broadcast(&records) as u64,
+                c["output"]["pending"].as_u64().unwrap(),
+                "{}",
+                c["input"]
+            );
+        }
     }
 }
 

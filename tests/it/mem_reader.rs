@@ -821,6 +821,7 @@ fn partial_broadcast_held_one_round() {
     assert_eq!(texts(&mut r), [(vec![0], "[Amy] hi".to_owned())]);
     g.put(4, &notice, 2, BOX);
     g.put(5, &notice, 3, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
     assert_eq!(
         texts(&mut r),
         [(vec![0, 1, 2, 3], "[Server Message] maintenance".to_owned())]
@@ -840,10 +841,34 @@ fn broadcast_split_after_four_tabs_is_one_event() {
     let first = texts(&mut r);
     g.put(5, &notice, 5, BOX);
     g.put(6, &notice, 6, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
     let mut all = first;
     all.extend(texts(&mut r));
     assert_eq!(
         all,
+        [(
+            vec![0, 1, 2, 3, 5, 6],
+            "[Server Message] maintenance".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn broadcast_cut_twice_is_still_one_event() {
+    let g = Game::new();
+    let mut r = g.connected(210);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    g.put(1, &notice, 0, BOX);
+    g.put(2, &notice, 1, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    g.put(3, &notice, 2, BOX);
+    g.put(4, &notice, 3, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    g.put(5, &notice, 5, BOX);
+    g.put(6, &notice, 6, BOX);
+    assert_eq!(
+        texts(&mut r),
         [(
             vec![0, 1, 2, 3, 5, 6],
             "[Server Message] maintenance".to_owned()
