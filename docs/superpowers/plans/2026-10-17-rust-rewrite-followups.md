@@ -31,7 +31,7 @@
 - 啟動摘要改在接線時（精靈完成之後）才記；被擋下的第二份實例不再寫 startup。
 - 無邊框視窗呼叫 `remove_system_frame` 的規則照舊；設定視窗與精靈是有系統標題列的一般視窗，不適用。
 - redirection bitmap：設定視窗與精靈都用 egui 繪圖，沒有 GDI。
-- 泡泡建立的第一幀可能閃一下舊外框：沒處理，仍待實機確認。
+- 泡泡建立的第一幀可能閃一下舊外框：已由 1e63cbd 解決 —— 泡泡不再是另建的視窗，而是 overlay 根視窗本身縮成泡泡大小。
 - **鍵盤 raw input 與低階 hook**（實機驗收時錄熱鍵沒反應的根因）：winit 建立事件迴圈時會為滑鼠與鍵盤註冊 raw input。鍵盤 raw input 註冊著的時候，只要前景是我們自己的視窗，Windows 就不呼叫我們的 `WH_KEYBOARD_LL` hook。現在啟動時以 `win32::stop_raw_keyboard_input` 取消鍵盤的註冊（滑鼠保留；egui 的鍵盤事件來自一般的 `WM_KEYDOWN`，不受影響）。第 2 段「等觸發鍵放開才讓輸入框搶前景」的 `defer_for_release`，繞的是同一個原因（前景換成我們的視窗後，觸發鍵的放開不會進 hook）；它沒有害處，先保留，之後確認不需要再拿掉。
 
 - **刻意與 Python 不同**：
