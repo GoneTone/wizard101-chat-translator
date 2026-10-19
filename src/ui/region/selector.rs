@@ -1,6 +1,6 @@
 //! 框選用的全螢幕選取畫面：蓋滿遊戲所在的螢幕，顯示事先凍結的遊戲畫面，拖曳畫矩形、放開回報螢幕座標。
 //!
-//! 這裡只有狀態與 egui 內容；視窗由 App 托管。整層不透明：暗化的整顆螢幕截圖上疊暗化的遊戲畫面，
+//! 這裡只有狀態與 egui 內容；視窗由 App 托管。整層不透明：整顆螢幕截圖上疊遊戲畫面，兩者繪製時都以 `DIM_TINT` 著色變暗，
 //! 拖曳中的範圍內用原亮度的遊戲畫面聚光（只作用在遊戲畫面範圍內）。點一下沒拖動、Esc、右鍵都算取消。
 
 use std::sync::Arc;
@@ -17,8 +17,8 @@ use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, is_click};
 use crate::ui::palette::{BAR, FG_TRANSLATED, FG_UPDATE, GRIP};
 
-/// 底圖的暗化係數。
-pub const DIM_FACTOR: f32 = 0.45;
+/// 底圖與遊戲畫面的暗化著色（≈ 0.45 倍）；繪製時乘上去，不另做暗化副本。
+const DIM_TINT: Color32 = Color32::from_gray(115);
 /// 框線寬度（DIP）。
 pub const BAND_WIDTH: f32 = 2.0;
 /// 提示文字與螢幕頂端的距離（DIP）。
@@ -37,19 +37,18 @@ pub enum SelectorAction {
 
 struct Textures {
     backdrop: TextureHandle,
-    dim_frame: TextureHandle,
     frame: TextureHandle,
 }
 
 /// 選取畫面的狀態；每次框選建一個新的。
 ///
-/// 三張圖在 `new` 時就轉好，第一次 `content` 才上傳成貼圖（需要 egui Context），之後每幀沿用。
+/// 兩張圖在 `new` 時就轉好，第一次 `content` 才上傳成貼圖（需要 egui Context），之後每幀沿用。
 pub struct Selector {
     monitor: Rect,
     frame: Arc<Frame>,
     frame_pos: (i32, i32),
-    /// 待上傳的暗化 backdrop、暗化遊戲畫面、原亮度遊戲畫面；上傳後清空。
-    images: Option<[ColorImage; 3]>,
+    /// 待上傳的 backdrop 與遊戲畫面（皆原亮度）；上傳後清空。
+    images: Option<[ColorImage; 2]>,
     textures: Option<Textures>,
     /// 按下的位置（相對選取畫面左上角的 DIP）。
     start: Option<Vec2>,
@@ -62,11 +61,7 @@ impl Selector {
             frame.client_origin.0 - monitor.0,
             frame.client_origin.1 - monitor.1,
         );
-        let images = [
-            color_image(&dim(&backdrop, DIM_FACTOR)),
-            color_image(&dim(&frame.image, DIM_FACTOR)),
-            color_image(&frame.image),
-        ];
+        let images = [color_image(&backdrop), color_image(&frame.image)];
         Self {
             monitor,
             frame,
@@ -90,7 +85,7 @@ impl Selector {
     /// 還沒上傳成貼圖的 backdrop 大小（測試用）。
     #[cfg(test)]
     pub(crate) fn backdrop_size(&self) -> Option<[usize; 2]> {
-        self.images.as_ref().map(|[backdrop, _, _]| backdrop.size)
+        self.images.as_ref().map(|[backdrop, _]| backdrop.size)
     }
 
     /// 畫出選取畫面並處理滑鼠與 Esc；選取畫面要佔滿 `ui` 的範圍、與螢幕左上角對齊。
@@ -161,11 +156,7 @@ impl Selector {
         let textures = self.textures(ui.ctx());
         let [bw, bh] = textures.backdrop.size();
         let [iw, ih] = textures.frame.size();
-        let (backdrop, dim_frame, frame) = (
-            textures.backdrop.id(),
-            textures.dim_frame.id(),
-            textures.frame.id(),
-        );
+        let (backdrop, frame) = (textures.backdrop.id(), textures.frame.id());
 
         let painter = ui.painter().clone();
         painter.rect_filled(area, 0.0, Color32::BLACK);
@@ -173,13 +164,13 @@ impl Selector {
             backdrop,
             to_points((0, 0, bw as i32, bh as i32)),
             FULL_UV,
-            Color32::WHITE,
+            DIM_TINT,
         );
         painter.image(
-            dim_frame,
+            frame,
             to_points((fx, fy, iw as i32, ih as i32)),
             FULL_UV,
-            Color32::WHITE,
+            DIM_TINT,
         );
 
         let (Some(start), Some(end)) = (self.start, pointer) else {
@@ -218,11 +209,10 @@ impl Selector {
     }
 
     fn textures(&mut self, ctx: &egui::Context) -> &Textures {
-        if let Some([backdrop, dim_frame, frame]) = self.images.take() {
+        if let Some([backdrop, frame]) = self.images.take() {
             let load = |name: &str, image| ctx.load_texture(name, image, TextureOptions::NEAREST);
             self.textures = Some(Textures {
                 backdrop: load("region_backdrop", backdrop),
-                dim_frame: load("region_dim_frame", dim_frame),
                 frame: load("region_frame", frame),
             });
         }
@@ -279,15 +269,6 @@ pub fn spotlight_rect(drag: Rect, frame_pos: (i32, i32), frame_size: (i32, i32))
     let right = (drag.0 + drag.2).min(frame_pos.0 + frame_size.0);
     let bottom = (drag.1 + drag.3).min(frame_pos.1 + frame_size.1);
     (right > left && bottom > top).then_some((left, top, right - left, bottom - top))
-}
-
-/// 與 PIL `ImageEnhance.Brightness(image).enhance(factor)` 相同：每個通道以 float32 乘上係數後截尾。
-pub fn dim(image: &RgbImage, factor: f32) -> RgbImage {
-    let mut out = image.clone();
-    for channel in out.iter_mut() {
-        *channel = (f32::from(*channel) * factor) as u8;
-    }
-    out
 }
 
 #[cfg(test)]
@@ -356,8 +337,8 @@ mod tests {
         h.step();
     }
 
-    /// 這幀畫出的貼圖：（貼圖、位置、UV 範圍），依疊放順序。
-    fn images(h: &Harness<State>) -> Vec<(TextureId, egui::Rect, egui::Rect)> {
+    /// 這幀畫出的貼圖：（貼圖、位置、UV 範圍、頂點著色），依疊放順序。
+    fn images(h: &Harness<State>) -> Vec<(TextureId, egui::Rect, egui::Rect, Color32)> {
         h.output()
             .shapes
             .iter()
@@ -366,16 +347,21 @@ mod tests {
                     let uv = mesh.vertices.iter().fold(egui::Rect::NOTHING, |r, v| {
                         r.union(egui::Rect::from_pos(v.uv))
                     });
-                    Some((mesh.texture_id, mesh.calc_bounds(), uv))
+                    Some((
+                        mesh.texture_id,
+                        mesh.calc_bounds(),
+                        uv,
+                        mesh.vertices[0].color,
+                    ))
                 }
                 _ => None,
             })
             .collect()
     }
 
-    fn texture_ids(h: &Harness<State>) -> (TextureId, TextureId, TextureId) {
+    fn texture_ids(h: &Harness<State>) -> (TextureId, TextureId) {
         let t = h.state().selector.textures.as_ref().unwrap();
-        (t.backdrop.id(), t.dim_frame.id(), t.frame.id())
+        (t.backdrop.id(), t.frame.id())
     }
 
     #[test]
@@ -492,10 +478,10 @@ mod tests {
     }
 
     #[test]
-    fn backdrop_and_dimmed_frame_are_placed_in_order() {
+    fn dimmed_backdrop_and_frame_are_placed_in_order() {
         let h = harness(1.0);
         let origin = h.state().area.min;
-        let (backdrop, dim_frame, _) = texture_ids(&h);
+        let (backdrop, frame) = texture_ids(&h);
         let full = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
         assert_eq!(
             images(&h),
@@ -503,12 +489,14 @@ mod tests {
                 (
                     backdrop,
                     egui::Rect::from_min_size(origin, vec2(800.0, 600.0)),
-                    full
+                    full,
+                    DIM_TINT
                 ),
                 (
-                    dim_frame,
+                    frame,
                     egui::Rect::from_min_size(origin + vec2(100.0, 50.0), vec2(400.0, 300.0)),
-                    full
+                    full,
+                    DIM_TINT
                 ),
             ]
         );
@@ -529,11 +517,12 @@ mod tests {
     fn spotlight_shows_the_dragged_area_and_hides_on_the_next_press() {
         let mut h = harness(1.0);
         let origin = h.state().area.min;
-        let (_, _, full_frame) = texture_ids(&h);
+        let (_, full_frame) = texture_ids(&h);
         // 拖出遊戲畫面左上角外的部分不聚光
         press_and_move(&mut h, vec2(50.0, 20.0), vec2(220.0, 150.0));
         let spot = images(&h)[2];
         assert_eq!(spot.0, full_frame);
+        assert_eq!(spot.3, Color32::WHITE);
         assert_eq!(
             spot.1,
             egui::Rect::from_min_size(origin + vec2(100.0, 50.0), vec2(120.0, 100.0))
@@ -554,16 +543,6 @@ mod tests {
         let mut h = harness(1.0);
         press_and_move(&mut h, vec2(10.0, 20.0), vec2(130.0, 60.0));
         h.get_by_label("120×40");
-    }
-
-    #[test]
-    fn dim_scales_each_channel() {
-        let image = RgbImage::from_pixel(2, 1, Rgb([200, 100, 50]));
-        let out = dim(&image, DIM_FACTOR);
-        // PIL 以 float32 相乘後截尾：50 × 0.45 = 22.5 → 22，255 × 0.45 = 114.75 → 114
-        assert_eq!(out.get_pixel(1, 0), &Rgb([90, 45, 22]));
-        let white = dim(&RgbImage::from_pixel(1, 1, Rgb([255, 20, 0])), DIM_FACTOR);
-        assert_eq!(white.get_pixel(0, 0), &Rgb([114, 9, 0]));
     }
 
     #[test]
