@@ -1,6 +1,7 @@
 //! 移植 Python `keyboard` 套件（Windows）的按鍵名稱表與快捷鍵解析，讓設定裡的快捷鍵字串對到相同的 scan code。
 //!
-//! 名稱表依本機鍵盤配置在第一次查詢時建立，與 Python 版同一套 Win32 呼叫與優先順序。
+//! 名稱表依本機鍵盤配置在第一次查詢時建立，與 Python 版同一套 Win32 呼叫與優先順序；
+//! 字母、數字鍵另以虛擬鍵命名（`a`～`z`、`0`～`9`），非拉丁字母配置下熱鍵與 Ctrl+V 照樣對得到。
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::{LazyLock, Mutex};
@@ -8,10 +9,11 @@ use std::sync::{LazyLock, Mutex};
 use regex::Regex;
 use serde::Deserialize;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyNameTextW, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX, MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW,
-    MapVirtualKeyW, ToUnicode,
+    GetKeyNameTextW, GetKeyboardLayoutList, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX,
+    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VkKeyScanExW,
 };
 
+use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::util::lock;
 
@@ -48,7 +50,16 @@ struct Names {
     scan_code_to_vk: HashMap<u32, u32>,
 }
 
-static NAMES: LazyLock<Names> = LazyLock::new(setup_name_tables);
+static NAMES: LazyLock<Names> = LazyLock::new(|| {
+    // SAFETY：純查表呼叫，HKL 傳 NULL 與 Python 版相同。
+    let map_ex = |code, kind| unsafe { MapVirtualKeyExW(code, kind, std::ptr::null_mut()) };
+    let all_scan_codes = (0..0x100).map(|sc| (sc, map_ex(sc, MAPVK_VSC_TO_VK_EX)));
+    let all_vks = (0..0x100).map(|vk| (map_ex(vk, MAPVK_VK_TO_VSC_EX), vk));
+    let mut buffers = lock(&BUFFERS);
+    build_names(all_scan_codes.chain(all_vks), |sc, vk, ext, mods| {
+        buffers.event_names(sc, vk, ext, mods)
+    })
+});
 
 // `re.split(r',\s?')` 與 `re.split(r'\s?\+\s?')`；Python 的 `\s` 比 Rust 多 `\x1c`–`\x1f`。
 static STEP_SEP: LazyLock<Regex> =
@@ -87,8 +98,29 @@ pub fn normalize_name(name: &str) -> Result<String, String> {
 pub fn event_name(scan: u32, vk: u32, extended: bool, modifiers: &[&str]) -> Option<String> {
     let mods: Vec<String> = modifiers.iter().map(|m| (*m).to_string()).collect();
     let names = lock(&BUFFERS).event_names(scan, vk, u32::from(extended), &mods);
-    let first = names.first()?;
-    normalize_name(first).ok()
+    let first = names.into_iter().next()?;
+    normalize_name(&layout_independent_name(vk, first)).ok()
+}
+
+/// 字母、數字鍵的虛擬鍵名稱（`a`～`z`、`0`～`9`），其他鍵回 `None`。
+fn latin_key_name(vk: u32) -> Option<String> {
+    matches!(vk, 0x30..=0x39 | 0x41..=0x5A)
+        .then(|| char::from(vk as u8).to_ascii_lowercase().to_string())
+}
+
+/// 字母鍵打出的不是 ASCII 字母、數字鍵打出非 ASCII 字元（如西里爾字母）時改用虛擬鍵名稱。
+///
+/// 錄到的熱鍵因此換了鍵盤配置也解析得到；美式配置下字母鍵只打出 ASCII 字母，名稱不變。
+fn layout_independent_name(vk: u32, name: String) -> String {
+    let Some(latin) = latin_key_name(vk) else {
+        return name;
+    };
+    let keep = if latin.as_bytes()[0].is_ascii_alphabetic() {
+        name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic()
+    } else {
+        name.is_ascii()
+    };
+    if keep { name } else { latin }
 }
 
 /// `keyboard.get_hotkey_name(names)`：去掉左右前綴、`+` 換成 `plus`，修飾鍵依 ctrl、alt、shift、windows 排前面。
@@ -129,11 +161,7 @@ fn scan_codes(key: &str, error_if_missing: bool) -> Result<Key, String> {
         }
         return Ok(codes);
     }
-    let codes = NAMES
-        .from_name
-        .get(&normalized)
-        .cloned()
-        .unwrap_or_default();
+    let codes = NAMES.codes(&normalized, vk_on_installed_layouts);
     if codes.is_empty() && error_if_missing {
         return Err(format!(
             "Key {} is not mapped to any known key.",
@@ -172,20 +200,57 @@ pub fn scan_code_to_vk(code: Code) -> u16 {
     }
 }
 
-fn setup_name_tables() -> Names {
+impl Names {
+    /// 名稱對應的 code；對不到的單一字元交給 `vk_of` 查是哪顆字母／數字鍵。
+    ///
+    /// 舊版在非拉丁字母配置錄到的在地名稱（如 `ctrl+м`）在別的配置下才對得回原本那顆鍵。
+    fn codes(&self, name: &str, vk_of: impl Fn(char) -> Option<u32>) -> Key {
+        if let Some(codes) = self.from_name.get(name) {
+            return codes.clone();
+        }
+        let mut chars = name.chars();
+        let (Some(ch), None) = (chars.next(), chars.next()) else {
+            return Key::new();
+        };
+        let Some(latin) = vk_of(ch).and_then(latin_key_name) else {
+            return Key::new();
+        };
+        log(format!(
+            "[hotkey] key name {} is not on the current keyboard layout; matched it as {}",
+            repr_str(name),
+            repr_str(&latin)
+        ));
+        self.from_name.get(&latin).cloned().unwrap_or_default()
+    }
+}
+
+/// 使用者已載入的鍵盤配置中，打得出 `ch` 的字母／數字鍵的虛擬鍵；只查表，不切換配置。
+fn vk_on_installed_layouts(ch: char) -> Option<u32> {
+    let unit = u16::try_from(u32::from(ch)).ok()?;
+    let mut layouts = [std::ptr::null_mut(); 64];
+    // SAFETY：緩衝區長度與傳入的 nbuff 一致。
+    let count = unsafe { GetKeyboardLayoutList(layouts.len() as i32, layouts.as_mut_ptr()) };
+    layouts[..count.max(0) as usize].iter().find_map(|&hkl| {
+        // SAFETY：純查表呼叫，hkl 來自 GetKeyboardLayoutList。
+        let found = unsafe { VkKeyScanExW(unit, hkl) };
+        let vk = u32::from(found as u16 & 0xFF);
+        (found != -1 && latin_key_name(vk).is_some()).then_some(vk)
+    })
+}
+
+/// 依 `keys`（scan code、vk）與 `event_names` 建名稱表；`event_names` 參數同 [`Buffers::event_names`]。
+fn build_names(
+    keys: impl Iterator<Item = (u32, u32)>,
+    mut event_names: impl FnMut(u32, u32, u32, &[String]) -> Vec<String>,
+) -> Names {
     let modifiers = &TABLES.distinct_modifiers;
-    let mut buffers = lock(&BUFFERS);
     let mut from_name: HashMap<String, Vec<(usize, Entry)>> = HashMap::new();
     let mut scan_code_to_vk = HashMap::new();
-    // SAFETY：純查表呼叫，HKL 傳 NULL 與 Python 版相同。
-    let map_ex = |code, kind| unsafe { MapVirtualKeyExW(code, kind, std::ptr::null_mut()) };
-    let all_scan_codes = (0..0x100).map(|sc| (sc, map_ex(sc, MAPVK_VSC_TO_VK_EX)));
-    let all_vks = (0..0x100).map(|vk| (map_ex(vk, MAPVK_VK_TO_VSC_EX), vk));
-    for (scan_code, vk) in all_scan_codes.chain(all_vks) {
+    for (scan_code, vk) in keys {
         scan_code_to_vk.entry(scan_code).or_insert(vk);
         for extended in [0, 1] {
             for (m, mods) in modifiers.iter().enumerate() {
-                let names = buffers.event_names(scan_code, vk, extended, mods);
+                let names = event_names(scan_code, vk, extended, mods);
                 let lowercase: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
                 for (i, name) in names.iter().chain(&lowercase).enumerate() {
                     let name = normalize_name(name).expect("event names are non-empty");
@@ -301,9 +366,8 @@ impl Buffers {
         }
 
         // SAFETY：純查表呼叫。
-        let ch = unsafe { MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR) } & 0xFF;
-        if ch != 0 {
-            names.push(char::from(ch as u8).to_string());
+        if let Some(name) = vk_char_name(unsafe { MapVirtualKeyW(vk, MAPVK_VK_TO_CHAR) }) {
+            names.push(name);
         }
 
         if !is_keypad && let Some(name) = official {
@@ -311,6 +375,15 @@ impl Buffers {
         }
         names
     }
+}
+
+/// `MapVirtualKey(MAPVK_VK_TO_CHAR)` 的字元：取低位 word（最高位元是 dead key 旗標）。
+///
+/// Python 版取 `& 0xFF`，西里爾等字母被截成別的字元（`Р` U+0420 變空白），名稱撞到別顆鍵。
+fn vk_char_name(raw: u32) -> Option<String> {
+    char::from_u32(raw & 0xFFFF)
+        .filter(|&ch| ch != '\0')
+        .map(String::from)
 }
 
 fn until_nul(buffer: &[u16]) -> String {
@@ -386,5 +459,105 @@ mod tests {
             .filter(|name| !python.contains(*name))
             .collect();
         assert!(extra.is_empty(), "names only Rust accepts: {extra:?}");
+    }
+
+    const V: (u32, u32) = (0x2F, 0x56);
+    const H: (u32, u32) = (0x23, 0x48);
+    const SPACE: (u32, u32) = (0x39, 0x20);
+
+    /// 假的俄文配置：依序是 ToUnicode、GetKeyNameText、MAPVK_VK_TO_CHAR、官方虛擬鍵名稱。
+    fn russian_names() -> Names {
+        let names = |sc, vk| -> Vec<String> {
+            let (typed, key_name, vk_char, official) = match (sc, vk) {
+                V => ("м", "М", 0x041C, "v"),
+                H => ("р", "Р", 0x0420, "h"),
+                SPACE => (" ", "Space", 0x20, "spacebar"),
+                _ => return Vec::new(),
+            };
+            [
+                Some(typed.into()),
+                Some(key_name.into()),
+                vk_char_name(vk_char),
+                Some(official.into()),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        };
+        build_names([V, H, SPACE].into_iter(), |sc, vk, _, mods| {
+            if mods.is_empty() {
+                names(sc, vk)
+            } else {
+                Vec::new()
+            }
+        })
+    }
+
+    fn no_other_layout(_: char) -> Option<u32> {
+        None
+    }
+
+    #[test]
+    fn letter_names_resolve_to_their_virtual_key_on_a_non_latin_layout() {
+        let names = russian_names();
+        let codes = |name| names.codes(name, no_other_layout);
+        assert_eq!(codes("v"), [V.0 as Code]);
+        assert_eq!(codes("h"), [H.0 as Code]);
+        assert_eq!(
+            codes("space"),
+            [SPACE.0 as Code],
+            "no other key is named space"
+        );
+    }
+
+    #[test]
+    fn a_localized_name_saved_by_an_older_version_still_resolves() {
+        let names = russian_names();
+        assert_eq!(names.codes("м", no_other_layout), [V.0 as Code]);
+        let latin_only = build_names([V].into_iter(), |_, _, _, mods| {
+            if mods.is_empty() {
+                vec!["v".into()]
+            } else {
+                Vec::new()
+            }
+        });
+        let russian_vk = |ch| (ch == 'м').then_some(V.1);
+        assert_eq!(latin_only.codes("м", russian_vk), [V.0 as Code]);
+        assert!(latin_only.codes("м", no_other_layout).is_empty());
+        assert!(latin_only.codes("ж", russian_vk).is_empty());
+    }
+
+    #[test]
+    fn vk_char_name_keeps_the_whole_character() {
+        assert_eq!(vk_char_name(0x0420).as_deref(), Some("Р"));
+        assert_eq!(vk_char_name(0x41).as_deref(), Some("A"));
+        assert_eq!(
+            vk_char_name(0x8000_0027).as_deref(),
+            Some("'"),
+            "dead key flag"
+        );
+        assert_eq!(vk_char_name(0), None);
+    }
+
+    #[test]
+    fn recorded_letter_and_digit_names_do_not_depend_on_the_layout() {
+        for (vk, name, recorded) in [
+            (0x56, "м", "v"),
+            (0x56, "М", "v"),
+            (0x51, ";", "q"),
+            (0x32, "ě", "2"),
+            (0x41, "a", "a"),
+            (0x41, "A", "A"),
+            (0x31, "!", "!"),
+            (0x31, "&", "&"),
+            (0xBA, "ж", "ж"),
+            (0x20, "Space", "Space"),
+        ] {
+            assert_eq!(
+                layout_independent_name(vk, name.into()),
+                recorded,
+                "{vk:#x} {name:?}"
+            );
+        }
     }
 }
