@@ -1,7 +1,7 @@
 //! 翻譯入口：Translator 依用途（收訊、發話、系統訊息、框選）組提示詞、送出請求、後處理譯文。
 //!
 //! 收訊翻成使用者設定的目標語言，發話翻成 [`OUTGOING_LANGUAGE`]，來源語言一律自動判斷。
-//! `BadOutput`（譯文被截斷）在翻譯路徑重試無用、該行應跳過；只有生成範例會重試它。
+//! `BadOutput`（譯文被截斷或沒有文字）在翻譯路徑重試無用、該行應跳過；只有生成範例會重試它。
 //! 上下文由呼叫端提供；Translator 只持有一份不可變的設定快照，每次請求只讀一次，平行呼叫仍安全。
 
 use std::collections::HashSet;
@@ -30,6 +30,7 @@ use super::prompts::{
 use crate::config::ServiceSpec;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
+use crate::py::pystr;
 
 /// 測試連線用的固定原文。
 pub const TEST_SAMPLE: &str = "[Tester] Hello! How are you?";
@@ -196,6 +197,15 @@ impl Translator {
         let mut translated = client.chat(req, call.cancel).await?;
         if call.strip {
             translated = tidy_parentheses(call.source, &translated);
+        }
+        if pystr::strip(&translated).is_empty() {
+            log(format!(
+                "[translate] {} came back with no text (model={}): source={}",
+                call.kind,
+                client.model(),
+                repr_str(call.source)
+            ));
+            return Err(TranslateError::BadOutput("model returned no text".into()));
         }
         if call.keep_sender {
             let restored = restore_sender(call.source, &translated);

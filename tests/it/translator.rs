@@ -380,6 +380,20 @@ async fn region_drops_code_fences_around_the_translation() {
 }
 
 #[tokio::test]
+async fn a_blank_model_reply_is_bad_output_for_incoming_and_system_messages() {
+    for reply in [
+        "", "  
+",
+    ] {
+        let fake = Fake::texts(&[reply]);
+        let tr = make(&fake);
+        let expected = Err(TranslateError::BadOutput("model returned no text".into()));
+        assert_eq!(tr.translate_incoming("[A] hi", &[]).await, expected);
+        assert_eq!(tr.translate_system_message("hi").await, expected);
+    }
+}
+
+#[tokio::test]
 async fn region_empty_is_bad_output() {
     let fake = Fake::texts(&["```\n```"]);
     let out = make(&fake)

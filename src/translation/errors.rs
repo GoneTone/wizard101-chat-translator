@@ -11,11 +11,11 @@ use crate::py::pystr;
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslateError {
-    /// 可重試：連線失敗、逾時、429、5xx。
+    /// 可重試：連線失敗、逾時、408、409、429、5xx。
     Offline { status: Option<u16>, detail: String },
     /// 設定錯誤（4xx）：持續重試，使用者修好設定後自動恢復。
     Config { status: Option<u16>, detail: String },
-    /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷。
+    /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷，或模型沒有回任何文字。
     BadOutput(String),
     /// 請求被呼叫端取消，不是錯誤。
     Cancelled,
@@ -105,11 +105,16 @@ pub(crate) fn message_of(body: &Value) -> Option<&str> {
     body.get("message")?.as_str()
 }
 
-/// 把錯誤回應 body 整理成單行說明：JSON 取錯誤欄位，HTML 去標籤，其餘照原文。
+/// 把錯誤回應 body 整理成單行說明：JSON 取錯誤欄位（單元素陣列先拆開），HTML 去標籤，其餘照原文。
 pub fn error_detail(text: &str) -> String {
     let message = serde_json::from_str::<Value>(text)
         .ok()
-        .and_then(|body| message_of(&body).map(str::to_owned))
+        .and_then(|body| match body {
+            Value::Array(mut items) if items.len() == 1 => {
+                message_of(&items.remove(0)).map(str::to_owned)
+            }
+            body => message_of(&body).map(str::to_owned),
+        })
         .unwrap_or_else(|| HTML_TAG.replace_all(text, " ").into_owned());
     one_line(&message)
 }
@@ -122,11 +127,11 @@ pub fn rejected_parameter(detail: &str) -> Option<String> {
         .map(|m| m.as_str().to_owned())
 }
 
-/// 翻譯請求的狀態碼對應：429／5xx 可重試，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
+/// 翻譯請求的狀態碼對應：408／409／429／5xx 是暫時性錯誤，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
 pub fn status_error(status: u16, detail: &str) -> Option<TranslateError> {
     let (status, detail) = (Some(status), detail.to_owned());
     match status {
-        Some(429 | 500..) => Some(TranslateError::Offline { status, detail }),
+        Some(408 | 409 | 429 | 500..) => Some(TranslateError::Offline { status, detail }),
         Some(400..) => Some(TranslateError::Config { status, detail }),
         _ => None,
     }
