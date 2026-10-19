@@ -2,7 +2,7 @@
 
 use arboard::{Clipboard, Error};
 
-/// 讀取系統剪貼簿的文字；`Err` 是開不了剪貼簿，`Ok(None)` 是裡面沒有文字。
+/// 讀取系統剪貼簿的文字；`Err` 是讀取失敗，`Ok(None)` 是裡面沒有文字。
 pub fn get_text() -> Result<Option<String>, String> {
     match Clipboard::new().and_then(|mut clipboard| clipboard.get_text()) {
         Ok(text) => Ok(Some(text)),

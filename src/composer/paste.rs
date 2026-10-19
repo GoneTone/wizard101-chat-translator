@@ -193,7 +193,7 @@ pub fn paste_clipboard(env: &TypingEnv, hwnd: isize, delay: Duration, single_lin
         Ok(Some(text)) if !text.is_empty() => text,
         result => {
             match result {
-                Err(err) => log(format!("[composer] clipboard open failed: {err}")),
+                Err(err) => log(format!("[composer] clipboard read failed: {err}")),
                 Ok(None) => log("[composer] clipboard has no text: no CF_UNICODETEXT data"),
                 Ok(Some(_)) => {}
             }
@@ -563,7 +563,7 @@ mod tests {
             assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
         });
         assert!(
-            text.contains("[composer] clipboard open failed: error=5"),
+            text.contains("[composer] clipboard read failed: error=5"),
             "{text}"
         );
         assert!(fake.calls.lock().unwrap().is_empty());
