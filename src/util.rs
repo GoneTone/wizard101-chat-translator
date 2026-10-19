@@ -1,6 +1,7 @@
 //! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖與內容指紋。
 
 use std::any::Any;
+use std::hash::{BuildHasher, Hasher, RandomState};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -78,4 +79,10 @@ pub fn sha1_head(parts: &[&[u8]]) -> String {
         .map(|b| format!("{b:02x}"))
         .collect();
     hex[..12].to_string()
+}
+
+/// 一個隨機的 `u64`：借用標準庫每次不同種子的雜湊，只求分散與不撞，不需密碼學強度。
+pub fn random_u64() -> u64 {
+    // RandomState 每次建構都換一組 SipHash 金鑰，空輸入的雜湊即一個亂數
+    RandomState::new().build_hasher().finish()
 }

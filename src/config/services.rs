@@ -3,7 +3,6 @@
 //! 「服務」是使用者建立的一筆具名設定 —— 某家服務商加上金鑰、模型等欄位。
 
 use std::fmt;
-use std::hash::{BuildHasher, Hasher, RandomState};
 
 use serde_json::{Map, Value};
 
@@ -11,6 +10,7 @@ use super::Config;
 use super::py;
 use crate::i18n::t;
 use crate::logs::log;
+use crate::util::random_u64;
 
 /// 這一版認不得 provider 的服務搬去的頂層鍵；日後認得它的版本會自動搬回 services。
 pub const UNSUPPORTED_SERVICES: &str = "unsupported_services";
@@ -307,8 +307,7 @@ fn ids_and_names<'a>(services: &'a [Value], key: &str) -> impl Iterator<Item = &
 
 fn new_id(services: &[Value]) -> String {
     loop {
-        // RandomState 每次建構都換一組 SipHash 金鑰，空輸入的雜湊即一個亂數；id 只求不撞，不需密碼學強度
-        let candidate = format!("{:08x}", RandomState::new().build_hasher().finish() as u32);
+        let candidate = format!("{:08x}", random_u64() as u32);
         if !ids_and_names(services, "id").any(|id| id == candidate) {
             return candidate;
         }

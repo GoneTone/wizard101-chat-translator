@@ -17,10 +17,12 @@ pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
 use super::errors::{TranslateError, one_line};
+use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
+use crate::py::pystr;
 
 /// 請求逾時：連線與每次讀取各自計時，串流不受總長度限制。
 pub const TIMEOUT: Duration = Duration::from_secs(60);
@@ -57,9 +59,6 @@ pub trait ChatBackend: Send + Sync {
         req: ChatRequest<'a>,
         cancel: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<String, TranslateError>>;
-
-    /// 列出端點的模型 ID（排序後）。
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>, TranslateError>>;
 
     /// 目前使用的模型 ID（診斷 log 用）。
     fn model(&self) -> &str;
@@ -112,10 +111,6 @@ impl ChatBackend for Client {
         cancel: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<String, TranslateError>> {
         Box::pin(Client::chat(self, req, cancel))
-    }
-
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>, TranslateError>> {
-        Box::pin(Client::list_models(self))
     }
 
     fn model(&self) -> &str {
@@ -179,6 +174,32 @@ pub(crate) fn truncated(
 /// 在網址後加上一個編碼過的查詢參數（翻頁游標）。
 pub(crate) fn with_query(url: &str, name: &str, value: &str) -> reqwest::Url {
     reqwest::Url::parse_with_params(url, &[(name, value)]).expect("valid endpoint URL")
+}
+
+/// 解析成 JSON 物件；其他形狀（含非 JSON）回 `Unexpected`，`what` 是被解析的東西，供訊息辨認。
+pub(crate) fn parse_object(text: &str, what: &str) -> Result<Value, TranslateError> {
+    serde_json::from_str(text)
+        .ok()
+        .filter(Value::is_object)
+        .ok_or_else(|| {
+            TranslateError::Unexpected(format!(
+                "{what} is not a JSON object: {}",
+                repr_str(&sample_of(text))
+            ))
+        })
+}
+
+/// 模型原始輸出 → 最終譯文：去掉思考區塊與頭尾空白。
+pub(crate) fn finish_text(raw: &str) -> String {
+    pystr::strip(&strip_think(raw)).to_owned()
+}
+
+/// 一次串流讀完的結果（OpenAI／Gemini 共用）。
+#[derive(Default)]
+pub(crate) struct Streamed {
+    pub content: String,
+    pub finish_reason: Option<String>,
+    pub usage: Option<Value>,
 }
 
 /// 診斷用樣本：開頭 [`TRUNCATED_SAMPLE_CHARS`] 個字元，足以看出是不是同一個字重複。

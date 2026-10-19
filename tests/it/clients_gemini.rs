@@ -276,6 +276,36 @@ async fn gemini_retry_behavior_matches_sdk() {
 }
 
 #[tokio::test]
+async fn gemini_html_error_page_is_stripped_to_text() {
+    let server = MockServer::start().await;
+    let page = ResponseTemplate::new(502).set_body_string(
+        "<html><body><h1>502 Bad Gateway</h1><center>nginx</center></body></html>",
+    );
+    mount_stream(&server, page).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Offline {
+            status: Some(502),
+            detail: "502 Bad Gateway nginx".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn gemini_unwraps_a_single_element_error_array() {
+    let server = MockServer::start().await;
+    let body = json!([{"error": {"code": 400, "message": "API key not valid"}}]);
+    mount_stream(&server, ResponseTemplate::new(400).set_body_json(body)).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Config {
+            status: Some(400),
+            detail: "API key not valid".into()
+        })
+    );
+}
+
+#[tokio::test]
 async fn gemini_error_mapping() {
     let server = MockServer::start().await;
     mount_stream(&server, error_body(400, "API key not valid")).await;

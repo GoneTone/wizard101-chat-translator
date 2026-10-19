@@ -259,7 +259,7 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
     let server = MockServer::start().await;
     mount_messages(
         &server,
-        error_body(429, "slow down").insert_header("retry-after-ms", "3600000"),
+        error_body(429, "slow down").insert_header("retry-after-ms", "30000"),
     )
     .await;
     let c = ClaudeClient::new("k", "claude-backoff-marker", "auto", &server.uri());
@@ -267,15 +267,15 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
     let canceller = token.clone();
     // 重試 log 一印出就進入退避等待：看到它才取消，不靠固定延遲猜請求何時送達
     tokio::spawn(async move {
-        let line = "model=claude-backoff-marker); retry 1/2 in 3600.00s";
+        let line = "model=claude-backoff-marker); retry 1/2 in 30.00s";
         while !log_text().contains(line) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         canceller.cancel();
     });
-    // 退避長達一小時，取消沒打斷等待就必定逾時
+    // 退避長達 30 秒，取消沒打斷等待就必定逾時
     let result = tokio::time::timeout(
-        Duration::from_secs(60),
+        Duration::from_secs(20),
         c.chat(request(&[Turn::user("hi")]), Some(&token)),
     )
     .await;
@@ -301,8 +301,8 @@ async fn claude_retry_recovers_when_a_later_attempt_succeeds() {
 async fn claude_retry_conditions_follow_the_sdk() {
     let cases = [
         // (status, x-should-retry, expected attempts, expected error)
-        (408, None, 3, "config"),
-        (409, None, 3, "config"),
+        (408, None, 3, "offline"),
+        (409, None, 3, "offline"),
         (500, None, 3, "offline"),
         (529, None, 3, "offline"),
         (400, None, 1, "config"),
@@ -334,7 +334,10 @@ async fn claude_retries_connection_failures_then_offline() {
     let (url, accepted) = stream_server::dropping_server().await;
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
-    assert_eq!(error, TranslateError::offline("Connection error."));
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        "{error:?}"
+    );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
 }
 
@@ -342,9 +345,10 @@ async fn claude_retries_connection_failures_then_offline() {
 async fn claude_list_models_connection_error_maps_to_offline() {
     let (url, accepted) = stream_server::dropping_server().await;
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
-    assert_eq!(
-        c.list_models().await,
-        Err(TranslateError::offline("Connection error."))
+    let error = c.list_models().await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        "{error:?}"
     );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
 }
@@ -433,14 +437,30 @@ async fn claude_status_error_carries_api_message() {
 }
 
 #[tokio::test]
-async fn claude_error_without_message_falls_back_to_sdk_wording() {
+async fn claude_error_without_message_has_empty_detail() {
     let server = MockServer::start().await;
     mount_messages(&server, ResponseTemplate::new(403)).await;
     assert_eq!(
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Config {
             status: Some(403),
-            detail: "Error code: 403".into()
+            detail: String::new()
+        })
+    );
+}
+
+#[tokio::test]
+async fn claude_html_error_page_is_stripped_to_text() {
+    let server = MockServer::start().await;
+    let page = ResponseTemplate::new(502)
+        .set_body_string("<html><body><h1>502 Bad Gateway</h1><center>nginx</center></body></html>")
+        .insert_header("retry-after-ms", "1");
+    mount_messages(&server, page).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Offline {
+            status: Some(502),
+            detail: "502 Bad Gateway nginx".into()
         })
     );
 }
@@ -474,6 +494,51 @@ async fn claude_empty_key_is_unexpected_and_never_sent() {
         c.list_models().await,
         Err(TranslateError::Unexpected(_))
     ));
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn claude_models_later_page_errors_are_classified() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .and(wiremock::matchers::query_param("after_id", "a"))
+        .respond_with(error_body(401, "nope"))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [{"id": "a", "type": "model"}],
+            "has_more": true, "first_id": "a", "last_id": "a"})))
+        .mount(&server)
+        .await;
+    assert_eq!(
+        client(&server, "auto").list_models().await,
+        Err(TranslateError::Config {
+            status: Some(401),
+            detail: "nope".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn claude_key_with_invalid_header_characters_is_a_key_error() {
+    let server = MockServer::start().await;
+    mount_messages(&server, ok_stream("x")).await;
+    let c = ClaudeClient::new(
+        "sk-bad
+key",
+        "claude-x",
+        "auto",
+        &server.uri(),
+    );
+    let expected = Err(TranslateError::Config {
+        status: Some(401),
+        detail: String::new(),
+    });
+    assert_eq!(chat(&c).await, expected);
+    assert_eq!(c.list_models().await, expected.map(|_: String| vec![]));
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 

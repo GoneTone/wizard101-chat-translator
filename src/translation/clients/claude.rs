@@ -1,6 +1,5 @@
 //! Claude 官方 API：串流的 `/v1/messages`（結構化輸出）與 `/v1/models`；請求內容與重試策略照 anthropic SDK。
 
-use std::hash::{BuildHasher, RandomState};
 use std::ops::ControlFlow;
 use std::time::Duration;
 
@@ -10,17 +9,17 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, http_client,
-    sample_of, secret_header, status_failure, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, finish_text,
+    http_client, parse_object, sample_of, secret_header, status_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::{pyrepr::repr_str, pystr};
 use crate::translation::Turn;
 use crate::translation::errors::{
-    TranslateError, message_of, model_list_error, one_line, status_error,
+    TranslateError, error_detail, model_list_error, one_line, status_error,
 };
-use crate::translation::postprocess::strip_think;
+use crate::util::random_u64;
 
 /// Claude 官方端點。
 pub const CLAUDE_BASE_URL: &str = "https://api.anthropic.com";
@@ -29,12 +28,8 @@ const API_VERSION: &str = "2023-06-01";
 const MAX_RETRIES: u32 = 2;
 const INITIAL_RETRY_DELAY: f64 = 0.5;
 const MAX_RETRY_DELAY: f64 = 8.0;
-// SDK 以 time.sleep 等待，Windows 上限約 2**32 毫秒
-const MAX_RETRY_AFTER: f64 = 4_294_967.0;
-const CONNECTION_ERROR: &str = "Connection error.";
-const TIMEOUT_ERROR: &str = "Request timed out or interrupted. This could be due to a network \
-    timeout, dropped connection, or request cancellation. See \
-    https://docs.anthropic.com/en/api/errors#long-requests for more details.";
+// 伺服器要求等更久就不理它，改走指數退避，交給池子的退避重試
+const MAX_RETRY_AFTER: f64 = 60.0;
 const NO_AUTH: &str = "Could not resolve authentication method. Expected one of api_key, \
     auth_token, or credentials to be set.";
 
@@ -63,6 +58,8 @@ pub struct ClaudeClient {
     http: reqwest::Client,
     base_url: String,
     api_key: Option<HeaderValue>,
+    /// 金鑰非空卻含 HTTP 標頭不允許的字元。
+    key_malformed: bool,
     model: String,
     effort: String,
 }
@@ -78,6 +75,7 @@ impl ClaudeClient {
             base_url: endpoint.trim_end_matches('/').to_owned(),
             // SDK 遇到空金鑰在送出前就拋錯，含非法字元的金鑰也送不出去
             api_key: secret_header(api_key).filter(|_| !api_key.is_empty()),
+            key_malformed: !api_key.is_empty() && secret_header(api_key).is_none(),
             model: model.to_owned(),
             effort: effort.to_owned(),
         }
@@ -126,7 +124,7 @@ impl ClaudeClient {
         let status = resp.status().as_u16();
         if !resp.status().is_success() {
             let text = resp.text().await.map_err(connection_error)?;
-            return Err(status_failure(status, detail(status, &text), status_error));
+            return Err(status_failure(status, error_detail(&text), status_error));
         }
         let message = read_message(resp).await?;
         let stop_reason = message.stop_reason.as_deref().unwrap_or("None");
@@ -166,7 +164,7 @@ impl ClaudeClient {
         let text = translation.as_str().ok_or_else(|| {
             TranslateError::Unexpected(format!("translation is not a string: {translation}"))
         })?;
-        Ok(pystr::strip(&strip_think(text)).to_owned())
+        Ok(finish_text(text))
     }
 
     /// 列出模型 ID（排序後），依 `has_more`／`last_id` 自動翻頁。
@@ -175,12 +173,7 @@ impl ClaudeClient {
         let mut ids = Vec::new();
         let mut after_id: Option<String> = None;
         loop {
-            let page = self.models_page(&url, after_id.as_deref()).await;
-            // Python 只在取第一頁時分類錯誤，後續頁在迭代中拋出的例外未分類
-            let page = match (page, &after_id) {
-                (Err(error), Some(_)) => return Err(TranslateError::Unexpected(error.to_string())),
-                (page, _) => page?,
-            };
+            let page = self.models_page(&url, after_id.as_deref()).await?;
             let data = page.get("data").and_then(Value::as_array);
             ids.extend(
                 data.into_iter()
@@ -216,16 +209,11 @@ impl ClaudeClient {
         if !(200..300).contains(&status) {
             return Err(status_failure(
                 status,
-                detail(status, &text),
+                error_detail(&text),
                 model_list_error,
             ));
         }
-        serde_json::from_str::<Value>(&text)
-            .ok()
-            .filter(Value::is_object)
-            .ok_or_else(|| {
-                TranslateError::Unexpected("models response is not a JSON object".into())
-            })
+        parse_object(&text, "models response")
     }
 
     /// 帶金鑰送出請求並照 SDK 預設重試：連線失敗與 [`should_retry`] 的狀態碼最多重試兩次。
@@ -234,10 +222,16 @@ impl ClaudeClient {
         &self,
         request: impl Fn() -> reqwest::RequestBuilder,
     ) -> Result<reqwest::Response, TranslateError> {
-        let key = self
-            .api_key
-            .clone()
-            .ok_or_else(|| TranslateError::Unexpected(NO_AUTH.into()))?;
+        let Some(key) = self.api_key.clone() else {
+            if self.key_malformed {
+                log("[translate] claude api key has characters invalid in an HTTP header");
+                return Err(TranslateError::Config {
+                    status: Some(401),
+                    detail: String::new(),
+                });
+            }
+            return Err(TranslateError::Unexpected(NO_AUTH.into()));
+        };
         let mut retries_taken = 0;
         loop {
             let (reason, delay) = match request().header("x-api-key", key.clone()).send().await {
@@ -253,19 +247,14 @@ impl ClaudeClient {
                     (format!("HTTP {status}"), delay)
                 }
                 Err(error) => {
-                    let timed_out = error.is_timeout();
-                    let reason = connection_error(error).to_string();
                     if retries_taken == MAX_RETRIES {
-                        // detail 沿用 SDK 的固定訊息，實際原因只進 log
+                        let error = connection_error(error);
                         log(format!(
-                            "[translate] claude connection failed after retries: {reason}"
+                            "[translate] claude connection failed after retries: {error}"
                         ));
-                        return Err(TranslateError::offline(if timed_out {
-                            TIMEOUT_ERROR
-                        } else {
-                            CONNECTION_ERROR
-                        }));
+                        return Err(error);
                     }
+                    let reason = connection_error(error).to_string();
                     let delay = retry_delay(retries_taken, &HeaderMap::new(), random_unit());
                     (reason, delay)
                 }
@@ -280,19 +269,6 @@ impl ClaudeClient {
             tokio::time::sleep(delay).await;
         }
     }
-}
-
-/// 錯誤回應的說明：`error.message`，取不到時退回 SDK 自己組的 `Error code: …` 訊息。
-fn detail(status: u16, text: &str) -> String {
-    let text = pystr::strip(text);
-    let message = match serde_json::from_str::<Value>(text) {
-        Ok(body) => message_of(&body)
-            .map(str::to_owned)
-            .unwrap_or_else(|| format!("Error code: {status} - {text}")),
-        Err(_) if text.is_empty() => format!("Error code: {status}"),
-        Err(_) => text.to_owned(),
-    };
-    one_line(&message)
 }
 
 /// SDK 的重試判定：`x-should-retry` 優先，其次 408／409／429／5xx。
@@ -320,28 +296,23 @@ fn retry_after(headers: &HeaderMap) -> Option<f64> {
 
 /// 第 `retries_taken` 次失敗後的等待：照伺服器要求，否則 0.5 秒起指數退避（上限 8 秒）乘上 0.75–1 的抖動。
 fn retry_delay(retries_taken: u32, headers: &HeaderMap, unit: f64) -> Duration {
-    if let Some(seconds) = retry_after(headers).filter(|s| *s > 0.0) {
-        return Duration::from_secs_f64(seconds.min(MAX_RETRY_AFTER));
+    if let Some(seconds) = retry_after(headers).filter(|s| *s > 0.0 && *s <= MAX_RETRY_AFTER) {
+        return Duration::from_secs_f64(seconds);
     }
     let backoff = (INITIAL_RETRY_DELAY * 2f64.powi(retries_taken as i32)).min(MAX_RETRY_DELAY);
     Duration::from_secs_f64((backoff * (1.0 - 0.25 * unit)).max(0.0))
 }
 
-/// `[0, 1)` 的亂數；抖動只求分散，借用標準庫每次不同種子的雜湊即可。
+/// `[0, 1)` 的亂數，給重試抖動用。
 fn random_unit() -> f64 {
-    (RandomState::new().hash_one(0u8) >> 11) as f64 / (1u64 << 53) as f64
+    (random_u64() >> 11) as f64 / (1u64 << 53) as f64
 }
 
 /// 讀完 Messages 串流並累積成完整訊息。`error` 事件與格式異常都對應 Python 未分類的例外。
 async fn read_message(resp: reqwest::Response) -> Result<Message, TranslateError> {
     let mut message = Message::default();
     for_each_data(resp, |data| {
-        let event: Value = serde_json::from_str(data)
-            .ok()
-            .filter(Value::is_object)
-            .ok_or_else(|| {
-                TranslateError::Unexpected(format!("malformed stream event: {data:?}"))
-            })?;
+        let event = parse_object(data, "stream event")?;
         accumulate(&mut message, &event)?;
         Ok(ControlFlow::Continue(()))
     })
@@ -450,15 +421,14 @@ mod tests {
             delay(&[("retry-after-ms", "150"), ("retry-after", "5")]),
             Duration::from_millis(150)
         );
-        assert_eq!(
-            delay(&[("retry-after", "99999999")]),
-            Duration::from_secs_f64(MAX_RETRY_AFTER)
-        );
+        assert_eq!(delay(&[("retry-after", "60")]), Duration::from_secs(60));
         // 非正數或認不出的值退回指數退避；retry-after-ms 解析成功就不再看 retry-after
         for pairs in [
             &[("retry-after", "0")][..],
             &[("retry-after", "-1")],
             &[("retry-after", "soon")],
+            &[("retry-after", "61")],
+            &[("retry-after-ms", "99999999")],
             &[("retry-after-ms", "0"), ("retry-after", "5")],
         ] {
             assert_eq!(delay(pairs), Duration::from_millis(500), "{pairs:?}");
