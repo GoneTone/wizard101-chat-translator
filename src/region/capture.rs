@@ -24,7 +24,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 
 use crate::logs::log;
-use crate::reader::process::{client_size, client_to_screen};
+use crate::reader::process::{client_size, client_to_screen, is_minimized};
 use crate::ui::geometry::Rect;
 
 /// 等 WGC 第一張影格的上限。
@@ -98,7 +98,8 @@ pub fn crop_frame(frame: &Frame, screen_rect: Rect) -> Result<Vec<u8>, CaptureEr
 
 /// 把遊戲視窗 hwnd 的整個 client 區用 WGC 拍成一張 `Frame`；任一層失敗都變成 `CaptureError`。
 pub fn capture_window(hwnd: isize) -> Result<Frame, CaptureError> {
-    // 幾何先取：視窗已消失時在這裡就失敗，不會啟動 WGC。
+    // 最小化或視窗已消失都在啟動 WGC 之前失敗。
+    reject_minimized(hwnd, is_minimized(hwnd))?;
     let client = client_geometry(hwnd)?;
     capture_window_with(hwnd, grab_window, client)
 }
@@ -158,6 +159,16 @@ pub fn capture_screen(monitor: Rect) -> RgbImage {
         ));
         RgbImage::new(monitor.2.max(0) as u32, monitor.3.max(0) as u32)
     })
+}
+
+/// 最小化的視窗 WGC 不會送影格，直接回錯誤，不空等 `FRAME_TIMEOUT`。
+fn reject_minimized(hwnd: isize, minimized: bool) -> Result<(), CaptureError> {
+    if minimized {
+        return Err(CaptureError::Failed(format!(
+            "capture failed (hwnd={hwnd:#x}): game window is minimized"
+        )));
+    }
+    Ok(())
 }
 
 fn client_geometry(hwnd: isize) -> Result<ClientGeometry, CaptureError> {
@@ -376,6 +387,17 @@ mod tests {
         assert_eq!(
             rgba_to_rgb(3, 2, vec![0; 5]),
             Err("buffer does not match 3x2".to_string())
+        );
+    }
+
+    #[test]
+    fn a_minimized_game_fails_immediately() {
+        assert_eq!(reject_minimized(0x1, false), Ok(()));
+        assert_eq!(
+            reject_minimized(0x1, true),
+            Err(CaptureError::Failed(
+                "capture failed (hwnd=0x1): game window is minimized".into()
+            ))
         );
     }
 

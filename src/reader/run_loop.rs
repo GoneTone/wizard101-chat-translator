@@ -20,7 +20,7 @@ use crate::translation::cache::TranslationCache;
 use crate::translation::context::ClientContexts;
 use crate::translation::pool::TranslationPool;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::util::Clock;
+use crate::util::{Clock, read};
 
 /// 收訊間隔：每輪只讀 hook 環形緩衝的計數器，很便宜。
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -30,6 +30,8 @@ pub const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 pub const TAB_POLL_INTERVAL: Duration = Duration::from_millis(400);
 /// 找不到遊戲時的重試間隔。
 pub const GAME_MISSING_INTERVAL: Duration = Duration::from_secs(5);
+/// 掛入點與遊戲版本對不上時的重試間隔：重試也不會自己好起來，不必每 5 秒重掃一次。
+pub const VERSION_MISMATCH_INTERVAL: Duration = Duration::from_secs(60);
 /// 長時間等待切成這麼長的片段，停止時最多延遲一段才醒來。
 const WAIT_SLICE: Duration = Duration::from_millis(50);
 
@@ -150,20 +152,9 @@ impl Default for LoopEnv {
 
 /// 一個遊戲客戶端（`hwnd`）的收訊執行緒進入點；stop 被設定或該視窗消失後解除 hook 再返回。
 ///
-/// `slot`＝這個客戶端的顯示編號；`reader` 由呼叫端建好（含 messages.log）。
+/// `slot`＝這個客戶端的顯示編號；`reader` 由呼叫端建好（含 messages.log），外界依賴由 `env` 提供。
 /// 結束時（含 panic）一定收回編號並 `close` reader。
 pub fn reader_loop<R: ChatSource>(
-    shared: Arc<ReaderShared>,
-    hwnd: isize,
-    slot: u32,
-    reader: R,
-    contexts: Arc<ClientContexts>,
-) {
-    reader_loop_with(LoopEnv::default(), shared, hwnd, slot, reader, contexts);
-}
-
-/// 同 [`reader_loop`]，外界依賴由 `env` 提供。
-pub fn reader_loop_with<R: ChatSource>(
     env: LoopEnv,
     shared: Arc<ReaderShared>,
     hwnd: isize,
@@ -249,17 +240,9 @@ impl<R: ChatSource> ClientLoop<R> {
     fn read(&mut self) -> Option<Vec<ChatEvent>> {
         let slot = self.slot;
         // 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
-        let emit = py::truthy(
-            self.s
-                .settings
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .get("translate_system_messages"),
-        );
+        let emit = py::truthy(read(&self.s.settings).get("translate_system_messages"));
         self.reader.set_emit_system(emit);
-        self.s
-            .board
-            .report(slot, self.listening_status(), self.game_issue);
+        self.report_activity();
         match self.reader.read_new() {
             Ok(events) => {
                 if self.game_issue.take().is_some() {
@@ -268,12 +251,25 @@ impl<R: ChatSource> ClientLoop<R> {
                 Some(events)
             }
             Err(err) => {
-                let (status, issue) = match err {
-                    GameNotRunning::AccessDenied(_) => ("access_denied", "notice.access_denied"),
-                    GameNotRunning::VersionMismatch(_) => {
-                        ("version_mismatch", "notice.version_mismatch")
+                let (status, issue, retry_in) = match err {
+                    GameNotRunning::AccessDenied(_) => (
+                        "access_denied",
+                        "notice.access_denied",
+                        GAME_MISSING_INTERVAL,
+                    ),
+                    GameNotRunning::VersionMismatch(_) => (
+                        "version_mismatch",
+                        "notice.version_mismatch",
+                        VERSION_MISMATCH_INTERVAL,
+                    ),
+                    GameNotRunning::HookNotFiring(_) => (
+                        "version_mismatch",
+                        "notice.version_mismatch",
+                        GAME_MISSING_INTERVAL,
+                    ),
+                    GameNotRunning::Missing(_) => {
+                        ("waiting_game", "notice.game_missing", GAME_MISSING_INTERVAL)
                     }
-                    GameNotRunning::Missing(_) => ("waiting_game", "notice.game_missing"),
                 };
                 // 只在原因改變時記錄，否則每輪重試都灌一行
                 if self.game_issue != Some(issue) {
@@ -286,7 +282,7 @@ impl<R: ChatSource> ClientLoop<R> {
                 self.s.board.report(slot, status, self.game_issue);
                 self.force_input_closed();
                 self.report_tabs(None);
-                wait(&self.env.clock, &self.s.stop, GAME_MISSING_INTERVAL);
+                self.wait_for_retry(retry_in);
                 None
             }
         }
@@ -380,7 +376,7 @@ impl<R: ChatSource> ClientLoop<R> {
             let rect = self.reader.input_box_screen_rect();
             let anchor = match rect {
                 Some((x, y, w, h)) => format!("({x}, {y}, {w}, {h})"),
-                None => "None".to_owned(),
+                None => "unavailable".to_owned(),
             };
             log(format!(
                 "[reader] game chat input opened (slot={}, hwnd={:#x}, anchor={anchor})",
@@ -411,6 +407,18 @@ impl<R: ChatSource> ClientLoop<R> {
         self.s.ui.post(UiEvent::GameInputClosed { hwnd: self.hwnd });
     }
 
+    /// 等重試間隔；停止或遊戲視窗消失時提早返回，免得長間隔佔住 slot。
+    fn wait_for_retry(&mut self, duration: Duration) {
+        let deadline = (self.env.clock.now)() + duration;
+        while !self.s.stop.is_cancelled() && (self.env.window_exists)(self.hwnd) {
+            let remaining = deadline.saturating_duration_since((self.env.clock.now)());
+            if remaining.is_zero() {
+                return;
+            }
+            (self.env.clock.sleep)(remaining.min(WAIT_SLICE));
+        }
+    }
+
     /// 等待下一輪讀取，期間以 `INPUT_POLL_INTERVAL` 持續取樣輸入框狀態。
     ///
     /// 不另開執行緒：reader 不支援跨執行緒併發呼叫。
@@ -421,11 +429,7 @@ impl<R: ChatSource> ClientLoop<R> {
             if remaining.is_zero() {
                 return;
             }
-            wait(
-                &self.env.clock,
-                &self.s.stop,
-                remaining.min(INPUT_POLL_INTERVAL),
-            );
+            (self.env.clock.sleep)(remaining.min(INPUT_POLL_INTERVAL));
             self.poll_input();
         }
     }

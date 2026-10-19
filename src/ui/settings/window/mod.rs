@@ -6,20 +6,20 @@ mod about;
 mod advanced;
 mod basic;
 
-use eframe::egui::style::ScrollStyle;
 use eframe::egui::{
-    Align, Align2, Color32, CornerRadius, FontId, Frame, Id, Label, Layout, Margin, Rect, RichText,
-    Role, ScrollArea, Sense, Stroke, Ui, UiBuilder, WidgetInfo, pos2, vec2,
+    Align, Align2, FontId, Frame, Id, Label, Layout, Margin, Rect, RichText, Role, Sense, Stroke,
+    Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
-use super::hotkeys::{HotkeyEditor, HotkeyKind};
+use super::hotkeys::HotkeyEditor;
 use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
 use super::widgets::{
-    callout, focus_ring, primary_button, right_aligned, right_aligned_width, secondary_button,
+    callout, focus_ring, primary_button, right_aligned, right_aligned_width, scroll_page,
+    secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
 use crate::config::services::{ServiceSlot, find, validate_service};
@@ -28,7 +28,6 @@ use crate::i18n::{current_language, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
-use crate::ui::overlay::scrollbar;
 
 /// 設定視窗的分頁，依側欄順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -95,8 +94,6 @@ pub struct SettingsWindow {
     errors: Vec<String>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
-    /// 下一幀要呼叫 `env.cancel_recording()`（收下錄製結果或換頁時手上沒有 env）。
-    release_recorder: bool,
 }
 
 impl SettingsWindow {
@@ -112,10 +109,7 @@ impl SettingsWindow {
             language_at_open: current_language(),
             alpha_at_open: alpha,
             target_language: text_setting(cfg, "target_language"),
-            hotkeys: HotkeyEditor::new(
-                &text_setting(cfg, HotkeyKind::Input.config_key()),
-                &text_setting(cfg, HotkeyKind::Region.config_key()),
-            ),
+            hotkeys: HotkeyEditor::from_config(cfg),
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
@@ -130,7 +124,6 @@ impl SettingsWindow {
             errors: Vec::new(),
             about: about::AboutState::default(),
             pending: Vec::new(),
-            release_recorder: false,
         }
     }
 
@@ -141,20 +134,14 @@ impl SettingsWindow {
     /// 切到 `page`；正在錄熱鍵就放棄錄製。
     pub fn set_page(&mut self, page: Page) {
         if page != self.page {
-            self.release_recorder |= self.hotkeys.stop();
+            self.hotkeys.stop();
             self.page = page;
         }
     }
 
     fn switch_page(&mut self, page: Page, env: &dyn SettingsEnv) {
         self.set_page(page);
-        self.release_recorder(env);
-    }
-
-    fn release_recorder(&mut self, env: &dyn SettingsEnv) {
-        if std::mem::take(&mut self.release_recorder) {
-            env.cancel_recording();
-        }
+        self.hotkeys.release(env);
     }
 
     /// 背景工作的結果：測試連線與模型清單轉給服務分頁，其餘由視窗自己收。
@@ -165,14 +152,14 @@ impl SettingsWindow {
             }
             SettingsEvent::UpdateChecked { round, result } => self.apply_update(*round, result),
             SettingsEvent::HotkeyRecorded { .. } => {
-                self.release_recorder |= self.hotkeys.apply(event);
+                self.hotkeys.apply(event);
             }
         }
     }
 
     /// 畫整個視窗內容；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
-        self.release_recorder(env);
+        self.hotkeys.release(env);
         let full = ui.available_rect_before_wrap();
         let (side, content) = full.split_left_right_at_x(full.left() + theme::SIDEBAR_WIDTH);
         ui.painter().rect_filled(side, 0, theme::SIDEBAR_BG);
@@ -190,8 +177,8 @@ impl SettingsWindow {
 
     /// 取消（〔取消〕、視窗 ✕ 或 Alt+F4）：停掉錄製，還原預覽中的透明度與介面語言，最後送 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         let mut actions = std::mem::take(&mut self.pending);
         if self.advanced.overlay_alpha != self.alpha_at_open {
             self.advanced.overlay_alpha = self.alpha_at_open;
@@ -224,14 +211,9 @@ impl SettingsWindow {
         }
         self.services.draft().write_into(&mut cfg);
         let target = pystr::strip(&self.target_language);
-        let (input, region) = (
-            self.hotkeys.value(HotkeyKind::Input),
-            self.hotkeys.value(HotkeyKind::Region),
-        );
+        self.hotkeys.write_into(&mut cfg);
         let values = [
             ("target_language", Value::from(target)),
-            (HotkeyKind::Input.config_key(), input.into()),
-            (HotkeyKind::Region.config_key(), region.into()),
             ("auto_show_input", self.auto_show_input.into()),
             ("paste_hotkey", self.paste_hotkey.into()),
             ("translate_system_messages", self.translate_system.into()),
@@ -240,7 +222,7 @@ impl SettingsWindow {
             cfg.insert(key.into(), value);
         }
         let mut errors = service_errors(&cfg);
-        if input == region {
+        if self.hotkeys.conflict() {
             errors.push("error.hotkeys_same".into());
         }
         if target.is_empty() {
@@ -261,8 +243,8 @@ impl SettingsWindow {
             self.errors = errors;
             return;
         }
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         self.pending.push(SettingsAction::Save(cfg));
     }
 
@@ -364,38 +346,22 @@ impl SettingsWindow {
 
     /// 目前分頁：頁標題加內容，各頁各自記住捲動位置。
     fn page_ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
-        let style = ui.style().clone();
-        thin_scrollbar(ui);
-        let (top, right, bottom, left) = theme::CONTENT_MARGIN;
-        let margin = Margin {
-            left: left as i8,
-            right: right as i8,
-            top: top as i8,
-            bottom: bottom as i8,
-        };
-        ScrollArea::vertical()
-            .id_salt(("settings_page", self.page))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_style(style);
-                Frame::new().inner_margin(margin).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
-                    let title = RichText::new(t(self.page.title_key(), &[]))
-                        .font(theme::bold(theme::TITLE_SIZE));
-                    ui.add(Label::new(title));
-                    ui.add_space(6.0);
-                    match self.page {
-                        Page::Basic => self.basic_page(ui, env),
-                        Page::Services => {
-                            let target = pystr::strip(&self.target_language).to_owned();
-                            self.services.ui(ui, env, &target);
-                        }
-                        Page::Advanced => self.advanced_page(ui),
-                        Page::About => self.about_page(ui, env),
-                    }
-                });
-            });
+        let salt = ("settings_page", self.page);
+        scroll_page(ui, salt, theme::CONTENT_MARGIN, theme::CARD_GAP, |ui| {
+            let title =
+                RichText::new(t(self.page.title_key(), &[])).font(theme::bold(theme::TITLE_SIZE));
+            ui.add(Label::new(title));
+            ui.add_space(6.0);
+            match self.page {
+                Page::Basic => self.basic_page(ui, env),
+                Page::Services => {
+                    let target = pystr::strip(&self.target_language).to_owned();
+                    self.services.ui(ui, env, &target);
+                }
+                Page::Advanced => self.advanced_page(ui),
+                Page::About => self.about_page(ui, env),
+            }
+        });
     }
 }
 
@@ -423,29 +389,6 @@ fn service_errors(cfg: &Config) -> Vec<String> {
         }
     }
     errors
-}
-
-/// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
-pub(super) fn thin_scrollbar(ui: &mut Ui) {
-    let style = ui.style_mut();
-    style.spacing.scroll = ScrollStyle {
-        bar_width: scrollbar::WIDTH,
-        handle_min_length: scrollbar::MIN_THUMB as f32,
-        bar_inner_margin: 2.0,
-        bar_outer_margin: 2.0,
-        ..ScrollStyle::solid()
-    };
-    let visuals = &mut style.visuals;
-    visuals.extreme_bg_color = Color32::TRANSPARENT;
-    let widgets = &mut visuals.widgets;
-    for (state, color) in [
-        (&mut widgets.inactive, scrollbar::THUMB),
-        (&mut widgets.hovered, scrollbar::THUMB_HOVER),
-        (&mut widgets.active, scrollbar::THUMB_HOVER),
-    ] {
-        state.bg_fill = color;
-        state.corner_radius = CornerRadius::same(4);
-    }
 }
 
 /// 側欄的一個導覽項：圖示加名稱；選中的有底色與左側 `ACCENT` 指示條。

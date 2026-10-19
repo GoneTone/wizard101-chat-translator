@@ -2,14 +2,14 @@
 
 use eframe::egui::accesskit;
 use eframe::egui::{
-    Align, Atoms, FontId, Frame, Id, Image, Label, Layout, Margin, RichText, Role, Sense, Ui,
-    UiBuilder, Vec2, vec2,
+    Align, AsIdSalt, Atoms, FontId, Frame, Id, Image, Label, Layout, Margin, Response, RichText,
+    Role, Sense, Ui, UiBuilder, Vec2, vec2,
 };
 use serde_json::Value;
 
 use super::dialog::{DialogSpec, dialog};
 use super::env::{SettingsEnv, SettingsEvent};
-use super::provider_picker::{CardLayout, paint_provider_icon, provider_cards, provider_texture};
+use super::provider_picker::{CardLayout, provider_cards, provider_icon, provider_texture};
 use super::service_draft::{ServiceDraft, id_of};
 use super::service_form::ServiceForm;
 use super::theme;
@@ -121,27 +121,11 @@ impl ServicePane {
 
     fn default_combo(&mut self, ui: &mut Ui) {
         let current = self.draft.default.clone();
-        let selected = service_atoms(ui, self.draft.find(current.as_deref()), "");
-        let mut chosen = None;
-        let response = combo_box(ui, "default_service")
-            .selected_text(selected)
-            .truncate()
-            .show_ui(ui, |ui| {
-                for service in &self.draft.services {
-                    let id = id_of(service);
-                    let atoms = service_atoms(ui, Some(service), "");
-                    if ui
-                        .selectable_label(current.as_deref() == Some(id), atoms)
-                        .clicked()
-                    {
-                        chosen = Some(id.to_owned());
-                    }
-                }
-            })
-            .response;
+        let (response, chosen) =
+            service_combo(ui, "default_service", &self.draft, current.as_deref(), None);
         let response = name_by_row(ui, response);
         focus_ring(ui, &response, theme::CONTROL_RADIUS);
-        if let Some(id) = chosen {
+        if let Some(Some(id)) = chosen {
             self.draft.set_default(&id);
         }
     }
@@ -176,27 +160,15 @@ impl ServicePane {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
                 let label = ui.add(Label::new(t(&format!("slot.{}", slot.key()), &[])));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let selected = service_atoms(ui, self.draft.find(current.as_deref()), &follow);
-                    let combo = combo_box(ui, ("service_slot", slot.key()))
-                        .selected_text(selected)
-                        .truncate()
-                        .show_ui(ui, |ui| {
-                            let muted = RichText::new(follow.as_str()).color(theme::TEXT_SECONDARY);
-                            if ui.selectable_label(current.is_none(), muted).clicked() {
-                                chosen = Some(None);
-                            }
-                            for service in &self.draft.services {
-                                let id = id_of(service);
-                                let atoms = service_atoms(ui, Some(service), "");
-                                if ui
-                                    .selectable_label(current.as_deref() == Some(id), atoms)
-                                    .clicked()
-                                {
-                                    chosen = Some(Some(id.to_owned()));
-                                }
-                            }
-                        });
-                    let response = combo.response.labelled_by(label.id);
+                    let (response, picked) = service_combo(
+                        ui,
+                        ("service_slot", slot.key()),
+                        &self.draft,
+                        current.as_deref(),
+                        Some(&follow),
+                    );
+                    chosen = picked;
+                    let response = response.labelled_by(label.id);
                     focus_ring(ui, &response, theme::CONTROL_RADIUS);
                 });
             });
@@ -231,11 +203,7 @@ impl ServicePane {
                     let buttons = Id::unique(("service_card_buttons", id));
                     ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
                         ui.spacing_mut().item_spacing.x = 14.0;
-                        if provider_texture(ui.ctx(), key).is_some() {
-                            let (rect, _) =
-                                ui.allocate_exact_size(Vec2::splat(32.0), Sense::hover());
-                            paint_provider_icon(ui, key, rect);
-                        }
+                        provider_icon(ui, key, 32.0);
                         let reserved = right_aligned_width(ui, buttons);
                         let text_width = (ui.available_width() - reserved - 16.0).max(24.0);
                         let (column, _) =
@@ -443,6 +411,39 @@ fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f
                 });
         }
     });
+}
+
+/// 服務下拉：列出 `draft` 的服務；`follow` 有值就多一個該文字的「跟隨預設」選項。
+///
+/// 選了服務回 `Some(Some(id))`，選了跟隨預設回 `Some(None)`；命名與焦點框留給呼叫端。
+fn service_combo(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    draft: &ServiceDraft,
+    current: Option<&str>,
+    follow: Option<&str>,
+) -> (Response, Option<Option<String>>) {
+    let selected = service_atoms(ui, draft.find(current), follow.unwrap_or(""));
+    let mut chosen = None;
+    let combo = combo_box(ui, salt)
+        .selected_text(selected)
+        .truncate()
+        .show_ui(ui, |ui| {
+            if let Some(follow) = follow {
+                let muted = RichText::new(follow).color(theme::TEXT_SECONDARY);
+                if ui.selectable_label(current.is_none(), muted).clicked() {
+                    chosen = Some(None);
+                }
+            }
+            for service in &draft.services {
+                let id = id_of(service);
+                let atoms = service_atoms(ui, Some(service), "");
+                if ui.selectable_label(current == Some(id), atoms).clicked() {
+                    chosen = Some(Some(id.to_owned()));
+                }
+            }
+        });
+    (combo.response, chosen)
 }
 
 /// 下拉裡的一個服務：服務商圖示加名稱；沒有服務時顯示 `fallback`（說明色）。

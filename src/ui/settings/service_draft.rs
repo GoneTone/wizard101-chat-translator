@@ -115,7 +115,7 @@ impl ServiceDraft {
             self.default = self.services.first().map(|s| id_of(s).to_owned());
             log(format!(
                 "[settings] default service deleted; default={}",
-                self.default.as_deref().unwrap_or("None")
+                self.default.as_deref().unwrap_or("none")
             ));
         }
     }

@@ -2,6 +2,7 @@
 //!
 //! stub 在遊戲執行緒上執行，位元組與 Python 版 `chat_hook.stub_bytes` 逐一相同。
 
+use super::chat_tabs::MAX_BROADCAST_RECORDS;
 use super::hooks::{AutobotCave, HookError, SimpleHook};
 use super::memory::{MemError, ProcessMemory, decode_utf16le};
 
@@ -93,7 +94,7 @@ pub struct AddLineHook {
 }
 
 impl AddLineHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除，環形緩衝刻意不釋放）。
+    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall_with`] 解除，環形緩衝刻意不釋放）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
         let (jump, ring) = ADD_LINE.install(mem, cave, stub_bytes)?;
         Ok(Self { jump, ring })
@@ -231,12 +232,10 @@ pub fn group_broadcasts(records: &[HookRecord]) -> Vec<(Vec<u32>, HookRecord)> {
     groups
 }
 
-/// 結尾若是廣播的開頭（連號、同字、分頁 0,1 或 0,1,2）回傳其筆數，否則 0。
+/// 結尾若是廣播的開頭（連號、同字、分頁 0 起；含已湊滿 4 筆但還可能接頻道分頁者）回傳其筆數，否則 0。
 pub fn pending_broadcast(records: &[HookRecord]) -> usize {
-    for n in [3, 2] {
-        let Some(tail) = records.len().checked_sub(n).map(|from| &records[from..]) else {
-            continue;
-        };
+    for n in (2..=records.len().min(MAX_BROADCAST_RECORDS)).rev() {
+        let tail = &records[records.len() - n..];
         if tail[0].tab == 0 && (1..n).all(|i| continues_broadcast(&tail[..i], &tail[i])) {
             return n;
         }

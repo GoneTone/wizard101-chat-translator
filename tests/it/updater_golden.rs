@@ -1,6 +1,5 @@
 //! 版本比較對照 Python 匯出的 golden fixture。
 
-#[allow(dead_code)]
 use crate::common;
 
 use wizard101_chat_translator::runtime::updater::is_newer;

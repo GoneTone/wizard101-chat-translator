@@ -16,6 +16,9 @@ pub const SSO_CAPACITY: u64 = 8;
 /// 按鈕文字的長度上限；超過視為讀到垃圾。
 pub const MAX_LABEL_CHARS: u64 = 4096;
 
+/// 一則廣播每個分頁各寫一筆，筆數上限即分頁數。
+pub const MAX_BROADCAST_RECORDS: usize = TAB_BUTTONS.len();
+
 /// 依遊戲由左到右；編號 0–3 已實機確認，4、5–8 是靜態推論。
 const TAB_BUTTONS: [(&str, i32); 9] = [
     ("MainFilterButton", 0),
@@ -106,16 +109,6 @@ impl std::error::Error for TabError {}
 impl From<MemError> for TabError {
     fn from(e: MemError) -> Self {
         Self::Mem(e)
-    }
-}
-
-impl TabError {
-    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::OutOfRange { .. } => "ValueError",
-            Self::Mem(e) => e.type_name(),
-        }
     }
 }
 

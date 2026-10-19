@@ -14,6 +14,8 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::sync::Mutex;
 
+use crate::util::lock;
+
 /// `log` 的輸出目的地。
 pub enum Sink {
     /// 標準錯誤輸出（未呼叫 [`init`] 前的預設）。
@@ -26,15 +28,12 @@ static SINK: Mutex<Sink> = Mutex::new(Sink::Stderr);
 
 /// 切換 `log` 的輸出目的地。
 pub fn init(sink: Sink) {
-    *SINK.lock().unwrap_or_else(|e| e.into_inner()) = sink;
+    *lock(&SINK) = sink;
 }
 
 /// 寫一行帶 UTC 時戳的訊息；整行一次寫出，多執行緒下不會互相切斷。
 pub fn log(message: impl AsRef<str>) {
-    write_to(
-        &mut SINK.lock().unwrap_or_else(|e| e.into_inner()),
-        message.as_ref(),
-    );
+    write_to(&mut lock(&SINK), message.as_ref());
 }
 
 /// 多行訊息每行都補時戳；整段組好後一次寫出。
@@ -81,20 +80,36 @@ static GLOBAL_SINK_TESTS: Mutex<()> = Mutex::new(());
 /// 跑 `run` 並回傳這段期間寫進 log 的全部文字；其他執行緒同時寫的行也會混進來，斷言請用 `contains`。
 #[cfg(test)]
 pub(crate) fn capture(run: impl FnOnce()) -> String {
-    let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = lock(&GLOBAL_SINK_TESTS);
     let dir = tempfile::tempdir().expect("temp dir for the log capture");
     let path = dir.path().join("capture.log");
     init(Sink::File(
         File::create(&path).expect("create the capture log"),
     ));
+    // 閉包 panic 時也要把 sink 換回，否則後面的測試會寫進已刪除的暫存檔。
+    struct RestoreSink;
+    impl Drop for RestoreSink {
+        fn drop(&mut self) {
+            init(Sink::Stderr);
+        }
+    }
+    let restore = RestoreSink;
     run();
-    init(Sink::Stderr);
+    drop(restore);
     std::fs::read_to_string(&path).expect("read the capture log")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_restores_the_stderr_sink_when_the_closure_panics() {
+        let result = std::panic::catch_unwind(|| capture(|| panic!("boom")));
+        assert!(result.is_err());
+        let _serial = lock(&GLOBAL_SINK_TESTS);
+        assert!(matches!(*lock(&SINK), Sink::Stderr));
+    }
 
     fn temp_sink() -> (tempfile::TempDir, std::path::PathBuf, Sink) {
         let dir = tempfile::tempdir().unwrap();
@@ -118,7 +133,7 @@ mod tests {
 
     #[test]
     fn panic_hook_logs_stamped_panic_line() {
-        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock(&GLOBAL_SINK_TESTS);
         let (_dir, path, sink) = temp_sink();
         init(sink);
         install_panic_hook();
@@ -138,7 +153,7 @@ mod tests {
 
     #[test]
     fn a_panic_inside_the_keyboard_hook_is_logged_without_a_backtrace() {
-        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock(&GLOBAL_SINK_TESTS);
         let (_dir, path, sink) = temp_sink();
         init(sink);
         install_panic_hook();
@@ -162,7 +177,7 @@ mod tests {
 
     #[test]
     fn log_from_many_threads_keeps_every_line_whole() {
-        let _guard = GLOBAL_SINK_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock(&GLOBAL_SINK_TESTS);
         let (_dir, path, sink) = temp_sink();
         init(sink);
         let threads: Vec<_> = "abcd"

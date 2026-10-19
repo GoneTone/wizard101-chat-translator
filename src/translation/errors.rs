@@ -6,16 +6,17 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::i18n::t;
 use crate::py::pystr;
 
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslateError {
-    /// 可重試：連線失敗、逾時、429、5xx。
+    /// 可重試：連線失敗、逾時、408、409、429、5xx。
     Offline { status: Option<u16>, detail: String },
     /// 設定錯誤（4xx）：持續重試，使用者修好設定後自動恢復。
     Config { status: Option<u16>, detail: String },
-    /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷。
+    /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷，或模型沒有回任何文字。
     BadOutput(String),
     /// 請求被呼叫端取消，不是錯誤。
     Cancelled,
@@ -25,7 +26,18 @@ pub enum TranslateError {
     Unexpected(String),
 }
 
+/// 金鑰含 HTTP 標頭不允許的字元時的說明（請求根本沒送出）。
+const INVALID_KEY_DETAIL: &str = "api key contains characters invalid in an HTTP header";
+
 impl TranslateError {
+    /// 金鑰格式錯誤：歸為設定錯誤（使用者改好金鑰即恢復），UI 顯示金鑰無效。
+    pub fn invalid_key() -> Self {
+        Self::Config {
+            status: None,
+            detail: INVALID_KEY_DETAIL.into(),
+        }
+    }
+
     /// 連線層失敗（無狀態碼）。
     pub fn offline(detail: impl Into<String>) -> Self {
         Self::Offline {
@@ -34,15 +46,15 @@ impl TranslateError {
         }
     }
 
-    /// Python 版對應的例外類別名稱，log 沿用 `類別: 訊息` 的格式。
-    pub fn class_name(&self) -> &'static str {
+    /// 錯誤類別的可讀名稱，log 以 `類別: 訊息` 的格式帶出。
+    pub fn kind(&self) -> &'static str {
         match self {
-            Self::Offline { .. } => "TranslatorOffline",
-            Self::Config { .. } => "TranslatorConfigError",
-            Self::BadOutput(_) => "TranslatorBadOutput",
-            Self::Cancelled => "TranslatorCancelled",
-            Self::NoModelList => "TranslatorNoModelList",
-            Self::Unexpected(_) => "Exception",
+            Self::Offline { .. } => "offline",
+            Self::Config { .. } => "config error",
+            Self::BadOutput(_) => "bad output",
+            Self::Cancelled => "cancelled",
+            Self::NoModelList => "no model list",
+            Self::Unexpected(_) => "unexpected",
         }
     }
 
@@ -105,11 +117,16 @@ pub(crate) fn message_of(body: &Value) -> Option<&str> {
     body.get("message")?.as_str()
 }
 
-/// 把錯誤回應 body 整理成單行說明：JSON 取錯誤欄位，HTML 去標籤，其餘照原文。
+/// 把錯誤回應 body 整理成單行說明：JSON 取錯誤欄位（單元素陣列先拆開），HTML 去標籤，其餘照原文。
 pub fn error_detail(text: &str) -> String {
     let message = serde_json::from_str::<Value>(text)
         .ok()
-        .and_then(|body| message_of(&body).map(str::to_owned))
+        .and_then(|body| match body {
+            Value::Array(mut items) if items.len() == 1 => {
+                message_of(&items.remove(0)).map(str::to_owned)
+            }
+            body => message_of(&body).map(str::to_owned),
+        })
         .unwrap_or_else(|| HTML_TAG.replace_all(text, " ").into_owned());
     one_line(&message)
 }
@@ -122,11 +139,11 @@ pub fn rejected_parameter(detail: &str) -> Option<String> {
         .map(|m| m.as_str().to_owned())
 }
 
-/// 翻譯請求的狀態碼對應：429／5xx 可重試，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
+/// 翻譯請求的狀態碼對應：408／409／429／5xx 是暫時性錯誤，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
 pub fn status_error(status: u16, detail: &str) -> Option<TranslateError> {
     let (status, detail) = (Some(status), detail.to_owned());
     match status {
-        Some(429 | 500..) => Some(TranslateError::Offline { status, detail }),
+        Some(408 | 409 | 429 | 500..) => Some(TranslateError::Offline { status, detail }),
         Some(400..) => Some(TranslateError::Config { status, detail }),
         _ => None,
     }
@@ -140,12 +157,28 @@ pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
     }
 }
 
+/// （文案 key，format 變數）→ 已翻譯的字串。
+pub fn localized(key: &str, args: &[(&str, String)]) -> String {
+    let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    t(key, &args)
+}
+
+/// 翻譯例外 → 已翻譯的訊息（[`friendly_error`] 加 [`localized`]）。
+pub fn friendly_text(e: &TranslateError) -> String {
+    let (key, args) = friendly_error(e);
+    localized(key, &args)
+}
+
 /// 翻譯例外 → （文案 key，format 變數），顯示端一律 `t(key, args)`。
 ///
 /// 有 API 說明（detail）就照實顯示；狀態碼猜的提示會誤導，只在 API 什麼都沒說時才用。
 pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, String)>) {
     use TranslateError::{Config, Offline};
     match e {
+        Config {
+            status: None,
+            detail,
+        } if detail == INVALID_KEY_DETAIL => ("error.bad_key", vec![]),
         Config { status, detail } | Offline { status, detail } if !detail.is_empty() => {
             match status {
                 Some(status) => (
@@ -162,13 +195,10 @@ pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, S
         Config {
             status: Some(404), ..
         } => ("error.model_not_found", vec![]),
-        Config { status, .. } => (
-            "error.api_http",
-            vec![(
-                "status",
-                status.map_or_else(|| "None".to_owned(), |s| s.to_string()),
-            )],
-        ),
+        Config {
+            status: Some(status),
+            ..
+        } => ("error.api_http", vec![("status", status.to_string())]),
         Offline {
             status: Some(status),
             ..

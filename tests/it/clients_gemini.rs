@@ -1,6 +1,5 @@
 //! Gemini client 的 HTTP 協定測試：請求內容照 google-genai SDK、不重試、串流解析、取消（wiremock，不打真 API）。
 
-#[allow(dead_code)]
 use crate::common;
 use crate::stream_server;
 
@@ -276,6 +275,36 @@ async fn gemini_retry_behavior_matches_sdk() {
 }
 
 #[tokio::test]
+async fn gemini_html_error_page_is_stripped_to_text() {
+    let server = MockServer::start().await;
+    let page = ResponseTemplate::new(502).set_body_string(
+        "<html><body><h1>502 Bad Gateway</h1><center>nginx</center></body></html>",
+    );
+    mount_stream(&server, page).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Offline {
+            status: Some(502),
+            detail: "502 Bad Gateway nginx".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn gemini_unwraps_a_single_element_error_array() {
+    let server = MockServer::start().await;
+    let body = json!([{"error": {"code": 400, "message": "API key not valid"}}]);
+    mount_stream(&server, ResponseTemplate::new(400).set_body_json(body)).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Config {
+            status: Some(400),
+            detail: "API key not valid".into()
+        })
+    );
+}
+
+#[tokio::test]
 async fn gemini_error_mapping() {
     let server = MockServer::start().await;
     mount_stream(&server, error_body(400, "API key not valid")).await;
@@ -335,6 +364,15 @@ async fn gemini_max_tokens_finish_is_bad_output() {
     assert!(message.contains("max_tokens=4096"), "{message}");
     assert!(message.contains("completion_tokens=4096"), "{message}");
     assert!(message.contains("am chick"), "{message}");
+}
+
+#[tokio::test]
+async fn gemini_key_with_invalid_header_characters_is_a_key_error() {
+    let server = MockServer::start().await;
+    mount_stream(&server, ok_stream()).await;
+    let c = GeminiClient::new("AIza-bad\nkey", "gemini-x", "auto", &server.uri());
+    assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
+    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 #[tokio::test]

@@ -19,14 +19,14 @@ const ICON: f32 = 13.0;
 const SHEET_OFFSET: f32 = 4.0;
 
 /// 選單這一幀的結果。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MenuOutcome {
     /// 點了「複製」。
     Copy,
     /// 在選單外按下滑鼠左鍵。
     Dismissed,
-    /// 仍開著。
-    Open,
+    /// 仍開著；帶著這一幀的選單範圍。
+    Open(Rect),
 }
 
 fn label(ui: &Ui) -> Arc<Galley> {
@@ -57,7 +57,7 @@ fn placed(ui: &Ui, at: Pos2, galley: &Galley) -> (Rect, (i32, i32)) {
     (Rect::from_min_size(min, size), (x, y))
 }
 
-/// 在 `at`（視窗內 DIP）開啟時的選單範圍，已夾在 `ui` 的範圍內。
+/// 在 `at`（視窗內 DIP）開啟時的選單範圍，已夾在 `ui` 的範圍內；給還沒畫出選單的那一幀判斷點擊用。
 pub fn rect(ui: &Ui, at: Pos2) -> Rect {
     placed(ui, at, &label(ui)).0
 }
@@ -115,6 +115,6 @@ pub fn show(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
     if clicked {
         MenuOutcome::Copy
     } else {
-        MenuOutcome::Open
+        MenuOutcome::Open(menu)
     }
 }

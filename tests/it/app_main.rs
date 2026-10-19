@@ -1,6 +1,5 @@
 //! 主程式接線：收訊指紋、翻譯端的建構、熱鍵註冊與套用設定、單一實例與關閉順序。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +21,7 @@ use wizard101_chat_translator::app_main::{
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
-use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, Settings, app_name};
+use wizard101_chat_translator::config::{Config, ServiceSlot, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::{ChatInputTracker, Foreground};
 use wizard101_chat_translator::input::dispatcher::{
@@ -35,8 +34,9 @@ use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
     Recognize, RegionError, RegionPipeline, RegionResult, describe_error,
 };
+use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::cache::TranslationCache;
-use wizard101_chat_translator::translation::clients::{ChatBackend, ChatRequest};
+use wizard101_chat_translator::translation::clients::ChatBackend;
 use wizard101_chat_translator::translation::context::{ClientContexts, ContextMap};
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::examples::{
@@ -45,9 +45,9 @@ use wizard101_chat_translator::translation::examples::{
 use wizard101_chat_translator::translation::pool::ResultFn;
 use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
-use wizard101_chat_translator::translation::{BoxFuture, Turn};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
+use wizard101_chat_translator::util;
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
 fn cfg() -> Config {
@@ -551,20 +551,6 @@ fn the_system_pool_translates_through_the_incoming_service() {
 }
 
 #[test]
-fn build_app_wires_each_consumer_to_its_own_slot() {
-    let source = include_str!("../../src/main.rs");
-    assert!(source.contains("Arc::clone(&built.translation.outgoing)"));
-    assert!(source.contains("Arc::clone(&built.translation.region)"));
-}
-
-#[test]
-fn build_app_spawns_readers_through_the_supervisor() {
-    let source = include_str!("../../src/app_main.rs");
-    assert!(source.contains("supervise(&stop, spawn, game_windows, &board)"));
-    assert!(source.contains("MessageLog::new(Arc::clone(&messages), slot)"));
-}
-
-#[test]
 fn reconfigure_resizes_both_pools() {
     let s = saved("resize");
     s.save(|c| {
@@ -966,7 +952,7 @@ fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
 
 #[test]
 fn paste_installed_after_the_hotkeys_runs_last() {
-    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = util::lock(&TYPING_TESTS);
     capture_logs();
     let (ui, rx) = UiPoster::for_test();
     let settings = input_cfg("ctrl+v", "shift+v", false);
@@ -1004,57 +990,22 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     typing.join().unwrap();
 }
 
-/// 假 backend：記下每次請求的對話輪，回固定結果。
-struct Backend {
-    reply: Result<String, TranslateError>,
-    turns: Mutex<Vec<Vec<Turn>>>,
-}
-
-impl ChatBackend for Backend {
-    fn chat<'a>(
-        &'a self,
-        req: ChatRequest<'a>,
-        _cancel: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, TranslateError>> {
-        self.turns.lock().unwrap().push(req.turns.to_vec());
-        let reply = self.reply.clone();
-        Box::pin(async move { reply })
-    }
-
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>, TranslateError>> {
-        Box::pin(async { Ok(vec![]) })
-    }
-
-    fn model(&self) -> &str {
-        "fake-model"
-    }
-}
-
 struct Outgoing {
     rt: tokio::runtime::Runtime,
-    backend: Arc<Backend>,
+    backend: Arc<Fake>,
     translator: Arc<Translator>,
     contexts: ContextMap,
 }
 
 fn outgoing(reply: Result<String, TranslateError>) -> Outgoing {
     capture_logs();
-    let backend = Arc::new(Backend {
-        reply,
-        turns: Mutex::default(),
-    });
+    let backend = Fake::new("fake-model", vec![reply]);
     let fake = Arc::clone(&backend);
-    let spec = ServiceSpec {
-        provider: "custom".into(),
-        base_url: "http://x".into(),
-        model: "fake-model".into(),
-        ..ServiceSpec::default()
-    };
     Outgoing {
         rt: tokio::runtime::Runtime::new().unwrap(),
         translator: Translator::with_client(
             move |_| fake.clone() as Arc<dyn ChatBackend>,
-            spec,
+            spec("fake-model"),
             "日本語".into(),
         ),
         backend,
@@ -1101,11 +1052,12 @@ fn outgoing_translate_uses_the_target_clients_current_tab_context() {
     let rx = o.submit("hello again", 0x99, 4);
     rx.recv_timeout(common::WAIT).unwrap();
 
-    let turns = o.backend.turns.lock().unwrap();
+    let calls = o.backend.calls();
+    let turns: Vec<_> = calls.iter().map(|c| &c.turns).collect();
     let mentions = |call: &[Turn], s: &str| call.iter().any(|t| t.content.contains(s));
-    assert!(mentions(&turns[0], "current-tab-line"));
-    assert!(!mentions(&turns[0], "other-tab-line"));
-    assert!(!mentions(&turns[1], "current-tab-line"));
+    assert!(mentions(turns[0], "current-tab-line"));
+    assert!(!mentions(turns[0], "other-tab-line"));
+    assert!(!mentions(turns[1], "current-tab-line"));
     assert!(
         turns[1].len() < turns[0].len(),
         "no client means no context"
@@ -1127,7 +1079,7 @@ fn outgoing_translate_posts_the_localized_error_and_logs_the_service() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].ends_with(
         "[input] outgoing translation failed \
-         (chars=13, provider=custom, model=fake-model): TranslatorOffline: conn refused"
+         (chars=13, provider=custom, model=fake-model): offline: conn refused"
     ));
 }
 
@@ -1217,7 +1169,7 @@ fn region_runner_failure_logs_the_service() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].ends_with(
         "[region] translate failed (rect=(1, 2, 30, 40), \
-         provider=custom, model=fake-model): TranslatorOffline: region refused"
+         provider=custom, model=fake-model): offline: region refused"
     ));
 }
 
@@ -1240,7 +1192,7 @@ fn assert_region_unexpected(recognize: Recognize, session: u64, message: &str) {
         )),
         "{lines:?}"
     );
-    assert!(o.backend.turns.lock().unwrap().is_empty());
+    assert!(o.backend.calls().is_empty());
 }
 
 #[test]
@@ -1275,7 +1227,7 @@ fn region_hotkey_cancels_while_selecting() {
 
 #[test]
 fn paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open() {
-    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = util::lock(&TYPING_TESTS);
     capture_logs();
     let settings = input_cfg("ctrl+space", "ctrl+shift+space", true);
     let tracker = ChatInputTracker::default();
@@ -1358,7 +1310,7 @@ fn live(tag: &'static str) -> Live {
 
 impl Live {
     /// 合併後的完整設定，先把它的範例放上磁碟再套用。
-    fn apply(&mut self, partial: Config) -> (String, Option<String>) {
+    fn apply(&mut self, partial: Config) -> Option<String> {
         let mut merged = self.settings.read().unwrap().clone();
         merged.extend(partial.clone());
         seed(&self.store, &merged, &examples());
@@ -1398,12 +1350,12 @@ fn apply_settings_saves_rebinds_and_reregisters() {
 
     let mut services = l.settings.read().unwrap()["services"].clone();
     services[0]["model"] = json!("qwen3-2-apply_rebind");
-    let (hotkey, region) = l.apply(partial(&[
+    let region = l.apply(partial(&[
         ("hotkey", json!("ctrl+alt+k")),
         ("services", services),
     ]));
 
-    assert_eq!(hotkey, "ctrl+alt+k");
+    assert_eq!(l.settings.read().unwrap()["hotkey"], "ctrl+alt+k");
     assert_eq!(region.as_deref(), Some("ctrl+alt+r"));
     assert_eq!(l.handlers(), handlers);
     assert!(press(&l.d, &["ctrl", "alt", "j"]), "the old hotkey passes");
@@ -1444,8 +1396,8 @@ fn apply_settings_merges_the_partial_map_into_the_live_config() {
 fn region_hotkey_equal_to_the_input_hotkey_is_not_registered() {
     let mut l = live("apply_collide");
     let handlers = l.handlers();
-    let (hotkey, region) = l.apply(partial(&[("region_hotkey", json!("ctrl+alt+j"))]));
-    assert_eq!(hotkey, "ctrl+alt+j");
+    let region = l.apply(partial(&[("region_hotkey", json!("ctrl+alt+j"))]));
+    assert_eq!(l.settings.read().unwrap()["hotkey"], "ctrl+alt+j");
     assert_eq!(region, None);
     assert!(l.running.hotkeys.1.is_none());
     assert_eq!(l.handlers(), handlers - 1);

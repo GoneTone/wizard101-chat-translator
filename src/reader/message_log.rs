@@ -8,6 +8,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use regex::Regex;
 
 use super::mem_reader::MessageSink;
+use crate::util::lock;
 
 /// 多個客戶端共寫的 messages.log 串流（實機為 `TimestampedWriter<File>`，時戳由它補）。
 pub type SharedWriter = Arc<Mutex<dyn Write + Send>>;
@@ -38,11 +39,7 @@ impl MessageLog {
     fn write(&self, line: &str) {
         let line = format!("{}{line}\n", self.prefix);
         // 整行一次寫出：多個客戶端共寫時才不會互相切斷；寫不進去無處可報，丟棄
-        let _ = self
-            .writer
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .write_all(line.as_bytes());
+        let _ = lock(&self.writer).write_all(line.as_bytes());
     }
 }
 

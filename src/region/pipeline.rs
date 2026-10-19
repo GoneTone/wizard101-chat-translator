@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::i18n::t;
 use crate::logs::log;
 use crate::region::ocr::{OcrError, OcrUnavailable};
-use crate::translation::errors::{TranslateError, friendly_error};
+use crate::translation::errors::{TranslateError, friendly_text, localized};
 use crate::translation::translator::Translator;
 use crate::ui::geometry::Rect;
 use crate::util::panic_message;
@@ -112,8 +112,7 @@ pub fn describe_error(e: &RegionError) -> String {
         RegionError::Translate(TranslateError::BadOutput(message)) => {
             ("region.failed", vec![("error", message.clone())])
         }
-        RegionError::Translate(e) => friendly_error(e),
+        RegionError::Translate(e) => return friendly_text(e),
     };
-    let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    t(key, &args)
+    localized(key, &args)
 }

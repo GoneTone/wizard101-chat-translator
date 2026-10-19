@@ -30,8 +30,8 @@ pub fn initial_size(want: (f32, f32), work_area_points: (f32, f32)) -> (f32, f32
 /// 托管視窗對桌面的操作；測試與 probe 換成不碰真視窗的版本。
 #[derive(Clone, Copy)]
 pub struct WindowOps {
-    /// 目前執行緒的頂層視窗（建立 viewport 前取一次）。
-    pub thread_windows: fn() -> Vec<isize>,
+    /// 建立 viewport 前的執行緒頂層視窗；傳入目前的 HWND，已知時不必列舉。
+    pub windows_before: fn(isize) -> Vec<isize>,
     /// 認出新視窗：建立前的清單、要略過的已知視窗與視窗標題；找不到回 0。
     pub find_new: fn(&[isize], &[isize], &str) -> isize,
     /// 系統標題列改深色。
@@ -46,12 +46,8 @@ impl WindowOps {
     /// 接 Win32 的真實操作。
     pub fn real() -> Self {
         Self {
-            thread_windows: win32::thread_windows,
-            find_new: |before, known, title| {
-                win32::pick_new_window(before, &win32::thread_windows(), known, || {
-                    win32::find_thread_window(title, known)
-                })
-            },
+            windows_before: viewport::windows_before,
+            find_new: viewport::find_new_window,
             dark_caption: win32::dark_caption,
             force_foreground: win32::force_foreground,
             cursor_work_area: || {
@@ -208,11 +204,7 @@ impl HostedWindow {
         if std::mem::take(&mut self.restore) && self.shown {
             commands.push(ViewportCommand::Minimized(false));
         }
-        let mut before = if self.hwnd == 0 {
-            (self.ops.thread_windows)()
-        } else {
-            Vec::new()
-        };
+        let mut before = (self.ops.windows_before)(self.hwnd);
         let builder = self.builder(creating, &title);
         let mut out = Vec::new();
         let mut closing = false;
@@ -420,7 +412,7 @@ mod tests {
 
     fn offscreen_ops() -> WindowOps {
         WindowOps {
-            thread_windows: Vec::new,
+            windows_before: |_| Vec::new(),
             find_new: |_, _, _| 0,
             dark_caption: |_| {},
             force_foreground: |_| true,

@@ -1,6 +1,5 @@
 //! 翻譯錯誤的使用者文案對照 Python 匯出的 golden fixture。
 
-#[allow(dead_code)]
 use crate::common;
 
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};

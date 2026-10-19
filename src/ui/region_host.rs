@@ -11,13 +11,12 @@ use eframe::egui::{
 use crate::config::app_name;
 use crate::logs::log;
 use crate::region::pipeline::RegionResult;
-use crate::ui::clipboard;
 use crate::ui::geometry::Rect;
 use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
 use crate::ui::region::flow::RegionFlow;
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
-use crate::ui::viewport::show_immediate;
+use crate::ui::viewport::{self, show_immediate};
 use crate::ui::win32;
 
 /// 一個框選視窗的 HWND 與顯示狀態；宿主看到元件關掉就換下一個 viewport id，同一幀先關後開也不沿用舊視窗。
@@ -169,7 +168,7 @@ impl RegionHost {
         let creating = !win.created;
         let reveal = pending && !defer;
         let builder = viewport_builder(creating, monitor);
-        let mut before = windows_before(win.hwnd);
+        let mut before = viewport::windows_before(win.hwnd);
         let id = win.id("region_selector");
         let Some(action) = show_immediate(ctx, id, "selector", builder, &mut before, |ui, _| {
             if reveal {
@@ -184,7 +183,7 @@ impl RegionHost {
         if win.hwnd == 0 {
             win.hwnd = find(&before, &known, creating, "selector");
             if win.hwnd != 0 {
-                setup(win.hwnd, overlay);
+                viewport::frameless_setup(win.hwnd, overlay);
                 win.place(monitor);
                 log(format!("[region] selector placed: monitor={monitor:?}"));
             }
@@ -220,7 +219,7 @@ impl RegionHost {
         let builder = viewport_builder(creating, rect)
             .with_transparent(true)
             .with_active(false);
-        let mut before = windows_before(win.hwnd);
+        let mut before = viewport::windows_before(win.hwnd);
         let origin = win.placed.unwrap_or(rect);
         let id = win.id("region_box");
         let Some(changed) = show_immediate(ctx, id, "box", builder, &mut before, |ui, _| {
@@ -236,7 +235,7 @@ impl RegionHost {
         if win.hwnd == 0 {
             win.hwnd = find(&before, &known, creating, "box");
             if win.hwnd != 0 {
-                setup(win.hwnd, overlay);
+                viewport::frameless_setup(win.hwnd, overlay);
             }
         }
         if win.hwnd != 0 {
@@ -267,10 +266,7 @@ impl RegionHost {
         let builder = viewport_builder(creating, rough)
             .with_transparent(true)
             .with_active(false);
-        let mut before = windows_before(win.hwnd);
-        // 卡片每次回到辨識中都是新的一張，剪貼簿每幀重設才跟得上新卡片與新視窗
-        let owner = win.hwnd;
-        card.set_clipboard(move |text| clipboard::set_text(owner, text));
+        let mut before = viewport::windows_before(win.hwnd);
         let id = win.id("region_card");
         let Some((placed, action)) =
             show_immediate(ctx, id, "card", builder, &mut before, |ui, _| {
@@ -287,7 +283,7 @@ impl RegionHost {
         if win.hwnd == 0 {
             win.hwnd = find(&before, &known, creating, "card");
             if win.hwnd != 0 {
-                setup(win.hwnd, overlay);
+                viewport::frameless_setup(win.hwnd, overlay);
             }
         }
         if win.hwnd != 0 {
@@ -324,41 +320,14 @@ impl RegionHost {
     }
 }
 
-/// 三個視窗共用的 viewport 設定：無邊框、置頂、不上工作列；建立那一幀藏著，概略擺在 `rough`（實體像素）。
-///
-/// 位置以 DIP 給、混合 DPI 下會偏，所以只是概略，找到 HWND 後再以實體像素擺正。
+/// 建立那一幀藏著、概略擺在 `rough`（實體像素）的無邊框 viewport 設定。
 fn viewport_builder(creating: bool, rough: Rect) -> ViewportBuilder {
-    let builder = ViewportBuilder::default()
-        .with_title(app_name())
-        .with_decorations(false)
-        .with_resizable(false)
-        .with_always_on_top()
-        .with_taskbar(false);
-    if !creating {
-        return builder;
-    }
-    let scale = win32::scale_at(rough.0, rough.1);
-    let dip = |v: i32| v as f32 / scale;
-    builder
-        .with_visible(false)
-        .with_position([dip(rough.0), dip(rough.1)])
-        .with_inner_size([dip(rough.2), dip(rough.3)])
-}
-
-/// 建立前的執行緒視窗清單；HWND 已知時不必列舉。
-fn windows_before(hwnd: isize) -> Vec<isize> {
-    if hwnd == 0 {
-        win32::thread_windows()
-    } else {
-        Vec::new()
-    }
+    viewport::borderless_builder(creating.then(|| (rough, win32::scale_at(rough.0, rough.1))))
 }
 
 /// 認出新 viewport 的 HWND；找到時、或建立那一幀就找不到時記 log。
 fn find(before: &[isize], known: &[isize], creating: bool, what: &str) -> isize {
-    let hwnd = win32::pick_new_window(before, &win32::thread_windows(), known, || {
-        win32::find_thread_window(&app_name(), known)
-    });
+    let hwnd = viewport::find_new_window(before, known, &app_name());
     if hwnd != 0 {
         log(format!("[region] {what} window found: hwnd={hwnd:#x}"));
     } else if creating {
@@ -367,13 +336,6 @@ fn find(before: &[isize], known: &[isize], creating: bool, what: &str) -> isize 
         ));
     }
     hwnd
-}
-
-/// 拿掉系統外框、工作列按鈕與開關動畫，由 overlay 擁有。
-fn setup(hwnd: isize, overlay: isize) {
-    win32::remove_system_frame(hwnd);
-    win32::disable_transitions(hwnd);
-    win32::hide_from_taskbar(hwnd, overlay);
 }
 
 /// 框選框的內容：依序把按下、移動、放開餵給框（螢幕 px），畫框線；回傳放開後的新矩形。
@@ -425,94 +387,15 @@ fn box_content(ui: &mut egui::Ui, region_box: &mut RegionBox, origin: (i32, i32)
 }
 
 #[cfg(test)]
-pub(crate) mod fakes {
-    //! 框選流程的替身：桌面操作與 runner 只記下呼叫，不碰真的視窗、截圖或網路。
-
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
-
-    use image::RgbImage;
-    use tokio_util::sync::CancellationToken;
-
-    use crate::region::capture::{CaptureError, Frame};
-    use crate::ui::geometry::Rect;
-    use crate::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
-
-    /// 熱鍵帶來的遊戲視窗。
-    pub(crate) const GAME: isize = 0x1234;
-    /// ⛶ 列舉視窗找到的遊戲視窗。
-    pub(crate) const FOUND: isize = 0x9999;
-    /// 落在凍結畫面內的框選矩形。
-    pub(crate) const RECT: Rect = (100, 100, 300, 120);
-
-    /// 依序記下的呼叫：`capture 0x..`、`foreground 0x..`、`run N`。
-    pub(crate) type Calls = Rc<RefCell<Vec<String>>>;
-
-    struct FakeDesktop(Calls);
-
-    impl RegionDesktop for FakeDesktop {
-        fn capture_window(&mut self, hwnd: isize) -> Result<Arc<Frame>, CaptureError> {
-            self.0.borrow_mut().push(format!("capture {hwnd:#x}"));
-            Ok(Arc::new(Frame {
-                image: RgbImage::new(800, 600),
-                client_origin: (0, 0),
-                client_size: (800, 600),
-            }))
-        }
-
-        fn capture_screen(&mut self, _monitor: Rect) -> RgbImage {
-            RgbImage::new(1, 1)
-        }
-
-        fn monitor_at(&self, _x: i32, _y: i32) -> Rect {
-            (0, 0, 800, 600)
-        }
-
-        fn foreground(&mut self, hwnd: isize) {
-            self.0.borrow_mut().push(format!("foreground {hwnd:#x}"));
-        }
-
-        fn find_game(&self) -> Option<isize> {
-            Some(FOUND)
-        }
-
-        fn cursor(&self) -> (i32, i32) {
-            (40, 50)
-        }
-    }
-
-    struct FakeRunner(Calls);
-
-    impl RegionRunner for FakeRunner {
-        fn run(&self, _png: Vec<u8>, _rect: Rect, session: u64, _cancel: CancellationToken) {
-            self.0.borrow_mut().push(format!("run {session}"));
-        }
-    }
-
-    /// 接上替身的流程與它的呼叫紀錄。
-    pub(crate) fn flow() -> (RegionFlow, Calls) {
-        let calls = Calls::default();
-        let flow = RegionFlow::new(
-            Box::new(FakeDesktop(Rc::clone(&calls))),
-            Box::new(FakeRunner(Rc::clone(&calls))),
-            Arc::new(AtomicBool::new(false)),
-        );
-        (flow, calls)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
     use std::time::Duration;
 
     use egui_kittest::Harness;
 
-    use super::fakes::{GAME, RECT, flow};
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::region::fakes::{GAME, RECT, flow};
     use crate::ui::region::selector::SelectorAction;
 
     thread_local! {

@@ -2,17 +2,16 @@
 
 use std::time::Duration;
 
-use eframe::egui::{
-    Align, Hyperlink, Id, Label, Layout, RichText, Sense, Separator, Ui, Vec2, vec2,
-};
+use eframe::egui::{Align, Hyperlink, Id, Label, Layout, RichText, Separator, Ui, vec2};
 use serde_json::{Map, Value};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
-use super::provider_picker::{paint_provider_icon, provider_texture};
+use super::provider_picker::provider_icon;
 use super::theme::{self, icon};
 use super::widgets::{
-    combo_box, focus_ring, outcome, rich, secondary_button, secondary_icon_button, toggle,
+    combo_box, focus_ring, outcome, rich, right_aligned, right_aligned_width, secondary_button,
+    secondary_icon_button, toggle,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
@@ -22,7 +21,7 @@ use crate::config::services::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::translation::errors::{TranslateError, friendly_error};
+use crate::translation::errors::{TranslateError, friendly_text};
 use crate::translation::translator::{TEST_SAMPLE, TestOutcome};
 
 const LABEL_WIDTH: f32 = 96.0;
@@ -285,10 +284,7 @@ impl ServiceForm {
         form_row(ui, &t("field.provider", &[]), |ui, _| {
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
-                if provider_texture(ui.ctx(), key).is_some() {
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
-                    paint_provider_icon(ui, key, rect);
-                }
+                provider_icon(ui, key, 20.0);
                 ui.add(Label::new(label).truncate());
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     secondary_button(ui, &t("button.change", &[])).clicked()
@@ -325,7 +321,7 @@ impl ServiceForm {
                 .horizontal(|ui| {
                     // 按鈕寬取上一幀量到的值，讓下拉吃掉剩下的寬度
                     let width_id = ui.scope_id().with("refresh_width");
-                    let reserved: f32 = ui.data(|d| d.get_temp(width_id)).unwrap_or(120.0);
+                    let reserved = right_aligned_width(ui, width_id);
                     let gap = ui.spacing().item_spacing.x;
                     ui.spacing_mut().combo_width =
                         (ui.available_width() - reserved - gap).max(80.0);
@@ -341,14 +337,13 @@ impl ServiceForm {
                         },
                         &[],
                     );
-                    let button = ui
-                        .add_enabled_ui(!busy, |ui| secondary_icon_button(ui, icon::REFRESH, &text))
-                        .inner;
-                    if (button.rect.width() - reserved).abs() > 0.5 {
-                        ui.data_mut(|d| d.insert_temp(width_id, button.rect.width()));
-                        ui.ctx().request_discard("refresh button resized");
-                    }
-                    button.clicked()
+                    right_aligned(ui, width_id, |ui| {
+                        ui.add_enabled_ui(!busy, |ui| {
+                            secondary_icon_button(ui, icon::REFRESH, &text)
+                        })
+                        .inner
+                        .clicked()
+                    })
                 })
                 .inner;
             match &self.model_status {
@@ -571,10 +566,4 @@ fn pair(ui: &mut Ui, key: &str, value: &str) {
 fn join_errors(keys: &[String]) -> String {
     let texts: Vec<String> = keys.iter().map(|key| t(key, &[])).collect();
     texts.join(&t("sep.errors", &[]))
-}
-
-fn friendly_text(e: &TranslateError) -> String {
-    let (key, args) = friendly_error(e);
-    let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-    t(key, &args)
 }

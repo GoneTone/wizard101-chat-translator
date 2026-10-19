@@ -6,9 +6,9 @@
    "detail": ""
   },
   "output": [
-   "error.api_http",
+   "error.unexpected",
    {
-    "status": "None"
+    "error": ""
    }
   ]
  },

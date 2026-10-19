@@ -91,10 +91,6 @@ impl ChatBackend for Fake {
         Box::pin(async move { reply })
     }
 
-    fn list_models(&self) -> BoxFuture<'_, Result<Vec<String>, TranslateError>> {
-        Box::pin(async { Ok(vec![]) })
-    }
-
     fn model(&self) -> &str {
         &self.model
     }

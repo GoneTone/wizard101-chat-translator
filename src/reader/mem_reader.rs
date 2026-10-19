@@ -4,6 +4,7 @@
 //! 解除不了就留下 hookstate 檔，下次啟動修復。
 
 use std::collections::HashSet;
+use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -13,7 +14,8 @@ use super::chat_hook::{
     read_ring,
 };
 use super::chat_tabs::{
-    CHATBOX_WINDOW, TabState, find_tab_buttons, read_current_tab, read_tab_state,
+    CHATBOX_WINDOW, MAX_BROADCAST_RECORDS, TabState, find_tab_buttons, read_current_tab,
+    read_tab_state,
 };
 use super::hook_state;
 use super::hooks::{AutobotCave, HookError, MODULE, RootWindowHook};
@@ -28,13 +30,16 @@ use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::util::Clock;
 
+/// 螢幕矩形 `(x, y, w, h)`。
+type ScreenRect = (i32, i32, i32, i32);
+
 /// 遊戲聊天輸入區容器：開啟輸入時帶 VISIBLE 旗標（實測）。
 pub const INPUT_CONTAINER: &str = "chatEditContainer";
 /// 輸入框往上找父節點的層數上限（實機只有 4 層）。
 const MAX_PARENT_DEPTH: usize = 64;
 /// exe 的偏好載入位址：log 把跳轉點換算回靜態位址，才對得上反組譯。
 const IMAGE_BASE: u64 = 0x1_4000_0000;
-/// 等 root window hook 第一次被執行的上限；逾時視為 hook 與遊戲版本對不上。
+/// 等 root window hook 第一次被執行的上限；逾時可能是改版，也可能還沒登入進世界。
 pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// 等 root window hook 時的輪詢間隔。
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
@@ -48,10 +53,6 @@ pub struct ChatEvent {
     pub line: ChatLine,
     /// 所在的分頁編號。
     pub tabs: Vec<i32>,
-    /// hook 環形緩衝裡的序號。
-    pub seq: u64,
-    /// 遊戲原始字串（含標記）。
-    pub raw: String,
 }
 
 /// 連不上或掛不進遊戲；三種只在文案上分流，上層的退避重連照舊。
@@ -61,16 +62,19 @@ pub enum GameNotRunning {
     Missing(String),
     /// 開不了程序 handle（多半是遊戲以系統管理員身分執行、本程式沒有）。
     AccessDenied(String),
-    /// 掛入點與這個遊戲版本對不上（pattern 掃不到、多重命中或 hook 遲遲沒被執行）。
+    /// 掛入點與這個遊戲版本對不上（pattern 掃不到或多重命中）；同一個程序重試不會好。
     VersionMismatch(String),
+    /// hook 裝好了卻遲遲沒被執行：改版的常見症狀，但也可能只是還在登入畫面，所以照常短間隔重試。
+    HookNotFiring(String),
 }
 
 impl fmt::Display for GameNotRunning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Missing(msg) | Self::AccessDenied(msg) | Self::VersionMismatch(msg) => {
-                f.write_str(msg)
-            }
+            Self::Missing(msg)
+            | Self::AccessDenied(msg)
+            | Self::VersionMismatch(msg)
+            | Self::HookNotFiring(msg) => f.write_str(msg),
         }
     }
 }
@@ -121,20 +125,24 @@ impl fmt::Display for AttachError {
 }
 
 impl AttachError {
-    /// pattern 掃不到、多重命中（都在寫入遊戲之前）或等待逾時。
-    fn is_version_mismatch(&self) -> bool {
+    /// pattern 掃不到或多重命中（都在寫入遊戲之前）：同一個程序重試也不會好。
+    fn is_pattern_failure(&self) -> bool {
         matches!(
             self,
-            Self::Timeout
-                | Self::Hook(HookError::Scan(
-                    ScanError::NotFound(_) | ScanError::Multiple(..)
-                ))
+            Self::Hook(HookError::Scan(
+                ScanError::NotFound(_) | ScanError::Multiple(..)
+            ))
         )
     }
 }
 
-fn mem_error(err: MemError) -> String {
-    format!("{}: {err}", err.type_name())
+/// 記下失敗原因；與上次相同回 false（呼叫端就不再寫 log）。
+fn remember(last: &mut Option<String>, reason: &str) -> bool {
+    if last.as_deref() == Some(reason) {
+        return false;
+    }
+    *last = Some(reason.to_owned());
+    true
 }
 
 /// 掛入一個遊戲客戶端，回傳每輪新增的聊天事件與遊戲聊天框的分頁狀態。
@@ -154,6 +162,10 @@ pub struct WizChatReader {
     open: Opener,
     attached: Option<Attached>,
     pid: u32,
+    /// 已記過安裝路徑的 PID：重試連線時不重複寫。
+    path_logged_for: u32,
+    /// 上次記下的掛入失敗原因：同一原因的重試不重複寫 log。
+    last_attach_failure: Option<String>,
     edit_node: Option<Window>,
     last_seq: u64,
     chatbox: Option<u64>,
@@ -161,7 +173,8 @@ pub struct WizChatReader {
     foreign: HashSet<u64>,
     foreign_checked: Option<Instant>,
     tabs_logged: Option<Result<TabState, String>>,
-    held_from: u64,
+    /// 上一輪暫留的廣播（起始 seq, 筆數）；同一段沒有變長就不再暫留。
+    held: (u64, usize),
     refound: bool,
     no_chatbox: Vec<u64>,
 }
@@ -188,6 +201,8 @@ impl WizChatReader {
             open,
             attached: None,
             pid: 0,
+            path_logged_for: 0,
+            last_attach_failure: None,
             edit_node: None,
             last_seq: 0,
             chatbox: None,
@@ -195,7 +210,7 @@ impl WizChatReader {
             foreign: HashSet::new(),
             foreign_checked: None,
             tabs_logged: None,
-            held_from: 0,
+            held: (0, 0),
             refound: false,
             no_chatbox: Vec::new(),
         }
@@ -244,9 +259,12 @@ impl WizChatReader {
         let held = pending_broadcast(&records);
         if held > 0 {
             let head = records[records.len() - held].seq;
-            if records.last().map(|r| r.seq) == Some(got.last_seq) && head != self.held_from {
+            if records.last().map(|r| r.seq) == Some(got.last_seq)
+                && held < MAX_BROADCAST_RECORDS
+                && (head != self.held.0 || held > self.held.1)
+            {
                 // 廣播可能被這一輪切開：游標停在開頭之前，下一輪連同後段一起收斂
-                self.held_from = head;
+                self.held = (head, held);
                 self.last_seq = head - 1;
                 records.truncate(records.len() - held);
             }
@@ -259,8 +277,6 @@ impl WizChatReader {
                 events.push(ChatEvent {
                     line,
                     tabs: tabs.iter().map(|&t| t as i32).collect(),
-                    seq: rec.seq,
-                    raw: rec.text,
                 });
             }
         }
@@ -348,10 +364,8 @@ impl WizChatReader {
             if let Err(err) = self.refind_chatbox() {
                 self.chatbox = None;
                 log(format!(
-                    "[reader] chat box lookup failed (slot={}, pid={}): {}",
-                    self.slot,
-                    self.pid,
-                    mem_error(err)
+                    "[reader] chat box lookup failed (slot={}, pid={}): {err}",
+                    self.slot, self.pid
                 ));
             }
             if Some(rec.this) == self.chatbox {
@@ -446,22 +460,24 @@ impl WizChatReader {
         outcome.and_then(Result::ok)
     }
 
-    fn read_tabs(&mut self) -> Result<Option<TabState>, String> {
+    fn read_tabs(&mut self) -> Result<Option<TabState>, Box<dyn Error>> {
         if self.chatbox.is_none() || self.buttons.is_none() {
-            self.refind_chatbox().map_err(mem_error)?;
+            self.refind_chatbox()?;
         }
         let Some(chatbox) = self.chatbox else {
             return Ok(None);
         };
         if self.buttons.is_none() {
-            let root = self.root().map_err(mem_error)?;
-            let found = find_tab_buttons(self.conn().mem.as_ref(), root).map_err(mem_error)?;
+            let root = self.root()?;
+            let found = find_tab_buttons(self.conn().mem.as_ref(), root)?;
             self.buttons = Some(found);
         }
         let buttons = self.buttons.as_deref().unwrap_or_default();
-        read_tab_state(self.conn().mem.as_ref(), chatbox, buttons)
-            .map(Some)
-            .map_err(|err| format!("{}: {err}", err.type_name()))
+        Ok(Some(read_tab_state(
+            self.conn().mem.as_ref(),
+            chatbox,
+            buttons,
+        )?))
     }
 
     /// 只讀已知 ChatBox 的目前分頁（一次記憶體讀取）；沒有、讀不到或超出範圍回 None。
@@ -498,7 +514,7 @@ impl WizChatReader {
     }
 
     /// 遊戲聊天輸入框在螢幕上的矩形 `(x, y, w, h)`；未連上、節點失效或量不到回 None。
-    pub fn input_box_screen_rect(&mut self) -> Option<(i32, i32, i32, i32)> {
+    pub fn input_box_screen_rect(&mut self) -> Option<ScreenRect> {
         self.attached.as_ref()?;
         self.input_rect().unwrap_or_else(|err| {
             self.edit_node = None;
@@ -510,41 +526,36 @@ impl WizChatReader {
         })
     }
 
-    fn input_rect(&mut self) -> Result<Option<(i32, i32, i32, i32)>, String> {
-        let Some(node) = self.edit_container().map_err(mem_error)? else {
+    fn input_rect(&mut self) -> Result<Option<ScreenRect>, Box<dyn Error>> {
+        let Some(node) = self.edit_container()? else {
             return Ok(None);
         };
         let mem = self.conn().mem.as_ref();
-        let rect = node.rect(mem).map_err(mem_error)?;
+        let rect = node.rect(mem)?;
         // x2／y2 是含端點的邊：遊戲畫出的邊框比 x2−x1 多 1 邏輯 px（實機截圖逐像素比對）
         let size = (rect.x2 - rect.x1 + 1, rect.y2 - rect.y1 + 1);
         let mut offsets = vec![(rect.x1, rect.y1)];
         let mut current = node;
-        while let Some(parent) = current.parent(mem).map_err(mem_error)? {
+        while let Some(parent) = current.parent(mem)? {
             // 讀到撕裂的父指標可能成環；沒有上限的話 reader 執行緒會卡死、關閉時 join 不回來
             if offsets.len() > MAX_PARENT_DEPTH {
-                return Err(format!(
-                    "error: window parent chain deeper than {MAX_PARENT_DEPTH}"
-                ));
+                return Err(format!("window parent chain deeper than {MAX_PARENT_DEPTH}").into());
             }
-            let rect = parent.rect(mem).map_err(mem_error)?;
+            let rect = parent.rect(mem)?;
             offsets.push((rect.x1, rect.y1));
             current = parent;
         }
-        let root = self
-            .root()
-            .and_then(|root| root.rect(mem))
-            .map_err(mem_error)?;
+        let root = self.root()?.rect(mem)?;
         let root_size = (root.x2 - root.x1, root.y2 - root.y1);
-        let client = process::client_size(self.hwnd).ok_or("error: GetClientRect failed")?;
+        let client = process::client_size(self.hwnd).ok_or("GetClientRect failed")?;
         let (x, y, w, h) = client_rect(&offsets, size, root_size, client).ok_or_else(|| {
             format!(
-                "ValueError: degenerate root window size ({}, {})",
+                "degenerate root window size ({}, {})",
                 root_size.0, root_size.1
             )
         })?;
         let (left, top) =
-            process::client_to_screen(self.hwnd, 0, 0).ok_or("error: ClientToScreen failed")?;
+            process::client_to_screen(self.hwnd, 0, 0).ok_or("ClientToScreen failed")?;
         Ok(Some((left + x, top + y, w, h)))
     }
 
@@ -566,13 +577,19 @@ impl WizChatReader {
                 });
             }
         };
+        if self.pid != pid {
+            self.last_attach_failure = None;
+        }
         self.pid = pid;
-        let path =
-            process::install_path_of(pid).map_or_else(|| "None".to_owned(), |p| repr_str(&p));
-        log(format!(
-            "[reader] game path: {path} (slot={}, pid={pid})",
-            self.slot
-        ));
+        if self.path_logged_for != pid {
+            self.path_logged_for = pid;
+            let path = process::install_path_of(pid)
+                .map_or_else(|| "unknown".to_owned(), |p| repr_str(&p));
+            log(format!(
+                "[reader] game path: {path} (slot={}, pid={pid})",
+                self.slot
+            ));
+        }
         hook_state::sweep(&self.state_dir, process::pid_alive);
         hook_state::repair(&self.state_dir, mem.as_ref(), pid, self.slot as usize);
         self.attached = Some(Attached {
@@ -585,15 +602,19 @@ impl WizChatReader {
             Ok(waited) => waited,
             Err(err) => {
                 self.teardown();
-                return Err(if err.is_version_mismatch() {
-                    GameNotRunning::VersionMismatch(format!(
-                        "hook does not match this game build: {err}"
-                    ))
+                let mismatch = format!("hook does not match this game build: {err}");
+                return Err(if err.is_pattern_failure() {
+                    GameNotRunning::VersionMismatch(mismatch)
+                } else if matches!(err, AttachError::Timeout) {
+                    GameNotRunning::HookNotFiring(mismatch)
                 } else {
                     GameNotRunning::Missing(format!("failed to attach to game: {err}"))
                 });
             }
         };
+        self.last_attach_failure = None;
+        // 連線成功才清：遊戲可能已改版；失敗重試也清的話每輪都會重洗警告
+        forget_warned_icons();
         log(format!(
             "[reader] attached to game (slot={}, pid={pid}, hwnd={:#x}, hook_ready_in={:.1}s)",
             self.slot,
@@ -621,8 +642,8 @@ impl WizChatReader {
     /// 等 hook 把 root window 位址寫回來（非 0＝hook 真的被執行過），回傳等待時間。
     ///
     /// hook 剛寫入時位址尚未有效，讀取失敗一律當成還沒好；真正的失敗只有逾時。
-    fn wait_root_window_ready(&self) -> Result<Duration, AttachError> {
-        let conn = self.conn();
+    fn wait_root_window_ready(&mut self) -> Result<Duration, AttachError> {
+        let conn = self.attached.as_ref().expect("reader is attached");
         let started = (self.clock.now)();
         let deadline = started + HOOK_READY_TIMEOUT;
         loop {
@@ -630,13 +651,15 @@ impl WizChatReader {
                 return Ok((self.clock.now)() - started);
             }
             if (self.clock.now)() >= deadline {
-                log(format!(
-                    "[reader] root window hook never fired within {}s (slot={}, pid={}); the \
+                if remember(&mut self.last_attach_failure, "root window hook timeout") {
+                    log(format!(
+                        "[reader] root window hook never fired within {}s (slot={}, pid={}); the \
                      hook pattern likely does not match this game build",
-                    HOOK_READY_TIMEOUT.as_secs(),
-                    self.slot,
-                    self.pid
-                ));
+                        HOOK_READY_TIMEOUT.as_secs(),
+                        self.slot,
+                        self.pid
+                    ));
+                }
                 return Err(AttachError::Timeout);
             }
             (self.clock.sleep)(HOOK_READY_POLL);
@@ -651,11 +674,12 @@ impl WizChatReader {
         let hook = match AddLineHook::install(mem.as_ref(), cave) {
             Ok(hook) => hook,
             Err(err) => {
-                log(format!(
-                    "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {}: {err}; \
-                     a pattern failure here needs chat_hook::PATTERN updated in a new release",
-                    err.type_name()
-                ));
+                if remember(&mut self.last_attach_failure, &format!("addline: {err}")) {
+                    log(format!(
+                        "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {err}; \
+                         a pattern failure here needs chat_hook::PATTERN updated in a new release"
+                    ));
+                }
                 return Err(err);
             }
         };
@@ -680,10 +704,10 @@ impl WizChatReader {
         let saved = conn
             .mem
             .module_base(MODULE)
-            .map_err(mem_error)
+            .map_err(|err| err.to_string())
             .and_then(|base| {
                 hook_state::save_state(&self.state_dir, self.pid, base, &ops)
-                    .map_err(|err| format!("OSError: {err}"))
+                    .map_err(|err| err.to_string())
             });
         if let Err(err) = saved {
             log(format!(
@@ -719,8 +743,7 @@ impl WizChatReader {
         self.buttons = None;
         self.foreign.clear();
         self.tabs_logged = None;
-        self.held_from = 0;
-        forget_warned_icons();
+        self.held = (0, 0);
     }
 
     /// 停止時呼叫：解除 hook、清掉 hookstate、關閉連線。

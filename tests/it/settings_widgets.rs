@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::common::kittest::click_at;
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
@@ -221,19 +222,6 @@ fn editable_combo_filters_while_typing_and_picks_with_enter() {
     h.run_steps(2);
     assert_eq!(h.state().text, "claude-haiku-4-5");
     assert!(h.query_by_label("claude-3-5-haiku-latest").is_none());
-}
-
-fn click_at(h: &mut Harness<Combo>, pos: egui::Pos2) {
-    h.event(egui::Event::PointerMoved(pos));
-    for pressed in [true, false] {
-        h.event(egui::Event::PointerButton {
-            pos,
-            button: egui::PointerButton::Primary,
-            pressed,
-            modifiers: egui::Modifiers::NONE,
-        });
-    }
-    h.run_steps(3);
 }
 
 #[test]

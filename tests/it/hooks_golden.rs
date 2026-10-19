@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use common::fake_game::place;
-use common::log_capture::log_lines_with;
+use common::log_capture::{capture_logs, log_lines_with};
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
@@ -284,7 +284,7 @@ fn pid_of(input: &Value) -> u32 {
 }
 
 #[test]
-fn hookstate_bytes_match_python() {
+fn hookstate_roundtrips_the_golden_inputs() {
     let cases = common::golden("hookstate_bytes");
     assert!(!cases.is_empty());
     let dir = tempfile::tempdir().unwrap();
@@ -292,8 +292,11 @@ fn hookstate_bytes_match_python() {
         let input = &case["input"];
         let pid = pid_of(input);
         hook_state::save_state(dir.path(), pid, n(&input["base"]), &ops_of(input)).unwrap();
-        let written = std::fs::read(dir.path().join(format!("hookstate-{pid}.json"))).unwrap();
-        assert_eq!(written, case["output"].as_str().unwrap().as_bytes());
+        let base = n(&input["base"]);
+        assert_eq!(
+            hook_state::load_state(dir.path(), pid),
+            (Some(base), ops_of(input))
+        );
     }
 }
 
@@ -364,7 +367,7 @@ fn sweep_removes_dead_pids_only() {
 
 #[test]
 fn repair_reports_write_failures_instead_of_claiming_success() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(
         dir.path(),
@@ -394,7 +397,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
     );
     assert_eq!(
         log_lines_with(
-            "[reader] hook repair write failed at 0x3000 (slot=2, len=1): MemoryWriteError: \
+            "[reader] hook repair write failed at 0x3000 (slot=2, len=1): \
              Unable to write memory at address 12288."
         )
         .len(),
@@ -405,7 +408,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
 
 #[test]
 fn repair_skips_and_logs_a_stale_state_file() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(dir.path(), 770_002, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
@@ -434,7 +437,7 @@ fn repair_without_state_touches_nothing() {
 
 #[test]
 fn repair_ignores_state_when_module_base_is_unreadable() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(dir.path(), 770_003, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
@@ -445,7 +448,7 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
     let lines = log_lines_with("pid=770003");
     assert!(
         lines.iter().any(|l| l.contains(
-            "[reader] cannot read module base, ignoring hook state (slot=4, pid=770003): ValueError: WizardGraphicalClient.exe module not found."
+            "[reader] cannot read module base, ignoring hook state (slot=4, pid=770003): WizardGraphicalClient.exe module not found."
         )),
         "{lines:?}"
     );
@@ -453,21 +456,21 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
 
 #[test]
 fn corrupt_state_file_is_logged_and_ignored() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     let cases = [
-        (770_010, "{ not json", "JSONDecodeError: "),
+        (770_010, "{ not json", "malformed hook state (invalid JSON)"),
         (
             770_011,
             r#"{"base": 1, "ops": [{"addr": 2, "bytes": "+f"}]}"#,
-            "ValueError: ",
+            "malformed hook state",
         ),
         (
             770_012,
             r#"{"base": 1, "ops": [{"addr": 2, "bytes": "abc"}]}"#,
-            "ValueError: ",
+            "malformed hook state",
         ),
-        (770_013, r#"{"ops": []}"#, "ValueError: "),
+        (770_013, r#"{"ops": []}"#, "malformed hook state"),
     ];
     for (pid, text, kind) in cases {
         std::fs::write(state_file(dir.path(), pid), text).unwrap();

@@ -2,7 +2,8 @@
 
 use eframe::egui::epaint::Shadow;
 use eframe::egui::{
-    Color32, CornerRadius, FontFamily, FontId, Stroke, Style, TextStyle, Vec2, Visuals, vec2,
+    Color32, CornerRadius, FontFamily, FontId, Margin, Stroke, Style, TextStyle, Vec2, Visuals,
+    vec2,
 };
 
 use crate::ui::fonts_egui::{BOLD, ICONS};
@@ -81,8 +82,13 @@ pub const WIZARD_MIN_SIZE: Vec2 = vec2(600.0, 380.0);
 pub const SIDEBAR_WIDTH: f32 = 200.0;
 /// 導覽項高。
 pub const NAV_HEIGHT: f32 = 40.0;
-/// 內容區內距：上、右、下、左。
-pub const CONTENT_MARGIN: (f32, f32, f32, f32) = (20.0, 28.0, 16.0, 24.0);
+/// 內容區內距。
+pub const CONTENT_MARGIN: Margin = Margin {
+    left: 24,
+    right: 28,
+    top: 20,
+    bottom: 16,
+};
 /// 頁標題字級（粗體）。
 pub const TITLE_SIZE: f32 = 22.0;
 /// 卡片圓角。

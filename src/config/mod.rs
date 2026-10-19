@@ -13,9 +13,10 @@ pub use services::{ServiceSlot, ServiceSpec};
 
 use crate::i18n::{SOURCE_LANGUAGE, detect_system_language, language_name, t};
 use crate::logs::log;
+use crate::util::write_atomic;
 use services::{UNSUPPORTED_SERVICES, find, normalize, quarantined, validate_service};
 
-/// 整份設定：保留未知欄位與鍵的順序，寫回時才能與 Python 版逐 byte 相同。
+/// 整份設定：保留未知欄位與鍵的順序，使用者手改的檔案寫回後排列不變。
 pub type Config = Map<String, Value>;
 
 /// 應用程式顯示名稱（隨介面語言變動）。
@@ -124,13 +125,22 @@ fn clamp_advanced(values: &mut Config, defaults: &Config) {
     }
 }
 
-/// 某個進階數值的安全範圍 `(下限, 上限)`；鍵不在表內時 panic（呼叫端只傳固定鍵）。
-pub fn advanced_limits(key: &str) -> (f64, f64) {
+fn advanced_entry(key: &str) -> &'static (&'static str, f64, f64, bool) {
     ADVANCED_LIMITS
         .iter()
         .find(|(k, ..)| *k == key)
-        .map(|&(_, lo, hi, _)| (lo, hi))
         .unwrap_or_else(|| panic!("unknown advanced key {key:?}"))
+}
+
+/// 某個進階數值的安全範圍 `(下限, 上限)`；鍵不在表內時 panic（呼叫端只傳固定鍵）。
+pub fn advanced_limits(key: &str) -> (f64, f64) {
+    let &(_, lo, hi, _) = advanced_entry(key);
+    (lo, hi)
+}
+
+/// 某個進階數值是不是浮點欄位；鍵不在表內時 panic。
+pub fn advanced_is_float(key: &str) -> bool {
+    advanced_entry(key).3
 }
 
 /// 設定頁進階分頁的欄位原文；透明度來自滑桿，本來就是數字。
@@ -259,19 +269,12 @@ pub fn load_config(path: &Path) -> Config {
     cfg
 }
 
-/// 把整份設定寫回 config.json；內容與 Python 的 `json.dumps(indent=2)` 經 `write_text` 逐 byte 相同（CRLF、無結尾換行）。
+/// 把整份設定以縮排兩格的 JSON 寫回 config.json（CRLF、無結尾換行）。
 ///
-/// 先寫同資料夾的暫存檔再改名：寫到一半當機時，原本的設定（含金鑰）還在。
+/// 經暫存檔改名：寫到一半當機時，原本的設定（含金鑰）還在。
 pub fn save_config(path: &Path, cfg: &Config) -> io::Result<()> {
-    let text = py::dumps_indent2(&Value::Object(cfg.clone()));
-    let mut temp_name = path.as_os_str().to_owned();
-    temp_name.push(".tmp");
-    let temp = PathBuf::from(temp_name);
-    fs::write(&temp, text.replace('\n', "\r\n"))
-        .and_then(|()| fs::rename(&temp, path))
-        .inspect_err(|_| {
-            let _ = fs::remove_file(&temp);
-        })
+    let text = serde_json::to_string_pretty(cfg).map_err(io::Error::other)?;
+    write_atomic(path, &text.replace('\n', "\r\n"))
 }
 
 /// 預設服務存在且設定完整（不完整 → 啟動時進首次設定精靈）。
@@ -382,8 +385,6 @@ pub struct Settings {
     pub max_messages: usize,
     /// 同時翻譯則數。
     pub max_parallel_translations: usize,
-    /// 是否翻譯遊戲系統訊息。
-    pub translate_system_messages: bool,
     /// 收訊的目標語言（人讀名稱）。
     pub target_language: String,
     /// 疊加視窗的位置與大小。
@@ -414,7 +415,6 @@ impl Settings {
             fade_seconds: num(&["fade_seconds"]) as u32,
             max_messages: num(&["max_messages"]) as usize,
             max_parallel_translations: num(&["max_parallel_translations"]) as usize,
-            translate_system_messages: py::truthy(cfg.get("translate_system_messages")),
             target_language: py::display(
                 cfg.get("target_language")
                     .unwrap_or(&defaults["target_language"]),
@@ -540,9 +540,32 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
         fs::write(&path, "precious").unwrap();
-        // 暫存檔的位置被資料夾佔住：寫入失敗
-        fs::create_dir(dir.path().join("config.json.tmp")).unwrap();
-        assert!(save_config(&path, &default_config()).is_err());
+        // Windows 不讓 rename 覆蓋唯讀檔：寫入失敗
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&path, perms.clone()).unwrap();
+        let failed = save_config(&path, &default_config()).is_err();
+        #[allow(clippy::permissions_set_readonly_false)]
+        perms.set_readonly(false);
+        fs::set_permissions(&path, perms).unwrap();
+        assert!(failed);
         assert_eq!(fs::read_to_string(&path).unwrap(), "precious");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_overflowing_number_is_saved_in_a_form_that_loads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut cfg = default_config();
+        cfg.insert("type_delay".into(), serde_json::from_str("1e400").unwrap());
+        cfg.insert("hotkey".into(), "f9".into());
+        save_config(&path, &cfg).unwrap();
+        let loaded = load_config(&path);
+        assert_eq!(loaded["hotkey"], "f9", "file must not be discarded");
+        assert_eq!(
+            loaded["type_delay"], 0.5,
+            "huge number is clamped, not reset"
+        );
     }
 }

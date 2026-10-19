@@ -1,6 +1,5 @@
 //! 辨識加翻譯的流程：OCR 與翻譯 backend 都用替身；另驗證 OCR 不佔用 async worker、錯誤分類與文案。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::{Arc, Mutex};

@@ -25,6 +25,29 @@ pub fn runtime() -> Runtime {
         .unwrap()
 }
 
+/// 假翻譯池失敗時顯示的文字。
+pub const FAILED: &str = "⚠  這則訊息翻譯不出來";
+
+/// 假翻譯池描述自己的 log 片段。
+pub const DESCRIBE: &str = "provider=fake-pool, model=fake-model";
+
+/// 以固定的失敗文字與描述組一個翻譯池，結果交給 `on_result`；`handle` 是跑它的 runtime。
+pub fn new_pool(
+    translate: TranslateFn,
+    on_result: ResultFn,
+    gate: Arc<ConcurrencyGate>,
+    handle: tokio::runtime::Handle,
+) -> TranslationPool {
+    TranslationPool::new(
+        translate,
+        on_result,
+        gate,
+        Arc::new(|| FAILED.to_owned()),
+        Arc::new(|| DESCRIBE.to_owned()),
+        handle,
+    )
+}
+
 /// 以 `translate` 建一個翻譯池，結果送進回傳的 channel。
 pub fn pool(
     rt: &Runtime,
@@ -35,12 +58,10 @@ pub fn pool(
     let on_result: ResultFn = Arc::new(move |id, text, failed| {
         let _ = tx.lock().unwrap().send((id, text, failed));
     });
-    let pool = TranslationPool::new(
+    let pool = new_pool(
         translate,
         on_result,
         Arc::new(ConcurrencyGate::new(4)),
-        Arc::new(|| "failed".to_owned()),
-        Arc::new(|| "provider=fake".to_owned()),
         rt.handle().clone(),
     );
     (Arc::new(pool), rx)

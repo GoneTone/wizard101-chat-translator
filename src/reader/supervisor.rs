@@ -25,18 +25,8 @@ pub fn allocate_slot(used: impl IntoIterator<Item = u32>) -> u32 {
     (1..).find(|slot| !taken.contains(slot)).unwrap_or(1)
 }
 
-/// supervisor 執行緒的進入點；stop 被設定後等所有收訊執行緒結束再返回。
+/// supervisor 執行緒的進入點；stop 被設定後等所有收訊執行緒結束再返回，時鐘由呼叫端提供。
 pub fn supervise(
-    stop: &CancellationToken,
-    spawn: impl FnMut(isize, u32) -> Option<JoinHandle<()>>,
-    windows: impl FnMut() -> Vec<isize>,
-    board: &StatusBoard,
-) {
-    supervise_with(stop, spawn, windows, board, &Clock::default());
-}
-
-/// 同 [`supervise`]，時鐘由呼叫端提供。
-pub fn supervise_with(
     stop: &CancellationToken,
     mut spawn: impl FnMut(isize, u32) -> Option<JoinHandle<()>>,
     mut windows: impl FnMut() -> Vec<isize>,

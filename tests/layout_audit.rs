@@ -1,8 +1,10 @@
 //! 版面稽核：以離屏 wgpu 渲染設定視窗與首次設定精靈的各畫面與狀態，存成 PNG 供人工比對設計稿（不開視窗、不碰桌面）。
 //!
-//! 執行：`LAYOUT_AUDIT_DIR=<資料夾> cargo test --test it layout_audit -- --ignored`；PNG 不進版控。
+//! 執行：`LAYOUT_AUDIT_DIR=<資料夾> cargo test --test layout_audit -- --ignored`；PNG 不進版控。
+//!
+//! 會切換全域介面語言，獨立成一個測試執行檔，不放進 `tests/it`。
 
-use crate::common;
+mod common;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -13,10 +15,11 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
+use common::kittest::{click, tr};
 use common::settings_env::FakeEnv;
 use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
-use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::TestOutcome;
@@ -27,10 +30,6 @@ use wizard101_chat_translator::ui::settings::window::{Page, SettingsWindow};
 use wizard101_chat_translator::ui::settings::wizard::Wizard;
 
 const PROVIDERS: [&str; 4] = ["claude", "openai", "gemini", "custom"];
-
-fn tr(key: &str) -> String {
-    t(key, &[])
-}
 
 fn out_dir() -> PathBuf {
     let dir = PathBuf::from(
@@ -76,13 +75,6 @@ fn settings(cfg: &Config, language: &'static str, size: Vec2) -> Harness<'static
         );
     h.run_steps(3);
     h
-}
-
-fn click<S>(h: &mut Harness<'_, S>, role: Role, label: &str) {
-    h.get_by_role_and_label(role, label).scroll_to_me();
-    h.run_steps(3);
-    h.get_by_role_and_label(role, label).click();
-    h.run_steps(3);
 }
 
 /// 由上而下第 `index` 個名稱是 `label` 的按鈕。
@@ -285,7 +277,7 @@ fn wizard_states(language: &'static str, tag: &str) {
     wiz::next(&mut h);
     save(&mut h, &format!("wizard_{tag}_3_prefs"));
     wiz::record(&mut h, 1, "ctrl+space");
-    wiz::click(&mut h, Role::Button, &tr("button.finish"));
+    click(&mut h, Role::Button, &tr("button.finish"));
     save(&mut h, &format!("wizard_{tag}_3_hotkeys_same"));
 }
 

@@ -1,6 +1,5 @@
 //! Translator 與 ExampleCoordinator 的行為測試：假 backend 記錄收到的 system 與對話輪，不打真 API。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -377,6 +376,17 @@ async fn region_drops_code_fences_around_the_translation() {
         .translate_region_text("Talk to Merle Ambrose\nSecond line", None)
         .await;
     assert_eq!(out.unwrap(), "跟莫爾談談\n第二行");
+}
+
+#[tokio::test]
+async fn a_blank_model_reply_is_bad_output_for_incoming_and_system_messages() {
+    for reply in ["", "  \n"] {
+        let fake = Fake::texts(&[reply]);
+        let tr = make(&fake);
+        let expected = Err(TranslateError::BadOutput("model returned no text".into()));
+        assert_eq!(tr.translate_incoming("[A] hi", &[]).await, expected);
+        assert_eq!(tr.translate_system_message("hi").await, expected);
+    }
 }
 
 #[tokio::test]
@@ -791,7 +801,7 @@ fn a_failed_fingerprint_is_not_retried_in_the_same_run() {
     assert!(h.co.ensure(&tr).is_none());
     assert_eq!(fake.calls().len(), 1);
     assert!(tr.examples().is_none());
-    assert!(log_text().contains("): TranslatorOffline: down"));
+    assert!(log_text().contains("): offline: down"));
 }
 
 #[test]
@@ -965,9 +975,11 @@ async fn example_failure_after_a_good_test_still_returns_the_translation() {
         .await
         .unwrap();
     assert_eq!(out.translated, "[Tester] 你好！");
-    assert!(log_text().contains(
-        "[translate] example generation after the connection test failed: TranslatorConfigError"
-    ));
+    assert!(
+        log_text().contains(
+            "[translate] example generation after the connection test failed: config error"
+        )
+    );
 }
 
 #[tokio::test]
@@ -992,14 +1004,122 @@ async fn generate_and_store_uses_the_cache_and_skips_empty_results() {
 
     let fake = Fake::texts(&[JA]);
     let tr = make_with(&fake, "日本語");
-    let generated = generate_and_store(&tr, &store).await.unwrap().unwrap();
-    assert_eq!(
-        store.get(&tr.examples_fingerprint()),
-        Some(generated.clone())
-    );
+    let (fingerprint, generated) = generate_and_store(&tr, &store).await.unwrap().unwrap();
+    assert_eq!(fingerprint, tr.examples_fingerprint());
+    assert_eq!(store.get(&fingerprint), Some(generated.clone()));
     let calls = fake.calls().len();
 
-    assert_eq!(generate_and_store(&tr, &store).await, Ok(Some(generated)));
+    assert_eq!(
+        generate_and_store(&tr, &store).await,
+        Ok(Some((fingerprint.clone(), generated)))
+    );
     assert_eq!(fake.calls().len(), calls);
-    assert!(log_text().contains("[translate] examples loaded from cache:"));
+    assert!(log_text().contains(&format!(
+        "[translate] examples loaded from cache (fingerprint={fingerprint}):"
+    )));
+}
+
+/// 測試連線卡在生成請求（第 2 次呼叫）時，coordinator 對同一 store／指紋 `ensure` `tb`；確認它在等，跑完 `while_waiting` 再放行。
+fn race_with_connection_test(
+    h: &Harness,
+    fa: &Arc<Fake>,
+    tb: &Arc<Translator>,
+    while_waiting: impl FnOnce(),
+) {
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    let release_rx = std::sync::Mutex::new(release_rx);
+    fa.on_call(move |n| {
+        if n == 2 {
+            entered_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    let (ta, store) = (make_with(fa, "日本語"), Arc::clone(&h.store));
+    let test = std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(test_translate(ta, Some(store))).unwrap();
+    });
+    entered.recv().unwrap();
+
+    let mut job = h.co.ensure(tb).expect("a cache miss starts a generation");
+    h.rt.block_on(async {
+        let waited = tokio::time::timeout(std::time::Duration::from_millis(200), &mut job).await;
+        assert!(
+            waited.is_err(),
+            "the coordinator must wait for the running generation"
+        );
+        while_waiting();
+        release.send(()).unwrap();
+        job.await.unwrap();
+    });
+    test.join().unwrap();
+}
+
+/// 測試連線：翻譯成功、生成請求失敗。
+fn fake_failing_generation() -> Arc<Fake> {
+    Fake::new(
+        "m",
+        vec![
+            Ok("[Tester] 你好！".into()),
+            Err(TranslateError::offline("down")),
+        ],
+    )
+}
+
+#[test]
+fn a_connection_test_and_the_coordinator_share_one_generation() {
+    let h = harness();
+    let (fa, fb) = (fake_with_examples(), Fake::texts(&[JA]));
+    let tb = make_with(&fb, "日本語");
+    race_with_connection_test(&h, &fa, &tb, || {});
+    assert_eq!((fa.calls().len(), fb.calls().len()), (2, 0));
+    assert!(tb.examples().is_some_and(|e| e.complete()));
+    assert_eq!(h.applied(), 1);
+}
+
+#[test]
+fn the_waiting_coordinator_takes_over_when_the_connection_test_generation_fails() {
+    let h = harness();
+    let (fa, fb) = (fake_failing_generation(), Fake::texts(&[JA]));
+    let tb = make_with(&fb, "日本語");
+    race_with_connection_test(&h, &fa, &tb, || {});
+    assert_eq!((fa.calls().len(), fb.calls().len()), (2, 1));
+    assert!(tb.examples().is_some_and(|e| e.complete()));
+    assert_eq!(h.applied(), 1);
+}
+
+#[test]
+fn settings_changed_while_waiting_abandon_the_generation() {
+    let h = harness();
+    let (fa, fb) = (fake_failing_generation(), Fake::texts(&[JA]));
+    let tb = make_with(&fb, "日本語");
+    let requested = tb.examples_fingerprint();
+    race_with_connection_test(&h, &fa, &tb, || {
+        tb.reconfigure(spec("m"), ZH.into());
+    });
+    assert!(fb.calls().is_empty());
+    assert!(tb.examples().is_none());
+    assert!(log_text().contains(&format!(
+        "[translate] example generation skipped, settings changed while waiting (provider=custom, model=m, fingerprint={requested})"
+    )));
+    assert!(log_text().contains(&format!(
+        "[translate] example generation abandoned, settings changed (fingerprint={requested})"
+    )));
+}
+
+#[tokio::test]
+async fn a_failed_generation_does_not_block_a_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+    let down = Fake::new("m", vec![Err(TranslateError::offline("down"))]);
+    assert!(
+        generate_and_store(&make_with(&down, "日本語"), &store)
+            .await
+            .is_err()
+    );
+    let fake = Fake::texts(&[JA]);
+    let tr = make_with(&fake, "日本語");
+    assert!(generate_and_store(&tr, &store).await.unwrap().is_some());
+    assert_eq!(fake.calls().len(), 1);
 }

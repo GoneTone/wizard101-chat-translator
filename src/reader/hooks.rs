@@ -9,7 +9,7 @@ use super::memory::{MemError, ProcessMemory};
 use super::pattern::{self, ScanError};
 
 /// 所有 hook 掃描的模組。
-pub const MODULE: &str = "WizardGraphicalClient.exe";
+pub const MODULE: &str = super::process::PROCESS_NAME;
 
 /// autobot 函式的 pattern（wizwalker `HookHandler.AUTOBOT_PATTERN` 原文）；原文長度即要保存的位元組數。
 pub const AUTOBOT_PATTERN: &str = concat!(
@@ -35,7 +35,7 @@ pub enum HookError {
     Mem(MemError),
     /// cave 放不下更多 stub（對應 wizwalker 的 `RuntimeError`）。
     CaveFull,
-    /// 跳轉距離超出 rel32（對應 Python `struct.pack("<i")` 的 `struct.error`）。
+    /// 跳轉距離超出 rel32。
     JumpOutOfRange,
 }
 
@@ -45,26 +45,12 @@ impl fmt::Display for HookError {
             Self::Scan(err) => err.fmt(f),
             Self::Mem(err) => err.fmt(f),
             Self::CaveFull => f.write_str("Somehow went over autobot size"),
-            Self::JumpOutOfRange => {
-                f.write_str("'i' format requires -2147483648 <= number <= 2147483647")
-            }
+            Self::JumpOutOfRange => f.write_str("jump distance does not fit in rel32"),
         }
     }
 }
 
 impl std::error::Error for HookError {}
-
-impl HookError {
-    /// Python 版對應的例外類別名稱（log 的 `{type}: {exc}` 格式用）。
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Self::Scan(err) => err.type_name(),
-            Self::Mem(err) => err.type_name(),
-            Self::CaveFull => "RuntimeError",
-            Self::JumpOutOfRange => "error",
-        }
-    }
-}
 
 impl From<ScanError> for HookError {
     fn from(err: ScanError) -> Self {
@@ -181,12 +167,7 @@ impl AutobotCave {
             .collect()
     }
 
-    /// 依掛入順序寫回各跳轉點，等 0.5 秒後釋放 export、在內容不同時還原 cave 的 208 bytes；唯一的解除途徑。
-    pub fn uninstall(self, mem: &dyn ProcessMemory) -> Result<(), MemError> {
-        self.uninstall_with(mem, std::thread::sleep)
-    }
-
-    /// 同 [`AutobotCave::uninstall`]，等待由 `wait` 執行（測試用）。
+    /// 依掛入順序寫回各跳轉點，等 0.5 秒（由 `wait` 執行）後釋放 export、在內容不同時還原 cave 的 208 bytes；唯一的解除途徑。
     pub fn uninstall_with(
         self,
         mem: &dyn ProcessMemory,
@@ -228,7 +209,7 @@ pub struct RootWindowHook {
 }
 
 impl RootWindowHook {
-    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall`] 解除）。
+    /// 掛上並登記到 cave（由 [`AutobotCave::uninstall_with`] 解除）。
     pub fn install(mem: &dyn ProcessMemory, cave: &mut AutobotCave) -> Result<Self, HookError> {
         let (_, export) = ROOT_WINDOW.install(mem, cave, |export| {
             [

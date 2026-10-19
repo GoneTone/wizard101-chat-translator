@@ -9,6 +9,7 @@ use serde::de::{Deserializer, MapAccess, Visitor};
 
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
+use crate::util::lock;
 
 mod closest;
 
@@ -130,9 +131,14 @@ fn offered_languages(catalogs: &[(&str, &Catalog)]) -> Vec<(String, String)> {
         .find(|(code, _)| *code == SOURCE_LANGUAGE)
         .map_or(&empty, |(_, catalog)| *catalog);
     let mut found = Vec::new();
+    let mut empty = Vec::new();
     for (code, catalog) in catalogs {
         let name = catalog.get(META_NAME).cloned().unwrap_or_default();
         if *code != SOURCE_LANGUAGE && *code != DEFAULT_LANGUAGE {
+            if catalog.is_empty() {
+                empty.push(*code);
+                continue;
+            }
             let coverage = coverage(catalog, source) * 100.0;
             if name.is_empty() {
                 log(format!(
@@ -154,6 +160,12 @@ fn offered_languages(catalogs: &[(&str, &Catalog)]) -> Vec<(String, String)> {
             name
         };
         found.push(((*code).to_string(), name));
+    }
+    if !empty.is_empty() {
+        log(format!(
+            "[i18n] empty catalogs skipped: {}",
+            empty.join(",")
+        ));
     }
     found
 }
@@ -196,7 +208,7 @@ fn current() -> &'static Mutex<String> {
 
 /// 目前的介面語言碼。
 pub fn current_language() -> String {
-    current().lock().unwrap().clone()
+    lock(current()).clone()
 }
 
 /// 切換介面語言；語言碼不認得時退回預設語言。
@@ -209,7 +221,7 @@ pub fn set_language(code: &str) {
         ));
         DEFAULT_LANGUAGE
     };
-    *current().lock().unwrap() = code.to_string();
+    *lock(current()) = code.to_string();
     log(format!("[i18n] language set: {code}"));
 }
 

@@ -730,9 +730,9 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
             Box::new(RegionAnswer(region_poster)),
             Arc::new(AtomicBool::new(false)),
         );
-        let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}))
-            .with_input(input, events, Arc::new(RwLock::new(Config::new())))
-            .with_region(region);
+        let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}));
+        app.set_input(input, events, Arc::new(RwLock::new(Config::new())));
+        app.set_region(region);
         let desktop = Desktop {
             force_foreground: |_| false,
             work_area_at: |_, _| BOX_AREA,
@@ -951,10 +951,11 @@ fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
             cursor_work_area: || (BOX_AREA, scale_at(BOX_AREA.0, BOX_AREA.1)),
             ..WindowOps::real()
         });
-        let app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {})).with_settings(
+        let mut app = App::new(ctx, inbox, Frame::new(ALPHA, None, |_, _, _, _| {}));
+        app.set_settings(
             host,
             Arc::new(RwLock::new(Config::new())),
-            Box::new(|_| (String::new(), None)),
+            Box::new(|_| None),
         );
         SettingsProbe {
             app,

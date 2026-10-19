@@ -1,6 +1,6 @@
 //! 基本分頁：介面語言、翻譯目標語言、預設服務摘要、兩把熱鍵與相關開關。
 
-use eframe::egui::{Id, Label, Sense, Ui, Vec2};
+use eframe::egui::{Id, Label, Ui};
 
 use super::{Page, SettingsWindow};
 use crate::config::services::str_field;
@@ -8,7 +8,7 @@ use crate::i18n::t;
 use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::fields::editable_combo;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
-use crate::ui::settings::provider_picker::{paint_provider_icon, provider_texture};
+use crate::ui::settings::provider_picker::provider_icon;
 use crate::ui::settings::widgets::{card, secondary_button, setting_row, toggle};
 
 impl SettingsWindow {
@@ -60,21 +60,12 @@ impl SettingsWindow {
     /// 草稿裡預設服務的圖示與名稱（未儲存的編輯也算）；沒有預設服務時顯示「—」。
     fn service_summary(&self, ui: &mut Ui) {
         let draft = self.services.draft();
-        let default = draft.default.as_deref().and_then(|id| {
-            draft
-                .services
-                .iter()
-                .find(|service| str_field(service, "id") == id)
-        });
-        let Some(service) = default else {
+        let Some(service) = draft.find(draft.default.as_deref()) else {
             ui.add(Label::new("—"));
             return;
         };
         let provider = str_field(service, "provider");
-        if provider_texture(ui.ctx(), provider).is_some() {
-            let (rect, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
-            paint_provider_icon(ui, provider, rect);
-        }
+        provider_icon(ui, provider, 20.0);
         ui.add(Label::new(str_field(service, "name")));
     }
 }

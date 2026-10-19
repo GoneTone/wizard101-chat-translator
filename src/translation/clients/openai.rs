@@ -10,16 +10,15 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, cancellable, connection_error, count_of,
-    http_client, secret_header, truncated,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, connection_error,
+    count_of, finish_text, http_client, parse_object, secret_header, status_failure, truncated,
 };
 use crate::logs::log;
-use crate::py::pystr;
 use crate::translation::Turn;
 use crate::translation::errors::{
     TranslateError, error_detail, model_list_error, rejected_parameter, status_error,
 };
-use crate::translation::postprocess::strip_think;
+use crate::util::lock;
 
 /// 長度上限的兩個名字互換而非拿掉：它是防 repetition loop 的保險。
 fn other_token_param(name: &str) -> Option<&'static str> {
@@ -35,14 +34,6 @@ struct Learned {
     token_param: &'static str,
     dropped: BTreeSet<String>,
     rejected_token_params: BTreeSet<String>,
-}
-
-/// 一次串流讀完的結果。
-#[derive(Default)]
-struct Streamed {
-    content: String,
-    finish_reason: Option<String>,
-    usage: Option<Value>,
 }
 
 /// OpenAI 相容端點的 client。
@@ -105,7 +96,7 @@ impl OpenAiCompatClient {
         max_tokens: u32,
         deterministic: bool,
     ) -> Value {
-        let learned = self.learned.lock().unwrap_or_else(|e| e.into_inner());
+        let learned = lock(&self.learned);
         let mut messages = vec![json!({"role": "system", "content": system})];
         messages.extend(
             turns
@@ -143,7 +134,7 @@ impl OpenAiCompatClient {
 
     /// 記住端點拒絕的參數，回傳下一次請求是否還有變化可試（長度上限兩個名字都被拒就沒招了）。
     fn learn_rejection(&self, param: &str) -> bool {
-        let mut learned = self.learned.lock().unwrap_or_else(|e| e.into_inner());
+        let mut learned = lock(&self.learned);
         if let Some(other) = other_token_param(param) {
             learned.rejected_token_params.insert(param.to_owned());
             if learned.rejected_token_params.contains(other) {
@@ -209,7 +200,7 @@ impl OpenAiCompatClient {
                 &streamed.content,
             ));
         }
-        Ok(pystr::strip(&strip_think(&streamed.content)).to_owned())
+        Ok(finish_text(&streamed.content))
     }
 
     async fn stream_once(&self, body: &Value) -> Result<Streamed, TranslateError> {
@@ -221,21 +212,16 @@ impl OpenAiCompatClient {
             .await
             .map_err(connection_error)?;
         let status = resp.status().as_u16();
-        if status >= 400 {
+        if !resp.status().is_success() {
             let text = resp.text().await.map_err(connection_error)?;
-            return Err(status_error(status, &error_detail(&text)).expect("status >= 400"));
+            return Err(status_failure(status, error_detail(&text), status_error));
         }
         let mut out = Streamed::default();
         for_each_data(resp, |data| {
             if data == "[DONE]" {
                 return Ok(ControlFlow::Break(()));
             }
-            let chunk: Value = serde_json::from_str(data)
-                .ok()
-                .filter(Value::is_object)
-                .ok_or_else(|| {
-                    TranslateError::Unexpected(format!("malformed stream chunk: {data:?}"))
-                })?;
+            let chunk = parse_object(data, "stream chunk")?;
             if let Some(choice) = chunk.pointer("/choices/0") {
                 if let Some(piece) = choice.pointer("/delta/content").and_then(Value::as_str) {
                     out.content.push_str(piece);
@@ -274,12 +260,7 @@ impl OpenAiCompatClient {
         if !(200..300).contains(&status) {
             return Err(TranslateError::Unexpected(format!("HTTP {status}")));
         }
-        let body: Value = serde_json::from_str(&text)
-            .ok()
-            .filter(Value::is_object)
-            .ok_or_else(|| {
-                TranslateError::Unexpected("models response is not a JSON object".into())
-            })?;
+        let body = parse_object(&text, "models response")?;
         let data = body
             .get("data")
             .and_then(Value::as_array)

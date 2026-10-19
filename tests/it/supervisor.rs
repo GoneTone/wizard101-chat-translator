@@ -1,6 +1,5 @@
 //! supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒；以假列舉與虛擬時鐘驗證，不需遊戲。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::collections::HashMap;
@@ -17,7 +16,7 @@ use common::reader_fixture::{
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::reader::status::StatusBoard;
 use wizard101_chat_translator::reader::supervisor::{
-    JOIN_TIMEOUT, SCAN_INTERVAL, allocate_slot, supervise_with,
+    JOIN_TIMEOUT, SCAN_INTERVAL, allocate_slot, supervise,
 };
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::util::Clock;
@@ -89,7 +88,7 @@ impl Harness {
             current = next;
             current.clone()
         };
-        supervise_with(&self.stop, spawn, windows, &board, clock);
+        supervise(&self.stop, spawn, windows, &board, clock);
         self.gone.lock().unwrap().clear();
         let spawned = self.spawned.lock().unwrap().clone();
         (spawned, drain(&rx))
@@ -152,7 +151,7 @@ fn scans_are_spaced_by_the_scan_interval() {
         }
         Vec::new()
     };
-    supervise_with(
+    supervise(
         &stop,
         |_, _| unreachable!(),
         windows,
@@ -187,7 +186,7 @@ fn stop_joins_every_reader_thread() {
         halt.cancel();
         vec![0xA3, 0xB3]
     };
-    supervise_with(&stop, spawn, windows, &board, &Clock::default());
+    supervise(&stop, spawn, windows, &board, &Clock::default());
     let mut joined = joined.lock().unwrap().clone();
     joined.sort_unstable();
     assert_eq!(joined, [0xA3, 0xB3]);
@@ -207,7 +206,7 @@ fn scan_failure_does_not_kill_the_loop() {
         halt.cancel();
         Vec::new()
     };
-    supervise_with(&stop, |_, _| unreachable!(), windows, &board, &fast_clock());
+    supervise(&stop, |_, _| unreachable!(), windows, &board, &fast_clock());
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     let failed = log_lines_with("[reader] supervisor scan failed: ");
     assert!(
@@ -231,7 +230,7 @@ fn failed_spawn_frees_the_slot_and_retries_next_scan() {
         }
         None
     };
-    supervise_with(&stop, spawn, || vec![0xA6], &board, &fast_clock());
+    supervise(&stop, spawn, || vec![0xA6], &board, &fast_clock());
     assert_eq!(*attempts.lock().unwrap(), [(0xA6, 1), (0xA6, 1)]);
 }
 
@@ -256,7 +255,7 @@ fn join_budget_shared_8s() {
         vec![0xA4, 0xB4]
     };
     let started = Instant::now();
-    supervise_with(
+    supervise(
         &stop,
         spawn,
         windows,

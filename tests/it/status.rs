@@ -1,19 +1,20 @@
 //! 多客戶端狀態彙整：優先序、橫幅規則（純函式），以及 StatusBoard 只在變化時推 UI。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use common::reader_fixture::{banners, drain, echo, failing_pool, pool, runtime, statuses};
+use common::reader_fixture::{
+    banners, drain, echo, failing_pool, new_pool, pool, runtime, statuses,
+};
 use wizard101_chat_translator::reader::status::{
     SlotReport, StatusBoard, aggregate_game_issue, aggregate_state, banner_for,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::gate::ConcurrencyGate;
-use wizard101_chat_translator::translation::pool::{ErrorState, TranslateFn, TranslationPool};
+use wizard101_chat_translator::translation::pool::{ErrorState, TranslateFn};
 use wizard101_chat_translator::ui::events::UiPoster;
 
 fn report(state: &'static str, game_issue: Option<&'static str>) -> SlotReport {
@@ -138,6 +139,15 @@ fn banner_shows_the_api_message_when_there_is_one() {
             args(&[("message", "getaddrinfo failed")])
         ))
     );
+    // 沒有狀態碼的設定錯誤（金鑰格式無效）不可顯示「HTTP None」
+    assert_eq!(
+        banner_for(
+            None,
+            config,
+            detail(None, "api key contains invalid characters")
+        ),
+        Some(("notice.config_error", vec![]))
+    );
     // 只有狀態碼沒有說明：顯示狀態碼，不退回「伺服器離線」這類猜測的固定文案
     assert_eq!(
         banner_for(None, offline, detail(Some(429), "")),
@@ -243,12 +253,10 @@ async fn banner_clears_after_the_pool_recovers_from_offline() {
             }
         })
     });
-    let pool = Arc::new(TranslationPool::new(
+    let pool = Arc::new(new_pool(
         translate,
         Arc::new(|_, _, _| {}),
         Arc::new(ConcurrencyGate::new(1)),
-        Arc::new(|| "failed".to_owned()),
-        Arc::new(|| "provider=fake".to_owned()),
         tokio::runtime::Handle::current(),
     ));
     let (ui, rx) = UiPoster::for_test();

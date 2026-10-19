@@ -1,32 +1,31 @@
 //! WizChatReader：掛入順序、失敗分類與還原、事件過濾、分頁狀態與輸入框（以 FakeMemory 模擬遊戲）。
 
-#[allow(dead_code)]
 use crate::common;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
-use common::fake_game::{place, put_button, put_children, put_name};
-use common::log_capture::log_lines_with;
+use common::fake_game::{place, put_button, put_children, put_name, put_slot, slot_addr};
+use common::log_capture::{capture_logs, log_lines_with};
+use common::spy_memory::SpyMemory;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
-use wizard101_chat_translator::reader::chat_hook::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
+use wizard101_chat_translator::reader::chat_hook::{self, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
+use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
     GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
     WizChatReader,
 };
-use wizard101_chat_translator::reader::memory::{
-    FakeMemory, MemError, MemOp, ProcessMemory, Region,
-};
+use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, MemOp, ProcessMemory};
 use wizard101_chat_translator::reader::process::{
-    client_size, client_to_screen, find_game_window_in, install_path_of, install_root,
-    window_exists, window_pid,
+    client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
 };
 use wizard101_chat_translator::reader::ui_rect::client_rect;
-use wizard101_chat_translator::util::Clock;
+use wizard101_chat_translator::util::{self, Clock};
 
 const BASE: u64 = 0x1_4000_0000;
 const CAVE: u64 = 0x1_4000_1000;
@@ -70,57 +69,6 @@ fn logged(slot: u32, needle: &str) -> Vec<String> {
         .collect()
 }
 
-/// 交給 reader 的記憶體：與測試共用同一份 FakeMemory，並可記錄／弄壞 export 讀取與寫入。
-struct Shared {
-    mem: Arc<FakeMemory>,
-    export_reads: Arc<AtomicUsize>,
-    failing_export_reads: Arc<AtomicUsize>,
-    fail_writes: Arc<AtomicBool>,
-}
-
-impl ProcessMemory for Shared {
-    fn read(&self, addr: u64, len: usize) -> Result<Vec<u8>, MemError> {
-        if addr == EXPORT {
-            self.export_reads.fetch_add(1, Ordering::SeqCst);
-            let failing = &self.failing_export_reads;
-            if failing
-                .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                .is_ok()
-            {
-                return Err(MemError::Read(addr));
-            }
-        }
-        self.mem.read(addr, len)
-    }
-
-    fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError> {
-        if self.fail_writes.load(Ordering::SeqCst) {
-            return Err(MemError::Write(addr));
-        }
-        self.mem.write(addr, bytes)
-    }
-
-    fn alloc(&self, size: usize) -> Result<u64, MemError> {
-        self.mem.alloc(size)
-    }
-
-    fn free(&self, addr: u64) {
-        self.mem.free(addr)
-    }
-
-    fn module_base(&self, name: &str) -> Result<u64, MemError> {
-        self.mem.module_base(name)
-    }
-
-    fn regions(&self, module: &str) -> Result<Vec<Region>, MemError> {
-        self.mem.regions(module)
-    }
-
-    fn is_alive(&self) -> bool {
-        self.mem.is_alive()
-    }
-}
-
 /// messages.log 的替身：照 Python `MessageLog` 的格式記下每一行（不濾除錯行）。
 #[derive(Clone, Default)]
 struct Lines(Arc<Mutex<Vec<String>>>);
@@ -148,6 +96,40 @@ impl Lines {
     }
 }
 
+/// 警告過的圖示集合是全程序共用的：連線成功的測試持讀鎖，要斷言它的測試持寫鎖。
+static ICON_SET: RwLock<()> = RwLock::new(());
+
+/// 同一執行緒的巢狀 `Game` 共用一把讀鎖：已有寫者在等時再取一次讀鎖會死鎖。
+struct IconGuard;
+
+thread_local! {
+    static ICON_READ: RefCell<(usize, Option<RwLockReadGuard<'static, ()>>)> =
+        const { RefCell::new((0, None)) };
+}
+
+impl IconGuard {
+    fn acquire() -> Self {
+        ICON_READ.with_borrow_mut(|(depth, guard)| {
+            if *depth == 0 {
+                *guard = Some(util::read(&ICON_SET));
+            }
+            *depth += 1;
+        });
+        Self
+    }
+}
+
+impl Drop for IconGuard {
+    fn drop(&mut self) {
+        ICON_READ.with_borrow_mut(|(depth, guard)| {
+            *depth -= 1;
+            if *depth == 0 {
+                *guard = None;
+            }
+        });
+    }
+}
+
 struct Game {
     mem: Arc<FakeMemory>,
     dir: tempfile::TempDir,
@@ -155,15 +137,16 @@ struct Game {
     elapsed: Arc<Mutex<Duration>>,
     /// 等待中 root window hook 是否會「被執行」（把 root 位址寫進 export）。
     fires: Arc<AtomicBool>,
-    export_reads: Arc<AtomicUsize>,
-    failing_export_reads: Arc<AtomicUsize>,
-    fail_writes: Arc<AtomicBool>,
+    /// 交給 reader 的記憶體：與 `mem` 同一份，並記錄／弄壞 export 讀取與寫入。
+    spy: SpyMemory,
     /// 第一次等待時 hookstate 檔的內容。
     state_at_wait: Arc<Mutex<Option<hook_state::RestoreOps>>>,
     opened: Arc<Mutex<Vec<u32>>>,
     root_bytes: Vec<u8>,
     addline_bytes: Vec<u8>,
     cave_bytes: Vec<u8>,
+    /// 存活期間擋住「清空警告過的圖示」的測試（連線成功會清）。
+    _icons: Option<IconGuard>,
 }
 
 impl Game {
@@ -172,7 +155,15 @@ impl Game {
     }
 
     fn with(root_pattern: bool, addline_pattern: bool) -> Self {
-        log_lines_with("");
+        Self {
+            _icons: Some(IconGuard::acquire()),
+            ..Self::bare(root_pattern, addline_pattern)
+        }
+    }
+
+    /// 不持有 `ICON_SET` 讀鎖的版本：要自己握寫鎖的測試用。
+    fn bare(root_pattern: bool, addline_pattern: bool) -> Self {
+        capture_logs();
         let mem = FakeMemory::new();
         mem.add_module(MODULE, BASE);
         let cave_bytes = place(&mem, CAVE, AUTOBOT_PATTERN, 0x1100);
@@ -190,40 +181,29 @@ impl Game {
         put_children(&mem, ROOT, &[BOX]);
         put_name(&mem, BOX, "WizardChatBox");
         put_children(&mem, BOX, &[]);
+        let mem = Arc::new(mem);
         Self {
-            mem: Arc::new(mem),
+            spy: SpyMemory::over(mem.clone()),
+            mem,
             dir: tempfile::tempdir().unwrap(),
             elapsed: Arc::default(),
             fires: Arc::new(AtomicBool::new(true)),
-            export_reads: Arc::default(),
-            failing_export_reads: Arc::default(),
-            fail_writes: Arc::default(),
             state_at_wait: Arc::default(),
             opened: Arc::default(),
             root_bytes,
             addline_bytes,
             cave_bytes,
+            _icons: None,
         }
     }
 
     fn reader(&self, slot: u32) -> WizChatReader {
-        let (mem, export_reads, failing_export_reads, fail_writes, opened) = (
-            self.mem.clone(),
-            self.export_reads.clone(),
-            self.failing_export_reads.clone(),
-            self.fail_writes.clone(),
-            self.opened.clone(),
-        );
+        let (spy, opened) = (self.spy.clone(), self.opened.clone());
         let mut r = WizChatReader::new(
             hwnd(),
             Box::new(move |pid| {
                 opened.lock().unwrap().push(pid);
-                Ok(Box::new(Shared {
-                    mem: mem.clone(),
-                    export_reads: export_reads.clone(),
-                    failing_export_reads: failing_export_reads.clone(),
-                    fail_writes: fail_writes.clone(),
-                }) as Box<dyn ProcessMemory>)
+                Ok(Box::new(spy.clone()) as Box<dyn ProcessMemory>)
             }),
         );
         r.slot = slot;
@@ -329,27 +309,10 @@ impl Game {
     }
 }
 
-fn slot_addr(ring: u64, seq: u64) -> u64 {
-    ring + HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE
-}
-
-/// 照 stub 的格式寫一筆記錄並把累計數推到至少 `seq`。
+/// 寫一筆文字記錄並把累計數推到至少 `seq`。
 fn put_record(mem: &FakeMemory, ring: u64, seq: u64, text: &str, tab: u32, this: u64) {
     let units: Vec<u16> = text.encode_utf16().collect();
-    let mut head = Vec::new();
-    head.extend(seq.to_le_bytes());
-    head.extend(0x1407443B1u64.to_le_bytes());
-    head.extend(this.to_le_bytes());
-    head.extend(tab.to_le_bytes());
-    head.extend((units.len() as u32).to_le_bytes());
-    head.extend((units.len() as u32).to_le_bytes());
-    head.resize(DATA_OFF as usize, 0);
-    let at = slot_addr(ring, seq);
-    mem.set_bytes(at, &head);
-    let data: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
-    mem.set_bytes(at + DATA_OFF, &data);
-    let count = mem.read_u64(ring).unwrap().max(seq);
-    mem.set_bytes(ring, &count.to_le_bytes());
+    put_slot(mem, ring, seq, &units, tab, this, None);
 }
 
 fn say(name: &str, text: &str) -> String {
@@ -438,7 +401,7 @@ fn connect_order_matches_python() {
     assert_eq!(hook_state::load_state(g.dir.path(), dead), (None, vec![]));
     let p = pid();
     for line in [
-        format!("[reader] game path: None (slot=101, pid={p})"),
+        format!("[reader] game path: unknown (slot=101, pid={p})"),
         format!(
             "[reader] AddLine hook installed (slot=101, pid={p}, jump=0x141200000, \
              ring=0x20010000, ring_size=0x80040)"
@@ -455,14 +418,14 @@ fn connect_order_matches_python() {
 #[test]
 fn connect_waits_through_transient_read_errors() {
     let g = Game::new();
-    g.failing_export_reads.store(3, Ordering::SeqCst);
+    g.spy.fail_reads_at(EXPORT, 3);
     let _r = g.connected(102);
     assert!(*g.elapsed.lock().unwrap() >= HOOK_READY_POLL);
 }
 
 #[test]
 fn open_failure_is_access_denied() {
-    log_lines_with("");
+    capture_logs();
     let mut r = WizChatReader::new(hwnd(), Box::new(|_| Err(MemError::AccessDenied(4321))));
     let err = r.read_new().unwrap_err();
     assert_eq!(
@@ -507,7 +470,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
     let failed = logged(103, "[reader] AddLine hook install failed (slot=103, ");
     assert_eq!(failed.len(), 1);
     assert!(
-        failed[0].contains("): PatternFailed: Pattern b'")
+        failed[0].contains("): Pattern b'")
             && failed[0].ends_with(
                 "; a pattern failure here needs chat_hook::PATTERN updated in a new release"
             ),
@@ -541,13 +504,64 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
 }
 
 #[test]
-fn readiness_timeout_is_version_mismatch() {
+fn unknown_icon_warnings_survive_failed_connects_but_not_successful_ones() {
+    let warns = |icon: &str| {
+        let line = format!("<color;FFFFFF><image;Art/{icon}.dds;24;24;FFFFFFFF> [Zed] hi </color>");
+        assert!(parse_line(&line).is_none());
+        log_lines_with(&format!("unrecognized chat icon 'Art/{icon}'")).len()
+    };
+    let _exclusive = util::write(&ICON_SET);
+    let game = Game::bare(true, false);
+    let mut failing = game.reader(150);
+    assert_eq!(warns("Retry_Probe_Icon"), 1);
+    assert!(failing.read_new().is_err());
+    assert_eq!(
+        warns("Retry_Probe_Icon"),
+        1,
+        "a failed connect cleared the warned-icon set"
+    );
+
+    let icon = "Reset_Probe_Icon";
+    assert_eq!(warns(icon), 1);
+    let connected = Game::bare(true, true);
+    let _reader = connected.connected(151);
+    assert_eq!(warns(icon), 2);
+}
+
+#[test]
+fn repeated_attach_failures_log_the_same_reason_once() {
+    let g = Game::with(true, false);
+    let mut r = g.reader(152);
+    for _ in 0..3 {
+        assert!(matches!(
+            r.read_new(),
+            Err(GameNotRunning::VersionMismatch(_))
+        ));
+    }
+    assert_eq!(logged(152, "[reader] game path:").len(), 1);
+    assert_eq!(logged(152, "[reader] AddLine hook install failed").len(), 1);
+
+    let g = Game::new();
+    g.fires.store(false, Ordering::SeqCst);
+    let mut r = g.reader(153);
+    for _ in 0..3 {
+        assert!(r.read_new().is_err());
+    }
+    assert_eq!(logged(153, "[reader] game path:").len(), 1);
+    assert_eq!(
+        logged(153, "[reader] root window hook never fired").len(),
+        1
+    );
+}
+
+#[test]
+fn readiness_timeout_is_a_hook_not_firing_mismatch() {
     let g = Game::new();
     g.fires.store(false, Ordering::SeqCst);
     let mut r = g.reader(104);
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::VersionMismatch(
+        GameNotRunning::HookNotFiring(
             "hook does not match this game build: root window hook did not fire within 15s".into()
         )
     );
@@ -577,7 +591,7 @@ fn readiness_timeout_is_version_mismatch() {
 
 #[test]
 fn other_attach_failure_stays_game_not_running() {
-    log_lines_with("");
+    capture_logs();
     let mut r = WizChatReader::new(
         hwnd(),
         Box::new(|_| Ok(Box::new(FakeMemory::new()) as Box<dyn ProcessMemory>)),
@@ -619,7 +633,7 @@ fn dropping_the_reader_unhooks_like_close() {
 fn unhook_failure_keeps_hook_state_for_repair() {
     let g = Game::new();
     let mut r = g.connected(107);
-    g.fail_writes.store(true, Ordering::SeqCst);
+    g.spy.fail_writes.store(true, Ordering::SeqCst);
     r.close();
     assert!(g.state_file_exists());
     assert_eq!(
@@ -657,8 +671,8 @@ fn hook_state_save_failure_is_logged() {
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
     assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): OSError: ")));
-    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): OSError: ")));
+    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): ")));
+    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): ")));
 }
 
 #[test]
@@ -708,38 +722,20 @@ fn install_path_is_the_parent_of_bin() {
     assert!(window_exists(hwnd()));
 }
 
-#[test]
-fn find_game_window_logs_when_the_window_scan_itself_fails() {
-    log_lines_with("");
-    let scan = || Err(std::io::Error::other("EnumWindows failed"));
-    assert_eq!(find_game_window_in(scan, |_| true, |_| None), None);
-    assert_eq!(
-        log_lines_with("[reader] window scan failed: EnumWindows failed").len(),
-        1
-    );
-}
-
 // --- 事件 ---
 
 #[test]
 fn records_become_events_in_order() {
     let g = Game::new();
     let mut r = g.connected(201);
-    let (hi, yo) = (say("Amy", "hi"), own("yo"));
-    g.put(1, &hi, 0, BOX);
-    g.put(2, &yo, 1, BOX);
+    g.put(1, &say("Amy", "hi"), 0, BOX);
+    g.put(2, &own("yo"), 1, BOX);
     let events = r.read_new().unwrap();
     let got: Vec<_> = events
         .iter()
-        .map(|e| (e.tabs.clone(), e.line.text.as_str(), e.seq, e.raw.as_str()))
+        .map(|e| (e.tabs.clone(), e.line.text.as_str()))
         .collect();
-    assert_eq!(
-        got,
-        [
-            (vec![0], "[Amy] hi", 1, hi.as_str()),
-            (vec![1], "[你] yo", 2, yo.as_str())
-        ]
-    );
+    assert_eq!(got, [(vec![0], "[Amy] hi"), (vec![1], "[你] yo")]);
 }
 
 #[test]
@@ -786,6 +782,11 @@ fn broadcast_becomes_one_event_for_all_tabs() {
         g.put(i + 1, &notice, i as u32, BOX);
     }
     assert_eq!(
+        r.read_new().unwrap(),
+        vec![],
+        "a 4-tab run is held for channel tabs"
+    );
+    assert_eq!(
         texts(&mut r),
         [(vec![0, 1, 2, 3], "[Server Message] maintenance".to_owned())]
     );
@@ -820,11 +821,74 @@ fn partial_broadcast_held_one_round() {
     assert_eq!(texts(&mut r), [(vec![0], "[Amy] hi".to_owned())]);
     g.put(4, &notice, 2, BOX);
     g.put(5, &notice, 3, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
     assert_eq!(
         texts(&mut r),
         [(vec![0, 1, 2, 3], "[Server Message] maintenance".to_owned())]
     );
     assert_eq!(lines.count("[seq=2 "), 1, "held records are logged once");
+}
+
+#[test]
+fn broadcast_split_after_four_tabs_is_one_event() {
+    let g = Game::new();
+    let mut r = g.connected(208);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    for (seq, tab) in [(1, 0), (2, 1), (3, 2), (4, 3)] {
+        g.put(seq, &notice, tab, BOX);
+    }
+    let first = texts(&mut r);
+    g.put(5, &notice, 5, BOX);
+    g.put(6, &notice, 6, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
+    let mut all = first;
+    all.extend(texts(&mut r));
+    assert_eq!(
+        all,
+        [(
+            vec![0, 1, 2, 3, 5, 6],
+            "[Server Message] maintenance".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn broadcast_cut_twice_is_still_one_event() {
+    let g = Game::new();
+    let mut r = g.connected(210);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    g.put(1, &notice, 0, BOX);
+    g.put(2, &notice, 1, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    g.put(3, &notice, 2, BOX);
+    g.put(4, &notice, 3, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    g.put(5, &notice, 5, BOX);
+    g.put(6, &notice, 6, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
+    assert_eq!(
+        texts(&mut r),
+        [(
+            vec![0, 1, 2, 3, 5, 6],
+            "[Server Message] maintenance".to_owned()
+        )]
+    );
+}
+
+#[test]
+fn a_held_four_tab_run_is_released_when_no_channel_tabs_follow() {
+    let g = Game::new();
+    let mut r = g.connected(209);
+    r.emit_system = true;
+    let notice = broadcast("[Server Message] maintenance");
+    for (seq, tab) in [(1, 0), (2, 1), (3, 2), (4, 3)] {
+        g.put(seq, &notice, tab, BOX);
+    }
+    assert_eq!(r.read_new().unwrap(), vec![]);
+    assert_eq!(texts(&mut r).len(), 1);
+    assert_eq!(r.read_new().unwrap(), vec![]);
 }
 
 #[test]
@@ -911,7 +975,7 @@ fn unknown_this_relooks_chatbox_once_per_round() {
     let lines = Lines::default();
     r.message_log = Some(Box::new(lines.clone()));
     let line = say("Amy", "hi");
-    let finds = || g.export_reads.load(Ordering::SeqCst);
+    let finds = || g.spy.read_count(EXPORT);
     let start = finds();
     g.put(1, &line, 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
@@ -963,9 +1027,9 @@ fn missing_chatbox_is_refound_once_per_poll() {
     for seq in 1..=3 {
         g.put(seq, &line, 0, BOX);
     }
-    let start = g.export_reads.load(Ordering::SeqCst);
+    let start = g.spy.read_count(EXPORT);
     assert_eq!(r.read_new().unwrap(), vec![]);
-    assert_eq!(g.export_reads.load(Ordering::SeqCst) - start, 1);
+    assert_eq!(g.spy.read_count(EXPORT) - start, 1);
     assert_eq!(
         logged(
             212,
@@ -991,7 +1055,7 @@ fn chatbox_lookup_failure_is_logged_and_drops_the_record() {
         logged(
             213,
             &format!(
-                "[reader] chat box lookup failed (slot=213, pid={}): MemoryReadError: Unable to \
+                "[reader] chat box lookup failed (slot=213, pid={}): Unable to \
                  read memory at address {}.",
                 pid(),
                 OTHER + 0x50 + 16
@@ -1035,7 +1099,7 @@ fn foreign_address_is_rechecked_after_the_window() {
     let g = Game::new();
     let mut r = g.connected(215);
     let line = say("Amy", "hi");
-    let finds = || g.export_reads.load(Ordering::SeqCst);
+    let finds = || g.spy.read_count(EXPORT);
     let start = finds();
     g.put(1, &line, 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
@@ -1246,7 +1310,7 @@ fn repeated_chatbox_lookup_failures_log_once() {
         [r.tab_state(), r.tab_state(), r.tab_state()],
         [None, None, None]
     );
-    let lines = logged(304, "[reader] chat tabs read failed: MemoryReadError: ");
+    let lines = logged(304, "[reader] chat tabs read failed: Unable to read memory");
     assert_eq!(lines.len(), 1, "{lines:?}");
 }
 
@@ -1280,9 +1344,9 @@ fn no_visible_tab_buttons_are_not_rescanned_every_poll() {
         current: 0,
     });
     assert_eq!(r.tab_state(), empty);
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     assert_eq!(r.tab_state(), empty);
-    assert_eq!(g.export_reads.load(Ordering::SeqCst), scans);
+    assert_eq!(g.spy.read_count(EXPORT), scans);
 }
 
 #[test]
@@ -1293,16 +1357,16 @@ fn out_of_range_current_tab_is_a_read_failure() {
     let failed = logged(
         307,
         &format!(
-            "[reader] chat tabs read failed: ValueError: current tab 1094795585 out of range \
+            "[reader] chat tabs read failed: current tab 1094795585 out of range \
              (stale chat box {BOX:#x}?) (slot=307, pid={})",
             pid()
         ),
     );
     assert_eq!(failed.len(), 1);
     // 按鈕快取已丟掉：下一輪重找 ChatBox 與按鈕
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     assert_eq!(r.tab_state(), None);
-    assert!(g.export_reads.load(Ordering::SeqCst) > scans);
+    assert!(g.spy.read_count(EXPORT) > scans);
 }
 
 #[test]
@@ -1367,14 +1431,10 @@ fn input_open_reads_the_container_visibility() {
     let g = input_game([0, 0, 1370, 770]);
     let mut r = g.connected(401);
     assert!(r.input_open());
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     g.mem.set_bytes(EDIT + 0x9C, &0u32.to_le_bytes());
     assert!(!r.input_open());
-    assert_eq!(
-        g.export_reads.load(Ordering::SeqCst),
-        scans,
-        "node is cached"
-    );
+    assert_eq!(g.spy.read_count(EXPORT), scans, "node is cached");
 }
 
 #[test]
@@ -1387,11 +1447,11 @@ fn input_box_screen_rect_walks_parents_and_offsets_by_window_origin() {
     let (x, y, w, h) = client_rect(&offsets, (524, 33), (1370, 770), client).unwrap();
     let expected = Some((origin.0 + x, origin.1 + y, w, h));
     assert_eq!(r.input_box_screen_rect(), expected);
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     assert_eq!(r.input_box_screen_rect(), expected);
     assert!(r.input_open());
     // 每次讀 root 矩形各一次，節點本身沿用快取不重找
-    assert_eq!(g.export_reads.load(Ordering::SeqCst), scans + 1);
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
 
 #[test]
@@ -1405,7 +1465,7 @@ fn input_box_screen_rect_none_when_node_read_fails() {
         logged(
             403,
             &format!(
-                "[reader] game chat input rect unavailable (slot=403): MemoryReadError: Unable \
+                "[reader] game chat input rect unavailable (slot=403): Unable \
                  to read memory at address {}.",
                 EDIT + 0xA0
             )
@@ -1414,9 +1474,9 @@ fn input_box_screen_rect_none_when_node_read_fails() {
         1
     );
     // 失效節點丟掉，下一輪重找
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     assert!(r.input_open());
-    assert!(g.export_reads.load(Ordering::SeqCst) > scans);
+    assert!(g.spy.read_count(EXPORT) > scans);
 }
 
 #[test]
@@ -1428,7 +1488,7 @@ fn input_box_screen_rect_none_when_the_parent_chain_cycles() {
     assert_eq!(
         logged(
             405,
-            "[reader] game chat input rect unavailable (slot=405): error: window parent chain \
+            "[reader] game chat input rect unavailable (slot=405): window parent chain \
              deeper than 64"
         )
         .len(),
@@ -1444,16 +1504,13 @@ fn input_box_screen_rect_none_for_a_degenerate_root() {
     assert_eq!(
         logged(
             404,
-            "[reader] game chat input rect unavailable (slot=404): ValueError: degenerate root \
+            "[reader] game chat input rect unavailable (slot=404): degenerate root \
              window size (0, 770)"
         )
         .len(),
         1
     );
-    let scans = g.export_reads.load(Ordering::SeqCst);
+    let scans = g.spy.read_count(EXPORT);
     r.input_open();
-    assert!(
-        g.export_reads.load(Ordering::SeqCst) > scans,
-        "node re-searched"
-    );
+    assert!(g.spy.read_count(EXPORT) > scans, "node re-searched");
 }

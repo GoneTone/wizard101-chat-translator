@@ -1,32 +1,24 @@
 //! 持久化 hook 的還原狀態：髒退出（硬砍／當機）後，下次對同一個仍在執行的遊戲程序啟動時自動修復殘留的 hook。
 //!
-//! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`，
-//! 格式與 Python 版逐 byte 相同，兩版可互讀。PID 可能被重用給新的遊戲程序（ASLR 後基址不同），
-//! 故基址不符即視為過期不套用。
+//! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`。
+//! PID 可能被重用給新的遊戲程序（ASLR 後基址不同），故基址不符即視為過期不套用。
 
-use std::fmt::Write as _;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::hooks::MODULE;
 use super::memory::ProcessMemory;
 use crate::logs::log;
+use crate::util::{hex, write_atomic};
 
 /// 一組依序寫回的還原操作（位址，原始 bytes）。
 pub type RestoreOps = Vec<(u64, Vec<u8>)>;
 
 fn state_path(dir: &Path, pid: u32) -> PathBuf {
     dir.join(format!("hookstate-{pid}.json"))
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
@@ -41,18 +33,20 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 
 /// 存還原操作與模組基址；`dir` 為 state 目錄（實機用 `config::local_state_dir()`）。
 pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io::Result<()> {
-    fs::create_dir_all(dir)?;
-    let ops: Vec<String> = ops
+    let ops: Vec<Value> = ops
         .iter()
-        .map(|(addr, b)| format!("{{\"addr\": {addr}, \"bytes\": \"{}\"}}", hex(b)))
+        .map(|(addr, b)| json!({ "addr": addr, "bytes": hex(b) }))
         .collect();
-    let text = format!("{{\"base\": {base}, \"ops\": [{}]}}", ops.join(", "));
-    fs::write(state_path(dir, pid), text)
+    write_atomic(
+        &state_path(dir, pid),
+        &json!({ "base": base, "ops": ops }).to_string(),
+    )
 }
 
 fn parse(text: &str) -> Result<(u64, RestoreOps), String> {
-    let data: Value = serde_json::from_str(text).map_err(|e| format!("JSONDecodeError: {e}"))?;
-    let bad = || "ValueError: malformed hook state".to_owned();
+    let data: Value =
+        serde_json::from_str(text).map_err(|_| "malformed hook state (invalid JSON)".to_owned())?;
+    let bad = || "malformed hook state".to_owned();
     let ops = data["ops"]
         .as_array()
         .ok_or_else(bad)?
@@ -69,7 +63,7 @@ pub fn load_state(dir: &Path, pid: u32) -> (Option<u64>, RestoreOps) {
     let text = match fs::read_to_string(&path) {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == io::ErrorKind::NotFound => return (None, Vec::new()),
-        Err(e) => Err(format!("OSError: {e}")),
+        Err(e) => Err(e.to_string()),
     };
     match text.and_then(|t| parse(&t)) {
         Ok((base, ops)) => (Some(base), ops),
@@ -135,8 +129,7 @@ pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usi
         Err(e) => {
             log(format!(
                 "[reader] cannot read module base, ignoring hook state \
-                 (slot={slot}, pid={pid}): {}: {e}",
-                e.type_name()
+                 (slot={slot}, pid={pid}): {e}"
             ));
             None
         }
@@ -151,9 +144,8 @@ pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usi
                     failed += 1;
                     log(format!(
                         "[reader] hook repair write failed at {addr:#x} \
-                         (slot={slot}, len={}): {}: {e}",
-                        original.len(),
-                        e.type_name()
+                         (slot={slot}, len={}): {e}",
+                        original.len()
                     ));
                 }
             }

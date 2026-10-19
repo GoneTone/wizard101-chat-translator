@@ -8,6 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
+use common::kittest::{click_at, has_label, painted_texts, run, tr};
 use common::log_capture::{capture_logs, log_lines_with, log_text};
 use common::settings_env::FakeEnv;
 use wizard101_chat_translator::config::Config;
@@ -27,10 +28,6 @@ use wizard101_chat_translator::ui::settings::theme;
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
 const LANGUAGE: &str = "en-US";
 const TARGET: &str = "Japanese";
-
-fn tr(key: &str) -> String {
-    t(key, &[])
-}
 
 fn id(service: &Value) -> String {
     service["id"].as_str().unwrap().to_owned()
@@ -234,25 +231,8 @@ fn harness_sized(draft: ServiceDraft, size: egui::Vec2) -> Harness<'static, Stat
     h
 }
 
-fn run<S>(h: &mut Harness<S>) {
-    h.run_steps(3);
-}
-
 fn press<S>(h: &mut Harness<S>, key: Key) {
     h.key_press(key);
-    run(h);
-}
-
-fn click_at<S>(h: &mut Harness<S>, pos: Pos2) {
-    h.event(Event::PointerMoved(pos));
-    for pressed in [true, false] {
-        h.event(Event::PointerButton {
-            pos,
-            button: PointerButton::Primary,
-            pressed,
-            modifiers: Modifiers::default(),
-        });
-    }
     run(h);
 }
 
@@ -290,17 +270,6 @@ fn click_card<S>(h: &mut Harness<S>, label: &str, index: usize) {
     run(h);
 }
 
-fn painted_texts<S>(h: &Harness<S>) -> Vec<String> {
-    h.output()
-        .shapes
-        .iter()
-        .filter_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) => Some(shape.galley.text().to_owned()),
-            _ => None,
-        })
-        .collect()
-}
-
 /// 畫面上貼圖的位置（服務商圖示；字形用的是預設貼圖，不算）。
 fn painted_images<S>(h: &Harness<S>) -> Vec<Rect> {
     h.output()
@@ -322,10 +291,6 @@ fn group_labels<S>(h: &Harness<S>) -> Vec<String> {
         .iter()
         .filter_map(|n| n.accesskit_node().label())
         .collect()
-}
-
-fn has_label<S>(h: &Harness<S>, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
 }
 
 #[test]
@@ -781,8 +746,7 @@ fn escape_cancels_the_provider_pick() {
 }
 
 #[test]
-fn the_cancel_button_closes_the_picker() {
-    // 重新設計後選擇框以標題列的關閉鈕取消，沒有獨立的取消鈕
+fn the_close_button_closes_the_picker() {
     let (d, _a, _b) = two();
     let mut h = harness(d.clone());
     h.get_by_label(&tr("button.add_service")).click();

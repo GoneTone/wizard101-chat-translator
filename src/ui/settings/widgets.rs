@@ -4,17 +4,68 @@
 
 use std::sync::Arc;
 
-use eframe::egui::style::{StyleModifier, WidgetVisuals};
+use eframe::egui::style::{ScrollStyle, StyleModifier, WidgetVisuals};
 use eframe::egui::{
     Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, Frame, Galley, Id, Label,
-    Layout, Margin, Pos2, Rect, Response, RichText, Role, Sense, Shape, Stroke, StrokeKind, Style,
-    TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2, WidgetInfo, WidgetText,
-    lerp, pos2, vec2,
+    Layout, Margin, Pos2, Rect, Response, RichText, Role, ScrollArea, Sense, Shape, Stroke,
+    StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2,
+    WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
 use crate::py::pystr;
+use crate::ui::overlay::scrollbar;
 use crate::ui::richtext;
 use crate::ui::settings::theme::{self, icon};
+
+/// 一頁可捲動的內容：細捲軸、`margin` 內距、項目縱向間距 `gap`；`salt` 讓各頁記住各自的捲動位置。
+pub(super) fn scroll_page<R>(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    margin: Margin,
+    gap: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let style = ui.style().clone();
+    thin_scrollbar(ui);
+    ScrollArea::vertical()
+        .id_salt(salt)
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            ui.set_style(style);
+            Frame::new()
+                .inner_margin(margin)
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.spacing_mut().item_spacing.y = gap;
+                    add(ui)
+                })
+                .inner
+        })
+        .inner
+}
+
+/// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
+fn thin_scrollbar(ui: &mut Ui) {
+    let style = ui.style_mut();
+    style.spacing.scroll = ScrollStyle {
+        bar_width: scrollbar::WIDTH,
+        handle_min_length: scrollbar::MIN_THUMB as f32,
+        bar_inner_margin: 2.0,
+        bar_outer_margin: 2.0,
+        ..ScrollStyle::solid()
+    };
+    let visuals = &mut style.visuals;
+    visuals.extreme_bg_color = Color32::TRANSPARENT;
+    let widgets = &mut visuals.widgets;
+    for (state, color) in [
+        (&mut widgets.inactive, scrollbar::THUMB),
+        (&mut widgets.hovered, scrollbar::THUMB_HOVER),
+        (&mut widgets.active, scrollbar::THUMB_HOVER),
+    ] {
+        state.bg_fill = color;
+        state.corner_radius = CornerRadius::same(4);
+    }
+}
 
 /// 聚焦時在元件外畫一圈 `ACCENT` 外框。
 pub(super) fn focus_ring(ui: &Ui, response: &Response, radius: u8) {

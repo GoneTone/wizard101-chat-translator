@@ -8,28 +8,21 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, http_client,
-    secret_header, status_failure, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, Streamed, cancellable, connection_error, count_of,
+    finish_text, http_client, parse_object, secret_header, status_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::translation::errors::{TranslateError, model_list_error, one_line, status_error};
-use crate::translation::postprocess::strip_think;
+use crate::translation::errors::{
+    TranslateError, error_detail, model_list_error, one_line, status_error,
+};
 use crate::translation::{Role, Turn};
 
 /// Gemini 官方端點。
 pub const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com";
 
 const API_VERSION: &str = "v1beta";
-
-/// 一次串流讀完的結果。
-#[derive(Default)]
-struct Streamed {
-    content: String,
-    finish_reason: Option<String>,
-    usage: Option<Value>,
-}
 
 /// Gemini 官方 API 的 client。
 ///
@@ -106,12 +99,7 @@ impl GeminiClient {
         let resp = self.send(self.http.post(url).json(&body)).await?;
         let mut out = Streamed::default();
         for_each_data(resp, |data| {
-            let chunk: Value = serde_json::from_str(data)
-                .ok()
-                .filter(Value::is_object)
-                .ok_or_else(|| {
-                    TranslateError::Unexpected(format!("Failed to parse response as JSON: {data}"))
-                })?;
+            let chunk = parse_object(data, "stream chunk")?;
             if let Some(error) = chunk.get("error") {
                 return Err(chunk_error(error));
             }
@@ -153,15 +141,13 @@ impl GeminiClient {
             return Err(truncated(limit, output_tokens, &out.content));
         }
         if out.content.is_empty() {
-            let reason = out
-                .finish_reason
-                .map_or("None".to_owned(), |r| format!("FinishReason.{r}"));
+            let reason = out.finish_reason.unwrap_or_else(|| "unknown".to_owned());
             log(format!(
                 "[translate] gemini returned no text: model={} finish_reason={reason}",
                 self.model
             ));
         }
-        Ok(pystr::strip(&strip_think(&out.content)).to_owned())
+        Ok(finish_text(&out.content))
     }
 
     /// 列出能拿來翻譯（支援 `generateContent`）的模型 ID，去掉 `models/` 前綴並排序；自動翻頁。
@@ -176,12 +162,7 @@ impl GeminiClient {
             };
             let resp = self.send_with(request, model_list_error).await?;
             let text = resp.text().await.map_err(connection_error)?;
-            let page: Value = serde_json::from_str(&text)
-                .ok()
-                .filter(Value::is_object)
-                .ok_or_else(|| {
-                    TranslateError::Unexpected(format!("Failed to parse response as JSON: {text}"))
-                })?;
+            let page = parse_object(&text, "models response")?;
             for model in page["models"].as_array().into_iter().flatten() {
                 let actions = model["supportedGenerationMethods"].as_array();
                 let generates = actions.is_some_and(|a| a.iter().any(|m| m == "generateContent"));
@@ -211,9 +192,10 @@ impl GeminiClient {
         request: reqwest::RequestBuilder,
         map: fn(u16, &str) -> Option<TranslateError>,
     ) -> Result<reqwest::Response, TranslateError> {
-        let key = self.api_key.clone().ok_or_else(|| {
-            TranslateError::Unexpected("api key has characters invalid in an HTTP header".into())
-        })?;
+        let Some(key) = self.api_key.clone() else {
+            log("[translate] gemini api key has characters invalid in an HTTP header");
+            return Err(TranslateError::invalid_key());
+        };
         let resp = request
             .header("x-goog-api-key", key)
             .send()
@@ -224,7 +206,7 @@ impl GeminiClient {
             return Ok(resp);
         }
         let text = resp.text().await.map_err(connection_error)?;
-        Err(status_failure(status, detail(&text), map))
+        Err(status_failure(status, error_detail(&text), map))
     }
 }
 
@@ -242,27 +224,6 @@ fn model_path(model: &str) -> Result<String, TranslateError> {
         return Ok(model.to_owned());
     }
     Ok(format!("models/{model}"))
-}
-
-/// 錯誤回應的說明：SDK 取 `message` 或 `error.message`（單元素陣列先拆開），非 JSON 用原文。
-fn detail(text: &str) -> String {
-    let message = match serde_json::from_str::<Value>(text) {
-        Ok(Value::Array(mut items)) if items.len() == 1 => message_in(&items.remove(0)),
-        Ok(body) => message_in(&body),
-        Err(_) => Some(text.to_owned()),
-    };
-    one_line(
-        &message
-            .filter(|m| !m.is_empty())
-            .unwrap_or_else(|| text.to_owned()),
-    )
-}
-
-fn message_in(body: &Value) -> Option<String> {
-    body.get("message")
-        .or_else(|| body.pointer("/error/message"))
-        .and_then(Value::as_str)
-        .map(str::to_owned)
 }
 
 /// 串流中途的 `{"error": …}` 塊：依其中的 code 分類，沒有可用的 code 對應未分類的例外。

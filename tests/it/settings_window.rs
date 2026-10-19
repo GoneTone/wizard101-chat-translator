@@ -7,13 +7,15 @@ use crate::common;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui::accesskit::{Role, Toggled};
-use eframe::egui::{self, Key, OutputCommand, Rect, Ui};
+use eframe::egui::{self, Key, Rect};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
+use common::kittest::{click, has_label, opened_urls, run, tr};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
+use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, t};
@@ -21,26 +23,19 @@ use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey}
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
-use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
+use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction};
+use wizard101_chat_translator::util;
 
 const LANGUAGE: &str = "en-US";
 
-fn tr(key: &str) -> String {
-    t(key, &[])
-}
-
-/// 一份有單一預設服務、設定完整的設定；`fields` 覆寫該服務的欄位（同 Python 的 configured_cfg）。
+/// 一份有單一預設服務（金鑰與模型已填）的設定；`fields` 覆寫該服務的欄位。
 fn configured(provider: &str, fields: Value) -> Config {
     i18n::set_language(LANGUAGE);
     let mut cfg = default_config();
     let mut service = new_service(provider, &[]);
-    let minimal = match provider {
-        "custom" => json!({"base_url": "http://x", "model": "m"}),
-        _ => json!({"api_key": "k", "model": "m"}),
-    };
+    let minimal = json!({"api_key": "k", "model": "m"});
     for (key, value) in minimal
         .as_object()
         .unwrap()
@@ -55,7 +50,8 @@ fn configured(provider: &str, fields: Value) -> Config {
 }
 
 fn configured_cfg() -> Config {
-    configured("custom", json!({}))
+    i18n::set_language(LANGUAGE);
+    custom_cfg()
 }
 
 /// 在 `cfg` 加一筆設定完整（或用 `fields` 改過）的服務並回傳它。
@@ -74,47 +70,12 @@ fn add_service(cfg: &mut Config, provider: &str, fields: Value) -> Value {
     service
 }
 
-struct State {
-    win: SettingsWindow,
-    env: FakeEnv,
-    actions: Vec<SettingsAction>,
-}
-
 fn harness(cfg: Config) -> Harness<'static, State> {
     harness_with(cfg, FakeEnv::default(), egui::vec2(840.0, 660.0))
 }
 
 fn harness_with(cfg: Config, env: FakeEnv, size: egui::Vec2) -> Harness<'static, State> {
-    let state = State {
-        win: SettingsWindow::new(&cfg),
-        env,
-        actions: Vec::new(),
-    };
-    let mut h = Harness::builder()
-        .with_size(size)
-        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                let actions = s.win.ui(ui, &s.env);
-                s.actions.extend(actions);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
-}
-
-fn run<S>(h: &mut Harness<S>) {
-    h.run_steps(3);
-}
-
-/// 先捲到元件再點：小視窗裡卡片可能在捲動區外。
-fn click<S>(h: &mut Harness<S>, role: Role, label: &str) {
-    h.get_by_role_and_label(role, label).scroll_to_me();
-    run(h);
-    h.get_by_role_and_label(role, label).click();
-    run(h);
+    settings_harness(&cfg, env, size, LANGUAGE)
 }
 
 /// 點連結，回傳這一幀要開啟的網址（開啟指令只在點下的那一幀輸出）。
@@ -141,24 +102,8 @@ fn save(h: &mut Harness<State>) -> Option<Config> {
     })
 }
 
-fn has_label<S>(h: &Harness<S>, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
-}
-
 fn top<S>(h: &Harness<S>, role: Role, label: &str) -> f32 {
     h.get_by_role_and_label(role, label).rect().top()
-}
-
-fn opened_urls<S>(h: &Harness<S>) -> Vec<String> {
-    h.output()
-        .platform_output
-        .commands
-        .iter()
-        .filter_map(|c| match c {
-            OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// 依畫面由上而下的第 `index` 個〔更改〕：0 是輸入框熱鍵，1 是框選熱鍵。
@@ -853,7 +798,7 @@ fn deliver_check(
     result: Result<Option<Release>, String>,
 ) -> usize {
     static LOCK: Mutex<()> = Mutex::new(());
-    let _serial = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = util::lock(&LOCK);
     capture_logs();
     let before = log_lines_with(UP_TO_DATE_LOG).len();
     h.state_mut()

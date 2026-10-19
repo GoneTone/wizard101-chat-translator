@@ -68,7 +68,7 @@ fn parse_matches_python() {
 }
 
 #[test]
-fn store_bytes_match_python() {
+fn store_writes_the_golden_content() {
     let cases = common::golden("examples_store_bytes");
     assert!(cases.len() >= 5);
     for c in cases {
@@ -78,14 +78,16 @@ fn store_bytes_match_python() {
         for put in c["input"].as_array().unwrap() {
             store.put(s(&put["fingerprint"]), &set_of(&put["examples"]));
         }
-        let actual = std::fs::read(&path).ok();
-        let expected = c["output"].as_str().map(|t| t.as_bytes().to_vec());
+        let actual = std::fs::read_to_string(&path)
+            .ok()
+            .map(|t| common::json_content(&t));
+        let expected = c["output"].as_str().map(common::json_content);
         assert_eq!(actual, expected, "{}", c["input"]);
     }
 }
 
 #[test]
-fn reads_python_written_store() {
+fn reads_an_old_format_store() {
     for c in common::golden("examples_store_bytes") {
         let Some(text) = c["output"].as_str() else {
             continue;

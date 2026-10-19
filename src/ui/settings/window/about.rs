@@ -1,8 +1,7 @@
 //! 關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置與譯文快取。
 
 use eframe::egui::{
-    Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Sense, TextureHandle, Ui, Vec2,
-    pos2,
+    Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Sense, Ui, Vec2, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -10,7 +9,7 @@ use crate::config::{app_dir, app_name};
 use crate::i18n::{current_language, t, translators};
 use crate::logs::log;
 use crate::runtime::updater::{AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release};
-use crate::ui::overlay::frame::load_icon;
+use crate::ui::icon::app_icon_texture;
 use crate::ui::palette;
 use crate::ui::settings::env::{Round, SettingsEnv};
 use crate::ui::settings::theme::{self, icon};
@@ -19,13 +18,12 @@ use crate::ui::settings::widgets::{
     secondary_button, secondary_icon_button, setting_row, setting_row_with,
 };
 
-/// 關於分頁自己的狀態：檢查更新的輪次與結果、清除快取的結果與圖示貼圖。
+/// 關於分頁自己的狀態：檢查更新的輪次與結果與清除快取的結果。
 pub(super) struct AboutState {
     update: Round,
     /// 最近一次檢查更新的結果：`Ok(None)` 已是最新、`Ok(Some)` 有新版、`Err` 失敗原因。
     result: Option<Result<Option<Release>, String>>,
     cache_cleared: Option<usize>,
-    icon: Option<TextureHandle>,
 }
 
 impl Default for AboutState {
@@ -34,7 +32,6 @@ impl Default for AboutState {
             update: Round::new("update check"),
             result: None,
             cache_cleared: None,
-            icon: None,
         }
     }
 }
@@ -144,11 +141,7 @@ impl SettingsWindow {
 
     /// 頭卡：圖示、名稱與版本，〔檢查更新〕靠右；檢查結果另起一列、對齊名稱，名稱與版本不因結果出現而移動。
     fn hero_card(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
-        let texture = self
-            .about
-            .icon
-            .get_or_insert_with(|| load_icon(ui.ctx(), 48))
-            .id();
+        let texture = app_icon_texture(ui.ctx(), 48);
         let buttons = Id::unique("about_hero_buttons");
         let mut check = false;
         card(ui, |ui| {

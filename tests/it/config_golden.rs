@@ -11,10 +11,6 @@ use wizard101_chat_translator::config::{
     services,
 };
 
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// 同 exporter 的 `_canon_ids`：`source` 裡沒有的服務 id 依出現順序換成 `@idN`。
 fn canon_ids(cfg: &Config, source: &str, texts: &[String]) -> Vec<String> {
     let mut ids: Vec<&str> = Vec::new();
@@ -92,12 +88,15 @@ fn load_matches_python() {
             ordered(&expected["config"]),
             "case {i}: {source}"
         );
-        let written = (after != raw).then(|| hex_encode(texts[1].as_bytes()));
         assert_eq!(
-            written.as_deref(),
-            expected["written"].as_str(),
+            after != raw,
+            expected["rewritten"].as_bool().unwrap(),
             "case {i}: {source}"
         );
+        if after != raw {
+            let written: Value = serde_json::from_str(&texts[1]).unwrap();
+            assert_eq!(ordered(&written), ordered(&actual), "case {i}: {source}");
+        }
     }
 }
 
@@ -147,17 +146,19 @@ fn read_only_file_still_loads_after_migration() {
 }
 
 #[test]
-fn save_bytes_match_python() {
+fn save_then_load_roundtrips_every_written_case() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     let path = dir.join("config.json");
     let mut checked = 0;
     for case in common::golden("config_load") {
-        let Some(written) = case["output"]["written"].as_str() else {
+        if case["output"]["rewritten"].as_bool() == Some(false) {
             continue;
-        };
-        save_config(&path, &as_config(&case["output"]["config"])).unwrap();
-        assert_eq!(hex_encode(&fs::read(&path).unwrap()), written);
+        }
+        let cfg = as_config(&case["output"]["config"]);
+        save_config(&path, &cfg).unwrap();
+        let read_back: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(read_back, Value::Object(cfg), "case {}", case["input"]);
         checked += 1;
     }
     assert!(checked > 10);

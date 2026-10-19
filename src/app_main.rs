@@ -34,8 +34,8 @@ use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::memory::{ProcessMemory, WinProcess};
 use crate::reader::message_log::{MessageLog, SharedWriter};
-use crate::reader::process::{find_game_window, game_windows};
-use crate::reader::run_loop::{MessageIds, ReaderShared, reader_loop};
+use crate::reader::process::{find_game_window, game_windows, window_exists};
+use crate::reader::run_loop::{LoopEnv, MessageIds, ReaderShared, reader_loop};
 use crate::reader::status::StatusBoard;
 use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
 use crate::region::capture::{self, CaptureError, Frame};
@@ -147,7 +147,7 @@ pub fn build_translation(
     cache_path: PathBuf,
 ) -> Translation {
     let (incoming, outgoing, region, gate, fingerprint) = {
-        let cfg = settings.read().unwrap_or_else(|e| e.into_inner());
+        let cfg = read(settings);
         let target = Settings::from_config(&cfg);
         let make = |slot| Translator::new(resolve(&cfg, slot), target.target_language.clone());
         let incoming = make(ServiceSlot::Incoming);
@@ -174,7 +174,7 @@ pub fn build_translation(
         // 背景生成時在 tokio worker 上執行；rebind 自帶鎖，故不必繞回 UI 執行緒
         move |tr: &Translator| {
             if std::ptr::eq(tr, Arc::as_ptr(&incoming)) {
-                let cfg = settings.read().unwrap_or_else(|e| e.into_inner());
+                let cfg = read(&settings);
                 cache.rebind(&incoming_fingerprint(&cfg, tr.examples().as_ref()));
             }
         }
@@ -376,13 +376,13 @@ pub fn install_paste(
 
 /// 設定視窗按儲存：`new_cfg`（只含視窗管的鍵）併入共用設定、存檔、翻譯端跟上、兩把熱鍵重新註冊。
 ///
-/// 順序同 Python `apply_settings` 的前半；回傳實際生效的（輸入框熱鍵，框選熱鍵），框選停用時為 `None`。
+/// 順序同 Python `apply_settings` 的前半；回傳實際生效的框選熱鍵，框選停用時為 `None`。
 pub fn apply_settings(
     running: &mut Running,
     settings: &Arc<RwLock<Config>>,
     new_cfg: Config,
     ui: &UiPoster,
-) -> (String, Option<String>) {
+) -> Option<String> {
     // 只併入不取代：視窗開著時拖過的 overlay／泡泡位置不在 new_cfg 裡
     let cfg = {
         let mut cfg = write(settings);
@@ -411,13 +411,11 @@ pub fn apply_settings(
     }
     let cfg = read(settings);
     log(format!("[settings] applied; {}", config_summary(&cfg)));
-    let hotkey = cfg["hotkey"].as_str().unwrap_or_default().to_owned();
-    let region = running
+    running
         .hotkeys
         .1
         .as_ref()
-        .map(|_| cfg["region_hotkey"].as_str().unwrap_or_default().to_owned());
-    (hotkey, region)
+        .map(|_| cfg["region_hotkey"].as_str().unwrap_or_default().to_owned())
 }
 
 /// 攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
@@ -469,7 +467,7 @@ pub fn outgoing_translate(
                     log(format!(
                         "[input] outgoing translation failed (chars={chars}, {}): {}: {err}",
                         tr.describe(),
-                        err.class_name()
+                        err.kind()
                     ));
                     Err(t("input.failed", &[("error", &err.to_string())]))
                 }
@@ -522,7 +520,7 @@ impl RegionRunner for PipelineRunner {
                         RegionError::Translate(e) => log(format!(
                             "[region] translate failed (rect={rect:?}, {}): {}: {e}",
                             pipeline.describe(),
-                            e.class_name()
+                            e.kind()
                         )),
                         RegionError::Unexpected(message) => log(format!(
                             "[region] unexpected failure (rect={rect:?}): {message}"
@@ -690,11 +688,16 @@ pub fn build_app(
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
         let client = Arc::new(ClientContexts::new());
-        lock(&spawn_contexts).insert(hwnd, Arc::clone(&client));
+        {
+            // 已關掉的視窗不會再被查：新增前順手清掉，免得一直累積
+            let mut map = lock(&spawn_contexts);
+            map.retain(|&known, _| window_exists(known));
+            map.insert(hwnd, Arc::clone(&client));
+        }
         let name = format!("reader-{slot}");
         std::thread::Builder::new()
             .name(name.clone())
-            .spawn(move || reader_loop(shared, hwnd, slot, reader, client))
+            .spawn(move || reader_loop(LoopEnv::default(), shared, hwnd, slot, reader, client))
             .inspect_err(|e| log(format!("[reader] cannot spawn {name}: {e}")))
             .ok()
     };
@@ -702,7 +705,7 @@ pub fn build_app(
         let stop = stop.clone();
         std::thread::Builder::new()
             .name("reader-supervisor".into())
-            .spawn(move || supervise(&stop, spawn, game_windows, &board))
+            .spawn(move || supervise(&stop, spawn, game_windows, &board, &Clock::default()))
             .inspect_err(|e| log(format!("[reader] cannot spawn reader-supervisor: {e}")))
             .ok()
     };

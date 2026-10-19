@@ -4,14 +4,12 @@
 
 mod steps;
 
-use eframe::egui::{
-    Align, Id, Layout, Rect, Response, Stroke, TextureHandle, Ui, UiBuilder, pos2, vec2,
-};
+use eframe::egui::{Align, Id, Layout, Rect, Response, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
-use super::hotkeys::{HotkeyEditor, HotkeyKind};
-use super::service_draft::ServiceDraft;
+use super::hotkeys::HotkeyEditor;
+use super::service_draft::{ServiceDraft, id_of};
 use super::service_form::ServiceForm;
 use super::service_list::pick_provider_over;
 use super::theme::{self, icon};
@@ -88,9 +86,6 @@ pub struct Wizard {
     hotkeys_blocked: bool,
     /// 提示剛出現，下一次畫的時候捲到它。
     reveal_callout: bool,
-    /// 下一幀要呼叫 `env.cancel_recording()`（`apply` 收下錄製結果時手上沒有 env）。
-    release_recorder: bool,
-    icon: Option<TextureHandle>,
 }
 
 impl Wizard {
@@ -102,22 +97,17 @@ impl Wizard {
             picking: false,
             skip_test: false,
             target_language: text_setting(&cfg, "target_language"),
-            hotkeys: HotkeyEditor::new(
-                &text_setting(&cfg, HotkeyKind::Input.config_key()),
-                &text_setting(&cfg, HotkeyKind::Region.config_key()),
-            ),
+            hotkeys: HotkeyEditor::from_config(&cfg),
             auto_show_input: flag_setting(&cfg, "auto_show_input"),
             hotkeys_blocked: false,
             reveal_callout: false,
-            release_recorder: false,
-            icon: None,
             cfg,
         };
-        let default = wizard.cfg.get("default_service").and_then(Value::as_str);
-        let existing = find(&wizard.cfg, default).map(|s| str_field(s, "id").to_owned());
-        let services = ServiceDraft::from_config(&wizard.cfg).services;
-        let first = services.first().map(|s| str_field(s, "id").to_owned());
-        if let Some(id) = existing.or(first) {
+        let draft = ServiceDraft::from_config(&wizard.cfg);
+        let first = draft
+            .find(draft.default.as_deref())
+            .or(draft.services.first());
+        if let Some(id) = first.map(|s| id_of(s).to_owned()) {
             wizard.edit_service(&id);
         }
         wizard
@@ -136,7 +126,7 @@ impl Wizard {
                 }
             }
             SettingsEvent::HotkeyRecorded { .. } => {
-                self.release_recorder |= self.hotkeys.apply(event);
+                self.hotkeys.apply(event);
             }
             SettingsEvent::UpdateChecked { .. } => {}
         }
@@ -144,15 +134,15 @@ impl Wizard {
 
     /// 取消（視窗 ✕ 或 Alt+F4）：停掉進行中的熱鍵錄製，回傳 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> WizardAction {
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         log(format!("[ui] wizard cancelled at step {:?}", self.step));
         WizardAction::Cancel
     }
 
     /// 畫整個精靈：上方步驟條、中間可捲動的內容、底部按鈕列；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Option<WizardAction> {
-        self.release_recorder(env);
+        self.hotkeys.release(env);
         let full = ui.available_rect_before_wrap();
         ui.painter().rect_filled(full, 0, theme::WINDOW_BG);
         let bar_bottom = (full.top() + STEPS_HEIGHT).min(full.bottom());
@@ -178,19 +168,12 @@ impl Wizard {
         action
     }
 
-    fn release_recorder(&mut self, env: &dyn SettingsEnv) {
-        if std::mem::take(&mut self.release_recorder) {
-            env.cancel_recording();
-        }
-    }
-
     /// 以 `cfg` 裡 `id` 那一筆服務建表單；命名去重對照整份清單。
     fn edit_service(&mut self, id: &str) {
-        let services = ServiceDraft::from_config(&self.cfg).services;
-        self.form = services
-            .iter()
-            .find(|s| str_field(s, "id") == id)
-            .map(|s| Box::new(ServiceForm::new(s.clone(), services.clone())));
+        let draft = ServiceDraft::from_config(&self.cfg);
+        self.form = draft
+            .find(Some(id))
+            .map(|s| Box::new(ServiceForm::new(s.clone(), draft.services.clone())));
     }
 
     fn pick_provider(&mut self, key: &str) {
@@ -212,8 +195,9 @@ impl Wizard {
     }
 
     fn go_to(&mut self, step: Step, env: &dyn SettingsEnv) {
-        if self.step == Step::Prefs && self.hotkeys.stop() {
-            env.cancel_recording();
+        if self.step == Step::Prefs {
+            self.hotkeys.stop();
+            self.hotkeys.release(env);
         }
         log(format!("[ui] wizard step {:?} -> {step:?}", self.step));
         self.step = step;
@@ -224,10 +208,7 @@ impl Wizard {
         let old_default = language_name(&current_language());
         self.collect_into_cfg();
         // 依 id 認人：清單裡不只精靈編輯的這一筆，位置不可假設
-        let edited = self
-            .form
-            .as_ref()
-            .map(|f| str_field(&f.values(), "id").to_owned());
+        let edited = self.form.as_ref().map(|f| id_of(&f.values()).to_owned());
         let old_short_name = edited
             .as_deref()
             .and_then(|id| find(&self.cfg, Some(id)))
@@ -254,7 +235,7 @@ impl Wizard {
     /// 服務名稱還是舊語言的自動短名就換成新語言的，一樣要去重。
     fn retitle(&mut self, id: &str, old_short_name: &str) {
         let services = ServiceDraft::from_config(&self.cfg).services;
-        let Some(service) = services.iter().find(|s| str_field(s, "id") == id) else {
+        let Some(service) = find(&self.cfg, Some(id)) else {
             return;
         };
         let Some(provider) = provider(str_field(service, "provider")) else {
@@ -265,7 +246,7 @@ impl Wizard {
         }
         let name = unique_name(&provider.short_name(), &services, Some(id));
         let list = self.cfg.get_mut("services").and_then(Value::as_array_mut);
-        if let Some(service) = list.and_then(|l| l.iter_mut().find(|s| str_field(s, "id") == id)) {
+        if let Some(service) = list.and_then(|l| l.iter_mut().find(|s| id_of(s) == id)) {
             service["name"] = name.into();
         }
     }
@@ -274,7 +255,7 @@ impl Wizard {
     fn collect_into_cfg(&mut self) {
         if let Some(form) = &self.form {
             let service = form.values();
-            let id = str_field(&service, "id").to_owned();
+            let id = id_of(&service).to_owned();
             let mut draft = ServiceDraft::from_config(&self.cfg);
             if draft.services.is_empty() {
                 draft.slots = Default::default();
@@ -289,39 +270,28 @@ impl Wizard {
         if !target.is_empty() {
             self.cfg.insert("target_language".into(), target.into());
         }
-        let values = [
-            (
-                HotkeyKind::Input.config_key(),
-                Value::from(self.hotkeys.value(HotkeyKind::Input)),
-            ),
-            ("auto_show_input", self.auto_show_input.into()),
-            (
-                HotkeyKind::Region.config_key(),
-                self.hotkeys.value(HotkeyKind::Region).into(),
-            ),
-        ];
-        for (key, value) in values {
-            self.cfg.insert(key.into(), value);
-        }
+        self.hotkeys.write_into(&mut self.cfg);
+        self.cfg
+            .insert("auto_show_input".into(), self.auto_show_input.into());
     }
 
     fn finish(&mut self, env: &dyn SettingsEnv) -> Option<WizardAction> {
         // 與設定視窗同一條驗證：兩把熱鍵相同會一起觸發
-        if self.hotkeys.value(HotkeyKind::Input) == self.hotkeys.value(HotkeyKind::Region) {
+        if self.hotkeys.conflict() {
             log("[ui] wizard finish blocked: error.hotkeys_same");
             self.hotkeys_blocked = true;
             self.reveal_callout = true;
             return None;
         }
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         self.collect_into_cfg();
         self.cfg
             .insert("ui_language".into(), current_language().into());
         let default = self.cfg.get("default_service").and_then(Value::as_str);
         log(format!(
             "[ui] wizard finished (default_service={})",
-            default.unwrap_or("None")
+            default.unwrap_or("none")
         ));
         Some(WizardAction::Finish(self.cfg.clone()))
     }

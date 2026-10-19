@@ -1,13 +1,11 @@
 //! few-shot 範例集：請設定的模型把固定示範改寫成目標語言，驗證三條路徑並以指紋快取在磁碟。
 
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use super::postprocess::{SPACE, number_lines, numbered_entries, tidy_parentheses, unnumber_lines};
 use super::{Role, Turn};
@@ -15,6 +13,7 @@ use crate::config::{ServiceSpec, local_state_dir};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
+use crate::util::{lock, write_atomic};
 
 /// 範例內容（含 `GAME_LANGUAGE_EXAMPLES`）或生成提示詞有變時要遞增，讓舊快取作廢。
 pub const EXAMPLE_REVISION: u32 = 4;
@@ -321,38 +320,35 @@ fn parse_entries(text: &str) -> Result<Entries, String> {
         .collect()
 }
 
-pub(super) fn json_str(s: &str) -> String {
-    Value::String(s.to_string()).to_string()
+fn pair_json(pair: &Option<Pair>) -> Value {
+    pair.as_ref().map_or(Value::Null, |(a, b)| json!([a, b]))
 }
 
-fn pair_json(pair: &Option<Pair>) -> String {
-    match pair {
-        None => "null".into(),
-        Some((a, b)) => format!("[{}, {}]", json_str(a), json_str(b)),
-    }
-}
-
-/// 等同 Python `json.dump({"entries": ...}, ensure_ascii=False)`（分隔符帶空格）。
+/// 範例快取檔的內容：`{"entries": {指紋: {incoming, system, region}}}`。
 fn render_entries(entries: &Entries) -> String {
-    let body: Vec<String> = entries
+    let body: Map<String, Value> = entries
         .iter()
         .map(|(fp, e)| {
-            format!(
-                "{}: {{\"incoming\": {}, \"system\": {}, \"region\": {}}}",
-                json_str(fp),
-                pair_json(&e.incoming),
-                pair_json(&e.system),
-                pair_json(&e.region)
-            )
+            let set = json!({
+                "incoming": pair_json(&e.incoming),
+                "system": pair_json(&e.system),
+                "region": pair_json(&e.region),
+            });
+            (fp.clone(), set)
         })
         .collect();
-    format!("{{\"entries\": {{{}}}}}", body.join(", "))
+    json!({ "entries": body }).to_string()
 }
 
 impl ExampleStore {
     /// 以指定檔案路徑建立快取。
     pub fn new(path: PathBuf) -> Self {
         Self { path }
+    }
+
+    /// 快取檔的路徑。
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// 查指紋對應的範例集，沒有（或檔案壞掉）回傳 `None`。
@@ -368,7 +364,7 @@ impl ExampleStore {
         if examples.empty() {
             return;
         }
-        let _guard = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock(&STORE_LOCK);
         let mut entries = self.read();
         entries.retain(|(fp, _)| fp != fingerprint);
         entries.push((fingerprint.to_string(), examples.clone()));
@@ -406,25 +402,4 @@ impl ExampleStore {
             )),
         }
     }
-}
-
-/// 先寫同目錄暫存檔再 rename，讀者永遠看不到寫到一半的檔案；失敗時清掉暫存檔。
-pub(super) fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let mut tmp_name = path.as_os_str().to_owned();
-    // 每次呼叫獨立的暫存檔，重疊的寫入才不會互相截斷
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    tmp_name.push(format!(
-        ".{}.{}.tmp",
-        std::process::id(),
-        SEQ.fetch_add(1, Ordering::Relaxed)
-    ));
-    let tmp = PathBuf::from(tmp_name);
-    let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
 }

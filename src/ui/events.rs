@@ -8,6 +8,7 @@ use crate::region::pipeline::RegionResult;
 use crate::runtime::updater::Release;
 use crate::ui::geometry::Rect;
 use crate::ui::settings::env::SettingsEvent;
+use crate::util::lock;
 
 /// 一則 overlay 更新。
 #[derive(Debug, Clone, PartialEq)]
@@ -102,7 +103,7 @@ impl UiPoster {
     pub fn post(&self, event: UiEvent) {
         if let UiEvent::SetForegroundSlot(slot) = event {
             // 鎖住到送出為止，兩條 reader 執行緒的送出順序才與記下的值一致
-            let mut last = self.foreground.lock().unwrap_or_else(|e| e.into_inner());
+            let mut last = lock(&self.foreground);
             if *last == Some(slot) {
                 return;
             }

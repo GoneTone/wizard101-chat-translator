@@ -1,6 +1,5 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
-#[allow(dead_code)]
 use crate::common;
 use crate::stream_server;
 
@@ -552,8 +551,10 @@ async fn redirects_are_not_followed() {
     let server = MockServer::start().await;
     let redirect = ResponseTemplate::new(302).insert_header("location", "/elsewhere");
     mount_chat(&server, redirect).await;
-    // httpx 不跟隨轉址：<400 照串流讀，沒有 data 行就是空譯文
-    assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "");
+    assert_eq!(
+        chat(&client(&server, true, false)).await,
+        Err(TranslateError::Unexpected("HTTP 302: ".into()))
+    );
     assert_eq!(bodies(&server).await.len(), 1);
 }
 

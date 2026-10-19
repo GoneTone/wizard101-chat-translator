@@ -11,6 +11,7 @@ use crate::logs::log;
 use crate::reader::status::Banner;
 pub use crate::runtime::updater::Release;
 use crate::runtime::updater::is_newer;
+use crate::translation::errors::localized;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE};
@@ -44,8 +45,7 @@ impl Banners {
     /// 錯誤橫幅目前的文字；沒有橫幅回 `None`。
     pub fn error_text(&self) -> Option<String> {
         let (key, args) = self.error.as_ref()?;
-        let args: Vec<(&str, &str)> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-        Some(t(key, &args))
+        Some(localized(key, args))
     }
 
     /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出；手動檢查直接走 `set_update`。

@@ -2,23 +2,21 @@
 
 use eframe::egui::{
     Align, Align2, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Pos2, Rect,
-    Response, RichText, Role, ScrollArea, Sense, Stroke, TextStyle, TextWrapMode, Ui, Vec2,
-    WidgetInfo, WidgetText, pos2,
+    Response, RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo,
+    WidgetText, pos2,
 };
 
 use super::{Step, Wizard, WizardAction};
 use crate::config::app_name;
 use crate::i18n::{current_language, language_name, t};
 use crate::logs::log;
-use crate::ui::overlay::frame::load_icon;
+use crate::ui::icon::app_icon_texture;
 use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::fields::editable_combo;
-use crate::ui::settings::hotkeys::HotkeyKind;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::{CardLayout, provider_cards};
 use crate::ui::settings::theme::{self, icon};
-use crate::ui::settings::widgets::{callout, card, focus_ring, named_by, rich};
-use crate::ui::settings::window::thin_scrollbar;
+use crate::ui::settings::widgets::{callout, card, focus_ring, named_by, rich, scroll_page};
 
 /// 步驟條的左右內距、圓點直徑與步驟內容的內距。
 const STEPS_PADDING_X: f32 = 36.0;
@@ -91,40 +89,22 @@ impl Wizard {
     }
 
     pub(super) fn body(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Option<WizardAction> {
-        let style = ui.style().clone();
-        thin_scrollbar(ui);
-        ScrollArea::vertical()
-            .id_salt(("wizard_step", self.step))
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.set_style(style);
-                Frame::new()
-                    .inner_margin(BODY_MARGIN)
-                    .show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.spacing_mut().item_spacing.y = 14.0;
-                        match self.step {
-                            Step::Language => self.language_step(ui),
-                            Step::Service => {
-                                self.service_step(ui, env);
-                                None
-                            }
-                            Step::Prefs => {
-                                self.prefs_step(ui, env);
-                                None
-                            }
-                        }
-                    })
-                    .inner
-            })
-            .inner
+        let salt = ("wizard_step", self.step);
+        scroll_page(ui, salt, BODY_MARGIN, 14.0, |ui| match self.step {
+            Step::Language => self.language_step(ui),
+            Step::Service => {
+                self.service_step(ui, env);
+                None
+            }
+            Step::Prefs => {
+                self.prefs_step(ui, env);
+                None
+            }
+        })
     }
 
     fn language_step(&mut self, ui: &mut Ui) -> Option<WizardAction> {
-        let texture = self
-            .icon
-            .get_or_insert_with(|| load_icon(ui.ctx(), 48))
-            .id();
+        let texture = app_icon_texture(ui.ctx(), 48);
         let hero = Margin {
             top: 36,
             bottom: 28,
@@ -217,8 +197,7 @@ impl Wizard {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
         self.hotkeys.cards(ui, env, &mut self.auto_show_input);
-        let same = self.hotkeys.value(HotkeyKind::Input) == self.hotkeys.value(HotkeyKind::Region);
-        self.hotkeys_blocked &= same;
+        self.hotkeys_blocked &= self.hotkeys.conflict();
         if self.hotkeys_blocked {
             let lines = [t("error.hotkeys_same", &[])];
             let shown = ui.scope(|ui| callout(ui, &t("dialog.incomplete_title", &[]), &lines));

@@ -1,6 +1,5 @@
 //! ConcurrencyGate 與 TranslationPool：總量上限、平行翻譯、失敗退避與重試、resize／shutdown。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::future::Future;
@@ -9,6 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use common::log_capture::{capture_logs, log_text};
+use common::reader_fixture::{DESCRIBE, FAILED, new_pool};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
@@ -17,9 +17,6 @@ use wizard101_chat_translator::translation::gate::ConcurrencyGate;
 use wizard101_chat_translator::translation::pool::{
     ErrorState, ResultFn, TranslateFn, TranslationPool,
 };
-
-const FAILED: &str = "⚠  這則訊息翻譯不出來";
-const DESCRIBE: &str = "provider=fake-pool, model=fake-model";
 
 type Report = (u64, String, bool);
 
@@ -39,12 +36,10 @@ fn make_pool(
     let on_result: ResultFn = Arc::new(move |id, text, failed| {
         let _ = tx.send((id, text, failed));
     });
-    let pool = TranslationPool::new(
+    let pool = new_pool(
         translate,
         on_result,
         gate,
-        Arc::new(|| FAILED.to_owned()),
-        Arc::new(|| DESCRIBE.to_owned()),
         tokio::runtime::Handle::current(),
     );
     (pool, rx)
@@ -276,12 +271,10 @@ async fn in_flight_already_excludes_the_line_inside_on_result() {
                 .push(pool_slot.get().unwrap().in_flight())
         }
     });
-    let pool = TranslationPool::new(
+    let pool = new_pool(
         tfn(|line: String, _| async move { Ok(line) }),
         on_result,
         gate(1),
-        Arc::new(|| FAILED.to_owned()),
-        Arc::new(|| DESCRIBE.to_owned()),
         tokio::runtime::Handle::current(),
     );
     let _ = pool_slot.set(pool);

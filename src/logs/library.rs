@@ -5,6 +5,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use super::log;
+use crate::util::lock;
 
 /// 同一則訊息重複時，至多每隔這麼久寫出一次（附上期間略過的次數）。
 const REPEAT_WINDOW: Duration = Duration::from_secs(60);
@@ -78,11 +79,7 @@ impl ::log::Log for LibraryLogs {
             record.level(),
             record.args()
         );
-        let admitted = self
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .admit(&line, Instant::now());
+        let admitted = lock(&self.0).admit(&line, Instant::now());
         if let Some(line) = admitted {
             log(line);
         }

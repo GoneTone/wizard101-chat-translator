@@ -2,8 +2,9 @@
 //!
 //! 會切換全域介面語言，獨立成一個測試執行檔，檔內以鎖排隊。
 
-use std::sync::{Mutex, MutexGuard};
+mod common;
 
+use common::language_lock;
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{
     EFFORTS, describe, find, is_auto_name, new_service, provider, providers, unique_name,
@@ -11,12 +12,6 @@ use wizard101_chat_translator::config::services::{
 };
 use wizard101_chat_translator::config::{AdvancedText, Config, advanced_limits, parse_advanced};
 use wizard101_chat_translator::i18n;
-
-/// 介面語言是全域狀態，會翻文案的測試要排隊。
-fn language_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 fn text(fade: &str, max: &str, parallel: &str, delay: &str, alpha: f64) -> AdvancedText {
     AdvancedText {

@@ -5,7 +5,6 @@
 //! 還會把全文當成選取。
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use eframe::egui::text::{CharIndex, LayoutJob, TextFormat};
 use eframe::egui::{
@@ -26,7 +25,7 @@ use crate::ui::palette::{
 use crate::ui::region::region_box::{HANDLE, MARGIN};
 use crate::ui::richtext::{linkify, parse_link_markup};
 use crate::ui::text_select::{
-    AUTOSCROLL_INTERVAL, autoscroll_pixels, char_range_text, highlight_rects, is_copy, wheel_delta,
+    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, highlight_rects, is_copy, wheel_delta,
 };
 
 /// 卡片寬度下限（px）：矩形再窄也不跟，譯文會擠成一長條。
@@ -211,7 +210,8 @@ pub struct Card {
     next_tick: f64,
     /// 右鍵選單的位置。
     menu: Option<Pos2>,
-    clipboard: Box<dyn FnMut(&str) -> bool>,
+    /// 選單範圍（右鍵當下算好，之後取上一幀畫出的）；選單上的按放不算點卡片。
+    menu_rect: Option<egui::Rect>,
 }
 
 impl Card {
@@ -231,13 +231,8 @@ impl Card {
             dragging: false,
             next_tick: 0.0,
             menu: None,
-            clipboard: Box::new(|_| false),
+            menu_rect: None,
         }
-    }
-
-    /// 換掉剪貼簿寫入函式（預設寫不進去）；宿主帶入以卡片視窗為擁有者的 `clipboard::set_text`。
-    pub fn set_clipboard(&mut self, sink: impl FnMut(&str) -> bool + 'static) {
-        self.clipboard = Box::new(sink);
     }
 
     /// 換內容；落點重新判斷、捲回頂端，舊的選取作廢。
@@ -425,15 +420,7 @@ impl Card {
         if self.dragging
             && let Some(p) = pointer
         {
-            if time >= self.next_tick {
-                self.next_tick = time + AUTOSCROLL_INTERVAL;
-                self.scroll += autoscroll_pixels(
-                    p.y.floor() as i32,
-                    text_rect.min.y as i32,
-                    text_rect.max.y as i32 - 1,
-                ) as f32;
-            }
-            ctx.request_repaint_after(Duration::from_secs_f64(AUTOSCROLL_INTERVAL));
+            self.scroll += autoscroll_tick(&ctx, &mut self.next_tick, time, p.y, text_rect);
         }
         self.scroll = self.scroll.clamp(0.0, (content_h - view_h).max(0.0));
         let origin = text_rect.min - vec2(0.0, self.scroll);
@@ -443,13 +430,12 @@ impl Card {
         let mut close = false;
         let mut copied = None;
         let mut focus = false;
-        let menu_rect = self.menu.map(|at| copy_menu::rect(ui, at));
         for (pos, pressed) in buttons {
             if pressed {
                 // 捲軸與選單上的按放不算點卡片，選取也留著
                 if !area.contains(pos)
                     || track.contains(pos)
-                    || menu_rect.is_some_and(|r| r.contains(pos))
+                    || self.menu_rect.is_some_and(|r| r.contains(pos))
                 {
                     continue;
                 }
@@ -494,12 +480,12 @@ impl Card {
         }
         if let Some(at) = self.menu {
             match copy_menu::show(ui, Id::unique("region_card_copy_menu"), at) {
-                MenuOutcome::Open => {}
+                MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
                 MenuOutcome::Copy => {
                     self.close_menu();
                     copied = match self.selection_text() {
-                        Some(selected) => self.copy(&selected, "selection"),
-                        None => self.copy(&self.all_text(), "text"),
+                        Some(selected) => self.copy(&ctx, &selected, "selection"),
+                        None => self.copy(&ctx, &self.all_text(), "text"),
                     };
                 }
                 MenuOutcome::Dismissed => self.close_menu(),
@@ -507,9 +493,11 @@ impl Card {
         }
         if let Some(&at) = right_clicks.iter().rfind(|p| text_rect.contains(**p)) {
             self.menu = Some(at);
+            // 下一幀的點擊比選單先處理，不能等 show 回報範圍
+            self.menu_rect = Some(copy_menu::rect(ui, at));
         }
         if copy && let Some(selected) = self.selection_text() {
-            copied = self.copy(&selected, "selection").or(copied);
+            copied = self.copy(&ctx, &selected, "selection").or(copied);
         }
 
         // ---- 繪製 ----
@@ -559,17 +547,19 @@ impl Card {
         }
     }
 
-    /// 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
-    fn copy(&mut self, text: &str, kind: &str) -> Option<usize> {
-        if text.is_empty() || !(self.clipboard)(text) {
+    /// 請 egui 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
+    fn copy(&self, ctx: &egui::Context, text: &str, kind: &str) -> Option<usize> {
+        if text.is_empty() {
             return None;
         }
         let chars = text.chars().count();
-        log(format!("[region] copied {kind} ({chars} chars)"));
+        log(format!("[region] copy requested {kind} ({chars} chars)"));
+        ctx.copy_text(text.to_owned());
         Some(chars)
     }
 
     fn close_menu(&mut self) {
+        self.menu_rect = None;
         if self.menu.take().is_some() {
             log("[ui] copy popup hidden");
         }
@@ -578,9 +568,6 @@ impl Card {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use eframe::egui::{
         Key, Modifiers, MouseWheelSource, MouseWheelUnit, OutputCommand, Shape, TouchPhase,
         epaint::TextShape,
@@ -590,6 +577,7 @@ mod tests {
     use super::*;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
+    use crate::ui::text_select::copied_texts;
 
     const RECT: Rect = (300, 200, 400, 120);
     const AREA: Rect = (0, 0, 1920, 1040);
@@ -602,22 +590,16 @@ mod tests {
     struct State {
         card: Card,
         actions: Vec<CardAction>,
-        copied: Rc<RefCell<Vec<String>>>,
+        /// 各幀 `ctx.copy_text` 排入的文字。
+        copied: Vec<String>,
         area: egui::Rect,
     }
 
     fn harness_sized(card: Card, size: Vec2) -> Harness<'static, State> {
-        let copied = Rc::new(RefCell::new(Vec::new()));
-        let mut card = card;
-        let sink = Rc::clone(&copied);
-        card.set_clipboard(move |text| {
-            sink.borrow_mut().push(text.to_owned());
-            true
-        });
         let state = State {
             card,
             actions: Vec::new(),
-            copied,
+            copied: Vec::new(),
             area: egui::Rect::NOTHING,
         };
         let mut h = Harness::builder()
@@ -630,6 +612,7 @@ mod tests {
                 |ui, s: &mut State| {
                     s.area = ui.max_rect();
                     s.actions.extend(s.card.content(ui));
+                    s.copied.extend(copied_texts(ui.ctx()));
                 },
                 state,
             );
@@ -652,7 +635,7 @@ mod tests {
     }
 
     fn copied(h: &Harness<State>) -> Vec<String> {
-        h.state().copied.borrow().clone()
+        h.state().copied.clone()
     }
 
     fn text_shapes(h: &Harness<State>) -> Vec<TextShape> {
@@ -857,11 +840,7 @@ mod tests {
 
     #[test]
     fn rich_label_natural_width_is_the_widest_line_unwrapped() {
-        let h = harness(text(
-            "短
-這是一行比較長的文字",
-            "",
-        ));
+        let h = harness(text("短\n這是一行比較長的文字", ""));
         let natural = h.state().card.natural_width(&h.ctx);
         assert_eq!(natural, width_of(&h, "這是一行比較長的文字", 11.0));
     }
@@ -1198,6 +1177,32 @@ mod tests {
         right_click(&mut h, label.left_top() + vec2(5.0, 5.0));
         assert!(h.state().actions.is_empty());
         assert!(menu_rect(&h).is_some(), "copy menu shown");
+    }
+
+    #[test]
+    fn clicking_the_menu_right_after_opening_it_keeps_the_card() {
+        let mut h = harness(text("譯文", SOURCE));
+        let at = label_rect(&h, BOTH).left_top() + vec2(5.0, 5.0);
+        let button = |pos, button, pressed| Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        // kittest 每個事件跑一幀：右鍵按下的下一幀選單還沒畫出，左鍵就點在它的範圍內
+        let inside = at + vec2(3.0, 3.0);
+        h.hover_at(at);
+        h.event(button(at, PointerButton::Secondary, true));
+        h.event(button(inside, PointerButton::Primary, true));
+        h.event(button(inside, PointerButton::Primary, false));
+        h.event(button(at, PointerButton::Secondary, false));
+        h.step();
+        h.step();
+        assert!(
+            !h.state().actions.contains(&CardAction::Close),
+            "{:?}",
+            h.state().actions
+        );
     }
 
     #[test]

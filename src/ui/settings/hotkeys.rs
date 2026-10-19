@@ -4,8 +4,10 @@ use eframe::egui::{Label, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle, 
 use eframe::egui::{WidgetText, vec2};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
+use super::text_setting;
 use super::theme;
 use super::widgets::{card, keycap_row, secondary_button, setting_row, toggle};
+use crate::config::Config;
 use crate::i18n::t;
 use crate::logs::log;
 
@@ -44,20 +46,44 @@ impl HotkeyKind {
 
 /// 兩把熱鍵的值與錄製狀態；同一時間只錄一格。
 ///
-/// 錄製結果被收下（`apply` 回 `true`）或錄製被放棄（`stop` 回 `true`）後，呼叫端要在 UI 執行緒呼叫
-/// `env.cancel_recording()`，錄製器才會從鍵盤分派器移除。
+/// 錄製結果被收下（`apply`）或錄製被放棄（`stop`）後，錄製器還留在鍵盤分派器裡；呼叫端要在每幀（或
+/// 手上有 env 時）呼叫 `release`，在 UI 執行緒把它移除。
 pub struct HotkeyEditor {
     values: [String; 2],
     recording: Round,
     target: Option<HotkeyKind>,
+    /// 錄製器待移除；`apply`／`stop` 手上沒有 env，留到 `release` 才呼叫 `env.cancel_recording()`。
+    release_pending: bool,
 }
 
 impl HotkeyEditor {
-    pub fn new(input: &str, region: &str) -> Self {
+    /// 取設定裡兩把熱鍵目前的值。
+    pub fn from_config(cfg: &Config) -> Self {
         Self {
-            values: [input.to_owned(), region.to_owned()],
+            values: [HotkeyKind::Input, HotkeyKind::Region]
+                .map(|kind| text_setting(cfg, kind.config_key())),
             recording: Round::new("hotkey capture"),
             target: None,
+            release_pending: false,
+        }
+    }
+
+    /// 兩把熱鍵寫回設定。
+    pub fn write_into(&self, cfg: &mut Config) {
+        for kind in [HotkeyKind::Input, HotkeyKind::Region] {
+            cfg.insert(kind.config_key().into(), self.value(kind).into());
+        }
+    }
+
+    /// 兩把熱鍵相同會一起觸發，儲存前要擋下。
+    pub fn conflict(&self) -> bool {
+        self.value(HotkeyKind::Input) == self.value(HotkeyKind::Region)
+    }
+
+    /// 錄製器待移除就從鍵盤分派器拿掉。
+    pub fn release(&mut self, env: &dyn SettingsEnv) {
+        if std::mem::take(&mut self.release_pending) {
+            env.cancel_recording();
         }
     }
 
@@ -81,9 +107,8 @@ impl HotkeyEditor {
         let Some(change) = change.filter(|r| r.clicked()) else {
             return;
         };
-        if self.stop() {
-            env.cancel_recording();
-        }
+        self.stop();
+        self.release(env);
         // 錄製時按的空白鍵／Enter 不可再觸發聚焦中的按鈕
         change.surrender_focus();
         let round = self.recording.start();
@@ -104,13 +129,13 @@ impl HotkeyEditor {
         card(ui, |ui| self.row(ui, env, HotkeyKind::Region));
     }
 
-    /// 收下錄製結果：`esc` 或空字串不改值。回傳是否收下了本輪的結果。
-    pub fn apply(&mut self, event: &SettingsEvent) -> bool {
+    /// 收下錄製結果：`esc` 或空字串不改值。
+    pub fn apply(&mut self, event: &SettingsEvent) {
         let SettingsEvent::HotkeyRecorded { round, combo } = event else {
-            return false;
+            return;
         };
         if !self.recording.finish(*round) {
-            return false;
+            return;
         }
         if let Some(kind) = self.target.take()
             && !combo.is_empty()
@@ -122,15 +147,14 @@ impl HotkeyEditor {
             ));
             self.values[kind.index()] = combo.clone();
         }
-        true
+        self.release_pending = true;
     }
 
-    /// 放棄進行中的錄製（之後回來的結果一律丟掉）；回傳原本是否在錄。
-    pub fn stop(&mut self) -> bool {
-        let was = self.recording.busy();
+    /// 放棄進行中的錄製（之後回來的結果一律丟掉）。
+    pub fn stop(&mut self) {
+        self.release_pending |= self.recording.busy();
         self.recording.cancel();
         self.target = None;
-        was
     }
 }
 

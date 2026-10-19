@@ -17,15 +17,11 @@ use crate::input::dispatch::InputBoxControl;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, anchored_position};
-use crate::ui::palette::{FG_ERROR, FG_UPDATE};
+use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE};
 use crate::ui::richtext;
 
 /// 底色。
 pub const BG: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x24);
-/// 輸入文字。
-pub const FG: Color32 = Color32::from_rgb(0xf2, 0xf2, 0xf7);
-/// 提示與「翻譯中」文字。
-pub const HINT_FG: Color32 = Color32::from_rgb(0x9a, 0x9a, 0xa8);
 /// 輸入欄底色。
 pub const ENTRY_BG: Color32 = Color32::from_rgb(0x26, 0x26, 0x36);
 /// 遊戲聊天輸入框的長度上限（實測）。
@@ -47,15 +43,6 @@ pub struct OutgoingRequest {
     pub session: u64,
     /// 輸入框關閉時被 cancel，翻譯端應撤銷請求。
     pub cancel: CancellationToken,
-}
-
-/// `content` 這一幀觸發的動作（動作本身已在輸入框內執行）。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BoxAction {
-    /// Enter 送出翻譯。
-    Submit,
-    /// Esc 或空白 Enter 關閉。
-    Close,
 }
 
 /// 翻譯輸入框的狀態機。
@@ -161,8 +148,8 @@ impl InputBox {
         (self.send)(translated, target);
     }
 
-    /// 畫輸入欄與狀態列，處理 Enter／Esc；回傳這一幀觸發的動作。
-    pub fn content(&mut self, ui: &mut Ui) -> Option<BoxAction> {
+    /// 畫輸入欄與狀態列，處理 Enter（送出，空白則關閉）／Esc（關閉）。
+    pub fn content(&mut self, ui: &mut Ui) {
         // 組字中的 Enter 是選字、Esc 是取消組字，不可送出或關窗；依事件順序追蹤組字狀態
         let composing = &mut self.composing;
         ui.input_mut(|i| {
@@ -182,7 +169,6 @@ impl InputBox {
                 _ => true,
             });
         });
-        let mut action = None;
         egui::Frame::new()
             .fill(BG)
             .inner_margin(Margin {
@@ -194,10 +180,10 @@ impl InputBox {
             .show(ui, |ui| {
                 let entry = TextEdit::singleline(&mut self.text)
                     .font(FontId::proportional(tk_pt(12.0)))
-                    .text_color(FG)
+                    .text_color(FG_TRANSLATED)
                     .background_color(ENTRY_BG)
                     .desired_width(f32::INFINITY);
-                ui.visuals_mut().text_cursor.stroke.color = FG;
+                ui.visuals_mut().text_cursor.stroke.color = FG_TRANSLATED;
                 let response = ui.add_enabled(!self.translating, entry);
                 if std::mem::take(&mut self.cursor_to_end) {
                     let mut state = TextEditState::load(ui.ctx(), response.id).unwrap_or_default();
@@ -217,16 +203,14 @@ impl InputBox {
                     ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
                 if escape {
                     self.close();
-                    action = Some(BoxAction::Close);
                 } else if enter && !self.translating {
-                    action = Some(self.submit());
+                    self.submit();
                 }
                 // TextEdit 按 Enter 會交出焦點；框裡只有這一個欄位，一律拉回來
                 if self.open && !self.translating && !response.has_focus() {
                     response.request_focus();
                 }
             });
-        action
     }
 
     /// `show()` 之後回一次 true：宿主要把視窗搶到前景。
@@ -244,12 +228,12 @@ impl InputBox {
         self.placement
     }
 
-    fn submit(&mut self) -> BoxAction {
+    fn submit(&mut self) {
         // 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
         let text = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
         if text.is_empty() {
             self.close();
-            return BoxAction::Close;
+            return;
         }
         self.translating = true;
         self.error = None;
@@ -261,14 +245,13 @@ impl InputBox {
             session: self.session,
             cancel,
         });
-        BoxAction::Submit
     }
 
     fn status(&self) -> (String, Color32) {
         match (&self.error, self.translating) {
             (Some(error), _) => (error.clone(), FG_ERROR),
-            (None, true) => (t("input.translating", &[]), HINT_FG),
-            (None, false) => (t("input.hint", &[]), HINT_FG),
+            (None, true) => (t("input.translating", &[]), FG_HINT),
+            (None, false) => (t("input.hint", &[]), FG_HINT),
         }
     }
 
@@ -315,7 +298,7 @@ impl InputBoxControl for InputBox {
         self.target = (self.foreground)();
         let anchor = self
             .anchor
-            .map_or_else(|| "None".to_owned(), |r| format!("{r:?}"));
+            .map_or_else(|| "none".to_owned(), |r| format!("{r:?}"));
         log(format!(
             "[input] box opened (target_hwnd={:#x}, anchor={anchor})",
             self.target
@@ -417,7 +400,7 @@ mod tests {
     /// 打字後按 Enter：回傳送出的那次請求的 session。
     fn submit(f: &mut Fixture, text: &str) -> u64 {
         f.input.text = text.into();
-        assert_eq!(f.input.submit(), BoxAction::Submit);
+        f.input.submit();
         f.requests.borrow().last().unwrap().session
     }
 
@@ -475,7 +458,7 @@ mod tests {
         let mut f = fixture();
         f.input.show();
         f.input.text = " \t ".into();
-        assert_eq!(f.input.submit(), BoxAction::Close);
+        f.input.submit();
         assert!(!f.input.is_open());
         assert!(f.requests.borrow().is_empty());
     }
@@ -497,7 +480,7 @@ mod tests {
         f.input.hide();
         f.input.show();
         f.input.finish(session, Err("Error message".into()));
-        assert_eq!(f.input.status(), (t("input.hint", &[]), HINT_FG));
+        assert_eq!(f.input.status(), (t("input.hint", &[]), FG_HINT));
     }
 
     #[test]
@@ -593,7 +576,7 @@ mod tests {
         f.input.show();
         assert_eq!(f.input.text, "still typing");
         assert!(!f.input.translating);
-        assert_eq!(f.input.status(), (t("input.hint", &[]), HINT_FG));
+        assert_eq!(f.input.status(), (t("input.hint", &[]), FG_HINT));
     }
 
     #[test]
@@ -617,7 +600,7 @@ mod tests {
         assert_eq!(requests[0].text, "a b");
         assert_eq!(requests[0].target, 0xA);
         assert!(f.input.translating);
-        assert_eq!(f.input.status(), (t("input.translating", &[]), HINT_FG));
+        assert_eq!(f.input.status(), (t("input.translating", &[]), FG_HINT));
     }
 
     #[test]
@@ -747,20 +730,13 @@ mod tests {
 
     struct State {
         f: Fixture,
-        actions: Vec<BoxAction>,
     }
 
     fn harness(f: Fixture) -> Harness<'static, State> {
         let mut harness = Harness::builder()
             .with_size(egui::vec2(460.0, 160.0))
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-            .build_ui_state(
-                |ui, s: &mut State| s.actions.extend(s.f.input.content(ui)),
-                State {
-                    f,
-                    actions: Vec::new(),
-                },
-            );
+            .build_ui_state(|ui, s: &mut State| s.f.input.content(ui), State { f });
         harness.run_steps(2);
         harness
     }
@@ -782,14 +758,10 @@ mod tests {
         type_text(&mut harness, "hello");
         harness.key_press(Key::Enter);
         harness.step();
-        assert_eq!(harness.state().actions, [BoxAction::Submit]);
         assert_eq!(harness.state().f.requests.borrow()[0].text, "hello");
         harness.key_press(Key::Escape);
         harness.step();
-        assert_eq!(
-            harness.state().actions,
-            [BoxAction::Submit, BoxAction::Close]
-        );
+        assert_eq!(harness.state().f.requests.borrow().len(), 1);
         assert!(!harness.state().f.input.is_open());
     }
 
@@ -861,20 +833,22 @@ mod tests {
         harness.step();
         harness.key_press(Key::Enter);
         harness.step();
-        assert!(harness.state().actions.is_empty());
+        assert!(harness.state().f.requests.borrow().is_empty());
+        assert!(harness.state().f.input.is_open());
         harness.event(Event::Ime(ImeEvent::Commit("你".into())));
         harness.step();
         harness.key_press(Key::Enter);
         harness.step();
-        assert_eq!(harness.state().actions, [BoxAction::Submit]);
-        assert_eq!(harness.state().f.requests.borrow()[0].text, "你");
+        let requests = harness.state().f.requests.borrow();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].text, "你");
 
         let mut harness = opened_harness();
         harness.event(preedit());
         harness.step();
         harness.key_press(Key::Escape);
         harness.step();
-        assert!(harness.state().actions.is_empty());
+        assert!(harness.state().f.requests.borrow().is_empty());
         assert!(harness.state().f.input.is_open());
     }
 }

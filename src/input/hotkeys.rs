@@ -107,14 +107,14 @@ impl HotkeyInterceptor {
         })
     }
 
-    /// `f()` 成立時，觸發鍵一律吞掉、不呼叫 `on_trigger`（不記入按住、不補遮罩鍵）。
+    /// `f()` 成立時，觸發鍵按下一律吞掉、不呼叫 `on_trigger`；放開仍放行，免得 pressed 殘留。
     pub fn swallow_override(mut self, f: Box<dyn Fn() -> bool + Send>) -> Self {
         self.swallow_override = Some(f);
         self
     }
 
     fn should_swallow(&mut self, ev: KeyEvent, pressed: &Pressed) -> bool {
-        if self.swallow_override.as_ref().is_some_and(|f| f()) {
+        if ev.down && self.swallow_override.as_ref().is_some_and(|f| f()) {
             return true;
         }
         if !ev.down || !self.completes_combo(ev.code, pressed) || !(self.on_trigger)() {

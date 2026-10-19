@@ -4,11 +4,12 @@
 
 use crate::common;
 
+use eframe::egui::Key;
 use eframe::egui::accesskit::Role;
-use eframe::egui::{Key, OutputCommand};
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
+use common::kittest::{click, has_label, opened_urls, run, tr};
 use common::wizard::*;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, default_config};
@@ -69,18 +70,6 @@ fn three_services() -> Vec<Value> {
         services.push(service);
     }
     services
-}
-
-fn opened_urls(h: &WizardHarness) -> Vec<String> {
-    h.output()
-        .platform_output
-        .commands
-        .iter()
-        .filter_map(|c| match c {
-            OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn help_link() -> String {

@@ -110,9 +110,11 @@ impl RegionBox {
         });
     }
 
-    /// 拖曳中：回傳新矩形，供宿主搬移視窗；沒在拖曳回 `None`。
-    pub fn drag(&mut self, screen: (i32, i32)) -> Option<Rect> {
-        let drag = self.drag.as_ref()?;
+    /// 拖曳中：依游標位置更新矩形（讀 `rect()`）；沒在拖曳時不動作。
+    pub fn drag(&mut self, screen: (i32, i32)) {
+        let Some(drag) = self.drag.as_ref() else {
+            return;
+        };
         let (dx, dy) = (
             screen.0 - drag.start_screen.0,
             screen.1 - drag.start_screen.1,
@@ -125,7 +127,6 @@ impl RegionBox {
             }
             Hit::Edge(edge) => resized_edge(edge, x, y, w, h, dx, dy, MIN_SIZE, MIN_SIZE),
         };
-        Some(self.rect)
     }
 
     /// 放開：矩形有改變就回報；位移在點擊門檻內視為誤觸，矩形還原、不回報。
@@ -177,16 +178,12 @@ mod tests {
 
     const RECT: Rect = (100, 100, 300, 200);
 
-    fn drag_through(
-        b: &mut RegionBox,
-        window: (i32, i32),
-        by: (i32, i32),
-    ) -> (Option<Rect>, Option<Rect>) {
+    fn drag_through(b: &mut RegionBox, window: (i32, i32), by: (i32, i32)) -> Option<Rect> {
         let start = (1000 + window.0, 1000 + window.1);
         let end = (start.0 + by.0, start.1 + by.1);
         b.press(start, window);
-        let dragged = b.drag(end);
-        (dragged, b.release(end))
+        b.drag(end);
+        b.release(end)
     }
 
     #[test]
@@ -215,8 +212,7 @@ mod tests {
     #[test]
     fn dragging_the_inside_moves_the_rect() {
         let mut b = RegionBox::new(RECT);
-        let (dragged, released) = drag_through(&mut b, (50, 50), (20, 10));
-        assert_eq!(dragged, Some((120, 110, 300, 200)));
+        let released = drag_through(&mut b, (50, 50), (20, 10));
         assert_eq!(released, Some((120, 110, 300, 200)));
         assert_eq!(b.rect(), (120, 110, 300, 200));
     }
@@ -224,11 +220,11 @@ mod tests {
     #[test]
     fn dragging_an_edge_resizes_only_that_edge() {
         let mut b = RegionBox::new(RECT);
-        let (_, released) = drag_through(&mut b, (MARGIN + 60, MARGIN), (20, 10));
+        let released = drag_through(&mut b, (MARGIN + 60, MARGIN), (20, 10));
         assert_eq!(released, Some((100, 110, 300, 190)));
 
         let mut b = RegionBox::new(RECT);
-        let (_, released) = drag_through(&mut b, (MARGIN + 300, MARGIN + 200), (40, 30));
+        let released = drag_through(&mut b, (MARGIN + 300, MARGIN + 200), (40, 30));
         assert_eq!(released, Some((100, 100, 340, 230)));
     }
 
@@ -250,8 +246,7 @@ mod tests {
     #[test]
     fn a_click_restores_the_rect_and_reports_nothing() {
         let mut b = RegionBox::new(RECT);
-        let (dragged, released) = drag_through(&mut b, (MARGIN + 60, MARGIN), (2, 1));
-        assert_eq!(dragged, Some((100, 101, 300, 199)));
+        let released = drag_through(&mut b, (MARGIN + 60, MARGIN), (2, 1));
         assert_eq!(released, None);
         assert_eq!(b.rect(), RECT);
     }
@@ -266,7 +261,8 @@ mod tests {
         assert_eq!(b.release((1100, 1100)), None);
         assert_eq!(b.rect(), RECT);
         assert_eq!(b.release(start), None);
-        assert_eq!(b.drag(start), None);
+        b.drag((1200, 1200));
+        assert_eq!(b.rect(), RECT);
     }
 
     #[test]

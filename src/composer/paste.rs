@@ -14,7 +14,7 @@ use crate::input::hotkeys::HotkeyInterceptor;
 use crate::input::inject::{Injector, SendInputInjector};
 use crate::input::keys::{Code, key_codes_or_empty};
 use crate::logs::log;
-use crate::reader::process::{foreground_window, process_exe_path, window_exists, window_pid};
+use crate::reader::process::{foreground_window, window_exists};
 use crate::ui::{clipboard, win32};
 use crate::util::lock;
 
@@ -32,21 +32,6 @@ static TYPING: Mutex<()> = Mutex::new(());
 static PASTE_IN_PROGRESS: Mutex<()> = Mutex::new(());
 
 static LINE_BREAKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\r\n]+").unwrap());
-
-/// 視窗所屬程序的 exe 路徑；沒有視窗或查不到回 `None`。
-fn exe_of_window(hwnd: isize) -> Option<String> {
-    if hwnd == 0 {
-        return None;
-    }
-    process_exe_path(window_pid(hwnd))
-}
-
-/// 目前前景視窗所屬程序的 exe 路徑；沒有前景視窗或查不到回 `None`。
-///
-/// 搭配 `is_game_process_path` 判斷使用者是否正在遊戲畫面。
-pub fn foreground_exe() -> Option<String> {
-    exe_of_window(foreground_window())
-}
 
 /// 目前是否正在逐字鍵入（譯文或貼上）。
 pub fn typing_in_progress() -> bool {
@@ -208,7 +193,7 @@ pub fn paste_clipboard(env: &TypingEnv, hwnd: isize, delay: Duration, single_lin
         Ok(Some(text)) if !text.is_empty() => text,
         result => {
             match result {
-                Err(err) => log(format!("[composer] clipboard open failed: {err}")),
+                Err(err) => log(format!("[composer] clipboard read failed: {err}")),
                 Ok(None) => log("[composer] clipboard has no text: no CF_UNICODETEXT data"),
                 Ok(Some(_)) => {}
             }
@@ -436,11 +421,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn foreground_exe_returns_none_when_lookup_fails() {
-        assert_eq!(exe_of_window(0), None);
-    }
-
     fn down(code: Code) -> KeyEvent {
         KeyEvent {
             down: true,
@@ -532,13 +512,35 @@ mod tests {
     }
 
     #[test]
-    fn interceptor_swallows_v_while_typing_is_in_progress() {
+    fn interceptor_swallows_v_press_but_not_release_while_typing() {
         let _g = serial();
         let (mut it, pastes) = interceptor(true);
         let _typing = TYPING.lock().unwrap();
         assert!(!it.handle(down(code("v")), &held(&[])));
-        assert!(!it.handle(up(code("v")), &held(&[])));
+        assert!(it.handle(up(code("v")), &held(&[])));
         assert_eq!(*pastes.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn v_released_during_typing_does_not_stay_pressed() {
+        use crate::input::dispatcher::Dispatcher;
+        let _g = serial();
+        let (it, _) = interceptor(true);
+        let mut d = Dispatcher::new();
+        d.add_blocking(Box::new(it));
+        let fired = Arc::new(Mutex::new(0));
+        let count = fired.clone();
+        d.add_passive(
+            vec![vec![vec![code("ctrl")]]],
+            Box::new(move || *count.lock().unwrap() += 1),
+        );
+        assert!(d.process(down(code("v"))));
+        let typing = TYPING.lock().unwrap();
+        assert!(d.process(up(code("v"))));
+        drop(typing);
+        assert!(!d.pressed().contains(&code("v")));
+        d.process(down(code("ctrl")));
+        assert_eq!(*fired.lock().unwrap(), 1);
     }
 
     #[test]
@@ -561,7 +563,7 @@ mod tests {
             assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
         });
         assert!(
-            text.contains("[composer] clipboard open failed: error=5"),
+            text.contains("[composer] clipboard read failed: error=5"),
             "{text}"
         );
         assert!(fake.calls.lock().unwrap().is_empty());

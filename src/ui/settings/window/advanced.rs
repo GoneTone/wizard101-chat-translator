@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use super::{SettingsAction, SettingsWindow};
-use crate::config::{AdvancedText, advanced_limits, default_config, py};
+use crate::config::{AdvancedText, Config, advanced_is_float, advanced_limits, default_config, py};
 use crate::i18n::t;
 use crate::ui::settings::fields::number_field;
 use crate::ui::settings::theme;
@@ -46,7 +46,7 @@ fn field<'a>(text: &'a mut AdvancedText, key: &str) -> &'a mut String {
 
 /// 範圍說明裡的上下限，寫法同 Python 的 ADVANCED_LIMITS：浮點數欄位寫成 `0.0`，整數欄位寫成 `0`。
 fn bound(key: &str, x: f64) -> String {
-    if default_config()[key].is_f64() {
+    if advanced_is_float(key) {
         py::float_repr(x)
     } else {
         (x as i64).to_string()
@@ -54,7 +54,7 @@ fn bound(key: &str, x: f64) -> String {
 }
 
 /// `settings.range_hint`：說明加上範圍與預設值。
-fn range_hint(key: &str, hint_key: &str) -> String {
+fn range_hint(defaults: &Config, key: &str, hint_key: &str) -> String {
     let (lo, hi) = advanced_limits(key);
     t(
         "settings.range_hint",
@@ -62,16 +62,17 @@ fn range_hint(key: &str, hint_key: &str) -> String {
             ("hint", &t(hint_key, &[])),
             ("lo", &bound(key, lo)),
             ("hi", &bound(key, hi)),
-            ("default", &py::display(&default_config()[key])),
+            ("default", &py::display(&defaults[key])),
         ],
     )
 }
 
 impl SettingsWindow {
     pub(super) fn advanced_page(&mut self, ui: &mut Ui) {
+        let defaults = default_config();
         card(ui, |ui| {
             for (key, label_key, hint_key, step) in NUMBERS {
-                let hint = range_hint(key, hint_key);
+                let hint = range_hint(&defaults, key, hint_key);
                 setting_row(ui, &t(label_key, &[]), Some(&hint), |ui| {
                     number_field(
                         ui,
@@ -84,7 +85,7 @@ impl SettingsWindow {
         });
         let mut previewed = None;
         card(ui, |ui| {
-            let default = py::display(&default_config()["overlay_alpha"]);
+            let default = py::display(&defaults["overlay_alpha"]);
             let hint = t("settings.alpha_hint", &[("default", &default)]);
             setting_row(ui, &t("settings.alpha", &[]), Some(&hint), |ui| {
                 if alpha_slider(ui, &mut self.advanced.overlay_alpha) {
