@@ -17,7 +17,7 @@ pub const GRIP: Color32 = hex(0x3a3a55);
 pub const BG_UPDATE: Color32 = hex(0x1b2740);
 /// 沒有遊戲色時的原文。
 pub const FG_ORIGINAL: Color32 = hex(0xc0c0cd);
-/// 沒有遊戲色時的譯文。
+/// 沒有遊戲色時的譯文；也是輸入框的文字色。
 pub const FG_TRANSLATED: Color32 = hex(0xf2f2f7);
 /// 原文對譯文的調暗係數：原文是輔助資訊，壓暗到譯文之下讓視線先落在譯文上。
 pub const DIM_FACTOR: f64 = 0.71;

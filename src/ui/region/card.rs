@@ -210,7 +210,7 @@ pub struct Card {
     next_tick: f64,
     /// 右鍵選單的位置。
     menu: Option<Pos2>,
-    /// 上一幀畫出的選單範圍；選單上的按放不算點卡片。
+    /// 選單範圍（右鍵當下算好，之後取上一幀畫出的）；選單上的按放不算點卡片。
     menu_rect: Option<egui::Rect>,
     clipboard: Box<dyn FnMut(&str) -> bool>,
 }
@@ -500,6 +500,8 @@ impl Card {
         }
         if let Some(&at) = right_clicks.iter().rfind(|p| text_rect.contains(**p)) {
             self.menu = Some(at);
+            // 下一幀的點擊比選單先處理，不能等 show 回報範圍
+            self.menu_rect = Some(copy_menu::rect(ui, at));
         }
         if copy && let Some(selected) = self.selection_text() {
             copied = self.copy(&selected, "selection").or(copied);
@@ -1192,6 +1194,32 @@ mod tests {
         right_click(&mut h, label.left_top() + vec2(5.0, 5.0));
         assert!(h.state().actions.is_empty());
         assert!(menu_rect(&h).is_some(), "copy menu shown");
+    }
+
+    #[test]
+    fn clicking_the_menu_right_after_opening_it_keeps_the_card() {
+        let mut h = harness(text("譯文", SOURCE));
+        let at = label_rect(&h, BOTH).left_top() + vec2(5.0, 5.0);
+        let button = |pos, button, pressed| Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        // kittest 每個事件跑一幀：右鍵按下的下一幀選單還沒畫出，左鍵就點在它的範圍內
+        let inside = at + vec2(3.0, 3.0);
+        h.hover_at(at);
+        h.event(button(at, PointerButton::Secondary, true));
+        h.event(button(inside, PointerButton::Primary, true));
+        h.event(button(inside, PointerButton::Primary, false));
+        h.event(button(at, PointerButton::Secondary, false));
+        h.step();
+        h.step();
+        assert!(
+            !h.state().actions.contains(&CardAction::Close),
+            "{:?}",
+            h.state().actions
+        );
     }
 
     #[test]

@@ -57,6 +57,11 @@ fn placed(ui: &Ui, at: Pos2, galley: &Galley) -> (Rect, (i32, i32)) {
     (Rect::from_min_size(min, size), (x, y))
 }
 
+/// 在 `at`（視窗內 DIP）開啟時的選單範圍，已夾在 `ui` 的範圍內；給還沒畫出選單的那一幀判斷點擊用。
+pub fn rect(ui: &Ui, at: Pos2) -> Rect {
+    placed(ui, at, &label(ui)).0
+}
+
 /// 在 `at` 畫出選單並回報這一幀的結果；`ui` 要是整個視窗的 Ui。
 ///
 /// 上一幀沒畫過、或換了位置才記「shown」log；「hidden」由呼叫端收掉選單時記。
