@@ -570,6 +570,9 @@ impl WizChatReader {
                 });
             }
         };
+        if self.pid != pid {
+            self.last_attach_failure = None;
+        }
         self.pid = pid;
         if self.path_logged_for != pid {
             self.path_logged_for = pid;

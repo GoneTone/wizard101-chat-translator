@@ -44,8 +44,10 @@ fn ignored_hotkey_logs_the_foreground_exe() {
     let (ui, _rx) = UiPoster::for_test();
     assert!(!on_hotkey(&fg(|| None), &AtomicBool::new(false), &ui));
     assert!(
-        !log_lines_with("[app] hotkey ignored: foreground is not the game window (exe=None)")
-            .is_empty()
+        !log_lines_with(
+            "[app] hotkey ignored: foreground is not the game window (exe=unavailable)"
+        )
+        .is_empty()
     );
 }
 

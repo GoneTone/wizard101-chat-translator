@@ -139,6 +139,15 @@ fn banner_shows_the_api_message_when_there_is_one() {
         ))
     );
     // 只有狀態碼沒有說明：顯示狀態碼，不退回「伺服器離線」這類猜測的固定文案
+    // 沒有狀態碼的設定錯誤（金鑰格式無效）不可顯示「HTTP None」
+    assert_eq!(
+        banner_for(
+            None,
+            config,
+            detail(None, "api key contains invalid characters")
+        ),
+        Some(("notice.config_error", vec![]))
+    );
     assert_eq!(
         banner_for(None, offline, detail(Some(429), "")),
         Some(("notice.offline_status", args(&[("status", "429")])))

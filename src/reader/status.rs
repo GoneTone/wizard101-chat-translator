@@ -45,20 +45,26 @@ pub fn banner_for(
         };
         return Some((key, Vec::new()));
     };
-    // Python 以 str.format 帶入：沒有狀態碼時顯示 None
-    let status_text = status.map_or_else(|| "None".to_owned(), |s| s.to_string());
-    Some(match (message.is_empty(), config, status) {
-        (true, true, _) => ("notice.config_error_http", vec![("status", status_text)]),
-        (true, false, _) => ("notice.offline_status", vec![("status", status_text)]),
-        (false, true, _) => (
+    let Some(status) = status else {
+        // 沒有狀態碼的設定錯誤（如金鑰格式無效）：說明多半是英文技術細節，只顯示在地化固定文案
+        return Some(match (config, message.is_empty()) {
+            (true, _) => ("notice.config_error", Vec::new()),
+            (false, true) => ("notice.offline", Vec::new()),
+            (false, false) => ("notice.offline_detail", vec![("message", message)]),
+        });
+    };
+    let status = status.to_string();
+    Some(match (message.is_empty(), config) {
+        (true, true) => ("notice.config_error_http", vec![("status", status)]),
+        (true, false) => ("notice.offline_status", vec![("status", status)]),
+        (false, true) => (
             "notice.config_error_detail",
-            vec![("status", status_text), ("message", message)],
+            vec![("status", status), ("message", message)],
         ),
-        (false, false, Some(_)) => (
+        (false, false) => (
             "notice.offline_http",
-            vec![("status", status_text), ("message", message)],
+            vec![("status", status), ("message", message)],
         ),
-        (false, false, None) => ("notice.offline_detail", vec![("message", message)]),
     })
 }
 

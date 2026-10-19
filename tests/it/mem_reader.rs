@@ -4,7 +4,7 @@
 use crate::common;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
 use common::fake_game::{place, put_button, put_children, put_name};
@@ -148,6 +148,9 @@ impl Lines {
     }
 }
 
+/// 警告過的圖示集合是全程序共用的：連線成功的測試持讀鎖，要斷言它的測試持寫鎖。
+static ICON_SET: RwLock<()> = RwLock::new(());
+
 struct Game {
     mem: Arc<FakeMemory>,
     dir: tempfile::TempDir,
@@ -164,6 +167,8 @@ struct Game {
     root_bytes: Vec<u8>,
     addline_bytes: Vec<u8>,
     cave_bytes: Vec<u8>,
+    /// 存活期間擋住「清空警告過的圖示」的測試（連線成功會清）。
+    _icons: Option<RwLockReadGuard<'static, ()>>,
 }
 
 impl Game {
@@ -172,6 +177,15 @@ impl Game {
     }
 
     fn with(root_pattern: bool, addline_pattern: bool) -> Self {
+        let guard = ICON_SET.read().unwrap_or_else(|e| e.into_inner());
+        Self {
+            _icons: Some(guard),
+            ..Self::bare(root_pattern, addline_pattern)
+        }
+    }
+
+    /// 不持有 `ICON_SET` 讀鎖的版本：要自己握寫鎖的測試用。
+    fn bare(root_pattern: bool, addline_pattern: bool) -> Self {
         log_lines_with("");
         let mem = FakeMemory::new();
         mem.add_module(MODULE, BASE);
@@ -203,6 +217,7 @@ impl Game {
             root_bytes,
             addline_bytes,
             cave_bytes,
+            _icons: None,
         }
     }
 
@@ -542,25 +557,26 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
 
 #[test]
 fn unknown_icon_warnings_survive_failed_connects_but_not_successful_ones() {
-    // 警告去重集合是全程序共用的，其他測試成功連線時會清掉它：失控的清除才會每次都重洗，故重試幾次
     let warns = |icon: &str| {
         let line = format!("<color;FFFFFF><image;Art/{icon}.dds;24;24;FFFFFFFF> [Zed] hi </color>");
         assert!(parse_line(&line).is_none());
         log_lines_with(&format!("unrecognized chat icon 'Art/{icon}'")).len()
     };
-    let survived = (0..20).any(|i| {
-        let game = Game::with(true, false);
-        let mut failing = game.reader(150);
-        let icon = format!("Retry_Probe_Icon_{i}");
-        assert_eq!(warns(&icon), 1);
-        assert!(failing.read_new().is_err());
-        warns(&icon) == 1
-    });
-    assert!(survived, "a failed connect cleared the warned-icon set");
+    let _exclusive = ICON_SET.write().unwrap_or_else(|e| e.into_inner());
+    let game = Game::bare(true, false);
+    let mut failing = game.reader(150);
+    assert_eq!(warns("Retry_Probe_Icon"), 1);
+    assert!(failing.read_new().is_err());
+    assert_eq!(
+        warns("Retry_Probe_Icon"),
+        1,
+        "a failed connect cleared the warned-icon set"
+    );
 
     let icon = "Reset_Probe_Icon";
     assert_eq!(warns(icon), 1);
-    let _connected = Game::new().connected(151);
+    let connected = Game::bare(true, true);
+    let _reader = connected.connected(151);
     assert_eq!(warns(icon), 2);
 }
 

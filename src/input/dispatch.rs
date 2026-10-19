@@ -38,7 +38,7 @@ fn is_game(exe: &Option<String>) -> bool {
 }
 
 fn exe_repr(exe: &Option<String>) -> String {
-    exe.as_deref().map_or("None".into(), repr_str)
+    exe.as_deref().map_or("unavailable".into(), repr_str)
 }
 
 /// 框選熱鍵要不要註冊：與輸入框熱鍵相同就不註冊（回 `None`），否則回熱鍵字串。
