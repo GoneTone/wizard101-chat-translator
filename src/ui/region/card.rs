@@ -5,7 +5,6 @@
 //! 還會把全文當成選取。
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use eframe::egui::text::{CharIndex, LayoutJob, TextFormat};
 use eframe::egui::{
@@ -26,7 +25,7 @@ use crate::ui::palette::{
 use crate::ui::region::region_box::{HANDLE, MARGIN};
 use crate::ui::richtext::{linkify, parse_link_markup};
 use crate::ui::text_select::{
-    AUTOSCROLL_INTERVAL, autoscroll_pixels, char_range_text, highlight_rects, is_copy, wheel_delta,
+    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, highlight_rects, is_copy, wheel_delta,
 };
 
 /// 卡片寬度下限（px）：矩形再窄也不跟，譯文會擠成一長條。
@@ -211,6 +210,8 @@ pub struct Card {
     next_tick: f64,
     /// 右鍵選單的位置。
     menu: Option<Pos2>,
+    /// 上一幀畫出的選單範圍；選單上的按放不算點卡片。
+    menu_rect: Option<egui::Rect>,
     clipboard: Box<dyn FnMut(&str) -> bool>,
 }
 
@@ -231,6 +232,7 @@ impl Card {
             dragging: false,
             next_tick: 0.0,
             menu: None,
+            menu_rect: None,
             clipboard: Box::new(|_| false),
         }
     }
@@ -425,15 +427,7 @@ impl Card {
         if self.dragging
             && let Some(p) = pointer
         {
-            if time >= self.next_tick {
-                self.next_tick = time + AUTOSCROLL_INTERVAL;
-                self.scroll += autoscroll_pixels(
-                    p.y.floor() as i32,
-                    text_rect.min.y as i32,
-                    text_rect.max.y as i32 - 1,
-                ) as f32;
-            }
-            ctx.request_repaint_after(Duration::from_secs_f64(AUTOSCROLL_INTERVAL));
+            self.scroll += autoscroll_tick(&ctx, &mut self.next_tick, time, p.y, text_rect);
         }
         self.scroll = self.scroll.clamp(0.0, (content_h - view_h).max(0.0));
         let origin = text_rect.min - vec2(0.0, self.scroll);
@@ -443,13 +437,12 @@ impl Card {
         let mut close = false;
         let mut copied = None;
         let mut focus = false;
-        let menu_rect = self.menu.map(|at| copy_menu::rect(ui, at));
         for (pos, pressed) in buttons {
             if pressed {
                 // 捲軸與選單上的按放不算點卡片，選取也留著
                 if !area.contains(pos)
                     || track.contains(pos)
-                    || menu_rect.is_some_and(|r| r.contains(pos))
+                    || self.menu_rect.is_some_and(|r| r.contains(pos))
                 {
                     continue;
                 }
@@ -494,7 +487,7 @@ impl Card {
         }
         if let Some(at) = self.menu {
             match copy_menu::show(ui, Id::unique("region_card_copy_menu"), at) {
-                MenuOutcome::Open => {}
+                MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
                 MenuOutcome::Copy => {
                     self.close_menu();
                     copied = match self.selection_text() {
@@ -570,6 +563,7 @@ impl Card {
     }
 
     fn close_menu(&mut self) {
+        self.menu_rect = None;
         if self.menu.take().is_some() {
             log("[ui] copy popup hidden");
         }

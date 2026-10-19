@@ -2,8 +2,10 @@
 //!
 //! overlay 的訊息框選與框選結果卡都在自己排版的 galley 上做選取，選取端點一律是字元索引。
 
+use std::time::Duration;
+
 use eframe::egui::text::CharIndex;
-use eframe::egui::{Event, Galley, Key, MouseWheelUnit, Rect, Ui};
+use eframe::egui::{Context, Event, Galley, Key, MouseWheelUnit, Rect, Ui};
 
 /// 拖出範圍時的自動捲動節奏（秒）。
 pub const AUTOSCROLL_INTERVAL: f64 = 0.040;
@@ -25,6 +27,16 @@ pub fn autoscroll_pixels(y: i32, top: i32, bottom: i32) -> i32 {
     } else {
         0
     }
+}
+
+/// 拖曳選字中每幀呼叫：到了 `next_tick` 就排下一輪並回傳指標 `y` 對 `view` 的捲動量（正值＝往下捲），否則回 0；並排好下一次重繪。
+pub fn autoscroll_tick(ctx: &Context, next_tick: &mut f64, time: f64, y: f32, view: Rect) -> f32 {
+    ctx.request_repaint_after(Duration::from_secs_f64(AUTOSCROLL_INTERVAL));
+    if time < *next_tick {
+        return 0.0;
+    }
+    *next_tick = time + AUTOSCROLL_INTERVAL;
+    autoscroll_pixels(y.floor() as i32, view.min.y as i32, view.max.y as i32 - 1) as f32
 }
 
 /// 排版 `galley` 中 `[lo, hi)` 要反白的矩形（相對 galley 原點，每個視覺行一個）。
@@ -84,7 +96,7 @@ pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
 mod tests {
     use std::sync::Arc;
 
-    use eframe::egui::{Color32, Context, FontId, Vec2};
+    use eframe::egui::{Color32, FontId, Vec2, pos2};
 
     use super::*;
     use crate::ui::fonts_egui::{self, tk_pt};
@@ -128,6 +140,18 @@ mod tests {
         assert!(0 < near && near < far && far < 24);
         assert_eq!(autoscroll_pixels(9000, 400, 600), 24);
         assert_eq!(autoscroll_pixels(-9000, 400, 600), -24);
+    }
+
+    #[test]
+    fn autoscroll_tick_scrolls_once_per_interval() {
+        let ctx = Context::default();
+        let view = Rect::from_min_max(pos2(0.0, 400.0), pos2(100.0, 601.0));
+        let mut next = 1.0;
+        assert_eq!(autoscroll_tick(&ctx, &mut next, 0.99, 9000.0, view), 0.0);
+        assert_eq!(autoscroll_tick(&ctx, &mut next, 1.0, 9000.0, view), 24.0);
+        assert_eq!(next, 1.0 + AUTOSCROLL_INTERVAL);
+        assert_eq!(autoscroll_tick(&ctx, &mut next, 1.01, 9000.0, view), 0.0);
+        assert_eq!(autoscroll_tick(&ctx, &mut next, 2.0, -9000.0, view), -24.0);
     }
 
     #[test]

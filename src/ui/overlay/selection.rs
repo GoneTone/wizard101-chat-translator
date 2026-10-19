@@ -2,8 +2,6 @@
 //!
 //! 端點以「第幾則」定位，訊息被移除時以 seq 重新對位（見 `Selection::sync`）；反白由 `MessageList` 繪製。
 
-use std::time::Duration;
-
 use eframe::egui::{Id, Pos2, Rect, Ui, Vec2};
 
 use crate::logs::log;
@@ -13,7 +11,7 @@ use crate::ui::overlay::frame::{BAR_HEIGHT, Win32Shell, edge_under};
 use crate::ui::overlay::message_list::{MessageList, Row};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
-use crate::ui::text_select::{AUTOSCROLL_INTERVAL, autoscroll_pixels, char_range_text, is_copy};
+use crate::ui::text_select::{AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, is_copy};
 use crate::ui::win32;
 
 /// 選取端點：第幾則訊息、該則第幾行（0＝原文、1＝譯文）、行內第幾個字元；欄位順序即閱讀順序。
@@ -234,20 +232,11 @@ impl Selection {
         }
         if self.dragging {
             if let Some(p) = pos {
-                if time >= self.next_tick {
-                    self.next_tick = time + AUTOSCROLL_INTERVAL;
-                    let viewport = list.viewport();
-                    let step = autoscroll_pixels(
-                        p.y.floor() as i32,
-                        viewport.min.y as i32,
-                        viewport.max.y as i32 - 1,
-                    );
-                    // 視圖往上捲＝內容往下移
-                    list.scroll_by(-step as f32);
-                }
+                let step =
+                    autoscroll_tick(ui.ctx(), &mut self.next_tick, time, p.y, list.viewport());
+                // 視圖往上捲＝內容往下移
+                list.scroll_by(-step);
                 self.extend(list, messages, p);
-                ui.ctx()
-                    .request_repaint_after(Duration::from_secs_f64(AUTOSCROLL_INTERVAL));
             }
             if !down {
                 self.finish(messages);
@@ -321,7 +310,7 @@ impl Selection {
             return;
         };
         match copy_menu::show(ui, Id::unique("overlay_copy_menu"), at) {
-            MenuOutcome::Open => self.menu_rect = Some(copy_menu::rect(ui, at)),
+            MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
             MenuOutcome::Copy => {
                 self.close_menu();
                 self.copy(messages, desktop);
@@ -401,7 +390,7 @@ fn clamped(list: &MessageList, messages: &[Message], pos: Pos2) -> Option<Caret>
 
 #[cfg(test)]
 mod tests {
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     use eframe::egui::{Event, Key, Modifiers, PointerButton, Shape};
     use egui_kittest::Harness;
