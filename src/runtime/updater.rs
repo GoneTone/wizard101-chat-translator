@@ -89,11 +89,6 @@ fn precedence_key(text: &str) -> Option<((u64, u64, u64), Stage)> {
     Some((numbers, Stage::Prerelease(identifiers)))
 }
 
-/// 把 `v0.2.0` 之類的版本字串解析成三段整數；解析不出來回 `None`，預發布後綴不計。
-pub fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
-    precedence_key(text).map(|(numbers, _)| numbers)
-}
-
 /// `latest` 是否嚴格新於 `current`；任一邊解析不出來就回 `false`，寧可漏提醒也不誤報。
 pub fn is_newer(latest: &str, current: &str) -> bool {
     match (precedence_key(latest), precedence_key(current)) {
@@ -190,10 +185,6 @@ pub fn schedule_update_checks(
     rt.spawn(async move {
         let client = update_client(&url);
         loop {
-            log(format!(
-                "[update] next automatic check in {} min",
-                interval.as_secs() / 60
-            ));
             let checked = tokio::select! {
                 biased;
                 _ = stop.cancelled() => return,
@@ -212,6 +203,10 @@ pub fn schedule_update_checks(
                 Ok(None) => {}
                 Err(e) => log(format!("[update] check failed: {e}")),
             }
+            log(format!(
+                "[update] next automatic check in {} min",
+                interval.as_secs() / 60
+            ));
             tokio::select! {
                 biased;
                 _ = stop.cancelled() => return,

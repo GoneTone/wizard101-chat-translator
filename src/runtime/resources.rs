@@ -1,8 +1,5 @@
 //! 內嵌唯讀資源（icon、服務商標誌），來源檔在 `assets/`。
 
-/// 應用程式 icon（多尺寸 ICO）。
-pub const ICON_ICO: &[u8] = include_bytes!("../../assets/icon.ico");
-
 /// 指定尺寸的 PNG icon；只提供 16 與 48，其他尺寸視為程式錯誤。
 pub fn icon_png(size: u32) -> &'static [u8] {
     match size {
@@ -28,6 +25,8 @@ mod tests {
     use super::*;
 
     const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+    /// 應用程式 icon（多尺寸 ICO）。
+    const ICON_ICO: &[u8] = include_bytes!("../../assets/icon.ico");
 
     #[test]
     fn provider_icons_exist_for_all_providers() {

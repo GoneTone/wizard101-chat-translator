@@ -15,32 +15,12 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::runtime::updater::{
     RELEASES_URL, Release, UpdateCheckError, check_for_update, fetch_latest_release, is_newer,
-    parse_version, schedule_update_checks, update_client,
+    schedule_update_checks, update_client,
 };
 
 const TAG_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator/releases/tag/v0.2.0";
 
 type Found = Arc<dyn Fn(Release) + Send + Sync>;
-
-#[test]
-fn parse_version_accepts_plain_and_v_prefixed() {
-    assert_eq!(parse_version("0.1.0"), Some((0, 1, 0)));
-    assert_eq!(parse_version("v0.2.3"), Some((0, 2, 3)));
-    assert_eq!(parse_version(" v1.20.300 "), Some((1, 20, 300)));
-}
-
-#[test]
-fn parse_version_ignores_suffixes() {
-    assert_eq!(parse_version("v0.2.0-beta.1"), Some((0, 2, 0)));
-    assert_eq!(parse_version("0.2.0+build.5"), Some((0, 2, 0)));
-}
-
-#[test]
-fn parse_version_rejects_unparsable_text() {
-    for text in ["", "latest", "v1.2", "1.2.x", "release-2026"] {
-        assert_eq!(parse_version(text), None, "{text:?}");
-    }
-}
 
 #[test]
 fn is_newer_compares_numerically() {
