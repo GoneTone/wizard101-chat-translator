@@ -14,7 +14,8 @@ use super::chat_hook::{
     read_ring,
 };
 use super::chat_tabs::{
-    CHATBOX_WINDOW, TabState, find_tab_buttons, read_current_tab, read_tab_state,
+    CHATBOX_WINDOW, MAX_BROADCAST_RECORDS, TabState, find_tab_buttons, read_current_tab,
+    read_tab_state,
 };
 use super::hook_state;
 use super::hooks::{AutobotCave, HookError, MODULE, RootWindowHook};
@@ -38,7 +39,7 @@ pub const INPUT_CONTAINER: &str = "chatEditContainer";
 const MAX_PARENT_DEPTH: usize = 64;
 /// exe 的偏好載入位址：log 把跳轉點換算回靜態位址，才對得上反組譯。
 const IMAGE_BASE: u64 = 0x1_4000_0000;
-/// 等 root window hook 第一次被執行的上限；逾時視為 hook 與遊戲版本對不上。
+/// 等 root window hook 第一次被執行的上限；逾時多半是還沒登入進世界。
 pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// 等 root window hook 時的輪詢間隔。
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
@@ -121,14 +122,13 @@ impl fmt::Display for AttachError {
 }
 
 impl AttachError {
-    /// pattern 掃不到、多重命中（都在寫入遊戲之前）或等待逾時。
+    /// pattern 掃不到或多重命中（都在寫入遊戲之前）；逾時不算，登入畫面時 hook 本來就不會觸發。
     fn is_version_mismatch(&self) -> bool {
         matches!(
             self,
-            Self::Timeout
-                | Self::Hook(HookError::Scan(
-                    ScanError::NotFound(_) | ScanError::Multiple(..)
-                ))
+            Self::Hook(HookError::Scan(
+                ScanError::NotFound(_) | ScanError::Multiple(..)
+            ))
         )
     }
 }
@@ -257,7 +257,7 @@ impl WizChatReader {
         if held > 0 {
             let head = records[records.len() - held].seq;
             if records.last().map(|r| r.seq) == Some(got.last_seq)
-                && (head, held) != self.held
+                && held < MAX_BROADCAST_RECORDS
                 && (head != self.held.0 || held > self.held.1)
             {
                 // 廣播可能被這一輪切開：游標停在開頭之前，下一輪連同後段一起收斂

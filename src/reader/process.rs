@@ -2,6 +2,7 @@
 
 use std::path::Path;
 use std::ptr::null_mut;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows_sys::Win32::Foundation::{CloseHandle, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Gdi::ClientToScreen;
@@ -76,24 +77,37 @@ unsafe extern "system" fn collect_game_window(hwnd: HWND, lparam: LPARAM) -> i32
     1
 }
 
-/// 可見的第一個遊戲客戶端視窗；找不到回 `None`。
+/// 第一個可見且未最小化的遊戲客戶端視窗，全都最小化時退回第一個可見的；找不到回 `None`。
 ///
 /// 給 ⛶ 按鈕用：按下時遊戲多半不在前景，不能像熱鍵那樣讀前景視窗。
 pub fn find_game_window() -> Option<isize> {
-    game_windows()
+    let visible: Vec<isize> = game_windows()
         .into_iter()
-        .find(|&hwnd| unsafe { IsWindowVisible(hwnd as HWND) } != 0)
+        .filter(|&hwnd| unsafe { IsWindowVisible(hwnd as HWND) } != 0)
+        .collect();
+    visible
+        .iter()
+        .copied()
+        .find(|&hwnd| unsafe { IsIconic(hwnd as HWND) } == 0)
+        .or_else(|| visible.first().copied())
 }
+
+/// 上一輪列舉是否失敗：supervisor 每輪都會呼叫，只在狀態改變時記 log。
+static SCAN_FAILING: AtomicBool = AtomicBool::new(false);
 
 /// 目前所有遊戲客戶端的視窗 handle（以視窗類別名辨識，同 wizwalker）。
 pub fn game_windows() -> Vec<isize> {
     let mut found = Vec::<isize>::new();
-    if unsafe { EnumWindows(Some(collect_game_window), &mut found as *mut _ as LPARAM) } == 0 {
+    let failed =
+        unsafe { EnumWindows(Some(collect_game_window), &mut found as *mut _ as LPARAM) } == 0;
+    if failed && !SCAN_FAILING.swap(true, Ordering::Relaxed) {
         // 使用者從 app.log 才分得出「遊戲沒開」與「列舉本身失敗」
         log(format!(
             "[reader] window scan failed: {}",
             std::io::Error::last_os_error()
         ));
+    } else if !failed {
+        SCAN_FAILING.store(false, Ordering::Relaxed);
     }
     found
 }

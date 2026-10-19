@@ -555,14 +555,15 @@ fn repeated_attach_failures_log_the_same_reason_once() {
 }
 
 #[test]
-fn readiness_timeout_is_version_mismatch() {
+fn readiness_timeout_is_not_a_version_mismatch() {
+    // 還在登入畫面時 root hook 不會觸發：要走 5 秒重試，不能被當成改版而等 60 秒
     let g = Game::new();
     g.fires.store(false, Ordering::SeqCst);
     let mut r = g.reader(104);
     assert_eq!(
         r.read_new().unwrap_err(),
-        GameNotRunning::VersionMismatch(
-            "hook does not match this game build: root window hook did not fire within 15s".into()
+        GameNotRunning::Missing(
+            "failed to attach to game: root window hook did not fire within 15s".into()
         )
     );
     let waited = *g.elapsed.lock().unwrap();

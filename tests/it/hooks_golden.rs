@@ -459,7 +459,7 @@ fn corrupt_state_file_is_logged_and_ignored() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
     let cases = [
-        (770_010, "{ not json", ""),
+        (770_010, "{ not json", "malformed hook state (invalid JSON)"),
         (
             770_011,
             r#"{"base": 1, "ops": [{"addr": 2, "bytes": "+f"}]}"#,

@@ -44,7 +44,8 @@ pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io
 }
 
 fn parse(text: &str) -> Result<(u64, RestoreOps), String> {
-    let data: Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    let data: Value =
+        serde_json::from_str(text).map_err(|_| "malformed hook state (invalid JSON)".to_owned())?;
     let bad = || "malformed hook state".to_owned();
     let ops = data["ops"]
         .as_array()

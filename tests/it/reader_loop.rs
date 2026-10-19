@@ -823,6 +823,21 @@ fn version_mismatch_retries_every_60s() {
 }
 
 #[test]
+fn window_closing_during_the_version_mismatch_wait_ends_the_reader_early() {
+    // 60 秒的重試等待不能讓已關閉的客戶端佔住 slot
+    let mut s = Setup::new();
+    let calls = Arc::new(Mutex::new(0));
+    s.window_exists = Box::new(move |_| {
+        let mut n = calls.lock().unwrap();
+        *n += 1;
+        *n <= 3
+    });
+    let mismatch = || Read::Fail(GameNotRunning::VersionMismatch("p".into()));
+    s.run(vec![mismatch(), mismatch(), lines(&[])]);
+    assert!(s.clock.elapsed() < VERSION_MISMATCH_INTERVAL / 10);
+}
+
+#[test]
 fn version_mismatch_shows_its_own_banner_and_status() {
     let mut s = Setup::new();
     let mismatch = || Read::Fail(GameNotRunning::VersionMismatch("pattern failed".into()));

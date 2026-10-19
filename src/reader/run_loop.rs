@@ -277,7 +277,7 @@ impl<R: ChatSource> ClientLoop<R> {
                 self.s.board.report(slot, status, self.game_issue);
                 self.force_input_closed();
                 self.report_tabs(None);
-                wait(&self.env.clock, &self.s.stop, retry_in);
+                self.wait_for_retry(retry_in);
                 None
             }
         }
@@ -400,6 +400,18 @@ impl<R: ChatSource> ClientLoop<R> {
             self.slot, self.hwnd
         ));
         self.s.ui.post(UiEvent::GameInputClosed { hwnd: self.hwnd });
+    }
+
+    /// 等重試間隔；停止或遊戲視窗消失時提早返回，免得長間隔佔住 slot。
+    fn wait_for_retry(&mut self, duration: Duration) {
+        let deadline = (self.env.clock.now)() + duration;
+        while !self.s.stop.is_cancelled() && (self.env.window_exists)(self.hwnd) {
+            let remaining = deadline.saturating_duration_since((self.env.clock.now)());
+            if remaining.is_zero() {
+                return;
+            }
+            (self.env.clock.sleep)(remaining.min(WAIT_SLICE));
+        }
     }
 
     /// 等待下一輪讀取，期間以 `INPUT_POLL_INTERVAL` 持續取樣輸入框狀態。

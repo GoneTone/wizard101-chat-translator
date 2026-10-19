@@ -108,6 +108,7 @@ pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     let tmp = PathBuf::from(tmp_name);
+    // shortcut: 寫入與 rename 之間當機會留下 `<file>.<pid>.<n>.tmp`，量大或常駐殘檔時再於啟動清掃舊暫存檔
     let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
