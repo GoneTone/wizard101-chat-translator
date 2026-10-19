@@ -83,6 +83,10 @@ pub struct App {
     as_bubble: bool,
     /// 上一幀什麼都沒畫：呈現的是全透明畫面，這時改視窗大小才不會閃出舊畫面。
     blank: bool,
+    /// 切換期間 DWM 不顯示根視窗：改大小後 swapchain 裡殘留的舊畫面才不會被看到。
+    cloaked: bool,
+    /// 隱形中已畫過一幀新內容；下一幀等它合成上螢幕後才解除隱形。
+    drawn_while_cloaked: bool,
     /// 縮成泡泡前的 overlay 矩形（實體像素）；擺回去時取走。
     overlay_rect: Option<Rect>,
     shown: bool,
@@ -119,6 +123,8 @@ impl App {
             minimized: false,
             as_bubble: false,
             blank: false,
+            cloaked: false,
+            drawn_while_cloaked: false,
             overlay_rect: None,
             shown: true,
             status: None,
@@ -417,6 +423,10 @@ impl App {
     /// 擺的那一幀 surface 還是舊大小（eframe 收到 Resized 才換），也只能是全透明，下一幀才畫新內容。
     fn transition(&mut self, ctx: &egui::Context) -> Option<Rect> {
         ctx.request_repaint();
+        self.drawn_while_cloaked = false;
+        if !std::mem::replace(&mut self.cloaked, true) {
+            self.shell.set_cloaked(true);
+        }
         if !std::mem::replace(&mut self.blank, true) {
             return None;
         }
@@ -438,6 +448,21 @@ impl App {
             describe(bubble)
         ));
         Some(bubble)
+    }
+
+    /// 隱形中先畫一幀新內容，下一幀等它合成上螢幕後才恢復顯示。
+    fn reveal_after_redraw(&mut self, ctx: &egui::Context) {
+        if !self.cloaked {
+            return;
+        }
+        if std::mem::replace(&mut self.drawn_while_cloaked, true) {
+            self.shell.wait_for_composition();
+            self.shell.set_cloaked(false);
+            self.cloaked = false;
+            self.drawn_while_cloaked = false;
+        } else {
+            ctx.request_repaint();
+        }
     }
 
     fn apply(&mut self, ctx: &egui::Context, event: UiEvent) {
@@ -713,6 +738,7 @@ impl eframe::App for App {
             self.transition(&ctx)
         } else {
             self.blank = false;
+            self.reveal_after_redraw(&ctx);
             if self.minimized {
                 self.show_bubble(ui);
             } else {
@@ -731,14 +757,16 @@ impl eframe::App for App {
         }
         self.show_settings(&ctx);
         self.sync_overlay_level(&ctx);
-        if let Some(rect) = place
-            && !self.shell.set_rect(rect)
-        {
-            log(format!(
-                "[ui] overlay window could not be placed: hwnd={:#x} rect={}",
-                self.hwnd,
-                describe(rect)
-            ));
+        if let Some(rect) = place {
+            // 上一幀的全透明畫面要先真的上螢幕才能搬，否則 DWM 會把更早的內容帶到新位置
+            self.shell.wait_for_composition();
+            if !self.shell.set_rect(rect) {
+                log(format!(
+                    "[ui] overlay window could not be placed: hwnd={:#x} rect={}",
+                    self.hwnd,
+                    describe(rect)
+                ));
+            }
         }
     }
 
@@ -1203,8 +1231,8 @@ mod tests {
 
     const OVERLAY: Rect = (100, 200, 640, 420);
 
-    /// 根視窗的替身：App 與測試共用同一份矩形與游標；`1` 是泡泡所在螢幕的縮放。
-    struct SharedShell(Rc<RefCell<FakeShell>>, f32);
+    /// 根視窗的替身：App 與測試共用同一份矩形、游標與隱形狀態；`1` 是泡泡所在螢幕的縮放。
+    struct SharedShell(Rc<RefCell<FakeShell>>, f32, Rc<std::cell::Cell<bool>>);
 
     impl Shell for SharedShell {
         fn cursor(&self) -> (i32, i32) {
@@ -1222,6 +1250,9 @@ mod tests {
         fn scale_at(&self, _x: i32, _y: i32) -> f32 {
             self.1
         }
+        fn set_cloaked(&mut self, cloaked: bool) {
+            self.2.set(cloaked);
+        }
     }
 
     type Saved<T> = Rc<RefCell<Vec<T>>>;
@@ -1233,6 +1264,8 @@ mod tests {
         geometry: Saved<Rect>,
         /// 泡泡拖曳放開時存下的位置。
         moves: Saved<(i32, i32)>,
+        /// DWM 目前是否不顯示根視窗。
+        cloaked: Rc<std::cell::Cell<bool>>,
     }
 
     /// 根視窗擺在 [`OVERLAY`] 的 App；`saved` 是設定裡的泡泡位置，`scale` 是泡泡所在螢幕的縮放。
@@ -1250,8 +1283,9 @@ mod tests {
             shell: Rc::new(RefCell::new(fake)),
             geometry: Saved::default(),
             moves: Saved::default(),
+            cloaked: Rc::default(),
         };
-        let shell = SharedShell(Rc::clone(&root.shell), scale);
+        let shell = SharedShell(Rc::clone(&root.shell), scale, Rc::clone(&root.cloaked));
         let (geometry, moves) = (Rc::clone(&root.geometry), Rc::clone(&root.moves));
         let mut harness = Harness::new_eframe(move |cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
@@ -1303,28 +1337,37 @@ mod tests {
         harness.get_by_label("─").click();
         harness.step();
         assert!(harness.state().minimized);
-        // 1. 原位置呈現一幀全透明
+        // 1. 隱形，原位置呈現一幀全透明
         harness.step();
         assert!(drew_nothing(&harness));
+        assert!(root.cloaked.get());
         assert_eq!(root.shell.borrow().rect, OVERLAY);
         // 2. 縮成泡泡，這一幀也不畫
         harness.step();
         assert!(drew_nothing(&harness));
         assert_eq!(root.shell.borrow().rect, TOP_RIGHT);
-        // 3. 新大小畫泡泡
+        // 3. 新大小畫泡泡，仍隱形
         harness.step();
         assert!(!drew_nothing(&harness));
+        assert!(root.cloaked.get());
         assert!(harness.query_by_label("─").is_none(), "title bar is gone");
+        // 4. 泡泡已上螢幕才恢復顯示
+        harness.step();
+        assert!(!root.cloaked.get());
 
         harness.state_mut().set_minimized(false);
         harness.step();
         assert!(drew_nothing(&harness));
+        assert!(root.cloaked.get());
         assert_eq!(root.shell.borrow().rect, TOP_RIGHT);
         harness.step();
         assert!(drew_nothing(&harness));
         assert_eq!(root.shell.borrow().rect, OVERLAY);
         harness.step();
         harness.get_by_label("─");
+        assert!(root.cloaked.get());
+        harness.step();
+        assert!(!root.cloaked.get());
         assert!(root.geometry.borrow().is_empty());
     }
 
@@ -1366,6 +1409,8 @@ mod tests {
         assert_eq!(root.shell.borrow().rect, OVERLAY);
         harness.get_by_label("─");
         assert!(root.geometry.borrow().is_empty());
+        harness.step();
+        assert!(!root.cloaked.get(), "settled windows are shown again");
     }
 
     #[test]

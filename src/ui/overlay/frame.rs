@@ -68,6 +68,10 @@ pub trait Shell {
     fn monitors(&self) -> Vec<Rect>;
     /// 含 (x, y) 那顆螢幕每 DIP 的像素數。
     fn scale_at(&self, x: i32, y: i32) -> f32;
+    /// 等 DWM 把已呈現的畫面合成上螢幕；測試裡不必等。
+    fn wait_for_composition(&self) {}
+    /// 讓 DWM 不顯示（或恢復顯示）視窗；對系統而言視窗仍是可見的。
+    fn set_cloaked(&mut self, _cloaked: bool) {}
 }
 
 /// 以 HWND 操作真正的視窗。
@@ -88,6 +92,12 @@ impl Shell for Win32Shell {
     }
     fn scale_at(&self, x: i32, y: i32) -> f32 {
         win32::scale_at(x, y)
+    }
+    fn wait_for_composition(&self) {
+        win32::wait_for_composition();
+    }
+    fn set_cloaked(&mut self, cloaked: bool) {
+        win32::set_cloaked(self.0, cloaked);
     }
 }
 

@@ -7,8 +7,8 @@ use std::sync::{Once, OnceLock};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DWMWA_CAPTION_COLOR, DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_USE_IMMERSIVE_DARK_MODE,
-    DwmSetWindowAttribute,
+    DWMWA_CAPTION_COLOR, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
+    DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
@@ -396,6 +396,34 @@ pub fn window_rect(hwnd: isize) -> Rect {
 }
 
 /// 以實體像素擺放視窗，不改疊序、不啟用；失敗（如 HWND 無效）回 `false`。
+/// 等 DWM 完成下一次合成：剛呈現的畫面要到那時才真的上螢幕。
+pub fn wait_for_composition() {
+    // SAFETY：無參數；DWM 停用時回傳錯誤，照樣往下走即可。
+    let result = unsafe { DwmFlush() };
+    if result < 0 {
+        log(format!("[ui] DwmFlush failed: hresult={result:#x}"));
+    }
+}
+
+/// DWM 隱形：不合成到螢幕，但 `IsWindowVisible` 仍為真（eframe 不會改走隱藏視窗的節流重繪）。
+pub fn set_cloaked(hwnd: isize, cloaked: bool) {
+    let value: i32 = cloaked.into();
+    // SAFETY：value 在呼叫期間有效，大小與 DWMWA_CLOAK 要的 BOOL 相同。
+    let result = unsafe {
+        DwmSetWindowAttribute(
+            hwnd as HWND,
+            DWMWA_CLOAK as u32,
+            (&raw const value).cast(),
+            std::mem::size_of::<i32>() as u32,
+        )
+    };
+    if result < 0 {
+        log(format!(
+            "[ui] DWM cloak={cloaked} failed: hwnd={hwnd:#x} hresult={result:#x}"
+        ));
+    }
+}
+
 pub fn set_window_rect(hwnd: isize, (x, y, w, h): Rect) -> bool {
     let place = || unsafe {
         SetWindowPos(
