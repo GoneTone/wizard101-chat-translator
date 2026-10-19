@@ -1,6 +1,5 @@
 //! 更新檢查：版本解析比較與 GitHub API 取用（wiremock，不打真 API）。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

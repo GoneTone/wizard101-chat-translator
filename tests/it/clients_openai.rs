@@ -1,6 +1,5 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
-#[allow(dead_code)]
 use crate::common;
 use crate::stream_server;
 

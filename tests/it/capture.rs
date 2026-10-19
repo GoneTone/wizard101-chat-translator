@@ -1,6 +1,5 @@
 //! 擷取：從凍結影格裁切、WGC 影格換算出 client 區、單色畫面與擷取失敗變成 `CaptureError`（注入假的 grab，不碰真的 WGC）。
 
-#[allow(dead_code)]
 use crate::common;
 
 use image::{Rgb, RgbImage};

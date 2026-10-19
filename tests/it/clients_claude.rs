@@ -1,6 +1,5 @@
 //! Claude client 的 HTTP 協定測試：請求內容照 anthropic SDK、重試策略、串流解析、取消（wiremock，不打真 API）。
 
-#[allow(dead_code)]
 use crate::common;
 use crate::stream_server;
 

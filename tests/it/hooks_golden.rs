@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use common::fake_game::place;
-use common::log_capture::log_lines_with;
+use common::log_capture::{capture_logs, log_lines_with};
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
@@ -367,7 +367,7 @@ fn sweep_removes_dead_pids_only() {
 
 #[test]
 fn repair_reports_write_failures_instead_of_claiming_success() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(
         dir.path(),
@@ -408,7 +408,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
 
 #[test]
 fn repair_skips_and_logs_a_stale_state_file() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(dir.path(), 770_002, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
@@ -437,7 +437,7 @@ fn repair_without_state_touches_nothing() {
 
 #[test]
 fn repair_ignores_state_when_module_base_is_unreadable() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     hook_state::save_state(dir.path(), 770_003, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
@@ -456,7 +456,7 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
 
 #[test]
 fn corrupt_state_file_is_logged_and_ignored() {
-    log_lines_with("");
+    capture_logs();
     let dir = tempfile::tempdir().unwrap();
     let cases = [
         (770_010, "{ not json", ""),

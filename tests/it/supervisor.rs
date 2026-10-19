@@ -1,6 +1,5 @@
 //! supervisor：遊戲視窗列舉 → 編號配置 → 起／收 reader 執行緒；以假列舉與虛擬時鐘驗證，不需遊戲。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::collections::HashMap;

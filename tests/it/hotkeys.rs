@@ -1,6 +1,5 @@
 //! 按鍵分派與熱鍵註冊中需要斷言 log 的測試。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicU32, Ordering};

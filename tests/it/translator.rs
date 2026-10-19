@@ -1,6 +1,5 @@
 //! Translator 與 ExampleCoordinator 的行為測試：假 backend 記錄收到的 system 與對話輪，不打真 API。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -2,9 +2,10 @@
 #![allow(dead_code)]
 
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
+use wizard101_chat_translator::reader::chat_hook::{DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::LABEL_OFFSET;
 use wizard101_chat_translator::reader::hooks::MODULE;
-use wizard101_chat_translator::reader::memory::{FakeMemory, Region};
+use wizard101_chat_translator::reader::memory::{FakeMemory, ProcessMemory, Region};
 
 /// 依 pattern 原文造一段命中位元組（同 golden exporter 的 `_pattern_instance`）。
 pub fn pattern_instance(pattern: &str) -> Vec<u8> {
@@ -93,4 +94,37 @@ pub fn put_button(
     head[0x10..0x18].copy_from_slice(&(label.encode_utf16().count() as u64).to_le_bytes());
     head[0x18..].copy_from_slice(&7u64.to_le_bytes());
     mem.set_bytes(win + LABEL_OFFSET, &head);
+}
+
+/// 環形緩衝第 `seq` 筆所在的槽位位址。
+pub fn slot_addr(ring: u64, seq: u64) -> u64 {
+    ring + HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE
+}
+
+/// 照 stub 的格式寫一個槽位並把累計數推到至少 `seq`；`slot_seq` 可偽造槽內序號。
+pub fn put_slot(
+    mem: &FakeMemory,
+    ring: u64,
+    seq: u64,
+    units: &[u16],
+    tab: u32,
+    this: u64,
+    slot_seq: Option<u64>,
+) {
+    let at = slot_addr(ring, seq);
+    let mut head = Vec::new();
+    head.extend(slot_seq.unwrap_or(seq).to_le_bytes());
+    head.extend(0x1407443B1u64.to_le_bytes());
+    head.extend(this.to_le_bytes());
+    head.extend(tab.to_le_bytes());
+    head.extend((units.len() as u32).to_le_bytes());
+    head.extend((units.len() as u32).to_le_bytes());
+    head.resize(DATA_OFF as usize, 0);
+    mem.set_bytes(at, &head);
+    let data: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+    if !data.is_empty() {
+        mem.set_bytes(at + DATA_OFF, &data);
+    }
+    let count = mem.read_u64(ring).unwrap_or(0).max(seq);
+    mem.set_bytes(ring, &count.to_le_bytes());
 }

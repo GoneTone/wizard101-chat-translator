@@ -1,6 +1,5 @@
 //! reader_loop 行為：read_new() → 推進上下文 → overlay 佔位 → 提交翻譯池；以假 reader 與虛擬時鐘驗證。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::panic::AssertUnwindSafe;

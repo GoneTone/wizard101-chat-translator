@@ -2,19 +2,18 @@
 
 use crate::common;
 
-use std::sync::Mutex;
-
-use common::fake_game::{put_button, put_children, put_name};
+use common::fake_game::{put_button, put_children, put_name, put_slot};
+use common::spy_memory::SpyMemory;
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{
-    DATA_OFF, HEADER, HookRecord, MAX_CHARS, SLOT_SIZE, SLOTS, decode_record, group_broadcasts,
-    pending_broadcast, read_ring,
+    DATA_OFF, HookRecord, MAX_CHARS, SLOTS, decode_record, group_broadcasts, pending_broadcast,
+    read_ring,
 };
 use wizard101_chat_translator::reader::chat_tabs::{
     CUR_TAB_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state, visible_label,
 };
 use wizard101_chat_translator::reader::markup::parse_line;
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, ProcessMemory, Region};
+use wizard101_chat_translator::reader::memory::{FakeMemory, MemError};
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::reader::ui_tree::{Window, find_by_name};
 
@@ -122,114 +121,20 @@ fn ring_record_split_surrogate_matches_python() {
 
 const RING: u64 = 0x1000_0000;
 
-fn slot_addr(seq: u64) -> u64 {
-    RING + HEADER + ((seq - 1) % SLOTS) * SLOT_SIZE
-}
-
 /// 寫一個槽位並把累計數推到至少 `seq`；`slot_seq` 可偽造槽內序號。
-fn put(mem: &impl PutBytes, seq: u64, units: &[u16], tab: u32, slot_seq: Option<u64>) {
-    let at = slot_addr(seq);
-    let mut head = Vec::new();
-    head.extend(slot_seq.unwrap_or(seq).to_le_bytes());
-    head.extend(0x1407443B1u64.to_le_bytes());
-    head.extend(0x7777u64.to_le_bytes());
-    head.extend(tab.to_le_bytes());
-    head.extend((units.len() as u32).to_le_bytes());
-    head.extend((units.len() as u32).to_le_bytes());
-    head.resize(DATA_OFF as usize, 0);
-    mem.set_bytes(at, &head);
-    let data: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
-    if !data.is_empty() {
-        mem.set_bytes(at + DATA_OFF, &data);
-    }
-    let count = mem.count().max(seq);
-    mem.set_bytes(RING, &count.to_le_bytes());
+fn put(mem: &FakeMemory, seq: u64, units: &[u16], tab: u32, slot_seq: Option<u64>) {
+    put_slot(mem, RING, seq, units, tab, 0x7777, slot_seq);
 }
 
-trait PutBytes {
-    fn set_bytes(&self, addr: u64, bytes: &[u8]);
-    fn count(&self) -> u64;
-}
-
-impl PutBytes for FakeMemory {
-    fn set_bytes(&self, addr: u64, bytes: &[u8]) {
-        FakeMemory::set_bytes(self, addr, bytes);
-    }
-
-    fn count(&self) -> u64 {
-        self.read_u64(RING).unwrap_or(0)
-    }
-}
-
-type ReadHook = Box<dyn FnMut(u64, usize, &FakeMemory) + Send>;
-
-/// 包住 FakeMemory：記下每次讀取，並可在讀取之後插手改記憶體（模擬遊戲執行緒的覆寫）。
-struct SpyMemory {
-    inner: FakeMemory,
-    reads: Mutex<Vec<(u64, usize)>>,
-    after_read: Mutex<Option<ReadHook>>,
-}
-
-impl SpyMemory {
-    fn new() -> Self {
-        Self {
-            inner: FakeMemory::new(),
-            reads: Mutex::default(),
-            after_read: Mutex::default(),
-        }
-    }
-}
-
-impl PutBytes for SpyMemory {
-    fn set_bytes(&self, addr: u64, bytes: &[u8]) {
-        self.inner.set_bytes(addr, bytes);
-    }
-
-    fn count(&self) -> u64 {
-        self.inner.read_u64(RING).unwrap_or(0)
-    }
-}
-
-impl ProcessMemory for SpyMemory {
-    fn read(&self, addr: u64, len: usize) -> Result<Vec<u8>, MemError> {
-        let out = self.inner.read(addr, len);
-        self.reads.lock().unwrap().push((addr, len));
-        if let Some(hook) = self.after_read.lock().unwrap().as_mut() {
-            hook(addr, len, &self.inner);
-        }
-        out
-    }
-
-    fn write(&self, addr: u64, bytes: &[u8]) -> Result<(), MemError> {
-        self.inner.write(addr, bytes)
-    }
-
-    fn alloc(&self, size: usize) -> Result<u64, MemError> {
-        self.inner.alloc(size)
-    }
-
-    fn free(&self, addr: u64) {
-        self.inner.free(addr);
-    }
-
-    fn module_base(&self, name: &str) -> Result<u64, MemError> {
-        self.inner.module_base(name)
-    }
-
-    fn regions(&self, module: &str) -> Result<Vec<Region>, MemError> {
-        self.inner.regions(module)
-    }
-
-    fn is_alive(&self) -> bool {
-        self.inner.is_alive()
-    }
+fn slot_addr(seq: u64) -> u64 {
+    common::fake_game::slot_addr(RING, seq)
 }
 
 #[test]
 fn read_ring_rereads_seq_to_detect_a_torn_read() {
-    let mem = SpyMemory::new();
-    put(&mem, 1, &units("a"), 0, None);
-    put(&mem, 2, &units("torn"), 0, None);
+    let mem = SpyMemory::default();
+    put(&mem.mem, 1, &units("a"), 0, None);
+    put(&mem.mem, 2, &units("torn"), 0, None);
     *mem.after_read.lock().unwrap() = Some(Box::new(|addr, _, inner| {
         if addr == slot_addr(2) + DATA_OFF {
             inner.set_bytes(slot_addr(2), &(2 + SLOTS).to_le_bytes());
@@ -243,8 +148,8 @@ fn read_ring_rereads_seq_to_detect_a_torn_read() {
 
 #[test]
 fn read_ring_skips_the_content_read_for_an_empty_line() {
-    let mem = SpyMemory::new();
-    put(&mem, 1, &[], 0, None);
+    let mem = SpyMemory::default();
+    put(&mem.mem, 1, &[], 0, None);
     let got = read_ring(&mem, RING, 0).unwrap();
     assert_eq!(
         (got.records[0].text.as_str(), got.records[0].length),

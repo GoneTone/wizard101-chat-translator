@@ -1,6 +1,5 @@
 //! 熱鍵與遊戲輸入框分派中需要斷言 log 的測試。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::Arc;

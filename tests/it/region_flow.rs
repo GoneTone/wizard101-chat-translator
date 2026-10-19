@@ -1,6 +1,5 @@
 //! 框選流程的 log：過期結果、撤銷請求、取消與擷取失敗；裁切走預設的 `crop_frame`，桌面與 runner 用替身。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::cell::RefCell;

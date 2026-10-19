@@ -1,6 +1,5 @@
 //! 主程式接線：收訊指紋、翻譯端的建構、熱鍵註冊與套用設定、單一實例與關閉順序。
 
-#[allow(dead_code)]
 use crate::common;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,7 +21,7 @@ use wizard101_chat_translator::app_main::{
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
-use wizard101_chat_translator::config::{Config, ServiceSlot, ServiceSpec, Settings, app_name};
+use wizard101_chat_translator::config::{Config, ServiceSlot, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::{ChatInputTracker, Foreground};
 use wizard101_chat_translator::input::dispatcher::{
@@ -35,8 +34,9 @@ use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
     Recognize, RegionError, RegionPipeline, RegionResult, describe_error,
 };
+use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::cache::TranslationCache;
-use wizard101_chat_translator::translation::clients::{ChatBackend, ChatRequest};
+use wizard101_chat_translator::translation::clients::ChatBackend;
 use wizard101_chat_translator::translation::context::{ClientContexts, ContextMap};
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::examples::{
@@ -45,9 +45,9 @@ use wizard101_chat_translator::translation::examples::{
 use wizard101_chat_translator::translation::pool::ResultFn;
 use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
-use wizard101_chat_translator::translation::{BoxFuture, Turn};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
+use wizard101_chat_translator::util;
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
 fn cfg() -> Config {
@@ -952,7 +952,7 @@ fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
 
 #[test]
 fn paste_installed_after_the_hotkeys_runs_last() {
-    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = util::lock(&TYPING_TESTS);
     capture_logs();
     let (ui, rx) = UiPoster::for_test();
     let settings = input_cfg("ctrl+v", "shift+v", false);
@@ -990,53 +990,22 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     typing.join().unwrap();
 }
 
-/// 假 backend：記下每次請求的對話輪，回固定結果。
-struct Backend {
-    reply: Result<String, TranslateError>,
-    turns: Mutex<Vec<Vec<Turn>>>,
-}
-
-impl ChatBackend for Backend {
-    fn chat<'a>(
-        &'a self,
-        req: ChatRequest<'a>,
-        _cancel: Option<&'a CancellationToken>,
-    ) -> BoxFuture<'a, Result<String, TranslateError>> {
-        self.turns.lock().unwrap().push(req.turns.to_vec());
-        let reply = self.reply.clone();
-        Box::pin(async move { reply })
-    }
-
-    fn model(&self) -> &str {
-        "fake-model"
-    }
-}
-
 struct Outgoing {
     rt: tokio::runtime::Runtime,
-    backend: Arc<Backend>,
+    backend: Arc<Fake>,
     translator: Arc<Translator>,
     contexts: ContextMap,
 }
 
 fn outgoing(reply: Result<String, TranslateError>) -> Outgoing {
     capture_logs();
-    let backend = Arc::new(Backend {
-        reply,
-        turns: Mutex::default(),
-    });
+    let backend = Fake::new("fake-model", vec![reply]);
     let fake = Arc::clone(&backend);
-    let spec = ServiceSpec {
-        provider: "custom".into(),
-        base_url: "http://x".into(),
-        model: "fake-model".into(),
-        ..ServiceSpec::default()
-    };
     Outgoing {
         rt: tokio::runtime::Runtime::new().unwrap(),
         translator: Translator::with_client(
             move |_| fake.clone() as Arc<dyn ChatBackend>,
-            spec,
+            spec("fake-model"),
             "日本語".into(),
         ),
         backend,
@@ -1083,11 +1052,12 @@ fn outgoing_translate_uses_the_target_clients_current_tab_context() {
     let rx = o.submit("hello again", 0x99, 4);
     rx.recv_timeout(common::WAIT).unwrap();
 
-    let turns = o.backend.turns.lock().unwrap();
+    let calls = o.backend.calls();
+    let turns: Vec<_> = calls.iter().map(|c| &c.turns).collect();
     let mentions = |call: &[Turn], s: &str| call.iter().any(|t| t.content.contains(s));
-    assert!(mentions(&turns[0], "current-tab-line"));
-    assert!(!mentions(&turns[0], "other-tab-line"));
-    assert!(!mentions(&turns[1], "current-tab-line"));
+    assert!(mentions(turns[0], "current-tab-line"));
+    assert!(!mentions(turns[0], "other-tab-line"));
+    assert!(!mentions(turns[1], "current-tab-line"));
     assert!(
         turns[1].len() < turns[0].len(),
         "no client means no context"
@@ -1222,7 +1192,7 @@ fn assert_region_unexpected(recognize: Recognize, session: u64, message: &str) {
         )),
         "{lines:?}"
     );
-    assert!(o.backend.turns.lock().unwrap().is_empty());
+    assert!(o.backend.calls().is_empty());
 }
 
 #[test]
@@ -1257,7 +1227,7 @@ fn region_hotkey_cancels_while_selecting() {
 
 #[test]
 fn paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open() {
-    let _serial = TYPING_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let _serial = util::lock(&TYPING_TESTS);
     capture_logs();
     let settings = input_cfg("ctrl+space", "ctrl+shift+space", true);
     let tracker = ChatInputTracker::default();
