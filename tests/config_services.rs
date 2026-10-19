@@ -1,4 +1,6 @@
 //! 設定頁用的服務操作與進階數值解析（移植自 Python 的 test_services／test_window）。
+//!
+//! 會切換全域介面語言，獨立成一個測試執行檔，檔內以鎖排隊。
 
 use std::sync::{Mutex, MutexGuard};
 

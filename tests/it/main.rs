@@ -1,0 +1,55 @@
+//! 整合測試合成一個執行檔：每個測試執行檔都要各自連結整個相依樹，分開建置時連結佔掉大半時間。
+//!
+//! 所有測試在同一個程序裡平行跑；會切換全域介面語言的測試留在 `tests/` 底下各自成檔，不放進來。
+
+#[path = "../common/mod.rs"]
+mod common;
+mod stream_server;
+
+mod app_main;
+mod cache_golden;
+mod capture;
+mod capture_golden;
+mod clients_claude;
+mod clients_gemini;
+mod clients_golden;
+mod clients_openai;
+mod config_golden;
+mod dispatch;
+mod errors_golden;
+mod examples_golden;
+mod geometry_golden;
+mod hooks_golden;
+mod hotkey_recorder;
+mod hotkeys;
+mod input_box;
+mod keys_golden;
+mod layout_audit;
+mod logs_golden;
+mod mem_reader;
+mod no_hardcoded_ui_text;
+mod ocr;
+mod ocr_golden;
+mod pattern_golden;
+mod pool;
+mod postprocess_golden;
+mod prompts_golden;
+mod reader_golden;
+mod reader_loop;
+mod real_fingerprint;
+mod region_flow;
+mod region_pipeline;
+mod richtext_golden;
+mod service_form;
+mod service_list;
+mod settings_widgets;
+mod settings_window;
+mod status;
+mod supervisor;
+mod translator;
+mod ui_probe;
+mod updater;
+mod updater_golden;
+mod version;
+mod version_info;
+mod wizard;

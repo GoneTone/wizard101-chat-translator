@@ -1,4 +1,6 @@
 //! i18n 與字型選擇對照 Python 匯出的 golden fixture。
+//!
+//! 會切換全域介面語言，獨立成一個測試執行檔，檔內以鎖排隊。
 
 mod common;
 
