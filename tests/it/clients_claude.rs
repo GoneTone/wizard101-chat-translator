@@ -526,13 +526,7 @@ async fn claude_models_later_page_errors_are_classified() {
 async fn claude_key_with_invalid_header_characters_is_a_key_error() {
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
-    let c = ClaudeClient::new(
-        "sk-bad
-key",
-        "claude-x",
-        "auto",
-        &server.uri(),
-    );
+    let c = ClaudeClient::new("sk-bad\nkey", "claude-x", "auto", &server.uri());
     assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
     assert_eq!(c.list_models().await, Err(TranslateError::invalid_key()));
     let (key, args) = friendly_error(&TranslateError::invalid_key());
