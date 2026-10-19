@@ -867,6 +867,7 @@ fn broadcast_cut_twice_is_still_one_event() {
     assert_eq!(r.read_new().unwrap(), vec![]);
     g.put(5, &notice, 5, BOX);
     g.put(6, &notice, 6, BOX);
+    assert_eq!(r.read_new().unwrap(), vec![], "grew again, held once more");
     assert_eq!(
         texts(&mut r),
         [(
