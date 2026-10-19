@@ -61,14 +61,14 @@ pub fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> Stri
 }
 
 /// 框選對桌面的操作；測試換成假的。
-pub trait Desktop {
+pub trait SelectionShell {
     /// 讓 overlay 取得鍵盤焦點，Ctrl+C 才收得到；失敗回 `false`。
     fn take_focus(&mut self) -> bool;
     /// 把文字寫進系統剪貼簿；失敗回 `false`。
     fn copy(&mut self, text: &str) -> bool;
 }
 
-impl Desktop for Win32Shell {
+impl SelectionShell for Win32Shell {
     fn take_focus(&mut self) -> bool {
         win32::force_foreground(self.0)
     }
@@ -197,7 +197,7 @@ impl Selection {
         ui: &Ui,
         list: &mut MessageList,
         model: &OverlayModel,
-        desktop: &mut dyn Desktop,
+        desktop: &mut dyn SelectionShell,
     ) {
         let messages = model.current_view().map_or(&[][..], |v| &v.messages);
         self.sync(model.current_key(), messages);
@@ -267,7 +267,7 @@ impl Selection {
     }
 
     /// 把選取的文字寫進剪貼簿；沒有選取就不動 —— 寫入空字串會清掉使用者原本的剪貼簿內容。
-    fn copy(&self, messages: &[Message], desktop: &mut dyn Desktop) {
+    fn copy(&self, messages: &[Message], desktop: &mut dyn SelectionShell) {
         let text = self.text(messages);
         if !text.is_empty() && desktop.copy(&text) {
             log(format!(
@@ -313,7 +313,7 @@ impl Selection {
     }
 
     /// 右鍵選單：點「複製」複製選取並關閉，在選單外按下就關閉。
-    fn show_menu(&mut self, ui: &Ui, messages: &[Message], desktop: &mut dyn Desktop) {
+    fn show_menu(&mut self, ui: &Ui, messages: &[Message], desktop: &mut dyn SelectionShell) {
         if self.span().is_none() {
             self.close_menu();
         }
@@ -428,7 +428,7 @@ mod tests {
         copied: Vec<String>,
     }
 
-    impl Desktop for FakeDesktop {
+    impl SelectionShell for FakeDesktop {
         fn take_focus(&mut self) -> bool {
             self.focused += 1;
             true
