@@ -70,12 +70,13 @@ impl ClaudeClient {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
         headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
+        let key = secret_header(api_key);
         Self {
             http: http_client(headers, endpoint),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             // SDK 遇到空金鑰在送出前就拋錯，含非法字元的金鑰也送不出去
-            api_key: secret_header(api_key).filter(|_| !api_key.is_empty()),
-            key_malformed: !api_key.is_empty() && secret_header(api_key).is_none(),
+            api_key: key.clone().filter(|_| !api_key.is_empty()),
+            key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
             effort: effort.to_owned(),
         }
@@ -225,10 +226,7 @@ impl ClaudeClient {
         let Some(key) = self.api_key.clone() else {
             if self.key_malformed {
                 log("[translate] claude api key has characters invalid in an HTTP header");
-                return Err(TranslateError::Config {
-                    status: Some(401),
-                    detail: String::new(),
-                });
+                return Err(TranslateError::invalid_key());
             }
             return Err(TranslateError::Unexpected(NO_AUTH.into()));
         };

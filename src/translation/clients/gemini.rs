@@ -194,9 +194,10 @@ impl GeminiClient {
         request: reqwest::RequestBuilder,
         map: fn(u16, &str) -> Option<TranslateError>,
     ) -> Result<reqwest::Response, TranslateError> {
-        let key = self.api_key.clone().ok_or_else(|| {
-            TranslateError::Unexpected("api key has characters invalid in an HTTP header".into())
-        })?;
+        let Some(key) = self.api_key.clone() else {
+            log("[translate] gemini api key has characters invalid in an HTTP header");
+            return Err(TranslateError::invalid_key());
+        };
         let resp = request
             .header("x-goog-api-key", key)
             .send()

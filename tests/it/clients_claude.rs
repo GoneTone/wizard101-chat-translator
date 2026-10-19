@@ -16,7 +16,7 @@ use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
     ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING,
 };
-use wizard101_chat_translator::translation::errors::TranslateError;
+use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 
 fn output_format() -> Value {
     json!({"type": "json_schema", "schema": {
@@ -533,12 +533,11 @@ key",
         "auto",
         &server.uri(),
     );
-    let expected = Err(TranslateError::Config {
-        status: Some(401),
-        detail: String::new(),
-    });
-    assert_eq!(chat(&c).await, expected);
-    assert_eq!(c.list_models().await, expected.map(|_: String| vec![]));
+    assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
+    assert_eq!(c.list_models().await, Err(TranslateError::invalid_key()));
+    let (key, args) = friendly_error(&TranslateError::invalid_key());
+    assert_eq!((key, args.len()), ("error.bad_key", 0));
+    assert!(!TranslateError::invalid_key().to_string().contains("HTTP 4"));
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 

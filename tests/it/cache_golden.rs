@@ -463,6 +463,19 @@ async fn does_not_store_when_fingerprint_changed_mid_flight() {
 }
 
 #[tokio::test]
+async fn does_not_store_a_blank_translation() {
+    let fake = Fake::new(&[("雪刺帽", "")]);
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_in(&dir);
+    let out = translate_and_cache(&translator(&fake), &cache, "雪刺帽").await;
+    assert_eq!(
+        out,
+        Err(TranslateError::BadOutput("model returned no text".into()))
+    );
+    assert_eq!(cache.get("雪刺帽"), None);
+}
+
+#[tokio::test]
 async fn does_not_store_stray_latin() {
     let fake = Fake::new(&[("雪刺帽", "Snowspike Hat")]);
     let dir = tempfile::tempdir().unwrap();

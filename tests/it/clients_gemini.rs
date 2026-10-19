@@ -368,6 +368,21 @@ async fn gemini_max_tokens_finish_is_bad_output() {
 }
 
 #[tokio::test]
+async fn gemini_key_with_invalid_header_characters_is_a_key_error() {
+    let server = MockServer::start().await;
+    mount_stream(&server, ok_stream()).await;
+    let c = GeminiClient::new(
+        "AIza-bad
+key",
+        "gemini-x",
+        "auto",
+        &server.uri(),
+    );
+    assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn gemini_invalid_model_is_unexpected_and_never_sent() {
     let server = MockServer::start().await;
     mount_stream(&server, ok_stream()).await;

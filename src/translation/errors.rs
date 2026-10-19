@@ -25,7 +25,18 @@ pub enum TranslateError {
     Unexpected(String),
 }
 
+/// 金鑰含 HTTP 標頭不允許的字元時的說明（請求根本沒送出）。
+const INVALID_KEY_DETAIL: &str = "api key contains characters invalid in an HTTP header";
+
 impl TranslateError {
+    /// 金鑰格式錯誤：歸為設定錯誤（使用者改好金鑰即恢復），UI 顯示金鑰無效。
+    pub fn invalid_key() -> Self {
+        Self::Config {
+            status: None,
+            detail: INVALID_KEY_DETAIL.into(),
+        }
+    }
+
     /// 連線層失敗（無狀態碼）。
     pub fn offline(detail: impl Into<String>) -> Self {
         Self::Offline {
@@ -151,6 +162,10 @@ pub fn model_list_error(status: u16, detail: &str) -> Option<TranslateError> {
 pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, String)>) {
     use TranslateError::{Config, Offline};
     match e {
+        Config {
+            status: None,
+            detail,
+        } if detail == INVALID_KEY_DETAIL => ("error.bad_key", vec![]),
         Config { status, detail } | Offline { status, detail } if !detail.is_empty() => {
             match status {
                 Some(status) => (

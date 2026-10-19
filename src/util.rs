@@ -83,6 +83,5 @@ pub fn sha1_head(parts: &[&[u8]]) -> String {
 
 /// 一個隨機的 `u64`：借用標準庫每次不同種子的雜湊，只求分散與不撞，不需密碼學強度。
 pub fn random_u64() -> u64 {
-    // RandomState 每次建構都換一組 SipHash 金鑰，空輸入的雜湊即一個亂數
     RandomState::new().build_hasher().finish()
 }
