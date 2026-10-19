@@ -86,14 +86,30 @@ pub(crate) fn capture(run: impl FnOnce()) -> String {
     init(Sink::File(
         File::create(&path).expect("create the capture log"),
     ));
+    // 閉包 panic 時也要把 sink 換回，否則後面的測試會寫進已刪除的暫存檔。
+    struct RestoreSink;
+    impl Drop for RestoreSink {
+        fn drop(&mut self) {
+            init(Sink::Stderr);
+        }
+    }
+    let restore = RestoreSink;
     run();
-    init(Sink::Stderr);
+    drop(restore);
     std::fs::read_to_string(&path).expect("read the capture log")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_restores_the_stderr_sink_when_the_closure_panics() {
+        let result = std::panic::catch_unwind(|| capture(|| panic!("boom")));
+        assert!(result.is_err());
+        let _serial = lock(&GLOBAL_SINK_TESTS);
+        assert!(matches!(*lock(&SINK), Sink::Stderr));
+    }
 
     fn temp_sink() -> (tempfile::TempDir, std::path::PathBuf, Sink) {
         let dir = tempfile::tempdir().unwrap();
