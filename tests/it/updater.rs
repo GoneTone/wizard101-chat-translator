@@ -233,13 +233,14 @@ async fn check_for_update_returns_none_when_no_release_exists() {
 }
 
 async fn wait_until(what: &str, mut condition: impl AsyncFnMut() -> bool) {
-    for _ in 0..200 {
-        if condition().await {
-            return;
-        }
+    let deadline = std::time::Instant::now() + common::WAIT;
+    while !condition().await {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    panic!("timed out waiting for {what}");
 }
 
 fn collecting_callback() -> (Arc<AtomicUsize>, Arc<Mutex<Vec<Release>>>, Found) {
@@ -371,7 +372,7 @@ async fn stop_ends_the_schedule() {
     })
     .await;
     stop.cancel();
-    tokio::time::timeout(Duration::from_secs(5), task)
+    tokio::time::timeout(common::WAIT, task)
         .await
         .expect("schedule must end after stop")
         .unwrap();

@@ -497,7 +497,7 @@ fn deliveries_through(
     );
     submit(&built);
     (0..expected)
-        .map(|_| rx.recv_timeout(Duration::from_secs(10)).expect("delivery"))
+        .map(|_| rx.recv_timeout(common::WAIT).expect("delivery"))
         .collect()
 }
 
@@ -584,9 +584,9 @@ fn paused_rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// 讓 `rt` 上的背景工作跑到 `done` 成立為止，最多等 5 秒。
+/// 讓 `rt` 上的背景工作跑到 `done` 成立為止，最多等 [`common::WAIT`]。
 fn run_until(rt: &tokio::runtime::Runtime, what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + common::WAIT;
     while !done() {
         assert!(Instant::now() < deadline, "timed out waiting: {what}");
         rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
@@ -982,7 +982,7 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     *blocked.gate.lock().unwrap() = Some(gate);
     let env = typing_env(&blocked);
     let typing = std::thread::spawn(move || type_into_window(&env, 0, "x", Duration::ZERO));
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + common::WAIT;
     while !typing_in_progress() {
         assert!(Instant::now() < deadline, "typing never started");
         std::thread::yield_now();
@@ -1092,14 +1092,14 @@ fn outgoing_translate_uses_the_target_clients_current_tab_context() {
 
     let rx = o.submit("hello there", 0x10, 3);
     assert_eq!(
-        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        rx.recv_timeout(common::WAIT).unwrap(),
         UiEvent::OutgoingDone {
             session: 3,
             result: Ok("hi".into())
         }
     );
     let rx = o.submit("hello again", 0x99, 4);
-    rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    rx.recv_timeout(common::WAIT).unwrap();
 
     let turns = o.backend.turns.lock().unwrap();
     let mentions = |call: &[Turn], s: &str| call.iter().any(|t| t.content.contains(s));
@@ -1117,7 +1117,7 @@ fn outgoing_translate_posts_the_localized_error_and_logs_the_service() {
     let o = outgoing(Err(TranslateError::offline("conn refused")));
     let rx = o.submit("err-case-text", 0, 7);
     assert_eq!(
-        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        rx.recv_timeout(common::WAIT).unwrap(),
         UiEvent::OutgoingDone {
             session: 7,
             result: Err(t("input.failed", &[("error", "conn refused")]))
@@ -1136,7 +1136,7 @@ fn outgoing_translate_cancel_logs_and_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.submit("cancelled-text-17", 0, 9);
     let marker = "[input] outgoing translation cancelled (chars=17)";
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + common::WAIT;
     while log_lines_with(marker).is_empty() {
         assert!(Instant::now() < deadline, "no cancel log");
         std::thread::sleep(Duration::from_millis(5));
@@ -1175,7 +1175,7 @@ fn region_runner_posts_the_result_with_its_session() {
     let o = outgoing(Ok("hi".into()));
     let rx = o.run_region("hello", 5);
     assert_eq!(
-        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        rx.recv_timeout(common::WAIT).unwrap(),
         UiEvent::RegionDone {
             session: 5,
             result: Ok(RegionResult {
@@ -1191,7 +1191,7 @@ fn region_runner_cancel_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.run_region("hello", 41);
     let marker = "[region] request cancelled (session=41)";
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + common::WAIT;
     while log_lines_with(marker).is_empty() {
         assert!(Instant::now() < deadline, "no cancel log");
         std::thread::sleep(Duration::from_millis(5));
@@ -1207,7 +1207,7 @@ fn region_runner_failure_logs_the_service() {
         "region refused",
     )));
     assert_eq!(
-        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        rx.recv_timeout(common::WAIT).unwrap(),
         UiEvent::RegionDone {
             session: 6,
             result: Err(expected)
@@ -1226,7 +1226,7 @@ fn assert_region_unexpected(recognize: Recognize, session: u64, message: &str) {
     let o = outgoing(Ok("unused".into()));
     let rx = o.run_region_with(recognize, session);
     assert_eq!(
-        rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        rx.recv_timeout(common::WAIT).unwrap(),
         UiEvent::RegionDone {
             session,
             result: Err(t("error.unexpected", &[("error", message)]))

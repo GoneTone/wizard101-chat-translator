@@ -909,10 +909,12 @@ fn fake_with_examples() -> Arc<Fake> {
 
 #[tokio::test]
 async fn test_translate_times_only_the_sample_translation() {
+    // 門檻等於範例生成的耗時：計到它就一定超過，不計時再慢的機器也遠低於此
+    const GENERATION: std::time::Duration = std::time::Duration::from_secs(1);
     let fake = fake_with_examples();
     fake.on_call(|n| {
         if n == 2 {
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::thread::sleep(GENERATION);
         }
     });
     let dir = tempfile::tempdir().unwrap();
@@ -920,7 +922,7 @@ async fn test_translate_times_only_the_sample_translation() {
         .await
         .unwrap();
     assert_eq!(out.translated, "[Tester] 你好！");
-    assert!(out.elapsed < std::time::Duration::from_millis(150));
+    assert!(out.elapsed < GENERATION, "{:?}", out.elapsed);
     assert_eq!(fake.calls().len(), 2);
 }
 

@@ -56,10 +56,7 @@ pub fn echo() -> TranslateFn {
 /// 收齊 `n` 則結果，依 msg_id 排序後還原成（原文, 上下文, msg_id）。
 pub fn submitted(rx: &Receiver<(u64, String, bool)>, n: usize) -> Vec<(String, Vec<String>, u64)> {
     let mut got: Vec<_> = (0..n)
-        .map(|_| {
-            rx.recv_timeout(Duration::from_secs(10))
-                .expect("pool result")
-        })
+        .map(|_| rx.recv_timeout(super::WAIT).expect("pool result"))
         .collect();
     assert!(
         rx.recv_timeout(Duration::from_millis(50)).is_err(),
@@ -89,7 +86,7 @@ pub fn failing_pool(rt: &Runtime, err: TranslateError) -> Arc<TranslationPool> {
         }),
     );
     pool.submit("prime".into(), Vec::new(), 0);
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + super::WAIT;
     while pool.error_state().is_none() {
         assert!(
             Instant::now() < deadline,

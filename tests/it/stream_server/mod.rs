@@ -5,7 +5,6 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -36,7 +35,7 @@ async fn start_stream(listener: TcpListener, first_event: &str) -> TcpStream {
     socket
 }
 
-/// 串流停住不收尾，送出第一段後觸發 `cancel`；handle 的結果為「5 秒內看到客戶端斷線」。
+/// 串流停住不收尾，送出第一段後觸發 `cancel`；handle 的結果為「[`crate::common::WAIT`] 內看到客戶端斷線」。
 ///
 /// 等請求確實送達才取消，取消時機不受機器負載影響。
 pub async fn stalled_stream(
@@ -49,7 +48,7 @@ pub async fn stalled_stream(
         cancel.cancel();
         let mut buf = vec![0u8; 8192];
         // 客戶端斷線後 read 會讀到 EOF 或連線重置
-        tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::time::timeout(crate::common::WAIT, async {
             loop {
                 match socket.read(&mut buf).await {
                     Ok(0) | Err(_) => break,
