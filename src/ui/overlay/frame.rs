@@ -2,8 +2,8 @@
 
 use eframe::egui::{
     self, Align, Align2, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response,
-    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureHandle, Ui, UiBuilder, Vec2,
-    WidgetInfo, WidgetText,
+    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureHandle, Tooltip, Ui, UiBuilder,
+    Vec2, WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
@@ -355,14 +355,20 @@ fn title_bar(
         let button = if button.is_pointer_button_down_on() {
             button
         } else {
-            button.on_hover_ui_at_pointer(|ui| {
+            let mut tip = Tooltip::for_enabled(&button);
+            tip.popup = tip
+                .popup
+                .at_position(tooltip_anchor(ui.ctx(), button.id))
+                .gap(TOOLTIP_OFFSET);
+            tip.show(|ui| {
                 let text = t(tooltip, &[("hotkey", region_hotkey)]);
                 ui.label(
                     RichText::new(text)
                         .font(FontId::proportional(tk_pt(9.0)))
                         .color(FG_TRANSLATED),
                 );
-            })
+            });
+            button
         };
         if button.clicked() {
             clicked = Some(action);
@@ -396,6 +402,21 @@ fn title_bar(
         }
     });
     clicked
+}
+
+/// 提示框與游標的距離（右下方），避免蓋住游標。
+const TOOLTIP_OFFSET: f32 = 12.0;
+
+/// 提示框的錨點：出現那一刻的游標位置，之後不跟著游標走（同舊版）。
+fn tooltip_anchor(ctx: &egui::Context, widget: egui::Id) -> Pos2 {
+    let key = widget.with("tooltip_anchor");
+    let pointer = ctx.pointer_hover_pos().unwrap_or_default();
+    if Tooltip::was_tooltip_open_last_frame(ctx, widget) {
+        ctx.data(|d| d.get_temp(key)).unwrap_or(pointer)
+    } else {
+        ctx.data_mut(|d| d.insert_temp(key, pointer));
+        pointer
+    }
 }
 
 /// 標題列按鈕：與標題列同高的正方形，滑過時填底、按下再亮一階；`close` 用紅底白字。
@@ -765,6 +786,16 @@ pub(crate) mod tests {
             _ => None,
         });
         assert_eq!(color, Some(FG_TRANSLATED));
+    }
+
+    #[test]
+    fn the_tooltip_stays_put_while_the_pointer_moves() {
+        let (mut harness, text) = hovered_tooltip();
+        let before = harness.get_by_label(&text).rect();
+        let button = harness.get_by_label("⛶").rect();
+        harness.hover_at(button.center() + Vec2::new(4.0, 3.0));
+        harness.run_steps(2);
+        assert_eq!(harness.get_by_label(&text).rect(), before);
     }
 
     #[test]
