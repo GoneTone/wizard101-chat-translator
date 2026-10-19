@@ -92,6 +92,21 @@ pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
     })
 }
 
+/// 本幀 egui 排入的複製文字（測試用：看 egui 收到什麼，不碰系統剪貼簿）。
+#[cfg(test)]
+pub fn copied_texts(ctx: &Context) -> Vec<String> {
+    use eframe::egui::OutputCommand;
+    ctx.output(|o| {
+        o.commands
+            .iter()
+            .filter_map(|c| match c {
+                OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

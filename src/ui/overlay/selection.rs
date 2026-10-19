@@ -2,10 +2,9 @@
 //!
 //! 端點以「第幾則」定位，訊息被移除時以 seq 重新對位（見 `Selection::sync`）；反白由 `MessageList` 繪製。
 
-use eframe::egui::{Id, Pos2, Rect, Ui, Vec2};
+use eframe::egui::{Context, Id, Pos2, Rect, Ui, Vec2};
 
 use crate::logs::log;
-use crate::ui::clipboard;
 use crate::ui::copy_menu::{self, MenuOutcome};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Win32Shell, edge_under};
 use crate::ui::overlay::message_list::{MessageList, Row};
@@ -58,20 +57,15 @@ pub fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> Stri
         .join("\n\n")
 }
 
-/// 框選對桌面的操作；測試換成假的。
+/// 框選對桌面的操作（取得焦點）；測試換成假的。
 pub trait SelectionShell {
     /// 讓 overlay 取得鍵盤焦點，Ctrl+C 才收得到；失敗回 `false`。
     fn take_focus(&mut self) -> bool;
-    /// 把文字寫進系統剪貼簿；失敗回 `false`。
-    fn copy(&mut self, text: &str) -> bool;
 }
 
 impl SelectionShell for Win32Shell {
     fn take_focus(&mut self) -> bool {
         win32::force_foreground(self.0)
-    }
-    fn copy(&mut self, text: &str) -> bool {
-        clipboard::set_text(self.0, text)
     }
 }
 
@@ -195,11 +189,11 @@ impl Selection {
         ui: &Ui,
         list: &mut MessageList,
         model: &OverlayModel,
-        desktop: &mut dyn SelectionShell,
+        shell: &mut dyn SelectionShell,
     ) {
         let messages = model.current_view().map_or(&[][..], |v| &v.messages);
         self.sync(model.current_key(), messages);
-        self.show_menu(ui, messages, desktop);
+        self.show_menu(ui, messages);
 
         let area = ui.max_rect();
         let (pressed, secondary, down, pos, time, copy) = ui.input(|i| {
@@ -222,7 +216,7 @@ impl Selection {
                 && self.begin(list, messages, p)
             {
                 log("[ui] forcing keyboard focus");
-                if desktop.take_focus() {
+                if shell.take_focus() {
                     log("[ui] selection took keyboard focus");
                 } else {
                     log("[ui] selection focus failed: SetForegroundWindow refused");
@@ -251,18 +245,19 @@ impl Selection {
             self.menu = Some(p);
         }
         if copy {
-            self.copy(messages, desktop);
+            self.copy(ui.ctx(), messages);
         }
     }
 
-    /// 把選取的文字寫進剪貼簿；沒有選取就不動 —— 寫入空字串會清掉使用者原本的剪貼簿內容。
-    fn copy(&self, messages: &[Message], desktop: &mut dyn SelectionShell) {
+    /// 請 egui 把選取的文字寫進剪貼簿；沒有選取就不動 —— 寫入空字串會清掉使用者原本的剪貼簿內容。
+    fn copy(&self, ctx: &Context, messages: &[Message]) {
         let text = self.text(messages);
-        if !text.is_empty() && desktop.copy(&text) {
+        if !text.is_empty() {
             log(format!(
-                "[ui] copied selection chars={}",
+                "[ui] copy requested selection chars={}",
                 text.chars().count()
             ));
+            ctx.copy_text(text);
         }
     }
 
@@ -302,7 +297,7 @@ impl Selection {
     }
 
     /// 右鍵選單：點「複製」複製選取並關閉，在選單外按下就關閉。
-    fn show_menu(&mut self, ui: &Ui, messages: &[Message], desktop: &mut dyn SelectionShell) {
+    fn show_menu(&mut self, ui: &Ui, messages: &[Message]) {
         if self.span().is_none() {
             self.close_menu();
         }
@@ -313,7 +308,7 @@ impl Selection {
             MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
             MenuOutcome::Copy => {
                 self.close_menu();
-                self.copy(messages, desktop);
+                self.copy(ui.ctx(), messages);
             }
             MenuOutcome::Dismissed => self.close_menu(),
         }
@@ -402,6 +397,7 @@ mod tests {
     use crate::ui::overlay::frame::Frame;
     use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::palette::{BAR, SELECT_BG};
+    use crate::ui::text_select::copied_texts;
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
     /// 假視窗的螢幕位置與大小；被縮放或移動過就會變。
@@ -412,18 +408,13 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FakeDesktop {
+    struct FakeSelectionShell {
         focused: usize,
-        copied: Vec<String>,
     }
 
-    impl SelectionShell for FakeDesktop {
+    impl SelectionShell for FakeSelectionShell {
         fn take_focus(&mut self) -> bool {
             self.focused += 1;
-            true
-        }
-        fn copy(&mut self, text: &str) -> bool {
-            self.copied.push(text.to_owned());
             true
         }
     }
@@ -435,7 +426,9 @@ mod tests {
         model: OverlayModel,
         list: MessageList,
         selection: Selection,
-        desktop: FakeDesktop,
+        focus_shell: FakeSelectionShell,
+        /// 各幀 `ctx.copy_text` 排入的文字。
+        copied: Vec<String>,
         t0: Instant,
         /// 整個視窗的 Ui 範圍（harness 四周有留白，不等於 `SIZE`）。
         area: Rect,
@@ -462,7 +455,8 @@ mod tests {
             model,
             list: MessageList::new(),
             selection: Selection::default(),
-            desktop: FakeDesktop::default(),
+            focus_shell: FakeSelectionShell::default(),
+            copied: Vec::new(),
             t0,
             area: Rect::NOTHING,
         };
@@ -475,7 +469,9 @@ mod tests {
                     s.area = area;
                     s.frame.show(ui, &mut s.shell, "t", None, "");
                     let rect = Rect::from_min_max(area.min + Vec2::new(0.0, BAR_HEIGHT), area.max);
-                    s.selection.show(ui, &mut s.list, &s.model, &mut s.desktop);
+                    s.selection
+                        .show(ui, &mut s.list, &s.model, &mut s.focus_shell);
+                    s.copied.extend(copied_texts(ui.ctx()));
                     s.list.show(ui, rect, &s.model, None, s.selection.span());
                 },
                 state,
@@ -616,7 +612,7 @@ mod tests {
         let p = start_of(&h, 0, 0);
         press(&mut h, p);
         assert!(h.state().selection.dragging());
-        assert_eq!(h.state().desktop.focused, 1);
+        assert_eq!(h.state().focus_shell.focused, 1);
     }
 
     #[test]
@@ -630,7 +626,7 @@ mod tests {
             assert!(!h.state().selection.dragging(), "{p:?}");
             release(&mut h, p);
         }
-        assert_eq!(h.state().desktop.focused, 0);
+        assert_eq!(h.state().focus_shell.focused, 0);
     }
 
     #[test]
@@ -859,7 +855,7 @@ mod tests {
         // 視口上方（標題列一帶）按下不會選到捲出視野的訊息
         press(&mut h, Pos2::new(200.0, viewport.min.y - 5.0));
         assert!(!h.state().selection.dragging());
-        assert_eq!(h.state().desktop.focused, 0);
+        assert_eq!(h.state().focus_shell.focused, 0);
     }
 
     #[test]
@@ -876,7 +872,7 @@ mod tests {
             press(&mut h, p);
             move_to(&mut h, p + Vec2::new(-20.0, 20.0));
             assert!(!h.state().selection.dragging(), "{edge:?}");
-            assert_eq!(h.state().desktop.focused, 0, "{edge:?}");
+            assert_eq!(h.state().focus_shell.focused, 0, "{edge:?}");
             release(&mut h, p + Vec2::new(-20.0, 20.0));
             assert_ne!(h.state().shell.rect, WINDOW, "{edge:?} should resize");
         }
@@ -956,7 +952,7 @@ mod tests {
         h.key_press_modifiers(Modifiers::CTRL, Key::C);
         h.step();
         assert!(
-            h.state().desktop.copied.is_empty(),
+            h.state().copied.is_empty(),
             "nothing selected, clipboard untouched"
         );
         let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
@@ -966,7 +962,7 @@ mod tests {
         h.step();
         h.event(Event::Copy);
         h.step();
-        assert_eq!(h.state().desktop.copied, ["orig 0\ntrans 0"; 2]);
+        assert_eq!(h.state().copied, ["orig 0\ntrans 0"; 2]);
     }
 
     #[test]
@@ -980,7 +976,7 @@ mod tests {
         h.event(Event::Copy);
         h.step();
         assert_eq!(
-            h.state().desktop.copied,
+            h.state().copied,
             ["orig 0
 trans 0"]
         );
@@ -1015,7 +1011,7 @@ trans 0"]
         h.step();
         h.drop_at(menu.center());
         h.step();
-        assert_eq!(h.state().desktop.copied, ["orig 0\ntrans 0"]);
+        assert_eq!(h.state().copied, ["orig 0\ntrans 0"]);
         assert_eq!(h.state().selection.menu_rect, None);
         assert!(h.state().selection.span().is_some());
     }

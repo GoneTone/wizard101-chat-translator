@@ -11,7 +11,6 @@ use eframe::egui::{
 use crate::config::app_name;
 use crate::logs::log;
 use crate::region::pipeline::RegionResult;
-use crate::ui::clipboard;
 use crate::ui::geometry::Rect;
 use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
@@ -268,9 +267,6 @@ impl RegionHost {
             .with_transparent(true)
             .with_active(false);
         let mut before = viewport::windows_before(win.hwnd);
-        // 卡片每次回到辨識中都是新的一張，剪貼簿每幀重設才跟得上新卡片與新視窗
-        let owner = win.hwnd;
-        card.set_clipboard(move |text| clipboard::set_text(owner, text));
         let id = win.id("region_card");
         let Some((placed, action)) =
             show_immediate(ctx, id, "card", builder, &mut before, |ui, _| {

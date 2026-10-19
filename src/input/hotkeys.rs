@@ -107,7 +107,8 @@ impl HotkeyInterceptor {
         })
     }
 
-    /// `f()` 成立時，觸發鍵按下一律吞掉（放開放行，免得 pressed 殘留）、不呼叫 `on_trigger`（不記入按住、不補遮罩鍵）。
+    /// `f()` 成立時，觸發鍵按下一律吞掉（放開放行，免得 pressed 殘留）、不呼叫 `on_trigger`
+    /// （不記入按住、不補遮罩鍵）。
     pub fn swallow_override(mut self, f: Box<dyn Fn() -> bool + Send>) -> Self {
         self.swallow_override = Some(f);
         self

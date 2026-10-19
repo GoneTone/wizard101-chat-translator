@@ -212,7 +212,6 @@ pub struct Card {
     menu: Option<Pos2>,
     /// 選單範圍（右鍵當下算好，之後取上一幀畫出的）；選單上的按放不算點卡片。
     menu_rect: Option<egui::Rect>,
-    clipboard: Box<dyn FnMut(&str) -> bool>,
 }
 
 impl Card {
@@ -233,13 +232,7 @@ impl Card {
             next_tick: 0.0,
             menu: None,
             menu_rect: None,
-            clipboard: Box::new(|_| false),
         }
-    }
-
-    /// 換掉剪貼簿寫入函式（預設寫不進去）；宿主帶入以卡片視窗為擁有者的 `clipboard::set_text`。
-    pub fn set_clipboard(&mut self, sink: impl FnMut(&str) -> bool + 'static) {
-        self.clipboard = Box::new(sink);
     }
 
     /// 換內容；落點重新判斷、捲回頂端，舊的選取作廢。
@@ -491,8 +484,8 @@ impl Card {
                 MenuOutcome::Copy => {
                     self.close_menu();
                     copied = match self.selection_text() {
-                        Some(selected) => self.copy(&selected, "selection"),
-                        None => self.copy(&self.all_text(), "text"),
+                        Some(selected) => self.copy(&ctx, &selected, "selection"),
+                        None => self.copy(&ctx, &self.all_text(), "text"),
                     };
                 }
                 MenuOutcome::Dismissed => self.close_menu(),
@@ -504,7 +497,7 @@ impl Card {
             self.menu_rect = Some(copy_menu::rect(ui, at));
         }
         if copy && let Some(selected) = self.selection_text() {
-            copied = self.copy(&selected, "selection").or(copied);
+            copied = self.copy(&ctx, &selected, "selection").or(copied);
         }
 
         // ---- 繪製 ----
@@ -554,13 +547,14 @@ impl Card {
         }
     }
 
-    /// 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
-    fn copy(&mut self, text: &str, kind: &str) -> Option<usize> {
-        if text.is_empty() || !(self.clipboard)(text) {
+    /// 請 egui 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
+    fn copy(&self, ctx: &egui::Context, text: &str, kind: &str) -> Option<usize> {
+        if text.is_empty() {
             return None;
         }
         let chars = text.chars().count();
-        log(format!("[region] copied {kind} ({chars} chars)"));
+        log(format!("[region] copy requested {kind} ({chars} chars)"));
+        ctx.copy_text(text.to_owned());
         Some(chars)
     }
 
@@ -574,9 +568,6 @@ impl Card {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
     use eframe::egui::{
         Key, Modifiers, MouseWheelSource, MouseWheelUnit, OutputCommand, Shape, TouchPhase,
         epaint::TextShape,
@@ -586,6 +577,7 @@ mod tests {
     use super::*;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
+    use crate::ui::text_select::copied_texts;
 
     const RECT: Rect = (300, 200, 400, 120);
     const AREA: Rect = (0, 0, 1920, 1040);
@@ -598,22 +590,16 @@ mod tests {
     struct State {
         card: Card,
         actions: Vec<CardAction>,
-        copied: Rc<RefCell<Vec<String>>>,
+        /// 各幀 `ctx.copy_text` 排入的文字。
+        copied: Vec<String>,
         area: egui::Rect,
     }
 
     fn harness_sized(card: Card, size: Vec2) -> Harness<'static, State> {
-        let copied = Rc::new(RefCell::new(Vec::new()));
-        let mut card = card;
-        let sink = Rc::clone(&copied);
-        card.set_clipboard(move |text| {
-            sink.borrow_mut().push(text.to_owned());
-            true
-        });
         let state = State {
             card,
             actions: Vec::new(),
-            copied,
+            copied: Vec::new(),
             area: egui::Rect::NOTHING,
         };
         let mut h = Harness::builder()
@@ -626,6 +612,7 @@ mod tests {
                 |ui, s: &mut State| {
                     s.area = ui.max_rect();
                     s.actions.extend(s.card.content(ui));
+                    s.copied.extend(copied_texts(ui.ctx()));
                 },
                 state,
             );
@@ -648,7 +635,7 @@ mod tests {
     }
 
     fn copied(h: &Harness<State>) -> Vec<String> {
-        h.state().copied.borrow().clone()
+        h.state().copied.clone()
     }
 
     fn text_shapes(h: &Harness<State>) -> Vec<TextShape> {
