@@ -11,7 +11,7 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowThreadProcessId,
-    IsWindow, IsWindowVisible,
+    IsIconic, IsWindow, IsWindowVisible,
 };
 
 use crate::logs::log;
@@ -101,6 +101,11 @@ pub fn game_windows() -> Vec<isize> {
 /// 視窗 handle 是否仍指向一個存在的視窗（客戶端關掉後為 `false`）。
 pub fn window_exists(hwnd: isize) -> bool {
     unsafe { IsWindow(hwnd as HWND) != 0 }
+}
+
+/// 視窗是否最小化（最小化的視窗仍帶 WS_VISIBLE，`IsWindowVisible` 擋不掉）。
+pub fn is_minimized(hwnd: isize) -> bool {
+    unsafe { IsIconic(hwnd as HWND) != 0 }
 }
 
 /// 視窗所屬程序的 PID；視窗不存在時回 0。
