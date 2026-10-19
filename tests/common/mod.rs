@@ -1,18 +1,31 @@
 //! 整合測試共用工具。
 
 use std::path::Path;
+use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
+
+use wizard101_chat_translator::util;
 
 pub mod fake_backend;
 pub mod fake_game;
+pub mod kittest;
 pub mod log_capture;
 pub mod reader_fixture;
 pub mod settings_env;
+pub mod settings_window;
+pub mod spy_memory;
 pub mod wizard;
 
 /// 等背景執行緒或伺服器達成條件的上限：只有失敗時才等滿，放寬到負載重的 CI 也不誤判。
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub const WAIT: Duration = Duration::from_secs(30);
+
+/// 全域介面語言同一時間只給一個測試用（會切換語言的測試檔各自排隊）。
+#[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
+pub fn language_lock() -> MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    util::lock(&LOCK)
+}
 
 /// 讀取 `tests/golden/<name>.json`，回傳 Python 匯出的案例清單。
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。

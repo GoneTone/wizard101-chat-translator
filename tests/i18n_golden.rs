@@ -4,8 +4,6 @@
 
 mod common;
 
-use std::sync::Mutex;
-
 use wizard101_chat_translator::config::app_name;
 use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::ui::fonts::font_family;
@@ -39,12 +37,9 @@ fn available_languages_match_python() {
     assert_eq!(i18n::available_languages(), expected);
 }
 
-/// 全域介面語言只有一份：本檔切換語言的測試互相排隊（lib 單元測試一律不切換）。
-static LANGUAGE: Mutex<()> = Mutex::new(());
-
 #[test]
 fn t_matches_python() {
-    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let _language = common::language_lock();
     for case in common::golden("i18n_t") {
         let input = &case["input"];
         let lang = input["lang"].as_str().unwrap();
@@ -66,7 +61,7 @@ fn t_matches_python() {
 
 #[test]
 fn app_name_follows_language() {
-    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let _language = common::language_lock();
     i18n::set_language("zh-TW");
     let zh = app_name();
     i18n::set_language("en-US");
@@ -97,7 +92,7 @@ fn system_language_detection_returns_an_offered_code() {
 
 #[test]
 fn unknown_language_code_falls_back_to_default() {
-    let _language = LANGUAGE.lock().unwrap_or_else(|e| e.into_inner());
+    let _language = common::language_lock();
     i18n::set_language("xx-XX");
     assert_eq!(i18n::current_language(), "en-US");
     i18n::set_language("zh-TW");

@@ -2,91 +2,43 @@
 
 mod common;
 
-use std::sync::{Mutex, MutexGuard};
-
+use eframe::egui;
 use eframe::egui::accesskit::Role;
-use eframe::egui::{self, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
+use common::kittest::{click, has_label, run, tr};
+use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
-use wizard101_chat_translator::config::services::new_service;
-use wizard101_chat_translator::config::{Config, default_config};
-use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
-use wizard101_chat_translator::ui::fonts_egui;
+use common::settings_window::{State, custom_cfg, harness as settings_harness};
+use wizard101_chat_translator::config::Config;
+use wizard101_chat_translator::i18n::{self, current_language, language_name};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
-use wizard101_chat_translator::ui::settings::theme;
-use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction, SettingsWindow};
-
-/// 全域介面語言同一時間只給一個測試用。
-fn language_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
-
-fn tr(key: &str) -> String {
-    t(key, &[])
-}
+use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction};
 
 fn configured_cfg() -> Config {
-    let mut cfg = default_config();
-    let mut service = new_service("custom", &[]);
-    service["base_url"] = json!("http://x");
-    service["model"] = json!("m");
-    cfg.insert("default_service".into(), service["id"].clone());
-    cfg.insert("services".into(), json!([service]));
+    let mut cfg = custom_cfg();
     cfg.insert("ui_language".into(), json!(current_language()));
     cfg
-}
-
-struct State {
-    win: SettingsWindow,
-    env: FakeEnv,
-    actions: Vec<SettingsAction>,
 }
 
 /// 以 `language` 開窗。
 fn harness(language: &str) -> Harness<'static, State> {
     i18n::set_language(language);
-    let state = State {
-        win: SettingsWindow::new(&configured_cfg()),
-        env: FakeEnv::default(),
-        actions: Vec::new(),
-    };
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(840.0, 660.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, "zh-TW"))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                let actions = s.win.ui(ui, &s.env);
-                s.actions.extend(actions);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
-}
-
-fn run<S>(h: &mut Harness<S>) {
-    h.run_steps(3);
-}
-
-fn click<S>(h: &mut Harness<S>, role: Role, label: &str) {
-    h.get_by_role_and_label(role, label).click();
-    run(h);
+    settings_harness(
+        &configured_cfg(),
+        FakeEnv::default(),
+        egui::vec2(840.0, 660.0),
+        "zh-TW",
+    )
 }
 
 /// 從介面語言下拉選 `code`。
 fn pick_language(h: &mut Harness<State>, code: &str) {
     click(h, Role::ComboBox, &tr("field.ui_language"));
     click(h, Role::Button, &language_name(code));
-}
-
-fn has_label<S>(h: &Harness<S>, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
 }
 
 fn saved(h: &Harness<State>) -> Option<Config> {

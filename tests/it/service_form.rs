@@ -4,8 +4,9 @@ use crate::common;
 
 use std::time::Duration;
 
+use common::kittest::{has_label, painted_texts, run, tr};
 use common::settings_env::FakeEnv;
-use eframe::egui::{self, Event, Shape, Ui};
+use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
@@ -29,10 +30,6 @@ struct State {
     env: FakeEnv,
     /// 每一輪 `ui` 的回報；egui 重排一幀時同一幀會跑兩次。
     responses: Vec<FormResponse>,
-}
-
-fn tr(key: &str) -> String {
-    t(key, &[])
 }
 
 fn form(service: Value, services: Vec<Value>) -> ServiceForm {
@@ -70,10 +67,6 @@ fn harness(form: ServiceForm) -> Harness<'static, State> {
         );
     h.run_steps(3);
     h
-}
-
-fn run(h: &mut Harness<State>) {
-    h.run_steps(3);
 }
 
 fn click(h: &mut Harness<State>, label: &str) {
@@ -129,22 +122,6 @@ fn step_reports(h: &mut Harness<State>, pick: fn(&FormResponse) -> bool) -> bool
 
 fn changed(r: &FormResponse) -> bool {
     r.changed
-}
-
-fn has_label(h: &Harness<State>, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
-}
-
-/// 畫面上所有文字字形。
-fn painted_texts(h: &Harness<State>) -> Vec<String> {
-    h.output()
-        .shapes
-        .iter()
-        .filter_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) => Some(shape.galley.text().to_owned()),
-            _ => None,
-        })
-        .collect()
 }
 
 fn button_enabled(h: &Harness<State>, label: &str) -> bool {

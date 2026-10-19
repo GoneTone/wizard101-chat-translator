@@ -4,23 +4,17 @@
 
 mod common;
 
-use std::sync::{Mutex, MutexGuard};
-
 use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
+use common::kittest::{click, has_label, tr};
+use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::wizard::*;
 use wizard101_chat_translator::config::{Config, bootstrap_language_with, default_config};
 use wizard101_chat_translator::i18n::{self, current_language, language_name};
 use wizard101_chat_translator::ui::settings::wizard::{Step, WizardAction};
-
-/// 全域介面語言同一時間只給一個測試用。
-fn language_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// 以 `language` 開精靈；`cfg` 在設好語言之後才建，服務的自動名稱才是這個語言的。
 fn open(language: &str, cfg: impl FnOnce() -> Config) -> WizardHarness {

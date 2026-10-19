@@ -9,10 +9,10 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
+use super::kittest::{click, run, tr};
 use super::settings_env::FakeEnv;
 use wizard101_chat_translator::config::services::new_service;
 use wizard101_chat_translator::config::{Config, default_config};
-use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
@@ -26,10 +26,6 @@ pub struct State {
 }
 
 pub type WizardHarness = Harness<'static, State>;
-
-pub fn tr(key: &str) -> String {
-    t(key, &[])
-}
 
 /// 以目前的介面語言開精靈（呼叫端先設好語言）。
 pub fn harness(cfg: Config) -> WizardHarness {
@@ -52,22 +48,6 @@ pub fn harness(cfg: Config) -> WizardHarness {
         );
     h.run_steps(3);
     h
-}
-
-pub fn run(h: &mut WizardHarness) {
-    h.run_steps(3);
-}
-
-/// 先捲到元件再點：內容區可能捲動。
-pub fn click(h: &mut WizardHarness, role: Role, label: &str) {
-    h.get_by_role_and_label(role, label).scroll_to_me();
-    run(h);
-    h.get_by_role_and_label(role, label).click();
-    run(h);
-}
-
-pub fn has_label(h: &WizardHarness, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
 }
 
 pub fn has(h: &WizardHarness, role: Role, label: &str) -> bool {

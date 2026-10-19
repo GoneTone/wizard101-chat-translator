@@ -7,7 +7,7 @@ mod common;
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, ViewportCommand, ViewportEvent, ViewportId, WindowLevel};
@@ -15,11 +15,14 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
+use common::kittest::{click, has_label, run, tr};
+use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
-use common::wizard::{configured_cfg as wizard_cfg, tr};
-use wizard101_chat_translator::config::services::{ServiceSpec, new_service};
-use wizard101_chat_translator::config::{Config, app_name, default_config};
+use common::settings_window::custom_cfg;
+use common::wizard::configured_cfg as wizard_cfg;
+use wizard101_chat_translator::config::services::ServiceSpec;
+use wizard101_chat_translator::config::{Config, app_name};
 use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::ui::app::{App, Inbox, channel};
@@ -31,12 +34,6 @@ use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::{
     SettingsHost, WindowOps, WizardHost, initial_size,
 };
-
-/// 全域介面語言同一時間只給一個測試用。
-fn language_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// 替身找到的設定視窗／精靈 HWND。
 const FAKE_HWND: isize = 0x5E77;
@@ -104,12 +101,7 @@ impl SettingsEnv for SharedEnv {
 
 /// 設定完整、透明度 0.5、訊息上限 50 的設定（與 overlay 目前的 0.8／200 不同）。
 fn settings_cfg() -> Config {
-    let mut cfg = default_config();
-    let mut service = new_service("custom", &[]);
-    service["base_url"] = json!("http://x");
-    service["model"] = json!("m");
-    cfg.insert("default_service".into(), service["id"].clone());
-    cfg.insert("services".into(), json!([service]));
+    let mut cfg = custom_cfg();
     cfg.insert("ui_language".into(), json!(current_language()));
     cfg.insert("overlay_alpha".into(), json!(0.5));
     cfg.insert("max_messages".into(), json!(50));
@@ -220,17 +212,6 @@ fn region_tooltip_shows(h: &mut Harness<'_, App>, hotkey: &str) -> bool {
     has_label(h, &t("tooltip.region", &[("hotkey", hotkey)]))
 }
 
-fn run(h: &mut Harness<'_, App>) {
-    h.run_steps(3);
-}
-
-fn click(h: &mut Harness<'_, App>, role: Role, label: &str) {
-    h.get_by_role_and_label(role, label).scroll_to_me();
-    run(h);
-    h.get_by_role_and_label(role, label).click();
-    run(h);
-}
-
 fn open_settings(h: &mut Harness<'_, App>) {
     h.step();
     h.get_by_label("⚙").click();
@@ -277,10 +258,6 @@ fn close_request(h: &mut Harness<'_, App>) {
         .or_default()
         .events
         .push(ViewportEvent::Close);
-}
-
-fn has_label(h: &Harness<'_, App>, label: &str) -> bool {
-    h.query_all_by_label(label).next().is_some()
 }
 
 #[test]

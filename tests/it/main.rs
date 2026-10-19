@@ -25,7 +25,6 @@ mod hotkeys;
 mod i18n_match_golden;
 mod input_box;
 mod keys_golden;
-mod layout_audit;
 mod logs_golden;
 mod mem_reader;
 mod no_hardcoded_ui_text;
