@@ -14,7 +14,7 @@ use eframe::egui::{
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
-use super::hotkeys::{HotkeyEditor, HotkeyKind};
+use super::hotkeys::HotkeyEditor;
 use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
@@ -95,8 +95,6 @@ pub struct SettingsWindow {
     errors: Vec<String>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
-    /// 下一幀要呼叫 `env.cancel_recording()`（收下錄製結果或換頁時手上沒有 env）。
-    release_recorder: bool,
 }
 
 impl SettingsWindow {
@@ -112,10 +110,7 @@ impl SettingsWindow {
             language_at_open: current_language(),
             alpha_at_open: alpha,
             target_language: text_setting(cfg, "target_language"),
-            hotkeys: HotkeyEditor::new(
-                &text_setting(cfg, HotkeyKind::Input.config_key()),
-                &text_setting(cfg, HotkeyKind::Region.config_key()),
-            ),
+            hotkeys: HotkeyEditor::from_config(cfg),
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
@@ -130,7 +125,6 @@ impl SettingsWindow {
             errors: Vec::new(),
             about: about::AboutState::default(),
             pending: Vec::new(),
-            release_recorder: false,
         }
     }
 
@@ -141,20 +135,14 @@ impl SettingsWindow {
     /// 切到 `page`；正在錄熱鍵就放棄錄製。
     pub fn set_page(&mut self, page: Page) {
         if page != self.page {
-            self.release_recorder |= self.hotkeys.stop();
+            self.hotkeys.stop();
             self.page = page;
         }
     }
 
     fn switch_page(&mut self, page: Page, env: &dyn SettingsEnv) {
         self.set_page(page);
-        self.release_recorder(env);
-    }
-
-    fn release_recorder(&mut self, env: &dyn SettingsEnv) {
-        if std::mem::take(&mut self.release_recorder) {
-            env.cancel_recording();
-        }
+        self.hotkeys.release(env);
     }
 
     /// 背景工作的結果：測試連線與模型清單轉給服務分頁，其餘由視窗自己收。
@@ -165,14 +153,14 @@ impl SettingsWindow {
             }
             SettingsEvent::UpdateChecked { round, result } => self.apply_update(*round, result),
             SettingsEvent::HotkeyRecorded { .. } => {
-                self.release_recorder |= self.hotkeys.apply(event);
+                self.hotkeys.apply(event);
             }
         }
     }
 
     /// 畫整個視窗內容；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
-        self.release_recorder(env);
+        self.hotkeys.release(env);
         let full = ui.available_rect_before_wrap();
         let (side, content) = full.split_left_right_at_x(full.left() + theme::SIDEBAR_WIDTH);
         ui.painter().rect_filled(side, 0, theme::SIDEBAR_BG);
@@ -190,8 +178,8 @@ impl SettingsWindow {
 
     /// 取消（〔取消〕、視窗 ✕ 或 Alt+F4）：停掉錄製，還原預覽中的透明度與介面語言，最後送 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         let mut actions = std::mem::take(&mut self.pending);
         if self.advanced.overlay_alpha != self.alpha_at_open {
             self.advanced.overlay_alpha = self.alpha_at_open;
@@ -224,14 +212,9 @@ impl SettingsWindow {
         }
         self.services.draft().write_into(&mut cfg);
         let target = pystr::strip(&self.target_language);
-        let (input, region) = (
-            self.hotkeys.value(HotkeyKind::Input),
-            self.hotkeys.value(HotkeyKind::Region),
-        );
+        self.hotkeys.write_into(&mut cfg);
         let values = [
             ("target_language", Value::from(target)),
-            (HotkeyKind::Input.config_key(), input.into()),
-            (HotkeyKind::Region.config_key(), region.into()),
             ("auto_show_input", self.auto_show_input.into()),
             ("paste_hotkey", self.paste_hotkey.into()),
             ("translate_system_messages", self.translate_system.into()),
@@ -240,7 +223,7 @@ impl SettingsWindow {
             cfg.insert(key.into(), value);
         }
         let mut errors = service_errors(&cfg);
-        if input == region {
+        if self.hotkeys.conflict() {
             errors.push("error.hotkeys_same".into());
         }
         if target.is_empty() {
@@ -261,8 +244,8 @@ impl SettingsWindow {
             self.errors = errors;
             return;
         }
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         self.pending.push(SettingsAction::Save(cfg));
     }
 

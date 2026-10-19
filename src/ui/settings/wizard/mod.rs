@@ -10,7 +10,7 @@ use eframe::egui::{
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
-use super::hotkeys::{HotkeyEditor, HotkeyKind};
+use super::hotkeys::HotkeyEditor;
 use super::service_draft::ServiceDraft;
 use super::service_form::ServiceForm;
 use super::service_list::pick_provider_over;
@@ -88,8 +88,6 @@ pub struct Wizard {
     hotkeys_blocked: bool,
     /// 提示剛出現，下一次畫的時候捲到它。
     reveal_callout: bool,
-    /// 下一幀要呼叫 `env.cancel_recording()`（`apply` 收下錄製結果時手上沒有 env）。
-    release_recorder: bool,
     icon: Option<TextureHandle>,
 }
 
@@ -102,14 +100,10 @@ impl Wizard {
             picking: false,
             skip_test: false,
             target_language: text_setting(&cfg, "target_language"),
-            hotkeys: HotkeyEditor::new(
-                &text_setting(&cfg, HotkeyKind::Input.config_key()),
-                &text_setting(&cfg, HotkeyKind::Region.config_key()),
-            ),
+            hotkeys: HotkeyEditor::from_config(&cfg),
             auto_show_input: flag_setting(&cfg, "auto_show_input"),
             hotkeys_blocked: false,
             reveal_callout: false,
-            release_recorder: false,
             icon: None,
             cfg,
         };
@@ -136,7 +130,7 @@ impl Wizard {
                 }
             }
             SettingsEvent::HotkeyRecorded { .. } => {
-                self.release_recorder |= self.hotkeys.apply(event);
+                self.hotkeys.apply(event);
             }
             SettingsEvent::UpdateChecked { .. } => {}
         }
@@ -144,15 +138,15 @@ impl Wizard {
 
     /// 取消（視窗 ✕ 或 Alt+F4）：停掉進行中的熱鍵錄製，回傳 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> WizardAction {
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         log(format!("[ui] wizard cancelled at step {:?}", self.step));
         WizardAction::Cancel
     }
 
     /// 畫整個精靈：上方步驟條、中間可捲動的內容、底部按鈕列；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Option<WizardAction> {
-        self.release_recorder(env);
+        self.hotkeys.release(env);
         let full = ui.available_rect_before_wrap();
         ui.painter().rect_filled(full, 0, theme::WINDOW_BG);
         let bar_bottom = (full.top() + STEPS_HEIGHT).min(full.bottom());
@@ -176,12 +170,6 @@ impl Wizard {
         self.show_picker(ui);
         ui.advance_cursor_after_rect(full);
         action
-    }
-
-    fn release_recorder(&mut self, env: &dyn SettingsEnv) {
-        if std::mem::take(&mut self.release_recorder) {
-            env.cancel_recording();
-        }
     }
 
     /// 以 `cfg` 裡 `id` 那一筆服務建表單；命名去重對照整份清單。
@@ -212,8 +200,9 @@ impl Wizard {
     }
 
     fn go_to(&mut self, step: Step, env: &dyn SettingsEnv) {
-        if self.step == Step::Prefs && self.hotkeys.stop() {
-            env.cancel_recording();
+        if self.step == Step::Prefs {
+            self.hotkeys.stop();
+            self.hotkeys.release(env);
         }
         log(format!("[ui] wizard step {:?} -> {step:?}", self.step));
         self.step = step;
@@ -289,32 +278,21 @@ impl Wizard {
         if !target.is_empty() {
             self.cfg.insert("target_language".into(), target.into());
         }
-        let values = [
-            (
-                HotkeyKind::Input.config_key(),
-                Value::from(self.hotkeys.value(HotkeyKind::Input)),
-            ),
-            ("auto_show_input", self.auto_show_input.into()),
-            (
-                HotkeyKind::Region.config_key(),
-                self.hotkeys.value(HotkeyKind::Region).into(),
-            ),
-        ];
-        for (key, value) in values {
-            self.cfg.insert(key.into(), value);
-        }
+        self.hotkeys.write_into(&mut self.cfg);
+        self.cfg
+            .insert("auto_show_input".into(), self.auto_show_input.into());
     }
 
     fn finish(&mut self, env: &dyn SettingsEnv) -> Option<WizardAction> {
         // 與設定視窗同一條驗證：兩把熱鍵相同會一起觸發
-        if self.hotkeys.value(HotkeyKind::Input) == self.hotkeys.value(HotkeyKind::Region) {
+        if self.hotkeys.conflict() {
             log("[ui] wizard finish blocked: error.hotkeys_same");
             self.hotkeys_blocked = true;
             self.reveal_callout = true;
             return None;
         }
-        self.release_recorder |= self.hotkeys.stop();
-        self.release_recorder(env);
+        self.hotkeys.stop();
+        self.hotkeys.release(env);
         self.collect_into_cfg();
         self.cfg
             .insert("ui_language".into(), current_language().into());

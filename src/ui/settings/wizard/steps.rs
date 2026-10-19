@@ -13,7 +13,6 @@ use crate::logs::log;
 use crate::ui::overlay::frame::load_icon;
 use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::fields::editable_combo;
-use crate::ui::settings::hotkeys::HotkeyKind;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::{CardLayout, provider_cards};
 use crate::ui::settings::theme::{self, icon};
@@ -217,8 +216,7 @@ impl Wizard {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
         self.hotkeys.cards(ui, env, &mut self.auto_show_input);
-        let same = self.hotkeys.value(HotkeyKind::Input) == self.hotkeys.value(HotkeyKind::Region);
-        self.hotkeys_blocked &= same;
+        self.hotkeys_blocked &= self.hotkeys.conflict();
         if self.hotkeys_blocked {
             let lines = [t("error.hotkeys_same", &[])];
             let shown = ui.scope(|ui| callout(ui, &t("dialog.incomplete_title", &[]), &lines));
