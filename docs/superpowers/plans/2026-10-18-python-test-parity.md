@@ -147,7 +147,7 @@
 - `test_language_names_are_unique` → `tests/i18n_golden.rs::language_names_are_unique`
 - `test_a_new_language_file_needs_no_code_change` → 不移植：Rust 的語言檔以 `include_str!` 編進 exe（規格「單一 exe 與資源」節），新增語言要在 `CATALOG_SOURCES` 加一行，也沒有執行期替換語言檔目錄的機制；「選單只看語言檔內容」的部分由 `offered_languages` 的三則測試覆蓋
 - `test_same_language_different_scripts_are_told_apart` → `tests/i18n_golden.rs::best_match_matches_python`
-- `test_regional_variants_are_told_apart` → 不移植：已知缺口，不是規格豁免：Rust 的 `best_match` 對同語言的多個語言檔取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）；目前每個語言只有一份語言檔（en-US、zh-CN、zh-TW），所以不影響結果，後續處理見 `2026-10-17-rust-rewrite-followups.md` 的「第 5 段」
+- `test_regional_variants_are_told_apart` → `tests/it/i18n_match_golden.rs::closest_regional_catalog_matches_python`（fixture 的產生方式見文末附錄）
 - `test_a_language_without_an_endonym_is_not_offered` → `src/i18n/mod.rs::a_language_without_an_endonym_is_not_offered`
 - `test_a_barely_translated_language_is_not_offered` → `src/i18n/mod.rs::a_barely_translated_language_is_not_offered`
 - `test_the_source_and_default_languages_are_always_offered` → `src/i18n/mod.rs::the_source_and_default_languages_are_always_offered`
@@ -1665,3 +1665,59 @@ stub 的暫存器還原、SSO／堆積字串複製、截斷與環繞寫入原本
 - `test_completing_the_fields_after_an_early_skip_recomputes_the_nav` → `tests/wizard.rs::completing_the_fields_after_an_early_skip_recomputes_the_nav`
 - `test_the_skip_test_link_is_keyboard_activatable` → `tests/wizard.rs::the_skip_test_link_is_keyboard_activatable`
 - `test_the_wizard_takes_the_foreground_when_shown` → `tests/settings_host.rs::the_wizard_takes_the_foreground_when_shown`
+
+## 附錄：`tests/golden/i18n_closest_match.json` 的產生方式
+
+Python 版與 `tools/golden/export.py` 已在第 5 段刪除，這份 fixture 是之後補的，產生腳本記在這裡、不放回 repo。版本照 `old-python` 分支 `uv.lock` 鎖定的 langcodes 3.5.1，比對呼叫與 Python 版 `best_match` 相同（`closest_match` 預設 `max_distance=25`、`und` 換下一個標籤、解析失敗略過、全部落空退 `en-US`），只是語言檔清單改由參數帶入。涵蓋現行選單、全部語言檔、全部語言檔加上假想的地區語言檔（es-MX、es-419、en-GB、fr-CA、zh-HK），以及各組地區語言檔正反兩種順序（驗證同距離取先出現者）。
+
+```python
+# uv run --no-project --with langcodes==3.5.1 python -I gen.py <repo>/src/i18n > i18n_closest_match.json
+import json, sys
+from pathlib import Path
+from langcodes import LanguageTagError, closest_match
+
+def best_match(tags, codes):  # old-python 的 src/i18n best_match，語言檔清單改由參數帶入
+    for tag in tags:
+        try:
+            code, _ = closest_match(tag, codes)
+        except LanguageTagError:
+            continue
+        if code != "und":
+            return code
+    return "en-US"
+
+catalogs = sorted(p.stem for p in Path(sys.argv[1]).glob("*.json"))
+variants = ["es-MX", "es-419", "en-GB", "fr-CA", "zh-HK"]
+offered = [
+    ["en-US", "zh-CN", "zh-TW"],
+    catalogs,
+    sorted(catalogs + variants),
+    ["pt-BR", "pt-PT"], ["pt-PT", "pt-BR"],
+    ["es-ES", "es-MX"], ["es-MX", "es-ES"], ["es-ES", "es-MX", "es-419"], ["es-419", "es-ES"],
+    ["en-US", "en-GB"], ["en-GB", "en-US"],
+    ["fr-FR", "fr-CA"], ["fr-CA", "fr-FR"],
+    ["zh-CN", "zh-TW", "zh-HK"], ["zh-HK", "zh-TW", "zh-CN"],
+]
+singles = catalogs + variants + """
+pt pt-MZ pt-AO pt-CH pt-US pt-CV pt-GW pt-ST pt-TL pt-MO pt-LU pt-GQ pt-Latn pt-Latn-BR pt-Latn-MZ pt-XX
+es es-AR es-US es-419 es-GQ es-CO es-PR es-PH es-CU es-BZ es-QQ es-Latn-MX es-Latn-ES
+en en-AU en-IN en-CA en-PR en-GB en-001 en-150 en-IE en-NZ en-ZA en-VI en-GU en-UM en-JM en-HK en-SG en-ZZ en-Latn-GB EN-us en_US
+fr fr-BE fr-CA fr-CH fr-LU fr-HT fr-GF fr-PM fr-MA fr-SN fr-Latn-CA
+zh zh-HK zh-MO zh-SG zh-MY zh-Hant zh-Hans zh-Hant-HK zh-Hant-MO zh-Hant-TW zh-Hans-HK zh-Hant-CN zh-Hans-TW zh-Hant-SG zh-Hant-XX
+zh-CHT zh_TW zh-tw ZH-hk zh-yue yue yue-HK yue-Hans-CN wuu cmn-Hans-CN cmn-Hant-TW zh-cmn-Hant zh-Latn zh-Hani
+de-AT de-CH gsw-CH lb-LU it-CH nl-BE af fy-NL
+sr sr-Latn sr-Cyrl sr-Latn-RS sr-Cyrl-RS sr-Latn-ME sr-Latn-BA sr-SP sr-Latn-SP bs-Latn-BA hr-HR sh
+no nb nn nb-NO nn-NO da
+ca ca-ES-valencia gl-ES eu-ES be-BY kk-KZ uk ru-UA
+ar ar-MA ar-EG ar-DZ ar-Latn he iw iw-IL in-ID id-ID ms-MY tl-PH fil-PH mo
+ja-Latn ja-Hira ko-Hang ko-KP
+und xx-XX x- i-klingon""".split()
+multis = [["xx-XX", "pt-MZ", "en-US"], ["ja-JP", "pt-AO"], ["fr-CH", "en-AU"], ["", "es-AR"], [], [""], ["xx-XX", "yy-YY"]]
+seen, tags = set(), []
+for t in singles:
+    if t not in seen:
+        seen.add(t); tags.append([t])
+tags += multis
+cases = [{"input": {"offered": o, "tags": tags}, "output": [best_match(t, o) for t in tags]} for o in offered]
+print(json.dumps(cases, ensure_ascii=False, indent=1))
+```

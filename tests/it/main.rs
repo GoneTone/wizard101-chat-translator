@@ -22,6 +22,7 @@ mod geometry_golden;
 mod hooks_golden;
 mod hotkey_recorder;
 mod hotkeys;
+mod i18n_match_golden;
 mod input_box;
 mod keys_golden;
 mod layout_audit;

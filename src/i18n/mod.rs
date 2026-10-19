@@ -10,6 +10,8 @@ use serde::de::{Deserializer, MapAccess, Visitor};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 
+mod closest;
+
 const META_NAME: &str = "language.name";
 const META_TRANSLATORS: &str = "language.translators";
 /// 文案來源語言：缺字串時的最後一層退路。
@@ -305,42 +307,27 @@ pub(crate) fn chinese_is_traditional(tag: &str) -> Option<bool> {
     })
 }
 
-fn match_tag(tag: &str, codes: &[String]) -> Option<String> {
-    if let Some(traditional) = chinese_is_traditional(tag) {
-        let region = if traditional { "-TW" } else { "-CN" };
-        return codes
-            .iter()
-            .find(|c| c.starts_with("zh") && c.ends_with(region))
-            .cloned();
-    }
-    let lower = tag.to_ascii_lowercase().replace('_', "-");
-    let lang = lower.split('-').next().unwrap_or("");
-    codes
-        .iter()
-        .find(|c| {
-            c.split('-')
-                .next()
-                .is_some_and(|l| l.eq_ignore_ascii_case(lang))
-        })
-        .cloned()
-}
-
 /// 偏好語言標籤（依偏好排序）→ 最接近的介面語言碼，都不夠近則回預設語言。
-///
-/// 不移植 CLDR 距離資料：中文依字體系與地區、其餘依主語言比對。
 pub fn best_match(tags: &[String]) -> String {
     let codes: Vec<String> = available_languages().into_iter().map(|(c, _)| c).collect();
+    best_match_among(tags, &codes)
+}
+
+/// 同 [`best_match`]，但只在 `codes` 裡挑（依 CLDR 語言距離，見 `closest` 模組）。
+pub fn best_match_among(tags: &[String], codes: &[String]) -> String {
     for tag in tags {
-        if tag.is_empty() {
-            log(format!("[i18n] unparsable language tag: {}", repr_str(tag)));
-            continue;
-        }
-        match match_tag(tag, &codes) {
-            Some(code) => {
-                log(format!("[i18n] language tag matched: {tag} -> {code}"));
-                return code;
+        match closest::closest_match(tag, codes) {
+            Ok(Some((code, distance))) => {
+                log(format!(
+                    "[i18n] language tag matched: {tag} -> {code} distance={distance}"
+                ));
+                return code.to_string();
             }
-            None => log(format!("[i18n] no catalog close enough: {tag}")),
+            Ok(None) => log(format!("[i18n] no catalog close enough: {tag}")),
+            Err(error) => log(format!(
+                "[i18n] unparsable language tag: {} error={error}",
+                repr_str(tag)
+            )),
         }
     }
     DEFAULT_LANGUAGE.to_string()
@@ -396,17 +383,6 @@ pub fn detect_system_language() -> String {
 mod tests {
     use super::*;
     use std::path::Path;
-
-    #[test]
-    fn offered_languages_are_the_ones_match_tag_was_checked_against() {
-        let codes: Vec<String> = available_languages().into_iter().map(|(c, _)| c).collect();
-        assert_eq!(
-            codes,
-            ["en-US", "zh-CN", "zh-TW"],
-            "a new language entered the menu: add best_match cases (nb/nn, iw, pt regions, sr-Latn) \
-             to the golden fixtures and compare against langcodes before accepting it"
-        );
-    }
 
     #[test]
     fn every_embedded_catalog_parses_without_duplicates() {

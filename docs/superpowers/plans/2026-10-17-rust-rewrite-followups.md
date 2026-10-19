@@ -67,10 +67,10 @@
   - 加 `rust-toolchain.toml` 釘在當時使用的版本，本機與 CI 一致，新版 clippy 規則不會讓 `-D warnings` 無預警失敗。
   - `Cargo.toml` 加 `rust-version`（程式用到 let chains，至少 1.88）。
   - CI 改讀 toolchain 檔，不再固定抓 stable。
-- **`best_match` 對同語言多地區的語言檔沒有區分**（Python 對照稽核發現的已知缺口）：
-  - 現況：同語言有多份語言檔時，Rust 取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）。
-  - 觸發條件：同一語言的第二份地區語言檔（例如 pt-BR 與 pt-PT）達到覆蓋率門檻、進入語言選單。目前每個語言只有一份，沒有影響。
-  - 處理方向：同語言內改依地區取最接近者，例如用 CLDR 的 parent locales 資料；並補 golden 案例。
+- **已處理**（`fix(i18n): pick the closest regional catalog like the Python version`）：**`best_match` 對同語言多地區的語言檔沒有區分**（Python 對照稽核發現的已知缺口）：
+  - 原況：同語言有多份語言檔時，Rust 取第一個，Python 以 CLDR 取地區最接近者（pt-MZ 在 Python 得 pt-PT、在 Rust 得 pt-BR）。
+  - 做法：`src/i18n/closest.rs` 移植 langcodes 3.5.1 的 `closest_match` 距離規則（語言距離表、Maghreb／美國屬地／港澳／拉丁美洲／美洲地區群），likely subtags 與別名交給 ICU4X 的 `icu_locale`；不分語言、不寫死 pt。
+  - 驗證：`tests/golden/i18n_closest_match.json`（現行選單、全部語言檔、加上假想的 es-MX／es-419／en-GB／fr-CA／zh-HK 等地區語言檔）逐筆與 langcodes 相同，產生方式見 `2026-10-18-python-test-parity.md` 附錄。
 
 ## 合併前清掉的小問題（第 1 段審查列為可延後）
 
@@ -78,7 +78,7 @@
 
 - **log 文字與 Python 的細節差異**：截斷樣本、語言標籤、視窗標題改用 Python `repr` 的引號寫法，`follow` 印成 `True`／`False`；`null` 與 `None` 的寫法原本就已對齊。其餘差異是 Python 才有的東西（Tk 的 `region_h`、例外類別名稱），照 spec「log 不逐字相同」保留。
 - **測試覆蓋缺口**：exporter 的 exit 2（Python 端新增測試，`tools/` 在搬到根目錄時會一起刪掉）、`TimestampedWriter` 的邊界、3xx `/v1/models`、黏底時最後一則譯文長高、廣播訊息 msg_id 跨分頁更新、分頁列未選取的顏色、整張 palette 的顏色都補了測試；左緣縮放帶的拖曳早已有 `left_edge_resizes_and_keeps_right_edge`。
-- **語言比對**：新增 `offered_languages_are_the_ones_match_tag_was_checked_against`，語言選單多出第四種語言就會失敗，提醒補 nb／nn、iw、pt 地區、sr-Latn 的案例；距離比對本身見「第 5 段」的 `best_match` 一項。
+- **語言比對**：新增 `offered_languages_are_the_ones_match_tag_was_checked_against`，語言選單多出第四種語言就會失敗，提醒補 nb／nn、iw、pt 地區、sr-Latn 的案例；距離比對本身見「第 5 段」的 `best_match` 一項（距離比對完成後，這則測試已由涵蓋全部語言檔的 `i18n_closest_match` golden 取代並刪除）。
 - **其他**：泡泡未讀數改用粗體（`FontFamily::Name("bold")`）；`config::save_config` 改成先寫暫存檔再改名，寫到一半當機不會毀掉設定。
 
 保留：
