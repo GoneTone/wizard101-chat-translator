@@ -13,6 +13,7 @@ use regex::{Captures, Regex};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
+use crate::util::lock;
 
 /// 發送者前綴 `[名稱]`（名稱 1–40 字、不含 `]`）的正規表示式片段；玩家行判定與譯文後處理共用同一條。
 pub const SENDER_PREFIX: &str = r"\[[^\]]{1,40}\]";
@@ -58,10 +59,7 @@ pub struct ChatLine {
 
 /// 清掉「已警告過的未知圖示」：重新連上（遊戲可能已改版）後要能再警告一次。
 pub fn forget_warned_icons() {
-    WARNED_ICONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    lock(&WARNED_ICONS).clear();
 }
 
 fn emote_to_text(caps: &Captures) -> String {
@@ -150,10 +148,7 @@ fn warn_unknown_icon(raw: &str) {
     if !VALID.is_match(&clean(raw)) {
         return;
     }
-    let newly_seen = WARNED_ICONS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(icon.to_owned());
+    let newly_seen = lock(&WARNED_ICONS).insert(icon.to_owned());
     if newly_seen {
         let head: String = raw.chars().take(160).collect();
         log(format!(

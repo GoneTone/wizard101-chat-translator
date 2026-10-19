@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
+
+use crate::util::lock;
 use std::time::{Duration, Instant};
 
 use super::log;
@@ -78,11 +80,7 @@ impl ::log::Log for LibraryLogs {
             record.level(),
             record.args()
         );
-        let admitted = self
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .admit(&line, Instant::now());
+        let admitted = lock(&self.0).admit(&line, Instant::now());
         if let Some(line) = admitted {
             log(line);
         }

@@ -18,7 +18,7 @@ use super::translator::Translator;
 use crate::config::{local_state_dir, py};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
-use crate::util::write_atomic;
+use crate::util::{lock, write_atomic};
 
 /// 系統訊息的句型與材料名是有限集合，2000 筆足以涵蓋。
 pub const MAX_ENTRIES: usize = 2000;
@@ -123,7 +123,7 @@ impl TranslationCache {
     }
 
     fn lock(&self) -> MutexGuard<'_, Inner> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.inner)
     }
 
     /// 目前生效的指紋；翻譯開始前先取一份，寫回時交給 `put` 比對。

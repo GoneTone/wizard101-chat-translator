@@ -32,6 +32,7 @@ use crate::config::ServiceSpec;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
+use crate::util::{lock, read, write};
 
 /// 測試連線用的固定原文。
 pub const TEST_SAMPLE: &str = "[Tester] Hello! How are you?";
@@ -119,7 +120,7 @@ impl Translator {
     }
 
     fn binding(&self) -> Arc<Binding> {
-        Arc::clone(&self.binding.read().unwrap_or_else(|e| e.into_inner()))
+        Arc::clone(&read(&self.binding))
     }
 
     /// 設定變更後就地重建後端，回傳是否重建；範例屬於舊設定，不帶過去。
@@ -127,7 +128,7 @@ impl Translator {
     /// 值與目前生效的相同時整個跳過：重建會丟掉端點學到的參數限制（見 OpenAI 相容 client），
     /// 得重新付一輪 400 才學回來。飛行中的請求持有舊快照，照樣用舊後端跑完。
     pub fn reconfigure(&self, spec: ServiceSpec, target_language: String) -> bool {
-        let mut binding = self.binding.write().unwrap_or_else(|e| e.into_inner());
+        let mut binding = write(&self.binding);
         if same_service(&spec, &binding.spec) && target_language == binding.target_language {
             return false;
         }
@@ -158,7 +159,7 @@ impl Translator {
 
     /// 套用範例；指紋與目前設定不符（生成期間設定被改了）就不套用並回 `false`。
     pub fn set_examples(&self, examples: Option<ExampleSet>, fingerprint: &str) -> bool {
-        let mut binding = self.binding.write().unwrap_or_else(|e| e.into_inner());
+        let mut binding = write(&self.binding);
         if fingerprint != binding.fingerprint() {
             log(format!(
                 "[translate] ignoring examples for a stale fingerprint: {fingerprint}"
@@ -492,9 +493,7 @@ pub async fn generate_and_store(
     let fingerprint = tr.examples_fingerprint();
     // 每個鍵留一個空鎖不清：鍵數只隨本次執行換過的設定成長
     let slot = Arc::clone(
-        GENERATING
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        lock(&GENERATING)
             .entry((store.path().to_path_buf(), fingerprint.clone()))
             .or_default(),
     );
@@ -613,7 +612,7 @@ impl ExampleCoordinator {
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, CoordinatorState> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.state)
     }
 
     /// 讓 translator 取得目前指紋的範例：命中快取就套用，否則背景生成（同指紋只生成一次）。

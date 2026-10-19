@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 
+use crate::util::lock;
+
 use reqwest::header::{AUTHORIZATION, HeaderMap};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -95,7 +97,7 @@ impl OpenAiCompatClient {
         max_tokens: u32,
         deterministic: bool,
     ) -> Value {
-        let learned = self.learned.lock().unwrap_or_else(|e| e.into_inner());
+        let learned = lock(&self.learned);
         let mut messages = vec![json!({"role": "system", "content": system})];
         messages.extend(
             turns
@@ -133,7 +135,7 @@ impl OpenAiCompatClient {
 
     /// 記住端點拒絕的參數，回傳下一次請求是否還有變化可試（長度上限兩個名字都被拒就沒招了）。
     fn learn_rejection(&self, param: &str) -> bool {
-        let mut learned = self.learned.lock().unwrap_or_else(|e| e.into_inner());
+        let mut learned = lock(&self.learned);
         if let Some(other) = other_token_param(param) {
             learned.rejected_token_params.insert(param.to_owned());
             if learned.rejected_token_params.contains(other) {

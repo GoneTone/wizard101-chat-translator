@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::translation::pool::{ErrorState, TranslationPool};
 use crate::ui::events::{UiEvent, UiPoster};
+use crate::util::lock;
 
 /// 橫幅：（文案 key，format 參數）。
 pub type Banner = (&'static str, Vec<(&'static str, String)>);
@@ -174,7 +175,7 @@ impl StatusBoard {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Board> {
-        self.board.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.board)
     }
 
     // 持鎖投遞：多條收訊執行緒同時回報時，UI 收到的順序才與彙整結果的變化順序一致

@@ -20,7 +20,7 @@ use crate::translation::cache::TranslationCache;
 use crate::translation::context::ClientContexts;
 use crate::translation::pool::TranslationPool;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::util::Clock;
+use crate::util::{Clock, read};
 
 /// 收訊間隔：每輪只讀 hook 環形緩衝的計數器，很便宜。
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -240,13 +240,7 @@ impl<R: ChatSource> ClientLoop<R> {
     fn read(&mut self) -> Option<Vec<ChatEvent>> {
         let slot = self.slot;
         // 每輪重讀設定：設定視窗可能在執行中切換系統訊息開關
-        let emit = py::truthy(
-            self.s
-                .settings
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .get("translate_system_messages"),
-        );
+        let emit = py::truthy(read(&self.s.settings).get("translate_system_messages"));
         self.reader.set_emit_system(emit);
         self.report_activity();
         match self.reader.read_new() {

@@ -6,6 +6,8 @@
 
 use std::sync::{Mutex, MutexGuard};
 
+use crate::util::lock;
+
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
@@ -38,7 +40,7 @@ impl ConcurrencyGate {
     }
 
     fn slots(&self) -> MutexGuard<'_, Slots> {
-        self.slots.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.slots)
     }
 
     /// 目前已發出的額度數。

@@ -16,7 +16,7 @@ use super::BoxFuture;
 use super::errors::TranslateError;
 use super::gate::ConcurrencyGate;
 use crate::logs::log;
-use crate::util::panic_message;
+use crate::util::{lock, panic_message};
 
 /// 一次翻譯請求：`(line, context)` → 譯文。
 pub type TranslateFn = Arc<
@@ -165,7 +165,7 @@ impl Drop for TranslationPool {
 
 impl Inner {
     fn state(&self) -> MutexGuard<'_, State> {
-        self.state.lock().unwrap_or_else(|e| e.into_inner())
+        lock(&self.state)
     }
 
     /// 退避閘門還要多久才開；已開為 `None`。

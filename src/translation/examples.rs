@@ -13,7 +13,7 @@ use crate::config::{ServiceSpec, local_state_dir};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
-use crate::util::write_atomic;
+use crate::util::{lock, write_atomic};
 
 /// 範例內容（含 `GAME_LANGUAGE_EXAMPLES`）或生成提示詞有變時要遞增，讓舊快取作廢。
 pub const EXAMPLE_REVISION: u32 = 4;
@@ -364,7 +364,7 @@ impl ExampleStore {
         if examples.empty() {
             return;
         }
-        let _guard = STORE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = lock(&STORE_LOCK);
         let mut entries = self.read();
         entries.retain(|(fp, _)| fp != fingerprint);
         entries.push((fingerprint.to_string(), examples.clone()));

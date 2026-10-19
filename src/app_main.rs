@@ -147,7 +147,7 @@ pub fn build_translation(
     cache_path: PathBuf,
 ) -> Translation {
     let (incoming, outgoing, region, gate, fingerprint) = {
-        let cfg = settings.read().unwrap_or_else(|e| e.into_inner());
+        let cfg = read(settings);
         let target = Settings::from_config(&cfg);
         let make = |slot| Translator::new(resolve(&cfg, slot), target.target_language.clone());
         let incoming = make(ServiceSlot::Incoming);
@@ -174,7 +174,7 @@ pub fn build_translation(
         // 背景生成時在 tokio worker 上執行；rebind 自帶鎖，故不必繞回 UI 執行緒
         move |tr: &Translator| {
             if std::ptr::eq(tr, Arc::as_ptr(&incoming)) {
-                let cfg = settings.read().unwrap_or_else(|e| e.into_inner());
+                let cfg = read(&settings);
                 cache.rebind(&incoming_fingerprint(&cfg, tr.examples().as_ref()));
             }
         }
