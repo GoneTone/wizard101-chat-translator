@@ -561,10 +561,11 @@ mod tests {
         cfg.insert("type_delay".into(), serde_json::from_str("1e400").unwrap());
         cfg.insert("hotkey".into(), "f9".into());
         save_config(&path, &cfg).unwrap();
+        let loaded = load_config(&path);
+        assert_eq!(loaded["hotkey"], "f9", "file must not be discarded");
         assert_eq!(
-            load_config(&path)["hotkey"],
-            "f9",
-            "file must not be discarded"
+            loaded["type_delay"], 0.5,
+            "huge number is clamped, not reset"
         );
     }
 }

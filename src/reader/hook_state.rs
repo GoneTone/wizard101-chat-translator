@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::hooks::MODULE;
 use super::memory::ProcessMemory;
 use crate::logs::log;
+use crate::util::write_atomic;
 
 /// 一組依序寫回的還原操作（位址，原始 bytes）。
 pub type RestoreOps = Vec<(u64, Vec<u8>)>;
@@ -40,14 +41,13 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 
 /// 存還原操作與模組基址；`dir` 為 state 目錄（實機用 `config::local_state_dir()`）。
 pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io::Result<()> {
-    fs::create_dir_all(dir)?;
     let ops: Vec<Value> = ops
         .iter()
         .map(|(addr, b)| json!({ "addr": addr, "bytes": hex(b) }))
         .collect();
-    fs::write(
-        state_path(dir, pid),
-        json!({ "base": base, "ops": ops }).to_string(),
+    write_atomic(
+        &state_path(dir, pid),
+        &json!({ "base": base, "ops": ops }).to_string(),
     )
 }
 

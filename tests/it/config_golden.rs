@@ -90,7 +90,7 @@ fn load_matches_python() {
         );
         assert_eq!(
             after != raw,
-            expected["written"].is_string(),
+            expected["rewritten"].as_bool().unwrap(),
             "case {i}: {source}"
         );
         if after != raw {
@@ -152,7 +152,7 @@ fn save_then_load_roundtrips_every_written_case() {
     let path = dir.join("config.json");
     let mut checked = 0;
     for case in common::golden("config_load") {
-        if case["output"]["written"].is_null() {
+        if case["output"]["rewritten"].as_bool() == Some(false) {
             continue;
         }
         let cfg = as_config(&case["output"]["config"]);

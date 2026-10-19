@@ -1,7 +1,6 @@
 //! few-shot 範例集：請設定的模型把固定示範改寫成目標語言，驗證三條路徑並以指紋快取在磁碟。
 
 use std::fs;
-
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 
