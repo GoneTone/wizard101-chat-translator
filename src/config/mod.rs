@@ -440,8 +440,8 @@ mod tests {
 
     #[test]
     fn app_dir_in_debug_is_the_repo_root() {
-        assert!(app_dir().join("Cargo.toml").exists());
-        assert!(app_dir().join(".git").exists());
+        assert!(app_dir().join("Cargo.toml").is_file());
+        assert!(app_dir().join("src").is_dir());
         // 關於頁原樣顯示這個路徑：結尾的 ".." 看起來像被截斷
         assert!(
             !app_dir()
