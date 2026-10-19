@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use wizard101_chat_translator::input::dispatcher::{
     Dispatcher, KeyEvent, RawKey, SharedDispatcher,
 };
+use wizard101_chat_translator::input::keys::{event_name, hotkey_name};
 use wizard101_chat_translator::input::recorder::record_with;
 
 const CTRL: (i32, u32) = (29, 0xA2);
@@ -24,6 +25,15 @@ fn key(down: bool, (code, vk): (i32, u32)) -> KeyEvent {
             extended: false,
         }),
     }
+}
+
+/// 這顆鍵在目前鍵盤配置下的名稱；名稱隨配置而變，名稱表本身由 `keys_golden` 對照。
+fn name((code, vk): (i32, u32), mods: &[&str]) -> String {
+    event_name(code as u32, vk, false, mods).unwrap()
+}
+
+fn ctrl_space() -> String {
+    hotkey_name(&[name(CTRL, &[]), name(SPACE, &[])])
 }
 
 fn shared() -> SharedDispatcher {
@@ -62,7 +72,7 @@ fn records_ctrl_space_on_the_first_release() {
     process(&d, key(true, SPACE));
     assert!(out.lock().unwrap().is_empty());
     process(&d, key(false, SPACE));
-    assert_eq!(*out.lock().unwrap(), ["ctrl+space"]);
+    assert_eq!(*out.lock().unwrap(), [ctrl_space()]);
     process(&d, key(false, CTRL));
     process(&d, key(true, SPACE));
     process(&d, key(false, SPACE));
@@ -87,22 +97,18 @@ fn does_not_swallow_keys() {
 
 #[test]
 fn shift_changes_the_recorded_name_like_python() {
-    let expected = common::golden("keyboard_event_names")
-        .into_iter()
-        .find(|c| {
-            c["input"]["scan"] == 2 && c["input"]["modifiers"] == serde_json::json!(["shift"])
-        })
-        .expect("shift+1 case")["output"]
-        .as_str()
-        .unwrap()
-        .to_string();
+    let shifted = name(ONE, &["shift"]);
+    assert_ne!(shifted, name(ONE, &[]));
     let d = shared();
     let (out, done) = collector();
     let _recording = record(&d, done);
     process(&d, key(true, SHIFT));
     process(&d, key(true, ONE));
     process(&d, key(false, ONE));
-    assert_eq!(*out.lock().unwrap(), [format!("shift+{expected}")]);
+    assert_eq!(
+        *out.lock().unwrap(),
+        [hotkey_name(&[name(SHIFT, &[]), shifted])]
+    );
 }
 
 #[test]
@@ -130,7 +136,7 @@ fn a_release_of_a_key_pressed_before_recording_is_ignored() {
     process(&d, key(true, CTRL));
     process(&d, key(true, SPACE));
     process(&d, key(false, SPACE));
-    assert_eq!(*out.lock().unwrap(), ["ctrl+space"]);
+    assert_eq!(*out.lock().unwrap(), [ctrl_space()]);
 }
 
 #[test]
@@ -141,7 +147,7 @@ fn escape_pressed_while_recording_is_reported() {
     let _recording = record(&d, done);
     process(&d, key(true, ESC));
     process(&d, key(false, ESC));
-    assert_eq!(*out.lock().unwrap(), ["esc"]);
+    assert_eq!(*out.lock().unwrap(), [hotkey_name(&[name(ESC, &[])])]);
 }
 
 #[test]
@@ -176,7 +182,7 @@ fn a_key_without_a_name_is_logged_and_left_out_of_the_hotkey() {
     process(&d, key(true, CTRL));
     process(&d, key(true, nameless));
     process(&d, key(false, nameless));
-    assert_eq!(*out.lock().unwrap(), ["ctrl"]);
+    assert_eq!(*out.lock().unwrap(), [hotkey_name(&[name(CTRL, &[])])]);
     let log = common::log_capture::log_text();
     assert!(
         log.contains("[hotkey] key without a name ignored: code=510 vk=0xff"),
@@ -194,6 +200,8 @@ fn a_lit_lock_key_changes_the_recorded_name() {
         process(&d, key(false, A));
         std::mem::take(&mut *out.lock().unwrap())
     };
-    assert_eq!(name_with(no_locks), ["a"]);
-    assert_eq!(name_with(|| vec!["caps lock"]), ["A"]);
+    let (plain, caps) = (name(A, &[]), name(A, &["caps lock"]));
+    assert_ne!(plain, caps);
+    assert_eq!(name_with(no_locks), [plain]);
+    assert_eq!(name_with(|| vec!["caps lock"]), [caps]);
 }

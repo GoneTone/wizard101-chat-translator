@@ -4,8 +4,8 @@ use crate::common;
 
 use serde_json::{Value, json};
 use wizard101_chat_translator::input::keys::{
-    event_name, hotkey_name, is_modifier, key_codes_or_empty, key_to_scan_codes, parse_hotkey,
-    scan_code_to_vk,
+    event_name, hotkey_name, is_modifier, key_codes_or_empty, key_to_scan_codes, on_fixture_layout,
+    parse_hotkey, scan_code_to_vk,
 };
 
 fn or_error<T: serde::Serialize>(result: Result<T, String>) -> Value {
@@ -14,6 +14,9 @@ fn or_error<T: serde::Serialize>(result: Result<T, String>) -> Value {
 
 #[test]
 fn key_to_scan_codes_matches_python() {
+    if !on_fixture_layout("key_to_scan_codes_matches_python") {
+        return;
+    }
     let cases = common::golden("keyboard_names");
     assert!(cases.len() > 1000, "only {} cases", cases.len());
     for c in cases {
@@ -24,6 +27,9 @@ fn key_to_scan_codes_matches_python() {
 
 #[test]
 fn parse_hotkey_matches_python() {
+    if !on_fixture_layout("parse_hotkey_matches_python") {
+        return;
+    }
     for c in common::golden("keyboard_parse") {
         let hotkey = c["input"].as_str().unwrap();
         assert_eq!(or_error(parse_hotkey(hotkey)), c["output"], "{hotkey:?}");
@@ -32,6 +38,9 @@ fn parse_hotkey_matches_python() {
 
 #[test]
 fn is_modifier_matches_python() {
+    if !on_fixture_layout("is_modifier_matches_python") {
+        return;
+    }
     let cases = common::golden("keyboard_is_modifier");
     assert!(
         cases.iter().any(|c| c["output"] == true),
@@ -68,6 +77,9 @@ fn hotkey_name_matches_python() {
 
 #[test]
 fn event_name_matches_python() {
+    if !on_fixture_layout("event_name_matches_python") {
+        return;
+    }
     let cases = common::golden("keyboard_event_names");
     assert!(cases.len() >= 7, "only {} cases", cases.len());
     for c in cases {

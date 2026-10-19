@@ -318,12 +318,60 @@ fn until_nul(buffer: &[u16]) -> String {
     String::from_utf16_lossy(&buffer[..end])
 }
 
+/// 測試用：目前鍵盤配置是否與 fixture 相同；不同時印出略過 `test` 的原因並回 `false`。
+///
+/// 名稱表取自目前配置（GetKeyNameText、ToUnicode 等），換了配置名稱與 scan code 都會變。
+#[cfg(any(test, feature = "test-support"))]
+pub fn on_fixture_layout(test: &str) -> bool {
+    use windows_sys::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyboardLayoutNameW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::KL_NAMELENGTH;
+    // fixture 錄製時的配置檔：美式鍵盤，繁中、簡中等輸入法的預設配置也是它
+    const FIXTURE_LAYOUT_FILE: &str = "KBDUS.DLL";
+
+    let mut klid = [0u16; KL_NAMELENGTH as usize];
+    // SAFETY：緩衝區長度為 KL_NAMELENGTH。
+    unsafe { GetKeyboardLayoutNameW(klid.as_mut_ptr()) };
+    let klid = until_nul(&klid);
+    let key: Vec<u16> = format!(r"SYSTEM\CurrentControlSet\Control\Keyboard Layouts\{klid}")
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let value: Vec<u16> = "Layout File".encode_utf16().chain([0]).collect();
+    let mut file = [0u16; 64];
+    let mut size = std::mem::size_of_val(&file) as u32;
+    // SAFETY：字串皆以 NUL 結尾，size 是 file 的位元組數。
+    unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            file.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    let file = until_nul(&file);
+    if file.eq_ignore_ascii_case(FIXTURE_LAYOUT_FILE) {
+        return true;
+    }
+    eprintln!(
+        "[test] {test} skipped: key-name fixtures were recorded on {FIXTURE_LAYOUT_FILE}, \
+         active layout is {klid} ({file:?})"
+    );
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_name_table_has_no_name_python_does_not_know() {
+        if !on_fixture_layout("the_name_table_has_no_name_python_does_not_know") {
+            return;
+        }
         let python: std::collections::HashSet<String> =
             serde_json::from_str::<Vec<serde_json::Value>>(include_str!(
                 "../../tests/golden/keyboard_names.json"
