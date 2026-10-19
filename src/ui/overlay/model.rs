@@ -108,11 +108,6 @@ impl OverlayModel {
         self.client
     }
 
-    /// 是否處於縮小（泡泡）狀態。
-    pub fn minimized(&self) -> bool {
-        self.minimized
-    }
-
     /// 縮小期間累積的未讀訊息數。
     pub fn unread(&self) -> u32 {
         self.unread
@@ -247,11 +242,6 @@ impl OverlayModel {
     /// 顯示中的（客戶端, 分頁）的訊息；還沒有任何訊息進過那份清單時為 None。
     pub fn current_view(&self) -> Option<&View> {
         self.views.get(&self.current_key()?)
-    }
-
-    /// 沒有訊息可畫時，由呼叫端改畫狀態佔位字。
-    pub fn is_empty(&self) -> bool {
-        self.current_view().is_none_or(|v| v.messages.is_empty())
     }
 
     /// 顯示中客戶端的分頁列內容（編號與按鈕文字）與目前分頁；沒有狀態時為空。
@@ -500,7 +490,7 @@ mod tests {
         model.set_tabs(1, Some(state(1)));
         assert_eq!(texts(&model), [pair("new", "新")]); // 隱藏分頁也清
         model.prune(at(100));
-        assert!(model.is_empty());
+        assert!(texts(&model).is_empty());
 
         let mut forever = OverlayModel::new(10, 0);
         forever.add_message(1, &[0], "a", "甲", None, false, None, at(0));

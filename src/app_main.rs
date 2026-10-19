@@ -376,13 +376,13 @@ pub fn install_paste(
 
 /// 設定視窗按儲存：`new_cfg`（只含視窗管的鍵）併入共用設定、存檔、翻譯端跟上、兩把熱鍵重新註冊。
 ///
-/// 順序同 Python `apply_settings` 的前半；回傳實際生效的（輸入框熱鍵，框選熱鍵），框選停用時為 `None`。
+/// 順序同 Python `apply_settings` 的前半；回傳實際生效的框選熱鍵，框選停用時為 `None`。
 pub fn apply_settings(
     running: &mut Running,
     settings: &Arc<RwLock<Config>>,
     new_cfg: Config,
     ui: &UiPoster,
-) -> (String, Option<String>) {
+) -> Option<String> {
     // 只併入不取代：視窗開著時拖過的 overlay／泡泡位置不在 new_cfg 裡
     let cfg = {
         let mut cfg = write(settings);
@@ -411,13 +411,11 @@ pub fn apply_settings(
     }
     let cfg = read(settings);
     log(format!("[settings] applied; {}", config_summary(&cfg)));
-    let hotkey = cfg["hotkey"].as_str().unwrap_or_default().to_owned();
-    let region = running
+    running
         .hotkeys
         .1
         .as_ref()
-        .map(|_| cfg["region_hotkey"].as_str().unwrap_or_default().to_owned());
-    (hotkey, region)
+        .map(|_| cfg["region_hotkey"].as_str().unwrap_or_default().to_owned())
 }
 
 /// 攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。

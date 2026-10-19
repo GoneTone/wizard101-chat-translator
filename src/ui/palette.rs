@@ -23,6 +23,8 @@ pub const FG_TRANSLATED: Color32 = hex(0xf2f2f7);
 pub const DIM_FACTOR: f64 = 0.71;
 /// 佔位中的譯文。
 pub const FG_PENDING: Color32 = hex(0x9398a8);
+/// 提示與等待中的次要文字（輸入框提示、等待遊戲的狀態）。
+pub const FG_HINT: Color32 = hex(0x9a9aa8);
 /// 錯誤文字。
 pub const FG_ERROR: Color32 = hex(0xff5f5f);
 /// 更新橫幅的連結藍（深色底上要比設定視窗的連結亮一階）。

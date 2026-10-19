@@ -181,7 +181,7 @@ fn eframe_harness(
     (harness, poster, recorder)
 }
 
-/// 接上設定視窗的 App：`cfg` 是共用設定，`on_save` 記下收到的設定並回報生效的熱鍵。
+/// 接上設定視窗的 App：`cfg` 是共用設定，`on_save` 記下收到的設定。
 ///
 /// overlay 起始透明度是 `alpha`；`on_save` 回報的框選熱鍵是 `region`（`None`＝沒註冊）。
 fn settings_app_with(
@@ -195,14 +195,16 @@ fn settings_app_with(
     let (harness, poster, _recorder) = eframe_harness(move |ctx, inbox| {
         let mut host = SettingsHost::new(Box::new(SharedEnv(host_env)));
         host.set_window_ops(fake_ops());
-        App::new(ctx, inbox, Frame::new(alpha, None, |_, _, _, _| {})).with_settings(
+        let mut app = App::new(ctx, inbox, Frame::new(alpha, None, |_, _, _, _| {}));
+        app.set_settings(
             host,
             Arc::new(RwLock::new(cfg)),
             Box::new(move |cfg| {
                 sink.borrow_mut().push(cfg);
-                ("f8".into(), region.map(str::to_owned))
+                region.map(str::to_owned)
             }),
-        )
+        );
+        app
     });
     (harness, Wired { env, saved, poster })
 }

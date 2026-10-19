@@ -1340,7 +1340,7 @@ fn live(tag: &'static str) -> Live {
 
 impl Live {
     /// 合併後的完整設定，先把它的範例放上磁碟再套用。
-    fn apply(&mut self, partial: Config) -> (String, Option<String>) {
+    fn apply(&mut self, partial: Config) -> Option<String> {
         let mut merged = self.settings.read().unwrap().clone();
         merged.extend(partial.clone());
         seed(&self.store, &merged, &examples());
@@ -1380,12 +1380,12 @@ fn apply_settings_saves_rebinds_and_reregisters() {
 
     let mut services = l.settings.read().unwrap()["services"].clone();
     services[0]["model"] = json!("qwen3-2-apply_rebind");
-    let (hotkey, region) = l.apply(partial(&[
+    let region = l.apply(partial(&[
         ("hotkey", json!("ctrl+alt+k")),
         ("services", services),
     ]));
 
-    assert_eq!(hotkey, "ctrl+alt+k");
+    assert_eq!(l.settings.read().unwrap()["hotkey"], "ctrl+alt+k");
     assert_eq!(region.as_deref(), Some("ctrl+alt+r"));
     assert_eq!(l.handlers(), handlers);
     assert!(press(&l.d, &["ctrl", "alt", "j"]), "the old hotkey passes");
@@ -1426,8 +1426,8 @@ fn apply_settings_merges_the_partial_map_into_the_live_config() {
 fn region_hotkey_equal_to_the_input_hotkey_is_not_registered() {
     let mut l = live("apply_collide");
     let handlers = l.handlers();
-    let (hotkey, region) = l.apply(partial(&[("region_hotkey", json!("ctrl+alt+j"))]));
-    assert_eq!(hotkey, "ctrl+alt+j");
+    let region = l.apply(partial(&[("region_hotkey", json!("ctrl+alt+j"))]));
+    assert_eq!(l.settings.read().unwrap()["hotkey"], "ctrl+alt+j");
     assert_eq!(region, None);
     assert!(l.running.hotkeys.1.is_none());
     assert_eq!(l.handlers(), handlers - 1);

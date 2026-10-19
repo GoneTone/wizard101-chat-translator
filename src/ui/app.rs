@@ -53,8 +53,8 @@ pub fn channel() -> (UiPoster, Inbox) {
     (poster, Inbox { rx, ctx })
 }
 
-/// 設定視窗按儲存：收到視窗管的那些鍵（不是完整設定），回傳實際生效的輸入框與框選熱鍵。
-pub type OnSave = Box<dyn FnMut(Config) -> (String, Option<String>)>;
+/// 設定視窗按儲存：收到視窗管的那些鍵（不是完整設定），回傳實際生效的框選熱鍵（沒註冊為 `None`）。
+pub type OnSave = Box<dyn FnMut(Config) -> Option<String>>;
 /// 精靈完成後接上其餘功能並開始執行；收到完整設定。
 pub type OnStart = Box<dyn FnOnce(&mut App, Config)>;
 
@@ -147,17 +147,6 @@ impl App {
     }
 
     /// 接上翻譯輸入框與遊戲聊天框事件；`settings` 用來讀 `auto_show_input`。
-    pub fn with_input(
-        mut self,
-        input_box: InputBox,
-        events: GameInputEvents,
-        settings: Arc<RwLock<Config>>,
-    ) -> Self {
-        self.set_input(input_box, events, settings);
-        self
-    }
-
-    /// 同 [`Self::with_input`]，給建好之後才接線（精靈完成後）。
     pub fn set_input(
         &mut self,
         input_box: InputBox,
@@ -175,12 +164,6 @@ impl App {
     }
 
     /// 接上框選翻譯（熱鍵、⛶ 與辨識結果都交給它）；卡片背景不透明度跟著 overlay。
-    pub fn with_region(mut self, flow: RegionFlow) -> Self {
-        self.set_region(flow);
-        self
-    }
-
-    /// 同 [`Self::with_region`]，給建好之後才接線。
     pub fn set_region(&mut self, flow: RegionFlow) {
         self.region = Some(RegionHost::new(flow));
     }
@@ -198,16 +181,6 @@ impl App {
     }
 
     /// 泡泡位置：`saved`（設定裡的實體像素，未設為 None）縮小時沿用，拖曳放開時呼叫 `on_move`。
-    pub fn with_bubble_position(
-        mut self,
-        saved: (Option<i32>, Option<i32>),
-        on_move: impl FnMut(i32, i32) + 'static,
-    ) -> Self {
-        self.set_bubble_position(saved, on_move);
-        self
-    }
-
-    /// 同 [`Self::with_bubble_position`]，給建好之後才接線。
     pub fn set_bubble_position(
         &mut self,
         saved: (Option<i32>, Option<i32>),
@@ -220,28 +193,11 @@ impl App {
     /// 根視窗收到關閉要求（✕、Alt+F4、工作列）時、在 eframe 銷毀視窗之前呼叫 `on_close` 一次。
     ///
     /// 關閉流程在這裡跑，視窗就留到 reader 卸完 hook：期間重開的第二份還找得到它並喚起。
-    pub fn with_on_close(mut self, on_close: impl FnOnce() + 'static) -> Self {
-        self.set_on_close(on_close);
-        self
-    }
-
-    /// 同 [`Self::with_on_close`]，給建好之後才接線。
     pub fn set_on_close(&mut self, on_close: impl FnOnce() + 'static) {
         self.on_close = Some(Box::new(on_close));
     }
 
     /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定。
-    pub fn with_settings(
-        mut self,
-        host: SettingsHost,
-        settings: Arc<RwLock<Config>>,
-        on_save: OnSave,
-    ) -> Self {
-        self.set_settings(host, settings, on_save);
-        self
-    }
-
-    /// 同 [`Self::with_settings`]，給建好之後才接線。
     pub fn set_settings(
         &mut self,
         host: SettingsHost,
@@ -619,7 +575,7 @@ impl App {
                 let Some(wiring) = &mut self.settings else {
                     return;
                 };
-                let (_, region_hotkey) = (wiring.on_save)(cfg.clone());
+                let region_hotkey = (wiring.on_save)(cfg.clone());
                 self.apply_settings(ctx, &cfg, region_hotkey);
                 self.close_settings();
             }
@@ -804,10 +760,7 @@ mod tests {
             key: "error.offline",
             args: vec![("detail", "x".into())],
         });
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let app = harness.state();
         assert_eq!(app.status, Some("listening"));
@@ -821,10 +774,7 @@ mod tests {
     #[test]
     fn empty_queue_is_a_noop() {
         let (_poster, inbox) = channel();
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let app = harness.state();
         assert_eq!(app.status, None);
@@ -849,10 +799,7 @@ mod tests {
             translated: "t".into(),
             failed: false,
         });
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let view = harness.state().model.current_view().unwrap();
         assert_eq!(view.messages[0].translated, "t");
@@ -878,10 +825,7 @@ mod tests {
             pending: false,
             color: None,
         });
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let tab = harness.get_by_label("Main").rect();
         let row = harness.state().list.rows()[0].lines[0].0;
@@ -985,10 +929,7 @@ mod tests {
             pending: false,
             color: None,
         });
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let app = harness.state_mut();
         let messages = &app.model.current_view().unwrap().messages;
@@ -1016,10 +957,7 @@ mod tests {
             pending: false,
             color: None,
         });
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-        });
+        let mut harness = app_harness(inbox);
         harness.step();
         let app = harness.state_mut();
         let messages = &app.model.current_view().unwrap().messages;
@@ -1185,11 +1123,10 @@ mod tests {
         let (_poster, inbox) = channel();
         let closes = Rc::new(RefCell::new(0));
         let count = Rc::clone(&closes);
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-                .with_on_close(move || *count.borrow_mut() += 1)
-        });
+        let mut harness = app_harness(inbox);
+        harness
+            .state_mut()
+            .set_on_close(move || *count.borrow_mut() += 1);
         harness.state_mut().set_minimized(true);
         harness.step();
         // 泡泡就是根視窗：Alt+F4、工作列關閉與 ✕ 同一條路
@@ -1209,11 +1146,10 @@ mod tests {
         let (_poster, inbox) = channel();
         let closes = Rc::new(RefCell::new(0));
         let count = Rc::clone(&closes);
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-                .with_on_close(move || *count.borrow_mut() += 1)
-        });
+        let mut harness = app_harness(inbox);
+        harness
+            .state_mut()
+            .set_on_close(move || *count.borrow_mut() += 1);
         harness.step();
         assert_eq!(*closes.borrow(), 0);
         for _ in 0..2 {
@@ -1292,8 +1228,8 @@ mod tests {
             let frame = Frame::new(0.8, None, move |x, y, w, h| {
                 geometry.borrow_mut().push((x, y, w, h))
             });
-            let mut app = App::new(&cc.egui_ctx, inbox, frame)
-                .with_bubble_position(saved, move |x, y| moves.borrow_mut().push((x, y)));
+            let mut app = App::new(&cc.egui_ctx, inbox, frame);
+            app.set_bubble_position(saved, move |x, y| moves.borrow_mut().push((x, y)));
             app.shell = Box::new(shell);
             app
         });
@@ -1490,8 +1426,8 @@ mod tests {
         let ctx = egui::Context::default();
         let saved = Rc::new(RefCell::new(Vec::new()));
         let sink = Rc::clone(&saved);
-        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-            .with_bubble_position((None, None), move |x, y| sink.borrow_mut().push((x, y)));
+        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
+        app.set_bubble_position((None, None), move |x, y| sink.borrow_mut().push((x, y)));
         app.shell = Box::new(FakeShell {
             cursor: (0, 0),
             rect: OVERLAY,
@@ -1581,8 +1517,8 @@ mod tests {
                 || (640, 500),
             );
             let events = GameInputEvents::new(Arc::default(), || 0xA);
-            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-                .with_input(input, events, settings);
+            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
+            app.set_input(input, events, settings);
             app.set_input_desktop(Desktop {
                 force_foreground: |hwnd| {
                     RAISED.with(|r| r.borrow_mut().push(hwnd));
@@ -1711,8 +1647,8 @@ mod tests {
         let (flow, calls) = fakes::flow();
         let harness = Harness::new_eframe(move |cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
-            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-                .with_region(flow);
+            let mut app = App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
+            app.set_region(flow);
             app.set_region_desktop(Desktop {
                 force_foreground: |_| true,
                 work_area_at: |_, _| (0, 0, 1920, 1040),
@@ -1811,9 +1747,9 @@ mod tests {
         );
         let events = GameInputEvents::new(Arc::default(), || 0xA);
         let settings = Arc::new(RwLock::new(Config::new()));
-        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-            .with_input(input, events, settings)
-            .with_region(fakes::flow().0);
+        let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}));
+        app.set_input(input, events, settings);
+        app.set_region(fakes::flow().0);
         app.hwnd = 1;
         let set = |app: &mut App, role: usize, hwnd: isize| match role {
             0 => app.hwnd = hwnd,
