@@ -512,13 +512,35 @@ mod tests {
     }
 
     #[test]
-    fn interceptor_swallows_v_while_typing_is_in_progress() {
+    fn interceptor_swallows_v_press_but_not_release_while_typing() {
         let _g = serial();
         let (mut it, pastes) = interceptor(true);
         let _typing = TYPING.lock().unwrap();
         assert!(!it.handle(down(code("v")), &held(&[])));
-        assert!(!it.handle(up(code("v")), &held(&[])));
+        assert!(it.handle(up(code("v")), &held(&[])));
         assert_eq!(*pastes.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn v_released_during_typing_does_not_stay_pressed() {
+        use crate::input::dispatcher::Dispatcher;
+        let _g = serial();
+        let (it, _) = interceptor(true);
+        let mut d = Dispatcher::new();
+        d.add_blocking(Box::new(it));
+        let fired = Arc::new(Mutex::new(0));
+        let count = fired.clone();
+        d.add_passive(
+            vec![vec![vec![code("ctrl")]]],
+            Box::new(move || *count.lock().unwrap() += 1),
+        );
+        assert!(d.process(down(code("v"))));
+        let typing = TYPING.lock().unwrap();
+        assert!(d.process(up(code("v"))));
+        drop(typing);
+        assert!(!d.pressed().contains(&code("v")));
+        d.process(down(code("ctrl")));
+        assert_eq!(*fired.lock().unwrap(), 1);
     }
 
     #[test]
