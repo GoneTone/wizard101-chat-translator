@@ -1,12 +1,10 @@
-//! egui 應用程式外殼：overlay 是根 viewport、泡泡、翻譯輸入框與框選的視窗是 immediate viewport，每幀先取完 UI 事件再繪製。
+//! egui 應用程式外殼：overlay 是根 viewport（縮小時根視窗本身縮成泡泡），翻譯輸入框、框選與設定的視窗是 immediate viewport，每幀先取完 UI 事件再繪製。
 
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
-use eframe::egui::{
-    self, Color32, UiBuilder, ViewportBuilder, ViewportCommand, ViewportId, WindowLevel,
-};
+use eframe::egui::{self, Color32, UiBuilder, ViewportCommand, ViewportId, WindowLevel};
 
 use serde_json::Value;
 
@@ -21,7 +19,7 @@ use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
 use crate::ui::overlay::bubble::{Action, BUBBLE_SIZE, Bubble, bubble_alpha, initial_position};
-use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Win32Shell};
+use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Shell, Win32Shell, describe};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
 use crate::ui::overlay::selection::Selection;
@@ -31,7 +29,7 @@ use crate::ui::region_host::RegionHost;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
-use crate::ui::{fonts_egui, viewport, win32};
+use crate::ui::{fonts_egui, win32};
 use crate::util::read;
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
@@ -77,8 +75,12 @@ struct FirstRun {
 pub struct App {
     rx: Receiver<UiEvent>,
     hwnd: isize,
+    /// 根視窗的位置大小操作；測試換成假的。
+    shell: Box<dyn Shell>,
     frame: Frame,
     minimized: bool,
+    /// 縮成泡泡前的 overlay 矩形（實體像素）；展開後的下一幀擺回去才清掉。
+    overlay_rect: Option<Rect>,
     shown: bool,
     status: Option<&'static str>,
     banners: Banners,
@@ -108,8 +110,10 @@ impl App {
         Self {
             rx: inbox.rx,
             hwnd: 0,
+            shell: Box::new(Win32Shell(0)),
             frame,
             minimized: false,
+            overlay_rect: None,
             shown: true,
             status: None,
             banners: Banners::default(),
@@ -356,8 +360,6 @@ impl App {
         }
         self.overlay_level = level;
         ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::WindowLevel(level));
-        // 泡泡的層級跟著下一幀的 builder 走
-        ctx.request_repaint();
         log(format!(
             "[ui] overlay window level set to {level:?} (settings window open={open})"
         ));
@@ -368,7 +370,7 @@ impl App {
         self.hwnd
     }
 
-    /// 縮成泡泡（隱藏 overlay，訊息照常累積）或展開回 overlay；已在該狀態時不動。
+    /// 縮成泡泡（根視窗下一幀縮成泡泡大小、改畫泡泡，訊息照常累積）或展開回 overlay；已在該狀態時不動。
     pub fn set_minimized(&mut self, minimized: bool) {
         if self.minimized == minimized {
             return;
@@ -390,11 +392,19 @@ impl App {
         log(format!("[ui] {what} (messages={messages} follow={follow})"));
     }
 
-    /// 開出泡泡：起點記成這次執行期間的泡泡位置（不寫回設定），之後縮小都沿用，overlay 移動也不跟著跑。
-    fn open_bubble(&mut self, overlay: Rect, size: i32, monitors: &[Rect]) {
-        let (x, y) = initial_position(self.bubble_position, overlay, size, monitors);
+    /// 開出泡泡並回傳根視窗該縮成的泡泡矩形（實體像素）；`ppp` 是 overlay 目前的縮放。
+    ///
+    /// 起點記成這次執行期間的泡泡位置（不寫回設定），之後縮小都沿用，overlay 移動也不跟著跑。
+    fn open_bubble(&mut self, overlay: Rect, ppp: f32) -> Rect {
+        let px = |scale: f32| (BUBBLE_SIZE as f32 * scale).round() as i32;
+        let monitors = self.shell.monitors();
+        let (x, y) = initial_position(self.bubble_position, overlay, px(ppp), &monitors);
         self.bubble_position = (Some(x), Some(y));
-        self.bubble = Some(Bubble::new((x, y), Instant::now()));
+        let foreground = win32::foreground_window();
+        self.bubble = Some(Bubble::new(self.hwnd, foreground, Instant::now()));
+        // 混合 DPI 下泡泡所在的螢幕可能與 overlay 不同，邊長以那顆的縮放為準
+        let size = px(self.shell.scale_at(x, y));
+        (x, y, size, size)
     }
 
     fn apply(&mut self, ctx: &egui::Context, event: UiEvent) {
@@ -456,14 +466,13 @@ impl App {
         }
     }
 
-    /// 所有已知 viewport 的 HWND（overlay、泡泡、輸入框、選取畫面、框、卡片、設定視窗、精靈；0 不列）：找新視窗時一律略過。
+    /// 所有已知 viewport 的 HWND（overlay、輸入框、選取畫面、框、卡片、設定視窗、精靈；0 不列）：找新視窗時一律略過。
     fn viewport_hwnds(&self) -> Vec<isize> {
-        let bubble = self.bubble.as_ref().map_or(0, Bubble::hwnd);
         let input = self.input.as_ref().map_or(0, InputHost::hwnd);
         let region = self.region.as_ref().map_or([0; 3], RegionHost::hwnds);
         let settings = self.settings.as_ref().map_or(0, |s| s.host.hwnd());
         let wizard = self.first_run.as_ref().map_or(0, |w| w.host.hwnd());
-        [self.hwnd, bubble, input]
+        [self.hwnd, input]
             .into_iter()
             .chain(region)
             .chain([settings, wizard])
@@ -486,61 +495,49 @@ impl App {
             .show(ui, rect, &self.model, self.status, self.selection.span());
     }
 
-    /// 縮小期間每幀顯示泡泡、處理它的點擊／拖曳／關閉，並每 300ms 檢查一次是否該自動展開。
-    fn show_bubble(&mut self, ctx: &egui::Context) {
+    /// 縮小期間每幀在根視窗畫泡泡、處理它的點擊／拖曳，並每 300ms 檢查一次是否該自動展開；
+    /// 剛縮小的那一幀回傳根視窗要縮成的泡泡矩形。
+    fn show_bubble(&mut self, ui: &mut egui::Ui) -> Option<Rect> {
+        let ctx = ui.ctx().clone();
         let ppp = ctx.pixels_per_point();
-        if self.bubble.is_none() {
-            let size = (BUBBLE_SIZE as f32 * ppp).round() as i32;
-            self.open_bubble(win32::window_rect(self.hwnd), size, &win32::all_monitors());
-        }
-        let known = self.viewport_hwnds();
-        let Some(bubble) = self.bubble.as_mut() else {
-            return;
-        };
-        let size = BUBBLE_SIZE as f32;
-        let mut builder = ViewportBuilder::default()
-            .with_title(app_name())
-            .with_inner_size([size, size])
-            .with_decorations(false)
-            .with_transparent(true)
-            .with_resizable(false)
-            .with_window_level(self.overlay_level);
-        // 只是建立時的概略位置（混合 DPI 下會偏），找到 HWND 後再以實體像素擺正
-        if let Some((x, y)) = bubble.pending() {
-            builder = builder.with_position([x as f32 / ppp, y as f32 / ppp]);
-        }
-        let (hwnd, unread) = (bubble.hwnd(), self.model.unread());
-        let alpha = bubble_alpha(self.frame.alpha());
-        let mut before = if hwnd == 0 {
-            win32::thread_windows()
-        } else {
-            Vec::new()
-        };
-        let id = ViewportId::from_hash_of("bubble");
-        let Some(action) =
-            viewport::show_immediate(ctx, id, "bubble", builder, &mut before, |ui, _| {
-                bubble.show(ui, &mut Win32Shell(hwnd), unread, alpha)
-            })
-        else {
-            return;
-        };
-        if hwnd == 0 {
-            let found = win32::pick_new_window(&before, &win32::thread_windows(), &known, || {
-                win32::find_thread_window(&app_name(), &known)
-            });
-            if found != 0 {
-                win32::remove_system_frame(found);
+        let place = match self.bubble {
+            Some(_) => None,
+            None => {
+                // 展開後還沒擺回就又縮小時，視窗已是泡泡大小，要沿用記下的 overlay 矩形
+                let overlay = *self.overlay_rect.get_or_insert_with(|| self.shell.rect());
+                let bubble = self.open_bubble(overlay, ppp);
+                log(format!(
+                    "[ui] overlay window shrinking to the bubble: overlay={} bubble={}",
+                    describe(overlay),
+                    describe(bubble)
+                ));
+                Some(bubble)
             }
-            bubble.attach(found, win32::foreground_window());
-        }
+        };
+        let (unread, alpha) = (self.model.unread(), bubble_alpha(self.frame.alpha()));
+        let bubble = self.bubble.as_mut()?;
+        // 剛縮小的這一幀 egui 還以為視窗是 overlay 大小：照視窗實際的大小畫在左上角
+        let (_, _, w, h) = place.unwrap_or_else(|| self.shell.rect());
+        let area =
+            egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(w as f32, h as f32) / ppp);
+        let shell = self.shell.as_mut();
+        let action = ui
+            .scope_builder(UiBuilder::new().max_rect(area), |ui| {
+                bubble.show(ui, shell, unread, alpha)
+            })
+            .inner;
         let now = Instant::now();
-        let expand = bubble.watch(now, win32::foreground_window(), &Win32Shell(bubble.hwnd()));
+        let expand = bubble.watch(now, win32::foreground_window(), self.shell.as_ref());
         ctx.request_repaint_after(bubble.next_poll().saturating_duration_since(now));
         match action {
-            Some(action) => self.bubble_action(ctx, action),
+            Some(action) => self.bubble_action(action),
             None if expand => self.set_minimized(false),
             None => {}
         }
+        if !self.minimized {
+            ctx.request_repaint();
+        }
+        place
     }
 
     /// 首次設定模式（精靈開著，或已取消、等根視窗關閉）時根視窗藏著；完成時 `first_run` 才清掉。
@@ -616,7 +613,7 @@ impl App {
         }
     }
 
-    fn bubble_action(&mut self, ctx: &egui::Context, action: Action) {
+    fn bubble_action(&mut self, action: Action) {
         match action {
             Action::Expand => self.set_minimized(false),
             Action::Moved(x, y) => {
@@ -624,9 +621,34 @@ impl App {
                 self.bubble_position = (Some(x), Some(y));
                 (self.on_bubble_move)(x, y);
             }
-            // 與 ✕ 同一條路：關掉根 viewport
-            Action::Close => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
+    }
+
+    /// overlay 的外框（拖曳、縮放、標題列按鈕）與內容。
+    fn show_overlay(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        match self.frame.show(
+            ui,
+            self.shell.as_mut(),
+            &app_name(),
+            self.status,
+            &self.region_hotkey,
+        ) {
+            Some(Clicked::Region) => {
+                if let Some(host) = &mut self.region {
+                    host.start_from_button();
+                }
+            }
+            Some(Clicked::Settings) => self.open_settings(),
+            Some(Clicked::Minimize) => {
+                self.set_minimized(true);
+                ctx.request_repaint();
+            }
+            // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
+            Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
+            None => {}
+        }
+        self.content(ui);
     }
 }
 
@@ -654,9 +676,10 @@ impl eframe::App for App {
             self.hwnd = win32::hwnd_of(frame);
             if self.hwnd != 0 {
                 win32::remove_system_frame(self.hwnd);
+                self.shell = Box::new(Win32Shell(self.hwnd));
             }
         }
-        let visible = !self.minimized && !self.in_first_run();
+        let visible = !self.in_first_run();
         if self.shown != visible {
             self.shown = visible;
             ctx.send_viewport_cmd(ViewportCommand::Visible(self.shown));
@@ -666,29 +689,20 @@ impl eframe::App for App {
         if self.hwnd != 0 {
             win32::make_non_activating(self.hwnd);
         }
-        let mut shell = Win32Shell(self.hwnd);
-        match self.frame.show(
-            ui,
-            &mut shell,
-            &app_name(),
-            self.status,
-            &self.region_hotkey,
-        ) {
-            Some(Clicked::Region) => {
-                if let Some(host) = &mut self.region {
-                    host.start_from_button();
-                }
-            }
-            Some(Clicked::Settings) => self.open_settings(),
-            Some(Clicked::Minimize) => self.set_minimized(true),
-            // 與 Alt+F4、工作列關閉同一條路：關掉根 viewport
-            Some(Clicked::Close) => ctx.send_viewport_cmd(ViewportCommand::Close),
-            None => {}
-        }
-        self.content(ui);
-        if self.minimized {
-            self.show_bubble(&ctx);
-        }
+        let place = if self.minimized {
+            self.show_bubble(ui)
+        } else if let Some(rect) = self.overlay_rect.take() {
+            // 展開的這一幀不畫：egui 下一幀才拿到 overlay 的大小，現在畫內容會擠在泡泡大小裡排版
+            log(format!(
+                "[ui] overlay window restored from the bubble: {}",
+                describe(rect)
+            ));
+            ctx.request_repaint();
+            Some(rect)
+        } else {
+            self.show_overlay(ui);
+            None
+        };
         let known = self.viewport_hwnds();
         if let Some(host) = &mut self.input {
             host.show(&ctx, self.hwnd, &known);
@@ -700,6 +714,16 @@ impl eframe::App for App {
         }
         self.show_settings(&ctx);
         self.sync_overlay_level(&ctx);
+        // 放到最後才擺：視窗換了大小、畫面還是上一幀的空檔越短越不會閃
+        if let Some(rect) = place
+            && !self.shell.set_rect(rect)
+        {
+            log(format!(
+                "[ui] overlay window could not be placed: hwnd={:#x} rect={}",
+                self.hwnd,
+                describe(rect)
+            ));
+        }
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -718,6 +742,7 @@ mod tests {
     use crate::ui::input_box::OutgoingRequest;
     use crate::ui::overlay::banners::Release;
     use crate::ui::overlay::bubble::POLL_INTERVAL;
+    use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::overlay::message_list::ROW_PAD;
     use crate::ui::overlay::outlined::line_height;
     use crate::ui::region::selector::SelectorAction;
@@ -1010,7 +1035,7 @@ mod tests {
         let mut harness = app_harness(inbox);
         harness.step();
         harness.get_by_label("─").click();
-        harness.step();
+        harness.run_steps(2);
         assert!(harness.state().bubble.is_some());
         poster.post(message("m1"));
         poster.post(message("m2"));
@@ -1084,7 +1109,7 @@ mod tests {
         let mut harness = app_harness(inbox);
         harness.step();
         harness.get_by_label("─").click();
-        harness.step();
+        harness.run_steps(2);
         assert!(harness.state().bubble.is_some());
         for i in 200..204 {
             poster.post(long_message(i));
@@ -1112,12 +1137,18 @@ mod tests {
     }
 
     #[test]
-    fn bubble_close_takes_the_root_close_path() {
+    fn closing_the_bubble_runs_on_close() {
         let (_poster, inbox) = channel();
-        let mut harness = app_harness(inbox);
+        let closes = Rc::new(RefCell::new(0));
+        let count = Rc::clone(&closes);
+        let mut harness = Harness::new_eframe(|cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
+                .with_on_close(move || *count.borrow_mut() += 1)
+        });
         harness.state_mut().set_minimized(true);
         harness.step();
-        // kittest 把泡泡嵌在根 viewport 裡，關閉要求因此從根送進來
+        // 泡泡就是根視窗：Alt+F4、工作列關閉與 ✕ 同一條路
         harness
             .input_mut()
             .viewports
@@ -1126,8 +1157,7 @@ mod tests {
             .events
             .push(egui::ViewportEvent::Close);
         harness.step();
-        let commands = &harness.output().viewport_output[&ViewportId::ROOT].commands;
-        assert!(commands.contains(&ViewportCommand::Close), "{commands:?}");
+        assert_eq!(*closes.borrow(), 1);
     }
 
     #[test]
@@ -1155,35 +1185,170 @@ mod tests {
         assert_eq!(*closes.borrow(), 1);
     }
 
+    const OVERLAY: Rect = (100, 200, 640, 420);
+
+    /// 根視窗的替身：App 與測試共用同一份矩形與游標；`1` 是泡泡所在螢幕的縮放。
+    struct SharedShell(Rc<RefCell<FakeShell>>, f32);
+
+    impl Shell for SharedShell {
+        fn cursor(&self) -> (i32, i32) {
+            self.0.borrow().cursor
+        }
+        fn rect(&self) -> Rect {
+            self.0.borrow().rect
+        }
+        fn set_rect(&mut self, rect: Rect) -> bool {
+            self.0.borrow_mut().set_rect(rect)
+        }
+        fn monitors(&self) -> Vec<Rect> {
+            self.0.borrow().monitors()
+        }
+        fn scale_at(&self, _x: i32, _y: i32) -> f32 {
+            self.1
+        }
+    }
+
+    type Saved<T> = Rc<RefCell<Vec<T>>>;
+
+    /// 根視窗換成替身的 App 留給測試檢查的東西。
+    struct Root {
+        shell: Rc<RefCell<FakeShell>>,
+        /// overlay 拖曳／縮放放開時存下的幾何。
+        geometry: Saved<Rect>,
+        /// 泡泡拖曳放開時存下的位置。
+        moves: Saved<(i32, i32)>,
+    }
+
+    /// 根視窗擺在 [`OVERLAY`] 的 App；`saved` 是設定裡的泡泡位置，`scale` 是泡泡所在螢幕的縮放。
+    fn root_harness(
+        inbox: Inbox,
+        saved: (Option<i32>, Option<i32>),
+        scale: f32,
+    ) -> (Harness<'static, App>, Root) {
+        let fake = FakeShell {
+            cursor: (0, 0),
+            rect: OVERLAY,
+            ready: true,
+        };
+        let root = Root {
+            shell: Rc::new(RefCell::new(fake)),
+            geometry: Saved::default(),
+            moves: Saved::default(),
+        };
+        let shell = SharedShell(Rc::clone(&root.shell), scale);
+        let (geometry, moves) = (Rc::clone(&root.geometry), Rc::clone(&root.moves));
+        let mut harness = Harness::new_eframe(move |cc| {
+            fonts_egui::install(&cc.egui_ctx, "en-US");
+            let frame = Frame::new(0.8, None, move |x, y, w, h| {
+                geometry.borrow_mut().push((x, y, w, h))
+            });
+            let mut app = App::new(&cc.egui_ctx, inbox, frame)
+                .with_bubble_position(saved, move |x, y| moves.borrow_mut().push((x, y)));
+            app.shell = Box::new(shell);
+            app
+        });
+        harness.step();
+        (harness, root)
+    }
+
+    /// 在泡泡中央按下、游標（螢幕實體像素）移動 `by` 後放開。
+    fn press_bubble(harness: &mut Harness<App>, root: &Root, by: (i32, i32)) {
+        let at = egui::pos2(24.0, 24.0);
+        let (x, y, _, _) = root.shell.borrow().rect;
+        root.shell.borrow_mut().cursor = (x + 24, y + 24);
+        harness.hover_at(at);
+        harness.drag_at(at);
+        harness.step();
+        root.shell.borrow_mut().cursor = (x + 24 + by.0, y + 24 + by.1);
+        harness.step();
+        harness.drop_at(at);
+        harness.step();
+    }
+
+    fn painted_text(harness: &Harness<App>, text: &str) -> bool {
+        harness
+            .output()
+            .shapes
+            .iter()
+            .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == text))
+    }
+
+    #[test]
+    fn the_root_becomes_the_bubble_and_expanding_restores_the_overlay() {
+        let (poster, inbox) = channel();
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        harness.get_by_label("─").click();
+        harness.run_steps(2);
+        let top_right = (100 + 640 - 48, 200, 48, 48);
+        assert_eq!(root.shell.borrow().rect, top_right);
+        assert!(harness.query_by_label("─").is_none(), "title bar is gone");
+
+        poster.post(message("m1"));
+        poster.post(message("m2"));
+        harness.step();
+        assert!(painted_text(&harness, "2"), "unread badge");
+
+        press_bubble(&mut harness, &root, (0, 0));
+        assert!(!harness.state().minimized);
+        harness.step();
+        assert_eq!(root.shell.borrow().rect, OVERLAY);
+        harness.step();
+        harness.get_by_label("─");
+        assert!(root.geometry.borrow().is_empty());
+        assert!(root.moves.borrow().is_empty());
+    }
+
+    #[test]
+    fn dragging_the_bubble_moves_the_root_without_saving_overlay_geometry() {
+        let (_poster, inbox) = channel();
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        press_bubble(&mut harness, &root, (-300, 150));
+        assert_eq!(root.shell.borrow().rect, (392, 350, 48, 48));
+        assert_eq!(*root.moves.borrow(), [(392, 350)]);
+        assert!(harness.state().minimized);
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(2);
+        assert_eq!(root.shell.borrow().rect, OVERLAY);
+        assert!(root.geometry.borrow().is_empty(), "{:?}", root.geometry);
+    }
+
+    #[test]
+    fn the_bubble_takes_the_scale_of_its_own_monitor() {
+        let (_poster, inbox) = channel();
+        let (mut harness, root) = root_harness(inbox, (Some(1000), Some(30)), 1.5);
+        harness.state_mut().set_minimized(true);
+        harness.step();
+        assert_eq!(root.shell.borrow().rect, (1000, 30, 72, 72));
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(2);
+        assert_eq!(root.shell.borrow().rect, OVERLAY);
+    }
+
     #[test]
     fn bubble_move_is_saved_and_reused_on_next_minimize() {
         let (_poster, inbox) = channel();
-        let saved = Rc::new(RefCell::new(Vec::new()));
-        let sink = Rc::clone(&saved);
-        let mut harness = Harness::new_eframe(|cc| {
-            fonts_egui::install(&cc.egui_ctx, "en-US");
-            App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
-                .with_bubble_position((Some(-100_000), Some(10)), move |x, y| {
-                    sink.borrow_mut().push((x, y))
-                })
-        });
+        let (mut harness, root) = root_harness(inbox, (Some(-100_000), Some(10)), 1.0);
         harness.state_mut().set_minimized(true);
         harness.step();
-        let pending = harness.state().bubble.as_ref().unwrap().pending().unwrap();
+        let placed = root.shell.borrow().rect;
         assert!(
-            pending.0 > -100_000,
-            "saved offscreen position pulled back: {pending:?}"
+            placed.0 > -100_000,
+            "saved offscreen position pulled back: {placed:?}"
         );
-        let ctx = harness.ctx.clone();
         let app = harness.state_mut();
-        app.bubble_action(&ctx, Action::Moved(30, 40));
-        assert_eq!(*saved.borrow(), [(30, 40)]);
-        app.bubble_action(&ctx, Action::Expand);
+        app.bubble_action(Action::Moved(30, 40));
+        assert_eq!(*root.moves.borrow(), [(30, 40)]);
+        app.bubble_action(Action::Expand);
         assert!(!app.minimized);
+        // 展開後還沒擺回就又縮小：視窗仍是泡泡大小，不可當成 overlay 的矩形
         app.set_minimized(true);
         harness.step();
-        let bubble = harness.state().bubble.as_ref().unwrap();
-        assert_eq!(bubble.pending(), Some((30, 40)));
+        assert_eq!(root.shell.borrow().rect, (30, 40, 48, 48));
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(2);
+        assert_eq!(root.shell.borrow().rect, OVERLAY);
     }
 
     #[test]
@@ -1194,15 +1359,17 @@ mod tests {
         let sink = Rc::clone(&saved);
         let mut app = App::new(&ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
             .with_bubble_position((None, None), move |x, y| sink.borrow_mut().push((x, y)));
-        let monitors = [(0, 0, 1920, 1080)];
+        app.shell = Box::new(FakeShell {
+            cursor: (0, 0),
+            rect: OVERLAY,
+            ready: true,
+        });
         app.set_minimized(true);
-        app.open_bubble((100, 200, 640, 420), 48, &monitors);
-        let pending = |app: &App| app.bubble.as_ref().unwrap().pending();
-        assert_eq!(pending(&app), Some((100 + 640 - 48, 200)));
+        let first = app.open_bubble(OVERLAY, 1.0);
+        assert_eq!(first, (100 + 640 - 48, 200, 48, 48));
         app.set_minimized(false);
         app.set_minimized(true);
-        app.open_bubble((900, 700, 640, 420), 48, &monitors);
-        assert_eq!(pending(&app), Some((692, 200)));
+        assert_eq!(app.open_bubble((900, 700, 640, 420), 1.0), first);
         assert!(
             saved.borrow().is_empty(),
             "the default is not written to config"
@@ -1515,21 +1682,19 @@ mod tests {
             .with_input(input, events, settings)
             .with_region(fakes::flow().0);
         app.hwnd = 1;
-        app.bubble = Some(Bubble::new((0, 0), Instant::now()));
         let set = |app: &mut App, role: usize, hwnd: isize| match role {
             0 => app.hwnd = hwnd,
-            1 => app.bubble.as_mut().unwrap().attach(hwnd, 0),
-            2 => app.input.as_mut().unwrap().hwnd = hwnd,
-            3 => app.region.as_mut().unwrap().selector.hwnd = hwnd,
-            4 => app.region.as_mut().unwrap().region_box.hwnd = hwnd,
+            1 => app.input.as_mut().unwrap().hwnd = hwnd,
+            2 => app.region.as_mut().unwrap().selector.hwnd = hwnd,
+            3 => app.region.as_mut().unwrap().region_box.hwnd = hwnd,
             _ => app.region.as_mut().unwrap().card.hwnd = hwnd,
         };
-        let titled: Vec<isize> = (1..=6).collect();
+        let titled: Vec<isize> = (1..=5).collect();
         for (role, &hwnd) in titled.iter().enumerate() {
             set(&mut app, role, hwnd);
         }
         assert_eq!(app.viewport_hwnds(), titled);
-        // 每個視窗建立時（自己還是 0），已知清單要列出其餘五個，認標題才不會認錯
+        // 每個視窗建立時（自己還是 0），已知清單要列出其餘四個，認標題才不會認錯
         for (role, &hwnd) in titled.iter().enumerate() {
             set(&mut app, role, 0);
             let others: Vec<isize> = titled.iter().copied().filter(|h| *h != hwnd).collect();

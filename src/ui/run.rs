@@ -34,7 +34,7 @@ pub fn native_options() -> NativeOptions {
             .with_always_on_top()
             .with_taskbar(true)
             .with_active(false)
-            // 不給的話 eframe 會裝上 egui 標誌；泡泡 viewport 沿用根 viewport 的 icon
+            // 不給的話 eframe 會裝上 egui 標誌
             .with_icon(app_icon()),
         wgpu_options,
         ..Default::default()
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn root_viewport_carries_the_app_icon() {
-        // 沒給 icon 時 eframe 會換上 egui 標誌；泡泡沿用根 viewport 的這一份
+        // 沒給 icon 時 eframe 會換上 egui 標誌
         for native in [native_options(), warp_options()] {
             let icon = native.viewport.icon.expect("root viewport has an icon");
             assert_eq!((icon.width, icon.height), (48, 48));

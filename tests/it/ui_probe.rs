@@ -1,4 +1,4 @@
-//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay、泡泡、翻譯輸入框與框選的框和結果卡、停在螢幕外，以程式讀回各項行為。
+//! 視窗架構驗證（egui 的退場條件）：開出真的 overlay（含縮成泡泡）、翻譯輸入框與框選的框和結果卡、停在螢幕外，以程式讀回各項行為。
 //!
 //! 會短暫出現螢幕外視窗與工作列按鈕，所以預設略過；一個程序只能建一次事件迴圈，每個 probe 要各自依名稱手動跑：
 //! `cargo test --test it ui_probe::<名稱> -- --ignored --exact --nocapture`
@@ -467,16 +467,17 @@ fn run_checks(
         ),
     );
 
-    // 4. overlay 隱藏、只剩泡泡時事件仍被處理
+    // 4. 根視窗本身縮成泡泡（不隱藏、不另開視窗），事件照常即時處理
+    let overlay = window_rect(h);
     shared.lock().unwrap().minimize = true;
-    let mut bubble = 0isize;
-    let swapped = poll(Duration::from_secs(5), Some(ctx), || {
-        bubble = own_visible_windows()
-            .into_iter()
-            .find(|w| *w != h)
-            .unwrap_or(0);
-        !visible(h) && bubble != 0
+    let shrunk = poll(Duration::from_secs(5), Some(ctx), || {
+        let (_, _, w, height) = window_rect(h);
+        w < overlay.2 && w == height
     });
+    let others = own_visible_windows()
+        .into_iter()
+        .filter(|w| *w != h)
+        .count();
     // 不再主動要求重繪：只靠投遞端的喚醒
     std::thread::sleep(Duration::from_millis(300));
     let posted = Instant::now();
@@ -489,20 +490,29 @@ fn run_checks(
         }
         std::thread::sleep(Duration::from_millis(5));
     }
-    let bex = ex_style(bubble);
+    let bex = ex_style(h);
     report.check(
-        swapped && drained.is_some() && bex & WS_EX_APPWINDOW != 0 && bex & WS_EX_TOPMOST != 0,
+        shrunk
+            && visible(h)
+            && others == 0
+            && drained.is_some_and(|d| d < Duration::from_millis(100))
+            && bex & WS_EX_APPWINDOW != 0
+            && bex & WS_EX_TOPMOST != 0
+            && bex & WS_EX_NOACTIVATE != 0,
         format!(
-            "check4 overlay hidden={} bubble={bubble:#x} bubble ex-style={bex:#x} \
-             (APPWINDOW={} TOPMOST={}) event drained after {drained:?}",
-            !visible(h),
+            "check4 overlay window became the bubble: rect={:?} (overlay {overlay:?}) visible={} \
+             other windows={others} ex-style={bex:#x} (APPWINDOW={} TOPMOST={} NOACTIVATE={}) \
+             event drained after {drained:?} (want < 100 ms)",
+            window_rect(h),
+            visible(h),
             bex & WS_EX_APPWINDOW != 0,
-            bex & WS_EX_TOPMOST != 0
+            bex & WS_EX_TOPMOST != 0,
+            bex & WS_EX_NOACTIVATE != 0
         ),
     );
 
     // 圖示外的三個角要全透明：不能透出白色的重導向表面，也不能有系統畫的圓角邊框（右下角是圖示本身）
-    let corners = compose_capture(bubble).map(|c| {
+    let corners = compose_capture(h).map(|c| {
         let (w, h) = (c.0 - 1, c.1 - 1);
         [(0, 0), (w, 0), (0, h)].map(|(x, y)| pixel_at(&c, x, y))
     });
@@ -511,11 +521,13 @@ fn run_checks(
         format!("check4b bubble composed corners {corners:?} (top-left, top-right, bottom-left; want all [0, 0, 0, 0])"),
     );
 
-    // 一次重繪代表展開的那一下點擊；之後不再要求重繪，量「已顯示但還沒有 NOACTIVATE」的空窗
+    // 一次重繪代表展開的那一下點擊；之後不再要求重繪，量「展開後沒有 NOACTIVATE」的空窗
     shared.lock().unwrap().minimize = false;
     ctx.request_repaint();
-    let shown = poll(Duration::from_secs(1), None, || visible(hwnd()));
-    // 顯示後取樣 300 ms：winit 在顯示之後才重寫 extended style，最長的空窗才是點擊會搶焦點的時段
+    let shown = poll(Duration::from_secs(1), None, || {
+        window_rect(hwnd()) == overlay
+    });
+    // 展開後取樣 300 ms：根視窗不再隱藏又顯示，NOACTIVATE 應該從頭到尾都在
     let sampled = Instant::now();
     let (mut gap_start, mut longest) = (None::<Instant>, Duration::ZERO);
     while sampled.elapsed() < Duration::from_millis(300) {
@@ -536,14 +548,15 @@ fn run_checks(
     };
     let fg = unsafe { GetForegroundWindow() as isize };
     report.check(
-        shown && gap.is_some_and(|g| g < Duration::from_millis(100)) && fg != h && fg != bubble,
+        shown && gap.is_some_and(|g| g < Duration::from_millis(100)) && fg != h,
         format!(
-            "expand: shown={shown}, longest stretch without NOACTIVATE {gap:?} (None = never restored) ex-style={:#x} foreground={fg:#x}",
+            "expand: overlay rect restored={shown} {:?}, longest stretch without NOACTIVATE {gap:?} (None = never restored) ex-style={:#x} foreground={fg:#x}",
+            window_rect(hwnd()),
             ex_style(hwnd())
         ),
     );
 
-    // 系統在每次顯示時重填重導向表面：展開後再比一次
+    // 系統在每次顯示或改變大小時可能重填重導向表面：展開後再比一次
     std::thread::sleep(Duration::from_millis(200));
     let (ok, composed) = composed_matches(hwnd(), drawn);
     report.check(

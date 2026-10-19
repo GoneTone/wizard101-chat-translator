@@ -1,4 +1,4 @@
-//! overlay 縮小後的浮動泡泡：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景決定自動展開。
+//! overlay 縮小後的浮動泡泡（由縮成泡泡大小的根視窗來畫）：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景決定自動展開。
 
 use std::time::{Duration, Instant};
 
@@ -36,7 +36,7 @@ fn badge_font() -> FontId {
 /// 泡泡被切成前景（點工作列按鈕／Alt+Tab）時是否該自動展開回 overlay。
 ///
 /// 只認「這一輪才變成前景」；游標壓在泡泡上代表使用者正直接按它，交給點擊／拖曳處理，
-/// 否則按下的瞬間就展開、泡泡再也拖不動。`bubble_hwnd` 為 0（還沒找到）時一律不觸發。
+/// 否則按下的瞬間就展開、泡泡再也拖不動。`bubble_hwnd` 為 0（視窗還不存在）時一律不觸發。
 pub fn should_auto_expand(
     foreground: isize,
     previous: isize,
@@ -98,46 +98,33 @@ pub enum Action {
     Expand,
     /// 拖曳放開：新的左上角（實體像素）。
     Moved(i32, i32),
-    /// Alt+F4／工作列關閉：走與 ✕ 相同的關閉路徑。
-    Close,
 }
 
 /// 一次縮小期間的泡泡；展開時整個丟掉。
 pub struct Bubble {
-    /// 泡泡視窗的 HWND；視窗建好、找到之前是 0。
+    /// 畫泡泡的視窗（overlay 根視窗）的 HWND；0＝視窗還不存在。
     hwnd: isize,
-    /// 還沒套用到視窗的起始位置。
-    pending: Option<(i32, i32)>,
     /// 按下時的游標與視窗矩形；`None`＝沒有對應的按下。
     press: Option<((i32, i32), Rect)>,
+    /// 這次按下後視窗是否真的被拖動過。
+    moved: bool,
     prev_foreground: isize,
     next_poll: Instant,
-    lookup_logged: bool,
     icon: Option<TextureHandle>,
 }
 
 impl Bubble {
-    /// `position` 是起始左上角（實體像素），等視窗建好後套用。
-    pub fn new(position: (i32, i32), now: Instant) -> Self {
+    /// `foreground` 是當下的前景視窗，當作前景基準：縮小時 overlay 可能正是前景，
+    /// 否則第一輪就會誤判成「使用者切回本工具」。
+    pub fn new(hwnd: isize, foreground: isize, now: Instant) -> Self {
         Self {
-            hwnd: 0,
-            pending: Some(position),
+            hwnd,
             press: None,
-            prev_foreground: 0,
+            moved: false,
+            prev_foreground: foreground,
             next_poll: now + POLL_INTERVAL,
-            lookup_logged: false,
             icon: None,
         }
-    }
-
-    /// 泡泡視窗的 HWND；還沒找到是 0。
-    pub fn hwnd(&self) -> isize {
-        self.hwnd
-    }
-
-    /// 還沒套用到視窗的起始位置（實體像素）。
-    pub fn pending(&self) -> Option<(i32, i32)> {
-        self.pending
     }
 
     /// 下一次檢查前景的時間。
@@ -145,26 +132,11 @@ impl Bubble {
         self.next_poll
     }
 
-    /// 記下找到的 HWND（0＝還沒找到）；以當下的 `foreground` 為前景基準 —— 泡泡建立時可能已被啟用，
-    /// 否則第一輪就會誤判成「使用者切回本工具」。
-    pub fn attach(&mut self, hwnd: isize, foreground: isize) {
-        self.hwnd = hwnd;
-        self.prev_foreground = foreground;
-        if hwnd != 0 && self.lookup_logged {
-            log(format!("[ui] bubble hwnd found after retrying: 0x{hwnd:x}"));
-        }
-    }
-
     /// 每一幀都檢查前景（點工作列按鈕的啟用事件當幀就展開），輪詢只負責沒有事件時的喚醒；
     /// 泡泡這一幀才變成前景、游標又不在它上面就回 `true`。
     pub fn watch(&mut self, now: Instant, foreground: isize, shell: &dyn Shell) -> bool {
-        let due = now >= self.next_poll;
-        if due {
+        if now >= self.next_poll {
             self.next_poll = now + POLL_INTERVAL;
-        }
-        if due && self.hwnd == 0 && !self.lookup_logged {
-            self.lookup_logged = true;
-            log("[ui] bubble hwnd lookup failed: no bubble window on the UI thread");
         }
         let (px, py) = shell.cursor();
         let (x, y, w, h) = shell.rect();
@@ -180,7 +152,7 @@ impl Bubble {
         expand
     }
 
-    /// 畫出泡泡並處理按下／拖曳／放開與關閉要求；`alpha` 是泡泡自己的不透明度。
+    /// 在 `ui` 的範圍畫出泡泡並處理按下／拖曳／放開；`alpha` 是泡泡自己的不透明度。
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -188,15 +160,6 @@ impl Bubble {
         unread: u32,
         alpha: f32,
     ) -> Option<Action> {
-        if let Some((x, y)) = self.pending {
-            let (_, _, w, h) = shell.rect();
-            if shell.set_rect((x, y, w, h)) {
-                self.pending = None;
-            }
-        }
-        if ui.input(|i| i.viewport().close_requested()) {
-            return Some(Action::Close);
-        }
         let rect = ui.max_rect();
         let icon = self
             .icon
@@ -242,17 +205,18 @@ impl Bubble {
         let (dx, dy) = (cx - sx, cy - sy);
         if primary_down {
             let (nx, ny) = moved_to(x, y, dx, dy);
-            if self.hwnd != 0 && shell.rect() != (nx, ny, w, h) {
-                shell.set_rect((nx, ny, w, h));
+            if shell.rect() != (nx, ny, w, h) {
+                self.moved |= shell.set_rect((nx, ny, w, h));
             }
             return None;
         }
         self.press = None;
+        let moved = std::mem::take(&mut self.moved);
         if is_click(dx, dy) {
             return Some(Action::Expand);
         }
-        // 沒有 HWND 時視窗沒動、矩形也讀不到，回報出去會把 (0, 0) 存進設定
-        if self.hwnd == 0 {
+        // 視窗沒真的動過（如還不存在）時矩形也讀不到，回報出去會把 (0, 0) 存進設定
+        if !moved {
             return None;
         }
         let (x, y, _, _) = shell.rect();
@@ -299,9 +263,8 @@ mod tests {
             rect: (500, 500, 48, 48),
             ready: true,
         };
-        let mut bubble = Bubble::new((500, 500), t0);
-        // 建立時被啟用、找到的當下已經是前景：拿它當基準，不算切回
-        bubble.attach(101, 101);
+        // 縮小的當下 overlay 就是前景：拿它當基準，不算切回
+        let mut bubble = Bubble::new(101, 101, t0);
         assert!(!bubble.watch(t0, 101, &shell));
         assert!(!bubble.watch(t0, 202, &shell));
         // 點工作列按鈕帶來的那一幀就要展開，不等下一輪輪詢
@@ -317,8 +280,7 @@ mod tests {
             rect: (500, 500, 48, 48),
             ready: true,
         };
-        let mut bubble = Bubble::new((500, 500), t0);
-        bubble.attach(101, 202);
+        let mut bubble = Bubble::new(101, 202, t0);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
         assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
     }
@@ -358,18 +320,17 @@ mod tests {
     }
 
     fn harness() -> Harness<'static, State> {
-        harness_with_hwnd(1)
+        harness_with_window(true)
     }
 
-    fn harness_with_hwnd(hwnd: isize) -> Harness<'static, State> {
-        let mut bubble = Bubble::new((500, 300), Instant::now());
-        bubble.attach(hwnd, 0);
+    /// `ready` 為 `false` 模擬視窗還不存在（移動失敗、矩形讀不到）。
+    fn harness_with_window(ready: bool) -> Harness<'static, State> {
         let state = State {
-            bubble,
+            bubble: Bubble::new(1, 0, Instant::now()),
             shell: FakeShell {
                 cursor: (520, 320),
-                rect: (0, 0, 48, 48),
-                ready: true,
+                rect: (500, 300, 48, 48),
+                ready,
             },
             actions: Vec::new(),
         };
@@ -402,12 +363,6 @@ mod tests {
     }
 
     #[test]
-    fn pending_position_applies_once_the_window_exists() {
-        let harness = harness();
-        assert_eq!(harness.state().shell.rect, (500, 300, 48, 48));
-    }
-
-    #[test]
     fn click_vs_drag_threshold_5px() {
         let mut harness = harness();
         press_move_release(&mut harness, (4, -4));
@@ -421,9 +376,8 @@ mod tests {
     }
 
     #[test]
-    fn drag_without_hwnd_neither_moves_nor_reports() {
-        let mut harness = harness_with_hwnd(0);
-        harness.state_mut().shell.rect = (500, 300, 48, 48);
+    fn drag_without_a_window_neither_moves_nor_reports() {
+        let mut harness = harness_with_window(false);
         press_move_release(&mut harness, (30, 0));
         assert!(harness.state().actions.is_empty());
         assert_eq!(harness.state().shell.rect, (500, 300, 48, 48));
@@ -437,20 +391,6 @@ mod tests {
         harness.drop_at(egui::pos2(24.0, 24.0));
         harness.step();
         assert!(harness.state().actions.is_empty());
-    }
-
-    #[test]
-    fn close_request_takes_the_shutdown_path() {
-        let mut harness = harness();
-        harness
-            .input_mut()
-            .viewports
-            .entry(egui::ViewportId::ROOT)
-            .or_default()
-            .events
-            .push(egui::ViewportEvent::Close);
-        harness.step();
-        assert_eq!(harness.state().actions, [Action::Close]);
     }
 
     #[test]

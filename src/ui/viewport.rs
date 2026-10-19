@@ -1,6 +1,6 @@
 //! 畫 immediate viewport 前先確定它的原生視窗已建好：還沒有視窗的先登記一幀，下一幀才畫。
 //!
-//! 根視窗隱藏（縮成泡泡）時 eframe 從沒有事件迴圈的路徑重繪，immediate viewport 在那裡建不了視窗、egui 直接 panic；
+//! 根視窗隱藏（首次設定精靈期間）或被 Windows 最小化時 eframe 從沒有事件迴圈的路徑重繪，immediate viewport 在那裡建不了視窗、egui 直接 panic；
 //! 登記過的 viewport 由 eframe 在下一幀開頭建好視窗，這條路徑也一樣。
 
 use eframe::egui::{self, Id, Ui, ViewportBuilder, ViewportClass, ViewportId};

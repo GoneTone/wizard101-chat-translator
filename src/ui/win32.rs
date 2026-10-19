@@ -577,7 +577,7 @@ mod tests {
         assert_eq!(pick_new_window(&[1, 7], &[1, 7, 9], &[1], by_title), 9);
         assert_eq!(pick_new_window(&[7], &[1, 7], &[1], by_title), 7);
         assert_eq!(pick_new_window(&[1, 9], &[1, 9], &[1], by_title), 7);
-        // 同標題的輸入框（5）與泡泡（9）在同一段期間出現：已知的輸入框不會被當成泡泡
+        // 同標題的兩個視窗（5、9）在同一段期間出現：已知的 5 不會被當成新視窗
         assert_eq!(pick_new_window(&[1], &[1, 5, 9], &[1, 5], by_title), 9);
         assert_eq!(pick_new_window(&[1], &[1, 5], &[1, 5], || 0), 0);
     }

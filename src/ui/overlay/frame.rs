@@ -66,6 +66,8 @@ pub trait Shell {
     fn set_rect(&mut self, rect: Rect) -> bool;
     /// 所有螢幕的矩形。
     fn monitors(&self) -> Vec<Rect>;
+    /// 含 (x, y) 那顆螢幕每 DIP 的像素數。
+    fn scale_at(&self, x: i32, y: i32) -> f32;
 }
 
 /// 以 HWND 操作真正的視窗。
@@ -83,6 +85,9 @@ impl Shell for Win32Shell {
     }
     fn monitors(&self) -> Vec<Rect> {
         win32::all_monitors()
+    }
+    fn scale_at(&self, x: i32, y: i32) -> f32 {
+        win32::scale_at(x, y)
     }
 }
 
@@ -447,7 +452,7 @@ fn resize_cursor(edge: Edge) -> CursorIcon {
 }
 
 /// Tk 的 `WxH+X+Y` 寫法，與 Python log 相同。
-fn describe((x, y, w, h): Rect) -> String {
+pub(crate) fn describe((x, y, w, h): Rect) -> String {
     format!("{w}x{h}+{x}+{y}")
 }
 
@@ -491,6 +496,9 @@ pub(crate) mod tests {
         }
         fn monitors(&self) -> Vec<Rect> {
             vec![(0, 0, 1920, 1080)]
+        }
+        fn scale_at(&self, _x: i32, _y: i32) -> f32 {
+            1.0
         }
     }
 
