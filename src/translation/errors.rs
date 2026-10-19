@@ -46,15 +46,15 @@ impl TranslateError {
         }
     }
 
-    /// Python 版對應的例外類別名稱，log 沿用 `類別: 訊息` 的格式。
-    pub fn class_name(&self) -> &'static str {
+    /// 錯誤類別的可讀名稱，log 以 `類別: 訊息` 的格式帶出。
+    pub fn kind(&self) -> &'static str {
         match self {
-            Self::Offline { .. } => "TranslatorOffline",
-            Self::Config { .. } => "TranslatorConfigError",
-            Self::BadOutput(_) => "TranslatorBadOutput",
-            Self::Cancelled => "TranslatorCancelled",
-            Self::NoModelList => "TranslatorNoModelList",
-            Self::Unexpected(_) => "Exception",
+            Self::Offline { .. } => "offline",
+            Self::Config { .. } => "config error",
+            Self::BadOutput(_) => "bad output",
+            Self::Cancelled => "cancelled",
+            Self::NoModelList => "no model list",
+            Self::Unexpected(_) => "unexpected",
         }
     }
 

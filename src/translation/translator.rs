@@ -548,7 +548,7 @@ pub async fn test_translate(
     {
         log(format!(
             "[translate] example generation after the connection test failed: {}: {err}",
-            err.class_name()
+            err.kind()
         ));
     }
     Ok(TestOutcome {
@@ -680,7 +680,7 @@ impl ExampleCoordinator {
                 log(format!(
                     "[translate] example generation failed ({}, fingerprint={requested}): {}: {err}",
                     translator.describe(),
-                    err.class_name()
+                    err.kind()
                 ));
                 None
             }

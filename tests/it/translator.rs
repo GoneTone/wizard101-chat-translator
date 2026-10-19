@@ -380,10 +380,7 @@ async fn region_drops_code_fences_around_the_translation() {
 
 #[tokio::test]
 async fn a_blank_model_reply_is_bad_output_for_incoming_and_system_messages() {
-    for reply in [
-        "", "  
-",
-    ] {
+    for reply in ["", "  \n"] {
         let fake = Fake::texts(&[reply]);
         let tr = make(&fake);
         let expected = Err(TranslateError::BadOutput("model returned no text".into()));
@@ -804,7 +801,7 @@ fn a_failed_fingerprint_is_not_retried_in_the_same_run() {
     assert!(h.co.ensure(&tr).is_none());
     assert_eq!(fake.calls().len(), 1);
     assert!(tr.examples().is_none());
-    assert!(log_text().contains("): TranslatorOffline: down"));
+    assert!(log_text().contains("): offline: down"));
 }
 
 #[test]
@@ -978,9 +975,11 @@ async fn example_failure_after_a_good_test_still_returns_the_translation() {
         .await
         .unwrap();
     assert_eq!(out.translated, "[Tester] 你好！");
-    assert!(log_text().contains(
-        "[translate] example generation after the connection test failed: TranslatorConfigError"
-    ));
+    assert!(
+        log_text().contains(
+            "[translate] example generation after the connection test failed: config error"
+        )
+    );
 }
 
 #[tokio::test]

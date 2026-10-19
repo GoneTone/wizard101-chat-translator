@@ -975,11 +975,7 @@ mod tests {
         assert!(h.state().selection.menu_rect.is_some(), "menu must be open");
         h.event(Event::Copy);
         h.step();
-        assert_eq!(
-            h.state().copied,
-            ["orig 0
-trans 0"]
-        );
+        assert_eq!(h.state().copied, ["orig 0\ntrans 0"]);
         assert!(h.state().selection.span().is_some());
     }
 

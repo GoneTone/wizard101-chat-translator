@@ -207,11 +207,11 @@ pub(crate) fn sample_of(text: &str) -> String {
     text.chars().take(TRUNCATED_SAMPLE_CHARS).collect()
 }
 
-/// API 回應裡的整數欄位轉成 log 用文字；缺欄位或 null 印成 Python 的 `None`。
+/// API 回應裡的整數欄位轉成 log 用文字；缺欄位或 null 印成 `unknown`。
 pub(crate) fn count_of(value: Option<&Value>) -> String {
     value
         .filter(|v| !v.is_null())
-        .map_or("None".to_owned(), Value::to_string)
+        .map_or("unknown".to_owned(), Value::to_string)
 }
 
 /// 連線層失敗一律視為離線；去掉 URL 與金鑰可能出現的位置，只留原因鏈。
@@ -336,7 +336,7 @@ mod tests {
         assert_eq!(
             error,
             TranslateError::BadOutput(
-                "output truncated at max_tokens=64, completion_tokens=None, sample=\"it's a loop\""
+                "output truncated at max_tokens=64, completion_tokens=unknown, sample=\"it's a loop\""
                     .into()
             )
         );

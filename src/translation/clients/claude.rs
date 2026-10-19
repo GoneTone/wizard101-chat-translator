@@ -128,7 +128,7 @@ impl ClaudeClient {
             return Err(status_failure(status, error_detail(&text), status_error));
         }
         let message = read_message(resp).await?;
-        let stop_reason = message.stop_reason.as_deref().unwrap_or("None");
+        let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
                 "[translate] prompt cache: provider=claude model={} read={} write={} uncached={}",

@@ -141,9 +141,7 @@ impl GeminiClient {
             return Err(truncated(limit, output_tokens, &out.content));
         }
         if out.content.is_empty() {
-            let reason = out
-                .finish_reason
-                .map_or("None".to_owned(), |r| format!("FinishReason.{r}"));
+            let reason = out.finish_reason.unwrap_or_else(|| "unknown".to_owned());
             log(format!(
                 "[translate] gemini returned no text: model={} finish_reason={reason}",
                 self.model

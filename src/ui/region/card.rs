@@ -840,11 +840,7 @@ mod tests {
 
     #[test]
     fn rich_label_natural_width_is_the_widest_line_unwrapped() {
-        let h = harness(text(
-            "短
-這是一行比較長的文字",
-            "",
-        ));
+        let h = harness(text("短\n這是一行比較長的文字", ""));
         let natural = h.state().card.natural_width(&h.ctx);
         assert_eq!(natural, width_of(&h, "這是一行比較長的文字", 11.0));
     }

@@ -467,7 +467,7 @@ pub fn outgoing_translate(
                     log(format!(
                         "[input] outgoing translation failed (chars={chars}, {}): {}: {err}",
                         tr.describe(),
-                        err.class_name()
+                        err.kind()
                     ));
                     Err(t("input.failed", &[("error", &err.to_string())]))
                 }
@@ -520,7 +520,7 @@ impl RegionRunner for PipelineRunner {
                         RegionError::Translate(e) => log(format!(
                             "[region] translate failed (rect={rect:?}, {}): {}: {e}",
                             pipeline.describe(),
-                            e.class_name()
+                            e.kind()
                         )),
                         RegionError::Unexpected(message) => log(format!(
                             "[region] unexpected failure (rect={rect:?}): {message}"

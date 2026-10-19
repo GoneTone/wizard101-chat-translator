@@ -1079,7 +1079,7 @@ fn outgoing_translate_posts_the_localized_error_and_logs_the_service() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].ends_with(
         "[input] outgoing translation failed \
-         (chars=13, provider=custom, model=fake-model): TranslatorOffline: conn refused"
+         (chars=13, provider=custom, model=fake-model): offline: conn refused"
     ));
 }
 
@@ -1169,7 +1169,7 @@ fn region_runner_failure_logs_the_service() {
     assert_eq!(lines.len(), 1);
     assert!(lines[0].ends_with(
         "[region] translate failed (rect=(1, 2, 30, 40), \
-         provider=custom, model=fake-model): TranslatorOffline: region refused"
+         provider=custom, model=fake-model): offline: region refused"
     ));
 }
 
