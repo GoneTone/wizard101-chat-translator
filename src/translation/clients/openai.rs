@@ -4,8 +4,6 @@ use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::sync::Mutex;
 
-use crate::util::lock;
-
 use reqwest::header::{AUTHORIZATION, HeaderMap};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -20,6 +18,7 @@ use crate::translation::Turn;
 use crate::translation::errors::{
     TranslateError, error_detail, model_list_error, rejected_parameter, status_error,
 };
+use crate::util::lock;
 
 /// 長度上限的兩個名字互換而非拿掉：它是防 repetition loop 的保險。
 fn other_token_param(name: &str) -> Option<&'static str> {

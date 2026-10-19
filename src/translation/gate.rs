@@ -6,10 +6,10 @@
 
 use std::sync::{Mutex, MutexGuard};
 
-use crate::util::lock;
-
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+
+use crate::util::lock;
 
 struct Slots {
     limit: usize,

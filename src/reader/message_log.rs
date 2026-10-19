@@ -5,11 +5,10 @@
 use std::io::Write;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use crate::util::lock;
-
 use regex::Regex;
 
 use super::mem_reader::MessageSink;
+use crate::util::lock;
 
 /// 多個客戶端共寫的 messages.log 串流（實機為 `TimestampedWriter<File>`，時戳由它補）。
 pub type SharedWriter = Arc<Mutex<dyn Write + Send>>;

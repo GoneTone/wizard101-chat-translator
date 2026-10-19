@@ -2,11 +2,10 @@
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
-
-use crate::util::lock;
 use std::time::{Duration, Instant};
 
 use super::log;
+use crate::util::lock;
 
 /// 同一則訊息重複時，至多每隔這麼久寫出一次（附上期間略過的次數）。
 const REPEAT_WINDOW: Duration = Duration::from_secs(60);
