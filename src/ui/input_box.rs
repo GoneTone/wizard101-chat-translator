@@ -189,7 +189,7 @@ impl InputBox {
                 left: 8,
                 right: 8,
                 top: 10,
-                bottom: 0,
+                bottom: 8,
             })
             .show(ui, |ui| {
                 let entry = TextEdit::singleline(&mut self.text)

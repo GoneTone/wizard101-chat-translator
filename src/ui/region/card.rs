@@ -522,7 +522,8 @@ impl Card {
         let close_button = ui.interact(close_rect, Id::unique("region_card_close"), Sense::click());
         // 按住期間收起提示，與舊版按下即收一致
         if !close_button.is_pointer_button_down_on() {
-            close_button.on_hover_text(t("tooltip.close", &[]));
+            close_button
+                .on_hover_text(egui::RichText::new(t("tooltip.close", &[])).color(FG_TRANSLATED));
         }
         painter.galley(
             close_rect.min + vec2(CLOSE_PAD_X, CLOSE_PAD_Y),
@@ -914,6 +915,16 @@ mod tests {
             h.step();
         }
         assert!(shape_with(&h, &t("tooltip.close", &[])).is_some());
+    }
+
+    #[test]
+    fn close_button_tooltip_text_is_bright() {
+        let mut h = harness(CardContent::Pending);
+        h.hover_at(label_rect(&h, "✕").center());
+        for _ in 0..3 {
+            h.step();
+        }
+        assert_eq!(sections(&h, &t("tooltip.close", &[]))[0].1, FG_TRANSLATED);
     }
 
     #[test]

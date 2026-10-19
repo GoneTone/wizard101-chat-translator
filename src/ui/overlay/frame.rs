@@ -16,7 +16,9 @@ use crate::ui::geometry::{
     resized_edge,
 };
 use crate::ui::icon::png_texture;
-use crate::ui::palette::{BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, GRIP, OUTLINE, TAB_FG_ACTIVE};
+use crate::ui::palette::{
+    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_TRANSLATED, GRIP, OUTLINE, TAB_FG_ACTIVE,
+};
 use crate::ui::win32;
 
 /// 視窗最小寬度（DIP）。
@@ -340,7 +342,11 @@ fn title_bar(
         } else {
             button.on_hover_ui_at_pointer(|ui| {
                 let text = t(tooltip, &[("hotkey", region_hotkey)]);
-                ui.label(RichText::new(text).font(FontId::proportional(tk_pt(9.0))));
+                ui.label(
+                    RichText::new(text)
+                        .font(FontId::proportional(tk_pt(9.0)))
+                        .color(FG_TRANSLATED),
+                );
             })
         };
         if button.clicked() {
@@ -729,6 +735,18 @@ pub(crate) mod tests {
         for _ in 0..4 {
             harness.step();
         }
+    }
+
+    #[test]
+    fn tooltip_text_is_bright() {
+        let (harness, text) = hovered_tooltip();
+        let color = harness.output().shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(s) if s.galley.text() == text => {
+                Some(s.galley.job.sections[0].format.color)
+            }
+            _ => None,
+        });
+        assert_eq!(color, Some(FG_TRANSLATED));
     }
 
     #[test]
