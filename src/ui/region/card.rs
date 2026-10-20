@@ -438,20 +438,15 @@ impl Card {
                     continue;
                 }
                 self.press = Some(pos);
-                self.anchor = None;
-                self.focus = None;
-                if text_rect.contains(pos) {
-                    let index = caret_at(pos);
-                    self.anchor = Some(index);
-                    self.focus = Some(index);
-                    self.dragging = true;
-                    self.next_tick = time + AUTOSCROLL_INTERVAL;
-                    if let Some(url) =
-                        char_under(&galley, pos - origin).and_then(|i| self.link_at(i))
-                    {
-                        log(format!("[ui] opening link from message: {url}"));
-                        ctx.open_url(OpenUrl::new_tab(url));
-                    }
+                // 按在留白也起選，錨點取內文可見範圍內最近的游標，不錨到捲出視野的字
+                let index = caret_at(pos.clamp(text_rect.min, text_rect.max));
+                self.anchor = Some(index);
+                self.focus = Some(index);
+                self.dragging = true;
+                self.next_tick = time + AUTOSCROLL_INTERVAL;
+                if let Some(url) = char_under(&galley, pos - origin).and_then(|i| self.link_at(i)) {
+                    log(format!("[ui] opening link from message: {url}"));
+                    ctx.open_url(OpenUrl::new_tab(url));
                 }
             } else if let Some(start) = self.press.take() {
                 if self.dragging {
@@ -1189,6 +1184,43 @@ mod tests {
         drag(&mut h, label.left_top() + vec2(0.5, 5.0), below);
         ctrl_c(&mut h);
         assert_eq!(copied(&h), [BOTH]);
+    }
+
+    /// 從 `from` 拖到原文那一行右邊的字外，再 Ctrl+C。
+    fn drag_to_source_end_and_copy(h: &mut Harness<State>, from: Pos2) -> Vec<String> {
+        let label = label_rect(h, BOTH);
+        let to = Pos2::new(h.state().area.max.x - 30.0, label.top() + 5.0);
+        drag(h, from, to);
+        ctrl_c(h);
+        copied(h)
+    }
+
+    #[test]
+    fn dragging_from_the_left_padding_selects_across_the_text() {
+        let mut h = harness(text("譯文", SOURCE));
+        let label = label_rect(&h, BOTH);
+        let from = Pos2::new(h.state().area.min.x + BORDER + 2.0, label.top() + 5.0);
+        assert!(
+            from.x < label.left(),
+            "precondition: press left of the text"
+        );
+        assert_eq!(drag_to_source_end_and_copy(&mut h, from), [SOURCE]);
+    }
+
+    #[test]
+    fn dragging_from_the_padding_above_the_text_selects_across_it() {
+        let mut h = harness(text("譯文", SOURCE));
+        let from = label_rect(&h, BOTH).left_top() + vec2(0.5, -PAD.y / 2.0);
+        assert_eq!(drag_to_source_end_and_copy(&mut h, from), [SOURCE]);
+    }
+
+    #[test]
+    fn a_click_on_the_padding_still_closes_the_card() {
+        let mut h = harness(text("譯文", SOURCE));
+        let label = label_rect(&h, BOTH);
+        let at = Pos2::new(h.state().area.min.x + BORDER + 2.0, label.top() + 5.0);
+        click(&mut h, at);
+        assert_eq!(h.state().actions, [CardAction::Close]);
     }
 
     #[test]
