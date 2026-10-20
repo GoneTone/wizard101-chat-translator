@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
-use rusto::{DetectTextResult, ImageSource, InitializeConfig, OcrRunOptions, RustO};
+use rusto::{
+    DetectTextResult, DetectionRunOptions, ImageSource, InitializeConfig, OcrRunOptions, RustO,
+};
 
 use crate::config::local_state_dir;
 use crate::logs::log;
@@ -18,6 +20,10 @@ const DET: &str = "PP-OCRv6_det_small.onnx";
 const REC: &str = "PP-OCRv6_rec_small.onnx";
 const CLS: &str = "ch_ppocr_mobile_v2.0_cls_mobile.onnx";
 const KEYS: &str = "ppocrv6_keys.txt";
+/// 偵測時把短邊放大到的長度（RapidOCR 的 `limit_side_len`）。
+const DET_SHORT_SIDE: u32 = 736;
+/// 偵測放大後長邊的上限：細長的聊天裁切照短邊放大會寬達好幾千像素，推論慢好幾倍。
+const DET_LONG_SIDE_CAP: u32 = 2000;
 
 /// 沒註冊模型時（測試、`cargo run --example`）直接讀 repo 內的模型檔。
 const ASSETS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/ocr");
@@ -184,7 +190,7 @@ pub fn recognize_with(
         None => engine.insert(create_engine(models, extract_root)?),
     };
     let result = engine
-        .detect_text(&ImageSource::Bytes(png.to_vec()), &OcrRunOptions::default())
+        .detect_text(&ImageSource::Bytes(png.to_vec()), &run_options(png))
         .map_err(|e| {
             log(format!("[region] rusto detection failed: {e}"));
             OcrError::Failed(e.to_string())
@@ -207,6 +213,36 @@ pub fn recognize_with(
         started.elapsed().as_millis()
     ));
     Ok(lines.join("\n"))
+}
+
+/// rten 推論執行緒數：使用者設了 `RTEN_NUM_THREADS` 就不動（回 None），否則用一半的邏輯核心。
+pub fn inference_threads(user_set: bool, parallelism: usize) -> Option<usize> {
+    (!user_set).then_some((parallelism / 2).max(1))
+}
+
+/// 偵測的 `limit_side_len`：短邊照常放大到 736，但放大後長邊約不超過 2000。
+pub fn det_limit_side_len(width: u32, height: u32) -> i32 {
+    let (short, long) = (width.min(height), width.max(height).max(1));
+    let capped = u64::from(DET_LONG_SIDE_CAP) * u64::from(short) / u64::from(long);
+    capped.min(u64::from(DET_SHORT_SIDE)) as i32
+}
+
+/// 這張圖的辨識參數；讀不到尺寸就用預設值，交給 rusto 回報錯誤。
+fn run_options(png: &[u8]) -> OcrRunOptions {
+    let size = image::ImageReader::new(io::Cursor::new(png))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok());
+    let Some((width, height)) = size else {
+        return OcrRunOptions::default();
+    };
+    OcrRunOptions {
+        detection: Some(DetectionRunOptions {
+            limit_side_len: Some(det_limit_side_len(width, height)),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
 }
 
 fn create_engine(models: Option<&Models>, extract_root: &Path) -> Result<RustO, OcrUnavailable> {
@@ -235,7 +271,7 @@ fn engine_config(dir: &Path) -> InitializeConfig {
         .with_det_box_thresh(0.5)
         .with_unclip_ratio(1.6)
         .with_use_dilation(true)
-        .with_limit_side_len(736)
+        .with_limit_side_len(DET_SHORT_SIDE as i32)
         .with_limit_type("min")
         .with_det_thresh(0.3)
         .with_cls_threshold(dir.join(CLS), 0.9)
@@ -265,5 +301,21 @@ mod tests {
             ),
             (30.0, 2000.0, 30.0, 8.0)
         );
+    }
+
+    #[test]
+    fn inference_threads_default_to_half_unless_user_set() {
+        assert_eq!(inference_threads(false, 24), Some(12));
+        assert_eq!(inference_threads(false, 1), Some(1));
+        assert_eq!(inference_threads(true, 24), None);
+    }
+
+    #[test]
+    fn det_upscale_keeps_the_long_side_within_the_cap() {
+        // 679×76 的聊天裁切：短邊放大到 736 的話長邊會有好幾千
+        assert_eq!(det_limit_side_len(679, 76), 223);
+        assert_eq!(det_limit_side_len(60, 625), 192);
+        assert_eq!(det_limit_side_len(376, 373), 736);
+        assert_eq!(det_limit_side_len(0, 0), 0);
     }
 }
