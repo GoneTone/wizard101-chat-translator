@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::common::kittest::click_at;
+use crate::common::kittest::{click_at, themed_harness};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
@@ -24,23 +24,11 @@ use wizard101_chat_translator::ui::settings::widgets::{
 };
 use wizard101_chat_translator::ui::text_select::find_text_shape;
 
-/// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
 fn harness<S: 'static>(
     state: S,
-    mut content: impl FnMut(&mut Ui, &mut S) + 'static,
+    content: impl FnMut(&mut Ui, &mut S) + 'static,
 ) -> Harness<'static, S> {
-    let mut harness = Harness::builder()
-        .with_size(egui::vec2(480.0, 360.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-        .build_ui_state(
-            move |ui, state| {
-                theme::apply(ui.style_mut());
-                content(ui, state);
-            },
-            state,
-        );
-    harness.run_steps(2);
-    harness
+    themed_harness(egui::vec2(480.0, 360.0), "en-US", content, state)
 }
 
 fn strings(items: &[&str]) -> Vec<String> {

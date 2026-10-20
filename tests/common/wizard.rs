@@ -9,12 +9,11 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use super::kittest::{click, run, tr};
+use super::kittest::{click, click_change, run, themed_harness, tr};
 use super::settings_env::FakeEnv;
 use wizard101_chat_translator::config::services::new_service;
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::translation::translator::TestOutcome;
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::wizard::{Step, Wizard, WizardAction};
@@ -34,20 +33,16 @@ pub fn harness(cfg: Config) -> WizardHarness {
         env: FakeEnv::default(),
         actions: Vec::new(),
     };
-    let mut h = Harness::builder()
-        .with_size(theme::WIZARD_SIZE)
-        .with_context_setup(|ctx| fonts_egui::install(ctx, "zh-TW"))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                if let Some(action) = s.wizard.ui(ui, &s.env) {
-                    s.actions.push(action);
-                }
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness(
+        theme::WIZARD_SIZE,
+        "zh-TW",
+        |ui: &mut Ui, s: &mut State| {
+            if let Some(action) = s.wizard.ui(ui, &s.env) {
+                s.actions.push(action);
+            }
+        },
+        state,
+    )
 }
 
 pub fn has(h: &WizardHarness, role: Role, label: &str) -> bool {
@@ -115,17 +110,6 @@ pub fn field_value(h: &WizardHarness, label: &str) -> Option<String> {
 }
 
 /// 依畫面由上而下的第 `index` 個〔更改〕：0 是輸入框熱鍵，1 是框選熱鍵。
-pub fn click_change(h: &mut WizardHarness, index: usize) {
-    let label = tr("button.change");
-    let mut nodes: Vec<_> = h
-        .query_all_by_role_and_label(Role::Button, &label)
-        .collect();
-    nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    nodes[index].scroll_to_me();
-    nodes[index].click();
-    run(h);
-}
-
 /// 第三步：錄下 `combo` 交給第 `index` 把熱鍵。
 pub fn record(h: &mut WizardHarness, index: usize, combo: &str) {
     click_change(h, index);

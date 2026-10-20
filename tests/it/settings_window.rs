@@ -12,7 +12,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click, has_label, run, tr};
+use common::kittest::{click, click_change, has_label, run, tr};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
@@ -108,16 +108,6 @@ fn top<S>(h: &Harness<S>, role: Role, label: &str) -> f32 {
 }
 
 /// 依畫面由上而下的第 `index` 個〔更改〕：0 是輸入框熱鍵，1 是框選熱鍵。
-fn click_change(h: &mut Harness<State>, index: usize) {
-    let label = tr("button.change");
-    let mut nodes: Vec<_> = h
-        .query_all_by_role_and_label(Role::Button, &label)
-        .collect();
-    nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    nodes[index].click();
-    run(h);
-}
-
 /// 錄下 `combo` 交給框選熱鍵那一格。
 fn record_region(h: &mut Harness<State>, combo: &str) {
     click_change(h, 1);

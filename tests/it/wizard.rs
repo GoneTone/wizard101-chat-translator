@@ -9,7 +9,7 @@ use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
-use common::kittest::{click, has_label, run, tr};
+use common::kittest::{click, click_change, has_label, run, tr};
 use common::wizard::*;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, default_config};

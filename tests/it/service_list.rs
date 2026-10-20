@@ -8,7 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click_at, has_label, painted_texts, run, tr};
+use common::kittest::{click_at, has_label, painted_texts, run, themed_harness, tr};
 use common::log_capture::{capture_logs, log_lines_with, log_text};
 use common::settings_env::FakeEnv;
 use wizard101_chat_translator::config::Config;
@@ -16,7 +16,6 @@ use wizard101_chat_translator::config::services::{ServiceSlot, new_service, prov
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::runtime::resources::provider_icon;
 use wizard101_chat_translator::translation::translator::TestOutcome;
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::provider_picker::{
     CardLayout, lighten_dark_monochrome, provider_cards,
@@ -217,18 +216,14 @@ fn harness_sized(draft: ServiceDraft, size: egui::Vec2) -> Harness<'static, Stat
         pane: ServicePane::new(draft),
         env: FakeEnv::default(),
     };
-    let mut h = Harness::builder()
-        .with_size(size)
-        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                s.pane.ui(ui, &s.env, TARGET);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness(
+        size,
+        LANGUAGE,
+        |ui: &mut Ui, s: &mut State| {
+            s.pane.ui(ui, &s.env, TARGET);
+        },
+        state,
+    )
 }
 
 fn press<S>(h: &mut Harness<S>, key: Key) {
@@ -892,23 +887,19 @@ struct Cards {
 
 fn cards_harness(layout: CardLayout) -> Harness<'static, Cards> {
     i18n::set_language(LANGUAGE);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(460.0, 520.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut Cards| {
-                theme::apply(ui.style_mut());
-                if let Some(key) = provider_cards(ui, s.layout) {
-                    s.picked.push(key);
-                }
-            },
-            Cards {
-                layout,
-                picked: Vec::new(),
-            },
-        );
-    h.run_steps(2);
-    h
+    themed_harness(
+        egui::vec2(460.0, 520.0),
+        LANGUAGE,
+        |ui: &mut Ui, s: &mut Cards| {
+            if let Some(key) = provider_cards(ui, s.layout) {
+                s.picked.push(key);
+            }
+        },
+        Cards {
+            layout,
+            picked: Vec::new(),
+        },
+    )
 }
 
 fn card_rects(h: &Harness<Cards>) -> Vec<Rect> {
