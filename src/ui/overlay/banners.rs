@@ -26,6 +26,8 @@ const CLOSE_PAD: (f32, f32) = (4.0, 6.0);
 #[derive(Default)]
 pub struct Banners {
     error: Option<Banner>,
+    /// 鍵盤 hook 裝不上；與收訊的錯誤分開存，收訊清掉錯誤時才不會一起消失。
+    hotkeys_unavailable: bool,
     update: Option<Release>,
     dismissed: Option<String>,
     error_height: f32,
@@ -42,10 +44,19 @@ impl Banners {
         self.error = None;
     }
 
-    /// 錯誤橫幅目前的文字；沒有橫幅回 `None`。
+    /// 錯誤橫幅加上「快捷鍵無法使用」一行，直到程式結束。
+    pub fn set_hotkeys_unavailable(&mut self) {
+        self.hotkeys_unavailable = true;
+    }
+
+    /// 錯誤橫幅目前的文字（收訊錯誤與快捷鍵錯誤各一行）；都沒有回 `None`。
     pub fn error_text(&self) -> Option<String> {
-        let (key, args) = self.error.as_ref()?;
-        Some(localized(key, args))
+        let reader = self.error.as_ref().map(|(key, args)| localized(key, args));
+        let hotkeys = self
+            .hotkeys_unavailable
+            .then(|| t("notice.hotkeys_unavailable", &[]));
+        let lines: Vec<String> = [reader, hotkeys].into_iter().flatten().collect();
+        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出；手動檢查直接走 `set_update`。
@@ -282,6 +293,18 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn the_hotkey_line_survives_the_reader_clearing_its_error() {
+        let hotkeys = t("notice.hotkeys_unavailable", &[]);
+        let mut banners = Banners::default();
+        banners.set_error("notice.game_missing", vec![]);
+        banners.set_hotkeys_unavailable();
+        let game = t("notice.game_missing", &[]);
+        assert_eq!(banners.error_text(), Some(format!("{game}\n{hotkeys}")));
+        banners.clear_error();
+        assert_eq!(banners.error_text(), Some(hotkeys));
     }
 
     #[test]

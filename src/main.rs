@@ -79,16 +79,23 @@ fn main() {
         .build()
         .expect("build tokio runtime");
     let dispatcher = SharedDispatcher::default();
+    let (poster, inbox) = app::channel();
+    let hotkeys_failed = {
+        let ui = poster.clone();
+        move || ui.post(UiEvent::HotkeysUnavailable)
+    };
     let keyboard = Rc::new(RefCell::new(
-        hook::install(Arc::clone(&dispatcher))
-            .inspect_err(|err| log(format!("[hotkey] cannot install keyboard hook: {err}")))
+        hook::install(Arc::clone(&dispatcher), hotkeys_failed.clone())
+            .inspect_err(|err| {
+                log(format!("[hotkey] cannot install keyboard hook: {err}"));
+                hotkeys_failed();
+            })
             .ok(),
     ));
 
     let configured = is_configured(&cfg);
     let settings = Settings::from_config(&cfg);
     let shared_cfg = Arc::new(RwLock::new(cfg));
-    let (poster, inbox) = app::channel();
     install_console_quit(poster.clone());
     // 關閉流程只跑一次：正常關閉在視窗還在時由 App 觸發，UI 意外結束（panic、錯誤）才由 run_ui_then 補跑
     let running = Rc::new(RefCell::new(None));

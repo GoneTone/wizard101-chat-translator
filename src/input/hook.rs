@@ -26,6 +26,9 @@ pub(crate) const VK_LCONTROL: u32 = 0xA2;
 const VK_RMENU: u32 = 0xA5;
 pub(crate) const ALT_GR_SCAN: u32 = 541;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
+/// 掛 hook 的嘗試次數與失敗後的間隔：開機自動啟動時桌面可能還沒就緒。
+const INSTALL_ATTEMPTS: u32 = 3;
+const RETRY_DELAY: Duration = Duration::from_secs(2);
 /// 回呼超過這個時間就記 log：Windows 會默默移除超過 `LowLevelHooksTimeout` 的 hook。
 const SLOW_CALLBACK: Duration = Duration::from_millis(200);
 
@@ -62,7 +65,12 @@ pub struct KeyboardHook {
 }
 
 /// 起 `keyboard-hook` 執行緒掛上 hook，每個按鍵事件交給 `d`；一個程序只能裝一次。
-pub fn install(d: SharedDispatcher) -> Result<KeyboardHook, String> {
+///
+/// 掛 hook 在該執行緒上進行、失敗會重試，不擋呼叫端；全部失敗時呼叫 `on_failure`。
+pub fn install(
+    d: SharedDispatcher,
+    on_failure: impl FnOnce() + Send + 'static,
+) -> Result<KeyboardHook, String> {
     // 先建好 lazy 表，hook 回呼裡就不會跑初始化
     keys::is_modifier(0);
     let _ = keys::parse_hotkey("ctrl");
@@ -72,15 +80,35 @@ pub fn install(d: SharedDispatcher) -> Result<KeyboardHook, String> {
     let (ready, started) = mpsc::channel();
     let thread = std::thread::Builder::new()
         .name(crate::logs::KEYBOARD_HOOK_THREAD.into())
-        .spawn(move || hook_thread(&ready))
+        .spawn(move || hook_thread(&ready, on_failure))
         .map_err(|e| format!("cannot spawn keyboard-hook: {e}"))?;
     let thread_id = started
         .recv()
-        .map_err(|_| "keyboard-hook exited before reporting".to_owned())??;
-    log(format!(
-        "[hotkey] keyboard hook installed (thread_id={thread_id})"
-    ));
+        .map_err(|_| "keyboard-hook exited before reporting".to_owned())?;
     Ok(KeyboardHook { thread, thread_id })
+}
+
+/// 呼叫 `attempt` 最多 `tries` 次，失敗之間以 `sleep` 等 `RETRY_DELAY`；回傳第一次成功或最後一次的錯誤。
+fn retry<T>(
+    tries: u32,
+    sleep: impl Fn(Duration),
+    mut attempt: impl FnMut() -> Result<T, String>,
+) -> Result<T, String> {
+    let mut n = 1;
+    loop {
+        match attempt() {
+            Ok(value) => return Ok(value),
+            Err(e) if n >= tries => return Err(e),
+            Err(e) => {
+                log(format!(
+                    "[hotkey] keyboard hook attempt {n}/{tries} failed: {e}; retrying in {}s",
+                    RETRY_DELAY.as_secs()
+                ));
+                sleep(RETRY_DELAY);
+                n += 1;
+            }
+        }
+    }
 }
 
 impl KeyboardHook {
@@ -98,24 +126,40 @@ impl KeyboardHook {
     }
 }
 
-fn hook_thread(ready: &mpsc::Sender<Result<u32, String>>) {
+fn hook_thread(ready: &mpsc::Sender<u32>, on_failure: impl FnOnce()) {
     // SAFETY: 以下皆為本執行緒上的 Win32 呼叫，MSG 為本地緩衝。
     unsafe {
         let mut msg: MSG = std::mem::zeroed();
-        // 先建好訊息佇列，uninstall 的 PostThreadMessageW 才不會丟失
+        // 先建好訊息佇列，uninstall 的 PostThreadMessageW 才不會丟失（重試期間送來的 WM_QUIT 也會留著）
         PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
-        let hook = SetWindowsHookExW(
-            WH_KEYBOARD_LL,
-            Some(hook_proc),
-            GetModuleHandleW(std::ptr::null()),
-            0,
-        );
-        if hook.is_null() {
-            let err = std::io::Error::last_os_error();
-            let _ = ready.send(Err(format!("SetWindowsHookExW failed: {err}")));
-            return;
-        }
-        let _ = ready.send(Ok(GetCurrentThreadId()));
+        let thread_id = GetCurrentThreadId();
+        let _ = ready.send(thread_id);
+        let attempt = || {
+            let hook = SetWindowsHookExW(
+                WH_KEYBOARD_LL,
+                Some(hook_proc),
+                GetModuleHandleW(std::ptr::null()),
+                0,
+            );
+            if hook.is_null() {
+                let err = std::io::Error::last_os_error();
+                return Err(format!("SetWindowsHookExW failed: {err}"));
+            }
+            Ok(hook)
+        };
+        let hook = match retry(INSTALL_ATTEMPTS, std::thread::sleep, attempt) {
+            Ok(hook) => hook,
+            Err(e) => {
+                log(format!(
+                    "[hotkey] cannot install keyboard hook after {INSTALL_ATTEMPTS} attempts: {e}"
+                ));
+                on_failure();
+                return;
+            }
+        };
+        log(format!(
+            "[hotkey] keyboard hook installed (thread_id={thread_id})"
+        ));
         let ended = loop {
             let got = GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0);
             if got <= 0 {
@@ -303,6 +347,45 @@ mod tests {
             })
         );
         assert_eq!(to_event(0x41, 30, 0, 0x0100 + 7), None);
+    }
+
+    #[test]
+    fn retry_stops_at_the_first_success_and_sleeps_between_attempts() {
+        let slept = Cell::new(0);
+        let mut calls = 0;
+        let result = retry(
+            3,
+            |d| {
+                assert_eq!(d, RETRY_DELAY);
+                slept.set(slept.get() + 1);
+            },
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err("busy".into())
+                } else {
+                    Ok(calls)
+                }
+            },
+        );
+        assert_eq!(result, Ok(3));
+        assert_eq!(slept.get(), 2);
+    }
+
+    #[test]
+    fn retry_returns_the_last_error_after_the_last_attempt() {
+        let slept = Cell::new(0);
+        let mut calls = 0;
+        let result: Result<(), String> = retry(
+            3,
+            |_| slept.set(slept.get() + 1),
+            || {
+                calls += 1;
+                Err(format!("fail {calls}"))
+            },
+        );
+        assert_eq!(result, Err("fail 3".into()));
+        assert_eq!(slept.get(), 2, "no wait after the last attempt");
     }
 
     const SPACE: KeyEvent = KeyEvent {
