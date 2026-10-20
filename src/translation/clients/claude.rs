@@ -306,7 +306,27 @@ fn random_unit() -> f64 {
     (random_u64() >> 11) as f64 / (1u64 << 53) as f64
 }
 
-/// 讀完 Messages 串流並累積成完整訊息。`error` 事件與格式異常都對應 Python 未分類的例外。
+/// 串流中途的 `error` 事件：依 `error.type` 對應 HTTP 狀態碼分類，其餘類型為未分類的例外。
+fn stream_error(event: &Value) -> TranslateError {
+    let error = &event["error"];
+    let status = match error["type"].as_str() {
+        Some("rate_limit_error") => Some(429),
+        Some("api_error") => Some(500),
+        Some("timeout_error") => Some(504),
+        Some("overloaded_error") => Some(529),
+        _ => None,
+    };
+    match status {
+        Some(code) => status_failure(
+            code,
+            one_line(error["message"].as_str().unwrap_or("")),
+            status_error,
+        ),
+        None => TranslateError::Unexpected(one_line(&event.to_string())),
+    }
+}
+
+/// 讀完 Messages 串流並累積成完整訊息。`error` 事件依類型分類，格式異常為未分類的例外。
 async fn read_message(resp: reqwest::Response) -> Result<Message, TranslateError> {
     let mut message = Message::default();
     for_each_data(resp, |data| {
@@ -331,7 +351,7 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError
         (kind.to_owned(), text.to_owned())
     };
     match kind {
-        "error" => return Err(TranslateError::Unexpected(one_line(&event.to_string()))),
+        "error" => return Err(stream_error(event)),
         "message_start" if !message.started => {
             let start = &event["message"];
             message.started = true;

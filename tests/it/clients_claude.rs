@@ -464,19 +464,34 @@ async fn claude_html_error_page_is_stripped_to_text() {
     );
 }
 
-#[tokio::test]
-async fn claude_stream_error_event_is_unexpected() {
+async fn chat_with_error_event(error_type: &str) -> Result<String, TranslateError> {
     let server = MockServer::start().await;
     let body = events(&[
         json!({"type": "message_start", "message": {"content": [], "usage": {}}}),
-        json!({"type": "error", "error": {"type": "overloaded_error", "message": "Overloaded"}}),
+        json!({"type": "error", "error": {"type": error_type, "message": "Overloaded"}}),
     ]);
     mount_messages(
         &server,
         ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"),
     )
     .await;
-    let result = chat(&client(&server, "auto")).await;
+    chat(&client(&server, "auto")).await
+}
+
+#[tokio::test]
+async fn claude_overloaded_stream_error_event_is_offline() {
+    assert_eq!(
+        chat_with_error_event("overloaded_error").await,
+        Err(TranslateError::Offline {
+            status: Some(529),
+            detail: "Overloaded".into()
+        })
+    );
+}
+
+#[tokio::test]
+async fn claude_invalid_request_stream_error_event_is_unexpected() {
+    let result = chat_with_error_event("invalid_request_error").await;
     assert!(
         matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("Overloaded")),
         "{result:?}"

@@ -10,8 +10,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, connection_error,
-    count_of, finish_text, http_client, parse_object, secret_header, status_failure, truncated,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error,
+    connection_error, count_of, finish_text, http_client, parse_object, secret_header,
+    status_failure, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -141,6 +142,8 @@ impl OpenAiCompatClient {
                 return false;
             }
             learned.token_param = other;
+        } else if matches!(param, "model" | "messages" | "stream") {
+            return false;
         } else {
             learned.dropped.insert(param.to_owned());
         }
@@ -222,6 +225,10 @@ impl OpenAiCompatClient {
                 return Ok(ControlFlow::Break(()));
             }
             let chunk = parse_object(data, "stream chunk")?;
+            // 200 之後的錯誤以 chunk 送出；有些後端固定帶 `"error": null`
+            if let Some(error) = chunk.get("error").filter(|e| !e.is_null()) {
+                return Err(chunk_error(error));
+            }
             if let Some(choice) = chunk.pointer("/choices/0") {
                 if let Some(piece) = choice.pointer("/delta/content").and_then(Value::as_str) {
                     out.content.push_str(piece);
