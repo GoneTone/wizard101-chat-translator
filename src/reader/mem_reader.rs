@@ -591,7 +591,13 @@ impl WizChatReader {
             ));
         }
         hook_state::sweep(&self.state_dir, process::pid_alive);
-        hook_state::repair(&self.state_dir, mem.as_ref(), pid, self.slot as usize);
+        hook_state::repair(
+            &self.state_dir,
+            mem.as_ref(),
+            pid,
+            self.slot as usize,
+            |d| (self.clock.sleep)(d),
+        );
         self.attached = Some(Attached {
             mem,
             cave: None,
