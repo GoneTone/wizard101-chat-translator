@@ -23,6 +23,9 @@ fn re(pattern: &str) -> Regex {
 // Python 的 IGNORECASE 讓 i 也吃 ı 與 İ（Rust 的簡單摺疊不會）
 static THINK_BLOCK: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"(?is)<th[iıİ]nk>.*?</th[iıİ]nk>{SPACE}*")));
+// 只到最後一個孤立 `</think>` 為止的推理（自架推理模型常省略開頭標籤）
+static THINK_PREFIX: LazyLock<Regex> =
+    LazyLock::new(|| re(&format!(r"(?is)^.*</th[iıİ]nk>{SPACE}*")));
 static SENDER_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"^{SENDER_PREFIX}{SPACE}*")));
 static LEADING_BRACKETS: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"^(?:{SENDER_PREFIX}{SPACE}*)+")));
@@ -46,9 +49,10 @@ static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static DECIMAL: LazyLock<Regex> = LazyLock::new(|| re(r"^\p{Nd}$"));
 
-/// 移除回應中的 `<think>…</think>` 推理區塊（無論是否啟用思考都套用）。
+/// 移除回應中的 `<think>…</think>` 推理區塊與孤立 `</think>` 之前的推理（無論是否啟用思考都套用）。
 pub fn strip_think(text: &str) -> String {
-    THINK_BLOCK.replace_all(text, "").into_owned()
+    let text = THINK_BLOCK.replace_all(text, "");
+    THINK_PREFIX.replace(&text, "").into_owned()
 }
 
 /// 只留字母與數字並忽略大小寫：模型照抄原文時常換掉撇號、連字號或空白。
