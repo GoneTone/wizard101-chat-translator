@@ -144,7 +144,7 @@ fn squash(text: &str) -> String {
 
 /// 譯文是否出現了不該有的拉丁文字 —— 模型改用英文名，或整句沒翻。
 ///
-/// 兩條規則：整段都是拉丁、沒有一個目標語言的字；或某個拉丁片段不是原文既有的字串。
+/// 兩條規則：整段都是拉丁、沒有一個目標語言的字；或拉丁片段裡有原文沒出現過的字。
 /// 已知盲點：目標語言本身用拉丁字母時一律回 `false`。
 pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) -> bool {
     if uses_latin_script(target_language) {
@@ -158,9 +158,12 @@ pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) ->
         return true;
     }
     let haystack = squash(&remove_sender(source));
-    LATIN_RUN
-        .find_iter(&body)
-        .any(|run| !haystack.contains(&squash(run.as_str())))
+    // 逐字比對：模型常改掉字間的標點或連接詞（`Kai and Bob` → `Kai, Bob`）
+    LATIN_RUN.find_iter(&body).any(|run| {
+        NON_WORD
+            .split(run.as_str())
+            .any(|word| !word.is_empty() && !haystack.contains(&casefold(word)))
+    })
 }
 
 /// 拆成去掉前後空白的非空白行。

@@ -165,7 +165,7 @@
    "translated": "[A] 好 it’s",
    "target": "繁體中文 (台灣)"
   },
-  "output": true
+  "output": false
  },
  {
   "input": {
@@ -406,5 +406,29 @@
    "target": "日本語"
   },
   "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai、Bob 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob님이 참가했습니다",
+   "target": "한국어"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob, Zed 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
  }
 ]
