@@ -1,19 +1,17 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
 use crate::common;
-use crate::stream_server;
+use crate::stream_server::{self, request};
 
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatBackend, ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient,
-    build_client,
+    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
@@ -51,28 +49,8 @@ fn client(server: &MockServer, thinking: bool, official: bool) -> OpenAiCompatCl
     OpenAiCompatClient::new(&server.uri(), "", "m", thinking, official)
 }
 
-fn request<'a>(turns: &'a [Turn]) -> ChatRequest<'a> {
-    ChatRequest {
-        system: "sys",
-        turns,
-        max_tokens: None,
-        deterministic: true,
-    }
-}
-
 async fn chat(c: &OpenAiCompatClient) -> Result<String, TranslateError> {
     c.chat(request(&[Turn::user("[A] hi")]), None).await
-}
-
-async fn bodies(server: &MockServer) -> Vec<Value> {
-    server
-        .received_requests()
-        .await
-        .unwrap()
-        .iter()
-        .filter(|r| r.url.path() == "/v1/chat/completions")
-        .map(|r| serde_json::from_slice(&r.body).unwrap())
-        .collect()
 }
 
 async fn mount_chat(server: &MockServer, response: ResponseTemplate) {
@@ -109,7 +87,7 @@ async fn streams_and_joins_deltas() {
     )
     .await;
     assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "譯文");
-    let body = &bodies(&server).await[0];
+    let body = &stream_server::bodies_at(&server, "/v1/chat/completions").await[0];
     assert_eq!(body["stream"], true);
     assert_eq!(
         body["messages"][0],
@@ -145,7 +123,7 @@ async fn official_uses_max_completion_tokens_and_no_temperature() {
     let server = MockServer::start().await;
     mount_chat(&server, ok_stream("x")).await;
     chat(&client(&server, false, true)).await.unwrap();
-    let body = &bodies(&server).await[0];
+    let body = &stream_server::bodies_at(&server, "/v1/chat/completions").await[0];
     assert_eq!(body["max_completion_tokens"], MAX_TOKENS);
     assert!(body.get("max_tokens").is_none() && body.get("temperature").is_none());
     assert_eq!(body["stream_options"], json!({"include_usage": true}));
@@ -159,7 +137,7 @@ async fn custom_keeps_max_tokens_and_temperature_by_thinking_mode() {
     mount_chat(&server, ok_stream("x")).await;
     chat(&client(&server, false, false)).await.unwrap();
     chat(&client(&server, true, false)).await.unwrap();
-    let sent = bodies(&server).await;
+    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
     assert_eq!(sent[0]["max_tokens"], MAX_TOKENS);
     assert_eq!(sent[0]["temperature"], 0);
     assert_eq!(sent[0]["think"], false);
@@ -200,7 +178,7 @@ async fn rejected_400_naming_param_drops_it_and_retries_once() {
     mount_chat_once(&server, rejects("reasoning_effort")).await;
     mount_chat(&server, ok_stream("譯文")).await;
     assert_eq!(chat(&client(&server, false, true)).await.unwrap(), "譯文");
-    let sent = bodies(&server).await;
+    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
     assert_eq!(sent.len(), 2);
     assert!(sent[0].get("reasoning_effort").is_some());
     assert!(sent[1].get("reasoning_effort").is_none());
@@ -214,7 +192,7 @@ async fn learned_params_persist_on_instance() {
     let c = client(&server, false, true);
     chat(&c).await.unwrap();
     chat(&c).await.unwrap();
-    let sent = bodies(&server).await;
+    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
     assert_eq!(sent.len(), 3);
     assert!(sent[2].get("reasoning_effort").is_none());
 }
@@ -232,7 +210,11 @@ async fn other_rejection_wordings_are_recognised() {
     .await;
     mount_chat(&server, ok_stream("譯文")).await;
     assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "譯文");
-    assert!(bodies(&server).await[1].get("temperature").is_none());
+    assert!(
+        stream_server::bodies_at(&server, "/v1/chat/completions").await[1]
+            .get("temperature")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -241,7 +223,7 @@ async fn rejected_token_limit_is_swapped_not_dropped() {
     mount_chat_once(&server, rejects("max_completion_tokens")).await;
     mount_chat(&server, ok_stream("譯文")).await;
     chat(&client(&server, true, true)).await.unwrap();
-    let sent = bodies(&server).await;
+    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
     assert!(sent[1].get("max_completion_tokens").is_none());
     assert_eq!(sent[1]["max_tokens"], MAX_TOKENS_THINKING);
 }
@@ -260,7 +242,12 @@ async fn token_limit_rejected_under_both_names_stops() {
             ..
         })
     ));
-    assert_eq!(bodies(&server).await.len(), 2);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/chat/completions")
+            .await
+            .len(),
+        2
+    );
 }
 
 #[tokio::test]
@@ -269,7 +256,12 @@ async fn rejected_param_not_sent_is_not_retried() {
     mount_chat(&server, rejects("frequency_penalty")).await;
     let result = chat(&client(&server, true, false)).await;
     assert!(matches!(result, Err(TranslateError::Config { .. })));
-    assert_eq!(bodies(&server).await.len(), 1);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/chat/completions")
+            .await
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -287,7 +279,12 @@ async fn rejected_core_param_is_returned_not_dropped() {
         ),
         "{error:?}"
     );
-    assert_eq!(bodies(&server).await.len(), 1);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/chat/completions")
+            .await
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -328,7 +325,12 @@ async fn bad_request_without_named_param_is_config_error_once() {
             detail: "bad request".into()
         }
     );
-    assert_eq!(bodies(&server).await.len(), 1);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/chat/completions")
+            .await
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -366,9 +368,7 @@ async fn status_4xx_is_config_with_detail() {
 
 #[tokio::test]
 async fn connection_failure_is_offline_without_status() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    let url = stream_server::closed_url().await;
     let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
@@ -581,9 +581,7 @@ async fn models_retryable_statuses_are_offline() {
 
 #[tokio::test]
 async fn models_connection_failure_is_offline() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    let url = stream_server::closed_url().await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     assert!(matches!(
         c.list_models().await,
@@ -600,7 +598,12 @@ async fn redirects_are_not_followed() {
         chat(&client(&server, true, false)).await,
         Err(TranslateError::Unexpected("HTTP 302: ".into()))
     );
-    assert_eq!(bodies(&server).await.len(), 1);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/chat/completions")
+            .await
+            .len(),
+        1
+    );
 }
 
 #[tokio::test]

@@ -1,7 +1,7 @@
 //! Claude client 的 HTTP 協定測試：請求內容照 anthropic SDK、重試策略、串流解析、取消（wiremock，不打真 API）。
 
 use crate::common;
-use crate::stream_server;
+use crate::stream_server::{self, request};
 
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
@@ -76,15 +76,6 @@ fn client(server: &MockServer, effort: &str) -> ClaudeClient {
     ClaudeClient::new("sk-test", "claude-x", effort, &server.uri())
 }
 
-fn request<'a>(turns: &'a [Turn]) -> ChatRequest<'a> {
-    ChatRequest {
-        system: "sys",
-        turns,
-        max_tokens: None,
-        deterministic: true,
-    }
-}
-
 async fn chat(c: &ClaudeClient) -> Result<String, TranslateError> {
     c.chat(request(&[Turn::user("[A] hi")]), None).await
 }
@@ -95,16 +86,6 @@ async fn mount_messages(server: &MockServer, response: ResponseTemplate) {
         .respond_with(response)
         .mount(server)
         .await;
-}
-
-async fn bodies(server: &MockServer) -> Vec<Value> {
-    server
-        .received_requests()
-        .await
-        .unwrap()
-        .iter()
-        .map(|r| serde_json::from_slice(&r.body).unwrap())
-        .collect()
 }
 
 #[tokio::test]
@@ -145,7 +126,7 @@ async fn claude_effort_only_when_not_auto() {
     mount_messages(&server, ok_stream("x")).await;
     chat(&client(&server, "auto")).await.unwrap();
     chat(&client(&server, "low")).await.unwrap();
-    let sent = bodies(&server).await;
+    let sent = stream_server::bodies_at(&server, "/v1/messages").await;
     assert_eq!(sent[0]["output_config"], json!({"format": output_format()}));
     assert_eq!(
         sent[1]["output_config"],
@@ -169,7 +150,7 @@ async fn claude_no_temperature() {
         c.chat(req, None).await.unwrap();
     }
     assert!(
-        bodies(&server)
+        stream_server::bodies_at(&server, "/v1/messages")
             .await
             .iter()
             .all(|b| b.get("temperature").is_none())
@@ -189,7 +170,7 @@ async fn claude_system_has_cache_control_at_end() {
         .chat(request(&turns), None)
         .await
         .unwrap();
-    let body = &bodies(&server).await[0];
+    let body = &stream_server::bodies_at(&server, "/v1/messages").await[0];
     assert_eq!(
         body["system"],
         json!([{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}])
@@ -216,7 +197,10 @@ async fn claude_region_limit_is_sent_and_used_for_truncation() {
         matches!(&result, Err(TranslateError::BadOutput(m)) if m.contains("max_tokens=4096")),
         "{result:?}"
     );
-    assert_eq!(bodies(&server).await[0]["max_tokens"], MAX_TOKENS_REGION);
+    assert_eq!(
+        stream_server::bodies_at(&server, "/v1/messages").await[0]["max_tokens"],
+        MAX_TOKENS_REGION
+    );
 }
 
 #[tokio::test]

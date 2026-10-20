@@ -1,18 +1,15 @@
 //! Gemini client 的 HTTP 協定測試：請求內容照 google-genai SDK、不重試、串流解析、取消（wiremock，不打真 API）。
 
 use crate::common;
-use crate::stream_server;
+use crate::stream_server::{self, request};
 
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{
-    ChatRequest, GeminiClient, MAX_TOKENS_THINKING,
-};
+use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 const STREAM_PATH: &str = "/v1beta/models/gemini-x:streamGenerateContent";
@@ -55,15 +52,6 @@ fn error_body(status: u16, message: &str) -> ResponseTemplate {
 
 fn client(server: &MockServer, effort: &str) -> GeminiClient {
     GeminiClient::new("AIza-test", "gemini-x", effort, &server.uri())
-}
-
-fn request<'a>(turns: &'a [Turn]) -> ChatRequest<'a> {
-    ChatRequest {
-        system: "sys",
-        turns,
-        max_tokens: None,
-        deterministic: true,
-    }
 }
 
 async fn chat(c: &GeminiClient) -> Result<String, TranslateError> {
@@ -316,9 +304,7 @@ async fn gemini_error_mapping() {
         })
     );
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    let url = stream_server::closed_url().await;
     let c = GeminiClient::new("AIza-secret", "gemini-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(

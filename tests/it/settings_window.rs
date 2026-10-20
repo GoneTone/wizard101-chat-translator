@@ -19,7 +19,8 @@ use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, t};
-use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
+use wizard101_chat_translator::input::dispatcher::Dispatcher;
+use wizard101_chat_translator::input::dispatcher::testing::key;
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
@@ -620,14 +621,7 @@ fn enter_on_a_focused_change_button_does_not_record_enter() {
     run(&mut h);
     assert_eq!(h.state().env.recordings.borrow().len(), 1);
     // 鍵盤 hook 看到的是錄製開始後才來的 Enter 放開
-    let enter_up = KeyEvent {
-        down: false,
-        code: 28,
-        raw: Some(RawKey {
-            vk: 0x0D,
-            extended: false,
-        }),
-    };
+    let enter_up = key(false, 28, 0x0D);
     dispatcher.lock().unwrap().process(enter_up);
     h.key_up(Key::Enter);
     run(&mut h);

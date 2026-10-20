@@ -1,4 +1,4 @@
-//! client 測試共用的假伺服器：串流停住不收尾、串流中途斷線、接受連線就斷線。
+//! client 測試共用：假伺服器（串流停住不收尾、串流中途斷線、接受連線就斷線）與請求／回應的小輔助。
 
 // 每個測試檔只用到其中幾個
 #![allow(dead_code)]
@@ -10,11 +10,43 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use wiremock::MockServer;
+use wizard101_chat_translator::translation::Turn;
+use wizard101_chat_translator::translation::clients::ChatRequest;
 
 async fn bind() -> (TcpListener, String) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     (listener, url)
+}
+
+/// 靜態 system 與給定對話的確定性請求。
+pub fn request<'a>(turns: &'a [Turn]) -> ChatRequest<'a> {
+    ChatRequest {
+        system: "sys",
+        turns,
+        max_tokens: None,
+        deterministic: true,
+    }
+}
+
+/// `server` 收到、打在 `request_path` 的所有請求本文（JSON）。
+pub async fn bodies_at(server: &MockServer, request_path: &str) -> Vec<serde_json::Value> {
+    server
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == request_path)
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect()
+}
+
+/// 剛關掉的本機埠網址：連線必被拒絕。
+pub async fn closed_url() -> String {
+    let (listener, url) = bind().await;
+    drop(listener);
+    url
 }
 
 /// 讀完請求標頭後回 200 與 `first_event` 這段 SSE（chunked，尚未收尾）。

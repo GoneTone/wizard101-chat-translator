@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::incoming_fingerprint;
-use wizard101_chat_translator::config::{Config, ServiceSpec};
+use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::translation::cache::{
     FLUSH_EVERY, MAX_ENTRIES, TranslationCache, fingerprint_of, normalize, placeholders_match,
     restore, translate_and_cache,
@@ -403,13 +403,11 @@ fn translator(fake: &Arc<Fake>) -> Arc<Translator> {
 
 fn translator_for(fake: &Arc<Fake>, target: &str) -> Arc<Translator> {
     let fake = Arc::clone(fake);
-    let spec = ServiceSpec {
-        provider: "custom".into(),
-        base_url: "http://x".into(),
-        model: "m".into(),
-        ..ServiceSpec::default()
-    };
-    Translator::with_client(move |_| fake.clone(), spec, target.into())
+    Translator::with_client(
+        move |_| fake.clone(),
+        common::fake_backend::spec("m"),
+        target.into(),
+    )
 }
 
 #[tokio::test]
@@ -521,15 +519,7 @@ async fn judges_with_the_target_captured_before_the_request() {
     let tr = translator_for(&fake, "Español");
     let swapped = Arc::clone(&tr);
     fake.hook.lock().unwrap().push_back(Box::new(move || {
-        swapped.reconfigure(
-            ServiceSpec {
-                provider: "custom".into(),
-                base_url: "http://x".into(),
-                model: "m".into(),
-                ..ServiceSpec::default()
-            },
-            ZH.into(),
-        );
+        swapped.reconfigure(common::fake_backend::spec("m"), ZH.into());
     }));
     let out = translate_and_cache(&tr, &cache, "雪刺帽").await.unwrap();
     assert_eq!(out, "Sombrero de Nieve");
