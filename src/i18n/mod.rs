@@ -271,7 +271,7 @@ fn fallback_order(current: &str) -> Vec<&str> {
     order
 }
 
-/// 同一組（語言, key）第一次回報才為 true：`t()` 每幀都跑，失敗 log 不去重會洗版。
+/// 同一組（語言，key）第一次回報才為 true：`t()` 每幀都跑，失敗 log 不去重會洗版。
 fn first_failure(code: &str, key: &str) -> bool {
     static SEEN: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
     lock(SEEN.get_or_init(Default::default)).insert((code.to_owned(), key.to_owned()))

@@ -29,7 +29,9 @@ use wizard101_chat_translator::region::pipeline::RegionPipeline;
 use wizard101_chat_translator::runtime::updater::{
     LATEST_API, UPDATE_CHECK_INTERVAL, schedule_update_checks,
 };
-use wizard101_chat_translator::runtime::{acquire_single_instance, focus_running_instance};
+use wizard101_chat_translator::runtime::{
+    AcquireError, acquire_single_instance, focus_running_instance,
+};
 use wizard101_chat_translator::ui::app::{self, App, OnSave};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::InputBox;
@@ -44,7 +46,7 @@ use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
 fn main() {
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
     let lock = acquire_single_instance();
-    if lock.is_some() && !cfg!(debug_assertions) {
+    if !matches!(lock, Err(AcquireError::AlreadyRunning)) && !cfg!(debug_assertions) {
         match logs::open_session_log(&app_dir().join("app.log"), chrono::Utc::now()) {
             Ok(file) => logs::init(Sink::File(file)),
             Err(e) => log(format!("[log] cannot open app.log: {e}")),
@@ -54,6 +56,9 @@ fn main() {
     logs::forward_library_logs();
     // 版本先印：app.log 分段標頭後第一行就是版本
     log(format!("[app] version={}", env!("CARGO_PKG_VERSION")));
+    if let Err(AcquireError::CreateFailed(code)) = &lock {
+        log(format!("[app] CreateMutex failed: error={code}"));
+    }
 
     let path = config_path();
     let config_existed = path.exists();
@@ -62,7 +67,7 @@ fn main() {
     set_language(&bootstrap_language(&mut cfg, config_existed));
 
     // 鎖要留到程序結束：一放掉 mutex 就放行下一份
-    let Some(_instance_lock) = claim_instance(|| lock, focus_running_instance) else {
+    let Some(_instance_lock) = claim_instance(|| lock.ok(), focus_running_instance) else {
         return;
     };
     for dir in [app_dir(), local_state_dir()] {

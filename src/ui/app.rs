@@ -236,6 +236,8 @@ impl App {
 
     /// overlay 端套用儲存後的設定（`cfg` 可以只含設定視窗管的鍵），順序同 Python `apply_settings` 的後半；
     /// `region_hotkey` 是實際註冊到的框選熱鍵，`None`（沒註冊）時顯示設定裡的值。
+    ///
+    /// 呼叫前須已 `set_language` 切到新語言：`relabel()` 讀的是目前語言。
     pub fn apply_settings(
         &mut self,
         ctx: &egui::Context,
