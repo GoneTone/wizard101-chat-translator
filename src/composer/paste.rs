@@ -70,7 +70,7 @@ impl TypingEnv {
     }
 }
 
-/// 逐字鍵入 `text`，`delay` 為每字間隔。
+/// 逐字鍵入 `text`，`delay` 為每字間隔；回傳有沒有開始打。
 ///
 /// `hwnd` 為 0 或已關閉就什麼都不打；每個字送出前都確認它仍是前景：打到一半切窗
 /// （或搶焦點失敗）就停，剩下的字不會打進別的視窗。換行在 `chat_open()` 成立時改打空格，
@@ -81,12 +81,12 @@ fn type_chars(
     text: &str,
     delay: Duration,
     chat_open: &dyn Fn() -> bool,
-) {
+) -> bool {
     if hwnd == 0 || !(env.is_window)(hwnd) {
         log(format!(
             "[composer] typing skipped: target window gone (hwnd={hwnd:#x})"
         ));
-        return;
+        return false;
     }
     let (enter, backspace) = (key_code("enter"), key_code("backspace"));
     let total = text.chars().count();
@@ -97,7 +97,7 @@ fn type_chars(
             log(format!(
                 "[composer] typing aborted: target lost foreground after {index}/{total} chars (hwnd={hwnd:#x})"
             ));
-            return;
+            return true;
         }
         // 不還原修飾鍵：還原會讓之後每個字都帶著使用者按著的 Ctrl 送出（Enter 變 Ctrl+Enter）
         for code in (env.pressed)() {
@@ -125,6 +125,7 @@ fn type_chars(
             (env.sleep)(delay);
         }
     }
+    true
 }
 
 fn key_code(name: &str) -> Code {
@@ -253,8 +254,7 @@ pub fn paste_clipboard(
         py_bool(chat_open())
     ));
     wait_for_ctrl_released(env);
-    type_chars(env, hwnd, &text, delay, &chat_open);
-    true
+    type_chars(env, hwnd, &text, delay, &chat_open)
 }
 
 #[cfg(test)]
@@ -456,7 +456,7 @@ mod tests {
         set_clipboard(Ok(Some("hi")));
         let text = crate::logs::capture(|| {
             type_into_window(&env, 0, "hi", Duration::ZERO);
-            paste_clipboard(&env, 0, Duration::ZERO, || false);
+            assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
             env.is_window = |_| false;
             type_into_window(&env, TARGET, "hi", Duration::ZERO);
         });
