@@ -61,7 +61,7 @@ impl HostedWindow {
         true
     }
 
-    /// 框與卡片共用的善後：記下已建立／顯示、找 HWND 並去框、維持不搶焦點、擺到 `rect`；回傳（這一幀剛建立或顯示，是否搬了）。
+    /// 框與卡片共用的善後：記下已建立／顯示、找 HWND 並去框、維持不搶焦點、擺到 `rect`；`(creating, reveal)` 是呼叫端這一幀已算好的建立／顯示判定；回傳（這一幀剛建立或顯示，是否搬了）。
     fn settle(
         &mut self,
         what: &str,
@@ -69,9 +69,8 @@ impl HostedWindow {
         known: &[isize],
         overlay: isize,
         rect: Rect,
+        (creating, reveal): (bool, bool),
     ) -> (bool, bool) {
-        let creating = !self.created;
-        let reveal = self.created && !self.shown;
         self.created = true;
         self.shown |= reveal;
         if self.hwnd == 0 {
@@ -272,6 +271,7 @@ impl RegionHost {
             &known,
             overlay,
             region_box::window_rect(region_box.rect()),
+            (creating, reveal),
         );
         if fresh {
             ctx.request_repaint();
@@ -313,6 +313,7 @@ impl RegionHost {
             &known,
             overlay,
             (placed.x, placed.y, placed.w, placed.h),
+            (creating, reveal),
         );
         if fresh || moved {
             ctx.request_repaint();

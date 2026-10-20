@@ -2,9 +2,9 @@
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use wizard101_chat_translator::util;
+use wizard101_chat_translator::util::{self, Clock};
 
 pub mod fake_backend;
 pub mod fake_game;
@@ -23,14 +23,10 @@ pub const WAIT: Duration = Duration::from_secs(30);
 /// 輪詢 `condition` 到成立為止，最多等 [`WAIT`]，逾時以 `what` 為訊息 panic。
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
-    let deadline = std::time::Instant::now() + WAIT;
-    while !condition() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timed out waiting for {what}"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let deadline = Instant::now() + WAIT;
+    let poll = || condition().then_some(());
+    let done = util::poll_until(&Clock::default(), deadline, Duration::from_millis(5), poll);
+    assert!(done.is_some(), "timed out waiting for {what}");
 }
 
 /// 全域介面語言同一時間只給一個測試用（會切換語言的測試檔各自排隊）。

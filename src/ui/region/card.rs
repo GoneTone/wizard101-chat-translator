@@ -543,7 +543,7 @@ mod tests {
     use super::*;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
-    use crate::ui::text_select::{copied_texts, opened_urls};
+    use crate::ui::text_select::{copied_texts, find_text_shape, opened_urls};
 
     const RECT: Rect = (300, 200, 400, 120);
     const AREA: Rect = (0, 0, 1920, 1040);
@@ -616,7 +616,7 @@ mod tests {
     }
 
     fn shape_with(h: &Harness<State>, text: &str) -> Option<TextShape> {
-        text_shapes(h).into_iter().find(|s| s.galley.text() == text)
+        find_text_shape(&h.output().shapes, text).cloned()
     }
 
     /// 內文 galley 每一段的（文字、顏色、字級、底線色）。

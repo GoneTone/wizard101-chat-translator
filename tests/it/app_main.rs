@@ -24,11 +24,10 @@ use wizard101_chat_translator::config::services::resolve;
 use wizard101_chat_translator::config::{Config, ServiceSlot, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::{ChatInputTracker, Foreground};
-use wizard101_chat_translator::input::dispatcher::{
-    Dispatcher, KeyEvent, Pressed, SharedDispatcher,
-};
+use wizard101_chat_translator::input::dispatcher::testing::{self, code, down, up};
+use wizard101_chat_translator::input::dispatcher::{Dispatcher, Pressed, SharedDispatcher};
 use wizard101_chat_translator::input::inject::Injector;
-use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
+use wizard101_chat_translator::input::keys::Code;
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
@@ -835,7 +834,7 @@ struct Keys {
 
 impl Injector for Keys {
     fn press(&self, code: Code) {
-        if code == key("enter") {
+        if code == testing::code("enter") {
             self.typed.lock().unwrap().push('\n');
         }
     }
@@ -922,27 +921,15 @@ fn register_hotkeys_writes_the_effective_hotkeys_back() {
     );
 }
 
-fn key(name: &str) -> Code {
-    key_to_scan_codes(name).unwrap()[0]
-}
-
 /// 依序按下 `names` 再反序放開，回傳最後一顆按下時有沒有放行。
 fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
     let mut d = d.lock().unwrap();
     let mut passed = true;
     for name in names {
-        passed = d.process(KeyEvent {
-            down: true,
-            code: key(name),
-            raw: None,
-        });
+        passed = d.process(down(code(name)));
     }
     for name in names.iter().rev() {
-        d.process(KeyEvent {
-            down: false,
-            code: key(name),
-            raw: None,
-        });
+        d.process(up(code(name)));
     }
     passed
 }

@@ -146,6 +146,7 @@ impl CopyMenu {
     }
 
     /// 選單目前的範圍；沒開是 `None`。
+    #[cfg(test)]
     pub fn rect(&self) -> Option<Rect> {
         self.rect
     }

@@ -109,7 +109,6 @@ pub fn field_value(h: &WizardHarness, label: &str) -> Option<String> {
     h.get_by_role_and_label(Role::TextInput, label).value()
 }
 
-/// 依畫面由上而下的第 `index` 個〔更改〕：0 是輸入框熱鍵，1 是框選熱鍵。
 /// 第三步：錄下 `combo` 交給第 `index` 把熱鍵。
 pub fn record(h: &mut WizardHarness, index: usize, combo: &str) {
     click_change(h, index);

@@ -16,6 +16,11 @@ use wizard101_chat_translator::translation::clients::{
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
 
+/// 伺服器收到的 chat completions 請求本體。
+async fn bodies(server: &MockServer) -> Vec<Value> {
+    stream_server::bodies_at(server, "/v1/chat/completions").await
+}
+
 fn sse(chunks: &[Value]) -> String {
     let mut out: String = chunks.iter().map(|c| format!("data: {c}\n\n")).collect();
     out.push_str("data: [DONE]\n\n");
@@ -87,7 +92,7 @@ async fn streams_and_joins_deltas() {
     )
     .await;
     assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "譯文");
-    let body = &stream_server::bodies_at(&server, "/v1/chat/completions").await[0];
+    let body = &bodies(&server).await[0];
     assert_eq!(body["stream"], true);
     assert_eq!(
         body["messages"][0],
@@ -123,7 +128,7 @@ async fn official_uses_max_completion_tokens_and_no_temperature() {
     let server = MockServer::start().await;
     mount_chat(&server, ok_stream("x")).await;
     chat(&client(&server, false, true)).await.unwrap();
-    let body = &stream_server::bodies_at(&server, "/v1/chat/completions").await[0];
+    let body = &bodies(&server).await[0];
     assert_eq!(body["max_completion_tokens"], MAX_TOKENS);
     assert!(body.get("max_tokens").is_none() && body.get("temperature").is_none());
     assert_eq!(body["stream_options"], json!({"include_usage": true}));
@@ -137,7 +142,7 @@ async fn custom_keeps_max_tokens_and_temperature_by_thinking_mode() {
     mount_chat(&server, ok_stream("x")).await;
     chat(&client(&server, false, false)).await.unwrap();
     chat(&client(&server, true, false)).await.unwrap();
-    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
+    let sent = bodies(&server).await;
     assert_eq!(sent[0]["max_tokens"], MAX_TOKENS);
     assert_eq!(sent[0]["temperature"], 0);
     assert_eq!(sent[0]["think"], false);
@@ -178,7 +183,7 @@ async fn rejected_400_naming_param_drops_it_and_retries_once() {
     mount_chat_once(&server, rejects("reasoning_effort")).await;
     mount_chat(&server, ok_stream("譯文")).await;
     assert_eq!(chat(&client(&server, false, true)).await.unwrap(), "譯文");
-    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
+    let sent = bodies(&server).await;
     assert_eq!(sent.len(), 2);
     assert!(sent[0].get("reasoning_effort").is_some());
     assert!(sent[1].get("reasoning_effort").is_none());
@@ -192,7 +197,7 @@ async fn learned_params_persist_on_instance() {
     let c = client(&server, false, true);
     chat(&c).await.unwrap();
     chat(&c).await.unwrap();
-    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
+    let sent = bodies(&server).await;
     assert_eq!(sent.len(), 3);
     assert!(sent[2].get("reasoning_effort").is_none());
 }
@@ -210,11 +215,7 @@ async fn other_rejection_wordings_are_recognised() {
     .await;
     mount_chat(&server, ok_stream("譯文")).await;
     assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "譯文");
-    assert!(
-        stream_server::bodies_at(&server, "/v1/chat/completions").await[1]
-            .get("temperature")
-            .is_none()
-    );
+    assert!(bodies(&server).await[1].get("temperature").is_none());
 }
 
 #[tokio::test]
@@ -223,7 +224,7 @@ async fn rejected_token_limit_is_swapped_not_dropped() {
     mount_chat_once(&server, rejects("max_completion_tokens")).await;
     mount_chat(&server, ok_stream("譯文")).await;
     chat(&client(&server, true, true)).await.unwrap();
-    let sent = stream_server::bodies_at(&server, "/v1/chat/completions").await;
+    let sent = bodies(&server).await;
     assert!(sent[1].get("max_completion_tokens").is_none());
     assert_eq!(sent[1]["max_tokens"], MAX_TOKENS_THINKING);
 }
@@ -242,12 +243,7 @@ async fn token_limit_rejected_under_both_names_stops() {
             ..
         })
     ));
-    assert_eq!(
-        stream_server::bodies_at(&server, "/v1/chat/completions")
-            .await
-            .len(),
-        2
-    );
+    assert_eq!(bodies(&server).await.len(), 2);
 }
 
 #[tokio::test]
@@ -256,12 +252,7 @@ async fn rejected_param_not_sent_is_not_retried() {
     mount_chat(&server, rejects("frequency_penalty")).await;
     let result = chat(&client(&server, true, false)).await;
     assert!(matches!(result, Err(TranslateError::Config { .. })));
-    assert_eq!(
-        stream_server::bodies_at(&server, "/v1/chat/completions")
-            .await
-            .len(),
-        1
-    );
+    assert_eq!(bodies(&server).await.len(), 1);
 }
 
 #[tokio::test]
@@ -279,12 +270,7 @@ async fn rejected_core_param_is_returned_not_dropped() {
         ),
         "{error:?}"
     );
-    assert_eq!(
-        stream_server::bodies_at(&server, "/v1/chat/completions")
-            .await
-            .len(),
-        1
-    );
+    assert_eq!(bodies(&server).await.len(), 1);
 }
 
 #[tokio::test]
@@ -325,12 +311,7 @@ async fn bad_request_without_named_param_is_config_error_once() {
             detail: "bad request".into()
         }
     );
-    assert_eq!(
-        stream_server::bodies_at(&server, "/v1/chat/completions")
-            .await
-            .len(),
-        1
-    );
+    assert_eq!(bodies(&server).await.len(), 1);
 }
 
 #[tokio::test]
@@ -598,12 +579,7 @@ async fn redirects_are_not_followed() {
         chat(&client(&server, true, false)).await,
         Err(TranslateError::Unexpected("HTTP 302: ".into()))
     );
-    assert_eq!(
-        stream_server::bodies_at(&server, "/v1/chat/completions")
-            .await
-            .len(),
-        1
-    );
+    assert_eq!(bodies(&server).await.len(), 1);
 }
 
 #[tokio::test]

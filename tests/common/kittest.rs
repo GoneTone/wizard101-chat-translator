@@ -57,7 +57,7 @@ pub fn click<S>(h: &mut Harness<S>, role: Role, label: &str) {
     run(h);
 }
 
-/// 點由上往下數第 `index` 顆「變更」按鈕（錄熱鍵用）。
+/// 點由上往下數第 `index` 顆「變更」按鈕（錄熱鍵用；wizard 中 0 是輸入框熱鍵、1 是框選熱鍵）。
 pub fn click_change<S>(h: &mut Harness<S>, index: usize) {
     let label = tr("button.change");
     let mut nodes: Vec<_> = h
