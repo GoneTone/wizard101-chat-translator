@@ -95,11 +95,6 @@ impl Selection {
         }
     }
 
-    /// 是否正在拖曳選取。
-    pub fn dragging(&self) -> bool {
-        self.dragging
-    }
-
     /// 目前選取到的文字；`messages` 是顯示中分頁的訊息。
     pub fn text(&self, messages: &[Message]) -> String {
         let Some((start, end)) = self.span() else {
@@ -215,12 +210,6 @@ impl Selection {
                 && edge_under(area, p).is_none()
                 && self.begin(list, messages, p)
             {
-                log("[ui] forcing keyboard focus");
-                if shell.take_focus() {
-                    log("[ui] selection took keyboard focus");
-                } else {
-                    log("[ui] selection focus failed: SetForegroundWindow refused");
-                }
                 self.next_tick = time + AUTOSCROLL_INTERVAL;
             }
         }
@@ -234,6 +223,15 @@ impl Selection {
             }
             if !down {
                 self.finish(messages);
+                // 單純點擊不搶焦點，要有選到字（Ctrl+C、右鍵選單）才搶
+                if self.span().is_some() {
+                    log("[ui] forcing keyboard focus");
+                    if shell.take_focus() {
+                        log("[ui] selection took keyboard focus");
+                    } else {
+                        log("[ui] selection focus failed: SetForegroundWindow refused");
+                    }
+                }
             }
         }
         list.set_dragging(self.dragging);
@@ -607,11 +605,19 @@ mod tests {
     }
 
     #[test]
-    fn press_on_a_line_starts_a_selection_and_takes_focus() {
+    fn press_on_a_line_starts_a_selection_without_taking_focus() {
         let mut h = harness(&[("original text", "translated text")]);
         let p = start_of(&h, 0, 0);
         press(&mut h, p);
-        assert!(h.state().selection.dragging());
+        assert!(h.state().selection.dragging);
+        assert_eq!(h.state().focus_shell.focused, 0);
+    }
+
+    #[test]
+    fn releasing_a_drag_that_selected_text_takes_focus() {
+        let mut h = harness(&[("original text", "translated text")]);
+        let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
+        select(&mut h, from, to);
         assert_eq!(h.state().focus_shell.focused, 1);
     }
 
@@ -623,7 +629,7 @@ mod tests {
         let right = Pos2::new(h.state().list.viewport().max.x + 3.0, at(&h, 0, 0, 0.0).y);
         for p in [below, right] {
             press(&mut h, p);
-            assert!(!h.state().selection.dragging(), "{p:?}");
+            assert!(!h.state().selection.dragging, "{p:?}");
             release(&mut h, p);
         }
         assert_eq!(h.state().focus_shell.focused, 0);
@@ -635,8 +641,9 @@ mod tests {
         let p = start_of(&h, 0, 0);
         press(&mut h, p);
         release(&mut h, p);
-        assert!(!h.state().selection.dragging());
+        assert!(!h.state().selection.dragging);
         assert_eq!(h.state().selection.span(), None);
+        assert_eq!(h.state().focus_shell.focused, 0);
         assert_eq!(text(&h), "");
     }
 
@@ -854,7 +861,7 @@ mod tests {
         let viewport = h.state().list.viewport();
         // 視口上方（標題列一帶）按下不會選到捲出視野的訊息
         press(&mut h, Pos2::new(200.0, viewport.min.y - 5.0));
-        assert!(!h.state().selection.dragging());
+        assert!(!h.state().selection.dragging);
         assert_eq!(h.state().focus_shell.focused, 0);
     }
 
@@ -871,7 +878,7 @@ mod tests {
             assert_eq!(edge_under(h.state().area, p), Some(edge), "precondition");
             press(&mut h, p);
             move_to(&mut h, p + Vec2::new(-20.0, 20.0));
-            assert!(!h.state().selection.dragging(), "{edge:?}");
+            assert!(!h.state().selection.dragging, "{edge:?}");
             assert_eq!(h.state().focus_shell.focused, 0, "{edge:?}");
             release(&mut h, p + Vec2::new(-20.0, 20.0));
             assert_ne!(h.state().shell.rect, WINDOW, "{edge:?} should resize");
