@@ -5,7 +5,7 @@
 //! 空白含 `\x1c`–`\x1f`，故不直接用 `regex` 預設的 `\w`／`\s`。
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
@@ -40,9 +40,11 @@ static NON_LATIN_LETTER: LazyLock<Regex> =
 static LATIN_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"[A-Za-z][A-Za-z0-9 .,'’\-]*"));
 // 任何文字的字母；空白、數字與標點不算
 static LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[[\p{L}\p{N}]--[\p{Nd}_]]"));
-static FIRST_LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"\p{L}"));
+// 略過修飾字母：`ʻŌlelo` 的 ʻokina 不決定文字
+static FIRST_LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{L}--\p{Lm}]"));
+// 原文裡的拉丁單字；只取拉丁字母，原文沒空格時（`我要Amy的帽子`）才切得出 `Amy`
+static LATIN_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{Latin}0-9]+"));
 static NON_WORD: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"[^{WORD}]+|_+")));
-static SPACES: LazyLock<Regex> = LazyLock::new(|| re(&format!("{SPACE}+")));
 static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
     re(&format!(
         r"^{SPACE}*(\p{{Nd}}+){SPACE}*[.．、)]{SPACE}*(.*)$"
@@ -140,11 +142,6 @@ pub fn uses_latin_script(language: &str) -> bool {
         .is_some_and(|letter| !NON_LATIN_LETTER.is_match(letter.as_str()))
 }
 
-/// 比對譯文片段與原文用的正規化：空白壓成一格、忽略大小寫。
-fn squash(text: &str) -> String {
-    casefold(strip(&SPACES.replace_all(text, " ")))
-}
-
 /// 譯文是否出現了不該有的拉丁文字 —— 模型改用英文名，或整句沒翻。
 ///
 /// 兩條規則：整段都是拉丁、沒有一個目標語言的字；或拉丁片段裡有原文沒出現過的字。
@@ -160,12 +157,15 @@ pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) ->
     if !LETTER.is_match(&LATIN_RUN.replace_all(&body, "")) {
         return true;
     }
-    let haystack = squash(&remove_sender(source));
+    let source_words: HashSet<String> = LATIN_WORD
+        .find_iter(&remove_sender(source))
+        .map(|word| casefold(word.as_str()))
+        .collect();
     // 逐字比對：模型常改掉字間的標點或連接詞（`Kai and Bob` → `Kai, Bob`）
     LATIN_RUN.find_iter(&body).any(|run| {
         NON_WORD
             .split(run.as_str())
-            .any(|word| !word.is_empty() && !haystack.contains(&casefold(word)))
+            .any(|word| !word.is_empty() && !source_words.contains(&casefold(word)))
     })
 }
 

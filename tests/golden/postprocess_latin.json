@@ -78,5 +78,9 @@
  {
   "input": "  (1) Íslenska",
   "output": true
+ },
+ {
+  "input": "ʻŌlelo Hawaiʻi",
+  "output": true
  }
 ]

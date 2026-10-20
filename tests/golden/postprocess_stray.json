@@ -430,5 +430,21 @@
    "target": "繁體中文（台灣）"
   },
   "output": true
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai 加入了 in Bob",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "我要Amy的帽子",
+   "translated": "我要 Amy 的帽子",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
  }
 ]
