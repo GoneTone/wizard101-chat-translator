@@ -47,7 +47,7 @@ use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
-use wizard101_chat_translator::util;
+use wizard101_chat_translator::util::{self, Clock};
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
 fn cfg() -> Config {
@@ -866,8 +866,10 @@ fn typing_env(keys: &Arc<Keys>) -> Arc<TypingEnv> {
         foreground: || 0x77,
         is_window: |_| true,
         force_foreground: |_| true,
-        sleep: |d| SLEPT.lock().unwrap().push(d),
-        now: Instant::now,
+        clock: Clock {
+            sleep: Box::new(|d| SLEPT.lock().unwrap().push(d)),
+            now: Box::new(Instant::now),
+        },
         pressed: Arc::new(Pressed::new),
         clipboard: || Ok(Some("a\nb".into())),
     })

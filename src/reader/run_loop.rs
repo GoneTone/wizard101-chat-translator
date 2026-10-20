@@ -20,7 +20,7 @@ use crate::translation::cache::TranslationCache;
 use crate::translation::context::ClientContexts;
 use crate::translation::pool::TranslationPool;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::util::{Clock, read};
+use crate::util::{Clock, poll_until, read};
 
 /// 收訊間隔：每輪只讀 hook 環形緩衝的計數器，很便宜。
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -43,13 +43,9 @@ pub(crate) fn wait(
     mut keep_going: impl FnMut() -> bool,
 ) {
     let deadline = (clock.now)() + duration;
-    while !stop.is_cancelled() && keep_going() {
-        let remaining = deadline.saturating_duration_since((clock.now)());
-        if remaining.is_zero() {
-            return;
-        }
-        (clock.sleep)(remaining.min(WAIT_SLICE));
-    }
+    poll_until(clock, deadline, WAIT_SLICE, || {
+        (stop.is_cancelled() || !keep_going()).then_some(())
+    });
 }
 
 /// 跨所有收訊執行緒共用的訊息序號：翻譯池以它回填 overlay 的佔位列，必須全域唯一。

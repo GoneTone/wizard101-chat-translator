@@ -220,7 +220,7 @@ impl Game {
     }
 
     /// 假 sleep：推進假時鐘；root window hook 會被執行時把 root 位址寫進目前的 export。
-    fn on_sleep(&self) -> Box<dyn Fn(Duration) + Send> {
+    fn on_sleep(&self) -> Box<dyn Fn(Duration) + Send + Sync> {
         let (mem, elapsed, fires, seen, dir) = (
             self.mem.clone(),
             self.elapsed.clone(),
