@@ -233,6 +233,7 @@ pub fn build_translation(
 /// 呼叫前必須先把 `cfg` 寫進共用的設定：`build_translation` 的範例套用回呼讀的是那份，否則晚到的範例會把快取綁回舊指紋。
 pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
     let target = Settings::from_config(cfg);
+    let mut rebuilt = false;
     let slots = [
         (ServiceSlot::Incoming, &translation.incoming),
         (ServiceSlot::Outgoing, &translation.outgoing),
@@ -240,6 +241,7 @@ pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
     ];
     for (slot, translator) in slots {
         if translator.reconfigure(resolve(cfg, slot), target.target_language.clone()) {
+            rebuilt = true;
             log(format!(
                 "[translate] {} translator rebuilt: {}",
                 slot.key(),
@@ -251,6 +253,9 @@ pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
         }
     }
     for pool in [&translation.pool, &translation.system_pool] {
+        if rebuilt {
+            pool.note_reconfigured();
+        }
         pool.resize(target.max_parallel_translations);
     }
     // 只改框選那格不該波及收訊的快取
@@ -490,7 +495,8 @@ pub fn outgoing_translate(
                 Err(panic) => {
                     let message = panic_message(panic.as_ref());
                     log(format!(
-                        "[input] outgoing translation panicked (chars={chars}): {message}"
+                        "[input] outgoing translation panicked (chars={chars}, {}): {message}",
+                        tr.describe()
                     ));
                     Err(t("input.failed", &[("error", &message)]))
                 }

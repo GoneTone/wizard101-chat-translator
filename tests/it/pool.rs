@@ -824,3 +824,34 @@ async fn config_error_line_does_not_starve_others_at_concurrency_one() {
     assert_eq!(pool.error_state(), None);
     assert_eq!(pool.in_flight(), 0);
 }
+
+#[tokio::test(start_paused = true)]
+async fn config_error_from_a_pre_reconfigure_request_is_retried_not_dropped() {
+    let release = CancellationToken::new();
+    let first_a = Arc::new(AtomicUsize::new(0));
+    let translate = tfn({
+        let release = release.clone();
+        move |line: String, _| {
+            let release = release.clone();
+            let first_a = first_a.clone();
+            async move {
+                if line == "[A] old" && first_a.fetch_add(1, Ordering::SeqCst) == 0 {
+                    release.cancelled().await;
+                    return Err(TranslateError::Config {
+                        status: Some(401),
+                        detail: "old key".into(),
+                    });
+                }
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[A] old".into(), vec![], 1);
+    settle().await;
+    pool.note_reconfigured();
+    pool.submit("[B] new".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] new".into(), false));
+    release.cancel();
+    assert_eq!(next(&mut rx).await, (1, "[A] old".into(), false));
+}

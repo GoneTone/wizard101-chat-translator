@@ -67,6 +67,8 @@ struct State {
     gate_until: Option<Instant>,
     /// 累計成功則數；Config 錯誤期間它有變，代表設定沒問題、錯在這則本身。
     successes: u64,
+    /// 設定重建次數；舊設定送出的請求回 Config 錯誤時，別拿新設定下的成功當證據。
+    config_epoch: u64,
 }
 
 struct Inner {
@@ -156,6 +158,11 @@ impl TranslationPool {
         }
         self.inner.gate.set_limit(workers);
         log(format!("[translate] pool resized to {workers} workers"));
+    }
+
+    /// 通知翻譯設定已重建：之前送出的請求若回 Config 錯誤，改為重試而非判定為該則本身的問題。
+    pub fn note_reconfigured(&self) {
+        self.inner.state().config_epoch += 1;
     }
 
     /// 停止接受新工作；等待中的各則立即放棄（不回報），已送出的請求跑完照常回報。
@@ -268,7 +275,7 @@ impl Job {
         let mut attempts = 0;
         let mut last_error: Option<ErrorState> = None;
         // 連續 Config 錯誤共用同一個基準：別則在兩次嘗試之間成功也要看得出來
-        let mut baseline: Option<u64> = None;
+        let mut baseline: Option<(u64, u64)> = None;
         while inner.wait_for_backoff().await {
             if self.born.elapsed() > MAX_JOB_AGE {
                 log(format!(
@@ -292,7 +299,10 @@ impl Job {
                 continue;
             }
             attempts += 1;
-            let successes_before = *baseline.get_or_insert(inner.state().successes);
+            let (successes_before, epoch_before) = *baseline.get_or_insert_with(|| {
+                let state = inner.state();
+                (state.successes, state.config_epoch)
+            });
             let request = async { (inner.translate)(line.clone(), context.clone()).await };
             // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
             let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {
@@ -310,6 +320,12 @@ impl Job {
                 }
                 Ok(Err(err @ TranslateError::Config { .. })) => {
                     last_error = Some(ErrorState::Config);
+                    if inner.state().config_epoch != epoch_before {
+                        // 請求是用舊設定送的：用新設定重來
+                        baseline = None;
+                        drop(permit);
+                        continue;
+                    }
                     // 別則成功過，設定沒問題；錯在這則本身，不動閘門與橫幅
                     if inner.state().successes != successes_before {
                         ("rejected while other lines succeed", err.to_string())
