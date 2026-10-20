@@ -425,6 +425,7 @@ mod tests {
             },
             work_area_at: |_, _| (0, 0, 1920, 1040),
             trigger_held: || HELD.with(Cell::get),
+            typing: || false,
         };
         let harness = Harness::builder()
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))

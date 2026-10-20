@@ -750,6 +750,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
             force_foreground: |_| false,
             work_area_at: |_, _| BOX_AREA,
             trigger_held: || false,
+            typing: || false,
         };
         app.set_input_desktop(desktop);
         app.set_region_desktop(desktop);
