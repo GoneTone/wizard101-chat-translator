@@ -56,13 +56,14 @@ pub fn poll_until<T>(
 
 /// 等執行緒結束到 `deadline` 為止：結束了就 join 並回 true，逾時回 false（執行緒留著不管）。
 pub fn join_until(thread: JoinHandle<()>, deadline: Instant, clock: &Clock) -> bool {
-    poll_until(clock, deadline, JOIN_POLL, || {
+    let done = poll_until(clock, deadline, JOIN_POLL, || {
         thread.is_finished().then_some(())
     })
-    .is_some_and(|()| {
+    .is_some();
+    if done {
         let _ = thread.join();
-        true
-    })
+    }
+    done
 }
 
 /// panic payload 裡的訊息（`&str` 或 `String`）；其他型別回 `"panic"`。
