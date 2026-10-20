@@ -8,6 +8,7 @@
   "notice.game_missing": "⚠  游戏未就绪／连接中断，等待中…",
   "notice.access_denied": "⚠  权限不足：游戏以管理员身份运行，请以管理员身份重开本程序",
   "notice.hotkeys_unavailable": "⚠  快捷键无法使用：键盘 hook 安装失败，请重新启动本程序",
+  "notice.config_unsaved": "⚠  设置无法保存，退出后将会丢失 —— 请确认程序所在文件夹可写入",
   "notice.version_mismatch": "⚠  游戏版本不兼容：请将游戏与本程序都更新至最新版；若两者皆已是最新，代表本程序尚未支持这个游戏版本，请等待更新",
   "notice.offline": "⚠  翻译服务器离线，重试中…",
   "notice.config_error": "⚠  API 设置有误，请打开设置（⚙）检查",

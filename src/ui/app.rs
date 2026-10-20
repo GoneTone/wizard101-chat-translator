@@ -436,6 +436,8 @@ impl App {
             UiEvent::SetError { key, args } => self.banners.set_error(key, args),
             UiEvent::ClearError => self.banners.clear_error(),
             UiEvent::HotkeysUnavailable => self.banners.set_hotkeys_unavailable(),
+            UiEvent::ConfigSaveFailed => self.banners.set_config_unsaved(true),
+            UiEvent::ConfigSaved => self.banners.set_config_unsaved(false),
             UiEvent::UpdateFound(release) => self.banners.offer_update(release),
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
             UiEvent::AddMessage {

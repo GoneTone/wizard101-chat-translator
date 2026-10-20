@@ -10,7 +10,7 @@ use tokio::runtime::Handle;
 use wizard101_chat_translator::app_main::{
     Running, WinRegionDesktop, apply_settings, build_app, claim_instance, install_console_quit,
     log_startup_summary, open_messages_log, outgoing_translate, region_capturer, region_runner,
-    run_ui_then, save_field, shutdown, type_delay,
+    report_save, run_ui_then, save_field, shutdown, type_delay,
 };
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
@@ -117,12 +117,19 @@ fn main() {
     let ui = move || {
         let result = run::run_with_warp_fallback(configured, move |ctx| {
             let geometry_cfg = Arc::clone(&shared_cfg);
+            let geometry_ui = startup.ui.clone();
             let frame = Frame::new(
                 settings.overlay_alpha,
                 Some(settings.overlay.clone()),
                 move |x, y, width, height| {
                     let value = json!({"x": x, "y": y, "width": width, "height": height});
-                    save_field(&geometry_cfg, &config_path(), "overlay", value);
+                    save_field(
+                        &geometry_cfg,
+                        &config_path(),
+                        "overlay",
+                        value,
+                        &geometry_ui,
+                    );
                 },
             );
             let mut app = App::new(ctx, inbox, frame);
@@ -141,12 +148,14 @@ fn main() {
                         *shared = cfg;
                         shared.clone()
                     };
-                    match save_config(&config_path(), &cfg) {
+                    let saved = save_config(&config_path(), &cfg);
+                    match &saved {
                         Ok(()) => log("[app] wizard completed, config saved"),
                         Err(e) => log(format!(
                             "[app] wizard completed but config.json could not be saved: {e}"
                         )),
                     }
+                    report_save(&startup.ui, saved.is_ok());
                     start_main(app, startup);
                 }),
             )
@@ -240,12 +249,14 @@ fn start_main(app: &mut App, startup: Startup) {
     app.set_input(input_box, input_events, Arc::clone(&shared_cfg));
     app.set_region(region_flow);
     let bubble_cfg = Arc::clone(&shared_cfg);
+    let bubble_ui = ui.clone();
     app.set_bubble_position(settings.bubble_position, move |x, y| {
         save_field(
             &bubble_cfg,
             &config_path(),
             "bubble_position",
             json!({"x": x, "y": y}),
+            &bubble_ui,
         )
     });
 

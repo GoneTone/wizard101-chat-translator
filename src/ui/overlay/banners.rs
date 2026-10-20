@@ -28,6 +28,8 @@ pub struct Banners {
     error: Option<Banner>,
     /// 鍵盤 hook 裝不上；與收訊的錯誤分開存，收訊清掉錯誤時才不會一起消失。
     hotkeys_unavailable: bool,
+    /// 最近一次存設定失敗；下一次存檔成功才清掉。
+    config_unsaved: bool,
     update: Option<Release>,
     dismissed: Option<String>,
     error_height: f32,
@@ -49,13 +51,19 @@ impl Banners {
         self.hotkeys_unavailable = true;
     }
 
-    /// 錯誤橫幅目前的文字（收訊錯誤與快捷鍵錯誤各一行）；都沒有回 `None`。
+    /// 設定存檔失敗時加上一行提示，存檔成功時收起。
+    pub fn set_config_unsaved(&mut self, unsaved: bool) {
+        self.config_unsaved = unsaved;
+    }
+
+    /// 錯誤橫幅目前的文字（收訊錯誤、快捷鍵錯誤、存檔錯誤各一行）；都沒有回 `None`。
     pub fn error_text(&self) -> Option<String> {
         let reader = self.error.as_ref().map(|(key, args)| localized(key, args));
         let hotkeys = self
             .hotkeys_unavailable
             .then(|| t("notice.hotkeys_unavailable", &[]));
-        let lines: Vec<String> = [reader, hotkeys].into_iter().flatten().collect();
+        let unsaved = self.config_unsaved.then(|| t("notice.config_unsaved", &[]));
+        let lines: Vec<String> = [reader, hotkeys, unsaved].into_iter().flatten().collect();
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
@@ -300,6 +308,17 @@ mod tests {
         assert_eq!(banners.error_text(), Some(format!("{game}\n{hotkeys}")));
         banners.clear_error();
         assert_eq!(banners.error_text(), Some(hotkeys));
+    }
+
+    #[test]
+    fn the_unsaved_line_stays_until_a_save_succeeds() {
+        let unsaved = t("notice.config_unsaved", &[]);
+        let mut banners = Banners::default();
+        banners.set_config_unsaved(true);
+        banners.clear_error();
+        assert_eq!(banners.error_text(), Some(unsaved));
+        banners.set_config_unsaved(false);
+        assert_eq!(banners.error_text(), None);
     }
 
     #[test]

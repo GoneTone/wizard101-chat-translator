@@ -46,6 +46,10 @@ pub enum UiEvent {
     ClearError,
     /// 鍵盤 hook 裝不上：錯誤橫幅多一行，收訊恢復也不收起。
     HotkeysUnavailable,
+    /// 設定存檔失敗：錯誤橫幅多一行，直到下一次存檔成功。
+    ConfigSaveFailed,
+    /// 設定存檔成功：收起「尚未存檔」那一行。
+    ConfigSaved,
     /// 自動檢查發現新版；關掉過的版本不會再跳出。
     UpdateFound(Release),
     /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。

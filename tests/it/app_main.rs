@@ -1096,6 +1096,26 @@ fn outgoing_translate_cancel_logs_and_posts_nothing() {
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
+#[test]
+fn outgoing_translate_panic_still_posts_the_localized_error() {
+    quiet_panics();
+    let o = outgoing(Ok("unused".into()));
+    let message = format!("{EXPECTED_PANIC} outgoing exploded");
+    let panicking = message.clone();
+    o.backend.on_call(move |_| panic!("{panicking}"));
+    let rx = o.submit("panic-case-text", 0, 5);
+    assert_eq!(
+        rx.recv_timeout(common::WAIT).unwrap(),
+        UiEvent::OutgoingDone {
+            session: 5,
+            result: Err(t("input.failed", &[("error", &message)]))
+        }
+    );
+    let lines = log_lines_with("[input] outgoing translation panicked (chars=15");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].ends_with(&message), "{lines:?}");
+}
+
 const REGION_RECT: (i32, i32, i32, i32) = (1, 2, 30, 40);
 
 impl Outgoing {
@@ -1414,4 +1434,21 @@ fn region_hotkey_equal_to_the_input_hotkey_is_not_registered() {
     let (_hotkey, region) = register_hotkeys(&settings, &ui, &d, &wiring(false), no_mask());
     assert!(region.is_none());
     assert_eq!(d.lock().unwrap().handler_count(), 1);
+}
+
+#[test]
+fn apply_settings_reports_a_failed_save_then_clears_it_on_the_next_success() {
+    let mut l = live("apply_save_failed");
+    let good = l.running.config_path.clone();
+    l.running.config_path = l.dir.path().to_owned();
+    l.apply(partial(&[("max_messages", json!(50))]));
+    let events: Vec<_> = l.rx.try_iter().collect();
+    assert!(events.contains(&UiEvent::ConfigSaveFailed), "{events:?}");
+    assert!(!events.contains(&UiEvent::ConfigSaved), "{events:?}");
+
+    l.running.config_path = good;
+    l.apply(partial(&[("max_messages", json!(60))]));
+    let events: Vec<_> = l.rx.try_iter().collect();
+    assert!(events.contains(&UiEvent::ConfigSaved), "{events:?}");
+    assert!(!events.contains(&UiEvent::ConfigSaveFailed), "{events:?}");
 }

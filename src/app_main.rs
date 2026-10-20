@@ -88,8 +88,18 @@ pub fn claim_instance<L>(
 }
 
 /// 使用者拖過視窗／泡泡就立刻落地，不等按儲存。
-pub fn save_field(settings: &RwLock<Config>, path: &Path, key: &str, value: Value) {
-    set_then_save(settings, key, value, |cfg| save_config(path, cfg));
+pub fn save_field(settings: &RwLock<Config>, path: &Path, key: &str, value: Value, ui: &UiPoster) {
+    let saved = set_then_save(settings, key, value, |cfg| save_config(path, cfg));
+    report_save(ui, saved.is_ok());
+}
+
+/// 讓橫幅反映最近一次存設定的結果：失敗亮起提示，成功收起。
+pub fn report_save(ui: &UiPoster, saved: bool) {
+    ui.post(if saved {
+        UiEvent::ConfigSaved
+    } else {
+        UiEvent::ConfigSaveFailed
+    });
 }
 
 /// 寫鎖只包住插入：鍵盤 hook 每次 Ctrl+V 都要讀設定，存檔的 I/O 卡住它會被 Windows 拔掉。
@@ -98,15 +108,13 @@ fn set_then_save(
     key: &str,
     value: Value,
     save: impl FnOnce(&Config) -> std::io::Result<()>,
-) {
+) -> std::io::Result<()> {
     let cfg = {
         let mut cfg = write(settings);
         cfg.insert(key.to_owned(), value);
         cfg.clone()
     };
-    if let Err(e) = save(&cfg) {
-        log(format!("[config] could not save {key} to config.json: {e}"));
-    }
+    save(&cfg).inspect_err(|e| log(format!("[config] could not save {key} to config.json: {e}")))
 }
 
 /// 收訊那格目前生效的譯文快取指紋；`examples` 為已套用的範例（無則 `None`）。
@@ -395,12 +403,13 @@ pub fn apply_settings(
         cfg.extend(new_cfg);
         cfg.clone()
     };
-    if let Err(e) = save_config(&running.config_path, &cfg) {
+    let saved = save_config(&running.config_path, &cfg).inspect_err(|e| {
         log(format!(
             "[settings] could not save {}: {e}",
             running.config_path.display()
-        ));
-    }
+        ))
+    });
+    report_save(ui, saved.is_ok());
     reconfigure_translation(&cfg, &running.translation);
     // 新的先註冊再解除舊的：Registration 只能整個交出去 unregister
     let fresh = register_hotkeys(
@@ -457,24 +466,33 @@ pub fn outgoing_translate(
         let (tr, ui) = (Arc::clone(&translator), ui.clone());
         rt.spawn(async move {
             let chars = req.text.chars().count();
-            let result = match tr
-                .translate_outgoing(&req.text, &context, Some(&req.cancel))
-                .await
-            {
-                Ok(translated) => Ok(translated),
-                Err(TranslateError::Cancelled) => {
+            // panic 時 OutgoingDone 不送，輸入框會一直停在翻譯中
+            let outcome =
+                AssertUnwindSafe(tr.translate_outgoing(&req.text, &context, Some(&req.cancel)))
+                    .catch_unwind()
+                    .await;
+            let result = match outcome {
+                Ok(Ok(translated)) => Ok(translated),
+                Ok(Err(TranslateError::Cancelled)) => {
                     log(format!(
                         "[input] outgoing translation cancelled (chars={chars})"
                     ));
                     return;
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     log(format!(
                         "[input] outgoing translation failed (chars={chars}, {}): {}: {err}",
                         tr.describe(),
                         err.kind()
                     ));
                     Err(t("input.failed", &[("error", &err.to_string())]))
+                }
+                Err(panic) => {
+                    let message = panic_message(panic.as_ref());
+                    log(format!(
+                        "[input] outgoing translation panicked (chars={chars}): {message}"
+                    ));
+                    Err(t("input.failed", &[("error", &message)]))
                 }
             };
             ui.post(UiEvent::OutgoingDone {
@@ -959,11 +977,12 @@ mod tests {
     #[test]
     fn save_field_releases_the_settings_lock_before_saving() {
         let settings = RwLock::new(Config::new());
-        set_then_save(&settings, "k", Value::from(1), |cfg| {
+        let saved = set_then_save(&settings, "k", Value::from(1), |cfg| {
             assert!(settings.try_write().is_ok(), "lock held during save");
             assert_eq!(cfg["k"], 1);
             Ok(())
         });
+        assert!(saved.is_ok());
         assert_eq!(read(&settings)["k"], 1);
     }
 }
