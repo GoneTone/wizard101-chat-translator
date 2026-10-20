@@ -30,7 +30,7 @@ use super::ui_tree::{FLAG_VISIBLE, Window, find_by_name};
 use crate::config::local_state_dir;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
-use crate::util::Clock;
+use crate::util::{Clock, poll_until};
 
 /// 螢幕矩形 `(x, y, w, h)`。
 type ScreenRect = (i32, i32, i32, i32);
@@ -683,27 +683,35 @@ impl WizChatReader {
     fn wait_root_window_ready(&mut self) -> Result<Duration, AttachError> {
         let conn = self.attached.as_ref().expect("reader is attached");
         let started = (self.clock.now)();
-        let deadline = started + HOOK_READY_TIMEOUT;
-        loop {
-            if conn.mem.read_u64(conn.export).is_ok_and(|addr| addr != 0) {
-                return Ok((self.clock.now)() - started);
-            }
-            if self.stop.is_cancelled() || !conn.mem.is_alive() {
-                return Err(AttachError::Cancelled);
-            }
-            if (self.clock.now)() >= deadline {
+        let (stop, mem) = (&self.stop, &conn.mem);
+        let outcome = poll_until(
+            &self.clock,
+            started + HOOK_READY_TIMEOUT,
+            HOOK_READY_POLL,
+            || {
+                if mem.read_u64(conn.export).is_ok_and(|addr| addr != 0) {
+                    Some(Ok(()))
+                } else if stop.is_cancelled() || !mem.is_alive() {
+                    Some(Err(AttachError::Cancelled))
+                } else {
+                    None
+                }
+            },
+        );
+        match outcome {
+            Some(ready) => ready.map(|()| (self.clock.now)() - started),
+            None => {
                 if remember(&mut self.last_attach_failure, "root window hook timeout") {
                     log(format!(
-                        "[reader] root window hook never fired within {}s (slot={}, pid={}); the \
-                     hook pattern likely does not match this game build",
+                        "[reader] root window hook never fired within {}s (slot={}, pid={}); the hook \
+                         pattern likely does not match this game build",
                         HOOK_READY_TIMEOUT.as_secs(),
                         self.slot,
                         self.pid
                     ));
                 }
-                return Err(AttachError::Timeout);
+                Err(AttachError::Timeout)
             }
-            (self.clock.sleep)(HOOK_READY_POLL);
         }
     }
 

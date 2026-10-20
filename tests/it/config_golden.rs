@@ -10,6 +10,7 @@ use wizard101_chat_translator::config::{
     self, Config, ServiceSlot, bootstrap_language_with, config_summary, load_config, save_config,
     services,
 };
+use wizard101_chat_translator::util;
 
 /// 同 exporter 的 `_canon_ids`：`source` 裡沒有的服務 id 依出現順序換成 `@idN`。
 fn canon_ids(cfg: &Config, source: &str, texts: &[String]) -> Vec<String> {
@@ -67,7 +68,7 @@ fn load_matches_python() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     for (i, case) in common::golden("config_load").iter().enumerate() {
-        let raw = common::unhex(case["input"].as_str().unwrap());
+        let raw = util::unhex(case["input"].as_str().unwrap()).unwrap();
         let path = dir.join(format!("{i}.json"));
         fs::write(&path, &raw).unwrap();
         let cfg = load_config(&path);

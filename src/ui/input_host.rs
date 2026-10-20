@@ -181,11 +181,11 @@ impl InputHost {
             return;
         }
         if self.hwnd == 0 {
-            self.hwnd = viewport::find_new_window(&before, known, &app_name());
+            self.hwnd = viewport::find_logged("[ui]", "input box", creating, || {
+                viewport::find_new_window(&before, known, &app_name())
+            });
             if self.hwnd != 0 {
                 self.place(height, overlay);
-            } else if creating {
-                log("[ui] input box hwnd lookup failed: no new window on the UI thread");
             }
         } else if height != self.content_dip {
             let content_h = (height * ppp).round() as i32;

@@ -21,9 +21,9 @@ const JOIN_POLL: Duration = Duration::from_millis(10);
 /// 等待與計時用的時鐘；測試換成假的就不必真的等。
 pub struct Clock {
     /// 目前時刻。
-    pub now: Box<dyn Fn() -> Instant + Send>,
+    pub now: Box<dyn Fn() -> Instant + Send + Sync>,
     /// 睡指定的時間。
-    pub sleep: Box<dyn Fn(Duration) + Send>,
+    pub sleep: Box<dyn Fn(Duration) + Send + Sync>,
 }
 
 impl Default for Clock {
@@ -35,19 +35,35 @@ impl Default for Clock {
     }
 }
 
-/// 等執行緒結束到 `deadline` 為止：結束了就 join 並回 true，逾時回 false（執行緒留著不管）。
-pub fn join_until(thread: JoinHandle<()>, deadline: Instant, clock: &Clock) -> bool {
+/// 每隔 `interval` 呼叫 `check`，回 `Some` 就返回；到 `deadline` 還是 `None` 則回 `None`。
+pub fn poll_until<T>(
+    clock: &Clock,
+    deadline: Instant,
+    interval: Duration,
+    mut check: impl FnMut() -> Option<T>,
+) -> Option<T> {
     loop {
-        if thread.is_finished() {
-            let _ = thread.join();
-            return true;
+        if let Some(found) = check() {
+            return Some(found);
         }
         let remaining = deadline.saturating_duration_since((clock.now)());
         if remaining.is_zero() {
-            return false;
+            return None;
         }
-        (clock.sleep)(remaining.min(JOIN_POLL));
+        (clock.sleep)(remaining.min(interval));
     }
+}
+
+/// 等執行緒結束到 `deadline` 為止：結束了就 join 並回 true，逾時回 false（執行緒留著不管）。
+pub fn join_until(thread: JoinHandle<()>, deadline: Instant, clock: &Clock) -> bool {
+    let done = poll_until(clock, deadline, JOIN_POLL, || {
+        thread.is_finished().then_some(())
+    })
+    .is_some();
+    if done {
+        let _ = thread.join();
+    }
+    done
 }
 
 /// panic payload 裡的訊息（`&str` 或 `String`）；其他型別回 `"panic"`。
@@ -89,6 +105,17 @@ pub fn hex(bytes: &[u8]) -> String {
         let _ = write!(s, "{b:02x}");
         s
     })
+}
+
+/// 小寫或大寫 hex 字串轉位元組；長度為奇數或含非 hex 字元回 `None`。
+pub fn unhex(s: &str) -> Option<Vec<u8>> {
+    if !s.len().is_multiple_of(2) || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect()
 }
 
 /// 一個隨機的 `u64`：借用標準庫每次不同種子的雜湊，只求分散與不撞，不需密碼學強度。
@@ -171,6 +198,12 @@ pub fn remove_dead_pid_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_uppercase_hex() {
+        assert_eq!(unhex("0aFF"), Some(vec![0x0a, 0xff]));
+        assert_eq!(hex(&[0x0a, 0xff]), "0aff");
+    }
 
     #[test]
     fn temp_pid_reads_only_write_atomic_temp_names() {

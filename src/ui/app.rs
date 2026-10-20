@@ -523,7 +523,7 @@ impl App {
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
         let rect = self.banners.show(ui, rect);
         self.selection
-            .show(ui, &mut self.list, &self.model, &mut Win32Shell(self.hwnd));
+            .show(ui, &mut self.list, &self.model, self.shell.as_mut());
         self.list
             .show(ui, rect, &self.model, self.status, self.selection.span());
     }
@@ -558,11 +558,6 @@ impl App {
         if !self.minimized {
             ctx.request_repaint();
         }
-    }
-
-    /// 首次設定模式（精靈開著，或已取消、等根視窗關閉）時根視窗藏著；完成時 `first_run` 才清掉。
-    fn in_first_run(&self) -> bool {
-        self.first_run.is_some()
     }
 
     /// 每幀畫出開著的設定視窗與精靈，並處理它們要 App 做的事。
@@ -699,7 +694,8 @@ impl eframe::App for App {
                 self.shell = Box::new(Win32Shell(self.hwnd));
             }
         }
-        let visible = !self.in_first_run();
+        // 首次設定期間（精靈開著，或已取消、等根視窗關閉）根視窗藏著
+        let visible = self.first_run.is_none();
         if self.shown != visible {
             self.shown = visible;
             ctx.send_viewport_cmd(ViewportCommand::Visible(self.shown));
@@ -766,6 +762,7 @@ mod tests {
     use crate::ui::overlay::outlined::line_height;
     use crate::ui::region::fakes;
     use crate::ui::region::selector::SelectorAction;
+    use crate::ui::text_select::find_text_shape;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use std::time::Duration;
@@ -998,12 +995,7 @@ mod tests {
         harness.step();
         harness.step();
         let label = crate::i18n::t("menu.copy", &[]);
-        let menu_shown = |h: &Harness<App>| {
-            h.output()
-                .shapes
-                .iter()
-                .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == label))
-        };
+        let menu_shown = |h: &Harness<App>| find_text_shape(&h.output().shapes, &label).is_some();
         assert!(menu_shown(&harness));
         harness.state_mut().set_minimized(true);
         harness.step();
@@ -1208,6 +1200,9 @@ mod tests {
         fn set_cloaked(&mut self, cloaked: bool) {
             self.2.set(cloaked);
         }
+        fn take_focus(&mut self) -> bool {
+            self.0.borrow_mut().take_focus()
+        }
     }
 
     type Saved<T> = Rc<RefCell<Vec<T>>>;
@@ -1233,6 +1228,7 @@ mod tests {
             cursor: (0, 0),
             rect: OVERLAY,
             ready: true,
+            focused: 0,
         };
         let root = Root {
             shell: Rc::new(RefCell::new(fake)),
@@ -1271,16 +1267,41 @@ mod tests {
     }
 
     fn painted_text(harness: &Harness<App>, text: &str) -> bool {
-        harness
-            .output()
-            .shapes
-            .iter()
-            .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == text))
+        find_text_shape(&harness.output().shapes, text).is_some()
     }
 
     /// 這一幀根視窗什麼都沒畫（呈現全透明）。
     fn drew_nothing(harness: &Harness<App>) -> bool {
         harness.output().shapes.is_empty()
+    }
+
+    #[test]
+    fn dragging_a_selection_takes_focus_through_the_shell() {
+        let (poster, inbox) = channel();
+        poster.post(UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: "原文一".into(),
+            translated: "譯文一".into(),
+            msg_id: None,
+            pending: false,
+            color: None,
+        });
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        harness.step();
+        let [(first, _), (second, _)] = harness.state().list.rows()[0].lines;
+        let (from, to) = (
+            first + egui::vec2(20.0, 5.0),
+            second + egui::vec2(1000.0, 5.0),
+        );
+        harness.hover_at(from);
+        harness.drag_at(from);
+        harness.step();
+        harness.hover_at(to);
+        harness.step();
+        harness.drop_at(to);
+        harness.step();
+        assert_eq!(root.shell.borrow().focused, 1);
     }
 
     const TOP_RIGHT: Rect = (100 + 640 - 48, 200, 48, 48);
@@ -1465,6 +1486,7 @@ mod tests {
             cursor: (0, 0),
             rect: OVERLAY,
             ready: true,
+            focused: 0,
         });
         app.set_minimized(true);
         let first = app.bubble_rect(OVERLAY, 1.0);

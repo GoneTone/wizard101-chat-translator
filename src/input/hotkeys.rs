@@ -261,27 +261,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::input::keys::key_to_scan_codes;
-
-    fn code(name: &str) -> Code {
-        key_to_scan_codes(name).unwrap()[0]
-    }
-
-    fn down(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: true,
-            code,
-            raw: None,
-        }
-    }
-
-    fn up(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: false,
-            code,
-            raw: None,
-        }
-    }
+    use crate::input::dispatcher::testing::{code, down, up};
 
     struct Probe {
         interceptor: HotkeyInterceptor,

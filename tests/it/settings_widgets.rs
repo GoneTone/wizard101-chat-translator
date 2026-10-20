@@ -2,12 +2,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::common::kittest::click_at;
+use crate::common::kittest::{click_at, themed_harness};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
+use wizard101_chat_translator::input::dispatcher::{Dispatcher, testing::key};
 use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
@@ -22,24 +22,13 @@ use wizard101_chat_translator::ui::settings::widgets::{
     INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, icon_button,
     keycaps, outcome, primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
 };
+use wizard101_chat_translator::ui::text_select::find_text_shape;
 
-/// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
 fn harness<S: 'static>(
     state: S,
-    mut content: impl FnMut(&mut Ui, &mut S) + 'static,
+    content: impl FnMut(&mut Ui, &mut S) + 'static,
 ) -> Harness<'static, S> {
-    let mut harness = Harness::builder()
-        .with_size(egui::vec2(480.0, 360.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-        .build_ui_state(
-            move |ui, state| {
-                theme::apply(ui.style_mut());
-                content(ui, state);
-            },
-            state,
-        );
-    harness.run_steps(2);
-    harness
+    themed_harness(egui::vec2(480.0, 360.0), "en-US", content, state)
 }
 
 fn strings(items: &[&str]) -> Vec<String> {
@@ -55,6 +44,15 @@ fn keycaps_splits_steps_and_keys() {
     );
     assert_eq!(keycaps("page up"), [strings(&["Page Up"])]);
     assert!(keycaps("").is_empty());
+}
+
+#[test]
+fn keycaps_splits_like_the_hotkey_parser() {
+    assert_eq!(
+        keycaps("ctrl+a,b"),
+        [strings(&["Ctrl", "A"]), strings(&["B"])]
+    );
+    assert_eq!(keycaps("+"), [strings(&["+"])]);
 }
 
 #[test]
@@ -240,14 +238,7 @@ fn icon_button_tooltip_uses_the_settings_theme() {
     let button = h.get_by_label("Close tip").rect();
     h.hover_at(button.center());
     h.run_steps(4);
-    let color = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == "Close tip" => Some(shape.fallback_color),
-            _ => None,
-        });
+    let color = find_text_shape(&h.output().shapes, "Close tip").map(|shape| shape.fallback_color);
     assert_eq!(color, Some(theme::TEXT));
 }
 
@@ -302,6 +293,38 @@ fn editable_combo_scrolls_a_long_list_and_keeps_the_hot_option_in_view() {
 }
 
 #[test]
+fn editable_combo_grows_to_the_full_height_when_more_options_match() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..14).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model-00");
+    h.get_by_label("model-00");
+    assert!(
+        h.query_by_label("model-01").is_none(),
+        "precondition: one match"
+    );
+    for _ in 0.."model-00".len() {
+        h.key_press(Key::Backspace);
+    }
+    h.run_steps(4);
+    assert_eq!(h.state().text, "");
+    let shown = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == "model-04" => {
+                Some((c.clip_rect, Rect::from_min_size(t.pos, t.galley.size())))
+            }
+            _ => None,
+        })
+        .expect("model-04 painted");
+    assert!(
+        shown.0.contains_rect(shown.1),
+        "model-04 clipped: {shown:?}"
+    );
+}
+
+#[test]
 fn dragging_the_dropdown_scrollbar_keeps_the_list_open_and_scrolls_it() {
     let mut h = combo_harness("");
     h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
@@ -328,13 +351,7 @@ fn dragging_the_dropdown_scrollbar_keeps_the_list_open_and_scrolls_it() {
 
 /// 畫面上文字是 `text` 的那個字形的顏色。
 fn painted_color(h: &Harness<Combo>, text: &str) -> Option<Color32> {
-    h.output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == text => Some(shape.fallback_color),
-            _ => None,
-        })
+    find_text_shape(&h.output().shapes, text).map(|shape| shape.fallback_color)
 }
 
 #[test]
@@ -524,17 +541,6 @@ fn outcome_makes_urls_clickable() {
     h.get_by_label("Connected");
 }
 
-fn key(down: bool, code: i32, vk: u32) -> KeyEvent {
-    KeyEvent {
-        down,
-        code,
-        raw: Some(RawKey {
-            vk,
-            extended: false,
-        }),
-    }
-}
-
 #[test]
 fn real_env_records_into_a_ui_event_and_cancel_removes_the_recorder() {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -592,15 +598,8 @@ fn real_env_clears_the_cache_and_reports_the_count() {
 
 /// 畫面上文字是 `text` 的字形範圍。
 fn text_rect<S>(h: &Harness<S>, text: &str) -> Rect {
-    h.output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == text => {
-                Some(shape.galley.rect.translate(shape.pos.to_vec2()))
-            }
-            _ => None,
-        })
+    find_text_shape(&h.output().shapes, text)
+        .map(|shape| shape.galley.rect.translate(shape.pos.to_vec2()))
         .unwrap_or_else(|| panic!("{text} not painted"))
 }
 

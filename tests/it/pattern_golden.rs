@@ -3,6 +3,7 @@ use crate::common;
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
 use wizard101_chat_translator::reader::memory::{FakeMemory, Region};
 use wizard101_chat_translator::reader::pattern::{self, ScanError};
+use wizard101_chat_translator::util;
 
 const MODULE: &str = "WizardGraphicalClient.exe";
 const REGION_BASE: u64 = 0x1_4000_1000;
@@ -13,7 +14,7 @@ fn scan_matches_python_regex_semantics() {
     assert!(!cases.is_empty());
     for case in cases {
         let pat = case["input"]["pattern"].as_str().unwrap();
-        let buf = common::unhex(case["input"]["buffer"].as_str().unwrap());
+        let buf = util::unhex(case["input"]["buffer"].as_str().unwrap()).unwrap();
         let want: Vec<(usize, usize)> = case["output"]
             .as_array()
             .unwrap()

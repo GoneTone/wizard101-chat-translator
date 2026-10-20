@@ -2,8 +2,7 @@
 
 use eframe::egui::{
     Align, Align2, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Pos2, Rect,
-    Response, RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, Ui, Vec2, WidgetInfo,
-    WidgetText, pos2,
+    Response, RichText, Role, Sense, Stroke, TextStyle, Ui, Vec2, WidgetInfo, pos2,
 };
 
 use super::{Step, Wizard, WizardAction};
@@ -16,7 +15,9 @@ use crate::ui::settings::fields::editable_combo;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::{CardLayout, provider_cards};
 use crate::ui::settings::theme::{self, icon};
-use crate::ui::settings::widgets::{callout, card, focus_ring, named_by, rich, scroll_page};
+use crate::ui::settings::widgets::{
+    callout, card, extended_galley, focus_ring, named_by, rich, scroll_page,
+};
 
 /// 步驟條的左右內距、圓點直徑與步驟內容的內距。
 const STEPS_PADDING_X: f32 = 36.0;
@@ -50,17 +51,7 @@ impl Wizard {
             .collect();
         let widths: Vec<f32> = names
             .iter()
-            .map(|name| {
-                WidgetText::from(name.clone())
-                    .into_galley(
-                        ui,
-                        Some(TextWrapMode::Extend),
-                        f32::INFINITY,
-                        TextStyle::Body,
-                    )
-                    .size()
-                    .x
-            })
+            .map(|name| extended_galley(ui, name.clone(), TextStyle::Body).size().x)
             .collect();
         let (gap, dot_gap) = (10.0, 8.0);
         let fixed: f32 = widths.iter().map(|w| DOT_SIZE + dot_gap + w).sum::<f32>() + 4.0 * gap;
@@ -248,12 +239,7 @@ fn skip_link(ui: &mut Ui) -> Response {
             .size(theme::HINT_SIZE)
             .color(theme::TEXT_SECONDARY)
             .underline();
-        let galley = WidgetText::from(rich).into_galley(
-            ui,
-            Some(TextWrapMode::Extend),
-            f32::INFINITY,
-            TextStyle::Body,
-        );
+        let galley = extended_galley(ui, rich, TextStyle::Body);
         let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::click());
         response.widget_info(|| WidgetInfo::labeled(Role::Link, ui.is_enabled(), &text));
         let color = if response.hovered() {

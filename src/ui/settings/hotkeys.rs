@@ -1,12 +1,12 @@
 //! 兩把熱鍵（呼出輸入框、框選翻譯）的設定列與錄製（設定視窗與首次設定精靈共用）。
 
-use eframe::egui::{Label, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle, TextWrapMode, Ui};
-use eframe::egui::{WidgetText, vec2};
+use eframe::egui::vec2;
+use eframe::egui::{Label, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle, Ui};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::text_setting;
 use super::theme;
-use super::widgets::{card, keycap_row, secondary_button, setting_row, toggle};
+use super::widgets::{card, extended_galley, keycap_row, secondary_button, setting_row, toggle};
 use crate::config::Config;
 use crate::i18n::t;
 use crate::logs::log;
@@ -163,12 +163,7 @@ fn press_key_prompt(ui: &mut Ui) {
     let text = RichText::new(t("button.press_key", &[]))
         .size(theme::CONTROL_TEXT_SIZE)
         .color(theme::TEXT);
-    let galley = WidgetText::from(text.clone()).into_galley(
-        ui,
-        Some(TextWrapMode::Extend),
-        f32::INFINITY,
-        TextStyle::Button,
-    );
+    let galley = extended_galley(ui, text.clone(), TextStyle::Button);
     let size = vec2(galley.size().x + 28.0, theme::CONTROL_HEIGHT);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     ui.painter().rect(

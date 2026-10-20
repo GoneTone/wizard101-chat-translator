@@ -10,15 +10,14 @@ use tokio_util::sync::CancellationToken;
 use super::sse::for_each_data;
 use super::{
     ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, finish_text,
-    http_client, parse_object, sample_of, secret_header, status_failure, truncated, with_query,
+    http_client, parse_object, response_failure, sample_of, secret_header, stream_failure,
+    truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::{pyrepr::repr_str, pystr};
 use crate::translation::Turn;
-use crate::translation::errors::{
-    TranslateError, error_detail, model_list_error, one_line, status_error,
-};
+use crate::translation::errors::{TranslateError, model_list_error, status_error};
 use crate::util::random_u64;
 
 /// Claude 官方端點。
@@ -92,10 +91,7 @@ impl ClaudeClient {
         if self.effort != EFFORT_AUTO {
             output_config["effort"] = json!(self.effort);
         }
-        let messages: Vec<Value> = turns
-            .iter()
-            .map(|t| json!({"role": t.role.as_str(), "content": t.content}))
-            .collect();
+        let messages: Vec<Value> = turns.iter().map(Turn::to_message).collect();
         // 斷點放在 system 結尾：之後的上下文每句都變，放在最後只會一直寫入、讀不到
         json!({
             "max_tokens": max_tokens,
@@ -122,10 +118,8 @@ impl ClaudeClient {
         let body = self.request_body(req.system, req.turns, limit);
         let url = format!("{}/v1/messages", self.base_url);
         let resp = self.send(|| self.http.post(&url).json(&body)).await?;
-        let status = resp.status().as_u16();
         if !resp.status().is_success() {
-            let text = resp.text().await.map_err(connection_error)?;
-            return Err(status_failure(status, error_detail(&text), status_error));
+            return Err(response_failure(resp, status_error).await);
         }
         let message = read_message(resp).await?;
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
@@ -205,15 +199,10 @@ impl ClaudeClient {
                 None => self.http.get(url),
             })
             .await?;
-        let status = resp.status().as_u16();
-        let text = resp.text().await.map_err(connection_error)?;
-        if !(200..300).contains(&status) {
-            return Err(status_failure(
-                status,
-                error_detail(&text),
-                model_list_error,
-            ));
+        if !resp.status().is_success() {
+            return Err(response_failure(resp, model_list_error).await);
         }
+        let text = resp.text().await.map_err(connection_error)?;
         parse_object(&text, "models response")
     }
 
@@ -316,14 +305,7 @@ fn stream_error(event: &Value) -> TranslateError {
         Some("overloaded_error") => Some(529),
         _ => None,
     };
-    match status {
-        Some(code) => status_failure(
-            code,
-            one_line(error["message"].as_str().unwrap_or("")),
-            status_error,
-        ),
-        None => TranslateError::Unexpected(one_line(&event.to_string())),
-    }
+    stream_failure(status, error["message"].as_str().unwrap_or(""), event)
 }
 
 /// 讀完 Messages 串流並累積成完整訊息。`error` 事件依類型分類，格式異常為未分類的例外。

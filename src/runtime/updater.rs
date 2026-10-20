@@ -10,9 +10,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::logs::log;
-use crate::translation::clients::{
-    bypass_proxy_for_loopback, error_chain, install_crypto_provider,
-};
+use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::util::panic_message;
 
 pub const PROJECT_URL: &str = "https://github.com/GoneTone/wizard101-chat-translator";

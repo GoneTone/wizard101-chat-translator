@@ -15,15 +15,16 @@ use tokio_util::sync::CancellationToken;
 use crate::i18n::t;
 use crate::input::dispatch::InputBoxControl;
 use crate::logs::log;
+use crate::py::pystr;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, anchored_position};
-use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE};
+use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE, hex};
 use crate::ui::richtext;
 
 /// 底色。
-pub const BG: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x24);
+pub const BG: Color32 = hex(0x1a1a24);
 /// 輸入欄底色。
-pub const ENTRY_BG: Color32 = Color32::from_rgb(0x26, 0x26, 0x36);
+pub const ENTRY_BG: Color32 = hex(0x262636);
 /// 遊戲聊天輸入框的長度上限（實測）。
 pub const GAME_INPUT_MAX_CHARS: usize = 80;
 /// 沒有錨點時的寬度（DIP）；有錨點就跟遊戲輸入框同寬。
@@ -230,7 +231,7 @@ impl InputBox {
 
     fn submit(&mut self) {
         // 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
-        let text = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let text = pystr::one_line(&self.text);
         if text.is_empty() {
             self.close();
             return;
@@ -451,6 +452,14 @@ mod tests {
         let stale = f.input.take_restore_foreground().unwrap();
         assert_eq!(stale, 0x7FFF_FFFF);
         assert!(!crate::ui::win32::force_foreground(stale));
+    }
+
+    #[test]
+    fn submit_collapses_python_whitespace() {
+        let mut f = fixture();
+        f.input.show();
+        submit(&mut f, "a\x1cb");
+        assert_eq!(f.requests.borrow()[0].text, "a b");
     }
 
     #[test]

@@ -11,8 +11,8 @@ use tokio_util::sync::CancellationToken;
 use super::sse::for_each_data;
 use super::{
     ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error,
-    connection_error, count_of, finish_text, http_client, parse_object, secret_header,
-    status_failure, truncated,
+    connection_error, count_of, finish_text, http_client, parse_object, response_failure,
+    secret_header, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -99,11 +99,7 @@ impl OpenAiCompatClient {
     ) -> Value {
         let learned = lock(&self.learned);
         let mut messages = vec![json!({"role": "system", "content": system})];
-        messages.extend(
-            turns
-                .iter()
-                .map(|t| json!({"role": t.role.as_str(), "content": t.content})),
-        );
+        messages.extend(turns.iter().map(Turn::to_message));
         let mut body = Map::new();
         body.insert("model".into(), json!(self.model));
         body.insert("messages".into(), Value::Array(messages));
@@ -216,10 +212,8 @@ impl OpenAiCompatClient {
             .send()
             .await
             .map_err(connection_error)?;
-        let status = resp.status().as_u16();
         if !resp.status().is_success() {
-            let text = resp.text().await.map_err(connection_error)?;
-            return Err(status_failure(status, error_detail(&text), status_error));
+            return Err(response_failure(resp, status_error).await);
         }
         let mut out = Streamed::default();
         for_each_data(resp, |data| {

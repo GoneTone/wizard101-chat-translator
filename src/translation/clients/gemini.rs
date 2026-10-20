@@ -9,13 +9,13 @@ use tokio_util::sync::CancellationToken;
 use super::sse::for_each_data;
 use super::{
     ChatRequest, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error, connection_error,
-    count_of, finish_text, http_client, parse_object, secret_header, status_failure, truncated,
+    count_of, finish_text, http_client, parse_object, response_failure, secret_header, truncated,
     with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::translation::errors::{TranslateError, error_detail, model_list_error, status_error};
+use crate::translation::errors::{TranslateError, model_list_error, status_error};
 use crate::translation::{Role, Turn};
 
 /// Gemini 官方端點。
@@ -204,8 +204,7 @@ impl GeminiClient {
         if status == 200 {
             return Ok(resp);
         }
-        let text = resp.text().await.map_err(connection_error)?;
-        Err(status_failure(status, error_detail(&text), map))
+        Err(response_failure(resp, map).await)
     }
 }
 

@@ -12,20 +12,22 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click, has_label, opened_urls, run, tr};
+use common::kittest::{click, click_change, has_label, run, tr};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, t};
-use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
+use wizard101_chat_translator::input::dispatcher::Dispatcher;
+use wizard101_chat_translator::input::dispatcher::testing::key;
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction};
+use wizard101_chat_translator::ui::text_select::{find_text_shape, opened_urls};
 use wizard101_chat_translator::util;
 
 const LANGUAGE: &str = "en-US";
@@ -82,7 +84,7 @@ fn harness_with(cfg: Config, env: FakeEnv, size: egui::Vec2) -> Harness<'static,
 fn click_link<S>(h: &mut Harness<S>, label: &str) -> Vec<String> {
     h.get_by_role_and_label(Role::Link, label).click();
     h.step();
-    opened_urls(h)
+    opened_urls(&h.output().platform_output)
 }
 
 /// 顯示 `value` 這段文字的標籤（不含它底下的文字段節點）。
@@ -107,16 +109,6 @@ fn top<S>(h: &Harness<S>, role: Role, label: &str) -> f32 {
 }
 
 /// 依畫面由上而下的第 `index` 個〔更改〕：0 是輸入框熱鍵，1 是框選熱鍵。
-fn click_change(h: &mut Harness<State>, index: usize) {
-    let label = tr("button.change");
-    let mut nodes: Vec<_> = h
-        .query_all_by_role_and_label(Role::Button, &label)
-        .collect();
-    nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    nodes[index].click();
-    run(h);
-}
-
 /// 錄下 `combo` 交給框選熱鍵那一格。
 fn record_region(h: &mut Harness<State>, combo: &str) {
     click_change(h, 1);
@@ -629,14 +621,7 @@ fn enter_on_a_focused_change_button_does_not_record_enter() {
     run(&mut h);
     assert_eq!(h.state().env.recordings.borrow().len(), 1);
     // 鍵盤 hook 看到的是錄製開始後才來的 Enter 放開
-    let enter_up = KeyEvent {
-        down: false,
-        code: 28,
-        raw: Some(RawKey {
-            vk: 0x0D,
-            extended: false,
-        }),
-    };
+    let enter_up = key(false, 28, 0x0D);
     dispatcher.lock().unwrap().process(enter_up);
     h.key_up(Key::Enter);
     run(&mut h);
@@ -886,14 +871,8 @@ fn update_result_is_only_clickable_over_its_text() {
     check_update(&mut h, Ok(Some(release())));
     let label = t("update.available", &[("version", "9.9.9")]);
     let link = h.get_by_role_and_label(Role::Link, &label).rect();
-    let text = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == label => Some(s.galley.rect.width()),
-            _ => None,
-        })
+    let text = find_text_shape(&h.output().shapes, &label)
+        .map(|s| s.galley.rect.width())
         .expect("link text painted");
     assert!((link.width() - text).abs() < 1.0, "{link:?} vs text {text}");
 }
@@ -1001,16 +980,8 @@ fn footer_buttons_sit_inside_the_window_with_centred_labels() {
             window.bottom() - button.bottom() >= 10.0,
             "{label}: {button:?}"
         );
-        let text = h
-            .output()
-            .shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(s) if s.galley.text() == label => {
-                    Some(s.galley.rect.translate(s.pos.to_vec2()))
-                }
-                _ => None,
-            })
+        let text = find_text_shape(&h.output().shapes, &label)
+            .map(|s| s.galley.rect.translate(s.pos.to_vec2()))
             .unwrap();
         assert!(
             (text.center().y - button.center().y).abs() <= 1.0,
@@ -1114,16 +1085,9 @@ fn the_log_folder_path_is_shown_in_full_beside_the_button() {
         .scroll_to_me();
     run(&mut h);
     let path = app_dir().display().to_string();
-    let galley = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == path => Some((s.galley.clone(), s.pos)),
-            _ => None,
-        })
+    let (galley, pos) = find_text_shape(&h.output().shapes, &path)
+        .map(|s| (s.galley.clone(), s.pos))
         .expect("the whole path is painted");
-    let (galley, pos) = galley;
     let button = h
         .get_by_role_and_label(Role::Button, &tr("button.open_folder"))
         .rect();

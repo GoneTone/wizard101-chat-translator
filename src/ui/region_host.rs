@@ -17,6 +17,8 @@ use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
 use crate::ui::region::flow::{RegionFlow, Shot};
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
+use crate::ui::region::selector::to_physical;
+use crate::ui::text_select::take_focus_for_copy;
 use crate::ui::viewport::{self, show_immediate};
 use crate::ui::win32;
 
@@ -57,6 +59,31 @@ impl HostedWindow {
         win32::set_window_rect(self.hwnd, rect);
         self.placed = Some(rect);
         true
+    }
+
+    /// 框與卡片共用的善後：記下已建立／顯示、找 HWND 並去框、維持不搶焦點、擺到 `rect`；`(creating, reveal)` 是呼叫端這一幀已算好的建立／顯示判定；回傳（這一幀剛建立或顯示，是否搬了）。
+    fn settle(
+        &mut self,
+        what: &str,
+        before: &[isize],
+        known: &[isize],
+        overlay: isize,
+        rect: Rect,
+        (creating, reveal): (bool, bool),
+    ) -> (bool, bool) {
+        self.created = true;
+        self.shown |= reveal;
+        if self.hwnd == 0 {
+            self.hwnd = find_new(what, before, known, creating);
+            if self.hwnd != 0 {
+                viewport::frameless_setup(self.hwnd, overlay);
+            }
+        }
+        if self.hwnd != 0 {
+            // winit 每次顯示都重寫 extended style 洗掉 NOACTIVATE
+            win32::make_non_activating(self.hwnd);
+        }
+        (creating || reveal, self.place(rect))
     }
 }
 
@@ -188,7 +215,7 @@ impl RegionHost {
         win.created = true;
         win.shown |= reveal;
         if win.hwnd == 0 {
-            win.hwnd = find(&before, &known, creating, "selector");
+            win.hwnd = find_new("selector", &before, &known, creating);
             if win.hwnd != 0 {
                 viewport::frameless_setup(win.hwnd, overlay);
                 win.place(monitor);
@@ -237,21 +264,16 @@ impl RegionHost {
         }) else {
             return;
         };
-        win.created = true;
-        win.shown |= reveal;
-        if win.hwnd == 0 {
-            win.hwnd = find(&before, &known, creating, "box");
-            if win.hwnd != 0 {
-                viewport::frameless_setup(win.hwnd, overlay);
-            }
-        }
-        if win.hwnd != 0 {
-            // winit 每次顯示都重寫 extended style 洗掉 NOACTIVATE
-            win32::make_non_activating(win.hwnd);
-        }
         // 拖曳中、誤觸還原與重新框選都一樣：視窗跟著框的矩形走
-        win.place(region_box::window_rect(region_box.rect()));
-        if creating || reveal {
+        let (fresh, _) = win.settle(
+            "box",
+            &before,
+            &known,
+            overlay,
+            region_box::window_rect(region_box.rect()),
+            (creating, reveal),
+        );
+        if fresh {
             ctx.request_repaint();
         }
         if let Some(rect) = changed {
@@ -285,19 +307,15 @@ impl RegionHost {
         else {
             return;
         };
-        win.created = true;
-        win.shown |= reveal;
-        if win.hwnd == 0 {
-            win.hwnd = find(&before, &known, creating, "card");
-            if win.hwnd != 0 {
-                viewport::frameless_setup(win.hwnd, overlay);
-            }
-        }
-        if win.hwnd != 0 {
-            win32::make_non_activating(win.hwnd);
-        }
-        let moved = win.place((placed.x, placed.y, placed.w, placed.h));
-        if creating || reveal || moved {
+        let (fresh, moved) = win.settle(
+            "card",
+            &before,
+            &known,
+            overlay,
+            (placed.x, placed.y, placed.w, placed.h),
+            (creating, reveal),
+        );
+        if fresh || moved {
             ctx.request_repaint();
         }
         match action {
@@ -318,12 +336,9 @@ impl RegionHost {
             log("[region] selection focus skipped: card window not found");
             return;
         }
-        log("[region] forcing keyboard focus");
-        if (self.desktop.force_foreground)(self.card.hwnd) {
-            log("[region] selection took keyboard focus");
-        } else {
-            log("[region] selection focus failed: SetForegroundWindow refused");
-        }
+        take_focus_for_copy("[region]", || {
+            (self.desktop.force_foreground)(self.card.hwnd)
+        });
     }
 }
 
@@ -332,17 +347,11 @@ fn viewport_builder(creating: bool, rough: Rect) -> ViewportBuilder {
     viewport::borderless_builder(creating.then(|| (rough, win32::scale_at(rough.0, rough.1))))
 }
 
-/// 認出新 viewport 的 HWND；找到時、或建立那一幀就找不到時記 log。
-fn find(before: &[isize], known: &[isize], creating: bool, what: &str) -> isize {
-    let hwnd = viewport::find_new_window(before, known, &app_name());
-    if hwnd != 0 {
-        log(format!("[region] {what} window found: hwnd={hwnd:#x}"));
-    } else if creating {
-        log(format!(
-            "[region] {what} hwnd lookup failed: no new window on the UI thread"
-        ));
-    }
-    hwnd
+/// 認出框選視窗 `what` 新 viewport 的 HWND 並記 log。
+fn find_new(what: &str, before: &[isize], known: &[isize], creating: bool) -> isize {
+    viewport::find_logged("[region]", what, creating, || {
+        viewport::find_new_window(before, known, &app_name())
+    })
 }
 
 /// 框選框的內容：依序把按下、移動、放開餵給框（螢幕 px），畫框線；回傳放開後的新矩形。
@@ -351,10 +360,7 @@ fn find(before: &[isize], known: &[isize], creating: bool, what: &str) -> isize 
 fn box_content(ui: &mut egui::Ui, region_box: &mut RegionBox, origin: (i32, i32)) -> Option<Rect> {
     let ppp = ui.ctx().pixels_per_point();
     let top_left = ui.max_rect().min;
-    let local = |p: Pos2| {
-        let v = (p - top_left) * ppp;
-        (v.x.round() as i32, v.y.round() as i32)
-    };
+    let local = |p: Pos2| to_physical(p - top_left, ppp);
     let screen = |p: Pos2| {
         let (x, y) = local(p);
         (origin.0 + x, origin.1 + y)
@@ -404,6 +410,7 @@ mod tests {
     use crate::ui::fonts_egui;
     use crate::ui::region::fakes::{GAME, RECT, Shared, deliver, flow};
     use crate::ui::region::selector::SelectorAction;
+    use crate::ui::text_select::find_text_shape;
 
     thread_local! {
         static HELD: Cell<bool> = const { Cell::new(false) };
@@ -578,16 +585,8 @@ mod tests {
             .on_selector(SelectorAction::Selected(RECT));
         h.run();
         assert!(h.state().card.shown && !repaints_now(&h));
-        let close = h
-            .output()
-            .shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(t) if t.galley.text() == "✕" => {
-                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
-                }
-                _ => None,
-            })
+        let close = find_text_shape(&h.output().shapes, "✕")
+            .map(|t| egui::Rect::from_min_size(t.pos, t.galley.size()).center())
             .expect("close button drawn");
         clear_causes();
         h.event(Event::PointerButton {

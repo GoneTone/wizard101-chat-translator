@@ -10,8 +10,8 @@ use regex::Regex;
 use serde::Deserialize;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyNameTextW, GetKeyboardLayoutList, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX,
-    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VK_CONTROL, VK_LWIN, VK_MENU,
-    VK_RWIN, VK_SHIFT, VkKeyScanExW,
+    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VK_CAPITAL, VK_CONTROL,
+    VK_LCONTROL, VK_LWIN, VK_MENU, VK_NUMLOCK, VK_RWIN, VK_SCROLL, VK_SHIFT, VkKeyScanExW,
 };
 
 use crate::logs::log;
@@ -24,8 +24,6 @@ pub type Code = i32;
 pub type Key = Vec<Code>;
 /// Alt Gr 的 code：Windows 以 scan code 541 的左 Ctrl 送出。
 pub const ALT_GR: Code = 541;
-/// 左 Ctrl 的虛擬鍵。
-pub const VK_LCONTROL: u32 = 0xA2;
 /// 左右合併的修飾鍵群組名稱，與查按鍵狀態用的通用虛擬鍵（任一按著即算按著）。
 pub const MODIFIER_GROUPS: [(&str, &[u16]); 4] = [
     ("ctrl", &[VK_CONTROL]),
@@ -183,14 +181,22 @@ fn scan_codes(key: &str, error_if_missing: bool) -> Result<Key, String> {
     Ok(codes)
 }
 
-/// `keyboard.parse_hotkey`：回傳 steps → keys → codes（如 `"ctrl+a, s"` 是兩個 step）。
-pub fn parse_hotkey(hotkey: &str) -> Result<Vec<Vec<Key>>, String> {
+/// 把熱鍵字串拆成 steps → 鍵名（如 `"ctrl+a, s"` 是兩個 step）；單一字元（如 `+`）視為一個鍵。
+pub fn split_hotkey(hotkey: &str) -> Vec<Vec<&str>> {
     if hotkey.chars().count() == 1 {
-        return Ok(vec![vec![key_to_scan_codes(hotkey)?]]);
+        return vec![vec![hotkey]];
     }
     STEP_SEP
         .split(hotkey)
-        .map(|step| KEY_SEP.split(step).map(key_to_scan_codes).collect())
+        .map(|step| KEY_SEP.split(step).collect())
+        .collect()
+}
+
+/// `keyboard.parse_hotkey`：回傳 steps → keys → codes。
+pub fn parse_hotkey(hotkey: &str) -> Result<Vec<Vec<Key>>, String> {
+    split_hotkey(hotkey)
+        .into_iter()
+        .map(|step| step.into_iter().map(key_to_scan_codes).collect())
         .collect()
 }
 
@@ -280,7 +286,7 @@ fn build_names(
             from_name
                 .entry("alt gr".to_string())
                 .or_default()
-                .push((1, (ALT_GR as u32, VK_LCONTROL, extended, m)));
+                .push((1, (ALT_GR as u32, u32::from(VK_LCONTROL), extended, m)));
         }
     }
     let preference = |m: usize| match modifiers[m].as_slice() {
@@ -342,12 +348,12 @@ impl Buffers {
         }
 
         let has = |m: &str| mods.iter().any(|x| x == m);
-        self.state[0x10] = if has("shift") { 0x80 } else { 0 };
-        self.state[0x11] = if has("alt gr") { 0x80 } else { 0 };
-        self.state[0x12] = if has("alt gr") { 0x80 } else { 0 };
-        self.state[0x14] = u8::from(has("caps lock"));
-        self.state[0x90] = u8::from(has("num lock"));
-        self.state[0x91] = u8::from(has("scroll lock"));
+        self.state[VK_SHIFT as usize] = if has("shift") { 0x80 } else { 0 };
+        self.state[VK_CONTROL as usize] = if has("alt gr") { 0x80 } else { 0 };
+        self.state[VK_MENU as usize] = if has("alt gr") { 0x80 } else { 0 };
+        self.state[VK_CAPITAL as usize] = u8::from(has("caps lock"));
+        self.state[VK_NUMLOCK as usize] = u8::from(has("num lock"));
+        self.state[VK_SCROLL as usize] = u8::from(has("scroll lock"));
         let len = self.unicode.len() as i32;
         // SAFETY：緩衝區長度與傳入的 cchbuff 一致。
         let to_unicode = |b: &mut Self| unsafe {

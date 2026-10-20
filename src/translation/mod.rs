@@ -55,4 +55,9 @@ impl Turn {
             content: content.into(),
         }
     }
+
+    /// Claude／OpenAI 共用的 `{"role", "content"}` 訊息物件。
+    pub fn to_message(&self) -> serde_json::Value {
+        serde_json::json!({"role": self.role.as_str(), "content": self.content})
+    }
 }

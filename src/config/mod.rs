@@ -13,6 +13,7 @@ pub use services::{ServiceSlot, ServiceSpec};
 
 use crate::i18n::{SOURCE_LANGUAGE, detect_system_language, language_name, t};
 use crate::logs::log;
+use crate::py::pystr;
 use crate::util::write_atomic;
 use services::{UNSUPPORTED_SERVICES, find, normalize, quarantined, validate_service};
 
@@ -160,7 +161,7 @@ pub struct AdvancedText {
 
 /// 整數欄位照 Tk `IntVar.get`：先試整數，不行就以浮點數解析後向零截斷。
 fn parse_int(text: &str) -> Option<Value> {
-    let text = text.trim();
+    let text = pystr::strip(text);
     let n = text
         .parse::<i64>()
         .ok()
@@ -168,8 +169,12 @@ fn parse_int(text: &str) -> Option<Value> {
     Some(Value::Number(n.into()))
 }
 
-fn parse_float(text: &str) -> Option<f64> {
-    text.trim().parse::<f64>().ok().filter(|x| x.is_finite())
+/// 數值欄位的浮點解析（含設定頁的 +/− 步進器）：去 Python 空白後必須是有限數。
+pub(crate) fn parse_float(text: &str) -> Option<f64> {
+    pystr::strip(text)
+        .parse::<f64>()
+        .ok()
+        .filter(|x| x.is_finite())
 }
 
 /// 解析並夾住進階數值；任何一欄不是有限數字就回錯誤文案 key，不動設定。

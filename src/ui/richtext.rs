@@ -119,6 +119,7 @@ mod tests {
 
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::text_select::opened_urls;
 
     #[test]
     fn javascript_scheme_is_plain_text() {
@@ -157,16 +158,7 @@ mod tests {
         let mut harness = harness("see https://a.example/help now");
         harness.get_by_label("https://a.example/help").click();
         harness.step();
-        let opened: Vec<_> = harness
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                egui::OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-                _ => None,
-            })
-            .collect();
+        let opened = opened_urls(&harness.output().platform_output);
         assert_eq!(opened, ["https://a.example/help"]);
     }
 

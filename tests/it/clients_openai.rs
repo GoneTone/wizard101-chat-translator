@@ -1,21 +1,25 @@
 //! OpenAI 相容 client 的 HTTP 協定測試：串流、參數學習、錯誤對應、取消（wiremock，不打真 API）。
 
 use crate::common;
-use crate::stream_server;
+use crate::stream_server::{self, request};
 
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
-use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
+    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
+
+/// 伺服器收到的 chat completions 請求本體。
+async fn bodies(server: &MockServer) -> Vec<Value> {
+    stream_server::bodies_at(server, "/v1/chat/completions").await
+}
 
 fn sse(chunks: &[Value]) -> String {
     let mut out: String = chunks.iter().map(|c| format!("data: {c}\n\n")).collect();
@@ -50,28 +54,8 @@ fn client(server: &MockServer, thinking: bool, official: bool) -> OpenAiCompatCl
     OpenAiCompatClient::new(&server.uri(), "", "m", thinking, official)
 }
 
-fn request<'a>(turns: &'a [Turn]) -> ChatRequest<'a> {
-    ChatRequest {
-        system: "sys",
-        turns,
-        max_tokens: None,
-        deterministic: true,
-    }
-}
-
 async fn chat(c: &OpenAiCompatClient) -> Result<String, TranslateError> {
     c.chat(request(&[Turn::user("[A] hi")]), None).await
-}
-
-async fn bodies(server: &MockServer) -> Vec<Value> {
-    server
-        .received_requests()
-        .await
-        .unwrap()
-        .iter()
-        .filter(|r| r.url.path() == "/v1/chat/completions")
-        .map(|r| serde_json::from_slice(&r.body).unwrap())
-        .collect()
 }
 
 async fn mount_chat(server: &MockServer, response: ResponseTemplate) {
@@ -365,9 +349,7 @@ async fn status_4xx_is_config_with_detail() {
 
 #[tokio::test]
 async fn connection_failure_is_offline_without_status() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    let url = stream_server::closed_url().await;
     let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
@@ -580,9 +562,7 @@ async fn models_retryable_statuses_are_offline() {
 
 #[tokio::test]
 async fn models_connection_failure_is_offline() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
-    drop(listener);
+    let url = stream_server::closed_url().await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     assert!(matches!(
         c.list_models().await,

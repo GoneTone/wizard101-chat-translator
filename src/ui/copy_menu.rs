@@ -19,8 +19,7 @@ const ICON: f32 = 13.0;
 const SHEET_OFFSET: f32 = 4.0;
 
 /// 選單這一幀的結果。
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum MenuOutcome {
+enum MenuOutcome {
     /// 點了「複製」。
     Copy,
     /// 在選單外按下滑鼠左鍵。
@@ -58,14 +57,14 @@ fn placed(ui: &Ui, at: Pos2, galley: &Galley) -> (Rect, (i32, i32)) {
 }
 
 /// 在 `at`（視窗內 DIP）開啟時的選單範圍，已夾在 `ui` 的範圍內；給還沒畫出選單的那一幀判斷點擊用。
-pub fn rect(ui: &Ui, at: Pos2) -> Rect {
+fn rect(ui: &Ui, at: Pos2) -> Rect {
     placed(ui, at, &label(ui)).0
 }
 
 /// 在 `at` 畫出選單並回報這一幀的結果；`ui` 要是整個視窗的 Ui。
 ///
-/// 上一幀沒畫過、或換了位置才記「shown」log；「hidden」由呼叫端收掉選單時記。
-pub fn show(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
+/// 上一幀沒畫過、或換了位置才記「shown」log；「hidden」由 `CopyMenu::close` 記。
+fn draw(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
     let galley = label(ui);
     let (menu, (x, y)) = placed(ui, at, &galley);
     let pass = ui.ctx().cumulative_pass_nr();
@@ -116,5 +115,55 @@ pub fn show(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
         MenuOutcome::Copy
     } else {
         MenuOutcome::Open(menu)
+    }
+}
+
+/// 右鍵「複製」選單的開關狀態：位置與範圍；overlay 與框選結果卡各持一份。
+#[derive(Default)]
+pub struct CopyMenu {
+    at: Option<Pos2>,
+    rect: Option<Rect>,
+}
+
+impl CopyMenu {
+    /// 在 `at`（視窗內 DIP）開啟；範圍先算好，下一幀的點擊比選單先處理，不能等 `show` 回報。
+    pub fn open(&mut self, ui: &Ui, at: Pos2) {
+        self.at = Some(at);
+        self.rect = Some(rect(ui, at));
+    }
+
+    /// 收掉選單；原本開著才記 log。
+    pub fn close(&mut self) {
+        self.rect = None;
+        if self.at.take().is_some() {
+            log("[ui] copy popup hidden");
+        }
+    }
+
+    /// `p` 是否落在選單上（選單上的按放不算點到底下的內容）。
+    pub fn contains(&self, p: Pos2) -> bool {
+        self.rect.is_some_and(|r| r.contains(p))
+    }
+
+    /// 選單目前的範圍；沒開是 `None`。
+    #[cfg(test)]
+    pub fn rect(&self) -> Option<Rect> {
+        self.rect
+    }
+
+    /// 開著就畫出來；點了「複製」或在選單外按下都會收掉，只有點「複製」回 `true`。
+    pub fn show(&mut self, ui: &Ui, id: Id) -> bool {
+        let Some(at) = self.at else {
+            return false;
+        };
+        match draw(ui, id, at) {
+            MenuOutcome::Open(rect) => self.rect = Some(rect),
+            MenuOutcome::Copy => {
+                self.close();
+                return true;
+            }
+            MenuOutcome::Dismissed => self.close(),
+        }
+        false
     }
 }

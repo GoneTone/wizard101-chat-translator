@@ -7,6 +7,8 @@ use std::time::Duration;
 use eframe::egui::text::CharIndex;
 use eframe::egui::{Context, Event, Galley, Key, MouseWheelUnit, Rect, Ui};
 
+use crate::logs::log;
+
 /// 拖出範圍時的自動捲動節奏（秒）。
 pub const AUTOSCROLL_INTERVAL: f64 = 0.040;
 /// 每輪最少捲幾像素：剛越界時要慢，才停得準。
@@ -75,6 +77,29 @@ pub fn is_copy(event: &Event) -> bool {
     }
 }
 
+/// 請 egui 把 `text` 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
+pub fn copy_text(ctx: &Context, text: &str, log_prefix: &str, kind: &str) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+    let chars = text.chars().count();
+    log(format!("{log_prefix} copy requested {kind} chars={chars}"));
+    ctx.copy_text(text.to_owned());
+    Some(chars)
+}
+
+/// 拖曳選字結束後讓 `force_foreground` 搶鍵盤焦點（Ctrl+C 才收得到），過程與結果記 log。
+pub fn take_focus_for_copy(log_prefix: &str, force_foreground: impl FnOnce() -> bool) {
+    log(format!("{log_prefix} forcing keyboard focus"));
+    if force_foreground() {
+        log(format!("{log_prefix} selection took keyboard focus"));
+    } else {
+        log(format!(
+            "{log_prefix} selection focus failed: SetForegroundWindow refused"
+        ));
+    }
+}
+
 /// 本幀的滾輪量換成內容位移（DIP）：一格捲視口高度的十分之一，與 Tk 的 `yview_scroll(units)` 相同。
 pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
     ui.input(|i| {
@@ -93,7 +118,7 @@ pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
 }
 
 /// 本幀 egui 排入的複製文字（測試用：看 egui 收到什麼，不碰系統剪貼簿）。
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn copied_texts(ctx: &Context) -> Vec<String> {
     use eframe::egui::OutputCommand;
     ctx.output(|o| {
@@ -104,6 +129,33 @@ pub fn copied_texts(ctx: &Context) -> Vec<String> {
                 _ => None,
             })
             .collect()
+    })
+}
+
+/// 本幀要開啟的網址（測試用：開啟指令只在點下的那一幀輸出）。
+#[cfg(any(test, feature = "test-support"))]
+pub fn opened_urls(output: &eframe::egui::PlatformOutput) -> Vec<String> {
+    use eframe::egui::OutputCommand;
+    output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            OutputCommand::OpenUrl(open) => Some(open.url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 畫面上第一個內容為 `text` 的文字字形（測試用）。
+#[cfg(any(test, feature = "test-support"))]
+pub fn find_text_shape<'a>(
+    shapes: &'a [eframe::egui::epaint::ClippedShape],
+    text: &str,
+) -> Option<&'a eframe::egui::epaint::TextShape> {
+    use eframe::egui::Shape;
+    shapes.iter().find_map(|c| match &c.shape {
+        Shape::Text(s) if s.galley.text() == text => Some(s),
+        _ => None,
     })
 }
 

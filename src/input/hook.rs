@@ -10,7 +10,9 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_LCONTROL, VK_PACKET, VK_RMENU,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG,
     PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
@@ -22,8 +24,6 @@ use crate::input::keys;
 use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
 
-const VK_PACKET: u32 = 0xE7;
-const VK_RMENU: u32 = 0xA5;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 /// 掛 hook 的嘗試次數與失敗後的間隔：開機自動啟動時桌面可能還沒就緒。
 const INSTALL_ATTEMPTS: u32 = 3;
@@ -266,7 +266,7 @@ fn run_deferred() {
 pub fn to_event(vk: u32, scan: u32, flags: u32, msg: u32) -> Option<KeyEvent> {
     // 有時會多出一個帶 0x20 的注入 alt down（`_winkeyboard` 的 fake_alt）
     let fake_alt = LLKHF_INJECTED | 0x20;
-    if vk == VK_PACKET || flags & fake_alt == fake_alt {
+    if vk == u32::from(VK_PACKET) || flags & fake_alt == fake_alt {
         return None;
     }
     let down = match msg {
@@ -306,10 +306,10 @@ fn reentrant_guard(inside: &Cell<bool>, ev: KeyEvent, process: impl FnOnce() -> 
 
 /// Alt Gr 送出 scan 541 的 left ctrl 後會多一個 right alt；那個 right alt 放行但不分派（`_winkeyboard.process_key`）。
 fn is_alt_gr_echo(ignore_next_right_alt: &Cell<bool>, vk: u32, scan: u32) -> bool {
-    if vk == VK_RMENU && ignore_next_right_alt.replace(false) {
+    if vk == u32::from(VK_RMENU) && ignore_next_right_alt.replace(false) {
         return true;
     }
-    if scan == keys::ALT_GR as u32 && vk == keys::VK_LCONTROL {
+    if scan == keys::ALT_GR as u32 && vk == u32::from(VK_LCONTROL) {
         ignore_next_right_alt.set(true);
     }
     false

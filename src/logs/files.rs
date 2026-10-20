@@ -7,6 +7,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
+use crate::util::write_atomic;
+
 const SESSION_HEADER_PREFIX: &str = "===== session started ";
 const LOG_RETENTION_DAYS: i64 = 7;
 const HEADER_TS_FORMAT: &str = "%Y-%m-%dT%H:%M:%SZ";
@@ -55,11 +57,9 @@ fn prepare_log(path: &Path, now: DateTime<Utc>) -> io::Result<()> {
         .map(|line| line.trim_end_matches('\r'))
         .collect::<Vec<_>>()
         .join("\n");
-    let out = trim_log_sessions(&text, now)
-        .replace('\n', "\r\n")
-        .into_bytes();
-    if out != raw {
-        std::fs::write(path, out)?;
+    let out = trim_log_sessions(&text, now).replace('\n', "\r\n");
+    if out.as_bytes() != raw {
+        write_atomic(path, &out)?;
     }
     Ok(())
 }

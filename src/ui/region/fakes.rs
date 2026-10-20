@@ -18,16 +18,16 @@ use crate::ui::region::flow::{
 use crate::ui::region::selector::images;
 
 /// 落在凍結畫面內的框選矩形。
-pub(crate) const RECT: Rect = (100, 100, 300, 120);
-pub(crate) const MONITOR: Rect = (0, 0, 1920, 1080);
+pub const RECT: Rect = (100, 100, 300, 120);
+pub const MONITOR: Rect = (0, 0, 1920, 1080);
 /// 熱鍵帶來的遊戲視窗。
-pub(crate) const GAME: isize = 0x1234;
+pub const GAME: isize = 0x1234;
 /// ⛶ 列舉視窗找到的遊戲視窗。
-pub(crate) const FOUND: isize = 0x9999;
-pub(crate) const CURSOR: (i32, i32) = (40, 50);
+pub const FOUND: isize = 0x9999;
+pub const CURSOR: (i32, i32) = (40, 50);
 
 /// 凍結畫面的影像內容與流程無關；流程只讀 client 區的位置與大小，所以 4x4 影像與 `client_size` 不必一致。
-pub(crate) fn frame() -> Arc<Frame> {
+pub fn frame() -> Arc<Frame> {
     Arc::new(Frame {
         image: RgbImage::new(4, 4),
         client_origin: (100, 200),
@@ -35,26 +35,28 @@ pub(crate) fn frame() -> Arc<Frame> {
     })
 }
 
-pub(crate) fn boom() -> CaptureError {
+pub fn boom() -> CaptureError {
     CaptureError::Failed("no frame within 2.0s".into())
 }
 
 #[derive(Default)]
-pub(crate) struct Calls {
+pub struct Calls {
     /// 前景與送出請求的先後。
-    pub(crate) order: Vec<String>,
-    pub(crate) captured: Vec<isize>,
+    pub order: Vec<String>,
+    pub captured: Vec<isize>,
     /// 擷取完成、還沒交給流程的結果（依發出先後）。
-    pub(crate) pending: VecDeque<(u64, Result<Shot, CaptureError>)>,
-    pub(crate) foreground: Vec<isize>,
+    pub pending: VecDeque<(u64, Result<Shot, CaptureError>)>,
+    pub foreground: Vec<isize>,
     /// 裁切時收到的畫面（以位址辨識）與矩形。
-    pub(crate) crops: Vec<(usize, Rect)>,
-    pub(crate) runs: Vec<(Rect, u64, CancellationToken)>,
+    pub crops: Vec<(usize, Rect)>,
+    pub runs: Vec<(Rect, u64, CancellationToken)>,
+    /// 與 `runs` 逐筆對應的 PNG。
+    pub pngs: Vec<Vec<u8>>,
 }
 
-pub(crate) type Shared = Rc<RefCell<Calls>>;
+pub type Shared = Rc<RefCell<Calls>>;
 
-pub(crate) enum Crop {
+pub enum Crop {
     Png,
     Real,
     Fail(CaptureError),
@@ -62,10 +64,10 @@ pub(crate) enum Crop {
     FailAt(Rect, CaptureError),
 }
 
-pub(crate) struct FakeDesktop {
-    pub(crate) calls: Shared,
-    pub(crate) crop: Crop,
-    pub(crate) game: Option<isize>,
+pub struct FakeDesktop {
+    pub calls: Shared,
+    pub crop: Crop,
+    pub game: Option<isize>,
 }
 
 impl RegionDesktop for FakeDesktop {
@@ -98,7 +100,7 @@ impl RegionDesktop for FakeDesktop {
     }
 }
 
-pub(crate) struct FakeRunner(pub(crate) Shared);
+pub struct FakeRunner(pub Shared);
 
 impl RegionRunner for FakeRunner {
     fn run(&self, png: Vec<u8>, rect: Rect, session: u64, cancel: CancellationToken) {
@@ -106,10 +108,11 @@ impl RegionRunner for FakeRunner {
         let mut calls = self.0.borrow_mut();
         calls.order.push(format!("run {session}"));
         calls.runs.push((rect, session, cancel));
+        calls.pngs.push(png);
     }
 }
 
-pub(crate) fn desktop() -> FakeDesktop {
+pub fn desktop() -> FakeDesktop {
     FakeDesktop {
         calls: Shared::default(),
         crop: Crop::Png,
@@ -118,12 +121,12 @@ pub(crate) fn desktop() -> FakeDesktop {
 }
 
 /// 當場算好結果存進 `calls.pending`，由測試決定何時以 `deliver` 交給流程。
-pub(crate) struct FakeCapturer {
-    pub(crate) calls: Shared,
+pub struct FakeCapturer {
+    pub calls: Shared,
     /// 依序回傳；用完就一直回 `fallback`。
-    pub(crate) frames: RefCell<VecDeque<Result<Arc<Frame>, CaptureError>>>,
-    pub(crate) fallback: Arc<Frame>,
-    pub(crate) backdrop: (u32, u32),
+    pub frames: RefCell<VecDeque<Result<Arc<Frame>, CaptureError>>>,
+    pub fallback: Arc<Frame>,
+    pub backdrop: (u32, u32),
 }
 
 impl RegionCapturer for FakeCapturer {
@@ -144,7 +147,7 @@ impl RegionCapturer for FakeCapturer {
 }
 
 /// 把結果記進 `calls` 的預設擷取替身。
-pub(crate) fn capturer(calls: &Shared) -> FakeCapturer {
+pub fn capturer(calls: &Shared) -> FakeCapturer {
     FakeCapturer {
         calls: Rc::clone(calls),
         frames: RefCell::default(),
@@ -154,7 +157,7 @@ pub(crate) fn capturer(calls: &Shared) -> FakeCapturer {
 }
 
 /// 最早一筆擷取結果，包成背景執行緒會投遞的事件。
-pub(crate) fn delivery(calls: &Shared) -> UiEvent {
+pub fn delivery(calls: &Shared) -> UiEvent {
     let (id, result) = calls
         .borrow_mut()
         .pending
@@ -164,7 +167,7 @@ pub(crate) fn delivery(calls: &Shared) -> UiEvent {
 }
 
 /// 把最早一筆擷取結果交給流程。
-pub(crate) fn deliver(flow: &mut RegionFlow, calls: &Shared) {
+pub fn deliver(flow: &mut RegionFlow, calls: &Shared) {
     let UiEvent::RegionCaptured { id, result } = delivery(calls) else {
         unreachable!()
     };
@@ -172,7 +175,7 @@ pub(crate) fn deliver(flow: &mut RegionFlow, calls: &Shared) {
 }
 
 /// 接上替身的流程與它的呼叫紀錄。
-pub(crate) fn flow() -> (RegionFlow, Shared) {
+pub fn flow() -> (RegionFlow, Shared) {
     let desktop = FakeDesktop {
         game: Some(FOUND),
         ..desktop()

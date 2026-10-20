@@ -283,14 +283,15 @@ pub fn find<'a>(cfg: &'a Config, id: Option<&str>) -> Option<&'a Value> {
         .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
 }
 
+/// 該用途指定的服務 id；未指定（或不是字串）回 `None`。
+pub fn slot_id(cfg: &Config, slot: ServiceSlot) -> Option<&str> {
+    cfg.get("service_slots")?.get(slot.key())?.as_str()
+}
+
 /// 該用途實際生效的服務：插槽未指定就跟隨預設，連預設都沒有時回第一家服務商的空白設定。
 pub fn resolve(cfg: &Config, slot: ServiceSlot) -> ServiceSpec {
-    let slot_id = cfg
-        .get("service_slots")
-        .and_then(|s| s.get(slot.key()))
-        .and_then(Value::as_str);
     let default_id = cfg.get("default_service").and_then(Value::as_str);
-    match find(cfg, slot_id).or_else(|| find(cfg, default_id)) {
+    match find(cfg, slot_id(cfg, slot)).or_else(|| find(cfg, default_id)) {
         Some(service) => ServiceSpec::from_service(service),
         None => {
             let fallback = &PROVIDERS[0];

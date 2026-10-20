@@ -4,7 +4,7 @@ use crate::common;
 
 use std::time::Duration;
 
-use common::kittest::{has_label, painted_texts, run, tr};
+use common::kittest::{has_label, painted_texts, run, themed_harness, tr};
 use common::settings_env::FakeEnv;
 use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
@@ -14,12 +14,10 @@ use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provi
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::service_form::{
     FormResponse, ServiceForm, format_seconds,
 };
-use wizard101_chat_translator::ui::settings::theme;
 
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
 const LANGUAGE: &str = "en-US";
@@ -54,19 +52,15 @@ fn harness(form: ServiceForm) -> Harness<'static, State> {
         env: FakeEnv::default(),
         responses: Vec::new(),
     };
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(540.0, 760.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                let response = s.form.ui(ui, &s.env, TARGET);
-                s.responses.push(response);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness(
+        egui::vec2(540.0, 760.0),
+        LANGUAGE,
+        |ui: &mut Ui, s: &mut State| {
+            let response = s.form.ui(ui, &s.env, TARGET);
+            s.responses.push(response);
+        },
+        state,
+    )
 }
 
 fn click(h: &mut Harness<State>, label: &str) {
@@ -559,19 +553,16 @@ fn a_failed_test_stays_visible_after_editing() {
 fn the_form_leaves_the_callers_spacing_alone() {
     i18n::set_language(LANGUAGE);
     let state = (blank(), FakeEnv::default(), None);
-    let mut h = Harness::builder()
-        .with_size(egui::vec2(540.0, 760.0))
-        .with_context_setup(|ctx| fonts_egui::install(ctx, LANGUAGE))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut (ServiceForm, FakeEnv, Option<(f32, f32)>)| {
-                theme::apply(ui.style_mut());
-                let before = ui.spacing().item_spacing.y;
-                s.0.ui(ui, &s.1, TARGET);
-                s.2 = Some((before, ui.spacing().item_spacing.y));
-            },
-            state,
-        );
-    h.run_steps(2);
+    let h = themed_harness(
+        egui::vec2(540.0, 760.0),
+        LANGUAGE,
+        |ui: &mut Ui, s: &mut (ServiceForm, FakeEnv, Option<(f32, f32)>)| {
+            let before = ui.spacing().item_spacing.y;
+            s.0.ui(ui, &s.1, TARGET);
+            s.2 = Some((before, ui.spacing().item_spacing.y));
+        },
+        state,
+    );
     let (before, after) = h.state().2.expect("form drawn");
     assert_eq!(before, after);
 }

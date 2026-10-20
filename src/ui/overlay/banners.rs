@@ -223,6 +223,7 @@ mod tests {
 
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::text_select::opened_urls;
 
     struct State {
         banners: Banners,
@@ -285,19 +286,6 @@ mod tests {
         }
     }
 
-    fn opened_urls(harness: &Harness<State>) -> Vec<String> {
-        harness
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                egui::OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
     #[test]
     fn the_hotkey_line_survives_the_reader_clearing_its_error() {
         let hotkeys = t("notice.hotkeys_unavailable", &[]);
@@ -330,7 +318,10 @@ mod tests {
         harness.step();
         let banners = &mut harness.state_mut().banners;
         assert_eq!(banners.update_text(), None);
-        assert!(opened_urls(&harness).is_empty(), "✕ must not open the page");
+        assert!(
+            opened_urls(&harness.output().platform_output).is_empty(),
+            "✕ must not open the page"
+        );
 
         let banners = &mut harness.state_mut().banners;
         banners.offer_update(release("0.2.0"));
@@ -371,7 +362,10 @@ mod tests {
         let label = t("update.available", &[("version", "0.2.0")]);
         harness.get_by_label(&label).click();
         harness.step();
-        assert_eq!(opened_urls(&harness), ["https://example.invalid/rel"]);
+        assert_eq!(
+            opened_urls(&harness.output().platform_output),
+            ["https://example.invalid/rel"]
+        );
         assert!(harness.state().banners.update_text().is_some());
     }
 
@@ -397,7 +391,7 @@ mod tests {
         assert_ne!(cursor(&mut harness, band), CursorIcon::PointingHand);
         click_at(&mut harness, band);
         assert!(
-            opened_urls(&harness).is_empty(),
+            opened_urls(&harness.output().platform_output).is_empty(),
             "a press on the band resizes"
         );
         assert_eq!(cursor(&mut harness, row.center()), CursorIcon::PointingHand);
@@ -419,14 +413,14 @@ mod tests {
         assert_ne!(cursor(&mut harness, band), CursorIcon::PointingHand);
         click_at(&mut harness, band);
         assert!(
-            opened_urls(&harness).is_empty(),
+            opened_urls(&harness.output().platform_output).is_empty(),
             "a press on the band resizes"
         );
         click_at(
             &mut harness,
             egui::pos2(area.min.x + 30.0, link.max.y - 4.0),
         );
-        assert_eq!(opened_urls(&harness), [url]);
+        assert_eq!(opened_urls(&harness.output().platform_output), [url]);
     }
 
     #[test]
@@ -439,7 +433,7 @@ mod tests {
         assert!(row.min.y >= area.min.y + 60.0, "{row:?}");
         click_at(&mut harness, egui::pos2(area.center().x, area.min.y + 30.0));
         assert!(
-            opened_urls(&harness).is_empty(),
+            opened_urls(&harness.output().platform_output).is_empty(),
             "the clipped part must not take clicks"
         );
     }

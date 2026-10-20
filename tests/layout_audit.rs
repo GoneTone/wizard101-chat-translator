@@ -15,7 +15,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
-use common::kittest::{click, tr};
+use common::kittest::{click, themed_harness_with, tr};
 use common::settings_env::FakeEnv;
 use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
@@ -23,7 +23,6 @@ use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::runtime::updater::Release;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::TestOutcome;
-use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsWindow};
@@ -60,21 +59,16 @@ fn settings(cfg: &Config, language: &'static str, size: Vec2) -> Harness<'static
             ..FakeEnv::default()
         },
     };
-    let mut h = Harness::builder()
-        .with_size(size)
-        .wgpu()
-        .with_context_setup(move |ctx| fonts_egui::install(ctx, language))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut Settings| {
-                ui.painter()
-                    .rect_filled(ui.max_rect(), 0.0, theme::WINDOW_BG);
-                theme::apply(ui.style_mut());
-                let _ = s.win.ui(ui, &s.env);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness_with(
+        Harness::builder().wgpu(),
+        size,
+        language,
+        |ui: &mut Ui, s: &mut Settings| {
+            paint_window_bg(ui);
+            let _ = s.win.ui(ui, &s.env);
+        },
+        state,
+    )
 }
 
 /// 由上而下第 `index` 個名稱是 `label` 的按鈕。
@@ -240,23 +234,24 @@ fn wizard(cfg: Config, language: &'static str, size: Vec2) -> Harness<'static, W
         env: FakeEnv::default(),
         actions: Vec::new(),
     };
-    let mut h = Harness::builder()
-        .with_size(size)
-        .wgpu()
-        .with_context_setup(move |ctx| fonts_egui::install(ctx, language))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut WizardState| {
-                ui.painter()
-                    .rect_filled(ui.max_rect(), 0.0, theme::WINDOW_BG);
-                theme::apply(ui.style_mut());
-                if let Some(action) = s.wizard.ui(ui, &s.env) {
-                    s.actions.push(action);
-                }
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness_with(
+        Harness::builder().wgpu(),
+        size,
+        language,
+        |ui: &mut Ui, s: &mut WizardState| {
+            paint_window_bg(ui);
+            if let Some(action) = s.wizard.ui(ui, &s.env) {
+                s.actions.push(action);
+            }
+        },
+        state,
+    )
+}
+
+/// 離屏渲染沒有視窗底色，先自己填。
+fn paint_window_bg(ui: &Ui) {
+    ui.painter()
+        .rect_filled(ui.max_rect(), 0.0, theme::WINDOW_BG);
 }
 
 fn empty_cfg() -> Config {

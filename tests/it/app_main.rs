@@ -24,11 +24,10 @@ use wizard101_chat_translator::config::services::resolve;
 use wizard101_chat_translator::config::{Config, ServiceSlot, Settings, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::{ChatInputTracker, Foreground};
-use wizard101_chat_translator::input::dispatcher::{
-    Dispatcher, KeyEvent, Pressed, SharedDispatcher,
-};
+use wizard101_chat_translator::input::dispatcher::testing::{self, code, down, up};
+use wizard101_chat_translator::input::dispatcher::{Dispatcher, Pressed, SharedDispatcher};
 use wizard101_chat_translator::input::inject::Injector;
-use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
+use wizard101_chat_translator::input::keys::Code;
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
@@ -47,7 +46,7 @@ use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
-use wizard101_chat_translator::util;
+use wizard101_chat_translator::util::{self, Clock};
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
 fn cfg() -> Config {
@@ -570,15 +569,6 @@ fn paused_rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// 讓 `rt` 上的背景工作跑到 `done` 成立為止，最多等 [`common::WAIT`]。
-fn run_until(rt: &tokio::runtime::Runtime, what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + common::WAIT;
-    while !done() {
-        assert!(Instant::now() < deadline, "timed out waiting: {what}");
-        rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
-    }
-}
-
 /// 目標語言是遊戲原生語言時，範例生成不打網路、直接給內建的一組。
 fn offline_cfg(tag: &str) -> Config {
     let mut cfg = tagged(tag);
@@ -687,8 +677,12 @@ fn late_examples_after_a_save_bind_the_cache_to_the_new_fingerprint() {
     assert!(built.cache.fingerprint().ends_with("x-"));
 
     // 生成套用後才 rebind，指紋帶上範例就代表兩步都做完了
-    run_until(&rt, "the late generation rebinds the cache", || {
-        !built.cache.fingerprint().ends_with("x-")
+    common::wait_until("the late generation to rebind the cache", || {
+        !built.cache.fingerprint().ends_with("x-") || {
+            // 讓 runtime 推進，等待中的 rebind 任務才跑得動
+            rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
+            false
+        }
     });
     let applied = built.incoming.examples();
     assert!(applied.is_some(), "the late generation was applied");
@@ -840,7 +834,7 @@ struct Keys {
 
 impl Injector for Keys {
     fn press(&self, code: Code) {
-        if code == key("enter") {
+        if code == testing::code("enter") {
             self.typed.lock().unwrap().push('\n');
         }
     }
@@ -866,8 +860,10 @@ fn typing_env(keys: &Arc<Keys>) -> Arc<TypingEnv> {
         foreground: || 0x77,
         is_window: |_| true,
         force_foreground: |_| true,
-        sleep: |d| SLEPT.lock().unwrap().push(d),
-        now: Instant::now,
+        clock: Clock {
+            sleep: Box::new(|d| SLEPT.lock().unwrap().push(d)),
+            now: Box::new(Instant::now),
+        },
         pressed: Arc::new(Pressed::new),
         clipboard: || Ok(Some("a\nb".into())),
     })
@@ -925,27 +921,15 @@ fn register_hotkeys_writes_the_effective_hotkeys_back() {
     );
 }
 
-fn key(name: &str) -> Code {
-    key_to_scan_codes(name).unwrap()[0]
-}
-
 /// 依序按下 `names` 再反序放開，回傳最後一顆按下時有沒有放行。
 fn press(d: &SharedDispatcher, names: &[&str]) -> bool {
     let mut d = d.lock().unwrap();
     let mut passed = true;
     for name in names {
-        passed = d.process(KeyEvent {
-            down: true,
-            code: key(name),
-            raw: None,
-        });
+        passed = d.process(down(code(name)));
     }
     for name in names.iter().rev() {
-        d.process(KeyEvent {
-            down: false,
-            code: key(name),
-            raw: None,
-        });
+        d.process(up(code(name)));
     }
     passed
 }
@@ -968,11 +952,7 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     *blocked.gate.lock().unwrap() = Some(gate);
     let env = typing_env(&blocked);
     let typing = std::thread::spawn(move || type_into_window(&env, 0x77, "x", Duration::ZERO));
-    let deadline = Instant::now() + common::WAIT;
-    while !typing_in_progress() {
-        assert!(Instant::now() < deadline, "typing never started");
-        std::thread::yield_now();
-    }
+    common::wait_until("typing to start", typing_in_progress);
 
     assert!(!press(&d, &["ctrl", "v"]));
     assert!(
@@ -1088,11 +1068,7 @@ fn outgoing_translate_cancel_logs_and_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.submit("cancelled-text-17", 0, 9);
     let marker = "[input] outgoing translation cancelled (chars=17)";
-    let deadline = Instant::now() + common::WAIT;
-    while log_lines_with(marker).is_empty() {
-        assert!(Instant::now() < deadline, "no cancel log");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    common::wait_until("the cancel log", || !log_lines_with(marker).is_empty());
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
@@ -1163,11 +1139,7 @@ fn region_runner_cancel_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.run_region("hello", 41);
     let marker = "[region] request cancelled (session=41)";
-    let deadline = Instant::now() + common::WAIT;
-    while log_lines_with(marker).is_empty() {
-        assert!(Instant::now() < deadline, "no cancel log");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    common::wait_until("the cancel log", || !log_lines_with(marker).is_empty());
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 

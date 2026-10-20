@@ -57,6 +57,63 @@ impl Binding {
     fn examples(&self, pick: fn(&ExampleSet) -> Option<&(String, String)>) -> Vec<Turn> {
         example_turns(self.examples.as_ref().and_then(pick))
     }
+
+    /// 打一次翻譯請求並記錄一行診斷；這是各方向共用的唯一成功路徑 log 點。
+    async fn chat(
+        &self,
+        system: &str,
+        turns: &[Turn],
+        call: Call<'_>,
+    ) -> Result<String, TranslateError> {
+        if call.cancel.is_some_and(CancellationToken::is_cancelled) {
+            return Err(TranslateError::Cancelled);
+        }
+        let started = Instant::now();
+        let req = ChatRequest {
+            system,
+            turns,
+            max_tokens: call.max_tokens,
+            deterministic: true,
+        };
+        let mut translated = self.client.chat(req, call.cancel).await?;
+        if call.strip {
+            translated = tidy_parentheses(call.source, &translated);
+        }
+        if pystr::strip(&translated).is_empty() {
+            log(format!(
+                "[translate] {} came back with no text (model={}): source={}",
+                call.kind,
+                self.client.model(),
+                repr_str(call.source)
+            ));
+            return Err(TranslateError::BadOutput("model returned no text".into()));
+        }
+        if call.keep_sender {
+            let restored = restore_sender(call.source, &translated);
+            if sender_of(&restored) != sender_of(&translated) {
+                log(format!(
+                    "[translate] model altered the sender prefix, restored: source={} model_output={}",
+                    repr_str(call.source),
+                    repr_str(&translated)
+                ));
+            }
+            translated = restored;
+        }
+        let shown = if call.redact {
+            format!("<{} chars>", translated.chars().count())
+        } else {
+            repr_str(&translated)
+        };
+        log(format!(
+            "[translate] {} done in {:.1}s (model={}, ctx={}): source={} translated={shown}",
+            call.kind,
+            started.elapsed().as_secs_f64(),
+            self.client.model(),
+            call.context_lines,
+            repr_str(call.source)
+        ));
+        Ok(translated)
+    }
 }
 
 /// 送出一次翻譯請求的選項；`kind` 與 `source` 只用於診斷 log。
@@ -178,64 +235,6 @@ impl Translator {
         self.binding().target_language.clone()
     }
 
-    /// 打一次翻譯請求並記錄一行診斷；這是各方向共用的唯一成功路徑 log 點。
-    async fn chat(
-        &self,
-        client: &dyn ChatBackend,
-        system: &str,
-        turns: &[Turn],
-        call: Call<'_>,
-    ) -> Result<String, TranslateError> {
-        if call.cancel.is_some_and(CancellationToken::is_cancelled) {
-            return Err(TranslateError::Cancelled);
-        }
-        let started = Instant::now();
-        let req = ChatRequest {
-            system,
-            turns,
-            max_tokens: call.max_tokens,
-            deterministic: true,
-        };
-        let mut translated = client.chat(req, call.cancel).await?;
-        if call.strip {
-            translated = tidy_parentheses(call.source, &translated);
-        }
-        if pystr::strip(&translated).is_empty() {
-            log(format!(
-                "[translate] {} came back with no text (model={}): source={}",
-                call.kind,
-                client.model(),
-                repr_str(call.source)
-            ));
-            return Err(TranslateError::BadOutput("model returned no text".into()));
-        }
-        if call.keep_sender {
-            let restored = restore_sender(call.source, &translated);
-            if sender_of(&restored) != sender_of(&translated) {
-                log(format!(
-                    "[translate] model altered the sender prefix, restored: source={} model_output={}",
-                    repr_str(call.source),
-                    repr_str(&translated)
-                ));
-            }
-            translated = restored;
-        }
-        let shown = if call.redact {
-            format!("<{} chars>", translated.chars().count())
-        } else {
-            repr_str(&translated)
-        };
-        log(format!(
-            "[translate] {} done in {:.1}s (model={}, ctx={}): source={} translated={shown}",
-            call.kind,
-            started.elapsed().as_secs_f64(),
-            client.model(),
-            call.context_lines,
-            repr_str(call.source)
-        ));
-        Ok(translated)
-    }
-
     /// 收訊：把遊戲聊天（任何語言）翻成目標語言；`context` 為該行之前的原文行。
     pub async fn translate_incoming(
         &self,
@@ -257,13 +256,8 @@ impl Translator {
             keep_sender: true,
             ..Call::default()
         };
-        self.chat(
-            &*b.client,
-            &build_incoming_system(&b.target_language),
-            &turns,
-            call,
-        )
-        .await
+        b.chat(&build_incoming_system(&b.target_language), &turns, call)
+            .await
     }
 
     /// 系統訊息：把遊戲系統通知翻成目標語言；不吃上下文，同一句原文才會得到同一句譯文。
@@ -308,8 +302,7 @@ impl Translator {
             strip: true,
             ..Call::default()
         };
-        self.chat(
-            &*b.client,
+        b.chat(
             &build_system_message_system(&b.target_language, strict),
             &turns,
             call,
@@ -338,13 +331,8 @@ impl Translator {
             cancel,
             ..Call::default()
         };
-        self.chat(
-            &*b.client,
-            &build_outgoing_system(OUTGOING_LANGUAGE),
-            &turns,
-            call,
-        )
-        .await
+        b.chat(&build_outgoing_system(OUTGOING_LANGUAGE), &turns, call)
+            .await
     }
 
     /// 區域翻譯：OCR 辨識出的畫面文字逐行送出（不加編號）→ 目標語言。
@@ -373,13 +361,8 @@ impl Translator {
             cancel,
             ..Call::default()
         };
-        let translated = self
-            .chat(
-                &*b.client,
-                &build_region_system(&b.target_language),
-                &turns,
-                call,
-            )
+        let translated = b
+            .chat(&build_region_system(&b.target_language), &turns, call)
             .await?;
         let lines: Vec<String> = nonblank_lines(&translated)
             .into_iter()

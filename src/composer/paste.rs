@@ -4,7 +4,7 @@
 //! 自己確認後送出；攔截到的 Ctrl+V（`paste_clipboard`）行為等同原生貼上，只有遊戲聊天框開著時換行改成空格。
 
 use std::sync::{Arc, LazyLock, Mutex, TryLockError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use regex::Regex;
 
@@ -16,7 +16,7 @@ use crate::input::keys::{Code, key_codes_or_empty};
 use crate::logs::log;
 use crate::reader::process::{foreground_window, window_exists};
 use crate::ui::{clipboard, win32};
-use crate::util::lock;
+use crate::util::{Clock, lock, poll_until};
 
 /// 切回遊戲視窗後、開始打字前的緩衝。
 pub const FOCUS_DELAY: Duration = Duration::from_millis(150);
@@ -48,8 +48,7 @@ pub struct TypingEnv {
     pub foreground: fn() -> isize,
     pub is_window: fn(isize) -> bool,
     pub force_foreground: fn(isize) -> bool,
-    pub sleep: fn(Duration),
-    pub now: fn() -> Instant,
+    pub clock: Clock,
     pub pressed: Arc<dyn Fn() -> Pressed + Send + Sync>,
     pub clipboard: fn() -> Result<Option<String>, String>,
 }
@@ -62,8 +61,7 @@ impl TypingEnv {
             foreground: foreground_window,
             is_window: window_exists,
             force_foreground: win32::force_foreground,
-            sleep: std::thread::sleep,
-            now: Instant::now,
+            clock: Clock::default(),
             pressed,
             clipboard: clipboard::get_text,
         }
@@ -116,13 +114,13 @@ fn type_chars(
             }
             '\n' => {
                 tap(env, enter);
-                (env.sleep)(ENTER_SETTLE);
+                (env.clock.sleep)(ENTER_SETTLE);
             }
             '\u{8}' => tap(env, backspace),
             _ => env.inject.unicode(ch),
         }
         if !delay.is_zero() {
-            (env.sleep)(delay);
+            (env.clock.sleep)(delay);
         }
     }
     true
@@ -155,7 +153,7 @@ pub fn type_into_window(env: &TypingEnv, hwnd: isize, text: &str, delay: Duratio
                 "[composer] force_foreground failed (hwnd={hwnd:#x})"
             ));
         }
-        (env.sleep)(FOCUS_DELAY);
+        (env.clock.sleep)(FOCUS_DELAY);
     }
     type_chars(env, hwnd, text, delay, &|| false);
 }
@@ -190,19 +188,15 @@ pub fn paste_interceptor(
 /// `pressed` 裡，所以不必等。
 fn wait_for_ctrl_released(env: &TypingEnv) {
     let ctrl = key_codes_or_empty("ctrl");
-    let deadline = (env.now)() + MODIFIER_RELEASE_TIMEOUT;
-    loop {
-        if !is_pressed(&(env.pressed)(), &ctrl) {
-            return;
-        }
-        if (env.now)() >= deadline {
-            log(format!(
-                "[composer] ctrl still held after {:?}s; typing anyway",
-                MODIFIER_RELEASE_TIMEOUT.as_secs_f64()
-            ));
-            return;
-        }
-        (env.sleep)(KEY_RELEASE_POLL);
+    let deadline = (env.clock.now)() + MODIFIER_RELEASE_TIMEOUT;
+    let released = poll_until(&env.clock, deadline, KEY_RELEASE_POLL, || {
+        (!is_pressed(&(env.pressed)(), &ctrl)).then_some(())
+    });
+    if released.is_none() {
+        log(format!(
+            "[composer] ctrl still held after {:?}s; typing anyway",
+            MODIFIER_RELEASE_TIMEOUT.as_secs_f64()
+        ));
     }
 }
 
@@ -263,10 +257,12 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::MutexGuard;
 
+    use std::time::Instant;
+
     use super::*;
-    use crate::input::dispatcher::{Blocking, KeyEvent};
+    use crate::input::dispatcher::Blocking;
+    use crate::input::dispatcher::testing::{code, down, up};
     use crate::input::inject::encode_units;
-    use crate::input::keys::key_to_scan_codes;
 
     #[derive(Debug, PartialEq, Clone)]
     enum Call {
@@ -345,11 +341,13 @@ mod tests {
                 FORCED.with(|f| f.borrow_mut().push(hwnd));
                 true
             },
-            sleep: |d| {
-                SLEPT.with(|s| s.borrow_mut().push(d));
-                CLOCK.with(|c| c.set(c.get() + d));
+            clock: Clock {
+                sleep: Box::new(|d| {
+                    SLEPT.with(|s| s.borrow_mut().push(d));
+                    CLOCK.with(|c| c.set(c.get() + d));
+                }),
+                now: Box::new(|| BASE.with(|b| *b) + CLOCK.with(Cell::get)),
             },
-            now: || BASE.with(|b| *b) + CLOCK.with(Cell::get),
             pressed: Arc::new(Pressed::new),
             clipboard: || CLIP.with(|c| c.borrow().clone()),
         }
@@ -374,10 +372,6 @@ mod tests {
                 _ => None,
             })
             .collect()
-    }
-
-    fn code(name: &str) -> Code {
-        key_to_scan_codes(name).unwrap()[0]
     }
 
     fn setup() -> (Arc<Fake>, TypingEnv) {
@@ -484,22 +478,6 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Call::Press(_)))
         );
-    }
-
-    fn down(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: true,
-            code,
-            raw: None,
-        }
-    }
-
-    fn up(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: false,
-            code,
-            raw: None,
-        }
     }
 
     fn interceptor(intercept: bool) -> (HotkeyInterceptor, Arc<Mutex<u32>>) {

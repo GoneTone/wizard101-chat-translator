@@ -5,11 +5,10 @@ use eframe::egui::{self, Ui};
 use egui_kittest::Harness;
 use serde_json::{Value, json};
 
+use super::kittest::themed_harness;
 use super::settings_env::FakeEnv;
 use wizard101_chat_translator::config::services::new_service;
 use wizard101_chat_translator::config::{Config, default_config};
-use wizard101_chat_translator::ui::fonts_egui;
-use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{SettingsAction, SettingsWindow};
 
 pub struct State {
@@ -30,19 +29,15 @@ pub fn harness(
         env,
         actions: Vec::new(),
     };
-    let mut h = Harness::builder()
-        .with_size(size)
-        .with_context_setup(move |ctx| fonts_egui::install(ctx, font_language))
-        .build_ui_state(
-            |ui: &mut Ui, s: &mut State| {
-                theme::apply(ui.style_mut());
-                let actions = s.win.ui(ui, &s.env);
-                s.actions.extend(actions);
-            },
-            state,
-        );
-    h.run_steps(3);
-    h
+    themed_harness(
+        size,
+        font_language,
+        |ui: &mut Ui, s: &mut State| {
+            let actions = s.win.ui(ui, &s.env);
+            s.actions.extend(actions);
+        },
+        state,
+    )
 }
 
 /// 一筆 custom 服務，base_url 與 model 都填好（名稱依目前介面語言）。

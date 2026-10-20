@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use crate::config::Config;
-use crate::config::services::{ServiceSlot, str_field, unique_name};
+use crate::config::services::{ServiceSlot, slot_id, str_field, unique_name};
 use crate::i18n::t;
 use crate::logs::log;
 
@@ -24,7 +24,6 @@ impl ServiceDraft {
     /// 從設定取出三個鍵。
     pub fn from_config(cfg: &Config) -> Self {
         let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
-        let slots = cfg.get("service_slots");
         Self {
             services: cfg
                 .get("services")
@@ -32,7 +31,7 @@ impl ServiceDraft {
                 .cloned()
                 .unwrap_or_default(),
             default: text(cfg.get("default_service")),
-            slots: ServiceSlot::ALL.map(|slot| text(slots.and_then(|s| s.get(slot.key())))),
+            slots: ServiceSlot::ALL.map(|slot| slot_id(cfg, slot).map(str::to_owned)),
         }
     }
 

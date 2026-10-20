@@ -9,7 +9,7 @@ use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
-use common::kittest::{click, has_label, opened_urls, run, tr};
+use common::kittest::{click, click_change, has_label, run, tr};
 use common::wizard::*;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, default_config};
@@ -18,6 +18,7 @@ use wizard101_chat_translator::runtime::updater::CROWDIN_URL;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::wizard::{Step, WizardAction, can_advance};
+use wizard101_chat_translator::ui::text_select::opened_urls;
 
 const LANGUAGE: &str = "en-US";
 
@@ -188,7 +189,7 @@ fn language_step_links_to_crowdin() {
     let mut h = open(blank_cfg());
     h.get_by_role_and_label(Role::Link, &help_link()).click();
     h.step();
-    assert_eq!(opened_urls(&h), [CROWDIN_URL]);
+    assert_eq!(opened_urls(&h.output().platform_output), [CROWDIN_URL]);
 }
 
 #[test]

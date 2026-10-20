@@ -5,7 +5,7 @@ use crate::common;
 use std::sync::{Arc, Mutex};
 
 use wizard101_chat_translator::input::dispatcher::{
-    Dispatcher, KeyEvent, RawKey, SharedDispatcher,
+    Dispatcher, KeyEvent, SharedDispatcher, testing,
 };
 use wizard101_chat_translator::input::keys::{event_name, hotkey_name};
 use wizard101_chat_translator::input::recorder::record_with;
@@ -17,14 +17,7 @@ const ONE: (i32, u32) = (2, 0x31);
 const A: (i32, u32) = (30, 0x41);
 
 fn key(down: bool, (code, vk): (i32, u32)) -> KeyEvent {
-    KeyEvent {
-        down,
-        code,
-        raw: Some(RawKey {
-            vk,
-            extended: false,
-        }),
-    }
+    testing::key(down, code, vk)
 }
 
 /// 這顆鍵在目前鍵盤配置下的名稱；名稱隨配置而變，名稱表本身由 `keys_golden` 對照。

@@ -16,7 +16,8 @@ use crate::ui::geometry::{
 };
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
-    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_FG_ACTIVE,
+    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
+    TAB_FG_ACTIVE,
 };
 use crate::ui::win32;
 
@@ -29,7 +30,7 @@ pub const MIN_HEIGHT: i32 = 90;
 pub const STATUS_COLORS: [(&str, Color32); 6] = [
     ("locating", Color32::from_rgb(0xe0, 0xb0, 0x50)),
     ("listening", Color32::from_rgb(0x7d, 0xc8, 0x7d)),
-    ("translating", Color32::from_rgb(0x6f, 0xa8, 0xdc)),
+    ("translating", TAB_ACCENT),
     ("waiting_game", FG_HINT),
     // 要使用者動手（以管理員重開、更新）才解得掉，用錯誤色
     ("access_denied", FG_ERROR),
@@ -71,6 +72,8 @@ pub trait Shell {
     fn wait_for_composition(&self) {}
     /// 讓 DWM 不顯示（或恢復顯示）視窗；對系統而言視窗仍是可見的。
     fn set_cloaked(&mut self, _cloaked: bool) {}
+    /// 讓視窗取得鍵盤焦點（框選的 Ctrl+C 才收得到）；被系統拒絕回 `false`。
+    fn take_focus(&mut self) -> bool;
 }
 
 /// 以 HWND 操作真正的視窗。
@@ -97,6 +100,9 @@ impl Shell for Win32Shell {
     }
     fn set_cloaked(&mut self, cloaked: bool) {
         win32::set_cloaked(self.0, cloaked);
+    }
+    fn take_focus(&mut self) -> bool {
+        win32::force_foreground(self.0)
     }
 }
 
@@ -498,6 +504,7 @@ pub(crate) mod tests {
     use crate::ui::overlay::message_list::{self, MessageList};
     use crate::ui::overlay::model::OverlayModel;
     use crate::ui::overlay::outlined;
+    use crate::ui::text_select::find_text_shape;
 
     const START: Rect = (1000, 500, 640, 420);
 
@@ -506,6 +513,8 @@ pub(crate) mod tests {
         pub(crate) rect: Rect,
         /// `false` 模擬視窗還沒建好（HWND 為 0）。
         pub(crate) ready: bool,
+        /// `take_focus` 被呼叫的次數。
+        pub(crate) focused: usize,
     }
 
     impl Shell for FakeShell {
@@ -526,6 +535,10 @@ pub(crate) mod tests {
         }
         fn scale_at(&self, _x: i32, _y: i32) -> f32 {
             1.0
+        }
+        fn take_focus(&mut self) -> bool {
+            self.focused += 1;
+            true
         }
     }
 
@@ -554,6 +567,7 @@ pub(crate) mod tests {
                 cursor: (0, 0),
                 rect: START,
                 ready: true,
+                focused: 0,
             },
             title: title.into(),
             area: egui::Rect::NOTHING,
@@ -617,13 +631,7 @@ pub(crate) mod tests {
             egui::Shape::Rect(r) if r.rect == square => Some(r.fill),
             _ => None,
         });
-        let fg = shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(t) if t.galley.text() == glyph => Some(t.fallback_color),
-                _ => None,
-            })
-            .unwrap();
+        let fg = find_text_shape(shapes, glyph).unwrap().fallback_color;
         (fill, fg)
     }
 
@@ -775,12 +783,8 @@ pub(crate) mod tests {
     #[test]
     fn tooltip_text_is_bright() {
         let (harness, text) = hovered_tooltip();
-        let color = harness.output().shapes.iter().find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == text => {
-                Some(s.galley.job.sections[0].format.color)
-            }
-            _ => None,
-        });
+        let color = find_text_shape(&harness.output().shapes, &text)
+            .map(|s| s.galley.job.sections[0].format.color);
         assert_eq!(color, Some(FG_TRANSLATED));
     }
 
@@ -1069,6 +1073,7 @@ pub(crate) mod tests {
             cursor: (0, 0),
             rect: START,
             ready: false,
+            focused: 0,
         };
         run_frame(&mut frame, &mut shell);
         assert_eq!(shell.rect, START);

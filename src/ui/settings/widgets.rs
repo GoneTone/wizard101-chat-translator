@@ -12,6 +12,7 @@ use eframe::egui::{
     WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
+use crate::input::keys::split_hotkey;
 use crate::py::pystr;
 use crate::ui::overlay::scrollbar;
 use crate::ui::richtext;
@@ -626,7 +627,7 @@ pub fn collapsible(
     }
 }
 
-/// 把熱鍵字串拆成「段 → 鍵」的按鍵帽文字：以 `, ` 分段、以 `+` 分鍵，每個詞首字母大寫。
+/// 把熱鍵字串依 `split_hotkey` 拆成「段 → 鍵」的按鍵帽文字，每個詞首字母大寫。
 pub fn keycaps(hotkey: &str) -> Vec<Vec<String>> {
     let capitalize = |word: &str| {
         let mut chars = word.chars();
@@ -634,18 +635,12 @@ pub fn keycaps(hotkey: &str) -> Vec<Vec<String>> {
             first.to_uppercase().chain(chars).collect::<String>()
         })
     };
-    hotkey
-        .split(", ")
-        .filter(|step| !step.trim().is_empty())
+    split_hotkey(hotkey)
+        .into_iter()
+        .filter(|step| step.iter().any(|key| !pystr::strip(key).is_empty()))
         .map(|step| {
-            step.split('+')
-                .map(|key| {
-                    key.trim()
-                        .split(' ')
-                        .map(capitalize)
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
+            step.into_iter()
+                .map(|key| key.split(' ').map(capitalize).collect::<Vec<_>>().join(" "))
                 .collect()
         })
         .collect()
@@ -675,15 +670,20 @@ pub fn keycap_row(ui: &mut Ui, hotkey: &str) {
     });
 }
 
+/// 不換行也不截斷的單行文字排版。
+pub(super) fn extended_galley(
+    ui: &Ui,
+    text: impl Into<WidgetText>,
+    style: TextStyle,
+) -> Arc<Galley> {
+    text.into()
+        .into_galley(ui, Some(TextWrapMode::Extend), f32::INFINITY, style)
+}
+
 /// 一個按鍵帽：高 26、左右內距 9，外框 1 寬、底邊 2 寬。
 fn keycap(ui: &mut Ui, key: &str) {
     let text = RichText::new(key).size(theme::HINT_SIZE).color(theme::TEXT);
-    let galley = WidgetText::from(text.clone()).into_galley(
-        ui,
-        Some(TextWrapMode::Extend),
-        f32::INFINITY,
-        TextStyle::Body,
-    );
+    let galley = extended_galley(ui, text.clone(), TextStyle::Body);
     let (rect, _) = ui.allocate_exact_size(vec2(galley.size().x + 18.0, 26.0), Sense::hover());
     let face = Rect::from_min_max(rect.min + vec2(1.0, 1.0), rect.max - vec2(1.0, 2.0));
     let painter = ui.painter();
