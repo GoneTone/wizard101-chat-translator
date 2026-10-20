@@ -104,6 +104,7 @@ impl OverlayModel {
     }
 
     /// 顯示中的客戶端。
+    #[cfg(test)]
     pub fn client(&self) -> Option<u32> {
         self.client
     }
