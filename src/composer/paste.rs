@@ -1,7 +1,7 @@
 //! 把文字送進遊戲：「逐字鍵入」（模擬打字）。遊戲不支援剪貼簿貼上，故改用自動輸入。
 //!
 //! 兩條路徑共用同一個鍵入迴圈但規矩不同：譯文（`type_into_window`）絕不模擬 Enter，由使用者
-//! 自己確認後送出；攔截到的 Ctrl+V（`paste_clipboard`）行為等同原生貼上，剪貼簿內容原樣送。
+//! 自己確認後送出；攔截到的 Ctrl+V（`paste_clipboard`）行為等同原生貼上，只有遊戲聊天框開著時換行改成空格。
 
 use std::sync::{Arc, LazyLock, Mutex, TryLockError};
 use std::time::{Duration, Instant};
@@ -26,6 +26,8 @@ pub const PASTE_KEY: &str = "v";
 pub const MODIFIER_RELEASE_TIMEOUT: Duration = Duration::from_secs(3);
 /// 等待放開時的輪詢間隔。
 pub const KEY_RELEASE_POLL: Duration = Duration::from_millis(10);
+/// 貼上按下 Enter 後的等待：遊戲可能因此開啟聊天框，讀取端回報後下一個換行才判斷得準。
+pub const ENTER_SETTLE: Duration = Duration::from_millis(150);
 
 /// 譯文與貼上兩條路共用：鍵入進行中就持有，也讓兩者不交錯。
 static TYPING: Mutex<()> = Mutex::new(());
@@ -69,11 +71,19 @@ impl TypingEnv {
 /// 逐字鍵入 `text`，`delay` 為每字間隔。
 ///
 /// `hwnd` 存在時每個字送出前都確認它仍是前景：打到一半切窗（或搶焦點失敗）就停，
-/// 剩下的字不會打進別的視窗；`hwnd` 為 0 則打到底。
-fn type_chars(env: &TypingEnv, hwnd: isize, text: &str, delay: Duration) {
+/// 剩下的字不會打進別的視窗；`hwnd` 為 0 則打到底。換行在 `chat_open()` 成立時改打空格，
+/// 否則按 Enter。
+fn type_chars(
+    env: &TypingEnv,
+    hwnd: isize,
+    text: &str,
+    delay: Duration,
+    chat_open: &dyn Fn() -> bool,
+) {
     let guarded = hwnd != 0 && (env.is_window)(hwnd);
     let (enter, backspace) = (key_code("enter"), key_code("backspace"));
     let total = text.chars().count();
+    let mut joined = false;
     let _typing = lock(&TYPING);
     for (index, ch) in text.chars().enumerate() {
         if guarded && (env.foreground)() != hwnd {
@@ -87,7 +97,20 @@ fn type_chars(env: &TypingEnv, hwnd: isize, text: &str, delay: Duration) {
             env.inject.release(code);
         }
         match ch {
-            '\n' => tap(env, enter),
+            // 聊天框裡的 Enter 會把打到一半的內容送出
+            '\n' if chat_open() => {
+                if !joined {
+                    joined = true;
+                    log(format!(
+                        "[composer] game chat is open; line breaks from char {index}/{total} become spaces (hwnd={hwnd:#x})"
+                    ));
+                }
+                env.inject.unicode(' ');
+            }
+            '\n' => {
+                tap(env, enter);
+                (env.sleep)(ENTER_SETTLE);
+            }
             '\u{8}' => tap(env, backspace),
             _ => env.inject.unicode(ch),
         }
@@ -126,7 +149,7 @@ pub fn type_into_window(env: &TypingEnv, hwnd: isize, text: &str, delay: Duratio
         }
         (env.sleep)(FOCUS_DELAY);
     }
-    type_chars(env, hwnd, text, delay);
+    type_chars(env, hwnd, text, delay, &|| false);
 }
 
 /// Ctrl+V 的攔截器：`should_intercept()` 成立（遊戲在前景、設定開啟）才吞掉並呼叫 `on_paste`。
@@ -177,10 +200,15 @@ fn wait_for_paste_keys_released(env: &TypingEnv) {
 
 /// 攔到 Ctrl+V：把剪貼簿文字鍵入 `hwnd`（遊戲已在前景，不搶焦點），回傳有沒有真的開始打。
 ///
-/// 行為要跟原生貼上一樣 —— 空白照送、內容不 strip；CRLF 折成一個換行。`single_line`
-/// （聊天輸入框開著）時每個換行改成一個空格，因為那裡的 Enter 會把打到一半的內容送出。
+/// 行為要跟原生貼上一樣 —— 空白照送、內容不 strip；CRLF 折成一個換行。每個換行當下若
+/// `chat_open()`（遊戲聊天輸入框開著，包括貼上途中被 Enter 打開）就改成空格。
 /// 空剪貼簿不打；上一次還在打的時候再呼叫一律忽略，免得兩串字交錯。
-pub fn paste_clipboard(env: &TypingEnv, hwnd: isize, delay: Duration, single_line: bool) -> bool {
+pub fn paste_clipboard(
+    env: &TypingEnv,
+    hwnd: isize,
+    delay: Duration,
+    chat_open: impl Fn() -> bool,
+) -> bool {
     let _paste = match PASTE_IN_PROGRESS.try_lock() {
         Ok(guard) => guard,
         Err(TryLockError::Poisoned(e)) => e.into_inner(),
@@ -202,19 +230,14 @@ pub fn paste_clipboard(env: &TypingEnv, hwnd: isize, delay: Duration, single_lin
         }
     };
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    let text = if single_line {
-        text.replace('\n', " ")
-    } else {
-        text
-    };
     log(format!(
-        "[composer] pasting clipboard chars={} delay={:?} single_line={} hwnd={hwnd:#x}",
+        "[composer] pasting clipboard chars={} delay={:?} chat_open={} hwnd={hwnd:#x}",
         text.chars().count(),
         delay.as_secs_f64(),
-        py_bool(single_line)
+        py_bool(chat_open())
     ));
     wait_for_paste_keys_released(env);
-    type_chars(env, hwnd, &text, delay);
+    type_chars(env, hwnd, &text, delay, &chat_open);
     true
 }
 
@@ -548,7 +571,7 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         set_clipboard(Ok(Some("來組隊嗎？")));
-        assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0, Duration::ZERO, || false));
         assert_eq!(typed(&fake), "來組隊嗎？");
     }
 
@@ -557,10 +580,10 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         set_clipboard(Ok(None));
-        assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
         set_clipboard(Err("error=5"));
         let text = crate::logs::capture(|| {
-            assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
+            assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
         });
         assert!(
             text.contains("[composer] clipboard read failed: error=5"),
@@ -574,7 +597,7 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         set_clipboard(Ok(Some("")));
-        assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
         assert!(fake.calls.lock().unwrap().is_empty());
     }
 
@@ -585,7 +608,7 @@ mod tests {
         set_foreground(&[0x42]);
         set_clipboard(Ok(Some("hello there")));
         let delay = Duration::from_millis(50);
-        assert!(paste_clipboard(&env, 0x42, delay, false));
+        assert!(paste_clipboard(&env, 0x42, delay, || false));
         assert_eq!(typed(&fake), "hello there");
         assert_eq!(slept(), vec![delay; 11]);
     }
@@ -596,7 +619,7 @@ mod tests {
         let (fake, env) = setup();
         set_foreground(&[0x42]);
         set_clipboard(Ok(Some("  line one\r\nline two\n  ")));
-        assert!(paste_clipboard(&env, 0x42, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0x42, Duration::ZERO, || false));
         assert_eq!(typed(&fake), "  line one\nline two\n  ");
         let calls = fake.calls.lock().unwrap();
         assert!(
@@ -612,8 +635,22 @@ mod tests {
         let (fake, env) = setup();
         set_foreground(&[0x42]);
         set_clipboard(Ok(Some("測試\r\nTest\n\n\n123 ")));
-        assert!(paste_clipboard(&env, 0x42, Duration::ZERO, true));
+        assert!(paste_clipboard(&env, 0x42, Duration::ZERO, || true));
         assert_eq!(typed(&fake), "測試 Test   123 ");
+    }
+
+    #[test]
+    fn line_breaks_become_spaces_once_an_enter_opens_the_game_chat() {
+        let _g = serial();
+        let (fake, env) = setup();
+        set_foreground(&[0x42]);
+        set_clipboard(Ok(Some("x\ny\nz\n")));
+        let enter = code("enter");
+        let seen = Arc::clone(&fake);
+        let chat_open = move || seen.calls.lock().unwrap().contains(&Call::Press(enter));
+        assert!(paste_clipboard(&env, 0x42, Duration::ZERO, chat_open));
+        assert_eq!(typed(&fake), "x\ny z ");
+        assert_eq!(slept(), [ENTER_SETTLE]);
     }
 
     #[test]
@@ -634,7 +671,7 @@ mod tests {
                 Pressed::new()
             }
         });
-        assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0, Duration::ZERO, || false));
         assert_eq!(typed(&fake), "x");
         assert_eq!(slept(), vec![KEY_RELEASE_POLL; 3]);
     }
@@ -646,7 +683,7 @@ mod tests {
         set_clipboard(Ok(Some("x")));
         let held = held(&["ctrl"]);
         env.pressed = Arc::new(move || held.clone());
-        assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0, Duration::ZERO, || false));
         assert_eq!(typed(&fake), "x");
         assert!(slept().iter().sum::<Duration>() >= MODIFIER_RELEASE_TIMEOUT);
     }
@@ -657,7 +694,7 @@ mod tests {
         let (fake, env) = setup();
         set_foreground(&[0x42, 0x42, 0x9999, 0x42, 0x42]);
         set_clipboard(Ok(Some("hello")));
-        paste_clipboard(&env, 0x42, Duration::ZERO, false);
+        paste_clipboard(&env, 0x42, Duration::ZERO, || false);
         assert_eq!(typed(&fake), "he");
     }
 
@@ -667,10 +704,10 @@ mod tests {
         let (fake, env) = setup();
         set_clipboard(Ok(Some("slow")));
         let running = PASTE_IN_PROGRESS.lock().unwrap();
-        assert!(!paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
         drop(running);
         assert!(fake.calls.lock().unwrap().is_empty());
-        assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0, Duration::ZERO, || false));
         assert_eq!(*fake.paste_locked.lock().unwrap(), [true; 4]);
     }
 
@@ -689,7 +726,7 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         set_clipboard(Ok(Some("a\u{8}")));
-        assert!(paste_clipboard(&env, 0, Duration::ZERO, false));
+        assert!(paste_clipboard(&env, 0, Duration::ZERO, || false));
         let bs = code("backspace");
         assert_eq!(
             *fake.calls.lock().unwrap(),

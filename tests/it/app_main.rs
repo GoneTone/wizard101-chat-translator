@@ -1230,14 +1230,14 @@ fn paste_hotkey_types_single_line_only_while_the_game_chat_box_is_open() {
     let _serial = util::lock(&TYPING_TESTS);
     capture_logs();
     let settings = input_cfg("ctrl+space", "ctrl+shift+space", true);
-    let tracker = ChatInputTracker::default();
+    let tracker = Arc::new(ChatInputTracker::default());
     let keys = Arc::new(Keys::default());
     let env = typing_env(&keys);
-    on_paste_hotkey(&settings, &tracker, Arc::clone(&env), || 0x77)
+    on_paste_hotkey(&settings, Arc::clone(&tracker), Arc::clone(&env), || 0x77)
         .join()
         .unwrap();
     tracker.opened(0x77);
-    on_paste_hotkey(&settings, &tracker, env, || 0x77)
+    on_paste_hotkey(&settings, Arc::clone(&tracker), env, || 0x77)
         .join()
         .unwrap();
     assert_eq!(*keys.typed.lock().unwrap(), "a\nba b");
