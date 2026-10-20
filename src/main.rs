@@ -47,7 +47,7 @@ fn main() {
     // rten 預設用滿實體核心、框選 OCR 時與遊戲搶 CPU；它只在第一次建立執行緒池時讀這個變數
     let ocr_threads = ocr::inference_threads(
         std::env::var_os("RTEN_NUM_THREADS").is_some(),
-        std::thread::available_parallelism().map_or(1, usize::from),
+        num_cpus::get_physical(),
     );
     if let Some(threads) = ocr_threads {
         // SAFETY: 還沒建立任何執行緒，沒有人同時讀寫環境變數
@@ -69,7 +69,7 @@ fn main() {
         "[region] OCR inference threads: RTEN_NUM_THREADS={} ({})",
         std::env::var("RTEN_NUM_THREADS").unwrap_or_default(),
         if ocr_threads.is_some() {
-            "default, half the logical cores"
+            "default, half the physical cores"
         } else {
             "set by user"
         }

@@ -215,9 +215,9 @@ pub fn recognize_with(
     Ok(lines.join("\n"))
 }
 
-/// rten 推論執行緒數：使用者設了 `RTEN_NUM_THREADS` 就不動（回 None），否則用一半的邏輯核心。
-pub fn inference_threads(user_set: bool, parallelism: usize) -> Option<usize> {
-    (!user_set).then_some((parallelism / 2).max(1))
+/// rten 推論執行緒數：使用者設了 `RTEN_NUM_THREADS` 就不動（回 None），否則用一半的實體核心。
+pub fn inference_threads(user_set: bool, physical_cores: usize) -> Option<usize> {
+    (!user_set).then_some((physical_cores / 2).max(1))
 }
 
 /// 偵測的 `limit_side_len`：短邊照常放大到 736，但放大後長邊約不超過 2000。
@@ -305,9 +305,9 @@ mod tests {
 
     #[test]
     fn inference_threads_default_to_half_unless_user_set() {
-        assert_eq!(inference_threads(false, 24), Some(12));
+        assert_eq!(inference_threads(false, 16), Some(8));
         assert_eq!(inference_threads(false, 1), Some(1));
-        assert_eq!(inference_threads(true, 24), None);
+        assert_eq!(inference_threads(true, 16), None);
     }
 
     #[test]

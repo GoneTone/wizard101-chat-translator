@@ -5224,6 +5224,7 @@ dependencies = [
  "icu_locale",
  "image",
  "log",
+ "num_cpus",
  "raw-window-handle",
  "regex",
  "reqwest",
