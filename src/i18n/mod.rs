@@ -1,6 +1,6 @@
 //! 介面文案資源：依當前介面語言提供字串，缺字串先退英文再退來源語言（繁中）。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::{Mutex, OnceLock};
 
@@ -271,6 +271,12 @@ fn fallback_order(current: &str) -> Vec<&str> {
     order
 }
 
+/// 同一組（語言，key）第一次回報才為 true：`t()` 每幀都跑，失敗 log 不去重會洗版。
+fn first_failure(code: &str, key: &str) -> bool {
+    static SEEN: OnceLock<Mutex<HashSet<(String, String)>>> = OnceLock::new();
+    lock(SEEN.get_or_init(Default::default)).insert((code.to_owned(), key.to_owned()))
+}
+
 /// 依 `order` 逐語言查 `key` 並代入變數；缺字串或格式失敗往下一層退，全失敗回 key。
 fn translate<'a>(
     order: &[&str],
@@ -280,14 +286,20 @@ fn translate<'a>(
 ) -> String {
     for code in order {
         let Some(template) = lookup(code).and_then(|c| c.get(key)) else {
-            log(format!("[i18n] missing key: {key} lang={code}"));
+            if first_failure(code, key) {
+                log(format!("[i18n] missing key: {key} lang={code}"));
+            }
             continue;
         };
         match format_template(template, args) {
             Ok(text) => return text,
-            Err(error) => log(format!(
-                "[i18n] format failed: key={key} lang={code} error={error}"
-            )),
+            Err(error) => {
+                if first_failure(code, key) {
+                    log(format!(
+                        "[i18n] format failed: key={key} lang={code} error={error}"
+                    ));
+                }
+            }
         }
     }
     key.to_string()
@@ -538,6 +550,13 @@ mod tests {
             &[("name", "Amy")],
         );
         assert_eq!(text, "你好 Amy");
+    }
+
+    #[test]
+    fn a_failure_is_reported_once_per_language_and_key() {
+        assert!(first_failure("xx", "dedup.test.key"));
+        assert!(!first_failure("xx", "dedup.test.key"));
+        assert!(first_failure("yy", "dedup.test.key"));
     }
 
     #[test]

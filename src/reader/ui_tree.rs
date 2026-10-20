@@ -39,7 +39,7 @@ impl Window {
     ///
     /// 標頭讀取的其他錯誤（如 `OutOfRange`）照樣往外傳；內容的 `OutOfRange` 則同樣回空。
     pub fn children(&self, mem: &dyn ProcessMemory) -> Result<Vec<Window>, MemError> {
-        let header = |at: u64| match mem.read_u64(self.addr + at) {
+        let header = |at: u64| match mem.read_u64(self.addr.wrapping_add(at)) {
             Err(MemError::Read(_)) => Ok(None),
             other => other.map(Some),
         };
@@ -68,28 +68,28 @@ impl Window {
 
     /// 控件名稱。
     pub fn name(&self, mem: &dyn ProcessMemory) -> Result<String, MemError> {
-        mem.read_std_string(self.addr + NAME_OFFSET)
+        mem.read_std_string(self.addr.wrapping_add(NAME_OFFSET))
     }
 
     /// 父控件；根視窗沒有父控件。
     pub fn parent(&self, mem: &dyn ProcessMemory) -> Result<Option<Window>, MemError> {
-        let addr = mem.read_u64(self.addr + PARENT_OFFSET)?;
+        let addr = mem.read_u64(self.addr.wrapping_add(PARENT_OFFSET))?;
         Ok((addr != 0).then_some(Window { addr }))
     }
 
     /// 旗標位元（`FLAG_VISIBLE` 等）。
     pub fn flags(&self, mem: &dyn ProcessMemory) -> Result<u32, MemError> {
-        mem.read_u32(self.addr + FLAGS_OFFSET)
+        mem.read_u32(self.addr.wrapping_add(FLAGS_OFFSET))
     }
 
     /// 相對於父控件的矩形。
     pub fn rect(&self, mem: &dyn ProcessMemory) -> Result<Rect, MemError> {
-        let at = self.addr + RECT_OFFSET;
+        let at = self.addr.wrapping_add(RECT_OFFSET);
         Ok(Rect {
             x1: mem.read_i32(at)?,
-            y1: mem.read_i32(at + 4)?,
-            x2: mem.read_i32(at + 8)?,
-            y2: mem.read_i32(at + 12)?,
+            y1: mem.read_i32(at.wrapping_add(4))?,
+            x2: mem.read_i32(at.wrapping_add(8))?,
+            y2: mem.read_i32(at.wrapping_add(12))?,
         })
     }
 }
@@ -154,6 +154,7 @@ fn descend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::reader::chat_tabs::{read_current_tab, read_tab_state};
     use crate::reader::memory::FakeMemory;
 
     fn put_name(mem: &FakeMemory, win: u64, name: &str) {
@@ -187,6 +188,20 @@ mod tests {
         let found = find_by_name(&mem, Window { addr: 0x1000 }, "Target").unwrap();
         let addrs: Vec<u64> = found.iter().map(|w| w.addr).collect();
         assert_eq!(addrs, [0x3000, 0x4000]);
+    }
+
+    #[test]
+    fn pointers_near_the_top_of_the_address_space_error_instead_of_overflowing() {
+        let mem = FakeMemory::new();
+        let win = Window { addr: u64::MAX };
+        assert!(win.children(&mem).unwrap().is_empty());
+        assert!(win.name(&mem).is_err());
+        assert!(win.parent(&mem).is_err());
+        assert!(win.flags(&mem).is_err());
+        assert!(win.rect(&mem).is_err());
+        assert!(mem.read_std_string(u64::MAX).is_err());
+        assert_eq!(read_current_tab(&mem, u64::MAX), None);
+        assert!(read_tab_state(&mem, u64::MAX, &[]).is_err());
     }
 
     #[test]

@@ -8,6 +8,7 @@
   "notice.game_missing": "⚠  Game not ready or disconnected — waiting…",
   "notice.access_denied": "⚠  Access denied: the game runs elevated — restart this program as administrator",
   "notice.hotkeys_unavailable": "⚠  Hotkeys unavailable: the keyboard hook could not be installed — restart this program",
+  "notice.config_unsaved": "⚠  Settings could not be saved and will be lost when you exit — check that the program folder is writable",
   "notice.version_mismatch": "⚠  Game version not supported: update both the game and this app to the latest version; if both are current, this app does not support this game build yet — please wait for an update",
   "notice.offline": "⚠  Translation server is offline — retrying…",
   "notice.config_error": "⚠  API settings are invalid — open settings (⚙) to check",

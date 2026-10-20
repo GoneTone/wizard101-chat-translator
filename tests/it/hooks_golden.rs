@@ -9,7 +9,7 @@ use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{
-    AUTOBOT_PATTERN, AutobotCave, MODULE, ROOT_WINDOW_PATTERN, RootWindowHook,
+    AUTOBOT_PATTERN, AutobotCave, MODULE, ROOT_WINDOW_PATTERN, RootWindowHook, STUB_EXIT_WAIT,
 };
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp};
 
@@ -328,7 +328,7 @@ fn repairs_from_python_written_hookstate() {
     for (addr, original) in &ops {
         mem.set_bytes(*addr, &vec![0xE9; original.len()]);
     }
-    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0), 3);
+    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0, |_| {}), 3);
     let expected: Vec<MemOp> = ops
         .iter()
         .map(|(addr, bytes)| MemOp::Write {
@@ -345,9 +345,26 @@ fn repairs_from_python_written_hookstate() {
     for (addr, original) in &ops {
         mem.set_bytes(*addr, &vec![0xE9; original.len()]);
     }
-    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, pid, 0, |_| {}), 0);
     assert!(mem.ops().is_empty());
     assert!(!state_file(dir.path(), pid).exists());
+}
+
+#[test]
+fn repair_restores_the_cave_only_after_waiting() {
+    let (dir, pid, base, ops) = python_state();
+    let mem = FakeMemory::new();
+    mem.add_module(MODULE, base);
+    for (addr, original) in &ops {
+        mem.set_bytes(*addr, &vec![0xE9; original.len()]);
+    }
+    let mut waited = None;
+    let written = hook_state::repair(dir.path(), &mem, pid, 0, |d| {
+        waited = Some((d, mem.ops().len()));
+    });
+    assert_eq!(written, 3);
+    assert_eq!(waited, Some((STUB_EXIT_WAIT, 2)), "jumps first, then wait");
+    assert!(matches!(mem.ops().last(), Some(MemOp::Write { addr, .. }) if *addr == ops[2].0));
 }
 
 #[test]
@@ -379,7 +396,7 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, 0x1000);
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_001, 2), 1);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_001, 2, |_| {}), 1);
     assert_eq!(
         mem.ops(),
         [MemOp::Write {
@@ -407,6 +424,57 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
 }
 
 #[test]
+fn repair_leaves_the_cave_alone_when_a_jump_write_fails() {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    hook_state::save_state(
+        dir.path(),
+        770_004,
+        0x1000,
+        &[
+            (0x2000, vec![0xAB]),
+            (0x3000, vec![0xCD]),
+            (0x4000, vec![0xEF]),
+        ],
+    )
+    .unwrap();
+    let mem = FakeMemory::new();
+    mem.add_module(MODULE, 0x1000);
+    mem.set_bytes(0x2000, &[0]);
+    mem.set_bytes(0x4000, &[0]);
+    let mut waited = false;
+    assert_eq!(
+        hook_state::repair(dir.path(), &mem, 770_004, 3, |_| waited = true),
+        1
+    );
+    assert_eq!(
+        mem.ops(),
+        [MemOp::Write {
+            addr: 0x2000,
+            bytes: vec![0xAB]
+        }],
+        "a jump may still point into the stub, so the cave stays as is"
+    );
+    assert!(!waited);
+    assert_eq!(
+        log_lines_with(
+            "[reader] hook repair skipped restoring the cave at 0x4000 because 1 jump \
+             write(s) failed (slot=3, pid=770004)"
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        log_lines_with(
+            "[reader] repaired hooks leaked by previous dirty exit (writes=1, failed=1, slot=3, \
+             pid=770004), restart the game if chat stays silent"
+        )
+        .len(),
+        1
+    );
+}
+
+#[test]
 fn repair_skips_and_logs_a_stale_state_file() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
@@ -414,7 +482,7 @@ fn repair_skips_and_logs_a_stale_state_file() {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, 0x9000);
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_002, 1), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_002, 1, |_| {}), 0);
     assert!(mem.ops().is_empty());
     let lines = log_lines_with("pid=770002");
     assert!(
@@ -432,7 +500,7 @@ fn repair_without_state_touches_nothing() {
     let dir = tempfile::tempdir().unwrap();
     let mem = FakeMemory::new();
     mem.kill();
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_020, 0), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_020, 0, |_| {}), 0);
 }
 
 #[test]
@@ -442,7 +510,7 @@ fn repair_ignores_state_when_module_base_is_unreadable() {
     hook_state::save_state(dir.path(), 770_003, 0x1000, &[(0x2000, vec![0xAB])]).unwrap();
     let mem = FakeMemory::new();
     mem.set_bytes(0x2000, &[0]);
-    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 4), 0);
+    assert_eq!(hook_state::repair(dir.path(), &mem, 770_003, 4, |_| {}), 0);
     assert!(mem.ops().is_empty());
     assert!(!state_file(dir.path(), 770_003).exists());
     let lines = log_lines_with("pid=770003");

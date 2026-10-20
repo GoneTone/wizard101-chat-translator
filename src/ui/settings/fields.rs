@@ -3,9 +3,9 @@
 use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{
-    Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup, PopupKind,
-    Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui, WidgetInfo,
-    pos2, vec2,
+    self, Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup,
+    PopupKind, Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui,
+    WidgetInfo, pos2, vec2,
 };
 
 use crate::py::pystr;
@@ -133,6 +133,7 @@ pub fn editable_combo(
         state.open = false;
     }
 
+    let keyed = down + up > 0;
     let visible = state.open && picked.is_none() && !list.is_empty();
     if visible {
         // 彈出層的 Ui 從全域樣式建立，要帶上設定視窗自己的樣式
@@ -144,18 +145,25 @@ pub fn editable_combo(
             .frame(Frame::popup(ui.style()).inner_margin(4))
             .show(|ui| {
                 let moved = ui.input(|i| i.pointer.is_moving());
-                for (i, option) in list.iter().enumerate() {
-                    let item = ui.add(
-                        Button::selectable(state.hot == Some(i), option.as_str())
-                            .min_size(vec2(ui.available_width(), theme::CONTROL_HEIGHT)),
-                    );
-                    if item.hovered() && moved {
-                        state.hot = Some(i);
-                    }
-                    if item.clicked() {
-                        picked = Some(option.clone());
-                    }
-                }
+                egui::ScrollArea::vertical()
+                    .max_height(ui.spacing().combo_height)
+                    .show(ui, |ui| {
+                        for (i, option) in list.iter().enumerate() {
+                            let item = ui.add(
+                                Button::selectable(state.hot == Some(i), option.as_str())
+                                    .min_size(vec2(ui.available_width(), theme::CONTROL_HEIGHT)),
+                            );
+                            if item.hovered() && moved {
+                                state.hot = Some(i);
+                            }
+                            if item.clicked() {
+                                picked = Some(option.clone());
+                            }
+                            if keyed && state.hot == Some(i) {
+                                item.scroll_to_me(None);
+                            }
+                        }
+                    });
             });
     }
     if let Some(choice) = picked {

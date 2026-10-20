@@ -733,3 +733,125 @@ async fn dropping_the_pool_stops_retries() {
     tokio::time::sleep(Duration::from_secs(120)).await;
     assert!(calls.try_recv().is_err(), "pool 丟棄後不該再重試");
 }
+
+#[tokio::test(start_paused = true)]
+async fn offline_line_past_max_age_reports_failed() {
+    let (calls_tx, _calls) = mpsc::unbounded_channel();
+    let (pool, mut rx) = make_pool(recording(calls_tx, |_| Err(offline("down"))), gate(1));
+    let submitted = Instant::now();
+    pool.submit("[A] one".into(), vec![], 1);
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert!(submitted.elapsed() >= Duration::from_secs(300));
+    assert_eq!(pool.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_after_another_line_succeeded_is_dropped_without_arming_the_gate() {
+    let release = CancellationToken::new();
+    let translate = tfn({
+        let release = release.clone();
+        move |line: String, _| {
+            let release = release.clone();
+            async move {
+                if line == "[A] bad" {
+                    release.cancelled().await;
+                    return Err(TranslateError::Config {
+                        status: Some(400),
+                        detail: "bad request".into(),
+                    });
+                }
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[A] bad".into(), vec![], 1);
+    pool.submit("[B] fine".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    release.cancel();
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None, "不動橫幅");
+    assert_eq!(pool.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_is_dropped_when_another_line_succeeds_between_its_attempts() {
+    let release_fine = CancellationToken::new();
+    let translate = tfn({
+        let release_fine = release_fine.clone();
+        move |line: String, _| {
+            let release_fine = release_fine.clone();
+            async move {
+                if line == "[A] bad" {
+                    return Err(TranslateError::Config {
+                        status: Some(400),
+                        detail: "bad request".into(),
+                    });
+                }
+                release_fine.cancelled().await;
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[B] fine".into(), vec![], 2);
+    pool.submit("[A] bad".into(), vec![], 1);
+    settle().await;
+    assert_eq!(pool.error_state(), Some(ErrorState::Config));
+    // 成功發生在壞那則兩次嘗試之間，而不是它的嘗試期間
+    release_fine.cancel();
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_line_does_not_starve_others_at_concurrency_one() {
+    let translate = tfn(|line: String, _| async move {
+        if line == "[A] bad" {
+            return Err(TranslateError::Config {
+                status: Some(400),
+                detail: "bad request".into(),
+            });
+        }
+        Ok(line)
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] bad".into(), vec![], 1);
+    pool.submit("[B] fine".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None);
+    assert_eq!(pool.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_from_a_pre_reconfigure_request_is_retried_not_dropped() {
+    let release = CancellationToken::new();
+    let first_a = Arc::new(AtomicUsize::new(0));
+    let translate = tfn({
+        let release = release.clone();
+        move |line: String, _| {
+            let release = release.clone();
+            let first_a = first_a.clone();
+            async move {
+                if line == "[A] old" && first_a.fetch_add(1, Ordering::SeqCst) == 0 {
+                    release.cancelled().await;
+                    return Err(TranslateError::Config {
+                        status: Some(401),
+                        detail: "old key".into(),
+                    });
+                }
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[A] old".into(), vec![], 1);
+    settle().await;
+    pool.note_reconfigured();
+    pool.submit("[B] new".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] new".into(), false));
+    release.cancel();
+    assert_eq!(next(&mut rx).await, (1, "[A] old".into(), false));
+}

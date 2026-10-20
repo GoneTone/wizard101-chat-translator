@@ -4,7 +4,7 @@ use std::any::Any;
 use std::fmt::Write as _;
 use std::fs;
 use std::hash::{BuildHasher, Hasher, RandomState};
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -111,11 +111,18 @@ pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     ));
     let tmp = PathBuf::from(tmp_name);
     // 寫入與 rename 之間當機會留下暫存檔，下次啟動由 `sweep_stale_temps` 清掉
-    let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
+    let result = write_synced(&tmp, text).and_then(|()| fs::rename(&tmp, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// 寫檔並 fsync：先落盤再 rename，斷電後才不會留下空檔。
+fn write_synced(path: &Path, text: &str) -> io::Result<()> {
+    let mut file = fs::File::create(path)?;
+    file.write_all(text.as_bytes())?;
+    file.sync_all()
 }
 
 /// 刪掉 `dir` 裡已結束程序留下的 `write_atomic` 暫存檔（`<file>.<pid>.<n>.tmp`）。

@@ -35,10 +35,15 @@ pub const VERSION_MISMATCH_INTERVAL: Duration = Duration::from_secs(60);
 /// 長時間等待切成這麼長的片段，停止時最多延遲一段才醒來。
 const WAIT_SLICE: Duration = Duration::from_millis(50);
 
-/// 等 `duration`，`stop` 被設定時提早返回（`CancellationToken` 沒有阻塞式等待，故分段睡）。
-pub(crate) fn wait(clock: &Clock, stop: &CancellationToken, duration: Duration) {
+/// 等 `duration`，`stop` 被設定或 `keep_going` 回 false 時提早返回（`CancellationToken` 沒有阻塞式等待，故分段睡）。
+pub(crate) fn wait(
+    clock: &Clock,
+    stop: &CancellationToken,
+    duration: Duration,
+    mut keep_going: impl FnMut() -> bool,
+) {
     let deadline = (clock.now)() + duration;
-    while !stop.is_cancelled() {
+    while !stop.is_cancelled() && keep_going() {
         let remaining = deadline.saturating_duration_since((clock.now)());
         if remaining.is_zero() {
             return;
@@ -282,7 +287,10 @@ impl<R: ChatSource> ClientLoop<R> {
                 self.s.board.report(slot, status, self.game_issue);
                 self.force_input_closed();
                 self.report_tabs(None);
-                self.wait_for_retry(retry_in);
+                // 遊戲視窗消失也提早返回，免得長間隔佔住 slot
+                wait(&self.env.clock, &self.s.stop, retry_in, || {
+                    (self.env.window_exists)(self.hwnd)
+                });
                 None
             }
         }
@@ -405,18 +413,6 @@ impl<R: ChatSource> ClientLoop<R> {
             self.slot, self.hwnd
         ));
         self.s.ui.post(UiEvent::GameInputClosed { hwnd: self.hwnd });
-    }
-
-    /// 等重試間隔；停止或遊戲視窗消失時提早返回，免得長間隔佔住 slot。
-    fn wait_for_retry(&mut self, duration: Duration) {
-        let deadline = (self.env.clock.now)() + duration;
-        while !self.s.stop.is_cancelled() && (self.env.window_exists)(self.hwnd) {
-            let remaining = deadline.saturating_duration_since((self.env.clock.now)());
-            if remaining.is_zero() {
-                return;
-            }
-            (self.env.clock.sleep)(remaining.min(WAIT_SLICE));
-        }
     }
 
     /// 等待下一輪讀取，期間以 `INPUT_POLL_INTERVAL` 持續取樣輸入框狀態。

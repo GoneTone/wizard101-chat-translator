@@ -9,6 +9,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use tokio_util::sync::CancellationToken;
+
 use super::chat_hook::{
     AddLineHook, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts, pending_broadcast,
     read_ring,
@@ -45,6 +47,8 @@ pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
 /// 外來 ChatBox 位址的重驗間隔（秒）：新的主 ChatBox 可能重用外來的舊位址。
 pub const FOREIGN_RECHECK_SECONDS: u64 = 5;
+/// 找不到輸入框後多久才再搜一次 UI 樹：輸入框每秒取樣數十次，每次都走整棵樹太貴。
+pub const INPUT_RECHECK: Duration = Duration::from_secs(1);
 
 /// 一則新聊天；`tabs` 是它所在的分頁，伺服器廣播收斂後含多個。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,6 +107,8 @@ struct Attached {
 enum AttachError {
     Hook(HookError),
     Timeout,
+    /// 等待中收到停止訊號或遊戲已結束。
+    Cancelled,
 }
 
 impl From<HookError> for AttachError {
@@ -119,6 +125,9 @@ impl fmt::Display for AttachError {
                 f,
                 "root window hook did not fire within {}s",
                 HOOK_READY_TIMEOUT.as_secs()
+            ),
+            Self::Cancelled => f.write_str(
+                "stopped waiting for the root window hook (reader stopping or game exited)",
             ),
         }
     }
@@ -158,6 +167,8 @@ pub struct WizChatReader {
     /// hookstate 檔所在目錄。
     pub state_dir: PathBuf,
     pub clock: Clock,
+    /// 程式關閉的訊號：等 hook 就緒時據此提早放棄。
+    pub stop: CancellationToken,
     hwnd: isize,
     open: Opener,
     attached: Option<Attached>,
@@ -167,6 +178,8 @@ pub struct WizChatReader {
     /// 上次記下的掛入失敗原因：同一原因的重試不重複寫 log。
     last_attach_failure: Option<String>,
     edit_node: Option<Window>,
+    /// 上次搜不到輸入框的時刻：`INPUT_RECHECK` 內不重搜。
+    edit_missing_at: Option<Instant>,
     last_seq: u64,
     chatbox: Option<u64>,
     buttons: Option<Vec<(i32, Window)>>,
@@ -197,6 +210,7 @@ impl WizChatReader {
             message_log: None,
             state_dir: local_state_dir(),
             clock: Clock::default(),
+            stop: CancellationToken::new(),
             hwnd,
             open,
             attached: None,
@@ -204,6 +218,7 @@ impl WizChatReader {
             path_logged_for: 0,
             last_attach_failure: None,
             edit_node: None,
+            edit_missing_at: None,
             last_seq: 0,
             chatbox: None,
             buttons: None,
@@ -387,7 +402,7 @@ impl WizChatReader {
         Some("foreign")
     }
 
-    /// 重找主 ChatBox；位址變了就清掉按鈕快取與外來集合（新物件可能重用外來的舊位址）。
+    /// 重找主 ChatBox；位址變了就清掉按鈕、輸入框快取與外來集合（新物件可能重用外來的舊位址）。
     fn refind_chatbox(&mut self) -> Result<(), MemError> {
         let found = find_by_name(self.conn().mem.as_ref(), self.root()?, CHATBOX_WINDOW)?
             .first()
@@ -396,6 +411,8 @@ impl WizChatReader {
             && found != self.chatbox
         {
             self.buttons = None;
+            self.edit_node = None;
+            self.edit_missing_at = None;
             self.foreign.clear();
             log(format!(
                 "[reader] main chat box at {addr:#x} (slot={}, pid={})",
@@ -504,11 +521,23 @@ impl WizChatReader {
         })
     }
 
-    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取。
+    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取，找不到或搜尋失敗後 `INPUT_RECHECK` 內直接回 None。
     fn edit_container(&mut self) -> Result<Option<Window>, MemError> {
         if self.edit_node.is_none() {
-            let found = find_by_name(self.conn().mem.as_ref(), self.root()?, INPUT_CONTAINER)?;
-            self.edit_node = found.first().copied();
+            let now = (self.clock.now)();
+            if self
+                .edit_missing_at
+                .is_some_and(|at| now.duration_since(at) < INPUT_RECHECK)
+            {
+                return Ok(None);
+            }
+            let found = self
+                .root()
+                .and_then(|root| find_by_name(self.conn().mem.as_ref(), root, INPUT_CONTAINER));
+            self.edit_node = found.as_ref().ok().and_then(|f| f.first().copied());
+            // 讀取錯誤也算沒找到：持續讀壞時同樣不必每次輪詢都走整棵樹
+            self.edit_missing_at = self.edit_node.is_none().then_some(now);
+            found?;
         }
         Ok(self.edit_node)
     }
@@ -559,8 +588,8 @@ impl WizChatReader {
         Ok(Some((left + x, top + y, w, h)))
     }
 
-    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 掛 cave 與 root window hook
-    /// → 存 hookstate → 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
+    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 掛 cave、root window hook
+    /// （各存一次 hookstate）→ 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
     fn connect(&mut self) -> Result<(), GameNotRunning> {
         let pid = process::window_pid(self.hwnd);
         let mem = match (self.open)(pid) {
@@ -591,7 +620,13 @@ impl WizChatReader {
             ));
         }
         hook_state::sweep(&self.state_dir, process::pid_alive);
-        hook_state::repair(&self.state_dir, mem.as_ref(), pid, self.slot as usize);
+        hook_state::repair(
+            &self.state_dir,
+            mem.as_ref(),
+            pid,
+            self.slot as usize,
+            |d| (self.clock.sleep)(d),
+        );
         self.attached = Some(Attached {
             mem,
             cave: None,
@@ -626,22 +661,25 @@ impl WizChatReader {
 
     /// 每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
     fn attach(&mut self) -> Result<Duration, AttachError> {
-        let Attached {
-            mem, cave, export, ..
-        } = self.attached.as_mut().expect("process is open");
-        let cave = cave.insert(AutobotCave::install(mem.as_ref())?);
-        *export = RootWindowHook::install(mem.as_ref(), cave)?.export_addr();
+        if self.stop.is_cancelled() {
+            return Err(AttachError::Cancelled);
+        }
+        let conn = self.attached.as_mut().expect("process is open");
+        conn.cave = Some(AutobotCave::install(conn.mem.as_ref())?);
+        self.save_hook_state();
+        let conn = self.attached.as_mut().expect("process is open");
+        let cave = conn.cave.as_mut().expect("cave is installed");
+        conn.export = RootWindowHook::install(conn.mem.as_ref(), cave)?.export_addr();
         self.save_hook_state();
         let waited = self.wait_root_window_ready()?;
         let ring = self.install_chat_hook()?;
         self.attached.as_mut().expect("process is open").ring = ring;
-        self.save_hook_state();
         Ok(waited)
     }
 
     /// 等 hook 把 root window 位址寫回來（非 0＝hook 真的被執行過），回傳等待時間。
     ///
-    /// hook 剛寫入時位址尚未有效，讀取失敗一律當成還沒好；真正的失敗只有逾時。
+    /// hook 剛寫入時位址尚未有效，讀取失敗一律當成還沒好；真正的失敗只有逾時、停止或遊戲結束。
     fn wait_root_window_ready(&mut self) -> Result<Duration, AttachError> {
         let conn = self.attached.as_ref().expect("reader is attached");
         let started = (self.clock.now)();
@@ -649,6 +687,9 @@ impl WizChatReader {
         loop {
             if conn.mem.read_u64(conn.export).is_ok_and(|addr| addr != 0) {
                 return Ok((self.clock.now)() - started);
+            }
+            if self.stop.is_cancelled() || !conn.mem.is_alive() {
+                return Err(AttachError::Cancelled);
             }
             if (self.clock.now)() >= deadline {
                 if remember(&mut self.last_attach_failure, "root window hook timeout") {
@@ -666,7 +707,7 @@ impl WizChatReader {
         }
     }
 
-    /// 掛上 AddLine hook（登記在 cave，由 cave 一併解除），回傳環形緩衝位址。
+    /// 掛上 AddLine hook（登記在 cave，由 cave 一併解除）並存 hookstate，回傳環形緩衝位址。
     fn install_chat_hook(&mut self) -> Result<u64, HookError> {
         let (slot, pid) = (self.slot, self.pid);
         let Attached { mem, cave, .. } = self.attached.as_mut().expect("process is open");
@@ -683,7 +724,8 @@ impl WizChatReader {
                 return Err(err);
             }
         };
-        let base = mem.module_base(MODULE)?;
+        self.save_hook_state();
+        let base = self.conn().mem.module_base(MODULE)?;
         log(format!(
             "[reader] AddLine hook installed (slot={slot}, pid={pid}, jump={:#x}, ring={:#x}, \
              ring_size={:#x})",
@@ -738,6 +780,7 @@ impl WizChatReader {
         }
         // 序號與 ChatBox 位址都屬於單一連線：重連後是新的 hook 與緩衝
         self.edit_node = None;
+        self.edit_missing_at = None;
         self.last_seq = 0;
         self.chatbox = None;
         self.buttons = None;

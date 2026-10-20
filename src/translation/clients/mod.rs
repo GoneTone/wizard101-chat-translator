@@ -16,7 +16,7 @@ pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
 pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
-use super::errors::{TranslateError, one_line};
+use super::errors::{TranslateError, one_line, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
@@ -156,6 +156,19 @@ pub(crate) fn status_failure(
 ) -> TranslateError {
     map(status, &detail)
         .unwrap_or_else(|| TranslateError::Unexpected(format!("HTTP {status}: {detail}")))
+}
+
+/// 串流中途的 `{"error": …}` 塊：依其中的 code 分類，沒有可用的 code 對應未分類的例外。
+pub(crate) fn chunk_error(error: &Value) -> TranslateError {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("");
+    match error
+        .get("code")
+        .and_then(Value::as_u64)
+        .and_then(|c| u16::try_from(c).ok())
+    {
+        Some(code) => status_failure(code, one_line(message), status_error),
+        None => TranslateError::Unexpected(one_line(&error.to_string())),
+    }
 }
 
 /// 組出帶診斷資訊的截斷錯誤：token 數與樣本讓使用者從 app.log 分辨 repetition loop 與上限誤砍。

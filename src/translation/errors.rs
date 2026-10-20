@@ -14,7 +14,7 @@ use crate::py::pystr;
 pub enum TranslateError {
     /// 可重試：連線失敗、逾時、408、409、429、5xx。
     Offline { status: Option<u16>, detail: String },
-    /// 設定錯誤（4xx）：持續重試，使用者修好設定後自動恢復。
+    /// 設定錯誤（4xx）：重試到單則年齡上限，使用者修好設定後自動恢復；別則成功過時視為這則專屬而放棄。
     Config { status: Option<u16>, detail: String },
     /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷，或模型沒有回任何文字。
     BadOutput(String),

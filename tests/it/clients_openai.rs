@@ -272,6 +272,50 @@ async fn rejected_param_not_sent_is_not_retried() {
 }
 
 #[tokio::test]
+async fn rejected_core_param_is_returned_not_dropped() {
+    let server = MockServer::start().await;
+    mount_chat(&server, rejects("stream")).await;
+    let error = chat(&client(&server, true, false)).await.unwrap_err();
+    assert!(
+        matches!(
+            error,
+            TranslateError::Config {
+                status: Some(400),
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(bodies(&server).await.len(), 1);
+}
+
+#[tokio::test]
+async fn mid_stream_error_chunk_is_an_error_not_a_partial_translation() {
+    let server = MockServer::start().await;
+    let error_chunk = json!({
+        "error": {"code": 502, "message": "Upstream failed"},
+        "choices": [{"delta": {"content": ""}, "finish_reason": "error"}]
+    });
+    mount_chat(&server, stream_of(&[delta("半句"), error_chunk])).await;
+    let error = chat(&client(&server, true, false)).await.unwrap_err();
+    assert_eq!(
+        error,
+        TranslateError::Offline {
+            status: Some(502),
+            detail: "Upstream failed".into()
+        }
+    );
+}
+
+#[tokio::test]
+async fn null_error_field_in_chunks_is_ignored() {
+    let server = MockServer::start().await;
+    let chunk = json!({"error": null, "choices": [{"delta": {"content": "譯文"}}]});
+    mount_chat(&server, stream_of(&[chunk])).await;
+    assert_eq!(chat(&client(&server, true, false)).await.unwrap(), "譯文");
+}
+
+#[tokio::test]
 async fn bad_request_without_named_param_is_config_error_once() {
     let server = MockServer::start().await;
     mount_chat(&server, error_body(400, "bad request")).await;

@@ -28,6 +28,8 @@ pub struct Banners {
     error: Option<Banner>,
     /// 鍵盤 hook 裝不上；與收訊的錯誤分開存，收訊清掉錯誤時才不會一起消失。
     hotkeys_unavailable: bool,
+    /// 最近一次存設定失敗；下一次存檔成功才清掉。
+    config_unsaved: bool,
     update: Option<Release>,
     dismissed: Option<String>,
     error_height: f32,
@@ -49,13 +51,19 @@ impl Banners {
         self.hotkeys_unavailable = true;
     }
 
-    /// 錯誤橫幅目前的文字（收訊錯誤與快捷鍵錯誤各一行）；都沒有回 `None`。
+    /// 設定存檔失敗時加上一行提示，存檔成功時收起。
+    pub fn set_config_unsaved(&mut self, unsaved: bool) {
+        self.config_unsaved = unsaved;
+    }
+
+    /// 錯誤橫幅目前的文字（收訊錯誤、快捷鍵錯誤、存檔錯誤各一行）；都沒有回 `None`。
     pub fn error_text(&self) -> Option<String> {
         let reader = self.error.as_ref().map(|(key, args)| localized(key, args));
         let hotkeys = self
             .hotkeys_unavailable
             .then(|| t("notice.hotkeys_unavailable", &[]));
-        let lines: Vec<String> = [reader, hotkeys].into_iter().flatten().collect();
+        let unsaved = self.config_unsaved.then(|| t("notice.config_unsaved", &[]));
+        let lines: Vec<String> = [reader, hotkeys, unsaved].into_iter().flatten().collect();
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
@@ -79,11 +87,6 @@ impl Banners {
     pub fn set_update(&mut self, release: Release) {
         log(format!("[update] banner shown for {}", release.version));
         self.update = Some(release);
-    }
-
-    /// 收起更新橫幅；不算使用者關掉，之後同版仍會再提醒。
-    pub fn clear_update(&mut self) {
-        self.update = None;
     }
 
     /// 更新橫幅目前的文字；沒有橫幅回 `None`。
@@ -308,6 +311,17 @@ mod tests {
     }
 
     #[test]
+    fn the_unsaved_line_stays_until_a_save_succeeds() {
+        let unsaved = t("notice.config_unsaved", &[]);
+        let mut banners = Banners::default();
+        banners.set_config_unsaved(true);
+        banners.clear_error();
+        assert_eq!(banners.error_text(), Some(unsaved));
+        banners.set_config_unsaved(false);
+        assert_eq!(banners.error_text(), None);
+    }
+
+    #[test]
     fn dismissed_update_version_not_reoffered() {
         let mut banners = Banners::default();
         banners.set_update(release("0.2.0"));
@@ -346,18 +360,6 @@ mod tests {
         assert_eq!(
             banners.update_text(),
             Some(t("update.available", &[("version", "0.2.1")]))
-        );
-    }
-
-    #[test]
-    fn clear_update_does_not_count_as_dismissing() {
-        let mut banners = Banners::default();
-        banners.set_update(release("0.2.0"));
-        banners.clear_update();
-        banners.offer_update(release("0.2.0"));
-        assert_eq!(
-            banners.update_text(),
-            Some(t("update.available", &[("version", "0.2.0")]))
         );
     }
 
@@ -456,7 +458,7 @@ mod tests {
         assert!(rest.max.y <= error.min.y.min(update.min.y), "{rest:?}");
         assert!(update.max.y <= area.max.y && error.max.y <= update.min.y);
 
-        harness.state_mut().banners.clear_update();
+        harness.state_mut().banners.update = None;
         harness.step();
         assert_eq!(
             harness.state().banners.error_text(),

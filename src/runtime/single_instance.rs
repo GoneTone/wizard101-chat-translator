@@ -3,7 +3,7 @@
 use std::ptr::null;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
 };
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
@@ -28,26 +28,40 @@ impl Drop for InstanceLock {
     }
 }
 
-/// 搶下單一實例的 mutex；已經有一份在跑時回 `None`。呼叫端須留住回傳值直到程序結束。
-pub fn acquire_single_instance() -> Option<InstanceLock> {
+/// 搶不到單一實例 mutex 的原因。
+#[derive(Debug, PartialEq, Eq)]
+pub enum AcquireError {
+    AlreadyRunning,
+    /// `CreateMutexW` 本身失敗（Win32 錯誤碼）。
+    CreateFailed(u32),
+}
+
+/// 搶下單一實例的 mutex。呼叫端須留住回傳值直到程序結束。
+pub fn acquire_single_instance() -> Result<InstanceLock, AcquireError> {
     acquire_named(SINGLE_INSTANCE_MUTEX)
 }
 
-fn acquire_named(name: &str) -> Option<InstanceLock> {
+/// 建立 mutex 失敗的錯誤碼分類：拒絕存取代表較高權限的那份已持有它。
+fn create_error(code: u32) -> AcquireError {
+    if code == ERROR_ACCESS_DENIED {
+        AcquireError::AlreadyRunning
+    } else {
+        AcquireError::CreateFailed(code)
+    }
+}
+
+fn acquire_named(name: &str) -> Result<InstanceLock, AcquireError> {
     let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
     let handle = unsafe { CreateMutexW(null(), 0, wide.as_ptr()) };
     if handle.is_null() {
-        log(format!("[app] CreateMutex failed: error={}", unsafe {
-            GetLastError()
-        }));
-        return None;
+        return Err(create_error(unsafe { GetLastError() }));
     }
     // 必須緊接在 CreateMutexW 之後讀，中間不能插入其他 Win32 呼叫
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe { CloseHandle(handle) };
-        return None;
+        return Err(AcquireError::AlreadyRunning);
     }
-    Some(InstanceLock(handle))
+    Ok(InstanceLock(handle))
 }
 
 /// `buf` 前 `n` 個字元是否與 `title` 完全相同（`buf` 比 `title` 至少長 2，截斷會讓 `n` 變大）。
@@ -112,8 +126,20 @@ mod tests {
     fn second_acquire_fails_while_first_held() {
         let name = unique("held");
         let first = acquire_named(&name);
-        assert!(first.is_some());
-        assert!(acquire_named(&name).is_none());
+        assert!(first.is_ok());
+        assert_eq!(
+            acquire_named(&name).unwrap_err(),
+            AcquireError::AlreadyRunning
+        );
+    }
+
+    #[test]
+    fn access_denied_means_an_elevated_copy_holds_the_mutex() {
+        assert_eq!(
+            create_error(ERROR_ACCESS_DENIED),
+            AcquireError::AlreadyRunning
+        );
+        assert_eq!(create_error(8), AcquireError::CreateFailed(8));
     }
 
     #[test]
@@ -139,7 +165,7 @@ mod tests {
     fn released_on_drop() {
         let name = unique("drop");
         drop(acquire_named(&name).unwrap());
-        assert!(acquire_named(&name).is_some());
+        assert!(acquire_named(&name).is_ok());
     }
 
     #[test]

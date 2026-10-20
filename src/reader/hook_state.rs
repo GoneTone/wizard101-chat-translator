@@ -6,10 +6,11 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::hooks::MODULE;
+use super::hooks::{MODULE, STUB_EXIT_WAIT};
 use super::memory::ProcessMemory;
 use crate::logs::log;
 use crate::util::{hex, remove_dead_pid_files, write_atomic};
@@ -107,8 +108,14 @@ pub fn sweep(dir: &Path, is_alive: impl Fn(u32) -> bool) {
 
 /// 若有上次髒退出遺留的 hook，模組基址相同時依檔案順序寫回原始 bytes；套用或過期都刪檔。
 ///
-/// 回傳成功寫回的筆數。
-pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usize {
+/// 最後一筆（cave）在 `wait` 之後、且所有跳轉都寫回成功才寫；回傳成功寫回的筆數。
+pub fn repair(
+    dir: &Path,
+    mem: &dyn ProcessMemory,
+    pid: u32,
+    slot: usize,
+    wait: impl FnOnce(Duration),
+) -> usize {
     let (saved_base, ops) = load_state(dir, pid);
     if ops.is_empty() {
         return 0;
@@ -125,19 +132,35 @@ pub fn repair(dir: &Path, mem: &dyn ProcessMemory, pid: u32, slot: usize) -> usi
     };
     let mut written = 0;
     if current_base.is_some() && current_base == saved_base {
-        let mut failed = 0;
-        for (addr, original) in &ops {
-            match mem.write(*addr, original) {
-                Ok(()) => written += 1,
-                Err(e) => {
-                    failed += 1;
-                    log(format!(
-                        "[reader] hook repair write failed at {addr:#x} \
-                         (slot={slot}, len={}): {e}",
-                        original.len()
-                    ));
-                }
+        let restore = |(addr, original): &(u64, Vec<u8>)| match mem.write(*addr, original) {
+            Ok(()) => true,
+            Err(e) => {
+                log(format!(
+                    "[reader] hook repair write failed at {addr:#x} \
+                     (slot={slot}, len={}): {e}",
+                    original.len()
+                ));
+                false
             }
+        };
+        let (cave, jumps) = ops.split_last().expect("ops is non-empty");
+        written = jumps.iter().filter(|op| restore(op)).count();
+        let mut failed = jumps.len() - written;
+        if failed == 0 {
+            // 最後一筆是 cave：先等執行點離開 stub 再還原，同 `AutobotCave::uninstall_with`
+            wait(STUB_EXIT_WAIT);
+            if restore(cave) {
+                written += 1;
+            } else {
+                failed += 1;
+            }
+        } else {
+            // 還指向 stub 的跳轉配上還原後的 cave 會跳進函式中間，遊戲直接當掉
+            log(format!(
+                "[reader] hook repair skipped restoring the cave at {:#x} because {failed} jump \
+                 write(s) failed (slot={slot}, pid={pid})",
+                cave.0
+            ));
         }
         let outcome = if failed == 0 {
             "no game restart needed"

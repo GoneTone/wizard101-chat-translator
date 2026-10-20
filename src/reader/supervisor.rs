@@ -66,7 +66,7 @@ pub fn supervise(
                 panic_message(payload.as_ref())
             ));
         }
-        wait(clock, stop, SCAN_INTERVAL);
+        wait(clock, stop, SCAN_INTERVAL, || true);
     }
     let deadline = (clock.now)() + JOIN_TIMEOUT;
     for (hwnd, slot, thread) in active {

@@ -8,15 +8,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, Streamed, cancellable, connection_error, count_of,
-    finish_text, http_client, parse_object, secret_header, status_failure, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error, connection_error,
+    count_of, finish_text, http_client, parse_object, secret_header, status_failure, truncated,
+    with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::translation::errors::{
-    TranslateError, error_detail, model_list_error, one_line, status_error,
-};
+use crate::translation::errors::{TranslateError, error_detail, model_list_error, status_error};
 use crate::translation::{Role, Turn};
 
 /// Gemini 官方端點。
@@ -224,17 +223,4 @@ fn model_path(model: &str) -> Result<String, TranslateError> {
         return Ok(model.to_owned());
     }
     Ok(format!("models/{model}"))
-}
-
-/// 串流中途的 `{"error": …}` 塊：依其中的 code 分類，沒有可用的 code 對應未分類的例外。
-fn chunk_error(error: &Value) -> TranslateError {
-    let message = error.get("message").and_then(Value::as_str).unwrap_or("");
-    match error
-        .get("code")
-        .and_then(Value::as_u64)
-        .and_then(|c| u16::try_from(c).ok())
-    {
-        Some(code) => status_failure(code, one_line(message), status_error),
-        None => TranslateError::Unexpected(one_line(&error.to_string())),
-    }
 }

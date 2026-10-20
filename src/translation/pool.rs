@@ -31,6 +31,10 @@ pub type TextFn = Arc<dyn Fn() -> String + Send + Sync>;
 pub const BACKOFF_STEPS: [u64; 3] = [5, 15, 30];
 /// API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復。
 pub const CONFIG_ERROR_INTERVAL: u64 = 15;
+/// 單則最久重試多久；超過就放棄，免得久遠的舊訊息在恢復後才補翻。
+const MAX_JOB_AGE: Duration = Duration::from_secs(5 * 60);
+/// Config 錯誤重試前的禮讓時間：同一刻醒來的其他則先取額度，壞掉的那則才不會獨占並餓死它們。
+const CONFIG_RETRY_YIELD: Duration = Duration::from_millis(100);
 /// 退避等待的分段長度：其他則成功放開閘門時，等待者能及時發現。
 const WAIT_SLICE: Duration = Duration::from_millis(500);
 
@@ -61,6 +65,10 @@ struct State {
     backoff_index: usize,
     /// 這之前不得送出新請求；全域退避閘門。
     gate_until: Option<Instant>,
+    /// 累計成功則數；Config 錯誤期間它有變，代表設定沒問題、錯在這則本身。
+    successes: u64,
+    /// 設定重建次數；舊設定送出的請求回 Config 錯誤時，別拿新設定下的成功當證據。
+    config_epoch: u64,
 }
 
 struct Inner {
@@ -119,6 +127,7 @@ impl TranslationPool {
         let job = Job {
             inner: Arc::clone(&self.inner),
             pending: true,
+            born: Instant::now(),
         };
         self.rt.spawn(job.run(line, context, msg_id));
     }
@@ -149,6 +158,11 @@ impl TranslationPool {
         }
         self.inner.gate.set_limit(workers);
         log(format!("[translate] pool resized to {workers} workers"));
+    }
+
+    /// 通知翻譯設定已重建：之前送出的請求若回 Config 錯誤，改為重試而非判定為該則本身的問題。
+    pub fn note_reconfigured(&self) {
+        self.inner.state().config_epoch += 1;
     }
 
     /// 停止接受新工作；等待中的各則立即放棄（不回報），已送出的請求跑完照常回報。
@@ -239,6 +253,7 @@ impl Inner {
             state.error_detail = None;
             state.backoff_index = 0;
             state.gate_until = None;
+            state.successes += 1;
             changed
         };
         if changed {
@@ -251,13 +266,31 @@ impl Inner {
 struct Job {
     inner: Arc<Inner>,
     pending: bool,
+    born: Instant,
 }
 
 impl Job {
     async fn run(mut self, line: String, context: Vec<String>, msg_id: u64) {
         let inner = Arc::clone(&self.inner);
         let mut attempts = 0;
+        let mut last_error: Option<ErrorState> = None;
+        // 連續 Config 錯誤共用同一個基準：別則在兩次嘗試之間成功也要看得出來
+        let mut baseline: Option<u64> = None;
         while inner.wait_for_backoff().await {
+            if self.born.elapsed() > MAX_JOB_AGE {
+                log(format!(
+                    "[translate] line dropped after {attempts} attempt(s), gave up after outage (last error: {}): {line}",
+                    last_error.map_or("none", ErrorState::as_str)
+                ));
+                self.report(msg_id, (inner.failed_notice)(), true);
+                return;
+            }
+            if last_error == Some(ErrorState::Config) {
+                tokio::select! {
+                    _ = inner.stop.cancelled() => return,
+                    _ = tokio::time::sleep(CONFIG_RETRY_YIELD) => {}
+                }
+            }
             let Some(permit) = inner.gate.acquire(&inner.stop).await else {
                 return;
             };
@@ -266,6 +299,11 @@ impl Job {
                 continue;
             }
             attempts += 1;
+            let (successes_now, epoch_before) = {
+                let state = inner.state();
+                (state.successes, state.config_epoch)
+            };
+            let successes_before = *baseline.get_or_insert(successes_now);
             let request = async { (inner.translate)(line.clone(), context.clone()).await };
             // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
             let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {
@@ -276,12 +314,26 @@ impl Job {
                     return;
                 }
                 Ok(Err(err @ TranslateError::Offline { .. })) => {
+                    last_error = Some(ErrorState::Offline);
+                    baseline = None;
                     inner.note_failure(ErrorState::Offline, &err);
                     continue;
                 }
                 Ok(Err(err @ TranslateError::Config { .. })) => {
-                    inner.note_failure(ErrorState::Config, &err);
-                    continue;
+                    last_error = Some(ErrorState::Config);
+                    if inner.state().config_epoch != epoch_before {
+                        // 請求是用舊設定送的：用新設定重來
+                        baseline = None;
+                        drop(permit);
+                        continue;
+                    }
+                    // 別則成功過，設定沒問題；錯在這則本身，不動閘門與橫幅
+                    if inner.state().successes != successes_before {
+                        ("rejected while other lines succeed", err.to_string())
+                    } else {
+                        inner.note_failure(ErrorState::Config, &err);
+                        continue;
+                    }
                 }
                 // temperature=0 下重試必得同一結果：直接放棄，讓 overlay 至少顯示失敗提示
                 Ok(Err(err @ TranslateError::BadOutput(_))) => {

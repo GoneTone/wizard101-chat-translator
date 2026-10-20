@@ -14,7 +14,7 @@ use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::ui::geometry::Rect;
+use crate::ui::geometry::{Rect, pull_onscreen};
 use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
@@ -236,6 +236,8 @@ impl App {
 
     /// overlay 端套用儲存後的設定（`cfg` 可以只含設定視窗管的鍵），順序同 Python `apply_settings` 的後半；
     /// `region_hotkey` 是實際註冊到的框選熱鍵，`None`（沒註冊）時顯示設定裡的值。
+    ///
+    /// 呼叫前須已 `set_language` 切到新語言：`relabel()` 讀的是目前語言。
     pub fn apply_settings(
         &mut self,
         ctx: &egui::Context,
@@ -261,7 +263,6 @@ impl App {
         if let Some(language) = cfg.get("ui_language").and_then(Value::as_str)
             && language != self.ui_language
         {
-            self.ui_language = language.to_owned();
             self.relabel(ctx);
         }
     }
@@ -305,6 +306,7 @@ impl App {
     /// 這裡只需換字型與視窗標題。已經顯示的訊息是聊天內容，不回溯改寫。
     pub fn relabel(&mut self, ctx: &egui::Context) {
         let language = current_language();
+        self.ui_language.clone_from(&language);
         fonts_egui::install(ctx, &language);
         ctx.send_viewport_cmd(ViewportCommand::Title(app_name()));
         log(format!("[ui] overlay relabeled language={language}"));
@@ -388,7 +390,16 @@ impl App {
         }
         self.as_bubble = self.minimized;
         if !self.minimized {
-            let overlay = self.overlay_rect.take()?;
+            let saved = self.overlay_rect.take()?;
+            let (x, y, w, h) = saved;
+            let (px, py) = pull_onscreen(x, y, w, h, &self.shell.monitors());
+            let overlay = (px, py, w, h);
+            if overlay != saved {
+                log(format!(
+                    "[ui] overlay was offscreen, moved back: {} -> +{px}+{py}",
+                    describe(saved)
+                ));
+            }
             log(format!(
                 "[ui] overlay window restored from the bubble: {}",
                 describe(overlay)
@@ -427,6 +438,8 @@ impl App {
             UiEvent::SetError { key, args } => self.banners.set_error(key, args),
             UiEvent::ClearError => self.banners.clear_error(),
             UiEvent::HotkeysUnavailable => self.banners.set_hotkeys_unavailable(),
+            UiEvent::ConfigSaveFailed => self.banners.set_config_unsaved(true),
+            UiEvent::ConfigSaved => self.banners.set_config_unsaved(false),
             UiEvent::UpdateFound(release) => self.banners.offer_update(release),
             UiEvent::SetForegroundSlot(slot) => self.model.set_foreground_slot(slot),
             UiEvent::AddMessage {
@@ -1401,6 +1414,20 @@ mod tests {
         harness.state_mut().set_minimized(false);
         harness.run_steps(2);
         assert_eq!(root.shell.borrow().rect, OVERLAY);
+    }
+
+    #[test]
+    fn expanding_from_the_bubble_pulls_an_offscreen_overlay_back() {
+        let (_poster, inbox) = channel();
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        root.shell.borrow_mut().rect = (5000, 5000, 640, 420);
+        harness.state_mut().set_minimized(true);
+        harness.run_steps(3);
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(3);
+        let (x, y, w, h) = root.shell.borrow().rect;
+        assert_eq!((w, h), (640, 420));
+        assert!(x < 1920 && x + w > 0 && y < 1080 && y + h > 0, "{x},{y}");
     }
 
     #[test]

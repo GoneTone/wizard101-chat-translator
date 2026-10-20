@@ -14,11 +14,13 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
 use wizard101_chat_translator::reader::chat_hook::{self, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
-use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
+use wizard101_chat_translator::reader::hooks::{
+    AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN, STUB_EXIT_WAIT,
+};
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
-    GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
-    WizChatReader,
+    GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, INPUT_RECHECK,
+    MessageSink, WizChatReader,
 };
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, MemOp, ProcessMemory};
 use wizard101_chat_translator::reader::process::{
@@ -416,6 +418,31 @@ fn connect_order_matches_python() {
 }
 
 #[test]
+fn hook_state_is_saved_as_soon_as_the_cave_is_cleared() {
+    let g = Game::new();
+    let (dir, snapshot) = (g.dir.path().to_owned(), Arc::new(Mutex::new(None)));
+    let seen = snapshot.clone();
+    *g.spy.after_read.lock().unwrap() = Some(Box::new(move |_, _, mem| {
+        let cleared = mem
+            .ops()
+            .iter()
+            .any(|op| matches!(op, MemOp::Write { addr: CAVE, .. }));
+        if cleared {
+            seen.lock()
+                .unwrap()
+                .get_or_insert_with(|| hook_state::load_state(&dir, pid()).1);
+        }
+    }));
+    let _r = g.connected(113);
+    let saved = snapshot.lock().unwrap().clone();
+    assert_eq!(
+        saved,
+        Some(vec![(CAVE, g.cave_bytes[..208].to_vec())]),
+        "hookstate must exist before the root pattern scan"
+    );
+}
+
+#[test]
 fn connect_waits_through_transient_read_errors() {
     let g = Game::new();
     g.spy.fail_reads_at(EXPORT, 3);
@@ -590,6 +617,50 @@ fn readiness_timeout_is_a_hook_not_firing_mismatch() {
 }
 
 #[test]
+fn stop_or_game_exit_ends_the_readiness_wait_early() {
+    for stopping in [true, false] {
+        let g = Game::new();
+        g.fires.store(false, Ordering::SeqCst);
+        let mut r = g.reader(112);
+        let (inner, stop, mem) = (g.on_sleep(), r.stop.clone(), g.mem.clone());
+        r.clock.sleep = Box::new(move |d| {
+            inner(d);
+            if stopping {
+                stop.cancel();
+            } else {
+                mem.kill();
+            }
+        });
+        let err = r.read_new().unwrap_err();
+        assert!(
+            matches!(&err, GameNotRunning::Missing(msg) if msg.starts_with("failed to attach")),
+            "{err:?}"
+        );
+        let waited = *g.elapsed.lock().unwrap();
+        assert!(waited <= HOOK_READY_POLL + STUB_EXIT_WAIT, "{waited:?}");
+        if stopping {
+            let ops = g.mem.ops();
+            assert_eq!(ops[ops.len() - 3..], g.restore_ops(false)[..]);
+        }
+        assert!(!g.state_file_exists());
+    }
+}
+
+#[test]
+fn stop_before_connecting_writes_nothing() {
+    let g = Game::new();
+    let mut r = g.reader(114);
+    r.stop.cancel();
+    let err = r.read_new().unwrap_err();
+    assert!(
+        matches!(&err, GameNotRunning::Missing(msg) if msg.starts_with("failed to attach")),
+        "{err:?}"
+    );
+    assert!(g.mem.ops().is_empty());
+    assert!(!g.state_file_exists());
+}
+
+#[test]
 fn other_attach_failure_stays_game_not_running() {
     capture_logs();
     let mut r = WizChatReader::new(
@@ -670,9 +741,10 @@ fn hook_state_save_failure_is_logged() {
     assert_eq!(r.read_new().unwrap(), vec![]);
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): ")));
-    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): ")));
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    for (line, ops) in lines.iter().zip(1..) {
+        assert!(line.contains(&format!("(slot=109, pid={p}, ops={ops}): ")));
+    }
 }
 
 #[test]
@@ -1068,18 +1140,20 @@ fn chatbox_lookup_failure_is_logged_and_drops_the_record() {
 }
 
 #[test]
-fn chatbox_moving_clears_foreign_and_button_caches() {
+fn chatbox_moving_clears_foreign_button_and_input_caches() {
     let g = Game::new();
     put_buttons(&g, &[("MainFilterButton", "Main")], &[]);
+    put_edit(&g, BOX, EDIT, false);
     let mut r = g.connected(214);
     g.mem.set_bytes(BOX + CUR_TAB_OFFSET, &0i32.to_le_bytes());
     assert!(r.tab_state().is_some());
+    assert!(!r.input_open());
     g.put(1, &say("Amy", "hi"), 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
-    // 主 ChatBox 重建在先前判定為外來的位址上，按鈕也換了一批
+    // 主 ChatBox 重建在先前判定為外來的位址上，按鈕與輸入框也換了一批
     put_children(&g.mem, ROOT, &[OTHER]);
     put_name(&g.mem, OTHER, "WizardChatBox");
-    put_children(&g.mem, OTHER, &[]);
+    put_edit(&g, OTHER, EDIT + NODE_GAP, true);
     put_buttons_under(&g, OTHER, &[("GroupFilterButton", "Party")]);
     g.mem.set_bytes(OTHER + CUR_TAB_OFFSET, &1i32.to_le_bytes());
     g.advance(Duration::from_secs(6));
@@ -1092,6 +1166,16 @@ fn chatbox_moving_clears_foreign_and_button_caches() {
             current: 1
         })
     );
+    assert!(r.input_open(), "the new chat box's input container is read");
+}
+
+/// 在 `chatbox` 底下放一個 chatEditContainer。
+fn put_edit(g: &Game, chatbox: u64, edit: u64, visible: bool) {
+    put_children(&g.mem, chatbox, &[edit]);
+    put_name(&g.mem, edit, INPUT_CONTAINER);
+    put_children(&g.mem, edit, &[]);
+    g.mem
+        .set_bytes(edit + 0x9C, &u32::from(visible).to_le_bytes());
 }
 
 #[test]
@@ -1435,6 +1519,43 @@ fn input_open_reads_the_container_visibility() {
     g.mem.set_bytes(EDIT + 0x9C, &0u32.to_le_bytes());
     assert!(!r.input_open());
     assert_eq!(g.spy.read_count(EXPORT), scans, "node is cached");
+}
+
+#[test]
+fn missing_input_container_is_rechecked_after_the_window() {
+    let g = Game::new();
+    let mut r = g.connected(406);
+    assert!(!r.input_open());
+    let scans = g.spy.read_count(EXPORT);
+    put_edit(&g, BOX, EDIT, true);
+    assert!(!r.input_open());
+    assert_eq!(r.input_box_screen_rect(), None);
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.advance(INPUT_RECHECK);
+    assert!(r.input_open());
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
+}
+
+#[test]
+fn failing_input_container_searches_are_throttled_too() {
+    let g = Game::new();
+    let mut r = g.connected(407);
+    put_children(&g.mem, ROOT, &[OTHER]);
+    assert!(!r.input_open());
+    let scans = g.spy.read_count(EXPORT);
+    assert!(!r.input_open());
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.advance(INPUT_RECHECK);
+    assert!(!r.input_open());
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
 
 #[test]

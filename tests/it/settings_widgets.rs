@@ -286,6 +286,46 @@ fn editable_combo_chevron_opens_the_full_list() {
     }
 }
 
+#[test]
+fn editable_combo_scrolls_a_long_list_and_keeps_the_hot_option_in_view() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model");
+    let edit = h.get_by_label("Model").rect();
+    let limit = edit.bottom() + egui::Style::default().spacing.combo_height + 20.0;
+    for _ in 0..30 {
+        h.key_press(Key::ArrowDown);
+    }
+    h.run_steps(4);
+    let hot = h.get_by_label("model-29").rect();
+    assert!(hot.bottom() <= limit, "{} > {limit}", hot.bottom());
+}
+
+#[test]
+fn dragging_the_dropdown_scrollbar_keeps_the_list_open_and_scrolls_it() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model");
+    let first = h.get_by_label("model-00").rect();
+    let bar = egui::pos2(first.right() - 2.0, first.center().y + 20.0);
+    h.event(egui::Event::PointerMoved(bar));
+    h.run_steps(2);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: bar,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(button(true));
+    h.run_steps(2);
+    h.event(egui::Event::PointerMoved(bar + egui::vec2(0.0, 60.0)));
+    h.run_steps(2);
+    h.event(button(false));
+    h.run_steps(2);
+    let after = h.get_by_label("model-00").rect();
+    assert!(after.min.y < first.min.y, "{first:?} -> {after:?}");
+}
+
 /// 畫面上文字是 `text` 的那個字形的顏色。
 fn painted_color(h: &Harness<Combo>, text: &str) -> Option<Color32> {
     h.output()

@@ -23,6 +23,9 @@ pub const AUTOBOT_PATTERN: &str = concat!(
 /// cave 清成 0 的大小（wizwalker `AUTOBOT_SIZE`）。
 pub const AUTOBOT_SIZE: usize = 4100;
 
+/// 跳轉點寫回原碼後，等遊戲執行點離開 stub 的時間。
+pub const STUB_EXIT_WAIT: Duration = Duration::from_millis(500);
+
 /// root window hook 的跳轉點 pattern（wizwalker `RootWindowHook.pattern` 原文）。
 pub const ROOT_WINDOW_PATTERN: &str = r".......\x48\x8B\x01.......\xFF\x50\x70\x84";
 
@@ -182,7 +185,7 @@ impl AutobotCave {
         }
         let current = mem.read(self.addr, self.original.len())?;
         // 讓執行點離開 stub
-        wait(Duration::from_millis(500));
+        wait(STUB_EXIT_WAIT);
         // wizwalker 在等待前就釋放 export，仍在 stub 裡的遊戲執行緒會寫進已釋放的頁面
         for addr in self.hooks.iter().filter_map(|h| h.free) {
             mem.free(addr);

@@ -7,15 +7,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::input::dispatcher::{
     Blocking, HandlerId, KeyEvent, Pressed, SharedDispatcher, is_pressed,
 };
-use crate::input::keys::{Code, Key, is_modifier, key_codes_or_empty, parse_hotkey};
+use crate::input::keys::{
+    Code, Key, MODIFIER_GROUPS, is_modifier, key_codes_or_empty, parse_hotkey,
+};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::util::lock;
 
 /// 未指派的虛擬鍵，AutoHotkey 的 MenuMaskKey 預設也用它。
 pub const MASK_VK: u16 = 0xE8;
-/// 熱鍵沒列到的修飾鍵群組按著時不算湊齊組合（按 `ctrl+shift+space` 不會觸發 `ctrl+space`）。
-pub const MODIFIER_GROUPS: [&str; 4] = ["ctrl", "shift", "alt", "windows"];
 
 /// 所有攔截器吞掉、還沒放開的觸發鍵數。
 static SWALLOWED_HELD: AtomicUsize = AtomicUsize::new(0);
@@ -89,9 +89,10 @@ impl HotkeyInterceptor {
         if trigger_codes.is_empty() {
             return Err(CannotSwallow::OnlyModifiers);
         }
+        // 熱鍵沒列到的修飾鍵群組按著時不算湊齊組合（按 `ctrl+shift+space` 不會觸發 `ctrl+space`）
         let unwanted_modifiers = MODIFIER_GROUPS
             .iter()
-            .map(|name| key_codes_or_empty(name))
+            .map(|(name, _)| key_codes_or_empty(name))
             .filter(|group| !keys.iter().flatten().any(|c| group.contains(c)))
             .collect();
         Ok(Self {

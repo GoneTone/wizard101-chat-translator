@@ -10,10 +10,11 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, GetMessageW, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG, PM_NOREMOVE,
-    PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG,
+    PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
+    WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::input::dispatcher::{KeyEvent, RawKey, SharedDispatcher};
@@ -22,15 +23,15 @@ use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
 
 const VK_PACKET: u32 = 0xE7;
-pub(crate) const VK_LCONTROL: u32 = 0xA2;
 const VK_RMENU: u32 = 0xA5;
-pub(crate) const ALT_GR_SCAN: u32 = 541;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 /// 掛 hook 的嘗試次數與失敗後的間隔：開機自動啟動時桌面可能還沒就緒。
 const INSTALL_ATTEMPTS: u32 = 3;
 const RETRY_DELAY: Duration = Duration::from_secs(2);
-/// 回呼超過這個時間就記 log：Windows 會默默移除超過 `LowLevelHooksTimeout` 的 hook。
+/// 回呼超過這個時間就重掛 hook：Windows 會默默移除超過 `LowLevelHooksTimeout` 的 hook。
 const SLOW_CALLBACK: Duration = Duration::from_millis(200);
+/// 回呼太慢時寄給 hook 執行緒自己、要它重掛 hook 的訊息。
+const REINSTALL_HOOK: u32 = WM_APP;
 
 static DISPATCHER: OnceLock<SharedDispatcher> = OnceLock::new();
 static FIRST_EVENT_SEEN: AtomicBool = AtomicBool::new(false);
@@ -127,6 +128,19 @@ impl KeyboardHook {
 }
 
 fn hook_thread(ready: &mpsc::Sender<u32>, on_failure: impl FnOnce()) {
+    let mut on_failure = Some(on_failure);
+    let mut install = || match retry(INSTALL_ATTEMPTS, std::thread::sleep, set_hook) {
+        Ok(hook) => Some(hook),
+        Err(e) => {
+            log(format!(
+                "[hotkey] cannot install keyboard hook after {INSTALL_ATTEMPTS} attempts: {e}"
+            ));
+            if let Some(f) = on_failure.take() {
+                f();
+            }
+            None
+        }
+    };
     // SAFETY: 以下皆為本執行緒上的 Win32 呼叫，MSG 為本地緩衝。
     unsafe {
         let mut msg: MSG = std::mem::zeroed();
@@ -134,29 +148,7 @@ fn hook_thread(ready: &mpsc::Sender<u32>, on_failure: impl FnOnce()) {
         PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
         let thread_id = GetCurrentThreadId();
         let _ = ready.send(thread_id);
-        let attempt = || {
-            let hook = SetWindowsHookExW(
-                WH_KEYBOARD_LL,
-                Some(hook_proc),
-                GetModuleHandleW(std::ptr::null()),
-                0,
-            );
-            if hook.is_null() {
-                let err = std::io::Error::last_os_error();
-                return Err(format!("SetWindowsHookExW failed: {err}"));
-            }
-            Ok(hook)
-        };
-        let hook = match retry(INSTALL_ATTEMPTS, std::thread::sleep, attempt) {
-            Ok(hook) => hook,
-            Err(e) => {
-                log(format!(
-                    "[hotkey] cannot install keyboard hook after {INSTALL_ATTEMPTS} attempts: {e}"
-                ));
-                on_failure();
-                return;
-            }
-        };
+        let Some(mut hook) = install() else { return };
         log(format!(
             "[hotkey] keyboard hook installed (thread_id={thread_id})"
         ));
@@ -165,12 +157,36 @@ fn hook_thread(ready: &mpsc::Sender<u32>, on_failure: impl FnOnce()) {
             if got <= 0 {
                 break got;
             }
+            if msg.message == REINSTALL_HOOK {
+                // 系統可能已經移除它，卸除失敗不用管
+                UnhookWindowsHookEx(hook);
+                let Some(new) = install() else { return };
+                hook = new;
+                log("[hotkey] keyboard hook reinstalled after a slow callback");
+            }
         };
         log(format!(
             "[hotkey] keyboard hook message loop ended (GetMessageW returned {ended}); unhooking"
         ));
         UnhookWindowsHookEx(hook);
     }
+}
+
+fn set_hook() -> Result<HHOOK, String> {
+    // SAFETY: 純 Win32 呼叫，hook_proc 符合 HOOKPROC 簽名。
+    let hook = unsafe {
+        SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            Some(hook_proc),
+            GetModuleHandleW(std::ptr::null()),
+            0,
+        )
+    };
+    if hook.is_null() {
+        let err = std::io::Error::last_os_error();
+        return Err(format!("SetWindowsHookExW failed: {err}"));
+    }
+    Ok(hook)
 }
 
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -195,10 +211,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -
         let took = started.elapsed();
         if took >= SLOW_CALLBACK {
             log(format!(
-                "[hotkey] slow keyboard hook callback: {} ms (vk={:#x}); Windows silently removes a hook that exceeds LowLevelHooksTimeout",
+                "[hotkey] slow keyboard hook callback: {} ms (vk={:#x}); reinstalling the hook in case Windows removed it for exceeding LowLevelHooksTimeout",
                 took.as_millis(),
                 k.vkCode
             ));
+            // SAFETY: 純 Win32 呼叫；hook 回呼跑在 hook 執行緒上，訊息寄給它自己的佇列。
+            unsafe { PostThreadMessageW(GetCurrentThreadId(), REINSTALL_HOOK, 0, 0) };
         }
         if !pass {
             return 1;
@@ -218,9 +236,24 @@ fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     if IGNORE_NEXT_RIGHT_ALT.with(|ignore| is_alt_gr_echo(ignore, k.vkCode, k.scanCode)) {
         return true;
     }
-    let pass = INSIDE_PROCESS.with(|inside| reentrant_guard(inside, ev, || lock(d).process(ev)));
+    let pass = INSIDE_PROCESS.with(|inside| {
+        reentrant_guard(inside, ev, || {
+            let mut d = lock(d);
+            if ev.down {
+                d.drop_released_keys(ev.code, any_key_down);
+            }
+            d.process(ev)
+        })
+    });
     run_deferred();
     pass
+}
+
+/// 以非同步按鍵狀態查 `vks` 是否有任一按著。
+fn any_key_down(vks: &[u16]) -> bool {
+    // SAFETY: 純 Win32 查詢；最高位元為 1 表示按著。
+    vks.iter()
+        .any(|&vk| unsafe { GetAsyncKeyState(i32::from(vk)) } < 0)
 }
 
 fn run_deferred() {
@@ -276,7 +309,7 @@ fn is_alt_gr_echo(ignore_next_right_alt: &Cell<bool>, vk: u32, scan: u32) -> boo
     if vk == VK_RMENU && ignore_next_right_alt.replace(false) {
         return true;
     }
-    if scan == ALT_GR_SCAN && vk == VK_LCONTROL {
+    if scan == keys::ALT_GR as u32 && vk == keys::VK_LCONTROL {
         ignore_next_right_alt.set(true);
     }
     false
