@@ -1381,6 +1381,39 @@ fn tab_state_is_none_without_a_chatbox() {
 }
 
 #[test]
+fn missing_chatbox_is_rechecked_by_tab_polls_after_the_window() {
+    let g = Game::new();
+    g.mem.set_bytes(BOX + CUR_TAB_OFFSET, &0i32.to_le_bytes());
+    g.set_chatbox(None);
+    let mut r = g.connected(308);
+    assert_eq!(r.tab_state(), None);
+    let scans = g.spy.read_count(EXPORT);
+    g.set_chatbox(Some(BOX));
+    assert_eq!(r.tab_state(), None);
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.clock.advance(INPUT_RECHECK);
+    assert!(r.tab_state().is_some());
+    assert_eq!(g.spy.read_count(EXPORT), scans + 2);
+}
+
+#[test]
+fn a_chat_line_still_refinds_the_chatbox_inside_the_window() {
+    let g = Game::new();
+    g.mem.set_bytes(BOX + CUR_TAB_OFFSET, &0i32.to_le_bytes());
+    g.set_chatbox(None);
+    let mut r = g.connected(310);
+    assert_eq!(r.tab_state(), None);
+    g.set_chatbox(Some(BOX));
+    g.put(1, &say("Amy", "hi"), 0, BOX);
+    assert_eq!(texts(&mut r), [(vec![0], "[Amy] hi".to_owned())]);
+    assert!(r.tab_state().is_some(), "a found chatbox clears the window");
+}
+
+#[test]
 fn repeated_chatbox_lookup_failures_log_once() {
     let g = Game::new();
     let mut r = g.connected(304);

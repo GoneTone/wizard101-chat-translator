@@ -47,7 +47,7 @@ pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
 /// 外來 ChatBox 位址的重驗間隔（秒）：新的主 ChatBox 可能重用外來的舊位址。
 pub const FOREIGN_RECHECK_SECONDS: u64 = 5;
-/// 找不到輸入框後多久才再搜一次 UI 樹：輸入框每秒取樣數十次，每次都走整棵樹太貴。
+/// 找不到輸入框（或分頁輪詢找不到 ChatBox）後多久才再搜一次 UI 樹：每次輪詢都走整棵樹太貴。
 pub const INPUT_RECHECK: Duration = Duration::from_secs(1);
 
 /// 一則新聊天；`tabs` 是它所在的分頁，伺服器廣播收斂後含多個。
@@ -182,6 +182,8 @@ pub struct WizChatReader {
     edit_missing_at: Option<Instant>,
     last_seq: u64,
     chatbox: Option<u64>,
+    /// 上次搜不到 ChatBox 的時刻：分頁輪詢在 `INPUT_RECHECK` 內不重搜（讀取畫面期間）。
+    chatbox_missing_at: Option<Instant>,
     buttons: Option<Vec<(i32, Window)>>,
     foreign: HashSet<u64>,
     foreign_checked: Option<Instant>,
@@ -221,6 +223,7 @@ impl WizChatReader {
             edit_missing_at: None,
             last_seq: 0,
             chatbox: None,
+            chatbox_missing_at: None,
             buttons: None,
             foreign: HashSet::new(),
             foreign_checked: None,
@@ -420,6 +423,7 @@ impl WizChatReader {
             ));
         }
         self.chatbox = found;
+        self.chatbox_missing_at = found.is_none().then(|| (self.clock.now)());
         Ok(())
     }
 
@@ -478,6 +482,13 @@ impl WizChatReader {
     }
 
     fn read_tabs(&mut self) -> Result<Option<TabState>, Box<dyn Error>> {
+        // 聊天記錄那條路不受此限：有記錄進來代表 ChatBox 多半已經在了，擋了會丟訊息
+        let recently_missing = self
+            .chatbox_missing_at
+            .is_some_and(|at| (self.clock.now)().duration_since(at) < INPUT_RECHECK);
+        if recently_missing {
+            return Ok(None);
+        }
         if self.chatbox.is_none() || self.buttons.is_none() {
             self.refind_chatbox()?;
         }
@@ -791,6 +802,7 @@ impl WizChatReader {
         self.edit_missing_at = None;
         self.last_seq = 0;
         self.chatbox = None;
+        self.chatbox_missing_at = None;
         self.buttons = None;
         self.foreign.clear();
         self.tabs_logged = None;
