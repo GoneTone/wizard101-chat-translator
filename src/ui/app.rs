@@ -14,7 +14,7 @@ use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
-use crate::ui::geometry::Rect;
+use crate::ui::geometry::{Rect, pull_onscreen};
 use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
@@ -388,7 +388,16 @@ impl App {
         }
         self.as_bubble = self.minimized;
         if !self.minimized {
-            let overlay = self.overlay_rect.take()?;
+            let saved = self.overlay_rect.take()?;
+            let (x, y, w, h) = saved;
+            let (px, py) = pull_onscreen(x, y, w, h, &self.shell.monitors());
+            let overlay = (px, py, w, h);
+            if overlay != saved {
+                log(format!(
+                    "[ui] overlay was offscreen, moved back: {} -> +{px}+{py}",
+                    describe(saved)
+                ));
+            }
             log(format!(
                 "[ui] overlay window restored from the bubble: {}",
                 describe(overlay)
@@ -1401,6 +1410,20 @@ mod tests {
         harness.state_mut().set_minimized(false);
         harness.run_steps(2);
         assert_eq!(root.shell.borrow().rect, OVERLAY);
+    }
+
+    #[test]
+    fn expanding_from_the_bubble_pulls_an_offscreen_overlay_back() {
+        let (_poster, inbox) = channel();
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        root.shell.borrow_mut().rect = (5000, 5000, 640, 420);
+        harness.state_mut().set_minimized(true);
+        harness.run_steps(3);
+        harness.state_mut().set_minimized(false);
+        harness.run_steps(3);
+        let (x, y, w, h) = root.shell.borrow().rect;
+        assert_eq!((w, h), (640, 420));
+        assert!(x < 1920 && x + w > 0 && y < 1080 && y + h > 0, "{x},{y}");
     }
 
     #[test]
