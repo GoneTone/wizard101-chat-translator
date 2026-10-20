@@ -133,10 +133,16 @@ pub fn rejected_parameter(detail: &str) -> Option<String> {
 
 /// 翻譯請求的狀態碼對應：408／409／429／5xx 是暫時性錯誤，其餘 4xx 當設定錯誤；`None` 表示可繼續解析。
 pub fn status_error(status: u16, detail: &str) -> Option<TranslateError> {
-    let (status, detail) = (Some(status), detail.to_owned());
+    let (code, detail) = (Some(status), detail.to_owned());
     match status {
-        Some(408 | 409 | 429 | 500..) => Some(TranslateError::Offline { status, detail }),
-        Some(400..) => Some(TranslateError::Config { status, detail }),
+        408 | 409 | 429 | 500.. => Some(TranslateError::Offline {
+            status: code,
+            detail,
+        }),
+        400.. => Some(TranslateError::Config {
+            status: code,
+            detail,
+        }),
         _ => None,
     }
 }

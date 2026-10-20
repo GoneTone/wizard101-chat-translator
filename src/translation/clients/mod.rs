@@ -5,7 +5,6 @@ mod gemini;
 mod openai;
 pub mod sse;
 
-use std::error::Error as _;
 use std::time::Duration;
 
 use reqwest::header::HeaderValue;
@@ -16,11 +15,11 @@ pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
 pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
-use super::errors::{TranslateError, status_error};
+use super::errors::{TranslateError, error_detail, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
-use crate::logs::log;
+use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
 
@@ -72,34 +71,12 @@ pub enum Client {
 }
 
 impl Client {
-    /// 送出聊天請求並回傳整段譯文。
-    pub async fn chat(
-        &self,
-        req: ChatRequest<'_>,
-        cancel: Option<&CancellationToken>,
-    ) -> Result<String, TranslateError> {
-        match self {
-            Self::OpenAiCompat(c) => c.chat(req, cancel).await,
-            Self::Claude(c) => c.chat(req, cancel).await,
-            Self::Gemini(c) => c.chat(req, cancel).await,
-        }
-    }
-
     /// 列出端點的模型 ID（排序後）。
     pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
         match self {
             Self::OpenAiCompat(c) => c.list_models().await,
             Self::Claude(c) => c.list_models().await,
             Self::Gemini(c) => c.list_models().await,
-        }
-    }
-
-    /// 目前使用的模型 ID。
-    pub fn model(&self) -> &str {
-        match self {
-            Self::OpenAiCompat(c) => c.model(),
-            Self::Claude(c) => c.model(),
-            Self::Gemini(c) => c.model(),
         }
     }
 }
@@ -110,11 +87,21 @@ impl ChatBackend for Client {
         req: ChatRequest<'a>,
         cancel: Option<&'a CancellationToken>,
     ) -> BoxFuture<'a, Result<String, TranslateError>> {
-        Box::pin(Client::chat(self, req, cancel))
+        Box::pin(async move {
+            match self {
+                Self::OpenAiCompat(c) => c.chat(req, cancel).await,
+                Self::Claude(c) => c.chat(req, cancel).await,
+                Self::Gemini(c) => c.chat(req, cancel).await,
+            }
+        })
     }
 
     fn model(&self) -> &str {
-        Client::model(self)
+        match self {
+            Self::OpenAiCompat(c) => c.model(),
+            Self::Claude(c) => c.model(),
+            Self::Gemini(c) => c.model(),
+        }
     }
 }
 
@@ -158,17 +145,34 @@ pub(crate) fn status_failure(
         .unwrap_or_else(|| TranslateError::Unexpected(format!("HTTP {status}: {detail}")))
 }
 
-/// 串流中途的 `{"error": …}` 塊：依其中的 code 分類，沒有可用的 code 對應未分類的例外。
+/// 非成功回應：讀完 body 後依 `map` 分類成錯誤。
+pub(crate) async fn response_failure(
+    resp: reqwest::Response,
+    map: fn(u16, &str) -> Option<TranslateError>,
+) -> TranslateError {
+    let status = resp.status().as_u16();
+    match resp.text().await {
+        Ok(text) => status_failure(status, error_detail(&text), map),
+        Err(error) => connection_error(error),
+    }
+}
+
+/// 串流中途的錯誤：有狀態碼就照 [`status_error`] 分類，否則以 `raw` 對應未分類的例外。
+pub(crate) fn stream_failure(code: Option<u16>, message: &str, raw: &Value) -> TranslateError {
+    match code {
+        Some(code) => status_failure(code, pystr::one_line(message), status_error),
+        None => TranslateError::Unexpected(pystr::one_line(&raw.to_string())),
+    }
+}
+
+/// 串流中途的 `{"error": …}` 塊：依其中的 code 分類。
 pub(crate) fn chunk_error(error: &Value) -> TranslateError {
-    let message = error.get("message").and_then(Value::as_str).unwrap_or("");
-    match error
+    let code = error
         .get("code")
         .and_then(Value::as_u64)
-        .and_then(|c| u16::try_from(c).ok())
-    {
-        Some(code) => status_failure(code, pystr::one_line(message), status_error),
-        None => TranslateError::Unexpected(pystr::one_line(&error.to_string())),
-    }
+        .and_then(|c| u16::try_from(c).ok());
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("");
+    stream_failure(code, message, error)
 }
 
 /// 組出帶診斷資訊的截斷錯誤：token 數與樣本讓使用者從 app.log 分辨 repetition loop 與上限誤砍。
@@ -232,24 +236,6 @@ pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
     TranslateError::offline(error_chain(error))
 }
 
-/// reqwest 錯誤去掉 URL 後，連同整條原因鏈折成一行（頂層訊息常只有 "error sending request"）。
-pub(crate) fn error_chain(error: reqwest::Error) -> String {
-    let error = error.without_url();
-    let mut parts = vec![error.to_string()];
-    let mut source = error.source();
-    while let Some(cause) = source {
-        parts.push(cause.to_string());
-        source = cause.source();
-    }
-    pystr::one_line(&parts.join(": "))
-}
-
-/// 裝上 rustls 的 ring crypto provider；任何要建 HTTPS client 的地方都得先呼叫。
-pub(crate) fn install_crypto_provider() {
-    // 用 ring 而非 rustls 預設的 aws-lc-rs（建置要 cmake／NASM）；已裝過時回 Err，忽略即可
-    let _ = rustls::crypto::ring::default_provider().install_default();
-}
-
 /// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
 pub(crate) fn http_client(headers: reqwest::header::HeaderMap, base_url: &str) -> reqwest::Client {
     install_crypto_provider();
@@ -261,39 +247,6 @@ pub(crate) fn http_client(headers: reqwest::header::HeaderMap, base_url: &str) -
     bypass_proxy_for_loopback(builder, base_url)
         .build()
         .expect("build HTTP client")
-}
-
-/// 連往本機（`localhost`、`127.0.0.0/8`、`::1`）時不用環境變數設定的 proxy：本機的 LLM 伺服器繞去 proxy 只會連不到。
-pub(crate) fn bypass_proxy_for_loopback(
-    builder: reqwest::ClientBuilder,
-    url: &str,
-) -> reqwest::ClientBuilder {
-    if !is_loopback(url) {
-        return builder;
-    }
-    let proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
-    if proxy_vars.iter().any(|name| {
-        std::env::var_os(name).is_some() || std::env::var_os(name.to_lowercase()).is_some()
-    }) {
-        log(format!(
-            "[translate] {url} is a loopback address; not using the proxy from the environment"
-        ));
-    }
-    builder.no_proxy()
-}
-
-fn is_loopback(url: &str) -> bool {
-    let Some(host) = reqwest::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_owned))
-    else {
-        return false;
-    };
-    host.eq_ignore_ascii_case("localhost")
-        || host
-            .trim_matches(['[', ']'])
-            .parse::<std::net::IpAddr>()
-            .is_ok_and(|ip| ip.is_loopback())
 }
 
 /// 跑 `work`；`cancel` 觸發時丟掉它（連線隨之關閉，伺服器停止生成）並回 `Cancelled`。
@@ -314,27 +267,6 @@ pub(crate) async fn cancellable<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn loopback_hosts_are_recognised() {
-        for url in [
-            "http://localhost:11434/v1",
-            "http://LOCALHOST:1234",
-            "http://127.0.0.1:8080/v1",
-            "http://127.5.6.7",
-            "http://[::1]:11434/v1",
-        ] {
-            assert!(is_loopback(url), "{url}");
-        }
-        for url in [
-            "https://api.anthropic.com",
-            "http://192.168.1.10:11434/v1",
-            "http://localhost.example.com",
-            "not a url",
-        ] {
-            assert!(!is_loopback(url), "{url}");
-        }
-    }
 
     #[test]
     fn https_client_builds_with_the_ring_provider() {

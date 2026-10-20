@@ -12,7 +12,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
+    ChatBackend, ChatRequest, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient,
+    build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;

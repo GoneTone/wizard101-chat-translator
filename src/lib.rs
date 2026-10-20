@@ -6,6 +6,7 @@ pub mod config;
 pub mod i18n;
 pub mod input;
 pub mod logs;
+pub mod net;
 pub mod py;
 pub mod reader;
 pub mod region;
