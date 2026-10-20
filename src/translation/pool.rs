@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use futures_util::FutureExt;
 use tokio::runtime::Handle;
+use tokio::sync::Notify;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -35,8 +36,6 @@ pub const CONFIG_ERROR_INTERVAL: u64 = 15;
 const MAX_JOB_AGE: Duration = Duration::from_secs(5 * 60);
 /// Config 錯誤重試前的禮讓時間：同一刻醒來的其他則先取額度，壞掉的那則才不會獨占並餓死它們。
 const CONFIG_RETRY_YIELD: Duration = Duration::from_millis(100);
-/// 退避等待的分段長度：其他則成功放開閘門時，等待者能及時發現。
-const WAIT_SLICE: Duration = Duration::from_millis(500);
 
 /// 翻譯錯誤狀態，供上層決定錯誤橫幅。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +78,8 @@ struct Inner {
     describe: TextFn,
     stop: CancellationToken,
     state: Mutex<State>,
+    /// 別則成功、提早放開退避閘門時喚醒等待者。
+    gate_opened: Notify,
 }
 
 /// 平行收訊翻譯；`on_result` 於 runtime 的 task 中呼叫，呼叫端負責轉交回 UI 執行緒。
@@ -113,6 +114,7 @@ impl TranslationPool {
                 describe,
                 stop: CancellationToken::new(),
                 state: Mutex::new(state),
+                gate_opened: Notify::new(),
             }),
             rt,
         }
@@ -194,12 +196,15 @@ impl Inner {
     /// 等到退避閘門開啟；關閉中回傳 `false`。
     async fn wait_for_backoff(&self) -> bool {
         while !self.stop.is_cancelled() {
+            // 先建好再看閘門：notify_waiters 從建立當下就算數，檢查與入睡之間的放開才不會漏接
+            let opened = self.gate_opened.notified();
             let Some(remaining) = self.backoff_remaining() else {
                 return true;
             };
             tokio::select! {
                 _ = self.stop.cancelled() => return false,
-                _ = tokio::time::sleep(remaining.min(WAIT_SLICE)) => {}
+                _ = opened => {}
+                _ = tokio::time::sleep(remaining) => {}
             }
         }
         false
@@ -256,6 +261,7 @@ impl Inner {
             state.successes += 1;
             changed
         };
+        self.gate_opened.notify_waiters();
         if changed {
             log("[translate] recovered, resuming normal speed");
         }

@@ -855,3 +855,36 @@ async fn config_error_from_a_pre_reconfigure_request_is_retried_not_dropped() {
     release.cancel();
     assert_eq!(next(&mut rx).await, (1, "[A] old".into(), false));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_success_elsewhere_releases_lines_waiting_out_the_backoff() {
+    // 閘門開到第 5 秒，但第 3 秒別則成功就放開：等待中的那則要當下送出
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let failed_once = Arc::new(AtomicUsize::new(0));
+    let translate = tfn(move |line: String, _| {
+        let (calls_tx, failed_once) = (calls_tx.clone(), failed_once.clone());
+        async move {
+            match line.as_str() {
+                "[A] slow" => tokio::time::sleep(Duration::from_secs(3)).await,
+                "[A] down" if failed_once.fetch_add(1, Ordering::SeqCst) == 0 => {
+                    return Err(offline("down"));
+                }
+                "[A] down" => {}
+                _ => {
+                    let _ = calls_tx.send(Instant::now());
+                }
+            }
+            Ok(line)
+        }
+    });
+    let (pool, _rx) = make_pool(translate, gate(2));
+    let t0 = Instant::now();
+    pool.submit("[A] slow".into(), vec![], 1);
+    pool.submit("[A] down".into(), vec![], 2);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert_eq!(pool.error_state(), Some(ErrorState::Offline));
+    pool.submit("[A] queued".into(), vec![], 3);
+    let sent = next(&mut calls).await;
+    assert_eq!((sent - t0).as_millis(), 3000);
+    pool.shutdown();
+}
