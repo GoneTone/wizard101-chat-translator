@@ -22,6 +22,7 @@ use wizard101_chat_translator::ui::settings::widgets::{
     INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, icon_button,
     keycaps, outcome, primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
 };
+use wizard101_chat_translator::ui::text_select::find_text_shape;
 
 /// 樣式只套在這一個 Ui 上，同設定視窗的根 Ui。
 fn harness<S: 'static>(
@@ -249,14 +250,7 @@ fn icon_button_tooltip_uses_the_settings_theme() {
     let button = h.get_by_label("Close tip").rect();
     h.hover_at(button.center());
     h.run_steps(4);
-    let color = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == "Close tip" => Some(shape.fallback_color),
-            _ => None,
-        });
+    let color = find_text_shape(&h.output().shapes, "Close tip").map(|shape| shape.fallback_color);
     assert_eq!(color, Some(theme::TEXT));
 }
 
@@ -337,13 +331,7 @@ fn dragging_the_dropdown_scrollbar_keeps_the_list_open_and_scrolls_it() {
 
 /// 畫面上文字是 `text` 的那個字形的顏色。
 fn painted_color(h: &Harness<Combo>, text: &str) -> Option<Color32> {
-    h.output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == text => Some(shape.fallback_color),
-            _ => None,
-        })
+    find_text_shape(&h.output().shapes, text).map(|shape| shape.fallback_color)
 }
 
 #[test]
@@ -590,15 +578,8 @@ fn real_env_clears_the_cache_and_reports_the_count() {
 
 /// 畫面上文字是 `text` 的字形範圍。
 fn text_rect<S>(h: &Harness<S>, text: &str) -> Rect {
-    h.output()
-        .shapes
-        .iter()
-        .find_map(|clipped| match &clipped.shape {
-            Shape::Text(shape) if shape.galley.text() == text => {
-                Some(shape.galley.rect.translate(shape.pos.to_vec2()))
-            }
-            _ => None,
-        })
+    find_text_shape(&h.output().shapes, text)
+        .map(|shape| shape.galley.rect.translate(shape.pos.to_vec2()))
         .unwrap_or_else(|| panic!("{text} not painted"))
 }
 

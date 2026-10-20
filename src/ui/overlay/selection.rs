@@ -355,7 +355,7 @@ mod tests {
     use crate::ui::overlay::frame::Frame;
     use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::palette::{BAR, SELECT_BG};
-    use crate::ui::text_select::copied_texts;
+    use crate::ui::text_select::{copied_texts, find_text_shape};
 
     const SIZE: Vec2 = Vec2::new(460.0, 300.0);
     /// 假視窗的螢幕位置與大小；被縮放或移動過就會變。
@@ -950,12 +950,7 @@ mod tests {
         let menu = h.state().selection.menu.rect().expect("menu shown");
         assert_eq!(menu.min, spot);
         let label = t("menu.copy", &[]);
-        assert!(
-            h.output()
-                .shapes
-                .iter()
-                .any(|c| matches!(&c.shape, Shape::Text(s) if s.galley.text() == label))
-        );
+        assert!(find_text_shape(&h.output().shapes, &label).is_some());
         // 點選單：複製並關閉，選取留著
         h.hover_at(menu.center());
         h.step();

@@ -536,15 +536,14 @@ impl Card {
 #[cfg(test)]
 mod tests {
     use eframe::egui::{
-        Key, Modifiers, MouseWheelSource, MouseWheelUnit, OutputCommand, Shape, TouchPhase,
-        epaint::TextShape,
+        Key, Modifiers, MouseWheelSource, MouseWheelUnit, Shape, TouchPhase, epaint::TextShape,
     };
     use egui_kittest::Harness;
 
     use super::*;
     use crate::ui::fonts_egui;
     use crate::ui::overlay::scrollbar::{THUMB, THUMB_HOVER};
-    use crate::ui::text_select::copied_texts;
+    use crate::ui::text_select::{copied_texts, opened_urls};
 
     const RECT: Rect = (300, 200, 400, 120);
     const AREA: Rect = (0, 0, 1920, 1040);
@@ -832,16 +831,7 @@ mod tests {
         let mut h = harness(CardContent::Error("https://example.com/keys".into()));
         let link = label_rect(&h, "https://example.com/keys");
         press(&mut h, link.left_top() + vec2(5.0, 5.0));
-        let opened: Vec<String> = h
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-                _ => None,
-            })
-            .collect();
+        let opened = opened_urls(&h.output().platform_output);
         assert_eq!(opened, ["https://example.com/keys"]);
         release(&mut h, link.left_top() + vec2(5.0, 5.0));
         assert_eq!(h.state().actions, [CardAction::Close]);

@@ -2,7 +2,7 @@
 #![allow(dead_code)]
 
 use eframe::egui::accesskit::Role;
-use eframe::egui::{Event, Modifiers, OutputCommand, PointerButton, Pos2, Shape};
+use eframe::egui::{Event, Modifiers, PointerButton, Pos2, Shape};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use wizard101_chat_translator::i18n::t;
@@ -39,19 +39,6 @@ pub fn click_at<S>(h: &mut Harness<S>, pos: Pos2) {
 
 pub fn has_label<S>(h: &Harness<S>, label: &str) -> bool {
     h.query_all_by_label(label).next().is_some()
-}
-
-/// 這一幀要開啟的網址（開啟指令只在點下的那一幀輸出）。
-pub fn opened_urls<S>(h: &Harness<S>) -> Vec<String> {
-    h.output()
-        .platform_output
-        .commands
-        .iter()
-        .filter_map(|c| match c {
-            OutputCommand::OpenUrl(open) => Some(open.url.clone()),
-            _ => None,
-        })
-        .collect()
 }
 
 /// 畫面上所有文字字形。

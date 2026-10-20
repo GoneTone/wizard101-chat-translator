@@ -12,7 +12,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click, has_label, opened_urls, run, tr};
+use common::kittest::{click, has_label, run, tr};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
@@ -26,6 +26,7 @@ use wizard101_chat_translator::runtime::updater::{
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::{Page, SettingsAction};
+use wizard101_chat_translator::ui::text_select::{find_text_shape, opened_urls};
 use wizard101_chat_translator::util;
 
 const LANGUAGE: &str = "en-US";
@@ -82,7 +83,7 @@ fn harness_with(cfg: Config, env: FakeEnv, size: egui::Vec2) -> Harness<'static,
 fn click_link<S>(h: &mut Harness<S>, label: &str) -> Vec<String> {
     h.get_by_role_and_label(Role::Link, label).click();
     h.step();
-    opened_urls(h)
+    opened_urls(&h.output().platform_output)
 }
 
 /// 顯示 `value` 這段文字的標籤（不含它底下的文字段節點）。
@@ -886,14 +887,8 @@ fn update_result_is_only_clickable_over_its_text() {
     check_update(&mut h, Ok(Some(release())));
     let label = t("update.available", &[("version", "9.9.9")]);
     let link = h.get_by_role_and_label(Role::Link, &label).rect();
-    let text = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == label => Some(s.galley.rect.width()),
-            _ => None,
-        })
+    let text = find_text_shape(&h.output().shapes, &label)
+        .map(|s| s.galley.rect.width())
         .expect("link text painted");
     assert!((link.width() - text).abs() < 1.0, "{link:?} vs text {text}");
 }
@@ -1001,16 +996,8 @@ fn footer_buttons_sit_inside_the_window_with_centred_labels() {
             window.bottom() - button.bottom() >= 10.0,
             "{label}: {button:?}"
         );
-        let text = h
-            .output()
-            .shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(s) if s.galley.text() == label => {
-                    Some(s.galley.rect.translate(s.pos.to_vec2()))
-                }
-                _ => None,
-            })
+        let text = find_text_shape(&h.output().shapes, &label)
+            .map(|s| s.galley.rect.translate(s.pos.to_vec2()))
             .unwrap();
         assert!(
             (text.center().y - button.center().y).abs() <= 1.0,
@@ -1114,16 +1101,9 @@ fn the_log_folder_path_is_shown_in_full_beside_the_button() {
         .scroll_to_me();
     run(&mut h);
     let path = app_dir().display().to_string();
-    let galley = h
-        .output()
-        .shapes
-        .iter()
-        .find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == path => Some((s.galley.clone(), s.pos)),
-            _ => None,
-        })
+    let (galley, pos) = find_text_shape(&h.output().shapes, &path)
+        .map(|s| (s.galley.clone(), s.pos))
         .expect("the whole path is painted");
-    let (galley, pos) = galley;
     let button = h
         .get_by_role_and_label(Role::Button, &tr("button.open_folder"))
         .rect();

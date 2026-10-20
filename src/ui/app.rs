@@ -762,6 +762,7 @@ mod tests {
     use crate::ui::overlay::outlined::line_height;
     use crate::ui::region::fakes;
     use crate::ui::region::selector::SelectorAction;
+    use crate::ui::text_select::find_text_shape;
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
     use std::time::Duration;
@@ -994,12 +995,7 @@ mod tests {
         harness.step();
         harness.step();
         let label = crate::i18n::t("menu.copy", &[]);
-        let menu_shown = |h: &Harness<App>| {
-            h.output()
-                .shapes
-                .iter()
-                .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == label))
-        };
+        let menu_shown = |h: &Harness<App>| find_text_shape(&h.output().shapes, &label).is_some();
         assert!(menu_shown(&harness));
         harness.state_mut().set_minimized(true);
         harness.step();
@@ -1271,11 +1267,7 @@ mod tests {
     }
 
     fn painted_text(harness: &Harness<App>, text: &str) -> bool {
-        harness
-            .output()
-            .shapes
-            .iter()
-            .any(|c| matches!(&c.shape, egui::Shape::Text(s) if s.galley.text() == text))
+        find_text_shape(&harness.output().shapes, text).is_some()
     }
 
     /// 這一幀根視窗什麼都沒畫（呈現全透明）。

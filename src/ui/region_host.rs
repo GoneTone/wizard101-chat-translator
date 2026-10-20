@@ -409,6 +409,7 @@ mod tests {
     use crate::ui::fonts_egui;
     use crate::ui::region::fakes::{GAME, RECT, Shared, deliver, flow};
     use crate::ui::region::selector::SelectorAction;
+    use crate::ui::text_select::find_text_shape;
 
     thread_local! {
         static HELD: Cell<bool> = const { Cell::new(false) };
@@ -583,16 +584,8 @@ mod tests {
             .on_selector(SelectorAction::Selected(RECT));
         h.run();
         assert!(h.state().card.shown && !repaints_now(&h));
-        let close = h
-            .output()
-            .shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(t) if t.galley.text() == "✕" => {
-                    Some(egui::Rect::from_min_size(t.pos, t.galley.size()).center())
-                }
-                _ => None,
-            })
+        let close = find_text_shape(&h.output().shapes, "✕")
+            .map(|t| egui::Rect::from_min_size(t.pos, t.galley.size()).center())
             .expect("close button drawn");
         clear_causes();
         h.event(Event::PointerButton {

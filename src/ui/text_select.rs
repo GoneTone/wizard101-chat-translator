@@ -118,7 +118,7 @@ pub fn wheel_delta(ui: &Ui, viewport_h: f32) -> f32 {
 }
 
 /// 本幀 egui 排入的複製文字（測試用：看 egui 收到什麼，不碰系統剪貼簿）。
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub fn copied_texts(ctx: &Context) -> Vec<String> {
     use eframe::egui::OutputCommand;
     ctx.output(|o| {
@@ -129,6 +129,33 @@ pub fn copied_texts(ctx: &Context) -> Vec<String> {
                 _ => None,
             })
             .collect()
+    })
+}
+
+/// 本幀要開啟的網址（測試用：開啟指令只在點下的那一幀輸出）。
+#[cfg(any(test, feature = "test-support"))]
+pub fn opened_urls(output: &eframe::egui::PlatformOutput) -> Vec<String> {
+    use eframe::egui::OutputCommand;
+    output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            OutputCommand::OpenUrl(open) => Some(open.url.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 畫面上第一個內容為 `text` 的文字字形（測試用）。
+#[cfg(any(test, feature = "test-support"))]
+pub fn find_text_shape<'a>(
+    shapes: &'a [eframe::egui::epaint::ClippedShape],
+    text: &str,
+) -> Option<&'a eframe::egui::epaint::TextShape> {
+    use eframe::egui::Shape;
+    shapes.iter().find_map(|c| match &c.shape {
+        Shape::Text(s) if s.galley.text() == text => Some(s),
+        _ => None,
     })
 }
 

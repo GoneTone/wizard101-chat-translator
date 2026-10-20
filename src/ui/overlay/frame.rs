@@ -504,6 +504,7 @@ pub(crate) mod tests {
     use crate::ui::overlay::message_list::{self, MessageList};
     use crate::ui::overlay::model::OverlayModel;
     use crate::ui::overlay::outlined;
+    use crate::ui::text_select::find_text_shape;
 
     const START: Rect = (1000, 500, 640, 420);
 
@@ -630,13 +631,7 @@ pub(crate) mod tests {
             egui::Shape::Rect(r) if r.rect == square => Some(r.fill),
             _ => None,
         });
-        let fg = shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::Shape::Text(t) if t.galley.text() == glyph => Some(t.fallback_color),
-                _ => None,
-            })
-            .unwrap();
+        let fg = find_text_shape(shapes, glyph).unwrap().fallback_color;
         (fill, fg)
     }
 
@@ -788,12 +783,8 @@ pub(crate) mod tests {
     #[test]
     fn tooltip_text_is_bright() {
         let (harness, text) = hovered_tooltip();
-        let color = harness.output().shapes.iter().find_map(|c| match &c.shape {
-            egui::Shape::Text(s) if s.galley.text() == text => {
-                Some(s.galley.job.sections[0].format.color)
-            }
-            _ => None,
-        });
+        let color = find_text_shape(&harness.output().shapes, &text)
+            .map(|s| s.galley.job.sections[0].format.color);
         assert_eq!(color, Some(FG_TRANSLATED));
     }
 

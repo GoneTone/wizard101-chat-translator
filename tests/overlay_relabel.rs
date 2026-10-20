@@ -1,7 +1,7 @@
 //! overlay 換介面語言後的重繪；本檔是唯一切換全域語言的 UI 測試，獨立成一個測試執行檔免得與其他測試互相干擾。
 
 use eframe::egui::{
-    Event, FontFamily, Modifiers, PointerButton, Pos2, Shape, ViewportCommand, ViewportId,
+    Event, FontFamily, Modifiers, PointerButton, Pos2, ViewportCommand, ViewportId,
 };
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
@@ -11,6 +11,7 @@ use wizard101_chat_translator::ui::events::UiEvent;
 use wizard101_chat_translator::ui::fonts_egui;
 use wizard101_chat_translator::ui::overlay::banners::Release;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
+use wizard101_chat_translator::ui::text_select::find_text_shape;
 
 #[test]
 fn status_key_relabels_on_language_change() {
@@ -140,9 +141,5 @@ fn copy_menu_opens(harness: &mut Harness<App>) -> bool {
 }
 
 fn shows_text(harness: &Harness<App>, text: &str) -> bool {
-    harness
-        .output()
-        .shapes
-        .iter()
-        .any(|c| matches!(&c.shape, Shape::Text(s) if s.galley.text() == text))
+    find_text_shape(&harness.output().shapes, text).is_some()
 }
