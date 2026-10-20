@@ -3,6 +3,7 @@
 use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE, SendInput,
+    VK_CONTROL, VK_MENU,
 };
 
 use crate::input::hotkeys::MASK_VK;
@@ -23,9 +24,6 @@ pub trait Injector: Send + Sync {
 
 /// 以 `SendInput` 實際送鍵。
 pub struct SendInputInjector;
-
-const VK_CONTROL: u16 = 0x11;
-const VK_MENU: u16 = 0x12;
 
 impl SendInputInjector {
     /// `_winkeyboard._send_event`：alt gr 拆成 ctrl+alt；負數 code 是沒有 scan code 的 vk。

@@ -22,7 +22,7 @@ use super::widgets::{
     secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
-use crate::config::services::{ServiceSlot, find, validate_service};
+use crate::config::services::{ServiceSlot, find, slot_id, validate_service};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, set_language, t};
 use crate::logs::log;
@@ -371,12 +371,7 @@ fn service_errors(cfg: &Config) -> Vec<String> {
     if find(cfg, default).is_none() {
         return vec!["error.need_service".into()];
     }
-    let slots = cfg.get("service_slots");
-    let slot_ids = ServiceSlot::ALL.iter().map(|slot| {
-        slots
-            .and_then(|s| s.get(slot.key()))
-            .and_then(Value::as_str)
-    });
+    let slot_ids = ServiceSlot::ALL.iter().map(|&slot| slot_id(cfg, slot));
     let mut errors: Vec<String> = Vec::new();
     for service in std::iter::once(default)
         .chain(slot_ids)

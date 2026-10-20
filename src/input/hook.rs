@@ -17,13 +17,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_RMENU};
+
 use crate::input::dispatcher::{KeyEvent, RawKey, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
 
 const VK_PACKET: u32 = 0xE7;
-const VK_RMENU: u32 = 0xA5;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 /// 掛 hook 的嘗試次數與失敗後的間隔：開機自動啟動時桌面可能還沒就緒。
 const INSTALL_ATTEMPTS: u32 = 3;
@@ -306,10 +307,10 @@ fn reentrant_guard(inside: &Cell<bool>, ev: KeyEvent, process: impl FnOnce() -> 
 
 /// Alt Gr 送出 scan 541 的 left ctrl 後會多一個 right alt；那個 right alt 放行但不分派（`_winkeyboard.process_key`）。
 fn is_alt_gr_echo(ignore_next_right_alt: &Cell<bool>, vk: u32, scan: u32) -> bool {
-    if vk == VK_RMENU && ignore_next_right_alt.replace(false) {
+    if vk == u32::from(VK_RMENU) && ignore_next_right_alt.replace(false) {
         return true;
     }
-    if scan == keys::ALT_GR as u32 && vk == keys::VK_LCONTROL {
+    if scan == keys::ALT_GR as u32 && vk == u32::from(VK_LCONTROL) {
         ignore_next_right_alt.set(true);
     }
     false
