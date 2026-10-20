@@ -1,4 +1,4 @@
-//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、深色標題列、泡泡模式攔最小化、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、深色標題列、攔截最小化、前景切換與螢幕查詢。
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -150,7 +150,7 @@ unsafe extern "system" fn minimize_guard_proc(
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
-/// 讓 `guard` 先看過視窗收到的訊息，泡泡模式下的最小化交給它吞掉；每個視窗只呼叫一次。
+/// 讓 `guard` 先看過視窗收到的訊息，最小化交給它吞掉；每個視窗只呼叫一次。
 pub fn guard_minimize(hwnd: isize, guard: Arc<MinimizeGuard>) {
     let data = Arc::into_raw(guard);
     if unsafe { SetWindowSubclass(hwnd as HWND, Some(minimize_guard_proc), 0, data as usize) } == 0
@@ -158,13 +158,11 @@ pub fn guard_minimize(hwnd: isize, guard: Arc<MinimizeGuard>) {
         let error = std::io::Error::last_os_error();
         drop(unsafe { Arc::from_raw(data) });
         log(format!(
-            "[ui] bubble minimize guard not installed: hwnd={hwnd:#x} error={error}"
+            "[ui] minimize guard not installed: hwnd={hwnd:#x} error={error}"
         ));
         return;
     }
-    log(format!(
-        "[ui] bubble minimize guard installed: hwnd={hwnd:#x}"
-    ));
+    log(format!("[ui] minimize guard installed: hwnd={hwnd:#x}"));
 }
 
 /// 設定一個 4 位元組的 DWM 視窗屬性，回傳 HRESULT。

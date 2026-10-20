@@ -355,7 +355,6 @@ impl App {
         } else {
             self.bubble = None;
         }
-        self.minimize_guard.set_active(minimized);
         self.minimized = minimized;
         self.model.set_minimized(minimized);
         let what = if minimized {
@@ -678,12 +677,15 @@ impl eframe::App for App {
         if ctx.input(|i| i.viewport().close_requested())
             && let Some(on_close) = self.on_close.take()
         {
-            self.minimize_guard.set_active(false);
             on_close();
         }
-        if self.minimize_guard.take_request() && self.minimized {
-            log("[ui] auto-expand: taskbar click while the bubble was active");
-            self.set_minimized(false);
+        if self.minimize_guard.take_request() {
+            if self.minimized {
+                log("[ui] auto-expand: taskbar click while the bubble was active");
+            } else {
+                log("[ui] minimized to bubble: taskbar click on the expanded overlay");
+            }
+            self.set_minimized(!self.minimized);
         }
         while let Ok(event) = self.rx.try_recv() {
             self.apply(ctx, event);
@@ -1034,26 +1036,28 @@ mod tests {
     }
 
     #[test]
-    fn taskbar_minimize_expands_the_bubble_but_not_the_overlay() {
+    fn taskbar_minimize_toggles_between_overlay_and_bubble() {
         use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MINIMIZE, WM_SYSCOMMAND};
         let (_poster, inbox) = channel();
         let mut harness = app_harness(inbox);
         harness.step();
-        let minimize = |h: &Harness<App>| {
-            h.state()
-                .minimize_guard
-                .intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize)
+        let click = |h: &Harness<App>| {
+            assert!(
+                h.state()
+                    .minimize_guard
+                    .intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize),
+                "always swallowed so Windows never minimizes to the taskbar"
+            );
         };
-        assert!(!minimize(&harness), "expanded: Windows minimizes as usual");
-        harness.step();
         assert!(!harness.state().minimized);
-        harness.state_mut().set_minimized(true);
+        click(&harness);
         harness.run_steps(4);
-        assert!(minimize(&harness));
-        harness.step();
-        assert!(!harness.state().minimized);
+        assert!(harness.state().minimized, "expanded -> bubble");
+        assert!(harness.state().bubble.is_some());
+        click(&harness);
+        harness.run_steps(4);
+        assert!(!harness.state().minimized, "bubble -> expanded");
         assert!(harness.state().bubble.is_none());
-        assert!(!minimize(&harness), "expanded again");
     }
 
     #[test]

@@ -58,12 +58,12 @@ pub fn should_auto_expand(
     bubble_hwnd != 0 && foreground == bubble_hwnd && previous != bubble_hwnd && !pointer_over
 }
 
-/// 泡泡模式下由視窗程序攔下的最小化：視窗程序寫、App 每幀取走。
+/// 視窗程序攔下的最小化：視窗程序寫、App 每幀取走並在泡泡與 overlay 之間切換。
 ///
-/// 泡泡已是作用中視窗時點工作列按鈕，Windows 送的是 `SC_MINIMIZE` 而不會切換前景，[`Bubble::watch`] 看不到。
+/// 點工作列按鈕時 Windows 送的是 `SC_MINIMIZE`（泡泡作用中時也不會切換前景，[`Bubble::watch`] 看不到），
+/// 吞掉它才不會把 overlay 縮進工作列。
 pub struct MinimizeGuard {
     ctx: egui::Context,
-    active: AtomicBool,
     requested: AtomicBool,
 }
 
@@ -72,24 +72,14 @@ impl MinimizeGuard {
     pub fn new(ctx: &egui::Context) -> Self {
         Self {
             ctx: ctx.clone(),
-            active: AtomicBool::new(false),
             requested: AtomicBool::new(false),
         }
     }
 
-    /// 進出泡泡模式；離開時一併丟掉還沒取走的要求。
-    pub fn set_active(&self, active: bool) {
-        self.active.store(active, Ordering::Relaxed);
-        if !active {
-            self.requested.store(false, Ordering::Relaxed);
-        }
-    }
-
-    /// 視窗程序收到的訊息：泡泡模式下的最小化要吞掉（回 `true`），改成要求展開並喚醒重繪。
+    /// 視窗程序收到的訊息：最小化要吞掉（回 `true`），改成切換要求並喚醒重繪。
     pub fn intercept(&self, msg: u32, wparam: usize) -> bool {
         // wParam 低 4 位元是系統內部用的
-        let minimize = msg == WM_SYSCOMMAND && wparam & 0xFFF0 == SC_MINIMIZE as usize;
-        if !minimize || !self.active.load(Ordering::Relaxed) {
+        if msg != WM_SYSCOMMAND || wparam & 0xFFF0 != SC_MINIMIZE as usize {
             return false;
         }
         self.requested.store(true, Ordering::Relaxed);
@@ -97,7 +87,7 @@ impl MinimizeGuard {
         true
     }
 
-    /// 取走攔下的展開要求。
+    /// 取走攔下的切換要求。
     pub fn take_request(&self) -> bool {
         self.requested.swap(false, Ordering::Relaxed)
     }
@@ -284,7 +274,7 @@ mod tests {
     use crate::ui::fonts_egui;
     use crate::ui::overlay::frame::tests::FakeShell;
     use eframe::egui::FontFamily;
-    use windows_sys::Win32::UI::WindowsAndMessaging::SC_RESTORE;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MOVE, SC_RESTORE};
 
     const OVERLAY: Rect = (100, 200, 640, 420);
 
@@ -341,24 +331,16 @@ mod tests {
     }
 
     #[test]
-    fn minimize_is_swallowed_only_in_bubble_mode() {
+    fn only_minimize_syscommands_are_swallowed() {
         let guard = MinimizeGuard::new(&egui::Context::default());
         let minimize = SC_MINIMIZE as usize;
-        assert!(
-            !guard.intercept(WM_SYSCOMMAND, minimize),
-            "expanded: Windows minimizes"
-        );
-        guard.set_active(true);
         assert!(!guard.intercept(WM_SYSCOMMAND, SC_RESTORE as usize));
+        assert!(!guard.intercept(WM_SYSCOMMAND, SC_MOVE as usize));
         assert!(!guard.intercept(WM_SYSCOMMAND + 1, minimize));
         assert!(!guard.take_request());
         assert!(guard.intercept(WM_SYSCOMMAND, minimize | 0x2));
         assert!(guard.take_request());
         assert!(!guard.take_request(), "taken once");
-        assert!(guard.intercept(WM_SYSCOMMAND, minimize));
-        guard.set_active(false);
-        assert!(!guard.take_request(), "leaving bubble mode drops it");
-        assert!(!guard.intercept(WM_SYSCOMMAND, minimize));
     }
 
     #[test]
@@ -370,7 +352,6 @@ mod tests {
             counter.fetch_add(1, Ordering::SeqCst);
         });
         let guard = MinimizeGuard::new(&ctx);
-        guard.set_active(true);
         assert!(guard.intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize));
         assert!(hits.load(Ordering::SeqCst) > 0);
     }
