@@ -464,11 +464,11 @@ async fn claude_html_error_page_is_stripped_to_text() {
     );
 }
 
-async fn chat_with_error_event(error_type: &str) -> Result<String, TranslateError> {
+async fn chat_with_error_event(error_type: &str, message: &str) -> Result<String, TranslateError> {
     let server = MockServer::start().await;
     let body = events(&[
         json!({"type": "message_start", "message": {"content": [], "usage": {}}}),
-        json!({"type": "error", "error": {"type": error_type, "message": "Overloaded"}}),
+        json!({"type": "error", "error": {"type": error_type, "message": message}}),
     ]);
     mount_messages(
         &server,
@@ -479,21 +479,29 @@ async fn chat_with_error_event(error_type: &str) -> Result<String, TranslateErro
 }
 
 #[tokio::test]
-async fn claude_overloaded_stream_error_event_is_offline() {
-    assert_eq!(
-        chat_with_error_event("overloaded_error").await,
-        Err(TranslateError::Offline {
-            status: Some(529),
-            detail: "Overloaded".into()
-        })
-    );
+async fn claude_stream_error_events_map_by_type_to_offline() {
+    for (error_type, status) in [
+        ("rate_limit_error", 429),
+        ("api_error", 500),
+        ("timeout_error", 504),
+        ("overloaded_error", 529),
+    ] {
+        assert_eq!(
+            chat_with_error_event(error_type, "try later").await,
+            Err(TranslateError::Offline {
+                status: Some(status),
+                detail: "try later".into()
+            }),
+            "{error_type}"
+        );
+    }
 }
 
 #[tokio::test]
 async fn claude_invalid_request_stream_error_event_is_unexpected() {
-    let result = chat_with_error_event("invalid_request_error").await;
+    let result = chat_with_error_event("invalid_request_error", "bad field").await;
     assert!(
-        matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("Overloaded")),
+        matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("bad field")),
         "{result:?}"
     );
 }

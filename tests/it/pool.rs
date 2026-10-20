@@ -738,8 +738,10 @@ async fn dropping_the_pool_stops_retries() {
 async fn offline_line_past_max_age_reports_failed() {
     let (calls_tx, _calls) = mpsc::unbounded_channel();
     let (pool, mut rx) = make_pool(recording(calls_tx, |_| Err(offline("down"))), gate(1));
+    let submitted = Instant::now();
     pool.submit("[A] one".into(), vec![], 1);
     assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert!(submitted.elapsed() >= Duration::from_secs(300));
     assert_eq!(pool.in_flight(), 0);
 }
 
@@ -770,4 +772,35 @@ async fn config_error_after_another_line_succeeded_is_dropped_without_arming_the
     assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
     assert_eq!(pool.error_state(), None, "不動橫幅");
     assert_eq!(pool.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_is_dropped_when_another_line_succeeds_between_its_attempts() {
+    let release_fine = CancellationToken::new();
+    let translate = tfn({
+        let release_fine = release_fine.clone();
+        move |line: String, _| {
+            let release_fine = release_fine.clone();
+            async move {
+                if line == "[A] bad" {
+                    return Err(TranslateError::Config {
+                        status: Some(400),
+                        detail: "bad request".into(),
+                    });
+                }
+                release_fine.cancelled().await;
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[B] fine".into(), vec![], 2);
+    pool.submit("[A] bad".into(), vec![], 1);
+    settle().await;
+    assert_eq!(pool.error_state(), Some(ErrorState::Config));
+    // 成功發生在壞那則兩次嘗試之間，而不是它的嘗試期間
+    release_fine.cancel();
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None);
 }

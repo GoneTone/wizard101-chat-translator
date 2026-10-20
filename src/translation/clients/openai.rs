@@ -133,7 +133,9 @@ impl OpenAiCompatClient {
         Value::Object(body)
     }
 
-    /// 記住端點拒絕的參數，回傳下一次請求是否還有變化可試（長度上限兩個名字都被拒就沒招了）。
+    /// 記住端點拒絕的參數，回傳下一次請求是否還有變化可試。
+    ///
+    /// 長度上限兩個名字都被拒、或被拒的是核心參數（model／messages／stream）時沒招了。
     fn learn_rejection(&self, param: &str) -> bool {
         let mut learned = lock(&self.learned);
         if let Some(other) = other_token_param(param) {

@@ -264,10 +264,13 @@ impl Job {
     async fn run(mut self, line: String, context: Vec<String>, msg_id: u64) {
         let inner = Arc::clone(&self.inner);
         let mut attempts = 0;
+        let mut last_error = "none";
+        // 連續 Config 錯誤共用同一個基準：別則在兩次嘗試之間成功也要看得出來
+        let mut baseline: Option<u64> = None;
         while inner.wait_for_backoff().await {
             if self.born.elapsed() > MAX_JOB_AGE {
                 log(format!(
-                    "[translate] line dropped after {attempts} attempt(s), gave up after outage: {line}"
+                    "[translate] line dropped after {attempts} attempt(s), gave up after outage (last error: {last_error}): {line}"
                 ));
                 self.report(msg_id, (inner.failed_notice)(), true);
                 return;
@@ -280,7 +283,7 @@ impl Job {
                 continue;
             }
             attempts += 1;
-            let successes_before = inner.state().successes;
+            let successes_before = *baseline.get_or_insert(inner.state().successes);
             let request = async { (inner.translate)(line.clone(), context.clone()).await };
             // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
             let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {
@@ -291,10 +294,13 @@ impl Job {
                     return;
                 }
                 Ok(Err(err @ TranslateError::Offline { .. })) => {
+                    last_error = ErrorState::Offline.as_str();
+                    baseline = None;
                     inner.note_failure(ErrorState::Offline, &err);
                     continue;
                 }
                 Ok(Err(err @ TranslateError::Config { .. })) => {
+                    last_error = ErrorState::Config.as_str();
                     // 別則成功過，設定沒問題；錯在這則本身，不動閘門與橫幅
                     if inner.state().successes != successes_before {
                         ("rejected while other lines succeed", err.to_string())
