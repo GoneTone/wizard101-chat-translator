@@ -58,3 +58,8 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.rusto-rs]
 opt-level = 3
+
+# 不可加 panic = "abort"：鍵盤 hook 與各處理器靠 catch_unwind 擋住 panic
+[profile.release]
+lto = "fat"
+codegen-units = 1
