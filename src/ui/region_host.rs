@@ -10,11 +10,12 @@ use eframe::egui::{
 
 use crate::config::app_name;
 use crate::logs::log;
+use crate::region::capture::CaptureError;
 use crate::region::pipeline::RegionResult;
 use crate::ui::geometry::Rect;
 use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
-use crate::ui::region::flow::RegionFlow;
+use crate::ui::region::flow::{RegionFlow, Shot};
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
 use crate::ui::viewport::{self, show_immediate};
 use crate::ui::win32;
@@ -87,6 +88,12 @@ impl RegionHost {
     /// 框選熱鍵（`UiEvent::RegionHotkey`）。
     pub fn toggle(&mut self, hwnd: isize) {
         self.flow.toggle(hwnd);
+        self.sync_closed();
+    }
+
+    /// 背景擷取結果（`UiEvent::RegionCaptured`）。
+    pub fn captured(&mut self, id: u64, result: Result<Shot, CaptureError>) {
+        self.flow.on_captured(id, result);
         self.sync_closed();
     }
 
@@ -395,7 +402,7 @@ mod tests {
 
     use super::*;
     use crate::ui::fonts_egui;
-    use crate::ui::region::fakes::{GAME, RECT, flow};
+    use crate::ui::region::fakes::{GAME, RECT, Shared, deliver, flow};
     use crate::ui::region::selector::SelectorAction;
 
     thread_local! {
@@ -406,10 +413,11 @@ mod tests {
     }
 
     /// 只托管框選的 harness：搶前景只記下次數，觸發鍵狀態由 `HELD` 決定。
-    fn harness() -> Harness<'static, RegionHost> {
+    fn harness() -> (Harness<'static, RegionHost>, Shared) {
         HELD.with(|h| h.set(false));
         RAISED.with(|r| r.borrow_mut().clear());
-        let mut host = RegionHost::new(flow().0);
+        let (flow, calls) = flow();
+        let mut host = RegionHost::new(flow);
         host.desktop = Desktop {
             force_foreground: |hwnd| {
                 RAISED.with(|r| r.borrow_mut().push(hwnd));
@@ -418,7 +426,7 @@ mod tests {
             work_area_at: |_, _| (0, 0, 1920, 1040),
             trigger_held: || HELD.with(Cell::get),
         };
-        Harness::builder()
+        let harness = Harness::builder()
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
             .build_ui_state(
                 |ui, host: &mut RegionHost| {
@@ -427,7 +435,8 @@ mod tests {
                     host.show(&ui.ctx().clone(), 0, &[]);
                 },
                 host,
-            )
+            );
+        (harness, calls)
     }
 
     /// 只交給注入的 `force_foreground` 的假 HWND。
@@ -439,9 +448,10 @@ mod tests {
 
     #[test]
     fn selector_takes_foreground_only_after_the_trigger_is_released() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         HELD.with(|held| held.set(true));
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.step();
         // kittest 找不到真的 HWND；換成假的，搶前景只交給注入的替身
         h.state_mut().selector.hwnd = FAKE_HWND;
@@ -460,8 +470,9 @@ mod tests {
 
     #[test]
     fn selector_waits_for_its_window_before_showing() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(3);
         assert!(h.state().selector.created && !h.state().selector.shown);
         assert_eq!(raised(), 0);
@@ -473,8 +484,9 @@ mod tests {
 
     #[test]
     fn selector_without_a_window_is_shown_unfocused_after_the_wait() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(2);
         assert!(!h.state().selector.shown);
         h.state_mut().release_wait = Some(Instant::now() - Duration::from_secs(2));
@@ -489,20 +501,23 @@ mod tests {
 
     #[test]
     fn selector_closing_starts_a_fresh_window_for_the_next_selection() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(2);
         let first = h.state().selector.id("region_selector");
         h.state_mut().toggle(GAME);
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(2);
         assert_ne!(h.state().selector.id("region_selector"), first);
     }
 
     #[test]
     fn selection_opens_the_box_and_the_card_without_taking_focus() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(2);
         let raised_before = raised();
         h.state_mut()
@@ -531,8 +546,9 @@ mod tests {
 
     #[test]
     fn dismissing_the_selector_tears_its_window_down_on_the_next_frame() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.step();
         h.state_mut().selector.hwnd = FAKE_HWND;
         h.run();
@@ -552,8 +568,9 @@ mod tests {
 
     #[test]
     fn closing_the_card_tears_its_window_down_on_the_next_frame() {
-        let mut h = harness();
+        let (mut h, calls) = harness();
         h.state_mut().toggle(GAME);
+        deliver(&mut h.state_mut().flow, &calls);
         h.run_steps(2);
         h.state_mut()
             .flow

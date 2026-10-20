@@ -465,6 +465,11 @@ impl App {
                     host.toggle(hwnd);
                 }
             }
+            UiEvent::RegionCaptured { id, result } => {
+                if let Some(host) = &mut self.region {
+                    host.captured(id, result);
+                }
+            }
             UiEvent::RegionDone { session, result } => {
                 if let Some(host) = &mut self.region {
                     host.finish(session, result);
@@ -1670,6 +1675,8 @@ mod tests {
         let (mut harness, calls) = region_harness(inbox);
         poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
         harness.step();
+        poster.post(fakes::delivery(&calls));
+        harness.step();
         assert!(selecting(&mut harness));
         poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
         harness.step();
@@ -1680,10 +1687,12 @@ mod tests {
 
     #[test]
     fn region_button_starts_from_the_button() {
-        let (_poster, inbox) = channel();
+        let (poster, inbox) = channel();
         let (mut harness, calls) = region_harness(inbox);
         harness.step();
         harness.get_by_label("⛶").click();
+        harness.step();
+        poster.post(fakes::delivery(&calls));
         harness.step();
         assert!(selecting(&mut harness));
         assert_eq!(calls.borrow().captured, [fakes::FOUND]);
@@ -1694,6 +1703,8 @@ mod tests {
         let (poster, inbox) = channel();
         let (mut harness, calls) = region_harness(inbox);
         poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        poster.post(fakes::delivery(&calls));
         harness.step();
         let region = harness.state_mut().region.as_mut().unwrap();
         region
@@ -1723,8 +1734,10 @@ mod tests {
     #[test]
     fn overlay_alpha_reaches_the_region_card() {
         let (poster, inbox) = channel();
-        let (mut harness, _calls) = region_harness(inbox);
+        let (mut harness, calls) = region_harness(inbox);
         poster.post(UiEvent::RegionHotkey { hwnd: fakes::GAME });
+        harness.step();
+        poster.post(fakes::delivery(&calls));
         harness.step();
         let region = harness.state_mut().region.as_mut().unwrap();
         region

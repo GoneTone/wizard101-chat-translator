@@ -90,7 +90,7 @@ pub fn on_hotkey(fg: &Foreground, box_open: &AtomicBool, ui: &UiPoster) -> bool 
     false
 }
 
-/// 框選熱鍵回呼，回傳有沒有接手：選取層開著就取消，遊戲在前景才開始框選。
+/// 框選熱鍵回呼，回傳有沒有接手：選取層開著或正在為它擷取就取消，遊戲在前景才開始框選。
 pub fn on_region_hotkey(fg: &Foreground, selecting: &AtomicBool, ui: &UiPoster) -> bool {
     if selecting.load(Ordering::SeqCst) {
         ui.post(UiEvent::RegionHotkey { hwnd: 0 });
