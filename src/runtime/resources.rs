@@ -1,10 +1,11 @@
 //! 內嵌唯讀資源（icon、服務商標誌），來源檔在 `assets/`。
 
-/// 指定尺寸的 PNG icon；只提供 16 與 48，其他尺寸視為程式錯誤。
+/// 指定尺寸的 PNG icon；只提供 16、48 與 96，其他尺寸視為程式錯誤。
 pub fn icon_png(size: u32) -> &'static [u8] {
     match size {
         16 => include_bytes!("../../assets/icon_16.png"),
         48 => include_bytes!("../../assets/icon_48.png"),
+        96 => include_bytes!("../../assets/icon_96.png"),
         _ => panic!("no embedded icon PNG for size {size}"),
     }
 }
@@ -38,7 +39,7 @@ mod tests {
 
     #[test]
     fn icon_pngs_have_native_sizes() {
-        for size in [16u32, 48] {
+        for size in [16u32, 48, 96] {
             let d = icon_png(size);
             assert!(d.starts_with(PNG_MAGIC));
             assert_eq!(u32::from_be_bytes(d[16..20].try_into().unwrap()), size);

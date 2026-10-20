@@ -29,6 +29,15 @@ pub fn bubble_alpha(alpha: f32) -> f32 {
     ALPHA_FLOOR.max(alpha * ALPHA_FACTOR)
 }
 
+/// 泡泡圖示的貼圖尺寸：高縮放下 48px 會被放大到糊掉，改用 96px 縮小。
+fn icon_size(pixels_per_point: f32) -> u32 {
+    if pixels_per_point > 1.0 {
+        96
+    } else {
+        BUBBLE_SIZE as u32
+    }
+}
+
 /// 未讀數徽章的字型：粗體；要先 `fonts_egui::install`。
 fn badge_font() -> FontId {
     theme::bold(tk_pt(BADGE_FONT_PT))
@@ -160,7 +169,7 @@ impl Bubble {
         alpha: f32,
     ) -> Option<Action> {
         let rect = ui.max_rect();
-        let icon = app_icon_texture(ui.ctx(), BUBBLE_SIZE as u32);
+        let icon = app_icon_texture(ui.ctx(), icon_size(ui.ctx().pixels_per_point()));
         Image::new((icon, rect.size()))
             .tint(Color32::WHITE.gamma_multiply(alpha))
             .paint_at(ui, rect);
@@ -281,6 +290,12 @@ mod tests {
         let mut bubble = Bubble::new(101, 202, t0);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
         assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
+    }
+
+    #[test]
+    fn high_dpi_uses_the_96px_icon() {
+        assert_eq!(icon_size(1.0), 48);
+        assert_eq!(icon_size(1.25), 96);
     }
 
     #[test]
