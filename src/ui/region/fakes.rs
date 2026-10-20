@@ -143,9 +143,10 @@ impl RegionCapturer for FakeCapturer {
     }
 }
 
-pub(crate) fn capturer() -> FakeCapturer {
+/// 把結果記進 `calls` 的預設擷取替身。
+pub(crate) fn capturer(calls: &Shared) -> FakeCapturer {
     FakeCapturer {
-        calls: Shared::default(),
+        calls: Rc::clone(calls),
         frames: RefCell::default(),
         fallback: frame(),
         backdrop: (1, 1),
@@ -177,13 +178,9 @@ pub(crate) fn flow() -> (RegionFlow, Shared) {
         ..desktop()
     };
     let calls = Rc::clone(&desktop.calls);
-    let capturer = FakeCapturer {
-        calls: Rc::clone(&calls),
-        ..capturer()
-    };
     let flow = RegionFlow::new(
         Box::new(desktop),
-        Box::new(capturer),
+        Box::new(capturer(&calls)),
         Box::new(FakeRunner(Rc::clone(&calls))),
         Arc::new(AtomicBool::new(false)),
     );

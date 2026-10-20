@@ -562,7 +562,9 @@ impl RegionCapturer for ThreadCapturer {
                 ui.post(UiEvent::RegionCaptured { id, result });
             });
         if let Err(e) = spawned {
-            log(format!("[region] cannot spawn capture thread: {e}"));
+            log(format!(
+                "[region] cannot spawn capture thread (id={id}, hwnd={hwnd:#x}): {e}"
+            ));
             // 不送結果的話流程會一直停在等擷取
             self.ui.post(UiEvent::RegionCaptured {
                 id,

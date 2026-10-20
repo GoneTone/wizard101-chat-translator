@@ -296,6 +296,10 @@ impl RegionFlow {
 
     /// 框選框調整完放開：凍結畫面早已過期，先換成辨識中卡片，再在背景對遊戲當下的畫面重拍，回來後才送出。
     pub fn on_box_changed(&mut self, rect: Rect) {
+        // 開框擷取中沒有框；不擋的話會蓋掉等待，`selecting` 卡在 true
+        if self.awaiting_selector() {
+            return;
+        }
         log(format!(
             "[region] box adjusted, recapturing (game_hwnd={:#x}, rect={rect:?})",
             self.game_hwnd
@@ -310,7 +314,9 @@ impl RegionFlow {
             self.card = None;
             self.region_box = None;
             self.cancel_request();
-            self.pending = None;
+            if !self.awaiting_selector() {
+                self.pending = None;
+            }
         }
     }
 
@@ -415,12 +421,10 @@ mod tests {
     }
 
     impl H {
-        fn new(desktop: FakeDesktop, capturer: FakeCapturer) -> Self {
+        /// `capturer` 拿 `desktop` 的呼叫紀錄建出擷取替身，兩者才記在同一處。
+        fn new(desktop: FakeDesktop, capturer: impl FnOnce(&Shared) -> FakeCapturer) -> Self {
             let calls = Rc::clone(&desktop.calls);
-            let capturer = FakeCapturer {
-                calls: Rc::clone(&calls),
-                ..capturer
-            };
+            let capturer = capturer(&calls);
             let frame = Arc::clone(&capturer.fallback);
             let selecting = Arc::new(AtomicBool::new(false));
             let flow = RegionFlow::new(
@@ -508,7 +512,7 @@ mod tests {
 
     #[test]
     fn toggle_opens_the_selector_and_a_second_toggle_cancels_it() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         assert!(h.selecting());
         h.flow.toggle(GAME);
@@ -517,7 +521,7 @@ mod tests {
 
     #[test]
     fn toggle_passes_the_captured_frame_to_the_selector() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         let selector = h.flow.selector_mut().unwrap();
         assert!(Arc::ptr_eq(selector.frame(), &h.frame));
@@ -525,11 +529,11 @@ mod tests {
 
     #[test]
     fn toggle_passes_the_captured_backdrop_to_the_selector() {
-        let capturer = FakeCapturer {
+        let shots = |calls: &Shared| FakeCapturer {
             backdrop: (3, 2),
-            ..capturer()
+            ..capturer(calls)
         };
-        let mut h = H::new(desktop(), capturer);
+        let mut h = H::new(desktop(), shots);
         h.toggle(GAME);
         let selector = h.flow.selector_mut().unwrap();
         assert_eq!(selector.backdrop_size(), Some([3, 2]));
@@ -537,7 +541,7 @@ mod tests {
 
     #[test]
     fn selection_captures_and_fills_the_card_with_the_translation() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         assert_eq!(h.card(), Some((RECT, pending())));
@@ -547,7 +551,7 @@ mod tests {
 
     #[test]
     fn selection_passes_the_source_text_to_the_card() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", "Talk to Merle"));
@@ -556,7 +560,7 @@ mod tests {
 
     #[test]
     fn selection_crops_the_same_frame_that_was_captured() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         let frame = Arc::as_ptr(&h.frame) as usize;
@@ -565,11 +569,11 @@ mod tests {
 
     #[test]
     fn frame_capture_failure_is_shown_at_the_cursor_without_opening_the_selector() {
-        let capturer = FakeCapturer {
+        let shots = |calls: &Shared| FakeCapturer {
             frames: VecDeque::from([Err(boom())]).into(),
-            ..capturer()
+            ..capturer(calls)
         };
-        let mut h = H::new(desktop(), capturer);
+        let mut h = H::new(desktop(), shots);
         h.toggle(GAME);
         let at_cursor = (CURSOR.0, CURSOR.1, 0, 0);
         assert_eq!(h.card(), Some((at_cursor, error(&capture_failed(&boom())))));
@@ -583,7 +587,7 @@ mod tests {
             crop: Crop::Real,
             ..desktop()
         };
-        let mut h = H::new(desktop, capturer());
+        let mut h = H::new(desktop, capturer);
         h.toggle(GAME);
         let outside = (0, 0, 50, 50);
         h.pick(outside);
@@ -598,7 +602,7 @@ mod tests {
             crop: Crop::Fail(boom()),
             ..desktop()
         };
-        let mut h = H::new(desktop, capturer());
+        let mut h = H::new(desktop, capturer);
         h.toggle(GAME);
         h.pick(RECT);
         assert_eq!(h.card(), Some((RECT, error(&capture_failed(&boom())))));
@@ -607,7 +611,7 @@ mod tests {
 
     #[test]
     fn pipeline_errors_are_described_on_the_card() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         let message = describe_error(&RegionError::Ocr(OcrUnavailable("no pack".into())));
@@ -618,7 +622,7 @@ mod tests {
 
     #[test]
     fn stale_result_is_dropped_after_a_new_selection() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.toggle(GAME);
@@ -632,7 +636,7 @@ mod tests {
 
     #[test]
     fn stale_error_is_dropped_after_a_new_selection() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.toggle(GAME);
@@ -646,7 +650,7 @@ mod tests {
 
     #[test]
     fn selection_moves_foreground_before_showing_the_pending_card() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         assert_eq!(h.calls.borrow().order, ["foreground 0x1234", "run 1"]);
@@ -655,7 +659,7 @@ mod tests {
 
     #[test]
     fn toggle_hides_a_previous_card() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -665,7 +669,7 @@ mod tests {
 
     #[test]
     fn esc_style_cancel_restores_the_games_foreground() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.flow.on_selector(SelectorAction::Cancelled);
         assert_eq!(h.calls.borrow().foreground, [GAME]);
@@ -674,7 +678,7 @@ mod tests {
 
     #[test]
     fn hotkey_cancel_restores_the_games_foreground() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.flow.toggle(GAME);
         assert_eq!(h.calls.borrow().foreground, [GAME]);
@@ -682,7 +686,7 @@ mod tests {
 
     #[test]
     fn toggle_with_hwnd_zero_is_ignored_once_the_selector_is_already_closed() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.flow.toggle(0);
         assert!(!h.selecting());
         assert!(h.calls.borrow().captured.is_empty());
@@ -690,7 +694,7 @@ mod tests {
 
     #[test]
     fn set_alpha_forwards_to_the_card() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.flow.set_alpha(0.5);
@@ -707,7 +711,7 @@ mod tests {
                 game: Some(FOUND),
                 ..desktop()
             },
-            capturer(),
+            capturer,
         );
         h.flow.start_from_button();
         h.deliver();
@@ -722,7 +726,7 @@ mod tests {
                 game: None,
                 ..desktop()
             },
-            capturer(),
+            capturer,
         );
         h.flow.start_from_button();
         assert!(!h.selecting());
@@ -735,7 +739,7 @@ mod tests {
 
     #[test]
     fn start_from_button_cancels_an_already_open_selector() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.flow.start_from_button();
         h.deliver();
         assert!(h.selecting());
@@ -746,7 +750,7 @@ mod tests {
 
     #[test]
     fn selection_leaves_the_box_on_the_selected_rect() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -756,11 +760,11 @@ mod tests {
     #[test]
     fn adjusting_the_box_recaptures_the_live_game_and_retranslates() {
         let (first, live) = (frame(), frame());
-        let capturer = FakeCapturer {
+        let shots = |calls: &Shared| FakeCapturer {
             frames: VecDeque::from([Ok(Arc::clone(&first)), Ok(Arc::clone(&live))]).into(),
-            ..capturer()
+            ..capturer(calls)
         };
-        let mut h = H::new(desktop(), capturer);
+        let mut h = H::new(desktop(), shots);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文300", ""));
@@ -794,7 +798,7 @@ mod tests {
 
     #[test]
     fn closing_the_card_hides_the_box() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -805,7 +809,7 @@ mod tests {
 
     #[test]
     fn a_new_selection_hides_the_previous_box() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -816,7 +820,7 @@ mod tests {
 
     #[test]
     fn each_request_gets_its_own_cancel_handle() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -826,7 +830,7 @@ mod tests {
 
     #[test]
     fn adjusting_the_box_cancels_the_previous_request() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -838,7 +842,7 @@ mod tests {
 
     #[test]
     fn a_new_selection_cancels_the_previous_request() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -848,7 +852,7 @@ mod tests {
 
     #[test]
     fn closing_the_card_cancels_the_request() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.flow.on_card(CardAction::Close);
@@ -883,7 +887,7 @@ mod tests {
             crop: Crop::FailAt((0, 0, 50, 50), boom()),
             ..desktop()
         };
-        late_results_leave_the_error_card(H::new(desktop, capturer()), |h| {
+        late_results_leave_the_error_card(H::new(desktop, capturer), |h| {
             h.flow.on_box_changed((0, 0, 50, 50));
             h.deliver();
         });
@@ -900,22 +904,22 @@ mod tests {
             game: None,
             ..desktop()
         };
-        late_results_leave_the_error_card(H::new(desktop, capturer()), |h| {
+        late_results_leave_the_error_card(H::new(desktop, capturer), |h| {
             h.flow.start_from_button();
         });
     }
 
     fn failing_second_capture() -> H {
-        let capturer = FakeCapturer {
+        let shots = |calls: &Shared| FakeCapturer {
             frames: VecDeque::from([Ok(frame()), Err(boom())]).into(),
-            ..capturer()
+            ..capturer(calls)
         };
-        H::new(desktop(), capturer)
+        H::new(desktop(), shots)
     }
 
     #[test]
     fn toggle_waits_for_the_capture_before_opening_the_selector() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.flow.toggle(GAME);
         assert!(h.flow.selector_mut().is_none());
         assert!(h.selecting());
@@ -926,7 +930,7 @@ mod tests {
 
     #[test]
     fn a_second_toggle_while_capturing_cancels_without_touching_the_foreground() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.flow.toggle(GAME);
         h.flow.toggle(GAME);
         h.deliver();
@@ -937,7 +941,7 @@ mod tests {
 
     #[test]
     fn adjusting_the_box_shows_the_pending_card_before_the_capture_returns() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.finish_last(result("譯文", ""));
@@ -951,7 +955,7 @@ mod tests {
 
     #[test]
     fn only_the_latest_recapture_is_sent() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         let (a, b) = ((0, 0, 50, 50), (10, 10, 60, 60));
@@ -966,7 +970,7 @@ mod tests {
 
     #[test]
     fn closing_the_card_while_recapturing_drops_the_late_capture() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.flow.on_box_changed((0, 0, 50, 50));
@@ -979,7 +983,7 @@ mod tests {
 
     #[test]
     fn a_new_selection_drops_a_pending_recapture() {
-        let mut h = H::new(desktop(), capturer());
+        let mut h = H::new(desktop(), capturer);
         h.toggle(GAME);
         h.pick(RECT);
         h.flow.on_box_changed((0, 0, 50, 50));
@@ -988,5 +992,36 @@ mod tests {
         assert!(h.flow.selector_mut().is_none());
         h.deliver();
         assert!(h.flow.selector_mut().is_some());
+    }
+
+    #[test]
+    fn the_button_during_the_capture_cancels_without_touching_the_foreground() {
+        let mut h = H::new(desktop(), capturer);
+        h.flow.start_from_button();
+        h.flow.start_from_button();
+        h.deliver();
+        assert!(h.flow.selector_mut().is_none());
+        assert!(!h.selecting());
+        assert!(h.calls.borrow().foreground.is_empty());
+    }
+
+    #[test]
+    fn a_box_change_while_capturing_for_the_selector_keeps_the_wait() {
+        let mut h = H::new(desktop(), capturer);
+        h.flow.toggle(GAME);
+        h.flow.on_box_changed(RECT);
+        h.deliver();
+        assert!(h.flow.selector_mut().is_some());
+        assert!(h.selecting());
+    }
+
+    #[test]
+    fn closing_a_card_while_capturing_for_the_selector_keeps_the_wait() {
+        let mut h = H::new(desktop(), capturer);
+        h.flow.toggle(GAME);
+        h.flow.on_card(CardAction::Close);
+        h.deliver();
+        assert!(h.flow.selector_mut().is_some());
+        assert!(h.selecting());
     }
 }

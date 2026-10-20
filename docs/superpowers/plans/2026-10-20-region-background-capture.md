@@ -269,7 +269,7 @@ fn a_panicking_capture_becomes_a_failure() {
   - 用 `std::thread::Builder::new().name("region-capture".into()).spawn(...)` 開執行緒；
   - 執行緒內呼叫 `guarded(id, || shoot(hwnd, kind, capture::capture_window, monitor_rect_at, capture::capture_screen))`；
   - 結果包成 `UiEvent::RegionCaptured` 投遞。
-- spawn 失敗時，記 log `[region] cannot spawn capture thread: {e}`，並直接投遞 `Err(CaptureError::Failed(…))`，避免流程卡在等待中。
+- spawn 失敗時，記 log `[region] cannot spawn capture thread (id={id}, hwnd={hwnd:#x}): {e}`，並直接投遞 `Err(CaptureError::Failed(…))`，避免流程卡在等待中。
 - `guarded` 用 `catch_unwind(AssertUnwindSafe(f))`，訊息沿用現有的 `panic_message`。
 - `WinRegionDesktop` 刪掉三個擷取方法。
 - `main.rs` 改成 `RegionFlow::new(Box::new(WinRegionDesktop), region_capturer(ui.clone()), region_runner(..), ..)`。

@@ -305,12 +305,10 @@ mod tests {
     }
 
     fn harness(ppp: f32) -> Harness<'static, State> {
+        let frame = frame();
+        let images = super::images(&frame, &RgbImage::new(800, 600));
         let state = State {
-            selector: {
-                let frame = frame();
-                let images = super::images(&frame, &RgbImage::new(800, 600));
-                Selector::new(MONITOR, frame, images)
-            },
+            selector: Selector::new(MONITOR, frame, images),
             actions: Vec::new(),
             area: egui::Rect::NOTHING,
         };
