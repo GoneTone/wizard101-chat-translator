@@ -647,6 +647,20 @@ fn stop_or_game_exit_ends_the_readiness_wait_early() {
 }
 
 #[test]
+fn stop_before_connecting_writes_nothing() {
+    let g = Game::new();
+    let mut r = g.reader(114);
+    r.stop.cancel();
+    let err = r.read_new().unwrap_err();
+    assert!(
+        matches!(&err, GameNotRunning::Missing(msg) if msg.starts_with("failed to attach")),
+        "{err:?}"
+    );
+    assert!(g.mem.ops().is_empty());
+    assert!(!g.state_file_exists());
+}
+
+#[test]
 fn other_attach_failure_stays_game_not_running() {
     capture_logs();
     let mut r = WizChatReader::new(
@@ -1523,6 +1537,24 @@ fn missing_input_container_is_rechecked_after_the_window() {
     );
     g.advance(INPUT_RECHECK);
     assert!(r.input_open());
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
+}
+
+#[test]
+fn failing_input_container_searches_are_throttled_too() {
+    let g = Game::new();
+    let mut r = g.connected(407);
+    put_children(&g.mem, ROOT, &[OTHER]);
+    assert!(!r.input_open());
+    let scans = g.spy.read_count(EXPORT);
+    assert!(!r.input_open());
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.advance(INPUT_RECHECK);
+    assert!(!r.input_open());
     assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
 

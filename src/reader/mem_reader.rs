@@ -521,7 +521,7 @@ impl WizChatReader {
         })
     }
 
-    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取，找不到時 `INPUT_RECHECK` 內直接回 None。
+    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取，找不到或搜尋失敗後 `INPUT_RECHECK` 內直接回 None。
     fn edit_container(&mut self) -> Result<Option<Window>, MemError> {
         if self.edit_node.is_none() {
             let now = (self.clock.now)();
@@ -531,9 +531,13 @@ impl WizChatReader {
             {
                 return Ok(None);
             }
-            let found = find_by_name(self.conn().mem.as_ref(), self.root()?, INPUT_CONTAINER)?;
-            self.edit_node = found.first().copied();
+            let found = self
+                .root()
+                .and_then(|root| find_by_name(self.conn().mem.as_ref(), root, INPUT_CONTAINER));
+            self.edit_node = found.as_ref().ok().and_then(|f| f.first().copied());
+            // 讀取錯誤也算沒找到：持續讀壞時同樣不必每次輪詢都走整棵樹
             self.edit_missing_at = self.edit_node.is_none().then_some(now);
+            found?;
         }
         Ok(self.edit_node)
     }
@@ -657,6 +661,9 @@ impl WizChatReader {
 
     /// 每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
     fn attach(&mut self) -> Result<Duration, AttachError> {
+        if self.stop.is_cancelled() {
+            return Err(AttachError::Cancelled);
+        }
         let conn = self.attached.as_mut().expect("process is open");
         conn.cave = Some(AutobotCave::install(conn.mem.as_ref())?);
         self.save_hook_state();
