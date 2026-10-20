@@ -6,7 +6,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 
 use crate::input::hotkeys::MASK_VK;
-use crate::input::keys::{Code, scan_code_to_vk};
+use crate::input::keys::{ALT_GR, Code, scan_code_to_vk};
 use crate::logs::log;
 
 /// 送出按鍵的介面；測試換成假的，不可真的送鍵。
@@ -24,7 +24,6 @@ pub trait Injector: Send + Sync {
 /// 以 `SendInput` 實際送鍵。
 pub struct SendInputInjector;
 
-const ALT_GR: Code = 541;
 const VK_CONTROL: u16 = 0x11;
 const VK_MENU: u16 = 0x12;
 

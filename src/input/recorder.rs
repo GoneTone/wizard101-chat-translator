@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
 
 use crate::input::dispatcher::{Blocking, HandlerId, KeyEvent, Pressed, RawKey, SharedDispatcher};
-use crate::input::hook::{self, ALT_GR_SCAN, VK_LCONTROL};
-use crate::input::keys::{Code, event_name, hotkey_name};
+use crate::input::hook;
+use crate::input::keys::{ALT_GR, Code, VK_LCONTROL, event_name, hotkey_name};
 use crate::logs::log;
 use crate::util::lock;
 
@@ -111,7 +111,7 @@ impl Recorder {
         if SHIFT_VKS.contains(&raw.vk) {
             self.shift = ev.down;
         }
-        if ev.code == ALT_GR_SCAN as Code && raw.vk == VK_LCONTROL {
+        if ev.code == ALT_GR && raw.vk == VK_LCONTROL {
             self.alt_gr = ev.down;
         }
     }

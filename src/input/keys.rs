@@ -21,6 +21,10 @@ use crate::util::lock;
 pub type Code = i32;
 /// 一顆鍵的所有替代 code，順序與 `key_to_scan_codes` 相同。
 pub type Key = Vec<Code>;
+/// Alt Gr 的 code：Windows 以 scan code 541 的左 Ctrl 送出。
+pub const ALT_GR: Code = 541;
+/// 左 Ctrl 的虛擬鍵。
+pub const VK_LCONTROL: u32 = 0xA2;
 
 #[derive(Deserialize)]
 struct Tables {
@@ -268,7 +272,7 @@ fn build_names(
             from_name
                 .entry("alt gr".to_string())
                 .or_default()
-                .push((1, (541, 162, extended, m)));
+                .push((1, (ALT_GR as u32, VK_LCONTROL, extended, m)));
         }
     }
     let preference = |m: usize| match modifiers[m].as_slice() {
