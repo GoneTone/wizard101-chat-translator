@@ -40,6 +40,7 @@ static NON_LATIN_LETTER: LazyLock<Regex> =
 static LATIN_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"[A-Za-z][A-Za-z0-9 .,'’\-]*"));
 // 任何文字的字母；空白、數字與標點不算
 static LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[[\p{L}\p{N}]--[\p{Nd}_]]"));
+static FIRST_LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"\p{L}"));
 static NON_WORD: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"[^{WORD}]+|_+")));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| re(&format!("{SPACE}+")));
 static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
@@ -132,9 +133,11 @@ pub fn restore_sender(source: &str, translated: &str) -> String {
     format!("{prefix} {}", SENDER_RE.replace(translated, ""))
 }
 
-/// 這個語言是否以拉丁字母書寫（看語言名稱本身的文字）。
+/// 這個語言是否以拉丁字母書寫：看語言名稱第一個字母的文字，`中文 (Chinese)` 不算拉丁。
 pub fn uses_latin_script(language: &str) -> bool {
-    LATIN.is_match(language)
+    FIRST_LETTER
+        .find(language)
+        .is_some_and(|letter| !NON_LATIN_LETTER.is_match(letter.as_str()))
 }
 
 /// 比對譯文片段與原文用的正規化：空白壓成一格、忽略大小寫。

@@ -5,6 +5,7 @@ use crate::common;
 use serde_json::Value;
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::translation::postprocess as pp;
+use wizard101_chat_translator::ui::settings::language::COMMON_LANGUAGES;
 
 fn s(v: &Value) -> &str {
     v.as_str().unwrap()
@@ -76,6 +77,18 @@ fn uses_latin_script_matches_python() {
             c["output"].as_bool().unwrap(),
             "{}",
             c["input"]
+        );
+    }
+}
+
+#[test]
+fn built_in_languages_keep_their_script() {
+    for language in COMMON_LANGUAGES {
+        let had_ascii_letter = language.chars().any(|c| c.is_ascii_alphabetic());
+        assert_eq!(
+            pp::uses_latin_script(language),
+            had_ascii_letter,
+            "{language}"
         );
     }
 }
