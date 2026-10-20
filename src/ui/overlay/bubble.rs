@@ -1,8 +1,10 @@
-//! overlay 縮小後的浮動泡泡（由縮成泡泡大小的根視窗來畫）：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景決定自動展開。
+//! overlay 縮小後的浮動泡泡（由縮成泡泡大小的根視窗來畫）：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景與攔下工作列按鈕的最小化來自動展開。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, FontId, Image, Pos2, Sense, Shape, Stroke, Vec2};
+use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MINIMIZE, WM_SYSCOMMAND};
 
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
@@ -54,6 +56,51 @@ pub fn should_auto_expand(
     pointer_over: bool,
 ) -> bool {
     bubble_hwnd != 0 && foreground == bubble_hwnd && previous != bubble_hwnd && !pointer_over
+}
+
+/// 泡泡模式下由視窗程序攔下的最小化：視窗程序寫、App 每幀取走。
+///
+/// 泡泡已是作用中視窗時點工作列按鈕，Windows 送的是 `SC_MINIMIZE` 而不會切換前景，[`Bubble::watch`] 看不到。
+pub struct MinimizeGuard {
+    ctx: egui::Context,
+    active: AtomicBool,
+    requested: AtomicBool,
+}
+
+impl MinimizeGuard {
+    /// `ctx` 用來在攔下時喚醒重繪（泡泡平常只每 2 秒輪詢）。
+    pub fn new(ctx: &egui::Context) -> Self {
+        Self {
+            ctx: ctx.clone(),
+            active: AtomicBool::new(false),
+            requested: AtomicBool::new(false),
+        }
+    }
+
+    /// 進出泡泡模式；離開時一併丟掉還沒取走的要求。
+    pub fn set_active(&self, active: bool) {
+        self.active.store(active, Ordering::Relaxed);
+        if !active {
+            self.requested.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// 視窗程序收到的訊息：泡泡模式下的最小化要吞掉（回 `true`），改成要求展開並喚醒重繪。
+    pub fn intercept(&self, msg: u32, wparam: usize) -> bool {
+        // wParam 低 4 位元是系統內部用的
+        let minimize = msg == WM_SYSCOMMAND && wparam & 0xFFF0 == SC_MINIMIZE as usize;
+        if !minimize || !self.active.load(Ordering::Relaxed) {
+            return false;
+        }
+        self.requested.store(true, Ordering::Relaxed);
+        self.ctx.request_repaint();
+        true
+    }
+
+    /// 取走攔下的展開要求。
+    pub fn take_request(&self) -> bool {
+        self.requested.swap(false, Ordering::Relaxed)
+    }
 }
 
 /// 未讀數徽章的文字：0 不顯示，超過 99 顯示 `99+`。
@@ -237,6 +284,7 @@ mod tests {
     use crate::ui::fonts_egui;
     use crate::ui::overlay::frame::tests::FakeShell;
     use eframe::egui::FontFamily;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SC_RESTORE;
 
     const OVERLAY: Rect = (100, 200, 640, 420);
 
@@ -290,6 +338,41 @@ mod tests {
         let mut bubble = Bubble::new(101, 202, t0);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
         assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
+    }
+
+    #[test]
+    fn minimize_is_swallowed_only_in_bubble_mode() {
+        let guard = MinimizeGuard::new(&egui::Context::default());
+        let minimize = SC_MINIMIZE as usize;
+        assert!(
+            !guard.intercept(WM_SYSCOMMAND, minimize),
+            "expanded: Windows minimizes"
+        );
+        guard.set_active(true);
+        assert!(!guard.intercept(WM_SYSCOMMAND, SC_RESTORE as usize));
+        assert!(!guard.intercept(WM_SYSCOMMAND + 1, minimize));
+        assert!(!guard.take_request());
+        assert!(guard.intercept(WM_SYSCOMMAND, minimize | 0x2));
+        assert!(guard.take_request());
+        assert!(!guard.take_request(), "taken once");
+        assert!(guard.intercept(WM_SYSCOMMAND, minimize));
+        guard.set_active(false);
+        assert!(!guard.take_request(), "leaving bubble mode drops it");
+        assert!(!guard.intercept(WM_SYSCOMMAND, minimize));
+    }
+
+    #[test]
+    fn intercepted_minimize_wakes_the_ui() {
+        let ctx = egui::Context::default();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&hits);
+        ctx.set_request_repaint_callback(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let guard = MinimizeGuard::new(&ctx);
+        guard.set_active(true);
+        assert!(guard.intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize));
+        assert!(hits.load(Ordering::SeqCst) > 0);
     }
 
     #[test]
