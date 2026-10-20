@@ -104,5 +104,5 @@
 
 - **CI 上的鍵盤名稱 fixture**（需要在 CI 上驗證）：`keyboard_names` 等 fixture 與鍵盤配置有關，在本機（US 實體配置）產生。push 後若 CI 的 `keys_golden` 或 `input::keys::tests::the_name_table_has_no_name_python_does_not_know` 失敗，是配置差異，要調整 fixture。
 - **golden fixture 已凍結**：fixture 的匯出工具只存在於 git 歷史裡；有意改變行為時，要直接手動編輯 fixture JSON。
-- **鍵盤 hook 一個程序只能裝一次**（要改架構）：第一次失敗後無法重試，要重做 hook 執行緒與分派器的生命週期；Python 也沒有重試。
+- **已處理**（`97f26c9`）：鍵盤 hook 安裝失敗時，hook 執行緒自己重試（每 2 秒、共 3 次），全部失敗就在 overlay 錯誤橫幅加一行；仍偵測不到 Windows 因回呼逾時默默拿掉 hook 的情況。
 - **`scale_at` 不能注入**（需要實機才能驗證）：沒有單元測試證明用的是錨點所在的螢幕；列入混合 DPI 的實機驗收。
