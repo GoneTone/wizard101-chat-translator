@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VK_LCONTROL, VK_LSHIFT, VK_RSHIFT, VK_SHIFT,
+    GetKeyState, VK_CAPITAL, VK_LCONTROL, VK_LSHIFT, VK_NUMLOCK, VK_RSHIFT, VK_SCROLL, VK_SHIFT,
 };
 
 use crate::input::dispatcher::{Blocking, HandlerId, KeyEvent, Pressed, RawKey, SharedDispatcher};
@@ -14,9 +14,9 @@ use crate::util::lock;
 
 const SHIFT_VKS: [u32; 3] = [VK_SHIFT as u32, VK_LSHIFT as u32, VK_RSHIFT as u32];
 const LOCK_KEYS: [(i32, &str); 3] = [
-    (0x90, "num lock"),
-    (0x14, "caps lock"),
-    (0x91, "scroll lock"),
+    (VK_NUMLOCK as i32, "num lock"),
+    (VK_CAPITAL as i32, "caps lock"),
+    (VK_SCROLL as i32, "scroll lock"),
 ];
 
 /// 目前亮著的鎖定鍵名稱（影響按鍵名稱的算法）。

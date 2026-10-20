@@ -257,6 +257,8 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::MutexGuard;
 
+    use std::time::Instant;
+
     use super::*;
     use crate::input::dispatcher::{Blocking, KeyEvent};
     use crate::input::inject::encode_units;
@@ -300,7 +302,7 @@ mod tests {
         static FORCED: RefCell<Vec<isize>> = const { RefCell::new(Vec::new()) };
         static CLOCK: Cell<Duration> = const { Cell::new(Duration::ZERO) };
         static CLIP: RefCell<Result<Option<String>, String>> = const { RefCell::new(Ok(None)) };
-        static BASE: std::time::Instant = std::time::Instant::now();
+        static BASE: Instant = Instant::now();
     }
 
     /// 測試用的遊戲視窗；`setup` 讓它在前景。

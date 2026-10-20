@@ -10,8 +10,8 @@ use regex::Regex;
 use serde::Deserialize;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyNameTextW, GetKeyboardLayoutList, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX,
-    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VK_CONTROL, VK_LCONTROL,
-    VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT, VkKeyScanExW,
+    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VK_CAPITAL, VK_CONTROL,
+    VK_LCONTROL, VK_LWIN, VK_MENU, VK_NUMLOCK, VK_RWIN, VK_SCROLL, VK_SHIFT, VkKeyScanExW,
 };
 
 use crate::logs::log;
@@ -24,7 +24,6 @@ pub type Code = i32;
 pub type Key = Vec<Code>;
 /// Alt Gr 的 code：Windows 以 scan code 541 的左 Ctrl 送出。
 pub const ALT_GR: Code = 541;
-/// 左 Ctrl 的虛擬鍵。
 /// 左右合併的修飾鍵群組名稱，與查按鍵狀態用的通用虛擬鍵（任一按著即算按著）。
 pub const MODIFIER_GROUPS: [(&str, &[u16]); 4] = [
     ("ctrl", &[VK_CONTROL]),
@@ -352,9 +351,9 @@ impl Buffers {
         self.state[VK_SHIFT as usize] = if has("shift") { 0x80 } else { 0 };
         self.state[VK_CONTROL as usize] = if has("alt gr") { 0x80 } else { 0 };
         self.state[VK_MENU as usize] = if has("alt gr") { 0x80 } else { 0 };
-        self.state[0x14] = u8::from(has("caps lock"));
-        self.state[0x90] = u8::from(has("num lock"));
-        self.state[0x91] = u8::from(has("scroll lock"));
+        self.state[VK_CAPITAL as usize] = u8::from(has("caps lock"));
+        self.state[VK_NUMLOCK as usize] = u8::from(has("num lock"));
+        self.state[VK_SCROLL as usize] = u8::from(has("scroll lock"));
         let len = self.unicode.len() as i32;
         // SAFETY：緩衝區長度與傳入的 cchbuff 一致。
         let to_unicode = |b: &mut Self| unsafe {

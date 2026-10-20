@@ -10,21 +10,20 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_LCONTROL, VK_PACKET, VK_RMENU,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG,
     PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_LCONTROL, VK_RMENU};
-
 use crate::input::dispatcher::{KeyEvent, RawKey, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
 
-const VK_PACKET: u32 = 0xE7;
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(1);
 /// 掛 hook 的嘗試次數與失敗後的間隔：開機自動啟動時桌面可能還沒就緒。
 const INSTALL_ATTEMPTS: u32 = 3;
@@ -267,7 +266,7 @@ fn run_deferred() {
 pub fn to_event(vk: u32, scan: u32, flags: u32, msg: u32) -> Option<KeyEvent> {
     // 有時會多出一個帶 0x20 的注入 alt down（`_winkeyboard` 的 fake_alt）
     let fake_alt = LLKHF_INJECTED | 0x20;
-    if vk == VK_PACKET || flags & fake_alt == fake_alt {
+    if vk == u32::from(VK_PACKET) || flags & fake_alt == fake_alt {
         return None;
     }
     let down = match msg {
