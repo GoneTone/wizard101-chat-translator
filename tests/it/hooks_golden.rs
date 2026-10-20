@@ -3,19 +3,16 @@ use crate::common;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::fake_game::place;
+use common::fake_game::{BASE, RING_SIZE, place_addline, place_cave, place_root_window};
 use common::log_capture::{capture_logs, log_lines_with};
 use serde_json::Value;
 use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
 use wizard101_chat_translator::reader::hook_state;
 use wizard101_chat_translator::reader::hooks::{
-    AUTOBOT_PATTERN, AutobotCave, MODULE, ROOT_WINDOW_PATTERN, RootWindowHook, STUB_EXIT_WAIT,
+    AutobotCave, MODULE, RootWindowHook, STUB_EXIT_WAIT,
 };
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp};
 use wizard101_chat_translator::util;
-
-const BASE: u64 = 0x1_4000_0000;
-const RING_SIZE: usize = 0x80040;
 
 fn hex_of(v: &Value) -> Vec<u8> {
     util::unhex(v.as_str().unwrap()).unwrap()
@@ -34,9 +31,9 @@ struct Game {
 fn game(cave: u64, root_jump: u64, addline_jump: u64) -> Game {
     let mem = FakeMemory::new();
     mem.add_module(MODULE, BASE);
-    let cave_bytes = place(&mem, cave, AUTOBOT_PATTERN, 0x1100);
-    let root_bytes = place(&mem, root_jump, ROOT_WINDOW_PATTERN, 0x40);
-    let addline_bytes = place(&mem, addline_jump, chat_hook::PATTERN, 0x80);
+    let cave_bytes = place_cave(&mem, cave);
+    let root_bytes = place_root_window(&mem, root_jump);
+    let addline_bytes = place_addline(&mem, addline_jump);
     Game {
         mem,
         cave,

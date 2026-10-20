@@ -132,6 +132,10 @@ impl VirtualClock {
         self.base + *self.offset.lock().unwrap()
     }
 
+    pub fn advance(&self, d: Duration) {
+        *self.offset.lock().unwrap() += d;
+    }
+
     pub fn elapsed(&self) -> Duration {
         *self.offset.lock().unwrap()
     }
@@ -141,7 +145,7 @@ impl VirtualClock {
         Clock {
             now: Box::new(move || now.now()),
             sleep: Box::new(move |d| {
-                *sleep.offset.lock().unwrap() += d;
+                sleep.advance(d);
                 if !real.is_zero() {
                     std::thread::sleep(real);
                 }

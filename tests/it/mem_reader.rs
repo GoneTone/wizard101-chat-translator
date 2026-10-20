@@ -5,18 +5,20 @@ use crate::common;
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use common::fake_game::{place, put_button, put_children, put_name, put_slot, slot_addr};
+use common::fake_game::{
+    BASE, RING_SIZE, place_addline, place_cave, place_root_window, put_button, put_children,
+    put_name, put_slot, slot_addr,
+};
 use common::log_capture::{capture_logs, log_lines_with};
+use common::reader_fixture::VirtualClock;
 use common::spy_memory::SpyMemory;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
-use wizard101_chat_translator::reader::chat_hook::{self, SLOTS};
+use wizard101_chat_translator::reader::chat_hook::SLOTS;
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
-use wizard101_chat_translator::reader::hooks::{
-    AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN, STUB_EXIT_WAIT,
-};
+use wizard101_chat_translator::reader::hooks::{MODULE, STUB_EXIT_WAIT};
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
     GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, INPUT_RECHECK,
@@ -29,14 +31,12 @@ use wizard101_chat_translator::reader::process::{
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::util::{self, Clock};
 
-const BASE: u64 = 0x1_4000_0000;
 const CAVE: u64 = 0x1_4000_1000;
 const ROOT_JUMP: u64 = 0x1_4080_0000;
 const ADDLINE_JUMP: u64 = 0x1_4120_0000;
 /// FakeMemory 的第一次配置（root window export）與下一次（環形緩衝）。
 const EXPORT: u64 = 0x2000_0000;
 const RING: u64 = 0x2001_0000;
-const RING_SIZE: usize = 0x80040;
 const ROOT: u64 = 0x3000_0000;
 const BOX: u64 = 0x3040_0000;
 const OTHER: u64 = 0x3080_0000;
@@ -135,8 +135,8 @@ impl Drop for IconGuard {
 struct Game {
     mem: Arc<FakeMemory>,
     dir: tempfile::TempDir,
-    /// 假時鐘從建立起經過的時間；sleep 只推進它。
-    elapsed: Arc<Mutex<Duration>>,
+    /// 假時鐘；sleep 只推進它。
+    clock: VirtualClock,
     /// 等待中 root window hook 是否會「被執行」（把 root 位址寫進 export）。
     fires: Arc<AtomicBool>,
     /// 交給 reader 的記憶體：與 `mem` 同一份，並記錄／弄壞 export 讀取與寫入。
@@ -168,14 +168,14 @@ impl Game {
         capture_logs();
         let mem = FakeMemory::new();
         mem.add_module(MODULE, BASE);
-        let cave_bytes = place(&mem, CAVE, AUTOBOT_PATTERN, 0x1100);
+        let cave_bytes = place_cave(&mem, CAVE);
         let root_bytes = if root_pattern {
-            place(&mem, ROOT_JUMP, ROOT_WINDOW_PATTERN, 0x40)
+            place_root_window(&mem, ROOT_JUMP)
         } else {
             Vec::new()
         };
         let addline_bytes = if addline_pattern {
-            place(&mem, ADDLINE_JUMP, chat_hook::PATTERN, 0x80)
+            place_addline(&mem, ADDLINE_JUMP)
         } else {
             Vec::new()
         };
@@ -188,7 +188,7 @@ impl Game {
             spy: SpyMemory::over(mem.clone()),
             mem,
             dir: tempfile::tempdir().unwrap(),
-            elapsed: Arc::default(),
+            clock: VirtualClock::new(),
             fires: Arc::new(AtomicBool::new(true)),
             state_at_wait: Arc::default(),
             opened: Arc::default(),
@@ -210,10 +210,9 @@ impl Game {
         );
         r.slot = slot;
         r.state_dir = self.dir.path().to_owned();
-        let start = Instant::now();
-        let elapsed = self.elapsed.clone();
+        let clock = self.clock.clone();
         r.clock = Clock {
-            now: Box::new(move || start + *elapsed.lock().unwrap()),
+            now: Box::new(move || clock.now()),
             sleep: self.on_sleep(),
         };
         r
@@ -221,15 +220,15 @@ impl Game {
 
     /// 假 sleep：推進假時鐘；root window hook 會被執行時把 root 位址寫進目前的 export。
     fn on_sleep(&self) -> Box<dyn Fn(Duration) + Send + Sync> {
-        let (mem, elapsed, fires, seen, dir) = (
+        let (mem, clock, fires, seen, dir) = (
             self.mem.clone(),
-            self.elapsed.clone(),
+            self.clock.clone(),
             self.fires.clone(),
             self.state_at_wait.clone(),
             self.dir.path().to_owned(),
         );
         Box::new(move |d| {
-            *elapsed.lock().unwrap() += d;
+            clock.advance(d);
             let export = mem.ops().iter().rev().find_map(|op| match op {
                 MemOp::Alloc { addr, size: 8 } => Some(*addr),
                 _ => None,
@@ -251,10 +250,6 @@ impl Game {
         assert_eq!(r.read_new().unwrap(), vec![]);
         assert!(r.anchored());
         r
-    }
-
-    fn advance(&self, d: Duration) {
-        *self.elapsed.lock().unwrap() += d;
     }
 
     /// 最近一次配置的環形緩衝位址。
@@ -447,7 +442,7 @@ fn connect_waits_through_transient_read_errors() {
     let g = Game::new();
     g.spy.fail_reads_at(EXPORT, 3);
     let _r = g.connected(102);
-    assert!(*g.elapsed.lock().unwrap() >= HOOK_READY_POLL);
+    assert!(g.clock.elapsed() >= HOOK_READY_POLL);
 }
 
 #[test]
@@ -505,7 +500,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
     );
 
     let g = Game::new();
-    place(&g.mem, ROOT_JUMP + 0x1000, ROOT_WINDOW_PATTERN, 0x40);
+    place_root_window(&g.mem, ROOT_JUMP + 0x1000);
     let mut r = g.reader(103);
     let err = r.read_new().unwrap_err();
     assert!(
@@ -592,7 +587,7 @@ fn readiness_timeout_is_a_hook_not_firing_mismatch() {
             "hook does not match this game build: root window hook did not fire within 15s".into()
         )
     );
-    let waited = *g.elapsed.lock().unwrap();
+    let waited = g.clock.elapsed();
     assert!(waited >= HOOK_READY_TIMEOUT, "{waited:?}");
     assert!(waited <= HOOK_READY_TIMEOUT + HOOK_READY_POLL + Duration::from_millis(500));
     let ops = g.mem.ops();
@@ -636,7 +631,7 @@ fn stop_or_game_exit_ends_the_readiness_wait_early() {
             matches!(&err, GameNotRunning::Missing(msg) if msg.starts_with("failed to attach")),
             "{err:?}"
         );
-        let waited = *g.elapsed.lock().unwrap();
+        let waited = g.clock.elapsed();
         assert!(waited <= HOOK_READY_POLL + STUB_EXIT_WAIT, "{waited:?}");
         if stopping {
             let ops = g.mem.ops();
@@ -1156,7 +1151,7 @@ fn chatbox_moving_clears_foreign_button_and_input_caches() {
     put_edit(&g, OTHER, EDIT + NODE_GAP, true);
     put_buttons_under(&g, OTHER, &[("GroupFilterButton", "Party")]);
     g.mem.set_bytes(OTHER + CUR_TAB_OFFSET, &1i32.to_le_bytes());
-    g.advance(Duration::from_secs(6));
+    g.clock.advance(Duration::from_secs(6));
     g.put(2, &say("Amy", "again"), 0, OTHER);
     assert_eq!(texts(&mut r), [(vec![0], "[Amy] again".to_owned())]);
     assert_eq!(
@@ -1188,11 +1183,11 @@ fn foreign_address_is_rechecked_after_the_window() {
     g.put(1, &line, 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
     g.set_chatbox(Some(OTHER));
-    g.advance(Duration::from_millis(4900));
+    g.clock.advance(Duration::from_millis(4900));
     g.put(2, &line, 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
     assert_eq!(finds() - start, 1, "no re-look inside the window");
-    g.advance(Duration::from_millis(200));
+    g.clock.advance(Duration::from_millis(200));
     g.put(3, &line, 0, OTHER);
     assert_eq!(texts(&mut r), [(vec![0], "[Amy] hi".to_owned())]);
     assert_eq!(finds() - start, 2);
@@ -1535,7 +1530,7 @@ fn missing_input_container_is_rechecked_after_the_window() {
         scans,
         "no re-search inside the window"
     );
-    g.advance(INPUT_RECHECK);
+    g.clock.advance(INPUT_RECHECK);
     assert!(r.input_open());
     assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
@@ -1553,7 +1548,7 @@ fn failing_input_container_searches_are_throttled_too() {
         scans,
         "no re-search inside the window"
     );
-    g.advance(INPUT_RECHECK);
+    g.clock.advance(INPUT_RECHECK);
     assert!(!r.input_open());
     assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
