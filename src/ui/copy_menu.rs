@@ -140,6 +140,11 @@ impl CopyMenu {
         }
     }
 
+    /// 選單是否開著。
+    pub fn is_open(&self) -> bool {
+        self.at.is_some()
+    }
+
     /// `p` 是否落在選單上（選單上的按放不算點到底下的內容）。
     pub fn contains(&self, p: Pos2) -> bool {
         self.rect.is_some_and(|r| r.contains(p))
