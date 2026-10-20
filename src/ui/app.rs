@@ -739,7 +739,7 @@ impl eframe::App for App {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
     use std::sync::atomic::AtomicBool;
 
@@ -1488,6 +1488,8 @@ mod tests {
 
     thread_local! {
         static RAISED: RefCell<Vec<isize>> = const { RefCell::new(Vec::new()) };
+        /// 輸入框 harness 回報的「本程式正在逐字鍵入」。
+        static TYPING: Cell<bool> = const { Cell::new(false) };
     }
 
     struct Wired {
@@ -1532,6 +1534,7 @@ mod tests {
                 },
                 work_area_at: |_, _| (0, 0, 1920, 1040),
                 trigger_held: || false,
+                typing: || TYPING.with(Cell::get),
             });
             app
         });
@@ -1568,6 +1571,26 @@ mod tests {
         poster.post(UiEvent::GameInputClosed { hwnd: 0xA });
         harness.step();
         assert!(!input_box(&harness).is_open());
+    }
+
+    #[test]
+    fn a_chat_opened_by_our_own_paste_does_not_pop_the_input_box() {
+        let (poster, inbox) = channel();
+        let (mut harness, wired) = input_harness(inbox);
+        wired
+            .settings
+            .write()
+            .unwrap()
+            .insert("auto_show_input".into(), true.into());
+        TYPING.with(|t| t.set(true));
+        poster.post(UiEvent::GameInputOpened {
+            hwnd: 0xA,
+            anchor: None,
+        });
+        harness.step();
+        TYPING.with(|t| t.set(false));
+        assert!(!input_box(&harness).is_open());
+        assert_eq!(input_box(&harness).target_hwnd(), 0xA);
     }
 
     #[test]
@@ -1659,6 +1682,7 @@ mod tests {
                 force_foreground: |_| true,
                 work_area_at: |_, _| (0, 0, 1920, 1040),
                 trigger_held: || false,
+                typing: || false,
             });
             app
         });

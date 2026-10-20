@@ -38,6 +38,8 @@ pub struct Desktop {
     pub work_area_at: fn(i32, i32) -> Rect,
     /// 熱鍵吞掉的觸發鍵是否還按著（見 [`crate::input::hotkeys::swallowed_key_held`]）。
     pub trigger_held: fn() -> bool,
+    /// 本程式是否正在逐字鍵入（見 [`crate::composer::paste::typing_in_progress`]）。
+    pub typing: fn() -> bool,
 }
 
 impl Desktop {
@@ -47,6 +49,7 @@ impl Desktop {
             force_foreground: win32::force_foreground,
             work_area_at: win32::work_area_at,
             trigger_held: crate::input::hotkeys::swallowed_key_held,
+            typing: crate::composer::paste::typing_in_progress,
         }
     }
 }
@@ -102,7 +105,14 @@ impl InputHost {
                 self.input.show();
             }
             UiEvent::GameInputOpened { hwnd, anchor } => {
-                let auto_show = self.auto_show();
+                // 多行貼上送出的 Enter 會讓遊戲開聊天框；這時呼出輸入框會搶走前景、中斷貼上
+                let typing = (self.desktop.typing)();
+                if typing {
+                    log(format!(
+                        "[input] auto-show skipped: game chat opened by our own typing (hwnd={hwnd:#x})"
+                    ));
+                }
+                let auto_show = self.auto_show() && !typing;
                 self.events.opened(hwnd, anchor, auto_show, &mut self.input);
             }
             UiEvent::GameInputClosed { hwnd } => {
