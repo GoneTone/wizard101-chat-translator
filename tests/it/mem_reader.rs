@@ -1100,18 +1100,20 @@ fn chatbox_lookup_failure_is_logged_and_drops_the_record() {
 }
 
 #[test]
-fn chatbox_moving_clears_foreign_and_button_caches() {
+fn chatbox_moving_clears_foreign_button_and_input_caches() {
     let g = Game::new();
     put_buttons(&g, &[("MainFilterButton", "Main")], &[]);
+    put_edit(&g, BOX, EDIT, false);
     let mut r = g.connected(214);
     g.mem.set_bytes(BOX + CUR_TAB_OFFSET, &0i32.to_le_bytes());
     assert!(r.tab_state().is_some());
+    assert!(!r.input_open());
     g.put(1, &say("Amy", "hi"), 0, OTHER);
     assert_eq!(r.read_new().unwrap(), vec![]);
-    // 主 ChatBox 重建在先前判定為外來的位址上，按鈕也換了一批
+    // 主 ChatBox 重建在先前判定為外來的位址上，按鈕與輸入框也換了一批
     put_children(&g.mem, ROOT, &[OTHER]);
     put_name(&g.mem, OTHER, "WizardChatBox");
-    put_children(&g.mem, OTHER, &[]);
+    put_edit(&g, OTHER, EDIT + NODE_GAP, true);
     put_buttons_under(&g, OTHER, &[("GroupFilterButton", "Party")]);
     g.mem.set_bytes(OTHER + CUR_TAB_OFFSET, &1i32.to_le_bytes());
     g.advance(Duration::from_secs(6));
@@ -1124,6 +1126,16 @@ fn chatbox_moving_clears_foreign_and_button_caches() {
             current: 1
         })
     );
+    assert!(r.input_open(), "the new chat box's input container is read");
+}
+
+/// 在 `chatbox` 底下放一個 chatEditContainer。
+fn put_edit(g: &Game, chatbox: u64, edit: u64, visible: bool) {
+    put_children(&g.mem, chatbox, &[edit]);
+    put_name(&g.mem, edit, INPUT_CONTAINER);
+    put_children(&g.mem, edit, &[]);
+    g.mem
+        .set_bytes(edit + 0x9C, &u32::from(visible).to_le_bytes());
 }
 
 #[test]

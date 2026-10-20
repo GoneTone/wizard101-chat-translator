@@ -397,7 +397,7 @@ impl WizChatReader {
         Some("foreign")
     }
 
-    /// 重找主 ChatBox；位址變了就清掉按鈕快取與外來集合（新物件可能重用外來的舊位址）。
+    /// 重找主 ChatBox；位址變了就清掉按鈕、輸入框快取與外來集合（新物件可能重用外來的舊位址）。
     fn refind_chatbox(&mut self) -> Result<(), MemError> {
         let found = find_by_name(self.conn().mem.as_ref(), self.root()?, CHATBOX_WINDOW)?
             .first()
@@ -406,6 +406,7 @@ impl WizChatReader {
             && found != self.chatbox
         {
             self.buttons = None;
+            self.edit_node = None;
             self.foreign.clear();
             log(format!(
                 "[reader] main chat box at {addr:#x} (slot={}, pid={})",
