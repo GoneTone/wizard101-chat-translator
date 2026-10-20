@@ -42,7 +42,7 @@ static LATIN_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"[A-Za-z][A-Za-z0-9 .,'
 static LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[[\p{L}\p{N}]--[\p{Nd}_]]"));
 // 略過修飾字母：`ʻŌlelo` 的 ʻokina 不決定文字
 static FIRST_LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{L}--\p{Lm}]"));
-// 原文裡的拉丁單字；只取拉丁字母，原文沒空格時（`我要Amy的帽子`）才切得出 `Amy`
+// 拉丁單字（含帶重音字母）；只取拉丁字母，原文沒空格時（`我要Amy的帽子`）才切得出 `Amy`
 static LATIN_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{Latin}0-9]+"));
 static NON_WORD: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"[^{WORD}]+|_+")));
 static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
@@ -157,16 +157,18 @@ pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) ->
     if !LETTER.is_match(&LATIN_RUN.replace_all(&body, "")) {
         return true;
     }
-    let source_words: HashSet<String> = LATIN_WORD
-        .find_iter(&remove_sender(source))
-        .map(|word| casefold(word.as_str()))
-        .collect();
-    // 逐字比對：模型常改掉字間的標點或連接詞（`Kai and Bob` → `Kai, Bob`）
-    LATIN_RUN.find_iter(&body).any(|run| {
-        NON_WORD
-            .split(run.as_str())
-            .any(|word| !word.is_empty() && !source_words.contains(&casefold(word)))
-    })
+    let words = |text: &str| {
+        LATIN_WORD
+            .find_iter(text)
+            .map(|word| casefold(word.as_str()))
+            .collect::<Vec<_>>()
+    };
+    let source_words: HashSet<String> = words(&remove_sender(source)).into_iter().collect();
+    // 逐字比對、兩邊同樣切字：模型常改掉字間的標點或連接詞（`Kai and Bob` → `Kai, Bob`）
+    words(&body)
+        .into_iter()
+        .filter(|word| LATIN.is_match(word))
+        .any(|word| !source_words.contains(&word))
 }
 
 /// 拆成去掉前後空白的非空白行。

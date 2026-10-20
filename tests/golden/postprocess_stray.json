@@ -446,5 +446,13 @@
    "target": "繁體中文（台灣）"
   },
   "output": false
+ },
+ {
+  "input": {
+   "source": "Meet me at café",
+   "translated": "在 café 見",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
  }
 ]
