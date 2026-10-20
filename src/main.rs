@@ -15,7 +15,7 @@ use wizard101_chat_translator::app_main::{
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
     Config, Settings, app_dir, bootstrap_language, config_path, is_configured, load_config,
-    save_config,
+    local_state_dir, save_config,
 };
 use wizard101_chat_translator::i18n::set_language;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
@@ -23,7 +23,7 @@ use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::hook::{self, KeyboardHook};
 use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::reader::message_log::SharedWriter;
-use wizard101_chat_translator::reader::process::foreground_window;
+use wizard101_chat_translator::reader::process::{foreground_window, pid_alive};
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
 use wizard101_chat_translator::runtime::updater::{
@@ -39,7 +39,7 @@ use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::RealEnv;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WizardHost};
 use wizard101_chat_translator::ui::win32::cursor_pos;
-use wizard101_chat_translator::util::{read, write};
+use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
 
 fn main() {
     if !cfg!(debug_assertions) {
@@ -64,6 +64,9 @@ fn main() {
     else {
         return;
     };
+    for dir in [app_dir(), local_state_dir()] {
+        sweep_stale_temps(&dir, pid_alive);
+    }
     let messages = open_messages_log(&app_dir().join("messages.log"));
     register_models(Models {
         det: include_bytes!("../assets/ocr/PP-OCRv6_det_small.onnx"),

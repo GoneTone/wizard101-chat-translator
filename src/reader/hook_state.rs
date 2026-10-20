@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use super::hooks::MODULE;
 use super::memory::ProcessMemory;
 use crate::logs::log;
-use crate::util::{hex, write_atomic};
+use crate::util::{hex, remove_dead_pid_files, write_atomic};
 
 /// 一組依序寫回的還原操作（位址，原始 bytes）。
 pub type RestoreOps = Vec<(u64, Vec<u8>)>;
@@ -92,28 +92,17 @@ pub fn clear_state(dir: &Path, pid: u32) {
 
 /// 刪除已不在執行的 PID 的殘留狀態檔。
 pub fn sweep(dir: &Path, is_alive: impl Fn(u32) -> bool) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(pid) = name
-            .to_str()
-            .and_then(|n| n.strip_prefix("hookstate-")?.strip_suffix(".json"))
-            .and_then(|p| p.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if !is_alive(pid)
-            && let Err(e) = fs::remove_file(entry.path())
-            && e.kind() != io::ErrorKind::NotFound
-        {
-            log(format!(
-                "[reader] could not delete stale hook state {}: {e}",
-                name.to_string_lossy()
-            ));
-        }
-    }
+    remove_dead_pid_files(
+        dir,
+        |name| {
+            name.strip_prefix("hookstate-")?
+                .strip_suffix(".json")?
+                .parse()
+                .ok()
+        },
+        is_alive,
+        "[reader] could not delete stale hook state",
+    );
 }
 
 /// 若有上次髒退出遺留的 hook，模組基址相同時依檔案順序寫回原始 bytes；套用或過期都刪檔。

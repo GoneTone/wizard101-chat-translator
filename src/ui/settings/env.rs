@@ -298,19 +298,23 @@ mod tests {
         let (poster, inbox) = UiPoster::for_test();
         let dispatcher = Arc::new(Mutex::new(Dispatcher::new()));
         let env = RealEnv::new(rt.handle().clone(), poster, dispatcher, None);
-        env.post_later(async { panic!("boom") }, |message| {
-            SettingsEvent::UpdateChecked {
-                round: 3,
-                result: Err(message),
-            }
+        let mut event = None;
+        let logged = crate::logs::capture(|| {
+            env.post_later(async { panic!("boom") }, |message| {
+                SettingsEvent::UpdateChecked {
+                    round: 3,
+                    result: Err(message),
+                }
+            });
+            event = inbox.recv_timeout(Duration::from_secs(30)).ok();
         });
-        let event = inbox.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert!(logged.contains("[settings] background task panicked: boom"));
         assert_eq!(
             event,
-            UiEvent::Settings(SettingsEvent::UpdateChecked {
+            Some(UiEvent::Settings(SettingsEvent::UpdateChecked {
                 round: 3,
                 result: Err("boom".into()),
-            })
+            }))
         );
     }
 }
