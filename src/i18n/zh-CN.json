@@ -163,6 +163,7 @@
   "region.hint": "拖拽框选要翻译的区域，按 Esc 取消",
   "region.no_text": "没有识别到文字",
   "region.outside_game": "请框选游戏画面内的区域",
+  "region.game_minimized": "请先把游戏窗口还原（当前为最小化）再框选",
   "region.capture_failed": "截取画面失败：{error}",
   "region.ocr_unavailable": "本机文字识别无法启动",
   "region.failed": "翻译失败：{error}",

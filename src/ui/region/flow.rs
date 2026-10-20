@@ -225,7 +225,7 @@ impl RegionFlow {
                     "[region] frame capture failed (hwnd={hwnd:#x}): {e}"
                 ));
                 let (x, y) = self.desktop.cursor();
-                self.show_error((x, y, 0, 0), capture_failed(&e));
+                self.show_error((x, y, 0, 0), capture_error_text(&e));
             }
             (Pending::Recapture { rect }, Ok(shot)) => {
                 self.send(rect, self.game_hwnd, &shot.frame);
@@ -235,7 +235,7 @@ impl RegionFlow {
                     "[region] frame capture failed (hwnd={:#x}): {e}",
                     self.game_hwnd
                 ));
-                self.show_error(rect, capture_failed(&e));
+                self.show_error(rect, capture_error_text(&e));
             }
         }
     }
@@ -366,13 +366,7 @@ impl RegionFlow {
                 log(format!(
                     "[region] capture failed (hwnd={hwnd:#x}, rect={rect:?}): {e}"
                 ));
-                self.show_error(
-                    rect,
-                    match e {
-                        CaptureError::OutsideGame(_) => t("region.outside_game", &[]),
-                        CaptureError::Failed(_) => capture_failed(&e),
-                    },
-                );
+                self.show_error(rect, capture_error_text(&e));
                 return;
             }
         };
@@ -396,8 +390,13 @@ impl RegionFlow {
     }
 }
 
-fn capture_failed(e: &CaptureError) -> String {
-    t("region.capture_failed", &[("error", &e.to_string())])
+/// 擷取錯誤在卡片上的文案：使用者能自己排除的給白話提示，其餘附上原因。
+fn capture_error_text(e: &CaptureError) -> String {
+    match e {
+        CaptureError::OutsideGame(_) => t("region.outside_game", &[]),
+        CaptureError::Minimized(_) => t("region.game_minimized", &[]),
+        CaptureError::Failed(_) => t("region.capture_failed", &[("error", &e.to_string())]),
+    }
 }
 
 #[cfg(test)]
@@ -576,9 +575,26 @@ mod tests {
         let mut h = H::new(desktop(), shots);
         h.toggle(GAME);
         let at_cursor = (CURSOR.0, CURSOR.1, 0, 0);
-        assert_eq!(h.card(), Some((at_cursor, error(&capture_failed(&boom())))));
+        assert_eq!(
+            h.card(),
+            Some((at_cursor, error(&capture_error_text(&boom()))))
+        );
         assert!(!h.selecting());
         assert!(h.sessions().is_empty());
+    }
+
+    #[test]
+    fn a_minimized_game_gets_a_plain_hint_instead_of_the_raw_reason() {
+        let minimized = CaptureError::Minimized("game window is minimized".into());
+        let shots = |calls: &Shared| FakeCapturer {
+            frames: VecDeque::from([Err(minimized.clone())]).into(),
+            ..capturer(calls)
+        };
+        let mut h = H::new(desktop(), shots);
+        h.toggle(GAME);
+        let at_cursor = (CURSOR.0, CURSOR.1, 0, 0);
+        let hint = error(&t("region.game_minimized", &[]));
+        assert_eq!(h.card(), Some((at_cursor, hint)));
     }
 
     #[test]
@@ -605,7 +621,7 @@ mod tests {
         let mut h = H::new(desktop, capturer);
         h.toggle(GAME);
         h.pick(RECT);
-        assert_eq!(h.card(), Some((RECT, error(&capture_failed(&boom())))));
+        assert_eq!(h.card(), Some((RECT, error(&capture_error_text(&boom())))));
         assert!(h.sessions().is_empty());
     }
 
@@ -791,7 +807,7 @@ mod tests {
         h.finish_last(result("譯文", ""));
         h.flow.on_box_changed((0, 0, 50, 50));
         h.deliver();
-        let expected = error(&capture_failed(&boom()));
+        let expected = error(&capture_error_text(&boom()));
         assert_eq!(h.card(), Some(((0, 0, 50, 50), expected)));
         assert!(h.flow.region_box_mut().is_some());
     }
