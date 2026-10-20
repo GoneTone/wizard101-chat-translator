@@ -2,12 +2,12 @@
 //!
 //! 對應 Python `keyboard` 的 `_KeyboardListener`；`process` 跑在低階鍵盤 hook 裡，handler 必須立刻返回。
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::input::keys::{ALT_GR, Code, Key, MODIFIER_GROUPS, key_codes_or_empty, scan_code_to_vk};
+use crate::input::keys::{ALT_GR, Code, Key, MODIFIER_GROUPS, key_codes_or_empty};
 use crate::logs::log;
 
 /// hook 收到的原始 vk 與 extended 旗標，給需要算按鍵名稱的錄製器用。
@@ -75,6 +75,8 @@ pub struct Dispatcher {
     blocking: Vec<(HandlerId, Box<dyn Blocking>)>,
     passive: Vec<(HandlerId, Passive)>,
     pressed: Pressed,
+    /// `pressed` 裡各鍵按下時的虛擬鍵；同一個 scan code 的 vk 會隨 NumLock 與鍵盤配置而變。
+    pressed_vks: HashMap<Code, u16>,
     processed: u64,
 }
 
@@ -139,7 +141,7 @@ impl Dispatcher {
     /// 把 `is_down` 回報已放開、卻還記成按著的鍵從 `pressed` 移除。
     ///
     /// 鎖定畫面、UAC 等安全桌面上的放開事件 hook 收不到。`is_down` 收虛擬鍵，任一按著即算按著；
-    /// 修飾鍵左右合併查，其他鍵查不到虛擬鍵就保留。`current`（含它所屬的修飾鍵群組）不查：
+    /// 修飾鍵左右合併查，其他鍵查按下時的虛擬鍵、沒記到就保留。`current`（含它所屬的修飾鍵群組）不查：
     /// hook 回呼在系統更新該鍵的非同步狀態之前被呼叫。
     pub fn drop_released_keys(&mut self, current: Code, is_down: impl Fn(&[u16]) -> bool) {
         let mut stale = Vec::new();
@@ -156,8 +158,9 @@ impl Dispatcher {
             {
                 continue;
             }
-            let vk = scan_code_to_vk(code);
-            if vk != 0 && !is_down(&[vk]) {
+            if let Some(&vk) = self.pressed_vks.get(&code)
+                && !is_down(&[vk])
+            {
                 stale.push(code);
             }
         }
@@ -166,6 +169,7 @@ impl Dispatcher {
         }
         for code in &stale {
             self.pressed.remove(code);
+            self.pressed_vks.remove(code);
         }
         log(format!(
             "[hotkey] dropped stale pressed codes={stale:?}: released while the hook could not see it (e.g. lock screen)"
@@ -194,8 +198,12 @@ impl Dispatcher {
         }
         if ev.down {
             self.pressed.insert(ev.code);
+            if let Some(raw) = ev.raw {
+                self.pressed_vks.insert(ev.code, raw.vk as u16);
+            }
         } else {
             self.pressed.remove(&ev.code);
+            self.pressed_vks.remove(&ev.code);
         }
         for (_, passive) in &mut self.passive {
             passive.process(ev, &self.pressed, now);
@@ -259,7 +267,7 @@ fn combinations(step: &[Key]) -> Vec<Vec<Code>> {
 
 #[cfg(test)]
 mod tests {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_CONTROL;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_NUMPAD8};
 
     use super::*;
 
@@ -466,29 +474,50 @@ mod tests {
         );
     }
 
+    fn down_vk(code: Code, vk: u16) -> KeyEvent {
+        KeyEvent {
+            down: true,
+            code,
+            raw: Some(RawKey {
+                vk: u32::from(vk),
+                extended: false,
+            }),
+        }
+    }
+
     #[test]
     fn stale_non_modifier_keys_are_dropped_but_never_the_current_one() {
-        let mut d = pressing(&[A, B]);
+        let mut d = Dispatcher::new();
+        d.process(down_vk(A, 0x41));
+        d.process(down_vk(B, 0x42));
         let polled = Mutex::new(Vec::new());
         d.drop_released_keys(B, |vks| {
             polled.lock().unwrap().push(vks.to_vec());
             false
         });
         assert_eq!(d.pressed(), &Pressed::from([B]));
-        assert_ne!(scan_code_to_vk(A), 0);
-        assert_eq!(*polled.lock().unwrap(), [[scan_code_to_vk(A)]]);
+        assert_eq!(*polled.lock().unwrap(), [[0x41]]);
     }
 
     #[test]
-    fn keys_still_down_or_without_a_virtual_key_are_kept() {
-        const UNMAPPED: Code = 0x1FF;
-        assert_eq!(scan_code_to_vk(UNMAPPED), 0);
-        let mut d = pressing(&[CTRL, A]);
+    fn keys_are_polled_on_the_virtual_key_they_were_pressed_with() {
+        const NUM_8: Code = 0x48;
+        let mut d = Dispatcher::new();
+        d.process(down_vk(NUM_8, VK_NUMPAD8));
+        d.drop_released_keys(B, |vks| vks == [VK_NUMPAD8]);
+        assert_eq!(d.pressed(), &Pressed::from([NUM_8]));
+    }
+
+    #[test]
+    fn keys_still_down_or_without_a_recorded_virtual_key_are_kept() {
+        let mut d = Dispatcher::new();
+        d.process(down(CTRL));
+        d.process(down_vk(A, 0x41));
         d.drop_released_keys(B, |_| true);
         assert_eq!(d.pressed(), &Pressed::from([CTRL, A]));
-        let mut d = pressing(&[UNMAPPED]);
+        let mut d = pressing(&[A]);
         d.drop_released_keys(B, |_| false);
-        assert_eq!(d.pressed(), &Pressed::from([UNMAPPED]));
+        assert_eq!(d.pressed(), &Pressed::from([A]), "no recorded vk");
     }
 
     #[test]
