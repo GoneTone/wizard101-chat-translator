@@ -523,7 +523,7 @@ impl App {
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
         let rect = self.banners.show(ui, rect);
         self.selection
-            .show(ui, &mut self.list, &self.model, &mut Win32Shell(self.hwnd));
+            .show(ui, &mut self.list, &self.model, self.shell.as_mut());
         self.list
             .show(ui, rect, &self.model, self.status, self.selection.span());
     }
@@ -1273,6 +1273,35 @@ mod tests {
     /// 這一幀根視窗什麼都沒畫（呈現全透明）。
     fn drew_nothing(harness: &Harness<App>) -> bool {
         harness.output().shapes.is_empty()
+    }
+
+    #[test]
+    fn dragging_a_selection_takes_focus_through_the_shell() {
+        let (poster, inbox) = channel();
+        poster.post(UiEvent::AddMessage {
+            slot: 1,
+            tabs: vec![0],
+            original: "原文一".into(),
+            translated: "譯文一".into(),
+            msg_id: None,
+            pending: false,
+            color: None,
+        });
+        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
+        harness.step();
+        let [(first, _), (second, _)] = harness.state().list.rows()[0].lines;
+        let (from, to) = (
+            first + egui::vec2(20.0, 5.0),
+            second + egui::vec2(1000.0, 5.0),
+        );
+        harness.hover_at(from);
+        harness.drag_at(from);
+        harness.step();
+        harness.hover_at(to);
+        harness.step();
+        harness.drop_at(to);
+        harness.step();
+        assert_eq!(root.shell.borrow().focused, 1);
     }
 
     const TOP_RIGHT: Rect = (100 + 640 - 48, 200, 48, 48);
