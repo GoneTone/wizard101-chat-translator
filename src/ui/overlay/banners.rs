@@ -81,11 +81,6 @@ impl Banners {
         self.update = Some(release);
     }
 
-    /// 收起更新橫幅；不算使用者關掉，之後同版仍會再提醒。
-    pub fn clear_update(&mut self) {
-        self.update = None;
-    }
-
     /// 更新橫幅目前的文字；沒有橫幅回 `None`。
     pub fn update_text(&self) -> Option<String> {
         let release = self.update.as_ref()?;
@@ -350,18 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn clear_update_does_not_count_as_dismissing() {
-        let mut banners = Banners::default();
-        banners.set_update(release("0.2.0"));
-        banners.clear_update();
-        banners.offer_update(release("0.2.0"));
-        assert_eq!(
-            banners.update_text(),
-            Some(t("update.available", &[("version", "0.2.0")]))
-        );
-    }
-
-    #[test]
     fn clicking_the_update_row_opens_the_release_page() {
         let mut banners = Banners::default();
         banners.set_update(release("0.2.0"));
@@ -456,7 +439,7 @@ mod tests {
         assert!(rest.max.y <= error.min.y.min(update.min.y), "{rest:?}");
         assert!(update.max.y <= area.max.y && error.max.y <= update.min.y);
 
-        harness.state_mut().banners.clear_update();
+        harness.state_mut().banners.update = None;
         harness.step();
         assert_eq!(
             harness.state().banners.error_text(),
