@@ -163,6 +163,7 @@
   "region.hint": "Drag to select the area to translate, Esc to cancel",
   "region.no_text": "No text recognized",
   "region.outside_game": "Select an area inside the game window",
+  "region.game_minimized": "Restore the game window first — it is minimized",
   "region.capture_failed": "Screen capture failed: {error}",
   "region.ocr_unavailable": "Local text recognition failed to start",
   "region.failed": "Translation failed: {error}",

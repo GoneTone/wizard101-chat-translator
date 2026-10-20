@@ -37,17 +37,20 @@ pub struct Frame {
     pub client_size: (i32, i32),
 }
 
-/// 擷取失敗：框選矩形完全落在遊戲 client 區外，或等不到影格、拍到整張單色等其他失敗；附上原因。
+/// 擷取失敗：框選矩形完全落在遊戲 client 區外、遊戲視窗最小化，或等不到影格、拍到整張單色等其他失敗；附上原因。
 #[derive(Debug, Clone, PartialEq)]
 pub enum CaptureError {
     OutsideGame(String),
+    Minimized(String),
     Failed(String),
 }
 
 impl std::fmt::Display for CaptureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::OutsideGame(reason) | Self::Failed(reason) => f.write_str(reason),
+            Self::OutsideGame(reason) | Self::Minimized(reason) | Self::Failed(reason) => {
+                f.write_str(reason)
+            }
         }
     }
 }
@@ -164,7 +167,7 @@ pub fn capture_screen(monitor: Rect) -> RgbImage {
 /// 最小化的視窗 WGC 不會送影格，直接回錯誤，不空等 `FRAME_TIMEOUT`。
 fn reject_minimized(hwnd: isize, minimized: bool) -> Result<(), CaptureError> {
     if minimized {
-        return Err(CaptureError::Failed(format!(
+        return Err(CaptureError::Minimized(format!(
             "capture failed (hwnd={hwnd:#x}): game window is minimized"
         )));
     }
@@ -395,7 +398,7 @@ mod tests {
         assert_eq!(reject_minimized(0x1, false), Ok(()));
         assert_eq!(
             reject_minimized(0x1, true),
-            Err(CaptureError::Failed(
+            Err(CaptureError::Minimized(
                 "capture failed (hwnd=0x1): game window is minimized".into()
             ))
         );
