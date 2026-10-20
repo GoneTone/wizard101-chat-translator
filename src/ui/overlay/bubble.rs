@@ -258,6 +258,7 @@ mod tests {
             cursor: (0, 0),
             rect: (500, 500, 48, 48),
             ready: true,
+            focused: 0,
         };
         // 縮小的當下 overlay 就是前景：拿它當基準，不算切回
         let mut bubble = Bubble::new(101, 101, t0);
@@ -275,6 +276,7 @@ mod tests {
             cursor: (900, 900),
             rect: (500, 500, 48, 48),
             ready: true,
+            focused: 0,
         };
         let mut bubble = Bubble::new(101, 202, t0);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
@@ -327,6 +329,7 @@ mod tests {
                 cursor: (520, 320),
                 rect: (500, 300, 48, 48),
                 ready,
+                focused: 0,
             },
             actions: Vec::new(),
         };

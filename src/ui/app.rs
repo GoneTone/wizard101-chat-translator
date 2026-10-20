@@ -1208,6 +1208,9 @@ mod tests {
         fn set_cloaked(&mut self, cloaked: bool) {
             self.2.set(cloaked);
         }
+        fn take_focus(&mut self) -> bool {
+            self.0.borrow_mut().take_focus()
+        }
     }
 
     type Saved<T> = Rc<RefCell<Vec<T>>>;
@@ -1233,6 +1236,7 @@ mod tests {
             cursor: (0, 0),
             rect: OVERLAY,
             ready: true,
+            focused: 0,
         };
         let root = Root {
             shell: Rc::new(RefCell::new(fake)),
@@ -1465,6 +1469,7 @@ mod tests {
             cursor: (0, 0),
             rect: OVERLAY,
             ready: true,
+            focused: 0,
         });
         app.set_minimized(true);
         let first = app.bubble_rect(OVERLAY, 1.0);

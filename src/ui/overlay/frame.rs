@@ -71,6 +71,8 @@ pub trait Shell {
     fn wait_for_composition(&self) {}
     /// 讓 DWM 不顯示（或恢復顯示）視窗；對系統而言視窗仍是可見的。
     fn set_cloaked(&mut self, _cloaked: bool) {}
+    /// 讓視窗取得鍵盤焦點（框選的 Ctrl+C 才收得到）；被系統拒絕回 `false`。
+    fn take_focus(&mut self) -> bool;
 }
 
 /// 以 HWND 操作真正的視窗。
@@ -97,6 +99,9 @@ impl Shell for Win32Shell {
     }
     fn set_cloaked(&mut self, cloaked: bool) {
         win32::set_cloaked(self.0, cloaked);
+    }
+    fn take_focus(&mut self) -> bool {
+        win32::force_foreground(self.0)
     }
 }
 
@@ -506,6 +511,8 @@ pub(crate) mod tests {
         pub(crate) rect: Rect,
         /// `false` 模擬視窗還沒建好（HWND 為 0）。
         pub(crate) ready: bool,
+        /// `take_focus` 被呼叫的次數。
+        pub(crate) focused: usize,
     }
 
     impl Shell for FakeShell {
@@ -526,6 +533,10 @@ pub(crate) mod tests {
         }
         fn scale_at(&self, _x: i32, _y: i32) -> f32 {
             1.0
+        }
+        fn take_focus(&mut self) -> bool {
+            self.focused += 1;
+            true
         }
     }
 
@@ -554,6 +565,7 @@ pub(crate) mod tests {
                 cursor: (0, 0),
                 rect: START,
                 ready: true,
+                focused: 0,
             },
             title: title.into(),
             area: egui::Rect::NOTHING,
@@ -1069,6 +1081,7 @@ pub(crate) mod tests {
             cursor: (0, 0),
             rect: START,
             ready: false,
+            focused: 0,
         };
         run_frame(&mut frame, &mut shell);
         assert_eq!(shell.rect, START);

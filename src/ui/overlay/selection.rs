@@ -2,16 +2,17 @@
 //!
 //! 端點以「第幾則」定位，訊息被移除時以 seq 重新對位（見 `Selection::sync`）；反白由 `MessageList` 繪製。
 
-use eframe::egui::{Context, Id, Pos2, Rect, Ui, Vec2};
+use eframe::egui::{Context, Id, Pos2, Ui, Vec2};
 
 use crate::logs::log;
-use crate::ui::copy_menu::{self, MenuOutcome};
-use crate::ui::overlay::frame::{BAR_HEIGHT, Win32Shell, edge_under};
+use crate::ui::copy_menu::CopyMenu;
+use crate::ui::overlay::frame::{BAR_HEIGHT, Shell, edge_under};
 use crate::ui::overlay::message_list::{MessageList, Row};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{TEXT_ORIGIN, line_height};
-use crate::ui::text_select::{AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, is_copy};
-use crate::ui::win32;
+use crate::ui::text_select::{
+    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, copy_text, is_copy, take_focus_for_copy,
+};
 
 /// 選取端點：第幾則訊息、該則第幾行（0＝原文、1＝譯文）、行內第幾個字元；欄位順序即閱讀順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -57,18 +58,6 @@ pub fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> Stri
         .join("\n\n")
 }
 
-/// 框選對桌面的操作（取得焦點）；測試換成假的。
-pub trait SelectionShell {
-    /// 讓 overlay 取得鍵盤焦點，Ctrl+C 才收得到；失敗回 `false`。
-    fn take_focus(&mut self) -> bool;
-}
-
-impl SelectionShell for Win32Shell {
-    fn take_focus(&mut self) -> bool {
-        win32::force_foreground(self.0)
-    }
-}
-
 /// 顯示中分頁的選取狀態、拖曳中的自動捲動與右鍵選單。
 #[derive(Default)]
 pub struct Selection {
@@ -81,9 +70,7 @@ pub struct Selection {
     key: Option<ViewKey>,
     dragging: bool,
     next_tick: f64,
-    /// 右鍵選單的位置（視窗內 DIP）。
-    menu: Option<Pos2>,
-    menu_rect: Option<Rect>,
+    menu: CopyMenu,
 }
 
 impl Selection {
@@ -184,7 +171,7 @@ impl Selection {
         ui: &Ui,
         list: &mut MessageList,
         model: &OverlayModel,
-        shell: &mut dyn SelectionShell,
+        shell: &mut dyn Shell,
     ) {
         let messages = model.current_view().map_or(&[][..], |v| &v.messages);
         self.sync(model.current_key(), messages);
@@ -203,9 +190,9 @@ impl Selection {
             )
         });
         if let Some(p) = pressed
-            && !self.menu_rect.is_some_and(|r| r.contains(p))
+            && !self.menu.contains(p)
         {
-            self.close_menu();
+            self.menu.close();
             if list.viewport().contains(p)
                 && edge_under(area, p).is_none()
                 && self.begin(list, messages, p)
@@ -225,12 +212,7 @@ impl Selection {
                 self.finish(messages);
                 // 單純點擊不搶焦點，要有選到字（Ctrl+C、右鍵選單）才搶
                 if self.span().is_some() {
-                    log("[ui] forcing keyboard focus");
-                    if shell.take_focus() {
-                        log("[ui] selection took keyboard focus");
-                    } else {
-                        log("[ui] selection focus failed: SetForegroundWindow refused");
-                    }
+                    take_focus_for_copy("[ui]", || shell.take_focus());
                 }
             }
         }
@@ -240,7 +222,7 @@ impl Selection {
             && p.y >= area.min.y + BAR_HEIGHT
             && self.span().is_some()
         {
-            self.menu = Some(p);
+            self.menu.open(ui, p);
         }
         if copy {
             self.copy(ui.ctx(), messages);
@@ -249,14 +231,7 @@ impl Selection {
 
     /// 請 egui 把選取的文字寫進剪貼簿；沒有選取就不動 —— 寫入空字串會清掉使用者原本的剪貼簿內容。
     fn copy(&self, ctx: &Context, messages: &[Message]) {
-        let text = self.text(messages);
-        if !text.is_empty() {
-            log(format!(
-                "[ui] copy requested selection chars={}",
-                text.chars().count()
-            ));
-            ctx.copy_text(text);
-        }
+        copy_text(ctx, &self.text(messages), "[ui]", "selection");
     }
 
     /// 換分頁就清掉選取；前方訊息被移除時兩端重新對位，端點那則被移除或範圍內譯文被回填則清掉。
@@ -287,28 +262,13 @@ impl Selection {
         }
     }
 
-    fn close_menu(&mut self) {
-        self.menu_rect = None;
-        if self.menu.take().is_some() {
-            log("[ui] copy popup hidden");
-        }
-    }
-
     /// 右鍵選單：點「複製」複製選取並關閉，在選單外按下就關閉。
     fn show_menu(&mut self, ui: &Ui, messages: &[Message]) {
         if self.span().is_none() {
-            self.close_menu();
+            self.menu.close();
         }
-        let Some(at) = self.menu else {
-            return;
-        };
-        match copy_menu::show(ui, Id::unique("overlay_copy_menu"), at) {
-            MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
-            MenuOutcome::Copy => {
-                self.close_menu();
-                self.copy(ui.ctx(), messages);
-            }
-            MenuOutcome::Dismissed => self.close_menu(),
+        if self.menu.show(ui, Id::unique("overlay_copy_menu")) {
+            self.copy(ui.ctx(), messages);
         }
     }
 }
@@ -385,7 +345,7 @@ fn clamped(list: &MessageList, messages: &[Message], pos: Pos2) -> Option<Caret>
 mod tests {
     use std::time::{Duration, Instant};
 
-    use eframe::egui::{Event, Key, Modifiers, PointerButton, Shape};
+    use eframe::egui::{Event, Key, Modifiers, PointerButton, Rect, Shape};
     use egui_kittest::Harness;
 
     use super::*;
@@ -405,18 +365,6 @@ mod tests {
         Caret { msg, line, index }
     }
 
-    #[derive(Default)]
-    struct FakeSelectionShell {
-        focused: usize,
-    }
-
-    impl SelectionShell for FakeSelectionShell {
-        fn take_focus(&mut self) -> bool {
-            self.focused += 1;
-            true
-        }
-    }
-
     struct State {
         /// 外框與內容疊法同 overlay：邊上的按壓由外框拿去縮放。
         frame: Frame,
@@ -424,7 +372,6 @@ mod tests {
         model: OverlayModel,
         list: MessageList,
         selection: Selection,
-        focus_shell: FakeSelectionShell,
         /// 各幀 `ctx.copy_text` 排入的文字。
         copied: Vec<String>,
         t0: Instant,
@@ -449,11 +396,11 @@ mod tests {
                 cursor: (WINDOW.0, WINDOW.1),
                 rect: WINDOW,
                 ready: true,
+                focused: 0,
             },
             model,
             list: MessageList::new(),
             selection: Selection::default(),
-            focus_shell: FakeSelectionShell::default(),
             copied: Vec::new(),
             t0,
             area: Rect::NOTHING,
@@ -467,8 +414,7 @@ mod tests {
                     s.area = area;
                     s.frame.show(ui, &mut s.shell, "t", None, "");
                     let rect = Rect::from_min_max(area.min + Vec2::new(0.0, BAR_HEIGHT), area.max);
-                    s.selection
-                        .show(ui, &mut s.list, &s.model, &mut s.focus_shell);
+                    s.selection.show(ui, &mut s.list, &s.model, &mut s.shell);
                     s.copied.extend(copied_texts(ui.ctx()));
                     s.list.show(ui, rect, &s.model, None, s.selection.span());
                 },
@@ -610,7 +556,7 @@ mod tests {
         let p = start_of(&h, 0, 0);
         press(&mut h, p);
         assert!(h.state().selection.dragging);
-        assert_eq!(h.state().focus_shell.focused, 0);
+        assert_eq!(h.state().shell.focused, 0);
     }
 
     #[test]
@@ -618,7 +564,7 @@ mod tests {
         let mut h = harness(&[("original text", "translated text")]);
         let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
         select(&mut h, from, to);
-        assert_eq!(h.state().focus_shell.focused, 1);
+        assert_eq!(h.state().shell.focused, 1);
     }
 
     #[test]
@@ -632,7 +578,7 @@ mod tests {
             assert!(!h.state().selection.dragging, "{p:?}");
             release(&mut h, p);
         }
-        assert_eq!(h.state().focus_shell.focused, 0);
+        assert_eq!(h.state().shell.focused, 0);
     }
 
     #[test]
@@ -643,7 +589,7 @@ mod tests {
         release(&mut h, p);
         assert!(!h.state().selection.dragging);
         assert_eq!(h.state().selection.span(), None);
-        assert_eq!(h.state().focus_shell.focused, 0);
+        assert_eq!(h.state().shell.focused, 0);
         assert_eq!(text(&h), "");
     }
 
@@ -862,7 +808,7 @@ mod tests {
         // 視口上方（標題列一帶）按下不會選到捲出視野的訊息
         press(&mut h, Pos2::new(200.0, viewport.min.y - 5.0));
         assert!(!h.state().selection.dragging);
-        assert_eq!(h.state().focus_shell.focused, 0);
+        assert_eq!(h.state().shell.focused, 0);
     }
 
     #[test]
@@ -879,7 +825,7 @@ mod tests {
             press(&mut h, p);
             move_to(&mut h, p + Vec2::new(-20.0, 20.0));
             assert!(!h.state().selection.dragging, "{edge:?}");
-            assert_eq!(h.state().focus_shell.focused, 0, "{edge:?}");
+            assert_eq!(h.state().shell.focused, 0, "{edge:?}");
             release(&mut h, p + Vec2::new(-20.0, 20.0));
             assert_ne!(h.state().shell.rect, WINDOW, "{edge:?} should resize");
         }
@@ -979,7 +925,10 @@ mod tests {
         select(&mut h, from, to);
         right_click(&mut h, Pos2::new(200.0, 150.0));
         h.step();
-        assert!(h.state().selection.menu_rect.is_some(), "menu must be open");
+        assert!(
+            h.state().selection.menu.rect().is_some(),
+            "menu must be open"
+        );
         h.event(Event::Copy);
         h.step();
         assert_eq!(h.state().copied, ["orig 0\ntrans 0"]);
@@ -992,13 +941,13 @@ mod tests {
         let spot = Pos2::new(200.0, 150.0);
         right_click(&mut h, spot);
         h.step();
-        assert_eq!(h.state().selection.menu_rect, None);
+        assert_eq!(h.state().selection.menu.rect(), None);
 
         let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
         select(&mut h, from, to);
         right_click(&mut h, spot);
         h.step();
-        let menu = h.state().selection.menu_rect.expect("menu shown");
+        let menu = h.state().selection.menu.rect().expect("menu shown");
         assert_eq!(menu.min, spot);
         let label = t("menu.copy", &[]);
         assert!(
@@ -1015,7 +964,7 @@ mod tests {
         h.drop_at(menu.center());
         h.step();
         assert_eq!(h.state().copied, ["orig 0\ntrans 0"]);
-        assert_eq!(h.state().selection.menu_rect, None);
+        assert_eq!(h.state().selection.menu.rect(), None);
         assert!(h.state().selection.span().is_some());
     }
 
@@ -1026,7 +975,7 @@ mod tests {
         select(&mut h, from, to);
         right_click(&mut h, Pos2::new(200.0, 150.0));
         h.step();
-        let menu = h.state().selection.menu_rect.unwrap();
+        let menu = h.state().selection.menu.rect().unwrap();
         let row_fill = |h: &Harness<State>| {
             h.output().shapes.iter().find_map(|c| match &c.shape {
                 Shape::Rect(r) if r.rect == menu.shrink(1.0) => Some(r.fill),
@@ -1048,7 +997,7 @@ mod tests {
             select(&mut h, from, to);
             right_click(&mut h, Pos2::new(200.0, 200.0));
             h.step();
-            assert!(h.state().selection.menu_rect.is_some());
+            assert!(h.state().selection.menu.rect().is_some());
             let p = match elsewhere {
                 "message" => start_of(&h, 1, 0),
                 "title bar" => Pos2::new(200.0, h.state().area.min.y + BAR_HEIGHT / 2.0),
@@ -1056,7 +1005,7 @@ mod tests {
             };
             press(&mut h, p);
             release(&mut h, p);
-            assert_eq!(h.state().selection.menu_rect, None, "{elsewhere}");
+            assert_eq!(h.state().selection.menu.rect(), None, "{elsewhere}");
         }
     }
 
@@ -1068,7 +1017,7 @@ mod tests {
         let area = h.state().area;
         right_click(&mut h, area.max - Vec2::splat(3.0));
         h.step();
-        let menu = h.state().selection.menu_rect.unwrap();
+        let menu = h.state().selection.menu.rect().unwrap();
         assert!(area.shrink(3.0).contains_rect(menu), "{menu:?} {area:?}");
     }
 }

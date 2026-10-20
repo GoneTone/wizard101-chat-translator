@@ -7,6 +7,8 @@ use std::time::Duration;
 use eframe::egui::text::CharIndex;
 use eframe::egui::{Context, Event, Galley, Key, MouseWheelUnit, Rect, Ui};
 
+use crate::logs::log;
+
 /// 拖出範圍時的自動捲動節奏（秒）。
 pub const AUTOSCROLL_INTERVAL: f64 = 0.040;
 /// 每輪最少捲幾像素：剛越界時要慢，才停得準。
@@ -72,6 +74,29 @@ pub fn is_copy(event: &Event) -> bool {
             ..
         } => modifiers.ctrl || modifiers.command,
         _ => false,
+    }
+}
+
+/// 請 egui 把 `text` 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
+pub fn copy_text(ctx: &Context, text: &str, log_prefix: &str, kind: &str) -> Option<usize> {
+    if text.is_empty() {
+        return None;
+    }
+    let chars = text.chars().count();
+    log(format!("{log_prefix} copy requested {kind} chars={chars}"));
+    ctx.copy_text(text.to_owned());
+    Some(chars)
+}
+
+/// 拖曳選字結束後讓 `force_foreground` 搶鍵盤焦點（Ctrl+C 才收得到），過程與結果記 log。
+pub fn take_focus_for_copy(log_prefix: &str, force_foreground: impl FnOnce() -> bool) {
+    log(format!("{log_prefix} forcing keyboard focus"));
+    if force_foreground() {
+        log(format!("{log_prefix} selection took keyboard focus"));
+    } else {
+        log(format!(
+            "{log_prefix} selection focus failed: SetForegroundWindow refused"
+        ));
     }
 }
 

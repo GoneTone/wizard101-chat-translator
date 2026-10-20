@@ -17,6 +17,7 @@ use crate::ui::input_host::{Desktop, RELEASE_POLL, defer_for_release};
 use crate::ui::region::card::{CardAction, MIN_HEIGHT, MIN_WIDTH};
 use crate::ui::region::flow::{RegionFlow, Shot};
 use crate::ui::region::region_box::{self, RegionBox, hit_at};
+use crate::ui::text_select::take_focus_for_copy;
 use crate::ui::viewport::{self, show_immediate};
 use crate::ui::win32;
 
@@ -318,12 +319,9 @@ impl RegionHost {
             log("[region] selection focus skipped: card window not found");
             return;
         }
-        log("[region] forcing keyboard focus");
-        if (self.desktop.force_foreground)(self.card.hwnd) {
-            log("[region] selection took keyboard focus");
-        } else {
-            log("[region] selection focus failed: SetForegroundWindow refused");
-        }
+        take_focus_for_copy("[region]", || {
+            (self.desktop.force_foreground)(self.card.hwnd)
+        });
     }
 }
 

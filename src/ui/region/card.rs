@@ -14,7 +14,7 @@ use eframe::egui::{
 
 use crate::i18n::t;
 use crate::logs::log;
-use crate::ui::copy_menu::{self, MenuOutcome};
+use crate::ui::copy_menu::CopyMenu;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Placement, Rect, Side, anchored_geometry, beside_geometry, is_click};
 use crate::ui::overlay::frame::flat_tooltip;
@@ -25,7 +25,8 @@ use crate::ui::palette::{
 use crate::ui::region::region_box::{HANDLE, MARGIN};
 use crate::ui::richtext::{linkify, parse_link_markup};
 use crate::ui::text_select::{
-    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, highlight_rects, is_copy, wheel_delta,
+    AUTOSCROLL_INTERVAL, autoscroll_tick, char_range_text, copy_text, highlight_rects, is_copy,
+    wheel_delta,
 };
 
 /// 卡片寬度下限（px）：矩形再窄也不跟，譯文會擠成一長條。
@@ -208,10 +209,7 @@ pub struct Card {
     focus: Option<usize>,
     dragging: bool,
     next_tick: f64,
-    /// 右鍵選單的位置。
-    menu: Option<Pos2>,
-    /// 選單範圍（右鍵當下算好，之後取上一幀畫出的）；選單上的按放不算點卡片。
-    menu_rect: Option<egui::Rect>,
+    menu: CopyMenu,
 }
 
 impl Card {
@@ -230,8 +228,7 @@ impl Card {
             focus: None,
             dragging: false,
             next_tick: 0.0,
-            menu: None,
-            menu_rect: None,
+            menu: CopyMenu::default(),
         }
     }
 
@@ -243,7 +240,7 @@ impl Card {
         self.anchor = None;
         self.focus = None;
         self.dragging = false;
-        self.close_menu();
+        self.menu.close();
     }
 
     /// 背景不透明度跟著 overlay 一起變。
@@ -433,10 +430,7 @@ impl Card {
         for (pos, pressed) in buttons {
             if pressed {
                 // 捲軸與選單上的按放不算點卡片，選取也留著
-                if !area.contains(pos)
-                    || track.contains(pos)
-                    || self.menu_rect.is_some_and(|r| r.contains(pos))
-                {
+                if !area.contains(pos) || track.contains(pos) || self.menu.contains(pos) {
                     continue;
                 }
                 if close_rect.contains(pos) {
@@ -478,26 +472,17 @@ impl Card {
             }
             self.dragging = down;
         }
-        if let Some(at) = self.menu {
-            match copy_menu::show(ui, Id::unique("region_card_copy_menu"), at) {
-                MenuOutcome::Open(rect) => self.menu_rect = Some(rect),
-                MenuOutcome::Copy => {
-                    self.close_menu();
-                    copied = match self.selection_text() {
-                        Some(selected) => self.copy(&ctx, &selected, "selection"),
-                        None => self.copy(&ctx, &self.all_text(), "text"),
-                    };
-                }
-                MenuOutcome::Dismissed => self.close_menu(),
-            }
+        if self.menu.show(ui, Id::unique("region_card_copy_menu")) {
+            copied = match self.selection_text() {
+                Some(selected) => copy_text(&ctx, &selected, "[region]", "selection"),
+                None => copy_text(&ctx, &self.all_text(), "[region]", "text"),
+            };
         }
         if let Some(&at) = right_clicks.iter().rfind(|p| text_rect.contains(**p)) {
-            self.menu = Some(at);
-            // 下一幀的點擊比選單先處理，不能等 show 回報範圍
-            self.menu_rect = Some(copy_menu::rect(ui, at));
+            self.menu.open(ui, at);
         }
         if copy && let Some(selected) = self.selection_text() {
-            copied = self.copy(&ctx, &selected, "selection").or(copied);
+            copied = copy_text(&ctx, &selected, "[region]", "selection").or(copied);
         }
 
         // ---- 繪製 ----
@@ -544,24 +529,6 @@ impl Card {
             Some(CardAction::Copied(chars))
         } else {
             focus.then_some(CardAction::FocusForCopy)
-        }
-    }
-
-    /// 請 egui 寫進剪貼簿並回傳字數；空字串不寫 —— 會清掉使用者原本的剪貼簿內容。
-    fn copy(&self, ctx: &egui::Context, text: &str, kind: &str) -> Option<usize> {
-        if text.is_empty() {
-            return None;
-        }
-        let chars = text.chars().count();
-        log(format!("[region] copy requested {kind} ({chars} chars)"));
-        ctx.copy_text(text.to_owned());
-        Some(chars)
-    }
-
-    fn close_menu(&mut self) {
-        self.menu_rect = None;
-        if self.menu.take().is_some() {
-            log("[ui] copy popup hidden");
         }
     }
 }
