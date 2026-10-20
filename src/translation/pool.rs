@@ -33,6 +33,8 @@ pub const BACKOFF_STEPS: [u64; 3] = [5, 15, 30];
 pub const CONFIG_ERROR_INTERVAL: u64 = 15;
 /// 單則最久重試多久；超過就放棄，免得久遠的舊訊息在恢復後才補翻。
 const MAX_JOB_AGE: Duration = Duration::from_secs(5 * 60);
+/// Config 錯誤重試前的禮讓時間：同一刻醒來的其他則先取額度，壞掉的那則才不會獨占並餓死它們。
+const CONFIG_RETRY_YIELD: Duration = Duration::from_millis(100);
 /// 退避等待的分段長度：其他則成功放開閘門時，等待者能及時發現。
 const WAIT_SLICE: Duration = Duration::from_millis(500);
 
@@ -264,16 +266,23 @@ impl Job {
     async fn run(mut self, line: String, context: Vec<String>, msg_id: u64) {
         let inner = Arc::clone(&self.inner);
         let mut attempts = 0;
-        let mut last_error = "none";
+        let mut last_error: Option<ErrorState> = None;
         // 連續 Config 錯誤共用同一個基準：別則在兩次嘗試之間成功也要看得出來
         let mut baseline: Option<u64> = None;
         while inner.wait_for_backoff().await {
             if self.born.elapsed() > MAX_JOB_AGE {
                 log(format!(
-                    "[translate] line dropped after {attempts} attempt(s), gave up after outage (last error: {last_error}): {line}"
+                    "[translate] line dropped after {attempts} attempt(s), gave up after outage (last error: {}): {line}",
+                    last_error.map_or("none", ErrorState::as_str)
                 ));
                 self.report(msg_id, (inner.failed_notice)(), true);
                 return;
+            }
+            if last_error == Some(ErrorState::Config) {
+                tokio::select! {
+                    _ = inner.stop.cancelled() => return,
+                    _ = tokio::time::sleep(CONFIG_RETRY_YIELD) => {}
+                }
             }
             let Some(permit) = inner.gate.acquire(&inner.stop).await else {
                 return;
@@ -294,13 +303,13 @@ impl Job {
                     return;
                 }
                 Ok(Err(err @ TranslateError::Offline { .. })) => {
-                    last_error = ErrorState::Offline.as_str();
+                    last_error = Some(ErrorState::Offline);
                     baseline = None;
                     inner.note_failure(ErrorState::Offline, &err);
                     continue;
                 }
                 Ok(Err(err @ TranslateError::Config { .. })) => {
-                    last_error = ErrorState::Config.as_str();
+                    last_error = Some(ErrorState::Config);
                     // 別則成功過，設定沒問題；錯在這則本身，不動閘門與橫幅
                     if inner.state().successes != successes_before {
                         ("rejected while other lines succeed", err.to_string())

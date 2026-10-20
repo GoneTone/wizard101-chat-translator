@@ -804,3 +804,23 @@ async fn config_error_is_dropped_when_another_line_succeeds_between_its_attempts
     assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
     assert_eq!(pool.error_state(), None);
 }
+
+#[tokio::test(start_paused = true)]
+async fn config_error_line_does_not_starve_others_at_concurrency_one() {
+    let translate = tfn(|line: String, _| async move {
+        if line == "[A] bad" {
+            return Err(TranslateError::Config {
+                status: Some(400),
+                detail: "bad request".into(),
+            });
+        }
+        Ok(line)
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] bad".into(), vec![], 1);
+    pool.submit("[B] fine".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None);
+    assert_eq!(pool.in_flight(), 0);
+}
