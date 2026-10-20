@@ -14,7 +14,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
 use wizard101_chat_translator::reader::chat_hook::{self, SLOTS};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
 use wizard101_chat_translator::reader::hook_state;
-use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
+use wizard101_chat_translator::reader::hooks::{
+    AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN, STUB_EXIT_WAIT,
+};
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
     GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
@@ -587,6 +589,36 @@ fn readiness_timeout_is_a_hook_not_firing_mismatch() {
         .len(),
         1
     );
+}
+
+#[test]
+fn stop_or_game_exit_ends_the_readiness_wait_early() {
+    for stopping in [true, false] {
+        let g = Game::new();
+        g.fires.store(false, Ordering::SeqCst);
+        let mut r = g.reader(112);
+        let (inner, stop, mem) = (g.on_sleep(), r.stop.clone(), g.mem.clone());
+        r.clock.sleep = Box::new(move |d| {
+            inner(d);
+            if stopping {
+                stop.cancel();
+            } else {
+                mem.kill();
+            }
+        });
+        let err = r.read_new().unwrap_err();
+        assert!(
+            matches!(&err, GameNotRunning::Missing(msg) if msg.starts_with("failed to attach")),
+            "{err:?}"
+        );
+        let waited = *g.elapsed.lock().unwrap();
+        assert!(waited <= HOOK_READY_POLL + STUB_EXIT_WAIT, "{waited:?}");
+        if stopping {
+            let ops = g.mem.ops();
+            assert_eq!(ops[ops.len() - 3..], g.restore_ops(false)[..]);
+        }
+        assert!(!g.state_file_exists());
+    }
 }
 
 #[test]

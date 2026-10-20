@@ -747,6 +747,7 @@ pub fn build_app(
             Box::new(|pid| Ok(Box::new(WinProcess::open(pid)?) as Box<dyn ProcessMemory>)),
         );
         reader.slot = slot;
+        reader.stop = shared.stop.clone();
         reader.message_log = Some(Box::new(MessageLog::new(Arc::clone(&messages), slot)));
         let shared = Arc::clone(&shared);
         let client = Arc::new(ClientContexts::new());

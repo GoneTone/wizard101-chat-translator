@@ -9,6 +9,8 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use tokio_util::sync::CancellationToken;
+
 use super::chat_hook::{
     AddLineHook, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts, pending_broadcast,
     read_ring,
@@ -103,6 +105,8 @@ struct Attached {
 enum AttachError {
     Hook(HookError),
     Timeout,
+    /// 等待中收到停止訊號或遊戲已結束。
+    Cancelled,
 }
 
 impl From<HookError> for AttachError {
@@ -119,6 +123,9 @@ impl fmt::Display for AttachError {
                 f,
                 "root window hook did not fire within {}s",
                 HOOK_READY_TIMEOUT.as_secs()
+            ),
+            Self::Cancelled => f.write_str(
+                "stopped waiting for the root window hook (reader stopping or game exited)",
             ),
         }
     }
@@ -158,6 +165,8 @@ pub struct WizChatReader {
     /// hookstate 檔所在目錄。
     pub state_dir: PathBuf,
     pub clock: Clock,
+    /// 程式關閉的訊號：等 hook 就緒時據此提早放棄。
+    pub stop: CancellationToken,
     hwnd: isize,
     open: Opener,
     attached: Option<Attached>,
@@ -197,6 +206,7 @@ impl WizChatReader {
             message_log: None,
             state_dir: local_state_dir(),
             clock: Clock::default(),
+            stop: CancellationToken::new(),
             hwnd,
             open,
             attached: None,
@@ -647,7 +657,7 @@ impl WizChatReader {
 
     /// 等 hook 把 root window 位址寫回來（非 0＝hook 真的被執行過），回傳等待時間。
     ///
-    /// hook 剛寫入時位址尚未有效，讀取失敗一律當成還沒好；真正的失敗只有逾時。
+    /// hook 剛寫入時位址尚未有效，讀取失敗一律當成還沒好；真正的失敗只有逾時、停止或遊戲結束。
     fn wait_root_window_ready(&mut self) -> Result<Duration, AttachError> {
         let conn = self.attached.as_ref().expect("reader is attached");
         let started = (self.clock.now)();
@@ -655,6 +665,9 @@ impl WizChatReader {
         loop {
             if conn.mem.read_u64(conn.export).is_ok_and(|addr| addr != 0) {
                 return Ok((self.clock.now)() - started);
+            }
+            if self.stop.is_cancelled() || !conn.mem.is_alive() {
+                return Err(AttachError::Cancelled);
             }
             if (self.clock.now)() >= deadline {
                 if remember(&mut self.last_attach_failure, "root window hook timeout") {
