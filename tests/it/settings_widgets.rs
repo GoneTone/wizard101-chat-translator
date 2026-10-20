@@ -293,6 +293,38 @@ fn editable_combo_scrolls_a_long_list_and_keeps_the_hot_option_in_view() {
 }
 
 #[test]
+fn editable_combo_grows_to_the_full_height_when_more_options_match() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..14).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model-00");
+    h.get_by_label("model-00");
+    assert!(
+        h.query_by_label("model-01").is_none(),
+        "precondition: one match"
+    );
+    for _ in 0.."model-00".len() {
+        h.key_press(Key::Backspace);
+    }
+    h.run_steps(4);
+    assert_eq!(h.state().text, "");
+    let shown = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == "model-04" => {
+                Some((c.clip_rect, Rect::from_min_size(t.pos, t.galley.size())))
+            }
+            _ => None,
+        })
+        .expect("model-04 painted");
+    assert!(
+        shown.0.contains_rect(shown.1),
+        "model-04 clipped: {shown:?}"
+    );
+}
+
+#[test]
 fn dragging_the_dropdown_scrollbar_keeps_the_list_open_and_scrolls_it() {
     let mut h = combo_harness("");
     h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();

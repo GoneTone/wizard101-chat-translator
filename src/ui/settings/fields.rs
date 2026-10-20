@@ -145,8 +145,10 @@ pub fn editable_combo(
             .frame(Frame::popup(ui.style()).inner_margin(4))
             .show(|ui| {
                 let moved = ui.input(|i| i.pointer.is_moving());
+                // 超出上限時固定撐滿上限：預設的 64 px 下限加上彈出層沿用上一幀的大小，篩選放寬後會卡在兩列高
                 egui::ScrollArea::vertical()
                     .max_height(ui.spacing().combo_height)
+                    .min_scrolled_height(ui.spacing().combo_height)
                     .show(ui, |ui| {
                         for (i, option) in list.iter().enumerate() {
                             let item = ui.add(
