@@ -31,6 +31,8 @@ pub type TextFn = Arc<dyn Fn() -> String + Send + Sync>;
 pub const BACKOFF_STEPS: [u64; 3] = [5, 15, 30];
 /// API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復。
 pub const CONFIG_ERROR_INTERVAL: u64 = 15;
+/// 單則最久重試多久；超過就放棄，免得久遠的舊訊息在恢復後才補翻。
+const MAX_JOB_AGE: Duration = Duration::from_secs(5 * 60);
 /// 退避等待的分段長度：其他則成功放開閘門時，等待者能及時發現。
 const WAIT_SLICE: Duration = Duration::from_millis(500);
 
@@ -61,6 +63,8 @@ struct State {
     backoff_index: usize,
     /// 這之前不得送出新請求；全域退避閘門。
     gate_until: Option<Instant>,
+    /// 累計成功則數；Config 錯誤期間它有變，代表設定沒問題、錯在這則本身。
+    successes: u64,
 }
 
 struct Inner {
@@ -119,6 +123,7 @@ impl TranslationPool {
         let job = Job {
             inner: Arc::clone(&self.inner),
             pending: true,
+            born: Instant::now(),
         };
         self.rt.spawn(job.run(line, context, msg_id));
     }
@@ -239,6 +244,7 @@ impl Inner {
             state.error_detail = None;
             state.backoff_index = 0;
             state.gate_until = None;
+            state.successes += 1;
             changed
         };
         if changed {
@@ -251,6 +257,7 @@ impl Inner {
 struct Job {
     inner: Arc<Inner>,
     pending: bool,
+    born: Instant,
 }
 
 impl Job {
@@ -258,6 +265,13 @@ impl Job {
         let inner = Arc::clone(&self.inner);
         let mut attempts = 0;
         while inner.wait_for_backoff().await {
+            if self.born.elapsed() > MAX_JOB_AGE {
+                log(format!(
+                    "[translate] line dropped after {attempts} attempt(s), gave up after outage: {line}"
+                ));
+                self.report(msg_id, (inner.failed_notice)(), true);
+                return;
+            }
             let Some(permit) = inner.gate.acquire(&inner.stop).await else {
                 return;
             };
@@ -266,6 +280,7 @@ impl Job {
                 continue;
             }
             attempts += 1;
+            let successes_before = inner.state().successes;
             let request = async { (inner.translate)(line.clone(), context.clone()).await };
             // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
             let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {
@@ -280,8 +295,13 @@ impl Job {
                     continue;
                 }
                 Ok(Err(err @ TranslateError::Config { .. })) => {
-                    inner.note_failure(ErrorState::Config, &err);
-                    continue;
+                    // 別則成功過，設定沒問題；錯在這則本身，不動閘門與橫幅
+                    if inner.state().successes != successes_before {
+                        ("rejected while other lines succeed", err.to_string())
+                    } else {
+                        inner.note_failure(ErrorState::Config, &err);
+                        continue;
+                    }
                 }
                 // temperature=0 下重試必得同一結果：直接放棄，讓 overlay 至少顯示失敗提示
                 Ok(Err(err @ TranslateError::BadOutput(_))) => {

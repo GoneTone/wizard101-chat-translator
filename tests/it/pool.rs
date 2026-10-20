@@ -733,3 +733,41 @@ async fn dropping_the_pool_stops_retries() {
     tokio::time::sleep(Duration::from_secs(120)).await;
     assert!(calls.try_recv().is_err(), "pool 丟棄後不該再重試");
 }
+
+#[tokio::test(start_paused = true)]
+async fn offline_line_past_max_age_reports_failed() {
+    let (calls_tx, _calls) = mpsc::unbounded_channel();
+    let (pool, mut rx) = make_pool(recording(calls_tx, |_| Err(offline("down"))), gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.in_flight(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn config_error_after_another_line_succeeded_is_dropped_without_arming_the_gate() {
+    let release = CancellationToken::new();
+    let translate = tfn({
+        let release = release.clone();
+        move |line: String, _| {
+            let release = release.clone();
+            async move {
+                if line == "[A] bad" {
+                    release.cancelled().await;
+                    return Err(TranslateError::Config {
+                        status: Some(400),
+                        detail: "bad request".into(),
+                    });
+                }
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[A] bad".into(), vec![], 1);
+    pool.submit("[B] fine".into(), vec![], 2);
+    assert_eq!(next(&mut rx).await, (2, "[B] fine".into(), false));
+    release.cancel();
+    assert_eq!(next(&mut rx).await, (1, FAILED.into(), true));
+    assert_eq!(pool.error_state(), None, "不動橫幅");
+    assert_eq!(pool.in_flight(), 0);
+}
