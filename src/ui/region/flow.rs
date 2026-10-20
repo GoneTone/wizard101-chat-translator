@@ -16,7 +16,7 @@ use crate::region::pipeline::RegionResult;
 use crate::ui::geometry::Rect;
 use crate::ui::region::card::{Card, CardAction, CardContent};
 use crate::ui::region::region_box::RegionBox;
-use crate::ui::region::selector::{Selector, SelectorAction};
+use crate::ui::region::selector::{self, Selector, SelectorAction};
 
 /// 流程用到的桌面操作；正式版接 WGC、螢幕與前景 API，測試注入替身。
 pub trait RegionDesktop {
@@ -126,7 +126,8 @@ impl RegionFlow {
         );
         let backdrop = self.desktop.capture_screen(monitor);
         log(format!("[region] selection started (game_hwnd={hwnd:#x})"));
-        self.selector = Some(Selector::new(monitor, frame, backdrop));
+        let images = selector::images(&frame, &backdrop);
+        self.selector = Some(Selector::new(monitor, frame, images));
         self.selecting.store(true, Ordering::SeqCst);
     }
 

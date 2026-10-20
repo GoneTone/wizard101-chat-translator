@@ -55,13 +55,12 @@ pub struct Selector {
 }
 
 impl Selector {
-    /// `monitor` 是遊戲所在螢幕的矩形，`backdrop` 是同一顆螢幕的整張截圖（都是實體像素）。
-    pub fn new(monitor: Rect, frame: Arc<Frame>, backdrop: RgbImage) -> Self {
+    /// `monitor` 是遊戲所在螢幕的矩形（實體像素），`images` 是 [`images`] 轉好的 `[backdrop, 遊戲畫面]`。
+    pub fn new(monitor: Rect, frame: Arc<Frame>, images: [ColorImage; 2]) -> Self {
         let frame_pos = (
             frame.client_origin.0 - monitor.0,
             frame.client_origin.1 - monitor.1,
         );
-        let images = [color_image(&backdrop), color_image(&frame.image)];
         Self {
             monitor,
             frame,
@@ -222,6 +221,11 @@ impl Selector {
     }
 }
 
+/// 把同一顆螢幕的整張截圖與遊戲畫面轉成 `[backdrop, 遊戲畫面]`，供 [`Selector::new`] 使用。
+pub fn images(frame: &Frame, backdrop: &RgbImage) -> [ColorImage; 2] {
+    [color_image(backdrop), color_image(&frame.image)]
+}
+
 fn color_image(image: &RgbImage) -> ColorImage {
     let size = [image.width() as usize, image.height() as usize];
     ColorImage::from_rgb(size, image.as_raw())
@@ -302,7 +306,11 @@ mod tests {
 
     fn harness(ppp: f32) -> Harness<'static, State> {
         let state = State {
-            selector: Selector::new(MONITOR, frame(), RgbImage::new(800, 600)),
+            selector: {
+                let frame = frame();
+                let images = super::images(&frame, &RgbImage::new(800, 600));
+                Selector::new(MONITOR, frame, images)
+            },
             actions: Vec::new(),
             area: egui::Rect::NOTHING,
         };
