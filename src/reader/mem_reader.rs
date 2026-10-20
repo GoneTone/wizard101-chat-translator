@@ -584,8 +584,8 @@ impl WizChatReader {
         Ok(Some((left + x, top + y, w, h)))
     }
 
-    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 掛 cave 與 root window hook
-    /// → 存 hookstate → 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
+    /// 開程序 → 清掉已結束程序的 hookstate → 修復殘留 hook → 掛 cave、root window hook
+    /// （各存一次 hookstate）→ 等 hook 就緒 → 掛 AddLine hook → 存 hookstate。
     fn connect(&mut self) -> Result<(), GameNotRunning> {
         let pid = process::window_pid(self.hwnd);
         let mem = match (self.open)(pid) {
@@ -657,16 +657,16 @@ impl WizChatReader {
 
     /// 每個 hook 寫入後立刻存還原狀態，等待途中被硬砍才修得回來；AddLine 等 root 就緒才裝，逾時重試不會每次漏一塊 ring。
     fn attach(&mut self) -> Result<Duration, AttachError> {
-        let Attached {
-            mem, cave, export, ..
-        } = self.attached.as_mut().expect("process is open");
-        let cave = cave.insert(AutobotCave::install(mem.as_ref())?);
-        *export = RootWindowHook::install(mem.as_ref(), cave)?.export_addr();
+        let conn = self.attached.as_mut().expect("process is open");
+        conn.cave = Some(AutobotCave::install(conn.mem.as_ref())?);
+        self.save_hook_state();
+        let conn = self.attached.as_mut().expect("process is open");
+        let cave = conn.cave.as_mut().expect("cave is installed");
+        conn.export = RootWindowHook::install(conn.mem.as_ref(), cave)?.export_addr();
         self.save_hook_state();
         let waited = self.wait_root_window_ready()?;
         let ring = self.install_chat_hook()?;
         self.attached.as_mut().expect("process is open").ring = ring;
-        self.save_hook_state();
         Ok(waited)
     }
 
@@ -700,7 +700,7 @@ impl WizChatReader {
         }
     }
 
-    /// 掛上 AddLine hook（登記在 cave，由 cave 一併解除），回傳環形緩衝位址。
+    /// 掛上 AddLine hook（登記在 cave，由 cave 一併解除）並存 hookstate，回傳環形緩衝位址。
     fn install_chat_hook(&mut self) -> Result<u64, HookError> {
         let (slot, pid) = (self.slot, self.pid);
         let Attached { mem, cave, .. } = self.attached.as_mut().expect("process is open");
@@ -717,7 +717,8 @@ impl WizChatReader {
                 return Err(err);
             }
         };
-        let base = mem.module_base(MODULE)?;
+        self.save_hook_state();
+        let base = self.conn().mem.module_base(MODULE)?;
         log(format!(
             "[reader] AddLine hook installed (slot={slot}, pid={pid}, jump={:#x}, ring={:#x}, \
              ring_size={:#x})",

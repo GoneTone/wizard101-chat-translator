@@ -418,6 +418,31 @@ fn connect_order_matches_python() {
 }
 
 #[test]
+fn hook_state_is_saved_as_soon_as_the_cave_is_cleared() {
+    let g = Game::new();
+    let (dir, snapshot) = (g.dir.path().to_owned(), Arc::new(Mutex::new(None)));
+    let seen = snapshot.clone();
+    *g.spy.after_read.lock().unwrap() = Some(Box::new(move |_, _, mem| {
+        let cleared = mem
+            .ops()
+            .iter()
+            .any(|op| matches!(op, MemOp::Write { addr: CAVE, .. }));
+        if cleared {
+            seen.lock()
+                .unwrap()
+                .get_or_insert_with(|| hook_state::load_state(&dir, pid()).1);
+        }
+    }));
+    let _r = g.connected(113);
+    let saved = snapshot.lock().unwrap().clone();
+    assert_eq!(
+        saved,
+        Some(vec![(CAVE, g.cave_bytes[..208].to_vec())]),
+        "hookstate must exist before the root pattern scan"
+    );
+}
+
+#[test]
 fn connect_waits_through_transient_read_errors() {
     let g = Game::new();
     g.spy.fail_reads_at(EXPORT, 3);
@@ -702,9 +727,10 @@ fn hook_state_save_failure_is_logged() {
     assert_eq!(r.read_new().unwrap(), vec![]);
     let p = pid();
     let lines = logged(109, "[reader] could not save hook state");
-    assert_eq!(lines.len(), 2, "{lines:?}");
-    assert!(lines[0].contains(&format!("(slot=109, pid={p}, ops=2): ")));
-    assert!(lines[1].contains(&format!("(slot=109, pid={p}, ops=3): ")));
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    for (line, ops) in lines.iter().zip(1..) {
+        assert!(line.contains(&format!("(slot=109, pid={p}, ops={ops}): ")));
+    }
 }
 
 #[test]
