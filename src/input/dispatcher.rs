@@ -25,6 +25,48 @@ pub struct KeyEvent {
     pub raw: Option<RawKey>,
 }
 
+/// 測試用的按鍵事件建構。
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing {
+    use super::{KeyEvent, RawKey};
+    use crate::input::keys::{Code, key_to_scan_codes};
+
+    /// 按鍵名稱的第一個 scan code。
+    pub fn code(name: &str) -> Code {
+        key_to_scan_codes(name).unwrap()[0]
+    }
+
+    /// 不帶 raw 的按下事件。
+    pub fn down(code: Code) -> KeyEvent {
+        KeyEvent {
+            down: true,
+            code,
+            raw: None,
+        }
+    }
+
+    /// 不帶 raw 的放開事件。
+    pub fn up(code: Code) -> KeyEvent {
+        KeyEvent {
+            down: false,
+            code,
+            raw: None,
+        }
+    }
+
+    /// 帶 vk 的按下或放開事件。
+    pub fn key(down: bool, code: Code, vk: u32) -> KeyEvent {
+        KeyEvent {
+            down,
+            code,
+            raw: Some(RawKey {
+                vk,
+                extended: false,
+            }),
+        }
+    }
+}
+
 /// 目前按著（且未被吞掉）的鍵。
 pub type Pressed = BTreeSet<Code>;
 
@@ -269,6 +311,7 @@ fn combinations(step: &[Key]) -> Vec<Vec<Code>> {
 mod tests {
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::{VK_CONTROL, VK_NUMPAD8};
 
+    use super::testing::{down, key, up};
     use super::*;
 
     const A: Code = 30;
@@ -277,22 +320,6 @@ mod tests {
     const CTRL: Code = 29;
     const SHIFT: Code = 42;
     const SPACE: Code = 57;
-
-    fn down(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: true,
-            code,
-            raw: None,
-        }
-    }
-
-    fn up(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: false,
-            code,
-            raw: None,
-        }
-    }
 
     /// 吞掉 `swallow` 這顆鍵、記下每次呼叫的假攔截器。
     struct Fake {
@@ -474,22 +501,11 @@ mod tests {
         );
     }
 
-    fn down_vk(code: Code, vk: u16) -> KeyEvent {
-        KeyEvent {
-            down: true,
-            code,
-            raw: Some(RawKey {
-                vk: u32::from(vk),
-                extended: false,
-            }),
-        }
-    }
-
     #[test]
     fn stale_non_modifier_keys_are_dropped_but_never_the_current_one() {
         let mut d = Dispatcher::new();
-        d.process(down_vk(A, 0x41));
-        d.process(down_vk(B, 0x42));
+        d.process(key(true, A, 0x41));
+        d.process(key(true, B, 0x42));
         let polled = Mutex::new(Vec::new());
         d.drop_released_keys(B, |vks| {
             polled.lock().unwrap().push(vks.to_vec());
@@ -503,7 +519,7 @@ mod tests {
     fn keys_are_polled_on_the_virtual_key_they_were_pressed_with() {
         const NUM_8: Code = 0x48;
         let mut d = Dispatcher::new();
-        d.process(down_vk(NUM_8, VK_NUMPAD8));
+        d.process(key(true, NUM_8, u32::from(VK_NUMPAD8)));
         d.drop_released_keys(B, |vks| vks == [VK_NUMPAD8]);
         assert_eq!(d.pressed(), &Pressed::from([NUM_8]));
     }
@@ -512,7 +528,7 @@ mod tests {
     fn keys_still_down_or_without_a_recorded_virtual_key_are_kept() {
         let mut d = Dispatcher::new();
         d.process(down(CTRL));
-        d.process(down_vk(A, 0x41));
+        d.process(key(true, A, 0x41));
         d.drop_released_keys(B, |_| true);
         assert_eq!(d.pressed(), &Pressed::from([CTRL, A]));
         let mut d = pressing(&[A]);

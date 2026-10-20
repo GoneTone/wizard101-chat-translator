@@ -260,9 +260,9 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
-    use crate::input::dispatcher::{Blocking, KeyEvent};
+    use crate::input::dispatcher::Blocking;
+    use crate::input::dispatcher::testing::{code, down, up};
     use crate::input::inject::encode_units;
-    use crate::input::keys::key_to_scan_codes;
 
     #[derive(Debug, PartialEq, Clone)]
     enum Call {
@@ -374,10 +374,6 @@ mod tests {
             .collect()
     }
 
-    fn code(name: &str) -> Code {
-        key_to_scan_codes(name).unwrap()[0]
-    }
-
     fn setup() -> (Arc<Fake>, TypingEnv) {
         set_foreground(&[TARGET]);
         set_clipboard(Ok(None));
@@ -482,22 +478,6 @@ mod tests {
                 .iter()
                 .any(|c| matches!(c, Call::Press(_)))
         );
-    }
-
-    fn down(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: true,
-            code,
-            raw: None,
-        }
-    }
-
-    fn up(code: Code) -> KeyEvent {
-        KeyEvent {
-            down: false,
-            code,
-            raw: None,
-        }
     }
 
     fn interceptor(intercept: bool) -> (HotkeyInterceptor, Arc<Mutex<u32>>) {

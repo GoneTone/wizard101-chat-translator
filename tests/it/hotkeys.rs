@@ -6,31 +6,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use common::log_capture::{capture_logs, log_lines_with, logged};
+use wizard101_chat_translator::input::dispatcher::testing::{code, down, up};
 use wizard101_chat_translator::input::dispatcher::{
     Blocking, Dispatcher, KeyEvent, Pressed, SharedDispatcher,
 };
 use wizard101_chat_translator::input::hotkeys::register_hotkey;
-use wizard101_chat_translator::input::keys::{Code, key_to_scan_codes};
-
-fn code(name: &str) -> Code {
-    key_to_scan_codes(name).unwrap()[0]
-}
-
-fn down(code: Code) -> KeyEvent {
-    KeyEvent {
-        down: true,
-        code,
-        raw: None,
-    }
-}
-
-fn up(code: Code) -> KeyEvent {
-    KeyEvent {
-        down: false,
-        code,
-        raw: None,
-    }
-}
+use wizard101_chat_translator::input::keys::Code;
 
 struct Panics;
 

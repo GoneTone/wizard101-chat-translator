@@ -7,7 +7,7 @@ use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
-use wizard101_chat_translator::input::dispatcher::{Dispatcher, KeyEvent, RawKey};
+use wizard101_chat_translator::input::dispatcher::{Dispatcher, testing::key};
 use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::fonts_egui;
@@ -531,17 +531,6 @@ fn outcome_makes_urls_clickable() {
     let link = h.get_by_label("https://platform.example/docs/errors");
     assert_eq!(link.accesskit_node().role(), egui::accesskit::Role::Link);
     h.get_by_label("Connected");
-}
-
-fn key(down: bool, code: i32, vk: u32) -> KeyEvent {
-    KeyEvent {
-        down,
-        code,
-        raw: Some(RawKey {
-            vk,
-            extended: false,
-        }),
-    }
 }
 
 #[test]
