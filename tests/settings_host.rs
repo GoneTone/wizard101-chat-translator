@@ -363,6 +363,25 @@ fn saving_after_a_language_preview_relabels_the_overlay_once() {
 }
 
 #[test]
+fn applying_a_changed_language_without_a_preview_relabels_once() {
+    let _lock = language_lock();
+    i18n::set_language("zh-TW");
+    capture_logs();
+    let relabels = || log_lines_with("[ui] overlay relabeled language=en-US").len();
+    let (mut h, _wired) = settings_app(settings_cfg());
+    let before = relabels();
+    i18n::set_language("en-US");
+    let mut cfg = settings_cfg();
+    cfg.insert("ui_language".into(), json!("en-US"));
+    let ctx = h.ctx.clone();
+    for _ in 0..2 {
+        h.state_mut().apply_settings(&ctx, &cfg, None);
+    }
+    assert_eq!(relabels(), before + 1);
+    assert_eq!(h.state().ui_language(), "en-US");
+}
+
+#[test]
 fn settings_events_reach_the_open_window() {
     let _lock = language_lock();
     i18n::set_language("en-US");

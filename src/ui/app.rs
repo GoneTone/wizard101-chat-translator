@@ -261,7 +261,6 @@ impl App {
         if let Some(language) = cfg.get("ui_language").and_then(Value::as_str)
             && language != self.ui_language
         {
-            self.ui_language = language.to_owned();
             self.relabel(ctx);
         }
     }
