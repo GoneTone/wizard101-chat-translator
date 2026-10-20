@@ -42,7 +42,9 @@ use wizard101_chat_translator::ui::win32::cursor_pos;
 use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
 
 fn main() {
-    if !cfg!(debug_assertions) {
+    // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
+    let lock = acquire_single_instance();
+    if lock.is_some() && !cfg!(debug_assertions) {
         match logs::open_session_log(&app_dir().join("app.log"), chrono::Utc::now()) {
             Ok(file) => logs::init(Sink::File(file)),
             Err(e) => log(format!("[log] cannot open app.log: {e}")),
@@ -60,8 +62,7 @@ fn main() {
     set_language(&bootstrap_language(&mut cfg, config_existed));
 
     // 鎖要留到程序結束：一放掉 mutex 就放行下一份
-    let Some(_instance_lock) = claim_instance(acquire_single_instance, focus_running_instance)
-    else {
+    let Some(_instance_lock) = claim_instance(|| lock, focus_running_instance) else {
         return;
     };
     for dir in [app_dir(), local_state_dir()] {

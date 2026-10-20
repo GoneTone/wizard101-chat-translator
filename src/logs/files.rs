@@ -9,8 +9,6 @@ use std::path::Path;
 
 const SESSION_HEADER_PREFIX: &str = "===== session started ";
 const LOG_RETENTION_DAYS: i64 = 7;
-const LOG_HARD_CAP: usize = 5 * 1024 * 1024;
-const LOG_KEEP_TAIL: usize = 1024 * 1024;
 const HEADER_TS_FORMAT: &str = "%Y-%m-%dT%H:%M:%SZ";
 
 /// 行首時戳（UTC＋0、毫秒），例如 `2026-10-17T01:02:03.456Z`。
@@ -46,15 +44,11 @@ pub fn trim_log_sessions(text: &str, now: DateTime<Utc>) -> String {
 
 /// 開檔前清理過期段落，並把行尾正規化成單一 CRLF（修好舊版疊出的多餘 CR）。
 fn prepare_log(path: &Path, now: DateTime<Utc>) -> io::Result<()> {
-    let mut raw = match std::fs::read(path) {
+    let raw = match std::fs::read(path) {
         Ok(raw) => raw,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    let original = raw.clone();
-    if raw.len() > LOG_HARD_CAP {
-        raw.drain(..raw.len() - LOG_KEEP_TAIL);
-    }
     let lossy = String::from_utf8_lossy(&raw);
     let text = lossy
         .split('\n')
@@ -64,7 +58,7 @@ fn prepare_log(path: &Path, now: DateTime<Utc>) -> io::Result<()> {
     let out = trim_log_sessions(&text, now)
         .replace('\n', "\r\n")
         .into_bytes();
-    if out != original {
+    if out != raw {
         std::fs::write(path, out)?;
     }
     Ok(())
@@ -145,29 +139,6 @@ mod tests {
 
     fn day_header(days_ago: i64) -> String {
         session_header(now() - Duration::days(days_ago))
-    }
-
-    #[test]
-    fn open_session_log_caps_oversized_file() {
-        let (_dir, path) = temp();
-        // 多個近期 session：砍到尾端後第一段殘缺被丟，其後完整段落必須留下
-        let mut big = String::new();
-        let mut i = 0;
-        while big.len() < 6 * 1024 * 1024 {
-            big.push_str(&format!("{}\r\n", day_header(1)));
-            big.push_str(&format!("[app] filler {i} {}\r\n", "x".repeat(100_000)));
-            i += 1;
-        }
-        let last = big.lines().last().unwrap().to_string();
-        std::fs::write(&path, &big).unwrap();
-        open_session_log(&path, now()).unwrap();
-        let out = std::fs::read_to_string(&path).unwrap();
-        assert!(
-            out.len() <= LOG_KEEP_TAIL + session_header(now()).len() + 2,
-            "len={}",
-            out.len()
-        );
-        assert!(out.contains(&last));
     }
 
     #[test]
