@@ -424,6 +424,57 @@ fn repair_reports_write_failures_instead_of_claiming_success() {
 }
 
 #[test]
+fn repair_leaves_the_cave_alone_when_a_jump_write_fails() {
+    capture_logs();
+    let dir = tempfile::tempdir().unwrap();
+    hook_state::save_state(
+        dir.path(),
+        770_004,
+        0x1000,
+        &[
+            (0x2000, vec![0xAB]),
+            (0x3000, vec![0xCD]),
+            (0x4000, vec![0xEF]),
+        ],
+    )
+    .unwrap();
+    let mem = FakeMemory::new();
+    mem.add_module(MODULE, 0x1000);
+    mem.set_bytes(0x2000, &[0]);
+    mem.set_bytes(0x4000, &[0]);
+    let mut waited = false;
+    assert_eq!(
+        hook_state::repair(dir.path(), &mem, 770_004, 3, |_| waited = true),
+        1
+    );
+    assert_eq!(
+        mem.ops(),
+        [MemOp::Write {
+            addr: 0x2000,
+            bytes: vec![0xAB]
+        }],
+        "a jump may still point into the stub, so the cave stays as is"
+    );
+    assert!(!waited);
+    assert_eq!(
+        log_lines_with(
+            "[reader] hook repair skipped restoring the cave at 0x4000 because 1 jump \
+             write(s) failed (slot=3, pid=770004)"
+        )
+        .len(),
+        1
+    );
+    assert_eq!(
+        log_lines_with(
+            "[reader] repaired hooks leaked by previous dirty exit (writes=1, failed=1, slot=3, \
+             pid=770004), restart the game if chat stays silent"
+        )
+        .len(),
+        1
+    );
+}
+
+#[test]
 fn repair_skips_and_logs_a_stale_state_file() {
     capture_logs();
     let dir = tempfile::tempdir().unwrap();
