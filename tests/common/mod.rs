@@ -44,12 +44,3 @@ pub fn json_content(text: &str) -> String {
     let value: serde_json::Value = serde_json::from_str(text).expect("valid json");
     serde_json::to_string(&value).unwrap()
 }
-
-/// 把 golden fixture 裡的 hex 字串解回位元組。
-#[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
-pub fn unhex(s: &str) -> Vec<u8> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-        .collect()
-}

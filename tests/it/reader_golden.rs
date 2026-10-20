@@ -16,6 +16,7 @@ use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemError};
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::reader::ui_tree::{Window, find_by_name};
+use wizard101_chat_translator::util;
 
 fn pair(v: &Value) -> (i32, i32) {
     let a = v.as_array().unwrap();
@@ -111,7 +112,7 @@ fn ring_record_split_surrogate_matches_python() {
     let cases = common::golden("hook_records");
     assert!(cases.len() >= 15);
     for c in cases {
-        let rec = decode_record(&common::unhex(c["input"].as_str().unwrap()));
+        let rec = decode_record(&util::unhex(c["input"].as_str().unwrap()).unwrap());
         let o = &c["output"];
         assert_eq!(rec.seq, o["seq"].as_u64().unwrap());
         assert_eq!(rec.ret, o["ret"].as_u64().unwrap());

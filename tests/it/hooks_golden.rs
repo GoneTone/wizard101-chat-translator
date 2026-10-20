@@ -12,12 +12,13 @@ use wizard101_chat_translator::reader::hooks::{
     AUTOBOT_PATTERN, AutobotCave, MODULE, ROOT_WINDOW_PATTERN, RootWindowHook, STUB_EXIT_WAIT,
 };
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp};
+use wizard101_chat_translator::util;
 
 const BASE: u64 = 0x1_4000_0000;
 const RING_SIZE: usize = 0x80040;
 
 fn hex_of(v: &Value) -> Vec<u8> {
-    common::unhex(v.as_str().unwrap())
+    util::unhex(v.as_str().unwrap()).unwrap()
 }
 
 struct Game {

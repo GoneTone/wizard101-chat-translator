@@ -13,23 +13,13 @@ use serde_json::{Value, json};
 use super::hooks::{MODULE, STUB_EXIT_WAIT};
 use super::memory::ProcessMemory;
 use crate::logs::log;
-use crate::util::{hex, remove_dead_pid_files, write_atomic};
+use crate::util::{hex, remove_dead_pid_files, unhex, write_atomic};
 
 /// 一組依序寫回的還原操作（位址，原始 bytes）。
 pub type RestoreOps = Vec<(u64, Vec<u8>)>;
 
 fn state_path(dir: &Path, pid: u32) -> PathBuf {
     dir.join(format!("hookstate-{pid}.json"))
-}
-
-fn unhex(s: &str) -> Option<Vec<u8>> {
-    if !s.len().is_multiple_of(2) || !s.bytes().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
-        .collect()
 }
 
 /// 存還原操作與模組基址；`dir` 為 state 目錄（實機用 `config::local_state_dir()`）。
@@ -219,11 +209,5 @@ mod tests {
         let dir = tmp();
         save_state(dir.path(), 4321, 0x1000, &[]).unwrap();
         assert_eq!(load_state(dir.path(), 4321), (Some(0x1000), vec![]));
-    }
-
-    #[test]
-    fn reads_uppercase_hex() {
-        assert_eq!(unhex("0aFF"), Some(vec![0x0a, 0xff]));
-        assert_eq!(hex(&[0x0a, 0xff]), "0aff");
     }
 }

@@ -3,6 +3,7 @@
 use crate::common;
 
 use wizard101_chat_translator::region::ocr::{OcrBox, merge_lines, recognize};
+use wizard101_chat_translator::util;
 
 #[test]
 fn merge_lines_matches_python() {
@@ -30,7 +31,7 @@ fn merge_lines_matches_python() {
 #[test]
 fn recognize_matches_python() {
     for case in common::golden("ocr_recognize") {
-        let png = common::unhex(case["input"]["png"].as_str().unwrap());
+        let png = util::unhex(case["input"]["png"].as_str().unwrap()).unwrap();
         assert_eq!(
             recognize(&png).as_deref(),
             Ok(case["output"].as_str().unwrap()),
