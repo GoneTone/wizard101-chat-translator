@@ -1401,6 +1401,25 @@ fn missing_chatbox_is_rechecked_by_tab_polls_after_the_window() {
 }
 
 #[test]
+fn failing_chatbox_searches_are_throttled_for_tab_polls() {
+    let g = Game::new();
+    let mut r = g.connected(311);
+    put_children(&g.mem, ROOT, &[OTHER]);
+    assert_eq!(r.tab_state(), None);
+    let scans = g.spy.read_count(EXPORT);
+    assert_eq!(r.tab_state(), None);
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.clock.advance(INPUT_RECHECK);
+    assert_eq!(r.tab_state(), None);
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
+    assert_eq!(logged(311, "[reader] chat tabs").len(), 1, "logged once");
+}
+
+#[test]
 fn a_chat_line_still_refinds_the_chatbox_inside_the_window() {
     let g = Game::new();
     g.mem.set_bytes(BOX + CUR_TAB_OFFSET, &0i32.to_le_bytes());

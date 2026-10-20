@@ -182,7 +182,7 @@ pub struct WizChatReader {
     edit_missing_at: Option<Instant>,
     last_seq: u64,
     chatbox: Option<u64>,
-    /// 上次搜不到 ChatBox 的時刻：分頁輪詢在 `INPUT_RECHECK` 內不重搜（讀取畫面期間）。
+    /// 上次搜不到（或搜尋失敗）ChatBox 的時刻：分頁輪詢在 `INPUT_RECHECK` 內不重搜（讀取畫面期間）。
     chatbox_missing_at: Option<Instant>,
     buttons: Option<Vec<(i32, Window)>>,
     foreign: HashSet<u64>,
@@ -407,9 +407,16 @@ impl WizChatReader {
 
     /// 重找主 ChatBox；位址變了就清掉按鈕、輸入框快取與外來集合（新物件可能重用外來的舊位址）。
     fn refind_chatbox(&mut self) -> Result<(), MemError> {
-        let found = find_by_name(self.conn().mem.as_ref(), self.root()?, CHATBOX_WINDOW)?
-            .first()
-            .map(|w| w.addr);
+        let searched = self
+            .root()
+            .and_then(|root| find_by_name(self.conn().mem.as_ref(), root, CHATBOX_WINDOW));
+        let found = match searched {
+            Ok(windows) => windows.first().map(|w| w.addr),
+            Err(err) => {
+                self.chatbox_missing_at = Some((self.clock.now)());
+                return Err(err);
+            }
+        };
         if let Some(addr) = found
             && found != self.chatbox
         {
@@ -447,6 +454,14 @@ impl WizChatReader {
     /// 遊戲聊天框的目前分頁與可見分頁；未連上、找不到 ChatBox 或讀取失敗回 None。
     pub fn tab_state(&mut self) -> Option<TabState> {
         self.attached.as_ref()?;
+        // 聊天記錄那條路不受此限：有記錄進來代表 ChatBox 多半已經在了，擋了會丟訊息；
+        // 也不更新 tabs_logged，同一個錯誤才不會因為中間被擋而重記
+        let recently_missing = self
+            .chatbox_missing_at
+            .is_some_and(|at| (self.clock.now)().duration_since(at) < INPUT_RECHECK);
+        if recently_missing {
+            return None;
+        }
         let outcome = match self.read_tabs() {
             Ok(state) => state.map(Ok),
             Err(err) => {
@@ -482,13 +497,6 @@ impl WizChatReader {
     }
 
     fn read_tabs(&mut self) -> Result<Option<TabState>, Box<dyn Error>> {
-        // 聊天記錄那條路不受此限：有記錄進來代表 ChatBox 多半已經在了，擋了會丟訊息
-        let recently_missing = self
-            .chatbox_missing_at
-            .is_some_and(|at| (self.clock.now)().duration_since(at) < INPUT_RECHECK);
-        if recently_missing {
-            return Ok(None);
-        }
         if self.chatbox.is_none() || self.buttons.is_none() {
             self.refind_chatbox()?;
         }
