@@ -570,15 +570,6 @@ fn paused_rt() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-/// 讓 `rt` 上的背景工作跑到 `done` 成立為止，最多等 [`common::WAIT`]。
-fn run_until(rt: &tokio::runtime::Runtime, what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + common::WAIT;
-    while !done() {
-        assert!(Instant::now() < deadline, "timed out waiting: {what}");
-        rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
-    }
-}
-
 /// 目標語言是遊戲原生語言時，範例生成不打網路、直接給內建的一組。
 fn offline_cfg(tag: &str) -> Config {
     let mut cfg = tagged(tag);
@@ -687,8 +678,11 @@ fn late_examples_after_a_save_bind_the_cache_to_the_new_fingerprint() {
     assert!(built.cache.fingerprint().ends_with("x-"));
 
     // 生成套用後才 rebind，指紋帶上範例就代表兩步都做完了
-    run_until(&rt, "the late generation rebinds the cache", || {
-        !built.cache.fingerprint().ends_with("x-")
+    common::wait_until("the late generation to rebind the cache", || {
+        !built.cache.fingerprint().ends_with("x-") || {
+            rt.block_on(tokio::time::sleep(Duration::from_millis(10)));
+            false
+        }
     });
     let applied = built.incoming.examples();
     assert!(applied.is_some(), "the late generation was applied");
@@ -970,11 +964,7 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     *blocked.gate.lock().unwrap() = Some(gate);
     let env = typing_env(&blocked);
     let typing = std::thread::spawn(move || type_into_window(&env, 0x77, "x", Duration::ZERO));
-    let deadline = Instant::now() + common::WAIT;
-    while !typing_in_progress() {
-        assert!(Instant::now() < deadline, "typing never started");
-        std::thread::yield_now();
-    }
+    common::wait_until("typing to start", typing_in_progress);
 
     assert!(!press(&d, &["ctrl", "v"]));
     assert!(
@@ -1090,11 +1080,7 @@ fn outgoing_translate_cancel_logs_and_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.submit("cancelled-text-17", 0, 9);
     let marker = "[input] outgoing translation cancelled (chars=17)";
-    let deadline = Instant::now() + common::WAIT;
-    while log_lines_with(marker).is_empty() {
-        assert!(Instant::now() < deadline, "no cancel log");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    common::wait_until("the cancel log", || !log_lines_with(marker).is_empty());
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 
@@ -1165,11 +1151,7 @@ fn region_runner_cancel_posts_nothing() {
     let o = outgoing(Err(TranslateError::Cancelled));
     let rx = o.run_region("hello", 41);
     let marker = "[region] request cancelled (session=41)";
-    let deadline = Instant::now() + common::WAIT;
-    while log_lines_with(marker).is_empty() {
-        assert!(Instant::now() < deadline, "no cancel log");
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    common::wait_until("the cancel log", || !log_lines_with(marker).is_empty());
     assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
 }
 

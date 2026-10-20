@@ -107,14 +107,9 @@ pub fn failing_pool(rt: &Runtime, err: TranslateError) -> Arc<TranslationPool> {
         }),
     );
     pool.submit("prime".into(), Vec::new(), 0);
-    let deadline = Instant::now() + super::WAIT;
-    while pool.error_state().is_none() {
-        assert!(
-            Instant::now() < deadline,
-            "pool never entered an error state"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    super::wait_until("the pool to enter an error state", || {
+        pool.error_state().is_some()
+    });
     pool
 }
 

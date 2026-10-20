@@ -20,6 +20,19 @@ pub mod wizard;
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub const WAIT: Duration = Duration::from_secs(30);
 
+/// 輪詢 `condition` 到成立為止，最多等 [`WAIT`]，逾時以 `what` 為訊息 panic。
+#[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
+pub fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + WAIT;
+    while !condition() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {what}"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// 全域介面語言同一時間只給一個測試用（會切換語言的測試檔各自排隊）。
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub fn language_lock() -> MutexGuard<'static, ()> {
