@@ -364,7 +364,12 @@ pub fn install_paste(
         let (settings, tracker) = (Arc::clone(settings), Arc::clone(&wiring.tracker));
         let foreground = typing.foreground;
         move || {
-            on_paste_hotkey(&settings, &tracker, Arc::clone(&typing), foreground);
+            on_paste_hotkey(
+                &settings,
+                Arc::clone(&tracker),
+                Arc::clone(&typing),
+                foreground,
+            );
         }
     };
     let paste = paste_interceptor(
@@ -421,18 +426,17 @@ pub fn apply_settings(
 
 /// 攔到遊戲內的 Ctrl+V：記下當下的前景視窗，交給背景執行緒鍵入剪貼簿（回傳該執行緒）。
 ///
-/// 那個客戶端的聊天輸入框開著時走單行模式（換行改空格），其他地方換行照打。
+/// 那個客戶端的聊天輸入框開著時（包括貼上途中被打開）換行改空格，其他地方換行照打。
 pub fn on_paste_hotkey(
     settings: &RwLock<Config>,
-    tracker: &ChatInputTracker,
+    tracker: Arc<ChatInputTracker>,
     typing: Arc<TypingEnv>,
     foreground: fn() -> isize,
 ) -> JoinHandle<()> {
     let hwnd = foreground();
     let delay = type_delay(&read(settings));
-    let single_line = tracker.is_open(hwnd);
     std::thread::spawn(move || {
-        paste_clipboard(&typing, hwnd, delay, single_line);
+        paste_clipboard(&typing, hwnd, delay, || tracker.is_open(hwnd));
     })
 }
 
