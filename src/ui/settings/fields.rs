@@ -3,9 +3,9 @@
 use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{
-    self, Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup, PopupKind,
-    Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui, WidgetInfo,
-    pos2, vec2,
+    self, Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup,
+    PopupKind, Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui,
+    WidgetInfo, pos2, vec2,
 };
 
 use crate::py::pystr;

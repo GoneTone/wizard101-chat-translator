@@ -345,6 +345,24 @@ fn cancel_restores_alpha_and_language() {
 }
 
 #[test]
+fn saving_after_a_language_preview_relabels_the_overlay_once() {
+    let _lock = language_lock();
+    i18n::set_language("zh-TW");
+    capture_logs();
+    let relabels = || log_lines_with("[ui] overlay relabeled language=en-US").len();
+    let before = relabels();
+    let (mut h, _wired) = settings_app(settings_cfg());
+    open_settings(&mut h);
+    click(&mut h, Role::ComboBox, &tr("field.ui_language"));
+    h.get_by_role_and_label(Role::Button, &language_name("en-US"))
+        .click();
+    run(&mut h);
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert_eq!(current_language(), "en-US");
+    assert_eq!(relabels(), before + 1);
+}
+
+#[test]
 fn settings_events_reach_the_open_window() {
     let _lock = language_lock();
     i18n::set_language("en-US");

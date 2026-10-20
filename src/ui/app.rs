@@ -305,6 +305,7 @@ impl App {
     /// 這裡只需換字型與視窗標題。已經顯示的訊息是聊天內容，不回溯改寫。
     pub fn relabel(&mut self, ctx: &egui::Context) {
         let language = current_language();
+        self.ui_language.clone_from(&language);
         fonts_egui::install(ctx, &language);
         ctx.send_viewport_cmd(ViewportCommand::Title(app_name()));
         log(format!("[ui] overlay relabeled language={language}"));
