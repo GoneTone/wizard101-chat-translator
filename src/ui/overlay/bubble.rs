@@ -14,8 +14,8 @@ use crate::ui::settings::theme;
 
 /// 泡泡邊長（DIP）。
 pub const BUBBLE_SIZE: i32 = 48;
-/// 泡泡狀態下檢查前景視窗的間隔。
-pub const POLL_INTERVAL: Duration = Duration::from_millis(300);
+/// 泡泡狀態下檢查前景視窗的間隔：啟用事件當幀就會觸發展開，輪詢只是沒有事件時的保險。
+pub const POLL_INTERVAL: Duration = Duration::from_secs(2);
 // 泡泡比主視窗再透一些，但留下限：overlay_alpha 調到最低時才不會幾乎看不見、找不回來
 const ALPHA_FACTOR: f32 = 0.8;
 const ALPHA_FLOOR: f32 = 0.30;
