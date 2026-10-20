@@ -2,22 +2,20 @@
 
 use crate::common;
 
-use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 use common::log_capture::{capture_logs, logged};
 use image::{Rgb, RgbImage};
-use tokio_util::sync::CancellationToken;
-use wizard101_chat_translator::region::capture::{CaptureError, Frame};
+use wizard101_chat_translator::region::capture::Frame;
 use wizard101_chat_translator::region::pipeline::RegionResult;
 use wizard101_chat_translator::ui::geometry::Rect;
-use wizard101_chat_translator::ui::region::flow::{
-    CaptureKind, RegionCapturer, RegionDesktop, RegionFlow, RegionRunner, Shot,
+use wizard101_chat_translator::ui::region::fakes::{
+    self, Crop, FakeDesktop, FakeRunner, Shared, boom, capturer,
 };
-use wizard101_chat_translator::ui::region::selector::{self, SelectorAction};
+use wizard101_chat_translator::ui::region::flow::RegionFlow;
+use wizard101_chat_translator::ui::region::selector::SelectorAction;
 
 /// client 區在 (0, 0)、8×8，每個像素顏色不同，裁切才會成功。
 fn frame() -> Arc<Frame> {
@@ -28,82 +26,37 @@ fn frame() -> Arc<Frame> {
     })
 }
 
-struct Desktop;
-
-impl RegionDesktop for Desktop {
-    fn foreground(&mut self, _hwnd: isize) {}
-
-    fn find_game(&self) -> Option<isize> {
-        None
-    }
-
-    fn cursor(&self) -> (i32, i32) {
-        (0, 0)
-    }
-}
-
-type Done = Rc<RefCell<VecDeque<(u64, Result<Shot, CaptureError>)>>>;
-
-/// 當場算好結果存著，由測試以 `deliver` 交回流程。
-struct Capturer {
-    fail: bool,
-    done: Done,
-}
-
-impl RegionCapturer for Capturer {
-    fn capture(&self, id: u64, _hwnd: isize, kind: CaptureKind) {
-        let result = if self.fail {
-            Err(CaptureError::Failed("no frame within 2.0s".into()))
-        } else {
-            let frame = frame();
-            let selector = (kind == CaptureKind::Select).then(|| {
-                (
-                    (0, 0, 1920, 1080),
-                    selector::images(&frame, &RgbImage::new(1, 1)),
-                )
-            });
-            Ok(Shot { frame, selector })
-        };
-        self.done.borrow_mut().push_back((id, result));
-    }
-}
-
-type Runs = Rc<RefCell<Vec<(Vec<u8>, u64, CancellationToken)>>>;
-
-struct Runner(Runs);
-
-impl RegionRunner for Runner {
-    fn run(&self, png: Vec<u8>, _rect: Rect, session: u64, cancel: CancellationToken) {
-        self.0.borrow_mut().push((png, session, cancel));
-    }
-}
-
 struct H {
     flow: RegionFlow,
-    runs: Runs,
-    done: Done,
+    calls: Shared,
 }
 
 impl H {
     fn new(fail: bool) -> Self {
         capture_logs();
-        let (runs, done) = (Runs::default(), Done::default());
+        let calls = Shared::default();
+        let mut capturer = capturer(&calls);
+        capturer.fallback = frame();
+        if fail {
+            capturer.frames.borrow_mut().push_back(Err(boom()));
+        }
+        let desktop = FakeDesktop {
+            calls: Rc::clone(&calls),
+            crop: Crop::Real,
+            game: None,
+        };
         let flow = RegionFlow::new(
-            Box::new(Desktop),
-            Box::new(Capturer {
-                fail,
-                done: Rc::clone(&done),
-            }),
-            Box::new(Runner(Rc::clone(&runs))),
+            Box::new(desktop),
+            Box::new(capturer),
+            Box::new(FakeRunner(Rc::clone(&calls))),
             Arc::new(AtomicBool::new(false)),
         );
-        Self { flow, runs, done }
+        Self { flow, calls }
     }
 
     /// 把最早一筆擷取結果交回流程。
     fn deliver(&mut self) {
-        let (id, result) = self.done.borrow_mut().pop_front().expect("a capture");
-        self.flow.on_captured(id, result);
+        fakes::deliver(&mut self.flow, &self.calls);
     }
 
     fn select(&mut self, hwnd: isize, rect: Rect) {
@@ -119,10 +72,17 @@ fn stale_result_is_dropped_and_the_replaced_request_cancelled_with_logs() {
     h.select(0x5050, (2, 2, 4, 4));
     h.select(0x5050, (1, 1, 3, 3));
     assert_eq!(
-        h.runs.borrow().iter().map(|r| r.1).collect::<Vec<_>>(),
+        h.calls
+            .borrow()
+            .runs
+            .iter()
+            .map(|r| r.1)
+            .collect::<Vec<_>>(),
         [1, 2]
     );
-    assert!(h.runs.borrow()[0].2.is_cancelled() && !h.runs.borrow()[1].2.is_cancelled());
+    assert!(
+        h.calls.borrow().runs[0].2.is_cancelled() && !h.calls.borrow().runs[1].2.is_cancelled()
+    );
     h.flow.finish(1, Ok(RegionResult::default()));
     assert!(logged("[region] selection started (game_hwnd=0x5050)"));
     assert!(logged(
@@ -137,7 +97,7 @@ fn stale_result_is_dropped_and_the_replaced_request_cancelled_with_logs() {
 fn the_default_crop_sends_the_selected_part_of_the_frame() {
     let mut h = H::new(false);
     h.select(0x5151, (2, 3, 4, 5));
-    let png = h.runs.borrow()[0].0.clone();
+    let png = h.calls.borrow().pngs[0].clone();
     let cropped = image::load_from_memory(&png).unwrap().to_rgb8();
     assert_eq!(cropped.dimensions(), (4, 5));
     assert_eq!(cropped.get_pixel(0, 0), &Rgb([60, 90, 0]));
@@ -147,7 +107,7 @@ fn the_default_crop_sends_the_selected_part_of_the_frame() {
 fn a_selection_outside_the_game_logs_the_capture_failure() {
     let mut h = H::new(false);
     h.select(0x5252, (20, 20, 5, 5));
-    assert!(h.runs.borrow().is_empty());
+    assert!(h.calls.borrow().runs.is_empty());
     assert!(logged(
         "[region] capture failed (hwnd=0x5252, rect=(20, 20, 5, 5)): \
          selection outside game window (rect=(20, 20, 5, 5), client=(0, 0, 8, 8))"
@@ -184,7 +144,7 @@ fn adjusting_the_box_logs_the_recapture() {
     h.select(0x5555, (2, 2, 4, 4));
     h.flow.on_box_changed((1, 1, 2, 2));
     h.deliver();
-    assert_eq!(h.runs.borrow().len(), 2);
+    assert_eq!(h.calls.borrow().runs.len(), 2);
     assert!(logged(
         "[region] box adjusted, recapturing (game_hwnd=0x5555, rect=(1, 1, 2, 2))"
     ));
