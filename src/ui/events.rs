@@ -4,9 +4,11 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use crate::reader::chat_tabs::TabState;
+use crate::region::capture::CaptureError;
 use crate::region::pipeline::RegionResult;
 use crate::runtime::updater::Release;
 use crate::ui::geometry::Rect;
+use crate::ui::region::flow::Shot;
 use crate::ui::settings::env::SettingsEvent;
 use crate::util::lock;
 
@@ -57,6 +59,11 @@ pub enum UiEvent {
     },
     /// 框選熱鍵；`hwnd` 為 0 表示取消目前的選取層。
     RegionHotkey { hwnd: isize },
+    /// 框選背景擷取的結果；`id` 不是流程正在等的就丟掉。
+    RegionCaptured {
+        id: u64,
+        result: Result<Shot, CaptureError>,
+    },
     /// 框選辨識翻譯結果；`Err` 是 `describe_error` 的文案。
     RegionDone {
         session: u64,

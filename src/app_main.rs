@@ -51,7 +51,8 @@ use crate::translation::translator::{ExampleCoordinator, Translator};
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::Rect;
 use crate::ui::input_box::OutgoingRequest;
-use crate::ui::region::flow::{RegionDesktop, RegionRunner};
+use crate::ui::region::flow::{CaptureKind, RegionCapturer, RegionDesktop, RegionRunner, Shot};
+use crate::ui::region::selector;
 use crate::ui::win32::{cursor_pos, force_foreground, monitor_rect_at};
 use crate::util::{Clock, join_until, lock, panic_message, read, write};
 
@@ -257,7 +258,7 @@ pub struct InputWiring {
     pub tracker: Arc<ChatInputTracker>,
     /// 翻譯輸入框是否開著（熱鍵回呼讀）。
     pub box_open: Arc<AtomicBool>,
-    /// 框選的選取畫面是否開著（`RegionFlow` 寫、框選熱鍵回呼讀）。
+    /// 框選的選取畫面是否開著或正在為它擷取（`RegionFlow` 寫、框選熱鍵回呼讀）。
     pub selecting: Arc<AtomicBool>,
     /// 熱鍵回呼查前景用的入口；測試換成假的。
     pub foreground: fn() -> Foreground,
@@ -534,22 +535,77 @@ impl RegionRunner for PipelineRunner {
     }
 }
 
-/// 框選流程的正式桌面操作：WGC 與螢幕擷取、Win32 的螢幕、前景與游標。
+/// 框選的 `RegionCapturer`：每次擷取開一條執行緒，結果以 `UiEvent::RegionCaptured` 送回。
+pub fn region_capturer(ui: UiPoster) -> Box<dyn RegionCapturer> {
+    Box::new(ThreadCapturer { ui })
+}
+
+struct ThreadCapturer {
+    ui: UiPoster,
+}
+
+impl RegionCapturer for ThreadCapturer {
+    fn capture(&self, id: u64, hwnd: isize, kind: CaptureKind) {
+        let ui = self.ui.clone();
+        let spawned = std::thread::Builder::new()
+            .name("region-capture".into())
+            .spawn(move || {
+                let result = guarded(id, || {
+                    shoot(
+                        hwnd,
+                        kind,
+                        capture::capture_window,
+                        monitor_rect_at,
+                        capture::capture_screen,
+                    )
+                });
+                ui.post(UiEvent::RegionCaptured { id, result });
+            });
+        if let Err(e) = spawned {
+            log(format!("[region] cannot spawn capture thread: {e}"));
+            // 不送結果的話流程會一直停在等擷取
+            self.ui.post(UiEvent::RegionCaptured {
+                id,
+                result: Err(CaptureError::Failed(e.to_string())),
+            });
+        }
+    }
+}
+
+/// 拍遊戲畫面；開框時另拍 client 區中心所在的螢幕當暗化背景，兩張圖一併轉好。
+fn shoot(
+    hwnd: isize,
+    kind: CaptureKind,
+    grab: impl FnOnce(isize) -> Result<Frame, CaptureError>,
+    monitor_at: impl FnOnce(i32, i32) -> Rect,
+    screen: impl FnOnce(Rect) -> RgbImage,
+) -> Result<Shot, CaptureError> {
+    let frame = Arc::new(grab(hwnd)?);
+    let selector = (kind == CaptureKind::Select).then(|| {
+        let monitor = monitor_at(
+            frame.client_origin.0 + frame.client_size.0 / 2,
+            frame.client_origin.1 + frame.client_size.1 / 2,
+        );
+        (monitor, selector::images(&frame, &screen(monitor)))
+    });
+    Ok(Shot { frame, selector })
+}
+
+/// 擷取執行緒 panic 時轉成 `CaptureError::Failed`，流程才不會卡在等擷取。
+fn guarded(id: u64, f: impl FnOnce() -> Result<Shot, CaptureError>) -> Result<Shot, CaptureError> {
+    std::panic::catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|panic| {
+        let message = panic_message(panic.as_ref());
+        log(format!(
+            "[region] capture thread panicked (id={id}): {message}"
+        ));
+        Err(CaptureError::Failed(message))
+    })
+}
+
+/// 框選流程的正式桌面操作：Win32 的前景、列舉視窗與游標。
 pub struct WinRegionDesktop;
 
 impl RegionDesktop for WinRegionDesktop {
-    fn capture_window(&mut self, hwnd: isize) -> Result<Arc<Frame>, CaptureError> {
-        capture::capture_window(hwnd).map(Arc::new)
-    }
-
-    fn capture_screen(&mut self, monitor: Rect) -> RgbImage {
-        capture::capture_screen(monitor)
-    }
-
-    fn monitor_at(&self, x: i32, y: i32) -> Rect {
-        monitor_rect_at(x, y)
-    }
-
     fn foreground(&mut self, hwnd: isize) {
         force_foreground(hwnd);
     }
@@ -824,6 +880,73 @@ mod tests {
         assert!(quit_on_ctrl_c(CTRL_C_EVENT, &ui, &posted));
         assert!(!quit_on_ctrl_c(CTRL_C_EVENT, &ui, &posted));
         assert_eq!(rx.try_iter().collect::<Vec<_>>(), [UiEvent::Quit]);
+    }
+
+    fn shot_frame() -> Result<Frame, CaptureError> {
+        Ok(Frame {
+            image: RgbImage::new(4, 4),
+            client_origin: (100, 200),
+            client_size: (800, 600),
+        })
+    }
+
+    #[test]
+    fn shoot_for_a_selection_uses_the_monitor_under_the_client_centre() {
+        let mut asked = None;
+        let shot = shoot(
+            0x1234,
+            CaptureKind::Select,
+            |_| shot_frame(),
+            |x, y| {
+                asked = Some((x, y));
+                (0, 0, 1920, 1080)
+            },
+            |_| RgbImage::new(3, 2),
+        )
+        .unwrap();
+        assert_eq!(asked, Some((500, 500)));
+        let (monitor, images) = shot.selector.expect("selector images");
+        assert_eq!(monitor, (0, 0, 1920, 1080));
+        assert_eq!(images[0].size, [3, 2]);
+    }
+
+    #[test]
+    fn shoot_for_a_recapture_skips_the_screen_and_monitor() {
+        let shot = shoot(
+            0x1234,
+            CaptureKind::Recapture,
+            |_| shot_frame(),
+            |_, _| panic!("monitor_at called"),
+            |_| panic!("screen called"),
+        )
+        .unwrap();
+        assert!(shot.selector.is_none());
+    }
+
+    #[test]
+    fn shoot_passes_a_grab_failure_through() {
+        let result = shoot(
+            0x1234,
+            CaptureKind::Select,
+            |_| Err(CaptureError::Failed("x".into())),
+            |_, _| (0, 0, 1, 1),
+            |_| panic!("screen called"),
+        );
+        assert_eq!(result, Err(CaptureError::Failed("x".into())));
+    }
+
+    #[test]
+    fn a_panicking_capture_becomes_a_failure() {
+        let mut result = None;
+        let text = crate::logs::capture(|| result = Some(guarded(7, || panic!("boom"))));
+        match result {
+            Some(Err(CaptureError::Failed(m))) => assert!(m.contains("boom"), "{m}"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(
+            text.contains("[region] capture thread panicked (id=7): boom"),
+            "{text}"
+        );
     }
 
     #[test]

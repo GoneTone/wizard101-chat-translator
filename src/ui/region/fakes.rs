@@ -1,4 +1,4 @@
-//! 框選流程的替身：桌面操作與 runner 只記下呼叫，不碰真的視窗、截圖或網路。
+//! 框選流程的替身：桌面操作、擷取與 runner 只記下呼叫，不碰真的視窗、截圖或網路。
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -10,8 +10,12 @@ use image::RgbImage;
 use tokio_util::sync::CancellationToken;
 
 use crate::region::capture::{CaptureError, Frame, crop_frame};
+use crate::ui::events::UiEvent;
 use crate::ui::geometry::Rect;
-use crate::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
+use crate::ui::region::flow::{
+    CaptureKind, RegionCapturer, RegionDesktop, RegionFlow, RegionRunner, Shot,
+};
+use crate::ui::region::selector::images;
 
 /// 落在凍結畫面內的框選矩形。
 pub(crate) const RECT: Rect = (100, 100, 300, 120);
@@ -40,8 +44,8 @@ pub(crate) struct Calls {
     /// 前景與送出請求的先後。
     pub(crate) order: Vec<String>,
     pub(crate) captured: Vec<isize>,
-    pub(crate) monitor_at: Vec<(i32, i32)>,
-    pub(crate) screens: Vec<Rect>,
+    /// 擷取完成、還沒交給流程的結果（依發出先後）。
+    pub(crate) pending: VecDeque<(u64, Result<Shot, CaptureError>)>,
     pub(crate) foreground: Vec<isize>,
     /// 裁切時收到的畫面（以位址辨識）與矩形。
     pub(crate) crops: Vec<(usize, Rect)>,
@@ -60,32 +64,11 @@ pub(crate) enum Crop {
 
 pub(crate) struct FakeDesktop {
     pub(crate) calls: Shared,
-    /// 依序回傳；用完就一直回 `fallback`。
-    pub(crate) frames: VecDeque<Result<Arc<Frame>, CaptureError>>,
-    pub(crate) fallback: Arc<Frame>,
     pub(crate) crop: Crop,
     pub(crate) game: Option<isize>,
-    pub(crate) backdrop: (u32, u32),
 }
 
 impl RegionDesktop for FakeDesktop {
-    fn capture_window(&mut self, hwnd: isize) -> Result<Arc<Frame>, CaptureError> {
-        self.calls.borrow_mut().captured.push(hwnd);
-        self.frames
-            .pop_front()
-            .unwrap_or_else(|| Ok(Arc::clone(&self.fallback)))
-    }
-
-    fn capture_screen(&mut self, monitor: Rect) -> RgbImage {
-        self.calls.borrow_mut().screens.push(monitor);
-        RgbImage::new(self.backdrop.0, self.backdrop.1)
-    }
-
-    fn monitor_at(&self, x: i32, y: i32) -> Rect {
-        self.calls.borrow_mut().monitor_at.push((x, y));
-        MONITOR
-    }
-
     fn foreground(&mut self, hwnd: isize) {
         let mut calls = self.calls.borrow_mut();
         calls.foreground.push(hwnd);
@@ -129,12 +112,62 @@ impl RegionRunner for FakeRunner {
 pub(crate) fn desktop() -> FakeDesktop {
     FakeDesktop {
         calls: Shared::default(),
-        frames: VecDeque::new(),
-        fallback: frame(),
         crop: Crop::Png,
         game: Some(GAME),
+    }
+}
+
+/// 當場算好結果存進 `calls.pending`，由測試決定何時以 `deliver` 交給流程。
+pub(crate) struct FakeCapturer {
+    pub(crate) calls: Shared,
+    /// 依序回傳；用完就一直回 `fallback`。
+    pub(crate) frames: RefCell<VecDeque<Result<Arc<Frame>, CaptureError>>>,
+    pub(crate) fallback: Arc<Frame>,
+    pub(crate) backdrop: (u32, u32),
+}
+
+impl RegionCapturer for FakeCapturer {
+    fn capture(&self, id: u64, hwnd: isize, kind: CaptureKind) {
+        let next = self.frames.borrow_mut().pop_front();
+        let result = next.unwrap_or_else(|| Ok(Arc::clone(&self.fallback)));
+        let result = result.map(|frame| {
+            let selector = (kind == CaptureKind::Select).then(|| {
+                let backdrop = RgbImage::new(self.backdrop.0, self.backdrop.1);
+                (MONITOR, images(&frame, &backdrop))
+            });
+            Shot { frame, selector }
+        });
+        let mut calls = self.calls.borrow_mut();
+        calls.captured.push(hwnd);
+        calls.pending.push_back((id, result));
+    }
+}
+
+pub(crate) fn capturer() -> FakeCapturer {
+    FakeCapturer {
+        calls: Shared::default(),
+        frames: RefCell::default(),
+        fallback: frame(),
         backdrop: (1, 1),
     }
+}
+
+/// 最早一筆擷取結果，包成背景執行緒會投遞的事件。
+pub(crate) fn delivery(calls: &Shared) -> UiEvent {
+    let (id, result) = calls
+        .borrow_mut()
+        .pending
+        .pop_front()
+        .expect("a capture is pending");
+    UiEvent::RegionCaptured { id, result }
+}
+
+/// 把最早一筆擷取結果交給流程。
+pub(crate) fn deliver(flow: &mut RegionFlow, calls: &Shared) {
+    let UiEvent::RegionCaptured { id, result } = delivery(calls) else {
+        unreachable!()
+    };
+    flow.on_captured(id, result);
 }
 
 /// 接上替身的流程與它的呼叫紀錄。
@@ -144,8 +177,13 @@ pub(crate) fn flow() -> (RegionFlow, Shared) {
         ..desktop()
     };
     let calls = Rc::clone(&desktop.calls);
+    let capturer = FakeCapturer {
+        calls: Rc::clone(&calls),
+        ..capturer()
+    };
     let flow = RegionFlow::new(
         Box::new(desktop),
+        Box::new(capturer),
         Box::new(FakeRunner(Rc::clone(&calls))),
         Arc::new(AtomicBool::new(false)),
     );

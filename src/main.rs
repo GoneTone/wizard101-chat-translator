@@ -9,8 +9,8 @@ use serde_json::json;
 use tokio::runtime::Handle;
 use wizard101_chat_translator::app_main::{
     Running, WinRegionDesktop, apply_settings, build_app, claim_instance, install_console_quit,
-    log_startup_summary, open_messages_log, outgoing_translate, region_runner, run_ui_then,
-    save_field, shutdown, type_delay,
+    log_startup_summary, open_messages_log, outgoing_translate, region_capturer, region_runner,
+    run_ui_then, save_field, shutdown, type_delay,
 };
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
@@ -214,6 +214,7 @@ fn start_main(app: &mut App, startup: Startup) {
     );
     let region_flow = RegionFlow::new(
         Box::new(WinRegionDesktop),
+        region_capturer(ui.clone()),
         region_runner(
             RegionPipeline::new(
                 Arc::clone(&built.translation.region),

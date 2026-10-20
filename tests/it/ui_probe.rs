@@ -34,7 +34,7 @@ use wizard101_chat_translator::config::{Config, app_name};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::logs::log;
-use wizard101_chat_translator::region::capture::{CaptureError, Frame as CaptureFrame};
+use wizard101_chat_translator::region::capture::Frame as CaptureFrame;
 use wizard101_chat_translator::region::pipeline::RegionResult;
 use wizard101_chat_translator::ui::app::{self, App};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
@@ -44,9 +44,11 @@ use wizard101_chat_translator::ui::input_host::Desktop;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
 use wizard101_chat_translator::ui::palette::{BAR, BG, GRIP};
 use wizard101_chat_translator::ui::region::card::ANCHOR_GAP;
-use wizard101_chat_translator::ui::region::flow::{RegionDesktop, RegionFlow, RegionRunner};
+use wizard101_chat_translator::ui::region::flow::{
+    CaptureKind, RegionCapturer, RegionDesktop, RegionFlow, RegionRunner, Shot,
+};
 use wizard101_chat_translator::ui::region::region_box;
-use wizard101_chat_translator::ui::region::selector::SelectorAction;
+use wizard101_chat_translator::ui::region::selector::{self, SelectorAction};
 use wizard101_chat_translator::ui::run;
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 use wizard101_chat_translator::ui::settings::theme;
@@ -131,30 +133,40 @@ impl eframe::App for Probe {
     }
 }
 
-/// 框選的桌面替身：凍結畫面是螢幕外 client 區的漸層圖，不截圖、不切前景。
+/// 框選的桌面替身：不切前景。
 struct RegionFake;
 
 impl RegionDesktop for RegionFake {
-    fn capture_window(&mut self, _hwnd: isize) -> Result<Arc<CaptureFrame>, CaptureError> {
-        let (x, y, w, h) = REGION_CLIENT;
-        Ok(Arc::new(CaptureFrame {
-            image: RgbImage::from_fn(w as u32, h as u32, |x, y| Rgb([x as u8, y as u8, 0])),
-            client_origin: (x, y),
-            client_size: (w, h),
-        }))
-    }
-    fn capture_screen(&mut self, _monitor: Rect) -> RgbImage {
-        RgbImage::new(1, 1)
-    }
-    fn monitor_at(&self, _x: i32, _y: i32) -> Rect {
-        REGION_CLIENT
-    }
     fn foreground(&mut self, _hwnd: isize) {}
     fn find_game(&self) -> Option<isize> {
         Some(REGION_GAME)
     }
     fn cursor(&self) -> (i32, i32) {
         BOX_CURSOR
+    }
+}
+
+/// 框選的擷取替身：當場投遞螢幕外 client 區的漸層圖，不截圖。
+struct RegionShots(UiPoster);
+
+impl RegionCapturer for RegionShots {
+    fn capture(&self, id: u64, _hwnd: isize, kind: CaptureKind) {
+        let (x, y, w, h) = REGION_CLIENT;
+        let frame = Arc::new(CaptureFrame {
+            image: RgbImage::from_fn(w as u32, h as u32, |x, y| Rgb([x as u8, y as u8, 0])),
+            client_origin: (x, y),
+            client_size: (w, h),
+        });
+        let selector = (kind == CaptureKind::Select).then(|| {
+            (
+                REGION_CLIENT,
+                selector::images(&frame, &RgbImage::new(1, 1)),
+            )
+        });
+        self.0.post(UiEvent::RegionCaptured {
+            id,
+            result: Ok(Shot { frame, selector }),
+        });
     }
 }
 
@@ -727,6 +739,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
         let events = GameInputEvents::new(Arc::default(), || 0);
         let region = RegionFlow::new(
             Box::new(RegionFake),
+            Box::new(RegionShots(region_poster.clone())),
             Box::new(RegionAnswer(region_poster)),
             Arc::new(AtomicBool::new(false)),
         );
