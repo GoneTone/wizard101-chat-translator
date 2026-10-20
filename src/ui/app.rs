@@ -560,11 +560,6 @@ impl App {
         }
     }
 
-    /// 首次設定模式（精靈開著，或已取消、等根視窗關閉）時根視窗藏著；完成時 `first_run` 才清掉。
-    fn in_first_run(&self) -> bool {
-        self.first_run.is_some()
-    }
-
     /// 每幀畫出開著的設定視窗與精靈，並處理它們要 App 做的事。
     fn show_settings(&mut self, ctx: &egui::Context) {
         let known = self.viewport_hwnds();
@@ -699,7 +694,8 @@ impl eframe::App for App {
                 self.shell = Box::new(Win32Shell(self.hwnd));
             }
         }
-        let visible = !self.in_first_run();
+        // 首次設定期間（精靈開著，或已取消、等根視窗關閉）根視窗藏著
+        let visible = self.first_run.is_none();
         if self.shown != visible {
             self.shown = visible;
             ctx.send_viewport_cmd(ViewportCommand::Visible(self.shown));

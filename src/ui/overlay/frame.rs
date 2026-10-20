@@ -16,7 +16,8 @@ use crate::ui::geometry::{
 };
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
-    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_FG_ACTIVE,
+    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
+    TAB_FG_ACTIVE,
 };
 use crate::ui::win32;
 
@@ -29,7 +30,7 @@ pub const MIN_HEIGHT: i32 = 90;
 pub const STATUS_COLORS: [(&str, Color32); 6] = [
     ("locating", Color32::from_rgb(0xe0, 0xb0, 0x50)),
     ("listening", Color32::from_rgb(0x7d, 0xc8, 0x7d)),
-    ("translating", Color32::from_rgb(0x6f, 0xa8, 0xdc)),
+    ("translating", TAB_ACCENT),
     ("waiting_game", FG_HINT),
     // 要使用者動手（以管理員重開、更新）才解得掉，用錯誤色
     ("access_denied", FG_ERROR),

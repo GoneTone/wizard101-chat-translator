@@ -233,20 +233,13 @@ impl HostedWindow {
         }
         self.shown |= reveal;
         if self.hwnd == 0 {
-            self.hwnd = (self.ops.find_new)(&before, known, &title);
+            self.hwnd = viewport::find_logged("[ui]", self.spec.name, creating, || {
+                (self.ops.find_new)(&before, known, &title)
+            });
             if self.hwnd != 0 {
                 (self.ops.dark_caption)(self.hwnd);
-                log(format!(
-                    "[ui] {} found: hwnd={:#x}",
-                    self.spec.name, self.hwnd
-                ));
                 // 顯示之後才認出來（建立那一幀沒找到）：現在補搶前景
                 self.raise |= self.shown;
-            } else if creating {
-                log(format!(
-                    "[ui] {} hwnd lookup failed: no new window on the UI thread",
-                    self.spec.name
-                ));
             }
         }
         // 顯示與搶前景在同一幀：先顯示晚點才給焦點的話，這段空檔打的字會進別的視窗

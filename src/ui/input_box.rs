@@ -18,13 +18,13 @@ use crate::logs::log;
 use crate::py::pystr;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, anchored_position};
-use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE};
+use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE, hex};
 use crate::ui::richtext;
 
 /// 底色。
-pub const BG: Color32 = Color32::from_rgb(0x1a, 0x1a, 0x24);
+pub const BG: Color32 = hex(0x1a1a24);
 /// 輸入欄底色。
-pub const ENTRY_BG: Color32 = Color32::from_rgb(0x26, 0x26, 0x36);
+pub const ENTRY_BG: Color32 = hex(0x262636);
 /// 遊戲聊天輸入框的長度上限（實測）。
 pub const GAME_INPUT_MAX_CHARS: usize = 80;
 /// 沒有錨點時的寬度（DIP）；有錨點就跟遊戲輸入框同寬。

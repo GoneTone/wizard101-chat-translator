@@ -252,7 +252,7 @@ fn hint(ui: &egui::Ui) {
 }
 
 /// 選取畫面內的 DIP 座標換成實體像素（螢幕內座標）。
-fn to_physical(v: Vec2, ppp: f32) -> (i32, i32) {
+pub(crate) fn to_physical(v: Vec2, ppp: f32) -> (i32, i32) {
     ((v.x * ppp).round() as i32, (v.y * ppp).round() as i32)
 }
 

@@ -71,6 +71,24 @@ pub fn find_new_window(before: &[isize], known: &[isize], title: &str) -> isize 
     })
 }
 
+/// 以 `find` 認出新 viewport 的 HWND 並記 log：找到時記一行，建立那一幀就找不到時記失敗；`prefix` 與 `what` 標出是哪個視窗。
+pub fn find_logged(
+    prefix: &str,
+    what: &str,
+    creating: bool,
+    find: impl FnOnce() -> isize,
+) -> isize {
+    let hwnd = find();
+    if hwnd != 0 {
+        log(format!("{prefix} {what} found: hwnd={hwnd:#x}"));
+    } else if creating {
+        log(format!(
+            "{prefix} {what} hwnd lookup failed: no new window on the UI thread"
+        ));
+    }
+    hwnd
+}
+
 /// 框選與輸入框共用的 viewport 設定：無邊框、置頂、不上工作列；`creating` 是建立那一幀的概略外框（實體像素）與縮放，這一幀藏著。
 ///
 /// 位置以 DIP 給、混合 DPI 下會偏，所以只是概略，找到 HWND 後再以實體像素擺正。

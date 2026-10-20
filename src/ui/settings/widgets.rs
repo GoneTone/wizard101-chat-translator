@@ -670,15 +670,20 @@ pub fn keycap_row(ui: &mut Ui, hotkey: &str) {
     });
 }
 
+/// 不換行也不截斷的單行文字排版。
+pub(super) fn extended_galley(
+    ui: &Ui,
+    text: impl Into<WidgetText>,
+    style: TextStyle,
+) -> Arc<Galley> {
+    text.into()
+        .into_galley(ui, Some(TextWrapMode::Extend), f32::INFINITY, style)
+}
+
 /// 一個按鍵帽：高 26、左右內距 9，外框 1 寬、底邊 2 寬。
 fn keycap(ui: &mut Ui, key: &str) {
     let text = RichText::new(key).size(theme::HINT_SIZE).color(theme::TEXT);
-    let galley = WidgetText::from(text.clone()).into_galley(
-        ui,
-        Some(TextWrapMode::Extend),
-        f32::INFINITY,
-        TextStyle::Body,
-    );
+    let galley = extended_galley(ui, text.clone(), TextStyle::Body);
     let (rect, _) = ui.allocate_exact_size(vec2(galley.size().x + 18.0, 26.0), Sense::hover());
     let face = Rect::from_min_max(rect.min + vec2(1.0, 1.0), rect.max - vec2(1.0, 2.0));
     let painter = ui.painter();
