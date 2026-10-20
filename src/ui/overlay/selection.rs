@@ -101,9 +101,13 @@ impl Selection {
         selected_text(&texts, rebase(start), rebase(end))
     }
 
-    /// 框選起手：清掉舊選取，`pos` 落在可見訊息的某一行才開始拖曳並回 `true`。
+    /// 框選起手：清掉舊選取，`pos` 在視口內就從最近的游標開始拖曳並回 `true`。
     pub fn begin(&mut self, list: &MessageList, messages: &[Message], pos: Pos2) -> bool {
-        let caret = hit(list, messages, pos);
+        let caret = list
+            .viewport()
+            .contains(pos)
+            .then(|| clamped(list, messages, pos))
+            .flatten();
         self.clear("new press");
         let Some(caret) = caret else {
             return false;
@@ -297,21 +301,6 @@ fn caret_in(row: &Row, msg: usize, line: usize, pos: Pos2) -> Caret {
         line,
         index: galley.cursor_from_pos(local).index.0,
     }
-}
-
-/// `pos` 落在哪一行的哪個字元；不在視口內或不在任何一行上回 None。
-fn hit(list: &MessageList, messages: &[Message], pos: Pos2) -> Option<Caret> {
-    if !list.viewport().contains(pos) {
-        return None;
-    }
-    visible(list, messages).into_iter().find_map(|(msg, row)| {
-        (0..2).find_map(|line| {
-            let (origin, galley) = &row.lines[line];
-            (origin.y..origin.y + line_height(galley))
-                .contains(&pos.y)
-                .then(|| caret_in(row, msg, line, pos))
-        })
-    })
 }
 
 /// 拖曳點換算成端點：垂直方向決定哪一則的哪一行，超出可見訊息上下界就夾到最前／最後；沒有可見訊息回 None。
@@ -568,16 +557,47 @@ mod tests {
     }
 
     #[test]
-    fn press_outside_every_message_starts_nothing() {
+    fn press_outside_the_viewport_starts_nothing() {
         let mut h = harness(&[("original text", "translated text")]);
-        // 訊息下方的空白、視口右側的捲軸區
+        // 視口右側的捲軸區
+        let p = Pos2::new(h.state().list.viewport().max.x + 3.0, at(&h, 0, 0, 0.0).y);
+        press(&mut h, p);
+        assert!(!h.state().selection.dragging);
+        release(&mut h, p);
+        assert_eq!(h.state().shell.focused, 0);
+    }
+
+    #[test]
+    fn dragging_from_the_gap_between_messages_selects_the_next_one() {
+        let mut h = harness(&[("orig one", "trans one"), ("orig two", "trans two")]);
+        let bottom = at(&h, 0, 1, 0.0).y + line_height(&h.state().list.rows()[0].lines[1].1) / 2.0;
+        let top = start_of(&h, 1, 0).y - line_height(&h.state().list.rows()[1].lines[0].1) / 2.0;
+        assert!(bottom < top, "precondition: a gap between the messages");
+        let from = Pos2::new(start_of(&h, 1, 0).x, (bottom + top) / 2.0);
+        let to = end_of(&h, 1, 1);
+        select(&mut h, from, to);
+        assert_eq!(text(&h), "orig two\ntrans two");
+    }
+
+    #[test]
+    fn dragging_up_from_below_the_last_message_selects_to_its_end() {
+        let mut h = harness(&[("original text", "translated text")]);
         let below = Pos2::new(200.0, h.state().area.max.y - 40.0);
-        let right = Pos2::new(h.state().list.viewport().max.x + 3.0, at(&h, 0, 0, 0.0).y);
-        for p in [below, right] {
-            press(&mut h, p);
-            assert!(!h.state().selection.dragging, "{p:?}");
-            release(&mut h, p);
-        }
+        assert!(h.state().list.viewport().contains(below), "precondition");
+        assert!(below.y > end_of(&h, 0, 1).y + 20.0, "precondition");
+        let to = start_of(&h, 0, 0);
+        select(&mut h, below, to);
+        assert_eq!(text(&h), "original text\ntranslated text");
+        assert_eq!(h.state().shell.focused, 1);
+    }
+
+    #[test]
+    fn a_bare_press_in_the_gap_is_not_a_selection() {
+        let mut h = harness(&[("original text", "translated text")]);
+        let below = Pos2::new(200.0, h.state().area.max.y - 40.0);
+        press(&mut h, below);
+        release(&mut h, below);
+        assert_eq!(h.state().selection.span(), None);
         assert_eq!(h.state().shell.focused, 0);
     }
 
