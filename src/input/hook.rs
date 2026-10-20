@@ -10,16 +10,14 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
-};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, LLKHF_EXTENDED, LLKHF_INJECTED, MSG,
     PM_NOREMOVE, PeekMessageW, PostThreadMessageW, SetWindowsHookExW, UnhookWindowsHookEx,
     WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use crate::input::dispatcher::{KeyEvent, Modifier, RawKey, SharedDispatcher};
+use crate::input::dispatcher::{KeyEvent, RawKey, SharedDispatcher};
 use crate::input::keys;
 use crate::logs::log;
 use crate::util::{Clock, join_until, lock, panic_message};
@@ -242,7 +240,7 @@ fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
         reentrant_guard(inside, ev, || {
             let mut d = lock(d);
             if ev.down {
-                d.drop_released_modifiers(ev.code, modifier_is_down);
+                d.drop_released_keys(ev.code, any_key_down);
             }
             d.process(ev)
         })
@@ -251,14 +249,8 @@ fn should_pass(k: &KBDLLHOOKSTRUCT, msg: u32) -> bool {
     pass
 }
 
-/// 以非同步按鍵狀態查 `m`（左右任一）是否按著。
-fn modifier_is_down(m: Modifier) -> bool {
-    let vks: &[u16] = match m {
-        Modifier::Ctrl => &[VK_CONTROL],
-        Modifier::Shift => &[VK_SHIFT],
-        Modifier::Alt => &[VK_MENU],
-        Modifier::Windows => &[VK_LWIN, VK_RWIN],
-    };
+/// 以非同步按鍵狀態查 `vks` 是否有任一按著。
+fn any_key_down(vks: &[u16]) -> bool {
     // SAFETY: 純 Win32 查詢；最高位元為 1 表示按著。
     vks.iter()
         .any(|&vk| unsafe { GetAsyncKeyState(i32::from(vk)) } < 0)

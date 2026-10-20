@@ -10,7 +10,8 @@ use regex::Regex;
 use serde::Deserialize;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyNameTextW, GetKeyboardLayoutList, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC_EX,
-    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VkKeyScanExW,
+    MAPVK_VSC_TO_VK_EX, MapVirtualKeyExW, MapVirtualKeyW, ToUnicode, VK_CONTROL, VK_LWIN, VK_MENU,
+    VK_RWIN, VK_SHIFT, VkKeyScanExW,
 };
 
 use crate::logs::log;
@@ -25,6 +26,13 @@ pub type Key = Vec<Code>;
 pub const ALT_GR: Code = 541;
 /// 左 Ctrl 的虛擬鍵。
 pub const VK_LCONTROL: u32 = 0xA2;
+/// 左右合併的修飾鍵群組名稱，與查按鍵狀態用的通用虛擬鍵（任一按著即算按著）。
+pub const MODIFIER_GROUPS: [(&str, &[u16]); 4] = [
+    ("ctrl", &[VK_CONTROL]),
+    ("shift", &[VK_SHIFT]),
+    ("alt", &[VK_MENU]),
+    ("windows", &[VK_LWIN, VK_RWIN]),
+];
 
 #[derive(Deserialize)]
 struct Tables {

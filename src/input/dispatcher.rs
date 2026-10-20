@@ -7,7 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::input::keys::{ALT_GR, Code, Key, key_codes_or_empty};
+use crate::input::keys::{ALT_GR, Code, Key, MODIFIER_GROUPS, key_codes_or_empty, scan_code_to_vk};
 use crate::logs::log;
 
 /// hook 收到的原始 vk 與 extended 旗標，給需要算按鍵名稱的錄製器用。
@@ -34,25 +34,19 @@ pub trait Blocking: Send {
     fn handle(&mut self, ev: KeyEvent, pressed: &Pressed) -> bool;
 }
 
-/// 左右合併的修飾鍵群組。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Modifier {
-    Ctrl,
-    Shift,
-    Alt,
-    Windows,
-}
-
-/// 各群組的所有 code；Alt Gr 送出的是左 Ctrl，歸在 Ctrl。
-static MODIFIER_GROUPS: LazyLock<[(Modifier, Key); 4]> = LazyLock::new(|| {
-    let mut ctrl = key_codes_or_empty("ctrl");
-    ctrl.push(ALT_GR);
-    [
-        (Modifier::Ctrl, ctrl),
-        (Modifier::Shift, key_codes_or_empty("shift")),
-        (Modifier::Alt, key_codes_or_empty("alt")),
-        (Modifier::Windows, key_codes_or_empty("windows")),
-    ]
+/// 各修飾鍵群組的所有 code 與通用虛擬鍵。
+static MODIFIER_STATE: LazyLock<Vec<(Key, &[u16])>> = LazyLock::new(|| {
+    MODIFIER_GROUPS
+        .iter()
+        .map(|&(name, vks)| {
+            let mut codes = key_codes_or_empty(name);
+            // 只有這裡要：`pressed` 會記到 Alt Gr（左 Ctrl）的 541，熱鍵比對則照 Python 版不當它是 Ctrl
+            if name == "ctrl" {
+                codes.push(ALT_GR);
+            }
+            (codes, vks)
+        })
+        .collect()
 });
 
 /// `add_blocking`／`add_passive` 回傳的代號，給 `remove` 用。
@@ -142,24 +136,40 @@ impl Dispatcher {
         &self.pressed
     }
 
-    /// 把 `is_down` 回報已放開、卻還記成按著的修飾鍵從 `pressed` 移除。
+    /// 把 `is_down` 回報已放開、卻還記成按著的鍵從 `pressed` 移除。
     ///
-    /// 鎖定畫面、UAC 等安全桌面上的放開事件 hook 收不到。`current` 所屬的群組不查：
+    /// 鎖定畫面、UAC 等安全桌面上的放開事件 hook 收不到。`is_down` 收虛擬鍵，任一按著即算按著；
+    /// 修飾鍵左右合併查，其他鍵查不到虛擬鍵就保留。`current`（含它所屬的修飾鍵群組）不查：
     /// hook 回呼在系統更新該鍵的非同步狀態之前被呼叫。
-    pub fn drop_released_modifiers(&mut self, current: Code, is_down: impl Fn(Modifier) -> bool) {
-        for (modifier, codes) in MODIFIER_GROUPS.iter() {
-            if codes.contains(&current) || !is_pressed(&self.pressed, codes) || is_down(*modifier) {
+    pub fn drop_released_keys(&mut self, current: Code, is_down: impl Fn(&[u16]) -> bool) {
+        let mut stale = Vec::new();
+        for (codes, vks) in MODIFIER_STATE.iter() {
+            if !codes.contains(&current) && is_pressed(&self.pressed, codes) && !is_down(vks) {
+                stale.extend(codes.iter().filter(|c| self.pressed.contains(c)));
+            }
+        }
+        for &code in &self.pressed {
+            if code == current
+                || MODIFIER_STATE
+                    .iter()
+                    .any(|(codes, _)| codes.contains(&code))
+            {
                 continue;
             }
-            let stale: Vec<Code> = codes
-                .iter()
-                .copied()
-                .filter(|c| self.pressed.remove(c))
-                .collect();
-            log(format!(
-                "[hotkey] dropped stale {modifier:?} codes={stale:?}: released while the hook could not see it (e.g. lock screen)"
-            ));
+            let vk = scan_code_to_vk(code);
+            if vk != 0 && !is_down(&[vk]) {
+                stale.push(code);
+            }
         }
+        if stale.is_empty() {
+            return;
+        }
+        for code in &stale {
+            self.pressed.remove(code);
+        }
+        log(format!(
+            "[hotkey] dropped stale pressed codes={stale:?}: released while the hook could not see it (e.g. lock screen)"
+        ));
     }
 
     /// 到目前為止處理過的按鍵事件數（診斷 hook 是否還活著用）。
@@ -249,6 +259,8 @@ fn combinations(step: &[Key]) -> Vec<Vec<Code>> {
 
 #[cfg(test)]
 mod tests {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_CONTROL;
+
     use super::*;
 
     const A: Code = 30;
@@ -424,34 +436,59 @@ mod tests {
         assert_eq!(d.processed(), 2);
     }
 
-    #[test]
-    fn modifiers_whose_release_was_missed_are_dropped() {
+    fn pressing(codes: &[Code]) -> Dispatcher {
         let mut d = Dispatcher::new();
-        for code in [CTRL, SHIFT, A] {
+        for &code in codes {
             d.process(down(code));
         }
-        let polled = Mutex::new(Vec::new());
-        let text = crate::logs::capture(|| {
-            d.drop_released_modifiers(SHIFT, |m| {
-                polled.lock().unwrap().push(m);
-                false
-            });
-        });
-        assert_eq!(d.pressed(), &Pressed::from([SHIFT, A]));
-        assert_eq!(
-            *polled.lock().unwrap(),
-            [Modifier::Ctrl],
-            "skips the current key's group and groups with nothing pressed"
-        );
-        assert!(text.contains("[hotkey] dropped stale Ctrl"), "{text}");
+        d
     }
 
     #[test]
-    fn modifiers_still_down_are_kept() {
-        let mut d = Dispatcher::new();
-        d.process(down(CTRL));
-        d.drop_released_modifiers(A, |m| m == Modifier::Ctrl);
-        assert_eq!(d.pressed(), &Pressed::from([CTRL]));
+    fn modifiers_whose_release_was_missed_are_dropped() {
+        let mut d = pressing(&[CTRL, SHIFT]);
+        let polled = Mutex::new(Vec::new());
+        let text = crate::logs::capture(|| {
+            d.drop_released_keys(SHIFT, |vks| {
+                polled.lock().unwrap().push(vks.to_vec());
+                false
+            });
+        });
+        assert_eq!(d.pressed(), &Pressed::from([SHIFT]));
+        assert_eq!(
+            *polled.lock().unwrap(),
+            [[VK_CONTROL]],
+            "skips the current key's group and groups with nothing pressed"
+        );
+        assert!(
+            text.contains("[hotkey] dropped stale pressed codes=[29]"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn stale_non_modifier_keys_are_dropped_but_never_the_current_one() {
+        let mut d = pressing(&[A, B]);
+        let polled = Mutex::new(Vec::new());
+        d.drop_released_keys(B, |vks| {
+            polled.lock().unwrap().push(vks.to_vec());
+            false
+        });
+        assert_eq!(d.pressed(), &Pressed::from([B]));
+        assert_ne!(scan_code_to_vk(A), 0);
+        assert_eq!(*polled.lock().unwrap(), [[scan_code_to_vk(A)]]);
+    }
+
+    #[test]
+    fn keys_still_down_or_without_a_virtual_key_are_kept() {
+        const UNMAPPED: Code = 0x1FF;
+        assert_eq!(scan_code_to_vk(UNMAPPED), 0);
+        let mut d = pressing(&[CTRL, A]);
+        d.drop_released_keys(B, |_| true);
+        assert_eq!(d.pressed(), &Pressed::from([CTRL, A]));
+        let mut d = pressing(&[UNMAPPED]);
+        d.drop_released_keys(B, |_| false);
+        assert_eq!(d.pressed(), &Pressed::from([UNMAPPED]));
     }
 
     #[test]
