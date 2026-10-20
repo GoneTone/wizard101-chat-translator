@@ -30,9 +30,11 @@
 ## Task 3：效能與資源（OCR、泡泡、讀取、翻譯池、建置、圖示）
 
 1. **OCR 佔滿所有核心**：rten 執行緒池預設用全部實體核心，每次框選 OCR 0.3～1.9 秒內與遊戲搶 CPU。修法：`src/main.rs` 最開頭（任何執行緒建立之前）若使用者沒設 `RTEN_NUM_THREADS`，就設成 `max(1, available_parallelism / 2)`；記一行 log（英文，`[region]` 或 `[app]` 前綴）。確認 rten 0.27 確實讀這個環境變數、且是在第一次建立執行緒池時讀（看 `~/.cargo/registry` 下 rten 的 `threading.rs`）。
+   - 實作後裁定：改用**實體**核心的一半（`num_cpus::get_physical() / 2`）。rten 預設就是實體核心數，用邏輯核心的一半在有超執行緒的 CPU 上等於沒改。
 2. **OCR 把小圖放大十幾倍**：`src/region/ocr.rs` 的 `with_limit_side_len(736)` + `with_limit_type("min")` 讓 625×60 的裁切放大到約 7680×736。先用樣本驗證：`W101_OCR_SAMPLES=%LOCALAPPDATA%\Temp\w101-ocr-spike\images` 跑 `cargo test --release --test it ocr::samples_match_expected_text -- --ignored`，記錄現況（應全過）與每張耗時。再試改成放大倍數上限（例如短邊目標不變，但整體放大後長邊不超過 2000 或倍數不超過 3；以 rusto-rs 0.3.1 能設定的參數為準，必要時在我們這端先縮放影像），4 張樣本**全部仍與期望文字相同**才保留，並在回報附前後耗時；任何一張改變就放棄這一項，只留第 1 點，回報結果。
 3. **泡泡每秒重繪 3.3 次**：`src/ui/overlay/bubble.rs` `POLL_INTERVAL` 300 ms 改為 2 s（啟用事件本來就當幀觸發展開，輪詢只是保險）。更新受影響的測試期望值；docstring 照舊說明用途。
 4. **讀取畫面期間每 0.4 秒整棵 UI 樹搜尋**：`src/reader/mem_reader.rs` `refind_chatbox` 在上次沒找到時，比照 `edit_container` 的 `edit_missing_at`／`INPUT_RECHECK` 加負向快取（1 秒內不重找；找到或 teardown 時重設）。補測試（用 spy 讀取次數，比照既有的輸入框節流測試）。
 5. **服務中斷時排隊工作每 0.5 秒醒來**：`src/translation/pool.rs` `wait_for_backoff` 改成睡到 `gate_until`（仍可被 stop 取消、閘門被延後時重新計算），不再固定 500 ms 切片輪詢；行為（重試時機、年齡上限、Config 讓出）不變，既有 pool 測試全過。若改動需要大幅重寫等待邏輯，就停在最小改動並回報。
 6. **release 最佳化**：`Cargo.toml` 加 `[profile.release]` `lto = "fat"`、`codegen-units = 1`（**不要**加 `panic = "abort"`：鍵盤 hook 與各處理器依賴 `catch_unwind`）。量改前後 exe 大小與 `cargo build --release` 時間寫進回報；同步檢查 `docs/releasing.md`／CI 是否有需要說明的地方（只在確實受影響時改）。
+   - 實作後裁定：已撤回。exe 只小 3.4%（58.3→56.3 MB），release 增量建置卻從 12 秒變 3 分鐘，CI 也會變慢。
 7. **泡泡圖示高縮放模糊**：`assets/icon.ico` 內含 64、128 等尺寸。從 ico 取出 96px（或用 128px 縮到 96，以清晰為準）存成 `assets/icon_96.png`，`src/runtime/resources.rs` `icon_png` 加 96，`icon_pngs_have_native_sizes` 測試一併涵蓋；`src/ui/overlay/bubble.rs` 在 `pixels_per_point > 1` 時用 96px。
