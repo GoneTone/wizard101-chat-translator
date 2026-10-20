@@ -258,6 +258,13 @@ fn parse_advanced_rejects_non_numbers_and_non_finite() {
 }
 
 #[test]
+fn parse_advanced_strips_python_whitespace() {
+    let values = parse_advanced(&text("\x1c5\x1f", "50", "4", "\x1c0.5", 0.5)).unwrap();
+    assert_eq!(values["fade_seconds"], json!(5));
+    assert_eq!(values["type_delay"], json!(0.5));
+}
+
+#[test]
 fn parse_advanced_follows_tk_intvar_for_integer_fields() {
     let values = parse_advanced(&text(" 1.9 ", "50.7", "-2.5", " 0.1 ", 0.5)).unwrap();
     assert_eq!(values["fade_seconds"], json!(1));

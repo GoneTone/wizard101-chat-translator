@@ -8,7 +8,7 @@ use eframe::egui::{
     WidgetInfo, pos2, vec2,
 };
 
-use crate::py::pystr;
+use crate::config::parse_float;
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
     INLINE_ICON_INSET, filter_models, focus_ring, inline_icon_button, name_by_row, paint_chevron,
@@ -305,11 +305,7 @@ pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)
             let button = ui.interact(button_rect, response.id.with(label), Sense::click());
             button.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
             if button.clicked() {
-                let current = pystr::strip(text)
-                    .parse::<f64>()
-                    .ok()
-                    .filter(|v| v.is_finite())
-                    .unwrap_or(min);
+                let current = parse_float(text).unwrap_or(min);
                 *text = format!("{:.*}", decimals(step), (current + delta).max(min).min(max));
                 response.mark_changed();
             }
