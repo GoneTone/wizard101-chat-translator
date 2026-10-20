@@ -58,6 +58,15 @@ fn keycaps_splits_steps_and_keys() {
 }
 
 #[test]
+fn keycaps_splits_like_the_hotkey_parser() {
+    assert_eq!(
+        keycaps("ctrl+a,b"),
+        [strings(&["Ctrl", "A"]), strings(&["B"])]
+    );
+    assert_eq!(keycaps("+"), [strings(&["+"])]);
+}
+
+#[test]
 fn toggle_is_reachable_by_tab_and_flips_on_space() {
     let mut h = harness(false, |ui, on: &mut bool| {
         toggle(ui, on, "Auto open");

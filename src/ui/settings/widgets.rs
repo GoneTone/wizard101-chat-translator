@@ -12,6 +12,7 @@ use eframe::egui::{
     WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
+use crate::input::keys::split_hotkey;
 use crate::py::pystr;
 use crate::ui::overlay::scrollbar;
 use crate::ui::richtext;
@@ -626,7 +627,7 @@ pub fn collapsible(
     }
 }
 
-/// 把熱鍵字串拆成「段 → 鍵」的按鍵帽文字：以 `, ` 分段、以 `+` 分鍵，每個詞首字母大寫。
+/// 把熱鍵字串依 `split_hotkey` 拆成「段 → 鍵」的按鍵帽文字，每個詞首字母大寫。
 pub fn keycaps(hotkey: &str) -> Vec<Vec<String>> {
     let capitalize = |word: &str| {
         let mut chars = word.chars();
@@ -634,18 +635,12 @@ pub fn keycaps(hotkey: &str) -> Vec<Vec<String>> {
             first.to_uppercase().chain(chars).collect::<String>()
         })
     };
-    hotkey
-        .split(", ")
-        .filter(|step| !step.trim().is_empty())
+    split_hotkey(hotkey)
+        .into_iter()
+        .filter(|step| step.iter().any(|key| !pystr::strip(key).is_empty()))
         .map(|step| {
-            step.split('+')
-                .map(|key| {
-                    key.trim()
-                        .split(' ')
-                        .map(capitalize)
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
+            step.into_iter()
+                .map(|key| key.split(' ').map(capitalize).collect::<Vec<_>>().join(" "))
                 .collect()
         })
         .collect()

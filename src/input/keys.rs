@@ -183,14 +183,22 @@ fn scan_codes(key: &str, error_if_missing: bool) -> Result<Key, String> {
     Ok(codes)
 }
 
-/// `keyboard.parse_hotkey`：回傳 steps → keys → codes（如 `"ctrl+a, s"` 是兩個 step）。
-pub fn parse_hotkey(hotkey: &str) -> Result<Vec<Vec<Key>>, String> {
+/// 把熱鍵字串拆成 steps → 鍵名（如 `"ctrl+a, s"` 是兩個 step）；單一字元（如 `+`）視為一個鍵。
+pub fn split_hotkey(hotkey: &str) -> Vec<Vec<&str>> {
     if hotkey.chars().count() == 1 {
-        return Ok(vec![vec![key_to_scan_codes(hotkey)?]]);
+        return vec![vec![hotkey]];
     }
     STEP_SEP
         .split(hotkey)
-        .map(|step| KEY_SEP.split(step).map(key_to_scan_codes).collect())
+        .map(|step| KEY_SEP.split(step).collect())
+        .collect()
+}
+
+/// `keyboard.parse_hotkey`：回傳 steps → keys → codes。
+pub fn parse_hotkey(hotkey: &str) -> Result<Vec<Vec<Key>>, String> {
+    split_hotkey(hotkey)
+        .into_iter()
+        .map(|step| step.into_iter().map(key_to_scan_codes).collect())
         .collect()
 }
 
