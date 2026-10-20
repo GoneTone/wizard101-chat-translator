@@ -680,7 +680,7 @@ fn late_examples_after_a_save_bind_the_cache_to_the_new_fingerprint() {
     // 生成套用後才 rebind，指紋帶上範例就代表兩步都做完了
     common::wait_until("the late generation to rebind the cache", || {
         !built.cache.fingerprint().ends_with("x-") || {
-            rt.block_on(tokio::time::sleep(Duration::from_millis(10)));
+            rt.block_on(async { tokio::time::sleep(Duration::from_millis(10)).await });
             false
         }
     });
