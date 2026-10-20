@@ -144,7 +144,7 @@ pub trait ProcessMemory: Send {
     ///
     /// 長度不在 1..=5000 或內容不是合法 UTF-8 時回空字串。
     fn read_std_string(&self, addr: u64) -> Result<String, MemError> {
-        let len = self.read_i32(addr + 16)?;
+        let len = self.read_i32(addr.wrapping_add(16))?;
         if !(1..=MAX_STRING).contains(&len) {
             return Ok(String::new());
         }

@@ -67,7 +67,7 @@ fn is_tab_id(tab: i32) -> bool {
 
 /// 只讀目前分頁編號（一次記憶體讀取）；讀不到或超出範圍回 None。
 pub fn read_current_tab(mem: &dyn ProcessMemory, chatbox: u64) -> Option<i32> {
-    let current = mem.read_i32(chatbox + CUR_TAB_OFFSET).ok()?;
+    let current = mem.read_i32(chatbox.wrapping_add(CUR_TAB_OFFSET)).ok()?;
     is_tab_id(current).then_some(current)
 }
 
@@ -132,7 +132,7 @@ pub fn read_tab_state(
     chatbox: u64,
     buttons: &[(i32, Window)],
 ) -> Result<TabState, TabError> {
-    let current = mem.read_i32(chatbox + CUR_TAB_OFFSET)?;
+    let current = mem.read_i32(chatbox.wrapping_add(CUR_TAB_OFFSET))?;
     if !is_tab_id(current) {
         return Err(TabError::OutOfRange { current, chatbox });
     }
@@ -141,7 +141,9 @@ pub fn read_tab_state(
         if !button_shown(mem, button)? {
             continue;
         }
-        if let Some(label) = visible_label(&read_label(mem, button.addr + LABEL_OFFSET)?) {
+        if let Some(label) =
+            visible_label(&read_label(mem, button.addr.wrapping_add(LABEL_OFFSET))?)
+        {
             tabs.push((tab, label));
         }
     }
