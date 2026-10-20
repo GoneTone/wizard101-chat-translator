@@ -166,5 +166,26 @@
    "translated": "嗨"
   },
   "output": "嗨"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[Amy] 出售裝備"
+  },
+  "output": "[Amy] 出售裝備"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[Amy] 【出售】裝備"
+  },
+  "output": "[Amy] 【出售】裝備"
+ },
+ {
+  "input": {
+   "source": "[Amy] [WTS] gear",
+   "translated": "[Amy]出售裝備"
+  },
+  "output": "[Amy] 出售裝備"
  }
 ]

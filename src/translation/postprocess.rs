@@ -114,12 +114,15 @@ pub fn sender_of(text: &str) -> Option<String> {
 
 /// 譯文開頭的 `[發送者]` 一律換回原文那一個；模型丟掉時補回去。
 ///
-/// 以開頭連續的中括號組數判斷模型是改了還是丟了發送者，內容本身以 `[WTS]` 開頭時才不會誤換。
+/// 譯文已以同一個發送者開頭就不補；否則以開頭連續的中括號組數判斷模型是改了還是丟了發送者，
+/// 內容本身以 `[WTS]` 開頭時才不會誤換。
 pub fn restore_sender(source: &str, translated: &str) -> String {
     let Some(prefix) = sender_of(source) else {
         return translated.to_string();
     };
-    if leading_bracket_count(translated) < leading_bracket_count(source) {
+    if sender_of(translated).as_ref() != Some(&prefix)
+        && leading_bracket_count(translated) < leading_bracket_count(source)
+    {
         return format!("{prefix} {}", lstrip(translated));
     }
     format!("{prefix} {}", SENDER_RE.replace(translated, ""))
