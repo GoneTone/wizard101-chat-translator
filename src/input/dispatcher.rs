@@ -4,10 +4,10 @@
 
 use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::input::keys::{Code, Key};
+use crate::input::keys::{ALT_GR, Code, Key, key_codes_or_empty};
 use crate::logs::log;
 
 /// hook 收到的原始 vk 與 extended 旗標，給需要算按鍵名稱的錄製器用。
@@ -33,6 +33,27 @@ pub trait Blocking: Send {
     /// 回 true 放行、false 吞掉；`pressed` 不含這次事件。
     fn handle(&mut self, ev: KeyEvent, pressed: &Pressed) -> bool;
 }
+
+/// 左右合併的修飾鍵群組。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Modifier {
+    Ctrl,
+    Shift,
+    Alt,
+    Windows,
+}
+
+/// 各群組的所有 code；Alt Gr 送出的是左 Ctrl，歸在 Ctrl。
+static MODIFIER_GROUPS: LazyLock<[(Modifier, Key); 4]> = LazyLock::new(|| {
+    let mut ctrl = key_codes_or_empty("ctrl");
+    ctrl.push(ALT_GR);
+    [
+        (Modifier::Ctrl, ctrl),
+        (Modifier::Shift, key_codes_or_empty("shift")),
+        (Modifier::Alt, key_codes_or_empty("alt")),
+        (Modifier::Windows, key_codes_or_empty("windows")),
+    ]
+});
 
 /// `add_blocking`／`add_passive` 回傳的代號，給 `remove` 用。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +140,26 @@ impl Dispatcher {
     /// 目前按著（且未被吞掉）的鍵。
     pub fn pressed(&self) -> &Pressed {
         &self.pressed
+    }
+
+    /// 把 `is_down` 回報已放開、卻還記成按著的修飾鍵從 `pressed` 移除。
+    ///
+    /// 鎖定畫面、UAC 等安全桌面上的放開事件 hook 收不到。`current` 所屬的群組不查：
+    /// hook 回呼在系統更新該鍵的非同步狀態之前被呼叫。
+    pub fn drop_released_modifiers(&mut self, current: Code, is_down: impl Fn(Modifier) -> bool) {
+        for (modifier, codes) in MODIFIER_GROUPS.iter() {
+            if codes.contains(&current) || !is_pressed(&self.pressed, codes) || is_down(*modifier) {
+                continue;
+            }
+            let stale: Vec<Code> = codes
+                .iter()
+                .copied()
+                .filter(|c| self.pressed.remove(c))
+                .collect();
+            log(format!(
+                "[hotkey] dropped stale {modifier:?} codes={stale:?}: released while the hook could not see it (e.g. lock screen)"
+            ));
+        }
     }
 
     /// 到目前為止處理過的按鍵事件數（診斷 hook 是否還活著用）。
@@ -214,6 +255,7 @@ mod tests {
     const B: Code = 48;
     const C: Code = 46;
     const CTRL: Code = 29;
+    const SHIFT: Code = 42;
     const SPACE: Code = 57;
 
     fn down(code: Code) -> KeyEvent {
@@ -380,6 +422,36 @@ mod tests {
         d.process(down(A));
         d.process(down(SPACE));
         assert_eq!(d.processed(), 2);
+    }
+
+    #[test]
+    fn modifiers_whose_release_was_missed_are_dropped() {
+        let mut d = Dispatcher::new();
+        for code in [CTRL, SHIFT, A] {
+            d.process(down(code));
+        }
+        let polled = Mutex::new(Vec::new());
+        let text = crate::logs::capture(|| {
+            d.drop_released_modifiers(SHIFT, |m| {
+                polled.lock().unwrap().push(m);
+                false
+            });
+        });
+        assert_eq!(d.pressed(), &Pressed::from([SHIFT, A]));
+        assert_eq!(
+            *polled.lock().unwrap(),
+            [Modifier::Ctrl],
+            "skips the current key's group and groups with nothing pressed"
+        );
+        assert!(text.contains("[hotkey] dropped stale Ctrl"), "{text}");
+    }
+
+    #[test]
+    fn modifiers_still_down_are_kept() {
+        let mut d = Dispatcher::new();
+        d.process(down(CTRL));
+        d.drop_released_modifiers(A, |m| m == Modifier::Ctrl);
+        assert_eq!(d.pressed(), &Pressed::from([CTRL]));
     }
 
     #[test]
