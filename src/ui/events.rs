@@ -44,6 +44,8 @@ pub enum UiEvent {
     },
     /// 收起錯誤橫幅。
     ClearError,
+    /// 鍵盤 hook 裝不上：錯誤橫幅多一行，收訊恢復也不收起。
+    HotkeysUnavailable,
     /// 自動檢查發現新版；關掉過的版本不會再跳出。
     UpdateFound(Release),
     /// 呼出翻譯輸入框；`retarget` 有值時先改綁到該客戶端。

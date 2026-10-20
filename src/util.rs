@@ -1,4 +1,4 @@
-//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖、內容指紋與原子寫檔。
+//! 跨模組共用的小工具：可替換的時鐘、限時 join、panic 訊息擷取、不怕 poison 的上鎖、內容指紋、原子寫檔與殘檔清掃。
 
 use std::any::Any;
 use std::fmt::Write as _;
@@ -12,6 +12,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use sha1::{Digest, Sha1};
+
+use crate::logs::log;
 
 /// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
 const JOIN_POLL: Duration = Duration::from_millis(10);
@@ -108,10 +110,99 @@ pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
     let tmp = PathBuf::from(tmp_name);
-    // shortcut: 寫入與 rename 之間當機會留下 `<file>.<pid>.<n>.tmp`，量大或常駐殘檔時再於啟動清掃舊暫存檔
+    // 寫入與 rename 之間當機會留下暫存檔，下次啟動由 `sweep_stale_temps` 清掉
     let result = fs::write(&tmp, text).and_then(|()| fs::rename(&tmp, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+/// 刪掉 `dir` 裡已結束程序留下的 `write_atomic` 暫存檔（`<file>.<pid>.<n>.tmp`）。
+pub fn sweep_stale_temps(dir: &Path, is_alive: impl Fn(u32) -> bool) {
+    remove_dead_pid_files(
+        dir,
+        temp_pid,
+        is_alive,
+        "[app] could not delete stale temp file",
+    );
+}
+
+/// `<file>.<pid>.<n>.tmp` 裡的 pid；其他檔名回 `None`。
+fn temp_pid(name: &str) -> Option<u32> {
+    let mut parts = name.strip_suffix(".tmp")?.rsplitn(3, '.');
+    parts.next()?.parse::<u64>().ok()?;
+    let pid = parts.next()?.parse().ok()?;
+    parts.next().filter(|file| !file.is_empty())?;
+    Some(pid)
+}
+
+/// 刪掉 `dir` 裡 `pid_of` 認得出 pid、而且該程序已結束的檔案；刪不掉時以 `failure` 開頭記 log。
+pub fn remove_dead_pid_files(
+    dir: &Path,
+    pid_of: impl Fn(&str) -> Option<u32>,
+    is_alive: impl Fn(u32) -> bool,
+    failure: &str,
+) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(pid) = name.to_str().and_then(&pid_of) else {
+            continue;
+        };
+        if !is_alive(pid)
+            && let Err(e) = fs::remove_file(entry.path())
+            && e.kind() != io::ErrorKind::NotFound
+        {
+            log(format!("{failure} {}: {e}", name.to_string_lossy()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temp_pid_reads_only_write_atomic_temp_names() {
+        assert_eq!(temp_pid("config.json.4242.7.tmp"), Some(4242));
+        assert_eq!(temp_pid("config.json"), None);
+        assert_eq!(temp_pid("notes.tmp"), None);
+        assert_eq!(temp_pid("4242.7.tmp"), None);
+        assert_eq!(temp_pid("config.json.x.7.tmp"), None);
+        assert_eq!(temp_pid("config.json.4242.x.tmp"), None);
+    }
+
+    #[test]
+    fn sweep_removes_only_temps_of_dead_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let names = [
+            "config.json",
+            "config.json.111.0.tmp",
+            "config.json.222.3.tmp",
+            "other.tmp",
+        ];
+        for name in names {
+            fs::write(dir.path().join(name), "x").unwrap();
+        }
+        sweep_stale_temps(dir.path(), |pid| pid == 111);
+        let mut left: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["config.json", "config.json.111.0.tmp", "other.tmp"]);
+    }
+
+    #[test]
+    fn write_atomic_leaves_no_temp_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        write_atomic(&path, "{}").unwrap();
+        let names: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert_eq!(names.len(), 1);
+        assert_eq!(fs::read_to_string(path).unwrap(), "{}");
+    }
 }
