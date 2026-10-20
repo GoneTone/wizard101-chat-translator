@@ -308,7 +308,10 @@ impl TranslationCache {
                 "[cache] flushed {count} entries to {}",
                 self.path.display()
             )),
-            Err(e) => log(format!("[cache] flush failed: {e}")),
+            Err(e) => log(format!(
+                "[cache] flush failed ({}: {e})",
+                self.path.display()
+            )),
         }
     }
 }
