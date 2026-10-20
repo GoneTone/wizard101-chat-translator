@@ -19,8 +19,8 @@ use wizard101_chat_translator::reader::hooks::{
 };
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
-    GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, MessageSink,
-    WizChatReader,
+    GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, INPUT_RECHECK,
+    MessageSink, WizChatReader,
 };
 use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, MemOp, ProcessMemory};
 use wizard101_chat_translator::reader::process::{
@@ -1479,6 +1479,25 @@ fn input_open_reads_the_container_visibility() {
     g.mem.set_bytes(EDIT + 0x9C, &0u32.to_le_bytes());
     assert!(!r.input_open());
     assert_eq!(g.spy.read_count(EXPORT), scans, "node is cached");
+}
+
+#[test]
+fn missing_input_container_is_rechecked_after_the_window() {
+    let g = Game::new();
+    let mut r = g.connected(406);
+    assert!(!r.input_open());
+    let scans = g.spy.read_count(EXPORT);
+    put_edit(&g, BOX, EDIT, true);
+    assert!(!r.input_open());
+    assert_eq!(r.input_box_screen_rect(), None);
+    assert_eq!(
+        g.spy.read_count(EXPORT),
+        scans,
+        "no re-search inside the window"
+    );
+    g.advance(INPUT_RECHECK);
+    assert!(r.input_open());
+    assert_eq!(g.spy.read_count(EXPORT), scans + 1);
 }
 
 #[test]

@@ -47,6 +47,8 @@ pub const HOOK_READY_TIMEOUT: Duration = Duration::from_secs(15);
 pub const HOOK_READY_POLL: Duration = Duration::from_millis(300);
 /// 外來 ChatBox 位址的重驗間隔（秒）：新的主 ChatBox 可能重用外來的舊位址。
 pub const FOREIGN_RECHECK_SECONDS: u64 = 5;
+/// 找不到輸入框後多久才再搜一次 UI 樹：輸入框每秒取樣數十次，每次都走整棵樹太貴。
+pub const INPUT_RECHECK: Duration = Duration::from_secs(1);
 
 /// 一則新聊天；`tabs` 是它所在的分頁，伺服器廣播收斂後含多個。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -176,6 +178,8 @@ pub struct WizChatReader {
     /// 上次記下的掛入失敗原因：同一原因的重試不重複寫 log。
     last_attach_failure: Option<String>,
     edit_node: Option<Window>,
+    /// 上次搜不到輸入框的時刻：`INPUT_RECHECK` 內不重搜。
+    edit_missing_at: Option<Instant>,
     last_seq: u64,
     chatbox: Option<u64>,
     buttons: Option<Vec<(i32, Window)>>,
@@ -214,6 +218,7 @@ impl WizChatReader {
             path_logged_for: 0,
             last_attach_failure: None,
             edit_node: None,
+            edit_missing_at: None,
             last_seq: 0,
             chatbox: None,
             buttons: None,
@@ -407,6 +412,7 @@ impl WizChatReader {
         {
             self.buttons = None;
             self.edit_node = None;
+            self.edit_missing_at = None;
             self.foreign.clear();
             log(format!(
                 "[reader] main chat box at {addr:#x} (slot={}, pid={})",
@@ -515,11 +521,19 @@ impl WizChatReader {
         })
     }
 
-    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取。
+    /// 快取的 chatEditContainer 節點；input_open 與定位共用同一份快取，找不到時 `INPUT_RECHECK` 內直接回 None。
     fn edit_container(&mut self) -> Result<Option<Window>, MemError> {
         if self.edit_node.is_none() {
+            let now = (self.clock.now)();
+            if self
+                .edit_missing_at
+                .is_some_and(|at| now.duration_since(at) < INPUT_RECHECK)
+            {
+                return Ok(None);
+            }
             let found = find_by_name(self.conn().mem.as_ref(), self.root()?, INPUT_CONTAINER)?;
             self.edit_node = found.first().copied();
+            self.edit_missing_at = self.edit_node.is_none().then_some(now);
         }
         Ok(self.edit_node)
     }
@@ -758,6 +772,7 @@ impl WizChatReader {
         }
         // 序號與 ChatBox 位址都屬於單一連線：重連後是新的 hook 與緩衝
         self.edit_node = None;
+        self.edit_missing_at = None;
         self.last_seq = 0;
         self.chatbox = None;
         self.buttons = None;
