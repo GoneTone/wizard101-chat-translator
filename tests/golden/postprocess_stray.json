@@ -165,7 +165,7 @@
    "translated": "[A] 好 it’s",
    "target": "繁體中文 (台灣)"
   },
-  "output": true
+  "output": false
  },
  {
   "input": {
@@ -404,6 +404,54 @@
    "source": "你获得了 {0} 金币！",
    "translated": "{0} ゴールドを手に入れた！",
    "target": "日本語"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai、Bob 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob님이 참가했습니다",
+   "target": "한국어"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob, Zed 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai 加入了 in Bob",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "我要Amy的帽子",
+   "translated": "我要 Amy 的帽子",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Meet me at café",
+   "translated": "在 café 見",
+   "target": "繁體中文（台灣）"
   },
   "output": false
  }

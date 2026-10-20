@@ -141,6 +141,9 @@ impl Selector {
             return SelectorAction::Cancelled;
         }
         let (x, y, w, h) = drag_rect(a, b);
+        if w == 0 || h == 0 {
+            return SelectorAction::Cancelled;
+        }
         SelectorAction::Selected((self.monitor.0 + x, self.monitor.1 + y, w, h))
     }
 
@@ -440,6 +443,15 @@ mod tests {
         let mut h = harness(1.0);
         drag(&mut h, vec2(100.0, 100.0), vec2(102.0, 101.0));
         assert_eq!(h.state().actions, [SelectorAction::Cancelled]);
+    }
+
+    #[test]
+    fn a_zero_width_or_height_drag_cancels() {
+        for to in [vec2(300.0, 100.0), vec2(100.0, 300.0)] {
+            let mut h = harness(1.0);
+            drag(&mut h, vec2(100.0, 100.0), to);
+            assert_eq!(h.state().actions, [SelectorAction::Cancelled]);
+        }
     }
 
     #[test]

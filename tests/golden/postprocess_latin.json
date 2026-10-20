@@ -41,7 +41,7 @@
  },
  {
   "input": "中文 (Chinese)",
-  "output": true
+  "output": false
  },
  {
   "input": "Ελληνικά",
@@ -53,7 +53,7 @@
  },
  {
   "input": "ß",
-  "output": false
+  "output": true
  },
  {
   "input": "Türkçe",
@@ -62,5 +62,25 @@
  {
   "input": "K",
   "output": false
+ },
+ {
+  "input": "English (英文)",
+  "output": true
+ },
+ {
+  "input": "日本語 (Japanese)",
+  "output": false
+ },
+ {
+  "input": "繁體中文 (zh-TW)",
+  "output": false
+ },
+ {
+  "input": "  (1) Íslenska",
+  "output": true
+ },
+ {
+  "input": "ʻŌlelo Hawaiʻi",
+  "output": true
  }
 ]

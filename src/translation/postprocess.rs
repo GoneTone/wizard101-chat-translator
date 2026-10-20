@@ -5,7 +5,7 @@
 //! 空白含 `\x1c`–`\x1f`，故不直接用 `regex` 預設的 `\w`／`\s`。
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
@@ -23,6 +23,9 @@ fn re(pattern: &str) -> Regex {
 // Python 的 IGNORECASE 讓 i 也吃 ı 與 İ（Rust 的簡單摺疊不會）
 static THINK_BLOCK: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"(?is)<th[iıİ]nk>.*?</th[iıİ]nk>{SPACE}*")));
+// 只到最後一個孤立 `</think>` 為止的推理（自架推理模型常省略開頭標籤）
+static THINK_PREFIX: LazyLock<Regex> =
+    LazyLock::new(|| re(&format!(r"(?is)^.*</th[iıİ]nk>{SPACE}*")));
 static SENDER_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"^{SENDER_PREFIX}{SPACE}*")));
 static LEADING_BRACKETS: LazyLock<Regex> =
     LazyLock::new(|| re(&format!(r"^(?:{SENDER_PREFIX}{SPACE}*)+")));
@@ -37,8 +40,11 @@ static NON_LATIN_LETTER: LazyLock<Regex> =
 static LATIN_RUN: LazyLock<Regex> = LazyLock::new(|| re(r"[A-Za-z][A-Za-z0-9 .,'’\-]*"));
 // 任何文字的字母；空白、數字與標點不算
 static LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[[\p{L}\p{N}]--[\p{Nd}_]]"));
+// 略過修飾字母：`ʻŌlelo` 的 ʻokina 不決定文字
+static FIRST_LETTER: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{L}--\p{Lm}]"));
+// 拉丁單字（含帶重音字母）；只取拉丁字母，原文沒空格時（`我要Amy的帽子`）才切得出 `Amy`
+static LATIN_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"[\p{Latin}0-9]+"));
 static NON_WORD: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"[^{WORD}]+|_+")));
-static SPACES: LazyLock<Regex> = LazyLock::new(|| re(&format!("{SPACE}+")));
 static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
     re(&format!(
         r"^{SPACE}*(\p{{Nd}}+){SPACE}*[.．、)]{SPACE}*(.*)$"
@@ -46,9 +52,10 @@ static NUMBERED_LINE: LazyLock<Regex> = LazyLock::new(|| {
 });
 static DECIMAL: LazyLock<Regex> = LazyLock::new(|| re(r"^\p{Nd}$"));
 
-/// 移除回應中的 `<think>…</think>` 推理區塊（無論是否啟用思考都套用）。
+/// 移除回應中的 `<think>…</think>` 推理區塊與孤立 `</think>` 之前的推理（無論是否啟用思考都套用）。
 pub fn strip_think(text: &str) -> String {
-    THINK_BLOCK.replace_all(text, "").into_owned()
+    let text = THINK_BLOCK.replace_all(text, "");
+    THINK_PREFIX.replace(&text, "").into_owned()
 }
 
 /// 只留字母與數字並忽略大小寫：模型照抄原文時常換掉撇號、連字號或空白。
@@ -114,30 +121,30 @@ pub fn sender_of(text: &str) -> Option<String> {
 
 /// 譯文開頭的 `[發送者]` 一律換回原文那一個；模型丟掉時補回去。
 ///
-/// 以開頭連續的中括號組數判斷模型是改了還是丟了發送者，內容本身以 `[WTS]` 開頭時才不會誤換。
+/// 譯文已以同一個發送者開頭就不補；否則以開頭連續的中括號組數判斷模型是改了還是丟了發送者，
+/// 內容本身以 `[WTS]` 開頭時才不會誤換。
 pub fn restore_sender(source: &str, translated: &str) -> String {
     let Some(prefix) = sender_of(source) else {
         return translated.to_string();
     };
-    if leading_bracket_count(translated) < leading_bracket_count(source) {
+    if sender_of(translated).as_ref() != Some(&prefix)
+        && leading_bracket_count(translated) < leading_bracket_count(source)
+    {
         return format!("{prefix} {}", lstrip(translated));
     }
     format!("{prefix} {}", SENDER_RE.replace(translated, ""))
 }
 
-/// 這個語言是否以拉丁字母書寫（看語言名稱本身的文字）。
+/// 這個語言是否以拉丁字母書寫：看語言名稱第一個字母的文字，`中文 (Chinese)` 不算拉丁。
 pub fn uses_latin_script(language: &str) -> bool {
-    LATIN.is_match(language)
-}
-
-/// 比對譯文片段與原文用的正規化：空白壓成一格、忽略大小寫。
-fn squash(text: &str) -> String {
-    casefold(strip(&SPACES.replace_all(text, " ")))
+    FIRST_LETTER
+        .find(language)
+        .is_some_and(|letter| !NON_LATIN_LETTER.is_match(letter.as_str()))
 }
 
 /// 譯文是否出現了不該有的拉丁文字 —— 模型改用英文名，或整句沒翻。
 ///
-/// 兩條規則：整段都是拉丁、沒有一個目標語言的字；或某個拉丁片段不是原文既有的字串。
+/// 兩條規則：整段都是拉丁、沒有一個目標語言的字；或拉丁片段裡有原文沒出現過的字。
 /// 已知盲點：目標語言本身用拉丁字母時一律回 `false`。
 pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) -> bool {
     if uses_latin_script(target_language) {
@@ -150,10 +157,18 @@ pub fn has_stray_latin(source: &str, translated: &str, target_language: &str) ->
     if !LETTER.is_match(&LATIN_RUN.replace_all(&body, "")) {
         return true;
     }
-    let haystack = squash(&remove_sender(source));
-    LATIN_RUN
-        .find_iter(&body)
-        .any(|run| !haystack.contains(&squash(run.as_str())))
+    let words = |text: &str| {
+        LATIN_WORD
+            .find_iter(text)
+            .map(|word| casefold(word.as_str()))
+            .collect::<Vec<_>>()
+    };
+    let source_words: HashSet<String> = words(&remove_sender(source)).into_iter().collect();
+    // 逐字比對、兩邊同樣切字：模型常改掉字間的標點或連接詞（`Kai and Bob` → `Kai, Bob`）
+    words(&body)
+        .into_iter()
+        .filter(|word| LATIN.is_match(word))
+        .any(|word| !source_words.contains(&word))
 }
 
 /// 拆成去掉前後空白的非空白行。

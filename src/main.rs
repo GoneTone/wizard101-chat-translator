@@ -44,6 +44,15 @@ use wizard101_chat_translator::ui::win32::cursor_pos;
 use wizard101_chat_translator::util::{read, sweep_stale_temps, write};
 
 fn main() {
+    // rten 預設用滿實體核心、框選 OCR 時與遊戲搶 CPU；它只在第一次建立執行緒池時讀這個變數
+    let ocr_threads = ocr::inference_threads(
+        std::env::var_os("RTEN_NUM_THREADS").is_some(),
+        num_cpus::get_physical(),
+    );
+    if let Some(threads) = ocr_threads {
+        // SAFETY: 還沒建立任何執行緒，沒有人同時讀寫環境變數
+        unsafe { std::env::set_var("RTEN_NUM_THREADS", threads.to_string()) };
+    }
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
     let lock = acquire_single_instance();
     if !matches!(lock, Err(AcquireError::AlreadyRunning)) && !cfg!(debug_assertions) {
@@ -56,6 +65,15 @@ fn main() {
     logs::forward_library_logs();
     // 版本先印：app.log 分段標頭後第一行就是版本
     log(format!("[app] version={}", env!("CARGO_PKG_VERSION")));
+    log(format!(
+        "[region] OCR inference threads: RTEN_NUM_THREADS={} ({})",
+        std::env::var("RTEN_NUM_THREADS").unwrap_or_default(),
+        if ocr_threads.is_some() {
+            "default, half the physical cores"
+        } else {
+            "set by user"
+        }
+    ));
     if let Err(AcquireError::CreateFailed(code)) = &lock {
         log(format!("[app] CreateMutex failed: error={code}"));
     }

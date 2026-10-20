@@ -29,7 +29,7 @@
  },
  {
   "input": "no open </think> tag",
-  "output": "no open </think> tag"
+  "output": "tag"
  },
  {
   "input": "<think></think>",
@@ -53,7 +53,7 @@
  },
  {
   "input": "<think>a</THINK>b</think>c",
-  "output": "b</think>c"
+  "output": "c"
  },
  {
   "input": "[Amy] <think>t</think>[Amy] 你好",
@@ -65,7 +65,7 @@
  },
  {
   "input": "<think\n>x</think>y",
-  "output": "<think\n>x</think>y"
+  "output": "y"
  },
  {
   "input": "<thınk>x</think>y",
@@ -78,5 +78,25 @@
  {
   "input": "<thİnk>x</thİnk>y",
   "output": "y"
+ },
+ {
+  "input": "推理過程…</think>\n\n譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "reasoning</THINK>\t　譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "a</thınk>b</thİnk> c",
+  "output": "c"
+ },
+ {
+  "input": "<think>a</think>推理</think>\n譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "[Amy] 沒有任何標籤",
+  "output": "[Amy] 沒有任何標籤"
  }
 ]

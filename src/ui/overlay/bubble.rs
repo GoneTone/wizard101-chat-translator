@@ -1,8 +1,10 @@
-//! overlay 縮小後的浮動泡泡（由縮成泡泡大小的根視窗來畫）：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景決定自動展開。
+//! overlay 縮小後的浮動泡泡（由縮成泡泡大小的根視窗來畫）：圓形 app 圖示加未讀數徽章，點一下展開、拖曳移動，並輪詢前景與攔下工作列按鈕的最小化來自動展開。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, FontId, Image, Pos2, Sense, Shape, Stroke, Vec2};
+use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MINIMIZE, WM_SYSCOMMAND};
 
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
@@ -14,8 +16,8 @@ use crate::ui::settings::theme;
 
 /// 泡泡邊長（DIP）。
 pub const BUBBLE_SIZE: i32 = 48;
-/// 泡泡狀態下檢查前景視窗的間隔。
-pub const POLL_INTERVAL: Duration = Duration::from_millis(300);
+/// 泡泡狀態下檢查前景視窗的間隔：啟用事件當幀就會觸發展開，輪詢只是沒有事件時的保險。
+pub const POLL_INTERVAL: Duration = Duration::from_secs(2);
 // 泡泡比主視窗再透一些，但留下限：overlay_alpha 調到最低時才不會幾乎看不見、找不回來
 const ALPHA_FACTOR: f32 = 0.8;
 const ALPHA_FLOOR: f32 = 0.30;
@@ -27,6 +29,15 @@ const BADGE_HOME: (f32, f32) = (0.18, 0.82);
 /// 泡泡的不透明度：跟著主視窗的設定走，但再透一些（不低於下限）。
 pub fn bubble_alpha(alpha: f32) -> f32 {
     ALPHA_FLOOR.max(alpha * ALPHA_FACTOR)
+}
+
+/// 泡泡圖示的貼圖尺寸：高縮放下 48px 會被放大到糊掉，改用 96px 縮小。
+fn icon_size(pixels_per_point: f32) -> u32 {
+    if pixels_per_point > 1.0 {
+        96
+    } else {
+        BUBBLE_SIZE as u32
+    }
 }
 
 /// 未讀數徽章的字型：粗體；要先 `fonts_egui::install`。
@@ -45,6 +56,41 @@ pub fn should_auto_expand(
     pointer_over: bool,
 ) -> bool {
     bubble_hwnd != 0 && foreground == bubble_hwnd && previous != bubble_hwnd && !pointer_over
+}
+
+/// 視窗程序攔下的最小化：視窗程序寫、App 每幀取走並在泡泡與 overlay 之間切換。
+///
+/// 點工作列按鈕時 Windows 送的是 `SC_MINIMIZE`（泡泡作用中時也不會切換前景，[`Bubble::watch`] 看不到），
+/// 吞掉它才不會把 overlay 縮進工作列。
+pub struct MinimizeGuard {
+    ctx: egui::Context,
+    requested: AtomicBool,
+}
+
+impl MinimizeGuard {
+    /// `ctx` 用來在攔下時喚醒重繪（泡泡平常只每 2 秒輪詢）。
+    pub fn new(ctx: &egui::Context) -> Self {
+        Self {
+            ctx: ctx.clone(),
+            requested: AtomicBool::new(false),
+        }
+    }
+
+    /// 視窗程序收到的訊息：最小化要吞掉（回 `true`），改成切換要求並喚醒重繪。
+    pub fn intercept(&self, msg: u32, wparam: usize) -> bool {
+        // wParam 低 4 位元是系統內部用的
+        if msg != WM_SYSCOMMAND || wparam & 0xFFF0 != SC_MINIMIZE as usize {
+            return false;
+        }
+        self.requested.store(true, Ordering::Relaxed);
+        self.ctx.request_repaint();
+        true
+    }
+
+    /// 取走攔下的切換要求。
+    pub fn take_request(&self) -> bool {
+        self.requested.swap(false, Ordering::Relaxed)
+    }
 }
 
 /// 未讀數徽章的文字：0 不顯示，超過 99 顯示 `99+`。
@@ -160,7 +206,7 @@ impl Bubble {
         alpha: f32,
     ) -> Option<Action> {
         let rect = ui.max_rect();
-        let icon = app_icon_texture(ui.ctx(), BUBBLE_SIZE as u32);
+        let icon = app_icon_texture(ui.ctx(), icon_size(ui.ctx().pixels_per_point()));
         Image::new((icon, rect.size()))
             .tint(Color32::WHITE.gamma_multiply(alpha))
             .paint_at(ui, rect);
@@ -228,6 +274,7 @@ mod tests {
     use crate::ui::fonts_egui;
     use crate::ui::overlay::frame::tests::FakeShell;
     use eframe::egui::FontFamily;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MOVE, SC_RESTORE};
 
     const OVERLAY: Rect = (100, 200, 640, 420);
 
@@ -281,6 +328,38 @@ mod tests {
         let mut bubble = Bubble::new(101, 202, t0);
         bubble.press = Some(((520, 520), (500, 500, 48, 48)));
         assert!(!bubble.watch(t0 + POLL_INTERVAL, 101, &shell));
+    }
+
+    #[test]
+    fn only_minimize_syscommands_are_swallowed() {
+        let guard = MinimizeGuard::new(&egui::Context::default());
+        let minimize = SC_MINIMIZE as usize;
+        assert!(!guard.intercept(WM_SYSCOMMAND, SC_RESTORE as usize));
+        assert!(!guard.intercept(WM_SYSCOMMAND, SC_MOVE as usize));
+        assert!(!guard.intercept(WM_SYSCOMMAND + 1, minimize));
+        assert!(!guard.take_request());
+        assert!(guard.intercept(WM_SYSCOMMAND, minimize | 0x2));
+        assert!(guard.take_request());
+        assert!(!guard.take_request(), "taken once");
+    }
+
+    #[test]
+    fn intercepted_minimize_wakes_the_ui() {
+        let ctx = egui::Context::default();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&hits);
+        ctx.set_request_repaint_callback(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let guard = MinimizeGuard::new(&ctx);
+        assert!(guard.intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize));
+        assert!(hits.load(Ordering::SeqCst) > 0);
+    }
+
+    #[test]
+    fn high_dpi_uses_the_96px_icon() {
+        assert_eq!(icon_size(1.0), 48);
+        assert_eq!(icon_size(1.25), 96);
     }
 
     #[test]

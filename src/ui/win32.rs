@@ -1,8 +1,8 @@
-//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、深色標題列、前景切換與螢幕查詢。
+//! 視窗的 Win32 補強：取 HWND、依標題找視窗、點擊不奪焦點、關掉重導向表面與系統外框、不上工作列、深色標題列、攔截最小化、前景切換與螢幕查詢。
 
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicIsize, Ordering};
-use std::sync::{Once, OnceLock};
+use std::sync::{Arc, Once, OnceLock};
 
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -37,6 +37,7 @@ use windows_sys::core::PCWSTR;
 
 use crate::logs::log;
 pub use crate::reader::process::foreground_window;
+use crate::ui::overlay::bubble::MinimizeGuard;
 use crate::ui::palette;
 
 pub use crate::ui::geometry::Rect;
@@ -126,6 +127,42 @@ unsafe extern "system" fn frameless_proc(
         unsafe { RemoveWindowSubclass(hwnd, Some(frameless_proc), 0) };
     }
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+unsafe extern "system" fn minimize_guard_proc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    data: usize,
+) -> LRESULT {
+    let guard = data as *const MinimizeGuard;
+    if unsafe { &*guard }.intercept(msg, wparam) {
+        return 0;
+    }
+    if msg == WM_NCDESTROY {
+        unsafe {
+            RemoveWindowSubclass(hwnd, Some(minimize_guard_proc), 0);
+            drop(Arc::from_raw(guard));
+        }
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
+}
+
+/// 讓 `guard` 先看過視窗收到的訊息，最小化交給它吞掉；每個視窗只呼叫一次。
+pub fn guard_minimize(hwnd: isize, guard: Arc<MinimizeGuard>) {
+    let data = Arc::into_raw(guard);
+    if unsafe { SetWindowSubclass(hwnd as HWND, Some(minimize_guard_proc), 0, data as usize) } == 0
+    {
+        let error = std::io::Error::last_os_error();
+        drop(unsafe { Arc::from_raw(data) });
+        log(format!(
+            "[ui] minimize guard not installed: hwnd={hwnd:#x} error={error}"
+        ));
+        return;
+    }
+    log(format!("[ui] minimize guard installed: hwnd={hwnd:#x}"));
 }
 
 /// 設定一個 4 位元組的 DWM 視窗屬性，回傳 HRESULT。

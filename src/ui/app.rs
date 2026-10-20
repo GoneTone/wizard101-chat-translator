@@ -18,7 +18,9 @@ use crate::ui::geometry::{Rect, pull_onscreen};
 use crate::ui::input_box::InputBox;
 use crate::ui::input_host::{Desktop, InputHost};
 use crate::ui::overlay::banners::Banners;
-use crate::ui::overlay::bubble::{Action, BUBBLE_SIZE, Bubble, bubble_alpha, initial_position};
+use crate::ui::overlay::bubble::{
+    Action, BUBBLE_SIZE, Bubble, MinimizeGuard, bubble_alpha, initial_position,
+};
 use crate::ui::overlay::frame::{BAR_HEIGHT, Clicked, Frame, Shell, Win32Shell, describe};
 use crate::ui::overlay::message_list::MessageList;
 use crate::ui::overlay::model::OverlayModel;
@@ -97,6 +99,8 @@ pub struct App {
     list: MessageList,
     selection: Selection,
     bubble: Option<Bubble>,
+    /// 泡泡模式下攔下根視窗的最小化（點工作列按鈕）改成展開。
+    minimize_guard: Arc<MinimizeGuard>,
     bubble_position: (Option<i32>, Option<i32>),
     on_bubble_move: Box<dyn FnMut(i32, i32)>,
     on_close: Option<Box<dyn FnOnce()>>,
@@ -134,6 +138,7 @@ impl App {
             list: MessageList::new(),
             selection: Selection::default(),
             bubble: None,
+            minimize_guard: Arc::new(MinimizeGuard::new(ctx)),
             bubble_position: (None, None),
             on_bubble_move: Box::new(|_, _| {}),
             on_close: None,
@@ -674,6 +679,14 @@ impl eframe::App for App {
         {
             on_close();
         }
+        if self.minimize_guard.take_request() {
+            if self.minimized {
+                log("[ui] auto-expand: taskbar click while the bubble was active");
+            } else {
+                log("[ui] minimized to bubble: taskbar click on the expanded overlay");
+            }
+            self.set_minimized(!self.minimized);
+        }
         while let Ok(event) = self.rx.try_recv() {
             self.apply(ctx, event);
         }
@@ -691,6 +704,7 @@ impl eframe::App for App {
             self.hwnd = win32::hwnd_of(frame);
             if self.hwnd != 0 {
                 win32::remove_system_frame(self.hwnd);
+                win32::guard_minimize(self.hwnd, Arc::clone(&self.minimize_guard));
                 self.shell = Box::new(Win32Shell(self.hwnd));
             }
         }
@@ -1019,6 +1033,31 @@ mod tests {
             fonts_egui::install(&cc.egui_ctx, "en-US");
             App::new(&cc.egui_ctx, inbox, Frame::new(0.8, None, |_, _, _, _| {}))
         })
+    }
+
+    #[test]
+    fn taskbar_minimize_toggles_between_overlay_and_bubble() {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MINIMIZE, WM_SYSCOMMAND};
+        let (_poster, inbox) = channel();
+        let mut harness = app_harness(inbox);
+        harness.step();
+        let click = |h: &Harness<App>| {
+            assert!(
+                h.state()
+                    .minimize_guard
+                    .intercept(WM_SYSCOMMAND, SC_MINIMIZE as usize),
+                "always swallowed so Windows never minimizes to the taskbar"
+            );
+        };
+        assert!(!harness.state().minimized);
+        click(&harness);
+        harness.run_steps(4);
+        assert!(harness.state().minimized, "expanded -> bubble");
+        assert!(harness.state().bubble.is_some());
+        click(&harness);
+        harness.run_steps(4);
+        assert!(!harness.state().minimized, "bubble -> expanded");
+        assert!(harness.state().bubble.is_none());
     }
 
     #[test]

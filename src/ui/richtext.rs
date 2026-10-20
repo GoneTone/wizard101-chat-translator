@@ -10,9 +10,6 @@ use regex::{Captures, Regex};
 
 use crate::logs::log;
 
-/// 淺色設定視窗上的連結藍（overlay 的深色底另用 `palette::FG_UPDATE`）。
-pub const LINK_COLOR: Color32 = Color32::from_rgb(0x4a, 0x7d, 0xdc);
-
 static LINK_MARKUP: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\[([^\]\n]+)\]\(([^)\s]+)\)").unwrap());
 // 只收 RFC 3986 的 ASCII 字元：網址常緊接中文或全形標點，用「非空白」當邊界會把整句吃進連結

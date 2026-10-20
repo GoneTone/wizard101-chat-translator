@@ -8,10 +8,11 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::thread::JoinHandle;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use sha1::{Digest, Sha1};
+use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION};
 
 use crate::logs::log;
 
@@ -138,11 +139,39 @@ pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
     ));
     let tmp = PathBuf::from(tmp_name);
     // 寫入與 rename 之間當機會留下暫存檔，下次啟動由 `sweep_stale_temps` 清掉
-    let result = write_synced(&tmp, text).and_then(|()| fs::rename(&tmp, path));
+    let result = write_synced(&tmp, text)
+        .and_then(|()| rename_with_retry(|| fs::rename(&tmp, path), thread::sleep));
     if result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     result
+}
+
+const RENAME_ATTEMPTS: u32 = 10;
+const RENAME_BACKOFF: Duration = Duration::from_millis(20);
+
+/// 目的檔剛被換過、仍被防毒或另一個執行緒短暫占住時，rename 會回 5／32；重試到對方放手。
+fn rename_with_retry(
+    mut rename: impl FnMut() -> io::Result<()>,
+    sleep: impl Fn(Duration),
+) -> io::Result<()> {
+    let mut attempt = 1;
+    loop {
+        match rename() {
+            Err(e) if attempt < RENAME_ATTEMPTS && is_transient_lock(&e) => {
+                attempt += 1;
+                sleep(RENAME_BACKOFF);
+            }
+            other => return other,
+        }
+    }
+}
+
+fn is_transient_lock(e: &io::Error) -> bool {
+    matches!(
+        e.raw_os_error().map(|code| code as u32),
+        Some(ERROR_ACCESS_DENIED | ERROR_SHARING_VIOLATION)
+    )
 }
 
 /// 寫檔並 fsync：先落盤再 rename，斷電後才不會留下空檔。
@@ -244,5 +273,49 @@ mod tests {
         let names: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
         assert_eq!(names.len(), 1);
         assert_eq!(fs::read_to_string(path).unwrap(), "{}");
+    }
+
+    /// 依序回傳 `errors` 再成功；回傳 (結果, rename 呼叫次數)。
+    fn retry_with(errors: &[i32]) -> (io::Result<()>, usize) {
+        let mut calls = 0;
+        let result = rename_with_retry(
+            || {
+                calls += 1;
+                match errors.get(calls - 1) {
+                    Some(&code) => Err(io::Error::from_raw_os_error(code)),
+                    None => Ok(()),
+                }
+            },
+            |_| {},
+        );
+        (result, calls)
+    }
+
+    #[test]
+    fn rename_retries_access_denied_until_it_succeeds() {
+        let (result, calls) = retry_with(&[5, 5]);
+        assert!(result.is_ok());
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn rename_retries_sharing_violation() {
+        let (result, calls) = retry_with(&[32]);
+        assert!(result.is_ok());
+        assert_eq!(calls, 2);
+    }
+
+    #[test]
+    fn rename_does_not_retry_other_errors() {
+        let (result, calls) = retry_with(&[2]);
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(2));
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn rename_gives_up_after_max_attempts() {
+        let (result, calls) = retry_with(&[5; 100]);
+        assert_eq!(result.unwrap_err().raw_os_error(), Some(5));
+        assert_eq!(calls, RENAME_ATTEMPTS as usize);
     }
 }

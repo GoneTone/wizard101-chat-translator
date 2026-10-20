@@ -204,6 +204,8 @@ pub struct Card {
     scrollbar: Scrollbar,
     /// 左鍵按下的位置，放開時判斷是點擊還是拖曳。
     press: Option<Pos2>,
+    /// 按下時壓在哪個連結上；放開仍是點擊才開。
+    press_link: Option<String>,
     /// 選取兩端的字元索引；相同代表沒有選取。
     anchor: Option<usize>,
     focus: Option<usize>,
@@ -224,6 +226,7 @@ impl Card {
             scroll: 0.0,
             scrollbar: Scrollbar::default(),
             press: None,
+            press_link: None,
             anchor: None,
             focus: None,
             dragging: false,
@@ -427,10 +430,15 @@ impl Card {
         let mut close = false;
         let mut copied = None;
         let mut focus = false;
+        let menu_was_open = self.menu.is_open();
         for (pos, pressed) in buttons {
             if pressed {
-                // 捲軸與選單上的按放不算點卡片，選取也留著
-                if !area.contains(pos) || track.contains(pos) || self.menu.contains(pos) {
+                // 捲軸與選單上的按放不算點卡片，選取也留著；選單開著時選單外的按下只用來收選單
+                if !area.contains(pos)
+                    || track.contains(pos)
+                    || menu_was_open
+                    || self.menu.contains(pos)
+                {
                     continue;
                 }
                 if close_rect.contains(pos) {
@@ -444,17 +452,21 @@ impl Card {
                 self.focus = Some(index);
                 self.dragging = true;
                 self.next_tick = time + AUTOSCROLL_INTERVAL;
-                if let Some(url) = char_under(&galley, pos - origin).and_then(|i| self.link_at(i)) {
-                    log(format!("[ui] opening link from message: {url}"));
-                    ctx.open_url(OpenUrl::new_tab(url));
-                }
+                self.press_link = char_under(&galley, pos - origin)
+                    .and_then(|i| self.link_at(i))
+                    .map(str::to_owned);
             } else if let Some(start) = self.press.take() {
+                let link = self.press_link.take();
                 if self.dragging {
                     self.dragging = false;
                     self.focus = Some(caret_at(pos));
                 }
                 let d = (pos - start) * ppp;
                 if is_click(d.x.round() as i32, d.y.round() as i32) {
+                    if let Some(url) = link {
+                        log(format!("[ui] opening link from message: {url}"));
+                        ctx.open_url(OpenUrl::new_tab(url));
+                    }
                     close = true;
                 } else {
                     focus = true;
@@ -553,6 +565,8 @@ mod tests {
         actions: Vec<CardAction>,
         /// 各幀 `ctx.copy_text` 排入的文字。
         copied: Vec<String>,
+        /// 各幀排入的 `open_url` 網址。
+        opened: Vec<String>,
         area: egui::Rect,
     }
 
@@ -561,6 +575,7 @@ mod tests {
             card,
             actions: Vec::new(),
             copied: Vec::new(),
+            opened: Vec::new(),
             area: egui::Rect::NOTHING,
         };
         let mut h = Harness::builder()
@@ -574,6 +589,7 @@ mod tests {
                     s.area = ui.max_rect();
                     s.actions.extend(s.card.content(ui));
                     s.copied.extend(copied_texts(ui.ctx()));
+                    s.opened.extend(ui.ctx().output(opened_urls));
                 },
                 state,
             );
@@ -822,14 +838,26 @@ mod tests {
     }
 
     #[test]
-    fn clicking_a_link_opens_it_and_closes_the_card() {
+    fn clicking_a_link_opens_it_on_release_and_closes_the_card() {
         let mut h = harness(CardContent::Error("https://example.com/keys".into()));
         let link = label_rect(&h, "https://example.com/keys");
-        press(&mut h, link.left_top() + vec2(5.0, 5.0));
-        let opened = opened_urls(&h.output().platform_output);
-        assert_eq!(opened, ["https://example.com/keys"]);
-        release(&mut h, link.left_top() + vec2(5.0, 5.0));
+        let at = link.left_top() + vec2(5.0, 5.0);
+        press(&mut h, at);
+        assert!(h.state().opened.is_empty(), "opened on press");
+        release(&mut h, at);
+        assert_eq!(h.state().opened, ["https://example.com/keys"]);
         assert_eq!(h.state().actions, [CardAction::Close]);
+    }
+
+    #[test]
+    fn dragging_from_a_link_selects_text_without_opening_it() {
+        let mut h = harness(CardContent::Error("https://example.com/keys".into()));
+        let link = label_rect(&h, "https://example.com/keys");
+        let from = link.left_top() + vec2(5.0, 5.0);
+        drag(&mut h, from, from + vec2(60.0, 0.0));
+        assert!(h.state().opened.is_empty(), "{:?}", h.state().opened);
+        assert!(!h.state().actions.contains(&CardAction::Close));
+        assert!(!highlights(&h).is_empty());
     }
 
     #[test]
@@ -1129,6 +1157,21 @@ mod tests {
         right_click(&mut h, label.left_top() + vec2(5.0, 5.0));
         assert!(h.state().actions.is_empty());
         assert!(menu_rect(&h).is_some(), "copy menu shown");
+    }
+
+    #[test]
+    fn clicking_outside_the_open_menu_closes_only_the_menu() {
+        let mut h = harness(text("譯文", SOURCE));
+        let label = label_rect(&h, BOTH);
+        right_click(&mut h, label.left_top() + vec2(5.0, 5.0));
+        assert!(menu_rect(&h).is_some(), "copy menu shown");
+        click(&mut h, label.left_top() + vec2(250.0, 5.0));
+        assert!(menu_rect(&h).is_none(), "menu dismissed");
+        assert!(
+            !h.state().actions.contains(&CardAction::Close),
+            "{:?}",
+            h.state().actions
+        );
     }
 
     #[test]
