@@ -275,7 +275,7 @@ impl Job {
         let mut attempts = 0;
         let mut last_error: Option<ErrorState> = None;
         // 連續 Config 錯誤共用同一個基準：別則在兩次嘗試之間成功也要看得出來
-        let mut baseline: Option<(u64, u64)> = None;
+        let mut baseline: Option<u64> = None;
         while inner.wait_for_backoff().await {
             if self.born.elapsed() > MAX_JOB_AGE {
                 log(format!(
@@ -299,10 +299,11 @@ impl Job {
                 continue;
             }
             attempts += 1;
-            let (successes_before, epoch_before) = *baseline.get_or_insert_with(|| {
+            let (successes_now, epoch_before) = {
                 let state = inner.state();
                 (state.successes, state.config_epoch)
-            });
+            };
+            let successes_before = *baseline.get_or_insert(successes_now);
             let request = async { (inner.translate)(line.clone(), context.clone()).await };
             // 額度留到 note_* 更新閘門之後才放回，下一則才不會讀到舊的 gate_until
             let (reason, message) = match AssertUnwindSafe(request).catch_unwind().await {

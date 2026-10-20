@@ -3,7 +3,7 @@
 use std::ptr::null;
 
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
+    CloseHandle, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, LPARAM,
 };
 use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::Shell::IsUserAnAdmin;
@@ -41,11 +41,20 @@ pub fn acquire_single_instance() -> Result<InstanceLock, AcquireError> {
     acquire_named(SINGLE_INSTANCE_MUTEX)
 }
 
+/// 建立 mutex 失敗的錯誤碼分類：拒絕存取代表較高權限的那份已持有它。
+fn create_error(code: u32) -> AcquireError {
+    if code == ERROR_ACCESS_DENIED {
+        AcquireError::AlreadyRunning
+    } else {
+        AcquireError::CreateFailed(code)
+    }
+}
+
 fn acquire_named(name: &str) -> Result<InstanceLock, AcquireError> {
     let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
     let handle = unsafe { CreateMutexW(null(), 0, wide.as_ptr()) };
     if handle.is_null() {
-        return Err(AcquireError::CreateFailed(unsafe { GetLastError() }));
+        return Err(create_error(unsafe { GetLastError() }));
     }
     // 必須緊接在 CreateMutexW 之後讀，中間不能插入其他 Win32 呼叫
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
@@ -122,6 +131,15 @@ mod tests {
             acquire_named(&name).unwrap_err(),
             AcquireError::AlreadyRunning
         );
+    }
+
+    #[test]
+    fn access_denied_means_an_elevated_copy_holds_the_mutex() {
+        assert_eq!(
+            create_error(ERROR_ACCESS_DENIED),
+            AcquireError::AlreadyRunning
+        );
+        assert_eq!(create_error(8), AcquireError::CreateFailed(8));
     }
 
     #[test]
