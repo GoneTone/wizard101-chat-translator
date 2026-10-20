@@ -82,10 +82,7 @@ pub fn clean(text: &str) -> String {
         .replace("&gt;", ">")
         .replace("&amp;", "&")
         .replace('\0', " ");
-    text.split(pystr::is_space)
-        .filter(|w| !w.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    pystr::one_line(&text)
 }
 
 /// 從一行原始 markup 取遊戲顯示色（`#rrggbb` 小寫）；沒有顏色標記回傳 None。

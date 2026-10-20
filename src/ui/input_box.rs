@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::i18n::t;
 use crate::input::dispatch::InputBoxControl;
 use crate::logs::log;
+use crate::py::pystr;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, anchored_position};
 use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE};
@@ -230,7 +231,7 @@ impl InputBox {
 
     fn submit(&mut self) {
         // 壓縮所有空白（含貼上夾帶的換行）：輸入端也守住單行保證
-        let text = self.text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let text = pystr::one_line(&self.text);
         if text.is_empty() {
             self.close();
             return;
@@ -451,6 +452,14 @@ mod tests {
         let stale = f.input.take_restore_foreground().unwrap();
         assert_eq!(stale, 0x7FFF_FFFF);
         assert!(!crate::ui::win32::force_foreground(stale));
+    }
+
+    #[test]
+    fn submit_collapses_python_whitespace() {
+        let mut f = fixture();
+        f.input.show();
+        submit(&mut f, "a\x1cb");
+        assert_eq!(f.requests.borrow()[0].text, "a b");
     }
 
     #[test]

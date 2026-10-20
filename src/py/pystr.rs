@@ -20,6 +20,14 @@ pub fn rstrip(s: &str) -> &str {
     s.trim_end_matches(is_space)
 }
 
+/// Python `" ".join(s.split())`：連續空白折成單一空格並去頭尾。
+pub fn one_line(s: &str) -> String {
+    s.split(is_space)
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// Python `str.casefold()`（完整大小寫摺疊，如 `ß` → `ss`）。
 pub fn casefold(s: &str) -> String {
     caseless::default_case_fold_str(s)
@@ -48,4 +56,14 @@ pub fn splitlines(s: &str) -> Vec<&str> {
         lines.push(&s[start..]);
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use super::one_line;
+
+    #[test]
+    fn one_line_splits_on_python_whitespace() {
+        assert_eq!(one_line(" a\x1cb \u{3000}c\n"), "a b c");
+    }
 }

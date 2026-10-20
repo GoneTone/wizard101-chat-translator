@@ -16,7 +16,7 @@ pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
 pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
-use super::errors::{TranslateError, one_line, status_error};
+use super::errors::{TranslateError, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
@@ -166,8 +166,8 @@ pub(crate) fn chunk_error(error: &Value) -> TranslateError {
         .and_then(Value::as_u64)
         .and_then(|c| u16::try_from(c).ok())
     {
-        Some(code) => status_failure(code, one_line(message), status_error),
-        None => TranslateError::Unexpected(one_line(&error.to_string())),
+        Some(code) => status_failure(code, pystr::one_line(message), status_error),
+        None => TranslateError::Unexpected(pystr::one_line(&error.to_string())),
     }
 }
 
@@ -241,7 +241,7 @@ pub(crate) fn error_chain(error: reqwest::Error) -> String {
         parts.push(cause.to_string());
         source = cause.source();
     }
-    one_line(&parts.join(": "))
+    pystr::one_line(&parts.join(": "))
 }
 
 /// 裝上 rustls 的 ring crypto provider；任何要建 HTTPS client 的地方都得先呼叫。

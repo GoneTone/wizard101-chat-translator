@@ -94,14 +94,6 @@ static REJECTED_PARAM: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 
-/// 折成單行（不截斷 —— 訊息尾端常是說明網址）。
-pub fn one_line(text: &str) -> String {
-    text.split(pystr::is_space)
-        .filter(|word| !word.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 /// OpenAI／Anthropic 的 `error.message`，或自架後端直接放字串的 `error`／`message`。
 pub(crate) fn message_of(body: &Value) -> Option<&str> {
     let body = body.as_object()?;
@@ -128,7 +120,7 @@ pub fn error_detail(text: &str) -> String {
             body => message_of(&body).map(str::to_owned),
         })
         .unwrap_or_else(|| HTML_TAG.replace_all(text, " ").into_owned());
-    one_line(&message)
+    pystr::one_line(&message)
 }
 
 /// 從 400 的說明文字抓出被拒的參數名；認不出來回 `None`。
@@ -205,15 +197,5 @@ pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, S
         } => ("error.server_http", vec![("status", status.to_string())]),
         Offline { status: None, .. } => ("error.offline", vec![]),
         other => ("error.unexpected", vec![("error", other.to_string())]),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::one_line;
-
-    #[test]
-    fn one_line_splits_on_python_whitespace() {
-        assert_eq!(one_line(" a\x1cb \u{3000}c\n"), "a b c");
     }
 }

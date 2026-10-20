@@ -16,9 +16,7 @@ use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::py::{pyrepr::repr_str, pystr};
 use crate::translation::Turn;
-use crate::translation::errors::{
-    TranslateError, error_detail, model_list_error, one_line, status_error,
-};
+use crate::translation::errors::{TranslateError, error_detail, model_list_error, status_error};
 use crate::util::random_u64;
 
 /// Claude 官方端點。
@@ -319,10 +317,10 @@ fn stream_error(event: &Value) -> TranslateError {
     match status {
         Some(code) => status_failure(
             code,
-            one_line(error["message"].as_str().unwrap_or("")),
+            pystr::one_line(error["message"].as_str().unwrap_or("")),
             status_error,
         ),
-        None => TranslateError::Unexpected(one_line(&event.to_string())),
+        None => TranslateError::Unexpected(pystr::one_line(&event.to_string())),
     }
 }
 
