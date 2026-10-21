@@ -15,7 +15,7 @@ pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
 pub use gemini::{GEMINI_BASE_URL, GeminiClient};
 pub use openai::OpenAiCompatClient;
 
-use super::errors::{TranslateError, error_detail, status_error};
+use super::errors::{MAX_RETRY_AFTER, TranslateError, error_detail, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
@@ -41,9 +41,6 @@ pub const MAX_TOKENS_REGION: u32 = 4096;
 
 /// ChatGPT preset 固定的官方端點。
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com";
-
-/// 伺服器要求的等待上限：超過時 Claude 改走指數退避，翻譯池則夾在這個值。
-pub(crate) const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 
 const TRUNCATED_SAMPLE_CHARS: usize = 80;
 
@@ -173,8 +170,20 @@ pub(crate) async fn response_failure(
     error
 }
 
-/// 伺服器要求的等待時間：依序看 `retry-after-ms`、`retry-after`（秒數或 HTTP 日期）；非正數為 `None`。
+/// 伺服器要求的等待時間，夾在 [`MAX_RETRY_AFTER`]；認不出或不是正數為 `None`。
 pub(crate) fn retry_after(headers: &HeaderMap) -> Option<Duration> {
+    requested_seconds(headers).and_then(capped)
+}
+
+/// 同 [`retry_after`]，但要求超過 [`MAX_RETRY_AFTER`] 時為 `None`（anthropic SDK 此時改走自己的退避）。
+pub(crate) fn retry_after_within_cap(headers: &HeaderMap) -> Option<Duration> {
+    requested_seconds(headers)
+        .filter(|seconds| *seconds <= MAX_RETRY_AFTER.as_secs_f64())
+        .and_then(capped)
+}
+
+/// 依序看 `retry-after-ms`、`retry-after`（秒數或 HTTP 日期）要求的秒數，未夾上限。
+fn requested_seconds(headers: &HeaderMap) -> Option<f64> {
     let header = |name: &str| headers.get(name)?.to_str().ok().map(pystr::strip);
     let seconds = if let Some(ms) = header("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
         ms / 1000.0
@@ -209,13 +218,17 @@ fn body_retry_delay(text: &str) -> Option<Duration> {
                 .parse()
                 .ok()
         })?;
-    positive_seconds(seconds)
+    positive_seconds(seconds).and_then(capped)
 }
 
-fn positive_seconds(seconds: f64) -> Option<Duration> {
-    Duration::try_from_secs_f64(seconds)
-        .ok()
-        .filter(|wait| !wait.is_zero())
+fn positive_seconds(seconds: f64) -> Option<f64> {
+    (seconds.is_finite() && seconds > 0.0).then_some(seconds)
+}
+
+/// 先夾上限再轉：極大的有限值（如 `1e20`）超出 `Duration` 範圍，但意思是「等很久」而非「沒說」。
+fn capped(seconds: f64) -> Option<Duration> {
+    let wait = Duration::from_secs_f64(seconds.min(MAX_RETRY_AFTER.as_secs_f64()));
+    (!wait.is_zero()).then_some(wait)
 }
 
 /// 串流中途的錯誤：有狀態碼就照 [`status_error`] 分類，否則以 `raw` 對應未分類的例外。
@@ -409,6 +422,56 @@ mod tests {
                 "output truncated at max_tokens=64, completion_tokens=unknown, sample=\"it's a loop\""
                     .into()
             )
+        );
+    }
+
+    fn headers(name: &'static str, value: &str) -> HeaderMap {
+        let mut map = HeaderMap::new();
+        map.insert(name, HeaderValue::from_str(value).unwrap());
+        map
+    }
+
+    fn gemini_body(delay: &str) -> String {
+        serde_json::json!({"error": {"code": 429, "details": [
+            {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": delay}]}})
+        .to_string()
+    }
+
+    #[test]
+    fn abnormal_retry_after_values_are_no_hint() {
+        let past = "Sun, 06 Nov 1994 08:49:37 GMT";
+        for value in ["inf", "NaN", "1e400", "-5", "abc", "0", past] {
+            assert_eq!(retry_after(&headers("retry-after", value)), None, "{value}");
+        }
+        for value in ["inf", "NaN", "-5", "abc", "0"] {
+            assert_eq!(
+                retry_after(&headers("retry-after-ms", value)),
+                None,
+                "{value}"
+            );
+        }
+        for delay in ["-5s", "abc", "infs", "NaNs", "0s", "5"] {
+            assert_eq!(body_retry_delay(&gemini_body(delay)), None, "{delay}");
+        }
+    }
+
+    #[test]
+    fn huge_retry_after_values_wait_the_cap() {
+        assert_eq!(
+            retry_after(&headers("retry-after", "1e20")),
+            Some(MAX_RETRY_AFTER)
+        );
+        assert_eq!(
+            retry_after(&headers("retry-after-ms", "1e25")),
+            Some(MAX_RETRY_AFTER)
+        );
+        assert_eq!(
+            body_retry_delay(&gemini_body("1e20s")),
+            Some(MAX_RETRY_AFTER)
+        );
+        assert_eq!(
+            body_retry_delay(&gemini_body("37s")),
+            Some(Duration::from_secs(37))
         );
     }
 }

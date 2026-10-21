@@ -397,6 +397,45 @@ async fn server_retry_after_is_capped_at_60s() {
     assert!(log_text().contains(&applied), "{applied}");
 }
 
+#[tokio::test(start_paused = true)]
+async fn longer_retry_after_during_a_backoff_extends_it_without_advancing_the_step() {
+    capture_logs();
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let count = Arc::new(AtomicUsize::new(0));
+    let translate = tfn(move |_line, _context| {
+        let n = count.fetch_add(1, Ordering::SeqCst);
+        let _ = calls_tx.send(Instant::now());
+        async move {
+            match n {
+                0 => {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    Err(offline("down"))
+                }
+                1 => {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    Err(offline_asking_to_wait(429, 30))
+                }
+                2 => Err(offline("down")),
+                _ => Ok("ok".into()),
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(2));
+    pool.submit("[A] one".into(), vec![], 1);
+    pool.submit("[B] two".into(), vec![], 2);
+    let mut times = Vec::new();
+    for _ in 0..5 {
+        times.push(next(&mut calls).await);
+    }
+    next(&mut rx).await;
+    next(&mut rx).await;
+    let offsets: Vec<u64> = times.iter().map(|t| secs(times[0], *t)).collect();
+    // 第 2 秒離線開了 5 秒的閘，第 3 秒的 429 要等 30 秒：延到 33 秒；之後的離線仍是第二階 15 秒
+    assert_eq!(offsets, [0, 0, 33, 48, 48]);
+    let applied = format!("server asked to wait 30s; next retry in 30s ({DESCRIBE})");
+    assert!(log_text().contains(&applied), "{applied}");
+}
+
 #[tokio::test]
 async fn openai_429_retry_after_header_delays_the_next_pool_retry() {
     let server = MockServer::start().await;

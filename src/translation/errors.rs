@@ -10,10 +10,13 @@ use serde_json::Value;
 use crate::i18n::t;
 use crate::py::pystr;
 
+/// 伺服器要求的等待上限：超過時 Claude 改走指數退避，翻譯池則夾在這個值。
+pub(crate) const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslateError {
-    /// 可重試：連線失敗、逾時、408、409、429、5xx；`retry_after` 是伺服器要求的等待時間。
+    /// 可重試：連線失敗、逾時、408、409、429、5xx；`retry_after` 是伺服器要求的等待時間（不超過 [`MAX_RETRY_AFTER`]）。
     Offline {
         status: Option<u16>,
         detail: String,

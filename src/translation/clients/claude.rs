@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked,
-    cancellable, connection_error, count_of, error_type_status, finish_text, http_client,
-    incomplete_stream, parse_object, request_error, response_failure, retry_after, sample_of,
+    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked, cancellable,
+    connection_error, count_of, error_type_status, finish_text, http_client, incomplete_stream,
+    parse_object, request_error, response_failure, retry_after_within_cap, sample_of,
     secret_header, stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
@@ -299,7 +299,7 @@ fn should_retry(status: u16, headers: &HeaderMap) -> bool {
 
 /// 第 `retries_taken` 次失敗後的等待：照伺服器要求，否則 0.5 秒起指數退避（上限 8 秒）乘上 0.75–1 的抖動。
 fn retry_delay(retries_taken: u32, headers: &HeaderMap, unit: f64) -> Duration {
-    if let Some(wait) = retry_after(headers).filter(|wait| *wait <= MAX_RETRY_AFTER) {
+    if let Some(wait) = retry_after_within_cap(headers) {
         return wait;
     }
     let backoff = (INITIAL_RETRY_DELAY * 2f64.powi(retries_taken as i32)).min(MAX_RETRY_DELAY);
@@ -449,6 +449,7 @@ mod tests {
             &[("retry-after", "-1")],
             &[("retry-after", "soon")],
             &[("retry-after", "61")],
+            &[("retry-after", "1e20")],
             &[("retry-after-ms", "99999999")],
             &[("retry-after-ms", "0"), ("retry-after", "5")],
         ] {
