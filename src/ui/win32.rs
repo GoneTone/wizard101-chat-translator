@@ -8,7 +8,8 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
     DWMWA_CAPTION_COLOR, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
-    DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute,
+    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
+    DwmFlush, DwmSetWindowAttribute,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
@@ -188,6 +189,22 @@ pub fn disable_transitions(hwnd: isize) {
     }
 }
 
+/// 要 Windows 11 把無邊框視窗畫成和一般視窗一樣的圓角（`false` 改回直角）；Win10 不支援，失敗只記 log。
+pub fn set_round_corners(hwnd: isize, round: bool) {
+    let preference = if round {
+        DWMWCP_ROUND
+    } else {
+        DWMWCP_DONOTROUND
+    };
+    let hr = set_dwm_attribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, preference as u32);
+    if hr != 0 {
+        log(format!(
+            "[ui] corner preference not applied (hwnd={hwnd:#x}, round={round}, hresult={:#010x})",
+            hr as u32
+        ));
+    }
+}
+
 /// 系統標題列改用深色、底色同側欄；失敗只記 log（Win10 不支援自訂標題列底色）。
 pub fn dark_caption(hwnd: isize) {
     let bg = palette::BG;
@@ -206,7 +223,7 @@ pub fn dark_caption(hwnd: isize) {
     }
 }
 
-/// 讓工作區蓋滿整個視窗，拿掉 Windows 11 畫的圓角、1px 邊框與陰影；重複呼叫無妨。
+/// 讓工作區蓋滿整個視窗，拿掉 Windows 11 畫的圓角、1px 邊框與陰影（要圓角另呼叫 [`set_round_corners`]）；重複呼叫無妨。
 ///
 /// egui-winit 對無邊框視窗一律開 winit 的 undecorated shadow 且沒開放關閉（`has_shadow` 只管 macOS），
 /// 留下的 1px 非工作區讓 DWM 當成一般視窗加框。子類別化後 winit 每次重算外框也都經過這裡。

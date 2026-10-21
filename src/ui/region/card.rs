@@ -43,6 +43,8 @@ pub const PAD_X: i32 = 10;
 pub const PAD_Y: i32 = 6;
 
 const BORDER: f32 = 1.0;
+/// 與 Windows 11 視窗圓角同半徑；卡片自己畫邊框，所以不交給 DWM 裁（會切斷邊框又多一圈系統邊框）。
+const RADIUS: f32 = 8.0;
 const CLOSE_PAD_X: f32 = 6.0;
 const CLOSE_PAD_Y: f32 = 1.0;
 const PAD: Vec2 = vec2(PAD_X as f32, PAD_Y as f32);
@@ -494,9 +496,9 @@ impl Card {
 
         // ---- 繪製 ----
         let painter = ui.painter().clone();
-        painter.rect_filled(inner, 0.0, BG.gamma_multiply(self.alpha));
+        painter.rect_filled(inner, RADIUS - BORDER, BG.gamma_multiply(self.alpha));
         let border = Stroke::new(BORDER, GRIP.gamma_multiply(self.alpha));
-        painter.rect_stroke(area, 0.0, border, StrokeKind::Inside);
+        painter.rect_stroke(area, RADIUS, border, StrokeKind::Inside);
         if ui.rect_contains_pointer(area) {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }
@@ -543,7 +545,8 @@ impl Card {
 #[cfg(test)]
 mod tests {
     use eframe::egui::{
-        Key, Modifiers, MouseWheelSource, MouseWheelUnit, Shape, TouchPhase, epaint::TextShape,
+        CornerRadius, Key, Modifiers, MouseWheelSource, MouseWheelUnit, Shape, TouchPhase,
+        epaint::TextShape,
     };
     use egui_kittest::Harness;
 
@@ -947,6 +950,19 @@ mod tests {
         // 半透明的底色疊在半透明的邊框色上，合成後的不透明度會比 overlay 高
         assert!(!rects().any(|r| r.fill == grip));
         assert!(rects().any(|r| r.stroke.color == grip));
+    }
+
+    #[test]
+    fn card_corners_are_rounded_like_the_other_windows() {
+        let h = harness(CardContent::Pending);
+        let rounded = |color: Color32| {
+            h.output().shapes.iter().any(|c| {
+                matches!(&c.shape, Shape::Rect(r)
+                    if (r.fill == color || r.stroke.color == color) && r.corner_radius != CornerRadius::ZERO)
+            })
+        };
+        assert!(rounded(BG.gamma_multiply(0.8)), "background");
+        assert!(rounded(GRIP.gamma_multiply(0.8)), "border");
     }
 
     #[test]

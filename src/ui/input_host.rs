@@ -215,6 +215,7 @@ impl InputHost {
             );
         }
         viewport::frameless_setup(self.hwnd, overlay);
+        win32::set_round_corners(self.hwnd, true);
         let (rect, above, _) = self.open_rect(content_dip);
         win32::set_window_rect(self.hwnd, rect);
         (self.above, self.content_dip) = (above, content_dip);

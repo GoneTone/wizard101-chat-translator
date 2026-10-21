@@ -72,6 +72,8 @@ pub trait Shell {
     fn wait_for_composition(&self) {}
     /// 讓 DWM 不顯示（或恢復顯示）視窗；對系統而言視窗仍是可見的。
     fn set_cloaked(&mut self, _cloaked: bool) {}
+    /// 視窗四角改成圓角或直角。
+    fn set_round_corners(&mut self, _round: bool) {}
     /// 讓視窗取得鍵盤焦點（框選的 Ctrl+C 才收得到）；被系統拒絕回 `false`。
     fn take_focus(&mut self) -> bool;
 }
@@ -100,6 +102,9 @@ impl Shell for Win32Shell {
     }
     fn set_cloaked(&mut self, cloaked: bool) {
         win32::set_cloaked(self.0, cloaked);
+    }
+    fn set_round_corners(&mut self, round: bool) {
+        win32::set_round_corners(self.0, round);
     }
     fn take_focus(&mut self) -> bool {
         win32::force_foreground(self.0)
