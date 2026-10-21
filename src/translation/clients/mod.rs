@@ -7,7 +7,7 @@ pub mod sse;
 
 use std::time::Duration;
 
-use reqwest::header::HeaderValue;
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -37,6 +37,9 @@ pub const MAX_TOKENS_REGION: u32 = 4096;
 
 /// ChatGPT preset 固定的官方端點。
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com";
+
+/// 伺服器要求的等待上限：超過時 Claude 改走指數退避，翻譯池則夾在這個值。
+pub(crate) const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
 
 const TRUNCATED_SAMPLE_CHARS: usize = 80;
 
@@ -145,16 +148,70 @@ pub(crate) fn status_failure(
         .unwrap_or_else(|| TranslateError::Unexpected(format!("HTTP {status}: {detail}")))
 }
 
-/// 非成功回應：讀完 body 後依 `map` 分類成錯誤。
+/// 非成功回應：讀完 body 後依 `map` 分類成錯誤；可重試的錯誤帶上伺服器要求的等待時間。
 pub(crate) async fn response_failure(
     resp: reqwest::Response,
     map: fn(u16, &str) -> Option<TranslateError>,
 ) -> TranslateError {
     let status = resp.status().as_u16();
-    match resp.text().await {
-        Ok(text) => status_failure(status, error_detail(&text), map),
-        Err(error) => connection_error(error),
+    let header_wait = retry_after(resp.headers());
+    let text = match resp.text().await {
+        Ok(text) => text,
+        Err(error) => return connection_error(error),
+    };
+    let mut error = status_failure(status, error_detail(&text), map);
+    if let TranslateError::Offline {
+        retry_after: wait, ..
+    } = &mut error
+    {
+        *wait = header_wait.or_else(|| body_retry_delay(&text));
     }
+    error
+}
+
+/// 伺服器要求的等待時間：依序看 `retry-after-ms`、`retry-after`（秒數或 HTTP 日期）；非正數為 `None`。
+pub(crate) fn retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let header = |name: &str| headers.get(name)?.to_str().ok().map(pystr::strip);
+    let seconds = if let Some(ms) = header("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
+        ms / 1000.0
+    } else {
+        let value = header("retry-after")?;
+        match value.parse::<f64>() {
+            Ok(seconds) => seconds,
+            Err(_) => {
+                let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+                (date.timestamp_millis() - chrono::Utc::now().timestamp_millis()) as f64 / 1000.0
+            }
+        }
+    };
+    positive_seconds(seconds)
+}
+
+/// Gemini 錯誤 body 裡 `google.rpc.RetryInfo` 的 `retryDelay`（如 `"37s"`）。
+fn body_retry_delay(text: &str) -> Option<Duration> {
+    let body: Value = serde_json::from_str(text).ok()?;
+    let body = match &body {
+        Value::Array(items) if items.len() == 1 => &items[0],
+        body => body,
+    };
+    let seconds = body
+        .pointer("/error/details")?
+        .as_array()?
+        .iter()
+        .find_map(|d| {
+            d.get("retryDelay")?
+                .as_str()?
+                .strip_suffix('s')?
+                .parse()
+                .ok()
+        })?;
+    positive_seconds(seconds)
+}
+
+fn positive_seconds(seconds: f64) -> Option<Duration> {
+    Duration::try_from_secs_f64(seconds)
+        .ok()
+        .filter(|wait| !wait.is_zero())
 }
 
 /// 串流中途的錯誤：有狀態碼就照 [`status_error`] 分類，否則以 `raw` 對應未分類的例外。

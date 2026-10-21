@@ -3,6 +3,8 @@
 use crate::common;
 use crate::stream_server::{self, request};
 
+use std::time::Duration;
+
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -213,6 +215,7 @@ async fn gemini_models_error_mapping() {
             TranslateError::Offline {
                 status: Some(429),
                 detail: "denied".into(),
+                retry_after: None,
             },
         ),
     ];
@@ -226,6 +229,22 @@ async fn gemini_models_error_mapping() {
         assert_eq!(client(&server, "auto").list_models().await, Err(expected));
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn gemini_retry_delay_in_the_error_body_is_carried() {
+    let server = MockServer::start().await;
+    let body = json!({"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED",
+        "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}]}});
+    mount_stream(&server, ResponseTemplate::new(429).set_body_json(body)).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Offline {
+            status: Some(429),
+            detail: "quota".into(),
+            retry_after: Some(Duration::from_secs(37)),
+        })
+    );
 }
 
 #[tokio::test]
@@ -255,7 +274,8 @@ async fn gemini_retry_behavior_matches_sdk() {
             chat(&client(&server, "auto")).await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: message.into()
+                detail: message.into(),
+                retry_after: None,
             })
         );
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
@@ -273,7 +293,8 @@ async fn gemini_html_error_page_is_stripped_to_text() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(502),
-            detail: "502 Bad Gateway nginx".into()
+            detail: "502 Bad Gateway nginx".into(),
+            retry_after: None,
         })
     );
 }
@@ -329,7 +350,8 @@ async fn gemini_error_chunk_mid_stream_maps_by_its_code() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(503),
-            detail: "overloaded".into()
+            detail: "overloaded".into(),
+            retry_after: None,
         })
     );
 }

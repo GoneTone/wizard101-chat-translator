@@ -220,7 +220,8 @@ async fn claude_retries_429_twice_then_offline() {
         result,
         Err(TranslateError::Offline {
             status: Some(429),
-            detail: "slow down".into()
+            detail: "slow down".into(),
+            retry_after: Some(Duration::from_millis(200)),
         })
     );
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
@@ -318,7 +319,7 @@ async fn claude_retries_connection_failures_then_offline() {
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
         "{error:?}"
     );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
@@ -330,7 +331,7 @@ async fn claude_list_models_connection_error_maps_to_offline() {
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = c.list_models().await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
         "{error:?}"
     );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
@@ -344,7 +345,7 @@ async fn claude_stream_dropped_mid_response_is_offline() {
     let c = ClaudeClient::new("k", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty()),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
         "{error:?}"
     );
 }
@@ -443,7 +444,8 @@ async fn claude_html_error_page_is_stripped_to_text() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(502),
-            detail: "502 Bad Gateway nginx".into()
+            detail: "502 Bad Gateway nginx".into(),
+            retry_after: Some(Duration::from_millis(1)),
         })
     );
 }
@@ -474,7 +476,8 @@ async fn claude_stream_error_events_map_by_type_to_offline() {
             chat_with_error_event(error_type, "try later").await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: "try later".into()
+                detail: "try later".into(),
+                retry_after: None,
             }),
             "{error_type}"
         );
@@ -594,6 +597,7 @@ async fn claude_models_status_mapping() {
             TranslateError::Offline {
                 status: Some(429),
                 detail: "nope".into(),
+                retry_after: Some(Duration::from_millis(1)),
             },
         ),
         (
@@ -601,6 +605,7 @@ async fn claude_models_status_mapping() {
             TranslateError::Offline {
                 status: Some(500),
                 detail: "nope".into(),
+                retry_after: Some(Duration::from_millis(1)),
             },
         ),
     ];

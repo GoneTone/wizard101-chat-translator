@@ -9,13 +9,13 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, error_type_status,
-    finish_text, http_client, parse_object, response_failure, sample_of, secret_header,
-    stream_failure, truncated, with_query,
+    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, cancellable, connection_error, count_of,
+    error_type_status, finish_text, http_client, parse_object, response_failure, retry_after,
+    sample_of, secret_header, stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
-use crate::py::{pyrepr::repr_str, pystr};
+use crate::py::pyrepr::repr_str;
 use crate::translation::Turn;
 use crate::translation::errors::{TranslateError, model_list_error, status_error};
 use crate::util::random_u64;
@@ -27,8 +27,6 @@ const API_VERSION: &str = "2023-06-01";
 const MAX_RETRIES: u32 = 2;
 const INITIAL_RETRY_DELAY: f64 = 0.5;
 const MAX_RETRY_DELAY: f64 = 8.0;
-// 伺服器要求等更久就不理它，改走指數退避，交給池子的退避重試
-const MAX_RETRY_AFTER: f64 = 60.0;
 const NO_AUTH: &str = "Could not resolve authentication method. Expected one of api_key, \
     auth_token, or credentials to be set.";
 
@@ -267,24 +265,10 @@ fn should_retry(status: u16, headers: &HeaderMap) -> bool {
     }
 }
 
-/// 伺服器要求的等待秒數：依序看 `retry-after-ms`、`retry-after`（秒數或 HTTP 日期）。
-fn retry_after(headers: &HeaderMap) -> Option<f64> {
-    let header = |name: &str| headers.get(name)?.to_str().ok().map(pystr::strip);
-    if let Some(ms) = header("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
-        return Some(ms / 1000.0);
-    }
-    let value = header("retry-after")?;
-    if let Ok(seconds) = value.parse::<f64>() {
-        return Some(seconds);
-    }
-    let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    Some((date.timestamp_millis() - chrono::Utc::now().timestamp_millis()) as f64 / 1000.0)
-}
-
 /// 第 `retries_taken` 次失敗後的等待：照伺服器要求，否則 0.5 秒起指數退避（上限 8 秒）乘上 0.75–1 的抖動。
 fn retry_delay(retries_taken: u32, headers: &HeaderMap, unit: f64) -> Duration {
-    if let Some(seconds) = retry_after(headers).filter(|s| *s > 0.0 && *s <= MAX_RETRY_AFTER) {
-        return Duration::from_secs_f64(seconds);
+    if let Some(wait) = retry_after(headers).filter(|wait| *wait <= MAX_RETRY_AFTER) {
+        return wait;
     }
     let backoff = (INITIAL_RETRY_DELAY * 2f64.powi(retries_taken as i32)).min(MAX_RETRY_DELAY);
     Duration::from_secs_f64((backoff * (1.0 - 0.25 * unit)).max(0.0))
@@ -432,7 +416,7 @@ mod tests {
     #[test]
     fn retry_after_accepts_an_http_date() {
         let date = (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc2822();
-        let seconds = retry_after(&headers(&[("retry-after", &date)])).unwrap();
+        let seconds = retry_delay(0, &headers(&[("retry-after", &date)]), 0.0).as_secs_f64();
         assert!((28.0..=30.0).contains(&seconds), "{seconds}");
         let past = "Sun, 06 Nov 1994 08:49:37 GMT";
         assert_eq!(

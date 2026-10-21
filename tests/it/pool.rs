@@ -9,9 +9,14 @@ use std::time::Duration;
 
 use common::log_capture::{capture_logs, log_text};
 use common::reader_fixture::{DESCRIBE, FAILED, new_pool};
+use serde_json::json;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+use wizard101_chat_translator::translation::Turn;
+use wizard101_chat_translator::translation::clients::OpenAiCompatClient;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::gate::ConcurrencyGate;
 use wizard101_chat_translator::translation::pool::{
@@ -85,6 +90,14 @@ fn recording(
 
 fn offline(detail: &str) -> TranslateError {
     TranslateError::offline(detail)
+}
+
+fn offline_asking_to_wait(status: u16, seconds: u64) -> TranslateError {
+    TranslateError::Offline {
+        status: Some(status),
+        detail: String::new(),
+        retry_after: Some(Duration::from_secs(seconds)),
+    }
 }
 
 // ---------- ConcurrencyGate ----------
@@ -344,6 +357,80 @@ async fn offline_backoff_5_15_30_then_stays_30() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn server_retry_after_longer_than_the_backoff_step_wins() {
+    capture_logs();
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let translate = recording(calls_tx, |n| match n {
+        0 => Err(offline_asking_to_wait(429, 20)),
+        1 => Err(offline_asking_to_wait(503, 2)),
+        _ => Ok("ok".into()),
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    let times = [
+        next(&mut calls).await,
+        next(&mut calls).await,
+        next(&mut calls).await,
+    ];
+    assert_eq!(next(&mut rx).await, (1, "ok".into(), false));
+    let gaps: Vec<u64> = times.windows(2).map(|w| secs(w[0], w[1])).collect();
+    assert_eq!(gaps, [20, 15], "比退避短的等待時間不縮短退避");
+    let applied = format!("server asked to wait 20s; next retry in 20s ({DESCRIBE})");
+    assert!(log_text().contains(&applied), "{applied}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn server_retry_after_is_capped_at_60s() {
+    capture_logs();
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let translate = recording(calls_tx, |n| match n {
+        0 => Err(offline_asking_to_wait(503, 600)),
+        _ => Ok("ok".into()),
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    let first = next(&mut calls).await;
+    let second = next(&mut calls).await;
+    assert_eq!(next(&mut rx).await, (1, "ok".into(), false));
+    assert_eq!(secs(first, second), 60);
+    let applied = format!("server asked to wait 600s; next retry in 60s ({DESCRIBE})");
+    assert!(log_text().contains(&applied), "{applied}");
+}
+
+#[tokio::test]
+async fn openai_429_retry_after_header_delays_the_next_pool_retry() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "20")
+                .set_body_json(json!({"error": {"message": "slow down"}})),
+        )
+        .mount(&server)
+        .await;
+    let client = OpenAiCompatClient::new(&server.uri(), "", "m", true, false);
+    let turns = [Turn::user("[A] hi")];
+    let error = client
+        .chat(crate::stream_server::request(&turns), None)
+        .await
+        .unwrap_err();
+    // 真的 HTTP 請求跑完才暫停時鐘：暫停中等待 IO 會被自動推進的時鐘誤判逾時
+    tokio::time::pause();
+    let (calls_tx, mut calls) = mpsc::unbounded_channel();
+    let translate = recording(calls_tx, move |n| match n {
+        0 => Err(error.clone()),
+        _ => Ok("ok".into()),
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    pool.submit("[A] one".into(), vec![], 1);
+    let first = next(&mut calls).await;
+    let second = next(&mut calls).await;
+    assert_eq!(next(&mut rx).await, (1, "ok".into(), false));
+    assert_eq!(secs(first, second), 20);
+}
+
+#[tokio::test(start_paused = true)]
 async fn config_error_retries_every_15s() {
     let (calls_tx, mut calls) = mpsc::unbounded_channel();
     let translate = recording(calls_tx, |_| {
@@ -398,6 +485,7 @@ async fn success_resets_backoff() {
         0 | 1 | 3 => Err(TranslateError::Offline {
             status: Some(503),
             detail: String::new(),
+            retry_after: None,
         }),
         _ => Ok(format!("ok{n}")),
     });

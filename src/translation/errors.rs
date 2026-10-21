@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use regex::Regex;
 use serde_json::Value;
@@ -12,8 +13,12 @@ use crate::py::pystr;
 /// 翻譯請求失敗的分類；`detail` 是 API 回應裡的說明或連線失敗原因，UI 與 log 直接顯示。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslateError {
-    /// 可重試：連線失敗、逾時、408、409、429、5xx。
-    Offline { status: Option<u16>, detail: String },
+    /// 可重試：連線失敗、逾時、408、409、429、5xx；`retry_after` 是伺服器要求的等待時間。
+    Offline {
+        status: Option<u16>,
+        detail: String,
+        retry_after: Option<Duration>,
+    },
     /// 設定錯誤（4xx）：重試到單則年齡上限，使用者修好設定後自動恢復；別則成功過時視為這則專屬而放棄。
     Config { status: Option<u16>, detail: String },
     /// 不可重試的輸出異常：譯文在 `max_tokens` 被截斷，或模型沒有回任何文字。
@@ -43,6 +48,7 @@ impl TranslateError {
         Self::Offline {
             status: None,
             detail: detail.into(),
+            retry_after: None,
         }
     }
 
@@ -70,7 +76,7 @@ impl TranslateError {
 impl fmt::Display for TranslateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Offline { status, detail } | Self::Config { status, detail } => {
+            Self::Offline { status, detail, .. } | Self::Config { status, detail } => {
                 match (status, detail.is_empty()) {
                     (Some(s), false) => write!(f, "HTTP {s}: {detail}"),
                     (Some(s), true) => write!(f, "HTTP {s}"),
@@ -138,6 +144,7 @@ pub fn status_error(status: u16, detail: &str) -> Option<TranslateError> {
         408 | 409 | 429 | 500.. => Some(TranslateError::Offline {
             status: Some(status),
             detail,
+            retry_after: None,
         }),
         400.. => Some(TranslateError::Config {
             status: Some(status),
@@ -177,7 +184,7 @@ pub fn friendly_error(e: &TranslateError) -> (&'static str, Vec<(&'static str, S
             status: None,
             detail,
         } if detail == INVALID_KEY_DETAIL => ("error.bad_key", vec![]),
-        Config { status, detail } | Offline { status, detail } if !detail.is_empty() => {
+        Config { status, detail } | Offline { status, detail, .. } if !detail.is_empty() => {
             match status {
                 Some(status) => (
                     "error.api_response",

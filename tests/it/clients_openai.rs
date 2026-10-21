@@ -286,7 +286,8 @@ async fn mid_stream_error_chunk_is_an_error_not_a_partial_translation() {
         error,
         TranslateError::Offline {
             status: Some(502),
-            detail: "Upstream failed".into()
+            detail: "Upstream failed".into(),
+            retry_after: None,
         }
     );
 }
@@ -306,6 +307,7 @@ async fn mid_stream_error_without_a_numeric_code_is_classified_by_its_type() {
         let want = TranslateError::Offline {
             status: Some(500),
             detail: "boom".into(),
+            retry_after: None,
         };
         assert_eq!(got, want, "{error}");
     }
@@ -365,7 +367,8 @@ async fn status_429_and_5xx_are_offline() {
             error,
             TranslateError::Offline {
                 status: Some(status),
-                detail: "busy".into()
+                detail: "busy".into(),
+                retry_after: None,
             }
         );
     }
@@ -394,7 +397,7 @@ async fn connection_failure_is_offline_without_status() {
     let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty())
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty())
     );
     assert!(!error.to_string().contains("sk-secret"));
 }
@@ -420,7 +423,7 @@ async fn stream_dropped_mid_response_is_offline() {
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty()),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
         "{error:?}"
     );
 }
@@ -595,7 +598,8 @@ async fn models_retryable_statuses_are_offline() {
             client(&server, true, false).list_models().await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: "busy".into()
+                detail: "busy".into(),
+                retry_after: None,
             })
         );
     }
