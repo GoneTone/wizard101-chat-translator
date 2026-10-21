@@ -158,9 +158,19 @@ impl Wizard {
             self.skip_test = false;
         }
         self.picking |= response.change_provider;
-        if skip_link(ui).clicked() {
+        let skipped = skip_link(ui).clicked();
+        if skipped {
             self.skip_test = true;
             log("[ui] wizard connection test skipped");
+        }
+        // 略過測試後〔下一步〕仍可能被欄位錯誤擋住，要說出原因
+        let errors = form.errors();
+        if self.skip_test && !errors.is_empty() {
+            let lines: Vec<String> = errors.iter().map(|e| t(e, &[])).collect();
+            let shown = ui.scope(|ui| callout(ui, &t("dialog.incomplete_title", &[]), &lines));
+            if skipped {
+                shown.response.scroll_to_me(None);
+            }
         }
     }
 
