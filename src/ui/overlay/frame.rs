@@ -15,6 +15,7 @@ use crate::ui::geometry::{
     EDGE, Edge, Rect, centered_position, edge_at, moved_to, point_in_rect, pull_onscreen,
     resized_edge,
 };
+use crate::ui::glass;
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
     BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
@@ -73,8 +74,6 @@ pub trait Shell {
     fn wait_for_composition(&self) {}
     /// 讓 DWM 不顯示（或恢復顯示）視窗；對系統而言視窗仍是可見的。
     fn set_cloaked(&mut self, _cloaked: bool) {}
-    /// 視窗四角改成圓角或直角。
-    fn set_round_corners(&mut self, _round: bool) {}
     /// 讓視窗取得鍵盤焦點（框選的 Ctrl+C 才收得到）；被系統拒絕回 `false`。
     fn take_focus(&mut self) -> bool;
 }
@@ -107,9 +106,6 @@ impl Shell for Win32Shell {
     }
     fn set_cloaked(&mut self, cloaked: bool) {
         win32::set_cloaked(self.hwnd, cloaked);
-    }
-    fn set_round_corners(&mut self, round: bool) {
-        win32::set_round_corners(self.hwnd, round);
     }
     fn take_focus(&mut self) -> bool {
         win32::force_foreground(self.hwnd)
@@ -210,12 +206,10 @@ impl Frame {
     /// 分頁列與橫幅自帶的底有最低不透明度，底色疊在它們下面會比該有的更不透明。
     pub fn fill_body(&self, ui: &Ui, body: egui::Rect, hole: Option<egui::Rect>) {
         let Some(idx) = self.body else { return };
-        let fill = BG.gamma_multiply(self.alpha);
-        let rects = around(body, hole).into_iter();
-        ui.painter().set(
-            idx,
-            Shape::Vec(rects.map(|r| Shape::rect_filled(r, 0.0, fill)).collect()),
-        );
+        let (fill, window) = (BG.gamma_multiply(self.alpha), ui.max_rect());
+        let pieces = around(body, hole).into_iter();
+        let shapes = pieces.map(|r| glass::window_piece(r, window, fill));
+        ui.painter().set(idx, Shape::Vec(shapes.collect()));
     }
 
     /// 畫出外框並處理拖曳與縮放；回傳這幀被按下的標題列按鈕。`region_hotkey` 顯示在 ⛶ 的提示框。
@@ -252,7 +246,11 @@ impl Frame {
         let grip = grip_rect(area);
         let painter = ui.painter();
         self.body = Some(painter.add(Shape::Noop));
-        painter.rect_filled(bar, 0.0, BAR.gamma_multiply(bar_alpha(self.alpha)));
+        painter.add(glass::window_piece(
+            bar,
+            area,
+            BAR.gamma_multiply(bar_alpha(self.alpha)),
+        ));
         paint_grip(painter, grip);
 
         let response = ui.interact(area, ui.scope_id().with("overlay_frame"), Sense::drag());
@@ -509,12 +507,16 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
     } else {
         (GRIP, TAB_FG_ACTIVE)
     };
+    // ✕ 貼在視窗右上角：底色要沿圓角切掉
+    let window = ui.ctx().content_rect();
     let fg = if button.is_pointer_button_down_on() {
+        let pressed = hover_fill.lerp_to_gamma(Color32::WHITE, 0.12);
         ui.painter()
-            .rect_filled(square, 0.0, hover_fill.lerp_to_gamma(Color32::WHITE, 0.12));
+            .add(glass::window_piece(square, window, pressed));
         hover_fg
     } else if button.hovered() {
-        ui.painter().rect_filled(square, 0.0, hover_fill);
+        ui.painter()
+            .add(glass::window_piece(square, window, hover_fill));
         hover_fg
     } else {
         FG_BAR
@@ -697,12 +699,31 @@ pub(crate) mod tests {
         glyph: &str,
     ) -> (Option<Color32>, Color32) {
         let shapes = &harness.output().shapes;
-        let fill = shapes.iter().find_map(|c| match &c.shape {
-            egui::Shape::Rect(r) if r.rect == square => Some(r.fill),
-            _ => None,
-        });
+        let fill = fills(harness)
+            .into_iter()
+            .find(|(r, _)| r.min.distance(square.min) < 0.01 && r.max.distance(square.max) < 0.01)
+            .map(|(_, c)| c);
         let fg = find_text_shape(shapes, glyph).unwrap().fallback_color;
         (fill, fg)
+    }
+
+    /// 這幀所有填色的範圍與顏色：矩形、沿圓角切過的多邊形，以及包在 `Shape::Vec` 裡的。
+    fn fills(harness: &Harness<State>) -> Vec<(egui::Rect, Color32)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(egui::Rect, Color32)>) {
+            match shape {
+                egui::Shape::Rect(r) => out.push((r.rect, r.fill)),
+                egui::Shape::Path(p) if p.fill != Color32::TRANSPARENT => {
+                    out.push((egui::Rect::from_points(&p.points), p.fill))
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for c in &harness.output().shapes {
+            walk(&c.shape, &mut out);
+        }
+        out
     }
 
     #[test]
@@ -1126,22 +1147,7 @@ pub(crate) mod tests {
         for alpha in [1.0, 0.8, 0.4] {
             harness.state_mut().frame.set_alpha(alpha);
             harness.step();
-            let fills: Vec<_> = harness
-                .output()
-                .shapes
-                .iter()
-                .flat_map(|c| match &c.shape {
-                    egui::Shape::Rect(r) => vec![(r.rect, r.fill)],
-                    egui::Shape::Vec(v) => v
-                        .iter()
-                        .filter_map(|s| match s {
-                            egui::Shape::Rect(r) => Some((r.rect, r.fill)),
-                            _ => None,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                })
-                .collect();
+            let fills = fills(&harness);
             let has = |color: Color32| fills.iter().any(|(_, c)| *c == color);
             let fixed = if alpha > 0.8 { alpha } else { 0.8 };
             assert!(has(BAR.gamma_multiply(fixed)), "bar at {alpha}");
@@ -1163,7 +1169,7 @@ pub(crate) mod tests {
             assert!(
                 fills
                     .iter()
-                    .all(|(r, c)| *c != body || !r.intersect(row).is_positive()),
+                    .all(|(r, c)| *c != body || !r.intersect(row.shrink(0.01)).is_positive()),
                 "body under the update row at {alpha}"
             );
         }
