@@ -3,20 +3,20 @@
 use eframe::egui::{self, FontId, Label, RichText, TextWrapMode, Ui, Vec2};
 
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::palette::{BAR_ALPHA, TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE};
+use crate::ui::palette::{TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE, bar_alpha};
 
 const ACCENT_HEIGHT: f32 = 2.0;
 const CELL_GAP: f32 = 10.0;
 const TEXT_PT: f32 = 9.0;
 const PAD_TOP: i8 = 3;
 
-/// 畫出分頁列；沒有分頁時什麼都不畫（整列隱藏）。文字是遊戲內容，不經 i18n。
-pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>) {
+/// 畫出分頁列；沒有分頁時什麼都不畫（整列隱藏）。文字是遊戲內容，不經 i18n；`alpha` 是 overlay 不透明度（底色見 [`bar_alpha`]）。
+pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>, alpha: f32) {
     if tabs.is_empty() {
         return;
     }
     egui::Frame::new()
-        .fill(TAB_BG.gamma_multiply(BAR_ALPHA))
+        .fill(TAB_BG.gamma_multiply(bar_alpha(alpha)))
         .inner_margin(egui::Margin {
             top: PAD_TOP,
             ..Default::default()
@@ -68,7 +68,7 @@ mod tests {
         let mut harness = Harness::builder()
             .with_size(Vec2::new(width, 60.0))
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-            .build_ui(move |ui| show(ui, &tabs, current));
+            .build_ui(move |ui| show(ui, &tabs, current, 0.5));
         harness.step();
         harness
     }
@@ -107,9 +107,10 @@ mod tests {
     }
 
     #[test]
-    fn background_keeps_the_fixed_bar_opacity() {
+    fn background_never_drops_below_the_bar_opacity_floor() {
         let bar = harness(tabs(), Some(1));
-        let want = TAB_BG.gamma_multiply(BAR_ALPHA);
+        // overlay 調到 0.5 時，分頁列仍維持最低的 0.8
+        let want = TAB_BG.gamma_multiply(0.8);
         let filled = bar
             .output()
             .shapes

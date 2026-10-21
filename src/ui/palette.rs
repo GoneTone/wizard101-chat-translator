@@ -45,8 +45,13 @@ pub const TAB_FG: Color32 = hex(0x8a8aa0);
 pub const TAB_FG_ACTIVE: Color32 = hex(0xf2f2f7);
 /// 目前分頁的底線。
 pub const TAB_ACCENT: Color32 = hex(0x6fa8dc);
-/// 標題列、分頁列與更新橫幅的固定不透明度：不跟著 overlay 不透明度設定變。
-pub const BAR_ALPHA: f32 = 0.8;
+/// 標題列、分頁列與更新橫幅的最低不透明度。
+const BAR_ALPHA_MIN: f32 = 0.8;
+
+/// 標題列、分頁列與更新橫幅的不透明度：至少 0.8，overlay 不透明度 `alpha` 設得更高時跟著它。
+pub fn bar_alpha(alpha: f32) -> f32 {
+    BAR_ALPHA_MIN.max(alpha)
+}
 
 #[cfg(test)]
 mod tests {

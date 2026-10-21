@@ -526,10 +526,10 @@ impl App {
         rect.min.y += BAR_HEIGHT;
         let mut content = ui.new_child(UiBuilder::new().max_rect(rect));
         let (tabs, current) = self.model.current_tabs();
-        tab_bar::show(&mut content, tabs, current);
+        tab_bar::show(&mut content, tabs, current, self.frame.alpha());
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
         let body = rect;
-        let rect = self.banners.show(ui, rect);
+        let rect = self.banners.show(ui, rect, self.frame.alpha());
         self.frame.fill_body(ui, body, self.banners.update_rect());
         self.selection
             .show(ui, &mut self.list, &self.model, self.shell.as_mut());

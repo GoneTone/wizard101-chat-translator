@@ -14,7 +14,7 @@ use crate::runtime::updater::is_newer;
 use crate::translation::errors::localized;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
-use crate::ui::palette::{BAR_ALPHA, BG_UPDATE, FG_ERROR, FG_UPDATE};
+use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE, bar_alpha};
 use crate::ui::richtext;
 
 const BANNER_PT: f32 = 10.0;
@@ -100,14 +100,14 @@ impl Banners {
     /// 在 `rect` 底部由下往上畫出更新與錯誤橫幅，回傳留給清單的上半部。
     ///
     /// 橫幅先分到高度：視窗再小也看得到（「遊戲未就緒」正是最該看到的訊息），超出的部分被裁掉。
-    /// `ui` 是整個視窗：縮放帶依它的 `max_rect` 判斷。
-    pub fn show(&mut self, ui: &mut Ui, rect: Rect) -> Rect {
+    /// `ui` 是整個視窗：縮放帶依它的 `max_rect` 判斷；`alpha` 是 overlay 不透明度（更新橫幅的底見 [`bar_alpha`]）。
+    pub fn show(&mut self, ui: &mut Ui, rect: Rect, alpha: f32) -> Rect {
         let clip = rect.intersect(ui.clip_rect());
         let on_band = over_resize_band(ui);
         let mut bottom = rect.max.y;
         self.update_rect = None;
         if let Some(release) = self.update.clone() {
-            bottom = self.update_row(ui, rect, clip, on_band, &release);
+            bottom = self.update_row(ui, rect, clip, on_band, &release, alpha);
         }
         if let Some(text) = self.error_text() {
             // 換行後的高度要排完才知道：先用上一輪量到的高度定位，高度變了就重跑這一輪
@@ -146,6 +146,7 @@ impl Banners {
         clip: Rect,
         on_band: bool,
         release: &Release,
+        alpha: f32,
     ) -> f32 {
         let text = &self.update_text().unwrap_or_default();
         let painter = ui.painter_at(clip);
@@ -186,7 +187,7 @@ impl Banners {
             Sense::click(),
         );
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
-        painter.rect_filled(row_rect, 0.0, BG_UPDATE.gamma_multiply(BAR_ALPHA));
+        painter.rect_filled(row_rect, 0.0, BG_UPDATE.gamma_multiply(bar_alpha(alpha)));
         self.update_rect = Some(row_rect.intersect(clip));
         let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
         painter.galley(pos2(row_rect.min.x, text_top), galley, FG_UPDATE);
@@ -255,7 +256,7 @@ mod tests {
                     s.area = ui.max_rect();
                     let mut rect = s.area;
                     rect.min.y += s.top;
-                    s.rest = s.banners.show(ui, rect);
+                    s.rest = s.banners.show(ui, rect, 0.8);
                 },
                 State {
                     banners,

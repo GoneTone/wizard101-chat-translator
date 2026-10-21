@@ -17,8 +17,8 @@ use crate::ui::geometry::{
 };
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
-    BAR, BAR_ALPHA, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE,
-    TAB_ACCENT, TAB_FG_ACTIVE,
+    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
+    TAB_FG_ACTIVE, bar_alpha,
 };
 use crate::ui::win32;
 
@@ -198,14 +198,14 @@ impl Frame {
         self.alpha
     }
 
-    /// 即時套用新的底色不透明度（文字恆為不透明，標題列固定 [`BAR_ALPHA`]）。
+    /// 即時套用新的底色不透明度（文字恆為不透明，標題列見 [`bar_alpha`]）。
     pub fn set_alpha(&mut self, alpha: f32) {
         self.alpha = alpha;
     }
 
     /// 在 [`Self::show`] 佔好的位置填上內容區底色：`body` 是分頁列以下，避開 `hole`（更新橫幅）。
     ///
-    /// 分頁列與橫幅自帶固定不透明度的底，底色疊在它們下面會比設定的更不透明。
+    /// 分頁列與橫幅自帶的底有最低不透明度，底色疊在它們下面會比該有的更不透明。
     pub fn fill_body(&self, ui: &Ui, body: egui::Rect, hole: Option<egui::Rect>) {
         let Some(idx) = self.body else { return };
         let fill = BG.gamma_multiply(self.alpha);
@@ -250,7 +250,7 @@ impl Frame {
         let grip = grip_rect(area);
         let painter = ui.painter();
         self.body = Some(painter.add(Shape::Noop));
-        painter.rect_filled(bar, 0.0, BAR.gamma_multiply(BAR_ALPHA));
+        painter.rect_filled(bar, 0.0, BAR.gamma_multiply(bar_alpha(self.alpha)));
         paint_grip(painter, grip);
 
         let response = ui.interact(area, ui.scope_id().with("overlay_frame"), Sense::drag());
@@ -658,7 +658,7 @@ pub(crate) mod tests {
                     if let Some((banners, list, model)) = &mut s.content {
                         let mut body = s.area;
                         body.min.y += BAR_HEIGHT;
-                        let rect = banners.show(ui, body);
+                        let rect = banners.show(ui, body, s.frame.alpha());
                         s.frame.fill_body(ui, body, banners.update_rect());
                         list.show(ui, rect, model, None, None);
                     }
@@ -1111,7 +1111,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn bar_and_update_row_keep_their_opacity_when_the_body_alpha_changes() {
+    fn bar_and_update_row_stay_at_least_as_opaque_as_the_floor() {
         let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
         let mut banners = Banners::default();
         banners.set_update(Release {
@@ -1120,7 +1120,7 @@ pub(crate) mod tests {
         });
         let model = OverlayModel::new(100, 0);
         harness.state_mut().content = Some((banners, MessageList::new(), model));
-        for alpha in [0.8, 0.4] {
+        for alpha in [1.0, 0.8, 0.4] {
             harness.state_mut().frame.set_alpha(alpha);
             harness.step();
             let fills: Vec<_> = harness
@@ -1140,9 +1140,10 @@ pub(crate) mod tests {
                 })
                 .collect();
             let has = |color: Color32| fills.iter().any(|(_, c)| *c == color);
-            assert!(has(BAR.gamma_multiply(BAR_ALPHA)), "bar at {alpha}");
+            let fixed = if alpha > 0.8 { alpha } else { 0.8 };
+            assert!(has(BAR.gamma_multiply(fixed)), "bar at {alpha}");
             assert!(
-                has(BG_UPDATE.gamma_multiply(BAR_ALPHA)),
+                has(BG_UPDATE.gamma_multiply(fixed)),
                 "update row at {alpha}"
             );
             let row = harness
@@ -1155,7 +1156,7 @@ pub(crate) mod tests {
                 .unwrap();
             let body = BG.gamma_multiply(alpha);
             assert!(has(body), "body at {alpha}");
-            // 底色疊在橫幅下面，橫幅會比固定的不透明度更實
+            // 底色疊在橫幅下面，橫幅會比該有的不透明度更實
             assert!(
                 fills
                     .iter()
