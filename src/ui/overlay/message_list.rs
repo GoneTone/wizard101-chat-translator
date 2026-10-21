@@ -1209,7 +1209,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "release-only budget; CI runs `cargo test --release -- --ignored relayout`"]
+    #[ignore = "release-only budget; CI runs `cargo test --release --lib -- --ignored relayout`"]
     fn relayout_1000_messages_within_budget() {
         const LONG: &str = "這是一段普通長度的聊天測試訊息，寬畫布一行放得下";
         let ctx = egui::Context::default();
