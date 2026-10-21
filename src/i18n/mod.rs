@@ -170,7 +170,7 @@ fn offered_languages(catalogs: &[(&str, &Catalog)]) -> Vec<(String, String)> {
     found
 }
 
-/// 可選的介面語言：（語言碼，自稱），依語言碼字母序；完成度與自稱門檻同 Python。
+/// 可選的介面語言：（語言碼，自稱），依語言碼字母序。
 pub fn available_languages() -> Vec<(String, String)> {
     static LANGUAGES: OnceLock<Vec<(String, String)>> = OnceLock::new();
     LANGUAGES

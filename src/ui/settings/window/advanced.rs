@@ -44,7 +44,7 @@ fn field<'a>(text: &'a mut AdvancedText, key: &str) -> &'a mut String {
     }
 }
 
-/// 範圍說明裡的上下限，寫法同 Python 的 ADVANCED_LIMITS：浮點數欄位寫成 `0.0`，整數欄位寫成 `0`。
+/// 範圍說明裡的上下限：浮點數欄位寫成 `0.0`，整數欄位寫成 `0`。
 fn bound(key: &str, x: f64) -> String {
     if advanced_is_float(key) {
         py::float_repr(x)

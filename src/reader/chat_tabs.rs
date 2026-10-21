@@ -83,7 +83,7 @@ fn button_shown(mem: &dyn ProcessMemory, button: Window) -> Result<bool, MemErro
     Ok(true)
 }
 
-/// 讀分頁狀態失敗的原因；`Display` 同 Python 版 log 的例外訊息。
+/// 讀分頁狀態失敗的原因；`Display` 直接寫進 log。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TabError {
     /// 目前分頁編號不在已知範圍（ChatBox 已失效）。

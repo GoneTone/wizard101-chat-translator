@@ -61,7 +61,7 @@ pub struct InputBox {
     open: bool,
     target: isize,
     session: u64,
-    /// 進行中的請求：關窗時 cancel；譯文打回送出當下的 hwnd（與 Python 相同，不跟 retarget）。
+    /// 進行中的請求：關窗時 cancel；譯文打回送出當下的 hwnd（不跟 retarget）。
     pending: Option<(CancellationToken, isize)>,
     text: String,
     translating: bool,

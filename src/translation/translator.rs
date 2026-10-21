@@ -138,7 +138,7 @@ pub struct Translator {
     binding: RwLock<Arc<Binding>>,
 }
 
-/// 服務 id 與名稱不影響請求（Python 版的 `services.resolve` 不帶這兩欄）。
+/// 服務 id 與名稱不影響請求。
 fn same_service(a: &ServiceSpec, b: &ServiceSpec) -> bool {
     let request_fields = |s: &ServiceSpec| ServiceSpec {
         id: String::new(),

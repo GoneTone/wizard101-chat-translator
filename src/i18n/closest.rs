@@ -177,8 +177,7 @@ fn is_default_region(catalog: &Triple) -> bool {
 
 /// 語言標籤 → `offered` 中距離最近的語言碼與距離，都太遠回 `None`；標籤解析失敗回錯誤。
 ///
-/// 同距離時取語言預設地區的語言檔（fr-BE 在 fr-CA、fr-FR 之間取 fr-FR），都不是才取先出現者；
-/// Python 版只取先出現者，這裡刻意不同。
+/// 同距離時取語言預設地區的語言檔（fr-BE 在 fr-CA、fr-FR 之間取 fr-FR），都不是才取先出現者。
 pub fn closest_match<'a>(
     tag: &str,
     offered: &'a [String],

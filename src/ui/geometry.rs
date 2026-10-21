@@ -34,7 +34,7 @@ pub enum Edge {
 }
 
 impl Edge {
-    /// 與 Python 相同的方位字串（`"n"`、`"se"`…），log 用。
+    /// 方位字串（`"n"`、`"se"`…），log 用。
     pub fn as_str(self) -> &'static str {
         match self {
             Edge::N => "n",

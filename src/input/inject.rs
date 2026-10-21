@@ -35,7 +35,7 @@ impl SendInputInjector {
         } else {
             vec![(scan_code_to_vk(code), 0)]
         };
-        // keybd_event 的 bScan 是 BYTE，只留低 8 位才與 Python 送出的事件相同
+        // keybd_event 的 bScan 是 BYTE，只取低 8 位
         send(
             events
                 .into_iter()

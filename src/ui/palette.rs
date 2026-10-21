@@ -71,7 +71,6 @@ mod tests {
             (FG_ERROR, "#ff5f5f"),
             (FG_UPDATE, "#6fa8ff"),
             (FG_BAR, "#c8c8d8"),
-            // 只有 Rust 版有這個名字（Python 的 palette.py 沒有）
             (CLOSE_HOVER, "#c42b1c"),
             (OUTLINE, "#0a0a10"),
             (SELECT_BG, "#2d4a7a"),

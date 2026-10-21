@@ -92,7 +92,7 @@ enum Pending {
 /// 一次一個框選；`toggle(hwnd)` 是熱鍵的入口（開選取畫面／取消）。
 ///
 /// 選取畫面、框與卡片只存狀態，視窗由宿主依 `*_mut` 存取器托管，使用者操作經 `on_*` 回報。
-/// 卡片每次回到「辨識中」都是新的一張（同 Python 重開視窗），宿主要重設剪貼簿並重新擺放。
+/// 卡片每次回到「辨識中」都是新的一張，宿主要重設剪貼簿並重新擺放。
 pub struct RegionFlow {
     desktop: Box<dyn RegionDesktop>,
     capturer: Box<dyn RegionCapturer>,
@@ -375,7 +375,7 @@ impl RegionFlow {
         self.runner.run(png, rect, self.session, cancel);
     }
 
-    /// 換成錯誤卡片；進行中的請求一併撤銷並換 session，晚到的結果才不會蓋掉錯誤（Python 版會蓋掉）。
+    /// 換成錯誤卡片；進行中的請求一併撤銷並換 session，晚到的結果才不會蓋掉錯誤。
     fn show_error(&mut self, rect: Rect, message: String) {
         self.cancel_request();
         self.session += 1;

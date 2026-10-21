@@ -121,7 +121,7 @@ pub fn aggregate_game_issue(reports: &[SlotReport]) -> Option<&'static str> {
 
 #[derive(Default)]
 struct Board {
-    // 依首次回報的順序（同 Python dict），決定多個永久性問題時顯示哪一個
+    // 依首次回報的順序決定多個永久性問題時顯示哪一個
     slots: Vec<(u32, SlotReport)>,
     status: Option<&'static str>,
     banner: Option<Banner>,

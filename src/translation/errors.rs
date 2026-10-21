@@ -30,7 +30,7 @@ pub enum TranslateError {
     Cancelled,
     /// 端點不提供模型清單，使用者仍可自行輸入模型名稱。
     NoModelList,
-    /// 對應 Python 未分類的例外（回應格式異常等），呼叫端依「非預期錯誤」處理。
+    /// 未分類的錯誤（回應格式異常等），呼叫端依「非預期錯誤」處理。
     Unexpected(String),
 }
 

@@ -361,7 +361,7 @@ pub fn register_hotkeys(
 
 /// 掛上 Ctrl+V 攔截器；每次都直接讀 `settings`，改設定不必重掛，所以只在啟動時掛一次。
 ///
-/// 啟動時排在 [`register_hotkeys`] 之後（鍵入進行中它會吞掉 v）；儲存後重掛的熱鍵改排在它後面，與 Python 相同。
+/// 啟動時排在 [`register_hotkeys`] 之後（鍵入進行中它會吞掉 v）；儲存後重掛的熱鍵改排在它後面。
 pub fn install_paste(
     settings: &Arc<RwLock<Config>>,
     dispatcher: &SharedDispatcher,
@@ -395,7 +395,7 @@ pub fn install_paste(
 
 /// 設定視窗按儲存：`new_cfg`（只含視窗管的鍵）併入共用設定、存檔、翻譯端跟上、兩把熱鍵重新註冊。
 ///
-/// 順序同 Python `apply_settings` 的前半；回傳實際生效的框選熱鍵，框選停用時為 `None`。
+/// overlay 端接著跑 [`crate::ui::app::App::apply_settings`]；回傳實際生效的框選熱鍵，框選停用時為 `None`。
 pub fn apply_settings(
     running: &mut Running,
     settings: &Arc<RwLock<Config>>,

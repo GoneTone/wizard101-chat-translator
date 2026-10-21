@@ -557,7 +557,7 @@ fn resize_cursor(edge: Edge) -> CursorIcon {
     }
 }
 
-/// Tk 的 `WxH+X+Y` 寫法，與 Python log 相同。
+/// log 用的 `WxH+X+Y` 寫法。
 pub(crate) fn describe((x, y, w, h): Rect) -> String {
     format!("{w}x{h}+{x}+{y}")
 }

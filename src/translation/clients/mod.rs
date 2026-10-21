@@ -139,7 +139,7 @@ pub(crate) fn secret_header(value: &str) -> Option<HeaderValue> {
     Some(value)
 }
 
-/// 錯誤狀態碼依 `map` 分類；分類不了（1xx／3xx 等）的對應 Python 未分類的例外。
+/// 錯誤狀態碼依 `map` 分類；分類不了（1xx／3xx 等）的歸為 `Unexpected`。
 pub(crate) fn status_failure(
     status: u16,
     detail: String,
