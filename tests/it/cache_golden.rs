@@ -254,7 +254,6 @@ fn rebinding_back_restores_the_stashed_entries_and_file() {
         cache.get("熔岩百合").as_deref(),
         Some("熔岩百合(Lava Lily)")
     );
-    cache.flush();
     let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
     assert_eq!(saved["fingerprint"], FP);
     assert_eq!(saved["entries"]["熔岩百合"], "熔岩百合(Lava Lily)");
@@ -333,7 +332,7 @@ fn a_cleared_cache_is_not_brought_back_by_switching_back() {
     cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
     cache.rebind(OTHER_FP);
     cache.put("迷幻木头", "迷幻木頭", OTHER_FP);
-    cache.clear();
+    assert_eq!(cache.clear(), Some(2), "live entries plus the stash");
     cache.rebind(FP);
     assert_eq!(cache.get("熔岩百合"), None);
 }

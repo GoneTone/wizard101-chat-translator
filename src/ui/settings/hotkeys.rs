@@ -7,7 +7,7 @@ use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::text_setting;
 use super::theme;
 use super::widgets::{card, extended_galley, keycap_row, secondary_button, setting_row, toggle};
-use crate::composer::paste::PASTE_KEY;
+use crate::composer::paste::PASTE_HOTKEY;
 use crate::config::Config;
 use crate::i18n::t;
 use crate::input::keys::{hotkey_name, split_hotkey};
@@ -174,12 +174,13 @@ impl HotkeyEditor {
 
 /// 熱鍵正規化後是不是遊戲內貼上的 Ctrl+V（手改的設定可能寫成 `v+ctrl` 之類）。
 fn is_paste(hotkey: &str) -> bool {
-    let steps = split_hotkey(hotkey);
+    let lowered = hotkey.to_lowercase();
+    let steps = split_hotkey(&lowered);
     let [step] = steps.as_slice() else {
         return false;
     };
     let names: Vec<String> = step.iter().map(|&name| name.to_owned()).collect();
-    hotkey_name(&names) == format!("ctrl+{PASTE_KEY}")
+    hotkey_name(&names) == PASTE_HOTKEY
 }
 
 /// 錄製中的提示：`ACCENT` 外框的框，不可聚焦也不可點，免得錄製時按的鍵觸發它。

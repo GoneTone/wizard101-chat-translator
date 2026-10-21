@@ -329,6 +329,16 @@ fn completing_the_fields_after_an_early_skip_recomputes_the_nav() {
 }
 
 #[test]
+fn a_bad_base_url_keeps_next_disabled_even_after_skipping() {
+    let mut h = on_service_step(blank_cfg());
+    pick_provider(&mut h, "provider.custom");
+    type_into(&mut h, &tr("field.base_url"), "http://127.0.0.1:8000/v1");
+    type_into(&mut h, &tr("field.model"), "gemma");
+    skip(&mut h);
+    assert!(!next_enabled(&h));
+}
+
+#[test]
 fn the_skip_test_link_is_keyboard_activatable() {
     // 純鍵盤使用者測不成連線時，「略過測試」是第二步唯一的出路
     for key in [Key::Enter, Key::Space] {
@@ -502,6 +512,16 @@ fn finish_rejects_a_ctrl_v_hotkey_while_paste_is_on() {
     record(&mut h, 0, "ctrl+q");
     assert!(!has_label(&h, &tr("error.hotkey_is_paste")));
     assert_eq!(walk_to_finish(&mut h)["hotkey"], json!("ctrl+q"));
+}
+
+#[test]
+fn finish_rejects_an_uppercase_ctrl_v_hotkey() {
+    let mut cfg = configured();
+    cfg.insert("hotkey".into(), json!("ctrl+V"));
+    let mut h = to_prefs(cfg);
+    click(&mut h, Role::Button, &tr("button.finish"));
+    assert!(finished(&h).is_none());
+    assert!(has_label(&h, &tr("error.hotkey_is_paste")));
 }
 
 #[test]

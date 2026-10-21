@@ -355,11 +355,8 @@ impl<R: ChatSource> ClientLoop<R> {
         // 該行之前的行；提交後即固定，重試不漂移
         let snapshot = self.contexts.for_tab(first).snapshot();
         // 伺服器廣播的訊息可同時出現在多個分頁，每個分頁的上下文都要有這句
-        for tab in if tabs.is_empty() {
-            vec![first]
-        } else {
-            tabs.clone()
-        } {
+        let targets: &[_] = if tabs.is_empty() { &[0] } else { &tabs };
+        for &tab in targets {
             self.contexts.for_tab(tab).push(line.text.clone());
         }
         s.ui.post(add(t("notice.pending", &[]), Some(msg_id)));

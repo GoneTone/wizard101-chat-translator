@@ -201,33 +201,39 @@ impl TranslationCache {
             return;
         }
         self.flush();
-        let mut inner = self.lock();
-        let restored = match inner.previous.take() {
-            Some((previous, entries)) if previous == fingerprint => Some(entries),
-            _ => None,
+        let restored = {
+            let mut inner = self.lock();
+            let restored = match inner.previous.take() {
+                Some((previous, entries)) if previous == fingerprint => Some(entries),
+                _ => None,
+            };
+            log(format!(
+                "[cache] fingerprint changed at runtime, stashing {} entries (restored_from_stash={})",
+                inner.entries.len(),
+                restored.is_some()
+            ));
+            let was_restored = restored.is_some();
+            let old = (
+                std::mem::replace(&mut inner.fingerprint, fingerprint.to_string()),
+                std::mem::replace(&mut inner.entries, restored.unwrap_or_default()),
+            );
+            inner.previous = Some(old);
+            inner.unflushed = 0;
+            was_restored
         };
-        log(format!(
-            "[cache] fingerprint changed at runtime, stashing {} entries (restored_from_stash={})",
-            inner.entries.len(),
-            restored.is_some()
-        ));
-        let was_restored = restored.is_some();
-        let old = (
-            std::mem::replace(&mut inner.fingerprint, fingerprint.to_string()),
-            std::mem::replace(&mut inner.entries, restored.unwrap_or_default()),
-        );
-        inner.previous = Some(old);
-        // 換回時磁碟檔還是 B 的內容；記成未落盤，下一輪 put 就會寫回 A
-        inner.unflushed = if was_restored { FLUSH_EVERY } else { 0 };
+        // 換回時磁碟檔還是 B 的內容，馬上寫回 A
+        if restored {
+            self.flush();
+        }
     }
 
-    /// 使用者主動清空（連同換回用的暫存）：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數；刪檔失敗回 `None`。
+    /// 使用者主動清空（連同換回用的暫存）：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數（含暫存）；刪檔失敗回 `None`。
     pub fn clear(&self) -> Option<usize> {
         let count = {
             let mut inner = self.lock();
-            let count = inner.entries.len();
+            let stashed = inner.previous.take().map_or(0, |(_, e)| e.len());
+            let count = inner.entries.len() + stashed;
             inner.entries.clear();
-            inner.previous = None;
             inner.unflushed = 0;
             count
         };
