@@ -69,16 +69,24 @@ jobs:
           }
           "SEMVER=$semver" | Out-File $env:GITHUB_ENV -Append
 
-      # === D. Quality gate ==========================================
-      # 放版失敗的代價較高：版本號 bump 已經 push，Release 卻還沒建立。
+      # === D. Build ================================================
+      # clippy 與測試已由 master 的 CI 跑過，放版只多改版本號；先建好 exe 再推 bump，建置失敗就什麼都不推
       - name: Format
         run: cargo fmt --check
 
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Build exe
+        run: cargo build --release --locked
 
-      - name: Test
-        run: cargo test
+      - name: Verify exe resources
+        shell: pwsh
+        run: .github/scripts/verify-exe.ps1 -Exe target/release/Wizard101ChatTranslator.exe -Version $env:SEMVER
+
+      - name: Locate exe
+        shell: pwsh
+        run: |
+          $exe = Get-Item target\release\Wizard101ChatTranslator.exe -ErrorAction Stop
+          "EXE_PATH=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
+          "EXE_NAME=$($exe.Name)" | Out-File $env:GITHUB_ENV -Append
 
       # === E. Commit bump ===========================================
       - name: Commit version bump
@@ -98,22 +106,7 @@ jobs:
           "RELEASE_SHA=$sha" | Out-File $env:GITHUB_ENV -Append
           Write-Host "Release commit SHA: $sha"
 
-      # === F. Build =================================================
-      - name: Build exe
-        run: cargo build --release --locked
-
-      - name: Verify exe resources
-        shell: pwsh
-        run: .github/scripts/verify-exe.ps1 -Exe target/release/Wizard101ChatTranslator.exe -Version $env:SEMVER
-
-      - name: Locate exe
-        shell: pwsh
-        run: |
-          $exe = Get-Item target\release\Wizard101ChatTranslator.exe -ErrorAction Stop
-          "EXE_PATH=$($exe.FullName)" | Out-File $env:GITHUB_ENV -Append
-          "EXE_NAME=$($exe.Name)" | Out-File $env:GITHUB_ENV -Append
-
-      # === G. Create or update release draft ========================
+      # === F. Create or update release draft ========================
       # 更新檢查看的是 /releases/latest，draft 不算數：維護者在 GitHub 上補完版本說明、
       # 按下 Publish 之後使用者端才會收到更新提醒。
       - name: Create or update release draft
@@ -147,7 +140,7 @@ jobs:
             gh release edit "$tag" --notes-file $bodyFile
           }
 
-      # === H. Workflow artifact (debug fallback) ====================
+      # === G. Workflow artifact (debug fallback) ====================
       - name: Upload exe as workflow artifact
         if: always()
         uses: actions/upload-artifact@v7
@@ -157,7 +150,7 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-      # === I. Step summary ==========================================
+      # === H. Step summary ==========================================
       - name: Write step summary
         if: success()
         shell: pwsh
