@@ -46,21 +46,24 @@ fn status_key_relabels_on_language_change() {
     let ctx = harness.ctx.clone();
     harness.state_mut().relabel(&ctx);
     harness.step();
-    let title = ViewportCommand::Title("Wizard101 Chat Translator".into());
+    let en_status = t("status.listening", &[]);
+    assert_ne!(en_status, zh_status);
+    let title = ViewportCommand::Title(t("app.name", &[]));
     assert!(
         harness.output().viewport_output[&ViewportId::ROOT]
             .commands
             .contains(&title)
     );
-    assert_eq!(harness.query_all_by_label("●  Listening").count(), 2);
+    assert_eq!(harness.query_all_by_label(&en_status).count(), 2);
     assert!(harness.query_by_label(&zh_status).is_none());
-    harness.get_by_label(
-        "⚠  API responded with HTTP 401: Incorrect API key — open settings (⚙) to check",
-    );
-    harness.get_by_label("⬆  Version 0.2.0 is available — click to download");
+    harness.get_by_label(&t(
+        "notice.config_error_detail",
+        &[("status", "401"), ("message", "Incorrect API key")],
+    ));
+    harness.get_by_label(&t("update.available", &[("version", "0.2.0")]));
     assert_eq!(
         tooltip_after_pause(&mut harness),
-        "Translate a screen area (ctrl+shift+space)"
+        t("tooltip.region", &[("hotkey", "ctrl+shift+space")])
     );
 
     for _ in 0..60 {
@@ -79,7 +82,7 @@ fn status_key_relabels_on_language_change() {
         copy_menu_opens(&mut harness),
         "no copy menu after selecting"
     );
-    assert!(shows_text(&harness, "Copy"));
+    assert!(shows_text(&harness, &t("menu.copy", &[])));
     assert!(!shows_text(&harness, &zh_copy));
     assert_eq!(first_fonts(&harness), ["segoeui.ttf", "segoeuib.ttf"]);
 
@@ -136,7 +139,7 @@ fn copy_menu_opens(harness: &mut Harness<App>) -> bool {
         }
         harness.step();
         harness.step();
-        shows_text(harness, "Copy")
+        shows_text(harness, &t("menu.copy", &[]))
     })
 }
 

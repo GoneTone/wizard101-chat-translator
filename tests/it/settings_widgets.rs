@@ -841,6 +841,29 @@ fn glyphs_sit_on_the_first_line_of_the_text_they_lead() {
 }
 
 #[test]
+fn a_short_callout_still_spans_the_full_width() {
+    let h = harness(Rect::NOTHING, |ui, row: &mut Rect| {
+        *row = ui.max_rect();
+        callout(ui, "設定不完整", &["兩個熱鍵不可相同".to_owned()]);
+    });
+    let row = *h.state();
+    let box_rect = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            Shape::Rect(s) if s.fill == theme::WARN_BG => Some(s.rect),
+            _ => None,
+        })
+        .expect("callout background painted");
+    assert!(
+        (box_rect.left() - row.left()).abs() <= 1.0
+            && (box_rect.right() - row.right()).abs() <= 1.0,
+        "callout {box_rect:?} vs row {row:?}"
+    );
+}
+
+#[test]
 fn dropdowns_give_way_to_the_label_in_a_narrow_row() {
     let h = harness(String::new(), |ui, text: &mut String| {
         card(ui, |ui| {

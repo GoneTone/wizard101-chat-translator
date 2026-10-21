@@ -334,8 +334,11 @@ fn a_bad_base_url_keeps_next_disabled_even_after_skipping() {
     pick_provider(&mut h, "provider.custom");
     type_into(&mut h, &tr("field.base_url"), "http://127.0.0.1:8000/v1");
     type_into(&mut h, &tr("field.model"), "gemma");
+    assert!(!has_label(&h, &tr("error.base_url_v1")));
     skip(&mut h);
     assert!(!next_enabled(&h));
+    assert!(has_label(&h, &tr("dialog.incomplete_title")));
+    assert!(has_label(&h, &tr("error.base_url_v1")));
 }
 
 #[test]

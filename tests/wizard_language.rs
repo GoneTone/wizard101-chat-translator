@@ -56,14 +56,14 @@ fn language_change_relabels_the_same_wizard() {
     assert_eq!(h.state().actions, [WizardAction::PreviewLanguage]);
     assert_eq!(logged(), before + 1);
     assert_eq!(step(&h), Step::Language);
-    h.get_by_role_and_label(Role::Button, "Next");
-    assert!(has_label(&h, "Create a translation service"));
+    h.get_by_role_and_label(Role::Button, &tr("button.next"));
+    assert!(has_label(&h, &tr("wizard.step.service")));
     let cfg = {
         h.state_mut().actions.clear();
         next(&mut h);
         pick_provider(&mut h, "provider.claude");
-        type_into(&mut h, "API key", "sk");
-        type_into(&mut h, "Model", "m");
+        type_into(&mut h, &tr("field.api_key"), "sk");
+        type_into(&mut h, &tr("field.model"), "m");
         walk_to_finish(&mut h)
     };
     assert_eq!(cfg["ui_language"], json!("en-US"));
@@ -82,12 +82,12 @@ fn language_change_updates_untouched_target_language() {
     let _lock = language_lock();
     let mut h = open("zh-TW", || {
         let mut cfg = configured_cfg();
-        cfg["target_language"] = json!("繁體中文（台灣）");
+        cfg["target_language"] = json!(language_name("zh-TW"));
         cfg
     });
     pick_language(&mut h, "en-US");
     let cfg = walk_to_finish(&mut h);
-    assert_eq!(cfg["target_language"], json!("English"));
+    assert_eq!(cfg["target_language"], json!(language_name("en-US")));
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn language_change_from_en_bootstrap_follows_to_zh_cn() {
     });
     pick_language(&mut h, "zh-CN");
     let cfg = walk_to_finish(&mut h);
-    assert_eq!(cfg["target_language"], json!("简体中文（中国）"));
+    assert_eq!(cfg["target_language"], json!(language_name("zh-CN")));
 }
 
 #[test]
@@ -148,7 +148,10 @@ fn language_change_keeps_the_half_filled_service() {
     type_into(&mut h, &tr("field.model"), "claude-x");
     change_language_from_service_step(&mut h, "en-US");
     assert!(!has(&h, Role::Button, "OpenAI"));
-    assert_eq!(field_value(&h, "Model").as_deref(), Some("claude-x"));
+    assert_eq!(
+        field_value(&h, &tr("field.model")).as_deref(),
+        Some("claude-x")
+    );
     let cfg = walk_to_finish(&mut h);
     let service = &cfg["services"][0];
     assert_eq!(service["provider"], json!("claude"));
@@ -164,7 +167,10 @@ fn language_change_retitles_an_untouched_service() {
     next(&mut h);
     pick_provider(&mut h, "provider.custom");
     change_language_from_service_step(&mut h, "en-US");
-    assert_eq!(service_name(&h).as_deref(), Some("Custom endpoint"));
+    assert_eq!(
+        service_name(&h).as_deref(),
+        Some(tr("provider.custom_short").as_str())
+    );
 }
 
 #[test]
@@ -174,12 +180,14 @@ fn language_change_retitles_a_suffixed_untouched_service() {
     let mut h = open("zh-TW", || {
         let bystander = filled("custom", &[]);
         let edited = filled("custom", std::slice::from_ref(&bystander));
-        assert_eq!(edited["name"], json!("自訂端點 (2)"));
+        let base = tr("provider.custom_short");
+        assert_eq!(edited["name"], json!(format!("{base} (2)")));
         cfg_with(vec![bystander, edited.clone()], Some(&edited))
     });
+    let source = tr("provider.custom_short");
     pick_language(&mut h, "en-US");
     let cfg = walk_to_finish(&mut h);
-    assert_eq!(names(&cfg), ["自訂端點", "Custom endpoint"]);
+    assert_eq!(names(&cfg), [source, tr("provider.custom_short")]);
 }
 
 #[test]
@@ -192,9 +200,10 @@ fn language_change_only_retitles_the_service_being_edited() {
         edited["name"] = bystander["name"].clone();
         cfg_with(vec![bystander, edited.clone()], Some(&edited))
     });
+    let source = tr("provider.custom_short");
     pick_language(&mut h, "en-US");
     let cfg = walk_to_finish(&mut h);
-    assert_eq!(names(&cfg), ["自訂端點", "Custom endpoint"]);
+    assert_eq!(names(&cfg), [source, tr("provider.custom_short")]);
 }
 
 #[test]
@@ -235,7 +244,8 @@ fn language_change_does_not_let_the_rename_collide() {
     });
     pick_language(&mut h, "en-US");
     let cfg = walk_to_finish(&mut h);
-    assert_eq!(names(&cfg), ["Custom endpoint (2)", "Custom endpoint"]);
+    let base = tr("provider.custom_short");
+    assert_eq!(names(&cfg), [format!("{base} (2)"), base]);
 }
 
 #[test]
@@ -246,7 +256,7 @@ fn language_change_while_picking_stays_on_the_cards() {
     next(&mut h);
     change_language_from_service_step(&mut h, "en-US");
     assert!(has(&h, Role::Button, "OpenAI"));
-    assert!(!has(&h, Role::TextInput, "Name"));
+    assert!(!has(&h, Role::TextInput, &tr("field.service_name")));
     assert!(!next_enabled(&h));
 }
 
@@ -258,7 +268,10 @@ fn language_change_after_picking_keeps_the_form() {
     pick_provider(&mut h, "provider.claude");
     change_language_from_service_step(&mut h, "en-US");
     assert!(!has(&h, Role::Button, "OpenAI"));
-    assert_eq!(service_name(&h).as_deref(), Some("Claude"));
+    assert_eq!(
+        service_name(&h).as_deref(),
+        Some(tr("provider.claude").as_str())
+    );
 }
 
 #[test]

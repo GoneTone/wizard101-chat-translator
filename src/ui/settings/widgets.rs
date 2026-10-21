@@ -702,7 +702,7 @@ pub fn filter_models(models: &[String], query: &str) -> Vec<String> {
         .collect()
 }
 
-/// 儲存被擋下的提示：警告圖示、粗體標題，下面每個問題一行。
+/// 儲存被擋下的提示：警告圖示、粗體標題，下面每個問題一行；占滿可用寬度。
 pub fn callout(ui: &mut Ui, title: &str, lines: &[String]) {
     Frame::new()
         .fill(theme::WARN_BG)
@@ -710,6 +710,7 @@ pub fn callout(ui: &mut Ui, title: &str, lines: &[String]) {
         .corner_radius(theme::CARD_RADIUS)
         .inner_margin(Margin::symmetric(12, 10))
         .show(ui, |ui| {
+            ui.set_width(ui.available_width());
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 let title_font = theme::bold(13.0);

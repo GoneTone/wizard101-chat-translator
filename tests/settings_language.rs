@@ -61,8 +61,8 @@ fn changing_ui_language_previews_it_without_touching_config() {
     assert_eq!(h.state().actions, [SettingsAction::PreviewLanguage]);
     assert_eq!(logged(), before + 1);
     // 視窗以新語言重畫
-    h.get_by_role_and_label(Role::Tab, "Basic");
-    h.get_by_role_and_label(Role::Button, "Save");
+    h.get_by_role_and_label(Role::Tab, &tr("settings.tab.basic"));
+    h.get_by_role_and_label(Role::Button, &tr("button.save"));
 }
 
 #[test]
@@ -92,13 +92,14 @@ fn language_preview_keeps_the_draft_and_cancel_reverts() {
     );
     pick_language(&mut h, "en-US");
     assert_eq!(h.state().win.page(), Page::Basic);
-    let field = h.get_by_role_and_label(Role::TextInput, "Translate messages into");
+    let label = tr("settings.target_language");
+    let field = h.get_by_role_and_label(Role::TextInput, &label);
     assert_eq!(field.value(), typed);
 
     h.state_mut().actions.clear();
     let reverted = || log_lines_with("[ui] settings language preview reverted to zh-TW").len();
     let before = reverted();
-    click(&mut h, Role::Button, "Cancel");
+    click(&mut h, Role::Button, &tr("button.cancel"));
     assert_eq!(current_language(), "zh-TW");
     assert_eq!(
         h.state().actions,
@@ -126,7 +127,7 @@ fn save_keeps_the_previewed_language() {
     let _lock = language_lock();
     let mut h = harness("zh-TW");
     pick_language(&mut h, "en-US");
-    click(&mut h, Role::Button, "Save");
+    click(&mut h, Role::Button, &tr("button.save"));
     assert_eq!(current_language(), "en-US");
     assert_eq!(saved(&h).unwrap()["ui_language"], json!("en-US"));
 }
@@ -151,7 +152,7 @@ fn language_preview_keeps_unsaved_edits() {
     click(&mut h, Role::Switch, &tr("field.auto_input"));
 
     pick_language(&mut h, "en-US");
-    click(&mut h, Role::Button, "Save");
+    click(&mut h, Role::Button, &tr("button.save"));
     let cfg = saved(&h).unwrap();
     assert_eq!(cfg["region_hotkey"], json!("ctrl+alt+r"));
     assert_eq!(cfg["auto_show_input"], json!(false));
@@ -174,7 +175,7 @@ fn language_preview_keeps_a_half_added_service() {
     run(&mut h);
     click(&mut h, Role::Tab, &tr("settings.tab.basic"));
     pick_language(&mut h, "en-US");
-    click(&mut h, Role::Button, "Save");
+    click(&mut h, Role::Button, &tr("button.save"));
     let cfg = saved(&h).unwrap();
     assert!(
         cfg["services"][0]["name"]
