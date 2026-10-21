@@ -144,7 +144,7 @@ The rest of this file covers working from source: development, debugging and pac
 2. `cargo run` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the repository root, which is not version-controlled.
 3. It works exactly as described in [How to Use](#how-to-use); when a banner shows up, see [Troubleshooting](#troubleshooting).
 
-> When a game update makes hooking fail with `PatternFailed`, the memory patterns in the source have to be updated (the chat hook and the input-box hook each keep their own, in `src/reader/`).
+> When a game update makes hooking fail with `PatternFailed`, the memory patterns in the source have to be updated (the chat hook and the input-box hook each keep their own, in `src/reader/hook/`).
 
 ### Checks
 

@@ -1,8 +1,8 @@
 use crate::common;
 
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
-use wizard101_chat_translator::reader::memory::{FakeMemory, Region};
-use wizard101_chat_translator::reader::pattern::{self, ScanError};
+use wizard101_chat_translator::game::memory::{FakeMemory, Region};
+use wizard101_chat_translator::game::pattern::{self, ScanError};
 use wizard101_chat_translator::util;
 
 const MODULE: &str = "WizardGraphicalClient.exe";

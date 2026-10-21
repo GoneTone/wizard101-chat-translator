@@ -10,8 +10,8 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::hooks::{MODULE, STUB_EXIT_WAIT};
-use super::memory::ProcessMemory;
+use super::cave::{MODULE, STUB_EXIT_WAIT};
+use crate::game::memory::ProcessMemory;
 use crate::logs::log;
 use crate::util::{hex, remove_dead_pid_files, unhex, write_atomic};
 

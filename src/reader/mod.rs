@@ -1,15 +1,10 @@
-//! 收訊端：遊戲程序的記憶體存取、pattern 掃描、hook 掛入與程序／視窗辨識。
+//! 收訊端：掛入遊戲讀聊天、解析聊天行與分頁，並管理各客戶端的收訊執行緒與狀態。
 
-pub mod chat_hook;
 pub mod chat_tabs;
-pub mod hook_state;
-pub mod hooks;
+pub mod hook;
 pub mod markup;
 pub mod mem_reader;
-pub mod memory;
 pub mod message_log;
-pub mod pattern;
-pub mod process;
 pub mod run_loop;
 pub mod status;
 pub mod supervisor;

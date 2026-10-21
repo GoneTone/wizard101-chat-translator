@@ -144,7 +144,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 2. `cargo run` —— 第一次运行会跑首次设置向导（选服务商、填密钥或自建服务器网址、测试连接），设置写进项目根目录的 `config.json`（不进版本控制）。
 3. 操作方式与[使用方式](#使用方式)一节相同；出现横幅时见[故障排除](#故障排除)。
 
-> 游戏更新导致挂入报 `PatternFailed` 时，要更新源码里的内存 pattern（聊天 hook 与输入框 hook 各有一组，位于 `src/reader/`）。
+> 游戏更新导致挂入报 `PatternFailed` 时，要更新源码里的内存 pattern（聊天 hook 与输入框 hook 各有一组，位于 `src/reader/hook/`）。
 
 ### 检查
 

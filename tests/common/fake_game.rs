@@ -2,10 +2,10 @@
 #![allow(dead_code)]
 
 use windows_sys::Win32::System::Memory::{MEM_COMMIT, PAGE_EXECUTE_READ};
-use wizard101_chat_translator::reader::chat_hook::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
+use wizard101_chat_translator::game::memory::{FakeMemory, ProcessMemory, Region};
 use wizard101_chat_translator::reader::chat_tabs::LABEL_OFFSET;
-use wizard101_chat_translator::reader::hooks::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
-use wizard101_chat_translator::reader::memory::{FakeMemory, ProcessMemory, Region};
+use wizard101_chat_translator::reader::hook::add_line::{self, DATA_OFF, HEADER, SLOT_SIZE, SLOTS};
+use wizard101_chat_translator::reader::hook::cave::{AUTOBOT_PATTERN, MODULE, ROOT_WINDOW_PATTERN};
 
 /// 依 pattern 原文造一段命中位元組（同 golden exporter 的 `_pattern_instance`）。
 pub fn pattern_instance(pattern: &str) -> Vec<u8> {
@@ -42,7 +42,7 @@ pub fn place_root_window(mem: &FakeMemory, addr: u64) -> Vec<u8> {
 
 /// 在 `addr` 放 AddLine hook 的 pattern 命中，回傳整段內容。
 pub fn place_addline(mem: &FakeMemory, addr: u64) -> Vec<u8> {
-    place(mem, addr, chat_hook::PATTERN, 0x80)
+    place(mem, addr, add_line::PATTERN, 0x80)
 }
 
 /// 在模組裡加一個可掃描區段並放入 pattern 命中，回傳整段內容。

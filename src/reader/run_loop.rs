@@ -11,9 +11,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::chat_tabs::TabState;
 use super::mem_reader::{ChatEvent, GameNotRunning, WizChatReader};
-use super::process;
 use super::status::StatusBoard;
 use crate::config::{Config, py};
+use crate::game::process;
 use crate::i18n::t;
 use crate::logs::log;
 use crate::translation::cache::TranslationCache;

@@ -17,13 +17,13 @@ use wizard101_chat_translator::config::{
     Config, Settings, app_dir, bootstrap_language, config_path, is_configured, load_config,
     local_state_dir, save_config,
 };
+use wizard101_chat_translator::game::process::{foreground_window, pid_alive};
 use wizard101_chat_translator::i18n::set_language;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::hook::{self, KeyboardHook};
 use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::reader::message_log::SharedWriter;
-use wizard101_chat_translator::reader::process::{foreground_window, pid_alive};
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
 use wizard101_chat_translator::region::pipeline::RegionPipeline;
 use wizard101_chat_translator::runtime::updater::{

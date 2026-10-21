@@ -6,12 +6,12 @@ use std::time::Duration;
 use common::fake_game::{BASE, RING_SIZE, place_addline, place_cave, place_root_window};
 use common::log_capture::{capture_logs, log_lines_with};
 use serde_json::Value;
-use wizard101_chat_translator::reader::chat_hook::{self, AddLineHook};
-use wizard101_chat_translator::reader::hook_state;
-use wizard101_chat_translator::reader::hooks::{
+use wizard101_chat_translator::game::memory::{FakeMemory, MemOp};
+use wizard101_chat_translator::reader::hook::add_line::{self, AddLineHook};
+use wizard101_chat_translator::reader::hook::cave::{
     AutobotCave, MODULE, RootWindowHook, STUB_EXIT_WAIT,
 };
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemOp};
+use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::util;
 
 fn hex_of(v: &Value) -> Vec<u8> {
@@ -78,7 +78,7 @@ fn addline_stub_bytes_match_python() {
     for case in &cases {
         let input = &case["input"];
         let out = &case["output"];
-        let stub = chat_hook::stub_bytes(n(&input["ring"]));
+        let stub = add_line::stub_bytes(n(&input["ring"]));
         assert_eq!(stub, hex_of(&out["stub_bytes"]));
         assert!(stub.len() + 5 <= 256);
 

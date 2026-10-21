@@ -15,18 +15,18 @@ use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::VirtualClock;
 use common::spy_memory::SpyMemory;
 use windows_sys::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
-use wizard101_chat_translator::reader::chat_hook::SLOTS;
+use wizard101_chat_translator::game::memory::{FakeMemory, MemError, MemOp, ProcessMemory};
+use wizard101_chat_translator::game::process::{
+    client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
+};
 use wizard101_chat_translator::reader::chat_tabs::{CUR_TAB_OFFSET, TabState};
-use wizard101_chat_translator::reader::hook_state;
-use wizard101_chat_translator::reader::hooks::{MODULE, STUB_EXIT_WAIT};
+use wizard101_chat_translator::reader::hook::add_line::SLOTS;
+use wizard101_chat_translator::reader::hook::cave::{MODULE, STUB_EXIT_WAIT};
+use wizard101_chat_translator::reader::hook::state as hook_state;
 use wizard101_chat_translator::reader::markup::parse_line;
 use wizard101_chat_translator::reader::mem_reader::{
     GameNotRunning, HOOK_READY_POLL, HOOK_READY_TIMEOUT, INPUT_CONTAINER, INPUT_RECHECK,
     MessageSink, WizChatReader,
-};
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, MemOp, ProcessMemory};
-use wizard101_chat_translator::reader::process::{
-    client_size, client_to_screen, install_path_of, install_root, window_exists, window_pid,
 };
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::util::{self, Clock};
@@ -494,7 +494,7 @@ fn pattern_failure_is_version_mismatch_and_leaves_no_partial_hook() {
     assert!(
         failed[0].contains("): Pattern b'")
             && failed[0].ends_with(
-                "; a pattern failure here needs chat_hook::PATTERN updated in a new release"
+                "; a pattern failure here needs hook::add_line::PATTERN updated in a new release"
             ),
         "{failed:?}"
     );

@@ -22,6 +22,8 @@ use crate::config::services::resolve;
 use crate::config::{
     Config, ServiceSlot, Settings, app_name, config_summary, default_config, py, save_config,
 };
+use crate::game::memory::{ProcessMemory, WinProcess};
+use crate::game::process::{find_game_window, game_windows, window_exists};
 use crate::i18n::{current_language, t};
 use crate::input::dispatch::{
     ChatInputTracker, Foreground, on_hotkey, on_region_hotkey, region_hotkey_to_register,
@@ -32,9 +34,7 @@ use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
-use crate::reader::memory::{ProcessMemory, WinProcess};
 use crate::reader::message_log::{MessageLog, SharedWriter};
-use crate::reader::process::{find_game_window, game_windows, window_exists};
 use crate::reader::run_loop::{LoopEnv, MessageIds, ReaderShared, reader_loop};
 use crate::reader::status::StatusBoard;
 use crate::reader::supervisor::{JOIN_TIMEOUT, supervise};
