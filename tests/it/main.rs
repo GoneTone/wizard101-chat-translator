@@ -27,6 +27,7 @@ mod input_box;
 mod keys_golden;
 mod logs_golden;
 mod mem_reader;
+mod net_proxy;
 mod no_hardcoded_ui_text;
 mod ocr;
 mod ocr_golden;
