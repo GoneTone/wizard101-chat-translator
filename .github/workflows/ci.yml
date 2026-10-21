@@ -14,8 +14,12 @@ permissions:
   contents: read
 
 jobs:
+  # debug 與 release 的相依產物互不共用，拆成兩個 job 平行跑
   quality:
     runs-on: windows-latest
+    env:
+      # 不產生除錯資訊：Windows 上寫 PDB 是編譯與連結的大宗，CI 用不到
+      CARGO_PROFILE_DEV_DEBUG: 0
     steps:
       - uses: actions/checkout@v7
 
@@ -38,6 +42,21 @@ jobs:
       # 測試用 kittest 的離屏 UI，不開可見視窗，所以可以平行跑
       - name: Test
         run: cargo test --locked
+
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # 版本與元件（clippy、rustfmt）由 rust-toolchain.toml 決定
+      - name: Setup Rust toolchain
+        run: |
+          rustup toolchain install
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
 
       # 效能門檻只在 release 下有意義，平常的 cargo test 把它標成 ignored
       - name: Relayout budget
