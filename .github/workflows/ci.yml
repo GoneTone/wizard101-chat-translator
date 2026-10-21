@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  # debug 與 release 的相依產物互不共用，拆成兩個 job 平行跑
+  # 效能門檻要 release 建置，與 debug 的相依產物互不共用，拆成兩個 job 平行跑
   quality:
     runs-on: windows-latest
     env:
@@ -43,7 +43,14 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-  release:
+      # 資源由 build.rs 嵌入、不分 debug／release，直接驗測試建出的那份
+      - name: Verify exe resources
+        shell: pwsh
+        run: |
+          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
+          .github/scripts/verify-exe.ps1 -Exe target/debug/Wizard101ChatTranslator.exe -Version $version
+
+  perf:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -61,20 +68,3 @@ jobs:
       # 效能門檻只在 release 下有意義，平常的 cargo test 把它標成 ignored
       - name: Relayout budget
         run: cargo test --locked --release --lib -- --ignored relayout
-
-      - name: Build exe
-        run: cargo build --release --locked
-
-      - name: Verify exe resources
-        shell: pwsh
-        run: |
-          $version = (cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages[0].version
-          .github/scripts/verify-exe.ps1 -Exe target/release/Wizard101ChatTranslator.exe -Version $version
-
-      - name: Upload exe
-        uses: actions/upload-artifact@v7
-        with:
-          name: windows-exe
-          path: target/release/Wizard101ChatTranslator.exe
-          retention-days: 14
-          if-no-files-found: error

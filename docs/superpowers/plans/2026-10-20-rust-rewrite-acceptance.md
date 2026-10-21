@@ -121,7 +121,7 @@
 ## 9. CI 與發佈前（等上面都通過後）
 
 - [ ] 9.1 push `refactor/rust-rewrite`（要你同意）後，CI 全綠；特別注意鍵盤名稱相關測試，失敗可能是 CI 的鍵盤配置跟你的不同。
-- [ ] 9.2 下載 CI 產出的 exe，抽測第 1、3、5、6 節的主要項目。
+- [ ] 9.2 用本機 `cargo build --release` 建出的 exe（CI 不再上傳 exe），抽測第 1、3、5、6 節的主要項目。
 - [ ] 9.3 開 PR 合回 master（merge commit），依 `docs/releasing.md` 發佈 v1.0.0，手動發佈前先用 Defender 掃描 draft release 的 exe。
 
 ## 2026-10-20 代測紀錄（Claude 操作桌面）
