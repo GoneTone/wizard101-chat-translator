@@ -549,6 +549,33 @@ fn player_lines_use_their_own_tab_context() {
 }
 
 #[test]
+fn a_multi_tab_line_enters_every_tab_context() {
+    let mut s = Setup::new();
+    let mut shared = ev("[A] both");
+    shared.tabs = vec![0, 1];
+    s.run(vec![Read::Lines(vec![shared]), lines(&[])]);
+    submitted(&s.pool_rx, 1);
+    assert_eq!(s.contexts.for_tab(0).snapshot(), ["[A] both"]);
+    assert_eq!(s.contexts.for_tab(1).snapshot(), ["[A] both"]);
+}
+
+#[test]
+fn a_multi_tab_line_takes_its_pool_context_from_the_first_tab() {
+    let mut s = Setup::new();
+    let mut shared = ev("[A] both");
+    shared.tabs = vec![0, 1];
+    s.run(vec![
+        Read::Lines(vec![on_tab(1, "[B] only one"), shared]),
+        lines(&[]),
+    ]);
+    let contexts: Vec<_> = submitted(&s.pool_rx, 2)
+        .into_iter()
+        .map(|(_, c, _)| c)
+        .collect();
+    assert_eq!(contexts[1], Vec::<String>::new());
+}
+
+#[test]
 fn events_carry_their_tabs_to_the_overlay() {
     let mut s = Setup::new();
     let events = s.run(vec![Read::Lines(vec![on_tab(1, "[A] hi")]), lines(&[])]);

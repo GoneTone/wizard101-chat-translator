@@ -285,9 +285,14 @@ fn decimals(step: f64) -> usize {
     step.to_string().split_once('.').map_or(0, |(_, f)| f.len())
 }
 
-/// 數值欄：輸入框加 −／＋ 兩鈕；按鈕依 `step` 增減並夾在 `range` 內，打的字不在這裡驗證。
+/// `value` 夾在 `range` 內，依 `step` 的小數位數寫成文字。
+fn clamped(value: f64, step: f64, (min, max): (f64, f64)) -> String {
+    format!("{:.*}", decimals(step), value.max(min).min(max))
+}
+
+/// 數值欄：輸入框加 −／＋ 兩鈕；按鈕依 `step` 增減並夾在 `range` 內，打的數字超出範圍時失焦就夾回來。
 ///
-/// 輸入框的字不是數字時，按鈕從 `range` 的下限起算。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
+/// 輸入框的字不是數字時不在這裡驗證，按鈕從 `range` 的下限起算。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
 pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)) -> Response {
     let (min, max) = range;
     let button_width = 30.0;
@@ -297,6 +302,13 @@ pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)
             pos2(rect.right() - 2.0 * button_width, rect.bottom()),
         );
         let mut response = boxed_edit(ui, edit_rect, text, false);
+        // 範圍內的值不重排：照 `step` 的位數重寫會把多打的小數位捨掉
+        if response.lost_focus()
+            && let Some(value) = parse_float(text).filter(|v| *v < min || *v > max)
+        {
+            *text = clamped(value, step, range);
+            response.mark_changed();
+        }
         let buttons = [(icon::DECREASE, "−", -step), (icon::INCREASE, "+", step)];
         for (i, (glyph, label, delta)) in buttons.into_iter().enumerate() {
             let left = rect.right() - (2 - i) as f32 * button_width;
@@ -307,8 +319,7 @@ pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)
             let button = ui.interact(button_rect, response.id.with(label), Sense::click());
             button.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), label));
             if button.clicked() {
-                let current = parse_float(text).unwrap_or(min);
-                *text = format!("{:.*}", decimals(step), (current + delta).max(min).min(max));
+                *text = clamped(parse_float(text).unwrap_or(min) + delta, step, range);
                 response.mark_changed();
             }
             let painter = ui.painter();

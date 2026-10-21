@@ -68,6 +68,16 @@ async fn no_text_skips_translation() {
 }
 
 #[tokio::test]
+async fn whitespace_only_ocr_skips_translation() {
+    let fake = Fake::texts(&["unused"]);
+    let result = pipeline(&fake, "\n ")
+        .run(b"png".to_vec(), (1, 2, 3, 4), &CancellationToken::new())
+        .await;
+    assert_eq!(result, Ok(RegionResult::default()));
+    assert!(fake.calls().is_empty());
+}
+
+#[tokio::test]
 async fn cancel_is_passed_to_the_translator() {
     let fake = Fake::texts(&["譯文"]);
     let cancel = CancellationToken::new();

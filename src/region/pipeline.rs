@@ -86,7 +86,7 @@ impl RegionPipeline {
                     Err(e) => e.to_string(),
                 })
             })??;
-        if source.is_empty() {
+        if source.trim().is_empty() {
             log(format!("[region] local OCR found no text (rect={rect:?})"));
             return Ok(RegionResult::default());
         }

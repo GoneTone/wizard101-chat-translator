@@ -12,7 +12,7 @@ use eframe::egui::{Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText
 use crate::config::py::py_bool;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::geometry::EDGE;
+use crate::ui::geometry::{CORNER, EDGE};
 use crate::ui::overlay::frame::{GRIP_SIZE, status_color, status_text};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{self, TEXT_ORIGIN, line_height};
@@ -80,6 +80,8 @@ pub struct MessageList {
     /// 待套用的捲動量（內容往下移的 DIP），框選自動捲動用。
     pending: f32,
     viewport: Rect,
+    /// 按下可起手框選的範圍：視口往下延伸到內容區底部（縮放帶由呼叫端另外排除）。
+    hit: Rect,
     anchor: Option<(u64, f32)>,
     /// 每個分頁、每則訊息上次排版時的（換行寬度, 整列高度），估計未排版訊息的高度用。
     heights: HashMap<ViewKey, BTreeMap<u64, (f32, f32)>>,
@@ -105,6 +107,7 @@ impl MessageList {
             seen: None,
             pending: 0.0,
             viewport: Rect::NOTHING,
+            hit: Rect::NOTHING,
             anchor: None,
             heights: HashMap::new(),
             wrap: 0.0,
@@ -135,9 +138,14 @@ impl MessageList {
         self.pending += dy;
     }
 
-    /// 上一幀的訊息視口（不含捲軸與左、右、下三邊的縮放帶）。
+    /// 上一幀的訊息視口（不含捲軸、左右兩邊的縮放帶與底部的角落縮放範圍）。
     pub fn viewport(&self) -> Rect {
         self.viewport
+    }
+
+    /// 上一幀按下可起手框選的範圍：視口加上它與內容區底部之間沒畫字的那條。
+    pub fn hit_rect(&self) -> Rect {
+        self.hit
     }
 
     /// 上一幀畫出的可見訊息，由上到下。
@@ -155,15 +163,16 @@ impl MessageList {
         status: Option<&str>,
         selected: Option<(Caret, Caret)>,
     ) {
-        // 底緣讓出縮放帶而不是只墊高最新一則：捲上去時下緣被切的那則也不會畫進縮放帶、按得到卻選不到
+        // 底緣讓出角的高度：捲上去時被切的那則不畫進縮放帶，最新一行首字的下半部也不落在左下角
         let viewport = Rect::from_min_max(
             Pos2::new(rect.min.x + EDGE as f32, rect.min.y),
             Pos2::new(
                 rect.max.x - scrollbar::WIDTH - EDGE as f32,
-                rect.max.y - EDGE as f32,
+                rect.max.y - CORNER as f32,
             ),
         );
         self.viewport = viewport;
+        self.hit = viewport.with_max_y(rect.max.y);
         let mut dy = std::mem::take(&mut self.pending);
         // 底部讓出縮放把手：捲軸鋪到底會被它壓住，也會蓋到右下角的縮放帶
         let track = Rect::from_min_max(
@@ -873,9 +882,9 @@ mod tests {
                 assert!(text_left - rect.min.x > EDGE as f32, "{size:?}");
             }
         }
-        // 最新一則貼在下緣縮放帶之上
+        // 最新一則貼在左下角縮放範圍之上
         let last = h.state().list.rows().last().unwrap();
-        assert!(row_bottom(last) <= h.state().rect.max.y - EDGE as f32);
+        assert!(row_bottom(last) <= h.state().rect.max.y - CORNER as f32);
     }
 
     #[test]

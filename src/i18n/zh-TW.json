@@ -128,6 +128,7 @@
   "about.cache": "譯文快取",
   "about.cache_hint": "系統訊息的譯文快取；清除後會重新翻譯並自動重建",
   "about.cache_cleared": "已清除 {count} 筆",
+  "about.cache_clear_failed": "無法刪除快取檔，請稍後再試",
   "button.clear_cache": "清除",
   "button.check_update": "檢查更新",
   "button.checking": "檢查中…",
@@ -176,5 +177,8 @@
   "tooltip.minimize": "縮小",
   "tooltip.close": "關閉",
   "settings.region_hotkey": "框選翻譯的熱鍵",
-  "error.hotkeys_same": "兩個熱鍵不可相同"
+  "error.hotkeys_same": "兩個熱鍵不可相同",
+  "error.hotkey_is_paste": "已開啟遊戲內貼上，熱鍵不可設為 Ctrl+V",
+  "error.base_url_scheme": "伺服器網址要以 http:// 或 https:// 開頭",
+  "error.base_url_v1": "伺服器網址結尾不要加 /v1，只填到主機與連接埠（例如 http://127.0.0.1:8000）"
 }

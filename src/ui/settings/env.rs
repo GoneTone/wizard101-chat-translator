@@ -42,8 +42,8 @@ pub trait SettingsEnv {
     fn open_folder(&self, path: &Path);
     /// 有沒有譯文快取；沒有時關於頁不畫譯文快取那一列。
     fn has_cache(&self) -> bool;
-    /// 清掉譯文快取，回傳清掉的筆數。
-    fn clear_cache(&self) -> usize;
+    /// 清掉譯文快取，回傳清掉的筆數；刪不掉快取檔時回 `None`。
+    fn clear_cache(&self) -> Option<usize>;
 }
 
 /// `SettingsEnv` 背景工作的結果。
@@ -209,15 +209,8 @@ impl SettingsEnv for RealEnv {
         self.cache.is_some()
     }
 
-    fn clear_cache(&self) -> usize {
-        let Some(cache) = &self.cache else {
-            return 0;
-        };
-        let count = cache.clear();
-        log(format!(
-            "[settings] translation cache cleared by user ({count} entries)"
-        ));
-        count
+    fn clear_cache(&self) -> Option<usize> {
+        self.cache.as_ref().map_or(Some(0), |cache| cache.clear())
     }
 }
 

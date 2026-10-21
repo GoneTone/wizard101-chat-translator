@@ -20,8 +20,8 @@ use crate::util::{Clock, lock, poll_until};
 
 /// 切回遊戲視窗後、開始打字前的緩衝。
 pub const FOCUS_DELAY: Duration = Duration::from_millis(150);
-/// 與 Ctrl 合按時被攔截的鍵。
-pub const PASTE_KEY: &str = "v";
+/// 遊戲內貼上攔截的熱鍵。
+pub const PASTE_HOTKEY: &str = "ctrl+v";
 /// 一次貼上最多鍵入的字數；逐字鍵入很慢，誤貼整篇文章時不必等它打完。
 pub const PASTE_MAX_CHARS: usize = 1000;
 /// 貼上前等使用者放開 Ctrl 的上限。
@@ -174,7 +174,7 @@ pub fn paste_interceptor(
         on_paste();
         true
     });
-    HotkeyInterceptor::new(&format!("ctrl+{PASTE_KEY}"), trigger, mask)
+    HotkeyInterceptor::new(PASTE_HOTKEY, trigger, mask)
         .expect("paste hotkey names are valid")
         .expect("ctrl+v can be swallowed")
         // 鍵入進行中每個字都會先把使用者按著的 Ctrl 放開，此時再按 Ctrl+V 查不到 Ctrl；

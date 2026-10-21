@@ -27,7 +27,7 @@ pub const MIN_WIDTH: i32 = 200;
 pub const MIN_HEIGHT: i32 = 90;
 
 /// 狀態字的顏色（文字由 i18n 依 state key 取得）。
-pub const STATUS_COLORS: [(&str, Color32); 6] = [
+const STATUS_COLORS: [(&str, Color32); 6] = [
     ("locating", Color32::from_rgb(0xe0, 0xb0, 0x50)),
     ("listening", Color32::from_rgb(0x7d, 0xc8, 0x7d)),
     ("translating", TAB_ACCENT),
@@ -167,7 +167,7 @@ pub struct Frame {
 
 impl Frame {
     /// `initial`（設定裡存的位置大小）在視窗可擺放後經 `initial_rect` 套用一次，`None` 表示不動；
-    /// 拖曳或縮放放開時呼叫 `on_geometry_change`。
+    /// 拖曳或縮放放開時視窗有變才呼叫 `on_geometry_change`。
     pub fn new(
         alpha: f32,
         initial: Option<Geometry>,
@@ -205,7 +205,11 @@ impl Frame {
     ) -> Option<Clicked> {
         let ppp = ui.ctx().pixels_per_point();
         if let Some(saved) = &self.initial {
-            let rect = initial_rect(saved, &shell.monitors(), ppp);
+            let scale = match (saved.x, saved.y) {
+                (Some(x), Some(y)) => shell.scale_at(x, y),
+                _ => ppp,
+            };
+            let rect = initial_rect(saved, &shell.monitors(), scale);
             if shell.set_rect(rect) {
                 self.initial = None;
             } else if !self.placement_failed {
@@ -270,17 +274,34 @@ impl Frame {
                 }
             }
             if response.drag_stopped() {
-                let edge = g.edge;
+                let (start, edge) = (g.start, g.edge);
                 self.gesture = None;
-                let (x, y, w, h) = shell.rect();
+                let mut rect = shell.rect();
                 if let Some(edge) = edge {
                     log(format!(
                         "[ui] overlay resize end edge={} geometry={}",
                         edge.as_str(),
-                        describe((x, y, w, h))
+                        describe(rect)
                     ));
+                } else if rect != start {
+                    // 移動保留實體像素：拖到縮放較高的螢幕可能低於那顆的最小尺寸
+                    let (x, y, w, h) = rect;
+                    let (min_w, min_h) = min_size(shell.scale_at(x, y));
+                    let grown = (x, y, w.max(min_w), h.max(min_h));
+                    if grown != rect && shell.set_rect(grown) {
+                        log(format!(
+                            "[ui] overlay grown to the monitor's minimum size after a move: {} -> {}",
+                            describe(rect),
+                            describe(grown)
+                        ));
+                        rect = grown;
+                    }
                 }
-                (self.on_geometry_change)(x, y, w, h);
+                // egui 一按下就算開始拖曳：單純點一下視窗沒動，不必寫設定
+                if rect != start {
+                    let (x, y, w, h) = rect;
+                    (self.on_geometry_change)(x, y, w, h);
+                }
             }
         }
 
@@ -317,8 +338,8 @@ pub fn edge_under(area: egui::Rect, p: Pos2) -> Option<Edge> {
         v.y.floor() as i32,
         0,
         0,
-        area.width() as i32,
-        area.height() as i32,
+        area.width().ceil() as i32,
+        area.height().ceil() as i32,
     )
 }
 
@@ -515,6 +536,8 @@ pub(crate) mod tests {
         pub(crate) ready: bool,
         /// `take_focus` 被呼叫的次數。
         pub(crate) focused: usize,
+        /// `scale_at` 對任何點回的縮放（模擬視窗所在螢幕與 egui 目前的縮放不同）。
+        pub(crate) scale: f32,
     }
 
     impl Shell for FakeShell {
@@ -534,7 +557,7 @@ pub(crate) mod tests {
             vec![(0, 0, 1920, 1080)]
         }
         fn scale_at(&self, _x: i32, _y: i32) -> f32 {
-            1.0
+            self.scale
         }
         fn take_focus(&mut self) -> bool {
             self.focused += 1;
@@ -568,6 +591,7 @@ pub(crate) mod tests {
                 rect: START,
                 ready: true,
                 focused: 0,
+                scale: 1.0,
             },
             title: title.into(),
             area: egui::Rect::NOTHING,
@@ -891,6 +915,41 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn press_and_release_without_moving_saves_nothing() {
+        // 標題列與左緣帶：egui 一按下就算開始拖曳，放開時視窗沒動就不該寫設定
+        for from in [Vec2::new(300.0, 10.0), Vec2::new(2.0, 200.0)] {
+            let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+            drag(&mut harness, from, from, 1.0);
+            assert_eq!(harness.state().shell.rect, START, "{from:?}");
+            assert!(saved.borrow().is_empty(), "{from:?}");
+        }
+    }
+
+    #[test]
+    fn moving_onto_a_higher_scale_monitor_grows_to_its_min_size() {
+        let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let shell = &mut harness.state_mut().shell;
+        shell.rect = (1000, 500, 200, 90);
+        shell.scale = 1.5;
+        drag(
+            &mut harness,
+            Vec2::new(100.0, 10.0),
+            Vec2::new(150.0, 40.0),
+            1.0,
+        );
+        assert_eq!(harness.state().shell.rect, (1050, 530, 300, 135));
+        assert_eq!(*saved.borrow(), [(1050, 530, 300, 135)]);
+    }
+
+    #[test]
+    fn outermost_pixel_column_and_row_resize_at_fractional_scale() {
+        // 125% 下 641 實體像素寬＝512.8 DIP：最右一排的 floor 是 512
+        let area = egui::Rect::from_min_size(Pos2::ZERO, Vec2::new(512.8, 300.4));
+        assert_eq!(edge_under(area, Pos2::new(512.0, 150.0)), Some(Edge::E));
+        assert_eq!(edge_under(area, Pos2::new(250.0, 300.0)), Some(Edge::S));
+    }
+
+    #[test]
     fn resize_respects_min_size() {
         for (ppp, min) in [(1.0, (200, 90)), (1.5, (300, 135))] {
             let (mut harness, saved) = setup("t", Vec2::new(640.0, 420.0), ppp);
@@ -1074,6 +1133,7 @@ pub(crate) mod tests {
             rect: START,
             ready: false,
             focused: 0,
+            scale: 1.0,
         };
         run_frame(&mut frame, &mut shell);
         assert_eq!(shell.rect, START);
@@ -1085,6 +1145,26 @@ pub(crate) mod tests {
         shell.rect = START;
         run_frame(&mut frame, &mut shell);
         assert_eq!(shell.rect, START, "placement must happen only once");
+    }
+
+    #[test]
+    fn initial_min_size_uses_the_scale_of_the_saved_position() {
+        let saved = Geometry {
+            x: Some(10),
+            y: Some(20),
+            width: 250,
+            height: 100,
+        };
+        let mut frame = Frame::new(0.8, Some(saved), |_, _, _, _| {});
+        let mut shell = FakeShell {
+            cursor: (0, 0),
+            rect: START,
+            ready: true,
+            focused: 0,
+            scale: 1.5,
+        };
+        run_frame(&mut frame, &mut shell);
+        assert_eq!(shell.rect, (10, 20, 300, 135));
     }
 
     #[test]

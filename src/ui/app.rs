@@ -1268,6 +1268,7 @@ mod tests {
             rect: OVERLAY,
             ready: true,
             focused: 0,
+            scale: 1.0,
         };
         let root = Root {
             shell: Rc::new(RefCell::new(fake)),
@@ -1526,6 +1527,7 @@ mod tests {
             rect: OVERLAY,
             ready: true,
             focused: 0,
+            scale: 1.0,
         });
         app.set_minimized(true);
         let first = app.bubble_rect(OVERLAY, 1.0);

@@ -514,6 +514,49 @@ fn testing_with_missing_fields_shows_them_without_a_request() {
     assert!(!h.state().form.test_passed());
 }
 
+fn custom(base_url: &str) -> ServiceForm {
+    let mut service = new_service("custom", &[]);
+    service["model"] = json!("m");
+    service["base_url"] = json!(base_url);
+    form(service, vec![])
+}
+
+#[test]
+fn a_base_url_without_a_scheme_or_ending_in_v1_is_refused() {
+    let cases = [
+        ("localhost:1234", Some("error.base_url_scheme")),
+        ("ftp://host", Some("error.base_url_scheme")),
+        ("http://localhost:1234/v1", Some("error.base_url_v1")),
+        ("HTTPS://host/V1/", Some("error.base_url_v1")),
+        ("HTTP://localhost:1234", None),
+        ("https://host/v1beta", None),
+    ];
+    for (url, expected) in cases {
+        let errors = custom(url).errors();
+        assert_eq!(errors, expected.into_iter().collect::<Vec<_>>(), "{url}");
+    }
+}
+
+#[test]
+fn testing_a_bad_base_url_shows_why_without_a_request() {
+    let mut h = harness(custom("http://localhost:1234/v1"));
+    click(&mut h, &tr("button.test"));
+    assert!(h.state().env.tests.borrow().is_empty());
+    assert!(
+        painted_texts(&h)
+            .concat()
+            .contains(&tr("error.base_url_v1"))
+    );
+}
+
+#[test]
+fn an_unknown_effort_is_saved_as_auto() {
+    // 畫面顯示「自動」，存回去的也要是自動，否則手改壞的值會原樣送給 API
+    let mut service = new_service("claude", &[]);
+    service["effort"] = json!("");
+    assert_eq!(form(service, vec![]).values()["effort"], "auto");
+}
+
 #[test]
 fn switching_provider_clears_the_test_result() {
     // 顯示中的結果是對上一家端點測出來的，換了一家就不算數

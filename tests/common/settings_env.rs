@@ -23,6 +23,8 @@ pub struct FakeEnv {
     /// `None` 是沒有譯文快取；否則是清除時回報的筆數。
     pub cache: Option<usize>,
     pub cleared: Cell<usize>,
+    /// 清除時刪檔失敗。
+    pub clear_fails: bool,
     pub dispatcher: Option<SharedDispatcher>,
     pub recorded: Arc<Mutex<Vec<String>>>,
     pub recording: RefCell<Option<Recording>>,
@@ -57,8 +59,8 @@ impl SettingsEnv for FakeEnv {
     fn has_cache(&self) -> bool {
         self.cache.is_some()
     }
-    fn clear_cache(&self) -> usize {
+    fn clear_cache(&self) -> Option<usize> {
         self.cleared.set(self.cleared.get() + 1);
-        self.cache.unwrap_or(0)
+        (!self.clear_fails).then(|| self.cache.unwrap_or(0))
     }
 }

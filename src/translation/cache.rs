@@ -81,13 +81,18 @@ pub fn default_path() -> PathBuf {
     local_state_dir().join("system-message-cache.json")
 }
 
+/// 樣板 → （譯文樣板, 最近使用序號）。
+type Entries = HashMap<String, (String, u64)>;
+
 #[derive(Default)]
 struct Inner {
     fingerprint: String,
     /// 樣板 → （譯文樣板, 最近使用序號）；序號最小的是 LRU 淘汰對象。
-    entries: HashMap<String, (String, u64)>,
+    entries: Entries,
     tick: u64,
     unflushed: usize,
+    /// 上一組指紋與其條目；換回該指紋時直接換回來，不必重翻。
+    previous: Option<(String, Entries)>,
 }
 
 impl Inner {
@@ -190,27 +195,44 @@ impl TranslationCache {
         true
     }
 
-    /// 指紋變更（換收訊用的服務或目標語言）：先落盤舊的，再清空重來。
+    /// 指紋變更（換收訊用的服務或目標語言）：先落盤舊的，舊條目暫存一份；換回暫存的指紋就還原。
     pub fn rebind(&self, fingerprint: &str) {
         if fingerprint == self.lock().fingerprint {
             return;
         }
         self.flush();
-        let mut inner = self.lock();
-        log(format!(
-            "[cache] fingerprint changed at runtime, clearing {} entries",
-            inner.entries.len()
-        ));
-        inner.entries.clear();
-        inner.fingerprint = fingerprint.to_string();
-        inner.unflushed = 0;
+        let restored = {
+            let mut inner = self.lock();
+            let restored = match inner.previous.take() {
+                Some((previous, entries)) if previous == fingerprint => Some(entries),
+                _ => None,
+            };
+            log(format!(
+                "[cache] fingerprint changed at runtime, stashing {} entries (restored_from_stash={})",
+                inner.entries.len(),
+                restored.is_some()
+            ));
+            let was_restored = restored.is_some();
+            let old = (
+                std::mem::replace(&mut inner.fingerprint, fingerprint.to_string()),
+                std::mem::replace(&mut inner.entries, restored.unwrap_or_default()),
+            );
+            inner.previous = Some(old);
+            inner.unflushed = 0;
+            was_restored
+        };
+        // 換回時磁碟檔還是 B 的內容，馬上寫回 A
+        if restored {
+            self.flush();
+        }
     }
 
-    /// 使用者主動清空：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數；刪檔失敗只記 log。
-    pub fn clear(&self) -> usize {
+    /// 使用者主動清空（連同換回用的暫存）：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數（含暫存）；刪檔失敗回 `None`。
+    pub fn clear(&self) -> Option<usize> {
         let count = {
             let mut inner = self.lock();
-            let count = inner.entries.len();
+            let stashed = inner.previous.take().map_or(0, |(_, e)| e.len());
+            let count = inner.entries.len() + stashed;
             inner.entries.clear();
             inner.unflushed = 0;
             count
@@ -218,13 +240,16 @@ impl TranslationCache {
         match fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => log(format!(
-                "[cache] could not delete {}: {e}",
-                self.path.display()
-            )),
+            Err(e) => {
+                log(format!(
+                    "[cache] clear failed: could not delete {}: {e}",
+                    self.path.display()
+                ));
+                return None;
+            }
         }
         log(format!("[cache] cleared {count} entries on user request"));
-        count
+        Some(count)
     }
 
     /// 從磁碟載入；指紋不符、檔案損壞或不存在一律當作空快取。

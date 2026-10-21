@@ -18,7 +18,7 @@ use super::widgets::{
     primary_button, right_aligned, right_aligned_width, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
-use crate::config::services::{ServiceSlot, describe, new_service, str_field, validate_service};
+use crate::config::services::{ServiceSlot, describe, new_service, str_field};
 use crate::i18n::t;
 use crate::logs::log;
 
@@ -36,6 +36,17 @@ enum Dialog {
     Confirm {
         id: String,
     },
+}
+
+impl Dialog {
+    /// 剛開啟的服務表單。
+    fn form(form: ServiceForm) -> Self {
+        Self::Form {
+            form: Box::new(form),
+            picking: false,
+            errors: Vec::new(),
+        }
+    }
 }
 
 /// 對話框這一幀的結果。
@@ -110,12 +121,10 @@ impl ServicePane {
 
     fn open_form(&mut self, id: &str) {
         if let Some(service) = self.draft.find(Some(id)) {
-            let form = ServiceForm::new(service.clone(), self.draft.services.clone());
-            self.dialog = Dialog::Form {
-                form: Box::new(form),
-                picking: false,
-                errors: Vec::new(),
-            };
+            self.dialog = Dialog::form(ServiceForm::new(
+                service.clone(),
+                self.draft.services.clone(),
+            ));
         }
     }
 
@@ -261,12 +270,8 @@ impl ServicePane {
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(key) => {
                     let service = new_service(key, &self.draft.services);
-                    let form = ServiceForm::new(service, self.draft.services.clone());
-                    self.dialog = Dialog::Form {
-                        form: Box::new(form),
-                        picking: false,
-                        errors: Vec::new(),
-                    };
+                    self.dialog =
+                        Dialog::form(ServiceForm::new(service, self.draft.services.clone()));
                 }
             },
             Dialog::Form {
@@ -517,7 +522,7 @@ fn form_dialog(
     target_language: &str,
 ) -> (Choice<Value>, bool) {
     if !errors.is_empty() {
-        *errors = validate_service(&form.api_values());
+        *errors = form.errors();
     }
     // 內容高度會隨測試結果、提示與錯誤變動，釘住上緣，按鈕才不會在游標下跳動
     let spec = DialogSpec {
@@ -566,12 +571,12 @@ fn form_dialog(
     (choice, shown.body)
 }
 
-/// 〔確定〕：欄位完整就回傳要存的服務，否則記下缺的欄位。
+/// 〔確定〕：欄位都過了就回傳要存的服務，否則記下沒過的原因。
 fn save(form: &ServiceForm, errors: &mut Vec<String>) -> Choice<Value> {
-    let found = validate_service(&form.api_values());
+    let found = form.errors();
     if !found.is_empty() {
         log(format!(
-            "[settings] service not saved: missing {}",
+            "[settings] service not saved: {}",
             found.join(", ")
         ));
         *errors = found;

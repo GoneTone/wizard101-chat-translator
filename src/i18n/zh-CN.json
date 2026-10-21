@@ -128,6 +128,7 @@
   "about.cache": "译文缓存",
   "about.cache_hint": "系统消息的译文缓存；清除后会重新翻译并自动重建",
   "about.cache_cleared": "已清除 {count} 条",
+  "about.cache_clear_failed": "无法删除缓存文件，请稍后再试",
   "button.clear_cache": "清除",
   "button.check_update": "检查更新",
   "button.checking": "检查中…",
@@ -176,5 +177,8 @@
   "tooltip.minimize": "缩小",
   "tooltip.close": "关闭",
   "settings.region_hotkey": "框选翻译的热键",
-  "error.hotkeys_same": "两个热键不可相同"
+  "error.hotkeys_same": "两个热键不可相同",
+  "error.hotkey_is_paste": "已开启游戏内粘贴，热键不可设为 Ctrl+V",
+  "error.base_url_scheme": "服务器网址要以 http:// 或 https:// 开头",
+  "error.base_url_v1": "服务器网址结尾不要加 /v1，只填到主机与端口（例如 http://127.0.0.1:8000）"
 }
