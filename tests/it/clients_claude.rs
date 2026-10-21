@@ -680,7 +680,7 @@ async fn claude_pings_during_a_long_hidden_thinking_phase_keep_the_stream_alive(
     let thinking = json!({"type": "content_block_start", "index": 0,
         "content_block": {"type": "thinking", "thinking": ""}});
     let mut parts = vec![events(&[start, thinking])];
-    parts.extend(std::iter::repeat_n(events(&[json!({"type": "ping"})]), 8));
+    parts.extend(std::iter::repeat_n(events(&[json!({"type": "ping"})]), 15));
     parts.push(events(&[
         json!({"type": "content_block_stop", "index": 0}),
         json!({"type": "content_block_start", "index": 1,
@@ -692,10 +692,10 @@ async fn claude_pings_during_a_long_hidden_thinking_phase_keep_the_stream_alive(
             "usage": {"output_tokens": 9}}),
         json!({"type": "message_stop"}),
     ]));
-    // 8 個 ping 間隔各 100 ms，合計遠超過 300 ms 的讀取逾時
+    // 15 個 ping 間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
     let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
     let c = ClaudeClient::new("k", "claude-x", "auto", &url)
-        .with_timeouts(Duration::from_millis(300), common::WAIT);
+        .with_timeouts(Duration::from_secs(1), common::WAIT);
     assert_eq!(chat(&c).await.unwrap(), "[A] 完");
 }
 

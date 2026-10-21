@@ -737,12 +737,12 @@ async fn last_line_cut_off_mid_chunk_is_offline() {
 
 #[tokio::test]
 async fn processing_comments_longer_than_the_read_timeout_keep_the_stream_alive() {
-    let mut parts = vec![": PROCESSING\n\n".to_owned(); 8];
+    let mut parts = vec![": PROCESSING\n\n".to_owned(); 15];
     parts.push(sse(&[delta("譯文")]));
-    // 8 段註解間隔各 100 ms，合計遠超過 300 ms 的讀取逾時
+    // 15 段註解間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
     let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
     let c = OpenAiCompatClient::new(&url, "", "m", true, false)
-        .with_timeouts(Duration::from_millis(300), common::WAIT);
+        .with_timeouts(Duration::from_secs(1), common::WAIT);
     assert_eq!(chat(&c).await.unwrap(), "譯文");
 }
 
