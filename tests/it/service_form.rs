@@ -498,6 +498,7 @@ fn test_errors_make_urls_clickable() {
     let error = TranslateError::Offline {
         status: Some(429),
         detail: "quota exceeded, read https://platform.example/docs/errors.".into(),
+        retry_after: None,
     };
     finish_test(&mut h, round, Err(error));
     let link = h.get_by_label("https://platform.example/docs/errors");
@@ -797,6 +798,7 @@ fn friendly_error_guesses_from_status_when_api_gave_no_message() {
     let server = TranslateError::Offline {
         status: Some(503),
         detail: String::new(),
+        retry_after: None,
     };
     assert_eq!(
         friendly_error(&server),

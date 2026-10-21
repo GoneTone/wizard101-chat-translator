@@ -14,7 +14,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::BoxFuture;
-use super::errors::TranslateError;
+use super::errors::{MAX_RETRY_AFTER, TranslateError};
 use super::gate::ConcurrencyGate;
 use crate::logs::log;
 use crate::util::{lock, panic_message};
@@ -28,7 +28,7 @@ pub type ResultFn = Arc<dyn Fn(u64, String, bool) + Send + Sync>;
 /// 回傳字串的 callable（失敗提示、服務描述），每次取用時才求值。
 pub type TextFn = Arc<dyn Fn() -> String + Send + Sync>;
 
-/// 翻譯伺服器離線時的重試間隔（秒），用完停在最後一階。
+/// 翻譯伺服器離線時的重試間隔（秒），用完停在最後一階；伺服器要求等更久時照它（上限 [`MAX_RETRY_AFTER`]）。
 pub const BACKOFF_STEPS: [u64; 3] = [5, 15, 30];
 /// API 設定錯誤時的重試間隔（秒）；使用者修正後自動恢復。
 pub const CONFIG_ERROR_INTERVAL: u64 = 15;
@@ -210,8 +210,8 @@ impl Inner {
         false
     }
 
-    /// 推進全域退避閘門並記錄狀態。閘門未到期代表同一輪已有別則推進過，沿用即可 ——
-    /// 否則 N 則同時失敗會把退避一口氣推 N 階。
+    /// 推進全域退避閘門並記錄狀態。閘門未到期代表同一輪已有別則推進過，不再推進階數 ——
+    /// 否則 N 則同時失敗會把退避一口氣推 N 階；伺服器要求等更久時只延長閘門。
     fn note_failure(&self, kind: ErrorState, err: &TranslateError) {
         let detail = match err {
             TranslateError::Offline { detail, .. } | TranslateError::Config { detail, .. } => {
@@ -219,19 +219,35 @@ impl Inner {
             }
             _ => String::new(),
         };
+        let asked = match err {
+            TranslateError::Offline { retry_after, .. } => *retry_after,
+            _ => None,
+        };
+        let mut honoured = None;
         let changed = {
             let mut state = self.state();
             let now = Instant::now();
-            if state.gate_until.is_none_or(|until| now >= until) {
-                let delay = match kind {
-                    ErrorState::Config => CONFIG_ERROR_INTERVAL,
-                    ErrorState::Offline => {
-                        let step = BACKOFF_STEPS[state.backoff_index.min(BACKOFF_STEPS.len() - 1)];
-                        state.backoff_index += 1;
-                        step
+            let asked = asked.map(|wait| wait.min(MAX_RETRY_AFTER));
+            match state.gate_until.filter(|&until| now < until) {
+                None => {
+                    let delay = match kind {
+                        ErrorState::Config => Duration::from_secs(CONFIG_ERROR_INTERVAL),
+                        ErrorState::Offline => {
+                            let index = state.backoff_index.min(BACKOFF_STEPS.len() - 1);
+                            let step = Duration::from_secs(BACKOFF_STEPS[index]);
+                            state.backoff_index += 1;
+                            honoured = asked.filter(|wait| *wait > step);
+                            honoured.unwrap_or(step)
+                        }
+                    };
+                    state.gate_until = Some(now + delay);
+                }
+                Some(until) => {
+                    honoured = asked.filter(|wait| now + *wait > until);
+                    if let Some(wait) = honoured {
+                        state.gate_until = Some(now + wait);
                     }
-                };
-                state.gate_until = Some(now + Duration::from_secs(delay));
+                }
             }
             let changed = state.error_state != Some(kind);
             state.error_state = Some(kind);
@@ -244,6 +260,14 @@ impl Inner {
             log(format!(
                 "[translate] provider {} error ({}): {err}; retrying with backoff",
                 kind.as_str(),
+                (self.describe)()
+            ));
+        }
+        if let (Some(asked), Some(wait)) = (asked, honoured) {
+            log(format!(
+                "[translate] server asked to wait {}s; next retry in {}s ({})",
+                asked.as_secs_f64(),
+                wait.as_secs_f64(),
                 (self.describe)()
             ));
         }

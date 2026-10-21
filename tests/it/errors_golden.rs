@@ -8,7 +8,11 @@ fn error_of(kind: &str, status: Option<u16>, detail: &str) -> TranslateError {
     let detail = detail.to_owned();
     match kind {
         "config" => TranslateError::Config { status, detail },
-        "offline" => TranslateError::Offline { status, detail },
+        "offline" => TranslateError::Offline {
+            status,
+            detail,
+            retry_after: None,
+        },
         "bad_output" => TranslateError::BadOutput(detail),
         "unexpected" => TranslateError::Unexpected(detail),
         other => panic!("unknown kind {other}"),

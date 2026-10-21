@@ -61,7 +61,7 @@ pub const PILL_TEXT: Color32 = hex(0xa9cdf5);
 pub const KEYCAP_BG: Color32 = hex(0x2b2b42);
 /// 熱鍵按鍵帽外框。
 pub const KEYCAP_BORDER: Color32 = hex(0x40405c);
-/// 服務商卡片 hover（外框改 `ACCENT`）。
+/// hover／按下的底色：服務商卡片（外框改 `ACCENT`）與按鈕、輸入框、下拉等元件。
 pub const HOT_BG: Color32 = hex(0x24304a);
 /// 未選中的導覽項 hover。
 pub const NAV_HOVER: Color32 = hex(0x1c1c2c);
@@ -129,6 +129,8 @@ pub const PICKER_DIALOG_WIDTH: f32 = 460.0;
 pub const CONFIRM_DIALOG_WIDTH: f32 = 280.0;
 /// 內文字級。
 pub const TEXT_SIZE: f32 = 14.0;
+/// 精靈格狀服務商卡片的標題字級（粗體）。
+pub const PROVIDER_TITLE_SIZE: f32 = 14.5;
 /// 說明字級。
 pub const HINT_SIZE: f32 = 12.5;
 /// 按鈕與輸入框字級。

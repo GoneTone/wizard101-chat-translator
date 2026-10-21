@@ -1,16 +1,17 @@
 //! Gemini 官方 API：串流的 `streamGenerateContent?alt=sse` 與模型清單；請求內容照 google-genai SDK（預設不重試）。
 
 use std::ops::ControlFlow;
+use std::time::Duration;
 
-use reqwest::header::HeaderValue;
+use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error, connection_error,
-    count_of, finish_text, http_client, parse_object, response_failure, secret_header, truncated,
-    with_query,
+    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked, cancellable,
+    chunk_error, connection_error, count_of, finish_text, http_client, incomplete_stream,
+    parse_object, request_error, response_failure, secret_header, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -33,6 +34,7 @@ pub struct GeminiClient {
     api_key: Option<HeaderValue>,
     model: String,
     effort: String,
+    request_timeout: Duration,
 }
 
 impl GeminiClient {
@@ -41,17 +43,30 @@ impl GeminiClient {
     /// 金鑰照 SDK 去頭尾空白後放 `x-goog-api-key` 標頭（空金鑰送空值，讓伺服器回 4xx 照設定錯誤處理）。
     pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
         Self {
-            http: http_client(Default::default(), endpoint),
+            http: http_client(HeaderMap::new(), endpoint, TIMEOUT),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             api_key: secret_header(pystr::strip(api_key)),
             model: model.to_owned(),
             effort: effort.to_owned(),
+            request_timeout: REQUEST_TIMEOUT,
         }
+    }
+
+    /// 測試用：縮短讀取逾時與聊天請求的總期限。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
+        self.http = http_client(HeaderMap::new(), &self.base_url, read);
+        self.request_timeout = total;
+        self
     }
 
     /// 目前使用的模型 ID。
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    fn label(&self) -> String {
+        format!("provider=gemini model={}", self.model)
     }
 
     fn request_body(&self, system: &str, turns: &[Turn], max_tokens: u32) -> Value {
@@ -95,9 +110,12 @@ impl GeminiClient {
             model_path(&self.model)?
         );
         let body = self.request_body(req.system, req.turns, limit);
-        let resp = self.send(self.http.post(url).json(&body)).await?;
+        let request = self.http.post(url).json(&body);
+        let resp = self.send(request.timeout(self.request_timeout)).await?;
+        let label = self.label();
         let mut out = Streamed::default();
-        for_each_data(resp, |data| {
+        let mut block_reason = None;
+        for_each_data(resp, &label, |data| {
             let chunk = parse_object(data, "stream chunk")?;
             if let Some(error) = chunk.get("error") {
                 return Err(chunk_error(error));
@@ -121,6 +139,12 @@ impl GeminiClient {
             if let Some(usage) = chunk.get("usageMetadata").filter(|u| !u.is_null()) {
                 out.usage = Some(usage.clone());
             }
+            if let Some(reason) = chunk
+                .pointer("/promptFeedback/blockReason")
+                .and_then(Value::as_str)
+            {
+                block_reason = Some(reason.to_owned());
+            }
             Ok(ControlFlow::Continue(()))
         })
         .await?;
@@ -132,17 +156,27 @@ impl GeminiClient {
                 count_of(usage.get("cachedContentTokenCount")),
             ));
         }
-        if out.finish_reason.as_deref() == Some("MAX_TOKENS") {
-            let output_tokens = out
-                .usage
-                .as_ref()
-                .and_then(|u| u.get("candidatesTokenCount"));
-            return Err(truncated(limit, output_tokens, &out.content));
+        // 提示詞被擋時沒有候選，自然也沒有 finishReason
+        if let Some(reason) = block_reason {
+            return Err(TranslateError::BadOutput(format!(
+                "prompt blocked with block_reason={reason}"
+            )));
+        }
+        match out.finish_reason.as_deref() {
+            None => return Err(incomplete_stream(&label, "no finishReason", &out.content)),
+            Some("MAX_TOKENS") => {
+                let output_tokens = out
+                    .usage
+                    .as_ref()
+                    .and_then(|u| u.get("candidatesTokenCount"));
+                return Err(truncated(limit, output_tokens, &out.content));
+            }
+            Some("STOP") => {}
+            Some(reason) => return Err(blocked(reason, &out.content)),
         }
         if out.content.is_empty() {
-            let reason = out.finish_reason.unwrap_or_else(|| "unknown".to_owned());
             log(format!(
-                "[translate] gemini returned no text: model={} finish_reason={reason}",
+                "[translate] gemini returned no text: model={} finish_reason=STOP",
                 self.model
             ));
         }
@@ -199,7 +233,7 @@ impl GeminiClient {
             .header("x-goog-api-key", key)
             .send()
             .await
-            .map_err(connection_error)?;
+            .map_err(|error| request_error(&self.label(), error))?;
         let status = resp.status().as_u16();
         if status == 200 {
             return Ok(resp);

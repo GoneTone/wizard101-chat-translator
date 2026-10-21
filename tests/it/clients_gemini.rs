@@ -3,13 +3,15 @@
 use crate::common;
 use crate::stream_server::{self, request};
 
+use std::time::Duration;
+
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING};
+use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING, TIMEOUT};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 const STREAM_PATH: &str = "/v1beta/models/gemini-x:streamGenerateContent";
@@ -213,6 +215,7 @@ async fn gemini_models_error_mapping() {
             TranslateError::Offline {
                 status: Some(429),
                 detail: "denied".into(),
+                retry_after: None,
             },
         ),
     ];
@@ -226,6 +229,22 @@ async fn gemini_models_error_mapping() {
         assert_eq!(client(&server, "auto").list_models().await, Err(expected));
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
     }
+}
+
+#[tokio::test]
+async fn gemini_retry_delay_in_the_error_body_is_carried() {
+    let server = MockServer::start().await;
+    let body = json!({"error": {"code": 429, "message": "quota", "status": "RESOURCE_EXHAUSTED",
+        "details": [{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "37s"}]}});
+    mount_stream(&server, ResponseTemplate::new(429).set_body_json(body)).await;
+    assert_eq!(
+        chat(&client(&server, "auto")).await,
+        Err(TranslateError::Offline {
+            status: Some(429),
+            detail: "quota".into(),
+            retry_after: Some(Duration::from_secs(37)),
+        })
+    );
 }
 
 #[tokio::test]
@@ -255,7 +274,8 @@ async fn gemini_retry_behavior_matches_sdk() {
             chat(&client(&server, "auto")).await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: message.into()
+                detail: message.into(),
+                retry_after: None,
             })
         );
         assert_eq!(server.received_requests().await.unwrap().len(), 1);
@@ -273,7 +293,8 @@ async fn gemini_html_error_page_is_stripped_to_text() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(502),
-            detail: "502 Bad Gateway nginx".into()
+            detail: "502 Bad Gateway nginx".into(),
+            retry_after: None,
         })
     );
 }
@@ -329,7 +350,8 @@ async fn gemini_error_chunk_mid_stream_maps_by_its_code() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(503),
-            detail: "overloaded".into()
+            detail: "overloaded".into(),
+            retry_after: None,
         })
     );
 }
@@ -423,5 +445,75 @@ async fn cancel_mid_stream_returns_cancelled() {
     assert!(
         server.await.unwrap(),
         "server never saw the connection close"
+    );
+}
+
+#[tokio::test]
+async fn gemini_blocked_finish_reasons_are_bad_output_with_sample() {
+    for reason in ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"] {
+        let server = MockServer::start().await;
+        mount_stream(
+            &server,
+            stream_of(&[
+                chunk(text("半句"), None, None),
+                chunk(json!([]), Some(reason), None),
+            ]),
+        )
+        .await;
+        let result = chat(&client(&server, "auto")).await;
+        let Err(TranslateError::BadOutput(message)) = result else {
+            panic!("{reason}: {result:?}");
+        };
+        assert!(
+            message.contains(&format!("finish_reason={reason}")),
+            "{message}"
+        );
+        assert!(message.contains("半句"), "{message}");
+    }
+}
+
+#[tokio::test]
+async fn gemini_prompt_block_reason_is_bad_output() {
+    let server = MockServer::start().await;
+    let blocked = json!({"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}});
+    mount_stream(&server, stream_of(&[blocked])).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::BadOutput(m)) if m.contains("block_reason=PROHIBITED_CONTENT")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn gemini_stream_ended_without_finish_reason_is_offline() {
+    let body = format!("data: {}\r\n\r\n", chunk(text("半句"), None, None));
+    let url = stream_server::ended_stream(body).await;
+    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn gemini_keep_alive_comments_past_the_total_timeout_are_offline() {
+    capture_logs();
+    let comment = ": keep-alive\r\n\r\n".to_owned();
+    let url =
+        stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
+    let c = GeminiClient::new("k", "gemini-total-timeout", "auto", &url)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains("[translate] request timed out: provider=gemini model=gemini-total-timeout"),
+        "{text}"
     );
 }

@@ -9,13 +9,14 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, finish_text,
-    http_client, parse_object, response_failure, sample_of, secret_header, stream_failure,
-    truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked, cancellable,
+    connection_error, count_of, error_type_status, finish_text, http_client, incomplete_stream,
+    parse_object, request_error, response_failure, retry_after_within_cap, sample_of,
+    secret_header, stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
-use crate::py::{pyrepr::repr_str, pystr};
+use crate::py::pyrepr::repr_str;
 use crate::translation::Turn;
 use crate::translation::errors::{TranslateError, model_list_error, status_error};
 use crate::util::random_u64;
@@ -27,8 +28,6 @@ const API_VERSION: &str = "2023-06-01";
 const MAX_RETRIES: u32 = 2;
 const INITIAL_RETRY_DELAY: f64 = 0.5;
 const MAX_RETRY_DELAY: f64 = 8.0;
-// 伺服器要求等更久就不理它，改走指數退避，交給池子的退避重試
-const MAX_RETRY_AFTER: f64 = 60.0;
 const NO_AUTH: &str = "Could not resolve authentication method. Expected one of api_key, \
     auth_token, or credentials to be set.";
 
@@ -43,6 +42,8 @@ fn output_format() -> Value {
 #[derive(Default)]
 struct Message {
     started: bool,
+    /// 收到 `message_stop`。
+    stopped: bool,
     /// 各內容區塊的 (type, text)。
     blocks: Vec<(String, String)>,
     stop_reason: Option<String>,
@@ -61,29 +62,47 @@ pub struct ClaudeClient {
     key_malformed: bool,
     model: String,
     effort: String,
+    request_timeout: Duration,
+}
+
+fn default_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
+    headers
 }
 
 impl ClaudeClient {
     /// 建立 client；`endpoint` 正式環境為 [`CLAUDE_BASE_URL`]。
     pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
         let key = secret_header(api_key);
         Self {
-            http: http_client(headers, endpoint),
+            http: http_client(default_headers(), endpoint, TIMEOUT),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             // SDK 遇到空金鑰在送出前就拋錯，含非法字元的金鑰也送不出去
             api_key: key.clone().filter(|_| !api_key.is_empty()),
             key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
             effort: effort.to_owned(),
+            request_timeout: REQUEST_TIMEOUT,
         }
+    }
+
+    /// 測試用：縮短讀取逾時與聊天請求的總期限。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
+        self.http = http_client(default_headers(), &self.base_url, read);
+        self.request_timeout = total;
+        self
     }
 
     /// 目前使用的模型 ID。
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    fn label(&self) -> String {
+        format!("provider=claude model={}", self.model)
     }
 
     fn request_body(&self, system: &str, turns: &[Turn], max_tokens: u32) -> Value {
@@ -117,11 +136,18 @@ impl ClaudeClient {
         let limit = req.max_tokens.unwrap_or(MAX_TOKENS_THINKING);
         let body = self.request_body(req.system, req.turns, limit);
         let url = format!("{}/v1/messages", self.base_url);
-        let resp = self.send(|| self.http.post(&url).json(&body)).await?;
+        let resp = self
+            .send(|| {
+                self.http
+                    .post(&url)
+                    .json(&body)
+                    .timeout(self.request_timeout)
+            })
+            .await?;
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
-        let message = read_message(resp).await?;
+        let message = read_message(resp, &self.label()).await?;
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
@@ -138,9 +164,13 @@ impl ClaudeClient {
             .iter()
             .find(|(kind, _)| kind == "text")
             .map_or("", |(_, text)| text.as_str());
-        if stop_reason == "max_tokens" {
-            let output_tokens = message.usage.as_ref().and_then(|u| u.get("output_tokens"));
-            return Err(truncated(limit, output_tokens, content));
+        match stop_reason {
+            "max_tokens" => {
+                let output_tokens = message.usage.as_ref().and_then(|u| u.get("output_tokens"));
+                return Err(truncated(limit, output_tokens, content));
+            }
+            "refusal" => return Err(blocked(stop_reason, content)),
+            _ => {}
         }
         let translation = serde_json::from_str::<Value>(content)
             .ok()
@@ -234,14 +264,14 @@ impl ClaudeClient {
                     (format!("HTTP {status}"), delay)
                 }
                 Err(error) => {
+                    let error = request_error(&self.label(), error);
                     if retries_taken == MAX_RETRIES {
-                        let error = connection_error(error);
                         log(format!(
                             "[translate] claude connection failed after retries: {error}"
                         ));
                         return Err(error);
                     }
-                    let reason = connection_error(error).to_string();
+                    let reason = error.to_string();
                     let delay = retry_delay(retries_taken, &HeaderMap::new(), random_unit());
                     (reason, delay)
                 }
@@ -267,24 +297,10 @@ fn should_retry(status: u16, headers: &HeaderMap) -> bool {
     }
 }
 
-/// 伺服器要求的等待秒數：依序看 `retry-after-ms`、`retry-after`（秒數或 HTTP 日期）。
-fn retry_after(headers: &HeaderMap) -> Option<f64> {
-    let header = |name: &str| headers.get(name)?.to_str().ok().map(pystr::strip);
-    if let Some(ms) = header("retry-after-ms").and_then(|v| v.parse::<f64>().ok()) {
-        return Some(ms / 1000.0);
-    }
-    let value = header("retry-after")?;
-    if let Ok(seconds) = value.parse::<f64>() {
-        return Some(seconds);
-    }
-    let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
-    Some((date.timestamp_millis() - chrono::Utc::now().timestamp_millis()) as f64 / 1000.0)
-}
-
 /// 第 `retries_taken` 次失敗後的等待：照伺服器要求，否則 0.5 秒起指數退避（上限 8 秒）乘上 0.75–1 的抖動。
 fn retry_delay(retries_taken: u32, headers: &HeaderMap, unit: f64) -> Duration {
-    if let Some(seconds) = retry_after(headers).filter(|s| *s > 0.0 && *s <= MAX_RETRY_AFTER) {
-        return Duration::from_secs_f64(seconds);
+    if let Some(wait) = retry_after_within_cap(headers) {
+        return wait;
     }
     let backoff = (INITIAL_RETRY_DELAY * 2f64.powi(retries_taken as i32)).min(MAX_RETRY_DELAY);
     Duration::from_secs_f64((backoff * (1.0 - 0.25 * unit)).max(0.0))
@@ -298,34 +314,35 @@ fn random_unit() -> f64 {
 /// 串流中途的 `error` 事件：依 `error.type` 對應 HTTP 狀態碼分類，其餘類型為未分類的例外。
 fn stream_error(event: &Value) -> TranslateError {
     let error = &event["error"];
-    let status = match error["type"].as_str() {
-        Some("rate_limit_error") => Some(429),
-        Some("api_error") => Some(500),
-        Some("timeout_error") => Some(504),
-        Some("overloaded_error") => Some(529),
-        _ => None,
-    };
+    let status = error["type"].as_str().and_then(error_type_status);
     stream_failure(status, error["message"].as_str().unwrap_or(""), event)
 }
 
 /// 讀完 Messages 串流並累積成完整訊息。`error` 事件依類型分類，格式異常為未分類的例外。
-async fn read_message(resp: reqwest::Response) -> Result<Message, TranslateError> {
+async fn read_message(resp: reqwest::Response, label: &str) -> Result<Message, TranslateError> {
     let mut message = Message::default();
-    for_each_data(resp, |data| {
+    for_each_data(resp, label, |data| {
         let event = parse_object(data, "stream event")?;
-        accumulate(&mut message, &event)?;
-        Ok(ControlFlow::Continue(()))
+        accumulate(&mut message, &event)
     })
     .await?;
-    if !message.started {
-        return Err(TranslateError::Unexpected(
-            "stream ended without a message".into(),
+    if !message.stopped && message.stop_reason.is_none() {
+        let received: String = message
+            .blocks
+            .iter()
+            .filter(|(kind, _)| kind == "text")
+            .map(|(_, text)| text.as_str())
+            .collect();
+        return Err(incomplete_stream(
+            label,
+            "no message_stop or stop_reason",
+            &received,
         ));
     }
     Ok(message)
 }
 
-fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError> {
+fn accumulate(message: &mut Message, event: &Value) -> Result<ControlFlow<()>, TranslateError> {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
     let text_of = |block: &Value| {
         let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
@@ -357,6 +374,10 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError
                 "Unexpected event order, got {kind} before \"message_start\""
             )));
         }
+        "message_stop" => {
+            message.stopped = true;
+            return Ok(ControlFlow::Break(()));
+        }
         "content_block_start" => message.blocks.push(text_of(&event["content_block"])),
         "content_block_delta" if event["delta"]["type"] == "text_delta" => {
             let index = event["index"].as_u64().unwrap_or(u64::MAX) as usize;
@@ -387,7 +408,7 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError
         }
         _ => {}
     }
-    Ok(())
+    Ok(ControlFlow::Continue(()))
 }
 
 #[cfg(test)]
@@ -428,6 +449,7 @@ mod tests {
             &[("retry-after", "-1")],
             &[("retry-after", "soon")],
             &[("retry-after", "61")],
+            &[("retry-after", "1e20")],
             &[("retry-after-ms", "99999999")],
             &[("retry-after-ms", "0"), ("retry-after", "5")],
         ] {
@@ -438,7 +460,7 @@ mod tests {
     #[test]
     fn retry_after_accepts_an_http_date() {
         let date = (chrono::Utc::now() + chrono::Duration::seconds(30)).to_rfc2822();
-        let seconds = retry_after(&headers(&[("retry-after", &date)])).unwrap();
+        let seconds = retry_delay(0, &headers(&[("retry-after", &date)]), 0.0).as_secs_f64();
         assert!((28.0..=30.0).contains(&seconds), "{seconds}");
         let past = "Sun, 06 Nov 1994 08:49:37 GMT";
         assert_eq!(

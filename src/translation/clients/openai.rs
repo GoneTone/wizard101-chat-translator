@@ -3,16 +3,18 @@
 use std::collections::BTreeSet;
 use std::ops::ControlFlow;
 use std::sync::Mutex;
+use std::time::Duration;
 
-use reqwest::header::{AUTHORIZATION, HeaderMap};
+use reqwest::RequestBuilder;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error,
-    connection_error, count_of, finish_text, http_client, parse_object, response_failure,
-    secret_header, truncated,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked,
+    cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -44,30 +46,28 @@ struct Learned {
 /// 只帶官方認得的停用思考參數；自架後端維持 `max_tokens` 與 `temperature=0`。
 pub struct OpenAiCompatClient {
     http: reqwest::Client,
+    auth: Option<HeaderValue>,
     base_url: String,
     model: String,
     thinking: bool,
     official: bool,
     learned: Mutex<Learned>,
+    request_timeout: Duration,
 }
 
 impl OpenAiCompatClient {
     /// 建立 client；`api_key` 為空時不帶 Authorization。
     pub fn new(base_url: &str, api_key: &str, model: &str, thinking: bool, official: bool) -> Self {
-        let mut headers = HeaderMap::new();
-        if !api_key.is_empty() {
-            match secret_header(&format!("Bearer {api_key}")) {
-                Some(value) => {
-                    headers.insert(AUTHORIZATION, value);
-                }
-                None => log(
-                    "[translate] api key has characters invalid in an HTTP header; \
-                     sending without Authorization",
-                ),
-            }
+        let auth = secret_header(&format!("Bearer {api_key}")).filter(|_| !api_key.is_empty());
+        if auth.is_none() && !api_key.is_empty() {
+            log(
+                "[translate] api key has characters invalid in an HTTP header; \
+                 sending without Authorization",
+            );
         }
         Self {
-            http: http_client(headers, base_url),
+            http: http_client(HeaderMap::new(), base_url, TIMEOUT),
+            auth,
             base_url: base_url.trim_end_matches('/').to_owned(),
             model: model.to_owned(),
             thinking,
@@ -81,6 +81,22 @@ impl OpenAiCompatClient {
                 dropped: BTreeSet::new(),
                 rejected_token_params: BTreeSet::new(),
             }),
+            request_timeout: REQUEST_TIMEOUT,
+        }
+    }
+
+    /// 測試用：縮短讀取逾時與聊天請求的總期限。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
+        self.http = http_client(HeaderMap::new(), &self.base_url, read);
+        self.request_timeout = total;
+        self
+    }
+
+    fn authorized(&self, request: RequestBuilder) -> RequestBuilder {
+        match &self.auth {
+            Some(auth) => request.header(AUTHORIZATION, auth.clone()),
+            None => request,
         }
     }
 
@@ -193,31 +209,41 @@ impl OpenAiCompatClient {
                 self.model
             ));
         }
-        // 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
-        if streamed.finish_reason.as_deref() == Some("length") {
-            return Err(truncated(
-                max_tokens,
-                usage.get("completion_tokens"),
-                &streamed.content,
-            ));
+        // 串流已確認收完（`[DONE]` 或 finish_reason），沒有 finish_reason 的後端照正常結束處理
+        match streamed.finish_reason.as_deref() {
+            Some("length") => {
+                return Err(truncated(
+                    max_tokens,
+                    usage.get("completion_tokens"),
+                    &streamed.content,
+                ));
+            }
+            Some(reason @ "content_filter") => return Err(blocked(reason, &streamed.content)),
+            _ => {}
         }
         Ok(finish_text(&streamed.content))
     }
 
     async fn stream_once(&self, body: &Value) -> Result<Streamed, TranslateError> {
+        let label = format!("provider=openai-compatible model={}", self.model);
         let resp = self
-            .http
-            .post(format!("{}/v1/chat/completions", self.base_url))
+            .authorized(
+                self.http
+                    .post(format!("{}/v1/chat/completions", self.base_url)),
+            )
             .json(body)
+            .timeout(self.request_timeout)
             .send()
             .await
-            .map_err(connection_error)?;
+            .map_err(|error| request_error(&label, error))?;
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
         let mut out = Streamed::default();
-        for_each_data(resp, |data| {
+        let mut done = false;
+        for_each_data(resp, &label, |data| {
             if data == "[DONE]" {
+                done = true;
                 return Ok(ControlFlow::Break(()));
             }
             let chunk = parse_object(data, "stream chunk")?;
@@ -244,14 +270,21 @@ impl OpenAiCompatClient {
             Ok(ControlFlow::Continue(()))
         })
         .await?;
+        // 有些後端只送 `[DONE]`、有些只給 finish_reason，任一個就算完整
+        if !done && out.finish_reason.is_none() {
+            return Err(incomplete_stream(
+                &label,
+                "no [DONE] or finish_reason",
+                &out.content,
+            ));
+        }
         Ok(out)
     }
 
     /// 取 `/v1/models` 的模型 ID（排序後）；404／405 或缺 `data` 陣列回 `NoModelList`。
     pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
         let resp = self
-            .http
-            .get(format!("{}/v1/models", self.base_url))
+            .authorized(self.http.get(format!("{}/v1/models", self.base_url)))
             .send()
             .await
             .map_err(connection_error)?;

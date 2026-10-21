@@ -25,6 +25,15 @@ pub enum CardLayout {
 const ICON_SIZE: f32 = 32.0;
 const GRID_GAP: f32 = 12.0;
 const GRID_MIN_HEIGHT: f32 = 150.0;
+// 清單卡片：左右內距、上下內距、圖示與文字與箭頭之間的間距、箭頭字級（也是它佔的寬）、標題與說明的間距
+const LIST_PAD_X: f32 = 14.0;
+const LIST_PAD_Y: f32 = 12.0;
+const LIST_GAP: f32 = 14.0;
+const ARROW_SIZE: f32 = 12.0;
+const LIST_TEXT_GAP: f32 = 2.0;
+// 格狀卡片：四周內距、圖示與標題與說明之間的間距
+const GRID_PAD: f32 = 16.0;
+const GRID_TEXT_GAP: f32 = 8.0;
 
 /// 每家服務商一張卡片；回傳這一幀被點下（或以 Enter／Space 觸發）的服務商鍵名。
 pub fn provider_cards(ui: &mut Ui, layout: CardLayout) -> Option<&'static str> {
@@ -80,12 +89,12 @@ impl CardText {
     fn new(ui: &Ui, provider: &Provider, layout: CardLayout, width: f32) -> Self {
         let text_width = match layout {
             // 左右內距、圖示、兩道間距與右側箭頭
-            CardLayout::List => width - 28.0 - ICON_SIZE - 2.0 * 14.0 - 12.0,
-            CardLayout::Grid => width - 32.0,
+            CardLayout::List => width - 2.0 * LIST_PAD_X - ICON_SIZE - 2.0 * LIST_GAP - ARROW_SIZE,
+            CardLayout::Grid => width - 2.0 * GRID_PAD,
         };
         let title_size = match layout {
-            CardLayout::List => 14.0,
-            CardLayout::Grid => 14.5,
+            CardLayout::List => theme::TEXT_SIZE,
+            CardLayout::Grid => theme::PROVIDER_TITLE_SIZE,
         };
         let painter = ui.painter();
         Self {
@@ -107,8 +116,10 @@ impl CardText {
     fn height(&self, layout: CardLayout) -> f32 {
         let (title, desc) = (self.title.size().y, self.desc.size().y);
         match layout {
-            CardLayout::List => (title + 2.0 + desc).max(ICON_SIZE) + 24.0,
-            CardLayout::Grid => ICON_SIZE + 8.0 + title + 8.0 + desc + 32.0,
+            CardLayout::List => (title + LIST_TEXT_GAP + desc).max(ICON_SIZE) + 2.0 * LIST_PAD_Y,
+            CardLayout::Grid => {
+                ICON_SIZE + GRID_TEXT_GAP + title + GRID_TEXT_GAP + desc + 2.0 * GRID_PAD
+            }
         }
     }
 }
@@ -121,8 +132,8 @@ fn provider_card(
     layout: CardLayout,
 ) -> Response {
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    let title = t(provider.label_key, &[]);
-    response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &title));
+    response
+        .widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), content.title.text()));
     let radius = match layout {
         CardLayout::List => theme::CARD_RADIUS,
         CardLayout::Grid => theme::DIALOG_RADIUS,
@@ -145,33 +156,44 @@ fn provider_card(
         match layout {
             CardLayout::List => {
                 let icon_rect = Rect::from_center_size(
-                    pos2(rect.left() + 14.0 + ICON_SIZE / 2.0, rect.center().y),
+                    pos2(rect.left() + LIST_PAD_X + ICON_SIZE / 2.0, rect.center().y),
                     Vec2::splat(ICON_SIZE),
                 );
                 paint_provider_icon(ui, provider.key, icon_rect);
-                let text_height = content.title.size().y + 2.0 + content.desc.size().y;
-                let left = icon_rect.right() + 14.0;
+                let text_height = content.title.size().y + LIST_TEXT_GAP + content.desc.size().y;
+                let left = icon_rect.right() + LIST_GAP;
                 let top = rect.center().y - text_height / 2.0;
-                let desc_top = top + content.title.size().y + 2.0;
+                let desc_top = top + content.title.size().y + LIST_TEXT_GAP;
                 painter.galley(pos2(left, top), content.title.clone(), theme::TEXT);
-                painter.galley(pos2(left, desc_top), content.desc.clone(), theme::TEXT);
+                painter.galley(
+                    pos2(left, desc_top),
+                    content.desc.clone(),
+                    theme::TEXT_SECONDARY,
+                );
                 painter.text(
-                    pos2(rect.right() - 14.0 - 6.0, rect.center().y),
+                    pos2(
+                        rect.right() - LIST_PAD_X - ARROW_SIZE / 2.0,
+                        rect.center().y,
+                    ),
                     Align2::CENTER_CENTER,
                     icon::NEXT,
-                    theme::icons(12.0),
+                    theme::icons(ARROW_SIZE),
                     theme::TEXT_SECONDARY,
                 );
             }
             CardLayout::Grid => {
                 let icon_rect =
-                    Rect::from_min_size(rect.min + Vec2::splat(16.0), Vec2::splat(ICON_SIZE));
+                    Rect::from_min_size(rect.min + Vec2::splat(GRID_PAD), Vec2::splat(ICON_SIZE));
                 paint_provider_icon(ui, provider.key, icon_rect);
-                let title_top = icon_rect.bottom() + 8.0;
-                let desc_top = title_top + content.title.size().y + 8.0;
-                let left = rect.left() + 16.0;
+                let title_top = icon_rect.bottom() + GRID_TEXT_GAP;
+                let desc_top = title_top + content.title.size().y + GRID_TEXT_GAP;
+                let left = rect.left() + GRID_PAD;
                 painter.galley(pos2(left, title_top), content.title.clone(), theme::TEXT);
-                painter.galley(pos2(left, desc_top), content.desc.clone(), theme::TEXT);
+                painter.galley(
+                    pos2(left, desc_top),
+                    content.desc.clone(),
+                    theme::TEXT_SECONDARY,
+                );
             }
         }
     }

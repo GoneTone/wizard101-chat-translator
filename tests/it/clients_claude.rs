@@ -13,7 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING,
+    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT,
 };
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 
@@ -29,8 +29,8 @@ fn events(list: &[Value]) -> String {
         .collect()
 }
 
-/// 一則完整的 Messages 串流：`blocks` 為 (type, text)，text 依 delta 分兩段送。
-fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplate {
+/// 一則完整的 Messages 串流本文：`blocks` 為 (type, text)，text 依 delta 分兩段送。
+fn message_events(blocks: &[(&str, &str)], stop_reason: &str) -> String {
     let mut list = vec![
         json!({"type": "message_start", "message": {"id": "msg", "type": "message",
             "role": "assistant", "model": "claude-x", "content": [], "stop_reason": null,
@@ -56,7 +56,12 @@ fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplat
         "delta": {"stop_reason": stop_reason, "stop_sequence": null},
         "usage": {"output_tokens": 9}}));
     list.push(json!({"type": "message_stop"}));
-    ResponseTemplate::new(200).set_body_raw(events(&list), "text/event-stream")
+    events(&list)
+}
+
+fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200)
+        .set_body_raw(message_events(blocks, stop_reason), "text/event-stream")
 }
 
 fn translation(text: &str) -> String {
@@ -220,7 +225,8 @@ async fn claude_retries_429_twice_then_offline() {
         result,
         Err(TranslateError::Offline {
             status: Some(429),
-            detail: "slow down".into()
+            detail: "slow down".into(),
+            retry_after: Some(Duration::from_millis(200)),
         })
     );
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
@@ -318,7 +324,7 @@ async fn claude_retries_connection_failures_then_offline() {
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
         "{error:?}"
     );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
@@ -330,7 +336,7 @@ async fn claude_list_models_connection_error_maps_to_offline() {
     let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
     let error = c.list_models().await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if detail.contains("error sending request")),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
         "{error:?}"
     );
     assert_eq!(accepted.load(Ordering::SeqCst), 3);
@@ -344,7 +350,7 @@ async fn claude_stream_dropped_mid_response_is_offline() {
     let c = ClaudeClient::new("k", "claude-x", "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty()),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
         "{error:?}"
     );
 }
@@ -443,7 +449,8 @@ async fn claude_html_error_page_is_stripped_to_text() {
         chat(&client(&server, "auto")).await,
         Err(TranslateError::Offline {
             status: Some(502),
-            detail: "502 Bad Gateway nginx".into()
+            detail: "502 Bad Gateway nginx".into(),
+            retry_after: Some(Duration::from_millis(1)),
         })
     );
 }
@@ -474,7 +481,8 @@ async fn claude_stream_error_events_map_by_type_to_offline() {
             chat_with_error_event(error_type, "try later").await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: "try later".into()
+                detail: "try later".into(),
+                retry_after: None,
             }),
             "{error_type}"
         );
@@ -594,6 +602,7 @@ async fn claude_models_status_mapping() {
             TranslateError::Offline {
                 status: Some(429),
                 detail: "nope".into(),
+                retry_after: Some(Duration::from_millis(1)),
             },
         ),
         (
@@ -601,6 +610,7 @@ async fn claude_models_status_mapping() {
             TranslateError::Offline {
                 status: Some(500),
                 detail: "nope".into(),
+                retry_after: Some(Duration::from_millis(1)),
             },
         ),
     ];
@@ -645,5 +655,129 @@ async fn cancel_mid_stream_returns_cancelled() {
     assert!(
         server.await.unwrap(),
         "server never saw the connection close"
+    );
+}
+
+#[tokio::test]
+async fn claude_stream_ended_without_message_stop_is_offline() {
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let block = json!({"type": "content_block_start", "index": 0,
+        "content_block": {"type": "text", "text": ""}});
+    let delta = json!({"type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "{\"translation\": \"半"}});
+    let url = stream_server::ended_stream(events(&[start, block, delta])).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_pings_during_a_long_hidden_thinking_phase_keep_the_stream_alive() {
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let thinking = json!({"type": "content_block_start", "index": 0,
+        "content_block": {"type": "thinking", "thinking": ""}});
+    let mut parts = vec![events(&[start, thinking])];
+    parts.extend(std::iter::repeat_n(events(&[json!({"type": "ping"})]), 15));
+    parts.push(events(&[
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "content_block_start", "index": 1,
+            "content_block": {"type": "text", "text": ""}}),
+        json!({"type": "content_block_delta", "index": 1,
+            "delta": {"type": "text_delta", "text": translation("[A] 完")}}),
+        json!({"type": "content_block_stop", "index": 1}),
+        json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 9}}),
+        json!({"type": "message_stop"}),
+    ]));
+    // 15 個 ping 間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
+    let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url)
+        .with_timeouts(Duration::from_secs(1), common::WAIT);
+    assert_eq!(chat(&c).await.unwrap(), "[A] 完");
+}
+
+#[tokio::test]
+async fn claude_pings_past_the_total_timeout_are_offline() {
+    capture_logs();
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let ping = events(&[json!({"type": "ping"})]);
+    let url =
+        stream_server::keep_alive_stream(events(&[start]), ping, Duration::from_millis(50)).await;
+    let c = ClaudeClient::new("k", "claude-total-timeout", "auto", &url)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains("[translate] request timed out: provider=claude model=claude-total-timeout"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn claude_stop_reason_without_message_stop_is_complete() {
+    let mut body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
+    let stop = events(&[json!({"type": "message_stop"})]);
+    body.truncate(body.len() - stop.len());
+    let url = stream_server::ended_stream(body).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    assert_eq!(chat(&c).await.unwrap(), "[A] 完");
+}
+
+#[tokio::test]
+async fn claude_stream_cut_between_event_and_data_is_offline() {
+    let url = stream_server::ended_stream("event: message_start\n".into()).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, .. }),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_refusal_is_blocked_bad_output() {
+    let server = MockServer::start().await;
+    mount_messages(&server, message_stream(&[("text", "")], "refusal")).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::BadOutput(m)) if m.contains("blocked") && m.contains("refusal")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_stops_reading_at_message_stop() {
+    let body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
+    // 伺服器送完整則訊息後停住不收尾：沒有主動停止讀取就會卡到逾時
+    let (url, server) = stream_server::stalled_stream(body, CancellationToken::new()).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("client kept reading after message_stop");
+    assert_eq!(result.unwrap(), "[A] 完");
+    assert!(
+        server.await.unwrap(),
+        "server never saw the connection close"
+    );
+}
+
+#[tokio::test]
+async fn claude_ok_status_with_a_json_error_body_reports_its_message() {
+    let server = MockServer::start().await;
+    let body = json!({"error": {"message": "insufficient quota"}});
+    mount_messages(&server, ResponseTemplate::new(200).set_body_json(body)).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("insufficient quota")),
+        "{result:?}"
     );
 }

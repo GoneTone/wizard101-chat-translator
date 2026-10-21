@@ -3,6 +3,8 @@
 use crate::common;
 use crate::stream_server::{self, request};
 
+use std::time::Duration;
+
 use common::log_capture::{capture_logs, log_text};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -11,7 +13,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
+    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, TIMEOUT, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
@@ -286,9 +288,73 @@ async fn mid_stream_error_chunk_is_an_error_not_a_partial_translation() {
         error,
         TranslateError::Offline {
             status: Some(502),
-            detail: "Upstream failed".into()
+            detail: "Upstream failed".into(),
+            retry_after: None,
         }
     );
+}
+
+#[tokio::test]
+async fn mid_stream_error_without_a_numeric_code_is_classified_by_its_type() {
+    let cases = [
+        json!({"code": null, "type": "server_error", "message": "boom"}),
+        json!({"code": "server_error", "message": "boom"}),
+        json!({"code": "invalid_value", "type": "server_error", "message": "boom"}),
+        json!({"code": "500", "message": "boom"}),
+    ];
+    for error in cases {
+        let server = MockServer::start().await;
+        mount_chat(&server, stream_of(&[json!({"error": error.clone()})])).await;
+        let got = chat(&client(&server, true, false)).await.unwrap_err();
+        let want = TranslateError::Offline {
+            status: Some(500),
+            detail: "boom".into(),
+            retry_after: None,
+        };
+        assert_eq!(got, want, "{error}");
+    }
+}
+
+#[tokio::test]
+async fn mid_stream_business_codes_are_not_http_statuses() {
+    for error in [
+        json!({"code": "1301", "message": "content flagged"}),
+        json!({"code": 1301, "message": "content flagged"}),
+    ] {
+        let server = MockServer::start().await;
+        mount_chat(&server, stream_of(&[json!({"error": error.clone()})])).await;
+        let got = chat(&client(&server, true, false)).await.unwrap_err();
+        assert!(
+            matches!(got, TranslateError::Unexpected(_)),
+            "{error}: {got:?}"
+        );
+    }
+    let server = MockServer::start().await;
+    let error = json!({"code": 1301, "type": "rate_limit_error", "message": "slow"});
+    mount_chat(&server, stream_of(&[json!({"error": error})])).await;
+    let got = chat(&client(&server, true, false)).await.unwrap_err();
+    assert_eq!(got.status(), Some(429), "{got:?}");
+}
+
+#[tokio::test]
+async fn mid_stream_rate_limit_is_offline_429() {
+    let server = MockServer::start().await;
+    let error = json!({"code": "rate_limit_exceeded", "type": "requests", "message": "slow"});
+    mount_chat(&server, stream_of(&[json!({"error": error})])).await;
+    let got = chat(&client(&server, true, false)).await.unwrap_err();
+    assert_eq!(got.status(), Some(429), "{got:?}");
+    assert!(matches!(got, TranslateError::Offline { .. }), "{got:?}");
+}
+
+#[tokio::test]
+async fn unparsable_base_url_is_a_config_error_not_offline() {
+    let c = OpenAiCompatClient::new("localhost:1234", "sk-secret", "m", true, false);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Config { status: None, detail } if detail.contains("builder error")),
+        "{error:?}"
+    );
+    assert!(!error.to_string().contains("sk-secret"));
 }
 
 #[tokio::test]
@@ -324,7 +390,8 @@ async fn status_429_and_5xx_are_offline() {
             error,
             TranslateError::Offline {
                 status: Some(status),
-                detail: "busy".into()
+                detail: "busy".into(),
+                retry_after: None,
             }
         );
     }
@@ -353,7 +420,7 @@ async fn connection_failure_is_offline_without_status() {
     let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty())
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty())
     );
     assert!(!error.to_string().contains("sk-secret"));
 }
@@ -379,7 +446,7 @@ async fn stream_dropped_mid_response_is_offline() {
     let c = OpenAiCompatClient::new(&url, "", "m", true, false);
     let error = chat(&c).await.unwrap_err();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail } if !detail.is_empty()),
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
         "{error:?}"
     );
 }
@@ -554,7 +621,8 @@ async fn models_retryable_statuses_are_offline() {
             client(&server, true, false).list_models().await,
             Err(TranslateError::Offline {
                 status: Some(status),
-                detail: "busy".into()
+                detail: "busy".into(),
+                retry_after: None,
             })
         );
     }
@@ -599,5 +667,139 @@ async fn list_models_goes_through_the_built_client() {
     assert_eq!(
         list_models(&spec).await.unwrap(),
         vec!["a-model".to_string(), "b-model".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn content_filter_finish_is_bad_output_with_sample() {
+    let server = MockServer::start().await;
+    let filtered = json!({"choices": [{"delta": {}, "finish_reason": "content_filter"}]});
+    mount_chat(&server, stream_of(&[delta("半句"), filtered])).await;
+    let result = chat(&client(&server, true, false)).await;
+    let Err(TranslateError::BadOutput(message)) = result else {
+        panic!("{result:?}");
+    };
+    assert!(
+        message.contains("finish_reason=content_filter"),
+        "{message}"
+    );
+    assert!(message.contains("半句"), "{message}");
+}
+
+#[tokio::test]
+async fn finish_reason_without_done_is_complete() {
+    let chunk = json!({"choices": [{"delta": {"content": "譯文"}, "finish_reason": "stop"}]});
+    let url = stream_server::ended_stream(format!("data: {chunk}\n\n")).await;
+    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    assert_eq!(chat(&c).await.unwrap(), "譯文");
+}
+
+#[tokio::test]
+async fn stream_ended_without_done_or_finish_reason_is_offline() {
+    capture_logs();
+    let url = stream_server::ended_stream(format!("data: {}\n\n", delta("半句"))).await;
+    let c = OpenAiCompatClient::new(&url, "", "m-no-done", true, false);
+    let error = chat(&c).await.unwrap_err();
+    assert_eq!(
+        error,
+        TranslateError::offline("stream ended before completion"),
+        "介面顯示的說明不帶服務商、模型等內部資訊"
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] stream ended before completion (no [DONE] or finish_reason): \
+             provider=openai-compatible model=m-no-done received_chars=2"
+        ),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn last_line_cut_off_mid_chunk_is_offline() {
+    capture_logs();
+    let body = format!("data: {}\n\ndata: {{\"choices\": [{{\"del", delta("半句"));
+    let url = stream_server::ended_stream(body).await;
+    let c = OpenAiCompatClient::new(&url, "", "m-mid-line", true, false);
+    let error = chat(&c).await.unwrap_err();
+    assert_eq!(
+        error,
+        TranslateError::offline("stream ended before completion")
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] stream ended mid-line: provider=openai-compatible model=m-mid-line"
+        ),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn processing_comments_longer_than_the_read_timeout_keep_the_stream_alive() {
+    let mut parts = vec![": PROCESSING\n\n".to_owned(); 15];
+    parts.push(sse(&[delta("譯文")]));
+    // 15 段註解間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
+    let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
+    let c = OpenAiCompatClient::new(&url, "", "m", true, false)
+        .with_timeouts(Duration::from_secs(1), common::WAIT);
+    assert_eq!(chat(&c).await.unwrap(), "譯文");
+}
+
+#[tokio::test]
+async fn processing_comments_past_the_total_timeout_are_offline() {
+    capture_logs();
+    let comment = ": OPENROUTER PROCESSING\n\n".to_owned();
+    let url =
+        stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
+    let c = OpenAiCompatClient::new(&url, "", "m-total-mid-body", true, false)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] request timed out: provider=openai-compatible model=m-total-mid-body"
+        ),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn total_timeout_before_the_response_headers_is_offline() {
+    capture_logs();
+    let url = stream_server::silent_server().await;
+    let c = OpenAiCompatClient::new(&url, "", "m-total-headers", true, false)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] request timed out: provider=openai-compatible model=m-total-headers"
+        ),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn ok_status_with_a_json_error_body_reports_its_message() {
+    let server = MockServer::start().await;
+    let body = json!({"error": {"message": "insufficient quota"}});
+    mount_chat(&server, ResponseTemplate::new(200).set_body_json(body)).await;
+    let result = chat(&client(&server, true, false)).await;
+    assert!(
+        matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("insufficient quota")),
+        "{result:?}"
     );
 }

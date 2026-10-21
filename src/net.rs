@@ -11,7 +11,7 @@ pub fn install_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-/// 連往本機（`localhost`、`127.0.0.0/8`、`::1`）時不用環境變數設定的 proxy：本機的 LLM 伺服器繞去 proxy 只會連不到。
+/// 連往本機（`localhost`、`127.0.0.0/8`、`::1`）時不走任何 proxy（環境變數或系統設定）：本機的 LLM 伺服器繞去 proxy 只會連不到。
 pub fn bypass_proxy_for_loopback(
     builder: reqwest::ClientBuilder,
     url: &str,
@@ -19,14 +19,9 @@ pub fn bypass_proxy_for_loopback(
     if !is_loopback(url) {
         return builder;
     }
-    let proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
-    if proxy_vars.iter().any(|name| {
-        std::env::var_os(name).is_some() || std::env::var_os(name.to_lowercase()).is_some()
-    }) {
-        log(format!(
-            "[translate] {url} is a loopback address; not using the proxy from the environment"
-        ));
-    }
+    log(format!(
+        "[net] {url} is a loopback address; not using a proxy"
+    ));
     builder.no_proxy()
 }
 
