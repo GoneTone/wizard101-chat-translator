@@ -5,11 +5,11 @@
 use std::fmt;
 use std::time::Duration;
 
-use super::memory::{MemError, ProcessMemory};
-use super::pattern::{self, ScanError};
+use crate::game::memory::{MemError, ProcessMemory};
+use crate::game::pattern::{self, ScanError};
 
 /// 所有 hook 掃描的模組。
-pub const MODULE: &str = super::process::PROCESS_NAME;
+pub const MODULE: &str = crate::game::process::PROCESS_NAME;
 
 /// autobot 函式的 pattern（wizwalker `HookHandler.AUTOBOT_PATTERN` 原文）；原文長度即要保存的位元組數。
 pub const AUTOBOT_PATTERN: &str = concat!(

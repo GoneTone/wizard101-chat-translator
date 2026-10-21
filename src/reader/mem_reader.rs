@@ -11,23 +11,23 @@ use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
 
-use super::chat_hook::{
-    AddLineHook, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts, pending_broadcast,
-    read_ring,
-};
 use super::chat_tabs::{
     CHATBOX_WINDOW, MAX_BROADCAST_RECORDS, TabState, find_tab_buttons, read_current_tab,
     read_tab_state,
 };
-use super::hook_state;
-use super::hooks::{AutobotCave, HookError, MODULE, RootWindowHook};
+use super::hook::add_line::{
+    AddLineHook, HEADER, HookRecord, SLOT_SIZE, SLOTS, group_broadcasts, pending_broadcast,
+    read_ring,
+};
+use super::hook::cave::{AutobotCave, HookError, MODULE, RootWindowHook};
+use super::hook::state as hook_state;
 use super::markup::{ChatLine, forget_warned_icons, parse_line};
-use super::memory::{MemError, ProcessMemory};
-use super::pattern::ScanError;
-use super::process;
 use super::ui_rect::client_rect;
 use super::ui_tree::{FLAG_VISIBLE, Window, find_by_name};
 use crate::config::local_state_dir;
+use crate::game::memory::{MemError, ProcessMemory};
+use crate::game::pattern::ScanError;
+use crate::game::process;
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::util::{Clock, poll_until};
@@ -745,7 +745,7 @@ impl WizChatReader {
                 if remember(&mut self.last_attach_failure, &format!("addline: {err}")) {
                     log(format!(
                         "[reader] AddLine hook install failed (slot={slot}, pid={pid}): {err}; \
-                         a pattern failure here needs chat_hook::PATTERN updated in a new release"
+                         a pattern failure here needs hook::add_line::PATTERN updated in a new release"
                     ));
                 }
                 return Err(err);

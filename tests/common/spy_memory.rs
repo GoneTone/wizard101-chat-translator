@@ -6,7 +6,7 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemError, ProcessMemory, Region};
+use wizard101_chat_translator::game::memory::{FakeMemory, MemError, ProcessMemory, Region};
 use wizard101_chat_translator::util;
 
 /// 讀取之後呼叫：參數是剛讀的位址、長度與底下的記憶體（模擬遊戲執行緒的覆寫）。

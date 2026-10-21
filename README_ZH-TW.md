@@ -144,7 +144,7 @@ Wizard101 對話翻譯助手 —— Wizard101 的聊天對話 AI 翻譯軟體，
 2. `cargo run` —— 第一次執行會跑首次設定精靈（選服務商、填金鑰或自架伺服器網址、測試連線），設定寫進專案根目錄的 `config.json`（不進版控）。
 3. 操作方式與[使用方式](#使用方式)一節相同；出現橫幅時見[疑難排解](#疑難排解)。
 
-> 遊戲改版導致掛入報 `PatternFailed` 時，要更新原始碼裡的記憶體 pattern（聊天 hook 與輸入框 hook 各有一組，位於 `src/reader/`）。
+> 遊戲改版導致掛入報 `PatternFailed` 時，要更新原始碼裡的記憶體 pattern（聊天 hook 與輸入框 hook 各有一組，位於 `src/reader/hook/`）。
 
 ### 檢查
 

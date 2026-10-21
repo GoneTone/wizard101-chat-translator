@@ -23,8 +23,8 @@ use windows_sys::Win32::Graphics::Gdi::{
     SRCCOPY, SelectObject,
 };
 
+use crate::game::process::{client_size, client_to_screen, is_minimized};
 use crate::logs::log;
-use crate::reader::process::{client_size, client_to_screen, is_minimized};
 use crate::ui::geometry::Rect;
 
 /// 等 WGC 第一張影格的上限。

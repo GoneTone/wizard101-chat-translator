@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use super::memory::{MemError, ProcessMemory};
+use crate::game::memory::{MemError, ProcessMemory};
 
 const CHILDREN_OFFSET: u64 = 0x70;
 const NAME_OFFSET: u64 = 0x50;
@@ -154,8 +154,8 @@ fn descend(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::memory::FakeMemory;
     use crate::reader::chat_tabs::{read_current_tab, read_tab_state};
-    use crate::reader::memory::FakeMemory;
 
     fn put_name(mem: &FakeMemory, win: u64, name: &str) {
         let mut head = [0u8; 0x20];

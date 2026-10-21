@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use super::memory::{MemError, ProcessMemory, decode_utf16le};
 use super::ui_tree::{FLAG_VISIBLE, Window, find_by_name};
+use crate::game::memory::{MemError, ProcessMemory, decode_utf16le};
 
 /// 聊天框控件的名稱。
 pub const CHATBOX_WINDOW: &str = "WizardChatBox";
@@ -153,7 +153,7 @@ pub fn read_tab_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reader::memory::FakeMemory;
+    use crate::game::memory::FakeMemory;
 
     fn put_label(mem: &FakeMemory, at: u64, text: &str, capacity: u64, size: Option<u64>) {
         let data: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();

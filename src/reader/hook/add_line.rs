@@ -2,9 +2,9 @@
 //!
 //! stub 在遊戲執行緒上執行，位元組與 Python 版 `chat_hook.stub_bytes` 逐一相同。
 
-use super::chat_tabs::MAX_BROADCAST_RECORDS;
-use super::hooks::{AutobotCave, HookError, SimpleHook};
-use super::memory::{MemError, ProcessMemory, decode_utf16le};
+use super::cave::{AutobotCave, HookError, SimpleHook};
+use crate::game::memory::{MemError, ProcessMemory, decode_utf16le};
+use crate::reader::chat_tabs::MAX_BROADCAST_RECORDS;
 
 /// 環形緩衝的槽位數。
 pub const SLOTS: u64 = 256;

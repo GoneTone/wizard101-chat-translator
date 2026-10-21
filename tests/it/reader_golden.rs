@@ -5,15 +5,15 @@ use crate::common;
 use common::fake_game::{put_button, put_children, put_name, put_slot};
 use common::spy_memory::SpyMemory;
 use serde_json::Value;
-use wizard101_chat_translator::reader::chat_hook::{
-    DATA_OFF, HookRecord, MAX_CHARS, SLOTS, decode_record, group_broadcasts, pending_broadcast,
-    read_ring,
-};
+use wizard101_chat_translator::game::memory::{FakeMemory, MemError};
 use wizard101_chat_translator::reader::chat_tabs::{
     CUR_TAB_OFFSET, TabError, find_tab_buttons, read_current_tab, read_tab_state, visible_label,
 };
+use wizard101_chat_translator::reader::hook::add_line::{
+    DATA_OFF, HookRecord, MAX_CHARS, SLOTS, decode_record, group_broadcasts, pending_broadcast,
+    read_ring,
+};
 use wizard101_chat_translator::reader::markup::parse_line;
-use wizard101_chat_translator::reader::memory::{FakeMemory, MemError};
 use wizard101_chat_translator::reader::ui_rect::client_rect;
 use wizard101_chat_translator::reader::ui_tree::{Window, find_by_name};
 use wizard101_chat_translator::util;

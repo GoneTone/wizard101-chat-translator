@@ -9,12 +9,12 @@ use std::time::Duration;
 use regex::Regex;
 
 use crate::config::py::py_bool;
+use crate::game::process::{foreground_window, window_exists};
 use crate::input::dispatcher::{Pressed, is_pressed};
 use crate::input::hotkeys::HotkeyInterceptor;
 use crate::input::inject::{Injector, SendInputInjector};
 use crate::input::keys::{Code, key_codes_or_empty};
 use crate::logs::log;
-use crate::reader::process::{foreground_window, window_exists};
 use crate::ui::{clipboard, win32};
 use crate::util::{Clock, lock, poll_until};
 

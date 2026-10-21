@@ -36,8 +36,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 use windows_sys::core::PCWSTR;
 
+pub use crate::game::process::foreground_window;
 use crate::logs::log;
-pub use crate::reader::process::foreground_window;
 use crate::ui::overlay::bubble::MinimizeGuard;
 use crate::ui::palette;
 

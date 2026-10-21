@@ -93,7 +93,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::reader::memory::{FakeMemory, Region};
+    use crate::game::memory::{FakeMemory, Region};
 
     const MODULE: &str = "WizardGraphicalClient.exe";
     const HIT: &[u8] = b"\x48\x8B\x01\x0A\xFF";
