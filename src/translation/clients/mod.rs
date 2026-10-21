@@ -165,14 +165,32 @@ pub(crate) fn stream_failure(code: Option<u16>, message: &str, raw: &Value) -> T
     }
 }
 
-/// 串流中途的 `{"error": …}` 塊：依其中的 code 分類。
+/// 錯誤類型名稱（Claude 的 `error.type`、OpenAI 的 `type`／字串 `code`）對應的 HTTP 狀態碼。
+pub(crate) fn error_type_status(kind: &str) -> Option<u16> {
+    match kind {
+        "rate_limit_error" | "rate_limit_exceeded" => Some(429),
+        "api_error" | "server_error" => Some(500),
+        "timeout_error" => Some(504),
+        "overloaded_error" => Some(529),
+        _ => None,
+    }
+}
+
+/// 串流中途的 `{"error": …}` 塊：`code` 是數字（或數字字串）就照它分類，否則以 `code`／`type` 的名稱對照狀態碼。
 pub(crate) fn chunk_error(error: &Value) -> TranslateError {
-    let code = error
-        .get("code")
-        .and_then(Value::as_u64)
+    let code = error.get("code");
+    let numeric = code
+        .and_then(|c| c.as_u64().or_else(|| c.as_str()?.parse().ok()))
         .and_then(|c| u16::try_from(c).ok());
+    let named = || {
+        [code, error.get("type")]
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .find_map(error_type_status)
+    };
     let message = error.get("message").and_then(Value::as_str).unwrap_or("");
-    stream_failure(code, message, error)
+    stream_failure(numeric.or_else(named), message, error)
 }
 
 /// 組出帶診斷資訊的截斷錯誤：token 數與樣本讓使用者從 app.log 分辨 repetition loop 與上限誤砍。
@@ -231,8 +249,14 @@ pub(crate) fn count_of(value: Option<&Value>) -> String {
         .map_or("unknown".to_owned(), Value::to_string)
 }
 
-/// 連線層失敗一律視為離線；去掉 URL 與金鑰可能出現的位置，只留原因鏈。
+/// 連線層失敗視為離線；網址組不出請求（builder 錯誤）是設定錯誤。去掉 URL 與金鑰可能出現的位置，只留原因鏈。
 pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
+    if error.is_builder() {
+        return TranslateError::Config {
+            status: None,
+            detail: error_chain(error),
+        };
+    }
     TranslateError::offline(error_chain(error))
 }
 

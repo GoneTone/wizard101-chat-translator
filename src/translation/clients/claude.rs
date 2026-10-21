@@ -9,9 +9,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, finish_text,
-    http_client, parse_object, response_failure, sample_of, secret_header, stream_failure,
-    truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, cancellable, connection_error, count_of, error_type_status,
+    finish_text, http_client, parse_object, response_failure, sample_of, secret_header,
+    stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -298,13 +298,7 @@ fn random_unit() -> f64 {
 /// 串流中途的 `error` 事件：依 `error.type` 對應 HTTP 狀態碼分類，其餘類型為未分類的例外。
 fn stream_error(event: &Value) -> TranslateError {
     let error = &event["error"];
-    let status = match error["type"].as_str() {
-        Some("rate_limit_error") => Some(429),
-        Some("api_error") => Some(500),
-        Some("timeout_error") => Some(504),
-        Some("overloaded_error") => Some(529),
-        _ => None,
-    };
+    let status = error["type"].as_str().and_then(error_type_status);
     stream_failure(status, error["message"].as_str().unwrap_or(""), event)
 }
 

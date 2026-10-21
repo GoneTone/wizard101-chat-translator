@@ -292,6 +292,47 @@ async fn mid_stream_error_chunk_is_an_error_not_a_partial_translation() {
 }
 
 #[tokio::test]
+async fn mid_stream_error_without_a_numeric_code_is_classified_by_its_type() {
+    let cases = [
+        json!({"code": null, "type": "server_error", "message": "boom"}),
+        json!({"code": "server_error", "message": "boom"}),
+        json!({"code": "invalid_value", "type": "server_error", "message": "boom"}),
+        json!({"code": "500", "message": "boom"}),
+    ];
+    for error in cases {
+        let server = MockServer::start().await;
+        mount_chat(&server, stream_of(&[json!({"error": error.clone()})])).await;
+        let got = chat(&client(&server, true, false)).await.unwrap_err();
+        let want = TranslateError::Offline {
+            status: Some(500),
+            detail: "boom".into(),
+        };
+        assert_eq!(got, want, "{error}");
+    }
+}
+
+#[tokio::test]
+async fn mid_stream_rate_limit_is_offline_429() {
+    let server = MockServer::start().await;
+    let error = json!({"code": "rate_limit_exceeded", "type": "requests", "message": "slow"});
+    mount_chat(&server, stream_of(&[json!({"error": error})])).await;
+    let got = chat(&client(&server, true, false)).await.unwrap_err();
+    assert_eq!(got.status(), Some(429), "{got:?}");
+    assert!(matches!(got, TranslateError::Offline { .. }), "{got:?}");
+}
+
+#[tokio::test]
+async fn unparsable_base_url_is_a_config_error_not_offline() {
+    let c = OpenAiCompatClient::new("localhost:1234", "sk-secret", "m", true, false);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Config { status: None, detail } if detail.contains("builder error")),
+        "{error:?}"
+    );
+    assert!(!error.to_string().contains("sk-secret"));
+}
+
+#[tokio::test]
 async fn null_error_field_in_chunks_is_ignored() {
     let server = MockServer::start().await;
     let chunk = json!({"error": null, "choices": [{"delta": {"content": "譯文"}}]});
