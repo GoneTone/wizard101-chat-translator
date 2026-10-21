@@ -10,13 +10,13 @@ use crate::translation::errors::TranslateError;
 
 /// 把任意切分的位元組塊重組成行（以 `\n` 為界，去掉行尾 `\r`）。
 #[derive(Default)]
-pub struct LineBuffer {
+struct LineBuffer {
     pending: Vec<u8>,
 }
 
 impl LineBuffer {
     /// 餵入一塊位元組，回傳其中已完整的行。
-    pub fn push(&mut self, chunk: &[u8]) -> Vec<String> {
+    fn push(&mut self, chunk: &[u8]) -> Vec<String> {
         self.pending.extend_from_slice(chunk);
         let mut lines = Vec::new();
         while let Some(end) = self.pending.iter().position(|&b| b == b'\n') {
@@ -27,7 +27,7 @@ impl LineBuffer {
     }
 
     /// 串流結束時取出沒有換行收尾的最後一行。
-    pub fn finish(&mut self) -> Option<String> {
+    fn finish(&mut self) -> Option<String> {
         (!self.pending.is_empty()).then(|| decode(&std::mem::take(&mut self.pending)))
     }
 }
@@ -38,13 +38,13 @@ fn decode(line: &[u8]) -> String {
 }
 
 /// `data:` 行的內容（去前後空白）；其他行（註解、`event:`、空行）回 `None`。
-pub fn data_of(line: &str) -> Option<&str> {
+fn data_of(line: &str) -> Option<&str> {
     line.strip_prefix("data:").map(pystr::strip)
 }
 
 /// 逐筆把回應的 `data:` 內容交給 `on_data`；它回 `Break` 或串流結束即停止。
 /// 讀取中途斷線以 [`TranslateError::Offline`] 回報。
-pub async fn for_each_data(
+pub(super) async fn for_each_data(
     resp: reqwest::Response,
     mut on_data: impl FnMut(&str) -> Result<ControlFlow<()>, TranslateError>,
 ) -> Result<(), TranslateError> {

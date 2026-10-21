@@ -3,7 +3,7 @@
 mod claude;
 mod gemini;
 mod openai;
-pub mod sse;
+mod sse;
 
 use std::time::Duration;
 
