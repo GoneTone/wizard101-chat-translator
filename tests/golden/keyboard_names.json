@@ -1,0 +1,8386 @@
+[
+ {
+  "input": "\u0003",
+  "output": [
+   57414
+  ]
+ },
+ {
+  "input": "!",
+  "output": [
+   2
+  ]
+ },
+ {
+  "input": "\"",
+  "output": [
+   40
+  ]
+ },
+ {
+  "input": "#",
+  "output": [
+   4
+  ]
+ },
+ {
+  "input": "$",
+  "output": [
+   5
+  ]
+ },
+ {
+  "input": "%",
+  "output": [
+   6
+  ]
+ },
+ {
+  "input": "&",
+  "output": [
+   8
+  ]
+ },
+ {
+  "input": "'",
+  "output": [
+   40
+  ]
+ },
+ {
+  "input": "(",
+  "output": [
+   10
+  ]
+ },
+ {
+  "input": ")",
+  "output": [
+   11
+  ]
+ },
+ {
+  "input": "*",
+  "output": [
+   55,
+   9
+  ]
+ },
+ {
+  "input": "+",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": ",",
+  "output": [
+   51
+  ]
+ },
+ {
+  "input": "-",
+  "output": [
+   74,
+   12
+  ]
+ },
+ {
+  "input": ".",
+  "output": [
+   52,
+   83
+  ]
+ },
+ {
+  "input": "/",
+  "output": [
+   57397,
+   53
+  ]
+ },
+ {
+  "input": "0",
+  "output": [
+   11,
+   82
+  ]
+ },
+ {
+  "input": "1",
+  "output": [
+   2,
+   79
+  ]
+ },
+ {
+  "input": "2",
+  "output": [
+   3,
+   80
+  ]
+ },
+ {
+  "input": "3",
+  "output": [
+   4,
+   81
+  ]
+ },
+ {
+  "input": "4",
+  "output": [
+   5,
+   75
+  ]
+ },
+ {
+  "input": "5",
+  "output": [
+   6,
+   76
+  ]
+ },
+ {
+  "input": "6",
+  "output": [
+   7,
+   77
+  ]
+ },
+ {
+  "input": "7",
+  "output": [
+   8,
+   71
+  ]
+ },
+ {
+  "input": "8",
+  "output": [
+   9,
+   72
+  ]
+ },
+ {
+  "input": "9",
+  "output": [
+   10,
+   73
+  ]
+ },
+ {
+  "input": ":",
+  "output": [
+   39
+  ]
+ },
+ {
+  "input": ";",
+  "output": [
+   39
+  ]
+ },
+ {
+  "input": "<",
+  "output": [
+   51
+  ]
+ },
+ {
+  "input": "<00>",
+  "output": [
+   84
+  ]
+ },
+ {
+  "input": "=",
+  "output": [
+   13
+  ]
+ },
+ {
+  "input": ">",
+  "output": [
+   52
+  ]
+ },
+ {
+  "input": "?",
+  "output": [
+   53
+  ]
+ },
+ {
+  "input": "@",
+  "output": [
+   3
+  ]
+ },
+ {
+  "input": "A",
+  "output": [
+   30
+  ]
+ },
+ {
+  "input": "B",
+  "output": [
+   57392,
+   48
+  ]
+ },
+ {
+  "input": "C",
+  "output": [
+   57390,
+   46
+  ]
+ },
+ {
+  "input": "D",
+  "output": [
+   57376,
+   32
+  ]
+ },
+ {
+  "input": "E",
+  "output": [
+   18
+  ]
+ },
+ {
+  "input": "F",
+  "output": [
+   57377,
+   33
+  ]
+ },
+ {
+  "input": "G",
+  "output": [
+   57378,
+   34
+  ]
+ },
+ {
+  "input": "H",
+  "output": [
+   35
+  ]
+ },
+ {
+  "input": "I",
+  "output": [
+   23
+  ]
+ },
+ {
+  "input": "J",
+  "output": [
+   57380,
+   36
+  ]
+ },
+ {
+  "input": "K",
+  "output": [
+   37
+  ]
+ },
+ {
+  "input": "L",
+  "output": [
+   38
+  ]
+ },
+ {
+  "input": "M",
+  "output": [
+   57394,
+   50
+  ]
+ },
+ {
+  "input": "N",
+  "output": [
+   49
+  ]
+ },
+ {
+  "input": "O",
+  "output": [
+   24
+  ]
+ },
+ {
+  "input": "P",
+  "output": [
+   57369,
+   25
+  ]
+ },
+ {
+  "input": "Q",
+  "output": [
+   57360,
+   16
+  ]
+ },
+ {
+  "input": "R",
+  "output": [
+   19
+  ]
+ },
+ {
+  "input": "S",
+  "output": [
+   31
+  ]
+ },
+ {
+  "input": "T",
+  "output": [
+   20
+  ]
+ },
+ {
+  "input": "U",
+  "output": [
+   22
+  ]
+ },
+ {
+  "input": "V",
+  "output": [
+   47
+  ]
+ },
+ {
+  "input": "W",
+  "output": [
+   17
+  ]
+ },
+ {
+  "input": "X",
+  "output": [
+   45
+  ]
+ },
+ {
+  "input": "Y",
+  "output": [
+   21
+  ]
+ },
+ {
+  "input": "Z",
+  "output": [
+   44
+  ]
+ },
+ {
+  "input": "[",
+  "output": [
+   26
+  ]
+ },
+ {
+  "input": "\\",
+  "output": [
+   43,
+   86
+  ]
+ },
+ {
+  "input": "]",
+  "output": [
+   27
+  ]
+ },
+ {
+  "input": "^",
+  "output": [
+   7
+  ]
+ },
+ {
+  "input": "_",
+  "output": [
+   12
+  ]
+ },
+ {
+  "input": "`",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "a",
+  "output": [
+   30
+  ]
+ },
+ {
+  "input": "alt",
+  "output": [
+   56,
+   57400
+  ]
+ },
+ {
+  "input": "alt gr",
+  "output": [
+   541
+  ]
+ },
+ {
+  "input": "attn",
+  "output": [
+   -246
+  ]
+ },
+ {
+  "input": "b",
+  "output": [
+   48,
+   57392
+  ]
+ },
+ {
+  "input": "backspace",
+  "output": [
+   14
+  ]
+ },
+ {
+  "input": "break",
+  "output": [
+   57414,
+   70
+  ]
+ },
+ {
+  "input": "browser back",
+  "output": [
+   57450
+  ]
+ },
+ {
+  "input": "browser favorites",
+  "output": [
+   57446
+  ]
+ },
+ {
+  "input": "browser forward",
+  "output": [
+   57449
+  ]
+ },
+ {
+  "input": "browser refresh",
+  "output": [
+   57447
+  ]
+ },
+ {
+  "input": "browser search key",
+  "output": [
+   57445
+  ]
+ },
+ {
+  "input": "browser start and home",
+  "output": [
+   57394
+  ]
+ },
+ {
+  "input": "browser stop",
+  "output": [
+   57448
+  ]
+ },
+ {
+  "input": "c",
+  "output": [
+   46,
+   57390
+  ]
+ },
+ {
+  "input": "caps lock",
+  "output": [
+   58
+  ]
+ },
+ {
+  "input": "clear",
+  "output": [
+   76,
+   89,
+   -254
+  ]
+ },
+ {
+  "input": "control-break processing",
+  "output": [
+   57414
+  ]
+ },
+ {
+  "input": "crsel",
+  "output": [
+   -247
+  ]
+ },
+ {
+  "input": "ctrl",
+  "output": [
+   29,
+   57629,
+   57373
+  ]
+ },
+ {
+  "input": "d",
+  "output": [
+   32,
+   57376
+  ]
+ },
+ {
+  "input": "decimal",
+  "output": [
+   83
+  ]
+ },
+ {
+  "input": "delete",
+  "output": [
+   83
+  ]
+ },
+ {
+  "input": "down",
+  "output": [
+   80
+  ]
+ },
+ {
+  "input": "e",
+  "output": [
+   18
+  ]
+ },
+ {
+  "input": "end",
+  "output": [
+   79
+  ]
+ },
+ {
+  "input": "enter",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "erase eof",
+  "output": [
+   93
+  ]
+ },
+ {
+  "input": "esc",
+  "output": [
+   1
+  ]
+ },
+ {
+  "input": "execute",
+  "output": [
+   -43
+  ]
+ },
+ {
+  "input": "exsel",
+  "output": [
+   -248
+  ]
+ },
+ {
+  "input": "f",
+  "output": [
+   33,
+   57377
+  ]
+ },
+ {
+  "input": "f1",
+  "output": [
+   59
+  ]
+ },
+ {
+  "input": "f10",
+  "output": [
+   68
+  ]
+ },
+ {
+  "input": "f11",
+  "output": [
+   87
+  ]
+ },
+ {
+  "input": "f12",
+  "output": [
+   88
+  ]
+ },
+ {
+  "input": "f13",
+  "output": [
+   100,
+   124
+  ]
+ },
+ {
+  "input": "f14",
+  "output": [
+   125,
+   101
+  ]
+ },
+ {
+  "input": "f15",
+  "output": [
+   102,
+   126
+  ]
+ },
+ {
+  "input": "f16",
+  "output": [
+   127,
+   103
+  ]
+ },
+ {
+  "input": "f17",
+  "output": [
+   128,
+   104
+  ]
+ },
+ {
+  "input": "f18",
+  "output": [
+   129,
+   105
+  ]
+ },
+ {
+  "input": "f19",
+  "output": [
+   130,
+   106
+  ]
+ },
+ {
+  "input": "f2",
+  "output": [
+   60
+  ]
+ },
+ {
+  "input": "f20",
+  "output": [
+   131,
+   107
+  ]
+ },
+ {
+  "input": "f21",
+  "output": [
+   132,
+   108
+  ]
+ },
+ {
+  "input": "f22",
+  "output": [
+   133,
+   109
+  ]
+ },
+ {
+  "input": "f23",
+  "output": [
+   134,
+   110
+  ]
+ },
+ {
+  "input": "f24",
+  "output": [
+   135,
+   118
+  ]
+ },
+ {
+  "input": "f3",
+  "output": [
+   61
+  ]
+ },
+ {
+  "input": "f4",
+  "output": [
+   62
+  ]
+ },
+ {
+  "input": "f5",
+  "output": [
+   63
+  ]
+ },
+ {
+  "input": "f6",
+  "output": [
+   64
+  ]
+ },
+ {
+  "input": "f7",
+  "output": [
+   65
+  ]
+ },
+ {
+  "input": "f8",
+  "output": [
+   66
+  ]
+ },
+ {
+  "input": "f9",
+  "output": [
+   67
+  ]
+ },
+ {
+  "input": "g",
+  "output": [
+   34,
+   57378
+  ]
+ },
+ {
+  "input": "h",
+  "output": [
+   35
+  ]
+ },
+ {
+  "input": "help",
+  "output": [
+   99,
+   86
+  ]
+ },
+ {
+  "input": "home",
+  "output": [
+   71
+  ]
+ },
+ {
+  "input": "i",
+  "output": [
+   23
+  ]
+ },
+ {
+  "input": "ime accept",
+  "output": [
+   -30
+  ]
+ },
+ {
+  "input": "ime convert",
+  "output": [
+   -28
+  ]
+ },
+ {
+  "input": "ime final mode",
+  "output": [
+   -24
+  ]
+ },
+ {
+  "input": "ime hangul mode",
+  "output": [
+   -21
+  ]
+ },
+ {
+  "input": "ime junja mode",
+  "output": [
+   -23
+  ]
+ },
+ {
+  "input": "ime kanji mode",
+  "output": [
+   -25
+  ]
+ },
+ {
+  "input": "ime mode change request",
+  "output": [
+   -31
+  ]
+ },
+ {
+  "input": "ime nonconvert",
+  "output": [
+   -29
+  ]
+ },
+ {
+  "input": "ime process",
+  "output": [
+   -229
+  ]
+ },
+ {
+  "input": "insert",
+  "output": [
+   82
+  ]
+ },
+ {
+  "input": "j",
+  "output": [
+   36,
+   57380
+  ]
+ },
+ {
+  "input": "k",
+  "output": [
+   37
+  ]
+ },
+ {
+  "input": "l",
+  "output": [
+   38
+  ]
+ },
+ {
+  "input": "left",
+  "output": [
+   75
+  ]
+ },
+ {
+  "input": "left alt",
+  "output": [
+   56
+  ]
+ },
+ {
+  "input": "left ctrl",
+  "output": [
+   29
+  ]
+ },
+ {
+  "input": "left shift",
+  "output": [
+   42
+  ]
+ },
+ {
+  "input": "left windows",
+  "output": [
+   57435,
+   91
+  ]
+ },
+ {
+  "input": "m",
+  "output": [
+   50,
+   57394
+  ]
+ },
+ {
+  "input": "menu",
+  "output": [
+   57437,
+   93
+  ]
+ },
+ {
+  "input": "n",
+  "output": [
+   49
+  ]
+ },
+ {
+  "input": "next track",
+  "output": [
+   57369
+  ]
+ },
+ {
+  "input": "num *",
+  "output": [
+   55
+  ]
+ },
+ {
+  "input": "num +",
+  "output": [
+   78
+  ]
+ },
+ {
+  "input": "num -",
+  "output": [
+   74
+  ]
+ },
+ {
+  "input": "num /",
+  "output": [
+   57397,
+   53
+  ]
+ },
+ {
+  "input": "num del",
+  "output": [
+   83
+  ]
+ },
+ {
+  "input": "num lock",
+  "output": [
+   69
+  ]
+ },
+ {
+  "input": "o",
+  "output": [
+   24
+  ]
+ },
+ {
+  "input": "p",
+  "output": [
+   25,
+   57369
+  ]
+ },
+ {
+  "input": "pa1",
+  "output": [
+   -253
+  ]
+ },
+ {
+  "input": "page down",
+  "output": [
+   81
+  ]
+ },
+ {
+  "input": "page up",
+  "output": [
+   73
+  ]
+ },
+ {
+  "input": "pause",
+  "output": [
+   69,
+   57629
+  ]
+ },
+ {
+  "input": "play",
+  "output": [
+   -250
+  ]
+ },
+ {
+  "input": "play/pause media",
+  "output": [
+   57378
+  ]
+ },
+ {
+  "input": "previous track",
+  "output": [
+   57360
+  ]
+ },
+ {
+  "input": "print",
+  "output": [
+   -42
+  ]
+ },
+ {
+  "input": "print screen",
+  "output": [
+   84,
+   55
+  ]
+ },
+ {
+  "input": "q",
+  "output": [
+   16,
+   57360
+  ]
+ },
+ {
+  "input": "r",
+  "output": [
+   19
+  ]
+ },
+ {
+  "input": "reserved ",
+  "output": [
+   -252
+  ]
+ },
+ {
+  "input": "right",
+  "output": [
+   77
+  ]
+ },
+ {
+  "input": "right alt",
+  "output": [
+   56,
+   57400
+  ]
+ },
+ {
+  "input": "right ctrl",
+  "output": [
+   57629,
+   29,
+   57373
+  ]
+ },
+ {
+  "input": "right menu",
+  "output": [
+   57400
+  ]
+ },
+ {
+  "input": "right shift",
+  "output": [
+   54
+  ]
+ },
+ {
+  "input": "right windows",
+  "output": [
+   57436,
+   92
+  ]
+ },
+ {
+  "input": "s",
+  "output": [
+   31
+  ]
+ },
+ {
+  "input": "scroll lock",
+  "output": [
+   57414,
+   70
+  ]
+ },
+ {
+  "input": "select",
+  "output": [
+   -41
+  ]
+ },
+ {
+  "input": "select media",
+  "output": [
+   57453
+  ]
+ },
+ {
+  "input": "separator",
+  "output": [
+   -108
+  ]
+ },
+ {
+  "input": "shift",
+  "output": [
+   42,
+   54
+  ]
+ },
+ {
+  "input": "sleep",
+  "output": [
+   57439
+  ]
+ },
+ {
+  "input": "space",
+  "output": [
+   57
+  ]
+ },
+ {
+  "input": "start application 1",
+  "output": [
+   57451
+  ]
+ },
+ {
+  "input": "start application 2",
+  "output": [
+   57377
+  ]
+ },
+ {
+  "input": "start mail",
+  "output": [
+   57452
+  ]
+ },
+ {
+  "input": "stop media",
+  "output": [
+   57380
+  ]
+ },
+ {
+  "input": "sys req",
+  "output": [
+   84
+  ]
+ },
+ {
+  "input": "t",
+  "output": [
+   20
+  ]
+ },
+ {
+  "input": "tab",
+  "output": [
+   15,
+   124
+  ]
+ },
+ {
+  "input": "u",
+  "output": [
+   22
+  ]
+ },
+ {
+  "input": "up",
+  "output": [
+   72
+  ]
+ },
+ {
+  "input": "v",
+  "output": [
+   47
+  ]
+ },
+ {
+  "input": "volume down",
+  "output": [
+   57390
+  ]
+ },
+ {
+  "input": "volume mute",
+  "output": [
+   57376
+  ]
+ },
+ {
+  "input": "volume up",
+  "output": [
+   57392
+  ]
+ },
+ {
+  "input": "w",
+  "output": [
+   17
+  ]
+ },
+ {
+  "input": "x",
+  "output": [
+   45
+  ]
+ },
+ {
+  "input": "y",
+  "output": [
+   21
+  ]
+ },
+ {
+  "input": "z",
+  "output": [
+   44
+  ]
+ },
+ {
+  "input": "zoom",
+  "output": [
+   98
+  ]
+ },
+ {
+  "input": "{",
+  "output": [
+   26
+  ]
+ },
+ {
+  "input": "|",
+  "output": [
+   43,
+   86
+  ]
+ },
+ {
+  "input": "}",
+  "output": [
+   27
+  ]
+ },
+ {
+  "input": "~",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "escape",
+  "output": [
+   1
+  ]
+ },
+ {
+  "input": "return",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "del",
+  "output": [
+   83
+  ]
+ },
+ {
+  "input": "control",
+  "output": [
+   29,
+   57629,
+   57373
+  ]
+ },
+ {
+  "input": "left arrow",
+  "output": [
+   75
+  ]
+ },
+ {
+  "input": "up arrow",
+  "output": [
+   72
+  ]
+ },
+ {
+  "input": "down arrow",
+  "output": [
+   80
+  ]
+ },
+ {
+  "input": "right arrow",
+  "output": [
+   77
+  ]
+ },
+ {
+  "input": " ",
+  "output": [
+   57
+  ]
+ },
+ {
+  "input": "\u001b",
+  "output": [
+   1
+  ]
+ },
+ {
+  "input": "\b",
+  "output": [
+   14
+  ]
+ },
+ {
+  "input": "\n",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "\t",
+  "output": [
+   15,
+   124
+  ]
+ },
+ {
+  "input": "\r",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "scrlk",
+  "output": [
+   57414,
+   70
+  ]
+ },
+ {
+  "input": "prtscn",
+  "output": [
+   84,
+   55
+  ]
+ },
+ {
+  "input": "prnt scrn",
+  "output": [
+   84,
+   55
+  ]
+ },
+ {
+  "input": "snapshot",
+  "output": [
+   84,
+   55
+  ]
+ },
+ {
+  "input": "ins",
+  "output": [
+   82
+  ]
+ },
+ {
+  "input": "pause break",
+  "output": [
+   69,
+   57629
+  ]
+ },
+ {
+  "input": "ctrll lock",
+  "output": [
+   58
+  ]
+ },
+ {
+  "input": "capslock",
+  "output": [
+   58
+  ]
+ },
+ {
+  "input": "number lock",
+  "output": [
+   69
+  ]
+ },
+ {
+  "input": "numlock",
+  "output": [
+   69
+  ]
+ },
+ {
+  "input": "space bar",
+  "output": [
+   57
+  ]
+ },
+ {
+  "input": "spacebar",
+  "output": [
+   57
+  ]
+ },
+ {
+  "input": "linefeed",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "win",
+  "output": [
+   57435,
+   91,
+   57436,
+   92
+  ]
+ },
+ {
+  "input": "command",
+  "output": [
+   57435,
+   91,
+   57436,
+   92
+  ]
+ },
+ {
+  "input": "cmd",
+  "output": [
+   57435,
+   91,
+   57436,
+   92
+  ]
+ },
+ {
+  "input": "option",
+  "output": [
+   56,
+   57400
+  ]
+ },
+ {
+  "input": "app",
+  "output": [
+   57437,
+   93
+  ]
+ },
+ {
+  "input": "apps",
+  "output": [
+   57437,
+   93
+  ]
+ },
+ {
+  "input": "application",
+  "output": [
+   57437,
+   93
+  ]
+ },
+ {
+  "input": "applications",
+  "output": [
+   57437,
+   93
+  ]
+ },
+ {
+  "input": "pagedown",
+  "output": [
+   81
+  ]
+ },
+ {
+  "input": "pageup",
+  "output": [
+   73
+  ]
+ },
+ {
+  "input": "pgdown",
+  "output": [
+   81
+  ]
+ },
+ {
+  "input": "pgup",
+  "output": [
+   73
+  ]
+ },
+ {
+  "input": "play/pause",
+  "output": [
+   57378
+  ]
+ },
+ {
+  "input": "num multiply",
+  "output": [
+   55,
+   9
+  ]
+ },
+ {
+  "input": "num divide",
+  "output": [
+   57397,
+   53
+  ]
+ },
+ {
+  "input": "num add",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": "num plus",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": "num minus",
+  "output": [
+   74,
+   12
+  ]
+ },
+ {
+  "input": "num sub",
+  "output": [
+   74,
+   12
+  ]
+ },
+ {
+  "input": "num enter",
+  "output": [
+   28
+  ]
+ },
+ {
+  "input": "num 0",
+  "output": [
+   11,
+   82
+  ]
+ },
+ {
+  "input": "num 1",
+  "output": [
+   2,
+   79
+  ]
+ },
+ {
+  "input": "num 2",
+  "output": [
+   3,
+   80
+  ]
+ },
+ {
+  "input": "num 3",
+  "output": [
+   4,
+   81
+  ]
+ },
+ {
+  "input": "num 4",
+  "output": [
+   5,
+   75
+  ]
+ },
+ {
+  "input": "num 5",
+  "output": [
+   6,
+   76
+  ]
+ },
+ {
+  "input": "num 6",
+  "output": [
+   7,
+   77
+  ]
+ },
+ {
+  "input": "num 7",
+  "output": [
+   8,
+   71
+  ]
+ },
+ {
+  "input": "num 8",
+  "output": [
+   9,
+   72
+  ]
+ },
+ {
+  "input": "num 9",
+  "output": [
+   10,
+   73
+  ]
+ },
+ {
+  "input": "left win",
+  "output": [
+   57435,
+   91
+  ]
+ },
+ {
+  "input": "right win",
+  "output": [
+   57436,
+   92
+  ]
+ },
+ {
+  "input": "left control",
+  "output": [
+   29
+  ]
+ },
+ {
+  "input": "right control",
+  "output": [
+   57629,
+   29,
+   57373
+  ]
+ },
+ {
+  "input": "left menu",
+  "output": [
+   56
+  ]
+ },
+ {
+  "input": "altgr",
+  "output": [
+   541
+  ]
+ },
+ {
+  "input": "Aacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Aacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abovedot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abreveacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abreveacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abrevebelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abrevebelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abrevegrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abrevegrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abrevehook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abrevehook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Abrevetilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "abrevetilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "acutecomb",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Acutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "add",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": "Adiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "adiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Adieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "adieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Adieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ae",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "AE",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "AEacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aeacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "AEsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii00208",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10017",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10018",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10019",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10020",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10021",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10022",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10023",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10024",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10025",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10026",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10027",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10028",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10029",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10030",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10031",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10032",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10033",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10034",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10035",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10036",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10037",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10038",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10039",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10040",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10041",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10042",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10043",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10044",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10045",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10046",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10047",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10048",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10049",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10050",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10051",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10052",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10053",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10054",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10055",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10056",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10057",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10058",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10059",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10060",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10061",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10062",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10063",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10064",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10065",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10066",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10067",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10068",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10069",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10070",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10071",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10072",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10073",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10074",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10075",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10076",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10077",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10078",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10079",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10080",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10081",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10082",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10083",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10084",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10085",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10086",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10087",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10088",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10089",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10090",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10091",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10092",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10093",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10094",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10095",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10096",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10097",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10098",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10099",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10100",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10101",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10102",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10103",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10104",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10105",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10106",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10107",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10108",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10109",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10110",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10145",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10146",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10147",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10148",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10192",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10193",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10194",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10195",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10196",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10831",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10832",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii10846",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii299",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii300",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii301",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57381",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57388",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57392",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57393",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57394",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57395",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57396",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57397",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57398",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57399",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57400",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57401",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57403",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57407",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57409",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57410",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57411",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57412",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57413",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57414",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57415",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57416",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57417",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57418",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57419",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57420",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57421",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57422",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57423",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57424",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57425",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57426",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57427",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57428",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57429",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57430",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57431",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57432",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57433",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57434",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57440",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57441",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57442",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57443",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57444",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57445",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57446",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57448",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57449",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57450",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57451",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57452",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57453",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57454",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57455",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57456",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57457",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57458",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57470",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57505",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57506",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57507",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57508",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57509",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57511",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57512",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57513",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57514",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57519",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57534",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57636",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57645",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57658",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57664",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57665",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57666",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57667",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57668",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57669",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57670",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57671",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57672",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57673",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57674",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57675",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57676",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57677",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57678",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57679",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57680",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57681",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57682",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57683",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57684",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57685",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57686",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57687",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57688",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57689",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57690",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57694",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57695",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57700",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57705",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57716",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57717",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57718",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57723",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57793",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57794",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57795",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57796",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57797",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57798",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57799",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57800",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57801",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57802",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57803",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57804",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57806",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57807",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57839",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57841",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57842",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii57929",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61248",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61289",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61352",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61573",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61574",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61575",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii61664",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii63167",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "afii64937",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Agrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "agrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Agravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "agudo",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aleph",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Alpha",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "alpha",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Alphatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "alphatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Amacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "amacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ampersand",
+  "output": [
+   8
+  ]
+ },
+ {
+  "input": "ampersandsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "angle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "angleleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "angleright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "anoteleia",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Aogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "apostrophe",
+  "output": [
+   40
+  ]
+ },
+ {
+  "input": "approxequal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Aring",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aring",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Aringacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "aringacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Aringsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowboth",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdblboth",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdbldown",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdblleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdblright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdblup",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowdown",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowhorizex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowup",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowupdn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowupdnbse",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "arrowvertex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "asciicircum",
+  "output": [
+   7
+  ]
+ },
+ {
+  "input": "asciitilde",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "Asmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "asterisk",
+  "output": [
+   55,
+   9
+  ]
+ },
+ {
+  "input": "asteriskmath",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "asuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "at",
+  "output": [
+   3
+  ]
+ },
+ {
+  "input": "Atilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "atilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Atildesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "backslash",
+  "output": [
+   43,
+   86
+  ]
+ },
+ {
+  "input": "bar",
+  "output": [
+   43,
+   86
+  ]
+ },
+ {
+  "input": "Beta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "beta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "block",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "braceex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "braceleft",
+  "output": [
+   26
+  ]
+ },
+ {
+  "input": "braceleftbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "braceleftmid",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracelefttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "braceright",
+  "output": [
+   27
+  ]
+ },
+ {
+  "input": "bracerightbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracerightmid",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracerighttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketleft",
+  "output": [
+   26
+  ]
+ },
+ {
+  "input": "bracketleftbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketleftex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketlefttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketright",
+  "output": [
+   27
+  ]
+ },
+ {
+  "input": "bracketrightbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketrightex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bracketrighttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "breve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Brevesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "brokenbar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Bsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "bullet",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Cacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "caron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Caron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Caronsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "carriagereturn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ccaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ccaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ccedilla",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ccedilla",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ccedillasmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ccircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ccircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Cdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cedilla",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Cedillasmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "centinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "centoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "centsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Chi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "chi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "circle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "circlemultiply",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "circleplus",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "circumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Circumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "club",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "colon",
+  "output": [
+   39
+  ]
+ },
+ {
+  "input": "colonmonetary",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ColonSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "comma",
+  "output": [
+   51
+  ]
+ },
+ {
+  "input": "commaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "commainferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "commasuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "congruent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "copyright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "copyrightsans",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "copyrightserif",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "CruzeiroSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Csmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "currency",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cyrBreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cyrbreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cyrFlex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "cyrflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dagger",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "daggerdbl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dblGrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dblgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dcroat",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dcroat",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "degree",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Delta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "delta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "diaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "diamond",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "DieresisAcute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dieresisacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "DieresisGrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dieresisgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dieresistonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "divide",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "division",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dkshade",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dnblock",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dollar",
+  "output": [
+   5
+  ]
+ },
+ {
+  "input": "dollarinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dollaroldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dollarsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dong",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "DongSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dot",
+  "output": [
+   52,
+   83
+  ]
+ },
+ {
+  "input": "dotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dotaccentsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dotbelowcomb",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dotlessi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dotlessj",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dotmath",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dstroke",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Dstroke",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "dsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ebreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ebreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ecircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ecircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "EcuSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ediaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ediaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Edieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "edieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Edieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Edotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "edotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Egrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "egrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Egravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eight",
+  "output": [
+   9,
+   72
+  ]
+ },
+ {
+  "input": "eightinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eightoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eightsubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eightsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "element",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ellipsis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Emacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "emacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "emdash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "emptyset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "endash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "enfilledcircbullet",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eng",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eng",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Epsilon",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "epsilon",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Epsilontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "epsilontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "equal",
+  "output": [
+   13
+  ]
+ },
+ {
+  "input": "equivalence",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Esmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "estimated",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "esuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Etatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "etatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ETH",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "eth",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Eth",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ethsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "euro",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Euro",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "EuroSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "exclam",
+  "output": [
+   2
+  ]
+ },
+ {
+  "input": "exclamdbl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "exclamdown",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "exclamdownsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "exclamsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "existential",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "female",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ff",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ffi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ffl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "FFrancSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "figuredash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "filledbox",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "filledrect",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "five",
+  "output": [
+   6,
+   76
+  ]
+ },
+ {
+  "input": "fiveeighths",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fiveinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fiveoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fivesubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fivesuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "florin",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "four",
+  "output": [
+   5,
+   75
+  ]
+ },
+ {
+  "input": "fourinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fouroldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "foursubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "foursuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "fraction",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "franc",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Fsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "function",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gamma",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gamma",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gbreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gbreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "germandbls",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "gradient",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "grave",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "Grave",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "gravecomb",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "greater",
+  "output": [
+   52
+  ]
+ },
+ {
+  "input": "greaterequal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Gsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "guillemotleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "guillemotright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "guilsinglleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "guilsinglright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "H18533",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "H18543",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "H18551",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "H22073",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hash",
+  "output": [
+   4
+  ]
+ },
+ {
+  "input": "hashtag",
+  "output": [
+   4
+  ]
+ },
+ {
+  "input": "Hbar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hbar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Hcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "heart",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hookabovecomb",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "house",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Hsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Hungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Hungarumlautsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hyphen",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hypheninferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "hyphensuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ibreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ibreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Icircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "icircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Icircumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Idiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "idiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Idieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "idieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Idieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Idotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ifraktur",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Igrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "igrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Igravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "IJ",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ij",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Imacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "imacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "infinity",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "integral",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "integralbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "integralex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "integraltp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "intersection",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "invbullet",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "invcircle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "invsmileface",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iota",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iota",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iotadieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iotadieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iotadieresistonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Iotatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "iotatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ismall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "isuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Itilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "itilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Jcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "jcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Jsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Kappa",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "kappa",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Kcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "kcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "kgreenlandic",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ksmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lambda",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lambda",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ldot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ldot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "less",
+  "output": [
+   51
+  ]
+ },
+ {
+  "input": "lessequal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lfblock",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lira",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "LiraSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "LL",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ll",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "logicaland",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "logicalnot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "logicalor",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "longs",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lozenge",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lslash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lslash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lslashsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Lsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "lsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ltshade",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "macron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Macron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Macronsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "male",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "masculine",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "MillSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "minplus",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": "minus",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "minute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Msmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "msuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "mu",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Mu",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "multiply",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "musicalnote",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "musicalnotedbl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Nacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "NairaSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "napostrophe",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ncaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ncaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ncommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ncommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "NewSheqelSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nine",
+  "output": [
+   10,
+   73
+  ]
+ },
+ {
+  "input": "nineinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nineoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ninesubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ninesuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nobreakspace",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "notelement",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "notequal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "notsign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "notsubset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Nsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ntildesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Nu",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "nu",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "numbersign",
+  "output": [
+   4
+  ]
+ },
+ {
+  "input": "numerosign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Oacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Oacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Obreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "obreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflexacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflexbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflexgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflexhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ocircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ocircumflextilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Odiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "odiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Odieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "odieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Odieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oe",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "OE",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "OEsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ogoneksmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ograve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ograve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ogravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohornacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohornacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohornbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohornbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohorngrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohorngrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohornhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohornhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohorntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohorntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ohungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ohungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Omacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Omega",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omega",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omega1",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Omegatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omegatonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Omicron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omicron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Omicrontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "omicrontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "one",
+  "output": [
+   2,
+   79
+  ]
+ },
+ {
+  "input": "onedotenleader",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oneeighth",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onefitted",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onehalf",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oneinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oneoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onequarter",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onesubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onesuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "onethird",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "openbullet",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ordfeminine",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ordmasculine",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "orthogonal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Oslash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oslash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Oslashacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "oslashacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Oslashsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Osmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "osuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Otilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "otilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Otildesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "paragraph",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenleft",
+  "output": [
+   10
+  ]
+ },
+ {
+  "input": "parenleftbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenleftex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenleftinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenleftsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenlefttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenright",
+  "output": [
+   11
+  ]
+ },
+ {
+  "input": "parenrightbt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenrightex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenrightinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenrightsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "parenrighttp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "partialdiff",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "percent",
+  "output": [
+   6
+  ]
+ },
+ {
+  "input": "period",
+  "output": [
+   52,
+   83
+  ]
+ },
+ {
+  "input": "periodcentered",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "periodinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "periodsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "perpendicular",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "perthousand",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "peseta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "PesetaSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Phi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "phi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "phi1",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Pi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "pi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "plus",
+  "output": [
+   78,
+   13
+  ]
+ },
+ {
+  "input": "plusminus",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "pound",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "prescription",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "product",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "propersubset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "propersuperset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "proportional",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Psi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "psi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Psmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Qsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "question",
+  "output": [
+   53
+  ]
+ },
+ {
+  "input": "questiondown",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "questiondownsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "questionsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotedbl",
+  "output": [
+   40
+  ]
+ },
+ {
+  "input": "quotedblbase",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotedblleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotedblright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quoteleft",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotereversed",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quoteright",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotesinglbase",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "quotesingle",
+  "output": [
+   40
+  ]
+ },
+ {
+  "input": "Racute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "racute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "radical",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "radicalex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Rcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Rcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "reflexsubset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "reflexsuperset",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "registered",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "registersans",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "registerserif",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "revlogicalnot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Rfraktur",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Rho",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rho",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ring",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ringsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Rsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rtblock",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "RupeeSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "rupiah",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Sacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Scaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "scaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Scaronsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Scedilla",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "scedilla",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Scircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "scircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Scommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "scommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "second",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "section",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "semicolon",
+  "output": [
+   39
+  ]
+ },
+ {
+  "input": "seven",
+  "output": [
+   8,
+   71
+  ]
+ },
+ {
+  "input": "seveneighths",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "seveninferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sevenoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sevensubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sevensuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF010000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF020000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF030000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF040000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF050000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF060000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF070000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF080000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF090000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF100000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF110000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF190000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF200000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF210000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF220000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF230000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF240000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF250000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF260000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF270000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF280000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF360000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF370000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF380000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF390000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF400000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF410000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF420000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF430000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF440000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF450000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF460000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF470000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF480000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF490000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF500000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF510000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF520000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF530000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "SF540000",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "shade",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Sigma",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sigma",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sigma1",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "similar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "similarequal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "six",
+  "output": [
+   7,
+   77
+  ]
+ },
+ {
+  "input": "sixinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sixoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sixsubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sixsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "slash",
+  "output": [
+   57397,
+   53
+  ]
+ },
+ {
+  "input": "smileface",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "spade",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ssharp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ssharp",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ssmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ssuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sterling",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "subtract",
+  "output": [
+   74,
+   12
+  ]
+ },
+ {
+  "input": "suchthat",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "summation",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "sun",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tau",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tau",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tbar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tbar",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tcommaaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Thai_baht",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "therefore",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Theta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "theta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "theta1",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "THORN",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "thorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Thorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Thornsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "three",
+  "output": [
+   4,
+   81
+  ]
+ },
+ {
+  "input": "threeeighths",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threeinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threeoldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threequarters",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threequartersemdash",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threesubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "threesuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "til",
+  "output": [
+   41
+  ]
+ },
+ {
+  "input": "tilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tildecomb",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tildesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "trademark",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "trademarksans",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "trademarkserif",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "triagdn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "triaglf",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "triagrt",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "triagup",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Tsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "tsuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "two",
+  "output": [
+   3,
+   80
+  ]
+ },
+ {
+  "input": "twodotenleader",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "twoinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "twooldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "twosubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "twosuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "twothirds",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ubreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ubreve",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ucircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ucircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ucircumflexsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Udiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "udiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Udieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "udieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Udieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ugrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ugrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ugravesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhorn",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhornacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhornacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhornbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhornbelowdot",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhorngrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhorngrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhornhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhornhook",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhorntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhorntilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uhungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uhungarumlaut",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Umacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "umacron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "underscore",
+  "output": [
+   12
+  ]
+ },
+ {
+  "input": "underscoredbl",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "union",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "universal",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uogonek",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "upblock",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Upsilon",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "upsilon",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Upsilon1",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Upsilondieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "upsilondieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "upsilondieresistonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Upsilontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "upsilontonos",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Uring",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "uring",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Usmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Utilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "utilde",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Vsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Wacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "wacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Wcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "wcircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Wdieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "wdieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "weierstrass",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Wgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "wgrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "WonSign",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Wsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Xi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "xi",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Xsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Yacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "yacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Yacutesmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ycircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ycircumflex",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ydiaeresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ydieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ydieresis",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ydieresissmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "yen",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ygrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "ygrave",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Ysmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zacute",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zcaron",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zcaronsmall",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zdotaccent",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zero",
+  "output": [
+   11,
+   82
+  ]
+ },
+ {
+  "input": "zeroinferior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zerooldstyle",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zerosubscript",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zerosuperior",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "zeta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zeta",
+  "output": {
+   "error": true
+  }
+ },
+ {
+  "input": "Zsmall",
+  "output": {
+   "error": true
+  }
+ }
+]

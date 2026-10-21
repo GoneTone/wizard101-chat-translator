@@ -1,0 +1,2073 @@
+[
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "custom",
+    "base_url": "http://127.0.0.1:8000",
+    "model": "gemma",
+    "api_key": "sk-1"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "http://127.0.0.1:8000",
+      "model": "gemma",
+      "api_key": "sk-1",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "base_url": "http://127.0.0.1:8000",
+    "model": "m1"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "http://127.0.0.1:8000",
+      "model": "m1",
+      "api_key": "",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "claude",
+    "openai": {
+     "model": "gpt-x",
+     "api_key": "sk-1",
+     "thinking": false
+    },
+    "claude": {
+     "model": "claude-x",
+     "api_key": "sk-ant",
+     "effort": "auto"
+    },
+    "custom": {
+     "base_url": "",
+     "model": "",
+     "api_key": "",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "sk-1",
+      "thinking": false
+     },
+     {
+      "id": "@id2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "sk-ant",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "@id2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "",
+     "api_key": "",
+     "thinking": false
+    },
+    "claude": {
+     "model": "",
+     "api_key": "",
+     "effort": "auto"
+    },
+    "custom": {
+     "base_url": "",
+     "model": "",
+     "api_key": "",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s2",
+     "name": "Claude",
+     "provider": "claude",
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE",
+     "effort": "auto"
+    }
+   ],
+   "default_service": "s2",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "",
+     "api_key": "",
+     "thinking": false
+    },
+    "claude": {
+     "model": "",
+     "api_key": "",
+     "effort": "auto"
+    },
+    "custom": {
+     "base_url": "",
+     "model": "",
+     "api_key": "",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "aaaaaaaa",
+     "name": "X",
+     "provider": "mistral",
+     "model": "g",
+     "api_key": "sk-REAL-USER-KEY",
+     "quirk": 1
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "aaaaaaaa",
+      "name": "X",
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "sk-REAL-USER-KEY",
+      "quirk": 1
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    },
+    {
+     "id": "x1",
+     "name": "Mistral",
+     "provider": "mistral",
+     "api_key": "SK-MISTRAL"
+    }
+   ],
+   "default_service": "x1",
+   "service_slots": {
+    "incoming": "x1",
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "x1",
+      "name": "Mistral",
+      "provider": "mistral",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    "sk-ANOTHER-STRAY-KEY"
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": "sk-PASTED-IN-THE-WRONG-PLACE"
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     "sk-PASTED-IN-THE-WRONG-PLACE",
+     "sk-ANOTHER-STRAY-KEY"
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "OpenAI",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [
+    {
+     "provider": "openai",
+     "name": "OpenAI",
+     "api_key": "sk-3"
+    }
+   ]
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "OpenAI (2)",
+      "provider": "openai",
+      "model": "",
+      "api_key": "sk-3",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": []
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "x1",
+     "name": "Mistral",
+     "provider": "mistral",
+     "api_key": "SK-MISTRAL"
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "x1",
+      "name": "Mistral",
+      "provider": "mistral",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s2",
+     "name": "Claude",
+     "provider": "claude",
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE",
+     "effort": "auto"
+    }
+   ],
+   "default_service": "s2",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "gpt-stale",
+     "api_key": "SK-STALE",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s2",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "s2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": "SK-PASTED",
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     "SK-PASTED"
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": {
+    "a": {
+     "provider": "openai",
+     "api_key": "SK-IN-DICT"
+    }
+   },
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "a": {
+       "provider": "openai",
+       "api_key": "SK-IN-DICT"
+      }
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": "SK-PASTED",
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [
+    {
+     "provider": "openai",
+     "name": "ChatGPT",
+     "api_key": "sk-3"
+    }
+   ]
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "ChatGPT",
+      "provider": "openai",
+      "model": "",
+      "api_key": "sk-3",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     "SK-PASTED"
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": {
+    "id": "s1",
+    "name": "GPT",
+    "provider": "openai",
+    "model": "gpt-x",
+    "api_key": "SK-OPENAI",
+    "thinking": false
+   },
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": {
+    "id": "x1",
+    "name": "Mistral",
+    "provider": "mistral",
+    "api_key": "SK-MISTRAL"
+   },
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "x1",
+      "name": "Mistral",
+      "provider": "mistral",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [
+    {
+     "id": "p1",
+     "name": "ChatGPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-PROMOTED",
+     "thinking": false
+    }
+   ],
+   "api": {
+    "provider": "claude",
+    "claude": {
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE-OLD",
+     "effort": "auto"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "p1",
+      "name": "ChatGPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-PROMOTED",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE-OLD",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": []
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [
+    {
+     "id": "zzz1",
+     "provider": "openai",
+     "api_key": "SK-NONAME"
+    }
+   ],
+   "api": {
+    "provider": "claude",
+    "claude": {
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE-OLD",
+     "effort": "auto"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "zzz1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "",
+      "api_key": "SK-NONAME",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE-OLD",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": []
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [
+    {
+     "id": "p1",
+     "name": "ChatGPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-PROMOTED",
+     "thinking": false
+    }
+   ],
+   "api": {
+    "provider": "nonsense",
+    "claude": {
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE-OLD",
+     "effort": "auto"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "p1",
+      "name": "ChatGPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-PROMOTED",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "Claude",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "SK-CLAUDE-OLD",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": []
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "mistral",
+    "mistral": {
+     "model": "g",
+     "api_key": "SK-MISTRAL"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "mistral",
+    "model": "g",
+    "api_key": "SK-MISTRAL-FLAT"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "SK-MISTRAL-FLAT"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": null,
+    "model": "g",
+    "api_key": "SK-NULL"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": null,
+      "model": "g",
+      "api_key": "SK-NULL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "mistral",
+    "mistral": {
+     "api_key": "SK-MISTRAL"
+    },
+    "openai": {
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "mistral",
+    "mistral": {
+     "model": "g",
+     "api_key": "SK-MISTRAL"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "provider": "mistral",
+      "model": "g",
+      "api_key": "SK-MISTRAL"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "provider": "openai"
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "m",
+     "api_key": "SK-REAL-OLD"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "",
+      "api_key": "",
+      "thinking": false
+     },
+     {
+      "id": "@id2",
+      "name": "OpenAI (2)",
+      "provider": "openai",
+      "model": "m",
+      "api_key": "SK-REAL-OLD",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "provider": "openai",
+     "model": 7,
+     "api_key": null
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "m",
+     "api_key": "SK-REAL-OLD"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "",
+      "api_key": "",
+      "thinking": false
+     },
+     {
+      "id": "@id2",
+      "name": "OpenAI (2)",
+      "provider": "openai",
+      "model": "m",
+      "api_key": "SK-REAL-OLD",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id2",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "default_service": null,
+   "service_slots": {}
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "services": []
+   }
+  }
+ },
+ {
+  "input": {
+   "unsupported_services": [
+    {
+     "provider": "openai",
+     "api_key": "SK-1"
+    }
+   ]
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "unsupported_services": [],
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "",
+      "api_key": "SK-1",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {},
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "m",
+     "api_key": "SK-2"
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "m",
+      "api_key": "SK-2",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": "SK-PASTED-OVER-THE-LIST",
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     "SK-PASTED-OVER-THE-LIST"
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "aaaaaaaa",
+     "name": "C",
+     "provider": "claude",
+     "model": "claude-x",
+     "thinking": true
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "aaaaaaaa",
+      "name": "C",
+      "provider": "claude",
+      "model": "claude-x",
+      "api_key": "",
+      "effort": "auto"
+     }
+    ],
+    "default_service": "aaaaaaaa",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "dup",
+     "name": "A",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    },
+    {
+     "id": "dup",
+     "name": "B",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "dup",
+      "name": "A",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "@id1",
+      "name": "B",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "dup",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "nope",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": "nope",
+    "outgoing": null,
+    "region": null,
+    "bogus": "x"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": false,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "openai",
+    "openai": {
+     "model": "gpt-x",
+     "api_key": null
+    }
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "api": {
+    "provider": "custom",
+    "base_url": "http://x",
+    "model": null,
+    "api_key": "sk-REAL-USER-KEY"
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "http://x",
+      "model": "",
+      "api_key": "sk-REAL-USER-KEY",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": 5,
+     "api_key": "SK-OPENAI",
+     "thinking": "yes"
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": 0
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": false,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "aaaaaaaa",
+     "name": "X",
+     "provider": [
+      "openai"
+     ],
+     "model": "m"
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [],
+    "default_service": null,
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    },
+    "unsupported_services": [
+     {
+      "id": "aaaaaaaa",
+      "name": "X",
+      "provider": [
+       "openai"
+      ],
+      "model": "m"
+     }
+    ]
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": 7,
+     "name": 42,
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "OpenAI",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": [],
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": [
+     "x"
+    ],
+    "outgoing": 3,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    },
+    {
+     "id": "s9",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     },
+     {
+      "id": "s9",
+      "name": "GPT (2)",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "provider": "custom"
+    },
+    {
+     "provider": "custom",
+     "name": ""
+    }
+   ],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   }
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "@id1",
+      "name": "Custom endpoint",
+      "provider": "custom",
+      "base_url": "",
+      "model": "",
+      "api_key": "",
+      "thinking": false
+     },
+     {
+      "id": "@id2",
+      "name": "Custom endpoint (2)",
+      "provider": "custom",
+      "base_url": "",
+      "model": "",
+      "api_key": "",
+      "thinking": false
+     }
+    ],
+    "default_service": "@id1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ },
+ {
+  "input": {
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    }
+   ],
+   "default_service": "s1",
+   "service_slots": "junk"
+  },
+  "output": {
+   "changed": true,
+   "changed_again": false,
+   "cfg": {
+    "services": [
+     {
+      "id": "s1",
+      "name": "GPT",
+      "provider": "openai",
+      "model": "gpt-x",
+      "api_key": "SK-OPENAI",
+      "thinking": false
+     }
+    ],
+    "default_service": "s1",
+    "service_slots": {
+     "incoming": null,
+     "outgoing": null,
+     "region": null
+    }
+   }
+  }
+ }
+]

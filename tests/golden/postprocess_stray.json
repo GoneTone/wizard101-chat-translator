@@ -1,0 +1,458 @@
+[
+ {
+  "input": {
+   "source": "[A] 雪刺帽",
+   "translated": "[A] Snowspike Hat",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] 雪刺帽",
+   "translated": "[A] 雪刺帽",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 收到 [Amy] 的邀請",
+   "translated": "[A] 收到 Amy 的邀請",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] Received a friend request from Amy",
+   "translated": "[A] Received a friend request from Amy",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] 收到 Amy 的邀請",
+   "translated": "[A] 收到 Amy 的邀請 Calamity",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 Hi",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] hi",
+   "translated": "[A] 你好 hi",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] HI  there",
+   "translated": "[A] 你好 hi there",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 你好",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 1234",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ...",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] Straße",
+   "translated": "[A] 街 STRASSE",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] ß",
+   "translated": "[A] 好 SS",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] café",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 你好 café",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] Snowspike Hat",
+   "target": "English"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] Snowspike",
+   "target": "Español"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 木頭",
+   "translated": "[A] 木頭 wood",
+   "target": "日本語"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] wood-x",
+   "translated": "[A] 木 wood-x",
+   "target": "日本語"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] it's",
+   "translated": "[A] 好 it’s",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] a.b, c",
+   "translated": "[A] 好 a.b, c",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "",
+   "translated": "",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] ",
+   "translated": "[A] ABC",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x y",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] x　y",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[A] 😀",
+   "translated": "[A] 😀 ok",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] 好 ok²",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ² A",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x",
+   "translated": "[A] ① A",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "[A] x\u001fy",
+   "translated": "[A] 好 x y",
+   "target": "繁體中文 (台灣)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "卡拉米蒂 现在等级 {0}！",
+   "translated": "Calamity 現在等級 {0}！",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "雪刺帽",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "death skeleturion",
+   "translated": "死亡骷髏戰士 (Death Skeleturion)",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "English"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Sombrero de Nieve",
+   "target": "Español"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[Amy] 雪刺帽",
+   "translated": "[Amy] 雪刺帽",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "[艾米] 雪刺帽",
+   "translated": "[艾米] Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "You received Snowspike Hat",
+   "translated": "You received Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "You received Snowspike Hat",
+   "translated": "你獲得了 Snowspike Hat",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "Received a friend request from Amy",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "收到 Amy 的夥伴邀請",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "你获得了 Lava Lily",
+   "translated": "你獲得了  lava lily",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "收到 [Amy] 的伙伴邀请",
+   "translated": "收到 Snowspike Hat 的夥伴邀請",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "日本語"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "한국어"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "Русский"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "ภาษาไทย"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "雪刺帽",
+   "translated": "Snowspike Hat",
+   "target": "Ελληνικά"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "你获得了 {0} 金币！",
+   "translated": "{0} ゴールドを手に入れた！",
+   "target": "日本語"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai、Bob 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob님이 참가했습니다",
+   "target": "한국어"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai, Bob, Zed 加入了",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "Kai and Bob joined",
+   "translated": "Kai 加入了 in Bob",
+   "target": "繁體中文（台灣）"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "source": "我要Amy的帽子",
+   "translated": "我要 Amy 的帽子",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "source": "Meet me at café",
+   "translated": "在 café 見",
+   "target": "繁體中文（台灣）"
+  },
+  "output": false
+ }
+]

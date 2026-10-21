@@ -1,0 +1,102 @@
+[
+ {
+  "input": "",
+  "output": ""
+ },
+ {
+  "input": "plain",
+  "output": "plain"
+ },
+ {
+  "input": "<think>x</think>y",
+  "output": "y"
+ },
+ {
+  "input": "<THINK>x</THINK>\n\n y",
+  "output": "y"
+ },
+ {
+  "input": "a<think>\nmulti\nline</think>   b",
+  "output": "ab"
+ },
+ {
+  "input": "<think>a</think><think>b</think>c",
+  "output": "c"
+ },
+ {
+  "input": "<think>unclosed",
+  "output": "<think>unclosed"
+ },
+ {
+  "input": "no open </think> tag",
+  "output": "tag"
+ },
+ {
+  "input": "<think></think>",
+  "output": ""
+ },
+ {
+  "input": "<Think>é</Think>\t　x",
+  "output": "x"
+ },
+ {
+  "input": "x <think>😀</think> y",
+  "output": "x y"
+ },
+ {
+  "input": "<think>a</think>\u000b\u001cz",
+  "output": "z"
+ },
+ {
+  "input": "<thinK>x</think>k",
+  "output": "k"
+ },
+ {
+  "input": "<think>a</THINK>b</think>c",
+  "output": "c"
+ },
+ {
+  "input": "[Amy] <think>t</think>[Amy] 你好",
+  "output": "[Amy] [Amy] 你好"
+ },
+ {
+  "input": "<think>a\r\nb</think>\r\nc",
+  "output": "c"
+ },
+ {
+  "input": "<think\n>x</think>y",
+  "output": "y"
+ },
+ {
+  "input": "<thınk>x</think>y",
+  "output": "y"
+ },
+ {
+  "input": "<think>a</thinK>b",
+  "output": "b"
+ },
+ {
+  "input": "<thİnk>x</thİnk>y",
+  "output": "y"
+ },
+ {
+  "input": "推理過程…</think>\n\n譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "reasoning</THINK>\t　譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "a</thınk>b</thİnk> c",
+  "output": "c"
+ },
+ {
+  "input": "<think>a</think>推理</think>\n譯文",
+  "output": "譯文"
+ },
+ {
+  "input": "[Amy] 沒有任何標籤",
+  "output": "[Amy] 沒有任何標籤"
+ }
+]

@@ -1,0 +1,2 @@
+tests/golden/*.json text eol=lf
+assets/ocr/* -text

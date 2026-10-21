@@ -1,0 +1,98 @@
+[
+ {
+  "input": {
+   "ui_language": null,
+   "config_existed": false,
+   "detected": "ja-JP"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "ja-JP",
+   "detect_called": true
+  }
+ },
+ {
+  "input": {
+   "ui_language": null,
+   "config_existed": false,
+   "detected": "xx-XX"
+  },
+  "output": {
+   "code": "xx-XX",
+   "target_language": "xx-XX",
+   "detect_called": true
+  }
+ },
+ {
+  "input": {
+   "ui_language": null,
+   "config_existed": true,
+   "detected": "ja-JP"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "Original",
+   "detect_called": true
+  }
+ },
+ {
+  "input": {
+   "ui_language": null,
+   "config_existed": true,
+   "detected": "xx-XX"
+  },
+  "output": {
+   "code": "xx-XX",
+   "target_language": "Original",
+   "detect_called": true
+  }
+ },
+ {
+  "input": {
+   "ui_language": "ja-JP",
+   "config_existed": false,
+   "detected": "ja-JP"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "Original",
+   "detect_called": false
+  }
+ },
+ {
+  "input": {
+   "ui_language": "ja-JP",
+   "config_existed": false,
+   "detected": "xx-XX"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "Original",
+   "detect_called": false
+  }
+ },
+ {
+  "input": {
+   "ui_language": "ja-JP",
+   "config_existed": true,
+   "detected": "ja-JP"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "Original",
+   "detect_called": false
+  }
+ },
+ {
+  "input": {
+   "ui_language": "ja-JP",
+   "config_existed": true,
+   "detected": "xx-XX"
+  },
+  "output": {
+   "code": "ja-JP",
+   "target_language": "Original",
+   "detect_called": false
+  }
+ }
+]

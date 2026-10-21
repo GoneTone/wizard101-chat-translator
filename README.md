@@ -54,12 +54,13 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 1. Double-click the exe:
    - When the **translation provider is not set up yet** (first launch, or `config.json` is missing the model, the API key or the self-hosted server URL) a **setup wizard** appears: step 1 picks the UI language, step 2 creates your first translation service, fills in the API key and tests the connection, step 3 picks the target language, the hotkey and whether the translation input box pops up automatically. Once saved, the main flow starts automatically.
    - Once the provider is set up, every later launch goes straight to the main flow — no wizard. The UI language can still be changed at any time in the settings window (gear ⚙); saving applies it immediately, with no restart.
+   - Only one copy runs at a time: double-clicking the exe while it is already running brings up the existing window.
 2. Start Wizard101 and **log in, all the way into the game world** — only then can the overlay read chat.
 3. A chat message appears → the overlay shows **the original plus the translation** in your target language (newest at the bottom, scroll up for history; by default nothing fades away on a timer, and at most 200 messages are kept with the oldest dropped beyond that; both can be changed on the *Advanced* tab of the settings).
-   - **Movable and resizable**: drag the title bar at the top to move it, drag any edge or corner to resize (there is also a grip in the bottom-right corner; the ⚙ / ─ / ✕ buttons on the title bar stay buttons and do not start a resize). Position and size are saved automatically.
+   - **Movable and resizable**: drag the title bar at the top to move it, drag any edge or corner to resize (there is also a grip in the bottom-right corner; the ⛶ / ⚙ / ─ / ✕ buttons on the title bar stay buttons and do not start a resize). Position and size are saved automatically.
    - **Selectable and copyable**: press and drag the left mouse button over the messages to select text, across several messages if you want; dragging past the top or bottom edge of the message area auto-scrolls, so you can reach content that is off-screen. Then press `Ctrl+C`, or right-click the selection and choose *Copy*. Copied text has **a blank line between messages**.
    - Note: the window is not click-through — clicks on the area it covers do not reach the game.
-4. To say something: open the chat input box in the game → the translation input box appears on its own, right below the game's chat box and just as wide (re-aligned every time the chat box opens) → type your message (in any language) → Enter → the software switches back to the game and **types the translated English into the chat box character by character** → check it yourself, then press Enter to send.
+4. To say something: open the chat input box in the game → the translation input box appears on its own, right below the game's chat box (above it when there is no room below) and just as wide, down to a minimum width (re-aligned every time the chat box opens) → type your message (in any language) → Enter → the software switches back to the game and **types the translated English into the chat box character by character** → check it yourself, then press Enter to send.
    - If you closed the translation input box, or turned the automatic popup off in the settings, press `Ctrl+Space` (the default) to bring it up; it opens under the game's chat box when that is open, otherwise at the mouse cursor. The hotkey only fires while the game window is in the foreground, so it never triggers in other apps.
    - A translation longer than the game chat box's 80-character limit is not typed: the translation input box shows the count and keeps your text so you can trim it or split it up and resend.
    - If the game closes its chat box while you are still typing, the translation input box hides with it but keeps the unsent text and restores it the next time it opens; only closing it yourself with Esc or ✕ discards the text.
@@ -70,9 +71,9 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - The frame stays on screen: drag inside it to move it or drag an edge to resize it, and the new area is translated again.
    - The card shows the recognized text above the translation for comparison; text can be highlighted and copied with `Ctrl+C` or the right-click menu. Click the card or its ✕ to dismiss it.
    - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
-7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart (the only exception is *Game path* on the *Advanced* tab, which takes effect on the next start).
+7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart.
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
-9. Every launch checks GitHub for a new version; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
+9. The software checks GitHub for a new version at every launch and every hour after that; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
 ## Features
 
@@ -85,8 +86,8 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI, Claude, Gemini, or your own OpenAI-compatible service — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
-- **System messages, if you want them**: loot, XP, level-up broadcasts and the like are not translated by default — turn them on in the settings when you need them
-- **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble when you are not reading it; position and size are remembered and it comes back in the same place next time
+- **System messages, if you want them**: loot, XP, level-up broadcasts and the like are hidden by default — turn them on in the settings and they are shown and translated
+- **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble that shows the unread count when you are not reading it; position and size are remembered and it comes back in the same place next time
 - **Copy anything worth keeping**: drag over the messages to select text, across several messages, then `Ctrl+C` or right-click to copy
 - **Settings can be changed at any time**: a wizard walks you through the first launch; after that click the gear (⚙), and saving takes effect immediately with no restart
 - **Survives a forced kill or a crash**: a normal exit unhooks itself; if it is force-killed, the next launch clears the leftovers before hooking in again, with no need to restart the game
@@ -95,7 +96,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 ## Troubleshooting
 
 - **The "Access denied" banner**: the game is running as administrator, so the software cannot hook into it. Close the software and start it as administrator (from source, open the terminal as administrator).
-- **The "Game version not supported" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). Nothing is written into the game in this state, so leaving it be has no side effects.
+- **The "Game version not supported" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). While the banner is up the software keeps retrying and may briefly hook into the game, but it undoes every attempt before the next one, so nothing is left behind in the game.
 - **Status stuck at "Connecting to game…", or "Game not ready or disconnected"**: make sure the game is running and that you are logged in, all the way into the game world.
 - **Characters dropped while the translation is typed in**: raise *Typing delay (s)* on the *Advanced* tab of the settings window (⚙), and do not switch windows while it types (typing stops as soon as the game leaves the foreground).
 
@@ -117,13 +118,21 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 
 ![A box drawn around an in-game tip, with the translation card next to it](docs/images/4.png)
 
+Everything is changed in the settings window, and saving applies it right away — interface language, the language messages are translated into, hotkeys and more:
+
+![The basic page of the settings window](docs/images/5.png)
+
+Set up as many translation services as you like — OpenAI, Claude, Gemini or your own OpenAI-compatible server — pick one as the default, or give each feature its own:
+
+![The services page of the settings window, listing several translation services](docs/images/6.png)
+
 ## Known Limitations
 
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
 - Translations do not appear instantly: the game is checked for new chat every 0.1 seconds, and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
 - Player chat is never cached; every line is really sent for translation (so every line costs an API call). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
-- It depends on fixed memory patterns: a game update can invalidate them (hooking reports `PatternFailed`, or the hook installs but never fires) and it only works again once support catches up; from source, that means re-running `uv sync` after the reader dependency has been updated, unless the failing pattern is this project's own chat hook, in which case you wait for a new release of this project. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
-- Hooking into the game and the global hotkey (the `keyboard` package) only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
+- It depends on fixed memory patterns: a game update can invalidate them (a pattern is no longer found when hooking, or the hook installs but never fires), and it only works again once a new release of this project updates the patterns. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
+- Hooking into the game and the global hotkey only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
 ## Development
 
@@ -132,45 +141,45 @@ The rest of this file covers working from source: development, debugging and pac
 ### Prerequisites
 
 - Windows
-- [uv](https://docs.astral.sh/uv/) — the Python version is pinned by `.python-version`, and `uv sync` downloads a matching interpreter, so local and CI environments agree
+- [rustup](https://rustup.rs/) — the Rust version is pinned by `rust-toolchain.toml`; run `rustup toolchain install` once in the repository to install that version and its components (the same command CI uses), so local and CI environments agree
 
 ### Install
 
-1. `uv sync` — creates `.venv` and installs everything in `pyproject.toml` (including wizwalker for the incoming side; `[tool.uv.sources]` already points at the [LaurenzNotHere fork](https://codeberg.org/LaurenzNotHere/wizwalker), which keeps up with the current client patterns, because the official PyPI release has stale patterns that no longer match the live client).
-2. `uv run run.py` — the first run goes through the setup wizard (pick a provider, enter an API key or your self-hosted server URL, test the connection); the settings are written to `config.json` in the project root, which is not version-controlled.
-
-> When a game update makes hooking fail with `PatternFailed`, update the fork and re-run `uv sync` (or `uv lock --upgrade-package wizwalker`) to pick up the new patterns. If the log says the AddLine hook is the one that failed, that pattern lives in this project rather than the fork: updating the fork cannot fix it, so wait for a new release of this project.
+`cargo build` — downloads the dependencies and builds a debug binary.
 
 ### Running from source
 
 1. Start Wizard101 and log in, all the way into the game world.
-2. `uv run run.py` (equivalent to `uv run python -m src.main`).
+2. `cargo run` — the first run goes through the setup wizard (see [How to Use](#how-to-use)); the settings are written to `config.json` in the repository root, which is not version-controlled.
 3. It works exactly as described in [How to Use](#how-to-use); when a banner shows up, see [Troubleshooting](#troubleshooting).
+
+> When a game update breaks the memory patterns (`app.log` records the pattern that failed to match), update the patterns in `src/reader/hook/`: `add_line.rs` holds the chat hook's, `cave.rs` holds the code cave's and the root window hook's (input-box detection and tab state).
 
 ### Checks
 
 ```
-uv run ruff check src tests tools   # lint: unused imports, undefined names, import order (rules in pyproject.toml)
-uv run pytest                       # unit tests (4 parallel workers by default; add -n 0 to run serially)
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 ```
 
-Once pushed to GitHub, CI (`.github/workflows/ci.yml`) runs the same lint and tests on a Windows runner.
+On pushes to `master` and pull requests against it, CI (`.github/workflows/ci.yml`) runs these checks on a Windows runner, plus the release-build checks.
 
 ### Packaging (exe)
 
 ```
-uv run pyinstaller build.spec --noconfirm
+cargo build --release
 ```
 
-The result is `dist/Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run (see [Download](#download)).
+The result is `target\release\Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run (see [Download](#download)).
 
 ### Logs
 
 Both logs are split per launch, keep the last 7 days only, and start every line with a UTC+0 timestamp:
 
-- `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …).
-- `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (`RAW` is the original line including markup and system messages, excluding only the `[WARN]` / `[ERRO]` / `[DBGM]`-style debug lines the game itself pushes into the chat control; `OUT` is the line actually sent for translation). Attach this one for missed or duplicated translations.
+- `app.log`: diagnostic output (hooking, translation requests, settings changes, exceptions, …). When running from source (`cargo run`) it goes to the terminal (stderr) instead of a file; `messages.log` is written as usual.
+- `messages.log`: the **raw** chat the reader saw, with no cleanup or filtering (one entry each time the game adds a line to a chat tab: the original text including markup and system messages, tagged with which game client and chat tab it came from and whether it was translated or skipped; only the `[WARN]` / `[ERRO]` / `[DBGM]`-style debug lines the game itself pushes into the chat control are left out). Attach this one for missed or duplicated translations.
 
 ## Icon
 
-The program icon (`src/assets/icon.ico`) is adapted from the Wizard101 game icon with a "文A" translation badge in the top-right corner, shared by the exe and every window. The base artwork is copyright KingsIsle Entertainment; this project is not affiliated with them.
+The program icon is adapted from the Wizard101 game icon with a "文A" translation badge in the top-right corner; the exe (`assets/icon.ico`) and every window use the same artwork. The base artwork is copyright KingsIsle Entertainment; this project is not affiliated with them.

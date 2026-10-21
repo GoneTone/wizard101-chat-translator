@@ -1,0 +1,91 @@
+[
+ {
+  "input": [
+   "space",
+   "ctrl"
+  ],
+  "output": "ctrl+space"
+ },
+ {
+  "input": [
+   "left ctrl",
+   "right shift",
+   "a"
+  ],
+  "output": "ctrl+shift+a"
+ },
+ {
+  "input": [
+   "+",
+   "ctrl"
+  ],
+  "output": "ctrl+plus"
+ },
+ {
+  "input": [
+   "a",
+   "a",
+   "ctrl"
+  ],
+  "output": "ctrl+a"
+ },
+ {
+  "input": [
+   "ctrl",
+   "shift"
+  ],
+  "output": "ctrl+shift"
+ },
+ {
+  "input": [
+   "windows",
+   "alt",
+   "shift",
+   "ctrl",
+   "f1"
+  ],
+  "output": "ctrl+alt+shift+windows+f1"
+ },
+ {
+  "input": [
+   "right alt",
+   "left windows",
+   "b"
+  ],
+  "output": "alt+windows+b"
+ },
+ {
+  "input": [
+   "Ctrl",
+   "SPACE"
+  ],
+  "output": "ctrl+space"
+ },
+ {
+  "input": [
+   "!",
+   "shift"
+  ],
+  "output": "shift+!"
+ },
+ {
+  "input": [
+   "a"
+  ],
+  "output": "a"
+ },
+ {
+  "input": [
+   "f2",
+   "f10",
+   "f1"
+  ],
+  "output": "f1+f10+f2"
+ },
+ {
+  "input": [
+   "num 5"
+  ],
+  "output": "5"
+ }
+]

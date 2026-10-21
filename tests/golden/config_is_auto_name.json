@@ -1,0 +1,100 @@
+[
+ {
+  "input": {
+   "name": "X",
+   "base": "X"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "name": "X (2)",
+   "base": "X"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "name": "X (10)",
+   "base": "X"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "name": "X (1)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (0)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (02)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (２)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X(2)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (2) ",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X ()",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (x)",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (2) extra",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "Y",
+   "base": "X"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "name": "X (123456789012345678901234567890)",
+   "base": "X"
+  },
+  "output": true
+ }
+]

@@ -1,0 +1,158 @@
+//! 熱鍵錄製：移植 `keyboard.read_hotkey(suppress=False)`，第一次有鍵放開時回報目前按著的組合。
+
+use std::collections::BTreeMap;
+
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, VK_CAPITAL, VK_LCONTROL, VK_LSHIFT, VK_NUMLOCK, VK_RSHIFT, VK_SCROLL, VK_SHIFT,
+};
+
+use crate::input::dispatcher::{Blocking, HandlerId, KeyEvent, Pressed, RawKey, SharedDispatcher};
+use crate::input::hook;
+use crate::input::keys::{ALT_GR, Code, event_name, hotkey_name};
+use crate::logs::log;
+use crate::util::lock;
+
+const SHIFT_VKS: [u32; 3] = [VK_SHIFT as u32, VK_LSHIFT as u32, VK_RSHIFT as u32];
+const LOCK_KEYS: [(i32, &str); 3] = [
+    (VK_NUMLOCK as i32, "num lock"),
+    (VK_CAPITAL as i32, "caps lock"),
+    (VK_SCROLL as i32, "scroll lock"),
+];
+
+/// 目前亮著的鎖定鍵名稱（影響按鍵名稱的算法）。
+pub type LockKeys = fn() -> Vec<&'static str>;
+
+fn lit_lock_keys() -> Vec<&'static str> {
+    LOCK_KEYS
+        .iter()
+        // SAFETY：GetKeyState 只讀目前執行緒的按鍵狀態表。
+        .filter(|(vk, _)| unsafe { GetKeyState(*vk) } & 1 != 0)
+        .map(|(_, name)| *name)
+        .collect()
+}
+
+/// 進行中的錄製；drop 時從分派器移除 handler，之後的按鍵不再被記錄。
+///
+/// drop 會鎖分派器，所以不可在 `done` 或任何 handler 裡 drop（hook 執行緒握著同一把鎖，會死鎖）；
+/// 請等 `done` 的結果送到 UI 執行緒後再 drop。
+pub struct Recording {
+    dispatcher: SharedDispatcher,
+    id: HandlerId,
+}
+
+impl Drop for Recording {
+    fn drop(&mut self) {
+        let mut d = lock(&self.dispatcher);
+        d.remove(self.id);
+        log(format!(
+            "[hotkey] recording stopped (events processed so far={}, hook calls so far={})",
+            d.processed(),
+            hook::hook_calls()
+        ));
+    }
+}
+
+/// 開始錄製：錄製開始後按下的鍵第一次放開時，以 hook 執行緒呼叫一次 `done(熱鍵字串)`，按鍵照樣放行。
+///
+/// `done` 只能做投遞，不可做 I/O，也不可在裡面 drop 回傳的 `Recording`。
+pub fn record(d: &SharedDispatcher, done: Box<dyn FnOnce(String) + Send>) -> Recording {
+    record_with(d, done, lit_lock_keys)
+}
+
+/// 同 [`record`]，鎖定鍵狀態由 `lock_keys` 提供（測試用，免得結果隨 Caps Lock 變）。
+pub fn record_with(
+    d: &SharedDispatcher,
+    done: Box<dyn FnOnce(String) + Send>,
+    lock_keys: LockKeys,
+) -> Recording {
+    let mut dispatcher = lock(d);
+    let id = dispatcher.add_blocking(Box::new(Recorder {
+        pressed: BTreeMap::new(),
+        shift: false,
+        alt_gr: false,
+        lock_keys,
+        done: Some(done),
+    }));
+    // 開始與結束時的計數相同，表示錄製期間 hook 一個按鍵都沒送進來
+    log(format!(
+        "[hotkey] recording started (events processed so far={}, hook calls so far={})",
+        dispatcher.processed(),
+        hook::hook_calls()
+    ));
+    drop(dispatcher);
+    Recording {
+        dispatcher: d.clone(),
+        id,
+    }
+}
+
+struct Recorder {
+    /// 錄製開始後按下、還沒放開的鍵 → 按下當下算出的名稱（算不出名稱的鍵也要記，放開時才認得）。
+    pressed: BTreeMap<Code, Option<String>>,
+    shift: bool,
+    alt_gr: bool,
+    lock_keys: LockKeys,
+    done: Option<Box<dyn FnOnce(String) + Send>>,
+}
+
+impl Recorder {
+    /// 照 `_winkeyboard.process_key`：名稱用事件發生前的修飾鍵狀態算。
+    fn name_of(&self, ev: KeyEvent, raw: RawKey) -> Option<String> {
+        let mut mods = Vec::new();
+        if self.shift {
+            mods.push("shift");
+        }
+        if self.alt_gr {
+            mods.push("alt gr");
+        }
+        mods.extend((self.lock_keys)());
+        event_name(ev.code.max(0) as u32, raw.vk, raw.extended, &mods)
+    }
+
+    fn track_modifiers(&mut self, ev: KeyEvent, raw: RawKey) {
+        if SHIFT_VKS.contains(&raw.vk) {
+            self.shift = ev.down;
+        }
+        if ev.code == ALT_GR && raw.vk == u32::from(VK_LCONTROL) {
+            self.alt_gr = ev.down;
+        }
+    }
+}
+
+impl Blocking for Recorder {
+    fn handle(&mut self, ev: KeyEvent, _: &Pressed) -> bool {
+        let Some(raw) = ev.raw else { return true };
+        if self.done.is_none() {
+            return true;
+        }
+        let name = self.name_of(ev, raw);
+        if name.is_none() && ev.down {
+            log(format!(
+                "[hotkey] key without a name ignored: code={} vk={:#x}",
+                ev.code, raw.vk
+            ));
+        }
+        self.track_modifiers(ev, raw);
+        if ev.down {
+            self.pressed.insert(ev.code, name);
+            return true;
+        }
+        // 用鍵盤按〔更改〕時，觸發的 Enter／Space 在錄製開始前就按下了，它的放開不算數。
+        if self.pressed.remove(&ev.code).is_none() {
+            return true;
+        }
+        let names: Vec<String> = self
+            .pressed
+            .values()
+            .flatten()
+            .cloned()
+            .chain(name)
+            .collect();
+        let hotkey = hotkey_name(&names);
+        log(format!("[hotkey] recorded {hotkey:?}"));
+        if let Some(done) = self.done.take() {
+            done(hotkey);
+        }
+        true
+    }
+}

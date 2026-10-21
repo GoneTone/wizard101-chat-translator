@@ -1,0 +1,378 @@
+[
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [
+    "[A] hi",
+    "[B] 你好"
+   ],
+   "text": "[C] 在嗎",
+   "intro": "以下是最近的遊戲聊天記錄，僅供你理解語境（代詞、接話、省略等），不要翻譯這些內容：",
+   "examples": []
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "以下是最近的遊戲聊天記錄，僅供你理解語境（代詞、接話、省略等），不要翻譯這些內容：\n[A] hi\n[B] 你好"
+   },
+   {
+    "role": "assistant",
+    "content": "好的，我已了解語境。請給我要翻譯的訊息。"
+   },
+   {
+    "role": "user",
+    "content": "[C] 在嗎"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [],
+   "text": "[C] 在嗎",
+   "intro": "以下是最近的遊戲聊天記錄，僅供你理解語境（代詞、接話、省略等），不要翻譯這些內容：",
+   "examples": []
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "[C] 在嗎"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [
+    "a"
+   ],
+   "text": "b",
+   "intro": "以下是最近的遊戲聊天記錄（含玩家自己剛發出的訊息），僅供你理解對話情境，不要翻譯這些內容：",
+   "examples": [
+    {
+     "role": "user",
+     "content": "在嗎，一起打王"
+    },
+    {
+     "role": "assistant",
+     "content": "you there? let's fight the boss"
+    },
+    {
+     "role": "user",
+     "content": "這隻打得贏嗎?"
+    },
+    {
+     "role": "assistant",
+     "content": "can we beat this one?"
+    },
+    {
+     "role": "user",
+     "content": "請提供你要的東西"
+    },
+    {
+     "role": "assistant",
+     "content": "gimme what you need"
+    }
+   ]
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "在嗎，一起打王"
+   },
+   {
+    "role": "assistant",
+    "content": "you there? let's fight the boss"
+   },
+   {
+    "role": "user",
+    "content": "這隻打得贏嗎?"
+   },
+   {
+    "role": "assistant",
+    "content": "can we beat this one?"
+   },
+   {
+    "role": "user",
+    "content": "請提供你要的東西"
+   },
+   {
+    "role": "assistant",
+    "content": "gimme what you need"
+   },
+   {
+    "role": "user",
+    "content": "以下是最近的遊戲聊天記錄（含玩家自己剛發出的訊息），僅供你理解對話情境，不要翻譯這些內容：\na"
+   },
+   {
+    "role": "assistant",
+    "content": "好的，我已了解語境。請給我要翻譯的訊息。"
+   },
+   {
+    "role": "user",
+    "content": "b"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [],
+   "text": "b",
+   "intro": "以下是最近的遊戲聊天記錄（含玩家自己剛發出的訊息），僅供你理解對話情境，不要翻譯這些內容：",
+   "examples": [
+    {
+     "role": "user",
+     "content": "在嗎，一起打王"
+    },
+    {
+     "role": "assistant",
+     "content": "you there? let's fight the boss"
+    },
+    {
+     "role": "user",
+     "content": "這隻打得贏嗎?"
+    },
+    {
+     "role": "assistant",
+     "content": "can we beat this one?"
+    },
+    {
+     "role": "user",
+     "content": "請提供你要的東西"
+    },
+    {
+     "role": "assistant",
+     "content": "gimme what you need"
+    }
+   ]
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "在嗎，一起打王"
+   },
+   {
+    "role": "assistant",
+    "content": "you there? let's fight the boss"
+   },
+   {
+    "role": "user",
+    "content": "這隻打得贏嗎?"
+   },
+   {
+    "role": "assistant",
+    "content": "can we beat this one?"
+   },
+   {
+    "role": "user",
+    "content": "請提供你要的東西"
+   },
+   {
+    "role": "assistant",
+    "content": "gimme what you need"
+   },
+   {
+    "role": "user",
+    "content": "b"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [
+    "x",
+    "y"
+   ],
+   "text": "z",
+   "intro": "intro",
+   "examples": [
+    {
+     "role": "user",
+     "content": "你好"
+    },
+    {
+     "role": "assistant",
+     "content": "hello"
+    }
+   ]
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "你好"
+   },
+   {
+    "role": "assistant",
+    "content": "hello"
+   },
+   {
+    "role": "user",
+    "content": "intro\nx\ny"
+   },
+   {
+    "role": "assistant",
+    "content": "好的，我已了解語境。請給我要翻譯的訊息。"
+   },
+   {
+    "role": "user",
+    "content": "z"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "build_turns",
+   "context": [],
+   "text": "z",
+   "intro": "intro",
+   "examples": []
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "z"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "example_turns",
+   "pair": [
+    "你好",
+    "hello"
+   ]
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": "你好"
+   },
+   {
+    "role": "assistant",
+    "content": "hello"
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "example_turns",
+   "pair": null
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "example_turns",
+   "pair": [
+    "",
+    ""
+   ]
+  },
+  "output": [
+   {
+    "role": "user",
+    "content": ""
+   },
+   {
+    "role": "assistant",
+    "content": ""
+   }
+  ]
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "English"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "english"
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "  ENGLISH  "
+  },
+  "output": true
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "English (US)"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": ""
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "Español"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "ſ"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "fn": "is_game_language",
+   "lang": "日本語"
+  },
+  "output": false
+ },
+ {
+  "input": {
+   "fn": "constants"
+  },
+  "output": {
+   "outgoing_language": "English",
+   "prompt_revision": 6,
+   "intro_incoming": "以下是最近的遊戲聊天記錄，僅供你理解語境（代詞、接話、省略等），不要翻譯這些內容：",
+   "intro_outgoing": "以下是最近的遊戲聊天記錄（含玩家自己剛發出的訊息），僅供你理解對話情境，不要翻譯這些內容：",
+   "ack": "好的，我已了解語境。請給我要翻譯的訊息。",
+   "fewshot": [
+    {
+     "role": "user",
+     "content": "在嗎，一起打王"
+    },
+    {
+     "role": "assistant",
+     "content": "you there? let's fight the boss"
+    },
+    {
+     "role": "user",
+     "content": "這隻打得贏嗎?"
+    },
+    {
+     "role": "assistant",
+     "content": "can we beat this one?"
+    },
+    {
+     "role": "user",
+     "content": "請提供你要的東西"
+    },
+    {
+     "role": "assistant",
+     "content": "gimme what you need"
+    }
+   ]
+  }
+ }
+]

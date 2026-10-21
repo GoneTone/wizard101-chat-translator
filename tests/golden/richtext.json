@@ -1,0 +1,634 @@
+[
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": ""
+  },
+  "output": []
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "plain text"
+  },
+  "output": [
+   [
+    "plain text",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[docs](https://a.example/d)"
+  },
+  "output": [
+   [
+    "docs",
+    "https://a.example/d"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "see [docs](http://a.example/d) now"
+  },
+  "output": [
+   [
+    "see ",
+    null
+   ],
+   [
+    "docs",
+    "http://a.example/d"
+   ],
+   [
+    " now",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[a](https://x.example)[b](https://y.example)"
+  },
+  "output": [
+   [
+    "a",
+    "https://x.example"
+   ],
+   [
+    "b",
+    "https://y.example"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[bad](javascript:alert(1))"
+  },
+  "output": [
+   [
+    "bad",
+    null
+   ],
+   [
+    ")",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[file](file:///C:/x)"
+  },
+  "output": [
+   [
+    "file",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[upper](HTTPS://A.EXAMPLE/U)"
+  },
+  "output": [
+   [
+    "upper",
+    "HTTPS://A.EXAMPLE/U"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[mixed](HtTp://a.example)"
+  },
+  "output": [
+   [
+    "mixed",
+    "HtTp://a.example"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[no scheme](a.example/x)"
+  },
+  "output": [
+   [
+    "no scheme",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[](https://a.example)"
+  },
+  "output": [
+   [
+    "[](https://a.example)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x]()"
+  },
+  "output": [
+   [
+    "[x]()",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](https://a.example/a b)"
+  },
+  "output": [
+   [
+    "[x](https://a.example/a b)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[multi\nline](https://a.example)"
+  },
+  "output": [
+   [
+    "[multi\nline](https://a.example)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](https://a.example/(p))"
+  },
+  "output": [
+   [
+    "x",
+    "https://a.example/(p"
+   ],
+   [
+    ")",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[[x]](https://a.example)"
+  },
+  "output": [
+   [
+    "[[x]](https://a.example)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "前文[連結](https://a.example/zh)後文"
+  },
+  "output": [
+   [
+    "前文",
+    null
+   ],
+   [
+    "連結",
+    "https://a.example/zh"
+   ],
+   [
+    "後文",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](https://a.example) tail"
+  },
+  "output": [
+   [
+    "x",
+    "https://a.example"
+   ],
+   [
+    " tail",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "head [x](mailto:a@b.c)"
+  },
+  "output": [
+   [
+    "head ",
+    null
+   ],
+   [
+    "x",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x] (https://a.example)"
+  },
+  "output": [
+   [
+    "[x] (https://a.example)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "](https://a.example)"
+  },
+  "output": [
+   [
+    "](https://a.example)",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](https://a.example"
+  },
+  "output": [
+   [
+    "[x](https://a.example",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "a [b](https://c.example/d?e=f&g=h#i) j"
+  },
+  "output": [
+   [
+    "a ",
+    null
+   ],
+   [
+    "b",
+    "https://c.example/d?e=f&g=h#i"
+   ],
+   [
+    " j",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "😀[e](https://e.example)😀"
+  },
+  "output": [
+   [
+    "😀",
+    null
+   ],
+   [
+    "e",
+    "https://e.example"
+   ],
+   [
+    "😀",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](data:text/html,hi)"
+  },
+  "output": [
+   [
+    "x",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](//a.example)"
+  },
+  "output": [
+   [
+    "x",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](https:a.example)"
+  },
+  "output": [
+   [
+    "x",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[a](https://a.example) and [b](ftp://b.example)"
+  },
+  "output": [
+   [
+    "a",
+    "https://a.example"
+   ],
+   [
+    " and ",
+    null
+   ],
+   [
+    "b",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](HTTP://)"
+  },
+  "output": [
+   [
+    "x",
+    "HTTP://"
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "parse_link_markup",
+   "text": "[x](vbscript:msgbox)"
+  },
+  "output": [
+   [
+    "x",
+    null
+   ]
+  ]
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": ""
+  },
+  "output": ""
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "no links here"
+  },
+  "output": "no links here"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "see https://a.example/x for help"
+  },
+  "output": "see [https://a.example/x](https://a.example/x) for help"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "key at https://a.example/keys."
+  },
+  "output": "key at [https://a.example/keys](https://a.example/keys)."
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "(https://a.example/p), then"
+  },
+  "output": "([https://a.example/p](https://a.example/p)), then"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "ftp://a.example/f"
+  },
+  "output": "ftp://a.example/f"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "[docs](https://a.example/d) stays"
+  },
+  "output": "[docs](https://a.example/d) stays"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "至 https://a.example/keys，請檢查"
+  },
+  "output": "至 [https://a.example/keys](https://a.example/keys)，請檢查"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/k。"
+  },
+  "output": "[https://a.example/k](https://a.example/k)。"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "HTTPS://A.EXAMPLE/UP"
+  },
+  "output": "[HTTPS://A.EXAMPLE/UP](HTTPS://A.EXAMPLE/UP)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "http://a.example/?q=1&r=2#frag"
+  },
+  "output": "[http://a.example/?q=1&r=2#frag](http://a.example/?q=1&r=2#frag)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "trailing punct https://a.example/x?!;:,.'"
+  },
+  "output": "trailing punct [https://a.example/x](https://a.example/x)?!;:,.'"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "two https://a.example/1 and http://b.example/2."
+  },
+  "output": "two [https://a.example/1](https://a.example/1) and [http://b.example/2](http://b.example/2)."
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "[https://a.example/l](https://a.example/l)"
+  },
+  "output": "[https://a.example/l](https://a.example/l)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://"
+  },
+  "output": "https://"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "http://."
+  },
+  "output": "[http://](http://)."
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/(paren)"
+  },
+  "output": "[https://a.example/](https://a.example/)(paren)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/[bracket]"
+  },
+  "output": "[https://a.example/](https://a.example/)[bracket]"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "x https://a.example/a'b' y"
+  },
+  "output": "x [https://a.example/a'b](https://a.example/a'b)' y"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "url\nhttps://a.example/nl\nnext"
+  },
+  "output": "url\n[https://a.example/nl](https://a.example/nl)\nnext"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/%E4%B8%AD"
+  },
+  "output": "[https://a.example/%E4%B8%AD](https://a.example/%E4%B8%AD)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/中文"
+  },
+  "output": "[https://a.example/](https://a.example/)中文"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "[x](https://a.example/m) and https://b.example/n"
+  },
+  "output": "[x](https://a.example/m) and [https://b.example/n](https://b.example/n)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "httpss://a.example"
+  },
+  "output": "httpss://a.example"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "mailto:a@b.c"
+  },
+  "output": "mailto:a@b.c"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/~user/@me"
+  },
+  "output": "[https://a.example/~user/@me](https://a.example/~user/@me)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "Https://a.example/Mixed"
+  },
+  "output": "[Https://a.example/Mixed](Https://a.example/Mixed)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "😀https://a.example/e😀"
+  },
+  "output": "😀[https://a.example/e](https://a.example/e)😀"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "see:https://a.example/colon"
+  },
+  "output": "see:[https://a.example/colon](https://a.example/colon)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/kK"
+  },
+  "output": "[https://a.example/kK](https://a.example/kK)"
+ },
+ {
+  "input": {
+   "fn": "linkify",
+   "text": "https://a.example/xıy"
+  },
+  "output": "[https://a.example/xıy](https://a.example/xıy)"
+ }
+]

@@ -1,0 +1,372 @@
+[
+ {
+  "input": "",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line count 0 != 6"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] Je sais pas, Kai et moi on a eu de nouvelles armures et appris Chat de Feu (Fire Cat) au boulevard du Colosse (Colossus Boulevard), lol\n2. Kai t'a appris Chat de Feu (Fire Cat) ! Tu as gagné {0} or au boulevard du Colosse (Colossus Boulevard).\n3. Parle au Chat de Feu (Fire Cat)\n4. Va au boulevard du Colosse (Colossus Boulevard)\n5. OPTIONS\n6. et ensuite tu dois",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] Je sais pas, Kai et moi on a eu de nouvelles armures et appris Chat de Feu (Fire Cat) au boulevard du Colosse (Colossus Boulevard), lol"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai t'a appris Chat de Feu (Fire Cat) ! Tu as gagné {0} or au boulevard du Colosse (Colossus Boulevard)."
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "Parle au Chat de Feu (Fire Cat)\nVa au boulevard du Colosse (Colossus Boulevard)\nOPTIONS\net ensuite tu dois"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 4 untranslated",
+    "line 5 untranslated",
+    "line 6 untranslated"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": null,
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": [
+    "line 2: needs Kai, one {0} and both names translated with the original in parentheses"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": null,
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": [
+    "line 1: needs [Amy], Kai and both names translated with the original in parentheses"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": null,
+   "failures": [
+    "line 3: needs Fire Cat translated with the original in parentheses"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] Je sais pas, Kai et moi on a eu de nouvelles armures et appris Fire Cat (Fire Cat) au boulevard du Colosse (Colossus Boulevard), lol\n2. Kai t'a appris Fire Cat (Fire Cat) ! Tu as gagné {0} or au boulevard du Colosse (Colossus Boulevard).\n3. Parle au Fire Cat (Fire Cat)\n4. Va au boulevard du Colosse (Colossus Boulevard)\n5. OPTIONS\n6. et ensuite tu dois",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 1: needs [Amy], Kai and both names translated with the original in parentheses",
+    "line 2: needs Kai, one {0} and both names translated with the original in parentheses",
+    "line 3: needs Fire Cat translated with the original in parentheses"
+   ]
+  }
+ },
+ {
+  "input": "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\nKai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n火猫（Fire Cat）に話しかける",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line count 3 != 6"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. and then you must",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 6 untranslated"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. OPTIONS\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nOPTIONS\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n6. そしてあなたは",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 5 untranslated"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション（OPTIONS）\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": null,
+   "failures": [
+    "line 5: interface label must not have parentheses"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 3 untranslated"
+   ]
+  }
+ },
+ {
+  "input": "1. 以下是翻譯：\n2. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n3. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n4. 火猫（Fire Cat）に話しかける\n5. 巨像大道（Colossus Boulevard）へ行く\n6. オプション\n7. そしてあなたは",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 1: needs [Amy], Kai and both names translated with the original in parentheses",
+    "line 2: needs Kai, one {0} and both names translated with the original in parentheses",
+    "line 4: needs Colossus Boulevard translated with the original in parentheses",
+    "line 5: interface label must not have parentheses"
+   ]
+  }
+ },
+ {
+  "input": "以下是翻譯：\n```\n1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは\n```",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\nKai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. \n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": null,
+   "system": null,
+   "region": null,
+   "failures": [
+    "line 4 untranslated"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道(Colossus Boulevard)で火猫(Fire Cat)を覚えた、笑\n2. Kai が火猫(Fire Cat)を教えてくれた！巨像大道(Colossus Boulevard)で {0} ゴールドを獲得した。\n3. 火猫(Fire Cat)に話しかける\n4. 巨像大道(Colossus Boulevard)へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道(Colossus Boulevard)で火猫(Fire Cat)を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫(Fire Cat)を教えてくれた！巨像大道(Colossus Boulevard)で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫(Fire Cat)に話しかける\n巨像大道(Colossus Boulevard)へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（ Fire Cat ）を覚えた、笑\n2. Kai が火猫（ Fire Cat ）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（ Fire Cat ）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（ Fire Cat ）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（ Fire Cat ）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（ Fire Cat ）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": null,
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": [
+    "line 2: needs Kai, one {0} and both names translated with the original in parentheses"
+   ]
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\r\n2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\r\n3. 火猫（Fire Cat）に話しかける\r\n4. 巨像大道（Colossus Boulevard）へ行く\r\n5. オプション\r\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑 2. Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。 3. 火猫（Fire Cat）に話しかける 4. 巨像大道（Colossus Boulevard）へ行く 5. オプション 6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": [
+    "Kai taught you Fire Cat! Gained {0} gold at Colossus Boulevard.",
+    "Kai が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。"
+   ],
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": []
+  }
+ },
+ {
+  "input": "1. [Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑\n2. が火猫（Fire Cat）を教えてくれた！巨像大道（Colossus Boulevard）で {0} ゴールドを獲得した。\n3. 火猫（Fire Cat）に話しかける\n4. 巨像大道（Colossus Boulevard）へ行く\n5. オプション\n6. そしてあなたは",
+  "output": {
+   "incoming": [
+    "[Amy] idk, Kai and I got new armor and learned Fire Cat at Colossus Boulevard lol, brb my wand is trash",
+    "[Amy] 知らないよ、Kai と新しい鎧を手に入れて、巨像大道（Colossus Boulevard）で火猫（Fire Cat）を覚えた、笑"
+   ],
+   "system": null,
+   "region": [
+    "Talk to the Fire Cat\nGo to Colossus Boulevard\nOPTIONS\nand then you must",
+    "火猫（Fire Cat）に話しかける\n巨像大道（Colossus Boulevard）へ行く\nオプション\nそしてあなたは"
+   ],
+   "failures": [
+    "line 2: needs Kai, one {0} and both names translated with the original in parentheses"
+   ]
+  }
+ }
+]

@@ -1,0 +1,70 @@
+[
+ {
+  "input": "{\"error\": {\"message\": \"Incorrect API key provided: sk-abc***\"}}",
+  "output": "Incorrect API key provided: sk-abc***"
+ },
+ {
+  "input": "{\"error\": \"model not found\"}",
+  "output": "model not found"
+ },
+ {
+  "input": "{\"message\": \"quota exceeded\"}",
+  "output": "quota exceeded"
+ },
+ {
+  "input": "{\"error\": {\"code\": 42}}",
+  "output": "{\"error\": {\"code\": 42}}"
+ },
+ {
+  "input": "{\"error\": {\"message\": 5}}",
+  "output": "{\"error\": {\"message\": 5}}"
+ },
+ {
+  "input": "{\"error\": {\"message\": \"inner\"}, \"message\": \"outer\"}",
+  "output": "inner"
+ },
+ {
+  "input": "{\"error\": 7, \"message\": \"fallback\"}",
+  "output": "fallback"
+ },
+ {
+  "input": "{\n  \"error\": {\n    \"message\": \"multi\nline   text\"\n  }\n}",
+  "output": "{ \"error\": { \"message\": \"multi line text\" } }"
+ },
+ {
+  "input": "[1, 2]",
+  "output": "[1, 2]"
+ },
+ {
+  "input": "42",
+  "output": "42"
+ },
+ {
+  "input": "null",
+  "output": "null"
+ },
+ {
+  "input": "  plain text \n body ",
+  "output": "plain text body"
+ },
+ {
+  "input": "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1><hr><center>nginx</center></body></html>",
+  "output": "404 Not Found 404 Not Found nginx"
+ },
+ {
+  "input": "line one\r\nline two\n\n\tline three",
+  "output": "line one line two line three"
+ },
+ {
+  "input": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \n  https://platform.openai.com/account/api-keys tail",
+  "output": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word https://platform.openai.com/account/api-keys tail"
+ },
+ {
+  "input": "中文  錯誤　訊息",
+  "output": "中文 錯誤 訊息"
+ },
+ {
+  "input": "",
+  "output": ""
+ }
+]

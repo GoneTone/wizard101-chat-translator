@@ -1,0 +1,666 @@
+[
+ {
+  "input": {
+   "official": false,
+   "thinking": false,
+   "deterministic": false,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 512,
+   "stream": true,
+   "reasoning_effort": "none",
+   "chat_template_kwargs": {
+    "enable_thinking": false
+   },
+   "think": false,
+   "enable_thinking": false
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": false,
+   "deterministic": false,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 4096,
+   "stream": true,
+   "reasoning_effort": "none",
+   "chat_template_kwargs": {
+    "enable_thinking": false
+   },
+   "think": false,
+   "enable_thinking": false
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": false,
+   "deterministic": true,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 512,
+   "stream": true,
+   "temperature": 0,
+   "reasoning_effort": "none",
+   "chat_template_kwargs": {
+    "enable_thinking": false
+   },
+   "think": false,
+   "enable_thinking": false
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": false,
+   "deterministic": true,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 4096,
+   "stream": true,
+   "temperature": 0,
+   "reasoning_effort": "none",
+   "chat_template_kwargs": {
+    "enable_thinking": false
+   },
+   "think": false,
+   "enable_thinking": false
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": true,
+   "deterministic": false,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 512,
+   "stream": true
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": true,
+   "deterministic": false,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 4096,
+   "stream": true
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": true,
+   "deterministic": true,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 512,
+   "stream": true,
+   "temperature": 0
+  }
+ },
+ {
+  "input": {
+   "official": false,
+   "thinking": true,
+   "deterministic": true,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_tokens": 4096,
+   "stream": true,
+   "temperature": 0
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": false,
+   "deterministic": false,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 512,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "reasoning_effort": "none"
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": false,
+   "deterministic": false,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 4096,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "reasoning_effort": "none"
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": false,
+   "deterministic": true,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 512,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "reasoning_effort": "none"
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": false,
+   "deterministic": true,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 4096,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   },
+   "reasoning_effort": "none"
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": true,
+   "deterministic": false,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 512,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": true,
+   "deterministic": false,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 4096,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": true,
+   "deterministic": true,
+   "max_tokens": 512,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 512,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  }
+ },
+ {
+  "input": {
+   "official": true,
+   "thinking": true,
+   "deterministic": true,
+   "max_tokens": 4096,
+   "system": "sys",
+   "turns": [
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ]
+  },
+  "output": {
+   "model": "m",
+   "messages": [
+    {
+     "role": "system",
+     "content": "sys"
+    },
+    {
+     "role": "user",
+     "content": "[A] hi"
+    },
+    {
+     "role": "assistant",
+     "content": "譯文"
+    }
+   ],
+   "max_completion_tokens": 4096,
+   "stream": true,
+   "stream_options": {
+    "include_usage": true
+   }
+  }
+ }
+]

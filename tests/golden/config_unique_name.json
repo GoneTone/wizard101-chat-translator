@@ -1,0 +1,144 @@
+[
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [],
+   "ignore_id": null
+  },
+  "output": "ChatGPT"
+ },
+ {
+  "input": {
+   "name": "Claude",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    },
+    {
+     "id": "b",
+     "name": "ChatGPT (2)"
+    }
+   ],
+   "ignore_id": null
+  },
+  "output": "Claude"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    }
+   ],
+   "ignore_id": null
+  },
+  "output": "ChatGPT (2)"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    },
+    {
+     "id": "b",
+     "name": "ChatGPT (2)"
+    }
+   ],
+   "ignore_id": null
+  },
+  "output": "ChatGPT (3)"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    }
+   ],
+   "ignore_id": "a"
+  },
+  "output": "ChatGPT"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    },
+    {
+     "id": "b",
+     "name": "ChatGPT (2)"
+    }
+   ],
+   "ignore_id": "b"
+  },
+  "output": "ChatGPT (2)"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a",
+     "name": "ChatGPT"
+    },
+    {
+     "id": "b",
+     "name": "ChatGPT (2)"
+    }
+   ],
+   "ignore_id": "zzz"
+  },
+  "output": "ChatGPT (3)"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "id": "a"
+    },
+    {
+     "id": "c",
+     "name": "ChatGPT"
+    }
+   ],
+   "ignore_id": null
+  },
+  "output": "ChatGPT (2)"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "name": "ChatGPT"
+    }
+   ],
+   "ignore_id": null
+  },
+  "output": "ChatGPT"
+ },
+ {
+  "input": {
+   "name": "ChatGPT",
+   "services": [
+    {
+     "name": "ChatGPT"
+    }
+   ],
+   "ignore_id": "a"
+  },
+  "output": "ChatGPT (2)"
+ }
+]

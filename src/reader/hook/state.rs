@@ -1,0 +1,213 @@
+//! 持久化 hook 的還原狀態：髒退出（硬砍／當機）後，下次對同一個仍在執行的遊戲程序啟動時自動修復殘留的 hook。
+//!
+//! 狀態＝依序寫回的（位址，原始 bytes）＋當時的模組基址，依 PID 存成 `hookstate-<pid>.json`。
+//! PID 可能被重用給新的遊戲程序（ASLR 後基址不同），故基址不符即視為過期不套用。
+
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+use super::cave::{MODULE, STUB_EXIT_WAIT};
+use crate::game::memory::ProcessMemory;
+use crate::logs::log;
+use crate::util::{hex, remove_dead_pid_files, unhex, write_atomic};
+
+/// 一組依序寫回的還原操作（位址，原始 bytes）。
+pub type RestoreOps = Vec<(u64, Vec<u8>)>;
+
+fn state_path(dir: &Path, pid: u32) -> PathBuf {
+    dir.join(format!("hookstate-{pid}.json"))
+}
+
+/// 存還原操作與模組基址；`dir` 為 state 目錄（實機用 `config::local_state_dir()`）。
+pub fn save_state(dir: &Path, pid: u32, base: u64, ops: &[(u64, Vec<u8>)]) -> io::Result<()> {
+    let ops: Vec<Value> = ops
+        .iter()
+        .map(|(addr, b)| json!({ "addr": addr, "bytes": hex(b) }))
+        .collect();
+    write_atomic(
+        &state_path(dir, pid),
+        &json!({ "base": base, "ops": ops }).to_string(),
+    )
+}
+
+fn parse(text: &str) -> Result<(u64, RestoreOps), String> {
+    let data: Value =
+        serde_json::from_str(text).map_err(|_| "malformed hook state (invalid JSON)".to_owned())?;
+    let bad = || "malformed hook state".to_owned();
+    let ops = data["ops"]
+        .as_array()
+        .ok_or_else(bad)?
+        .iter()
+        .map(|e| Some((e["addr"].as_u64()?, unhex(e["bytes"].as_str()?)?)))
+        .collect::<Option<_>>()
+        .ok_or_else(bad)?;
+    Ok((data["base"].as_u64().ok_or_else(bad)?, ops))
+}
+
+/// 讀還原操作，回傳 `(base, ops)`；無檔或壞檔回 `(None, [])`。
+pub fn load_state(dir: &Path, pid: u32) -> (Option<u64>, RestoreOps) {
+    let path = state_path(dir, pid);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => Ok(text),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return (None, Vec::new()),
+        Err(e) => Err(e.to_string()),
+    };
+    match text.and_then(|t| parse(&t)) {
+        Ok((base, ops)) => (Some(base), ops),
+        Err(err) => {
+            log(format!(
+                "[reader] hook state unreadable, leaked hooks cannot be repaired \
+                 (pid={pid}, file={}): {err}",
+                path.file_name().unwrap_or_default().to_string_lossy()
+            ));
+            (None, Vec::new())
+        }
+    }
+}
+
+/// 刪除該 PID 的狀態檔（乾淨關閉、或修復完成後呼叫）。
+pub fn clear_state(dir: &Path, pid: u32) {
+    match fs::remove_file(state_path(dir, pid)) {
+        Err(e) if e.kind() != io::ErrorKind::NotFound => {
+            log(format!(
+                "[reader] could not delete hook state (pid={pid}): {e}"
+            ));
+        }
+        _ => {}
+    }
+}
+
+/// 刪除已不在執行的 PID 的殘留狀態檔。
+pub fn sweep(dir: &Path, is_alive: impl Fn(u32) -> bool) {
+    remove_dead_pid_files(
+        dir,
+        |name| {
+            name.strip_prefix("hookstate-")?
+                .strip_suffix(".json")?
+                .parse()
+                .ok()
+        },
+        is_alive,
+        "[reader] could not delete stale hook state",
+    );
+}
+
+/// 若有上次髒退出遺留的 hook，模組基址相同時依檔案順序寫回原始 bytes；套用或過期都刪檔。
+///
+/// 最後一筆（cave）在 `wait` 之後、且所有跳轉都寫回成功才寫；回傳成功寫回的筆數。
+pub fn repair(
+    dir: &Path,
+    mem: &dyn ProcessMemory,
+    pid: u32,
+    slot: usize,
+    wait: impl FnOnce(Duration),
+) -> usize {
+    let (saved_base, ops) = load_state(dir, pid);
+    if ops.is_empty() {
+        return 0;
+    }
+    let current_base = match mem.module_base(MODULE) {
+        Ok(base) => Some(base),
+        Err(e) => {
+            log(format!(
+                "[reader] cannot read module base, ignoring hook state \
+                 (slot={slot}, pid={pid}): {e}"
+            ));
+            None
+        }
+    };
+    let mut written = 0;
+    if current_base.is_some() && current_base == saved_base {
+        let restore = |(addr, original): &(u64, Vec<u8>)| match mem.write(*addr, original) {
+            Ok(()) => true,
+            Err(e) => {
+                log(format!(
+                    "[reader] hook repair write failed at {addr:#x} \
+                     (slot={slot}, len={}): {e}",
+                    original.len()
+                ));
+                false
+            }
+        };
+        let (cave, jumps) = ops.split_last().expect("ops is non-empty");
+        written = jumps.iter().filter(|op| restore(op)).count();
+        let mut failed = jumps.len() - written;
+        if failed == 0 {
+            // 最後一筆是 cave：先等執行點離開 stub 再還原，同 `AutobotCave::uninstall_with`
+            wait(STUB_EXIT_WAIT);
+            if restore(cave) {
+                written += 1;
+            } else {
+                failed += 1;
+            }
+        } else {
+            // 還指向 stub 的跳轉配上還原後的 cave 會跳進函式中間，遊戲直接當掉
+            log(format!(
+                "[reader] hook repair skipped restoring the cave at {:#x} because {failed} jump \
+                 write(s) failed (slot={slot}, pid={pid})",
+                cave.0
+            ));
+        }
+        let outcome = if failed == 0 {
+            "no game restart needed"
+        } else {
+            "restart the game if chat stays silent"
+        };
+        log(format!(
+            "[reader] repaired hooks leaked by previous dirty exit \
+             (writes={written}, failed={failed}, slot={slot}, pid={pid}), {outcome}"
+        ));
+    } else if let (Some(current), Some(saved)) = (current_base, saved_base) {
+        log(format!(
+            "[reader] stale hook state ignored (slot={slot}, pid={pid} \
+             was reused: saved_base={saved:#x}, current_base={current:#x})"
+        ));
+    }
+    clear_state(dir, pid);
+    written
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    #[test]
+    fn save_load_roundtrip() {
+        let dir = tmp();
+        let ops = vec![
+            (0x1_4000_0000, vec![0x48, 0x89, 0x5c, 0x24]),
+            (0x1_4123_4567, vec![0xe9, 0x00, 0x11, 0x22, 0x33, 0x44]),
+        ];
+        save_state(dir.path(), 4321, 0x1_4000_0000, &ops).unwrap();
+        assert_eq!(load_state(dir.path(), 4321), (Some(0x1_4000_0000), ops));
+    }
+
+    #[test]
+    fn load_missing_returns_empty() {
+        assert_eq!(load_state(tmp().path(), 9999), (None, vec![]));
+    }
+
+    #[test]
+    fn clear_removes_file_and_missing_is_noop() {
+        let dir = tmp();
+        clear_state(dir.path(), 4321);
+        save_state(dir.path(), 4321, 0x1000, &[(0x2000, vec![0xab])]).unwrap();
+        clear_state(dir.path(), 4321);
+        assert_eq!(load_state(dir.path(), 4321), (None, vec![]));
+    }
+
+    #[test]
+    fn empty_ops_roundtrip() {
+        let dir = tmp();
+        save_state(dir.path(), 4321, 0x1000, &[]).unwrap();
+        assert_eq!(load_state(dir.path(), 4321), (Some(0x1000), vec![]));
+    }
+}

@@ -1,0 +1,176 @@
+[
+ {
+  "input": {
+   "config_version": 2,
+   "services": [],
+   "default_service": null,
+   "service_slots": {
+    "incoming": null,
+    "outgoing": null,
+    "region": null
+   },
+   "unsupported_services": [],
+   "ui_language": null,
+   "target_language": "繁體中文（台灣）",
+   "fade_seconds": 0,
+   "max_messages": 200,
+   "max_parallel_translations": 4,
+   "translate_system_messages": false,
+   "hotkey": "ctrl+space",
+   "region_hotkey": "ctrl+shift+space",
+   "auto_show_input": true,
+   "paste_hotkey": true,
+   "type_delay": 0.02,
+   "overlay_alpha": 0.8,
+   "overlay": {
+    "x": null,
+    "y": null,
+    "width": 640,
+    "height": 420
+   },
+   "bubble_position": {
+    "x": null,
+    "y": null
+   }
+  },
+  "output": "services=0, quarantined=0, default=none, incoming=default, outgoing=default, region=default, target_language='繁體中文（台灣）', ui_language=None, hotkey=ctrl+space, region_hotkey=ctrl+shift+space, paste_hotkey=True, auto_show_input=True, parallel=4, fade_seconds=0, max_messages=200, overlay_alpha=0.8, translate_system_messages=False"
+ },
+ {
+  "input": {
+   "config_version": 2,
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    },
+    {
+     "id": "s2",
+     "name": "Claude",
+     "provider": "claude",
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE",
+     "effort": "auto"
+    },
+    {
+     "id": "s3",
+     "name": "Local",
+     "provider": "custom",
+     "base_url": "http://x",
+     "model": "gemma",
+     "api_key": "",
+     "thinking": true
+    }
+   ],
+   "default_service": "s3",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": "s2",
+    "region": "s1"
+   },
+   "unsupported_services": [
+    {
+     "provider": "mistral"
+    },
+    "x"
+   ],
+   "ui_language": "ja-JP",
+   "target_language": "日本語",
+   "fade_seconds": 0,
+   "max_messages": 200,
+   "max_parallel_translations": 2.0,
+   "translate_system_messages": false,
+   "hotkey": [
+    "odd"
+   ],
+   "region_hotkey": "ctrl+shift+space",
+   "auto_show_input": true,
+   "paste_hotkey": false,
+   "type_delay": 0.02,
+   "overlay_alpha": 1.0,
+   "overlay": {
+    "x": null,
+    "y": null,
+    "width": 640,
+    "height": 420
+   },
+   "bubble_position": {
+    "x": null,
+    "y": null
+   }
+  },
+  "output": "services=3, quarantined=2, default=Local(custom/gemma,has_key=False), incoming=default, outgoing=Claude(claude/claude-x,has_key=True), region=GPT(openai/gpt-x,has_key=True), target_language='日本語', ui_language=ja-JP, hotkey=['odd'], region_hotkey=ctrl+shift+space, paste_hotkey=False, auto_show_input=True, parallel=2.0, fade_seconds=0, max_messages=200, overlay_alpha=1.0, translate_system_messages=False"
+ },
+ {
+  "input": {
+   "config_version": 2,
+   "services": [
+    {
+     "id": "s1",
+     "name": "GPT",
+     "provider": "openai",
+     "model": "gpt-x",
+     "api_key": "SK-OPENAI",
+     "thinking": false
+    },
+    {
+     "id": "s2",
+     "name": "Claude",
+     "provider": "claude",
+     "model": "claude-x",
+     "api_key": "SK-CLAUDE",
+     "effort": "auto"
+    },
+    {
+     "id": "s3",
+     "name": "Local",
+     "provider": "custom",
+     "base_url": "http://x",
+     "model": "gemma",
+     "api_key": "",
+     "thinking": true
+    }
+   ],
+   "default_service": "s3",
+   "service_slots": {
+    "incoming": null,
+    "outgoing": "s2",
+    "region": "s1"
+   },
+   "unsupported_services": [
+    {
+     "provider": "mistral"
+    },
+    "x"
+   ],
+   "ui_language": "ja-JP",
+   "target_language": "it's \"q\" \\ \n\t ",
+   "fade_seconds": 0,
+   "max_messages": 200,
+   "max_parallel_translations": 2.0,
+   "translate_system_messages": false,
+   "hotkey": [
+    "odd"
+   ],
+   "region_hotkey": null,
+   "auto_show_input": true,
+   "paste_hotkey": false,
+   "type_delay": 0.02,
+   "overlay_alpha": 1.0,
+   "overlay": {
+    "x": null,
+    "y": null,
+    "width": 640,
+    "height": 420
+   },
+   "bubble_position": {
+    "x": null,
+    "y": null
+   }
+  },
+  "output": "services=3, quarantined=2, default=Local(custom/gemma,has_key=False), incoming=default, outgoing=Claude(claude/claude-x,has_key=True), region=GPT(openai/gpt-x,has_key=True), target_language='it\\'s \"q\" \\\\ \\n\\t\\x7f\\xa0', ui_language=ja-JP, hotkey=['odd'], region_hotkey=None, paste_hotkey=False, auto_show_input=True, parallel=2.0, fade_seconds=0, max_messages=200, overlay_alpha=1.0, translate_system_messages=False"
+ }
+]

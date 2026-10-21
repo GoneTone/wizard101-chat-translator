@@ -1,0 +1,802 @@
+[
+ {
+  "input": "",
+  "output": "''"
+ },
+ {
+  "input": "'",
+  "output": "\"'\""
+ },
+ {
+  "input": "\"",
+  "output": "'\"'"
+ },
+ {
+  "input": "'\"",
+  "output": "'\\'\"'"
+ },
+ {
+  "input": "it's",
+  "output": "\"it's\""
+ },
+ {
+  "input": "say \"hi\"",
+  "output": "'say \"hi\"'"
+ },
+ {
+  "input": "both ' and \"",
+  "output": "'both \\' and \"'"
+ },
+ {
+  "input": "back\\slash",
+  "output": "'back\\\\slash'"
+ },
+ {
+  "input": "'",
+  "output": "\"'\""
+ },
+ {
+  "input": "tab\there",
+  "output": "'tab\\there'"
+ },
+ {
+  "input": "line\nbreak",
+  "output": "'line\\nbreak'"
+ },
+ {
+  "input": "cr\rlf\r\n",
+  "output": "'cr\\rlf\\r\\n'"
+ },
+ {
+  "input": "\u0000\u0001\u001f",
+  "output": "'\\x00\\x01\\x1f'"
+ },
+ {
+  "input": "del",
+  "output": "'del\\x7f'"
+ },
+ {
+  "input": "nbsp here",
+  "output": "'nbsp\\xa0here'"
+ },
+ {
+  "input": "zero​width",
+  "output": "'zero\\u200bwidth'"
+ },
+ {
+  "input": "bom﻿",
+  "output": "'bom\\ufeff'"
+ },
+ {
+  "input": "ls ps ",
+  "output": "'ls\\u2028ps\\u2029'"
+ },
+ {
+  "input": "emoji 😀",
+  "output": "'emoji 😀'"
+ },
+ {
+  "input": "非BMP 𝒳",
+  "output": "'非BMP 𝒳'"
+ },
+ {
+  "input": "[Amy] 火貓（Fire Cat）",
+  "output": "'[Amy] 火貓（Fire Cat）'"
+ },
+ {
+  "input": "Kai {0} gold",
+  "output": "'Kai {0} gold'"
+ },
+ {
+  "input": "unassigned ͸",
+  "output": "'unassigned \\u0378'"
+ },
+ {
+  "input": "private ",
+  "output": "'private \\ue000'"
+ },
+ {
+  "input": "noncharacter 🿾",
+  "output": "'noncharacter \\U0001fffe'"
+ },
+ {
+  "input": "plain ascii",
+  "output": "'plain ascii'"
+ },
+ {
+  "input": "Z​\u001b￾\n",
+  "output": "'Z\\u200b\\x1b\\ufffe\\n'"
+ },
+ {
+  "input": "􏿿􏿿あ🿾\u001b",
+  "output": "'\\ue000\\ue000\\ue000\\U0010ffff\\U0010ffffあ\\U0001fffe\\x1b'"
+ },
+ {
+  "input": "　🇺􏿿͸\\\u001b\u001b\u0007",
+  "output": "'\\u3000🇺\\U0010ffff\\u0378\\\\\\x1b\\x1b\\x07'"
+ },
+ {
+  "input": "中​͸\ra",
+  "output": "'中\\u200b\\u0378\\ra'"
+ },
+ {
+  "input": "\u001ba􏿿\\😀中",
+  "output": "'\\x1ba\\U0010ffff\\\\😀中'"
+ },
+ {
+  "input": "　あ 𝒳\u0007ß",
+  "output": "'\\u3000あ\\u2003𝒳\\x07\\x9fß'"
+ },
+ {
+  "input": "한🇺中 ß😀",
+  "output": "'한🇺中\\u2029ß😀'"
+ },
+ {
+  "input": "\r͸",
+  "output": "'\\r\\u0378'"
+ },
+ {
+  "input": "͸한 ",
+  "output": "'\\u0378한\\u2028'"
+ },
+ {
+  "input": " é⁠éß\u0007ß",
+  "output": "' é\\u2060éß\\x07ß'"
+ },
+ {
+  "input": "퟿‍\\\u0000̀ a",
+  "output": "'\\ud7ff\\u200d\\\\\\x00̀\\u2028a'"
+ },
+ {
+  "input": "  한\r\\",
+  "output": "'\\u2003\\u2003한\\r\\\\'"
+ },
+ {
+  "input": "𝒳\u001b",
+  "output": "'𝒳\\x1b'"
+ },
+ {
+  "input": "\\­ \u0000'",
+  "output": "\"\\\\\\xad\\u2003\\x00'\\x7f\""
+ },
+ {
+  "input": "\u0000'𝒳\"􏿿\"\u001b​",
+  "output": "'\\x00\\'𝒳\"\\U0010ffff\"\\x1b\\u200b'"
+ },
+ {
+  "input": "　\"\n᠎é　",
+  "output": "'\\u3000\"\\n\\x85\\u180eé\\u3000'"
+ },
+ {
+  "input": "a",
+  "output": "'a'"
+ },
+ {
+  "input": "\t",
+  "output": "'\\x80\\t'"
+ },
+ {
+  "input": "͸",
+  "output": "'\\u0378'"
+ },
+ {
+  "input": "　​",
+  "output": "'\\u3000\\u200b'"
+ },
+ {
+  "input": "ß　한 😀🇺Z",
+  "output": "'ß\\x85\\u3000한\\u2003😀🇺Z'"
+ },
+ {
+  "input": "̀﻿😀 🿾ß￾\n",
+  "output": "'̀\\ufeff😀\\u2028\\U0001fffeß\\ufffe\\n'"
+ },
+ {
+  "input": "󰀀",
+  "output": "'\\U000f0000'"
+ },
+ {
+  "input": "̀\u0000\u0000🿾􏿿​",
+  "output": "'̀\\x85\\x00\\x00\\U0001fffe\\U0010ffff\\x7f\\u200b'"
+ },
+ {
+  "input": "Z🿾' ̀",
+  "output": "\"Z\\U0001fffe' ̀\""
+ },
+ {
+  "input": "Zé​🇺Z\u0000'𝒳",
+  "output": "\"Zé\\u200b🇺Z\\x00'𝒳\""
+ },
+ {
+  "input": "﻿͸﻿",
+  "output": "'\\ufeff\\x85\\u0378\\x7f\\ufeff\\ue000'"
+ },
+ {
+  "input": "한",
+  "output": "'한\\ue000'"
+ },
+ {
+  "input": " ‍͸ 😀﻿",
+  "output": "'\\u2028\\u200d\\u0378\\u2029😀\\ufeff'"
+ },
+ {
+  "input": "᠎﻿﻿؜\r　한",
+  "output": "'\\u180e\\ufeff\\ufeff\\u061c\\r\\u3000한\\ue000'"
+ },
+ {
+  "input": "a​　é­\\Z",
+  "output": "'\\ue000a\\u200b\\u3000é\\xad\\\\Z'"
+ },
+ {
+  "input": "한é한😀​𝒳͸",
+  "output": "'한é한😀\\u200b\\ue000𝒳\\u0378'"
+ },
+ {
+  "input": "﻿😀\n\rß　",
+  "output": "'\\ufeff😀\\n\\r\\x7fß\\u3000'"
+ },
+ {
+  "input": "\n　",
+  "output": "'\\n\\u3000'"
+ },
+ {
+  "input": " あ‍ \"‍",
+  "output": "'\\u2029あ\\x7f\\u200d\\xa0\"\\u200d'"
+ },
+ {
+  "input": "̀ 🇺🇺؜﻿­ ",
+  "output": "'̀\\u2029🇺🇺\\u061c\\ufeff\\xad\\u2029'"
+ },
+ {
+  "input": " \n",
+  "output": "'\\u2029\\x85\\n'"
+ },
+ {
+  "input": "؜􏿿‍­􏿿",
+  "output": "'\\x9f\\u061c\\U0010ffff\\u200d\\xad\\U0010ffff'"
+ },
+ {
+  "input": " ￾ß",
+  "output": "'\\x85\\u2028\\ufffeß'"
+ },
+ {
+  "input": "🇺 🇺",
+  "output": "'🇺\\u2028🇺'"
+ },
+ {
+  "input": " 😀󰀀中",
+  "output": "'\\u2029😀\\U000f0000中'"
+ },
+ {
+  "input": "한᠎\"‍é͸𝒳",
+  "output": "'한\\u180e\"\\u200dé\\u0378𝒳'"
+ },
+ {
+  "input": "‍\\﻿⁠퟿　",
+  "output": "'\\u200d\\\\\\x85\\ufeff\\u2060\\ud7ff\\u3000'"
+ },
+ {
+  "input": "‍",
+  "output": "'\\u200d'"
+ },
+ {
+  "input": "𝒳",
+  "output": "'𝒳'"
+ },
+ {
+  "input": " ",
+  "output": "'\\u2029'"
+ },
+ {
+  "input": "한￾Z􏿿𝒳",
+  "output": "'한\\ue000\\x9f\\ufffeZ\\x80\\U0010ffff𝒳'"
+ },
+ {
+  "input": "\t \t\u0007 ",
+  "output": "'\\t\\u2029\\ue000\\t\\x07\\x9f\\u2028'"
+ },
+ {
+  "input": "‍\"⁠\u001b􏿿 ",
+  "output": "'\\u200d\"\\u2060\\x1b\\U0010ffff\\u2029'"
+ },
+ {
+  "input": "​\nß﻿ ",
+  "output": "'\\u200b\\nß\\ufeff\\x80\\u2003'"
+ },
+ {
+  "input": "﻿⁠󰀀⁠­",
+  "output": "'\\ufeff\\u2060\\U000f0000\\u2060\\xad'"
+ },
+ {
+  "input": "",
+  "output": "'\\ue000'"
+ },
+ {
+  "input": "🿾",
+  "output": "'\\U0001fffe'"
+ },
+ {
+  "input": "한 🿾󰀀퟿⁠'",
+  "output": "\"한\\u2028\\x85\\U0001fffe\\U000f0000\\ud7ff\\u2060'\""
+ },
+ {
+  "input": "\n😀🇺\t",
+  "output": "'\\n😀🇺\\t'"
+ },
+ {
+  "input": "🇺中中",
+  "output": "'🇺中中'"
+ },
+ {
+  "input": "᠎éé\u0007￾",
+  "output": "'\\u180e\\x85éé\\x07\\ufffe'"
+ },
+ {
+  "input": "\t􏿿\"\\ ",
+  "output": "'\\t\\U0010ffff\"\\\\\\u2028'"
+ },
+ {
+  "input": "",
+  "output": "'\\x7f\\x80'"
+ },
+ {
+  "input": " 𝒳 ­",
+  "output": "'\\u2029𝒳\\u2028\\xad'"
+ },
+ {
+  "input": "􏿿\u0007 ̀￾\\",
+  "output": "'\\U0010ffff\\x07\\u2029̀\\ufffe\\\\'"
+ },
+ {
+  "input": "\u0000",
+  "output": "'\\x00'"
+ },
+ {
+  "input": "\t",
+  "output": "'\\t'"
+ },
+ {
+  "input": "🿾",
+  "output": "'\\U0001fffe'"
+ },
+ {
+  "input": "  😀﻿\r͸😀　",
+  "output": "'\\u2028\\xa0😀\\ufeff\\r\\u0378😀\\u3000'"
+ },
+ {
+  "input": "あ🇺あé",
+  "output": "'あ🇺あé'"
+ },
+ {
+  "input": "\r🇺 ",
+  "output": "'\\r🇺\\u2003'"
+ },
+ {
+  "input": " 😀",
+  "output": "'\\u2028😀'"
+ },
+ {
+  "input": "\t͸\u0000􏿿Z",
+  "output": "'\\t\\u0378\\x00\\U0010ffffZ'"
+ },
+ {
+  "input": "\t𝒳",
+  "output": "'\\t𝒳'"
+ },
+ {
+  "input": "'̀ß􏿿\r😀",
+  "output": "\"'\\x7f\\x80̀ß\\U0010ffff\\r😀\""
+ },
+ {
+  "input": "\\퟿\r' ­",
+  "output": "\"\\\\\\ud7ff\\r'\\u2003\\xad\""
+ },
+ {
+  "input": "؜'한😀😀",
+  "output": "\"\\u061c'한😀😀\""
+ },
+ {
+  "input": "­‍",
+  "output": "'\\x9f\\xad\\u200d'"
+ },
+ {
+  "input": "͸‍　\rZ ",
+  "output": "'\\u0378\\u200d\\x85\\u3000\\rZ '"
+ },
+ {
+  "input": "󰀀あ\\᠎",
+  "output": "'\\U000f0000あ\\\\\\u180e'"
+ },
+ {
+  "input": "؜\nZ \u0000",
+  "output": "'\\u061c\\n\\ue000Z \\x00'"
+ },
+ {
+  "input": "\\　",
+  "output": "'\\\\\\x7f\\x7f\\u3000'"
+ },
+ {
+  "input": "̀ \\🿾￾",
+  "output": "'̀ \\\\\\U0001fffe\\ufffe'"
+ },
+ {
+  "input": "😀‍󰀀",
+  "output": "'😀\\u200d\\U000f0000\\x80'"
+ },
+ {
+  "input": "é𝒳 ​؜\u0007🇺͸",
+  "output": "'é𝒳\\u2003\\u200b\\u061c\\x07🇺\\u0378'"
+ },
+ {
+  "input": "­​￾🇺‍🇺Z𝒳",
+  "output": "'\\xad\\u200b\\ufffe🇺\\u200d🇺Z𝒳'"
+ },
+ {
+  "input": "é　",
+  "output": "'é\\x9f\\u3000'"
+ },
+ {
+  "input": " a\u001b",
+  "output": "'\\u2003a\\x1b'"
+ },
+ {
+  "input": "​🿾 ͸Z\u0007",
+  "output": "'\\u200b\\x80\\U0001fffe\\u2029\\x9f\\u0378Z\\x07'"
+ },
+ {
+  "input": "",
+  "output": "'\\x9f'"
+ },
+ {
+  "input": "é￾­　",
+  "output": "'é\\ufffe\\xad\\u3000'"
+ },
+ {
+  "input": "é￾͸ß﻿",
+  "output": "'é\\x9f\\ufffe\\x85\\x85\\u0378ß\\ufeff'"
+ },
+ {
+  "input": "a­ 𝒳",
+  "output": "'a\\xad 𝒳\\x80'"
+ },
+ {
+  "input": "􏿿 中\r",
+  "output": "'\\ue000\\U0010ffff 中\\r'"
+ },
+ {
+  "input": "̀🿾\u0007ß \u0007ß ",
+  "output": "'̀\\U0001fffe\\x07ß\\u2028\\x07ß '"
+ },
+ {
+  "input": "🇺􏿿 ",
+  "output": "'🇺\\U0010ffff\\u2029'"
+ },
+ {
+  "input": "᠎ ",
+  "output": "'\\u180e\\u2003'"
+ },
+ {
+  "input": "𝒳 \"⁠􏿿󰀀",
+  "output": "'𝒳\\x9f\\u2029\"\\u2060\\x85\\U0010ffff\\U000f0000'"
+ },
+ {
+  "input": "\n\u001b한🿾᠎",
+  "output": "'\\n\\x80\\x1b한\\U0001fffe\\u180e'"
+ },
+ {
+  "input": "⁠  ￾͸ ",
+  "output": "'\\u2060\\xa0\\u2029\\ufffe\\u0378\\u2003'"
+ },
+ {
+  "input": "̀󰀀\r͸ 中­",
+  "output": "'\\x85̀\\U000f0000\\r\\u0378\\u2029中\\xad'"
+ },
+ {
+  "input": "''̀",
+  "output": "\"''̀\""
+ },
+ {
+  "input": " 한  😀؜",
+  "output": "'\\u2003한\\xa0\\u2029😀\\u061c'"
+ },
+ {
+  "input": "\\̀'\n",
+  "output": "\"\\\\̀'\\n\""
+ },
+ {
+  "input": "aあ\tあ あ​\"",
+  "output": "'aあ\\tあ\\u2003あ\\u200b\"'"
+ },
+ {
+  "input": "­ ᠎あ🿾",
+  "output": "'\\xad\\u2028\\u180eあ\\U0001fffe'"
+ },
+ {
+  "input": "؜",
+  "output": "'\\u061c'"
+ },
+ {
+  "input": "﻿­",
+  "output": "'\\ufeff\\xad'"
+ },
+ {
+  "input": "⁠한　 ",
+  "output": "'\\u2060한\\u3000 '"
+ },
+ {
+  "input": "　￾a\r",
+  "output": "'\\u3000\\ufffea\\r'"
+ },
+ {
+  "input": "𝒳Zあ᠎",
+  "output": "'𝒳Zあ\\u180e'"
+ },
+ {
+  "input": " 😀\u0000𝒳\n­",
+  "output": "'\\u2028😀\\x00𝒳\\n\\x85\\xad'"
+ },
+ {
+  "input": "\u0000𝒳",
+  "output": "'\\x00𝒳'"
+ },
+ {
+  "input": "​\"󰀀ß󰀀􏿿",
+  "output": "'\\u200b\"\\U000f0000ß\\ue000\\U000f0000\\U0010ffff'"
+ },
+ {
+  "input": " Z",
+  "output": "'\\u2029Z'"
+ },
+ {
+  "input": "'⁠",
+  "output": "\"'\\u2060\""
+ },
+ {
+  "input": "᠎a",
+  "output": "'\\u180ea'"
+ },
+ {
+  "input": "😀󰀀￾퟿😀",
+  "output": "'😀\\U000f0000\\ufffe\\ud7ff😀'"
+ },
+ {
+  "input": "￾\"𝒳",
+  "output": "'\\ufffe\"\\x7f𝒳'"
+ },
+ {
+  "input": "Z‍퟿؜𝒳",
+  "output": "'Z\\u200d\\ud7ff\\u061c𝒳'"
+ },
+ {
+  "input": "􏿿 󰀀﻿",
+  "output": "'\\U0010ffff\\x80\\u2028\\U000f0000\\ufeff'"
+ },
+ {
+  "input": "­中\u0000￾Z",
+  "output": "'\\xad\\ue000中\\x00\\ufffeZ'"
+ },
+ {
+  "input": "\r⁠ ",
+  "output": "'\\r\\u2060\\u2029'"
+ },
+ {
+  "input": " ­",
+  "output": "'\\u2028\\xad'"
+ },
+ {
+  "input": " ͸Z",
+  "output": "'\\x7f\\u2028\\u0378Z'"
+ },
+ {
+  "input": "Z­Z\u0000\"",
+  "output": "'Z\\xadZ\\x00\"'"
+ },
+ {
+  "input": "　🿾🿾 é\u0007",
+  "output": "'\\u3000\\U0001fffe\\U0001fffe\\u2029é\\x07'"
+ },
+ {
+  "input": " a￾؜🇺'⁠",
+  "output": "\" a\\ufffe\\u061c🇺'\\u2060\""
+ },
+ {
+  "input": "\t ßa",
+  "output": "'\\t\\xa0ßa'"
+ },
+ {
+  "input": "あ　",
+  "output": "'あ\\u3000'"
+ },
+ {
+  "input": "᠎᠎😀\\ 􏿿\u0000",
+  "output": "'\\u180e\\x9f\\u180e😀\\\\\\u2029\\U0010ffff\\x00'"
+ },
+ {
+  "input": " ؜\t😀؜𝒳",
+  "output": "'\\x85\\u2003\\u061c\\t😀\\u061c𝒳'"
+ },
+ {
+  "input": "؜􏿿",
+  "output": "'\\u061c\\U0010ffff'"
+ },
+ {
+  "input": "'\"؜\u001bß",
+  "output": "'\\'\"\\u061c\\x1bß\\x9f\\x80'"
+ },
+ {
+  "input": "Z",
+  "output": "'Z'"
+ },
+ {
+  "input": "'é᠎é퟿\u0000",
+  "output": "\"'é\\u180eé\\ud7ff\\x00\""
+ },
+ {
+  "input": "🿾🿾あ　\u0000﻿",
+  "output": "'\\U0001fffe\\U0001fffe\\ue000あ\\u3000\\x00\\ufeff'"
+ },
+ {
+  "input": "\\",
+  "output": "'\\\\'"
+ },
+ {
+  "input": "Z\t󰀀\r\t­\u0000",
+  "output": "'\\x9fZ\\t\\U000f0000\\r\\t\\xad\\x00'"
+ },
+ {
+  "input": "🇺\t﻿퟿ ",
+  "output": "'🇺\\t\\x80\\ufeff\\ud7ff\\u2028'"
+ },
+ {
+  "input": "\\ 𝒳􏿿ß ",
+  "output": "'\\\\\\xa0𝒳\\U0010ffffß '"
+ },
+ {
+  "input": "\\‍ ",
+  "output": "'\\\\\\u200d\\xa0'"
+ },
+ {
+  "input": "\u0007 𝒳\r⁠",
+  "output": "'\\x80\\x07\\u2028𝒳\\r\\x80\\u2060'"
+ },
+ {
+  "input": "🿾 ­؜ \u0000\r",
+  "output": "'\\U0001fffe \\xad\\u061c\\u2029\\x9f\\x00\\r'"
+ },
+ {
+  "input": " ",
+  "output": "' '"
+ },
+ {
+  "input": "'\t中🿾\\⁠",
+  "output": "\"'\\ue000\\t中\\U0001fffe\\\\\\u2060\""
+ },
+ {
+  "input": "⁠ ",
+  "output": "'\\u2060\\xa0'"
+ },
+ {
+  "input": "\u001ba­ ",
+  "output": "'\\x1ba\\x7f\\xad\\u2003\\x85\\x85\\x85'"
+ },
+ {
+  "input": "　⁠\r͸𝒳 ",
+  "output": "'\\u3000\\u2060\\r\\u0378𝒳 '"
+ },
+ {
+  "input": "  \u001b̀",
+  "output": "' \\u2029\\x1b\\x80̀'"
+ },
+ {
+  "input": "​‍",
+  "output": "'\\u200b\\u200d'"
+ },
+ {
+  "input": "\u0000؜͸",
+  "output": "'\\x00\\u061c\\u0378'"
+ },
+ {
+  "input": "­'ß",
+  "output": "\"\\xad'ß\""
+ },
+ {
+  "input": " ᠎　􏿿􏿿󰀀­",
+  "output": "'\\u2029\\u180e\\u3000\\U0010ffff\\U0010ffff\\U000f0000\\xad'"
+ },
+ {
+  "input": "'؜🿾Z한'؜",
+  "output": "\"'\\u061c\\U0001fffeZ한'\\u061c\""
+ },
+ {
+  "input": "é￾‍",
+  "output": "'é\\ufffe\\u200d'"
+ },
+ {
+  "input": "\n  \u0000\u001b ",
+  "output": "'\\n\\u2003\\xa0\\x00\\x1b\\xa0'"
+ },
+ {
+  "input": "中\n­🇺  ",
+  "output": "'中\\n\\xad🇺\\u2028\\xa0'"
+ },
+ {
+  "input": "⁠ß\u0000​",
+  "output": "'\\u2060ß\\x00\\u200b'"
+ },
+ {
+  "input": "Z ­😀‍",
+  "output": "'Z \\xad😀\\u200d'"
+ },
+ {
+  "input": "🿾­᠎͸퟿",
+  "output": "'\\U0001fffe\\xad\\u180e\\u0378\\ud7ff'"
+ },
+ {
+  "input": "؜⁠\u0000ß😀",
+  "output": "'\\u061c\\u2060\\x00ß😀'"
+ },
+ {
+  "input": "😀",
+  "output": "'😀'"
+ },
+ {
+  "input": "𝒳͸­ a",
+  "output": "'𝒳\\u0378\\xad\\u2028a'"
+ },
+ {
+  "input": "😀󰀀᠎é﻿",
+  "output": "'😀\\U000f0000\\u180eé\\ufeff'"
+ },
+ {
+  "input": "😀Z￾￾ßa",
+  "output": "'😀Z\\ufffe\\ufffeßa'"
+ },
+ {
+  "input": "̀é",
+  "output": "'̀é'"
+ },
+ {
+  "input": "퟿😀",
+  "output": "'\\ud7ff😀'"
+ },
+ {
+  "input": "あ𝒳　あ　",
+  "output": "'あ𝒳\\x85\\u3000あ\\u3000'"
+ },
+ {
+  "input": " ퟿",
+  "output": "'\\u2003\\ud7ff'"
+ },
+ {
+  "input": "\u0000",
+  "output": "'\\x00'"
+ },
+ {
+  "input": "𝒳\"\u001b￾\"­͸",
+  "output": "'𝒳\"\\x1b\\ufffe\\ue000\"\\xad\\u0378'"
+ },
+ {
+  "input": "͸᠎",
+  "output": "'\\u0378\\ue000\\u180e'"
+ },
+ {
+  "input": "あ͸",
+  "output": "'あ\\u0378'"
+ },
+ {
+  "input": "\\‍",
+  "output": "'\\\\\\u200d'"
+ },
+ {
+  "input": "‍﻿",
+  "output": "'\\u200d\\ufeff'"
+ },
+ {
+  "input": "中中\ta﻿",
+  "output": "'中中\\ta\\x80\\x7f\\ufeff'"
+ },
+ {
+  "input": "' ­󰀀",
+  "output": "\"'\\ue000\\u2028\\xad\\U000f0000\""
+ }
+]

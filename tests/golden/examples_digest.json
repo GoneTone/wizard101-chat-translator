@@ -1,0 +1,115 @@
+[
+ {
+  "input": {
+   "incoming": null,
+   "system": null,
+   "region": null
+  },
+  "output": {
+   "digest": "0221c714c6fb",
+   "repr": "ExampleSet(incoming=None, system=None, region=None)"
+  }
+ },
+ {
+  "input": {
+   "incoming": [
+    "[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛",
+    "[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash"
+   ],
+   "system": [
+    "Kai 教会了你火猫！在巨像大道获得了 {0} 金币。",
+    "Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道)."
+   ],
+   "region": [
+    "和火猫谈谈\n前往巨像大道\n选项\n然后你必须",
+    "Talk to the Fire Cat (火猫)\nGo to Colossus Boulevard (巨像大道)\nOptions\nand then you must"
+   ]
+  },
+  "output": {
+   "digest": "0e59273c5958",
+   "repr": "ExampleSet(incoming=('[小明] 不知道耶，我和 Kai 拿到新護甲，還在巨像大道學會了火貓，笑死，等我一下，我的法杖超爛', '[小明] idk, Kai and I got new armor and learned Fire Cat (火貓) at Colossus Boulevard (巨像大道) lol, brb my wand is trash'), system=('Kai 教会了你火猫！在巨像大道获得了 {0} 金币。', 'Kai taught you Fire Cat (火猫)! Gained {0} gold at Colossus Boulevard (巨像大道).'), region=('和火猫谈谈\\n前往巨像大道\\n选项\\n然后你必须', 'Talk to the Fire Cat (火猫)\\nGo to Colossus Boulevard (巨像大道)\\nOptions\\nand then you must'))"
+  }
+ },
+ {
+  "input": {
+   "incoming": [
+    "s",
+    "o"
+   ],
+   "system": null,
+   "region": null
+  },
+  "output": {
+   "digest": "8e0aa6546381",
+   "repr": "ExampleSet(incoming=('s', 'o'), system=None, region=None)"
+  }
+ },
+ {
+  "input": {
+   "incoming": null,
+   "system": [
+    "it's",
+    "say \"hi\""
+   ],
+   "region": null
+  },
+  "output": {
+   "digest": "30be6d966583",
+   "repr": "ExampleSet(incoming=None, system=(\"it's\", 'say \"hi\"'), region=None)"
+  }
+ },
+ {
+  "input": {
+   "incoming": null,
+   "system": null,
+   "region": [
+    "a\nb",
+    "c\\d\te"
+   ]
+  },
+  "output": {
+   "digest": "e14aa903134e",
+   "repr": "ExampleSet(incoming=None, system=None, region=('a\\nb', 'c\\\\d\\te'))"
+  }
+ },
+ {
+  "input": {
+   "incoming": [
+    "both ' and \"",
+    "​﻿"
+   ],
+   "system": [
+    "😀",
+    ""
+   ],
+   "region": [
+    " ",
+    "͸"
+   ]
+  },
+  "output": {
+   "digest": "f4a2448b180b",
+   "repr": "ExampleSet(incoming=('both \\' and \"', '\\u200b\\ufeff'), system=('😀', '\\x7f'), region=('\\u2028', '\\u0378'))"
+  }
+ },
+ {
+  "input": {
+   "incoming": [
+    "[Amy] 火貓",
+    "[Amy] Fire Cat (火貓)"
+   ],
+   "system": [
+    "",
+    ""
+   ],
+   "region": [
+    "x",
+    "y"
+   ]
+  },
+  "output": {
+   "digest": "0d403f104538",
+   "repr": "ExampleSet(incoming=('[Amy] 火貓', '[Amy] Fire Cat (火貓)'), system=('', ''), region=('x', 'y'))"
+  }
+ }
+]

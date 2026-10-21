@@ -1,0 +1,52 @@
+[
+ {
+  "input": {
+   "provider": "custom",
+   "model": "gemma-4-26b-a4b",
+   "target": "繁體中文（台灣）",
+   "base_url": "",
+   "digest": "-"
+  },
+  "output": "custom||gemma-4-26b-a4b|繁體中文（台灣）|p6|x-"
+ },
+ {
+  "input": {
+   "provider": "custom",
+   "model": "qwen3",
+   "target": "日本語",
+   "base_url": "http://127.0.0.1:11434",
+   "digest": "abc123def456"
+  },
+  "output": "custom|http://127.0.0.1:11434|qwen3|日本語|p6|xabc123def456"
+ },
+ {
+  "input": {
+   "provider": "claude",
+   "model": "claude-opus-5",
+   "target": "English",
+   "base_url": "",
+   "digest": "-"
+  },
+  "output": "claude||claude-opus-5|English|p6|x-"
+ },
+ {
+  "input": {
+   "provider": "openai",
+   "model": "gpt-5",
+   "target": "Español",
+   "base_url": "https://x.example/v1",
+   "digest": "0123456789ab"
+  },
+  "output": "openai|https://x.example/v1|gpt-5|Español|p6|x0123456789ab"
+ },
+ {
+  "input": {
+   "provider": "gemini",
+   "model": "",
+   "target": "",
+   "base_url": "",
+   "digest": ""
+  },
+  "output": "gemini||||p6|x"
+ }
+]

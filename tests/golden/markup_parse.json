@@ -1,0 +1,4949 @@
+[
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link>   spaced \t out text   </color>",
+  "output": [
+   "[Lars] spaced out text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[Lars] torn",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[你] fire first then :laughter:",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#d9abf8",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[你] :haha:x",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] new\nline </color>",
+  "output": [
+   "[你] new line",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[Ann Lee] a <3 b & c > d",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[Ann Lee] x",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a b",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :smile::wave:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] &lt; double",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [] new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> a\u0000b </color>",
+  "output": [
+   "[日本語] a b",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[日本語] :smile::wave:",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> &amp;lt; double </color>",
+  "output": [
+   "[日本語] &lt; double",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>    spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>  <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF>  <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Lars] fire first then :laughter:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[Lars] :haha:x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> new\nline </color>",
+  "output": [
+   "[Lars] new line",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你] a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[你] a <3 b & c > d",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你]  </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   "#d9abf8",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [你] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[你] x",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a\u0000b </color>",
+  "output": [
+   "[Ann Lee] a b",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Ann Lee] :smile::wave:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> &amp;lt; double </color>",
+  "output": [
+   "[Ann Lee] &lt; double",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] spaced out text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] torn",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [] a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> []  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> [a]b &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link>   spaced \t out text   </color>",
+  "output": [
+   "[日本語] spaced out text",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[日本語] torn",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Team.dds;24;24;FFFFFFFF>  new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[Lars] a <3 b & c > d",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[Lars] x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] a\u0000b </color>",
+  "output": [
+   "[你] a b",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[你] :smile::wave:",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] &amp;lt; double </color>",
+  "output": [
+   "[你] &lt; double",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link>   spaced \t out text   </color>",
+  "output": [
+   "[Ann Lee] spaced out text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[Ann Lee] torn",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] fire first then :laughter:",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :haha:x",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] new line",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [] &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [a]b <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[日本語] fire first then :laughter:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[日本語] :haha:x",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> new\nline </color>",
+  "output": [
+   "[日本語] new line",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>  a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF>  <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> a\u0000b </color>",
+  "output": [
+   "[Lars] a b",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Lars] :smile::wave:",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> &amp;lt; double </color>",
+  "output": [
+   "[Lars] &lt; double",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你]   spaced \t out text   </color>",
+  "output": [
+   "[你] spaced out text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[你] torn",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [你] <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Ann Lee] fire first then :laughter:",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[Ann Lee] :haha:x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> new\nline </color>",
+  "output": [
+   "[Ann Lee] new line",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a <3 b & c > d",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] x",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> []   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [] <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> [a]b new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[日本語] a <3 b & c > d",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[日本語] x",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF>  &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link>   spaced \t out text   </color>",
+  "output": [
+   "[Lars] spaced out text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[Lars] torn",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[你] fire first then :laughter:",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[你] :haha:x",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [你] new\nline </color>",
+  "output": [
+   "[你] new line",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[Ann Lee] a <3 b & c > d",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[Ann Lee] x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a b",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :smile::wave:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] &lt; double",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [] new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> a\u0000b </color>",
+  "output": [
+   "[日本語] a b",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[日本語] :smile::wave:",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> &amp;lt; double </color>",
+  "output": [
+   "[日本語] &lt; double",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>    spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>  <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Word_Balloon.dds;24;24;FFFFFFFF>  <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Lars] fire first then :laughter:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[Lars] :haha:x",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> new\nline </color>",
+  "output": [
+   "[Lars] new line",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你] a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[你] a <3 b & c > d",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你]  </color>",
+  "output": [
+   "[你]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [你] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[你] x",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a\u0000b </color>",
+  "output": [
+   "[Ann Lee] a b",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Ann Lee] :smile::wave:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> &amp;lt; double </color>",
+  "output": [
+   "[Ann Lee] &lt; double",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] spaced out text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] torn",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] fire first then :laughter:",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :haha:x",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] new line",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": [
+   "[] hello there",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [] a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[] a <3 b & c > d",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": [
+   "[] tab tab",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> []  </color>",
+  "output": [
+   "[]",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": [
+   "[] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[] x",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": [
+   "[a]b hello there",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b a\u0000b </color>",
+  "output": [
+   "[a]b a b",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": [
+   "[a]b tab tab",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[a]b :smile::wave:",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": [
+   "[a]b emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> [a]b &amp;lt; double </color>",
+  "output": [
+   "[a]b &lt; double",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link>   spaced \t out text   </color>",
+  "output": [
+   "[日本語] spaced out text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[日本語] torn",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <unclosed </color>",
+  "output": [
+   "[日本語]",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": [
+   "hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "fire first then :laughter:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": [
+   "tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   ":haha:x",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": [
+   "emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_System.dds;24;24;FFFFFFFF>  new\nline </color>",
+  "output": [
+   "new line",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[Lars] a <3 b & c > d",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link>  </color>",
+  "output": [
+   "[Lars]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[Lars] x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#d9abf8",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] a\u0000b </color>",
+  "output": [
+   "[你] a b",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[你] :smile::wave:",
+   "#d9abf8",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] &amp;lt; double </color>",
+  "output": [
+   "[你] &lt; double",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link>   spaced \t out text   </color>",
+  "output": [
+   "[Ann Lee] spaced out text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[Ann Lee] torn",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <unclosed </color>",
+  "output": [
+   "[Ann Lee]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] fire first then :laughter:",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :haha:x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] new line",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a <3 b & c > d",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] x",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": [
+   "[] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] a\u0000b </color>",
+  "output": [
+   "[] a b",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": [
+   "[] tab tab",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[] :smile::wave:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": [
+   "[] emoji 😀 text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [] &amp;lt; double </color>",
+  "output": [
+   "[] &lt; double",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": [
+   "[a]b hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b   spaced \t out text   </color>",
+  "output": [
+   "[a]b spaced out text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": [
+   "[a]b tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[a]b torn",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": [
+   "[a]b emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [a]b <unclosed </color>",
+  "output": [
+   "[a]b",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[日本語] fire first then :laughter:",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[日本語] :haha:x",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> new\nline </color>",
+  "output": [
+   "[日本語] new line",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": [
+   "hello there",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>  a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "a <3 b & c > d",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": [
+   "tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": [
+   "emoji 😀 text",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF>  <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "x",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> a\u0000b </color>",
+  "output": [
+   "[Lars] a b",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Lars] :smile::wave:",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> &amp;lt; double </color>",
+  "output": [
+   "[Lars] &lt; double",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#00ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你]   spaced \t out text   </color>",
+  "output": [
+   "[你] spaced out text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#d9abf8",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[你] torn",
+   "#cdef12",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [你] <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Ann Lee] fire first then :laughter:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[Ann Lee] :haha:x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> new\nline </color>",
+  "output": [
+   "[Ann Lee] new line",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a <3 b & c > d",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> []   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [] <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> [a]b new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[日本語] a <3 b & c > d",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[日本語] x",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Unknown.dds;24;24;FFFFFFFF>  &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link>   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> <link;GID:123,Lars,2>[Lars]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> [你] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> [你] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> [你] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> [你] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> [你] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> [你] new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> [] fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> [] <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> [] new\nline </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1> [a]b a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> [a]b  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1> [a]b <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1> <link;GID:2,日本語,2>[日本語]</link> &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Other_Icon.dds;1;1;1>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Other_Icon.dds;1;1;1>    spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Other_Icon.dds;1;1;1>  <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Other_Icon.dds;1;1;1>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Other_Icon.dds;1;1;1>  <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[Lars] :haha:x",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:123,Lars,2>[Lars]</link> new\nline </color>",
+  "output": [
+   "[Lars] new line",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[你] a <3 b & c > d",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你]  </color>",
+  "output": [
+   "[你]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> a\u0000b </color>",
+  "output": [
+   "[Ann Lee] a b",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Ann Lee] :smile::wave:",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann Lee,2>[Ann Lee]</link> &amp;lt; double </color>",
+  "output": [
+   "[Ann Lee] &lt; double",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>   spaced \t out text   </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] spaced out text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] torn",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] fire first then :laughter:",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :haha:x",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] new line",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [] hello there </color>",
+  "output": [
+   "[] hello there",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [] a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[] a <3 b & c > d",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [] tab\u001ctab </color>",
+  "output": [
+   "[] tab tab",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> []  </color>",
+  "output": [
+   "[]",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [] <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[] x",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b hello there </color>",
+  "output": [
+   "[a]b hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b a\u0000b </color>",
+  "output": [
+   "[a]b a b",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b tab\u001ctab </color>",
+  "output": [
+   "[a]b tab tab",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[a]b :smile::wave:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b emoji 😀 text </color>",
+  "output": [
+   "[a]b emoji 😀 text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> [a]b &amp;lt; double </color>",
+  "output": [
+   "[a]b &lt; double",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link>   spaced \t out text   </color>",
+  "output": [
+   "[日本語] spaced out text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:2,日本語,2>[日本語]</link> <unclosed </color>",
+  "output": [
+   "[日本語]",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "fire first then :laughter:",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  tab\u001ctab </color>",
+  "output": [
+   "tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   ":haha:x",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  emoji 😀 text </color>",
+  "output": [
+   "emoji 😀 text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <IMAGE;ART/Art_Chat_Say.dds;24;24;FFFFFFFF>  new\nline </color>",
+  "output": [
+   "new line",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[Lars] a <3 b & c > d",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[Lars] x",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> [你] a\u0000b </color>",
+  "output": [
+   "[你] a b",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> [你] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[你] :smile::wave:",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> [你] emoji 😀 text </color>",
+  "output": [
+   "[你] emoji 😀 text",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> [你] &amp;lt; double </color>",
+  "output": [
+   "[你] &lt; double",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link>   spaced \t out text   </color>",
+  "output": [
+   "[Ann Lee] spaced out text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[Ann Lee] torn",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:1,Ann Lee,2>[Ann Lee]</link> <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] fire first then :laughter:",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] :haha:x",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> new\nline </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] new line",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> [] hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> [] a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> [] tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> [] <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> [] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> [] &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> [a]b hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> [a]b   spaced \t out text   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> [a]b <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> [a]b emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say> [a]b <unclosed </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#d9abf8",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[日本語] fire first then :laughter:",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[日本語] :haha:x",
+   "#00ff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   "#cdef12",
+   false,
+   false
+  ]
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say> <link;GID:2,日本語,2>[日本語]</link> new\nline </color>",
+  "output": [
+   "[日本語] new line",
+   null,
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say>  hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> <image;Art/Art_Chat_Say>  a &lt;3 b &amp; c &gt; d </color>",
+  "output": null
+ },
+ {
+  "input": " <image;Art/Art_Chat_Say>  tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <image;Art/Art_Chat_Say>   </color>",
+  "output": null
+ },
+ {
+  "input": "<color;12345> <image;Art/Art_Chat_Say>  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> <image;Art/Art_Chat_Say>  <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:123,Lars,2>[Lars]</link> hello there </color>",
+  "output": [
+   "[Lars] hello there",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:123,Lars,2>[Lars]</link> a\u0000b </color>",
+  "output": [
+   "[Lars] a b",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <link;GID:123,Lars,2>[Lars]</link> tab\u001ctab </color>",
+  "output": [
+   "[Lars] tab tab",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:123,Lars,2>[Lars]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   "[Lars] :smile::wave:",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:123,Lars,2>[Lars]</link> emoji 😀 text </color>",
+  "output": [
+   "[Lars] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <link;GID:123,Lars,2>[Lars]</link> &amp;lt; double </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> [你] hello there </color>",
+  "output": [
+   "[你] hello there",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> [你]   spaced \t out text   </color>",
+  "output": [
+   "[你] spaced out text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> [你] tab\u001ctab </color>",
+  "output": [
+   "[你] tab tab",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> [你] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[你] torn",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " [你] emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF> [你] <unclosed </color>",
+  "output": [
+   "[你]",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <link;GID:1,Ann Lee,2>[Ann Lee]</link> hello there </color>",
+  "output": [
+   "[Ann Lee] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:1,Ann Lee,2>[Ann Lee]</link> fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Ann Lee] fire first then :laughter:",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:1,Ann Lee,2>[Ann Lee]</link> tab\u001ctab </color>",
+  "output": [
+   "[Ann Lee] tab tab",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <link;GID:1,Ann Lee,2>[Ann Lee]</link> <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8> <link;GID:1,Ann Lee,2>[Ann Lee]</link> emoji 😀 text </color>",
+  "output": [
+   "[Ann Lee] emoji 😀 text",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <link;GID:1,Ann Lee,2>[Ann Lee]</link> new\nline </color>",
+  "output": [
+   "[Ann Lee] new line",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] hello there",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a <3 b & c > d",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link>  </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] x",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> hello there </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> a\u0000b </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] a b",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> tab\u001ctab </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> emoji 😀 text </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] emoji 😀 text",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> <link;GID:9,x,2>[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]</link> &amp;lt; double </color>",
+  "output": [
+   "[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx] &lt; double",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> [] hello there </color>",
+  "output": [
+   "[] hello there",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> []   spaced \t out text   </color>",
+  "output": [
+   "[] spaced out text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> [] tab\u001ctab </color>",
+  "output": [
+   "[] tab tab",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> [] <image;Emoticons/bad name!.dds;1;1;1> torn </color>",
+  "output": [
+   "[] torn",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12> [] emoji 😀 text </color>",
+  "output": [
+   "[] emoji 😀 text",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> [] <unclosed </color>",
+  "output": [
+   "[]",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> [a]b hello there </color>",
+  "output": [
+   "[a]b hello there",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> [a]b fire first then <image;Emoticons/Laughter001.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[a]b fire first then :laughter:",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " [a]b tab\u001ctab </color>",
+  "output": null
+ },
+ {
+  "input": "<color;abcdef12> [a]b <image;EMOTICONS/Haha.DDS;1;1>x </color>",
+  "output": [
+   "[a]b :haha:x",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> [a]b emoji 😀 text </color>",
+  "output": [
+   "[a]b emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> [a]b new\nline </color>",
+  "output": [
+   "[a]b new line",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:2,日本語,2>[日本語]</link> hello there </color>",
+  "output": [
+   "[日本語] hello there",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;12345> <link;GID:2,日本語,2>[日本語]</link> a &lt;3 b &amp; c &gt; d </color>",
+  "output": [
+   "[日本語] a <3 b & c > d",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  <color;D9ABF8> <link;GID:2,日本語,2>[日本語]</link> tab\u001ctab </color>",
+  "output": [
+   "[日本語] tab tab",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF> <link;GID:2,日本語,2>[日本語]</link>  </color>",
+  "output": [
+   "[日本語]",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;ZZZZZZ> <link;GID:2,日本語,2>[日本語]</link> emoji 😀 text </color>",
+  "output": [
+   "[日本語] emoji 😀 text",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FF00ff00> <link;GID:2,日本語,2>[日本語]</link> <image;Emoticons/abc1\n.dds;1>x </color>",
+  "output": [
+   "[日本語] x",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12>  hello there </color>",
+  "output": [
+   "hello there",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  a\u0000b </color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF>  tab\u001ctab </color>",
+  "output": [
+   "tab tab",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;abcdef12>  <image;Emoticons/Emoticons_Smile.dds;1;1;1><image;Emoticons/emoticon_Wave12.dds> </color>",
+  "output": [
+   ":smile::wave:",
+   "#cdef12",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "  emoji 😀 text </color>",
+  "output": null
+ },
+ {
+  "input": "  <color;D9ABF8>  &amp;lt; double </color>",
+  "output": [
+   "&lt; double",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>[Server Message] maintenance in 5 minutes</color>",
+  "output": [
+   "[Server Message] maintenance in 5 minutes",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;D9ABF8></color>",
+  "output": null
+ },
+ {
+  "input": "<color;D9ABF8>Maintenance</color>",
+  "output": [
+   "Maintenance",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "RECEIVED STATUS UPDATE for [12345]",
+  "output": null
+ },
+ {
+  "input": "[STAT] debug",
+  "output": null
+ },
+ {
+  "input": "[DBGL] x",
+  "output": null
+ },
+ {
+  "input": "",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> Bob joined the party</color>",
+  "output": [
+   "Bob joined the party",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;GID:1,B,2>[B]</link> hi </color>",
+  "output": [
+   "[B] hi",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> You gained 50 XP</color>",
+  "output": [
+   "You gained 50 XP",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> <image;Emoticons/Wave.dds> </color>",
+  "output": [
+   ":wave:",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<image;Art/Art_Chat_System.dds> no color",
+  "output": [
+   "no color",
+   null,
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;D9ABF8><image;Art/New_Channel.dds> [Zed] hi",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Ann,2>[Ann]</link> 😀</color>",
+  "output": [
+   "[Ann] 😀",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你]</color>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] x</color>",
+  "output": [
+   "[你] x",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] no color",
+  "output": [
+   "[你] no color",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:196751008724053815,沃尔夫 亡灵骑兵,2>[沃尔夫 亡灵骑兵]</link> wth </color>",
+  "output": [
+   "[沃尔夫 亡灵骑兵] wth",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你獲得了 51 金幣！</color>",
+  "output": [
+   "你獲得了 51 金幣！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你現在等級 28！</color>",
+  "output": [
+   "你現在等級 28！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你获得了 39 金币！</color>",
+  "output": [
+   "你获得了 39 金币！",
+   "#00ff00",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;AA00AA><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> 你获得了 3 经验值！</color>",
+  "output": [
+   "你获得了 3 经验值！",
+   "#aa00aa",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;00FF00><image;Art/Art_Chat_System.dds;24;24;FFFFFFFF> </color>",
+  "output": null
+ },
+ {
+  "input": "[DBGL] HandleStatisticUpdate: new health 1783",
+  "output": null
+ },
+ {
+  "input": "[STAT] BuddyListManager::MSG_BuddyEntry Added",
+  "output": null
+ },
+ {
+  "input": "[DBGM] MSG_SendBlob 114 CurrentZone 114</color>",
+  "output": null
+ },
+ {
+  "input": "[DBGM] some debug noise",
+  "output": null
+ },
+ {
+  "input": "[WARN] another one",
+  "output": null
+ },
+ {
+  "input": "RECEIVED STATUS UPDATE for [191965934165243834]",
+  "output": null
+ },
+ {
+  "input": "收到 [1688849928085385] 的伙伴邀请",
+  "output": null
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Amy,2>[Amy]</link> nice 😂👀 </color>",
+  "output": [
+   "[Amy] nice 😂👀",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] 測試 訊息 :) </color>",
+  "output": [
+   "[你] 測試 訊息 :)",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,Lars,2>[Lars]</link> ty king <image;Emoticons/Emoticons_Heart.dds;24;24;FFFFFFFF> </color>",
+  "output": [
+   "[Lars] ty king :heart:",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<image;Emoticons/Emoticons_School_Death.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<image;Emoticons/Eyes001.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<image;Emoticons/TeaCup001.dds;24;24;FFFFFFFF>",
+  "output": null
+ },
+ {
+  "input": "<color;FFFF00><image;Art/chat_balloon_Owner.dds;24;24;FFFFFFFF> [你] Test1</color>",
+  "output": [
+   "[你] Test1",
+   "#ffff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFF00><image;Art/chat_balloon_Guest.dds;24;24;FFFFFFFF> <link;GID:9,Amy,2>[Amy]</link> hi house</color>",
+  "output": [
+   "[Amy] hi house",
+   "#ffff00",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> 你加入了这个队伍</color>",
+  "output": [
+   "你加入了这个队伍",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> 你离开了这个队伍。</color>",
+  "output": [
+   "你离开了这个队伍。",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> <link;191965934165243834,艾米 时空之翼,>艾米 时空之翼</link> 加入队伍</color>",
+  "output": [
+   "艾米 时空之翼 加入队伍",
+   "#ffffff",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Party.dds;24;24;FFFFFFFF> [你] 123 </color>",
+  "output": [
+   "[你] 123",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>[Server Message] 服务器在2小时内关闭以进行维护</color>",
+  "output": [
+   "[Server Message] 服务器在2小时内关闭以进行维护",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>服务器即将关闭</color>",
+  "output": [
+   "服务器即将关闭",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Unknown_Channel.dds;24;24;FFFFFFFF> [Lars] hi </color>",
+  "output": null
+ },
+ {
+  "input": "<color;80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>",
+  "output": [
+   "[你] hi",
+   "#80ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FF80FF00><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi </color>",
+  "output": [
+   "[你] hi",
+   "#80ff00",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] hi",
+  "output": [
+   "[你] hi",
+   null,
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [你] ab c d　e\u001cf\u001fg\u000bh\fi </color>",
+  "output": [
+   "[你] a b c d e f g h i",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> <link;GID:1,A,2>[A]</link> hithere </color>",
+  "output": [
+   "[A] hi there",
+   "#ffffff",
+   false,
+   false
+  ]
+ },
+ {
+  "input": "<color;FFFFFF><image;Art/Art_Chat_Say.dds;24;24;FFFFFFFF> [A] hi </color>",
+  "output": [
+   "[A] hi",
+   "#ffffff",
+   true,
+   false
+  ]
+ },
+ {
+  "input": "<color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " \u001c<color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
+ },
+ {
+  "input": " <color;D9ABF8>notice</color>",
+  "output": [
+   "notice",
+   "#d9abf8",
+   false,
+   true
+  ]
+ }
+]

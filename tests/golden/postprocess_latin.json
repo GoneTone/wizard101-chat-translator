@@ -1,0 +1,86 @@
+[
+ {
+  "input": "English",
+  "output": true
+ },
+ {
+  "input": "Español",
+  "output": true
+ },
+ {
+  "input": "日本語",
+  "output": false
+ },
+ {
+  "input": "繁體中文 (台灣)",
+  "output": false
+ },
+ {
+  "input": "한국어",
+  "output": false
+ },
+ {
+  "input": "Русский",
+  "output": false
+ },
+ {
+  "input": "",
+  "output": false
+ },
+ {
+  "input": "ไทย",
+  "output": false
+ },
+ {
+  "input": "Français",
+  "output": true
+ },
+ {
+  "input": "العربية",
+  "output": false
+ },
+ {
+  "input": "中文 (Chinese)",
+  "output": false
+ },
+ {
+  "input": "Ελληνικά",
+  "output": false
+ },
+ {
+  "input": "ａｂｃ",
+  "output": false
+ },
+ {
+  "input": "ß",
+  "output": true
+ },
+ {
+  "input": "Türkçe",
+  "output": true
+ },
+ {
+  "input": "K",
+  "output": false
+ },
+ {
+  "input": "English (英文)",
+  "output": true
+ },
+ {
+  "input": "日本語 (Japanese)",
+  "output": false
+ },
+ {
+  "input": "繁體中文 (zh-TW)",
+  "output": false
+ },
+ {
+  "input": "  (1) Íslenska",
+  "output": true
+ },
+ {
+  "input": "ʻŌlelo Hawaiʻi",
+  "output": true
+ }
+]

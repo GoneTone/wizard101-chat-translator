@@ -1,0 +1,154 @@
+[
+ {
+  "input": "af-ZA",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "ar-SA",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "ca-ES",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "cs-CZ",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "da-DK",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "de-DE",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "el-GR",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "en-US",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "es-ES",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "fi-FI",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "fr-FR",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "he-IL",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "hu-HU",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "it-IT",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "ja-JP",
+  "output": "Yu Gothic UI"
+ },
+ {
+  "input": "ko-KR",
+  "output": "Malgun Gothic"
+ },
+ {
+  "input": "nl-NL",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "no-NO",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "pl-PL",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "pt-BR",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "pt-PT",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "ro-RO",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "ru-RU",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "sr-SP",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "sv-SE",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "tr-TR",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "uk-UA",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "vi-VN",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "zh-CN",
+  "output": "Microsoft YaHei"
+ },
+ {
+  "input": "zh-TW",
+  "output": "Microsoft JhengHei"
+ },
+ {
+  "input": "zh",
+  "output": "Microsoft YaHei"
+ },
+ {
+  "input": "zh-HK",
+  "output": "Microsoft JhengHei"
+ },
+ {
+  "input": "zh-Hant",
+  "output": "Microsoft JhengHei"
+ },
+ {
+  "input": "zh-SG",
+  "output": "Microsoft YaHei"
+ },
+ {
+  "input": "ja",
+  "output": "Yu Gothic UI"
+ },
+ {
+  "input": "ko",
+  "output": "Malgun Gothic"
+ },
+ {
+  "input": "xx-XX",
+  "output": "Segoe UI"
+ },
+ {
+  "input": "yue",
+  "output": "Microsoft JhengHei"
+ }
+]
