@@ -405,8 +405,6 @@ impl App {
             return None;
         }
         self.as_bubble = self.minimized;
-        // 圓形泡泡外不能再套 DWM 的圓角方框；隱形中換，看不到中間狀態
-        self.shell.set_round_corners(!self.minimized);
         if !self.minimized {
             let saved = self.overlay_rect.take()?;
             let (x, y, w, h) = saved;
@@ -721,12 +719,13 @@ impl eframe::App for App {
             self.hwnd = win32::hwnd_of(frame);
             if self.hwnd != 0 {
                 win32::remove_system_frame(self.hwnd);
+                // 圓角自己畫：Windows 11 預設的圓角會附帶陰影，拖曳縮放時把內容追不上的那條勾勒出來
+                win32::set_round_corners(self.hwnd, false);
                 win32::guard_minimize(self.hwnd, Arc::clone(&self.minimize_guard));
                 self.shell = Box::new(Win32Shell {
                     hwnd: self.hwnd,
                     monitors: self.monitors,
                 });
-                self.shell.set_round_corners(!self.minimized);
             }
         }
         // 首次設定期間（精靈開著，或已取消、等根視窗關閉）根視窗藏著
@@ -1239,12 +1238,7 @@ mod tests {
     const OVERLAY: Rect = (100, 200, 640, 420);
 
     /// 根視窗的替身：App 與測試共用同一份矩形、游標與隱形狀態；`1` 是泡泡所在螢幕的縮放。
-    struct SharedShell(
-        Rc<RefCell<FakeShell>>,
-        f32,
-        Rc<std::cell::Cell<bool>>,
-        Rc<std::cell::Cell<Option<bool>>>,
-    );
+    struct SharedShell(Rc<RefCell<FakeShell>>, f32, Rc<std::cell::Cell<bool>>);
 
     impl Shell for SharedShell {
         fn cursor(&self) -> (i32, i32) {
@@ -1265,9 +1259,6 @@ mod tests {
         fn set_cloaked(&mut self, cloaked: bool) {
             self.2.set(cloaked);
         }
-        fn set_round_corners(&mut self, round: bool) {
-            self.3.set(Some(round));
-        }
         fn take_focus(&mut self) -> bool {
             self.0.borrow_mut().take_focus()
         }
@@ -1284,8 +1275,6 @@ mod tests {
         moves: Saved<(i32, i32)>,
         /// DWM 目前是否不顯示根視窗。
         cloaked: Rc<std::cell::Cell<bool>>,
-        /// 最近一次要求的圓角（`None` 是還沒要求過）。
-        rounded: Rc<std::cell::Cell<Option<bool>>>,
     }
 
     /// 根視窗擺在 [`OVERLAY`] 的 App；`saved` 是設定裡的泡泡位置，`scale` 是泡泡所在螢幕的縮放。
@@ -1306,14 +1295,8 @@ mod tests {
             geometry: Saved::default(),
             moves: Saved::default(),
             cloaked: Rc::default(),
-            rounded: Rc::default(),
         };
-        let shell = SharedShell(
-            Rc::clone(&root.shell),
-            scale,
-            Rc::clone(&root.cloaked),
-            Rc::clone(&root.rounded),
-        );
+        let shell = SharedShell(Rc::clone(&root.shell), scale, Rc::clone(&root.cloaked));
         let (geometry, moves) = (Rc::clone(&root.geometry), Rc::clone(&root.moves));
         let mut harness = Harness::new_eframe(move |cc| {
             fonts_egui::install(&cc.egui_ctx, "en-US");
@@ -1422,18 +1405,6 @@ mod tests {
         harness.step();
         assert!(!root.cloaked.get());
         assert!(root.geometry.borrow().is_empty());
-    }
-
-    #[test]
-    fn the_overlay_has_round_corners_and_the_bubble_does_not() {
-        let (_poster, inbox) = channel();
-        let (mut harness, root) = root_harness(inbox, (None, None), 1.0);
-        harness.state_mut().set_minimized(true);
-        harness.run_steps(4);
-        assert_eq!(root.rounded.get(), Some(false));
-        harness.state_mut().set_minimized(false);
-        harness.run_steps(4);
-        assert_eq!(root.rounded.get(), Some(true));
     }
 
     #[test]

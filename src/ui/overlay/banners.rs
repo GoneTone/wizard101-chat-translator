@@ -13,6 +13,7 @@ pub use crate::runtime::updater::Release;
 use crate::runtime::updater::is_newer;
 use crate::translation::errors::localized;
 use crate::ui::fonts_egui::tk_pt;
+use crate::ui::glass;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE, bar_alpha};
 use crate::ui::richtext;
@@ -187,7 +188,9 @@ impl Banners {
             Sense::click(),
         );
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
-        painter.rect_filled(row_rect, 0.0, BG_UPDATE.gamma_multiply(bar_alpha(alpha)));
+        // 橫幅貼著視窗左下角：沿圓角切掉
+        let fill = BG_UPDATE.gamma_multiply(bar_alpha(alpha));
+        painter.add(glass::window_piece(row_rect, ui.max_rect(), fill));
         self.update_rect = Some(row_rect.intersect(clip));
         let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
         painter.galley(pos2(row_rect.min.x, text_top), galley, FG_UPDATE);
