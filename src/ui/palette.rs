@@ -9,7 +9,7 @@ pub const fn hex(rgb: u32) -> Color32 {
 
 /// 底色（半透明底板）。
 pub const BG: Color32 = hex(0x101018);
-/// 標題列。
+/// 標題列與分頁列。
 pub const BAR: Color32 = hex(0x23233a);
 /// 縮放把手與泡泡外框。
 pub const GRIP: Color32 = hex(0x3a3a55);
@@ -37,14 +37,19 @@ pub const CLOSE_HOVER: Color32 = hex(0xc42b1c);
 pub const OUTLINE: Color32 = hex(0x0a0a10);
 /// 框選反白底色。
 pub const SELECT_BG: Color32 = hex(0x2d4a7a);
-/// 分頁列底色。
-pub const TAB_BG: Color32 = hex(0x181828);
 /// 分頁文字。
 pub const TAB_FG: Color32 = hex(0x8a8aa0);
 /// 目前分頁的文字。
 pub const TAB_FG_ACTIVE: Color32 = hex(0xf2f2f7);
 /// 目前分頁的底線。
 pub const TAB_ACCENT: Color32 = hex(0x6fa8dc);
+/// 標題列、分頁列與更新橫幅的最低不透明度。
+const BAR_ALPHA_MIN: f32 = 0.8;
+
+/// 標題列、分頁列與更新橫幅的不透明度：至少 0.8，overlay 不透明度 `alpha` 設得更高時跟著它。
+pub fn bar_alpha(alpha: f32) -> f32 {
+    BAR_ALPHA_MIN.max(alpha)
+}
 
 #[cfg(test)]
 mod tests {
@@ -67,7 +72,6 @@ mod tests {
             (CLOSE_HOVER, "#c42b1c"),
             (OUTLINE, "#0a0a10"),
             (SELECT_BG, "#2d4a7a"),
-            (TAB_BG, "#181828"),
             (TAB_FG, "#8a8aa0"),
             (TAB_FG_ACTIVE, "#f2f2f7"),
             (TAB_ACCENT, "#6fa8dc"),

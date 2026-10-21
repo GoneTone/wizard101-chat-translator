@@ -1,9 +1,10 @@
 //! overlay 視窗外框：半透明底、標題列（圖示、名稱、狀態、⛶⚙─✕）、拖曳移動、四邊四角縮放與記憶位置。
 
+use eframe::egui::layers::ShapeIdx;
 use eframe::egui::{
     self, Align, Align2, Color32, CursorIcon, FontId, Image, Label, Layout, Pos2, Response,
-    RichText, Role, Sense, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui, UiBuilder,
-    Vec2, WidgetInfo, WidgetText,
+    RichText, Role, Sense, Shape, Stroke, TextStyle, TextWrapMode, TextureId, Tooltip, Ui,
+    UiBuilder, Vec2, WidgetInfo, WidgetText,
 };
 
 use crate::config::Geometry;
@@ -17,7 +18,7 @@ use crate::ui::geometry::{
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
     BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
-    TAB_FG_ACTIVE,
+    TAB_FG_ACTIVE, bar_alpha,
 };
 use crate::ui::win32;
 
@@ -105,6 +106,8 @@ impl Shell for Win32Shell {
     }
     fn set_round_corners(&mut self, round: bool) {
         win32::set_round_corners(self.0, round);
+        // 系統邊框會蓋在玻璃邊框的外圈上
+        win32::hide_system_border(self.0);
     }
     fn take_focus(&mut self) -> bool {
         win32::force_foreground(self.0)
@@ -168,6 +171,8 @@ pub struct Frame {
     placement_failed: bool,
     gesture: Option<Gesture>,
     on_geometry_change: Box<dyn FnMut(i32, i32, i32, i32)>,
+    /// 內容區底色在繪製順序裡的位置：先佔位，等分頁列與橫幅排好再由 [`Frame::fill_body`] 填上。
+    body: Option<ShapeIdx>,
 }
 
 impl Frame {
@@ -184,6 +189,7 @@ impl Frame {
             placement_failed: false,
             gesture: None,
             on_geometry_change: Box::new(on_geometry_change),
+            body: None,
         }
     }
 
@@ -192,9 +198,22 @@ impl Frame {
         self.alpha
     }
 
-    /// 即時套用新的底色不透明度（文字與標題列恆為不透明）。
+    /// 即時套用新的底色不透明度（文字恆為不透明，標題列見 [`bar_alpha`]）。
     pub fn set_alpha(&mut self, alpha: f32) {
         self.alpha = alpha;
+    }
+
+    /// 在 [`Self::show`] 佔好的位置填上內容區底色：`body` 是分頁列以下，避開 `hole`（更新橫幅）。
+    ///
+    /// 分頁列與橫幅自帶的底有最低不透明度，底色疊在它們下面會比該有的更不透明。
+    pub fn fill_body(&self, ui: &Ui, body: egui::Rect, hole: Option<egui::Rect>) {
+        let Some(idx) = self.body else { return };
+        let fill = BG.gamma_multiply(self.alpha);
+        let rects = around(body, hole).into_iter();
+        ui.painter().set(
+            idx,
+            Shape::Vec(rects.map(|r| Shape::rect_filled(r, 0.0, fill)).collect()),
+        );
     }
 
     /// 畫出外框並處理拖曳與縮放；回傳這幀被按下的標題列按鈕。`region_hotkey` 顯示在 ⛶ 的提示框。
@@ -230,8 +249,8 @@ impl Frame {
         let bar = egui::Rect::from_min_size(area.min, Vec2::new(area.width(), BAR_HEIGHT));
         let grip = grip_rect(area);
         let painter = ui.painter();
-        painter.rect_filled(area, 0.0, BG.gamma_multiply(self.alpha));
-        painter.rect_filled(bar, 0.0, BAR);
+        self.body = Some(painter.add(Shape::Noop));
+        painter.rect_filled(bar, 0.0, BAR.gamma_multiply(bar_alpha(self.alpha)));
         paint_grip(painter, grip);
 
         let response = ui.interact(area, ui.scope_id().with("overlay_frame"), Sense::drag());
@@ -330,6 +349,23 @@ impl Frame {
         )
         .inner
     }
+}
+
+/// `area` 扣掉 `hole` 後剩下的矩形（上、下、左、右，空的略過）；`hole` 落在 `area` 外時整塊回傳。
+fn around(area: egui::Rect, hole: Option<egui::Rect>) -> Vec<egui::Rect> {
+    let Some(hole) = hole.map(|h| h.intersect(area)).filter(|h| h.is_positive()) else {
+        return vec![area];
+    };
+    let rows = |x0: f32, x1: f32| egui::Rect::from_x_y_ranges(x0..=x1, hole.min.y..=hole.max.y);
+    [
+        egui::Rect::from_min_max(area.min, egui::pos2(area.max.x, hole.min.y)),
+        egui::Rect::from_min_max(egui::pos2(area.min.x, hole.max.y), area.max),
+        rows(area.min.x, hole.min.x),
+        rows(hole.max.x, area.max.x),
+    ]
+    .into_iter()
+    .filter(|r| r.is_positive())
+    .collect()
 }
 
 /// 視窗 `area` 內的 `p` 壓在哪條縮放邊／角（右下角抓取紋算右下角），都不是則 `None`。
@@ -530,6 +566,7 @@ pub(crate) mod tests {
     use crate::ui::overlay::message_list::{self, MessageList};
     use crate::ui::overlay::model::OverlayModel;
     use crate::ui::overlay::outlined;
+    use crate::ui::palette::BG_UPDATE;
     use crate::ui::text_select::find_text_shape;
 
     const START: Rect = (1000, 500, 640, 420);
@@ -619,9 +656,10 @@ pub(crate) mod tests {
                     );
                     s.clicked = s.clicked.or(clicked);
                     if let Some((banners, list, model)) = &mut s.content {
-                        let mut rect = s.area;
-                        rect.min.y += BAR_HEIGHT;
-                        let rect = banners.show(ui, rect);
+                        let mut body = s.area;
+                        body.min.y += BAR_HEIGHT;
+                        let rect = banners.show(ui, body, s.frame.alpha());
+                        s.frame.fill_body(ui, body, banners.update_rect());
                         list.show(ui, rect, model, None, None);
                     }
                 },
@@ -1058,6 +1096,73 @@ pub(crate) mod tests {
             let from = node.rect().center() - harness.state().area.min;
             drag(&mut harness, from, from + Vec2::new(50.0, 30.0), 1.0);
             assert_eq!(*saved.borrow(), [(1050, 530, 640, 420)], "{target}");
+        }
+    }
+
+    #[test]
+    fn body_fill_leaves_out_the_hole_and_nothing_else() {
+        let area = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(100.0, 80.0));
+        let hole = egui::Rect::from_min_max(egui::pos2(0.0, 60.0), egui::pos2(84.0, 74.0));
+        let parts = around(area, Some(hole));
+        let covered: f32 = parts.iter().map(|r| r.area()).sum();
+        assert_eq!(covered, area.area() - hole.area());
+        assert!(parts.iter().all(|r| !r.intersect(hole).is_positive()));
+        assert_eq!(around(area, None), vec![area]);
+    }
+
+    #[test]
+    fn bar_and_update_row_stay_at_least_as_opaque_as_the_floor() {
+        let (mut harness, _) = setup("t", Vec2::new(640.0, 420.0), 1.0);
+        let mut banners = Banners::default();
+        banners.set_update(Release {
+            version: "0.2.0".into(),
+            url: "https://example.invalid/rel".into(),
+        });
+        let model = OverlayModel::new(100, 0);
+        harness.state_mut().content = Some((banners, MessageList::new(), model));
+        for alpha in [1.0, 0.8, 0.4] {
+            harness.state_mut().frame.set_alpha(alpha);
+            harness.step();
+            let fills: Vec<_> = harness
+                .output()
+                .shapes
+                .iter()
+                .flat_map(|c| match &c.shape {
+                    egui::Shape::Rect(r) => vec![(r.rect, r.fill)],
+                    egui::Shape::Vec(v) => v
+                        .iter()
+                        .filter_map(|s| match s {
+                            egui::Shape::Rect(r) => Some((r.rect, r.fill)),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                })
+                .collect();
+            let has = |color: Color32| fills.iter().any(|(_, c)| *c == color);
+            let fixed = if alpha > 0.8 { alpha } else { 0.8 };
+            assert!(has(BAR.gamma_multiply(fixed)), "bar at {alpha}");
+            assert!(
+                has(BG_UPDATE.gamma_multiply(fixed)),
+                "update row at {alpha}"
+            );
+            let row = harness
+                .state()
+                .content
+                .as_ref()
+                .unwrap()
+                .0
+                .update_rect()
+                .unwrap();
+            let body = BG.gamma_multiply(alpha);
+            assert!(has(body), "body at {alpha}");
+            // 底色疊在橫幅下面，橫幅會比該有的不透明度更實
+            assert!(
+                fills
+                    .iter()
+                    .all(|(r, c)| *c != body || !r.intersect(row).is_positive()),
+                "body under the update row at {alpha}"
+            );
         }
     }
 

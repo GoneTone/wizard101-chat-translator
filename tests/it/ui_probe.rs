@@ -42,7 +42,7 @@ use wizard101_chat_translator::ui::geometry::Rect;
 use wizard101_chat_translator::ui::input_box::{self, InputBox};
 use wizard101_chat_translator::ui::input_host::Desktop;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
-use wizard101_chat_translator::ui::palette::{BAR, BG, GRIP};
+use wizard101_chat_translator::ui::palette::{BAR, BG};
 use wizard101_chat_translator::ui::region::card::ANCHOR_GAP;
 use wizard101_chat_translator::ui::region::flow::{
     CaptureKind, RegionCapturer, RegionDesktop, RegionFlow, RegionRunner, Shot,
@@ -417,9 +417,9 @@ fn run_checks(
     match &shot {
         Some(img) => {
             let [w, height] = img.size;
-            // 左下角：右下有抓取紋、上方是不透明的標題列
+            // 左下角、玻璃邊框的內光暈以內：右下有抓取紋、上方是標題列
             drawn = Some(img.pixels[(height - BG_INSET) * w + BG_INSET].to_array());
-            let corner = img.pixels[(height - 2) * w + 2].a();
+            let corner = img.pixels[(height - BG_INSET) * w + BG_INSET].a();
             let max_a = img.pixels.iter().map(|p| p.a()).max().unwrap_or(0);
             let want = (ALPHA * 255.0).round() as i32;
             report.check(
@@ -668,21 +668,21 @@ fn run_checks(
              WM_NCHITTEST center={hit:?}"
         ),
     );
-    let (border, bg) = (
-        GRIP.gamma_multiply(ALPHA).to_array(),
-        BG.gamma_multiply(ALPHA).to_array(),
-    );
-    let edges = opened
-        .then(|| edge_mismatches(card, |_, _, _, _| Some(border)))
-        .flatten();
-    // 左側留白裡、邊框內側的一點：只有底色
-    let inside = compose_capture(card).map(|c| pixel_at(&c, 4, c.1 / 2));
+    let bg = BG.gamma_multiply(ALPHA).to_array();
+    // 玻璃邊框：上下緣都比底色亮；內光暈以內只有底色
+    let composed = opened.then(|| compose_capture(card)).flatten();
+    let rim = composed
+        .as_ref()
+        .map(|c| (pixel_at(c, c.0 / 2, 0), pixel_at(c, c.0 / 2, c.1 - 1)));
+    let inside = composed
+        .as_ref()
+        .map(|c| pixel_at(c, BG_INSET as u32, c.1 / 2));
     let want_a = (ALPHA * 255.0).round() as u8;
     report.check(
-        edges.as_ref().is_some_and(Vec::is_empty)
+        rim.is_some_and(|(top, bottom)| top[0] > bg[0] && bottom[0] > bg[0])
             && inside.is_some_and(|p| p.iter().zip(bg).all(|(a, b)| a.abs_diff(b) <= 2)),
         format!(
-            "check7c region card composed edges differing (x, y, composed, want) {edges:?} \
+            "check7c region card composed rim (top, bottom) {rim:?} \
              background {inside:?} (want {bg:?}, alpha ~{want_a})"
         ),
     );

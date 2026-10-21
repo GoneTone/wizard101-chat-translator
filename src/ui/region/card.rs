@@ -9,7 +9,7 @@ use std::sync::Arc;
 use eframe::egui::text::{CharIndex, LayoutJob, TextFormat};
 use eframe::egui::{
     self, Color32, Context, CursorIcon, Event, FontId, Galley, Id, OpenUrl, PointerButton, Pos2,
-    Sense, Stroke, StrokeKind, Vec2, pos2, vec2,
+    Sense, Stroke, Vec2, pos2, vec2,
 };
 
 use crate::i18n::t;
@@ -17,10 +17,11 @@ use crate::logs::log;
 use crate::ui::copy_menu::CopyMenu;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Placement, Rect, Side, anchored_geometry, beside_geometry, is_click};
+use crate::ui::glass;
 use crate::ui::overlay::frame::flat_tooltip;
 use crate::ui::overlay::scrollbar::{self, Scrollbar};
 use crate::ui::palette::{
-    BG, FG_BAR, FG_ERROR, FG_ORIGINAL, FG_PENDING, FG_TRANSLATED, FG_UPDATE, GRIP, SELECT_BG,
+    BG, FG_BAR, FG_ERROR, FG_ORIGINAL, FG_PENDING, FG_TRANSLATED, FG_UPDATE, SELECT_BG,
 };
 use crate::ui::region::region_box::{HANDLE, MARGIN};
 use crate::ui::richtext::{linkify, parse_link_markup};
@@ -44,7 +45,7 @@ pub const PAD_Y: i32 = 6;
 
 const BORDER: f32 = 1.0;
 /// 與 Windows 11 視窗圓角同半徑；卡片自己畫邊框，所以不交給 DWM 裁（會切斷邊框又多一圈系統邊框）。
-const RADIUS: f32 = 8.0;
+const RADIUS: f32 = glass::WINDOW_RADIUS;
 const CLOSE_PAD_X: f32 = 6.0;
 const CLOSE_PAD_Y: f32 = 1.0;
 const PAD: Vec2 = vec2(PAD_X as f32, PAD_Y as f32);
@@ -496,9 +497,8 @@ impl Card {
 
         // ---- 繪製 ----
         let painter = ui.painter().clone();
-        painter.rect_filled(inner, RADIUS - BORDER, BG.gamma_multiply(self.alpha));
-        let border = Stroke::new(BORDER, GRIP.gamma_multiply(self.alpha));
-        painter.rect_stroke(area, RADIUS, border, StrokeKind::Inside);
+        painter.rect_filled(area, RADIUS, BG.gamma_multiply(self.alpha));
+        glass::rim(&painter, area, RADIUS, self.alpha);
         if ui.rect_contains_pointer(area) {
             ctx.set_cursor_icon(CursorIcon::PointingHand);
         }
@@ -938,31 +938,21 @@ mod tests {
     }
 
     #[test]
-    fn border_surrounds_the_background_instead_of_stacking_under_it() {
+    fn glass_rim_is_drawn_over_the_rounded_background() {
         let h = harness(CardContent::Pending);
-        let grip = GRIP.gamma_multiply(0.8);
-        let rects = || {
-            h.output().shapes.iter().filter_map(|c| match &c.shape {
-                Shape::Rect(r) => Some(r.clone()),
-                _ => None,
-            })
-        };
-        // 半透明的底色疊在半透明的邊框色上，合成後的不透明度會比 overlay 高
-        assert!(!rects().any(|r| r.fill == grip));
-        assert!(rects().any(|r| r.stroke.color == grip));
-    }
-
-    #[test]
-    fn card_corners_are_rounded_like_the_other_windows() {
-        let h = harness(CardContent::Pending);
-        let rounded = |color: Color32| {
-            h.output().shapes.iter().any(|c| {
-                matches!(&c.shape, Shape::Rect(r)
-                    if (r.fill == color || r.stroke.color == color) && r.corner_radius != CornerRadius::ZERO)
-            })
-        };
-        assert!(rounded(BG.gamma_multiply(0.8)), "background");
-        assert!(rounded(GRIP.gamma_multiply(0.8)), "border");
+        let shapes = &h.output().shapes;
+        let bg = shapes.iter().position(|c| {
+            matches!(&c.shape, Shape::Rect(r)
+                if r.fill == BG.gamma_multiply(0.8) && r.corner_radius != CornerRadius::ZERO)
+        });
+        let rim = shapes.iter().rposition(|c| {
+            matches!(&c.shape, Shape::Rect(r)
+                if r.fill == Color32::TRANSPARENT && r.stroke.width > 0.0)
+        });
+        assert!(
+            bg.zip(rim).is_some_and(|(bg, rim)| bg < rim),
+            "{bg:?} {rim:?}"
+        );
     }
 
     #[test]

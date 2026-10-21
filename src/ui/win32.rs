@@ -7,9 +7,9 @@ use std::sync::{Arc, Once, OnceLock};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use windows_sys::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Dwm::{
-    DWMWA_CAPTION_COLOR, DWMWA_CLOAK, DWMWA_TRANSITIONS_FORCEDISABLED,
-    DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWCP_ROUND,
-    DwmFlush, DwmSetWindowAttribute,
+    DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE,
+    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE,
+    DWMWCP_DONOTROUND, DWMWCP_ROUND, DwmFlush, DwmSetWindowAttribute,
 };
 use windows_sys::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
@@ -200,6 +200,17 @@ pub fn set_round_corners(hwnd: isize, round: bool) {
     if hr != 0 {
         log(format!(
             "[ui] corner preference not applied (hwnd={hwnd:#x}, round={round}, hresult={:#010x})",
+            hr as u32
+        ));
+    }
+}
+
+/// 不畫 Windows 11 沿圓角加上的 1px 系統邊框（圓角保留）；Win10 不支援，失敗只記 log。
+pub fn hide_system_border(hwnd: isize) {
+    let hr = set_dwm_attribute(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE);
+    if hr != 0 {
+        log(format!(
+            "[ui] system border not hidden (hwnd={hwnd:#x}, hresult={:#010x})",
             hr as u32
         ));
     }

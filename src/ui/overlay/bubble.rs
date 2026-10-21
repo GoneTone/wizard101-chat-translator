@@ -9,6 +9,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{SC_MINIMIZE, WM_SYSCOMMAND};
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, is_click, moved_to, point_in_rect, pull_onscreen};
+use crate::ui::glass;
 use crate::ui::icon::app_icon_texture;
 use crate::ui::overlay::frame::Shell;
 use crate::ui::palette::{BAR, GRIP};
@@ -210,6 +211,7 @@ impl Bubble {
         Image::new((icon, rect.size()))
             .tint(Color32::WHITE.gamma_multiply(alpha))
             .paint_at(ui, rect);
+        glass::rim(ui.painter(), rect, rect.width() / 2.0, alpha);
         if let Some(text) = badge_text(unread) {
             let painter = ui.painter();
             let galley = painter.layout_no_wrap(text, badge_font(), BADGE_FG.gamma_multiply(alpha));
