@@ -42,7 +42,7 @@ pub fn line_range((start, end): (Caret, Caret), msg: usize, line: usize) -> Opti
 }
 
 /// 選取範圍內的文字：同一則訊息的行以換行相接，訊息之間空一行 —— 貼出去才看得出哪幾句原本是同一則。
-pub fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> String {
+fn selected_text(messages: &[Vec<String>], start: Caret, end: Caret) -> String {
     if start >= end {
         return String::new();
     }
@@ -135,7 +135,7 @@ impl Selection {
     }
 
     /// 放開滑鼠。
-    pub fn finish(&mut self, messages: &[Message]) {
+    fn finish(&mut self, messages: &[Message]) {
         if !self.dragging {
             return;
         }
@@ -386,6 +386,7 @@ mod tests {
                 rect: WINDOW,
                 ready: true,
                 focused: 0,
+                scale: 1.0,
             },
             model,
             list: MessageList::new(),
@@ -858,6 +859,23 @@ mod tests {
         // 最新一則最靠近左下角的縮放帶
         let (from, to) = (start_of(&h, last, 1), end_of(&h, last, 1));
         assert_eq!(edge_under(h.state().area, from), None);
+        select(&mut h, from, to);
+        assert_eq!(text(&h), format!("trans {last}"));
+        assert_eq!(h.state().shell.rect, WINDOW);
+    }
+
+    #[test]
+    fn dragging_from_the_bottom_of_the_first_character_selects_instead_of_resizing() {
+        let mut h = numbered(40);
+        let last = messages(&h).len() - 1;
+        let row = h.state().list.rows().last().unwrap();
+        let (origin, galley) = &row.lines[1];
+        // 最新一則譯文首字的下緣附近，最靠近左下角的縮放範圍
+        let from = Pos2::new(
+            origin.x + TEXT_ORIGIN + 1.0,
+            origin.y + line_height(galley) - 2.0,
+        );
+        let to = end_of(&h, last, 1);
         select(&mut h, from, to);
         assert_eq!(text(&h), format!("trans {last}"));
         assert_eq!(h.state().shell.rect, WINDOW);

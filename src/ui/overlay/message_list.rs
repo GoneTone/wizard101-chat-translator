@@ -12,7 +12,7 @@ use eframe::egui::{Color32, FontId, Galley, Label, Painter, Pos2, Rect, RichText
 use crate::config::py::py_bool;
 use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::geometry::EDGE;
+use crate::ui::geometry::{CORNER, EDGE};
 use crate::ui::overlay::frame::{GRIP_SIZE, status_color, status_text};
 use crate::ui::overlay::model::{Message, OverlayModel, ViewKey, fingerprint};
 use crate::ui::overlay::outlined::{self, TEXT_ORIGIN, line_height};
@@ -135,7 +135,7 @@ impl MessageList {
         self.pending += dy;
     }
 
-    /// 上一幀的訊息視口（不含捲軸與左、右、下三邊的縮放帶）。
+    /// 上一幀的訊息視口（不含捲軸、左右兩邊的縮放帶與底部的角落縮放範圍）。
     pub fn viewport(&self) -> Rect {
         self.viewport
     }
@@ -155,12 +155,12 @@ impl MessageList {
         status: Option<&str>,
         selected: Option<(Caret, Caret)>,
     ) {
-        // 底緣讓出縮放帶而不是只墊高最新一則：捲上去時下緣被切的那則也不會畫進縮放帶、按得到卻選不到
+        // 底緣讓出整個角的高度而不只是邊帶：左下角比邊寬，否則最靠近它的首字下半部按下去是縮放
         let viewport = Rect::from_min_max(
             Pos2::new(rect.min.x + EDGE as f32, rect.min.y),
             Pos2::new(
                 rect.max.x - scrollbar::WIDTH - EDGE as f32,
-                rect.max.y - EDGE as f32,
+                rect.max.y - CORNER as f32,
             ),
         );
         self.viewport = viewport;
@@ -873,9 +873,9 @@ mod tests {
                 assert!(text_left - rect.min.x > EDGE as f32, "{size:?}");
             }
         }
-        // 最新一則貼在下緣縮放帶之上
+        // 最新一則貼在左下角縮放範圍之上
         let last = h.state().list.rows().last().unwrap();
-        assert!(row_bottom(last) <= h.state().rect.max.y - EDGE as f32);
+        assert!(row_bottom(last) <= h.state().rect.max.y - CORNER as f32);
     }
 
     #[test]
