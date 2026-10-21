@@ -31,7 +31,10 @@ jobs:
           rustc --version
           cargo --version
 
+      # runner 映像預裝的 rustc 版本會變，納入金鑰會讓快取時有時無；實際版本已由 rust-toolchain.toml 進金鑰
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
 
       - name: Format
         run: cargo fmt --check
@@ -63,7 +66,10 @@ jobs:
           rustc --version
           cargo --version
 
+      # runner 映像預裝的 rustc 版本會變，納入金鑰會讓快取時有時無；實際版本已由 rust-toolchain.toml 進金鑰
       - uses: Swatinem/rust-cache@v2
+        with:
+          add-rust-environment-hash-key: false
 
       # 效能門檻只在 release 下有意義，平常的 cargo test 把它標成 ignored
       - name: Relayout budget
