@@ -19,6 +19,7 @@ use super::errors::{TranslateError, error_detail, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
+use crate::logs::log;
 use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
@@ -259,8 +260,31 @@ pub(crate) fn truncated(
     TranslateError::BadOutput(format!(
         "output truncated at max_tokens={max_tokens}, completion_tokens={}, sample={}",
         count_of(completion_tokens),
-        repr_str(&sample_of(sample).replace('\n', " "))
+        quoted_sample(sample)
     ))
+}
+
+/// 服務商擋下的回應（安全過濾等）：已收到的半句不當譯文，帶結束原因與樣本。
+pub(crate) fn blocked(finish_reason: &str, sample: &str) -> TranslateError {
+    TranslateError::BadOutput(format!(
+        "response blocked with finish_reason={finish_reason}, sample={}",
+        quoted_sample(sample)
+    ))
+}
+
+/// 串流沒收到結束訊號就收尾了（代理／閘道提前關線），屬暫時性中斷；`missing` 說明缺了什麼。
+pub(crate) fn incomplete_stream(label: &str, missing: &str, received: &str) -> TranslateError {
+    let chars = received.chars().count();
+    log(format!(
+        "[translate] stream ended before completion ({missing}): {label} received_chars={chars}"
+    ));
+    TranslateError::offline(format!(
+        "stream ended before completion ({label}, received {chars} chars)"
+    ))
+}
+
+fn quoted_sample(text: &str) -> String {
+    repr_str(&sample_of(text).replace('\n', " "))
 }
 
 /// 在網址後加上一個編碼過的查詢參數（翻頁游標）。

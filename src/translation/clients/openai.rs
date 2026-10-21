@@ -1,18 +1,18 @@
 //! OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：串流的 `/v1/chat/completions`。
 
 use std::collections::BTreeSet;
-use std::ops::ControlFlow;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use reqwest::header::{AUTHORIZATION, HeaderMap};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::sse::for_each_data;
+use super::sse::{Next, for_each_data};
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, cancellable, chunk_error,
-    connection_error, count_of, finish_text, http_client, parse_object, response_failure,
-    secret_header, truncated,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, TIMEOUT, blocked, cancellable,
+    chunk_error, connection_error, count_of, finish_text, http_client, incomplete_stream,
+    parse_object, response_failure, secret_header, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -49,6 +49,7 @@ pub struct OpenAiCompatClient {
     thinking: bool,
     official: bool,
     learned: Mutex<Learned>,
+    idle: Duration,
 }
 
 impl OpenAiCompatClient {
@@ -81,7 +82,15 @@ impl OpenAiCompatClient {
                 dropped: BTreeSet::new(),
                 rejected_token_params: BTreeSet::new(),
             }),
+            idle: TIMEOUT,
         }
+    }
+
+    /// 測試用：縮短串流的閒置期限。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
+        self.idle = idle;
+        self
     }
 
     /// 目前使用的模型 ID。
@@ -194,12 +203,16 @@ impl OpenAiCompatClient {
             ));
         }
         // 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
-        if streamed.finish_reason.as_deref() == Some("length") {
-            return Err(truncated(
-                max_tokens,
-                usage.get("completion_tokens"),
-                &streamed.content,
-            ));
+        match streamed.finish_reason.as_deref() {
+            Some("length") => {
+                return Err(truncated(
+                    max_tokens,
+                    usage.get("completion_tokens"),
+                    &streamed.content,
+                ));
+            }
+            Some(reason @ "content_filter") => return Err(blocked(reason, &streamed.content)),
+            _ => {}
         }
         Ok(finish_text(&streamed.content))
     }
@@ -215,10 +228,13 @@ impl OpenAiCompatClient {
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
+        let label = format!("provider=openai-compatible model={}", self.model);
         let mut out = Streamed::default();
-        for_each_data(resp, |data| {
+        let mut done = false;
+        for_each_data(resp, &label, self.idle, |data| {
             if data == "[DONE]" {
-                return Ok(ControlFlow::Break(()));
+                done = true;
+                return Ok(Next::Stop);
             }
             let chunk = parse_object(data, "stream chunk")?;
             // 200 之後的錯誤以 chunk 送出；有些後端固定帶 `"error": null`
@@ -241,9 +257,17 @@ impl OpenAiCompatClient {
             {
                 out.usage = Some(usage.clone());
             }
-            Ok(ControlFlow::Continue(()))
+            Ok(Next::Continue)
         })
         .await?;
+        // 有些後端只送 `[DONE]`、有些只給 finish_reason，任一個就算完整
+        if !done && out.finish_reason.is_none() {
+            return Err(incomplete_stream(
+                &label,
+                "no [DONE] or finish_reason",
+                &out.content,
+            ));
+        }
         Ok(out)
     }
 

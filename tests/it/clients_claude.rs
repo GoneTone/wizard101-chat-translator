@@ -29,8 +29,8 @@ fn events(list: &[Value]) -> String {
         .collect()
 }
 
-/// 一則完整的 Messages 串流：`blocks` 為 (type, text)，text 依 delta 分兩段送。
-fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplate {
+/// 一則完整的 Messages 串流本文：`blocks` 為 (type, text)，text 依 delta 分兩段送。
+fn message_events(blocks: &[(&str, &str)], stop_reason: &str) -> String {
     let mut list = vec![
         json!({"type": "message_start", "message": {"id": "msg", "type": "message",
             "role": "assistant", "model": "claude-x", "content": [], "stop_reason": null,
@@ -56,7 +56,12 @@ fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplat
         "delta": {"stop_reason": stop_reason, "stop_sequence": null},
         "usage": {"output_tokens": 9}}));
     list.push(json!({"type": "message_stop"}));
-    ResponseTemplate::new(200).set_body_raw(events(&list), "text/event-stream")
+    events(&list)
+}
+
+fn message_stream(blocks: &[(&str, &str)], stop_reason: &str) -> ResponseTemplate {
+    ResponseTemplate::new(200)
+        .set_body_raw(message_events(blocks, stop_reason), "text/event-stream")
 }
 
 fn translation(text: &str) -> String {
@@ -650,5 +655,66 @@ async fn cancel_mid_stream_returns_cancelled() {
     assert!(
         server.await.unwrap(),
         "server never saw the connection close"
+    );
+}
+
+#[tokio::test]
+async fn claude_stream_ended_without_message_stop_is_offline() {
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let block = json!({"type": "content_block_start", "index": 0,
+        "content_block": {"type": "text", "text": ""}});
+    let delta = json!({"type": "content_block_delta", "index": 0,
+        "delta": {"type": "text_delta", "text": "{\"translation\": \"半"}});
+    let url = stream_server::ended_stream(events(&[start, block, delta])).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_ping_events_do_not_hold_the_request_forever() {
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let ping = events(&[json!({"type": "ping"})]);
+    let url =
+        stream_server::keep_alive_stream(events(&[start]), ping, Duration::from_millis(50)).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url)
+        .with_idle_timeout(Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, detail, .. }) if detail.contains("idle")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_stops_reading_at_message_stop() {
+    let body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
+    // 伺服器送完整則訊息後停住不收尾：沒有主動停止讀取就會卡到閒置期限
+    let (url, server) = stream_server::stalled_stream(body, CancellationToken::new()).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("client kept reading after message_stop");
+    assert_eq!(result.unwrap(), "[A] 完");
+    assert!(
+        server.await.unwrap(),
+        "server never saw the connection close"
+    );
+}
+
+#[tokio::test]
+async fn claude_ok_status_with_a_json_error_body_reports_its_message() {
+    let server = MockServer::start().await;
+    let body = json!({"error": {"message": "insufficient quota"}});
+    mount_messages(&server, ResponseTemplate::new(200).set_body_json(body)).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("insufficient quota")),
+        "{result:?}"
     );
 }

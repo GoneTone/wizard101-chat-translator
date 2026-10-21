@@ -1,17 +1,16 @@
 //! Claude 官方 API：串流的 `/v1/messages`（結構化輸出）與 `/v1/models`；請求內容與重試策略照 anthropic SDK。
 
-use std::ops::ControlFlow;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::sse::for_each_data;
+use super::sse::{Next, for_each_data};
 use super::{
-    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, cancellable, connection_error, count_of,
-    error_type_status, finish_text, http_client, parse_object, response_failure, retry_after,
-    sample_of, secret_header, stream_failure, truncated, with_query,
+    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, TIMEOUT, cancellable, connection_error,
+    count_of, error_type_status, finish_text, http_client, incomplete_stream, parse_object,
+    response_failure, retry_after, sample_of, secret_header, stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -41,6 +40,8 @@ fn output_format() -> Value {
 #[derive(Default)]
 struct Message {
     started: bool,
+    /// 收到 `message_stop`。
+    stopped: bool,
     /// 各內容區塊的 (type, text)。
     blocks: Vec<(String, String)>,
     stop_reason: Option<String>,
@@ -59,6 +60,7 @@ pub struct ClaudeClient {
     key_malformed: bool,
     model: String,
     effort: String,
+    idle: Duration,
 }
 
 impl ClaudeClient {
@@ -76,7 +78,15 @@ impl ClaudeClient {
             key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
             effort: effort.to_owned(),
+            idle: TIMEOUT,
         }
+    }
+
+    /// 測試用：縮短串流的閒置期限。
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
+        self.idle = idle;
+        self
     }
 
     /// 目前使用的模型 ID。
@@ -119,7 +129,8 @@ impl ClaudeClient {
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
-        let message = read_message(resp).await?;
+        let label = format!("provider=claude model={}", self.model);
+        let message = read_message(resp, &label, self.idle).await?;
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
@@ -287,23 +298,34 @@ fn stream_error(event: &Value) -> TranslateError {
 }
 
 /// 讀完 Messages 串流並累積成完整訊息。`error` 事件依類型分類，格式異常為未分類的例外。
-async fn read_message(resp: reqwest::Response) -> Result<Message, TranslateError> {
+async fn read_message(
+    resp: reqwest::Response,
+    label: &str,
+    idle: Duration,
+) -> Result<Message, TranslateError> {
     let mut message = Message::default();
-    for_each_data(resp, |data| {
+    for_each_data(resp, label, idle, |data| {
         let event = parse_object(data, "stream event")?;
-        accumulate(&mut message, &event)?;
-        Ok(ControlFlow::Continue(()))
+        accumulate(&mut message, &event)
     })
     .await?;
-    if !message.started {
-        return Err(TranslateError::Unexpected(
-            "stream ended without a message".into(),
+    if !message.stopped && message.stop_reason.is_none() {
+        let received: String = message
+            .blocks
+            .iter()
+            .filter(|(kind, _)| kind == "text")
+            .map(|(_, text)| text.as_str())
+            .collect();
+        return Err(incomplete_stream(
+            label,
+            "no message_stop or stop_reason",
+            &received,
         ));
     }
     Ok(message)
 }
 
-fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError> {
+fn accumulate(message: &mut Message, event: &Value) -> Result<Next, TranslateError> {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
     let text_of = |block: &Value| {
         let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
@@ -335,6 +357,11 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError
                 "Unexpected event order, got {kind} before \"message_start\""
             )));
         }
+        "ping" => return Ok(Next::KeepAlive),
+        "message_stop" => {
+            message.stopped = true;
+            return Ok(Next::Stop);
+        }
         "content_block_start" => message.blocks.push(text_of(&event["content_block"])),
         "content_block_delta" if event["delta"]["type"] == "text_delta" => {
             let index = event["index"].as_u64().unwrap_or(u64::MAX) as usize;
@@ -365,7 +392,7 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<(), TranslateError
         }
         _ => {}
     }
-    Ok(())
+    Ok(Next::Continue)
 }
 
 #[cfg(test)]

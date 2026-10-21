@@ -1,10 +1,11 @@
-//! client 測試共用：假伺服器（串流停住不收尾、串流中途斷線、接受連線就斷線）與請求／回應的小輔助。
+//! client 測試共用：假伺服器（串流停住不收尾、正常收尾、只送保持連線、中途斷線、接受連線就斷線）與請求／回應的小輔助。
 
 // 每個測試檔只用到其中幾個
 #![allow(dead_code)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -92,6 +93,41 @@ pub async fn stalled_stream(
         .is_ok()
     });
     (url, server)
+}
+
+/// 送出 `body` 後以 chunked 結尾 `0\r\n\r\n` 正常收尾：傳輸層完整，內容可能缺結束訊號。
+pub async fn ended_stream(body: String) -> String {
+    let (listener, url) = bind().await;
+    tokio::spawn(async move {
+        let mut socket = start_stream(listener, &body).await;
+        socket.write_all(b"0\r\n\r\n").await.unwrap();
+        // 等客戶端先關：伺服器在請求本文沒讀完時關線會送 RST，客戶端會讀成斷線
+        let mut buf = vec![0u8; 8192];
+        let _ = tokio::time::timeout(crate::common::WAIT, async {
+            while let Ok(n) = socket.read(&mut buf).await
+                && n > 0
+            {}
+        })
+        .await;
+    });
+    url
+}
+
+/// 送出 `first_event` 後每隔 `interval` 送一次 `keep_alive`、從不收尾，直到客戶端斷線。
+pub async fn keep_alive_stream(
+    first_event: String,
+    keep_alive: String,
+    interval: Duration,
+) -> String {
+    let (listener, url) = bind().await;
+    tokio::spawn(async move {
+        let mut socket = start_stream(listener, &first_event).await;
+        let chunk = format!("{:x}\r\n{keep_alive}\r\n", keep_alive.len());
+        while socket.write_all(chunk.as_bytes()).await.is_ok() {
+            tokio::time::sleep(interval).await;
+        }
+    });
+    url
 }
 
 /// 送出 `first_event` 後直接關掉連線，chunked 串流沒有收尾。

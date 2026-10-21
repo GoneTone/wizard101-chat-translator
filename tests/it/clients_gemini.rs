@@ -447,3 +447,67 @@ async fn cancel_mid_stream_returns_cancelled() {
         "server never saw the connection close"
     );
 }
+
+#[tokio::test]
+async fn gemini_blocked_finish_reasons_are_bad_output_with_sample() {
+    for reason in ["SAFETY", "RECITATION", "PROHIBITED_CONTENT", "OTHER"] {
+        let server = MockServer::start().await;
+        mount_stream(
+            &server,
+            stream_of(&[
+                chunk(text("半句"), None, None),
+                chunk(json!([]), Some(reason), None),
+            ]),
+        )
+        .await;
+        let result = chat(&client(&server, "auto")).await;
+        let Err(TranslateError::BadOutput(message)) = result else {
+            panic!("{reason}: {result:?}");
+        };
+        assert!(
+            message.contains(&format!("finish_reason={reason}")),
+            "{message}"
+        );
+        assert!(message.contains("半句"), "{message}");
+    }
+}
+
+#[tokio::test]
+async fn gemini_prompt_block_reason_is_bad_output() {
+    let server = MockServer::start().await;
+    let blocked = json!({"promptFeedback": {"blockReason": "PROHIBITED_CONTENT"}});
+    mount_stream(&server, stream_of(&[blocked])).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::BadOutput(m)) if m.contains("block_reason=PROHIBITED_CONTENT")),
+        "{result:?}"
+    );
+}
+
+#[tokio::test]
+async fn gemini_stream_ended_without_finish_reason_is_offline() {
+    let body = format!("data: {}\r\n\r\n", chunk(text("半句"), None, None));
+    let url = stream_server::ended_stream(body).await;
+    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn gemini_keep_alive_comments_do_not_hold_the_request_forever() {
+    let comment = ": keep-alive\r\n\r\n".to_owned();
+    let url =
+        stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
+    let c = GeminiClient::new("k", "gemini-x", "auto", &url)
+        .with_idle_timeout(Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, detail, .. }) if detail.contains("idle")),
+        "{result:?}"
+    );
+}
