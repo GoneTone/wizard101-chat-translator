@@ -80,7 +80,7 @@ pub fn default_config() -> Config {
         "paste_hotkey": true,
         "type_delay": 0.02,
         "overlay_alpha": 0.80,
-        "overlay": {"x": null, "y": null, "width": 640, "height": 420},
+        "overlay": {"x": null, "y": null, "width": 640, "height": 360},
         "bubble_position": {"x": null, "y": null},
     }) else {
         unreachable!("json! object literal")
@@ -506,7 +506,7 @@ mod tests {
                 x: Some(10),
                 y: None,
                 width: 640,
-                height: 420
+                height: 360
             }
         );
         assert_eq!(settings.bubble_position, (None, None));
