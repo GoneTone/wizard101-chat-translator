@@ -45,6 +45,8 @@ pub const TAB_FG: Color32 = hex(0x8a8aa0);
 pub const TAB_FG_ACTIVE: Color32 = hex(0xf2f2f7);
 /// 目前分頁的底線。
 pub const TAB_ACCENT: Color32 = hex(0x6fa8dc);
+/// 標題列、分頁列與更新橫幅的固定不透明度：不跟著 overlay 不透明度設定變。
+pub const BAR_ALPHA: f32 = 0.8;
 
 #[cfg(test)]
 mod tests {

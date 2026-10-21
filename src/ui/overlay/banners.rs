@@ -14,7 +14,7 @@ use crate::runtime::updater::is_newer;
 use crate::translation::errors::localized;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
-use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE};
+use crate::ui::palette::{BAR_ALPHA, BG_UPDATE, FG_ERROR, FG_UPDATE};
 use crate::ui::richtext;
 
 const BANNER_PT: f32 = 10.0;
@@ -33,6 +33,8 @@ pub struct Banners {
     update: Option<Release>,
     dismissed: Option<String>,
     error_height: f32,
+    /// 這一幀更新橫幅看得到的範圍；內容區底色要避開它。
+    update_rect: Option<Rect>,
 }
 
 impl Banners {
@@ -103,6 +105,7 @@ impl Banners {
         let clip = rect.intersect(ui.clip_rect());
         let on_band = over_resize_band(ui);
         let mut bottom = rect.max.y;
+        self.update_rect = None;
         if let Some(release) = self.update.clone() {
             bottom = self.update_row(ui, rect, clip, on_band, &release);
         }
@@ -130,6 +133,11 @@ impl Banners {
         Rect::from_min_max(rect.min, pos2(rect.max.x, bottom.max(rect.min.y)))
     }
 
+    /// 上一次 [`Self::show`] 畫出的更新橫幅範圍；沒有橫幅時是 `None`。
+    pub fn update_rect(&self) -> Option<Rect> {
+        self.update_rect
+    }
+
     /// 貼著 `rect` 底部畫，回傳這列的上緣。
     fn update_row(
         &mut self,
@@ -143,7 +151,7 @@ impl Banners {
         let painter = ui.painter_at(clip);
         let close =
             painter.layout_no_wrap("✕".into(), FontId::proportional(tk_pt(CLOSE_PT)), FG_UPDATE);
-        // 右側讓出縮放把手：把手疊在不透明橫幅上會蓋掉半個 ✕
+        // 右側讓出縮放把手：把手疊在橫幅上會蓋掉半個 ✕
         let width = rect.width() - GRIP_SIZE;
         let close_w = CLOSE_PAD.0 + close.size().x + CLOSE_PAD.1;
         let galley = painter.layout(
@@ -178,7 +186,8 @@ impl Banners {
             Sense::click(),
         );
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
-        painter.rect_filled(row_rect, 0.0, BG_UPDATE);
+        painter.rect_filled(row_rect, 0.0, BG_UPDATE.gamma_multiply(BAR_ALPHA));
+        self.update_rect = Some(row_rect.intersect(clip));
         let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
         painter.galley(pos2(row_rect.min.x, text_top), galley, FG_UPDATE);
         painter.galley(close_rect.min, close, FG_UPDATE);

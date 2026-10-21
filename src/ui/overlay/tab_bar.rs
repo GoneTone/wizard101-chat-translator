@@ -3,7 +3,7 @@
 use eframe::egui::{self, FontId, Label, RichText, TextWrapMode, Ui, Vec2};
 
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::palette::{TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE};
+use crate::ui::palette::{BAR_ALPHA, TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE};
 
 const ACCENT_HEIGHT: f32 = 2.0;
 const CELL_GAP: f32 = 10.0;
@@ -16,7 +16,7 @@ pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>) {
         return;
     }
     egui::Frame::new()
-        .fill(TAB_BG)
+        .fill(TAB_BG.gamma_multiply(BAR_ALPHA))
         .inner_margin(egui::Margin {
             top: PAD_TOP,
             ..Default::default()
@@ -104,6 +104,18 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    #[test]
+    fn background_keeps_the_fixed_bar_opacity() {
+        let bar = harness(tabs(), Some(1));
+        let want = TAB_BG.gamma_multiply(BAR_ALPHA);
+        let filled = bar
+            .output()
+            .shapes
+            .iter()
+            .any(|c| matches!(&c.shape, eframe::egui::Shape::Rect(r) if r.fill == want));
+        assert!(filled);
     }
 
     #[test]

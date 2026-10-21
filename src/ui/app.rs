@@ -31,7 +31,7 @@ use crate::ui::region_host::RegionHost;
 use crate::ui::settings::window::SettingsAction;
 use crate::ui::settings::wizard::WizardAction;
 use crate::ui::settings_host::{SettingsHost, WizardHost};
-use crate::ui::{fonts_egui, win32};
+use crate::ui::{fonts_egui, glass, win32};
 use crate::util::read;
 
 /// 設定接上之前的訊息上限（對應 config 預設值）。
@@ -528,7 +528,9 @@ impl App {
         let (tabs, current) = self.model.current_tabs();
         tab_bar::show(&mut content, tabs, current);
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
+        let body = rect;
         let rect = self.banners.show(ui, rect);
+        self.frame.fill_body(ui, body, self.banners.update_rect());
         self.selection
             .show(ui, &mut self.list, &self.model, self.shell.as_mut());
         self.list
@@ -671,6 +673,8 @@ impl App {
             None => {}
         }
         self.content(ui);
+        // 最後畫：疊在分頁列與橫幅之上，邊框才繞得完整一圈
+        glass::rim(ui.painter(), ui.max_rect(), glass::WINDOW_RADIUS, 1.0);
     }
 }
 
