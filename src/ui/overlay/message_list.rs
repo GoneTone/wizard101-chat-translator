@@ -80,6 +80,8 @@ pub struct MessageList {
     /// 待套用的捲動量（內容往下移的 DIP），框選自動捲動用。
     pending: f32,
     viewport: Rect,
+    /// 按下可起手框選的範圍：視口往下延伸到內容區底部（縮放帶由呼叫端另外排除）。
+    hit: Rect,
     anchor: Option<(u64, f32)>,
     /// 每個分頁、每則訊息上次排版時的（換行寬度, 整列高度），估計未排版訊息的高度用。
     heights: HashMap<ViewKey, BTreeMap<u64, (f32, f32)>>,
@@ -105,6 +107,7 @@ impl MessageList {
             seen: None,
             pending: 0.0,
             viewport: Rect::NOTHING,
+            hit: Rect::NOTHING,
             anchor: None,
             heights: HashMap::new(),
             wrap: 0.0,
@@ -140,6 +143,11 @@ impl MessageList {
         self.viewport
     }
 
+    /// 上一幀按下可起手框選的範圍：視口加上它與內容區底部之間沒畫字的那條。
+    pub fn hit_rect(&self) -> Rect {
+        self.hit
+    }
+
     /// 上一幀畫出的可見訊息，由上到下。
     pub fn rows(&self) -> &[Row] {
         &self.rows
@@ -155,7 +163,7 @@ impl MessageList {
         status: Option<&str>,
         selected: Option<(Caret, Caret)>,
     ) {
-        // 底緣讓出整個角的高度而不只是邊帶：左下角比邊寬，否則最靠近它的首字下半部按下去是縮放
+        // 底緣讓出角的高度：捲上去時被切的那則不畫進縮放帶，最新一行首字的下半部也不落在左下角
         let viewport = Rect::from_min_max(
             Pos2::new(rect.min.x + EDGE as f32, rect.min.y),
             Pos2::new(
@@ -164,6 +172,7 @@ impl MessageList {
             ),
         );
         self.viewport = viewport;
+        self.hit = viewport.with_max_y(rect.max.y);
         let mut dy = std::mem::take(&mut self.pending);
         // 底部讓出縮放把手：捲軸鋪到底會被它壓住，也會蓋到右下角的縮放帶
         let track = Rect::from_min_max(

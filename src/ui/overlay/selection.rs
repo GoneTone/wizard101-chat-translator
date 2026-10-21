@@ -101,10 +101,10 @@ impl Selection {
         selected_text(&texts, rebase(start), rebase(end))
     }
 
-    /// 框選起手：清掉舊選取，`pos` 在視口內就從最近的游標開始拖曳並回 `true`。
+    /// 框選起手：清掉舊選取，`pos` 在 `MessageList::hit_rect` 內就從最近的游標開始拖曳並回 `true`。
     pub fn begin(&mut self, list: &MessageList, messages: &[Message], pos: Pos2) -> bool {
         let caret = list
-            .viewport()
+            .hit_rect()
             .contains(pos)
             .then(|| clamped(list, messages, pos))
             .flatten();
@@ -197,7 +197,7 @@ impl Selection {
             && !self.menu.contains(p)
         {
             self.menu.close();
-            if list.viewport().contains(p)
+            if list.hit_rect().contains(p)
                 && edge_under(area, p).is_none()
                 && self.begin(list, messages, p)
             {
@@ -340,7 +340,7 @@ mod tests {
     use super::*;
     use crate::i18n::t;
     use crate::ui::fonts_egui;
-    use crate::ui::geometry::{EDGE, Edge};
+    use crate::ui::geometry::{CORNER, EDGE, Edge};
     use crate::ui::overlay::frame::Frame;
     use crate::ui::overlay::frame::tests::FakeShell;
     use crate::ui::palette::{BAR, SELECT_BG};
@@ -875,9 +875,28 @@ mod tests {
             origin.x + TEXT_ORIGIN + 1.0,
             origin.y + line_height(galley) - 2.0,
         );
+        // 落在左下角那一欄、緊貼角的上方：版面一往下移，這一點就會掉進角裡
+        let area = h.state().area;
+        assert!(from.x - area.min.x < CORNER as f32, "precondition");
+        assert!(area.max.y - from.y < 2.0 * CORNER as f32, "precondition");
+        assert_eq!(edge_under(area, from), None, "precondition");
         let to = end_of(&h, last, 1);
         select(&mut h, from, to);
         assert_eq!(text(&h), format!("trans {last}"));
+        assert_eq!(h.state().shell.rect, WINDOW);
+    }
+
+    #[test]
+    fn dragging_up_from_the_strip_under_the_newest_line_selects_it() {
+        let mut h = numbered(40);
+        let last = messages(&h).len() - 1;
+        // 底部離下緣 6～14 DIP、不在角落：畫不到字，但按下仍要能起手框選
+        let from = Pos2::new(200.0, h.state().area.max.y - 10.0);
+        assert!(!h.state().list.viewport().contains(from), "precondition");
+        assert_eq!(edge_under(h.state().area, from), None, "precondition");
+        let to = start_of(&h, last, 0);
+        select(&mut h, from, to);
+        assert_eq!(text(&h), format!("orig {last}\ntrans {last}"));
         assert_eq!(h.state().shell.rect, WINDOW);
     }
 
