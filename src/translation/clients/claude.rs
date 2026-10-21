@@ -1,16 +1,18 @@
 //! Claude 官方 API：串流的 `/v1/messages`（結構化輸出）與 `/v1/models`；請求內容與重試策略照 anthropic SDK。
 
+use std::ops::ControlFlow;
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::sse::{Next, for_each_data};
+use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, TIMEOUT, cancellable, connection_error,
-    count_of, error_type_status, finish_text, http_client, incomplete_stream, parse_object,
-    response_failure, retry_after, sample_of, secret_header, stream_failure, truncated, with_query,
+    ChatRequest, MAX_RETRY_AFTER, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked,
+    cancellable, connection_error, count_of, error_type_status, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, retry_after, sample_of,
+    secret_header, stream_failure, truncated, with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -60,38 +62,47 @@ pub struct ClaudeClient {
     key_malformed: bool,
     model: String,
     effort: String,
-    idle: Duration,
+    request_timeout: Duration,
+}
+
+fn default_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
+    headers
 }
 
 impl ClaudeClient {
     /// 建立 client；`endpoint` 正式環境為 [`CLAUDE_BASE_URL`]。
     pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
-        let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
         let key = secret_header(api_key);
         Self {
-            http: http_client(headers, endpoint),
+            http: http_client(default_headers(), endpoint, TIMEOUT),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             // SDK 遇到空金鑰在送出前就拋錯，含非法字元的金鑰也送不出去
             api_key: key.clone().filter(|_| !api_key.is_empty()),
             key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
             effort: effort.to_owned(),
-            idle: TIMEOUT,
+            request_timeout: REQUEST_TIMEOUT,
         }
     }
 
-    /// 測試用：縮短串流的閒置期限。
+    /// 測試用：縮短讀取逾時與聊天請求的總期限。
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
-        self.idle = idle;
+    pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
+        self.http = http_client(default_headers(), &self.base_url, read);
+        self.request_timeout = total;
         self
     }
 
     /// 目前使用的模型 ID。
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    fn label(&self) -> String {
+        format!("provider=claude model={}", self.model)
     }
 
     fn request_body(&self, system: &str, turns: &[Turn], max_tokens: u32) -> Value {
@@ -125,12 +136,18 @@ impl ClaudeClient {
         let limit = req.max_tokens.unwrap_or(MAX_TOKENS_THINKING);
         let body = self.request_body(req.system, req.turns, limit);
         let url = format!("{}/v1/messages", self.base_url);
-        let resp = self.send(|| self.http.post(&url).json(&body)).await?;
+        let resp = self
+            .send(|| {
+                self.http
+                    .post(&url)
+                    .json(&body)
+                    .timeout(self.request_timeout)
+            })
+            .await?;
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
-        let label = format!("provider=claude model={}", self.model);
-        let message = read_message(resp, &label, self.idle).await?;
+        let message = read_message(resp, &self.label()).await?;
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
@@ -147,9 +164,13 @@ impl ClaudeClient {
             .iter()
             .find(|(kind, _)| kind == "text")
             .map_or("", |(_, text)| text.as_str());
-        if stop_reason == "max_tokens" {
-            let output_tokens = message.usage.as_ref().and_then(|u| u.get("output_tokens"));
-            return Err(truncated(limit, output_tokens, content));
+        match stop_reason {
+            "max_tokens" => {
+                let output_tokens = message.usage.as_ref().and_then(|u| u.get("output_tokens"));
+                return Err(truncated(limit, output_tokens, content));
+            }
+            "refusal" => return Err(blocked(stop_reason, content)),
+            _ => {}
         }
         let translation = serde_json::from_str::<Value>(content)
             .ok()
@@ -243,14 +264,14 @@ impl ClaudeClient {
                     (format!("HTTP {status}"), delay)
                 }
                 Err(error) => {
+                    let error = request_error(&self.label(), error);
                     if retries_taken == MAX_RETRIES {
-                        let error = connection_error(error);
                         log(format!(
                             "[translate] claude connection failed after retries: {error}"
                         ));
                         return Err(error);
                     }
-                    let reason = connection_error(error).to_string();
+                    let reason = error.to_string();
                     let delay = retry_delay(retries_taken, &HeaderMap::new(), random_unit());
                     (reason, delay)
                 }
@@ -298,13 +319,9 @@ fn stream_error(event: &Value) -> TranslateError {
 }
 
 /// 讀完 Messages 串流並累積成完整訊息。`error` 事件依類型分類，格式異常為未分類的例外。
-async fn read_message(
-    resp: reqwest::Response,
-    label: &str,
-    idle: Duration,
-) -> Result<Message, TranslateError> {
+async fn read_message(resp: reqwest::Response, label: &str) -> Result<Message, TranslateError> {
     let mut message = Message::default();
-    for_each_data(resp, label, idle, |data| {
+    for_each_data(resp, label, |data| {
         let event = parse_object(data, "stream event")?;
         accumulate(&mut message, &event)
     })
@@ -325,7 +342,7 @@ async fn read_message(
     Ok(message)
 }
 
-fn accumulate(message: &mut Message, event: &Value) -> Result<Next, TranslateError> {
+fn accumulate(message: &mut Message, event: &Value) -> Result<ControlFlow<()>, TranslateError> {
     let kind = event.get("type").and_then(Value::as_str).unwrap_or("");
     let text_of = |block: &Value| {
         let kind = block.get("type").and_then(Value::as_str).unwrap_or("");
@@ -357,10 +374,9 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<Next, TranslateErr
                 "Unexpected event order, got {kind} before \"message_start\""
             )));
         }
-        "ping" => return Ok(Next::KeepAlive),
         "message_stop" => {
             message.stopped = true;
-            return Ok(Next::Stop);
+            return Ok(ControlFlow::Break(()));
         }
         "content_block_start" => message.blocks.push(text_of(&event["content_block"])),
         "content_block_delta" if event["delta"]["type"] == "text_delta" => {
@@ -392,7 +408,7 @@ fn accumulate(message: &mut Message, event: &Value) -> Result<Next, TranslateErr
         }
         _ => {}
     }
-    Ok(Next::Continue)
+    Ok(ControlFlow::Continue(()))
 }
 
 #[cfg(test)]

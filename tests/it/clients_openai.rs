@@ -13,7 +13,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, build_client,
+    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, TIMEOUT, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
@@ -313,6 +313,27 @@ async fn mid_stream_error_without_a_numeric_code_is_classified_by_its_type() {
         };
         assert_eq!(got, want, "{error}");
     }
+}
+
+#[tokio::test]
+async fn mid_stream_business_codes_are_not_http_statuses() {
+    for error in [
+        json!({"code": "1301", "message": "content flagged"}),
+        json!({"code": 1301, "message": "content flagged"}),
+    ] {
+        let server = MockServer::start().await;
+        mount_chat(&server, stream_of(&[json!({"error": error.clone()})])).await;
+        let got = chat(&client(&server, true, false)).await.unwrap_err();
+        assert!(
+            matches!(got, TranslateError::Unexpected(_)),
+            "{error}: {got:?}"
+        );
+    }
+    let server = MockServer::start().await;
+    let error = json!({"code": 1301, "type": "rate_limit_error", "message": "slow"});
+    mount_chat(&server, stream_of(&[json!({"error": error})])).await;
+    let got = chat(&client(&server, true, false)).await.unwrap_err();
+    assert_eq!(got.status(), Some(429), "{got:?}");
 }
 
 #[tokio::test]
@@ -675,40 +696,99 @@ async fn finish_reason_without_done_is_complete() {
 
 #[tokio::test]
 async fn stream_ended_without_done_or_finish_reason_is_offline() {
+    capture_logs();
     let url = stream_server::ended_stream(format!("data: {}\n\n", delta("半句"))).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m-no-done", true, false);
     let error = chat(&c).await.unwrap_err();
+    assert_eq!(
+        error,
+        TranslateError::offline("stream ended before completion"),
+        "介面顯示的說明不帶服務商、模型等內部資訊"
+    );
+    let text = log_text();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
-        "{error:?}"
+        text.contains(
+            "[translate] stream ended before completion (no [DONE] or finish_reason): \
+             provider=openai-compatible model=m-no-done received_chars=2"
+        ),
+        "{text}"
     );
 }
 
 #[tokio::test]
 async fn last_line_cut_off_mid_chunk_is_offline() {
+    capture_logs();
     let body = format!("data: {}\n\ndata: {{\"choices\": [{{\"del", delta("半句"));
     let url = stream_server::ended_stream(body).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m-mid-line", true, false);
     let error = chat(&c).await.unwrap_err();
+    assert_eq!(
+        error,
+        TranslateError::offline("stream ended before completion")
+    );
+    let text = log_text();
     assert!(
-        matches!(&error, TranslateError::Offline { status: None, .. }),
-        "{error:?}"
+        text.contains(
+            "[translate] stream ended mid-line: provider=openai-compatible model=m-mid-line"
+        ),
+        "{text}"
     );
 }
 
 #[tokio::test]
-async fn keep_alive_comments_do_not_hold_the_request_forever() {
+async fn processing_comments_longer_than_the_read_timeout_keep_the_stream_alive() {
+    let mut parts = vec![": PROCESSING\n\n".to_owned(); 8];
+    parts.push(sse(&[delta("譯文")]));
+    // 8 段註解間隔各 100 ms，合計遠超過 300 ms 的讀取逾時
+    let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
+    let c = OpenAiCompatClient::new(&url, "", "m", true, false)
+        .with_timeouts(Duration::from_millis(300), common::WAIT);
+    assert_eq!(chat(&c).await.unwrap(), "譯文");
+}
+
+#[tokio::test]
+async fn processing_comments_past_the_total_timeout_are_offline() {
+    capture_logs();
     let comment = ": OPENROUTER PROCESSING\n\n".to_owned();
     let url =
         stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false)
-        .with_idle_timeout(Duration::from_millis(300));
+    let c = OpenAiCompatClient::new(&url, "", "m-total-mid-body", true, false)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
         .expect("request never gave up");
     assert!(
-        matches!(&result, Err(TranslateError::Offline { status: None, detail, .. }) if detail.contains("idle")),
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
         "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] request timed out: provider=openai-compatible model=m-total-mid-body"
+        ),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn total_timeout_before_the_response_headers_is_offline() {
+    capture_logs();
+    let url = stream_server::silent_server().await;
+    let c = OpenAiCompatClient::new(&url, "", "m-total-headers", true, false)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
+    let result = tokio::time::timeout(common::WAIT, chat(&c))
+        .await
+        .expect("request never gave up");
+    assert!(
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains(
+            "[translate] request timed out: provider=openai-compatible model=m-total-headers"
+        ),
+        "{text}"
     );
 }
 

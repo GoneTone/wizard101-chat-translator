@@ -13,7 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING,
+    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT,
 };
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 
@@ -675,18 +675,81 @@ async fn claude_stream_ended_without_message_stop_is_offline() {
 }
 
 #[tokio::test]
-async fn claude_ping_events_do_not_hold_the_request_forever() {
+async fn claude_pings_during_a_long_hidden_thinking_phase_keep_the_stream_alive() {
+    let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
+    let thinking = json!({"type": "content_block_start", "index": 0,
+        "content_block": {"type": "thinking", "thinking": ""}});
+    let mut parts = vec![events(&[start, thinking])];
+    parts.extend(std::iter::repeat_n(events(&[json!({"type": "ping"})]), 8));
+    parts.push(events(&[
+        json!({"type": "content_block_stop", "index": 0}),
+        json!({"type": "content_block_start", "index": 1,
+            "content_block": {"type": "text", "text": ""}}),
+        json!({"type": "content_block_delta", "index": 1,
+            "delta": {"type": "text_delta", "text": translation("[A] 完")}}),
+        json!({"type": "content_block_stop", "index": 1}),
+        json!({"type": "message_delta", "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 9}}),
+        json!({"type": "message_stop"}),
+    ]));
+    // 8 個 ping 間隔各 100 ms，合計遠超過 300 ms 的讀取逾時
+    let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url)
+        .with_timeouts(Duration::from_millis(300), common::WAIT);
+    assert_eq!(chat(&c).await.unwrap(), "[A] 完");
+}
+
+#[tokio::test]
+async fn claude_pings_past_the_total_timeout_are_offline() {
+    capture_logs();
     let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
     let ping = events(&[json!({"type": "ping"})]);
     let url =
         stream_server::keep_alive_stream(events(&[start]), ping, Duration::from_millis(50)).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url)
-        .with_idle_timeout(Duration::from_millis(300));
+    let c = ClaudeClient::new("k", "claude-total-timeout", "auto", &url)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
         .expect("request never gave up");
     assert!(
-        matches!(&result, Err(TranslateError::Offline { status: None, detail, .. }) if detail.contains("idle")),
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
+        "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains("[translate] request timed out: provider=claude model=claude-total-timeout"),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn claude_stop_reason_without_message_stop_is_complete() {
+    let mut body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
+    let stop = events(&[json!({"type": "message_stop"})]);
+    body.truncate(body.len() - stop.len());
+    let url = stream_server::ended_stream(body).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    assert_eq!(chat(&c).await.unwrap(), "[A] 完");
+}
+
+#[tokio::test]
+async fn claude_stream_cut_between_event_and_data_is_offline() {
+    let url = stream_server::ended_stream("event: message_start\n".into()).await;
+    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let error = chat(&c).await.unwrap_err();
+    assert!(
+        matches!(&error, TranslateError::Offline { status: None, .. }),
+        "{error:?}"
+    );
+}
+
+#[tokio::test]
+async fn claude_refusal_is_blocked_bad_output() {
+    let server = MockServer::start().await;
+    mount_messages(&server, message_stream(&[("text", "")], "refusal")).await;
+    let result = chat(&client(&server, "auto")).await;
+    assert!(
+        matches!(&result, Err(TranslateError::BadOutput(m)) if m.contains("blocked") && m.contains("refusal")),
         "{result:?}"
     );
 }
@@ -694,7 +757,7 @@ async fn claude_ping_events_do_not_hold_the_request_forever() {
 #[tokio::test]
 async fn claude_stops_reading_at_message_stop() {
     let body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
-    // 伺服器送完整則訊息後停住不收尾：沒有主動停止讀取就會卡到閒置期限
+    // 伺服器送完整則訊息後停住不收尾：沒有主動停止讀取就會卡到逾時
     let (url, server) = stream_server::stalled_stream(body, CancellationToken::new()).await;
     let c = ClaudeClient::new("k", "claude-x", "auto", &url);
     let result = tokio::time::timeout(common::WAIT, chat(&c))

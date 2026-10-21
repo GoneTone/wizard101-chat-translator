@@ -24,8 +24,11 @@ use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
 
-/// 請求逾時：連線與每次讀取各自計時，串流不受總長度限制。
+/// 連線逾時與讀取逾時：位元組停住這麼久就斷線；閘道的保持連線註解與 Claude 的 `ping` 都會重新計時。
 pub const TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 一次聊天請求從連線到讀完的總期限：擋住永不收尾的串流，又夠本機慢模型寫完長篇的區域翻譯。
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// 譯文長度上限，用意是防 repetition loop 吃穿逾時而非省 token。
 pub const MAX_TOKENS: u32 = 512;
@@ -234,12 +237,14 @@ pub(crate) fn error_type_status(kind: &str) -> Option<u16> {
     }
 }
 
-/// 串流中途的 `{"error": …}` 塊：`code` 是數字（或數字字串）就照它分類，否則以 `code`／`type` 的名稱對照狀態碼。
+/// 串流中途的 `{"error": …}` 塊：`code` 是 HTTP 狀態碼範圍內的數字（或數字字串）就照它分類，否則以 `code`／`type` 的名稱對照狀態碼。
 pub(crate) fn chunk_error(error: &Value) -> TranslateError {
     let code = error.get("code");
+    // 有些服務商的 code 是業務代碼（如 1301），不能當 HTTP 狀態碼分類
     let numeric = code
         .and_then(|c| c.as_u64().or_else(|| c.as_str()?.parse().ok()))
-        .and_then(|c| u16::try_from(c).ok());
+        .filter(|c| (100..=599).contains(c))
+        .map(|c| c as u16);
     let named = || {
         [code, error.get("type")]
             .into_iter()
@@ -272,15 +277,16 @@ pub(crate) fn blocked(finish_reason: &str, sample: &str) -> TranslateError {
     ))
 }
 
+/// 串流沒收完的錯誤說明；會直接顯示在介面上，服務商、模型等診斷資訊只進 log。
+pub(crate) const INCOMPLETE_STREAM: &str = "stream ended before completion";
+
 /// 串流沒收到結束訊號就收尾了（代理／閘道提前關線），屬暫時性中斷；`missing` 說明缺了什麼。
 pub(crate) fn incomplete_stream(label: &str, missing: &str, received: &str) -> TranslateError {
-    let chars = received.chars().count();
     log(format!(
-        "[translate] stream ended before completion ({missing}): {label} received_chars={chars}"
+        "[translate] stream ended before completion ({missing}): {label} received_chars={}",
+        received.chars().count()
     ));
-    TranslateError::offline(format!(
-        "stream ended before completion ({label}, received {chars} chars)"
-    ))
+    TranslateError::offline(INCOMPLETE_STREAM)
 }
 
 fn quoted_sample(text: &str) -> String {
@@ -341,12 +347,26 @@ pub(crate) fn connection_error(error: reqwest::Error) -> TranslateError {
     TranslateError::offline(error_chain(error))
 }
 
-/// 共用的 HTTP client：連線與讀取逾時各 [`TIMEOUT`]，不跟隨轉址（與 httpx 預設一致）。
-pub(crate) fn http_client(headers: reqwest::header::HeaderMap, base_url: &str) -> reqwest::Client {
+/// 送出或讀取請求時的連線層失敗（[`connection_error`]）；逾時另記一行帶服務商與模型（`label`）的 log。
+pub(crate) fn request_error(label: &str, error: reqwest::Error) -> TranslateError {
+    let timed_out = error.is_timeout();
+    let error = connection_error(error);
+    if timed_out {
+        log(format!("[translate] request timed out: {label} ({error})"));
+    }
+    error
+}
+
+/// 共用的 HTTP client：連線逾時 [`TIMEOUT`]、讀取逾時 `read`，不跟隨轉址（與 httpx 預設一致）。
+pub(crate) fn http_client(
+    headers: reqwest::header::HeaderMap,
+    base_url: &str,
+    read: Duration,
+) -> reqwest::Client {
     install_crypto_provider();
     let builder = reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
-        .read_timeout(TIMEOUT)
+        .read_timeout(read)
         .redirect(reqwest::redirect::Policy::none())
         .default_headers(headers);
     bypass_proxy_for_loopback(builder, base_url)
@@ -376,7 +396,7 @@ mod tests {
     #[test]
     fn https_client_builds_with_the_ring_provider() {
         // 沒裝 crypto provider 的話 reqwest 在 build 時直接 panic
-        let _client = http_client(reqwest::header::HeaderMap::new(), "https://example.com");
+        let _client = http_client(HeaderMap::new(), "https://example.com", TIMEOUT);
         assert!(rustls::crypto::CryptoProvider::get_default().is_some());
     }
 

@@ -1,18 +1,20 @@
 //! OpenAI 相容端點（ChatGPT 官方與自訂伺服器共用）：串流的 `/v1/chat/completions`。
 
 use std::collections::BTreeSet;
+use std::ops::ControlFlow;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use reqwest::header::{AUTHORIZATION, HeaderMap};
+use reqwest::RequestBuilder;
+use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use super::sse::{Next, for_each_data};
+use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, Streamed, TIMEOUT, blocked, cancellable,
-    chunk_error, connection_error, count_of, finish_text, http_client, incomplete_stream,
-    parse_object, response_failure, secret_header, truncated,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked,
+    cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
 };
 use crate::logs::log;
 use crate::translation::Turn;
@@ -44,31 +46,28 @@ struct Learned {
 /// 只帶官方認得的停用思考參數；自架後端維持 `max_tokens` 與 `temperature=0`。
 pub struct OpenAiCompatClient {
     http: reqwest::Client,
+    auth: Option<HeaderValue>,
     base_url: String,
     model: String,
     thinking: bool,
     official: bool,
     learned: Mutex<Learned>,
-    idle: Duration,
+    request_timeout: Duration,
 }
 
 impl OpenAiCompatClient {
     /// 建立 client；`api_key` 為空時不帶 Authorization。
     pub fn new(base_url: &str, api_key: &str, model: &str, thinking: bool, official: bool) -> Self {
-        let mut headers = HeaderMap::new();
-        if !api_key.is_empty() {
-            match secret_header(&format!("Bearer {api_key}")) {
-                Some(value) => {
-                    headers.insert(AUTHORIZATION, value);
-                }
-                None => log(
-                    "[translate] api key has characters invalid in an HTTP header; \
-                     sending without Authorization",
-                ),
-            }
+        let auth = secret_header(&format!("Bearer {api_key}")).filter(|_| !api_key.is_empty());
+        if auth.is_none() && !api_key.is_empty() {
+            log(
+                "[translate] api key has characters invalid in an HTTP header; \
+                 sending without Authorization",
+            );
         }
         Self {
-            http: http_client(headers, base_url),
+            http: http_client(HeaderMap::new(), base_url, TIMEOUT),
+            auth,
             base_url: base_url.trim_end_matches('/').to_owned(),
             model: model.to_owned(),
             thinking,
@@ -82,15 +81,23 @@ impl OpenAiCompatClient {
                 dropped: BTreeSet::new(),
                 rejected_token_params: BTreeSet::new(),
             }),
-            idle: TIMEOUT,
+            request_timeout: REQUEST_TIMEOUT,
         }
     }
 
-    /// 測試用：縮短串流的閒置期限。
+    /// 測試用：縮短讀取逾時與聊天請求的總期限。
     #[cfg(any(test, feature = "test-support"))]
-    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
-        self.idle = idle;
+    pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
+        self.http = http_client(HeaderMap::new(), &self.base_url, read);
+        self.request_timeout = total;
         self
+    }
+
+    fn authorized(&self, request: RequestBuilder) -> RequestBuilder {
+        match &self.auth {
+            Some(auth) => request.header(AUTHORIZATION, auth.clone()),
+            None => request,
+        }
     }
 
     /// 目前使用的模型 ID。
@@ -202,7 +209,7 @@ impl OpenAiCompatClient {
                 self.model
             ));
         }
-        // 部分後端不回 finish_reason，缺欄位一律視為正常結束、不誤判成截斷
+        // 串流已確認收完（`[DONE]` 或 finish_reason），沒有 finish_reason 的後端照正常結束處理
         match streamed.finish_reason.as_deref() {
             Some("length") => {
                 return Err(truncated(
@@ -218,23 +225,26 @@ impl OpenAiCompatClient {
     }
 
     async fn stream_once(&self, body: &Value) -> Result<Streamed, TranslateError> {
+        let label = format!("provider=openai-compatible model={}", self.model);
         let resp = self
-            .http
-            .post(format!("{}/v1/chat/completions", self.base_url))
+            .authorized(
+                self.http
+                    .post(format!("{}/v1/chat/completions", self.base_url)),
+            )
             .json(body)
+            .timeout(self.request_timeout)
             .send()
             .await
-            .map_err(connection_error)?;
+            .map_err(|error| request_error(&label, error))?;
         if !resp.status().is_success() {
             return Err(response_failure(resp, status_error).await);
         }
-        let label = format!("provider=openai-compatible model={}", self.model);
         let mut out = Streamed::default();
         let mut done = false;
-        for_each_data(resp, &label, self.idle, |data| {
+        for_each_data(resp, &label, |data| {
             if data == "[DONE]" {
                 done = true;
-                return Ok(Next::Stop);
+                return Ok(ControlFlow::Break(()));
             }
             let chunk = parse_object(data, "stream chunk")?;
             // 200 之後的錯誤以 chunk 送出；有些後端固定帶 `"error": null`
@@ -257,7 +267,7 @@ impl OpenAiCompatClient {
             {
                 out.usage = Some(usage.clone());
             }
-            Ok(Next::Continue)
+            Ok(ControlFlow::Continue(()))
         })
         .await?;
         // 有些後端只送 `[DONE]`、有些只給 finish_reason，任一個就算完整
@@ -274,8 +284,7 @@ impl OpenAiCompatClient {
     /// 取 `/v1/models` 的模型 ID（排序後）；404／405 或缺 `data` 陣列回 `NoModelList`。
     pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
         let resp = self
-            .http
-            .get(format!("{}/v1/models", self.base_url))
+            .authorized(self.http.get(format!("{}/v1/models", self.base_url)))
             .send()
             .await
             .map_err(connection_error)?;

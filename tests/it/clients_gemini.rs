@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING};
+use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING, TIMEOUT};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 const STREAM_PATH: &str = "/v1beta/models/gemini-x:streamGenerateContent";
@@ -497,17 +497,23 @@ async fn gemini_stream_ended_without_finish_reason_is_offline() {
 }
 
 #[tokio::test]
-async fn gemini_keep_alive_comments_do_not_hold_the_request_forever() {
+async fn gemini_keep_alive_comments_past_the_total_timeout_are_offline() {
+    capture_logs();
     let comment = ": keep-alive\r\n\r\n".to_owned();
     let url =
         stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
-    let c = GeminiClient::new("k", "gemini-x", "auto", &url)
-        .with_idle_timeout(Duration::from_millis(300));
+    let c = GeminiClient::new("k", "gemini-total-timeout", "auto", &url)
+        .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
         .expect("request never gave up");
     assert!(
-        matches!(&result, Err(TranslateError::Offline { status: None, detail, .. }) if detail.contains("idle")),
+        matches!(&result, Err(TranslateError::Offline { status: None, .. })),
         "{result:?}"
+    );
+    let text = log_text();
+    assert!(
+        text.contains("[translate] request timed out: provider=gemini model=gemini-total-timeout"),
+        "{text}"
     );
 }
