@@ -25,13 +25,13 @@ pub enum CardLayout {
 const ICON_SIZE: f32 = 32.0;
 const GRID_GAP: f32 = 12.0;
 const GRID_MIN_HEIGHT: f32 = 150.0;
-/// 清單卡片：左右內距、上下內距、圖示與文字與箭頭之間的間距、箭頭字級（也是它佔的寬）、標題與說明的間距。
+// 清單卡片：左右內距、上下內距、圖示與文字與箭頭之間的間距、箭頭字級（也是它佔的寬）、標題與說明的間距
 const LIST_PAD_X: f32 = 14.0;
 const LIST_PAD_Y: f32 = 12.0;
 const LIST_GAP: f32 = 14.0;
 const ARROW_SIZE: f32 = 12.0;
 const LIST_TEXT_GAP: f32 = 2.0;
-/// 格狀卡片：四周內距、圖示與標題與說明之間的間距。
+// 格狀卡片：四周內距、圖示與標題與說明之間的間距
 const GRID_PAD: f32 = 16.0;
 const GRID_TEXT_GAP: f32 = 8.0;
 

@@ -1,4 +1,4 @@
-//! 服務商卡片在每個介面語言下，標題與說明都排在卡片內、格狀同列等高。
+//! 服務商卡片在每個介面語言下，標題與說明都排在卡片內、不壓到清單排法的箭頭，格狀同列等高。
 //!
 //! 會切換全域介面語言，獨立成一個測試執行檔，檔內以鎖排隊。
 
@@ -16,7 +16,7 @@ use wizard101_chat_translator::config::services::providers;
 use wizard101_chat_translator::i18n::{self, available_languages};
 use wizard101_chat_translator::ui::overlay::scrollbar;
 use wizard101_chat_translator::ui::settings::provider_picker::{CardLayout, provider_cards};
-use wizard101_chat_translator::ui::settings::theme;
+use wizard101_chat_translator::ui::settings::theme::{self, icon};
 
 /// 對話框內容區比 `PICKER_DIALOG_WIDTH` 窄的 2（`dialog` 的 `set_width`）、卡片外框兩側內距各 20。
 const DIALOG_INNER_INSET: f32 = 2.0;
@@ -68,6 +68,7 @@ fn galley_rects(h: &Harness<()>, text: &str) -> Vec<Rect> {
 
 fn assert_text_inside_cards(layout: CardLayout, width: f32, language: &'static str) {
     let h = cards_harness(layout, width, language);
+    let arrows = galley_rects(&h, &icon::NEXT.to_string());
     let mut rects = Vec::new();
     for provider in providers() {
         let card = h
@@ -81,8 +82,19 @@ fn assert_text_inside_cards(layout: CardLayout, width: f32, language: &'static s
                 "{language} {layout:?} w={width} {key}: text {:?} outside card {card:?}",
                 galleys[0]
             );
+            for arrow in &arrows {
+                assert!(
+                    !arrow.intersects(galleys[0]),
+                    "{language} {layout:?} w={width} {key}: text {:?} overlaps arrow {arrow:?}",
+                    galleys[0]
+                );
+            }
         }
         rects.push(card);
+    }
+    match layout {
+        CardLayout::List => assert_eq!(arrows.len(), providers().len(), "{language} list arrows"),
+        CardLayout::Grid => assert!(arrows.is_empty(), "{language} grid has no arrows"),
     }
     if layout == CardLayout::Grid {
         for row in rects.chunks(2) {
