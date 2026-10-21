@@ -19,14 +19,9 @@ pub fn bypass_proxy_for_loopback(
     if !is_loopback(url) {
         return builder;
     }
-    let proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"];
-    if proxy_vars.iter().any(|name| {
-        std::env::var_os(name).is_some() || std::env::var_os(name.to_lowercase()).is_some()
-    }) {
-        log(format!(
-            "[translate] {url} is a loopback address; bypassing the configured proxy"
-        ));
-    }
+    log(format!(
+        "[net] {url} is a loopback address; not using a proxy"
+    ));
     builder.no_proxy()
 }
 

@@ -2,7 +2,10 @@
 //!
 //! 環境變數是整個程序共用的，改了會波及平行跑的其他測試；所以把真正的請求放到帶著代理變數的子程序裡跑。
 
+use crate::common;
 use crate::stream_server::request;
+
+use common::log_capture::{capture_logs, log_text};
 
 use serde_json::json;
 use wiremock::matchers::{method, path};
@@ -69,4 +72,13 @@ async fn child_requests_through_the_env_proxy() {
     let local = MockServer::start().await;
     mount_reply(&local, "direct").await;
     assert_eq!(chat(&local.uri()).await, "direct");
+}
+
+#[tokio::test]
+async fn loopback_clients_log_that_no_proxy_is_used() {
+    capture_logs();
+    let url = crate::stream_server::closed_url().await;
+    let _client = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let line = format!("[net] {url} is a loopback address; not using a proxy");
+    assert!(log_text().contains(&line), "{line}");
 }
