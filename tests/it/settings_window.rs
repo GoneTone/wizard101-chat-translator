@@ -18,7 +18,7 @@ use common::settings_env::FakeEnv;
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
-use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
 use wizard101_chat_translator::input::dispatcher::Dispatcher;
 use wizard101_chat_translator::input::dispatcher::testing::key;
 use wizard101_chat_translator::runtime::updater::{
@@ -458,6 +458,22 @@ fn save_writes_the_advanced_values() {
 }
 
 #[test]
+fn an_out_of_range_advanced_value_is_clamped_when_the_field_loses_focus() {
+    let mut h = harness(configured_cfg());
+    go(&mut h, "settings.tab.advanced");
+    let label = tr("settings.max_messages");
+    h.get_by_label(&label).click();
+    run(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.event(egui::Event::Text("5000".into()));
+    run(&mut h);
+    assert_eq!(h.get_by_label(&label).value().as_deref(), Some("5000"));
+    h.key_press(Key::Tab);
+    run(&mut h);
+    assert_eq!(h.get_by_label(&label).value().as_deref(), Some("1000"));
+}
+
+#[test]
 fn a_non_number_advanced_value_blocks_the_save() {
     let mut h = harness(configured_cfg());
     go(&mut h, "settings.tab.advanced");
@@ -552,6 +568,19 @@ fn save_blank_target_language_is_refused() {
 }
 
 #[test]
+fn a_blank_target_language_tests_the_connection_in_the_ui_language() {
+    let mut cfg = configured_cfg();
+    cfg.insert("target_language".into(), json!("   "));
+    let mut h = harness(cfg);
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.edit"));
+    click(&mut h, Role::Button, &tr("button.test"));
+    let tests = h.state().env.tests.borrow();
+    let (_, _, target) = tests.last().expect("test started");
+    assert_eq!(*target, language_name(&current_language()));
+}
+
+#[test]
 fn the_target_language_is_saved_stripped() {
     let mut cfg = configured_cfg();
     cfg.insert("target_language".into(), json!("  日本語 "));
@@ -574,6 +603,23 @@ fn save_rejects_identical_hotkeys() {
     record_region(&mut h, "ctrl+space");
     assert!(save(&mut h).is_none());
     assert!(has_label(&h, &tr("error.hotkeys_same")));
+}
+
+#[test]
+fn save_rejects_a_ctrl_v_hotkey_while_paste_is_on() {
+    let mut h = harness(configured_cfg());
+    record_region(&mut h, "ctrl+v");
+    assert!(save(&mut h).is_none());
+    assert!(has_label(&h, &tr("error.hotkey_is_paste")));
+}
+
+#[test]
+fn a_ctrl_v_hotkey_saves_while_paste_is_off() {
+    let mut cfg = configured_cfg();
+    cfg.insert("paste_hotkey".into(), json!(false));
+    let mut h = harness(cfg);
+    record_region(&mut h, "ctrl+v");
+    assert_eq!(save(&mut h).unwrap()["region_hotkey"], json!("ctrl+v"));
 }
 
 #[test]
@@ -911,6 +957,20 @@ fn clear_cache_button_clears_and_reports_the_count() {
     click(&mut h, Role::Button, &tr("button.clear_cache"));
     assert_eq!(h.state().env.cleared.get(), 1);
     text(&h, &cleared);
+}
+
+#[test]
+fn a_failed_cache_clear_reports_failure() {
+    let env = FakeEnv {
+        cache: Some(3),
+        clear_fails: true,
+        ..FakeEnv::default()
+    };
+    let mut h = harness_with(configured_cfg(), env, egui::vec2(840.0, 660.0));
+    go(&mut h, "settings.tab.about");
+    click(&mut h, Role::Button, &tr("button.clear_cache"));
+    text(&h, &tr("about.cache_clear_failed"));
+    assert!(!has_label(&h, &t("about.cache_cleared", &[("count", "3")])));
 }
 
 #[test]

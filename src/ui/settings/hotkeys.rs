@@ -7,8 +7,10 @@ use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::text_setting;
 use super::theme;
 use super::widgets::{card, extended_galley, keycap_row, secondary_button, setting_row, toggle};
+use crate::composer::paste::PASTE_KEY;
 use crate::config::Config;
 use crate::i18n::t;
+use crate::input::keys::{hotkey_name, split_hotkey};
 use crate::logs::log;
 
 /// 哪一把熱鍵。
@@ -75,9 +77,16 @@ impl HotkeyEditor {
         }
     }
 
-    /// 兩把熱鍵相同會一起觸發，儲存前要擋下。
-    pub fn conflict(&self) -> bool {
-        self.value(HotkeyKind::Input) == self.value(HotkeyKind::Region)
+    /// 儲存前要擋下的原因（錯誤文案 key）：兩把相同會一起觸發；遊戲內貼上開著時 Ctrl+V 被貼上搶走。
+    pub fn errors(&self, paste_hotkey: bool) -> Vec<String> {
+        let mut errors = Vec::new();
+        if self.value(HotkeyKind::Input) == self.value(HotkeyKind::Region) {
+            errors.push("error.hotkeys_same".into());
+        }
+        if paste_hotkey && self.values.iter().any(|v| is_paste(v)) {
+            errors.push("error.hotkey_is_paste".into());
+        }
+        errors
     }
 
     /// 錄製器待移除就從鍵盤分派器拿掉。
@@ -107,8 +116,7 @@ impl HotkeyEditor {
         let Some(change) = change.filter(|r| r.clicked()) else {
             return;
         };
-        self.stop();
-        self.release(env);
+        self.abort(env);
         // 錄製時按的空白鍵／Enter 不可再觸發聚焦中的按鈕
         change.surrender_focus();
         let round = self.recording.start();
@@ -150,12 +158,28 @@ impl HotkeyEditor {
         self.release_pending = true;
     }
 
+    /// 放棄錄製並立刻移除錄製器（手上有 env 時用）。
+    pub fn abort(&mut self, env: &dyn SettingsEnv) {
+        self.stop();
+        self.release(env);
+    }
+
     /// 放棄進行中的錄製（之後回來的結果一律丟掉）。
     pub fn stop(&mut self) {
         self.release_pending |= self.recording.busy();
         self.recording.cancel();
         self.target = None;
     }
+}
+
+/// 熱鍵正規化後是不是遊戲內貼上的 Ctrl+V（手改的設定可能寫成 `v+ctrl` 之類）。
+fn is_paste(hotkey: &str) -> bool {
+    let steps = split_hotkey(hotkey);
+    let [step] = steps.as_slice() else {
+        return false;
+    };
+    let names: Vec<String> = step.iter().map(|&name| name.to_owned()).collect();
+    hotkey_name(&names) == format!("ctrl+{PASTE_KEY}")
 }
 
 /// 錄製中的提示：`ACCENT` 外框的框，不可聚焦也不可點，免得錄製時按的鍵觸發它。

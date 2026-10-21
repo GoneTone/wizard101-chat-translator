@@ -582,7 +582,7 @@ fn real_env_clears_the_cache_and_reports_the_count() {
         None,
     );
     assert!(!none.has_cache());
-    assert_eq!(none.clear_cache(), 0);
+    assert_eq!(none.clear_cache(), Some(0));
 
     let dir = tempfile::tempdir().unwrap();
     let cache = Arc::new(TranslationCache::new(
@@ -592,8 +592,8 @@ fn real_env_clears_the_cache_and_reports_the_count() {
     assert!(cache.put("Hello", "你好", "fp"));
     let env = RealEnv::new(rt.handle().clone(), poster, dispatcher, Some(cache));
     assert!(env.has_cache());
-    assert_eq!(env.clear_cache(), 1);
-    assert_eq!(env.clear_cache(), 0);
+    assert_eq!(env.clear_cache(), Some(1));
+    assert_eq!(env.clear_cache(), Some(0));
 }
 
 /// 畫面上文字是 `text` 的字形範圍。

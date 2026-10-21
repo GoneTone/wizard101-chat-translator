@@ -797,8 +797,8 @@ impl SettingsEnv for NoopEnv {
     fn has_cache(&self) -> bool {
         false
     }
-    fn clear_cache(&self) -> usize {
-        0
+    fn clear_cache(&self) -> Option<usize> {
+        Some(0)
     }
 }
 

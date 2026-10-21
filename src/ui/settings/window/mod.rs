@@ -24,7 +24,7 @@ use super::widgets::{
 use super::{flag_setting, setting, text_setting};
 use crate::config::services::{ServiceSlot, find, slot_id, validate_service};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
-use crate::i18n::{current_language, set_language, t};
+use crate::i18n::{current_language, language_name, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
@@ -177,8 +177,7 @@ impl SettingsWindow {
 
     /// 取消（〔取消〕、視窗 ✕ 或 Alt+F4）：停掉錄製，還原預覽中的透明度與介面語言，最後送 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
-        self.hotkeys.stop();
-        self.hotkeys.release(env);
+        self.hotkeys.abort(env);
         let mut actions = std::mem::take(&mut self.pending);
         if self.advanced.overlay_alpha != self.alpha_at_open {
             self.advanced.overlay_alpha = self.alpha_at_open;
@@ -222,9 +221,7 @@ impl SettingsWindow {
             cfg.insert(key.into(), value);
         }
         let mut errors = service_errors(&cfg);
-        if self.hotkeys.conflict() {
-            errors.push("error.hotkeys_same".into());
-        }
+        errors.extend(self.hotkeys.errors(self.paste_hotkey));
         if target.is_empty() {
             errors.push("error.need_target_language".into());
         }
@@ -243,8 +240,7 @@ impl SettingsWindow {
             self.errors = errors;
             return;
         }
-        self.hotkeys.stop();
-        self.hotkeys.release(env);
+        self.hotkeys.abort(env);
         self.pending.push(SettingsAction::Save(cfg));
     }
 
@@ -355,7 +351,11 @@ impl SettingsWindow {
             match self.page {
                 Page::Basic => self.basic_page(ui, env),
                 Page::Services => {
-                    let target = pystr::strip(&self.target_language).to_owned();
+                    // 目標語言還空著時比照精靈，用介面語言測，不送出沒有語言的提示詞
+                    let target = match pystr::strip(&self.target_language) {
+                        "" => language_name(&current_language()),
+                        target => target.to_owned(),
+                    };
                     self.services.ui(ui, env, &target);
                 }
                 Page::Advanced => self.advanced_page(ui),

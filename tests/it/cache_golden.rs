@@ -309,13 +309,33 @@ fn clear_removes_entries_and_file_without_writing_back() {
     cache.put("熔岩百合", "x", FP);
     cache.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP);
     cache.flush();
-    assert_eq!(cache.clear(), 2);
+    assert_eq!(cache.clear(), Some(2));
     assert!(!dir.path().join("cache.json").exists());
     assert_eq!(cache.get("熔岩百合"), None);
     cache.flush();
     let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
     assert_eq!(saved["entries"], json!({}));
-    assert_eq!(cache_in(&tempfile::tempdir().unwrap()).clear(), 0);
+    assert_eq!(cache_in(&tempfile::tempdir().unwrap()).clear(), Some(0));
+}
+
+#[test]
+fn clear_reports_failure_when_the_file_cannot_be_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("cache.json")).unwrap();
+    assert_eq!(cache_in(&dir).clear(), None);
+}
+
+#[test]
+fn a_cleared_cache_is_not_brought_back_by_switching_back() {
+    // 使用者要求的清除不可被之後切回原指紋時換回暫存的舊條目
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_in(&dir);
+    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.rebind(OTHER_FP);
+    cache.put("迷幻木头", "迷幻木頭", OTHER_FP);
+    cache.clear();
+    cache.rebind(FP);
+    assert_eq!(cache.get("熔岩百合"), None);
 }
 
 #[test]

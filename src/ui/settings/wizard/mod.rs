@@ -16,9 +16,7 @@ use super::theme::{self, icon};
 use super::widgets::{primary_button, primary_icon_button, right_aligned, secondary_icon_button};
 use super::{flag_setting, text_setting};
 use crate::config::Config;
-use crate::config::services::{
-    find, is_auto_name, new_service, provider, str_field, unique_name, validate_service,
-};
+use crate::config::services::{find, is_auto_name, new_service, provider, str_field, unique_name};
 use crate::i18n::{current_language, language_name, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
@@ -82,7 +80,7 @@ pub struct Wizard {
     target_language: String,
     hotkeys: HotkeyEditor,
     auto_show_input: bool,
-    /// 按〔完成〕時兩把熱鍵相同；提示顯示到兩把不再相同為止。
+    /// 按〔完成〕時熱鍵被擋下；提示顯示到擋下的原因都排除為止。
     hotkeys_blocked: bool,
     /// 提示剛出現，下一次畫的時候捲到它。
     reveal_callout: bool,
@@ -134,8 +132,7 @@ impl Wizard {
 
     /// 取消（視窗 ✕ 或 Alt+F4）：停掉進行中的熱鍵錄製，回傳 `Cancel`。
     pub fn cancel(&mut self, env: &dyn SettingsEnv) -> WizardAction {
-        self.hotkeys.stop();
-        self.hotkeys.release(env);
+        self.hotkeys.abort(env);
         log(format!("[ui] wizard cancelled at step {:?}", self.step));
         WizardAction::Cancel
     }
@@ -188,7 +185,7 @@ impl Wizard {
             // 沒有表單只可能停在第二步（第三步只能經由被擋住的〔下一步〕抵達）
             None => self.step != Step::Service,
             Some(form) => {
-                let errors = validate_service(&form.api_values());
+                let errors = form.errors();
                 can_advance(self.step, form.test_passed() || self.skip_test, &errors)
             }
         }
@@ -196,8 +193,7 @@ impl Wizard {
 
     fn go_to(&mut self, step: Step, env: &dyn SettingsEnv) {
         if self.step == Step::Prefs {
-            self.hotkeys.stop();
-            self.hotkeys.release(env);
+            self.hotkeys.abort(env);
         }
         log(format!("[ui] wizard step {:?} -> {step:?}", self.step));
         self.step = step;
@@ -276,15 +272,15 @@ impl Wizard {
     }
 
     fn finish(&mut self, env: &dyn SettingsEnv) -> Option<WizardAction> {
-        // 與設定視窗同一條驗證：兩把熱鍵相同會一起觸發
-        if self.hotkeys.conflict() {
-            log("[ui] wizard finish blocked: error.hotkeys_same");
+        // 與設定視窗同一條驗證
+        let errors = self.hotkey_errors();
+        if !errors.is_empty() {
+            log(format!("[ui] wizard finish blocked: {}", errors.join(", ")));
             self.hotkeys_blocked = true;
             self.reveal_callout = true;
             return None;
         }
-        self.hotkeys.stop();
-        self.hotkeys.release(env);
+        self.hotkeys.abort(env);
         self.collect_into_cfg();
         self.cfg
             .insert("ui_language".into(), current_language().into());
@@ -294,6 +290,10 @@ impl Wizard {
             default.unwrap_or("none")
         ));
         Some(WizardAction::Finish(self.cfg.clone()))
+    }
+
+    fn hotkey_errors(&self) -> Vec<String> {
+        self.hotkeys.errors(flag_setting(&self.cfg, "paste_hotkey"))
     }
 
     /// 按鈕列：〔上一步〕靠左（第一步停用），〔下一步〕／〔完成〕靠右。

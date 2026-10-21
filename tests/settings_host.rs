@@ -94,7 +94,7 @@ impl SettingsEnv for SharedEnv {
     fn has_cache(&self) -> bool {
         self.0.has_cache()
     }
-    fn clear_cache(&self) -> usize {
+    fn clear_cache(&self) -> Option<usize> {
         self.0.clear_cache()
     }
 }

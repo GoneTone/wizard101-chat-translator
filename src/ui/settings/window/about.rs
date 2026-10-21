@@ -23,7 +23,8 @@ pub(super) struct AboutState {
     update: Round,
     /// 最近一次檢查更新的結果：`Ok(None)` 已是最新、`Ok(Some)` 有新版、`Err` 失敗原因。
     result: Option<Result<Option<Release>, String>>,
-    cache_cleared: Option<usize>,
+    /// 最近一次清除快取的結果：`Some(None)` 是刪檔失敗。
+    cache_cleared: Option<Option<usize>>,
 }
 
 impl Default for AboutState {
@@ -125,9 +126,14 @@ impl SettingsWindow {
             if env.has_cache() {
                 let hint = t("about.cache_hint", &[]);
                 setting_row(ui, &t("about.cache", &[]), Some(&hint), |ui| {
-                    if let Some(count) = self.about.cache_cleared {
-                        let count = count.to_string();
-                        outcome(ui, true, &t("about.cache_cleared", &[("count", &count)]));
+                    if let Some(cleared) = self.about.cache_cleared {
+                        match cleared {
+                            Some(count) => {
+                                let count = count.to_string();
+                                outcome(ui, true, &t("about.cache_cleared", &[("count", &count)]));
+                            }
+                            None => outcome(ui, false, &t("about.cache_clear_failed", &[])),
+                        }
                         ui.add_space(8.0);
                     }
                     // 不加確認：快取會自動重建，誤按的代價只是下一則同樣的系統訊息重翻一次

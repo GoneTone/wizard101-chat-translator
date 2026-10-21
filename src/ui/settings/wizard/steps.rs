@@ -188,9 +188,10 @@ impl Wizard {
         ui.add_space(4.0);
         ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
         self.hotkeys.cards(ui, env, &mut self.auto_show_input);
-        self.hotkeys_blocked &= self.hotkeys.conflict();
+        let errors = self.hotkey_errors();
+        self.hotkeys_blocked &= !errors.is_empty();
         if self.hotkeys_blocked {
-            let lines = [t("error.hotkeys_same", &[])];
+            let lines: Vec<String> = errors.iter().map(|e| t(e, &[])).collect();
             let shown = ui.scope(|ui| callout(ui, &t("dialog.incomplete_title", &[]), &lines));
             if std::mem::take(&mut self.reveal_callout) {
                 shown.response.scroll_to_me(None);

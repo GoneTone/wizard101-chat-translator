@@ -491,6 +491,20 @@ fn finish_rejects_identical_hotkeys() {
 }
 
 #[test]
+fn finish_rejects_a_ctrl_v_hotkey_while_paste_is_on() {
+    // 手改過的設定也要認得：比對的是正規化後的熱鍵名稱
+    let mut cfg = configured();
+    cfg.insert("hotkey".into(), json!("v+ctrl"));
+    let mut h = to_prefs(cfg);
+    click(&mut h, Role::Button, &tr("button.finish"));
+    assert!(finished(&h).is_none());
+    assert!(has_label(&h, &tr("error.hotkey_is_paste")));
+    record(&mut h, 0, "ctrl+q");
+    assert!(!has_label(&h, &tr("error.hotkey_is_paste")));
+    assert_eq!(walk_to_finish(&mut h)["hotkey"], json!("ctrl+q"));
+}
+
+#[test]
 fn finish_sends_the_full_config() {
     // 精靈在 App 啟動前跑：送出的是整份設定，不是只有精靈管的那幾個鍵
     let mut cfg = configured();

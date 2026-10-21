@@ -91,6 +91,7 @@ impl ServiceForm {
         let effort = service
             .get("effort")
             .and_then(Value::as_str)
+            .filter(|effort| EFFORTS.contains(effort))
             .unwrap_or(EFFORT_AUTO)
             .to_owned();
         Self {
@@ -130,6 +131,18 @@ impl ServiceForm {
     /// 測試連線與翻譯用的形狀：去掉 id 與名稱。
     pub fn api_values(&self) -> Value {
         Value::Object(self.api_map())
+    }
+
+    /// 按確定與測試連線前要擋下的原因（錯誤文案 key）：必填欄位，加上伺服器網址的格式。
+    ///
+    /// 網址格式只在表單擋：`validate_service` 也決定啟動時要不要進精靈，不跟著加嚴。
+    pub fn errors(&self) -> Vec<String> {
+        let mut errors = validate_service(&self.api_values());
+        let base_url = pystr::strip(&self.base_url);
+        if self.provider.needs_base_url() && !base_url.is_empty() {
+            errors.extend(base_url_error(base_url).map(String::from));
+        }
+        errors
     }
 
     /// 換服務商：名稱還是上一家的自動名才跟著換，欄位清空並套新服務商預設，測試結果與模型清單作廢。
@@ -373,17 +386,16 @@ impl ServiceForm {
 
     fn effort_row(&mut self, ui: &mut Ui) {
         form_row(ui, &t("field.effort", &[]), |ui, label| {
-            let shown = EFFORTS
-                .into_iter()
-                .find(|code| *code == self.effort)
-                .unwrap_or(EFFORT_AUTO);
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
             let combo = combo_box(ui, "effort")
-                .selected_text(name(shown))
+                .selected_text(name(&self.effort))
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
                     for code in EFFORTS {
-                        if ui.selectable_label(code == shown, name(code)).clicked() {
+                        if ui
+                            .selectable_label(code == self.effort, name(code))
+                            .clicked()
+                        {
                             code.clone_into(&mut self.effort);
                         }
                     }
@@ -435,13 +447,13 @@ impl ServiceForm {
     }
 
     fn start_test(&mut self, env: &dyn SettingsEnv, target_language: &str) {
-        let api = self.api_values();
-        let errors = validate_service(&api);
+        let errors = self.errors();
         if !errors.is_empty() {
             self.test_result = Some(TestResult::Failed(join_errors(&errors)));
             return;
         }
         self.test_result = None;
+        let api = self.api_values();
         let spec = ServiceSpec::from_service(&api);
         log(format!(
             "[settings] test connection started (provider={}, model={}, has_key={})",
@@ -514,6 +526,18 @@ impl ServiceForm {
                 };
             }
         }
+    }
+}
+
+/// 伺服器網址格式不對的原因：沒有 `http(s)://` 會建不出請求，結尾 `/v1` 會被用戶端再接一次 `/v1`。
+fn base_url_error(base_url: &str) -> Option<&'static str> {
+    let url = base_url.to_ascii_lowercase();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        Some("error.base_url_scheme")
+    } else if url.trim_end_matches('/').ends_with("/v1") {
+        Some("error.base_url_v1")
+    } else {
+        None
     }
 }
 

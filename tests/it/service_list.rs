@@ -571,6 +571,20 @@ fn dialog_ok_keeps_the_dialog_open_when_invalid() {
 }
 
 #[test]
+fn dialog_ok_refuses_a_base_url_ending_in_v1() {
+    let mut a = new_service("custom", &[]);
+    a["model"] = json!("m");
+    a["base_url"] = json!("http://localhost:1234/v1");
+    let d = draft(vec![a.clone()], Some(&a), [None; 3]);
+    let mut h = harness(d.clone());
+    click_card(&mut h, &tr("button.edit"), 0);
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    assert!(has_dialog(&h, &tr("service.dialog_title")));
+    assert!(has_label(&h, &tr("error.base_url_v1")));
+    assert_eq!(h.state().pane.draft(), &d);
+}
+
+#[test]
 fn dialog_ok_saves_the_full_service_when_valid() {
     capture_logs();
     let (d, a, _b) = two();
@@ -777,7 +791,7 @@ fn add_service_drafts_the_picked_provider() {
     assert!(has_dialog(&h, &tr("service.dialog_title")));
     h.get_by_label(&tr("field.base_url")).click();
     run(&mut h);
-    type_text(&mut h, "http://localhost:11434/v1");
+    type_text(&mut h, "http://localhost:11434");
     h.get_by_label(&tr("field.model")).click();
     run(&mut h);
     type_text(&mut h, "qwen3");
@@ -785,7 +799,7 @@ fn add_service_drafts_the_picked_provider() {
     let services = &h.state().pane.draft().services;
     assert_eq!(services.len(), 3);
     assert_eq!(services[2]["provider"], json!("custom"));
-    assert_eq!(services[2]["base_url"], json!("http://localhost:11434/v1"));
+    assert_eq!(services[2]["base_url"], json!("http://localhost:11434"));
 }
 
 #[test]

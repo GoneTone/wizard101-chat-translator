@@ -221,25 +221,29 @@ impl TranslationCache {
         inner.unflushed = if was_restored { FLUSH_EVERY } else { 0 };
     }
 
-    /// 使用者主動清空：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數；刪檔失敗只記 log。
-    pub fn clear(&self) -> usize {
+    /// 使用者主動清空（連同換回用的暫存）：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數；刪檔失敗回 `None`。
+    pub fn clear(&self) -> Option<usize> {
         let count = {
             let mut inner = self.lock();
             let count = inner.entries.len();
             inner.entries.clear();
+            inner.previous = None;
             inner.unflushed = 0;
             count
         };
         match fs::remove_file(&self.path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => log(format!(
-                "[cache] could not delete {}: {e}",
-                self.path.display()
-            )),
+            Err(e) => {
+                log(format!(
+                    "[cache] clear failed: could not delete {}: {e}",
+                    self.path.display()
+                ));
+                return None;
+            }
         }
         log(format!("[cache] cleared {count} entries on user request"));
-        count
+        Some(count)
     }
 
     /// 從磁碟載入；指紋不符、檔案損壞或不存在一律當作空快取。
