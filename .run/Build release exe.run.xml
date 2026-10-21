@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Build release exe" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="cargo build --release -j ([Environment]::ProcessorCount -shr 1) &amp;&amp; Copy-Item target\release\Wizard101ChatTranslator.exe _exe_test\" />
+    <option name="SCRIPT_TEXT" value="cargo build --release -j ([Environment]::ProcessorCount -shr 1) &amp;&amp; New-Item -ItemType Directory -Force _exe_test | Out-Null &amp;&amp; Copy-Item target\release\Wizard101ChatTranslator.exe _exe_test\" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />
