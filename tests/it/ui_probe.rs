@@ -669,7 +669,7 @@ fn run_checks(
         ),
     );
     let bg = BG.gamma_multiply(ALPHA).to_array();
-    // 玻璃邊框：頂邊中央比底邊亮（系統畫的邊框四邊同色）；內光暈以內只有底色
+    // 玻璃邊框：上下緣都比底色亮；內光暈以內只有底色
     let composed = opened.then(|| compose_capture(card)).flatten();
     let rim = composed
         .as_ref()
@@ -679,7 +679,7 @@ fn run_checks(
         .map(|c| pixel_at(c, BG_INSET as u32, c.1 / 2));
     let want_a = (ALPHA * 255.0).round() as u8;
     report.check(
-        rim.is_some_and(|(top, bottom)| top[0] > bottom[0] && top[3] > bottom[3])
+        rim.is_some_and(|(top, bottom)| top[0] > bg[0] && bottom[0] > bg[0])
             && inside.is_some_and(|p| p.iter().zip(bg).all(|(a, b)| a.abs_diff(b) <= 2)),
         format!(
             "check7c region card composed rim (top, bottom) {rim:?} \

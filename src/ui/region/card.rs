@@ -945,9 +945,10 @@ mod tests {
             matches!(&c.shape, Shape::Rect(r)
                 if r.fill == BG.gamma_multiply(0.8) && r.corner_radius != CornerRadius::ZERO)
         });
-        let rim = shapes
-            .iter()
-            .rposition(|c| matches!(&c.shape, Shape::Mesh(_)));
+        let rim = shapes.iter().rposition(|c| {
+            matches!(&c.shape, Shape::Rect(r)
+                if r.fill == Color32::TRANSPARENT && r.stroke.width > 0.0)
+        });
         assert!(
             bg.zip(rim).is_some_and(|(bg, rim)| bg < rim),
             "{bg:?} {rim:?}"

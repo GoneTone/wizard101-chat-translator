@@ -3,7 +3,7 @@
 use eframe::egui::{self, FontId, Label, RichText, TextWrapMode, Ui, Vec2};
 
 use crate::ui::fonts_egui::tk_pt;
-use crate::ui::palette::{TAB_ACCENT, TAB_BG, TAB_FG, TAB_FG_ACTIVE, bar_alpha};
+use crate::ui::palette::{BAR, TAB_ACCENT, TAB_FG, TAB_FG_ACTIVE, bar_alpha};
 
 const ACCENT_HEIGHT: f32 = 2.0;
 const CELL_GAP: f32 = 10.0;
@@ -16,7 +16,8 @@ pub fn show(ui: &mut Ui, tabs: &[(i32, String)], current: Option<i32>, alpha: f3
         return;
     }
     egui::Frame::new()
-        .fill(TAB_BG.gamma_multiply(bar_alpha(alpha)))
+        // 與標題列同色：和內容區的底色拉開
+        .fill(BAR.gamma_multiply(bar_alpha(alpha)))
         .inner_margin(egui::Margin {
             top: PAD_TOP,
             ..Default::default()
@@ -110,7 +111,7 @@ mod tests {
     fn background_never_drops_below_the_bar_opacity_floor() {
         let bar = harness(tabs(), Some(1));
         // overlay 調到 0.5 時，分頁列仍維持最低的 0.8
-        let want = TAB_BG.gamma_multiply(0.8);
+        let want = BAR.gamma_multiply(0.8);
         let filled = bar
             .output()
             .shapes
