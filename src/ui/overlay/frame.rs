@@ -308,17 +308,17 @@ impl Frame {
                         describe(rect)
                     ));
                 } else if rect != start {
-                    // 移動保留實體像素：拖到縮放較高的螢幕可能低於那顆的最小尺寸
-                    let (x, y, w, h) = rect;
-                    let (min_w, min_h) = min_size(shell.scale_at(x, y));
-                    let grown = (x, y, w.max(min_w), h.max(min_h));
-                    if grown != rect && shell.set_rect(grown) {
+                    // 拖曳中維持實體像素（不閃），放開才比照 Windows 依兩顆螢幕的縮放比等比例調整
+                    let center = |(x, y, w, h): Rect| shell.scale_at(x + w / 2, y + h / 2);
+                    let to = center(rect);
+                    let fitted = rescaled(rect, center(start), to, min_size(to));
+                    if fitted != rect && shell.set_rect(fitted) {
                         log(format!(
-                            "[ui] overlay grown to the monitor's minimum size after a move: {} -> {}",
+                            "[ui] overlay resized for the monitor's scale after a move: {} -> {}",
                             describe(rect),
-                            describe(grown)
+                            describe(fitted)
                         ));
-                        rect = grown;
+                        rect = fitted;
                     }
                 }
                 // egui 一按下就算開始拖曳：單純點一下視窗沒動，不必寫設定
@@ -349,6 +349,12 @@ impl Frame {
         )
         .inner
     }
+}
+
+/// 從縮放 `from` 的螢幕移到 `to` 的螢幕後的大小：寬高乘上 `to / from`、不小於 `min`，左上角不動。
+fn rescaled((x, y, w, h): Rect, from: f32, to: f32, (min_w, min_h): (i32, i32)) -> Rect {
+    let scale = |v: i32| (v as f32 * to / from).round() as i32;
+    (x, y, scale(w).max(min_w), scale(h).max(min_h))
 }
 
 /// `area` 扣掉 `hole` 後剩下的矩形（上、下、左、右，空的略過）；`hole` 落在 `area` 外時整塊回傳。
@@ -1121,6 +1127,15 @@ pub(crate) mod tests {
             drag(&mut harness, from, from + Vec2::new(50.0, 30.0), 1.0);
             assert_eq!(*saved.borrow(), [(1050, 530, 640, 420)], "{target}");
         }
+    }
+
+    #[test]
+    fn moving_to_another_scale_resizes_in_proportion_and_keeps_the_corner() {
+        let rect = (100, 200, 640, 360);
+        assert_eq!(rescaled(rect, 1.0, 1.5, (0, 0)), (100, 200, 960, 540));
+        assert_eq!(rescaled(rect, 1.5, 1.0, (0, 0)), (100, 200, 427, 240));
+        assert_eq!(rescaled(rect, 1.0, 1.0, (0, 0)), rect);
+        assert_eq!(rescaled(rect, 1.5, 1.0, (500, 300)), (100, 200, 500, 300));
     }
 
     #[test]
