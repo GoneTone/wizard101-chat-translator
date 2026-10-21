@@ -80,20 +80,24 @@ pub trait Shell {
 }
 
 /// 以 HWND 操作真正的視窗。
-pub struct Win32Shell(pub isize);
+pub struct Win32Shell {
+    pub hwnd: isize,
+    /// 所有螢幕的矩形；probe 換成含螢幕外停放區的版本。
+    pub monitors: fn() -> Vec<Rect>,
+}
 
 impl Shell for Win32Shell {
     fn cursor(&self) -> (i32, i32) {
         win32::cursor_pos()
     }
     fn rect(&self) -> Rect {
-        win32::window_rect(self.0)
+        win32::window_rect(self.hwnd)
     }
     fn set_rect(&mut self, rect: Rect) -> bool {
-        win32::set_window_rect(self.0, rect)
+        win32::set_window_rect(self.hwnd, rect)
     }
     fn monitors(&self) -> Vec<Rect> {
-        win32::all_monitors()
+        (self.monitors)()
     }
     fn scale_at(&self, x: i32, y: i32) -> f32 {
         win32::scale_at(x, y)
@@ -102,15 +106,13 @@ impl Shell for Win32Shell {
         win32::wait_for_composition();
     }
     fn set_cloaked(&mut self, cloaked: bool) {
-        win32::set_cloaked(self.0, cloaked);
+        win32::set_cloaked(self.hwnd, cloaked);
     }
     fn set_round_corners(&mut self, round: bool) {
-        win32::set_round_corners(self.0, round);
-        // 系統邊框會蓋在玻璃邊框的外圈上
-        win32::hide_system_border(self.0);
+        win32::set_round_corners(self.hwnd, round);
     }
     fn take_focus(&mut self) -> bool {
-        win32::force_foreground(self.0)
+        win32::force_foreground(self.hwnd)
     }
 }
 
@@ -529,9 +531,10 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
 
 /// 右下角抓取紋：三道斜線，亮色配描邊，任何背景上都看得到。
 fn paint_grip(painter: &egui::Painter, grip: egui::Rect) {
-    for inset in [4.0, 9.0, 14.0] {
-        let a = grip.min + Vec2::new(GRIP_SIZE - inset, GRIP_SIZE - 2.0);
-        let b = grip.min + Vec2::new(GRIP_SIZE - 2.0, GRIP_SIZE - inset);
+    // 離右下角留 4px：貼邊的線端會被 Windows 11 的圓角裁掉，角落看起來像直角
+    let corner = grip.max - Vec2::splat(4.0);
+    for len in [2.0, 7.0, 12.0] {
+        let (a, b) = (corner - Vec2::new(len, 0.0), corner - Vec2::new(0.0, len));
         painter.line_segment([a, b], Stroke::new(4.0, OUTLINE));
         painter.line_segment([a, b], Stroke::new(2.0, FG_BAR));
     }

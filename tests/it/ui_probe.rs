@@ -54,7 +54,7 @@ use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings_host::{SettingsHost, WindowOps};
 use wizard101_chat_translator::ui::win32::{
-    ex_style, hwnd_of, owner_of, scale_at, window_rect, window_title,
+    all_monitors, ex_style, hwnd_of, owner_of, scale_at, window_rect, window_title,
 };
 
 const PARK: f32 = 10000.0;
@@ -68,6 +68,13 @@ const REGION_CLIENT: Rect = (11000, 11000, 800, 600);
 const REGION_RECT: Rect = (11100, 11100, 300, 120);
 /// 取背景像素時離左下角的距離：避開 Windows 11 的圓角。
 const BG_INSET: usize = 10;
+
+/// 真的螢幕加上螢幕外的停放區：overlay 從泡泡展開時才不會被拉回畫面上。
+fn monitors_with_park() -> Vec<Rect> {
+    let mut monitors = all_monitors();
+    monitors.push(BOX_AREA);
+    monitors
+}
 
 /// 收集 egui-wgpu 透過 `log` crate 發出的警告（透明 swapchain 不支援時會在這裡出聲）。
 struct Warnings(Mutex<Vec<String>>);
@@ -338,29 +345,24 @@ fn composed_matches(hwnd: isize, drawn: [u8; 4]) -> (bool, Option<[u8; 4]>) {
 /// 合成結果與 egui 畫的不同的一點：x、y、合成值、egui 值。
 type Mismatch = (u32, u32, [u8; 4], [u8; 4]);
 
-/// 合成結果在四角與四邊中點與 `want` 不同之處；系統的圓角、邊框與陰影都落在這些點上。
+/// 合成結果在四邊中點與 `want` 不同之處；系統的邊框與陰影都落在這些點上（四角是 DWM 裁的圓角，不比）。
 ///
 /// `want` 收 (x, y, 寬, 高) 回應有的像素，回 `None`（例如尺寸對不上）時整個回 `None`。
+/// `shadow` 為真時 alpha 只要不低於 `want`：圓角視窗的黑色陰影墊在半透明邊緣下，只會加 alpha、不改預乘的 RGB。
 fn edge_mismatches(
     hwnd: isize,
+    shadow: bool,
     want: impl Fn(u32, u32, u32, u32) -> Option<[u8; 4]>,
 ) -> Option<Vec<Mismatch>> {
     let c = compose_capture(hwnd)?;
     let (w, h) = (c.0, c.1);
-    let points = [
-        (0, 0),
-        (w / 2, 0),
-        (w - 1, 0),
-        (0, h / 2),
-        (w - 1, h / 2),
-        (0, h - 1),
-        (w / 2, h - 1),
-        (w - 1, h - 1),
-    ];
+    let points = [(w / 2, 0), (0, h / 2), (w - 1, h / 2), (w / 2, h - 1)];
     let mut found = Vec::new();
     for (x, y) in points {
         let (got, want) = (pixel_at(&c, x, y), want(x, y, w, h)?);
-        if !got.iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2) {
+        let rgb = got[..3].iter().zip(want).all(|(a, b)| a.abs_diff(b) <= 2);
+        let alpha = got[3].abs_diff(want[3]) <= 2 || (shadow && got[3] > want[3]);
+        if !(rgb && alpha) {
             found.push((x, y, got, want));
         }
     }
@@ -444,10 +446,10 @@ fn run_checks(
         ),
     );
 
-    // 1c. 邊緣沒有系統畫的圓角、邊框或陰影
+    // 1c. 邊緣沒有系統畫的邊框（四角的圓角與墊在底下的陰影是預期的）
     let edges = shot
         .as_deref()
-        .and_then(|img| edge_mismatches(h, drawn_pixel(img)));
+        .and_then(|img| edge_mismatches(h, true, drawn_pixel(img)));
     report.check(
         edges.as_ref().is_some_and(Vec::is_empty),
         format!("check1c composed edges differing from drawn (x, y, composed, drawn): {edges:?}"),
@@ -480,6 +482,8 @@ fn run_checks(
     );
 
     // 4. 根視窗本身縮成泡泡（不隱藏、不另開視窗），事件照常即時處理
+    // 前面的擷取會留下本程序的小視窗：只認縮小之後才出現的
+    let existing = own_visible_windows();
     let overlay = window_rect(h);
     shared.lock().unwrap().minimize = true;
     let shrunk = poll(Duration::from_secs(5), Some(ctx), || {
@@ -488,7 +492,7 @@ fn run_checks(
     });
     let others = own_visible_windows()
         .into_iter()
-        .filter(|w| *w != h)
+        .filter(|w| *w != h && !existing.contains(w))
         .count();
     // 不再主動要求重繪：只靠投遞端的喚醒
     std::thread::sleep(Duration::from_millis(300));
@@ -578,7 +582,7 @@ fn run_checks(
     // winit 顯示視窗時會重算外框：展開後邊緣也要維持
     let edges = shot
         .as_deref()
-        .and_then(|img| edge_mismatches(hwnd(), drawn_pixel(img)));
+        .and_then(|img| edge_mismatches(hwnd(), true, drawn_pixel(img)));
     report.check(
         edges.as_ref().is_some_and(Vec::is_empty),
         format!("expand: composed edges differing from drawn: {edges:?}"),
@@ -600,7 +604,11 @@ fn run_checks(
     // 上緣是拖曳條，其餘是 BG
     let (bar, bg) = (BAR.to_array(), input_box::BG.to_array());
     let edges = opened
-        .then(|| edge_mismatches(input, |_, y, _, _| Some(if y == 0 { bar } else { bg })))
+        .then(|| {
+            edge_mismatches(input, false, |_, y, _, _| {
+                Some(if y == 0 { bar } else { bg })
+            })
+        })
         .flatten();
     let (ex, owner) = (ex_style(input), owner_of(input));
     let fg = unsafe { GetForegroundWindow() as isize };
@@ -657,7 +665,7 @@ fn run_checks(
     }
     // 框只畫框線與把手：四邊全透明，但整個視窗都收得到滑鼠
     let edges = opened
-        .then(|| edge_mismatches(boxed, |_, _, _, _| Some([0; 4])))
+        .then(|| edge_mismatches(boxed, false, |_, _, _, _| Some([0; 4])))
         .flatten();
     let hit = hit_test_center(boxed);
     report.check(
@@ -754,6 +762,7 @@ fn run_probe(label: &'static str, mut native: eframe::NativeOptions) -> Report {
         };
         app.set_input_desktop(desktop);
         app.set_region_desktop(desktop);
+        app.set_monitors(monitors_with_park);
         Probe {
             app,
             shared: wrapper_shared,

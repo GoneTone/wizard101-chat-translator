@@ -79,6 +79,8 @@ pub struct App {
     hwnd: isize,
     /// 根視窗的位置大小操作；測試換成假的。
     shell: Box<dyn Shell>,
+    /// overlay 看到的螢幕清單；probe 換掉，讓螢幕外的停放區也算一顆螢幕。
+    monitors: fn() -> Vec<Rect>,
     frame: Frame,
     minimized: bool,
     /// 根視窗目前擺成泡泡的位置大小（與 `minimized` 不同＝切換中）。
@@ -122,7 +124,11 @@ impl App {
         Self {
             rx: inbox.rx,
             hwnd: 0,
-            shell: Box::new(Win32Shell(0)),
+            shell: Box::new(Win32Shell {
+                hwnd: 0,
+                monitors: win32::all_monitors,
+            }),
+            monitors: win32::all_monitors,
             frame,
             minimized: false,
             as_bubble: false,
@@ -166,6 +172,11 @@ impl App {
         if let Some(host) = &mut self.input {
             host.desktop = desktop;
         }
+    }
+
+    /// 換掉 overlay 看到的螢幕清單（probe 用：螢幕外的停放區也算螢幕，展開泡泡時才不會被拉回畫面上）；要在第一幀之前呼叫。
+    pub fn set_monitors(&mut self, monitors: fn() -> Vec<Rect>) {
+        self.monitors = monitors;
     }
 
     /// 接上框選翻譯（熱鍵、⛶ 與辨識結果都交給它）；卡片背景不透明度跟著 overlay。
@@ -711,7 +722,10 @@ impl eframe::App for App {
             if self.hwnd != 0 {
                 win32::remove_system_frame(self.hwnd);
                 win32::guard_minimize(self.hwnd, Arc::clone(&self.minimize_guard));
-                self.shell = Box::new(Win32Shell(self.hwnd));
+                self.shell = Box::new(Win32Shell {
+                    hwnd: self.hwnd,
+                    monitors: self.monitors,
+                });
                 self.shell.set_round_corners(!self.minimized);
             }
         }

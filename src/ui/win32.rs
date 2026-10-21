@@ -189,7 +189,7 @@ pub fn disable_transitions(hwnd: isize) {
     }
 }
 
-/// 要 Windows 11 把無邊框視窗畫成和一般視窗一樣的圓角（`false` 改回直角）；Win10 不支援，失敗只記 log。
+/// 要 Windows 11 把無邊框視窗畫成和一般視窗一樣的圓角（`false` 改回直角），但不畫圓角附帶的 1px 系統邊框；Win10 不支援，失敗只記 log。
 pub fn set_round_corners(hwnd: isize, round: bool) {
     let preference = if round {
         DWMWCP_ROUND
@@ -203,10 +203,11 @@ pub fn set_round_corners(hwnd: isize, round: bool) {
             hr as u32
         ));
     }
+    hide_system_border(hwnd);
 }
 
 /// 不畫 Windows 11 沿圓角加上的 1px 系統邊框（圓角保留）；Win10 不支援，失敗只記 log。
-pub fn hide_system_border(hwnd: isize) {
+fn hide_system_border(hwnd: isize) {
     let hr = set_dwm_attribute(hwnd, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE);
     if hr != 0 {
         log(format!(
