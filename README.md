@@ -118,6 +118,14 @@ Drag a box around any text on screen — NPC dialogue, quest books, item descrip
 
 ![A box drawn around an in-game tip, with the translation card next to it](docs/images/4.png)
 
+Everything is changed in the settings window, and saving applies it right away — interface language, the language messages are translated into, hotkeys and more:
+
+![The basic page of the settings window](docs/images/5.png)
+
+Set up as many translation services as you like — OpenAI, Claude, Gemini or your own OpenAI-compatible server — pick one as the default, or give each feature its own:
+
+![The services page of the settings window, listing several translation services](docs/images/6.png)
+
 ## Known Limitations
 
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
