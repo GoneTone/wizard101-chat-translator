@@ -1,4 +1,4 @@
-//! overlay 換介面語言後的重繪；本檔是唯一切換全域語言的 UI 測試，獨立成一個測試執行檔免得與其他測試互相干擾。
+//! overlay 換介面語言後的重繪；會切換全域介面語言，獨立成一個測試執行檔免得與其他測試互相干擾。
 
 use eframe::egui::{
     Event, FontFamily, Modifiers, PointerButton, Pos2, ViewportCommand, ViewportId,
