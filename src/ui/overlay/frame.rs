@@ -531,9 +531,10 @@ pub(crate) fn bar_button(ui: &mut Ui, glyph: &str, close: bool, hit: egui::Rect)
 
 /// 右下角抓取紋：三道斜線，亮色配描邊，任何背景上都看得到。
 fn paint_grip(painter: &egui::Painter, grip: egui::Rect) {
-    for inset in [4.0, 9.0, 14.0] {
-        let a = grip.min + Vec2::new(GRIP_SIZE - inset, GRIP_SIZE - 2.0);
-        let b = grip.min + Vec2::new(GRIP_SIZE - 2.0, GRIP_SIZE - inset);
+    // 離右下角留 4px：貼邊的線端會被 Windows 11 的圓角裁掉，角落看起來像直角
+    let corner = grip.max - Vec2::splat(4.0);
+    for len in [2.0, 7.0, 12.0] {
+        let (a, b) = (corner - Vec2::new(len, 0.0), corner - Vec2::new(0.0, len));
         painter.line_segment([a, b], Stroke::new(4.0, OUTLINE));
         painter.line_segment([a, b], Stroke::new(2.0, FG_BAR));
     }
