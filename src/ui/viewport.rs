@@ -98,7 +98,9 @@ pub fn borderless_builder(creating: Option<(Rect, f32)>) -> ViewportBuilder {
         .with_decorations(false)
         .with_resizable(false)
         .with_always_on_top()
-        .with_taskbar(false);
+        .with_taskbar(false)
+        // 顯示時不被系統啟用：要前景的（輸入框）自己經 force_foreground 取
+        .with_active(false);
     let Some(((x, y, w, h), scale)) = creating else {
         return builder;
     };

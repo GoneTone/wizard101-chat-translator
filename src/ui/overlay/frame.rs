@@ -80,20 +80,24 @@ pub trait Shell {
 }
 
 /// 以 HWND 操作真正的視窗。
-pub struct Win32Shell(pub isize);
+pub struct Win32Shell {
+    pub hwnd: isize,
+    /// 所有螢幕的矩形；probe 換成含螢幕外停放區的版本。
+    pub monitors: fn() -> Vec<Rect>,
+}
 
 impl Shell for Win32Shell {
     fn cursor(&self) -> (i32, i32) {
         win32::cursor_pos()
     }
     fn rect(&self) -> Rect {
-        win32::window_rect(self.0)
+        win32::window_rect(self.hwnd)
     }
     fn set_rect(&mut self, rect: Rect) -> bool {
-        win32::set_window_rect(self.0, rect)
+        win32::set_window_rect(self.hwnd, rect)
     }
     fn monitors(&self) -> Vec<Rect> {
-        win32::all_monitors()
+        (self.monitors)()
     }
     fn scale_at(&self, x: i32, y: i32) -> f32 {
         win32::scale_at(x, y)
@@ -102,15 +106,13 @@ impl Shell for Win32Shell {
         win32::wait_for_composition();
     }
     fn set_cloaked(&mut self, cloaked: bool) {
-        win32::set_cloaked(self.0, cloaked);
+        win32::set_cloaked(self.hwnd, cloaked);
     }
     fn set_round_corners(&mut self, round: bool) {
-        win32::set_round_corners(self.0, round);
-        // 系統邊框會蓋在玻璃邊框的外圈上
-        win32::hide_system_border(self.0);
+        win32::set_round_corners(self.hwnd, round);
     }
     fn take_focus(&mut self) -> bool {
-        win32::force_foreground(self.0)
+        win32::force_foreground(self.hwnd)
     }
 }
 
