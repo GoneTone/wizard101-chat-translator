@@ -263,7 +263,14 @@ impl Bubble {
         if !moved {
             return None;
         }
-        let (x, y, _, _) = shell.rect();
+        let (x, y, w, _) = shell.rect();
+        // 拖曳中維持實體大小（不閃），放開才換成落腳那顆螢幕的邊長
+        let size = (BUBBLE_SIZE as f32 * shell.scale_at(x + w / 2, y + w / 2)).round() as i32;
+        if size != w && shell.set_rect((x, y, size, size)) {
+            log(format!(
+                "[ui] bubble resized for the monitor's scale after a move: {w} -> {size}"
+            ));
+        }
         Some(Action::Moved(x, y))
     }
 }
@@ -456,6 +463,16 @@ mod tests {
         press_move_release(&mut harness, (5, 0));
         assert_eq!(harness.state().actions, [Action::Moved(505, 300)]);
         assert_eq!(harness.state().shell.rect, (505, 300, 48, 48));
+    }
+
+    #[test]
+    fn dropping_on_another_scale_resizes_to_that_monitors_bubble() {
+        let mut harness = harness();
+        // 拖到 150% 的螢幕：拖曳中維持 48，放開才換成 72
+        harness.state_mut().shell.scale = 1.5;
+        press_move_release(&mut harness, (30, 0));
+        assert_eq!(harness.state().actions, [Action::Moved(530, 300)]);
+        assert_eq!(harness.state().shell.rect, (530, 300, 72, 72));
     }
 
     #[test]
