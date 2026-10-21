@@ -81,13 +81,18 @@ pub fn default_path() -> PathBuf {
     local_state_dir().join("system-message-cache.json")
 }
 
+/// 樣板 → （譯文樣板, 最近使用序號）。
+type Entries = HashMap<String, (String, u64)>;
+
 #[derive(Default)]
 struct Inner {
     fingerprint: String,
     /// 樣板 → （譯文樣板, 最近使用序號）；序號最小的是 LRU 淘汰對象。
-    entries: HashMap<String, (String, u64)>,
+    entries: Entries,
     tick: u64,
     unflushed: usize,
+    /// 上一組指紋與其條目；換回該指紋時直接換回來，不必重翻。
+    previous: Option<(String, Entries)>,
 }
 
 impl Inner {
@@ -190,20 +195,30 @@ impl TranslationCache {
         true
     }
 
-    /// 指紋變更（換收訊用的服務或目標語言）：先落盤舊的，再清空重來。
+    /// 指紋變更（換收訊用的服務或目標語言）：先落盤舊的，舊條目暫存一份；換回暫存的指紋就還原。
     pub fn rebind(&self, fingerprint: &str) {
         if fingerprint == self.lock().fingerprint {
             return;
         }
         self.flush();
         let mut inner = self.lock();
+        let restored = match inner.previous.take() {
+            Some((previous, entries)) if previous == fingerprint => Some(entries),
+            _ => None,
+        };
         log(format!(
-            "[cache] fingerprint changed at runtime, clearing {} entries",
-            inner.entries.len()
+            "[cache] fingerprint changed at runtime, stashing {} entries (restored_from_stash={})",
+            inner.entries.len(),
+            restored.is_some()
         ));
-        inner.entries.clear();
-        inner.fingerprint = fingerprint.to_string();
-        inner.unflushed = 0;
+        let was_restored = restored.is_some();
+        let old = (
+            std::mem::replace(&mut inner.fingerprint, fingerprint.to_string()),
+            std::mem::replace(&mut inner.entries, restored.unwrap_or_default()),
+        );
+        inner.previous = Some(old);
+        // 換回時磁碟檔還是 B 的內容；記成未落盤，下一輪 put 就會寫回 A
+        inner.unflushed = if was_restored { FLUSH_EVERY } else { 0 };
     }
 
     /// 使用者主動清空：不寫回舊內容、刪掉磁碟檔，回傳清掉的筆數；刪檔失敗只記 log。

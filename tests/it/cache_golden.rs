@@ -243,6 +243,24 @@ fn fingerprint_change_clears_on_rebind() {
 }
 
 #[test]
+fn rebinding_back_restores_the_stashed_entries_and_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = cache_in(&dir);
+    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.rebind(OTHER_FP);
+    cache.flush();
+    cache.rebind(FP);
+    assert_eq!(
+        cache.get("熔岩百合").as_deref(),
+        Some("熔岩百合(Lava Lily)")
+    );
+    cache.flush();
+    let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
+    assert_eq!(saved["fingerprint"], FP);
+    assert_eq!(saved["entries"]["熔岩百合"], "熔岩百合(Lava Lily)");
+}
+
+#[test]
 fn rebind_to_the_same_fingerprint_is_a_no_op() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
