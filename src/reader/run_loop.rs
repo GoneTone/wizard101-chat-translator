@@ -351,10 +351,17 @@ impl<R: ChatSource> ClientLoop<R> {
             s.system_pool.submit(line.text, Vec::new(), msg_id);
             return;
         }
-        let context = self.contexts.for_tab(tabs.first().copied().unwrap_or(0));
+        let first = tabs.first().copied().unwrap_or(0);
         // 該行之前的行；提交後即固定，重試不漂移
-        let snapshot = context.snapshot();
-        context.push(line.text.clone());
+        let snapshot = self.contexts.for_tab(first).snapshot();
+        // 伺服器廣播的訊息可同時出現在多個分頁，每個分頁的上下文都要有這句
+        for tab in if tabs.is_empty() {
+            vec![first]
+        } else {
+            tabs.clone()
+        } {
+            self.contexts.for_tab(tab).push(line.text.clone());
+        }
         s.ui.post(add(t("notice.pending", &[]), Some(msg_id)));
         s.pool.submit(line.text, snapshot, msg_id);
     }
