@@ -663,7 +663,7 @@ impl App {
         match self.frame.show(
             ui,
             self.shell.as_mut(),
-            &app_name(),
+            &format!("{} - v{}", app_name(), env!("CARGO_PKG_VERSION")),
             self.status,
             &self.region_hotkey,
         ) {

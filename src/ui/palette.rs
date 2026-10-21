@@ -9,7 +9,9 @@ pub const fn hex(rgb: u32) -> Color32 {
 
 /// 底色（半透明底板）。
 pub const BG: Color32 = hex(0x101018);
-/// 標題列與分頁列。
+/// overlay 的標題列：比分頁列亮一階，兩列才分得開。
+pub const TITLE_BAR: Color32 = hex(0x2c2c48);
+/// 分頁列與輸入框的拖曳條。
 pub const BAR: Color32 = hex(0x23233a);
 /// 縮放把手與泡泡外框。
 pub const GRIP: Color32 = hex(0x3a3a55);
@@ -59,6 +61,7 @@ mod tests {
     fn every_color_matches_its_expected_hex() {
         let expected = [
             (BG, "#101018"),
+            (TITLE_BAR, "#2c2c48"),
             (BAR, "#23233a"),
             (GRIP, "#3a3a55"),
             (BG_UPDATE, "#1b2740"),

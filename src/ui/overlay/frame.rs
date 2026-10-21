@@ -18,8 +18,8 @@ use crate::ui::geometry::{
 use crate::ui::glass;
 use crate::ui::icon::app_icon_texture;
 use crate::ui::palette::{
-    BAR, BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
-    TAB_FG_ACTIVE, bar_alpha,
+    BG, CLOSE_HOVER, FG_BAR, FG_ERROR, FG_HINT, FG_TRANSLATED, GRIP, OUTLINE, TAB_ACCENT,
+    TAB_FG_ACTIVE, TITLE_BAR, bar_alpha,
 };
 use crate::ui::win32;
 
@@ -249,7 +249,7 @@ impl Frame {
         painter.add(glass::window_piece(
             bar,
             area,
-            BAR.gamma_multiply(bar_alpha(self.alpha)),
+            TITLE_BAR.gamma_multiply(bar_alpha(self.alpha)),
         ));
         paint_grip(painter, grip);
 
@@ -1150,7 +1150,7 @@ pub(crate) mod tests {
             let fills = fills(&harness);
             let has = |color: Color32| fills.iter().any(|(_, c)| *c == color);
             let fixed = if alpha > 0.8 { alpha } else { 0.8 };
-            assert!(has(BAR.gamma_multiply(fixed)), "bar at {alpha}");
+            assert!(has(TITLE_BAR.gamma_multiply(fixed)), "bar at {alpha}");
             assert!(
                 has(BG_UPDATE.gamma_multiply(fixed)),
                 "update row at {alpha}"
