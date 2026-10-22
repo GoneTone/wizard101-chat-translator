@@ -47,7 +47,7 @@ fn link(ui: &mut Ui, text: &str, url: &str) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
-        let text = RichText::new(text).font(font.clone());
+        let text = RichText::new(text).font(font.clone()).color(theme::LINK);
         if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
             log(format!("[ui] opening link from settings: {url}"));
         }
@@ -214,7 +214,9 @@ impl SettingsWindow {
             Some(Ok(Some(release))) => {
                 // 有新版：整行文字是連結，用連結藍、不加成功／失敗圖示
                 let text = t("update.available", &[("version", &release.version)]);
-                let text = RichText::new(text).size(theme::CONTROL_TEXT_SIZE);
+                let text = RichText::new(text)
+                    .size(theme::CONTROL_TEXT_SIZE)
+                    .color(theme::LINK);
                 if ui
                     .add(Hyperlink::from_label_and_url(text, &release.url))
                     .clicked()

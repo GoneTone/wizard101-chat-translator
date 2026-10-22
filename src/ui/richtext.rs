@@ -97,6 +97,8 @@ pub fn show(ui: &mut Ui, text: &str, color: Color32) {
                     ui.add(Label::new(RichText::new(segment).color(color)).selectable(false));
                 }
                 Some(url) => {
+                    // 明寫顏色：設定介面的 override_text_color 會蓋過 hyperlink_color
+                    let segment = RichText::new(segment).color(ui.visuals().hyperlink_color);
                     if ui
                         .add(Hyperlink::from_label_and_url(segment, &url))
                         .clicked()

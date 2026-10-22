@@ -30,7 +30,7 @@ const TRANSLATED_PT: f32 = 11.0;
 const PLACEHOLDER_PT: f32 = 11.0;
 const MIN_WRAP: f32 = 80.0;
 /// 字的左右留白（兩側相同）：左側從視窗邊緣算、要大於縮放帶，從行首拖曳才不會抓到縮放帶；右側從捲軸左緣算。
-const TEXT_MARGIN: f32 = 8.0;
+pub const TEXT_MARGIN: f32 = 8.0;
 const SLOW_RELAYOUT_MS: u128 = 50;
 
 /// 視圖底緣接近最底時，新訊息應自動跟到底；使用者往上捲時則否。

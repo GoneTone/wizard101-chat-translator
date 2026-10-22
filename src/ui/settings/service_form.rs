@@ -319,7 +319,9 @@ impl ServiceForm {
             secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
                 .labelled_by(label);
             if let Some(url) = self.provider.key_url {
-                let text = RichText::new(t("link.get_key", &[])).size(13.0);
+                let text = RichText::new(t("link.get_key", &[]))
+                    .size(13.0)
+                    .color(theme::LINK);
                 if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
                     log(format!("[ui] opening API key page: {url}"));
                 }

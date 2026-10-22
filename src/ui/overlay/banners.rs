@@ -15,6 +15,7 @@ use crate::translation::errors::localized;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::glass;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
+use crate::ui::overlay::message_list::TEXT_MARGIN;
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE, bar_alpha};
 use crate::ui::richtext;
 
@@ -113,7 +114,11 @@ impl Banners {
         if let Some(text) = self.error_text() {
             // 換行後的高度要排完才知道：先用上一輪量到的高度定位，高度變了就重跑這一輪
             let top = bottom - PAD_Y - self.error_height;
-            let area = Rect::from_min_max(pos2(rect.min.x, top), pos2(rect.max.x, bottom - PAD_Y));
+            // 左右留白與清單文字對齊
+            let area = Rect::from_min_max(
+                pos2(rect.min.x + TEXT_MARGIN, top),
+                pos2(rect.max.x - TEXT_MARGIN, bottom - PAD_Y),
+            );
             let mut child = ui.new_child(UiBuilder::new().max_rect(area));
             child.set_clip_rect(clip);
             child.style_mut().override_font_id = Some(FontId::proportional(tk_pt(BANNER_PT)));
@@ -160,7 +165,7 @@ impl Banners {
             text.to_owned(),
             FontId::proportional(tk_pt(BANNER_PT)),
             FG_UPDATE,
-            (width - close_w).max(1.0),
+            (width - TEXT_MARGIN - close_w).max(1.0),
         );
         let height = galley.size().y.max(close.size().y);
         let row_rect = Rect::from_min_size(
@@ -193,7 +198,11 @@ impl Banners {
         painter.add(glass::window_piece(row_rect, ui.max_rect(), fill));
         self.update_rect = Some(row_rect.intersect(clip));
         let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
-        painter.galley(pos2(row_rect.min.x, text_top), galley, FG_UPDATE);
+        painter.galley(
+            pos2(row_rect.min.x + TEXT_MARGIN, text_top),
+            galley,
+            FG_UPDATE,
+        );
         painter.galley(close_rect.min, close, FG_UPDATE);
 
         if on_band {
@@ -236,6 +245,7 @@ mod tests {
 
     use super::*;
     use crate::ui::fonts_egui;
+    use crate::ui::geometry::EDGE;
     use crate::ui::text_select::opened_urls;
 
     struct State {
@@ -418,11 +428,9 @@ mod tests {
         let mut harness = sized(banners, vec2(240.0, 200.0), 0.0);
         let link = harness.get_by_label(&url).rect();
         let area = harness.state().area;
-        assert!(
-            link.min.x < area.min.x + 6.0,
-            "link {link:?} must reach the left band"
-        );
-        let band = egui::pos2(area.min.x + 2.0, link.max.y - 4.0);
+        assert_eq!(link.min.x, area.min.x + TEXT_MARGIN, "{link:?}");
+        // 帶內最靠近連結的一點：仍在 egui 的 interact_radius 內，會被吸給連結
+        let band = egui::pos2(area.min.x + EDGE as f32 - 1.0, link.max.y - 4.0);
         assert_ne!(cursor(&mut harness, band), CursorIcon::PointingHand);
         click_at(&mut harness, band);
         assert!(
