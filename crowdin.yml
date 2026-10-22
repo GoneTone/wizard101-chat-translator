@@ -1,3 +1,6 @@
+project_id: "929865"
+# GitHub 整合預設就保留層級；寫明是讓本機 CLI 算出的路徑對得上 Crowdin 上的檔案。
+preserve_hierarchy: true
 commit_message: Translations %language%
 append_commit_message: false
 # 匯出選項（Skip untranslated strings 等）不設在這裡，設在 Crowdin 專案的
