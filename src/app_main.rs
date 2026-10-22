@@ -145,6 +145,13 @@ pub struct Translation {
     pub system_pool: Arc<TranslationPool>,
     /// 範例協調器。
     pub coordinator: Arc<ExampleCoordinator>,
+    rt: Handle,
+}
+
+/// 背景預先連上翻譯端點，不擋呼叫端。
+fn warm_up(rt: &Handle, translator: &Arc<Translator>) {
+    let translator = Arc::clone(translator);
+    rt.spawn(async move { translator.warm_up().await });
 }
 
 /// 建立翻譯端並為收訊與框選備妥範例；兩條池的結果都交給 `deliver(msg_id, text, failed)`。
@@ -217,6 +224,9 @@ pub fn build_translation(
     });
     coordinator.ensure(&incoming);
     coordinator.ensure(&region);
+    for translator in [&incoming, &outgoing, &region] {
+        warm_up(rt, translator);
+    }
     Translation {
         incoming,
         outgoing,
@@ -225,6 +235,7 @@ pub fn build_translation(
         pool,
         system_pool,
         coordinator,
+        rt: rt.clone(),
     }
 }
 
@@ -250,6 +261,7 @@ pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
             if slot != ServiceSlot::Outgoing {
                 translation.coordinator.ensure(translator);
             }
+            warm_up(&translation.rt, translator);
         }
     }
     for pool in [&translation.pool, &translation.system_pool] {

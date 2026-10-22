@@ -803,3 +803,26 @@ async fn ok_status_with_a_json_error_body_reports_its_message() {
         "{result:?}"
     );
 }
+
+/// 預熱送不帶金鑰的 HEAD；伺服器回什麼狀態碼都算連上。
+#[tokio::test]
+async fn warm_up_sends_a_keyless_head_request() {
+    capture_logs();
+    let server = MockServer::start().await;
+    let client = build_client(&ServiceSpec {
+        provider: "custom".into(),
+        base_url: server.uri(),
+        api_key: "sk-test".into(),
+        ..Default::default()
+    });
+    client.warm_up("warm-up-keyless-head").await;
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].method.as_str(), "HEAD");
+    assert!(!received[0].headers.contains_key("authorization"));
+    let lines = common::log_capture::log_lines_with("warm-up-keyless-head");
+    assert!(
+        lines[0].contains("warm-up done") && lines[0].contains("status=404"),
+        "{lines:?}"
+    );
+}

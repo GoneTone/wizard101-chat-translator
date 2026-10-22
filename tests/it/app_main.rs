@@ -463,11 +463,14 @@ impl Endpoints {
         cfg
     }
 
+    /// 翻譯請求數，不含預熱連線的 `HEAD`。
     fn requests(&self, index: usize) -> usize {
         self.rt
             .block_on(self.servers[index].received_requests())
             .unwrap()
-            .len()
+            .iter()
+            .filter(|r| r.method.as_str() != "HEAD")
+            .count()
     }
 }
 

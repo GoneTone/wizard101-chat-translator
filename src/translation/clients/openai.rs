@@ -45,9 +45,9 @@ struct Learned {
 /// `official` 為 OpenAI 官方端點的起手式：用 `max_completion_tokens`、不帶 temperature、
 /// 只帶官方認得的停用思考參數；自架後端維持 `max_tokens` 與 `temperature=0`。
 pub struct OpenAiCompatClient {
-    http: reqwest::Client,
+    pub(super) http: reqwest::Client,
     auth: Option<HeaderValue>,
-    base_url: String,
+    pub(super) base_url: String,
     model: String,
     thinking: bool,
     official: bool,

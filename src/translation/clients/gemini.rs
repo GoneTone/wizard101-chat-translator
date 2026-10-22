@@ -29,8 +29,8 @@ const API_VERSION: &str = "v1beta";
 /// 不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易重複輸出。3 系列與 2.5 Pro
 /// 關不掉思考，故用 effort：`auto` 不帶 `thinkingConfig`，其餘送 `thinking_level`。
 pub struct GeminiClient {
-    http: reqwest::Client,
-    base_url: String,
+    pub(super) http: reqwest::Client,
+    pub(super) base_url: String,
     api_key: Option<HeaderValue>,
     model: String,
     effort: String,

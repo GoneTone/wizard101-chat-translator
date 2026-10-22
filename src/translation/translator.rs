@@ -204,6 +204,14 @@ impl Translator {
         format!("provider={}, model={}", b.spec.provider, b.client.model())
     }
 
+    /// 先連上目前服務的端點，免得下一則翻譯付交握時間；尚未設定服務時略過。
+    pub async fn warm_up(&self) {
+        let b = self.binding();
+        if !b.spec.id.is_empty() {
+            b.client.warm_up(&self.describe()).await;
+        }
+    }
+
     /// 目前套用的 few-shot 範例；尚未設定為 `None`（不放範例輪）。
     pub fn examples(&self) -> Option<ExampleSet> {
         self.binding().examples.clone()
