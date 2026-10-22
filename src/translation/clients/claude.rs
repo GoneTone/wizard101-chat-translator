@@ -55,8 +55,8 @@ struct Message {
 /// Claude 5 系不接受 temperature，也沒有「完全不思考」：深度由 effort 控制，`auto` 時連
 /// `effort` 都不帶。刻意不送 `thinking: disabled` —— 那在 Opus 5 會把 `<thinking>` 漏進回應。
 pub struct ClaudeClient {
-    http: reqwest::Client,
-    base_url: String,
+    pub(super) http: reqwest::Client,
+    pub(super) base_url: String,
     api_key: Option<HeaderValue>,
     /// 金鑰非空卻含 HTTP 標頭不允許的字元。
     key_malformed: bool,

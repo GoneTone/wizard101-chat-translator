@@ -5,7 +5,7 @@ mod gemini;
 mod openai;
 mod sse;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde_json::Value;
@@ -26,6 +26,10 @@ use crate::py::pystr;
 
 /// 連線逾時與讀取逾時：位元組停住這麼久就斷線；閘道的保持連線註解與 Claude 的 `ping` 都會重新計時。
 pub const TIMEOUT: Duration = Duration::from_secs(60);
+
+/// HTTP/2 閒置時的 PING 間隔：偵測電腦睡眠、換網路後的死連線；逾 [`KEEPALIVE_TIMEOUT`] 沒回應就丟掉這條連線。
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// 一次聊天請求從連線到讀完的總期限：擋住永不收尾的串流，又夠本機慢模型寫完長篇的區域翻譯。
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(600);
@@ -65,6 +69,11 @@ pub trait ChatBackend: Send + Sync {
 
     /// 目前使用的模型 ID（診斷 log 用）。
     fn model(&self) -> &str;
+
+    /// 先連上端點放進連線池，下一個請求免交握；`label` 標在 log 上。
+    fn warm_up<'a>(&'a self, _label: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// 依服務商建立的 client。
@@ -106,6 +115,32 @@ impl ChatBackend for Client {
             Self::Claude(c) => c.model(),
             Self::Gemini(c) => c.model(),
         }
+    }
+
+    fn warm_up<'a>(&'a self, label: &'a str) -> BoxFuture<'a, ()> {
+        let (http, base_url) = match self {
+            Self::OpenAiCompat(c) => (&c.http, &c.base_url),
+            Self::Claude(c) => (&c.http, &c.base_url),
+            Self::Gemini(c) => (&c.http, &c.base_url),
+        };
+        Box::pin(warm_up(http, base_url, label))
+    }
+}
+
+/// 送一個不帶金鑰的 `HEAD` 把連線建好留在池裡；回什麼狀態碼都無妨，失敗只記 log。
+async fn warm_up(http: &reqwest::Client, base_url: &str, label: &str) {
+    let started = Instant::now();
+    match http.head(base_url).timeout(TIMEOUT).send().await {
+        Ok(resp) => log(format!(
+            "[translate] warm-up done in {:.2}s: {label} http={:?} status={}",
+            started.elapsed().as_secs_f64(),
+            resp.version(),
+            resp.status().as_u16()
+        )),
+        Err(error) => log(format!(
+            "[translate] warm-up failed: {label} ({})",
+            error_chain(error)
+        )),
     }
 }
 
@@ -371,6 +406,8 @@ pub(crate) fn request_error(label: &str, error: reqwest::Error) -> TranslateErro
 }
 
 /// 共用的 HTTP client：連線逾時 [`TIMEOUT`]、讀取逾時 `read`，不跟隨轉址（與 httpx 預設一致）。
+///
+/// 閒置連線不設期限：死連線由 HTTP/2 PING 與 reqwest 預設的 TCP keepalive 偵測丟棄。
 pub(crate) fn http_client(
     headers: reqwest::header::HeaderMap,
     base_url: &str,
@@ -381,6 +418,10 @@ pub(crate) fn http_client(
         .connect_timeout(TIMEOUT)
         .read_timeout(read)
         .redirect(reqwest::redirect::Policy::none())
+        .pool_idle_timeout(None)
+        .http2_keep_alive_interval(KEEPALIVE_INTERVAL)
+        .http2_keep_alive_timeout(KEEPALIVE_TIMEOUT)
+        .http2_keep_alive_while_idle(true)
         .default_headers(headers);
     bypass_proxy_for_loopback(builder, base_url)
         .build()
