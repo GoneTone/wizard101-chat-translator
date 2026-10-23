@@ -7,8 +7,8 @@ mod common;
 use common::language_lock;
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{
-    EFFORTS, describe, find, is_auto_name, new_service, provider, providers, unique_name,
-    validate_endpoint_fields, validate_service,
+    describe, find, is_auto_name, known_effort, new_service, normalize, provider, providers,
+    unique_name, validate_endpoint_fields, validate_service,
 };
 use wizard101_chat_translator::config::{AdvancedText, Config, advanced_limits, parse_advanced};
 use wizard101_chat_translator::i18n;
@@ -51,7 +51,83 @@ fn every_provider_has_ui_metadata() {
     assert_eq!(provider("gemini").unwrap().desc_key, "provider.gemini_desc");
     assert!(provider("claude").unwrap().has_field("effort"));
     assert!(!provider("openai").unwrap().has_field("base_url"));
-    assert_eq!(EFFORTS, ["auto", "low"]);
+}
+
+#[test]
+fn every_provider_has_thinking_and_effort() {
+    for p in providers() {
+        assert!(p.has_field("thinking"), "{}", p.key);
+        assert!(p.has_field("effort"), "{}", p.key);
+    }
+}
+
+#[test]
+fn provider_defaults_keep_current_behavior() {
+    let expected = [
+        ("openai", false, "auto"),
+        ("claude", true, "auto"),
+        ("gemini", true, "low"),
+        ("custom", false, "auto"),
+    ];
+    for (key, thinking, effort) in expected {
+        let defaults = provider(key).unwrap().defaults();
+        assert_eq!(defaults["thinking"], thinking, "{key}");
+        assert_eq!(defaults["effort"], effort, "{key}");
+    }
+}
+
+#[test]
+fn provider_effort_levels() {
+    let openai: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
+    assert_eq!(provider("openai").unwrap().efforts, openai);
+    assert_eq!(provider("custom").unwrap().efforts, openai);
+    assert_eq!(
+        provider("claude").unwrap().efforts,
+        ["low", "medium", "high", "xhigh", "max"]
+    );
+    assert_eq!(
+        provider("gemini").unwrap().efforts,
+        ["minimal", "low", "medium", "high"]
+    );
+}
+
+#[test]
+fn unknown_effort_falls_back_to_auto() {
+    let (claude, gemini, openai) = (
+        provider("claude").unwrap(),
+        provider("gemini").unwrap(),
+        provider("openai").unwrap(),
+    );
+    assert_eq!(known_effort(claude, "minimal"), "auto");
+    assert_eq!(known_effort(gemini, "xhigh"), "auto");
+    assert_eq!(known_effort(openai, "max"), "max");
+    assert_eq!(known_effort(gemini, ""), "auto");
+    assert_eq!(known_effort(claude, "auto"), "auto");
+}
+
+#[test]
+fn legacy_services_keep_their_request_parameters() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "services": [
+            {"id": "a", "name": "A", "provider": "claude", "model": "m", "api_key": "k", "effort": "low"},
+            {"id": "b", "name": "B", "provider": "gemini", "model": "m", "api_key": "k", "effort": "auto"},
+            {"id": "c", "name": "C", "provider": "openai", "model": "m", "api_key": "k", "thinking": true},
+            {"id": "d", "name": "D", "provider": "custom", "model": "m", "base_url": "http://x"},
+        ]
+    }))
+    .unwrap();
+    normalize(&mut cfg);
+    let services = cfg["services"].as_array().unwrap();
+    let pick = |i: usize| {
+        (
+            services[i]["thinking"].clone(),
+            services[i]["effort"].clone(),
+        )
+    };
+    assert_eq!(pick(0), (json!(true), json!("low")));
+    assert_eq!(pick(1), (json!(true), json!("auto")));
+    assert_eq!(pick(2), (json!(true), json!("auto")));
+    assert_eq!(pick(3), (json!(false), json!("auto")));
 }
 
 #[test]
@@ -291,8 +367,8 @@ fn profile_fields_cover_what_the_translator_takes() {
         keys.sort();
         keys
     };
-    assert_eq!(fields("claude"), ["api_key", "effort", "model"]);
-    assert_eq!(fields("gemini"), ["api_key", "effort", "model"]);
+    assert_eq!(fields("claude"), ["api_key", "effort", "model", "thinking"]);
+    assert_eq!(fields("gemini"), ["api_key", "effort", "model", "thinking"]);
     assert!(!provider("openai").unwrap().has_field("base_url"));
 }
 

@@ -15,8 +15,8 @@ use super::widgets::{
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
-    EFFORT_AUTO, EFFORTS, Provider, ServiceSpec, is_auto_name, provider, unique_name,
-    validate_endpoint_fields, validate_service,
+    EFFORT_AUTO, Provider, ServiceSpec, is_auto_name, known_effort, provider, str_field,
+    unique_name, validate_endpoint_fields, validate_service,
 };
 use crate::i18n::t;
 use crate::logs::log;
@@ -88,12 +88,7 @@ impl ServiceForm {
         };
         let key = text("provider");
         let provider = provider(&key).unwrap_or_else(|| panic!("unknown provider {key:?}"));
-        let effort = service
-            .get("effort")
-            .and_then(Value::as_str)
-            .filter(|effort| EFFORTS.contains(effort))
-            .unwrap_or(EFFORT_AUTO)
-            .to_owned();
+        let effort = known_effort(provider, str_field(&service, "effort")).to_owned();
         Self {
             id: text("id"),
             provider,
@@ -236,7 +231,7 @@ impl ServiceForm {
         if self.provider.has_field("thinking") {
             self.thinking_row(ui);
         }
-        if self.provider.has_field("effort") {
+        if self.provider.has_field("effort") && self.thinking {
             self.effort_row(ui);
         }
 
@@ -393,7 +388,9 @@ impl ServiceForm {
                 .selected_text(name(&self.effort))
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
-                    for code in EFFORTS {
+                    for code in
+                        std::iter::once(EFFORT_AUTO).chain(self.provider.efforts.iter().copied())
+                    {
                         if ui
                             .selectable_label(code == self.effort, name(code))
                             .clicked()

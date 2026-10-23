@@ -441,7 +441,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "s2",
@@ -449,6 +450,7 @@
       "provider": "claude",
       "model": "claude-x",
       "api_key": "SK-CLAUDE",
+      "thinking": true,
       "effort": "auto"
      }
     ],
@@ -482,7 +484,7 @@
      "y": null
     }
    },
-   "rewritten": false
+   "rewritten": true
   }
  },
  {
@@ -497,7 +499,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "s2",
@@ -505,6 +508,7 @@
       "provider": "claude",
       "model": "claude-x",
       "api_key": "SK-CLAUDE",
+      "thinking": true,
       "effort": "auto"
      }
     ],
@@ -538,7 +542,7 @@
      "y": null
     }
    },
-   "rewritten": false
+   "rewritten": true
   }
  },
  {
@@ -670,7 +674,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "s1",
@@ -703,7 +708,7 @@
      "y": null
     }
    },
-   "rewritten": false
+   "rewritten": true
   }
  },
  {
@@ -718,7 +723,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "s1",
@@ -766,7 +772,8 @@
       "provider": "openai",
       "model": "",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "@id1",
@@ -815,7 +822,8 @@
       "base_url": "http://127.0.0.1:8000",
       "model": "gemma",
       "api_key": "sk-1",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "@id1",
@@ -864,7 +872,8 @@
       "base_url": "http://127.0.0.1:8000",
       "model": "m1",
       "api_key": "",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "@id1",
@@ -1002,7 +1011,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "sk-1",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "@id2",
@@ -1010,6 +1020,7 @@
       "provider": "claude",
       "model": "claude-x",
       "api_key": "sk-ant",
+      "thinking": true,
       "effort": "auto"
      }
     ],
@@ -1097,6 +1108,7 @@
       "provider": "claude",
       "model": "claude-x",
       "api_key": "SK-CLAUDE",
+      "thinking": true,
       "effort": "auto"
      }
     ],
@@ -1145,7 +1157,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "@id1",
@@ -1285,7 +1298,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "@id1",
@@ -1293,7 +1307,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "s2",
@@ -1301,6 +1316,7 @@
       "provider": "claude",
       "model": "claude-x",
       "api_key": "SK-CLAUDE",
+      "thinking": true,
       "effort": "auto"
      }
     ],
@@ -1349,7 +1365,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "s1",
@@ -1439,7 +1456,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "s1",
@@ -1487,7 +1505,8 @@
       "provider": "openai",
       "model": "gpt-x",
       "api_key": "SK-OPENAI",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      },
      {
       "id": "@id1",
@@ -1495,7 +1514,8 @@
       "provider": "openai",
       "model": "",
       "api_key": "sk-3",
-      "thinking": false
+      "thinking": false,
+      "effort": "auto"
      }
     ],
     "default_service": "s1",
@@ -1544,7 +1564,8 @@
       "base_url": "http://x",
       "model": "gemma",
       "api_key": "",
-      "thinking": true
+      "thinking": true,
+      "effort": "auto"
      }
     ],
     "default_service": "s3",

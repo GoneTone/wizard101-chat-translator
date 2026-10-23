@@ -155,7 +155,7 @@ fn values_only_carry_the_fields_that_provider_has() {
         .collect();
     assert_eq!(
         keys,
-        ["id", "name", "provider", "model", "api_key", "effort"]
+        ["id", "name", "provider", "model", "api_key", "thinking", "effort"]
     );
 }
 
@@ -300,21 +300,20 @@ fn the_change_button_asks_the_owner_to_pick_a_provider() {
 }
 
 #[test]
-fn claude_shows_thinking_depth_instead_of_a_toggle() {
-    // Claude 沒有「完全不思考」，做成與另兩家一樣的開關會誤導
-    let h = harness(form(new_service("claude", &[]), vec![]));
-    assert!(has_label(&h, &tr("field.effort")));
-    assert!(!has_label(&h, &tr("field.thinking")));
-    assert!(painted_texts(&h).contains(&tr("hint.effort")));
+fn every_provider_shows_the_switch() {
+    for key in ["openai", "claude", "gemini", "custom"] {
+        let h = harness(form(new_service(key, &[]), vec![]));
+        assert!(has_label(&h, &tr("field.thinking")), "{key}");
+    }
 }
 
 #[test]
-fn the_other_providers_keep_the_thinking_toggle() {
-    for key in ["openai", "custom"] {
-        let h = harness(form(new_service(key, &[]), vec![]));
-        assert!(has_label(&h, &tr("field.thinking")), "{key}");
-        assert!(!has_label(&h, &tr("field.effort")), "{key}");
-    }
+fn effort_hidden_while_switch_off() {
+    let mut h = harness(blank());
+    assert!(!has_label(&h, &tr("field.effort")));
+    click(&mut h, &tr("field.thinking"));
+    assert!(has_label(&h, &tr("field.effort")));
+    assert!(painted_texts(&h).contains(&tr("hint.effort")));
 }
 
 #[test]

@@ -19,6 +19,7 @@ use super::errors::{MAX_RETRY_AFTER, TranslateError, error_detail, status_error}
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
+use crate::config::services::{EFFORT_AUTO, known_effort, provider};
 use crate::logs::log;
 use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::py::pyrepr::repr_str;
@@ -146,7 +147,8 @@ async fn warm_up(http: &reqwest::Client, base_url: &str, label: &str) {
 
 /// 依服務設定建立 client：`claude`／`gemini`／`openai` 走各自官方端點，其餘為自訂端點。
 pub fn build_client(spec: &ServiceSpec) -> Client {
-    let (key, model, effort) = (&spec.api_key, &spec.model, &spec.effort);
+    let (key, model) = (&spec.api_key, &spec.model);
+    let effort = provider(&spec.provider).map_or(EFFORT_AUTO, |p| known_effort(p, &spec.effort));
     match spec.provider.as_str() {
         "claude" => Client::Claude(ClaudeClient::new(key, model, effort, CLAUDE_BASE_URL)),
         "gemini" => Client::Gemini(GeminiClient::new(key, model, effort, GEMINI_BASE_URL)),
