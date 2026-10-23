@@ -5,6 +5,7 @@ use crate::common;
 use std::time::Duration;
 
 use common::kittest::{has_label, painted_texts, run, themed_harness, tr};
+use common::log_capture::{capture_logs, log_text};
 use common::settings_env::FakeEnv;
 use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
@@ -1037,4 +1038,100 @@ fn refresh_button_still_loads() {
     refresh_models(&mut h, Ok(names(&["gpt-a"])));
     click(&mut h, &tr("button.refresh"));
     assert_eq!(list_count(&h), 2);
+}
+
+// --- 審查修正 ---
+
+#[test]
+fn caps_log_only_when_the_result_changes() {
+    capture_logs();
+    let mut h = harness(blank());
+    type_into(&mut h, &tr("field.model"), "flood-mark");
+    for c in ["a", "b", "c"] {
+        h.event(Event::Text(c.into()));
+        run(&mut h);
+    }
+    let lines = log_text()
+        .lines()
+        .filter(|l| l.contains("thinking caps resolved") && l.contains("model=flood-mark"))
+        .count();
+    // 一路都是「不知道、可切換、同一組選項」，判定結果沒變就不記
+    assert_eq!(lines, 0);
+}
+
+#[test]
+fn edit_and_tab_in_one_frame_still_auto_loads() {
+    let mut h = harness(blank());
+    click(&mut h, &tr("field.api_key"));
+    h.event(Event::Text("sk-1".into()));
+    for pressed in [true, false] {
+        h.event(Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    run(&mut h);
+    assert_eq!(list_count(&h), 1);
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Ok(names(&["gpt-a"])),
+    });
+    run(&mut h);
+    assert!(painted_texts(&h).contains(&t("hint.model_found", &[("count", "1")])));
+}
+
+#[test]
+fn switching_provider_back_reloads_the_same_endpoint() {
+    let mut service = new_service("custom", &[]);
+    service["base_url"] = json!("http://127.0.0.1:8080");
+    let mut h = harness(form(service, vec![]));
+    assert_eq!(list_count(&h), 1);
+    h.state_mut().form.set_provider("openai");
+    h.state_mut().form.set_provider("custom");
+    run(&mut h);
+    type_into(&mut h, &tr("field.base_url"), "http://127.0.0.1:8080");
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 2);
+}
+
+#[test]
+fn effort_comes_back_when_the_model_supports_it_again() {
+    let mut service = filled("claude");
+    service["model"] = json!("free");
+    service["effort"] = json!("xhigh");
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![
+            with_caps("free", ThinkingCaps::default()),
+            with_caps("narrow", narrow),
+        ]),
+    );
+    replace_model(&mut h, "narrow");
+    assert_eq!(h.state().form.values()["effort"], "auto");
+    replace_model(&mut h, "free");
+    assert_eq!(h.state().form.values()["effort"], "xhigh");
+}
+
+#[test]
+fn caps_arriving_after_a_passed_test_clear_it_when_thinking_changes() {
+    let mut service = filled("openai");
+    service["model"] = json!("deep");
+    let mut h = harness(form(service, vec![]));
+    let round = start_test(&mut h);
+    finish_test(&mut h, round, translated("x", 100));
+    assert!(h.state().form.test_passed());
+    refresh_models(
+        &mut h,
+        Ok(vec![with_caps("deep", locked(Some(true), Some(false)))]),
+    );
+    assert!(!h.state().form.test_passed());
 }

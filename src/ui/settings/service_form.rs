@@ -42,22 +42,6 @@ pub struct FormResponse {
     pub change_provider: bool,
 }
 
-/// 載入模型清單的觸發來源，log 用。
-#[derive(Clone, Copy)]
-enum Trigger {
-    Auto,
-    Manual,
-}
-
-impl Trigger {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Manual => "manual",
-        }
-    }
-}
-
 enum ModelStatus {
     Idle,
     Found(usize),
@@ -85,8 +69,8 @@ pub struct ServiceForm {
     models: Vec<ModelInfo>,
     /// `models` 的 id，給模型下拉用。
     model_ids: Vec<String>,
-    /// 上次記進 log 的（模型、開關狀態、深度選項），判定結果改變才再記。
-    logged_caps: Option<(String, ThinkingSwitch, Vec<&'static str>)>,
+    /// 上次記進 log 的（開關狀態、清單有無資訊、深度選項、生效深度），判定結果改變才再記。
+    logged_caps: Option<(ThinkingSwitch, bool, Vec<&'static str>, String)>,
     model_status: ModelStatus,
     models_round: Round,
     /// 抓清單那一刻的觸發來源、服務商與網址，log 用。
@@ -198,6 +182,7 @@ impl ServiceForm {
         self.set_models(Vec::new());
         self.model_status = ModelStatus::Idle;
         self.models_round.invalidate();
+        self.auto_endpoint = None;
         self.void_test();
         self.pending_change = true;
         log(format!(
@@ -267,7 +252,7 @@ impl ServiceForm {
             self.auto_refresh(env);
         }
         if self.model_row(ui) {
-            self.start_refresh(env, Trigger::Manual);
+            self.start_refresh(env, "manual");
         }
         let options = self.reconcile_thinking();
         let switch = self.switch();
@@ -313,7 +298,7 @@ impl ServiceForm {
                 "model" => pystr::strip(&self.model).into(),
                 "base_url" => pystr::strip(&self.base_url).into(),
                 "thinking" => effective_thinking(self.switch(), self.thinking).into(),
-                "effort" => self.effort.clone().into(),
+                "effort" => self.effective_effort().into(),
                 other => unreachable!("service field {other} has no form input"),
             };
             api.insert(field, value);
@@ -426,34 +411,38 @@ impl ServiceForm {
         switch_state(self.caps())
     }
 
-    /// 算出目前模型的深度選項；選中的深度不在其中時改回自動，判定結果改變時記 log。
+    /// 實際生效的深度：使用者選的深度目前模型不支援時用自動，不覆蓋選擇，換回支援的模型時才能恢復。
+    fn effective_effort(&self) -> &str {
+        let options = effort_options(self.provider, self.caps());
+        if options.contains(&self.effort.as_str()) {
+            &self.effort
+        } else {
+            EFFORT_AUTO
+        }
+    }
+
+    /// 算出目前模型的深度選項；開關狀態、選項或生效深度改變時記 log（打字途中的每個字不算）。
     fn reconcile_thinking(&mut self) -> Vec<&'static str> {
         let options = effort_options(self.provider, self.caps());
-        let model = pystr::strip(&self.model).to_owned();
-        if !options.contains(&self.effort.as_str()) {
-            log(format!(
-                "[settings] effort reset to auto (model={model}, was={})",
-                self.effort
-            ));
-            EFFORT_AUTO.clone_into(&mut self.effort);
-        }
         let switch = self.switch();
-        let resolved = (model, switch, options.clone());
+        let known = self.caps().is_some_and(ThinkingCaps::is_known);
+        let effort = self.effective_effort().to_owned();
+        let resolved = (switch, known, options.clone(), effort);
         if self.logged_caps.as_ref() != Some(&resolved) {
-            let name = match switch {
-                ThinkingSwitch::Unsupported => "unsupported",
-                ThinkingSwitch::Always => "always",
-                ThinkingSwitch::Toggle if self.caps().is_some_and(ThinkingCaps::is_known) => {
-                    "toggle"
-                }
-                ThinkingSwitch::Toggle => "unknown",
+            let name = match (switch, known) {
+                (ThinkingSwitch::Unsupported, _) => "unsupported",
+                (ThinkingSwitch::Always, _) => "always",
+                (ThinkingSwitch::Toggle, true) => "toggle",
+                (ThinkingSwitch::Toggle, false) => "unknown",
             };
             log(format!(
                 "[settings] thinking caps resolved (provider={}, model={}, switch={name}, \
-                 efforts=[{}])",
+                 efforts=[{}], effort={} chosen={})",
                 self.provider.key,
-                resolved.0,
-                options.join(",")
+                pystr::strip(&self.model),
+                options.join(","),
+                resolved.3,
+                self.effort
             ));
             self.logged_caps = Some(resolved);
         }
@@ -492,12 +481,12 @@ impl ServiceForm {
         form_row(ui, &t("field.effort", &[]), |ui, label| {
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
             let combo = combo_box(ui, "effort")
-                .selected_text(name(&self.effort))
+                .selected_text(name(self.effective_effort()))
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
                     for &code in options {
                         if ui
-                            .selectable_label(code == self.effort, name(code))
+                            .selectable_label(code == self.effective_effort(), name(code))
                             .clicked()
                         {
                             code.clone_into(&mut self.effort);
@@ -603,10 +592,11 @@ impl ServiceForm {
             return;
         }
         self.auto_endpoint = Some(endpoint);
-        self.start_refresh(env, Trigger::Auto);
+        self.start_refresh(env, "auto");
     }
 
-    fn start_refresh(&mut self, env: &dyn SettingsEnv, trigger: Trigger) {
+    /// 載入模型清單；`trigger` 是 `auto`／`manual`，log 用。
+    fn start_refresh(&mut self, env: &dyn SettingsEnv, trigger: &'static str) {
         let api = self.api_values();
         let errors = validate_endpoint_fields(&api);
         if !errors.is_empty() {
@@ -615,7 +605,7 @@ impl ServiceForm {
         }
         self.model_status = ModelStatus::Idle;
         let spec = ServiceSpec::from_service(&api);
-        self.models_request = (trigger.name(), spec.provider.clone(), spec.base_url.clone());
+        self.models_request = (trigger, spec.provider.clone(), spec.base_url.clone());
         let round = self.models_round.start();
         env.list_models(round, spec);
     }
@@ -626,6 +616,15 @@ impl ServiceForm {
     }
 
     fn listed(&mut self, result: &Result<Vec<ModelInfo>, TranslateError>) {
+        let before = self.api_values();
+        self.apply_listing(result);
+        // 清單帶來的能力可能鎖住開關或改掉生效深度，通過的測試就不再代表會存下的值
+        if self.api_values() != before && self.test_passed() {
+            self.void_test();
+        }
+    }
+
+    fn apply_listing(&mut self, result: &Result<Vec<ModelInfo>, TranslateError>) {
         let (trigger, provider, base_url) = &self.models_request;
         match result {
             Ok(models) => {
