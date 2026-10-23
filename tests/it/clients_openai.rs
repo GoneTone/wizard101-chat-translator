@@ -240,6 +240,45 @@ async fn rejected_user_effort_is_an_error() {
 }
 
 #[tokio::test]
+async fn a_model_that_cannot_turn_thinking_off_is_an_error() {
+    let server = MockServer::start().await;
+    let detail = "Unsupported value: 'reasoning_effort' does not support 'none' with this model. \
+                  Supported values are: 'low', 'medium', and 'high'.";
+    mount_chat_once(&server, error_body(400, detail)).await;
+    mount_chat(&server, ok_stream("x")).await;
+    let result = chat(&client(&server, false, true)).await;
+    assert!(
+        matches!(
+            result,
+            Err(TranslateError::Config {
+                status: Some(400),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(bodies(&server).await.len(), 1);
+}
+
+#[tokio::test]
+async fn a_model_without_reasoning_still_drops_the_off_switch() {
+    let server = MockServer::start().await;
+    mount_chat_once(
+        &server,
+        error_body(
+            400,
+            "Unrecognized request argument supplied: reasoning_effort",
+        ),
+    )
+    .await;
+    mount_chat(&server, ok_stream("x")).await;
+    assert_eq!(chat(&client(&server, false, true)).await.unwrap(), "x");
+    let sent = bodies(&server).await;
+    assert_eq!(sent.len(), 2);
+    assert!(sent[1].get("reasoning_effort").is_none());
+}
+
+#[tokio::test]
 async fn learned_params_persist_on_instance() {
     let server = MockServer::start().await;
     mount_chat_once(&server, rejects("reasoning_effort")).await;

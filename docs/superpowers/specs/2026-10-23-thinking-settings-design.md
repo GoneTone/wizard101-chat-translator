@@ -151,7 +151,9 @@ Claude 的 `capabilities` 就在現有 `list_models` 抓的 `/v1/models` 回應�
 現有 `learn_rejection` 遇到 400 指名某參數被拒，就拿掉重送、記住以後不送。改成：
 
 - **使用者選的深度**（`reasoning_effort` 的值不是 `none`）被拒：**不重送，直接回錯誤**。
-- **關閉參數**（`reasoning_effort: none` 與自訂端點的其他關閉參數）被拒：維持現在的拿掉重送。理由：gpt-4.1 等不會思考的模型拒收 `none`，預設設定（思考關閉）不能因此突然失敗。
+- **關閉參數**（`reasoning_effort: none` 與自訂端點的其他關閉參數）被拒，分兩種：
+  - 錯誤是 `Unsupported value`（認得參數、但模型關不掉思考，例如 gpt-5-mini）：**直接回錯誤**。2026-10-23 實測，拿掉參數重送等於讓模型照預設大量思考（gpt-5-nano 每句 768 個以上思考 token），與「關閉」相反。
+  - 其他情況（例如 `Unrecognized request argument`，模型本來就不會思考，如 gpt-4.1-mini）：維持拿掉重送，預設設定（思考關閉）不能因此突然失敗。
 - `max_tokens`／`max_completion_tokens` 互換、其他非思考參數：不變。
 
 Claude 與 Gemini client 沒有自動拿掉參數的機制，被拒時本來就回錯誤，不用改。

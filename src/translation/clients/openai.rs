@@ -45,7 +45,7 @@ struct Learned {
 /// 哪些參數能帶因模型而異，改成聽伺服器的：400 指名某個參數就拿掉（或互換長度上限的名字）重送。
 /// `official` 為 OpenAI 官方端點的起手式：用 `max_completion_tokens`、不帶 temperature、
 /// 只帶官方認得的停用思考參數；自架後端維持 `max_tokens` 與 `temperature=0`。
-/// 使用者選的思考深度不在「聽伺服器的」範圍內：被拒就回錯誤，讓使用者知道該模型不支援。
+/// 使用者選的思考深度、以及模型關不掉思考時被拒的 `none`，不在「聽伺服器的」範圍內：直接回錯誤。
 pub struct OpenAiCompatClient {
     pub(super) http: reqwest::Client,
     auth: Option<HeaderValue>,
@@ -199,17 +199,22 @@ impl OpenAiCompatClient {
                 Ok(streamed) => break streamed,
                 Err(error) => error,
             };
-            let param = match &error {
+            let (param, bad_value) = match &error {
                 TranslateError::Config {
                     status: Some(400),
                     detail,
-                } => rejected_parameter(detail),
-                _ => None,
+                } => (
+                    rejected_parameter(detail),
+                    detail.contains("Unsupported value"),
+                ),
+                _ => (None, false),
             };
-            if param.as_deref() == Some("reasoning_effort") && self.chose_effort() {
+            // 認得參數卻拒收這個值（會思考但關不掉）就報錯；不認得參數代表模型本來就不思考，照常拿掉
+            if param.as_deref() == Some("reasoning_effort") && (self.chose_effort() || bad_value) {
+                let effort = if self.thinking { &*self.effort } else { "none" };
                 log(format!(
-                    "[translate] endpoint rejected the chosen reasoning_effort={} (model={}): {error}",
-                    self.effort, self.model
+                    "[translate] endpoint rejected the chosen reasoning_effort={effort} (model={}): {error}",
+                    self.model
                 ));
                 return Err(error);
             }
