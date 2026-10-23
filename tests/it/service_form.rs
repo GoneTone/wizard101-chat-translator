@@ -12,7 +12,7 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
-use wizard101_chat_translator::translation::clients::ModelInfo;
+use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
@@ -101,6 +101,44 @@ fn refresh_models(h: &mut Harness<State>, result: Result<Vec<ModelInfo>, Transla
         .form
         .apply(&SettingsEvent::ModelsDone { round, result });
     run(h);
+}
+
+/// 把模型欄整個換成 `text`：移到結尾逐字刪掉再輸入。
+fn replace_model(h: &mut Harness<State>, text: &str) {
+    let old = h.state().form.values()["model"]
+        .as_str()
+        .unwrap()
+        .chars()
+        .count();
+    click(h, &tr("field.model"));
+    h.key_press(egui::Key::End);
+    for _ in 0..old {
+        h.key_press(egui::Key::Backspace);
+    }
+    h.event(Event::Text(text.into()));
+    run(h);
+}
+
+fn with_caps(id: &str, thinking: ThinkingCaps) -> ModelInfo {
+    ModelInfo {
+        id: id.into(),
+        thinking,
+    }
+}
+
+fn locked(supported: Option<bool>, can_disable: Option<bool>) -> ThinkingCaps {
+    ThinkingCaps {
+        supported,
+        can_disable,
+        efforts: None,
+    }
+}
+
+fn switch_on(h: &Harness<State>) -> bool {
+    h.get_by_label(&tr("field.thinking"))
+        .accesskit_node()
+        .toggled()
+        .is_some_and(|t| t == egui::accesskit::Toggled::True)
 }
 
 fn names(items: &[&str]) -> Vec<ModelInfo> {
@@ -841,4 +879,109 @@ fn friendly_error_shows_connection_failure_reason() {
             vec![("message", "[Errno 11001] getaddrinfo failed".to_owned())]
         )
     );
+}
+
+// --- 依模型能力鎖定思考開關 ---
+
+fn claude_with(models: Vec<ModelInfo>, model: &str) -> Harness<'static, State> {
+    let mut service = filled("claude");
+    service["model"] = json!(model);
+    let mut h = harness(form(service, vec![]));
+    refresh_models(&mut h, Ok(models));
+    h
+}
+
+#[test]
+fn unsupported_model_locks_switch_off() {
+    let h = claude_with(vec![with_caps("plain", locked(Some(false), None))], "plain");
+    assert!(!switch_on(&h));
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking_unsupported")));
+    assert!(!has_label(&h, &tr("field.effort")));
+    assert_eq!(h.state().form.values()["thinking"], false);
+}
+
+#[test]
+fn always_thinking_model_locks_switch_on() {
+    let mut service = filled("openai");
+    service["model"] = json!("deep");
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![with_caps("deep", locked(Some(true), Some(false)))]),
+    );
+    assert!(switch_on(&h));
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking_always")));
+    assert!(has_label(&h, &tr("field.effort")));
+    assert_eq!(h.state().form.values()["thinking"], true);
+}
+
+#[test]
+fn caps_follow_the_typed_model_id() {
+    let models = vec![
+        with_caps("always", locked(Some(true), Some(false))),
+        with_caps("free", ThinkingCaps::default()),
+    ];
+    let mut h = claude_with(models, "always");
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "free");
+    assert!(button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "always");
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "unlisted");
+    assert!(button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking")));
+}
+
+#[test]
+fn locked_switch_restores_the_users_choice() {
+    let mut service = filled("openai");
+    service["model"] = json!("free");
+    service["thinking"] = json!(false);
+    let models = vec![
+        with_caps("always", locked(Some(true), Some(false))),
+        with_caps("free", ThinkingCaps::default()),
+    ];
+    let mut h = harness(form(service, vec![]));
+    refresh_models(&mut h, Ok(models));
+    replace_model(&mut h, "always");
+    assert_eq!(h.state().form.values()["thinking"], true);
+    replace_model(&mut h, "free");
+    assert_eq!(h.state().form.values()["thinking"], false);
+}
+
+#[test]
+fn effort_resets_when_new_model_lacks_it() {
+    let mut service = filled("claude");
+    service["model"] = json!("free");
+    service["effort"] = json!("xhigh");
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![
+            with_caps("free", ThinkingCaps::default()),
+            with_caps("narrow", narrow),
+        ]),
+    );
+    assert_eq!(h.state().form.values()["effort"], "xhigh");
+    replace_model(&mut h, "narrow");
+    assert_eq!(h.state().form.values()["effort"], "auto");
+}
+
+#[test]
+fn effort_menu_lists_only_supported_levels() {
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into(), "high".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = claude_with(vec![with_caps("narrow", narrow)], "narrow");
+    click(&mut h, &tr("field.effort"));
+    assert!(has_label(&h, &tr("effort.low")));
+    assert!(has_label(&h, &tr("effort.high")));
+    assert!(!has_label(&h, &tr("effort.medium")));
 }

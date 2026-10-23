@@ -21,9 +21,12 @@ use crate::config::services::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
-use crate::translation::clients::ModelInfo;
+use crate::translation::clients::{ModelInfo, ThinkingCaps};
 use crate::translation::errors::{TranslateError, friendly_text};
 use crate::translation::translator::{TEST_SAMPLE, TestOutcome};
+use crate::ui::settings::thinking::{
+    ThinkingSwitch, effective_thinking, effort_options, switch_state,
+};
 
 const LABEL_WIDTH: f32 = 96.0;
 const COLUMN_GAP: f32 = 12.0;
@@ -66,6 +69,8 @@ pub struct ServiceForm {
     models: Vec<ModelInfo>,
     /// `models` 的 id，給模型下拉用。
     model_ids: Vec<String>,
+    /// 上次記進 log 的（模型、開關狀態、深度選項），判定結果改變才再記。
+    logged_caps: Option<(String, ThinkingSwitch, Vec<&'static str>)>,
     model_status: ModelStatus,
     models_round: Round,
     /// 抓清單那一刻的服務商與網址，log 用。
@@ -108,6 +113,7 @@ impl ServiceForm {
             key_revealed: false,
             models: Vec::new(),
             model_ids: Vec::new(),
+            logged_caps: None,
             model_status: ModelStatus::Idle,
             models_round: Round::new("model list"),
             models_request: Default::default(),
@@ -232,11 +238,11 @@ impl ServiceForm {
         if self.model_row(ui) {
             self.start_refresh(env);
         }
-        if self.provider.has_field("thinking") {
-            self.thinking_row(ui);
-        }
-        if self.provider.has_field("effort") && self.thinking {
-            self.effort_row(ui);
+        let options = self.reconcile_thinking();
+        let switch = self.switch();
+        self.thinking_row(ui, switch);
+        if effective_thinking(switch, self.thinking) {
+            self.effort_row(ui, &options);
         }
 
         let after = self.api_values();
@@ -275,7 +281,7 @@ impl ServiceForm {
                 "api_key" => pystr::strip(&self.api_key).into(),
                 "model" => pystr::strip(&self.model).into(),
                 "base_url" => pystr::strip(&self.base_url).into(),
-                "thinking" => self.thinking.into(),
+                "thinking" => effective_thinking(self.switch(), self.thinking).into(),
                 "effort" => self.effort.clone().into(),
                 other => unreachable!("service field {other} has no form input"),
             };
@@ -373,28 +379,88 @@ impl ServiceForm {
         })
     }
 
-    fn thinking_row(&mut self, ui: &mut Ui) {
+    /// 目前模型欄對到清單那一筆的思考能力。
+    fn caps(&self) -> Option<&ThinkingCaps> {
+        let model = pystr::strip(&self.model);
+        self.models
+            .iter()
+            .find(|m| m.id == model)
+            .map(|m| &m.thinking)
+    }
+
+    fn switch(&self) -> ThinkingSwitch {
+        switch_state(self.caps())
+    }
+
+    /// 算出目前模型的深度選項；選中的深度不在其中時改回自動，判定結果改變時記 log。
+    fn reconcile_thinking(&mut self) -> Vec<&'static str> {
+        let options = effort_options(self.provider, self.caps());
+        let model = pystr::strip(&self.model).to_owned();
+        if !options.contains(&self.effort.as_str()) {
+            log(format!(
+                "[settings] effort reset to auto (model={model}, was={})",
+                self.effort
+            ));
+            EFFORT_AUTO.clone_into(&mut self.effort);
+        }
+        let switch = self.switch();
+        let resolved = (model, switch, options.clone());
+        if self.logged_caps.as_ref() != Some(&resolved) {
+            let name = match switch {
+                ThinkingSwitch::Unsupported => "unsupported",
+                ThinkingSwitch::Always => "always",
+                ThinkingSwitch::Toggle if self.caps().is_some_and(ThinkingCaps::is_known) => {
+                    "toggle"
+                }
+                ThinkingSwitch::Toggle => "unknown",
+            };
+            log(format!(
+                "[settings] thinking caps resolved (provider={}, model={}, switch={name},                  efforts=[{}])",
+                self.provider.key,
+                resolved.0,
+                options.join(",")
+            ));
+            self.logged_caps = Some(resolved);
+        }
+        options
+    }
+
+    fn thinking_row(&mut self, ui: &mut Ui, switch: ThinkingSwitch) {
         form_row(ui, "", |ui, _| {
             let label = t("field.thinking", &[]);
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
-                let switch = toggle(ui, &mut self.thinking, &label);
-                switch.labelled_by(ui.add(Label::new(label.as_str()).wrap()).id);
+                // 鎖定時畫生效值，不動使用者自己的選擇，換回可切換的模型時才能恢復
+                let mut shown = effective_thinking(switch, self.thinking);
+                let value = if switch == ThinkingSwitch::Toggle {
+                    &mut self.thinking
+                } else {
+                    &mut shown
+                };
+                let switch_response = ui
+                    .add_enabled_ui(switch == ThinkingSwitch::Toggle, |ui| {
+                        toggle(ui, value, &label)
+                    })
+                    .inner;
+                switch_response.labelled_by(ui.add(Label::new(label.as_str()).wrap()).id);
             });
-            hint(ui, &t("hint.thinking", &[]));
+            let key = match switch {
+                ThinkingSwitch::Unsupported => "hint.thinking_unsupported",
+                ThinkingSwitch::Always => "hint.thinking_always",
+                ThinkingSwitch::Toggle => "hint.thinking",
+            };
+            hint(ui, &t(key, &[]));
         });
     }
 
-    fn effort_row(&mut self, ui: &mut Ui) {
+    fn effort_row(&mut self, ui: &mut Ui, options: &[&'static str]) {
         form_row(ui, &t("field.effort", &[]), |ui, label| {
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
             let combo = combo_box(ui, "effort")
                 .selected_text(name(&self.effort))
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
-                    for code in
-                        std::iter::once(EFFORT_AUTO).chain(self.provider.efforts.iter().copied())
-                    {
+                    for &code in options {
                         if ui
                             .selectable_label(code == self.effort, name(code))
                             .clicked()
