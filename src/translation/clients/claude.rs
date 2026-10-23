@@ -176,11 +176,14 @@ impl ClaudeClient {
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
-                "[translate] prompt cache: provider=claude model={} read={} write={} uncached={}",
+                // Claude 不分開列思考 token，思考算在 output_tokens 裡：遠多於譯文的長度就是有思考
+                "[translate] prompt cache: provider=claude model={} read={} write={} uncached={} \
+                 output_tokens={}",
                 self.model,
                 count_of(usage.get("cache_read_input_tokens")),
                 count_of(usage.get("cache_creation_input_tokens")),
                 count_of(usage.get("input_tokens")),
+                count_of(usage.get("output_tokens")),
             ));
         }
         // 文件只保證第一個 text 區塊是合法 JSON；實測此模式下也只會有一個 text 區塊

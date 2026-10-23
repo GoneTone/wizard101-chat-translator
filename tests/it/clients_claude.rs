@@ -675,7 +675,7 @@ async fn claude_logs_cache_read_write_uncached() {
     assert!(
         text.contains(
             "[translate] prompt cache: provider=claude model=claude-cache-marker \
-             read=1200 write=0 uncached=250"
+             read=1200 write=0 uncached=250 output_tokens=9"
         ),
         "{text}"
     );
