@@ -4,7 +4,7 @@ use crate::common;
 
 use std::time::Duration;
 
-use common::kittest::{has_label, painted_texts, run, themed_harness, tr};
+use common::kittest::{has_label, painted_texts, run, settle, themed_harness, tr};
 use common::log_capture::{capture_logs, log_text};
 use common::settings_env::FakeEnv;
 use eframe::egui::{self, Event, Ui};
@@ -49,12 +49,19 @@ fn filled(provider: &str) -> Value {
 }
 
 fn harness(form: ServiceForm) -> Harness<'static, State> {
+    let mut h = opening_harness(form);
+    settle(&mut h);
+    h
+}
+
+/// 剛開啟、開啟時的載入佔位還在的表單：harness 建好後才換上 `form`，佔位的時間從這一幀起算。
+fn opening_harness(form: ServiceForm) -> Harness<'static, State> {
     let state = State {
-        form,
+        form: blank(),
         env: FakeEnv::default(),
         responses: Vec::new(),
     };
-    themed_harness(
+    let mut h = themed_harness(
         egui::vec2(540.0, 760.0),
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
@@ -62,7 +69,10 @@ fn harness(form: ServiceForm) -> Harness<'static, State> {
             s.responses.push(response);
         },
         state,
-    )
+    );
+    h.state_mut().form = form;
+    h.step();
+    h
 }
 
 fn click(h: &mut Harness<State>, label: &str) {
@@ -1153,4 +1163,72 @@ fn effort_hint_drops_the_unsupported_warning_when_levels_are_known() {
     assert!(!painted_texts(&h).contains(&tr("hint.effort")));
     replace_model(&mut h, "free");
     assert!(painted_texts(&h).contains(&tr("hint.effort")));
+}
+
+// --- 換服務不沿用狀態、開啟時的載入佔位 ---
+
+fn switch_node_id(h: &Harness<State>) -> String {
+    format!(
+        "{:?}",
+        h.get_by_label(&tr("field.thinking")).accesskit_node().id()
+    )
+}
+
+#[test]
+fn each_service_keeps_its_own_widget_state() {
+    let mut a = new_service("openai", &[]);
+    a["thinking"] = json!(true);
+    let b = new_service("openai", &[a.clone()]);
+    let mut h = harness(form(a.clone(), vec![]));
+    let first = switch_node_id(&h);
+    h.state_mut().form = form(b, vec![]);
+    run(&mut h);
+    assert_ne!(switch_node_id(&h), first);
+    h.state_mut().form = form(a, vec![]);
+    run(&mut h);
+    assert_eq!(switch_node_id(&h), first);
+}
+
+#[test]
+fn opening_a_filled_form_shows_a_loading_placeholder() {
+    let h = opening_harness(form(filled("openai"), vec![]));
+    assert!(has_label(&h, &tr("form.loading")));
+    assert!(!has_label(&h, &tr("field.service_name")));
+}
+
+#[test]
+fn the_placeholder_gives_way_when_the_list_arrives() {
+    let mut h = opening_harness(form(filled("claude"), vec![]));
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Ok(names(&["claude-x"])),
+    });
+    h.step();
+    assert!(has_label(&h, &tr("field.service_name")));
+    assert!(!has_label(&h, &tr("form.loading")));
+}
+
+#[test]
+fn the_placeholder_gives_way_after_its_time_cap() {
+    let mut h = opening_harness(form(filled("openai"), vec![]));
+    assert!(!has_label(&h, &tr("field.service_name")));
+    settle(&mut h);
+    assert!(has_label(&h, &tr("field.service_name")));
+    assert!(has_label(&h, &tr("button.loading")));
+}
+
+#[test]
+fn a_form_without_an_endpoint_has_no_placeholder() {
+    let h = opening_harness(blank());
+    assert!(has_label(&h, &tr("field.service_name")));
+}
+
+#[test]
+fn later_loads_never_show_the_placeholder() {
+    let mut h = opening_harness(blank());
+    type_into(&mut h, &tr("field.api_key"), "sk-1");
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+    assert!(has_label(&h, &tr("field.service_name")));
 }

@@ -2,7 +2,10 @@
 
 use std::time::Duration;
 
-use eframe::egui::{Align, Hyperlink, Id, Label, Layout, RichText, Separator, Ui, vec2};
+use eframe::egui::{
+    Align, CornerRadius, Hyperlink, Id, Label, Layout, Rect, RichText, Role, Sense, Separator, Ui,
+    WidgetInfo, pos2, vec2,
+};
 use serde_json::{Map, Value};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
@@ -31,6 +34,8 @@ use crate::ui::settings::thinking::{
 const LABEL_WIDTH: f32 = 96.0;
 const COLUMN_GAP: f32 = 12.0;
 const ROW_GAP: f32 = 10.0;
+/// 開啟表單時的載入佔位最多顯示多久（秒）；超過就先給使用者操作，清單回來再更新。
+const PLACEHOLDER_SECONDS: f64 = 1.5;
 const EFFORT_WIDTH: f32 = 180.0;
 
 /// `ServiceForm::ui` 這一幀的回報。
@@ -79,6 +84,8 @@ pub struct ServiceForm {
     auto_endpoint: Option<(String, String)>,
     /// 表單已畫過第一幀（開啟時的自動載入只做一次）。
     opened: bool,
+    /// 開啟時那次自動載入的佔位顯示到何時（egui 時間）；載入結束或換服務商就清掉。
+    placeholder_until: Option<f64>,
     test_round: Round,
     /// 測試那一刻的服務商與模型，log 用。
     test_request: (String, String),
@@ -123,6 +130,7 @@ impl ServiceForm {
             models_request: Default::default(),
             auto_endpoint: None,
             opened: false,
+            placeholder_until: None,
             test_round: Round::new("test connection"),
             test_request: Default::default(),
             test_result: None,
@@ -183,6 +191,7 @@ impl ServiceForm {
         self.model_status = ModelStatus::Idle;
         self.models_round.invalidate();
         self.auto_endpoint = None;
+        self.placeholder_until = None;
         self.void_test();
         self.pending_change = true;
         log(format!(
@@ -220,7 +229,9 @@ impl ServiceForm {
         env: &dyn SettingsEnv,
         target_language: &str,
     ) -> FormResponse {
-        ui.scope(|ui| self.body(ui, env, target_language)).inner
+        // 以服務 id 為作用域：換編輯另一筆服務時，開關動畫與下拉狀態不沿用上一筆的
+        ui.push_id(self.id.clone(), |ui| self.body(ui, env, target_language))
+            .inner
     }
 
     fn body(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) -> FormResponse {
@@ -230,8 +241,17 @@ impl ServiceForm {
             change_provider: false,
         };
         ui.spacing_mut().item_spacing.y = ROW_GAP;
+        let now = ui.input(|i| i.time);
         if !std::mem::replace(&mut self.opened, true) {
             self.auto_refresh(env);
+            if self.models_round.busy() {
+                self.placeholder_until = Some(now + PLACEHOLDER_SECONDS);
+            }
+        }
+        if self.models_round.busy() && self.placeholder_until.is_some_and(|until| now < until) {
+            let rows = 6 + usize::from(self.provider.needs_base_url());
+            loading_placeholder(ui, rows, &t("form.loading", &[]));
+            return response;
         }
 
         form_row(ui, &t("field.service_name", &[]), |ui, label| {
@@ -637,6 +657,7 @@ impl ServiceForm {
     }
 
     fn apply_listing(&mut self, result: &Result<Vec<ModelInfo>, TranslateError>) {
+        self.placeholder_until = None;
         let (trigger, provider, base_url) = &self.models_request;
         match result {
             Ok(models) => {
@@ -686,6 +707,30 @@ pub fn format_seconds(elapsed: Duration) -> String {
 }
 
 /// 表單的一列：左邊固定寬的名稱，右邊欄位；`field` 拿到名稱的 Id，供欄位 `labelled_by`。
+/// 開啟時載入清單期間的表單佔位：`rows` 列明暗呼吸的「標籤＋輸入框」灰塊；畫著時持續重繪。
+fn loading_placeholder(ui: &mut Ui, rows: usize, label: &str) {
+    let step = theme::CONTROL_HEIGHT + ROW_GAP;
+    let size = vec2(ui.available_width(), rows as f32 * step - ROW_GAP);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    response.widget_info(|| WidgetInfo::labeled(Role::ProgressIndicator, true, label));
+    let pulse = 0.5 + 0.5 * (ui.input(|i| i.time) * std::f64::consts::TAU / 1.4).sin() as f32;
+    let fill = theme::CONTROL_BG.lerp_to_gamma(theme::TEXT_MUTED, 0.08 + 0.14 * pulse);
+    let radius = CornerRadius::same(theme::CONTROL_RADIUS);
+    for row in 0..rows {
+        let top = rect.top() + row as f32 * step;
+        let mid = top + theme::CONTROL_HEIGHT / 2.0;
+        let caption =
+            Rect::from_min_size(pos2(rect.left(), mid - 6.0), vec2(LABEL_WIDTH * 0.7, 12.0));
+        let field = Rect::from_min_max(
+            pos2(rect.left() + LABEL_WIDTH + COLUMN_GAP, top),
+            pos2(rect.right(), top + theme::CONTROL_HEIGHT),
+        );
+        ui.painter().rect_filled(caption, radius, fill);
+        ui.painter().rect_filled(field, radius, fill);
+    }
+    ui.ctx().request_repaint();
+}
+
 fn form_row<R>(ui: &mut Ui, label: &str, field: impl FnOnce(&mut Ui, Id) -> R) -> R {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = COLUMN_GAP;

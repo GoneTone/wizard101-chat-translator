@@ -17,6 +17,11 @@ pub fn run<S>(h: &mut Harness<S>) {
     h.run_steps(3);
 }
 
+/// 跑過服務表單開啟時載入佔位的時間上限（每步 0.25 秒），之後才能操作剛打開的表單。
+pub fn settle<S>(h: &mut Harness<S>) {
+    h.run_steps(8);
+}
+
 /// 套設定主題、載入 `language` 的字型並跑三輪的 harness；樣式只套在根 Ui 上。
 pub fn themed_harness<S: 'static>(
     size: Vec2,

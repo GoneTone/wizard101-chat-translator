@@ -48,6 +48,7 @@
   "provider.claude_desc": "Anthropic's official API. Just paste your API key.",
   "provider.gemini_desc": "Google's official API. Just paste your API key.",
   "provider.custom_desc": "Any OpenAI-compatible service, self-hosted or third-party. You provide the server URL.",
+  "form.loading": "Loading the model list…",
   "field.service_name": "Name",
   "field.provider": "Provider",
   "field.model": "Model",

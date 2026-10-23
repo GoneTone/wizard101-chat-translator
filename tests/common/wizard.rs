@@ -9,7 +9,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use super::kittest::{click, click_change, run, themed_harness, tr};
+use super::kittest::{click, click_change, run, settle, themed_harness, tr};
 use super::settings_env::FakeEnv;
 use wizard101_chat_translator::config::services::new_service;
 use wizard101_chat_translator::config::{Config, default_config};
@@ -55,6 +55,7 @@ pub fn step(h: &WizardHarness) -> Step {
 
 pub fn next(h: &mut WizardHarness) {
     click(h, Role::Button, &tr("button.next"));
+    settle(h);
 }
 
 pub fn back(h: &mut WizardHarness) {
