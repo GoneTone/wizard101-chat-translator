@@ -42,6 +42,22 @@ pub struct FormResponse {
     pub change_provider: bool,
 }
 
+/// 載入模型清單的觸發來源，log 用。
+#[derive(Clone, Copy)]
+enum Trigger {
+    Auto,
+    Manual,
+}
+
+impl Trigger {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
 enum ModelStatus {
     Idle,
     Found(usize),
@@ -73,8 +89,12 @@ pub struct ServiceForm {
     logged_caps: Option<(String, ThinkingSwitch, Vec<&'static str>)>,
     model_status: ModelStatus,
     models_round: Round,
-    /// 抓清單那一刻的服務商與網址，log 用。
-    models_request: (String, String),
+    /// 抓清單那一刻的觸發來源、服務商與網址，log 用。
+    models_request: (&'static str, String, String),
+    /// 上次自動載入清單時的（金鑰, 網址）；`None` 是表單開啟後還沒自動載入過。
+    auto_endpoint: Option<(String, String)>,
+    /// 表單已畫過第一幀（開啟時的自動載入只做一次）。
+    opened: bool,
     test_round: Round,
     /// 測試那一刻的服務商與模型，log 用。
     test_request: (String, String),
@@ -117,6 +137,8 @@ impl ServiceForm {
             model_status: ModelStatus::Idle,
             models_round: Round::new("model list"),
             models_request: Default::default(),
+            auto_endpoint: None,
+            opened: false,
             test_round: Round::new("test connection"),
             test_request: Default::default(),
             test_result: None,
@@ -223,20 +245,29 @@ impl ServiceForm {
             change_provider: false,
         };
         ui.spacing_mut().item_spacing.y = ROW_GAP;
+        if !std::mem::replace(&mut self.opened, true) {
+            self.auto_refresh(env);
+        }
 
         form_row(ui, &t("field.service_name", &[]), |ui, label| {
             text_field(ui, &mut self.name).labelled_by(label);
         });
         response.change_provider = self.provider_row(ui);
+        let mut left_endpoint = false;
         if self.provider.needs_base_url() {
             form_row(ui, &t("field.base_url", &[]), |ui, label| {
-                text_field(ui, &mut self.base_url).labelled_by(label);
+                left_endpoint |= text_field(ui, &mut self.base_url)
+                    .labelled_by(label)
+                    .lost_focus();
                 hint(ui, &t("hint.custom_endpoint", &[]));
             });
         }
-        self.key_row(ui);
+        left_endpoint |= self.key_row(ui);
+        if left_endpoint {
+            self.auto_refresh(env);
+        }
         if self.model_row(ui) {
-            self.start_refresh(env);
+            self.start_refresh(env, Trigger::Manual);
         }
         let options = self.reconcile_thinking();
         let switch = self.switch();
@@ -313,7 +344,8 @@ impl ServiceForm {
         })
     }
 
-    fn key_row(&mut self, ui: &mut Ui) {
+    /// 金鑰欄與取得金鑰連結；回傳金鑰欄是否剛失去焦點。
+    fn key_row(&mut self, ui: &mut Ui) -> bool {
         let label = if self.provider.needs_base_url() {
             "field.api_key_optional"
         } else {
@@ -321,8 +353,9 @@ impl ServiceForm {
         };
         form_row(ui, &t(label, &[]), |ui, label| {
             let (show, hide) = (t("button.show", &[]), t("button.hide", &[]));
-            secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
-                .labelled_by(label);
+            let left = secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
+                .labelled_by(label)
+                .lost_focus();
             if let Some(url) = self.provider.key_url {
                 let text = RichText::new(t("link.get_key", &[]))
                     .size(13.0)
@@ -331,7 +364,8 @@ impl ServiceForm {
                     log(format!("[ui] opening API key page: {url}"));
                 }
             }
-        });
+            left
+        })
     }
 
     /// 模型欄與〔更新清單〕；回傳是否按了更新。
@@ -415,7 +449,8 @@ impl ServiceForm {
                 ThinkingSwitch::Toggle => "unknown",
             };
             log(format!(
-                "[settings] thinking caps resolved (provider={}, model={}, switch={name},                  efforts=[{}])",
+                "[settings] thinking caps resolved (provider={}, model={}, switch={name}, \
+                 efforts=[{}])",
                 self.provider.key,
                 resolved.0,
                 options.join(",")
@@ -556,7 +591,22 @@ impl ServiceForm {
         });
     }
 
-    fn start_refresh(&mut self, env: &dyn SettingsEnv) {
+    /// 連線欄位填妥且與上次自動載入時不同，就自動載入清單；沒填妥不顯示錯誤。
+    fn auto_refresh(&mut self, env: &dyn SettingsEnv) {
+        let endpoint = (
+            pystr::strip(&self.api_key).to_owned(),
+            pystr::strip(&self.base_url).to_owned(),
+        );
+        if self.auto_endpoint.as_ref() == Some(&endpoint)
+            || !validate_endpoint_fields(&self.api_values()).is_empty()
+        {
+            return;
+        }
+        self.auto_endpoint = Some(endpoint);
+        self.start_refresh(env, Trigger::Auto);
+    }
+
+    fn start_refresh(&mut self, env: &dyn SettingsEnv, trigger: Trigger) {
         let api = self.api_values();
         let errors = validate_endpoint_fields(&api);
         if !errors.is_empty() {
@@ -565,7 +615,7 @@ impl ServiceForm {
         }
         self.model_status = ModelStatus::Idle;
         let spec = ServiceSpec::from_service(&api);
-        self.models_request = (spec.provider.clone(), spec.base_url.clone());
+        self.models_request = (trigger.name(), spec.provider.clone(), spec.base_url.clone());
         let round = self.models_round.start();
         env.list_models(round, spec);
     }
@@ -576,12 +626,13 @@ impl ServiceForm {
     }
 
     fn listed(&mut self, result: &Result<Vec<ModelInfo>, TranslateError>) {
-        let (provider, base_url) = &self.models_request;
+        let (trigger, provider, base_url) = &self.models_request;
         match result {
             Ok(models) => {
                 let with_caps = models.iter().filter(|m| m.thinking.is_known()).count();
                 log(format!(
-                    "[settings] model list fetched (provider={provider}, count={},                      with_thinking_caps={with_caps})",
+                    "[settings] model list fetched (trigger={trigger}, provider={provider}, \
+                     count={}, with_thinking_caps={with_caps})",
                     models.len()
                 ));
                 self.set_models(models.clone());
@@ -591,7 +642,8 @@ impl ServiceForm {
                 let unsupported = matches!(e, TranslateError::NoModelList);
                 let reason = if unsupported { "unsupported" } else { "failed" };
                 log(format!(
-                    "[settings] model list {reason} (provider={provider}, base_url={base_url}): {e}"
+                    "[settings] model list {reason} (trigger={trigger}, provider={provider}, \
+                     base_url={base_url}): {e}"
                 ));
                 self.set_models(Vec::new());
                 self.model_status = if unsupported {

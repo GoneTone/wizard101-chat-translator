@@ -94,8 +94,11 @@ fn translated(text: &str, ms: u64) -> Result<TestOutcome, TranslateError> {
     })
 }
 
+/// 餵一次模型清單結果：開啟時的自動載入還在跑就餵給它，否則按〔更新〕。
 fn refresh_models(h: &mut Harness<State>, result: Result<Vec<ModelInfo>, TranslateError>) {
-    click(h, &tr("button.refresh"));
+    if h.query_by_label(&tr("button.loading")).is_none() {
+        click(h, &tr("button.refresh"));
+    }
     let round = h.state().env.lists.borrow().last().expect("list started").0;
     h.state_mut()
         .form
@@ -103,18 +106,11 @@ fn refresh_models(h: &mut Harness<State>, result: Result<Vec<ModelInfo>, Transla
     run(h);
 }
 
-/// 把模型欄整個換成 `text`：移到結尾逐字刪掉再輸入。
+/// 把模型欄整個換成 `text`。
 fn replace_model(h: &mut Harness<State>, text: &str) {
-    let old = h.state().form.values()["model"]
-        .as_str()
-        .unwrap()
-        .chars()
-        .count();
     click(h, &tr("field.model"));
-    h.key_press(egui::Key::End);
-    for _ in 0..old {
-        h.key_press(egui::Key::Backspace);
-    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
     h.event(Event::Text(text.into()));
     run(h);
 }
@@ -671,9 +667,8 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     assert!(!h.state().form.test_passed());
     assert!(button_enabled(&h, &tr("button.test")));
 
-    // 模型清單
+    // 模型清單（開啟時自動載入的那一輪）
     let mut h = harness(form(filled("openai"), vec![]));
-    click(&mut h, &tr("button.refresh"));
     let round = h.state().env.lists.borrow()[0].0;
     assert!(!button_enabled(&h, &tr("button.loading")));
     type_into(&mut h, &tr("field.api_key"), "2");
@@ -984,4 +979,62 @@ fn effort_menu_lists_only_supported_levels() {
     assert!(has_label(&h, &tr("effort.low")));
     assert!(has_label(&h, &tr("effort.high")));
     assert!(!has_label(&h, &tr("effort.medium")));
+}
+
+// --- 開啟表單時自動載入模型清單 ---
+
+fn list_count(h: &Harness<State>) -> usize {
+    h.state().env.lists.borrow().len()
+}
+
+#[test]
+fn opening_a_filled_form_loads_models_once() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    run(&mut h);
+    run(&mut h);
+    assert_eq!(list_count(&h), 1);
+}
+
+#[test]
+fn opening_an_empty_form_does_not_load() {
+    let h = harness(blank());
+    assert_eq!(list_count(&h), 0);
+    assert!(painted_texts(&h).contains(&tr("hint.model_idle")));
+}
+
+#[test]
+fn key_focus_loss_loads_once() {
+    let mut h = harness(blank());
+    type_into(&mut h, &tr("field.api_key"), "sk-1");
+    assert_eq!(list_count(&h), 0);
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+    click(&mut h, &tr("field.api_key"));
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+}
+
+#[test]
+fn auto_load_without_model_list_keeps_switch_usable() {
+    let mut service = new_service("custom", &[]);
+    service["base_url"] = json!("http://127.0.0.1:8080");
+    let mut h = harness(form(service, vec![]));
+    assert_eq!(list_count(&h), 1);
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Err(TranslateError::NoModelList),
+    });
+    run(&mut h);
+    assert!(painted_texts(&h).contains(&tr("hint.model_no_list")));
+    assert!(button_enabled(&h, &tr("field.thinking")));
+}
+
+#[test]
+fn refresh_button_still_loads() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    assert_eq!(list_count(&h), 1);
+    refresh_models(&mut h, Ok(names(&["gpt-a"])));
+    click(&mut h, &tr("button.refresh"));
+    assert_eq!(list_count(&h), 2);
 }

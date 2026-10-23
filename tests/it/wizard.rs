@@ -581,3 +581,13 @@ fn a_recorded_hotkey_releases_the_recorder() {
     assert_eq!(h.state().env.cancels.get(), 1);
     assert!(h.query_all_by_label("Q").next().is_some());
 }
+
+#[test]
+fn wizard_service_step_auto_loads() {
+    let mut h = on_service_step(blank_cfg());
+    pick_provider(&mut h, "provider.claude");
+    assert!(h.state().env.lists.borrow().is_empty());
+    type_into(&mut h, &tr("field.api_key"), "sk-ant");
+    type_into(&mut h, &tr("field.model"), "claude-x");
+    assert_eq!(h.state().env.lists.borrow().len(), 1);
+}
