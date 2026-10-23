@@ -540,8 +540,13 @@ impl App {
         let body = rect;
         let rect = self.banners.show(ui, rect, self.frame.alpha());
         self.frame.fill_body(ui, body, self.banners.update_rect());
-        self.selection
-            .show(ui, &mut self.list, &self.model, self.shell.as_mut());
+        self.selection.show(
+            ui,
+            &mut self.list,
+            &self.model,
+            self.shell.as_mut(),
+            self.banners.error_rect(),
+        );
         self.list
             .show(ui, rect, &self.model, self.status, self.selection.span());
     }
