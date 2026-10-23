@@ -52,8 +52,8 @@ struct Message {
 
 /// Claude 官方 API 的 client。
 ///
-/// Claude 5 系不接受 temperature，也沒有「完全不思考」：深度由 effort 控制，`auto` 時連
-/// `effort` 都不帶。刻意不送 `thinking: disabled` —— 那在 Opus 5 會把 `<thinking>` 漏進回應。
+/// 不送 temperature（新模型不接受）。關閉思考送 `thinking: disabled`，能不能關由設定介面依模型清單判斷；
+/// 深度由 effort 控制，`auto` 時連 `effort` 都不帶。
 pub struct ClaudeClient {
     pub(super) http: reqwest::Client,
     pub(super) base_url: String,
@@ -61,6 +61,7 @@ pub struct ClaudeClient {
     /// 金鑰非空卻含 HTTP 標頭不允許的字元。
     key_malformed: bool,
     model: String,
+    thinking: bool,
     effort: String,
     request_timeout: Duration,
 }
@@ -74,7 +75,7 @@ fn default_headers() -> HeaderMap {
 
 impl ClaudeClient {
     /// 建立 client；`endpoint` 正式環境為 [`CLAUDE_BASE_URL`]。
-    pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
+    pub fn new(api_key: &str, model: &str, thinking: bool, effort: &str, endpoint: &str) -> Self {
         let key = secret_header(api_key);
         Self {
             http: http_client(default_headers(), endpoint, TIMEOUT),
@@ -83,6 +84,7 @@ impl ClaudeClient {
             api_key: key.clone().filter(|_| !api_key.is_empty()),
             key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
+            thinking,
             effort: effort.to_owned(),
             request_timeout: REQUEST_TIMEOUT,
         }
@@ -107,19 +109,23 @@ impl ClaudeClient {
 
     fn request_body(&self, system: &str, turns: &[Turn], max_tokens: u32) -> Value {
         let mut output_config = json!({"format": output_format()});
-        if self.effort != EFFORT_AUTO {
+        if self.thinking && self.effort != EFFORT_AUTO {
             output_config["effort"] = json!(self.effort);
         }
         let messages: Vec<Value> = turns.iter().map(Turn::to_message).collect();
         // 斷點放在 system 結尾：之後的上下文每句都變，放在最後只會一直寫入、讀不到
-        json!({
+        let mut body = json!({
             "max_tokens": max_tokens,
             "messages": messages,
             "model": self.model,
             "output_config": output_config,
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            "stream": true,
-        })
+        });
+        if !self.thinking {
+            body["thinking"] = json!({"type": "disabled"});
+        }
+        body["stream"] = json!(true);
+        body
     }
 
     /// 送出串流請求並解開結構化輸出的譯文；`cancel` 觸發即斷線。

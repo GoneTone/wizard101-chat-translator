@@ -150,7 +150,13 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
     let (key, model) = (&spec.api_key, &spec.model);
     let effort = provider(&spec.provider).map_or(EFFORT_AUTO, |p| known_effort(p, &spec.effort));
     match spec.provider.as_str() {
-        "claude" => Client::Claude(ClaudeClient::new(key, model, effort, CLAUDE_BASE_URL)),
+        "claude" => Client::Claude(ClaudeClient::new(
+            key,
+            model,
+            spec.thinking,
+            effort,
+            CLAUDE_BASE_URL,
+        )),
         "gemini" => Client::Gemini(GeminiClient::new(key, model, effort, GEMINI_BASE_URL)),
         "openai" => Client::OpenAiCompat(OpenAiCompatClient::new(
             OPENAI_BASE_URL,
