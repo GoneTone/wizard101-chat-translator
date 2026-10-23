@@ -14,7 +14,9 @@ use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
-use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
+use wizard101_chat_translator::translation::errors::{
+    TranslateError, friendly_error, friendly_text,
+};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::service_form::{
@@ -1271,36 +1273,17 @@ fn rejected(detail: &str) -> Result<TestOutcome, TranslateError> {
 }
 
 #[test]
-fn a_400_with_thinking_off_explains_the_likely_cause() {
+fn a_400_with_thinking_off_shows_only_the_server_error() {
     let mut service = filled("gemini");
     service["thinking"] = json!(false);
     let mut h = harness(form(service, vec![]));
     let round = start_test(&mut h);
-    finish_test(
-        &mut h,
-        round,
-        rejected("Request contains an invalid argument."),
-    );
-    assert!(
-        painted_texts(&h)
-            .iter()
-            .any(|t| t.contains("invalid argument"))
-    );
-    let hint = tr("error.thinking_off_rejected");
-    assert!(painted_texts(&h).iter().any(|t| t.contains(&hint)));
-}
-
-#[test]
-fn a_400_with_thinking_on_adds_no_thinking_hint() {
-    let mut h = harness(form(filled("gemini"), vec![]));
-    let round = start_test(&mut h);
-    finish_test(
-        &mut h,
-        round,
-        rejected("Request contains an invalid argument."),
-    );
-    let hint = tr("error.thinking_off_rejected");
-    assert!(!painted_texts(&h).iter().any(|t| t.contains(&hint)));
+    let error = TranslateError::Config {
+        status: Some(400),
+        detail: "Request contains an invalid argument.".into(),
+    };
+    finish_test(&mut h, round, Err(error.clone()));
+    assert!(painted_texts(&h).contains(&friendly_text(&error)));
 }
 
 #[test]
@@ -1322,8 +1305,8 @@ fn the_test_error_can_be_selected_and_copied() {
         .expect("error text shown")
         .rect();
     let (from, to) = (
-        text.left_center() + egui::vec2(1.0, 0.0),
-        text.right_center(),
+        text.left_top() + egui::vec2(1.0, 4.0),
+        text.right_bottom() - egui::vec2(1.0, 4.0),
     );
     h.event(Event::PointerMoved(from));
     h.event(Event::PointerButton {

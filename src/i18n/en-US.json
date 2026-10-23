@@ -37,7 +37,6 @@
   "error.api_response": "The server responded with HTTP {status}: {message}",
   "error.offline_detail": "Cannot reach the server: {message}",
   "error.server_http": "Server responded with HTTP {status}",
-  "error.thinking_off_rejected": "This model may not support turning thinking off. Turn thinking on and test again.",
   "error.unexpected": "Something went wrong: {error}",
   "sep.errors": "; ",
   "provider.openai": "OpenAI",

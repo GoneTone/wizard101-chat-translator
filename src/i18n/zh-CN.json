@@ -37,7 +37,6 @@
   "error.api_response": "服务器响应 HTTP {status}：{message}",
   "error.offline_detail": "无法连接到服务器：{message}",
   "error.server_http": "服务器响应 HTTP {status}",
-  "error.thinking_off_rejected": "此模型可能不支持关闭思考，请开启思考后再测试。",
   "error.unexpected": "发生错误：{error}",
   "sep.errors": "；",
   "provider.openai": "OpenAI",
