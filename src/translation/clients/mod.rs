@@ -157,7 +157,13 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
             effort,
             CLAUDE_BASE_URL,
         )),
-        "gemini" => Client::Gemini(GeminiClient::new(key, model, effort, GEMINI_BASE_URL)),
+        "gemini" => Client::Gemini(GeminiClient::new(
+            key,
+            model,
+            spec.thinking,
+            effort,
+            GEMINI_BASE_URL,
+        )),
         "openai" => Client::OpenAiCompat(OpenAiCompatClient::new(
             OPENAI_BASE_URL,
             key,

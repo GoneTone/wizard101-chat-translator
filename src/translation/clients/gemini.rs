@@ -26,13 +26,14 @@ const API_VERSION: &str = "v1beta";
 
 /// Gemini 官方 API 的 client。
 ///
-/// 不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易重複輸出。3 系列與 2.5 Pro
-/// 關不掉思考，故用 effort：`auto` 不帶 `thinkingConfig`，其餘送 `thinking_level`。
+/// 不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易重複輸出。關閉思考送
+/// `thinkingBudget: 0`（關不掉的模型會回 400）；開啟時 `auto` 不帶 `thinkingConfig`，其餘送 `thinking_level`。
 pub struct GeminiClient {
     pub(super) http: reqwest::Client,
     pub(super) base_url: String,
     api_key: Option<HeaderValue>,
     model: String,
+    thinking: bool,
     effort: String,
     request_timeout: Duration,
 }
@@ -41,12 +42,13 @@ impl GeminiClient {
     /// 建立 client；`endpoint` 正式環境為 [`GEMINI_BASE_URL`]。
     ///
     /// 金鑰照 SDK 去頭尾空白後放 `x-goog-api-key` 標頭（空金鑰送空值，讓伺服器回 4xx 照設定錯誤處理）。
-    pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
+    pub fn new(api_key: &str, model: &str, thinking: bool, effort: &str, endpoint: &str) -> Self {
         Self {
             http: http_client(HeaderMap::new(), endpoint, TIMEOUT),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             api_key: secret_header(pystr::strip(api_key)),
             model: model.to_owned(),
+            thinking,
             effort: effort.to_owned(),
             request_timeout: REQUEST_TIMEOUT,
         }
@@ -82,7 +84,9 @@ impl GeminiClient {
             })
             .collect();
         let mut config = json!({"maxOutputTokens": max_tokens});
-        if self.effort != EFFORT_AUTO {
+        if !self.thinking {
+            config["thinkingConfig"] = json!({"thinkingBudget": 0});
+        } else if self.effort != EFFORT_AUTO {
             // SDK 把 thinking_level 轉成大寫列舉值，鍵名維持 snake_case
             config["thinkingConfig"] = json!({"thinking_level": self.effort.to_ascii_uppercase()});
         }
