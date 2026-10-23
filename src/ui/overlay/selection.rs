@@ -2,7 +2,7 @@
 //!
 //! 端點以「第幾則」定位，訊息被移除時以 seq 重新對位（見 `Selection::sync`）；反白由 `MessageList` 繪製。
 
-use eframe::egui::{Context, Id, Pos2, Ui, Vec2};
+use eframe::egui::{Context, Id, Pos2, Rect, Ui, Vec2};
 
 use crate::logs::log;
 use crate::ui::copy_menu::CopyMenu;
@@ -176,6 +176,7 @@ impl Selection {
         list: &mut MessageList,
         model: &OverlayModel,
         shell: &mut dyn Shell,
+        banner: Option<Rect>,
     ) {
         let messages = model.current_view().map_or(&[][..], |v| &v.messages);
         self.sync(model.current_key(), messages);
@@ -221,8 +222,10 @@ impl Selection {
             }
         }
         list.set_dragging(self.dragging);
+        // 錯誤橫幅上的右鍵交給橫幅自己的複製選單，兩個選單才不會疊在一起
         if let Some(p) = secondary
             && area.contains(p)
+            && !banner.is_some_and(|b| b.contains(p))
             && p.y >= area.min.y + BAR_HEIGHT
             && self.span().is_some()
         {
@@ -366,6 +369,8 @@ mod tests {
         t0: Instant,
         /// 整個視窗的 Ui 範圍（harness 四周有留白，不等於 `SIZE`）。
         area: Rect,
+        /// 模擬錯誤橫幅的範圍：上面的右鍵交給橫幅自己的選單。
+        banner: Option<Rect>,
     }
 
     fn add(model: &mut OverlayModel, t0: Instant, i: u64, original: &str, translated: &str) {
@@ -394,6 +399,7 @@ mod tests {
             copied: Vec::new(),
             t0,
             area: Rect::NOTHING,
+            banner: None,
         };
         let mut h = Harness::builder()
             .with_size(SIZE)
@@ -404,7 +410,8 @@ mod tests {
                     s.area = area;
                     s.frame.show(ui, &mut s.shell, "t", None, "");
                     let rect = Rect::from_min_max(area.min + Vec2::new(0.0, BAR_HEIGHT), area.max);
-                    s.selection.show(ui, &mut s.list, &s.model, &mut s.shell);
+                    s.selection
+                        .show(ui, &mut s.list, &s.model, &mut s.shell, s.banner);
                     s.copied.extend(copied_texts(ui.ctx()));
                     s.list.show(ui, rect, &s.model, None, s.selection.span());
                 },
@@ -990,6 +997,18 @@ mod tests {
         h.step();
         assert_eq!(h.state().copied, ["orig 0\ntrans 0"]);
         assert!(h.state().selection.span().is_some());
+    }
+
+    #[test]
+    fn right_click_on_the_error_banner_leaves_the_selection_menu_closed() {
+        let mut h = numbered(1);
+        let (from, to) = (start_of(&h, 0, 0), end_of(&h, 0, 1));
+        select(&mut h, from, to);
+        let spot = Pos2::new(200.0, 150.0);
+        h.state_mut().banner = Some(Rect::from_center_size(spot, Vec2::splat(40.0)));
+        right_click(&mut h, spot);
+        h.step();
+        assert_eq!(h.state().selection.menu.rect(), None);
     }
 
     #[test]

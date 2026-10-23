@@ -18,7 +18,8 @@
    "api_key": "",
    "thinking": false,
    "id": "",
-   "name": ""
+   "name": "",
+   "effort": "auto"
   }
  },
  {
@@ -40,7 +41,8 @@
    "api_key": "",
    "thinking": false,
    "id": "",
-   "name": ""
+   "name": "",
+   "effort": "auto"
   }
  },
  {
@@ -62,7 +64,8 @@
    "api_key": "",
    "thinking": false,
    "id": "",
-   "name": ""
+   "name": "",
+   "effort": "auto"
   }
  },
  {

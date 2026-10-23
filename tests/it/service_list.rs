@@ -8,7 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click_at, has_label, painted_texts, run, themed_harness, tr};
+use common::kittest::{click_at, has_label, painted_texts, run, settle, themed_harness, tr};
 use common::log_capture::{capture_logs, log_lines_with, log_text};
 use common::settings_env::FakeEnv;
 use wizard101_chat_translator::config::Config;
@@ -262,7 +262,7 @@ fn click_card<S>(h: &mut Harness<S>, label: &str, index: usize) {
     let mut nodes: Vec<_> = h.query_all_by_role_and_label(Role::Button, label).collect();
     nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
     nodes[index].click();
-    run(h);
+    settle(h);
 }
 
 /// 畫面上貼圖的位置（服務商圖示；字形用的是預設貼圖，不算）。

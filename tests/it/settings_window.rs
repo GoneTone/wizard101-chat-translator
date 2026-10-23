@@ -12,7 +12,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click, click_change, has_label, run, tr};
+use common::kittest::{click, click_change, has_label, run, settle, text_sections, tr};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
@@ -430,6 +430,7 @@ fn save_writes_the_edited_service_list_into_cfg() {
     let mut h = harness(cfg);
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
     h.get_by_label(&tr("field.service_name")).click();
     run(&mut h);
     h.event(egui::Event::Text(" 2".into()));
@@ -574,6 +575,7 @@ fn a_blank_target_language_tests_the_connection_in_the_ui_language() {
     let mut h = harness(cfg);
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
     click(&mut h, Role::Button, &tr("button.test"));
     let tests = h.state().env.tests.borrow();
     let (_, _, target) = tests.last().expect("test started");
@@ -1154,5 +1156,22 @@ fn the_log_folder_path_is_shown_in_full_beside_the_button() {
     assert!(
         pos.x + galley.rect.right() < button.left(),
         "the path stays left of the button"
+    );
+}
+
+#[test]
+fn the_target_language_colors_what_was_typed() {
+    let mut h = harness(configured_cfg());
+    h.get_by_role_and_label(Role::TextInput, &tr("settings.target_language"))
+        .click();
+    run(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    h.event(egui::Event::Text("eng".into()));
+    run(&mut h);
+    let english = text_sections(&h, "English");
+    assert!(
+        english.contains(&("Eng".to_owned(), theme::ACCENT)),
+        "{english:?}"
     );
 }

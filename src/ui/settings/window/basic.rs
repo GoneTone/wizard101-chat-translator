@@ -23,13 +23,7 @@ impl SettingsWindow {
             let hint = t("hint.language", &[]);
             setting_row(ui, &t("settings.target_language", &[]), Some(&hint), |ui| {
                 let id = Id::unique("target_language");
-                editable_combo(
-                    ui,
-                    id,
-                    &mut self.target_language,
-                    &common_languages(),
-                    false,
-                );
+                editable_combo(ui, id, &mut self.target_language, &common_languages());
             });
         });
         if let Some(code) = language {

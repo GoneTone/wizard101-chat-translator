@@ -4,7 +4,8 @@ use crate::common;
 
 use std::time::Duration;
 
-use common::kittest::{has_label, painted_texts, run, themed_harness, tr};
+use common::kittest::{has_label, painted_texts, run, settle, themed_harness, tr};
+use common::log_capture::{capture_logs, log_text};
 use common::settings_env::FakeEnv;
 use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
@@ -12,7 +13,10 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
-use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
+use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
+use wizard101_chat_translator::translation::errors::{
+    TranslateError, friendly_error, friendly_text,
+};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::service_form::{
@@ -47,12 +51,19 @@ fn filled(provider: &str) -> Value {
 }
 
 fn harness(form: ServiceForm) -> Harness<'static, State> {
+    let mut h = opening_harness(form);
+    settle(&mut h);
+    h
+}
+
+/// 剛開啟、開啟時的載入佔位還在的表單：harness 建好後才換上 `form`，佔位的時間從這一幀起算。
+fn opening_harness(form: ServiceForm) -> Harness<'static, State> {
     let state = State {
-        form,
+        form: blank(),
         env: FakeEnv::default(),
         responses: Vec::new(),
     };
-    themed_harness(
+    let mut h = themed_harness(
         egui::vec2(540.0, 760.0),
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
@@ -60,7 +71,10 @@ fn harness(form: ServiceForm) -> Harness<'static, State> {
             s.responses.push(response);
         },
         state,
-    )
+    );
+    h.state_mut().form = form;
+    h.step();
+    h
 }
 
 fn click(h: &mut Harness<State>, label: &str) {
@@ -93,8 +107,11 @@ fn translated(text: &str, ms: u64) -> Result<TestOutcome, TranslateError> {
     })
 }
 
-fn refresh_models(h: &mut Harness<State>, result: Result<Vec<String>, TranslateError>) {
-    click(h, &tr("button.refresh"));
+/// 餵一次模型清單結果：開啟時的自動載入還在跑就餵給它，否則按〔更新〕。
+fn refresh_models(h: &mut Harness<State>, result: Result<Vec<ModelInfo>, TranslateError>) {
+    if h.query_by_label(&tr("button.loading")).is_none() {
+        click(h, &tr("button.refresh"));
+    }
     let round = h.state().env.lists.borrow().last().expect("list started").0;
     h.state_mut()
         .form
@@ -102,8 +119,39 @@ fn refresh_models(h: &mut Harness<State>, result: Result<Vec<String>, TranslateE
     run(h);
 }
 
-fn names(items: &[&str]) -> Vec<String> {
-    items.iter().map(|s| (*s).to_owned()).collect()
+/// 把模型欄整個換成 `text`。
+fn replace_model(h: &mut Harness<State>, text: &str) {
+    click(h, &tr("field.model"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    h.event(Event::Text(text.into()));
+    run(h);
+}
+
+fn with_caps(id: &str, thinking: ThinkingCaps) -> ModelInfo {
+    ModelInfo {
+        id: id.into(),
+        thinking,
+    }
+}
+
+fn locked(supported: Option<bool>, can_disable: Option<bool>) -> ThinkingCaps {
+    ThinkingCaps {
+        supported,
+        can_disable,
+        efforts: None,
+    }
+}
+
+fn switch_on(h: &Harness<State>) -> bool {
+    h.get_by_label(&tr("field.thinking"))
+        .accesskit_node()
+        .toggled()
+        .is_some_and(|t| t == egui::accesskit::Toggled::True)
+}
+
+fn names(items: &[&str]) -> Vec<ModelInfo> {
+    items.iter().copied().map(ModelInfo::bare).collect()
 }
 
 /// 清掉之前的回報，跑一幀，回傳這一幀有沒有回報 `pick`。
@@ -155,7 +203,9 @@ fn values_only_carry_the_fields_that_provider_has() {
         .collect();
     assert_eq!(
         keys,
-        ["id", "name", "provider", "model", "api_key", "effort"]
+        [
+            "id", "name", "provider", "model", "api_key", "thinking", "effort"
+        ]
     );
 }
 
@@ -300,21 +350,20 @@ fn the_change_button_asks_the_owner_to_pick_a_provider() {
 }
 
 #[test]
-fn claude_shows_thinking_depth_instead_of_a_toggle() {
-    // Claude 沒有「完全不思考」，做成與另兩家一樣的開關會誤導
-    let h = harness(form(new_service("claude", &[]), vec![]));
-    assert!(has_label(&h, &tr("field.effort")));
-    assert!(!has_label(&h, &tr("field.thinking")));
-    assert!(painted_texts(&h).contains(&tr("hint.effort")));
+fn every_provider_shows_the_switch() {
+    for key in ["openai", "claude", "gemini", "custom"] {
+        let h = harness(form(new_service(key, &[]), vec![]));
+        assert!(has_label(&h, &tr("field.thinking")), "{key}");
+    }
 }
 
 #[test]
-fn the_other_providers_keep_the_thinking_toggle() {
-    for key in ["openai", "custom"] {
-        let h = harness(form(new_service(key, &[]), vec![]));
-        assert!(has_label(&h, &tr("field.thinking")), "{key}");
-        assert!(!has_label(&h, &tr("field.effort")), "{key}");
-    }
+fn effort_hidden_while_switch_off() {
+    let mut h = harness(blank());
+    assert!(!has_label(&h, &tr("field.effort")));
+    click(&mut h, &tr("field.thinking"));
+    assert!(has_label(&h, &tr("field.effort")));
+    assert!(painted_texts(&h).contains(&tr("hint.effort")));
 }
 
 #[test]
@@ -631,9 +680,8 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     assert!(!h.state().form.test_passed());
     assert!(button_enabled(&h, &tr("button.test")));
 
-    // 模型清單
+    // 模型清單（開啟時自動載入的那一輪）
     let mut h = harness(form(filled("openai"), vec![]));
-    click(&mut h, &tr("button.refresh"));
     let round = h.state().env.lists.borrow()[0].0;
     assert!(!button_enabled(&h, &tr("button.loading")));
     type_into(&mut h, &tr("field.api_key"), "2");
@@ -721,24 +769,19 @@ fn refresh_checks_the_endpoint_fields_first() {
 }
 
 #[test]
-fn model_field_typing_filters_fetched_options() {
+fn model_field_typing_keeps_every_fetched_option() {
     let mut service = filled("openai");
     service["model"] = json!("");
     let mut h = harness(form(service, vec![]));
     refresh_models(&mut h, Ok(names(&["gemma3", "qwen3-32b", "qwen3-8b"])));
     type_into(&mut h, &tr("field.model"), "qwen");
-    h.get_by_label("qwen3-32b");
-    h.get_by_label("qwen3-8b");
-    assert!(h.query_by_label("gemma3").is_none());
-    // 清單開著時繼續打字照樣篩選（Tk 版要拆掉 grab 才做得到）
-    h.event(Event::Text("3-8".into()));
-    run(&mut h);
-    h.get_by_label("qwen3-8b");
-    assert!(h.query_by_label("qwen3-32b").is_none());
+    for option in ["gemma3", "qwen3-32b", "qwen3-8b"] {
+        h.get_by_label(option);
+    }
 }
 
 #[test]
-fn model_dropdown_closes_on_outside_click_and_when_nothing_matches() {
+fn model_dropdown_closes_on_outside_click_and_lists_all_when_nothing_matches() {
     let mut service = filled("openai");
     service["model"] = json!("");
     let mut h = harness(form(service, vec![]));
@@ -749,8 +792,8 @@ fn model_dropdown_closes_on_outside_click_and_when_nothing_matches() {
     assert!(h.query_by_label("alpha").is_none());
 
     type_into(&mut h, &tr("field.model"), "zzz");
-    assert!(h.query_by_label("alpha").is_none());
-    assert!(h.query_by_label("beta").is_none());
+    h.get_by_label("alpha");
+    h.get_by_label("beta");
 }
 
 #[test]
@@ -838,5 +881,459 @@ fn friendly_error_shows_connection_failure_reason() {
             "error.offline_detail",
             vec![("message", "[Errno 11001] getaddrinfo failed".to_owned())]
         )
+    );
+}
+
+// --- 依模型能力鎖定思考開關 ---
+
+fn claude_with(models: Vec<ModelInfo>, model: &str) -> Harness<'static, State> {
+    let mut service = filled("claude");
+    service["model"] = json!(model);
+    let mut h = harness(form(service, vec![]));
+    refresh_models(&mut h, Ok(models));
+    h
+}
+
+#[test]
+fn unsupported_model_locks_switch_off() {
+    let h = claude_with(vec![with_caps("plain", locked(Some(false), None))], "plain");
+    assert!(!switch_on(&h));
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking_unsupported")));
+    assert!(!has_label(&h, &tr("field.effort")));
+    assert_eq!(h.state().form.values()["thinking"], false);
+}
+
+#[test]
+fn always_thinking_model_locks_switch_on() {
+    let mut service = filled("openai");
+    service["model"] = json!("deep");
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![with_caps("deep", locked(Some(true), Some(false)))]),
+    );
+    assert!(switch_on(&h));
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking_always")));
+    assert!(has_label(&h, &tr("field.effort")));
+    assert_eq!(h.state().form.values()["thinking"], true);
+}
+
+#[test]
+fn caps_follow_the_typed_model_id() {
+    let models = vec![
+        with_caps("always", locked(Some(true), Some(false))),
+        with_caps("free", ThinkingCaps::default()),
+    ];
+    let mut h = claude_with(models, "always");
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "free");
+    assert!(button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "always");
+    assert!(!button_enabled(&h, &tr("field.thinking")));
+    replace_model(&mut h, "unlisted");
+    assert!(button_enabled(&h, &tr("field.thinking")));
+    assert!(painted_texts(&h).contains(&tr("hint.thinking")));
+}
+
+#[test]
+fn locked_switch_restores_the_users_choice() {
+    let mut service = filled("openai");
+    service["model"] = json!("free");
+    service["thinking"] = json!(false);
+    let models = vec![
+        with_caps("always", locked(Some(true), Some(false))),
+        with_caps("free", ThinkingCaps::default()),
+    ];
+    let mut h = harness(form(service, vec![]));
+    refresh_models(&mut h, Ok(models));
+    replace_model(&mut h, "always");
+    assert_eq!(h.state().form.values()["thinking"], true);
+    replace_model(&mut h, "free");
+    assert_eq!(h.state().form.values()["thinking"], false);
+}
+
+#[test]
+fn effort_resets_when_new_model_lacks_it() {
+    let mut service = filled("claude");
+    service["model"] = json!("free");
+    service["effort"] = json!("xhigh");
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![
+            with_caps("free", ThinkingCaps::default()),
+            with_caps("narrow", narrow),
+        ]),
+    );
+    assert_eq!(h.state().form.values()["effort"], "xhigh");
+    replace_model(&mut h, "narrow");
+    assert_eq!(h.state().form.values()["effort"], "auto");
+}
+
+#[test]
+fn effort_menu_lists_only_supported_levels() {
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into(), "high".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = claude_with(vec![with_caps("narrow", narrow)], "narrow");
+    click(&mut h, &tr("field.effort"));
+    assert!(has_label(&h, &tr("effort.low")));
+    assert!(has_label(&h, &tr("effort.high")));
+    assert!(!has_label(&h, &tr("effort.medium")));
+}
+
+// --- 開啟表單時自動載入模型清單 ---
+
+fn list_count(h: &Harness<State>) -> usize {
+    h.state().env.lists.borrow().len()
+}
+
+#[test]
+fn opening_a_filled_form_loads_models_once() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    run(&mut h);
+    run(&mut h);
+    assert_eq!(list_count(&h), 1);
+}
+
+#[test]
+fn opening_an_empty_form_does_not_load() {
+    let h = harness(blank());
+    assert_eq!(list_count(&h), 0);
+    assert!(painted_texts(&h).contains(&tr("hint.model_idle")));
+}
+
+#[test]
+fn key_focus_loss_loads_once() {
+    let mut h = harness(blank());
+    type_into(&mut h, &tr("field.api_key"), "sk-1");
+    assert_eq!(list_count(&h), 0);
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+    click(&mut h, &tr("field.api_key"));
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+}
+
+#[test]
+fn auto_load_without_model_list_keeps_switch_usable() {
+    let mut service = new_service("custom", &[]);
+    service["base_url"] = json!("http://127.0.0.1:8080");
+    let mut h = harness(form(service, vec![]));
+    assert_eq!(list_count(&h), 1);
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Err(TranslateError::NoModelList),
+    });
+    run(&mut h);
+    assert!(painted_texts(&h).contains(&tr("hint.model_no_list")));
+    assert!(button_enabled(&h, &tr("field.thinking")));
+}
+
+#[test]
+fn refresh_button_still_loads() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    assert_eq!(list_count(&h), 1);
+    refresh_models(&mut h, Ok(names(&["gpt-a"])));
+    click(&mut h, &tr("button.refresh"));
+    assert_eq!(list_count(&h), 2);
+}
+
+// --- 審查修正 ---
+
+#[test]
+fn caps_log_only_when_the_result_changes() {
+    capture_logs();
+    let mut h = harness(blank());
+    type_into(&mut h, &tr("field.model"), "flood-mark");
+    for c in ["a", "b", "c"] {
+        h.event(Event::Text(c.into()));
+        run(&mut h);
+    }
+    let lines = log_text()
+        .lines()
+        .filter(|l| l.contains("thinking caps resolved") && l.contains("model=flood-mark"))
+        .count();
+    // 一路都是「不知道、可切換、同一組選項」，判定結果沒變就不記
+    assert_eq!(lines, 0);
+}
+
+#[test]
+fn edit_and_tab_in_one_frame_still_auto_loads() {
+    let mut h = harness(blank());
+    click(&mut h, &tr("field.api_key"));
+    h.event(Event::Text("sk-1".into()));
+    for pressed in [true, false] {
+        h.event(Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    run(&mut h);
+    assert_eq!(list_count(&h), 1);
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Ok(names(&["gpt-a"])),
+    });
+    run(&mut h);
+    assert!(painted_texts(&h).contains(&t("hint.model_found", &[("count", "1")])));
+}
+
+#[test]
+fn switching_provider_back_reloads_the_same_endpoint() {
+    let mut service = new_service("custom", &[]);
+    service["base_url"] = json!("http://127.0.0.1:8080");
+    let mut h = harness(form(service, vec![]));
+    assert_eq!(list_count(&h), 1);
+    h.state_mut().form.set_provider("openai");
+    h.state_mut().form.set_provider("custom");
+    run(&mut h);
+    type_into(&mut h, &tr("field.base_url"), "http://127.0.0.1:8080");
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 2);
+}
+
+#[test]
+fn effort_comes_back_when_the_model_supports_it_again() {
+    let mut service = filled("claude");
+    service["model"] = json!("free");
+    service["effort"] = json!("xhigh");
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = harness(form(service, vec![]));
+    refresh_models(
+        &mut h,
+        Ok(vec![
+            with_caps("free", ThinkingCaps::default()),
+            with_caps("narrow", narrow),
+        ]),
+    );
+    replace_model(&mut h, "narrow");
+    assert_eq!(h.state().form.values()["effort"], "auto");
+    replace_model(&mut h, "free");
+    assert_eq!(h.state().form.values()["effort"], "xhigh");
+}
+
+#[test]
+fn caps_arriving_after_a_passed_test_clear_it_when_thinking_changes() {
+    let mut service = filled("openai");
+    service["model"] = json!("deep");
+    let mut h = harness(form(service, vec![]));
+    let round = start_test(&mut h);
+    finish_test(&mut h, round, translated("x", 100));
+    assert!(h.state().form.test_passed());
+    refresh_models(
+        &mut h,
+        Ok(vec![with_caps("deep", locked(Some(true), Some(false)))]),
+    );
+    assert!(!h.state().form.test_passed());
+}
+
+#[test]
+fn effort_hint_drops_the_unsupported_warning_when_levels_are_known() {
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into(), "high".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = claude_with(
+        vec![
+            with_caps("narrow", narrow),
+            with_caps("free", ThinkingCaps::default()),
+        ],
+        "narrow",
+    );
+    assert!(painted_texts(&h).contains(&tr("hint.effort_known")));
+    assert!(!painted_texts(&h).contains(&tr("hint.effort")));
+    replace_model(&mut h, "free");
+    assert!(painted_texts(&h).contains(&tr("hint.effort")));
+}
+
+// --- 換服務不沿用狀態、開啟時的載入佔位 ---
+
+fn switch_node_id(h: &Harness<State>) -> String {
+    format!(
+        "{:?}",
+        h.get_by_label(&tr("field.thinking")).accesskit_node().id()
+    )
+}
+
+#[test]
+fn each_service_keeps_its_own_widget_state() {
+    let mut a = new_service("openai", &[]);
+    a["thinking"] = json!(true);
+    let b = new_service("openai", &[a.clone()]);
+    let mut h = harness(form(a.clone(), vec![]));
+    let first = switch_node_id(&h);
+    h.state_mut().form = form(b, vec![]);
+    run(&mut h);
+    assert_ne!(switch_node_id(&h), first);
+    h.state_mut().form = form(a, vec![]);
+    run(&mut h);
+    assert_eq!(switch_node_id(&h), first);
+}
+
+#[test]
+fn opening_a_filled_form_shows_a_loading_placeholder() {
+    let h = opening_harness(form(filled("openai"), vec![]));
+    assert!(has_label(&h, &tr("form.loading")));
+    assert!(!has_label(&h, &tr("field.service_name")));
+}
+
+#[test]
+fn the_placeholder_gives_way_when_the_list_arrives() {
+    let mut h = opening_harness(form(filled("claude"), vec![]));
+    let round = h.state().env.lists.borrow()[0].0;
+    h.state_mut().form.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Ok(names(&["claude-x"])),
+    });
+    h.step();
+    assert!(has_label(&h, &tr("field.service_name")));
+    assert!(!has_label(&h, &tr("form.loading")));
+}
+
+#[test]
+fn the_placeholder_gives_way_after_its_time_cap() {
+    let mut h = opening_harness(form(filled("openai"), vec![]));
+    assert!(!has_label(&h, &tr("field.service_name")));
+    settle(&mut h);
+    assert!(has_label(&h, &tr("field.service_name")));
+    assert!(has_label(&h, &tr("button.loading")));
+}
+
+#[test]
+fn a_form_without_an_endpoint_has_no_placeholder() {
+    let h = opening_harness(blank());
+    assert!(has_label(&h, &tr("field.service_name")));
+}
+
+#[test]
+fn later_loads_never_show_the_placeholder() {
+    let mut h = opening_harness(blank());
+    type_into(&mut h, &tr("field.api_key"), "sk-1");
+    click(&mut h, &tr("field.service_name"));
+    assert_eq!(list_count(&h), 1);
+    assert!(has_label(&h, &tr("field.service_name")));
+}
+
+/// 這一幀畫出的實心矩形。
+fn painted_rects(h: &Harness<State>) -> Vec<egui::Rect> {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(rect) => Some(rect.rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn placeholder_blocks_sit_where_the_fields_appear() {
+    let mut h = opening_harness(form(filled("openai"), vec![]));
+    let blocks = painted_rects(&h);
+    settle(&mut h);
+    for label in [tr("field.service_name"), tr("button.test")] {
+        let field = h.get_by_label(&label).rect();
+        assert!(
+            blocks
+                .iter()
+                .any(|b| (b.center() - field.center()).length() < 1.0),
+            "{label}: {field:?} not in {blocks:?}"
+        );
+    }
+}
+
+// --- 關閉思考被拒的說明、錯誤訊息可複製 ---
+
+fn rejected(detail: &str) -> Result<TestOutcome, TranslateError> {
+    Err(TranslateError::Config {
+        status: Some(400),
+        detail: detail.into(),
+    })
+}
+
+#[test]
+fn a_400_with_thinking_off_shows_only_the_server_error() {
+    let mut service = filled("gemini");
+    service["thinking"] = json!(false);
+    let mut h = harness(form(service, vec![]));
+    let round = start_test(&mut h);
+    let error = TranslateError::Config {
+        status: Some(400),
+        detail: "Request contains an invalid argument.".into(),
+    };
+    finish_test(&mut h, round, Err(error.clone()));
+    assert!(painted_texts(&h).contains(&friendly_text(&error)));
+}
+
+#[test]
+fn the_test_error_can_be_selected_and_copied() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    finish_test(
+        &mut h,
+        round,
+        rejected("Request contains an invalid argument."),
+    );
+    let text = h
+        .query_all_by(|n| {
+            n.label()
+                .or(n.value())
+                .is_some_and(|l| l.contains("invalid argument"))
+        })
+        .next()
+        .expect("error text shown")
+        .rect();
+    let (from, to) = (
+        text.left_top() + egui::vec2(1.0, 4.0),
+        text.right_bottom() - egui::vec2(1.0, 4.0),
+    );
+    h.event(Event::PointerMoved(from));
+    h.event(Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    h.event(Event::PointerMoved(to));
+    h.step();
+    h.event(Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    h.event(Event::Copy);
+    h.step();
+    let copied: Vec<String> = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        copied.iter().any(|c| c.contains("invalid argument")),
+        "{copied:?}"
     );
 }

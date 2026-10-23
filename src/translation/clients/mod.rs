@@ -19,6 +19,7 @@ use super::errors::{MAX_RETRY_AFTER, TranslateError, error_detail, status_error}
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
+use crate::config::services::{EFFORT_AUTO, known_effort, provider};
 use crate::logs::log;
 use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::py::pyrepr::repr_str;
@@ -85,7 +86,7 @@ pub enum Client {
 
 impl Client {
     /// 列出端點的模型 ID（排序後）。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         match self {
             Self::OpenAiCompat(c) => c.list_models().await,
             Self::Claude(c) => c.list_models().await,
@@ -144,17 +145,64 @@ async fn warm_up(http: &reqwest::Client, base_url: &str, label: &str) {
     }
 }
 
+/// 模型清單的一筆：id 與清單透露的思考能力。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelInfo {
+    pub id: String,
+    pub thinking: ThinkingCaps,
+}
+
+impl ModelInfo {
+    /// 清單沒透露思考能力的一筆。
+    pub fn bare(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            thinking: ThinkingCaps::default(),
+        }
+    }
+}
+
+/// 清單透露的思考能力；`None` 是清單沒說。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ThinkingCaps {
+    pub supported: Option<bool>,
+    pub can_disable: Option<bool>,
+    /// 支援的深度等級（不含自動）；`Some(vec![])` 是不接受任何深度。
+    pub efforts: Option<Vec<String>>,
+}
+
+impl ThinkingCaps {
+    /// 三項任一有資訊。
+    pub fn is_known(&self) -> bool {
+        self.supported.is_some() || self.can_disable.is_some() || self.efforts.is_some()
+    }
+}
+
 /// 依服務設定建立 client：`claude`／`gemini`／`openai` 走各自官方端點，其餘為自訂端點。
 pub fn build_client(spec: &ServiceSpec) -> Client {
-    let (key, model, effort) = (&spec.api_key, &spec.model, &spec.effort);
+    let (key, model) = (&spec.api_key, &spec.model);
+    let effort = provider(&spec.provider).map_or(EFFORT_AUTO, |p| known_effort(p, &spec.effort));
     match spec.provider.as_str() {
-        "claude" => Client::Claude(ClaudeClient::new(key, model, effort, CLAUDE_BASE_URL)),
-        "gemini" => Client::Gemini(GeminiClient::new(key, model, effort, GEMINI_BASE_URL)),
+        "claude" => Client::Claude(ClaudeClient::new(
+            key,
+            model,
+            spec.thinking,
+            effort,
+            CLAUDE_BASE_URL,
+        )),
+        "gemini" => Client::Gemini(GeminiClient::new(
+            key,
+            model,
+            spec.thinking,
+            effort,
+            GEMINI_BASE_URL,
+        )),
         "openai" => Client::OpenAiCompat(OpenAiCompatClient::new(
             OPENAI_BASE_URL,
             key,
             model,
             spec.thinking,
+            effort,
             true,
         )),
         _ => Client::OpenAiCompat(OpenAiCompatClient::new(
@@ -162,6 +210,7 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
             key,
             model,
             spec.thinking,
+            effort,
             false,
         )),
     }

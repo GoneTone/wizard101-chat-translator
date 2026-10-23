@@ -8,7 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
-use common::kittest::{click, has_label, run, tr};
+use common::kittest::{click, has_label, run, settle, tr};
 use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
@@ -165,6 +165,7 @@ fn language_preview_keeps_a_half_added_service() {
     let mut h = harness("zh-TW");
     click(&mut h, Role::Tab, &tr("settings.tab.services"));
     click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
     h.get_by_label(&tr("field.service_name")).click();
     run(&mut h);
     h.event(egui::Event::Text(" half".into()));

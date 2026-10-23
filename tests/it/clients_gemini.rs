@@ -11,7 +11,9 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING, TIMEOUT};
+use wizard101_chat_translator::translation::clients::{
+    GeminiClient, MAX_TOKENS_THINKING, TIMEOUT, ThinkingCaps,
+};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 const STREAM_PATH: &str = "/v1beta/models/gemini-x:streamGenerateContent";
@@ -53,7 +55,16 @@ fn error_body(status: u16, message: &str) -> ResponseTemplate {
 }
 
 fn client(server: &MockServer, effort: &str) -> GeminiClient {
-    GeminiClient::new("AIza-test", "gemini-x", effort, &server.uri())
+    thinking_client(server, true, effort)
+}
+
+fn thinking_client(server: &MockServer, thinking: bool, effort: &str) -> GeminiClient {
+    GeminiClient::new("AIza-test", "gemini-x", thinking, effort, &server.uri())
+}
+
+async fn sent_generation_config(server: &MockServer) -> Value {
+    let received = server.received_requests().await.unwrap();
+    serde_json::from_slice::<Value>(&received[0].body).unwrap()["generationConfig"].clone()
 }
 
 async fn chat(c: &GeminiClient) -> Result<String, TranslateError> {
@@ -103,7 +114,7 @@ async fn gemini_empty_key_sent_as_empty_header() {
     let server = MockServer::start().await;
     mount_stream(&server, error_body(400, "API key not valid")).await;
     for key in ["", "   ", "  AIza-k \t"] {
-        let c = GeminiClient::new(key, "gemini-x", "auto", &server.uri());
+        let c = GeminiClient::new(key, "gemini-x", true, "auto", &server.uri());
         let error = chat(&c).await.unwrap_err();
         assert_eq!(
             error,
@@ -128,6 +139,38 @@ async fn gemini_empty_key_sent_as_empty_header() {
         })
         .collect();
     assert_eq!(sent, ["", "", "AIza-k"]);
+}
+
+#[tokio::test]
+async fn gemini_thinking_off_sends_zero_budget() {
+    let server = MockServer::start().await;
+    mount_stream(&server, ok_stream()).await;
+    chat(&thinking_client(&server, false, "low")).await.unwrap();
+    let config = sent_generation_config(&server).await;
+    assert_eq!(config["thinkingConfig"], json!({"thinkingBudget": 0}));
+}
+
+#[tokio::test]
+async fn gemini_thinking_on_auto_sends_no_config() {
+    let server = MockServer::start().await;
+    mount_stream(&server, ok_stream()).await;
+    chat(&thinking_client(&server, true, "auto")).await.unwrap();
+    let config = sent_generation_config(&server).await;
+    assert!(config.get("thinkingConfig").is_none());
+}
+
+#[tokio::test]
+async fn gemini_thinking_on_level_sends_upper_level() {
+    let server = MockServer::start().await;
+    mount_stream(&server, ok_stream()).await;
+    chat(&thinking_client(&server, true, "medium"))
+        .await
+        .unwrap();
+    let config = sent_generation_config(&server).await;
+    assert_eq!(
+        config["thinkingConfig"],
+        json!({"thinking_level": "MEDIUM"})
+    );
 }
 
 #[tokio::test]
@@ -187,7 +230,7 @@ async fn gemini_models_filtered_and_prefix_stripped() {
         .mount(&server)
         .await;
     assert_eq!(
-        client(&server, "auto").list_models().await.unwrap(),
+        common::model_ids(client(&server, "auto").list_models().await.unwrap()),
         ["gemini-a-pro", "gemini-x-flash"]
     );
     let received = server.received_requests().await.unwrap();
@@ -250,7 +293,7 @@ async fn gemini_retry_delay_in_the_error_body_is_carried() {
 #[tokio::test]
 async fn gemini_list_models_connection_error_maps_to_offline() {
     let (url, accepted) = stream_server::dropping_server().await;
-    let c = GeminiClient::new("AIza-secret", "gemini-x", "auto", &url);
+    let c = GeminiClient::new("AIza-secret", "gemini-x", true, "auto", &url);
     let error = c.list_models().await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, .. }),
@@ -326,7 +369,7 @@ async fn gemini_error_mapping() {
     );
 
     let url = stream_server::closed_url().await;
-    let c = GeminiClient::new("AIza-secret", "gemini-x", "auto", &url);
+    let c = GeminiClient::new("AIza-secret", "gemini-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, .. }),
@@ -378,7 +421,7 @@ async fn gemini_max_tokens_finish_is_bad_output() {
 async fn gemini_key_with_invalid_header_characters_is_a_key_error() {
     let server = MockServer::start().await;
     mount_stream(&server, ok_stream()).await;
-    let c = GeminiClient::new("AIza-bad\nkey", "gemini-x", "auto", &server.uri());
+    let c = GeminiClient::new("AIza-bad\nkey", "gemini-x", true, "auto", &server.uri());
     assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
     assert!(server.received_requests().await.unwrap().is_empty());
 }
@@ -388,7 +431,7 @@ async fn gemini_invalid_model_is_unexpected_and_never_sent() {
     let server = MockServer::start().await;
     mount_stream(&server, ok_stream()).await;
     for model in ["", "a?b", "a&b", "../x"] {
-        let c = GeminiClient::new("k", model, "auto", &server.uri());
+        let c = GeminiClient::new("k", model, true, "auto", &server.uri());
         assert!(
             matches!(chat(&c).await, Err(TranslateError::Unexpected(_))),
             "{model:?}"
@@ -401,7 +444,7 @@ async fn gemini_invalid_model_is_unexpected_and_never_sent() {
 async fn gemini_model_prefix_is_kept() {
     let server = MockServer::start().await;
     mount_stream(&server, ok_stream()).await;
-    let c = GeminiClient::new("k", "models/gemini-x", "auto", &server.uri());
+    let c = GeminiClient::new("k", "models/gemini-x", true, "auto", &server.uri());
     assert_eq!(chat(&c).await.unwrap(), "雙子譯文");
     assert_eq!(
         server.received_requests().await.unwrap()[0].url.path(),
@@ -414,7 +457,7 @@ async fn gemini_logs_prompt_cache_usage() {
     capture_logs();
     let server = MockServer::start().await;
     let usage = json!({"promptTokenCount": 3000, "cachedContentTokenCount": 2048,
-        "candidatesTokenCount": 9});
+        "candidatesTokenCount": 9, "thoughtsTokenCount": 37});
     Mock::given(method("POST"))
         .and(path(
             "/v1beta/models/gemini-cache-marker:streamGenerateContent",
@@ -422,13 +465,13 @@ async fn gemini_logs_prompt_cache_usage() {
         .respond_with(stream_of(&[chunk(text("譯文"), Some("STOP"), Some(usage))]))
         .mount(&server)
         .await;
-    let c = GeminiClient::new("k", "gemini-cache-marker", "auto", &server.uri());
+    let c = GeminiClient::new("k", "gemini-cache-marker", true, "auto", &server.uri());
     chat(&c).await.unwrap();
     let text = log_text();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=gemini model=gemini-cache-marker \
-             prompt=3000 cached=2048"
+             prompt=3000 cached=2048 reasoning_tokens=37"
         ),
         "{text}"
     );
@@ -439,7 +482,7 @@ async fn cancel_mid_stream_returns_cancelled() {
     let first = format!("data: {}\r\n\r\n", chunk(text("半"), None, None));
     let token = CancellationToken::new();
     let (url, server) = stream_server::stalled_stream(first, token.clone()).await;
-    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
+    let c = GeminiClient::new("k", "gemini-x", true, "auto", &url);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(
@@ -488,7 +531,7 @@ async fn gemini_prompt_block_reason_is_bad_output() {
 async fn gemini_stream_ended_without_finish_reason_is_offline() {
     let body = format!("data: {}\r\n\r\n", chunk(text("半句"), None, None));
     let url = stream_server::ended_stream(body).await;
-    let c = GeminiClient::new("k", "gemini-x", "auto", &url);
+    let c = GeminiClient::new("k", "gemini-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
@@ -502,7 +545,7 @@ async fn gemini_keep_alive_comments_past_the_total_timeout_are_offline() {
     let comment = ": keep-alive\r\n\r\n".to_owned();
     let url =
         stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
-    let c = GeminiClient::new("k", "gemini-total-timeout", "auto", &url)
+    let c = GeminiClient::new("k", "gemini-total-timeout", true, "auto", &url)
         .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
@@ -516,4 +559,34 @@ async fn gemini_keep_alive_comments_past_the_total_timeout_are_offline() {
         text.contains("[translate] request timed out: provider=gemini model=gemini-total-timeout"),
         "{text}"
     );
+}
+
+#[tokio::test]
+async fn gemini_models_carry_thinking_flag() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1beta/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {"name": "models/no-think", "thinking": false, "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/thinks", "thinking": true, "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/silent", "supportedGenerationMethods": ["generateContent"]}]})))
+        .mount(&server)
+        .await;
+    let models = client(&server, "auto").list_models().await.unwrap();
+    let caps = |id: &str| models.iter().find(|m| m.id == id).unwrap().thinking.clone();
+    assert_eq!(
+        caps("no-think"),
+        ThinkingCaps {
+            supported: Some(false),
+            ..Default::default()
+        }
+    );
+    assert_eq!(
+        caps("thinks"),
+        ThinkingCaps {
+            supported: Some(true),
+            ..Default::default()
+        }
+    );
+    assert_eq!(caps("silent"), ThinkingCaps::default());
 }

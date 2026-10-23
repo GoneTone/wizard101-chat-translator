@@ -1,9 +1,9 @@
-//! overlay 的兩條橫幅：錯誤（網址可點）與更新提示（整列可點、✕ 關閉），排在清單下方、比清單先分到高度。
+//! overlay 的兩條橫幅：錯誤（網址可點、右鍵可複製）與更新提示（整列可點、✕ 關閉），排在清單下方、比清單先分到高度。
 //!
 //! 存的是文案 key 與參數、`Release`，每幀才翻譯，換語言後自然跟著變。
 
 use eframe::egui::{
-    CursorIcon, FontId, OpenUrl, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
+    CursorIcon, FontId, Id, OpenUrl, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 
 use crate::i18n::t;
@@ -12,6 +12,7 @@ use crate::reader::status::Banner;
 pub use crate::runtime::updater::Release;
 use crate::runtime::updater::is_newer;
 use crate::translation::errors::localized;
+use crate::ui::copy_menu::CopyMenu;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::glass;
 use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
@@ -37,6 +38,10 @@ pub struct Banners {
     error_height: f32,
     /// 這一幀更新橫幅看得到的範圍；內容區底色要避開它。
     update_rect: Option<Rect>,
+    /// 錯誤橫幅的右鍵「複製」選單。
+    menu: CopyMenu,
+    /// 這一幀錯誤橫幅的範圍；訊息框選的右鍵選單要避開它。
+    error_rect: Option<Rect>,
 }
 
 impl Banners {
@@ -108,6 +113,7 @@ impl Banners {
         let on_band = over_resize_band(ui);
         let mut bottom = rect.max.y;
         self.update_rect = None;
+        self.error_rect = None;
         if let Some(release) = self.update.clone() {
             bottom = self.update_row(ui, rect, clip, on_band, &release, alpha);
         }
@@ -127,7 +133,15 @@ impl Banners {
                 child.visuals_mut().disabled_alpha = 1.0;
                 child.disable();
             }
-            richtext::show(&mut child, &text, FG_ERROR);
+            richtext::show(&mut child, &text, FG_ERROR, false);
+            self.menu.copy_on_right_click(
+                ui,
+                Id::unique("overlay_banner_copy_menu"),
+                area,
+                &text,
+                "error banner",
+            );
+            self.error_rect = Some(area.intersect(clip));
             let height = child.min_rect().height();
             if height != self.error_height {
                 self.error_height = height;
@@ -135,6 +149,8 @@ impl Banners {
                 ui.ctx().request_repaint();
             }
             bottom = top - PAD_Y;
+        } else {
+            self.menu.close();
         }
         Rect::from_min_max(rect.min, pos2(rect.max.x, bottom.max(rect.min.y)))
     }
@@ -142,6 +158,11 @@ impl Banners {
     /// 上一次 [`Self::show`] 畫出的更新橫幅範圍；沒有橫幅時是 `None`。
     pub fn update_rect(&self) -> Option<Rect> {
         self.update_rect
+    }
+
+    /// 這一幀錯誤橫幅看得到的範圍；沒有錯誤是 `None`。
+    pub fn error_rect(&self) -> Option<Rect> {
+        self.error_rect
     }
 
     /// 貼著 `rect` 底部畫，回傳這列的上緣。
@@ -244,6 +265,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+    use crate::ui::copy_menu::testing::{copy_by_right_click, text_rect};
     use crate::ui::fonts_egui;
     use crate::ui::geometry::EDGE;
     use crate::ui::text_select::opened_urls;
@@ -307,6 +329,25 @@ mod tests {
             version: version.into(),
             url: "https://example.invalid/rel".into(),
         }
+    }
+
+    #[test]
+    fn right_clicking_the_error_banner_copies_it_without_the_warning_sign() {
+        let mut banners = Banners::default();
+        let message = "Request contains an invalid argument.";
+        banners.set_error(
+            "notice.config_error_detail",
+            vec![("status", "400".into()), ("message", message.into())],
+        );
+        let mut harness = harness(banners);
+        let banner = text_rect(&harness, message).expect("banner painted");
+        let copied = copy_by_right_click(&mut harness, banner.center());
+        let shown = localized(
+            "notice.config_error_detail",
+            &[("status", "400".into()), ("message", message.into())],
+        );
+        let expected = shown.trim_start_matches('⚠').trim_start().to_owned();
+        assert_eq!(copied, [expected]);
     }
 
     #[test]

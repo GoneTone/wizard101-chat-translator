@@ -54,6 +54,7 @@ fn request_body_matches_python() {
             "",
             "m",
             input["thinking"].as_bool().unwrap(),
+            "auto",
             input["official"].as_bool().unwrap(),
         );
         let body = client.request_body(

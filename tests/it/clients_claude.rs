@@ -13,7 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT,
+    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT, ThinkingCaps,
 };
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 
@@ -78,7 +78,11 @@ fn error_body(status: u16, message: &str) -> ResponseTemplate {
 }
 
 fn client(server: &MockServer, effort: &str) -> ClaudeClient {
-    ClaudeClient::new("sk-test", "claude-x", effort, &server.uri())
+    thinking_client(server, true, effort)
+}
+
+fn thinking_client(server: &MockServer, thinking: bool, effort: &str) -> ClaudeClient {
+    ClaudeClient::new("sk-test", "claude-x", thinking, effort, &server.uri())
 }
 
 async fn chat(c: &ClaudeClient) -> Result<String, TranslateError> {
@@ -137,8 +141,41 @@ async fn claude_effort_only_when_not_auto() {
         sent[1]["output_config"],
         json!({"format": output_format(), "effort": "low"})
     );
-    // 思考深度壓低不代表關閉思考：Claude 沒有 thinking 開關可送
     assert!(sent.iter().all(|b| b.get("thinking").is_none()));
+}
+
+#[tokio::test]
+async fn claude_thinking_off_sends_disabled_without_effort() {
+    let server = MockServer::start().await;
+    mount_messages(&server, ok_stream("x")).await;
+    chat(&thinking_client(&server, false, "high"))
+        .await
+        .unwrap();
+    let sent = stream_server::bodies_at(&server, "/v1/messages").await;
+    assert_eq!(sent[0]["thinking"], json!({"type": "disabled"}));
+    assert_eq!(sent[0]["output_config"], json!({"format": output_format()}));
+}
+
+#[tokio::test]
+async fn claude_thinking_on_auto_sends_neither() {
+    let server = MockServer::start().await;
+    mount_messages(&server, ok_stream("x")).await;
+    chat(&thinking_client(&server, true, "auto")).await.unwrap();
+    let sent = stream_server::bodies_at(&server, "/v1/messages").await;
+    assert!(sent[0].get("thinking").is_none());
+    assert_eq!(sent[0]["output_config"], json!({"format": output_format()}));
+}
+
+#[tokio::test]
+async fn claude_thinking_on_level_sends_effort() {
+    let server = MockServer::start().await;
+    mount_messages(&server, ok_stream("x")).await;
+    chat(&thinking_client(&server, true, "xhigh"))
+        .await
+        .unwrap();
+    let sent = stream_server::bodies_at(&server, "/v1/messages").await;
+    assert!(sent[0].get("thinking").is_none());
+    assert_eq!(sent[0]["output_config"]["effort"], "xhigh");
 }
 
 #[tokio::test]
@@ -217,7 +254,7 @@ async fn claude_retries_429_twice_then_offline() {
         error_body(429, "slow down").insert_header("retry-after", "0.2"),
     )
     .await;
-    let c = ClaudeClient::new("k", "claude-retry-marker", "auto", &server.uri());
+    let c = ClaudeClient::new("k", "claude-retry-marker", true, "auto", &server.uri());
     let started = Instant::now();
     let result = chat(&c).await;
     let elapsed = started.elapsed();
@@ -251,7 +288,7 @@ async fn cancel_during_backoff_returns_cancelled_without_retrying() {
         error_body(429, "slow down").insert_header("retry-after-ms", "30000"),
     )
     .await;
-    let c = ClaudeClient::new("k", "claude-backoff-marker", "auto", &server.uri());
+    let c = ClaudeClient::new("k", "claude-backoff-marker", true, "auto", &server.uri());
     let token = CancellationToken::new();
     let canceller = token.clone();
     // 重試 log 一印出就進入退避等待：看到它才取消，不靠固定延遲猜請求何時送達
@@ -321,7 +358,7 @@ async fn claude_retry_conditions_follow_the_sdk() {
 #[tokio::test]
 async fn claude_retries_connection_failures_then_offline() {
     let (url, accepted) = stream_server::dropping_server().await;
-    let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("sk-secret", "claude-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
@@ -333,7 +370,7 @@ async fn claude_retries_connection_failures_then_offline() {
 #[tokio::test]
 async fn claude_list_models_connection_error_maps_to_offline() {
     let (url, accepted) = stream_server::dropping_server().await;
-    let c = ClaudeClient::new("sk-secret", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("sk-secret", "claude-x", true, "auto", &url);
     let error = c.list_models().await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("error sending request")),
@@ -347,7 +384,7 @@ async fn claude_stream_dropped_mid_response_is_offline() {
     // 裁示 R10：串流讀到一半斷線視為離線、不重送（Python 因 httpx2 漏接而未分類）
     let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
     let url = stream_server::dropped_stream(events(&[start])).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
@@ -502,7 +539,7 @@ async fn claude_invalid_request_stream_error_event_is_unexpected() {
 async fn claude_empty_key_is_unexpected_and_never_sent() {
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
-    let c = ClaudeClient::new("", "claude-x", "auto", &server.uri());
+    let c = ClaudeClient::new("", "claude-x", true, "auto", &server.uri());
     assert!(matches!(chat(&c).await, Err(TranslateError::Unexpected(_))));
     assert!(matches!(
         c.list_models().await,
@@ -540,7 +577,7 @@ async fn claude_models_later_page_errors_are_classified() {
 async fn claude_key_with_invalid_header_characters_is_a_key_error() {
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
-    let c = ClaudeClient::new("sk-bad\nkey", "claude-x", "auto", &server.uri());
+    let c = ClaudeClient::new("sk-bad\nkey", "claude-x", true, "auto", &server.uri());
     assert_eq!(chat(&c).await, Err(TranslateError::invalid_key()));
     assert_eq!(c.list_models().await, Err(TranslateError::invalid_key()));
     let (key, args) = friendly_error(&TranslateError::invalid_key());
@@ -568,7 +605,7 @@ async fn claude_models_paginate() {
         .mount(&server)
         .await;
     assert_eq!(
-        client(&server, "auto").list_models().await.unwrap(),
+        common::model_ids(client(&server, "auto").list_models().await.unwrap()),
         ["a", "b", "c"]
     );
     let received = server.received_requests().await.unwrap();
@@ -632,13 +669,13 @@ async fn claude_logs_cache_read_write_uncached() {
     capture_logs();
     let server = MockServer::start().await;
     mount_messages(&server, ok_stream("x")).await;
-    let c = ClaudeClient::new("k", "claude-cache-marker", "auto", &server.uri());
+    let c = ClaudeClient::new("k", "claude-cache-marker", true, "auto", &server.uri());
     chat(&c).await.unwrap();
     let text = log_text();
     assert!(
         text.contains(
             "[translate] prompt cache: provider=claude model=claude-cache-marker \
-             read=1200 write=0 uncached=250"
+             read=1200 write=0 uncached=250 output_tokens=9"
         ),
         "{text}"
     );
@@ -649,7 +686,7 @@ async fn cancel_mid_stream_returns_cancelled() {
     let start = json!({"type": "message_start", "message": {"content": [], "usage": {}}});
     let token = CancellationToken::new();
     let (url, server) = stream_server::stalled_stream(events(&[start]), token.clone()).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(
@@ -666,7 +703,7 @@ async fn claude_stream_ended_without_message_stop_is_offline() {
     let delta = json!({"type": "content_block_delta", "index": 0,
         "delta": {"type": "text_delta", "text": "{\"translation\": \"半"}});
     let url = stream_server::ended_stream(events(&[start, block, delta])).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if detail.contains("before completion")),
@@ -694,7 +731,7 @@ async fn claude_pings_during_a_long_hidden_thinking_phase_keep_the_stream_alive(
     ]));
     // 15 個 ping 間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
     let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url)
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url)
         .with_timeouts(Duration::from_secs(1), common::WAIT);
     assert_eq!(chat(&c).await.unwrap(), "[A] 完");
 }
@@ -706,7 +743,7 @@ async fn claude_pings_past_the_total_timeout_are_offline() {
     let ping = events(&[json!({"type": "ping"})]);
     let url =
         stream_server::keep_alive_stream(events(&[start]), ping, Duration::from_millis(50)).await;
-    let c = ClaudeClient::new("k", "claude-total-timeout", "auto", &url)
+    let c = ClaudeClient::new("k", "claude-total-timeout", true, "auto", &url)
         .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
@@ -728,14 +765,14 @@ async fn claude_stop_reason_without_message_stop_is_complete() {
     let stop = events(&[json!({"type": "message_stop"})]);
     body.truncate(body.len() - stop.len());
     let url = stream_server::ended_stream(body).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     assert_eq!(chat(&c).await.unwrap(), "[A] 完");
 }
 
 #[tokio::test]
 async fn claude_stream_cut_between_event_and_data_is_offline() {
     let url = stream_server::ended_stream("event: message_start\n".into()).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, .. }),
@@ -759,7 +796,7 @@ async fn claude_stops_reading_at_message_stop() {
     let body = message_events(&[("text", &translation("[A] 完"))], "end_turn");
     // 伺服器送完整則訊息後停住不收尾：沒有主動停止讀取就會卡到逾時
     let (url, server) = stream_server::stalled_stream(body, CancellationToken::new()).await;
-    let c = ClaudeClient::new("k", "claude-x", "auto", &url);
+    let c = ClaudeClient::new("k", "claude-x", true, "auto", &url);
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
         .expect("client kept reading after message_stop");
@@ -780,4 +817,40 @@ async fn claude_ok_status_with_a_json_error_body_reports_its_message() {
         matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("insufficient quota")),
         "{result:?}"
     );
+}
+
+#[tokio::test]
+async fn claude_models_carry_thinking_caps() {
+    let level = |on: bool| json!({"supported": on});
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                {"id": "always", "capabilities": {
+                    "thinking": {"supported": true, "types": {
+                        "adaptive": level(true), "disabled": level(false), "enabled": level(false)}},
+                    "effort": {"supported": true, "low": level(true), "medium": level(true),
+                               "high": level(true), "xhigh": level(false), "max": level(false)}}},
+                {"id": "no-effort", "capabilities": {
+                    "thinking": {"supported": true, "types": {"disabled": level(true)}},
+                    "effort": {"supported": false, "low": level(false)}}},
+                {"id": "bare"}
+            ],
+            "has_more": false})))
+        .mount(&server)
+        .await;
+    let models = client(&server, "auto").list_models().await.unwrap();
+    let caps = |id: &str| models.iter().find(|m| m.id == id).unwrap().thinking.clone();
+    assert_eq!(
+        caps("always"),
+        ThinkingCaps {
+            supported: Some(true),
+            can_disable: Some(false),
+            efforts: Some(vec!["low".into(), "medium".into(), "high".into()]),
+        }
+    );
+    assert_eq!(caps("no-effort").efforts, Some(vec![]));
+    assert_eq!(caps("no-effort").can_disable, Some(true));
+    assert_eq!(caps("bare"), ThinkingCaps::default());
 }

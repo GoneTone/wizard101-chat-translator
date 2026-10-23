@@ -448,7 +448,7 @@ async fn openai_429_retry_after_header_delays_the_next_pool_retry() {
         )
         .mount(&server)
         .await;
-    let client = OpenAiCompatClient::new(&server.uri(), "", "m", true, false);
+    let client = OpenAiCompatClient::new(&server.uri(), "", "m", true, "auto", false);
     let turns = [Turn::user("[A] hi")];
     let error = client
         .chat(crate::stream_server::request(&turns), None)
@@ -1014,4 +1014,35 @@ async fn a_success_elsewhere_releases_lines_waiting_out_the_backoff() {
     let sent = next(&mut calls).await;
     assert_eq!((sent - t0).as_millis(), 3000);
     pool.shutdown();
+}
+
+#[tokio::test(start_paused = true)]
+async fn reconfiguring_releases_a_line_waiting_out_a_config_error() {
+    // 設定錯誤要等 15 秒才重試；使用者第 3 秒改好存檔，就該當下用新設定重送
+    let fixed = Arc::new(AtomicUsize::new(0));
+    let translate = tfn({
+        let fixed = fixed.clone();
+        move |line: String, _| {
+            let fixed = fixed.clone();
+            async move {
+                if fixed.load(Ordering::SeqCst) == 0 {
+                    return Err(TranslateError::Config {
+                        status: Some(404),
+                        detail: "no such model".into(),
+                    });
+                }
+                Ok(line)
+            }
+        }
+    });
+    let (pool, mut rx) = make_pool(translate, gate(1));
+    let t0 = Instant::now();
+    pool.submit("[A] hi".into(), vec![], 1);
+    settle().await;
+    assert_eq!(pool.error_state(), Some(ErrorState::Config));
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    fixed.store(1, Ordering::SeqCst);
+    pool.note_reconfigured();
+    assert_eq!(next(&mut rx).await, (1, "[A] hi".into(), false));
+    assert!(secs(t0, Instant::now()) < 4);
 }

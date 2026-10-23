@@ -180,14 +180,8 @@ impl Wizard {
             let label = heading(ui, &t("wizard.target_language", &[]));
             ui.spacing_mut().combo_width = ui.available_width();
             let id = Id::unique("wizard_target_language");
-            editable_combo(
-                ui,
-                id,
-                &mut self.target_language,
-                &common_languages(),
-                false,
-            )
-            .labelled_by(label);
+            editable_combo(ui, id, &mut self.target_language, &common_languages())
+                .labelled_by(label);
             rich(
                 ui,
                 &t("hint.language", &[]),

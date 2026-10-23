@@ -9,9 +9,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked, cancellable,
-    chunk_error, connection_error, count_of, finish_text, http_client, incomplete_stream,
-    parse_object, request_error, response_failure, secret_header, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, Streamed, TIMEOUT, ThinkingCaps,
+    blocked, cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
+    with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -26,13 +27,14 @@ const API_VERSION: &str = "v1beta";
 
 /// Gemini 官方 API 的 client。
 ///
-/// 不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易重複輸出。3 系列與 2.5 Pro
-/// 關不掉思考，故用 effort：`auto` 不帶 `thinkingConfig`，其餘送 `thinking_level`。
+/// 不送 temperature —— Google 建議 Gemini 3 維持預設，調低反而容易重複輸出。關閉思考送
+/// `thinkingBudget: 0`（關不掉的模型會回 400）；開啟時 `auto` 不帶 `thinkingConfig`，其餘送 `thinking_level`。
 pub struct GeminiClient {
     pub(super) http: reqwest::Client,
     pub(super) base_url: String,
     api_key: Option<HeaderValue>,
     model: String,
+    thinking: bool,
     effort: String,
     request_timeout: Duration,
 }
@@ -41,12 +43,13 @@ impl GeminiClient {
     /// 建立 client；`endpoint` 正式環境為 [`GEMINI_BASE_URL`]。
     ///
     /// 金鑰照 SDK 去頭尾空白後放 `x-goog-api-key` 標頭（空金鑰送空值，讓伺服器回 4xx 照設定錯誤處理）。
-    pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
+    pub fn new(api_key: &str, model: &str, thinking: bool, effort: &str, endpoint: &str) -> Self {
         Self {
             http: http_client(HeaderMap::new(), endpoint, TIMEOUT),
             base_url: endpoint.trim_end_matches('/').to_owned(),
             api_key: secret_header(pystr::strip(api_key)),
             model: model.to_owned(),
+            thinking,
             effort: effort.to_owned(),
             request_timeout: REQUEST_TIMEOUT,
         }
@@ -82,7 +85,9 @@ impl GeminiClient {
             })
             .collect();
         let mut config = json!({"maxOutputTokens": max_tokens});
-        if self.effort != EFFORT_AUTO {
+        if !self.thinking {
+            config["thinkingConfig"] = json!({"thinkingBudget": 0});
+        } else if self.effort != EFFORT_AUTO {
             // SDK 把 thinking_level 轉成大寫列舉值，鍵名維持 snake_case
             config["thinkingConfig"] = json!({"thinking_level": self.effort.to_ascii_uppercase()});
         }
@@ -150,10 +155,12 @@ impl GeminiClient {
         .await?;
         if let Some(usage) = &out.usage {
             log(format!(
-                "[translate] prompt cache: provider=gemini model={} prompt={} cached={}",
+                "[translate] prompt cache: provider=gemini model={} prompt={} cached={} \
+                 reasoning_tokens={}",
                 self.model,
                 count_of(usage.get("promptTokenCount")),
                 count_of(usage.get("cachedContentTokenCount")),
+                count_of(usage.get("thoughtsTokenCount")),
             ));
         }
         // 提示詞被擋時沒有候選，自然也沒有 finishReason
@@ -184,9 +191,9 @@ impl GeminiClient {
     }
 
     /// 列出能拿來翻譯（支援 `generateContent`）的模型 ID，去掉 `models/` 前綴並排序；自動翻頁。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let url = format!("{}/{API_VERSION}/models", self.base_url);
-        let mut ids = Vec::new();
+        let mut models = Vec::new();
         let mut page_token: Option<String> = None;
         loop {
             let request = match &page_token {
@@ -200,7 +207,15 @@ impl GeminiClient {
                 let actions = model["supportedGenerationMethods"].as_array();
                 let generates = actions.is_some_and(|a| a.iter().any(|m| m == "generateContent"));
                 if let (true, Some(name)) = (generates, model["name"].as_str()) {
-                    ids.push(name.strip_prefix("models/").unwrap_or(name).to_owned());
+                    // 只透露「支不支援思考」；不支援的模型實測是沒有這個欄位
+                    let supported = model["thinking"].as_bool();
+                    models.push(ModelInfo {
+                        id: name.strip_prefix("models/").unwrap_or(name).to_owned(),
+                        thinking: ThinkingCaps {
+                            supported,
+                            ..ThinkingCaps::default()
+                        },
+                    });
                 }
             }
             match page["nextPageToken"].as_str() {
@@ -208,8 +223,8 @@ impl GeminiClient {
                 _ => break,
             }
         }
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 
     async fn send(

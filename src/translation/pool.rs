@@ -162,9 +162,15 @@ impl TranslationPool {
         log(format!("[translate] pool resized to {workers} workers"));
     }
 
-    /// 通知翻譯設定已重建：之前送出的請求若回 Config 錯誤，改為重試而非判定為該則本身的問題。
+    /// 通知翻譯設定已重建：之前送出的請求若回 Config 錯誤，改為重試而非判定為該則本身的問題；
+    /// 等退避的各則也立即用新設定重送。
     pub fn note_reconfigured(&self) {
-        self.inner.state().config_epoch += 1;
+        {
+            let mut state = self.inner.state();
+            state.config_epoch += 1;
+            state.gate_until = None;
+        }
+        self.inner.gate_opened.notify_waiters();
     }
 
     /// 停止接受新工作；等待中的各則立即放棄（不回報），已送出的請求跑完照常回報。

@@ -1,18 +1,19 @@
 //! 設定介面的輸入欄位：單行輸入框、金鑰欄、可自行輸入的下拉與帶 −／＋ 的數值欄。
 
-use eframe::egui::text::{CCursor, CCursorRange};
+use eframe::egui::text::{CCursor, CCursorRange, LayoutJob, TextFormat};
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::{
-    self, Align2, Button, CornerRadius, Event, Frame, Id, InputState, Key, LayerId, Popup,
-    PopupKind, Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit, Ui,
-    WidgetInfo, pos2, vec2,
+    self, Align, Align2, Button, Color32, CornerRadius, Event, Frame, Id, InputState, Key, LayerId,
+    Popup, PopupKind, Rect, Response, Role, Sense, Stroke, StrokeKind, SurrenderFocusOn, TextEdit,
+    Ui, WidgetInfo, pos2, vec2,
 };
 
 use crate::config::parse_float;
+use crate::py::pystr;
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
-    INLINE_ICON_INSET, filter_models, focus_ring, inline_icon_button, name_by_row, paint_chevron,
-    popup_style,
+    INLINE_ICON_INSET, best_match, focus_ring, inline_icon_button, match_range, name_by_row,
+    paint_chevron, popup_style,
 };
 
 /// 消耗沒按修飾鍵的 `key`，回傳按了幾次。
@@ -33,30 +34,20 @@ fn consume_unmodified(input: &mut InputState, key: Key) -> usize {
 struct ComboState {
     open: bool,
     hot: Option<usize>,
+    /// 下一次畫清單時捲到最符合的項目（剛展開或剛打字）。
+    jump: bool,
 }
 
-/// 可自行輸入的下拉：點輸入框、打字或按 ↓ 展開；`filter` 時邊打邊篩（同 `filter_models`）。
+/// 可自行輸入的下拉：點輸入框、打字或按 ↓ 展開，清單一律列出全部選項。
 ///
-/// ↑↓ 選、Enter 選定、Esc 收起，點別處收起；沒有相符項目時不展開。寬度取 `spacing.combo_width`。
+/// 每一項裡與輸入相符的字上色，並捲到最符合的項目（同 `best_match`），輸入清空時捲回最上面。
+/// ↑↓ 選、Enter 選定、Esc 收起，點別處收起。寬度取 `spacing.combo_width`。
 /// 不在 `setting_row` 裡時，呼叫端要對回傳值 `labelled_by`／`accessible_name`。
-pub fn editable_combo(
-    ui: &mut Ui,
-    id: Id,
-    text: &mut String,
-    options: &[String],
-    filter: bool,
-) -> Response {
+pub fn editable_combo(ui: &mut Ui, id: Id, text: &mut String, options: &[String]) -> Response {
     let mut state: ComboState = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let edit_id = id.with("edit");
     let popup_id = id.with("popup");
-    let matches = |text: &str| {
-        if filter {
-            filter_models(options, text)
-        } else {
-            options.to_vec()
-        }
-    };
-    let was_visible = state.open && !matches(text).is_empty();
+    let was_visible = state.open && !options.is_empty();
     let (mut down, mut up, mut pick, mut close) = (0, 0, false, false);
     if ui.memory(|m| m.has_focus(edit_id)) {
         ui.input_mut(|input| {
@@ -110,16 +101,25 @@ pub fn editable_combo(
         state.open = !state.open;
     }
     if response.clicked() || down > 0 {
+        state.jump |= !state.open;
         state.open = true;
     }
     if response.changed() {
         state.open = true;
         state.hot = None;
+        state.jump = true;
     }
-    let list = matches(text);
+    let list = options;
+    let best = best_match(list, text);
+    let jump_to = if pystr::strip(text).is_empty() {
+        Some(0)
+    } else {
+        best
+    };
     if let Some(last) = list.len().checked_sub(1) {
         for _ in 0..down {
-            state.hot = Some(state.hot.map_or(0, |h| (h + 1).min(last)));
+            // 還沒選項目時從最符合的那一項開始，不從清單頂端
+            state.hot = Some(state.hot.map_or(best.unwrap_or(0), |h| (h + 1).min(last)));
         }
         for _ in 0..up {
             state.hot = state.hot.and_then(|h| h.checked_sub(1));
@@ -151,8 +151,9 @@ pub fn editable_combo(
                     .min_scrolled_height(ui.spacing().combo_height)
                     .show(ui, |ui| {
                         for (i, option) in list.iter().enumerate() {
+                            let label = option_label(ui, option, text);
                             let item = ui.add(
-                                Button::selectable(state.hot == Some(i), option.as_str())
+                                Button::selectable(state.hot == Some(i), label)
                                     .min_size(vec2(ui.available_width(), theme::CONTROL_HEIGHT)),
                             );
                             if item.hovered() && moved {
@@ -163,10 +164,15 @@ pub fn editable_combo(
                             }
                             if keyed && state.hot == Some(i) {
                                 item.scroll_to_me(None);
+                            } else if !keyed && state.jump && jump_to == Some(i) {
+                                item.scroll_to_me(Some(Align::TOP));
                             }
                         }
                     });
             });
+    }
+    if visible {
+        state.jump = false;
     }
     if let Some(choice) = picked {
         let end = CCursor::new(choice.chars().count());
@@ -181,6 +187,26 @@ pub fn editable_combo(
     ui.data_mut(|d| d.insert_temp(id, state));
     underline(ui, rect, response.has_focus());
     response
+}
+
+/// 下拉項目的文字：`query` 相符的那段用強調色，其餘沿用按鈕的文字色（hover 時照常變色）。
+fn option_label(ui: &Ui, option: &str, query: &str) -> LayoutJob {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let plain = TextFormat::simple(font.clone(), Color32::PLACEHOLDER);
+    let mut job = LayoutJob::default();
+    match match_range(option, query) {
+        Some(range) => {
+            job.append(&option[..range.start], 0.0, plain.clone());
+            job.append(
+                &option[range.clone()],
+                0.0,
+                TextFormat::simple(font, theme::ACCENT),
+            );
+            job.append(&option[range.end..], 0.0, plain);
+        }
+        None => job.append(option, 0.0, plain),
+    }
+    job
 }
 
 /// 單行輸入框，寬度占滿。不在 `setting_row` 裡時，呼叫端要對回傳值命名。

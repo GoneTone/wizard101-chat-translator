@@ -34,6 +34,8 @@ pub struct Provider {
     pub key_url: Option<&'static str>,
     brand: Option<&'static str>,
     fields: &'static [(&'static str, Field)],
+    /// 該家 API 的思考深度等級，依顯示順序（不含 [`EFFORT_AUTO`]）。
+    pub efforts: &'static [&'static str],
 }
 
 impl Provider {
@@ -82,12 +84,22 @@ impl Field {
 
 /// 思考深度「自動」：不帶 effort 相關參數，維持模型預設。
 pub const EFFORT_AUTO: &str = "auto";
-/// 思考深度「低」：壓到最低。
+/// 思考深度「低」。
 pub const EFFORT_LOW: &str = "low";
-/// Claude／Gemini 的思考深度選項，依顯示順序。
-pub const EFFORTS: [&str; 2] = [EFFORT_AUTO, EFFORT_LOW];
 
-// 服務商清單與欄位的單一真實來源；Claude 的 effort 維持 auto —— Haiku 4.5 帶 effort 會 400。
+const OPENAI_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// `value` 是 [`EFFORT_AUTO`] 或該家的等級就原樣回傳，否則（例如手改 config）當成自動。
+pub fn known_effort(provider: &Provider, value: &str) -> &'static str {
+    provider
+        .efforts
+        .iter()
+        .copied()
+        .find(|level| *level == value)
+        .unwrap_or(EFFORT_AUTO)
+}
+
+// 服務商清單與欄位的單一真實來源
 const PROVIDERS: &[Provider] = &[
     Provider {
         key: "openai",
@@ -99,7 +111,9 @@ const PROVIDERS: &[Provider] = &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
             ("thinking", Field::Flag(false)),
+            ("effort", Field::Text(EFFORT_AUTO)),
         ],
+        efforts: OPENAI_EFFORTS,
     },
     Provider {
         key: "claude",
@@ -110,8 +124,11 @@ const PROVIDERS: &[Provider] = &[
         fields: &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
+            ("thinking", Field::Flag(true)),
+            // 不知道模型時不帶 effort：Haiku 4.5 帶 effort 會 400
             ("effort", Field::Text(EFFORT_AUTO)),
         ],
+        efforts: &["low", "medium", "high", "xhigh", "max"],
     },
     Provider {
         key: "gemini",
@@ -122,8 +139,10 @@ const PROVIDERS: &[Provider] = &[
         fields: &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
+            ("thinking", Field::Flag(true)),
             ("effort", Field::Text(EFFORT_LOW)),
         ],
+        efforts: &["minimal", "low", "medium", "high"],
     },
     Provider {
         key: "custom",
@@ -136,7 +155,9 @@ const PROVIDERS: &[Provider] = &[
             ("model", Field::Text("")),
             ("api_key", Field::Text("")),
             ("thinking", Field::Flag(false)),
+            ("effort", Field::Text(EFFORT_AUTO)),
         ],
+        efforts: OPENAI_EFFORTS,
     },
 ];
 
@@ -206,9 +227,9 @@ pub struct ServiceSpec {
     pub api_key: String,
     /// 自訂端點網址。
     pub base_url: String,
-    /// OpenAI 相容端點的思考開關。
+    /// 思考開關。
     pub thinking: bool,
-    /// Claude／Gemini 的思考深度。
+    /// 思考深度（[`EFFORT_AUTO`] 或該家的等級）。
     pub effort: String,
 }
 

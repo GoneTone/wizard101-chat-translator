@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::common::kittest::{click_at, themed_harness};
+use crate::common::kittest::{click_at, text_sections, themed_harness};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
@@ -19,8 +19,9 @@ use wizard101_chat_translator::ui::settings::language::ui_language_combo;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
-    INLINE_ICON_INSET, callout, card, collapsible, dashed_button, filter_models, icon_button,
-    keycaps, outcome, primary_button, secondary_button, secondary_icon_button, setting_row, toggle,
+    INLINE_ICON_INSET, best_match, callout, card, collapsible, dashed_button, icon_button, keycaps,
+    match_range, outcome, primary_button, secondary_button, secondary_icon_button, setting_row,
+    toggle,
 };
 use wizard101_chat_translator::ui::text_select::find_text_shape;
 
@@ -96,7 +97,7 @@ fn controls_in_a_setting_row_are_named_by_the_row() {
             });
             setting_row(ui, "Target language", Some("Type any language"), |ui| {
                 let options = ["English".to_owned()];
-                editable_combo(ui, Id::unique("target"), &mut s.language, &options, false);
+                editable_combo(ui, Id::unique("target"), &mut s.language, &options);
             });
         });
     });
@@ -192,7 +193,7 @@ fn combo_harness(text: &str) -> Harness<'static, Combo> {
     harness(state, |ui, s: &mut Combo| {
         card(ui, |ui| {
             setting_row(ui, "Model", None, |ui| {
-                editable_combo(ui, Id::unique("model"), &mut s.text, &s.options, true);
+                editable_combo(ui, Id::unique("model"), &mut s.text, &s.options);
             });
         });
     })
@@ -206,12 +207,12 @@ fn type_into_combo(h: &mut Harness<Combo>, text: &str) {
 }
 
 #[test]
-fn editable_combo_filters_while_typing_and_picks_with_enter() {
+fn editable_combo_lists_everything_while_typing_and_picks_with_enter() {
     let mut h = combo_harness("");
     type_into_combo(&mut h, "HAIKU");
     h.get_by_label("claude-3-5-haiku-latest");
     h.get_by_label("claude-haiku-4-5");
-    assert!(h.query_by_label("claude-sonnet-4-5").is_none());
+    h.get_by_label("claude-sonnet-4-5");
 
     h.key_press(Key::ArrowDown);
     h.key_press(Key::ArrowDown);
@@ -293,20 +294,11 @@ fn editable_combo_scrolls_a_long_list_and_keeps_the_hot_option_in_view() {
 }
 
 #[test]
-fn editable_combo_grows_to_the_full_height_when_more_options_match() {
+fn editable_combo_shows_the_full_height_while_typing() {
     let mut h = combo_harness("");
     h.state_mut().options = (0..14).map(|i| format!("model-{i:02}")).collect();
     type_into_combo(&mut h, "model-00");
-    h.get_by_label("model-00");
-    assert!(
-        h.query_by_label("model-01").is_none(),
-        "precondition: one match"
-    );
-    for _ in 0.."model-00".len() {
-        h.key_press(Key::Backspace);
-    }
-    h.run_steps(4);
-    assert_eq!(h.state().text, "");
+    h.get_by_label("model-01");
     let shown = h
         .output()
         .shapes
@@ -390,7 +382,7 @@ fn editable_combo_escape_closes_and_keeps_the_typed_text() {
 }
 
 #[test]
-fn editable_combo_stays_closed_when_nothing_matches() {
+fn editable_combo_keeps_listing_when_nothing_matches_and_enter_keeps_the_text() {
     let mut h = combo_harness("");
     type_into_combo(&mut h, "my-own-model");
     for option in [
@@ -398,29 +390,71 @@ fn editable_combo_stays_closed_when_nothing_matches() {
         "claude-haiku-4-5",
         "claude-sonnet-4-5",
     ] {
-        assert!(h.query_by_label(option).is_none(), "{option}");
+        h.get_by_label(option);
     }
-    h.key_press(Key::ArrowDown);
     h.key_press(Key::Enter);
     h.run_steps(2);
     assert_eq!(h.state().text, "my-own-model");
 }
 
 #[test]
-fn filter_models_is_case_insensitive_substring() {
-    let models = strings(&["GPT-4o", "gpt-4o-mini", "o3"]);
-    assert_eq!(
-        filter_models(&models, " 4O "),
-        strings(&["GPT-4o", "gpt-4o-mini"])
+fn editable_combo_colors_the_typed_part_of_each_option() {
+    let mut h = combo_harness("");
+    type_into_combo(&mut h, "Haiku");
+    let colors = |text: &str| text_sections(&h, text);
+    let haiku = colors("claude-haiku-4-5");
+    assert!(
+        haiku.contains(&("haiku".to_owned(), theme::ACCENT)),
+        "{haiku:?}"
     );
-    assert!(filter_models(&models, "claude").is_empty());
+    let sonnet = colors("claude-sonnet-4-5");
+    assert!(
+        sonnet.iter().all(|(_, c)| *c != theme::ACCENT),
+        "{sonnet:?}"
+    );
 }
 
 #[test]
-fn filter_models_blank_query_returns_all() {
-    let models = strings(&["a", "b"]);
-    assert_eq!(filter_models(&models, ""), models);
-    assert_eq!(filter_models(&models, "   "), models);
+fn editable_combo_scrolls_to_the_best_match_while_typing() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model-45");
+    h.run_steps(4);
+    let edit = h.get_by_label("Model").rect();
+    let limit = edit.bottom() + egui::Style::default().spacing.combo_height + 20.0;
+    let hit = h.get_by_label("model-45").rect();
+    assert!(
+        hit.top() >= edit.bottom() && hit.bottom() <= limit,
+        "{hit:?}"
+    );
+}
+
+#[test]
+fn arrow_down_starts_from_the_best_match() {
+    let mut h = combo_harness("");
+    type_into_combo(&mut h, "sonnet");
+    h.key_press(Key::ArrowDown);
+    h.run_steps(2);
+    h.key_press(Key::Enter);
+    h.run_steps(2);
+    assert_eq!(h.state().text, "claude-sonnet-4-5");
+}
+
+#[test]
+fn best_match_prefers_exact_then_prefix_then_contains() {
+    let models = strings(&["gpt-4o-mini", "GPT-4o", "o3", "x-gpt"]);
+    assert_eq!(best_match(&models, " gpt-4o "), Some(1));
+    assert_eq!(best_match(&models, "gpt"), Some(0));
+    assert_eq!(best_match(&models, "-gp"), Some(3));
+    assert_eq!(best_match(&models, "claude"), None);
+    assert_eq!(best_match(&models, "  "), None);
+}
+
+#[test]
+fn match_range_is_case_insensitive() {
+    assert_eq!(match_range("Claude-Sonnet-5", " sonnet "), Some(7..13));
+    assert_eq!(match_range("claude", "gpt"), None);
+    assert_eq!(match_range("claude", ""), None);
 }
 
 #[test]
@@ -684,7 +718,7 @@ fn a_control_after_a_field_starts_after_the_whole_field() {
     let h = harness(String::new(), |ui, text: &mut String| {
         setting_row(ui, "Model", None, |ui| {
             ui.spacing_mut().combo_width = 200.0;
-            editable_combo(ui, Id::unique("model"), text, &[], true);
+            editable_combo(ui, Id::unique("model"), text, &[]);
             secondary_icon_button(ui, icon::REFRESH, "Refresh");
         });
     });
@@ -741,7 +775,7 @@ fn both_language_dropdowns_draw_the_same_chevron() {
                 ui_language_combo(ui);
             });
             setting_row(ui, "Target language", None, |ui| {
-                editable_combo(ui, Id::unique("target"), text, &[], false);
+                editable_combo(ui, Id::unique("target"), text, &[]);
             });
         });
     });
@@ -871,7 +905,7 @@ fn dropdowns_give_way_to_the_label_in_a_narrow_row() {
                 ui_language_combo(ui);
             });
             setting_row(ui, "Target language", None, |ui| {
-                editable_combo(ui, Id::unique("target"), text, &[], false);
+                editable_combo(ui, Id::unique("target"), text, &[]);
             });
         });
     });
@@ -913,4 +947,27 @@ fn the_secret_eye_stays_inside_the_field_and_flips_its_icon() {
     assert!(h.state().1, "click reveals the key");
     assert!(h.query_by_label("Show").is_none());
     h.get_by_role_and_label(Role::Button, "Hide");
+}
+
+#[test]
+fn clearing_the_text_scrolls_the_list_back_to_the_top() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model-45");
+    h.run_steps(4);
+    assert!(!visible_in_popup(&h, h.get_by_label("model-00").rect()));
+    // 一次清空（全選再刪），不是逐字刪：逐字刪到「model-」時本來就會捲到 model-00
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.key_press(Key::Backspace);
+    h.run_steps(4);
+    assert_eq!(h.state().text, "");
+    let top = h.get_by_label("model-00").rect();
+    assert!(visible_in_popup(&h, top), "{top:?}");
+}
+
+/// `rect` 落在輸入框下方、清單可見高度之內。
+fn visible_in_popup<S>(h: &Harness<S>, rect: Rect) -> bool {
+    let edit = h.get_by_label("Model").rect();
+    let limit = edit.bottom() + egui::Style::default().spacing.combo_height + 20.0;
+    rect.top() >= edit.bottom() && rect.bottom() <= limit
 }

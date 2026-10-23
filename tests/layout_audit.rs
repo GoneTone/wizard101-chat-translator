@@ -21,6 +21,7 @@ use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::i18n;
 use wizard101_chat_translator::runtime::updater::Release;
+use wizard101_chat_translator::translation::clients::ModelInfo;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
@@ -162,7 +163,7 @@ fn service_states() {
     ];
     h.state_mut().win.apply(&SettingsEvent::ModelsDone {
         round,
-        result: Ok(models.map(str::to_owned).to_vec()),
+        result: Ok(models.map(ModelInfo::bare).to_vec()),
     });
     h.run_steps(3);
     save(&mut h, "service_form_models_fetched");

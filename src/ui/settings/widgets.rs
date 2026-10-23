@@ -116,14 +116,14 @@ pub(super) fn named_by<R>(ui: &mut Ui, label: Id, add: impl FnOnce(&mut Ui) -> R
         .inner
 }
 
-/// 用 `richtext::show` 顯示一段可含連結的文字，字級 `size`。
+/// 用 `richtext::show` 顯示一段可含連結、可反白複製的文字，字級 `size`。
 pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     ui.scope(|ui| {
         ui.style_mut().override_font_id = Some(FontId::proportional(size));
         // 換行排版的每一列至少 `interact_size.y` 高，設定介面把它拉到控制項高 32：
         // 不歸零的話一行字會置中在 32 高的列裡，比前面的圖示低、行距也被撐大
         ui.spacing_mut().interact_size.y = 0.0;
-        richtext::show(ui, text, color);
+        richtext::show(ui, text, color, true);
     });
 }
 
@@ -692,14 +692,30 @@ fn keycap(ui: &mut Ui, key: &str) {
     ui.put(face, Label::new(text).selectable(false));
 }
 
-/// 依關鍵字篩選模型清單：不分大小寫的子字串比對；關鍵字空白時回傳全部。
-pub fn filter_models(models: &[String], query: &str) -> Vec<String> {
-    let keyword = pystr::strip(query).to_lowercase();
+/// `item` 裡第一段與 `query` 相符的位元組範圍：去頭尾空白、不分（ASCII）大小寫；查詢空白時沒有。
+pub fn match_range(item: &str, query: &str) -> Option<std::ops::Range<usize>> {
+    let keyword = pystr::strip(query).to_ascii_lowercase();
+    if keyword.is_empty() {
+        return None;
+    }
+    let start = item.to_ascii_lowercase().find(&keyword)?;
+    Some(start..start + keyword.len())
+}
+
+/// 清單裡最符合 `query` 的一項：完全相同優先，其次開頭相符，再來是包含；同級取最前面的。
+pub fn best_match(models: &[String], query: &str) -> Option<usize> {
+    let keyword = pystr::strip(query);
+    let rank = |item: &String| match match_range(item, keyword)? {
+        range if range.start == 0 && range.end == item.len() => Some(0),
+        range if range.start == 0 => Some(1),
+        _ => Some(2),
+    };
     models
         .iter()
-        .filter(|m| m.to_lowercase().contains(&keyword))
-        .cloned()
-        .collect()
+        .enumerate()
+        .filter_map(|(i, item)| rank(item).map(|r| (r, i)))
+        .min()
+        .map(|(_, i)| i)
 }
 
 /// 儲存被擋下的提示：警告圖示、粗體標題，下面每個問題一行；占滿可用寬度。

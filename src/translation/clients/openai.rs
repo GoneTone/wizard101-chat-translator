@@ -12,10 +12,11 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked,
-    cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, Streamed, TIMEOUT,
+    blocked, cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
     incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
 };
+use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
 use crate::translation::Turn;
 use crate::translation::errors::{
@@ -44,12 +45,14 @@ struct Learned {
 /// 哪些參數能帶因模型而異，改成聽伺服器的：400 指名某個參數就拿掉（或互換長度上限的名字）重送。
 /// `official` 為 OpenAI 官方端點的起手式：用 `max_completion_tokens`、不帶 temperature、
 /// 只帶官方認得的停用思考參數；自架後端維持 `max_tokens` 與 `temperature=0`。
+/// 使用者選的思考深度、以及模型關不掉思考時被拒的 `none`，不在「聽伺服器的」範圍內：直接回錯誤。
 pub struct OpenAiCompatClient {
     pub(super) http: reqwest::Client,
     auth: Option<HeaderValue>,
     pub(super) base_url: String,
     model: String,
     thinking: bool,
+    effort: String,
     official: bool,
     learned: Mutex<Learned>,
     request_timeout: Duration,
@@ -57,7 +60,14 @@ pub struct OpenAiCompatClient {
 
 impl OpenAiCompatClient {
     /// 建立 client；`api_key` 為空時不帶 Authorization。
-    pub fn new(base_url: &str, api_key: &str, model: &str, thinking: bool, official: bool) -> Self {
+    pub fn new(
+        base_url: &str,
+        api_key: &str,
+        model: &str,
+        thinking: bool,
+        effort: &str,
+        official: bool,
+    ) -> Self {
         let auth = secret_header(&format!("Bearer {api_key}")).filter(|_| !api_key.is_empty());
         if auth.is_none() && !api_key.is_empty() {
             log(
@@ -71,6 +81,7 @@ impl OpenAiCompatClient {
             base_url: base_url.trim_end_matches('/').to_owned(),
             model: model.to_owned(),
             thinking,
+            effort: effort.to_owned(),
             official,
             learned: Mutex::new(Learned {
                 token_param: if official {
@@ -127,7 +138,9 @@ impl OpenAiCompatClient {
         } else if deterministic {
             body.insert("temperature".into(), json!(0));
         }
-        if !self.thinking {
+        if self.chose_effort() {
+            body.insert("reasoning_effort".into(), json!(self.effort));
+        } else if !self.thinking {
             body.insert("reasoning_effort".into(), json!("none"));
             if !self.official {
                 // 涵蓋常見後端：vLLM／SGLang＋Qwen3、Ollama、部分吃頂層的伺服器
@@ -143,6 +156,11 @@ impl OpenAiCompatClient {
             body.remove(name);
         }
         Value::Object(body)
+    }
+
+    /// 開著思考且選了具體深度（不是自動）。
+    fn chose_effort(&self) -> bool {
+        self.thinking && self.effort != EFFORT_AUTO
     }
 
     /// 記住端點拒絕的參數，回傳下一次請求是否還有變化可試。
@@ -181,13 +199,25 @@ impl OpenAiCompatClient {
                 Ok(streamed) => break streamed,
                 Err(error) => error,
             };
-            let param = match &error {
+            let (param, bad_value) = match &error {
                 TranslateError::Config {
                     status: Some(400),
                     detail,
-                } => rejected_parameter(detail),
-                _ => None,
+                } => (
+                    rejected_parameter(detail),
+                    detail.contains("Unsupported value"),
+                ),
+                _ => (None, false),
             };
+            // 認得參數卻拒收這個值（會思考但關不掉）就報錯；不認得參數代表模型本來就不思考，照常拿掉
+            if param.as_deref() == Some("reasoning_effort") && (self.chose_effort() || bad_value) {
+                let effort = if self.thinking { &*self.effort } else { "none" };
+                log(format!(
+                    "[translate] endpoint rejected the chosen reasoning_effort={effort} (model={}): {error}",
+                    self.model
+                ));
+                return Err(error);
+            }
             // 每輪都拿掉（或換掉）一個 body 裡確實有的參數，且同一個名字不會試第二次
             match param {
                 Some(param) if body.get(&param).is_some() && self.learn_rejection(&param) => {
@@ -203,9 +233,10 @@ impl OpenAiCompatClient {
         let usage = streamed.usage.unwrap_or(Value::Null);
         if let Some(prompt) = usage.get("prompt_tokens") {
             let cached = count_of(usage.pointer("/prompt_tokens_details/cached_tokens"));
+            let reasoning = count_of(usage.pointer("/completion_tokens_details/reasoning_tokens"));
             log(format!(
                 "[translate] prompt cache: provider=openai-compatible model={} \
-                 prompt={prompt} cached={cached}",
+                 prompt={prompt} cached={cached} reasoning_tokens={reasoning}",
                 self.model
             ));
         }
@@ -282,7 +313,7 @@ impl OpenAiCompatClient {
     }
 
     /// 取 `/v1/models` 的模型 ID（排序後）；404／405 或缺 `data` 陣列回 `NoModelList`。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let resp = self
             .authorized(self.http.get(format!("{}/v1/models", self.base_url)))
             .send()
@@ -301,13 +332,13 @@ impl OpenAiCompatClient {
             .get("data")
             .and_then(Value::as_array)
             .ok_or(TranslateError::NoModelList)?;
-        let mut ids: Vec<String> = data
+        let mut models: Vec<ModelInfo> = data
             .iter()
             .filter_map(|m| m.get("id")?.as_str().filter(|id| !id.is_empty()))
-            .map(str::to_owned)
+            .map(ModelInfo::bare)
             .collect();
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 }
 

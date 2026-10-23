@@ -9,12 +9,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked, cancellable,
-    connection_error, count_of, error_type_status, finish_text, http_client, incomplete_stream,
-    parse_object, request_error, response_failure, retry_after_within_cap, sample_of,
-    secret_header, stream_failure, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, TIMEOUT, ThinkingCaps, blocked,
+    cancellable, connection_error, count_of, error_type_status, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, retry_after_within_cap,
+    sample_of, secret_header, stream_failure, truncated, with_query,
 };
-use crate::config::services::EFFORT_AUTO;
+use crate::config::services::{EFFORT_AUTO, provider};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::translation::Turn;
@@ -52,8 +52,8 @@ struct Message {
 
 /// Claude 官方 API 的 client。
 ///
-/// Claude 5 系不接受 temperature，也沒有「完全不思考」：深度由 effort 控制，`auto` 時連
-/// `effort` 都不帶。刻意不送 `thinking: disabled` —— 那在 Opus 5 會把 `<thinking>` 漏進回應。
+/// 不送 temperature（新模型不接受）。關閉思考送 `thinking: disabled`，能不能關由設定介面依模型清單判斷；
+/// 深度由 effort 控制，`auto` 時連 `effort` 都不帶。
 pub struct ClaudeClient {
     pub(super) http: reqwest::Client,
     pub(super) base_url: String,
@@ -61,6 +61,7 @@ pub struct ClaudeClient {
     /// 金鑰非空卻含 HTTP 標頭不允許的字元。
     key_malformed: bool,
     model: String,
+    thinking: bool,
     effort: String,
     request_timeout: Duration,
 }
@@ -72,9 +73,28 @@ fn default_headers() -> HeaderMap {
     headers
 }
 
+/// 從 `/v1/models` 的一筆讀出思考能力；欄位缺或型別不對就當成清單沒說。
+fn thinking_caps(model: &Value) -> ThinkingCaps {
+    let supported = |v: &Value| v.get("supported").and_then(Value::as_bool);
+    let caps = &model["capabilities"];
+    let effort = &caps["effort"];
+    let levels = provider("claude").map_or(&[][..], |p| p.efforts);
+    ThinkingCaps {
+        supported: supported(&caps["thinking"]),
+        can_disable: supported(&caps["thinking"]["types"]["disabled"]),
+        efforts: supported(effort).map(|any| {
+            levels
+                .iter()
+                .filter(|level| any && supported(&effort[**level]) == Some(true))
+                .map(|level| (*level).to_owned())
+                .collect()
+        }),
+    }
+}
+
 impl ClaudeClient {
     /// 建立 client；`endpoint` 正式環境為 [`CLAUDE_BASE_URL`]。
-    pub fn new(api_key: &str, model: &str, effort: &str, endpoint: &str) -> Self {
+    pub fn new(api_key: &str, model: &str, thinking: bool, effort: &str, endpoint: &str) -> Self {
         let key = secret_header(api_key);
         Self {
             http: http_client(default_headers(), endpoint, TIMEOUT),
@@ -83,6 +103,7 @@ impl ClaudeClient {
             api_key: key.clone().filter(|_| !api_key.is_empty()),
             key_malformed: key.is_none() && !api_key.is_empty(),
             model: model.to_owned(),
+            thinking,
             effort: effort.to_owned(),
             request_timeout: REQUEST_TIMEOUT,
         }
@@ -107,19 +128,23 @@ impl ClaudeClient {
 
     fn request_body(&self, system: &str, turns: &[Turn], max_tokens: u32) -> Value {
         let mut output_config = json!({"format": output_format()});
-        if self.effort != EFFORT_AUTO {
+        if self.thinking && self.effort != EFFORT_AUTO {
             output_config["effort"] = json!(self.effort);
         }
         let messages: Vec<Value> = turns.iter().map(Turn::to_message).collect();
         // 斷點放在 system 結尾：之後的上下文每句都變，放在最後只會一直寫入、讀不到
-        json!({
+        let mut body = json!({
             "max_tokens": max_tokens,
             "messages": messages,
             "model": self.model,
             "output_config": output_config,
             "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-            "stream": true,
-        })
+        });
+        if !self.thinking {
+            body["thinking"] = json!({"type": "disabled"});
+        }
+        body["stream"] = json!(true);
+        body
     }
 
     /// 送出串流請求並解開結構化輸出的譯文；`cancel` 觸發即斷線。
@@ -151,11 +176,14 @@ impl ClaudeClient {
         let stop_reason = message.stop_reason.as_deref().unwrap_or("unknown");
         if let Some(usage) = &message.usage {
             log(format!(
-                "[translate] prompt cache: provider=claude model={} read={} write={} uncached={}",
+                // Claude 不分開列思考 token，思考算在 output_tokens 裡：遠多於譯文的長度就是有思考
+                "[translate] prompt cache: provider=claude model={} read={} write={} uncached={} \
+                 output_tokens={}",
                 self.model,
                 count_of(usage.get("cache_read_input_tokens")),
                 count_of(usage.get("cache_creation_input_tokens")),
                 count_of(usage.get("input_tokens")),
+                count_of(usage.get("output_tokens")),
             ));
         }
         // 文件只保證第一個 text 區塊是合法 JSON；實測此模式下也只會有一個 text 區塊
@@ -193,18 +221,19 @@ impl ClaudeClient {
     }
 
     /// 列出模型 ID（排序後），依 `has_more`／`last_id` 自動翻頁。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let url = format!("{}/v1/models", self.base_url);
-        let mut ids = Vec::new();
+        let mut models = Vec::new();
         let mut after_id: Option<String> = None;
         loop {
             let page = self.models_page(&url, after_id.as_deref()).await?;
             let data = page.get("data").and_then(Value::as_array);
-            ids.extend(
-                data.into_iter()
-                    .flatten()
-                    .filter_map(|m| m.get("id")?.as_str().map(str::to_owned)),
-            );
+            models.extend(data.into_iter().flatten().filter_map(|m| {
+                Some(ModelInfo {
+                    id: m.get("id")?.as_str()?.to_owned(),
+                    thinking: thinking_caps(m),
+                })
+            }));
             let last_id = page.get("last_id").and_then(Value::as_str);
             let more = page.get("has_more") != Some(&Value::Bool(false));
             match last_id {
@@ -214,8 +243,8 @@ impl ClaudeClient {
                 _ => break,
             }
         }
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 
     async fn models_page(
