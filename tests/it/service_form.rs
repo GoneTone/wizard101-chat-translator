@@ -249,10 +249,10 @@ fn switching_provider_rewrites_a_suffixed_untouched_name() {
 }
 
 #[test]
-fn a_blank_name_falls_back_to_the_provider_short_name() {
-    let mut f = blank();
+fn a_blank_name_blocks_saving() {
+    let mut f = form(filled("openai"), vec![]);
     f.set_name("   ");
-    assert_eq!(f.values()["name"], "OpenAI");
+    assert_eq!(f.errors(), vec!["error.need_name".to_string()]);
 }
 
 #[test]
@@ -297,15 +297,6 @@ fn switching_provider_keeps_a_typed_name_even_with_a_collision() {
     f.set_name("戰鬥用");
     f.set_provider("claude");
     assert_eq!(f.values()["name"], "戰鬥用");
-}
-
-#[test]
-fn blank_name_falls_back_to_the_deduped_short_name() {
-    let existing = new_service("claude", &[]);
-    let draft = new_service("claude", std::slice::from_ref(&existing));
-    let mut f = form(draft, vec![existing]);
-    f.set_name("   ");
-    assert_eq!(f.values()["name"], "Claude (2)");
 }
 
 #[test]
