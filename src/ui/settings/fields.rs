@@ -9,6 +9,7 @@ use eframe::egui::{
 };
 
 use crate::config::parse_float;
+use crate::py::pystr;
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
     INLINE_ICON_INSET, best_match, focus_ring, inline_icon_button, match_range, name_by_row,
@@ -39,16 +40,10 @@ struct ComboState {
 
 /// 可自行輸入的下拉：點輸入框、打字或按 ↓ 展開，清單一律列出全部選項。
 ///
-/// `highlight` 時把每一項裡與輸入相符的字上色，並捲到最符合的項目（同 `best_match`）。
+/// 每一項裡與輸入相符的字上色，並捲到最符合的項目（同 `best_match`），輸入清空時捲回最上面。
 /// ↑↓ 選、Enter 選定、Esc 收起，點別處收起。寬度取 `spacing.combo_width`。
 /// 不在 `setting_row` 裡時，呼叫端要對回傳值 `labelled_by`／`accessible_name`。
-pub fn editable_combo(
-    ui: &mut Ui,
-    id: Id,
-    text: &mut String,
-    options: &[String],
-    highlight: bool,
-) -> Response {
+pub fn editable_combo(ui: &mut Ui, id: Id, text: &mut String, options: &[String]) -> Response {
     let mut state: ComboState = ui.data(|d| d.get_temp(id)).unwrap_or_default();
     let edit_id = id.with("edit");
     let popup_id = id.with("popup");
@@ -115,7 +110,12 @@ pub fn editable_combo(
         state.jump = true;
     }
     let list = options;
-    let best = highlight.then(|| best_match(list, text)).flatten();
+    let best = best_match(list, text);
+    let jump_to = if pystr::strip(text).is_empty() {
+        Some(0)
+    } else {
+        best
+    };
     if let Some(last) = list.len().checked_sub(1) {
         for _ in 0..down {
             // 還沒選項目時從最符合的那一項開始，不從清單頂端
@@ -151,7 +151,7 @@ pub fn editable_combo(
                     .min_scrolled_height(ui.spacing().combo_height)
                     .show(ui, |ui| {
                         for (i, option) in list.iter().enumerate() {
-                            let label = option_label(ui, option, highlight.then_some(&**text));
+                            let label = option_label(ui, option, text);
                             let item = ui.add(
                                 Button::selectable(state.hot == Some(i), label)
                                     .min_size(vec2(ui.available_width(), theme::CONTROL_HEIGHT)),
@@ -164,7 +164,7 @@ pub fn editable_combo(
                             }
                             if keyed && state.hot == Some(i) {
                                 item.scroll_to_me(None);
-                            } else if !keyed && state.jump && best == Some(i) {
+                            } else if !keyed && state.jump && jump_to == Some(i) {
                                 item.scroll_to_me(Some(Align::TOP));
                             }
                         }
@@ -190,11 +190,11 @@ pub fn editable_combo(
 }
 
 /// 下拉項目的文字：`query` 相符的那段用強調色，其餘沿用按鈕的文字色（hover 時照常變色）。
-fn option_label(ui: &Ui, option: &str, query: Option<&str>) -> LayoutJob {
+fn option_label(ui: &Ui, option: &str, query: &str) -> LayoutJob {
     let font = egui::TextStyle::Button.resolve(ui.style());
     let plain = TextFormat::simple(font.clone(), Color32::PLACEHOLDER);
     let mut job = LayoutJob::default();
-    match query.and_then(|q| match_range(option, q)) {
+    match match_range(option, query) {
         Some(range) => {
             job.append(&option[..range.start], 0.0, plain.clone());
             job.append(

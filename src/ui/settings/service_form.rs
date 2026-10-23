@@ -411,7 +411,7 @@ impl ServiceForm {
                     ui.spacing_mut().combo_width =
                         (ui.available_width() - reserved - gap).max(80.0);
                     let combo = ui.make_persistent_id("model");
-                    let field = editable_combo(ui, combo, &mut self.model, &self.model_ids, true)
+                    let field = editable_combo(ui, combo, &mut self.model, &self.model_ids)
                         .labelled_by(label);
                     mark(ui, field.rect, Block::Control);
                     let busy = self.models_round.busy();

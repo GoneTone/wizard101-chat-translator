@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::common::kittest::{click_at, themed_harness};
+use crate::common::kittest::{click_at, text_sections, themed_harness};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
@@ -97,7 +97,7 @@ fn controls_in_a_setting_row_are_named_by_the_row() {
             });
             setting_row(ui, "Target language", Some("Type any language"), |ui| {
                 let options = ["English".to_owned()];
-                editable_combo(ui, Id::unique("target"), &mut s.language, &options, false);
+                editable_combo(ui, Id::unique("target"), &mut s.language, &options);
             });
         });
     });
@@ -193,7 +193,7 @@ fn combo_harness(text: &str) -> Harness<'static, Combo> {
     harness(state, |ui, s: &mut Combo| {
         card(ui, |ui| {
             setting_row(ui, "Model", None, |ui| {
-                editable_combo(ui, Id::unique("model"), &mut s.text, &s.options, true);
+                editable_combo(ui, Id::unique("model"), &mut s.text, &s.options);
             });
         });
     })
@@ -401,28 +401,7 @@ fn editable_combo_keeps_listing_when_nothing_matches_and_enter_keeps_the_text() 
 fn editable_combo_colors_the_typed_part_of_each_option() {
     let mut h = combo_harness("");
     type_into_combo(&mut h, "Haiku");
-    let colors = |text: &str| -> Vec<(String, egui::Color32)> {
-        h.output()
-            .shapes
-            .iter()
-            .find_map(|c| match &c.shape {
-                Shape::Text(t) if t.galley.text() == text => Some(
-                    t.galley
-                        .job
-                        .sections
-                        .iter()
-                        .map(|s| {
-                            (
-                                text[s.byte_range.start.0..s.byte_range.end.0].to_owned(),
-                                s.format.color,
-                            )
-                        })
-                        .collect(),
-                ),
-                _ => None,
-            })
-            .expect("option painted")
-    };
+    let colors = |text: &str| text_sections(&h, text);
     let haiku = colors("claude-haiku-4-5");
     assert!(
         haiku.contains(&("haiku".to_owned(), theme::ACCENT)),
@@ -739,7 +718,7 @@ fn a_control_after_a_field_starts_after_the_whole_field() {
     let h = harness(String::new(), |ui, text: &mut String| {
         setting_row(ui, "Model", None, |ui| {
             ui.spacing_mut().combo_width = 200.0;
-            editable_combo(ui, Id::unique("model"), text, &[], true);
+            editable_combo(ui, Id::unique("model"), text, &[]);
             secondary_icon_button(ui, icon::REFRESH, "Refresh");
         });
     });
@@ -796,7 +775,7 @@ fn both_language_dropdowns_draw_the_same_chevron() {
                 ui_language_combo(ui);
             });
             setting_row(ui, "Target language", None, |ui| {
-                editable_combo(ui, Id::unique("target"), text, &[], false);
+                editable_combo(ui, Id::unique("target"), text, &[]);
             });
         });
     });
@@ -926,7 +905,7 @@ fn dropdowns_give_way_to_the_label_in_a_narrow_row() {
                 ui_language_combo(ui);
             });
             setting_row(ui, "Target language", None, |ui| {
-                editable_combo(ui, Id::unique("target"), text, &[], false);
+                editable_combo(ui, Id::unique("target"), text, &[]);
             });
         });
     });
@@ -968,4 +947,27 @@ fn the_secret_eye_stays_inside_the_field_and_flips_its_icon() {
     assert!(h.state().1, "click reveals the key");
     assert!(h.query_by_label("Show").is_none());
     h.get_by_role_and_label(Role::Button, "Hide");
+}
+
+#[test]
+fn clearing_the_text_scrolls_the_list_back_to_the_top() {
+    let mut h = combo_harness("");
+    h.state_mut().options = (0..60).map(|i| format!("model-{i:02}")).collect();
+    type_into_combo(&mut h, "model-45");
+    h.run_steps(4);
+    assert!(!visible_in_popup(&h, h.get_by_label("model-00").rect()));
+    // 一次清空（全選再刪），不是逐字刪：逐字刪到「model-」時本來就會捲到 model-00
+    h.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
+    h.key_press(Key::Backspace);
+    h.run_steps(4);
+    assert_eq!(h.state().text, "");
+    let top = h.get_by_label("model-00").rect();
+    assert!(visible_in_popup(&h, top), "{top:?}");
+}
+
+/// `rect` 落在輸入框下方、清單可見高度之內。
+fn visible_in_popup<S>(h: &Harness<S>, rect: Rect) -> bool {
+    let edit = h.get_by_label("Model").rect();
+    let limit = edit.bottom() + egui::Style::default().spacing.combo_height + 20.0;
+    rect.top() >= edit.bottom() && rect.bottom() <= limit
 }

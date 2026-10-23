@@ -17,6 +17,29 @@ pub fn run<S>(h: &mut Harness<S>) {
     h.run_steps(3);
 }
 
+/// 畫面上文字 `text` 的各段文字與顏色；同樣的字畫了好幾次時取最後畫的（彈出層在最上層）。找不到就 panic。
+pub fn text_sections<S>(h: &Harness<S>, text: &str) -> Vec<(String, eframe::egui::Color32)> {
+    h.output()
+        .shapes
+        .iter()
+        .rev()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == text => Some(
+                t.galley
+                    .job
+                    .sections
+                    .iter()
+                    .map(|s| {
+                        let range = s.byte_range.start.0..s.byte_range.end.0;
+                        (text[range].to_owned(), s.format.color)
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{text:?} not painted"))
+}
+
 /// 跑過服務表單開啟時載入佔位的時間上限（每步 0.25 秒），之後才能操作剛打開的表單。
 pub fn settle<S>(h: &mut Harness<S>) {
     h.run_steps(8);
