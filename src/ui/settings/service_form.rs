@@ -87,8 +87,8 @@ pub struct ServiceForm {
     /// 開啟時那次自動載入的佔位顯示到何時（egui 時間）；載入結束或換服務商就清掉。
     placeholder_until: Option<f64>,
     test_round: Round,
-    /// 測試那一刻的服務商與模型，log 用。
-    test_request: (String, String),
+    /// 測試那一刻的服務商、模型與是否關閉思考；前兩項 log 用，關閉思考被拒時多給一句說明。
+    test_request: (String, String, bool),
     test_result: Option<TestResult>,
     pending_change: bool,
 }
@@ -620,13 +620,13 @@ impl ServiceForm {
             spec.model,
             py_bool(!spec.api_key.is_empty())
         ));
-        self.test_request = (spec.provider.clone(), spec.model.clone());
+        self.test_request = (spec.provider.clone(), spec.model.clone(), !spec.thinking);
         let round = self.test_round.start();
         env.test_connection(round, spec, target_language.to_owned());
     }
 
     fn tested(&mut self, result: &Result<TestOutcome, TranslateError>) {
-        let (provider, model) = &self.test_request;
+        let (provider, model, thinking_off) = &self.test_request;
         self.test_result = Some(match result {
             Ok(done) => {
                 log(format!(
@@ -641,7 +641,20 @@ impl ServiceForm {
                 log(format!(
                     "[settings] test connection failed (provider={provider}, model={model}): {e}"
                 ));
-                TestResult::Failed(friendly_text(e))
+                let mut text = friendly_text(e);
+                // 有些服務商（如 Gemini）拒絕關閉思考時只回籠統的 400，看不出原因
+                if *thinking_off
+                    && matches!(
+                        e,
+                        TranslateError::Config {
+                            status: Some(400),
+                            ..
+                        }
+                    )
+                {
+                    text = format!("{text}\n{}", t("error.thinking_off_rejected", &[]));
+                }
+                TestResult::Failed(text)
             }
         });
     }

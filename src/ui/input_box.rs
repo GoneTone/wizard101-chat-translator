@@ -199,7 +199,7 @@ impl InputBox {
                 let (status, color) = self.status();
                 ui.style_mut().override_font_id = Some(FontId::proportional(tk_pt(9.0)));
                 ui.visuals_mut().hyperlink_color = FG_UPDATE;
-                richtext::show(ui, &status, color);
+                richtext::show(ui, &status, color, false);
                 let (enter, escape) =
                     ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
                 if escape {

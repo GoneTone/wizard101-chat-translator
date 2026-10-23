@@ -1260,3 +1260,102 @@ fn placeholder_blocks_sit_where_the_fields_appear() {
         );
     }
 }
+
+// --- 關閉思考被拒的說明、錯誤訊息可複製 ---
+
+fn rejected(detail: &str) -> Result<TestOutcome, TranslateError> {
+    Err(TranslateError::Config {
+        status: Some(400),
+        detail: detail.into(),
+    })
+}
+
+#[test]
+fn a_400_with_thinking_off_explains_the_likely_cause() {
+    let mut service = filled("gemini");
+    service["thinking"] = json!(false);
+    let mut h = harness(form(service, vec![]));
+    let round = start_test(&mut h);
+    finish_test(
+        &mut h,
+        round,
+        rejected("Request contains an invalid argument."),
+    );
+    assert!(
+        painted_texts(&h)
+            .iter()
+            .any(|t| t.contains("invalid argument"))
+    );
+    let hint = tr("error.thinking_off_rejected");
+    assert!(painted_texts(&h).iter().any(|t| t.contains(&hint)));
+}
+
+#[test]
+fn a_400_with_thinking_on_adds_no_thinking_hint() {
+    let mut h = harness(form(filled("gemini"), vec![]));
+    let round = start_test(&mut h);
+    finish_test(
+        &mut h,
+        round,
+        rejected("Request contains an invalid argument."),
+    );
+    let hint = tr("error.thinking_off_rejected");
+    assert!(!painted_texts(&h).iter().any(|t| t.contains(&hint)));
+}
+
+#[test]
+fn the_test_error_can_be_selected_and_copied() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    finish_test(
+        &mut h,
+        round,
+        rejected("Request contains an invalid argument."),
+    );
+    let text = h
+        .query_all_by(|n| {
+            n.label()
+                .or(n.value())
+                .is_some_and(|l| l.contains("invalid argument"))
+        })
+        .next()
+        .expect("error text shown")
+        .rect();
+    let (from, to) = (
+        text.left_center() + egui::vec2(1.0, 0.0),
+        text.right_center(),
+    );
+    h.event(Event::PointerMoved(from));
+    h.event(Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    h.event(Event::PointerMoved(to));
+    h.step();
+    h.event(Event::PointerButton {
+        pos: to,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
+    h.event(Event::Copy);
+    h.step();
+    let copied: Vec<String> = h
+        .output()
+        .platform_output
+        .commands
+        .iter()
+        .filter_map(|c| match c {
+            egui::OutputCommand::CopyText(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        copied.iter().any(|c| c.contains("invalid argument")),
+        "{copied:?}"
+    );
+}

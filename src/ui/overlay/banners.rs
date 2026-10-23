@@ -127,7 +127,7 @@ impl Banners {
                 child.visuals_mut().disabled_alpha = 1.0;
                 child.disable();
             }
-            richtext::show(&mut child, &text, FG_ERROR);
+            richtext::show(&mut child, &text, FG_ERROR, false);
             let height = child.min_rect().height();
             if height != self.error_height {
                 self.error_height = height;

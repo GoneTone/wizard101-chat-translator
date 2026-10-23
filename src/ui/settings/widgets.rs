@@ -116,14 +116,14 @@ pub(super) fn named_by<R>(ui: &mut Ui, label: Id, add: impl FnOnce(&mut Ui) -> R
         .inner
 }
 
-/// 用 `richtext::show` 顯示一段可含連結的文字，字級 `size`。
+/// 用 `richtext::show` 顯示一段可含連結、可反白複製的文字，字級 `size`。
 pub(super) fn rich(ui: &mut Ui, text: &str, size: f32, color: Color32) {
     ui.scope(|ui| {
         ui.style_mut().override_font_id = Some(FontId::proportional(size));
         // 換行排版的每一列至少 `interact_size.y` 高，設定介面把它拉到控制項高 32：
         // 不歸零的話一行字會置中在 32 高的列裡，比前面的圖示低、行距也被撐大
         ui.spacing_mut().interact_size.y = 0.0;
-        richtext::show(ui, text, color);
+        richtext::show(ui, text, color, true);
     });
 }
 

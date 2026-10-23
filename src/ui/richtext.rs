@@ -78,10 +78,10 @@ impl egui::cache::ComputerMut<&str, Vec<(String, Option<String>)>> for Segmenter
     }
 }
 
-/// 依寬度換行顯示 `text`，網址段是可點的 `Hyperlink`，以系統瀏覽器開啟。
+/// 依寬度換行顯示 `text`，網址段是可點的 `Hyperlink`，以系統瀏覽器開啟；`selectable` 時一般文字可反白複製。
 ///
 /// 字型取 `style.override_font_id`、連結色取 `visuals.hyperlink_color`，由呼叫端設定。
-pub fn show(ui: &mut Ui, text: &str, color: Color32) {
+pub fn show(ui: &mut Ui, text: &str, color: Color32, selectable: bool) {
     // 每幀重繪都切段會讓被拒的連結每幀記一次 log：切段結果留到文字不再顯示為止
     let segments = ui.memory_mut(|m| {
         m.caches
@@ -94,7 +94,7 @@ pub fn show(ui: &mut Ui, text: &str, color: Color32) {
         for (segment, url) in segments {
             match url {
                 None => {
-                    ui.add(Label::new(RichText::new(segment).color(color)).selectable(false));
+                    ui.add(Label::new(RichText::new(segment).color(color)).selectable(selectable));
                 }
                 Some(url) => {
                     // 明寫顏色：設定介面的 override_text_color 會蓋過 hyperlink_color
@@ -140,7 +140,7 @@ mod tests {
         let mut harness = Harness::builder()
             .with_size(egui::vec2(240.0, 120.0))
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-            .build_ui(move |ui| show(ui, text, Color32::RED));
+            .build_ui(move |ui| show(ui, text, Color32::RED, false));
         harness.step();
         harness
     }
@@ -181,7 +181,7 @@ mod tests {
         let mut harness = Harness::builder()
             .with_size(egui::vec2(200.0, 400.0))
             .with_context_setup(|ctx| fonts_egui::install(ctx, "en-US"))
-            .build_ui(move |ui| show(ui, &text, Color32::RED));
+            .build_ui(move |ui| show(ui, &text, Color32::RED, false));
         harness.step();
         let bounds = harness.ctx.content_rect();
         let mut tail_seen = false;
