@@ -248,22 +248,42 @@ impl ServiceForm {
                 self.placeholder_until = Some(now + PLACEHOLDER_SECONDS);
             }
         }
-        if self.models_round.busy() && self.placeholder_until.is_some_and(|until| now < until) {
-            let rows = 6 + usize::from(self.provider.needs_base_url());
-            loading_placeholder(ui, rows, &t("form.loading", &[]));
-            return response;
+        let placeholder =
+            self.models_round.busy() && self.placeholder_until.is_some_and(|until| now < until);
+        let form = ui.scope(|ui| {
+            if placeholder {
+                // 照常排版但不畫不收輸入，記下各元件的位置給佔位灰塊用，換成表單時位置不跳
+                ui.set_invisible();
+                ui.data_mut(|d| d.insert_temp(placeholder_id(), Vec::<(Rect, Block)>::new()));
+            }
+            self.rows(ui, env, target_language, before, &mut response);
+        });
+        if placeholder {
+            paint_placeholder(ui, form.response.rect, &t("form.loading", &[]));
         }
+        response
+    }
 
+    /// 表單的各列與測試連線；`before` 是這一幀開始時的 API 欄位，用來判斷這一幀有沒有改到。
+    fn rows(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        target_language: &str,
+        before: Value,
+        response: &mut FormResponse,
+    ) {
         form_row(ui, &t("field.service_name", &[]), |ui, label| {
-            text_field(ui, &mut self.name).labelled_by(label);
+            let field = text_field(ui, &mut self.name).labelled_by(label);
+            mark(ui, field.rect, Block::Control);
         });
         response.change_provider = self.provider_row(ui);
         let mut left_endpoint = false;
         if self.provider.needs_base_url() {
             form_row(ui, &t("field.base_url", &[]), |ui, label| {
-                left_endpoint |= text_field(ui, &mut self.base_url)
-                    .labelled_by(label)
-                    .lost_focus();
+                let field = text_field(ui, &mut self.base_url).labelled_by(label);
+                mark(ui, field.rect, Block::Control);
+                left_endpoint |= field.lost_focus();
                 hint(ui, &t("hint.custom_endpoint", &[]));
             });
         }
@@ -299,7 +319,6 @@ impl ServiceForm {
         if self.test_row(ui) {
             self.start_test(env, target_language);
         }
-        response
     }
 
     fn resolved_name(&self) -> String {
@@ -339,9 +358,13 @@ impl ServiceForm {
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
                 provider_icon(ui, key, 20.0);
-                ui.add(Label::new(label).truncate());
+                mark(ui, ui.min_rect(), Block::Control);
+                let name = ui.add(Label::new(label).truncate());
+                mark(ui, name.rect, Block::Text);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    secondary_button(ui, &t("button.change", &[])).clicked()
+                    let change = secondary_button(ui, &t("button.change", &[]));
+                    mark(ui, change.rect, Block::Control);
+                    change.clicked()
                 })
                 .inner
             })
@@ -358,14 +381,17 @@ impl ServiceForm {
         };
         form_row(ui, &t(label, &[]), |ui, label| {
             let (show, hide) = (t("button.show", &[]), t("button.hide", &[]));
-            let left = secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
-                .labelled_by(label)
-                .lost_focus();
+            let field = secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
+                .labelled_by(label);
+            mark(ui, full_width(ui, field.rect), Block::Control);
+            let left = field.lost_focus();
             if let Some(url) = self.provider.key_url {
                 let text = RichText::new(t("link.get_key", &[]))
                     .size(13.0)
                     .color(theme::LINK);
-                if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
+                let link = ui.add(Hyperlink::from_label_and_url(text, url));
+                mark(ui, link.rect, Block::Text);
+                if link.clicked() {
                     log(format!("[ui] opening API key page: {url}"));
                 }
             }
@@ -385,8 +411,9 @@ impl ServiceForm {
                     ui.spacing_mut().combo_width =
                         (ui.available_width() - reserved - gap).max(80.0);
                     let combo = ui.make_persistent_id("model");
-                    editable_combo(ui, combo, &mut self.model, &self.model_ids, true)
+                    let field = editable_combo(ui, combo, &mut self.model, &self.model_ids, true)
                         .labelled_by(label);
+                    mark(ui, field.rect, Block::Control);
                     let busy = self.models_round.busy();
                     let text = t(
                         if busy {
@@ -397,11 +424,13 @@ impl ServiceForm {
                         &[],
                     );
                     right_aligned(ui, width_id, |ui| {
-                        ui.add_enabled_ui(!busy, |ui| {
-                            secondary_icon_button(ui, icon::REFRESH, &text)
-                        })
-                        .inner
-                        .clicked()
+                        let refresh = ui
+                            .add_enabled_ui(!busy, |ui| {
+                                secondary_icon_button(ui, icon::REFRESH, &text)
+                            })
+                            .inner;
+                        mark(ui, refresh.rect, Block::Control);
+                        refresh.clicked()
                     })
                 })
                 .inner;
@@ -486,7 +515,10 @@ impl ServiceForm {
                         toggle(ui, value, &label)
                     })
                     .inner;
-                switch_response.labelled_by(ui.add(Label::new(label.as_str()).wrap()).id);
+                mark(ui, switch_response.rect, Block::Control);
+                let caption = ui.add(Label::new(label.as_str()).wrap());
+                mark(ui, caption.rect, Block::Text);
+                switch_response.labelled_by(caption.id);
             });
             let key = match switch {
                 ThinkingSwitch::Unsupported => "hint.thinking_unsupported",
@@ -514,6 +546,7 @@ impl ServiceForm {
                     }
                 });
             let response = combo.response.labelled_by(label);
+            mark(ui, response.rect, Block::Control);
             focus_ring(ui, &response, theme::CONTROL_RADIUS);
             // 清單列了支援的等級時選單已濾掉不支援的，不必再警告會選錯
             let known = self.caps().is_some_and(|c| c.efforts.is_some());
@@ -545,10 +578,11 @@ impl ServiceForm {
                 },
                 &[],
             );
-            let clicked = ui
+            let button = ui
                 .add_enabled_ui(!busy, |ui| secondary_button(ui, &text))
-                .inner
-                .clicked();
+                .inner;
+            mark(ui, button.rect, Block::Control);
+            let clicked = button.clicked();
             if let Some(result) = &self.test_result {
                 ui.vertical(|ui| {
                     ui.add_space(6.0);
@@ -707,26 +741,60 @@ pub fn format_seconds(elapsed: Duration) -> String {
 }
 
 /// 表單的一列：左邊固定寬的名稱，右邊欄位；`field` 拿到名稱的 Id，供欄位 `labelled_by`。
-/// 開啟時載入清單期間的表單佔位：`rows` 列明暗呼吸的「標籤＋輸入框」灰塊；畫著時持續重繪。
-fn loading_placeholder(ui: &mut Ui, rows: usize, label: &str) {
-    let step = theme::CONTROL_HEIGHT + ROW_GAP;
-    let size = vec2(ui.available_width(), rows as f32 * step - ROW_GAP);
-    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
-    response.widget_info(|| WidgetInfo::labeled(Role::ProgressIndicator, true, label));
+/// 佔位灰塊的樣式：輸入框、按鈕等整塊畫滿；文字逐行畫成細條。
+#[derive(Clone, Copy)]
+enum Block {
+    Control,
+    Text,
+}
+
+fn placeholder_id() -> Id {
+    Id::unique("service_form_placeholder")
+}
+
+/// 佔位期間（表單不可見）記下一個元件的位置；畫面可見時什麼都不做。
+fn mark(ui: &Ui, rect: Rect, block: Block) {
+    if !ui.is_visible() {
+        ui.data_mut(|d| {
+            d.get_temp_mut_or_default::<Vec<(Rect, Block)>>(placeholder_id())
+                .push((rect, block));
+        });
+    }
+}
+
+/// 從 `rect` 的左緣延伸到這一欄的右緣：自訂外框的輸入框回應的範圍只有文字區。
+fn full_width(ui: &Ui, rect: Rect) -> Rect {
+    Rect::from_x_y_ranges(rect.left()..=ui.max_rect().right(), rect.y_range())
+}
+
+/// 在記下的位置畫明暗呼吸的灰塊；`area` 是表單範圍，給無障礙的「讀取中」節點用。畫著時持續重繪。
+fn paint_placeholder(ui: &mut Ui, area: Rect, label: &str) {
+    const LINE: f32 = 18.0;
+    let blocks: Vec<(Rect, Block)> = ui
+        .data(|d| d.get_temp(placeholder_id()))
+        .unwrap_or_default();
+    let progress = ui.interact(area, placeholder_id(), Sense::hover());
+    progress.widget_info(|| WidgetInfo::labeled(Role::ProgressIndicator, true, label));
     let pulse = 0.5 + 0.5 * (ui.input(|i| i.time) * std::f64::consts::TAU / 1.4).sin() as f32;
     let fill = theme::CONTROL_BG.lerp_to_gamma(theme::TEXT_MUTED, 0.08 + 0.14 * pulse);
-    let radius = CornerRadius::same(theme::CONTROL_RADIUS);
-    for row in 0..rows {
-        let top = rect.top() + row as f32 * step;
-        let mid = top + theme::CONTROL_HEIGHT / 2.0;
-        let caption =
-            Rect::from_min_size(pos2(rect.left(), mid - 6.0), vec2(LABEL_WIDTH * 0.7, 12.0));
-        let field = Rect::from_min_max(
-            pos2(rect.left() + LABEL_WIDTH + COLUMN_GAP, top),
-            pos2(rect.right(), top + theme::CONTROL_HEIGHT),
-        );
-        ui.painter().rect_filled(caption, radius, fill);
-        ui.painter().rect_filled(field, radius, fill);
+    let painter = ui.painter();
+    for (rect, block) in blocks {
+        match block {
+            Block::Control => {
+                painter.rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), fill);
+            }
+            Block::Text => {
+                let lines = (rect.height() / LINE).round().max(1.0) as usize;
+                let pitch = rect.height() / lines as f32;
+                for line in 0..lines {
+                    let last = line + 1 == lines && lines > 1;
+                    let width = rect.width() * if last { 0.6 } else { 1.0 };
+                    let mid = rect.top() + pitch * (line as f32 + 0.5);
+                    let bar = Rect::from_min_size(pos2(rect.left(), mid - 5.0), vec2(width, 10.0));
+                    painter.rect_filled(bar, CornerRadius::same(5), fill);
+                }
+            }
+        }
     }
     ui.ctx().request_repaint();
 }
@@ -739,7 +807,11 @@ fn form_row<R>(ui: &mut Ui, label: &str, field: impl FnOnce(&mut Ui, Id) -> R) -
             .allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
                 ui.set_min_size(size);
                 let text = RichText::new(label).size(theme::CONTROL_TEXT_SIZE);
-                ui.add(Label::new(text).wrap()).id
+                let caption = ui.add(Label::new(text).wrap());
+                if !label.is_empty() {
+                    mark(ui, caption.rect, Block::Text);
+                }
+                caption.id
             })
             .inner;
         ui.vertical(|ui| {
@@ -756,7 +828,8 @@ fn hint(ui: &mut Ui, text: &str) {
     let text = RichText::new(text)
         .size(theme::HINT_SIZE)
         .color(theme::TEXT_SECONDARY);
-    ui.add(Label::new(text).wrap());
+    let label = ui.add(Label::new(text).wrap());
+    mark(ui, label.rect, Block::Text);
 }
 
 /// 測試結果的一行「名稱　內容」。

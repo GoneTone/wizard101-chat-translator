@@ -1232,3 +1232,31 @@ fn later_loads_never_show_the_placeholder() {
     assert_eq!(list_count(&h), 1);
     assert!(has_label(&h, &tr("field.service_name")));
 }
+
+/// 這一幀畫出的實心矩形。
+fn painted_rects(h: &Harness<State>) -> Vec<egui::Rect> {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(rect) => Some(rect.rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn placeholder_blocks_sit_where_the_fields_appear() {
+    let mut h = opening_harness(form(filled("openai"), vec![]));
+    let blocks = painted_rects(&h);
+    settle(&mut h);
+    for label in [tr("field.service_name"), tr("button.test")] {
+        let field = h.get_by_label(&label).rect();
+        assert!(
+            blocks
+                .iter()
+                .any(|b| (b.center() - field.center()).length() < 1.0),
+            "{label}: {field:?} not in {blocks:?}"
+        );
+    }
+}
