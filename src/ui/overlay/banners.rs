@@ -3,8 +3,7 @@
 //! 存的是文案 key 與參數、`Release`，每幀才翻譯，換語言後自然跟著變。
 
 use eframe::egui::{
-    CursorIcon, Event, FontId, Id, OpenUrl, PointerButton, Pos2, Rect, Role, Sense, Ui, UiBuilder,
-    WidgetInfo, pos2, vec2,
+    CursorIcon, FontId, Id, OpenUrl, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
 };
 
 use crate::i18n::t;
@@ -20,7 +19,6 @@ use crate::ui::overlay::frame::{GRIP_SIZE, edge_under};
 use crate::ui::overlay::message_list::TEXT_MARGIN;
 use crate::ui::palette::{BG_UPDATE, FG_ERROR, FG_UPDATE, bar_alpha};
 use crate::ui::richtext;
-use crate::ui::text_select::copy_text;
 
 const BANNER_PT: f32 = 10.0;
 const CLOSE_PT: f32 = 9.0;
@@ -136,7 +134,13 @@ impl Banners {
                 child.disable();
             }
             richtext::show(&mut child, &text, FG_ERROR, false);
-            self.copy_menu(ui, area, &text);
+            self.menu.copy_on_right_click(
+                ui,
+                Id::unique("overlay_banner_copy_menu"),
+                area,
+                &text,
+                "error banner",
+            );
             self.error_rect = Some(area.intersect(clip));
             let height = child.min_rect().height();
             if height != self.error_height {
@@ -162,20 +166,6 @@ impl Banners {
     }
 
     /// 貼著 `rect` 底部畫，回傳這列的上緣。
-    /// 在錯誤橫幅 `area` 上按右鍵開「複製」選單，點了就複製整段（去掉每行開頭的 ⚠）。
-    fn copy_menu(&mut self, ui: &Ui, area: Rect, text: &str) {
-        if self.menu.show(ui, Id::unique("overlay_banner_copy_menu")) {
-            let plain: Vec<&str> = text
-                .lines()
-                .map(|line| line.trim_start_matches('⚠').trim_start())
-                .collect();
-            copy_text(ui.ctx(), &plain.join("\n"), "[ui]", "error banner");
-        }
-        if let Some(at) = right_click_in(ui, area) {
-            self.menu.open(ui, at);
-        }
-    }
-
     fn update_row(
         &mut self,
         ui: &mut Ui,
@@ -258,21 +248,6 @@ impl Banners {
 }
 
 /// 游標或按壓起點壓在外框的縮放帶上：橫幅讓給縮放，不換手指游標、不開連結。
-/// 這一幀在 `area` 內按下右鍵的位置。
-fn right_click_in(ui: &Ui, area: Rect) -> Option<Pos2> {
-    ui.input(|i| {
-        i.events.iter().rev().find_map(|e| match e {
-            Event::PointerButton {
-                pos,
-                button: PointerButton::Secondary,
-                pressed: true,
-                ..
-            } if area.contains(*pos) => Some(*pos),
-            _ => None,
-        })
-    })
-}
-
 fn over_resize_band(ui: &Ui) -> bool {
     let window = ui.max_rect();
     ui.input(|i| {
@@ -290,6 +265,7 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+    use crate::ui::copy_menu::testing::{copy_by_right_click, text_rect};
     use crate::ui::fonts_egui;
     use crate::ui::geometry::EDGE;
     use crate::ui::text_select::opened_urls;
@@ -355,31 +331,6 @@ mod tests {
         }
     }
 
-    /// 這一幀畫出、內容含 `needle` 的文字範圍。
-    fn text_rect(harness: &Harness<State>, needle: &str) -> Option<Rect> {
-        harness.output().shapes.iter().find_map(|c| match &c.shape {
-            egui::Shape::Text(t) if t.galley.text().contains(needle) => {
-                Some(Rect::from_min_size(t.pos, t.galley.size()))
-            }
-            _ => None,
-        })
-    }
-
-    fn press(harness: &mut Harness<State>, pos: egui::Pos2, button: egui::PointerButton) {
-        harness.hover_at(pos);
-        harness.step();
-        for pressed in [true, false] {
-            harness.event(egui::Event::PointerButton {
-                pos,
-                button,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            });
-        }
-        harness.step();
-        harness.step();
-    }
-
     #[test]
     fn right_clicking_the_error_banner_copies_it_without_the_warning_sign() {
         let mut banners = Banners::default();
@@ -390,34 +341,7 @@ mod tests {
         );
         let mut harness = harness(banners);
         let banner = text_rect(&harness, message).expect("banner painted");
-        press(
-            &mut harness,
-            banner.center(),
-            egui::PointerButton::Secondary,
-        );
-        let menu = text_rect(&harness, &t("menu.copy", &[])).expect("copy menu shown");
-        // 複製指令只在點下的那一幀輸出：按完只跑一幀就檢查
-        harness.hover_at(menu.center());
-        harness.step();
-        for pressed in [true, false] {
-            harness.event(egui::Event::PointerButton {
-                pos: menu.center(),
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            });
-        }
-        harness.step();
-        let copied: Vec<String> = harness
-            .output()
-            .platform_output
-            .commands
-            .iter()
-            .filter_map(|c| match c {
-                egui::OutputCommand::CopyText(text) => Some(text.clone()),
-                _ => None,
-            })
-            .collect();
+        let copied = copy_by_right_click(&mut harness, banner.center());
         let shown = localized(
             "notice.config_error_detail",
             &[("status", "400".into()), ("message", message.into())],

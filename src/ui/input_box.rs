@@ -1,4 +1,4 @@
-//! 翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉。
+//! 翻譯輸入框：打字（任何語言）→ Enter 翻成遊戲語言、Esc 關閉；錯誤訊息可右鍵複製。
 //!
 //! 這裡只有狀態、內容與擺放幾何；視窗由 App 托管。遊戲聊天輸入框開著就貼在它正下方、同寬，
 //! 沒開（熱鍵呼出）就貼在游標處。
@@ -9,13 +9,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use eframe::egui::text::CCursor;
 use eframe::egui::text_edit::TextEditState;
 use eframe::egui::text_selection::CCursorRange;
-use eframe::egui::{self, Color32, Event, FontId, ImeEvent, Key, Margin, TextEdit, Ui};
+use eframe::egui::{self, Color32, Event, FontId, Id, ImeEvent, Key, Margin, TextEdit, Ui};
 use tokio_util::sync::CancellationToken;
 
 use crate::i18n::t;
 use crate::input::dispatch::InputBoxControl;
 use crate::logs::log;
 use crate::py::pystr;
+use crate::ui::copy_menu::CopyMenu;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::{Rect, anchored_position};
 use crate::ui::palette::{FG_ERROR, FG_HINT, FG_TRANSLATED, FG_UPDATE, hex};
@@ -66,6 +67,8 @@ pub struct InputBox {
     text: String,
     translating: bool,
     error: Option<String>,
+    /// 錯誤訊息的右鍵「複製」選單。
+    menu: CopyMenu,
     composing: bool,
     cursor_to_end: bool,
     focus_request: bool,
@@ -96,6 +99,7 @@ impl InputBox {
             text: String::new(),
             translating: false,
             error: None,
+            menu: CopyMenu::default(),
             composing: false,
             cursor_to_end: false,
             focus_request: false,
@@ -170,7 +174,7 @@ impl InputBox {
                 _ => true,
             });
         });
-        egui::Frame::new()
+        let status_rect = egui::Frame::new()
             .fill(BG)
             .inner_margin(Margin {
                 left: 8,
@@ -199,7 +203,10 @@ impl InputBox {
                 let (status, color) = self.status();
                 ui.style_mut().override_font_id = Some(FontId::proportional(tk_pt(9.0)));
                 ui.visuals_mut().hyperlink_color = FG_UPDATE;
-                richtext::show(ui, &status, color, false);
+                let status_rect = ui
+                    .scope(|ui| richtext::show(ui, &status, color, false))
+                    .response
+                    .rect;
                 let (enter, escape) =
                     ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
                 if escape {
@@ -211,7 +218,19 @@ impl InputBox {
                 if self.open && !self.translating && !response.has_focus() {
                     response.request_focus();
                 }
-            });
+                status_rect
+            })
+            .inner;
+        match &self.error {
+            Some(error) => self.menu.copy_on_right_click(
+                ui,
+                Id::unique("input_box_copy_menu"),
+                status_rect,
+                error,
+                "input box error",
+            ),
+            None => self.menu.close(),
+        }
     }
 
     /// `show()` 之後回一次 true：宿主要把視窗搶到前景。
@@ -363,6 +382,7 @@ mod tests {
     use egui_kittest::kittest::{NodeT, Queryable};
 
     use super::*;
+    use crate::ui::copy_menu::testing::{copy_by_right_click, text_rect};
     use crate::ui::fonts_egui;
 
     const AREA: Rect = (0, 0, 1920, 1040);
@@ -772,6 +792,24 @@ mod tests {
         harness.step();
         assert_eq!(harness.state().f.requests.borrow().len(), 1);
         assert!(!harness.state().f.input.is_open());
+    }
+
+    #[test]
+    fn right_clicking_the_error_copies_it() {
+        let mut harness = opened_harness();
+        type_text(&mut harness, "hello");
+        harness.key_press(Key::Enter);
+        harness.step();
+        let session = harness.state().f.requests.borrow()[0].session;
+        let error = t("input.failed", &[("error", "HTTP 404: model: nope")]);
+        harness
+            .state_mut()
+            .f
+            .input
+            .finish(session, Err(error.clone()));
+        harness.run_steps(2);
+        let shown = text_rect(&harness, "HTTP 404").expect("error painted");
+        assert_eq!(copy_by_right_click(&mut harness, shown.center()), [error]);
     }
 
     #[test]

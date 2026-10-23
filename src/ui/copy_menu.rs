@@ -1,9 +1,10 @@
-//! 只有「複製」一項的右鍵選單：浮在視窗最上層、夾在視窗內，overlay 與框選結果卡共用。
+//! 只有「複製」一項的右鍵選單：浮在視窗最上層、夾在視窗內，overlay、框選結果卡與翻譯輸入框共用。
 
 use std::sync::Arc;
 
 use eframe::egui::{
-    Area, Color32, FontId, Galley, Id, Order, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2,
+    Area, Color32, Event, FontId, Galley, Id, Order, PointerButton, Pos2, Rect, Sense, Stroke,
+    StrokeKind, Ui, Vec2,
 };
 
 use crate::i18n::t;
@@ -11,6 +12,7 @@ use crate::logs::log;
 use crate::ui::fonts_egui::tk_pt;
 use crate::ui::geometry::clamped_position;
 use crate::ui::palette::{BAR, FG_BAR, FG_TRANSLATED, GRIP, SELECT_BG, TAB_ACCENT};
+use crate::ui::text_select::copy_text;
 
 const PAD_X: f32 = 10.0;
 const PAD_Y: f32 = 5.0;
@@ -118,7 +120,7 @@ fn draw(ui: &Ui, id: Id, at: Pos2) -> MenuOutcome {
     }
 }
 
-/// 右鍵「複製」選單的開關狀態：位置與範圍；overlay 與框選結果卡各持一份。
+/// 右鍵「複製」選單的開關狀態：位置與範圍；每個用到的視窗各持一份。
 #[derive(Default)]
 pub struct CopyMenu {
     at: Option<Pos2>,
@@ -170,5 +172,88 @@ impl CopyMenu {
             MenuOutcome::Dismissed => self.close(),
         }
         false
+    }
+
+    /// 錯誤訊息用：在 `area` 上按右鍵開選單，點「複製」就複製整段 `text`（去掉每行開頭的 ⚠）。
+    ///
+    /// 每幀都要呼叫；`ui` 要是整個視窗的 Ui，`kind` 記在 log 裡。
+    pub fn copy_on_right_click(&mut self, ui: &Ui, id: Id, area: Rect, text: &str, kind: &str) {
+        if self.show(ui, id) {
+            let plain: Vec<&str> = text
+                .lines()
+                .map(|line| line.trim_start_matches('⚠').trim_start())
+                .collect();
+            copy_text(ui.ctx(), &plain.join("\n"), "[ui]", kind);
+        }
+        if let Some(at) = right_click_in(ui, area) {
+            self.open(ui, at);
+        }
+    }
+}
+
+/// 這一幀在 `area` 內按下右鍵的位置。
+pub fn right_click_in(ui: &Ui, area: Rect) -> Option<Pos2> {
+    ui.input(|i| {
+        i.events.iter().rev().find_map(|e| match e {
+            Event::PointerButton {
+                pos,
+                button: PointerButton::Secondary,
+                pressed: true,
+                ..
+            } if area.contains(*pos) => Some(*pos),
+            _ => None,
+        })
+    })
+}
+
+/// 測試用：按右鍵開選單、點「複製」，讀出剪貼簿指令。
+#[cfg(test)]
+pub mod testing {
+    use eframe::egui::{self, Pos2, Rect};
+    use egui_kittest::Harness;
+
+    use crate::i18n::t;
+
+    /// 這一幀畫出、內容含 `needle` 的文字範圍。
+    pub fn text_rect<S>(harness: &Harness<'_, S>, needle: &str) -> Option<Rect> {
+        harness.output().shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) if t.galley.text().contains(needle) => {
+                Some(Rect::from_min_size(t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+    }
+
+    fn click<S>(harness: &mut Harness<'_, S>, pos: Pos2, button: egui::PointerButton) {
+        harness.hover_at(pos);
+        harness.step();
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton {
+                pos,
+                button,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        harness.step();
+    }
+
+    /// 在 `at` 按右鍵、再點選單上的「複製」，回傳這次複製出的文字。
+    pub fn copy_by_right_click<S>(harness: &mut Harness<'_, S>, at: Pos2) -> Vec<String> {
+        click(harness, at, egui::PointerButton::Secondary);
+        harness.step();
+        let menu = text_rect(harness, &t("menu.copy", &[])).expect("copy menu shown");
+        // 複製指令只在點下的那一幀輸出：按完只跑一幀就檢查
+        click(harness, menu.center(), egui::PointerButton::Primary);
+        harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
     }
 }
