@@ -28,7 +28,7 @@ async fn mount_reply(server: &MockServer, text: &str) {
 }
 
 async fn chat(base_url: &str) -> String {
-    let client = OpenAiCompatClient::new(base_url, "", "m", true, false);
+    let client = OpenAiCompatClient::new(base_url, "", "m", true, "auto", false);
     let turns = [Turn::user("[A] hi")];
     client.chat(request(&turns), None).await.unwrap()
 }
@@ -78,7 +78,7 @@ async fn child_requests_through_the_env_proxy() {
 async fn loopback_clients_log_that_no_proxy_is_used() {
     capture_logs();
     let url = crate::stream_server::closed_url().await;
-    let _client = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let _client = OpenAiCompatClient::new(&url, "", "m", true, "auto", false);
     let line = format!("[net] {url} is a loopback address; not using a proxy");
     assert!(log_text().contains(&line), "{line}");
 }

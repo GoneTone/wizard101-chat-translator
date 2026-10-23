@@ -169,6 +169,7 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
             key,
             model,
             spec.thinking,
+            effort,
             true,
         )),
         _ => Client::OpenAiCompat(OpenAiCompatClient::new(
@@ -176,6 +177,7 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
             key,
             model,
             spec.thinking,
+            effort,
             false,
         )),
     }

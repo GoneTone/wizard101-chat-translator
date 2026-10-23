@@ -53,7 +53,11 @@ fn rejects(param: &str) -> ResponseTemplate {
 }
 
 fn client(server: &MockServer, thinking: bool, official: bool) -> OpenAiCompatClient {
-    OpenAiCompatClient::new(&server.uri(), "", "m", thinking, official)
+    OpenAiCompatClient::new(&server.uri(), "", "m", thinking, "auto", official)
+}
+
+fn effort_client(server: &MockServer, effort: &str, official: bool) -> OpenAiCompatClient {
+    OpenAiCompatClient::new(&server.uri(), "", "m", true, effort, official)
 }
 
 async fn chat(c: &OpenAiCompatClient) -> Result<String, TranslateError> {
@@ -117,7 +121,7 @@ async fn think_blocks_are_stripped() {
 async fn sends_bearer_only_with_key() {
     let server = MockServer::start().await;
     mount_chat(&server, ok_stream("x")).await;
-    let keyed = OpenAiCompatClient::new(&server.uri(), "sk-secret", "m", true, false);
+    let keyed = OpenAiCompatClient::new(&server.uri(), "sk-secret", "m", true, "auto", false);
     chat(&keyed).await.unwrap();
     chat(&client(&server, true, false)).await.unwrap();
     let requests = server.received_requests().await.unwrap();
@@ -189,6 +193,49 @@ async fn rejected_400_naming_param_drops_it_and_retries_once() {
     assert_eq!(sent.len(), 2);
     assert!(sent[0].get("reasoning_effort").is_some());
     assert!(sent[1].get("reasoning_effort").is_none());
+}
+
+#[tokio::test]
+async fn thinking_on_level_sends_reasoning_effort() {
+    for official in [true, false] {
+        let server = MockServer::start().await;
+        mount_chat(&server, ok_stream("x")).await;
+        chat(&effort_client(&server, "high", official))
+            .await
+            .unwrap();
+        let body = &bodies(&server).await[0];
+        assert_eq!(body["reasoning_effort"], "high", "official={official}");
+        for key in ["chat_template_kwargs", "think", "enable_thinking"] {
+            assert!(body.get(key).is_none(), "{key} official={official}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn thinking_on_auto_sends_no_reasoning_effort() {
+    let server = MockServer::start().await;
+    mount_chat(&server, ok_stream("x")).await;
+    chat(&effort_client(&server, "auto", true)).await.unwrap();
+    assert!(bodies(&server).await[0].get("reasoning_effort").is_none());
+}
+
+#[tokio::test]
+async fn rejected_user_effort_is_an_error() {
+    let server = MockServer::start().await;
+    mount_chat_once(&server, rejects("reasoning_effort")).await;
+    mount_chat(&server, ok_stream("x")).await;
+    let result = chat(&effort_client(&server, "minimal", true)).await;
+    assert!(
+        matches!(
+            result,
+            Err(TranslateError::Config {
+                status: Some(400),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(bodies(&server).await.len(), 1);
 }
 
 #[tokio::test]
@@ -348,7 +395,7 @@ async fn mid_stream_rate_limit_is_offline_429() {
 
 #[tokio::test]
 async fn unparsable_base_url_is_a_config_error_not_offline() {
-    let c = OpenAiCompatClient::new("localhost:1234", "sk-secret", "m", true, false);
+    let c = OpenAiCompatClient::new("localhost:1234", "sk-secret", "m", true, "auto", false);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Config { status: None, detail } if detail.contains("builder error")),
@@ -417,7 +464,7 @@ async fn status_4xx_is_config_with_detail() {
 #[tokio::test]
 async fn connection_failure_is_offline_without_status() {
     let url = stream_server::closed_url().await;
-    let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "sk-secret", "m", true, "auto", false);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty())
@@ -431,7 +478,7 @@ async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
     let (url, server) =
         stream_server::stalled_stream(format!("data: {}\n\n", delta("partial")), token.clone())
             .await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m", true, "auto", false);
     let result = c.chat(request(&[Turn::user("hi")]), Some(&token)).await;
     assert_eq!(result, Err(TranslateError::Cancelled));
     assert!(
@@ -443,7 +490,7 @@ async fn cancel_mid_stream_returns_cancelled_and_closes_connection() {
 #[tokio::test]
 async fn stream_dropped_mid_response_is_offline() {
     let url = stream_server::dropped_stream(format!("data: {}\n\n", delta("partial"))).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m", true, "auto", false);
     let error = chat(&c).await.unwrap_err();
     assert!(
         matches!(&error, TranslateError::Offline { status: None, detail, .. } if !detail.is_empty()),
@@ -539,7 +586,7 @@ async fn logs_prompt_cache_usage() {
         ]),
     )
     .await;
-    let c = OpenAiCompatClient::new(&server.uri(), "", "cache-marker-model", true, true);
+    let c = OpenAiCompatClient::new(&server.uri(), "", "cache-marker-model", true, "auto", true);
     chat(&c).await.unwrap();
     let text = log_text();
     assert!(
@@ -631,7 +678,7 @@ async fn models_retryable_statuses_are_offline() {
 #[tokio::test]
 async fn models_connection_failure_is_offline() {
     let url = stream_server::closed_url().await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m", true, "auto", false);
     assert!(matches!(
         c.list_models().await,
         Err(TranslateError::Offline { status: None, .. })
@@ -690,7 +737,7 @@ async fn content_filter_finish_is_bad_output_with_sample() {
 async fn finish_reason_without_done_is_complete() {
     let chunk = json!({"choices": [{"delta": {"content": "譯文"}, "finish_reason": "stop"}]});
     let url = stream_server::ended_stream(format!("data: {chunk}\n\n")).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m", true, "auto", false);
     assert_eq!(chat(&c).await.unwrap(), "譯文");
 }
 
@@ -698,7 +745,7 @@ async fn finish_reason_without_done_is_complete() {
 async fn stream_ended_without_done_or_finish_reason_is_offline() {
     capture_logs();
     let url = stream_server::ended_stream(format!("data: {}\n\n", delta("半句"))).await;
-    let c = OpenAiCompatClient::new(&url, "", "m-no-done", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m-no-done", true, "auto", false);
     let error = chat(&c).await.unwrap_err();
     assert_eq!(
         error,
@@ -720,7 +767,7 @@ async fn last_line_cut_off_mid_chunk_is_offline() {
     capture_logs();
     let body = format!("data: {}\n\ndata: {{\"choices\": [{{\"del", delta("半句"));
     let url = stream_server::ended_stream(body).await;
-    let c = OpenAiCompatClient::new(&url, "", "m-mid-line", true, false);
+    let c = OpenAiCompatClient::new(&url, "", "m-mid-line", true, "auto", false);
     let error = chat(&c).await.unwrap_err();
     assert_eq!(
         error,
@@ -741,7 +788,7 @@ async fn processing_comments_longer_than_the_read_timeout_keep_the_stream_alive(
     parts.push(sse(&[delta("譯文")]));
     // 15 段註解間隔各 100 ms，合計超過 1 s 的讀取逾時；單次間隔留足餘裕免得忙碌時偶發失敗
     let url = stream_server::paced_stream(parts, Duration::from_millis(100)).await;
-    let c = OpenAiCompatClient::new(&url, "", "m", true, false)
+    let c = OpenAiCompatClient::new(&url, "", "m", true, "auto", false)
         .with_timeouts(Duration::from_secs(1), common::WAIT);
     assert_eq!(chat(&c).await.unwrap(), "譯文");
 }
@@ -752,7 +799,7 @@ async fn processing_comments_past_the_total_timeout_are_offline() {
     let comment = ": OPENROUTER PROCESSING\n\n".to_owned();
     let url =
         stream_server::keep_alive_stream(comment.clone(), comment, Duration::from_millis(50)).await;
-    let c = OpenAiCompatClient::new(&url, "", "m-total-mid-body", true, false)
+    let c = OpenAiCompatClient::new(&url, "", "m-total-mid-body", true, "auto", false)
         .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await
@@ -774,7 +821,7 @@ async fn processing_comments_past_the_total_timeout_are_offline() {
 async fn total_timeout_before_the_response_headers_is_offline() {
     capture_logs();
     let url = stream_server::silent_server().await;
-    let c = OpenAiCompatClient::new(&url, "", "m-total-headers", true, false)
+    let c = OpenAiCompatClient::new(&url, "", "m-total-headers", true, "auto", false)
         .with_timeouts(TIMEOUT, Duration::from_millis(300));
     let result = tokio::time::timeout(common::WAIT, chat(&c))
         .await

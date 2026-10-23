@@ -448,7 +448,7 @@ async fn openai_429_retry_after_header_delays_the_next_pool_retry() {
         )
         .mount(&server)
         .await;
-    let client = OpenAiCompatClient::new(&server.uri(), "", "m", true, false);
+    let client = OpenAiCompatClient::new(&server.uri(), "", "m", true, "auto", false);
     let turns = [Turn::user("[A] hi")];
     let error = client
         .chat(crate::stream_server::request(&turns), None)
