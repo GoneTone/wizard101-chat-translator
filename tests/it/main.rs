@@ -7,6 +7,7 @@ mod common;
 mod stream_server;
 
 mod app_main;
+mod build_embed;
 mod cache_golden;
 mod capture;
 mod capture_golden;

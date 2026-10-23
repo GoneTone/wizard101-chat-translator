@@ -20,39 +20,8 @@ pub const SOURCE_LANGUAGE: &str = "zh-TW";
 const DEFAULT_LANGUAGE: &str = "en-US";
 const MINIMUM_COVERAGE: f64 = 0.6;
 
-/// 編進 exe 的語言檔，依語言碼字母序。
-const CATALOG_SOURCES: &[(&str, &str)] = &[
-    ("af-ZA", include_str!("af-ZA.json")),
-    ("ar-SA", include_str!("ar-SA.json")),
-    ("ca-ES", include_str!("ca-ES.json")),
-    ("cs-CZ", include_str!("cs-CZ.json")),
-    ("da-DK", include_str!("da-DK.json")),
-    ("de-DE", include_str!("de-DE.json")),
-    ("el-GR", include_str!("el-GR.json")),
-    ("en-US", include_str!("en-US.json")),
-    ("es-ES", include_str!("es-ES.json")),
-    ("fi-FI", include_str!("fi-FI.json")),
-    ("fr-FR", include_str!("fr-FR.json")),
-    ("he-IL", include_str!("he-IL.json")),
-    ("hu-HU", include_str!("hu-HU.json")),
-    ("it-IT", include_str!("it-IT.json")),
-    ("ja-JP", include_str!("ja-JP.json")),
-    ("ko-KR", include_str!("ko-KR.json")),
-    ("nl-NL", include_str!("nl-NL.json")),
-    ("no-NO", include_str!("no-NO.json")),
-    ("pl-PL", include_str!("pl-PL.json")),
-    ("pt-BR", include_str!("pt-BR.json")),
-    ("pt-PT", include_str!("pt-PT.json")),
-    ("ro-RO", include_str!("ro-RO.json")),
-    ("ru-RU", include_str!("ru-RU.json")),
-    ("sr-SP", include_str!("sr-SP.json")),
-    ("sv-SE", include_str!("sv-SE.json")),
-    ("tr-TR", include_str!("tr-TR.json")),
-    ("uk-UA", include_str!("uk-UA.json")),
-    ("vi-VN", include_str!("vi-VN.json")),
-    ("zh-CN", include_str!("zh-CN.json")),
-    ("zh-TW", include_str!("zh-TW.json")),
-];
+/// 編進 exe 的語言檔，依語言碼字母序；清單由 `build.rs` 掃描本資料夾產生，新增語系只要放檔案。
+const CATALOG_SOURCES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/i18n_catalogs.rs"));
 
 type Catalog = HashMap<String, String>;
 
@@ -406,7 +375,6 @@ pub fn detect_system_language() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn every_embedded_catalog_parses_without_duplicates() {
@@ -441,24 +409,6 @@ mod tests {
             names.insert(name);
         }
         names
-    }
-
-    #[test]
-    fn every_language_file_is_registered() {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/i18n");
-        let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
-            .unwrap()
-            .filter_map(|e| {
-                let name = e.unwrap().file_name().to_string_lossy().into_owned();
-                name.strip_suffix(".json").map(str::to_owned)
-            })
-            .collect();
-        on_disk.sort();
-        let registered: Vec<&str> = CATALOG_SOURCES.iter().map(|(code, _)| *code).collect();
-        assert_eq!(
-            on_disk, registered,
-            "add new language files to CATALOG_SOURCES"
-        );
     }
 
     #[test]
