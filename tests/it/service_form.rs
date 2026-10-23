@@ -12,6 +12,7 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::translation::clients::ModelInfo;
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 use wizard101_chat_translator::translation::translator::{TEST_SAMPLE, TestOutcome};
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
@@ -93,7 +94,7 @@ fn translated(text: &str, ms: u64) -> Result<TestOutcome, TranslateError> {
     })
 }
 
-fn refresh_models(h: &mut Harness<State>, result: Result<Vec<String>, TranslateError>) {
+fn refresh_models(h: &mut Harness<State>, result: Result<Vec<ModelInfo>, TranslateError>) {
     click(h, &tr("button.refresh"));
     let round = h.state().env.lists.borrow().last().expect("list started").0;
     h.state_mut()
@@ -102,8 +103,8 @@ fn refresh_models(h: &mut Harness<State>, result: Result<Vec<String>, TranslateE
     run(h);
 }
 
-fn names(items: &[&str]) -> Vec<String> {
-    items.iter().map(|s| (*s).to_owned()).collect()
+fn names(items: &[&str]) -> Vec<ModelInfo> {
+    items.iter().copied().map(ModelInfo::bare).collect()
 }
 
 /// 清掉之前的回報，跑一幀，回傳這一幀有沒有回報 `pick`。

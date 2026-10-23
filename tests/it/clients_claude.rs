@@ -13,7 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT,
+    ChatRequest, ClaudeClient, MAX_TOKENS_REGION, MAX_TOKENS_THINKING, TIMEOUT, ThinkingCaps,
 };
 use wizard101_chat_translator::translation::errors::{TranslateError, friendly_error};
 
@@ -605,7 +605,7 @@ async fn claude_models_paginate() {
         .mount(&server)
         .await;
     assert_eq!(
-        client(&server, "auto").list_models().await.unwrap(),
+        common::model_ids(client(&server, "auto").list_models().await.unwrap()),
         ["a", "b", "c"]
     );
     let received = server.received_requests().await.unwrap();
@@ -817,4 +817,40 @@ async fn claude_ok_status_with_a_json_error_body_reports_its_message() {
         matches!(&result, Err(TranslateError::Unexpected(m)) if m.contains("insufficient quota")),
         "{result:?}"
     );
+}
+
+#[tokio::test]
+async fn claude_models_carry_thinking_caps() {
+    let level = |on: bool| json!({"supported": on});
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": [
+                {"id": "always", "capabilities": {
+                    "thinking": {"supported": true, "types": {
+                        "adaptive": level(true), "disabled": level(false), "enabled": level(false)}},
+                    "effort": {"supported": true, "low": level(true), "medium": level(true),
+                               "high": level(true), "xhigh": level(false), "max": level(false)}}},
+                {"id": "no-effort", "capabilities": {
+                    "thinking": {"supported": true, "types": {"disabled": level(true)}},
+                    "effort": {"supported": false, "low": level(false)}}},
+                {"id": "bare"}
+            ],
+            "has_more": false})))
+        .mount(&server)
+        .await;
+    let models = client(&server, "auto").list_models().await.unwrap();
+    let caps = |id: &str| models.iter().find(|m| m.id == id).unwrap().thinking.clone();
+    assert_eq!(
+        caps("always"),
+        ThinkingCaps {
+            supported: Some(true),
+            can_disable: Some(false),
+            efforts: Some(vec!["low".into(), "medium".into(), "high".into()]),
+        }
+    );
+    assert_eq!(caps("no-effort").efforts, Some(vec![]));
+    assert_eq!(caps("no-effort").can_disable, Some(true));
+    assert_eq!(caps("bare"), ThinkingCaps::default());
 }

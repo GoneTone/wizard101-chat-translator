@@ -11,7 +11,9 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{GeminiClient, MAX_TOKENS_THINKING, TIMEOUT};
+use wizard101_chat_translator::translation::clients::{
+    GeminiClient, MAX_TOKENS_THINKING, TIMEOUT, ThinkingCaps,
+};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 const STREAM_PATH: &str = "/v1beta/models/gemini-x:streamGenerateContent";
@@ -228,7 +230,7 @@ async fn gemini_models_filtered_and_prefix_stripped() {
         .mount(&server)
         .await;
     assert_eq!(
-        client(&server, "auto").list_models().await.unwrap(),
+        common::model_ids(client(&server, "auto").list_models().await.unwrap()),
         ["gemini-a-pro", "gemini-x-flash"]
     );
     let received = server.received_requests().await.unwrap();
@@ -557,4 +559,34 @@ async fn gemini_keep_alive_comments_past_the_total_timeout_are_offline() {
         text.contains("[translate] request timed out: provider=gemini model=gemini-total-timeout"),
         "{text}"
     );
+}
+
+#[tokio::test]
+async fn gemini_models_carry_thinking_flag() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1beta/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [
+            {"name": "models/no-think", "thinking": false, "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/thinks", "thinking": true, "supportedGenerationMethods": ["generateContent"]},
+            {"name": "models/silent", "supportedGenerationMethods": ["generateContent"]}]})))
+        .mount(&server)
+        .await;
+    let models = client(&server, "auto").list_models().await.unwrap();
+    let caps = |id: &str| models.iter().find(|m| m.id == id).unwrap().thinking.clone();
+    assert_eq!(
+        caps("no-think"),
+        ThinkingCaps {
+            supported: Some(false),
+            ..Default::default()
+        }
+    );
+    assert_eq!(
+        caps("thinks"),
+        ThinkingCaps {
+            supported: Some(true),
+            ..Default::default()
+        }
+    );
+    assert_eq!(caps("silent"), ThinkingCaps::default());
 }

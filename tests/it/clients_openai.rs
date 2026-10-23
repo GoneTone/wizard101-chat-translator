@@ -13,7 +13,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{
-    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, TIMEOUT, build_client,
+    ChatBackend, Client, MAX_TOKENS, MAX_TOKENS_THINKING, OpenAiCompatClient, TIMEOUT,
+    ThinkingCaps, build_client,
 };
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::translator::list_models;
@@ -517,10 +518,9 @@ async fn models_sorted() {
     let data =
         json!({"data": [{"id": "b"}, {"id": "a"}, {"id": ""}, {"name": "x"}, "junk", {"id": "c"}]});
     mount_models(&server, ResponseTemplate::new(200).set_body_json(data)).await;
-    assert_eq!(
-        client(&server, true, false).list_models().await.unwrap(),
-        ["a", "b", "c"]
-    );
+    let models = client(&server, true, false).list_models().await.unwrap();
+    assert!(models.iter().all(|m| m.thinking == ThinkingCaps::default()));
+    assert_eq!(common::model_ids(models), ["a", "b", "c"]);
 }
 
 #[tokio::test]
@@ -712,8 +712,8 @@ async fn list_models_goes_through_the_built_client() {
         ..ServiceSpec::default()
     };
     assert_eq!(
-        list_models(&spec).await.unwrap(),
-        vec!["a-model".to_string(), "b-model".to_string()]
+        common::model_ids(list_models(&spec).await.unwrap()),
+        ["a-model", "b-model"]
     );
 }
 

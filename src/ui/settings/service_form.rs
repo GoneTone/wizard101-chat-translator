@@ -21,6 +21,7 @@ use crate::config::services::{
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
+use crate::translation::clients::ModelInfo;
 use crate::translation::errors::{TranslateError, friendly_text};
 use crate::translation::translator::{TEST_SAMPLE, TestOutcome};
 
@@ -62,7 +63,9 @@ pub struct ServiceForm {
     thinking: bool,
     effort: String,
     key_revealed: bool,
-    models: Vec<String>,
+    models: Vec<ModelInfo>,
+    /// `models` 的 id，給模型下拉用。
+    model_ids: Vec<String>,
     model_status: ModelStatus,
     models_round: Round,
     /// 抓清單那一刻的服務商與網址，log 用。
@@ -104,6 +107,7 @@ impl ServiceForm {
             effort,
             key_revealed: false,
             models: Vec::new(),
+            model_ids: Vec::new(),
             model_status: ModelStatus::Idle,
             models_round: Round::new("model list"),
             models_request: Default::default(),
@@ -163,7 +167,7 @@ impl ServiceForm {
             .and_then(Value::as_str)
             .unwrap_or(EFFORT_AUTO)
             .to_owned();
-        self.models.clear();
+        self.set_models(Vec::new());
         self.model_status = ModelStatus::Idle;
         self.models_round.invalidate();
         self.void_test();
@@ -336,7 +340,7 @@ impl ServiceForm {
                     ui.spacing_mut().combo_width =
                         (ui.available_width() - reserved - gap).max(80.0);
                     let combo = ui.make_persistent_id("model");
-                    editable_combo(ui, combo, &mut self.model, &self.models, true)
+                    editable_combo(ui, combo, &mut self.model, &self.model_ids, true)
                         .labelled_by(label);
                     let busy = self.models_round.busy();
                     let text = t(
@@ -500,15 +504,21 @@ impl ServiceForm {
         env.list_models(round, spec);
     }
 
-    fn listed(&mut self, result: &Result<Vec<String>, TranslateError>) {
+    fn set_models(&mut self, models: Vec<ModelInfo>) {
+        self.model_ids = models.iter().map(|m| m.id.clone()).collect();
+        self.models = models;
+    }
+
+    fn listed(&mut self, result: &Result<Vec<ModelInfo>, TranslateError>) {
         let (provider, base_url) = &self.models_request;
         match result {
             Ok(models) => {
+                let with_caps = models.iter().filter(|m| m.thinking.is_known()).count();
                 log(format!(
-                    "[settings] model list fetched (provider={provider}, count={})",
+                    "[settings] model list fetched (provider={provider}, count={},                      with_thinking_caps={with_caps})",
                     models.len()
                 ));
-                self.models.clone_from(models);
+                self.set_models(models.clone());
                 self.model_status = ModelStatus::Found(models.len());
             }
             Err(e) => {
@@ -517,7 +527,7 @@ impl ServiceForm {
                 log(format!(
                     "[settings] model list {reason} (provider={provider}, base_url={base_url}): {e}"
                 ));
-                self.models.clear();
+                self.set_models(Vec::new());
                 self.model_status = if unsupported {
                     ModelStatus::NoList
                 } else {

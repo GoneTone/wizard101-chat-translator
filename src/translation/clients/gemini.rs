@@ -9,9 +9,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked, cancellable,
-    chunk_error, connection_error, count_of, finish_text, http_client, incomplete_stream,
-    parse_object, request_error, response_failure, secret_header, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, Streamed, TIMEOUT, ThinkingCaps,
+    blocked, cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
+    with_query,
 };
 use crate::config::services::EFFORT_AUTO;
 use crate::logs::log;
@@ -188,9 +189,9 @@ impl GeminiClient {
     }
 
     /// 列出能拿來翻譯（支援 `generateContent`）的模型 ID，去掉 `models/` 前綴並排序；自動翻頁。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let url = format!("{}/{API_VERSION}/models", self.base_url);
-        let mut ids = Vec::new();
+        let mut models = Vec::new();
         let mut page_token: Option<String> = None;
         loop {
             let request = match &page_token {
@@ -204,7 +205,15 @@ impl GeminiClient {
                 let actions = model["supportedGenerationMethods"].as_array();
                 let generates = actions.is_some_and(|a| a.iter().any(|m| m == "generateContent"));
                 if let (true, Some(name)) = (generates, model["name"].as_str()) {
-                    ids.push(name.strip_prefix("models/").unwrap_or(name).to_owned());
+                    // 只透露「支不支援思考」；不支援的模型實測是沒有這個欄位
+                    let supported = model["thinking"].as_bool();
+                    models.push(ModelInfo {
+                        id: name.strip_prefix("models/").unwrap_or(name).to_owned(),
+                        thinking: ThinkingCaps {
+                            supported,
+                            ..ThinkingCaps::default()
+                        },
+                    });
                 }
             }
             match page["nextPageToken"].as_str() {
@@ -212,8 +221,8 @@ impl GeminiClient {
                 _ => break,
             }
         }
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 
     async fn send(

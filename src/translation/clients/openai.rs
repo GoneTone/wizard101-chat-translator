@@ -12,8 +12,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, Streamed, TIMEOUT, blocked,
-    cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
+    ChatRequest, MAX_TOKENS, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, Streamed, TIMEOUT,
+    blocked, cancellable, chunk_error, connection_error, count_of, finish_text, http_client,
     incomplete_stream, parse_object, request_error, response_failure, secret_header, truncated,
 };
 use crate::config::services::EFFORT_AUTO;
@@ -307,7 +307,7 @@ impl OpenAiCompatClient {
     }
 
     /// 取 `/v1/models` 的模型 ID（排序後）；404／405 或缺 `data` 陣列回 `NoModelList`。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let resp = self
             .authorized(self.http.get(format!("{}/v1/models", self.base_url)))
             .send()
@@ -326,13 +326,13 @@ impl OpenAiCompatClient {
             .get("data")
             .and_then(Value::as_array)
             .ok_or(TranslateError::NoModelList)?;
-        let mut ids: Vec<String> = data
+        let mut models: Vec<ModelInfo> = data
             .iter()
             .filter_map(|m| m.get("id")?.as_str().filter(|id| !id.is_empty()))
-            .map(str::to_owned)
+            .map(ModelInfo::bare)
             .collect();
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 }
 

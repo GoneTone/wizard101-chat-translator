@@ -16,6 +16,14 @@ pub mod settings_window;
 pub mod spy_memory;
 pub mod wizard;
 
+/// 模型清單只取 id，比對清單內容與順序用。
+#[allow(dead_code)]
+pub fn model_ids(
+    models: Vec<wizard101_chat_translator::translation::clients::ModelInfo>,
+) -> Vec<String> {
+    models.into_iter().map(|m| m.id).collect()
+}
+
 /// 等背景執行緒或伺服器達成條件的上限：只有失敗時才等滿，放寬到負載重的 CI 也不誤判。
 #[allow(dead_code)] // 每個測試執行檔各自編譯 common，不是每個都用到。
 pub const WAIT: Duration = Duration::from_secs(30);

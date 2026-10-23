@@ -20,6 +20,7 @@ use crate::input::recorder::{Recording, record};
 use crate::logs::log;
 use crate::runtime::updater::{LATEST_API, Release, check_for_update, update_client};
 use crate::translation::cache::TranslationCache;
+use crate::translation::clients::ModelInfo;
 use crate::translation::errors::TranslateError;
 use crate::translation::examples::ExampleStore;
 use crate::translation::translator::{self, TestOutcome, Translator, test_translate};
@@ -57,7 +58,7 @@ pub enum SettingsEvent {
     /// 模型清單取回（或失敗）。
     ModelsDone {
         round: u64,
-        result: Result<Vec<String>, TranslateError>,
+        result: Result<Vec<ModelInfo>, TranslateError>,
     },
     /// `Ok(None)` 是已是最新版；`Err` 是失敗原因。
     UpdateChecked {

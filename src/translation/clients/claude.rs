@@ -9,12 +9,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::sse::for_each_data;
 use super::{
-    ChatRequest, MAX_TOKENS_THINKING, REQUEST_TIMEOUT, TIMEOUT, blocked, cancellable,
-    connection_error, count_of, error_type_status, finish_text, http_client, incomplete_stream,
-    parse_object, request_error, response_failure, retry_after_within_cap, sample_of,
-    secret_header, stream_failure, truncated, with_query,
+    ChatRequest, MAX_TOKENS_THINKING, ModelInfo, REQUEST_TIMEOUT, TIMEOUT, ThinkingCaps, blocked,
+    cancellable, connection_error, count_of, error_type_status, finish_text, http_client,
+    incomplete_stream, parse_object, request_error, response_failure, retry_after_within_cap,
+    sample_of, secret_header, stream_failure, truncated, with_query,
 };
-use crate::config::services::EFFORT_AUTO;
+use crate::config::services::{EFFORT_AUTO, provider};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::translation::Turn;
@@ -71,6 +71,25 @@ fn default_headers() -> HeaderMap {
     headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert("anthropic-version", HeaderValue::from_static(API_VERSION));
     headers
+}
+
+/// 從 `/v1/models` 的一筆讀出思考能力；欄位缺或型別不對就當成清單沒說。
+fn thinking_caps(model: &Value) -> ThinkingCaps {
+    let supported = |v: &Value| v.get("supported").and_then(Value::as_bool);
+    let caps = &model["capabilities"];
+    let effort = &caps["effort"];
+    let levels = provider("claude").map_or(&[][..], |p| p.efforts);
+    ThinkingCaps {
+        supported: supported(&caps["thinking"]),
+        can_disable: supported(&caps["thinking"]["types"]["disabled"]),
+        efforts: supported(effort).map(|any| {
+            levels
+                .iter()
+                .filter(|level| any && supported(&effort[**level]) == Some(true))
+                .map(|level| (*level).to_owned())
+                .collect()
+        }),
+    }
 }
 
 impl ClaudeClient {
@@ -199,18 +218,19 @@ impl ClaudeClient {
     }
 
     /// 列出模型 ID（排序後），依 `has_more`／`last_id` 自動翻頁。
-    pub async fn list_models(&self) -> Result<Vec<String>, TranslateError> {
+    pub async fn list_models(&self) -> Result<Vec<ModelInfo>, TranslateError> {
         let url = format!("{}/v1/models", self.base_url);
-        let mut ids = Vec::new();
+        let mut models = Vec::new();
         let mut after_id: Option<String> = None;
         loop {
             let page = self.models_page(&url, after_id.as_deref()).await?;
             let data = page.get("data").and_then(Value::as_array);
-            ids.extend(
-                data.into_iter()
-                    .flatten()
-                    .filter_map(|m| m.get("id")?.as_str().map(str::to_owned)),
-            );
+            models.extend(data.into_iter().flatten().filter_map(|m| {
+                Some(ModelInfo {
+                    id: m.get("id")?.as_str()?.to_owned(),
+                    thinking: thinking_caps(m),
+                })
+            }));
             let last_id = page.get("last_id").and_then(Value::as_str);
             let more = page.get("has_more") != Some(&Value::Bool(false));
             match last_id {
@@ -220,8 +240,8 @@ impl ClaudeClient {
                 _ => break,
             }
         }
-        ids.sort();
-        Ok(ids)
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
     }
 
     async fn models_page(

@@ -14,7 +14,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::Turn;
-use super::clients::{ChatBackend, ChatRequest, MAX_TOKENS_REGION, build_client};
+use super::clients::{ChatBackend, ChatRequest, MAX_TOKENS_REGION, ModelInfo, build_client};
 use super::errors::TranslateError;
 use super::examples::{
     ExampleSet, ExampleStore, GAME_LANGUAGE_EXAMPLES, examples_fingerprint, generation_request,
@@ -458,7 +458,7 @@ impl Translator {
 }
 
 /// 取得端點上可用的模型 ID；用設定表單當下的值，與翻譯走同一條分派。
-pub async fn list_models(spec: &ServiceSpec) -> Result<Vec<String>, TranslateError> {
+pub async fn list_models(spec: &ServiceSpec) -> Result<Vec<ModelInfo>, TranslateError> {
     build_client(spec).list_models().await
 }
 
