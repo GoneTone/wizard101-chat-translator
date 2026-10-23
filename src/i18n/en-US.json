@@ -103,6 +103,7 @@
   "hint.thinking_always": "This model always thinks; thinking can't be turned off.",
   "hint.thinking_unsupported": "This model doesn't support thinking.",
   "hint.effort": "Models support different thinking depths. If you pick one the model doesn't support, the test shows an error; if you're not sure, choose \"Auto\". Higher depths make translations slower and use more tokens.",
+  "hint.effort_known": "Higher depths make translations slower and use more tokens; if you're not sure, choose \"Auto\".",
   "hint.custom_endpoint": "Enter the URL of any OpenAI-compatible endpoint, such as LM Studio, Ollama, or vLLM. Give the host and port only (for example http://127.0.0.1:8000) — do not add /v1 or any other path.",
   "settings.title": "{app} — Settings",
   "settings.tab.basic": "Basic",

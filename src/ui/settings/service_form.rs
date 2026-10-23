@@ -495,7 +495,19 @@ impl ServiceForm {
                 });
             let response = combo.response.labelled_by(label);
             focus_ring(ui, &response, theme::CONTROL_RADIUS);
-            hint(ui, &t("hint.effort", &[]));
+            // 清單列了支援的等級時選單已濾掉不支援的，不必再警告會選錯
+            let known = self.caps().is_some_and(|c| c.efforts.is_some());
+            hint(
+                ui,
+                &t(
+                    if known {
+                        "hint.effort_known"
+                    } else {
+                        "hint.effort"
+                    },
+                    &[],
+                ),
+            );
         });
     }
 

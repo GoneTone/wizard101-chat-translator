@@ -103,6 +103,7 @@
   "hint.thinking_always": "此模型一律會進行思考，無法關閉。",
   "hint.thinking_unsupported": "此模型不支援思考。",
   "hint.effort": "各模型支援的思考深度不同，選到不支援的思考深度時，測試會顯示錯誤；如果您不確定可選「自動」。思考深度越高，翻譯越慢、越耗 Token。",
+  "hint.effort_known": "思考深度越高，翻譯越慢、越耗 Token；如果您不確定可選「自動」。",
   "hint.custom_endpoint": "填入任何 OpenAI API 相容端點的網址，例如 LM Studio、Ollama、vLLM。只填到主機與連接埠（例如 http://127.0.0.1:8000），結尾不要加 /v1 或其他路徑。",
   "settings.title": "{app} — 設定",
   "settings.tab.basic": "基本",

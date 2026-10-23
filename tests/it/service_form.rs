@@ -1135,3 +1135,22 @@ fn caps_arriving_after_a_passed_test_clear_it_when_thinking_changes() {
     );
     assert!(!h.state().form.test_passed());
 }
+
+#[test]
+fn effort_hint_drops_the_unsupported_warning_when_levels_are_known() {
+    let narrow = ThinkingCaps {
+        efforts: Some(vec!["low".into(), "high".into()]),
+        ..ThinkingCaps::default()
+    };
+    let mut h = claude_with(
+        vec![
+            with_caps("narrow", narrow),
+            with_caps("free", ThinkingCaps::default()),
+        ],
+        "narrow",
+    );
+    assert!(painted_texts(&h).contains(&tr("hint.effort_known")));
+    assert!(!painted_texts(&h).contains(&tr("hint.effort")));
+    replace_model(&mut h, "free");
+    assert!(painted_texts(&h).contains(&tr("hint.effort")));
+}
