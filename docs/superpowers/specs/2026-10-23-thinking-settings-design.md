@@ -216,6 +216,20 @@ zh-TW 定案用詞：
   - OpenAI 相容 client：使用者選的深度被拒時回錯誤、`none` 被拒時拿掉重送。
 - 實機：四家各用一個能關、一個不能關的模型跑測試連線，確認開關鎖定與錯誤訊息符合預期；「待實測」各項有結論並反映到程式。
 
+**驗收結果（2026-10-23，走 `test_translate`，不開 GUI）：**
+
+| 服務商／模型 | 開關／深度 | 結果 |
+|---|---|---|
+| OpenAI `gpt-6-luna` | 關 | 成功 |
+| OpenAI `gpt-6.1-sol` | 開＋`minimal` | 設定錯誤：「'reasoning_effort' does not support 'minimal' with this model…」，只送一次 |
+| Claude `claude-haiku-5-5` | 關 | 成功 |
+| Gemini `gemini-3-flash-preview` | 關 | 成功 |
+| Gemini `gemini-3.8-flash` | 開＋`minimal` | 設定錯誤：「Thinking level MINIMAL is not supported for this model」 |
+| 自訂 llama-swap `qwen3.8-27b` | 開＋`low`／關 | 都成功 |
+| Claude 清單判定 | —— | `opus-5-5`、`sonnet-5-5` → 鎖定開啟；`haiku-5-5` → 可切換；`haiku-4-5` → 可切換、深度只剩自動 |
+
+設定視窗的實際操作（換模型時的鎖定、深度選單、自動載入）待使用者驗收。
+
 ## 留給實作者決定
 
 - 思考能力的資料型別與放的位置（例如 `list_models` 回傳 `Vec<ModelInfo>` 取代 `Vec<String>`），以及判定函式放在 config 還是 translation。
