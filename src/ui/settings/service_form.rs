@@ -138,11 +138,11 @@ impl ServiceForm {
         }
     }
 
-    /// 完整的一筆服務：id、名稱、服務商與該家的欄位；名稱空白時退回去重後的短名。
+    /// 完整的一筆服務：id、名稱、服務商與該家的欄位。
     pub fn values(&self) -> Value {
         let mut service = Map::new();
         service.insert("id".into(), self.id.clone().into());
-        service.insert("name".into(), self.resolved_name().into());
+        service.insert("name".into(), pystr::strip(&self.name).into());
         service.extend(self.api_map());
         Value::Object(service)
     }
@@ -152,10 +152,20 @@ impl ServiceForm {
         Value::Object(self.api_map())
     }
 
-    /// 按確定與測試連線前要擋下的原因（錯誤文案 key）：必填欄位，加上伺服器網址的格式。
+    /// 按確定前要擋下的原因（錯誤文案 key）：名稱，加上測試連線也要擋的 [`Self::api_errors`]。
+    pub fn errors(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+        if pystr::strip(&self.name).is_empty() {
+            errors.push("error.need_name".to_string());
+        }
+        errors.extend(self.api_errors());
+        errors
+    }
+
+    /// 測試連線前要擋下的原因：必填欄位，加上伺服器網址的格式；名稱不影響請求，不擋。
     ///
     /// 網址格式只在表單擋：`validate_service` 也決定啟動時要不要進精靈，不跟著加嚴。
-    pub fn errors(&self) -> Vec<String> {
+    fn api_errors(&self) -> Vec<String> {
         let mut errors = validate_service(&self.api_values());
         let base_url = pystr::strip(&self.base_url);
         if self.provider.needs_base_url() && !base_url.is_empty() {
@@ -318,13 +328,6 @@ impl ServiceForm {
 
         if self.test_row(ui) {
             self.start_test(env, target_language);
-        }
-    }
-
-    fn resolved_name(&self) -> String {
-        match pystr::strip(&self.name) {
-            "" => unique_name(&self.provider.short_name(), &self.services, Some(&self.id)),
-            name => name.to_owned(),
         }
     }
 
@@ -606,7 +609,7 @@ impl ServiceForm {
     }
 
     fn start_test(&mut self, env: &dyn SettingsEnv, target_language: &str) {
-        let errors = self.errors();
+        let errors = self.api_errors();
         if !errors.is_empty() {
             self.test_result = Some(TestResult::Failed(join_errors(&errors)));
             return;
