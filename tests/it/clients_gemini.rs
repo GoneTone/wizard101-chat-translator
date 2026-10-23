@@ -457,7 +457,7 @@ async fn gemini_logs_prompt_cache_usage() {
     capture_logs();
     let server = MockServer::start().await;
     let usage = json!({"promptTokenCount": 3000, "cachedContentTokenCount": 2048,
-        "candidatesTokenCount": 9});
+        "candidatesTokenCount": 9, "thoughtsTokenCount": 37});
     Mock::given(method("POST"))
         .and(path(
             "/v1beta/models/gemini-cache-marker:streamGenerateContent",
@@ -471,7 +471,7 @@ async fn gemini_logs_prompt_cache_usage() {
     assert!(
         text.contains(
             "[translate] prompt cache: provider=gemini model=gemini-cache-marker \
-             prompt=3000 cached=2048"
+             prompt=3000 cached=2048 reasoning_tokens=37"
         ),
         "{text}"
     );

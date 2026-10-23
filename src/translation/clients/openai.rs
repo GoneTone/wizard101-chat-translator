@@ -228,9 +228,10 @@ impl OpenAiCompatClient {
         let usage = streamed.usage.unwrap_or(Value::Null);
         if let Some(prompt) = usage.get("prompt_tokens") {
             let cached = count_of(usage.pointer("/prompt_tokens_details/cached_tokens"));
+            let reasoning = count_of(usage.pointer("/completion_tokens_details/reasoning_tokens"));
             log(format!(
                 "[translate] prompt cache: provider=openai-compatible model={} \
-                 prompt={prompt} cached={cached}",
+                 prompt={prompt} cached={cached} reasoning_tokens={reasoning}",
                 self.model
             ));
         }

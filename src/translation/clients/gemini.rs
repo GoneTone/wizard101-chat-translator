@@ -155,10 +155,12 @@ impl GeminiClient {
         .await?;
         if let Some(usage) = &out.usage {
             log(format!(
-                "[translate] prompt cache: provider=gemini model={} prompt={} cached={}",
+                "[translate] prompt cache: provider=gemini model={} prompt={} cached={} \
+                 reasoning_tokens={}",
                 self.model,
                 count_of(usage.get("promptTokenCount")),
                 count_of(usage.get("cachedContentTokenCount")),
+                count_of(usage.get("thoughtsTokenCount")),
             ));
         }
         // 提示詞被擋時沒有候選，自然也沒有 finishReason

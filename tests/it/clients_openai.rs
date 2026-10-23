@@ -582,7 +582,8 @@ async fn logs_prompt_cache_usage() {
         stream_of(&[
             delta("x"),
             json!({"choices": [], "usage": {"prompt_tokens": 1400, "completion_tokens": 5,
-                "prompt_tokens_details": {"cached_tokens": 1024}}}),
+                "prompt_tokens_details": {"cached_tokens": 1024},
+                "completion_tokens_details": {"reasoning_tokens": 12}}}),
         ]),
     )
     .await;
@@ -592,7 +593,7 @@ async fn logs_prompt_cache_usage() {
     assert!(
         text.contains(
             "[translate] prompt cache: provider=openai-compatible model=cache-marker-model \
-             prompt=1400 cached=1024"
+             prompt=1400 cached=1024 reasoning_tokens=12"
         ),
         "{text}"
     );
