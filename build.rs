@@ -1,5 +1,7 @@
-//! 把 per-monitor DPI 與 Common Controls v6 的 manifest、app 圖示（工作列讀 exe 資源）與版本資訊編進 exe。
+//! 把 per-monitor DPI 與 Common Controls v6 的 manifest、app 圖示（工作列讀 exe 資源）與版本資訊編進 exe，
+//! 並列出要編進 exe 的介面語言檔。
 
+include!("build_support/embed.rs");
 include!("build_support/version.rs");
 
 use std::path::PathBuf;
@@ -14,6 +16,14 @@ fn main() {
     println!("cargo:rerun-if-changed=build_support/version.rs");
     println!("cargo:rerun-if-changed=app.manifest");
     println!("cargo:rerun-if-changed=assets/icon.ico");
+    println!("cargo:rerun-if-changed=build_support/embed.rs");
+    println!("cargo:rerun-if-changed=src/i18n");
+
+    fs::write(
+        out_dir.join("i18n_catalogs.rs"),
+        embedded_json_list(&manifest_dir.join("src/i18n")),
+    )
+    .unwrap();
 
     let rc = version_rc(
         &env::var("CARGO_PKG_VERSION").unwrap(),
