@@ -692,14 +692,30 @@ fn keycap(ui: &mut Ui, key: &str) {
     ui.put(face, Label::new(text).selectable(false));
 }
 
-/// 依關鍵字篩選模型清單：不分大小寫的子字串比對；關鍵字空白時回傳全部。
-pub fn filter_models(models: &[String], query: &str) -> Vec<String> {
-    let keyword = pystr::strip(query).to_lowercase();
+/// `item` 裡第一段與 `query` 相符的位元組範圍：去頭尾空白、不分（ASCII）大小寫；查詢空白時沒有。
+pub fn match_range(item: &str, query: &str) -> Option<std::ops::Range<usize>> {
+    let keyword = pystr::strip(query).to_ascii_lowercase();
+    if keyword.is_empty() {
+        return None;
+    }
+    let start = item.to_ascii_lowercase().find(&keyword)?;
+    Some(start..start + keyword.len())
+}
+
+/// 清單裡最符合 `query` 的一項：完全相同優先，其次開頭相符，再來是包含；同級取最前面的。
+pub fn best_match(models: &[String], query: &str) -> Option<usize> {
+    let keyword = pystr::strip(query);
+    let rank = |item: &String| match match_range(item, keyword)? {
+        range if range.start == 0 && range.end == item.len() => Some(0),
+        range if range.start == 0 => Some(1),
+        _ => Some(2),
+    };
     models
         .iter()
-        .filter(|m| m.to_lowercase().contains(&keyword))
-        .cloned()
-        .collect()
+        .enumerate()
+        .filter_map(|(i, item)| rank(item).map(|r| (r, i)))
+        .min()
+        .map(|(_, i)| i)
 }
 
 /// 儲存被擋下的提示：警告圖示、粗體標題，下面每個問題一行；占滿可用寬度。

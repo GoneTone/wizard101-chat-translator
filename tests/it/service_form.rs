@@ -769,24 +769,19 @@ fn refresh_checks_the_endpoint_fields_first() {
 }
 
 #[test]
-fn model_field_typing_filters_fetched_options() {
+fn model_field_typing_keeps_every_fetched_option() {
     let mut service = filled("openai");
     service["model"] = json!("");
     let mut h = harness(form(service, vec![]));
     refresh_models(&mut h, Ok(names(&["gemma3", "qwen3-32b", "qwen3-8b"])));
     type_into(&mut h, &tr("field.model"), "qwen");
-    h.get_by_label("qwen3-32b");
-    h.get_by_label("qwen3-8b");
-    assert!(h.query_by_label("gemma3").is_none());
-    // 清單開著時繼續打字照樣篩選（Tk 版要拆掉 grab 才做得到）
-    h.event(Event::Text("3-8".into()));
-    run(&mut h);
-    h.get_by_label("qwen3-8b");
-    assert!(h.query_by_label("qwen3-32b").is_none());
+    for option in ["gemma3", "qwen3-32b", "qwen3-8b"] {
+        h.get_by_label(option);
+    }
 }
 
 #[test]
-fn model_dropdown_closes_on_outside_click_and_when_nothing_matches() {
+fn model_dropdown_closes_on_outside_click_and_lists_all_when_nothing_matches() {
     let mut service = filled("openai");
     service["model"] = json!("");
     let mut h = harness(form(service, vec![]));
@@ -797,8 +792,8 @@ fn model_dropdown_closes_on_outside_click_and_when_nothing_matches() {
     assert!(h.query_by_label("alpha").is_none());
 
     type_into(&mut h, &tr("field.model"), "zzz");
-    assert!(h.query_by_label("alpha").is_none());
-    assert!(h.query_by_label("beta").is_none());
+    h.get_by_label("alpha");
+    h.get_by_label("beta");
 }
 
 #[test]
