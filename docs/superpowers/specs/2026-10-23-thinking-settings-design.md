@@ -183,6 +183,17 @@ zh-TW 定案用詞：
 
 實作一開始先做這幾項，用 `config.json` 裡使用者現有的金鑰（四家都有）直接打 API，不印出金鑰。自訂端點用使用者目前設定的 llama-swap。
 
+**實測結論（2026-10-23）：**
+
+| 項目 | 結果 | 採取的分支 |
+|---|---|---|
+| 1. Gemini 2.5 吃不吃 `thinking_level` | 測不到：`gemini-2.5-flash`／`gemini-2.5-pro` 對新使用者回 404（「no longer available to new users」） | 不做 2.5 改送 `thinkingBudget`。現行程式本來就對所有 Gemini 模型送 `thinking_level`，既有 2.5 使用者若被拒，測試會看到錯誤 |
+| 2. Opus 5 送 `disabled` 會不會外漏 `<thinking>` | 不會：回應只有一個 text 區塊，內容是單純譯文 | 不改 `strip_think`；修正 `ClaudeClient` 文件註解裡的舊說法 |
+| 3. 不支援思考的模型收到關閉參數 | 測不到：Gemini 清單沒有任何 `thinking: false` 的模型（不支援思考的模型是**沒有這個欄位**，例如 TTS），Claude 清單沒有 `thinking.supported: false` 的模型 | 不做 Gemini 的關閉重送。解析仍照設計處理 `false`；實務上 Gemini 不會出現鎖定關閉 |
+| 4. Gemini 3 收到 `thinkingBudget: 0` | `gemini-3-flash-preview`：200，回應沒有思考 token（真的關掉了）；`gemini-3.5-flash-lite`：400 INVALID_ARGUMENT；`gemini-3.1-pro-preview`：免費額度 429，測不到 | 沒看到默默忽略，**不做**測試連線的「關了仍在思考」檢查 |
+| Claude 清單形狀 | `capabilities.thinking.types` 有 `adaptive`／`enabled`／`disabled`／`between_tools`；`capabilities.effort` 有 `supported` 與各等級。例：Sonnet 5.5、Opus 5.5、Fable 系列 `disabled: false`；Haiku 4.5、Sonnet 4.5 `effort.supported: false`；4.6 系列 `xhigh: false` | 照設計解析 |
+| llama-swap（qwen3.8-27b） | `reasoning_effort: low` → 200 且有思考；`none` → 200 且沒有思考；不帶 → 有思考 | 不改計畫 |
+
 1. **Gemini 2.5 能不能吃 `thinking_level`**：API 參考寫「用在 Gemini 3 之前的模型會報錯」，思考指南的表格卻列出 2.5 支援 low／medium／high。目前程式對所有 Gemini 模型都送 `thinking_level`。若 2.5 會報錯（我的決定）：
    - Gemini client 依模型 id 前綴 `gemini-2.` 判斷，改送 `thinkingBudget`。這是整個世代的規則，不是逐模型對照表，不違反非目標。
    - 等級對照沿用官方 OpenAI 相容層的表：`minimal`／`low` → 1024、`medium` → 8192、`high` → 24576。
