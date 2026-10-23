@@ -155,7 +155,9 @@ fn values_only_carry_the_fields_that_provider_has() {
         .collect();
     assert_eq!(
         keys,
-        ["id", "name", "provider", "model", "api_key", "thinking", "effort"]
+        [
+            "id", "name", "provider", "model", "api_key", "thinking", "effort"
+        ]
     );
 }
 
