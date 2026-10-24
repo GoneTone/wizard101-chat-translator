@@ -77,10 +77,7 @@ impl Binding {
     fn glossary_turns(&self, kind: &str, text: &str, keep_original: bool) -> Vec<Turn> {
         let hits = self.hits(text);
         if !hits.is_empty() {
-            let terms: Vec<String> = hits
-                .iter()
-                .map(|e| format!("{} <=> {}", e.source, e.target))
-                .collect();
+            let terms: Vec<String> = hits.iter().map(Entry::to_string).collect();
             log(format!(
                 "[translate] {kind} glossary hits: {} ({})",
                 hits.len(),

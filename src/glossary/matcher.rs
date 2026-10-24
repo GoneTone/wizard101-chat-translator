@@ -136,10 +136,7 @@ impl Glossary {
 
 /// 命中條目的穩定鍵（與順序無關），空集合為空字串。
 pub fn hits_key(hits: &[Entry]) -> String {
-    let mut lines: Vec<String> = hits
-        .iter()
-        .map(|e| format!("{} <=> {}", e.source, e.target))
-        .collect();
+    let mut lines: Vec<String> = hits.iter().map(Entry::to_string).collect();
     lines.sort();
     lines.join("\n")
 }

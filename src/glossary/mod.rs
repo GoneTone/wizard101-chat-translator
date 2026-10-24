@@ -23,6 +23,13 @@ pub struct Entry {
     pub target: String,
 }
 
+/// 術語的顯示形式 `原文 <=> 譯名`，提示詞、log 與命中鍵共用。
+impl std::fmt::Display for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} <=> {}", self.source, self.target)
+    }
+}
+
 /// 比對用的正規化形式（casefold）。
 pub fn fold(s: &str) -> String {
     pystr::casefold(s)

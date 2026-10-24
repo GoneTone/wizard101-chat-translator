@@ -47,10 +47,7 @@ pub fn glossary_turns(hits: &[Entry], keep_original: bool) -> Vec<Turn> {
     } else {
         ""
     };
-    let lines: Vec<String> = hits
-        .iter()
-        .map(|e| format!("{} <=> {}", e.source, e.target))
-        .collect();
+    let lines: Vec<String> = hits.iter().map(Entry::to_string).collect();
     vec![
         Turn::user(format!("{GLOSSARY_INTRO}{keep}\n{}", lines.join("\n"))),
         Turn::assistant(GLOSSARY_ACK),

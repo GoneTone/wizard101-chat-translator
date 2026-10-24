@@ -1261,3 +1261,16 @@ async fn set_glossary_keeps_examples_and_client() {
     assert_eq!(tr.examples(), Some(examples));
     assert_eq!(built.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn reconfigure_keeps_the_glossary() {
+    let fake = Fake::texts(&["x"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    let other = ServiceSpec {
+        model: "m2".into(),
+        ..spec("m")
+    };
+    assert!(tr.reconfigure(other, ZH.into()));
+    assert_eq!(tr.glossary_key("Hollo"), "Hollo <=> 哈樓");
+}
