@@ -96,12 +96,22 @@ impl GlossaryDraft {
                 .cloned()
                 .collect();
             let issues = review(&filled, &builtin_of(g));
-            let named = || vec![("name", name.to_owned())];
+            // 名稱空白時引號裡會是空的，改用第幾份稱呼
+            let named = |key: &str| -> SaveError {
+                if name.is_empty() {
+                    (
+                        format!("{key}_unnamed"),
+                        vec![("index", (i + 1).to_string())],
+                    )
+                } else {
+                    (key.into(), vec![("name", name.to_owned())])
+                }
+            };
             if issues.contains(&RowIssue::DuplicateSource) {
-                duplicate.push(("error.glossary_duplicate_source".into(), named()));
+                duplicate.push(named("error.glossary_duplicate_source"));
             }
             if issues.contains(&RowIssue::Incomplete) {
-                incomplete.push(("error.glossary_incomplete_entry".into(), named()));
+                incomplete.push(named("error.glossary_incomplete_entry"));
             }
         }
         [blank, duplicate, incomplete].concat()

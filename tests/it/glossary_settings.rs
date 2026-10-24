@@ -566,6 +566,25 @@ fn glossary_errors_name_the_glossary() {
 }
 
 #[test]
+fn errors_of_an_unnamed_glossary_use_its_position() {
+    let entries = vec![entry("A", "甲"), entry("a", "乙"), entry("B", "")];
+    let d = draft(vec![glossary("a", " ", None, entries)], None);
+    let shown: Vec<String> = d
+        .errors()
+        .iter()
+        .map(|(key, args)| localized(key, args))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            t("error.glossary_name_blank", &[("index", "1")]),
+            t("error.glossary_duplicate_source_unnamed", &[("index", "1")]),
+            t("error.glossary_incomplete_entry_unnamed", &[("index", "1")]),
+        ]
+    );
+}
+
+#[test]
 fn editor_flags_a_blank_name() {
     let d = draft(vec![glossary("a", "  ", None, Vec::new())], None);
     let mut h = harness(d);

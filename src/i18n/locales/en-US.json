@@ -211,6 +211,8 @@
   "error.glossary_name_blank": "Enter a name for glossary {index}.",
   "error.glossary_duplicate_source": "“{name}” has entries with the same source.",
   "error.glossary_incomplete_entry": "“{name}” has unfinished entries.",
+  "error.glossary_duplicate_source_unnamed": "Glossary {index} has entries with the same source.",
+  "error.glossary_incomplete_entry_unnamed": "Glossary {index} has unfinished entries.",
   "glossary.name": "Name",
   "glossary.builtin": "Built-in glossary",
   "glossary.builtin_none": "None",
