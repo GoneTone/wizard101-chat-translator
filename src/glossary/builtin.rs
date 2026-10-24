@@ -1,11 +1,11 @@
-//! 內建術語表：`src/glossary/<語系代碼>.json` 編進 exe，key 是英文（遊戲語言）術語，value 是該語系譯名。
+//! 內建術語表：`src/glossary/builtin/<語系代碼>.json` 編進 exe，key 是英文（遊戲語言）術語，value 是該語系譯名。
 
 use std::sync::LazyLock;
 
 use super::{Entry, fold, parse_entries};
 use crate::logs::log;
 
-/// 編進 exe 的內建檔，依代碼字母序；清單由 `build.rs` 掃描本資料夾產生，新增語系只要放檔案。
+/// 編進 exe 的內建檔，依代碼字母序；清單由 `build.rs` 掃描 `builtin/` 資料夾產生，新增語系只要放檔案。
 const BUILTINS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/glossary_builtins.rs"));
 
 static LOADED: LazyLock<Vec<(&'static str, Vec<Entry>)>> = LazyLock::new(|| {
