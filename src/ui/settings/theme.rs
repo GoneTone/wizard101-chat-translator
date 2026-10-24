@@ -140,6 +140,7 @@ pub const CONTROL_TEXT_SIZE: f32 = 13.5;
 pub mod icon {
     pub const BASIC: char = '\u{E713}';
     pub const SERVICES: char = '\u{E774}';
+    pub const GLOSSARIES: char = '\u{E82D}';
     pub const ADVANCED: char = '\u{E9E9}';
     pub const ABOUT: char = '\u{E946}';
     pub const EXPAND: char = '\u{E70D}';

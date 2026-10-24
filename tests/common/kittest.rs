@@ -87,13 +87,23 @@ pub fn click<S>(h: &mut Harness<S>, role: Role, label: &str) {
 
 /// 點由上往下數第 `index` 顆「變更」按鈕（錄熱鍵用；wizard 中 0 是輸入框熱鍵、1 是框選熱鍵）。
 pub fn click_change<S>(h: &mut Harness<S>, index: usize) {
-    let label = tr("button.change");
-    let mut nodes: Vec<_> = h
-        .query_all_by_role_and_label(Role::Button, &label)
-        .collect();
+    click_nth(h, &tr("button.change"), index);
+}
+
+/// 點由上往下數第 `index` 顆名稱是 `label` 的按鈕。
+pub fn click_nth<S>(h: &mut Harness<S>, label: &str, index: usize) {
+    let mut nodes: Vec<_> = h.query_all_by_role_and_label(Role::Button, label).collect();
     nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
     nodes[index].scroll_to_me();
     nodes[index].click();
+    run(h);
+}
+
+/// 點對話框裡的按鈕（背後的卡片也有同名按鈕）。
+pub fn click_in_dialog<S>(h: &mut Harness<S>, title: &str, button: &str) {
+    h.get_by_role_and_label(Role::Dialog, title)
+        .get_by_role_and_label(Role::Button, button)
+        .click();
     run(h);
 }
 

@@ -1,4 +1,4 @@
-//! 設定介面的 modal 對話框外殼：標題列、可捲動的內容與底部按鈕列。
+//! 設定介面的 modal 對話框外殼：標題列、可捲動的內容與底部按鈕列，以及共用的刪除確認對話框。
 
 use eframe::egui::{
     Align, Align2, CornerRadius, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, RichText,
@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use super::theme::{self, icon};
-use super::widgets::{icon_button, right_aligned};
+use super::widgets::{danger_button, icon_button, right_aligned, secondary_button};
 use crate::i18n::t;
 
 /// 對話框與視窗邊緣的最小距離。
@@ -111,6 +111,55 @@ pub(super) fn dialog<B, F>(
         body,
         footer,
         cancel: close || escape,
+    }
+}
+
+/// 對話框這一幀的結果。
+pub(super) enum Choice<T> {
+    Open,
+    Cancel,
+    Done(T),
+}
+
+/// 刪除確認對話框：顯示 `question`，按〔刪除〕才算確定。
+pub(super) fn confirm_delete(ui: &Ui, question: String) -> Choice<()> {
+    let spec = DialogSpec {
+        salt: "confirm_delete",
+        width: theme::CONFIRM_DIALOG_WIDTH,
+        title: t("dialog.confirm_title", &[]),
+        closable: false,
+        pinned_top: false,
+    };
+    let shown = dialog(
+        ui,
+        spec,
+        |ui| {
+            Frame::new()
+                .inner_margin(Margin {
+                    left: 20,
+                    right: 20,
+                    top: 4,
+                    bottom: 16,
+                })
+                .show(ui, |ui| {
+                    ui.add(
+                        Label::new(RichText::new(question).size(theme::CONTROL_TEXT_SIZE)).wrap(),
+                    );
+                });
+        },
+        |ui| {
+            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
+            let delete = danger_button(ui, &t("button.delete", &[])).clicked();
+            (delete, cancel)
+        },
+    );
+    let (delete, cancel) = shown.footer;
+    if delete {
+        Choice::Done(())
+    } else if cancel || shown.cancel {
+        Choice::Cancel
+    } else {
+        Choice::Open
     }
 }
 

@@ -1,4 +1,4 @@
-//! 設定視窗的內容：側欄四個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
+//! 設定視窗的內容：側欄五個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
 //!
 //! 介面語言改了就先預覽（呼叫 `set_language`），按儲存才寫進設定，取消則還原成開窗時的語言。
 
@@ -13,6 +13,8 @@ use eframe::egui::{
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
+use super::glossary_draft::GlossaryDraft;
+use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
 use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
@@ -34,17 +36,25 @@ use crate::runtime::updater::Release;
 pub enum Page {
     Basic,
     Services,
+    Glossaries,
     Advanced,
     About,
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Self::Basic, Self::Services, Self::Advanced, Self::About];
+    const ALL: [Page; 5] = [
+        Self::Basic,
+        Self::Services,
+        Self::Glossaries,
+        Self::Advanced,
+        Self::About,
+    ];
 
     fn title_key(self) -> &'static str {
         match self {
             Self::Basic => "settings.tab.basic",
             Self::Services => "settings.tab.services",
+            Self::Glossaries => "settings.tab.glossaries",
             Self::Advanced => "settings.tab.advanced",
             Self::About => "settings.tab.about",
         }
@@ -54,6 +64,7 @@ impl Page {
         match self {
             Self::Basic => icon::BASIC,
             Self::Services => icon::SERVICES,
+            Self::Glossaries => icon::GLOSSARIES,
             Self::Advanced => icon::ADVANCED,
             Self::About => icon::ABOUT,
         }
@@ -88,6 +99,7 @@ pub struct SettingsWindow {
     auto_show_input: bool,
     paste_hotkey: bool,
     services: ServicePane,
+    glossaries: GlossaryPane,
     advanced: AdvancedText,
     translate_system: bool,
     /// 上次按儲存被擋下的原因（錯誤文案 key）；顯示後隨編輯即時更新。
@@ -113,6 +125,7 @@ impl SettingsWindow {
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
+            glossaries: GlossaryPane::new(GlossaryDraft::from_config(cfg)),
             advanced: AdvancedText {
                 fade_seconds: number("fade_seconds"),
                 max_messages: number("max_messages"),
@@ -202,13 +215,14 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::PreviewLanguage);
     }
 
-    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（錯誤文案 key，依序：服務、熱鍵、目標語言、進階數值）。
+    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（錯誤文案 key，依序：服務、術語表、熱鍵、目標語言、進階數值）。
     fn collect(&self) -> (Config, Vec<String>) {
         let mut cfg = Config::new();
         if let Some(slots) = &self.slots_at_open {
             cfg.insert("service_slots".into(), slots.clone());
         }
         self.services.draft().write_into(&mut cfg);
+        self.glossaries.draft().write_into(&mut cfg);
         let target = pystr::strip(&self.target_language);
         self.hotkeys.write_into(&mut cfg);
         let values = [
@@ -221,6 +235,7 @@ impl SettingsWindow {
             cfg.insert(key.into(), value);
         }
         let mut errors = service_errors(&cfg);
+        errors.extend(self.glossaries.draft().errors());
         errors.extend(self.hotkeys.errors(self.paste_hotkey));
         if target.is_empty() {
             errors.push("error.need_target_language".into());
@@ -244,7 +259,7 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::Save(cfg));
     }
 
-    /// 側欄：四個導覽項，底部是版本號；回傳這一幀點下的分頁。
+    /// 側欄：各分頁的導覽項，底部是版本號；回傳這一幀點下的分頁。
     fn sidebar(&self, ui: &mut Ui) -> Option<Page> {
         let margin = Margin {
             left: 8,
@@ -358,6 +373,7 @@ impl SettingsWindow {
                     };
                     self.services.ui(ui, env, &target);
                 }
+                Page::Glossaries => self.glossaries.ui(ui),
                 Page::Advanced => self.advanced_page(ui),
                 Page::About => self.about_page(ui, env),
             }

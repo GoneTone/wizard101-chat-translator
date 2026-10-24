@@ -141,6 +141,7 @@ fn the_services_tab_sits_between_basic_and_advanced() {
         [
             tr("settings.tab.basic"),
             tr("settings.tab.services"),
+            tr("settings.tab.glossaries"),
             tr("settings.tab.advanced"),
             tr("settings.tab.about")
         ]
@@ -286,10 +287,12 @@ fn the_footer_stays_visible_in_a_small_window() {
 // --- 儲存 ---
 
 /// 設定視窗管的鍵；儲存只送這些，由 App 併進目前共用的設定。
-const OWNED_KEYS: [&str; 15] = [
+const OWNED_KEYS: [&str; 17] = [
     "services",
     "default_service",
     "service_slots",
+    "glossaries",
+    "active_glossary",
     "target_language",
     "hotkey",
     "region_hotkey",

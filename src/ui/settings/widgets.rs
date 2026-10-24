@@ -207,6 +207,135 @@ pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
+/// 清單卡片的無障礙名稱：名稱後接標記，以 ` · ` 分隔。
+pub fn card_label(name: &str, badges: &[String]) -> String {
+    if badges.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name}\u{3000}{}", badges.join(" · "))
+    }
+}
+
+/// 清單卡片（服務、術語表）：`leading` 畫前置圖示，接著是名稱列（名稱後接 `badges`）與一行說明 `hint`，`buttons` 加入的按鈕靠右；整張以 `card_label` 為群組名。
+///
+/// `buttons_id` 是右側按鈕列量寬度用的 Id，每張卡片要不同。
+pub(super) fn list_card<R>(
+    ui: &mut Ui,
+    buttons_id: Id,
+    leading: impl FnOnce(&mut Ui),
+    name: &str,
+    badges: &[String],
+    hint: &str,
+    buttons: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    card(ui, |ui| {
+        let inner = Frame::new()
+            .inner_margin(Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                let name_font = theme::bold(theme::TEXT_SIZE);
+                let pill_font = FontId::proportional(11.5);
+                let hint_font = FontId::proportional(theme::HINT_SIZE);
+                let (name_h, pill_h, hint_h) = ui.fonts_mut(|f| {
+                    (
+                        f.row_height(&name_font),
+                        f.row_height(&pill_font),
+                        f.row_height(&hint_font),
+                    )
+                });
+                let name_h = name_h.max(pill_h + 2.0);
+                let column_h = name_h + 3.0 + hint_h;
+                let size = vec2(ui.available_width(), column_h.max(theme::CONTROL_HEIGHT));
+                ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 14.0;
+                    leading(ui);
+                    let reserved = right_aligned_width(ui, buttons_id);
+                    let text_width = (ui.available_width() - reserved - 16.0).max(24.0);
+                    let (column, _) =
+                        ui.allocate_exact_size(vec2(text_width, size.y), Sense::hover());
+                    let layout = UiBuilder::new()
+                        .max_rect(column)
+                        .layout(Layout::top_down(Align::Min));
+                    // 不經父層配置空間：標記太多時截掉，不可把按鈕擠出卡片
+                    let mut text = ui.new_child(layout);
+                    text.shrink_clip_rect(column);
+                    text.spacing_mut().item_spacing.y = 3.0;
+                    text.add_space((size.y - column_h) / 2.0);
+                    name_line(&mut text, name, badges, name_font, name_h);
+                    text.add(
+                        Label::new(
+                            RichText::new(hint)
+                                .font(hint_font)
+                                .color(theme::TEXT_SECONDARY),
+                        )
+                        .truncate(),
+                    );
+                    right_aligned(ui, buttons_id, |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        buttons(ui)
+                    })
+                })
+                .inner
+            })
+            .inner;
+        name_card(ui, card_label(name, badges));
+        inner
+    })
+}
+
+/// 整張卡片是一個以 `label` 為名的群組，螢幕報讀一次念完名稱與標記。
+fn name_card(ui: &Ui, label: String) {
+    let rect = ui.min_rect();
+    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+        node.set_role(Role::Group);
+        node.set_label(label);
+        node.set_bounds(eframe::egui::accesskit::Rect {
+            x0: rect.min.x.into(),
+            y0: rect.min.y.into(),
+            x1: rect.max.x.into(),
+            y1: rect.max.y.into(),
+        });
+    });
+}
+
+/// 清單卡片的名稱列：名稱（太長就截斷）後接標記。
+fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f32) {
+    let size = vec2(ui.available_width(), height);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let pill_font = FontId::proportional(11.5);
+        let pills: f32 = badges
+            .iter()
+            .map(|b| {
+                let galley =
+                    ui.painter()
+                        .layout_no_wrap(b.clone(), pill_font.clone(), theme::PILL_TEXT);
+                galley.size().x + 16.0 + 8.0
+            })
+            .sum();
+        let room = (ui.available_width() - pills).max(24.0);
+        ui.scope(|ui| {
+            ui.set_max_width(room);
+            ui.add(Label::new(RichText::new(name).font(font)).truncate());
+        });
+        for badge in badges {
+            Frame::new()
+                .fill(theme::PILL_BG)
+                .corner_radius(10)
+                .inner_margin(Margin::symmetric(8, 1))
+                .show(ui, |ui| {
+                    ui.add(
+                        Label::new(
+                            RichText::new(badge)
+                                .font(pill_font.clone())
+                                .color(theme::PILL_TEXT),
+                        )
+                        .selectable(false),
+                    );
+                });
+        }
+    });
+}
+
 /// 設定列裡下拉最多占整列寬度的比例。
 const MAX_CONTROL_SHARE: f32 = 0.45;
 

@@ -1,21 +1,19 @@
 //! 「翻譯服務」分頁：預設服務、各用途指定與服務清單，外加服務表單、服務商選擇與刪除確認三種對話框。
 
-use eframe::egui::accesskit;
 use eframe::egui::{
-    Align, AsIdSalt, Atoms, FontId, Frame, Id, Image, Label, Layout, Margin, Response, RichText,
-    Role, Sense, Ui, UiBuilder, Vec2, vec2,
+    Align, AsIdSalt, Atoms, Frame, Id, Image, Label, Layout, Margin, Response, RichText, Ui, Vec2,
 };
 use serde_json::Value;
 
-use super::dialog::{DialogSpec, dialog};
+use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::env::{SettingsEnv, SettingsEvent};
 use super::provider_picker::{CardLayout, provider_cards, provider_icon, provider_texture};
 use super::service_draft::{ServiceDraft, id_of};
 use super::service_form::ServiceForm;
 use super::theme;
 use super::widgets::{
-    callout, card, collapsible, combo_box, danger_button, dashed_button, focus_ring, name_by_row,
-    primary_button, right_aligned, right_aligned_width, secondary_button, setting_row,
+    callout, card, collapsible, combo_box, dashed_button, focus_ring, list_card, name_by_row,
+    primary_button, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{ServiceSlot, describe, new_service, str_field};
@@ -47,13 +45,6 @@ impl Dialog {
             errors: Vec::new(),
         }
     }
-}
-
-/// 對話框這一幀的結果。
-enum Choice<T> {
-    Open,
-    Cancel,
-    Done(T),
 }
 
 /// 翻譯服務分頁；`draft()` 是目前編輯中的值，設定視窗按儲存時寫回。
@@ -188,78 +179,32 @@ impl ServicePane {
     }
 
     fn service_card(&self, ui: &mut Ui, service: &Value, can_delete: bool) -> Option<CardAction> {
-        let label = self.draft.card_label(service);
-        let badges = self.draft.badges(service);
-        let key = str_field(service, "provider");
         let id = id_of(service);
-        card(ui, |ui| {
-            let action = Frame::new()
-                .inner_margin(Margin::symmetric(16, 12))
-                .show(ui, |ui| {
-                    let name_font = theme::bold(theme::TEXT_SIZE);
-                    let pill_font = FontId::proportional(11.5);
-                    let hint_font = FontId::proportional(theme::HINT_SIZE);
-                    let (name_h, pill_h, hint_h) = ui.fonts_mut(|f| {
-                        (
-                            f.row_height(&name_font),
-                            f.row_height(&pill_font),
-                            f.row_height(&hint_font),
-                        )
-                    });
-                    let name_h = name_h.max(pill_h + 2.0);
-                    let column_h = name_h + 3.0 + hint_h;
-                    let size = vec2(ui.available_width(), column_h.max(theme::CONTROL_HEIGHT));
-                    let buttons = Id::unique(("service_card_buttons", id));
-                    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 14.0;
-                        provider_icon(ui, key, 32.0);
-                        let reserved = right_aligned_width(ui, buttons);
-                        let text_width = (ui.available_width() - reserved - 16.0).max(24.0);
-                        let (column, _) =
-                            ui.allocate_exact_size(vec2(text_width, size.y), Sense::hover());
-                        let layout = UiBuilder::new()
-                            .max_rect(column)
-                            .layout(Layout::top_down(Align::Min));
-                        // 不經父層配置空間：角色標記太多時截掉，不可把按鈕擠出卡片
-                        let mut text = ui.new_child(layout);
-                        text.shrink_clip_rect(column);
-                        text.spacing_mut().item_spacing.y = 3.0;
-                        text.add_space((size.y - column_h) / 2.0);
-                        let name = str_field(service, "name");
-                        name_line(&mut text, name, &badges, name_font, name_h);
-                        text.add(
-                            Label::new(
-                                RichText::new(describe(service))
-                                    .font(hint_font)
-                                    .color(theme::TEXT_SECONDARY),
-                            )
-                            .truncate(),
-                        );
-                        let (edit, delete) = right_aligned(ui, buttons, |ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
-                            let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
-                            let delete = ui
-                                .add_enabled_ui(can_delete, |ui| {
-                                    secondary_button(ui, &t("button.delete", &[]))
-                                })
-                                .inner
-                                .clicked();
-                            (edit, delete)
-                        });
-                        if edit {
-                            Some(CardAction::Edit(id.to_owned()))
-                        } else if delete {
-                            Some(CardAction::Delete(id.to_owned()))
-                        } else {
-                            None
-                        }
+        let (edit, delete) = list_card(
+            ui,
+            Id::unique(("service_card_buttons", id)),
+            |ui| provider_icon(ui, str_field(service, "provider"), 32.0),
+            str_field(service, "name"),
+            &self.draft.badges(service),
+            &describe(service),
+            |ui| {
+                let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
+                let delete = ui
+                    .add_enabled_ui(can_delete, |ui| {
+                        secondary_button(ui, &t("button.delete", &[]))
                     })
                     .inner
-                })
-                .inner;
-            name_card(ui, label);
-            action
-        })
+                    .clicked();
+                (edit, delete)
+            },
+        );
+        if edit {
+            Some(CardAction::Edit(id.to_owned()))
+        } else if delete {
+            Some(CardAction::Delete(id.to_owned()))
+        } else {
+            None
+        }
     }
 
     fn show_dialog(&mut self, ui: &Ui, env: &dyn SettingsEnv, target_language: &str) {
@@ -316,106 +261,13 @@ impl ServicePane {
         } else {
             "service.confirm_delete"
         };
-        let question = t(question, &[("name", name)]);
-        let spec = DialogSpec {
-            salt: "confirm_delete",
-            width: theme::CONFIRM_DIALOG_WIDTH,
-            title: t("dialog.confirm_title", &[]),
-            closable: false,
-            pinned_top: false,
-        };
-        let shown = dialog(
-            ui,
-            spec,
-            |ui| {
-                Frame::new()
-                    .inner_margin(Margin {
-                        left: 20,
-                        right: 20,
-                        top: 4,
-                        bottom: 16,
-                    })
-                    .show(ui, |ui| {
-                        ui.add(
-                            Label::new(RichText::new(question).size(theme::CONTROL_TEXT_SIZE))
-                                .wrap(),
-                        );
-                    });
-            },
-            |ui| {
-                let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-                let delete = danger_button(ui, &t("button.delete", &[])).clicked();
-                (delete, cancel)
-            },
-        );
-        let (delete, cancel) = shown.footer;
-        if delete {
-            Choice::Done(())
-        } else if cancel || shown.cancel {
-            Choice::Cancel
-        } else {
-            Choice::Open
-        }
+        confirm_delete(ui, t(question, &[("name", name)]))
     }
-}
-
-/// 整張卡片是一個以 `label` 為名的群組，螢幕報讀一次念完名稱與角色。
-fn name_card(ui: &Ui, label: String) {
-    let rect = ui.min_rect();
-    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
-        node.set_role(Role::Group);
-        node.set_label(label);
-        node.set_bounds(accesskit::Rect {
-            x0: rect.min.x.into(),
-            y0: rect.min.y.into(),
-            x1: rect.max.x.into(),
-            y1: rect.max.y.into(),
-        });
-    });
 }
 
 enum CardAction {
     Edit(String),
     Delete(String),
-}
-
-/// 服務卡片的名稱列：名稱（太長就截斷）後接角色標記。
-fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f32) {
-    let size = vec2(ui.available_width(), height);
-    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        let pill_font = FontId::proportional(11.5);
-        let pills: f32 = badges
-            .iter()
-            .map(|b| {
-                let galley =
-                    ui.painter()
-                        .layout_no_wrap(b.clone(), pill_font.clone(), theme::PILL_TEXT);
-                galley.size().x + 16.0 + 8.0
-            })
-            .sum();
-        let room = (ui.available_width() - pills).max(24.0);
-        ui.scope(|ui| {
-            ui.set_max_width(room);
-            ui.add(Label::new(RichText::new(name).font(font)).truncate());
-        });
-        for badge in badges {
-            Frame::new()
-                .fill(theme::PILL_BG)
-                .corner_radius(10)
-                .inner_margin(Margin::symmetric(8, 1))
-                .show(ui, |ui| {
-                    ui.add(
-                        Label::new(
-                            RichText::new(badge)
-                                .font(pill_font.clone())
-                                .color(theme::PILL_TEXT),
-                        )
-                        .selectable(false),
-                    );
-                });
-        }
-    });
 }
 
 /// 服務下拉：列出 `draft` 的服務；`follow` 有值就多一個該文字的「跟隨預設」選項。
