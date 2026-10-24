@@ -7,7 +7,7 @@ use super::glossary_draft::builtin_of;
 use super::theme::{self, icon};
 use super::widgets::{
     card, collapsible, dashed_button, icon_button, optional_combo, right_aligned,
-    right_aligned_width, secondary_button, secondary_icon_button, setting_row, setting_row_with,
+    right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::builtin_codes;
@@ -56,7 +56,13 @@ impl GlossaryEditor {
         self.refresh(glossary);
         let back = secondary_icon_button(ui, icon::BACK, &t("glossary.back_to_list", &[]));
         card(ui, |ui| {
-            setting_row(ui, &t("glossary.name", &[]), None, |ui| {
+            let blank = pystr::strip(&glossary.name).is_empty();
+            let notice = |ui: &mut Ui| {
+                if blank {
+                    hint(ui, &t("error.need_name", &[]), theme::ERROR);
+                }
+            };
+            setting_row_with(ui, &t("glossary.name", &[]), notice, |ui| {
                 let size = vec2(ui.spacing().combo_width, theme::CONTROL_HEIGHT);
                 ui.allocate_ui(size, |ui| text_field(ui, &mut glossary.name));
             });
@@ -274,8 +280,8 @@ impl GlossaryEditor {
 fn matches(entry: &Entry, query: &str) -> bool {
     let (source, target) = (fold(&entry.source), fold(&entry.target));
     query.is_empty()
-        || pystr::strip(&source).is_empty()
-        || pystr::strip(&target).is_empty()
+        || source.is_empty()
+        || target.is_empty()
         || source.contains(query)
         || target.contains(query)
 }

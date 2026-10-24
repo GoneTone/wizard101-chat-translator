@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 
+use super::window::SaveError;
 use crate::config::Config;
 use crate::config::glossaries::{StoredGlossary, stored};
 use crate::config::services::{new_id, unique_name};
@@ -75,40 +76,35 @@ impl GlossaryDraft {
         cfg.insert("active_glossary".into(), self.active.clone().into());
     }
 
-    /// 擋下儲存的原因（錯誤文案 key，去重）：名稱空白、來源重複、條目只填一側。
-    pub fn errors(&self) -> Vec<String> {
-        let blank = self
-            .glossaries
-            .iter()
-            .any(|g| pystr::strip(&g.name).is_empty());
-        let issues: Vec<RowIssue> = self
-            .glossaries
-            .iter()
-            .flat_map(|g| {
-                let filled: Vec<Entry> = g
-                    .entries
-                    .iter()
-                    .filter(|e| !e.is_blank())
-                    .cloned()
-                    .collect();
-                review(&filled, &builtin_of(g))
-            })
-            .collect();
-        [
-            (blank, "error.glossary_name_blank"),
-            (
-                issues.contains(&RowIssue::DuplicateSource),
-                "error.glossary_duplicate_source",
-            ),
-            (
-                issues.contains(&RowIssue::Incomplete),
-                "error.glossary_incomplete_entry",
-            ),
-        ]
-        .into_iter()
-        .filter(|(found, _)| *found)
-        .map(|(_, key)| key.into())
-        .collect()
+    /// 擋下儲存的原因（錯誤文案 key 與變數），依序為各份的名稱空白，再來是來源重複、條目只填一側。
+    pub fn errors(&self) -> Vec<SaveError> {
+        let mut blank = Vec::new();
+        let mut duplicate = Vec::new();
+        let mut incomplete = Vec::new();
+        for (i, g) in self.glossaries.iter().enumerate() {
+            let name = pystr::strip(&g.name);
+            if name.is_empty() {
+                blank.push((
+                    "error.glossary_name_blank".into(),
+                    vec![("index", (i + 1).to_string())],
+                ));
+            }
+            let filled: Vec<Entry> = g
+                .entries
+                .iter()
+                .filter(|e| !e.is_blank())
+                .cloned()
+                .collect();
+            let issues = review(&filled, &builtin_of(g));
+            let named = || vec![("name", name.to_owned())];
+            if issues.contains(&RowIssue::DuplicateSource) {
+                duplicate.push(("error.glossary_duplicate_source".into(), named()));
+            }
+            if issues.contains(&RowIssue::Incomplete) {
+                incomplete.push(("error.glossary_incomplete_entry".into(), named()));
+            }
+        }
+        [blank, duplicate, incomplete].concat()
     }
 
     /// 新增一份空白術語表（名稱用預設名，撞名補序號）；回傳它的 id。

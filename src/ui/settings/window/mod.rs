@@ -30,6 +30,10 @@ use crate::i18n::{current_language, language_name, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
+use crate::translation::errors::localized;
+
+/// 擋下儲存的一個原因：（錯誤文案 key，format 變數）。
+pub type SaveError = (String, Vec<(&'static str, String)>);
 
 /// 設定視窗的分頁，依側欄順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -102,8 +106,8 @@ pub struct SettingsWindow {
     glossaries: GlossaryPane,
     advanced: AdvancedText,
     translate_system: bool,
-    /// 上次按儲存被擋下的原因（錯誤文案 key）；顯示後隨編輯即時更新。
-    errors: Vec<String>,
+    /// 上次按儲存被擋下的原因；顯示後隨編輯即時更新。
+    errors: Vec<SaveError>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
 }
@@ -219,8 +223,8 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::PreviewLanguage);
     }
 
-    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（錯誤文案 key，依序：服務、術語表、熱鍵、目標語言、進階數值）。
-    fn collect(&self) -> (Config, Vec<String>) {
+    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（依序：服務、術語表、熱鍵、目標語言、進階數值）。
+    fn collect(&self) -> (Config, Vec<SaveError>) {
         let mut cfg = Config::new();
         if let Some(slots) = &self.slots_at_open {
             cfg.insert("service_slots".into(), slots.clone());
@@ -238,15 +242,21 @@ impl SettingsWindow {
         for (key, value) in values {
             cfg.insert(key.into(), value);
         }
-        let mut errors = service_errors(&cfg);
+        let plain = |key: String| (key, Vec::new());
+        let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
         errors.extend(self.glossaries.draft().errors());
-        errors.extend(self.hotkeys.errors(self.paste_hotkey));
+        errors.extend(
+            self.hotkeys
+                .errors(self.paste_hotkey)
+                .into_iter()
+                .map(plain),
+        );
         if target.is_empty() {
-            errors.push("error.need_target_language".into());
+            errors.push(plain("error.need_target_language".into()));
         }
         match parse_advanced(&self.advanced) {
             Ok(values) => cfg.extend(values),
-            Err(key) => errors.push(key.into()),
+            Err(key) => errors.push(plain(key.into())),
         }
         cfg.insert("ui_language".into(), current_language().into());
         (cfg, errors)
@@ -255,7 +265,8 @@ impl SettingsWindow {
     fn save(&mut self, env: &dyn SettingsEnv) {
         let (cfg, errors) = self.collect();
         if !errors.is_empty() {
-            log(format!("[settings] save blocked: {}", errors.join(", ")));
+            let keys: Vec<&str> = errors.iter().map(|(key, _)| key.as_str()).collect();
+            log(format!("[settings] save blocked: {}", keys.join(", ")));
             self.errors = errors;
             return;
         }
@@ -340,7 +351,11 @@ impl SettingsWindow {
         }
         if !self.errors.is_empty() {
             let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-            let lines: Vec<String> = self.errors.iter().map(|e| t(e, &[])).collect();
+            let lines: Vec<String> = self
+                .errors
+                .iter()
+                .map(|(key, args)| localized(key, args))
+                .collect();
             ui.scope(|ui| {
                 ui.set_max_width(room.max(120.0));
                 callout(ui, &t("dialog.incomplete_title", &[]), &lines);

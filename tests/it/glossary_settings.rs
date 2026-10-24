@@ -20,6 +20,7 @@ use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::config::glossaries::StoredGlossary;
 use wizard101_chat_translator::glossary::{Entry, parse_entries};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::translation::errors::localized;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::glossary_draft::GlossaryDraft;
 use wizard101_chat_translator::ui::settings::glossary_pane::GlossaryPane;
@@ -179,7 +180,10 @@ fn save_blocks_on_glossary_errors() {
             .iter()
             .any(|a| matches!(a, SettingsAction::Save(_)))
     );
-    assert!(has_label(&h, &tr("error.glossary_name_blank")));
+    assert!(has_label(
+        &h,
+        &t("error.glossary_name_blank", &[("index", "1")])
+    ));
 }
 
 #[test]
@@ -431,6 +435,44 @@ fn unknown_glossary_keys_survive_a_round_trip() {
     let mut written = Config::new();
     GlossaryDraft::from_config(&cfg).write_into(&mut written);
     assert_eq!(written["glossaries"], glossaries);
+}
+
+#[test]
+fn glossary_errors_name_the_glossary() {
+    let d = draft(
+        vec![
+            glossary("a", "Mine", None, vec![entry("A", "甲"), entry("a", "乙")]),
+            glossary("b", " ", None, Vec::new()),
+            glossary("c", "Other", None, vec![entry("B", "")]),
+        ],
+        None,
+    );
+    let shown: Vec<String> = d
+        .errors()
+        .iter()
+        .map(|(key, args)| localized(key, args))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            t("error.glossary_name_blank", &[("index", "2")]),
+            t("error.glossary_duplicate_source", &[("name", "Mine")]),
+            t("error.glossary_incomplete_entry", &[("name", "Other")]),
+        ]
+    );
+}
+
+#[test]
+fn editor_flags_a_blank_name() {
+    let d = draft(vec![glossary("a", "  ", None, Vec::new())], None);
+    let mut h = harness(d);
+    click(&mut h, Role::Button, &tr("button.edit"));
+    let hint = tr("error.need_name");
+    assert!(
+        text_sections(&h, &hint)
+            .iter()
+            .any(|(_, color)| *color == theme::ERROR)
+    );
 }
 
 /// 選檔對話框會「選到」`dir` 裡的 `name`；`content` 不是 `None` 時先寫好檔案。
