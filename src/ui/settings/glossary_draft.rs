@@ -38,14 +38,29 @@ impl GlossaryDraft {
         }
     }
 
-    /// 寫回設定：每份先去掉兩側都空白與跟內建完全相同的條目，撞名的補序號。
+    /// 寫回設定：名稱與條目去頭尾空白，去掉兩側都空白與跟內建完全相同的條目，撞名的補序號。
     pub fn write_into(&self, cfg: &mut Config) {
         let mut written: Vec<Value> = Vec::new();
         for glossary in &self.glossaries {
             let mut glossary = glossary.clone();
-            glossary.entries.retain(|e| !e.is_blank());
-            glossary.entries =
-                without_builtin_duplicates(&glossary.entries, &builtin_of(&glossary));
+            let entries: Vec<Entry> = glossary
+                .entries
+                .iter()
+                .filter(|e| !e.is_blank())
+                .map(|e| Entry {
+                    source: pystr::strip(&e.source).into(),
+                    target: pystr::strip(&e.target).into(),
+                })
+                .collect();
+            glossary.entries = without_builtin_duplicates(&entries, &builtin_of(&glossary));
+            let removed = entries.len() - glossary.entries.len();
+            if removed > 0 {
+                log(format!(
+                    "[settings] glossary {}: removed {removed} entries identical to the built-in glossary",
+                    glossary.id
+                ));
+            }
+            glossary.name = pystr::strip(&glossary.name).into();
             let name = unique_name(&glossary.name, &written, None);
             if name != glossary.name {
                 log(format!(

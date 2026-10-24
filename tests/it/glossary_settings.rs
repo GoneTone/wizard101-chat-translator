@@ -396,6 +396,30 @@ fn fully_blank_rows_are_dropped_on_save() {
 }
 
 #[test]
+fn typed_entries_are_trimmed_on_save() {
+    let entries = vec![entry(" Hollo ", " 哈樓	")];
+    let d = draft(vec![glossary("a", "Mine", None, entries)], None);
+    let mut cfg = Config::new();
+    d.write_into(&mut cfg);
+    assert_eq!(cfg["glossaries"][0]["entries"], json!({"Hollo": "哈樓"}));
+}
+
+#[test]
+fn glossary_names_are_trimmed_on_save() {
+    let d = draft(
+        vec![
+            glossary("a", "X ", None, Vec::new()),
+            glossary("b", "X", None, Vec::new()),
+        ],
+        None,
+    );
+    let mut cfg = Config::new();
+    d.write_into(&mut cfg);
+    assert_eq!(cfg["glossaries"][0]["name"], "X");
+    assert_eq!(cfg["glossaries"][1]["name"], "X (2)");
+}
+
+#[test]
 fn unknown_glossary_keys_survive_a_round_trip() {
     i18n::set_language(LANGUAGE);
     let mut cfg = Config::new();
