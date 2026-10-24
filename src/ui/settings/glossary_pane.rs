@@ -17,6 +17,7 @@ use crate::config::glossaries::StoredGlossary;
 use crate::glossary::{Entry, entries_to_json, parse_entries, plan_merge};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
+use crate::py::pystr;
 use crate::util::write_atomic;
 
 enum Screen {
@@ -130,7 +131,7 @@ impl GlossaryPane {
                 }
                 EditorAction::Export => {
                     let name = self.draft.find(&id).map_or("", |g| g.name.as_str());
-                    let file_name = format!("{name}.json");
+                    let file_name = export_file_name(name);
                     let round = self.start(FileTask::Export(id));
                     env.pick_glossary_save_path(round, file_name);
                 }
@@ -179,7 +180,7 @@ impl GlossaryPane {
     fn read(&mut self, path: &Path) -> Option<Vec<Entry>> {
         let parsed = std::fs::read_to_string(path)
             .map_err(|e| e.to_string())
-            .and_then(|text| parse_entries(&text));
+            .and_then(|text| parse_entries(text.strip_prefix('\u{feff}').unwrap_or(&text)));
         match parsed {
             Ok(entries) => {
                 log(format!(
@@ -423,5 +424,23 @@ fn new_dialog(ui: &Ui) -> Choice<Start> {
         Some(start) => Choice::Done(start),
         None if shown.footer || shown.cancel => Choice::Cancel,
         None => Choice::Open,
+    }
+}
+
+/// 匯出的預設檔名：Windows 檔名不允許的字元換成 `_`，剩下空白就用預設名稱。
+fn export_file_name(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || r#"\/:*?"<>|"#.contains(c) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    match pystr::strip(&safe) {
+        "" => format!("{}.json", t("glossary.default_name", &[])),
+        safe => format!("{safe}.json"),
     }
 }

@@ -545,3 +545,33 @@ fn stale_file_pick_is_ignored() {
     deliver_file_pick(&mut h, 1);
     assert_eq!(names(h.state().pane.draft()), ["friends"]);
 }
+
+#[test]
+fn import_accepts_a_utf8_bom_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "bom.json", Some("\u{feff}{\"Hollo\":\"哈樓\"}"));
+    let mut h = harness_with(draft(Vec::new(), None), env);
+    import_new(&mut h);
+    deliver_file_pick(&mut h, 0);
+    let d = h.state().pane.draft();
+    assert_eq!(names(d), ["bom"]);
+    assert_eq!(d.glossaries[0].entries, [entry("Hollo", "哈樓")]);
+}
+
+#[test]
+fn export_file_name_is_sanitized() {
+    for (name, expected) in [
+        (
+            r#" a\b/c:d*e?f"g<h>i|j"#,
+            "a_b_c_d_e_f_g_h_i_j.json".to_owned(),
+        ),
+        ("x\u{7}y", "x_y.json".to_owned()),
+        ("  ", format!("{}.json", tr("glossary.default_name"))),
+    ] {
+        let d = draft(vec![glossary("a", name, None, Vec::new())], None);
+        let mut h = harness_with(d, FakeEnv::default());
+        click(&mut h, Role::Button, &tr("button.edit"));
+        click(&mut h, Role::Button, &tr("glossary.export"));
+        assert_eq!(h.state().env.save_picks.borrow()[0].1, expected);
+    }
+}
