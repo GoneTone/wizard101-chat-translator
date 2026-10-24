@@ -24,9 +24,10 @@ use super::postprocess::{
     has_stray_latin, message_body, nonblank_lines, restore_sender, sender_of, tidy_parentheses,
 };
 use super::prompts::{
-    CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, OUTGOING_LANGUAGE, build_incoming_system,
-    build_outgoing_system, build_region_system, build_system_message_system, build_turns,
-    example_turns, fewshot_outgoing_turns, glossary_turns, is_game_language,
+    CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, GLOSSARY_KEEP_ORIGINAL, OUTGOING_LANGUAGE,
+    build_incoming_system, build_outgoing_system, build_region_system, build_system_message_system,
+    build_turns, example_turns, fewshot_outgoing_turns, glossary_outgoing_note, glossary_turns,
+    is_game_language,
 };
 use crate::config::ServiceSpec;
 use crate::glossary::{Entry, Glossary, hits_key};
@@ -74,7 +75,7 @@ impl Binding {
     }
 
     /// `text` 命中的術語輪（含命中 log）；沒命中回空，請求維持原樣。
-    fn glossary_turns(&self, kind: &str, text: &str, keep_original: bool) -> Vec<Turn> {
+    fn glossary_turns(&self, kind: &str, text: &str, note: &str) -> Vec<Turn> {
         let hits = self.hits(text);
         if !hits.is_empty() {
             let terms: Vec<String> = hits.iter().map(Entry::to_string).collect();
@@ -84,7 +85,7 @@ impl Binding {
                 terms.join("; ")
             ));
         }
-        glossary_turns(&hits, keep_original)
+        glossary_turns(&hits, note)
     }
 
     /// 打一次翻譯請求並記錄一行診斷；這是各方向共用的唯一成功路徑 log 點。
@@ -295,7 +296,7 @@ impl Translator {
         context: &[String],
     ) -> Result<String, TranslateError> {
         let b = self.binding();
-        let glossary = b.glossary_turns("incoming", message_body(text), true);
+        let glossary = b.glossary_turns("incoming", message_body(text), GLOSSARY_KEEP_ORIGINAL);
         let turns = build_turns(
             context,
             &glossary,
@@ -323,7 +324,7 @@ impl Translator {
         text: &str,
     ) -> Result<SystemTranslation, TranslateError> {
         let b = self.binding();
-        let glossary = b.glossary_turns("system message", text, true);
+        let glossary = b.glossary_turns("system message", text, GLOSSARY_KEEP_ORIGINAL);
         let mut translated = self.system_message_once(&b, text, &glossary, false).await?;
         if has_stray_latin(text, &translated, &b.target_language) {
             log(format!(
@@ -382,7 +383,7 @@ impl Translator {
         cancel: Option<&CancellationToken>,
     ) -> Result<String, TranslateError> {
         let b = self.binding();
-        let glossary = b.glossary_turns("outgoing", text, false);
+        let glossary = b.glossary_turns("outgoing", text, &glossary_outgoing_note());
         let turns = build_turns(
             context,
             &glossary,
@@ -414,7 +415,7 @@ impl Translator {
         let b = self.binding();
         let joined = originals.join("\n");
         let mut turns = b.examples(|e| e.region.as_ref());
-        turns.extend(b.glossary_turns("region text", &joined, true));
+        turns.extend(b.glossary_turns("region text", &joined, GLOSSARY_KEEP_ORIGINAL));
         turns.push(Turn::user(joined));
         let source = format!(
             "<text {} chars, {} lines>",

@@ -27,6 +27,13 @@ pub const CONTEXT_ACK: &str = "好的，我已了解語境。請給我要翻譯�
 pub const GLOSSARY_INTRO: &str = "以下術語雙向適用：訊息出現任一側的詞時，譯文改用與譯文同語言的那一側。術語優先於其他名詞與人名規則。";
 /// 收訊、系統訊息、框選附加的括號說明。
 pub const GLOSSARY_KEEP_ORIGINAL: &str = "依規則在譯名後附上（原文），玩家暱稱也一樣。";
+/// 發話附加的說明：原文常已有譯文語言那一側，不講明的話模型會換成另一側或整個刪掉。
+pub fn glossary_outgoing_note() -> String {
+    format!(
+        "譯文是 {OUTGOING_LANGUAGE}：原文裡已經是 {OUTGOING_LANGUAGE} 那一側的詞照抄，\
+         不要換成另一側，也不要刪掉。"
+    )
+}
 /// 術語輪之後 assistant 的確認輪。
 pub const GLOSSARY_ACK: &str = "好的，我會照這些術語翻譯。";
 
@@ -37,19 +44,14 @@ pub const FEWSHOT_OUTGOING: [(&str, &str); 3] = [
     ("請提供你要的東西", "gimme what you need"),
 ];
 
-/// 命中的術語轉成一組 user／assistant 輪；沒有命中回空。
-pub fn glossary_turns(hits: &[Entry], keep_original: bool) -> Vec<Turn> {
+/// 命中的術語轉成一組 user／assistant 輪，`note` 接在引言後；沒有命中回空。
+pub fn glossary_turns(hits: &[Entry], note: &str) -> Vec<Turn> {
     if hits.is_empty() {
         return Vec::new();
     }
-    let keep = if keep_original {
-        GLOSSARY_KEEP_ORIGINAL
-    } else {
-        ""
-    };
     let lines: Vec<String> = hits.iter().map(Entry::to_string).collect();
     vec![
-        Turn::user(format!("{GLOSSARY_INTRO}{keep}\n{}", lines.join("\n"))),
+        Turn::user(format!("{GLOSSARY_INTRO}{note}\n{}", lines.join("\n"))),
         Turn::assistant(GLOSSARY_ACK),
     ]
 }

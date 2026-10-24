@@ -23,7 +23,7 @@ use wizard101_chat_translator::translation::examples::{
 use wizard101_chat_translator::translation::prompts::{
     CONTEXT_ACK, CONTEXT_INTRO_INCOMING, GLOSSARY_ACK, GLOSSARY_KEEP_ORIGINAL, OUTGOING_LANGUAGE,
     build_incoming_system, build_outgoing_system, build_region_system, build_system_message_system,
-    build_turns, fewshot_outgoing_turns,
+    build_turns, fewshot_outgoing_turns, glossary_outgoing_note,
 };
 use wizard101_chat_translator::translation::translator::{
     ExampleCoordinator, TEST_SAMPLE, Translator, generate_and_store, test_translate,
@@ -1193,7 +1193,7 @@ async fn incoming_sender_is_not_matched() {
 }
 
 #[tokio::test]
-async fn outgoing_hit_omits_keep_original() {
+async fn outgoing_hit_says_to_keep_terms_already_in_the_outgoing_language() {
     let fake = Fake::texts(&["is Hollo there?"]);
     let tr = make(&fake);
     tr.set_glossary(hollo_glossary());
@@ -1202,6 +1202,8 @@ async fn outgoing_hit_omits_keep_original() {
     let n = turns.len();
     assert!(turns[n - 3].content.contains("Hollo <=> 哈樓"));
     assert!(!turns[n - 3].content.contains(GLOSSARY_KEEP_ORIGINAL));
+    assert!(turns[n - 3].content.contains(&glossary_outgoing_note()));
+    assert!(glossary_outgoing_note().contains(OUTGOING_LANGUAGE));
     assert_eq!(turns[n - 1], Turn::user("哈樓在嗎"));
 }
 
