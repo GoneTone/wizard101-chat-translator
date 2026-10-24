@@ -12,14 +12,18 @@ use crate::logs::log;
 use crate::py::pystr;
 
 /// config 裡存的一份術語表：自訂條目，可選擇同時引用一份內建術語表。
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct StoredGlossary {
     pub id: String,
     pub name: String,
     /// 引用的內建術語表代碼。
     pub builtin: Option<String>,
     pub entries: Vec<Entry>,
+    /// 不認得的其他鍵，原樣寫回。
+    pub extra: Map<String, Value>,
 }
+
+const KNOWN_KEYS: [&str; 4] = ["id", "name", "builtin", "entries"];
 
 impl StoredGlossary {
     /// 從 config 的一筆讀出；不是物件回 `None`，非字串的條目值略過。
@@ -37,15 +41,21 @@ impl StoredGlossary {
                 })
             })
             .collect();
+        let extra = map
+            .iter()
+            .filter(|(key, _)| !KNOWN_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
         Some(Self {
             id: str_field(v, "id").into(),
             name: str_field(v, "name").into(),
             builtin: map.get("builtin").and_then(Value::as_str).map(Into::into),
             entries,
+            extra,
         })
     }
 
-    /// 寫回 config 的形狀；`entries` 是依序的平面物件。
+    /// 寫回 config 的形狀；`entries` 是依序的平面物件，不認得的鍵接在後面。
     pub fn to_value(&self) -> Value {
         let entries: Map<String, Value> = self
             .entries
@@ -57,6 +67,7 @@ impl StoredGlossary {
         map.insert("name".into(), self.name.clone().into());
         map.insert("builtin".into(), self.builtin.clone().into());
         map.insert("entries".into(), Value::Object(entries));
+        map.extend(self.extra.clone());
         Value::Object(map)
     }
 }
@@ -103,7 +114,8 @@ fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
         log(format!("[config] glossary {id}: dropped malformed builtin"));
     }
     let raw_entries = raw.get("entries");
-    let kept = StoredGlossary::from_value(raw).map_or(0, |g| g.entries.len());
+    let mut glossary = StoredGlossary::from_value(raw).unwrap_or_default();
+    let kept = glossary.entries.len();
     let total = raw_entries.and_then(Value::as_object).map_or(0, Map::len);
     if raw_entries.is_some_and(|e| !e.is_object()) {
         repaired = true;
@@ -115,12 +127,17 @@ fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
             total - kept
         ));
     }
-    let mut value = StoredGlossary::from_value(raw)
-        .map(|g| g.to_value())
-        .unwrap_or_default();
-    value["id"] = id.into();
-    value["name"] = unique.into();
-    (value, repaired)
+    glossary.entries.retain(|e| !e.is_incomplete());
+    let incomplete = kept - glossary.entries.len();
+    if incomplete > 0 {
+        repaired = true;
+        log(format!(
+            "[config] glossary {id}: dropped {incomplete} incomplete entries"
+        ));
+    }
+    glossary.id = id;
+    glossary.name = unique;
+    (glossary.to_value(), repaired)
 }
 
 /// 就地整理 `glossaries` 與 `active_glossary`；回傳是否有變動（有就該寫回 config.json）。
@@ -167,8 +184,12 @@ pub fn normalize(cfg: &mut Config) -> bool {
 
 /// 目前啟用的術語表；沒啟用或條目全空回 `None`。
 pub fn active(cfg: &Config) -> Option<Arc<Glossary>> {
-    let id = cfg.get("active_glossary")?.as_str()?;
-    let chosen = stored(cfg).into_iter().find(|g| g.id == id)?;
+    let id = cfg.get("active_glossary").and_then(Value::as_str);
+    let Some(chosen) = id.and_then(|id| stored(cfg).into_iter().find(|g| g.id == id)) else {
+        log("[glossary] no active glossary");
+        return None;
+    };
+    let id = &chosen.id;
     let imported = chosen.builtin.as_deref().and_then(|code| {
         let found = builtin::builtin_entries(code);
         if found.is_none() {
@@ -178,6 +199,12 @@ pub fn active(cfg: &Config) -> Option<Arc<Glossary>> {
         }
         found
     });
-    let glossary = Glossary::new(chosen.entries, imported.unwrap_or_default());
+    let imported = imported.unwrap_or_default();
+    log(format!(
+        "[glossary] active glossary {id}: {} custom + {} builtin entries",
+        chosen.entries.len(),
+        imported.len()
+    ));
+    let glossary = Glossary::new(chosen.entries, imported);
     (!glossary.is_empty()).then(|| Arc::new(glossary))
 }

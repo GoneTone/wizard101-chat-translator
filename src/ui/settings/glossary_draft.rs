@@ -108,6 +108,7 @@ impl GlossaryDraft {
             name: name.into(),
             builtin: None,
             entries,
+            ..Default::default()
         })
     }
 

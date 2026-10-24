@@ -308,6 +308,17 @@ mod config_glossaries {
     }
 
     #[test]
+    fn incomplete_entries_are_dropped_at_load() {
+        let mut cfg = cfg_with(
+            json!([{"id": "a", "name": "X", "builtin": null,
+                    "entries": {"k": "v", "half": "  ", "": "x"}}]),
+            json!("a"),
+        );
+        assert!(glossaries::normalize(&mut cfg));
+        assert_eq!(cfg["glossaries"][0]["entries"], json!({"k": "v"}));
+    }
+
+    #[test]
     fn glossaries_not_a_list_becomes_empty() {
         let mut cfg = cfg_with(json!({}), Value::Null);
         assert!(glossaries::normalize(&mut cfg));

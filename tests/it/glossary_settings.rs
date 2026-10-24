@@ -42,6 +42,7 @@ fn glossary(id: &str, name: &str, builtin: Option<&str>, entries: Vec<Entry>) ->
         name: name.into(),
         builtin: builtin.map(Into::into),
         entries,
+        ..Default::default()
     }
 }
 
@@ -392,6 +393,20 @@ fn fully_blank_rows_are_dropped_on_save() {
     let mut cfg = Config::new();
     d.write_into(&mut cfg);
     assert_eq!(cfg["glossaries"][0]["entries"], json!({"Hollo": "哈樓"}));
+}
+
+#[test]
+fn unknown_glossary_keys_survive_a_round_trip() {
+    i18n::set_language(LANGUAGE);
+    let mut cfg = Config::new();
+    let glossaries = json!([
+        {"id": "a", "name": "Mine", "builtin": null, "entries": {"k": "v"},
+         "note": "kept", "extra": {"n": 1}}
+    ]);
+    cfg.insert("glossaries".into(), glossaries.clone());
+    let mut written = Config::new();
+    GlossaryDraft::from_config(&cfg).write_into(&mut written);
+    assert_eq!(written["glossaries"], glossaries);
 }
 
 /// 選檔對話框會「選到」`dir` 裡的 `name`；`content` 不是 `None` 時先寫好檔案。
