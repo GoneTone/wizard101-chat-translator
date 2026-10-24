@@ -11,15 +11,17 @@ const BUILTINS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/glossary_b
 static LOADED: LazyLock<Vec<(&'static str, Vec<Entry>)>> = LazyLock::new(|| {
     let mut loaded = Vec::new();
     for (code, raw) in BUILTINS {
-        let all = parse_entries(raw).unwrap_or_default().len();
-        let entries = load(raw);
-        log(format!(
-            "[glossary] builtin {code}: {} entries ({} untranslated dropped)",
-            entries.len(),
-            all - entries.len()
-        ));
-        if !entries.is_empty() {
-            loaded.push((*code, entries));
+        match filter_untranslated(raw) {
+            Ok((entries, dropped)) => {
+                log(format!(
+                    "[glossary] builtin {code}: {} entries ({dropped} untranslated dropped)",
+                    entries.len()
+                ));
+                if !entries.is_empty() {
+                    loaded.push((*code, entries));
+                }
+            }
+            Err(err) => log(format!("[glossary] builtin {code} parse failed: {err}")),
         }
     }
     loaded
@@ -40,16 +42,24 @@ pub fn builtin_entries(code: &str) -> Option<Vec<Entry>> {
         .map(|(_, entries)| entries.clone())
 }
 
-/// 解析內建檔並濾掉未翻譯（原文與譯名相同）的條目；解析失敗回空並留 log。
+/// 解析內建檔並濾掉未翻譯（原文與譯名相同）的條目；解析失敗回空。
 pub fn load(raw: &str) -> Vec<Entry> {
-    match parse_entries(raw) {
-        Ok(entries) => entries
-            .into_iter()
-            .filter(|e| fold(&e.source) != fold(&e.target))
-            .collect(),
-        Err(err) => {
+    filter_untranslated(raw).map_or_else(
+        |err| {
             log(format!("[glossary] builtin parse failed: {err}"));
             Vec::new()
-        }
-    }
+        },
+        |(entries, _)| entries,
+    )
+}
+
+fn filter_untranslated(raw: &str) -> Result<(Vec<Entry>, usize), String> {
+    let all = parse_entries(raw)?;
+    let total = all.len();
+    let kept: Vec<_> = all
+        .into_iter()
+        .filter(|e| fold(&e.source) != fold(&e.target))
+        .collect();
+    let dropped = total - kept.len();
+    Ok((kept, dropped))
 }

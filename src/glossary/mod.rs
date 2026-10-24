@@ -6,6 +6,8 @@ use serde_json::{Map, Value};
 
 use crate::py::pystr;
 
+const NOT_STRING_OBJECT: &str = "expected an object of string values";
+
 /// 一筆術語：原文詞與指定譯名。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -38,8 +40,6 @@ pub fn parse_entries(json: &str) -> Result<Vec<Entry>, String> {
     }
     Ok(entries)
 }
-
-const NOT_STRING_OBJECT: &str = "expected an object of string values";
 
 /// 輸出縮排兩格的平面物件，可被 `parse_entries` 讀回。
 pub fn entries_to_json(entries: &[Entry]) -> String {
