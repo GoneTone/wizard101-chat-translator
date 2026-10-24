@@ -9,7 +9,8 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::json;
 
 use common::kittest::{
-    click, click_in_dialog, click_nth, has_label, painted_texts, run, themed_harness, tr,
+    click, click_in_dialog, click_nth, has_label, painted_texts, run, text_sections,
+    themed_harness, tr,
 };
 use common::settings_env::FakeEnv;
 use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
@@ -19,6 +20,7 @@ use wizard101_chat_translator::glossary::Entry;
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::ui::settings::glossary_draft::GlossaryDraft;
 use wizard101_chat_translator::ui::settings::glossary_pane::GlossaryPane;
+use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::SettingsAction;
 
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
@@ -248,4 +250,88 @@ fn cancelling_delete_keeps_the_glossary() {
     let d = h.state().pane.draft();
     assert_eq!(names(d), ["Mine", "Other"]);
     assert_eq!(d.active.as_deref(), Some("a"));
+}
+
+/// 打開只有一份術語表 `Mine` 的編輯畫面。
+fn editing(entries: Vec<Entry>, builtin: Option<&str>) -> Harness<'static, State> {
+    let mut h = harness(draft(vec![glossary("a", "Mine", builtin, entries)], None));
+    click(&mut h, Role::Button, &tr("button.edit"));
+    h
+}
+
+fn custom_entries(h: &Harness<State>) -> Vec<Entry> {
+    h.state().pane.draft().glossaries[0].entries.clone()
+}
+
+/// 名稱是 `label` 的輸入欄，由上往下排。
+fn fields_named<'a>(h: &'a Harness<State>, label: &'a str) -> Vec<egui_kittest::Node<'a>> {
+    let mut nodes: Vec<_> = h
+        .query_all_by_role_and_label(Role::TextInput, label)
+        .collect();
+    nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    nodes
+}
+
+fn type_into_nth(h: &mut Harness<State>, label: &str, index: usize, text: &str) {
+    fields_named(h, label)[index].click();
+    run(h);
+    h.event(egui::Event::Text(text.into()));
+    run(h);
+}
+
+#[test]
+fn editor_shows_duplicate_source_hint() {
+    let h = editing(vec![entry("A", "甲"), entry("a", "乙")], None);
+    let hint = tr("error.glossary_duplicate_source");
+    let painted = painted_texts(&h).iter().filter(|t| **t == hint).count();
+    assert_eq!(painted, 1);
+    assert!(
+        text_sections(&h, &hint)
+            .iter()
+            .all(|(_, color)| *color == theme::ERROR)
+    );
+    let second_row = fields_named(&h, &tr("glossary.source"))[1].rect().top();
+    assert!(h.get_by_label(&hint).rect().top() > second_row);
+}
+
+#[test]
+fn adding_and_deleting_rows_updates_the_draft() {
+    let mut h = editing(vec![entry("Fire Elf", "火精靈")], None);
+    click(&mut h, Role::Button, &tr("button.add_entry"));
+    type_into_nth(&mut h, &tr("glossary.source"), 1, "Hollo");
+    type_into_nth(&mut h, &tr("glossary.target"), 1, "哈樓");
+    assert_eq!(
+        custom_entries(&h),
+        [entry("Fire Elf", "火精靈"), entry("Hollo", "哈樓")]
+    );
+    click_nth(&mut h, &tr("glossary.delete_entry"), 1);
+    assert_eq!(custom_entries(&h), [entry("Fire Elf", "火精靈")]);
+}
+
+#[test]
+fn search_filters_custom_rows() {
+    let mut h = editing(
+        vec![entry("Hollo", "哈樓"), entry("Fire Elf", "火精靈")],
+        None,
+    );
+    type_into_nth(&mut h, &tr("glossary.search"), 0, "hol");
+    let shown: Vec<_> = fields_named(&h, &tr("glossary.source"))
+        .iter()
+        .filter_map(|n| n.value())
+        .collect();
+    assert_eq!(shown, ["Hollo"]);
+}
+
+#[test]
+fn back_returns_to_the_list() {
+    let mut h = editing(Vec::new(), None);
+    click(&mut h, Role::Button, &tr("glossary.back_to_list"));
+    assert_eq!(group_labels(&h), ["Mine"]);
+}
+
+#[test]
+fn missing_builtin_shows_a_notice() {
+    let h = editing(Vec::new(), Some("xx-XX"));
+    assert!(has_label(&h, &tr("glossary.builtin_missing")));
+    assert!(painted_texts(&h).contains(&"xx-XX".to_owned()));
 }

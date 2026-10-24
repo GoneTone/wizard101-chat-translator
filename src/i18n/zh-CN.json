@@ -210,5 +210,21 @@
   "button.copy": "复制",
   "error.glossary_name_blank": "请输入术语表名称。",
   "error.glossary_duplicate_source": "术语表有来源重复的条目。",
-  "error.glossary_incomplete_entry": "术语表有没填完的条目。"
+  "error.glossary_incomplete_entry": "术语表有没填完的条目。",
+  "glossary.name": "名称",
+  "glossary.builtin": "引入内置术语表",
+  "glossary.builtin_none": "不引入",
+  "glossary.builtin_missing": "引入的内置术语表已不存在。",
+  "glossary.search": "搜索",
+  "glossary.import": "导入文件",
+  "glossary.export": "导出",
+  "glossary.custom_entries": "自定义条目",
+  "glossary.source": "来源",
+  "glossary.target": "目标",
+  "glossary.delete_entry": "删除条目",
+  "button.add_entry": "＋ 新增条目",
+  "glossary.builtin_differs": "内置术语表：{other}",
+  "glossary.same_as_builtin": "与内置术语表相同，保存时会自动移除。",
+  "glossary.builtin_section": "内置术语表：{language}（{count} 条，只读）",
+  "glossary.overridden": "被自定义覆盖"
 }

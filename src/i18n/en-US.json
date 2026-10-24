@@ -210,5 +210,21 @@
   "button.copy": "Copy",
   "error.glossary_name_blank": "Enter a glossary name.",
   "error.glossary_duplicate_source": "A glossary has entries with the same source.",
-  "error.glossary_incomplete_entry": "A glossary has unfinished entries."
+  "error.glossary_incomplete_entry": "A glossary has unfinished entries.",
+  "glossary.name": "Name",
+  "glossary.builtin": "Built-in glossary",
+  "glossary.builtin_none": "None",
+  "glossary.builtin_missing": "The included built-in glossary no longer exists.",
+  "glossary.search": "Search",
+  "glossary.import": "Import file",
+  "glossary.export": "Export",
+  "glossary.custom_entries": "Custom entries",
+  "glossary.source": "Source",
+  "glossary.target": "Target",
+  "glossary.delete_entry": "Delete entry",
+  "button.add_entry": "+ Add an entry",
+  "glossary.builtin_differs": "Built-in glossary: {other}",
+  "glossary.same_as_builtin": "Same as the built-in glossary; it will be removed when saved.",
+  "glossary.builtin_section": "Built-in glossary: {language} ({count} entries, read-only)",
+  "glossary.overridden": "Overridden by a custom entry"
 }

@@ -4,6 +4,7 @@ mod dialog;
 pub mod env;
 pub mod fields;
 pub mod glossary_draft;
+mod glossary_editor;
 pub mod glossary_pane;
 pub mod hotkeys;
 pub mod language;

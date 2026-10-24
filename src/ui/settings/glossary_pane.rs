@@ -1,20 +1,20 @@
 //! 「術語表」分頁：啟用的術語表與術語表清單，外加新增與刪除確認兩種對話框；編輯畫面在分頁內切換。
 
-use eframe::egui::{Frame, Id, Label, Margin, RichText, Ui};
+use eframe::egui::{Frame, Id, Margin, Ui};
 
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::glossary_draft::{GlossaryDraft, builtin_of};
-use super::theme::{self, icon};
+use super::glossary_editor::{EditorAction, GlossaryEditor};
+use super::theme;
 use super::widgets::{
-    card, combo_box, dashed_button, focus_ring, list_card, name_by_row, secondary_button,
-    secondary_icon_button, setting_row,
+    card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::i18n::{language_name, t};
 
 enum Screen {
     List,
-    Edit { id: String },
+    Edit(GlossaryEditor),
 }
 
 enum Dialog {
@@ -60,12 +60,22 @@ impl GlossaryPane {
 
     /// 畫目前的畫面（清單或編輯）與開著的對話框。
     pub fn ui(&mut self, ui: &mut Ui) {
-        match &self.screen {
-            Screen::List => self.list_ui(ui),
-            Screen::Edit { id } => {
-                let id = id.clone();
-                self.edit_ui(ui, &id);
+        if let Screen::Edit(editor) = &mut self.screen {
+            let glossary = self
+                .draft
+                .glossaries
+                .iter_mut()
+                .find(|g| g.id == editor.id());
+            let action = match glossary {
+                Some(glossary) => editor.ui(ui, glossary),
+                None => EditorAction::Back,
+            };
+            match action {
+                EditorAction::Back => self.screen = Screen::List,
+                EditorAction::None | EditorAction::Import | EditorAction::Export => {}
             }
+        } else {
+            self.list_ui(ui);
         }
         self.show_dialog(ui);
     }
@@ -86,7 +96,7 @@ impl GlossaryPane {
                 self.dialog = Dialog::New;
             }
             match action {
-                Some(CardAction::Edit(id)) => self.screen = Screen::Edit { id },
+                Some(CardAction::Edit(id)) => self.screen = Screen::Edit(GlossaryEditor::new(&id)),
                 Some(CardAction::Duplicate(id)) => {
                     self.draft.duplicate(&id);
                 }
@@ -96,18 +106,6 @@ impl GlossaryPane {
         });
     }
 
-    fn edit_ui(&mut self, ui: &mut Ui, id: &str) {
-        let back = t("glossary.back_to_list", &[]);
-        if secondary_icon_button(ui, icon::BACK, &back).clicked() {
-            self.screen = Screen::List;
-        }
-        if let Some(glossary) = self.draft.find(id) {
-            ui.add(Label::new(
-                RichText::new(&glossary.name).font(theme::bold(theme::TEXT_SIZE)),
-            ));
-        }
-    }
-
     fn active_combo(&mut self, ui: &mut Ui) {
         let current = self.draft.active.clone();
         let none = t("glossary.none", &[]);
@@ -115,24 +113,20 @@ impl GlossaryPane {
             .as_deref()
             .and_then(|id| self.draft.find(id))
             .map_or(none.clone(), |g| g.name.clone());
-        let mut chosen = None;
-        let combo = combo_box(ui, "active_glossary")
-            .selected_text(selected)
-            .truncate()
-            .show_ui(ui, |ui| {
-                let muted = RichText::new(&none).color(theme::TEXT_SECONDARY);
-                if ui.selectable_label(current.is_none(), muted).clicked() {
-                    chosen = Some(None);
-                }
-                for glossary in &self.draft.glossaries {
-                    let on = current.as_deref() == Some(glossary.id.as_str());
-                    if ui.selectable_label(on, &glossary.name).clicked() {
-                        chosen = Some(Some(glossary.id.clone()));
-                    }
-                }
-            });
-        let response = name_by_row(ui, combo.response);
-        focus_ring(ui, &response, theme::CONTROL_RADIUS);
+        let options: Vec<(String, String)> = self
+            .draft
+            .glossaries
+            .iter()
+            .map(|g| (g.id.clone(), g.name.clone()))
+            .collect();
+        let chosen = optional_combo(
+            ui,
+            "active_glossary",
+            selected,
+            &none,
+            &options,
+            current.as_deref(),
+        );
         if let Some(id) = chosen {
             self.draft.set_active(id);
         }
@@ -178,7 +172,7 @@ impl GlossaryPane {
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(Start::Blank) => {
                     let id = self.draft.add_blank();
-                    self.screen = Screen::Edit { id };
+                    self.screen = Screen::Edit(GlossaryEditor::new(&id));
                     self.dialog = Dialog::Closed;
                 }
             },

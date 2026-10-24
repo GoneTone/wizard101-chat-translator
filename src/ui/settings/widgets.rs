@@ -156,6 +156,40 @@ pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
         })
 }
 
+/// 第一項是說明色 `none` 的下拉，其後是 `(值, 顯示文字)`；回傳這一幀選到的值，`Some(None)` 是選了 `none`。
+///
+/// 在 `setting_row` 裡時以那一列的名稱當無障礙名稱。
+pub(super) fn optional_combo(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    selected: String,
+    none: &str,
+    options: &[(String, String)],
+    current: Option<&str>,
+) -> Option<Option<String>> {
+    let mut chosen = None;
+    let combo = combo_box(ui, salt)
+        .selected_text(selected)
+        .truncate()
+        .show_ui(ui, |ui| {
+            let muted = RichText::new(none).color(theme::TEXT_SECONDARY);
+            if ui.selectable_label(current.is_none(), muted).clicked() {
+                chosen = Some(None);
+            }
+            for (value, label) in options {
+                if ui
+                    .selectable_label(current == Some(value.as_str()), label)
+                    .clicked()
+                {
+                    chosen = Some(Some(value.clone()));
+                }
+            }
+        });
+    let response = name_by_row(ui, combo.response);
+    focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    chosen
+}
+
 /// 在水平列裡放一欄由上往下的內容，整欄與列垂直置中；高度取上一幀以 `id` 量到的值，變了就重排一次。
 pub(super) fn centered_column<R>(
     ui: &mut Ui,

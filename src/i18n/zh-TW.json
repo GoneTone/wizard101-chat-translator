@@ -210,5 +210,21 @@
   "button.copy": "複製",
   "error.glossary_name_blank": "請輸入術語表名稱。",
   "error.glossary_duplicate_source": "術語表有來源重複的條目。",
-  "error.glossary_incomplete_entry": "術語表有沒填完的條目。"
+  "error.glossary_incomplete_entry": "術語表有沒填完的條目。",
+  "glossary.name": "名稱",
+  "glossary.builtin": "引入內建術語表",
+  "glossary.builtin_none": "不引入",
+  "glossary.builtin_missing": "引入的內建術語表已不存在。",
+  "glossary.search": "搜尋",
+  "glossary.import": "匯入檔案",
+  "glossary.export": "匯出",
+  "glossary.custom_entries": "自訂條目",
+  "glossary.source": "來源",
+  "glossary.target": "目標",
+  "glossary.delete_entry": "刪除條目",
+  "button.add_entry": "＋ 新增條目",
+  "glossary.builtin_differs": "內建術語表：{other}",
+  "glossary.same_as_builtin": "與內建術語表相同，儲存時會自動移除。",
+  "glossary.builtin_section": "內建術語表：{language}（{count} 條，唯讀）",
+  "glossary.overridden": "被自訂覆蓋"
 }
