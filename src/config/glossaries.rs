@@ -71,17 +71,18 @@ pub fn stored(cfg: &Config) -> Vec<StoredGlossary> {
         .collect()
 }
 
-/// 把一筆修成合法形狀（id、名稱、builtin、entries），`taken` 是已整理好的前面幾筆。
-fn clean_one(raw: &Map<String, Value>, taken: &[Value]) -> Value {
-    let raw_value = Value::Object(raw.clone());
-    let mut id = str_field(&raw_value, "id").to_owned();
+/// 把一筆修成合法形狀（id、名稱、builtin、entries），`taken` 是已整理好的前面幾筆；第二個值表示有沒有實質修正。
+fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
+    let mut repaired = false;
+    let mut id = str_field(raw, "id").to_owned();
     if id.is_empty() || taken.iter().any(|g| str_field(g, "id") == id) {
         id = new_id(taken);
+        repaired = true;
         log(format!(
             "[config] regenerated a missing or duplicate glossary id -> {id}"
         ));
     }
-    let name = str_field(&raw_value, "name");
+    let name = str_field(raw, "name");
     let base = if pystr::strip(name).is_empty() {
         t("glossary.default_name", &[])
     } else {
@@ -89,38 +90,62 @@ fn clean_one(raw: &Map<String, Value>, taken: &[Value]) -> Value {
     };
     let unique = unique_name(&base, taken, None);
     if unique != name {
+        repaired = true;
         log(format!(
             "[config] renamed a blank or duplicate glossary name -> {unique:?}"
         ));
     }
-    let mut map = StoredGlossary::from_value(&raw_value)
-        .expect("object")
-        .to_value();
-    map["id"] = id.into();
-    map["name"] = unique.into();
-    map
+    if raw
+        .get("builtin")
+        .is_some_and(|b| !b.is_null() && !b.is_string())
+    {
+        repaired = true;
+        log(format!("[config] glossary {id}: dropped malformed builtin"));
+    }
+    let raw_entries = raw.get("entries");
+    let kept = StoredGlossary::from_value(raw).map_or(0, |g| g.entries.len());
+    let total = raw_entries.and_then(Value::as_object).map_or(0, Map::len);
+    if raw_entries.is_some_and(|e| !e.is_object()) {
+        repaired = true;
+        log(format!("[config] glossary {id}: dropped malformed entries"));
+    } else if kept < total {
+        repaired = true;
+        log(format!(
+            "[config] glossary {id}: dropped {} malformed entries",
+            total - kept
+        ));
+    }
+    let mut value = StoredGlossary::from_value(raw)
+        .map(|g| g.to_value())
+        .unwrap_or_default();
+    value["id"] = id.into();
+    value["name"] = unique.into();
+    (value, repaired)
 }
 
 /// 就地整理 `glossaries` 與 `active_glossary`；回傳是否有變動（有就該寫回 config.json）。
 pub fn normalize(cfg: &mut Config) -> bool {
     let before = cfg.get("glossaries").cloned().unwrap_or(Value::Null);
+    let mut changed = false;
     let raw = match &before {
         Value::Array(items) => items.clone(),
         other => {
             if !other.is_null() {
                 log("[config] glossaries is not a list; using an empty list");
+                changed = true;
             }
             Vec::new()
         }
     };
     let mut clean: Vec<Value> = Vec::new();
     for item in &raw {
-        match item.as_object() {
-            Some(map) => {
-                let one = clean_one(map, &clean);
-                clean.push(one);
-            }
-            None => log("[config] dropped a glossary entry that is not an object"),
+        if item.is_object() {
+            let (one, repaired) = clean_one(item, &clean);
+            changed |= repaired;
+            clean.push(one);
+        } else {
+            log("[config] dropped a glossary entry that is not an object");
+            changed = true;
         }
     }
     let ids: Vec<&str> = clean.iter().map(|g| str_field(g, "id")).collect();
@@ -133,8 +158,8 @@ pub fn normalize(cfg: &mut Config) -> bool {
         log(format!(
             "[config] active_glossary {active} is unknown; turning the glossary off"
         ));
+        changed = true;
     }
-    let changed = Value::Array(clean.clone()) != before || wanted != active;
     cfg.insert("glossaries".into(), Value::Array(clean));
     cfg.insert("active_glossary".into(), wanted);
     changed

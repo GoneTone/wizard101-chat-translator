@@ -321,4 +321,14 @@ mod config_glossaries {
         );
         assert!(!glossaries::active(&cfg).unwrap().hits("Hollo").is_empty());
     }
+
+    #[test]
+    fn missing_builtin_key_is_not_a_change() {
+        let mut cfg = cfg_with(
+            json!([{"id": "a", "name": "X", "entries": {"k": "v"}}]),
+            json!("a"),
+        );
+        assert!(!glossaries::normalize(&mut cfg));
+        assert!(cfg["glossaries"][0]["builtin"].is_null());
+    }
 }
