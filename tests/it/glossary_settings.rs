@@ -389,6 +389,24 @@ fn adding_and_deleting_rows_updates_the_draft() {
 }
 
 #[test]
+fn deleting_a_row_does_not_hand_its_undo_history_to_the_next_row() {
+    let mut h = editing(vec![entry("A", "甲"), entry("B", "乙")], None);
+    type_into_nth(&mut h, &tr("glossary.source"), 0, "x");
+    click_nth(&mut h, &tr("glossary.delete_entry"), 0);
+    fields_named(&h, &tr("glossary.source"))[0].click();
+    run(&mut h);
+    h.event(egui::Event::Key {
+        key: egui::Key::Z,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::COMMAND,
+    });
+    run(&mut h);
+    assert_eq!(custom_entries(&h), [entry("B", "乙")]);
+}
+
+#[test]
 fn search_filters_custom_rows() {
     let mut h = editing(
         vec![entry("Hollo", "哈樓"), entry("Fire Elf", "火精靈")],

@@ -35,6 +35,8 @@ pub(super) struct GlossaryEditor {
     overridden: Vec<bool>,
     custom_rows: LazyRows,
     builtin_rows: LazyRows,
+    /// 每刪一列加一，讓各列換新 Id。
+    deletions: u64,
 }
 
 impl GlossaryEditor {
@@ -48,6 +50,7 @@ impl GlossaryEditor {
             overridden: Vec::new(),
             custom_rows: LazyRows::default(),
             builtin_rows: LazyRows::default(),
+            deletions: 0,
         }
     }
 
@@ -167,7 +170,7 @@ impl GlossaryEditor {
 
     fn custom_card(&mut self, ui: &mut Ui, entries: &mut Vec<Entry>) {
         let query = fold(&self.query);
-        let (rows, issues) = (&mut self.custom_rows, &self.issues);
+        let (rows, issues, deletions) = (&mut self.custom_rows, &self.issues, self.deletions);
         let mut removed = None;
         let mut added = false;
         card(ui, |ui| {
@@ -205,9 +208,10 @@ impl GlossaryEditor {
                         if !matches(entry, &query) {
                             continue;
                         }
-                        // 以條目位置當 Id：篩選與提示增減時，游標與復原紀錄才不會跑到別列
+                        // 以條目位置當 Id，篩選與提示增減時游標與復原紀錄才不會跑到別列；
+                        // 刪列會讓下面各列往上遞補，所以同時帶刪除次數，免得接手被刪那列的復原紀錄
                         rows.row(ui, i, theme::CONTROL_HEIGHT, |ui| {
-                            ui.push_id(i, |ui| {
+                            ui.push_id((deletions, i), |ui| {
                                 ui.horizontal(|ui| {
                                     ui.allocate_ui(cell, |ui| {
                                         text_field(ui, &mut entry.source).labelled_by(source);
@@ -234,6 +238,7 @@ impl GlossaryEditor {
         if let Some(i) = removed {
             entries.remove(i);
             self.custom_rows.remove(i);
+            self.deletions += 1;
         }
         if added {
             entries.push(Entry {
