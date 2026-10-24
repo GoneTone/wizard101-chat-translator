@@ -13,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::ServiceSpec;
+use wizard101_chat_translator::glossary::{Entry, Glossary};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{ChatBackend, MAX_TOKENS_REGION};
 use wizard101_chat_translator::translation::errors::TranslateError;
@@ -20,8 +21,9 @@ use wizard101_chat_translator::translation::examples::{
     ExampleSet, ExampleStore, GAME_LANGUAGE_EXAMPLES, examples_fingerprint,
 };
 use wizard101_chat_translator::translation::prompts::{
-    CONTEXT_ACK, OUTGOING_LANGUAGE, build_incoming_system, build_outgoing_system,
-    build_region_system, build_system_message_system, fewshot_outgoing_turns,
+    CONTEXT_ACK, CONTEXT_INTRO_INCOMING, GLOSSARY_ACK, OUTGOING_LANGUAGE, build_incoming_system,
+    build_outgoing_system, build_region_system, build_system_message_system, build_turns,
+    fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
 };
 use wizard101_chat_translator::translation::translator::{
     ExampleCoordinator, TEST_SAMPLE, Translator, generate_and_store, test_translate,
@@ -235,7 +237,7 @@ async fn a_cancelled_request_is_never_sent() {
 async fn system_message_sends_no_context_turns_and_strips_invented_english() {
     let fake = Fake::texts(&["迷幻木頭(Mystic Wood)"]);
     let out = make(&fake).translate_system_message("迷幻木头").await;
-    assert_eq!(out.unwrap(), "迷幻木頭");
+    assert_eq!(out.unwrap().text, "迷幻木頭");
     let calls = fake.calls();
     assert_eq!(calls[0].system, build_system_message_system(ZH, false));
     assert_eq!(calls[0].turns, [Turn::user("迷幻木头")]);
@@ -245,7 +247,7 @@ async fn system_message_sends_no_context_turns_and_strips_invented_english() {
 async fn system_message_strict_retry_on_stray_latin_only_once() {
     let fake = Fake::texts(&["Snowspike Hat", "雪刺帽"]);
     let out = make(&fake).translate_system_message("雪刺帽").await;
-    assert_eq!(out.unwrap(), "雪刺帽");
+    assert_eq!(out.unwrap().text, "雪刺帽");
     assert_eq!(fake.calls().len(), 2);
     assert_eq!(
         fake.calls()[1].system,
@@ -256,7 +258,7 @@ async fn system_message_strict_retry_on_stray_latin_only_once() {
     let out = make(&still_english)
         .translate_system_message("卡拉米蒂 现在等级 {0}！")
         .await;
-    assert_eq!(out.unwrap(), "Calamity 現在等級 {0}！");
+    assert_eq!(out.unwrap().text, "Calamity 現在等級 {0}！");
     assert_eq!(still_english.calls().len(), 2);
     let lines = log_lines_with("卡拉米蒂 现在等级");
     assert!(lines.iter().any(|l| l.contains(
@@ -383,9 +385,15 @@ async fn a_blank_model_reply_is_bad_output_for_incoming_and_system_messages() {
     for reply in ["", "  \n"] {
         let fake = Fake::texts(&[reply]);
         let tr = make(&fake);
-        let expected = Err(TranslateError::BadOutput("model returned no text".into()));
-        assert_eq!(tr.translate_incoming("[A] hi", &[]).await, expected);
-        assert_eq!(tr.translate_system_message("hi").await, expected);
+        let expected = TranslateError::BadOutput("model returned no text".into());
+        assert_eq!(
+            tr.translate_incoming("[A] hi", &[]).await,
+            Err(expected.clone())
+        );
+        assert_eq!(
+            tr.translate_system_message("hi").await.unwrap_err(),
+            expected
+        );
     }
 }
 
@@ -1122,4 +1130,156 @@ async fn a_failed_generation_does_not_block_a_retry() {
     let tr = make_with(&fake, "日本語");
     assert!(generate_and_store(&tr, &store).await.unwrap().is_some());
     assert_eq!(fake.calls().len(), 1);
+}
+
+// --- 術語表 ---
+
+fn hollo_glossary() -> Option<Arc<Glossary>> {
+    let entry = Entry {
+        source: "Hollo".into(),
+        target: "哈樓".into(),
+    };
+    Some(Arc::new(Glossary::new(vec![entry], Vec::new())))
+}
+
+#[tokio::test]
+async fn no_glossary_leaves_the_request_unchanged() {
+    let fake = Fake::texts(&["[A] 譯文"]);
+    let tr = make(&fake);
+    let context = vec!["[B] yo".to_string()];
+    tr.set_glossary(None);
+    tr.translate_incoming("[Bob] hi Hollo", &context)
+        .await
+        .unwrap();
+    tr.set_glossary(hollo_glossary());
+    tr.translate_incoming("[Bob] hi there", &context)
+        .await
+        .unwrap();
+    let calls = fake.calls();
+    for (call, text) in calls.iter().zip(["[Bob] hi Hollo", "[Bob] hi there"]) {
+        let plain = build_turns(&context, &[], text, CONTEXT_INTRO_INCOMING, &[]);
+        assert_eq!(call.turns, plain);
+        assert_eq!(call.system, build_incoming_system(ZH));
+    }
+}
+
+#[tokio::test]
+async fn incoming_hit_inserts_glossary_turns_before_the_message() {
+    let fake = Fake::texts(&["[Bob] 嗨"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    tr.translate_incoming("[Bob] hi Hollo", &["[B] yo".into()])
+        .await
+        .unwrap();
+    let calls = fake.calls();
+    let turns = &calls[0].turns;
+    assert_eq!(turns.len(), 5);
+    assert!(turns[0].content.contains("[B] yo"));
+    let n = turns.len();
+    assert!(turns[n - 3].content.contains("Hollo <=> 哈樓"));
+    assert!(turns[n - 3].content.contains(&glossary_keep_original(ZH)));
+    assert!(glossary_keep_original(ZH).contains(ZH));
+    assert_eq!(turns[n - 2], Turn::assistant(GLOSSARY_ACK));
+    assert_eq!(turns[n - 1], Turn::user("[Bob] hi Hollo"));
+    assert_eq!(calls[0].system, build_incoming_system(ZH));
+}
+
+#[tokio::test]
+async fn incoming_sender_is_not_matched() {
+    let fake = Fake::texts(&["[Hollo] 嗨"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    tr.translate_incoming("[Hollo] hi", &[]).await.unwrap();
+    assert_eq!(fake.calls()[0].turns, [Turn::user("[Hollo] hi")]);
+}
+
+#[tokio::test]
+async fn outgoing_hit_says_to_keep_terms_already_in_the_outgoing_language() {
+    let fake = Fake::texts(&["is Hollo there?"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    tr.translate_outgoing("哈樓在嗎", &[], None).await.unwrap();
+    let turns = &fake.calls()[0].turns;
+    let n = turns.len();
+    assert!(turns[n - 3].content.contains("Hollo <=> 哈樓"));
+    assert!(!turns[n - 3].content.contains(&glossary_keep_original(ZH)));
+    assert!(turns[n - 3].content.contains(&glossary_outgoing_note()));
+    assert!(glossary_outgoing_note().contains(OUTGOING_LANGUAGE));
+    assert_eq!(turns[n - 1], Turn::user("哈樓在嗎"));
+}
+
+#[tokio::test]
+async fn system_message_returns_the_key_it_used() {
+    let fake = Fake::texts(&["哈樓加入了"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    let out = tr.translate_system_message("Hollo joined").await.unwrap();
+    assert_eq!(out.glossary_key, "Hollo <=> 哈樓");
+    assert_eq!(tr.glossary_key("Hollo joined"), "Hollo <=> 哈樓");
+    assert_eq!(tr.glossary_key("nothing"), "");
+}
+
+#[tokio::test]
+async fn system_message_strict_retry_logs_the_hits_once() {
+    let fake = Fake::texts(&["Snowspike Hat", "雪刺帽"]);
+    let tr = make(&fake);
+    let entry = Entry {
+        source: "雪刺".into(),
+        target: "冰刺".into(),
+    };
+    tr.set_glossary(Some(Arc::new(Glossary::new(vec![entry], Vec::new()))));
+    tr.translate_system_message("雪刺帽").await.unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].turns, calls[1].turns);
+    assert!(calls[1].turns[0].content.contains("雪刺 <=> 冰刺"));
+    assert_eq!(log_lines_with("glossary hits: 1 (雪刺 <=> 冰刺)").len(), 1);
+}
+
+#[tokio::test]
+async fn region_hit_inserts_glossary_turns() {
+    let fake = Fake::texts(&["哈樓說\n第二行"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    tr.translate_region_text("Hollo says\nSecond line", None)
+        .await
+        .unwrap();
+    let turns = &fake.calls()[0].turns;
+    assert_eq!(turns.len(), 3);
+    assert!(turns[0].content.contains("Hollo <=> 哈樓"));
+    assert!(turns[0].content.contains(&glossary_keep_original(ZH)));
+    assert_eq!(turns[2], Turn::user("Hollo says\nSecond line"));
+}
+
+#[tokio::test]
+async fn set_glossary_keeps_examples_and_client() {
+    let fake = Fake::texts(&["x"]);
+    let built = Arc::new(AtomicUsize::new(0));
+    let (f, b) = (Arc::clone(&fake), Arc::clone(&built));
+    let tr = Translator::with_client(
+        move |_| {
+            b.fetch_add(1, Ordering::SeqCst);
+            f.clone() as Arc<dyn ChatBackend>
+        },
+        spec("m"),
+        ZH.into(),
+    );
+    let examples = ex_incoming("src", "out");
+    assert!(tr.set_examples(Some(examples.clone()), &tr.examples_fingerprint()));
+    tr.set_glossary(hollo_glossary());
+    assert_eq!(tr.examples(), Some(examples));
+    assert_eq!(built.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn reconfigure_keeps_the_glossary() {
+    let fake = Fake::texts(&["x"]);
+    let tr = make(&fake);
+    tr.set_glossary(hollo_glossary());
+    let other = ServiceSpec {
+        model: "m2".into(),
+        ..spec("m")
+    };
+    assert!(tr.reconfigure(other, ZH.into()));
+    assert_eq!(tr.glossary_key("Hollo"), "Hollo <=> 哈樓");
 }

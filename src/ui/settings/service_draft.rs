@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 
+use super::widgets::card_label;
 use crate::config::Config;
 use crate::config::services::{ServiceSlot, slot_id, str_field, unique_name};
 use crate::i18n::t;
@@ -65,13 +66,7 @@ impl ServiceDraft {
 
     /// 卡片的標題：服務名稱後接它擔任的角色，以 ` · ` 分隔。
     pub fn card_label(&self, service: &Value) -> String {
-        let name = str_field(service, "name");
-        let badges = self.badges(service);
-        if badges.is_empty() {
-            name.to_owned()
-        } else {
-            format!("{name}\u{3000}{}", badges.join(" · "))
-        }
+        card_label(str_field(service, "name"), &self.badges(service))
     }
 
     /// 最後一筆不給刪：刪光就無從翻譯。

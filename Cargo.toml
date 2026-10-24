@@ -12,6 +12,7 @@ path = "src/main.rs"
 test-support = []
 
 [dependencies]
+aho-corasick = "1.1.5"
 arboard = { version = "3.7", default-features = false }
 caseless = "0.2.2"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
@@ -24,6 +25,7 @@ num_cpus = "1.17.0"
 raw-window-handle = "0.6.2"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "stream", "json", "system-proxy", "http2"] }
+rfd = "0.17.2"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rusto-rs = "0.3.1"
 serde = { version = "1.0.229", features = ["derive"] }

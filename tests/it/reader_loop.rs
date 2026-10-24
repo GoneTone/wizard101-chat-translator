@@ -7,6 +7,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use common::fake_backend::{Fake, spec};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{
     EXPECTED_PANIC, VirtualClock, banners, drain, echo, failing_pool, pool, quiet_panics, runtime,
@@ -16,6 +17,7 @@ use serde_json::json;
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::config::Config;
+use wizard101_chat_translator::glossary::{Entry, Glossary};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::reader::chat_tabs::TabState;
 use wizard101_chat_translator::reader::markup::ChatLine;
@@ -25,10 +27,11 @@ use wizard101_chat_translator::reader::run_loop::{
     ReaderShared, VERSION_MISMATCH_INTERVAL, reader_loop,
 };
 use wizard101_chat_translator::reader::status::StatusBoard;
-use wizard101_chat_translator::translation::cache::TranslationCache;
+use wizard101_chat_translator::translation::cache::{TranslationCache, normalize};
 use wizard101_chat_translator::translation::context::ClientContexts;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::pool::TranslationPool;
+use wizard101_chat_translator::translation::translator::Translator;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 
 type Results = Receiver<(u64, String, bool)>;
@@ -188,6 +191,7 @@ struct Setup {
     system_pool: Arc<TranslationPool>,
     system_rx: Results,
     cache: Arc<TranslationCache>,
+    incoming: Arc<Translator>,
     contexts: Arc<ClientContexts>,
     clock: VirtualClock,
     probe: Arc<Mutex<Probe>>,
@@ -216,6 +220,11 @@ impl Setup {
             system_pool,
             system_rx,
             cache: Arc::new(TranslationCache::new(path, "fp".into())),
+            incoming: Translator::with_client(
+                |_| Fake::texts(&["unused"]),
+                spec("m"),
+                "target".into(),
+            ),
             contexts: Arc::new(ClientContexts::new()),
             clock: VirtualClock::new(),
             probe: Arc::default(),
@@ -265,6 +274,7 @@ impl Setup {
             board,
             msg_ids: Arc::new(MessageIds::default()),
             cache: Arc::clone(&self.cache),
+            incoming: Arc::clone(&self.incoming),
         });
         let env = LoopEnv {
             clock: self.clock.clock(Duration::ZERO),
@@ -385,7 +395,7 @@ fn system_cache_hit_shown_without_pool() {
     let mut s = Setup::new().system_messages(true);
     assert!(
         s.cache
-            .put("你获得了 39 金币！", "你獲得了 {0} 金幣！", "fp")
+            .put("你获得了 39 金币！", "", "你獲得了 {0} 金幣！", "fp")
     );
     let events = s.run(vec![
         Read::Lines(vec![drop_line("你获得了 39 金币！")]),
@@ -405,6 +415,37 @@ fn system_cache_hit_shown_without_pool() {
         }]
     );
     assert_eq!(submitted(&s.system_rx, 0), []);
+}
+
+#[test]
+fn system_cache_hit_with_a_glossary_key_is_shown_without_pool() {
+    let text = "Hollo is here";
+    let glossary = Arc::new(Glossary::new(
+        vec![Entry {
+            source: "Hollo".into(),
+            target: "哈樓".into(),
+        }],
+        Vec::new(),
+    ));
+    let run = |key: &str, submits: usize| {
+        let mut s = Setup::new().system_messages(true);
+        s.incoming.set_glossary(Some(Arc::clone(&glossary)));
+        let stored_key = if key.is_empty() {
+            String::new()
+        } else {
+            s.incoming.glossary_key(&normalize(text).0)
+        };
+        assert!(s.cache.put(text, &stored_key, "哈樓在這裡", "fp"));
+        let events = s.run(vec![Read::Lines(vec![drop_line(text)]), lines(&[])]);
+        (added(&events), submitted(&s.system_rx, submits))
+    };
+    let (hit, pooled) = run("glossary", 0);
+    assert!(!hit[0].pending);
+    assert_eq!(hit[0].translated, "哈樓在這裡");
+    assert_eq!(pooled, []);
+    // 只存在無術語鍵的條目下不算命中，證明 dispatch 走的是帶鍵的 lookup
+    let (miss, _) = run("", 1);
+    assert!(miss[0].pending);
 }
 
 #[test]

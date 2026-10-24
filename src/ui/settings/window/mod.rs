@@ -1,4 +1,4 @@
-//! 設定視窗的內容：側欄四個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
+//! 設定視窗的內容：側欄五個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
 //!
 //! 介面語言改了就先預覽（呼叫 `set_language`），按儲存才寫進設定，取消則還原成開窗時的語言。
 
@@ -13,6 +13,8 @@ use eframe::egui::{
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
+use super::glossary_draft::GlossaryDraft;
+use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
 use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
@@ -28,23 +30,35 @@ use crate::i18n::{current_language, language_name, set_language, t};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
+use crate::translation::errors::localized;
+
+/// 擋下儲存的一個原因：（錯誤文案 key，format 變數）。
+pub type SaveError = (String, Vec<(&'static str, String)>);
 
 /// 設定視窗的分頁，依側欄順序。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Page {
     Basic,
     Services,
+    Glossaries,
     Advanced,
     About,
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Self::Basic, Self::Services, Self::Advanced, Self::About];
+    const ALL: [Page; 5] = [
+        Self::Basic,
+        Self::Services,
+        Self::Glossaries,
+        Self::Advanced,
+        Self::About,
+    ];
 
     fn title_key(self) -> &'static str {
         match self {
             Self::Basic => "settings.tab.basic",
             Self::Services => "settings.tab.services",
+            Self::Glossaries => "settings.tab.glossaries",
             Self::Advanced => "settings.tab.advanced",
             Self::About => "settings.tab.about",
         }
@@ -54,6 +68,7 @@ impl Page {
         match self {
             Self::Basic => icon::BASIC,
             Self::Services => icon::SERVICES,
+            Self::Glossaries => icon::GLOSSARIES,
             Self::Advanced => icon::ADVANCED,
             Self::About => icon::ABOUT,
         }
@@ -69,7 +84,7 @@ pub enum SettingsAction {
     PreviewLanguage,
     /// 手動檢查查到新版。
     UpdateFound(Release),
-    /// 這個視窗管的鍵（服務三鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。
@@ -88,10 +103,11 @@ pub struct SettingsWindow {
     auto_show_input: bool,
     paste_hotkey: bool,
     services: ServicePane,
+    glossaries: GlossaryPane,
     advanced: AdvancedText,
     translate_system: bool,
-    /// 上次按儲存被擋下的原因（錯誤文案 key）；顯示後隨編輯即時更新。
-    errors: Vec<String>,
+    /// 上次按儲存被擋下的原因；顯示後隨編輯即時更新。
+    errors: Vec<SaveError>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
 }
@@ -113,6 +129,7 @@ impl SettingsWindow {
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
+            glossaries: GlossaryPane::new(GlossaryDraft::from_config(cfg)),
             advanced: AdvancedText {
                 fade_seconds: number("fade_seconds"),
                 max_messages: number("max_messages"),
@@ -144,7 +161,7 @@ impl SettingsWindow {
         self.hotkeys.release(env);
     }
 
-    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，其餘由視窗自己收。
+    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，其餘由視窗自己收。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::TestDone { .. } | SettingsEvent::ModelsDone { .. } => {
@@ -153,6 +170,10 @@ impl SettingsWindow {
             SettingsEvent::UpdateChecked { round, result } => self.apply_update(*round, result),
             SettingsEvent::HotkeyRecorded { .. } => {
                 self.hotkeys.apply(event);
+            }
+            SettingsEvent::GlossaryFilePicked { .. }
+            | SettingsEvent::GlossarySavePathPicked { .. } => {
+                self.glossaries.apply(event);
             }
         }
     }
@@ -202,13 +223,14 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::PreviewLanguage);
     }
 
-    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（錯誤文案 key，依序：服務、熱鍵、目標語言、進階數值）。
-    fn collect(&self) -> (Config, Vec<String>) {
+    /// 草稿寫成這個視窗管的那些鍵，連同擋下儲存的原因（依序：服務、術語表、熱鍵、目標語言、進階數值）。
+    fn collect(&self) -> (Config, Vec<SaveError>) {
         let mut cfg = Config::new();
         if let Some(slots) = &self.slots_at_open {
             cfg.insert("service_slots".into(), slots.clone());
         }
         self.services.draft().write_into(&mut cfg);
+        self.glossaries.draft().write_into(&mut cfg);
         let target = pystr::strip(&self.target_language);
         self.hotkeys.write_into(&mut cfg);
         let values = [
@@ -220,14 +242,21 @@ impl SettingsWindow {
         for (key, value) in values {
             cfg.insert(key.into(), value);
         }
-        let mut errors = service_errors(&cfg);
-        errors.extend(self.hotkeys.errors(self.paste_hotkey));
+        let plain = |key: String| (key, Vec::new());
+        let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
+        errors.extend(self.glossaries.draft().errors());
+        errors.extend(
+            self.hotkeys
+                .errors(self.paste_hotkey)
+                .into_iter()
+                .map(plain),
+        );
         if target.is_empty() {
-            errors.push("error.need_target_language".into());
+            errors.push(plain("error.need_target_language".into()));
         }
         match parse_advanced(&self.advanced) {
             Ok(values) => cfg.extend(values),
-            Err(key) => errors.push(key.into()),
+            Err(key) => errors.push(plain(key.into())),
         }
         cfg.insert("ui_language".into(), current_language().into());
         (cfg, errors)
@@ -236,7 +265,8 @@ impl SettingsWindow {
     fn save(&mut self, env: &dyn SettingsEnv) {
         let (cfg, errors) = self.collect();
         if !errors.is_empty() {
-            log(format!("[settings] save blocked: {}", errors.join(", ")));
+            let keys: Vec<&str> = errors.iter().map(|(key, _)| key.as_str()).collect();
+            log(format!("[settings] save blocked: {}", keys.join(", ")));
             self.errors = errors;
             return;
         }
@@ -244,7 +274,7 @@ impl SettingsWindow {
         self.pending.push(SettingsAction::Save(cfg));
     }
 
-    /// 側欄：四個導覽項，底部是版本號；回傳這一幀點下的分頁。
+    /// 側欄：各分頁的導覽項，底部是版本號；回傳這一幀點下的分頁。
     fn sidebar(&self, ui: &mut Ui) -> Option<Page> {
         let margin = Margin {
             left: 8,
@@ -321,7 +351,11 @@ impl SettingsWindow {
         }
         if !self.errors.is_empty() {
             let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-            let lines: Vec<String> = self.errors.iter().map(|e| t(e, &[])).collect();
+            let lines: Vec<String> = self
+                .errors
+                .iter()
+                .map(|(key, args)| localized(key, args))
+                .collect();
             ui.scope(|ui| {
                 ui.set_max_width(room.max(120.0));
                 callout(ui, &t("dialog.incomplete_title", &[]), &lines);
@@ -358,6 +392,7 @@ impl SettingsWindow {
                     };
                     self.services.ui(ui, env, &target);
                 }
+                Page::Glossaries => self.glossaries.ui(ui, env),
                 Page::Advanced => self.advanced_page(ui),
                 Page::About => self.about_page(ui, env),
             }

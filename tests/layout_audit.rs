@@ -15,7 +15,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
-use common::kittest::{click, themed_harness_with, tr};
+use common::kittest::{click, click_nth, themed_harness_with, tr};
 use common::settings_env::FakeEnv;
 use common::wizard::{self as wiz, State as WizardState, cfg_with, filled};
 use wizard101_chat_translator::config::Config;
@@ -72,15 +72,6 @@ fn settings(cfg: &Config, language: &'static str, size: Vec2) -> Harness<'static
     )
 }
 
-/// 由上而下第 `index` 個名稱是 `label` 的按鈕。
-fn click_nth(h: &mut Harness<'_, Settings>, label: &str, index: usize) {
-    let mut nodes: Vec<_> = h.query_all_by_role_and_label(Role::Button, label).collect();
-    nodes.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
-    nodes[index].scroll_to_me();
-    nodes[index].click();
-    h.run_steps(3);
-}
-
 fn all_providers() -> Config {
     let mut services: Vec<Value> = Vec::new();
     for provider in PROVIDERS {
@@ -95,13 +86,20 @@ fn page_name(page: Page) -> &'static str {
     match page {
         Page::Basic => "basic",
         Page::Services => "services",
+        Page::Glossaries => "glossaries",
         Page::Advanced => "advanced",
         Page::About => "about",
     }
 }
 
 fn settings_pages(language: &'static str, size: Vec2, tag: &str) {
-    for page in [Page::Basic, Page::Services, Page::Advanced, Page::About] {
+    for page in [
+        Page::Basic,
+        Page::Services,
+        Page::Glossaries,
+        Page::Advanced,
+        Page::About,
+    ] {
         let mut h = settings(&all_providers(), language, size);
         h.state_mut().win.set_page(page);
         save(&mut h, &format!("settings_{tag}_{}", page_name(page)));

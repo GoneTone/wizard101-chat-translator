@@ -1352,7 +1352,7 @@ pub(crate) mod tests {
     fn every_status_has_a_colour() {
         // 狀態列出現的時機（掛不進遊戲）正是最不該少一個顏色的時候
         let catalog: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(include_str!("../../i18n/zh-TW.json")).unwrap();
+            serde_json::from_str(include_str!("../../i18n/locales/zh-TW.json")).unwrap();
         let mut labelled: Vec<_> = catalog
             .keys()
             .filter_map(|k| k.strip_prefix("status."))

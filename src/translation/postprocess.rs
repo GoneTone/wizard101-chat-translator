@@ -67,6 +67,11 @@ fn remove_sender(text: &str) -> Cow<'_, str> {
     SENDER_RE.replace(text, "")
 }
 
+/// 訊息本文：去掉開頭的發送者前綴，沒有前綴回整段。
+pub fn message_body(text: &str) -> &str {
+    SENDER_RE.find(text).map_or(text, |m| &text[m.end()..])
+}
+
 /// 移除譯文裡不該有的括號原文：原文沒出現過的外文，以及只是重複前面譯名的。
 ///
 /// 「外文」以括號外的譯文用什麼文字判斷，不看目標語言名稱；`[發送者]` 不算原文。

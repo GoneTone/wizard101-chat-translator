@@ -12,6 +12,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -51,6 +53,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -90,6 +94,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -129,6 +135,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -168,6 +176,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -207,6 +217,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -246,6 +258,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -285,6 +299,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -324,6 +340,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 30,
@@ -363,6 +381,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -403,6 +423,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -461,6 +483,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": "ja-JP",
     "target_language": "日本語",
     "fade_seconds": 0,
@@ -519,6 +543,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": "ja-JP",
     "target_language": "日本語",
     "fade_seconds": 0,
@@ -558,6 +584,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -597,6 +625,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -636,6 +666,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 5.5,
@@ -685,6 +717,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -734,6 +768,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -783,6 +819,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -833,6 +871,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -883,6 +923,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -928,6 +970,8 @@
       "api_key": "SK-NULL"
      }
     ],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -973,6 +1017,8 @@
       "api_key": "SK-MISTRAL-FLAT"
      }
     ],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1031,6 +1077,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1070,6 +1118,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1119,6 +1169,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1173,6 +1225,8 @@
       "api_key": "SK-MISTRAL"
      }
     ],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1212,6 +1266,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1260,6 +1316,8 @@
       "quirk": true
      }
     ],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1327,6 +1385,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1376,6 +1436,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1418,6 +1480,8 @@
      "SK-OTHER",
      "SK-PASTED"
     ],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1467,6 +1531,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1525,6 +1591,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1575,6 +1643,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "日本語",
     "fade_seconds": 0,
@@ -1628,6 +1698,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 5,
@@ -1667,6 +1739,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1714,6 +1788,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,
@@ -1755,6 +1831,8 @@
      "region": null
     },
     "unsupported_services": [],
+    "glossaries": [],
+    "active_glossary": null,
     "ui_language": null,
     "target_language": "繁體中文（台灣）",
     "fade_seconds": 0,

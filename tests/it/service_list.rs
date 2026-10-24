@@ -8,7 +8,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click_at, has_label, painted_texts, run, settle, themed_harness, tr};
+use common::kittest::{
+    click_at, click_in_dialog, has_label, painted_texts, run, settle, themed_harness, tr,
+};
 use common::log_capture::{capture_logs, log_lines_with, log_text};
 use common::settings_env::FakeEnv;
 use wizard101_chat_translator::config::Config;
@@ -238,14 +240,6 @@ fn type_text<S>(h: &mut Harness<S>, text: &str) {
 
 fn has_dialog<S>(h: &Harness<S>, title: &str) -> bool {
     h.query_by_role_and_label(Role::Dialog, title).is_some()
-}
-
-/// 對話框裡的按鈕（背後的卡片也有同名按鈕）。
-fn click_in_dialog<S>(h: &mut Harness<S>, title: &str, button: &str) {
-    h.get_by_role_and_label(Role::Dialog, title)
-        .get_by_role_and_label(Role::Button, button)
-        .click();
-    run(h);
 }
 
 fn card_buttons<S>(h: &Harness<S>, label: &str) -> Vec<Rect> {

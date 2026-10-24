@@ -45,6 +45,56 @@ pub(super) fn scroll_page<R>(
         .inner
 }
 
+/// 列裡固定寬 `width`、一行控制項高的格子，內容垂直置中；內容比較窄也佔滿，同一欄的各列才對得齊。
+///
+/// 格子可能換行時放在 `horizontal_top` 裡：置中的列長高後，排在後面的格子會被放到列高中間。
+pub(super) fn fixed_cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    // 高度不能取剩餘高度：horizontal_top 的剩餘高度是整個捲動區
+    let size = vec2(width, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+        ui.set_min_width(width);
+        add(ui)
+    })
+    .inner
+}
+
+/// 長列表只畫可見範圍上下各一屏內的列，其餘依上次量到的高度留白，外層捲軸照常運作。
+///
+/// 多留一屏是為了讓 Tab 跳到的下一列已經畫出來、拿得到焦點。畫面外列的高度要捲回來才會重量，
+/// 期間換行或提示增減時捲軸會小跳一下；聚焦的列被捲到一屏以外時不畫，egui 會清掉它的焦點。
+#[derive(Default)]
+pub(super) struct LazyRows {
+    heights: Vec<f32>,
+}
+
+impl LazyRows {
+    /// 第 `i` 列；還沒量過的列先當作 `estimate` 高。
+    pub(super) fn row(&mut self, ui: &mut Ui, i: usize, estimate: f32, add: impl FnOnce(&mut Ui)) {
+        if self.heights.len() <= i {
+            self.heights.resize(i + 1, estimate);
+        }
+        let top = ui.cursor().top();
+        let clip = ui.clip_rect();
+        let margin = clip.height();
+        if top + self.heights[i] < clip.top() - margin || top > clip.bottom() + margin {
+            ui.allocate_space(vec2(0.0, self.heights[i]));
+            return;
+        }
+        self.heights[i] = ui.scope(add).response.rect.height();
+    }
+
+    /// 刪掉第 `i` 列後，讓下面各列沿用自己量到的高度。
+    pub(super) fn remove(&mut self, i: usize) {
+        if i < self.heights.len() {
+            self.heights.remove(i);
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.heights.clear();
+    }
+}
+
 /// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
 fn thin_scrollbar(ui: &mut Ui) {
     let style = ui.style_mut();
@@ -156,6 +206,40 @@ pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
         })
 }
 
+/// 第一項是說明色 `none` 的下拉，其後是 `(值, 顯示文字)`；回傳這一幀選到的值，`Some(None)` 是選了 `none`。
+///
+/// 在 `setting_row` 裡時以那一列的名稱當無障礙名稱。
+pub(super) fn optional_combo(
+    ui: &mut Ui,
+    salt: impl AsIdSalt,
+    selected: String,
+    none: &str,
+    options: &[(String, String)],
+    current: Option<&str>,
+) -> Option<Option<String>> {
+    let mut chosen = None;
+    let combo = combo_box(ui, salt)
+        .selected_text(selected)
+        .truncate()
+        .show_ui(ui, |ui| {
+            let muted = RichText::new(none).color(theme::TEXT_SECONDARY);
+            if ui.selectable_label(current.is_none(), muted).clicked() {
+                chosen = Some(None);
+            }
+            for (value, label) in options {
+                if ui
+                    .selectable_label(current == Some(value.as_str()), label)
+                    .clicked()
+                {
+                    chosen = Some(Some(value.clone()));
+                }
+            }
+        });
+    let response = name_by_row(ui, combo.response);
+    focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    chosen
+}
+
 /// 在水平列裡放一欄由上往下的內容，整欄與列垂直置中；高度取上一幀以 `id` 量到的值，變了就重排一次。
 pub(super) fn centered_column<R>(
     ui: &mut Ui,
@@ -205,6 +289,135 @@ pub fn card<R>(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
             add_contents(ui)
         })
         .inner
+}
+
+/// 清單卡片的無障礙名稱：名稱後接標記，以 ` · ` 分隔。
+pub fn card_label(name: &str, badges: &[String]) -> String {
+    if badges.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name}\u{3000}{}", badges.join(" · "))
+    }
+}
+
+/// 清單卡片（服務、術語表）：`leading` 畫前置圖示，接著是名稱列（名稱後接 `badges`）與一行說明 `hint`，`buttons` 加入的按鈕靠右；整張以 `card_label` 為群組名。
+///
+/// `buttons_id` 是右側按鈕列量寬度用的 Id，每張卡片要不同。
+pub(super) fn list_card<R>(
+    ui: &mut Ui,
+    buttons_id: Id,
+    leading: impl FnOnce(&mut Ui),
+    name: &str,
+    badges: &[String],
+    hint: &str,
+    buttons: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    card(ui, |ui| {
+        let inner = Frame::new()
+            .inner_margin(Margin::symmetric(16, 12))
+            .show(ui, |ui| {
+                let name_font = theme::bold(theme::TEXT_SIZE);
+                let pill_font = FontId::proportional(11.5);
+                let hint_font = FontId::proportional(theme::HINT_SIZE);
+                let (name_h, pill_h, hint_h) = ui.fonts_mut(|f| {
+                    (
+                        f.row_height(&name_font),
+                        f.row_height(&pill_font),
+                        f.row_height(&hint_font),
+                    )
+                });
+                let name_h = name_h.max(pill_h + 2.0);
+                let column_h = name_h + 3.0 + hint_h;
+                let size = vec2(ui.available_width(), column_h.max(theme::CONTROL_HEIGHT));
+                ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 14.0;
+                    leading(ui);
+                    let reserved = right_aligned_width(ui, buttons_id);
+                    let text_width = (ui.available_width() - reserved - 16.0).max(24.0);
+                    let (column, _) =
+                        ui.allocate_exact_size(vec2(text_width, size.y), Sense::hover());
+                    let layout = UiBuilder::new()
+                        .max_rect(column)
+                        .layout(Layout::top_down(Align::Min));
+                    // 不經父層配置空間：標記太多時截掉，不可把按鈕擠出卡片
+                    let mut text = ui.new_child(layout);
+                    text.shrink_clip_rect(column);
+                    text.spacing_mut().item_spacing.y = 3.0;
+                    text.add_space((size.y - column_h) / 2.0);
+                    name_line(&mut text, name, badges, name_font, name_h);
+                    text.add(
+                        Label::new(
+                            RichText::new(hint)
+                                .font(hint_font)
+                                .color(theme::TEXT_SECONDARY),
+                        )
+                        .truncate(),
+                    );
+                    right_aligned(ui, buttons_id, |ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        buttons(ui)
+                    })
+                })
+                .inner
+            })
+            .inner;
+        name_card(ui, card_label(name, badges));
+        inner
+    })
+}
+
+/// 整張卡片是一個以 `label` 為名的群組，螢幕報讀一次念完名稱與標記。
+fn name_card(ui: &Ui, label: String) {
+    let rect = ui.min_rect();
+    ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
+        node.set_role(Role::Group);
+        node.set_label(label);
+        node.set_bounds(eframe::egui::accesskit::Rect {
+            x0: rect.min.x.into(),
+            y0: rect.min.y.into(),
+            x1: rect.max.x.into(),
+            y1: rect.max.y.into(),
+        });
+    });
+}
+
+/// 清單卡片的名稱列：名稱（太長就截斷）後接標記。
+fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f32) {
+    let size = vec2(ui.available_width(), height);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let pill_font = FontId::proportional(11.5);
+        let pills: f32 = badges
+            .iter()
+            .map(|b| {
+                let galley =
+                    ui.painter()
+                        .layout_no_wrap(b.clone(), pill_font.clone(), theme::PILL_TEXT);
+                galley.size().x + 16.0 + 8.0
+            })
+            .sum();
+        let room = (ui.available_width() - pills).max(24.0);
+        ui.scope(|ui| {
+            ui.set_max_width(room);
+            ui.add(Label::new(RichText::new(name).font(font)).truncate());
+        });
+        for badge in badges {
+            Frame::new()
+                .fill(theme::PILL_BG)
+                .corner_radius(10)
+                .inner_margin(Margin::symmetric(8, 1))
+                .show(ui, |ui| {
+                    ui.add(
+                        Label::new(
+                            RichText::new(badge)
+                                .font(pill_font.clone())
+                                .color(theme::PILL_TEXT),
+                        )
+                        .selectable(false),
+                    );
+                });
+        }
+    });
 }
 
 /// 設定列裡下拉最多占整列寬度的比例。

@@ -97,6 +97,12 @@ impl SettingsEnv for SharedEnv {
     fn clear_cache(&self) -> Option<usize> {
         self.0.clear_cache()
     }
+    fn pick_glossary_file(&self, round: u64) {
+        self.0.pick_glossary_file(round);
+    }
+    fn pick_glossary_save_path(&self, round: u64, file_name: String) {
+        self.0.pick_glossary_save_path(round, file_name);
+    }
 }
 
 /// 設定完整、透明度 0.5、訊息上限 50 的設定（與 overlay 目前的 0.8／200 不同）。

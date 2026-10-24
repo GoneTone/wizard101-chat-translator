@@ -52,6 +52,11 @@ pub fn parse_link_markup(text: &str) -> Vec<(String, Option<String>)> {
     segments
 }
 
+/// 去掉 `[文字](網址)` 只留文字，給不能點連結的單行顯示用；不檢查網址，也不寫 log（每幀都會呼叫）。
+pub fn strip_link_markup(text: &str) -> String {
+    LINK_MARKUP.replace_all(text, "$1").into_owned()
+}
+
 /// 把裸 http／https 網址包成 `[網址](網址)`；已是連結語法的不重複包，句尾標點不算網址。
 pub fn linkify(text: &str) -> String {
     BARE_URL
@@ -143,6 +148,14 @@ mod tests {
             .build_ui(move |ui| show(ui, text, Color32::RED, false));
         harness.step();
         harness
+    }
+
+    #[test]
+    fn strip_link_markup_keeps_only_the_text() {
+        assert_eq!(
+            strip_link_markup("[Amy](https://a.example)、Bob、[Cat](javascript:x)"),
+            "Amy、Bob、Cat"
+        );
     }
 
     #[test]

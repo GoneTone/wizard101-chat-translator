@@ -20,6 +20,8 @@ mod dispatch;
 mod errors_golden;
 mod examples_golden;
 mod geometry_golden;
+mod glossary;
+mod glossary_settings;
 mod hooks_golden;
 mod hotkey_recorder;
 mod hotkeys;

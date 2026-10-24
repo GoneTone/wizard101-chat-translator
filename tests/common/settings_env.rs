@@ -1,4 +1,4 @@
-//! 設定介面測試用的假 `SettingsEnv`：記下每一種發起的工作，譯文快取的有無與筆數可設定。
+//! 設定介面測試用的假 `SettingsEnv`：記下每一種發起的工作，譯文快取的有無與筆數、選檔結果的路徑可設定。
 //!
 //! 給了 `dispatcher` 時，錄熱鍵改掛真的錄製器，錄到的結果收進 `recorded`。
 #![allow(dead_code)]
@@ -28,6 +28,10 @@ pub struct FakeEnv {
     pub dispatcher: Option<SharedDispatcher>,
     pub recorded: Arc<Mutex<Vec<String>>>,
     pub recording: RefCell<Option<Recording>>,
+    pub file_picks: RefCell<Vec<u64>>,
+    pub save_picks: RefCell<Vec<(u64, String)>>,
+    /// 選檔與存檔對話框「選到」的路徑；測試自己帶著它把結果送回介面。
+    pub picked_path: Option<PathBuf>,
 }
 
 impl SettingsEnv for FakeEnv {
@@ -62,5 +66,11 @@ impl SettingsEnv for FakeEnv {
     fn clear_cache(&self) -> Option<usize> {
         self.cleared.set(self.cleared.get() + 1);
         (!self.clear_fails).then(|| self.cache.unwrap_or(0))
+    }
+    fn pick_glossary_file(&self, round: u64) {
+        self.file_picks.borrow_mut().push(round);
+    }
+    fn pick_glossary_save_path(&self, round: u64, file_name: String) {
+        self.save_picks.borrow_mut().push((round, file_name));
     }
 }
