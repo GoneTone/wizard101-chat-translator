@@ -25,8 +25,13 @@ pub const CONTEXT_ACK: &str = "好的，我已了解語境。請給我要翻譯�
 
 /// 術語輪的引言；術語雙向適用。
 pub const GLOSSARY_INTRO: &str = "以下術語雙向適用：訊息出現任一側的詞時，譯文改用與譯文同語言的那一側。術語優先於其他名詞與人名規則。";
-/// 收訊、系統訊息、框選附加的括號說明。
-pub const GLOSSARY_KEEP_ORIGINAL: &str = "依規則在譯名後附上（原文），玩家暱稱也一樣。";
+/// 收訊、系統訊息、框選附加的說明：附上（原文），原文已是 `target` 那一側時照抄。
+pub fn glossary_keep_original(target: &str) -> String {
+    format!(
+        "譯文是 {target}：命中的術語一律寫成「{target} 那一側（原文）」，玩家暱稱也一樣；\
+         原文裡已經是 {target} 那一側的詞照抄，不要換成另一側，也不加括號。"
+    )
+}
 /// 發話附加的說明：原文常已有譯文語言那一側，不講明的話模型會換成另一側或整個刪掉。
 pub fn glossary_outgoing_note() -> String {
     format!(

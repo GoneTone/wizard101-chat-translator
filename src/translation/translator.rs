@@ -24,10 +24,10 @@ use super::postprocess::{
     has_stray_latin, message_body, nonblank_lines, restore_sender, sender_of, tidy_parentheses,
 };
 use super::prompts::{
-    CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, GLOSSARY_KEEP_ORIGINAL, OUTGOING_LANGUAGE,
-    build_incoming_system, build_outgoing_system, build_region_system, build_system_message_system,
-    build_turns, example_turns, fewshot_outgoing_turns, glossary_outgoing_note, glossary_turns,
-    is_game_language,
+    CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, OUTGOING_LANGUAGE, build_incoming_system,
+    build_outgoing_system, build_region_system, build_system_message_system, build_turns,
+    example_turns, fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
+    glossary_turns, is_game_language,
 };
 use crate::config::ServiceSpec;
 use crate::glossary::{Entry, Glossary, hits_key};
@@ -296,7 +296,11 @@ impl Translator {
         context: &[String],
     ) -> Result<String, TranslateError> {
         let b = self.binding();
-        let glossary = b.glossary_turns("incoming", message_body(text), GLOSSARY_KEEP_ORIGINAL);
+        let glossary = b.glossary_turns(
+            "incoming",
+            message_body(text),
+            &glossary_keep_original(&b.target_language),
+        );
         let turns = build_turns(
             context,
             &glossary,
@@ -324,7 +328,11 @@ impl Translator {
         text: &str,
     ) -> Result<SystemTranslation, TranslateError> {
         let b = self.binding();
-        let glossary = b.glossary_turns("system message", text, GLOSSARY_KEEP_ORIGINAL);
+        let glossary = b.glossary_turns(
+            "system message",
+            text,
+            &glossary_keep_original(&b.target_language),
+        );
         let mut translated = self.system_message_once(&b, text, &glossary, false).await?;
         if has_stray_latin(text, &translated, &b.target_language) {
             log(format!(
@@ -415,7 +423,11 @@ impl Translator {
         let b = self.binding();
         let joined = originals.join("\n");
         let mut turns = b.examples(|e| e.region.as_ref());
-        turns.extend(b.glossary_turns("region text", &joined, GLOSSARY_KEEP_ORIGINAL));
+        turns.extend(b.glossary_turns(
+            "region text",
+            &joined,
+            &glossary_keep_original(&b.target_language),
+        ));
         turns.push(Turn::user(joined));
         let source = format!(
             "<text {} chars, {} lines>",

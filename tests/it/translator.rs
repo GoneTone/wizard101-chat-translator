@@ -21,9 +21,9 @@ use wizard101_chat_translator::translation::examples::{
     ExampleSet, ExampleStore, GAME_LANGUAGE_EXAMPLES, examples_fingerprint,
 };
 use wizard101_chat_translator::translation::prompts::{
-    CONTEXT_ACK, CONTEXT_INTRO_INCOMING, GLOSSARY_ACK, GLOSSARY_KEEP_ORIGINAL, OUTGOING_LANGUAGE,
-    build_incoming_system, build_outgoing_system, build_region_system, build_system_message_system,
-    build_turns, fewshot_outgoing_turns, glossary_outgoing_note,
+    CONTEXT_ACK, CONTEXT_INTRO_INCOMING, GLOSSARY_ACK, OUTGOING_LANGUAGE, build_incoming_system,
+    build_outgoing_system, build_region_system, build_system_message_system, build_turns,
+    fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
 };
 use wizard101_chat_translator::translation::translator::{
     ExampleCoordinator, TEST_SAMPLE, Translator, generate_and_store, test_translate,
@@ -1177,7 +1177,8 @@ async fn incoming_hit_inserts_glossary_turns_before_the_message() {
     assert!(turns[0].content.contains("[B] yo"));
     let n = turns.len();
     assert!(turns[n - 3].content.contains("Hollo <=> 哈樓"));
-    assert!(turns[n - 3].content.contains(GLOSSARY_KEEP_ORIGINAL));
+    assert!(turns[n - 3].content.contains(&glossary_keep_original(ZH)));
+    assert!(glossary_keep_original(ZH).contains(ZH));
     assert_eq!(turns[n - 2], Turn::assistant(GLOSSARY_ACK));
     assert_eq!(turns[n - 1], Turn::user("[Bob] hi Hollo"));
     assert_eq!(calls[0].system, build_incoming_system(ZH));
@@ -1201,7 +1202,7 @@ async fn outgoing_hit_says_to_keep_terms_already_in_the_outgoing_language() {
     let turns = &fake.calls()[0].turns;
     let n = turns.len();
     assert!(turns[n - 3].content.contains("Hollo <=> 哈樓"));
-    assert!(!turns[n - 3].content.contains(GLOSSARY_KEEP_ORIGINAL));
+    assert!(!turns[n - 3].content.contains(&glossary_keep_original(ZH)));
     assert!(turns[n - 3].content.contains(&glossary_outgoing_note()));
     assert!(glossary_outgoing_note().contains(OUTGOING_LANGUAGE));
     assert_eq!(turns[n - 1], Turn::user("哈樓在嗎"));
@@ -1246,7 +1247,7 @@ async fn region_hit_inserts_glossary_turns() {
     let turns = &fake.calls()[0].turns;
     assert_eq!(turns.len(), 3);
     assert!(turns[0].content.contains("Hollo <=> 哈樓"));
-    assert!(turns[0].content.contains(GLOSSARY_KEEP_ORIGINAL));
+    assert!(turns[0].content.contains(&glossary_keep_original(ZH)));
     assert_eq!(turns[2], Turn::user("Hollo says\nSecond line"));
 }
 
