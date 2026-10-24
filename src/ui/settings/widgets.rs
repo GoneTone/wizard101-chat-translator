@@ -45,12 +45,13 @@ pub(super) fn scroll_page<R>(
         .inner
 }
 
-/// 列裡固定寬 `width` 的格子：內容比較窄也佔滿，同一欄的各列才對得齊；內容在列高內垂直置中。
+/// 列裡固定寬 `width`、一行控制項高的格子，內容垂直置中；內容比較窄也佔滿，同一欄的各列才對得齊。
+///
+/// 格子可能換行時放在 `horizontal_top` 裡：置中的列長高後，排在後面的格子會被放到列高中間。
 pub(super) fn fixed_cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
-    // 高度給 0 的話，置中對齊的列會把格子放在列高正中間，內容整個往下掉半列
-    let size = vec2(width, ui.available_height());
-    let layout = Layout::left_to_right(Align::Center);
-    ui.allocate_ui_with_layout(size, layout, |ui| {
+    // 高度不能取剩餘高度：horizontal_top 的剩餘高度是整個捲動區
+    let size = vec2(width, ui.spacing().interact_size.y);
+    ui.allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
         ui.set_min_width(width);
         add(ui)
     })
@@ -59,7 +60,8 @@ pub(super) fn fixed_cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -
 
 /// 長列表只畫可見範圍上下各一屏內的列，其餘依上次量到的高度留白，外層捲軸照常運作。
 ///
-/// 多留一屏是為了讓 Tab 跳到的下一列已經畫出來、拿得到焦點。
+/// 多留一屏是為了讓 Tab 跳到的下一列已經畫出來、拿得到焦點。畫面外列的高度要捲回來才會重量，
+/// 期間換行或提示增減時捲軸會小跳一下；聚焦的列被捲到一屏以外時不畫，egui 會清掉它的焦點。
 #[derive(Default)]
 pub(super) struct LazyRows {
     heights: Vec<f32>,

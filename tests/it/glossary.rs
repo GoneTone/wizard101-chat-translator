@@ -43,8 +43,8 @@ fn builtin_load_drops_untranslated_pairs() {
 }
 
 #[test]
-fn no_builtins_ship_yet() {
-    assert!(builtin::builtin_codes().is_empty());
+fn only_the_test_builtin_loads_until_real_ones_ship() {
+    assert_eq!(builtin::builtin_codes(), [builtin::TEST_BUILTIN]);
     assert!(builtin::builtin_entries("zh-TW").is_none());
 }
 

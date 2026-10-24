@@ -203,16 +203,19 @@ impl GlossaryEditor {
                         if !matches(entry, &query) {
                             continue;
                         }
-                        // 以條目位置當 Id，篩選與提示增減時游標與復原紀錄才不會跑到別列；
-                        // 刪列會讓下面各列往上遞補，所以同時帶刪除次數，免得接手被刪那列的復原紀錄
+                        // 以條目位置當 Id，篩選與提示增減時游標與復原紀錄才不會跑到別列
                         rows.row(ui, i, theme::CONTROL_HEIGHT, |ui| {
-                            ui.push_id((deletions, i), |ui| {
+                            ui.push_id(i, |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.allocate_ui(cell, |ui| {
-                                        text_field(ui, &mut entry.source).labelled_by(source);
-                                    });
-                                    ui.allocate_ui(cell, |ui| {
-                                        text_field(ui, &mut entry.target).labelled_by(target);
+                                    // 刪列後下面各列往上遞補：輸入框換新 Id 免得接手被刪那列的復原紀錄，
+                                    // 刪除鈕不換，鍵盤刪列後焦點才會留在遞補上來那列的刪除鈕
+                                    ui.push_id(deletions, |ui| {
+                                        ui.allocate_ui(cell, |ui| {
+                                            text_field(ui, &mut entry.source).labelled_by(source);
+                                        });
+                                        ui.allocate_ui(cell, |ui| {
+                                            text_field(ui, &mut entry.target).labelled_by(target);
+                                        });
                                     });
                                     if icon_button(ui, icon::CLOSE, &delete).clicked() {
                                         removed = Some(i);

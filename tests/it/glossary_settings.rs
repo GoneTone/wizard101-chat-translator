@@ -18,8 +18,9 @@ use common::settings_env::FakeEnv;
 use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::config::glossaries::StoredGlossary;
+use wizard101_chat_translator::glossary::builtin::TEST_BUILTIN;
 use wizard101_chat_translator::glossary::{Entry, parse_entries};
-use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::i18n::{self, language_name, t};
 use wizard101_chat_translator::translation::errors::localized;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::glossary_draft::GlossaryDraft;
@@ -319,8 +320,12 @@ fn long_custom_list_only_draws_rows_near_the_view() {
 }
 
 /// 包在捲動區裡、已進入編輯畫面的 `entries`；`to_bottom` 時每幀捲到底。
-fn scrollable(entries: Vec<Entry>, to_bottom: bool) -> Harness<'static, State> {
-    let d = draft(vec![glossary("a", "Mine", None, entries)], None);
+fn scrollable(
+    entries: Vec<Entry>,
+    builtin: Option<&str>,
+    to_bottom: bool,
+) -> Harness<'static, State> {
+    let d = draft(vec![glossary("a", "Mine", builtin, entries)], None);
     let state = State {
         pane: GlossaryPane::new(d),
         env: FakeEnv::default(),
@@ -344,7 +349,7 @@ fn scrollable(entries: Vec<Entry>, to_bottom: bool) -> Harness<'static, State> {
 
 #[test]
 fn scrolling_to_the_bottom_draws_the_last_rows() {
-    let mut h = scrollable(numbered(2000), true);
+    let mut h = scrollable(numbered(2000), None, true);
     for _ in 0..5 {
         run(&mut h);
     }
@@ -355,7 +360,7 @@ fn scrolling_to_the_bottom_draws_the_last_rows() {
 
 #[test]
 fn tabbing_past_the_view_scrolls_the_focused_field_into_view() {
-    let mut h = scrollable(numbered(200), false);
+    let mut h = scrollable(numbered(200), None, false);
     let label = tr("glossary.source");
     let last = fields_named(&h, &label)
         .into_iter()
@@ -433,6 +438,47 @@ fn deleting_a_row_does_not_hand_its_undo_history_to_the_next_row() {
     });
     run(&mut h);
     assert_eq!(custom_entries(&h), [entry("B", "乙")]);
+}
+
+/// 編輯畫面裡展開最下方的內建條目區塊。
+fn expand_builtin(h: &mut Harness<State>) {
+    let title = t(
+        "glossary.builtin_section",
+        &[("language", &language_name(TEST_BUILTIN)), ("count", "3")],
+    );
+    click(h, Role::DisclosureTriangle, &title);
+}
+
+#[test]
+fn builtin_rows_stay_one_line_tall_and_mark_overridden_entries() {
+    let mut h = scrollable(vec![entry("Ravenwood", "R")], Some(TEST_BUILTIN), false);
+    expand_builtin(&mut h);
+    let top = |label: &str| h.get_by_role_and_label(Role::Label, label).rect().top();
+    let (first, second, third) = (top("RW"), top("KT"), top("MS"));
+    assert!(
+        second - first < 45.0 && third - second < 45.0,
+        "{first} {second} {third}"
+    );
+    assert!(has_label(&h, &tr("glossary.overridden")));
+}
+
+#[test]
+fn deleting_a_row_by_keyboard_keeps_focus_on_a_delete_button() {
+    let mut h = editing(vec![entry("A", "甲"), entry("B", "乙")], None);
+    let delete = tr("glossary.delete_entry");
+    h.query_all_by_role_and_label(Role::Button, &delete)
+        .next()
+        .unwrap()
+        .focus();
+    run(&mut h);
+    h.key_press(egui::Key::Enter);
+    run(&mut h);
+    assert_eq!(custom_entries(&h), [entry("B", "乙")]);
+    let focused = h.query_by(|n| n.is_focused()).unwrap();
+    assert_eq!(
+        focused.accesskit_node().label().as_deref(),
+        Some(delete.as_str())
+    );
 }
 
 #[test]
@@ -708,6 +754,17 @@ fn merge_rows_line_up_with_their_headers_and_sit_close() {
     let (bob, amy) = (rect("Bob"), rect("Amy"));
     assert!(amy.top() - bob.bottom() < 10.0, "{bob:?} {amy:?}");
     assert!((rect("乙").center().y - bob.center().y).abs() < 1.0);
+}
+
+#[test]
+fn merge_rows_keep_short_cells_on_the_first_line_when_one_wraps() {
+    let long = "這是一個非常非常非常非常非常非常非常非常非常非常長的譯名";
+    let (_dir, h) = merging(vec![entry("Bob", long)], r#"{"Bob":"丙"}"#);
+    let title = tr("glossary.merge_title");
+    let dialog = h.get_by_role_and_label(Role::Dialog, &title);
+    let rect = |label: &str| dialog.get_by_label(label).rect();
+    assert!(rect(long).height() > rect("丙").height() * 2.0);
+    assert!((rect("丙").center().y - rect("Bob").center().y).abs() < 1.0);
 }
 
 #[test]

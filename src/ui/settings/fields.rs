@@ -94,7 +94,7 @@ pub fn editable_combo(ui: &mut Ui, id: Id, text: &mut String, options: &[String]
         ctx.options_mut(|o| o.input_options.surrender_focus_on = surrender);
         let chevron = ui.interact(chevron_rect, id.with("chevron"), Sense::CLICK);
         paint_chevron(ui, chevron_rect.center());
-        (name_by_row(ui, response), chevron)
+        (finish_edit(ui, response), chevron)
     });
     if chevron.clicked() {
         response.request_focus();
@@ -291,6 +291,11 @@ fn boxed_edit(ui: &mut Ui, rect: Rect, text: &mut String, password: bool) -> Res
             .frame(Frame::NONE)
             .align(Align2::LEFT_CENTER),
     );
+    finish_edit(ui, response)
+}
+
+/// 文字框的共同收尾：換到焦點時捲進畫面，並以所在設定列命名。
+fn finish_edit(ui: &Ui, response: Response) -> Response {
     // egui 只在打字或移動游標時捲動，Tab 跳到畫面外的欄位要自己捲進來
     if response.gained_focus() {
         response.scroll_to_me(None);

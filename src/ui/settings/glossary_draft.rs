@@ -97,21 +97,24 @@ impl GlossaryDraft {
                 .collect();
             let issues = review(&filled, &builtin_of(g));
             // 名稱空白時引號裡會是空的，改用第幾份稱呼
-            let named = |key: &str| -> SaveError {
+            let named = |key: &str, unnamed: &str| -> SaveError {
                 if name.is_empty() {
-                    (
-                        format!("{key}_unnamed"),
-                        vec![("index", (i + 1).to_string())],
-                    )
+                    (unnamed.into(), vec![("index", (i + 1).to_string())])
                 } else {
                     (key.into(), vec![("name", name.to_owned())])
                 }
             };
             if issues.contains(&RowIssue::DuplicateSource) {
-                duplicate.push(named("error.glossary_duplicate_source"));
+                duplicate.push(named(
+                    "error.glossary_duplicate_source",
+                    "error.glossary_duplicate_source_unnamed",
+                ));
             }
             if issues.contains(&RowIssue::Incomplete) {
-                incomplete.push(named("error.glossary_incomplete_entry"));
+                incomplete.push(named(
+                    "error.glossary_incomplete_entry",
+                    "error.glossary_incomplete_entry_unnamed",
+                ));
             }
         }
         [blank, duplicate, incomplete].concat()

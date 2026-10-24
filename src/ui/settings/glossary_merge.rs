@@ -135,7 +135,7 @@ impl MergeDialog {
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 for (conflict, take) in self.plan.conflicts.iter().zip(&mut self.take) {
-                    ui.horizontal(|ui| {
+                    ui.horizontal_top(|ui| {
                         fixed_cell(ui, width, |ui| ui.checkbox(take, &conflict.current.source));
                         for text in [&conflict.current.target, &conflict.incoming.target] {
                             fixed_cell(ui, width, |ui| ui.add(Label::new(text).wrap()));

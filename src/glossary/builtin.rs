@@ -8,9 +8,20 @@ use crate::logs::log;
 /// 編進 exe 的內建檔，依代碼字母序；清單由 `build.rs` 掃描 `builtin/` 資料夾產生，新增語系只要放檔案。
 const BUILTINS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/glossary_builtins.rs"));
 
+/// 測試用的內建術語表代碼；不隨正式版發佈，讓設定頁測試畫得出內建區塊。
+#[cfg(any(test, feature = "test-support"))]
+pub const TEST_BUILTIN: &str = "zz-TEST";
+#[cfg(any(test, feature = "test-support"))]
+const TEST_BUILTINS: &[(&str, &str)] = &[(
+    TEST_BUILTIN,
+    r#"{"Ravenwood": "RW", "Krokotopia": "KT", "Malistaire": "MS"}"#,
+)];
+#[cfg(not(any(test, feature = "test-support")))]
+const TEST_BUILTINS: &[(&str, &str)] = &[];
+
 static LOADED: LazyLock<Vec<(&'static str, Vec<Entry>)>> = LazyLock::new(|| {
     let mut loaded = Vec::new();
-    for (code, raw) in BUILTINS {
+    for (code, raw) in BUILTINS.iter().chain(TEST_BUILTINS) {
         match filter_untranslated(raw) {
             Ok((entries, dropped)) => {
                 log(format!(

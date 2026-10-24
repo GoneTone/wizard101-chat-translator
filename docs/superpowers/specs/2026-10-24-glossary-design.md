@@ -32,8 +32,8 @@
 
 - 術語表可能是任何語言，比對規則不能假設只有中英文。
 - 每句命中的條目必須放在 prompt cache 斷點之後（Claude 的斷點在系統提示詞結尾，見 `src/translation/clients/`）；**不可**放進系統提示詞。
-- exe 必須維持單一檔案：內建術語表以 `include_str!` 編進 exe，與 `src/i18n/` 的語系檔相同做法 —— 清單由 `build.rs` 掃描資料夾自動產生（`build_support/embed.rs`），新增語系只要放檔案。
-- 介面新字串要補進每個有翻譯的語系檔（`src/i18n/*.json`），不只繁中與英文。
+- exe 必須維持單一檔案：內建術語表以 `include_str!` 編進 exe，與 `src/i18n/locales/` 的語系檔相同做法 —— 清單由 `build.rs` 掃描資料夾自動產生（`build_support/embed.rs`），新增語系只要放檔案。
+- 介面新字串要補進每個有翻譯的語系檔（`src/i18n/locales/*.json`），不只繁中與英文。
 - 提示詞維持中文寫法（英文提示詞已實測不划算）。
 
 ## 做法（考慮過的三種）
@@ -58,7 +58,7 @@
 
 ### 內建術語表
 
-- 放在 `src/glossary/builtin/<語系代碼>.json`，代碼與 `src/i18n/` 的檔名一致（`zh-TW`、`zh-CN`⋯）；檔名就是 ID，顯示名稱用現有的 `language_name(code)`，檔案裡不另寫名稱。
+- 放在 `src/glossary/builtin/<語系代碼>.json`，代碼與 `src/i18n/locales/` 的檔名一致（`zh-TW`、`zh-CN`⋯）；檔名就是 ID，顯示名稱用現有的 `language_name(code)`，檔案裡不另寫名稱。
 - 格式是平面 key→value JSON，key 是英文（遊戲語言）術語、value 是該語言的譯名；所以內建術語表一律是「英文 <=> 某語言」。這樣日後可把英文檔當 Crowdin 來源、其他語系當譯文。
 - 載入時濾掉來源等於目標的條目（Crowdin 匯出未翻譯的條目會填上原文）；濾完是空的就不列出來。
 - 術語表引用的內建代碼不存在（被刪除、或使用者降版）時：**不自動清掉設定**；翻譯時略過並記一行 log；編輯畫面顯示「引入的內建術語表已不存在」，讓使用者自己移除。
