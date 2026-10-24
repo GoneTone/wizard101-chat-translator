@@ -282,7 +282,7 @@ impl GlossaryEditor {
                                     fixed_cell(ui, column, |ui| {
                                         ui.add(Label::new(&entry.source).wrap());
                                     });
-                                    ui.allocate_ui(vec2(column, 0.0), |ui| {
+                                    fixed_cell(ui, column, |ui| {
                                         ui.horizontal_wrapped(|ui| {
                                             ui.label(&entry.target);
                                             if *overridden {

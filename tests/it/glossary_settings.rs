@@ -675,13 +675,20 @@ fn merge_dialog_lists_conflicts_and_applies_checked_rows() {
 }
 
 #[test]
-fn merge_columns_line_up_with_their_headers() {
-    let (_dir, h) = merging(vec![entry("Bob", "乙")], r#"{"Bob":"丙"}"#);
+fn merge_rows_line_up_with_their_headers_and_sit_close() {
+    let current = vec![entry("Bob", "乙"), entry("Amy", "甲")];
+    let (_dir, h) = merging(current, r#"{"Bob":"丙","Amy":"丁"}"#);
     let title = tr("glossary.merge_title");
     let dialog = h.get_by_role_and_label(Role::Dialog, &title);
-    let left = |label: &str| dialog.get_by_label(label).rect().left();
-    assert_eq!(left(&tr("glossary.current_target")), left("乙"));
-    assert_eq!(left(&tr("glossary.file_target")), left("丙"));
+    let rect = |label: &str| dialog.get_by_label(label).rect();
+    assert_eq!(
+        rect(&tr("glossary.current_target")).left(),
+        rect("乙").left()
+    );
+    assert_eq!(rect(&tr("glossary.file_target")).left(), rect("丙").left());
+    let (bob, amy) = (rect("Bob"), rect("Amy"));
+    assert!(amy.top() - bob.bottom() < 10.0, "{bob:?} {amy:?}");
+    assert!((rect("乙").center().y - bob.center().y).abs() < 1.0);
 }
 
 #[test]

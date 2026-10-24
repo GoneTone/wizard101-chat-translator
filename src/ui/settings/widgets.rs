@@ -45,9 +45,12 @@ pub(super) fn scroll_page<R>(
         .inner
 }
 
-/// 固定寬 `width` 的格子：內容比較窄也佔滿，同一欄的各列才對得齊。
+/// 列裡固定寬 `width` 的格子：內容比較窄也佔滿，同一欄的各列才對得齊；內容在列高內垂直置中。
 pub(super) fn fixed_cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
-    ui.allocate_ui(vec2(width, 0.0), |ui| {
+    // 高度給 0 的話，置中對齊的列會把格子放在列高正中間，內容整個往下掉半列
+    let size = vec2(width, ui.available_height());
+    let layout = Layout::left_to_right(Align::Center);
+    ui.allocate_ui_with_layout(size, layout, |ui| {
         ui.set_min_width(width);
         add(ui)
     })
