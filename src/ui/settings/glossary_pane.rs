@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use eframe::egui::{Frame, Id, Margin, Ui};
+use eframe::egui::{Frame, Id, Label, Margin, RichText, Ui};
 
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::env::{Round, SettingsEnv, SettingsEvent};
@@ -254,6 +254,10 @@ impl GlossaryPane {
                     self.active_combo(ui);
                 });
             });
+            ui.add_space(6.0);
+            ui.add(Label::new(
+                RichText::new(t("glossary.my_glossaries", &[])).font(theme::bold(theme::TEXT_SIZE)),
+            ));
             let mut action = None;
             for glossary in &self.draft.glossaries {
                 action = action.or(self.glossary_card(ui, glossary));

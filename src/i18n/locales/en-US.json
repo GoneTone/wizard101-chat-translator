@@ -194,6 +194,7 @@
   "glossary.default_name": "New glossary",
   "settings.tab.glossaries": "Glossaries",
   "glossary.active": "Glossary in use",
+  "glossary.my_glossaries": "My glossaries",
   "glossary.none": "None",
   "glossary.badge_active": "In use",
   "glossary.custom_count": "Custom entries: {count}",

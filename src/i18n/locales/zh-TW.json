@@ -194,6 +194,7 @@
   "glossary.default_name": "新術語表",
   "settings.tab.glossaries": "術語表",
   "glossary.active": "使用的術語表",
+  "glossary.my_glossaries": "我的術語表",
   "glossary.none": "不使用",
   "glossary.badge_active": "啟用中",
   "glossary.custom_count": "自訂 {count} 條",
