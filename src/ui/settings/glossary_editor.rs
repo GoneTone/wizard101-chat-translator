@@ -1,12 +1,12 @@
 //! 術語表的編輯畫面：名稱、引入的內建術語表、搜尋、自訂條目與唯讀的內建條目。
 
-use eframe::egui::{Color32, Frame, Grid, Id, Label, Margin, RichText, Ui, vec2};
+use eframe::egui::{Color32, Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::fields::text_field;
 use super::glossary_draft::builtin_of;
 use super::theme::{self, icon};
 use super::widgets::{
-    card, collapsible, dashed_button, icon_button, optional_combo, right_aligned,
+    LazyRows, card, collapsible, dashed_button, icon_button, optional_combo, right_aligned,
     right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
@@ -33,6 +33,8 @@ pub(super) struct GlossaryEditor {
     builtin: Vec<Entry>,
     issues: Vec<RowIssue>,
     overridden: Vec<bool>,
+    custom_rows: LazyRows,
+    builtin_rows: LazyRows,
 }
 
 impl GlossaryEditor {
@@ -44,6 +46,8 @@ impl GlossaryEditor {
             builtin: Vec::new(),
             issues: Vec::new(),
             overridden: Vec::new(),
+            custom_rows: LazyRows::default(),
+            builtin_rows: LazyRows::default(),
         }
     }
 
@@ -92,6 +96,13 @@ impl GlossaryEditor {
             .is_some_and(|(e, b)| (e, b) == current)
         {
             return;
+        }
+        if self
+            .checked
+            .as_ref()
+            .is_none_or(|(_, b)| *b != glossary.builtin)
+        {
+            self.builtin_rows.clear();
         }
         self.builtin = builtin_of(glossary);
         self.issues = review(&glossary.entries, &self.builtin);
@@ -154,8 +165,9 @@ impl GlossaryEditor {
         .inner
     }
 
-    fn custom_card(&self, ui: &mut Ui, entries: &mut Vec<Entry>) {
+    fn custom_card(&mut self, ui: &mut Ui, entries: &mut Vec<Entry>) {
         let query = fold(&self.query);
+        let (rows, issues) = (&mut self.custom_rows, &self.issues);
         let mut removed = None;
         let mut added = false;
         card(ui, |ui| {
@@ -175,9 +187,12 @@ impl GlossaryEditor {
                                 let text = RichText::new(t(key, &[]))
                                     .size(theme::HINT_SIZE)
                                     .color(theme::TEXT_SECONDARY);
-                                ui.allocate_ui(vec2(column, 0.0), |ui| ui.add(Label::new(text)))
-                                    .inner
-                                    .id
+                                ui.allocate_ui(vec2(column, 0.0), |ui| {
+                                    ui.set_min_width(column);
+                                    ui.add(Label::new(text))
+                                })
+                                .inner
+                                .id
                             };
                             (
                                 caption(ui, "glossary.source"),
@@ -191,24 +206,26 @@ impl GlossaryEditor {
                             continue;
                         }
                         // 以條目位置當 Id：篩選與提示增減時，游標與復原紀錄才不會跑到別列
-                        ui.push_id(i, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.allocate_ui(cell, |ui| {
-                                    text_field(ui, &mut entry.source).labelled_by(source);
+                        rows.row(ui, i, theme::CONTROL_HEIGHT, |ui| {
+                            ui.push_id(i, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.allocate_ui(cell, |ui| {
+                                        text_field(ui, &mut entry.source).labelled_by(source);
+                                    });
+                                    ui.allocate_ui(cell, |ui| {
+                                        text_field(ui, &mut entry.target).labelled_by(target);
+                                    });
+                                    if icon_button(ui, icon::CLOSE, &delete).clicked() {
+                                        removed = Some(i);
+                                    }
                                 });
-                                ui.allocate_ui(cell, |ui| {
-                                    text_field(ui, &mut entry.target).labelled_by(target);
-                                });
-                                if icon_button(ui, icon::CLOSE, &delete).clicked() {
-                                    removed = Some(i);
+                                if entry.is_blank() {
+                                    return;
+                                }
+                                if let Some((text, color)) = row_hint(&issues[i]) {
+                                    hint(ui, &text, color);
                                 }
                             });
-                            if entry.is_blank() {
-                                return;
-                            }
-                            if let Some((text, color)) = row_hint(&self.issues[i]) {
-                                hint(ui, &text, color);
-                            }
                         });
                     }
                     added = dashed_button(ui, &t("button.add_entry", &[]), 36.0).clicked();
@@ -216,6 +233,7 @@ impl GlossaryEditor {
         });
         if let Some(i) = removed {
             entries.remove(i);
+            self.custom_rows.remove(i);
         }
         if added {
             entries.push(Entry {
@@ -226,7 +244,7 @@ impl GlossaryEditor {
     }
 
     /// 最下方預設收起的唯讀內建條目；沒有條目（含代碼不存在）時不畫。
-    fn builtin_card(&self, ui: &mut Ui, code: &str) {
+    fn builtin_card(&mut self, ui: &mut Ui, code: &str) {
         if self.builtin.is_empty() {
             return;
         }
@@ -249,27 +267,37 @@ impl GlossaryEditor {
                         bottom: 12,
                     })
                     .show(ui, |ui| {
-                        Grid::new(id.with("rows"))
-                            .num_columns(3)
-                            .spacing(vec2(16.0, 6.0))
-                            .show(ui, |ui| {
-                                let rows = self.builtin.iter().zip(&self.overridden);
-                                for (entry, overridden) in rows {
-                                    if !matches(entry, &query) {
-                                        continue;
-                                    }
-                                    ui.label(&entry.source);
-                                    ui.label(&entry.target);
-                                    if *overridden {
-                                        ui.label(
-                                            RichText::new(&tag)
-                                                .size(theme::HINT_SIZE)
-                                                .color(theme::TEXT_MUTED),
-                                        );
-                                    }
-                                    ui.end_row();
-                                }
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        let gap = 16.0;
+                        let column = (ui.available_width() - gap) / 2.0;
+                        let estimate = ui.text_style_height(&TextStyle::Body);
+                        let rows = self.builtin.iter().zip(&self.overridden).enumerate();
+                        for (i, (entry, overridden)) in rows {
+                            if !matches(entry, &query) {
+                                continue;
+                            }
+                            self.builtin_rows.row(ui, i, estimate, |ui| {
+                                ui.horizontal_top(|ui| {
+                                    ui.spacing_mut().item_spacing.x = gap;
+                                    ui.allocate_ui(vec2(column, 0.0), |ui| {
+                                        ui.set_min_width(column);
+                                        ui.add(Label::new(&entry.source).wrap());
+                                    });
+                                    ui.allocate_ui(vec2(column, 0.0), |ui| {
+                                        ui.horizontal_wrapped(|ui| {
+                                            ui.label(&entry.target);
+                                            if *overridden {
+                                                ui.label(
+                                                    RichText::new(&tag)
+                                                        .size(theme::HINT_SIZE)
+                                                        .color(theme::TEXT_MUTED),
+                                                );
+                                            }
+                                        });
+                                    });
+                                });
                             });
+                        }
                     });
             });
         });

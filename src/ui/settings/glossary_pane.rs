@@ -22,7 +22,7 @@ use crate::util::write_atomic;
 
 enum Screen {
     List,
-    Edit(GlossaryEditor),
+    Edit(Box<GlossaryEditor>),
 }
 
 enum Dialog {
@@ -162,7 +162,7 @@ impl GlossaryPane {
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
         let id = self.draft.add_with_entries(&name, entries);
-        self.set_screen(Screen::Edit(GlossaryEditor::new(&id)));
+        self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))));
     }
 
     fn import_merge(&mut self, id: String, path: &Path) {
@@ -245,7 +245,7 @@ impl GlossaryPane {
             }
             match action {
                 Some(CardAction::Edit(id)) => {
-                    self.set_screen(Screen::Edit(GlossaryEditor::new(&id)))
+                    self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))))
                 }
                 Some(CardAction::Duplicate(id)) => {
                     self.draft.duplicate(&id);
@@ -322,7 +322,7 @@ impl GlossaryPane {
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(Start::Blank) => {
                     let id = self.draft.add_blank();
-                    self.set_screen(Screen::Edit(GlossaryEditor::new(&id)));
+                    self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))));
                     self.dialog = Dialog::Closed;
                 }
                 Choice::Done(Start::Import) => {

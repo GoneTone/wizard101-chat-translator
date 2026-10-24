@@ -45,6 +45,42 @@ pub(super) fn scroll_page<R>(
         .inner
 }
 
+/// 長列表只畫可見範圍上下各一屏內的列，其餘依上次量到的高度留白，外層捲軸照常運作。
+///
+/// 多留一屏是為了讓 Tab 跳到下一列時那列已經存在，egui 才會把它捲進畫面。
+#[derive(Default)]
+pub(super) struct LazyRows {
+    heights: Vec<f32>,
+}
+
+impl LazyRows {
+    /// 第 `i` 列；還沒量過的列先當作 `estimate` 高。
+    pub(super) fn row(&mut self, ui: &mut Ui, i: usize, estimate: f32, add: impl FnOnce(&mut Ui)) {
+        if self.heights.len() <= i {
+            self.heights.resize(i + 1, estimate);
+        }
+        let top = ui.cursor().top();
+        let clip = ui.clip_rect();
+        let margin = clip.height();
+        if top + self.heights[i] < clip.top() - margin || top > clip.bottom() + margin {
+            ui.allocate_space(vec2(0.0, self.heights[i]));
+            return;
+        }
+        self.heights[i] = ui.scope(add).response.rect.height();
+    }
+
+    /// 刪掉第 `i` 列後，讓下面各列沿用自己量到的高度。
+    pub(super) fn remove(&mut self, i: usize) {
+        if i < self.heights.len() {
+            self.heights.remove(i);
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.heights.clear();
+    }
+}
+
 /// 捲軸改成 overlay 那種細滑塊、透明軌道；內容要在捲動區裡把樣式換回來。
 fn thin_scrollbar(ui: &mut Ui) {
     let style = ui.style_mut();

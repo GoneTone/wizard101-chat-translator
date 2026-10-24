@@ -302,6 +302,62 @@ fn type_into_nth(h: &mut Harness<State>, label: &str, index: usize, text: &str) 
     run(h);
 }
 
+fn numbered(count: usize) -> Vec<Entry> {
+    (0..count)
+        .map(|i| entry(&format!("S{i}"), &format!("T{i}")))
+        .collect()
+}
+
+#[test]
+fn long_custom_list_only_draws_rows_near_the_view() {
+    let h = editing(numbered(2000), None);
+    let drawn = fields_named(&h, &tr("glossary.source")).len();
+    assert!((1..200).contains(&drawn), "drew {drawn} rows");
+    let label = tr("button.add_entry");
+    let add = h.get_by_role_and_label(Role::Button, &label);
+    assert!(add.rect().top() > 2000.0 * theme::CONTROL_HEIGHT);
+}
+
+#[test]
+fn scrolling_to_the_bottom_draws_the_last_rows() {
+    let d = draft(vec![glossary("a", "Mine", None, numbered(2000))], None);
+    let state = State {
+        pane: GlossaryPane::new(d),
+        env: FakeEnv::default(),
+    };
+    let mut h = themed_harness(
+        egui::vec2(620.0, 660.0),
+        LANGUAGE,
+        |ui: &mut Ui, s: &mut State| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                s.pane.ui(ui, &s.env);
+                ui.scroll_to_cursor(Some(egui::Align::Max));
+            });
+        },
+        state,
+    );
+    click(&mut h, Role::Button, &tr("button.edit"));
+    for _ in 0..5 {
+        run(&mut h);
+    }
+    let painted = painted_texts(&h);
+    assert!(painted.contains(&"S1999".to_owned()));
+    assert!(!painted.contains(&"S0".to_owned()));
+}
+
+#[test]
+fn column_captions_line_up_with_their_fields() {
+    let h = editing(vec![entry("Hollo", "哈樓")], None);
+    let left = |key| {
+        let label = tr(key);
+        let caption = h.get_by_role_and_label(Role::Label, &label).rect().left();
+        (caption, fields_named(&h, &label)[0].rect().left())
+    };
+    let (source, target) = (left("glossary.source"), left("glossary.target"));
+    let (captions, fields) = (target.0 - source.0, target.1 - source.1);
+    assert!((captions - fields).abs() < 1.0, "{captions} vs {fields}");
+}
+
 #[test]
 fn editor_shows_duplicate_source_hint() {
     let h = editing(vec![entry("A", "甲"), entry("a", "乙")], None);
