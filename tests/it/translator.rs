@@ -1218,28 +1218,17 @@ async fn system_message_returns_the_key_it_used() {
 
 #[tokio::test]
 async fn region_hit_inserts_glossary_turns() {
-    let fake = Fake::texts(&["哈樓說
-第二行"]);
+    let fake = Fake::texts(&["哈樓說\n第二行"]);
     let tr = make(&fake);
     tr.set_glossary(hollo_glossary());
-    tr.translate_region_text(
-        "Hollo says
-Second line",
-        None,
-    )
-    .await
-    .unwrap();
+    tr.translate_region_text("Hollo says\nSecond line", None)
+        .await
+        .unwrap();
     let turns = &fake.calls()[0].turns;
     assert_eq!(turns.len(), 3);
     assert!(turns[0].content.contains("Hollo <=> 哈樓"));
     assert!(turns[0].content.contains(GLOSSARY_KEEP_ORIGINAL));
-    assert_eq!(
-        turns[2],
-        Turn::user(
-            "Hollo says
-Second line"
-        )
-    );
+    assert_eq!(turns[2], Turn::user("Hollo says\nSecond line"));
 }
 
 #[tokio::test]
