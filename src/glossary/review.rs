@@ -68,13 +68,6 @@ pub fn overridden(custom: &[Entry], builtin: &[Entry]) -> Vec<bool> {
         .collect()
 }
 
-/// 有重複來源或未填完的列時不可存檔。
-pub fn blocks_saving(issues: &[RowIssue]) -> bool {
-    issues
-        .iter()
-        .any(|i| matches!(i, RowIssue::DuplicateSource | RowIssue::Incomplete))
-}
-
 /// 去掉與內建完全相同的自訂列（存檔用）。
 pub fn without_builtin_duplicates(custom: &[Entry], builtin: &[Entry]) -> Vec<Entry> {
     review(custom, builtin)

@@ -6,7 +6,7 @@ mod review;
 
 pub use matcher::{Glossary, hits_key};
 pub use review::{
-    Conflict, MergePlan, RowIssue, apply_merge, blocks_saving, overridden, plan_merge, review,
+    Conflict, MergePlan, RowIssue, apply_merge, overridden, plan_merge, review,
     without_builtin_duplicates,
 };
 

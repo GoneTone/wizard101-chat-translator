@@ -8,7 +8,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::json;
 
-use common::kittest::{click, click_in_dialog, click_nth, has_label, themed_harness, tr};
+use common::kittest::{
+    click, click_in_dialog, click_nth, has_label, painted_texts, run, themed_harness, tr,
+};
 use common::settings_env::FakeEnv;
 use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
 use wizard101_chat_translator::config::Config;
@@ -184,4 +186,66 @@ fn glossaries_tab_is_listed_after_services() {
         .filter_map(|n| n.accesskit_node().label())
         .collect();
     assert_eq!(labels[2], tr("settings.tab.glossaries"));
+}
+
+fn group_labels(h: &Harness<State>) -> Vec<String> {
+    let mut groups: Vec<_> = h.query_all_by_role(Role::Group).collect();
+    groups.sort_by(|a, b| a.rect().top().total_cmp(&b.rect().top()));
+    groups
+        .iter()
+        .filter_map(|n| n.accesskit_node().label())
+        .collect()
+}
+
+fn two() -> Vec<StoredGlossary> {
+    vec![
+        glossary("a", "Mine", None, vec![entry("x", "1"), entry("y", "2")]),
+        glossary("b", "Other", None, Vec::new()),
+    ]
+}
+
+#[test]
+fn card_shows_counts_and_active_badge() {
+    let h = harness(draft(two(), Some("a")));
+    assert_eq!(
+        group_labels(&h),
+        [
+            format!("Mine\u{3000}{}", tr("glossary.badge_active")),
+            "Other".into()
+        ]
+    );
+    assert!(painted_texts(&h).contains(&tr("glossary.badge_active")));
+    let summary = format!(
+        "{} · {}",
+        t("glossary.custom_count", &[("count", "2")]),
+        tr("glossary.no_builtin")
+    );
+    assert!(painted_texts(&h).contains(&summary));
+}
+
+#[test]
+fn choosing_from_the_combo_sets_the_active_glossary() {
+    let mut h = harness(draft(two(), None));
+    for (option, expected) in [("Other".to_owned(), Some("b")), (tr("glossary.none"), None)] {
+        h.get_by_role_and_label(Role::ComboBox, &tr("glossary.active"))
+            .click();
+        run(&mut h);
+        h.get_by_role_and_label(Role::Button, &option).click();
+        run(&mut h);
+        assert_eq!(h.state().pane.draft().active.as_deref(), expected);
+    }
+}
+
+#[test]
+fn cancelling_delete_keeps_the_glossary() {
+    let mut h = harness(draft(two(), Some("a")));
+    click_nth(&mut h, &tr("button.delete"), 0);
+    click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.cancel"));
+    assert!(
+        h.query_by_role_and_label(Role::Dialog, &tr("dialog.confirm_title"))
+            .is_none()
+    );
+    let d = h.state().pane.draft();
+    assert_eq!(names(d), ["Mine", "Other"]);
+    assert_eq!(d.active.as_deref(), Some("a"));
 }

@@ -1,8 +1,8 @@
 //! 術語表條目解析與內建術語表註冊。
 
 use wizard101_chat_translator::glossary::{
-    Conflict, Entry, Glossary, RowIssue, apply_merge, blocks_saving, builtin, entries_to_json,
-    hits_key, overridden, parse_entries, plan_merge, review, without_builtin_duplicates,
+    Conflict, Entry, Glossary, RowIssue, apply_merge, builtin, entries_to_json, hits_key,
+    overridden, parse_entries, plan_merge, review, without_builtin_duplicates,
 };
 
 fn e(source: &str, target: &str) -> Entry {
@@ -179,17 +179,6 @@ fn cross_side_conflict_is_flagged() {
 fn overridden_marks_only_shadowed_builtins() {
     let (custom, builtin) = review_fixture();
     assert_eq!(overridden(&custom, &builtin), vec![true, true, false]);
-}
-
-#[test]
-fn blocks_saving_on_duplicates_and_incomplete_rows() {
-    assert!(blocks_saving(&[RowIssue::Ok, RowIssue::DuplicateSource]));
-    assert!(blocks_saving(&[RowIssue::Incomplete]));
-    assert!(!blocks_saving(&[
-        RowIssue::Ok,
-        RowIssue::SameAsBuiltin,
-        RowIssue::BuiltinDiffers { other: "x".into() }
-    ]));
 }
 
 #[test]
