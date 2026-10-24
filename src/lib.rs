@@ -4,6 +4,7 @@ pub mod app_main;
 pub mod composer;
 pub mod config;
 pub mod game;
+pub mod glossary;
 pub mod i18n;
 pub mod input;
 pub mod logs;

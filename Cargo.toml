@@ -28,6 +28,7 @@ rustls = { version = "0.23.46", default-features = false, features = ["ring", "s
 rusto-rs = "0.3.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
+aho-corasick = "1.1.5"
 sha1 = "0.11.0"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "time", "sync"] }
 tokio-util = "0.7.20"

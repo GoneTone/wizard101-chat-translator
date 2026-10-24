@@ -18,10 +18,17 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/icon.ico");
     println!("cargo:rerun-if-changed=build_support/embed.rs");
     println!("cargo:rerun-if-changed=src/i18n");
+    println!("cargo:rerun-if-changed=src/glossary");
 
     fs::write(
         out_dir.join("i18n_catalogs.rs"),
         embedded_json_list(&manifest_dir.join("src/i18n")),
+    )
+    .unwrap();
+
+    fs::write(
+        out_dir.join("glossary_builtins.rs"),
+        embedded_json_list(&manifest_dir.join("src/glossary")),
     )
     .unwrap();
 
