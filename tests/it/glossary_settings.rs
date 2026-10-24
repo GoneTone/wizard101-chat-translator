@@ -456,7 +456,7 @@ fn builtin_rows_stay_one_line_tall_and_mark_overridden_entries() {
     let top = |label: &str| h.get_by_role_and_label(Role::Label, label).rect().top();
     let (first, second, third) = (top("RW"), top("KT"), top("MS"));
     assert!(
-        second - first < 45.0 && third - second < 45.0,
+        second - first < 40.0 && third - second < 40.0,
         "{first} {second} {third}"
     );
     assert!(has_label(&h, &tr("glossary.overridden")));

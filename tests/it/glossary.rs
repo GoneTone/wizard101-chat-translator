@@ -44,8 +44,9 @@ fn builtin_load_drops_untranslated_pairs() {
 
 #[test]
 fn only_the_test_builtin_loads_until_real_ones_ship() {
-    assert_eq!(builtin::builtin_codes(), [builtin::TEST_BUILTIN]);
-    assert!(builtin::builtin_entries("zh-TW").is_none());
+    let hint = "real built-in glossaries shipped: update this test";
+    assert_eq!(builtin::builtin_codes(), [builtin::TEST_BUILTIN], "{hint}");
+    assert!(builtin::builtin_entries("zh-TW").is_none(), "{hint}");
 }
 
 fn hits(entries: Vec<Entry>, text: &str) -> Vec<Entry> {
