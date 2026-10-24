@@ -28,6 +28,11 @@ impl Entry {
     pub fn is_blank(&self) -> bool {
         pystr::strip(&self.source).is_empty() && pystr::strip(&self.target).is_empty()
     }
+
+    /// 任一側（去頭尾空白後）是空的。
+    pub fn is_incomplete(&self) -> bool {
+        pystr::strip(&self.source).is_empty() || pystr::strip(&self.target).is_empty()
+    }
 }
 
 /// 術語的顯示形式 `原文 <=> 譯名`，提示詞、log 與命中鍵共用。
@@ -37,9 +42,9 @@ impl std::fmt::Display for Entry {
     }
 }
 
-/// 比對用的正規化形式（casefold）。
+/// 比對用的正規化形式（去頭尾空白再 casefold）。
 pub fn fold(s: &str) -> String {
-    pystr::casefold(s)
+    pystr::casefold(pystr::strip(s))
 }
 
 /// 解析平面 `{"原文": "譯名"}`，依檔案順序；兩側去頭尾空白，任一側為空就略過。

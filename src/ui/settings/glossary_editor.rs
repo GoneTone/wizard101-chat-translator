@@ -149,7 +149,7 @@ impl GlossaryEditor {
     }
 
     fn custom_card(&self, ui: &mut Ui, entries: &mut Vec<Entry>) {
-        let query = fold(pystr::strip(&self.query));
+        let query = fold(&self.query);
         let mut removed = None;
         let mut added = false;
         card(ui, |ui| {
@@ -224,7 +224,7 @@ impl GlossaryEditor {
         if self.builtin.is_empty() {
             return;
         }
-        let query = fold(pystr::strip(&self.query));
+        let query = fold(&self.query);
         let count = self.builtin.len().to_string();
         let language = language_name(code);
         let title = t(

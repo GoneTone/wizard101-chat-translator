@@ -197,6 +197,39 @@ fn without_builtin_duplicates_drops_same_rows() {
 }
 
 #[test]
+fn whitespace_variant_sources_are_duplicates() {
+    assert_eq!(
+        review(&[e("Hollo", "哈樓"), e("Hollo ", "哈囉")], &[]),
+        vec![RowIssue::Ok, RowIssue::DuplicateSource]
+    );
+    assert_eq!(review(&[e(" ", "哈樓")], &[]), vec![RowIssue::Incomplete]);
+}
+
+#[test]
+fn reversed_identical_entry_is_same_as_builtin() {
+    let (c, b) = (vec![e("哈樓", "Hollo")], vec![e("Hollo", "哈樓")]);
+    assert_eq!(review(&c, &b), vec![RowIssue::SameAsBuiltin]);
+    assert!(without_builtin_duplicates(&c, &b).is_empty());
+    assert_eq!(layered(c.clone(), b.clone(), "Hollo"), c);
+    assert_eq!(layered(c.clone(), b, "哈樓"), c);
+}
+
+#[test]
+fn review_handles_large_glossaries() {
+    let custom: Vec<Entry> = (0..2_000)
+        .map(|i| e(&format!("custom {i}"), &format!("自訂 {i}")))
+        .collect();
+    let builtin: Vec<Entry> = (0..5_000)
+        .map(|i| e(&format!("builtin {i}"), &format!("內建 {i}")))
+        .collect();
+    let start = std::time::Instant::now();
+    assert!(review(&custom, &builtin).iter().all(|i| *i == RowIssue::Ok));
+    assert!(!overridden(&custom, &builtin).contains(&true));
+    let elapsed = start.elapsed();
+    assert!(elapsed < std::time::Duration::from_secs(1), "{elapsed:?}");
+}
+
+#[test]
 fn merge_plan_counts_added_identical_and_conflicts() {
     let plan = plan_merge(
         &[e("A", "甲"), e("B", "乙")],
