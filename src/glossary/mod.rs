@@ -1,4 +1,4 @@
-//! 術語表條目：解析、匯出與比對用的正規化。
+//! 術語表條目與檔案：解析、匯出（含建立者）與比對用的正規化。
 
 pub mod builtin;
 mod matcher;
@@ -14,7 +14,8 @@ use serde_json::{Map, Value};
 
 use crate::py::pystr;
 
-const NOT_STRING_OBJECT: &str = "expected an object of string values";
+/// 術語表檔案裡記建立者的保留鍵；值是一段文字，可含 `[名字](網址)` 連結，多人寫在一起。
+pub const CREATORS_KEY: &str = "glossary.creators";
 
 /// 一筆術語：原文詞與指定譯名。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,32 +48,73 @@ pub fn fold(s: &str) -> String {
     pystr::casefold(pystr::strip(s))
 }
 
-/// 解析平面 `{"原文": "譯名"}`，依檔案順序；兩側去頭尾空白，任一側為空就略過。
-pub fn parse_entries(json: &str) -> Result<Vec<Entry>, String> {
-    let Value::Object(map) = serde_json::from_str::<Value>(json).map_err(|e| e.to_string())? else {
-        return Err(NOT_STRING_OBJECT.into());
+/// 一份術語表檔案：建立者與條目。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GlossaryFile {
+    pub creators: String,
+    pub entries: Vec<Entry>,
+}
+
+/// 術語表檔案讀不懂的原因；`Display` 是給 log 的英文。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ParseError {
+    /// 不是合法的 JSON，`line` 從 1 起算。
+    Json { line: usize },
+    /// 最外層不是物件。
+    NotObject,
+    /// 這個鍵的值不是文字。
+    NotText { key: String },
+}
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Json { line } => write!(f, "invalid JSON at line {line}"),
+            Self::NotObject => write!(f, "top level is not an object"),
+            Self::NotText { key } => write!(f, "value of {key:?} is not a string"),
+        }
+    }
+}
+
+/// 解析平面 `{"原文": "譯名"}`，依檔案順序；[`CREATORS_KEY`] 是建立者，不算條目。
+///
+/// 兩側去頭尾空白，任一側為空就略過。
+pub fn parse_file(json: &str) -> Result<GlossaryFile, ParseError> {
+    let value =
+        serde_json::from_str::<Value>(json).map_err(|e| ParseError::Json { line: e.line() })?;
+    let Value::Object(map) = value else {
+        return Err(ParseError::NotObject);
     };
-    let mut entries = Vec::new();
-    for (source, target) in map {
-        let Value::String(target) = target else {
-            return Err(NOT_STRING_OBJECT.into());
+    let mut file = GlossaryFile::default();
+    for (key, value) in map {
+        let Value::String(text) = value else {
+            return Err(ParseError::NotText { key });
         };
-        let (source, target) = (pystr::strip(&source), pystr::strip(&target));
+        if key == CREATORS_KEY {
+            file.creators = pystr::strip(&text).into();
+            continue;
+        }
+        let (source, target) = (pystr::strip(&key), pystr::strip(&text));
         if !source.is_empty() && !target.is_empty() {
-            entries.push(Entry {
+            file.entries.push(Entry {
                 source: source.into(),
                 target: target.into(),
             });
         }
     }
-    Ok(entries)
+    Ok(file)
 }
 
-/// 輸出縮排兩格的平面物件，可被 `parse_entries` 讀回。
-pub fn entries_to_json(entries: &[Entry]) -> String {
-    let map: Map<String, Value> = entries
-        .iter()
-        .map(|e| (e.source.clone(), Value::String(e.target.clone())))
-        .collect();
+/// 輸出縮排兩格的平面物件（有建立者時放第一個鍵），可被 `parse_file` 讀回。
+pub fn file_to_json(file: &GlossaryFile) -> String {
+    let mut map = Map::new();
+    if !file.creators.is_empty() {
+        map.insert(CREATORS_KEY.into(), file.creators.clone().into());
+    }
+    map.extend(
+        file.entries
+            .iter()
+            .map(|e| (e.source.clone(), Value::String(e.target.clone()))),
+    );
     serde_json::to_string_pretty(&map).expect("string map serializes")
 }

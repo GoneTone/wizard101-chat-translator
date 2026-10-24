@@ -1,8 +1,9 @@
-//! 內建術語表：`src/glossary/builtin/<語系代碼>.json` 編進 exe，key 是英文（遊戲語言）術語，value 是該語系譯名。
+//! 內建術語表：`src/glossary/builtin/<語系代碼>.json` 編進 exe，key 是英文（遊戲語言）術語，value 是該語系譯名；
+//! 建立者寫在 [`CREATORS_KEY`](super::CREATORS_KEY)。
 
 use std::sync::LazyLock;
 
-use super::{Entry, fold, parse_entries};
+use super::{Entry, GlossaryFile, ParseError, fold, parse_file};
 use crate::logs::log;
 
 /// 編進 exe 的內建檔，依代碼字母序；清單由 `build.rs` 掃描 `builtin/` 資料夾產生，新增語系只要放檔案。
@@ -14,22 +15,22 @@ pub const TEST_BUILTIN: &str = "zz-TEST";
 #[cfg(any(test, feature = "test-support"))]
 const TEST_BUILTINS: &[(&str, &str)] = &[(
     TEST_BUILTIN,
-    r#"{"Ravenwood": "RW", "Krokotopia": "KT", "Malistaire": "MS"}"#,
+    r#"{"glossary.creators": "[Tester](https://example.com)", "Ravenwood": "RW", "Krokotopia": "KT", "Malistaire": "MS"}"#,
 )];
 #[cfg(not(any(test, feature = "test-support")))]
 const TEST_BUILTINS: &[(&str, &str)] = &[];
 
-static LOADED: LazyLock<Vec<(&'static str, Vec<Entry>)>> = LazyLock::new(|| {
+static LOADED: LazyLock<Vec<(&'static str, GlossaryFile)>> = LazyLock::new(|| {
     let mut loaded = Vec::new();
     for (code, raw) in BUILTINS.iter().chain(TEST_BUILTINS) {
         match filter_untranslated(raw) {
-            Ok((entries, dropped)) => {
+            Ok((file, dropped)) => {
                 log(format!(
                     "[glossary] builtin {code}: {} entries ({dropped} untranslated dropped)",
-                    entries.len()
+                    file.entries.len()
                 ));
-                if !entries.is_empty() {
-                    loaded.push((*code, entries));
+                if !file.entries.is_empty() {
+                    loaded.push((*code, file));
                 }
             }
             Err(err) => log(format!("[glossary] builtin {code} parse failed: {err}")),
@@ -47,10 +48,19 @@ pub fn builtin_codes() -> Vec<&'static str> {
 
 /// 取某語系的內建條目；不存在或濾完為空回 `None`。
 pub fn builtin_entries(code: &str) -> Option<Vec<Entry>> {
+    find(code).map(|file| file.entries.clone())
+}
+
+/// 某語系內建術語表的建立者；沒有這份或沒寫回空字串。
+pub fn builtin_creators(code: &str) -> String {
+    find(code).map_or_else(String::new, |file| file.creators.clone())
+}
+
+fn find(code: &str) -> Option<&'static GlossaryFile> {
     LOADED
         .iter()
         .find(|(c, _)| *c == code)
-        .map(|(_, entries)| entries.clone())
+        .map(|(_, file)| file)
 }
 
 /// 解析內建檔並濾掉未翻譯（原文與譯名相同）的條目；解析失敗記 log 並回空。
@@ -60,17 +70,14 @@ pub fn load(raw: &str) -> Vec<Entry> {
             log(format!("[glossary] builtin parse failed: {err}"));
             Vec::new()
         },
-        |(entries, _)| entries,
+        |(file, _)| file.entries,
     )
 }
 
-fn filter_untranslated(raw: &str) -> Result<(Vec<Entry>, usize), String> {
-    let all = parse_entries(raw)?;
-    let total = all.len();
-    let kept: Vec<_> = all
-        .into_iter()
-        .filter(|e| fold(&e.source) != fold(&e.target))
-        .collect();
-    let dropped = total - kept.len();
-    Ok((kept, dropped))
+fn filter_untranslated(raw: &str) -> Result<(GlossaryFile, usize), ParseError> {
+    let mut file = parse_file(raw)?;
+    let total = file.entries.len();
+    file.entries.retain(|e| fold(&e.source) != fold(&e.target));
+    let dropped = total - file.entries.len();
+    Ok((file, dropped))
 }

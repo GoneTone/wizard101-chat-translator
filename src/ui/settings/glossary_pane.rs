@@ -14,10 +14,11 @@ use super::widgets::{
     callout, card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
 };
 use crate::config::glossaries::StoredGlossary;
-use crate::glossary::{Entry, entries_to_json, parse_entries, plan_merge};
+use crate::glossary::{Entry, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
+use crate::ui::richtext::strip_link_markup;
 use crate::util::write_atomic;
 
 enum Screen {
@@ -155,13 +156,13 @@ impl GlossaryPane {
     }
 
     fn import_new(&mut self, path: &Path) {
-        let Some(entries) = self.read(path) else {
+        let Some(file) = self.read(path) else {
             return;
         };
         let name = path
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-        let id = self.draft.add_with_entries(&name, entries);
+        let id = self.draft.add_from_file(&name, file);
         self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))));
     }
 
@@ -172,36 +173,47 @@ impl GlossaryPane {
         let Some(glossary) = self.draft.find(&id) else {
             return;
         };
-        let merge = MergeDialog::new(plan_merge(&glossary.entries, &incoming));
+        // 合併只加條目，建立者維持目前這份的
+        let merge = MergeDialog::new(plan_merge(&glossary.entries, &incoming.entries));
         self.dialog = Dialog::Merge { id, merge };
     }
 
-    /// 讀檔並解析；失敗時記下提示。
-    fn read(&mut self, path: &Path) -> Option<Vec<Entry>> {
+    /// 讀檔並解析；失敗時記下提示（log 寫英文細節，畫面顯示說明）。
+    fn read(&mut self, path: &Path) -> Option<GlossaryFile> {
         let parsed = std::fs::read_to_string(path)
-            .map_err(|e| e.to_string())
-            .and_then(|text| parse_entries(text.strip_prefix('\u{feff}').unwrap_or(&text)));
+            .map_err(|e| (e.to_string(), read_error(&e)))
+            .and_then(|text| {
+                parse_file(text.strip_prefix('\u{feff}').unwrap_or(&text))
+                    .map_err(|e| (e.to_string(), parse_error(&e)))
+            })
+            .and_then(|file| {
+                if file.entries.is_empty() {
+                    Err(("no entries".into(), t("glossary.error_empty", &[])))
+                } else {
+                    Ok(file)
+                }
+            });
         match parsed {
-            Ok(entries) => {
+            Ok(file) => {
                 log(format!(
                     "[settings] glossary imported: {} entries from {}",
-                    entries.len(),
+                    file.entries.len(),
                     path.display()
                 ));
-                Some(entries)
+                Some(file)
             }
-            Err(error) => {
+            Err((detail, shown)) => {
                 log(format!(
-                    "[settings] glossary import failed: {}: {error}",
+                    "[settings] glossary import failed: {}: {detail}",
                     path.display()
                 ));
-                self.failure = Some(("glossary.import_failed", error));
+                self.failure = Some(("glossary.import_failed", shown));
                 None
             }
         }
     }
 
-    /// 只寫出自訂條目（略過兩側都空白的列）。
+    /// 寫出建立者與自訂條目（略過兩側都空白的列）。
     fn export(&mut self, id: &str, path: &Path) {
         let Some(glossary) = self.draft.find(id) else {
             return;
@@ -212,10 +224,14 @@ impl GlossaryPane {
             .filter(|e| !e.is_blank())
             .cloned()
             .collect();
-        match write_atomic(path, &entries_to_json(&entries)) {
+        let file = GlossaryFile {
+            creators: pystr::strip(&glossary.creators).into(),
+            entries,
+        };
+        match write_atomic(path, &file_to_json(&file)) {
             Ok(()) => log(format!(
                 "[settings] glossary exported: {} entries to {}",
-                entries.len(),
+                file.entries.len(),
                 path.display()
             )),
             Err(e) => {
@@ -366,7 +382,27 @@ impl GlossaryPane {
     }
 }
 
-/// 卡片的說明行：自訂條數，加上引入的內建術語表與其條數。
+/// 匯入時讀不到檔案的說明；不是 UTF-8 時系統訊息看不懂，其餘照系統原文。
+fn read_error(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::InvalidData => t("glossary.error_not_utf8", &[]),
+        _ => e.to_string(),
+    }
+}
+
+/// 匯入檔格式不符的說明。
+fn parse_error(e: &ParseError) -> String {
+    match e {
+        ParseError::Json { line } => t("glossary.error_json", &[("line", &line.to_string())]),
+        ParseError::NotObject => t("glossary.error_not_object", &[("example", FILE_EXAMPLE)]),
+        ParseError::NotText { key } => t("glossary.error_not_text", &[("key", key)]),
+    }
+}
+
+/// 格式說明裡的範例；大括號會被當成文案佔位符，所以由程式帶入。
+const FILE_EXAMPLE: &str = r#"{"Ravenwood": "…"}"#;
+
+/// 卡片的說明行：自訂條數，加上引入的內建術語表與其條數；有建立者時接在最後（只留名字）。
 fn summary(glossary: &StoredGlossary) -> String {
     let custom = glossary.entries.len().to_string();
     let custom = t("glossary.custom_count", &[("count", &custom)]);
@@ -381,7 +417,13 @@ fn summary(glossary: &StoredGlossary) -> String {
         }
         None => t("glossary.no_builtin", &[]),
     };
-    format!("{custom} · {builtin}")
+    let creators = strip_link_markup(pystr::strip(&glossary.creators));
+    if creators.is_empty() {
+        format!("{custom} · {builtin}")
+    } else {
+        let by = t("glossary.by_creators", &[("creators", &creators)]);
+        format!("{custom} · {builtin} · {by}")
+    }
 }
 
 /// 新增術語表的對話框：選空白或從檔案匯入。

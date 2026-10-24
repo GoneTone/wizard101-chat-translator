@@ -19,7 +19,7 @@ use common::settings_window::{State as WindowState, custom_cfg, harness as windo
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::config::glossaries::StoredGlossary;
 use wizard101_chat_translator::glossary::builtin::TEST_BUILTIN;
-use wizard101_chat_translator::glossary::{Entry, parse_entries};
+use wizard101_chat_translator::glossary::{Entry, parse_file};
 use wizard101_chat_translator::i18n::{self, language_name, t};
 use wizard101_chat_translator::translation::errors::localized;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
@@ -92,7 +92,7 @@ fn draft_round_trips_config() {
     i18n::set_language(LANGUAGE);
     let mut cfg = Config::new();
     let glossaries = json!([
-        {"id": "a", "name": "Mine", "builtin": null,
+        {"id": "a", "name": "Mine", "creators": "[A](https://a.example), B", "builtin": null,
          "entries": {"Ravenwood": "R", "Krokotopia": "K"}},
         {"id": "b", "name": "Other", "builtin": null, "entries": {}}
     ]);
@@ -684,17 +684,83 @@ fn import_from_file_creates_a_glossary_named_after_the_file() {
 }
 
 #[test]
-fn import_failure_shows_the_parse_error() {
+fn import_failure_explains_what_is_wrong() {
+    let not_object = t(
+        "glossary.error_not_object",
+        &[("example", r#"{"Ravenwood": "…"}"#)],
+    );
+    let cases = [
+        (r#"{"a":1}"#, t("glossary.error_not_text", &[("key", "a")])),
+        (
+            "{\n\"a\": \"b\",\n}",
+            t("glossary.error_json", &[("line", "3")]),
+        ),
+        ("[1, 2]", not_object),
+        (r#"{"glossary.creators": "A"}"#, tr("glossary.error_empty")),
+    ];
+    for (content, shown) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let env = env_picking(dir.path(), "bad.json", Some(content));
+        let mut h = harness_with(draft(two(), None), env);
+        import_new(&mut h);
+        deliver_file_pick(&mut h, 0);
+        assert!(has_label(&h, &tr("glossary.import_failed")), "{content}");
+        assert!(has_label(&h, &shown), "{content}: {shown}");
+        assert_eq!(names(h.state().pane.draft()), ["Mine", "Other"]);
+    }
+}
+
+#[test]
+fn import_failure_explains_a_non_utf8_file() {
     let dir = tempfile::tempdir().unwrap();
-    let content = r#"{"a":1}"#;
-    let env = env_picking(dir.path(), "bad.json", Some(content));
+    let env = env_picking(dir.path(), "big5.json", None);
+    std::fs::write(dir.path().join("big5.json"), b"{\"a\": \"\xab\xa2\"}").unwrap();
     let mut h = harness_with(draft(two(), None), env);
     import_new(&mut h);
     deliver_file_pick(&mut h, 0);
-    assert!(has_label(&h, &tr("glossary.import_failed")));
-    assert!(has_label(&h, &parse_entries(content).unwrap_err()));
-    assert_eq!(names(h.state().pane.draft()), ["Mine", "Other"]);
-    assert!(has_label(&h, &tr("button.add_glossary")));
+    assert!(has_label(&h, &tr("glossary.error_not_utf8")));
+}
+
+#[test]
+fn import_new_keeps_the_file_creators_and_merge_keeps_ours() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"{"glossary.creators": "[A](https://a.example)", "Hollo": "哈樓"}"#;
+    let env = env_picking(dir.path(), "friends.json", Some(content));
+    let mut h = harness_with(draft(Vec::new(), None), env);
+    import_new(&mut h);
+    deliver_file_pick(&mut h, 0);
+    assert_eq!(
+        h.state().pane.draft().glossaries[0].creators,
+        "[A](https://a.example)"
+    );
+
+    let content = r#"{"glossary.creators": "Someone else", "Fire Elf": "火精靈"}"#;
+    let (_dir, mut h) = merging(vec![entry("B", "乙")], content);
+    click_in_dialog(&mut h, &tr("glossary.merge_title"), &tr("button.merge"));
+    let glossary = &h.state().pane.draft().glossaries[0];
+    assert_eq!(glossary.creators, "");
+    assert_eq!(
+        glossary.entries,
+        [entry("B", "乙"), entry("Fire Elf", "火精靈")]
+    );
+}
+
+#[test]
+fn card_shows_creator_names_without_link_markup() {
+    let mut g = glossary("a", "Mine", None, vec![entry("A", "甲")]);
+    g.creators = "[Amy](https://a.example), Bob".into();
+    let h = harness(draft(vec![g], None));
+    let by = t("glossary.by_creators", &[("creators", "Amy, Bob")]);
+    assert!(painted_texts(&h).iter().any(|text| text.contains(&by)));
+}
+
+#[test]
+fn editor_edits_creators_and_shows_builtin_creators() {
+    let mut h = editing(Vec::new(), Some(TEST_BUILTIN));
+    type_into_nth(&mut h, &tr("glossary.creators"), 0, "Amy");
+    assert_eq!(h.state().pane.draft().glossaries[0].creators, "Amy");
+    assert!(has_label(&h, &tr("glossary.creators_hint")));
+    assert!(h.query_by_role_and_label(Role::Link, "Tester").is_some());
 }
 
 /// 在 `Mine` 的編輯畫面按〔匯入檔案〕，選到內容是 `content` 的檔案。
@@ -793,11 +859,12 @@ fn select_all_toggles_every_conflict() {
 }
 
 #[test]
-fn export_writes_only_custom_entries() {
+fn export_writes_creators_and_only_custom_entries() {
     let dir = tempfile::tempdir().unwrap();
     let env = env_picking(dir.path(), "out.json", None);
     let custom = vec![entry("Hollo", "哈樓"), entry("Fire Elf", "火精靈")];
     let mut h = editing_with(custom.clone(), Some("xx-XX"), env);
+    type_into_nth(&mut h, &tr("glossary.creators"), 0, "Amy");
     click(&mut h, Role::Button, &tr("glossary.export"));
     let (round, name) = h.state().env.save_picks.borrow()[0].clone();
     assert_eq!(name, "Mine.json");
@@ -807,7 +874,9 @@ fn export_writes_only_custom_entries() {
         .apply(&SettingsEvent::GlossarySavePathPicked { round, path });
     run(&mut h);
     let written = std::fs::read_to_string(dir.path().join("out.json")).unwrap();
-    assert_eq!(parse_entries(&written).unwrap(), custom);
+    let file = parse_file(&written).unwrap();
+    assert_eq!(file.entries, custom);
+    assert_eq!(file.creators, "Amy");
 }
 
 #[test]

@@ -1,8 +1,9 @@
-//! 術語表條目解析與內建術語表註冊。
+//! 術語表檔案解析（含建立者）與內建術語表註冊。
 
 use wizard101_chat_translator::glossary::{
-    Conflict, Entry, Glossary, RowIssue, apply_merge, builtin, entries_to_json, hits_key,
-    overridden, parse_entries, plan_merge, review, without_builtin_duplicates,
+    CREATORS_KEY, Conflict, Entry, Glossary, GlossaryFile, ParseError, RowIssue, apply_merge,
+    builtin, file_to_json, hits_key, overridden, parse_file, plan_merge, review,
+    without_builtin_duplicates,
 };
 
 fn e(source: &str, target: &str) -> Entry {
@@ -14,26 +15,68 @@ fn e(source: &str, target: &str) -> Entry {
 
 #[test]
 fn parse_keeps_file_order_and_trims() {
-    let got = parse_entries(r#"{" Hollo ": "哈樓", "Fire Elf": "火精靈"}"#).unwrap();
-    assert_eq!(got, vec![e("Hollo", "哈樓"), e("Fire Elf", "火精靈")]);
+    let got = parse_file(r#"{" Hollo ": "哈樓", "Fire Elf": "火精靈"}"#).unwrap();
+    assert_eq!(
+        got.entries,
+        vec![e("Hollo", "哈樓"), e("Fire Elf", "火精靈")]
+    );
+    assert_eq!(got.creators, "");
 }
 
 #[test]
 fn parse_skips_blank_sides() {
-    assert_eq!(parse_entries(r#"{"": "x", "a": "  "}"#), Ok(vec![]));
+    assert_eq!(
+        parse_file(r#"{"": "x", "a": "  "}"#),
+        Ok(GlossaryFile::default())
+    );
 }
 
 #[test]
-fn parse_rejects_non_string_values() {
-    assert!(parse_entries(r#"{"a": 1}"#).is_err());
-    assert!(parse_entries("[]").is_err());
-    assert!(parse_entries("not json").is_err());
+fn parse_reads_creators_apart_from_entries() {
+    let got =
+        parse_file(r#"{"glossary.creators": " [A](https://a.example), B ", "Hollo": "哈樓"}"#)
+            .unwrap();
+    assert_eq!(got.creators, "[A](https://a.example), B");
+    assert_eq!(got.entries, vec![e("Hollo", "哈樓")]);
 }
 
 #[test]
-fn export_round_trips() {
-    let entries = vec![e("Hollo", "哈樓"), e("Fire Elf", "火精靈")];
-    assert_eq!(parse_entries(&entries_to_json(&entries)), Ok(entries));
+fn parse_names_what_is_wrong() {
+    let not_text = |key: &str| Err(ParseError::NotText { key: key.into() });
+    assert_eq!(parse_file(r#"{"a": 1}"#), not_text("a"));
+    assert_eq!(
+        parse_file(r#"{"glossary.creators": ["A"]}"#),
+        not_text(CREATORS_KEY)
+    );
+    assert_eq!(parse_file("[]"), Err(ParseError::NotObject));
+    assert_eq!(parse_file("not json"), Err(ParseError::Json { line: 1 }));
+    assert_eq!(
+        parse_file("{\n\"a\": \"b\",\n}"),
+        Err(ParseError::Json { line: 3 })
+    );
+}
+
+#[test]
+fn export_round_trips_with_creators_first() {
+    let file = GlossaryFile {
+        creators: "[A](https://a.example), B".into(),
+        entries: vec![e("Hollo", "哈樓"), e("Fire Elf", "火精靈")],
+    };
+    let json = file_to_json(&file);
+    assert!(
+        json.trim_start_matches(['{', '\n', ' '])
+            .starts_with(&format!("\"{CREATORS_KEY}\""))
+    );
+    assert_eq!(parse_file(&json), Ok(file));
+}
+
+#[test]
+fn export_without_creators_has_no_creators_key() {
+    let file = GlossaryFile {
+        creators: String::new(),
+        entries: vec![e("Hollo", "哈樓")],
+    };
+    assert!(!file_to_json(&file).contains(CREATORS_KEY));
 }
 
 #[test]
@@ -47,6 +90,15 @@ fn only_the_test_builtin_loads_until_real_ones_ship() {
     let hint = "real built-in glossaries shipped: update this test";
     assert_eq!(builtin::builtin_codes(), [builtin::TEST_BUILTIN], "{hint}");
     assert!(builtin::builtin_entries("zh-TW").is_none(), "{hint}");
+}
+
+#[test]
+fn builtin_creators_come_from_the_file() {
+    assert_eq!(
+        builtin::builtin_creators(builtin::TEST_BUILTIN),
+        "[Tester](https://example.com)"
+    );
+    assert_eq!(builtin::builtin_creators("zh-TW"), "");
 }
 
 fn hits(entries: Vec<Entry>, text: &str) -> Vec<Entry> {
@@ -290,7 +342,7 @@ mod config_glossaries {
     fn malformed_glossaries_are_normalized() {
         let mut cfg = cfg_with(
             json!([
-                {"id": "a", "name": "X", "builtin": 5, "entries": {"k": "v", "n": 1}},
+                {"id": "a", "name": "X", "creators": 5, "builtin": 5, "entries": {"k": "v", "n": 1}},
                 3,
                 {"id": "a", "name": "X", "entries": []},
             ]),
@@ -303,6 +355,7 @@ mod config_glossaries {
         assert_eq!(list[0]["name"], "X");
         assert_eq!(list[1]["name"], "X (2)");
         assert!(list[0]["builtin"].is_null());
+        assert!(list[0].get("creators").is_none());
         assert_eq!(list[0]["entries"], json!({"k": "v"}));
         assert_eq!(list[1]["entries"], json!({}));
         assert!(cfg["active_glossary"].is_null());

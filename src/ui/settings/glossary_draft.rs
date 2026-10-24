@@ -6,7 +6,7 @@ use super::window::SaveError;
 use crate::config::Config;
 use crate::config::glossaries::{StoredGlossary, stored};
 use crate::config::services::{new_id, unique_name};
-use crate::glossary::{Entry, RowIssue, builtin, review, without_builtin_duplicates};
+use crate::glossary::{Entry, GlossaryFile, RowIssue, builtin, review, without_builtin_duplicates};
 use crate::i18n::t;
 use crate::logs::log;
 use crate::py::pystr;
@@ -39,7 +39,7 @@ impl GlossaryDraft {
         }
     }
 
-    /// 寫回設定：名稱與條目去頭尾空白，去掉兩側都空白與跟內建完全相同的條目，撞名的補序號。
+    /// 寫回設定：名稱、建立者與條目去頭尾空白，去掉兩側都空白與跟內建完全相同的條目，撞名的補序號。
     pub fn write_into(&self, cfg: &mut Config) {
         let mut written: Vec<Value> = Vec::new();
         for glossary in &self.glossaries {
@@ -62,6 +62,7 @@ impl GlossaryDraft {
                 ));
             }
             glossary.name = pystr::strip(&glossary.name).into();
+            glossary.creators = pystr::strip(&glossary.creators).into();
             let name = unique_name(&glossary.name, &written, None);
             if name != glossary.name {
                 log(format!(
@@ -122,16 +123,15 @@ impl GlossaryDraft {
 
     /// 新增一份空白術語表（名稱用預設名，撞名補序號）；回傳它的 id。
     pub fn add_blank(&mut self) -> String {
-        self.add_with_entries(&t("glossary.default_name", &[]), Vec::new())
+        self.add_from_file(&t("glossary.default_name", &[]), GlossaryFile::default())
     }
 
-    /// 新增一份帶 `entries` 的術語表（撞名補序號）；回傳它的 id。
-    pub fn add_with_entries(&mut self, name: &str, entries: Vec<Entry>) -> String {
+    /// 新增一份帶 `file` 建立者與條目的術語表（撞名補序號）；回傳它的 id。
+    pub fn add_from_file(&mut self, name: &str, file: GlossaryFile) -> String {
         self.push(StoredGlossary {
-            id: String::new(),
             name: name.into(),
-            builtin: None,
-            entries,
+            creators: file.creators,
+            entries: file.entries,
             ..Default::default()
         })
     }

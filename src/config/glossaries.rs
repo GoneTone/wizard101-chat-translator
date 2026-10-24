@@ -16,6 +16,8 @@ use crate::py::pystr;
 pub struct StoredGlossary {
     pub id: String,
     pub name: String,
+    /// 建立者，選填；格式同 [`CREATORS_KEY`](crate::glossary::CREATORS_KEY) 的值。
+    pub creators: String,
     /// 引用的內建術語表代碼。
     pub builtin: Option<String>,
     pub entries: Vec<Entry>,
@@ -23,7 +25,7 @@ pub struct StoredGlossary {
     pub extra: Map<String, Value>,
 }
 
-const KNOWN_KEYS: [&str; 4] = ["id", "name", "builtin", "entries"];
+const KNOWN_KEYS: [&str; 5] = ["id", "name", "creators", "builtin", "entries"];
 
 impl StoredGlossary {
     /// 從 config 的一筆讀出；不是物件回 `None`，非字串的條目值略過。
@@ -49,13 +51,14 @@ impl StoredGlossary {
         Some(Self {
             id: str_field(v, "id").into(),
             name: str_field(v, "name").into(),
+            creators: str_field(v, "creators").into(),
             builtin: map.get("builtin").and_then(Value::as_str).map(Into::into),
             entries,
             extra,
         })
     }
 
-    /// 寫回 config 的形狀；`entries` 是依序的平面物件，不認得的鍵接在後面。
+    /// 寫回 config 的形狀；`entries` 是依序的平面物件，建立者空白時省略，不認得的鍵接在後面。
     pub fn to_value(&self) -> Value {
         let entries: Map<String, Value> = self
             .entries
@@ -65,6 +68,10 @@ impl StoredGlossary {
         let mut map = Map::new();
         map.insert("id".into(), self.id.clone().into());
         map.insert("name".into(), self.name.clone().into());
+        // 沒填就不寫，沒用到建立者的舊設定檔才會原封不動
+        if !self.creators.is_empty() {
+            map.insert("creators".into(), self.creators.clone().into());
+        }
         map.insert("builtin".into(), self.builtin.clone().into());
         map.insert("entries".into(), Value::Object(entries));
         map.extend(self.extra.clone());
@@ -112,6 +119,12 @@ fn clean_one(raw: &Value, taken: &[Value]) -> (Value, bool) {
     {
         repaired = true;
         log(format!("[config] glossary {id}: dropped malformed builtin"));
+    }
+    if raw.get("creators").is_some_and(|c| !c.is_string()) {
+        repaired = true;
+        log(format!(
+            "[config] glossary {id}: dropped malformed creators"
+        ));
     }
     let raw_entries = raw.get("entries");
     let mut glossary = StoredGlossary::from_value(raw).unwrap_or_default();

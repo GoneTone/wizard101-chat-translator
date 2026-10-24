@@ -1,4 +1,4 @@
-//! 術語表的編輯畫面：名稱、引入的內建術語表、搜尋、自訂條目與唯讀的內建條目。
+//! 術語表的編輯畫面：名稱、建立者、引入的內建術語表、搜尋、自訂條目與唯讀的內建條目。
 
 use eframe::egui::{Color32, Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
@@ -6,11 +6,11 @@ use super::fields::text_field;
 use super::glossary_draft::builtin_of;
 use super::theme::{self, icon};
 use super::widgets::{
-    LazyRows, card, collapsible, dashed_button, fixed_cell, icon_button, optional_combo,
+    LazyRows, card, collapsible, dashed_button, fixed_cell, icon_button, optional_combo, rich,
     right_aligned, right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
-use crate::glossary::builtin::builtin_codes;
+use crate::glossary::builtin::{builtin_codes, builtin_creators};
 use crate::glossary::{Entry, RowIssue, fold, overridden, review};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
@@ -69,9 +69,16 @@ impl GlossaryEditor {
                     hint(ui, &t("error.need_name", &[]), theme::ERROR);
                 }
             };
+            let size = vec2(ui.spacing().combo_width, theme::CONTROL_HEIGHT);
             setting_row_with(ui, &t("glossary.name", &[]), notice, |ui| {
-                let size = vec2(ui.spacing().combo_width, theme::CONTROL_HEIGHT);
                 ui.allocate_ui(size, |ui| text_field(ui, &mut glossary.name));
+            });
+            // 說明裡的 [名字](網址) 是要照字面顯示的範例，不能走會解析連結的 setting_row
+            let creators_hint = |ui: &mut Ui| {
+                hint(ui, &t("glossary.creators_hint", &[]), theme::TEXT_SECONDARY);
+            };
+            setting_row_with(ui, &t("glossary.creators", &[]), creators_hint, |ui| {
+                ui.allocate_ui(size, |ui| text_field(ui, &mut glossary.creators));
             });
             self.builtin_row(ui, glossary);
         });
@@ -128,9 +135,16 @@ impl GlossaryEditor {
             .iter()
             .map(|code| ((*code).into(), language_name(code)))
             .collect();
+        let creators = glossary
+            .builtin
+            .as_deref()
+            .map_or_else(String::new, builtin_creators);
         let notice = |ui: &mut Ui| {
             if missing {
                 hint(ui, &t("glossary.builtin_missing", &[]), theme::WARN_TEXT);
+            } else if !creators.is_empty() {
+                let by = t("glossary.by_creators", &[("creators", &creators)]);
+                rich(ui, &by, theme::HINT_SIZE, theme::TEXT_SECONDARY);
             }
         };
         setting_row_with(ui, &t("glossary.builtin", &[]), notice, |ui| {
