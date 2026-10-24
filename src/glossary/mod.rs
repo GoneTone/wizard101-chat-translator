@@ -1,6 +1,9 @@
 //! 術語表條目：解析、匯出與比對用的正規化。
 
 pub mod builtin;
+mod matcher;
+
+pub use matcher::{Glossary, hits_key};
 
 use serde_json::{Map, Value};
 
