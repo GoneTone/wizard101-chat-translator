@@ -323,14 +323,15 @@ impl Translator {
         text: &str,
     ) -> Result<SystemTranslation, TranslateError> {
         let b = self.binding();
-        let mut translated = self.system_message_once(&b, text, false).await?;
+        let glossary = b.glossary_turns("system message", text, true);
+        let mut translated = self.system_message_once(&b, text, &glossary, false).await?;
         if has_stray_latin(text, &translated, &b.target_language) {
             log(format!(
                 "[translate] system message is not in the target language, retrying strictly: source={} translated={}",
                 repr_str(text),
                 repr_str(&translated)
             ));
-            translated = self.system_message_once(&b, text, true).await?;
+            translated = self.system_message_once(&b, text, &glossary, true).await?;
             if has_stray_latin(text, &translated, &b.target_language) {
                 log(format!(
                     "[translate] strict retry is still not in the target language, using it as is: source={} translated={}",
@@ -349,10 +350,11 @@ impl Translator {
         &self,
         b: &Binding,
         text: &str,
+        glossary: &[Turn],
         strict: bool,
     ) -> Result<String, TranslateError> {
         let mut turns = b.examples(|e| e.system.as_ref());
-        turns.extend(b.glossary_turns("system message", text, true));
+        turns.extend_from_slice(glossary);
         turns.push(Turn::user(text));
         let call = Call {
             kind: if strict {

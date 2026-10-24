@@ -1217,6 +1217,23 @@ async fn system_message_returns_the_key_it_used() {
 }
 
 #[tokio::test]
+async fn system_message_strict_retry_logs_the_hits_once() {
+    let fake = Fake::texts(&["Snowspike Hat", "雪刺帽"]);
+    let tr = make(&fake);
+    let entry = Entry {
+        source: "雪刺".into(),
+        target: "冰刺".into(),
+    };
+    tr.set_glossary(Some(Arc::new(Glossary::new(vec![entry], Vec::new()))));
+    tr.translate_system_message("雪刺帽").await.unwrap();
+    let calls = fake.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].turns, calls[1].turns);
+    assert!(calls[1].turns[0].content.contains("雪刺 <=> 冰刺"));
+    assert_eq!(log_lines_with("glossary hits: 1 (雪刺 <=> 冰刺)").len(), 1);
+}
+
+#[tokio::test]
 async fn region_hit_inserts_glossary_turns() {
     let fake = Fake::texts(&["哈樓說\n第二行"]);
     let tr = make(&fake);
