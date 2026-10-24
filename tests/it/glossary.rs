@@ -244,3 +244,81 @@ fn merge_plan_keeps_the_first_of_case_variant_duplicates() {
     assert_eq!(plan.identical, 0);
     assert!(plan.conflicts.is_empty());
 }
+
+mod config_glossaries {
+    use serde_json::{Value, json};
+    use wizard101_chat_translator::config::{Config, default_config, glossaries};
+
+    fn cfg_with(glossaries: Value, active: Value) -> Config {
+        let mut cfg = default_config();
+        cfg.insert("glossaries".into(), glossaries);
+        cfg.insert("active_glossary".into(), active);
+        cfg
+    }
+
+    #[test]
+    fn default_config_has_no_glossaries() {
+        let cfg = default_config();
+        assert_eq!(cfg["glossaries"], json!([]));
+        assert!(cfg["active_glossary"].is_null());
+    }
+
+    #[test]
+    fn malformed_glossaries_are_normalized() {
+        let mut cfg = cfg_with(
+            json!([
+                {"id": "a", "name": "X", "builtin": 5, "entries": {"k": "v", "n": 1}},
+                3,
+                {"id": "a", "name": "X", "entries": []},
+            ]),
+            json!("zz"),
+        );
+        assert!(glossaries::normalize(&mut cfg));
+        let list = cfg["glossaries"].as_array().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_ne!(list[1]["id"], "a");
+        assert_eq!(list[0]["name"], "X");
+        assert_eq!(list[1]["name"], "X (2)");
+        assert!(list[0]["builtin"].is_null());
+        assert_eq!(list[0]["entries"], json!({"k": "v"}));
+        assert_eq!(list[1]["entries"], json!({}));
+        assert!(cfg["active_glossary"].is_null());
+    }
+
+    #[test]
+    fn glossaries_not_a_list_becomes_empty() {
+        let mut cfg = cfg_with(json!({}), Value::Null);
+        assert!(glossaries::normalize(&mut cfg));
+        assert_eq!(cfg["glossaries"], json!([]));
+    }
+
+    #[test]
+    fn well_formed_glossaries_are_untouched() {
+        let mut cfg = cfg_with(
+            json!([{"id": "a", "name": "X", "builtin": null, "entries": {"k": "v"}}]),
+            json!("a"),
+        );
+        let before = cfg.clone();
+        assert!(!glossaries::normalize(&mut cfg));
+        assert_eq!(cfg, before);
+    }
+
+    #[test]
+    fn active_returns_the_selected_glossary() {
+        let cfg = cfg_with(
+            json!([{"id": "a", "name": "X", "builtin": null, "entries": {"Hollo": "哈樓"}}]),
+            json!("a"),
+        );
+        assert!(!glossaries::active(&cfg).unwrap().hits("Hollo").is_empty());
+        assert!(glossaries::active(&default_config()).is_none());
+    }
+
+    #[test]
+    fn active_ignores_a_missing_builtin() {
+        let cfg = cfg_with(
+            json!([{"id": "a", "name": "X", "builtin": "xx-XX", "entries": {"Hollo": "哈樓"}}]),
+            json!("a"),
+        );
+        assert!(!glossaries::active(&cfg).unwrap().hits("Hollo").is_empty());
+    }
+}

@@ -1,5 +1,6 @@
 //! config.json 讀寫：缺漏欄位以預設值補齊、舊格式遷移後立刻落地，壞檔絕不覆寫。
 
+pub mod glossaries;
 pub(crate) mod py;
 pub mod services;
 
@@ -68,6 +69,8 @@ pub fn default_config() -> Config {
         "default_service": null,
         "service_slots": slots,
         (UNSUPPORTED_SERVICES): [],
+        "glossaries": [],
+        "active_glossary": null,
         "ui_language": null,
         "target_language": language_name(SOURCE_LANGUAGE),
         "fade_seconds": 0,
@@ -260,6 +263,7 @@ pub fn load_config(path: &Path) -> Config {
     let mut cfg = merge(&defaults, &data);
     clamp_advanced(&mut cfg, &defaults);
     let mut changed = normalize(&mut cfg);
+    changed |= glossaries::normalize(&mut cfg);
     // 已移除的設定：留在檔案裡會讓手改的人以為它還有作用
     if cfg.shift_remove("poll_interval").is_some() {
         log("[config] dropped removed setting poll_interval");

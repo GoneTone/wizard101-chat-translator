@@ -329,7 +329,7 @@ fn ids_and_names<'a>(services: &'a [Value], key: &str) -> impl Iterator<Item = &
         .filter_map(move |s| s.get(key).and_then(Value::as_str))
 }
 
-fn new_id(services: &[Value]) -> String {
+pub(crate) fn new_id(services: &[Value]) -> String {
     loop {
         let candidate = format!("{:08x}", random_u64() as u32);
         if !ids_and_names(services, "id").any(|id| id == candidate) {

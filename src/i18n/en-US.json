@@ -190,5 +190,6 @@
   "error.hotkeys_same": "The two hotkeys must be different.",
   "error.hotkey_is_paste": "Ctrl+V cannot be a hotkey while in-game paste is on.",
   "error.base_url_scheme": "The server URL must start with http:// or https://.",
-  "error.base_url_v1": "Leave /v1 off the end of the server URL; give only the host and port (for example http://127.0.0.1:8000)."
+  "error.base_url_v1": "Leave /v1 off the end of the server URL; give only the host and port (for example http://127.0.0.1:8000).",
+  "glossary.default_name": "New glossary"
 }

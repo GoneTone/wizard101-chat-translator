@@ -190,5 +190,6 @@
   "error.hotkeys_same": "兩個熱鍵不可相同。",
   "error.hotkey_is_paste": "已開啟遊戲內貼上，熱鍵不可設為 Ctrl+V。",
   "error.base_url_scheme": "伺服器網址要以 http:// 或 https:// 開頭。",
-  "error.base_url_v1": "伺服器網址結尾不要加 /v1，只填到主機與連接埠（例如 http://127.0.0.1:8000）。"
+  "error.base_url_v1": "伺服器網址結尾不要加 /v1，只填到主機與連接埠（例如 http://127.0.0.1:8000）。",
+  "glossary.default_name": "新術語表"
 }
