@@ -71,7 +71,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
    - The frame stays on screen: drag inside it to move it or drag an edge to resize it, and the new area is translated again.
    - The card shows the recognized text above the translation for comparison; text can be highlighted and copied with `Ctrl+C` or the right-click menu. Click the card or its ✕ to dismiss it.
    - The text is read by built-in offline text recognition and then translated by the AI you configured; the screen never leaves your computer.
-7. To change settings (provider, API key, target language, hotkey, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart.
+7. To change settings (provider, API key, target language, hotkey, glossary, …), click the gear (⚙) on the overlay's title bar to open the settings window; saving applies immediately, with no restart.
 8. To quit, click the ✕ at the top-right of the overlay's title bar (it unhooks from the game before exiting).
 9. The software checks GitHub for a new version at every launch and every hour after that; if there is one, a blue banner is added to the overlay (click the banner to open the download page, click the ✕ on its right to dismiss it for this session). The *About* tab of the settings window also offers a manual update check, project links, and the folder where the logs live.
 
@@ -86,6 +86,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
 - **Pick the AI you want**: OpenAI, Claude, Gemini, or your own OpenAI-compatible service — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
+- **Names translated your way**: build glossaries that pin down how place names, monsters, spells or friends' nicknames are translated — keep several and switch anytime; only the terms a line actually uses go to the AI, for incoming chat, outgoing chat, system messages and area translation alike. Export a glossary to a file to share it with friends, or import theirs
 - **System messages, if you want them**: loot, XP, level-up broadcasts and the like are hidden by default — turn them on in the settings and they are shown and translated
 - **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble that shows the unread count when you are not reading it; position and size are remembered and it comes back in the same place next time
 - **Copy anything worth keeping**: drag over the messages to select text, across several messages, then `Ctrl+C` or right-click to copy
