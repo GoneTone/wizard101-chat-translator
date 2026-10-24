@@ -46,9 +46,14 @@ fn file_text(dir: &tempfile::TempDir) -> String {
 fn replay(cache: &TranslationCache, ops: &Value) {
     for op in ops.as_array().unwrap() {
         match s(&op["op"]) {
-            "put" => assert!(cache.put(s(&op["text"]), s(&op["translated"]), &cache.fingerprint())),
+            "put" => assert!(cache.put(
+                s(&op["text"]),
+                "",
+                s(&op["translated"]),
+                &cache.fingerprint()
+            )),
             _ => {
-                cache.get(s(&op["text"]));
+                cache.get(s(&op["text"]), "");
             }
         }
     }
@@ -142,12 +147,12 @@ fn load_discards_mismatched_corrupt_and_malformed_files() {
         std::fs::write(&path, &text).unwrap();
         let cache = TranslationCache::new(path.clone(), FP.into());
         cache.load();
-        assert_eq!(cache.get("熔岩百合"), None, "{text}");
+        assert_eq!(cache.get("熔岩百合", ""), None, "{text}");
     }
     std::fs::remove_file(&path).unwrap();
     let cache = TranslationCache::new(path.clone(), FP.into());
     cache.load();
-    assert_eq!(cache.get("熔岩百合"), None);
+    assert_eq!(cache.get("熔岩百合", ""), None);
 }
 
 #[test]
@@ -164,10 +169,10 @@ fn load_truncates_to_the_cap_keeping_the_newest() {
     std::fs::write(dir.path().join("cache.json"), text).unwrap();
     let cache = cache_in(&dir);
     cache.load();
-    assert_eq!(cache.get(&letters(1)), None);
-    assert_eq!(cache.get(&letters(2)), Some(letters(2)));
+    assert_eq!(cache.get(&letters(1), ""), None);
+    assert_eq!(cache.get(&letters(2), ""), Some(letters(2)));
     let last = letters(MAX_ENTRIES + 1);
-    assert_eq!(cache.get(&last), Some(last));
+    assert_eq!(cache.get(&last, ""), Some(last));
     let path = dir.path().join("cache.json").display().to_string();
     let logged = common::log_capture::log_lines_with(&path);
     assert!(
@@ -182,18 +187,18 @@ fn load_truncates_to_the_cap_keeping_the_newest() {
 fn put_get_round_trips_and_other_numbers_hit_the_same_entry() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    assert_eq!(cache.get("你获得了 39 金币！"), None);
-    assert!(cache.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP));
+    assert_eq!(cache.get("你获得了 39 金币！", ""), None);
+    assert!(cache.put("你获得了 39 金币！", "", "你獲得了 {0} 金幣！", FP));
     assert_eq!(
-        cache.get("你获得了 39 金币！").as_deref(),
+        cache.get("你获得了 39 金币！", "").as_deref(),
         Some("你獲得了 39 金幣！")
     );
     assert_eq!(
-        cache.get("你获得了 65 金币！").as_deref(),
+        cache.get("你获得了 65 金币！", "").as_deref(),
         Some("你獲得了 65 金幣！")
     );
     assert_eq!(
-        cache.get("你获得了 {0} 金币！"),
+        cache.get("你获得了 {0} 金币！", ""),
         None,
         "put takes raw text, not a template"
     );
@@ -221,37 +226,40 @@ fn placeholders_match_checks_counts() {
 fn put_rejects_broken_placeholders() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    assert!(!cache.put("你获得了 39 金币！", "你獲得了金幣！", FP));
-    assert_eq!(cache.get("你获得了 39 金币！"), None);
+    assert!(!cache.put("你获得了 39 金币！", "", "你獲得了金幣！", FP));
+    assert_eq!(cache.get("你获得了 39 金币！", ""), None);
 }
 
 #[test]
 fn fingerprint_change_clears_on_rebind() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", FP);
     cache.rebind(OTHER_FP);
-    assert_eq!(cache.get("熔岩百合"), None);
+    assert_eq!(cache.get("熔岩百合", ""), None);
     let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
     assert_eq!(
         saved["fingerprint"], FP,
         "old content flushed under the old fingerprint"
     );
     assert_eq!(saved["entries"]["熔岩百合"], "熔岩百合(Lava Lily)");
-    assert!(!cache.put("a", "A", FP), "stale fingerprint is rejected");
-    assert!(cache.put("a", "A", OTHER_FP));
+    assert!(
+        !cache.put("a", "", "A", FP),
+        "stale fingerprint is rejected"
+    );
+    assert!(cache.put("a", "", "A", OTHER_FP));
 }
 
 #[test]
 fn rebinding_back_restores_the_stashed_entries_and_file() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", FP);
     cache.rebind(OTHER_FP);
     cache.flush();
     cache.rebind(FP);
     assert_eq!(
-        cache.get("熔岩百合").as_deref(),
+        cache.get("熔岩百合", "").as_deref(),
         Some("熔岩百合(Lava Lily)")
     );
     let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
@@ -263,10 +271,10 @@ fn rebinding_back_restores_the_stashed_entries_and_file() {
 fn rebind_to_the_same_fingerprint_is_a_no_op() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", FP);
     cache.rebind(FP);
     assert!(!dir.path().join("cache.json").exists());
-    assert!(cache.get("熔岩百合").is_some());
+    assert!(cache.get("熔岩百合", "").is_some());
 }
 
 #[test]
@@ -274,10 +282,10 @@ fn flushes_every_20_puts() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
     for i in 0..FLUSH_EVERY - 1 {
-        cache.put(&letters(i), "v", FP);
+        cache.put(&letters(i), "", "v", FP);
     }
     assert!(!dir.path().join("cache.json").exists());
-    cache.put("last", "v", FP);
+    cache.put("last", "", "v", FP);
     assert!(dir.path().join("cache.json").exists());
 }
 
@@ -286,31 +294,31 @@ fn lru_caps_at_2000() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
     for i in 0..MAX_ENTRIES {
-        cache.put(&letters(i), "v", FP);
+        cache.put(&letters(i), "", "v", FP);
     }
     assert!(
-        cache.get(&letters(0)).is_some(),
+        cache.get(&letters(0), "").is_some(),
         "touch the oldest so it survives"
     );
-    cache.put("new", "v", FP);
-    assert!(cache.get(&letters(0)).is_some());
+    cache.put("new", "", "v", FP);
+    assert!(cache.get(&letters(0), "").is_some());
     assert!(
-        cache.get(&letters(1)).is_none(),
+        cache.get(&letters(1), "").is_none(),
         "least recently used was evicted"
     );
-    assert!(cache.get("new").is_some());
+    assert!(cache.get("new", "").is_some());
 }
 
 #[test]
 fn clear_removes_entries_and_file_without_writing_back() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "x", FP);
-    cache.put("你获得了 39 金币！", "你獲得了 {0} 金幣！", FP);
+    cache.put("熔岩百合", "", "x", FP);
+    cache.put("你获得了 39 金币！", "", "你獲得了 {0} 金幣！", FP);
     cache.flush();
     assert_eq!(cache.clear(), Some(2));
     assert!(!dir.path().join("cache.json").exists());
-    assert_eq!(cache.get("熔岩百合"), None);
+    assert_eq!(cache.get("熔岩百合", ""), None);
     cache.flush();
     let saved: Value = serde_json::from_str(&file_text(&dir)).unwrap();
     assert_eq!(saved["entries"], json!({}));
@@ -329,22 +337,22 @@ fn a_cleared_cache_is_not_brought_back_by_switching_back() {
     // 使用者要求的清除不可被之後切回原指紋時換回暫存的舊條目
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", FP);
     cache.rebind(OTHER_FP);
-    cache.put("迷幻木头", "迷幻木頭", OTHER_FP);
+    cache.put("迷幻木头", "", "迷幻木頭", OTHER_FP);
     assert_eq!(cache.clear(), Some(2), "live entries plus the stash");
     cache.rebind(FP);
-    assert_eq!(cache.get("熔岩百合"), None);
+    assert_eq!(cache.get("熔岩百合", ""), None);
 }
 
 #[test]
 fn cache_still_usable_after_clear() {
     let dir = tempfile::tempdir().unwrap();
     let cache = cache_in(&dir);
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", FP);
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", FP);
     cache.clear();
-    cache.put("迷幻木头", "迷幻木頭", FP);
-    assert_eq!(cache.get("迷幻木头").as_deref(), Some("迷幻木頭"));
+    cache.put("迷幻木头", "", "迷幻木頭", FP);
+    assert_eq!(cache.get("迷幻木头", "").as_deref(), Some("迷幻木頭"));
 }
 
 /// 收訊服務帶金鑰的完整設定，走真正的指紋組裝路徑（`incoming_fingerprint`）。
@@ -374,7 +382,7 @@ fn cache_file_never_contains_the_api_key() {
         dir.path().join("cache.json"),
         incoming_fingerprint(&keyed_config(), None),
     );
-    cache.put("熔岩百合", "熔岩百合(Lava Lily)", &cache.fingerprint());
+    cache.put("熔岩百合", "", "熔岩百合(Lava Lily)", &cache.fingerprint());
     cache.flush();
     assert!(file_text(&dir).contains("gemma"));
     assert!(!file_text(&dir).contains(SECRET_KEY));
@@ -458,7 +466,7 @@ async fn translate_and_cache_stores_the_normalized_template() {
     assert_eq!(out, "你獲得了 39 金幣！");
     assert_eq!(fake.requested(), ["你获得了 {0} 金币！"]);
     assert_eq!(
-        cache.get("你获得了 65 金币！").as_deref(),
+        cache.get("你获得了 65 金币！", "").as_deref(),
         Some("你獲得了 65 金幣！")
     );
 }
@@ -479,7 +487,7 @@ async fn does_not_store_on_placeholder_mismatch_and_translates_original() {
         fake.requested(),
         ["你获得了 {0} 金币！", "你获得了 39 金币！"]
     );
-    assert_eq!(cache.get("你获得了 39 金币！"), None);
+    assert_eq!(cache.get("你获得了 39 金币！", ""), None);
 }
 
 #[tokio::test]
@@ -499,7 +507,7 @@ async fn does_not_store_when_fingerprint_changed_mid_flight() {
         .await
         .unwrap();
     assert_eq!(out, "39 ゴールドを手に入れた！");
-    assert_eq!(cache.get("你获得了 39 金币！"), None);
+    assert_eq!(cache.get("你获得了 39 金币！", ""), None);
     cache.flush();
     assert!(!file_text(&dir).contains("金幣"));
 }
@@ -514,7 +522,7 @@ async fn does_not_store_a_blank_translation() {
         out,
         Err(TranslateError::BadOutput("model returned no text".into()))
     );
-    assert_eq!(cache.get("雪刺帽"), None);
+    assert_eq!(cache.get("雪刺帽", ""), None);
 }
 
 #[tokio::test]
@@ -526,7 +534,7 @@ async fn does_not_store_stray_latin() {
         .await
         .unwrap();
     assert_eq!(out, "Snowspike Hat");
-    assert_eq!(cache.get("雪刺帽"), None);
+    assert_eq!(cache.get("雪刺帽", ""), None);
     assert_eq!(
         fake.requested().len(),
         2,
@@ -543,7 +551,7 @@ async fn stores_a_translation_that_kept_the_source_english() {
         .await
         .unwrap();
     assert_eq!(
-        cache.get("death skeleturion").as_deref(),
+        cache.get("death skeleturion", "").as_deref(),
         Some("死亡骷髏戰士")
     );
 }
@@ -561,7 +569,7 @@ async fn judges_with_the_target_captured_before_the_request() {
     let out = translate_and_cache(&tr, &cache, "雪刺帽").await.unwrap();
     assert_eq!(out, "Sombrero de Nieve");
     assert_eq!(
-        cache.get("雪刺帽").as_deref(),
+        cache.get("雪刺帽", "").as_deref(),
         Some("Sombrero de Nieve"),
         "judged against the target in force when the request left"
     );
@@ -577,8 +585,8 @@ fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
             std::thread::spawn(move || {
                 for i in 0..100 {
                     let key = letters(t * 100 + i);
-                    assert!(cache.put(&key, &key.to_uppercase(), FP));
-                    cache.get(&key);
+                    assert!(cache.put(&key, "", &key.to_uppercase(), FP));
+                    cache.get(&key, "");
                     cache.flush();
                 }
             })
@@ -593,7 +601,7 @@ fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
     reloaded.load();
     for i in 0..800 {
         let key = letters(i);
-        assert_eq!(reloaded.get(&key), Some(key.to_uppercase()));
+        assert_eq!(reloaded.get(&key, ""), Some(key.to_uppercase()));
     }
     let leftovers = std::fs::read_dir(dir.path()).unwrap().count();
     assert_eq!(leftovers, 1, "no temp files left behind");

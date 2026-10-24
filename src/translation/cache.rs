@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 use super::errors::TranslateError;
 use super::postprocess::has_stray_latin;
 use super::prompts::PROMPT_REVISION;
-use super::translator::Translator;
+use super::translator::{SystemTranslation, Translator};
 use crate::config::{local_state_dir, py};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
@@ -81,6 +81,15 @@ pub fn default_path() -> PathBuf {
     local_state_dir().join("system-message-cache.json")
 }
 
+/// 條目 key：沒命中術語時就是樣板本身（舊快取檔照樣命中），否則帶上術語鍵。
+fn entry_key(template: &str, glossary_key: &str) -> String {
+    if glossary_key.is_empty() {
+        template.to_string()
+    } else {
+        format!("{template}\u{1f}{glossary_key}")
+    }
+}
+
 /// 樣板 → （譯文樣板, 最近使用序號）。
 type Entries = HashMap<String, (String, u64)>;
 
@@ -136,13 +145,14 @@ impl TranslationCache {
         self.lock().fingerprint.clone()
     }
 
-    /// 查快取，命中回傳已回填數字的譯文。
-    pub fn get(&self, text: &str) -> Option<String> {
+    /// 查快取，命中回傳已回填數字的譯文；`glossary_key` 見 `entry_key`。
+    pub fn get(&self, text: &str, glossary_key: &str) -> Option<String> {
         let (template, numbers) = normalize(text);
+        let key = entry_key(&template, glossary_key);
         let translated = {
             let mut inner = self.lock();
-            let translated = inner.entries.get(&template)?.0.clone();
-            inner.touch(&template, translated.clone());
+            let translated = inner.entries.get(&key)?.0.clone();
+            inner.touch(&key, translated.clone());
             translated
         };
         Some(restore(&translated, &numbers))
@@ -151,7 +161,13 @@ impl TranslationCache {
     /// 存入一筆（`translated_template` 是樣板的譯文）；佔位符對不上或指紋已過期回傳 `false`。
     ///
     /// `fingerprint` 是譯文產出當下的指紋：翻譯飛行中若已 `rebind`，舊設定的譯文不得存進新快取。
-    pub fn put(&self, text: &str, translated_template: &str, fingerprint: &str) -> bool {
+    pub fn put(
+        &self,
+        text: &str,
+        glossary_key: &str,
+        translated_template: &str,
+        fingerprint: &str,
+    ) -> bool {
         let (template, _) = normalize(text);
         if !placeholders_match(&template, translated_template) {
             log(format!(
@@ -172,7 +188,10 @@ impl TranslationCache {
                 ));
                 return false;
             }
-            inner.touch(&template, translated_template.to_string());
+            inner.touch(
+                &entry_key(&template, glossary_key),
+                translated_template.to_string(),
+            );
             while inner.entries.len() > MAX_ENTRIES {
                 let oldest = inner
                     .entries
@@ -341,6 +360,11 @@ impl TranslationCache {
     }
 }
 
+/// 依收訊翻譯端目前的術語表查快取；key 算在樣板上，與 `translate_and_cache` 存入時一致。
+pub fn lookup(tr: &Translator, cache: &TranslationCache, text: &str) -> Option<String> {
+    cache.get(text, &tr.glossary_key(&normalize(text).0))
+}
+
 /// 翻一則系統訊息並存進快取；佔位符被弄壞或翻譯期間指紋被換掉時不快取，改用原文直翻一次。
 ///
 /// 落回英文的譯文（見 `has_stray_latin`）照樣回傳但不落盤，避免把錯誤固化。
@@ -352,7 +376,10 @@ pub async fn translate_and_cache(
     let (template, numbers) = normalize(text);
     let fingerprint = cache.fingerprint();
     let target = tr.target_language();
-    let translated = tr.translate_system_message(&template).await?.text;
+    let SystemTranslation {
+        text: translated,
+        glossary_key,
+    } = tr.translate_system_message(&template).await?;
     if has_stray_latin(&template, &translated, &target) {
         log(format!(
             "[cache] translation is not in the target language, not cached: template={} translated={}",
@@ -362,7 +389,7 @@ pub async fn translate_and_cache(
         return Ok(restore(&translated, &numbers));
     }
     // put 收原文並自行正規化；傳樣板會把 `{0}` 的 0 再當數字
-    if cache.put(text, &translated, &fingerprint) {
+    if cache.put(text, &glossary_key, &translated, &fingerprint) {
         return Ok(restore(&translated, &numbers));
     }
     log(format!(

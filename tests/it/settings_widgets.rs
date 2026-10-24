@@ -623,7 +623,7 @@ fn real_env_clears_the_cache_and_reports_the_count() {
         dir.path().join("cache.json"),
         "fp".into(),
     ));
-    assert!(cache.put("Hello", "你好", "fp"));
+    assert!(cache.put("Hello", "", "你好", "fp"));
     let env = RealEnv::new(rt.handle().clone(), poster, dispatcher, Some(cache));
     assert!(env.has_cache());
     assert_eq!(env.clear_cache(), Some(1));

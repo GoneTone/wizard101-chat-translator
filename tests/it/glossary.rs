@@ -332,3 +332,71 @@ mod config_glossaries {
         assert!(cfg["glossaries"][0]["builtin"].is_null());
     }
 }
+
+mod system_cache {
+    use std::sync::Arc;
+
+    use crate::common::fake_backend::{Fake, spec};
+    use wizard101_chat_translator::glossary::{Entry, Glossary};
+    use wizard101_chat_translator::translation::cache::{
+        TranslationCache, lookup, translate_and_cache,
+    };
+    use wizard101_chat_translator::translation::translator::Translator;
+
+    const KEY: &str = "Hollo <=> 哈樓";
+
+    fn hollo() -> Option<Arc<Glossary>> {
+        let entry = Entry {
+            source: "Hollo".into(),
+            target: "哈樓".into(),
+        };
+        Some(Arc::new(Glossary::new(vec![entry], Vec::new())))
+    }
+
+    fn cache(dir: &tempfile::TempDir) -> TranslationCache {
+        TranslationCache::new(dir.path().join("cache.json"), "fp".into())
+    }
+
+    #[test]
+    fn glossary_hits_get_their_own_cache_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(&dir);
+        assert!(cache.put("Hollo waves", "", "甲", "fp"));
+        assert!(cache.put("Hollo waves", KEY, "乙", "fp"));
+        assert_eq!(cache.get("Hollo waves", "").as_deref(), Some("甲"));
+        assert_eq!(cache.get("Hollo waves", KEY).as_deref(), Some("乙"));
+    }
+
+    #[tokio::test]
+    async fn lookup_and_store_use_the_same_template_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(&dir);
+        let fake = Fake::texts(&["哈樓獲得了 {0} 金幣"]);
+        let fake2 = Arc::clone(&fake);
+        let tr = Translator::with_client(move |_| fake2.clone(), spec("m"), "繁體中文".into());
+        tr.set_glossary(hollo());
+        translate_and_cache(&tr, &cache, "Hollo got 5 gold")
+            .await
+            .unwrap();
+        assert_eq!(
+            lookup(&tr, &cache, "Hollo got 7 gold").as_deref(),
+            Some("哈樓獲得了 7 金幣")
+        );
+    }
+
+    #[tokio::test]
+    async fn system_translation_is_cached_under_the_key_it_was_made_with() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = cache(&dir);
+        let fake = Fake::texts(&["哈樓獲得了金幣"]);
+        let fake2 = Arc::clone(&fake);
+        let tr = Translator::with_client(move |_| fake2.clone(), spec("m"), "繁體中文".into());
+        tr.set_glossary(hollo());
+        let tr2 = Arc::clone(&tr);
+        fake.on_call(move |_| tr2.set_glossary(None));
+        let text = "Hollo got gold";
+        translate_and_cache(&tr, &cache, text).await.unwrap();
+        assert!(cache.get(text, KEY).is_some());
+        assert!(cache.get(text, "").is_none());
+    }
+}

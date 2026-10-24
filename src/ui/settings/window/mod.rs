@@ -69,7 +69,7 @@ pub enum SettingsAction {
     PreviewLanguage,
     /// 手動檢查查到新版。
     UpdateFound(Release),
-    /// 這個視窗管的鍵（服務三鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
+    /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。

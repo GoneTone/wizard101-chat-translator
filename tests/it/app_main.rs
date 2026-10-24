@@ -178,7 +178,7 @@ fn restart_keeps_the_persisted_cache_when_examples_are_already_stored() {
         cache_path.clone(),
         incoming_fingerprint(&cfg(), Some(&examples())),
     );
-    assert!(seeded.put("hello", "bonjour", &seeded.fingerprint()));
+    assert!(seeded.put("hello", "", "bonjour", &seeded.fingerprint()));
     seeded.flush();
 
     let built = build_translation(
@@ -188,7 +188,7 @@ fn restart_keeps_the_persisted_cache_when_examples_are_already_stored() {
         store,
         cache_path,
     );
-    assert_eq!(built.cache.get("hello").as_deref(), Some("bonjour"));
+    assert_eq!(built.cache.get("hello", "").as_deref(), Some("bonjour"));
 }
 
 /// 設定存檔的一組測試環境：共用設定、磁碟上的範例、已建好的翻譯端。
@@ -1426,4 +1426,34 @@ fn apply_settings_reports_a_failed_save_then_clears_it_on_the_next_success() {
     let events: Vec<_> = l.rx.try_iter().collect();
     assert!(events.contains(&UiEvent::ConfigSaved), "{events:?}");
     assert!(!events.contains(&UiEvent::ConfigSaveFailed), "{events:?}");
+}
+
+#[test]
+fn reconfigure_applies_the_active_glossary() {
+    let dir = tempfile::tempdir().unwrap();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let store = Arc::new(ExampleStore::new(dir.path().join("examples.json")));
+    for slot in ServiceSlot::ALL {
+        store.put(&fingerprint(slot), &examples());
+    }
+    let settings = Arc::new(RwLock::new(cfg()));
+    let built = build_translation(
+        &settings,
+        no_results(),
+        rt.handle(),
+        store,
+        dir.path().join("cache.json"),
+    );
+    assert_eq!(built.incoming.glossary_key("Hollo"), "");
+    let mut next = cfg();
+    next.insert(
+        "glossaries".into(),
+        json!([{"id": "a", "name": "X", "builtin": null, "entries": {"Hollo": "哈樓"}}]),
+    );
+    next.insert("active_glossary".into(), json!("a"));
+    *settings.write().unwrap() = next.clone();
+    reconfigure_translation(&next, &built);
+    for tr in [&built.incoming, &built.outgoing, &built.region] {
+        assert_eq!(tr.glossary_key("Hollo"), "Hollo <=> 哈樓");
+    }
 }

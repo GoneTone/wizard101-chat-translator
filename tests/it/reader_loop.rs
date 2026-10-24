@@ -7,6 +7,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use common::fake_backend::{Fake, spec};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{
     EXPECTED_PANIC, VirtualClock, banners, drain, echo, failing_pool, pool, quiet_panics, runtime,
@@ -29,6 +30,7 @@ use wizard101_chat_translator::translation::cache::TranslationCache;
 use wizard101_chat_translator::translation::context::ClientContexts;
 use wizard101_chat_translator::translation::errors::TranslateError;
 use wizard101_chat_translator::translation::pool::TranslationPool;
+use wizard101_chat_translator::translation::translator::Translator;
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 
 type Results = Receiver<(u64, String, bool)>;
@@ -188,6 +190,7 @@ struct Setup {
     system_pool: Arc<TranslationPool>,
     system_rx: Results,
     cache: Arc<TranslationCache>,
+    incoming: Arc<Translator>,
     contexts: Arc<ClientContexts>,
     clock: VirtualClock,
     probe: Arc<Mutex<Probe>>,
@@ -216,6 +219,11 @@ impl Setup {
             system_pool,
             system_rx,
             cache: Arc::new(TranslationCache::new(path, "fp".into())),
+            incoming: Translator::with_client(
+                |_| Fake::texts(&["unused"]),
+                spec("m"),
+                "target".into(),
+            ),
             contexts: Arc::new(ClientContexts::new()),
             clock: VirtualClock::new(),
             probe: Arc::default(),
@@ -265,6 +273,7 @@ impl Setup {
             board,
             msg_ids: Arc::new(MessageIds::default()),
             cache: Arc::clone(&self.cache),
+            incoming: Arc::clone(&self.incoming),
         });
         let env = LoopEnv {
             clock: self.clock.clock(Duration::ZERO),
@@ -385,7 +394,7 @@ fn system_cache_hit_shown_without_pool() {
     let mut s = Setup::new().system_messages(true);
     assert!(
         s.cache
-            .put("你获得了 39 金币！", "你獲得了 {0} 金幣！", "fp")
+            .put("你获得了 39 金币！", "", "你獲得了 {0} 金幣！", "fp")
     );
     let events = s.run(vec![
         Read::Lines(vec![drop_line("你获得了 39 金币！")]),

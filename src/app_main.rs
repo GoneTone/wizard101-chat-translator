@@ -18,6 +18,7 @@ use windows_sys::Win32::System::Console::{CTRL_C_EVENT, SetConsoleCtrlHandler};
 use windows_sys::core::BOOL;
 
 use crate::composer::paste::{TypingEnv, paste_clipboard, paste_interceptor};
+use crate::config::glossaries;
 use crate::config::services::resolve;
 use crate::config::{
     Config, ServiceSlot, Settings, app_name, config_summary, default_config, py, save_config,
@@ -165,7 +166,12 @@ pub fn build_translation(
     let (incoming, outgoing, region, gate, fingerprint) = {
         let cfg = read(settings);
         let target = Settings::from_config(&cfg);
-        let make = |slot| Translator::new(resolve(&cfg, slot), target.target_language.clone());
+        let glossary = glossaries::active(&cfg);
+        let make = |slot| {
+            let tr = Translator::new(resolve(&cfg, slot), target.target_language.clone());
+            tr.set_glossary(glossary.clone());
+            tr
+        };
         let incoming = make(ServiceSlot::Incoming);
         // 與磁碟上次存的指紋一致才不會被清掉
         let stored = store.get(&incoming.examples_fingerprint());
@@ -244,6 +250,7 @@ pub fn build_translation(
 /// 呼叫前必須先把 `cfg` 寫進共用的設定：`build_translation` 的範例套用回呼讀的是那份，否則晚到的範例會把快取綁回舊指紋。
 pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
     let target = Settings::from_config(cfg);
+    let glossary = glossaries::active(cfg);
     let mut rebuilt = false;
     let slots = [
         (ServiceSlot::Incoming, &translation.incoming),
@@ -251,6 +258,7 @@ pub fn reconfigure_translation(cfg: &Config, translation: &Translation) {
         (ServiceSlot::Region, &translation.region),
     ];
     for (slot, translator) in slots {
+        translator.set_glossary(glossary.clone());
         if translator.reconfigure(resolve(cfg, slot), target.target_language.clone()) {
             rebuilt = true;
             log(format!(
@@ -774,6 +782,7 @@ pub fn build_app(
         board: Arc::clone(&board),
         msg_ids: Arc::new(MessageIds::default()),
         cache: Arc::clone(&translation.cache),
+        incoming: Arc::clone(&translation.incoming),
     });
     let contexts = ContextMap::default();
     let spawn_contexts = Arc::clone(&contexts);

@@ -16,9 +16,10 @@ use crate::config::{Config, py};
 use crate::game::process;
 use crate::i18n::t;
 use crate::logs::log;
-use crate::translation::cache::TranslationCache;
+use crate::translation::cache::{self, TranslationCache};
 use crate::translation::context::ClientContexts;
 use crate::translation::pool::TranslationPool;
+use crate::translation::translator::Translator;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::util::{Clock, poll_until, read};
 
@@ -129,6 +130,8 @@ pub struct ReaderShared {
     pub msg_ids: Arc<MessageIds>,
     /// 系統訊息譯文快取。
     pub cache: Arc<TranslationCache>,
+    /// 收訊翻譯端；快取查詢要用它目前的術語表算 key。
+    pub incoming: Arc<Translator>,
 }
 
 /// 迴圈對外界的依賴：時鐘、視窗是否存在、前景視窗；測試換成假的。
@@ -343,7 +346,7 @@ impl<R: ChatSource> ClientLoop<R> {
         };
         if line.system {
             // 系統訊息不進上下文；快取命中就直接以完成態顯示，不佔位也不進 pool
-            if let Some(cached) = s.cache.get(&line.text) {
+            if let Some(cached) = cache::lookup(&s.incoming, &s.cache, &line.text) {
                 s.ui.post(add(cached, None));
                 return;
             }
