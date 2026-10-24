@@ -6,5 +6,7 @@ append_commit_message: false
 # 匯出選項（Skip untranslated strings 等）不設在這裡，設在 Crowdin 專案的
 # Settings → Export；GitHub 整合建置譯文檔時吃的是那組設定，不是這個檔案。
 files:
-  - source: /src/i18n/zh-TW.json
-    translation: /src/i18n/%locale%.json
+  - source: /src/i18n/locales/zh-TW.json
+    # Crowdin 上沿用搬資料夾前的路徑，才不會被當成新檔而丟掉既有譯文與審核紀錄。
+    dest: /src/i18n/zh-TW.json
+    translation: /src/i18n/locales/%locale%.json

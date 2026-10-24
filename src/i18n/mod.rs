@@ -20,7 +20,7 @@ pub const SOURCE_LANGUAGE: &str = "zh-TW";
 const DEFAULT_LANGUAGE: &str = "en-US";
 const MINIMUM_COVERAGE: f64 = 0.6;
 
-/// 編進 exe 的語言檔，依語言碼字母序；清單由 `build.rs` 掃描本資料夾產生，新增語系只要放檔案。
+/// 編進 exe 的語言檔，依語言碼字母序；清單由 `build.rs` 掃描 `locales/` 資料夾產生，新增語系只要放檔案。
 const CATALOG_SOURCES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/i18n_catalogs.rs"));
 
 type Catalog = HashMap<String, String>;
