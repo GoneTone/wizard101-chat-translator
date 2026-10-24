@@ -236,3 +236,11 @@ fn apply_merge_takes_only_checked_conflicts() {
     apply_merge(&mut taken, &plan, &[true]);
     assert_eq!(taken, vec![e("A", "甲"), e("B", "丙"), e("C", "丁")]);
 }
+
+#[test]
+fn merge_plan_keeps_the_first_of_case_variant_duplicates() {
+    let plan = plan_merge(&[], &[e("Hollo", "甲"), e("hollo", "乙")]);
+    assert_eq!(plan.added, vec![e("Hollo", "甲")]);
+    assert_eq!(plan.identical, 0);
+    assert!(plan.conflicts.is_empty());
+}

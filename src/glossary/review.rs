@@ -102,15 +102,19 @@ pub struct MergePlan {
     pub conflicts: Vec<Conflict>,
 }
 
-/// 以 fold 後的來源比對，規劃新增、相同與衝突各幾筆。
+/// 以 fold 後的來源比對，規劃新增、相同與衝突各幾筆；檔案內來源重複（含大小寫差異）者只取第一筆。
 pub fn plan_merge(current: &[Entry], incoming: &[Entry]) -> MergePlan {
     let mut plan = MergePlan {
         added: Vec::new(),
         identical: 0,
         conflicts: Vec::new(),
     };
+    let mut seen = HashSet::new();
     for inc in incoming {
         let key = fold(&inc.source);
+        if !seen.insert(key.clone()) {
+            continue;
+        }
         match current.iter().position(|c| fold(&c.source) == key) {
             None => plan.added.push(inc.clone()),
             Some(i) if fold(&current[i].target) == fold(&inc.target) => plan.identical += 1,
