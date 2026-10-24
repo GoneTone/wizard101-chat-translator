@@ -42,7 +42,7 @@ pub fn builtin_entries(code: &str) -> Option<Vec<Entry>> {
         .map(|(_, entries)| entries.clone())
 }
 
-/// 解析內建檔並濾掉未翻譯（原文與譯名相同）的條目；解析失敗回空。
+/// 解析內建檔並濾掉未翻譯（原文與譯名相同）的條目；解析失敗記 log 並回空。
 pub fn load(raw: &str) -> Vec<Entry> {
     filter_untranslated(raw).map_or_else(
         |err| {

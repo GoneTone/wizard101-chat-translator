@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use aho_corasick::{AhoCorasick, MatchKind};
 
 use super::{Entry, fold};
+use crate::logs::log;
 
 /// 比對字串在條目的哪一側。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,12 +80,19 @@ impl Glossary {
                 owners[p].push(Owner { entry: i, side });
             }
         }
-        let automaton = (!patterns.is_empty()).then(|| {
+        let automaton = if patterns.is_empty() {
+            None
+        } else {
             AhoCorasick::builder()
                 .match_kind(MatchKind::Standard)
                 .build(&patterns)
-                .expect("glossary patterns build")
-        });
+                .inspect_err(|err| {
+                    log(format!(
+                        "[glossary] matcher build failed: {err}; glossary disabled"
+                    ));
+                })
+                .ok()
+        };
         Self {
             entries,
             patterns,
