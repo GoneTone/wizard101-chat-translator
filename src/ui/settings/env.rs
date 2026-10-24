@@ -1,10 +1,10 @@
-//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵）與結果的輪次比對。
+//! 設定介面的耗時工作（測試連線、抓模型清單、檢查更新、錄熱鍵、選檔）與結果的輪次比對。
 //!
 //! 介面只透過 `SettingsEnv` 發起工作，結果以 `UiEvent::Settings` 回到 UI 執行緒；測試換成假的 env。
 
 use std::os::windows::ffi::OsStrExt;
 use std::panic::AssertUnwindSafe;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -45,6 +45,10 @@ pub trait SettingsEnv {
     fn has_cache(&self) -> bool;
     /// 清掉譯文快取，回傳清掉的筆數；刪不掉快取檔時回 `None`。
     fn clear_cache(&self) -> Option<usize>;
+    /// 跳出開啟 JSON 檔的對話框，選完或取消後投遞 `GlossaryFilePicked`。
+    fn pick_glossary_file(&self, round: u64);
+    /// 跳出另存 JSON 檔的對話框（預設檔名 `file_name`），選完或取消後投遞 `GlossarySavePathPicked`。
+    fn pick_glossary_save_path(&self, round: u64, file_name: String);
 }
 
 /// `SettingsEnv` 背景工作的結果。
@@ -67,6 +71,10 @@ pub enum SettingsEvent {
     },
     /// 錄到的熱鍵；`esc` 表示使用者取消。
     HotkeyRecorded { round: u64, combo: String },
+    /// 匯入術語表選到的檔案；`None` 是取消。
+    GlossaryFilePicked { round: u64, path: Option<PathBuf> },
+    /// 匯出術語表選到的存檔位置；`None` 是取消。
+    GlossarySavePathPicked { round: u64, path: Option<PathBuf> },
 }
 
 /// 正式環境的 `SettingsEnv`：工作丟到 tokio runtime，熱鍵錄製掛在鍵盤分派器上。
@@ -213,6 +221,33 @@ impl SettingsEnv for RealEnv {
     fn clear_cache(&self) -> Option<usize> {
         self.cache.as_ref().map_or(Some(0), |cache| cache.clear())
     }
+
+    fn pick_glossary_file(&self, round: u64) {
+        let ui = self.ui.clone();
+        // 系統選檔對話框會卡住呼叫的執行緒，不能在 UI 執行緒上跑
+        std::thread::spawn(move || {
+            let path = json_dialog().pick_file();
+            ui.post(UiEvent::Settings(SettingsEvent::GlossaryFilePicked {
+                round,
+                path,
+            }));
+        });
+    }
+
+    fn pick_glossary_save_path(&self, round: u64, file_name: String) {
+        let ui = self.ui.clone();
+        std::thread::spawn(move || {
+            let path = json_dialog().set_file_name(file_name).save_file();
+            ui.post(UiEvent::Settings(SettingsEvent::GlossarySavePathPicked {
+                round,
+                path,
+            }));
+        });
+    }
+}
+
+fn json_dialog() -> rfd::FileDialog {
+    rfd::FileDialog::new().add_filter("JSON", &["json"])
 }
 
 static NEXT_ROUND: AtomicU64 = AtomicU64::new(1);

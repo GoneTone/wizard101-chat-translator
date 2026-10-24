@@ -228,5 +228,17 @@
   "glossary.builtin_section": "內建術語表：{language}（{count} 條，唯讀）",
   "glossary.overridden": "被自訂覆蓋",
   "glossary.row_duplicate_source": "與前面的條目來源重複。",
-  "glossary.row_incomplete": "來源與目標都要填寫。"
+  "glossary.row_incomplete": "來源與目標都要填寫。",
+  "glossary.import_failed": "無法匯入檔案",
+  "glossary.export_failed": "無法匯出檔案",
+  "glossary.merge_title": "合併匯入的條目",
+  "glossary.merge_total": "共 {total} 條",
+  "glossary.merge_added": "新增 {added} 條",
+  "glossary.merge_identical": "完全相同 {identical} 條（略過）",
+  "glossary.merge_conflicts": "來源相同、目標不同 {n} 條",
+  "glossary.merge_hint": "勾選的改用檔案的譯名，沒勾的保留目前的。",
+  "glossary.select_all": "全選",
+  "glossary.current_target": "目前的譯名",
+  "glossary.file_target": "檔案的譯名",
+  "button.merge": "合併"
 }

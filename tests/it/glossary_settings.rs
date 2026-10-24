@@ -2,7 +2,9 @@
 
 use crate::common;
 
-use eframe::egui::accesskit::Role;
+use std::path::Path;
+
+use eframe::egui::accesskit::{Role, Toggled};
 use eframe::egui::{self, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
@@ -16,8 +18,9 @@ use common::settings_env::FakeEnv;
 use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
 use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::config::glossaries::StoredGlossary;
-use wizard101_chat_translator::glossary::Entry;
+use wizard101_chat_translator::glossary::{Entry, parse_entries};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::glossary_draft::GlossaryDraft;
 use wizard101_chat_translator::ui::settings::glossary_pane::GlossaryPane;
 use wizard101_chat_translator::ui::settings::theme;
@@ -56,16 +59,22 @@ fn names(d: &GlossaryDraft) -> Vec<String> {
 
 struct State {
     pane: GlossaryPane,
+    env: FakeEnv,
 }
 
 fn harness(draft: GlossaryDraft) -> Harness<'static, State> {
+    harness_with(draft, FakeEnv::default())
+}
+
+fn harness_with(draft: GlossaryDraft, env: FakeEnv) -> Harness<'static, State> {
     let state = State {
         pane: GlossaryPane::new(draft),
+        env,
     };
     themed_harness(
         egui::vec2(620.0, 660.0),
         LANGUAGE,
-        |ui: &mut Ui, s: &mut State| s.pane.ui(ui),
+        |ui: &mut Ui, s: &mut State| s.pane.ui(ui, &s.env),
         state,
     )
 }
@@ -254,7 +263,16 @@ fn cancelling_delete_keeps_the_glossary() {
 
 /// 打開只有一份術語表 `Mine` 的編輯畫面。
 fn editing(entries: Vec<Entry>, builtin: Option<&str>) -> Harness<'static, State> {
-    let mut h = harness(draft(vec![glossary("a", "Mine", builtin, entries)], None));
+    editing_with(entries, builtin, FakeEnv::default())
+}
+
+fn editing_with(
+    entries: Vec<Entry>,
+    builtin: Option<&str>,
+    env: FakeEnv,
+) -> Harness<'static, State> {
+    let d = draft(vec![glossary("a", "Mine", builtin, entries)], None);
+    let mut h = harness_with(d, env);
     click(&mut h, Role::Button, &tr("button.edit"));
     h
 }
@@ -374,4 +392,156 @@ fn fully_blank_rows_are_dropped_on_save() {
     let mut cfg = Config::new();
     d.write_into(&mut cfg);
     assert_eq!(cfg["glossaries"][0]["entries"], json!({"Hollo": "哈樓"}));
+}
+
+/// 選檔對話框會「選到」`dir` 裡的 `name`；`content` 不是 `None` 時先寫好檔案。
+fn env_picking(dir: &Path, name: &str, content: Option<&str>) -> FakeEnv {
+    let path = dir.join(name);
+    if let Some(content) = content {
+        std::fs::write(&path, content).unwrap();
+    }
+    FakeEnv {
+        picked_path: Some(path),
+        ..FakeEnv::default()
+    }
+}
+
+/// 把預設路徑當成第 `index` 次選檔的結果送回分頁。
+fn deliver_file_pick(h: &mut Harness<State>, index: usize) {
+    let round = h.state().env.file_picks.borrow()[index];
+    let path = h.state().env.picked_path.clone();
+    h.state_mut()
+        .pane
+        .apply(&SettingsEvent::GlossaryFilePicked { round, path });
+    run(h);
+}
+
+fn import_new(h: &mut Harness<State>) {
+    click(h, Role::Button, &tr("button.add_glossary"));
+    click_in_dialog(h, &tr("glossary.new_title"), &tr("glossary.start_import"));
+}
+
+#[test]
+fn import_from_file_creates_a_glossary_named_after_the_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "friends.json", Some(r#"{"Hollo":"哈樓"}"#));
+    let mut h = harness_with(draft(Vec::new(), None), env);
+    import_new(&mut h);
+    deliver_file_pick(&mut h, 0);
+    let d = h.state().pane.draft();
+    assert_eq!(names(d), ["friends"]);
+    assert_eq!(d.glossaries[0].entries, [entry("Hollo", "哈樓")]);
+    assert!(has_label(&h, &tr("glossary.back_to_list")));
+}
+
+#[test]
+fn import_failure_shows_the_parse_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = r#"{"a":1}"#;
+    let env = env_picking(dir.path(), "bad.json", Some(content));
+    let mut h = harness_with(draft(two(), None), env);
+    import_new(&mut h);
+    deliver_file_pick(&mut h, 0);
+    assert!(has_label(&h, &tr("glossary.import_failed")));
+    assert!(has_label(&h, &parse_entries(content).unwrap_err()));
+    assert_eq!(names(h.state().pane.draft()), ["Mine", "Other"]);
+    assert!(has_label(&h, &tr("button.add_glossary")));
+}
+
+/// 在 `Mine` 的編輯畫面按〔匯入檔案〕，選到內容是 `content` 的檔案。
+fn merging(current: Vec<Entry>, content: &str) -> (tempfile::TempDir, Harness<'static, State>) {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "more.json", Some(content));
+    let mut h = editing_with(current, None, env);
+    click(&mut h, Role::Button, &tr("glossary.import"));
+    deliver_file_pick(&mut h, 0);
+    (dir, h)
+}
+
+fn checked(h: &Harness<State>, label: &str) -> bool {
+    h.get_by_role_and_label(Role::Dialog, &tr("glossary.merge_title"))
+        .get_by_role_and_label(Role::CheckBox, label)
+        .accesskit_node()
+        .toggled()
+        == Some(Toggled::True)
+}
+
+fn toggle(h: &mut Harness<State>, label: &str) {
+    h.get_by_role_and_label(Role::Dialog, &tr("glossary.merge_title"))
+        .get_by_role_and_label(Role::CheckBox, label)
+        .click();
+    run(h);
+}
+
+#[test]
+fn merge_dialog_lists_conflicts_and_applies_checked_rows() {
+    let (_dir, mut h) = merging(vec![entry("B", "乙")], r#"{"B":"丙","C":"丁"}"#);
+    assert!(has_label(&h, &t("glossary.merge_added", &[("added", "1")])));
+    assert!(has_label(&h, &t("glossary.merge_total", &[("total", "2")])));
+    let title = tr("glossary.merge_title");
+    let dialog = h.get_by_role_and_label(Role::Dialog, &title);
+    assert_eq!(dialog.query_all_by_role(Role::CheckBox).count(), 2);
+    toggle(&mut h, "B");
+    click_in_dialog(&mut h, &tr("glossary.merge_title"), &tr("button.merge"));
+    assert!(
+        h.query_by_role_and_label(Role::Dialog, &tr("glossary.merge_title"))
+            .is_none()
+    );
+    assert_eq!(custom_entries(&h), [entry("B", "丙"), entry("C", "丁")]);
+}
+
+#[test]
+fn merge_cancel_changes_nothing() {
+    let (_dir, mut h) = merging(vec![entry("B", "乙")], r#"{"B":"丙","C":"丁"}"#);
+    toggle(&mut h, "B");
+    click_in_dialog(&mut h, &tr("glossary.merge_title"), &tr("button.cancel"));
+    assert!(
+        h.query_by_role_and_label(Role::Dialog, &tr("glossary.merge_title"))
+            .is_none()
+    );
+    assert_eq!(custom_entries(&h), [entry("B", "乙")]);
+}
+
+#[test]
+fn select_all_toggles_every_conflict() {
+    let current = vec![entry("A", "1"), entry("B", "2")];
+    let (_dir, mut h) = merging(current, r#"{"A":"x","B":"y"}"#);
+    let all = tr("glossary.select_all");
+    toggle(&mut h, "A");
+    assert!(!checked(&h, &all));
+    toggle(&mut h, &all);
+    assert!(checked(&h, &all) && checked(&h, "A") && checked(&h, "B"));
+    toggle(&mut h, &all);
+    assert!(!checked(&h, &all) && !checked(&h, "A") && !checked(&h, "B"));
+}
+
+#[test]
+fn export_writes_only_custom_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "out.json", None);
+    let custom = vec![entry("Hollo", "哈樓"), entry("Fire Elf", "火精靈")];
+    let mut h = editing_with(custom.clone(), Some("xx-XX"), env);
+    click(&mut h, Role::Button, &tr("glossary.export"));
+    let (round, name) = h.state().env.save_picks.borrow()[0].clone();
+    assert_eq!(name, "Mine.json");
+    let path = h.state().env.picked_path.clone();
+    h.state_mut()
+        .pane
+        .apply(&SettingsEvent::GlossarySavePathPicked { round, path });
+    run(&mut h);
+    let written = std::fs::read_to_string(dir.path().join("out.json")).unwrap();
+    assert_eq!(parse_entries(&written).unwrap(), custom);
+}
+
+#[test]
+fn stale_file_pick_is_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "friends.json", Some(r#"{"Hollo":"哈樓"}"#));
+    let mut h = harness_with(draft(Vec::new(), None), env);
+    import_new(&mut h);
+    import_new(&mut h);
+    deliver_file_pick(&mut h, 0);
+    assert!(names(h.state().pane.draft()).is_empty());
+    deliver_file_pick(&mut h, 1);
+    assert_eq!(names(h.state().pane.draft()), ["friends"]);
 }

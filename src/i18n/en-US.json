@@ -228,5 +228,17 @@
   "glossary.builtin_section": "Built-in glossary: {language} ({count} entries, read-only)",
   "glossary.overridden": "Overridden by a custom entry",
   "glossary.row_duplicate_source": "Same source as an earlier entry.",
-  "glossary.row_incomplete": "Fill in both the source and the target."
+  "glossary.row_incomplete": "Fill in both the source and the target.",
+  "glossary.import_failed": "Could not import the file",
+  "glossary.export_failed": "Could not export the file",
+  "glossary.merge_title": "Merge imported entries",
+  "glossary.merge_total": "{total} entries in total",
+  "glossary.merge_added": "{added} to add",
+  "glossary.merge_identical": "{identical} identical (skipped)",
+  "glossary.merge_conflicts": "{n} with the same source but a different target",
+  "glossary.merge_hint": "Checked rows take the file's target; unchecked rows keep the current one.",
+  "glossary.select_all": "Select all",
+  "glossary.current_target": "Current target",
+  "glossary.file_target": "Target in file",
+  "button.merge": "Merge"
 }

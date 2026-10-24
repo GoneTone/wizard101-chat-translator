@@ -157,7 +157,7 @@ impl SettingsWindow {
         self.hotkeys.release(env);
     }
 
-    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，其餘由視窗自己收。
+    /// 背景工作的結果：測試連線與模型清單轉給服務分頁，選檔結果轉給術語表分頁，其餘由視窗自己收。
     pub fn apply(&mut self, event: &SettingsEvent) {
         match event {
             SettingsEvent::TestDone { .. } | SettingsEvent::ModelsDone { .. } => {
@@ -166,6 +166,10 @@ impl SettingsWindow {
             SettingsEvent::UpdateChecked { round, result } => self.apply_update(*round, result),
             SettingsEvent::HotkeyRecorded { .. } => {
                 self.hotkeys.apply(event);
+            }
+            SettingsEvent::GlossaryFilePicked { .. }
+            | SettingsEvent::GlossarySavePathPicked { .. } => {
+                self.glossaries.apply(event);
             }
         }
     }
@@ -373,7 +377,7 @@ impl SettingsWindow {
                     };
                     self.services.ui(ui, env, &target);
                 }
-                Page::Glossaries => self.glossaries.ui(ui),
+                Page::Glossaries => self.glossaries.ui(ui, env),
                 Page::Advanced => self.advanced_page(ui),
                 Page::About => self.about_page(ui, env),
             }

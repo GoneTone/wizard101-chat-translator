@@ -126,7 +126,9 @@ impl Wizard {
             SettingsEvent::HotkeyRecorded { .. } => {
                 self.hotkeys.apply(event);
             }
-            SettingsEvent::UpdateChecked { .. } => {}
+            SettingsEvent::UpdateChecked { .. }
+            | SettingsEvent::GlossaryFilePicked { .. }
+            | SettingsEvent::GlossarySavePathPicked { .. } => {}
         }
     }
 

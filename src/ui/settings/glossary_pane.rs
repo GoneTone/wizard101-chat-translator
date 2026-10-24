@@ -1,16 +1,23 @@
-//! 「術語表」分頁：啟用的術語表與術語表清單，外加新增與刪除確認兩種對話框；編輯畫面在分頁內切換。
+//! 「術語表」分頁：啟用的術語表與術語表清單，外加新增、刪除確認與匯入合併三種對話框；編輯畫面在分頁內切換。
+
+use std::path::Path;
 
 use eframe::egui::{Frame, Id, Margin, Ui};
 
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
+use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::glossary_draft::{GlossaryDraft, builtin_of};
 use super::glossary_editor::{EditorAction, GlossaryEditor};
+use super::glossary_merge::MergeDialog;
 use super::theme;
 use super::widgets::{
-    card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
+    callout, card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
 };
 use crate::config::glossaries::StoredGlossary;
+use crate::glossary::{Entry, entries_to_json, parse_entries, plan_merge};
 use crate::i18n::{language_name, t};
+use crate::logs::log;
+use crate::util::write_atomic;
 
 enum Screen {
     List,
@@ -24,6 +31,21 @@ enum Dialog {
     Confirm {
         id: String,
     },
+    /// 把匯入的檔案併入 `id` 那份。
+    Merge {
+        id: String,
+        merge: MergeDialog,
+    },
+}
+
+/// 等選檔結果的操作。
+enum FileTask {
+    /// 從檔案新增一份。
+    Create,
+    /// 併入 `id` 那份。
+    Merge(String),
+    /// 匯出 `id` 那份。
+    Export(String),
 }
 
 /// 新增術語表的起點。
@@ -43,6 +65,10 @@ pub struct GlossaryPane {
     draft: GlossaryDraft,
     screen: Screen,
     dialog: Dialog,
+    file_round: Round,
+    file_task: Option<FileTask>,
+    /// 匯入／匯出失敗的提示（標題 key 與錯誤原文），畫在目前畫面上方，換畫面時清掉。
+    failure: Option<(&'static str, String)>,
 }
 
 impl GlossaryPane {
@@ -51,6 +77,9 @@ impl GlossaryPane {
             draft,
             screen: Screen::List,
             dialog: Dialog::Closed,
+            file_round: Round::new("glossary file dialog"),
+            file_task: None,
+            failure: None,
         }
     }
 
@@ -58,26 +87,144 @@ impl GlossaryPane {
         &self.draft
     }
 
+    /// 選檔結果：依發起的操作匯入、合併或匯出；過期或取消的結果丟掉。
+    pub fn apply(&mut self, event: &SettingsEvent) {
+        let (SettingsEvent::GlossaryFilePicked { round, path }
+        | SettingsEvent::GlossarySavePathPicked { round, path }) = event
+        else {
+            return;
+        };
+        if !self.file_round.finish(*round) {
+            return;
+        }
+        let (Some(task), Some(path)) = (self.file_task.take(), path) else {
+            log("[settings] glossary file dialog cancelled");
+            return;
+        };
+        match task {
+            FileTask::Create => self.import_new(path),
+            FileTask::Merge(id) => self.import_merge(id, path),
+            FileTask::Export(id) => self.export(&id, path),
+        }
+    }
+
     /// 畫目前的畫面（清單或編輯）與開著的對話框。
-    pub fn ui(&mut self, ui: &mut Ui) {
+    pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
+        if let Some((title, error)) = &self.failure {
+            callout(ui, &t(title, &[]), std::slice::from_ref(error));
+            ui.add_space(theme::CARD_GAP);
+        }
         if let Screen::Edit(editor) = &mut self.screen {
-            let glossary = self
-                .draft
-                .glossaries
-                .iter_mut()
-                .find(|g| g.id == editor.id());
+            let id = editor.id().to_owned();
+            let glossary = self.draft.glossaries.iter_mut().find(|g| g.id == id);
             let action = match glossary {
                 Some(glossary) => editor.ui(ui, glossary),
                 None => EditorAction::Back,
             };
             match action {
-                EditorAction::Back => self.screen = Screen::List,
-                EditorAction::None | EditorAction::Import | EditorAction::Export => {}
+                EditorAction::None => {}
+                EditorAction::Back => self.set_screen(Screen::List),
+                EditorAction::Import => {
+                    let round = self.start(FileTask::Merge(id));
+                    env.pick_glossary_file(round);
+                }
+                EditorAction::Export => {
+                    let name = self.draft.find(&id).map_or("", |g| g.name.as_str());
+                    let file_name = format!("{name}.json");
+                    let round = self.start(FileTask::Export(id));
+                    env.pick_glossary_save_path(round, file_name);
+                }
             }
         } else {
             self.list_ui(ui);
         }
-        self.show_dialog(ui);
+        self.show_dialog(ui, env);
+    }
+
+    fn set_screen(&mut self, screen: Screen) {
+        self.screen = screen;
+        self.failure = None;
+    }
+
+    /// 開始等一次選檔結果；回傳本輪編號。
+    fn start(&mut self, task: FileTask) -> u64 {
+        self.file_task = Some(task);
+        self.failure = None;
+        self.file_round.start()
+    }
+
+    fn import_new(&mut self, path: &Path) {
+        let Some(entries) = self.read(path) else {
+            return;
+        };
+        let name = path
+            .file_stem()
+            .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+        let id = self.draft.add_with_entries(&name, entries);
+        self.set_screen(Screen::Edit(GlossaryEditor::new(&id)));
+    }
+
+    fn import_merge(&mut self, id: String, path: &Path) {
+        let Some(incoming) = self.read(path) else {
+            return;
+        };
+        let Some(glossary) = self.draft.find(&id) else {
+            return;
+        };
+        let merge = MergeDialog::new(plan_merge(&glossary.entries, &incoming));
+        self.dialog = Dialog::Merge { id, merge };
+    }
+
+    /// 讀檔並解析；失敗時記下提示。
+    fn read(&mut self, path: &Path) -> Option<Vec<Entry>> {
+        let parsed = std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|text| parse_entries(&text));
+        match parsed {
+            Ok(entries) => {
+                log(format!(
+                    "[settings] glossary imported: {} entries from {}",
+                    entries.len(),
+                    path.display()
+                ));
+                Some(entries)
+            }
+            Err(error) => {
+                log(format!(
+                    "[settings] glossary import failed: {}: {error}",
+                    path.display()
+                ));
+                self.failure = Some(("glossary.import_failed", error));
+                None
+            }
+        }
+    }
+
+    /// 只寫出自訂條目（略過兩側都空白的列）。
+    fn export(&mut self, id: &str, path: &Path) {
+        let Some(glossary) = self.draft.find(id) else {
+            return;
+        };
+        let entries: Vec<Entry> = glossary
+            .entries
+            .iter()
+            .filter(|e| !e.is_blank())
+            .cloned()
+            .collect();
+        match write_atomic(path, &entries_to_json(&entries)) {
+            Ok(()) => log(format!(
+                "[settings] glossary exported: {} entries to {}",
+                entries.len(),
+                path.display()
+            )),
+            Err(e) => {
+                log(format!(
+                    "[settings] glossary export failed: {}: {e}",
+                    path.display()
+                ));
+                self.failure = Some(("glossary.export_failed", e.to_string()));
+            }
+        }
     }
 
     fn list_ui(&mut self, ui: &mut Ui) {
@@ -96,7 +243,9 @@ impl GlossaryPane {
                 self.dialog = Dialog::New;
             }
             match action {
-                Some(CardAction::Edit(id)) => self.screen = Screen::Edit(GlossaryEditor::new(&id)),
+                Some(CardAction::Edit(id)) => {
+                    self.set_screen(Screen::Edit(GlossaryEditor::new(&id)))
+                }
                 Some(CardAction::Duplicate(id)) => {
                     self.draft.duplicate(&id);
                 }
@@ -164,15 +313,34 @@ impl GlossaryPane {
         }
     }
 
-    fn show_dialog(&mut self, ui: &Ui) {
-        match &self.dialog {
+    fn show_dialog(&mut self, ui: &Ui, env: &dyn SettingsEnv) {
+        match &mut self.dialog {
             Dialog::Closed => {}
             Dialog::New => match new_dialog(ui) {
-                Choice::Open | Choice::Done(Start::Import) => {}
+                Choice::Open => {}
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(Start::Blank) => {
                     let id = self.draft.add_blank();
-                    self.screen = Screen::Edit(GlossaryEditor::new(&id));
+                    self.set_screen(Screen::Edit(GlossaryEditor::new(&id)));
+                    self.dialog = Dialog::Closed;
+                }
+                Choice::Done(Start::Import) => {
+                    self.dialog = Dialog::Closed;
+                    let round = self.start(FileTask::Create);
+                    env.pick_glossary_file(round);
+                }
+            },
+            Dialog::Merge { id, merge } => match merge.ui(ui) {
+                Choice::Open => {}
+                Choice::Cancel => {
+                    log("[settings] glossary merge cancelled");
+                    self.dialog = Dialog::Closed;
+                }
+                Choice::Done(()) => {
+                    let id = id.clone();
+                    if let Some(glossary) = self.draft.glossaries.iter_mut().find(|g| g.id == id) {
+                        merge.apply(&mut glossary.entries);
+                    }
                     self.dialog = Dialog::Closed;
                 }
             },

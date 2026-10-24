@@ -228,5 +228,17 @@
   "glossary.builtin_section": "内置术语表：{language}（{count} 条，只读）",
   "glossary.overridden": "被自定义覆盖",
   "glossary.row_duplicate_source": "与前面的条目来源重复。",
-  "glossary.row_incomplete": "来源与目标都要填写。"
+  "glossary.row_incomplete": "来源与目标都要填写。",
+  "glossary.import_failed": "无法导入文件",
+  "glossary.export_failed": "无法导出文件",
+  "glossary.merge_title": "合并导入的条目",
+  "glossary.merge_total": "共 {total} 条",
+  "glossary.merge_added": "新增 {added} 条",
+  "glossary.merge_identical": "完全相同 {identical} 条（跳过）",
+  "glossary.merge_conflicts": "来源相同、目标不同 {n} 条",
+  "glossary.merge_hint": "勾选的改用文件的译名，没勾的保留当前的。",
+  "glossary.select_all": "全选",
+  "glossary.current_target": "当前的译名",
+  "glossary.file_target": "文件的译名",
+  "button.merge": "合并"
 }
