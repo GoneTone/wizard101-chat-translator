@@ -1,7 +1,8 @@
 //! 術語表條目解析與內建術語表註冊。
 
 use wizard101_chat_translator::glossary::{
-    Entry, Glossary, builtin, entries_to_json, hits_key, parse_entries,
+    Conflict, Entry, Glossary, RowIssue, apply_merge, blocks_saving, builtin, entries_to_json,
+    hits_key, overridden, parse_entries, plan_merge, review, without_builtin_duplicates,
 };
 
 fn e(source: &str, target: &str) -> Entry {
@@ -126,4 +127,112 @@ fn hits_key_is_order_independent() {
     let (a, b) = (e("A", "甲"), e("B", "乙"));
     assert_eq!(hits_key(&[a.clone(), b.clone()]), hits_key(&[b, a]));
     assert_eq!(hits_key(&[]), "");
+}
+
+fn review_fixture() -> (Vec<Entry>, Vec<Entry>) {
+    (
+        vec![
+            e("Fire Elf", "火妖精"),
+            e("Wizard City", "巫師城"),
+            e("hollo", ""),
+            e("A", "甲"),
+            e("a", "乙"),
+            e("RW", "拉文伍德"),
+        ],
+        vec![
+            e("Fire Elf", "火精靈"),
+            e("Wizard City", "巫師城"),
+            e("Ravenwood", "拉文伍德"),
+        ],
+    )
+}
+
+#[test]
+fn review_flags_each_issue() {
+    let (custom, builtin) = review_fixture();
+    assert_eq!(
+        review(&custom, &builtin),
+        vec![
+            RowIssue::BuiltinDiffers {
+                other: "火精靈".into()
+            },
+            RowIssue::SameAsBuiltin,
+            RowIssue::Incomplete,
+            RowIssue::Ok,
+            RowIssue::DuplicateSource,
+            RowIssue::Ok,
+        ]
+    );
+}
+
+#[test]
+fn cross_side_conflict_is_flagged() {
+    assert_eq!(
+        review(&[e("哈樓", "Hollo")], &[e("Hollo", "哈羅")]),
+        vec![RowIssue::BuiltinDiffers {
+            other: "哈羅".into()
+        }]
+    );
+}
+
+#[test]
+fn overridden_marks_only_shadowed_builtins() {
+    let (custom, builtin) = review_fixture();
+    assert_eq!(overridden(&custom, &builtin), vec![true, true, false]);
+}
+
+#[test]
+fn blocks_saving_on_duplicates_and_incomplete_rows() {
+    assert!(blocks_saving(&[RowIssue::Ok, RowIssue::DuplicateSource]));
+    assert!(blocks_saving(&[RowIssue::Incomplete]));
+    assert!(!blocks_saving(&[
+        RowIssue::Ok,
+        RowIssue::SameAsBuiltin,
+        RowIssue::BuiltinDiffers { other: "x".into() }
+    ]));
+}
+
+#[test]
+fn without_builtin_duplicates_drops_same_rows() {
+    let (custom, builtin) = review_fixture();
+    assert_eq!(
+        without_builtin_duplicates(&custom, &builtin),
+        vec![
+            e("Fire Elf", "火妖精"),
+            e("hollo", ""),
+            e("A", "甲"),
+            e("a", "乙"),
+            e("RW", "拉文伍德")
+        ]
+    );
+}
+
+#[test]
+fn merge_plan_counts_added_identical_and_conflicts() {
+    let plan = plan_merge(
+        &[e("A", "甲"), e("B", "乙")],
+        &[e("a", "甲"), e("B", "丙"), e("C", "丁")],
+    );
+    assert_eq!(plan.identical, 1);
+    assert_eq!(plan.added, vec![e("C", "丁")]);
+    assert_eq!(
+        plan.conflicts,
+        vec![Conflict {
+            index: 1,
+            current: e("B", "乙"),
+            incoming: e("B", "丙")
+        }]
+    );
+}
+
+#[test]
+fn apply_merge_takes_only_checked_conflicts() {
+    let current = vec![e("A", "甲"), e("B", "乙")];
+    let plan = plan_merge(&current, &[e("a", "甲"), e("B", "丙"), e("C", "丁")]);
+    let mut kept = current.clone();
+    apply_merge(&mut kept, &plan, &[false]);
+    assert_eq!(kept, vec![e("A", "甲"), e("B", "乙"), e("C", "丁")]);
+    let mut taken = current;
+    apply_merge(&mut taken, &plan, &[true]);
+    assert_eq!(taken, vec![e("A", "甲"), e("B", "丙"), e("C", "丁")]);
 }

@@ -53,6 +53,7 @@ pub struct Glossary {
 }
 
 impl Glossary {
+    /// 建立比對器；參數順序為先自訂、後內建，同詞時自訂優先。
     pub fn new(custom: Vec<Entry>, builtin: Vec<Entry>) -> Self {
         let custom_words = CustomWords::new(&custom);
         let entries: Vec<(Entry, bool)> = custom
@@ -93,6 +94,7 @@ impl Glossary {
         }
     }
 
+    /// 沒有任何條目時為 true。
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
