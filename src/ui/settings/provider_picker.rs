@@ -1,4 +1,4 @@
-//! 服務商卡片（設定視窗的選擇對話框與首次設定精靈共用）與服務商圖示的載入。
+//! 選擇卡片（服務商、新增術語表等選擇對話框與首次設定精靈共用）與服務商圖示的載入。
 
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use eframe::egui::{
 
 use super::theme::{self, icon};
 use super::widgets::focus_ring;
-use crate::config::services::{Provider, providers};
+use crate::config::services::providers;
 use crate::i18n::t;
 use crate::logs::log;
 use crate::runtime::resources::provider_icon as provider_icon_png;
@@ -23,6 +23,8 @@ pub enum CardLayout {
 }
 
 const ICON_SIZE: f32 = 32.0;
+// 圖示字型的字畫在 32 見方裡，留點邊才跟服務商圖檔一樣大小
+const GLYPH_SIZE: f32 = 24.0;
 const GRID_GAP: f32 = 12.0;
 const GRID_MIN_HEIGHT: f32 = 150.0;
 // 清單卡片：左右內距、上下內距、圖示與文字與箭頭之間的間距、箭頭字級（也是它佔的寬）、標題與說明的間距
@@ -35,48 +37,82 @@ const LIST_TEXT_GAP: f32 = 2.0;
 const GRID_PAD: f32 = 16.0;
 const GRID_TEXT_GAP: f32 = 8.0;
 
+/// 卡片的圖示：服務商圖檔，或圖示字型裡的一個字。
+#[derive(Clone, Copy, Debug)]
+pub enum CardIcon {
+    Provider(&'static str),
+    Glyph(char),
+}
+
 /// 每家服務商一張卡片；回傳這一幀被點下（或以 Enter／Space 觸發）的服務商鍵名。
 pub fn provider_cards(ui: &mut Ui, layout: CardLayout) -> Option<&'static str> {
-    let mut picked = None;
-    ui.scope(|ui| match layout {
-        CardLayout::List => {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            let width = ui.available_width();
-            for provider in providers() {
-                let content = CardText::new(ui, provider, layout, width);
-                let height = content.height(layout);
-                if provider_card(ui, provider, &content, vec2(width, height), layout).clicked() {
-                    picked = Some(provider.key);
-                }
-            }
-        }
-        CardLayout::Grid => {
-            ui.spacing_mut().item_spacing = Vec2::splat(GRID_GAP);
-            let width = ((ui.available_width() - GRID_GAP) / 2.0).max(0.0);
-            for row in providers().chunks(2) {
-                let contents: Vec<CardText> = row
-                    .iter()
-                    .map(|p| CardText::new(ui, p, layout, width))
-                    .collect();
-                let height = contents
-                    .iter()
-                    .map(|c| c.height(layout))
-                    .fold(GRID_MIN_HEIGHT, f32::max);
-                ui.horizontal(|ui| {
-                    for (provider, content) in row.iter().zip(&contents) {
-                        let size = vec2(width, height);
-                        if provider_card(ui, provider, content, size, layout).clicked() {
-                            picked = Some(provider.key);
-                        }
-                    }
-                });
-            }
-        }
-    });
+    let cards: Vec<_> = providers()
+        .iter()
+        .map(|p| {
+            (
+                CardIcon::Provider(p.key),
+                t(p.label_key, &[]),
+                t(p.desc_key, &[]),
+            )
+        })
+        .collect();
+    let picked = match layout {
+        CardLayout::List => choice_cards(ui, &cards),
+        CardLayout::Grid => choice_grid(ui, &cards),
+    }
+    .map(|index| providers()[index].key);
     if let Some(key) = picked {
         log(format!("[settings] provider picked: {key}"));
     }
     picked
+}
+
+/// 選擇對話框裡一列一張的卡片（圖示、標題與說明、右側箭頭）；回傳這一幀被點下的那張的索引。
+pub fn choice_cards(ui: &mut Ui, cards: &[(CardIcon, String, String)]) -> Option<usize> {
+    let layout = CardLayout::List;
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        let width = ui.available_width();
+        let mut picked = None;
+        for (index, (icon, title, desc)) in cards.iter().enumerate() {
+            let content = CardText::new(ui, title, desc, layout, width);
+            let size = vec2(width, content.height(layout));
+            if choice_card(ui, *icon, &content, size, layout).clicked() {
+                picked = Some(index);
+            }
+        }
+        picked
+    })
+    .inner
+}
+
+fn choice_grid(ui: &mut Ui, cards: &[(CardIcon, String, String)]) -> Option<usize> {
+    let layout = CardLayout::Grid;
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing = Vec2::splat(GRID_GAP);
+        let width = ((ui.available_width() - GRID_GAP) / 2.0).max(0.0);
+        let mut picked = None;
+        for (row_index, row) in cards.chunks(2).enumerate() {
+            let contents: Vec<CardText> = row
+                .iter()
+                .map(|(_, title, desc)| CardText::new(ui, title, desc, layout, width))
+                .collect();
+            let height = contents
+                .iter()
+                .map(|c| c.height(layout))
+                .fold(GRID_MIN_HEIGHT, f32::max);
+            ui.horizontal(|ui| {
+                for (column, ((icon, ..), content)) in row.iter().zip(&contents).enumerate() {
+                    let size = vec2(width, height);
+                    if choice_card(ui, *icon, content, size, layout).clicked() {
+                        picked = Some(row_index * 2 + column);
+                    }
+                }
+            });
+        }
+        picked
+    })
+    .inner
 }
 
 /// 卡片上排好的標題與說明。
@@ -86,7 +122,7 @@ struct CardText {
 }
 
 impl CardText {
-    fn new(ui: &Ui, provider: &Provider, layout: CardLayout, width: f32) -> Self {
+    fn new(ui: &Ui, title: &str, desc: &str, layout: CardLayout, width: f32) -> Self {
         let text_width = match layout {
             // 左右內距、圖示、兩道間距與右側箭頭
             CardLayout::List => width - 2.0 * LIST_PAD_X - ICON_SIZE - 2.0 * LIST_GAP - ARROW_SIZE,
@@ -99,13 +135,13 @@ impl CardText {
         let painter = ui.painter();
         Self {
             title: painter.layout(
-                t(provider.label_key, &[]),
+                title.to_owned(),
                 theme::bold(title_size),
                 theme::TEXT,
                 text_width.max(1.0),
             ),
             desc: painter.layout(
-                t(provider.desc_key, &[]),
+                desc.to_owned(),
                 FontId::proportional(theme::HINT_SIZE),
                 theme::TEXT_SECONDARY,
                 text_width.max(1.0),
@@ -124,9 +160,9 @@ impl CardText {
     }
 }
 
-fn provider_card(
+fn choice_card(
     ui: &mut Ui,
-    provider: &Provider,
+    icon: CardIcon,
     content: &CardText,
     size: Vec2,
     layout: CardLayout,
@@ -159,7 +195,7 @@ fn provider_card(
                     pos2(rect.left() + LIST_PAD_X + ICON_SIZE / 2.0, rect.center().y),
                     Vec2::splat(ICON_SIZE),
                 );
-                paint_provider_icon(ui, provider.key, icon_rect);
+                paint_card_icon(ui, icon, icon_rect);
                 let text_height = content.title.size().y + LIST_TEXT_GAP + content.desc.size().y;
                 let left = icon_rect.right() + LIST_GAP;
                 let top = rect.center().y - text_height / 2.0;
@@ -184,7 +220,7 @@ fn provider_card(
             CardLayout::Grid => {
                 let icon_rect =
                     Rect::from_min_size(rect.min + Vec2::splat(GRID_PAD), Vec2::splat(ICON_SIZE));
-                paint_provider_icon(ui, provider.key, icon_rect);
+                paint_card_icon(ui, icon, icon_rect);
                 let title_top = icon_rect.bottom() + GRID_TEXT_GAP;
                 let desc_top = title_top + content.title.size().y + GRID_TEXT_GAP;
                 let left = rect.left() + GRID_PAD;
@@ -199,6 +235,21 @@ fn provider_card(
     }
     focus_ring(ui, &response, radius);
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+fn paint_card_icon(ui: &Ui, icon: CardIcon, rect: Rect) {
+    match icon {
+        CardIcon::Provider(key) => paint_provider_icon(ui, key, rect),
+        CardIcon::Glyph(glyph) => {
+            ui.painter().text(
+                rect.center(),
+                Align2::CENTER_CENTER,
+                glyph,
+                theme::icons(GLYPH_SIZE),
+                theme::TEXT,
+            );
+        }
+    }
 }
 
 /// 服務商圖示的貼圖：第一次用到時載入並快取在 `ctx` 裡；沒有圖檔或解不開時回 `None`。

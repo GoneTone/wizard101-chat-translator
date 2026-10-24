@@ -9,7 +9,8 @@ use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::glossary_draft::{GlossaryDraft, builtin_of};
 use super::glossary_editor::{EditorAction, GlossaryEditor};
 use super::glossary_merge::MergeDialog;
-use super::theme;
+use super::provider_picker::{CardIcon, choice_cards};
+use super::theme::{self, icon};
 use super::widgets::{
     callout, card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
 };
@@ -51,6 +52,7 @@ enum FileTask {
 }
 
 /// 新增術語表的起點。
+#[derive(Clone, Copy)]
 enum Start {
     Blank,
     Import,
@@ -394,13 +396,15 @@ fn read_error(e: &std::io::Error) -> String {
 fn parse_error(e: &ParseError) -> String {
     match e {
         ParseError::Json { line } => t("glossary.error_json", &[("line", &line.to_string())]),
-        ParseError::NotObject => t("glossary.error_not_object", &[("example", FILE_EXAMPLE)]),
+        ParseError::NotObject => {
+            // 大括號會被當成文案佔位符，範例由程式組好帶入
+            let target = t("glossary.example_target", &[]);
+            let example = format!(r#"{{"Hello World": "{target}"}}"#);
+            t("glossary.error_not_object", &[("example", &example)])
+        }
         ParseError::NotText { key } => t("glossary.error_not_text", &[("key", key)]),
     }
 }
-
-/// 格式說明裡的範例；大括號會被當成文案佔位符，所以由程式帶入。
-const FILE_EXAMPLE: &str = r#"{"Ravenwood": "…"}"#;
 
 /// 卡片的說明行：自訂條數，加上引入的內建術語表與其條數；有建立者時接在最後（只留名字）。
 fn summary(glossary: &StoredGlossary) -> String {
@@ -447,16 +451,19 @@ fn new_dialog(ui: &Ui) -> Choice<Start> {
                     bottom: 18,
                 })
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        let blank = secondary_button(ui, &t("glossary.start_blank", &[]));
-                        let import = secondary_button(ui, &t("glossary.start_import", &[]));
-                        if blank.clicked() {
-                            Some(Start::Blank)
-                        } else {
-                            import.clicked().then_some(Start::Import)
-                        }
-                    })
-                    .inner
+                    let cards = [
+                        (
+                            CardIcon::Glyph(icon::NEW_DOCUMENT),
+                            t("glossary.start_blank", &[]),
+                            t("glossary.start_blank_desc", &[]),
+                        ),
+                        (
+                            CardIcon::Glyph(icon::IMPORT),
+                            t("glossary.start_import", &[]),
+                            t("glossary.start_import_desc", &[]),
+                        ),
+                    ];
+                    choice_cards(ui, &cards).map(|index| [Start::Blank, Start::Import][index])
                 })
                 .inner
         },

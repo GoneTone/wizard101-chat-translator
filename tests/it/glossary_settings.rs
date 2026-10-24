@@ -685,10 +685,8 @@ fn import_from_file_creates_a_glossary_named_after_the_file() {
 
 #[test]
 fn import_failure_explains_what_is_wrong() {
-    let not_object = t(
-        "glossary.error_not_object",
-        &[("example", r#"{"Ravenwood": "…"}"#)],
-    );
+    let example = format!(r#"{{"Hello World": "{}"}}"#, tr("glossary.example_target"));
+    let not_object = t("glossary.error_not_object", &[("example", &example)]);
     let cases = [
         (r#"{"a":1}"#, t("glossary.error_not_text", &[("key", "a")])),
         (
