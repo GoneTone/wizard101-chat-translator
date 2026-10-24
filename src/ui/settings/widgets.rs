@@ -45,9 +45,18 @@ pub(super) fn scroll_page<R>(
         .inner
 }
 
+/// 固定寬 `width` 的格子：內容比較窄也佔滿，同一欄的各列才對得齊。
+pub(super) fn fixed_cell<R>(ui: &mut Ui, width: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.allocate_ui(vec2(width, 0.0), |ui| {
+        ui.set_min_width(width);
+        add(ui)
+    })
+    .inner
+}
+
 /// 長列表只畫可見範圍上下各一屏內的列，其餘依上次量到的高度留白，外層捲軸照常運作。
 ///
-/// 多留一屏是為了讓 Tab 跳到下一列時那列已經存在，egui 才會把它捲進畫面。
+/// 多留一屏是為了讓 Tab 跳到的下一列已經畫出來、拿得到焦點。
 #[derive(Default)]
 pub(super) struct LazyRows {
     heights: Vec<f32>,

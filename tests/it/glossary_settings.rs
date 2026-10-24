@@ -318,9 +318,9 @@ fn long_custom_list_only_draws_rows_near_the_view() {
     assert!(add.rect().top() > 2000.0 * theme::CONTROL_HEIGHT);
 }
 
-#[test]
-fn scrolling_to_the_bottom_draws_the_last_rows() {
-    let d = draft(vec![glossary("a", "Mine", None, numbered(2000))], None);
+/// 包在捲動區裡、已進入編輯畫面的 `entries`；`to_bottom` 時每幀捲到底。
+fn scrollable(entries: Vec<Entry>, to_bottom: bool) -> Harness<'static, State> {
+    let d = draft(vec![glossary("a", "Mine", None, entries)], None);
     let state = State {
         pane: GlossaryPane::new(d),
         env: FakeEnv::default(),
@@ -328,21 +328,50 @@ fn scrolling_to_the_bottom_draws_the_last_rows() {
     let mut h = themed_harness(
         egui::vec2(620.0, 660.0),
         LANGUAGE,
-        |ui: &mut Ui, s: &mut State| {
+        move |ui: &mut Ui, s: &mut State| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 s.pane.ui(ui, &s.env);
-                ui.scroll_to_cursor(Some(egui::Align::Max));
+                if to_bottom {
+                    ui.scroll_to_cursor(Some(egui::Align::Max));
+                }
             });
         },
         state,
     );
     click(&mut h, Role::Button, &tr("button.edit"));
+    h
+}
+
+#[test]
+fn scrolling_to_the_bottom_draws_the_last_rows() {
+    let mut h = scrollable(numbered(2000), true);
     for _ in 0..5 {
         run(&mut h);
     }
     let painted = painted_texts(&h);
     assert!(painted.contains(&"S1999".to_owned()));
     assert!(!painted.contains(&"S0".to_owned()));
+}
+
+#[test]
+fn tabbing_past_the_view_scrolls_the_focused_field_into_view() {
+    let mut h = scrollable(numbered(200), false);
+    let label = tr("glossary.source");
+    let last = fields_named(&h, &label)
+        .into_iter()
+        .rfind(|n| n.rect().bottom() <= 660.0)
+        .unwrap();
+    last.click();
+    run(&mut h);
+    for _ in 0..12 {
+        h.key_press(egui::Key::Tab);
+        run(&mut h);
+    }
+    let focused = h.query_by(|n| n.is_focused()).unwrap().rect();
+    assert!(
+        focused.top() >= 0.0 && focused.bottom() <= 660.0,
+        "{focused:?}"
+    );
 }
 
 #[test]
@@ -643,6 +672,16 @@ fn merge_dialog_lists_conflicts_and_applies_checked_rows() {
             .is_none()
     );
     assert_eq!(custom_entries(&h), [entry("B", "丙"), entry("C", "丁")]);
+}
+
+#[test]
+fn merge_columns_line_up_with_their_headers() {
+    let (_dir, h) = merging(vec![entry("Bob", "乙")], r#"{"Bob":"丙"}"#);
+    let title = tr("glossary.merge_title");
+    let dialog = h.get_by_role_and_label(Role::Dialog, &title);
+    let left = |label: &str| dialog.get_by_label(label).rect().left();
+    assert_eq!(left(&tr("glossary.current_target")), left("乙"));
+    assert_eq!(left(&tr("glossary.file_target")), left("丙"));
 }
 
 #[test]

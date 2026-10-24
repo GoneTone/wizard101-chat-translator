@@ -291,6 +291,10 @@ fn boxed_edit(ui: &mut Ui, rect: Rect, text: &mut String, password: bool) -> Res
             .frame(Frame::NONE)
             .align(Align2::LEFT_CENTER),
     );
+    // egui 只在打字或移動游標時捲動，Tab 跳到畫面外的欄位要自己捲進來
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
     name_by_row(ui, response)
 }
 

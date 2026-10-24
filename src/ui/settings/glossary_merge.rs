@@ -1,10 +1,10 @@
 //! 匯入檔案併入目前術語表前的確認對話框：統計、逐列勾選的衝突列表，按〔合併〕才寫入。
 
-use eframe::egui::{Frame, Label, Margin, RichText, ScrollArea, Ui, vec2};
+use eframe::egui::{Frame, Label, Margin, RichText, ScrollArea, Ui};
 
 use super::dialog::{Choice, DialogSpec, dialog};
 use super::theme;
-use super::widgets::{primary_button, secondary_button};
+use super::widgets::{fixed_cell, primary_button, secondary_button};
 use crate::glossary::{Entry, MergePlan, apply_merge};
 use crate::i18n::t;
 use crate::logs::log;
@@ -110,10 +110,10 @@ impl MergeDialog {
             .wrap(),
         );
         let gap = ui.spacing().item_spacing.x;
-        let cell = vec2((ui.available_width() - 2.0 * gap) / 3.0, 0.0);
+        let width = (ui.available_width() - 2.0 * gap) / 3.0;
         ui.horizontal(|ui| {
             let mut all = self.take.iter().all(|t| *t);
-            ui.allocate_ui(cell, |ui| {
+            fixed_cell(ui, width, |ui| {
                 // 部分勾選時顯示未勾，按下即全勾
                 if ui
                     .checkbox(&mut all, t("glossary.select_all", &[]))
@@ -126,7 +126,7 @@ impl MergeDialog {
                 let text = RichText::new(t(key, &[]))
                     .size(theme::HINT_SIZE)
                     .color(theme::TEXT_SECONDARY);
-                ui.allocate_ui(cell, |ui| ui.add(Label::new(text)));
+                fixed_cell(ui, width, |ui| ui.add(Label::new(text)));
             }
         });
         ScrollArea::vertical()
@@ -136,9 +136,9 @@ impl MergeDialog {
             .show(ui, |ui| {
                 for (conflict, take) in self.plan.conflicts.iter().zip(&mut self.take) {
                     ui.horizontal(|ui| {
-                        ui.allocate_ui(cell, |ui| ui.checkbox(take, &conflict.current.source));
+                        fixed_cell(ui, width, |ui| ui.checkbox(take, &conflict.current.source));
                         for text in [&conflict.current.target, &conflict.incoming.target] {
-                            ui.allocate_ui(cell, |ui| ui.add(Label::new(text).wrap()));
+                            fixed_cell(ui, width, |ui| ui.add(Label::new(text).wrap()));
                         }
                     });
                 }

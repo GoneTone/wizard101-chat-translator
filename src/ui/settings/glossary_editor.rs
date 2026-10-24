@@ -6,8 +6,8 @@ use super::fields::text_field;
 use super::glossary_draft::builtin_of;
 use super::theme::{self, icon};
 use super::widgets::{
-    LazyRows, card, collapsible, dashed_button, icon_button, optional_combo, right_aligned,
-    right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
+    LazyRows, card, collapsible, dashed_button, fixed_cell, icon_button, optional_combo,
+    right_aligned, right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::builtin_codes;
@@ -190,12 +190,7 @@ impl GlossaryEditor {
                                 let text = RichText::new(t(key, &[]))
                                     .size(theme::HINT_SIZE)
                                     .color(theme::TEXT_SECONDARY);
-                                ui.allocate_ui(vec2(column, 0.0), |ui| {
-                                    ui.set_min_width(column);
-                                    ui.add(Label::new(text))
-                                })
-                                .inner
-                                .id
+                                fixed_cell(ui, column, |ui| ui.add(Label::new(text))).id
                             };
                             (
                                 caption(ui, "glossary.source"),
@@ -284,8 +279,7 @@ impl GlossaryEditor {
                             self.builtin_rows.row(ui, i, estimate, |ui| {
                                 ui.horizontal_top(|ui| {
                                     ui.spacing_mut().item_spacing.x = gap;
-                                    ui.allocate_ui(vec2(column, 0.0), |ui| {
-                                        ui.set_min_width(column);
+                                    fixed_cell(ui, column, |ui| {
                                         ui.add(Label::new(&entry.source).wrap());
                                     });
                                     ui.allocate_ui(vec2(column, 0.0), |ui| {
