@@ -282,7 +282,7 @@ fn type_into_nth(h: &mut Harness<State>, label: &str, index: usize, text: &str) 
 #[test]
 fn editor_shows_duplicate_source_hint() {
     let h = editing(vec![entry("A", "甲"), entry("a", "乙")], None);
-    let hint = tr("error.glossary_duplicate_source");
+    let hint = tr("glossary.row_duplicate_source");
     let painted = painted_texts(&h).iter().filter(|t| **t == hint).count();
     assert_eq!(painted, 1);
     assert!(
@@ -298,6 +298,7 @@ fn editor_shows_duplicate_source_hint() {
 fn adding_and_deleting_rows_updates_the_draft() {
     let mut h = editing(vec![entry("Fire Elf", "火精靈")], None);
     click(&mut h, Role::Button, &tr("button.add_entry"));
+    assert!(!painted_texts(&h).contains(&tr("glossary.row_incomplete")));
     type_into_nth(&mut h, &tr("glossary.source"), 1, "Hollo");
     type_into_nth(&mut h, &tr("glossary.target"), 1, "哈樓");
     assert_eq!(
@@ -334,4 +335,43 @@ fn missing_builtin_shows_a_notice() {
     let h = editing(Vec::new(), Some("xx-XX"));
     assert!(has_label(&h, &tr("glossary.builtin_missing")));
     assert!(painted_texts(&h).contains(&"xx-XX".to_owned()));
+}
+
+fn shown_sources(h: &Harness<State>) -> Vec<String> {
+    fields_named(h, &tr("glossary.source"))
+        .iter()
+        .map(|n| n.value().unwrap_or_default())
+        .collect()
+}
+
+#[test]
+fn search_matches_the_target_side() {
+    let mut h = editing(
+        vec![entry("Hollo", "哈樓"), entry("Fire Elf", "火精靈")],
+        None,
+    );
+    type_into_nth(&mut h, &tr("glossary.search"), 0, "精靈");
+    assert_eq!(shown_sources(&h), ["Fire Elf"]);
+}
+
+#[test]
+fn adding_a_row_while_searching_shows_it() {
+    let mut h = editing(vec![entry("Hollo", "哈樓")], None);
+    type_into_nth(&mut h, &tr("glossary.search"), 0, "zzz");
+    assert!(shown_sources(&h).is_empty());
+    click(&mut h, Role::Button, &tr("button.add_entry"));
+    assert_eq!(shown_sources(&h), [""]);
+    type_into_nth(&mut h, &tr("glossary.source"), 0, "Fire Elf");
+    assert_eq!(shown_sources(&h), ["Fire Elf"]);
+    assert!(painted_texts(&h).contains(&tr("glossary.row_incomplete")));
+}
+
+#[test]
+fn fully_blank_rows_are_dropped_on_save() {
+    let entries = vec![entry("Hollo", "哈樓"), entry("", ""), entry("  ", "")];
+    let d = draft(vec![glossary("a", "Mine", None, entries)], None);
+    assert!(d.errors().is_empty());
+    let mut cfg = Config::new();
+    d.write_into(&mut cfg);
+    assert_eq!(cfg["glossaries"][0]["entries"], json!({"Hollo": "哈樓"}));
 }

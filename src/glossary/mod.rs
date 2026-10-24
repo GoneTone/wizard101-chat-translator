@@ -23,6 +23,13 @@ pub struct Entry {
     pub target: String,
 }
 
+impl Entry {
+    /// 兩側（去頭尾空白後）都是空的：設定介面忽略、存檔時丟掉。
+    pub fn is_blank(&self) -> bool {
+        pystr::strip(&self.source).is_empty() && pystr::strip(&self.target).is_empty()
+    }
+}
+
 /// 術語的顯示形式 `原文 <=> 譯名`，提示詞、log 與命中鍵共用。
 impl std::fmt::Display for Entry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

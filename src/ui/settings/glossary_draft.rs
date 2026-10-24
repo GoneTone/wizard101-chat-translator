@@ -38,11 +38,12 @@ impl GlossaryDraft {
         }
     }
 
-    /// 寫回設定：每份先去掉與內建完全相同的條目，撞名的補序號。
+    /// 寫回設定：每份先去掉兩側都空白與跟內建完全相同的條目，撞名的補序號。
     pub fn write_into(&self, cfg: &mut Config) {
         let mut written: Vec<Value> = Vec::new();
         for glossary in &self.glossaries {
             let mut glossary = glossary.clone();
+            glossary.entries.retain(|e| !e.is_blank());
             glossary.entries =
                 without_builtin_duplicates(&glossary.entries, &builtin_of(&glossary));
             let name = unique_name(&glossary.name, &written, None);
@@ -59,7 +60,7 @@ impl GlossaryDraft {
         cfg.insert("active_glossary".into(), self.active.clone().into());
     }
 
-    /// 擋下儲存的原因（錯誤文案 key，去重）：名稱空白、來源重複、條目沒填完。
+    /// 擋下儲存的原因（錯誤文案 key，去重）：名稱空白、來源重複、條目只填一側。
     pub fn errors(&self) -> Vec<String> {
         let blank = self
             .glossaries
@@ -68,7 +69,15 @@ impl GlossaryDraft {
         let issues: Vec<RowIssue> = self
             .glossaries
             .iter()
-            .flat_map(|g| review(&g.entries, &builtin_of(g)))
+            .flat_map(|g| {
+                let filled: Vec<Entry> = g
+                    .entries
+                    .iter()
+                    .filter(|e| !e.is_blank())
+                    .cloned()
+                    .collect();
+                review(&filled, &builtin_of(g))
+            })
             .collect();
         [
             (blank, "error.glossary_name_blank"),

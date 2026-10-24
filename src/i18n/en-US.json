@@ -226,5 +226,7 @@
   "glossary.builtin_differs": "Built-in glossary: {other}",
   "glossary.same_as_builtin": "Same as the built-in glossary; it will be removed when saved.",
   "glossary.builtin_section": "Built-in glossary: {language} ({count} entries, read-only)",
-  "glossary.overridden": "Overridden by a custom entry"
+  "glossary.overridden": "Overridden by a custom entry",
+  "glossary.row_duplicate_source": "Same source as an earlier entry.",
+  "glossary.row_incomplete": "Fill in both the source and the target."
 }

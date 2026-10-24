@@ -226,5 +226,7 @@
   "glossary.builtin_differs": "內建術語表：{other}",
   "glossary.same_as_builtin": "與內建術語表相同，儲存時會自動移除。",
   "glossary.builtin_section": "內建術語表：{language}（{count} 條，唯讀）",
-  "glossary.overridden": "被自訂覆蓋"
+  "glossary.overridden": "被自訂覆蓋",
+  "glossary.row_duplicate_source": "與前面的條目來源重複。",
+  "glossary.row_incomplete": "來源與目標都要填寫。"
 }

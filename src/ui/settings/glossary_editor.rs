@@ -184,20 +184,26 @@ impl GlossaryEditor {
                         if !matches(entry, &query) {
                             continue;
                         }
-                        ui.horizontal(|ui| {
-                            ui.allocate_ui(cell, |ui| {
-                                text_field(ui, &mut entry.source).labelled_by(source);
+                        // 以條目位置當 Id：篩選與提示增減時，游標與復原紀錄才不會跑到別列
+                        ui.push_id(i, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.allocate_ui(cell, |ui| {
+                                    text_field(ui, &mut entry.source).labelled_by(source);
+                                });
+                                ui.allocate_ui(cell, |ui| {
+                                    text_field(ui, &mut entry.target).labelled_by(target);
+                                });
+                                if icon_button(ui, icon::CLOSE, &delete).clicked() {
+                                    removed = Some(i);
+                                }
                             });
-                            ui.allocate_ui(cell, |ui| {
-                                text_field(ui, &mut entry.target).labelled_by(target);
-                            });
-                            if icon_button(ui, icon::CLOSE, &delete).clicked() {
-                                removed = Some(i);
+                            if entry.is_blank() {
+                                return;
+                            }
+                            if let Some((text, color)) = row_hint(&self.issues[i]) {
+                                hint(ui, &text, color);
                             }
                         });
-                        if let Some((text, color)) = row_hint(&self.issues[i]) {
-                            hint(ui, &text, color);
-                        }
                     }
                     added = dashed_button(ui, &t("button.add_entry", &[]), 36.0).clicked();
                 });
@@ -264,9 +270,14 @@ impl GlossaryEditor {
     }
 }
 
-/// 條目的任一側（fold 後）包含 `query`；`query` 空白時都算。
+/// 條目的任一側（fold 後）包含 `query`；`query` 空白、或有一側還沒填（剛新增的列）時都算。
 fn matches(entry: &Entry, query: &str) -> bool {
-    query.is_empty() || fold(&entry.source).contains(query) || fold(&entry.target).contains(query)
+    let (source, target) = (fold(&entry.source), fold(&entry.target));
+    query.is_empty()
+        || pystr::strip(&source).is_empty()
+        || pystr::strip(&target).is_empty()
+        || source.contains(query)
+        || target.contains(query)
 }
 
 /// 自訂條目那一列的提示文字與顏色：與內建不同是警告色，其餘問題是錯誤色。
@@ -278,8 +289,8 @@ fn row_hint(issue: &RowIssue) -> Option<(String, Color32)> {
             theme::WARN_TEXT,
         ),
         RowIssue::SameAsBuiltin => (t("glossary.same_as_builtin", &[]), theme::ERROR),
-        RowIssue::DuplicateSource => (t("error.glossary_duplicate_source", &[]), theme::ERROR),
-        RowIssue::Incomplete => (t("error.glossary_incomplete_entry", &[]), theme::ERROR),
+        RowIssue::DuplicateSource => (t("glossary.row_duplicate_source", &[]), theme::ERROR),
+        RowIssue::Incomplete => (t("glossary.row_incomplete", &[]), theme::ERROR),
     };
     Some((text, color))
 }
