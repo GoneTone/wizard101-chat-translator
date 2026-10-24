@@ -27,6 +27,12 @@ pub(super) fn builtin_of(glossary: &StoredGlossary) -> Vec<Entry> {
         .unwrap_or_default()
 }
 
+/// 要不要讓這份術語表顯示引入內建術語表的選項；一份內建表都沒有時不顯示，
+/// 但引用了已不存在的內建表時仍顯示，才看得到提示、能改回不引入。
+pub(super) fn builtin_offered(glossary: &StoredGlossary) -> bool {
+    glossary.builtin.is_some() || !builtin::builtin_codes().is_empty()
+}
+
 impl GlossaryDraft {
     /// 從設定取出兩個鍵。
     pub fn from_config(cfg: &Config) -> Self {

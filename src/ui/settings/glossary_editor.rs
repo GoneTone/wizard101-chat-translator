@@ -3,7 +3,7 @@
 use eframe::egui::{Color32, Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::fields::text_field;
-use super::glossary_draft::builtin_of;
+use super::glossary_draft::{builtin_of, builtin_offered};
 use super::theme::{self, icon};
 use super::widgets::{
     LazyRows, card, collapsible, dashed_button, fixed_cell, icon_button, optional_combo, rich,
@@ -80,7 +80,9 @@ impl GlossaryEditor {
             setting_row_with(ui, &t("glossary.creators", &[]), creators_hint, |ui| {
                 ui.allocate_ui(size, |ui| text_field(ui, &mut glossary.creators));
             });
-            self.builtin_row(ui, glossary);
+            if builtin_offered(glossary) {
+                self.builtin_row(ui, glossary);
+            }
         });
         let (import, export) = self.search_row(ui);
         self.custom_card(ui, &mut glossary.entries);

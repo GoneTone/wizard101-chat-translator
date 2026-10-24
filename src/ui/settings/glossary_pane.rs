@@ -6,7 +6,7 @@ use eframe::egui::{Frame, Id, Label, Margin, RichText, Ui};
 
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::env::{Round, SettingsEnv, SettingsEvent};
-use super::glossary_draft::{GlossaryDraft, builtin_of};
+use super::glossary_draft::{GlossaryDraft, builtin_of, builtin_offered};
 use super::glossary_editor::{EditorAction, GlossaryEditor};
 use super::glossary_merge::MergeDialog;
 use super::provider_picker::{CardIcon, choice_cards};
@@ -410,28 +410,28 @@ fn parse_error(e: &ParseError) -> String {
     }
 }
 
-/// 卡片的說明行：自訂條數，加上引入的內建術語表與其條數；有建立者時接在最後（只留名字）。
+/// 卡片的說明行：自訂條數，加上引入的內建術語表與其條數（沒有內建表可選時略過）；有建立者時接在最後（只留名字）。
 fn summary(glossary: &StoredGlossary) -> String {
     let custom = glossary.entries.len().to_string();
-    let custom = t("glossary.custom_count", &[("count", &custom)]);
-    let builtin = match &glossary.builtin {
-        Some(code) => {
-            let count = builtin_of(glossary).len().to_string();
-            let language = language_name(code);
-            t(
-                "glossary.builtin_count",
-                &[("language", &language), ("count", &count)],
-            )
-        }
-        None => t("glossary.no_builtin", &[]),
-    };
-    let creators = strip_link_markup(pystr::strip(&glossary.creators));
-    if creators.is_empty() {
-        format!("{custom} · {builtin}")
-    } else {
-        let by = t("glossary.by_creators", &[("creators", &creators)]);
-        format!("{custom} · {builtin} · {by}")
+    let mut parts = vec![t("glossary.custom_count", &[("count", &custom)])];
+    if builtin_offered(glossary) {
+        parts.push(match &glossary.builtin {
+            Some(code) => {
+                let count = builtin_of(glossary).len().to_string();
+                let language = language_name(code);
+                t(
+                    "glossary.builtin_count",
+                    &[("language", &language), ("count", &count)],
+                )
+            }
+            None => t("glossary.no_builtin", &[]),
+        });
     }
+    let creators = strip_link_markup(pystr::strip(&glossary.creators));
+    if !creators.is_empty() {
+        parts.push(t("glossary.by_creators", &[("creators", &creators)]));
+    }
+    parts.join(" · ")
 }
 
 /// 新增術語表的對話框：選空白或從檔案匯入。
