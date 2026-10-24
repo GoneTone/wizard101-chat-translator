@@ -352,7 +352,7 @@ pub async fn translate_and_cache(
     let (template, numbers) = normalize(text);
     let fingerprint = cache.fingerprint();
     let target = tr.target_language();
-    let translated = tr.translate_system_message(&template).await?;
+    let translated = tr.translate_system_message(&template).await?.text;
     if has_stray_latin(&template, &translated, &target) {
         log(format!(
             "[cache] translation is not in the target language, not cached: template={} translated={}",
@@ -369,5 +369,5 @@ pub async fn translate_and_cache(
         "[cache] falling back to a direct translation: {}",
         repr_str(text)
     ));
-    tr.translate_system_message(text).await
+    Ok(tr.translate_system_message(text).await?.text)
 }

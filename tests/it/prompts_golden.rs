@@ -53,6 +53,7 @@ fn turns_and_helpers_match_python() {
                     .collect();
                 let actual = p::build_turns(
                     &context,
+                    &[],
                     input["text"].as_str().unwrap(),
                     input["intro"].as_str().unwrap(),
                     &turns_of(&input["examples"]),

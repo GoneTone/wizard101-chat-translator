@@ -21,14 +21,15 @@ use super::examples::{
     parse_generated,
 };
 use super::postprocess::{
-    has_stray_latin, nonblank_lines, restore_sender, sender_of, tidy_parentheses,
+    has_stray_latin, message_body, nonblank_lines, restore_sender, sender_of, tidy_parentheses,
 };
 use super::prompts::{
     CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, OUTGOING_LANGUAGE, build_incoming_system,
     build_outgoing_system, build_region_system, build_system_message_system, build_turns,
-    example_turns, fewshot_outgoing_turns, is_game_language,
+    example_turns, fewshot_outgoing_turns, glossary_turns, is_game_language,
 };
 use crate::config::ServiceSpec;
+use crate::glossary::{Entry, Glossary, hits_key};
 use crate::logs::log;
 use crate::py::pyrepr::repr_str;
 use crate::py::pystr;
@@ -47,6 +48,14 @@ struct Binding {
     spec: ServiceSpec,
     target_language: String,
     examples: Option<ExampleSet>,
+    glossary: Option<Arc<Glossary>>,
+}
+
+/// 系統訊息的譯文，與這次請求用到的術語鍵（供呼叫端決定快取）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemTranslation {
+    pub text: String,
+    pub glossary_key: String,
 }
 
 impl Binding {
@@ -56,6 +65,29 @@ impl Binding {
 
     fn examples(&self, pick: fn(&ExampleSet) -> Option<&(String, String)>) -> Vec<Turn> {
         example_turns(self.examples.as_ref().and_then(pick))
+    }
+
+    fn hits(&self, text: &str) -> Vec<Entry> {
+        self.glossary
+            .as_ref()
+            .map_or_else(Vec::new, |g| g.hits(text))
+    }
+
+    /// `text` 命中的術語輪（含命中 log）；沒命中回空，請求維持原樣。
+    fn glossary_turns(&self, kind: &str, text: &str, keep_original: bool) -> Vec<Turn> {
+        let hits = self.hits(text);
+        if !hits.is_empty() {
+            let terms: Vec<String> = hits
+                .iter()
+                .map(|e| format!("{} <=> {}", e.source, e.target))
+                .collect();
+            log(format!(
+                "[translate] {kind} glossary hits: {} ({})",
+                hits.len(),
+                terms.join("; ")
+            ));
+        }
+        glossary_turns(&hits, keep_original)
     }
 
     /// 打一次翻譯請求並記錄一行診斷；這是各方向共用的唯一成功路徑 log 點。
@@ -169,6 +201,7 @@ impl Translator {
             spec,
             target_language,
             examples: None,
+            glossary: None,
         };
         Arc::new(Self {
             connect: Box::new(connect),
@@ -194,6 +227,7 @@ impl Translator {
             spec,
             target_language,
             examples: None,
+            glossary: binding.glossary.clone(),
         });
         true
     }
@@ -238,6 +272,20 @@ impl Translator {
         true
     }
 
+    /// 換術語表；只動快照裡的術語表，後端與範例不變。
+    pub fn set_glossary(&self, glossary: Option<Arc<Glossary>>) {
+        let mut binding = write(&self.binding);
+        *binding = Arc::new(Binding {
+            glossary,
+            ..Binding::clone(&binding)
+        });
+    }
+
+    /// `text` 命中的術語鍵；沒啟用術語表或沒命中為空字串。
+    pub fn glossary_key(&self, text: &str) -> String {
+        hits_key(&self.binding().hits(text))
+    }
+
     /// 目前的目標語言；呼叫端判斷譯文品質時需要它。
     pub fn target_language(&self) -> String {
         self.binding().target_language.clone()
@@ -250,8 +298,10 @@ impl Translator {
         context: &[String],
     ) -> Result<String, TranslateError> {
         let b = self.binding();
+        let glossary = b.glossary_turns("incoming", message_body(text), true);
         let turns = build_turns(
             context,
+            &glossary,
             text,
             CONTEXT_INTRO_INCOMING,
             &b.examples(|e| e.incoming.as_ref()),
@@ -271,7 +321,10 @@ impl Translator {
     /// 系統訊息：把遊戲系統通知翻成目標語言；不吃上下文，同一句原文才會得到同一句譯文。
     ///
     /// 譯文落回英文時以 strict 提示詞重譯一次，救不回的照樣回傳，由呼叫端負責不寫進快取。
-    pub async fn translate_system_message(&self, text: &str) -> Result<String, TranslateError> {
+    pub async fn translate_system_message(
+        &self,
+        text: &str,
+    ) -> Result<SystemTranslation, TranslateError> {
         let b = self.binding();
         let mut translated = self.system_message_once(&b, text, false).await?;
         if has_stray_latin(text, &translated, &b.target_language) {
@@ -289,7 +342,10 @@ impl Translator {
                 ));
             }
         }
-        Ok(translated)
+        Ok(SystemTranslation {
+            text: translated,
+            glossary_key: hits_key(&b.hits(text)),
+        })
     }
 
     async fn system_message_once(
@@ -299,6 +355,7 @@ impl Translator {
         strict: bool,
     ) -> Result<String, TranslateError> {
         let mut turns = b.examples(|e| e.system.as_ref());
+        turns.extend(b.glossary_turns("system message", text, true));
         turns.push(Turn::user(text));
         let call = Call {
             kind: if strict {
@@ -326,8 +383,10 @@ impl Translator {
         cancel: Option<&CancellationToken>,
     ) -> Result<String, TranslateError> {
         let b = self.binding();
+        let glossary = b.glossary_turns("outgoing", text, false);
         let turns = build_turns(
             context,
+            &glossary,
             text,
             CONTEXT_INTRO_OUTGOING,
             &fewshot_outgoing_turns(),
@@ -354,8 +413,10 @@ impl Translator {
     ) -> Result<String, TranslateError> {
         let originals = nonblank_lines(text);
         let b = self.binding();
+        let joined = originals.join("\n");
         let mut turns = b.examples(|e| e.region.as_ref());
-        turns.push(Turn::user(originals.join("\n")));
+        turns.extend(b.glossary_turns("region text", &joined, true));
+        turns.push(Turn::user(joined));
         let source = format!(
             "<text {} chars, {} lines>",
             text.chars().count(),

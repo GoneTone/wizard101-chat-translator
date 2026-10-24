@@ -4,6 +4,7 @@
 //! 不綁定特定語言；HTTP 與後端差異在 translator。
 
 use super::Turn;
+use crate::glossary::Entry;
 use crate::py::pystr;
 
 /// 發話固定翻成的語言（遊戲聊天語言）；固定產品設定，不進 config。
@@ -22,6 +23,13 @@ pub const CONTEXT_INTRO_OUTGOING: &str =
 /// 背景記錄之後 assistant 的確認輪。
 pub const CONTEXT_ACK: &str = "好的，我已了解語境。請給我要翻譯的訊息。";
 
+/// 術語輪的引言；術語雙向適用。
+pub const GLOSSARY_INTRO: &str = "以下術語雙向適用：訊息出現任一側的詞時，譯文改用與譯文同語言的那一側。術語優先於其他名詞與人名規則。";
+/// 收訊、系統訊息、框選附加的括號說明。
+pub const GLOSSARY_KEEP_ORIGINAL: &str = "依規則在譯名後附上（原文），玩家暱稱也一樣。";
+/// 術語輪之後 assistant 的確認輪。
+pub const GLOSSARY_ACK: &str = "好的，我會照這些術語翻譯。";
+
 /// 發話 few-shot：避免本地小模型把翻譯任務當對話而脫稿，目標側固定為英文。
 pub const FEWSHOT_OUTGOING: [(&str, &str); 3] = [
     ("在嗎，一起打王", "you there? let's fight the boss"),
@@ -29,13 +37,40 @@ pub const FEWSHOT_OUTGOING: [(&str, &str); 3] = [
     ("請提供你要的東西", "gimme what you need"),
 ];
 
-/// 組出送給模型的對話輪：few-shot 在前，其後背景上下文，待翻句子永遠是最後一輪。
-pub fn build_turns(context: &[String], text: &str, intro: &str, examples: &[Turn]) -> Vec<Turn> {
+/// 命中的術語轉成一組 user／assistant 輪；沒有命中回空。
+pub fn glossary_turns(hits: &[Entry], keep_original: bool) -> Vec<Turn> {
+    if hits.is_empty() {
+        return Vec::new();
+    }
+    let keep = if keep_original {
+        GLOSSARY_KEEP_ORIGINAL
+    } else {
+        ""
+    };
+    let lines: Vec<String> = hits
+        .iter()
+        .map(|e| format!("{} <=> {}", e.source, e.target))
+        .collect();
+    vec![
+        Turn::user(format!("{GLOSSARY_INTRO}{keep}\n{}", lines.join("\n"))),
+        Turn::assistant(GLOSSARY_ACK),
+    ]
+}
+
+/// 組出送給模型的對話輪：few-shot 在前，其後背景上下文與術語，待翻句子永遠是最後一輪。
+pub fn build_turns(
+    context: &[String],
+    glossary: &[Turn],
+    text: &str,
+    intro: &str,
+    examples: &[Turn],
+) -> Vec<Turn> {
     let mut turns = examples.to_vec();
     if !context.is_empty() {
         turns.push(Turn::user(format!("{intro}\n{}", context.join("\n"))));
         turns.push(Turn::assistant(CONTEXT_ACK));
     }
+    turns.extend_from_slice(glossary);
     turns.push(Turn::user(text));
     turns
 }
