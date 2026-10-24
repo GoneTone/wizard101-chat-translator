@@ -32,7 +32,7 @@
 
 - 術語表可能是任何語言，比對規則不能假設只有中英文。
 - 每句命中的條目必須放在 prompt cache 斷點之後（Claude 的斷點在系統提示詞結尾，見 `src/translation/clients/`）；**不可**放進系統提示詞。
-- exe 必須維持單一檔案：內建術語表以 `include_str!` 編進 exe，與 `src/i18n/` 的語系檔相同做法。
+- exe 必須維持單一檔案：內建術語表以 `include_str!` 編進 exe，與 `src/i18n/` 的語系檔相同做法 —— 清單由 `build.rs` 掃描資料夾自動產生（`build_support/embed.rs`），新增語系只要放檔案。
 - 介面新字串要補進每個有翻譯的語系檔（`src/i18n/*.json`），不只繁中與英文。
 - 提示詞維持中文寫法（英文提示詞已實測不划算）。
 
