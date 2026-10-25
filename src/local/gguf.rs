@@ -38,9 +38,8 @@ fn read_err(e: GGufReadError) -> ParseError {
     }
 }
 
-fn uint(kv: &GGufMetaKV) -> Option<u32> {
-    let mut r = kv.value_reader();
-    match kv.ty() {
+fn uint_of(r: &mut GGufReader, ty: Ty) -> Option<u32> {
+    match ty {
         Ty::U8 => Some(r.read::<u8>().ok()?.into()),
         Ty::U16 => Some(r.read::<u16>().ok()?.into()),
         Ty::U32 => r.read::<u32>().ok(),
@@ -51,6 +50,16 @@ fn uint(kv: &GGufMetaKV) -> Option<u32> {
         Ty::I64 => u32::try_from(r.read::<i64>().ok()?).ok(),
         _ => None,
     }
+}
+
+/// 讀整數值；逐層陣列取最大值（估算記憶體取最壞情況）。
+fn uint(kv: &GGufMetaKV) -> Option<u32> {
+    let mut r = kv.value_reader();
+    if kv.ty() != Ty::Array {
+        return uint_of(&mut r, kv.ty());
+    }
+    let (ty, len) = r.read_arr_header().ok()?;
+    (0..len).map(|_| uint_of(&mut r, ty)).max().flatten()
 }
 
 /// 解析 GGUF 檔頭（metadata 與 tensor 清單）。
@@ -103,28 +112,43 @@ pub fn parse(bytes: &[u8]) -> Result<ModelMeta, ParseError> {
 
 /// 讀取 `url` 開頭的檔頭並解析；範圍不夠時加倍重抓，上限 64 MiB。
 pub async fn fetch(http: &reqwest::Client, url: &str) -> Result<ModelMeta, String> {
-    let mut n = INITIAL_RANGE;
+    fetch_with(http, url, INITIAL_RANGE, MAX_RANGE).await
+}
+
+/// 內部用：可指定起始與上限範圍，讓測試不必配置 64 MiB。
+#[doc(hidden)]
+pub async fn fetch_with(
+    http: &reqwest::Client,
+    url: &str,
+    initial: usize,
+    max: usize,
+) -> Result<ModelMeta, String> {
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
+        .unwrap_or_default();
+    let mut n = initial;
     loop {
         let bytes = fetch_prefix(http, url, n).await?;
-        match parse(&bytes) {
+        let err = match parse(&bytes) {
             Ok(meta) => return Ok(meta),
-            Err(ParseError::Invalid(e)) => {
-                log(format!("[local] GGUF header invalid: {e}"));
-                return Err(e);
-            }
+            Err(ParseError::Invalid(e)) => e,
             Err(ParseError::NeedMore) if bytes.len() < n => {
-                return Err("GGUF file ended inside its header".into());
+                format!("GGUF file ended inside its header ({} bytes)", bytes.len())
             }
-            Err(ParseError::NeedMore) if n >= MAX_RANGE => {
-                return Err(format!("GGUF header larger than {} MiB", MAX_RANGE >> 20));
+            Err(ParseError::NeedMore) if n >= max => {
+                format!("GGUF header larger than {} bytes", max)
             }
             Err(ParseError::NeedMore) => {
                 n *= 2;
                 log(format!(
                     "[local] GGUF header needs more, retry with {n} bytes"
                 ));
+                continue;
             }
-        }
+        };
+        log(format!("[local] GGUF header from {host} failed: {err}"));
+        return Err(err);
     }
 }
 
