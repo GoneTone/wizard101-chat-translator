@@ -28,6 +28,8 @@ struct FakeProcess {
     exit: Exit,
     events: Events,
     model_dir: PathBuf,
+    exe: PathBuf,
+    exe_at_kill: Arc<Mutex<Vec<bool>>>,
     _health: Option<MockServer>,
 }
 
@@ -36,6 +38,7 @@ impl Process for FakeProcess {
         *self.exit.lock().unwrap()
     }
     fn kill(&mut self) {
+        self.exe_at_kill.lock().unwrap().push(self.exe.exists());
         let exists = self.model_dir.exists();
         self.events
             .lock()
@@ -57,6 +60,10 @@ struct Shared {
     health_delay: Arc<Mutex<Duration>>,
     /// `--list-devices` 的假輸出；`None` 表示量測失敗。
     devices: Arc<Mutex<Option<String>>>,
+    /// `launch` 本身卡住的時間（模擬啟動途中、取消不到的那一段）。
+    launch_delay: Arc<Mutex<Duration>>,
+    /// 每次 kill 當下引擎 exe 是否還在。
+    exe_at_kill: Arc<Mutex<Vec<bool>>>,
 }
 
 struct FakeLauncher {
@@ -74,10 +81,14 @@ impl Launcher for FakeLauncher {
         let exit = Arc::new(Mutex::new(fail.then_some(1)));
         s.exits.lock().unwrap().push(exit.clone());
         let delay = *s.health_delay.lock().unwrap();
+        let launch_delay = *s.launch_delay.lock().unwrap();
+        tokio::task::block_in_place(|| std::thread::sleep(launch_delay));
         Ok(Box::new(FakeProcess {
             exit,
             events: s.events.clone(),
             model_dir: self.model_dir.clone(),
+            exe: plan.exe.clone(),
+            exe_at_kill: s.exe_at_kill.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
     }
@@ -785,4 +796,43 @@ async fn delete_while_starting_kills_the_process_first() {
     assert_eq!(f.kills(), ["kill model_dir_exists=true".to_string()]);
     let err = start.await.unwrap().unwrap_err();
     assert!(err.contains("unloaded while starting"), "{err}");
+}
+
+/// 移除引擎途中，連從沒啟動過的模型也啟動不了，回「沒有引擎」且不算失敗。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ensure_during_engine_removal_gets_no_engine() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, "m0", false);
+            add_model(root, "m1", false);
+        },
+        |_| false,
+    )
+    .await;
+    *f.shared.launch_delay.lock().unwrap() = Duration::from_secs(1);
+    let a = f.local.clone();
+    let first = tokio::spawn(async move { a.ensure("m0").await });
+    wait_for("m0 launching", || f.plans().len() == 1).await;
+    f.local.command(Command::RemoveEngine);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let err = f.local.ensure("m1").await.unwrap_err();
+    assert!(err.contains("engine is not installed"), "{err}");
+    assert!(first.await.unwrap().is_err());
+    // 卡在啟動中的 m0 要先被殺掉，引擎檔案才能刪
+    assert_eq!(*f.shared.exe_at_kill.lock().unwrap(), [true]);
+    let ids: Vec<String> = f.plans().into_iter().map(|p| p.model_id).collect();
+    assert_eq!(ids, ["m0"]);
+    let install = EngineInstall {
+        build: "b11871".into(),
+        variant: Variant::Cpu,
+    };
+    assert!(!engine::engine_dir(&f.root, &install).exists());
+    wait_for("engine missing", || {
+        f.local.snapshot().engine == EngineState::Missing
+    })
+    .await;
+    *f.shared.launch_delay.lock().unwrap() = Duration::ZERO;
+    add_engine(&f.root, "b11871");
+    f.local.ensure("m1").await.unwrap();
 }

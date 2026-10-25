@@ -104,6 +104,7 @@ impl Local {
             // 鎖是先到先得：放掉再排一次，就排到正在等的 stop_and_wait 後面
             drop(guard);
         };
+        let _engine_files = self.engine_files.read().await;
         let cancel = {
             let mut st = lock(&slot.state);
             if let Some(running) = st.running.as_mut() {
@@ -173,19 +174,6 @@ impl Local {
         let slot = self.servers.slot(model_id);
         close(model_id, &slot);
         hold(model_id, slot).await
-    }
-
-    /// 停掉所有模型並等進行中的啟動收尾；持有回傳值期間不會有新的啟動。
-    pub(super) async fn shutdown_and_wait(&self) -> Vec<Hold> {
-        let slots = self.servers.all();
-        for (id, slot) in &slots {
-            close(id, slot);
-        }
-        let mut holds = Vec::new();
-        for (id, slot) in slots {
-            holds.push(hold(&id, slot).await);
-        }
-        holds
     }
 
     /// 清掉模型的失敗紀錄（例如下載完成後）。

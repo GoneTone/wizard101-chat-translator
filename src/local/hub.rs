@@ -123,6 +123,8 @@ pub struct Local {
     pub(super) vram_measured: AtomicBool,
     /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
     engine_lock: tokio::sync::Mutex<()>,
+    /// 每次 `ensure` 從檢查前置條件到啟動完成都持有讀鎖；移除引擎時取寫鎖，期間任何模型都啟動不了。
+    pub(super) engine_files: tokio::sync::RwLock<()>,
     pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
     me: Weak<Local>,
 }
@@ -159,6 +161,7 @@ impl Local {
             state: Mutex::new(snapshot),
             vram_measured: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
+            engine_files: tokio::sync::RwLock::new(()),
             cancels: Mutex::default(),
             me: me.clone(),
         })
@@ -372,7 +375,10 @@ impl Local {
 
     async fn remove_engine(&self) {
         let _engine = self.engine_lock.lock().await;
-        let _holds = self.shutdown_and_wait().await;
+        self.shutdown();
+        let _files = self.engine_files.write().await;
+        // 取寫鎖前剛起跑的啟動不在第一次 shutdown 之內，拿到鎖後再停一次
+        self.shutdown();
         let state = match engine::remove_all(&self.root) {
             Ok(()) => EngineState::Missing,
             Err(e) => {
