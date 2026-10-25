@@ -222,7 +222,7 @@ fn harness_sized(draft: ServiceDraft, size: egui::Vec2) -> Harness<'static, Stat
         size,
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
-            s.pane.ui(ui, &s.env, TARGET);
+            s.pane.ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET);
         },
         state,
     )

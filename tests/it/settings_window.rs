@@ -436,7 +436,6 @@ fn save_writes_the_edited_service_list_into_cfg() {
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
     settle(&mut h);
-    settle(&mut h);
     h.get_by_label(&tr("field.service_name")).click();
     run(&mut h);
     h.event(egui::Event::Text(" 2".into()));
@@ -581,7 +580,6 @@ fn a_blank_target_language_tests_the_connection_in_the_ui_language() {
     let mut h = harness(cfg);
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
-    settle(&mut h);
     settle(&mut h);
     click(&mut h, Role::Button, &tr("button.test"));
     let tests = h.state().env.tests.borrow();
@@ -1205,13 +1203,16 @@ fn two_different_local_models_that_do_not_fit_block_saving() {
     let mut h = two_local_services("b");
     assert!(save(&mut h).is_none());
     assert!(has_label(&h, &tr("dialog.incomplete_title")));
+    let item = |name: &str| {
+        t(
+            "error.local_over_capacity_item",
+            &[("name", &format!("{name} · Q4_K_M")), ("size", "8.0")],
+        )
+    };
+    let models = [item("b"), item("a")].join(&t("local.list_separator", &[]));
     let message = t(
         "error.local_over_capacity",
-        &[
-            ("models", "b · Q4_K_M 8.0 GB, a · Q4_K_M 8.0 GB"),
-            ("vram", "0.0"),
-            ("ram", "10.0"),
-        ],
+        &[("models", &models), ("vram", "0.0"), ("ram", "10.0")],
     );
     assert!(has_label(&h, &message));
     assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
@@ -1254,4 +1255,52 @@ fn a_service_card_flags_a_gone_local_model() {
     h.state().env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
     run(&mut h);
     assert!(!has_label(&h, &tr("local.form.model_missing")));
+}
+
+#[test]
+fn a_gone_default_model_blocks_saving_even_when_every_slot_overrides_it() {
+    let mut cfg = configured("local", json!({"model": "gone"}));
+    let other = add_service(&mut cfg, "openai", json!({}));
+    for slot in ServiceSlot::ALL {
+        cfg["service_slots"][slot.key()] = other["id"].clone();
+    }
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+#[test]
+fn a_dangling_slot_falls_back_to_the_default_for_both_checks() {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = json!("no-such-service");
+    let env = FakeEnv::default();
+    env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    let mut h = harness_with(cfg.clone(), env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_some());
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+#[test]
+fn a_cloud_slot_does_not_count_toward_local_capacity() {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let cloud = add_service(&mut cfg, "openai", json!({}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = cloud["id"].clone();
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+    }
+    let mut h = harness_with(cfg, env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_some());
 }

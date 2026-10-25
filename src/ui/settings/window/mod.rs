@@ -411,7 +411,7 @@ impl SettingsWindow {
                         "" => language_name(&current_language()),
                         target => target.to_owned(),
                     };
-                    self.services.ui(ui, env, &target);
+                    self.services.ui(ui, env, &self.snapshot, &target);
                     if self.services.take_open_local() {
                         self.switch_page(Page::LocalModels, env);
                     }
@@ -486,9 +486,15 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
         let (vram, ram) = effective(&snapshot.hardware);
         let list = models
             .iter()
-            .map(|m| format!("{} {} GB", display_name(m), gb(m.manifest.required)))
+            .map(|m| {
+                let size = gb(m.manifest.required);
+                t(
+                    "error.local_over_capacity_item",
+                    &[("name", &display_name(m)), ("size", &size)],
+                )
+            })
             .collect::<Vec<_>>()
-            .join(", ");
+            .join(&t("local.list_separator", &[]));
         errors.push((
             "error.local_over_capacity".into(),
             vec![("models", list), ("vram", gb(vram)), ("ram", gb(ram))],

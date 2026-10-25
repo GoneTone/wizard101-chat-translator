@@ -13,6 +13,7 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::local::Snapshot;
 use wizard101_chat_translator::local::store::Installed;
 use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::errors::{
@@ -68,7 +69,7 @@ fn opening_harness(form: ServiceForm) -> Harness<'static, State> {
         egui::vec2(540.0, 760.0),
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
-            let response = s.form.ui(ui, &s.env, TARGET);
+            let response = s.form.ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET);
             s.responses.push(response);
         },
         state,
@@ -643,7 +644,7 @@ fn the_form_leaves_the_callers_spacing_alone() {
         LANGUAGE,
         |ui: &mut Ui, s: &mut (ServiceForm, FakeEnv, Option<(f32, f32)>)| {
             let before = ui.spacing().item_spacing.y;
-            s.0.ui(ui, &s.1, TARGET);
+            s.0.ui(ui, &s.1, &Snapshot::default(), TARGET);
             s.2 = Some((before, ui.spacing().item_spacing.y));
         },
         state,

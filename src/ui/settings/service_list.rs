@@ -82,8 +82,13 @@ impl ServicePane {
     }
 
     /// 畫分頁與開著的對話框；測試連線翻成 `target_language`。
-    pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) {
-        let snapshot = env.local_snapshot();
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
             card(ui, |ui| {
@@ -99,7 +104,7 @@ impl ServicePane {
             let can_delete = self.draft.can_delete();
             let mut action = None;
             for service in &self.draft.services {
-                action = action.or(self.service_card(ui, service, can_delete, &snapshot));
+                action = action.or(self.service_card(ui, service, can_delete, snapshot));
             }
             if !self.draft.services.is_empty() && !can_delete {
                 ui.add(Label::new(
@@ -117,7 +122,7 @@ impl ServicePane {
                 None => {}
             }
         });
-        self.show_dialog(ui, env, target_language);
+        self.show_dialog(ui, env, snapshot, target_language);
     }
 
     fn open_form(&mut self, id: &str) {
@@ -227,7 +232,13 @@ impl ServicePane {
         }
     }
 
-    fn show_dialog(&mut self, ui: &Ui, env: &dyn SettingsEnv, target_language: &str) {
+    fn show_dialog(
+        &mut self,
+        ui: &Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) {
         match &mut self.dialog {
             Dialog::Closed => {}
             Dialog::Pick => match picker_dialog(ui) {
@@ -244,7 +255,8 @@ impl ServicePane {
                 picking,
                 errors,
             } => {
-                let (choice, response) = form_dialog(ui, form, errors, env, target_language);
+                let (choice, response) =
+                    form_dialog(ui, form, errors, env, snapshot, target_language);
                 *picking |= response.change_provider;
                 self.open_local |= response.open_local_models;
                 pick_provider_over(ui, form, picking);
@@ -392,6 +404,7 @@ fn form_dialog(
     form: &mut ServiceForm,
     errors: &mut Vec<String>,
     env: &dyn SettingsEnv,
+    snapshot: &Snapshot,
     target_language: &str,
 ) -> (Choice<Value>, FormResponse) {
     if !errors.is_empty() {
@@ -417,7 +430,7 @@ fn form_dialog(
                     bottom: 16,
                 })
                 .show(ui, |ui| {
-                    let response = form.ui(ui, env, target_language);
+                    let response = form.ui(ui, env, snapshot, target_language);
                     if !errors.is_empty() {
                         ui.add_space(12.0);
                         let lines: Vec<String> = errors.iter().map(|e| t(e, &[])).collect();

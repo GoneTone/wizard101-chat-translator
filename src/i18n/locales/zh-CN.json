@@ -115,6 +115,7 @@
   "error.need_service": "请先新增一组翻译服务。",
   "error.local_model_missing": "本地服务“{name}”用的模型已不在，请重新选择模型或再下载。",
   "error.local_over_capacity": "各用途用到的本地模型加起来放不下（{models}），当前可用 VRAM {vram} GB、RAM {ram} GB。请改用同一个模型或较小的版本。",
+  "error.local_over_capacity_item": "{name} {size} GB",
   "error.bad_key": "密钥无效或已过期，请确认 API 密钥。",
   "error.model_not_found": "找不到模型，请确认模型名称。",
   "error.api_http": "API 设置有误（HTTP {status}），请检查各字段。",

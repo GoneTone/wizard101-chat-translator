@@ -148,10 +148,11 @@ impl Wizard {
             .wrap(),
         );
         let target = language_name(&current_language());
+        let snapshot = env.local_snapshot();
         let response = card(ui, |ui| {
             Frame::new()
                 .inner_margin(Margin::symmetric(16, 14))
-                .show(ui, |ui| form.ui(ui, env, &target))
+                .show(ui, |ui| form.ui(ui, env, &snapshot, &target))
                 .inner
         });
         if response.changed {

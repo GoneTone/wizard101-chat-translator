@@ -243,14 +243,23 @@ impl ServiceForm {
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
         target_language: &str,
     ) -> FormResponse {
         // 以服務 id 為作用域：換編輯另一筆服務時，開關動畫與下拉狀態不沿用上一筆的
-        ui.push_id(self.id.clone(), |ui| self.body(ui, env, target_language))
-            .inner
+        ui.push_id(self.id.clone(), |ui| {
+            self.body(ui, env, snapshot, target_language)
+        })
+        .inner
     }
 
-    fn body(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) -> FormResponse {
+    fn body(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) -> FormResponse {
         let before = self.api_values();
         let mut response = FormResponse {
             changed: std::mem::take(&mut self.pending_change),
@@ -272,7 +281,7 @@ impl ServiceForm {
                 ui.set_invisible();
                 ui.data_mut(|d| d.insert_temp(placeholder_id(), Vec::<(Rect, Block)>::new()));
             }
-            self.rows(ui, env, target_language, before, &mut response);
+            self.rows(ui, env, snapshot, target_language, before, &mut response);
         });
         if placeholder {
             paint_placeholder(ui, form.response.rect, &t("form.loading", &[]));
@@ -285,6 +294,7 @@ impl ServiceForm {
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
         target_language: &str,
         before: Value,
         response: &mut FormResponse,
@@ -310,7 +320,7 @@ impl ServiceForm {
             self.auto_refresh(env);
         }
         if self.provider.key == LOCAL_PROVIDER {
-            response.open_local_models = self.local_model_row(ui, &env.local_snapshot());
+            response.open_local_models = self.local_model_row(ui, snapshot);
         } else if self.model_row(ui) {
             self.start_refresh(env, "manual");
         }
