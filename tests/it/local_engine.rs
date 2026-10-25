@@ -189,3 +189,68 @@ async fn a_zip_slip_entry_fails_the_install_and_leaves_nothing() {
     assert!(!root.path().join("llama/b11871-cpu").exists());
     assert!(!root.path().join("llama/b11871-cpu.tmp").exists());
 }
+
+#[test]
+fn rollback_without_a_different_previous_keeps_everything() {
+    let root = tempfile::tempdir().unwrap();
+    let a = inst("b11871");
+    make_dir(root.path(), &a);
+    activate(root.path(), a.clone()).unwrap();
+    let want = ActiveFile {
+        current: Some(a.clone()),
+        previous: None,
+    };
+    assert_eq!(rollback(root.path()).unwrap(), None);
+    assert!(engine_dir(root.path(), &a).exists());
+    assert_eq!(read_active(root.path()), want);
+
+    activate(root.path(), a.clone()).unwrap();
+    assert_eq!(rollback(root.path()).unwrap(), None);
+    assert!(engine_dir(root.path(), &a).exists());
+    assert_eq!(read_active(root.path()).current, Some(a));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn install_skips_the_download_when_already_installed() {
+    let server = MockServer::start().await;
+    let root = tempfile::tempdir().unwrap();
+    install_cpu(&server, root.path(), &["bin/llama-server.exe"])
+        .await
+        .unwrap();
+    let before = server.received_requests().await.unwrap().len();
+    install_cpu(&server, root.path(), &["bin/llama-server.exe"])
+        .await
+        .unwrap();
+    assert_eq!(server.received_requests().await.unwrap().len(), before);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancelled_install_leaves_nothing() {
+    let server = MockServer::start().await;
+    let root = tempfile::tempdir().unwrap();
+    let a = serve(
+        &server,
+        "llama-b11871-bin-win-cpu-x64.zip",
+        zip_bytes(&["bin/llama-server.exe"]),
+    )
+    .await;
+    let build = Build {
+        tag: "b11871".into(),
+        published: String::new(),
+        variants: vec![(Variant::Cpu, vec![a])],
+    };
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    let r = install(
+        &hf_client(&server.uri()),
+        root.path(),
+        &build,
+        &Variant::Cpu,
+        &Progress::default(),
+        &cancel,
+    )
+    .await;
+    assert!(r.is_err());
+    assert!(!root.path().join("llama/b11871-cpu").exists());
+    assert!(!root.path().join("llama/b11871-cpu.tmp").exists());
+}

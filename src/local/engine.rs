@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::local::download::{Progress, download};
+use crate::local::download::{DownloadError, Progress, download};
 use crate::local::hardware::Gpu;
 use crate::logs::log;
 use crate::net::error_chain;
@@ -236,7 +236,12 @@ pub fn read_active(root: &Path) -> ActiveFile {
             log(format!("[local] active.json is corrupt, ignoring: {e}"));
             ActiveFile::default()
         }),
-        Err(_) => ActiveFile::default(),
+        Err(e) => {
+            if e.kind() != io::ErrorKind::NotFound {
+                log(format!("[local] cannot read active.json: {e}"));
+            }
+            ActiveFile::default()
+        }
     }
 }
 
@@ -260,6 +265,8 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
 }
 
 /// 下載並解壓 `build` 的 `variant` 到引擎資料夾；失敗或取消不留半成品，也不動 `active.json`。
+///
+/// 需在 multi-thread tokio runtime 上呼叫（解壓用 `block_in_place`）。
 pub async fn install(
     http: &reqwest::Client,
     root: &Path,
@@ -312,9 +319,17 @@ pub async fn install(
             download(http, &a.url, &zip_path, a.size, None, progress, cancel)
                 .await
                 .map_err(|e| e.to_string())?;
+            if cancel.is_cancelled() {
+                return Err(DownloadError::Cancelled.to_string());
+            }
             let extracted = tokio::task::block_in_place(|| extract_zip(&zip_path, &tmp));
-            let _ = fs::remove_file(&zip_path);
+            if let Err(e) = fs::remove_file(&zip_path) {
+                log(format!("[local] cannot remove {}: {e}", a.name));
+            }
             extracted?;
+            if cancel.is_cancelled() {
+                return Err(DownloadError::Cancelled.to_string());
+            }
         }
         remove_dir_if_exists(&dir).map_err(|e| e.to_string())?;
         fs::rename(&tmp, &dir).map_err(|e| e.to_string())
@@ -366,18 +381,20 @@ pub fn confirm(root: &Path) -> io::Result<()> {
     write_active(root, &active)
 }
 
-/// current 啟動失敗時回退：刪 current 資料夾，改回 previous；回傳回退後的版本。
+/// current 啟動失敗時回退：有不同的 previous 才刪 current 並改回它；否則什麼都不動，回傳 `None`。
 pub fn rollback(root: &Path) -> io::Result<Option<EngineInstall>> {
     let mut active = read_active(root);
-    if let Some(cur) = &active.current {
-        log(format!(
-            "[local] rolling back engine {}-{}",
-            cur.build, cur.variant
-        ));
-        if active.previous.as_ref() != Some(cur) {
-            remove_dir_if_exists(&engine_dir(root, cur))?;
-        }
+    let (Some(cur), Some(prev)) = (&active.current, &active.previous) else {
+        return Ok(None);
+    };
+    if cur == prev {
+        return Ok(None);
     }
+    log(format!(
+        "[local] rolling back engine {}-{} to {}-{}",
+        cur.build, cur.variant, prev.build, prev.variant
+    ));
+    remove_dir_if_exists(&engine_dir(root, cur))?;
     active.current = active.previous.take();
     write_active(root, &active)?;
     Ok(active.current)
