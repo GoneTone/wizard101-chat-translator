@@ -1,0 +1,125 @@
+//! Hugging Face repo 解析、GGUF 分類與檔案列表（wiremock，不打真 API）。
+
+use serde_json::json;
+use wiremock::matchers::{method, path, query_param};
+use wiremock::{Mock, MockServer, ResponseTemplate};
+use wizard101_chat_translator::local::hf::{
+    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo,
+};
+
+#[test]
+fn parse_repo_accepts_urls_and_bare_ids() {
+    for input in [
+        "unsloth/Qwen3.5-4B-GGUF",
+        " https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/tree/main ",
+        "huggingface.co/unsloth/Qwen3.5-4B-GGUF/",
+        "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF",
+    ] {
+        assert_eq!(
+            parse_repo(input).as_deref(),
+            Some("unsloth/Qwen3.5-4B-GGUF"),
+            "{input}"
+        );
+    }
+    for bad in ["", "Qwen", "https://example.com/a/b", "a/b c", "a/b/c"] {
+        assert_eq!(parse_repo(bad), None, "{bad}");
+    }
+}
+
+#[test]
+fn parse_quant_covers_unsloth_and_google_names() {
+    let q = |n| {
+        let q = parse_quant(n);
+        (q.label, q.bits)
+    };
+    assert_eq!(
+        q("Qwen3.5-4B-UD-Q4_K_XL.gguf"),
+        ("UD-Q4_K_XL".into(), Some(4))
+    );
+    assert_eq!(q("Qwen3.5-4B-IQ4_NL.gguf"), ("IQ4_NL".into(), Some(4)));
+    assert_eq!(
+        q("gemma-4-26B-A4B-it-MXFP4_MOE.gguf"),
+        ("MXFP4_MOE".into(), Some(4))
+    );
+    assert_eq!(q("gemma-4-12b-it-qat-q4_0.gguf"), ("q4_0".into(), Some(4)));
+    assert_eq!(q("Qwen3.5-4B-BF16.gguf"), ("BF16".into(), Some(16)));
+    assert_eq!(
+        q("big-UD-Q2_K_XL-00002-of-00003.gguf"),
+        ("UD-Q2_K_XL".into(), Some(2))
+    );
+    assert_eq!(q("weird.gguf"), ("weird.gguf".into(), None));
+}
+
+#[test]
+fn classify_drops_mmproj_and_splits_mtp_and_shards() {
+    let f = |p: &str, s| RepoFile {
+        path: p.into(),
+        size: s,
+        sha256: None,
+    };
+    let cat = classify(&[
+        f("mmproj-F16.gguf", 1),
+        f("gemma-4-26B-it-mmproj.gguf", 1),
+        f("README.md", 1),
+        f("MTP/mtp-X-Q4_K_M.gguf", 2),
+        f("MTP/mtp-X-shared-Q8_0.gguf", 3),
+        f("Q2/X-Q2_K-00001-of-00002.gguf", 10),
+        f("Q2/X-Q2_K-00002-of-00002.gguf", 5),
+        f("X-Q4_K_M.gguf", 20),
+    ]);
+    assert_eq!(
+        cat.choices
+            .iter()
+            .map(|c| (c.quant.label.as_str(), c.files.len()))
+            .collect::<Vec<_>>(),
+        [("Q2_K", 2), ("Q4_K_M", 1)]
+    );
+    assert_eq!(
+        cat.mtp
+            .iter()
+            .map(|m| (m.quant.label.as_str(), m.shared))
+            .collect::<Vec<_>>(),
+        [("Q4_K_M", false), ("Q8_0", true)]
+    );
+}
+
+#[tokio::test]
+async fn list_files_reads_the_recursive_tree() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/models/o/r/tree/main"))
+        .and(query_param("recursive", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"type": "directory", "path": "MTP"},
+            {"type": "file", "path": "a.gguf", "size": 5, "lfs": {"oid": "ab", "size": 5}}
+        ])))
+        .mount(&server)
+        .await;
+    let files = list_files(&hf_client(), &server.uri(), "o/r")
+        .await
+        .unwrap();
+    assert_eq!(
+        files,
+        [RepoFile {
+            path: "a.gguf".into(),
+            size: 5,
+            sha256: Some("ab".into())
+        }]
+    );
+}
+
+#[tokio::test]
+async fn list_files_reports_http_errors_verbatim() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("Repository Not Found"))
+        .mount(&server)
+        .await;
+    let err = list_files(&hf_client(), &server.uri(), "o/r")
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("HTTP 404") && err.contains("Repository Not Found"),
+        "{err}"
+    );
+}
