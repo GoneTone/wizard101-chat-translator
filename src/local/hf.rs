@@ -16,7 +16,7 @@ pub const HF_BASE: &str = "https://huggingface.co";
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 static SHARD_TAIL: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"-\d{5}-of-\d{5}$").expect("shard regex"));
+    LazyLock::new(|| Regex::new(r"(?i)-(\d{5})-of-(\d{5})$").expect("shard regex"));
 static QUANT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(?:^|[-_.])((?:UD-)?(?:I?Q\d(?:_[A-Z0-9]+)*|MXFP4(?:_MOE)?|BF16|F16|F32))$")
         .expect("quant regex")
@@ -59,8 +59,8 @@ pub struct Catalog {
     pub mtp: Vec<MtpChoice>,
 }
 
-/// 建立連 Hugging Face 用的 HTTP client（列表與下載共用）。
-pub fn hf_client() -> reqwest::Client {
+/// 建立連 `base`（正式為 `HF_BASE`）用的 HTTP client；`base` 是本機位址時不走 proxy。
+pub fn hf_client(base: &str) -> reqwest::Client {
     install_crypto_provider();
     let builder = reqwest::Client::builder()
         .connect_timeout(TIMEOUT)
@@ -70,7 +70,7 @@ pub fn hf_client() -> reqwest::Client {
             "wizard101-chat-translator/{}",
             env!("CARGO_PKG_VERSION")
         ));
-    bypass_proxy_for_loopback(builder, HF_BASE)
+    bypass_proxy_for_loopback(builder, base)
         .build()
         .expect("build HTTP client")
 }
@@ -115,38 +115,67 @@ struct Lfs {
     oid: String,
 }
 
-/// 列出 repo `main` 分支所有檔案；非 2xx 回 `HTTP {status}: {body}`。
+/// 取 `Link` 標頭中 `rel="next"` 的網址。
+fn next_page(response: &reqwest::Response) -> Option<String> {
+    let link = response
+        .headers()
+        .get(reqwest::header::LINK)?
+        .to_str()
+        .ok()?;
+    link.split(',').find_map(|part| {
+        let (url, params) = part.split_once(';')?;
+        params
+            .contains("rel=\"next\"")
+            .then(|| url.trim().trim_matches(['<', '>']).to_string())
+    })
+}
+
+/// 列出 repo `main` 分支所有檔案（跟著分頁連結走完）；非 2xx 回 `HTTP {status}: {body}`。
 pub async fn list_files(
     http: &reqwest::Client,
     base: &str,
     repo: &str,
 ) -> Result<Vec<RepoFile>, String> {
-    let url = format!("{base}/api/models/{repo}/tree/main?recursive=true");
-    let response = http.get(&url).send().await.map_err(|e| {
-        let e = error_chain(e);
-        log(format!("[local] listing {repo} failed: {e}"));
-        e
-    })?;
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        log(format!("[local] listing {repo} returned HTTP {status}"));
-        return Err(format!("HTTP {}: {body}", status.as_u16()));
+    let mut next = Some(format!("{base}/api/models/{repo}/tree/main?recursive=true"));
+    let mut files = Vec::new();
+    while let Some(url) = next {
+        let response = http.get(&url).send().await.map_err(|e| {
+            let e = error_chain(e);
+            log(format!("[local] listing {repo} failed: {e}"));
+            e
+        })?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = match response.text().await {
+                Ok(body) => body,
+                Err(e) => format!("(body unreadable: {})", error_chain(e)),
+            };
+            log(format!(
+                "[local] listing {repo} returned HTTP {status}: {body}"
+            ));
+            return Err(format!("HTTP {}: {body}", status.as_u16()));
+        }
+        next = next_page(&response);
+        let entries: Vec<TreeEntry> = response.json().await.map_err(|e| {
+            let e = error_chain(e);
+            log(format!(
+                "[local] listing {repo} returned an unreadable body: {e}"
+            ));
+            e
+        })?;
+        files.extend(
+            entries
+                .into_iter()
+                .filter(|e| e.kind == "file")
+                .map(|e| RepoFile {
+                    path: e.path,
+                    size: e.size,
+                    sha256: e.lfs.map(|l| l.oid),
+                }),
+        );
     }
-    let entries: Vec<TreeEntry> = response.json().await.map_err(error_chain)?;
-    log(format!(
-        "[local] listed {} entries in {repo}",
-        entries.len()
-    ));
-    Ok(entries
-        .into_iter()
-        .filter(|e| e.kind == "file")
-        .map(|e| RepoFile {
-            path: e.path,
-            size: e.size,
-            sha256: e.lfs.map(|l| l.oid),
-        })
-        .collect())
+    log(format!("[local] listed {} files in {repo}", files.len()));
+    Ok(files)
 }
 
 /// 檔案的下載網址。
@@ -156,8 +185,7 @@ pub fn resolve_url(base: &str, repo: &str, path: &str) -> String {
 
 /// 由檔名取量化名稱與位元數；認不出時 `label` 為原檔名。
 pub fn parse_quant(file_name: &str) -> Quant {
-    let stem = file_name.strip_suffix(".gguf").unwrap_or(file_name);
-    let stem = SHARD_TAIL.replace(stem, "");
+    let stem = SHARD_TAIL.replace(strip_gguf(file_name), "");
     let Some(label) = QUANT.captures(&stem).map(|c| c[1].to_string()) else {
         return Quant {
             label: file_name.to_string(),
@@ -184,6 +212,31 @@ pub fn parse_quant(file_name: &str) -> Quant {
     Quant { label, bits }
 }
 
+fn strip_gguf(name: &str) -> &str {
+    let cut = name.len().saturating_sub(".gguf".len());
+    match name.get(cut..) {
+        Some(tail) if tail.eq_ignore_ascii_case(".gguf") => &name[..cut],
+        _ => name,
+    }
+}
+
+/// 分檔是否剛好是 `1..=N`（N 為檔名 `-of-N`）；非分檔的單一檔案視為完整。
+fn shards_complete(files: &[RepoFile]) -> bool {
+    let parts: Vec<(u32, u32)> = files
+        .iter()
+        .filter_map(|f| SHARD_TAIL.captures(strip_gguf(&f.path)))
+        .map(|c| (c[1].parse().unwrap_or(0), c[2].parse().unwrap_or(0)))
+        .collect();
+    if parts.is_empty() {
+        return files.len() == 1;
+    }
+    let total = parts[0].1 as usize;
+    parts.len() == files.len()
+        && total == files.len()
+        && parts.iter().all(|&(_, t)| t as usize == total)
+        && (1..=total as u32).all(|n| parts.iter().any(|&(p, _)| p == n))
+}
+
 fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
@@ -194,24 +247,31 @@ pub fn classify(files: &[RepoFile]) -> Catalog {
     let mut mtp = Vec::new();
     for file in files {
         let name = basename(&file.path);
-        if !name.ends_with(".gguf") || name.to_ascii_lowercase().contains("mmproj") {
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".gguf") || lower.contains("mmproj") {
             continue;
         }
-        if name.starts_with("mtp-") {
+        if lower.starts_with("mtp-") {
             mtp.push(MtpChoice {
                 quant: parse_quant(name),
                 file: file.clone(),
-                shared: name.contains("-shared-"),
+                shared: lower.contains("-shared-"),
             });
         } else {
-            let stem = file.path.strip_suffix(".gguf").unwrap_or(&file.path);
-            let group = SHARD_TAIL.replace(stem, "").into_owned();
+            let group = SHARD_TAIL.replace(strip_gguf(&file.path), "").into_owned();
             shards.entry(group).or_default().push(file.clone());
         }
     }
     let mut choices: Vec<Choice> = shards
-        .into_values()
-        .map(|mut files| {
+        .into_iter()
+        .filter(|(group, files)| {
+            let complete = shards_complete(files);
+            if !complete {
+                log(format!("[local] skipping incomplete shard set {group}"));
+            }
+            complete
+        })
+        .map(|(_, mut files)| {
             files.sort_by(|a, b| a.path.cmp(&b.path));
             Choice {
                 quant: parse_quant(basename(&files[0].path)),

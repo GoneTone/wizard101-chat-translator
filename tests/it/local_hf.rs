@@ -66,13 +66,16 @@ fn classify_drops_mmproj_and_splits_mtp_and_shards() {
         f("Q2/X-Q2_K-00001-of-00002.gguf", 10),
         f("Q2/X-Q2_K-00002-of-00002.gguf", 5),
         f("X-Q4_K_M.gguf", 20),
+        f("UP-Q8_0.GGUF", 30),
+        f("Part/Y-Q3_K_M-00001-of-00003.gguf", 1),
+        f("Part/Y-Q3_K_M-00003-of-00003.gguf", 1),
     ]);
     assert_eq!(
         cat.choices
             .iter()
             .map(|c| (c.quant.label.as_str(), c.files.len()))
             .collect::<Vec<_>>(),
-        [("Q2_K", 2), ("Q4_K_M", 1)]
+        [("Q2_K", 2), ("Q4_K_M", 1), ("Q8_0", 1)]
     );
     assert_eq!(
         cat.mtp
@@ -95,7 +98,7 @@ async fn list_files_reads_the_recursive_tree() {
         ])))
         .mount(&server)
         .await;
-    let files = list_files(&hf_client(), &server.uri(), "o/r")
+    let files = list_files(&hf_client(&server.uri()), &server.uri(), "o/r")
         .await
         .unwrap();
     assert_eq!(
@@ -115,11 +118,83 @@ async fn list_files_reports_http_errors_verbatim() {
         .respond_with(ResponseTemplate::new(404).set_body_string("Repository Not Found"))
         .mount(&server)
         .await;
-    let err = list_files(&hf_client(), &server.uri(), "o/r")
+    let err = list_files(&hf_client(&server.uri()), &server.uri(), "o/r")
         .await
         .unwrap_err();
     assert!(
         err.contains("HTTP 404") && err.contains("Repository Not Found"),
         "{err}"
     );
+}
+
+#[tokio::test]
+async fn list_files_follows_the_next_page_link() {
+    let server = MockServer::start().await;
+    let next = format!("<{}/page2>; rel=\"next\"", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/models/o/r/tree/main"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Link", next.as_str())
+                .set_body_json(json!([{"type": "file", "path": "a.gguf", "size": 1}])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/page2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([{"type": "file", "path": "b.gguf", "size": 2}])),
+        )
+        .mount(&server)
+        .await;
+    let files = list_files(&hf_client(&server.uri()), &server.uri(), "o/r")
+        .await
+        .unwrap();
+    assert_eq!(
+        files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(),
+        ["a.gguf", "b.gguf"]
+    );
+}
+
+const CHILD_MARKER: &str = "W101_HF_PROXY_TEST_CHILD";
+const CHILD_TEST: &str = "local_hf::child_lists_files_despite_an_unreachable_env_proxy";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn loopback_base_ignores_the_env_proxy() {
+    let exe = std::env::current_exe().unwrap();
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(exe)
+            .args([CHILD_TEST, "--exact", "--ignored", "--nocapture"])
+            .env(CHILD_MARKER, "1")
+            .env("HTTP_PROXY", "http://127.0.0.1:1")
+            .env("HTTPS_PROXY", "http://127.0.0.1:1")
+            .env("NO_PROXY", "no-proxy.test")
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "{stdout}
+{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[tokio::test]
+#[ignore = "run in a child process by loopback_base_ignores_the_env_proxy"]
+async fn child_lists_files_despite_an_unreachable_env_proxy() {
+    if std::env::var_os(CHILD_MARKER).is_none() {
+        return;
+    }
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let files = list_files(&hf_client(&server.uri()), &server.uri(), "o/r").await;
+    assert_eq!(files, Ok(vec![]));
 }
