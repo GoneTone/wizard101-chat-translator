@@ -20,7 +20,7 @@ use windows_sys::Win32::System::JobObjects::{
 /// 正式的就緒等待上限（大模型載入 VRAM 要一陣子）。
 pub const READY_TIMEOUT: Duration = Duration::from_secs(180);
 
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const TAIL_LINES: usize = 20;
 

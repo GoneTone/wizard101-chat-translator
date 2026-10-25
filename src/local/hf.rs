@@ -38,14 +38,14 @@ pub struct Quant {
 }
 
 /// 一個可下載的主模型量化版本；分檔依序。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Choice {
     pub quant: Quant,
     pub files: Vec<RepoFile>,
 }
 
 /// 一個 MTP（投機解碼）模型檔；`shared` 表示與主模型共用 embedding。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MtpChoice {
     pub quant: Quant,
     pub file: RepoFile,
@@ -53,7 +53,7 @@ pub struct MtpChoice {
 }
 
 /// repo 內可選的主模型與 MTP 檔案。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Catalog {
     pub choices: Vec<Choice>,
     pub mtp: Vec<MtpChoice>,

@@ -83,7 +83,8 @@ pub struct Pick {
     pub required: u64,
 }
 
-fn total_size(c: &Choice) -> u64 {
+/// 一個量化版本所有分檔的大小總和。
+pub fn total_size(c: &Choice) -> u64 {
     c.files.iter().fold(0u64, |a, f| a.saturating_add(f.size))
 }
 

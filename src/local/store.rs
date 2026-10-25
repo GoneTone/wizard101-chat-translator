@@ -20,7 +20,8 @@ pub struct ManifestFile {
 }
 
 impl ManifestFile {
-    fn local_name(&self) -> Option<&str> {
+    /// 本地檔名（repo 路徑的 basename）。
+    pub fn local_name(&self) -> Option<&str> {
         Path::new(&self.path).file_name()?.to_str()
     }
 }
