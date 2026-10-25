@@ -549,7 +549,7 @@ impl App {
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
         let body = rect;
         let rect = self.banners.show(ui, rect, self.frame.alpha());
-        self.frame.fill_body(ui, body, self.banners.update_rect());
+        self.frame.fill_body(ui, body, self.banners.body_hole());
         self.selection.show(
             ui,
             &mut self.list,
