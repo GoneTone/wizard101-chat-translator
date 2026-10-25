@@ -52,16 +52,6 @@ impl LocalClient {
         self.client_for(url).chat(req, cancel).await
     }
 
-    /// 預先載入有開時啟動模型；否則什麼都不做。
-    pub async fn warm_up(&self, label: &str) {
-        let Some(local) = local::get().filter(|l| l.settings().preload) else {
-            return;
-        };
-        if let Err(e) = local.ensure(&self.model_id).await {
-            log(format!("[local] warm-up failed: {label} ({e})"));
-        }
-    }
-
     /// 已下載完成的模型 id；hub 不在時為空。
     pub fn list_models(&self) -> Vec<ModelInfo> {
         local::get().map_or_else(Vec::new, |l| {

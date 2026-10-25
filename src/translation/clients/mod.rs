@@ -129,7 +129,8 @@ impl ChatBackend for Client {
             Self::OpenAiCompat(c) => (&c.http, &c.base_url),
             Self::Claude(c) => (&c.http, &c.base_url),
             Self::Gemini(c) => (&c.http, &c.base_url),
-            Self::Local(c) => return Box::pin(c.warm_up(label)),
+            // 預先載入由 hub 的 apply_config 依序啟動；這裡再啟動會讓模型同時載入
+            Self::Local(_) => return Box::pin(async {}),
         };
         Box::pin(warm_up(http, base_url, label))
     }

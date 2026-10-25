@@ -171,14 +171,10 @@ async fn list_models_returns_only_complete_downloads() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn warm_up_starts_the_model_only_when_preloading() {
+async fn warm_up_launches_nothing_even_when_preloading() {
     let h = hub(false).await;
-    let no_preload: Config =
-        serde_json::from_value(json!({"local_models": {"preload": false}})).expect("config");
-    h.local.apply_config(&no_preload);
+    h.local.apply_config(&Config::default());
+    assert!(h.local.settings().preload);
     local_client("m1").warm_up("test").await;
     assert!(h.ports.lock().unwrap().is_empty());
-    h.local.apply_config(&Config::default());
-    local_client("m1").warm_up("test").await;
-    assert_eq!(h.ports.lock().unwrap().len(), 1);
 }
