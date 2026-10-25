@@ -216,6 +216,16 @@ impl ServiceForm {
         ));
     }
 
+    /// 是否為本地模型服務。
+    pub fn is_local(&self) -> bool {
+        self.provider.key == LOCAL_PROVIDER
+    }
+
+    /// 直接指定模型（精靈下載完成後寫入）。
+    pub fn set_model(&mut self, model: &str) {
+        model.clone_into(&mut self.model);
+    }
+
     pub fn set_name(&mut self, name: &str) {
         name.clone_into(&mut self.name);
     }

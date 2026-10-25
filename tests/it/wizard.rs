@@ -591,3 +591,183 @@ fn wizard_service_step_auto_loads() {
     type_into(&mut h, &tr("field.model"), "claude-x");
     assert_eq!(h.state().env.lists.borrow().len(), 1);
 }
+
+// --- 本地模型一鍵安裝 ---
+
+mod local_install {
+    use super::*;
+    use wizard101_chat_translator::local::catalog::RECOMMENDED;
+    use wizard101_chat_translator::local::engine::{Asset, Build, EngineInstall, Variant};
+    use wizard101_chat_translator::local::fit::{Fit, Pick};
+    use wizard101_chat_translator::local::gguf::ModelMeta;
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
+    use wizard101_chat_translator::local::hf::{Catalog, Choice, Quant, RepoFile};
+    use wizard101_chat_translator::local::store::{Installed, Manifest, model_id};
+    use wizard101_chat_translator::local::{Command, EngineState, RepoInfo, RepoState, Snapshot};
+
+    const G: u64 = 1 << 30;
+    const QUANT: &str = "Q4_K_M";
+
+    fn repo_info() -> RepoInfo {
+        let choice = Choice {
+            quant: Quant {
+                label: QUANT.into(),
+                bits: Some(4),
+            },
+            files: vec![RepoFile {
+                path: "m.gguf".into(),
+                size: 2 * G,
+                sha256: None,
+            }],
+        };
+        RepoInfo {
+            catalog: Catalog {
+                choices: vec![choice],
+                mtp: vec![],
+            },
+            meta: ModelMeta::default(),
+            fits: vec![(3 * G, Some(Fit::Smooth))],
+            mtp_required: vec![],
+            auto: Some(Pick {
+                choice: 0,
+                mtp: None,
+                fit: Fit::Smooth,
+                required: 3 * G,
+            }),
+        }
+    }
+
+    /// 六個推薦都查好、硬體量得到；引擎已就緒。
+    fn ready_snapshot() -> Snapshot {
+        let mut s = Snapshot {
+            engine: EngineState::Ready(EngineInstall {
+                build: "b1".into(),
+                variant: Variant::Vulkan,
+            }),
+            hardware: Hardware {
+                gpu: Some(Gpu {
+                    name: "t".into(),
+                    vendor: 0,
+                    kind: GpuKind::Discrete,
+                }),
+                vram_total: 24 * G,
+                vram_free: 24 * G,
+                ram_total: 32 * G,
+                ram_free: 32 * G,
+            },
+            ..Default::default()
+        };
+        for r in RECOMMENDED {
+            s.repos.insert(r.repo.into(), RepoState::Ready(repo_info()));
+        }
+        s
+    }
+
+    fn set_snapshot(h: &mut WizardHarness, s: Snapshot) {
+        *h.state().env.snapshot.borrow_mut() = s;
+        run(h);
+    }
+
+    fn on_card(s: Snapshot) -> WizardHarness {
+        let mut h = on_service_step(blank_cfg());
+        *h.state().env.snapshot.borrow_mut() = s;
+        pick_provider(&mut h, "provider.local");
+        h
+    }
+
+    fn default_id() -> String {
+        model_id("google/gemma-4-12B-it-qat-q4_0-gguf", QUANT)
+    }
+
+    fn done_model() -> Installed {
+        Installed {
+            id: default_id(),
+            manifest: Manifest {
+                repo: "google/gemma-4-12B-it-qat-q4_0-gguf".into(),
+                quant: QUANT.into(),
+                files: vec![],
+                mtp: None,
+                moe: false,
+                has_builtin_mtp: false,
+                required: 0,
+            },
+            complete: true,
+        }
+    }
+
+    fn sent(h: &WizardHarness) -> Vec<String> {
+        let commands = h.state().env.commands.borrow();
+        commands.iter().map(|c| format!("{c:?}")).collect()
+    }
+
+    #[test]
+    fn picking_local_shows_the_confirmation_card_with_sizes() {
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Missing;
+        s.builds = Some(Ok(vec![Build {
+            tag: "b1".into(),
+            published: String::new(),
+            variants: vec![(
+                Variant::Vulkan,
+                vec![Asset {
+                    name: "a.zip".into(),
+                    url: String::new(),
+                    size: G / 2,
+                }],
+            )],
+        }]));
+        let h = on_card(s);
+        assert!(has_label(&h, "Gemma 4 12B QAT · Q4_K_M"));
+        assert!(has_label(&h, "Model: 2.0 GB"));
+        assert!(has_label(&h, "Engine (vulkan): 0.5 GB"));
+        assert!(has_label(&h, "Total download: 2.5 GB"));
+        let sent = sent(&h);
+        assert!(sent.iter().any(|c| c.contains("RefreshHardware")));
+        assert!(sent.iter().any(|c| c.contains("InstallEngine")));
+        assert!(!enabled(&h, &tr("local.wizard.download")));
+    }
+
+    #[test]
+    fn next_is_disabled_until_the_download_completes() {
+        let mut h = on_card(ready_snapshot());
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let sent = sent(&h);
+        assert!(
+            sent.iter()
+                .any(|c| c.starts_with("Download") && c.contains("gemma-4-12B"))
+        );
+        assert!(!next_enabled(&h));
+
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        next(&mut h);
+        click(&mut h, Role::Button, &tr("button.finish"));
+        let cfg = finished(&h).expect("wizard finished");
+        assert_eq!(cfg["services"][0]["model"], json!(default_id()));
+    }
+
+    #[test]
+    fn change_model_opens_the_shared_dialog_in_select_mode() {
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.change"));
+        assert!(
+            h.query_all_by_role_and_label(Role::Button, &tr("local.dialog.select"))
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn cancel_download_keeps_progress_for_later() {
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        click(&mut h, Role::Button, &tr("local.wizard.cancel"));
+        let want = format!("{:?}", Command::CancelDownload(default_id()));
+        assert!(sent(&h).contains(&want));
+        assert!(has_label(&h, &tr("local.wizard.cancelled_hint")));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+    }
+}

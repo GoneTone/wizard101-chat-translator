@@ -433,7 +433,7 @@ impl DownloadDialog {
     }
 }
 
-fn memory_key(kind: MemoryKind) -> &'static str {
+pub(super) fn memory_key(kind: MemoryKind) -> &'static str {
     match kind {
         MemoryKind::Vram => "local.memory.vram",
         MemoryKind::VramPlusRam => "local.memory.vram_ram",

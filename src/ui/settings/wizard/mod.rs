@@ -2,11 +2,13 @@
 //!
 //! 第二步還沒有服務可編輯時先出服務商卡片，選過之後才建出表單：`form` 是 `None` 就是還在卡片。
 
+mod local_step;
 mod steps;
 
 use eframe::egui::{Align, Id, Layout, Rect, Response, Stroke, Ui, UiBuilder, pos2, vec2};
 use serde_json::Value;
 
+use self::local_step::LocalInstall;
 use super::env::{SettingsEnv, SettingsEvent};
 use super::hotkeys::HotkeyEditor;
 use super::service_draft::{ServiceDraft, id_of};
@@ -73,6 +75,8 @@ pub struct Wizard {
     step: Step,
     /// 第二步編輯中的服務；`None` 是還在選服務商。
     form: Option<Box<ServiceForm>>,
+    /// 表單是本地服務時取代一般表單的一鍵安裝。
+    local: Option<LocalInstall>,
     /// 表單上疊著服務商選擇（按了〔更改〕）。
     picking: bool,
     /// 使用者明示略過測試；改任何 API 欄位就作廢。
@@ -92,6 +96,7 @@ impl Wizard {
         let mut wizard = Self {
             step: Step::Language,
             form: None,
+            local: None,
             picking: false,
             skip_test: false,
             target_language: text_setting(&cfg, "target_language"),
@@ -178,6 +183,7 @@ impl Wizard {
     fn pick_provider(&mut self, key: &str) {
         let services = ServiceDraft::from_config(&self.cfg).services;
         let service = new_service(key, &services);
+        self.local = None;
         self.form = Some(Box::new(ServiceForm::new(service, services)));
         log(format!("[ui] wizard provider picked: {key}"));
     }
@@ -188,7 +194,13 @@ impl Wizard {
             None => self.step != Step::Service,
             Some(form) => {
                 let errors = form.errors();
-                can_advance(self.step, form.test_passed() || self.skip_test, &errors)
+                // 本地服務不用測試連線：模型下載完成就算數
+                let passed = if form.is_local() {
+                    self.local.as_ref().is_some_and(LocalInstall::is_done)
+                } else {
+                    form.test_passed() || self.skip_test
+                };
+                can_advance(self.step, passed, &errors)
             }
         }
     }
@@ -332,7 +344,11 @@ impl Wizard {
             )
             .inner;
         let index = self.step.index();
-        if back && can_back {
+        if back && can_back && self.step == Step::Service && self.local.is_some() {
+            log("[ui] wizard local install back to provider selection");
+            self.local = None;
+            self.form = None;
+        } else if back && can_back {
             self.go_to(Step::ALL[index - 1], env);
         } else if next && can_next {
             if last {

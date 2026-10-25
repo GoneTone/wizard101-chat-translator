@@ -5,6 +5,7 @@ use eframe::egui::{
     Response, RichText, Role, Sense, Stroke, TextStyle, Ui, Vec2, WidgetInfo, pos2,
 };
 
+use super::local_step::InstallState;
 use super::{Step, Wizard, WizardAction};
 use crate::config::app_name;
 use crate::i18n::{current_language, language_name, t};
@@ -138,6 +139,14 @@ impl Wizard {
             }
             return;
         };
+        let snapshot = env.local_snapshot();
+        if form.is_local() {
+            let install = self.local.get_or_insert_with(Default::default);
+            if let InstallState::Done(id) = install.ui(ui, env, &snapshot) {
+                form.set_model(&id);
+            }
+            return;
+        }
         // 填設定與測試連線要等表單真的畫出來才說得通，選服務商之前不提
         ui.add(
             Label::new(
@@ -148,7 +157,6 @@ impl Wizard {
             .wrap(),
         );
         let target = language_name(&current_language());
-        let snapshot = env.local_snapshot();
         let response = card(ui, |ui| {
             Frame::new()
                 .inner_margin(Margin::symmetric(16, 14))
