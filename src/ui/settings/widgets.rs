@@ -571,17 +571,18 @@ fn lighter(color: Color32) -> Color32 {
 /// 自己畫的按鈕：高 `CONTROL_HEIGHT`、內容水平垂直置中；egui 的 `Button` 會依外層 Layout 對齊內容，
 /// 在 `Align::Max`／`Align::Min` 的列裡字會貼底或貼頂。
 ///
-/// `fill` 是（底色, 字色），`None` 用控制項的樣式（hover、按下跟 `theme::apply` 的 widgets 一致）；
+/// `fill` 是實心底色（字用粗體），`None` 用控制項的樣式（hover、按下跟 `theme::apply` 的 widgets 一致）；
 /// 無障礙名稱只取文字。
 fn styled_button(
     ui: &mut Ui,
     text: &str,
-    fill: Option<(Color32, Color32)>,
+    fill: Option<Color32>,
+    ink: Color32,
     glyph: Option<Glyph>,
 ) -> Response {
-    let (ink, font) = match fill {
-        Some((_, ink)) => (ink, theme::bold(theme::CONTROL_TEXT_SIZE)),
-        None => (theme::TEXT, FontId::proportional(theme::CONTROL_TEXT_SIZE)),
+    let font = match fill {
+        Some(_) => theme::bold(theme::CONTROL_TEXT_SIZE),
+        None => FontId::proportional(theme::CONTROL_TEXT_SIZE),
     };
     let painter = ui.painter();
     let label = painter.layout_no_wrap(text.to_owned(), font, ink);
@@ -600,10 +601,10 @@ fn styled_button(
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), text));
     if ui.is_rect_visible(rect) {
         let (bg, border) = match fill {
-            Some((fill, _)) if response.hovered() || response.is_pointer_button_down_on() => {
+            Some(fill) if response.hovered() || response.is_pointer_button_down_on() => {
                 (lighter(fill), lighter(fill))
             }
-            Some((fill, _)) => (fill, fill),
+            Some(fill) => (fill, fill),
             None => {
                 let visuals = ui.style().interact(&response);
                 (visuals.bg_fill, visuals.bg_stroke.color)
@@ -641,7 +642,7 @@ fn styled_button(
 
 /// 主要按鈕：`ACCENT` 底、粗體深色字。
 pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, Some((theme::ACCENT, theme::ON_ACCENT)), None)
+    styled_button(ui, text, Some(theme::ACCENT), theme::ON_ACCENT, None)
 }
 
 /// 主要按鈕，文字後接一個圖示（如〔下一步〕的箭頭）；無障礙名稱只取文字。
@@ -649,24 +650,30 @@ pub fn primary_icon_button(ui: &mut Ui, text: &str, glyph: char) -> Response {
     styled_button(
         ui,
         text,
-        Some((theme::ACCENT, theme::ON_ACCENT)),
+        Some(theme::ACCENT),
+        theme::ON_ACCENT,
         Some(Glyph::Trailing(glyph)),
     )
 }
 
 /// 次要按鈕：控制項底色加外框。
 pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, None, None)
+    styled_button(ui, text, None, theme::TEXT, None)
 }
 
 /// 次要按鈕，文字前有一個圖示；無障礙名稱只取文字。
 pub fn secondary_icon_button(ui: &mut Ui, glyph: char, text: &str) -> Response {
-    styled_button(ui, text, None, Some(Glyph::Leading(glyph)))
+    styled_button(ui, text, None, theme::TEXT, Some(Glyph::Leading(glyph)))
 }
 
 /// 危險操作（刪除確認）按鈕：`DANGER` 底。
 pub fn danger_button(ui: &mut Ui, text: &str) -> Response {
-    styled_button(ui, text, Some((theme::DANGER, theme::ON_DANGER)), None)
+    styled_button(ui, text, Some(theme::DANGER), theme::ON_DANGER, None)
+}
+
+/// 次要的危險按鈕（清單卡片上的〔刪除〕）：同次要按鈕，字用 `DANGER`。
+pub fn danger_secondary_button(ui: &mut Ui, text: &str) -> Response {
+    styled_button(ui, text, None, theme::DANGER, None)
 }
 
 /// 占滿寬度、高 `height` 的虛線框按鈕（如〔＋ 新增翻譯服務〕）：平時透明，hover／按下時同控制項的樣式。
@@ -708,7 +715,26 @@ pub fn dashed_button(ui: &mut Ui, text: &str, height: f32) -> Response {
 
 /// 只有圖示的方形按鈕；`tooltip` 同時是無障礙名稱。
 pub fn icon_button(ui: &mut Ui, glyph: char, tooltip: &str) -> Response {
-    icon_button_with(ui, glyph, tooltip, theme::CONTROL_HEIGHT, theme::CONTROL_BG)
+    icon_button_with(
+        ui,
+        glyph,
+        tooltip,
+        theme::CONTROL_HEIGHT,
+        theme::CONTROL_BG,
+        (theme::TEXT_SECONDARY, theme::TEXT),
+    )
+}
+
+/// 危險操作的圖示按鈕（如術語表刪列的 ✕）：圖示用 `DANGER`。
+pub fn danger_icon_button(ui: &mut Ui, glyph: char, tooltip: &str) -> Response {
+    icon_button_with(
+        ui,
+        glyph,
+        tooltip,
+        theme::CONTROL_HEIGHT,
+        theme::CONTROL_BG,
+        (theme::DANGER, lighter(theme::DANGER)),
+    )
 }
 
 /// 框內圖示按鈕與控制項外框的間距。
@@ -722,15 +748,18 @@ pub fn inline_icon_button(ui: &mut Ui, glyph: char, tooltip: &str) -> Response {
         tooltip,
         theme::CONTROL_HEIGHT - 2.0 * INLINE_ICON_INSET,
         theme::CONTROL_BORDER,
+        (theme::TEXT_SECONDARY, theme::TEXT),
     )
 }
 
+/// `ink` 是（平時, hover）的圖示色。
 fn icon_button_with(
     ui: &mut Ui,
     glyph: char,
     tooltip: &str,
     size: f32,
     hover_fill: Color32,
+    ink: (Color32, Color32),
 ) -> Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(size), Sense::click());
     response.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), tooltip));
@@ -740,11 +769,7 @@ fn icon_button_with(
             ui.painter()
                 .rect_filled(rect, theme::CONTROL_RADIUS, hover_fill);
         }
-        let color = if hovered {
-            theme::TEXT
-        } else {
-            theme::TEXT_SECONDARY
-        };
+        let color = if hovered { ink.1 } else { ink.0 };
         ui.painter().text(
             rect.center(),
             Align2::CENTER_CENTER,

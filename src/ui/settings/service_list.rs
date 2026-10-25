@@ -12,8 +12,8 @@ use super::service_draft::{ServiceDraft, id_of};
 use super::service_form::ServiceForm;
 use super::theme;
 use super::widgets::{
-    callout, card, collapsible, combo_box, dashed_button, focus_ring, list_card, name_by_row,
-    primary_button, secondary_button, setting_row,
+    callout, card, collapsible, combo_box, danger_secondary_button, dashed_button, focus_ring,
+    list_card, name_by_row, primary_button, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{ServiceSlot, describe, new_service, str_field};
@@ -191,7 +191,7 @@ impl ServicePane {
                 let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
                 let delete = ui
                     .add_enabled_ui(can_delete, |ui| {
-                        secondary_button(ui, &t("button.delete", &[]))
+                        danger_secondary_button(ui, &t("button.delete", &[]))
                     })
                     .inner
                     .clicked();

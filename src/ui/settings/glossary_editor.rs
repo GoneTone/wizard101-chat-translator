@@ -6,8 +6,9 @@ use super::fields::text_field;
 use super::glossary_draft::{builtin_of, builtin_offered};
 use super::theme::{self, icon};
 use super::widgets::{
-    LazyRows, card, collapsible, dashed_button, fixed_cell, icon_button, optional_combo, rich,
-    right_aligned, right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
+    LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, optional_combo,
+    rich, right_aligned, right_aligned_width, secondary_button, secondary_icon_button,
+    setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{builtin_codes, builtin_creators};
@@ -233,7 +234,7 @@ impl GlossaryEditor {
                                             text_field(ui, &mut entry.target).labelled_by(target);
                                         });
                                     });
-                                    if icon_button(ui, icon::CLOSE, &delete).clicked() {
+                                    if danger_icon_button(ui, icon::CLOSE, &delete).clicked() {
                                         removed = Some(i);
                                     }
                                 });
