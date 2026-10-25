@@ -134,3 +134,23 @@ async fn timeout_kills_process_and_reports_tail() {
     assert!(err.contains("did not become ready"), "{err}");
     assert!(err.contains("unknown model architecture"), "{err}");
 }
+
+#[test]
+fn real_launcher_captures_tail_of_a_failing_process() {
+    use std::time::Instant;
+    use wizard101_chat_translator::local::server::{Launcher, RealLauncher};
+    // 測試執行檔本身不認得 llama 參數：印錯誤到 stderr 後以非零碼結束。
+    let mut p = plan(Mtp::Off, 0);
+    p.exe = std::env::current_exe().unwrap();
+    let mut proc = RealLauncher.launch(&p, 1).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let code = loop {
+        if let Some(c) = proc.exited() {
+            break c;
+        }
+        assert!(Instant::now() < deadline, "process did not exit");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_ne!(code, 0);
+    assert!(!proc.tail().is_empty(), "tail empty");
+}

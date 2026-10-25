@@ -9,6 +9,7 @@ use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -79,7 +80,7 @@ pub fn free_port() -> io::Result<u16> {
 
 /// 執行中的 llama-server 子程序。
 pub trait Process: Send {
-    /// 已結束則回傳結束碼（被訊號終止回 -1）。
+    /// 已結束則回傳結束碼。
     fn exited(&mut self) -> Option<i32>;
     fn kill(&mut self);
     /// 最近輸出的幾行，錯誤訊息用。
@@ -97,19 +98,36 @@ pub struct RealLauncher;
 struct RealProcess {
     child: Child,
     tail: Arc<Mutex<VecDeque<String>>>,
+    readers: Vec<JoinHandle<()>>,
+}
+
+impl RealProcess {
+    /// 程序已結束、管線到 EOF，等讀取執行緒把最後幾行寫進 `tail`。
+    fn drain_readers(&mut self) {
+        for r in self.readers.drain(..) {
+            let _ = r.join();
+        }
+    }
+}
+
+impl Drop for RealProcess {
+    fn drop(&mut self) {
+        if matches!(self.child.try_wait(), Ok(None)) {
+            self.kill();
+        }
+    }
 }
 
 impl Process for RealProcess {
     fn exited(&mut self) -> Option<i32> {
-        self.child
-            .try_wait()
-            .ok()
-            .flatten()
-            .map(|s| s.code().unwrap_or(-1))
+        let code = self.child.try_wait().ok().flatten()?.code().unwrap_or(-1);
+        self.drain_readers();
+        Some(code)
     }
     fn kill(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.drain_readers();
     }
     fn tail(&self) -> Vec<String> {
         self.tail.lock().unwrap().iter().cloned().collect()
@@ -132,13 +150,18 @@ impl Launcher for RealLauncher {
         ));
         assign_to_job(&child, &plan.model_id);
         let tail = Arc::new(Mutex::new(VecDeque::new()));
+        let mut readers = Vec::new();
         if let Some(out) = child.stdout.take() {
-            pump_lines(out, plan.model_id.clone(), tail.clone());
+            readers.push(pump_lines(out, plan.model_id.clone(), tail.clone()));
         }
         if let Some(err) = child.stderr.take() {
-            pump_lines(err, plan.model_id.clone(), tail.clone());
+            readers.push(pump_lines(err, plan.model_id.clone(), tail.clone()));
         }
-        Ok(Box::new(RealProcess { child, tail }))
+        Ok(Box::new(RealProcess {
+            child,
+            tail,
+            readers,
+        }))
     }
 }
 
@@ -147,7 +170,7 @@ fn pump_lines(
     pipe: impl io::Read + Send + 'static,
     model_id: String,
     tail: Arc<Mutex<VecDeque<String>>>,
-) {
+) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for raw in BufReader::new(pipe).split(b'\n') {
             let Ok(raw) = raw else { break };
@@ -159,7 +182,7 @@ fn pump_lines(
             }
             t.push_back(line);
         }
-    });
+    })
 }
 
 /// 全程序共用的 Job Object；handle 刻意不關，程式結束時系統關閉它，順帶殺掉所有子程序。
