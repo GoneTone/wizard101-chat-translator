@@ -64,6 +64,7 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
 - 依硬體自動挑版本：有獨立／內建 GPU → Vulkan 版（NVIDIA／AMD／Intel 都能跑、檔案小）；沒有可用 GPU → CPU 版。CUDA 版不自動選，在管理頁讓 NVIDIA 使用者手動切換（下載大很多）。下載前認 GPU 廠牌可以用已有的 `wgpu` 列舉 adapter（`vendor` 與 `device_type`），不需新增相依。
 - 版本：追 GitHub 上最新的 `bNNNNN` build（穩定版 tag 如 `v0.7.0` 沒有附 Windows 執行檔，編好的檔案只在預發佈的 build 裡）。首次下載預設取當下最新的 build；之後管理頁顯示目前 build 與最新 build，有新版就提示，由使用者自己點更新，不自動換。（使用者決定）
 - **使用者可以自選要下載哪個 build**（使用者決定）：管理頁列出近期的 build（GitHub releases API，只列有對應 Windows 資產的；列多少筆由實作決定），選一個安裝，可以往前退到舊 build。變體（Vulkan／CUDA／CPU）是另一個選項，預設依硬體自動挑，也可以手動改。
+- **最低支援版本**：程式內常數 `MIN_BUILD = b11871`（2026-10-25 的最新 build），比它舊的 build 不列出、不可安裝。本程式依賴的參數（`--sleep-idle-seconds`、`--spec-type draft-mtp`、預設開啟的 `--fit`）與推薦模型的架構都需要近期版本；之後依賴更新的參數或模型時一併調高。llama.cpp 日後改參數名稱造成新版啟動失敗，由下一條的自動退回與「顯示 llama.cpp 原文錯誤（exit code 與最後幾行輸出）」處理。（我的決定，回應版本相容的提醒）
 - 更新時保留舊版資料夾，新版第一次成功啟動（`/health` 就緒）後才刪掉舊版；新版啟動失敗就自動退回舊版並記 log，避免使用者卡在一個壞掉的 build。（我的決定）
 - 子程序生命週期：
   - 以 Windows Job Object（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）綁住，本程式結束或當掉時系統一併結束子程序。

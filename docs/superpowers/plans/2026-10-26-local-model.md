@@ -34,6 +34,7 @@
 
 ## Review Focus
 
+0. **使用者自選的 llama.cpp 版本不認得本程式帶的參數**：低於 `MIN_BUILD` 的不列出；新版改了參數名稱導致啟動失敗時，自動退回上一版並顯示 llama.cpp 原文錯誤 —— Task 7／9／10 有測試。
 1. **HF 轉址到 CDN 後才回 `Range` 結果**：下載中斷再按「繼續下載」，伺服器若回 200 而非 206，必須從頭寫、不能把整檔接在 `.part` 後面 —— Task 6 有測試。
 2. **llama-server 在 `/health` 就緒前就結束**（防毒擋下、模型架構不支援、VRAM 不夠）：使用者要看到含 exit code 與最後幾行輸出的錯誤，不是無限「載入中」 —— Task 9 有測試。
 3. **使用者在設定視窗刪掉正在跑的模型**：子程序要先停掉才刪檔（Windows 檔案鎖），服務標成「模型不存在」 —— Task 8／13 有測試。
@@ -330,7 +331,8 @@ const G: u64 = 1 << 30;
   - `#[derive(Clone, Debug, PartialEq, Eq, Hash)] pub enum Variant { Vulkan, Cpu, Cuda(String) }`（`Cuda` 帶版本如 `"13.4"`）；`pub fn auto_variant(gpu: Option<&Gpu>) -> Variant`（有 GPU → `Vulkan`，否則 `Cpu`）
   - `#[derive(Clone, Debug, PartialEq)] pub struct Asset { pub name: String, pub url: String, pub size: u64 }`
   - `#[derive(Clone, Debug, PartialEq)] pub struct Build { pub tag: String, pub published: String, pub variants: Vec<(Variant, Vec<Asset>)> }` —— `Cuda` 的 asset 清單含 `cudart-llama-bin-win-cuda-{ver}-x64.zip`。
-  - `pub fn parse_releases(json: &Value) -> Vec<Build>` —— 只收 tag 符合 `^b\d+$`、且至少有一個 `^llama-b\d+-bin-win-(vulkan|cpu|cuda-[\d.]+)-x64\.zip$` 的 release；依 API 順序（新到舊）。
+  - `pub const MIN_BUILD: u32 = 11871;`（spec 的最低支援版本 `b11871`）
+  - `pub fn parse_releases(json: &Value) -> Vec<Build>` —— 只收 tag 符合 `^b(\d+)$` 且數字 ≥ `MIN_BUILD`、且至少有一個 `^llama-b\d+-bin-win-(vulkan|cpu|cuda-[\d.]+)-x64\.zip$` 的 release；依 API 順序（新到舊）。`install` 遇到低於 `MIN_BUILD` 的 tag 直接回錯誤。
   - `pub async fn list_builds(http: &reqwest::Client, url: &str) -> Result<Vec<Build>, String>`（帶 `Accept: application/vnd.github+json` 與 User-Agent，同 `updater::fetch_latest_release`）
   - `#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)] pub struct EngineInstall { pub build: String, pub variant: Variant }`（`Variant` 序列化成 `"vulkan"`／`"cpu"`／`"cuda-13.4"`）
   - `pub struct ActiveFile { pub current: Option<EngineInstall>, pub previous: Option<EngineInstall> }`，存在 `<root>/llama/active.json`
@@ -345,6 +347,7 @@ const G: u64 = 1 << 30;
 
 ```rust
 #[test] fn parse_releases_keeps_windows_builds_only() { /* fixture：b11871（含 vulkan/cpu/cuda-13.4/cudart 13.4）與 v0.7.0（只有 source）→ 只有 b11871，Cuda("13.4") 的 assets 兩個 */ }
+#[test] fn builds_older_than_the_minimum_are_hidden() { /* fixture 再加 b11000（有 Windows 資產）→ 結果不含 b11000 */ }
 #[test] fn rollback_restores_the_previous_build() { /* tempdir：activate(A)、confirm、activate(B)；rollback → current A、B 資料夾刪除 */ }
 #[test] fn confirm_deletes_the_previous_build() { /* activate(A)、activate(B)、confirm → A 資料夾不存在、previous None */ }
 #[tokio::test] async fn install_extracts_the_zip() { /* 測試內用 zip crate 造一個含 bin/llama-server.exe 的 zip，wiremock 提供 → server_exe(engine_dir) 存在 */ }
