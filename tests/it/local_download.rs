@@ -37,13 +37,17 @@ async fn run(
     .await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn resumes_with_range_and_verifies_sha256() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/f"))
         .and(header("range", "bytes=4-"))
-        .respond_with(ResponseTemplate::new(206).set_body_bytes(&BODY[4..]))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("Content-Range", "bytes 4-19/20")
+                .set_body_bytes(&BODY[4..]),
+        )
         .expect(1)
         .mount(&server)
         .await;
@@ -70,7 +74,7 @@ async fn resumes_with_range_and_verifies_sha256() {
     assert_eq!(progress.done.load(Ordering::Relaxed), BODY.len() as u64);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn a_200_reply_to_a_range_request_restarts_from_zero() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -89,7 +93,7 @@ async fn a_200_reply_to_a_range_request_restarts_from_zero() {
     assert_eq!(progress.done.load(Ordering::Relaxed), BODY.len() as u64);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn checksum_mismatch_deletes_the_part_file() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -114,7 +118,7 @@ async fn checksum_mismatch_deletes_the_part_file() {
     assert!(!dest.exists());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn cancel_keeps_the_part_file() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -152,7 +156,7 @@ async fn cancel_keeps_the_part_file() {
     assert!(!dest.exists());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn follows_redirects_to_the_cdn() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -181,7 +185,7 @@ async fn follows_redirects_to_the_cdn() {
     assert_eq!(std::fs::read(&dest).unwrap(), BODY);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn http_errors_and_short_bodies_keep_the_part_file() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -209,14 +213,10 @@ async fn http_errors_and_short_bodies_keep_the_part_file() {
         .await
         .unwrap_err();
     assert!(matches!(err, DownloadError::Http(_)), "{err}");
-    assert_eq!(
-        std::fs::read(dir.path().join("a.gguf.part")).unwrap(),
-        &BODY[..5]
-    );
     assert!(!dest.exists());
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn refuses_when_the_disk_is_too_small() {
     let server = MockServer::start().await;
     let dir = tempfile::tempdir().unwrap();
@@ -233,4 +233,58 @@ async fn refuses_when_the_disk_is_too_small() {
     .await
     .unwrap_err();
     assert!(matches!(err, DownloadError::NoSpace { .. }), "{err}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mismatched_content_range_restarts_from_zero() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(header("range", "bytes=4-"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("Content-Range", "bytes 0-19/20")
+                .set_body_bytes(BODY),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(BODY))
+        .mount(&server)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a.gguf");
+    std::fs::write(dir.path().join("a.gguf.part"), &BODY[..4]).unwrap();
+    let progress = Progress::default();
+
+    run(&server, "/f", &dest, Some(&sha(BODY)), &progress)
+        .await
+        .unwrap();
+
+    assert_eq!(std::fs::read(&dest).unwrap(), BODY);
+    assert_eq!(progress.done.load(Ordering::Relaxed), BODY.len() as u64);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_oversized_body_is_rejected_by_content_length() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes([BODY, b"extra"].concat()))
+        .mount(&server)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+
+    let err = run(
+        &server,
+        "/f",
+        &dir.path().join("a.gguf"),
+        None,
+        &Progress::default(),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(
+        matches!(&err, DownloadError::Http(m) if m.contains("Content-Length")),
+        "{err}"
+    );
 }

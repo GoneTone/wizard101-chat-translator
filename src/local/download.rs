@@ -171,27 +171,42 @@ async fn fetch(
     progress: &Progress,
     cancel: &CancellationToken,
 ) -> Result<(), DownloadError> {
-    let mut request = http.get(url);
-    if existing > 0 {
-        request = request.header("Range", format!("bytes={existing}-"));
+    let mut response = send(http, url, existing, cancel).await?;
+    let mut start = existing;
+    if response.status() == reqwest::StatusCode::PARTIAL_CONTENT
+        && content_range_start(&response) != Some(existing)
+    {
+        log(format!(
+            "[local] unexpected Content-Range {:?} for resume_from={existing}; restarting from zero",
+            response.headers().get(reqwest::header::CONTENT_RANGE)
+        ));
+        response = send(http, url, 0, cancel).await?;
+        start = 0;
     }
-    let response = tokio::select! {
-        r = request.send() => r.map_err(|e| DownloadError::Http(error_chain(e)))?,
-        () = cancel.cancelled() => return Err(DownloadError::Cancelled),
-    };
     let status = response.status();
-    let mut received = existing;
     if status == reqwest::StatusCode::OK {
-        file.set_len(0)?;
-        file.seek(SeekFrom::Start(0))?;
-        received = 0;
+        tokio::task::block_in_place(|| {
+            file.set_len(0)?;
+            file.seek(SeekFrom::Start(0)).map(|_| ())
+        })?;
+        start = 0;
         progress.done.store(0, Ordering::Relaxed);
-    } else if status != reqwest::StatusCode::PARTIAL_CONTENT {
+    } else if status != reqwest::StatusCode::PARTIAL_CONTENT || start != existing {
         let body = response.text().await.unwrap_or_default();
         let body: String = body.chars().take(BODY_PREVIEW_CHARS).collect();
         return Err(DownloadError::Http(format!("HTTP {status}: {body}")));
     }
 
+    let expected = size - start;
+    if let Some(len) = response.content_length()
+        && len != expected
+    {
+        return Err(DownloadError::Http(format!(
+            "unexpected Content-Length: server announced {len} bytes, expected {expected}"
+        )));
+    }
+
+    let mut received = start;
     let mut stream = response.bytes_stream();
     loop {
         let chunk = tokio::select! {
@@ -200,8 +215,13 @@ async fn fetch(
         };
         match chunk {
             Some(Ok(bytes)) => {
-                file.write_all(&bytes)?;
                 received += bytes.len() as u64;
+                if received > size {
+                    return Err(DownloadError::Http(format!(
+                        "server sent more than the expected {size} bytes"
+                    )));
+                }
+                tokio::task::block_in_place(|| file.write_all(&bytes))?;
                 progress
                     .done
                     .fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -216,6 +236,37 @@ async fn fetch(
         )));
     }
     Ok(())
+}
+
+async fn send(
+    http: &reqwest::Client,
+    url: &str,
+    from: u64,
+    cancel: &CancellationToken,
+) -> Result<reqwest::Response, DownloadError> {
+    let mut request = http.get(url);
+    if from > 0 {
+        request = request.header("Range", format!("bytes={from}-"));
+    }
+    tokio::select! {
+        r = request.send() => r.map_err(|e| DownloadError::Http(error_chain(e))),
+        () = cancel.cancelled() => Err(DownloadError::Cancelled),
+    }
+}
+
+/// `Content-Range: bytes START-END/TOTAL` 的 START。
+fn content_range_start(response: &reqwest::Response) -> Option<u64> {
+    let value = response
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)?
+        .to_str()
+        .ok()?;
+    value
+        .strip_prefix("bytes ")?
+        .split('-')
+        .next()?
+        .parse()
+        .ok()
 }
 
 fn part_path(dest: &Path) -> PathBuf {
