@@ -798,4 +798,113 @@ mod local_install {
             .count();
         assert_eq!(installs, 1);
     }
+
+    fn download_count(h: &WizardHarness) -> usize {
+        sent(h).iter().filter(|c| c.starts_with("Download")).count()
+    }
+
+    #[test]
+    fn an_existing_complete_model_skips_the_download() {
+        let mut service = new_service("local", &[]);
+        service["model"] = json!(default_id());
+        let cfg = cfg_with(vec![service.clone()], Some(&service));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        let mut h = open(cfg);
+        *h.state().env.snapshot.borrow_mut() = s;
+        next(&mut h);
+        assert!(next_enabled(&h));
+        assert_eq!(download_count(&h), 0);
+        next(&mut h);
+        click(&mut h, Role::Button, &tr("button.finish"));
+        let cfg = finished(&h).expect("wizard finished");
+        assert_eq!(cfg["services"][0]["model"], json!(default_id()));
+    }
+
+    #[test]
+    fn going_back_then_choosing_a_cloud_provider_leaves_nothing_local() {
+        let mut h = on_card(ready_snapshot());
+        back(&mut h);
+        pick_provider(&mut h, "provider.claude");
+        type_into(&mut h, &tr("field.api_key"), "sk-ant");
+        type_into(&mut h, &tr("field.model"), "claude-x");
+        let cfg = walk_to_finish(&mut h);
+        let services = cfg["services"].as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0]["provider"], json!("claude"));
+    }
+
+    #[test]
+    fn re_entering_does_not_repeat_entry_commands_or_the_download() {
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let mut s = ready_snapshot();
+        s.downloads.insert(
+            default_id(),
+            wizard101_chat_translator::local::DownloadState::Running {
+                done: G,
+                total: 2 * G,
+            },
+        );
+        set_snapshot(&mut h, s);
+        back(&mut h);
+        pick_provider(&mut h, "provider.local");
+        assert!(has(&h, Role::Button, &tr("local.wizard.cancel")));
+        let refreshes = sent(&h)
+            .iter()
+            .filter(|c| c.contains("RefreshHardware"))
+            .count();
+        assert_eq!(refreshes, 1);
+        assert_eq!(download_count(&h), 1);
+    }
+
+    #[test]
+    fn a_stale_failure_is_hidden_until_the_hub_replaces_it() {
+        use wizard101_chat_translator::local::DownloadState;
+        let failed = |s: &mut Snapshot| {
+            s.downloads
+                .insert(default_id(), DownloadState::Failed("boom".into()));
+        };
+        let mut s = ready_snapshot();
+        failed(&mut s);
+        let mut h = on_card(s);
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        assert!(!has_label(&h, "boom"));
+        let mut s = ready_snapshot();
+        s.downloads
+            .insert(default_id(), DownloadState::Running { done: 0, total: 0 });
+        set_snapshot(&mut h, s);
+        let mut s = ready_snapshot();
+        failed(&mut s);
+        set_snapshot(&mut h, s);
+        assert!(has_label(&h, "boom"));
+    }
+
+    #[test]
+    fn a_custom_repo_selection_is_tracked_with_its_own_id() {
+        let mut s = ready_snapshot();
+        s.repos
+            .insert("org/custom".into(), RepoState::Ready(repo_info()));
+        let mut h = on_card(s);
+        click(&mut h, Role::Button, &tr("local.wizard.change"));
+        click(&mut h, Role::Button, &tr("local.dialog.tab_custom"));
+        type_into(&mut h, &tr("local.dialog.repo_hint"), "org/custom");
+        click(&mut h, Role::Button, &tr("local.dialog.query"));
+        click(&mut h, Role::Button, &tr("local.dialog.select"));
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let want = model_id("org/custom", QUANT);
+        let sent = sent(&h);
+        assert!(
+            sent.iter()
+                .any(|c| c.starts_with("Download") && c.contains("org/custom")),
+            "{sent:?}"
+        );
+        assert!(!next_enabled(&h));
+        let mut s = ready_snapshot();
+        let mut m = done_model();
+        m.id = want;
+        s.models.push(m);
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+    }
 }

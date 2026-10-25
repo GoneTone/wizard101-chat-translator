@@ -50,10 +50,22 @@ pub struct LocalInstall {
     /// 按了〔下載〕後追蹤的模型 id。
     tracked: Option<String>,
     cancelled: bool,
+    /// 剛按〔下載〕：hub 還沒蓋掉舊的失敗紀錄前，不顯示它。
+    stale_failure: bool,
+    /// 表單原本就有的模型 id；進入時若已在 hub 的清單內就直接沿用。
+    existing: String,
     state: Option<InstallState>,
 }
 
 impl LocalInstall {
+    /// `existing` 是服務原有的模型 id（沒有就空字串）。
+    pub fn new(existing: String) -> Self {
+        Self {
+            existing,
+            ..Self::default()
+        }
+    }
+
     /// 所選模型是否已下載完成。
     pub fn is_done(&self) -> bool {
         matches!(self.state, Some(InstallState::Done(_)))
@@ -62,11 +74,13 @@ impl LocalInstall {
     /// 畫一幀；回傳目前階段。`snapshot` 是這一幀唯一的一份狀態。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) -> InstallState {
         self.start(env, snapshot);
+        self.adopt(snapshot);
         let state = self.phase(snapshot);
         match &state {
             InstallState::Choosing => self.choosing(ui, env, snapshot),
             _ => self.downloading(ui, env, snapshot, &state),
         }
+        self.show_dialog(ui, env, snapshot);
         self.state = Some(state.clone());
         state
     }
@@ -76,9 +90,12 @@ impl LocalInstall {
             return;
         }
         log(format!(
-            "[ui] wizard local install entered: engine={:?}",
-            snapshot.engine
+            "[ui] wizard local install entered: engine={:?} existing_model={}",
+            snapshot.engine, self.existing
         ));
+        if snapshot.models.iter().any(|m| m.id == self.existing) {
+            self.tracked = Some(self.existing.clone());
+        }
         env.local_command(Command::RefreshHardware);
         for rec in RECOMMENDED
             .iter()
@@ -94,7 +111,27 @@ impl LocalInstall {
         }
     }
 
-    fn phase(&self, snapshot: &Snapshot) -> InstallState {
+    /// 還沒追蹤任何模型時，認領 hub 裡正在跑的、同一個選擇的下載（例如返回上一步再進來）。
+    fn adopt(&mut self, snapshot: &Snapshot) {
+        if self.tracked.is_some() || self.cancelled {
+            return;
+        }
+        let Some(plan) = self.plan(snapshot) else {
+            return;
+        };
+        if matches!(
+            snapshot.downloads.get(&plan.id),
+            Some(DownloadState::Running { .. } | DownloadState::Paused { .. })
+        ) {
+            log(format!(
+                "[ui] wizard local adopted running download: id={}",
+                plan.id
+            ));
+            self.tracked = Some(plan.id);
+        }
+    }
+
+    fn phase(&mut self, snapshot: &Snapshot) -> InstallState {
         let Some(id) = &self.tracked else {
             return InstallState::Choosing;
         };
@@ -102,8 +139,14 @@ impl LocalInstall {
             return InstallState::Done(id.clone());
         }
         match snapshot.downloads.get(id) {
-            Some(DownloadState::Failed(e)) => InstallState::Failed(e.clone()),
-            _ => InstallState::Downloading,
+            Some(DownloadState::Failed(e)) if !self.stale_failure => {
+                InstallState::Failed(e.clone())
+            }
+            Some(DownloadState::Failed(_)) => InstallState::Downloading,
+            _ => {
+                self.stale_failure = false;
+                InstallState::Downloading
+            }
         }
     }
 
@@ -210,10 +253,13 @@ impl LocalInstall {
                 choice: plan.selection.choice,
                 mtp: plan.selection.mtp,
             });
+            self.stale_failure = matches!(
+                snapshot.downloads.get(&plan.id),
+                Some(DownloadState::Failed(_))
+            );
             self.tracked = Some(plan.id);
             self.cancelled = false;
         }
-        self.show_dialog(ui, env, snapshot);
     }
 
     fn show_dialog(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
@@ -226,6 +272,7 @@ impl LocalInstall {
             DialogOutcome::Selected(selection) => {
                 self.selection = Some(selection);
                 self.dialog = None;
+                self.tracked = None;
                 self.cancelled = false;
             }
         }
@@ -270,7 +317,12 @@ impl LocalInstall {
         }
         self.engine_status(ui, env, snapshot);
         match state {
-            InstallState::Done(_) => hint(ui, &t("local.wizard.done", &[])),
+            InstallState::Done(_) => {
+                hint(ui, &t("local.wizard.done", &[]));
+                if secondary_button(ui, &t("local.wizard.change", &[])).clicked() {
+                    self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
+                }
+            }
             InstallState::Failed(error) => {
                 error_with_retry(ui, error, || env.local_command(Command::Resume(id.clone())));
             }
@@ -287,6 +339,11 @@ impl LocalInstall {
                     &[("done", &gb(done)), ("total", &gb(total))],
                 );
                 progress(ui, &text, done, total);
+                let interrupted = !snapshot.downloads.contains_key(&id)
+                    && snapshot.models.iter().any(|m| m.id == id);
+                if interrupted && primary_button(ui, &t("local.continue_download", &[])).clicked() {
+                    env.local_command(Command::Resume(id.clone()));
+                }
             }
         }
         if !matches!(state, InstallState::Done(_))

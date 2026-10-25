@@ -5,7 +5,7 @@ use eframe::egui::{
     Response, RichText, Role, Sense, Stroke, TextStyle, Ui, Vec2, WidgetInfo, pos2,
 };
 
-use super::local_step::InstallState;
+use super::local_step::{InstallState, LocalInstall};
 use super::{Step, Wizard, WizardAction};
 use crate::config::app_name;
 use crate::i18n::{current_language, language_name, t};
@@ -141,7 +141,10 @@ impl Wizard {
         };
         let snapshot = env.local_snapshot();
         if form.is_local() {
-            let install = self.local.get_or_insert_with(Default::default);
+            let install = self.local.get_or_insert_with(|| {
+                let model = form.values()["model"].as_str().unwrap_or("").to_owned();
+                LocalInstall::new(model)
+            });
             if let InstallState::Done(id) = install.ui(ui, env, &snapshot) {
                 form.set_model(&id);
             }

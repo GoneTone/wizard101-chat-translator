@@ -183,9 +183,12 @@ impl Wizard {
     fn pick_provider(&mut self, key: &str) {
         let services = ServiceDraft::from_config(&self.cfg).services;
         let service = new_service(key, &services);
-        self.local = None;
         self.form = Some(Box::new(ServiceForm::new(service, services)));
         log(format!("[ui] wizard provider picked: {key}"));
+    }
+
+    fn is_local_form(&self) -> bool {
+        self.form.as_ref().is_some_and(|f| f.is_local())
     }
 
     fn can_go_next(&self) -> bool {
@@ -344,9 +347,8 @@ impl Wizard {
             )
             .inner;
         let index = self.step.index();
-        if back && can_back && self.step == Step::Service && self.local.is_some() {
+        if back && can_back && self.step == Step::Service && self.is_local_form() {
             log("[ui] wizard local install back to provider selection");
-            self.local = None;
             self.form = None;
         } else if back && can_back {
             self.go_to(Step::ALL[index - 1], env);
