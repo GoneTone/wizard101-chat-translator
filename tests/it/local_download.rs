@@ -5,6 +5,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use sha2::{Digest, Sha256};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -186,7 +188,7 @@ async fn follows_redirects_to_the_cdn() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn http_errors_and_short_bodies_keep_the_part_file() {
+async fn http_errors_and_content_length_mismatches_keep_the_part_file() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/missing"))
@@ -287,4 +289,69 @@ async fn an_oversized_body_is_rejected_by_content_length() {
         matches!(&err, DownloadError::Http(m) if m.contains("Content-Length")),
         "{err}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_mid_stream_drop_keeps_the_sent_bytes_and_resumes() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let raw_url = format!("http://{}/f", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let (mut conn, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 1024];
+        let _ = conn.read(&mut buf).await;
+        let head = format!(
+            "HTTP/1.1 200 OK
+Content-Length: {}
+
+",
+            BODY.len()
+        );
+        conn.write_all(head.as_bytes()).await.unwrap();
+        conn.write_all(&BODY[..7]).await.unwrap();
+        conn.flush().await.unwrap();
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("a.gguf");
+    let part = dir.path().join("a.gguf.part");
+    let size = BODY.len() as u64;
+    let http = hf_client(&raw_url);
+    let cancel = CancellationToken::new();
+
+    let err = download(
+        &http,
+        &raw_url,
+        &dest,
+        size,
+        None,
+        &Progress::default(),
+        &cancel,
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(&err, DownloadError::Http(_)), "{err}");
+    assert!(
+        err.to_string()
+            .contains("end of file before message length"),
+        "{err}"
+    );
+    assert_eq!(std::fs::read(&part).unwrap(), &BODY[..7]);
+    assert!(!dest.exists());
+
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(header("range", "bytes=7-"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("Content-Range", "bytes 7-19/20")
+                .set_body_bytes(&BODY[7..]),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    run(&server, "/f", &dest, Some(&sha(BODY)), &Progress::default())
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), BODY);
+    assert!(!part.exists());
 }
