@@ -10,7 +10,7 @@ use tokio::sync::OwnedMutexGuard;
 use tokio_util::sync::CancellationToken;
 
 use super::LocalNotice;
-use super::engine::{self, EngineInstall};
+use super::engine::{self, ActiveFile, EngineInstall};
 use super::hf::hf_client;
 use super::hub::{EngineState, Local};
 use super::server::{self, Mtp, Process, READY_TIMEOUT, ServerPlan};
@@ -80,8 +80,26 @@ impl SlotState {
 struct Running {
     process: Box<dyn Process>,
     base_url: String,
-    /// 啟動用的 llama-server.exe（判斷引擎資料夾還有沒有人在用）。
+    _engine: EngineUse,
+}
+
+/// 啟動中與跑著的 llama-server 用的 exe；刪引擎資料夾前持這把鎖檢查。
+#[derive(Clone, Default)]
+pub(super) struct EngineUsers(Arc<Mutex<Vec<PathBuf>>>);
+
+/// 一個啟動中或跑著的 llama-server 佔用的 exe；放掉時從 `EngineUsers` 移除。
+struct EngineUse {
+    users: EngineUsers,
     exe: PathBuf,
+}
+
+impl Drop for EngineUse {
+    fn drop(&mut self) {
+        let mut users = lock(&self.users.0);
+        if let Some(i) = users.iter().position(|e| *e == self.exe) {
+            users.remove(i);
+        }
+    }
 }
 
 /// 載入橫幅：持有期間顯示該模型載入中；放掉時改顯示其他還在載入的，都沒有才收起。
@@ -180,6 +198,8 @@ impl Local {
         let mut st = lock(&slot.state);
         match result {
             Ok(mut running) if cancel.is_cancelled() => {
+                // 結束子程序要等它退出：不占著狀態鎖，讀快照的 UI 才不會卡住
+                drop(st);
                 running.process.kill();
                 Err(stopped_error(model_id))
             }
@@ -244,15 +264,25 @@ impl Local {
             .collect()
     }
 
-    /// 有跑著的 llama-server 是從這個引擎的資料夾啟動的。
-    fn engine_in_use(&self, install: &EngineInstall) -> bool {
-        let dir = engine::engine_dir(&self.root, install);
-        self.servers.all().iter().any(|(_, slot)| {
-            lock(&slot.state)
-                .running
-                .as_ref()
-                .is_some_and(|r| r.exe.starts_with(&dir))
-        })
+    /// 新引擎首次就緒：舊引擎沒人在用（含啟動中的）才刪掉它並確認，否則留到下次。
+    fn confirm_engine(&self, active: &ActiveFile) {
+        let users = lock(&self.engine_users.0);
+        match &active.previous {
+            Some(p)
+                if active.current.as_ref() != Some(p) && engine_in_use(&self.root, &users, p) =>
+            {
+                log(format!(
+                    "[local] previous engine {}-{} is still in use; confirming later",
+                    p.build, p.variant
+                ))
+            }
+            Some(_) => {
+                if let Err(e) = engine::confirm(&self.root) {
+                    log(format!("[local] confirming engine failed: {e}"));
+                }
+            }
+            None => {}
+        }
     }
 
     /// 睡著的模型被請求喚醒時呼叫：橫幅顯示它載入中，直到回傳值放掉。
@@ -360,37 +390,31 @@ impl Local {
         let settings = self.settings();
         let mut mtp = mtp_mode(&self.root, model, mtp_on(&settings, &model.id));
         loop {
-            let active = engine::read_active(&self.root);
-            let exe = active
-                .current
-                .as_ref()
-                .and_then(|i| engine::server_exe(&engine::engine_dir(&self.root, i)))
-                .ok_or("llama.cpp engine is not installed")?;
+            // 讀目前的引擎與登記佔用在同一把鎖內：別的啟動確認或回退時一定看得到這次啟動
+            let (active, engine_use) = {
+                let mut users = lock(&self.engine_users.0);
+                let active = engine::read_active(&self.root);
+                let exe = active
+                    .current
+                    .as_ref()
+                    .and_then(|i| engine::server_exe(&engine::engine_dir(&self.root, i)))
+                    .ok_or("llama.cpp engine is not installed")?;
+                users.push(exe.clone());
+                let users = self.engine_users.clone();
+                (active, EngineUse { users, exe })
+            };
             let model_file = store::main_file(&self.root, model)
                 .map_err(|e| format!("model {} has no usable main file: {e}", model.id))?;
             let plan = ServerPlan {
                 model_id: model.id.clone(),
-                exe,
+                exe: engine_use.exe.clone(),
                 model: model_file,
                 mtp: mtp.clone(),
                 idle_minutes: settings.idle_minutes,
             };
-            let err = match self.launch(&plan, cancel).await {
+            let err = match self.launch(&plan, cancel, engine_use).await {
                 Ok(running) => {
-                    match &active.previous {
-                        Some(p) if active.current.as_ref() != Some(p) && self.engine_in_use(p) => {
-                            log(format!(
-                                "[local] previous engine {}-{} is still in use; confirming later",
-                                p.build, p.variant
-                            ))
-                        }
-                        Some(_) => {
-                            if let Err(e) = engine::confirm(&self.root) {
-                                log(format!("[local] confirming engine failed: {e}"));
-                            }
-                        }
-                        None => {}
-                    }
+                    self.confirm_engine(&active);
                     return Ok(running);
                 }
                 Err(_) if cancel.is_cancelled() => return Err(stopped_error(&model.id)),
@@ -407,8 +431,9 @@ impl Local {
             if active.previous.is_none() {
                 return Err(err);
             }
+            let users = lock(&self.engine_users.0);
             if let Some(current) = &active.current
-                && self.engine_in_use(current)
+                && engine_in_use(&self.root, &users, current)
             {
                 log(format!(
                     "[local] llama-server[{}] failed on {}-{}, not rolling back: other models run on it",
@@ -416,7 +441,9 @@ impl Local {
                 ));
                 return Err(err);
             }
-            match engine::rollback(&self.root) {
+            let rolled_back = engine::rollback(&self.root);
+            drop(users);
+            match rolled_back {
                 Ok(Some(previous)) => {
                     log(format!(
                         "[local] llama-server[{}] failed on the new engine, retrying with {}-{}",
@@ -437,6 +464,7 @@ impl Local {
         &self,
         plan: &ServerPlan,
         cancel: &CancellationToken,
+        engine_use: EngineUse,
     ) -> Result<Running, String> {
         let port = server::free_port().map_err(|e| e.to_string())?;
         let base_url = format!("http://127.0.0.1:{port}");
@@ -477,7 +505,7 @@ impl Local {
         Ok(Running {
             process,
             base_url,
-            exe: plan.exe.clone(),
+            _engine: engine_use,
         })
     }
 }
@@ -503,13 +531,23 @@ async fn hold(id: &str, slot: Arc<Slot>) -> Hold {
 }
 
 fn stop_slot(id: &str, slot: &Slot) {
-    let mut st = lock(&slot.state);
-    st.starting.cancel();
-    st.clear_failures();
-    if let Some(mut running) = st.running.take() {
+    let running = {
+        let mut st = lock(&slot.state);
+        st.starting.cancel();
+        st.clear_failures();
+        st.running.take()
+    };
+    // 結束子程序要等它退出：放掉狀態鎖再殺，讀快照的 UI 才不會卡住
+    if let Some(mut running) = running {
         log(format!("[local] stopping llama-server[{id}]"));
         running.process.kill();
     }
+}
+
+/// `users` 裡有 exe 位在這個引擎的資料夾內。
+fn engine_in_use(root: &Path, users: &[PathBuf], install: &EngineInstall) -> bool {
+    let dir = engine::engine_dir(root, install);
+    users.iter().any(|exe| exe.starts_with(&dir))
 }
 
 /// 沒設定過的模型預設開啟 MTP。

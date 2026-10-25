@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
 use common::fake_backend::{Fake, JA, spec};
-use common::local::{GLOBAL_HUB, Launches, add_engine, add_model, fake_hub, fake_hub_with};
+use common::local::{Launches, add_engine, add_model, fake_hub, fake_hub_with, global_hub};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 
@@ -1497,7 +1497,7 @@ fn reconfigure_applies_the_active_glossary() {
 #[test]
 fn the_wizard_env_reaches_the_hub_installed_before_any_window() {
     let rt = tokio::runtime::Runtime::new().unwrap();
-    let _global = rt.block_on(GLOBAL_HUB.lock());
+    let _global = rt.block_on(global_hub());
     let dir = tempfile::tempdir().unwrap();
     let (ui, rx) = UiPoster::for_test();
     let (hub, _) = fake_hub_with(

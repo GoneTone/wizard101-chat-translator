@@ -16,7 +16,7 @@ use super::fit::{self, Fit, Pick};
 use super::gguf::{self, ModelMeta};
 use super::hardware::{self, Gpu, Hardware};
 use super::hf::{self, Catalog};
-use super::runtime::Servers;
+use super::runtime::{EngineUsers, Servers};
 use super::server::Launcher;
 use super::store::{self, Installed};
 use super::{LocalNotice, Notify};
@@ -146,6 +146,7 @@ pub struct Local {
     engine_lock: tokio::sync::Mutex<()>,
     /// 每次 `ensure` 從檢查前置條件到啟動完成都持有讀鎖；移除引擎時取寫鎖，期間任何模型都啟動不了。
     pub(super) engine_files: tokio::sync::RwLock<()>,
+    pub(super) engine_users: EngineUsers,
     pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
     me: Weak<Local>,
 }
@@ -186,6 +187,7 @@ impl Local {
             closed: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
             engine_files: tokio::sync::RwLock::new(()),
+            engine_users: EngineUsers::default(),
             cancels: Mutex::default(),
             me: me.clone(),
         })

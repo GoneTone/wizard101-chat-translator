@@ -1,6 +1,6 @@
 //! 本地服務 client：經 hub 確保 llama-server 在跑再轉送（假 Launcher、wiremock 當 llama-server）。
 
-use crate::common::local::{GLOBAL_HUB, Launches, add_engine, add_model, fake_hub_with};
+use crate::common::local::{GlobalHub, Launches, add_engine, add_model, fake_hub_with, global_hub};
 use crate::stream_server::{bodies_at, request};
 
 use std::sync::{Arc, Mutex};
@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
-use tokio::sync::MutexGuard;
 use wizard101_chat_translator::config::{Config, ServiceSpec};
 use wizard101_chat_translator::local::{self, Local, LocalNotice, store};
 use wizard101_chat_translator::translation::Turn;
@@ -20,7 +19,7 @@ struct Hub {
     local: Arc<Local>,
     launches: Launches,
     notices: Arc<Mutex<Vec<LocalNotice>>>,
-    _guard: MutexGuard<'static, ()>,
+    _global: GlobalHub,
 }
 
 impl Hub {
@@ -36,7 +35,7 @@ impl Hub {
 
 /// 建一個有引擎、下載完成的 m1 與下載到一半的 m2 的 hub，裝成全程序共用的那個。
 async fn hub(fail: bool) -> Hub {
-    let guard = GLOBAL_HUB.lock().await;
+    let global = global_hub().await;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     add_engine(&root, "b11871");
@@ -53,7 +52,7 @@ async fn hub(fail: bool) -> Hub {
         local,
         launches,
         notices,
-        _guard: guard,
+        _global: global,
     }
 }
 
@@ -158,4 +157,14 @@ async fn an_awake_or_unknown_server_shows_no_banner() {
         assert_eq!(translated, Ok("hola".into()), "{sleeping:?}");
         assert_eq!(h.loading_notices(), [], "{sleeping:?}");
     }
+}
+
+/// 測試結束放掉 hub 後，全程序共用的 hub 也一併卸下。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn dropping_the_test_hub_uninstalls_it() {
+    let h = hub(false).await;
+    assert!(local::get().is_some());
+    drop(h);
+    let _global = global_hub().await;
+    assert!(local::get().is_none());
 }

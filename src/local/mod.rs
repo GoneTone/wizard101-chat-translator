@@ -48,3 +48,9 @@ pub fn install(local: Arc<Local>) {
 pub fn get() -> Option<Arc<Local>> {
     read(&LOCAL).clone()
 }
+
+/// 測試用：卸下全程序共用的 hub（它的 runtime 隨測試結束）。
+#[cfg(any(test, feature = "test-support"))]
+pub fn uninstall_for_test() {
+    write(&LOCAL).take();
+}

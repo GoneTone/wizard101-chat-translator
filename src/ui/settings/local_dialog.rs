@@ -15,6 +15,7 @@ use crate::local::catalog::{RECOMMENDED, Recommended};
 use crate::local::fit::{Fit, memory_kind, total_size};
 use crate::local::hardware::Hardware;
 use crate::local::hf::parse_repo;
+use crate::local::store::choice_id;
 use crate::local::{Command, RepoInfo, RepoState, Snapshot};
 use crate::logs::log;
 use crate::ui::settings::env::SettingsEnv;
@@ -336,7 +337,7 @@ impl DownloadDialog {
             version += &format!(" + MTP {} GB", gb(info.catalog.mtp[m].file.size));
         }
         let have = match self.mode {
-            DialogMode::Download => have_of(snapshot, rec.repo, &c.quant.label),
+            DialogMode::Download => have_of(snapshot, &choice_id(rec.repo, c)),
             DialogMode::Select => Have::No,
         };
         let open = self.expanded.as_deref() == Some(rec.repo);

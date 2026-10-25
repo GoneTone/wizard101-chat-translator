@@ -27,14 +27,11 @@ pub(super) enum Have {
     InProgress,
 }
 
-pub(super) fn have_of(snapshot: &Snapshot, repo: &str, quant: &str) -> Have {
-    let mut models = snapshot
-        .models
-        .iter()
-        .filter(|m| m.manifest.repo == repo && m.manifest.quant == quant);
-    match models.clone().find(|m| m.complete) {
-        Some(_) => Have::Complete,
-        None if models.next().is_some() => Have::InProgress,
+/// 模型 `id`（`store::choice_id`）的下載狀態。
+pub(super) fn have_of(snapshot: &Snapshot, id: &str) -> Have {
+    match snapshot.models.iter().find(|m| m.id == id) {
+        Some(m) if m.complete => Have::Complete,
+        Some(_) => Have::InProgress,
         None => Have::No,
     }
 }

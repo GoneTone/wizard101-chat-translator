@@ -17,10 +17,28 @@ use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
 use wizard101_chat_translator::local::hardware::Gpu;
 use wizard101_chat_translator::local::server::{Launcher, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Manifest, ManifestFile};
-use wizard101_chat_translator::local::{Endpoints, Local, Notify};
+use wizard101_chat_translator::local::{self, Endpoints, Local, Notify};
 
 /// hub 是全程序共用的：裝上測試 hub（`local::install`）的測試一次只跑一個。
-pub static GLOBAL_HUB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+static GLOBAL_HUB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// 占住全程序共用 hub 的使用權；放掉時卸下測試裝的 hub，不留指向已結束 runtime 的 hub。
+pub struct GlobalHub {
+    _guard: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl Drop for GlobalHub {
+    fn drop(&mut self) {
+        local::uninstall_for_test();
+    }
+}
+
+/// 等到可以裝全程序共用的 hub。
+pub async fn global_hub() -> GlobalHub {
+    GlobalHub {
+        _guard: GLOBAL_HUB.lock().await,
+    }
+}
 
 /// 假 llama-server 的紀錄：每次成功啟動的伺服器與 kill 次數。
 #[derive(Clone, Default)]

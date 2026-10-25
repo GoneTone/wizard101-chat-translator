@@ -15,7 +15,7 @@ use wizard101_chat_translator::local::fit::{Fit, Pick};
 use wizard101_chat_translator::local::gguf::ModelMeta;
 use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
 use wizard101_chat_translator::local::hf::{Catalog, Choice, MtpChoice, Quant, RepoFile};
-use wizard101_chat_translator::local::store::{Installed, Manifest};
+use wizard101_chat_translator::local::store::{Installed, Manifest, choice_id};
 use wizard101_chat_translator::local::{Command, RepoInfo, RepoState, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 use wizard101_chat_translator::ui::settings::local_dialog::{
@@ -334,7 +334,7 @@ fn failed_rows_can_retry() {
 fn only_complete_models_count_as_downloaded() {
     let mut snap = snapshot(&[(0, info(Fit::Smooth, false, 2, 3 * G))]);
     snap.models.push(Installed {
-        id: "x".into(),
+        id: choice_id(RECOMMENDED[0].repo, &choice("Q4_K_M", 4, 2 * G)),
         manifest: Manifest {
             repo: RECOMMENDED[0].repo.into(),
             quant: "Q4_K_M".into(),
@@ -372,6 +372,41 @@ fn the_basis_line_shows_available_memory() {
         &[("vram", &size_arg(8 * G)), ("ram", &size_arg(16 * G))],
     );
     assert!(painted_texts(&h).contains(&line));
+}
+
+/// 同名量化放在不同資料夾時，只有真的下載過的那一個算已下載（依模型 id 比對）。
+#[test]
+fn same_label_quants_in_different_folders_are_told_apart() {
+    let mut info = info(Fit::Smooth, false, 2, 3 * G);
+    for (c, dir) in info.catalog.choices.iter_mut().zip(["a", "b"]) {
+        c.quant.label = "Q4_K_M".into();
+        c.files[0].path = format!("{dir}/model-Q4_K_M.gguf");
+    }
+    let other = choice_id(RECOMMENDED[0].repo, &info.catalog.choices[1]);
+    let mut snap = snapshot(&[(0, info)]);
+    snap.models.push(Installed {
+        id: other,
+        manifest: Manifest {
+            repo: RECOMMENDED[0].repo.into(),
+            quant: "Q4_K_M".into(),
+            files: vec![],
+            mtp: None,
+            moe: false,
+            has_builtin_mtp: false,
+            required: 0,
+        },
+        complete: true,
+    });
+    let h = harness(DialogMode::Download, Tab::Recommended, snap);
+    assert!(
+        h.query_by_role_and_label(Role::Button, &tr("local.downloaded"))
+            .is_none()
+    );
+    assert!(
+        !h.get_by_role_and_label(Role::Button, &tr("local.dialog.download"))
+            .accesskit_node()
+            .is_disabled()
+    );
 }
 
 /// 動過量化表的選擇以手動選擇送出（hub 不會改挑）。

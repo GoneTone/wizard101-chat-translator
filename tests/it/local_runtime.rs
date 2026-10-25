@@ -32,6 +32,7 @@ struct FakeProcess {
     model_dir: PathBuf,
     exe: PathBuf,
     exe_at_kill: Arc<Mutex<Vec<bool>>>,
+    kill_delay: Arc<Mutex<Duration>>,
     _health: Option<MockServer>,
 }
 
@@ -40,6 +41,8 @@ impl Process for FakeProcess {
         *self.exit.lock().unwrap()
     }
     fn kill(&mut self) {
+        let delay = *self.kill_delay.lock().unwrap();
+        std::thread::sleep(delay);
         self.exe_at_kill.lock().unwrap().push(self.exe.exists());
         let exists = self.model_dir.exists();
         self.events
@@ -72,6 +75,8 @@ struct Shared {
     measured: Arc<Mutex<Vec<(Instant, bool)>>>,
     /// 偵測 GPU 的次數。
     gpu_detections: Arc<Mutex<usize>>,
+    /// 子程序 kill 要等它退出的時間。
+    kill_delay: Arc<Mutex<Duration>>,
 }
 
 struct FakeLauncher {
@@ -97,6 +102,7 @@ impl Launcher for FakeLauncher {
             model_dir: self.model_dir.clone(),
             exe: plan.exe.clone(),
             exe_at_kill: s.exe_at_kill.clone(),
+            kill_delay: s.kill_delay.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
     }
@@ -1083,4 +1089,50 @@ async fn the_gpu_is_detected_once_until_the_user_redetects() {
     assert_eq!(detections(), 1);
     f.local.command(Command::RefreshHardware);
     wait_for("re-detected", || detections() == 2).await;
+}
+
+/// 停掉一個要等很久才結束的子程序時，讀快照不會被它卡住。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_slow_stop_does_not_block_snapshots() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    f.local.ensure("m1").await.unwrap();
+    *f.shared.kill_delay.lock().unwrap() = Duration::from_millis(800);
+    let local = f.local.clone();
+    let stop = tokio::task::spawn_blocking(move || local.stop("m1"));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let started = Instant::now();
+    let s = f.local.snapshot();
+    let waited = started.elapsed();
+    assert!(
+        waited < Duration::from_millis(400),
+        "snapshot waited {waited:?}"
+    );
+    assert!(s.running.is_empty(), "{:?}", s.running);
+    stop.await.unwrap();
+    assert_eq!(f.kills().len(), 1);
+}
+
+/// 舊引擎上還有一個啟動卡在 launch 途中：新引擎上的模型就緒時不刪舊資料夾。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_start_still_launching_keeps_its_engine_folder() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, "m0", false);
+            add_model(root, "m2", false);
+        },
+        |_| false,
+    )
+    .await;
+    let old = engine::read_active(&f.root).current.unwrap();
+    *f.shared.launch_delay.lock().unwrap() = Duration::from_millis(800);
+    let local = f.local.clone();
+    let slow = tokio::spawn(async move { local.ensure("m0").await });
+    wait_for("m0 launching", || f.plans().len() == 1).await;
+    *f.shared.launch_delay.lock().unwrap() = Duration::ZERO;
+    add_engine(&f.root, "b11872");
+    f.local.ensure("m2").await.unwrap();
+    assert!(engine::engine_dir(&f.root, &old).exists());
+    assert_eq!(engine::read_active(&f.root).previous, Some(old));
+    slow.await.unwrap().unwrap();
 }
