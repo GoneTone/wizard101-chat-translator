@@ -28,6 +28,7 @@ mod hotkeys;
 mod i18n_match_golden;
 mod input_box;
 mod keys_golden;
+mod local_download;
 mod local_gguf;
 mod local_hf;
 mod logs_golden;
