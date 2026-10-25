@@ -152,5 +152,9 @@ fn real_launcher_captures_tail_of_a_failing_process() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_ne!(code, 0);
-    assert!(!proc.tail().is_empty(), "tail empty");
+    let tail = proc.tail();
+    assert!(
+        tail.iter().any(|l| l.contains("Unrecognized option")),
+        "{tail:?}"
+    );
 }
