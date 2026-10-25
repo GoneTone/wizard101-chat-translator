@@ -7,6 +7,7 @@ use crate::util::{read, write};
 
 pub mod catalog;
 pub mod download;
+mod downloads;
 pub mod engine;
 pub mod fit;
 pub mod gguf;

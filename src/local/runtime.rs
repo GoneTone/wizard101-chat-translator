@@ -1,8 +1,11 @@
 //! 每個本地模型一個 llama-server 子程序：按需啟動、失敗重試，依設定收掉或重啟。
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+use tokio_util::sync::CancellationToken;
 
 use super::LocalNotice;
 use super::catalog::RECOMMENDED;
@@ -17,7 +20,7 @@ use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, resolve};
 use crate::logs::log;
 use crate::util::lock;
 
-/// 連續啟動失敗幾次後停在失敗狀態。
+/// 連續失敗（啟動失敗或意外結束）幾次後停在失敗狀態。
 const MAX_FAILURES: u32 = 2;
 
 /// 所有模型的子程序，以模型 id 為鍵。
@@ -26,7 +29,7 @@ pub(super) struct Servers(Mutex<BTreeMap<String, Arc<Slot>>>);
 
 #[derive(Default)]
 struct Slot {
-    /// 讓同一模型的並發啟動只跑一次。
+    /// 讓同一模型的並發啟動只跑一次；持有者即進行中的啟動。
     start: tokio::sync::Mutex<()>,
     state: Mutex<SlotState>,
 }
@@ -36,8 +39,20 @@ struct SlotState {
     running: Option<Running>,
     failures: u32,
     error: String,
-    /// `stop` 時遞增，讓進行中的啟動知道結果已作廢。
-    epoch: u64,
+    /// 進行中啟動的取消鈕；`stop` 按下後該次啟動會殺掉子程序並作廢。
+    starting: CancellationToken,
+}
+
+impl SlotState {
+    fn fail(&mut self, id: &str, error: String) {
+        self.failures += 1;
+        self.error = error;
+        if self.failures == MAX_FAILURES {
+            log(format!(
+                "[local] llama-server[{id}] failed {MAX_FAILURES} times in a row; not retrying until the settings are applied again"
+            ));
+        }
+    }
 }
 
 struct Running {
@@ -48,6 +63,10 @@ struct Running {
 impl Servers {
     fn slot(&self, id: &str) -> Arc<Slot> {
         lock(&self.0).entry(id.to_owned()).or_default().clone()
+    }
+
+    fn get(&self, id: &str) -> Option<Arc<Slot>> {
+        lock(&self.0).get(id).cloned()
     }
 
     fn all(&self) -> Vec<(String, Arc<Slot>)> {
@@ -63,51 +82,59 @@ impl Local {
     pub async fn ensure(&self, model_id: &str) -> Result<String, String> {
         let slot = self.servers.slot(model_id);
         let _start = slot.start.lock().await;
-        let epoch = {
+        let cancel = {
             let mut st = lock(&slot.state);
             if let Some(running) = st.running.as_mut() {
                 let Some(code) = running.process.exited() else {
                     return Ok(running.base_url.clone());
                 };
+                let tail = running.process.tail().join("\n");
                 log(format!(
-                    "[local] llama-server[{model_id}] exited unexpectedly code={code}: {}",
-                    running.process.tail().join(" | ")
+                    "[local] llama-server[{model_id}] exited unexpectedly code={code}"
                 ));
                 st.running = None;
+                st.fail(
+                    model_id,
+                    format!("llama-server exited unexpectedly with code {code}:\n{tail}"),
+                );
             }
             if st.failures >= MAX_FAILURES {
                 return Err(st.error.clone());
             }
-            st.epoch
+            st.starting = CancellationToken::new();
+            st.starting.clone()
         };
-        let result = self.start(model_id).await;
+        // 前置條件不符（還沒下載完、沒有引擎）不算失敗：下載或安裝完就該能直接啟動
+        let model = store::list(&self.root)
+            .into_iter()
+            .find(|m| m.id == model_id && m.complete)
+            .ok_or_else(|| format!("model {model_id} is not downloaded"))?;
+        if engine::read_active(&self.root).current.is_none() {
+            return Err("llama.cpp engine is not installed".into());
+        }
+        let result = self.start(&model, &cancel).await;
         let mut st = lock(&slot.state);
         match result {
-            Ok(mut running) if st.epoch != epoch => {
-                log(format!(
-                    "[local] llama-server[{model_id}] was stopped while starting"
-                ));
+            Ok(mut running) if cancel.is_cancelled() => {
                 running.process.kill();
-                Err(format!("model {model_id} was unloaded while starting"))
+                Err(stopped_error(model_id))
             }
             Ok(running) => {
-                st.failures = 0;
                 let url = running.base_url.clone();
                 st.running = Some(running);
                 Ok(url)
             }
+            Err(e) if cancel.is_cancelled() => Err(e),
             Err(e) => {
-                st.failures += 1;
-                st.error = e.clone();
+                st.fail(model_id, e.clone());
                 Err(e)
             }
         }
     }
 
-    /// 停掉模型的 llama-server；沒在跑則無動作。
+    /// 停掉模型的 llama-server（含進行中的啟動）；沒在跑則無動作。
     pub fn stop(&self, model_id: &str) {
-        let slot = lock(&self.servers.0).get(model_id).cloned();
-        if let Some(slot) = slot {
+        if let Some(slot) = self.servers.get(model_id) {
             stop_slot(model_id, &slot);
         }
     }
@@ -116,6 +143,29 @@ impl Local {
     pub fn shutdown(&self) {
         for (id, slot) in self.servers.all() {
             stop_slot(&id, &slot);
+        }
+    }
+
+    /// `stop` 後等進行中的啟動收尾，回來時子程序一定已結束、檔案已放開。
+    pub(super) async fn stop_and_wait(&self, model_id: &str) {
+        if let Some(slot) = self.servers.get(model_id) {
+            stop_slot(model_id, &slot);
+            drop(slot.start.lock().await);
+        }
+    }
+
+    /// `shutdown` 後等所有進行中的啟動收尾。
+    pub(super) async fn shutdown_and_wait(&self) {
+        for (id, slot) in self.servers.all() {
+            stop_slot(&id, &slot);
+            drop(slot.start.lock().await);
+        }
+    }
+
+    /// 清掉模型的失敗紀錄（例如下載完成後）。
+    pub(super) fn clear_failures(&self, model_id: &str) {
+        if let Some(slot) = self.servers.get(model_id) {
+            lock(&slot.state).failures = 0;
         }
     }
 
@@ -142,6 +192,9 @@ impl Local {
                 continue;
             }
             if wanted.contains(&id) && lock(&slot.state).running.is_some() {
+                log(format!(
+                    "[local] restarting llama-server[{id}] for new settings"
+                ));
                 restart.push(id.clone());
             }
             stop_slot(&id, &slot);
@@ -181,19 +234,23 @@ impl Local {
         });
     }
 
-    async fn start(&self, id: &str) -> Result<Running, String> {
-        let model = store::list(&self.root)
-            .into_iter()
-            .find(|m| m.id == id && m.complete)
-            .ok_or_else(|| format!("model {id} is not downloaded"))?;
+    async fn start(
+        &self,
+        model: &Installed,
+        cancel: &CancellationToken,
+    ) -> Result<Running, String> {
         (self.notify)(LocalNotice::Loading(Some(display_name(&model.manifest))));
-        let result = self.start_with_fallbacks(&model).await;
+        let result = self.start_with_fallbacks(model, cancel).await;
         (self.notify)(LocalNotice::Loading(None));
         result
     }
 
     /// 失敗時先關 MTP 重試，再對尚未確認的新引擎回退重試；新引擎首次就緒即確認。
-    async fn start_with_fallbacks(&self, model: &Installed) -> Result<Running, String> {
+    async fn start_with_fallbacks(
+        &self,
+        model: &Installed,
+        cancel: &CancellationToken,
+    ) -> Result<Running, String> {
         let settings = self.settings();
         let mut mtp = mtp_mode(&self.root, model, mtp_on(&settings, &model.id));
         loop {
@@ -210,7 +267,7 @@ impl Local {
                 mtp: mtp.clone(),
                 idle_minutes: settings.idle_minutes,
             };
-            let err = match self.launch(&plan).await {
+            let err = match self.launch(&plan, cancel).await {
                 Ok(running) => {
                     if active.previous.is_some()
                         && let Err(e) = engine::confirm(&self.root)
@@ -219,6 +276,7 @@ impl Local {
                     }
                     return Ok(running);
                 }
+                Err(_) if cancel.is_cancelled() => return Err(stopped_error(&model.id)),
                 Err(e) => e,
             };
             if mtp != Mtp::Off {
@@ -249,7 +307,11 @@ impl Local {
         }
     }
 
-    async fn launch(&self, plan: &ServerPlan) -> Result<Running, String> {
+    async fn launch(
+        &self,
+        plan: &ServerPlan,
+        cancel: &CancellationToken,
+    ) -> Result<Running, String> {
         let port = server::free_port().map_err(|e| e.to_string())?;
         let base_url = format!("http://127.0.0.1:{port}");
         log(format!(
@@ -266,13 +328,21 @@ impl Local {
             e.to_string()
         })?;
         let started = Instant::now();
-        server::wait_ready(
-            &hf_client(&base_url),
-            &base_url,
-            process.as_mut(),
-            READY_TIMEOUT,
-        )
-        .await?;
+        let http = hf_client(&base_url);
+        let ready = tokio::select! {
+            r = server::wait_ready(&http, &base_url, process.as_mut(), READY_TIMEOUT) => r,
+            () = cancel.cancelled() => Err(stopped_error(&plan.model_id)),
+        };
+        if let Err(e) = ready {
+            if cancel.is_cancelled() {
+                log(format!(
+                    "[local] llama-server[{}] stopped while starting",
+                    plan.model_id
+                ));
+                process.kill();
+            }
+            return Err(e);
+        }
         log(format!(
             "[local] llama-server[{}] ready on port {port} in {:.1}s",
             plan.model_id,
@@ -282,9 +352,13 @@ impl Local {
     }
 }
 
+fn stopped_error(id: &str) -> String {
+    format!("model {id} was unloaded while starting")
+}
+
 fn stop_slot(id: &str, slot: &Slot) {
     let mut st = lock(&slot.state);
-    st.epoch += 1;
+    st.starting.cancel();
     st.failures = 0;
     if let Some(mut running) = st.running.take() {
         log(format!("[local] stopping llama-server[{id}]"));
@@ -297,7 +371,7 @@ fn mtp_on(settings: &LocalSettings, id: &str) -> bool {
     settings.mtp.get(id).copied().unwrap_or(true)
 }
 
-fn mtp_mode(root: &std::path::Path, model: &Installed, on: bool) -> Mtp {
+fn mtp_mode(root: &Path, model: &Installed, on: bool) -> Mtp {
     if !on {
         Mtp::Off
     } else if let Some(file) = store::mtp_file(root, model) {

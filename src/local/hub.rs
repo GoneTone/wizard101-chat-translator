@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 
-use super::download::{self, DownloadError, Progress};
+use super::download::Progress;
 use super::engine::{self, Build, EngineInstall, Variant};
 use super::fit::{self, Fit, Pick};
 use super::gguf::{self, ModelMeta};
@@ -20,13 +20,13 @@ use super::hardware::{self, Hardware};
 use super::hf::{self, Catalog};
 use super::runtime::Servers;
 use super::server::{CREATE_NO_WINDOW, Launcher};
-use super::store::{self, Installed, Manifest, ManifestFile};
+use super::store::{self, Installed};
 use super::{LocalNotice, Notify};
 use crate::config::local::LocalSettings;
 use crate::logs::log;
 use crate::util::{Clock, lock, poll_until};
 
-const PROGRESS_TICK: Duration = Duration::from_millis(250);
+pub(super) const PROGRESS_TICK: Duration = Duration::from_millis(250);
 const LIST_DEVICES_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 外部服務根網址；正式為 [`hf::HF_BASE`] 與 [`engine::RELEASES_API`]。
@@ -120,14 +120,14 @@ pub struct Local {
     pub(super) notify: Notify,
     pub(super) settings: Mutex<LocalSettings>,
     pub(super) servers: Servers,
-    endpoints: Endpoints,
-    hf_http: reqwest::Client,
+    pub(super) endpoints: Endpoints,
+    pub(super) hf_http: reqwest::Client,
     gh_http: reqwest::Client,
-    state: Mutex<Snapshot>,
+    pub(super) state: Mutex<Snapshot>,
     vram_measured: AtomicBool,
     /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
     engine_lock: tokio::sync::Mutex<()>,
-    cancels: Mutex<BTreeMap<String, CancellationToken>>,
+    pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
     me: Weak<Local>,
 }
 
@@ -184,10 +184,7 @@ impl Local {
         self.rt.spawn(async move {
             match cmd {
                 Command::RefreshHardware => me.refresh_hardware().await,
-                Command::ListBuilds => {
-                    let builds = engine::list_builds(&me.gh_http, &me.endpoints.releases).await;
-                    me.update(|s| s.builds = Some(builds));
-                }
+                Command::ListBuilds => drop(me.list_builds().await),
                 Command::InstallEngine { build, variant } => {
                     let _engine = me.engine_lock.lock().await;
                     let _ = me.install_engine(build, variant).await;
@@ -195,12 +192,7 @@ impl Local {
                 Command::RemoveEngine => me.remove_engine().await,
                 Command::QueryRepo(repo) => me.query_repo(&repo).await,
                 Command::Download { repo, choice, mtp } => me.download(&repo, choice, mtp).await,
-                Command::Resume(id) => {
-                    if let Some(cancel) = me.claim(&id) {
-                        me.fetch_model(&id, &cancel).await;
-                        lock(&me.cancels).remove(&id);
-                    }
-                }
+                Command::Resume(id) => me.resume(&id).await,
                 Command::CancelDownload(id) => {
                     if let Some(cancel) = lock(&me.cancels).get(&id) {
                         cancel.cancel();
@@ -221,7 +213,7 @@ impl Local {
     }
 
     /// 執行 `fut`，期間定時把 `progress` 寫進快照。
-    async fn track<T>(
+    pub(super) async fn track<T>(
         &self,
         progress: &Progress,
         fut: impl Future<Output = T>,
@@ -292,6 +284,7 @@ impl Local {
     ) -> Result<(), String> {
         let result = self.try_install_engine(tag, variant).await;
         if let Err(e) = &result {
+            log(format!("[local] engine install failed: {e}"));
             self.update(|s| s.engine = EngineState::Failed(e.clone()));
         }
         result
@@ -308,11 +301,7 @@ impl Local {
         };
         let builds = match cached {
             Some(builds) => builds,
-            None => {
-                let listed = engine::list_builds(&self.gh_http, &self.endpoints.releases).await;
-                self.update(|s| s.builds = Some(listed.clone()));
-                listed?
-            }
+            None => self.list_builds().await?,
         };
         let build = match &tag {
             None => builds.first(),
@@ -358,14 +347,34 @@ impl Local {
             e.to_string()
         })?;
         self.update(|s| s.engine = EngineState::Ready(installed));
-        self.restart_servers();
+        // 先量 VRAM 再重啟子程序，量到的才是模型還沒載入時的可用量
         self.refresh_hardware().await;
+        self.restart_servers();
         Ok(())
+    }
+
+    /// 引擎沒就緒就安裝（有安裝進行中則等它）；回傳這次是否新裝了引擎。
+    pub(super) async fn ensure_engine(&self) -> Result<bool, String> {
+        let _engine = self.engine_lock.lock().await;
+        if matches!(lock(&self.state).engine, EngineState::Ready(_)) {
+            return Ok(false);
+        }
+        log("[local] installing the engine before downloading a model");
+        self.install_engine(None, None).await.map(|()| true)
+    }
+
+    async fn list_builds(&self) -> Result<Vec<Build>, String> {
+        let listed = engine::list_builds(&self.gh_http, &self.endpoints.releases).await;
+        if let Err(e) = &listed {
+            log(format!("[local] listing llama.cpp builds failed: {e}"));
+        }
+        self.update(|s| s.builds = Some(listed.clone()));
+        listed
     }
 
     async fn remove_engine(&self) {
         let _engine = self.engine_lock.lock().await;
-        self.shutdown();
+        self.shutdown_and_wait().await;
         let state = match engine::remove_all(&self.root) {
             Ok(()) => EngineState::Missing,
             Err(e) => {
@@ -376,7 +385,7 @@ impl Local {
         self.update(|s| s.engine = state);
     }
 
-    async fn query_repo(&self, repo: &str) {
+    pub(super) async fn query_repo(&self, repo: &str) {
         self.update(|s| {
             s.repos.insert(repo.to_owned(), RepoState::Loading);
         });
@@ -419,189 +428,11 @@ impl Local {
         Ok((catalog, meta))
     }
 
-    fn repo_info(&self, repo: &str) -> Option<RepoInfo> {
+    pub(super) fn repo_info(&self, repo: &str) -> Option<RepoInfo> {
         match lock(&self.state).repos.get(repo) {
             Some(RepoState::Ready(info)) => Some(info.clone()),
             _ => None,
         }
-    }
-
-    async fn download(&self, repo: &str, choice: usize, mtp: Option<usize>) {
-        if self.repo_info(repo).is_none() {
-            self.query_repo(repo).await;
-        }
-        let Some(info) = self.repo_info(repo) else {
-            log(format!("[local] download {repo}: repo info unavailable"));
-            return;
-        };
-        let main = info.catalog.choices.get(choice);
-        let mtp_choice = mtp.map(|i| info.catalog.mtp.get(i));
-        let (Some(main), None | Some(Some(_))) = (main, mtp_choice) else {
-            log(format!(
-                "[local] download {repo}: no choice {choice} / mtp {mtp:?}"
-            ));
-            return;
-        };
-        let mtp_file = mtp_choice.flatten().map(|m| &m.file);
-        let to_manifest = |f: &hf::RepoFile| ManifestFile {
-            path: f.path.clone(),
-            size: f.size,
-            sha256: f.sha256.clone(),
-        };
-        let manifest = Manifest {
-            repo: repo.to_owned(),
-            quant: main.quant.label.clone(),
-            files: main.files.iter().map(to_manifest).collect(),
-            mtp: mtp_file.map(to_manifest),
-            moe: info.meta.expert_count > 0,
-            has_builtin_mtp: info.meta.has_mtp,
-            required: fit::required(
-                &info.meta,
-                fit::total_size(main),
-                mtp_file.map_or(0, |f| f.size),
-            ),
-        };
-        let id = store::model_id(repo, &main.quant.label);
-        let Some(cancel) = self.claim(&id) else {
-            log(format!("[local] download {id} already running"));
-            return;
-        };
-        let prepared = async {
-            store::write_manifest(&self.root, &id, &manifest).map_err(|e| {
-                log(format!("[local] writing manifest for {id} failed: {e}"));
-                e.to_string()
-            })?;
-            self.update(|s| s.models = store::list(&self.root));
-            let _engine = self.engine_lock.lock().await;
-            if !matches!(lock(&self.state).engine, EngineState::Ready(_)) {
-                log(format!(
-                    "[local] download {id}: installing the engine first"
-                ));
-                self.install_engine(None, None).await?;
-            }
-            Ok::<_, String>(())
-        };
-        match prepared.await {
-            Ok(()) => self.fetch_model(&id, &cancel).await,
-            Err(e) => self.update(|s| {
-                s.downloads.insert(id.clone(), DownloadState::Failed(e));
-            }),
-        }
-        lock(&self.cancels).remove(&id);
-    }
-
-    /// 登記 `id` 的下載；已在下載中回 `None`。
-    fn claim(&self, id: &str) -> Option<CancellationToken> {
-        let mut cancels = lock(&self.cancels);
-        if cancels.contains_key(id) {
-            return None;
-        }
-        let token = CancellationToken::new();
-        cancels.insert(id.to_owned(), token.clone());
-        self.update(|s| {
-            s.downloads
-                .insert(id.to_owned(), DownloadState::Running { done: 0, total: 0 });
-        });
-        Some(token)
-    }
-
-    /// 依清單下載缺少的檔案；已完整的檔略過。
-    async fn fetch_model(&self, id: &str, cancel: &CancellationToken) {
-        let Some(model) = store::list(&self.root).into_iter().find(|m| m.id == id) else {
-            log(format!("[local] download {id}: no manifest on disk"));
-            self.update(|s| {
-                s.downloads.remove(id);
-            });
-            return;
-        };
-        let m = &model.manifest;
-        let files: Vec<&ManifestFile> = m.files.iter().chain(&m.mtp).collect();
-        let total: u64 = files.iter().map(|f| f.size).sum();
-        let dir = store::models_dir(&self.root).join(&model.id);
-        log(format!(
-            "[local] model download start: id={id} repo={} files={} bytes={total}",
-            m.repo,
-            files.len()
-        ));
-        let mut done = 0;
-        for f in files {
-            let Some(name) = f.local_name() else {
-                return self.download_failed(id, format!("invalid file path {}", f.path));
-            };
-            let dest = dir.join(name);
-            if std::fs::metadata(&dest).is_ok_and(|md| md.len() == f.size) {
-                done += f.size;
-                continue;
-            }
-            let url = hf::resolve_url(&self.endpoints.hf, &m.repo, &f.path);
-            let progress = Progress::default();
-            let fetch = download::download(
-                &self.hf_http,
-                &url,
-                &dest,
-                f.size,
-                f.sha256.as_deref(),
-                &progress,
-                cancel,
-            );
-            let result = self
-                .track(&progress, fetch, |s, d, _| {
-                    s.downloads.insert(
-                        id.to_owned(),
-                        DownloadState::Running {
-                            done: done + d,
-                            total,
-                        },
-                    );
-                })
-                .await;
-            match result {
-                Ok(()) => done += f.size,
-                Err(DownloadError::Cancelled) => {
-                    let done = done + progress.done.load(Ordering::Relaxed);
-                    log(format!(
-                        "[local] model download paused: id={id} done={done}"
-                    ));
-                    return self.update(|s| {
-                        s.downloads
-                            .insert(id.to_owned(), DownloadState::Paused { done, total });
-                    });
-                }
-                Err(e) => return self.download_failed(id, e.to_string()),
-            }
-        }
-        log(format!("[local] model download finished: id={id}"));
-        self.update(|s| {
-            s.downloads.remove(id);
-            s.models = store::list(&self.root);
-        });
-    }
-
-    fn download_failed(&self, id: &str, error: String) {
-        log(format!("[local] model download failed: id={id}: {error}"));
-        self.update(|s| {
-            s.downloads
-                .insert(id.to_owned(), DownloadState::Failed(error));
-        });
-    }
-
-    /// 先取消進行中的下載並等它放開 `.part`、停掉子程序，再刪資料夾。
-    async fn delete(&self, id: &str) {
-        if let Some(cancel) = lock(&self.cancels).get(id) {
-            cancel.cancel();
-        }
-        while lock(&self.cancels).contains_key(id) {
-            tokio::time::sleep(PROGRESS_TICK).await;
-        }
-        self.stop(id);
-        match store::delete(&self.root, id) {
-            Ok(()) => log(format!("[local] deleted model {id}")),
-            Err(e) => log(format!("[local] deleting model {id} failed: {e}")),
-        }
-        self.update(|s| {
-            s.downloads.remove(id);
-            s.models = store::list(&self.root);
-        });
     }
 }
 
