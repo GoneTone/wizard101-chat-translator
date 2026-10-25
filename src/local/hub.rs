@@ -1,24 +1,26 @@
 //! 本地模型的對外入口：狀態快照，以及在背景執行的引擎、硬體、repo 查詢與下載指令。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use tokio::runtime::Handle;
+use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 use super::download::Progress;
 use super::engine::{self, Build, EngineInstall, Variant};
 use super::fit::{self, Fit, Pick};
 use super::gguf::{self, ModelMeta};
-use super::hardware::{self, Hardware};
+use super::hardware::{self, Gpu, Hardware};
 use super::hf::{self, Catalog};
 use super::runtime::Servers;
 use super::server::Launcher;
 use super::store::{self, Installed};
 use super::{LocalNotice, Notify};
+use crate::config::Config;
 use crate::config::local::LocalSettings;
 use crate::logs::log;
 use crate::util::lock;
@@ -43,6 +45,8 @@ pub enum EngineState {
         total: u64,
     },
     Ready(EngineInstall),
+    /// 正在停掉子程序並刪除引擎檔案。
+    Removing,
     Failed(String),
 }
 
@@ -83,6 +87,8 @@ pub struct Snapshot {
     pub models: Vec<Installed>,
     pub downloads: BTreeMap<String, DownloadState>,
     pub repos: BTreeMap<String, RepoState>,
+    /// 目前跑著 llama-server 的模型 id。
+    pub running: BTreeSet<String>,
 }
 
 impl Snapshot {
@@ -104,11 +110,12 @@ pub enum Command {
     },
     RemoveEngine,
     QueryRepo(String),
-    /// `choice`／`mtp` 為 `RepoInfo.catalog` 內的索引。
+    /// `choice`／`mtp` 為 `RepoInfo.catalog` 內的索引；`auto` 表示來自自動挑選（使用者沒手動選量化）。
     Download {
         repo: String,
         choice: usize,
         mtp: Option<usize>,
+        auto: bool,
     },
     Resume(String),
     CancelDownload(String),
@@ -127,7 +134,12 @@ pub struct Local {
     pub(super) hf_http: reqwest::Client,
     gh_http: reqwest::Client,
     pub(super) state: Mutex<Snapshot>,
-    pub(super) vram_measured: AtomicBool,
+    /// 偵測過的 GPU（外層 `None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
+    gpu: Mutex<Option<Option<Gpu>>>,
+    /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
+    first_measure: OnceCell<()>,
+    /// 載入中的模型顯示名（依開始順序）。
+    pub(super) loading: Mutex<Vec<String>>,
     /// `shutdown` 之後不再啟動任何模型。
     pub(super) closed: AtomicBool,
     /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
@@ -168,7 +180,9 @@ impl Local {
             servers: Servers::default(),
             endpoints,
             state: Mutex::new(snapshot),
-            vram_measured: AtomicBool::new(false),
+            gpu: Mutex::default(),
+            first_measure: OnceCell::new(),
+            loading: Mutex::default(),
             closed: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
             engine_files: tokio::sync::RwLock::new(()),
@@ -178,7 +192,23 @@ impl Local {
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        lock(&self.state).clone()
+        let mut snapshot = lock(&self.state).clone();
+        snapshot.running = self.running_ids();
+        snapshot
+    }
+
+    /// 程式啟動時呼叫一次：背景量硬體並套用設定；預先載入等量完才開始，量到的可用量才不含自己的模型。
+    pub fn start(&self, cfg: &Config) {
+        let me = self.arc();
+        self.rt.spawn(async move { me.measured_once().await });
+        self.apply_config(cfg);
+    }
+
+    /// 等程式啟動後的第一次量硬體完成（還沒開始就由這裡量）。
+    pub(super) async fn measured_once(&self) {
+        self.first_measure
+            .get_or_init(|| self.refresh_hardware(false))
+            .await;
     }
 
     /// 最近一次 `apply_config` 收到的設定（之前為預設值）。
@@ -187,29 +217,62 @@ impl Local {
     }
 
     /// 在背景執行指令；狀態變了就送 `LocalNotice::Changed`。
+    ///
+    /// 下載與繼續下載在回傳前就登記好，快照立刻是下載中、蓋掉舊的失敗紀錄（repo 還沒查過的下載除外）。
     pub fn command(&self, cmd: Command) {
         log(format!("[local] command {cmd:?}"));
         let me = self.arc();
-        self.rt.spawn(async move {
-            match cmd {
-                Command::RefreshHardware => me.refresh_hardware().await,
-                Command::ListBuilds => drop(me.list_builds().await),
-                Command::InstallEngine { build, variant } => {
-                    let _engine = me.engine_lock.lock().await;
-                    let _ = me.install_engine(build, variant).await;
-                }
-                Command::RemoveEngine => me.remove_engine().await,
-                Command::QueryRepo(repo) => me.query_repo(&repo).await,
-                Command::Download { repo, choice, mtp } => me.download(&repo, choice, mtp).await,
-                Command::Resume(id) => me.resume(&id).await,
-                Command::CancelDownload(id) => {
-                    if let Some(cancel) = lock(&me.cancels).get(&id) {
-                        cancel.cancel();
+        let task: std::pin::Pin<Box<dyn Future<Output = ()> + Send>> = match cmd {
+            Command::RefreshHardware => Box::pin(async move { me.refresh_hardware(true).await }),
+            Command::ListBuilds => Box::pin(async move { drop(me.list_builds().await) }),
+            Command::InstallEngine { build, variant } => Box::pin(async move {
+                let _engine = me.engine_lock.lock().await;
+                let _ = me.install_engine(build, variant).await;
+            }),
+            Command::RemoveEngine => Box::pin(async move { me.remove_engine().await }),
+            Command::QueryRepo(repo) => Box::pin(async move { me.query_repo(&repo).await }),
+            Command::Download {
+                repo,
+                choice,
+                mtp,
+                auto,
+            } => {
+                let claimed = match self.repo_info(&repo) {
+                    Some(_) => match self.claim_download(&repo, choice, mtp) {
+                        Some(claimed) => Some(claimed),
+                        None => return,
+                    },
+                    None => None,
+                };
+                Box::pin(async move {
+                    let claimed = match claimed {
+                        Some(claimed) => Some(claimed),
+                        None => {
+                            me.query_repo(&repo).await;
+                            me.claim_download(&repo, choice, mtp)
+                        }
+                    };
+                    if let Some(claimed) = claimed {
+                        me.download(&repo, auto, claimed).await;
                     }
-                }
-                Command::Delete(id) => me.delete(&id).await,
+                })
             }
-        });
+            Command::Resume(id) => {
+                let Some(cancel) = self.claim(&id) else {
+                    log(format!("[local] download {id} already running"));
+                    return;
+                };
+                Box::pin(async move { me.resume(&id, cancel).await })
+            }
+            Command::CancelDownload(id) => {
+                if let Some(cancel) = lock(&self.cancels).get(&id) {
+                    cancel.cancel();
+                }
+                return;
+            }
+            Command::Delete(id) => Box::pin(async move { me.delete(&id).await }),
+        };
+        self.rt.spawn(task);
     }
 
     pub(super) fn arc(&self) -> Arc<Self> {
@@ -242,18 +305,40 @@ impl Local {
         }
     }
 
-    async fn refresh_hardware(&self) {
+    /// 偵測 GPU；偵測過且不要求 `redetect` 時沿用上次的結果。
+    fn gpu(&self, redetect: bool) -> Option<Gpu> {
+        let mut cached = lock(&self.gpu);
+        if redetect || cached.is_none() {
+            *cached = Some(tokio::task::block_in_place(|| self.launcher.detect_gpu()));
+        }
+        cached.clone().flatten()
+    }
+
+    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM；本程式跑著的模型所佔的量加回可用量。
+    async fn refresh_hardware(&self, redetect_gpu: bool) {
+        let gpu = self.gpu(redetect_gpu);
+        // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
+        let files = self.engine_files.read().await;
+        let loaded: u64 = {
+            let running = self.running_ids();
+            lock(&self.state)
+                .models
+                .iter()
+                .filter(|m| running.contains(&m.id))
+                .map(|m| m.manifest.required)
+                .sum()
+        };
         let exe = current_exe(&self.root);
-        let (hw, measured) = tokio::task::block_in_place(|| {
+        let mut hw = tokio::task::block_in_place(|| {
             let (ram_total, ram_free) = hardware::system_memory();
             let mut hw = Hardware {
-                gpu: self.launcher.detect_gpu(),
+                gpu,
                 ram_total,
                 ram_free,
                 ..Hardware::default()
             };
             let Some(exe) = exe else {
-                return (hw, false);
+                return hw;
             };
             match self.launcher.list_devices(&exe) {
                 Ok(out) => {
@@ -262,23 +347,22 @@ impl Local {
                     if let Some((_, total, free)) = devices.into_iter().max_by_key(|d| d.1) {
                         (hw.vram_total, hw.vram_free) = (total, free);
                     }
-                    (hw, true)
+                    hw.measured = true;
                 }
-                Err(e) => {
-                    log(format!("[local] llama-server --list-devices failed: {e}"));
-                    (hw, false)
-                }
+                Err(e) => log(format!("[local] llama-server --list-devices failed: {e}")),
             }
+            hw
         });
+        drop(files);
+        hardware::release(&mut hw, loaded);
         log(format!(
-            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={measured}",
-            hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free
+            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models_added_back={loaded}",
+            hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free, hw.measured
         ));
-        self.vram_measured.store(measured, Ordering::Relaxed);
         self.update(|s| {
             for repo in s.repos.values_mut() {
                 if let RepoState::Ready(info) = repo {
-                    rate(info, &hw, measured);
+                    rate(info, &hw);
                 }
             }
             s.hardware = hw;
@@ -322,11 +406,7 @@ impl Local {
                 tag.as_deref().unwrap_or("latest")
             )
         })?;
-        let variant = variant.unwrap_or_else(|| {
-            engine::auto_variant(
-                tokio::task::block_in_place(|| self.launcher.detect_gpu()).as_ref(),
-            )
-        });
+        let variant = variant.unwrap_or_else(|| engine::auto_variant(self.gpu(false).as_ref()));
         let total = build
             .variants
             .iter()
@@ -359,7 +439,7 @@ impl Local {
         })?;
         self.update(|s| s.engine = EngineState::Ready(installed));
         // 先量 VRAM 再重啟子程序，量到的才是模型還沒載入時的可用量
-        self.refresh_hardware().await;
+        self.refresh_hardware(false).await;
         self.restart_servers();
         Ok(())
     }
@@ -385,6 +465,7 @@ impl Local {
 
     async fn remove_engine(&self) {
         let _engine = self.engine_lock.lock().await;
+        self.update(|s| s.engine = EngineState::Removing);
         self.stop_all();
         let _files = self.engine_files.write().await;
         // 取寫鎖前剛起跑的啟動不在第一次 stop_all 之內，拿到鎖後再停一次
@@ -413,10 +494,9 @@ impl Local {
             }),
             Err(e) => RepoState::Failed(e),
         };
-        let measured = self.vram_measured.load(Ordering::Relaxed);
         self.update(|s| {
             if let RepoState::Ready(info) = &mut state {
-                rate(info, &s.hardware, measured);
+                rate(info, &s.hardware);
                 log(format!(
                     "[local] {repo}: {} choices, fits={:?} auto={:?}",
                     info.catalog.choices.len(),
@@ -450,8 +530,8 @@ impl Local {
     }
 }
 
-/// 依硬體重算各量化的所需量、等級與自動挑選。
-fn rate(info: &mut RepoInfo, hw: &Hardware, measured: bool) {
+/// 依硬體重算各量化的所需量、等級與自動挑選；VRAM 沒量過時等級為 `None`。
+fn rate(info: &mut RepoInfo, hw: &Hardware) {
     let moe = info.meta.expert_count > 0;
     info.fits = info
         .catalog
@@ -459,7 +539,7 @@ fn rate(info: &mut RepoInfo, hw: &Hardware, measured: bool) {
         .iter()
         .map(|c| {
             let required = fit::required(&info.meta, fit::total_size(c), 0);
-            (required, measured.then(|| fit::fit(required, moe, hw)))
+            (required, hw.measured.then(|| fit::fit(required, moe, hw)))
         })
         .collect();
     info.mtp_required = info.catalog.mtp.iter().map(|m| m.file.size).collect();

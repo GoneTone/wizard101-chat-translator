@@ -3,6 +3,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -65,6 +66,12 @@ struct Shared {
     launch_delay: Arc<Mutex<Duration>>,
     /// 每次 kill 當下引擎 exe 是否還在。
     exe_at_kill: Arc<Mutex<Vec<bool>>>,
+    /// `--list-devices` 卡住的時間。
+    measure_delay: Arc<Mutex<Duration>>,
+    /// 每次 `--list-devices` 結束的時間與當下 exe 是否還在。
+    measured: Arc<Mutex<Vec<(Instant, bool)>>>,
+    /// 偵測 GPU 的次數。
+    gpu_detections: Arc<Mutex<usize>>,
 }
 
 struct FakeLauncher {
@@ -95,6 +102,7 @@ impl Launcher for FakeLauncher {
     }
 
     fn detect_gpu(&self) -> Option<Gpu> {
+        *self.shared.gpu_detections.lock().unwrap() += 1;
         Some(Gpu {
             name: "Fake GPU".into(),
             vendor: 0x10de,
@@ -102,7 +110,11 @@ impl Launcher for FakeLauncher {
         })
     }
 
-    fn list_devices(&self, _exe: &Path) -> Result<String, String> {
+    fn list_devices(&self, exe: &Path) -> Result<String, String> {
+        let delay = *self.shared.measure_delay.lock().unwrap();
+        std::thread::sleep(delay);
+        let done = (Instant::now(), exe.exists());
+        self.shared.measured.lock().unwrap().push(done);
         let devices = self.shared.devices.lock().unwrap().clone();
         devices.ok_or_else(|| "fake measurement failure".into())
     }
@@ -341,6 +353,7 @@ async fn query_then_download_installs_the_model() {
         repo: "org/Model-GGUF".into(),
         choice: 0,
         mtp: None,
+        auto: true,
     });
     let id = store::model_id("org/Model-GGUF", "Q4_K_M");
     wait_for("model complete", || {
@@ -534,11 +547,13 @@ fn model_dir(f: &Fixture, id: &str) -> PathBuf {
     store::models_dir(&f.root).join(id)
 }
 
+/// 自動挑選的下載（使用者沒動量化表）。
 fn download(choice: usize) -> Command {
     Command::Download {
         repo: REPO.into(),
         choice,
         mtp: None,
+        auto: true,
     }
 }
 
@@ -805,9 +820,9 @@ async fn delete_while_starting_kills_the_process_first() {
     assert!(err.contains("unloaded while starting"), "{err}");
 }
 
-/// 移除引擎途中，連從沒啟動過的模型也啟動不了，回「沒有引擎」且不算失敗。
+/// 移除引擎途中排隊的啟動（連從沒啟動過的模型）也被停掉：等引擎檔案時已登記的取消鈕不會漏掉，且不算失敗。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ensure_during_engine_removal_gets_no_engine() {
+async fn ensure_during_engine_removal_is_stopped() {
     let f = fixture(
         |root| {
             add_engine(root, "b11871");
@@ -823,8 +838,9 @@ async fn ensure_during_engine_removal_gets_no_engine() {
     wait_for("m0 launching", || f.plans().len() == 1).await;
     f.local.command(Command::RemoveEngine);
     tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(f.local.snapshot().engine, EngineState::Removing);
     let err = f.local.ensure("m1").await.unwrap_err();
-    assert!(err.contains("engine is not installed"), "{err}");
+    assert!(err.contains("unloaded while starting"), "{err}");
     assert!(first.await.unwrap().is_err());
     // 卡在啟動中的 m0 要先被殺掉，引擎檔案才能刪
     assert_eq!(*f.shared.exe_at_kill.lock().unwrap(), [true]);
@@ -842,4 +858,229 @@ async fn ensure_during_engine_removal_gets_no_engine() {
     *f.shared.launch_delay.lock().unwrap() = Duration::ZERO;
     add_engine(&f.root, "b11871");
     f.local.ensure("m1").await.unwrap();
+}
+
+fn loading_notices(f: &Fixture) -> Vec<LocalNotice> {
+    let notices = f.notices.lock().unwrap();
+    notices
+        .iter()
+        .filter(|n| matches!(n, LocalNotice::Loading(_)))
+        .cloned()
+        .collect()
+}
+
+/// 下載與繼續下載一送出快照就是下載中：舊的失敗紀錄當場被蓋掉，UI 不必猜它是不是舊的。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn download_and_resume_replace_an_old_failure_before_returning() {
+    let f = fixture(|_| {}, |_| false).await;
+    Mock::given(method("GET"))
+        .and(path("/releases"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&f.hf)
+        .await;
+    mount_repo(&f.hf, &[("model-Q4_K_M.gguf", tiny_gguf())]).await;
+    query(&f).await;
+    let id = store::model_id(REPO, "Q4_K_M");
+    let failed = |f: &Fixture| {
+        matches!(
+            f.local.snapshot().downloads.get(&id),
+            Some(DownloadState::Failed(_))
+        )
+    };
+    let running = |f: &Fixture| {
+        matches!(
+            f.local.snapshot().downloads.get(&id),
+            Some(DownloadState::Running { .. })
+        )
+    };
+    f.local.command(download(0));
+    assert!(running(&f));
+    wait_for("download failed", || failed(&f)).await;
+    f.local.command(download(0));
+    assert!(running(&f), "{:?}", f.local.snapshot().downloads);
+    wait_for("download failed again", || failed(&f)).await;
+    f.local.command(Command::Resume(id.clone()));
+    assert!(running(&f), "{:?}", f.local.snapshot().downloads);
+    wait_for("resume failed", || failed(&f)).await;
+}
+
+/// 手動選的量化：就算這次才裝好引擎、量到 VRAM，也照使用者的選擇下載。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn download_without_engine_keeps_a_manual_pick_even_when_vram_is_measured() {
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    mount_engine(&f.hf, Duration::ZERO).await;
+    let (q4, _) = two_quants(&f).await;
+    f.local.command(Command::Download {
+        repo: REPO.into(),
+        choice: q4,
+        mtp: None,
+        auto: false,
+    });
+    let q4_id = store::model_id(REPO, "Q4_K_M");
+    wait_complete(&f, &q4_id).await;
+    let s = f.local.snapshot();
+    assert!(s.hardware.measured);
+    assert_eq!(s.models.len(), 1, "{:?}", s.models);
+}
+
+/// 一次啟動失敗之後成功啟動，失敗就清零：之後意外結束仍會重啟，不會被當成連續失敗。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_good_start_forgets_an_earlier_start_failure() {
+    let failing = Arc::new(AtomicBool::new(true));
+    let flag = failing.clone();
+    let f = fixture(engine_and_model(false), move |_| {
+        flag.load(Ordering::SeqCst)
+    })
+    .await;
+    f.local.ensure("m1").await.unwrap_err();
+    failing.store(false, Ordering::SeqCst);
+    f.local.ensure("m1").await.unwrap();
+    *f.shared.exits.lock().unwrap()[1].lock().unwrap() = Some(3);
+    f.local.ensure("m1").await.unwrap();
+    assert_eq!(f.plans().len(), 3);
+}
+
+/// 兩個模型同時載入：先好的那個不收起橫幅，最後一個好了才收。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlapping_starts_keep_the_banner_until_the_last_one() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, "m1", false);
+            add_model(root, "m2", false);
+        },
+        |_| false,
+    )
+    .await;
+    *f.shared.health_delay.lock().unwrap() = Duration::from_millis(300);
+    let (a, b) = tokio::join!(f.local.ensure("m1"), f.local.ensure("m2"));
+    a.unwrap();
+    b.unwrap();
+    let loading = loading_notices(&f);
+    let ends = loading
+        .iter()
+        .filter(|n| **n == LocalNotice::Loading(None))
+        .count();
+    assert_eq!(ends, 1, "{loading:?}");
+    assert_eq!(loading.last(), Some(&LocalNotice::Loading(None)));
+}
+
+/// 程式啟動：先量完硬體才預先載入，量到的可用量不含自己要載入的模型。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn start_measures_the_hardware_before_preloading() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    *f.shared.measure_delay.lock().unwrap() = Duration::from_millis(300);
+    let settings = json!({"preload": true, "idle_minutes": 15, "mtp": {}});
+    f.local.start(&local_config(&["m1"], settings));
+    wait_for("preloaded", || f.plans().len() == 1).await;
+    let measured = f.shared.measured.lock().unwrap().clone();
+    let launched = f.shared.launched_at.lock().unwrap()[0];
+    assert_eq!(measured.len(), 1);
+    assert!(
+        launched >= measured[0].0,
+        "launched before the measurement ended"
+    );
+    assert!(f.local.snapshot().hardware.measured);
+}
+
+/// 模型跑著時重新偵測：它佔的記憶體加回可用量，快照也列出它在跑。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn redetecting_adds_running_models_back_to_free_memory() {
+    const G: u64 = 1 << 30;
+    let f = fixture(
+        |root| {
+            engine_and_model(false)(root);
+            let mut m = store::list(root).remove(0).manifest;
+            m.required = 2 * G;
+            store::write_manifest(root, "m1", &m).unwrap();
+        },
+        |_| false,
+    )
+    .await;
+    f.local.ensure("m1").await.unwrap();
+    *f.shared.devices.lock().unwrap() =
+        Some("Available devices:\n  Vulkan0: Fake GPU (8192 MiB, 4096 MiB free)\n".into());
+    f.local.command(Command::RefreshHardware);
+    wait_for("measured", || f.local.snapshot().hardware.measured).await;
+    let s = f.local.snapshot();
+    assert!(s.running.contains("m1"), "{:?}", s.running);
+    assert_eq!(s.hardware.vram_free, (4096 << 20) + 2 * G);
+}
+
+/// 量硬體途中移除引擎：等 `--list-devices` 結束才刪，不會刪到執行中的 exe。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn engine_removal_waits_for_a_running_measurement() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    *f.shared.measure_delay.lock().unwrap() = Duration::from_millis(400);
+    f.local.command(Command::RefreshHardware);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    f.local.command(Command::RemoveEngine);
+    wait_for("engine removed", || {
+        f.local.snapshot().engine == EngineState::Missing
+    })
+    .await;
+    let measured = f.shared.measured.lock().unwrap().clone();
+    assert_eq!(measured.len(), 1);
+    assert!(measured[0].1, "the exe was deleted during --list-devices");
+}
+
+/// 新引擎上起了模型，但舊引擎上還有模型在跑：先不刪舊資料夾；新引擎失敗時也不回退刪掉別人在用的新資料夾。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn engine_folders_in_use_are_not_deleted() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            for id in ["m0", "m1", "m2"] {
+                add_model(root, id, false);
+            }
+        },
+        |p| p.model_id == "m1",
+    )
+    .await;
+    let old = engine::read_active(&f.root).current.unwrap();
+    f.local.ensure("m0").await.unwrap();
+    let new = add_engine(&f.root, "b11872");
+    f.local.ensure("m2").await.unwrap();
+    assert!(engine::engine_dir(&f.root, &old).exists());
+    assert_eq!(engine::read_active(&f.root).previous, Some(old.clone()));
+
+    f.local.ensure("m1").await.unwrap_err();
+    let active = engine::read_active(&f.root);
+    assert_eq!(active.current, Some(new.clone()));
+    assert!(engine::engine_dir(&f.root, &new).exists());
+
+    f.local.stop("m0");
+    f.local.stop("m2");
+    f.local.ensure("m2").await.unwrap();
+    assert!(!engine::engine_dir(&f.root, &old).exists());
+    assert_eq!(engine::read_active(&f.root).previous, None);
+}
+
+/// GPU 只在啟動時偵測一次：裝引擎（挑變體、裝完重量）沿用它，使用者按〔重新偵測〕才重新列舉。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_gpu_is_detected_once_until_the_user_redetects() {
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    mount_engine(&f.hf, Duration::ZERO).await;
+    let detections = || *f.shared.gpu_detections.lock().unwrap();
+    f.local.start(&default_config());
+    wait_for("startup measurement", || {
+        f.local.snapshot().hardware.gpu.is_some()
+    })
+    .await;
+    f.local.command(Command::InstallEngine {
+        build: None,
+        variant: None,
+    });
+    wait_for("engine installed and measured", || {
+        let s = f.local.snapshot();
+        matches!(s.engine, EngineState::Ready(_)) && s.hardware.measured
+    })
+    .await;
+    assert_eq!(detections(), 1);
+    f.local.command(Command::RefreshHardware);
+    wait_for("re-detected", || detections() == 2).await;
 }

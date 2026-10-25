@@ -10,7 +10,6 @@ use serde_json::{Map, Value};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
-use super::local_models::display_name;
 use super::provider_picker::provider_icon;
 use super::quant_table::gb;
 use super::theme::{self, icon};
@@ -490,7 +489,7 @@ impl ServiceForm {
                 let size = gb(total_size(std::slice::from_ref(m)));
                 t(
                     "local.form.model_option",
-                    &[("name", &display_name(m)), ("size", &size)],
+                    &[("name", &m.manifest.display_name()), ("size", &size)],
                 )
             };
             let current = snapshot.ready_model(&self.model);

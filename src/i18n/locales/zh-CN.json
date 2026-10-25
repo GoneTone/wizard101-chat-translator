@@ -56,6 +56,7 @@
   "local.engine.title": "llama.cpp 引擎",
   "local.engine.status_missing": "未安装",
   "local.engine.status_installing": "安装中",
+  "local.engine.status_removing": "移除中",
   "local.engine.status_ready": "已安装",
   "local.engine.status_failed": "失败",
   "local.engine.version": "版本",

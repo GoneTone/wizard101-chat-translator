@@ -2,22 +2,25 @@
 
 use std::mem;
 
-use eframe::egui::{Frame, Label, Margin, ProgressBar, RichText, Ui};
+use eframe::egui::{Frame, Label, Margin, RichText, Ui};
 
+use self::widgets::{default_selection, engine_download, error_with_retry, hint, progress};
 use crate::i18n::t;
-use crate::local::catalog::{RECOMMENDED, wizard_pick};
-use crate::local::engine::{Variant, auto_variant};
+use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, memory_kind, total_size};
-use crate::local::store::model_id;
-use crate::local::{Command, DownloadState, EngineState, RepoInfo, RepoState, Snapshot};
+use crate::local::store::choice_id;
+use crate::local::{Command, DownloadState, EngineState, RepoState, Snapshot};
 use crate::logs::log;
 use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::local_dialog::{
-    DialogMode, DialogOutcome, DownloadDialog, Selection, Tab, memory_key,
+    DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
+use crate::ui::settings::local_rows::memory_key;
 use crate::ui::settings::quant_table::{combined, dot, fit_color, fit_text, gb};
 use crate::ui::settings::theme;
 use crate::ui::settings::widgets::{card, primary_button, secondary_button};
+
+mod widgets;
 
 /// 這一幀安裝流程所處的階段。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,8 +53,6 @@ pub struct LocalInstall {
     /// 按了〔下載〕後追蹤的模型 id。
     tracked: Option<String>,
     cancelled: bool,
-    /// 剛按〔下載〕：hub 還沒蓋掉舊的失敗紀錄前，不顯示它。
-    stale_failure: bool,
     /// 表單原本就有的模型 id；進入時若已在 hub 的清單內就直接沿用。
     existing: String,
     state: Option<InstallState>,
@@ -69,6 +70,17 @@ impl LocalInstall {
     /// 所選模型是否已下載完成。
     pub fn is_done(&self) -> bool {
         matches!(self.state, Some(InstallState::Done(_)))
+    }
+
+    /// 返回上一步後再進來：留著選擇與追蹤中的下載（還在跑的照樣接著顯示），取消提示、對話框與舊表單的模型不留。
+    pub fn reenter(&mut self) {
+        log(format!(
+            "[ui] wizard local install left: tracked={:?} cancelled={}",
+            self.tracked, self.cancelled
+        ));
+        self.cancelled = false;
+        self.dialog = None;
+        self.existing.clear();
     }
 
     /// 畫一幀；回傳目前階段。`snapshot` 是這一幀唯一的一份狀態。
@@ -96,7 +108,6 @@ impl LocalInstall {
         if snapshot.models.iter().any(|m| m.id == self.existing) {
             self.tracked = Some(self.existing.clone());
         }
-        env.local_command(Command::RefreshHardware);
         for rec in RECOMMENDED
             .iter()
             .filter(|r| !snapshot.repos.contains_key(r.repo))
@@ -131,7 +142,7 @@ impl LocalInstall {
         }
     }
 
-    fn phase(&mut self, snapshot: &Snapshot) -> InstallState {
+    fn phase(&self, snapshot: &Snapshot) -> InstallState {
         let Some(id) = &self.tracked else {
             return InstallState::Choosing;
         };
@@ -139,14 +150,8 @@ impl LocalInstall {
             return InstallState::Done(id.clone());
         }
         match snapshot.downloads.get(id) {
-            Some(DownloadState::Failed(e)) if !self.stale_failure => {
-                InstallState::Failed(e.clone())
-            }
-            Some(DownloadState::Failed(_)) => InstallState::Downloading,
-            _ => {
-                self.stale_failure = false;
-                InstallState::Downloading
-            }
+            Some(DownloadState::Failed(e)) => InstallState::Failed(e.clone()),
+            _ => InstallState::Downloading,
         }
     }
 
@@ -174,7 +179,7 @@ impl LocalInstall {
         }
         let (required, fit) = combined(info, &snapshot.hardware, (selection.choice, selection.mtp));
         Some(Plan {
-            id: model_id(&selection.repo, &choice.quant.label),
+            id: choice_id(&selection.repo, choice),
             title,
             fit,
             model_bytes: total_size(choice) + mtp.map_or(0, |m| m.file.size),
@@ -252,11 +257,8 @@ impl LocalInstall {
                 repo: plan.selection.repo,
                 choice: plan.selection.choice,
                 mtp: plan.selection.mtp,
+                auto: plan.selection.auto,
             });
-            self.stale_failure = matches!(
-                snapshot.downloads.get(&plan.id),
-                Some(DownloadState::Failed(_))
-            );
             self.tracked = Some(plan.id);
             self.cancelled = false;
         }
@@ -298,7 +300,7 @@ impl LocalInstall {
                     })
                 });
             }
-            EngineState::Missing | EngineState::Ready(_) => {}
+            EngineState::Missing | EngineState::Ready(_) | EngineState::Removing => {}
         }
     }
 
@@ -339,8 +341,11 @@ impl LocalInstall {
                     &[("done", &gb(done)), ("total", &gb(total))],
                 );
                 progress(ui, &text, done, total);
-                let interrupted = !snapshot.downloads.contains_key(&id)
-                    && snapshot.models.iter().any(|m| m.id == id);
+                let stopped = matches!(
+                    snapshot.downloads.get(&id),
+                    None | Some(DownloadState::Paused { .. })
+                );
+                let interrupted = stopped && snapshot.models.iter().any(|m| m.id == id);
                 if interrupted && primary_button(ui, &t("local.continue_download", &[])).clicked() {
                     env.local_command(Command::Resume(id.clone()));
                 }
@@ -354,76 +359,5 @@ impl LocalInstall {
             self.tracked = None;
             self.cancelled = true;
         }
-    }
-}
-
-/// 六個推薦裡查好的依 `wizard_pick` 挑一個，用該 repo 的自動挑選；等級不明的排最後。
-fn default_selection(snapshot: &Snapshot) -> Option<Selection> {
-    let rated: Vec<_> = RECOMMENDED
-        .iter()
-        .filter_map(|rec| {
-            let info = ready_info(snapshot, rec.repo)?;
-            let fit = info
-                .auto
-                .and_then(|a| combined(info, &snapshot.hardware, (a.choice, a.mtp)).1)
-                .unwrap_or(Fit::NoFit);
-            Some((rec, fit))
-        })
-        .collect();
-    let rec = wizard_pick(&rated)?;
-    let auto = ready_info(snapshot, rec.repo)?.auto?;
-    Some(Selection {
-        repo: rec.repo.to_owned(),
-        choice: auto.choice,
-        mtp: auto.mtp,
-    })
-}
-
-fn ready_info<'a>(snapshot: &'a Snapshot, repo: &str) -> Option<&'a RepoInfo> {
-    match snapshot.repos.get(repo) {
-        Some(RepoState::Ready(info)) => Some(info),
-        _ => None,
-    }
-}
-
-/// 引擎還沒裝好時要下載的變體與位元組；已裝好或版本清單還沒到則 `None`。
-fn engine_download(snapshot: &Snapshot) -> Option<(Variant, u64)> {
-    if matches!(snapshot.engine, EngineState::Ready(_)) {
-        return None;
-    }
-    let Some(Ok(builds)) = &snapshot.builds else {
-        return None;
-    };
-    let variant = auto_variant(snapshot.hardware.gpu.as_ref());
-    let (_, assets) = builds
-        .first()?
-        .variants
-        .iter()
-        .find(|(v, _)| *v == variant)?;
-    Some((variant, assets.iter().map(|a| a.size).sum()))
-}
-
-fn hint(ui: &mut Ui, text: &str) {
-    let text = RichText::new(text)
-        .size(theme::HINT_SIZE)
-        .color(theme::TEXT_SECONDARY);
-    ui.add(Label::new(text).wrap());
-}
-
-fn progress(ui: &mut Ui, text: &str, done: u64, total: u64) {
-    hint(ui, text);
-    let fraction = if total == 0 {
-        0.0
-    } else {
-        (done as f64 / total as f64).clamp(0.0, 1.0) as f32
-    };
-    ui.add(ProgressBar::new(fraction));
-}
-
-fn error_with_retry(ui: &mut Ui, error: &str, retry: impl FnOnce()) {
-    ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
-    if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
-        log(format!("[ui] wizard local retry: error={error}"));
-        retry();
     }
 }

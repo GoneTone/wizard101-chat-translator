@@ -127,6 +127,7 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
     let (choice, size, level) = (best.choice, best.size, best.fit);
 
     let main_bits = cat.choices[choice].quant.bits;
+    // 加上 MTP 仍 Smooth 才帶；加總後 Smooth 代表主模型本身也是 Smooth
     let mtp = cat
         .mtp
         .iter()
@@ -139,7 +140,6 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
             };
             (dist, m.file.size)
         })
-        // 主模型本身須為 Smooth；加上 MTP 仍 Smooth 才帶（Smooth 單調，故只需檢查加總後）
         .and_then(|(i, m)| {
             let with = required(meta, size, m.file.size);
             (fit(with, moe, hw) == Fit::Smooth).then_some((i, with))
@@ -181,6 +181,7 @@ mod tests {
             vram_free: vram,
             ram_total: ram,
             ram_free: ram,
+            measured: true,
         }
     }
 
@@ -191,6 +192,7 @@ mod tests {
             vram_free: 0,
             ram_total: ram,
             ram_free: ram,
+            measured: true,
         }
     }
 

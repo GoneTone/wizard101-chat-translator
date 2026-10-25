@@ -6,6 +6,8 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::catalog::RECOMMENDED;
+use super::hf::Choice;
 use crate::logs::log;
 use crate::util::write_atomic;
 
@@ -38,6 +40,20 @@ pub struct Manifest {
     pub required: u64,
 }
 
+impl Manifest {
+    /// 顯示名：推薦清單內的 repo 用推薦名稱，其餘用 repo 名；後接量化。
+    pub fn display_name(&self) -> String {
+        let name = RECOMMENDED
+            .iter()
+            .find(|r| r.repo == self.repo)
+            .map_or_else(
+                || self.repo.rsplit('/').next().unwrap_or_default(),
+                |r| r.name,
+            );
+        format!("{name} · {}", self.quant)
+    }
+}
+
 /// 磁碟上的一個模型；`complete` 表示所有檔都已下載完成。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Installed {
@@ -58,6 +74,19 @@ pub fn model_id(repo: &str, quant_label: &str) -> String {
             }
         })
         .collect()
+}
+
+/// 一個量化版本的模型 id；主檔不在 repo 根目錄時加上所在資料夾，不同資料夾的同名量化才不會撞號。
+pub fn choice_id(repo: &str, choice: &Choice) -> String {
+    let dir = choice
+        .files
+        .first()
+        .and_then(|f| f.path.rsplit_once('/'))
+        .map(|(dir, _)| dir);
+    match dir {
+        Some(dir) => model_id(repo, &format!("{}__{dir}", choice.quant.label)),
+        None => model_id(repo, &choice.quant.label),
+    }
 }
 
 /// 所有模型的根資料夾。
@@ -139,18 +168,17 @@ pub fn list(root: &Path) -> Vec<Installed> {
     out
 }
 
-/// 模型的主 GGUF（第一個分檔）。
-pub fn main_file(root: &Path, m: &Installed) -> PathBuf {
-    debug_assert!(is_valid_id(&m.id));
+/// 模型的主 GGUF（第一個分檔）；id 不合法或清單沒有可用的檔名時回錯誤。
+pub fn main_file(root: &Path, m: &Installed) -> io::Result<PathBuf> {
     let name = m.manifest.files.first().and_then(|f| f.local_name());
-    models_dir(root).join(&m.id).join(name.unwrap_or_default())
+    let name = name.ok_or(io::ErrorKind::InvalidData)?;
+    Ok(model_dir(root, &m.id)?.join(name))
 }
 
-/// 模型的 MTP 檔（若有）。
+/// 模型的 MTP 檔；沒有 MTP 或 id 不合法時為 `None`。
 pub fn mtp_file(root: &Path, m: &Installed) -> Option<PathBuf> {
-    debug_assert!(is_valid_id(&m.id));
     let name = m.manifest.mtp.as_ref()?.local_name()?;
-    Some(models_dir(root).join(&m.id).join(name))
+    Some(model_dir(root, &m.id).ok()?.join(name))
 }
 
 /// 刪除模型資料夾；不存在視為成功。
@@ -217,8 +245,59 @@ mod tests {
         let l = list(tmp.path());
         assert!(l[0].complete);
         assert_eq!(total_size(&l), 6);
-        assert_eq!(main_file(tmp.path(), &l[0]), dir.join("m-1.gguf"));
+        assert_eq!(main_file(tmp.path(), &l[0]).unwrap(), dir.join("m-1.gguf"));
         assert_eq!(mtp_file(tmp.path(), &l[0]), Some(dir.join("mtp.gguf")));
+    }
+
+    /// id 不合法時主檔回錯誤、MTP 檔為 `None`，不組出 `models/` 之外的路徑。
+    #[test]
+    fn file_paths_reject_invalid_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bad = Installed {
+            id: "../x".into(),
+            manifest: manifest(),
+            complete: true,
+        };
+        let err = main_file(tmp.path(), &bad).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(mtp_file(tmp.path(), &bad), None);
+    }
+
+    /// 主檔在子資料夾時 id 帶上資料夾，根目錄的維持原本的 id。
+    #[test]
+    fn choice_id_adds_the_folder_only_outside_the_repo_root() {
+        use super::super::hf::{Quant, RepoFile};
+        let choice = |path: &str| Choice {
+            quant: Quant {
+                label: "Q4_K_M".into(),
+                bits: Some(4),
+            },
+            files: vec![RepoFile {
+                path: path.into(),
+                size: 1,
+                sha256: None,
+            }],
+        };
+        assert_eq!(
+            choice_id("a/b", &choice("m-Q4_K_M.gguf")),
+            model_id("a/b", "Q4_K_M")
+        );
+        let (x, y) = (
+            choice_id("a/b", &choice("x/m-Q4_K_M.gguf")),
+            choice_id("a/b", &choice("y/z/m-Q4_K_M.gguf")),
+        );
+        assert_eq!(x, "a__b__Q4_K_M__x");
+        assert_eq!(y, "a__b__Q4_K_M__y_z");
+        assert!(is_valid_id(&y));
+    }
+
+    /// 推薦清單內的 repo 用推薦名稱，其餘用 repo 名。
+    #[test]
+    fn display_name_prefers_the_recommended_name() {
+        let mut m = manifest();
+        assert_eq!(m.display_name(), "b · Q4");
+        m.repo = RECOMMENDED[0].repo.into();
+        assert_eq!(m.display_name(), format!("{} · Q4", RECOMMENDED[0].name));
     }
 
     #[test]

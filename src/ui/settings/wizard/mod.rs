@@ -350,6 +350,9 @@ impl Wizard {
         if back && can_back && self.step == Step::Service && self.is_local_form() {
             log("[ui] wizard local install back to provider selection");
             self.form = None;
+            if let Some(local) = &mut self.local {
+                local.reenter();
+            }
         } else if back && can_back {
             self.go_to(Step::ALL[index - 1], env);
         } else if next && can_next {

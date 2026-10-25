@@ -654,6 +654,7 @@ mod local_install {
                 vram_free: 24 * G,
                 ram_total: 32 * G,
                 ram_free: 32 * G,
+                measured: true,
             },
             ..Default::default()
         };
@@ -722,7 +723,6 @@ mod local_install {
         assert!(has_label(&h, "Engine (vulkan): 0.5 GB"));
         assert!(has_label(&h, "Total download: 2.5 GB"));
         let sent = sent(&h);
-        assert!(sent.iter().any(|c| c.contains("RefreshHardware")));
         assert!(sent.iter().any(|c| c.contains("InstallEngine")));
         assert!(!enabled(&h, &tr("local.wizard.download")));
     }
@@ -836,7 +836,9 @@ mod local_install {
 
     #[test]
     fn re_entering_does_not_repeat_entry_commands_or_the_download() {
-        let mut h = on_card(ready_snapshot());
+        let mut s = ready_snapshot();
+        s.repos.remove(RECOMMENDED[5].repo);
+        let mut h = on_card(s);
         click(&mut h, Role::Button, &tr("local.wizard.download"));
         let mut s = ready_snapshot();
         s.downloads.insert(
@@ -850,34 +852,78 @@ mod local_install {
         back(&mut h);
         pick_provider(&mut h, "provider.local");
         assert!(has(&h, Role::Button, &tr("local.wizard.cancel")));
-        let refreshes = sent(&h)
-            .iter()
-            .filter(|c| c.contains("RefreshHardware"))
-            .count();
-        assert_eq!(refreshes, 1);
+        let queries = sent(&h).iter().filter(|c| c.contains("QueryRepo")).count();
+        assert_eq!(queries, 1);
         assert_eq!(download_count(&h), 1);
     }
 
+    /// hub 收到下載就把舊的失敗蓋成下載中；之後馬上又失敗也立刻顯示。
     #[test]
-    fn a_stale_failure_is_hidden_until_the_hub_replaces_it() {
+    fn a_new_failure_right_after_download_is_shown() {
         use wizard101_chat_translator::local::DownloadState;
-        let failed = |s: &mut Snapshot| {
+        let failed = |error: &str| {
+            let mut s = ready_snapshot();
             s.downloads
-                .insert(default_id(), DownloadState::Failed("boom".into()));
+                .insert(default_id(), DownloadState::Failed(error.into()));
+            s
         };
-        let mut s = ready_snapshot();
-        failed(&mut s);
-        let mut h = on_card(s);
+        let mut h = on_card(failed("old"));
         click(&mut h, Role::Button, &tr("local.wizard.download"));
-        assert!(!has_label(&h, "boom"));
         let mut s = ready_snapshot();
         s.downloads
             .insert(default_id(), DownloadState::Running { done: 0, total: 0 });
         set_snapshot(&mut h, s);
+        assert!(!has_label(&h, "old"));
+        assert!(has(&h, Role::Button, &tr("local.wizard.cancel")));
+        set_snapshot(&mut h, failed("new"));
+        assert!(has_label(&h, "new"));
+    }
+
+    /// 表單原有的模型沒下載完：直接顯示〔繼續下載〕，按了送繼續下載。
+    #[test]
+    fn an_incomplete_existing_model_offers_to_continue() {
+        let mut service = new_service("local", &[]);
+        service["model"] = json!(default_id());
+        let cfg = cfg_with(vec![service.clone()], Some(&service));
         let mut s = ready_snapshot();
-        failed(&mut s);
+        let mut model = done_model();
+        model.complete = false;
+        s.models.push(model);
+        let mut h = open(cfg);
+        *h.state().env.snapshot.borrow_mut() = s;
+        next(&mut h);
+        assert!(!next_enabled(&h));
+        click(&mut h, Role::Button, &tr("local.continue_download"));
+        let want = format!("{:?}", Command::Resume(default_id()));
+        assert!(sent(&h).contains(&want), "{:?}", sent(&h));
+        assert_eq!(download_count(&h), 0);
+    }
+
+    /// 取消後返回再進來：取消提示不留，暫停的下載重新接上並可繼續。
+    #[test]
+    fn re_entering_after_cancel_resumes_the_paused_download() {
+        use wizard101_chat_translator::local::DownloadState;
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        click(&mut h, Role::Button, &tr("local.wizard.cancel"));
+        let mut s = ready_snapshot();
+        let mut model = done_model();
+        model.complete = false;
+        s.models.push(model);
+        s.downloads.insert(
+            default_id(),
+            DownloadState::Paused {
+                done: 1,
+                total: 2 * G,
+            },
+        );
         set_snapshot(&mut h, s);
-        assert!(has_label(&h, "boom"));
+        back(&mut h);
+        pick_provider(&mut h, "provider.local");
+        assert!(!has_label(&h, &tr("local.wizard.cancelled_hint")));
+        click(&mut h, Role::Button, &tr("local.continue_download"));
+        let want = format!("{:?}", Command::Resume(default_id()));
+        assert!(sent(&h).contains(&want), "{:?}", sent(&h));
     }
 
     #[test]

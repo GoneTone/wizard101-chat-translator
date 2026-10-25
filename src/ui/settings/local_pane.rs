@@ -71,9 +71,12 @@ impl LocalPane {
         now: Instant,
     ) {
         self.rates.observe(now, &snapshot.downloads);
+        // GitHub 匿名呼叫每小時只有 60 次：已經列過就不再列，失敗時改由〔重試〕
         if !self.listed {
             self.listed = true;
-            env.local_command(Command::ListBuilds);
+            if !matches!(snapshot.builds, Some(Ok(_))) {
+                env.local_command(Command::ListBuilds);
+            }
         }
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;

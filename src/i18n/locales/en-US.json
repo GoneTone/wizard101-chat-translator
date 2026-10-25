@@ -56,6 +56,7 @@
   "local.engine.title": "llama.cpp engine",
   "local.engine.status_missing": "Not installed",
   "local.engine.status_installing": "Installing",
+  "local.engine.status_removing": "Removing",
   "local.engine.status_ready": "Installed",
   "local.engine.status_failed": "Failed",
   "local.engine.version": "Version",

@@ -36,7 +36,7 @@ use crate::input::hotkeys::{Registration, register_hotkey};
 use crate::local::engine::RELEASES_API;
 use crate::local::hf::HF_BASE;
 use crate::local::server::RealLauncher;
-use crate::local::{self, Command, Endpoints, Local, LocalNotice};
+use crate::local::{self, Endpoints, Local, LocalNotice, Notify};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::message_log::{MessageLog, SharedWriter};
@@ -738,10 +738,9 @@ pub struct Running {
     pub local: Option<Arc<Local>>,
 }
 
-/// 建立並安裝全程序共用的本地模型 hub：量硬體、套用目前設定（預先載入）。
-fn install_local(cfg: &Config, rt: &Handle, ui: &UiPoster) -> Arc<Local> {
-    let ui = ui.clone();
-    let hub = Local::new(
+/// 正式的本地模型 hub：資料夾在 `app_dir`，連 Hugging Face 與 GitHub，通知轉成 UI 事件。
+pub fn real_local(rt: &Handle, ui: &UiPoster) -> Arc<Local> {
+    Local::new(
         crate::config::app_dir(),
         rt.clone(),
         Arc::new(RealLauncher),
@@ -749,22 +748,31 @@ fn install_local(cfg: &Config, rt: &Handle, ui: &UiPoster) -> Arc<Local> {
             hf: HF_BASE.into(),
             releases: RELEASES_API.into(),
         },
-        Arc::new(move |notice| {
-            ui.post(match notice {
-                LocalNotice::Changed => UiEvent::LocalChanged,
-                LocalNotice::Loading(name) => UiEvent::LocalLoading(name),
-            })
-        }),
-    );
+        local_notify(ui),
+    )
+}
+
+/// hub 的通知轉成 UI 事件：快照變了就重繪（設定視窗與精靈都靠它），載入中改橫幅。
+pub fn local_notify(ui: &UiPoster) -> Notify {
+    let ui = ui.clone();
+    Arc::new(move |notice| {
+        ui.post(match notice {
+            LocalNotice::Changed => UiEvent::LocalChanged,
+            LocalNotice::Loading(name) => UiEvent::LocalLoading(name),
+        })
+    })
+}
+
+/// 把 `hub` 裝成全程序共用的並開始（量硬體、套用設定）；精靈與主流程共用這一個，開任何視窗前呼叫。
+pub fn install_local(hub: Arc<Local>, cfg: &Config) -> Arc<Local> {
     local::install(Arc::clone(&hub));
-    hub.command(Command::RefreshHardware);
-    hub.apply_config(cfg);
+    hub.start(cfg);
     hub
 }
 
 /// 建構翻譯端、在 `dispatcher` 上註冊熱鍵與貼上攔截器、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
 ///
-/// 鍵盤 hook 由呼叫端先裝好（精靈錄熱鍵也要用），`keyboard` 交給這裡、關閉時卸除。
+/// 鍵盤 hook 與本地模型 hub 由呼叫端先備妥（精靈也要用），`keyboard` 交給這裡、關閉時卸除。
 pub fn build_app(
     settings: Arc<RwLock<Config>>,
     rt: &Handle,
@@ -772,8 +780,8 @@ pub fn build_app(
     messages: SharedWriter,
     dispatcher: SharedDispatcher,
     keyboard: Option<KeyboardHook>,
+    local: Arc<Local>,
 ) -> Running {
-    let local = install_local(&read(&settings), rt, &ui);
     let deliver: ResultFn = {
         let ui = ui.clone();
         Arc::new(move |msg_id, translated, failed| {

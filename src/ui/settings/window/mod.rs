@@ -16,7 +16,6 @@ use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::GlossaryDraft;
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
-use super::local_models::display_name;
 use super::local_pane::LocalPane;
 use super::quant_table::gb;
 use super::service_draft::{ServiceDraft, local_model_gone};
@@ -449,7 +448,7 @@ fn service_errors(cfg: &Config) -> Vec<String> {
     errors
 }
 
-/// 本地服務的儲存檢查：用到的模型已不在；各用途用到的不同模型加總放不下目前的記憶體。
+/// 本地服務的儲存檢查：用到的模型已不在；各用途用到的不同模型加總放不下目前的記憶體（沒量過 VRAM 或全都已經跑著時不擋）。
 fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
     let mut errors: Vec<SaveError> = Vec::new();
     let default = cfg.get("default_service").and_then(Value::as_str);
@@ -482,7 +481,12 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
         .iter()
         .map(|m| (m.manifest.required, m.manifest.moe))
         .collect();
-    if models.len() >= 2 && combined_fit(&needs, &snapshot.hardware) == Fit::NoFit {
+    let all_running = models.iter().all(|m| snapshot.running.contains(&m.id));
+    if models.len() >= 2
+        && snapshot.hardware.measured
+        && !all_running
+        && combined_fit(&needs, &snapshot.hardware) == Fit::NoFit
+    {
         let (vram, ram) = effective(&snapshot.hardware);
         let list = models
             .iter()
@@ -490,7 +494,7 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
                 let size = gb(m.manifest.required);
                 t(
                     "error.local_over_capacity_item",
-                    &[("name", &display_name(m)), ("size", &size)],
+                    &[("name", &m.manifest.display_name()), ("size", &size)],
                 )
             })
             .collect::<Vec<_>>()

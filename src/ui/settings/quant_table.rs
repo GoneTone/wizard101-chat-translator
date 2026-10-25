@@ -22,6 +22,15 @@ pub(super) fn gb(bytes: u64) -> String {
     format!("{:.1}", bytes as f64 / (1u64 << 30) as f64)
 }
 
+/// 進度條的比例；`total` 為 0（還不知道大小）時為 0。
+pub(super) fn fraction(done: u64, total: u64) -> f32 {
+    if total == 0 {
+        0.0
+    } else {
+        (done as f64 / total as f64).clamp(0.0, 1.0) as f32
+    }
+}
+
 /// 相容等級對應的色點顏色；`None`（VRAM 還沒量到）為灰。
 pub(super) fn fit_color(fit: Option<Fit>) -> Color32 {
     match fit {

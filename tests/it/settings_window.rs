@@ -1193,6 +1193,7 @@ fn two_local_services(b_model: &str) -> Harness<'static, State> {
         let mut snapshot = env.snapshot.borrow_mut();
         snapshot.models = vec![installed("a", true, 8 * GB), installed("b", true, 8 * GB)];
         snapshot.hardware.ram_free = 10 * GB;
+        snapshot.hardware.measured = true;
     }
     harness_with(cfg, env, egui::vec2(840.0, 660.0))
 }
@@ -1216,6 +1217,24 @@ fn two_different_local_models_that_do_not_fit_block_saving() {
     );
     assert!(has_label(&h, &message));
     assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
+}
+
+/// 兩個模型都已經跑著（實際放得下）時不擋儲存。
+#[test]
+fn two_local_models_that_already_run_do_not_block_saving() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().running = ["a".into(), "b".into()].into();
+    run(&mut h);
+    assert!(save(&mut h).is_some());
+}
+
+/// VRAM 還沒量過時相容等級未知，不拿來擋儲存。
+#[test]
+fn unmeasured_memory_does_not_block_saving() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().hardware.measured = false;
+    run(&mut h);
+    assert!(save(&mut h).is_some());
 }
 
 #[test]
@@ -1288,6 +1307,28 @@ fn a_dangling_slot_falls_back_to_the_default_for_both_checks() {
         &h,
         &t("error.local_model_missing", &[("name", &name)])
     ));
+}
+
+/// 容量檢查也把指到不存在服務的用途算成預設服務的模型。
+#[test]
+fn a_dangling_slot_counts_the_default_model_toward_capacity() {
+    capture_logs();
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let b = add_service(&mut cfg, "local", json!({"model": "b"}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = json!("no-such-service");
+    for slot in [ServiceSlot::Outgoing, ServiceSlot::Region] {
+        cfg["service_slots"][slot.key()] = b["id"].clone();
+    }
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB), installed("b", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+        snapshot.hardware.measured = true;
+    }
+    let mut h = harness_with(cfg, env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_none());
+    assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
 }
 
 #[test]

@@ -18,25 +18,36 @@ enum Rename {
     Busy,
 }
 
+/// 已登記的下載：模型 id、清單與取消鈕。
+pub(super) type Claimed = (String, Manifest, CancellationToken);
+
 impl Local {
-    /// 下載 repo 的 `choice`（與 `mtp`）；這次才裝好引擎且量到 VRAM 時改用自動挑選。
-    pub(super) async fn download(&self, repo: &str, choice: usize, mtp: Option<usize>) {
-        if self.repo_info(repo).is_none() {
-            self.query_repo(repo).await;
-        }
-        let Some((mut id, manifest)) = self
+    /// 依 repo 查詢結果組出 `choice`（與 `mtp`）的清單並登記下載；沒有查詢結果或已在下載中回 `None`。
+    pub(super) fn claim_download(
+        &self,
+        repo: &str,
+        choice: usize,
+        mtp: Option<usize>,
+    ) -> Option<Claimed> {
+        let Some((id, manifest)) = self
             .repo_info(repo)
             .and_then(|info| manifest_for(repo, &info, choice, mtp))
         else {
             log(format!(
                 "[local] download {repo}: no repo info for choice {choice} / mtp {mtp:?}"
             ));
-            return;
+            return None;
         };
         let Some(cancel) = self.claim(&id) else {
             log(format!("[local] download {id} already running"));
-            return;
+            return None;
         };
+        Some((id, manifest, cancel))
+    }
+
+    /// 下載已登記的模型；`auto` 且這次才裝好引擎、量到 VRAM 時改用量完後的自動挑選。
+    pub(super) async fn download(&self, repo: &str, auto: bool, claimed: Claimed) {
+        let (mut id, mut manifest, cancel) = claimed;
         // 先寫清單：引擎安裝失敗或途中被取消時，「繼續下載」仍有清單可依
         let existed = store::list(&self.root).iter().any(|m| m.id == id);
         if let Err(e) = self.write_manifest(&id, &manifest) {
@@ -45,7 +56,10 @@ impl Local {
         }
         match self.ensure_engine().await {
             Ok(false) => {}
-            Ok(true) if !self.vram_measured.load(Ordering::Relaxed) => log(format!(
+            Ok(true) if !auto => log(format!(
+                "[local] download {id}: keeping the manually picked quant"
+            )),
+            Ok(true) if !lock(&self.state).hardware.measured => log(format!(
                 "[local] download {id}: VRAM measurement failed, keeping the requested choice"
             )),
             // 引擎裝好前量不到 VRAM，使用者看到的相容等級是「未知」；裝好時 refresh_hardware 已重算
@@ -71,8 +85,8 @@ impl Local {
                         "[local] download {repo}: picked {auto_id} after measuring VRAM (requested {id})"
                     ));
                     self.drop_provisional(&id, existed);
-                    id = auto_id;
-                    if let Err(e) = self.write_manifest(&id, &auto_manifest) {
+                    (id, manifest) = (auto_id, auto_manifest);
+                    if let Err(e) = self.write_manifest(&id, &manifest) {
                         self.download_failed(&id, e);
                         return self.release(&id);
                     }
@@ -128,11 +142,8 @@ impl Local {
         self.release(id);
     }
 
-    /// 依磁碟上的清單繼續下載；引擎沒裝的話先裝。
-    pub(super) async fn resume(&self, id: &str) {
-        let Some(cancel) = self.claim(id) else {
-            return;
-        };
+    /// 依磁碟上的清單繼續已登記的下載；引擎沒裝的話先裝。
+    pub(super) async fn resume(&self, id: &str, cancel: CancellationToken) {
         match self.ensure_engine().await {
             Ok(_) => self.fetch_model(id, &cancel).await,
             Err(e) => self.download_failed(id, e),
@@ -140,8 +151,8 @@ impl Local {
         self.release(id);
     }
 
-    /// 登記 `id` 的下載；已在下載中回 `None`。
-    fn claim(&self, id: &str) -> Option<CancellationToken> {
+    /// 登記 `id` 的下載（快照記為下載中）；已在下載中回 `None`。
+    pub(super) fn claim(&self, id: &str) -> Option<CancellationToken> {
         let token = {
             let mut cancels = lock(&self.cancels);
             if cancels.contains_key(id) {
@@ -319,5 +330,5 @@ fn manifest_for(
             mtp_file.map_or(0, |f| f.size),
         ),
     };
-    Some((store::model_id(repo, &main.quant.label), manifest))
+    Some((store::choice_id(repo, main), manifest))
 }

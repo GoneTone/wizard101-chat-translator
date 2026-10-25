@@ -99,7 +99,7 @@ pub trait Launcher: Send + Sync {
         detect_gpu()
     }
 
-    /// 執行 `llama-server --list-devices`（逾時 15 s），回傳 stdout 與 stderr 的內容。
+    /// 執行 `llama-server --list-devices`（有逾時），回傳 stdout 與 stderr 的內容。
     fn list_devices(&self, exe: &Path) -> Result<String, String> {
         run_list_devices(exe)
     }

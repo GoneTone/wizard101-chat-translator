@@ -1,7 +1,7 @@
 //! 每個本地模型一個 llama-server 子程序：按需啟動、失敗重試，依設定收掉或重啟。
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -10,12 +10,11 @@ use tokio::sync::OwnedMutexGuard;
 use tokio_util::sync::CancellationToken;
 
 use super::LocalNotice;
-use super::catalog::RECOMMENDED;
-use super::engine;
+use super::engine::{self, EngineInstall};
 use super::hf::hf_client;
 use super::hub::{EngineState, Local};
 use super::server::{self, Mtp, Process, READY_TIMEOUT, ServerPlan};
-use super::store::{self, Installed, Manifest};
+use super::store::{self, Installed};
 use crate::config::Config;
 use crate::config::local::{self, LocalSettings};
 use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, resolve};
@@ -52,6 +51,8 @@ impl Drop for Hold {
 struct SlotState {
     running: Option<Running>,
     failures: u32,
+    /// 這串連續失敗裡有意外結束：之後的啟動成功不清零，啟動就崩的才會停在失敗。
+    crashed: bool,
     error: String,
     /// 進行中啟動的取消鈕；`stop` 按下後該次啟動會殺掉子程序並作廢。
     starting: CancellationToken,
@@ -60,6 +61,11 @@ struct SlotState {
 }
 
 impl SlotState {
+    fn clear_failures(&mut self) {
+        self.failures = 0;
+        self.crashed = false;
+    }
+
     fn fail(&mut self, id: &str, error: String) {
         self.failures += 1;
         self.error = error;
@@ -74,6 +80,27 @@ impl SlotState {
 struct Running {
     process: Box<dyn Process>,
     base_url: String,
+    /// 啟動用的 llama-server.exe（判斷引擎資料夾還有沒有人在用）。
+    exe: PathBuf,
+}
+
+/// 載入橫幅：持有期間顯示該模型載入中；放掉時改顯示其他還在載入的，都沒有才收起。
+pub struct Loading {
+    hub: Arc<Local>,
+    name: String,
+}
+
+impl Drop for Loading {
+    fn drop(&mut self) {
+        let next = {
+            let mut loading = lock(&self.hub.loading);
+            if let Some(i) = loading.iter().position(|n| *n == self.name) {
+                loading.remove(i);
+            }
+            loading.last().cloned()
+        };
+        (self.hub.notify)(LocalNotice::Loading(next));
+    }
 }
 
 impl Servers {
@@ -97,20 +124,30 @@ impl Local {
     /// 回傳模型的 llama-server base URL；沒在跑就啟動並等它就緒。
     pub async fn ensure(&self, model_id: &str) -> Result<String, String> {
         let slot = self.servers.slot(model_id);
-        let _start = loop {
+        // 拿到啟動鎖就在狀態鎖內換新取消鈕：之後的 stop 一定取消得到這次啟動
+        let (_start, cancel) = loop {
             let guard = slot.start.clone().lock_owned().await;
-            if lock(&slot.state).closing == 0 {
-                break guard;
+            let mut st = lock(&slot.state);
+            if st.closing == 0 {
+                // 在狀態鎖內檢查：shutdown 之前就過了這關的啟動，會被它取消
+                if self.closed.load(Ordering::SeqCst) {
+                    return Err("local runtime is shut down".into());
+                }
+                st.starting = CancellationToken::new();
+                break (guard, st.starting.clone());
             }
+            drop(st);
             // 鎖是先到先得：放掉再排一次，就排到正在等的 stop_and_wait 後面
             drop(guard);
         };
         let _engine_files = self.engine_files.read().await;
-        let cancel = {
+        {
             let mut st = lock(&slot.state);
-            // 在狀態鎖內檢查：shutdown 之前就過了這關的啟動，會被它取消
-            if self.closed.load(Ordering::SeqCst) {
-                return Err("local runtime is shut down".into());
+            if cancel.is_cancelled() {
+                log(format!(
+                    "[local] llama-server[{model_id}] stopped before starting"
+                ));
+                return Err(stopped_error(model_id));
             }
             if let Some(running) = st.running.as_mut() {
                 let Some(code) = running.process.exited() else {
@@ -121,6 +158,7 @@ impl Local {
                     "[local] llama-server[{model_id}] exited unexpectedly code={code}"
                 ));
                 st.running = None;
+                st.crashed = true;
                 st.fail(
                     model_id,
                     format!("llama-server exited unexpectedly with code {code}:\n{tail}"),
@@ -129,9 +167,7 @@ impl Local {
             if st.failures >= MAX_FAILURES {
                 return Err(st.error.clone());
             }
-            st.starting = CancellationToken::new();
-            st.starting.clone()
-        };
+        }
         // 前置條件不符（還沒下載完、沒有引擎）不算失敗：下載或安裝完就該能直接啟動
         let model = store::list(&self.root)
             .into_iter()
@@ -140,7 +176,7 @@ impl Local {
         if engine::read_active(&self.root).current.is_none() {
             return Err("llama.cpp engine is not installed".into());
         }
-        let result = self.start(&model, &cancel).await;
+        let result = self.load(&model, &cancel).await;
         let mut st = lock(&slot.state);
         match result {
             Ok(mut running) if cancel.is_cancelled() => {
@@ -148,6 +184,9 @@ impl Local {
                 Err(stopped_error(model_id))
             }
             Ok(running) => {
+                if !st.crashed {
+                    st.failures = 0;
+                }
                 let url = running.base_url.clone();
                 st.running = Some(running);
                 Ok(url)
@@ -191,7 +230,50 @@ impl Local {
     /// 清掉模型的失敗紀錄（例如下載完成後）。
     pub(super) fn clear_failures(&self, model_id: &str) {
         if let Some(slot) = self.servers.get(model_id) {
-            lock(&slot.state).failures = 0;
+            lock(&slot.state).clear_failures();
+        }
+    }
+
+    /// 跑著 llama-server 的模型 id。
+    pub(super) fn running_ids(&self) -> BTreeSet<String> {
+        self.servers
+            .all()
+            .into_iter()
+            .filter(|(_, slot)| lock(&slot.state).running.is_some())
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// 有跑著的 llama-server 是從這個引擎的資料夾啟動的。
+    fn engine_in_use(&self, install: &EngineInstall) -> bool {
+        let dir = engine::engine_dir(&self.root, install);
+        self.servers.all().iter().any(|(_, slot)| {
+            lock(&slot.state)
+                .running
+                .as_ref()
+                .is_some_and(|r| r.exe.starts_with(&dir))
+        })
+    }
+
+    /// 睡著的模型被請求喚醒時呼叫：橫幅顯示它載入中，直到回傳值放掉。
+    pub fn waking(&self, model_id: &str) -> Loading {
+        log(format!(
+            "[local] llama-server[{model_id}] is sleeping; the request reloads it"
+        ));
+        let name = lock(&self.state)
+            .models
+            .iter()
+            .find(|m| m.id == model_id)
+            .map_or_else(|| model_id.to_owned(), |m| m.manifest.display_name());
+        self.loading_banner(name)
+    }
+
+    fn loading_banner(&self, name: String) -> Loading {
+        lock(&self.loading).push(name.clone());
+        (self.notify)(LocalNotice::Loading(Some(name.clone())));
+        Loading {
+            hub: self.arc(),
+            name,
         }
     }
 
@@ -214,7 +296,7 @@ impl Local {
             let changed =
                 old.idle_minutes != new.idle_minutes || mtp_on(&old, &id) != mtp_on(&new, &id);
             if wanted.contains(&id) && !changed {
-                lock(&slot.state).failures = 0;
+                lock(&slot.state).clear_failures();
                 continue;
             }
             if wanted.contains(&id) && lock(&slot.state).running.is_some() {
@@ -252,6 +334,7 @@ impl Local {
         }
         let me = self.arc();
         self.rt.spawn(async move {
+            me.measured_once().await;
             for id in ids {
                 if me.closed.load(Ordering::SeqCst) {
                     return;
@@ -263,15 +346,9 @@ impl Local {
         });
     }
 
-    async fn start(
-        &self,
-        model: &Installed,
-        cancel: &CancellationToken,
-    ) -> Result<Running, String> {
-        (self.notify)(LocalNotice::Loading(Some(display_name(&model.manifest))));
-        let result = self.start_with_fallbacks(model, cancel).await;
-        (self.notify)(LocalNotice::Loading(None));
-        result
+    async fn load(&self, model: &Installed, cancel: &CancellationToken) -> Result<Running, String> {
+        let _banner = self.loading_banner(model.manifest.display_name());
+        self.start_with_fallbacks(model, cancel).await
     }
 
     /// 失敗時先關 MTP 重試，再對尚未確認的新引擎回退重試；新引擎首次就緒即確認。
@@ -289,19 +366,30 @@ impl Local {
                 .as_ref()
                 .and_then(|i| engine::server_exe(&engine::engine_dir(&self.root, i)))
                 .ok_or("llama.cpp engine is not installed")?;
+            let model_file = store::main_file(&self.root, model)
+                .map_err(|e| format!("model {} has no usable main file: {e}", model.id))?;
             let plan = ServerPlan {
                 model_id: model.id.clone(),
                 exe,
-                model: store::main_file(&self.root, model),
+                model: model_file,
                 mtp: mtp.clone(),
                 idle_minutes: settings.idle_minutes,
             };
             let err = match self.launch(&plan, cancel).await {
                 Ok(running) => {
-                    if active.previous.is_some()
-                        && let Err(e) = engine::confirm(&self.root)
-                    {
-                        log(format!("[local] confirming engine failed: {e}"));
+                    match &active.previous {
+                        Some(p) if active.current.as_ref() != Some(p) && self.engine_in_use(p) => {
+                            log(format!(
+                                "[local] previous engine {}-{} is still in use; confirming later",
+                                p.build, p.variant
+                            ))
+                        }
+                        Some(_) => {
+                            if let Err(e) = engine::confirm(&self.root) {
+                                log(format!("[local] confirming engine failed: {e}"));
+                            }
+                        }
+                        None => {}
                     }
                     return Ok(running);
                 }
@@ -317,6 +405,15 @@ impl Local {
                 continue;
             }
             if active.previous.is_none() {
+                return Err(err);
+            }
+            if let Some(current) = &active.current
+                && self.engine_in_use(current)
+            {
+                log(format!(
+                    "[local] llama-server[{}] failed on {}-{}, not rolling back: other models run on it",
+                    model.id, current.build, current.variant
+                ));
                 return Err(err);
             }
             match engine::rollback(&self.root) {
@@ -377,7 +474,11 @@ impl Local {
             plan.model_id,
             started.elapsed().as_secs_f32()
         ));
-        Ok(Running { process, base_url })
+        Ok(Running {
+            process,
+            base_url,
+            exe: plan.exe.clone(),
+        })
     }
 }
 
@@ -404,7 +505,7 @@ async fn hold(id: &str, slot: Arc<Slot>) -> Hold {
 fn stop_slot(id: &str, slot: &Slot) {
     let mut st = lock(&slot.state);
     st.starting.cancel();
-    st.failures = 0;
+    st.clear_failures();
     if let Some(mut running) = st.running.take() {
         log(format!("[local] stopping llama-server[{id}]"));
         running.process.kill();
@@ -426,13 +527,4 @@ fn mtp_mode(root: &Path, model: &Installed, on: bool) -> Mtp {
     } else {
         Mtp::Off
     }
-}
-
-/// 載入提示用的顯示名：「推薦清單名稱或 repo 名 · 量化」。
-fn display_name(m: &Manifest) -> String {
-    let name = RECOMMENDED
-        .iter()
-        .find(|r| r.repo == m.repo)
-        .map_or_else(|| m.repo.rsplit('/').next().unwrap_or_default(), |r| r.name);
-    format!("{name} · {}", m.quant)
 }

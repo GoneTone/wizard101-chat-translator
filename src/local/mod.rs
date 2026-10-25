@@ -21,6 +21,7 @@ pub mod store;
 pub use hub::{
     Command, DownloadState, Endpoints, EngineState, Local, RepoInfo, RepoState, Snapshot,
 };
+pub use runtime::Loading;
 
 /// hub 的通知出口（UI 轉成重繪與載入橫幅）。
 pub type Notify = Arc<dyn Fn(LocalNotice) + Send + Sync>;
@@ -36,23 +37,14 @@ pub enum LocalNotice {
 
 static LOCAL: RwLock<Option<Arc<Local>>> = RwLock::new(None);
 
-/// 設定全程序共用的 hub；只有第一次有效。
+/// 設定全程序共用的 hub（正式只在開任何視窗前呼叫一次；測試會換掉前一個）。
 pub fn install(local: Arc<Local>) {
-    let mut slot = write(&LOCAL);
-    if slot.is_some() {
-        log("[local] hub already installed, ignoring the second one");
-        return;
+    if write(&LOCAL).replace(local).is_some() {
+        log("[local] hub replaced");
     }
-    *slot = Some(local);
 }
 
 /// 全程序共用的 hub；尚未 `install` 時為 `None`。
 pub fn get() -> Option<Arc<Local>> {
     read(&LOCAL).clone()
-}
-
-/// 測試用：覆寫全程序共用的 hub。
-#[cfg(any(test, feature = "test-support"))]
-pub fn replace_for_test(local: Arc<Local>) {
-    *write(&LOCAL) = Some(local);
 }

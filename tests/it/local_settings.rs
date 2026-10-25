@@ -81,6 +81,7 @@ fn snapshot(ready: &[(usize, RepoInfo)]) -> Snapshot {
             vram_free: 8 * G,
             ram_total: 16 * G,
             ram_free: 16 * G,
+            measured: true,
         },
         ..Default::default()
     };
@@ -188,7 +189,7 @@ fn nofit_download_asks_first() {
     );
     let commands = h.state().env.commands.borrow();
     assert!(
-        matches!(&commands[..], [Command::Download { repo, choice: 0, mtp: None }] if repo == RECOMMENDED[0].repo),
+        matches!(&commands[..], [Command::Download { repo, choice: 0, mtp: None, auto: true }] if repo == RECOMMENDED[0].repo),
         "{commands:?}"
     );
     assert_eq!(h.state().outcome, DialogOutcome::Closed);
@@ -204,7 +205,8 @@ fn select_mode_returns_the_choice() {
         DialogOutcome::Selected(Selection {
             repo: RECOMMENDED[0].repo.into(),
             choice: 0,
-            mtp: None
+            mtp: None,
+            auto: true,
         })
     );
     assert!(h.state().env.commands.borrow().is_empty());
@@ -219,7 +221,11 @@ fn picking_a_quant_chip_changes_the_selection() {
     click(&mut h, Role::Button, &tr("local.dialog.select"));
     assert!(matches!(
         &h.state().outcome,
-        DialogOutcome::Selected(Selection { choice: 1, .. })
+        DialogOutcome::Selected(Selection {
+            choice: 1,
+            auto: false,
+            ..
+        })
     ));
 }
 
@@ -264,7 +270,7 @@ fn custom_tab_queries_the_parsed_repo_then_downloads_the_selection() {
     click(&mut h, Role::Button, &tr("local.dialog.download_selected"));
     assert!(matches!(
         &downloads(&h)[..],
-        [Command::QueryRepo(_), Command::Download { repo, choice: 0, mtp: None }] if repo == "org/repo"
+        [Command::QueryRepo(_), Command::Download { repo, choice: 0, mtp: None, auto: true }] if repo == "org/repo"
     ));
 }
 
@@ -368,6 +374,43 @@ fn the_basis_line_shows_available_memory() {
     assert!(painted_texts(&h).contains(&line));
 }
 
+/// 動過量化表的選擇以手動選擇送出（hub 不會改挑）。
+#[test]
+fn a_manually_picked_quant_downloads_as_a_manual_choice() {
+    let snap = snapshot(&[(0, info(Fit::Smooth, false, 2, 3 * G))]);
+    let mut h = harness(DialogMode::Download, Tab::Recommended, snap);
+    click(&mut h, Role::Button, &tr("local.dialog.choose_version"));
+    click(&mut h, Role::RadioButton, "Q8_0");
+    click(&mut h, Role::Button, &tr("local.dialog.download"));
+    assert!(matches!(
+        &downloads(&h)[..],
+        [Command::Download {
+            choice: 1,
+            auto: false,
+            ..
+        }]
+    ));
+}
+
+/// 只有 CPU（VRAM 量到 0）依 RAM 判斷；還沒量過才是「無法判斷」。
+#[test]
+fn the_basis_line_follows_whether_vram_was_measured() {
+    let cpu_only = |measured: bool| {
+        let mut snap = snapshot(&[(0, info(Fit::Slow, false, 2, 3 * G))]);
+        snap.hardware = Hardware {
+            ram_total: 16 * G,
+            ram_free: 16 * G,
+            measured,
+            ..Hardware::default()
+        };
+        harness(DialogMode::Download, Tab::Recommended, snap)
+    };
+    let ram = t("local.dialog.basis_ram", &[("ram", &size_arg(16 * G))]);
+    assert!(painted_texts(&cpu_only(true)).contains(&ram));
+    let unknown = tr("local.dialog.basis_unknown");
+    assert!(painted_texts(&cpu_only(false)).contains(&unknown));
+}
+
 mod page {
     //! 設定視窗的「本地模型」分頁：卡片順序、草稿寫入、檔案操作的立即生效與刪除確認。
 
@@ -387,6 +430,7 @@ mod page {
     use wizard101_chat_translator::config::services::new_service;
     use wizard101_chat_translator::i18n::{self, t};
     use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
     use wizard101_chat_translator::local::store::{Installed, Manifest, ManifestFile};
     use wizard101_chat_translator::local::{Command, DownloadState, EngineState, Snapshot};
     use wizard101_chat_translator::ui::settings::env::SettingsEnv;
@@ -666,12 +710,73 @@ mod page {
                 variants: vec![(Variant::Cpu, vec![])],
             },
         ]));
+        snap.hardware.gpu = Some(Gpu {
+            name: "t".into(),
+            vendor: 0,
+            kind: GpuKind::Discrete,
+        });
         let mut h = pane_harness(snap, vec![]);
         click(&mut h, Role::Button, &tr("local.engine.update"));
         assert!(matches!(
             last(&h),
-            Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Cpu) }) if b == "b11880"
+            Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Vulkan) }) if b == "b11880"
         ));
+    }
+
+    /// 版本清單已列過就不再向 GitHub 要（匿名額度有限）；還沒有時列一次。
+    #[test]
+    fn builds_are_listed_only_when_missing() {
+        let listed = |h: &Harness<State>| {
+            commands(|s: &State| &s.env, h)
+                .iter()
+                .filter(|c| matches!(c, Command::ListBuilds))
+                .count()
+        };
+        let mut h = pane_harness(ready_engine(), vec![]);
+        run(&mut h);
+        assert_eq!(listed(&h), 0);
+        let mut h = pane_harness(Snapshot::default(), vec![]);
+        run(&mut h);
+        assert_eq!(listed(&h), 1);
+    }
+
+    /// 移除引擎途中狀態是「移除中」，不給安裝或移除鈕。
+    #[test]
+    fn a_removing_engine_shows_its_state_without_actions() {
+        let mut snap = ready_engine();
+        snap.engine = EngineState::Removing;
+        let h = pane_harness(snap, vec![]);
+        assert!(has_label(&h, &tr("local.engine.status_removing")));
+        for key in [
+            "local.engine.install",
+            "local.engine.install_selected",
+            "local.engine.update",
+            "local.engine.remove",
+        ] {
+            assert!(
+                h.query_by_role_and_label(Role::Button, &tr(key)).is_none(),
+                "{key}"
+            );
+        }
+    }
+
+    /// 已下載模型的相容等級與對話框同一個「量過沒」判準：只有 CPU 量過就有等級。
+    #[test]
+    fn downloaded_models_are_rated_once_vram_was_measured() {
+        let card = |measured: bool| {
+            let mut m = model(MODEL, true, false);
+            m.manifest.required = 1 << 30;
+            let mut snap = snapshot(vec![m]);
+            snap.hardware = Hardware {
+                ram_total: 16 << 30,
+                ram_free: 16 << 30,
+                measured,
+                ..Hardware::default()
+            };
+            pane_harness(snap, vec![])
+        };
+        assert!(has_label(&card(true), &tr("local.fit.slow")));
+        assert!(has_label(&card(false), &tr("local.fit.unknown")));
     }
 
     #[test]

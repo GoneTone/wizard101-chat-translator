@@ -9,13 +9,18 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use serde_json::json;
 use tokio::runtime::Handle;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
+use wizard101_chat_translator::local::hardware::Gpu;
 use wizard101_chat_translator::local::server::{Launcher, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Manifest, ManifestFile};
-use wizard101_chat_translator::local::{Endpoints, Local};
+use wizard101_chat_translator::local::{Endpoints, Local, Notify};
+
+/// hub 是全程序共用的：裝上測試 hub（`local::install`）的測試一次只跑一個。
+pub static GLOBAL_HUB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 假 llama-server 的紀錄：每次成功啟動的伺服器與 kill 次數。
 #[derive(Clone, Default)]
@@ -23,6 +28,8 @@ pub struct Launches {
     /// kill 後也留著，測試才看得到每台收到的請求。
     pub servers: Arc<Mutex<Vec<MockServer>>>,
     pub kills: Arc<AtomicUsize>,
+    /// 之後啟動的伺服器 `/props` 回的 `is_sleeping`；`None` 時不提供 `/props`（回 404）。
+    pub sleeping: Arc<Mutex<Option<bool>>>,
 }
 
 impl Launches {
@@ -72,26 +79,45 @@ impl Launcher for FakeLauncher {
 data: [DONE]
 
 ";
-        let server = serve_on(
-            port,
-            vec![
-                Mock::given(method("GET"))
-                    .and(path("/health"))
-                    .respond_with(ResponseTemplate::new(200)),
-                Mock::given(method("POST"))
-                    .and(path("/v1/chat/completions"))
-                    .respond_with(
-                        ResponseTemplate::new(200).set_body_raw(stream, "text/event-stream"),
-                    ),
-            ],
-        );
+        let mut mocks = vec![
+            Mock::given(method("GET"))
+                .and(path("/health"))
+                .respond_with(ResponseTemplate::new(200)),
+            Mock::given(method("POST"))
+                .and(path("/v1/chat/completions"))
+                .respond_with(ResponseTemplate::new(200).set_body_raw(stream, "text/event-stream")),
+        ];
+        if let Some(sleeping) = *self.launches.sleeping.lock().unwrap() {
+            mocks.push(Mock::given(method("GET")).and(path("/props")).respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({"is_sleeping": sleeping})),
+            ));
+        }
+        let server = serve_on(port, mocks);
         self.launches.servers.lock().unwrap().push(server);
         Ok(Box::new(FakeProcess { exit: None, kills }))
+    }
+
+    fn detect_gpu(&self) -> Option<Gpu> {
+        None
+    }
+
+    fn list_devices(&self, _exe: &Path) -> Result<String, String> {
+        Err("fake launcher measures nothing".into())
     }
 }
 
 /// 以 `root` 建一個用假 Launcher 的 hub（不連外、不通知）；`ensure` 須在 multi-thread runtime 的 worker 上跑。
 pub fn fake_hub(root: PathBuf, rt: Handle, fail: bool) -> (Arc<Local>, Launches) {
+    fake_hub_with(root, rt, fail, Arc::new(|_| {}))
+}
+
+/// 同 `fake_hub`，通知送到 `notify`。
+pub fn fake_hub_with(
+    root: PathBuf,
+    rt: Handle,
+    fail: bool,
+    notify: Notify,
+) -> (Arc<Local>, Launches) {
     let launches = Launches::default();
     let unreachable = "http://127.0.0.1:9".to_owned();
     let local = Local::new(
@@ -105,7 +131,7 @@ pub fn fake_hub(root: PathBuf, rt: Handle, fail: bool) -> (Arc<Local>, Launches)
             hf: unreachable.clone(),
             releases: unreachable,
         },
-        Arc::new(|_| {}),
+        notify,
     );
     (local, launches)
 }

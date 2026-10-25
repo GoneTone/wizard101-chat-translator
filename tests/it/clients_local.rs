@@ -1,45 +1,58 @@
 //! 本地服務 client：經 hub 確保 llama-server 在跑再轉送（假 Launcher、wiremock 當 llama-server）。
 
-use crate::common::local::{Launches, add_engine, add_model, fake_hub};
+use crate::common::local::{GLOBAL_HUB, Launches, add_engine, add_model, fake_hub_with};
 use crate::stream_server::{bodies_at, request};
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use serde_json::json;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::MutexGuard;
 use wizard101_chat_translator::config::{Config, ServiceSpec};
-use wizard101_chat_translator::local::{self, Local, store};
+use wizard101_chat_translator::local::{self, Local, LocalNotice, store};
 use wizard101_chat_translator::translation::Turn;
 use wizard101_chat_translator::translation::clients::{ChatBackend, Client, build_client};
 use wizard101_chat_translator::translation::errors::TranslateError;
-
-/// hub 是全程序共用的：裝上測試 hub 的測試一次只跑一個。
-static HUB: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 struct Hub {
     _dir: TempDir,
     local: Arc<Local>,
     launches: Launches,
+    notices: Arc<Mutex<Vec<LocalNotice>>>,
     _guard: MutexGuard<'static, ()>,
+}
+
+impl Hub {
+    fn loading_notices(&self) -> Vec<LocalNotice> {
+        let notices = self.notices.lock().unwrap();
+        notices
+            .iter()
+            .filter(|n| matches!(n, LocalNotice::Loading(_)))
+            .cloned()
+            .collect()
+    }
 }
 
 /// 建一個有引擎、下載完成的 m1 與下載到一半的 m2 的 hub，裝成全程序共用的那個。
 async fn hub(fail: bool) -> Hub {
-    let guard = HUB.lock().await;
+    let guard = GLOBAL_HUB.lock().await;
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     add_engine(&root, "b11871");
     add_model(&root, "m1", false);
     add_model(&root, "m2", false);
     std::fs::remove_file(store::models_dir(&root).join("m2/model-Q4_K_M.gguf")).unwrap();
-    let (local, launches) = fake_hub(root, Handle::current(), fail);
-    local::replace_for_test(local.clone());
+    let notices = Arc::new(Mutex::new(Vec::new()));
+    let sink = notices.clone();
+    let notify = Arc::new(move |n| sink.lock().unwrap().push(n));
+    let (local, launches) = fake_hub_with(root, Handle::current(), fail, notify);
+    local::install(local.clone());
     Hub {
         _dir: dir,
         local,
         launches,
+        notices,
         _guard: guard,
     }
 }
@@ -114,4 +127,35 @@ async fn warm_up_launches_nothing_even_when_preloading() {
     assert!(h.local.settings().preload);
     local_client("m1").warm_up("test").await;
     assert_eq!(h.launches.started(), 0);
+}
+
+/// 閒置睡著的模型：請求前查 `/props`，重新載入期間送載入橫幅，譯文回來後收起。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_sleeping_server_shows_the_loading_banner_while_it_reloads() {
+    let h = hub(false).await;
+    *h.launches.sleeping.lock().unwrap() = Some(true);
+    h.local.ensure("m1").await.unwrap();
+    h.notices.lock().unwrap().clear();
+    assert_eq!(chat(&local_client("m1")).await, Ok("hola".into()));
+    assert_eq!(
+        h.loading_notices(),
+        [
+            LocalNotice::Loading(Some("Model-GGUF · Q4_K_M".into())),
+            LocalNotice::Loading(None)
+        ]
+    );
+}
+
+/// 沒睡著，或 `/props` 查不到（404）時不送橫幅，翻譯照常。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_awake_or_unknown_server_shows_no_banner() {
+    for sleeping in [Some(false), None] {
+        let h = hub(false).await;
+        *h.launches.sleeping.lock().unwrap() = sleeping;
+        h.local.ensure("m1").await.unwrap();
+        h.notices.lock().unwrap().clear();
+        let translated = chat(&local_client("m1")).await;
+        assert_eq!(translated, Ok("hola".into()), "{sleeping:?}");
+        assert_eq!(h.loading_notices(), [], "{sleeping:?}");
+    }
 }

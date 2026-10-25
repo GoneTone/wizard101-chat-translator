@@ -6,13 +6,14 @@ use eframe::egui::{Frame, Label, Margin, RichText, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field;
-use super::quant_table::{self, combined, dot, fit_color, fit_text, gb};
+use super::local_rows::{Have, basis, have_of, memory_key, row_buttons, row_text};
+use super::quant_table::{self, combined, gb};
 use super::theme;
 use super::widgets::{primary_button, right_aligned, secondary_button};
 use crate::i18n::t;
 use crate::local::catalog::{RECOMMENDED, Recommended};
-use crate::local::fit::{Fit, MemoryKind, memory_kind, total_size};
-use crate::local::hardware::{GpuKind, Hardware, effective};
+use crate::local::fit::{Fit, memory_kind, total_size};
+use crate::local::hardware::Hardware;
 use crate::local::hf::parse_repo;
 use crate::local::{Command, RepoInfo, RepoState, Snapshot};
 use crate::logs::log;
@@ -32,12 +33,13 @@ pub enum Tab {
     Custom,
 }
 
-/// 選定的模型；`choice`／`mtp` 為該 repo `Catalog` 內的索引。
+/// 選定的模型；`choice`／`mtp` 為該 repo `Catalog` 內的索引，`auto` 表示沿用自動挑選（沒動過量化表）。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
     pub repo: String,
     pub choice: usize,
     pub mtp: Option<usize>,
+    pub auto: bool,
 }
 
 /// 對話框這一幀的結果。
@@ -155,15 +157,17 @@ impl DownloadDialog {
         }
     }
 
-    /// 這個 repo 目前的選擇；沒有手動選過就用 hub 的自動挑選。
-    fn pick_of(&self, repo: &str, info: &RepoInfo) -> Option<(usize, Option<usize>)> {
+    /// 這個 repo 手動選過的量化（索引已不合用的不算）。
+    fn manual_pick(&self, repo: &str, info: &RepoInfo) -> Option<(usize, Option<usize>)> {
         let valid = |p: &(usize, Option<usize>)| {
             p.0 < info.catalog.choices.len() && p.1.is_none_or(|m| m < info.catalog.mtp.len())
         };
-        self.picks
-            .get(repo)
-            .copied()
-            .filter(valid)
+        self.picks.get(repo).copied().filter(valid)
+    }
+
+    /// 這個 repo 目前的選擇；沒有手動選過就用 hub 的自動挑選。
+    fn pick_of(&self, repo: &str, info: &RepoInfo) -> Option<(usize, Option<usize>)> {
+        self.manual_pick(repo, info)
             .or(info.auto.map(|a| (a.choice, a.mtp)))
     }
 
@@ -175,6 +179,7 @@ impl DownloadDialog {
                 repo: repo.to_owned(),
                 choice,
                 mtp,
+                auto: self.manual_pick(repo, info).is_none(),
             },
             fit,
         ))
@@ -194,8 +199,8 @@ impl DownloadDialog {
     /// 按下〔下載〕／〔選這個〕後：選擇模式回傳選擇，放不下的先確認，其餘直接下載。
     fn choose(&mut self, env: &dyn SettingsEnv, (sel, fit): Chosen) -> DialogOutcome {
         log(format!(
-            "[ui] model chosen: mode={:?} repo={} choice={} mtp={:?} fit={fit:?}",
-            self.mode, sel.repo, sel.choice, sel.mtp
+            "[ui] model chosen: mode={:?} repo={} choice={} mtp={:?} auto={} fit={fit:?}",
+            self.mode, sel.repo, sel.choice, sel.mtp, sel.auto
         ));
         match self.mode {
             DialogMode::Select => DialogOutcome::Selected(sel),
@@ -212,6 +217,7 @@ impl DownloadDialog {
             repo: sel.repo,
             choice: sel.choice,
             mtp: sel.mtp,
+            auto: sel.auto,
         });
         DialogOutcome::Closed
     }
@@ -431,113 +437,4 @@ impl DownloadDialog {
             }
         }
     }
-}
-
-pub(super) fn memory_key(kind: MemoryKind) -> &'static str {
-    match kind {
-        MemoryKind::Vram => "local.memory.vram",
-        MemoryKind::VramPlusRam => "local.memory.vram_ram",
-        MemoryKind::Ram => "local.memory.ram",
-    }
-}
-
-/// 已下載的狀態：完整、未完成（進度在設定頁），或沒有。
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Have {
-    No,
-    Complete,
-    InProgress,
-}
-
-fn have_of(snapshot: &Snapshot, repo: &str, quant: &str) -> Have {
-    let mut models = snapshot
-        .models
-        .iter()
-        .filter(|m| m.manifest.repo == repo && m.manifest.quant == quant);
-    match models.clone().find(|m| m.complete) {
-        Some(_) => Have::Complete,
-        None if models.next().is_some() => Have::InProgress,
-        None => Have::No,
-    }
-}
-
-/// 推薦分頁頂端：判斷相容等級所依據的可用記憶體。
-fn basis(ui: &mut Ui, hw: &Hardware) {
-    let (vram, ram) = effective(hw);
-    let integrated = hw
-        .gpu
-        .as_ref()
-        .is_some_and(|g| g.kind == GpuKind::Integrated);
-    let text = if integrated {
-        t("local.dialog.basis_ram", &[("ram", &gb(ram))])
-    } else if vram == 0 {
-        t("local.dialog.basis_unknown", &[])
-    } else {
-        t(
-            "local.dialog.basis",
-            &[("vram", &gb(vram)), ("ram", &gb(ram))],
-        )
-    };
-    ui.label(
-        RichText::new(text)
-            .size(theme::HINT_SIZE)
-            .color(theme::TEXT_SECONDARY),
-    );
-}
-
-/// 推薦列左側的文字：名稱、記憶體需求、所選量化，以及下載狀態。
-fn row_text(ui: &mut Ui, name: RichText, memory: &str, version: &str, have: Have) {
-    let small = |text: &str, color| RichText::new(text).size(theme::HINT_SIZE).color(color);
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        ui.add(Label::new(name).truncate());
-        ui.add(Label::new(small(memory, theme::TEXT_SECONDARY)).wrap());
-        ui.label(small(version, theme::TEXT_SECONDARY));
-        if have == Have::Complete {
-            ui.label(small(
-                &format!("✓ {}", t("local.downloaded", &[])),
-                theme::OK,
-            ));
-        }
-    });
-}
-
-/// 推薦列右側：相容徽章、〔選擇版本〕與動作鈕；回傳（切換量化表, 按了動作鈕）。
-fn row_buttons(
-    ui: &mut Ui,
-    level: Option<Fit>,
-    several: bool,
-    open: bool,
-    mode: DialogMode,
-    have: Have,
-) -> (bool, bool) {
-    ui.spacing_mut().item_spacing.x = 8.0;
-    dot(ui, fit_color(level));
-    ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
-    let version_key = if open {
-        "local.dialog.collapse"
-    } else {
-        "local.dialog.choose_version"
-    };
-    let toggle = ui
-        .add_enabled_ui(several, |ui| {
-            secondary_button(ui, &t(version_key, &[])).clicked()
-        })
-        .inner;
-    let (key, enabled) = match (mode, have) {
-        (DialogMode::Select, _) | (_, Have::No) => (
-            if mode == DialogMode::Select {
-                "local.dialog.select"
-            } else {
-                "local.dialog.download"
-            },
-            true,
-        ),
-        (_, Have::Complete) => ("local.downloaded", false),
-        (_, Have::InProgress) => ("local.in_progress", false),
-    };
-    let go = ui
-        .add_enabled_ui(enabled, |ui| primary_button(ui, &t(key, &[])).clicked())
-        .inner;
-    (toggle, go)
 }

@@ -7,7 +7,7 @@ use eframe::egui::{Label, ProgressBar, RichText, Ui, vec2};
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
 use super::local_rate::{Rates, eta, format_speed};
-use super::quant_table::{dot, fit_color, fit_text, gb};
+use super::quant_table::{dot, fit_color, fit_text, fraction, gb};
 use super::theme;
 use super::widgets::{
     danger_secondary_button, primary_button, right_aligned, right_aligned_width, secondary_button,
@@ -15,9 +15,8 @@ use super::widgets::{
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
-use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, fit};
-use crate::local::hardware::{GpuKind, Hardware};
+use crate::local::hardware::Hardware;
 use crate::local::store::{Installed, total_size};
 use crate::local::{Command, DownloadState, Snapshot};
 use crate::logs::log;
@@ -122,7 +121,7 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
     let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
-        let name = RichText::new(display_name(model)).font(theme::bold(theme::TEXT_SIZE));
+        let name = RichText::new(model.manifest.display_name()).font(theme::bold(theme::TEXT_SIZE));
         ui.add(Label::new(name).truncate());
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
@@ -182,7 +181,7 @@ fn controls(
                         .size(theme::HINT_SIZE)
                         .color(theme::TEXT_SECONDARY),
                 );
-                let label = format!("MTP {}", display_name(model));
+                let label = format!("MTP {}", manifest.display_name());
                 if toggle(ui, &mut on, &label).changed() {
                     settings.mtp.insert(id.clone(), on);
                 }
@@ -192,12 +191,7 @@ fn controls(
             ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
         }
         RowState::Running(done, total) => {
-            let fraction = if *total == 0 {
-                0.0
-            } else {
-                (*done as f64 / *total as f64).clamp(0.0, 1.0) as f32
-            };
-            ui.add(ProgressBar::new(fraction).desired_width(120.0));
+            ui.add(ProgressBar::new(fraction(*done, *total)).desired_width(120.0));
             if secondary_button(ui, &t("button.cancel", &[])).clicked() {
                 log(format!("[ui] model download cancel requested: id={id}"));
                 env.local_command(Command::CancelDownload(id.clone()));
@@ -232,21 +226,7 @@ fn eta_text(left: Duration) -> String {
     }
 }
 
-/// 推薦清單內的 repo 用顯示名稱，其餘用 repo 名；後接量化。
-pub(super) fn display_name(model: &Installed) -> String {
-    let repo = model.manifest.repo.as_str();
-    let name = RECOMMENDED
-        .iter()
-        .find(|r| r.repo == repo)
-        .map_or_else(|| repo.rsplit('/').next().unwrap_or(repo), |r| r.name);
-    format!("{name} · {}", model.manifest.quant)
-}
-
-/// 用清單上存的所需量對目前硬體評等；VRAM 還沒量到（且不是內顯）時為 `None`。
+/// 用清單上存的所需量對目前硬體評等；VRAM 還沒量過時為 `None`。
 fn rate(required: u64, moe: bool, hw: &Hardware) -> Option<Fit> {
-    let integrated = hw
-        .gpu
-        .as_ref()
-        .is_some_and(|g| g.kind == GpuKind::Integrated);
-    (hw.vram_total > 0 || integrated).then(|| fit(required, moe, hw))
+    hw.measured.then(|| fit(required, moe, hw))
 }

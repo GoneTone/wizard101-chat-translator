@@ -15,6 +15,7 @@ mod local_engine;
 mod local_models;
 pub mod local_pane;
 pub mod local_rate;
+mod local_rows;
 pub mod provider_picker;
 mod quant_table;
 pub mod service_draft;

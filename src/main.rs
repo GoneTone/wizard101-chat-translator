@@ -9,8 +9,8 @@ use serde_json::json;
 use tokio::runtime::Handle;
 use wizard101_chat_translator::app_main::{
     Running, WinRegionDesktop, apply_settings, build_app, claim_instance, install_console_quit,
-    log_startup_summary, open_messages_log, outgoing_translate, region_capturer, region_runner,
-    report_save, run_ui_then, save_field, shutdown, type_delay,
+    install_local, log_startup_summary, open_messages_log, outgoing_translate, real_local,
+    region_capturer, region_runner, report_save, run_ui_then, save_field, shutdown, type_delay,
 };
 use wizard101_chat_translator::composer::paste::type_into_window;
 use wizard101_chat_translator::config::{
@@ -22,6 +22,7 @@ use wizard101_chat_translator::i18n::set_language;
 use wizard101_chat_translator::input::dispatch::GameInputEvents;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::hook::{self, KeyboardHook};
+use wizard101_chat_translator::local::Local;
 use wizard101_chat_translator::logs::{self, Sink, log};
 use wizard101_chat_translator::reader::message_log::SharedWriter;
 use wizard101_chat_translator::region::ocr::{self, Models, register_models};
@@ -120,6 +121,8 @@ fn main() {
     let configured = is_configured(&cfg);
     let settings = Settings::from_config(&cfg);
     let shared_cfg = Arc::new(RwLock::new(cfg));
+    // 精靈的一鍵安裝也要用：hub 在開任何視窗前就建好，主流程沿用同一個
+    let local = install_local(real_local(rt.handle(), &poster), &read(&shared_cfg));
     install_console_quit(poster.clone());
     // 關閉流程只跑一次：正常關閉在視窗還在時由 App 觸發，UI 意外結束（panic、錯誤）才由 run_ui_then 補跑
     let running = Rc::new(RefCell::new(None));
@@ -131,6 +134,7 @@ fn main() {
         dispatcher: Arc::clone(&dispatcher),
         keyboard: Rc::clone(&keyboard),
         running: Rc::clone(&running),
+        local,
     };
     let wizard_rt = rt.handle().clone();
     if !configured {
@@ -179,6 +183,8 @@ fn main() {
                         )),
                     }
                     report_save(&startup.ui, saved.is_ok());
+                    // hub 啟動時套用的是精靈之前的設定
+                    startup.local.apply_config(&cfg);
                     start_main(app, startup);
                 }),
             )
@@ -208,6 +214,7 @@ struct Startup {
     /// 主流程接手前留在這裡；精靈取消時由收尾卸除。
     keyboard: Rc<RefCell<Option<KeyboardHook>>>,
     running: Rc<RefCell<Option<Running>>>,
+    local: Arc<Local>,
 }
 
 /// 依共用設定接上其餘功能並開始執行：翻譯與收訊、輸入框、框選、泡泡、設定視窗、更新檢查與關閉流程。
@@ -220,6 +227,7 @@ fn start_main(app: &mut App, startup: Startup) {
         dispatcher,
         keyboard,
         running,
+        local,
     } = startup;
     log_startup_summary(&read(&shared_cfg));
     let built = build_app(
@@ -229,6 +237,7 @@ fn start_main(app: &mut App, startup: Startup) {
         messages,
         Arc::clone(&dispatcher),
         keyboard.borrow_mut().take(),
+        local,
     );
     let settings = Settings::from_config(&read(&shared_cfg));
     let send = {

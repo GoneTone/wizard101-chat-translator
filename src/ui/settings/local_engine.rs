@@ -5,7 +5,7 @@ use eframe::egui::{FontId, Id, Label, ProgressBar, RichText, Ui};
 use super::dialog::Choice;
 use super::env::SettingsEnv;
 use super::local_card::{confirm_danger, padded, section};
-use super::quant_table::{dot, gb};
+use super::quant_table::{dot, fraction, gb};
 use super::theme;
 use super::widgets::{
     combo_box, danger_secondary_button, focus_ring, pill, primary_button, secondary_button,
@@ -176,7 +176,7 @@ impl EngineCard {
             _ => None,
         };
         let primary = match (&snapshot.engine, installed) {
-            (EngineState::Installing { .. }, _) => None,
+            (EngineState::Installing { .. } | EngineState::Removing, _) => None,
             (_, Some(i))
                 if picked.build.as_deref() != Some(i.build.as_str())
                     || picked.variant != i.variant =>
@@ -250,14 +250,6 @@ fn newer(candidate: &str, installed: &str) -> bool {
     matches!((build_number(candidate), build_number(installed)), (Some(a), Some(b)) if a > b)
 }
 
-fn fraction(done: u64, total: u64) -> f32 {
-    if total == 0 {
-        0.0
-    } else {
-        (done as f64 / total as f64).clamp(0.0, 1.0) as f32
-    }
-}
-
 /// 下拉上方的小標籤；回傳它的 id，給下拉當無障礙名稱。
 fn small_label(ui: &mut Ui, text: &str) -> Id {
     let label = RichText::new(text)
@@ -293,6 +285,7 @@ fn status(ui: &mut Ui, state: &EngineState) {
     let (key, color) = match state {
         EngineState::Missing => ("local.engine.status_missing", theme::TEXT_MUTED),
         EngineState::Installing { .. } => ("local.engine.status_installing", theme::WARN_TEXT),
+        EngineState::Removing => ("local.engine.status_removing", theme::WARN_TEXT),
         EngineState::Ready(_) => ("local.engine.status_ready", theme::OK),
         EngineState::Failed(_) => ("local.engine.status_failed", theme::ERROR),
     };
