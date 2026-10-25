@@ -103,6 +103,12 @@ impl SettingsEnv for SharedEnv {
     fn pick_glossary_save_path(&self, round: u64, file_name: String) {
         self.0.pick_glossary_save_path(round, file_name);
     }
+    fn local_snapshot(&self) -> wizard101_chat_translator::local::Snapshot {
+        self.0.local_snapshot()
+    }
+    fn local_command(&self, cmd: wizard101_chat_translator::local::Command) {
+        self.0.local_command(cmd);
+    }
 }
 
 /// 設定完整、透明度 0.5、訊息上限 50 的設定（與 overlay 目前的 0.8／200 不同）。

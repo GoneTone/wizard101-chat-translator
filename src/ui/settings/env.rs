@@ -49,6 +49,10 @@ pub trait SettingsEnv {
     fn pick_glossary_file(&self, round: u64);
     /// 跳出另存 JSON 檔的對話框（預設檔名 `file_name`），選完或取消後投遞 `GlossarySavePathPicked`。
     fn pick_glossary_save_path(&self, round: u64, file_name: String);
+    /// 本地模型 hub 的目前快照；沒有 hub 時是預設值。
+    fn local_snapshot(&self) -> crate::local::Snapshot;
+    /// 送一個指令給本地模型 hub（背景執行）。
+    fn local_command(&self, cmd: crate::local::Command);
 }
 
 /// `SettingsEnv` 背景工作的結果。
@@ -243,6 +247,21 @@ impl SettingsEnv for RealEnv {
                 path,
             }));
         });
+    }
+
+    fn local_snapshot(&self) -> crate::local::Snapshot {
+        crate::local::get()
+            .map(|hub| hub.snapshot())
+            .unwrap_or_default()
+    }
+
+    fn local_command(&self, cmd: crate::local::Command) {
+        match crate::local::get() {
+            Some(hub) => hub.command(cmd),
+            None => log(format!(
+                "[settings] local hub missing, command dropped: {cmd:?}"
+            )),
+        }
     }
 }
 

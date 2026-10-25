@@ -125,7 +125,9 @@ pub const DIALOG_RADIUS: u8 = 10;
 pub const SERVICE_DIALOG_WIDTH: f32 = 540.0;
 /// 服務商選擇對話框寬。
 pub const PICKER_DIALOG_WIDTH: f32 = 460.0;
-/// 刪除確認對話框寬。
+/// 下載模型對話框寬。
+pub const DOWNLOAD_DIALOG_WIDTH: f32 = 680.0;
+/// 確認對話框寬。
 pub const CONFIRM_DIALOG_WIDTH: f32 = 280.0;
 /// 內文字級。
 pub const TEXT_SIZE: f32 = 14.0;

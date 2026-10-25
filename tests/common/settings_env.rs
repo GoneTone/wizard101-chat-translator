@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::recorder::{Recording, record};
+use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 
 #[derive(Default)]
@@ -32,6 +33,10 @@ pub struct FakeEnv {
     pub save_picks: RefCell<Vec<(u64, String)>>,
     /// 選檔與存檔對話框「選到」的路徑；測試自己帶著它把結果送回介面。
     pub picked_path: Option<PathBuf>,
+    /// `local_snapshot` 回傳的內容；測試自己改。
+    pub snapshot: RefCell<Snapshot>,
+    /// 收到的本地模型指令。
+    pub commands: RefCell<Vec<Command>>,
 }
 
 impl SettingsEnv for FakeEnv {
@@ -72,5 +77,11 @@ impl SettingsEnv for FakeEnv {
     }
     fn pick_glossary_save_path(&self, round: u64, file_name: String) {
         self.save_picks.borrow_mut().push((round, file_name));
+    }
+    fn local_snapshot(&self) -> Snapshot {
+        self.snapshot.borrow().clone()
+    }
+    fn local_command(&self, cmd: Command) {
+        self.commands.borrow_mut().push(cmd);
     }
 }

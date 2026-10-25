@@ -35,6 +35,7 @@ mod local_gguf;
 mod local_hf;
 mod local_runtime;
 mod local_server;
+mod local_settings;
 mod logs_golden;
 mod mem_reader;
 mod net_proxy;

@@ -811,6 +811,10 @@ impl SettingsEnv for NoopEnv {
     }
     fn pick_glossary_file(&self, _round: u64) {}
     fn pick_glossary_save_path(&self, _round: u64, _file_name: String) {}
+    fn local_snapshot(&self) -> wizard101_chat_translator::local::Snapshot {
+        Default::default()
+    }
+    fn local_command(&self, _cmd: wizard101_chat_translator::local::Command) {}
 }
 
 /// 包住 App：檢查執行緒要求時按一次 ⚙，並回報 overlay 的 HWND。

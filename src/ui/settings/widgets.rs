@@ -779,14 +779,19 @@ fn icon_button_with(
         );
     }
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    hover_tip(ui, &response, tooltip);
+    response
+}
+
+/// 滑過 `response` 時顯示 `text` 的提示框。
+pub(super) fn hover_tip(ui: &Ui, response: &Response, text: &str) {
     // 不用 on_hover_text：提示框的 Ui 從全域樣式建立，要帶上設定視窗自己的樣式
-    let mut tip = Tooltip::for_enabled(&response);
+    let mut tip = Tooltip::for_enabled(response);
     tip.popup = tip.popup.style((**ui.style()).clone());
     tip.show(|ui| {
         ui.set_max_width(ui.spacing().tooltip_width);
-        ui.label(tooltip);
+        ui.label(text);
     });
-    response
 }
 
 /// 可收合的區塊：整列標題（含說明與箭頭）可點，也能用 Tab 走到、Enter／Space 切換；展開狀態依 `id` 記住。
