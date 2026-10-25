@@ -449,6 +449,39 @@ async fn preload_starts_models_one_after_another() {
     );
 }
 
+/// shutdown 後 ensure 回錯誤、不啟動，也不算失敗。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ensure_after_shutdown_starts_nothing() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    f.local.ensure("m1").await.unwrap();
+    f.local.shutdown();
+    assert_eq!(f.kills().len(), 1);
+    let err = f.local.ensure("m1").await.unwrap_err();
+    assert!(err.contains("shut down"), "{err}");
+    assert_eq!(f.plans().len(), 1);
+}
+
+/// 預先載入途中 shutdown：載入中的那個被取消，排在後面的不再啟動。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shutdown_stops_the_preload_queue() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, "m1", false);
+            add_model(root, "m2", false);
+        },
+        |_| false,
+    )
+    .await;
+    *f.shared.health_delay.lock().unwrap() = Duration::from_millis(400);
+    let settings = json!({"preload": true, "idle_minutes": 15, "mtp": {}});
+    f.local.apply_config(&local_config(&["m1", "m2"], settings));
+    wait_for("first preload started", || f.plans().len() == 1).await;
+    f.local.shutdown();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert_eq!(f.plans().len(), 1);
+}
+
 const REPO: &str = "org/Model-GGUF";
 
 /// 掛上 repo 檔案列表與每個檔的內容。

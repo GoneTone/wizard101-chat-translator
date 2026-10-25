@@ -32,7 +32,7 @@ use wizard101_chat_translator::runtime::updater::{
 use wizard101_chat_translator::runtime::{
     AcquireError, acquire_single_instance, focus_running_instance,
 };
-use wizard101_chat_translator::ui::app::{self, App, OnSave};
+use wizard101_chat_translator::ui::app::{self, App, OnCancel, OnSave};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::InputBox;
 use wizard101_chat_translator::ui::overlay::frame::Frame;
@@ -298,10 +298,20 @@ fn start_main(app: &mut App, startup: Startup) {
             apply_settings(running, &settings, new_cfg, &ui)
         })
     };
+    let on_cancel: OnCancel = {
+        let (running, settings) = (Rc::clone(&running), Arc::clone(&shared_cfg));
+        Box::new(move || {
+            if let Some(local) = running.borrow().as_ref().and_then(|r| r.local.as_ref()) {
+                // 收掉測試連線臨時啟動、目前設定沒用到的本地模型
+                local.apply_config(&read(&settings));
+            }
+        })
+    };
     app.set_settings(
         SettingsHost::new(Box::new(env)),
         Arc::clone(&shared_cfg),
         on_save,
+        on_cancel,
     );
     schedule_update_checks(
         &rt,

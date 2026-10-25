@@ -981,6 +981,7 @@ fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
             host,
             Arc::new(RwLock::new(Config::new())),
             Box::new(|_| None),
+            Box::new(|| {}),
         );
         SettingsProbe {
             app,

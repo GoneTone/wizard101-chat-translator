@@ -121,6 +121,8 @@ pub struct Local {
     gh_http: reqwest::Client,
     pub(super) state: Mutex<Snapshot>,
     pub(super) vram_measured: AtomicBool,
+    /// `shutdown` 之後不再啟動任何模型。
+    pub(super) closed: AtomicBool,
     /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
     engine_lock: tokio::sync::Mutex<()>,
     /// 每次 `ensure` 從檢查前置條件到啟動完成都持有讀鎖；移除引擎時取寫鎖，期間任何模型都啟動不了。
@@ -160,6 +162,7 @@ impl Local {
             endpoints,
             state: Mutex::new(snapshot),
             vram_measured: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
             engine_files: tokio::sync::RwLock::new(()),
             cancels: Mutex::default(),
@@ -375,10 +378,10 @@ impl Local {
 
     async fn remove_engine(&self) {
         let _engine = self.engine_lock.lock().await;
-        self.shutdown();
+        self.stop_all();
         let _files = self.engine_files.write().await;
-        // 取寫鎖前剛起跑的啟動不在第一次 shutdown 之內，拿到鎖後再停一次
-        self.shutdown();
+        // 取寫鎖前剛起跑的啟動不在第一次 stop_all 之內，拿到鎖後再停一次
+        self.stop_all();
         let state = match engine::remove_all(&self.root) {
             Ok(()) => EngineState::Missing,
             Err(e) => {

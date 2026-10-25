@@ -12,7 +12,6 @@ use crate::config::py::py_bool;
 use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
-use crate::local;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::{Rect, pull_onscreen};
@@ -58,6 +57,8 @@ pub fn channel() -> (UiPoster, Inbox) {
 
 /// 設定視窗按儲存：收到視窗管的那些鍵（不是完整設定），回傳實際生效的框選熱鍵（沒註冊為 `None`）。
 pub type OnSave = Box<dyn FnMut(Config) -> Option<String>>;
+/// 設定視窗按取消或關閉。
+pub type OnCancel = Box<dyn FnMut()>;
 /// 精靈完成後接上其餘功能並開始執行；收到完整設定。
 pub type OnStart = Box<dyn FnOnce(&mut App, Config)>;
 
@@ -66,6 +67,7 @@ struct SettingsWiring {
     host: SettingsHost,
     cfg: Arc<RwLock<Config>>,
     on_save: OnSave,
+    on_cancel: OnCancel,
 }
 
 /// 首次設定精靈與完成後的接線。
@@ -214,17 +216,19 @@ impl App {
         self.on_close = Some(Box::new(on_close));
     }
 
-    /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定。
+    /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定，取消或關閉時呼叫 `on_cancel`。
     pub fn set_settings(
         &mut self,
         host: SettingsHost,
         settings: Arc<RwLock<Config>>,
         on_save: OnSave,
+        on_cancel: OnCancel,
     ) {
         self.settings = Some(SettingsWiring {
             host,
             cfg: settings,
             on_save,
+            on_cancel,
         });
     }
 
@@ -620,9 +624,8 @@ impl App {
                 self.close_settings();
             }
             SettingsAction::Cancel => {
-                // 收掉測試連線臨時啟動、目前設定沒用到的本地模型
-                if let (Some(wiring), Some(local)) = (&self.settings, local::get()) {
-                    local.apply_config(&read(&wiring.cfg));
+                if let Some(wiring) = &mut self.settings {
+                    (wiring.on_cancel)();
                 }
                 self.close_settings();
             }

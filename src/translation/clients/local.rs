@@ -72,14 +72,10 @@ impl LocalClient {
             return Arc::clone(client);
         }
         log(format!("[local] {} served at {url}", self.model_id));
-        let client = Arc::new(OpenAiCompatClient::new(
-            &url,
-            "",
-            &self.model_id,
-            self.thinking,
-            EFFORT_AUTO,
-            false,
-        ));
+        let client = Arc::new(
+            OpenAiCompatClient::new(&url, "", &self.model_id, self.thinking, EFFORT_AUTO, false)
+                .with_usage(),
+        );
         *inner = Some((url, Arc::clone(&client)));
         client
     }

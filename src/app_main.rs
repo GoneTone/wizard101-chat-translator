@@ -773,7 +773,6 @@ pub fn build_app(
     dispatcher: SharedDispatcher,
     keyboard: Option<KeyboardHook>,
 ) -> Running {
-    // 翻譯器建立時就會 warm-up，hub 要先裝好
     let local = install_local(&read(&settings), rt, &ui);
     let deliver: ResultFn = {
         let ui = ui.clone();
@@ -897,6 +896,15 @@ pub fn shutdown_steps(
     log("[app] shutdown complete");
 }
 
+/// 關閉流程裡關翻譯池那一步：兩條翻譯池收工，所有本地模型的 llama-server 停掉。
+pub fn close_translation(translation: &Translation, local: Option<&Local>) {
+    translation.pool.shutdown();
+    translation.system_pool.shutdown();
+    if let Some(local) = local {
+        local.shutdown();
+    }
+}
+
 /// 乾淨關閉後直接結束程序：卡在 HTTP 請求的翻譯 task 不該把程序多留 60 秒。
 pub fn shutdown(running: Running) -> ! {
     let Running {
@@ -909,13 +917,7 @@ pub fn shutdown(running: Running) -> ! {
     } = running;
     shutdown_steps(
         &stop,
-        || {
-            translation.pool.shutdown();
-            translation.system_pool.shutdown();
-            if let Some(local) = local {
-                local.shutdown();
-            }
-        },
+        || close_translation(&translation, local.as_deref()),
         || {
             if let Some(hook) = keyboard {
                 hook.uninstall();

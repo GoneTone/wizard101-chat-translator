@@ -4,7 +4,7 @@
 
 mod common;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
@@ -120,6 +120,8 @@ type Saved = Rc<RefCell<Vec<Config>>>;
 struct Wired {
     env: Rc<FakeEnv>,
     saved: Saved,
+    /// `on_cancel` 被呼叫的次數。
+    cancels: Rc<Cell<u32>>,
     poster: UiPoster,
 }
 
@@ -179,7 +181,7 @@ fn eframe_harness(
     (harness, poster, recorder)
 }
 
-/// 接上設定視窗的 App：`cfg` 是共用設定，`on_save` 記下收到的設定。
+/// 接上設定視窗的 App：`cfg` 是共用設定，`on_save` 記下收到的設定，`on_cancel` 記下次數。
 ///
 /// overlay 起始透明度是 `alpha`；`on_save` 回報的框選熱鍵是 `region`（`None`＝沒註冊）。
 fn settings_app_with(
@@ -189,7 +191,8 @@ fn settings_app_with(
 ) -> (Harness<'static, App>, Wired) {
     let env = Rc::new(FakeEnv::default());
     let saved = Saved::default();
-    let (host_env, sink) = (Rc::clone(&env), Rc::clone(&saved));
+    let cancels = Rc::new(Cell::new(0));
+    let (host_env, sink, cancelled) = (Rc::clone(&env), Rc::clone(&saved), Rc::clone(&cancels));
     let (harness, poster, _recorder) = eframe_harness(move |ctx, inbox| {
         let mut host = SettingsHost::new(Box::new(SharedEnv(host_env)));
         host.set_window_ops(fake_ops());
@@ -201,10 +204,19 @@ fn settings_app_with(
                 sink.borrow_mut().push(cfg);
                 region.map(str::to_owned)
             }),
+            Box::new(move || cancelled.set(cancelled.get() + 1)),
         );
         app
     });
-    (harness, Wired { env, saved, poster })
+    (
+        harness,
+        Wired {
+            env,
+            saved,
+            cancels,
+            poster,
+        },
+    )
 }
 
 fn settings_app(cfg: Config) -> (Harness<'static, App>, Wired) {
@@ -313,6 +325,24 @@ fn save_without_a_registered_region_hotkey_shows_the_saved_one() {
     open_settings(&mut h);
     click(&mut h, Role::Button, &tr("button.save"));
     assert!(region_tooltip_shows(&mut h, "ctrl+alt+q"));
+}
+
+#[test]
+fn cancel_and_close_call_on_cancel_but_save_does_not() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let (mut h, wired) = settings_app(settings_cfg());
+    open_settings(&mut h);
+    click(&mut h, Role::Button, &tr("button.cancel"));
+    assert_eq!(wired.cancels.get(), 1);
+    open_settings(&mut h);
+    close_request(&mut h);
+    run(&mut h);
+    assert_eq!(wired.cancels.get(), 2);
+    open_settings(&mut h);
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert_eq!(wired.cancels.get(), 2);
+    assert_eq!(wired.saved.borrow().len(), 1);
 }
 
 #[test]

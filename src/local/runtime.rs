@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -107,6 +108,10 @@ impl Local {
         let _engine_files = self.engine_files.read().await;
         let cancel = {
             let mut st = lock(&slot.state);
+            // 在狀態鎖內檢查：shutdown 之前就過了這關的啟動，會被它取消
+            if self.closed.load(Ordering::SeqCst) {
+                return Err("local runtime is shut down".into());
+            }
             if let Some(running) = st.running.as_mut() {
                 let Some(code) = running.process.exited() else {
                     return Ok(running.base_url.clone());
@@ -162,8 +167,15 @@ impl Local {
         }
     }
 
-    /// 停掉所有 llama-server。
+    /// 程式關閉：停掉所有 llama-server，之後的 `ensure` 一律回錯誤。
     pub fn shutdown(&self) {
+        log("[local] shutting down; no more llama-server starts");
+        self.closed.store(true, Ordering::SeqCst);
+        self.stop_all();
+    }
+
+    /// 停掉所有 llama-server（含進行中的啟動）。
+    pub(super) fn stop_all(&self) {
         for (id, slot) in self.servers.all() {
             stop_slot(&id, &slot);
         }
@@ -229,7 +241,7 @@ impl Local {
             .filter(|(_, slot)| lock(&slot.state).running.is_some())
             .map(|(id, _)| id)
             .collect();
-        self.shutdown();
+        self.stop_all();
         self.ensure_in_order(running);
     }
 
@@ -241,6 +253,9 @@ impl Local {
         let me = self.arc();
         self.rt.spawn(async move {
             for id in ids {
+                if me.closed.load(Ordering::SeqCst) {
+                    return;
+                }
                 if let Err(e) = me.ensure(&id).await {
                     log(format!("[local] preloading {id} failed: {e}"));
                 }

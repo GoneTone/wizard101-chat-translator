@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
 use common::fake_backend::{Fake, JA, spec};
+use common::local::{Launches, add_engine, add_model, fake_hub};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 
@@ -15,9 +16,9 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
     InputWiring, Running, SUPERVISOR_JOIN_BUDGET, Translation, apply_settings, build_translation,
-    claim_instance, hotkey_mask, incoming_fingerprint, install_paste, on_paste_hotkey,
-    outgoing_translate, reconfigure_translation, region_runner, register_hotkeys, run_ui_then,
-    shutdown_steps,
+    claim_instance, close_translation, hotkey_mask, incoming_fingerprint, install_paste,
+    on_paste_hotkey, outgoing_translate, reconfigure_translation, region_runner, register_hotkeys,
+    run_ui_then, shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
@@ -1373,6 +1374,37 @@ fn apply_settings_saves_rebinds_and_reregisters() {
         applied.iter().any(|l| l.contains("qwen3-2-apply_rebind")),
         "{applied:?}"
     );
+}
+
+/// 接上假的本地模型 hub 並讓 m1 跑起來。
+fn with_running_local(l: &mut Live) -> Launches {
+    let root = l.dir.path().join("local");
+    add_engine(&root, "b11871");
+    add_model(&root, "m1", false);
+    let (hub, launches) = fake_hub(root, l._rt.handle().clone(), false);
+    let ensure = {
+        let hub = Arc::clone(&hub);
+        l._rt.spawn(async move { hub.ensure("m1").await })
+    };
+    l._rt.block_on(ensure).unwrap().unwrap();
+    l.running.local = Some(hub);
+    launches
+}
+
+#[test]
+fn saving_a_config_without_the_local_model_stops_its_server() {
+    let mut l = live("apply_local");
+    let launches = with_running_local(&mut l);
+    l.apply(partial(&[("max_messages", json!(50))]));
+    assert_eq!(launches.killed(), 1);
+}
+
+#[test]
+fn closing_translation_stops_local_servers() {
+    let mut l = live("close_local");
+    let launches = with_running_local(&mut l);
+    close_translation(&l.running.translation, l.running.local.as_deref());
+    assert_eq!(launches.killed(), 1);
 }
 
 #[test]

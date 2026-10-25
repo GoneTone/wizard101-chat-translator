@@ -1,15 +1,114 @@
-//! 本地模型測試共用：假的引擎與模型檔、在指定埠上開 wiremock 當 llama-server。
+//! 本地模型測試共用：假的引擎與模型檔、在指定埠上開 wiremock 當 llama-server、用假 Launcher 的 hub。
 
 // 每個測試執行檔各自編譯 common，不是每個都用到
 #![allow(dead_code)]
 
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use tokio::runtime::Handle;
-use wiremock::{Mock, MockServer};
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
+use wizard101_chat_translator::local::server::{Launcher, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Manifest, ManifestFile};
+use wizard101_chat_translator::local::{Endpoints, Local};
+
+/// 假 llama-server 的紀錄：每次成功啟動的伺服器與 kill 次數。
+#[derive(Clone, Default)]
+pub struct Launches {
+    /// kill 後也留著，測試才看得到每台收到的請求。
+    pub servers: Arc<Mutex<Vec<MockServer>>>,
+    pub kills: Arc<AtomicUsize>,
+}
+
+impl Launches {
+    pub fn started(&self) -> usize {
+        self.servers.lock().unwrap().len()
+    }
+
+    pub fn killed(&self) -> usize {
+        self.kills.load(Ordering::SeqCst)
+    }
+}
+
+struct FakeProcess {
+    exit: Option<i32>,
+    kills: Arc<AtomicUsize>,
+}
+
+impl Process for FakeProcess {
+    fn exited(&mut self) -> Option<i32> {
+        self.exit
+    }
+    fn kill(&mut self) {
+        self.kills.fetch_add(1, Ordering::SeqCst);
+    }
+    fn tail(&self) -> Vec<String> {
+        vec!["boom".into()]
+    }
+}
+
+/// `fail` 時子程序立刻以 1 結束（tail 為 `boom`）；否則在指定埠上開回 `/health` 與串流譯文 `hola` 的伺服器。
+struct FakeLauncher {
+    fail: bool,
+    launches: Launches,
+}
+
+impl Launcher for FakeLauncher {
+    fn launch(&self, _plan: &ServerPlan, port: u16) -> io::Result<Box<dyn Process>> {
+        let kills = self.launches.kills.clone();
+        if self.fail {
+            return Ok(Box::new(FakeProcess {
+                exit: Some(1),
+                kills,
+            }));
+        }
+        let stream = "data: {\"choices\":[{\"delta\":{\"content\":\"hola\"}}]}
+
+data: [DONE]
+
+";
+        let server = serve_on(
+            port,
+            vec![
+                Mock::given(method("GET"))
+                    .and(path("/health"))
+                    .respond_with(ResponseTemplate::new(200)),
+                Mock::given(method("POST"))
+                    .and(path("/v1/chat/completions"))
+                    .respond_with(
+                        ResponseTemplate::new(200).set_body_raw(stream, "text/event-stream"),
+                    ),
+            ],
+        );
+        self.launches.servers.lock().unwrap().push(server);
+        Ok(Box::new(FakeProcess { exit: None, kills }))
+    }
+}
+
+/// 以 `root` 建一個用假 Launcher 的 hub（不連外、不通知）；`ensure` 須在 multi-thread runtime 的 worker 上跑。
+pub fn fake_hub(root: PathBuf, rt: Handle, fail: bool) -> (Arc<Local>, Launches) {
+    let launches = Launches::default();
+    let unreachable = "http://127.0.0.1:9".to_owned();
+    let local = Local::new(
+        root,
+        rt,
+        Arc::new(FakeLauncher {
+            fail,
+            launches: launches.clone(),
+        }),
+        Endpoints {
+            hf: unreachable.clone(),
+            releases: unreachable,
+        },
+        Arc::new(|_| {}),
+    );
+    (local, launches)
+}
 
 /// 在 llama-server 該聽的埠上開 wiremock 並掛上 `mocks`；須在 multi-thread runtime 裡呼叫。
 pub fn serve_on(port: u16, mocks: Vec<Mock>) -> MockServer {
