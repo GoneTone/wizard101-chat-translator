@@ -7,6 +7,7 @@ use std::time::Duration;
 use regex::Regex;
 use serde::Deserialize;
 
+use super::download::body_preview;
 use crate::logs::log;
 use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 
@@ -117,17 +118,38 @@ struct Lfs {
 
 /// 取 `Link` 標頭中 `rel="next"` 的網址。
 fn next_page(response: &reqwest::Response) -> Option<String> {
-    let link = response
-        .headers()
-        .get(reqwest::header::LINK)?
-        .to_str()
-        .ok()?;
-    link.split(',').find_map(|part| {
-        let (url, params) = part.split_once(';')?;
-        params
-            .contains("rel=\"next\"")
-            .then(|| url.trim().trim_matches(['<', '>']).to_string())
-    })
+    next_link(
+        response
+            .headers()
+            .get(reqwest::header::LINK)?
+            .to_str()
+            .ok()?,
+    )
+}
+
+/// 解析 `<url>; rel="next", <url>; rel="last"`；網址本身可含逗號與分號，所以以角括號切開。
+fn next_link(header: &str) -> Option<String> {
+    let mut rest = header;
+    while let Some(start) = rest.find('<') {
+        let (url, after) = rest[start + 1..].split_once('>')?;
+        let params_end = after.find('<').unwrap_or(after.len());
+        let is_next = after[..params_end].split([';', ',']).any(|param| {
+            let Some((key, value)) = param.split_once('=') else {
+                return false;
+            };
+            key.trim().eq_ignore_ascii_case("rel")
+                && value
+                    .trim()
+                    .trim_matches('"')
+                    .split_ascii_whitespace()
+                    .any(|rel| rel.eq_ignore_ascii_case("next"))
+        });
+        if is_next {
+            return Some(url.to_owned());
+        }
+        rest = &after[params_end..];
+    }
+    None
 }
 
 /// 列出 repo `main` 分支所有檔案（跟著分頁連結走完）；非 2xx 回 `HTTP {status}: {body}`。
@@ -147,7 +169,7 @@ pub async fn list_files(
         let status = response.status();
         if !status.is_success() {
             let body = match response.text().await {
-                Ok(body) => body,
+                Ok(body) => body_preview(&body),
                 Err(e) => format!("(body unreadable: {})", error_chain(e)),
             };
             log(format!(
@@ -283,4 +305,28 @@ pub fn classify(files: &[RepoFile]) -> Catalog {
     choices.sort_by_key(|c| (c.quant.bits.unwrap_or(u8::MAX), total(c)));
     mtp.sort_by_key(|m| (m.quant.bits.unwrap_or(u8::MAX), m.file.size));
     Catalog { choices, mtp }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::next_link;
+
+    /// 找出 `rel="next"` 那一段；網址含逗號、分號，或 `rel` 有多個值也認得。
+    #[test]
+    fn next_link_parses_link_headers_robustly() {
+        let header = r#"<https://h/api?a=1,2&b=x;y>; rel="next", <https://h/api?last>; rel="last""#;
+        assert_eq!(
+            next_link(header).as_deref(),
+            Some("https://h/api?a=1,2&b=x;y")
+        );
+        let reversed =
+            r#"<https://h/last>; rel="last", <https://h/next>; title="a, b"; rel="prev next""#;
+        assert_eq!(next_link(reversed).as_deref(), Some("https://h/next"));
+        assert_eq!(
+            next_link(r#"<https://h/p>; rel=NEXT"#).as_deref(),
+            Some("https://h/p")
+        );
+        assert_eq!(next_link(r#"<https://h/last>; rel="last""#), None);
+        assert_eq!(next_link("garbage"), None);
+    }
 }

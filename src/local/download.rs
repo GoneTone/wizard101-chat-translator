@@ -21,6 +21,11 @@ use crate::util::hex;
 const FREE_SPACE_MARGIN: u64 = 1 << 30;
 const BODY_PREVIEW_CHARS: usize = 200;
 
+/// 錯誤回應內文的開頭一段（錯誤訊息與 log 用，整頁 HTML 不要整段帶出去）。
+pub(super) fn body_preview(body: &str) -> String {
+    body.chars().take(BODY_PREVIEW_CHARS).collect()
+}
+
 /// 下載進度；UI 執行緒讀、下載任務寫。
 #[derive(Default)]
 pub struct Progress {
@@ -193,7 +198,7 @@ async fn fetch(
         progress.done.store(0, Ordering::Relaxed);
     } else if status != reqwest::StatusCode::PARTIAL_CONTENT || start != existing {
         let body = response.text().await.unwrap_or_default();
-        let body: String = body.chars().take(BODY_PREVIEW_CHARS).collect();
+        let body = body_preview(&body);
         return Err(DownloadError::Http(format!("HTTP {status}: {body}")));
     }
 

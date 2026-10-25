@@ -69,7 +69,7 @@ fn uint(kv: &GGufMetaKV) -> Option<u32> {
 /// 解析 GGUF 檔頭（metadata 與 tensor 清單）；位元組來自網路，任何輸入都不會 panic。
 pub fn parse(bytes: &[u8]) -> Result<ModelMeta, ParseError> {
     // ggus 對惡意長度（如陣列長度 u64::MAX）會在 Layout 計算 panic
-    std::panic::catch_unwind(|| parse_inner(bytes)).unwrap_or_else(|_| {
+    crate::logs::catch_expected_panic(|| parse_inner(bytes)).unwrap_or_else(|_| {
         log("[local] GGUF parser panicked on malformed header");
         Err(ParseError::Invalid("malformed GGUF header".into()))
     })

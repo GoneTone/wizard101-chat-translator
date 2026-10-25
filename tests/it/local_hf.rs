@@ -127,6 +127,22 @@ async fn list_files_reports_http_errors_verbatim() {
     );
 }
 
+/// 很長的錯誤頁只帶開頭一段（錯誤訊息與 log 都不會塞進整頁 HTML）。
+#[tokio::test]
+async fn list_files_truncates_a_long_error_body() {
+    let server = MockServer::start().await;
+    let page = format!("<html>{}</html>", "x".repeat(5000));
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(503).set_body_string(page))
+        .mount(&server)
+        .await;
+    let err = list_files(&hf_client(&server.uri()), &server.uri(), "o/r")
+        .await
+        .unwrap_err();
+    assert!(err.starts_with("HTTP 503: <html>xxx"), "{err}");
+    assert!(err.len() < 300, "{} chars", err.len());
+}
+
 #[tokio::test]
 async fn list_files_follows_the_next_page_link() {
     let server = MockServer::start().await;
