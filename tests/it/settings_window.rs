@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use common::kittest::{click, click_change, has_label, run, settle, text_sections, tr};
 use common::log_capture::{capture_logs, log_lines_with};
-use common::settings_env::FakeEnv;
+use common::settings_env::{FakeEnv, installed};
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
@@ -436,6 +436,7 @@ fn save_writes_the_edited_service_list_into_cfg() {
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
     settle(&mut h);
+    settle(&mut h);
     h.get_by_label(&tr("field.service_name")).click();
     run(&mut h);
     h.event(egui::Event::Text(" 2".into()));
@@ -580,6 +581,7 @@ fn a_blank_target_language_tests_the_connection_in_the_ui_language() {
     let mut h = harness(cfg);
     go(&mut h, "settings.tab.services");
     click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
     settle(&mut h);
     click(&mut h, Role::Button, &tr("button.test"));
     let tests = h.state().env.tests.borrow();
@@ -1179,4 +1181,77 @@ fn the_target_language_colors_what_was_typed() {
         english.contains(&("Eng".to_owned(), theme::ACCENT)),
         "{english:?}"
     );
+}
+
+const GB: u64 = 1 << 30;
+
+/// 預設服務用模型 `a`，收訊用另一個本地服務指到 `b_model`；每個模型要 8 GB，只有 10 GB RAM 可用。
+fn two_local_services(b_model: &str) -> Harness<'static, State> {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let b = add_service(&mut cfg, "local", json!({"model": b_model}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = b["id"].clone();
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB), installed("b", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+    }
+    harness_with(cfg, env, egui::vec2(840.0, 660.0))
+}
+
+#[test]
+fn two_different_local_models_that_do_not_fit_block_saving() {
+    capture_logs();
+    let mut h = two_local_services("b");
+    assert!(save(&mut h).is_none());
+    assert!(has_label(&h, &tr("dialog.incomplete_title")));
+    let message = t(
+        "error.local_over_capacity",
+        &[
+            ("models", "b · Q4_K_M 8.0 GB, a · Q4_K_M 8.0 GB"),
+            ("vram", "0.0"),
+            ("ram", "10.0"),
+        ],
+    );
+    assert!(has_label(&h, &message));
+    assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
+}
+
+#[test]
+fn same_local_model_in_two_slots_is_fine() {
+    let mut h = two_local_services("a");
+    assert!(save(&mut h).is_some());
+}
+
+#[test]
+fn a_local_service_whose_model_is_gone_blocks_saving_by_name() {
+    let cfg = configured("local", json!({"model": "a"}));
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+#[test]
+fn the_local_form_link_switches_to_the_local_models_page() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
+    h.get_by_label(&tr("local.form.open_models")).click();
+    run(&mut h);
+    assert_eq!(h.state().win.page(), Page::LocalModels);
+}
+
+#[test]
+fn a_service_card_flags_a_gone_local_model() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    go(&mut h, "settings.tab.services");
+    assert!(has_label(&h, &tr("local.form.model_missing")));
+    h.state().env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    run(&mut h);
+    assert!(!has_label(&h, &tr("local.form.model_missing")));
 }

@@ -85,6 +85,13 @@ pub struct Snapshot {
     pub repos: BTreeMap<String, RepoState>,
 }
 
+impl Snapshot {
+    /// 已下載完成的模型 `id`。
+    pub fn ready_model(&self, id: &str) -> Option<&Installed> {
+        self.models.iter().find(|m| m.id == id && m.complete)
+    }
+}
+
 /// UI 送給 hub 的指令，全部在背景執行。
 #[derive(Clone, Debug)]
 pub enum Command {

@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::recorder::{Recording, record};
+use wizard101_chat_translator::local::store::{Installed, Manifest};
 use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 
@@ -83,5 +84,22 @@ impl SettingsEnv for FakeEnv {
     }
     fn local_command(&self, cmd: Command) {
         self.commands.borrow_mut().push(cmd);
+    }
+}
+
+/// 一個已下載（`complete`）或下載中的模型；repo 為 `org/<id>`，量化 Q4_K_M，所需 `required` 位元組。
+pub fn installed(id: &str, complete: bool, required: u64) -> Installed {
+    Installed {
+        id: id.into(),
+        manifest: Manifest {
+            repo: format!("org/{id}"),
+            quant: "Q4_K_M".into(),
+            files: vec![],
+            mtp: None,
+            moe: false,
+            has_builtin_mtp: false,
+            required,
+        },
+        complete,
     }
 }

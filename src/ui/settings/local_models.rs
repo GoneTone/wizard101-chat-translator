@@ -233,7 +233,7 @@ fn eta_text(left: Duration) -> String {
 }
 
 /// 推薦清單內的 repo 用顯示名稱，其餘用 repo 名；後接量化。
-fn display_name(model: &Installed) -> String {
+pub(super) fn display_name(model: &Installed) -> String {
     let repo = model.manifest.repo.as_str();
     let name = RECOMMENDED
         .iter()

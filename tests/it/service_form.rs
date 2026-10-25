@@ -6,13 +6,14 @@ use std::time::Duration;
 
 use common::kittest::{has_label, painted_texts, run, settle, themed_harness, tr};
 use common::log_capture::{capture_logs, log_text};
-use common::settings_env::FakeEnv;
+use common::settings_env::{FakeEnv, installed};
 use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::local::store::Installed;
 use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::errors::{
     TranslateError, friendly_error, friendly_text,
@@ -1327,4 +1328,67 @@ fn the_test_error_can_be_selected_and_copied() {
         copied.iter().any(|c| c.contains("invalid argument")),
         "{copied:?}"
     );
+}
+
+fn local_harness(models: Vec<Installed>) -> Harness<'static, State> {
+    let mut service = new_service("local", &[]);
+    service["model"] = json!("ready");
+    let h = harness(form(service, vec![]));
+    h.state().env.snapshot.borrow_mut().models = models;
+    h
+}
+
+#[test]
+fn local_form_has_no_key_or_endpoint_fields() {
+    let h = local_harness(vec![]);
+    for key in ["field.api_key", "field.api_key_optional", "field.base_url"] {
+        assert!(!has_label(&h, &tr(key)), "{key}");
+    }
+    assert!(!has_label(&h, &tr("field.effort")));
+    assert!(!has_label(&h, &tr("button.refresh")));
+    assert!(has_label(&h, &tr("field.thinking")));
+    assert!(has_label(&h, &tr("local.form.test_hint")));
+}
+
+#[test]
+fn model_dropdown_lists_only_complete_downloads() {
+    let mut h = local_harness(vec![
+        installed("ready", true, 0),
+        installed("partial", false, 0),
+    ]);
+    run(&mut h);
+    click(&mut h, &tr("field.model"));
+    let option = |id: &str| {
+        t(
+            "local.form.model_option",
+            &[("name", &format!("{id} · Q4_K_M")), ("size", "0.0")],
+        )
+    };
+    assert!(has_label(&h, &option("ready")));
+    assert!(!has_label(&h, &option("partial")));
+}
+
+#[test]
+fn picking_a_model_writes_its_id() {
+    let mut h = local_harness(vec![
+        installed("ready", true, 0),
+        installed("other", true, 0),
+    ]);
+    click(&mut h, &tr("field.model"));
+    let name = t(
+        "local.form.model_option",
+        &[("name", "other · Q4_K_M"), ("size", "0.0")],
+    );
+    click(&mut h, &name);
+    assert_eq!(h.state().form.values()["model"], json!("other"));
+}
+
+#[test]
+fn a_gone_model_is_flagged_and_the_link_asks_for_the_models_page() {
+    let mut h = local_harness(vec![installed("other", true, 0)]);
+    assert!(has_label(&h, &tr("local.form.model_missing")));
+    assert!(has_label(&h, &tr("local.form.model_hint")));
+    h.state_mut().responses.clear();
+    click(&mut h, &tr("local.form.open_models"));
+    assert!(h.state().responses.iter().any(|r| r.open_local_models));
 }

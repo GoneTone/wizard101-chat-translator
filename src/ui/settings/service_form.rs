@@ -10,7 +10,9 @@ use serde_json::{Map, Value};
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
+use super::local_models::display_name;
 use super::provider_picker::provider_icon;
+use super::quant_table::gb;
 use super::theme::{self, icon};
 use super::widgets::{
     combo_box, focus_ring, outcome, rich, right_aligned, right_aligned_width, secondary_button,
@@ -18,10 +20,12 @@ use super::widgets::{
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
-    EFFORT_AUTO, Provider, ServiceSpec, is_auto_name, known_effort, provider, str_field,
-    unique_name, validate_endpoint_fields, validate_service,
+    EFFORT_AUTO, LOCAL_PROVIDER, Provider, ServiceSpec, is_auto_name, known_effort, provider,
+    str_field, unique_name, validate_endpoint_fields, validate_service,
 };
 use crate::i18n::t;
+use crate::local::Snapshot;
+use crate::local::store::{Installed, total_size};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::translation::clients::{ModelInfo, ThinkingCaps};
@@ -45,6 +49,8 @@ pub struct FormResponse {
     pub changed: bool,
     /// 按了〔更改〕，由外層開服務商選擇。
     pub change_provider: bool,
+    /// 按了本地模型下拉旁連到本地模型頁的連結，由外層切頁。
+    pub open_local_models: bool,
 }
 
 enum ModelStatus {
@@ -248,7 +254,7 @@ impl ServiceForm {
         let before = self.api_values();
         let mut response = FormResponse {
             changed: std::mem::take(&mut self.pending_change),
-            change_provider: false,
+            ..Default::default()
         };
         ui.spacing_mut().item_spacing.y = ROW_GAP;
         let now = ui.input(|i| i.time);
@@ -297,17 +303,21 @@ impl ServiceForm {
                 hint(ui, &t("hint.custom_endpoint", &[]));
             });
         }
-        left_endpoint |= self.key_row(ui);
+        if self.provider.needs_api_key() {
+            left_endpoint |= self.key_row(ui);
+        }
         if left_endpoint {
             self.auto_refresh(env);
         }
-        if self.model_row(ui) {
+        if self.provider.key == LOCAL_PROVIDER {
+            response.open_local_models = self.local_model_row(ui, &env.local_snapshot());
+        } else if self.model_row(ui) {
             self.start_refresh(env, "manual");
         }
         let options = self.reconcile_thinking();
         let switch = self.switch();
         self.thinking_row(ui, switch);
-        if effective_thinking(switch, self.thinking) {
+        if self.provider.has_field("effort") && effective_thinking(switch, self.thinking) {
             self.effort_row(ui, &options);
         }
 
@@ -328,6 +338,9 @@ impl ServiceForm {
 
         if self.test_row(ui) {
             self.start_test(env, target_language);
+        }
+        if self.provider.key == LOCAL_PROVIDER {
+            hint(ui, &t("local.form.test_hint", &[]));
         }
     }
 
@@ -447,6 +460,46 @@ impl ServiceForm {
                 ModelStatus::Error(text) => rich(ui, text, theme::HINT_SIZE, theme::ERROR),
             }
             refresh
+        })
+    }
+
+    /// 本地服務的模型欄：只列已下載完成的模型；回傳是否按了連到本地模型頁的連結。
+    fn local_model_row(&mut self, ui: &mut Ui, snapshot: &Snapshot) -> bool {
+        form_row(ui, &t("field.model", &[]), |ui, label| {
+            let option = |m: &Installed| {
+                let size = gb(total_size(std::slice::from_ref(m)));
+                t(
+                    "local.form.model_option",
+                    &[("name", &display_name(m)), ("size", &size)],
+                )
+            };
+            let current = snapshot.ready_model(&self.model);
+            let combo = combo_box(ui, "local_model")
+                .selected_text(current.map(option).unwrap_or_default())
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for m in snapshot.models.iter().filter(|m| m.complete) {
+                        if ui.selectable_label(m.id == self.model, option(m)).clicked() {
+                            self.model.clone_from(&m.id);
+                        }
+                    }
+                });
+            let response = combo.response.labelled_by(label);
+            mark(ui, response.rect, Block::Control);
+            focus_ring(ui, &response, theme::CONTROL_RADIUS);
+            if !self.model.is_empty() && current.is_none() {
+                rich(
+                    ui,
+                    &t("local.form.model_missing", &[]),
+                    theme::HINT_SIZE,
+                    theme::ERROR,
+                );
+            }
+            hint(ui, &t("local.form.model_hint", &[]));
+            let link =
+                ui.link(RichText::new(t("local.form.open_models", &[])).size(theme::HINT_SIZE));
+            mark(ui, link.rect, Block::Text);
+            link.clicked()
         })
     }
 

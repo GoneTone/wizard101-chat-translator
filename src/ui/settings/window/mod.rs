@@ -16,8 +16,10 @@ use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::GlossaryDraft;
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
+use super::local_models::display_name;
 use super::local_pane::LocalPane;
-use super::service_draft::ServiceDraft;
+use super::quant_table::gb;
+use super::service_draft::{ServiceDraft, local_model_gone};
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
 use super::widgets::{
@@ -25,10 +27,15 @@ use super::widgets::{
     secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
-use crate::config::services::{ServiceSlot, find, slot_id, validate_service};
+use crate::config::services::{
+    LOCAL_PROVIDER, ServiceSlot, find, resolve, slot_id, str_field, validate_service,
+};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
 use crate::local::Snapshot;
+use crate::local::fit::{Fit, combined_fit};
+use crate::local::hardware::effective;
+use crate::local::store::Installed;
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
@@ -257,6 +264,7 @@ impl SettingsWindow {
         }
         let plain = |key: String| (key, Vec::new());
         let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
+        errors.extend(local_errors(&cfg, &self.snapshot));
         errors.extend(self.glossaries.draft().errors());
         errors.extend(
             self.hotkeys
@@ -404,6 +412,9 @@ impl SettingsWindow {
                         target => target.to_owned(),
                     };
                     self.services.ui(ui, env, &target);
+                    if self.services.take_open_local() {
+                        self.switch_page(Page::LocalModels, env);
+                    }
                 }
                 Page::LocalModels => {
                     let services = &self.services.draft().services;
@@ -434,6 +445,54 @@ fn service_errors(cfg: &Config) -> Vec<String> {
                 errors.push(error);
             }
         }
+    }
+    errors
+}
+
+/// 本地服務的儲存檢查：用到的模型已不在；各用途用到的不同模型加總放不下目前的記憶體。
+fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
+    let mut errors: Vec<SaveError> = Vec::new();
+    let default = cfg.get("default_service").and_then(Value::as_str);
+    let slot_ids = ServiceSlot::ALL.iter().map(|&slot| slot_id(cfg, slot));
+    let mut checked: Vec<&str> = Vec::new();
+    for service in std::iter::once(default)
+        .chain(slot_ids)
+        .filter_map(|id| find(cfg, id))
+    {
+        let id = str_field(service, "id");
+        if local_model_gone(service, snapshot) && !checked.contains(&id) {
+            let name = str_field(service, "name").to_owned();
+            errors.push(("error.local_model_missing".into(), vec![("name", name)]));
+        }
+        checked.push(id);
+    }
+
+    let mut models: Vec<&Installed> = Vec::new();
+    for slot in ServiceSlot::ALL {
+        let spec = resolve(cfg, slot);
+        if let Some(m) = (spec.provider == LOCAL_PROVIDER)
+            .then(|| snapshot.ready_model(&spec.model))
+            .flatten()
+            && !models.iter().any(|seen| seen.id == m.id)
+        {
+            models.push(m);
+        }
+    }
+    let needs: Vec<(u64, bool)> = models
+        .iter()
+        .map(|m| (m.manifest.required, m.manifest.moe))
+        .collect();
+    if models.len() >= 2 && combined_fit(&needs, &snapshot.hardware) == Fit::NoFit {
+        let (vram, ram) = effective(&snapshot.hardware);
+        let list = models
+            .iter()
+            .map(|m| format!("{} {} GB", display_name(m), gb(m.manifest.required)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        errors.push((
+            "error.local_over_capacity".into(),
+            vec![("models", list), ("vram", gb(vram)), ("ram", gb(ram))],
+        ));
     }
     errors
 }
