@@ -210,11 +210,13 @@ async fn http_errors_and_content_length_mismatches_keep_the_part_file() {
         matches!(&err, DownloadError::Http(m) if m == "HTTP 404 Not Found: nope"),
         "{err}"
     );
+    assert!(dir.path().join("a.gguf.part").exists());
 
     let err = run(&server, "/short", &dest, None, &Progress::default())
         .await
         .unwrap_err();
     assert!(matches!(err, DownloadError::Http(_)), "{err}");
+    assert!(dir.path().join("a.gguf.part").exists());
     assert!(!dest.exists());
 }
 
@@ -299,13 +301,7 @@ async fn a_mid_stream_drop_keeps_the_sent_bytes_and_resumes() {
         let (mut conn, _) = listener.accept().await.unwrap();
         let mut buf = [0u8; 1024];
         let _ = conn.read(&mut buf).await;
-        let head = format!(
-            "HTTP/1.1 200 OK
-Content-Length: {}
-
-",
-            BODY.len()
-        );
+        let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", BODY.len());
         conn.write_all(head.as_bytes()).await.unwrap();
         conn.write_all(&BODY[..7]).await.unwrap();
         conn.flush().await.unwrap();
