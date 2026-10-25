@@ -1,6 +1,6 @@
 //! 硬體偵測：GPU 種類、系統記憶體，以及 `llama-server --list-devices` 的輸出解析。
 
-use std::sync::{LazyLock, Once};
+use std::sync::LazyLock;
 
 use futures_util::FutureExt;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
@@ -35,14 +35,13 @@ pub struct Hardware {
 
 /// 列舉 DX12 adapter，取第一個獨顯，沒有就取內顯；列舉失敗回 `None`。
 pub fn detect_gpu() -> Option<Gpu> {
-    static LOGGED: Once = Once::new();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     // 原生後端的列舉是立即完成的 future
     let Some(adapters) = instance
         .enumerate_adapters(wgpu::Backends::DX12)
         .now_or_never()
     else {
-        LOGGED.call_once(|| log("[local] gpu detection: adapter enumeration did not complete"));
+        log("[local] gpu detection: adapter enumeration did not complete");
         return None;
     };
     let pick = |wanted: wgpu::DeviceType, kind: GpuKind| {
@@ -57,12 +56,10 @@ pub fn detect_gpu() -> Option<Gpu> {
     let gpu = pick(wgpu::DeviceType::DiscreteGpu, GpuKind::Discrete)
         .or_else(|| pick(wgpu::DeviceType::IntegratedGpu, GpuKind::Integrated));
     if gpu.is_none() {
-        LOGGED.call_once(|| {
-            log(format!(
-                "[local] gpu detection: no usable adapter among {}",
-                adapters.len()
-            ))
-        });
+        log(format!(
+            "[local] gpu detection: no usable adapter among {}",
+            adapters.len()
+        ));
     }
     gpu
 }
