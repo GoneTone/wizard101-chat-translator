@@ -32,6 +32,7 @@ mod local_download;
 mod local_engine;
 mod local_gguf;
 mod local_hf;
+mod local_server;
 mod logs_golden;
 mod mem_reader;
 mod net_proxy;

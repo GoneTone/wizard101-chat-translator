@@ -7,4 +7,5 @@ pub mod fit;
 pub mod gguf;
 pub mod hardware;
 pub mod hf;
+pub mod server;
 pub mod store;
