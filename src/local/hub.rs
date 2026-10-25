@@ -1,13 +1,10 @@
 //! 本地模型的對外入口：狀態快照，以及在背景執行的引擎、硬體、repo 查詢與下載指令。
 
 use std::collections::BTreeMap;
-use std::io::Read;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -19,15 +16,14 @@ use super::gguf::{self, ModelMeta};
 use super::hardware::{self, Hardware};
 use super::hf::{self, Catalog};
 use super::runtime::Servers;
-use super::server::{CREATE_NO_WINDOW, Launcher};
+use super::server::Launcher;
 use super::store::{self, Installed};
 use super::{LocalNotice, Notify};
 use crate::config::local::LocalSettings;
 use crate::logs::log;
-use crate::util::{Clock, lock, poll_until};
+use crate::util::lock;
 
 pub(super) const PROGRESS_TICK: Duration = Duration::from_millis(250);
-const LIST_DEVICES_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// 外部服務根網址；正式為 [`hf::HF_BASE`] 與 [`engine::RELEASES_API`]。
 #[derive(Clone, Debug)]
@@ -124,7 +120,7 @@ pub struct Local {
     pub(super) hf_http: reqwest::Client,
     gh_http: reqwest::Client,
     pub(super) state: Mutex<Snapshot>,
-    vram_measured: AtomicBool,
+    pub(super) vram_measured: AtomicBool,
     /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
     engine_lock: tokio::sync::Mutex<()>,
     pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
@@ -238,7 +234,7 @@ impl Local {
         let (hw, measured) = tokio::task::block_in_place(|| {
             let (ram_total, ram_free) = hardware::system_memory();
             let mut hw = Hardware {
-                gpu: hardware::detect_gpu(),
+                gpu: self.launcher.detect_gpu(),
                 ram_total,
                 ram_free,
                 ..Hardware::default()
@@ -246,7 +242,7 @@ impl Local {
             let Some(exe) = exe else {
                 return (hw, false);
             };
-            match list_devices(&exe) {
+            match self.launcher.list_devices(&exe) {
                 Ok(out) => {
                     // 有獨顯又有內顯時兩個都會列出，取記憶體最大的那個
                     let devices = hardware::parse_list_devices(&out);
@@ -314,7 +310,9 @@ impl Local {
             )
         })?;
         let variant = variant.unwrap_or_else(|| {
-            engine::auto_variant(tokio::task::block_in_place(hardware::detect_gpu).as_ref())
+            engine::auto_variant(
+                tokio::task::block_in_place(|| self.launcher.detect_gpu()).as_ref(),
+            )
         });
         let total = build
             .variants
@@ -374,7 +372,7 @@ impl Local {
 
     async fn remove_engine(&self) {
         let _engine = self.engine_lock.lock().await;
-        self.shutdown_and_wait().await;
+        let _holds = self.shutdown_and_wait().await;
         let state = match engine::remove_all(&self.root) {
             Ok(()) => EngineState::Missing,
             Err(e) => {
@@ -465,52 +463,4 @@ fn engine_on_disk(root: &Path) -> EngineState {
 fn current_exe(root: &Path) -> Option<PathBuf> {
     let current = engine::read_active(root).current?;
     engine::server_exe(&engine::engine_dir(root, &current))
-}
-
-/// 執行 `llama-server --list-devices`，回傳 stdout 與 stderr 的內容。
-fn list_devices(exe: &Path) -> Result<String, String> {
-    let mut child = std::process::Command::new(exe)
-        .arg("--list-devices")
-        .creation_flags(CREATE_NO_WINDOW)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    let pipes: [Option<Box<dyn Read + Send>>; 2] = [
-        child.stdout.take().map(|p| Box::new(p) as _),
-        child.stderr.take().map(|p| Box::new(p) as _),
-    ];
-    let readers: Vec<_> = pipes
-        .into_iter()
-        .flatten()
-        .map(|mut pipe| {
-            std::thread::spawn(move || {
-                let mut buf = Vec::new();
-                let _ = pipe.read_to_end(&mut buf);
-                String::from_utf8_lossy(&buf).into_owned()
-            })
-        })
-        .collect();
-    let deadline = Instant::now() + LIST_DEVICES_TIMEOUT;
-    let status = poll_until(
-        &Clock::default(),
-        deadline,
-        Duration::from_millis(100),
-        || child.try_wait().ok().flatten(),
-    );
-    if status.is_none() {
-        let _ = child.kill();
-        let _ = child.wait();
-    }
-    let output: Vec<String> = readers.into_iter().filter_map(|r| r.join().ok()).collect();
-    let output = output.join("\n");
-    match status {
-        None => Err(format!(
-            "did not finish within {}s",
-            LIST_DEVICES_TIMEOUT.as_secs()
-        )),
-        Some(s) if !s.success() => Err(format!("exited with {s}:\n{output}")),
-        Some(_) => Ok(output),
-    }
 }

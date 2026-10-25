@@ -12,13 +12,19 @@ use super::store::{self, Manifest, ManifestFile};
 use crate::logs::log;
 use crate::util::lock;
 
+enum Rename {
+    Done,
+    Cancelled,
+    Busy,
+}
+
 impl Local {
-    /// 下載 repo 的 `choice`（與 `mtp`）；這次才裝好引擎時改用量到 VRAM 後的自動挑選。
+    /// 下載 repo 的 `choice`（與 `mtp`）；這次才裝好引擎且量到 VRAM 時改用自動挑選。
     pub(super) async fn download(&self, repo: &str, choice: usize, mtp: Option<usize>) {
         if self.repo_info(repo).is_none() {
             self.query_repo(repo).await;
         }
-        let Some((mut id, mut manifest)) = self
+        let Some((mut id, manifest)) = self
             .repo_info(repo)
             .and_then(|info| manifest_for(repo, &info, choice, mtp))
         else {
@@ -31,26 +37,45 @@ impl Local {
             log(format!("[local] download {id} already running"));
             return;
         };
+        // 先寫清單：引擎安裝失敗或途中被取消時，「繼續下載」仍有清單可依
+        let existed = store::list(&self.root).iter().any(|m| m.id == id);
+        if let Err(e) = self.write_manifest(&id, &manifest) {
+            self.download_failed(&id, e);
+            return self.release(&id);
+        }
         match self.ensure_engine().await {
             Ok(false) => {}
+            Ok(true) if !self.vram_measured.load(Ordering::Relaxed) => log(format!(
+                "[local] download {id}: VRAM measurement failed, keeping the requested choice"
+            )),
             // 引擎裝好前量不到 VRAM，使用者看到的相容等級是「未知」；裝好時 refresh_hardware 已重算
             Ok(true) => {
                 let auto = self.repo_info(repo).and_then(|info| {
                     let pick = info.auto?;
                     manifest_for(repo, &info, pick.choice, pick.mtp)
                 });
-                if let Some((auto_id, auto_manifest)) = auto {
-                    if auto_id != id && !self.rename_claim(&id, &auto_id) {
-                        log(format!("[local] download {auto_id} already running"));
-                        self.release(&id);
-                        return self.update(|s| {
-                            s.downloads.remove(&id);
-                        });
+                if let Some((auto_id, auto_manifest)) = auto.filter(|(a, _)| *a != id) {
+                    match self.rename_claim(&id, &auto_id) {
+                        Rename::Done => {}
+                        Rename::Cancelled => return self.pause_unstarted(&id, &manifest),
+                        Rename::Busy => {
+                            log(format!("[local] download {auto_id} already running"));
+                            self.drop_provisional(&id, existed);
+                            self.release(&id);
+                            return self.update(|s| {
+                                s.downloads.remove(&id);
+                            });
+                        }
                     }
                     log(format!(
                         "[local] download {repo}: picked {auto_id} after measuring VRAM (requested {id})"
                     ));
-                    (id, manifest) = (auto_id, auto_manifest);
+                    self.drop_provisional(&id, existed);
+                    id = auto_id;
+                    if let Err(e) = self.write_manifest(&id, &auto_manifest) {
+                        self.download_failed(&id, e);
+                        return self.release(&id);
+                    }
                 }
             }
             Err(e) => {
@@ -58,14 +83,49 @@ impl Local {
                 return self.release(&id);
             }
         }
-        match store::write_manifest(&self.root, &id, &manifest) {
-            Ok(()) => {
-                self.update(|s| s.models = store::list(&self.root));
-                self.fetch_model(&id, &cancel).await;
-            }
-            Err(e) => self.download_failed(&id, format!("writing manifest failed: {e}")),
+        if cancel.is_cancelled() {
+            return self.pause_unstarted(&id, &manifest);
         }
+        self.fetch_model(&id, &cancel).await;
         self.release(&id);
+    }
+
+    fn write_manifest(&self, id: &str, manifest: &Manifest) -> Result<(), String> {
+        store::write_manifest(&self.root, id, manifest)
+            .map_err(|e| format!("writing manifest failed: {e}"))?;
+        self.update(|s| s.models = store::list(&self.root));
+        Ok(())
+    }
+
+    /// 改挑別的量化後，刪掉為原本選擇先寫的清單（原本就有的模型不動）。
+    fn drop_provisional(&self, id: &str, existed: bool) {
+        if existed {
+            return;
+        }
+        if let Err(e) = store::delete(&self.root, id) {
+            log(format!(
+                "[local] removing provisional manifest {id} failed: {e}"
+            ));
+        }
+        self.update(|s| s.models = store::list(&self.root));
+    }
+
+    /// 還沒開始抓檔就被取消（例如等引擎時）：記為 Paused 並放掉登記，刪除可接著進行。
+    fn pause_unstarted(&self, id: &str, manifest: &Manifest) {
+        let total = manifest
+            .files
+            .iter()
+            .chain(&manifest.mtp)
+            .map(|f| f.size)
+            .sum();
+        log(format!(
+            "[local] download {id} cancelled before fetching files"
+        ));
+        self.update(|s| {
+            s.downloads
+                .insert(id.to_owned(), DownloadState::Paused { done: 0, total });
+        });
+        self.release(id);
     }
 
     /// 依磁碟上的清單繼續下載；引擎沒裝的話先裝。
@@ -98,12 +158,16 @@ impl Local {
         Some(token)
     }
 
-    /// 把下載登記從 `from` 改到 `to`；`to` 已在下載中回 `false`。
-    fn rename_claim(&self, from: &str, to: &str) -> bool {
+    /// 把下載登記從 `from` 改到 `to`；`from` 已被取消或 `to` 已在下載中則不改。
+    fn rename_claim(&self, from: &str, to: &str) -> Rename {
         {
             let mut cancels = lock(&self.cancels);
+            // 與 CancelDownload／Delete 取消同一把鎖，兩者不會交錯
+            if cancels.get(from).is_some_and(|t| t.is_cancelled()) {
+                return Rename::Cancelled;
+            }
             if cancels.contains_key(to) {
-                return false;
+                return Rename::Busy;
             }
             if let Some(token) = cancels.remove(from) {
                 cancels.insert(to.to_owned(), token);
@@ -114,14 +178,14 @@ impl Local {
                 s.downloads.insert(to.to_owned(), state);
             }
         });
-        true
+        Rename::Done
     }
 
     fn release(&self, id: &str) {
         lock(&self.cancels).remove(id);
     }
 
-    /// 依清單下載缺少的檔案；已完整的檔略過。
+    /// 依清單下載缺少的檔案；已完整的檔略過，磁碟上沒有清單則記為失敗。
     async fn fetch_model(&self, id: &str, cancel: &CancellationToken) {
         let Some(model) = store::list(&self.root).into_iter().find(|m| m.id == id) else {
             return self.download_failed(id, format!("model {id} has no manifest"));
@@ -206,7 +270,7 @@ impl Local {
         while lock(&self.cancels).contains_key(id) {
             tokio::time::sleep(PROGRESS_TICK).await;
         }
-        self.stop_and_wait(id).await;
+        let _hold = self.stop_and_wait(id).await;
         let result = store::delete(&self.root, id);
         self.update(|s| {
             match result {

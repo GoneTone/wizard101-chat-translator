@@ -13,6 +13,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
+use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Manifest, ManifestFile};
 use wizard101_chat_translator::local::{
@@ -54,6 +55,8 @@ struct Shared {
     exits: Arc<Mutex<Vec<Exit>>>,
     events: Events,
     health_delay: Arc<Mutex<Duration>>,
+    /// `--list-devices` 的假輸出；`None` 表示量測失敗。
+    devices: Arc<Mutex<Option<String>>>,
 }
 
 struct FakeLauncher {
@@ -77,6 +80,19 @@ impl Launcher for FakeLauncher {
             model_dir: self.model_dir.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
+    }
+
+    fn detect_gpu(&self) -> Option<Gpu> {
+        Some(Gpu {
+            name: "Fake GPU".into(),
+            vendor: 0x10de,
+            kind: GpuKind::Discrete,
+        })
+    }
+
+    fn list_devices(&self, _exe: &Path) -> Result<String, String> {
+        let devices = self.shared.devices.lock().unwrap().clone();
+        devices.ok_or_else(|| "fake measurement failure".into())
     }
 }
 
@@ -578,33 +594,39 @@ fn engine_zip() -> Vec<u8> {
     w.finish().unwrap().into_inner()
 }
 
-/// 引擎還沒裝時下載：先裝引擎、量硬體，再改下載自動挑選的量化。
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn download_without_engine_installs_it_and_uses_the_auto_pick() {
-    let f = fixture(|_| {}, |_| false).await;
+/// 掛上 b11871 的 releases 列表（延遲 `delay` 回應）與引擎 zip。
+async fn mount_engine(hf: &MockServer, delay: Duration) {
     let zip = engine_zip();
     let variants = ["vulkan", "cpu"];
     let assets: Vec<Value> = variants
         .iter()
         .map(|v| {
             let name = format!("llama-b11871-bin-win-{v}-x64.zip");
-            json!({"name": name, "size": zip.len(), "browser_download_url": format!("{}/{name}", f.hf.uri())})
+            json!({"name": name, "size": zip.len(), "browser_download_url": format!("{}/{name}", hf.uri())})
         })
         .collect();
     Mock::given(method("GET"))
         .and(path("/releases"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-            {"tag_name": "b11871", "published_at": "2026-10-25T00:00:00Z", "assets": assets}
-        ])))
-        .mount(&f.hf)
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([
+                    {"tag_name": "b11871", "published_at": "2026-10-25T00:00:00Z", "assets": assets}
+                ]))
+                .set_delay(delay),
+        )
+        .mount(hf)
         .await;
     for v in variants {
         Mock::given(method("GET"))
             .and(path(format!("/llama-b11871-bin-win-{v}-x64.zip")))
             .respond_with(ResponseTemplate::new(200).set_body_bytes(zip.clone()))
-            .mount(&f.hf)
+            .mount(hf)
             .await;
     }
+}
+
+/// 掛上 Q4 與較大的 Q8 兩個量化，回傳兩者在 catalog 內的索引 `(q4, q8)`。
+async fn two_quants(f: &Fixture) -> (usize, usize) {
     let mut big = tiny_gguf();
     big.extend([0u8; 64]);
     mount_repo(
@@ -612,23 +634,141 @@ async fn download_without_engine_installs_it_and_uses_the_auto_pick() {
         &[("model-Q4_K_M.gguf", tiny_gguf()), ("model-Q8_0.gguf", big)],
     )
     .await;
-    let info = query(&f).await;
-    let q8 = info
-        .catalog
-        .choices
-        .iter()
-        .position(|c| c.quant.label == "Q8_0")
-        .unwrap();
-    f.local.command(download(q8));
-    let id = store::model_id(REPO, "Q4_K_M");
-    wait_for("auto-picked model complete", || {
+    let info = query(f).await;
+    let index = |label: &str| {
+        info.catalog
+            .choices
+            .iter()
+            .position(|c| c.quant.label == label)
+            .unwrap()
+    };
+    (index("Q4_K_M"), index("Q8_0"))
+}
+
+const FAKE_DEVICES: &str = "Available devices:\n  Vulkan0: Fake GPU (8192 MiB, 8000 MiB free)\n";
+
+async fn wait_complete(f: &Fixture, id: &str) {
+    wait_for("model complete", || {
         let s = f.local.snapshot();
         s.downloads.is_empty() && s.models.iter().any(|m| m.id == id && m.complete)
     })
     .await;
+}
+
+/// 引擎還沒裝時下載：裝好引擎、量到 VRAM 後改下載自動挑選的量化，原本選擇的清單不留。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn download_without_engine_uses_the_auto_pick_once_vram_is_measured() {
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    mount_engine(&f.hf, Duration::ZERO).await;
+    let (q4, _) = two_quants(&f).await;
+    f.local.command(download(q4));
+    let q8_id = store::model_id(REPO, "Q8_0");
+    wait_complete(&f, &q8_id).await;
     let s = f.local.snapshot();
     assert!(matches!(s.engine, EngineState::Ready(_)), "{:?}", s.engine);
+    assert_eq!(s.hardware.vram_free, 8000 << 20);
     assert_eq!(s.models.len(), 1, "{:?}", s.models);
+    assert!(!model_dir(&f, &store::model_id(REPO, "Q4_K_M")).exists());
+}
+
+/// 量不到 VRAM 時維持使用者原本的選擇。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn download_without_engine_keeps_the_choice_when_vram_is_unmeasured() {
+    let f = fixture(|_| {}, |_| false).await;
+    mount_engine(&f.hf, Duration::ZERO).await;
+    let (_, q8) = two_quants(&f).await;
+    f.local.command(download(q8));
+    wait_complete(&f, &store::model_id(REPO, "Q8_0")).await;
+    assert_eq!(f.local.snapshot().models.len(), 1);
+}
+
+/// 引擎安裝失敗時清單已寫好，修好後「繼續下載」可完成；沒有清單的 id 繼續下載記為失敗。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn resume_after_engine_install_failure_completes() {
+    let f = fixture(|_| {}, |_| false).await;
+    Mock::given(method("GET"))
+        .and(path("/releases"))
+        .respond_with(ResponseTemplate::new(500))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&f.hf)
+        .await;
+    mount_engine(&f.hf, Duration::ZERO).await;
+    mount_repo(&f.hf, &[("model-Q4_K_M.gguf", tiny_gguf())]).await;
+    query(&f).await;
+    let id = store::model_id(REPO, "Q4_K_M");
+    f.local.command(download(0));
+    wait_for("download failed", || {
+        matches!(
+            f.local.snapshot().downloads.get(&id),
+            Some(DownloadState::Failed(_))
+        )
+    })
+    .await;
+    assert!(
+        f.local
+            .snapshot()
+            .models
+            .iter()
+            .any(|m| m.id == id && !m.complete)
+    );
+    f.local.command(Command::Resume(id.clone()));
+    wait_complete(&f, &id).await;
+
+    f.local.command(Command::Resume("missing".into()));
+    wait_for("missing manifest reported", || {
+        matches!(
+            f.local.snapshot().downloads.get("missing"),
+            Some(DownloadState::Failed(e)) if e.contains("no manifest")
+        )
+    })
+    .await;
+}
+
+/// 等引擎安裝時刪除：下載中止、不改挑別的量化，也不留任何模型資料夾。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delete_during_engine_install_leaves_nothing_behind() {
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    mount_engine(&f.hf, Duration::from_millis(500)).await;
+    let (q4, _) = two_quants(&f).await;
+    let id = store::model_id(REPO, "Q4_K_M");
+    f.local.command(download(q4));
+    wait_for("engine installing", || {
+        matches!(f.local.snapshot().engine, EngineState::Installing { .. })
+    })
+    .await;
+    f.local.command(Command::Delete(id.clone()));
+    wait_for("engine ready and download gone", || {
+        let s = f.local.snapshot();
+        matches!(s.engine, EngineState::Ready(_)) && s.downloads.is_empty() && s.models.is_empty()
+    })
+    .await;
+    let left: Vec<_> = fs::read_dir(store::models_dir(&f.root))
+        .map(|d| d.flatten().map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "{left:?}");
+}
+
+/// 已排隊的啟動不會在刪除途中跑起來：刪完才輪到它，得到「沒下載」的錯誤。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queued_start_waits_until_delete_finishes() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.health_delay.lock().unwrap() = Duration::from_secs(60);
+    let (a, b) = (f.local.clone(), f.local.clone());
+    let first = tokio::spawn(async move { a.ensure("m1").await });
+    wait_for("first launched", || f.plans().len() == 1).await;
+    let queued = tokio::spawn(async move { b.ensure("m1").await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    f.local.command(Command::Delete("m1".into()));
+    let first = first.await.unwrap().unwrap_err();
+    assert!(first.contains("unloaded while starting"), "{first}");
+    let queued = queued.await.unwrap().unwrap_err();
+    assert!(queued.contains("not downloaded"), "{queued}");
+    assert!(!store::models_dir(&f.root).join("m1").exists());
+    assert_eq!(f.plans().len(), 1);
+    assert_eq!(f.kills(), ["kill model_dir_exists=true".to_string()]);
 }
 
 /// 啟動等待就緒途中刪除：立刻殺掉子程序再刪資料夾。

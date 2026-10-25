@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tokio::sync::OwnedMutexGuard;
 use tokio_util::sync::CancellationToken;
 
 use super::LocalNotice;
@@ -30,8 +31,20 @@ pub(super) struct Servers(Mutex<BTreeMap<String, Arc<Slot>>>);
 #[derive(Default)]
 struct Slot {
     /// 讓同一模型的並發啟動只跑一次；持有者即進行中的啟動。
-    start: tokio::sync::Mutex<()>,
+    start: Arc<tokio::sync::Mutex<()>>,
     state: Mutex<SlotState>,
+}
+
+/// 刪檔期間占住模型的啟動鎖；排隊中的 `ensure` 等它放掉才會往下跑。
+pub(super) struct Hold {
+    slot: Arc<Slot>,
+    _start: OwnedMutexGuard<()>,
+}
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        lock(&self.slot.state).closing -= 1;
+    }
 }
 
 #[derive(Default)]
@@ -41,6 +54,8 @@ struct SlotState {
     error: String,
     /// 進行中啟動的取消鈕；`stop` 按下後該次啟動會殺掉子程序並作廢。
     starting: CancellationToken,
+    /// 等著占住啟動鎖的 `stop_and_wait` 數量；不為 0 時拿到鎖的 `ensure` 要讓開。
+    closing: u32,
 }
 
 impl SlotState {
@@ -81,7 +96,14 @@ impl Local {
     /// 回傳模型的 llama-server base URL；沒在跑就啟動並等它就緒。
     pub async fn ensure(&self, model_id: &str) -> Result<String, String> {
         let slot = self.servers.slot(model_id);
-        let _start = slot.start.lock().await;
+        let _start = loop {
+            let guard = slot.start.clone().lock_owned().await;
+            if lock(&slot.state).closing == 0 {
+                break guard;
+            }
+            // 鎖是先到先得：放掉再排一次，就排到正在等的 stop_and_wait 後面
+            drop(guard);
+        };
         let cancel = {
             let mut st = lock(&slot.state);
             if let Some(running) = st.running.as_mut() {
@@ -146,20 +168,24 @@ impl Local {
         }
     }
 
-    /// `stop` 後等進行中的啟動收尾，回來時子程序一定已結束、檔案已放開。
-    pub(super) async fn stop_and_wait(&self, model_id: &str) {
-        if let Some(slot) = self.servers.get(model_id) {
-            stop_slot(model_id, &slot);
-            drop(slot.start.lock().await);
-        }
+    /// 停掉模型並等進行中的啟動收尾；持有回傳值期間不會有新的啟動，可安全刪檔。
+    pub(super) async fn stop_and_wait(&self, model_id: &str) -> Hold {
+        let slot = self.servers.slot(model_id);
+        close(model_id, &slot);
+        hold(model_id, slot).await
     }
 
-    /// `shutdown` 後等所有進行中的啟動收尾。
-    pub(super) async fn shutdown_and_wait(&self) {
-        for (id, slot) in self.servers.all() {
-            stop_slot(&id, &slot);
-            drop(slot.start.lock().await);
+    /// 停掉所有模型並等進行中的啟動收尾；持有回傳值期間不會有新的啟動。
+    pub(super) async fn shutdown_and_wait(&self) -> Vec<Hold> {
+        let slots = self.servers.all();
+        for (id, slot) in &slots {
+            close(id, slot);
         }
+        let mut holds = Vec::new();
+        for (id, slot) in slots {
+            holds.push(hold(&id, slot).await);
+        }
+        holds
     }
 
     /// 清掉模型的失敗紀錄（例如下載完成後）。
@@ -354,6 +380,22 @@ impl Local {
 
 fn stopped_error(id: &str) -> String {
     format!("model {id} was unloaded while starting")
+}
+
+/// 標記要占住啟動鎖並先停掉；之後必須接著 `hold`，`Hold` 放掉時才會取消標記。
+fn close(id: &str, slot: &Slot) {
+    lock(&slot.state).closing += 1;
+    stop_slot(id, slot);
+}
+
+async fn hold(id: &str, slot: Arc<Slot>) -> Hold {
+    let start = slot.start.clone().lock_owned().await;
+    // 排在前面的啟動可能已經又跑起來，拿到鎖後再停一次
+    stop_slot(id, &slot);
+    Hold {
+        slot,
+        _start: start,
+    }
 }
 
 fn stop_slot(id: &str, slot: &Slot) {

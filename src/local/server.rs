@@ -1,12 +1,14 @@
 //! 啟動並監看 `llama-server.exe` 子程序，等它就緒。
 
+use crate::local::hardware::{Gpu, detect_gpu};
 use crate::logs::log;
+use crate::util::{Clock, poll_until};
 use std::collections::VecDeque;
 use std::io::{self, BufRead, BufReader};
 use std::net::TcpListener;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -20,9 +22,10 @@ use windows_sys::Win32::System::JobObjects::{
 /// 正式的就緒等待上限（大模型載入 VRAM 要一陣子）。
 pub const READY_TIMEOUT: Duration = Duration::from_secs(180);
 
-pub(super) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 const TAIL_LINES: usize = 20;
+const LIST_DEVICES_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Multi-token prediction 的使用方式。
 #[derive(Clone, Debug, PartialEq)]
@@ -87,9 +90,19 @@ pub trait Process: Send {
     fn tail(&self) -> Vec<String>;
 }
 
-/// 啟動 llama-server 的方式（測試以假實作替換）。
+/// 啟動 llama-server 與偵測硬體的方式（測試以假實作替換）。
 pub trait Launcher: Send + Sync {
     fn launch(&self, plan: &ServerPlan, port: u16) -> io::Result<Box<dyn Process>>;
+
+    /// 偵測 GPU（見 [`detect_gpu`]）。
+    fn detect_gpu(&self) -> Option<Gpu> {
+        detect_gpu()
+    }
+
+    /// 執行 `llama-server --list-devices`（逾時 15 s），回傳 stdout 與 stderr 的內容。
+    fn list_devices(&self, exe: &Path) -> Result<String, String> {
+        run_list_devices(exe)
+    }
 }
 
 /// 真的以 `Command` 啟動子程序。
@@ -260,5 +273,52 @@ pub async fn wait_ready(
             ));
         }
         tokio::time::sleep(POLL_INTERVAL).await;
+    }
+}
+
+fn run_list_devices(exe: &Path) -> Result<String, String> {
+    let mut child = std::process::Command::new(exe)
+        .arg("--list-devices")
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let pipes: [Option<Box<dyn io::Read + Send>>; 2] = [
+        child.stdout.take().map(|p| Box::new(p) as _),
+        child.stderr.take().map(|p| Box::new(p) as _),
+    ];
+    let readers: Vec<_> = pipes
+        .into_iter()
+        .flatten()
+        .map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut buf = Vec::new();
+                let _ = pipe.read_to_end(&mut buf);
+                String::from_utf8_lossy(&buf).into_owned()
+            })
+        })
+        .collect();
+    let deadline = Instant::now() + LIST_DEVICES_TIMEOUT;
+    let status = poll_until(
+        &Clock::default(),
+        deadline,
+        Duration::from_millis(100),
+        || child.try_wait().ok().flatten(),
+    );
+    if status.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    let output: Vec<String> = readers.into_iter().filter_map(|r| r.join().ok()).collect();
+    let output = output.join("\n");
+    match status {
+        None => Err(format!(
+            "did not finish within {}s",
+            LIST_DEVICES_TIMEOUT.as_secs()
+        )),
+        Some(s) if !s.success() => Err(format!("exited with {s}:\n{output}")),
+        Some(_) => Ok(output),
     }
 }
