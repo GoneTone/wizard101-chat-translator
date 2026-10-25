@@ -3,6 +3,7 @@
 use super::fit::Fit;
 
 /// 推薦的 Hugging Face 模型；`wizard` 為 `false` 者不讓精靈自動挑。
+#[derive(Debug, PartialEq)]
 pub struct Recommended {
     pub repo: &'static str,
     pub name: &'static str,
@@ -71,5 +72,15 @@ mod tests {
             .map(|(i, r)| (r, if i < 2 { Fit::Smooth } else { Fit::Slow }))
             .collect();
         assert_eq!(wizard_pick(&fits).unwrap().name, "Gemma 4 E4B");
+    }
+
+    /// Smooth 的較小模型勝過 Offload 的較大模型。
+    #[test]
+    fn wizard_prefers_smooth_over_offload() {
+        let fits = [
+            (&RECOMMENDED[0], Fit::Smooth),
+            (&RECOMMENDED[3], Fit::Offload),
+        ];
+        assert_eq!(wizard_pick(&fits).unwrap().name, "Qwen3.5-4B");
     }
 }

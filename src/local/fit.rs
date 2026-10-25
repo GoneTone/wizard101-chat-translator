@@ -87,31 +87,43 @@ fn total_size(c: &Choice) -> u64 {
     c.files.iter().fold(0u64, |a, f| a.saturating_add(f.size))
 }
 
+struct Rated {
+    choice: usize,
+    size: u64,
+    required: u64,
+    fit: Fit,
+}
+
 /// 最大的 Smooth；沒有則 Slow／Offload 裡最小；全 NoFit 挑最小。只在 `choices` 為空時回 `None`。
 pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick> {
     let moe = meta.expert_count > 0;
-    let rated: Vec<(usize, u64, u64, Fit)> = cat
+    let rated: Vec<Rated> = cat
         .choices
         .iter()
         .enumerate()
         .map(|(i, c)| {
             let size = total_size(c);
             let req = required(meta, size, 0);
-            (i, size, req, fit(req, moe, hw))
+            Rated {
+                choice: i,
+                size,
+                required: req,
+                fit: fit(req, moe, hw),
+            }
         })
         .collect();
     let best = rated
         .iter()
-        .filter(|r| r.3 == Fit::Smooth)
-        .max_by_key(|r| r.1)
+        .filter(|r| r.fit == Fit::Smooth)
+        .max_by_key(|r| r.size)
         .or_else(|| {
             rated
                 .iter()
-                .filter(|r| matches!(r.3, Fit::Slow | Fit::Offload))
-                .min_by_key(|r| r.1)
+                .filter(|r| matches!(r.fit, Fit::Slow | Fit::Offload))
+                .min_by_key(|r| r.size)
         })
-        .or_else(|| rated.iter().min_by_key(|r| r.1))?;
-    let (choice, size, req, level) = *best;
+        .or_else(|| rated.iter().min_by_key(|r| r.size))?;
+    let (choice, size, level) = (best.choice, best.size, best.fit);
 
     let main_bits = cat.choices[choice].quant.bits;
     let mtp = cat
@@ -126,15 +138,16 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
             };
             (dist, m.file.size)
         })
+        // 主模型本身須為 Smooth；加上 MTP 仍 Smooth 才帶（Smooth 單調，故只需檢查加總後）
         .and_then(|(i, m)| {
             let with = required(meta, size, m.file.size);
-            (level == Fit::Smooth && fit(with, moe, hw) == Fit::Smooth).then_some((i, with))
+            (fit(with, moe, hw) == Fit::Smooth).then_some((i, with))
         });
     Some(Pick {
         choice,
         mtp: mtp.map(|m| m.0),
         fit: level,
-        required: mtp.map_or(req, |m| m.1),
+        required: mtp.map_or(best.required, |m| m.1),
     })
 }
 
@@ -274,6 +287,59 @@ mod tests {
             auto_pick(&c, &m, &hw(6 * G + G / 5, 16 * G)).unwrap().mtp,
             None
         );
+    }
+
+    #[test]
+    fn kv_and_required_match_hand_computed_values() {
+        let m = meta();
+        assert_eq!(kv_bytes(&m), 4 * 8192 * 2 * 128 * 2);
+        assert_eq!(
+            required(&m, 20 * G, G),
+            21 * G + kv_bytes(&m) + (512 << 20) + G
+        );
+    }
+
+    #[test]
+    fn moe_auto_pick_offloads() {
+        let c = cat(&[(4, 18 * G)], &[]);
+        let m = ModelMeta {
+            expert_count: 8,
+            ..meta()
+        };
+        let p = auto_pick(&c, &m, &hw(8 * G, 32 * G)).unwrap();
+        assert_eq!(p.fit, Fit::Offload);
+    }
+
+    #[test]
+    fn mtp_picks_closest_bits_and_none_is_farthest() {
+        let mut c = cat(&[(4, 5 * G)], &[(8, G, false), (3, G, false)]);
+        let m = meta();
+        let h = hw(20 * G, 16 * G);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
+        c.mtp.push(MtpChoice {
+            quant: Quant {
+                label: "x".into(),
+                bits: None,
+            },
+            file: file(G / 4),
+            shared: false,
+        });
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
+        c.mtp.clear();
+        c.mtp.push(MtpChoice {
+            quant: Quant {
+                label: "x".into(),
+                bits: None,
+            },
+            file: file(G / 4),
+            shared: false,
+        });
+        c.mtp.push(MtpChoice {
+            quant: quant(8),
+            file: file(G),
+            shared: false,
+        });
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
     }
 
     #[test]
