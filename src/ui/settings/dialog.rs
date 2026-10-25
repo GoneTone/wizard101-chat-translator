@@ -123,19 +123,20 @@ pub(super) enum Choice<T> {
 
 /// 刪除確認對話框：顯示 `question`，按〔刪除〕才算確定。
 pub(super) fn confirm_delete(ui: &Ui, question: String) -> Choice<()> {
-    confirm(ui, question, |ui| {
+    confirm(ui, "confirm_delete", question, |ui| {
         danger_button(ui, &t("button.delete", &[]))
     })
 }
 
-/// 確認對話框：顯示 `question`，按 `ok` 畫出的按鈕才算確定。
+/// 確認對話框：顯示 `question`，按 `ok` 畫出的按鈕才算確定；`salt` 區分同時存在的不同確認框。
 pub(super) fn confirm(
     ui: &Ui,
+    salt: &'static str,
     question: String,
     ok: impl FnOnce(&mut Ui) -> Response,
 ) -> Choice<()> {
     let spec = DialogSpec {
-        salt: "confirm",
+        salt,
         width: theme::CONFIRM_DIALOG_WIDTH,
         title: t("dialog.confirm_title", &[]),
         closable: false,

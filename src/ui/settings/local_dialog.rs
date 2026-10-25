@@ -6,12 +6,13 @@ use eframe::egui::{Frame, Label, Margin, RichText, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field;
-use super::quant_table::{self, dot, fit_color, fit_text, gb};
+use super::quant_table::{self, combined, dot, fit_color, fit_text, gb};
 use super::theme;
 use super::widgets::{primary_button, right_aligned, secondary_button};
 use crate::i18n::t;
 use crate::local::catalog::{RECOMMENDED, Recommended};
 use crate::local::fit::{Fit, MemoryKind, memory_kind, total_size};
+use crate::local::hardware::{GpuKind, Hardware, effective};
 use crate::local::hf::parse_repo;
 use crate::local::{Command, RepoInfo, RepoState, Snapshot};
 use crate::logs::log;
@@ -98,7 +99,7 @@ impl DownloadDialog {
             salt: "download_model",
             width: theme::DOWNLOAD_DIALOG_WIDTH,
             title: t(self.title_key(), &[]),
-            closable: false,
+            closable: true,
             pinned_top: false,
         };
         let mode = self.mode;
@@ -166,9 +167,9 @@ impl DownloadDialog {
             .or(info.auto.map(|a| (a.choice, a.mtp)))
     }
 
-    fn chosen(&self, repo: &str, info: &RepoInfo) -> Option<Chosen> {
+    fn chosen(&self, repo: &str, info: &RepoInfo, hw: &Hardware) -> Option<Chosen> {
         let (choice, mtp) = self.pick_of(repo, info)?;
-        let fit = info.fits.get(choice).and_then(|f| f.1);
+        let fit = combined(info, hw, (choice, mtp)).1;
         Some((
             Selection {
                 repo: repo.to_owned(),
@@ -185,7 +186,7 @@ impl DownloadDialog {
         }
         let repo = self.custom_repo.as_deref()?;
         match snapshot.repos.get(repo) {
-            Some(RepoState::Ready(info)) => self.chosen(repo, info),
+            Some(RepoState::Ready(info)) => self.chosen(repo, info, &snapshot.hardware),
             _ => None,
         }
     }
@@ -219,7 +220,12 @@ impl DownloadDialog {
     fn confirm_nofit(&mut self, ui: &Ui, env: &dyn SettingsEnv) -> Option<DialogOutcome> {
         self.nofit.as_ref()?;
         let ok = |ui: &mut Ui| primary_button(ui, &t("local.dialog.download", &[]));
-        match confirm(ui, t("local.dialog.nofit_confirm", &[]), ok) {
+        match confirm(
+            ui,
+            "confirm_nofit",
+            t("local.dialog.nofit_confirm", &[]),
+            ok,
+        ) {
             Choice::Open => None,
             Choice::Cancel => {
                 self.nofit = None;
@@ -243,11 +249,15 @@ impl DownloadDialog {
         });
         ui.add_space(8.0);
         let chosen = match self.tab {
-            Tab::Recommended => RECOMMENDED
-                .iter()
-                .enumerate()
-                .filter_map(|(i, rec)| self.recommended_row(ui, i, rec, snapshot))
-                .next(),
+            Tab::Recommended => {
+                basis(ui, &snapshot.hardware);
+                let mut first = None;
+                for (i, rec) in RECOMMENDED.iter().enumerate() {
+                    let row = self.recommended_row(ui, env, i, rec, snapshot);
+                    first = first.or(row);
+                }
+                first
+            }
             Tab::Custom => {
                 self.custom(ui, env, snapshot);
                 None
@@ -260,6 +270,7 @@ impl DownloadDialog {
     fn recommended_row(
         &mut self,
         ui: &mut Ui,
+        env: &dyn SettingsEnv,
         index: usize,
         rec: &Recommended,
         snapshot: &Snapshot,
@@ -276,6 +287,10 @@ impl DownloadDialog {
                 Some(RepoState::Failed(error)) => {
                     ui.add(Label::new(name));
                     ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
+                    if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
+                        log(format!("[ui] retry repo query: repo={}", rec.repo));
+                        env.local_command(Command::QueryRepo(rec.repo.to_owned()));
+                    }
                 }
                 _ => {
                     ui.add(Label::new(name));
@@ -303,11 +318,10 @@ impl DownloadDialog {
         info: &RepoInfo,
         snapshot: &Snapshot,
     ) -> Option<Chosen> {
-        let (choice, mtp) = self.pick_of(rec.repo, info)?;
-        let chosen = self.chosen(rec.repo, info)?;
+        let chosen = self.chosen(rec.repo, info, &snapshot.hardware)?;
+        let (choice, mtp) = (chosen.0.choice, chosen.0.mtp);
         let level = chosen.1;
-        let required = info.fits.get(choice).map_or(0, |f| f.0)
-            + mtp.map_or(0, |m| info.mtp_required.get(m).copied().unwrap_or(0));
+        let required = combined(info, &snapshot.hardware, (choice, mtp)).0;
         let kind = memory_kind(info.meta.expert_count > 0, &snapshot.hardware);
         let memory = t(memory_key(kind), &[("size", &gb(required))]);
         let c = &info.catalog.choices[choice];
@@ -315,73 +329,37 @@ impl DownloadDialog {
         if let Some(m) = mtp {
             version += &format!(" + MTP {} GB", gb(info.catalog.mtp[m].file.size));
         }
-        let downloaded = self.mode == DialogMode::Download
-            && snapshot
-                .models
-                .iter()
-                .any(|m| m.manifest.repo == rec.repo && m.manifest.quant == c.quant.label);
+        let have = match self.mode {
+            DialogMode::Download => have_of(snapshot, rec.repo, &c.quant.label),
+            DialogMode::Select => Have::No,
+        };
         let open = self.expanded.as_deref() == Some(rec.repo);
-        let (mut toggle, mut go) = (false, false);
         let id = ui.scope_id().with(rec.repo);
+        let mut clicks = (false, false);
         ui.horizontal(|ui| {
             let reserved = super::widgets::right_aligned_width(ui, id);
             let width = (ui.available_width() - reserved - 12.0).max(120.0);
             ui.allocate_ui(vec2(width, 0.0), |ui| {
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.add(Label::new(name).truncate());
-                    ui.add(
-                        Label::new(
-                            RichText::new(memory)
-                                .size(theme::HINT_SIZE)
-                                .color(theme::TEXT_SECONDARY),
-                        )
-                        .wrap(),
-                    );
-                    ui.label(
-                        RichText::new(version)
-                            .size(theme::HINT_SIZE)
-                            .color(theme::TEXT_SECONDARY),
-                    );
-                    if downloaded {
-                        ui.label(
-                            RichText::new(format!("✓ {}", t("local.downloaded", &[])))
-                                .size(theme::HINT_SIZE)
-                                .color(theme::OK),
-                        );
-                    }
-                });
+                row_text(ui, name, &memory, &version, have)
             });
             right_aligned(ui, id, |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                dot(ui, fit_color(level));
-                ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
-                let single = info.catalog.choices.len() < 2;
-                let version_key = if open {
-                    "local.dialog.collapse"
-                } else {
-                    "local.dialog.choose_version"
-                };
-                ui.add_enabled_ui(!single, |ui| {
-                    toggle = secondary_button(ui, &t(version_key, &[])).clicked();
-                });
-                let (key, action_key) = match (self.mode, downloaded) {
-                    (DialogMode::Select, _) => ("local.dialog.select", false),
-                    (_, true) => ("local.downloaded", true),
-                    _ => ("local.dialog.download", false),
-                };
-                ui.add_enabled_ui(!action_key, |ui| {
-                    go = primary_button(ui, &t(key, &[])).clicked();
-                });
+                clicks = row_buttons(
+                    ui,
+                    level,
+                    info.catalog.choices.len() > 1,
+                    open,
+                    self.mode,
+                    have,
+                )
             });
         });
-        if toggle {
+        if clicks.0 {
             self.expanded = (!open).then(|| rec.repo.to_owned());
         }
         if open {
             self.table(ui, rec.repo, info, snapshot);
         }
-        go.then_some(chosen)
+        clicks.1.then_some(chosen)
     }
 
     fn table(&mut self, ui: &mut Ui, repo: &str, info: &RepoInfo, snapshot: &Snapshot) {
@@ -461,4 +439,105 @@ fn memory_key(kind: MemoryKind) -> &'static str {
         MemoryKind::VramPlusRam => "local.memory.vram_ram",
         MemoryKind::Ram => "local.memory.ram",
     }
+}
+
+/// 已下載的狀態：完整、未完成（進度在設定頁），或沒有。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Have {
+    No,
+    Complete,
+    InProgress,
+}
+
+fn have_of(snapshot: &Snapshot, repo: &str, quant: &str) -> Have {
+    let mut models = snapshot
+        .models
+        .iter()
+        .filter(|m| m.manifest.repo == repo && m.manifest.quant == quant);
+    match models.clone().find(|m| m.complete) {
+        Some(_) => Have::Complete,
+        None if models.next().is_some() => Have::InProgress,
+        None => Have::No,
+    }
+}
+
+/// 推薦分頁頂端：判斷相容等級所依據的可用記憶體。
+fn basis(ui: &mut Ui, hw: &Hardware) {
+    let (vram, ram) = effective(hw);
+    let integrated = hw
+        .gpu
+        .as_ref()
+        .is_some_and(|g| g.kind == GpuKind::Integrated);
+    let text = if integrated {
+        t("local.dialog.basis_ram", &[("ram", &gb(ram))])
+    } else if vram == 0 {
+        t("local.dialog.basis_unknown", &[])
+    } else {
+        t(
+            "local.dialog.basis",
+            &[("vram", &gb(vram)), ("ram", &gb(ram))],
+        )
+    };
+    ui.label(
+        RichText::new(text)
+            .size(theme::HINT_SIZE)
+            .color(theme::TEXT_SECONDARY),
+    );
+}
+
+/// 推薦列左側的文字：名稱、記憶體需求、所選量化，以及下載狀態。
+fn row_text(ui: &mut Ui, name: RichText, memory: &str, version: &str, have: Have) {
+    let small = |text: &str, color| RichText::new(text).size(theme::HINT_SIZE).color(color);
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.add(Label::new(name).truncate());
+        ui.add(Label::new(small(memory, theme::TEXT_SECONDARY)).wrap());
+        ui.label(small(version, theme::TEXT_SECONDARY));
+        if have == Have::Complete {
+            ui.label(small(
+                &format!("✓ {}", t("local.downloaded", &[])),
+                theme::OK,
+            ));
+        }
+    });
+}
+
+/// 推薦列右側：相容徽章、〔選擇版本〕與動作鈕；回傳（切換量化表, 按了動作鈕）。
+fn row_buttons(
+    ui: &mut Ui,
+    level: Option<Fit>,
+    several: bool,
+    open: bool,
+    mode: DialogMode,
+    have: Have,
+) -> (bool, bool) {
+    ui.spacing_mut().item_spacing.x = 8.0;
+    dot(ui, fit_color(level));
+    ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
+    let version_key = if open {
+        "local.dialog.collapse"
+    } else {
+        "local.dialog.choose_version"
+    };
+    let toggle = ui
+        .add_enabled_ui(several, |ui| {
+            secondary_button(ui, &t(version_key, &[])).clicked()
+        })
+        .inner;
+    let (key, enabled) = match (mode, have) {
+        (DialogMode::Select, _) | (_, Have::No) => (
+            if mode == DialogMode::Select {
+                "local.dialog.select"
+            } else {
+                "local.dialog.download"
+            },
+            true,
+        ),
+        (_, Have::Complete) => ("local.downloaded", false),
+        (_, Have::InProgress) => ("local.in_progress", false),
+    };
+    let go = ui
+        .add_enabled_ui(enabled, |ui| primary_button(ui, &t(key, &[])).clicked())
+        .inner;
+    (toggle, go)
 }

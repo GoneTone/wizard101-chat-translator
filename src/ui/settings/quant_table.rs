@@ -50,9 +50,21 @@ pub(super) fn dot(ui: &mut Ui, color: Color32) {
     ui.painter().circle_filled(rect.center(), DOT / 2.0, color);
 }
 
+/// 選了 `(choice, mtp)` 時所需的位元組與相容等級；VRAM 還沒量到時等級為 `None`。
+pub(super) fn combined(
+    info: &RepoInfo,
+    hw: &Hardware,
+    (choice, mtp): (usize, Option<usize>),
+) -> (u64, Option<Fit>) {
+    let (base, level) = info.fits.get(choice).copied().unwrap_or((0, None));
+    let Some(m) = mtp else { return (base, level) };
+    let required = base + info.mtp_required.get(m).copied().unwrap_or(0);
+    let moe = info.meta.expert_count > 0;
+    (required, level.map(|_| fit::fit(required, moe, hw)))
+}
+
 /// 畫量化表；點 chip 會改 `pick`（主模型索引, MTP 索引）。`hw` 用來算滑過 chip 時的可用量。
 pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usize, Option<usize>)) {
-    let moe = info.meta.expert_count > 0;
     let mut groups: BTreeMap<(bool, u8), Vec<usize>> = BTreeMap::new();
     for (i, c) in info.catalog.choices.iter().enumerate() {
         let key = c.quant.bits.map_or((true, 0), |b| (false, b));
@@ -67,15 +79,10 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
         };
         row(ui, &name, |ui| {
             for i in indexes {
-                let (required, level) = info.fits.get(i).copied().unwrap_or((0, None));
+                let (required, level) = combined(info, hw, (i, None));
                 let c = &info.catalog.choices[i];
-                let r = chip(
-                    ui,
-                    pick.0 == i,
-                    Some(fit_color(level)),
-                    &c.quant.label,
-                    Some(gb(total_size(c))),
-                );
+                let size = Some(gb(total_size(c)));
+                let r = chip(ui, pick.0 == i, Some(level), &c.quant.label, size);
                 tip(ui, &r, level, required, hw);
                 if r.clicked() {
                     *pick = (i, pick.1);
@@ -83,32 +90,22 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
             }
         });
     }
-    let main_required = info.fits.get(pick.0).and_then(|f| f.1.map(|_| f.0));
     row(ui, "MTP", |ui| {
-        if chip(
-            ui,
-            pick.1.is_none(),
-            None,
-            &t("local.quant.mtp_none", &[]),
-            None,
-        )
-        .clicked()
-        {
+        let none = t("local.quant.mtp_none", &[]);
+        if chip(ui, pick.1.is_none(), None, &none, None).clicked() {
             pick.1 = None;
         }
         for (i, m) in info.catalog.mtp.iter().enumerate() {
-            let required =
-                main_required.map(|r| r + info.mtp_required.get(i).copied().unwrap_or(0));
-            let level = required.map(|r| fit::fit(r, moe, hw));
+            let (required, level) = combined(info, hw, (pick.0, Some(i)));
             let label = format!("MTP {}", m.quant.label);
             let r = chip(
                 ui,
                 pick.1 == Some(i),
-                Some(fit_color(level)),
+                Some(level),
                 &label,
                 Some(gb(m.file.size)),
             );
-            tip(ui, &r, level, required.unwrap_or(0), hw);
+            tip(ui, &r, level, required, hw);
             if r.clicked() {
                 pick.1 = Some(i);
             }
@@ -119,6 +116,9 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
 /// 「需要約 X GB，可用 Y GB」；VRAM 還沒量到時不顯示。
 fn tip(ui: &Ui, response: &Response, level: Option<Fit>, required: u64, hw: &Hardware) {
     let Some(level) = level else { return };
+    if !response.hovered() {
+        return;
+    }
     let (vram, ram) = effective(hw);
     // 與 `fit::fit` 比較的對象一致：Smooth 只看 VRAM，其餘看 VRAM＋RAM
     let available = if level == Fit::Smooth {
@@ -149,10 +149,11 @@ fn row(ui: &mut Ui, name: &str, chips: impl FnOnce(&mut Ui)) {
 fn chip(
     ui: &mut Ui,
     selected: bool,
-    color: Option<Color32>,
+    level: Option<Option<Fit>>,
     label: &str,
     size: Option<String>,
 ) -> Response {
+    let color = level.map(fit_color);
     let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
     let painter = ui.painter();
     let name = painter.layout_no_wrap(label.to_owned(), font.clone(), theme::TEXT);
@@ -169,6 +170,12 @@ fn chip(
     let (rect, response) = ui.allocate_exact_size(vec2(width, CHIP_HEIGHT), Sense::click());
     response
         .widget_info(|| WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, label));
+    // 相容度不能只靠色點傳達
+    if let Some(level) = level {
+        let text = fit_text(level);
+        ui.ctx()
+            .accesskit_node_builder(response.id, |node| node.set_description(text));
+    }
     if ui.is_rect_visible(rect) {
         let stroke = if selected {
             Stroke::new(1.5, theme::ACCENT)
