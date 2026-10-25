@@ -740,10 +740,23 @@ async fn delete_during_engine_install_leaves_nothing_behind() {
     let (q4, _) = two_quants(&f).await;
     let id = store::model_id(REPO, "Q4_K_M");
     f.local.command(download(q4));
-    wait_for("engine installing", || {
-        matches!(f.local.snapshot().engine, EngineState::Installing { .. })
-    })
-    .await;
+    // releases 的回應被壓住 500 ms：請求一到，下載就確定正卡在等引擎安裝
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !f
+        .hf
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .any(|r| r.url.path() == "/releases")
+    {
+        assert!(Instant::now() < deadline, "timed out waiting for /releases");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(matches!(
+        f.local.snapshot().engine,
+        EngineState::Missing | EngineState::Installing { .. }
+    ));
     f.local.command(Command::Delete(id.clone()));
     wait_for("engine ready and download gone", || {
         let s = f.local.snapshot();
