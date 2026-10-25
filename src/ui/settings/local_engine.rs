@@ -4,7 +4,7 @@ use eframe::egui::{FontId, Id, Label, ProgressBar, RichText, Ui};
 
 use super::dialog::Choice;
 use super::env::SettingsEnv;
-use super::local_pane::{confirm_danger, padded, section};
+use super::local_card::{confirm_danger, padded, section};
 use super::quant_table::{dot, gb};
 use super::theme;
 use super::widgets::{
@@ -17,7 +17,7 @@ use crate::logs::log;
 
 const COMBO_WIDTH: f32 = 170.0;
 
-/// 引擎卡的選擇狀態；版本與變體沒動過時跟著目前已安裝的。
+/// 引擎卡的選擇狀態；沒動過的版本與變體跟著已安裝的，沒裝時版本取最新、變體取自動。
 #[derive(Default)]
 pub(super) struct EngineCard {
     build: Option<String>,
@@ -172,7 +172,7 @@ impl EngineCard {
         picked: &Picked,
     ) {
         let latest = match &snapshot.builds {
-            Some(Ok(builds)) => builds.first().map(|b| b.tag.clone()),
+            Some(Ok(builds)) => builds.first(),
             _ => None,
         };
         let primary = match (&snapshot.engine, installed) {
@@ -184,8 +184,8 @@ impl EngineCard {
                 Some(("local.engine.install_selected", picked.build.clone()))
             }
             (_, Some(i)) => latest
-                .filter(|tag| newer(tag, &i.build))
-                .map(|tag| ("local.engine.update", Some(tag))),
+                .filter(|b| newer(&b.tag, &i.build))
+                .map(|b| ("local.engine.update", Some(b.tag.clone()))),
             (_, None) => Some(("local.engine.install", picked.build.clone())),
         };
         match &snapshot.engine {
@@ -201,13 +201,24 @@ impl EngineCard {
             if let Some((key, build)) = primary
                 && primary_button(ui, &t(key, &[])).clicked()
             {
+                let mut variant = picked.variant.clone();
+                if key == "local.engine.update"
+                    && let Some(b) = latest
+                    && !b.variants.iter().any(|(v, _)| *v == variant)
+                {
+                    let auto = auto_variant(snapshot.hardware.gpu.as_ref());
+                    log(format!(
+                        "[ui] build {} has no {variant} variant, updating with auto variant {auto}",
+                        b.tag
+                    ));
+                    variant = auto;
+                }
                 log(format!(
-                    "[ui] engine install requested: build={build:?} variant={}",
-                    picked.variant
+                    "[ui] engine install requested: build={build:?} variant={variant}"
                 ));
                 env.local_command(Command::InstallEngine {
                     build,
-                    variant: Some(picked.variant.clone()),
+                    variant: Some(variant),
                 });
             }
             if installed.is_some()

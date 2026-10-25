@@ -1,9 +1,12 @@
 //! 本地模型頁的「已下載模型」卡：總佔用空間、每個模型的狀態與動作，以及沒有模型時的空白提示。
 
+use std::time::Duration;
+
 use eframe::egui::{Label, ProgressBar, RichText, Ui, vec2};
 
 use super::env::SettingsEnv;
-use super::local_pane::{padded, section};
+use super::local_card::{padded, section};
+use super::local_rate::{Rates, eta, format_speed};
 use super::quant_table::{dot, fit_color, fit_text, gb};
 use super::theme;
 use super::widgets::{
@@ -39,6 +42,7 @@ pub(super) fn ui(
     env: &dyn SettingsEnv,
     snapshot: &Snapshot,
     settings: &mut LocalSettings,
+    rates: &Rates,
 ) -> Option<ModelAction> {
     let mut header_open = false;
     let mut empty_open = false;
@@ -64,7 +68,9 @@ pub(super) fn ui(
                     empty_open = empty(ui);
                 }
                 for model in &snapshot.models {
-                    action = action.take().or(row(ui, env, snapshot, settings, model));
+                    action = action
+                        .take()
+                        .or(row(ui, env, snapshot, settings, rates, model));
                 }
             });
         },
@@ -87,6 +93,7 @@ fn row(
     env: &dyn SettingsEnv,
     snapshot: &Snapshot,
     settings: &mut LocalSettings,
+    rates: &Rates,
     model: &Installed,
 ) -> Option<ModelAction> {
     let state = match snapshot.downloads.get(&model.id) {
@@ -101,7 +108,9 @@ fn row(
     ui.horizontal(|ui| {
         let reserved = right_aligned_width(ui, id);
         let width = (ui.available_width() - reserved - 12.0).max(120.0);
-        ui.allocate_ui(vec2(width, 0.0), |ui| texts(ui, model, &state));
+        ui.allocate_ui(vec2(width, 0.0), |ui| {
+            texts(ui, model, &state, rates.speed(&model.id))
+        });
         right_aligned(ui, id, |ui| {
             controls(ui, env, snapshot, settings, model, &state)
         })
@@ -109,7 +118,7 @@ fn row(
     .inner
 }
 
-fn texts(ui: &mut Ui, model: &Installed, state: &RowState) {
+fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
     let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -118,10 +127,20 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState) {
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
             RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
-            RowState::Running(done, total) => small(t(
-                "local.models.downloading",
-                &[("done", &gb(*done)), ("total", &gb(*total))],
-            )),
+            RowState::Running(done, total) => {
+                let mut line = t(
+                    "local.models.downloading",
+                    &[("done", &gb(*done)), ("total", &gb(*total))],
+                );
+                if let Some(rate) = speed {
+                    let left = eta_text(eta(*done, *total, rate));
+                    let args = [("speed", format_speed(rate)), ("eta", left)];
+                    let args: Vec<(&str, &str)> =
+                        args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                    line += &format!(" · {}", t("local.models.speed_eta", &args));
+                }
+                small(line)
+            }
             RowState::Paused(done, total) => small(t(
                 "local.models.paused",
                 &[("done", &gb(*done)), ("total", &gb(*total))],
@@ -197,6 +216,20 @@ fn controls(
         action = Some(ModelAction::Delete(id.clone()));
     }
     action
+}
+
+/// 剩餘時間文字：不到一分鐘用秒，不到一小時用分，其餘用小時加分。
+fn eta_text(left: Duration) -> String {
+    let secs = left.as_secs_f64().ceil() as u64;
+    let n = |v: u64| v.to_string();
+    match secs {
+        0..60 => t("local.models.eta_seconds", &[("n", &n(secs.max(1)))]),
+        60..3600 => t("local.models.eta_minutes", &[("n", &n(secs.div_ceil(60)))]),
+        _ => t(
+            "local.models.eta_hours",
+            &[("h", &n(secs / 3600)), ("m", &n(secs % 3600 / 60))],
+        ),
+    }
 }
 
 /// 推薦清單內的 repo 用顯示名稱，其餘用 repo 名；後接量化。

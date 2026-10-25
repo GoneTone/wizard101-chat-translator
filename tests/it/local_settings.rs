@@ -373,10 +373,12 @@ mod page {
 
     use crate::common;
 
-    use eframe::egui::accesskit::Role;
+    use eframe::egui::accesskit::{Role, Toggled};
     use eframe::egui::{self, Ui};
     use egui_kittest::Harness;
-    use egui_kittest::kittest::Queryable;
+    use egui_kittest::kittest::{NodeT, Queryable};
+    use std::time::{Duration, Instant};
+
     use serde_json::{Value, json};
 
     use common::kittest::{click, click_in_dialog, has_label, run, themed_harness, tr};
@@ -385,7 +387,7 @@ mod page {
     use wizard101_chat_translator::config::services::new_service;
     use wizard101_chat_translator::i18n::{self, t};
     use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
-    use wizard101_chat_translator::local::store::{Installed, Manifest};
+    use wizard101_chat_translator::local::store::{Installed, Manifest, ManifestFile};
     use wizard101_chat_translator::local::{Command, DownloadState, EngineState, Snapshot};
     use wizard101_chat_translator::ui::settings::env::SettingsEnv;
     use wizard101_chat_translator::ui::settings::local_pane::LocalPane;
@@ -421,6 +423,7 @@ mod page {
         pane: LocalPane,
         env: FakeEnv,
         services: Vec<Value>,
+        now: Instant,
     }
 
     fn pane_harness(snap: Snapshot, services: Vec<Value>) -> Harness<'static, State> {
@@ -431,13 +434,14 @@ mod page {
             pane: LocalPane::new(&custom_cfg()),
             env,
             services,
+            now: Instant::now(),
         };
         themed_harness(
             egui::vec2(760.0, 1000.0),
             LANGUAGE,
             |ui: &mut Ui, s: &mut State| {
                 let snap = s.env.local_snapshot();
-                s.pane.ui(ui, &s.env, &snap, &s.services);
+                s.pane.ui_at(ui, &s.env, &snap, &s.services, s.now);
             },
             state,
         )
@@ -515,11 +519,18 @@ mod page {
         let name = service["name"].as_str().unwrap().to_owned();
         let snap = snapshot(vec![model(MODEL, true, false)]);
         let mut h = pane_harness(snap, vec![service]);
+        h.state().env.snapshot.borrow_mut().models[0].manifest.files = vec![ManifestFile {
+            path: "m.gguf".into(),
+            size: 3 << 30,
+            sha256: None,
+        }];
+        run(&mut h);
         click(&mut h, Role::Button, &tr("button.delete"));
         assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 0);
+        let size = format!("{:.1}", (3u64 << 30) as f64 / (1u64 << 30) as f64);
         let question = t(
             "local.models.confirm_delete",
-            &[("services", &name), ("size", "0.0")],
+            &[("services", &name), ("size", &size)],
         );
         assert!(has_label(&h, &question));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
@@ -572,5 +583,158 @@ mod page {
         click(&mut h, Role::Link, &tr("local.models.empty_link"));
         run(&mut h);
         assert!(has_label(&h, &tr("local.dialog.title")));
+    }
+
+    fn ready_engine() -> Snapshot {
+        let build = |tag: &str| Build {
+            tag: tag.into(),
+            published: "2026-10-26T00:00:00Z".into(),
+            variants: vec![(Variant::Vulkan, vec![]), (Variant::Cpu, vec![])],
+        };
+        Snapshot {
+            engine: EngineState::Ready(EngineInstall {
+                build: "b11871".into(),
+                variant: Variant::Vulkan,
+            }),
+            builds: Some(Ok(vec![build("b11880"), build("b11871")])),
+            ..Default::default()
+        }
+    }
+
+    fn last(h: &Harness<State>) -> Option<Command> {
+        h.state().env.commands.borrow().last().cloned()
+    }
+
+    #[test]
+    fn the_mtp_toggle_defaults_on_and_is_saved_per_model() {
+        let models = vec![model(MODEL, true, true), model("plain", true, false)];
+        let mut h = window(snapshot(models));
+        let mtp = h
+            .query_all_by_role(Role::Switch)
+            .filter(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.starts_with("MTP"))
+            })
+            .count();
+        assert_eq!(mtp, 1, "only the model with MTP gets a toggle");
+        let label = "MTP repo · Q4_K_M";
+        let on = h.get_by_role_and_label(Role::Switch, label);
+        assert_eq!(on.accesskit_node().toggled(), Some(Toggled::True));
+        click(&mut h, Role::Switch, label);
+        click(&mut h, Role::Button, &tr("button.save"));
+        let saved = h.state().actions.iter().find_map(|a| match a {
+            SettingsAction::Save(cfg) => Some(cfg.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            saved.unwrap()["local_models"]["mtp"],
+            json!({ MODEL: false })
+        );
+    }
+
+    #[test]
+    fn a_changed_variant_installs_the_selected_version() {
+        let mut h = pane_harness(ready_engine(), vec![]);
+        let install = tr("local.engine.install_selected");
+        assert!(h.query_by_role_and_label(Role::Button, &install).is_none());
+        click(&mut h, Role::ComboBox, &tr("local.engine.variant"));
+        click(&mut h, Role::Button, "CPU");
+        click(&mut h, Role::Button, &install);
+        assert!(matches!(
+            last(&h),
+            Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Cpu) }) if b == "b11871"
+        ));
+    }
+
+    #[test]
+    fn an_update_without_the_installed_variant_falls_back_to_auto() {
+        let mut snap = ready_engine();
+        snap.engine = EngineState::Ready(EngineInstall {
+            build: "b11871".into(),
+            variant: Variant::Cpu,
+        });
+        snap.builds = Some(Ok(vec![
+            Build {
+                tag: "b11880".into(),
+                published: "2026-10-26T00:00:00Z".into(),
+                variants: vec![(Variant::Vulkan, vec![])],
+            },
+            Build {
+                tag: "b11871".into(),
+                published: "2026-10-25T00:00:00Z".into(),
+                variants: vec![(Variant::Cpu, vec![])],
+            },
+        ]));
+        let mut h = pane_harness(snap, vec![]);
+        click(&mut h, Role::Button, &tr("local.engine.update"));
+        assert!(matches!(
+            last(&h),
+            Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Cpu) }) if b == "b11880"
+        ));
+    }
+
+    #[test]
+    fn removing_the_engine_confirms_first() {
+        let mut h = pane_harness(ready_engine(), vec![]);
+        click(&mut h, Role::Button, &tr("local.engine.remove"));
+        let removed = |h: &Harness<State>| {
+            h.state()
+                .env
+                .commands
+                .borrow()
+                .iter()
+                .any(|c| matches!(c, Command::RemoveEngine))
+        };
+        assert!(!removed(&h));
+        click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
+        assert!(removed(&h));
+    }
+
+    #[test]
+    fn redetect_refreshes_the_hardware() {
+        let mut h = pane_harness(Snapshot::default(), vec![]);
+        click(&mut h, Role::Link, &tr("local.hw.redetect"));
+        assert!(matches!(last(&h), Some(Command::RefreshHardware)));
+    }
+
+    #[test]
+    fn failed_rows_show_the_original_error_and_can_continue() {
+        let mut snap = snapshot(vec![model(MODEL, false, false)]);
+        snap.downloads
+            .insert(MODEL.into(), DownloadState::Failed("HTTP 503".into()));
+        let mut h = pane_harness(snap, vec![]);
+        assert!(has_label(&h, "HTTP 503"));
+        click(&mut h, Role::Button, &tr("local.continue_download"));
+        assert!(matches!(last(&h), Some(Command::Resume(id)) if id == MODEL));
+    }
+
+    #[test]
+    fn running_rows_show_speed_and_eta_from_successive_snapshots() {
+        const MIB: u64 = 1 << 20;
+        let running = |done: u64| {
+            let mut snap = snapshot(vec![model(MODEL, false, false)]);
+            let total = 3072 * MIB;
+            snap.downloads
+                .insert(MODEL.into(), DownloadState::Running { done, total });
+            snap
+        };
+        let line = t(
+            "local.models.downloading",
+            &[("done", "1.0"), ("total", "3.0")],
+        );
+        let mut h = pane_harness(running(1024 * MIB), vec![]);
+        assert!(has_label(&h, &line));
+        *h.state().env.snapshot.borrow_mut() = running(1042 * MIB);
+        h.state_mut().now += Duration::from_secs(1);
+        run(&mut h);
+        let eta = t("local.models.eta_minutes", &[("n", "2")]);
+        let tail = t(
+            "local.models.speed_eta",
+            &[("speed", "18.0 MB/s"), ("eta", &eta)],
+        );
+        assert!(has_label(&h, &format!("{line} · {tail}")));
+        click(&mut h, Role::Button, &tr("button.cancel"));
+        assert!(matches!(last(&h), Some(Command::CancelDownload(id)) if id == MODEL));
     }
 }

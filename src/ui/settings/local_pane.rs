@@ -1,18 +1,20 @@
 //! 「本地模型」分頁：引擎、模型載入與已下載模型三張卡；預先載入、閒置卸載與 MTP 開關是草稿，檔案操作立即生效。
 
-use eframe::egui::{Frame, Label, Margin, Response, RichText, Ui};
+use std::time::Instant;
+
+use eframe::egui::Ui;
 use serde_json::Value;
 
-use super::dialog::{Choice, confirm};
+use super::dialog::Choice;
 use super::env::SettingsEnv;
+use super::local_card::{confirm_danger, section};
 use super::local_dialog::{DialogMode, DialogOutcome, DownloadDialog, Tab};
 use super::local_engine::EngineCard;
 use super::local_models::{self, ModelAction};
+use super::local_rate::Rates;
 use super::quant_table::gb;
 use super::theme;
-use super::widgets::{
-    card, combo_box, danger_button, focus_ring, name_by_row, right_aligned, setting_row, toggle,
-};
+use super::widgets::{combo_box, focus_ring, name_by_row, setting_row, toggle};
 use crate::config::Config;
 use crate::config::local::{IDLE_CHOICES, LocalSettings, settings};
 use crate::config::services::{LOCAL_PROVIDER, str_field};
@@ -29,6 +31,7 @@ pub struct LocalPane {
     /// 等使用者確認要不要刪的模型 id（被本地服務用著的才會問）。
     confirm_delete: Option<String>,
     listed: bool,
+    rates: Rates,
 }
 
 impl LocalPane {
@@ -39,6 +42,7 @@ impl LocalPane {
             dialog: None,
             confirm_delete: None,
             listed: false,
+            rates: Rates::default(),
         }
     }
 
@@ -54,6 +58,19 @@ impl LocalPane {
         snapshot: &Snapshot,
         services: &[Value],
     ) {
+        self.ui_at(ui, env, snapshot, services, Instant::now());
+    }
+
+    /// 同 `ui`，`now` 是這份快照的時間（下載速度由相鄰快照推算）。
+    pub fn ui_at(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        services: &[Value],
+        now: Instant,
+    ) {
+        self.rates.observe(now, &snapshot.downloads);
         if !self.listed {
             self.listed = true;
             env.local_command(Command::ListBuilds);
@@ -62,7 +79,7 @@ impl LocalPane {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
             self.engine.ui(ui, env, snapshot);
             self.load_card(ui);
-            match local_models::ui(ui, env, snapshot, &mut self.settings) {
+            match local_models::ui(ui, env, snapshot, &mut self.settings, &self.rates) {
                 Some(ModelAction::OpenDownload) => {
                     self.dialog = Some(DownloadDialog::new(DialogMode::Download, Tab::Recommended));
                 }
@@ -171,51 +188,4 @@ fn idle_text(minutes: u32) -> String {
         0 => t("local.load.idle_never", &[]),
         m => t("local.load.idle_minutes", &[("minutes", &m.to_string())]),
     }
-}
-
-/// 卡片：標題列（左標題、右 `trailing`）加 `body`。
-pub(super) fn section(
-    ui: &mut Ui,
-    title: &str,
-    trailing: impl FnOnce(&mut Ui),
-    body: impl FnOnce(&mut Ui),
-) {
-    card(ui, |ui| {
-        let id = ui.scope_id().with(("local_section", title));
-        Frame::new()
-            .inner_margin(Margin::symmetric(16, 12))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let title = RichText::new(title).font(theme::bold(theme::PROVIDER_TITLE_SIZE));
-                    ui.add(Label::new(title));
-                    right_aligned(ui, id, |ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        trailing(ui);
-                    });
-                });
-            });
-        body(ui);
-    });
-}
-
-/// 卡片內容區：左右內距，底部留白。
-pub(super) fn padded(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
-    Frame::new()
-        .inner_margin(Margin {
-            left: 16,
-            right: 16,
-            top: 0,
-            bottom: 12,
-        })
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            add(ui);
-        });
-}
-
-/// 確認框，確定鈕是紅色的〔刪除〕；`salt` 區分同時存在的不同確認框。
-pub(super) fn confirm_danger(ui: &Ui, salt: &'static str, question: String) -> Choice<()> {
-    confirm(ui, salt, question, |ui| -> Response {
-        danger_button(ui, &t("button.delete", &[]))
-    })
 }
