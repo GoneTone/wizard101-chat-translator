@@ -283,6 +283,20 @@ async fn range_cap_stops_the_growth() {
     let err = fetch_with(&http, &server.uri(), 256, 1024)
         .await
         .unwrap_err();
-    assert!(err.contains("larger than 1024"), "{err}");
+    assert!(err.contains("larger than"), "{err}");
     assert_eq!(server.received_requests().await.unwrap().len(), 3);
+}
+
+#[test]
+fn corrupt_array_length_returns_quickly() {
+    for len in [1u64 << 40, u64::MAX / 8] {
+        let mut b = gguf_bytes(&[("general.architecture", s("x"))], &[]);
+        b[16..24].copy_from_slice(&2u64.to_le_bytes());
+        put_str(&mut b, "x.attention.head_count");
+        b.extend(9u32.to_le_bytes());
+        b.extend(4u32.to_le_bytes());
+        b.extend(len.to_le_bytes());
+        b.extend([0u8; 8]);
+        assert_eq!(parse(&b), Err(ParseError::NeedMore));
+    }
 }

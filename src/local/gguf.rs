@@ -59,7 +59,11 @@ fn uint(kv: &GGufMetaKV) -> Option<u32> {
         return uint_of(&mut r, kv.ty());
     }
     let (ty, len) = r.read_arr_header().ok()?;
-    (0..len).map(|_| uint_of(&mut r, ty)).max().flatten()
+    let mut max = 0;
+    for _ in 0..len {
+        max = max.max(uint_of(&mut r, ty)?);
+    }
+    Some(max)
 }
 
 /// 解析 GGUF 檔頭（metadata 與 tensor 清單）。
@@ -129,7 +133,13 @@ pub async fn fetch_with(
         .unwrap_or_default();
     let mut n = initial;
     loop {
-        let bytes = fetch_prefix(http, url, n).await?;
+        let bytes = match fetch_prefix(http, url, n).await {
+            Ok(b) => b,
+            Err(e) => {
+                log(format!("[local] GGUF header from {host} failed: {e}"));
+                return Err(e);
+            }
+        };
         let err = match parse(&bytes) {
             Ok(meta) => return Ok(meta),
             Err(ParseError::Invalid(e)) => e,
@@ -137,7 +147,7 @@ pub async fn fetch_with(
                 format!("GGUF file ended inside its header ({} bytes)", bytes.len())
             }
             Err(ParseError::NeedMore) if n >= max => {
-                format!("GGUF header larger than {} bytes", max)
+                format!("GGUF header larger than {} MiB", max >> 20)
             }
             Err(ParseError::NeedMore) => {
                 n *= 2;
