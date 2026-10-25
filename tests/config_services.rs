@@ -58,7 +58,7 @@ fn every_provider_has_ui_metadata() {
 fn every_provider_has_thinking_and_effort() {
     for p in providers() {
         assert!(p.has_field("thinking"), "{}", p.key);
-        assert_eq!(p.has_field("effort"), p.key != "local", "{}", p.key);
+        assert_eq!(p.has_field("effort"), !p.efforts.is_empty(), "{}", p.key);
     }
 }
 
@@ -74,6 +74,11 @@ fn provider_defaults_keep_current_behavior() {
         let defaults = provider(key).unwrap().defaults();
         assert_eq!(defaults["thinking"], thinking, "{key}");
         assert_eq!(defaults["effort"], effort, "{key}");
+    }
+    let local = provider("local").unwrap().defaults();
+    assert_eq!(local["thinking"], false);
+    for field in ["api_key", "base_url", "effort"] {
+        assert!(!local.contains_key(field), "{field}");
     }
 }
 

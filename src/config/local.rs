@@ -81,9 +81,28 @@ pub fn normalize(cfg: &mut Config) -> bool {
     if cfg.get(KEY) == Some(&clean) {
         return false;
     }
-    log("[config] normalized local_models");
+    log(format!(
+        "[config] normalized local_models (changed: {})",
+        changed_keys(cfg.get(KEY), &clean).join(", ")
+    ));
     cfg.insert(KEY.into(), clean);
     true
+}
+
+/// 舊區塊與正規化結果不同的鍵名（含被丟掉的未知鍵）；區塊本身不是物件時回 `["local_models"]`。
+fn changed_keys(old: Option<&Value>, clean: &Value) -> Vec<String> {
+    let (Some(old), Some(clean)) = (old.and_then(Value::as_object), clean.as_object()) else {
+        return vec![KEY.to_owned()];
+    };
+    let mut keys: Vec<String> = old
+        .keys()
+        .chain(clean.keys())
+        .filter(|k| old.get(*k) != clean.get(*k))
+        .cloned()
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 #[cfg(test)]
