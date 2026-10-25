@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::local::{add_engine, add_model, serve_on};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::runtime::Handle;
@@ -15,7 +16,7 @@ use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
 use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
-use wizard101_chat_translator::local::store::{self, Manifest, ManifestFile};
+use wizard101_chat_translator::local::store;
 use wizard101_chat_translator::local::{
     Command, DownloadState, Endpoints, EngineState, Local, LocalNotice, RepoInfo, RepoState,
 };
@@ -109,54 +110,14 @@ impl Launcher for FakeLauncher {
 
 /// 在 llama-server 該聽的埠上開一個 `/health` 回 200 的 wiremock。
 fn health_server(port: u16, delay: Duration) -> MockServer {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
-    let rt = Handle::current();
-    tokio::task::block_in_place(|| {
-        rt.block_on(async {
-            let server = MockServer::builder().listener(listener).start().await;
+    serve_on(
+        port,
+        vec![
             Mock::given(method("GET"))
                 .and(path("/health"))
-                .respond_with(ResponseTemplate::new(200).set_delay(delay))
-                .mount(&server)
-                .await;
-            server
-        })
-    })
-}
-
-fn add_engine(root: &Path, build: &str) -> EngineInstall {
-    let install = EngineInstall {
-        build: build.into(),
-        variant: Variant::Cpu,
-    };
-    let dir = engine::engine_dir(root, &install);
-    fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("llama-server.exe"), b"").unwrap();
-    engine::activate(root, install.clone()).unwrap();
-    install
-}
-
-fn add_model(root: &Path, id: &str, with_mtp: bool) {
-    let file = |path: &str, size| ManifestFile {
-        path: path.into(),
-        size,
-        sha256: None,
-    };
-    let manifest = Manifest {
-        repo: "org/Model-GGUF".into(),
-        quant: "Q4_K_M".into(),
-        files: vec![file("model-Q4_K_M.gguf", 4)],
-        mtp: with_mtp.then(|| file("mtp-Q8_0.gguf", 2)),
-        moe: false,
-        has_builtin_mtp: false,
-        required: 1,
-    };
-    store::write_manifest(root, id, &manifest).unwrap();
-    let dir = store::models_dir(root).join(id);
-    fs::write(dir.join("model-Q4_K_M.gguf"), b"main").unwrap();
-    if with_mtp {
-        fs::write(dir.join("mtp-Q8_0.gguf"), b"mt").unwrap();
-    }
+                .respond_with(ResponseTemplate::new(200).set_delay(delay)),
+        ],
+    )
 }
 
 struct Fixture {

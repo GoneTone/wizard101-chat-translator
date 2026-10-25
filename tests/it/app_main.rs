@@ -1290,6 +1290,7 @@ fn live(tag: &'static str) -> Live {
         hotkeys,
         dispatcher: Arc::clone(&d),
         config_path: dir.path().join("config.json"),
+        local: None,
     };
     Live {
         dir,

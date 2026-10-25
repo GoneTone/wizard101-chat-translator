@@ -12,6 +12,7 @@ use crate::config::py::py_bool;
 use crate::config::{Config, Settings, app_name};
 use crate::i18n::current_language;
 use crate::input::dispatch::GameInputEvents;
+use crate::local;
 use crate::logs::log;
 use crate::ui::events::{UiEvent, UiPoster};
 use crate::ui::geometry::{Rect, pull_onscreen};
@@ -510,6 +511,8 @@ impl App {
                 (_, Some(wiring)) => wiring.host.apply(event),
                 _ => {}
             },
+            UiEvent::LocalChanged => ctx.request_repaint(),
+            UiEvent::LocalLoading(_) => {}
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
@@ -616,7 +619,13 @@ impl App {
                 self.apply_settings(ctx, &cfg, region_hotkey);
                 self.close_settings();
             }
-            SettingsAction::Cancel => self.close_settings(),
+            SettingsAction::Cancel => {
+                // 收掉測試連線臨時啟動、目前設定沒用到的本地模型
+                if let (Some(wiring), Some(local)) = (&self.settings, local::get()) {
+                    local.apply_config(&read(&wiring.cfg));
+                }
+                self.close_settings();
+            }
         }
     }
 

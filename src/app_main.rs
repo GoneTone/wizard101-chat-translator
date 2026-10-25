@@ -33,6 +33,10 @@ use crate::input::dispatch::{
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
+use crate::local::engine::RELEASES_API;
+use crate::local::hf::HF_BASE;
+use crate::local::server::RealLauncher;
+use crate::local::{self, Command, Endpoints, Local, LocalNotice};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::message_log::{MessageLog, SharedWriter};
@@ -436,6 +440,9 @@ pub fn apply_settings(
     });
     report_save(ui, saved.is_ok());
     reconfigure_translation(&cfg, &running.translation);
+    if let Some(local) = &running.local {
+        local.apply_config(&cfg);
+    }
     // 新的先註冊再解除舊的：Registration 只能整個交出去 unregister
     let fresh = register_hotkeys(
         settings,
@@ -727,6 +734,32 @@ pub struct Running {
     pub dispatcher: SharedDispatcher,
     /// 套用設定時寫入的設定檔。
     pub config_path: PathBuf,
+    /// 本地模型 hub；測試不建時為 `None`。
+    pub local: Option<Arc<Local>>,
+}
+
+/// 建立並安裝全程序共用的本地模型 hub：量硬體、套用目前設定（預先載入）。
+fn install_local(cfg: &Config, rt: &Handle, ui: &UiPoster) -> Arc<Local> {
+    let ui = ui.clone();
+    let hub = Local::new(
+        crate::config::app_dir(),
+        rt.clone(),
+        Arc::new(RealLauncher),
+        Endpoints {
+            hf: HF_BASE.into(),
+            releases: RELEASES_API.into(),
+        },
+        Arc::new(move |notice| {
+            ui.post(match notice {
+                LocalNotice::Changed => UiEvent::LocalChanged,
+                LocalNotice::Loading(name) => UiEvent::LocalLoading(name),
+            })
+        }),
+    );
+    local::install(Arc::clone(&hub));
+    hub.command(Command::RefreshHardware);
+    hub.apply_config(cfg);
+    hub
 }
 
 /// 建構翻譯端、在 `dispatcher` 上註冊熱鍵與貼上攔截器、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
@@ -740,6 +773,8 @@ pub fn build_app(
     dispatcher: SharedDispatcher,
     keyboard: Option<KeyboardHook>,
 ) -> Running {
+    // 翻譯器建立時就會 warm-up，hub 要先裝好
+    let local = install_local(&read(&settings), rt, &ui);
     let deliver: ResultFn = {
         let ui = ui.clone();
         Arc::new(move |msg_id, translated, failed| {
@@ -828,13 +863,14 @@ pub fn build_app(
         hotkeys,
         dispatcher,
         config_path: crate::config::config_path(),
+        local: Some(local),
     }
 }
 
 /// 等 supervisor 的上限：多 2 秒讓它自己的 `JOIN_TIMEOUT` 先跑完，「still alive」的診斷 log 才寫得出來。
 pub const SUPERVISOR_JOIN_BUDGET: Duration = JOIN_TIMEOUT.saturating_add(Duration::from_secs(2));
 
-/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 卸鍵盤 hook → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
+/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池（與本地模型） → 卸鍵盤 hook → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
 pub fn shutdown_steps(
     stop: &CancellationToken,
     close_pools: impl FnOnce(),
@@ -868,6 +904,7 @@ pub fn shutdown(running: Running) -> ! {
         translation,
         supervisor,
         keyboard,
+        local,
         ..
     } = running;
     shutdown_steps(
@@ -875,6 +912,9 @@ pub fn shutdown(running: Running) -> ! {
         || {
             translation.pool.shutdown();
             translation.system_pool.shutdown();
+            if let Some(local) = local {
+                local.shutdown();
+            }
         },
         || {
             if let Some(hook) = keyboard {

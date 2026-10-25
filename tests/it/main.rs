@@ -14,6 +14,7 @@ mod capture_golden;
 mod clients_claude;
 mod clients_gemini;
 mod clients_golden;
+mod clients_local;
 mod clients_openai;
 mod config_golden;
 mod dispatch;
