@@ -12,7 +12,8 @@ use super::glossary_merge::MergeDialog;
 use super::provider_picker::{CardIcon, choice_cards};
 use super::theme::{self, icon};
 use super::widgets::{
-    callout, card, dashed_button, list_card, optional_combo, secondary_button, setting_row,
+    callout, card, danger_secondary_button, dashed_button, list_card, optional_combo,
+    secondary_button, setting_row,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::{Entry, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge};
@@ -321,7 +322,7 @@ impl GlossaryPane {
                 (
                     secondary_button(ui, &t("button.edit", &[])).clicked(),
                     secondary_button(ui, &t("button.copy", &[])).clicked(),
-                    secondary_button(ui, &t("button.delete", &[])).clicked(),
+                    danger_secondary_button(ui, &t("button.delete", &[])).clicked(),
                 )
             },
         );

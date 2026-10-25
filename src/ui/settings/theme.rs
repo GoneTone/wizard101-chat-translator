@@ -43,7 +43,7 @@ pub const LINK: Color32 = hex(0x7fb2ff);
 pub const OK: Color32 = hex(0x6fd39a);
 /// 失敗。
 pub const ERROR: Color32 = hex(0xff8a8a);
-/// 刪除確認按鈕底色。
+/// 刪除類按鈕的紅：確認按鈕的底色、卡片〔刪除〕與刪列 ✕ 的字色。
 pub const DANGER: Color32 = hex(0xff7a7a);
 /// 刪除確認按鈕上的字。
 pub const ON_DANGER: Color32 = hex(0x1a0b0b);
