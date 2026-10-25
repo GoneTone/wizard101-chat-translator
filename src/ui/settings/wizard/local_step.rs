@@ -178,7 +178,7 @@ impl LocalInstall {
                     hint(ui, &t(memory_key(kind), &[("size", &gb(plan.required))]));
                 });
         });
-        let ready = matches!(snapshot.engine, EngineState::Ready(_)) && plan.fit.is_some();
+        let ready = matches!(snapshot.engine, EngineState::Ready(_));
         let mut change = false;
         let mut download = false;
         ui.horizontal(|ui| {
@@ -191,11 +191,7 @@ impl LocalInstall {
             change = secondary_button(ui, &t("local.wizard.change", &[])).clicked();
         });
         if !ready && !matches!(snapshot.engine, EngineState::Failed(_)) {
-            let key = match snapshot.engine {
-                EngineState::Ready(_) => "local.wizard.measuring",
-                _ => "local.wizard.waiting_engine",
-            };
-            hint(ui, &t(key, &[]));
+            hint(ui, &t("local.wizard.waiting_engine", &[]));
         }
         self.engine_status(ui, env, snapshot);
         if self.cancelled {

@@ -770,4 +770,32 @@ mod local_install {
         assert!(has_label(&h, &tr("local.wizard.cancelled_hint")));
         assert!(enabled(&h, &tr("local.wizard.download")));
     }
+
+    #[test]
+    fn a_ready_engine_allows_download_even_when_vram_is_unmeasured() {
+        let mut s = ready_snapshot();
+        for repo in s.repos.values_mut() {
+            if let RepoState::Ready(info) = repo {
+                info.fits = vec![(3 * G, None)];
+            }
+        }
+        let h = on_card(s);
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert!(has_label(&h, &tr("local.fit.unknown")));
+    }
+
+    #[test]
+    fn a_failed_engine_shows_the_error_and_retry_reinstalls() {
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Failed("boom".into());
+        let mut h = on_card(s);
+        assert!(has_label(&h, "boom"));
+        assert!(!enabled(&h, &tr("local.wizard.download")));
+        click(&mut h, Role::Button, &tr("local.dialog.retry"));
+        let installs = sent(&h)
+            .iter()
+            .filter(|c| c.contains("InstallEngine"))
+            .count();
+        assert_eq!(installs, 1);
+    }
 }
