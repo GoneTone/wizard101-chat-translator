@@ -2,6 +2,7 @@
 
 pub mod catalog;
 pub mod download;
+pub mod engine;
 pub mod fit;
 pub mod gguf;
 pub mod hardware;
