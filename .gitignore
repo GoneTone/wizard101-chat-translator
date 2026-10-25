@@ -5,3 +5,5 @@ messages.log
 /target
 /_exe_test
 /.superpowers
+/llama
+/models

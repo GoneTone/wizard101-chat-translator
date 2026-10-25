@@ -30,7 +30,8 @@ fn valid() -> AdvancedText {
 #[test]
 fn every_provider_has_ui_metadata() {
     let keys: Vec<&str> = providers().iter().map(|p| p.key).collect();
-    assert_eq!(keys, ["openai", "claude", "gemini", "custom"]);
+    assert_eq!(keys, ["openai", "claude", "gemini", "local", "custom"]);
+    assert!(!provider("local").unwrap().needs_api_key());
     assert!(provider("custom").unwrap().needs_base_url());
     assert!(!provider("openai").unwrap().needs_base_url());
     assert!(provider("nope").is_none());
@@ -57,7 +58,7 @@ fn every_provider_has_ui_metadata() {
 fn every_provider_has_thinking_and_effort() {
     for p in providers() {
         assert!(p.has_field("thinking"), "{}", p.key);
-        assert!(p.has_field("effort"), "{}", p.key);
+        assert_eq!(p.has_field("effort"), p.key != "local", "{}", p.key);
     }
 }
 

@@ -1,0 +1,130 @@
+//! 本地模型設定：config 的 `local_models` 區塊（預先載入、閒置卸載、各模型的 MTP 開關）與載入時的正規化。
+
+use std::collections::BTreeMap;
+
+use serde_json::{Value, json};
+
+use super::Config;
+use crate::logs::log;
+
+const KEY: &str = "local_models";
+
+/// 閒置幾分鐘後卸載模型的可選值；0 代表不卸載。
+pub const IDLE_CHOICES: [u32; 4] = [0, 5, 15, 30];
+
+const DEFAULT_PRELOAD: bool = true;
+const DEFAULT_IDLE_MINUTES: u32 = 15;
+
+/// `local_models` 區塊的讀出形狀。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalSettings {
+    /// 本工具開啟時就預先載入模型。
+    pub preload: bool,
+    /// 閒置幾分鐘後卸載；0 代表不卸載。
+    pub idle_minutes: u32,
+    /// 模型 id 對應的 MTP 開關。
+    pub mtp: BTreeMap<String, bool>,
+}
+
+impl Default for LocalSettings {
+    fn default() -> Self {
+        Self {
+            preload: DEFAULT_PRELOAD,
+            idle_minutes: DEFAULT_IDLE_MINUTES,
+            mtp: BTreeMap::new(),
+        }
+    }
+}
+
+/// 預設的 `local_models` 區塊。
+pub fn default_value() -> Value {
+    to_value(&LocalSettings::default())
+}
+
+fn to_value(s: &LocalSettings) -> Value {
+    json!({"preload": s.preload, "idle_minutes": s.idle_minutes, "mtp": s.mtp})
+}
+
+/// 讀出設定；缺漏或型別不對的欄位取預設值。
+pub fn settings(cfg: &Config) -> LocalSettings {
+    let block = cfg.get(KEY);
+    let defaults = LocalSettings::default();
+    LocalSettings {
+        preload: block
+            .and_then(|b| b.get("preload"))
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.preload),
+        idle_minutes: block
+            .and_then(|b| b.get("idle_minutes"))
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| IDLE_CHOICES.contains(n))
+            .unwrap_or(defaults.idle_minutes),
+        mtp: block
+            .and_then(|b| b.get("mtp"))
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(id, on)| Some((id.clone(), on.as_bool()?)))
+            .collect(),
+    }
+}
+
+/// 把設定寫回 config 的 `local_models` 區塊。
+pub fn write_into(cfg: &mut Config, s: &LocalSettings) {
+    cfg.insert(KEY.into(), to_value(s));
+}
+
+/// 載入時把 `local_models` 修成合法形狀；有改動回 `true`（該寫回 config.json）。
+pub fn normalize(cfg: &mut Config) -> bool {
+    let clean = to_value(&settings(cfg));
+    if cfg.get(KEY) == Some(&clean) {
+        return false;
+    }
+    log("[config] normalized local_models");
+    cfg.insert(KEY.into(), clean);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::default_config;
+
+    #[test]
+    fn defaults_preload_and_fifteen_minutes() {
+        let s = settings(&default_config());
+        assert_eq!(
+            s,
+            LocalSettings {
+                preload: true,
+                idle_minutes: 15,
+                mtp: BTreeMap::new()
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_snaps_unknown_idle_values_to_default() {
+        let mut cfg = default_config();
+        cfg.insert(
+            "local_models".into(),
+            json!({"preload": "yes", "idle_minutes": 7, "mtp": {"a": true, "b": 1}}),
+        );
+        assert!(normalize(&mut cfg));
+        assert_eq!(
+            settings(&cfg),
+            LocalSettings {
+                preload: true,
+                idle_minutes: 15,
+                mtp: [("a".into(), true)].into()
+            }
+        );
+    }
+
+    #[test]
+    fn normalize_leaves_a_clean_block_alone() {
+        let mut cfg = default_config();
+        assert!(!normalize(&mut cfg));
+    }
+}
