@@ -289,7 +289,7 @@ async fn range_cap_stops_the_growth() {
 
 #[test]
 fn corrupt_array_length_returns_quickly() {
-    for len in [1u64 << 40, u64::MAX / 8] {
+    for len in [1u64 << 40, u64::MAX / 8, u64::MAX] {
         let mut b = gguf_bytes(&[("general.architecture", s("x"))], &[]);
         b[16..24].copy_from_slice(&2u64.to_le_bytes());
         put_str(&mut b, "x.attention.head_count");
@@ -297,6 +297,11 @@ fn corrupt_array_length_returns_quickly() {
         b.extend(4u32.to_le_bytes());
         b.extend(len.to_le_bytes());
         b.extend([0u8; 8]);
-        assert_eq!(parse(&b), Err(ParseError::NeedMore));
+        let r = parse(&b);
+        if len == u64::MAX {
+            assert!(matches!(r, Err(ParseError::Invalid(_))), "{r:?}");
+        } else {
+            assert_eq!(r, Err(ParseError::NeedMore));
+        }
     }
 }
