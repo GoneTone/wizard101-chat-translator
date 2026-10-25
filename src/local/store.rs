@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,8 +20,8 @@ pub struct ManifestFile {
 }
 
 impl ManifestFile {
-    fn local_name(&self) -> &str {
-        self.path.rsplit('/').next().unwrap_or(&self.path)
+    fn local_name(&self) -> Option<&str> {
+        Path::new(&self.path).file_name()?.to_str()
     }
 }
 
@@ -64,18 +64,33 @@ pub fn models_dir(root: &Path) -> PathBuf {
     root.join("models")
 }
 
-fn model_dir(root: &Path, id: &str) -> PathBuf {
-    models_dir(root).join(id)
+/// id 必須恰為單一路徑元件，避免 config 手改後跳出 `models/`。
+fn is_valid_id(id: &str) -> bool {
+    let mut parts = Path::new(id).components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(Component::Normal(n)), None) if n == id
+    )
+}
+
+fn model_dir(root: &Path, id: &str) -> io::Result<PathBuf> {
+    if !is_valid_id(id) {
+        log(format!("[local] rejected invalid model id={id:?}"));
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    Ok(models_dir(root).join(id))
 }
 
 /// 寫入（覆蓋）模型的 `manifest.json`，必要時建立資料夾。
 pub fn write_manifest(root: &Path, id: &str, manifest: &Manifest) -> io::Result<()> {
     let text = serde_json::to_string_pretty(manifest).map_err(io::Error::other)?;
-    write_atomic(&model_dir(root, id).join(MANIFEST_NAME), &text)
+    write_atomic(&model_dir(root, id)?.join(MANIFEST_NAME), &text)
 }
 
 fn file_complete(dir: &Path, f: &ManifestFile) -> bool {
-    let name = f.local_name();
+    let Some(name) = f.local_name() else {
+        return false;
+    };
     fs::metadata(dir.join(name)).is_ok_and(|m| m.len() == f.size)
         && !dir.join(format!("{name}.part")).exists()
 }
@@ -90,7 +105,15 @@ pub fn list(root: &Path) -> Vec<Installed> {
         .filter_map(|e| {
             let dir = e.path();
             let id = e.file_name().to_string_lossy().into_owned();
-            let text = fs::read_to_string(dir.join(MANIFEST_NAME)).ok()?;
+            let text = match fs::read_to_string(dir.join(MANIFEST_NAME)) {
+                Ok(t) => t,
+                Err(err) => {
+                    if err.kind() != io::ErrorKind::NotFound {
+                        log(format!("[local] skip unreadable manifest id={id}: {err}"));
+                    }
+                    return None;
+                }
+            };
             let manifest: Manifest = match serde_json::from_str(&text) {
                 Ok(m) => m,
                 Err(err) => {
@@ -98,11 +121,12 @@ pub fn list(root: &Path) -> Vec<Installed> {
                     return None;
                 }
             };
-            let complete = manifest
-                .files
-                .iter()
-                .chain(&manifest.mtp)
-                .all(|f| file_complete(&dir, f));
+            let complete = !manifest.files.is_empty()
+                && manifest
+                    .files
+                    .iter()
+                    .chain(&manifest.mtp)
+                    .all(|f| file_complete(&dir, f));
             Some(Installed {
                 id,
                 manifest,
@@ -116,19 +140,21 @@ pub fn list(root: &Path) -> Vec<Installed> {
 
 /// 模型的主 GGUF（第一個分檔）。
 pub fn main_file(root: &Path, m: &Installed) -> PathBuf {
-    let name = m.manifest.files.first().map_or("", |f| f.local_name());
-    model_dir(root, &m.id).join(name)
+    debug_assert!(is_valid_id(&m.id));
+    let name = m.manifest.files.first().and_then(|f| f.local_name());
+    models_dir(root).join(&m.id).join(name.unwrap_or_default())
 }
 
 /// 模型的 MTP 檔（若有）。
 pub fn mtp_file(root: &Path, m: &Installed) -> Option<PathBuf> {
-    let f = m.manifest.mtp.as_ref()?;
-    Some(model_dir(root, &m.id).join(f.local_name()))
+    debug_assert!(is_valid_id(&m.id));
+    let name = m.manifest.mtp.as_ref()?.local_name()?;
+    Some(models_dir(root).join(&m.id).join(name))
 }
 
 /// 刪除模型資料夾；不存在視為成功。
 pub fn delete(root: &Path, id: &str) -> io::Result<()> {
-    match fs::remove_dir_all(model_dir(root, id)) {
+    match fs::remove_dir_all(model_dir(root, id)?) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }
@@ -178,7 +204,7 @@ mod tests {
     #[test]
     fn partial_files_mark_the_model_incomplete() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = model_dir(tmp.path(), "m");
+        let dir = model_dir(tmp.path(), "m").unwrap();
         write_manifest(tmp.path(), "m", &manifest()).unwrap();
         fs::write(dir.join("m-1.gguf"), b"abc").unwrap();
         fs::write(dir.join("m-2.gguf.part"), b"x").unwrap();
@@ -197,7 +223,7 @@ mod tests {
     #[test]
     fn wrong_size_is_incomplete() {
         let tmp = tempfile::tempdir().unwrap();
-        let dir = model_dir(tmp.path(), "m");
+        let dir = model_dir(tmp.path(), "m").unwrap();
         write_manifest(tmp.path(), "m", &manifest()).unwrap();
         for (n, c) in [("m-1.gguf", "abc"), ("m-2.gguf", "x"), ("mtp.gguf", "z")] {
             fs::write(dir.join(n), c).unwrap();
@@ -210,12 +236,40 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         write_manifest(tmp.path(), "b", &manifest()).unwrap();
         write_manifest(tmp.path(), "a", &manifest()).unwrap();
-        let bad = model_dir(tmp.path(), "bad");
+        let bad = model_dir(tmp.path(), "bad").unwrap();
         fs::create_dir_all(&bad).unwrap();
         fs::write(bad.join(MANIFEST_NAME), "{nope").unwrap();
-        fs::create_dir_all(model_dir(tmp.path(), "empty")).unwrap();
+        fs::create_dir_all(model_dir(tmp.path(), "empty").unwrap()).unwrap();
         let ids: Vec<_> = list(tmp.path()).into_iter().map(|m| m.id).collect();
         assert_eq!(ids, ["a", "b"]);
+    }
+
+    #[test]
+    fn invalid_ids_are_rejected_and_touch_nothing_outside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sibling = tmp.path().join("config.json");
+        fs::write(&sibling, "{}").unwrap();
+        write_manifest(tmp.path(), "keep", &manifest()).unwrap();
+        for id in ["..", ".", "", "a/b", r"a\b", r"C:\x", "../x"] {
+            let e = delete(tmp.path(), id).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "{id:?}");
+            let e = write_manifest(tmp.path(), id, &manifest()).unwrap_err();
+            assert_eq!(e.kind(), io::ErrorKind::InvalidInput, "{id:?}");
+        }
+        assert!(sibling.exists());
+        assert_eq!(list(tmp.path()).len(), 1);
+    }
+
+    #[test]
+    fn hostile_file_paths_and_empty_files_are_incomplete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut m = manifest();
+        m.files = vec![];
+        m.mtp = None;
+        write_manifest(tmp.path(), "e", &m).unwrap();
+        m.files = vec![file("..", 0)];
+        write_manifest(tmp.path(), "h", &m).unwrap();
+        assert!(list(tmp.path()).iter().all(|i| !i.complete));
     }
 
     #[test]
