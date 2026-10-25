@@ -86,6 +86,7 @@ fn page_name(page: Page) -> &'static str {
     match page {
         Page::Basic => "basic",
         Page::Services => "services",
+        Page::LocalModels => "local_models",
         Page::Glossaries => "glossaries",
         Page::Advanced => "advanced",
         Page::About => "about",
@@ -96,6 +97,7 @@ fn settings_pages(language: &'static str, size: Vec2, tag: &str) {
     for page in [
         Page::Basic,
         Page::Services,
+        Page::LocalModels,
         Page::Glossaries,
         Page::Advanced,
         Page::About,

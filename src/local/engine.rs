@@ -110,7 +110,8 @@ fn asset_of(a: &Value) -> Option<Asset> {
     })
 }
 
-fn build_number(tag: &str) -> Option<u32> {
+/// `b1234` 形式的 tag 取出編號。
+pub fn build_number(tag: &str) -> Option<u32> {
     TAG.captures(tag).and_then(|c| c[1].parse().ok())
 }
 

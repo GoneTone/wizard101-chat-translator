@@ -1,4 +1,4 @@
-//! 設定視窗的內容：側欄五個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
+//! 設定視窗的內容：側欄六個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
 //!
 //! 介面語言改了就先預覽（呼叫 `set_language`），按儲存才寫進設定，取消則還原成開窗時的語言。
 
@@ -16,6 +16,7 @@ use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::GlossaryDraft;
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
+use super::local_pane::LocalPane;
 use super::service_draft::ServiceDraft;
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
@@ -27,6 +28,7 @@ use super::{flag_setting, setting, text_setting};
 use crate::config::services::{ServiceSlot, find, slot_id, validate_service};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
+use crate::local::Snapshot;
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
@@ -40,15 +42,17 @@ pub type SaveError = (String, Vec<(&'static str, String)>);
 pub enum Page {
     Basic,
     Services,
+    LocalModels,
     Glossaries,
     Advanced,
     About,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [
+    const ALL: [Page; 6] = [
         Self::Basic,
         Self::Services,
+        Self::LocalModels,
         Self::Glossaries,
         Self::Advanced,
         Self::About,
@@ -58,6 +62,7 @@ impl Page {
         match self {
             Self::Basic => "settings.tab.basic",
             Self::Services => "settings.tab.services",
+            Self::LocalModels => "settings.tab.local",
             Self::Glossaries => "settings.tab.glossaries",
             Self::Advanced => "settings.tab.advanced",
             Self::About => "settings.tab.about",
@@ -68,6 +73,7 @@ impl Page {
         match self {
             Self::Basic => icon::BASIC,
             Self::Services => icon::SERVICES,
+            Self::LocalModels => icon::LOCAL,
             Self::Glossaries => icon::GLOSSARIES,
             Self::Advanced => icon::ADVANCED,
             Self::About => icon::ABOUT,
@@ -103,6 +109,9 @@ pub struct SettingsWindow {
     auto_show_input: bool,
     paste_hotkey: bool,
     services: ServicePane,
+    local: LocalPane,
+    /// 這一幀開頭取的本地模型快照；頁面與儲存檢查讀同一份。
+    snapshot: Snapshot,
     glossaries: GlossaryPane,
     advanced: AdvancedText,
     translate_system: bool,
@@ -129,6 +138,8 @@ impl SettingsWindow {
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
+            local: LocalPane::new(cfg),
+            snapshot: Snapshot::default(),
             glossaries: GlossaryPane::new(GlossaryDraft::from_config(cfg)),
             advanced: AdvancedText {
                 fade_seconds: number("fade_seconds"),
@@ -181,6 +192,7 @@ impl SettingsWindow {
     /// 畫整個視窗內容；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
         self.hotkeys.release(env);
+        self.snapshot = env.local_snapshot();
         let full = ui.available_rect_before_wrap();
         let (side, content) = full.split_left_right_at_x(full.left() + theme::SIDEBAR_WIDTH);
         ui.painter().rect_filled(side, 0, theme::SIDEBAR_BG);
@@ -231,6 +243,7 @@ impl SettingsWindow {
         }
         self.services.draft().write_into(&mut cfg);
         self.glossaries.draft().write_into(&mut cfg);
+        crate::config::local::write_into(&mut cfg, self.local.settings());
         let target = pystr::strip(&self.target_language);
         self.hotkeys.write_into(&mut cfg);
         let values = [
@@ -391,6 +404,10 @@ impl SettingsWindow {
                         target => target.to_owned(),
                     };
                     self.services.ui(ui, env, &target);
+                }
+                Page::LocalModels => {
+                    let services = &self.services.draft().services;
+                    self.local.ui(ui, env, &self.snapshot, services);
                 }
                 Page::Glossaries => self.glossaries.ui(ui, env),
                 Page::Advanced => self.advanced_page(ui),

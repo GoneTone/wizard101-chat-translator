@@ -402,22 +402,27 @@ fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f
             ui.add(Label::new(RichText::new(name).font(font)).truncate());
         });
         for badge in badges {
-            Frame::new()
-                .fill(theme::PILL_BG)
-                .corner_radius(10)
-                .inner_margin(Margin::symmetric(8, 1))
-                .show(ui, |ui| {
-                    ui.add(
-                        Label::new(
-                            RichText::new(badge)
-                                .font(pill_font.clone())
-                                .color(theme::PILL_TEXT),
-                        )
-                        .selectable(false),
-                    );
-                });
+            pill(ui, badge);
         }
     });
+}
+
+/// 圓角小標籤（`PILL_BG` 底）。
+pub(super) fn pill(ui: &mut Ui, text: &str) {
+    Frame::new()
+        .fill(theme::PILL_BG)
+        .corner_radius(10)
+        .inner_margin(Margin::symmetric(8, 1))
+        .show(ui, |ui| {
+            ui.add(
+                Label::new(
+                    RichText::new(text)
+                        .font(FontId::proportional(11.5))
+                        .color(theme::PILL_TEXT),
+                )
+                .selectable(false),
+            );
+        });
 }
 
 /// 設定列裡下拉最多占整列寬度的比例。
