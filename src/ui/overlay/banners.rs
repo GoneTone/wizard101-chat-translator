@@ -34,6 +34,8 @@ pub struct Banners {
     /// 最近一次存設定失敗；下一次存檔成功才清掉。
     config_unsaved: bool,
     update: Option<Release>,
+    /// 正在載入的本地模型顯示名稱；有值時顯示資訊列。
+    local_loading: Option<String>,
     dismissed: Option<String>,
     error_height: f32,
     /// 這一幀更新橫幅看得到的範圍；內容區底色要避開它。
@@ -76,6 +78,21 @@ impl Banners {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
+    /// 本地模型開始載入（`Some(顯示名稱)`）或載入結束（`None`）；只在狀態改變時記 log。
+    pub fn set_local_loading(&mut self, model: Option<String>) {
+        if self.local_loading.is_some() != model.is_some() {
+            let state = if model.is_some() { "shown" } else { "cleared" };
+            log(format!("[ui] local model loading banner {state}"));
+        }
+        self.local_loading = model;
+    }
+
+    /// 載入橫幅目前的文字（不含在錯誤橫幅內）；沒有回 `None`。
+    pub fn info_text(&self) -> Option<String> {
+        let model = self.local_loading.as_ref()?;
+        Some(t("local.banner.loading", &[("model", model)]))
+    }
+
     /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出；手動檢查直接走 `set_update`。
     pub fn offer_update(&mut self, release: Release) {
         if let Some(dismissed) = self
@@ -116,6 +133,16 @@ impl Banners {
         self.error_rect = None;
         if let Some(release) = self.update.clone() {
             bottom = self.update_row(ui, rect, clip, on_band, &release, alpha);
+        }
+        if let Some(text) = self.info_text() {
+            let top = info_row(ui, rect, clip, bottom, &text, alpha);
+            let strip = Rect::from_min_max(pos2(rect.min.x, top), pos2(rect.max.x, bottom));
+            self.update_rect = Some(
+                self.update_rect
+                    .map_or(strip, |u| u.union(strip))
+                    .intersect(clip),
+            );
+            bottom = top - PAD_Y;
         }
         if let Some(text) = self.error_text() {
             // 換行後的高度要排完才知道：先用上一輪量到的高度定位，高度變了就重跑這一輪
@@ -245,6 +272,31 @@ impl Banners {
         }
         row_rect.min.y - PAD_Y
     }
+}
+
+/// 在 `bottom` 之上畫不可點的資訊列（更新橫幅的配色），回傳這列的上緣。
+fn info_row(ui: &Ui, rect: Rect, clip: Rect, bottom: f32, text: &str, alpha: f32) -> f32 {
+    let painter = ui.painter_at(clip);
+    let width = rect.width() - GRIP_SIZE;
+    let galley = painter.layout(
+        text.to_owned(),
+        FontId::proportional(tk_pt(BANNER_PT)),
+        FG_UPDATE,
+        (width - TEXT_MARGIN).max(1.0),
+    );
+    let height = galley.size().y;
+    let row_rect = Rect::from_min_size(
+        pos2(rect.min.x, bottom - PAD_Y - height),
+        vec2(width, height),
+    );
+    let fill = BG_UPDATE.gamma_multiply(bar_alpha(alpha));
+    painter.add(glass::window_piece(row_rect, ui.max_rect(), fill));
+    painter.galley(
+        pos2(row_rect.min.x + TEXT_MARGIN, row_rect.min.y),
+        galley,
+        FG_UPDATE,
+    );
+    row_rect.min.y - PAD_Y
 }
 
 /// 游標或按壓起點壓在外框的縮放帶上：橫幅讓給縮放，不換手指游標、不開連結。
@@ -543,5 +595,36 @@ mod tests {
         );
         let harness = harness(banners);
         harness.get_by_label("https://a.example/keys");
+    }
+
+    #[test]
+    fn loading_banner_is_an_info_line_apart_from_the_error_banner() {
+        let mut banners = Banners::default();
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        assert_eq!(
+            banners.info_text(),
+            Some(t("local.banner.loading", &[("model", "Qwen3.5-9B")]))
+        );
+        assert_eq!(banners.error_text(), None);
+        banners.set_local_loading(None);
+        assert_eq!(banners.info_text(), None);
+    }
+
+    #[test]
+    fn loading_banner_stacks_above_the_update_row_and_below_the_list() {
+        let mut banners = Banners::default();
+        banners.set_update(release("0.2.0"));
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        let harness = harness(banners);
+        let loading = text_rect(
+            &harness,
+            &t("local.banner.loading", &[("model", "Qwen3.5-9B")]),
+        )
+        .expect("loading banner painted");
+        let update = harness
+            .get_by_label(&t("update.available", &[("version", "0.2.0")]))
+            .rect();
+        assert!(loading.max.y <= update.min.y, "{loading:?} {update:?}");
+        assert!(harness.state().rest.max.y <= loading.min.y);
     }
 }

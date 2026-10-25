@@ -18,6 +18,7 @@
   "notice.offline_status": "⚠  Translation server responded with HTTP {status} — retrying…",
   "notice.offline_detail": "⚠  Cannot reach the translation server: {message} — retrying…",
   "update.available": "⬆  Version {version} is available — click to download",
+  "local.banner.loading": "Loading local model ({model})…",
   "update.latest": "You're on the latest version",
   "update.failed": "Update check failed: {error}",
   "status.locating": "●  Connecting to game…",

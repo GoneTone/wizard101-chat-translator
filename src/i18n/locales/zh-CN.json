@@ -18,6 +18,7 @@
   "notice.offline_status": "⚠  翻译服务器响应 HTTP {status}，重试中…",
   "notice.offline_detail": "⚠  无法连接到翻译服务器：{message}，重试中…",
   "update.available": "⬆  有新版本 v{version}，点此下载",
+  "local.banner.loading": "正在加载本地模型（{model}）…",
   "update.latest": "已是最新版本",
   "update.failed": "检查更新失败：{error}",
   "status.locating": "●  连接游戏中…",

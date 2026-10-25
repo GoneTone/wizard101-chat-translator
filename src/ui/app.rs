@@ -516,7 +516,10 @@ impl App {
                 _ => {}
             },
             UiEvent::LocalChanged => ctx.request_repaint(),
-            UiEvent::LocalLoading(_) => {}
+            UiEvent::LocalLoading(model) => {
+                self.banners.set_local_loading(model);
+                ctx.request_repaint();
+            }
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
