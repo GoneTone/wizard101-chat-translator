@@ -110,6 +110,8 @@ struct Sample {
     /// 還沒量（或沒有 PID）時為預設值。
     reading: Reading,
     all_on_gpu: Option<bool>,
+    /// 以記憶體對映留在系統記憶體的權重（見 [`Process::mapped`]）。
+    mapped: u64,
     unloaded: bool,
     mtp: bool,
     engine: String,
@@ -122,6 +124,7 @@ impl Sample {
             pid: process.pid(),
             reading: Reading::default(),
             all_on_gpu: process.all_on_gpu(),
+            mapped: process.mapped(),
             unloaded: process.unloaded(),
             mtp: running.mtp,
             engine: running.engine.label.clone(),
@@ -321,7 +324,8 @@ impl Local {
             };
             let sample = self.read(sample);
             total.vram += sample.reading.usage.vram;
-            total.ram += sample.reading.usage.ram;
+            // 停掉時整個 working set（含對映的模型檔）都會空出來
+            total.ram += sample.reading.resident;
             match start {
                 Ok(_start) => self.record(&id, sample),
                 Err(_) => log(format!(
@@ -362,9 +366,11 @@ impl Local {
         let Some(mut model) = store::list(&self.root).into_iter().find(|m| m.id == id) else {
             return;
         };
+        // 留在系統記憶體跑的權重以對映讀進來，不在私有的 working set 裡
+        let ram = usage.ram + sample.mapped;
         let measured = Measured {
             vram: usage.vram,
-            ram: usage.ram,
+            ram,
             all_on_gpu,
             mtp: sample.mtp,
             engine: sample.engine,
@@ -374,8 +380,15 @@ impl Local {
             return;
         }
         log(format!(
-            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={} engine={} (seen now: vram={} ram={})",
-            measured.vram, measured.ram, measured.mtp, measured.engine, usage.vram, usage.ram
+            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={} engine={} (seen now: vram={} ram={ram} = private {} + mapped {}, working set {})",
+            measured.vram,
+            measured.ram,
+            measured.mtp,
+            measured.engine,
+            usage.vram,
+            usage.ram,
+            sample.mapped,
+            sample.reading.resident
         ));
         model.manifest.measured = Some(measured);
         if let Err(e) = store::write_manifest(&self.root, id, &model.manifest) {

@@ -39,6 +39,7 @@ struct FakeProcess {
     kill_delay: Arc<Mutex<Duration>>,
     pid: u32,
     all_on_gpu: Arc<Mutex<Option<bool>>>,
+    mapped: Arc<Mutex<u64>>,
     unloaded: Arc<Mutex<bool>>,
     _health: Option<MockServer>,
 }
@@ -65,6 +66,9 @@ impl Process for FakeProcess {
     }
     fn all_on_gpu(&self) -> Option<bool> {
         *self.all_on_gpu.lock().unwrap()
+    }
+    fn mapped(&self) -> u64 {
+        *self.mapped.lock().unwrap()
     }
     fn unloaded(&self) -> bool {
         *self.unloaded.lock().unwrap()
@@ -98,6 +102,10 @@ struct Shared {
     usage_pids: Arc<Mutex<Vec<u32>>>,
     /// 假 llama-server 回報的「每層都在 GPU」；`None` 是還沒印 `load_tensors: offloaded`。
     all_on_gpu: Arc<Mutex<Option<bool>>>,
+    /// 假 llama-server 回報的對映權重（`CPU_Mapped` buffer）。
+    mapped: Arc<Mutex<u64>>,
+    /// 每台假 llama-server 的 working set 比私有部分多出的（對映的模型檔）。
+    shared_pages: Arc<Mutex<u64>>,
     /// 假 llama-server 睡眠中（模型不在記憶體裡）。
     unloaded: Arc<Mutex<bool>>,
     /// GPU 計數器讀不到。
@@ -130,6 +138,7 @@ impl Launcher for FakeLauncher {
             kill_delay: s.kill_delay.clone(),
             pid: u32::from(port),
             all_on_gpu: s.all_on_gpu.clone(),
+            mapped: s.mapped.clone(),
             unloaded: s.unloaded.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
@@ -159,11 +168,13 @@ impl Launcher for FakeLauncher {
         *self.shared.usage_pids.lock().unwrap() = pids.to_vec();
         let each = *self.shared.usage_per_server.lock().unwrap();
         let n = pids.len() as u64;
+        let shared_pages = *self.shared.shared_pages.lock().unwrap();
         Reading {
             usage: Usage {
                 vram: each.vram * n,
                 ram: each.ram * n,
             },
+            resident: (each.ram + shared_pages) * n,
             gpu_read: !*self.shared.gpu_unreadable.lock().unwrap(),
         }
     }
@@ -1126,6 +1137,32 @@ async fn a_ready_server_records_what_it_used() {
     assert_eq!(f.local.snapshot().models[0].manifest.measured, want);
 }
 
+/// 實測的 RAM 是私有的 working set 加上對映留在系統記憶體的權重；加回可用量的是整個 working set（停掉時都會空出來）。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ram_need_excludes_mapped_pages_the_gpu_already_holds() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 5 * G,
+        ram: G / 2,
+    };
+    *f.shared.mapped.lock().unwrap() = G / 2;
+    *f.shared.shared_pages.lock().unwrap() = 5 * G;
+    f.local.ensure("m1").await.unwrap();
+    let measured = store::list(&f.root)[0].manifest.measured.clone().unwrap();
+    assert_eq!((measured.vram, measured.ram), (5 * G, G));
+    redetect_until(
+        &f,
+        Usage {
+            vram: 5 * G,
+            ram: G / 2 + 5 * G,
+        },
+    )
+    .await;
+}
+
 /// 重新偵測時再量跑著的模型，保留量過的最大值（第一次請求後佔用會再長）。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn redetecting_keeps_the_largest_measurement() {
@@ -1374,7 +1411,7 @@ async fn mtp_turned_off_by_the_setting_is_not_a_fallback() {
     assert_eq!(need.basis, Basis::Derived, "MTP back on");
 }
 
-/// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。
+/// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測；RAM 含對映分頁的舊實測（`measured` 鍵）作廢。
 #[test]
 fn manifests_without_a_measurement_still_load() {
     let dir = tempfile::tempdir().unwrap();
@@ -1387,7 +1424,8 @@ fn manifests_without_a_measurement_still_load() {
         "mtp": null,
         "moe": false,
         "has_builtin_mtp": false,
-        "required": 1
+        "required": 1,
+        "measured": {"vram": 1, "ram": 9, "all_on_gpu": true, "mtp": false, "engine": ""}
     });
     fs::write(folder.join("manifest.json"), old.to_string()).unwrap();
     let list = store::list(dir.path());

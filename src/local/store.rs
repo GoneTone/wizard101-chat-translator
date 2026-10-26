@@ -40,7 +40,8 @@ pub struct Manifest {
     /// 預估所需位元組（沒載入過時判斷相容用）。
     pub required: u64,
     /// 載入後量到的實際佔用；沒載入過為 `None`。
-    #[serde(default)]
+    // 舊鍵 `measured` 的 RAM 含已搬上 GPU 的對映分頁、偏高，換鍵名讓它作廢
+    #[serde(default, rename = "measurement")]
     pub measured: Option<Measured>,
     /// 主模型的層數（GGUF 的 `block_count`）；較早的清單沒有，為 0。
     #[serde(default)]

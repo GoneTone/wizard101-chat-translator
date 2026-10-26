@@ -100,6 +100,10 @@ pub trait Process: Send {
     fn all_on_gpu(&self) -> Option<bool> {
         None
     }
+    /// 這次載入以記憶體對映放在系統記憶體的權重（llama.cpp 的 `CPU_Mapped` buffer，位元組）；不在 private working set 裡。
+    fn mapped(&self) -> u64 {
+        0
+    }
     /// 模型不在記憶體裡（睡眠中，或醒來重新載入還沒完成），這時量到的不是模型的佔用。
     fn unloaded(&self) -> bool {
         false
@@ -173,6 +177,9 @@ impl Process for RealProcess {
     fn all_on_gpu(&self) -> Option<bool> {
         self.output.lock().unwrap().all_on_gpu()
     }
+    fn mapped(&self) -> u64 {
+        self.output.lock().unwrap().mapped
+    }
     fn unloaded(&self) -> bool {
         self.output.lock().unwrap().unloaded
     }
@@ -241,6 +248,8 @@ fn pump_lines(
 struct Output {
     /// 這次載入每層都放 GPU（`load_tensors: offloaded n/n`）；還沒看到為 `None`。
     layers_on_gpu: Option<bool>,
+    /// 這次載入以記憶體對映留在系統記憶體的權重（`CPU_Mapped` buffer 加總，位元組）；不在 working set 的私有部分裡。
+    mapped: u64,
     /// `--fit` 把層或張量（例如 MoE 專家）移到系統記憶體；在同一個程序裡跨重新載入保留。
     ///
     /// 醒來重新載入沿用第一次 fit 寫回的參數，第二次 fit 只會報 `already set by user` 失敗、不再印
@@ -262,6 +271,7 @@ impl Default for Output {
     fn default() -> Self {
         Self {
             layers_on_gpu: None,
+            mapped: 0,
             fit_moved: false,
             fit_run_moved: false,
             unloaded: false,
@@ -292,7 +302,8 @@ impl Output {
             return true;
         }
         if line.contains("server is exiting sleeping state") {
-            (self.layers_on_gpu, self.unloaded, self.fit_run_moved) = (None, true, false);
+            (self.layers_on_gpu, self.mapped) = (None, 0);
+            (self.unloaded, self.fit_run_moved) = (true, false);
             (self.loading, self.fit_pending) = (true, true);
             return true;
         }
@@ -308,7 +319,7 @@ impl Output {
             (self.loading, self.unloaded) = (false, false);
         }
         if self.fit_pending && line.contains("common_params_fit_impl:") {
-            (self.layers_on_gpu, self.fit_pending) = (None, false);
+            (self.layers_on_gpu, self.mapped, self.fit_pending) = (None, 0, false);
         }
         if line.contains("getting device memory data for initial parameters") {
             self.fit_run_moved = false;
@@ -322,6 +333,7 @@ impl Output {
             self.fit_moved = false;
         }
         self.layers_on_gpu = track_offload(self.layers_on_gpu, line);
+        self.mapped += mapped_bytes(line);
         logged
     }
 
@@ -337,6 +349,18 @@ impl Output {
             None => !line.is_empty() && (self.last_logged || CRASH.is_match(line)),
         }
     }
+}
+
+/// `load_tensors:   CPU_Mapped model buffer size = X MiB` 的大小；其他行為 0。
+///
+/// 只算對映檔案的 buffer：其他 buffer（CUDA_Host、CPU_REPACK 等）是私有記憶體，已在 private working set 裡。
+fn mapped_bytes(line: &str) -> u64 {
+    static LINE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"load_tensors:\s+CPU_Mapped model buffer size =\s+([\d.]+) MiB").unwrap()
+    });
+    LINE.captures(line)
+        .and_then(|c| c[1].parse::<f64>().ok())
+        .map_or(0, |mib| (mib * (1u64 << 20) as f64) as u64)
 }
 
 /// 依一行輸出更新「每層都在 GPU」：看到 `load_tensors: offloaded n/m layers to GPU` 才有值，任一次 n < m 就是 `false`。
@@ -642,6 +666,33 @@ mod tests {
         ];
         let (_, logged) = feed(&lines);
         assert_eq!(logged, [true, false, true, true]);
+    }
+
+    /// 以記憶體對映留在系統記憶體的權重：主模型與草稿模型的 `CPU_Mapped` 行加總，其他 buffer 不算；醒來重新載入重算。
+    #[test]
+    fn mapped_buffers_add_up_per_load() {
+        const MIB: u64 = 1 << 20;
+        let load = [
+            "0.29.791.778 I load_tensors: offloaded 43/43 layers to GPU",
+            "0.29.791.782 I load_tensors:   CPU_Mapped model buffer size =  1848.00 MiB",
+            "0.29.791.784 I load_tensors:   CPU_Mapped model buffer size =   440.00 MiB",
+            "0.29.791.784 I load_tensors:        CUDA0 model buffer size =  3025.74 MiB",
+            "0.34.667.604 I load_tensors:   CPU_Mapped model buffer size =    68.50 MiB",
+            "0.36.341.800 I sched_reserve:  CUDA_Host compute buffer size =    50.03 MiB",
+            "0.39.341.105 I srv  server_on_li: listening on http://127.0.0.1:1",
+        ];
+        let mut lines = load.to_vec();
+        assert_eq!(
+            feed(&lines).0.mapped,
+            (1848 + 440) * MIB + 68 * MIB + MIB / 2
+        );
+        lines.extend([
+            "9.00.000.000 I srv  handle_sleep: server is entering sleeping state",
+            "9.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
+        ]);
+        assert_eq!(feed(&lines).0.mapped, 0, "reload pending");
+        lines.extend(&load[..3]);
+        assert_eq!(feed(&lines).0.mapped, (1848 + 440) * MIB);
     }
 
     /// 同一次 fit 裡只要有裝置要調整，另一個裝置說不必調整也不算沒移動（多顯示卡）。

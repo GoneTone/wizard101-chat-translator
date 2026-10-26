@@ -1,4 +1,4 @@
-//! 本程式啟動的 llama-server 實際佔用的記憶體：專用 GPU 記憶體讀 Windows 效能計數器，RAM 讀程序的 working set。
+//! 本程式啟動的 llama-server 實際佔用的記憶體：專用 GPU 記憶體讀 Windows 效能計數器，RAM 讀程序的 working set（私有部分與整體）。
 
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Performance::{
@@ -6,7 +6,9 @@ use windows_sys::Win32::System::Performance::{
     PdhAddEnglishCounterW, PdhCloseQuery, PdhCollectQueryData, PdhGetFormattedCounterArrayW,
     PdhOpenQueryW,
 };
-use windows_sys::Win32::System::ProcessStatus::{K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS};
+use windows_sys::Win32::System::ProcessStatus::{
+    K32GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS, PROCESS_MEMORY_COUNTERS_EX2,
+};
 use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
 
 use crate::logs::log;
@@ -19,35 +21,45 @@ pub struct Usage {
 }
 
 /// 一次量測；`gpu_read` 為 false 時需要的 GPU 計數器讀不到，那部分當 0。
+///
+/// `usage.ram` 只算程序私有的 working set；模型檔以記憶體對映讀進來的分頁不算（已搬上 GPU 的權重在
+/// Windows 上仍留著對映，記憶體吃緊時系統可直接丟掉）。`resident` 是整個 working set，程序結束時會全部空出來。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Reading {
     pub usage: Usage,
+    pub resident: u64,
     pub gpu_read: bool,
 }
 
 /// `pids` 合計的 VRAM 與 RAM 佔用；讀不到的部分記 log 並當 0。
 ///
 /// 獨顯：專用 GPU 記憶體為 VRAM、working set 為 RAM（共享 GPU 記憶體不加，免得與 working set 重複）。
-/// 內顯（`integrated`）：沒有 VRAM，專用＋共享 GPU 記憶體與 working set 都算 RAM。
+/// 內顯（`integrated`）：沒有 VRAM，專用＋共享 GPU 記憶體也算 RAM。
 pub fn process_usage(pids: &[u32], integrated: bool) -> Reading {
     if pids.is_empty() {
         return Reading {
-            usage: Usage::default(),
             gpu_read: true,
+            ..Reading::default()
         };
     }
     let (dedicated, shared) = gpu_memory(pids).unwrap_or_else(|e| {
         log(format!("[local] reading GPU process memory failed: {e}"));
         (None, None)
     });
-    let ram = pids.iter().map(|&pid| working_set(pid)).sum();
+    let ram = pids
+        .iter()
+        .map(|&pid| working_set(pid))
+        .fold(WorkingSet::default(), |a, w| WorkingSet {
+            private: a.private + w.private,
+            total: a.total + w.total,
+        });
     combine(dedicated, shared, ram, integrated)
 }
 
 fn combine(
     dedicated: Option<u64>,
     shared: Option<u64>,
-    working_set: u64,
+    ws: WorkingSet,
     integrated: bool,
 ) -> Reading {
     let (d, s) = (dedicated.unwrap_or(0), shared.unwrap_or(0));
@@ -55,16 +67,18 @@ fn combine(
         Reading {
             usage: Usage {
                 vram: 0,
-                ram: working_set + d + s,
+                ram: ws.private + d + s,
             },
+            resident: ws.total + d + s,
             gpu_read: dedicated.is_some() && shared.is_some(),
         }
     } else {
         Reading {
             usage: Usage {
                 vram: d,
-                ram: working_set,
+                ram: ws.private,
             },
+            resident: ws.total,
             gpu_read: dedicated.is_some(),
         }
     }
@@ -175,57 +189,81 @@ unsafe fn wide_str(ptr: *const u16) -> String {
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(ptr, len) })
 }
 
-/// 程序目前佔用的實體記憶體（working set）；讀不到回 0。
-fn working_set(pid: u32) -> u64 {
+/// 程序的 working set（位元組）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct WorkingSet {
+    /// 程序私有、不能直接丟掉的部分。
+    private: u64,
+    /// 含對映檔案等可共用分頁的整體。
+    total: u64,
+}
+
+/// 程序目前佔用的實體記憶體；讀不到回 0。
+fn working_set(pid: u32) -> WorkingSet {
     // SAFETY: 只要查詢權限；失敗回 null
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if handle.is_null() {
         log(format!(
             "[local] cannot open llama-server pid={pid} to read its memory"
         ));
-        return 0;
+        return WorkingSet::default();
     }
-    // SAFETY: 結構清零並設好 cb，handle 有效
-    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
-    counters.cb = size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
-    let ok = unsafe { K32GetProcessMemoryInfo(handle, &mut counters, counters.cb) };
+    // SAFETY: 結構清零並設好 cb，handle 有效；EX2 開頭與 PROCESS_MEMORY_COUNTERS 相同
+    let mut counters: PROCESS_MEMORY_COUNTERS_EX2 = unsafe { std::mem::zeroed() };
+    counters.cb = size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32;
+    let ok = unsafe {
+        K32GetProcessMemoryInfo(
+            handle,
+            (&raw mut counters).cast::<PROCESS_MEMORY_COUNTERS>(),
+            counters.cb,
+        )
+    };
     // SAFETY: handle 由 OpenProcess 開成功
     unsafe { CloseHandle(handle) };
     if ok == 0 {
         log(format!(
             "[local] reading memory of llama-server pid={pid} failed"
         ));
-        return 0;
+        return WorkingSet::default();
     }
-    counters.WorkingSetSize as u64
+    WorkingSet {
+        private: counters.PrivateWorkingSetSize as u64,
+        total: counters.WorkingSetSize as u64,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// 實際讀一次本程序：working set 一定大於 0，GPU 計數器讀得到（沒用 GPU 時為 0）。
+    /// 實際讀一次本程序：私有的 working set 大於 0 且不超過整體，GPU 計數器讀得到（沒用 GPU 時為 0）。
     #[test]
     fn reads_the_current_process() {
         let reading = process_usage(&[std::process::id()], false);
         assert!(reading.usage.ram > 0, "{reading:?}");
+        assert!(reading.usage.ram <= reading.resident, "{reading:?}");
         assert!(reading.gpu_read, "{reading:?}");
         let (dedicated, shared) = gpu_memory(&[std::process::id()]).unwrap();
         assert!(dedicated.is_some() && shared.is_some());
         assert_eq!(process_usage(&[], false).usage, Usage::default());
     }
 
-    /// 獨顯不加共享 GPU 記憶體、只要專用的讀得到；內顯的專用＋共享都算 RAM，兩個都要讀得到。
+    /// RAM 只算私有的 working set、`resident` 算整體；獨顯不加共享 GPU 記憶體、只要專用的讀得到；內顯的專用＋共享都算 RAM，兩個都要讀得到。
     #[test]
     fn integrated_gpu_memory_counts_as_ram() {
-        let read = |vram, ram, gpu_read| Reading {
+        let ws = WorkingSet {
+            private: 10,
+            total: 40,
+        };
+        let read = |vram, ram, resident, gpu_read| Reading {
             usage: Usage { vram, ram },
+            resident,
             gpu_read,
         };
-        assert_eq!(combine(Some(3), Some(2), 10, false), read(3, 10, true));
-        assert_eq!(combine(Some(3), None, 10, false), read(3, 10, true));
-        assert_eq!(combine(None, Some(2), 10, false), read(0, 10, false));
-        assert_eq!(combine(Some(3), Some(2), 10, true), read(0, 15, true));
-        assert_eq!(combine(Some(3), None, 10, true), read(0, 13, false));
+        assert_eq!(combine(Some(3), Some(2), ws, false), read(3, 10, 40, true));
+        assert_eq!(combine(Some(3), None, ws, false), read(3, 10, 40, true));
+        assert_eq!(combine(None, Some(2), ws, false), read(0, 10, 40, false));
+        assert_eq!(combine(Some(3), Some(2), ws, true), read(0, 15, 45, true));
+        assert_eq!(combine(Some(3), None, ws, true), read(0, 13, 43, false));
     }
 }
