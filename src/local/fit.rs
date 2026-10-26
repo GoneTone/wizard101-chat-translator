@@ -98,16 +98,11 @@ struct Rated {
     fit: Fit,
 }
 
-/// 預設的量化，不依硬體跳選（相容等級另外標給使用者看）：有 `preferred`（HF 的預設）用它。
+/// 預設的量化，不依硬體跳選（相容等級另外標給使用者看）：與 HF 模型頁「Use this model」的預設一致。
 ///
-/// 否則固定 4-bit（低於 4-bit 品質掉太多）：有 `Q4_K_M` 用它，否則最大的 4-bit；
-/// 沒有 4-bit 挑高於 4-bit 裡最小的，再沒有就挑最大的。只在 `choices` 為空時回 `None`。
-pub fn auto_pick(
-    cat: &Catalog,
-    meta: &ModelMeta,
-    hw: &Hardware,
-    preferred: Option<usize>,
-) -> Option<Pick> {
+/// 依檔案路徑順序找 `UD-Q4_K*`、`Q4_K_M`、`Q4_K*`；都沒有時固定 4-bit（低於 4-bit 品質掉太多）：
+/// 最大的 4-bit，沒有就挑高於 4-bit 裡最小的，再沒有就挑最大的。只在 `choices` 為空時回 `None`。
+pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick> {
     let moe = meta.expert_count > 0;
     let rated: Vec<Rated> = cat
         .choices
@@ -126,16 +121,17 @@ pub fn auto_pick(
         .collect();
     let bits = |r: &&Rated| cat.choices[r.choice].quant.bits;
     let four_bit = || rated.iter().filter(|r| bits(r) == Some(DEFAULT_BITS));
-    let best = preferred
-        .and_then(|i| rated.get(i))
-        .or_else(|| {
-            four_bit().find(|r| {
-                cat.choices[r.choice]
-                    .quant
-                    .label
-                    .eq_ignore_ascii_case("Q4_K_M")
-            })
-        })
+    let mut by_path: Vec<&Rated> = rated.iter().collect();
+    by_path.sort_by_key(|r| cat.choices[r.choice].files.first().map(|f| f.path.as_str()));
+    let label = |r: &&&Rated| cat.choices[r.choice].quant.label.to_ascii_uppercase();
+    // HF 頁面的規則（huggingface.co 前端挑 `{{QUANT_TAG}}` 預設值的順序）
+    let hf_page = by_path
+        .iter()
+        .find(|r| label(r).starts_with("UD-Q4_K"))
+        .or_else(|| by_path.iter().find(|r| label(r) == "Q4_K_M"))
+        .or_else(|| by_path.iter().find(|r| label(r).starts_with("Q4_K")))
+        .copied();
+    let best = hf_page
         .or_else(|| four_bit().max_by_key(|r| r.size))
         .or_else(|| {
             rated
@@ -295,52 +291,58 @@ mod tests {
     fn auto_pick_takes_four_bit_whatever_the_hardware() {
         let c = cat(&[(2, 3 * G), (4, 5 * G), (8, 9 * G)], &[]);
         let m = meta();
-        assert_eq!(
-            auto_pick(&c, &m, &hw(20 * G, 16 * G), None).unwrap().choice,
-            1
-        );
-        let slow = auto_pick(&c, &m, &hw(3 * G, 16 * G), None).unwrap();
+        assert_eq!(auto_pick(&c, &m, &hw(20 * G, 16 * G)).unwrap().choice, 1);
+        let slow = auto_pick(&c, &m, &hw(3 * G, 16 * G)).unwrap();
         assert_eq!((slow.choice, slow.fit), (1, Fit::Slow));
-        let none = auto_pick(&c, &m, &hw(G / 2, G), None).unwrap();
+        let none = auto_pick(&c, &m, &hw(G / 2, G)).unwrap();
         assert_eq!((none.choice, none.fit), (1, Fit::NoFit));
-        assert!(auto_pick(&Catalog::default(), &m, &hw(6 * G, 16 * G), None).is_none());
+        assert!(auto_pick(&Catalog::default(), &m, &hw(6 * G, 16 * G)).is_none());
     }
 
     #[test]
-    fn auto_pick_prefers_q4_k_m_then_the_next_quant_above_four_bit() {
-        let mut c = cat(&[(4, 4 * G), (4, 5 * G), (4, 6 * G)], &[]);
-        c.choices[1].quant.label = "Q4_K_M".into();
+    fn auto_pick_follows_the_hf_page_then_the_next_quant_above_four_bit() {
+        let mut c = cat(&[(4, 4 * G), (4, 5 * G), (4, 6 * G), (4, 7 * G)], &[]);
+        let names = [
+            "m-UD-Q4_K_XL.gguf",
+            "m-Q4_K_M.gguf",
+            "m-UD-Q4_K_M.gguf",
+            "m-Q4_0.gguf",
+        ];
+        for (choice, name) in c.choices.iter_mut().zip(names) {
+            choice.quant.label = name[2..name.len() - 5].into();
+            choice.files[0].path = name.into();
+        }
         let (m, h) = (meta(), hw(20 * G, 16 * G));
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().choice, 1);
+        assert_eq!(
+            auto_pick(&c, &m, &h).unwrap().choice,
+            2,
+            "UD-Q4_K by path order"
+        );
+        c.choices[2].quant.label = "IQ4_XS".into();
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 0);
+        c.choices[0].quant.label = "IQ4_NL".into();
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 1, "then Q4_K_M");
         c.choices[1].quant.label = "Q4_K_S".into();
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().choice, 2);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 1, "then Q4_K*");
+        c.choices[1].quant.label = "Q4_1".into();
+        assert_eq!(
+            auto_pick(&c, &m, &h).unwrap().choice,
+            3,
+            "then the largest 4-bit"
+        );
         let c = cat(&[(3, 3 * G), (8, 9 * G), (6, 7 * G)], &[]);
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().choice, 2);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 2);
         let c = cat(&[(2, 2 * G), (3, 3 * G)], &[]);
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().choice, 1);
-    }
-
-    /// HF 有預設的量化就用它，不套 4-bit 規則。
-    #[test]
-    fn auto_pick_follows_the_hf_default() {
-        let c = cat(&[(4, 5 * G), (5, 6 * G), (8, 9 * G)], &[]);
-        let (m, h) = (meta(), hw(20 * G, 16 * G));
-        assert_eq!(auto_pick(&c, &m, &h, Some(1)).unwrap().choice, 1);
-        assert_eq!(auto_pick(&c, &m, &h, Some(9)).unwrap().choice, 0);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 1);
     }
 
     #[test]
     fn mtp_only_when_still_smooth() {
         let c = cat(&[(4, 5 * G)], &[(4, G, false), (4, G / 2, true)]);
         let m = meta();
+        assert_eq!(auto_pick(&c, &m, &hw(7 * G, 16 * G)).unwrap().mtp, Some(0));
         assert_eq!(
-            auto_pick(&c, &m, &hw(7 * G, 16 * G), None).unwrap().mtp,
-            Some(0)
-        );
-        assert_eq!(
-            auto_pick(&c, &m, &hw(6 * G + G / 5, 16 * G), None)
-                .unwrap()
-                .mtp,
+            auto_pick(&c, &m, &hw(6 * G + G / 5, 16 * G)).unwrap().mtp,
             None
         );
     }
@@ -362,7 +364,7 @@ mod tests {
             expert_count: 8,
             ..meta()
         };
-        let p = auto_pick(&c, &m, &hw(8 * G, 32 * G), None).unwrap();
+        let p = auto_pick(&c, &m, &hw(8 * G, 32 * G)).unwrap();
         assert_eq!(p.fit, Fit::Offload);
     }
 
@@ -371,7 +373,7 @@ mod tests {
         let mut c = cat(&[(4, 5 * G)], &[(8, G, false), (3, G, false)]);
         let m = meta();
         let h = hw(20 * G, 16 * G);
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().mtp, Some(1));
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
         c.mtp.push(MtpChoice {
             quant: Quant {
                 label: "x".into(),
@@ -380,7 +382,7 @@ mod tests {
             file: file(G / 4),
             shared: false,
         });
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().mtp, Some(1));
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
         c.mtp.clear();
         c.mtp.push(MtpChoice {
             quant: Quant {
@@ -395,7 +397,7 @@ mod tests {
             file: file(G),
             shared: false,
         });
-        assert_eq!(auto_pick(&c, &m, &h, None).unwrap().mtp, Some(1));
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
     }
 
     #[test]

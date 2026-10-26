@@ -628,7 +628,6 @@ mod local_install {
             meta: ModelMeta::default(),
             fits: vec![(3 * G, Some(Fit::Smooth))],
             mtp_required: vec![],
-            hf_default: None,
             auto: Some(Pick {
                 choice: 0,
                 mtp: None,

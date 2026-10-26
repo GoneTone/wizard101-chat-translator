@@ -673,50 +673,6 @@ async fn two_quants(f: &Fixture) -> (usize, usize) {
     (index("Q4_K_M"), index("Q8_0"))
 }
 
-/// 查 repo 時一併查 HF 的預設量化（manifest 的 sha256 對到檔案），回傳自動挑到的量化名稱。
-async fn auto_label_with_hf_default(digest: &str) -> String {
-    let f = fixture(|_| {}, |_| false).await;
-    let files = [
-        ("model-Q4_K_M.gguf", "a1"),
-        ("model-Q8_0.gguf", "b2"),
-        ("model-BF16.gguf", "c3"),
-    ];
-    let tree: Vec<Value> = files
-        .iter()
-        .map(|(name, oid)| json!({"type": "file", "path": name, "size": 64, "lfs": {"oid": oid}}))
-        .collect();
-    Mock::given(method("GET"))
-        .and(path(format!("/api/models/{REPO}/tree/main")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(tree))
-        .mount(&f.hf)
-        .await;
-    for (name, _) in files {
-        Mock::given(method("GET"))
-            .and(path(format!("/{REPO}/resolve/main/{name}")))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(tiny_gguf()))
-            .mount(&f.hf)
-            .await;
-    }
-    let layer = json!({"mediaType": "application/vnd.ollama.image.model", "digest": format!("sha256:{digest}")});
-    Mock::given(method("GET"))
-        .and(path(format!("/v2/{REPO}/manifests/latest")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"layers": [layer]})))
-        .mount(&f.hf)
-        .await;
-    let info = query(&f).await;
-    info.catalog.choices[info.auto.unwrap().choice]
-        .quant
-        .label
-        .clone()
-}
-
-/// HF 的預設量化優先於 4-bit 規則；BF16 之類高於 8-bit 的不採用。
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_auto_pick_follows_hf_default_quant() {
-    assert_eq!(auto_label_with_hf_default("B2").await, "Q8_0");
-    assert_eq!(auto_label_with_hf_default("c3").await, "Q4_K_M");
-}
-
 const FAKE_DEVICES: &str = "Available devices:\n  Vulkan0: Fake GPU (8192 MiB, 8000 MiB free)\n";
 
 async fn wait_complete(f: &Fixture, id: &str) {
