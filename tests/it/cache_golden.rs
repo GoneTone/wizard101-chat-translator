@@ -577,6 +577,7 @@ async fn judges_with_the_target_captured_before_the_request() {
 
 #[test]
 fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
+    common::log_capture::capture_logs();
     let dir = tempfile::tempdir().unwrap();
     let cache = Arc::new(cache_in(&dir));
     let handles: Vec<_> = (0..8)
@@ -599,10 +600,16 @@ fn concurrent_puts_gets_and_flushes_leave_a_valid_file() {
     cache.flush();
     let reloaded = cache_in(&dir);
     reloaded.load();
-    for i in 0..800 {
-        let key = letters(i);
-        assert_eq!(reloaded.get(&key, ""), Some(key.to_uppercase()));
-    }
+    let missing = (0..800)
+        .filter(|&i| reloaded.get(&letters(i), "") != Some(letters(i).to_uppercase()))
+        .count();
+    // 偶發失敗時附上這個檔的 flush／load log，看是哪一步沒落地
+    let path = dir.path().join("cache.json").display().to_string();
+    let logged: Vec<String> = common::log_capture::log_lines_with(&path)
+        .into_iter()
+        .filter(|l| !l.contains("[cache] flushed"))
+        .collect();
+    assert_eq!(missing, 0, "{logged:#?}");
     let leftovers = std::fs::read_dir(dir.path()).unwrap().count();
     assert_eq!(leftovers, 1, "no temp files left behind");
 }
