@@ -938,6 +938,39 @@ mod page {
         assert!(has_label(&h, &tr("local.fit.smooth")));
     }
 
+    /// 內顯的實測只列 RAM（GPU 記憶體已算在裡面）。
+    #[test]
+    fn an_integrated_gpu_shows_only_measured_ram() {
+        const G: u64 = 1 << 30;
+        let mut m = model(MODEL, true, false);
+        m.manifest.measured = Some(Measured {
+            vram: 0,
+            ram: 5 * G,
+            all_on_gpu: true,
+            mtp: false,
+            engine: "b11871-vulkan".into(),
+        });
+        let mut snap = snapshot(vec![m]);
+        snap.hardware = Hardware {
+            gpu: Some(Gpu {
+                name: "t".into(),
+                vendor: 0,
+                kind: GpuKind::Integrated,
+                nvidia_driver: None,
+                device: 0,
+            }),
+            ram_total: 16 * G,
+            ram_free: 16 * G,
+            measured: true,
+            ..Hardware::default()
+        };
+        let h = pane_harness(snap, vec![]);
+        let texts = painted_texts(&h);
+        let ram = t("local.memory.measured_ram", &[("ram", "5.0")]);
+        assert!(texts.iter().any(|l| l.contains(&ram)), "{texts:?}");
+        assert!(has_label(&h, &tr("local.fit.slow")));
+    }
+
     #[test]
     fn removing_the_engine_confirms_first() {
         let mut h = pane_harness(ready_engine(), vec![]);

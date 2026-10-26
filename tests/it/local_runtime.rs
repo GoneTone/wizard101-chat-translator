@@ -13,8 +13,10 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
+use wizard101_chat_translator::config::local::LocalSettings;
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
+use wizard101_chat_translator::local::fit::Basis;
 use wizard101_chat_translator::local::hardware::{self, Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Measured};
@@ -1252,6 +1254,97 @@ async fn a_mode_change_replaces_the_whole_record() {
         (measured.vram, measured.ram, measured.all_on_gpu),
         (2 * G, 4 * G, false)
     );
+}
+
+/// repo 的量化表跟著已下載模型的實測走：同一個 MTP 檔的那欄是實測，其他量化由它推算；記下實測與刪除模型後都重算。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repo_ratings_follow_measurements() {
+    const G: u64 = 1 << 30;
+    const REPO: &str = "org/Model-GGUF";
+    let id = store::model_id(REPO, "Q4_K_M");
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, &store::model_id(REPO, "Q4_K_M"), true);
+        },
+        |_| false,
+    )
+    .await;
+    let body = tiny_gguf();
+    Mock::given(method("GET"))
+        .and(path("/api/models/org/Model-GGUF/tree/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"type": "file", "path": "model-Q4_K_M.gguf", "size": body.len()},
+            {"type": "file", "path": "model-Q8_0.gguf", "size": 8},
+            {"type": "file", "path": "mtp-Q8_0.gguf", "size": 2}
+        ])))
+        .mount(&f.hf)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+        .mount(&f.hf)
+        .await;
+    detect(&f).await;
+    f.local.command(Command::QueryRepo(REPO.into()));
+    let info = || match f.local.snapshot().repos.remove(REPO) {
+        Some(RepoState::Ready(info)) => Some(info),
+        _ => None,
+    };
+    wait_for("repo ready", || info().is_some()).await;
+    let quant = |label: &str| {
+        let info = info().unwrap();
+        let i = info
+            .catalog
+            .choices
+            .iter()
+            .position(|c| c.quant.label == label);
+        info.fits[i.unwrap()].clone()
+    };
+    assert_eq!(quant("Q4_K_M")[1].need.basis, Basis::Estimate);
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure(&id).await.unwrap();
+    wait_for("re-rated", || {
+        quant("Q4_K_M")[1].need.basis == Basis::Measured
+    })
+    .await;
+    let q4 = quant("Q4_K_M");
+    assert_eq!((q4[1].need.vram, q4[1].need.ram), (3 * G, G));
+    assert_eq!(
+        q4[0].need.basis,
+        Basis::Estimate,
+        "measured with MTP; the column without it is not"
+    );
+    let q8 = quant("Q8_0");
+    assert_eq!(q8[1].need.basis, Basis::Derived);
+    // 權重：Q4 主檔 4＋MTP 2 位元組；Q8 主檔 8＋MTP 2
+    assert_eq!(q8[1].need.vram, 3 * G + 4);
+    f.local.command(Command::Delete(id.clone()));
+    wait_for("re-rated after delete", || {
+        quant("Q8_0")[1].need.basis == Basis::Estimate
+    })
+    .await;
+}
+
+/// 開 MTP 啟動失敗、退回不帶 MTP 跑時，相容判斷照 runtime 實際的方式（不帶 MTP）比對實測。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_rating_follows_the_mtp_mode_actually_running() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(true), |p| p.mtp != Mtp::Off).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    let s = f.local.snapshot();
+    assert!(s.running_without_mtp.contains("m1"), "{s:?}");
+    let need = s.model_need(&s.models[0], &LocalSettings::default());
+    assert_eq!((need.basis, need.vram), (Basis::Measured, 3 * G));
 }
 
 /// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。

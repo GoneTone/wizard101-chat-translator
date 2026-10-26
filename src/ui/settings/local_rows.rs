@@ -13,11 +13,17 @@ use crate::local::hardware::{Hardware, effective};
 
 /// 記憶體需求文字：實測列出 VRAM 與 RAM，其餘是「預估約需」多少哪種記憶體。
 pub(super) fn need_text(need: &Need, moe: bool, hw: &Hardware) -> String {
+    let kind = memory_kind(moe, hw);
     if need.basis == Basis::Measured {
         let (vram, ram) = (gb(need.vram), gb(need.ram));
-        return t("local.memory.measured", &[("vram", &vram), ("ram", &ram)]);
+        // 內顯的 GPU 記憶體已算在 RAM 裡
+        return if kind == MemoryKind::Ram {
+            t("local.memory.measured_ram", &[("ram", &ram)])
+        } else {
+            t("local.memory.measured", &[("vram", &vram), ("ram", &ram)])
+        };
     }
-    let (key, size) = match memory_kind(moe, hw) {
+    let (key, size) = match kind {
         MemoryKind::Vram => ("local.memory.vram", need.vram),
         MemoryKind::VramPlusRam => ("local.memory.vram_ram", need.total()),
         MemoryKind::Ram => ("local.memory.ram", need.total()),

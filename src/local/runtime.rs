@@ -389,13 +389,19 @@ impl Local {
     }
 
     /// 跑著 llama-server 的模型 id。
-    pub(super) fn running_ids(&self) -> BTreeSet<String> {
-        self.servers
-            .all()
-            .into_iter()
-            .filter(|(_, slot)| lock(&slot.state).running.is_some())
-            .map(|(id, _)| id)
-            .collect()
+    /// （跑著的, 其中沒開 MTP 的）模型 id。
+    pub(super) fn running_ids(&self) -> (BTreeSet<String>, BTreeSet<String>) {
+        let (mut running, mut without_mtp) = (BTreeSet::new(), BTreeSet::new());
+        for (id, slot) in self.servers.all() {
+            let Some(mtp) = lock(&slot.state).running.as_ref().map(|r| r.mtp) else {
+                continue;
+            };
+            if !mtp {
+                without_mtp.insert(id.clone());
+            }
+            running.insert(id);
+        }
+        (running, without_mtp)
     }
 
     /// 新引擎首次就緒：舊引擎沒人在用（含啟動中的）才刪掉它並確認，否則留到下次。

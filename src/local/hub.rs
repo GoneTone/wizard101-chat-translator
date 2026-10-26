@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::download::Progress;
 use super::engine::{self, Build, EngineInstall, Variant};
-use super::fit::{self, Pick, Rating};
+use super::fit::{self, Need, Pick, Rating};
 use super::gguf::{self, ModelMeta};
 use super::hardware::{self, Gpu, Hardware};
 use super::hf::{self, Catalog};
@@ -89,6 +89,8 @@ pub struct Snapshot {
     pub repos: BTreeMap<String, RepoState>,
     /// 目前跑著 llama-server 的模型 id。
     pub running: BTreeSet<String>,
+    /// 其中沒開 MTP 跑的（設定關掉，或開 MTP 啟動失敗後退回）。
+    pub running_without_mtp: BTreeSet<String>,
     /// 硬體偵測中（啟動後第一次量完以前，或〔重新偵測〕進行中）；這時硬體與相容等級還不能信。
     pub detecting: bool,
 }
@@ -97,6 +99,12 @@ impl Snapshot {
     /// 已下載完成的模型 `id`。
     pub fn ready_model(&self, id: &str) -> Option<&Installed> {
         self.models.iter().find(|m| m.id == id && m.complete)
+    }
+
+    /// 已下載的模型照 runtime 實際的 MTP 開關（同 `mtp_mode`：設定開著、有 MTP，且跑著的沒有退回不帶 MTP）載入時要的記憶體。
+    pub fn model_need(&self, model: &Installed, settings: &LocalSettings) -> Need {
+        let mtp = settings.mtp_on(&model.id) && !self.running_without_mtp.contains(&model.id);
+        fit::installed_need(&self.models, model, mtp, &self.hardware)
     }
 }
 
@@ -243,7 +251,7 @@ impl Local {
             snapshot.detecting = self.refreshing.load(Ordering::SeqCst) > 0;
             snapshot
         };
-        snapshot.running = self.running_ids();
+        (snapshot.running, snapshot.running_without_mtp) = self.running_ids();
         snapshot
     }
 
@@ -627,9 +635,16 @@ fn rate(repo: &str, info: &mut RepoInfo, hw: &Hardware, models: &[Installed]) {
             let mtps = std::iter::once(None).chain(catalog.mtp.iter().map(Some));
             mtps.map(|m| {
                 let extra = m.map_or(0, |m| m.file.size);
-                let estimate = fit::required(meta, main, extra);
-                let mtp = m.is_some() || meta.has_mtp;
-                let need = fit::need(models, repo, &id, main + extra, mtp, estimate, hw);
+                // 不帶 MTP 檔的那欄不假設內建 MTP 會開
+                let target = fit::Target {
+                    repo,
+                    id: &id,
+                    weights: main + extra,
+                    mtp: m.is_some(),
+                    mtp_file: m.map(|m| m.file.path.as_str()),
+                    estimate: fit::required(meta, main, extra),
+                };
+                let need = fit::need(models, &target, hw);
                 let fit = hw.measured.then(|| fit::rate(&need, moe, hw));
                 Rating { need, fit }
             })

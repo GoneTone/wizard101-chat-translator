@@ -14,7 +14,7 @@ use super::widgets::{
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
-use crate::local::fit::{Basis, Need, installed_need, rate};
+use crate::local::fit::{Basis, Need, rate};
 use crate::local::store::{Installed, total_size};
 use crate::local::{Command, DownloadState, Snapshot};
 use crate::logs::log;
@@ -101,8 +101,7 @@ fn row(
         None if model.complete => RowState::Ready,
         None => RowState::Interrupted,
     };
-    let mtp = settings.mtp_on(&model.id);
-    let need = installed_need(&snapshot.models, model, mtp, &snapshot.hardware);
+    let need = snapshot.model_need(model, settings);
     let measured = (need.basis == Basis::Measured)
         .then(|| need_text(&need, model.manifest.moe, &snapshot.hardware));
     let id = ui.scope_id().with(("local_model_row", &model.id));

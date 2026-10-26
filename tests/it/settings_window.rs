@@ -21,6 +21,7 @@ use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
 use wizard101_chat_translator::input::dispatcher::Dispatcher;
 use wizard101_chat_translator::input::dispatcher::testing::key;
+use wizard101_chat_translator::local::store::Measured;
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
@@ -1198,6 +1199,37 @@ fn two_local_services(b_model: &str) -> Harness<'static, State> {
     harness_with(cfg, env, egui::vec2(840.0, 660.0))
 }
 
+/// 放不下時列出的大小標明是實測還是預估。
+#[test]
+fn the_over_capacity_list_says_which_sizes_were_measured() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().models[0]
+        .manifest
+        .measured = Some(Measured {
+        vram: 0,
+        ram: 7 * GB,
+        all_on_gpu: false,
+        mtp: false,
+        engine: "b11871-cpu".into(),
+    });
+    run(&mut h);
+    assert!(save(&mut h).is_none());
+    let measured = t(
+        "error.local_over_capacity_item_measured",
+        &[("name", "a · Q4_K_M"), ("size", "7.0")],
+    );
+    let estimated = t(
+        "error.local_over_capacity_item_estimated",
+        &[("name", "b · Q4_K_M"), ("size", "8.0")],
+    );
+    let models = [estimated, measured].join(&t("local.list_separator", &[]));
+    let message = t(
+        "error.local_over_capacity",
+        &[("models", &models), ("vram", "0.0"), ("ram", "10.0")],
+    );
+    assert!(has_label(&h, &message));
+}
+
 #[test]
 fn two_different_local_models_that_do_not_fit_block_saving() {
     capture_logs();
@@ -1206,7 +1238,7 @@ fn two_different_local_models_that_do_not_fit_block_saving() {
     assert!(has_label(&h, &tr("dialog.incomplete_title")));
     let item = |name: &str| {
         t(
-            "error.local_over_capacity_item",
+            "error.local_over_capacity_item_estimated",
             &[("name", &format!("{name} · Q4_K_M")), ("size", "8.0")],
         )
     };

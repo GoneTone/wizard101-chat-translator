@@ -101,40 +101,50 @@ pub struct Rating {
     pub fit: Option<Fit>,
 }
 
-/// `repo` 的模型 `id`（權重共 `weights` 位元組）照 `mtp` 開關載入時要的記憶體。
+/// llama.cpp `--fit` 預設在每個裝置上留下的可用量（free memory target，1024 MiB）。
 ///
-/// 自己照同樣的 MTP 開關量過就用實測；否則從同 repo 其他量過的模型（權重最接近的）推算；都沒有就是 `estimate`。
-/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多時，實測看不出現在會不會流暢，也退回 `estimate`。
-pub fn need(
-    models: &[Installed],
-    repo: &str,
-    id: &str,
-    weights: u64,
-    mtp: bool,
-    estimate: u64,
-    hw: &Hardware,
-) -> Need {
-    let need = measured_need(models, repo, id, weights, mtp);
-    match need {
-        Some(n) if n.all_on_gpu || effective(hw).0 <= n.vram => n,
-        _ => Need::estimate(estimate),
+/// 部分卸載時 `--fit` 把 VRAM 用到「可用量 − 這個值」為止，所以實測的 VRAM 本來就比當時可用量少這麼多。
+const FIT_TARGET: u64 = 1024 << 20;
+
+/// 要算需求的模型或量化。
+#[derive(Clone, Copy, Debug)]
+pub struct Target<'a> {
+    pub repo: &'a str,
+    pub id: &'a str,
+    /// 主模型分檔加上要用的 MTP 檔。
+    pub weights: u64,
+    pub mtp: bool,
+    /// 要用的 MTP 檔（repo 路徑）；內建 MTP 或不開為 `None`。
+    pub mtp_file: Option<&'a str>,
+    /// 依檔案大小估的需求（[`required`]）。
+    pub estimate: u64,
+}
+
+/// `target` 載入時要的記憶體。
+///
+/// 自己照同樣的 MTP（同一個 MTP 檔）量過就用實測；否則從同 repo 其他量過的模型推算
+/// （先挑 MTP 一樣、全放 GPU 的，再挑權重最接近的）；都沒有就是預估。
+/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`FIT_TARGET`] 以上時，看不出現在會不會流暢，也退回預估。
+pub fn need(models: &[Installed], target: &Target, hw: &Hardware) -> Need {
+    match measured_need(models, target) {
+        Some(n) if n.all_on_gpu || effective(hw).0 <= n.vram.saturating_add(FIT_TARGET) => n,
+        _ => Need::estimate(target.estimate),
     }
 }
 
-/// 自己的實測（MTP 開關相同）或同 repo 量過的模型推算的需求。
-fn measured_need<'a>(
-    models: &'a [Installed],
-    repo: &str,
-    id: &str,
-    weights: u64,
-    mtp: bool,
-) -> Option<Need> {
-    let measured = |m: &'a Installed| {
-        let x = m.manifest.measured.as_ref()?;
+/// 自己的實測或同 repo 量過的模型推算的需求。
+fn measured_need(models: &[Installed], t: &Target) -> Option<Need> {
+    let measured = |m: &Installed| {
+        let x = m.manifest.measured.clone()?;
         Some((m.manifest.weights(x.mtp), x))
     };
-    let own = models.iter().filter(|m| m.id == id).find_map(measured);
-    if let Some((_, x)) = own.filter(|(_, x)| x.mtp == mtp) {
+    let own = models.iter().find(|m| m.id == t.id);
+    let same_mtp_file =
+        |m: &Installed| m.manifest.mtp.as_ref().map(|f| f.path.as_str()) == t.mtp_file;
+    let usable = own
+        .filter(|m| !t.mtp || same_mtp_file(m))
+        .and_then(measured);
+    if let Some((_, x)) = usable.filter(|(_, x)| x.mtp == t.mtp) {
         return Some(Need {
             vram: x.vram,
             ram: x.ram,
@@ -144,18 +154,18 @@ fn measured_need<'a>(
     }
     let sibling = models
         .iter()
-        .filter(|m| m.id != id && m.manifest.repo == repo)
+        .filter(|m| m.id != t.id && m.manifest.repo == t.repo)
         .filter_map(measured)
-        .min_by_key(|(base, _)| base.abs_diff(weights));
+        .min_by_key(|(base, x)| (x.mtp != t.mtp, !x.all_on_gpu, base.abs_diff(t.weights)));
     sibling.map(|(base, x)| Need {
-        vram: x.vram.saturating_add(weights).saturating_sub(base),
+        vram: x.vram.saturating_add(t.weights).saturating_sub(base),
         ram: x.ram,
         all_on_gpu: x.all_on_gpu,
         basis: Basis::Derived,
     })
 }
 
-/// 已下載的模型照 `mtp_on`（設定的 MTP 開關）載入時要的記憶體。
+/// 已下載的模型載入時要的記憶體；`mtp_on` 是 runtime 實際會不會開 MTP（設定開著，且沒有退回不帶 MTP）。
 pub fn installed_need(
     models: &[Installed],
     model: &Installed,
@@ -164,23 +174,26 @@ pub fn installed_need(
 ) -> Need {
     let m = &model.manifest;
     let mtp = mtp_on && m.has_mtp();
-    need(
-        models,
-        &m.repo,
-        &model.id,
-        m.weights(mtp),
+    let target = Target {
+        repo: &m.repo,
+        id: &model.id,
+        weights: m.weights(mtp),
         mtp,
-        m.required,
-        hw,
-    )
+        mtp_file: m.mtp.as_ref().map(|f| f.path.as_str()),
+        estimate: m.required,
+    };
+    need(models, &target, hw)
 }
 
 /// 依需求判斷等級：預估照 [`fit`]；實測（含推算）要每層都在 GPU、VRAM 與 RAM 各自放得下才 `Smooth`，合計放得下為 `Slow`／`Offload`。
+///
+/// RAM 與預估一樣先扣掉 `RAM_RESERVE`。
 pub fn rate(need: &Need, moe: bool, hw: &Hardware) -> Fit {
     if need.basis == Basis::Estimate {
         return fit(need.total(), moe, hw);
     }
     let (vram, ram) = effective(hw);
+    let ram = ram.saturating_sub(RAM_RESERVE);
     // 內顯（VRAM 為 0）與預估一樣永不 `Smooth`
     if need.all_on_gpu && vram > 0 && need.vram <= vram && need.ram <= ram {
         Fit::Smooth
@@ -608,24 +621,24 @@ mod tests {
             combined_fit(&[(five, false), (five, false)], &hw(8 * G, 3 * G)),
             Fit::NoFit
         );
-        assert_eq!(combined_fit(&[], &hw(G, G)), Fit::Smooth);
+        assert_eq!(combined_fit(&[], &hw(G, 3 * G)), Fit::Smooth);
         let both = [
             (measured(3 * G, G, true), false),
             (measured(4 * G, G, true), false),
         ];
-        assert_eq!(combined_fit(&both, &hw(8 * G, 3 * G)), Fit::Smooth);
+        assert_eq!(combined_fit(&both, &hw(8 * G, 5 * G)), Fit::Smooth);
         let mixed = [
             (measured(3 * G, G, true), false),
             (Need::estimate(5 * G), false),
         ];
         assert_eq!(
-            combined_fit(&mixed, &hw(8 * G, 3 * G)),
+            combined_fit(&mixed, &hw(8 * G, 5 * G)),
             Fit::Slow,
             "an estimate in the sum rates it as an estimate"
         );
     }
 
-    /// 實測：每層都在 GPU 且 VRAM、RAM 各自放得下才流暢，合計放得下為會慢（MoE 為可用），否則放不下。
+    /// 實測：每層都在 GPU 且 VRAM、RAM（扣掉保留量）各自放得下才流暢，合計放得下為會慢（MoE 為可用），否則放不下。
     #[test]
     fn measured_needs_are_rated_by_vram_and_ram_separately() {
         let h = hw(8 * G, 16 * G);
@@ -637,8 +650,13 @@ mod tests {
         );
         assert_eq!(rate(&measured(4 * G, 3 * G, false), true, &h), Fit::Offload);
         assert_eq!(rate(&measured(9 * G, 3 * G, true), false, &h), Fit::Slow);
+        assert_eq!(
+            rate(&measured(4 * G, 15 * G, true), false, &h),
+            Fit::Slow,
+            "RAM reserve applies as in the estimate"
+        );
         assert_eq!(rate(&measured(4 * G, 17 * G, true), false, &h), Fit::Slow);
-        assert_eq!(rate(&measured(9 * G, 16 * G, false), false, &h), Fit::NoFit);
+        assert_eq!(rate(&measured(9 * G, 14 * G, false), false, &h), Fit::NoFit);
         assert_eq!(
             rate(&measured(0, 3 * G, true), false, &integrated(16 * G)),
             Fit::Slow,
@@ -657,8 +675,8 @@ mod tests {
         mtp: Option<u64>,
         measured: Option<Measured>,
     ) -> Installed {
-        let file = |size| ManifestFile {
-            path: format!("{id}.gguf"),
+        let file = |path: String, size| ManifestFile {
+            path,
             size,
             sha256: None,
         };
@@ -667,8 +685,8 @@ mod tests {
             manifest: Manifest {
                 repo: repo.into(),
                 quant: id.into(),
-                files: vec![file(main)],
-                mtp: mtp.map(file),
+                files: vec![file(format!("{id}.gguf"), main)],
+                mtp: mtp.map(|size| file(format!("mtp-{id}.gguf"), size)),
                 moe: false,
                 has_builtin_mtp: false,
                 required: 99 * G,
@@ -688,9 +706,27 @@ mod tests {
         })
     }
 
-    /// 自己照同樣 MTP 開關量過才用實測；MTP 開關不同時退回預估。
+    fn partial(vram: u64, ram: u64, mtp: bool) -> Option<Measured> {
+        run(vram, ram, mtp).map(|m| Measured {
+            all_on_gpu: false,
+            ..m
+        })
+    }
+
+    fn target<'a>(id: &'a str, weights: u64, mtp_file: Option<&'a str>) -> Target<'a> {
+        Target {
+            repo: "r",
+            id,
+            weights,
+            mtp: mtp_file.is_some(),
+            mtp_file,
+            estimate: 98 * G,
+        }
+    }
+
+    /// 自己照同樣 MTP 開關、同一個 MTP 檔量過才用實測；MTP 開關不同時退回預估。
     #[test]
-    fn own_measurement_counts_only_with_the_same_mtp_setting() {
+    fn own_measurement_counts_only_with_the_same_mtp() {
         let models = [installed("a", "r", 3 * G, Some(G), run(5 * G, 4 * G, true))];
         let h = hw(8 * G, 16 * G);
         assert_eq!(
@@ -702,18 +738,26 @@ mod tests {
             Need::estimate(99 * G),
             "measured with MTP, now off"
         );
+        let same = target("a", 4 * G, Some("mtp-a.gguf"));
+        assert_eq!(need(&models, &same, &h).basis, Basis::Measured);
+        let other = target("a", 4 * G, Some("mtp-other.gguf"));
+        assert_eq!(
+            need(&models, &other, &h),
+            Need::estimate(98 * G),
+            "another MTP file"
+        );
     }
 
-    /// 沒載入過的量化由同 repo 量過的、權重最接近的推算：VRAM 加減權重差，RAM 照用；別的 repo 不算。
+    /// 沒載入過的量化由同 repo 量過的推算：VRAM 加減權重差，RAM 照用；別的 repo 不算。
     #[test]
-    fn unloaded_quants_are_derived_from_the_closest_measured_sibling() {
+    fn unloaded_quants_are_derived_from_a_measured_sibling() {
         let models = [
             installed("q8", "r", 8 * G, Some(G), run(10 * G, 3 * G, true)),
             installed("q6", "r", 6 * G, None, run(7 * G, 2 * G, false)),
             installed("x", "other", 4 * G, None, run(G, G, false)),
         ];
         let h = hw(8 * G, 16 * G);
-        let derived = need(&models, "r", "q4", 4 * G, false, 99 * G, &h);
+        let derived = need(&models, &target("q4", 4 * G, None), &h);
         assert_eq!(
             derived,
             Need {
@@ -724,37 +768,66 @@ mod tests {
             }
         );
         assert!(derived.estimated());
-        let with_mtp = need(&models, "r", "q9", 10 * G, true, 99 * G, &h);
+        let with_mtp = need(&models, &target("q9", 10 * G, Some("m.gguf")), &h);
         assert_eq!((with_mtp.vram, with_mtp.ram), (11 * G, 3 * G));
+        let elsewhere = Target {
+            repo: "none",
+            ..target("q4", 4 * G, None)
+        };
+        assert_eq!(need(&models, &elsewhere, &h), Need::estimate(98 * G));
+    }
+
+    /// 推算先挑 MTP 一樣、全放 GPU 的量化，再挑權重最接近的。
+    #[test]
+    fn siblings_with_the_same_mode_come_first() {
+        let models = [
+            installed("near_mtp", "r", 4 * G, Some(G / 2), run(6 * G, G, true)),
+            installed(
+                "near_partial",
+                "r",
+                5 * G,
+                None,
+                partial(4 * G, 3 * G, false),
+            ),
+            installed("far", "r", G, None, run(2 * G, G, false)),
+        ];
+        let derived = need(&models, &target("q4", 4 * G, None), &hw(8 * G, 16 * G));
         assert_eq!(
-            need(&models, "none", "q4", 4 * G, false, 99 * G, &h),
-            Need::estimate(99 * G)
+            (derived.vram, derived.all_on_gpu),
+            (5 * G, true),
+            "from far"
         );
     }
 
-    /// 量的那次沒全放 GPU：現在可用 VRAM 比它用的多就看不出會不會流暢，退回預估；沒比較多則照實測判（不會流暢）。
+    /// 量的那次沒全放 GPU：現在可用 VRAM 比它用的多出 `--fit` 的保留量以上就看不出會不會流暢，退回預估；否則照實測判（不會流暢）。
     #[test]
     fn partial_offload_measurements_fall_back_when_there_is_more_vram_now() {
-        let mut partial = run(6 * G, 5 * G, false);
-        partial.as_mut().unwrap().all_on_gpu = false;
-        let models = [installed("a", "r", 8 * G, None, partial)];
+        let models = [installed(
+            "a",
+            "r",
+            8 * G,
+            None,
+            partial(6 * G, 5 * G, false),
+        )];
         assert_eq!(
             installed_need(&models, &models[0], true, &hw(12 * G, 16 * G)),
             Need::estimate(99 * G),
             "more room than that run had"
         );
-        let tight = hw(6 * G, 16 * G);
-        let kept = installed_need(&models, &models[0], true, &tight);
-        assert_eq!(kept, measured(6 * G, 5 * G, false));
-        assert_eq!(rate(&kept, false, &tight), Fit::Slow);
+        let fit_left = hw(7 * G, 16 * G);
+        let kept = installed_need(&models, &models[0], true, &fit_left);
         assert_eq!(
-            need(&models, "r", "b", 4 * G, false, 98 * G, &hw(12 * G, 16 * G)),
+            kept,
+            measured(6 * G, 5 * G, false),
+            "free = used + fit target"
+        );
+        assert_eq!(rate(&kept, false, &fit_left), Fit::Slow);
+        let b = target("b", 4 * G, None);
+        assert_eq!(
+            need(&models, &b, &hw(12 * G, 16 * G)),
             Need::estimate(98 * G),
             "derived from a partial run too"
         );
-        assert_eq!(
-            need(&models, "r", "b", 4 * G, false, 98 * G, &hw(2 * G, 16 * G)).basis,
-            Basis::Derived
-        );
+        assert_eq!(need(&models, &b, &hw(3 * G, 16 * G)).basis, Basis::Derived);
     }
 }

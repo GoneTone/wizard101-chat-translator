@@ -33,7 +33,7 @@ use crate::config::services::{
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
 use crate::local::Snapshot;
-use crate::local::fit::{Fit, combined_fit, installed_need};
+use crate::local::fit::{Fit, combined_fit};
 use crate::local::hardware::effective;
 use crate::local::store::Installed;
 use crate::logs::log;
@@ -481,11 +481,7 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
     let settings = local::settings(cfg);
     let needs: Vec<_> = models
         .iter()
-        .map(|m| {
-            let mtp = settings.mtp_on(&m.id);
-            let need = installed_need(&snapshot.models, m, mtp, &snapshot.hardware);
-            (need, m.manifest.moe)
-        })
+        .map(|m| (snapshot.model_need(m, &settings), m.manifest.moe))
         .collect();
     let all_running = models.iter().all(|m| snapshot.running.contains(&m.id));
     if models.len() >= 2
@@ -499,8 +495,13 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
             .zip(&needs)
             .map(|(m, (need, _))| {
                 let size = gb(need.total());
+                let key = if need.estimated() {
+                    "error.local_over_capacity_item_estimated"
+                } else {
+                    "error.local_over_capacity_item_measured"
+                };
                 t(
-                    "error.local_over_capacity_item",
+                    key,
                     &[("name", &m.manifest.display_name()), ("size", &size)],
                 )
             })
