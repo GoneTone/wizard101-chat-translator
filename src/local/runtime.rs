@@ -228,7 +228,7 @@ impl Local {
                 };
                 let tail = running.process.tail().join("\n");
                 log(format!(
-                    "[local] llama-server[{model_id}] exited unexpectedly code={code}"
+                    "[local] llama-server[{model_id}] exited unexpectedly code={code}; last output:\n{tail}"
                 ));
                 st.running = None;
                 st.crashed = true;

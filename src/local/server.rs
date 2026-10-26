@@ -246,6 +246,8 @@ struct Output {
     /// 醒來重新載入沿用第一次 fit 寫回的參數，第二次 fit 只會報 `already set by user` 失敗、不再印
     /// `cannot meet`，擺放卻照舊；所以只有之後的 fit 明說不必調整時才清掉。
     fit_moved: bool,
+    /// 這一次 fit 有裝置要調整；多顯示卡時其他裝置說不必調整也不清 `fit_moved`。
+    fit_run_moved: bool,
     /// 模型不在記憶體裡（睡眠中，或醒來重新載入還沒完成）。
     unloaded: bool,
     /// 載入中（啟動到 `listening on`、醒來到重新載入完成）：這段每行都寫進 log。
@@ -261,6 +263,7 @@ impl Default for Output {
         Self {
             layers_on_gpu: None,
             fit_moved: false,
+            fit_run_moved: false,
             unloaded: false,
             loading: true,
             fit_pending: false,
@@ -289,7 +292,7 @@ impl Output {
             return true;
         }
         if line.contains("server is exiting sleeping state") {
-            (self.layers_on_gpu, self.unloaded) = (None, true);
+            (self.layers_on_gpu, self.unloaded, self.fit_run_moved) = (None, true, false);
             (self.loading, self.fit_pending) = (true, true);
             return true;
         }
@@ -307,10 +310,14 @@ impl Output {
         if self.fit_pending && line.contains("common_params_fit_impl:") {
             (self.layers_on_gpu, self.fit_pending) = (None, false);
         }
+        if line.contains("getting device memory data for initial parameters") {
+            self.fit_run_moved = false;
+        }
         if line.contains("cannot meet free memory target") {
-            self.fit_moved = true;
-        } else if line.contains("can be met on all devices")
-            || line.contains("of free device memory, no changes needed")
+            (self.fit_moved, self.fit_run_moved) = (true, true);
+        } else if !self.fit_run_moved
+            && (line.contains("can be met on all devices")
+                || line.contains("of free device memory, no changes needed"))
         {
             self.fit_moved = false;
         }
@@ -319,13 +326,15 @@ impl Output {
     }
 
     /// 載入以外的時間要寫進 log 的行：警告與錯誤（時間戳記後的等級字母 W／E）與每次請求的 `print_timing`；
-    /// 沒有時間戳記的是上一筆的續行，跟著上一行。
+    /// 沒有時間戳記的是上一筆的續行，跟著上一行；但像當機訊息的一律寫（`GGML_ASSERT` 等直接寫 stderr）。
     fn important(&self, line: &str) -> bool {
         static LEVEL: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r"^\d+\.\d+\.\d+\.\d+ ([A-Z]) ").unwrap());
+        static CRASH: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?i)error|assert|abort|exception").unwrap());
         match LEVEL.captures(line) {
             Some(c) => matches!(&c[1], "W" | "E") || line.contains("print_timing"),
-            None => self.last_logged && !line.is_empty(),
+            None => !line.is_empty() && (self.last_logged || CRASH.is_match(line)),
         }
     }
 }
@@ -620,5 +629,30 @@ mod tests {
         ];
         let (_, logged) = feed(&lines);
         assert_eq!(logged, [true, false, false, true, true, false]);
+    }
+
+    /// 當機訊息直接寫 stderr、沒有時間戳記：就算上一行沒寫進 log 也要寫。
+    #[test]
+    fn crash_messages_without_a_timestamp_are_logged() {
+        let lines = [
+            "0.39.341.105 I srv  server_on_li: listening on http://127.0.0.1:1",
+            "0.40.000.000 I slot params_from_: sampler chain:",
+            "D:/a/llama.cpp/ggml/src/ggml-cuda.cu:88: GGML_ASSERT(ptr) failed",
+            "CUDA error: out of memory",
+        ];
+        let (_, logged) = feed(&lines);
+        assert_eq!(logged, [true, false, true, true]);
+    }
+
+    /// 同一次 fit 裡只要有裝置要調整，另一個裝置說不必調整也不算沒移動（多顯示卡）。
+    #[test]
+    fn one_device_needing_no_change_does_not_clear_a_move_in_the_same_fit() {
+        let lines = [
+            "0.01.000.000 I common_params_fit_impl: getting device memory data for initial parameters:",
+            "0.01.100.000 I common_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 2048 MiB",
+            "0.01.200.000 I common_params_fit_impl: will leave 9000 >= 1024 MiB of free device memory, no changes needed",
+            "0.39.819.281 I load_tensors: offloaded 43/43 layers to GPU",
+        ];
+        assert_eq!(feed(&lines).0.all_on_gpu(), Some(false));
     }
 }
