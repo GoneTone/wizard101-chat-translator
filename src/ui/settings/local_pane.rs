@@ -70,7 +70,7 @@ impl LocalPane {
         services: &[Value],
         now: Instant,
     ) {
-        self.rates.observe(now, &snapshot.downloads);
+        self.rates.observe(now, snapshot);
         // GitHub 匿名呼叫每小時只有 60 次：已經列過就不再列，失敗時改由〔重試〕
         if !self.listed {
             self.listed = true;
@@ -80,7 +80,7 @@ impl LocalPane {
         }
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
-            self.engine.ui(ui, env, snapshot);
+            self.engine.ui(ui, env, snapshot, &self.rates);
             self.load_card(ui);
             match local_models::ui(ui, env, snapshot, &mut self.settings, &self.rates) {
                 Some(ModelAction::OpenDownload) => {

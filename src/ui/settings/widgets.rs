@@ -423,6 +423,30 @@ pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
     response
 }
 
+/// 細進度條：圓角軌道上以強調色填滿 `fraction`（0–1）。
+pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, PROGRESS_HEIGHT), Sense::hover());
+    let fraction = fraction.clamp(0.0, 1.0);
+    response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_numeric_value(f64::from(fraction) * 100.0);
+    });
+    if ui.is_rect_visible(rect) {
+        let radius = CornerRadius::same((PROGRESS_HEIGHT / 2.0) as u8);
+        let painter = ui.painter();
+        painter.rect_filled(rect, radius, theme::CONTROL_BORDER);
+        let mut fill = rect;
+        fill.set_width(rect.width() * fraction);
+        if fill.width() > 0.0 {
+            painter.rect_filled(fill, radius, theme::ACCENT);
+        }
+    }
+    response
+}
+
+/// 細進度條的高度。
+const PROGRESS_HEIGHT: f32 = 6.0;
+
 /// 佔位亮度起伏一輪的秒數。
 const SKELETON_PERIOD: f64 = 1.4;
 

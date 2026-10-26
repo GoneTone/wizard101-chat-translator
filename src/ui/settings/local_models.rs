@@ -1,17 +1,15 @@
 //! 本地模型頁的「已下載模型」卡：總佔用空間、每個模型的狀態與動作，以及沒有模型時的空白提示。
 
-use std::time::Duration;
-
-use eframe::egui::{Label, ProgressBar, RichText, Ui, vec2};
+use eframe::egui::{Label, RichText, Ui, vec2};
 
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
-use super::local_rate::{Rates, eta, format_speed};
+use super::local_rate::{Rates, transfer_text};
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
-    danger_secondary_button, primary_button, right_aligned, right_aligned_width, secondary_button,
-    toggle,
+    danger_secondary_button, primary_button, progress_bar, right_aligned, right_aligned_width,
+    secondary_button, toggle,
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
@@ -127,20 +125,7 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
             RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
-            RowState::Running(done, total) => {
-                let mut line = t(
-                    "local.models.downloading",
-                    &[("done", &gb(*done)), ("total", &gb(*total))],
-                );
-                if let Some(rate) = speed {
-                    let left = eta_text(eta(*done, *total, rate));
-                    let args = [("speed", format_speed(rate)), ("eta", left)];
-                    let args: Vec<(&str, &str)> =
-                        args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-                    line += &format!(" · {}", t("local.models.speed_eta", &args));
-                }
-                small(line)
-            }
+            RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
             RowState::Paused(done, total) => small(t(
                 "local.models.paused",
                 &[("done", &gb(*done)), ("total", &gb(*total))],
@@ -191,7 +176,7 @@ fn controls(
             fit_badge(ui, level, snapshot.detecting);
         }
         RowState::Running(done, total) => {
-            ui.add(ProgressBar::new(fraction(*done, *total)).desired_width(120.0));
+            progress_bar(ui, fraction(*done, *total), 120.0);
             if secondary_button(ui, &t("button.cancel", &[])).clicked() {
                 log(format!("[ui] model download cancel requested: id={id}"));
                 env.local_command(Command::CancelDownload(id.clone()));
@@ -210,20 +195,6 @@ fn controls(
         action = Some(ModelAction::Delete(id.clone()));
     }
     action
-}
-
-/// 剩餘時間文字：不到一分鐘用秒，不到一小時用分，其餘用小時加分。
-fn eta_text(left: Duration) -> String {
-    let secs = left.as_secs_f64().ceil() as u64;
-    let n = |v: u64| v.to_string();
-    match secs {
-        0..60 => t("local.models.eta_seconds", &[("n", &n(secs.max(1)))]),
-        60..3600 => t("local.models.eta_minutes", &[("n", &n(secs.div_ceil(60)))]),
-        _ => t(
-            "local.models.eta_hours",
-            &[("h", &n(secs / 3600)), ("m", &n(secs % 3600 / 60))],
-        ),
-    }
 }
 
 /// 用清單上存的所需量對目前硬體評等；VRAM 還沒量過時為 `None`。

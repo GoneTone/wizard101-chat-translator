@@ -1,6 +1,7 @@
 //! 精靈的本地模型一鍵安裝：確認卡片、換模型、引擎與模型的下載進度。
 
 use std::mem;
+use std::time::Instant;
 
 use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui};
 
@@ -15,6 +16,7 @@ use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
+use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, transfer_text};
 use crate::ui::settings::local_rows::memory_key;
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
@@ -56,6 +58,7 @@ pub struct LocalInstall {
     /// 表單原本就有的模型 id；進入時若已在 hub 的清單內就直接沿用。
     existing: String,
     state: Option<InstallState>,
+    rates: Rates,
 }
 
 impl LocalInstall {
@@ -87,6 +90,7 @@ impl LocalInstall {
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) -> InstallState {
         self.start(env, snapshot);
         self.adopt(snapshot);
+        self.rates.observe(Instant::now(), snapshot);
         let state = self.phase(snapshot);
         match &state {
             InstallState::Choosing => self.choosing(ui, env, snapshot),
@@ -332,15 +336,11 @@ impl LocalInstall {
     /// 引擎安裝中的進度，或失敗的原文與〔重試〕。
     fn engine_status(&self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         match &snapshot.engine {
-            EngineState::Installing { done, total, .. } => progress(
-                ui,
-                &t(
-                    "local.wizard.engine_installing",
-                    &[("done", &gb(*done)), ("total", &gb(*total))],
-                ),
-                *done,
-                *total,
-            ),
+            EngineState::Installing { done, total, .. } => {
+                let status = engine_text(*done, *total, self.rates.speed(ENGINE));
+                let text = t("local.wizard.engine_installing", &[("status", &status)]);
+                progress(ui, &text, *done, *total);
+            }
             EngineState::Failed(error) => {
                 error_with_retry(ui, error, || {
                     env.local_command(Command::InstallEngine {
@@ -385,10 +385,7 @@ impl LocalInstall {
                     ) => (*done, *total),
                     _ => (0, 0),
                 };
-                let text = t(
-                    "local.models.downloading",
-                    &[("done", &gb(done)), ("total", &gb(total))],
-                );
+                let text = transfer_text(done, total, self.rates.speed(&id));
                 progress(ui, &text, done, total);
                 let stopped = matches!(
                     snapshot.downloads.get(&id),

@@ -875,6 +875,32 @@ mod page {
         assert!(has_label(&h, &tr("local.hw.redetect")));
     }
 
+    /// 安裝引擎時進度條下方顯示狀態：下載中的量，下載完是解壓縮。
+    #[test]
+    fn engine_install_shows_its_status_under_the_bar() {
+        const G: u64 = 1 << 30;
+        let installing = |done| {
+            let mut snap = ready_engine();
+            snap.engine = EngineState::Installing {
+                build: "b11880".into(),
+                done,
+                total: 2 * G,
+            };
+            pane_harness(snap, vec![])
+        };
+        let h = installing(G);
+        let downloading = t(
+            "local.models.downloading",
+            &[("done", "1.0"), ("total", "2.0")],
+        );
+        assert!(has_label(&h, &downloading));
+        assert!(h.query_by_role(Role::ProgressIndicator).is_some());
+        assert!(has_label(
+            &installing(2 * G),
+            &tr("local.engine.extracting")
+        ));
+    }
+
     /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。
     #[test]
     fn unmeasured_vram_says_why() {

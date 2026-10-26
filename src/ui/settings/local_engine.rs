@@ -1,15 +1,16 @@
 //! 本地模型頁的「llama.cpp 引擎」卡：狀態、版本與變體選擇、安裝／更新／移除，以及硬體概況。
 
-use eframe::egui::{FontId, Id, Label, ProgressBar, RichText, TextStyle, Ui};
+use eframe::egui::{FontId, Id, Label, RichText, TextStyle, Ui};
 
 use super::dialog::Choice;
 use super::env::SettingsEnv;
 use super::local_card::{confirm_danger, padded, section};
+use super::local_rate::{ENGINE, Rates, engine_text};
 use super::quant_table::{dot, fraction, gb};
 use super::theme;
 use super::widgets::{
-    combo_box, danger_secondary_button, focus_ring, pill, primary_button, secondary_button,
-    skeleton,
+    combo_box, danger_secondary_button, focus_ring, pill, primary_button, progress_bar,
+    secondary_button, skeleton,
 };
 use crate::i18n::t;
 use crate::local::engine::{Build, EngineInstall, Variant, auto_variant, build_number};
@@ -36,7 +37,13 @@ struct Picked {
 }
 
 impl EngineCard {
-    pub(super) fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
+    pub(super) fn ui(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        rates: &Rates,
+    ) {
         let installed = match &snapshot.engine {
             EngineState::Ready(i) => Some(i),
             _ => None,
@@ -48,7 +55,7 @@ impl EngineCard {
             |ui| {
                 padded(ui, |ui| {
                     let picked = self.pickers(ui, env, snapshot, installed);
-                    self.actions(ui, env, snapshot, installed, &picked);
+                    self.actions(ui, env, snapshot, installed, &picked, rates);
                     ui.add_space(4.0);
                     hardware(ui, env, snapshot);
                 });
@@ -187,6 +194,7 @@ impl EngineCard {
         snapshot: &Snapshot,
         installed: Option<&EngineInstall>,
         picked: &Picked,
+        rates: &Rates,
     ) {
         let latest = match &snapshot.builds {
             Some(Ok(builds)) => builds.first(),
@@ -208,7 +216,12 @@ impl EngineCard {
         };
         match &snapshot.engine {
             EngineState::Installing { done, total, .. } => {
-                ui.add(ProgressBar::new(fraction(*done, *total)).show_percentage());
+                progress_bar(ui, fraction(*done, *total), ui.available_width());
+                let status = engine_text(*done, *total, rates.speed(ENGINE));
+                let status = RichText::new(status)
+                    .size(theme::HINT_SIZE)
+                    .color(theme::TEXT_SECONDARY);
+                ui.add(Label::new(status).wrap());
             }
             EngineState::Failed(error) => {
                 ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
