@@ -122,7 +122,9 @@ async fn list_models_returns_only_complete_downloads() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn warm_up_launches_nothing_even_when_preloading() {
     let h = hub(false).await;
-    h.local.apply_config(&Config::default());
+    let mut cfg = Config::default();
+    cfg.insert("local_models".into(), json!({"preload": true}));
+    h.local.apply_config(&cfg);
     assert!(h.local.settings().preload);
     local_client("m1").warm_up("test").await;
     assert_eq!(h.launches.started(), 0);
