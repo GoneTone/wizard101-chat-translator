@@ -9,6 +9,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::download::Progress;
 use wizard101_chat_translator::local::engine::*;
+use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, NVIDIA};
 use wizard101_chat_translator::local::hf::hf_client;
 
 fn asset(name: &str) -> Value {
@@ -56,6 +57,38 @@ fn variant_serializes_as_a_string() {
         Variant::Vulkan
     );
     assert!(serde_json::from_str::<Variant>("\"metal\"").is_err());
+}
+
+/// NVIDIA 獨顯挑卡與驅動撐得起的最新 CUDA 版；舊卡不用 CUDA 13，驅動太舊、讀不到或別家 GPU 用 Vulkan，沒 GPU 用 CPU。
+#[test]
+fn auto_variant_prefers_cuda_the_nvidia_driver_supports() {
+    let mut json = fixture();
+    json[0]["assets"]
+        .as_array_mut()
+        .unwrap()
+        .push(asset("llama-b11871-bin-win-cuda-12.4-x64.zip"));
+    let builds = parse_releases(&json);
+    let build = Some(&builds[0]);
+    const RTX_4080_SUPER: u32 = 0x2702;
+    const GTX_1080: u32 = 0x1b80;
+    let gpu = |vendor, device, driver| Gpu {
+        name: "GPU".into(),
+        vendor,
+        device,
+        kind: GpuKind::Discrete,
+        nvidia_driver: driver,
+    };
+    let pick = |g: Option<Gpu>| auto_variant(g.as_ref(), build).to_string();
+    let rtx = |driver| pick(Some(gpu(NVIDIA, RTX_4080_SUPER, driver)));
+    assert_eq!(rtx(Some(58157)), "cuda-13.4");
+    assert_eq!(rtx(Some(56094)), "cuda-12.4");
+    assert_eq!(rtx(Some(52000)), "vulkan");
+    assert_eq!(rtx(None), "vulkan");
+    assert_eq!(pick(Some(gpu(NVIDIA, GTX_1080, Some(58157)))), "cuda-12.4");
+    assert_eq!(pick(Some(gpu(0x1002, 0x744c, None))), "vulkan");
+    assert_eq!(pick(None), "cpu");
+    let no_build = auto_variant(Some(&gpu(NVIDIA, RTX_4080_SUPER, Some(58157))), None);
+    assert_eq!(no_build, Variant::Vulkan);
 }
 
 fn inst(build: &str) -> EngineInstall {

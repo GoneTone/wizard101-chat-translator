@@ -51,12 +51,9 @@ pub(super) fn engine_download(snapshot: &Snapshot) -> Option<(Variant, u64)> {
     let Some(Ok(builds)) = &snapshot.builds else {
         return None;
     };
-    let variant = auto_variant(snapshot.hardware.gpu.as_ref());
-    let (_, assets) = builds
-        .first()?
-        .variants
-        .iter()
-        .find(|(v, _)| *v == variant)?;
+    let build = builds.first()?;
+    let variant = auto_variant(snapshot.hardware.gpu.as_ref(), Some(build));
+    let (_, assets) = build.variants.iter().find(|(v, _)| *v == variant)?;
     Some((variant, assets.iter().map(|a| a.size).sum()))
 }
 

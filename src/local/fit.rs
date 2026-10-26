@@ -170,6 +170,8 @@ mod tests {
         Gpu {
             name: "t".into(),
             vendor: 0,
+            nvidia_driver: None,
+            device: 0,
             kind,
         }
     }

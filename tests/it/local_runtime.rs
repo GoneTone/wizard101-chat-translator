@@ -113,6 +113,8 @@ impl Launcher for FakeLauncher {
             name: "Fake GPU".into(),
             vendor: 0x10de,
             kind: GpuKind::Discrete,
+            nvidia_driver: None,
+            device: 0,
         })
     }
 

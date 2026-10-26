@@ -65,20 +65,20 @@ impl EngineCard {
             Some(Ok(builds)) => builds,
             _ => &[],
         };
-        let auto = auto_variant(snapshot.hardware.gpu.as_ref());
         let build = self
             .build
             .clone()
             .or_else(|| installed.map(|i| i.build.clone()))
             .or_else(|| builds.first().map(|b| b.tag.clone()));
+        let found = build
+            .as_deref()
+            .and_then(|tag| builds.iter().find(|b| b.tag == tag));
+        let auto = auto_variant(snapshot.hardware.gpu.as_ref(), found);
         let (variant, shows_auto) = match (&self.variant, installed) {
             (Some(Some(v)), _) => (v.clone(), false),
             (None, Some(i)) => (i.variant.clone(), false),
             _ => (auto.clone(), true),
         };
-        let found = build
-            .as_deref()
-            .and_then(|tag| builds.iter().find(|b| b.tag == tag));
         let variants: Vec<Variant> = found.map_or_else(
             || vec![Variant::Vulkan, Variant::Cpu],
             |b| b.variants.iter().map(|(v, _)| v.clone()).collect(),
@@ -206,7 +206,7 @@ impl EngineCard {
                     && let Some(b) = latest
                     && !b.variants.iter().any(|(v, _)| *v == variant)
                 {
-                    let auto = auto_variant(snapshot.hardware.gpu.as_ref());
+                    let auto = auto_variant(snapshot.hardware.gpu.as_ref(), Some(b));
                     log(format!(
                         "[ui] build {} has no {variant} variant, updating with auto variant {auto}",
                         b.tag

@@ -13,7 +13,7 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use crate::local::download::{DownloadError, Progress, download};
-use crate::local::hardware::Gpu;
+use crate::local::hardware::{Gpu, GpuKind, NVIDIA};
 use crate::logs::log;
 use crate::net::error_chain;
 use crate::util::write_atomic;
@@ -78,12 +78,38 @@ impl<'de> Deserialize<'de> for Variant {
     }
 }
 
-/// 有 GPU 用 Vulkan，否則 CPU。
-pub fn auto_variant(gpu: Option<&Gpu>) -> Variant {
-    if gpu.is_some() {
-        Variant::Vulkan
-    } else {
-        Variant::Cpu
+/// NVIDIA 獨顯用 `build` 裡驅動撐得起的最新 CUDA 版，其他 GPU 用 Vulkan，沒有 GPU 用 CPU。
+pub fn auto_variant(gpu: Option<&Gpu>, build: Option<&Build>) -> Variant {
+    let Some(gpu) = gpu else {
+        return Variant::Cpu;
+    };
+    let cuda = gpu
+        .nvidia_driver
+        .filter(|_| gpu.vendor == NVIDIA && gpu.kind == GpuKind::Discrete)
+        .and_then(|driver| {
+            build?
+                .variants
+                .iter()
+                .map(|(v, _)| v)
+                .filter(|v| cuda_runs(v, gpu, driver))
+                .max_by_key(|v| v.sort_key())
+        });
+    cuda.cloned().unwrap_or(Variant::Vulkan)
+}
+
+/// NVIDIA 的 PCI device ID 依世代遞增，Turing 從這裡起。
+const TURING_FIRST_DEVICE: u32 = 0x1e00;
+
+/// 這張卡與驅動（乘以 100）跑得動這個 CUDA 版；12.x 要驅動 528.33 以上，13.x 要 580 以上且 Turing 以後。
+fn cuda_runs(variant: &Variant, gpu: &Gpu, driver: u32) -> bool {
+    let Variant::Cuda(version) = variant else {
+        return false;
+    };
+    match version.split('.').next() {
+        Some("12") => driver >= 52_833,
+        // CUDA 13 拿掉了 Maxwell／Pascal／Volta
+        Some("13") => driver >= 58_000 && gpu.device >= TURING_FIRST_DEVICE,
+        _ => false,
     }
 }
 

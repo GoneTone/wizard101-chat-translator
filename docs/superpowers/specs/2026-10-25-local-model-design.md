@@ -61,7 +61,7 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
 ### 引擎（llama.cpp）
 
 - 來源：GitHub `ggml-org/llama.cpp` releases 的 Windows 資產，命名如 `llama-b11871-bin-win-vulkan-x64.zip`（約 37 MB）、`llama-b11871-bin-win-cuda-13.4-x64.zip`（約 160 MB，另需 `cudart-llama-bin-win-cuda-13.4-x64.zip` 約 424 MB）、`llama-b11871-bin-win-cpu-x64.zip`（約 24 MB）。
-- 依硬體自動挑版本：有獨立／內建 GPU → Vulkan 版（NVIDIA／AMD／Intel 都能跑、檔案小）；沒有可用 GPU → CPU 版。CUDA 版不自動選，在管理頁讓 NVIDIA 使用者手動切換（下載大很多）。下載前認 GPU 廠牌可以用已有的 `wgpu` 列舉 adapter（`vendor` 與 `device_type`），不需新增相依。
+- 依硬體自動挑版本（使用者決定 NVIDIA 自動用 CUDA）：NVIDIA 獨顯 → 卡與驅動撐得起的最新 CUDA 版（CUDA 12.x 要驅動 528.33 以上；13.x 要 580 以上，且只支援 Turing 以後，以 PCI device ID ≥ 0x1E00 判斷；驅動版本從 DX12 adapter 讀；讀不到或太舊就用 Vulkan，連同 cudart 約 600 MB）；其他獨立／內建 GPU → Vulkan 版（檔案小）；沒有可用 GPU → CPU 版。都可以在管理頁手動切換。下載前認 GPU 廠牌可以用已有的 `wgpu` 列舉 adapter（`vendor` 與 `device_type`），不需新增相依。
 - 版本：追 GitHub 上最新的 `bNNNNN` build（穩定版 tag 如 `v0.7.0` 沒有附 Windows 執行檔，編好的檔案只在預發佈的 build 裡）。首次下載預設取當下最新的 build；之後管理頁顯示目前 build 與最新 build，有新版就提示，由使用者自己點更新，不自動換。（使用者決定）
 - **使用者可以自選要下載哪個 build**（使用者決定）：管理頁列出近期的 build（GitHub releases API，只列有對應 Windows 資產的；列多少筆由實作決定），選一個安裝，可以往前退到舊 build。變體（Vulkan／CUDA／CPU）是另一個選項，預設依硬體自動挑，也可以手動改。
 - **最低支援版本**：程式內常數 `MIN_BUILD = b11871`（2026-10-25 的最新 build），比它舊的 build 不列出、不可安裝。本程式依賴的參數（`--sleep-idle-seconds`、`--spec-type draft-mtp`、預設開啟的 `--fit`）與推薦模型的架構都需要近期版本；之後依賴更新的參數或模型時一併調高。llama.cpp 日後改參數名稱造成新版啟動失敗，由下一條的自動退回與「顯示 llama.cpp 原文錯誤（exit code 與最後幾行輸出）」處理。（我的決定，回應版本相容的提醒）
@@ -158,7 +158,7 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
 - **設定類跟著草稿走**：預先載入開關、閒置卸載分鐘數、每個模型的 MTP 開關，按儲存才寫入。
 - 下載由長駐的元件負責（不屬於設定視窗），關掉設定視窗仍繼續；重開「本地模型」頁看得到進度。下載中途結束本程式 → 保留未完成的檔案，下次由使用者再點才續傳，不自動開始。
 - 刪除已被**已儲存**的本地服務引用的模型 → 跳確認；未儲存草稿裡的引用不特別處理，儲存時的驗證會擋。
-- 引擎還沒下載時，點推薦模型的一鍵下載 → 先自動下載引擎（Vulkan／CPU 版只有幾十 MB），引擎就緒、量到可用記憶體後再自動挑量化版本並下載模型。不另做 `wgpu` 估 VRAM 的第二條路徑。
+- 引擎還沒下載時，點推薦模型的一鍵下載 → 先自動下載引擎（Vulkan／CPU 版只有幾十 MB，CUDA 版約 600 MB），引擎就緒、量到可用記憶體後再自動挑量化版本並下載模型。不另做 `wgpu` 估 VRAM 的第二條路徑。
 
 ### 設定與資料
 

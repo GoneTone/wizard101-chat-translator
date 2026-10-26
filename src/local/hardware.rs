@@ -20,7 +20,11 @@ pub enum GpuKind {
 pub struct Gpu {
     pub name: String,
     pub vendor: u32,
+    /// PCI device ID。
+    pub device: u32,
     pub kind: GpuKind,
+    /// NVIDIA 驅動版本乘以 100（581.57 → 58157）；其他廠牌或讀不到為 `None`。
+    pub nvidia_driver: Option<u32>,
 }
 
 /// 硬體快照（位元組）；可用量不含本程式自己載入的模型。
@@ -48,9 +52,11 @@ pub fn detect_gpu() -> Option<Gpu> {
     };
     let pick = |wanted: wgpu::DeviceType, kind: GpuKind| {
         adapters.iter().map(|a| a.get_info()).find_map(|info| {
-            (info.device_type == wanted).then_some(Gpu {
+            (info.device_type == wanted).then(|| Gpu {
+                nvidia_driver: nvidia_driver(info.vendor, &info.driver),
                 name: info.name,
                 vendor: info.vendor,
+                device: info.device,
                 kind,
             })
         })
@@ -64,6 +70,26 @@ pub fn detect_gpu() -> Option<Gpu> {
         ));
     }
     gpu
+}
+
+/// PCI 廠商代碼：NVIDIA。
+pub const NVIDIA: u32 = 0x10de;
+
+/// DX12 回報的 Windows 驅動版本（如 `32.0.15.8157`）換成 NVIDIA 版號乘以 100（58157）。
+fn nvidia_driver(vendor: u32, version: &str) -> Option<u32> {
+    if vendor != NVIDIA {
+        return None;
+    }
+    let parts: Vec<u32> = version
+        .split('.')
+        .map(|p| p.parse().ok())
+        .collect::<Option<_>>()?;
+    // NVIDIA 版號是第三段個位數接第四段（15.8157 → 581.57）；wgpu 讀不到時回 0.0.0.0
+    match parts[..] {
+        [_, _, third, fourth] if fourth < 10_000 => Some(third % 10 * 10_000 + fourth),
+        _ => None,
+    }
+    .filter(|&d| d > 0)
 }
 
 /// 回傳 `(實體記憶體總量, 可用量)`；呼叫失敗回 `(0, 0)`。
@@ -135,6 +161,15 @@ mod tests {
         assert!(parse_list_devices("Available devices:\n").is_empty());
     }
 
+    #[test]
+    fn nvidia_driver_comes_from_the_windows_driver_version() {
+        assert_eq!(nvidia_driver(NVIDIA, "32.0.15.8157"), Some(58157));
+        assert_eq!(nvidia_driver(NVIDIA, "31.0.15.2857"), Some(52857));
+        assert_eq!(nvidia_driver(NVIDIA, "0.0.0.0"), None);
+        assert_eq!(nvidia_driver(NVIDIA, "bogus"), None);
+        assert_eq!(nvidia_driver(0x1002, "32.0.15.8157"), None);
+    }
+
     /// 內顯的記憶體只算一次、當成 RAM。
     #[test]
     fn integrated_gpu_counts_memory_once_as_ram() {
@@ -143,6 +178,8 @@ mod tests {
                 name: "Intel".into(),
                 vendor: 0x8086,
                 kind: GpuKind::Integrated,
+                nvidia_driver: None,
+                device: 0,
             }),
             vram_total: 16 << 30,
             vram_free: 10 << 30,
@@ -171,6 +208,8 @@ mod tests {
             name: "Intel".into(),
             vendor: 0x8086,
             kind: GpuKind::Integrated,
+            nvidia_driver: None,
+            device: 0,
         });
         (hw.vram_free, hw.ram_free) = (2 * G, 10 * G);
         release(&mut hw, 3 * G);

@@ -76,6 +76,8 @@ fn snapshot(ready: &[(usize, RepoInfo)]) -> Snapshot {
                 name: "t".into(),
                 vendor: 0,
                 kind: GpuKind::Discrete,
+                nvidia_driver: None,
+                device: 0,
             }),
             vram_total: 8 * G,
             vram_free: 8 * G,
@@ -749,6 +751,8 @@ mod page {
             name: "t".into(),
             vendor: 0,
             kind: GpuKind::Discrete,
+            nvidia_driver: None,
+            device: 0,
         });
         let mut h = pane_harness(snap, vec![]);
         click(&mut h, Role::Button, &tr("local.engine.update"));
@@ -840,6 +844,8 @@ mod page {
                 name: "GPU".into(),
                 vendor: 0x10de,
                 kind: GpuKind::Discrete,
+                nvidia_driver: None,
+                device: 0,
             });
             pane_harness(snap, vec![])
         };

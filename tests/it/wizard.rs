@@ -649,6 +649,8 @@ mod local_install {
                     name: "t".into(),
                     vendor: 0,
                     kind: GpuKind::Discrete,
+                    nvidia_driver: None,
+                    device: 0,
                 }),
                 vram_total: 24 * G,
                 vram_free: 24 * G,

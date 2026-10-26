@@ -408,7 +408,8 @@ impl Local {
                 tag.as_deref().unwrap_or("latest")
             )
         })?;
-        let variant = variant.unwrap_or_else(|| engine::auto_variant(self.gpu(false).as_ref()));
+        let variant =
+            variant.unwrap_or_else(|| engine::auto_variant(self.gpu(false).as_ref(), Some(build)));
         let total = build
             .variants
             .iter()
