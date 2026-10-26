@@ -18,6 +18,7 @@ use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
 use wizard101_chat_translator::local::hardware::{self, Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
 use wizard101_chat_translator::local::store;
+use wizard101_chat_translator::local::usage::Usage;
 use wizard101_chat_translator::local::{
     Command, DownloadState, Endpoints, EngineState, Local, LocalNotice, RepoInfo, RepoState,
     Snapshot,
@@ -34,6 +35,7 @@ struct FakeProcess {
     exe: PathBuf,
     exe_at_kill: Arc<Mutex<Vec<bool>>>,
     kill_delay: Arc<Mutex<Duration>>,
+    pid: u32,
     _health: Option<MockServer>,
 }
 
@@ -53,6 +55,9 @@ impl Process for FakeProcess {
     }
     fn tail(&self) -> Vec<String> {
         vec!["error: fake failure".into()]
+    }
+    fn pid(&self) -> Option<u32> {
+        Some(self.pid)
     }
 }
 
@@ -78,6 +83,9 @@ struct Shared {
     gpu_detections: Arc<Mutex<usize>>,
     /// 子程序 kill 要等它退出的時間。
     kill_delay: Arc<Mutex<Duration>>,
+    /// 每台假 llama-server 回報的實際佔用；`process_usage` 收到的 PID 也記在這。
+    usage_per_server: Arc<Mutex<Usage>>,
+    usage_pids: Arc<Mutex<Vec<u32>>>,
 }
 
 struct FakeLauncher {
@@ -104,6 +112,7 @@ impl Launcher for FakeLauncher {
             exe: plan.exe.clone(),
             exe_at_kill: s.exe_at_kill.clone(),
             kill_delay: s.kill_delay.clone(),
+            pid: u32::from(port),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
     }
@@ -126,6 +135,16 @@ impl Launcher for FakeLauncher {
         self.shared.measured.lock().unwrap().push(done);
         let devices = self.shared.devices.lock().unwrap().clone();
         devices.ok_or_else(|| "fake measurement failure".into())
+    }
+
+    fn process_usage(&self, pids: &[u32]) -> Usage {
+        *self.shared.usage_pids.lock().unwrap() = pids.to_vec();
+        let each = *self.shared.usage_per_server.lock().unwrap();
+        let n = pids.len() as u64;
+        Usage {
+            vram: each.vram * n,
+            ram: each.ram * n,
+        }
     }
 }
 
@@ -1007,36 +1026,44 @@ async fn the_snapshot_says_while_hardware_is_being_detected() {
     f.local.start(&local_config(&[], json!({})));
     wait_for("first measurement", || !f.local.snapshot().detecting).await;
     assert!(f.local.snapshot().hardware.measured);
-    f.local.command(Command::RefreshHardware);
+    f.local
+        .command(Command::RefreshHardware { redetect_gpu: true });
     wait_for("re-detect started", || f.local.snapshot().detecting).await;
     wait_for("re-detect finished", || !f.local.snapshot().detecting).await;
     assert_eq!(f.shared.measured.lock().unwrap().len(), 2);
 }
 
-/// 模型跑著時重新偵測：可用量照實記，它佔的記憶體另外記下、相容判斷時才加回，快照也列出它在跑。
+/// 模型跑著時重新偵測：可用量照實記，量它的 llama-server 實際佔用另外記下、相容判斷時才加回。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn redetecting_adds_running_models_back_to_free_memory() {
     const G: u64 = 1 << 30;
-    let f = fixture(
-        |root| {
-            engine_and_model(false)(root);
-            let mut m = store::list(root).remove(0).manifest;
-            m.required = 2 * G;
-            store::write_manifest(root, "m1", &m).unwrap();
-        },
-        |_| false,
-    )
-    .await;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
     f.local.ensure("m1").await.unwrap();
     *f.shared.devices.lock().unwrap() =
         Some("Available devices:\n  Vulkan0: Fake GPU (8192 MiB, 4096 MiB free)\n".into());
-    f.local.command(Command::RefreshHardware);
+    f.local
+        .command(Command::RefreshHardware { redetect_gpu: true });
     wait_for("measured", || f.local.snapshot().hardware.measured).await;
     let s = f.local.snapshot();
     assert!(s.running.contains("m1"), "{:?}", s.running);
     assert_eq!(s.hardware.vram_free, 4096 << 20, "shown as measured");
-    assert_eq!(s.hardware.own, 2 * G);
-    assert_eq!(hardware::effective(&s.hardware).0, (4096 << 20) + 2 * G);
+    assert_eq!(
+        f.shared.usage_pids.lock().unwrap().len(),
+        1,
+        "the running server"
+    );
+    assert_eq!(
+        s.hardware.own,
+        Usage {
+            vram: 3 * G,
+            ram: G
+        }
+    );
+    assert_eq!(hardware::effective(&s.hardware).0, (4096 << 20) + 3 * G);
 }
 
 /// 量硬體途中移除引擎：等 `--list-devices` 結束才刪，不會刪到執行中的 exe。
@@ -1045,7 +1072,8 @@ async fn engine_removal_waits_for_a_running_measurement() {
     let f = fixture(engine_and_model(false), |_| false).await;
     *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
     *f.shared.measure_delay.lock().unwrap() = Duration::from_millis(400);
-    f.local.command(Command::RefreshHardware);
+    f.local
+        .command(Command::RefreshHardware { redetect_gpu: true });
     tokio::time::sleep(Duration::from_millis(100)).await;
     f.local.command(Command::RemoveEngine);
     wait_for("engine removed", || {
@@ -1111,7 +1139,8 @@ async fn the_gpu_is_detected_once_until_the_user_redetects() {
     })
     .await;
     assert_eq!(detections(), 1);
-    f.local.command(Command::RefreshHardware);
+    f.local
+        .command(Command::RefreshHardware { redetect_gpu: true });
     wait_for("re-detected", || detections() == 2).await;
 }
 

@@ -84,7 +84,7 @@ fn snapshot(ready: &[(usize, RepoInfo)]) -> Snapshot {
             ram_total: 16 * G,
             ram_free: 16 * G,
             measured: true,
-            own: 0,
+            own: Default::default(),
         },
         ..Default::default()
     };
@@ -488,6 +488,7 @@ mod page {
     use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
     use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
     use wizard101_chat_translator::local::store::{Installed, Manifest, ManifestFile};
+    use wizard101_chat_translator::local::usage::Usage;
     use wizard101_chat_translator::local::{Command, DownloadState, EngineState, Snapshot};
     use wizard101_chat_translator::ui::settings::env::SettingsEnv;
     use wizard101_chat_translator::ui::settings::local_pane::LocalPane;
@@ -606,9 +607,18 @@ mod page {
         let mut h = window(snapshot(vec![model(MODEL, true, false)]));
         click(&mut h, Role::Button, &tr("button.delete"));
         let sent = commands(|s: &WindowState| &s.env, &h);
-        assert!(matches!(&sent[..], [Command::ListBuilds, Command::Delete(id)] if id == MODEL));
+        assert!(matches!(
+            &sent[..],
+            [
+                Command::RefreshHardware {
+                    redetect_gpu: false
+                },
+                Command::ListBuilds,
+                Command::Delete(id)
+            ] if id == MODEL
+        ));
         click(&mut h, Role::Button, &tr("button.cancel"));
-        assert_eq!(commands(|s: &WindowState| &s.env, &h).len(), 2);
+        assert_eq!(commands(|s: &WindowState| &s.env, &h).len(), 3);
         assert!(h.state().actions.contains(&SettingsAction::Cancel));
     }
 
@@ -922,13 +932,17 @@ mod page {
             ram_total: 64 * G,
             ram_free: 20 * G,
             measured: true,
-            own: 7 * G + G / 2,
+            own: Usage {
+                vram: 7 * G + G / 2,
+                ram: G,
+            },
             ..Hardware::default()
         };
         let h = pane_harness(snap, vec![]);
         let vram = t("local.hw.vram", &[("free", "8.0"), ("total", "16.0")]);
         assert!(has_label(&h, &vram));
-        assert!(has_label(&h, &t("local.hw.own", &[("size", "7.5")])));
+        let own = t("local.hw.own", &[("vram", "7.5"), ("ram", "1.0")]);
+        assert!(has_label(&h, &own));
     }
 
     /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。
@@ -959,7 +973,10 @@ mod page {
     fn redetect_refreshes_the_hardware() {
         let mut h = pane_harness(Snapshot::default(), vec![]);
         click(&mut h, Role::Link, &tr("local.hw.redetect"));
-        assert!(matches!(last(&h), Some(Command::RefreshHardware)));
+        assert!(matches!(
+            last(&h),
+            Some(Command::RefreshHardware { redetect_gpu: true })
+        ));
     }
 
     #[test]

@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use futures_util::FutureExt;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
+use super::usage::Usage;
 use crate::logs::log;
 
 /// GPU 種類；`None` 供呼叫端需要明確值時使用。
@@ -37,8 +38,8 @@ pub struct Hardware {
     pub ram_free: u64,
     /// 引擎量過 VRAM（`--list-devices` 成功）；沒量過時相容等級未知。量到 0（只有 CPU）也算量過。
     pub measured: bool,
-    /// 量測當下本程式自己載入的模型估計佔用；可用量照實記，相容判斷（`effective`）才加回去。
-    pub own: u64,
+    /// 量測當下本程式自己的 llama-server 實際佔用；可用量照實記，相容判斷（`effective`）才加回去。
+    pub own: Usage,
 }
 
 /// 列舉 DX12 adapter，取第一個獨顯，沒有就取內顯；列舉失敗回 `None`。
@@ -123,20 +124,20 @@ pub fn parse_list_devices(output: &str) -> Vec<(String, u64, u64)> {
 
 /// 相容判斷用的 `(vram, ram)` 可用量；內顯的共享記憶體只算一次、當成 RAM。
 ///
-/// 本程式自己載入的模型（`own`）算回可用：先補回 VRAM 已用的部分，其餘補 RAM，都不超過總量。
+/// 本程式自己的 llama-server 佔用（`own`）算回可用，都不超過總量；內顯的 GPU 記憶體算回 RAM。
 pub fn effective(hw: &Hardware) -> (u64, u64) {
     let integrated = hw
         .gpu
         .as_ref()
         .is_some_and(|g| g.kind == GpuKind::Integrated);
-    let (vram_total, vram_free) = if integrated {
-        (0, 0)
+    let (vram, ram_back) = if integrated {
+        (0, hw.own.vram + hw.own.ram)
     } else {
-        (hw.vram_total, hw.vram_free)
+        let vram = (hw.vram_free + hw.own.vram).min(hw.vram_total.max(hw.vram_free));
+        (vram, hw.own.ram)
     };
-    let to_vram = hw.own.min(vram_total.saturating_sub(vram_free));
-    let to_ram = (hw.own - to_vram).min(hw.ram_total.saturating_sub(hw.ram_free));
-    (vram_free + to_vram, hw.ram_free + to_ram)
+    let ram = (hw.ram_free + ram_back).min(hw.ram_total.max(hw.ram_free));
+    (vram, ram)
 }
 
 #[cfg(test)]
@@ -182,7 +183,7 @@ mod tests {
             ram_total: 16 << 30,
             ram_free: 10 << 30,
             measured: true,
-            own: 0,
+            own: Default::default(),
         };
         assert_eq!(effective(&hw), (0, 10 << 30));
     }
@@ -198,9 +199,12 @@ mod tests {
             ram_total: 16 * G,
             ram_free: 15 * G,
             measured: true,
-            own: 10 * G,
+            own: Usage {
+                vram: 3 * G,
+                ram: 4 * G,
+            },
         };
-        assert_eq!(effective(&hw), (8 * G, 16 * G));
+        assert_eq!(effective(&hw), (5 * G, 16 * G), "RAM capped at the total");
         assert_eq!(
             (hw.vram_free, hw.ram_free),
             (2 * G, 15 * G),
@@ -213,7 +217,11 @@ mod tests {
             nvidia_driver: None,
             device: 0,
         });
-        (hw.vram_free, hw.ram_free, hw.own) = (2 * G, 10 * G, 3 * G);
-        assert_eq!(effective(&hw), (0, 13 * G));
+        (hw.vram_free, hw.ram_free) = (2 * G, 10 * G);
+        hw.own = Usage {
+            vram: G,
+            ram: 2 * G,
+        };
+        assert_eq!(effective(&hw), (0, 13 * G), "integrated: all back to RAM");
     }
 }

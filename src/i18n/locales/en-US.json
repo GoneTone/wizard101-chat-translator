@@ -76,7 +76,7 @@
   "local.hw.vram_pending": "VRAM: detected once the engine is installed",
   "local.hw.vram_failed": "VRAM: detection failed",
   "local.hw.ram": "RAM: free {free} / {total} GB",
-  "local.hw.own": "Models loaded by this app use about {size} GB; fit ratings count it as available.",
+  "local.hw.own": "Models loaded by this app use VRAM {vram} GB and RAM {ram} GB; fit ratings count it as available.",
   "local.hw.redetect": "Re-detect",
   "local.hw.note": "Estimated from what is available right now; readings taken while the game is closed run high.",
   "local.load.title": "Model loading",

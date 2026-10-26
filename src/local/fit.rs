@@ -227,7 +227,7 @@ mod tests {
             ram_total: ram,
             ram_free: ram,
             measured: true,
-            own: 0,
+            own: Default::default(),
         }
     }
 
@@ -239,7 +239,7 @@ mod tests {
             ram_total: ram,
             ram_free: ram,
             measured: true,
-            own: 0,
+            own: Default::default(),
         }
     }
 

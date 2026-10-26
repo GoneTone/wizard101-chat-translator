@@ -1,6 +1,7 @@
 //! 啟動並監看 `llama-server.exe` 子程序，等它就緒。
 
 use crate::local::hardware::{Gpu, detect_gpu};
+use crate::local::usage::{self, Usage};
 use crate::logs::log;
 use crate::util::{Clock, poll_until};
 use std::collections::VecDeque;
@@ -88,6 +89,10 @@ pub trait Process: Send {
     fn kill(&mut self);
     /// 最近輸出的幾行，錯誤訊息用。
     fn tail(&self) -> Vec<String>;
+    /// 子程序的 PID，量它實際佔用的記憶體用。
+    fn pid(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// 啟動 llama-server 與偵測硬體的方式（測試以假實作替換）。
@@ -102,6 +107,11 @@ pub trait Launcher: Send + Sync {
     /// 執行 `llama-server --list-devices`（有逾時），回傳 stdout 與 stderr 的內容。
     fn list_devices(&self, exe: &Path) -> Result<String, String> {
         run_list_devices(exe)
+    }
+
+    /// 這些 llama-server 實際佔用的記憶體（見 [`usage::process_usage`]）。
+    fn process_usage(&self, pids: &[u32]) -> Usage {
+        usage::process_usage(pids)
     }
 }
 
@@ -144,6 +154,9 @@ impl Process for RealProcess {
     }
     fn tail(&self) -> Vec<String> {
         self.tail.lock().unwrap().iter().cloned().collect()
+    }
+    fn pid(&self) -> Option<u32> {
+        Some(self.child.id())
     }
 }
 

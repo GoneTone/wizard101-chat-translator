@@ -17,6 +17,7 @@ mod hub;
 mod runtime;
 pub mod server;
 pub mod store;
+pub mod usage;
 
 pub use hub::{
     Command, DownloadState, Endpoints, EngineState, Local, RepoInfo, RepoState, Snapshot,

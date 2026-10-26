@@ -133,7 +133,10 @@ impl Drop for FirstMeasure<'_> {
 /// UI 送給 hub 的指令，全部在背景執行。
 #[derive(Clone, Debug)]
 pub enum Command {
-    RefreshHardware,
+    /// 重新量硬體；`redetect_gpu` 時也重新列舉顯示卡（〔重新偵測〕），否則只重量可用量（例如打開本地模型頁）。
+    RefreshHardware {
+        redetect_gpu: bool,
+    },
     ListBuilds,
     /// `build`／`variant` 為 `None` 時取最新 build／依硬體自動挑。
     InstallEngine {
@@ -272,7 +275,9 @@ impl Local {
         log(format!("[local] command {cmd:?}"));
         let me = self.arc();
         let task: std::pin::Pin<Box<dyn Future<Output = ()> + Send>> = match cmd {
-            Command::RefreshHardware => Box::pin(async move { me.refresh_hardware(true).await }),
+            Command::RefreshHardware { redetect_gpu } => {
+                Box::pin(async move { me.refresh_hardware(redetect_gpu).await })
+            }
             Command::ListBuilds => Box::pin(async move { drop(me.list_builds().await) }),
             Command::InstallEngine { build, variant } => Box::pin(async move {
                 let _engine = me.engine_lock.lock().await;
@@ -363,21 +368,13 @@ impl Local {
         cached.clone().flatten()
     }
 
-    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM；本程式跑著的模型所佔的量加回可用量。
+    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
         let _detecting = self.detecting();
         let gpu = self.gpu(redetect_gpu);
         // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
         let files = self.engine_files.read().await;
-        let loaded: u64 = {
-            let running = self.running_ids();
-            lock(&self.state)
-                .models
-                .iter()
-                .filter(|m| running.contains(&m.id))
-                .map(|m| m.manifest.required)
-                .sum()
-        };
+        let pids = self.running_pids();
         let exe = current_exe(&self.root);
         let mut hw = tokio::task::block_in_place(|| {
             let (ram_total, ram_free) = hardware::system_memory();
@@ -404,10 +401,17 @@ impl Local {
             hw
         });
         drop(files);
-        hw.own = loaded;
+        hw.own = tokio::task::block_in_place(|| self.launcher.process_usage(&pids));
         log(format!(
-            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models={loaded}",
-            hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free, hw.measured
+            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_pids={pids:?} own_vram={} own_ram={}",
+            hw.gpu,
+            hw.vram_total,
+            hw.vram_free,
+            hw.ram_total,
+            hw.ram_free,
+            hw.measured,
+            hw.own.vram,
+            hw.own.ram
         ));
         self.update(|s| {
             for repo in s.repos.values_mut() {

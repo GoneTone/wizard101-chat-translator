@@ -277,6 +277,15 @@ impl Local {
         }
     }
 
+    /// 跑著的 llama-server 的 PID。
+    pub(super) fn running_pids(&self) -> Vec<u32> {
+        self.servers
+            .all()
+            .into_iter()
+            .filter_map(|(_, slot)| lock(&slot.state).running.as_ref()?.process.pid())
+            .collect()
+    }
+
     /// 跑著 llama-server 的模型 id。
     pub(super) fn running_ids(&self) -> BTreeSet<String> {
         self.servers

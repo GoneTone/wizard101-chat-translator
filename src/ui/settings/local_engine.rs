@@ -14,6 +14,7 @@ use super::widgets::{
 };
 use crate::i18n::t;
 use crate::local::engine::{Build, EngineInstall, Variant, auto_variant, build_number};
+use crate::local::usage::Usage;
 use crate::local::{Command, EngineState, Snapshot};
 use crate::logs::log;
 
@@ -372,8 +373,9 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         }
         let (free, total) = (gb(hw.ram_free), gb(hw.ram_total));
         line(ui, t("local.hw.ram", &[("free", &free), ("total", &total)]));
-        if hw.own > 0 {
-            line(ui, t("local.hw.own", &[("size", &gb(hw.own))]));
+        if hw.own != Usage::default() {
+            let (vram, ram) = (gb(hw.own.vram), gb(hw.own.ram));
+            line(ui, t("local.hw.own", &[("vram", &vram), ("ram", &ram)]));
         }
     });
     ui.horizontal_wrapped(|ui| {
@@ -389,7 +391,7 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
             .color(theme::LINK);
         if ui.link(redetect).clicked() {
             log("[ui] hardware re-detect requested");
-            env.local_command(Command::RefreshHardware);
+            env.local_command(Command::RefreshHardware { redetect_gpu: true });
         }
     });
 }

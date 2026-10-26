@@ -30,7 +30,8 @@ pub struct LocalPane {
     dialog: Option<DownloadDialog>,
     /// 等使用者確認要不要刪的模型 id（被本地服務用著的才會問）。
     confirm_delete: Option<String>,
-    listed: bool,
+    /// 這次打開設定視窗後畫過這一頁。
+    opened: bool,
     rates: Rates,
 }
 
@@ -41,7 +42,7 @@ impl LocalPane {
             engine: EngineCard::default(),
             dialog: None,
             confirm_delete: None,
-            listed: false,
+            opened: false,
             rates: Rates::default(),
         }
     }
@@ -71,9 +72,13 @@ impl LocalPane {
         now: Instant,
     ) {
         self.rates.observe(now, snapshot);
-        // GitHub 匿名呼叫每小時只有 60 次：已經列過就不再列，失敗時改由〔重試〕
-        if !self.listed {
-            self.listed = true;
+        if !self.opened {
+            self.opened = true;
+            // 硬體只在量的當下準：打開這頁就重量一次可用量與本工具模型的實際佔用
+            env.local_command(Command::RefreshHardware {
+                redetect_gpu: false,
+            });
+            // GitHub 匿名呼叫每小時只有 60 次：已經列過就不再列，失敗時改由〔重試〕
             if !matches!(snapshot.builds, Some(Ok(_))) {
                 env.local_command(Command::ListBuilds);
             }
