@@ -689,15 +689,15 @@ async fn download_without_engine_uses_the_auto_pick_once_vram_is_measured() {
     let f = fixture(|_| {}, |_| false).await;
     *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
     mount_engine(&f.hf, Duration::ZERO).await;
-    let (q4, _) = two_quants(&f).await;
-    f.local.command(download(q4));
-    let q8_id = store::model_id(REPO, "Q8_0");
-    wait_complete(&f, &q8_id).await;
+    let (_, q8) = two_quants(&f).await;
+    f.local.command(download(q8));
+    let q4_id = store::model_id(REPO, "Q4_K_M");
+    wait_complete(&f, &q4_id).await;
     let s = f.local.snapshot();
     assert!(matches!(s.engine, EngineState::Ready(_)), "{:?}", s.engine);
     assert_eq!(s.hardware.vram_free, 8000 << 20);
     assert_eq!(s.models.len(), 1, "{:?}", s.models);
-    assert!(!model_dir(&f, &store::model_id(REPO, "Q4_K_M")).exists());
+    assert!(!model_dir(&f, &store::model_id(REPO, "Q8_0")).exists());
 }
 
 /// 量不到 VRAM 時維持使用者原本的選擇。

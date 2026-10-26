@@ -88,6 +88,9 @@ pub fn total_size(c: &Choice) -> u64 {
     c.files.iter().fold(0u64, |a, f| a.saturating_add(f.size))
 }
 
+/// 預設挑的量化位元數。
+const DEFAULT_BITS: u8 = 4;
+
 struct Rated {
     choice: usize,
     size: u64,
@@ -95,7 +98,10 @@ struct Rated {
     fit: Fit,
 }
 
-/// 最大的 Smooth；沒有則 Slow／Offload 裡最小；全 NoFit 挑最小。只在 `choices` 為空時回 `None`。
+/// 預設的量化：低於 4-bit 品質掉太多，固定挑 4-bit，相容等級另外標給使用者看。
+///
+/// 有 `Q4_K_M` 用它，否則最大的 4-bit；沒有 4-bit 挑高於 4-bit 裡最小的，再沒有就挑最大的。
+/// 只在 `choices` 為空時回 `None`。
 pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick> {
     let moe = meta.expert_count > 0;
     let rated: Vec<Rated> = cat
@@ -113,17 +119,23 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
             }
         })
         .collect();
-    let best = rated
-        .iter()
-        .filter(|r| r.fit == Fit::Smooth)
-        .max_by_key(|r| r.size)
+    let bits = |r: &&Rated| cat.choices[r.choice].quant.bits;
+    let four_bit = || rated.iter().filter(|r| bits(r) == Some(DEFAULT_BITS));
+    let best = four_bit()
+        .find(|r| {
+            cat.choices[r.choice]
+                .quant
+                .label
+                .eq_ignore_ascii_case("Q4_K_M")
+        })
+        .or_else(|| four_bit().max_by_key(|r| r.size))
         .or_else(|| {
             rated
                 .iter()
-                .filter(|r| matches!(r.fit, Fit::Slow | Fit::Offload))
+                .filter(|r| bits(r).is_some_and(|b| b > DEFAULT_BITS))
                 .min_by_key(|r| r.size)
         })
-        .or_else(|| rated.iter().min_by_key(|r| r.size))?;
+        .or_else(|| rated.iter().max_by_key(|r| r.size))?;
     let (choice, size, level) = (best.choice, best.size, best.fit);
 
     let main_bits = cat.choices[choice].quant.bits;
@@ -272,15 +284,29 @@ mod tests {
     }
 
     #[test]
-    fn auto_pick_takes_largest_smooth_then_smallest_slow() {
+    fn auto_pick_takes_four_bit_whatever_the_hardware() {
         let c = cat(&[(2, 3 * G), (4, 5 * G), (8, 9 * G)], &[]);
         let m = meta();
-        assert_eq!(auto_pick(&c, &m, &hw(6 * G, 16 * G)).unwrap().choice, 1);
+        assert_eq!(auto_pick(&c, &m, &hw(20 * G, 16 * G)).unwrap().choice, 1);
         let slow = auto_pick(&c, &m, &hw(3 * G, 16 * G)).unwrap();
-        assert_eq!((slow.choice, slow.fit), (0, Fit::Slow));
+        assert_eq!((slow.choice, slow.fit), (1, Fit::Slow));
         let none = auto_pick(&c, &m, &hw(G / 2, G)).unwrap();
-        assert_eq!((none.choice, none.fit), (0, Fit::NoFit));
+        assert_eq!((none.choice, none.fit), (1, Fit::NoFit));
         assert!(auto_pick(&Catalog::default(), &m, &hw(6 * G, 16 * G)).is_none());
+    }
+
+    #[test]
+    fn auto_pick_prefers_q4_k_m_then_the_next_quant_above_four_bit() {
+        let mut c = cat(&[(4, 4 * G), (4, 5 * G), (4, 6 * G)], &[]);
+        c.choices[1].quant.label = "Q4_K_M".into();
+        let (m, h) = (meta(), hw(20 * G, 16 * G));
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 1);
+        c.choices[1].quant.label = "Q4_K_S".into();
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 2);
+        let c = cat(&[(3, 3 * G), (8, 9 * G), (6, 7 * G)], &[]);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 2);
+        let c = cat(&[(2, 2 * G), (3, 3 * G)], &[]);
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().choice, 1);
     }
 
     #[test]
