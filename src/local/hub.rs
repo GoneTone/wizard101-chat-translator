@@ -27,6 +27,9 @@ use crate::util::lock;
 
 pub(super) const PROGRESS_TICK: Duration = Duration::from_millis(250);
 
+/// HF 的預設量化高於這個位元數就不採用，改用 `fit::auto_pick` 的 4-bit 規則。
+const MAX_DEFAULT_BITS: u8 = 8;
+
 /// 外部服務根網址；正式為 [`hf::HF_BASE`] 與 [`engine::RELEASES_API`]。
 #[derive(Clone, Debug)]
 pub struct Endpoints {
@@ -75,6 +78,8 @@ pub struct RepoInfo {
     pub fits: Vec<(u64, Option<Fit>)>,
     /// 與 `catalog.mtp` 對應：加上該 MTP 檔多出的所需位元組。
     pub mtp_required: Vec<u64>,
+    /// HF 對這個 repo 預設的量化（`catalog.choices` 的索引）；查不到或高於 8-bit 時為 `None`。
+    pub hf_default: Option<usize>,
     pub auto: Option<Pick>,
 }
 
@@ -503,11 +508,12 @@ impl Local {
             s.repos.insert(repo.to_owned(), RepoState::Loading);
         });
         let mut state = match self.fetch_repo(repo).await {
-            Ok((catalog, meta)) => RepoState::Ready(RepoInfo {
+            Ok((catalog, meta, hf_default)) => RepoState::Ready(RepoInfo {
                 catalog,
                 meta,
                 fits: vec![],
                 mtp_required: vec![],
+                hf_default,
                 auto: None,
             }),
             Err(e) => RepoState::Failed(e),
@@ -516,9 +522,10 @@ impl Local {
             if let RepoState::Ready(info) = &mut state {
                 rate(info, &s.hardware);
                 log(format!(
-                    "[local] {repo}: {} choices, fits={:?} auto={:?}",
+                    "[local] {repo}: {} choices, fits={:?} hf_default={:?} auto={:?}",
                     info.catalog.choices.len(),
                     info.fits,
+                    info.hf_default,
                     info.auto
                 ));
             }
@@ -526,8 +533,8 @@ impl Local {
         });
     }
 
-    /// 列出 repo 檔案並讀第一個主模型檔的檔頭（同 repo 的量化共用模型形狀）。
-    async fn fetch_repo(&self, repo: &str) -> Result<(Catalog, ModelMeta), String> {
+    /// 列出 repo 檔案、讀第一個主模型檔的檔頭（同 repo 的量化共用模型形狀），並查 HF 的預設量化。
+    async fn fetch_repo(&self, repo: &str) -> Result<(Catalog, ModelMeta, Option<usize>), String> {
         let files = hf::list_files(&self.hf_http, &self.endpoints.hf, repo).await?;
         let catalog = hf::classify(&files);
         let first = catalog
@@ -536,8 +543,18 @@ impl Local {
             .and_then(|c| c.files.first())
             .ok_or_else(|| format!("{repo} has no GGUF model files"))?;
         let url = hf::resolve_url(&self.endpoints.hf, repo, &first.path);
-        let meta = gguf::fetch(&self.hf_http, &url).await?;
-        Ok((catalog, meta))
+        let (meta, default) = tokio::join!(
+            gguf::fetch(&self.hf_http, &url),
+            hf::default_model_sha256(&self.hf_http, &self.endpoints.hf, repo)
+        );
+        let hf_default = default.and_then(|sha| {
+            catalog.choices.iter().position(|c| {
+                // BF16 之類的大檔是 HF 找不到量化版時的退路，不當預設
+                c.quant.bits.is_none_or(|b| b <= MAX_DEFAULT_BITS)
+                    && c.files.first().and_then(|f| f.sha256.as_deref()) == Some(sha.as_str())
+            })
+        });
+        Ok((catalog, meta?, hf_default))
     }
 
     pub(super) fn repo_info(&self, repo: &str) -> Option<RepoInfo> {
@@ -561,7 +578,7 @@ fn rate(info: &mut RepoInfo, hw: &Hardware) {
         })
         .collect();
     info.mtp_required = info.catalog.mtp.iter().map(|m| m.file.size).collect();
-    info.auto = fit::auto_pick(&info.catalog, &info.meta, hw);
+    info.auto = fit::auto_pick(&info.catalog, &info.meta, hw, info.hf_default);
 }
 
 fn engine_on_disk(root: &Path) -> EngineState {

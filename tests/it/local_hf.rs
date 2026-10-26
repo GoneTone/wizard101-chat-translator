@@ -4,7 +4,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::hf::{
-    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo,
+    RepoFile, classify, default_model_sha256, hf_client, list_files, parse_quant, parse_repo,
 };
 
 #[test]
@@ -213,4 +213,33 @@ async fn child_lists_files_despite_an_unreachable_env_proxy() {
         .await;
     let files = list_files(&hf_client(&server.uri()), &server.uri(), "o/r").await;
     assert_eq!(files, Ok(vec![]));
+}
+
+/// HF 的預設檔（manifest `latest` 的 model 層）以 sha256 給出；分檔 repo 會回錯誤，當成沒有。
+#[tokio::test]
+async fn default_model_comes_from_the_latest_manifest() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v2/org/one-GGUF/manifests/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "schemaVersion": 2,
+            "layers": [
+                {"mediaType": "application/vnd.ollama.image.template", "digest": "sha256:aaa", "size": 1},
+                {"mediaType": "application/vnd.ollama.image.model", "digest": "sha256:ABC123", "size": 9}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v2/org/sharded-GGUF/manifests/latest"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "This repository only contains sharded GGUF files."
+        })))
+        .mount(&server)
+        .await;
+    let http = hf_client(&server.uri());
+    let got = default_model_sha256(&http, &server.uri(), "org/one-GGUF").await;
+    assert_eq!(got.as_deref(), Some("abc123"));
+    let sharded = default_model_sha256(&http, &server.uri(), "org/sharded-GGUF").await;
+    assert_eq!(sharded, None);
 }

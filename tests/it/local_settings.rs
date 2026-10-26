@@ -59,6 +59,7 @@ fn info(fit: Fit, moe: bool, choices: usize, required: u64) -> RepoInfo {
         },
         fits: vec![(required, Some(fit)); choices],
         mtp_required: vec![],
+        hf_default: None,
         auto: Some(Pick {
             choice: 0,
             mtp: None,
