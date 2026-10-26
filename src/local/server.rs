@@ -171,7 +171,7 @@ impl Process for RealProcess {
         Some(self.child.id())
     }
     fn all_on_gpu(&self) -> Option<bool> {
-        self.output.lock().unwrap().all_on_gpu
+        self.output.lock().unwrap().all_on_gpu()
     }
     fn unloaded(&self) -> bool {
         self.output.lock().unwrap().unloaded
@@ -239,42 +239,58 @@ fn pump_lines(
 /// 從 llama-server 輸出讀到的載入狀態。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Output {
-    /// 這次載入每層都放 GPU；還沒看到 `load_tensors: offloaded` 為 `None`。
-    all_on_gpu: Option<bool>,
+    /// 這次載入每層都放 GPU（`load_tensors: offloaded n/n`）；還沒看到為 `None`。
+    layers_on_gpu: Option<bool>,
+    /// `--fit` 把層或張量（例如 MoE 專家）移到系統記憶體；在同一個程序裡跨重新載入保留。
+    ///
+    /// 醒來重新載入沿用第一次 fit 寫回的參數，第二次 fit 只會報 `already set by user` 失敗、不再印
+    /// `cannot meet`，擺放卻照舊；所以只有之後的 fit 明說不必調整時才清掉。
+    fit_moved: bool,
     /// 模型不在記憶體裡（睡眠中，或醒來重新載入還沒完成）。
     unloaded: bool,
     /// 載入中（啟動到 `listening on`、醒來到重新載入完成）：這段每行都寫進 log。
     loading: bool,
     /// 醒來後還沒看到 `--fit` 的第一行。
     fit_pending: bool,
+    /// 上一行有沒有寫進 log；沒有時間戳記的續行跟著它。
+    last_logged: bool,
 }
 
 impl Default for Output {
     fn default() -> Self {
         Self {
-            all_on_gpu: None,
+            layers_on_gpu: None,
+            fit_moved: false,
             unloaded: false,
             loading: true,
             fit_pending: false,
+            last_logged: true,
         }
     }
 }
 
 impl Output {
+    /// 每層都放 GPU，且 `--fit` 沒把東西移到系統記憶體；還不知道為 `None`。
+    fn all_on_gpu(&self) -> Option<bool> {
+        self.layers_on_gpu.map(|on| on && !self.fit_moved)
+    }
+
     /// 讀一行輸出更新狀態；回傳這行要不要寫進 log。
     fn observe(&mut self, line: &str) -> bool {
-        let logged = self.loading || important(line);
+        let logged = self.update(line);
+        self.last_logged = logged;
+        logged
+    }
+
+    fn update(&mut self, line: &str) -> bool {
+        let logged = self.loading || self.important(line);
         if line.contains("server is entering sleeping state") {
             self.unloaded = true;
             return true;
         }
         if line.contains("server is exiting sleeping state") {
-            *self = Self {
-                all_on_gpu: None,
-                unloaded: true,
-                loading: true,
-                fit_pending: true,
-            };
+            (self.layers_on_gpu, self.unloaded) = (None, true);
+            (self.loading, self.fit_pending) = (true, true);
             return true;
         }
         if line.contains("failed to reload model after sleeping") {
@@ -289,40 +305,44 @@ impl Output {
             (self.loading, self.unloaded) = (false, false);
         }
         if self.fit_pending && line.contains("common_params_fit_impl:") {
-            (self.all_on_gpu, self.fit_pending) = (None, false);
+            (self.layers_on_gpu, self.fit_pending) = (None, false);
         }
-        self.all_on_gpu = track_offload(self.all_on_gpu, line);
+        if line.contains("cannot meet free memory target") {
+            self.fit_moved = true;
+        } else if line.contains("can be met on all devices")
+            || line.contains("of free device memory, no changes needed")
+        {
+            self.fit_moved = false;
+        }
+        self.layers_on_gpu = track_offload(self.layers_on_gpu, line);
         logged
     }
-}
 
-/// 載入以外的時間要寫進 log 的行：警告與錯誤（時間戳記後的等級字母 W／E）、每次請求的 `print_timing`，以及認不出格式的。
-fn important(line: &str) -> bool {
-    static LEVEL: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"^\d+\.\d+\.\d+\.\d+ ([A-Z]) ").unwrap());
-    match LEVEL.captures(line) {
-        Some(c) => matches!(&c[1], "W" | "E") || line.contains("print_timing"),
-        None => !line.is_empty(),
+    /// 載入以外的時間要寫進 log 的行：警告與錯誤（時間戳記後的等級字母 W／E）與每次請求的 `print_timing`；
+    /// 沒有時間戳記的是上一筆的續行，跟著上一行。
+    fn important(&self, line: &str) -> bool {
+        static LEVEL: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"^\d+\.\d+\.\d+\.\d+ ([A-Z]) ").unwrap());
+        match LEVEL.captures(line) {
+            Some(c) => matches!(&c[1], "W" | "E") || line.contains("print_timing"),
+            None => self.last_logged && !line.is_empty(),
+        }
     }
 }
 
 /// 依一行輸出更新「每層都在 GPU」：看到 `load_tensors: offloaded n/m layers to GPU` 才有值，任一次 n < m 就是 `false`。
 ///
-/// 主模型與 MTP 草稿模型各印一次。`--fit` 把張量（例如 MoE 專家）移到系統記憶體時 offloaded 仍是 n/n，
-/// 但會先印 `cannot meet free memory target`，看到它也是 `false`。
-fn track_offload(all_on_gpu: Option<bool>, line: &str) -> Option<bool> {
-    if line.contains("cannot meet free memory target") {
-        return Some(false);
-    }
+/// 主模型與 MTP 草稿模型各印一次。
+fn track_offload(layers_on_gpu: Option<bool>, line: &str) -> Option<bool> {
     static LINE: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r"load_tensors: offloaded (\d+)/(\d+) layers to GPU").unwrap()
     });
     let Some(c) = LINE.captures(line) else {
-        return all_on_gpu;
+        return layers_on_gpu;
     };
     match (c[1].parse::<u32>(), c[2].parse::<u32>()) {
-        (Ok(n), Ok(m)) => Some(all_on_gpu.unwrap_or(true) && n >= m),
-        _ => all_on_gpu,
+        (Ok(n), Ok(m)) => Some(layers_on_gpu.unwrap_or(true) && n >= m),
+        _ => layers_on_gpu,
     }
 }
 
@@ -476,7 +496,7 @@ mod tests {
             main,
             "1.00.000.000 I srv  server_on_li: listening on http://127.0.0.1:1",
         ]);
-        assert_eq!((out.all_on_gpu, out.unloaded), (Some(true), false));
+        assert_eq!((out.all_on_gpu(), out.unloaded), (Some(true), false));
         let asleep = [
             main,
             "1.00.000.000 I srv  server_on_li: listening on http://127.0.0.1:1",
@@ -487,7 +507,7 @@ mod tests {
         waking.push("9.10.000.000 I srv  handle_sleep: server is exiting sleeping state");
         let (out, _) = feed(&waking);
         assert_eq!(
-            (out.all_on_gpu, out.unloaded),
+            (out.all_on_gpu(), out.unloaded),
             (None, true),
             "reload pending"
         );
@@ -497,7 +517,7 @@ mod tests {
             "9.20.000.000 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'",
         ]);
         let (out, _) = feed(&waking);
-        assert_eq!((out.all_on_gpu, out.unloaded), (Some(false), false));
+        assert_eq!((out.all_on_gpu(), out.unloaded), (Some(false), false));
         let mut failed = asleep.to_vec();
         failed.extend([
             "9.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
@@ -521,13 +541,12 @@ mod tests {
             "9.10.000.001 I load_tensors: offloaded 43/43 layers to GPU",
             "9.20.000.000 I srv    load_model: initializing, n_slots = 1",
             "9.30.000.000 I slot params_from_: id  0 | task 1 | sampler params: temp 0.8",
-            "ggml_cuda_init: found 1 CUDA devices:",
         ];
         let (_, logged) = feed(&lines);
         assert_eq!(
             logged,
             [
-                true, true, false, true, true, true, true, true, true, true, false, true
+                true, true, false, true, true, true, true, true, true, true, false
             ]
         );
     }
@@ -550,8 +569,56 @@ mod tests {
             "common_params_fit_impl: getting device memory data with all MoE tensors moved to system memory",
             main,
         ];
-        assert_eq!(fold(&moved), Some(false), "--fit moved tensors off the GPU");
-        let kept = ["common_params_fit_impl: no changes needed", main, draft];
-        assert_eq!(fold(&kept), Some(true));
+        assert_eq!(
+            feed(&moved).0.all_on_gpu(),
+            Some(false),
+            "--fit moved tensors off the GPU"
+        );
+        let kept = [
+            "common_params_fit_impl: targets for free memory can be met on all devices, no changes needed",
+            main,
+            draft,
+        ];
+        assert_eq!(feed(&kept).0.all_on_gpu(), Some(true));
+    }
+
+    /// 醒來重新載入時第二次 fit 只會報參數已設定而失敗，擺放沿用第一次：仍算沒全放 GPU，直到之後的 fit 明說不必調整。
+    #[test]
+    fn a_fit_move_survives_reloads_until_a_fit_needs_no_change() {
+        let main = "0.39.819.281 I load_tensors: offloaded 43/43 layers to GPU";
+        let mut lines = vec![
+            "0.01.000.000 I common_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 2048 MiB",
+            main,
+            "0.39.341.105 I srv  server_on_li: listening on http://127.0.0.1:1",
+            "9.00.000.000 I srv  handle_sleep: server is entering sleeping state",
+            "9.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
+            "9.10.000.100 W common_init_result: failed to fit params to free device memory: model_params::tensor_split already set by user, abort",
+            main,
+            "9.20.000.000 I srv    load_model: initializing, n_slots = 1",
+        ];
+        assert_eq!(feed(&lines).0.all_on_gpu(), Some(false));
+        lines.extend([
+            "19.00.000.000 I srv  handle_sleep: server is entering sleeping state",
+            "19.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
+            "19.10.000.100 I common_params_fit_impl: targets for free memory can be met on all devices, no changes needed",
+            main,
+            "19.20.000.000 I srv    load_model: initializing, n_slots = 1",
+        ]);
+        assert_eq!(feed(&lines).0.all_on_gpu(), Some(true));
+    }
+
+    /// 沒有時間戳記的續行跟著上一行寫或不寫。
+    #[test]
+    fn continuation_lines_follow_the_previous_line() {
+        let lines = [
+            "0.39.341.105 I srv  server_on_li: listening on http://127.0.0.1:1",
+            "0.40.000.000 I slot params_from_: sampler chain:",
+            "  logits -> top-k -> dist",
+            "0.40.000.001 W srv  something odd:",
+            "  detail of the warning",
+            "",
+        ];
+        let (_, logged) = feed(&lines);
+        assert_eq!(logged, [true, false, false, true, true, false]);
     }
 }

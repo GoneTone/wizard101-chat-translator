@@ -89,8 +89,8 @@ pub struct Snapshot {
     pub repos: BTreeMap<String, RepoState>,
     /// 目前跑著 llama-server 的模型 id。
     pub running: BTreeSet<String>,
-    /// 其中沒開 MTP 跑的（設定關掉，或開 MTP 啟動失敗後退回）。
-    pub running_without_mtp: BTreeSet<String>,
+    /// 其中要開 MTP、但啟動失敗後退回不帶 MTP 跑的。
+    pub mtp_fallback: BTreeSet<String>,
     /// 硬體偵測中（啟動後第一次量完以前，或〔重新偵測〕進行中）；這時硬體與相容等級還不能信。
     pub detecting: bool,
 }
@@ -103,7 +103,7 @@ impl Snapshot {
 
     /// 已下載的模型照 runtime 實際的 MTP 開關（同 `mtp_mode`：設定開著、有 MTP，且跑著的沒有退回不帶 MTP）載入時要的記憶體。
     pub fn model_need(&self, model: &Installed, settings: &LocalSettings) -> Need {
-        let mtp = settings.mtp_on(&model.id) && !self.running_without_mtp.contains(&model.id);
+        let mtp = settings.mtp_on(&model.id) && !self.mtp_fallback.contains(&model.id);
         fit::installed_need(&self.models, model, mtp, &self.hardware)
     }
 }
@@ -251,7 +251,7 @@ impl Local {
             snapshot.detecting = self.refreshing.load(Ordering::SeqCst) > 0;
             snapshot
         };
-        (snapshot.running, snapshot.running_without_mtp) = self.running_ids();
+        (snapshot.running, snapshot.mtp_fallback) = self.running_ids();
         snapshot
     }
 
@@ -632,17 +632,19 @@ fn rate(repo: &str, info: &mut RepoInfo, hw: &Hardware, models: &[Installed]) {
         .map(|c| {
             let id = store::choice_id(repo, c);
             let main = fit::total_size(c);
+            let layer = main.checked_div(u64::from(meta.block_count)).unwrap_or(0);
             let mtps = std::iter::once(None).chain(catalog.mtp.iter().map(Some));
             mtps.map(|m| {
                 let extra = m.map_or(0, |m| m.file.size);
-                // 不帶 MTP 檔的那欄不假設內建 MTP 會開
+                // 內建 MTP 同 runtime 預設開著（設定可關）
                 let target = fit::Target {
                     repo,
                     id: &id,
                     weights: main + extra,
-                    mtp: m.is_some(),
+                    mtp: m.is_some() || meta.has_mtp,
                     mtp_file: m.map(|m| m.file.path.as_str()),
                     estimate: fit::required(meta, main, extra),
+                    layer,
                 };
                 let need = fit::need(models, &target, hw);
                 let fit = hw.measured.then(|| fit::rate(&need, moe, hw));
@@ -667,4 +669,72 @@ fn engine_on_disk(root: &Path) -> EngineState {
 fn current_exe(root: &Path) -> Option<PathBuf> {
     let current = engine::read_active(root).current?;
     engine::server_exe(&engine::engine_dir(root, &current))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::hf::{Choice, Quant, RepoFile};
+    use super::super::store::{Manifest, ManifestFile, Measured};
+    use super::*;
+
+    /// 內建 MTP 的 repo：不帶 MTP 檔的那欄照 runtime 預設算開著，自己開著內建 MTP 量的實測對得上。
+    #[test]
+    fn built_in_mtp_columns_use_the_measurement_with_mtp_on() {
+        let choice = Choice {
+            quant: Quant {
+                label: "Q4_K_M".into(),
+                bits: Some(4),
+            },
+            files: vec![RepoFile {
+                path: "m.gguf".into(),
+                size: 4 << 30,
+                sha256: None,
+            }],
+        };
+        let mut info = RepoInfo {
+            catalog: Catalog {
+                choices: vec![choice.clone()],
+                mtp: vec![],
+            },
+            meta: ModelMeta {
+                block_count: 4,
+                has_mtp: true,
+                ..Default::default()
+            },
+            fits: vec![],
+            auto: None,
+        };
+        let model = Installed {
+            id: store::choice_id("a/b", &choice),
+            manifest: Manifest {
+                repo: "a/b".into(),
+                quant: "Q4_K_M".into(),
+                files: vec![ManifestFile {
+                    path: "m.gguf".into(),
+                    size: 4 << 30,
+                    sha256: None,
+                }],
+                mtp: None,
+                moe: false,
+                has_builtin_mtp: true,
+                required: 9 << 30,
+                measured: Some(Measured {
+                    vram: 5 << 30,
+                    ram: 1 << 30,
+                    all_on_gpu: true,
+                    mtp: true,
+                    engine: "b1-cuda".into(),
+                }),
+                layers: 4,
+            },
+            complete: true,
+        };
+        let hw = Hardware {
+            measured: true,
+            ..Hardware::default()
+        };
+        rate("a/b", &mut info, &hw, &[model]);
+        assert_eq!(info.fits[0][0].need.basis, fit::Basis::Measured);
+        assert_eq!(info.fits[0][0].need.vram, 5 << 30);
+    }
 }

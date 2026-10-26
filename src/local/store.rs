@@ -42,6 +42,9 @@ pub struct Manifest {
     /// 載入後量到的實際佔用；沒載入過為 `None`。
     #[serde(default)]
     pub measured: Option<Measured>,
+    /// 主模型的層數（GGUF 的 `block_count`）；較早的清單沒有，為 0。
+    #[serde(default)]
+    pub layers: u32,
 }
 
 /// 一次載入實際量到的佔用（位元組），以及那次的載入方式。
@@ -85,6 +88,12 @@ impl Manifest {
     /// 有 MTP 可開（另附的 MTP 檔或模型內建）。
     pub fn has_mtp(&self) -> bool {
         self.mtp.is_some() || self.has_builtin_mtp
+    }
+
+    /// 一層大約多少位元組（主模型大小 ÷ 層數）；層數不明為 0。
+    pub fn layer_bytes(&self) -> u64 {
+        let main: u64 = self.files.iter().map(|f| f.size).sum();
+        main.checked_div(u64::from(self.layers)).unwrap_or(0)
     }
 
     /// 主模型分檔加上（`mtp` 時）MTP 檔的大小。
@@ -271,6 +280,7 @@ mod tests {
             has_builtin_mtp: false,
             required: 6,
             measured: None,
+            layers: 0,
         }
     }
 

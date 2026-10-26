@@ -697,6 +697,7 @@ mod local_install {
                 has_builtin_mtp: false,
                 required: 0,
                 measured: None,
+                layers: 0,
             },
             complete: true,
         }

@@ -87,6 +87,8 @@ struct Running {
     base_url: String,
     /// 這次有開 MTP（失敗重試時可能已關掉）。
     mtp: bool,
+    /// 這次要開 MTP（`mtp` 為 false 時表示是失敗後退回的）。
+    mtp_requested: bool,
     engine: EngineUse,
 }
 
@@ -389,19 +391,20 @@ impl Local {
     }
 
     /// 跑著 llama-server 的模型 id。
-    /// （跑著的, 其中沒開 MTP 的）模型 id。
+    /// （跑著的, 其中要開 MTP 卻退回不帶 MTP 的）模型 id。
     pub(super) fn running_ids(&self) -> (BTreeSet<String>, BTreeSet<String>) {
-        let (mut running, mut without_mtp) = (BTreeSet::new(), BTreeSet::new());
+        let (mut running, mut fallback) = (BTreeSet::new(), BTreeSet::new());
         for (id, slot) in self.servers.all() {
-            let Some(mtp) = lock(&slot.state).running.as_ref().map(|r| r.mtp) else {
+            let st = lock(&slot.state);
+            let Some(r) = st.running.as_ref() else {
                 continue;
             };
-            if !mtp {
-                without_mtp.insert(id.clone());
+            if r.mtp_requested && !r.mtp {
+                fallback.insert(id.clone());
             }
             running.insert(id);
         }
-        (running, without_mtp)
+        (running, fallback)
     }
 
     /// 新引擎首次就緒：舊引擎沒人在用（含啟動中的）才刪掉它並確認，否則留到下次。
@@ -529,6 +532,7 @@ impl Local {
     ) -> Result<Running, String> {
         let settings = self.settings();
         let mut mtp = mtp_mode(&self.root, model, settings.mtp_on(&model.id));
+        let mtp_requested = mtp != Mtp::Off;
         loop {
             // 讀目前的引擎與登記佔用在同一把鎖內：別的啟動確認或回退時一定看得到這次啟動
             let (active, engine_use) = {
@@ -558,7 +562,8 @@ impl Local {
             };
             let err = match self.launch(&plan, cancel, engine_use).await {
                 // 量的是就緒當下（還沒有請求）的佔用；之後重新偵測硬體時再量、取大的
-                Ok(running) => {
+                Ok(mut running) => {
+                    running.mtp_requested = mtp_requested;
                     self.record(&model.id, self.read(Sample::of(&running)));
                     self.confirm_engine(&active);
                     return Ok(running);
@@ -652,6 +657,7 @@ impl Local {
             process,
             base_url,
             mtp: plan.mtp != Mtp::Off,
+            mtp_requested: plan.mtp != Mtp::Off,
             engine: engine_use,
         })
     }

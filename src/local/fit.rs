@@ -103,7 +103,8 @@ pub struct Rating {
 
 /// llama.cpp `--fit` 預設在每個裝置上留下的可用量（free memory target，1024 MiB）。
 ///
-/// 部分卸載時 `--fit` 把 VRAM 用到「可用量 − 這個值」為止，所以實測的 VRAM 本來就比當時可用量少這麼多。
+/// 部分卸載時 `--fit` 以整層擺放、把 VRAM 用到「可用量 − 這個值」為止，所以實測的 VRAM
+/// 本來就比當時可用量少這麼多，再加上最多一層。
 const FIT_TARGET: u64 = 1024 << 20;
 
 /// 要算需求的模型或量化。
@@ -118,16 +119,23 @@ pub struct Target<'a> {
     pub mtp_file: Option<&'a str>,
     /// 依檔案大小估的需求（[`required`]）。
     pub estimate: u64,
+    /// 一層大約多少位元組；層數不明為 0。
+    pub layer: u64,
 }
 
 /// `target` 載入時要的記憶體。
 ///
 /// 自己照同樣的 MTP（同一個 MTP 檔）量過就用實測；否則從同 repo 其他量過的模型推算
 /// （先挑 MTP 一樣、全放 GPU 的，再挑權重最接近的）；都沒有就是預估。
-/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`FIT_TARGET`] 以上時，看不出現在會不會流暢，也退回預估。
+/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`FIT_TARGET`] 加一層以上時，看不出現在會不會流暢，也退回預估。
 pub fn need(models: &[Installed], target: &Target, hw: &Hardware) -> Need {
+    let room = |n: &Need| {
+        n.vram
+            .saturating_add(FIT_TARGET)
+            .saturating_add(target.layer)
+    };
     match measured_need(models, target) {
-        Some(n) if n.all_on_gpu || effective(hw).0 <= n.vram.saturating_add(FIT_TARGET) => n,
+        Some(n) if n.all_on_gpu || effective(hw).0 <= room(&n) => n,
         _ => Need::estimate(target.estimate),
     }
 }
@@ -181,6 +189,7 @@ pub fn installed_need(
         mtp,
         mtp_file: m.mtp.as_ref().map(|f| f.path.as_str()),
         estimate: m.required,
+        layer: m.layer_bytes(),
     };
     need(models, &target, hw)
 }
@@ -691,6 +700,7 @@ mod tests {
                 has_builtin_mtp: false,
                 required: 99 * G,
                 measured,
+                layers: 4,
             },
             complete: true,
         }
@@ -721,6 +731,7 @@ mod tests {
             mtp: mtp_file.is_some(),
             mtp_file,
             estimate: 98 * G,
+            layer: 0,
         }
     }
 
@@ -814,14 +825,27 @@ mod tests {
             Need::estimate(99 * G),
             "more room than that run had"
         );
-        let fit_left = hw(7 * G, 16 * G);
+        // 8 GB 分 4 層，一層 2 GB：可用量最多到 6 + 1 + 2 = 9 GB 都還是 `--fit` 留下的
+        let fit_left = hw(17 * G / 2, 16 * G);
         let kept = installed_need(&models, &models[0], true, &fit_left);
         assert_eq!(
             kept,
             measured(6 * G, 5 * G, false),
-            "free = used + fit target"
+            "free = used + fit target + a layer"
         );
         assert_eq!(rate(&kept, false, &fit_left), Fit::Slow);
+        assert_eq!(
+            installed_need(&models, &models[0], true, &hw(19 * G / 2, 16 * G)),
+            Need::estimate(99 * G),
+            "more than a layer beyond the fit target"
+        );
+        let mut unknown = models[0].clone();
+        unknown.manifest.layers = 0;
+        assert_eq!(
+            installed_need(&[unknown.clone()], &unknown, true, &fit_left),
+            Need::estimate(99 * G),
+            "layer count unknown: fit target only"
+        );
         let b = target("b", 4 * G, None);
         assert_eq!(
             need(&models, &b, &hw(12 * G, 16 * G)),

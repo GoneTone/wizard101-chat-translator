@@ -337,6 +337,7 @@ fn manifest_for(
             mtp_file.map_or(0, |f| f.size),
         ),
         measured: None,
+        layers: info.meta.block_count,
     };
     Some((store::choice_id(repo, main), manifest))
 }

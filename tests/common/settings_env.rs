@@ -100,6 +100,7 @@ pub fn installed(id: &str, complete: bool, required: u64) -> Installed {
             has_builtin_mtp: false,
             required,
             measured: None,
+            layers: 0,
         },
         complete,
     }

@@ -1342,9 +1342,36 @@ async fn the_rating_follows_the_mtp_mode_actually_running() {
     };
     f.local.ensure("m1").await.unwrap();
     let s = f.local.snapshot();
-    assert!(s.running_without_mtp.contains("m1"), "{s:?}");
+    assert!(s.mtp_fallback.contains("m1"), "{s:?}");
     let need = s.model_need(&s.models[0], &LocalSettings::default());
     assert_eq!((need.basis, need.vram), (Basis::Measured, 3 * G));
+}
+
+/// 設定關掉 MTP 跑的不算退回：設定改回開著時，就不拿關 MTP 時量的實測來比。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mtp_turned_off_by_the_setting_is_not_a_fallback() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(true), |_| false).await;
+    detect(&f).await;
+    f.local
+        .apply_config(&local_config(&["m1"], json!({"mtp": {"m1": false}})));
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    let s = f.local.snapshot();
+    assert!(
+        s.running.contains("m1") && s.mtp_fallback.is_empty(),
+        "{s:?}"
+    );
+    assert_eq!(
+        s.models[0].manifest.measured.as_ref().map(|m| m.mtp),
+        Some(false)
+    );
+    let need = s.model_need(&s.models[0], &LocalSettings::default());
+    assert_eq!(need.basis, Basis::Estimate, "MTP back on");
 }
 
 /// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。

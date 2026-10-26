@@ -406,6 +406,7 @@ fn only_complete_models_count_as_downloaded() {
             has_builtin_mtp: false,
             required: 0,
             measured: None,
+            layers: 0,
         },
         complete: false,
     });
@@ -458,6 +459,7 @@ fn same_label_quants_in_different_folders_are_told_apart() {
             has_builtin_mtp: false,
             required: 0,
             measured: None,
+            layers: 0,
         },
         complete: true,
     });
@@ -554,6 +556,7 @@ mod page {
                 has_builtin_mtp: mtp,
                 required: 0,
                 measured: None,
+                layers: 0,
             },
             complete,
         }
