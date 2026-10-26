@@ -11,7 +11,7 @@ use super::theme;
 use super::widgets::{focus_ring, hover_tip, skeleton};
 use crate::i18n::t;
 use crate::local::RepoInfo;
-use crate::local::fit::{Fit, Need, Rating, total_size};
+use crate::local::fit::{Basis, Fit, Need, Rating, total_size};
 use crate::local::hardware::{Hardware, effective};
 
 const CHIP_HEIGHT: f32 = 28.0;
@@ -141,25 +141,44 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
     });
 }
 
-/// 「（預估或實測）需要 X GB，可用 Y GB」；VRAM 還沒量到時不顯示。
+/// 「（預估或實測）需要 X GB，可用 Y GB」，有分開的 VRAM 與 RAM 時各列；VRAM 還沒量到時不顯示。
 fn tip(ui: &Ui, response: &Response, rating: Rating, hw: &Hardware) {
     let Some(level) = rating.fit else { return };
     if !response.hovered() {
         return;
     }
     let (vram, ram) = effective(hw);
-    // 與 `fit::rate` 比較的對象一致：Smooth 比 VRAM，其餘比 VRAM＋RAM
-    let (need, available) = if level == Fit::Smooth {
-        (rating.need.vram, vram)
+    let n = rating.need;
+    let measured = !n.estimated();
+    // 與 `fit::rate` 比較的對象一致：實測（含推算）的 Smooth 分開比 VRAM 與 RAM，預估的 Smooth 比 VRAM，其餘比合計
+    let text = if level == Fit::Smooth && n.basis != Basis::Estimate {
+        let key = if measured {
+            "local.quant.hover_split_measured"
+        } else {
+            "local.quant.hover_split"
+        };
+        t(
+            key,
+            &[
+                ("vram", &gb(n.vram)),
+                ("ram", &gb(n.ram)),
+                ("have_vram", &gb(vram)),
+                ("have_ram", &gb(ram)),
+            ],
+        )
     } else {
-        (rating.need.total(), vram + ram)
+        let (need, available) = if level == Fit::Smooth {
+            (n.vram, vram)
+        } else {
+            (n.total(), vram + ram)
+        };
+        let key = if measured {
+            "local.quant.hover_measured"
+        } else {
+            "local.quant.hover"
+        };
+        t(key, &[("need", &gb(need)), ("have", &gb(available))])
     };
-    let key = if rating.need.estimated() {
-        "local.quant.hover"
-    } else {
-        "local.quant.hover_measured"
-    };
-    let text = t(key, &[("need", &gb(need)), ("have", &gb(available))]);
     hover_tip(ui, response, &text);
 }
 

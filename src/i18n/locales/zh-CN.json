@@ -52,6 +52,8 @@
   "local.quant.mtp_none": "不使用",
   "local.quant.hover": "预估需要约 {need} GB，可用 {have} GB",
   "local.quant.hover_measured": "实测需要 {need} GB，可用 {have} GB",
+  "local.quant.hover_split": "预估需要约 VRAM {vram} GB、RAM {ram} GB，可用 VRAM {have_vram} GB、RAM {have_ram} GB",
+  "local.quant.hover_split_measured": "实测需要 VRAM {vram} GB、RAM {ram} GB，可用 VRAM {have_vram} GB、RAM {have_ram} GB",
   "local.in_progress": "下载中",
   "local.dialog.basis": "依当前可用 VRAM {vram} GB、RAM {ram} GB 判断",
   "local.dialog.basis_ram": "依当前可用 RAM {ram} GB 判断",
