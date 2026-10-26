@@ -613,18 +613,21 @@ async fn delete_during_download_removes_the_folder() {
     .await;
 }
 
-fn engine_zip() -> Vec<u8> {
+fn engine_zip(exe: &[u8]) -> Vec<u8> {
     use std::io::Write;
     let mut w = zip::ZipWriter::new(std::io::Cursor::new(vec![]));
     w.start_file("llama-server.exe", zip::write::SimpleFileOptions::default())
         .unwrap();
-    w.write_all(b"").unwrap();
+    w.write_all(exe).unwrap();
     w.finish().unwrap().into_inner()
 }
 
 /// 掛上 b11871 的 releases 列表（延遲 `delay` 回應）與引擎 zip。
 async fn mount_engine(hf: &MockServer, delay: Duration) {
-    let zip = engine_zip();
+    mount_engine_zip(hf, delay, engine_zip(b"")).await;
+}
+
+async fn mount_engine_zip(hf: &MockServer, delay: Duration, zip: Vec<u8>) {
     let variants = ["vulkan", "cpu"];
     let assets: Vec<Value> = variants
         .iter()
@@ -1212,4 +1215,30 @@ async fn the_end_of_detection_is_notified() {
     let seen = seen.lock().unwrap().clone();
     assert!(seen.contains(&true), "{seen:?}");
     assert_eq!(seen.last(), Some(&false), "{seen:?}");
+}
+
+/// 解壓得久時快照會報「解壓中」：解壓不能卡住回報進度的那個 task。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_snapshot_reports_extraction() {
+    let f = fixture(|_| {}, |_| false).await;
+    // 解得出 64 MiB：解壓比回報進度的間隔久
+    mount_engine_zip(&f.hf, Duration::ZERO, engine_zip(&vec![0u8; 64 << 20])).await;
+    f.local.command(Command::InstallEngine {
+        build: None,
+        variant: None,
+    });
+    wait_for("extracting reported", || {
+        matches!(
+            f.local.snapshot().engine,
+            EngineState::Installing {
+                extracting: true,
+                ..
+            }
+        )
+    })
+    .await;
+    wait_for("engine ready", || {
+        matches!(f.local.snapshot().engine, EngineState::Ready(_))
+    })
+    .await;
 }

@@ -298,8 +298,6 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
 const PART_TICK: Duration = Duration::from_millis(100);
 
 /// 下載並解壓 `build` 的 `variant` 到引擎資料夾；失敗或取消不留半成品，也不動 `active.json`。
-///
-/// 需在 multi-thread tokio runtime 上呼叫（解壓用 `block_in_place`）。
 pub async fn install(
     http: &reqwest::Client,
     root: &Path,
@@ -372,7 +370,12 @@ pub async fn install(
                 return Err(DownloadError::Cancelled.to_string());
             }
             progress.extracting.store(true, Ordering::Relaxed);
-            let extracted = tokio::task::block_in_place(|| extract_zip(&zip_path, &tmp));
+            // 在別的執行緒解壓：這個 task 不能停住，進度才能把「解壓中」回報出去
+            let (zip, dest) = (zip_path.clone(), tmp.clone());
+            let extracted = tokio::task::spawn_blocking(move || extract_zip(&zip, &dest))
+                .await
+                .map_err(|e| format!("extracting {} failed: {e}", a.name))
+                .and_then(|r| r);
             progress.extracting.store(false, Ordering::Relaxed);
             if let Err(e) = fs::remove_file(&zip_path) {
                 log(format!("[local] cannot remove {}: {e}", a.name));

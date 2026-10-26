@@ -59,6 +59,8 @@ pub struct LocalInstall {
     existing: String,
     state: Option<InstallState>,
     rates: Rates,
+    /// 已送過安裝引擎的指令。
+    engine_requested: bool,
 }
 
 impl LocalInstall {
@@ -89,6 +91,7 @@ impl LocalInstall {
     /// 畫一幀；回傳目前階段。`snapshot` 是這一幀唯一的一份狀態。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) -> InstallState {
         self.start(env, snapshot);
+        self.install_engine(env, snapshot);
         self.adopt(snapshot);
         self.rates.observe(Instant::now(), snapshot);
         let state = self.phase(snapshot);
@@ -118,7 +121,13 @@ impl LocalInstall {
         {
             env.local_command(Command::QueryRepo(rec.repo.to_owned()));
         }
-        if snapshot.engine == EngineState::Missing {
+    }
+
+    /// 引擎沒裝就裝一次；進來時正在移除的，等移除完變成未安裝也會裝。
+    fn install_engine(&mut self, env: &dyn SettingsEnv, snapshot: &Snapshot) {
+        if snapshot.engine == EngineState::Missing
+            && !mem::replace(&mut self.engine_requested, true)
+        {
             env.local_command(Command::InstallEngine {
                 build: None,
                 variant: None,

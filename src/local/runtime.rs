@@ -564,10 +564,19 @@ fn stop_slot(id: &str, slot: &Slot) {
     };
     // 結束子程序要等它退出：放掉狀態鎖再殺，讀快照的 UI 才不會卡住
     if let Some(mut running) = running {
+        let _stopping = Stopping(slot);
         log(format!("[local] stopping llama-server[{id}]"));
         running.process.kill();
-        lock(&slot.state).stopping -= 1;
-        slot.stopped.notify_waiters();
+    }
+}
+
+/// `stop_slot` 拿走、還在等它結束的子程序；放掉時（含 kill 途中 panic）扣回並叫醒等著的啟動。
+struct Stopping<'a>(&'a Slot);
+
+impl Drop for Stopping<'_> {
+    fn drop(&mut self) {
+        lock(&self.0.state).stopping -= 1;
+        self.0.stopped.notify_waiters();
     }
 }
 

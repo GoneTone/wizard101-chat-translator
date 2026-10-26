@@ -819,6 +819,25 @@ mod local_install {
         assert!(!download_button_shown(&h));
     }
 
+    /// 進來時引擎正在移除：移除完變成未安裝就自動裝一次，不會停在佔位。
+    #[test]
+    fn an_engine_removed_while_entering_is_installed_once_it_is_missing() {
+        let installs = |h: &WizardHarness| {
+            sent(h)
+                .iter()
+                .filter(|c| c.contains("InstallEngine"))
+                .count()
+        };
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Removing;
+        let mut h = on_card(s.clone());
+        assert_eq!(installs(&h), 0);
+        s.engine = EngineState::Missing;
+        set_snapshot(&mut h, s.clone());
+        set_snapshot(&mut h, s);
+        assert_eq!(installs(&h), 1);
+    }
+
     /// 推薦全部查詢失敗：顯示原文與〔重試〕，重試會重新查詢失敗的 repo。
     #[test]
     fn failed_recommendations_show_the_error_and_retry() {
