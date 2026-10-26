@@ -2,14 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use eframe::egui::{Frame, Label, Margin, RichText, Ui, vec2};
+use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field;
 use super::local_rows::{Have, basis, have_of, memory_key, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
-use super::widgets::{primary_button, right_aligned, secondary_button};
+use super::widgets::{primary_button, right_aligned, secondary_button, skeleton};
 use crate::i18n::t;
 use crate::local::catalog::{RECOMMENDED, Recommended};
 use crate::local::fit::{Fit, memory_kind, total_size};
@@ -257,7 +257,12 @@ impl DownloadDialog {
         ui.add_space(8.0);
         let chosen = match self.tab {
             Tab::Recommended => {
-                basis(ui, &snapshot.hardware);
+                if snapshot.detecting {
+                    let height = ui.text_style_height(&TextStyle::Small);
+                    skeleton(ui, 260.0, height);
+                } else {
+                    basis(ui, &snapshot.hardware);
+                }
                 let mut first = None;
                 for (i, rec) in RECOMMENDED.iter().enumerate() {
                     let row = self.recommended_row(ui, env, i, rec, snapshot);
@@ -288,7 +293,8 @@ impl DownloadDialog {
         Frame::new()
             .inner_margin(Margin::symmetric(0, 8))
             .show(ui, |ui| match state {
-                Some(RepoState::Ready(info)) => {
+                // 硬體偵測中的相容等級與自動挑的量化之後會變，跟查詢中一樣先畫佔位
+                Some(RepoState::Ready(info)) if !snapshot.detecting => {
                     chosen = self.ready_row(ui, rec, name, info, snapshot);
                 }
                 Some(RepoState::Failed(error)) => {
@@ -301,9 +307,7 @@ impl DownloadDialog {
                 }
                 _ => {
                     ui.add(Label::new(name));
-                    ui.label(
-                        RichText::new(t("local.dialog.loading", &[])).color(theme::TEXT_SECONDARY),
-                    );
+                    loading_row(ui);
                 }
             });
         if index + 1 < RECOMMENDED.len() {
@@ -424,18 +428,21 @@ impl DownloadDialog {
             return;
         };
         match snapshot.repos.get(&repo) {
-            Some(RepoState::Ready(info)) => {
+            Some(RepoState::Ready(info)) if !snapshot.detecting => {
                 ui.label(RichText::new(&repo).color(theme::TEXT_SECONDARY));
                 self.table(ui, &repo, info, snapshot);
             }
             Some(RepoState::Failed(error)) => {
                 ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
             }
-            _ => {
-                ui.label(
-                    RichText::new(t("local.dialog.loading", &[])).color(theme::TEXT_SECONDARY),
-                );
-            }
+            _ => loading_row(ui),
         }
     }
+}
+
+/// 查詢中（或硬體偵測中）的推薦列與量化表：兩行佔位。
+fn loading_row(ui: &mut Ui) {
+    let height = ui.text_style_height(&TextStyle::Small);
+    skeleton(ui, 220.0, height);
+    skeleton(ui, 140.0, height);
 }

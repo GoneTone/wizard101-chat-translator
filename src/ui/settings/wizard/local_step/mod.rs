@@ -2,7 +2,7 @@
 
 use std::mem;
 
-use eframe::egui::{Frame, Label, Margin, RichText, Ui};
+use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui};
 
 use self::widgets::{default_selection, engine_download, error_with_retry, hint, progress};
 use crate::i18n::t;
@@ -16,9 +16,9 @@ use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
 use crate::ui::settings::local_rows::memory_key;
-use crate::ui::settings::quant_table::{combined, dot, fit_color, fit_text, gb};
+use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
-use crate::ui::settings::widgets::{card, primary_button, secondary_button};
+use crate::ui::settings::widgets::{card, primary_button, secondary_button, skeleton};
 
 mod widgets;
 
@@ -189,10 +189,53 @@ impl LocalInstall {
         })
     }
 
+    /// 推薦卡的內容之後還會變：硬體偵測中、引擎大小還沒查到，或自動挑選時還有推薦 repo 沒查完。
+    fn loading(&self, snapshot: &Snapshot) -> bool {
+        let engine_pending = matches!(
+            snapshot.engine,
+            EngineState::Missing | EngineState::Installing { .. }
+        ) && snapshot.builds.is_none();
+        let repos_pending = self.selection.is_none()
+            && RECOMMENDED.iter().filter(|r| r.wizard).any(|r| {
+                !matches!(
+                    snapshot.repos.get(r.repo),
+                    Some(RepoState::Ready(_) | RepoState::Failed(_))
+                )
+            });
+        snapshot.detecting || engine_pending || repos_pending
+    }
+
+    /// 推薦卡要用、但查詢失敗的 repo 與錯誤原文：改選過就只看那個 repo，否則看精靈的推薦。
+    fn failed_repos<'a>(&'a self, snapshot: &'a Snapshot) -> Vec<(&'a str, &'a str)> {
+        let repos: Vec<&str> = match &self.selection {
+            Some(s) => vec![s.repo.as_str()],
+            None => RECOMMENDED
+                .iter()
+                .filter(|r| r.wizard)
+                .map(|r| r.repo)
+                .collect(),
+        };
+        repos
+            .into_iter()
+            .filter_map(|repo| match snapshot.repos.get(repo) {
+                Some(RepoState::Failed(error)) => Some((repo, error.as_str())),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn choosing(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         ui.add(Label::new(RichText::new(t("local.wizard.intro", &[])).color(theme::TEXT)).wrap());
-        let Some(plan) = self.plan(snapshot) else {
-            hint(ui, &t("local.dialog.loading", &[]));
+        let loading = self.loading(snapshot);
+        let Some(plan) = self.plan(snapshot).filter(|_| !loading) else {
+            match self.failed_repos(snapshot).first().filter(|_| !loading) {
+                Some((_, error)) => error_with_retry(ui, error, || {
+                    for (repo, _) in self.failed_repos(snapshot) {
+                        env.local_command(Command::QueryRepo(repo.to_owned()));
+                    }
+                }),
+                None => loading_card(ui),
+            }
             self.engine_status(ui, env, snapshot);
             return;
         };
@@ -206,8 +249,7 @@ impl LocalInstall {
                     ui.horizontal(|ui| {
                         let title = RichText::new(&plan.title).font(theme::bold(theme::TEXT_SIZE));
                         ui.add(Label::new(title));
-                        dot(ui, fit_color(plan.fit));
-                        ui.label(RichText::new(fit_text(plan.fit)).color(fit_color(plan.fit)));
+                        fit_badge(ui, plan.fit, false);
                     });
                     hint(
                         ui,
@@ -360,4 +402,20 @@ impl LocalInstall {
             self.cancelled = true;
         }
     }
+}
+
+/// 推薦卡還在載入時的佔位：標題與三行說明。
+fn loading_card(ui: &mut Ui) {
+    card(ui, |ui| {
+        Frame::new()
+            .inner_margin(Margin::symmetric(16, 14))
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 8.0;
+                skeleton(ui, 240.0, ui.text_style_height(&TextStyle::Body));
+                let small = ui.text_style_height(&TextStyle::Small);
+                for width in [160.0, 200.0, 180.0] {
+                    skeleton(ui, width, small);
+                }
+            });
+    });
 }

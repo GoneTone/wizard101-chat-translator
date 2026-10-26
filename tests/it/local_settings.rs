@@ -124,6 +124,16 @@ fn size_arg(bytes: u64) -> String {
     format!("{:.1}", bytes as f64 / G as f64)
 }
 
+/// 硬體偵測中：查好的推薦列也先畫佔位，相容等級與自動挑的量化等量完才出現。
+#[test]
+fn recommended_rows_wait_while_the_hardware_is_detected() {
+    let mut snap = snapshot(&[(0, info(Fit::Smooth, false, 2, 3 * G))]);
+    snap.detecting = true;
+    let h = harness(DialogMode::Download, Tab::Recommended, snap);
+    assert!(has_label(&h, &tr("local.loading")));
+    assert!(!has_label(&h, &tr("local.fit.smooth")));
+}
+
 #[test]
 fn recommended_rows_show_memory_kind_not_tier() {
     let snap = snapshot(&[
@@ -833,6 +843,28 @@ mod page {
         assert!(!removed(&h));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
         assert!(removed(&h));
+    }
+
+    /// 硬體偵測中：硬體列與相容等級畫佔位；版本清單沒到時版本與變體也是，安裝鈕先不給。
+    #[test]
+    fn pending_values_show_placeholders_instead_of_guesses() {
+        let mut m = model(MODEL, true, false);
+        m.manifest.required = 1 << 30;
+        let mut snap = snapshot(vec![m]);
+        snap.detecting = true;
+        let h = pane_harness(snap, vec![]);
+        assert!(has_label(&h, &tr("local.loading")));
+        assert!(!has_label(&h, &tr("local.hw.redetect")));
+        assert!(!has_label(&h, &tr("local.fit.unknown")));
+        assert!(
+            h.query_by_role_and_label(Role::Button, &tr("local.engine.install"))
+                .is_none()
+        );
+        let mut done = snapshot(vec![]);
+        done.builds = Some(Ok(vec![]));
+        let h = pane_harness(done, vec![]);
+        assert!(!has_label(&h, &tr("local.loading")));
+        assert!(has_label(&h, &tr("local.hw.redetect")));
     }
 
     /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。

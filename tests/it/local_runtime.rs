@@ -993,6 +993,22 @@ async fn start_measures_the_hardware_before_preloading() {
     assert!(f.local.snapshot().hardware.measured);
 }
 
+/// 快照的「偵測中」：啟動後第一次量完以前、以及〔重新偵測〕進行中為真。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_snapshot_says_while_hardware_is_being_detected() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    *f.shared.measure_delay.lock().unwrap() = Duration::from_millis(200);
+    assert!(f.local.snapshot().detecting);
+    f.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !f.local.snapshot().detecting).await;
+    assert!(f.local.snapshot().hardware.measured);
+    f.local.command(Command::RefreshHardware);
+    wait_for("re-detect started", || f.local.snapshot().detecting).await;
+    wait_for("re-detect finished", || !f.local.snapshot().detecting).await;
+    assert_eq!(f.shared.measured.lock().unwrap().len(), 2);
+}
+
 /// 模型跑著時重新偵測：它佔的記憶體加回可用量，快照也列出它在跑。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn redetecting_adds_running_models_back_to_free_memory() {

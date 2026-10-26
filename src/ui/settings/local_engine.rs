@@ -1,6 +1,6 @@
 //! 本地模型頁的「llama.cpp 引擎」卡：狀態、版本與變體選擇、安裝／更新／移除，以及硬體概況。
 
-use eframe::egui::{FontId, Id, Label, ProgressBar, RichText, Ui};
+use eframe::egui::{FontId, Id, Label, ProgressBar, RichText, TextStyle, Ui};
 
 use super::dialog::Choice;
 use super::env::SettingsEnv;
@@ -9,6 +9,7 @@ use super::quant_table::{dot, fraction, gb};
 use super::theme;
 use super::widgets::{
     combo_box, danger_secondary_button, focus_ring, pill, primary_button, secondary_button,
+    skeleton,
 };
 use crate::i18n::t;
 use crate::local::engine::{Build, EngineInstall, Variant, auto_variant, build_number};
@@ -30,6 +31,8 @@ pub(super) struct EngineCard {
 struct Picked {
     build: Option<String>,
     variant: Variant,
+    /// 版本清單或硬體還在載入，選定的值之後可能會變。
+    loading: bool,
 }
 
 impl EngineCard {
@@ -79,6 +82,9 @@ impl EngineCard {
             (None, Some(i)) => (i.variant.clone(), false),
             _ => (auto.clone(), true),
         };
+        let build_loading = build.is_none() && snapshot.builds.is_none();
+        let variant_loading = shows_auto && (snapshot.builds.is_none() || snapshot.detecting);
+        let field_height = ui.spacing().interact_size.y;
         let variants: Vec<Variant> = found.map_or_else(
             || vec![Variant::Vulkan, Variant::Cpu],
             |b| b.variants.iter().map(|(v, _)| v.clone()).collect(),
@@ -87,10 +93,13 @@ impl EngineCard {
             ui.spacing_mut().item_spacing.x = 12.0;
             ui.vertical(|ui| {
                 let label = small_label(ui, &t("local.engine.version", &[]));
-                let text = match (&build, &snapshot.builds) {
-                    (Some(tag), _) => build_label(tag, found),
-                    (None, Some(Err(_))) => t("local.engine.builds_failed", &[]),
-                    (None, _) => t("local.engine.loading", &[]),
+                if build_loading {
+                    skeleton(ui, COMBO_WIDTH, field_height);
+                    return;
+                }
+                let text = match &build {
+                    Some(tag) => build_label(tag, found),
+                    None => t("local.engine.builds_failed", &[]),
                 };
                 let combo = combo_box(ui, "engine_build")
                     .width(COMBO_WIDTH)
@@ -110,6 +119,10 @@ impl EngineCard {
             });
             ui.vertical(|ui| {
                 let label = small_label(ui, &t("local.engine.variant", &[]));
+                if variant_loading {
+                    skeleton(ui, COMBO_WIDTH, field_height);
+                    return;
+                }
                 let text = if shows_auto {
                     auto_label(&auto)
                 } else {
@@ -152,7 +165,11 @@ impl EngineCard {
                 }
             });
         }
-        Picked { build, variant }
+        Picked {
+            build,
+            variant,
+            loading: build_loading || variant_loading,
+        }
     }
 
     /// 換版本時，選定的變體在新 build 裡沒有就退回「自動」。
@@ -177,6 +194,7 @@ impl EngineCard {
         };
         let primary = match (&snapshot.engine, installed) {
             (EngineState::Installing { .. } | EngineState::Removing, _) => None,
+            _ if picked.loading => None,
             (_, Some(i))
                 if picked.build.as_deref() != Some(i.build.as_str())
                     || picked.variant != i.variant =>
@@ -298,6 +316,13 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
     let hw = &snapshot.hardware;
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 16.0;
+        if snapshot.detecting {
+            let height = ui.text_style_height(&TextStyle::Body);
+            for width in [220.0, 150.0, 150.0] {
+                skeleton(ui, width, height);
+            }
+            return;
+        }
         let line = |ui: &mut Ui, text: String| {
             ui.label(RichText::new(text).color(theme::TEXT_SECONDARY));
         };

@@ -7,7 +7,7 @@ use eframe::egui::{Label, ProgressBar, RichText, Ui, vec2};
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
 use super::local_rate::{Rates, eta, format_speed};
-use super::quant_table::{dot, fit_color, fit_text, fraction, gb};
+use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
     danger_secondary_button, primary_button, right_aligned, right_aligned_width, secondary_button,
@@ -188,8 +188,7 @@ fn controls(
                 }
             }
             let level = rate(manifest.required, manifest.moe, &snapshot.hardware);
-            dot(ui, fit_color(level));
-            ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
+            fit_badge(ui, level, snapshot.detecting);
         }
         RowState::Running(done, total) => {
             ui.add(ProgressBar::new(fraction(*done, *total)).desired_width(120.0));

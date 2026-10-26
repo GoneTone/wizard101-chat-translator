@@ -3,11 +3,12 @@
 use std::collections::BTreeMap;
 
 use eframe::egui::{
-    Align2, Color32, FontId, Response, Role, Sense, Stroke, StrokeKind, Ui, WidgetInfo, pos2, vec2,
+    Align2, Color32, FontId, Response, RichText, Role, Sense, Stroke, StrokeKind, TextStyle, Ui,
+    WidgetInfo, pos2, vec2,
 };
 
 use super::theme;
-use super::widgets::{focus_ring, hover_tip};
+use super::widgets::{focus_ring, hover_tip, skeleton};
 use crate::i18n::t;
 use crate::local::RepoInfo;
 use crate::local::fit::{self, Fit, total_size};
@@ -51,6 +52,17 @@ pub(super) fn fit_text(fit: Option<Fit>) -> String {
         None => "local.fit.unknown",
     };
     t(key, &[])
+}
+
+/// 相容等級徽章：色點加文字；硬體偵測中（`detecting`）改畫佔位。
+pub(super) fn fit_badge(ui: &mut Ui, level: Option<Fit>, detecting: bool) {
+    if detecting {
+        let height = ui.text_style_height(&TextStyle::Body);
+        skeleton(ui, 64.0, height);
+        return;
+    }
+    dot(ui, fit_color(level));
+    ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
 }
 
 /// 畫一個實心色點，高度與一行文字對齊。

@@ -407,6 +407,25 @@ fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f
     });
 }
 
+/// 資料載入中的佔位：`width`×`height` 的圓角色塊，亮度緩慢起伏；無障礙名稱為「載入中」。
+pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let label = crate::i18n::t("local.loading", &[]);
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), &label));
+    if ui.is_rect_visible(rect) {
+        let time = ui.input(|i| i.time);
+        let phase = ((time * std::f64::consts::TAU / SKELETON_PERIOD).sin() * 0.5 + 0.5) as f32;
+        let color = theme::CONTROL_BG.lerp_to_gamma(theme::CONTROL_BORDER, phase);
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), color);
+        ui.ctx().request_repaint();
+    }
+    response
+}
+
+/// 佔位亮度起伏一輪的秒數。
+const SKELETON_PERIOD: f64 = 1.4;
+
 /// 圓角小標籤（`PILL_BG` 底）。
 pub(super) fn pill(ui: &mut Ui, text: &str) {
     Frame::new()

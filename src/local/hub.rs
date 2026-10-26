@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -89,6 +89,8 @@ pub struct Snapshot {
     pub repos: BTreeMap<String, RepoState>,
     /// 目前跑著 llama-server 的模型 id。
     pub running: BTreeSet<String>,
+    /// 硬體偵測中（啟動後第一次量完以前，或〔重新偵測〕進行中）；這時硬體與相容等級還不能信。
+    pub detecting: bool,
 }
 
 impl Snapshot {
@@ -138,6 +140,8 @@ pub struct Local {
     gpu: Mutex<Option<Option<Gpu>>>,
     /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
     first_measure: OnceCell<()>,
+    /// 進行中的 `refresh_hardware` 數。
+    refreshing: AtomicUsize,
     /// 載入中的模型顯示名（依開始順序）。
     pub(super) loading: Mutex<Vec<String>>,
     /// `shutdown` 之後不再啟動任何模型。
@@ -183,6 +187,7 @@ impl Local {
             state: Mutex::new(snapshot),
             gpu: Mutex::default(),
             first_measure: OnceCell::new(),
+            refreshing: AtomicUsize::new(0),
             loading: Mutex::default(),
             closed: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
@@ -196,6 +201,8 @@ impl Local {
     pub fn snapshot(&self) -> Snapshot {
         let mut snapshot = lock(&self.state).clone();
         snapshot.running = self.running_ids();
+        snapshot.detecting =
+            !self.first_measure.initialized() || self.refreshing.load(Ordering::SeqCst) > 0;
         snapshot
     }
 
@@ -208,9 +215,14 @@ impl Local {
 
     /// 等程式啟動後的第一次量硬體完成（還沒開始就由這裡量）。
     pub(super) async fn measured_once(&self) {
+        if self.first_measure.initialized() {
+            return;
+        }
         self.first_measure
             .get_or_init(|| self.refresh_hardware(false))
             .await;
+        // 量完才算初始化，快照的 `detecting` 要再通知一次才會收起
+        self.update(|_| {});
     }
 
     /// 最近一次 `apply_config` 收到的設定（之前為預設值）。
@@ -318,6 +330,8 @@ impl Local {
 
     /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM；本程式跑著的模型所佔的量加回可用量。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
+        self.refreshing.fetch_add(1, Ordering::SeqCst);
+        self.update(|_| {});
         let gpu = self.gpu(redetect_gpu);
         // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
         let files = self.engine_files.read().await;
@@ -361,6 +375,7 @@ impl Local {
             "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models_added_back={loaded}",
             hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free, hw.measured
         ));
+        self.refreshing.fetch_sub(1, Ordering::SeqCst);
         self.update(|s| {
             for repo in s.repos.values_mut() {
                 if let RepoState::Ready(info) = repo {

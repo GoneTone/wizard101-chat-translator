@@ -3,7 +3,7 @@
 use eframe::egui::{Label, RichText, Ui};
 
 use super::local_dialog::DialogMode;
-use super::quant_table::{dot, fit_color, fit_text, gb};
+use super::quant_table::{fit_badge, gb};
 use super::theme;
 use super::widgets::{primary_button, secondary_button};
 use crate::i18n::t;
@@ -83,8 +83,7 @@ pub(super) fn row_buttons(
     have: Have,
 ) -> (bool, bool) {
     ui.spacing_mut().item_spacing.x = 8.0;
-    dot(ui, fit_color(level));
-    ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
+    fit_badge(ui, level, false);
     let version_key = if open {
         "local.dialog.collapse"
     } else {

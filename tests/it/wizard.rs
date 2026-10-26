@@ -786,6 +786,50 @@ mod local_install {
         assert!(has_label(&h, &tr("local.fit.unknown")));
     }
 
+    fn download_button_shown(h: &WizardHarness) -> bool {
+        h.query_by_role_and_label(Role::Button, &tr("local.wizard.download"))
+            .is_some()
+    }
+
+    /// 硬體偵測中、或還有推薦沒查完：卡片先畫佔位，不先挑一個之後再換。
+    #[test]
+    fn the_card_waits_for_the_hardware_and_every_recommendation() {
+        let mut s = ready_snapshot();
+        s.detecting = true;
+        let h = on_card(s);
+        assert!(has_label(&h, &tr("local.loading")));
+        assert!(!download_button_shown(&h));
+
+        let mut s = ready_snapshot();
+        s.repos
+            .insert(RECOMMENDED[0].repo.into(), RepoState::Loading);
+        let mut h = on_card(s);
+        assert!(!download_button_shown(&h));
+        set_snapshot(&mut h, ready_snapshot());
+        assert!(download_button_shown(&h));
+        assert!(!has_label(&h, &tr("local.loading")));
+    }
+
+    /// 推薦全部查詢失敗：顯示原文與〔重試〕，重試會重新查詢失敗的 repo。
+    #[test]
+    fn failed_recommendations_show_the_error_and_retry() {
+        let mut s = ready_snapshot();
+        for r in RECOMMENDED {
+            s.repos
+                .insert(r.repo.into(), RepoState::Failed("HTTP 403".into()));
+        }
+        let mut h = on_card(s);
+        assert!(has_label(&h, "HTTP 403"));
+        assert!(!has_label(&h, &tr("local.loading")));
+        let before = sent(&h).len();
+        click(&mut h, Role::Button, &tr("local.dialog.retry"));
+        let queries = sent(&h)[before..]
+            .iter()
+            .filter(|c| c.starts_with("QueryRepo"))
+            .count();
+        assert_eq!(queries, RECOMMENDED.iter().filter(|r| r.wizard).count());
+    }
+
     #[test]
     fn a_failed_engine_shows_the_error_and_retry_reinstalls() {
         let mut s = ready_snapshot();
