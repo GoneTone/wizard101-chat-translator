@@ -142,30 +142,54 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
         .or_else(|| rated.iter().max_by_key(|r| r.size))?;
     let (choice, size, level) = (best.choice, best.size, best.fit);
 
-    let main_bits = cat.choices[choice].quant.bits;
-    // 加上 MTP 仍 Smooth 才帶；加總後 Smooth 代表主模型本身也是 Smooth
-    let mtp = cat
-        .mtp
-        .iter()
-        .enumerate()
-        .filter(|(_, m)| !m.shared)
-        .min_by_key(|(_, m)| {
-            let dist = match (main_bits, m.quant.bits) {
-                (Some(a), Some(b)) => a.abs_diff(b) as u32,
-                _ => u32::MAX,
-            };
-            (dist, m.file.size)
-        })
-        .and_then(|(i, m)| {
-            let with = required(meta, size, m.file.size);
-            (fit(with, moe, hw) == Fit::Smooth).then_some((i, with))
-        });
+    let mtp = pick_mtp(cat, choice);
+    let required = match mtp {
+        Some(m) => required(meta, size, cat.mtp[m].file.size),
+        None => best.required,
+    };
     Some(Pick {
         choice,
-        mtp: mtp.map(|m| m.0),
-        fit: level,
-        required: mtp.map_or(best.required, |m| m.1),
+        mtp,
+        fit: mtp.map_or(level, |_| fit(required, moe, hw)),
+        required,
     })
+}
+
+/// 有 MTP 就帶，照 llama.cpp `-hf` 找 MTP 檔的規則挑（`common/download.cpp` 的 `find_best_sibling`）。
+///
+/// 只看主模型資料夾或其上層裡的，取資料夾最深的，再取檔名含 `-{量化}.` 的，再取位元數最接近的；
+/// 同分取路徑在前的。
+fn pick_mtp(cat: &Catalog, choice: usize) -> Option<usize> {
+    let main = &cat.choices[choice];
+    let dirs = |path: &str| -> Vec<String> {
+        let mut parts: Vec<String> = path.split('/').map(str::to_owned).collect();
+        parts.pop();
+        parts
+    };
+    let model_dir = dirs(&main.files.first()?.path);
+    let tag = format!("-{}.", main.quant.label.to_ascii_uppercase());
+    let bits = |b: Option<u8>| i32::from(b.unwrap_or(0));
+    let mut best: Option<(usize, usize, bool, i32)> = None;
+    for (i, m) in cat.mtp.iter().enumerate() {
+        let dir = dirs(&m.file.path);
+        if !model_dir.starts_with(&dir) {
+            continue;
+        }
+        let exact = m.file.path.to_ascii_uppercase().contains(&tag);
+        let diff = (bits(m.quant.bits) - bits(main.quant.bits)).abs();
+        let better = match best {
+            None => true,
+            Some((_, depth, best_exact, best_diff)) => {
+                dir.len() > depth
+                    || (dir.len() == depth && exact && !best_exact)
+                    || (dir.len() == depth && exact == best_exact && diff < best_diff)
+            }
+        };
+        if better {
+            best = Some((i, dir.len(), exact, diff));
+        }
+    }
+    best.map(|b| b.0)
 }
 
 /// 多個模型同時載入：所需量加總，任一為 MoE 則以 MoE 判；空清單視為 `Smooth`。
@@ -337,14 +361,46 @@ mod tests {
     }
 
     #[test]
-    fn mtp_only_when_still_smooth() {
-        let c = cat(&[(4, 5 * G)], &[(4, G, false), (4, G / 2, true)]);
+    fn mtp_is_included_whatever_the_hardware() {
+        let c = cat(&[(4, 5 * G)], &[(4, G, false)]);
         let m = meta();
-        assert_eq!(auto_pick(&c, &m, &hw(7 * G, 16 * G)).unwrap().mtp, Some(0));
-        assert_eq!(
-            auto_pick(&c, &m, &hw(6 * G + G / 5, 16 * G)).unwrap().mtp,
-            None
-        );
+        let roomy = auto_pick(&c, &m, &hw(20 * G, 16 * G)).unwrap();
+        assert_eq!((roomy.mtp, roomy.fit), (Some(0), Fit::Smooth));
+        let tight = auto_pick(&c, &m, &hw(6 * G + G / 5, 16 * G)).unwrap();
+        assert_eq!((tight.mtp, tight.fit), (Some(0), Fit::Slow));
+        assert_eq!(tight.required, required(&m, 5 * G, G));
+    }
+
+    /// 同 llama.cpp：只看主模型資料夾或上層的 MTP，資料夾深的優先，再來同名量化，再來位元數接近。
+    #[test]
+    fn mtp_follows_llama_cpp_sibling_rules() {
+        let mtp = |path: &str, bits: u8| MtpChoice {
+            quant: quant(bits),
+            file: RepoFile {
+                path: path.into(),
+                size: G,
+                sha256: None,
+            },
+            shared: false,
+        };
+        let mut c = cat(&[(4, 5 * G)], &[]);
+        c.choices[0].quant.label = "Q4_K_M".into();
+        c.choices[0].files[0].path = "Q4_K_M/m-Q4_K_M.gguf".into();
+        let (m, h) = (meta(), hw(20 * G, 16 * G));
+        c.mtp = vec![mtp("MTP/mtp-m-Q4_K_M.gguf", 4)];
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, None, "other folder");
+        c.mtp = vec![mtp("mtp-m-Q8_0.gguf", 8), mtp("Q4_K_M/mtp-m-Q8_0.gguf", 8)];
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1), "deeper folder");
+        c.mtp = vec![
+            mtp("Q4_K_M/mtp-m-Q4_0.gguf", 4),
+            mtp("Q4_K_M/mtp-m-Q4_K_M.gguf", 4),
+        ];
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1), "same quant");
+        c.mtp = vec![
+            mtp("Q4_K_M/mtp-m-Q8_0.gguf", 8),
+            mtp("Q4_K_M/mtp-m-Q3_K.gguf", 3),
+        ];
+        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1), "closest bits");
     }
 
     #[test]
@@ -366,38 +422,6 @@ mod tests {
         };
         let p = auto_pick(&c, &m, &hw(8 * G, 32 * G)).unwrap();
         assert_eq!(p.fit, Fit::Offload);
-    }
-
-    #[test]
-    fn mtp_picks_closest_bits_and_none_is_farthest() {
-        let mut c = cat(&[(4, 5 * G)], &[(8, G, false), (3, G, false)]);
-        let m = meta();
-        let h = hw(20 * G, 16 * G);
-        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
-        c.mtp.push(MtpChoice {
-            quant: Quant {
-                label: "x".into(),
-                bits: None,
-            },
-            file: file(G / 4),
-            shared: false,
-        });
-        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
-        c.mtp.clear();
-        c.mtp.push(MtpChoice {
-            quant: Quant {
-                label: "x".into(),
-                bits: None,
-            },
-            file: file(G / 4),
-            shared: false,
-        });
-        c.mtp.push(MtpChoice {
-            quant: quant(8),
-            file: file(G),
-            shared: false,
-        });
-        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1));
     }
 
     #[test]
