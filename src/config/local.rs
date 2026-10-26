@@ -12,8 +12,8 @@ const KEY: &str = "local_models";
 /// 閒置幾分鐘後卸載模型的可選值；0 代表不卸載。
 pub const IDLE_CHOICES: [u32; 4] = [0, 5, 15, 30];
 
-const DEFAULT_PRELOAD: bool = false;
-const DEFAULT_IDLE_MINUTES: u32 = 15;
+const DEFAULT_PRELOAD: bool = true;
+const DEFAULT_IDLE_MINUTES: u32 = 0;
 
 /// `local_models` 區塊的讀出形狀。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,13 +118,13 @@ mod tests {
     use crate::config::default_config;
 
     #[test]
-    fn defaults_to_no_preload_and_fifteen_minutes() {
+    fn defaults_to_preload_and_never_unloading() {
         let s = settings(&default_config());
         assert_eq!(
             s,
             LocalSettings {
-                preload: false,
-                idle_minutes: 15,
+                preload: true,
+                idle_minutes: 0,
                 mtp: BTreeMap::new()
             }
         );
@@ -141,8 +141,8 @@ mod tests {
         assert_eq!(
             settings(&cfg),
             LocalSettings {
-                preload: false,
-                idle_minutes: 15,
+                preload: true,
+                idle_minutes: 0,
                 mtp: [("a".into(), true)].into()
             }
         );

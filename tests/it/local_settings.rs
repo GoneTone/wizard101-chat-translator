@@ -681,7 +681,7 @@ mod page {
         });
         assert_eq!(
             saved.unwrap()["local_models"],
-            json!({"preload": true, "idle_minutes": 30, "mtp": {}})
+            json!({"preload": false, "idle_minutes": 30, "mtp": {}})
         );
     }
 
