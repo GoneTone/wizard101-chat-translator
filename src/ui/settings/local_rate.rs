@@ -103,9 +103,9 @@ pub fn transfer_text(done: u64, total: u64, speed: Option<f64>) -> String {
     line
 }
 
-/// 引擎安裝的狀態文字：下載中同 `transfer_text`，下載完是解壓縮。
-pub fn engine_text(done: u64, total: u64, speed: Option<f64>) -> String {
-    if total > 0 && done >= total {
+/// 引擎安裝的狀態文字：下載中同 `transfer_text`，解壓中（或全部下載完）是解壓縮。
+pub fn engine_text(done: u64, total: u64, extracting: bool, speed: Option<f64>) -> String {
+    if extracting || (total > 0 && done >= total) {
         t("local.engine.extracting", &[])
     } else {
         transfer_text(done, total, speed)

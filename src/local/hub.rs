@@ -43,6 +43,8 @@ pub enum EngineState {
         build: String,
         done: u64,
         total: u64,
+        /// 正在解壓剛下載完的 zip。
+        extracting: bool,
     },
     Ready(EngineInstall),
     /// 正在停掉子程序並刪除引擎檔案。
@@ -100,6 +102,34 @@ impl Snapshot {
     }
 }
 
+/// `Local::detecting` 登記的一筆硬體偵測。
+struct Detecting<'a> {
+    local: &'a Local,
+}
+
+impl Drop for Detecting<'_> {
+    fn drop(&mut self) {
+        self.local.update(|_| {
+            self.local.refreshing.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+}
+
+/// 啟動後第一次量測：放掉時扣掉建立時就算進去的那一筆（只扣一次）。
+struct FirstMeasure<'a> {
+    local: &'a Local,
+}
+
+impl Drop for FirstMeasure<'_> {
+    fn drop(&mut self) {
+        if self.local.first_pending.swap(false, Ordering::SeqCst) {
+            self.local.update(|_| {
+                self.local.refreshing.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    }
+}
+
 /// UI 送給 hub 的指令，全部在背景執行。
 #[derive(Clone, Debug)]
 pub enum Command {
@@ -140,8 +170,10 @@ pub struct Local {
     gpu: Mutex<Option<Option<Gpu>>>,
     /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
     first_measure: OnceCell<()>,
-    /// 進行中的 `refresh_hardware` 數。
+    /// 進行中的硬體偵測數；啟動後第一次量測從建立起就算一筆，量完（或中途失敗）才扣掉。
     refreshing: AtomicUsize,
+    /// 第一次量測那一筆還沒扣掉。
+    first_pending: AtomicBool,
     /// 載入中的模型顯示名（依開始順序）。
     pub(super) loading: Mutex<Vec<String>>,
     /// `shutdown` 之後不再啟動任何模型。
@@ -187,7 +219,8 @@ impl Local {
             state: Mutex::new(snapshot),
             gpu: Mutex::default(),
             first_measure: OnceCell::new(),
-            refreshing: AtomicUsize::new(0),
+            refreshing: AtomicUsize::new(1),
+            first_pending: AtomicBool::new(true),
             loading: Mutex::default(),
             closed: AtomicBool::new(false),
             engine_lock: tokio::sync::Mutex::new(()),
@@ -199,10 +232,14 @@ impl Local {
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        let mut snapshot = lock(&self.state).clone();
+        let mut snapshot = {
+            let state = lock(&self.state);
+            // 在狀態鎖內讀：計數只在 `update` 裡變，偵測中與硬體值是同一刻的
+            let mut snapshot = state.clone();
+            snapshot.detecting = self.refreshing.load(Ordering::SeqCst) > 0;
+            snapshot
+        };
         snapshot.running = self.running_ids();
-        snapshot.detecting =
-            !self.first_measure.initialized() || self.refreshing.load(Ordering::SeqCst) > 0;
         snapshot
     }
 
@@ -215,14 +252,12 @@ impl Local {
 
     /// 等程式啟動後的第一次量硬體完成（還沒開始就由這裡量）。
     pub(super) async fn measured_once(&self) {
-        if self.first_measure.initialized() {
-            return;
-        }
         self.first_measure
-            .get_or_init(|| self.refresh_hardware(false))
+            .get_or_init(|| async {
+                let _first = FirstMeasure { local: self };
+                self.refresh_hardware(false).await;
+            })
             .await;
-        // 量完才算初始化，快照的 `detecting` 要再通知一次才會收起
-        self.update(|_| {});
     }
 
     /// 最近一次 `apply_config` 收到的設定（之前為預設值）。
@@ -330,8 +365,7 @@ impl Local {
 
     /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM；本程式跑著的模型所佔的量加回可用量。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
-        self.refreshing.fetch_add(1, Ordering::SeqCst);
-        self.update(|_| {});
+        let _detecting = self.detecting();
         let gpu = self.gpu(redetect_gpu);
         // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
         let files = self.engine_files.read().await;
@@ -375,7 +409,6 @@ impl Local {
             "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models_added_back={loaded}",
             hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free, hw.measured
         ));
-        self.refreshing.fetch_sub(1, Ordering::SeqCst);
         self.update(|s| {
             for repo in s.repos.values_mut() {
                 if let RepoState::Ready(info) = repo {
@@ -430,13 +463,14 @@ impl Local {
             .iter()
             .find(|(v, _)| *v == variant)
             .map_or(0, |(_, assets)| assets.iter().map(|a| a.size).sum());
+        let progress = Progress::default();
         let installing = |done, total| EngineState::Installing {
             build: build.tag.clone(),
             done,
             total,
+            extracting: progress.extracting.load(Ordering::Relaxed),
         };
         self.update(|s| s.engine = installing(0, total));
-        let progress = Progress::default();
         let never = CancellationToken::new();
         let install = engine::install(
             &self.gh_http,
@@ -455,11 +489,22 @@ impl Local {
             log(format!("[local] activating engine failed: {e}"));
             e.to_string()
         })?;
+        // 先登記偵測中再設 Ready，UI 才不會在量測開始前看到「Ready 但沒量過」
+        let detecting = self.detecting();
         self.update(|s| s.engine = EngineState::Ready(installed));
         // 先量 VRAM 再重啟子程序，量到的才是模型還沒載入時的可用量
         self.refresh_hardware(false).await;
+        drop(detecting);
         self.restart_servers();
         Ok(())
+    }
+
+    /// 登記一筆硬體偵測；放掉時（含 panic）扣掉並通知 UI。
+    fn detecting(&self) -> Detecting<'_> {
+        self.update(|_| {
+            self.refreshing.fetch_add(1, Ordering::SeqCst);
+        });
+        Detecting { local: self }
     }
 
     /// 引擎沒就緒就安裝（有安裝進行中則等它）；回傳這次是否新裝了引擎。

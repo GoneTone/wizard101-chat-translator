@@ -5,7 +5,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use futures_util::StreamExt;
@@ -31,6 +31,8 @@ pub(super) fn body_preview(body: &str) -> String {
 pub struct Progress {
     pub done: AtomicU64,
     pub total: AtomicU64,
+    /// 正在解壓剛下載完的檔（引擎安裝用）。
+    pub extracting: AtomicBool,
 }
 
 /// 下載失敗原因；`Display` 為給使用者看的原文。

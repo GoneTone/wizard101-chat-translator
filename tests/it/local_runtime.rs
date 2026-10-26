@@ -4,7 +4,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::common::local::{add_engine, add_model, serve_on};
@@ -1153,4 +1153,63 @@ async fn a_start_still_launching_keeps_its_engine_folder() {
     assert!(engine::engine_dir(&f.root, &old).exists());
     assert_eq!(engine::read_active(&f.root).previous, Some(old));
     slow.await.unwrap().unwrap();
+}
+
+/// 停掉的子程序還沒結束前不會啟動新的：舊程序的 VRAM 要先放掉。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_new_start_waits_for_the_stopped_server_to_exit() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    f.local.ensure("m1").await.unwrap();
+    *f.shared.kill_delay.lock().unwrap() = Duration::from_millis(500);
+    let local = f.local.clone();
+    let stop = tokio::task::spawn_blocking(move || local.stop("m1"));
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    f.local.ensure("m1").await.unwrap();
+    stop.await.unwrap();
+    assert_eq!(f.kills().len(), 1);
+    let launched = f.shared.launched_at.lock().unwrap().clone();
+    assert_eq!(launched.len(), 2);
+    assert!(
+        launched[1] - launched[0] >= Duration::from_millis(500),
+        "restarted {:?} after the first start",
+        launched[1] - launched[0]
+    );
+}
+
+/// 偵測結束時一定再通知一次：最後一則通知當下讀到的已經不是偵測中，UI 的佔位才會收起。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_end_of_detection_is_notified() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().to_path_buf();
+    engine_and_model(false)(&root);
+    let hf = MockServer::start().await;
+    let shared = Shared::default();
+    *shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    let hub: Arc<OnceLock<Weak<Local>>> = Arc::default();
+    let seen: Arc<Mutex<Vec<bool>>> = Arc::default();
+    let (cell, record) = (hub.clone(), seen.clone());
+    let local = Local::new(
+        root.clone(),
+        Handle::current(),
+        Arc::new(FakeLauncher {
+            shared,
+            fail_when: Box::new(|_| false),
+            model_dir: store::models_dir(&root).join("m1"),
+        }),
+        Endpoints {
+            hf: hf.uri(),
+            releases: format!("{}/releases", hf.uri()),
+        },
+        Arc::new(move |_| {
+            if let Some(local) = cell.get().and_then(Weak::upgrade) {
+                record.lock().unwrap().push(local.snapshot().detecting);
+            }
+        }),
+    );
+    hub.set(Arc::downgrade(&local)).unwrap();
+    local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !local.snapshot().detecting).await;
+    let seen = seen.lock().unwrap().clone();
+    assert!(seen.contains(&true), "{seen:?}");
+    assert_eq!(seen.last(), Some(&false), "{seen:?}");
 }

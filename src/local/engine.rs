@@ -91,6 +91,8 @@ pub fn auto_variant(gpu: Option<&Gpu>, build: Option<&Build>) -> Variant {
             build?
                 .variants
                 .iter()
+                // 少了 cudart 的 CUDA 版在沒裝 CUDA Toolkit 的電腦上跑不起來
+                .filter(|(_, assets)| assets.len() > 1)
                 .map(|(v, _)| v)
                 .filter(|v| cuda_runs(v, gpu, driver))
                 .max_by_key(|v| v.sort_key())
@@ -292,11 +294,11 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
     archive.extract(dest).map_err(|e| e.to_string())
 }
 
-/// 下載並解壓 `build` 的 `variant` 到引擎資料夾；失敗或取消不留半成品，也不動 `active.json`。
-///
 /// 把單一 zip 的進度換算成整體的間隔。
 const PART_TICK: Duration = Duration::from_millis(100);
 
+/// 下載並解壓 `build` 的 `variant` 到引擎資料夾；失敗或取消不留半成品，也不動 `active.json`。
+///
 /// 需在 multi-thread tokio runtime 上呼叫（解壓用 `block_in_place`）。
 pub async fn install(
     http: &reqwest::Client,
@@ -369,7 +371,9 @@ pub async fn install(
             if cancel.is_cancelled() {
                 return Err(DownloadError::Cancelled.to_string());
             }
+            progress.extracting.store(true, Ordering::Relaxed);
             let extracted = tokio::task::block_in_place(|| extract_zip(&zip_path, &tmp));
+            progress.extracting.store(false, Ordering::Relaxed);
             if let Err(e) = fs::remove_file(&zip_path) {
                 log(format!("[local] cannot remove {}: {e}", a.name));
             }

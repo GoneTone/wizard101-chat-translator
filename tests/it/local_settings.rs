@@ -747,7 +747,7 @@ mod page {
     }
 
     #[test]
-    fn an_update_without_the_installed_variant_falls_back_to_auto() {
+    fn automatic_variants_are_left_to_the_hub() {
         let mut snap = ready_engine();
         snap.engine = EngineState::Ready(EngineInstall {
             build: "b11871".into(),
@@ -772,11 +772,20 @@ mod page {
             nvidia_driver: None,
             device: 0,
         });
-        let mut h = pane_harness(snap, vec![]);
+        let mut h = pane_harness(snap.clone(), vec![]);
         click(&mut h, Role::Button, &tr("local.engine.update"));
         assert!(matches!(
             last(&h),
-            Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Vulkan) }) if b == "b11880"
+            Some(Command::InstallEngine { build: Some(b), variant: None }) if b == "b11880"
+        ));
+
+        // 沒裝過、變體是「自動」：交給 hub 依實際要裝的 build 挑
+        snap.engine = EngineState::Missing;
+        let mut h = pane_harness(snap, vec![]);
+        click(&mut h, Role::Button, &tr("local.engine.install"));
+        assert!(matches!(
+            last(&h),
+            Some(Command::InstallEngine { variant: None, .. })
         ));
     }
 
@@ -875,30 +884,30 @@ mod page {
         assert!(has_label(&h, &tr("local.hw.redetect")));
     }
 
-    /// 安裝引擎時進度條下方顯示狀態：下載中的量，下載完是解壓縮。
+    /// 安裝引擎時進度條下方顯示狀態：下載中的量，解壓中（含 zip 之間）或下載完是解壓縮。
     #[test]
     fn engine_install_shows_its_status_under_the_bar() {
         const G: u64 = 1 << 30;
-        let installing = |done| {
+        let installing = |done, extracting| {
             let mut snap = ready_engine();
             snap.engine = EngineState::Installing {
                 build: "b11880".into(),
                 done,
                 total: 2 * G,
+                extracting,
             };
             pane_harness(snap, vec![])
         };
-        let h = installing(G);
+        let h = installing(G, false);
         let downloading = t(
             "local.models.downloading",
             &[("done", "1.0"), ("total", "2.0")],
         );
         assert!(has_label(&h, &downloading));
         assert!(h.query_by_role(Role::ProgressIndicator).is_some());
-        assert!(has_label(
-            &installing(2 * G),
-            &tr("local.engine.extracting")
-        ));
+        let extracting = tr("local.engine.extracting");
+        assert!(has_label(&installing(G, true), &extracting));
+        assert!(has_label(&installing(2 * G, false), &extracting));
     }
 
     /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。

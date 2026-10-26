@@ -34,6 +34,8 @@ struct Picked {
     variant: Variant,
     /// 版本清單或硬體還在載入，選定的值之後可能會變。
     loading: bool,
+    /// 變體是「自動」。
+    auto: bool,
 }
 
 impl EngineCard {
@@ -176,6 +178,7 @@ impl EngineCard {
             build,
             variant,
             loading: build_loading || variant_loading,
+            auto: shows_auto,
         }
     }
 
@@ -215,9 +218,14 @@ impl EngineCard {
             (_, None) => Some(("local.engine.install", picked.build.clone())),
         };
         match &snapshot.engine {
-            EngineState::Installing { done, total, .. } => {
+            EngineState::Installing {
+                done,
+                total,
+                extracting,
+                ..
+            } => {
                 progress_bar(ui, fraction(*done, *total), ui.available_width());
-                let status = engine_text(*done, *total, rates.speed(ENGINE));
+                let status = engine_text(*done, *total, *extracting, rates.speed(ENGINE));
                 let status = RichText::new(status)
                     .size(theme::HINT_SIZE)
                     .color(theme::TEXT_SECONDARY);
@@ -239,25 +247,23 @@ impl EngineCard {
             if let Some((key, build)) = primary
                 && primary_button(ui, &t(key, &[])).clicked()
             {
-                let mut variant = picked.variant.clone();
+                // 「自動」交給 hub 依實際要裝的 build 決定，UI 這邊的版本清單可能還沒有或已過期
+                let mut variant = (!picked.auto).then(|| picked.variant.clone());
                 if key == "local.engine.update"
                     && let Some(b) = latest
-                    && !b.variants.iter().any(|(v, _)| *v == variant)
+                    && let Some(v) = &variant
+                    && !b.variants.iter().any(|(bv, _)| bv == v)
                 {
-                    let auto = auto_variant(snapshot.hardware.gpu.as_ref(), Some(b));
                     log(format!(
-                        "[ui] build {} has no {variant} variant, updating with auto variant {auto}",
+                        "[ui] build {} has no {v} variant, updating with the automatic variant",
                         b.tag
                     ));
-                    variant = auto;
+                    variant = None;
                 }
                 log(format!(
-                    "[ui] engine install requested: build={build:?} variant={variant}"
+                    "[ui] engine install requested: build={build:?} variant={variant:?}"
                 ));
-                env.local_command(Command::InstallEngine {
-                    build,
-                    variant: Some(variant),
-                });
+                env.local_command(Command::InstallEngine { build, variant });
             }
             if installed.is_some()
                 && danger_secondary_button(ui, &t("local.engine.remove", &[])).clicked()

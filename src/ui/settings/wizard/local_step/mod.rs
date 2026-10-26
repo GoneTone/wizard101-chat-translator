@@ -193,12 +193,15 @@ impl LocalInstall {
         })
     }
 
-    /// 推薦卡的內容之後還會變：硬體偵測中、引擎大小還沒查到，或自動挑選時還有推薦 repo 沒查完。
+    /// 推薦卡的內容之後還會變：硬體偵測中、引擎還在裝（裝好才量得到 VRAM，推薦依它挑），
+    /// 或自動挑選時還有推薦 repo 沒查完。
     fn loading(&self, snapshot: &Snapshot) -> bool {
-        let engine_pending = matches!(
+        let installing = matches!(
             snapshot.engine,
             EngineState::Missing | EngineState::Installing { .. }
-        ) && snapshot.builds.is_none();
+        );
+        let engine_pending =
+            installing && (snapshot.builds.is_none() || !snapshot.hardware.measured);
         let repos_pending = self.selection.is_none()
             && RECOMMENDED.iter().filter(|r| r.wizard).any(|r| {
                 !matches!(
@@ -336,8 +339,13 @@ impl LocalInstall {
     /// 引擎安裝中的進度，或失敗的原文與〔重試〕。
     fn engine_status(&self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         match &snapshot.engine {
-            EngineState::Installing { done, total, .. } => {
-                let status = engine_text(*done, *total, self.rates.speed(ENGINE));
+            EngineState::Installing {
+                done,
+                total,
+                extracting,
+                ..
+            } => {
+                let status = engine_text(*done, *total, *extracting, self.rates.speed(ENGINE));
                 let text = t("local.wizard.engine_installing", &[("status", &status)]);
                 progress(ui, &text, *done, *total);
             }

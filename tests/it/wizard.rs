@@ -808,6 +808,15 @@ mod local_install {
         set_snapshot(&mut h, ready_snapshot());
         assert!(download_button_shown(&h));
         assert!(!has_label(&h, &tr("local.loading")));
+
+        // 引擎還在裝、VRAM 還沒量：推薦之後會依量到的換，先畫佔位
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Missing;
+        s.builds = Some(Ok(vec![]));
+        s.hardware.measured = false;
+        let h = on_card(s);
+        assert!(has_label(&h, &tr("local.loading")));
+        assert!(!download_button_shown(&h));
     }
 
     /// 推薦全部查詢失敗：顯示原文與〔重試〕，重試會重新查詢失敗的 repo。

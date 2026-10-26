@@ -33,6 +33,8 @@ struct Slot {
     /// 讓同一模型的並發啟動只跑一次；持有者即進行中的啟動。
     start: Arc<tokio::sync::Mutex<()>>,
     state: Mutex<SlotState>,
+    /// `stop_slot` 殺完子程序時通知，等著的 `ensure` 才開始新的啟動。
+    stopped: tokio::sync::Notify,
 }
 
 /// 刪檔期間占住模型的啟動鎖；排隊中的 `ensure` 等它放掉才會往下跑。
@@ -58,6 +60,8 @@ struct SlotState {
     starting: CancellationToken,
     /// 等著占住啟動鎖的 `stop_and_wait` 數量；不為 0 時拿到鎖的 `ensure` 要讓開。
     closing: u32,
+    /// 已拿走、還在等它結束的子程序數；不為 0 時新的啟動要等，舊程序的 VRAM 才放得掉。
+    stopping: u32,
 }
 
 impl SlotState {
@@ -138,6 +142,15 @@ impl Servers {
     }
 }
 
+/// `ensure` 拿到啟動鎖後的下一步。
+enum Next {
+    /// 有 `stop_and_wait` 在排：放掉鎖讓它先。
+    Yield,
+    /// 剛停掉的子程序還沒結束：等它結束再啟動。
+    WaitForStop,
+    Start(CancellationToken),
+}
+
 impl Local {
     /// 回傳模型的 llama-server base URL；沒在跑就啟動並等它就緒。
     pub async fn ensure(&self, model_id: &str) -> Result<String, String> {
@@ -145,18 +158,28 @@ impl Local {
         // 拿到啟動鎖就在狀態鎖內換新取消鈕：之後的 stop 一定取消得到這次啟動
         let (_start, cancel) = loop {
             let guard = slot.start.clone().lock_owned().await;
-            let mut st = lock(&slot.state);
-            if st.closing == 0 {
-                // 在狀態鎖內檢查：shutdown 之前就過了這關的啟動，會被它取消
-                if self.closed.load(Ordering::SeqCst) {
-                    return Err("local runtime is shut down".into());
+            let stopped = slot.stopped.notified();
+            let next = {
+                let mut st = lock(&slot.state);
+                if st.closing > 0 {
+                    Next::Yield
+                } else if st.stopping > 0 {
+                    Next::WaitForStop
+                } else {
+                    // 在狀態鎖內檢查：shutdown 之前就過了這關的啟動，會被它取消
+                    if self.closed.load(Ordering::SeqCst) {
+                        return Err("local runtime is shut down".into());
+                    }
+                    st.starting = CancellationToken::new();
+                    Next::Start(st.starting.clone())
                 }
-                st.starting = CancellationToken::new();
-                break (guard, st.starting.clone());
+            };
+            match next {
+                Next::Start(cancel) => break (guard, cancel),
+                Next::WaitForStop => stopped.await,
+                // 鎖是先到先得：放掉再排一次，就排到正在等的 stop_and_wait 後面
+                Next::Yield => drop(guard),
             }
-            drop(st);
-            // 鎖是先到先得：放掉再排一次，就排到正在等的 stop_and_wait 後面
-            drop(guard);
         };
         let _engine_files = self.engine_files.read().await;
         {
@@ -535,12 +558,16 @@ fn stop_slot(id: &str, slot: &Slot) {
         let mut st = lock(&slot.state);
         st.starting.cancel();
         st.clear_failures();
-        st.running.take()
+        let running = st.running.take();
+        st.stopping += u32::from(running.is_some());
+        running
     };
     // 結束子程序要等它退出：放掉狀態鎖再殺，讀快照的 UI 才不會卡住
     if let Some(mut running) = running {
         log(format!("[local] stopping llama-server[{id}]"));
         running.process.kill();
+        lock(&slot.state).stopping -= 1;
+        slot.stopped.notify_waiters();
     }
 }
 

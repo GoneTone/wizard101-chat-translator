@@ -64,10 +64,9 @@ fn variant_serializes_as_a_string() {
 #[test]
 fn auto_variant_prefers_cuda_the_nvidia_driver_supports() {
     let mut json = fixture();
-    json[0]["assets"]
-        .as_array_mut()
-        .unwrap()
-        .push(asset("llama-b11871-bin-win-cuda-12.4-x64.zip"));
+    let assets = json[0]["assets"].as_array_mut().unwrap();
+    assets.push(asset("llama-b11871-bin-win-cuda-12.4-x64.zip"));
+    assets.push(asset("cudart-llama-bin-win-cuda-12.4-x64.zip"));
     let builds = parse_releases(&json);
     let build = Some(&builds[0]);
     const RTX_4080_SUPER: u32 = 0x2702;
@@ -90,6 +89,16 @@ fn auto_variant_prefers_cuda_the_nvidia_driver_supports() {
     assert_eq!(pick(None), "cpu");
     let no_build = auto_variant(Some(&gpu(NVIDIA, RTX_4080_SUPER, Some(58157))), None);
     assert_eq!(no_build, Variant::Vulkan);
+    // 少了 cudart 的 CUDA 版不自動選
+    let mut bare = fixture();
+    let assets = bare[0]["assets"].as_array_mut().unwrap();
+    assets.retain(|a| !a["name"].as_str().unwrap().starts_with("cudart-"));
+    let builds = parse_releases(&bare);
+    let picked = auto_variant(
+        Some(&gpu(NVIDIA, RTX_4080_SUPER, Some(58157))),
+        Some(&builds[0]),
+    );
+    assert_eq!(picked, Variant::Vulkan);
 }
 
 fn inst(build: &str) -> EngineInstall {
@@ -212,7 +221,7 @@ async fn install_extracts_the_zip() {
     assert_eq!(read_active(root.path()), ActiveFile::default());
 }
 
-/// CUDA 版分成兩個 zip：進度是整體的，不會在第一個下載完時歸零。
+/// CUDA 版分成兩個 zip：進度是整體的，第二個下載途中也不會歸零或倒退。
 #[tokio::test(flavor = "multi_thread")]
 async fn progress_covers_every_zip_of_the_variant() {
     let server = MockServer::start().await;
@@ -223,12 +232,23 @@ async fn progress_covers_every_zip_of_the_variant() {
         zip_bytes(&["llama-server.exe"]),
     )
     .await;
-    let runtime = serve(
-        &server,
-        "cudart-llama-bin-win-cuda-13.4-x64.zip",
-        zip_bytes(&["cudart64_13.dll", "cublas64_13.dll"]),
-    )
-    .await;
+    let name = "cudart-llama-bin-win-cuda-13.4-x64.zip";
+    let body = zip_bytes(&["cudart64_13.dll", "cublas64_13.dll"]);
+    Mock::given(method("GET"))
+        .and(path(format!("/{name}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(body.clone())
+                .set_delay(std::time::Duration::from_millis(400)),
+        )
+        .mount(&server)
+        .await;
+    let runtime = Asset {
+        name: name.into(),
+        url: format!("{}/{name}", server.uri()),
+        size: body.len() as u64,
+    };
+    let first = main.size;
     let total = main.size + runtime.size;
     let cuda = Variant::Cuda("13.4".into());
     let build = Build {
@@ -236,7 +256,16 @@ async fn progress_covers_every_zip_of_the_variant() {
         published: String::new(),
         variants: vec![(cuda.clone(), vec![main, runtime])],
     };
-    let progress = Progress::default();
+    let progress = std::sync::Arc::new(Progress::default());
+    let watched = progress.clone();
+    let sampler = tokio::spawn(async move {
+        let mut samples = vec![];
+        while samples.len() < 40 {
+            samples.push(watched.done.load(Ordering::Relaxed));
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        samples
+    });
     install(
         &hf_client(&server.uri()),
         root.path(),
@@ -247,6 +276,12 @@ async fn progress_covers_every_zip_of_the_variant() {
     )
     .await
     .unwrap();
+    let samples = sampler.await.unwrap();
+    assert!(samples.windows(2).all(|w| w[0] <= w[1]), "{samples:?}");
+    assert!(
+        samples.iter().any(|&d| d >= first && d < total),
+        "never sampled the second zip: {samples:?}"
+    );
     assert_eq!(progress.total.load(Ordering::Relaxed), total);
     assert_eq!(progress.done.load(Ordering::Relaxed), total);
 }
