@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
@@ -209,6 +210,45 @@ async fn install_extracts_the_zip() {
         .unwrap();
     assert!(server_exe(&engine_dir(root.path(), &got)).is_some());
     assert_eq!(read_active(root.path()), ActiveFile::default());
+}
+
+/// CUDA 版分成兩個 zip：進度是整體的，不會在第一個下載完時歸零。
+#[tokio::test(flavor = "multi_thread")]
+async fn progress_covers_every_zip_of_the_variant() {
+    let server = MockServer::start().await;
+    let root = tempfile::tempdir().unwrap();
+    let main = serve(
+        &server,
+        "llama-b11871-bin-win-cuda-13.4-x64.zip",
+        zip_bytes(&["llama-server.exe"]),
+    )
+    .await;
+    let runtime = serve(
+        &server,
+        "cudart-llama-bin-win-cuda-13.4-x64.zip",
+        zip_bytes(&["cudart64_13.dll", "cublas64_13.dll"]),
+    )
+    .await;
+    let total = main.size + runtime.size;
+    let cuda = Variant::Cuda("13.4".into());
+    let build = Build {
+        tag: "b11871".into(),
+        published: String::new(),
+        variants: vec![(cuda.clone(), vec![main, runtime])],
+    };
+    let progress = Progress::default();
+    install(
+        &hf_client(&server.uri()),
+        root.path(),
+        &build,
+        &cuda,
+        &progress,
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(progress.total.load(Ordering::Relaxed), total);
+    assert_eq!(progress.done.load(Ordering::Relaxed), total);
 }
 
 #[tokio::test(flavor = "multi_thread")]

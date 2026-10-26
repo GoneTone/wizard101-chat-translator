@@ -5,7 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -293,6 +294,9 @@ fn extract_zip(zip_path: &Path, dest: &Path) -> Result<(), String> {
 
 /// 下載並解壓 `build` 的 `variant` 到引擎資料夾；失敗或取消不留半成品，也不動 `active.json`。
 ///
+/// 把單一 zip 的進度換算成整體的間隔。
+const PART_TICK: Duration = Duration::from_millis(100);
+
 /// 需在 multi-thread tokio runtime 上呼叫（解壓用 `block_in_place`）。
 pub async fn install(
     http: &reqwest::Client,
@@ -341,11 +345,27 @@ pub async fn install(
 
     let result = async {
         fs::create_dir_all(&downloads).map_err(|e| e.to_string())?;
+        progress.total.store(size, Ordering::Relaxed);
+        progress.done.store(0, Ordering::Relaxed);
+        let mut base = 0;
         for a in assets {
             let zip_path = downloads.join(&a.name);
-            download(http, &a.url, &zip_path, a.size, None, progress, cancel)
-                .await
-                .map_err(|e| e.to_string())?;
+            // 每個 zip 各自計進度，換算成整體寫回 `progress`，CUDA 版第二個 zip 開始時才不會歸零
+            let part = Progress::default();
+            let fetch = download(http, &a.url, &zip_path, a.size, None, &part, cancel);
+            tokio::pin!(fetch);
+            let mut tick = tokio::time::interval(PART_TICK);
+            let fetched = loop {
+                tokio::select! {
+                    r = &mut fetch => break r,
+                    _ = tick.tick() => progress
+                        .done
+                        .store(base + part.done.load(Ordering::Relaxed), Ordering::Relaxed),
+                }
+            };
+            fetched.map_err(|e| e.to_string())?;
+            base += a.size;
+            progress.done.store(base, Ordering::Relaxed);
             if cancel.is_cancelled() {
                 return Err(DownloadError::Cancelled.to_string());
             }
