@@ -522,6 +522,31 @@ async fn preload_starts_models_one_after_another() {
     );
 }
 
+/// 預先載入只載入用途用得到的模型：新增了但沒有用途（含預設）選用的本地服務不載入。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn preload_skips_local_services_no_slot_uses() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            add_model(root, "m1", false);
+            add_model(root, "m2", false);
+        },
+        |_| false,
+    )
+    .await;
+    let settings = json!({"preload": true, "idle_minutes": 0, "mtp": {}});
+    let mut cfg = local_config(&["m1", "m2"], settings);
+    cfg.insert(
+        "service_slots".into(),
+        json!({"incoming": "s0", "outgoing": null, "region": null}),
+    );
+    f.local.apply_config(&cfg);
+    wait_for("m1 preloaded", || f.plans().len() == 1).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let ids: Vec<String> = f.plans().into_iter().map(|p| p.model_id).collect();
+    assert_eq!(ids, ["m1"]);
+}
+
 /// shutdown 後 ensure 回錯誤、不啟動，也不算失敗。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ensure_after_shutdown_starts_nothing() {
