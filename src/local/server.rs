@@ -1,7 +1,7 @@
 //! 啟動並監看 `llama-server.exe` 子程序，等它就緒。
 
 use crate::local::hardware::{Gpu, detect_gpu};
-use crate::local::usage::{self, Usage};
+use crate::local::usage::{self, Reading};
 use crate::logs::log;
 use crate::util::{Clock, poll_until};
 use std::collections::VecDeque;
@@ -100,6 +100,10 @@ pub trait Process: Send {
     fn all_on_gpu(&self) -> Option<bool> {
         None
     }
+    /// 模型不在記憶體裡（睡眠中，或醒來重新載入還沒完成），這時量到的不是模型的佔用。
+    fn unloaded(&self) -> bool {
+        false
+    }
 }
 
 /// 啟動 llama-server 與偵測硬體的方式（測試以假實作替換）。
@@ -117,7 +121,7 @@ pub trait Launcher: Send + Sync {
     }
 
     /// 這些 llama-server 實際佔用的記憶體（見 [`usage::process_usage`]）。
-    fn process_usage(&self, pids: &[u32], integrated: bool) -> Usage {
+    fn process_usage(&self, pids: &[u32], integrated: bool) -> Reading {
         usage::process_usage(pids, integrated)
     }
 }
@@ -128,7 +132,7 @@ pub struct RealLauncher;
 struct RealProcess {
     child: Child,
     tail: Arc<Mutex<VecDeque<String>>>,
-    all_on_gpu: Arc<Mutex<Option<bool>>>,
+    output: Arc<Mutex<Output>>,
     readers: Vec<JoinHandle<()>>,
 }
 
@@ -167,7 +171,10 @@ impl Process for RealProcess {
         Some(self.child.id())
     }
     fn all_on_gpu(&self) -> Option<bool> {
-        *self.all_on_gpu.lock().unwrap()
+        self.output.lock().unwrap().all_on_gpu
+    }
+    fn unloaded(&self) -> bool {
+        self.output.lock().unwrap().unloaded
     }
 }
 
@@ -187,40 +194,38 @@ impl Launcher for RealLauncher {
         ));
         assign_to_job(&child, &plan.model_id);
         let tail = Arc::new(Mutex::new(VecDeque::new()));
-        let all_on_gpu = Arc::new(Mutex::new(None));
+        let output = Arc::new(Mutex::new(Output::default()));
         let mut readers = Vec::new();
         if let Some(out) = child.stdout.take() {
-            let (id, t, a) = (plan.model_id.clone(), tail.clone(), all_on_gpu.clone());
-            readers.push(pump_lines(out, id, t, a));
+            let (id, t, o) = (plan.model_id.clone(), tail.clone(), output.clone());
+            readers.push(pump_lines(out, id, t, o));
         }
         if let Some(err) = child.stderr.take() {
-            let (id, t, a) = (plan.model_id.clone(), tail.clone(), all_on_gpu.clone());
-            readers.push(pump_lines(err, id, t, a));
+            let (id, t, o) = (plan.model_id.clone(), tail.clone(), output.clone());
+            readers.push(pump_lines(err, id, t, o));
         }
         Ok(Box::new(RealProcess {
             child,
             tail,
-            all_on_gpu,
+            output,
             readers,
         }))
     }
 }
 
-/// 每行寫進 log、更新 `all_on_gpu`，並留最後 `TAIL_LINES` 行；以位元組讀取，非 UTF-8 輸出不會讓執行緒死掉。
+/// 每行交給 `output` 判讀、留最後 `TAIL_LINES` 行，需要的才寫進 log；以位元組讀取，非 UTF-8 輸出不會讓執行緒死掉。
 fn pump_lines(
     pipe: impl io::Read + Send + 'static,
     model_id: String,
     tail: Arc<Mutex<VecDeque<String>>>,
-    all_on_gpu: Arc<Mutex<Option<bool>>>,
+    output: Arc<Mutex<Output>>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for raw in BufReader::new(pipe).split(b'\n') {
             let Ok(raw) = raw else { break };
             let line = String::from_utf8_lossy(&raw).trim_end().to_string();
-            log(format!("[local] llama-server[{model_id}]: {line}"));
-            {
-                let mut all = all_on_gpu.lock().unwrap();
-                *all = track_offload(*all, &line);
+            if output.lock().unwrap().observe(&line) {
+                log(format!("[local] llama-server[{model_id}]: {line}"));
             }
             let mut t = tail.lock().unwrap();
             if t.len() == TAIL_LINES {
@@ -229,6 +234,76 @@ fn pump_lines(
             t.push_back(line);
         }
     })
+}
+
+/// 從 llama-server 輸出讀到的載入狀態。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Output {
+    /// 這次載入每層都放 GPU；還沒看到 `load_tensors: offloaded` 為 `None`。
+    all_on_gpu: Option<bool>,
+    /// 模型不在記憶體裡（睡眠中，或醒來重新載入還沒完成）。
+    unloaded: bool,
+    /// 載入中（啟動到 `listening on`、醒來到重新載入完成）：這段每行都寫進 log。
+    loading: bool,
+    /// 醒來後還沒看到 `--fit` 的第一行。
+    fit_pending: bool,
+}
+
+impl Default for Output {
+    fn default() -> Self {
+        Self {
+            all_on_gpu: None,
+            unloaded: false,
+            loading: true,
+            fit_pending: false,
+        }
+    }
+}
+
+impl Output {
+    /// 讀一行輸出更新狀態；回傳這行要不要寫進 log。
+    fn observe(&mut self, line: &str) -> bool {
+        let logged = self.loading || important(line);
+        if line.contains("server is entering sleeping state") {
+            self.unloaded = true;
+            return true;
+        }
+        if line.contains("server is exiting sleeping state") {
+            *self = Self {
+                all_on_gpu: None,
+                unloaded: true,
+                loading: true,
+                fit_pending: true,
+            };
+            return true;
+        }
+        if line.contains("failed to reload model after sleeping") {
+            (self.loading, self.fit_pending) = (false, false);
+            return true;
+        }
+        if self.loading && !self.unloaded && line.contains("listening on") {
+            self.loading = false;
+        }
+        // 醒來重新載入時 `load_model` 最後印 n_slots；沒看到就以第一個請求的速度統計為準
+        if self.unloaded && (line.contains("n_slots =") || line.contains("print_timing")) {
+            (self.loading, self.unloaded) = (false, false);
+        }
+        if self.fit_pending && line.contains("common_params_fit_impl:") {
+            (self.all_on_gpu, self.fit_pending) = (None, false);
+        }
+        self.all_on_gpu = track_offload(self.all_on_gpu, line);
+        logged
+    }
+}
+
+/// 載入以外的時間要寫進 log 的行：警告與錯誤（時間戳記後的等級字母 W／E）、每次請求的 `print_timing`，以及認不出格式的。
+fn important(line: &str) -> bool {
+    static LEVEL: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"^\d+\.\d+\.\d+\.\d+ ([A-Z]) ").unwrap());
+    match LEVEL.captures(line) {
+        Some(c) => matches!(&c[1], "W" | "E") || line.contains("print_timing"),
+        None => !line.is_empty(),
+    }
 }
 
 /// 依一行輸出更新「每層都在 GPU」：看到 `load_tensors: offloaded n/m layers to GPU` 才有值，任一次 n < m 就是 `false`。
@@ -384,6 +459,77 @@ mod tests {
         lines
             .iter()
             .fold(None, |all, line| track_offload(all, line))
+    }
+
+    /// 依序餵 `lines`，回傳最後的狀態與每行有沒有寫進 log。
+    fn feed(lines: &[&str]) -> (Output, Vec<bool>) {
+        let mut out = Output::default();
+        let logged = lines.iter().map(|l| out.observe(l)).collect();
+        (out, logged)
+    }
+
+    /// 醒來重新載入：重新判斷是否全放 GPU，載入完成前算卸下；睡眠中也算卸下。
+    #[test]
+    fn sleeping_and_waking_reset_the_load_state() {
+        let main = "0.39.819.281 I load_tensors: offloaded 43/43 layers to GPU";
+        let (out, _) = feed(&[
+            main,
+            "1.00.000.000 I srv  server_on_li: listening on http://127.0.0.1:1",
+        ]);
+        assert_eq!((out.all_on_gpu, out.unloaded), (Some(true), false));
+        let asleep = [
+            main,
+            "1.00.000.000 I srv  server_on_li: listening on http://127.0.0.1:1",
+            "9.00.000.000 I srv  handle_sleep: server is entering sleeping state",
+        ];
+        assert!(feed(&asleep).0.unloaded);
+        let mut waking = asleep.to_vec();
+        waking.push("9.10.000.000 I srv  handle_sleep: server is exiting sleeping state");
+        let (out, _) = feed(&waking);
+        assert_eq!(
+            (out.all_on_gpu, out.unloaded),
+            (None, true),
+            "reload pending"
+        );
+        waking.extend([
+            "9.10.100.000 I common_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 512 MiB",
+            main,
+            "9.20.000.000 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'",
+        ]);
+        let (out, _) = feed(&waking);
+        assert_eq!((out.all_on_gpu, out.unloaded), (Some(false), false));
+        let mut failed = asleep.to_vec();
+        failed.extend([
+            "9.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
+            "9.10.100.000 E srv  handle_sleep: failed to reload model after sleeping",
+        ]);
+        assert!(feed(&failed).0.unloaded);
+    }
+
+    /// 載入期間每行都寫；其餘時間只寫 W／E、`print_timing` 與睡眠切換。
+    #[test]
+    fn only_loading_warnings_and_timings_reach_the_log() {
+        let lines = [
+            "0.00.100.000 I srv    load_model: loading model 'm.gguf'",
+            "0.39.341.105 I srv  server_on_li: listening on http://127.0.0.1:1",
+            "0.40.000.000 I slot params_from_: id  0 | task 0 | sampler params: temp 0.8",
+            "0.40.000.001 W srv  some warning",
+            "0.40.000.002 E srv  some error",
+            "0.40.843.564 I slot print_timing: id  0 | task 0 | prompt eval time = 1.0 ms",
+            "9.00.000.000 I srv  handle_sleep: server is entering sleeping state",
+            "9.10.000.000 I srv  handle_sleep: server is exiting sleeping state",
+            "9.10.000.001 I load_tensors: offloaded 43/43 layers to GPU",
+            "9.20.000.000 I srv    load_model: initializing, n_slots = 1",
+            "9.30.000.000 I slot params_from_: id  0 | task 1 | sampler params: temp 0.8",
+            "ggml_cuda_init: found 1 CUDA devices:",
+        ];
+        let (_, logged) = feed(&lines);
+        assert_eq!(
+            logged,
+            [
+                true, true, false, true, true, true, true, true, true, true, false, true
+            ]
+        );
     }
 
     #[test]

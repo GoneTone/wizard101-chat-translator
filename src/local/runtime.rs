@@ -15,7 +15,7 @@ use super::hf::hf_client;
 use super::hub::{EngineState, Local, rerate};
 use super::server::{self, Mtp, Process, READY_TIMEOUT, ServerPlan};
 use super::store::{self, Installed, Measured};
-use super::usage::Usage;
+use super::usage::{Reading, Usage};
 use crate::config::Config;
 use crate::config::local;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, resolve};
@@ -87,7 +87,7 @@ struct Running {
     base_url: String,
     /// 這次有開 MTP（失敗重試時可能已關掉）。
     mtp: bool,
-    _engine: EngineUse,
+    engine: EngineUse,
 }
 
 /// 啟動中與跑著的 llama-server 用的 exe；刪引擎資料夾前持這把鎖檢查。
@@ -98,6 +98,33 @@ pub(super) struct EngineUsers(Arc<Mutex<Vec<PathBuf>>>);
 struct EngineUse {
     users: EngineUsers,
     exe: PathBuf,
+    /// 引擎的 `{build}-{variant}`，記在實測裡。
+    label: String,
+}
+
+/// 跑著的 llama-server 某一刻的佔用與載入狀態。
+struct Sample {
+    pid: Option<u32>,
+    /// 還沒量（或沒有 PID）時為預設值。
+    reading: Reading,
+    all_on_gpu: Option<bool>,
+    unloaded: bool,
+    mtp: bool,
+    engine: String,
+}
+
+impl Sample {
+    fn of(running: &Running) -> Self {
+        let process = &running.process;
+        Self {
+            pid: process.pid(),
+            reading: Reading::default(),
+            all_on_gpu: process.all_on_gpu(),
+            unloaded: process.unloaded(),
+            mtp: running.mtp,
+            engine: running.engine.label.clone(),
+        }
+    }
 }
 
 impl Drop for EngineUse {
@@ -286,18 +313,15 @@ impl Local {
         for (id, slot) in self.servers.all() {
             // 拿不到啟動鎖（啟動中或正要刪檔）就只量不記，免得清單寫回剛刪掉的資料夾
             let start = slot.start.try_lock();
-            let running = lock(&slot.state)
-                .running
-                .as_ref()
-                .map(|r| (r.process.pid(), r.process.all_on_gpu(), r.mtp));
-            let Some((pid, all_on_gpu, mtp)) = running else {
+            // 先取出要的值再量：量的時候不占著狀態鎖，讀快照的 UI 才不會卡住
+            let Some(sample) = lock(&slot.state).running.as_ref().map(Sample::of) else {
                 continue;
             };
-            let usage = self.usage_of(pid);
-            total.vram += usage.vram;
-            total.ram += usage.ram;
+            let sample = self.read(sample);
+            total.vram += sample.reading.usage.vram;
+            total.ram += sample.reading.usage.ram;
             match start {
-                Ok(_start) => self.record(&id, usage, all_on_gpu, mtp),
+                Ok(_start) => self.record(&id, sample),
                 Err(_) => log(format!(
                     "[local] llama-server[{id}] is busy; measurement not recorded this time"
                 )),
@@ -306,46 +330,51 @@ impl Local {
         total
     }
 
-    fn usage_of(&self, pid: Option<u32>) -> Usage {
-        pid.map_or_else(Usage::default, |pid| {
-            let integrated = self.integrated_gpu();
-            tokio::task::block_in_place(|| self.launcher.process_usage(&[pid], integrated))
-        })
+    /// 量 `sample` 那個程序的佔用。
+    fn read(&self, mut sample: Sample) -> Sample {
+        let integrated = self.integrated_gpu().unwrap_or(false);
+        if let Some(pid) = sample.pid {
+            let launcher = &self.launcher;
+            sample.reading =
+                tokio::task::block_in_place(|| launcher.process_usage(&[pid], integrated));
+        }
+        sample
     }
 
-    /// 把量到的佔用寫進模型清單；同一種載入方式（MTP、是否全放 GPU）保留各自的最大值，換了方式就重記。
+    /// 把量到的佔用寫進模型清單（合併規則見 [`Measured::merged`]）；量得不完整或模型不在記憶體裡時不記。
     ///
     /// 呼叫端須持有該模型的啟動鎖（刪檔也要這把鎖）。
-    fn record(&self, id: &str, usage: Usage, all_on_gpu: Option<bool>, mtp: bool) {
-        let Some(all_on_gpu) = all_on_gpu else {
+    fn record(&self, id: &str, sample: Sample) {
+        let usage = sample.reading.usage;
+        let integrated = self.integrated_gpu();
+        let skip = skip_reason(&sample, integrated);
+        let (Some(all_on_gpu), None) = (sample.all_on_gpu, skip) else {
+            let why = skip.unwrap_or("it did not report its GPU offload");
             log(format!(
-                "[local] llama-server[{id}] did not report its GPU offload; measurement not recorded"
+                "[local] llama-server[{id}] measurement not recorded: {why} (vram={} ram={})",
+                usage.vram, usage.ram
             ));
             return;
         };
-        // working set 讀不到時是 0：不是真的量到
-        if usage.ram == 0 {
-            log(format!(
-                "[local] llama-server[{id}] memory could not be read; measurement not recorded"
-            ));
-            return;
-        }
+        let _manifests = lock(&self.manifests);
         let Some(mut model) = store::list(&self.root).into_iter().find(|m| m.id == id) else {
             return;
         };
-        let same = model
-            .manifest
-            .measured
-            .filter(|m| m.mtp == mtp && m.all_on_gpu == all_on_gpu);
         let measured = Measured {
-            vram: same.map_or(usage.vram, |m| m.vram.max(usage.vram)),
-            ram: same.map_or(usage.ram, |m| m.ram.max(usage.ram)),
+            vram: usage.vram,
+            ram: usage.ram,
             all_on_gpu,
-            mtp,
-        };
-        if model.manifest.measured == Some(measured) {
+            mtp: sample.mtp,
+            engine: sample.engine,
+        }
+        .merged(model.manifest.measured.as_ref());
+        if model.manifest.measured.as_ref() == Some(&measured) {
             return;
         }
+        log(format!(
+            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={} engine={} (seen now: vram={} ram={})",
+            measured.vram, measured.ram, measured.mtp, measured.engine, usage.vram, usage.ram
+        ));
         model.manifest.measured = Some(measured);
         if let Err(e) = store::write_manifest(&self.root, id, &model.manifest) {
             log(format!(
@@ -353,10 +382,6 @@ impl Local {
             ));
             return;
         }
-        log(format!(
-            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={mtp} (seen now: vram={} ram={})",
-            measured.vram, measured.ram, usage.vram, usage.ram
-        ));
         self.update(|s| {
             s.models = store::list(&self.root);
             rerate(s);
@@ -510,7 +535,11 @@ impl Local {
                     .ok_or("llama.cpp engine is not installed")?;
                 users.push(exe.clone());
                 let users = self.engine_users.clone();
-                (active, EngineUse { users, exe })
+                let label = active
+                    .current
+                    .as_ref()
+                    .map_or_else(String::new, |i| format!("{}-{}", i.build, i.variant));
+                (active, EngineUse { users, exe, label })
             };
             let model_file = store::main_file(&self.root, model)
                 .map_err(|e| format!("model {} has no usable main file: {e}", model.id))?;
@@ -524,9 +553,7 @@ impl Local {
             let err = match self.launch(&plan, cancel, engine_use).await {
                 // 量的是就緒當下（還沒有請求）的佔用；之後重新偵測硬體時再量、取大的
                 Ok(running) => {
-                    let pid = running.process.pid();
-                    let usage = self.usage_of(pid);
-                    self.record(&model.id, usage, running.process.all_on_gpu(), running.mtp);
+                    self.record(&model.id, self.read(Sample::of(&running)));
                     self.confirm_engine(&active);
                     return Ok(running);
                 }
@@ -619,8 +646,35 @@ impl Local {
             process,
             base_url,
             mtp: plan.mtp != Mtp::Off,
-            _engine: engine_use,
+            engine: engine_use,
         })
+    }
+}
+
+/// 這次量到的不能記的原因：GPU 還沒偵測、模型不在記憶體裡、GPU 計數器或 working set 讀不到，
+/// 或獨顯說全放 GPU 卻量到 0 VRAM。
+fn skip_reason(sample: &Sample, integrated: Option<bool>) -> Option<&'static str> {
+    let usage = sample.reading.usage;
+    if integrated.is_none() {
+        Some("the GPU has not been detected yet")
+    } else if sample.unloaded {
+        Some("the model is unloaded (sleeping or reloading)")
+    } else if !sample.reading.gpu_read {
+        Some("GPU memory could not be read")
+    } else if usage.ram == 0 {
+        Some("its working set could not be read")
+    } else if integrated == Some(false) && sample.all_on_gpu == Some(true) && usage.vram == 0 {
+        Some("all layers are on the GPU but no dedicated GPU memory was read")
+    } else {
+        None
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Local {
+    /// 測試用：占住模型的啟動鎖（模擬啟動中或正要刪檔）。
+    pub async fn hold_start_for_test(&self, model_id: &str) -> OwnedMutexGuard<()> {
+        self.servers.slot(model_id).start.clone().lock_owned().await
     }
 }
 

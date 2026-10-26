@@ -18,7 +18,7 @@ use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
 use wizard101_chat_translator::local::hardware::{self, Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
 use wizard101_chat_translator::local::store::{self, Measured};
-use wizard101_chat_translator::local::usage::Usage;
+use wizard101_chat_translator::local::usage::{Reading, Usage};
 use wizard101_chat_translator::local::{
     Command, DownloadState, Endpoints, EngineState, Local, LocalNotice, RepoInfo, RepoState,
     Snapshot,
@@ -37,6 +37,7 @@ struct FakeProcess {
     kill_delay: Arc<Mutex<Duration>>,
     pid: u32,
     all_on_gpu: Arc<Mutex<Option<bool>>>,
+    unloaded: Arc<Mutex<bool>>,
     _health: Option<MockServer>,
 }
 
@@ -62,6 +63,9 @@ impl Process for FakeProcess {
     }
     fn all_on_gpu(&self) -> Option<bool> {
         *self.all_on_gpu.lock().unwrap()
+    }
+    fn unloaded(&self) -> bool {
+        *self.unloaded.lock().unwrap()
     }
 }
 
@@ -92,6 +96,10 @@ struct Shared {
     usage_pids: Arc<Mutex<Vec<u32>>>,
     /// 假 llama-server 回報的「每層都在 GPU」；`None` 是還沒印 `load_tensors: offloaded`。
     all_on_gpu: Arc<Mutex<Option<bool>>>,
+    /// 假 llama-server 睡眠中（模型不在記憶體裡）。
+    unloaded: Arc<Mutex<bool>>,
+    /// GPU 計數器讀不到。
+    gpu_unreadable: Arc<Mutex<bool>>,
 }
 
 struct FakeLauncher {
@@ -120,6 +128,7 @@ impl Launcher for FakeLauncher {
             kill_delay: s.kill_delay.clone(),
             pid: u32::from(port),
             all_on_gpu: s.all_on_gpu.clone(),
+            unloaded: s.unloaded.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
     }
@@ -144,13 +153,16 @@ impl Launcher for FakeLauncher {
         devices.ok_or_else(|| "fake measurement failure".into())
     }
 
-    fn process_usage(&self, pids: &[u32], _integrated: bool) -> Usage {
+    fn process_usage(&self, pids: &[u32], _integrated: bool) -> Reading {
         *self.shared.usage_pids.lock().unwrap() = pids.to_vec();
         let each = *self.shared.usage_per_server.lock().unwrap();
         let n = pids.len() as u64;
-        Usage {
-            vram: each.vram * n,
-            ram: each.ram * n,
+        Reading {
+            usage: Usage {
+                vram: each.vram * n,
+                ram: each.ram * n,
+            },
+            gpu_read: !*self.shared.gpu_unreadable.lock().unwrap(),
         }
     }
 }
@@ -1082,6 +1094,16 @@ async fn a_ready_server_records_what_it_used() {
         vram: 3 * G,
         ram: G,
     };
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    f.local.ensure("m1").await.unwrap();
+    assert_eq!(
+        store::list(&f.root)[0].manifest.measured,
+        None,
+        "GPU not detected yet"
+    );
+    f.local.stop("m1");
+    *f.shared.all_on_gpu.lock().unwrap() = None;
+    detect(&f).await;
     f.local.ensure("m1").await.unwrap();
     assert_eq!(
         store::list(&f.root)[0].manifest.measured,
@@ -1096,6 +1118,7 @@ async fn a_ready_server_records_what_it_used() {
         ram: G,
         all_on_gpu: true,
         mtp: true,
+        engine: "b11871-cpu".into(),
     });
     assert_eq!(store::list(&f.root)[0].manifest.measured, want);
     assert_eq!(f.local.snapshot().models[0].manifest.measured, want);
@@ -1106,6 +1129,7 @@ async fn a_ready_server_records_what_it_used() {
 async fn redetecting_keeps_the_largest_measurement() {
     const G: u64 = 1 << 30;
     let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
     *f.shared.all_on_gpu.lock().unwrap() = Some(true);
     *f.shared.usage_per_server.lock().unwrap() = Usage {
         vram: 3 * G,
@@ -1119,13 +1143,115 @@ async fn redetecting_keeps_the_largest_measurement() {
     f.local.command(Command::RefreshHardware {
         redetect_gpu: false,
     });
-    let measured = || f.local.snapshot().models[0].manifest.measured;
+    let measured = || f.local.snapshot().models[0].manifest.measured.clone();
     wait_for("measured again", || {
         measured().is_some_and(|m| m.ram == 2 * G)
     })
     .await;
     assert_eq!(measured().unwrap().vram, 3 * G);
     assert_eq!(store::list(&f.root)[0].manifest.measured, measured());
+}
+
+/// 啟動後第一次量完硬體（GPU 偵測過）才記實測。
+async fn detect(f: &Fixture) {
+    f.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !f.local.snapshot().detecting).await;
+}
+
+/// 重新偵測並等它量完（`own` 變成 `want`）。
+async fn redetect_until(f: &Fixture, want: Usage) {
+    f.local.command(Command::RefreshHardware {
+        redetect_gpu: false,
+    });
+    wait_for("redetected", || f.local.snapshot().hardware.own == want).await;
+}
+
+/// GPU 計數器讀不到、working set 讀不到、獨顯全放 GPU 卻量到 0 VRAM、模型睡眠中：都只量不記。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn incomplete_readings_are_not_recorded() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.gpu_unreadable.lock().unwrap() = true;
+    let usage = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    *f.shared.usage_per_server.lock().unwrap() = usage;
+    f.local.ensure("m1").await.unwrap();
+    let measured = || store::list(&f.root)[0].manifest.measured.clone();
+    assert_eq!(measured(), None, "GPU counters unreadable");
+    *f.shared.gpu_unreadable.lock().unwrap() = false;
+    for usage in [
+        Usage { vram: 0, ram: G },
+        Usage {
+            vram: 3 * G,
+            ram: 0,
+        },
+    ] {
+        *f.shared.usage_per_server.lock().unwrap() = usage;
+        redetect_until(&f, usage).await;
+        assert_eq!(measured(), None, "{usage:?}");
+    }
+    *f.shared.unloaded.lock().unwrap() = true;
+    let usage = Usage {
+        vram: G / 2,
+        ram: G,
+    };
+    *f.shared.usage_per_server.lock().unwrap() = usage;
+    redetect_until(&f, usage).await;
+    assert_eq!(measured(), None, "sleeping");
+}
+
+/// 拿不到啟動鎖（啟動中或正要刪檔）時只量不記。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_start_lock_measures_without_recording() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    let bigger = Usage {
+        vram: 4 * G,
+        ram: 2 * G,
+    };
+    *f.shared.usage_per_server.lock().unwrap() = bigger;
+    let held = f.local.hold_start_for_test("m1").await;
+    redetect_until(&f, bigger).await;
+    drop(held);
+    let measured = store::list(&f.root)[0].manifest.measured.clone().unwrap();
+    assert_eq!((measured.vram, measured.ram), (3 * G, G));
+}
+
+/// 換了載入方式（這裡是從全放 GPU 變部分卸載）就整筆重記，不跟上一筆各取最大值。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_mode_change_replaces_the_whole_record() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    f.local.stop("m1");
+    *f.shared.all_on_gpu.lock().unwrap() = Some(false);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 2 * G,
+        ram: 4 * G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    let measured = store::list(&f.root)[0].manifest.measured.clone().unwrap();
+    assert_eq!(
+        (measured.vram, measured.ram, measured.all_on_gpu),
+        (2 * G, 4 * G, false)
+    );
 }
 
 /// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。

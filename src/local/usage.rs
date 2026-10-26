@@ -18,38 +18,60 @@ pub struct Usage {
     pub ram: u64,
 }
 
+/// 一次量測；`gpu_read` 為 false 時需要的 GPU 計數器讀不到，那部分當 0。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Reading {
+    pub usage: Usage,
+    pub gpu_read: bool,
+}
+
 /// `pids` 合計的 VRAM 與 RAM 佔用；讀不到的部分記 log 並當 0。
 ///
 /// 獨顯：專用 GPU 記憶體為 VRAM、working set 為 RAM（共享 GPU 記憶體不加，免得與 working set 重複）。
 /// 內顯（`integrated`）：沒有 VRAM，專用＋共享 GPU 記憶體與 working set 都算 RAM。
-pub fn process_usage(pids: &[u32], integrated: bool) -> Usage {
+pub fn process_usage(pids: &[u32], integrated: bool) -> Reading {
     if pids.is_empty() {
-        return Usage::default();
+        return Reading {
+            usage: Usage::default(),
+            gpu_read: true,
+        };
     }
     let (dedicated, shared) = gpu_memory(pids).unwrap_or_else(|e| {
         log(format!("[local] reading GPU process memory failed: {e}"));
-        (0, 0)
+        (None, None)
     });
     let ram = pids.iter().map(|&pid| working_set(pid)).sum();
     combine(dedicated, shared, ram, integrated)
 }
 
-fn combine(dedicated: u64, shared: u64, working_set: u64, integrated: bool) -> Usage {
+fn combine(
+    dedicated: Option<u64>,
+    shared: Option<u64>,
+    working_set: u64,
+    integrated: bool,
+) -> Reading {
+    let (d, s) = (dedicated.unwrap_or(0), shared.unwrap_or(0));
     if integrated {
-        Usage {
-            vram: 0,
-            ram: working_set + dedicated + shared,
+        Reading {
+            usage: Usage {
+                vram: 0,
+                ram: working_set + d + s,
+            },
+            gpu_read: dedicated.is_some() && shared.is_some(),
         }
     } else {
-        Usage {
-            vram: dedicated,
-            ram: working_set,
+        Reading {
+            usage: Usage {
+                vram: d,
+                ram: working_set,
+            },
+            gpu_read: dedicated.is_some(),
         }
     }
 }
 
-/// 工作管理員「專用／共享 GPU 記憶體」同一份計數器，實例名稱是 `pid_{pid}_luid_…`；回傳（專用, 共享）。
-fn gpu_memory(pids: &[u32]) -> Result<(u64, u64), String> {
+/// 工作管理員「專用／共享 GPU 記憶體」同一份計數器，實例名稱是 `pid_{pid}_luid_…`；回傳（專用, 共享），讀不到的為 `None`。
+fn gpu_memory(pids: &[u32]) -> Result<(Option<u64>, Option<u64>), String> {
     let mut query: PDH_HQUERY = std::ptr::null_mut();
     // SAFETY: 輸出指標有效；資料來源為 null 表示即時資料
     let status = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) };
@@ -62,15 +84,18 @@ fn gpu_memory(pids: &[u32]) -> Result<(u64, u64), String> {
     result
 }
 
-fn read_gpu_memory(query: PDH_HQUERY, pids: &[u32]) -> Result<(u64, u64), String> {
-    let dedicated = add_counter(query, "Dedicated Usage")?;
-    let shared = add_counter(query, "Shared Usage")?;
+fn read_gpu_memory(query: PDH_HQUERY, pids: &[u32]) -> Result<(Option<u64>, Option<u64>), String> {
+    // 一個計數器失敗不影響另一個：獨顯只需要專用的
+    let failed = |e: String| log(format!("[local] reading GPU process memory: {e}"));
+    let dedicated = add_counter(query, "Dedicated Usage").map_err(failed).ok();
+    let shared = add_counter(query, "Shared Usage").map_err(failed).ok();
     // SAFETY: `query` 有效；即時計數器收一次就有值
     let status = unsafe { PdhCollectQueryData(query) };
     if status != 0 {
         return Err(format!("PdhCollectQueryData status=0x{status:08x}"));
     }
-    Ok((sum_for(dedicated, pids)?, sum_for(shared, pids)?))
+    let sum = |c: Option<PDH_HCOUNTER>| c.and_then(|c| sum_for(c, pids).map_err(failed).ok());
+    Ok((sum(dedicated), sum(shared)))
 }
 
 fn add_counter(query: PDH_HQUERY, name: &str) -> Result<PDH_HCOUNTER, String> {
@@ -182,18 +207,25 @@ mod tests {
     /// 實際讀一次本程序：working set 一定大於 0，GPU 計數器讀得到（沒用 GPU 時為 0）。
     #[test]
     fn reads_the_current_process() {
-        let usage = process_usage(&[std::process::id()], false);
-        assert!(usage.ram > 0, "{usage:?}");
-        assert!(gpu_memory(&[std::process::id()]).is_ok());
-        assert_eq!(process_usage(&[], false), Usage::default());
-        let integrated = process_usage(&[std::process::id()], true);
-        assert_eq!(integrated.vram, 0, "{integrated:?}");
+        let reading = process_usage(&[std::process::id()], false);
+        assert!(reading.usage.ram > 0, "{reading:?}");
+        assert!(reading.gpu_read, "{reading:?}");
+        let (dedicated, shared) = gpu_memory(&[std::process::id()]).unwrap();
+        assert!(dedicated.is_some() && shared.is_some());
+        assert_eq!(process_usage(&[], false).usage, Usage::default());
     }
 
-    /// 獨顯不加共享 GPU 記憶體；內顯的專用＋共享都算 RAM。
+    /// 獨顯不加共享 GPU 記憶體、只要專用的讀得到；內顯的專用＋共享都算 RAM，兩個都要讀得到。
     #[test]
     fn integrated_gpu_memory_counts_as_ram() {
-        assert_eq!(combine(3, 2, 10, false), Usage { vram: 3, ram: 10 });
-        assert_eq!(combine(3, 2, 10, true), Usage { vram: 0, ram: 15 });
+        let read = |vram, ram, gpu_read| Reading {
+            usage: Usage { vram, ram },
+            gpu_read,
+        };
+        assert_eq!(combine(Some(3), Some(2), 10, false), read(3, 10, true));
+        assert_eq!(combine(Some(3), None, 10, false), read(3, 10, true));
+        assert_eq!(combine(None, Some(2), 10, false), read(0, 10, false));
+        assert_eq!(combine(Some(3), Some(2), 10, true), read(0, 15, true));
+        assert_eq!(combine(Some(3), None, 10, true), read(0, 13, false));
     }
 }

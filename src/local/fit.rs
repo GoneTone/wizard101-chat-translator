@@ -122,14 +122,17 @@ pub fn need(
 }
 
 /// 自己的實測（MTP 開關相同）或同 repo 量過的模型推算的需求。
-fn measured_need(
-    models: &[Installed],
+fn measured_need<'a>(
+    models: &'a [Installed],
     repo: &str,
     id: &str,
     weights: u64,
     mtp: bool,
 ) -> Option<Need> {
-    let measured = |m: &'_ Installed| m.manifest.measured.map(|x| (m.manifest.weights(x.mtp), x));
+    let measured = |m: &'a Installed| {
+        let x = m.manifest.measured.as_ref()?;
+        Some((m.manifest.weights(x.mtp), x))
+    };
     let own = models.iter().filter(|m| m.id == id).find_map(measured);
     if let Some((_, x)) = own.filter(|(_, x)| x.mtp == mtp) {
         return Some(Need {
@@ -681,6 +684,7 @@ mod tests {
             ram,
             all_on_gpu: true,
             mtp,
+            engine: String::new(),
         })
     }
 

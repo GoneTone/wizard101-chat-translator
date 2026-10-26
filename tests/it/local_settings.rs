@@ -913,6 +913,7 @@ mod page {
             ram: 2 * G,
             all_on_gpu: true,
             mtp: false,
+            engine: "b11871-cpu".into(),
         });
         let mut snap = snapshot(vec![m]);
         snap.hardware = Hardware {

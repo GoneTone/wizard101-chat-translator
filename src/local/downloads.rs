@@ -105,9 +105,14 @@ impl Local {
     }
 
     fn write_manifest(&self, id: &str, manifest: &Manifest) -> Result<(), String> {
+        let _manifests = lock(&self.manifests);
         store::write_manifest(&self.root, id, manifest)
             .map_err(|e| format!("writing manifest failed: {e}"))?;
-        self.update(|s| s.models = store::list(&self.root));
+        // 重新下載同一個 id 會清掉它的實測
+        self.update(|s| {
+            s.models = store::list(&self.root);
+            rerate(s);
+        });
         Ok(())
     }
 

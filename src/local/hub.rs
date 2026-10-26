@@ -185,6 +185,8 @@ pub struct Local {
     pub(super) engine_files: tokio::sync::RwLock<()>,
     pub(super) engine_users: EngineUsers,
     pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
+    /// 讀改寫 `manifest.json`（下載寫清單、記實測）一次只做一件。
+    pub(super) manifests: Mutex<()>,
     me: Weak<Local>,
 }
 
@@ -228,6 +230,7 @@ impl Local {
             engine_files: tokio::sync::RwLock::new(()),
             engine_users: EngineUsers::default(),
             cancels: Mutex::default(),
+            manifests: Mutex::default(),
             me: me.clone(),
         })
     }
@@ -366,10 +369,14 @@ impl Local {
         cached.clone().flatten()
     }
 
-    /// 偵測到的 GPU 是內顯（共享系統記憶體）。
-    pub(super) fn integrated_gpu(&self) -> bool {
-        self.gpu(false)
-            .is_some_and(|g| g.kind == hardware::GpuKind::Integrated)
+    /// 偵測過的 GPU 是不是內顯（共享系統記憶體）；還沒偵測過為 `None`（不會為此去偵測）。
+    pub(super) fn integrated_gpu(&self) -> Option<bool> {
+        let gpu = lock(&self.gpu);
+        let gpu = gpu.as_ref()?;
+        Some(
+            gpu.as_ref()
+                .is_some_and(|g| g.kind == hardware::GpuKind::Integrated),
+        )
     }
 
     /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少。

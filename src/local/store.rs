@@ -45,14 +45,40 @@ pub struct Manifest {
 }
 
 /// 一次載入實際量到的佔用（位元組），以及那次的載入方式。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Measured {
     pub vram: u64,
     pub ram: u64,
-    /// 每一層都放在 GPU 上（llama.cpp 的 `load_tensors: offloaded n/n`）。
+    /// 每一層都放在 GPU 上（llama.cpp 的 `load_tensors: offloaded n/n`，且 `--fit` 沒把張量移走）。
     pub all_on_gpu: bool,
     /// 那次有開 MTP。
     pub mtp: bool,
+    /// 那次用的引擎（`{build}-{variant}`）；較早的紀錄沒有，為空字串。
+    #[serde(default)]
+    pub engine: String,
+}
+
+impl Measured {
+    /// 與上一筆合併：同一個引擎、同樣的 MTP，且兩次都全放 GPU 時各取最大值（第一次請求後還會長）；否則整筆換成這次的。
+    ///
+    /// 部分卸載的那幾次 `--fit` 擺放可能不同，VRAM 與 RAM 不能各取各的最大值。
+    pub fn merged(self, old: Option<&Measured>) -> Self {
+        match old {
+            Some(o)
+                if self.all_on_gpu
+                    && o.all_on_gpu
+                    && o.mtp == self.mtp
+                    && o.engine == self.engine =>
+            {
+                Self {
+                    vram: self.vram.max(o.vram),
+                    ram: self.ram.max(o.ram),
+                    ..self
+                }
+            }
+            _ => self,
+        }
+    }
 }
 
 impl Manifest {
@@ -316,6 +342,34 @@ mod tests {
         assert_eq!(x, "a__b__Q4_K_M__x");
         assert_eq!(y, "a__b__Q4_K_M__y_z");
         assert!(is_valid_id(&y));
+    }
+
+    /// 只有同引擎、同 MTP、兩次都全放 GPU 才各取最大值；其餘整筆換掉。
+    #[test]
+    fn measurements_merge_only_for_the_same_all_on_gpu_mode() {
+        let m = |vram, ram, all_on_gpu, mtp, engine: &str| Measured {
+            vram,
+            ram,
+            all_on_gpu,
+            mtp,
+            engine: engine.into(),
+        };
+        let old = m(3, 1, true, true, "b1-cuda");
+        assert_eq!(
+            m(2, 2, true, true, "b1-cuda").merged(Some(&old)),
+            m(3, 2, true, true, "b1-cuda")
+        );
+        for new in [
+            m(2, 2, false, true, "b1-cuda"),
+            m(2, 2, true, false, "b1-cuda"),
+            m(2, 2, true, true, "b2-cuda"),
+        ] {
+            assert_eq!(new.clone().merged(Some(&old)), new);
+        }
+        let partial = m(5, 9, false, true, "b1-cuda");
+        let again = m(6, 4, false, true, "b1-cuda");
+        assert_eq!(again.clone().merged(Some(&partial)), again, "partial runs");
+        assert_eq!(old.clone().merged(None), old);
     }
 
     /// 推薦清單內的 repo 用推薦名稱，其餘用 repo 名。
