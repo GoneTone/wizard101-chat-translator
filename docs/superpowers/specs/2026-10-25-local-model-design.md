@@ -110,20 +110,20 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
   - VRAM：引擎已下載時，用 `llama-server --list-devices` 的輸出（每個裝置的總量與可用量，跟 llama.cpp 實際看到的一致）。引擎未下載時相容等級顯示「未知」，提示先下載引擎。
   - RAM：`GlobalMemoryStatusEx`（`windows-sys` 已啟用的 `Win32_System_SystemInformation`）。
   - 量測當下遊戲若沒開，可用量會偏高；畫面上註明「以目前可用量估算」，不另外猜遊戲佔用。
-  - 內顯（共享記憶體，`--list-devices` 會把系統 RAM 報成裝置記憶體）：只算一次、當成 RAM，不跟 RAM 相加；這種機器不會出現「順」，放得進 RAM 就標「會慢」。（我的決定）
+  - 內顯（共享記憶體，`--list-devices` 會把系統 RAM 報成裝置記憶體）：只算一次、當成 RAM，不跟 RAM 相加；這種機器不會出現「流暢」，放得進 RAM 就標「會慢」。（我的決定）
 - **所需記憶體** ≈ 模型檔大小（含分檔）＋ MTP 檔（若有選）＋ 上下文 KV cache ＋ 固定餘裕。KV cache 從 GGUF 檔頭算（`block_count`、`attention.head_count_kv`、`key_length`／`value_length` 等，乘上實際使用的 context 長度）；檔頭以 HTTP `Range` 只讀開頭，不下載整個檔（檔頭含 tokenizer 詞表，可能數 MB，要能分段讀到 tensor 資訊為止）。
 - **MoE**：檔頭的 `expert_count` > 0 即為 MoE。MoE 只要 VRAM＋RAM 合計放得下就算可用，因為 `--fit` 會把專家權重放到 RAM、速度仍可接受。
 - **MTP**：檔頭最後一個 block 有 `nextn` 張量（`blk.{N-1}.nextn.eh_proj.weight`）表示主檔內建 MTP；llama.cpp 自己也是這樣判斷。
 - **三級**：
-  - 順：全部放得進 VRAM。
+  - 流暢：全部放得進 VRAM。
   - 會慢：要用到 RAM（一般模型部分放 RAM；MoE 見上則仍算可用但標示）。
   - 放不下：VRAM＋RAM 都不夠。可以下載，但跳警告，不擋。
 - 具體門檻與餘裕數字留給實作，用實際機器校準。
 
 ### 自動挑量化版本
 
-- 挑「順」裡最大的；沒有就挑「會慢」裡最小的並標示會慢；全部放不下就挑最小的並警告。
-- repo 有 MTP 檔、且加上它仍屬「順」→ 一起下載並預設啟用；否則不帶。MTP 有多個量化時挑一般版（非 `shared`）裡最接近主模型量化等級的。
+- 挑「流暢」裡最大的；沒有就挑「會慢」裡最小的並標示會慢；全部放不下就挑最小的並警告。
+- repo 有 MTP 檔、且加上它仍屬「流暢」→ 一起下載並預設啟用；否則不帶。MTP 有多個量化時挑一般版（非 `shared`）裡最接近主模型量化等級的。
 - 手動展開時可自己挑主模型量化、要不要 MTP、MTP 哪個量化。
 
 ### MTP

@@ -40,7 +40,7 @@
   "local.memory.vram": "約需 {size} GB 顯示卡記憶體（VRAM）",
   "local.memory.vram_ram": "約需 {size} GB 顯示卡＋系統記憶體（VRAM＋RAM 合計）",
   "local.memory.ram": "約需 {size} GB 系統記憶體（RAM）",
-  "local.fit.smooth": "順",
+  "local.fit.smooth": "流暢",
   "local.fit.slow": "會慢",
   "local.fit.offload": "可用（專家放 RAM）",
   "local.fit.nofit": "放不下",
