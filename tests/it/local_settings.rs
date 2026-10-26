@@ -124,6 +124,14 @@ fn size_arg(bytes: u64) -> String {
     format!("{:.1}", bytes as f64 / G as f64)
 }
 
+/// 查詢中的推薦列版面同查好的列：兩行說明、徽章與兩顆按鈕都是佔位。
+#[test]
+fn loading_rows_have_placeholder_buttons_too() {
+    let h = harness(DialogMode::Download, Tab::Recommended, snapshot(&[]));
+    let placeholders = h.query_all_by_label(&tr("local.loading")).count();
+    assert_eq!(placeholders, RECOMMENDED.len() * 5);
+}
+
 /// 硬體偵測中：查好的推薦列也先畫佔位，相容等級與自動挑的量化等量完才出現。
 #[test]
 fn recommended_rows_wait_while_the_hardware_is_detected() {

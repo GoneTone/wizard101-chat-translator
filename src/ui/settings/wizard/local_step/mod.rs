@@ -234,7 +234,14 @@ impl LocalInstall {
                         env.local_command(Command::QueryRepo(repo.to_owned()));
                     }
                 }),
-                None => loading_card(ui),
+                None => {
+                    loading_card(ui);
+                    ui.horizontal(|ui| {
+                        let button = ui.spacing().interact_size.y;
+                        skeleton(ui, 96.0, button);
+                        skeleton(ui, 72.0, button);
+                    });
+                }
             }
             self.engine_status(ui, env, snapshot);
             return;

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui, vec2};
+use eframe::egui::{Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field;
@@ -305,10 +305,7 @@ impl DownloadDialog {
                         env.local_command(Command::QueryRepo(rec.repo.to_owned()));
                     }
                 }
-                _ => {
-                    ui.add(Label::new(name));
-                    loading_row(ui);
-                }
+                _ => loading_recommended(ui, name, ui.scope_id().with(rec.repo)),
             });
         if index + 1 < RECOMMENDED.len() {
             let y = ui.cursor().top();
@@ -440,7 +437,29 @@ impl DownloadDialog {
     }
 }
 
-/// 查詢中（或硬體偵測中）的推薦列與量化表：兩行佔位。
+/// 查詢中（或硬體偵測中）的推薦列：版面同查好的列，說明、徽章與按鈕都是佔位。
+fn loading_recommended(ui: &mut Ui, name: RichText, id: Id) {
+    ui.horizontal(|ui| {
+        let reserved = super::widgets::right_aligned_width(ui, id);
+        let width = (ui.available_width() - reserved - 12.0).max(120.0);
+        ui.allocate_ui(vec2(width, 0.0), |ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.add(Label::new(name).truncate());
+                loading_row(ui);
+            })
+        });
+        right_aligned(ui, id, |ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let button = ui.spacing().interact_size.y;
+            skeleton(ui, 64.0, ui.text_style_height(&TextStyle::Body));
+            skeleton(ui, 88.0, button);
+            skeleton(ui, 64.0, button);
+        });
+    });
+}
+
+/// 查詢中（或硬體偵測中）的說明或量化表：兩行佔位。
 fn loading_row(ui: &mut Ui) {
     let height = ui.text_style_height(&TextStyle::Small);
     skeleton(ui, 220.0, height);

@@ -216,6 +216,13 @@ impl EngineCard {
             _ => {}
         }
         ui.horizontal(|ui| {
+            let busy = matches!(
+                snapshot.engine,
+                EngineState::Installing { .. } | EngineState::Removing
+            );
+            if picked.loading && !busy {
+                skeleton(ui, 96.0, ui.spacing().interact_size.y);
+            }
             if let Some((key, build)) = primary
                 && primary_button(ui, &t(key, &[])).clicked()
             {
