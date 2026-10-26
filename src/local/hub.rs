@@ -404,9 +404,9 @@ impl Local {
             hw
         });
         drop(files);
-        hardware::release(&mut hw, loaded);
+        hw.own = loaded;
         log(format!(
-            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models_added_back={loaded}",
+            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_models={loaded}",
             hw.gpu, hw.vram_total, hw.vram_free, hw.ram_total, hw.ram_free, hw.measured
         ));
         self.update(|s| {

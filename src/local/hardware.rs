@@ -37,6 +37,8 @@ pub struct Hardware {
     pub ram_free: u64,
     /// 引擎量過 VRAM（`--list-devices` 成功）；沒量過時相容等級未知。量到 0（只有 CPU）也算量過。
     pub measured: bool,
+    /// 量測當下本程式自己載入的模型估計佔用；可用量照實記，相容判斷（`effective`）才加回去。
+    pub own: u64,
 }
 
 /// 列舉 DX12 adapter，取第一個獨顯，沒有就取內顯；列舉失敗回 `None`。
@@ -119,28 +121,22 @@ pub fn parse_list_devices(output: &str) -> Vec<(String, u64, u64)> {
         .collect()
 }
 
-/// 把本程式自己載入的模型所佔的 `bytes` 加回可用量：先補回 VRAM 已用的部分，其餘補 RAM；內顯全補 RAM。
-pub fn release(hw: &mut Hardware, bytes: u64) {
+/// 相容判斷用的 `(vram, ram)` 可用量；內顯的共享記憶體只算一次、當成 RAM。
+///
+/// 本程式自己載入的模型（`own`）算回可用：先補回 VRAM 已用的部分，其餘補 RAM，都不超過總量。
+pub fn effective(hw: &Hardware) -> (u64, u64) {
     let integrated = hw
         .gpu
         .as_ref()
         .is_some_and(|g| g.kind == GpuKind::Integrated);
-    let to_vram = if integrated {
-        0
+    let (vram_total, vram_free) = if integrated {
+        (0, 0)
     } else {
-        bytes.min(hw.vram_total.saturating_sub(hw.vram_free))
+        (hw.vram_total, hw.vram_free)
     };
-    hw.vram_free += to_vram;
-    let rest = bytes - to_vram;
-    hw.ram_free += rest.min(hw.ram_total.saturating_sub(hw.ram_free));
-}
-
-/// 相容判斷用的 `(vram, ram)` 可用量；內顯的共享記憶體只算一次、當成 RAM。
-pub fn effective(hw: &Hardware) -> (u64, u64) {
-    match &hw.gpu {
-        Some(g) if g.kind == GpuKind::Integrated => (0, hw.ram_free),
-        _ => (hw.vram_free, hw.ram_free),
-    }
+    let to_vram = hw.own.min(vram_total.saturating_sub(vram_free));
+    let to_ram = (hw.own - to_vram).min(hw.ram_total.saturating_sub(hw.ram_free));
+    (vram_free + to_vram, hw.ram_free + to_ram)
 }
 
 #[cfg(test)]
@@ -186,13 +182,14 @@ mod tests {
             ram_total: 16 << 30,
             ram_free: 10 << 30,
             measured: true,
+            own: 0,
         };
         assert_eq!(effective(&hw), (0, 10 << 30));
     }
 
     /// 加回自己載入的模型：先補 VRAM 已用的部分，多的補 RAM，兩者都不超過總量。
     #[test]
-    fn release_adds_own_models_back_to_vram_then_ram() {
+    fn effective_adds_own_models_back_to_vram_then_ram() {
         const G: u64 = 1 << 30;
         let mut hw = Hardware {
             gpu: None,
@@ -201,9 +198,14 @@ mod tests {
             ram_total: 16 * G,
             ram_free: 15 * G,
             measured: true,
+            own: 10 * G,
         };
-        release(&mut hw, 10 * G);
-        assert_eq!((hw.vram_free, hw.ram_free), (8 * G, 16 * G));
+        assert_eq!(effective(&hw), (8 * G, 16 * G));
+        assert_eq!(
+            (hw.vram_free, hw.ram_free),
+            (2 * G, 15 * G),
+            "kept as measured"
+        );
         hw.gpu = Some(Gpu {
             name: "Intel".into(),
             vendor: 0x8086,
@@ -211,8 +213,7 @@ mod tests {
             nvidia_driver: None,
             device: 0,
         });
-        (hw.vram_free, hw.ram_free) = (2 * G, 10 * G);
-        release(&mut hw, 3 * G);
-        assert_eq!((hw.vram_free, hw.ram_free), (2 * G, 13 * G));
+        (hw.vram_free, hw.ram_free, hw.own) = (2 * G, 10 * G, 3 * G);
+        assert_eq!(effective(&hw), (0, 13 * G));
     }
 }

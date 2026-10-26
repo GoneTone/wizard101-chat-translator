@@ -372,6 +372,9 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         }
         let (free, total) = (gb(hw.ram_free), gb(hw.ram_total));
         line(ui, t("local.hw.ram", &[("free", &free), ("total", &total)]));
+        if hw.own > 0 {
+            line(ui, t("local.hw.own", &[("size", &gb(hw.own))]));
+        }
     });
     ui.horizontal_wrapped(|ui| {
         let note = RichText::new(t("local.hw.note", &[]))

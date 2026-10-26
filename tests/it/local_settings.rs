@@ -84,6 +84,7 @@ fn snapshot(ready: &[(usize, RepoInfo)]) -> Snapshot {
             ram_total: 16 * G,
             ram_free: 16 * G,
             measured: true,
+            own: 0,
         },
         ..Default::default()
     };
@@ -908,6 +909,26 @@ mod page {
         let extracting = tr("local.engine.extracting");
         assert!(has_label(&installing(G, true), &extracting));
         assert!(has_label(&installing(2 * G, false), &extracting));
+    }
+
+    /// 本工具自己的模型在跑時：可用量照實顯示，另外一行說明它佔了多少。
+    #[test]
+    fn own_models_are_shown_apart_from_the_measured_free_memory() {
+        const G: u64 = 1 << 30;
+        let mut snap = ready_engine();
+        snap.hardware = Hardware {
+            vram_total: 16 * G,
+            vram_free: 8 * G,
+            ram_total: 64 * G,
+            ram_free: 20 * G,
+            measured: true,
+            own: 7 * G + G / 2,
+            ..Hardware::default()
+        };
+        let h = pane_harness(snap, vec![]);
+        let vram = t("local.hw.vram", &[("free", "8.0"), ("total", "16.0")]);
+        assert!(has_label(&h, &vram));
+        assert!(has_label(&h, &t("local.hw.own", &[("size", "7.5")])));
     }
 
     /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。

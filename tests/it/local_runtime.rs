@@ -15,7 +15,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
-use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
+use wizard101_chat_translator::local::hardware::{self, Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
 use wizard101_chat_translator::local::store;
 use wizard101_chat_translator::local::{
@@ -1013,7 +1013,7 @@ async fn the_snapshot_says_while_hardware_is_being_detected() {
     assert_eq!(f.shared.measured.lock().unwrap().len(), 2);
 }
 
-/// 模型跑著時重新偵測：它佔的記憶體加回可用量，快照也列出它在跑。
+/// 模型跑著時重新偵測：可用量照實記，它佔的記憶體另外記下、相容判斷時才加回，快照也列出它在跑。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn redetecting_adds_running_models_back_to_free_memory() {
     const G: u64 = 1 << 30;
@@ -1034,7 +1034,9 @@ async fn redetecting_adds_running_models_back_to_free_memory() {
     wait_for("measured", || f.local.snapshot().hardware.measured).await;
     let s = f.local.snapshot();
     assert!(s.running.contains("m1"), "{:?}", s.running);
-    assert_eq!(s.hardware.vram_free, (4096 << 20) + 2 * G);
+    assert_eq!(s.hardware.vram_free, 4096 << 20, "shown as measured");
+    assert_eq!(s.hardware.own, 2 * G);
+    assert_eq!(hardware::effective(&s.hardware).0, (4096 << 20) + 2 * G);
 }
 
 /// 量硬體途中移除引擎：等 `--list-devices` 結束才刪，不會刪到執行中的 exe。

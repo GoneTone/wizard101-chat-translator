@@ -76,6 +76,7 @@
   "local.hw.vram_pending": "VRAM：安装引擎后才能检测",
   "local.hw.vram_failed": "VRAM：检测失败",
   "local.hw.ram": "RAM：可用 {free} / {total} GB",
+  "local.hw.own": "本工具加载的模型约占 {size} GB，判断兼容等级时会算回可用。",
   "local.hw.redetect": "重新检测",
   "local.hw.note": "以当前可用量估算；游戏没开时测到的会偏高。",
   "local.load.title": "模型加载",
