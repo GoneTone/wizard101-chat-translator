@@ -51,7 +51,7 @@ fn parse_quant_covers_unsloth_and_google_names() {
 }
 
 #[test]
-fn classify_drops_mmproj_and_splits_mtp_and_shards() {
+fn classify_drops_mmproj_and_imatrix_and_splits_mtp_and_shards() {
     let f = |p: &str, s| RepoFile {
         path: p.into(),
         size: s,
@@ -60,6 +60,7 @@ fn classify_drops_mmproj_and_splits_mtp_and_shards() {
     let cat = classify(&[
         f("mmproj-F16.gguf", 1),
         f("gemma-4-26B-it-mmproj.gguf", 1),
+        f("imatrix_unsloth.gguf", 1),
         f("README.md", 1),
         f("MTP/mtp-X-Q4_K_M.gguf", 2),
         f("MTP/mtp-X-shared-Q8_0.gguf", 3),

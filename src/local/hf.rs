@@ -263,14 +263,14 @@ fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-/// 把 repo 檔案分成主模型量化版本與 MTP 檔案；略過 mmproj 與非 GGUF。
+/// 把 repo 檔案分成主模型量化版本與 MTP 檔案；略過 mmproj、量化用的 imatrix 與非 GGUF。
 pub fn classify(files: &[RepoFile]) -> Catalog {
     let mut shards: BTreeMap<String, Vec<RepoFile>> = BTreeMap::new();
     let mut mtp = Vec::new();
     for file in files {
         let name = basename(&file.path);
         let lower = name.to_ascii_lowercase();
-        if !lower.ends_with(".gguf") || lower.contains("mmproj") {
+        if !lower.ends_with(".gguf") || lower.contains("mmproj") || lower.contains("imatrix") {
             continue;
         }
         if lower.starts_with("mtp-") {

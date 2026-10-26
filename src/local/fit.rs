@@ -1,5 +1,7 @@
 //! 記憶體需求估算、相容等級與自動挑選量化。
 
+use std::cmp::Reverse;
+
 use super::gguf::ModelMeta;
 use super::hardware::{GpuKind, Hardware, effective};
 use super::hf::{Catalog, Choice};
@@ -155,10 +157,14 @@ pub fn auto_pick(cat: &Catalog, meta: &ModelMeta, hw: &Hardware) -> Option<Pick>
     })
 }
 
+/// MTP 候選的名次：在主模型路徑上、路徑上的資料夾深度、量化同名、位元數差（越小越好）。
+type MtpRank = (bool, usize, bool, Reverse<i32>);
+
 /// 有 MTP 就帶，照 llama.cpp `-hf` 找 MTP 檔的規則挑（`common/download.cpp` 的 `find_best_sibling`）。
 ///
-/// 只看主模型資料夾或其上層裡的，取資料夾最深的，再取檔名含 `-{量化}.` 的，再取位元數最接近的；
-/// 同分取路徑在前的。
+/// 先看主模型資料夾或其上層裡的，取資料夾最深的，再取檔名含 `-{量化}.` 的，再取位元數最接近的；
+/// 同分取路徑在前的。主模型路徑上一個都沒有時（例如 MTP 獨立放在 `MTP/`，llama.cpp 找不到），
+/// 改從其他資料夾用同樣的量化與位元數規則挑。
 fn pick_mtp(cat: &Catalog, choice: usize) -> Option<usize> {
     let main = &cat.choices[choice];
     let dirs = |path: &str| -> Vec<String> {
@@ -169,24 +175,21 @@ fn pick_mtp(cat: &Catalog, choice: usize) -> Option<usize> {
     let model_dir = dirs(&main.files.first()?.path);
     let tag = format!("-{}.", main.quant.label.to_ascii_uppercase());
     let bits = |b: Option<u8>| i32::from(b.unwrap_or(0));
-    let mut best: Option<(usize, usize, bool, i32)> = None;
+    // 只有嚴格更好才換：同分留路徑在前的
+    let mut best: Option<(usize, MtpRank)> = None;
     for (i, m) in cat.mtp.iter().enumerate() {
         let dir = dirs(&m.file.path);
-        if !model_dir.starts_with(&dir) {
-            continue;
-        }
+        let on_path = model_dir.starts_with(&dir);
         let exact = m.file.path.to_ascii_uppercase().contains(&tag);
         let diff = (bits(m.quant.bits) - bits(main.quant.bits)).abs();
-        let better = match best {
-            None => true,
-            Some((_, depth, best_exact, best_diff)) => {
-                dir.len() > depth
-                    || (dir.len() == depth && exact && !best_exact)
-                    || (dir.len() == depth && exact == best_exact && diff < best_diff)
-            }
-        };
-        if better {
-            best = Some((i, dir.len(), exact, diff));
+        let rank = (
+            on_path,
+            if on_path { dir.len() } else { 0 },
+            exact,
+            Reverse(diff),
+        );
+        if best.as_ref().is_none_or(|(_, b)| rank > *b) {
+            best = Some((i, rank));
         }
     }
     best.map(|b| b.0)
@@ -371,7 +374,7 @@ mod tests {
         assert_eq!(tight.required, required(&m, 5 * G, G));
     }
 
-    /// 同 llama.cpp：只看主模型資料夾或上層的 MTP，資料夾深的優先，再來同名量化，再來位元數接近。
+    /// 同 llama.cpp：主模型資料夾或上層的 MTP 優先、資料夾深的優先，再來同名量化，再來位元數接近；路徑上沒有才看別的資料夾。
     #[test]
     fn mtp_follows_llama_cpp_sibling_rules() {
         let mtp = |path: &str, bits: u8| MtpChoice {
@@ -387,8 +390,21 @@ mod tests {
         c.choices[0].quant.label = "Q4_K_M".into();
         c.choices[0].files[0].path = "Q4_K_M/m-Q4_K_M.gguf".into();
         let (m, h) = (meta(), hw(20 * G, 16 * G));
-        c.mtp = vec![mtp("MTP/mtp-m-Q4_K_M.gguf", 4)];
-        assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, None, "other folder");
+        c.mtp = vec![
+            mtp("MTP/mtp-m-Q4_K_M.gguf", 4),
+            mtp("Q4_K_M/mtp-m-Q8_0.gguf", 8),
+        ];
+        assert_eq!(
+            auto_pick(&c, &m, &h).unwrap().mtp,
+            Some(1),
+            "model path first"
+        );
+        c.mtp = vec![mtp("MTP/mtp-m-Q8_0.gguf", 8), mtp("MTP/mtp-m-Q4_0.gguf", 4)];
+        assert_eq!(
+            auto_pick(&c, &m, &h).unwrap().mtp,
+            Some(1),
+            "other folders as a fallback"
+        );
         c.mtp = vec![mtp("mtp-m-Q8_0.gguf", 8), mtp("Q4_K_M/mtp-m-Q8_0.gguf", 8)];
         assert_eq!(auto_pick(&c, &m, &h).unwrap().mtp, Some(1), "deeper folder");
         c.mtp = vec![
