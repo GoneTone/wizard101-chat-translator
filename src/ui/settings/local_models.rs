@@ -84,7 +84,8 @@ fn empty(ui: &mut Ui) -> bool {
     ui.add(Label::new(
         RichText::new(t("local.models.empty", &[])).color(theme::TEXT_SECONDARY),
     ));
-    ui.link(t("local.models.empty_link", &[])).clicked()
+    ui.link(RichText::new(t("local.models.empty_link", &[])).color(theme::LINK))
+        .clicked()
 }
 
 fn row(

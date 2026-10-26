@@ -515,8 +515,10 @@ impl ServiceForm {
                 );
             }
             hint(ui, &t("local.form.model_hint", &[]));
-            let link =
-                ui.link(RichText::new(t("local.form.open_models", &[])).size(theme::HINT_SIZE));
+            let text = RichText::new(t("local.form.open_models", &[]))
+                .size(theme::HINT_SIZE)
+                .color(theme::LINK);
+            let link = ui.link(text);
             mark(ui, link.rect, Block::Text);
             link.clicked()
         })

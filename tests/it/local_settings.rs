@@ -576,7 +576,7 @@ mod page {
         });
         assert_eq!(
             saved.unwrap()["local_models"],
-            json!({"preload": false, "idle_minutes": 30, "mtp": {}})
+            json!({"preload": true, "idle_minutes": 30, "mtp": {}})
         );
     }
 
@@ -829,6 +829,28 @@ mod page {
         assert!(!removed(&h));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
         assert!(removed(&h));
+    }
+
+    /// 有顯示卡但 VRAM 還沒量到：引擎沒裝說要先裝，裝了就是偵測失敗。
+    #[test]
+    fn unmeasured_vram_says_why() {
+        let pane = |snap: Snapshot| {
+            let mut snap = snap;
+            snap.hardware.gpu = Some(Gpu {
+                name: "GPU".into(),
+                vendor: 0x10de,
+                kind: GpuKind::Discrete,
+            });
+            pane_harness(snap, vec![])
+        };
+        assert!(has_label(
+            &pane(Snapshot::default()),
+            &tr("local.hw.vram_pending")
+        ));
+        assert!(has_label(
+            &pane(ready_engine()),
+            &tr("local.hw.vram_failed")
+        ));
     }
 
     #[test]

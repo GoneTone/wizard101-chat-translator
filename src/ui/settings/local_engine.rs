@@ -312,10 +312,17 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
                 ui,
                 t("local.hw.vram", &[("free", &free), ("total", &total)]),
             );
+        } else if hw.gpu.is_some() && !hw.measured {
+            let key = match snapshot.engine {
+                EngineState::Ready(_) => "local.hw.vram_failed",
+                _ => "local.hw.vram_pending",
+            };
+            line(ui, t(key, &[]));
         }
         let (free, total) = (gb(hw.ram_free), gb(hw.ram_total));
         line(ui, t("local.hw.ram", &[("free", &free), ("total", &total)]));
-        if ui.link(t("local.hw.redetect", &[])).clicked() {
+        let redetect = RichText::new(t("local.hw.redetect", &[])).color(theme::LINK);
+        if ui.link(redetect).clicked() {
             log("[ui] hardware re-detect requested");
             env.local_command(Command::RefreshHardware);
         }
