@@ -49,6 +49,8 @@ fn args_with_draft_mtp_and_idle_sleep() {
             "8192",
             "--parallel",
             "1",
+            "-lv",
+            "4",
             "--sleep-idle-seconds",
             "900",
             "--spec-type",

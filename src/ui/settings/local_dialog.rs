@@ -6,14 +6,13 @@ use eframe::egui::{Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field;
-use super::local_rows::{Have, basis, have_of, memory_key, row_buttons, row_text};
+use super::local_rows::{Have, basis, have_of, need_text, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
 use super::widgets::{primary_button, right_aligned, secondary_button, skeleton};
 use crate::i18n::t;
 use crate::local::catalog::{RECOMMENDED, Recommended};
-use crate::local::fit::{Fit, memory_kind, total_size};
-use crate::local::hardware::Hardware;
+use crate::local::fit::{Fit, Rating, total_size};
 use crate::local::hf::parse_repo;
 use crate::local::store::choice_id;
 use crate::local::{Command, RepoInfo, RepoState, Snapshot};
@@ -65,8 +64,8 @@ pub struct DownloadDialog {
     nofit: Option<Selection>,
 }
 
-/// 一個按下去會生效的選擇，附該版本的相容等級。
-type Chosen = (Selection, Option<Fit>);
+/// 一個按下去會生效的選擇，附該版本的需求與相容等級。
+type Chosen = (Selection, Rating);
 
 impl DownloadDialog {
     pub fn new(mode: DialogMode, tab: Tab) -> Self {
@@ -172,9 +171,8 @@ impl DownloadDialog {
             .or(info.auto.map(|a| (a.choice, a.mtp)))
     }
 
-    fn chosen(&self, repo: &str, info: &RepoInfo, hw: &Hardware) -> Option<Chosen> {
+    fn chosen(&self, repo: &str, info: &RepoInfo) -> Option<Chosen> {
         let (choice, mtp) = self.pick_of(repo, info)?;
-        let fit = combined(info, hw, (choice, mtp)).1;
         Some((
             Selection {
                 repo: repo.to_owned(),
@@ -182,7 +180,7 @@ impl DownloadDialog {
                 mtp,
                 auto: self.manual_pick(repo, info).is_none(),
             },
-            fit,
+            combined(info, (choice, mtp)),
         ))
     }
 
@@ -192,13 +190,14 @@ impl DownloadDialog {
         }
         let repo = self.custom_repo.as_deref()?;
         match snapshot.repos.get(repo) {
-            Some(RepoState::Ready(info)) => self.chosen(repo, info, &snapshot.hardware),
+            Some(RepoState::Ready(info)) => self.chosen(repo, info),
             _ => None,
         }
     }
 
     /// 按下〔下載〕／〔選這個〕後：選擇模式回傳選擇，放不下的先確認，其餘直接下載。
-    fn choose(&mut self, env: &dyn SettingsEnv, (sel, fit): Chosen) -> DialogOutcome {
+    fn choose(&mut self, env: &dyn SettingsEnv, (sel, rating): Chosen) -> DialogOutcome {
+        let fit = rating.fit;
         log(format!(
             "[ui] model chosen: mode={:?} repo={} choice={} mtp={:?} auto={} fit={fit:?}",
             self.mode, sel.repo, sel.choice, sel.mtp, sel.auto
@@ -326,12 +325,11 @@ impl DownloadDialog {
         info: &RepoInfo,
         snapshot: &Snapshot,
     ) -> Option<Chosen> {
-        let chosen = self.chosen(rec.repo, info, &snapshot.hardware)?;
+        let chosen = self.chosen(rec.repo, info)?;
         let (choice, mtp) = (chosen.0.choice, chosen.0.mtp);
-        let level = chosen.1;
-        let required = combined(info, &snapshot.hardware, (choice, mtp)).0;
-        let kind = memory_kind(info.meta.expert_count > 0, &snapshot.hardware);
-        let memory = t(memory_key(kind), &[("size", &gb(required))]);
+        let rating = chosen.1;
+        let moe = info.meta.expert_count > 0;
+        let memory = need_text(&rating.need, moe, &snapshot.hardware);
         let c = &info.catalog.choices[choice];
         let mut version = format!("{} · {} GB", c.quant.label, gb(total_size(c)));
         if let Some(m) = mtp {
@@ -353,7 +351,7 @@ impl DownloadDialog {
             right_aligned(ui, id, |ui| {
                 clicks = row_buttons(
                     ui,
-                    level,
+                    rating,
                     info.catalog.choices.len() > 1,
                     open,
                     self.mode,

@@ -120,6 +120,13 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
   - 會慢：要用到 RAM（一般模型部分放 RAM；MoE 見上則仍算可用但標示）。
   - 放不下：VRAM＋RAM 都不夠。可以下載，但跳警告，不擋。
 - 具體門檻與餘裕數字留給實作，用實際機器校準。
+- **實測校準（使用者決定：記憶體數字要準，不靠猜）**：模型載入過一次後，改用它實際用掉的量；沒載入過的才用上面的估算，介面標「預估」。
+  - 量法：llama-server 就緒當下，VRAM 讀 Windows 效能計數器「GPU Process Memory\Dedicated Usage」（含 CUDA 驅動與 context，llama.cpp 自己印的 buffer 加總會少算），RAM 讀程序的 working set；之後每次重新偵測硬體時對跑著的模型再量一次，同一種載入方式保留最大值（第一次請求後還會長）。不加總 llama.cpp 印的 buffer 行（同一個 context 的 compute buffer 會印兩次）。
+  - 是否每層都放 GPU：啟動參數加 `-lv 4`，讀 `load_tensors: offloaded n/m layers to GPU`（主模型與 MTP 草稿各印一次，任一次 n < m 就是部分卸載；`--fit` 試算印的是另一張表，不算）。沒看到這行（不知道）就不記。
+  - 記在模型清單（`manifest.json` 的 `measured`：VRAM、RAM、是否全放 GPU、那次有沒有開 MTP），舊清單沒有這欄照樣讀。
+  - 判斷：模型的實測與目前的 MTP 開關相同才用 —— 全放 GPU 且 VRAM、RAM 各自放得下為「流暢」；VRAM＋RAM 合計放得下為「會慢」（MoE 為「可用」）；否則「放不下」。MTP 開關不同時退回估算。
+  - 沒載入過的量化，若同 repo 有量過的其他模型（取權重檔大小最接近的），以它推算：VRAM ＝ 它的實測 VRAM ＋（這個量化的權重 − 它的權重），RAM 與是否全放 GPU 照用，再照上一條判斷；推算的仍標「預估」。
+  - 介面：實測的需求顯示「實測：VRAM … GB、RAM … GB」、相容等級不加註；其餘顯示「預估約需 …」，相容等級後加「（預估）」。下載對話框（推薦列、量化表色點與滑過提示）、已下載模型卡、精靈確認卡與多模型儲存檢查共用同一套判斷（`fit::need`／`fit::rate`）。
 
 ### 自動挑量化版本
 

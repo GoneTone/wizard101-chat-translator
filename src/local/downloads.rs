@@ -7,7 +7,7 @@ use tokio_util::sync::CancellationToken;
 use super::download::{self, DownloadError, Progress};
 use super::fit;
 use super::hf::{self, RepoFile};
-use super::hub::{DownloadState, Local, PROGRESS_TICK, RepoInfo};
+use super::hub::{DownloadState, Local, PROGRESS_TICK, RepoInfo, rerate};
 use super::store::{self, Manifest, ManifestFile};
 use crate::logs::log;
 use crate::util::lock;
@@ -296,6 +296,8 @@ impl Local {
                 }
             }
             s.models = store::list(&self.root);
+            // 刪掉的可能是同 repo 其他量化推算用的實測
+            rerate(s);
         });
     }
 }
@@ -329,6 +331,7 @@ fn manifest_for(
             fit::total_size(main),
             mtp_file.map_or(0, |f| f.size),
         ),
+        measured: None,
     };
     Some((store::choice_id(repo, main), manifest))
 }

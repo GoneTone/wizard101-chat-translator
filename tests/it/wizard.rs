@@ -598,7 +598,7 @@ mod local_install {
     use super::*;
     use wizard101_chat_translator::local::catalog::RECOMMENDED;
     use wizard101_chat_translator::local::engine::{Asset, Build, EngineInstall, Variant};
-    use wizard101_chat_translator::local::fit::{Fit, Pick};
+    use wizard101_chat_translator::local::fit::{Fit, Need, Pick, Rating};
     use wizard101_chat_translator::local::gguf::ModelMeta;
     use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
     use wizard101_chat_translator::local::hf::{Catalog, Choice, Quant, RepoFile};
@@ -626,8 +626,10 @@ mod local_install {
                 mtp: vec![],
             },
             meta: ModelMeta::default(),
-            fits: vec![(3 * G, Some(Fit::Smooth))],
-            mtp_required: vec![],
+            fits: vec![vec![Rating {
+                need: Need::estimate(3 * G),
+                fit: Some(Fit::Smooth),
+            }]],
             auto: Some(Pick {
                 choice: 0,
                 mtp: None,
@@ -694,6 +696,7 @@ mod local_install {
                 moe: false,
                 has_builtin_mtp: false,
                 required: 0,
+                measured: None,
             },
             complete: true,
         }
@@ -779,7 +782,7 @@ mod local_install {
         let mut s = ready_snapshot();
         for repo in s.repos.values_mut() {
             if let RepoState::Ready(info) = repo {
-                info.fits = vec![(3 * G, None)];
+                info.fits[0][0].fit = None;
             }
         }
         let h = on_card(s);

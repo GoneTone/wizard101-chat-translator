@@ -26,13 +26,14 @@ use super::widgets::{
     secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
+use crate::config::local;
 use crate::config::services::{
     LOCAL_PROVIDER, ServiceSlot, find, resolve, slot_id, str_field, validate_service,
 };
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
 use crate::local::Snapshot;
-use crate::local::fit::{Fit, combined_fit};
+use crate::local::fit::{Fit, combined_fit, installed_need};
 use crate::local::hardware::effective;
 use crate::local::store::Installed;
 use crate::logs::log;
@@ -477,9 +478,13 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
             models.push(m);
         }
     }
-    let needs: Vec<(u64, bool)> = models
+    let settings = local::settings(cfg);
+    let needs: Vec<_> = models
         .iter()
-        .map(|m| (m.manifest.required, m.manifest.moe))
+        .map(|m| {
+            let need = installed_need(&snapshot.models, m, settings.mtp_on(&m.id));
+            (need, m.manifest.moe)
+        })
         .collect();
     let all_running = models.iter().all(|m| snapshot.running.contains(&m.id));
     if models.len() >= 2
@@ -490,8 +495,9 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
         let (vram, ram) = effective(&snapshot.hardware);
         let list = models
             .iter()
-            .map(|m| {
-                let size = gb(m.manifest.required);
+            .zip(&needs)
+            .map(|(m, (need, _))| {
+                let size = gb(need.total());
                 t(
                     "error.local_over_capacity_item",
                     &[("name", &m.manifest.display_name()), ("size", &size)],

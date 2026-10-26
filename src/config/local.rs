@@ -26,6 +26,13 @@ pub struct LocalSettings {
     pub mtp: BTreeMap<String, bool>,
 }
 
+impl LocalSettings {
+    /// 模型的 MTP 開關；沒設定過的預設開啟。
+    pub fn mtp_on(&self, id: &str) -> bool {
+        self.mtp.get(id).copied().unwrap_or(true)
+    }
+}
+
 impl Default for LocalSettings {
     fn default() -> Self {
         Self {

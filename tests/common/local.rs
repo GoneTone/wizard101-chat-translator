@@ -197,6 +197,7 @@ pub fn add_model(root: &Path, id: &str, with_mtp: bool) {
         moe: false,
         has_builtin_mtp: false,
         required: 1,
+        measured: None,
     };
     store::write_manifest(root, id, &manifest).unwrap();
     let dir = store::models_dir(root).join(id);

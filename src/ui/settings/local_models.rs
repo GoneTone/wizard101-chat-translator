@@ -5,6 +5,7 @@ use eframe::egui::{Label, RichText, Ui, vec2};
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
 use super::local_rate::{Rates, transfer_text};
+use super::local_rows::need_text;
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
@@ -13,8 +14,7 @@ use super::widgets::{
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
-use crate::local::fit::{Fit, fit};
-use crate::local::hardware::Hardware;
+use crate::local::fit::{Basis, Need, installed_need, rate};
 use crate::local::store::{Installed, total_size};
 use crate::local::{Command, DownloadState, Snapshot};
 use crate::logs::log;
@@ -101,22 +101,32 @@ fn row(
         None if model.complete => RowState::Ready,
         None => RowState::Interrupted,
     };
+    let need = installed_need(&snapshot.models, model, settings.mtp_on(&model.id));
+    let measured = (need.basis == Basis::Measured)
+        .then(|| need_text(&need, model.manifest.moe, &snapshot.hardware));
     let id = ui.scope_id().with(("local_model_row", &model.id));
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         let reserved = right_aligned_width(ui, id);
         let width = (ui.available_width() - reserved - 12.0).max(120.0);
         ui.allocate_ui(vec2(width, 0.0), |ui| {
-            texts(ui, model, &state, rates.speed(&model.id))
+            texts(ui, model, &state, measured, rates.speed(&model.id))
         });
         right_aligned(ui, id, |ui| {
-            controls(ui, env, snapshot, settings, model, &state)
+            controls(ui, env, snapshot, settings, model, &state, &need)
         })
     })
     .inner
 }
 
-fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
+/// `measured` 是實測的需求文字（沒載入過為 `None`）。
+fn texts(
+    ui: &mut Ui,
+    model: &Installed,
+    state: &RowState,
+    measured: Option<String>,
+    speed: Option<f64>,
+) {
     let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -124,7 +134,13 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
         ui.add(Label::new(name).truncate());
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
-            RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
+            RowState::Ready => {
+                let mut line = format!("{} · {size} GB", model.manifest.repo);
+                if let Some(measured) = measured {
+                    line += &format!(" · {measured}");
+                }
+                small(line)
+            }
             RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
             RowState::Paused(done, total) => small(t(
                 "local.models.paused",
@@ -153,6 +169,7 @@ fn controls(
     settings: &mut LocalSettings,
     model: &Installed,
     state: &RowState,
+    need: &Need,
 ) -> Option<ModelAction> {
     ui.spacing_mut().item_spacing.x = 8.0;
     let id = &model.id;
@@ -160,8 +177,8 @@ fn controls(
     match state {
         RowState::Ready => {
             let manifest = &model.manifest;
-            if manifest.mtp.is_some() || manifest.has_builtin_mtp {
-                let mut on = settings.mtp.get(id).copied().unwrap_or(true);
+            if manifest.has_mtp() {
+                let mut on = settings.mtp_on(id);
                 ui.label(
                     RichText::new("MTP")
                         .size(theme::HINT_SIZE)
@@ -172,8 +189,9 @@ fn controls(
                     settings.mtp.insert(id.clone(), on);
                 }
             }
-            let level = rate(manifest.required, manifest.moe, &snapshot.hardware);
-            fit_badge(ui, level, snapshot.detecting);
+            let hw = &snapshot.hardware;
+            let level = hw.measured.then(|| rate(need, manifest.moe, hw));
+            fit_badge(ui, level, need.estimated(), snapshot.detecting);
         }
         RowState::Running(done, total) => {
             progress_bar(ui, fraction(*done, *total), 120.0);
@@ -195,9 +213,4 @@ fn controls(
         action = Some(ModelAction::Delete(id.clone()));
     }
     action
-}
-
-/// 用清單上存的所需量對目前硬體評等；VRAM 還沒量過時為 `None`。
-fn rate(required: u64, moe: bool, hw: &Hardware) -> Option<Fit> {
-    hw.measured.then(|| fit(required, moe, hw))
 }

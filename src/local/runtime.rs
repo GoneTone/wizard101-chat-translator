@@ -12,11 +12,12 @@ use tokio_util::sync::CancellationToken;
 use super::LocalNotice;
 use super::engine::{self, ActiveFile, EngineInstall};
 use super::hf::hf_client;
-use super::hub::{EngineState, Local};
+use super::hub::{EngineState, Local, rerate};
 use super::server::{self, Mtp, Process, READY_TIMEOUT, ServerPlan};
-use super::store::{self, Installed};
+use super::store::{self, Installed, Measured};
+use super::usage::Usage;
 use crate::config::Config;
-use crate::config::local::{self, LocalSettings};
+use crate::config::local;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, resolve};
 use crate::logs::log;
 use crate::util::lock;
@@ -84,6 +85,8 @@ impl SlotState {
 struct Running {
     process: Box<dyn Process>,
     base_url: String,
+    /// 這次有開 MTP（失敗重試時可能已關掉）。
+    mtp: bool,
     _engine: EngineUse,
 }
 
@@ -277,13 +280,86 @@ impl Local {
         }
     }
 
-    /// 跑著的 llama-server 的 PID。
-    pub(super) fn running_pids(&self) -> Vec<u32> {
-        self.servers
-            .all()
-            .into_iter()
-            .filter_map(|(_, slot)| lock(&slot.state).running.as_ref()?.process.pid())
-            .collect()
+    /// 量每個跑著的 llama-server 實際佔用並記進模型清單；回傳合計。
+    pub(super) fn measure_running(&self) -> Usage {
+        let mut total = Usage::default();
+        for (id, slot) in self.servers.all() {
+            // 拿不到啟動鎖（啟動中或正要刪檔）就只量不記，免得清單寫回剛刪掉的資料夾
+            let start = slot.start.try_lock();
+            let running = lock(&slot.state)
+                .running
+                .as_ref()
+                .map(|r| (r.process.pid(), r.process.all_on_gpu(), r.mtp));
+            let Some((pid, all_on_gpu, mtp)) = running else {
+                continue;
+            };
+            let usage = self.usage_of(pid);
+            total.vram += usage.vram;
+            total.ram += usage.ram;
+            match start {
+                Ok(_start) => self.record(&id, usage, all_on_gpu, mtp),
+                Err(_) => log(format!(
+                    "[local] llama-server[{id}] is busy; measurement not recorded this time"
+                )),
+            }
+        }
+        total
+    }
+
+    fn usage_of(&self, pid: Option<u32>) -> Usage {
+        pid.map_or_else(Usage::default, |pid| {
+            tokio::task::block_in_place(|| self.launcher.process_usage(&[pid]))
+        })
+    }
+
+    /// 把量到的佔用寫進模型清單；同一種載入方式（MTP、是否全放 GPU）保留各自的最大值，換了方式就重記。
+    ///
+    /// 呼叫端須持有該模型的啟動鎖（刪檔也要這把鎖）。
+    fn record(&self, id: &str, usage: Usage, all_on_gpu: Option<bool>, mtp: bool) {
+        let Some(all_on_gpu) = all_on_gpu else {
+            log(format!(
+                "[local] llama-server[{id}] did not report its GPU offload; measurement not recorded"
+            ));
+            return;
+        };
+        // working set 讀不到時是 0：不是真的量到
+        if usage.ram == 0 {
+            log(format!(
+                "[local] llama-server[{id}] memory could not be read; measurement not recorded"
+            ));
+            return;
+        }
+        let Some(mut model) = store::list(&self.root).into_iter().find(|m| m.id == id) else {
+            return;
+        };
+        let same = model
+            .manifest
+            .measured
+            .filter(|m| m.mtp == mtp && m.all_on_gpu == all_on_gpu);
+        let measured = Measured {
+            vram: same.map_or(usage.vram, |m| m.vram.max(usage.vram)),
+            ram: same.map_or(usage.ram, |m| m.ram.max(usage.ram)),
+            all_on_gpu,
+            mtp,
+        };
+        if model.manifest.measured == Some(measured) {
+            return;
+        }
+        model.manifest.measured = Some(measured);
+        if let Err(e) = store::write_manifest(&self.root, id, &model.manifest) {
+            log(format!(
+                "[local] saving the measurement of {id} failed: {e}"
+            ));
+            return;
+        }
+        log(format!(
+            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={mtp} (seen now: vram={} ram={})",
+            measured.vram, measured.ram, usage.vram, usage.ram
+        ));
+        self.update(|s| {
+            s.models = store::list(&self.root);
+            rerate(s);
+        });
     }
 
     /// 跑著 llama-server 的模型 id。
@@ -356,7 +432,7 @@ impl Local {
         let mut restart = Vec::new();
         for (id, slot) in self.servers.all() {
             let changed =
-                old.idle_minutes != new.idle_minutes || mtp_on(&old, &id) != mtp_on(&new, &id);
+                old.idle_minutes != new.idle_minutes || old.mtp_on(&id) != new.mtp_on(&id);
             if wanted.contains(&id) && !changed {
                 lock(&slot.state).clear_failures();
                 continue;
@@ -420,7 +496,7 @@ impl Local {
         cancel: &CancellationToken,
     ) -> Result<Running, String> {
         let settings = self.settings();
-        let mut mtp = mtp_mode(&self.root, model, mtp_on(&settings, &model.id));
+        let mut mtp = mtp_mode(&self.root, model, settings.mtp_on(&model.id));
         loop {
             // 讀目前的引擎與登記佔用在同一把鎖內：別的啟動確認或回退時一定看得到這次啟動
             let (active, engine_use) = {
@@ -445,7 +521,11 @@ impl Local {
                 idle_minutes: settings.idle_minutes,
             };
             let err = match self.launch(&plan, cancel, engine_use).await {
+                // 量的是就緒當下（還沒有請求）的佔用；之後重新偵測硬體時再量、取大的
                 Ok(running) => {
+                    let pid = running.process.pid();
+                    let usage = self.usage_of(pid);
+                    self.record(&model.id, usage, running.process.all_on_gpu(), running.mtp);
                     self.confirm_engine(&active);
                     return Ok(running);
                 }
@@ -537,6 +617,7 @@ impl Local {
         Ok(Running {
             process,
             base_url,
+            mtp: plan.mtp != Mtp::Off,
             _engine: engine_use,
         })
     }
@@ -593,11 +674,6 @@ impl Drop for Stopping<'_> {
 fn engine_in_use(root: &Path, users: &[PathBuf], install: &EngineInstall) -> bool {
     let dir = engine::engine_dir(root, install);
     users.iter().any(|exe| exe.starts_with(&dir))
-}
-
-/// 沒設定過的模型預設開啟 MTP。
-fn mtp_on(settings: &LocalSettings, id: &str) -> bool {
-    settings.mtp.get(id).copied().unwrap_or(true)
 }
 
 fn mtp_mode(root: &Path, model: &Installed, on: bool) -> Mtp {

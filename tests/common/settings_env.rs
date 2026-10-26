@@ -99,6 +99,7 @@ pub fn installed(id: &str, complete: bool, required: u64) -> Installed {
             moe: false,
             has_builtin_mtp: false,
             required,
+            measured: None,
         },
         complete,
     }

@@ -37,10 +37,36 @@ pub struct Manifest {
     pub mtp: Option<ManifestFile>,
     pub moe: bool,
     pub has_builtin_mtp: bool,
+    /// 預估所需位元組（沒載入過時判斷相容用）。
     pub required: u64,
+    /// 載入後量到的實際佔用；沒載入過為 `None`。
+    #[serde(default)]
+    pub measured: Option<Measured>,
+}
+
+/// 一次載入實際量到的佔用（位元組），以及那次的載入方式。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Measured {
+    pub vram: u64,
+    pub ram: u64,
+    /// 每一層都放在 GPU 上（llama.cpp 的 `load_tensors: offloaded n/n`）。
+    pub all_on_gpu: bool,
+    /// 那次有開 MTP。
+    pub mtp: bool,
 }
 
 impl Manifest {
+    /// 有 MTP 可開（另附的 MTP 檔或模型內建）。
+    pub fn has_mtp(&self) -> bool {
+        self.mtp.is_some() || self.has_builtin_mtp
+    }
+
+    /// 主模型分檔加上（`mtp` 時）MTP 檔的大小。
+    pub fn weights(&self, mtp: bool) -> u64 {
+        let extra = self.mtp.as_ref().filter(|_| mtp).map_or(0, |f| f.size);
+        self.files.iter().map(|f| f.size).sum::<u64>() + extra
+    }
+
     /// 顯示名：推薦清單內的 repo 用推薦名稱，其餘用 repo 名；後接量化。
     pub fn display_name(&self) -> String {
         let name = RECOMMENDED
@@ -218,6 +244,7 @@ mod tests {
             moe: false,
             has_builtin_mtp: false,
             required: 6,
+            measured: None,
         }
     }
 

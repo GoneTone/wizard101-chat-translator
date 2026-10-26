@@ -11,7 +11,7 @@ use common::kittest::{click, click_in_dialog, has_label, painted_texts, run, the
 use common::settings_env::FakeEnv;
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::local::catalog::RECOMMENDED;
-use wizard101_chat_translator::local::fit::{Fit, Pick};
+use wizard101_chat_translator::local::fit::{self, Basis, Fit, Need, Pick, Rating};
 use wizard101_chat_translator::local::gguf::ModelMeta;
 use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
 use wizard101_chat_translator::local::hf::{Catalog, Choice, MtpChoice, Quant, RepoFile};
@@ -57,8 +57,7 @@ fn info(fit: Fit, moe: bool, choices: usize, required: u64) -> RepoInfo {
             expert_count: if moe { 8 } else { 0 },
             ..Default::default()
         },
-        fits: vec![(required, Some(fit)); choices],
-        mtp_required: vec![],
+        fits: vec![vec![rated(required, fit)]; choices],
         auto: Some(Pick {
             choice: 0,
             mtp: None,
@@ -66,6 +65,18 @@ fn info(fit: Fit, moe: bool, choices: usize, required: u64) -> RepoInfo {
             required,
         }),
     }
+}
+
+fn rated(required: u64, fit: Fit) -> Rating {
+    Rating {
+        need: Need::estimate(required),
+        fit: Some(fit),
+    }
+}
+
+/// 依預估判斷的等級文字（加註「預估」）。
+fn estimated(key: &str) -> String {
+    t("local.fit.estimated", &[("fit", &tr(key))])
 }
 
 /// 推薦清單全部載入中，`ready` 內的 repo 換成查好的結果。
@@ -140,7 +151,32 @@ fn recommended_rows_wait_while_the_hardware_is_detected() {
     snap.detecting = true;
     let h = harness(DialogMode::Download, Tab::Recommended, snap);
     assert!(has_label(&h, &tr("local.loading")));
-    assert!(!has_label(&h, &tr("local.fit.smooth")));
+    assert!(!has_label(&h, &estimated("local.fit.smooth")));
+}
+
+/// 載入過的版本列出實測的 VRAM 與 RAM、徽章不加「預估」；沒載入過的是預估約需、徽章加「預估」。
+#[test]
+fn measured_rows_show_what_was_used_and_estimates_say_so() {
+    let mut loaded = info(Fit::Smooth, false, 2, 3 * G);
+    loaded.fits[0][0].need = Need {
+        vram: 7 * G / 2,
+        ram: 4 * G,
+        all_on_gpu: true,
+        basis: Basis::Measured,
+    };
+    let snap = snapshot(&[(0, loaded), (1, info(Fit::Slow, false, 2, 5 * G))]);
+    let h = harness(DialogMode::Download, Tab::Recommended, snap);
+    let texts = painted_texts(&h);
+    let measured = t(
+        "local.memory.measured",
+        &[("vram", &size_arg(7 * G / 2)), ("ram", &size_arg(4 * G))],
+    );
+    assert!(texts.contains(&measured), "{texts:?}");
+    assert!(has_label(&h, &tr("local.fit.smooth")));
+    let estimate = t("local.memory.vram", &[("size", &size_arg(5 * G))]);
+    assert!(texts.contains(&estimate), "{texts:?}");
+    assert!(has_label(&h, &estimated("local.fit.slow")));
+    assert!(!has_label(&h, &tr("local.fit.slow")));
 }
 
 #[test]
@@ -263,7 +299,12 @@ fn with_mtp(mut info: RepoInfo, auto_mtp: Option<usize>, extra: u64) -> RepoInfo
         },
         shared: false,
     }];
-    info.mtp_required = vec![extra];
+    let moe = info.meta.expert_count > 0;
+    let hw = snapshot(&[]).hardware;
+    for row in &mut info.fits {
+        let required = row[0].need.vram + extra;
+        row.push(rated(required, fit::fit(required, moe, &hw)));
+    }
     info.auto.as_mut().unwrap().mtp = auto_mtp;
     info
 }
@@ -364,6 +405,7 @@ fn only_complete_models_count_as_downloaded() {
             moe: false,
             has_builtin_mtp: false,
             required: 0,
+            measured: None,
         },
         complete: false,
     });
@@ -415,6 +457,7 @@ fn same_label_quants_in_different_folders_are_told_apart() {
             moe: false,
             has_builtin_mtp: false,
             required: 0,
+            measured: None,
         },
         complete: true,
     });
@@ -480,14 +523,16 @@ mod page {
 
     use serde_json::{Value, json};
 
-    use common::kittest::{click, click_in_dialog, has_label, run, themed_harness, tr};
+    use common::kittest::{
+        click, click_in_dialog, has_label, painted_texts, run, themed_harness, tr,
+    };
     use common::settings_env::FakeEnv;
     use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
     use wizard101_chat_translator::config::services::new_service;
     use wizard101_chat_translator::i18n::{self, t};
     use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
     use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
-    use wizard101_chat_translator::local::store::{Installed, Manifest, ManifestFile};
+    use wizard101_chat_translator::local::store::{Installed, Manifest, ManifestFile, Measured};
     use wizard101_chat_translator::local::usage::Usage;
     use wizard101_chat_translator::local::{Command, DownloadState, EngineState, Snapshot};
     use wizard101_chat_translator::ui::settings::env::SettingsEnv;
@@ -508,6 +553,7 @@ mod page {
                 moe: false,
                 has_builtin_mtp: mtp,
                 required: 0,
+                measured: None,
             },
             complete,
         }
@@ -852,8 +898,43 @@ mod page {
             };
             pane_harness(snap, vec![])
         };
-        assert!(has_label(&card(true), &tr("local.fit.slow")));
+        let slow = t("local.fit.estimated", &[("fit", &tr("local.fit.slow"))]);
+        assert!(has_label(&card(true), &slow));
         assert!(has_label(&card(false), &tr("local.fit.unknown")));
+    }
+
+    /// 載入過的模型列出實測的 VRAM 與 RAM，相容徽章依實測、不加「預估」。
+    #[test]
+    fn a_measured_model_shows_what_it_used() {
+        const G: u64 = 1 << 30;
+        let mut m = model(MODEL, true, false);
+        m.manifest.measured = Some(Measured {
+            vram: 3 * G,
+            ram: 2 * G,
+            all_on_gpu: true,
+            mtp: false,
+        });
+        let mut snap = snapshot(vec![m]);
+        snap.hardware = Hardware {
+            gpu: Some(Gpu {
+                name: "t".into(),
+                vendor: 0,
+                kind: GpuKind::Discrete,
+                nvidia_driver: None,
+                device: 0,
+            }),
+            vram_total: 8 * G,
+            vram_free: 8 * G,
+            ram_total: 16 * G,
+            ram_free: 16 * G,
+            measured: true,
+            own: Usage::default(),
+        };
+        let h = pane_harness(snap, vec![]);
+        let measured = t("local.memory.measured", &[("vram", "3.0"), ("ram", "2.0")]);
+        let texts = painted_texts(&h);
+        assert!(texts.iter().any(|l| l.contains(&measured)), "{texts:?}");
+        assert!(has_label(&h, &tr("local.fit.smooth")));
     }
 
     #[test]

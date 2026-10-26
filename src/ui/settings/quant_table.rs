@@ -11,7 +11,7 @@ use super::theme;
 use super::widgets::{focus_ring, hover_tip, skeleton};
 use crate::i18n::t;
 use crate::local::RepoInfo;
-use crate::local::fit::{self, Fit, total_size};
+use crate::local::fit::{Fit, Need, Rating, total_size};
 use crate::local::hardware::{Hardware, effective};
 
 const CHIP_HEIGHT: f32 = 28.0;
@@ -54,15 +54,25 @@ pub(super) fn fit_text(fit: Option<Fit>) -> String {
     t(key, &[])
 }
 
+/// 相容等級的文字；依預估判斷的（`estimated`）加註「預估」。
+pub(super) fn fit_label(level: Option<Fit>, estimated: bool) -> String {
+    let text = fit_text(level);
+    if estimated && level.is_some() {
+        t("local.fit.estimated", &[("fit", &text)])
+    } else {
+        text
+    }
+}
+
 /// 相容等級徽章：色點加文字；硬體偵測中（`detecting`）改畫佔位。
-pub(super) fn fit_badge(ui: &mut Ui, level: Option<Fit>, detecting: bool) {
+pub(super) fn fit_badge(ui: &mut Ui, level: Option<Fit>, estimated: bool, detecting: bool) {
     if detecting {
         let height = ui.text_style_height(&TextStyle::Body);
         skeleton(ui, 64.0, height);
         return;
     }
     dot(ui, fit_color(level));
-    ui.label(RichText::new(fit_text(level)).color(fit_color(level)));
+    ui.label(RichText::new(fit_label(level, estimated)).color(fit_color(level)));
 }
 
 /// 畫一個實心色點，高度與一行文字對齊。
@@ -71,17 +81,14 @@ pub(super) fn dot(ui: &mut Ui, color: Color32) {
     ui.painter().circle_filled(rect.center(), DOT / 2.0, color);
 }
 
-/// 選了 `(choice, mtp)` 時所需的位元組與相容等級；VRAM 還沒量到時等級為 `None`。
-pub(super) fn combined(
-    info: &RepoInfo,
-    hw: &Hardware,
-    (choice, mtp): (usize, Option<usize>),
-) -> (u64, Option<Fit>) {
-    let (base, level) = info.fits.get(choice).copied().unwrap_or((0, None));
-    let Some(m) = mtp else { return (base, level) };
-    let required = base + info.mtp_required.get(m).copied().unwrap_or(0);
-    let moe = info.meta.expert_count > 0;
-    (required, level.map(|_| fit::fit(required, moe, hw)))
+/// 選了 `(choice, mtp)` 時的需求與相容等級（hub 算好的）；索引不在表內時等級未知。
+pub(super) fn combined(info: &RepoInfo, (choice, mtp): (usize, Option<usize>)) -> Rating {
+    let column = mtp.map_or(0, |m| m + 1);
+    let rating = info.fits.get(choice).and_then(|f| f.get(column));
+    rating.copied().unwrap_or(Rating {
+        need: Need::estimate(0),
+        fit: None,
+    })
 }
 
 /// 畫量化表；點 chip 會改 `pick`（主模型索引, MTP 索引）。`hw` 用來算滑過 chip 時的可用量。
@@ -100,11 +107,11 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
         };
         row(ui, &name, |ui| {
             for i in indexes {
-                let (required, level) = combined(info, hw, (i, None));
+                let rating = combined(info, (i, None));
                 let c = &info.catalog.choices[i];
                 let size = Some(gb(total_size(c)));
-                let r = chip(ui, pick.0 == i, Some(level), &c.quant.label, size);
-                tip(ui, &r, level, required, hw);
+                let r = chip(ui, pick.0 == i, Some(rating), &c.quant.label, size);
+                tip(ui, &r, rating, hw);
                 if r.clicked() {
                     *pick = (i, pick.1);
                 }
@@ -117,16 +124,16 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
             pick.1 = None;
         }
         for (i, m) in info.catalog.mtp.iter().enumerate() {
-            let (required, level) = combined(info, hw, (pick.0, Some(i)));
+            let rating = combined(info, (pick.0, Some(i)));
             let label = format!("MTP {}", m.quant.label);
             let r = chip(
                 ui,
                 pick.1 == Some(i),
-                Some(level),
+                Some(rating),
                 &label,
                 Some(gb(m.file.size)),
             );
-            tip(ui, &r, level, required, hw);
+            tip(ui, &r, rating, hw);
             if r.clicked() {
                 pick.1 = Some(i);
             }
@@ -134,23 +141,25 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
     });
 }
 
-/// 「需要約 X GB，可用 Y GB」；VRAM 還沒量到時不顯示。
-fn tip(ui: &Ui, response: &Response, level: Option<Fit>, required: u64, hw: &Hardware) {
-    let Some(level) = level else { return };
+/// 「（預估或實測）需要 X GB，可用 Y GB」；VRAM 還沒量到時不顯示。
+fn tip(ui: &Ui, response: &Response, rating: Rating, hw: &Hardware) {
+    let Some(level) = rating.fit else { return };
     if !response.hovered() {
         return;
     }
     let (vram, ram) = effective(hw);
-    // 與 `fit::fit` 比較的對象一致：Smooth 只看 VRAM，其餘看 VRAM＋RAM
-    let available = if level == Fit::Smooth {
-        vram
+    // 與 `fit::rate` 比較的對象一致：Smooth 比 VRAM，其餘比 VRAM＋RAM
+    let (need, available) = if level == Fit::Smooth {
+        (rating.need.vram, vram)
     } else {
-        vram + ram
+        (rating.need.total(), vram + ram)
     };
-    let text = t(
-        "local.quant.hover",
-        &[("need", &gb(required)), ("have", &gb(available))],
-    );
+    let key = if rating.need.estimated() {
+        "local.quant.hover"
+    } else {
+        "local.quant.hover_measured"
+    };
+    let text = t(key, &[("need", &gb(need)), ("have", &gb(available))]);
     hover_tip(ui, response, &text);
 }
 
@@ -166,15 +175,15 @@ fn row(ui: &mut Ui, name: &str, chips: impl FnOnce(&mut Ui)) {
     });
 }
 
-/// 一個可選的量化 chip：色點、名稱、檔案大小；選中的以強調色框起。
+/// 一個可選的量化 chip：色點（有 `rating` 時）、名稱、檔案大小；選中的以強調色框起。
 fn chip(
     ui: &mut Ui,
     selected: bool,
-    level: Option<Option<Fit>>,
+    rating: Option<Rating>,
     label: &str,
     size: Option<String>,
 ) -> Response {
-    let color = level.map(fit_color);
+    let color = rating.map(|r| fit_color(r.fit));
     let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
     let painter = ui.painter();
     let name = painter.layout_no_wrap(label.to_owned(), font.clone(), theme::TEXT);
@@ -192,8 +201,8 @@ fn chip(
     response
         .widget_info(|| WidgetInfo::selected(Role::RadioButton, ui.is_enabled(), selected, label));
     // 相容度不能只靠色點傳達
-    if let Some(level) = level {
-        let text = fit_text(level);
+    if let Some(r) = rating {
+        let text = fit_label(r.fit, r.need.estimated());
         ui.ctx()
             .accesskit_node_builder(response.id, |node| node.set_description(text));
     }

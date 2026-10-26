@@ -8,15 +8,21 @@ use super::theme;
 use super::widgets::{primary_button, secondary_button};
 use crate::i18n::t;
 use crate::local::Snapshot;
-use crate::local::fit::{Fit, MemoryKind};
+use crate::local::fit::{Basis, MemoryKind, Need, Rating, memory_kind};
 use crate::local::hardware::{Hardware, effective};
 
-pub(super) fn memory_key(kind: MemoryKind) -> &'static str {
-    match kind {
-        MemoryKind::Vram => "local.memory.vram",
-        MemoryKind::VramPlusRam => "local.memory.vram_ram",
-        MemoryKind::Ram => "local.memory.ram",
+/// 記憶體需求文字：實測列出 VRAM 與 RAM，其餘是「預估約需」多少哪種記憶體。
+pub(super) fn need_text(need: &Need, moe: bool, hw: &Hardware) -> String {
+    if need.basis == Basis::Measured {
+        let (vram, ram) = (gb(need.vram), gb(need.ram));
+        return t("local.memory.measured", &[("vram", &vram), ("ram", &ram)]);
     }
+    let (key, size) = match memory_kind(moe, hw) {
+        MemoryKind::Vram => ("local.memory.vram", need.vram),
+        MemoryKind::VramPlusRam => ("local.memory.vram_ram", need.total()),
+        MemoryKind::Ram => ("local.memory.ram", need.total()),
+    };
+    t(key, &[("size", &gb(size))])
 }
 
 /// 已下載的狀態：完整、未完成（進度在設定頁），或沒有。
@@ -76,14 +82,14 @@ pub(super) fn row_text(ui: &mut Ui, name: RichText, memory: &str, version: &str,
 /// 推薦列右側：相容徽章、〔選擇版本〕與動作鈕；回傳（切換量化表, 按了動作鈕）。
 pub(super) fn row_buttons(
     ui: &mut Ui,
-    level: Option<Fit>,
+    rating: Rating,
     several: bool,
     open: bool,
     mode: DialogMode,
     have: Have,
 ) -> (bool, bool) {
     ui.spacing_mut().item_spacing.x = 8.0;
-    fit_badge(ui, level, false);
+    fit_badge(ui, rating.fit, rating.need.estimated(), false);
     let version_key = if open {
         "local.dialog.collapse"
     } else {

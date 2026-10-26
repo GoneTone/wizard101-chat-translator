@@ -17,7 +17,7 @@ use wizard101_chat_translator::config::{Config, default_config};
 use wizard101_chat_translator::local::engine::{self, EngineInstall, Variant};
 use wizard101_chat_translator::local::hardware::{self, Gpu, GpuKind};
 use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPlan};
-use wizard101_chat_translator::local::store;
+use wizard101_chat_translator::local::store::{self, Measured};
 use wizard101_chat_translator::local::usage::Usage;
 use wizard101_chat_translator::local::{
     Command, DownloadState, Endpoints, EngineState, Local, LocalNotice, RepoInfo, RepoState,
@@ -36,6 +36,7 @@ struct FakeProcess {
     exe_at_kill: Arc<Mutex<Vec<bool>>>,
     kill_delay: Arc<Mutex<Duration>>,
     pid: u32,
+    all_on_gpu: Arc<Mutex<Option<bool>>>,
     _health: Option<MockServer>,
 }
 
@@ -58,6 +59,9 @@ impl Process for FakeProcess {
     }
     fn pid(&self) -> Option<u32> {
         Some(self.pid)
+    }
+    fn all_on_gpu(&self) -> Option<bool> {
+        *self.all_on_gpu.lock().unwrap()
     }
 }
 
@@ -86,6 +90,8 @@ struct Shared {
     /// 每台假 llama-server 回報的實際佔用；`process_usage` 收到的 PID 也記在這。
     usage_per_server: Arc<Mutex<Usage>>,
     usage_pids: Arc<Mutex<Vec<u32>>>,
+    /// 假 llama-server 回報的「每層都在 GPU」；`None` 是還沒印 `load_tensors: offloaded`。
+    all_on_gpu: Arc<Mutex<Option<bool>>>,
 }
 
 struct FakeLauncher {
@@ -113,6 +119,7 @@ impl Launcher for FakeLauncher {
             exe_at_kill: s.exe_at_kill.clone(),
             kill_delay: s.kill_delay.clone(),
             pid: u32::from(port),
+            all_on_gpu: s.all_on_gpu.clone(),
             _health: (!fail).then(|| health_server(port, delay)),
         }))
     }
@@ -375,7 +382,7 @@ async fn query_then_download_installs_the_model() {
         panic!("{:?}", f.local.snapshot().repos);
     };
     assert_eq!(info.fits.len(), 1);
-    assert_eq!(info.fits[0].1, None, "VRAM not measured yet");
+    assert_eq!(info.fits[0][0].fit, None, "VRAM not measured yet");
 
     f.local.command(Command::Download {
         repo: "org/Model-GGUF".into(),
@@ -1064,6 +1071,82 @@ async fn redetecting_adds_running_models_back_to_free_memory() {
         }
     );
     assert_eq!(hardware::effective(&s.hardware).0, (4096 << 20) + 3 * G);
+}
+
+/// 就緒後量到的佔用記進模型清單（含那次有沒有開 MTP）；還不知道有沒有全放 GPU 時不記。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_ready_server_records_what_it_used() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(true), |_| false).await;
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    assert_eq!(
+        store::list(&f.root)[0].manifest.measured,
+        None,
+        "unknown offload"
+    );
+    f.local.stop("m1");
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    f.local.ensure("m1").await.unwrap();
+    let want = Some(Measured {
+        vram: 3 * G,
+        ram: G,
+        all_on_gpu: true,
+        mtp: true,
+    });
+    assert_eq!(store::list(&f.root)[0].manifest.measured, want);
+    assert_eq!(f.local.snapshot().models[0].manifest.measured, want);
+}
+
+/// 重新偵測時再量跑著的模型，保留量過的最大值（第一次請求後佔用會再長）。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn redetecting_keeps_the_largest_measurement() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 2 * G,
+        ram: 2 * G,
+    };
+    f.local.command(Command::RefreshHardware {
+        redetect_gpu: false,
+    });
+    let measured = || f.local.snapshot().models[0].manifest.measured;
+    wait_for("measured again", || {
+        measured().is_some_and(|m| m.ram == 2 * G)
+    })
+    .await;
+    assert_eq!(measured().unwrap().vram, 3 * G);
+    assert_eq!(store::list(&f.root)[0].manifest.measured, measured());
+}
+
+/// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。
+#[test]
+fn manifests_without_a_measurement_still_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = store::models_dir(dir.path()).join("old");
+    fs::create_dir_all(&folder).unwrap();
+    let old = json!({
+        "repo": "org/Model-GGUF",
+        "quant": "Q4_K_M",
+        "files": [{"path": "m.gguf", "size": 1, "sha256": null}],
+        "mtp": null,
+        "moe": false,
+        "has_builtin_mtp": false,
+        "required": 1
+    });
+    fs::write(folder.join("manifest.json"), old.to_string()).unwrap();
+    let list = store::list(dir.path());
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].manifest.measured, None);
 }
 
 /// 量硬體途中移除引擎：等 `--list-devices` 結束才刪，不會刪到執行中的 exe。

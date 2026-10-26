@@ -21,7 +21,7 @@ pub(super) fn default_selection(snapshot: &Snapshot) -> Option<Selection> {
             let info = ready_info(snapshot, rec.repo)?;
             let fit = info
                 .auto
-                .and_then(|a| combined(info, &snapshot.hardware, (a.choice, a.mtp)).1)
+                .and_then(|a| combined(info, (a.choice, a.mtp)).fit)
                 .unwrap_or(Fit::NoFit);
             Some((rec, fit))
         })

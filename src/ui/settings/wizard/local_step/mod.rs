@@ -8,7 +8,7 @@ use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui};
 use self::widgets::{default_selection, engine_download, error_with_retry, hint, progress};
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
-use crate::local::fit::{Fit, memory_kind, total_size};
+use crate::local::fit::{Rating, total_size};
 use crate::local::store::choice_id;
 use crate::local::{Command, DownloadState, EngineState, RepoState, Snapshot};
 use crate::logs::log;
@@ -17,7 +17,7 @@ use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
 use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, transfer_text};
-use crate::ui::settings::local_rows::memory_key;
+use crate::ui::settings::local_rows::need_text;
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
 use crate::ui::settings::widgets::{card, primary_button, secondary_button, skeleton};
@@ -38,9 +38,8 @@ pub enum InstallState {
 struct Plan {
     selection: Selection,
     title: String,
-    fit: Option<Fit>,
+    rating: Rating,
     model_bytes: u64,
-    required: u64,
     moe: bool,
     id: String,
 }
@@ -190,13 +189,12 @@ impl LocalInstall {
         if let Some(m) = mtp {
             title += &format!(" + MTP {}", m.quant.label);
         }
-        let (required, fit) = combined(info, &snapshot.hardware, (selection.choice, selection.mtp));
+        let rating = combined(info, (selection.choice, selection.mtp));
         Some(Plan {
             id: choice_id(&selection.repo, choice),
             title,
-            fit,
+            rating,
             model_bytes: total_size(choice) + mtp.map_or(0, |m| m.file.size),
-            required,
             moe: info.meta.expert_count > 0,
             selection,
         })
@@ -274,7 +272,8 @@ impl LocalInstall {
                     ui.horizontal(|ui| {
                         let title = RichText::new(&plan.title).font(theme::bold(theme::TEXT_SIZE));
                         ui.add(Label::new(title));
-                        fit_badge(ui, plan.fit, false);
+                        let rating = plan.rating;
+                        fit_badge(ui, rating.fit, rating.need.estimated(), false);
                     });
                     hint(
                         ui,
@@ -289,8 +288,10 @@ impl LocalInstall {
                         hint(ui, &t("local.wizard.engine_size", &args));
                     }
                     hint(ui, &t("local.wizard.total", &[("size", &gb(total))]));
-                    let kind = memory_kind(plan.moe, &snapshot.hardware);
-                    hint(ui, &t(memory_key(kind), &[("size", &gb(plan.required))]));
+                    hint(
+                        ui,
+                        &need_text(&plan.rating.need, plan.moe, &snapshot.hardware),
+                    );
                 });
         });
         let ready = matches!(snapshot.engine, EngineState::Ready(_));

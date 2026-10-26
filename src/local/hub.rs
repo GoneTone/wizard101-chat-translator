@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::download::Progress;
 use super::engine::{self, Build, EngineInstall, Variant};
-use super::fit::{self, Fit, Pick};
+use super::fit::{self, Pick, Rating};
 use super::gguf::{self, ModelMeta};
 use super::hardware::{self, Gpu, Hardware};
 use super::hf::{self, Catalog};
@@ -73,10 +73,8 @@ pub enum RepoState {
 pub struct RepoInfo {
     pub catalog: Catalog,
     pub meta: ModelMeta,
-    /// 與 `catalog.choices` 對應的（所需位元組, 等級）；VRAM 還沒量到時等級為 `None`。
-    pub fits: Vec<(u64, Option<Fit>)>,
-    /// 與 `catalog.mtp` 對應：加上該 MTP 檔多出的所需位元組。
-    pub mtp_required: Vec<u64>,
+    /// 與 `catalog.choices` 對應；每個量化的 `[0]` 是不帶 MTP，`[1 + m]` 是帶 `catalog.mtp[m]`。
+    pub fits: Vec<Vec<Rating>>,
     pub auto: Option<Pick>,
 }
 
@@ -374,7 +372,6 @@ impl Local {
         let gpu = self.gpu(redetect_gpu);
         // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
         let files = self.engine_files.read().await;
-        let pids = self.running_pids();
         let exe = current_exe(&self.root);
         let mut hw = tokio::task::block_in_place(|| {
             let (ram_total, ram_free) = hardware::system_memory();
@@ -401,9 +398,9 @@ impl Local {
             hw
         });
         drop(files);
-        hw.own = tokio::task::block_in_place(|| self.launcher.process_usage(&pids));
+        hw.own = self.measure_running();
         log(format!(
-            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_pids={pids:?} own_vram={} own_ram={}",
+            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_vram={} own_ram={}",
             hw.gpu,
             hw.vram_total,
             hw.vram_free,
@@ -414,12 +411,8 @@ impl Local {
             hw.own.ram
         ));
         self.update(|s| {
-            for repo in s.repos.values_mut() {
-                if let RepoState::Ready(info) = repo {
-                    rate(info, &hw);
-                }
-            }
             s.hardware = hw;
+            rerate(s);
         });
     }
 
@@ -556,18 +549,20 @@ impl Local {
                 catalog,
                 meta,
                 fits: vec![],
-                mtp_required: vec![],
                 auto: None,
             }),
             Err(e) => RepoState::Failed(e),
         };
         self.update(|s| {
             if let RepoState::Ready(info) = &mut state {
-                rate(info, &s.hardware);
+                rate(repo, info, &s.hardware, &s.models);
                 log(format!(
                     "[local] {repo}: {} choices, fits={:?} auto={:?}",
                     info.catalog.choices.len(),
-                    info.fits,
+                    info.fits
+                        .iter()
+                        .map(|f| (f[0].need, f[0].fit))
+                        .collect::<Vec<_>>(),
                     info.auto
                 ));
             }
@@ -597,20 +592,38 @@ impl Local {
     }
 }
 
-/// 依硬體重算各量化的所需量、等級與自動挑選；VRAM 沒量過時等級為 `None`。
-fn rate(info: &mut RepoInfo, hw: &Hardware) {
+/// 依快照的硬體與已下載模型（實測）重算每個查好的 repo。
+pub(super) fn rerate(s: &mut Snapshot) {
+    for (repo, state) in &mut s.repos {
+        if let RepoState::Ready(info) = state {
+            rate(repo, info, &s.hardware, &s.models);
+        }
+    }
+}
+
+/// 重算各量化（帶或不帶各個 MTP）的需求、等級與自動挑選；VRAM 沒量過時等級為 `None`。
+fn rate(repo: &str, info: &mut RepoInfo, hw: &Hardware, models: &[Installed]) {
     let moe = info.meta.expert_count > 0;
-    info.fits = info
-        .catalog
+    let (meta, catalog) = (&info.meta, &info.catalog);
+    info.fits = catalog
         .choices
         .iter()
         .map(|c| {
-            let required = fit::required(&info.meta, fit::total_size(c), 0);
-            (required, hw.measured.then(|| fit::fit(required, moe, hw)))
+            let id = store::choice_id(repo, c);
+            let main = fit::total_size(c);
+            let mtps = std::iter::once(None).chain(catalog.mtp.iter().map(Some));
+            mtps.map(|m| {
+                let extra = m.map_or(0, |m| m.file.size);
+                let estimate = fit::required(meta, main, extra);
+                let mtp = m.is_some() || meta.has_mtp;
+                let need = fit::need(models, repo, &id, main + extra, mtp, estimate);
+                let fit = hw.measured.then(|| fit::rate(&need, moe, hw));
+                Rating { need, fit }
+            })
+            .collect()
         })
         .collect();
-    info.mtp_required = info.catalog.mtp.iter().map(|m| m.file.size).collect();
-    info.auto = fit::auto_pick(&info.catalog, &info.meta, hw);
+    info.auto = fit::auto_pick(catalog, meta, hw);
 }
 
 fn engine_on_disk(root: &Path) -> EngineState {

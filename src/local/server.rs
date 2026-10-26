@@ -11,7 +11,7 @@ use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::System::JobObjects::{
@@ -59,6 +59,9 @@ pub fn args(plan: &ServerPlan, port: u16) -> Vec<String> {
         "8192".into(),
         "--parallel".into(),
         "1".into(),
+        // libllama 的 INFO（含 `load_tensors: offloaded`）要 verbosity 4 才印
+        "-lv".into(),
+        "4".into(),
     ];
     if plan.idle_minutes > 0 {
         a.push("--sleep-idle-seconds".into());
@@ -93,6 +96,10 @@ pub trait Process: Send {
     fn pid(&self) -> Option<u32> {
         None
     }
+    /// 每一層都放在 GPU 上；還沒看到 llama.cpp 回報為 `None`。
+    fn all_on_gpu(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// 啟動 llama-server 與偵測硬體的方式（測試以假實作替換）。
@@ -121,6 +128,7 @@ pub struct RealLauncher;
 struct RealProcess {
     child: Child,
     tail: Arc<Mutex<VecDeque<String>>>,
+    all_on_gpu: Arc<Mutex<Option<bool>>>,
     readers: Vec<JoinHandle<()>>,
 }
 
@@ -158,6 +166,9 @@ impl Process for RealProcess {
     fn pid(&self) -> Option<u32> {
         Some(self.child.id())
     }
+    fn all_on_gpu(&self) -> Option<bool> {
+        *self.all_on_gpu.lock().unwrap()
+    }
 }
 
 impl Launcher for RealLauncher {
@@ -176,32 +187,41 @@ impl Launcher for RealLauncher {
         ));
         assign_to_job(&child, &plan.model_id);
         let tail = Arc::new(Mutex::new(VecDeque::new()));
+        let all_on_gpu = Arc::new(Mutex::new(None));
         let mut readers = Vec::new();
         if let Some(out) = child.stdout.take() {
-            readers.push(pump_lines(out, plan.model_id.clone(), tail.clone()));
+            let (id, t, a) = (plan.model_id.clone(), tail.clone(), all_on_gpu.clone());
+            readers.push(pump_lines(out, id, t, a));
         }
         if let Some(err) = child.stderr.take() {
-            readers.push(pump_lines(err, plan.model_id.clone(), tail.clone()));
+            let (id, t, a) = (plan.model_id.clone(), tail.clone(), all_on_gpu.clone());
+            readers.push(pump_lines(err, id, t, a));
         }
         Ok(Box::new(RealProcess {
             child,
             tail,
+            all_on_gpu,
             readers,
         }))
     }
 }
 
-/// 每行寫進 log 並留最後 `TAIL_LINES` 行；以位元組讀取，非 UTF-8 輸出不會讓執行緒死掉。
+/// 每行寫進 log、更新 `all_on_gpu`，並留最後 `TAIL_LINES` 行；以位元組讀取，非 UTF-8 輸出不會讓執行緒死掉。
 fn pump_lines(
     pipe: impl io::Read + Send + 'static,
     model_id: String,
     tail: Arc<Mutex<VecDeque<String>>>,
+    all_on_gpu: Arc<Mutex<Option<bool>>>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         for raw in BufReader::new(pipe).split(b'\n') {
             let Ok(raw) = raw else { break };
             let line = String::from_utf8_lossy(&raw).trim_end().to_string();
             log(format!("[local] llama-server[{model_id}]: {line}"));
+            {
+                let mut all = all_on_gpu.lock().unwrap();
+                *all = track_offload(*all, &line);
+            }
             let mut t = tail.lock().unwrap();
             if t.len() == TAIL_LINES {
                 t.pop_front();
@@ -209,6 +229,22 @@ fn pump_lines(
             t.push_back(line);
         }
     })
+}
+
+/// 依一行輸出更新「每層都在 GPU」：看到 `load_tensors: offloaded n/m layers to GPU` 才有值，任一次 n < m 就是 `false`。
+///
+/// 主模型與 MTP 草稿模型各印一次；`--fit` 試算印的是別的表，不算。
+fn track_offload(all_on_gpu: Option<bool>, line: &str) -> Option<bool> {
+    static LINE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"load_tensors: offloaded (\d+)/(\d+) layers to GPU").unwrap()
+    });
+    let Some(c) = LINE.captures(line) else {
+        return all_on_gpu;
+    };
+    match (c[1].parse::<u32>(), c[2].parse::<u32>()) {
+        (Ok(n), Ok(m)) => Some(all_on_gpu.unwrap_or(true) && n >= m),
+        _ => all_on_gpu,
+    }
 }
 
 /// 全程序共用的 Job Object；handle 刻意不關，程式結束時系統關閉它，順帶殺掉所有子程序。
@@ -333,5 +369,31 @@ fn run_list_devices(exe: &Path) -> Result<String, String> {
         )),
         Some(s) if !s.success() => Err(format!("exited with {s}:\n{output}")),
         Some(_) => Ok(output),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fold(lines: &[&str]) -> Option<bool> {
+        lines
+            .iter()
+            .fold(None, |all, line| track_offload(all, line))
+    }
+
+    #[test]
+    fn offloaded_lines_decide_all_on_gpu() {
+        let main = "0.39.819.281 I load_tensors: offloaded 43/43 layers to GPU";
+        let draft = "0.41.002.100 I load_tensors: offloaded 5/5 layers to GPU";
+        assert_eq!(fold(&[main, draft]), Some(true));
+        let partial = "0.39.819.281 I load_tensors: offloaded 30/43 layers to GPU";
+        assert_eq!(fold(&[partial, draft]), Some(false));
+        assert_eq!(fold(&[draft, partial, main]), Some(false), "stays false");
+        let dry_run = [
+            "common_memory_breakdown_print: | memory breakdown [MiB] | total   free    self   model   context   compute    unaccounted |",
+            "common_params_fit_impl: projected to use 3467 MiB of device memory vs. 15210 MiB of free device memory",
+        ];
+        assert_eq!(fold(&dry_run), None);
     }
 }
