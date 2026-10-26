@@ -318,11 +318,11 @@ fn status(ui: &mut Ui, state: &EngineState) {
     dot(ui, color);
 }
 
-/// 顯示卡名稱、VRAM 與 RAM 可用量、〔重新偵測〕和估算說明。
+/// 顯示卡名稱、VRAM 與 RAM 可用量各一行，下面是估算說明與〔重新偵測〕。
 fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
     let hw = &snapshot.hardware;
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 16.0;
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.0;
         if snapshot.detecting {
             let height = ui.text_style_height(&TextStyle::Body);
             for width in [220.0, 150.0, 150.0] {
@@ -353,14 +353,21 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
         }
         let (free, total) = (gb(hw.ram_free), gb(hw.ram_total));
         line(ui, t("local.hw.ram", &[("free", &free), ("total", &total)]));
-        let redetect = RichText::new(t("local.hw.redetect", &[])).color(theme::LINK);
+    });
+    ui.horizontal_wrapped(|ui| {
+        let note = RichText::new(t("local.hw.note", &[]))
+            .size(theme::HINT_SIZE)
+            .color(theme::TEXT_MUTED);
+        ui.add(Label::new(note).wrap());
+        if snapshot.detecting {
+            return;
+        }
+        let redetect = RichText::new(t("local.hw.redetect", &[]))
+            .size(theme::HINT_SIZE)
+            .color(theme::LINK);
         if ui.link(redetect).clicked() {
             log("[ui] hardware re-detect requested");
             env.local_command(Command::RefreshHardware);
         }
     });
-    let note = RichText::new(t("local.hw.note", &[]))
-        .size(theme::HINT_SIZE)
-        .color(theme::TEXT_MUTED);
-    ui.add(Label::new(note).wrap());
 }
