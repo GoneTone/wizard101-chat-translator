@@ -18,49 +18,78 @@ pub struct Usage {
     pub ram: u64,
 }
 
-/// `pids` 合計的專用 GPU 記憶體與 working set；讀不到的部分記 log 並當 0。
-pub fn process_usage(pids: &[u32]) -> Usage {
+/// `pids` 合計的 VRAM 與 RAM 佔用；讀不到的部分記 log 並當 0。
+///
+/// 獨顯：專用 GPU 記憶體為 VRAM、working set 為 RAM（共享 GPU 記憶體不加，免得與 working set 重複）。
+/// 內顯（`integrated`）：沒有 VRAM，專用＋共享 GPU 記憶體與 working set 都算 RAM。
+pub fn process_usage(pids: &[u32], integrated: bool) -> Usage {
     if pids.is_empty() {
         return Usage::default();
     }
-    Usage {
-        vram: dedicated_gpu(pids).unwrap_or_else(|e| {
-            log(format!("[local] reading GPU process memory failed: {e}"));
-            0
-        }),
-        ram: pids.iter().map(|&pid| working_set(pid)).sum(),
+    let (dedicated, shared) = gpu_memory(pids).unwrap_or_else(|e| {
+        log(format!("[local] reading GPU process memory failed: {e}"));
+        (0, 0)
+    });
+    let ram = pids.iter().map(|&pid| working_set(pid)).sum();
+    combine(dedicated, shared, ram, integrated)
+}
+
+fn combine(dedicated: u64, shared: u64, working_set: u64, integrated: bool) -> Usage {
+    if integrated {
+        Usage {
+            vram: 0,
+            ram: working_set + dedicated + shared,
+        }
+    } else {
+        Usage {
+            vram: dedicated,
+            ram: working_set,
+        }
     }
 }
 
-/// 工作管理員「專用 GPU 記憶體」同一份計數器，實例名稱是 `pid_{pid}_luid_…`。
-fn dedicated_gpu(pids: &[u32]) -> Result<u64, String> {
+/// 工作管理員「專用／共享 GPU 記憶體」同一份計數器，實例名稱是 `pid_{pid}_luid_…`；回傳（專用, 共享）。
+fn gpu_memory(pids: &[u32]) -> Result<(u64, u64), String> {
     let mut query: PDH_HQUERY = std::ptr::null_mut();
     // SAFETY: 輸出指標有效；資料來源為 null 表示即時資料
     let status = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) };
     if status != 0 {
         return Err(format!("PdhOpenQueryW status=0x{status:08x}"));
     }
-    let result = read_dedicated(query, pids);
+    let result = read_gpu_memory(query, pids);
     // SAFETY: `query` 由 PdhOpenQueryW 開成功
     unsafe { PdhCloseQuery(query) };
     result
 }
 
-fn read_dedicated(query: PDH_HQUERY, pids: &[u32]) -> Result<u64, String> {
-    let path: Vec<u16> = "\\GPU Process Memory(*)\\Dedicated Usage\0"
+fn read_gpu_memory(query: PDH_HQUERY, pids: &[u32]) -> Result<(u64, u64), String> {
+    let dedicated = add_counter(query, "Dedicated Usage")?;
+    let shared = add_counter(query, "Shared Usage")?;
+    // SAFETY: `query` 有效；即時計數器收一次就有值
+    let status = unsafe { PdhCollectQueryData(query) };
+    if status != 0 {
+        return Err(format!("PdhCollectQueryData status=0x{status:08x}"));
+    }
+    Ok((sum_for(dedicated, pids)?, sum_for(shared, pids)?))
+}
+
+fn add_counter(query: PDH_HQUERY, name: &str) -> Result<PDH_HCOUNTER, String> {
+    let path: Vec<u16> = format!("\\GPU Process Memory(*)\\{name}\0")
         .encode_utf16()
         .collect();
     let mut counter: PDH_HCOUNTER = std::ptr::null_mut();
     // SAFETY: `path` 以 NUL 結尾，輸出指標有效
     let status = unsafe { PdhAddEnglishCounterW(query, path.as_ptr(), 0, &mut counter) };
     if status != 0 {
-        return Err(format!("PdhAddEnglishCounterW status=0x{status:08x}"));
+        return Err(format!(
+            "PdhAddEnglishCounterW({name}) status=0x{status:08x}"
+        ));
     }
-    // SAFETY: `query` 有效；即時計數器收一次就有值
-    let status = unsafe { PdhCollectQueryData(query) };
-    if status != 0 {
-        return Err(format!("PdhCollectQueryData status=0x{status:08x}"));
-    }
+    Ok(counter)
+}
+
+/// 計數器裡屬於 `pids` 的實例加總。
+fn sum_for(counter: PDH_HCOUNTER, pids: &[u32]) -> Result<u64, String> {
     let (mut bytes, mut count) = (0u32, 0u32);
     // SAFETY: 先問需要的緩衝區大小，緩衝區指標可為 null
     let status = unsafe {
@@ -153,9 +182,18 @@ mod tests {
     /// 實際讀一次本程序：working set 一定大於 0，GPU 計數器讀得到（沒用 GPU 時為 0）。
     #[test]
     fn reads_the_current_process() {
-        let usage = process_usage(&[std::process::id()]);
+        let usage = process_usage(&[std::process::id()], false);
         assert!(usage.ram > 0, "{usage:?}");
-        assert!(dedicated_gpu(&[std::process::id()]).is_ok());
-        assert_eq!(process_usage(&[]), Usage::default());
+        assert!(gpu_memory(&[std::process::id()]).is_ok());
+        assert_eq!(process_usage(&[], false), Usage::default());
+        let integrated = process_usage(&[std::process::id()], true);
+        assert_eq!(integrated.vram, 0, "{integrated:?}");
+    }
+
+    /// 獨顯不加共享 GPU 記憶體；內顯的專用＋共享都算 RAM。
+    #[test]
+    fn integrated_gpu_memory_counts_as_ram() {
+        assert_eq!(combine(3, 2, 10, false), Usage { vram: 3, ram: 10 });
+        assert_eq!(combine(3, 2, 10, true), Usage { vram: 0, ram: 15 });
     }
 }

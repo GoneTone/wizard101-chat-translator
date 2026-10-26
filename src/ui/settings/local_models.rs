@@ -101,7 +101,8 @@ fn row(
         None if model.complete => RowState::Ready,
         None => RowState::Interrupted,
     };
-    let need = installed_need(&snapshot.models, model, settings.mtp_on(&model.id));
+    let mtp = settings.mtp_on(&model.id);
+    let need = installed_need(&snapshot.models, model, mtp, &snapshot.hardware);
     let measured = (need.basis == Basis::Measured)
         .then(|| need_text(&need, model.manifest.moe, &snapshot.hardware));
     let id = ui.scope_id().with(("local_model_row", &model.id));

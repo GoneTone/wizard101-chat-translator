@@ -366,6 +366,12 @@ impl Local {
         cached.clone().flatten()
     }
 
+    /// 偵測到的 GPU 是內顯（共享系統記憶體）。
+    pub(super) fn integrated_gpu(&self) -> bool {
+        self.gpu(false)
+            .is_some_and(|g| g.kind == hardware::GpuKind::Integrated)
+    }
+
     /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
         let _detecting = self.detecting();
@@ -616,7 +622,7 @@ fn rate(repo: &str, info: &mut RepoInfo, hw: &Hardware, models: &[Installed]) {
                 let extra = m.map_or(0, |m| m.file.size);
                 let estimate = fit::required(meta, main, extra);
                 let mtp = m.is_some() || meta.has_mtp;
-                let need = fit::need(models, repo, &id, main + extra, mtp, estimate);
+                let need = fit::need(models, repo, &id, main + extra, mtp, estimate, hw);
                 let fit = hw.measured.then(|| fit::rate(&need, moe, hw));
                 Rating { need, fit }
             })

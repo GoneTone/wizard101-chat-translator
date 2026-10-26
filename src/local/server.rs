@@ -117,8 +117,8 @@ pub trait Launcher: Send + Sync {
     }
 
     /// 這些 llama-server 實際佔用的記憶體（見 [`usage::process_usage`]）。
-    fn process_usage(&self, pids: &[u32]) -> Usage {
-        usage::process_usage(pids)
+    fn process_usage(&self, pids: &[u32], integrated: bool) -> Usage {
+        usage::process_usage(pids, integrated)
     }
 }
 
@@ -233,8 +233,12 @@ fn pump_lines(
 
 /// 依一行輸出更新「每層都在 GPU」：看到 `load_tensors: offloaded n/m layers to GPU` 才有值，任一次 n < m 就是 `false`。
 ///
-/// 主模型與 MTP 草稿模型各印一次；`--fit` 試算印的是別的表，不算。
+/// 主模型與 MTP 草稿模型各印一次。`--fit` 把張量（例如 MoE 專家）移到系統記憶體時 offloaded 仍是 n/n，
+/// 但會先印 `cannot meet free memory target`，看到它也是 `false`。
 fn track_offload(all_on_gpu: Option<bool>, line: &str) -> Option<bool> {
+    if line.contains("cannot meet free memory target") {
+        return Some(false);
+    }
     static LINE: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r"load_tensors: offloaded (\d+)/(\d+) layers to GPU").unwrap()
     });
@@ -395,5 +399,13 @@ mod tests {
             "common_params_fit_impl: projected to use 3467 MiB of device memory vs. 15210 MiB of free device memory",
         ];
         assert_eq!(fold(&dry_run), None);
+        let moved = [
+            "common_params_fit_impl: cannot meet free memory target of 1024 MiB, need to reduce device memory by 2048 MiB",
+            "common_params_fit_impl: getting device memory data with all MoE tensors moved to system memory",
+            main,
+        ];
+        assert_eq!(fold(&moved), Some(false), "--fit moved tensors off the GPU");
+        let kept = ["common_params_fit_impl: no changes needed", main, draft];
+        assert_eq!(fold(&kept), Some(true));
     }
 }

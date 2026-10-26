@@ -104,6 +104,7 @@ pub struct Rating {
 /// `repo` 的模型 `id`（權重共 `weights` 位元組）照 `mtp` 開關載入時要的記憶體。
 ///
 /// 自己照同樣的 MTP 開關量過就用實測；否則從同 repo 其他量過的模型（權重最接近的）推算；都沒有就是 `estimate`。
+/// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多時，實測看不出現在會不會流暢，也退回 `estimate`。
 pub fn need(
     models: &[Installed],
     repo: &str,
@@ -111,38 +112,64 @@ pub fn need(
     weights: u64,
     mtp: bool,
     estimate: u64,
+    hw: &Hardware,
 ) -> Need {
+    let need = measured_need(models, repo, id, weights, mtp);
+    match need {
+        Some(n) if n.all_on_gpu || effective(hw).0 <= n.vram => n,
+        _ => Need::estimate(estimate),
+    }
+}
+
+/// 自己的實測（MTP 開關相同）或同 repo 量過的模型推算的需求。
+fn measured_need(
+    models: &[Installed],
+    repo: &str,
+    id: &str,
+    weights: u64,
+    mtp: bool,
+) -> Option<Need> {
     let measured = |m: &'_ Installed| m.manifest.measured.map(|x| (m.manifest.weights(x.mtp), x));
     let own = models.iter().filter(|m| m.id == id).find_map(measured);
     if let Some((_, x)) = own.filter(|(_, x)| x.mtp == mtp) {
-        return Need {
+        return Some(Need {
             vram: x.vram,
             ram: x.ram,
             all_on_gpu: x.all_on_gpu,
             basis: Basis::Measured,
-        };
+        });
     }
     let sibling = models
         .iter()
         .filter(|m| m.id != id && m.manifest.repo == repo)
         .filter_map(measured)
         .min_by_key(|(base, _)| base.abs_diff(weights));
-    match sibling {
-        Some((base, x)) => Need {
-            vram: x.vram.saturating_add(weights).saturating_sub(base),
-            ram: x.ram,
-            all_on_gpu: x.all_on_gpu,
-            basis: Basis::Derived,
-        },
-        None => Need::estimate(estimate),
-    }
+    sibling.map(|(base, x)| Need {
+        vram: x.vram.saturating_add(weights).saturating_sub(base),
+        ram: x.ram,
+        all_on_gpu: x.all_on_gpu,
+        basis: Basis::Derived,
+    })
 }
 
 /// 已下載的模型照 `mtp_on`（設定的 MTP 開關）載入時要的記憶體。
-pub fn installed_need(models: &[Installed], model: &Installed, mtp_on: bool) -> Need {
+pub fn installed_need(
+    models: &[Installed],
+    model: &Installed,
+    mtp_on: bool,
+    hw: &Hardware,
+) -> Need {
     let m = &model.manifest;
     let mtp = mtp_on && m.has_mtp();
-    need(models, &m.repo, &model.id, m.weights(mtp), mtp, m.required)
+    need(
+        models,
+        &m.repo,
+        &model.id,
+        m.weights(mtp),
+        mtp,
+        m.required,
+        hw,
+    )
 }
 
 /// 依需求判斷等級：預估照 [`fit`]；實測（含推算）要每層都在 GPU、VRAM 與 RAM 各自放得下才 `Smooth`，合計放得下為 `Slow`／`Offload`。
@@ -661,12 +688,13 @@ mod tests {
     #[test]
     fn own_measurement_counts_only_with_the_same_mtp_setting() {
         let models = [installed("a", "r", 3 * G, Some(G), run(5 * G, 4 * G, true))];
+        let h = hw(8 * G, 16 * G);
         assert_eq!(
-            installed_need(&models, &models[0], true),
+            installed_need(&models, &models[0], true, &h),
             measured(5 * G, 4 * G, true)
         );
         assert_eq!(
-            installed_need(&models, &models[0], false),
+            installed_need(&models, &models[0], false, &h),
             Need::estimate(99 * G),
             "measured with MTP, now off"
         );
@@ -680,7 +708,8 @@ mod tests {
             installed("q6", "r", 6 * G, None, run(7 * G, 2 * G, false)),
             installed("x", "other", 4 * G, None, run(G, G, false)),
         ];
-        let derived = need(&models, "r", "q4", 4 * G, false, 99 * G);
+        let h = hw(8 * G, 16 * G);
+        let derived = need(&models, "r", "q4", 4 * G, false, 99 * G, &h);
         assert_eq!(
             derived,
             Need {
@@ -691,11 +720,37 @@ mod tests {
             }
         );
         assert!(derived.estimated());
-        let with_mtp = need(&models, "r", "q9", 10 * G, true, 99 * G);
+        let with_mtp = need(&models, "r", "q9", 10 * G, true, 99 * G, &h);
         assert_eq!((with_mtp.vram, with_mtp.ram), (11 * G, 3 * G));
         assert_eq!(
-            need(&models, "none", "q4", 4 * G, false, 99 * G),
+            need(&models, "none", "q4", 4 * G, false, 99 * G, &h),
             Need::estimate(99 * G)
+        );
+    }
+
+    /// 量的那次沒全放 GPU：現在可用 VRAM 比它用的多就看不出會不會流暢，退回預估；沒比較多則照實測判（不會流暢）。
+    #[test]
+    fn partial_offload_measurements_fall_back_when_there_is_more_vram_now() {
+        let mut partial = run(6 * G, 5 * G, false);
+        partial.as_mut().unwrap().all_on_gpu = false;
+        let models = [installed("a", "r", 8 * G, None, partial)];
+        assert_eq!(
+            installed_need(&models, &models[0], true, &hw(12 * G, 16 * G)),
+            Need::estimate(99 * G),
+            "more room than that run had"
+        );
+        let tight = hw(6 * G, 16 * G);
+        let kept = installed_need(&models, &models[0], true, &tight);
+        assert_eq!(kept, measured(6 * G, 5 * G, false));
+        assert_eq!(rate(&kept, false, &tight), Fit::Slow);
+        assert_eq!(
+            need(&models, "r", "b", 4 * G, false, 98 * G, &hw(12 * G, 16 * G)),
+            Need::estimate(98 * G),
+            "derived from a partial run too"
+        );
+        assert_eq!(
+            need(&models, "r", "b", 4 * G, false, 98 * G, &hw(2 * G, 16 * G)).basis,
+            Basis::Derived
         );
     }
 }

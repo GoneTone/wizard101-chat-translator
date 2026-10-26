@@ -308,7 +308,8 @@ impl Local {
 
     fn usage_of(&self, pid: Option<u32>) -> Usage {
         pid.map_or_else(Usage::default, |pid| {
-            tokio::task::block_in_place(|| self.launcher.process_usage(&[pid]))
+            let integrated = self.integrated_gpu();
+            tokio::task::block_in_place(|| self.launcher.process_usage(&[pid], integrated))
         })
     }
 

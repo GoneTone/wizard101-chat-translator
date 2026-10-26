@@ -144,7 +144,7 @@ impl Launcher for FakeLauncher {
         devices.ok_or_else(|| "fake measurement failure".into())
     }
 
-    fn process_usage(&self, pids: &[u32]) -> Usage {
+    fn process_usage(&self, pids: &[u32], _integrated: bool) -> Usage {
         *self.shared.usage_pids.lock().unwrap() = pids.to_vec();
         let each = *self.shared.usage_per_server.lock().unwrap();
         let n = pids.len() as u64;

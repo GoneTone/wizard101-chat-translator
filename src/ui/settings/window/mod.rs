@@ -482,7 +482,8 @@ fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
     let needs: Vec<_> = models
         .iter()
         .map(|m| {
-            let need = installed_need(&snapshot.models, m, settings.mtp_on(&m.id));
+            let mtp = settings.mtp_on(&m.id);
+            let need = installed_need(&snapshot.models, m, mtp, &snapshot.hardware);
             (need, m.manifest.moe)
         })
         .collect();
