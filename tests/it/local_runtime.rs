@@ -1315,8 +1315,8 @@ async fn repo_ratings_follow_measurements() {
     assert_eq!((q4[1].need.vram, q4[1].need.ram), (3 * G, G));
     assert_eq!(
         q4[0].need.basis,
-        Basis::Estimate,
-        "measured with MTP; the column without it is not"
+        Basis::Derived,
+        "measured with MTP; the column without it is derived"
     );
     let q8 = quant("Q8_0");
     assert_eq!(q8[1].need.basis, Basis::Derived);
@@ -1347,7 +1347,7 @@ async fn the_rating_follows_the_mtp_mode_actually_running() {
     assert_eq!((need.basis, need.vram), (Basis::Measured, 3 * G));
 }
 
-/// 設定關掉 MTP 跑的不算退回：設定改回開著時，就不拿關 MTP 時量的實測來比。
+/// 設定關掉 MTP 跑的不算退回：設定改回開著時，關 MTP 時量的實測只拿來推算。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mtp_turned_off_by_the_setting_is_not_a_fallback() {
     const G: u64 = 1 << 30;
@@ -1371,7 +1371,7 @@ async fn mtp_turned_off_by_the_setting_is_not_a_fallback() {
         Some(false)
     );
     let need = s.model_need(&s.models[0], &LocalSettings::default());
-    assert_eq!(need.basis, Basis::Estimate, "MTP back on");
+    assert_eq!(need.basis, Basis::Derived, "MTP back on");
 }
 
 /// 加上實測欄位前寫的清單照樣讀得到，只是沒有實測。

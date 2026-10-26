@@ -125,7 +125,7 @@ pub struct Target<'a> {
 
 /// `target` 載入時要的記憶體。
 ///
-/// 自己照同樣的 MTP（同一個 MTP 檔）量過就用實測；否則從同 repo 其他量過的模型推算
+/// 自己照同樣的 MTP（同一個 MTP 檔）量過就用實測；否則從同 repo 量過的模型（含自己）推算
 /// （先挑 MTP 一樣、全放 GPU 的，再挑權重最接近的）；都沒有就是預估。
 /// 量的那次沒全放 GPU、而現在可用 VRAM 比它用的多出 [`FIT_TARGET`] 加一層以上時，看不出現在會不會流暢，也退回預估。
 pub fn need(models: &[Installed], target: &Target, hw: &Hardware) -> Need {
@@ -162,7 +162,7 @@ fn measured_need(models: &[Installed], t: &Target) -> Option<Need> {
     }
     let sibling = models
         .iter()
-        .filter(|m| m.id != t.id && m.manifest.repo == t.repo)
+        .filter(|m| m.manifest.repo == t.repo)
         .filter_map(measured)
         .min_by_key(|(base, x)| (x.mtp != t.mtp, !x.all_on_gpu, base.abs_diff(t.weights)));
     sibling.map(|(base, x)| Need {
@@ -735,7 +735,7 @@ mod tests {
         }
     }
 
-    /// 自己照同樣 MTP 開關、同一個 MTP 檔量過才用實測；MTP 開關不同時退回預估。
+    /// 自己照同樣 MTP 開關、同一個 MTP 檔量過才用實測；MTP 開關或檔案不同時由自己的實測推算。
     #[test]
     fn own_measurement_counts_only_with_the_same_mtp() {
         let models = [installed("a", "r", 3 * G, Some(G), run(5 * G, 4 * G, true))];
@@ -744,17 +744,23 @@ mod tests {
             installed_need(&models, &models[0], true, &h),
             measured(5 * G, 4 * G, true)
         );
+        let derived = |vram| Need {
+            vram,
+            ram: 4 * G,
+            all_on_gpu: true,
+            basis: Basis::Derived,
+        };
         assert_eq!(
             installed_need(&models, &models[0], false, &h),
-            Need::estimate(99 * G),
+            derived(4 * G),
             "measured with MTP, now off"
         );
         let same = target("a", 4 * G, Some("mtp-a.gguf"));
         assert_eq!(need(&models, &same, &h).basis, Basis::Measured);
-        let other = target("a", 4 * G, Some("mtp-other.gguf"));
+        let other = target("a", 5 * G, Some("mtp-other.gguf"));
         assert_eq!(
             need(&models, &other, &h),
-            Need::estimate(98 * G),
+            derived(6 * G),
             "another MTP file"
         );
     }
