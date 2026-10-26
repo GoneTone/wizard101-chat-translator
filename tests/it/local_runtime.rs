@@ -1638,8 +1638,8 @@ async fn the_end_of_detection_is_notified() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_snapshot_reports_extraction() {
     let o = observed(|_| {}, Shared::default()).await;
-    // 解得出 64 MiB：解壓比回報進度的間隔久
-    mount_engine_zip(&o.hf, Duration::ZERO, engine_zip(&vec![0u8; 64 << 20])).await;
+    // 解得出 256 MiB：解壓要跨好幾個回報進度的間隔（64 MiB 約 0.25 秒，剛好一個間隔，偶爾整段漏掉）
+    mount_engine_zip(&o.hf, Duration::ZERO, engine_zip(&vec![0u8; 256 << 20])).await;
     o.local.command(Command::InstallEngine {
         build: None,
         variant: None,
