@@ -209,8 +209,7 @@ impl LocalInstall {
             snapshot.engine,
             EngineState::Missing | EngineState::Installing { .. }
         );
-        let engine_pending =
-            installing && (snapshot.builds.is_none() || !snapshot.hardware.measured);
+        let engine_pending = installing && snapshot.builds.is_none() || waiting_for_vram(snapshot);
         let repos_pending = self.selection.is_none()
             && RECOMMENDED.iter().filter(|r| r.wizard).any(|r| {
                 !matches!(
@@ -257,6 +256,9 @@ impl LocalInstall {
                         skeleton(ui, 96.0, button);
                         skeleton(ui, 72.0, button);
                     });
+                    if waiting_for_vram(snapshot) {
+                        hint(ui, &t("local.wizard.waiting_vram", &[]));
+                    }
                 }
             }
             self.engine_status(ui, env, snapshot);
@@ -423,6 +425,14 @@ impl LocalInstall {
             self.cancelled = true;
         }
     }
+}
+
+/// 引擎還在裝、VRAM 還沒量到：推薦要等量到才挑得出來。
+fn waiting_for_vram(snapshot: &Snapshot) -> bool {
+    matches!(
+        snapshot.engine,
+        EngineState::Missing | EngineState::Installing { .. }
+    ) && !snapshot.hardware.measured
 }
 
 /// 推薦卡還在載入時的佔位：標題與三行說明。

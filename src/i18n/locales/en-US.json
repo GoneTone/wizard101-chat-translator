@@ -113,6 +113,7 @@
   "local.wizard.engine_installing": "Installing the engine: {status}",
   "local.wizard.engine_ready": "Engine ready",
   "local.wizard.waiting_engine": "The download can start once the engine is installed.",
+  "local.wizard.waiting_vram": "A model that suits this computer is picked once the engine is installed and the graphics memory is measured.",
   "local.wizard.cancel": "Cancel download",
   "local.wizard.cancelled_hint": "Download stopped. Progress is kept; you can continue it from the Local models page in Settings (Continue download).",
   "local.wizard.done": "Download complete. Press Next to continue.",

@@ -113,6 +113,7 @@
   "local.wizard.engine_installing": "正在安裝引擎：{status}",
   "local.wizard.engine_ready": "引擎已就緒",
   "local.wizard.waiting_engine": "引擎安裝完成後才能開始下載。",
+  "local.wizard.waiting_vram": "引擎安裝完成、量到顯示卡記憶體後，才會挑出適合這台電腦的模型。",
   "local.wizard.cancel": "取消下載",
   "local.wizard.cancelled_hint": "已停止下載，進度會保留；之後可在設定的「本地模型」頁按「繼續下載」。",
   "local.wizard.done": "下載完成，可以按「下一步」。",

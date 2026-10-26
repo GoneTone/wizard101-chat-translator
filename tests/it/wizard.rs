@@ -816,6 +816,7 @@ mod local_install {
         s.hardware.measured = false;
         let h = on_card(s);
         assert!(has_label(&h, &tr("local.loading")));
+        assert!(has_label(&h, &tr("local.wizard.waiting_vram")));
         assert!(!download_button_shown(&h));
     }
 

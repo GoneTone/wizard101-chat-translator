@@ -20,6 +20,7 @@ use wizard101_chat_translator::local::server::{Launcher, Mtp, Process, ServerPla
 use wizard101_chat_translator::local::store;
 use wizard101_chat_translator::local::{
     Command, DownloadState, Endpoints, EngineState, Local, LocalNotice, RepoInfo, RepoState,
+    Snapshot,
 };
 
 type Events = Arc<Mutex<Vec<String>>>;
@@ -1179,17 +1180,21 @@ async fn a_new_start_waits_for_the_stopped_server_to_exit() {
     );
 }
 
-/// 偵測結束時一定再通知一次：最後一則通知當下讀到的已經不是偵測中，UI 的佔位才會收起。
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn the_end_of_detection_is_notified() {
+/// 每次通知當下讀一次快照：UI 收到通知時看到的就是這些。
+struct Observed {
+    _dir: TempDir,
+    hf: MockServer,
+    local: Arc<Local>,
+    seen: Arc<Mutex<Vec<Snapshot>>>,
+}
+
+async fn observed(prepare: impl FnOnce(&Path), shared: Shared) -> Observed {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
-    engine_and_model(false)(&root);
+    prepare(&root);
     let hf = MockServer::start().await;
-    let shared = Shared::default();
-    *shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
     let hub: Arc<OnceLock<Weak<Local>>> = Arc::default();
-    let seen: Arc<Mutex<Vec<bool>>> = Arc::default();
+    let seen: Arc<Mutex<Vec<Snapshot>>> = Arc::default();
     let (cell, record) = (hub.clone(), seen.clone());
     let local = Local::new(
         root.clone(),
@@ -1205,14 +1210,28 @@ async fn the_end_of_detection_is_notified() {
         },
         Arc::new(move |_| {
             if let Some(local) = cell.get().and_then(Weak::upgrade) {
-                record.lock().unwrap().push(local.snapshot().detecting);
+                record.lock().unwrap().push(local.snapshot());
             }
         }),
     );
     hub.set(Arc::downgrade(&local)).unwrap();
-    local.start(&local_config(&[], json!({})));
-    wait_for("first measurement", || !local.snapshot().detecting).await;
-    let seen = seen.lock().unwrap().clone();
+    Observed {
+        _dir: dir,
+        hf,
+        local,
+        seen,
+    }
+}
+
+/// 偵測結束時一定再通知一次：最後一則通知當下讀到的已經不是偵測中，UI 的佔位才會收起。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_end_of_detection_is_notified() {
+    let shared = Shared::default();
+    *shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    let o = observed(engine_and_model(false), shared).await;
+    o.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !o.local.snapshot().detecting).await;
+    let seen: Vec<bool> = o.seen.lock().unwrap().iter().map(|s| s.detecting).collect();
     assert!(seen.contains(&true), "{seen:?}");
     assert_eq!(seen.last(), Some(&false), "{seen:?}");
 }
@@ -1220,25 +1239,25 @@ async fn the_end_of_detection_is_notified() {
 /// 解壓得久時快照會報「解壓中」：解壓不能卡住回報進度的那個 task。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_snapshot_reports_extraction() {
-    let f = fixture(|_| {}, |_| false).await;
+    let o = observed(|_| {}, Shared::default()).await;
     // 解得出 64 MiB：解壓比回報進度的間隔久
-    mount_engine_zip(&f.hf, Duration::ZERO, engine_zip(&vec![0u8; 64 << 20])).await;
-    f.local.command(Command::InstallEngine {
+    mount_engine_zip(&o.hf, Duration::ZERO, engine_zip(&vec![0u8; 64 << 20])).await;
+    o.local.command(Command::InstallEngine {
         build: None,
         variant: None,
     });
-    wait_for("extracting reported", || {
+    wait_for("engine ready", || {
+        matches!(o.local.snapshot().engine, EngineState::Ready(_))
+    })
+    .await;
+    let extracting = o.seen.lock().unwrap().iter().any(|s| {
         matches!(
-            f.local.snapshot().engine,
+            s.engine,
             EngineState::Installing {
                 extracting: true,
                 ..
             }
         )
-    })
-    .await;
-    wait_for("engine ready", || {
-        matches!(f.local.snapshot().engine, EngineState::Ready(_))
-    })
-    .await;
+    });
+    assert!(extracting, "no notice showed the extraction");
 }
