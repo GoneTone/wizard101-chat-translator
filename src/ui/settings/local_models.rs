@@ -4,7 +4,7 @@ use eframe::egui::{Label, RichText, Ui, vec2};
 
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
-use super::local_rate::{Rates, transfer_text};
+use super::local_rate::{Rates, Speed, transfer_text};
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
@@ -116,7 +116,7 @@ fn row(
     .inner
 }
 
-fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
+fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<Speed>) {
     let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
