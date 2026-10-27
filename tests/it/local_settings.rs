@@ -1084,6 +1084,7 @@ mod page {
             all_on_gpu: true,
             mtp: false,
             engine: "b11871-cpu".into(),
+            prompt_cache_mib: 8192,
         });
         let mut snap = snapshot(vec![m]);
         snap.hardware = Hardware {
@@ -1119,6 +1120,7 @@ mod page {
             all_on_gpu: true,
             mtp: false,
             engine: "b11871-vulkan".into(),
+            prompt_cache_mib: 8192,
         });
         let mut snap = snapshot(vec![m]);
         snap.hardware = Hardware {

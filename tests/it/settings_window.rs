@@ -1211,6 +1211,7 @@ fn the_over_capacity_list_says_which_sizes_were_measured() {
         all_on_gpu: false,
         mtp: false,
         engine: "b11871-cpu".into(),
+        prompt_cache_mib: 8192,
     });
     run(&mut h);
     assert!(save(&mut h).is_none());

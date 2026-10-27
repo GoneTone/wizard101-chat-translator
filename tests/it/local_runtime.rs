@@ -1278,6 +1278,7 @@ async fn a_ready_server_records_what_it_used() {
         all_on_gpu: true,
         mtp: true,
         engine: "b11871-cpu".into(),
+        prompt_cache_mib: 8192,
     });
     assert_eq!(store::list(&f.root)[0].manifest.measured, want);
     assert_eq!(f.local.snapshot().models[0].manifest.measured, want);

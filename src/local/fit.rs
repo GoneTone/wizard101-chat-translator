@@ -713,6 +713,7 @@ mod tests {
             all_on_gpu: true,
             mtp,
             engine: String::new(),
+            prompt_cache_mib: 8192,
         })
     }
 

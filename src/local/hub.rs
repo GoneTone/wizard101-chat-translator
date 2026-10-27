@@ -812,6 +812,7 @@ mod tests {
                     all_on_gpu: true,
                     mtp: true,
                     engine: "b1-cuda".into(),
+                    prompt_cache_mib: 8192,
                 }),
                 layers: 4,
             },

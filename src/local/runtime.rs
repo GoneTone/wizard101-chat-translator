@@ -90,6 +90,7 @@ struct Running {
     /// 這次要開 MTP（`mtp` 為 false 時表示是失敗後退回的）。
     mtp_requested: bool,
     engine: EngineUse,
+    prompt_cache_mib: u32,
 }
 
 /// 啟動中與跑著的 llama-server 用的 exe；刪引擎資料夾前持這把鎖檢查。
@@ -115,6 +116,7 @@ struct Sample {
     unloaded: bool,
     mtp: bool,
     engine: String,
+    prompt_cache_mib: u32,
 }
 
 impl Sample {
@@ -128,6 +130,7 @@ impl Sample {
             unloaded: process.unloaded(),
             mtp: running.mtp,
             engine: running.engine.label.clone(),
+            prompt_cache_mib: running.prompt_cache_mib,
         }
     }
 }
@@ -392,17 +395,19 @@ impl Local {
             all_on_gpu,
             mtp: sample.mtp,
             engine: sample.engine,
+            prompt_cache_mib: sample.prompt_cache_mib,
         }
         .merged(model.manifest.measured.as_ref());
         if model.manifest.measured.as_ref() == Some(&measured) {
             return;
         }
         log(format!(
-            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={} engine={} (seen now: vram={} ram={ram} = private {} + mapped {}, working set {})",
+            "[local] llama-server[{id}] measured: vram={} ram={} all_on_gpu={all_on_gpu} mtp={} engine={} prompt_cache_mib={} (seen now: vram={} ram={ram} = private {} + mapped {}, working set {})",
             measured.vram,
             measured.ram,
             measured.mtp,
             measured.engine,
+            measured.prompt_cache_mib,
             usage.vram,
             usage.ram,
             sample.mapped,
@@ -692,6 +697,7 @@ impl Local {
             mtp: plan.mtp != Mtp::Off,
             mtp_requested: plan.mtp != Mtp::Off,
             engine: engine_use,
+            prompt_cache_mib: plan.prompt_cache_mib,
         })
     }
 }

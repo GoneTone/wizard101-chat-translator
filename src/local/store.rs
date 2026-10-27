@@ -62,10 +62,13 @@ pub struct Measured {
     /// 那次用的引擎（`{build}-{variant}`）；較早的紀錄沒有，為空字串。
     #[serde(default)]
     pub engine: String,
+    /// 那次的提示詞快取上限（MiB）；較早的紀錄沒有，為 0。
+    #[serde(default)]
+    pub prompt_cache_mib: u32,
 }
 
 impl Measured {
-    /// 與上一筆合併：同一個引擎、同樣的 MTP，且兩次都全放 GPU 時各取最大值（第一次請求後還會長）；否則整筆換成這次的。
+    /// 與上一筆合併：同一個引擎、同樣的 MTP 與快取上限，且兩次都全放 GPU 時各取最大值（第一次請求後還會長）；否則整筆換成這次的。
     ///
     /// 部分卸載的那幾次 `--fit` 擺放可能不同，VRAM 與 RAM 不能各取各的最大值。
     pub fn merged(self, old: Option<&Measured>) -> Self {
@@ -74,7 +77,8 @@ impl Measured {
                 if self.all_on_gpu
                     && o.all_on_gpu
                     && o.mtp == self.mtp
-                    && o.engine == self.engine =>
+                    && o.engine == self.engine
+                    && o.prompt_cache_mib == self.prompt_cache_mib =>
             {
                 Self {
                     vram: self.vram.max(o.vram),
@@ -411,7 +415,7 @@ mod tests {
         assert!(is_valid_id(&y));
     }
 
-    /// 只有同引擎、同 MTP、兩次都全放 GPU 才各取最大值；其餘整筆換掉。
+    /// 只有同引擎、同 MTP、同快取上限、兩次都全放 GPU 才各取最大值；其餘整筆換掉。
     #[test]
     fn measurements_merge_only_for_the_same_all_on_gpu_mode() {
         let m = |vram, ram, all_on_gpu, mtp, engine: &str| Measured {
@@ -420,6 +424,7 @@ mod tests {
             all_on_gpu,
             mtp,
             engine: engine.into(),
+            prompt_cache_mib: 8192,
         };
         let old = m(3, 1, true, true, "b1-cuda");
         assert_eq!(
@@ -430,6 +435,10 @@ mod tests {
             m(2, 2, false, true, "b1-cuda"),
             m(2, 2, true, false, "b1-cuda"),
             m(2, 2, true, true, "b2-cuda"),
+            Measured {
+                prompt_cache_mib: 1024,
+                ..m(2, 2, true, true, "b1-cuda")
+            },
         ] {
             assert_eq!(new.clone().merged(Some(&old)), new);
         }
