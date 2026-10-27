@@ -3,7 +3,7 @@
 use std::cmp::Reverse;
 
 use super::gguf::ModelMeta;
-use super::hardware::{GpuKind, Hardware, effective};
+use super::hardware::{Hardware, effective};
 use super::hf::{Catalog, Choice};
 use super::store::Installed;
 
@@ -213,29 +213,6 @@ pub fn rate(need: &Need, moe: bool, hw: &Hardware) -> Fit {
     }
 }
 
-/// 預估記憶體要顯示的種類。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MemoryKind {
-    Vram,
-    VramPlusRam,
-    Ram,
-}
-
-/// 內顯為 RAM、MoE 為 VRAM＋RAM、其餘為 VRAM。
-pub fn memory_kind(moe: bool, hw: &Hardware) -> MemoryKind {
-    if hw
-        .gpu
-        .as_ref()
-        .is_some_and(|g| g.kind == GpuKind::Integrated)
-    {
-        MemoryKind::Ram
-    } else if moe {
-        MemoryKind::VramPlusRam
-    } else {
-        MemoryKind::Vram
-    }
-}
-
 /// 自動挑選結果；`choice`／`mtp` 為 `Catalog` 內的索引。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pick {
@@ -374,7 +351,7 @@ pub fn combined_fit(needs: &[(Need, bool)], hw: &Hardware) -> Fit {
 
 #[cfg(test)]
 mod tests {
-    use super::super::hardware::Gpu;
+    use super::super::hardware::{Gpu, GpuKind};
     use super::super::hf::{MtpChoice, Quant, RepoFile};
     use super::super::store::{Manifest, ManifestFile, Measured};
     use super::*;
@@ -476,16 +453,6 @@ mod tests {
     #[test]
     fn integrated_gpu_never_smooth() {
         assert_eq!(fit(G, false, &integrated(16 * G)), Fit::Slow);
-    }
-
-    #[test]
-    fn memory_kind_by_hardware() {
-        assert_eq!(memory_kind(false, &integrated(16 * G)), MemoryKind::Ram);
-        assert_eq!(
-            memory_kind(true, &hw(8 * G, 16 * G)),
-            MemoryKind::VramPlusRam
-        );
-        assert_eq!(memory_kind(false, &hw(8 * G, 16 * G)), MemoryKind::Vram);
     }
 
     #[test]

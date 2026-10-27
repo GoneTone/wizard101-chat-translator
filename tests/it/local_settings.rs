@@ -156,9 +156,9 @@ fn recommended_rows_wait_while_the_hardware_is_detected() {
     assert!(!has_label(&h, &estimated("local.fit.smooth")));
 }
 
-/// 載入過的版本列出實測的 VRAM 與 RAM、徽章不加「預估」；沒載入過的是預估約需、徽章加「預估」。
+/// 載入過的版本徽章依實測、不加「預估」；沒載入過的徽章加「預估」。
 #[test]
-fn measured_rows_show_what_was_used_and_estimates_say_so() {
+fn measured_rows_drop_the_estimate_mark() {
     let mut loaded = info(Fit::Smooth, false, 2, 3 * G);
     loaded.fits[0][0].need = Need {
         vram: 7 * G / 2,
@@ -168,31 +168,18 @@ fn measured_rows_show_what_was_used_and_estimates_say_so() {
     };
     let snap = snapshot(&[(0, loaded), (1, info(Fit::Slow, false, 2, 5 * G))]);
     let h = harness(DialogMode::Download, Tab::Recommended, snap);
-    let texts = painted_texts(&h);
-    let measured = t(
-        "local.memory.measured",
-        &[("vram", &size_arg(7 * G / 2)), ("ram", &size_arg(4 * G))],
-    );
-    assert!(texts.contains(&measured), "{texts:?}");
     assert!(has_label(&h, &tr("local.fit.smooth")));
-    let estimate = t("local.memory.vram", &[("size", &size_arg(5 * G))]);
-    assert!(texts.contains(&estimate), "{texts:?}");
     assert!(has_label(&h, &estimated("local.fit.slow")));
     assert!(!has_label(&h, &tr("local.fit.slow")));
 }
 
 #[test]
-fn recommended_rows_show_memory_kind_not_tier() {
+fn recommended_rows_show_no_tier() {
     let snap = snapshot(&[
         (0, info(Fit::Smooth, false, 2, 3 * G)),
         (4, info(Fit::Offload, true, 2, 18 * G)),
     ]);
     let h = harness(DialogMode::Download, Tab::Recommended, snap);
-    let texts = painted_texts(&h);
-    let vram = t("local.memory.vram", &[("size", &size_arg(3 * G))]);
-    let both = t("local.memory.vram_ram", &[("size", &size_arg(18 * G))]);
-    assert!(texts.contains(&vram), "{texts:?}");
-    assert!(texts.contains(&both), "{texts:?}");
     assert!(!include_str!("../../src/i18n/locales/en-US.json").contains("local.tier."));
     let queried = h.state().env.commands.borrow().len();
     assert_eq!(
@@ -689,9 +676,7 @@ mod page {
 
     use serde_json::{Value, json};
 
-    use common::kittest::{
-        click, click_in_dialog, has_label, painted_texts, run, themed_harness, tr,
-    };
+    use common::kittest::{click, click_in_dialog, has_label, run, themed_harness, tr};
     use common::settings_env::FakeEnv;
     use common::settings_window::{State as WindowState, custom_cfg, harness as window_harness};
     use wizard101_chat_translator::config::services::new_service;
@@ -1073,9 +1058,9 @@ mod page {
         assert!(has_label(&card(false), &tr("local.fit.unknown")));
     }
 
-    /// 載入過的模型列出實測的 VRAM 與 RAM，相容徽章依實測、不加「預估」。
+    /// 載入過的模型相容徽章依實測、不加「預估」。
     #[test]
-    fn a_measured_model_shows_what_it_used() {
+    fn a_measured_model_is_rated_by_what_it_used() {
         const G: u64 = 1 << 30;
         let mut m = model(MODEL, true, false);
         m.manifest.measured = Some(Measured {
@@ -1103,15 +1088,12 @@ mod page {
             own: Usage::default(),
         };
         let h = pane_harness(snap, vec![]);
-        let measured = t("local.memory.measured", &[("vram", "3.0"), ("ram", "2.0")]);
-        let texts = painted_texts(&h);
-        assert!(texts.iter().any(|l| l.contains(&measured)), "{texts:?}");
         assert!(has_label(&h, &tr("local.fit.smooth")));
     }
 
-    /// 內顯的實測只列 RAM（GPU 記憶體已算在裡面）。
+    /// 內顯依實測的 RAM 評級（GPU 記憶體已算在裡面）。
     #[test]
-    fn an_integrated_gpu_shows_only_measured_ram() {
+    fn an_integrated_gpu_is_rated_by_measured_ram() {
         const G: u64 = 1 << 30;
         let mut m = model(MODEL, true, false);
         m.manifest.measured = Some(Measured {
@@ -1137,9 +1119,6 @@ mod page {
             ..Hardware::default()
         };
         let h = pane_harness(snap, vec![]);
-        let texts = painted_texts(&h);
-        let ram = t("local.memory.measured_ram", &[("ram", "5.0")]);
-        assert!(texts.iter().any(|l| l.contains(&ram)), "{texts:?}");
         assert!(has_label(&h, &tr("local.fit.slow")));
     }
 

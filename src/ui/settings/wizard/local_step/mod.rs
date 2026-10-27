@@ -17,7 +17,6 @@ use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
 use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, transfer_text};
-use crate::ui::settings::local_rows::need_text;
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
 use crate::ui::settings::widgets::{card, primary_button, secondary_button, skeleton};
@@ -40,7 +39,6 @@ struct Plan {
     title: String,
     rating: Rating,
     model_bytes: u64,
-    moe: bool,
     id: String,
 }
 
@@ -195,7 +193,6 @@ impl LocalInstall {
             title,
             rating,
             model_bytes: total_size(choice) + mtp.map_or(0, |m| m.file.size),
-            moe: info.meta.expert_count > 0,
             selection,
         })
     }
@@ -288,10 +285,6 @@ impl LocalInstall {
                         hint(ui, &t("local.wizard.engine_size", &args));
                     }
                     hint(ui, &t("local.wizard.total", &[("size", &gb(total))]));
-                    hint(
-                        ui,
-                        &need_text(&plan.rating.need, plan.moe, &snapshot.hardware),
-                    );
                 });
         });
         let ready = matches!(snapshot.engine, EngineState::Ready(_));

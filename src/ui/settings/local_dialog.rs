@@ -6,7 +6,7 @@ use eframe::egui::{Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field_with_hint;
-use super::local_rows::{Have, basis, have_of, need_text, row_buttons, row_text};
+use super::local_rows::{Have, basis, have_of, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
 use super::widgets::{primary_button, right_aligned, secondary_button, skeleton};
@@ -299,8 +299,6 @@ impl DownloadDialog {
         let chosen = self.chosen(repo, info)?;
         let (choice, mtp) = (chosen.0.choice, chosen.0.mtp);
         let rating = chosen.1;
-        let moe = info.meta.expert_count > 0;
-        let memory = need_text(&rating.need, moe, &snapshot.hardware);
         let c = &info.catalog.choices[choice];
         let mut version = format!("{} · {} GB", c.quant.label, gb(total_size(c)));
         if let Some(m) = mtp {
@@ -316,9 +314,7 @@ impl DownloadDialog {
         ui.horizontal(|ui| {
             let reserved = super::widgets::right_aligned_width(ui, id);
             let width = (ui.available_width() - reserved - 12.0).max(120.0);
-            ui.allocate_ui(vec2(width, 0.0), |ui| {
-                row_text(ui, name, &memory, &version, have)
-            });
+            ui.allocate_ui(vec2(width, 0.0), |ui| row_text(ui, name, &version, have));
             right_aligned(ui, id, |ui| {
                 clicks = row_buttons(
                     ui,

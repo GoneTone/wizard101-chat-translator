@@ -5,7 +5,6 @@ use eframe::egui::{Label, RichText, Ui, vec2};
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
 use super::local_rate::{Rates, transfer_text};
-use super::local_rows::need_text;
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
@@ -14,7 +13,7 @@ use super::widgets::{
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
-use crate::local::fit::{Basis, Need, rate};
+use crate::local::fit::{Need, rate};
 use crate::local::store::{Installed, total_size};
 use crate::local::{Command, DownloadState, Snapshot};
 use crate::logs::log;
@@ -102,15 +101,13 @@ fn row(
         None => RowState::Interrupted,
     };
     let need = snapshot.model_need(model, settings);
-    let measured = (need.basis == Basis::Measured)
-        .then(|| need_text(&need, model.manifest.moe, &snapshot.hardware));
     let id = ui.scope_id().with(("local_model_row", &model.id));
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         let reserved = right_aligned_width(ui, id);
         let width = (ui.available_width() - reserved - 12.0).max(120.0);
         ui.allocate_ui(vec2(width, 0.0), |ui| {
-            texts(ui, model, &state, measured, rates.speed(&model.id))
+            texts(ui, model, &state, rates.speed(&model.id))
         });
         right_aligned(ui, id, |ui| {
             controls(ui, env, snapshot, settings, model, &state, &need)
@@ -119,14 +116,7 @@ fn row(
     .inner
 }
 
-/// `measured` 是實測的需求文字（沒載入過為 `None`）。
-fn texts(
-    ui: &mut Ui,
-    model: &Installed,
-    state: &RowState,
-    measured: Option<String>,
-    speed: Option<f64>,
-) {
+fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<f64>) {
     let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
@@ -134,13 +124,7 @@ fn texts(
         ui.add(Label::new(name).truncate());
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
-            RowState::Ready => {
-                let mut line = format!("{} · {size} GB", model.manifest.repo);
-                if let Some(measured) = measured {
-                    line += &format!(" · {measured}");
-                }
-                small(line)
-            }
+            RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
             RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
             RowState::Paused(done, total) => small(t(
                 "local.models.paused",

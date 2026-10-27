@@ -1,4 +1,4 @@
-//! 下載對話框推薦列的零件：記憶體需求文字、已下載狀態、判斷依據，以及列的文字與按鈕。
+//! 下載對話框推薦列的零件：已下載狀態、判斷依據，以及列的文字與按鈕。
 
 use eframe::egui::{Label, RichText, Ui};
 
@@ -8,28 +8,8 @@ use super::theme;
 use super::widgets::{primary_button, secondary_button};
 use crate::i18n::t;
 use crate::local::Snapshot;
-use crate::local::fit::{Basis, MemoryKind, Need, Rating, memory_kind};
+use crate::local::fit::Rating;
 use crate::local::hardware::{Hardware, effective};
-
-/// 記憶體需求文字：實測列出 VRAM 與 RAM，其餘是「預估約需」多少哪種記憶體。
-pub(super) fn need_text(need: &Need, moe: bool, hw: &Hardware) -> String {
-    let kind = memory_kind(moe, hw);
-    if need.basis == Basis::Measured {
-        let (vram, ram) = (gb(need.vram), gb(need.ram));
-        // 內顯的 GPU 記憶體已算在 RAM 裡
-        return if kind == MemoryKind::Ram {
-            t("local.memory.measured_ram", &[("ram", &ram)])
-        } else {
-            t("local.memory.measured", &[("vram", &vram), ("ram", &ram)])
-        };
-    }
-    let (key, size) = match kind {
-        MemoryKind::Vram => ("local.memory.vram", need.vram),
-        MemoryKind::VramPlusRam => ("local.memory.vram_ram", need.total()),
-        MemoryKind::Ram => ("local.memory.ram", need.total()),
-    };
-    t(key, &[("size", &gb(size))])
-}
 
 /// 已下載的狀態：完整、未完成（進度在設定頁），或沒有。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -68,13 +48,12 @@ pub(super) fn basis(ui: &mut Ui, hw: &Hardware) {
     );
 }
 
-/// 推薦列左側的文字：名稱、記憶體需求、所選量化，以及下載狀態。
-pub(super) fn row_text(ui: &mut Ui, name: RichText, memory: &str, version: &str, have: Have) {
+/// 推薦列左側的文字：名稱、所選量化，以及下載狀態。
+pub(super) fn row_text(ui: &mut Ui, name: RichText, version: &str, have: Have) {
     let small = |text: &str, color| RichText::new(text).size(theme::HINT_SIZE).color(color);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
         ui.add(Label::new(name).truncate());
-        ui.add(Label::new(small(memory, theme::TEXT_SECONDARY)).wrap());
         ui.label(small(version, theme::TEXT_SECONDARY));
         if have == Have::Complete {
             ui.label(small(
