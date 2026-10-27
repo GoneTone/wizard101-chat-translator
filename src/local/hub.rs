@@ -25,7 +25,8 @@ use crate::config::local::LocalSettings;
 use crate::logs::log;
 use crate::util::lock;
 
-pub(super) const PROGRESS_TICK: Duration = Duration::from_millis(250);
+/// 下載與安裝進度寫進快照的間隔。
+pub const PROGRESS_TICK: Duration = Duration::from_millis(100);
 
 /// 外部服務根網址；正式為 [`hf::HF_BASE`] 與 [`engine::RELEASES_API`]。
 #[derive(Clone, Debug)]

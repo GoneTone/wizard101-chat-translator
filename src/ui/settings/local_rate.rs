@@ -10,8 +10,8 @@ use crate::ui::settings::quant_table::gb;
 /// 引擎安裝在 `Rates` 裡的鍵；模型 id 是資料夾名，不會含 `:`。
 pub const ENGINE: &str = ":engine";
 
-/// 兩次取樣至少相隔這麼久才算一筆（同一幀多次繪製不重複取樣）。
-const MIN_INTERVAL: Duration = Duration::from_millis(200);
+/// 兩次取樣至少相隔這麼久才算一筆（進度條補間時每幀都會繪製）。
+const MIN_INTERVAL: Duration = Duration::from_millis(50);
 /// 速度取最近這段時間的平均：資料分段送達，短時間內量到的忽快忽慢。
 const WINDOW: Duration = Duration::from_secs(8);
 /// 第一筆速度一有就顯示，之後每隔這麼久才換：數字不會一直跳。
@@ -68,7 +68,10 @@ impl Rates {
             {
                 track.samples.pop_front();
             }
-            let due = track.shown.is_none_or(|(at, _)| since(at) >= SHOW_EVERY);
+            // 還沒量到正的速度（進度剛好還沒更新）時不必等滿一秒
+            let due = track
+                .shown
+                .is_none_or(|(at, r)| r <= 0.0 || since(at) >= SHOW_EVERY);
             if let (true, Some(rate)) = (due, average(&track.samples)) {
                 track.shown = Some((now, rate));
             }
@@ -168,6 +171,7 @@ mod tests {
         let t0 = Instant::now();
         let at = |ms| t0 + Duration::from_millis(ms);
         rates.observe(at(0), &snapshot(0));
+        rates.observe(at(100), &snapshot(0));
         assert_eq!(rates.speed("m"), None);
         rates.observe(at(250), &snapshot(100));
         assert_eq!(rates.speed("m"), Some(400.0));

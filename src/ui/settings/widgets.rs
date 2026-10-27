@@ -427,9 +427,9 @@ pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
 pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, PROGRESS_HEIGHT), Sense::hover());
     let fraction = fraction.clamp(0.0, 1.0);
-    let shown = ui
-        .ctx()
-        .animate_value_with_time(response.id, fraction, PROGRESS_EASE);
+    let shown =
+        ui.ctx()
+            .animate_value_with_time(response.id, fraction, PROGRESS_EASE.as_secs_f32());
     response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_numeric_value(f64::from(fraction) * 100.0);
@@ -449,8 +449,8 @@ pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
 
 /// 細進度條的高度。
 const PROGRESS_HEIGHT: f32 = 6.0;
-/// 進度條移到新位置的秒數：下載進度約每 0.25 秒更新一次，移完正好接上下一次。
-const PROGRESS_EASE: f32 = 0.25;
+/// 進度條移到新位置的時間：與進度更新間隔相同，移完正好接上下一次。
+const PROGRESS_EASE: std::time::Duration = crate::local::PROGRESS_TICK;
 
 /// 佔位亮度起伏一輪的秒數。
 const SKELETON_PERIOD: f64 = 1.4;
