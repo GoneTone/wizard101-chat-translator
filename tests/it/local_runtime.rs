@@ -669,6 +669,43 @@ async fn cancel_pauses_and_resume_completes() {
     .await;
 }
 
+/// 讀過的 GGUF 檔頭存在磁碟上：再查同一個檔案不必再下載檔頭。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_read_header_is_reused_without_downloading_it_again() {
+    let f = fixture(|root| drop(add_engine(root, "b11871")), |_| false).await;
+    let body = tiny_gguf();
+    let tree = json!([{
+        "type": "file",
+        "path": "model-Q4_K_M.gguf",
+        "size": body.len(),
+        "lfs": {"oid": "ab".repeat(32)},
+    }]);
+    let mount_tree = || {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/models/{REPO}/tree/main")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(tree.clone()))
+            .mount(&f.hf)
+    };
+    mount_tree().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/{REPO}/resolve/main/model-Q4_K_M.gguf")))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+        .mount(&f.hf)
+        .await;
+    let first = query(&f).await;
+    f.hf.reset().await;
+    mount_tree().await;
+    let again = query(&f).await;
+    assert_eq!(again.meta, first.meta);
+    let fetched_header =
+        f.hf.received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.url.path().ends_with(".gguf"));
+    assert!(!fetched_header);
+}
+
 /// 下載途中刪除：先停下載放開檔案，資料夾刪得掉。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delete_during_download_removes_the_folder() {

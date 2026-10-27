@@ -112,7 +112,7 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
   - RAM：`GlobalMemoryStatusEx`（`windows-sys` 已啟用的 `Win32_System_SystemInformation`）。
   - 量測當下遊戲若沒開，可用量會偏高；畫面上註明「以目前可用量估算」，不另外猜遊戲佔用。
   - 內顯（共享記憶體，`--list-devices` 會把系統 RAM 報成裝置記憶體）：只算一次、當成 RAM，不跟 RAM 相加；這種機器不會出現「流暢」，放得進 RAM 就標「會慢」。（我的決定）
-- **所需記憶體** ≈ 模型檔大小（含分檔）＋ MTP 檔（若有選）＋ 上下文 KV cache ＋ 固定餘裕。KV cache 從 GGUF 檔頭算（`block_count`、`attention.head_count_kv`、`key_length`／`value_length` 等，乘上實際使用的 context 長度）；檔頭以 HTTP `Range` 只讀開頭，不下載整個檔（檔頭含 tokenizer 詞表，可能數 MB，要能分段讀到 tensor 資訊為止）。
+- **所需記憶體** ≈ 模型檔大小（含分檔）＋ MTP 檔（若有選）＋ 上下文 KV cache ＋ 固定餘裕。KV cache 從 GGUF 檔頭算（`block_count`、`attention.head_count_kv`、`key_length`／`value_length` 等，乘上實際使用的 context 長度）；檔頭以 HTTP `Range` 只讀開頭，不下載整個檔（檔頭含 tokenizer 詞表，可能數 MB，要能分段讀到 tensor 資訊為止）。一次請求邊收邊解析、解出來就停，不要每次加大範圍又從頭重抓（使用者機器上 Gemma 與 Qwen 的檔頭在 8–16 MiB 間，原本 4→8→16 MiB 重抓，6 個推薦 repo 開對話框約 10 秒）；解析結果依檔案 sha256 存在 `models/gguf_headers/`，重開程式不必再下載。
 - **MoE**：檔頭的 `expert_count` > 0 即為 MoE。MoE 只要 VRAM＋RAM 合計放得下就算可用，因為 `--fit` 會把專家權重放到 RAM、速度仍可接受。
 - **MTP**：檔頭最後一個 block 有 `nextn` 張量（`blk.{N-1}.nextn.eh_proj.weight`）表示主檔內建 MTP；llama.cpp 自己也是這樣判斷。
 - **三級**：

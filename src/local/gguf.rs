@@ -3,15 +3,17 @@
 use std::collections::HashMap;
 
 use ggus::{GGufMetaDataValueType as Ty, GGufMetaKV, GGufReadError, GGufReader};
+use serde::{Deserialize, Serialize};
 
 use crate::logs::log;
 use crate::net::error_chain;
 
-const INITIAL_RANGE: usize = 4 << 20;
+/// 每多收這麼多位元組試解一次檔頭。
+const PARSE_STEP: usize = 1 << 20;
 const MAX_RANGE: usize = 64 << 20;
 
 /// 估算記憶體需要的模型形狀；缺少的欄位已套用預設值。
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub struct ModelMeta {
     pub arch: String,
     pub block_count: u32,
@@ -122,76 +124,78 @@ fn parse_inner(bytes: &[u8]) -> Result<ModelMeta, ParseError> {
     })
 }
 
-/// 讀取 `url` 開頭的檔頭並解析；範圍不夠時加倍重抓，上限 64 MiB。
+/// 讀取 `url` 開頭的檔頭並解析：一次請求邊收邊解析，解得出就停止下載；上限 64 MiB。
 pub async fn fetch(http: &reqwest::Client, url: &str) -> Result<ModelMeta, String> {
-    fetch_with(http, url, INITIAL_RANGE, MAX_RANGE).await
+    fetch_with(http, url, PARSE_STEP, MAX_RANGE).await
 }
 
-/// 內部用：可指定起始與上限範圍，讓測試不必配置 64 MiB。
+/// 內部用：可指定每收多少位元組試解一次與上限，讓測試不必配置 64 MiB。
 #[doc(hidden)]
 pub async fn fetch_with(
     http: &reqwest::Client,
     url: &str,
-    initial: usize,
+    step: usize,
     max: usize,
 ) -> Result<ModelMeta, String> {
-    let host = reqwest::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_owned))
-        .unwrap_or_default();
-    let mut n = initial;
-    loop {
-        let bytes = match fetch_prefix(http, url, n).await {
-            Ok(b) => b,
-            Err(e) => {
-                log(format!("[local] GGUF header from {host} failed: {e}"));
-                return Err(e);
-            }
-        };
-        let err = match parse(&bytes) {
-            Ok(meta) => return Ok(meta),
-            Err(ParseError::Invalid(e)) => e,
-            Err(ParseError::NeedMore) if bytes.len() < n => {
-                format!("GGUF file ended inside its header ({} bytes)", bytes.len())
-            }
-            Err(ParseError::NeedMore) if n >= max => {
-                format!("GGUF header larger than {} MiB", max >> 20)
-            }
-            Err(ParseError::NeedMore) => {
-                n *= 2;
-                log(format!(
-                    "[local] GGUF header needs more, retry with {n} bytes"
-                ));
-                continue;
-            }
-        };
-        log(format!("[local] GGUF header from {host} failed: {err}"));
-        return Err(err);
+    let result = read_header(http, url, step, max).await;
+    if let Err(e) = &result {
+        let host = reqwest::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        log(format!("[local] GGUF header from {host} failed: {e}"));
     }
+    result
 }
 
-/// 取檔案前 `n` 位元組；伺服器忽略 Range 回整檔時讀到 `n` 就停。
-async fn fetch_prefix(http: &reqwest::Client, url: &str, n: usize) -> Result<Vec<u8>, String> {
+async fn read_header(
+    http: &reqwest::Client,
+    url: &str,
+    step: usize,
+    max: usize,
+) -> Result<ModelMeta, String> {
+    // 伺服器忽略 Range 回整檔時，解出檔頭就放掉回應、不會讀完整個模型
     let mut resp = http
         .get(url)
-        .header(reqwest::header::RANGE, format!("bytes=0-{}", n - 1))
+        .header(reqwest::header::RANGE, format!("bytes=0-{}", max - 1))
         .send()
         .await
         .map_err(error_chain)?;
     if !resp.status().is_success() {
-        log(format!(
-            "[local] GGUF range request failed: HTTP {}",
-            resp.status()
-        ));
         return Err(format!("HTTP {}", resp.status()));
     }
-    let mut buf = Vec::with_capacity(n);
-    while buf.len() < n {
-        match resp.chunk().await.map_err(error_chain)? {
-            Some(c) => buf.extend_from_slice(&c),
-            None => break,
+    let mut buf = Vec::new();
+    let mut next_try = step;
+    loop {
+        let chunk = resp.chunk().await.map_err(error_chain)?;
+        let ended = chunk.is_none();
+        if let Some(c) = chunk {
+            buf.extend_from_slice(&c);
+        }
+        let full = buf.len() >= max;
+        if !ended && !full && buf.len() < next_try {
+            continue;
+        }
+        buf.truncate(max);
+        match parse(&buf) {
+            Ok(meta) => {
+                log(format!(
+                    "[local] GGUF header parsed from the first {} bytes",
+                    buf.len()
+                ));
+                return Ok(meta);
+            }
+            Err(ParseError::Invalid(e)) => return Err(e),
+            Err(ParseError::NeedMore) if ended => {
+                return Err(format!(
+                    "GGUF file ended inside its header ({} bytes)",
+                    buf.len()
+                ));
+            }
+            Err(ParseError::NeedMore) if full => {
+                return Err(format!("GGUF header larger than {} MiB", max >> 20));
+            }
+            Err(ParseError::NeedMore) => next_try = buf.len() + step,
         }
     }
-    buf.truncate(n);
-    Ok(buf)
 }

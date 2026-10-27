@@ -157,8 +157,8 @@ impl Respond for RangeFile {
 }
 
 #[tokio::test]
-async fn fetch_grows_the_range_until_the_header_fits() {
-    // 約 6 MiB 的檔頭（大詞表）加填充：4 MiB 不夠、8 MiB 才讀得完
+async fn fetch_reads_a_large_header_in_one_request() {
+    // 約 6 MiB 的檔頭（大詞表）加填充：要收好幾段才解得出來，仍只送一次請求
     let mut file = gguf_bytes(
         &[
             ("general.architecture", s("x")),
@@ -187,7 +187,7 @@ async fn fetch_grows_the_range_until_the_header_fits() {
         .iter()
         .map(|r| r.headers.get("range").unwrap().to_str().unwrap().into())
         .collect();
-    assert_eq!(ranges, ["bytes=0-4194303", "bytes=0-8388607"]);
+    assert_eq!(ranges, ["bytes=0-67108863"]);
 }
 
 #[test]
@@ -284,7 +284,7 @@ async fn range_cap_stops_the_growth() {
         .await
         .unwrap_err();
     assert!(err.contains("larger than"), "{err}");
-    assert_eq!(server.received_requests().await.unwrap().len(), 3);
+    assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
 #[test]

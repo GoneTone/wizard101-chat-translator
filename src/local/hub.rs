@@ -591,7 +591,7 @@ impl Local {
         });
     }
 
-    /// 列出 repo 檔案並讀第一個主模型檔的檔頭（同 repo 的量化共用模型形狀）。
+    /// 列出 repo 檔案並讀第一個主模型檔的檔頭（同 repo 的量化共用模型形狀；讀過的檔案用磁碟上的快取）。
     async fn fetch_repo(&self, repo: &str) -> Result<(Catalog, ModelMeta), String> {
         let files = hf::list_files(&self.hf_http, &self.endpoints.hf, repo).await?;
         let catalog = hf::classify(&files);
@@ -600,8 +600,18 @@ impl Local {
             .first()
             .and_then(|c| c.files.first())
             .ok_or_else(|| format!("{repo} has no GGUF model files"))?;
+        if let Some(meta) = first
+            .sha256
+            .as_deref()
+            .and_then(|sha| store::cached_header(&self.root, sha))
+        {
+            return Ok((catalog, meta));
+        }
         let url = hf::resolve_url(&self.endpoints.hf, repo, &first.path);
         let meta = gguf::fetch(&self.hf_http, &url).await?;
+        if let Some(sha) = &first.sha256 {
+            store::cache_header(&self.root, sha, &meta);
+        }
         Ok((catalog, meta))
     }
 

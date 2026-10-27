@@ -7,11 +7,13 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::catalog::RECOMMENDED;
+use super::gguf::ModelMeta;
 use super::hf::Choice;
 use crate::logs::log;
 use crate::util::write_atomic;
 
 const MANIFEST_NAME: &str = "manifest.json";
+const HEADERS_DIR: &str = "gguf_headers";
 
 /// 清單中的一個檔案；`path` 為 repo 內路徑，本地檔名取 basename。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -156,6 +158,36 @@ pub fn models_dir(root: &Path) -> PathBuf {
     root.join("models")
 }
 
+/// 讀過的 GGUF 檔頭（以檔案的 sha256 為鍵）：同一個檔案的形狀不會變，重開程式不必再下載檔頭。
+pub fn cached_header(root: &Path, sha256: &str) -> Option<ModelMeta> {
+    let text = fs::read_to_string(header_path(root, sha256)?).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// 記下讀到的 GGUF 檔頭；寫不進去只記 log，下次重新下載。
+pub fn cache_header(root: &Path, sha256: &str, meta: &ModelMeta) {
+    let Some(path) = header_path(root, sha256) else {
+        return;
+    };
+    let written = serde_json::to_string(meta)
+        .map_err(io::Error::other)
+        .and_then(|text| write_atomic(&path, &text));
+    if let Err(e) = written {
+        log(format!(
+            "[local] caching the GGUF header {sha256} failed: {e}"
+        ));
+    }
+}
+
+/// 檔頭快取的路徑；sha256 不是 64 位 hex（來自網路）時為 `None`。
+fn header_path(root: &Path, sha256: &str) -> Option<PathBuf> {
+    (sha256.len() == 64 && sha256.bytes().all(|b| b.is_ascii_hexdigit())).then(|| {
+        models_dir(root)
+            .join(HEADERS_DIR)
+            .join(format!("{sha256}.json"))
+    })
+}
+
 /// id 必須恰為單一路徑元件，避免 config 手改後跳出 `models/`。
 fn is_valid_id(id: &str) -> bool {
     let mut parts = Path::new(id).components();
@@ -262,6 +294,30 @@ pub fn total_size(list: &[Installed]) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 檔頭快取存得回來；sha256 不是 64 位 hex（例如帶路徑字元）時不讀也不寫。
+    #[test]
+    fn header_cache_round_trips_and_rejects_odd_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let meta = ModelMeta {
+            arch: "x".into(),
+            block_count: 3,
+            ..ModelMeta::default()
+        };
+        let sha = "0f".repeat(32);
+        cache_header(dir.path(), &sha, &meta);
+        assert_eq!(cached_header(dir.path(), &sha), Some(meta.clone()));
+        for odd in [
+            "../escape",
+            &"0f".repeat(31),
+            &format!("{}..", "0f".repeat(31)),
+        ] {
+            cache_header(dir.path(), odd, &meta);
+            assert_eq!(cached_header(dir.path(), odd), None);
+        }
+        let saved = fs::read_dir(models_dir(dir.path()).join(HEADERS_DIR)).unwrap();
+        assert_eq!(saved.count(), 1);
+    }
 
     fn file(path: &str, size: u64) -> ManifestFile {
         ManifestFile {
