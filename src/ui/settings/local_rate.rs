@@ -1,6 +1,6 @@
-//! 下載速度與剩餘時間：由前後兩次快照的已下載量推算，速度做指數平滑。
+//! 下載速度與剩餘時間：取最近幾秒已下載量的平均速度推算。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use crate::i18n::t;
@@ -10,20 +10,15 @@ use crate::ui::settings::quant_table::gb;
 /// 引擎安裝在 `Rates` 裡的鍵；模型 id 是資料夾名，不會含 `:`。
 pub const ENGINE: &str = ":engine";
 
-/// 兩次取樣至少相隔這麼久才算一筆（同一幀多次繪製不重複取樣）。
-const MIN_INTERVAL: Duration = Duration::from_millis(200);
-const ALPHA: f64 = 0.3;
+/// 每隔這麼久記一筆已下載量（速度與剩餘時間也就這麼久才變一次）。
+const SAMPLE_EVERY: Duration = Duration::from_secs(1);
+/// 速度取最近這段時間的平均：資料分段送達，短時間內量到的忽快忽慢。
+const WINDOW: Duration = Duration::from_secs(8);
 
-struct Seen {
-    at: Instant,
-    done: u64,
-    rate: Option<f64>,
-}
-
-/// 各下載中模型的速度（位元組／秒）。
+/// 各下載中模型最近的（取樣時間, 已下載量）。
 #[derive(Default)]
 pub struct Rates {
-    seen: BTreeMap<String, Seen>,
+    seen: BTreeMap<String, VecDeque<(Instant, u64)>>,
 }
 
 impl Rates {
@@ -41,40 +36,34 @@ impl Rates {
             running.insert(ENGINE.to_owned(), *done);
         }
         self.seen.retain(|id, _| running.contains_key(id));
-        for (id, done) in &running {
-            let Some(prev) = self.seen.get_mut(id) else {
-                self.seen.insert(
-                    id.clone(),
-                    Seen {
-                        at: now,
-                        done: *done,
-                        rate: None,
-                    },
-                );
-                continue;
-            };
-            let dt = now.saturating_duration_since(prev.at);
-            if dt < MIN_INTERVAL {
+        for (id, done) in running {
+            let samples = self.seen.entry(id).or_default();
+            // 已下載量倒退代表重新開始，舊取樣作廢
+            if samples.back().is_some_and(|&(_, d)| done < d) {
+                samples.clear();
+            }
+            if samples
+                .back()
+                .is_some_and(|&(at, _)| now.saturating_duration_since(at) < SAMPLE_EVERY)
+            {
                 continue;
             }
-            // 已下載量倒退代表重新開始，舊速度作廢
-            prev.rate = match done.checked_sub(prev.done) {
-                Some(delta) => {
-                    let sample = delta as f64 / dt.as_secs_f64();
-                    Some(
-                        prev.rate
-                            .map_or(sample, |r| ALPHA * sample + (1.0 - ALPHA) * r),
-                    )
-                }
-                None => None,
-            };
-            (prev.at, prev.done) = (now, *done);
+            samples.push_back((now, done));
+            while samples
+                .front()
+                .is_some_and(|&(at, _)| now.saturating_duration_since(at) > WINDOW)
+            {
+                samples.pop_front();
+            }
         }
     }
 
     /// 目前的速度；還沒有可用取樣或速度為 0 時為 `None`。
     pub fn speed(&self, id: &str) -> Option<f64> {
-        self.seen.get(id)?.rate.filter(|r| *r > 0.0)
+        let samples = self.seen.get(id)?;
+        let (&(t0, d0), &(t1, d1)) = (samples.front()?, samples.back()?);
+        let dt = t1.saturating_duration_since(t0).as_secs_f64();
+        Some((d1 - d0) as f64 / dt).filter(|r| dt > 0.0 && *r > 0.0)
     }
 }
 
@@ -133,5 +122,37 @@ pub fn format_speed(rate: f64) -> String {
         format!("{:.1} MB/s", rate / MB)
     } else {
         format!("{:.0} KB/s", rate / 1024.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(done: u64) -> Snapshot {
+        let mut s = Snapshot::default();
+        s.downloads
+            .insert("m".into(), DownloadState::Running { done, total: 1000 });
+        s
+    }
+
+    /// 速度是窗口內的平均，一秒內的重複繪製不另記；下載量倒退就重新算。
+    #[test]
+    fn speed_averages_the_recent_window() {
+        let mut rates = Rates::default();
+        let t0 = Instant::now();
+        let at = |ms| t0 + Duration::from_millis(ms);
+        rates.observe(at(0), &snapshot(0));
+        assert_eq!(rates.speed("m"), None);
+        rates.observe(at(1000), &snapshot(300));
+        rates.observe(at(1500), &snapshot(900));
+        rates.observe(at(2000), &snapshot(400));
+        assert_eq!(rates.speed("m"), Some(200.0));
+        rates.observe(at(9000), &snapshot(2000));
+        assert_eq!(rates.speed("m"), Some(1700.0 / 8.0));
+        rates.observe(at(10_000), &snapshot(10));
+        assert_eq!(rates.speed("m"), None);
+        rates.observe(at(11_000), &Snapshot::default());
+        assert!(rates.seen.is_empty());
     }
 }
