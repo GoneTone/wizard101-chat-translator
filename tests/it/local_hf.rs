@@ -4,7 +4,7 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::hf::{
-    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo, search,
+    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo, search, search_page,
 };
 
 #[test]
@@ -232,11 +232,45 @@ async fn search_asks_for_gguf_repos_by_downloads() {
         ])))
         .mount(&server)
         .await;
-    let hits = search(&hf_client(&server.uri()), &server.uri(), "qwen 9b")
+    let page = search(&hf_client(&server.uri()), &server.uri(), "qwen 9b")
         .await
         .unwrap();
-    let got: Vec<(&str, u64)> = hits.iter().map(|h| (h.id.as_str(), h.downloads)).collect();
+    let got: Vec<(&str, u64)> = page
+        .hits
+        .iter()
+        .map(|h| (h.id.as_str(), h.downloads))
+        .collect();
     assert_eq!(got, [("org/a-GGUF", 5), ("org/b-GGUF", 0)]);
+    assert_eq!(page.next, None);
+}
+
+/// 回應的 `Link` 標頭帶下一頁時記下網址，下一頁照那個網址抓。
+#[tokio::test]
+async fn search_pages_follow_the_next_link() {
+    let server = MockServer::start().await;
+    let next = format!("{}/api/models?cursor=abc", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .and(query_param("cursor", "abc"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{"id": "org/c-GGUF"}])))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Link", format!("<{next}>; rel=\"next\"").as_str())
+                .set_body_json(json!([{"id": "org/a-GGUF"}])),
+        )
+        .mount(&server)
+        .await;
+    let http = hf_client(&server.uri());
+    let first = search(&http, &server.uri(), "q").await.unwrap();
+    assert_eq!(first.next.as_deref(), Some(next.as_str()));
+    let second = search_page(&http, &next, "q").await.unwrap();
+    assert_eq!(second.hits[0].id, "org/c-GGUF");
+    assert_eq!(second.next, None);
 }
 
 #[tokio::test]

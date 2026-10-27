@@ -97,11 +97,18 @@ pub struct Snapshot {
     pub search: Option<Search>,
 }
 
-/// 一次 Hugging Face 搜尋：關鍵字與結果（`None` 為搜尋中）。
-#[derive(Clone, Debug, PartialEq)]
+/// 一次 Hugging Face 搜尋：關鍵字與已列出的結果。
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Search {
     pub query: String,
+    /// 第一頁還沒回來為 `None`，第一頁失敗為 `Some(Err)`；之後載入的頁接在後面。
     pub results: Option<Result<Vec<SearchHit>, String>>,
+    /// 下一頁的網址；沒有更多為 `None`。
+    pub next: Option<String>,
+    /// 正在載入下一頁。
+    pub loading_more: bool,
+    /// 上次載入下一頁失敗的原因；已列出的結果照留。
+    pub more_error: Option<String>,
 }
 
 impl Snapshot {
@@ -162,6 +169,8 @@ pub enum Command {
     QueryRepo(String),
     /// 以關鍵字搜尋 Hugging Face 上含 GGUF 的 repo。
     SearchRepos(String),
+    /// 目前的搜尋再載入下一頁。
+    SearchMore,
     /// `choice`／`mtp` 為 `RepoInfo.catalog` 內的索引；`auto` 表示來自自動挑選（使用者沒手動選量化）。
     Download {
         repo: String,
@@ -310,10 +319,26 @@ impl Local {
                 self.update(|s| {
                     s.search = Some(Search {
                         query: query.clone(),
-                        results: None,
+                        ..Search::default()
                     })
                 });
                 Box::pin(async move { me.search_repos(query).await })
+            }
+            Command::SearchMore => {
+                // 同一頁只載一次：連按時後面的不再送出
+                let mut claimed = None;
+                self.update(|s| {
+                    if let Some(search) = s.search.as_mut().filter(|x| !x.loading_more)
+                        && let Some(next) = search.next.clone()
+                    {
+                        (search.loading_more, search.more_error) = (true, None);
+                        claimed = Some((search.query.clone(), next));
+                    }
+                });
+                let Some((query, next)) = claimed else {
+                    return;
+                };
+                Box::pin(async move { me.search_more(query, next).await })
             }
             Command::Download {
                 repo,
@@ -614,11 +639,32 @@ impl Local {
 
     /// 搜尋並寫回結果；關鍵字已由 `command` 先登記。
     async fn search_repos(&self, query: String) {
-        let results = hf::search(&self.hf_http, &self.endpoints.hf, &query).await;
+        let page = hf::search(&self.hf_http, &self.endpoints.hf, &query).await;
         // 搜尋途中又換了關鍵字時，舊的結果不蓋掉新的
         self.update(|s| {
             if let Some(search) = s.search.as_mut().filter(|x| x.query == query) {
-                search.results = Some(results);
+                search.next = page.as_ref().ok().and_then(|p| p.next.clone());
+                search.results = Some(page.map(|p| p.hits));
+            }
+        });
+    }
+
+    /// 載入下一頁接在已列出的結果後面；載入途中換了關鍵字就丟掉。
+    async fn search_more(&self, query: String, next: String) {
+        let page = hf::search_page(&self.hf_http, &next, &query).await;
+        self.update(|s| {
+            let Some(search) = s.search.as_mut().filter(|x| x.query == query) else {
+                return;
+            };
+            search.loading_more = false;
+            match page {
+                Ok(page) => {
+                    if let Some(Ok(hits)) = &mut search.results {
+                        hits.extend(page.hits);
+                    }
+                    search.next = page.next;
+                }
+                Err(e) => search.more_error = Some(e),
             }
         });
     }

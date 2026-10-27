@@ -259,6 +259,7 @@ fn custom_tab_searches_keywords_and_opens_a_hit() {
     h.state().env.snapshot.borrow_mut().search = Some(Search {
         query: "qwen".into(),
         results: Some(Ok(hits)),
+        ..Search::default()
     });
     run(&mut h);
     let count = t("local.dialog.downloads", &[("count", "7,089,722")]);
@@ -297,15 +298,74 @@ fn custom_tab_shows_only_results_of_its_own_query() {
             id: "org/old-GGUF".into(),
             downloads: 1,
         }])),
+        ..Search::default()
     });
     run(&mut h);
     assert!(!has_label(&h, "org/old-GGUF"));
     h.state().env.snapshot.borrow_mut().search = Some(Search {
         query: "gemma".into(),
         results: Some(Ok(vec![])),
+        ..Search::default()
     });
     run(&mut h);
     assert!(has_label(&h, &tr("local.dialog.no_results")));
+}
+
+/// 還有下一頁才顯示〔載入更多〕，按下送出 `SearchMore`；載入中只畫佔位，失敗時顯示原因、按鈕改為重試。
+#[test]
+fn custom_tab_loads_more_results_while_there_are_more() {
+    let mut h = harness(DialogMode::Download, Tab::Custom, snapshot(&[]));
+    submit_custom(&mut h, "qwen");
+    let set = |h: &mut Harness<State>, search: Search| {
+        h.state().env.snapshot.borrow_mut().search = Some(search);
+        run(h);
+    };
+    let page = Search {
+        query: "qwen".into(),
+        results: Some(Ok(vec![SearchHit {
+            id: "org/a-GGUF".into(),
+            downloads: 1,
+        }])),
+        ..Search::default()
+    };
+    let more = tr("local.dialog.load_more");
+    set(&mut h, page.clone());
+    assert!(h.query_by_label(&more).is_none());
+    set(
+        &mut h,
+        Search {
+            next: Some("next".into()),
+            ..page.clone()
+        },
+    );
+    click(&mut h, Role::Button, &more);
+    assert!(matches!(downloads(&h).last(), Some(Command::SearchMore)));
+    set(
+        &mut h,
+        Search {
+            next: Some("next".into()),
+            loading_more: true,
+            ..page.clone()
+        },
+    );
+    assert!(h.query_by_label(&more).is_none());
+    set(
+        &mut h,
+        Search {
+            next: Some("next".into()),
+            more_error: Some("HTTP 503: busy".into()),
+            ..page
+        },
+    );
+    assert!(has_label(&h, "HTTP 503: busy"));
+    click(&mut h, Role::Button, &tr("local.dialog.retry"));
+    let sent = downloads(&h);
+    assert_eq!(
+        sent.iter()
+            .filter(|c| matches!(c, Command::SearchMore))
+            .count(),
+        2
+    );
 }
 
 #[test]

@@ -36,6 +36,7 @@
   "local.dialog.search": "Search",
   "local.dialog.no_results": "No models with GGUF files found. Try another keyword.",
   "local.dialog.downloads": "{count} downloads",
+  "local.dialog.load_more": "Load more",
   "local.dialog.view": "View",
   "local.loading": "Loading…",
   "local.dialog.nofit_confirm": "This version exceeds the memory currently available and may fail to load or run very slowly. Download it anyway?",

@@ -705,6 +705,54 @@ async fn a_late_search_does_not_replace_the_newer_one() {
     assert_eq!(found(), Some(("new".into(), vec!["org/new".into()])));
 }
 
+/// 載入更多把下一頁接在後面；連按時同一頁只抓一次，最後一頁之後沒有下一頁。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn search_more_appends_the_next_page_once() {
+    let f = fixture(|root| drop(add_engine(root, "b11871")), |_| false).await;
+    let next = format!("{}/api/models?cursor=2", f.hf.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .and(query_param("cursor", "2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([{"id": "org/b"}]))
+                .set_delay(Duration::from_millis(200)),
+        )
+        .with_priority(1)
+        .mount(&f.hf)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Link", format!("<{next}>; rel=\"next\"").as_str())
+                .set_body_json(json!([{"id": "org/a"}])),
+        )
+        .mount(&f.hf)
+        .await;
+    f.local.command(Command::SearchRepos("q".into()));
+    let search = || f.local.snapshot().search.unwrap();
+    wait_for("first page", || search().next.is_some()).await;
+    f.local.command(Command::SearchMore);
+    f.local.command(Command::SearchMore);
+    wait_for("second page", || !search().loading_more).await;
+    let ids: Vec<String> = search()
+        .results
+        .unwrap()
+        .unwrap()
+        .into_iter()
+        .map(|h| h.id)
+        .collect();
+    assert_eq!(ids, ["org/a", "org/b"]);
+    assert_eq!(search().next, None);
+    let pages = f.hf.received_requests().await.unwrap();
+    let second = pages
+        .iter()
+        .filter(|r| r.url.query() == Some("cursor=2"))
+        .count();
+    assert_eq!(second, 1);
+}
+
 /// 讀過的 GGUF 檔頭存在磁碟上：再查同一個檔案不必再下載檔頭。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_read_header_is_reused_without_downloading_it_again() {

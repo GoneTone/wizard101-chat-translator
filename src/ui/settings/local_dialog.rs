@@ -15,7 +15,7 @@ use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, Rating, total_size};
 use crate::local::hf::{SearchHit, parse_repo};
 use crate::local::store::choice_id;
-use crate::local::{Command, RepoInfo, RepoState, Snapshot};
+use crate::local::{Command, RepoInfo, RepoState, Search, Snapshot};
 use crate::logs::log;
 use crate::ui::settings::env::SettingsEnv;
 
@@ -393,12 +393,12 @@ impl DownloadDialog {
             let name = RichText::new(&repo).font(theme::bold(theme::TEXT_SIZE));
             return self.repo_row(ui, env, &repo, name, snapshot);
         };
-        let results = snapshot
+        let search = snapshot
             .search
-            .as_ref()
+            .clone()
             .filter(|s| s.query == query)
-            .and_then(|s| s.results.clone());
-        match results {
+            .unwrap_or_default();
+        match search.results.clone() {
             None => {
                 for i in 0..3 {
                     loading_repo(ui, RichText::new(""), ui.scope_id().with(("search", i)));
@@ -418,7 +418,11 @@ impl DownloadDialog {
                 ui.add(Label::new(empty).wrap());
                 None
             }
-            Some(Ok(hits)) => self.search_results(ui, env, &hits, snapshot),
+            Some(Ok(hits)) => {
+                let chosen = self.search_results(ui, env, &hits, snapshot);
+                load_more(ui, env, &search);
+                chosen
+            }
         }
     }
 
@@ -479,6 +483,33 @@ impl DownloadDialog {
             env.local_command(Command::QueryRepo(repo.clone()));
         }
         self.custom_repo = Some(repo);
+    }
+}
+
+/// 結果最下方：還有下一頁時的〔載入更多〕；載入中畫佔位，失敗時顯示原因、按鈕改為重試。
+fn load_more(ui: &mut Ui, env: &dyn SettingsEnv, search: &Search) {
+    if search.next.is_none() {
+        return;
+    }
+    separator(ui);
+    ui.add_space(8.0);
+    if search.loading_more {
+        loading_repo(ui, RichText::new(""), ui.scope_id().with("search_more"));
+        return;
+    }
+    if let Some(error) = &search.more_error {
+        ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
+    }
+    let key = match search.more_error {
+        Some(_) => "local.dialog.retry",
+        None => "local.dialog.load_more",
+    };
+    if secondary_button(ui, &t(key, &[])).clicked() {
+        log(format!(
+            "[ui] model search: more results for {:?}",
+            search.query
+        ));
+        env.local_command(Command::SearchMore);
     }
 }
 

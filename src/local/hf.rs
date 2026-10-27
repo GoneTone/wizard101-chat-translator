@@ -211,12 +211,15 @@ pub struct SearchHit {
     pub downloads: u64,
 }
 
-/// 以關鍵字搜尋含 GGUF 檔的 repo，依下載數由多到少；非 2xx 回 `HTTP {status}: {body}`。
-pub async fn search(
-    http: &reqwest::Client,
-    base: &str,
-    query: &str,
-) -> Result<Vec<SearchHit>, String> {
+/// 一頁搜尋結果與下一頁的網址（沒有更多為 `None`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPage {
+    pub hits: Vec<SearchHit>,
+    pub next: Option<String>,
+}
+
+/// 以關鍵字搜尋含 GGUF 檔的 repo 的第一頁，依下載數由多到少；非 2xx 回 `HTTP {status}: {body}`。
+pub async fn search(http: &reqwest::Client, base: &str, query: &str) -> Result<SearchPage, String> {
     let mut url = reqwest::Url::parse(&format!("{base}/api/models")).map_err(|e| e.to_string())?;
     url.query_pairs_mut()
         .append_pair("search", query)
@@ -224,6 +227,15 @@ pub async fn search(
         .append_pair("sort", "downloads")
         .append_pair("direction", "-1")
         .append_pair("limit", &SEARCH_LIMIT.to_string());
+    search_page(http, url.as_str(), query).await
+}
+
+/// 抓一頁搜尋結果（第一頁或上一頁給的下一頁網址）；`query` 只用在 log。
+pub async fn search_page(
+    http: &reqwest::Client,
+    url: &str,
+    query: &str,
+) -> Result<SearchPage, String> {
     let response = http.get(url).send().await.map_err(|e| {
         let e = error_chain(e);
         log(format!("[local] searching {query:?} failed: {e}"));
@@ -240,6 +252,7 @@ pub async fn search(
         ));
         return Err(format!("HTTP {}: {body}", status.as_u16()));
     }
+    let next = next_page(&response);
     let hits: Vec<SearchHit> = response.json().await.map_err(|e| {
         let e = error_chain(e);
         log(format!(
@@ -247,8 +260,12 @@ pub async fn search(
         ));
         e
     })?;
-    log(format!("[local] search {query:?}: {} repos", hits.len()));
-    Ok(hits)
+    log(format!(
+        "[local] search {query:?}: {} repos, more={}",
+        hits.len(),
+        next.is_some()
+    ));
+    Ok(SearchPage { hits, next })
 }
 
 /// 檔案的下載網址。

@@ -36,6 +36,7 @@
   "local.dialog.search": "搜索",
   "local.dialog.no_results": "找不到含 GGUF 文件的模型，换个关键词试试。",
   "local.dialog.downloads": "{count} 次下载",
+  "local.dialog.load_more": "加载更多",
   "local.dialog.view": "查看",
   "local.loading": "加载中…",
   "local.dialog.nofit_confirm": "这个版本超出当前可用的内存，可能无法加载或非常慢。仍要下载吗？",
