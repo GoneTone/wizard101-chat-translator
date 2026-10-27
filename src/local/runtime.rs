@@ -492,13 +492,14 @@ impl Local {
             .collect();
         let old = std::mem::replace(&mut *lock(&self.settings), new.clone());
         log(format!(
-            "[local] apply config: models={wanted:?} preload={} idle_minutes={}",
-            new.preload, new.idle_minutes
+            "[local] apply config: models={wanted:?} preload={} idle_minutes={} prompt_cache_mib={}",
+            new.preload, new.idle_minutes, new.prompt_cache_mib
         ));
         let mut restart = Vec::new();
         for (id, slot) in self.servers.all() {
-            let changed =
-                old.idle_minutes != new.idle_minutes || old.mtp_on(&id) != new.mtp_on(&id);
+            let changed = old.idle_minutes != new.idle_minutes
+                || old.prompt_cache_mib != new.prompt_cache_mib
+                || old.mtp_on(&id) != new.mtp_on(&id);
             if wanted.contains(&id) && !changed {
                 lock(&slot.state).clear_failures();
                 continue;
@@ -590,9 +591,10 @@ impl Local {
                 model: model_file,
                 mtp: mtp.clone(),
                 idle_minutes: settings.idle_minutes,
+                prompt_cache_mib: settings.prompt_cache_mib,
             };
             let err = match self.launch(&plan, cancel, engine_use).await {
-                // 量的是就緒當下（還沒有請求）的佔用；之後重新偵測硬體時再量、取大的
+                // 量的是就緒當下（還沒有請求）的佔用；之後每次請求與重新偵測硬體時再量、取大的
                 Ok(mut running) => {
                     running.mtp_requested = mtp_requested;
                     self.record(&model.id, self.read(Sample::of(&running)));

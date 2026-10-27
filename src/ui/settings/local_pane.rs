@@ -16,7 +16,7 @@ use super::quant_table::gb;
 use super::theme;
 use super::widgets::{combo_box, focus_ring, name_by_row, setting_row, toggle};
 use crate::config::Config;
-use crate::config::local::{IDLE_CHOICES, LocalSettings, settings};
+use crate::config::local::{IDLE_CHOICES, LocalSettings, PROMPT_CACHE_CHOICES, settings};
 use crate::config::services::{LOCAL_PROVIDER, str_field};
 use crate::i18n::t;
 use crate::local::store::total_size;
@@ -113,6 +113,10 @@ impl LocalPane {
                 setting_row(ui, &t("local.load.idle", &[]), Some(&hint), |ui| {
                     self.idle_combo(ui);
                 });
+                let hint = t("local.load.prompt_cache_hint", &[]);
+                setting_row(ui, &t("local.load.prompt_cache", &[]), Some(&hint), |ui| {
+                    self.prompt_cache_combo(ui);
+                });
             },
         );
     }
@@ -125,6 +129,21 @@ impl LocalPane {
                     let on = self.settings.idle_minutes == minutes;
                     if ui.selectable_label(on, idle_text(minutes)).clicked() {
                         self.settings.idle_minutes = minutes;
+                    }
+                }
+            });
+        let response = name_by_row(ui, combo.response);
+        focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    }
+
+    fn prompt_cache_combo(&mut self, ui: &mut Ui) {
+        let combo = combo_box(ui, "local_prompt_cache")
+            .selected_text(prompt_cache_text(self.settings.prompt_cache_mib))
+            .show_ui(ui, |ui| {
+                for mib in PROMPT_CACHE_CHOICES {
+                    let on = self.settings.prompt_cache_mib == mib;
+                    if ui.selectable_label(on, prompt_cache_text(mib)).clicked() {
+                        self.settings.prompt_cache_mib = mib;
                     }
                 }
             });
@@ -189,6 +208,16 @@ fn users_of(services: &[Value], model: &str) -> Vec<String> {
         .filter(|s| str_field(s, "provider") == LOCAL_PROVIDER && str_field(s, "model") == model)
         .map(|s| str_field(s, "name").to_owned())
         .collect()
+}
+
+fn prompt_cache_text(mib: u32) -> String {
+    match mib {
+        0 => t("local.load.prompt_cache_off", &[]),
+        m => t(
+            "local.load.prompt_cache_gb",
+            &[("gb", &(m / 1024).to_string())],
+        ),
+    }
 }
 
 fn idle_text(minutes: u32) -> String {

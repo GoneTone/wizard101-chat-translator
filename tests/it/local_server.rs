@@ -30,11 +30,12 @@ fn plan(mtp: Mtp, idle_minutes: u32) -> ServerPlan {
         model: r"C:\m\a.gguf".into(),
         mtp,
         idle_minutes,
+        prompt_cache_mib: 2048,
     }
 }
 
 #[test]
-fn args_with_draft_mtp_and_idle_sleep() {
+fn args_with_draft_mtp_idle_sleep_and_prompt_cache() {
     let p = plan(Mtp::Draft(r"C:\m\mtp.gguf".into()), 15);
     assert_eq!(
         args(&p, 4321),
@@ -51,6 +52,8 @@ fn args_with_draft_mtp_and_idle_sleep() {
             "1",
             "-lv",
             "4",
+            "--cache-ram",
+            "2048",
             "--sleep-idle-seconds",
             "900",
             "--spec-type",
@@ -65,6 +68,17 @@ fn args_with_draft_mtp_and_idle_sleep() {
 fn builtin_mtp_has_no_draft_model() {
     let a = args(&plan(Mtp::Builtin, 0), 1);
     assert!(a.ends_with(&["--spec-type".into(), "draft-mtp".into()]));
+}
+
+/// 關掉 prompt 快取也明確帶 `--cache-ram 0`，不落回 llama-server 的預設。
+#[test]
+fn prompt_cache_off_is_passed_as_zero() {
+    let p = ServerPlan {
+        prompt_cache_mib: 0,
+        ..plan(Mtp::Off, 0)
+    };
+    let a = args(&p, 1);
+    assert!(a.windows(2).any(|w| w == ["--cache-ram", "0"]), "{a:?}");
 }
 
 #[test]

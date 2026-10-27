@@ -473,26 +473,29 @@ async fn ensure_before_download_does_not_count_as_failure() {
     f.local.ensure("m1").await.unwrap();
 }
 
-/// 設定改了閒置分鐘或該模型的 MTP 開關時重啟跑著的子程序。
+/// 設定改了閒置分鐘、prompt 快取上限或該模型的 MTP 開關時重啟跑著的子程序。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn apply_config_restarts_servers_when_their_settings_change() {
     let f = fixture(engine_and_model(true), |_| false).await;
-    let settings =
-        |idle: u32, mtp: Value| json!({"preload": false, "idle_minutes": idle, "mtp": mtp});
-    f.local
-        .apply_config(&local_config(&["m1"], settings(15, json!({}))));
+    let settings = |idle: u32, cache: u32, mtp: Value| json!({"preload": false, "idle_minutes": idle, "prompt_cache_mib": cache, "mtp": mtp});
+    let apply = |s: Value| f.local.apply_config(&local_config(&["m1"], s));
+    apply(settings(15, 8192, json!({})));
     f.local.ensure("m1").await.unwrap();
-    f.local
-        .apply_config(&local_config(&["m1"], settings(5, json!({}))));
+    apply(settings(5, 8192, json!({})));
     wait_for("restart after idle change", || f.plans().len() == 2).await;
-    f.local
-        .apply_config(&local_config(&["m1"], settings(5, json!({"m1": false}))));
+    apply(settings(5, 8192, json!({"m1": false})));
     wait_for("restart after MTP change", || f.plans().len() == 3).await;
+    apply(settings(5, 1024, json!({"m1": false})));
+    wait_for("restart after prompt cache change", || f.plans().len() == 4).await;
     let plans = f.plans();
     assert_eq!(plans[1].idle_minutes, 5);
     assert!(matches!(plans[1].mtp, Mtp::Draft(_)), "{:?}", plans[1].mtp);
     assert_eq!(plans[2].mtp, Mtp::Off);
-    assert_eq!(f.kills().len(), 2);
+    assert_eq!(
+        (plans[2].prompt_cache_mib, plans[3].prompt_cache_mib),
+        (8192, 1024)
+    );
+    assert_eq!(f.kills().len(), 3);
 }
 
 /// 預先載入依序啟動：前一個就緒後才啟動下一個。

@@ -44,6 +44,8 @@ pub struct ServerPlan {
     pub model: PathBuf,
     pub mtp: Mtp,
     pub idle_minutes: u32,
+    /// `--cache-ram`（MiB）；0 為關閉。
+    pub prompt_cache_mib: u32,
 }
 
 /// 組出 llama-server 的命令列參數。
@@ -62,6 +64,8 @@ pub fn args(plan: &ServerPlan, port: u16) -> Vec<String> {
         // libllama 的 INFO（含 `load_tensors: offloaded`）要 verbosity 4 才印
         "-lv".into(),
         "4".into(),
+        "--cache-ram".into(),
+        plan.prompt_cache_mib.to_string(),
     ];
     if plan.idle_minutes > 0 {
         a.push("--sleep-idle-seconds".into());

@@ -668,12 +668,15 @@ mod page {
     }
 
     #[test]
-    fn preload_and_idle_go_into_the_saved_config() {
+    fn load_settings_go_into_the_saved_config() {
         let mut h = window(Snapshot::default());
         click(&mut h, Role::Switch, &tr("local.load.preload"));
         click(&mut h, Role::ComboBox, &tr("local.load.idle"));
         let thirty = t("local.load.idle_minutes", &[("minutes", "30")]);
         click(&mut h, Role::Button, &thirty);
+        click(&mut h, Role::ComboBox, &tr("local.load.prompt_cache"));
+        let two = t("local.load.prompt_cache_gb", &[("gb", "2")]);
+        click(&mut h, Role::Button, &two);
         click(&mut h, Role::Button, &tr("button.save"));
         let saved = h.state().actions.iter().find_map(|a| match a {
             SettingsAction::Save(cfg) => Some(cfg.clone()),
@@ -681,7 +684,7 @@ mod page {
         });
         assert_eq!(
             saved.unwrap()["local_models"],
-            json!({"preload": false, "idle_minutes": 30, "mtp": {}})
+            json!({"preload": false, "idle_minutes": 30, "prompt_cache_mib": 2048, "mtp": {}})
         );
     }
 

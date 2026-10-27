@@ -1,4 +1,4 @@
-//! 本地模型設定：config 的 `local_models` 區塊（預先載入、閒置卸載、各模型的 MTP 開關）與載入時的正規化。
+//! 本地模型設定：config 的 `local_models` 區塊（預先載入、閒置卸載、prompt 快取上限、各模型的 MTP 開關）與載入時的正規化。
 
 use std::collections::BTreeMap;
 
@@ -11,9 +11,13 @@ const KEY: &str = "local_models";
 
 /// 閒置幾分鐘後卸載模型的可選值；0 代表不卸載。
 pub const IDLE_CHOICES: [u32; 4] = [0, 5, 15, 30];
+/// llama-server 存在 RAM 的 prompt 快取上限（MiB）可選值；0 代表關閉。
+pub const PROMPT_CACHE_CHOICES: [u32; 5] = [0, 1024, 2048, 4096, 8192];
 
 const DEFAULT_PRELOAD: bool = true;
 const DEFAULT_IDLE_MINUTES: u32 = 0;
+/// llama-server 自己的預設值。
+const DEFAULT_PROMPT_CACHE_MIB: u32 = 8192;
 
 /// `local_models` 區塊的讀出形狀。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -22,6 +26,8 @@ pub struct LocalSettings {
     pub preload: bool,
     /// 閒置幾分鐘後卸載；0 代表不卸載。
     pub idle_minutes: u32,
+    /// prompt 快取上限（MiB，`--cache-ram`）；0 代表關閉。
+    pub prompt_cache_mib: u32,
     /// 模型 id 對應的 MTP 開關。
     pub mtp: BTreeMap<String, bool>,
 }
@@ -38,6 +44,7 @@ impl Default for LocalSettings {
         Self {
             preload: DEFAULT_PRELOAD,
             idle_minutes: DEFAULT_IDLE_MINUTES,
+            prompt_cache_mib: DEFAULT_PROMPT_CACHE_MIB,
             mtp: BTreeMap::new(),
         }
     }
@@ -49,7 +56,12 @@ pub fn default_value() -> Value {
 }
 
 fn to_value(s: &LocalSettings) -> Value {
-    json!({"preload": s.preload, "idle_minutes": s.idle_minutes, "mtp": s.mtp})
+    json!({
+        "preload": s.preload,
+        "idle_minutes": s.idle_minutes,
+        "prompt_cache_mib": s.prompt_cache_mib,
+        "mtp": s.mtp,
+    })
 }
 
 /// 讀出設定；缺漏或型別不對的欄位取預設值。
@@ -67,6 +79,12 @@ pub fn settings(cfg: &Config) -> LocalSettings {
             .and_then(|n| u32::try_from(n).ok())
             .filter(|n| IDLE_CHOICES.contains(n))
             .unwrap_or(defaults.idle_minutes),
+        prompt_cache_mib: block
+            .and_then(|b| b.get("prompt_cache_mib"))
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|n| PROMPT_CACHE_CHOICES.contains(n))
+            .unwrap_or(defaults.prompt_cache_mib),
         mtp: block
             .and_then(|b| b.get("mtp"))
             .and_then(Value::as_object)
@@ -125,6 +143,7 @@ mod tests {
             LocalSettings {
                 preload: true,
                 idle_minutes: 0,
+                prompt_cache_mib: 8192,
                 mtp: BTreeMap::new()
             }
         );
@@ -135,7 +154,7 @@ mod tests {
         let mut cfg = default_config();
         cfg.insert(
             "local_models".into(),
-            json!({"preload": "yes", "idle_minutes": 7, "mtp": {"a": true, "b": 1}}),
+            json!({"preload": "yes", "idle_minutes": 7, "prompt_cache_mib": 3000, "mtp": {"a": true, "b": 1}}),
         );
         assert!(normalize(&mut cfg));
         assert_eq!(
@@ -143,6 +162,7 @@ mod tests {
             LocalSettings {
                 preload: true,
                 idle_minutes: 0,
+                prompt_cache_mib: 8192,
                 mtp: [("a".into(), true)].into()
             }
         );
