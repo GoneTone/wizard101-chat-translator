@@ -423,10 +423,13 @@ pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
     response
 }
 
-/// 細進度條：圓角軌道上以強調色填滿 `fraction`（0–1）。
+/// 細進度條：圓角軌道上以強調色填滿 `fraction`（0–1），變動時平滑移過去。
 pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, PROGRESS_HEIGHT), Sense::hover());
     let fraction = fraction.clamp(0.0, 1.0);
+    let shown = ui
+        .ctx()
+        .animate_value_with_time(response.id, fraction, PROGRESS_EASE);
     response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
     ui.ctx().accesskit_node_builder(response.id, |node| {
         node.set_numeric_value(f64::from(fraction) * 100.0);
@@ -436,7 +439,7 @@ pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
         let painter = ui.painter();
         painter.rect_filled(rect, radius, theme::CONTROL_BORDER);
         let mut fill = rect;
-        fill.set_width(rect.width() * fraction);
+        fill.set_width(rect.width() * shown);
         if fill.width() > 0.0 {
             painter.rect_filled(fill, radius, theme::ACCENT);
         }
@@ -446,6 +449,8 @@ pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
 
 /// 細進度條的高度。
 const PROGRESS_HEIGHT: f32 = 6.0;
+/// 進度條移到新位置的秒數：下載進度約每 0.25 秒更新一次，移完正好接上下一次。
+const PROGRESS_EASE: f32 = 0.25;
 
 /// 佔位亮度起伏一輪的秒數。
 const SKELETON_PERIOD: f64 = 1.4;
