@@ -63,7 +63,11 @@ impl LocalClient {
             .sleeping(&url)
             .await
             .then(|| local.waking(&self.model_id));
-        self.client_for(url).chat(req, cancel).await
+        let reply = self.client_for(url).chat(req, cancel).await;
+        if reply.is_ok() {
+            local.measure_after_request(&self.model_id);
+        }
+        reply
     }
 
     /// llama-server 是否因閒置睡著；查不到時當作沒睡，不擋翻譯。

@@ -1216,6 +1216,28 @@ async fn redetecting_keeps_the_largest_measurement() {
     assert_eq!(store::list(&f.root)[0].manifest.measured, measured());
 }
 
+/// 翻譯請求完成後也量一次：prompt 快取在請求後才長出來，不必等使用者重新偵測。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_finished_request_measures_its_model_again() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    detect(&f).await;
+    *f.shared.all_on_gpu.lock().unwrap() = Some(true);
+    *f.shared.usage_per_server.lock().unwrap() = Usage {
+        vram: 3 * G,
+        ram: G,
+    };
+    f.local.ensure("m1").await.unwrap();
+    f.shared.usage_per_server.lock().unwrap().ram = 2 * G;
+    f.local.measure_after_request("m1");
+    let measured = || store::list(&f.root)[0].manifest.measured.clone();
+    wait_for("measured after the request", || {
+        measured().is_some_and(|m| m.ram == 2 * G)
+    })
+    .await;
+    f.local.measure_after_request("not-running");
+}
+
 /// 啟動後第一次量完硬體（GPU 偵測過）才記實測。
 async fn detect(f: &Fixture) {
     f.local.start(&local_config(&[], json!({})));

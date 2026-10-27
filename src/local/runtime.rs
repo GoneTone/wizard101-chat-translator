@@ -316,24 +316,42 @@ impl Local {
     pub(super) fn measure_running(&self) -> Usage {
         let mut total = Usage::default();
         for (id, slot) in self.servers.all() {
-            // 拿不到啟動鎖（啟動中或正要刪檔）就只量不記，免得清單寫回剛刪掉的資料夾
-            let start = slot.start.try_lock();
-            // 先取出要的值再量：量的時候不占著狀態鎖，讀快照的 UI 才不會卡住
-            let Some(sample) = lock(&slot.state).running.as_ref().map(Sample::of) else {
+            let Some(reading) = self.measure(&id, &slot) else {
                 continue;
             };
-            let sample = self.read(sample);
-            total.vram += sample.reading.usage.vram;
+            total.vram += reading.usage.vram;
             // 停掉時整個 working set（含對映的模型檔）都會空出來
-            total.ram += sample.reading.resident;
-            match start {
-                Ok(_start) => self.record(&id, sample),
-                Err(_) => log(format!(
-                    "[local] llama-server[{id}] is busy; measurement not recorded this time"
-                )),
-            }
+            total.ram += reading.resident;
         }
         total
+    }
+
+    /// 一次翻譯請求完成後在背景量那個模型：prompt 快取等要等請求後才配置，只在載入後量會偏低。
+    pub fn measure_after_request(&self, model_id: &str) {
+        let Some(slot) = self.servers.get(model_id) else {
+            return;
+        };
+        let (me, id) = (self.arc(), model_id.to_owned());
+        self.rt.spawn(async move {
+            me.measure(&id, &slot);
+        });
+    }
+
+    /// 量一個跑著的 llama-server 並記進模型清單；沒在跑回 `None`。
+    fn measure(&self, id: &str, slot: &Slot) -> Option<Reading> {
+        // 拿不到啟動鎖（啟動中或正要刪檔）就只量不記，免得清單寫回剛刪掉的資料夾
+        let start = slot.start.try_lock();
+        // 先取出要的值再量：量的時候不占著狀態鎖，讀快照的 UI 才不會卡住
+        let sample = lock(&slot.state).running.as_ref().map(Sample::of)?;
+        let sample = self.read(sample);
+        let reading = sample.reading;
+        match start {
+            Ok(_start) => self.record(id, sample),
+            Err(_) => log(format!(
+                "[local] llama-server[{id}] is busy; measurement not recorded this time"
+            )),
+        }
+        Some(reading)
     }
 
     /// 量 `sample` 那個程序的佔用。
