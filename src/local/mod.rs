@@ -20,7 +20,7 @@ pub mod store;
 pub mod usage;
 
 pub use hub::{
-    Command, DownloadState, Endpoints, EngineState, Local, RepoInfo, RepoState, Snapshot,
+    Command, DownloadState, Endpoints, EngineState, Local, RepoInfo, RepoState, Search, Snapshot,
 };
 pub use runtime::Loading;
 

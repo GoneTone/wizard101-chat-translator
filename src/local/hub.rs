@@ -15,7 +15,7 @@ use super::engine::{self, Build, EngineInstall, Variant};
 use super::fit::{self, Need, Pick, Rating};
 use super::gguf::{self, ModelMeta};
 use super::hardware::{self, Gpu, Hardware};
-use super::hf::{self, Catalog};
+use super::hf::{self, Catalog, SearchHit};
 use super::runtime::{EngineUsers, Servers};
 use super::server::Launcher;
 use super::store::{self, Installed};
@@ -93,6 +93,15 @@ pub struct Snapshot {
     pub mtp_fallback: BTreeSet<String>,
     /// 硬體偵測中（啟動後第一次量完以前，或〔重新偵測〕進行中）；這時硬體與相容等級還不能信。
     pub detecting: bool,
+    /// 最近一次 Hugging Face 搜尋。
+    pub search: Option<Search>,
+}
+
+/// 一次 Hugging Face 搜尋：關鍵字與結果（`None` 為搜尋中）。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Search {
+    pub query: String,
+    pub results: Option<Result<Vec<SearchHit>, String>>,
 }
 
 impl Snapshot {
@@ -151,6 +160,8 @@ pub enum Command {
     },
     RemoveEngine,
     QueryRepo(String),
+    /// 以關鍵字搜尋 Hugging Face 上含 GGUF 的 repo。
+    SearchRepos(String),
     /// `choice`／`mtp` 為 `RepoInfo.catalog` 內的索引；`auto` 表示來自自動挑選（使用者沒手動選量化）。
     Download {
         repo: String,
@@ -279,7 +290,8 @@ impl Local {
 
     /// 在背景執行指令；狀態變了就送 `LocalNotice::Changed`。
     ///
-    /// 下載與繼續下載在回傳前就登記好，快照立刻是下載中、蓋掉舊的失敗紀錄（repo 還沒查過的下載除外）。
+    /// 下載與繼續下載在回傳前就登記好，快照立刻是下載中、蓋掉舊的失敗紀錄（repo 還沒查過的下載除外）；
+    /// 搜尋也在回傳前登記關鍵字，連續搜尋時才不會因背景 task 開始的先後，讓舊關鍵字蓋掉新的。
     pub fn command(&self, cmd: Command) {
         log(format!("[local] command {cmd:?}"));
         let me = self.arc();
@@ -294,6 +306,15 @@ impl Local {
             }),
             Command::RemoveEngine => Box::pin(async move { me.remove_engine().await }),
             Command::QueryRepo(repo) => Box::pin(async move { me.query_repo(&repo).await }),
+            Command::SearchRepos(query) => {
+                self.update(|s| {
+                    s.search = Some(Search {
+                        query: query.clone(),
+                        results: None,
+                    })
+                });
+                Box::pin(async move { me.search_repos(query).await })
+            }
             Command::Download {
                 repo,
                 choice,
@@ -588,6 +609,17 @@ impl Local {
                 ));
             }
             s.repos.insert(repo.to_owned(), state);
+        });
+    }
+
+    /// 搜尋並寫回結果；關鍵字已由 `command` 先登記。
+    async fn search_repos(&self, query: String) {
+        let results = hf::search(&self.hf_http, &self.endpoints.hf, &query).await;
+        // 搜尋途中又換了關鍵字時，舊的結果不蓋掉新的
+        self.update(|s| {
+            if let Some(search) = s.search.as_mut().filter(|x| x.query == query) {
+                search.results = Some(results);
+            }
         });
     }
 

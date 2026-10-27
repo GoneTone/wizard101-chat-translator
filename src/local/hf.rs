@@ -200,6 +200,57 @@ pub async fn list_files(
     Ok(files)
 }
 
+/// 搜尋一次最多列出幾筆。
+const SEARCH_LIMIT: u32 = 20;
+
+/// 搜尋到的一個 repo。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct SearchHit {
+    pub id: String,
+    #[serde(default)]
+    pub downloads: u64,
+}
+
+/// 以關鍵字搜尋含 GGUF 檔的 repo，依下載數由多到少；非 2xx 回 `HTTP {status}: {body}`。
+pub async fn search(
+    http: &reqwest::Client,
+    base: &str,
+    query: &str,
+) -> Result<Vec<SearchHit>, String> {
+    let mut url = reqwest::Url::parse(&format!("{base}/api/models")).map_err(|e| e.to_string())?;
+    url.query_pairs_mut()
+        .append_pair("search", query)
+        .append_pair("filter", "gguf")
+        .append_pair("sort", "downloads")
+        .append_pair("direction", "-1")
+        .append_pair("limit", &SEARCH_LIMIT.to_string());
+    let response = http.get(url).send().await.map_err(|e| {
+        let e = error_chain(e);
+        log(format!("[local] searching {query:?} failed: {e}"));
+        e
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = match response.text().await {
+            Ok(body) => body_preview(&body),
+            Err(e) => format!("(body unreadable: {})", error_chain(e)),
+        };
+        log(format!(
+            "[local] searching {query:?} returned HTTP {status}: {body}"
+        ));
+        return Err(format!("HTTP {}: {body}", status.as_u16()));
+    }
+    let hits: Vec<SearchHit> = response.json().await.map_err(|e| {
+        let e = error_chain(e);
+        log(format!(
+            "[local] searching {query:?} returned an unreadable body: {e}"
+        ));
+        e
+    })?;
+    log(format!("[local] search {query:?}: {} repos", hits.len()));
+    Ok(hits)
+}
+
 /// 檔案的下載網址。
 pub fn resolve_url(base: &str, repo: &str, path: &str) -> String {
     format!("{base}/{repo}/resolve/main/{path}")

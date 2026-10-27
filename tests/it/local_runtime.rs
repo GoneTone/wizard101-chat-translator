@@ -11,7 +11,7 @@ use crate::common::local::{add_engine, add_model, serve_on};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::runtime::Handle;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::config::local::LocalSettings;
 use wizard101_chat_translator::config::{Config, default_config};
@@ -670,6 +670,39 @@ async fn cancel_pauses_and_resume_completes() {
         s.downloads.is_empty() && s.models.iter().any(|m| m.id == id && m.complete)
     })
     .await;
+}
+
+/// 搜尋途中換了關鍵字：晚回來的舊搜尋不蓋掉新搜尋的結果。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_late_search_does_not_replace_the_newer_one() {
+    let f = fixture(|root| drop(add_engine(root, "b11871")), |_| false).await;
+    let hits = |id: &str| json!([{"id": id, "downloads": 1}]);
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .and(query_param("search", "old"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(hits("org/old"))
+                .set_delay(Duration::from_millis(400)),
+        )
+        .mount(&f.hf)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .and(query_param("search", "new"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(hits("org/new")))
+        .mount(&f.hf)
+        .await;
+    f.local.command(Command::SearchRepos("old".into()));
+    f.local.command(Command::SearchRepos("new".into()));
+    let found = || {
+        let search = f.local.snapshot().search?;
+        let ids: Vec<String> = search.results?.ok()?.into_iter().map(|h| h.id).collect();
+        Some((search.query, ids))
+    };
+    wait_for("new results", || found().is_some()).await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert_eq!(found(), Some(("new".into(), vec!["org/new".into()])));
 }
 
 /// 讀過的 GGUF 檔頭存在磁碟上：再查同一個檔案不必再下載檔頭。

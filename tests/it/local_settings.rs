@@ -14,9 +14,11 @@ use wizard101_chat_translator::local::catalog::RECOMMENDED;
 use wizard101_chat_translator::local::fit::{self, Basis, Fit, Need, Pick, Rating};
 use wizard101_chat_translator::local::gguf::ModelMeta;
 use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
-use wizard101_chat_translator::local::hf::{Catalog, Choice, MtpChoice, Quant, RepoFile};
+use wizard101_chat_translator::local::hf::{
+    Catalog, Choice, MtpChoice, Quant, RepoFile, SearchHit,
+};
 use wizard101_chat_translator::local::store::{Installed, Manifest, choice_id};
-use wizard101_chat_translator::local::{Command, RepoInfo, RepoState, Snapshot};
+use wizard101_chat_translator::local::{Command, RepoInfo, RepoState, Search, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 use wizard101_chat_translator::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
@@ -220,16 +222,90 @@ fn single_quant_repo_disables_choose_version() {
     assert!(choose.accesskit_node().is_disabled());
 }
 
+/// 在自訂分頁的輸入框打字並按〔搜尋〕。
+fn submit_custom(h: &mut Harness<State>, text: &str) {
+    h.get_by_role_and_label(Role::TextInput, &tr("local.dialog.search_hint"))
+        .click();
+    h.event(Event::Text(text.into()));
+    run(h);
+    click(h, Role::Button, &tr("local.dialog.search"));
+}
+
 #[test]
 fn custom_tab_rejects_non_hf_input() {
     let mut h = harness(DialogMode::Download, Tab::Custom, snapshot(&[]));
-    h.get_by_role_and_label(Role::TextInput, &tr("local.dialog.repo_hint"))
-        .click();
-    h.event(Event::Text("https://example.com/a/b".into()));
-    run(&mut h);
-    click(&mut h, Role::Button, &tr("local.dialog.query"));
+    submit_custom(&mut h, "https://example.com/a/b");
     assert!(has_label(&h, &tr("local.dialog.bad_repo")));
     assert!(h.state().env.commands.borrow().is_empty());
+}
+
+/// 不含 `/` 的輸入當關鍵字搜尋；結果列出下載數，按〔查看〕才查那個 repo，查好就能下載。
+#[test]
+fn custom_tab_searches_keywords_and_opens_a_hit() {
+    let mut h = harness(DialogMode::Download, Tab::Custom, snapshot(&[]));
+    assert!(has_label(&h, &tr("local.dialog.search_intro")));
+    submit_custom(&mut h, " qwen ");
+    assert!(matches!(&downloads(&h)[..], [Command::SearchRepos(q)] if q == "qwen"));
+    let hits = vec![
+        SearchHit {
+            id: "org/a-GGUF".into(),
+            downloads: 7_089_722,
+        },
+        SearchHit {
+            id: "org/b-GGUF".into(),
+            downloads: 12,
+        },
+    ];
+    h.state().env.snapshot.borrow_mut().search = Some(Search {
+        query: "qwen".into(),
+        results: Some(Ok(hits)),
+    });
+    run(&mut h);
+    let count = t("local.dialog.downloads", &[("count", "7,089,722")]);
+    assert!(has_label(&h, &count));
+    let view = tr("local.dialog.view");
+    h.query_all_by_role_and_label(Role::Button, &view)
+        .next()
+        .unwrap()
+        .click();
+    run(&mut h);
+    assert!(matches!(&downloads(&h)[1..], [Command::QueryRepo(r)] if r == "org/a-GGUF"));
+    h.state().env.snapshot.borrow_mut().repos.insert(
+        "org/a-GGUF".into(),
+        RepoState::Ready(info(Fit::Smooth, false, 2, 3 * G)),
+    );
+    run(&mut h);
+    assert_eq!(
+        h.query_all_by_role_and_label(Role::Button, &view).count(),
+        1
+    );
+    click(&mut h, Role::Button, &tr("local.dialog.download"));
+    assert!(matches!(
+        &downloads(&h)[2..],
+        [Command::Download { repo, choice: 0, mtp: None, auto: true }] if repo == "org/a-GGUF"
+    ));
+}
+
+/// 搜不到時說明換關鍵字；別的關鍵字的結果（還沒換過來的舊搜尋）不顯示。
+#[test]
+fn custom_tab_shows_only_results_of_its_own_query() {
+    let mut h = harness(DialogMode::Download, Tab::Custom, snapshot(&[]));
+    submit_custom(&mut h, "gemma");
+    h.state().env.snapshot.borrow_mut().search = Some(Search {
+        query: "older".into(),
+        results: Some(Ok(vec![SearchHit {
+            id: "org/old-GGUF".into(),
+            downloads: 1,
+        }])),
+    });
+    run(&mut h);
+    assert!(!has_label(&h, "org/old-GGUF"));
+    h.state().env.snapshot.borrow_mut().search = Some(Search {
+        query: "gemma".into(),
+        results: Some(Ok(vec![])),
+    });
+    run(&mut h);
+    assert!(has_label(&h, &tr("local.dialog.no_results")));
 }
 
 #[test]
@@ -349,21 +425,15 @@ fn downloads(h: &Harness<State>) -> Vec<Command> {
 
 #[test]
 fn custom_tab_queries_the_parsed_repo_then_downloads_the_selection() {
-    let mut snap = snapshot(&[]);
-    snap.repos.insert(
+    let mut h = harness(DialogMode::Download, Tab::Custom, snapshot(&[]));
+    submit_custom(&mut h, "https://huggingface.co/org/repo/tree/main");
+    assert!(matches!(&downloads(&h)[..], [Command::QueryRepo(r)] if r == "org/repo"));
+    h.state().env.snapshot.borrow_mut().repos.insert(
         "org/repo".into(),
         RepoState::Ready(info(Fit::Smooth, false, 2, 3 * G)),
     );
-    let mut h = harness(DialogMode::Download, Tab::Custom, snap);
-    h.get_by_role_and_label(Role::TextInput, &tr("local.dialog.repo_hint"))
-        .click();
-    h.event(Event::Text(
-        "https://huggingface.co/org/repo/tree/main".into(),
-    ));
     run(&mut h);
-    click(&mut h, Role::Button, &tr("local.dialog.query"));
-    assert!(matches!(&downloads(&h)[..], [Command::QueryRepo(r)] if r == "org/repo"));
-    click(&mut h, Role::Button, &tr("local.dialog.download_selected"));
+    click(&mut h, Role::Button, &tr("local.dialog.download"));
     assert!(matches!(
         &downloads(&h)[..],
         [Command::QueryRepo(_), Command::Download { repo, choice: 0, mtp: None, auto: true }] if repo == "org/repo"

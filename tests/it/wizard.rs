@@ -1014,8 +1014,8 @@ mod local_install {
         let mut h = on_card(s);
         click(&mut h, Role::Button, &tr("local.wizard.change"));
         click(&mut h, Role::Button, &tr("local.dialog.tab_custom"));
-        type_into(&mut h, &tr("local.dialog.repo_hint"), "org/custom");
-        click(&mut h, Role::Button, &tr("local.dialog.query"));
+        type_into(&mut h, &tr("local.dialog.search_hint"), "org/custom");
+        click(&mut h, Role::Button, &tr("local.dialog.search"));
         click(&mut h, Role::Button, &tr("local.dialog.select"));
         click(&mut h, Role::Button, &tr("local.wizard.download"));
         let want = model_id("org/custom", QUANT);

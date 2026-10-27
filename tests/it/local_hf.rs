@@ -1,10 +1,10 @@
-//! Hugging Face repo 解析、GGUF 分類與檔案列表（wiremock，不打真 API）。
+//! Hugging Face repo 解析、GGUF 分類、檔案列表與搜尋（wiremock，不打真 API）。
 
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 use wizard101_chat_translator::local::hf::{
-    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo,
+    RepoFile, classify, hf_client, list_files, parse_quant, parse_repo, search,
 };
 
 #[test]
@@ -214,4 +214,43 @@ async fn child_lists_files_despite_an_unreachable_env_proxy() {
         .await;
     let files = list_files(&hf_client(&server.uri()), &server.uri(), "o/r").await;
     assert_eq!(files, Ok(vec![]));
+}
+
+/// 搜尋只找含 GGUF 的 repo、依下載數由多到少；關鍵字照原樣編進網址。
+#[tokio::test]
+async fn search_asks_for_gguf_repos_by_downloads() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/models"))
+        .and(query_param("search", "qwen 9b"))
+        .and(query_param("filter", "gguf"))
+        .and(query_param("sort", "downloads"))
+        .and(query_param("direction", "-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"id": "org/a-GGUF", "downloads": 5, "likes": 1},
+            {"id": "org/b-GGUF"},
+        ])))
+        .mount(&server)
+        .await;
+    let hits = search(&hf_client(&server.uri()), &server.uri(), "qwen 9b")
+        .await
+        .unwrap();
+    let got: Vec<(&str, u64)> = hits.iter().map(|h| (h.id.as_str(), h.downloads)).collect();
+    assert_eq!(got, [("org/a-GGUF", 5), ("org/b-GGUF", 0)]);
+}
+
+#[tokio::test]
+async fn search_reports_http_errors_verbatim() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(429).set_body_string("Too Many Requests"))
+        .mount(&server)
+        .await;
+    let err = search(&hf_client(&server.uri()), &server.uri(), "x")
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("HTTP 429") && err.contains("Too Many Requests"),
+        "{err}"
+    );
 }

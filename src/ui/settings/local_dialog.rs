@@ -5,15 +5,15 @@ use std::collections::BTreeMap;
 use eframe::egui::{Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
-use super::fields::text_field;
+use super::fields::text_field_with_hint;
 use super::local_rows::{Have, basis, have_of, need_text, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
 use super::widgets::{primary_button, right_aligned, secondary_button, skeleton};
 use crate::i18n::t;
-use crate::local::catalog::{RECOMMENDED, Recommended};
+use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, Rating, total_size};
-use crate::local::hf::parse_repo;
+use crate::local::hf::{SearchHit, parse_repo};
 use crate::local::store::choice_id;
 use crate::local::{Command, RepoInfo, RepoState, Snapshot};
 use crate::logs::log;
@@ -59,6 +59,8 @@ pub struct DownloadDialog {
     picks: BTreeMap<String, (usize, Option<usize>)>,
     started: bool,
     custom_repo: Option<String>,
+    /// 目前顯示結果的搜尋關鍵字；直接輸入 repo 時為 `None`。
+    searched: Option<String>,
     bad_repo: bool,
     /// 放不下的選擇，等使用者確認要不要下載。
     nofit: Option<Selection>,
@@ -80,6 +82,7 @@ impl DownloadDialog {
             picks: BTreeMap::new(),
             started: false,
             custom_repo: None,
+            searched: None,
             bad_repo: false,
             nofit: None,
         }
@@ -96,7 +99,6 @@ impl DownloadDialog {
                 env.local_command(Command::QueryRepo(rec.repo.to_owned()));
             }
         }
-        let custom_ready = self.custom_choice(snapshot);
         let spec = DialogSpec {
             salt: "download_model",
             width: theme::DOWNLOAD_DIALOG_WIDTH,
@@ -119,17 +121,11 @@ impl DownloadDialog {
                     DialogMode::Download => "local.dialog.close",
                     DialogMode::Select => "button.cancel",
                 };
-                let leave = secondary_button(ui, &t(leave_key, &[])).clicked();
-                let go = custom_ready.is_some()
-                    && primary_button(ui, &t(Self::custom_button_key(mode), &[])).clicked();
-                (leave, go)
+                secondary_button(ui, &t(leave_key, &[])).clicked()
             },
         );
-        let (leave, go) = shown.footer;
-        let mut chosen = shown.body;
-        if go {
-            chosen = custom_ready;
-        }
+        let leave = shown.footer;
+        let chosen = shown.body;
         if let Some(outcome) = self.confirm_nofit(ui, env) {
             return outcome;
         }
@@ -147,13 +143,6 @@ impl DownloadDialog {
         match self.mode {
             DialogMode::Download => "local.dialog.title",
             DialogMode::Select => "local.dialog.select_title",
-        }
-    }
-
-    fn custom_button_key(mode: DialogMode) -> &'static str {
-        match mode {
-            DialogMode::Download => "local.dialog.download_selected",
-            DialogMode::Select => "local.dialog.select",
         }
     }
 
@@ -182,17 +171,6 @@ impl DownloadDialog {
             },
             combined(info, (choice, mtp)),
         ))
-    }
-
-    fn custom_choice(&self, snapshot: &Snapshot) -> Option<Chosen> {
-        if self.tab != Tab::Custom {
-            return None;
-        }
-        let repo = self.custom_repo.as_deref()?;
-        match snapshot.repos.get(repo) {
-            Some(RepoState::Ready(info)) => self.chosen(repo, info),
-            _ => None,
-        }
     }
 
     /// 按下〔下載〕／〔選這個〕後：選擇模式回傳選擇，放不下的先確認，其餘直接下載。
@@ -264,68 +242,61 @@ impl DownloadDialog {
                 }
                 let mut first = None;
                 for (i, rec) in RECOMMENDED.iter().enumerate() {
-                    let row = self.recommended_row(ui, env, i, rec, snapshot);
+                    let name = RichText::new(rec.name).font(theme::bold(theme::TEXT_SIZE));
+                    let row = self.repo_row(ui, env, rec.repo, name, snapshot);
                     first = first.or(row);
+                    if i + 1 < RECOMMENDED.len() {
+                        separator(ui);
+                    }
                 }
                 first
             }
-            Tab::Custom => {
-                self.custom(ui, env, snapshot);
-                None
-            }
+            Tab::Custom => self.custom(ui, env, snapshot),
         };
         ui.add_space(12.0);
         chosen
     }
 
-    fn recommended_row(
+    /// 一個 repo 的列：查詢中畫佔位、失敗可重試、查好的顯示自動挑的版本與按鈕。
+    fn repo_row(
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
-        index: usize,
-        rec: &Recommended,
+        repo: &str,
+        name: RichText,
         snapshot: &Snapshot,
     ) -> Option<Chosen> {
         let mut chosen = None;
-        let name = RichText::new(rec.name).font(theme::bold(theme::TEXT_SIZE));
-        let state = snapshot.repos.get(rec.repo);
+        let state = snapshot.repos.get(repo);
         Frame::new()
             .inner_margin(Margin::symmetric(0, 8))
             .show(ui, |ui| match state {
                 // 硬體偵測中的相容等級與自動挑的量化之後會變，跟查詢中一樣先畫佔位
                 Some(RepoState::Ready(info)) if !snapshot.detecting => {
-                    chosen = self.ready_row(ui, rec, name, info, snapshot);
+                    chosen = self.ready_row(ui, repo, name, info, snapshot);
                 }
                 Some(RepoState::Failed(error)) => {
                     ui.add(Label::new(name));
                     ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
                     if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
-                        log(format!("[ui] retry repo query: repo={}", rec.repo));
-                        env.local_command(Command::QueryRepo(rec.repo.to_owned()));
+                        log(format!("[ui] retry repo query: repo={repo}"));
+                        env.local_command(Command::QueryRepo(repo.to_owned()));
                     }
                 }
-                _ => loading_recommended(ui, name, ui.scope_id().with(rec.repo)),
+                _ => loading_repo(ui, name, ui.scope_id().with(repo)),
             });
-        if index + 1 < RECOMMENDED.len() {
-            let y = ui.cursor().top();
-            ui.painter().hline(
-                ui.max_rect().x_range(),
-                y,
-                eframe::egui::Stroke::new(1.0, theme::CARD_BORDER),
-            );
-        }
         chosen
     }
 
     fn ready_row(
         &mut self,
         ui: &mut Ui,
-        rec: &Recommended,
+        repo: &str,
         name: RichText,
         info: &RepoInfo,
         snapshot: &Snapshot,
     ) -> Option<Chosen> {
-        let chosen = self.chosen(rec.repo, info)?;
+        let chosen = self.chosen(repo, info)?;
         let (choice, mtp) = (chosen.0.choice, chosen.0.mtp);
         let rating = chosen.1;
         let moe = info.meta.expert_count > 0;
@@ -336,11 +307,11 @@ impl DownloadDialog {
             version += &format!(" + MTP {} GB", gb(info.catalog.mtp[m].file.size));
         }
         let have = match self.mode {
-            DialogMode::Download => have_of(snapshot, &choice_id(rec.repo, c)),
+            DialogMode::Download => have_of(snapshot, &choice_id(repo, c)),
             DialogMode::Select => Have::No,
         };
-        let open = self.expanded.as_deref() == Some(rec.repo);
-        let id = ui.scope_id().with(rec.repo);
+        let open = self.expanded.as_deref() == Some(repo);
+        let id = ui.scope_id().with(repo);
         let mut clicks = (false, false);
         ui.horizontal(|ui| {
             let reserved = super::widgets::right_aligned_width(ui, id);
@@ -360,10 +331,10 @@ impl DownloadDialog {
             });
         });
         if clicks.0 {
-            self.expanded = (!open).then(|| rec.repo.to_owned());
+            self.expanded = (!open).then(|| repo.to_owned());
         }
         if open {
-            self.table(ui, rec.repo, info, snapshot);
+            self.table(ui, repo, info, snapshot);
         }
         clicks.1.then_some(chosen)
     }
@@ -380,63 +351,191 @@ impl DownloadDialog {
         }
     }
 
-    fn custom(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
-        let mut query = false;
+    /// 自訂分頁：關鍵字搜尋 Hugging Face，或直接輸入 repo 名稱／網址；點一筆結果才查它的版本。
+    fn custom(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+    ) -> Option<Chosen> {
+        let intro = RichText::new(t("local.dialog.search_intro", &[])).color(theme::TEXT_SECONDARY);
+        ui.add(Label::new(intro).wrap());
+        ui.add_space(6.0);
+        let mut submit = false;
         ui.horizontal(|ui| {
             let button = 80.0;
+            let hint = t("local.dialog.search_hint", &[]);
             let input = ui
                 .allocate_ui(
                     vec2(
                         (ui.available_width() - button - 8.0).max(120.0),
                         theme::CONTROL_HEIGHT,
                     ),
-                    |ui| text_field(ui, &mut self.custom_input),
+                    |ui| text_field_with_hint(ui, &mut self.custom_input, &hint),
                 )
                 .inner;
-            let hint = t("local.dialog.repo_hint", &[]);
             ui.ctx()
                 .accesskit_node_builder(input.id, |node| node.set_label(hint));
             let enter = input.lost_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Enter));
-            query = secondary_button(ui, &t("local.dialog.query", &[])).clicked() || enter;
+            submit = secondary_button(ui, &t("local.dialog.search", &[])).clicked() || enter;
         });
-        if query {
-            match parse_repo(&self.custom_input) {
-                Some(repo) => {
-                    log(format!("[ui] custom repo query: repo={repo}"));
-                    self.bad_repo = false;
-                    env.local_command(Command::QueryRepo(repo.clone()));
-                    self.custom_repo = Some(repo);
-                }
-                None => {
-                    log("[ui] custom repo input rejected");
-                    self.bad_repo = true;
-                    self.custom_repo = None;
-                }
-            }
+        if submit {
+            self.submit_custom(env, snapshot);
         }
         ui.add_space(8.0);
         if self.bad_repo {
             ui.label(RichText::new(t("local.dialog.bad_repo", &[])).color(theme::ERROR));
-            return;
+            return None;
         }
-        let Some(repo) = self.custom_repo.clone() else {
-            return;
+        let Some(query) = self.searched.clone() else {
+            // 直接輸入的 repo 不經搜尋，單獨畫一列
+            let repo = self.custom_repo.clone()?;
+            let name = RichText::new(&repo).font(theme::bold(theme::TEXT_SIZE));
+            return self.repo_row(ui, env, &repo, name, snapshot);
         };
-        match snapshot.repos.get(&repo) {
-            Some(RepoState::Ready(info)) if !snapshot.detecting => {
-                ui.label(RichText::new(&repo).color(theme::TEXT_SECONDARY));
-                self.table(ui, &repo, info, snapshot);
+        let results = snapshot
+            .search
+            .as_ref()
+            .filter(|s| s.query == query)
+            .and_then(|s| s.results.clone());
+        match results {
+            None => {
+                for i in 0..3 {
+                    loading_repo(ui, RichText::new(""), ui.scope_id().with(("search", i)));
+                }
+                None
             }
-            Some(RepoState::Failed(error)) => {
+            Some(Err(error)) => {
                 ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
+                if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
+                    self.submit_custom(env, snapshot);
+                }
+                None
             }
-            _ => loading_row(ui),
+            Some(Ok(hits)) if hits.is_empty() => {
+                let empty =
+                    RichText::new(t("local.dialog.no_results", &[])).color(theme::TEXT_SECONDARY);
+                ui.add(Label::new(empty).wrap());
+                None
+            }
+            Some(Ok(hits)) => self.search_results(ui, env, &hits, snapshot),
         }
+    }
+
+    /// 搜尋結果：一列一個 repo；點開的那個換成完整的 repo 列。
+    fn search_results(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        hits: &[SearchHit],
+        snapshot: &Snapshot,
+    ) -> Option<Chosen> {
+        let mut chosen = None;
+        for (i, hit) in hits.iter().enumerate() {
+            let name = RichText::new(&hit.id).font(theme::bold(theme::TEXT_SIZE));
+            if self.custom_repo.as_deref() == Some(hit.id.as_str()) {
+                chosen = chosen.or(self.repo_row(ui, env, &hit.id, name, snapshot));
+            } else if hit_row(ui, name, hit) {
+                self.open_custom(env, snapshot, hit.id.clone());
+            }
+            if i + 1 < hits.len() {
+                separator(ui);
+            }
+        }
+        chosen
+    }
+
+    /// 送出輸入框：含 `/` 的當 repo 名稱或網址直接查，否則當關鍵字搜尋。
+    fn submit_custom(&mut self, env: &dyn SettingsEnv, snapshot: &Snapshot) {
+        let input = self.custom_input.trim().to_owned();
+        if input.is_empty() {
+            return;
+        }
+        self.bad_repo = false;
+        self.custom_repo = None;
+        if !input.contains('/') {
+            log(format!("[ui] model search: query={input:?}"));
+            env.local_command(Command::SearchRepos(input.clone()));
+            self.searched = Some(input);
+            return;
+        }
+        self.searched = None;
+        match parse_repo(&input) {
+            Some(repo) => self.open_custom(env, snapshot, repo),
+            None => {
+                log("[ui] custom repo input rejected");
+                self.bad_repo = true;
+            }
+        }
+    }
+
+    /// 展開自訂分頁的一個 repo；還沒查過（或查失敗）才查。
+    fn open_custom(&mut self, env: &dyn SettingsEnv, snapshot: &Snapshot, repo: String) {
+        log(format!("[ui] custom repo query: repo={repo}"));
+        if !matches!(
+            snapshot.repos.get(&repo),
+            Some(RepoState::Ready(_) | RepoState::Loading)
+        ) {
+            env.local_command(Command::QueryRepo(repo.clone()));
+        }
+        self.custom_repo = Some(repo);
     }
 }
 
-/// 查詢中（或硬體偵測中）的推薦列：版面同查好的列，說明、徽章與按鈕都是佔位。
-fn loading_recommended(ui: &mut Ui, name: RichText, id: Id) {
+/// 還沒點開的搜尋結果：repo 名稱、下載數與〔查看〕；回傳是否按了〔查看〕。
+fn hit_row(ui: &mut Ui, name: RichText, hit: &SearchHit) -> bool {
+    let downloads = t(
+        "local.dialog.downloads",
+        &[("count", &grouped(hit.downloads))],
+    );
+    let id = ui.scope_id().with(&hit.id);
+    let mut view = false;
+    Frame::new()
+        .inner_margin(Margin::symmetric(0, 8))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let reserved = super::widgets::right_aligned_width(ui, id);
+                let width = (ui.available_width() - reserved - 12.0).max(120.0);
+                ui.allocate_ui(vec2(width, 0.0), |ui| {
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 4.0;
+                        ui.add(Label::new(name).truncate());
+                        ui.label(RichText::new(downloads).color(theme::TEXT_SECONDARY));
+                    })
+                });
+                right_aligned(ui, id, |ui| {
+                    view = secondary_button(ui, &t("local.dialog.view", &[])).clicked();
+                });
+            });
+        });
+    view
+}
+
+/// 列與列之間的分隔線。
+fn separator(ui: &Ui) {
+    let y = ui.cursor().top();
+    ui.painter().hline(
+        ui.max_rect().x_range(),
+        y,
+        eframe::egui::Stroke::new(1.0, theme::CARD_BORDER),
+    );
+}
+
+/// 千分位分隔的整數（下載數）。
+fn grouped(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// 查詢中（或硬體偵測中）的 repo 列：版面同查好的列，說明、徽章與按鈕都是佔位。
+fn loading_repo(ui: &mut Ui, name: RichText, id: Id) {
     ui.horizontal(|ui| {
         let reserved = super::widgets::right_aligned_width(ui, id);
         let width = (ui.available_width() - reserved - 12.0).max(120.0);
