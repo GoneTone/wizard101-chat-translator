@@ -8,11 +8,10 @@ use eframe::egui::{
 };
 
 use super::theme;
-use super::widgets::{focus_ring, hover_tip, skeleton};
+use super::widgets::{focus_ring, skeleton};
 use crate::i18n::t;
 use crate::local::RepoInfo;
-use crate::local::fit::{Basis, Fit, Need, Rating, total_size};
-use crate::local::hardware::{Hardware, effective};
+use crate::local::fit::{Fit, Need, Rating, total_size};
 
 const CHIP_HEIGHT: f32 = 28.0;
 const DOT: f32 = 8.0;
@@ -91,8 +90,8 @@ pub(super) fn combined(info: &RepoInfo, (choice, mtp): (usize, Option<usize>)) -
     })
 }
 
-/// 畫量化表；點 chip 會改 `pick`（主模型索引, MTP 索引）。`hw` 用來算滑過 chip 時的可用量。
-pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usize, Option<usize>)) {
+/// 畫量化表；點 chip 會改 `pick`（主模型索引, MTP 索引）。
+pub(super) fn show(ui: &mut Ui, info: &RepoInfo, pick: &mut (usize, Option<usize>)) {
     let mut groups: BTreeMap<(bool, u8), Vec<usize>> = BTreeMap::new();
     for (i, c) in info.catalog.choices.iter().enumerate() {
         let key = c.quant.bits.map_or((true, 0), |b| (false, b));
@@ -111,7 +110,6 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
                 let c = &info.catalog.choices[i];
                 let size = Some(gb(total_size(c)));
                 let r = chip(ui, pick.0 == i, Some(rating), &c.quant.label, size);
-                tip(ui, &r, rating, hw);
                 if r.clicked() {
                     *pick = (i, pick.1);
                 }
@@ -133,53 +131,11 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, hw: &Hardware, pick: &mut (usiz
                 &label,
                 Some(gb(m.file.size)),
             );
-            tip(ui, &r, rating, hw);
             if r.clicked() {
                 pick.1 = Some(i);
             }
         }
     });
-}
-
-/// 「（預估或實測）需要 X GB，可用 Y GB」，有分開的 VRAM 與 RAM 時各列；VRAM 還沒量到時不顯示。
-fn tip(ui: &Ui, response: &Response, rating: Rating, hw: &Hardware) {
-    let Some(level) = rating.fit else { return };
-    if !response.hovered() {
-        return;
-    }
-    let (vram, ram) = effective(hw);
-    let n = rating.need;
-    let measured = !n.estimated();
-    // 與 `fit::rate` 比較的對象一致：實測（含推算）的 Smooth 分開比 VRAM 與 RAM，預估的 Smooth 比 VRAM，其餘比合計
-    let text = if level == Fit::Smooth && n.basis != Basis::Estimate {
-        let key = if measured {
-            "local.quant.hover_split_measured"
-        } else {
-            "local.quant.hover_split"
-        };
-        t(
-            key,
-            &[
-                ("vram", &gb(n.vram)),
-                ("ram", &gb(n.ram)),
-                ("have_vram", &gb(vram)),
-                ("have_ram", &gb(ram)),
-            ],
-        )
-    } else {
-        let (need, available) = if level == Fit::Smooth {
-            (n.vram, vram)
-        } else {
-            (n.total(), vram + ram)
-        };
-        let key = if measured {
-            "local.quant.hover_measured"
-        } else {
-            "local.quant.hover"
-        };
-        t(key, &[("need", &gb(need)), ("have", &gb(available))])
-    };
-    hover_tip(ui, response, &text);
 }
 
 fn row(ui: &mut Ui, name: &str, chips: impl FnOnce(&mut Ui)) {

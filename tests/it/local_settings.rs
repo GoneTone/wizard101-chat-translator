@@ -409,40 +409,6 @@ fn picking_a_quant_chip_changes_the_selection() {
     ));
 }
 
-/// 推算（或實測）出分開的 VRAM 與 RAM 時，流暢的量化滑過提示兩者各列。
-#[test]
-fn derived_chips_tip_vram_and_ram_separately() {
-    let mut repo = info(Fit::Smooth, false, 2, 3 * G);
-    repo.fits[1][0].need = Need {
-        vram: 5 * G,
-        ram: 2 * G,
-        all_on_gpu: true,
-        basis: Basis::Derived,
-    };
-    let mut h = harness(
-        DialogMode::Download,
-        Tab::Recommended,
-        snapshot(&[(0, repo)]),
-    );
-    click(&mut h, Role::Button, &tr("local.dialog.choose_version"));
-    let chip = h.get_by_role_and_label(Role::RadioButton, "Q8_0").rect();
-    h.hover_at(chip.center());
-    for _ in 0..30 {
-        h.step();
-    }
-    let tip = t(
-        "local.quant.hover_split",
-        &[
-            ("vram", &size_arg(5 * G)),
-            ("ram", &size_arg(2 * G)),
-            ("have_vram", &size_arg(8 * G)),
-            ("have_ram", &size_arg(16 * G)),
-        ],
-    );
-    let texts = painted_texts(&h);
-    assert!(texts.contains(&tip), "{texts:?}");
-}
-
 fn with_mtp(mut info: RepoInfo, auto_mtp: Option<usize>, extra: u64) -> RepoInfo {
     info.catalog.mtp = vec![MtpChoice {
         quant: Quant {

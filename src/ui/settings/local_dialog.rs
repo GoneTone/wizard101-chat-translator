@@ -330,18 +330,18 @@ impl DownloadDialog {
             self.expanded = (!open).then(|| repo.to_owned());
         }
         if open {
-            self.table(ui, repo, info, snapshot);
+            self.table(ui, repo, info);
         }
         clicks.1.then_some(chosen)
     }
 
-    fn table(&mut self, ui: &mut Ui, repo: &str, info: &RepoInfo, snapshot: &Snapshot) {
+    fn table(&mut self, ui: &mut Ui, repo: &str, info: &RepoInfo) {
         let Some(mut pick) = self.pick_of(repo, info) else {
             return;
         };
         let before = pick;
         ui.add_space(6.0);
-        quant_table::show(ui, info, &snapshot.hardware, &mut pick);
+        quant_table::show(ui, info, &mut pick);
         if pick != before {
             self.picks.insert(repo.to_owned(), pick);
         }
