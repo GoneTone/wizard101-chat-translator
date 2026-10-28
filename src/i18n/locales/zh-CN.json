@@ -106,7 +106,7 @@
   "local.models.confirm_delete": "本地服务“{services}”正在使用这个模型。删除后会释放 {size} GB，这些服务要改选其他模型才能使用。确定要删除吗？",
   "local.form.model_option": "{name}（{size} GB）",
   "local.form.model_hint": "列表只列已下载的模型。",
-  "local.form.open_models": "前往本地模型页 →",
+  "local.form.open_models": "管理本地模型 →",
   "local.form.model_missing": "找不到这个模型",
   "local.form.test_hint": "第一次测试要先加载模型，可能要等十几秒。",
   "local.continue_download": "继续下载",

@@ -106,7 +106,7 @@
   "local.models.confirm_delete": "The local services {services} use this model. Deleting it frees {size} GB, and those services need another model before they work. Delete it anyway?",
   "local.form.model_option": "{name} ({size} GB)",
   "local.form.model_hint": "Only downloaded models are listed.",
-  "local.form.open_models": "Go to Local models →",
+  "local.form.open_models": "Manage local models →",
   "local.form.model_missing": "Model not found",
   "local.form.test_hint": "The first test has to load the model, so it may take ten seconds or more.",
   "local.continue_download": "Continue download",
