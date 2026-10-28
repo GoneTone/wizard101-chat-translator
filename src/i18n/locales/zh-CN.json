@@ -43,7 +43,7 @@
   "local.downloaded": "已下载",
   "local.fit.smooth": "流畅",
   "local.fit.slow": "会慢",
-  "local.fit.offload": "可用（专家放 RAM）",
+  "local.fit.offload": "可用（专家放内存）",
   "local.fit.nofit": "放不下",
   "local.fit.unknown": "未知",
   "local.fit.estimated": "{fit}（预估）",

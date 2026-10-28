@@ -1,4 +1,4 @@
-//! 一鍵安裝畫面用的小零件：預設選擇、引擎下載量、提示文字、進度條與錯誤加〔重試〕。
+//! 一鍵安裝畫面用的小零件：預設選擇、引擎下載量、進度條與錯誤加〔重試〕。
 
 use eframe::egui::{Label, RichText, Ui};
 
@@ -11,7 +11,7 @@ use crate::logs::log;
 use crate::ui::settings::local_dialog::Selection;
 use crate::ui::settings::quant_table::{combined, fraction};
 use crate::ui::settings::theme;
-use crate::ui::settings::widgets::{progress_bar, secondary_button};
+use crate::ui::settings::widgets::{hint, progress_bar, secondary_button};
 
 /// 六個推薦裡查好的依 `wizard_pick` 挑一個，用該 repo 的自動挑選；等級不明的排最後。
 pub(super) fn default_selection(snapshot: &Snapshot) -> Option<Selection> {
@@ -57,17 +57,10 @@ pub(super) fn engine_download(snapshot: &Snapshot) -> Option<(Variant, u64)> {
     Some((variant, assets.iter().map(|a| a.size).sum()))
 }
 
-pub(super) fn hint(ui: &mut Ui, text: &str) {
-    let text = RichText::new(text)
-        .size(theme::HINT_SIZE)
-        .color(theme::TEXT_SECONDARY);
-    ui.add(Label::new(text).wrap());
-}
-
 /// 進度條，下方是目前的狀態文字。
 pub(super) fn progress(ui: &mut Ui, text: &str, done: u64, total: u64) {
     progress_bar(ui, fraction(done, total), ui.available_width());
-    hint(ui, text);
+    hint(ui, text, theme::TEXT_SECONDARY);
 }
 
 pub(super) fn error_with_retry(ui: &mut Ui, error: &str, retry: impl FnOnce()) {

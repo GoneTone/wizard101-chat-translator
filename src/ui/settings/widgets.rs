@@ -423,6 +423,12 @@ pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
     response
 }
 
+/// 小字說明，可換行。
+pub(super) fn hint(ui: &mut Ui, text: &str, color: Color32) {
+    let text = RichText::new(text).size(theme::HINT_SIZE).color(color);
+    ui.add(Label::new(text).wrap());
+}
+
 /// 細進度條：圓角軌道上以強調色填滿 `fraction`（0–1），變動時平滑移過去。
 pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
     let (rect, response) = ui.allocate_exact_size(vec2(width, PROGRESS_HEIGHT), Sense::hover());

@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use eframe::egui::{Frame, Label, Margin, RichText, TextStyle, Ui};
 
-use self::widgets::{default_selection, engine_download, error_with_retry, hint, progress};
+use self::widgets::{default_selection, engine_download, error_with_retry, progress};
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Rating, total_size};
@@ -19,7 +19,7 @@ use crate::ui::settings::local_dialog::{
 use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, paused_text, transfer_text};
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
-use crate::ui::settings::widgets::{card, primary_button, secondary_button, skeleton};
+use crate::ui::settings::widgets::{card, hint, primary_button, secondary_button, skeleton};
 
 mod widgets;
 
@@ -252,7 +252,11 @@ impl LocalInstall {
                         skeleton(ui, 72.0, button);
                     });
                     if waiting_for_vram(snapshot) {
-                        hint(ui, &t("local.wizard.waiting_vram", &[]));
+                        hint(
+                            ui,
+                            &t("local.wizard.waiting_vram", &[]),
+                            theme::TEXT_SECONDARY,
+                        );
                     }
                 }
             }
@@ -278,13 +282,22 @@ impl LocalInstall {
                             "local.wizard.model_size",
                             &[("size", &gb(plan.model_bytes))],
                         ),
+                        theme::TEXT_SECONDARY,
                     );
                     if let Some((variant, bytes)) = &engine {
                         let args = [("variant", variant.to_string()), ("size", gb(*bytes))];
                         let args: Vec<_> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-                        hint(ui, &t("local.wizard.engine_size", &args));
+                        hint(
+                            ui,
+                            &t("local.wizard.engine_size", &args),
+                            theme::TEXT_SECONDARY,
+                        );
                     }
-                    hint(ui, &t("local.wizard.total", &[("size", &gb(total))]));
+                    hint(
+                        ui,
+                        &t("local.wizard.total", &[("size", &gb(total))]),
+                        theme::TEXT_SECONDARY,
+                    );
                 });
         });
         let ready = matches!(snapshot.engine, EngineState::Ready(_));
@@ -300,11 +313,19 @@ impl LocalInstall {
             change = secondary_button(ui, &t("local.wizard.change", &[])).clicked();
         });
         if !ready && !matches!(snapshot.engine, EngineState::Failed(_)) {
-            hint(ui, &t("local.wizard.waiting_engine", &[]));
+            hint(
+                ui,
+                &t("local.wizard.waiting_engine", &[]),
+                theme::TEXT_SECONDARY,
+            );
         }
         self.engine_status(ui, env, snapshot);
         if self.cancelled {
-            hint(ui, &t("local.wizard.cancelled_hint", &[]));
+            hint(
+                ui,
+                &t("local.wizard.cancelled_hint", &[]),
+                theme::TEXT_SECONDARY,
+            );
         }
         if change {
             self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
@@ -377,12 +398,16 @@ impl LocalInstall {
             return;
         };
         if matches!(snapshot.engine, EngineState::Ready(_)) {
-            hint(ui, &t("local.wizard.engine_ready", &[]));
+            hint(
+                ui,
+                &t("local.wizard.engine_ready", &[]),
+                theme::TEXT_SECONDARY,
+            );
         }
         self.engine_status(ui, env, snapshot);
         match state {
             InstallState::Done(_) => {
-                hint(ui, &t("local.wizard.done", &[]));
+                hint(ui, &t("local.wizard.done", &[]), theme::TEXT_SECONDARY);
                 if secondary_button(ui, &t("local.wizard.change", &[])).clicked() {
                     self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
                 }
