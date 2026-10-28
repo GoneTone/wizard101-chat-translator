@@ -136,7 +136,7 @@
   "error.need_model": "Select or enter a model.",
   "error.need_name": "Enter a name.",
   "error.need_service": "Add a translation service first.",
-  "error.local_model_missing": "The model used by the translation service \"{name}\" is gone. Choose another model or download it again.",
+  "error.local_model_missing": "Cannot find the model used by the translation service \"{name}\". Choose another model or download it again.",
   "error.local_over_capacity": "The local models used across the slots do not fit in memory together ({models}). Available: {vram} GB VRAM, {ram} GB RAM. Use the same model for them or pick smaller ones.",
   "error.local_over_capacity_item_estimated": "{name} about {size} GB (estimated)",
   "error.local_over_capacity_item_measured": "{name} {size} GB (measured)",
