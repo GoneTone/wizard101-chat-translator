@@ -16,7 +16,7 @@ use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
-use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, transfer_text};
+use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, paused_text, transfer_text};
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
 use crate::ui::settings::widgets::{card, primary_button, secondary_button, skeleton};
@@ -391,21 +391,23 @@ impl LocalInstall {
                 error_with_retry(ui, error, || env.local_command(Command::Resume(id.clone())));
             }
             _ => {
-                let (done, total) = match snapshot.downloads.get(&id) {
+                let download = snapshot.downloads.get(&id);
+                let (done, total) = match download {
                     Some(
                         DownloadState::Running { done, total }
                         | DownloadState::Paused { done, total },
                     ) => (*done, *total),
                     _ => (0, 0),
                 };
-                let text = transfer_text(done, total, self.rates.speed(&id));
+                let stopped = matches!(download, None | Some(DownloadState::Paused { .. }));
+                let resumable = stopped && snapshot.models.iter().any(|m| m.id == id);
+                let text = match download {
+                    Some(DownloadState::Paused { .. }) => paused_text(done, total),
+                    None if resumable => t("local.models.interrupted", &[]),
+                    _ => transfer_text(done, total, self.rates.speed(&id)),
+                };
                 progress(ui, &text, done, total);
-                let stopped = matches!(
-                    snapshot.downloads.get(&id),
-                    None | Some(DownloadState::Paused { .. })
-                );
-                let interrupted = stopped && snapshot.models.iter().any(|m| m.id == id);
-                if interrupted && primary_button(ui, &t("local.continue_download", &[])).clicked() {
+                if resumable && primary_button(ui, &t("local.continue_download", &[])).clicked() {
                     env.local_command(Command::Resume(id.clone()));
                 }
             }

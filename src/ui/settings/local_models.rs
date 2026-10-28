@@ -4,7 +4,7 @@ use eframe::egui::{Label, RichText, Ui, vec2};
 
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
-use super::local_rate::{Rates, Speed, transfer_text};
+use super::local_rate::{Rates, Speed, paused_text, transfer_text};
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
@@ -126,10 +126,7 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<Speed>)
         let line = match state {
             RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
             RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
-            RowState::Paused(done, total) => small(t(
-                "local.models.paused",
-                &[("done", &gb(*done)), ("total", &gb(*total))],
-            )),
+            RowState::Paused(done, total) => small(paused_text(*done, *total)),
             RowState::Interrupted => small(format!(
                 "{} · {}",
                 t("local.models.interrupted", &[]),

@@ -973,6 +973,7 @@ mod local_install {
         *h.state().env.snapshot.borrow_mut() = s;
         next(&mut h);
         assert!(!next_enabled(&h));
+        assert!(has_label(&h, &tr("local.models.interrupted")));
         click(&mut h, Role::Button, &tr("local.continue_download"));
         let want = format!("{:?}", Command::Resume(default_id()));
         assert!(sent(&h).contains(&want), "{:?}", sent(&h));
@@ -1001,6 +1002,8 @@ mod local_install {
         back(&mut h);
         pick_provider(&mut h, "provider.local");
         assert!(!has_label(&h, &tr("local.wizard.cancelled_hint")));
+        let paused = i18n::t("local.models.paused", &[("done", "0.0"), ("total", "2.0")]);
+        assert!(has_label(&h, &paused));
         click(&mut h, Role::Button, &tr("local.continue_download"));
         let want = format!("{:?}", Command::Resume(default_id()));
         assert!(sent(&h).contains(&want), "{:?}", sent(&h));

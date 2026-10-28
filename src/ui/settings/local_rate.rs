@@ -128,6 +128,14 @@ pub fn transfer_text(done: u64, total: u64, speed: Option<Speed>) -> String {
     line
 }
 
+/// 暫停中的狀態文字：「已暫停 X / Y GB」。
+pub fn paused_text(done: u64, total: u64) -> String {
+    t(
+        "local.models.paused",
+        &[("done", &gb(done)), ("total", &gb(total))],
+    )
+}
+
 /// 引擎安裝的狀態文字：下載中同 `transfer_text`，解壓中（或全部下載完）是解壓縮。
 pub fn engine_text(done: u64, total: u64, extracting: bool, speed: Option<Speed>) -> String {
     if extracting || (total > 0 && done >= total) {
