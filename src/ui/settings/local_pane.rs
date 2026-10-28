@@ -5,9 +5,9 @@ use std::time::Instant;
 use eframe::egui::Ui;
 use serde_json::Value;
 
-use super::dialog::Choice;
+use super::dialog::{Choice, confirm_delete};
 use super::env::SettingsEnv;
-use super::local_card::{confirm_danger, section};
+use super::local_card::section;
 use super::local_dialog::{DialogMode, DialogOutcome, DownloadDialog, Tab};
 use super::local_engine::EngineCard;
 use super::local_models::{self, ModelAction};
@@ -186,7 +186,7 @@ impl LocalPane {
                 &[("services", &names), ("size", &size)],
             )
         };
-        match confirm_danger(ui, "confirm_delete_model", question) {
+        match confirm_delete(ui, "confirm_delete_model", question) {
             Choice::Open => {}
             Choice::Cancel => self.confirm_delete = None,
             Choice::Done(()) => {

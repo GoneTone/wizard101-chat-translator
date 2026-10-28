@@ -294,7 +294,7 @@ impl ServicePane {
         } else {
             "service.confirm_delete"
         };
-        confirm_delete(ui, t(question, &[("name", name)]))
+        confirm_delete(ui, "confirm_delete", t(question, &[("name", name)]))
     }
 }
 

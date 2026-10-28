@@ -1,11 +1,9 @@
-//! 本地模型頁三張卡共用的版面：卡片外框與標題列、內容區內距、刪除確認框。
+//! 本地模型頁三張卡共用的版面：卡片外框與標題列、內容區內距。
 
-use eframe::egui::{Frame, Label, Margin, Response, RichText, Ui};
+use eframe::egui::{Frame, Label, Margin, RichText, Ui};
 
-use super::dialog::{Choice, confirm};
 use super::theme;
-use super::widgets::{card, danger_button, right_aligned};
-use crate::i18n::t;
+use super::widgets::{card, right_aligned};
 
 /// 卡片：標題列（左標題、右 `trailing`）加 `body`。
 pub(super) fn section(
@@ -45,11 +43,4 @@ pub(super) fn padded(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
             ui.spacing_mut().item_spacing.y = 6.0;
             add(ui);
         });
-}
-
-/// 確認框，確定鈕是紅色的〔刪除〕；`salt` 區分同時存在的不同確認框。
-pub(super) fn confirm_danger(ui: &Ui, salt: &'static str, question: String) -> Choice<()> {
-    confirm(ui, salt, question, |ui| -> Response {
-        danger_button(ui, &t("button.delete", &[]))
-    })
 }

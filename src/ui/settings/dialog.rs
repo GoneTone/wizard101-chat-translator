@@ -121,9 +121,9 @@ pub(super) enum Choice<T> {
     Done(T),
 }
 
-/// 刪除確認對話框：顯示 `question`，按〔刪除〕才算確定。
-pub(super) fn confirm_delete(ui: &Ui, question: String) -> Choice<()> {
-    confirm(ui, "confirm_delete", question, |ui| {
+/// 刪除確認對話框：顯示 `question`，按紅色的〔刪除〕才算確定；`salt` 區分同時存在的不同確認框。
+pub(super) fn confirm_delete(ui: &Ui, salt: &'static str, question: String) -> Choice<()> {
+    confirm(ui, salt, question, |ui| {
         danger_button(ui, &t("button.delete", &[]))
     })
 }

@@ -2,9 +2,9 @@
 
 use eframe::egui::{FontId, Id, Label, RichText, TextStyle, Ui};
 
-use super::dialog::Choice;
+use super::dialog::{Choice, confirm_delete};
 use super::env::SettingsEnv;
-use super::local_card::{confirm_danger, padded, section};
+use super::local_card::{padded, section};
 use super::local_rate::{ENGINE, Rates, engine_text};
 use super::quant_table::{dot, fraction, gb};
 use super::theme;
@@ -279,7 +279,7 @@ impl EngineCard {
             return;
         }
         let question = t("local.engine.confirm_remove", &[]);
-        match confirm_danger(ui, "confirm_remove_engine", question) {
+        match confirm_delete(ui, "confirm_remove_engine", question) {
             Choice::Open => {}
             Choice::Cancel => self.confirm_remove = false,
             Choice::Done(()) => {
