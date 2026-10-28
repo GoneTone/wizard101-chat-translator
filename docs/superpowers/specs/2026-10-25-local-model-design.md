@@ -159,11 +159,13 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
 | 入門（4 GB／CPU） | Qwen3.5-4B | `unsloth/Qwen3.5-4B-GGUF` | 2.74 GB |
 | 主流（6～8 GB） | Gemma 4 E4B | `unsloth/gemma-4-E4B-it-GGUF` | 4.98 GB |
 | 進階（8～12 GB） | Qwen3.5-9B | `unsloth/Qwen3.5-9B-GGUF` | 5.68 GB |
-| 進階（8～12 GB） | Gemma 4 12B QAT | `google/gemma-4-12B-it-qat-q4_0-gguf` | 6.98 GB |
+| 進階（8～12 GB） | Gemma 4 12B QAT | `unsloth/gemma-4-12B-it-qat-GGUF` | 6.72 GB（UD-Q4_K_XL） |
 | 高階（12 GB＋大 RAM） | Gemma 4 26B-A4B（MoE） | `unsloth/gemma-4-26B-A4B-it-GGUF` | 16.95 GB（Q4_K_M） |
 | 高階（24 GB） | Qwen3.8-27B | `unsloth/Qwen3.8-27B-GGUF` | 16.46 GB（UD-Q4_K_M） |
 
 授權皆 Apache-2.0、皆非 gated（2026-10-25 查證）。翻譯品質尚未實測，排序依規格推估。
+
+Gemma 4 12B QAT 原本用 Google 官方的 `google/gemma-4-12B-it-qat-q4_0-gguf`，實測（2026-10-28）在 temperature 0 下把「Hello! How are you?」穩定譯成「你 calorimeter 怎麼樣？」—— 模型在「你」之後最看好的詞就是「 calorimeter」，CPU／CUDA／Vulkan 皆同、檔案 SHA256 正確；unsloth 版同句正常，改用它（使用者決定）。
 
 ### 管理頁的操作何時生效（我的決定）
 

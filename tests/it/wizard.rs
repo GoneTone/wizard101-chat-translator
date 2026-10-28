@@ -682,14 +682,14 @@ mod local_install {
     }
 
     fn default_id() -> String {
-        model_id("google/gemma-4-12B-it-qat-q4_0-gguf", QUANT)
+        model_id("unsloth/gemma-4-12B-it-qat-GGUF", QUANT)
     }
 
     fn done_model() -> Installed {
         Installed {
             id: default_id(),
             manifest: Manifest {
-                repo: "google/gemma-4-12B-it-qat-q4_0-gguf".into(),
+                repo: "unsloth/gemma-4-12B-it-qat-GGUF".into(),
                 quant: QUANT.into(),
                 files: vec![],
                 mtp: None,

@@ -28,7 +28,7 @@ pub const RECOMMENDED: &[Recommended] = &[
         wizard: true,
     },
     Recommended {
-        repo: "google/gemma-4-12B-it-qat-q4_0-gguf",
+        repo: "unsloth/gemma-4-12B-it-qat-GGUF",
         name: "Gemma 4 12B QAT",
         wizard: true,
     },
