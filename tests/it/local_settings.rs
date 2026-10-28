@@ -773,6 +773,7 @@ mod page {
     fn disk_actions_apply_immediately_even_if_cancelled() {
         let mut h = window(snapshot(vec![model(MODEL, true, false)]));
         click(&mut h, Role::Button, &tr("button.delete"));
+        click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
         let sent = commands(|s: &WindowState| &s.env, &h);
         assert!(matches!(
             &sent[..],
@@ -787,6 +788,34 @@ mod page {
         click(&mut h, Role::Button, &tr("button.cancel"));
         assert_eq!(commands(|s: &WindowState| &s.env, &h).len(), 3);
         assert!(h.state().actions.contains(&SettingsAction::Cancel));
+    }
+
+    /// 沒有服務在用的模型也要先確認，提示寫出名稱與會釋放的大小；取消就不刪。
+    #[test]
+    fn deleting_an_unused_model_asks_first() {
+        let snap = snapshot(vec![model(MODEL, true, false)]);
+        let mut h = pane_harness(snap, vec![]);
+        h.state().env.snapshot.borrow_mut().models[0].manifest.files = vec![ManifestFile {
+            path: "m.gguf".into(),
+            size: 3 << 30,
+            sha256: None,
+        }];
+        run(&mut h);
+        click(&mut h, Role::Button, &tr("button.delete"));
+        assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 0);
+        let name = h.state().env.snapshot.borrow().models[0]
+            .manifest
+            .display_name();
+        let question = t(
+            "local.models.confirm_delete_unused",
+            &[("name", &name), ("size", "3.0")],
+        );
+        assert!(has_label(&h, &question));
+        click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.cancel"));
+        assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 0);
+        click(&mut h, Role::Button, &tr("button.delete"));
+        click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
+        assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 1);
     }
 
     #[test]

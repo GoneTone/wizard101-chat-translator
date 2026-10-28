@@ -104,6 +104,7 @@
   "local.models.eta_minutes": "{n} 分鐘",
   "local.models.eta_hours": "{h} 小時 {m} 分鐘",
   "local.models.confirm_delete": "本地服務「{services}」正在使用這個模型。刪除後會釋放 {size} GB，這些服務要改選其他模型才能使用。確定要刪除嗎？",
+  "local.models.confirm_delete_unused": "要刪除「{name}」嗎？會釋放 {size} GB，之後要用得重新下載。",
   "local.form.model_option": "{name}（{size} GB）",
   "local.form.model_hint": "清單只列已下載的模型。",
   "local.form.open_models": "管理本地模型 →",

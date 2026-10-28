@@ -91,7 +91,7 @@ impl LocalPane {
                 Some(ModelAction::OpenDownload) => {
                     self.dialog = Some(DownloadDialog::new(DialogMode::Download, Tab::Recommended));
                 }
-                Some(ModelAction::Delete(id)) => self.request_delete(env, id, services),
+                Some(ModelAction::Delete(id)) => self.confirm_delete = Some(id),
                 None => {}
             }
         });
@@ -152,14 +152,6 @@ impl LocalPane {
     }
 
     /// 沒有本地服務用著就直接刪，否則先問。
-    fn request_delete(&mut self, env: &dyn SettingsEnv, id: String, services: &[Value]) {
-        if users_of(services, &id).is_empty() {
-            delete(env, id);
-        } else {
-            self.confirm_delete = Some(id);
-        }
-    }
-
     fn show_dialogs(
         &mut self,
         ui: &Ui,
@@ -180,11 +172,20 @@ impl LocalPane {
             return;
         };
         let size = gb(total_size(std::slice::from_ref(model)));
-        let names = users_of(services, &id).join(&t("local.list_separator", &[]));
-        let question = t(
-            "local.models.confirm_delete",
-            &[("services", &names), ("size", &size)],
-        );
+        let users = users_of(services, &id);
+        let question = if users.is_empty() {
+            let name = model.manifest.display_name();
+            t(
+                "local.models.confirm_delete_unused",
+                &[("name", &name), ("size", &size)],
+            )
+        } else {
+            let names = users.join(&t("local.list_separator", &[]));
+            t(
+                "local.models.confirm_delete",
+                &[("services", &names), ("size", &size)],
+            )
+        };
         match confirm_danger(ui, "confirm_delete_model", question) {
             Choice::Open => {}
             Choice::Cancel => self.confirm_delete = None,
