@@ -124,14 +124,10 @@ fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<Speed>)
         ui.add(Label::new(name).truncate());
         let size = gb(total_size(std::slice::from_ref(model)));
         let line = match state {
-            RowState::Ready => small(format!("{} · {size} GB", model.manifest.repo)),
+            RowState::Ready => small(format!("{size} GB")),
             RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
             RowState::Paused(done, total) => small(paused_text(*done, *total)),
-            RowState::Interrupted => small(format!(
-                "{} · {}",
-                t("local.models.interrupted", &[]),
-                model.manifest.repo
-            )),
+            RowState::Interrupted => small(t("local.models.interrupted", &[])),
             RowState::Failed(error) => small((*error).to_owned()),
         };
         let color = if matches!(state, RowState::Failed(_)) {
