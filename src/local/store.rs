@@ -6,7 +6,6 @@ use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::catalog::RECOMMENDED;
 use super::gguf::ModelMeta;
 use super::hf::Choice;
 use crate::logs::log;
@@ -109,16 +108,9 @@ impl Manifest {
         self.files.iter().map(|f| f.size).sum::<u64>() + extra
     }
 
-    /// 顯示名：推薦清單內的 repo 用推薦名稱，其餘用 repo 名；後接量化。
+    /// 顯示名：完整 repo 名後接量化。
     pub fn display_name(&self) -> String {
-        let name = RECOMMENDED
-            .iter()
-            .find(|r| r.repo == self.repo)
-            .map_or_else(
-                || self.repo.rsplit('/').next().unwrap_or_default(),
-                |r| r.name,
-            );
-        format!("{name} · {}", self.quant)
+        format!("{} · {}", self.repo, self.quant)
     }
 }
 
@@ -449,14 +441,6 @@ mod tests {
     }
 
     /// 推薦清單內的 repo 用推薦名稱，其餘用 repo 名。
-    #[test]
-    fn display_name_prefers_the_recommended_name() {
-        let mut m = manifest();
-        assert_eq!(m.display_name(), "b · Q4");
-        m.repo = RECOMMENDED[0].repo.into();
-        assert_eq!(m.display_name(), format!("{} · Q4", RECOMMENDED[0].name));
-    }
-
     #[test]
     fn wrong_size_is_incomplete() {
         let tmp = tempfile::tempdir().unwrap();

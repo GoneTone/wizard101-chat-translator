@@ -725,7 +725,7 @@ mod local_install {
             )],
         }]));
         let h = on_card(s);
-        assert!(has_label(&h, "Gemma 4 12B QAT · Q4_K_M"));
+        assert!(has_label(&h, "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M"));
         assert!(has_label(&h, "Model: 2.0 GB"));
         assert!(has_label(&h, "Engine (vulkan): 0.5 GB"));
         assert!(has_label(&h, "Total download: 2.5 GB"));

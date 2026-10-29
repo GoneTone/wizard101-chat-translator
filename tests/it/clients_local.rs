@@ -141,7 +141,7 @@ async fn a_sleeping_server_shows_the_loading_banner_while_it_reloads() {
     assert_eq!(
         h.loading_notices(),
         [
-            LocalNotice::Loading(Some("Model-GGUF · Q4_K_M".into())),
+            LocalNotice::Loading(Some("org/Model-GGUF · Q4_K_M".into())),
             LocalNotice::Loading(None)
         ]
     );

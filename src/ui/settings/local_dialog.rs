@@ -242,7 +242,7 @@ impl DownloadDialog {
                 }
                 let mut first = None;
                 for (i, rec) in RECOMMENDED.iter().enumerate() {
-                    let name = RichText::new(rec.name).font(theme::bold(theme::TEXT_SIZE));
+                    let name = RichText::new(rec.repo).font(theme::bold(theme::TEXT_SIZE));
                     let row = self.repo_row(ui, env, rec.repo, name, snapshot);
                     first = first.or(row);
                     if i + 1 < RECOMMENDED.len() {

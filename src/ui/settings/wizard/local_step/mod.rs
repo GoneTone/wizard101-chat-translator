@@ -179,11 +179,7 @@ impl LocalInstall {
             Some(m) => Some(info.catalog.mtp.get(m)?),
             None => None,
         };
-        let name = RECOMMENDED
-            .iter()
-            .find(|r| r.repo == selection.repo)
-            .map_or(selection.repo.as_str(), |r| r.name);
-        let mut title = format!("{name} · {}", choice.quant.label);
+        let mut title = format!("{} · {}", selection.repo, choice.quant.label);
         if let Some(m) = mtp {
             title += &format!(" + MTP {}", m.quant.label);
         }

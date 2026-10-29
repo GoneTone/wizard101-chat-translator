@@ -1217,11 +1217,11 @@ fn the_over_capacity_list_says_which_sizes_were_measured() {
     assert!(save(&mut h).is_none());
     let measured = t(
         "error.local_over_capacity_item_measured",
-        &[("name", "a · Q4_K_M"), ("size", "7.0")],
+        &[("name", "org/a · Q4_K_M"), ("size", "7.0")],
     );
     let estimated = t(
         "error.local_over_capacity_item_estimated",
-        &[("name", "b · Q4_K_M"), ("size", "8.0")],
+        &[("name", "org/b · Q4_K_M"), ("size", "8.0")],
     );
     let models = [estimated, measured].join(&t("local.list_separator", &[]));
     let message = t(
@@ -1240,7 +1240,7 @@ fn two_different_local_models_that_do_not_fit_block_saving() {
     let item = |name: &str| {
         t(
             "error.local_over_capacity_item_estimated",
-            &[("name", &format!("{name} · Q4_K_M")), ("size", "8.0")],
+            &[("name", &format!("org/{name} · Q4_K_M")), ("size", "8.0")],
         )
     };
     let models = [item("b"), item("a")].join(&t("local.list_separator", &[]));

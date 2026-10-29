@@ -1362,7 +1362,7 @@ fn model_dropdown_lists_only_complete_downloads() {
     let option = |id: &str| {
         t(
             "local.form.model_option",
-            &[("name", &format!("{id} · Q4_K_M")), ("size", "0.0")],
+            &[("name", &format!("org/{id} · Q4_K_M")), ("size", "0.0")],
         )
     };
     assert!(has_label(&h, &option("ready")));
@@ -1378,7 +1378,7 @@ fn picking_a_model_writes_its_id() {
     click(&mut h, &tr("field.model"));
     let name = t(
         "local.form.model_option",
-        &[("name", "other · Q4_K_M"), ("size", "0.0")],
+        &[("name", "org/other · Q4_K_M"), ("size", "0.0")],
     );
     click(&mut h, &name);
     assert_eq!(h.state().form.values()["model"], json!("other"));

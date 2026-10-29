@@ -6,7 +6,6 @@ use super::fit::Fit;
 #[derive(Debug, PartialEq)]
 pub struct Recommended {
     pub repo: &'static str,
-    pub name: &'static str,
     pub wizard: bool,
 }
 
@@ -14,32 +13,26 @@ pub struct Recommended {
 pub const RECOMMENDED: &[Recommended] = &[
     Recommended {
         repo: "unsloth/Qwen3.5-4B-GGUF",
-        name: "Qwen3.5-4B",
         wizard: true,
     },
     Recommended {
         repo: "unsloth/gemma-4-E4B-it-GGUF",
-        name: "Gemma 4 E4B",
         wizard: true,
     },
     Recommended {
         repo: "unsloth/Qwen3.5-9B-GGUF",
-        name: "Qwen3.5-9B",
         wizard: true,
     },
     Recommended {
         repo: "unsloth/gemma-4-12B-it-qat-GGUF",
-        name: "Gemma 4 12B QAT",
         wizard: true,
     },
     Recommended {
         repo: "unsloth/gemma-4-26B-A4B-it-GGUF",
-        name: "Gemma 4 26B-A4B",
         wizard: false,
     },
     Recommended {
         repo: "unsloth/Qwen3.8-27B-GGUF",
-        name: "Qwen3.8-27B",
         wizard: false,
     },
 ];
@@ -60,7 +53,10 @@ mod tests {
     #[test]
     fn wizard_skips_high_end_models() {
         let all: Vec<_> = RECOMMENDED.iter().map(|r| (r, Fit::Smooth)).collect();
-        assert_eq!(wizard_pick(&all).unwrap().name, "Gemma 4 12B QAT");
+        assert_eq!(
+            wizard_pick(&all).unwrap().repo,
+            "unsloth/gemma-4-12B-it-qat-GGUF"
+        );
     }
 
     /// 較大的模型跑不動時退到較小且等級較好者。
@@ -71,7 +67,10 @@ mod tests {
             .enumerate()
             .map(|(i, r)| (r, if i < 2 { Fit::Smooth } else { Fit::Slow }))
             .collect();
-        assert_eq!(wizard_pick(&fits).unwrap().name, "Gemma 4 E4B");
+        assert_eq!(
+            wizard_pick(&fits).unwrap().repo,
+            "unsloth/gemma-4-E4B-it-GGUF"
+        );
     }
 
     /// Smooth 的較小模型勝過 Offload 的較大模型。
@@ -81,6 +80,6 @@ mod tests {
             (&RECOMMENDED[0], Fit::Smooth),
             (&RECOMMENDED[3], Fit::Offload),
         ];
-        assert_eq!(wizard_pick(&fits).unwrap().name, "Qwen3.5-4B");
+        assert_eq!(wizard_pick(&fits).unwrap().repo, "unsloth/Qwen3.5-4B-GGUF");
     }
 }

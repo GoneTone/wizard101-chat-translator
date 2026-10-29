@@ -924,7 +924,7 @@ mod page {
             })
             .count();
         assert_eq!(mtp, 1, "only the model with MTP gets a toggle");
-        let label = "MTP repo · Q4_K_M";
+        let label = "MTP org/repo · Q4_K_M";
         let on = h.get_by_role_and_label(Role::Switch, label);
         assert_eq!(on.accesskit_node().toggled(), Some(Toggled::True));
         click(&mut h, Role::Switch, label);

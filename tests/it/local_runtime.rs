@@ -355,7 +355,7 @@ async fn loading_notices_wrap_the_start() {
     assert_eq!(
         loading,
         [
-            LocalNotice::Loading(Some("Model-GGUF · Q4_K_M".into())),
+            LocalNotice::Loading(Some("org/Model-GGUF · Q4_K_M".into())),
             LocalNotice::Loading(None)
         ]
     );
