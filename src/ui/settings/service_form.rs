@@ -14,8 +14,8 @@ use super::provider_picker::provider_icon;
 use super::quant_table::gb;
 use super::theme::{self, icon};
 use super::widgets::{
-    combo_box, focus_ring, outcome, rich, right_aligned, right_aligned_width, secondary_button,
-    secondary_icon_button, toggle,
+    combo_box, focus_ring, full_text_tip, outcome, rich, right_aligned, right_aligned_width,
+    secondary_button, secondary_icon_button, toggle,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
@@ -492,9 +492,9 @@ impl ServiceForm {
                     &[("name", &m.manifest.display_name()), ("size", &size)],
                 )
             };
-            let current = snapshot.ready_model(&self.model);
+            let selected = snapshot.ready_model(&self.model).map(option);
             let combo = combo_box(ui, "local_model")
-                .selected_text(current.map(option).unwrap_or_default())
+                .selected_text(selected.clone().unwrap_or_default())
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
                     for m in snapshot.models.iter().filter(|m| m.complete) {
@@ -504,9 +504,10 @@ impl ServiceForm {
                     }
                 });
             let response = combo.response.labelled_by(label);
+            full_text_tip(ui, &response, selected.as_deref().unwrap_or_default(), 0.0);
             mark(ui, response.rect, Block::Control);
             focus_ring(ui, &response, theme::CONTROL_RADIUS);
-            if !self.model.is_empty() && current.is_none() {
+            if !self.model.is_empty() && selected.is_none() {
                 rich(
                     ui,
                     &t("local.form.model_missing", &[]),
@@ -609,8 +610,9 @@ impl ServiceForm {
     fn effort_row(&mut self, ui: &mut Ui, options: &[&'static str]) {
         form_row(ui, &t("field.effort", &[]), |ui, label| {
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
+            let selected = name(self.effective_effort());
             let combo = combo_box(ui, "effort")
-                .selected_text(name(self.effective_effort()))
+                .selected_text(selected.clone())
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
                     for &code in options {
@@ -623,6 +625,7 @@ impl ServiceForm {
                     }
                 });
             let response = combo.response.labelled_by(label);
+            full_text_tip(ui, &response, &selected, 0.0);
             mark(ui, response.rect, Block::Control);
             focus_ring(ui, &response, theme::CONTROL_RADIUS);
             // 清單列了支援的等級時選單已濾掉不支援的，不必再警告會選錯

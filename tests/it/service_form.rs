@@ -1384,6 +1384,27 @@ fn picking_a_model_writes_its_id() {
     assert_eq!(h.state().form.values()["model"], json!("other"));
 }
 
+/// 選取的模型名稱放不下被截斷時，滑鼠移上去顯示完整名稱；放得下就不顯示。
+#[test]
+fn a_truncated_model_name_shows_in_full_on_hover() {
+    for (repo, truncated) in [
+        ("bartowski/Qwen3.8-27B-Instruct-abliterated-GGUF", true),
+        ("org/ready", false),
+    ] {
+        let mut model = installed("ready", true, 0);
+        model.manifest.repo = repo.into();
+        let mut h = local_harness(vec![model]);
+        let name = t(
+            "local.form.model_option",
+            &[("name", &format!("{repo} · Q4_K_M")), ("size", "0.0")],
+        );
+        assert!(!has_label(&h, &name), "{repo}");
+        h.get_by_role(egui::accesskit::Role::ComboBox).hover();
+        settle(&mut h);
+        assert_eq!(has_label(&h, &name), truncated, "{repo}");
+    }
+}
+
 #[test]
 fn a_gone_model_is_flagged_and_the_link_asks_for_the_models_page() {
     let mut h = local_harness(vec![installed("other", true, 0)]);

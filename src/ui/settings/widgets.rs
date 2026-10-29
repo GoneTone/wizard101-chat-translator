@@ -207,6 +207,20 @@ pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
         })
 }
 
+/// 下拉框的選取文字被截斷時，滑鼠移上去顯示完整文字；`leading` 是文字前圖示佔的寬度。
+pub(super) fn full_text_tip(ui: &Ui, response: &Response, text: &str, leading: f32) {
+    let s = ui.spacing();
+    let room =
+        response.rect.width() - 2.0 * s.button_padding.x - s.icon_width - s.icon_spacing - leading;
+    let font = TextStyle::Button.resolve(ui.style());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER);
+    if galley.size().x > room {
+        hover_tip(ui, response, text);
+    }
+}
+
 /// 第一項是說明色 `none` 的下拉，其後是 `(值, 顯示文字)`；回傳這一幀選到的值，`Some(None)` 是選了 `none`。
 ///
 /// 在 `setting_row` 裡時以那一列的名稱當無障礙名稱。
@@ -220,7 +234,7 @@ pub(super) fn optional_combo(
 ) -> Option<Option<String>> {
     let mut chosen = None;
     let combo = combo_box(ui, salt)
-        .selected_text(selected)
+        .selected_text(selected.clone())
         .show_ui(ui, |ui| {
             let muted = RichText::new(none).color(theme::TEXT_SECONDARY);
             if ui.selectable_label(current.is_none(), muted).clicked() {
@@ -236,6 +250,7 @@ pub(super) fn optional_combo(
             }
         });
     let response = name_by_row(ui, combo.response);
+    full_text_tip(ui, &response, &selected, 0.0);
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
     chosen
 }

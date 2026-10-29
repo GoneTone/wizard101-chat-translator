@@ -9,8 +9,8 @@ use super::local_rate::{ENGINE, Rates, engine_text};
 use super::quant_table::{dot, fraction, gb};
 use super::theme;
 use super::widgets::{
-    combo_box, danger_secondary_button, focus_ring, pill, primary_button, progress_bar,
-    secondary_button, skeleton,
+    combo_box, danger_secondary_button, focus_ring, full_text_tip, pill, primary_button,
+    progress_bar, secondary_button, skeleton,
 };
 use crate::i18n::t;
 use crate::local::engine::{Build, EngineInstall, Variant, auto_variant, build_number};
@@ -113,7 +113,7 @@ impl EngineCard {
                 };
                 let combo = combo_box(ui, "engine_build")
                     .width(COMBO_WIDTH)
-                    .selected_text(text)
+                    .selected_text(text.clone())
                     .show_ui(ui, |ui| {
                         for b in builds {
                             let on = build.as_deref() == Some(b.tag.as_str());
@@ -124,6 +124,7 @@ impl EngineCard {
                         }
                     });
                 let response = combo.response.labelled_by(label);
+                full_text_tip(ui, &response, &text, 0.0);
                 focus_ring(ui, &response, theme::CONTROL_RADIUS);
             });
             ui.vertical(|ui| {
@@ -139,7 +140,7 @@ impl EngineCard {
                 };
                 let combo = combo_box(ui, "engine_variant")
                     .width(COMBO_WIDTH)
-                    .selected_text(text)
+                    .selected_text(text.clone())
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(shows_auto, auto_label(&auto)).clicked() {
                             self.variant = Some(None);
@@ -152,6 +153,7 @@ impl EngineCard {
                         }
                     });
                 let response = combo.response.labelled_by(label);
+                full_text_tip(ui, &response, &text, 0.0);
                 focus_ring(ui, &response, theme::CONTROL_RADIUS);
             });
             if let (Some(i), Some(latest)) = (installed, builds.first())

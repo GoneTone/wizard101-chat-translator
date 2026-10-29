@@ -13,7 +13,7 @@ use super::service_form::{FormResponse, ServiceForm};
 use super::theme;
 use super::widgets::{
     callout, card, collapsible, combo_box, danger_secondary_button, dashed_button, focus_ring,
-    list_card, name_by_row, primary_button, secondary_button, setting_row,
+    full_text_tip, list_card, name_by_row, primary_button, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{ServiceSlot, describe, new_service, str_field};
@@ -332,6 +332,10 @@ fn service_combo(
                 }
             }
         });
+    let name = draft.find(current).map(|s| str_field(s, "name"));
+    // 有服務時名稱前多了服務商圖示與間距
+    let leading = name.map_or(0.0, |_| 18.0 + ui.spacing().icon_spacing);
+    full_text_tip(ui, &combo.response, name.or(follow).unwrap_or(""), leading);
     (combo.response, chosen)
 }
 

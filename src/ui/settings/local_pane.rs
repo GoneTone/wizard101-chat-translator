@@ -14,7 +14,7 @@ use super::local_models::{self, ModelAction};
 use super::local_rate::Rates;
 use super::quant_table::gb;
 use super::theme;
-use super::widgets::{combo_box, focus_ring, name_by_row, setting_row, toggle};
+use super::widgets::{combo_box, focus_ring, full_text_tip, name_by_row, setting_row, toggle};
 use crate::config::Config;
 use crate::config::local::{IDLE_CHOICES, LocalSettings, PROMPT_CACHE_CHOICES, settings};
 use crate::config::services::{LOCAL_PROVIDER, str_field};
@@ -122,8 +122,9 @@ impl LocalPane {
     }
 
     fn idle_combo(&mut self, ui: &mut Ui) {
+        let selected = idle_text(self.settings.idle_minutes);
         let combo = combo_box(ui, "local_idle")
-            .selected_text(idle_text(self.settings.idle_minutes))
+            .selected_text(selected.clone())
             .show_ui(ui, |ui| {
                 for minutes in IDLE_CHOICES {
                     let on = self.settings.idle_minutes == minutes;
@@ -133,12 +134,14 @@ impl LocalPane {
                 }
             });
         let response = name_by_row(ui, combo.response);
+        full_text_tip(ui, &response, &selected, 0.0);
         focus_ring(ui, &response, theme::CONTROL_RADIUS);
     }
 
     fn prompt_cache_combo(&mut self, ui: &mut Ui) {
+        let selected = prompt_cache_text(self.settings.prompt_cache_mib);
         let combo = combo_box(ui, "local_prompt_cache")
-            .selected_text(prompt_cache_text(self.settings.prompt_cache_mib))
+            .selected_text(selected.clone())
             .show_ui(ui, |ui| {
                 for mib in PROMPT_CACHE_CHOICES {
                     let on = self.settings.prompt_cache_mib == mib;
@@ -148,6 +151,7 @@ impl LocalPane {
                 }
             });
         let response = name_by_row(ui, combo.response);
+        full_text_tip(ui, &response, &selected, 0.0);
         focus_ring(ui, &response, theme::CONTROL_RADIUS);
     }
 
