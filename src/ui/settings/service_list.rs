@@ -317,7 +317,6 @@ fn service_combo(
     let mut chosen = None;
     let combo = combo_box(ui, salt)
         .selected_text(selected)
-        .truncate()
         .show_ui(ui, |ui| {
             if let Some(follow) = follow {
                 let muted = RichText::new(follow).color(theme::TEXT_SECONDARY);

@@ -198,6 +198,7 @@ pub(super) fn paint_chevron(ui: &Ui, center: Pos2) {
 /// 設定介面的唯讀下拉：彈出層用 `popup_style`，箭頭與可輸入的下拉（`fields::editable_combo`）相同。
 pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
     ComboBox::from_id_salt(id_salt)
+        .truncate()
         .popup_style(StyleModifier::from(popup_style(ui)))
         .icon(|ui: &Ui, rect: Rect, _: &WidgetVisuals, _| {
             // egui 把圖示放在右內距之內；換算回控制項右緣
@@ -220,7 +221,6 @@ pub(super) fn optional_combo(
     let mut chosen = None;
     let combo = combo_box(ui, salt)
         .selected_text(selected)
-        .truncate()
         .show_ui(ui, |ui| {
             let muted = RichText::new(none).color(theme::TEXT_SECONDARY);
             if ui.selectable_label(current.is_none(), muted).clicked() {

@@ -114,7 +114,6 @@ impl EngineCard {
                 let combo = combo_box(ui, "engine_build")
                     .width(COMBO_WIDTH)
                     .selected_text(text)
-                    .truncate()
                     .show_ui(ui, |ui| {
                         for b in builds {
                             let on = build.as_deref() == Some(b.tag.as_str());
@@ -141,7 +140,6 @@ impl EngineCard {
                 let combo = combo_box(ui, "engine_variant")
                     .width(COMBO_WIDTH)
                     .selected_text(text)
-                    .truncate()
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(shows_auto, auto_label(&auto)).clicked() {
                             self.variant = Some(None);

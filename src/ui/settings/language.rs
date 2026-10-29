@@ -31,7 +31,6 @@ pub fn ui_language_combo(ui: &mut Ui) -> Option<String> {
     let mut chosen = None;
     let response = combo_box(ui, "ui_language")
         .selected_text(language_name(&current))
-        .truncate()
         .show_ui(ui, |ui| {
             for (code, name) in available_languages() {
                 if ui.selectable_label(code == current, name).clicked() {
