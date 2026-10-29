@@ -1265,6 +1265,7 @@ mod page {
             "local.models.downloading",
             &[("done", "1.0"), ("total", "3.0")],
         );
+        let line = format!("Q4_K_M · {line}");
         let mut h = pane_harness(running(1024 * MIB), vec![]);
         assert!(has_label(&h, &line));
         *h.state().env.snapshot.borrow_mut() = running(1042 * MIB);

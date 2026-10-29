@@ -117,25 +117,27 @@ fn row(
 }
 
 fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<Speed>) {
-    let small = |text: String| RichText::new(text).size(theme::HINT_SIZE);
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 2.0;
-        let name = RichText::new(model.manifest.display_name()).font(theme::bold(theme::TEXT_SIZE));
+        let name = RichText::new(&model.manifest.repo).font(theme::bold(theme::TEXT_SIZE));
         ui.add(Label::new(name).truncate());
         let size = gb(total_size(std::slice::from_ref(model)));
+        // 標題只放 repo，量化放副標題開頭；錯誤照原文顯示
+        let with_quant = |text: String| format!("{} · {text}", model.manifest.quant);
         let line = match state {
-            RowState::Ready => small(format!("{size} GB")),
-            RowState::Running(done, total) => small(transfer_text(*done, *total, speed)),
-            RowState::Paused(done, total) => small(paused_text(*done, *total)),
-            RowState::Interrupted => small(t("local.models.interrupted", &[])),
-            RowState::Failed(error) => small((*error).to_owned()),
+            RowState::Ready => with_quant(format!("{size} GB")),
+            RowState::Running(done, total) => with_quant(transfer_text(*done, *total, speed)),
+            RowState::Paused(done, total) => with_quant(paused_text(*done, *total)),
+            RowState::Interrupted => with_quant(t("local.models.interrupted", &[])),
+            RowState::Failed(error) => (*error).to_owned(),
         };
         let color = if matches!(state, RowState::Failed(_)) {
             theme::ERROR
         } else {
             theme::TEXT_SECONDARY
         };
-        ui.add(Label::new(line.color(color)).wrap());
+        let line = RichText::new(line).size(theme::HINT_SIZE).color(color);
+        ui.add(Label::new(line).wrap());
     });
 }
 
