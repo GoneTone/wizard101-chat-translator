@@ -424,8 +424,8 @@ fn form_dialog(
         |ui| {
             Frame::new()
                 .inner_margin(Margin {
-                    left: 24,
-                    right: 24,
+                    left: 20,
+                    right: 20,
                     top: 8,
                     bottom: 16,
                 })

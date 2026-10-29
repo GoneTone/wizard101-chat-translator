@@ -11,8 +11,9 @@ use crate::i18n::t;
 
 /// 對話框與視窗邊緣的最小距離。
 const MARGIN: f32 = 24.0;
+// 左右與內容、按鈕列同為 20，標題才會和內文對齊
 const HEADER_MARGIN: Margin = Margin {
-    left: 24,
+    left: 20,
     right: 20,
     top: 18,
     bottom: 8,
