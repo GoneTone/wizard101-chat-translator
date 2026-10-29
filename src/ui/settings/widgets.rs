@@ -212,7 +212,8 @@ pub(super) fn full_text_tip(ui: &Ui, response: &Response, text: &str, leading: f
     let s = ui.spacing();
     let room =
         response.rect.width() - 2.0 * s.button_padding.x - s.icon_width - s.icon_spacing - leading;
-    let font = TextStyle::Button.resolve(ui.style());
+    // 下拉框的文字實際以內文字型排版，不是按鈕字型
+    let font = TextStyle::Body.resolve(ui.style());
     let galley = ui
         .painter()
         .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER);

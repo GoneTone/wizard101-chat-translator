@@ -1384,25 +1384,34 @@ fn picking_a_model_writes_its_id() {
     assert_eq!(h.state().form.values()["model"], json!("other"));
 }
 
-/// 選取的模型名稱放不下被截斷時，滑鼠移上去顯示完整名稱；放得下就不顯示。
+/// 選取的模型名稱被截斷時，滑鼠移上去顯示完整名稱；沒截斷就不顯示（長度跨過截斷邊界逐字檢查）。
 #[test]
 fn a_truncated_model_name_shows_in_full_on_hover() {
-    for (repo, truncated) in [
-        ("bartowski/Qwen3.8-27B-Instruct-abliterated-GGUF", true),
-        ("org/ready", false),
-    ] {
+    let mut seen = [false; 2];
+    for extra in 0..16 {
+        let repo = format!("unsloth/gemma-4-12B-it-qat-GGUF{}", "x".repeat(extra));
         let mut model = installed("ready", true, 0);
-        model.manifest.repo = repo.into();
+        model.manifest.repo = repo.clone();
         let mut h = local_harness(vec![model]);
+        h.run();
+        let elided = h.output().shapes.iter().any(|clipped| {
+            matches!(&clipped.shape, egui::Shape::Text(text)
+                if text.galley.elided && text.galley.job.text.contains(&repo))
+        });
         let name = t(
             "local.form.model_option",
             &[("name", &format!("{repo} · Q4_K_M")), ("size", "0.0")],
         );
-        assert!(!has_label(&h, &name), "{repo}");
         h.get_by_role(egui::accesskit::Role::ComboBox).hover();
         settle(&mut h);
-        assert_eq!(has_label(&h, &name), truncated, "{repo}");
+        assert_eq!(has_label(&h, &name), elided, "{repo}");
+        seen[usize::from(elided)] = true;
     }
+    assert_eq!(
+        seen,
+        [true, true],
+        "the lengths straddle the truncation point"
+    );
 }
 
 #[test]
