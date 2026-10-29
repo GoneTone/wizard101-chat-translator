@@ -103,7 +103,7 @@
   "local.models.eta_seconds": "{n} sec",
   "local.models.eta_minutes": "{n} min",
   "local.models.eta_hours": "{h} h {m} min",
-  "local.models.confirm_delete": "The translation services {services} use this model. Deleting it frees {size} GB, and those services need another model before they work. Delete it anyway?",
+  "local.models.confirm_delete": "The translation services {services} use “{name}”. Deleting it frees {size} GB, and those services need another model before they work. Delete it anyway?",
   "local.models.confirm_delete_unused": "Delete “{name}”? This frees {size} GB, and you will need to download it again to use it later.",
   "local.form.model_option": "{name} ({size} GB)",
   "local.form.model_hint": "Only downloaded models are listed.",

@@ -834,9 +834,12 @@ mod page {
         click(&mut h, Role::Button, &tr("button.delete"));
         assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 0);
         let size = format!("{:.1}", (3u64 << 30) as f64 / (1u64 << 30) as f64);
+        let model_name = h.state().env.snapshot.borrow().models[0]
+            .manifest
+            .display_name();
         let question = t(
             "local.models.confirm_delete",
-            &[("services", &name), ("size", &size)],
+            &[("services", &name), ("name", &model_name), ("size", &size)],
         );
         assert!(has_label(&h, &question));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));

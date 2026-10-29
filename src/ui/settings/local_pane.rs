@@ -173,8 +173,8 @@ impl LocalPane {
         };
         let size = gb(total_size(std::slice::from_ref(model)));
         let users = users_of(services, &id);
+        let name = model.manifest.display_name();
         let question = if users.is_empty() {
-            let name = model.manifest.display_name();
             t(
                 "local.models.confirm_delete_unused",
                 &[("name", &name), ("size", &size)],
@@ -183,7 +183,7 @@ impl LocalPane {
             let names = users.join(&t("local.list_separator", &[]));
             t(
                 "local.models.confirm_delete",
-                &[("services", &names), ("size", &size)],
+                &[("services", &names), ("name", &name), ("size", &size)],
             )
         };
         match confirm_delete(ui, "confirm_delete_model", question) {
