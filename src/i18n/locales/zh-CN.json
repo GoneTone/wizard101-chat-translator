@@ -116,7 +116,7 @@
   "local.form.model_hint": "列表只列已下载的模型。",
   "local.form.open_models": "管理本地模型 →",
   "local.form.model_missing": "找不到这个模型",
-  "local.form.test_hint": "第一次测试要先加载模型，可能要等十几秒。",
+  "local.form.test_hint": "第一次测试要先加载模型，等待时间依模型大小与电脑性能而定。",
   "local.form.thinking_hint": "开启后模型会先思考再翻译，通常会慢上不少；模型本身不会思考时，开了也没有作用。",
   "local.continue_download": "继续下载",
   "local.wizard.intro": "会自动挑一个适合这台电脑的模型，连同引擎一起下载；之后翻译都在这台电脑上运行。",
