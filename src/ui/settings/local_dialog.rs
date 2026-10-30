@@ -318,7 +318,7 @@ impl DownloadDialog {
                 clicks = row_buttons(
                     ui,
                     rating,
-                    info.catalog.choices.len() > 1,
+                    info.catalog.choices.len() > 1 || !info.catalog.mtp.is_empty(),
                     open,
                     self.mode,
                     have,

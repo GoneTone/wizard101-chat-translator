@@ -130,7 +130,7 @@
   "local.wizard.waiting_vram": "A model that suits this computer is picked once the engine is installed and VRAM is detected.",
   "local.wizard.cancel": "Cancel download",
   "local.wizard.cancelled_hint": "Download stopped. Progress is kept; you can continue it from the Local models page in Settings (Continue download).",
-  "local.wizard.done": "Download complete. Press Next to continue.",
+  "local.wizard.done": "The model is downloaded. Press Next to continue.",
   "local.list_separator": ", ",
   "status.locating": "●  Connecting to game…",
   "status.listening": "●  Listening",

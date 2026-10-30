@@ -1309,6 +1309,16 @@ fn a_service_card_flags_a_gone_local_model() {
     assert!(!has_label(&h, &tr("local.form.model_missing")));
 }
 
+/// 本地服務卡片的副標用「org/repo · 量化」，不露出內部 id。
+#[test]
+fn a_local_service_card_names_the_model_like_elsewhere() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    h.state().env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    go(&mut h, "settings.tab.services");
+    let shown = format!("{} · org/a · Q4_K_M", tr("provider.local_short"));
+    assert!(has_label(&h, &shown));
+}
+
 #[test]
 fn a_gone_default_model_blocks_saving_even_when_every_slot_overrides_it() {
     let mut cfg = configured("local", json!({"model": "gone"}));

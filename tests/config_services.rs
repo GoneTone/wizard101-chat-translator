@@ -286,9 +286,11 @@ fn is_auto_name_accepts_exactly_the_numbers_unique_name_can_produce() {
 
 #[test]
 fn describe_shows_the_brand_and_the_model() {
-    let mut service = new_service("claude", &[]);
-    service["model"] = "claude-opus-5".into();
-    assert_eq!(describe(&service), "Claude · claude-opus-5");
+    let service = new_service("claude", &[]);
+    assert_eq!(
+        describe(&service, "claude-opus-5"),
+        "Claude · claude-opus-5"
+    );
 }
 
 #[test]

@@ -601,7 +601,7 @@ mod local_install {
     use wizard101_chat_translator::local::fit::{Fit, Need, Pick, Rating};
     use wizard101_chat_translator::local::gguf::ModelMeta;
     use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
-    use wizard101_chat_translator::local::hf::{Catalog, Choice, Quant, RepoFile};
+    use wizard101_chat_translator::local::hf::{Catalog, Choice, MtpChoice, Quant, RepoFile};
     use wizard101_chat_translator::local::store::{Installed, Manifest, model_id};
     use wizard101_chat_translator::local::{Command, EngineState, RepoInfo, RepoState, Snapshot};
 
@@ -905,6 +905,50 @@ mod local_install {
 
     fn download_count(h: &WizardHarness) -> usize {
         sent(h).iter().filter(|c| c.starts_with("Download")).count()
+    }
+
+    /// 推薦的模型已經下載好：直接完成，不再列下載量、不必按〔下載〕。
+    #[test]
+    fn an_already_downloaded_pick_is_ready_without_downloading() {
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        let h = on_card(s);
+        assert!(next_enabled(&h));
+        assert_eq!(download_count(&h), 0);
+        assert!(has_label(&h, &tr("local.wizard.done")));
+        assert!(!has_label(&h, "Total download: 2.0 GB"));
+    }
+
+    /// 推薦帶 MTP 檔：已下載的同量化少了那個 MTP 檔不算好，還要下載；
+    /// 檔名看不出量化的唯一 MTP 只寫「MTP」。
+    #[test]
+    fn a_downloaded_model_without_the_wanted_mtp_still_downloads() {
+        let mut s = ready_snapshot();
+        for repo in s.repos.values_mut() {
+            if let RepoState::Ready(info) = repo {
+                info.catalog.mtp = vec![MtpChoice {
+                    quant: Quant {
+                        label: "mtp-m.gguf".into(),
+                        bits: None,
+                    },
+                    file: RepoFile {
+                        path: "mtp-m.gguf".into(),
+                        size: G / 4,
+                        sha256: None,
+                    },
+                    shared: false,
+                }];
+                info.auto.as_mut().unwrap().mtp = Some(0);
+            }
+        }
+        s.models.push(done_model());
+        let h = on_card(s);
+        assert!(!next_enabled(&h));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert!(has_label(
+            &h,
+            "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M + MTP"
+        ));
     }
 
     #[test]

@@ -16,7 +16,7 @@ use super::widgets::{
     full_text_tip, list_card, name_by_row, primary_button, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
-use crate::config::services::{ServiceSlot, describe, new_service, str_field};
+use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, describe, new_service, str_field};
 use crate::i18n::t;
 use crate::local::Snapshot;
 use crate::logs::log;
@@ -211,7 +211,7 @@ impl ServicePane {
             |ui| provider_icon(ui, str_field(service, "provider"), 32.0),
             str_field(service, "name"),
             &badges,
-            &describe(service),
+            &describe(service, &model_label(service, snapshot)),
             |ui| {
                 let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
                 let delete = ui
@@ -478,4 +478,13 @@ fn save(form: &ServiceForm, errors: &mut Vec<String>) -> Choice<Value> {
         py_bool(!str_field(&service, "api_key").is_empty())
     ));
     Choice::Done(service)
+}
+
+/// 本地服務顯示「org/repo · 量化」而不是內部 id；其他服務照存的模型名稱。
+fn model_label(service: &Value, snapshot: &Snapshot) -> String {
+    let model = str_field(service, "model");
+    match snapshot.ready_model(model) {
+        Some(m) if str_field(service, "provider") == LOCAL_PROVIDER => m.manifest.display_name(),
+        _ => model.to_owned(),
+    }
 }

@@ -422,11 +422,11 @@ pub fn new_service(provider: &str, services: &[Value]) -> Value {
     Value::Object(service_map(p, services))
 }
 
-/// 服務卡片的副標：服務商短名與模型。
-pub fn describe(service: &Value) -> String {
+/// 服務卡片的副標：服務商短名與要顯示的模型名稱。
+pub fn describe(service: &Value, model: &str) -> String {
     let key = str_field(service, "provider");
     let short = provider(key).map_or_else(|| key.to_owned(), Provider::short_name);
-    format!("{short} · {}", str_field(service, "model"))
+    format!("{short} · {model}")
 }
 
 /// 服務清單欄位的取值：非 list 的原值整個當成一筆（最可能是貼歪的金鑰），缺值或 null 為空清單。

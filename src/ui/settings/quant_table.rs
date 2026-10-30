@@ -12,6 +12,7 @@ use super::widgets::{focus_ring, skeleton};
 use crate::i18n::t;
 use crate::local::RepoInfo;
 use crate::local::fit::{Fit, Need, Rating, total_size};
+use crate::local::hf::MtpChoice;
 
 const CHIP_HEIGHT: f32 = 28.0;
 const DOT: f32 = 8.0;
@@ -127,7 +128,7 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, pick: &mut (usize, Option<usize
         }
         for (i, m) in info.catalog.mtp.iter().enumerate() {
             let rating = combined(info, (pick.0, Some(i)));
-            let label = format!("MTP {}", m.quant.label);
+            let label = mtp_label(&info.catalog.mtp, i);
             let r = chip(
                 ui,
                 pick.1 == Some(i),
@@ -140,6 +141,16 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, pick: &mut (usize, Option<usize
             }
         }
     });
+}
+
+/// MTP 選項的名稱；只有一個且檔名看不出量化時只寫「MTP」，不把整串檔名放進來。
+pub(super) fn mtp_label(mtp: &[MtpChoice], i: usize) -> String {
+    let m = &mtp[i];
+    if m.quant.bits.is_none() && mtp.len() == 1 {
+        "MTP".into()
+    } else {
+        format!("MTP {}", m.quant.label)
+    }
 }
 
 fn row(ui: &mut Ui, name: &str, chips: impl FnOnce(&mut Ui)) {

@@ -130,7 +130,7 @@
   "local.wizard.waiting_vram": "引擎安装完成、检测到显存（VRAM）后，才会挑出适合这台电脑的模型。",
   "local.wizard.cancel": "取消下载",
   "local.wizard.cancelled_hint": "已停止下载，进度会保留；之后可在设置的“本地模型”页点“继续下载”。",
-  "local.wizard.done": "下载完成，可以点“下一步”。",
+  "local.wizard.done": "模型已下载完成，可以点“下一步”。",
   "local.list_separator": "、",
   "status.locating": "●  连接游戏中…",
   "status.listening": "●  监听中",

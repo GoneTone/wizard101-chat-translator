@@ -209,6 +209,24 @@ fn single_quant_repo_disables_choose_version() {
     assert!(choose.accesskit_node().is_disabled());
 }
 
+/// 只有一個量化但有 MTP 檔：還能選 MTP 的用法，〔選擇版本〕要能按。
+#[test]
+fn single_quant_repo_with_mtp_can_choose_version() {
+    let base = with_mtp(info(Fit::Smooth, false, 1, 3 * G), Some(0), G);
+    let mut h = harness(
+        DialogMode::Download,
+        Tab::Recommended,
+        snapshot(&[(0, base)]),
+    );
+    click(&mut h, Role::Button, &tr("local.dialog.choose_version"));
+    click(&mut h, Role::RadioButton, &tr("local.quant.mtp_none"));
+    click(&mut h, Role::Button, &tr("local.dialog.download"));
+    assert!(matches!(
+        &downloads(&h)[..],
+        [Command::Download { mtp: None, .. }]
+    ));
+}
+
 /// 在自訂分頁的輸入框打字並按〔搜尋〕。
 fn submit_custom(h: &mut Harness<State>, text: &str) {
     h.get_by_role_and_label(Role::TextInput, &tr("local.dialog.search_hint"))
@@ -825,7 +843,8 @@ mod page {
         let question = t(
             "local.models.confirm_delete_unused",
             &[("name", &name), ("size", "3.0")],
-        );
+        )
+        .replace(" GB", "\u{a0}GB");
         assert!(has_label(&h, &question));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.cancel"));
         assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 0);
@@ -856,7 +875,8 @@ mod page {
         let question = t(
             "local.models.confirm_delete",
             &[("services", &name), ("name", &model_name), ("size", &size)],
-        );
+        )
+        .replace(" GB", "\u{a0}GB");
         assert!(has_label(&h, &question));
         click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
         assert_eq!(deletes(&commands(|s: &State| &s.env, &h)), 1);
@@ -970,6 +990,24 @@ mod page {
             last(&h),
             Some(Command::InstallEngine { build: Some(b), variant: Some(Variant::Cpu) }) if b == "b11871"
         ));
+    }
+
+    /// 下拉選過版本再按〔更新〕：裝好後下拉跟著新版，不留舊選擇而冒出〔安裝所選版本〕。
+    #[test]
+    fn updating_after_picking_a_build_follows_the_new_install() {
+        let mut h = pane_harness(ready_engine(), vec![]);
+        click(&mut h, Role::ComboBox, &tr("local.engine.version"));
+        click(&mut h, Role::Button, "b11871 (2026-10-26)");
+        click(&mut h, Role::Button, &tr("local.engine.update"));
+        let mut snap = ready_engine();
+        snap.engine = EngineState::Ready(EngineInstall {
+            build: "b11880".into(),
+            variant: Variant::Vulkan,
+        });
+        *h.state().env.snapshot.borrow_mut() = snap;
+        run(&mut h);
+        let install = tr("local.engine.install_selected");
+        assert!(h.query_by_role_and_label(Role::Button, &install).is_none());
     }
 
     #[test]

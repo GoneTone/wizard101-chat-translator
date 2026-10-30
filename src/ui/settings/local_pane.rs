@@ -190,6 +190,8 @@ impl LocalPane {
                 &[("services", &names), ("name", &name), ("size", &size)],
             )
         };
+        // 對話框窄，數字與單位之間用不換行空白，免得「2.7」和「GB」分在兩行
+        let question = question.replace(" GB", "\u{a0}GB");
         match confirm_delete(ui, "confirm_delete_model", question) {
             Choice::Open => {}
             Choice::Cancel => self.confirm_delete = None,

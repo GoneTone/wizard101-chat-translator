@@ -269,6 +269,10 @@ impl EngineCard {
                 log(format!(
                     "[ui] engine install requested: build={build:?} variant={variant:?}"
                 ));
+                // 更新裝的是最新版，不是下拉選過的版本；放掉選擇讓下拉跟著裝好的走
+                if key == "local.engine.update" {
+                    self.build = None;
+                }
                 env.local_command(Command::InstallEngine { build, variant });
             }
             if installed.is_some()

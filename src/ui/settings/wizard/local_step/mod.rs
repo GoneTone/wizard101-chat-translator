@@ -18,7 +18,7 @@ use crate::ui::settings::local_dialog::{
 };
 use crate::ui::settings::local_engine::variant_label;
 use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, paused_text, transfer_text};
-use crate::ui::settings::quant_table::{combined, fit_badge, gb};
+use crate::ui::settings::quant_table::{combined, fit_badge, gb, mtp_label};
 use crate::ui::settings::theme;
 use crate::ui::settings::widgets::{card, hint, primary_button, secondary_button, skeleton};
 
@@ -41,6 +41,8 @@ struct Plan {
     rating: Rating,
     model_bytes: u64,
     id: String,
+    /// 選的 MTP 檔（repo 內路徑）。
+    mtp_path: Option<String>,
 }
 
 /// 精靈裡選了本地服務後的安裝流程狀態。
@@ -133,7 +135,7 @@ impl LocalInstall {
         }
     }
 
-    /// 還沒追蹤任何模型時，認領 hub 裡正在跑的、同一個選擇的下載（例如返回上一步再進來）。
+    /// 還沒追蹤任何模型時，認領同一個選擇：hub 裡正在跑的下載（例如返回上一步再進來），或已經下載好的模型。
     fn adopt(&mut self, snapshot: &Snapshot) {
         if self.tracked.is_some() || self.cancelled {
             return;
@@ -141,12 +143,22 @@ impl LocalInstall {
         let Some(plan) = self.plan(snapshot) else {
             return;
         };
-        if matches!(
+        let running = matches!(
             snapshot.downloads.get(&plan.id),
             Some(DownloadState::Running { .. } | DownloadState::Paused { .. })
-        ) {
+        );
+        // 量化相同但 MTP 檔不同的不算，要的 MTP 檔還得下載
+        let downloaded = snapshot.ready_model(&plan.id).is_some_and(|m| {
+            m.manifest.mtp.as_ref().map(|f| f.path.as_str()) == plan.mtp_path.as_deref()
+        });
+        if running || downloaded {
             log(format!(
-                "[ui] wizard local adopted running download: id={}",
+                "[ui] wizard local adopted {}: id={}",
+                if running {
+                    "running download"
+                } else {
+                    "downloaded model"
+                },
                 plan.id
             ));
             self.tracked = Some(plan.id);
@@ -181,8 +193,8 @@ impl LocalInstall {
             None => None,
         };
         let mut title = format!("{} · {}", selection.repo, choice.quant.label);
-        if let Some(m) = mtp {
-            title += &format!(" + MTP {}", m.quant.label);
+        if let Some(m) = selection.mtp {
+            title += &format!(" + {}", mtp_label(&info.catalog.mtp, m));
         }
         let rating = combined(info, (selection.choice, selection.mtp));
         Some(Plan {
@@ -190,6 +202,7 @@ impl LocalInstall {
             title,
             rating,
             model_bytes: total_size(choice) + mtp.map_or(0, |m| m.file.size),
+            mtp_path: mtp.map(|m| m.file.path.clone()),
             selection,
         })
     }
@@ -443,9 +456,9 @@ impl LocalInstall {
     }
 }
 
-/// 模型名稱，有相容等級就接在後面。
+/// 模型名稱，有相容等級就接在後面；太長時換行，不超出卡片。
 fn title_row(ui: &mut Ui, title: &str, rating: Option<Rating>) {
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let title = RichText::new(title).font(theme::bold(theme::TEXT_SIZE));
         ui.add(Label::new(title));
         if let Some(r) = rating {
