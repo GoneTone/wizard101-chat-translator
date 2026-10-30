@@ -131,6 +131,7 @@
   "local.wizard.cancel": "取消下載",
   "local.wizard.cancelled_hint": "已停止下載，進度會保留；之後可在設定的「本地模型」頁按「繼續下載」。",
   "local.wizard.done": "模型已下載完成，可以按「下一步」。",
+  "local.wizard.model_ready": "模型已下載完成，等引擎安裝好就能按「下一步」。",
   "local.list_separator": "、",
   "status.locating": "●  連線遊戲中…",
   "status.listening": "●  監聽中",

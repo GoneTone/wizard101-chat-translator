@@ -131,6 +131,7 @@
   "local.wizard.cancel": "Cancel download",
   "local.wizard.cancelled_hint": "Download stopped. Progress is kept; you can continue it from the Local models page in Settings (Continue download).",
   "local.wizard.done": "The model is downloaded. Press Next to continue.",
+  "local.wizard.model_ready": "The model is downloaded. Next becomes available once the engine is installed.",
   "local.list_separator": ", ",
   "status.locating": "●  Connecting to game…",
   "status.listening": "●  Listening",

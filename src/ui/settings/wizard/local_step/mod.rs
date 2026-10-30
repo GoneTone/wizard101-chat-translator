@@ -29,8 +29,10 @@ mod widgets;
 pub enum InstallState {
     Choosing,
     Downloading,
-    /// 所選模型已下載完成（模型 id）。
+    /// 所選模型已下載完成、引擎也裝好了（模型 id）。
     Done(String),
+    /// 模型早就下載好了，還在等引擎裝好。
+    WaitingEngine,
     Failed(String),
 }
 
@@ -170,7 +172,11 @@ impl LocalInstall {
             return InstallState::Choosing;
         };
         if snapshot.ready_model(id).is_some() {
-            return InstallState::Done(id.clone());
+            // 模型本來就在時不經下載、不會等引擎；引擎沒裝好前不能進下一步
+            return match snapshot.engine {
+                EngineState::Ready(_) => InstallState::Done(id.clone()),
+                _ => InstallState::WaitingEngine,
+            };
         }
         match snapshot.downloads.get(id) {
             Some(DownloadState::Failed(e)) => InstallState::Failed(e.clone()),
@@ -412,8 +418,12 @@ impl LocalInstall {
         }
         self.engine_status(ui, env, snapshot);
         match state {
-            InstallState::Done(_) => {
-                hint(ui, &t("local.wizard.done", &[]), theme::TEXT_SECONDARY);
+            InstallState::Done(_) | InstallState::WaitingEngine => {
+                let key = match state {
+                    InstallState::Done(_) => "local.wizard.done",
+                    _ => "local.wizard.model_ready",
+                };
+                hint(ui, &t(key, &[]), theme::TEXT_SECONDARY);
                 if secondary_button(ui, &t("local.wizard.change", &[])).clicked() {
                     self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
                 }
@@ -445,7 +455,7 @@ impl LocalInstall {
                 }
             }
         }
-        if !matches!(state, InstallState::Done(_))
+        if !matches!(state, InstallState::Done(_) | InstallState::WaitingEngine)
             && secondary_button(ui, &t("local.wizard.cancel", &[])).clicked()
         {
             log(format!("[ui] wizard local download cancelled: id={id}"));

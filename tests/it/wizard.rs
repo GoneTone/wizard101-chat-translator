@@ -919,6 +919,28 @@ mod local_install {
         assert!(!has_label(&h, "Total download: 2.0 GB"));
     }
 
+    /// 推薦的模型早就下載好、引擎還在裝：等引擎裝好才能進下一步，也沒有〔取消下載〕。
+    #[test]
+    fn a_downloaded_pick_waits_for_the_engine() {
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        s.engine = EngineState::Installing {
+            build: "b1".into(),
+            done: 0,
+            total: G,
+            extracting: false,
+        };
+        let mut h = on_card(s);
+        assert!(!next_enabled(&h));
+        assert!(has_label(&h, &tr("local.wizard.model_ready")));
+        assert!(!has(&h, Role::Button, &tr("local.wizard.cancel")));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        assert!(has_label(&h, &tr("local.wizard.done")));
+    }
+
     /// 推薦帶 MTP 檔：已下載的同量化少了那個 MTP 檔不算好，還要下載；
     /// 檔名看不出量化的唯一 MTP 只寫「MTP」。
     #[test]
