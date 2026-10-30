@@ -151,6 +151,77 @@ fn the_services_tab_sits_between_basic_and_advanced() {
     assert_eq!(h.state().win.page(), Page::Basic);
 }
 
+/// 設定視窗縮到最窄時，每一頁的內容都不超出底部按鈕列的右緣。
+#[test]
+fn every_page_fits_the_narrowest_window() {
+    use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
+    use wizard101_chat_translator::local::{DownloadState, EngineState};
+    let cfg = configured("local", json!({"model": "a"}));
+    let env = FakeEnv::default();
+    {
+        let mut s = env.snapshot.borrow_mut();
+        let mut a = installed("a", true, 7 * GB);
+        a.manifest.repo = "unsloth/gemma-4-26B-A4B-it-qat-GGUF".into();
+        a.manifest.has_builtin_mtp = true;
+        let mut b = installed("b", false, 5 * GB);
+        b.manifest.repo = "bartowski/Qwen3.8-27B-Instruct-abliterated-GGUF".into();
+        s.models = vec![a, b];
+        let failed = t("local.error.download", &[("error", "HTTP 503")]);
+        s.downloads
+            .insert("b".into(), DownloadState::Failed(failed));
+        s.engine = EngineState::Ready(EngineInstall {
+            build: "b7000".into(),
+            variant: Variant::Vulkan,
+        });
+        let build = |tag: &str| Build {
+            tag: tag.into(),
+            published: "2026-10-01".into(),
+            variants: vec![],
+        };
+        s.builds = Some(Ok(vec![build("b7100"), build("b7000")]));
+        s.hardware.gpu = Some(Gpu {
+            name: "NVIDIA GeForce RTX 4080 SUPER".into(),
+            vendor: 0x10de,
+            device: 0,
+            kind: GpuKind::Discrete,
+            nvidia_driver: None,
+        });
+        s.hardware.measured = true;
+    }
+    let mut h = harness_with(cfg, env, theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    let tabs = [
+        "settings.tab.basic",
+        "settings.tab.services",
+        "settings.tab.local",
+        "settings.tab.glossaries",
+        "settings.tab.advanced",
+        "settings.tab.about",
+    ];
+    for tab in tabs {
+        go(&mut h, tab);
+        run(&mut h);
+        let edge = h
+            .get_by_role_and_label(Role::Button, &tr("button.save"))
+            .rect()
+            .right();
+        let controls = h.query_all_by(|n| {
+            matches!(
+                n.role(),
+                Role::Button | Role::Label | Role::Link | Role::ComboBox
+            )
+        });
+        for node in controls.filter(|n| n.rect().center().x > theme::SIDEBAR_WIDTH) {
+            let rect = node.rect();
+            assert!(
+                rect.right() <= edge + 0.5,
+                "{tab}: {:?} {rect:?}",
+                node.accesskit_node().label()
+            );
+        }
+    }
+}
+
 #[test]
 fn the_sidebar_shows_the_version() {
     let h = harness(configured_cfg());

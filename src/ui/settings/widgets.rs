@@ -300,6 +300,29 @@ pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) ->
     shown.inner
 }
 
+/// 一列：左邊文字、右邊靠右的控制項。文字剩不到 `MIN_LABEL_WIDTH` 時改成兩層，控制項換到文字下方靠右，
+/// 不硬撐出容器（窄視窗、縮小的設定視窗）。
+pub(super) fn text_with_controls<A, B>(
+    ui: &mut Ui,
+    id: Id,
+    text: impl FnOnce(&mut Ui) -> A,
+    controls: impl FnOnce(&mut Ui) -> B,
+) -> (A, B) {
+    let room = ui.available_width() - right_aligned_width(ui, id) - 12.0;
+    if room >= MIN_LABEL_WIDTH {
+        return ui
+            .horizontal(|ui| {
+                let a = ui.allocate_ui(vec2(room, 0.0), text).inner;
+                (a, right_aligned(ui, id, controls))
+            })
+            .inner;
+    }
+    let a = text(ui);
+    ui.add_space(STACK_GAP);
+    let b = ui.horizontal(|ui| right_aligned(ui, id, controls)).inner;
+    (a, b)
+}
+
 /// `right_aligned` 上一幀量到的寬度；還沒量過是 0。
 pub(super) fn right_aligned_width(ui: &Ui, id: Id) -> f32 {
     ui.data(|d| d.get_temp(id)).unwrap_or(0.0)
@@ -509,6 +532,10 @@ pub(super) fn pill(ui: &mut Ui, text: &str) {
 
 /// 設定列裡下拉最多占整列寬度的比例。
 const MAX_CONTROL_SHARE: f32 = 0.45;
+/// 一列的文字至少留這麼寬；控制項（例如長網址、按鈕組）擠到更窄時改成兩層，控制項換到文字下方。
+const MIN_LABEL_WIDTH: f32 = 120.0;
+/// 換成兩層時上下層的間距。
+pub(super) const STACK_GAP: f32 = 6.0;
 
 /// 卡片裡的一列：左邊名稱與說明（說明可含連結），右邊控制項，兩邊垂直置中；不是第一列時上方畫分隔線。
 ///
@@ -541,13 +568,39 @@ pub fn setting_row_with(
             let (label_h, control_size): (f32, Vec2) = ui
                 .data(|d| d.get_temp(id))
                 .unwrap_or((inner_min, Vec2::ZERO));
-            let height = label_h.max(control_size.y).max(inner_min);
-            let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
             let gap = f32::from(pad_x);
-            let label_rect = Rect::from_min_size(
-                pos2(rect.left(), rect.center().y - label_h / 2.0),
-                vec2((width - control_size.x - gap).max(0.0), label_h),
-            );
+            let stacked = width - control_size.x - gap < MIN_LABEL_WIDTH;
+            let height = if stacked {
+                label_h + STACK_GAP + control_size.y
+            } else {
+                label_h.max(control_size.y)
+            };
+            let (rect, _) =
+                ui.allocate_exact_size(vec2(width, height.max(inner_min)), Sense::hover());
+            let (label_rect, control_rect) = if stacked {
+                let control_width = control_size.x.min(width);
+                (
+                    Rect::from_min_size(rect.min, vec2(width, label_h)),
+                    Rect::from_min_size(
+                        pos2(rect.right() - control_width, rect.bottom() - control_size.y),
+                        vec2(control_width, control_size.y),
+                    ),
+                )
+            } else {
+                (
+                    Rect::from_min_size(
+                        pos2(rect.left(), rect.center().y - label_h / 2.0),
+                        vec2((width - control_size.x - gap).max(0.0), label_h),
+                    ),
+                    Rect::from_min_size(
+                        pos2(
+                            rect.right() - control_size.x,
+                            rect.center().y - control_size.y / 2.0,
+                        ),
+                        control_size,
+                    ),
+                )
+            };
             let label_column = ui.scope_builder(
                 UiBuilder::new()
                     .max_rect(label_rect)
@@ -560,13 +613,6 @@ pub fn setting_row_with(
                 },
             );
             let label_used = label_column.response.rect;
-            let control_rect = Rect::from_min_size(
-                pos2(
-                    rect.right() - control_size.x,
-                    rect.center().y - control_size.y / 2.0,
-                ),
-                control_size,
-            );
             let control_used = ui
                 .scope_builder(
                     UiBuilder::new()
@@ -577,7 +623,12 @@ pub fn setting_row_with(
                                 .with_tag_value(ROW_LABEL_TAG, label_column.inner),
                         ),
                     |ui| {
-                        ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+                        // 並排時量自然寬度；兩層時比整列還寬就換行，不撐出卡片
+                        ui.style_mut().wrap_mode = Some(if stacked {
+                            TextWrapMode::Wrap
+                        } else {
+                            TextWrapMode::Extend
+                        });
                         // 視窗窄時下拉讓出寬度，名稱與說明才不會被擠成一欄幾個字
                         let spacing = ui.spacing_mut();
                         spacing.combo_width = spacing.combo_width.min(width * MAX_CONTROL_SHARE);

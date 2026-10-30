@@ -1,7 +1,9 @@
 //! 關於分頁：版本與手動檢查更新、專案與開發者連結、譯者、紀錄檔位置與譯文快取。
 
+use eframe::egui::text::{LayoutJob, TextFormat};
 use eframe::egui::{
-    Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Sense, Ui, Vec2, pos2,
+    Align, Color32, FontId, Frame, Hyperlink, Id, Label, Rect, RichText, Role, Sense, Ui, Vec2,
+    WidgetInfo, pos2,
 };
 
 use super::{SettingsAction, SettingsWindow};
@@ -14,8 +16,8 @@ use crate::ui::palette;
 use crate::ui::settings::env::{Round, SettingsEnv};
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
-    card, centered_column, glyph, outcome, rich, right_aligned, right_aligned_width,
-    secondary_button, secondary_icon_button, setting_row, setting_row_with,
+    card, centered_column, outcome, rich, right_aligned, right_aligned_width, secondary_button,
+    secondary_icon_button, setting_row, setting_row_with,
 };
 
 /// 關於分頁自己的狀態：檢查更新的輪次與結果與清除快取的結果。
@@ -44,15 +46,30 @@ const HERO_GAP: f32 = 16.0;
 
 /// 外部連結：文字後面接一個外部連結圖示；點下去以系統瀏覽器開啟。
 fn link(ui: &mut Ui, text: &str, url: &str) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        let font = FontId::proportional(theme::CONTROL_TEXT_SIZE);
-        let text = RichText::new(text).font(font.clone()).color(theme::LINK);
-        if ui.add(Hyperlink::from_label_and_url(text, url)).clicked() {
-            log(format!("[ui] opening link from settings: {url}"));
-        }
-        glyph(ui, icon::EXTERNAL_LINK, 11.0, theme::LINK, &font);
-    });
+    // 圖示排在同一段文字裡：網址太長換行時圖示跟著最後一行，不會被擠出卡片
+    let format = |font_id| TextFormat {
+        font_id,
+        color: theme::LINK,
+        valign: Align::Center,
+        ..TextFormat::default()
+    };
+    let mut job = LayoutJob::default();
+    job.append(
+        text,
+        0.0,
+        format(FontId::proportional(theme::CONTROL_TEXT_SIZE)),
+    );
+    job.append(
+        &icon::EXTERNAL_LINK.to_string(),
+        6.0,
+        format(theme::icons(11.0)),
+    );
+    let response = ui.add(Hyperlink::from_label_and_url(job, url));
+    // 無障礙名稱不含圖示字元
+    response.widget_info(|| WidgetInfo::labeled(Role::Link, true, text));
+    if response.clicked() {
+        log(format!("[ui] opening link from settings: {url}"));
+    }
 }
 
 /// 網址去掉 `https://` 當連結文字。

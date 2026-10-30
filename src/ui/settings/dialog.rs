@@ -59,6 +59,8 @@ pub(super) fn dialog<B, F>(
         .corner_radius(theme::DIALOG_RADIUS)
         .shadow(style.visuals.window_shadow);
     let max_body = ctx.content_rect().height() - 2.0 * MARGIN - HEADER_HEIGHT - FOOTER_HEIGHT;
+    // 視窗比對話框窄時（精靈、縮小的設定視窗）跟著縮，不讓兩側超出視窗
+    let width = spec.width.min(ctx.content_rect().width() - 2.0 * MARGIN);
     let id = Id::unique(("settings_dialog", spec.salt));
     let mut area = Modal::default_area(id);
     if spec.pinned_top {
@@ -71,7 +73,7 @@ pub(super) fn dialog<B, F>(
         .show(&ctx, |ui| {
             ui.set_style(style);
             name_modal(ui, &spec.title);
-            ui.set_width(spec.width - 2.0);
+            ui.set_width(width - 2.0);
             ui.spacing_mut().item_spacing.y = 0.0;
             let close = header(ui, &spec.title, spec.closable);
             let body = ScrollArea::vertical()

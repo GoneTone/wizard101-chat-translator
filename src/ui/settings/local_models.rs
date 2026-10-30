@@ -1,6 +1,6 @@
 //! 本地模型頁的「已下載模型」卡：總佔用空間、每個模型的狀態與動作，以及沒有模型時的空白提示。
 
-use eframe::egui::{Label, RichText, Ui, vec2};
+use eframe::egui::{Label, RichText, Ui};
 
 use super::env::SettingsEnv;
 use super::local_card::{padded, section};
@@ -8,8 +8,8 @@ use super::local_rate::{Rates, Speed, paused_text, transfer_text};
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
-    danger_secondary_button, primary_button, progress_bar, right_aligned, right_aligned_width,
-    secondary_button, toggle,
+    danger_secondary_button, primary_button, progress_bar, secondary_button, text_with_controls,
+    toggle,
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
@@ -103,17 +103,13 @@ fn row(
     let need = snapshot.model_need(model, settings);
     let id = ui.scope_id().with(("local_model_row", &model.id));
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        let reserved = right_aligned_width(ui, id);
-        let width = (ui.available_width() - reserved - 12.0).max(120.0);
-        ui.allocate_ui(vec2(width, 0.0), |ui| {
-            texts(ui, model, &state, rates.speed(&model.id))
-        });
-        right_aligned(ui, id, |ui| {
-            controls(ui, env, snapshot, settings, model, &state, &need)
-        })
-    })
-    .inner
+    text_with_controls(
+        ui,
+        id,
+        |ui| texts(ui, model, &state, rates.speed(&model.id)),
+        |ui| controls(ui, env, snapshot, settings, model, &state, &need),
+    )
+    .1
 }
 
 fn texts(ui: &mut Ui, model: &Installed, state: &RowState, speed: Option<Speed>) {

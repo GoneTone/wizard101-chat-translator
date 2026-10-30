@@ -200,6 +200,28 @@ fn opening_queries_only_repos_missing_from_the_snapshot() {
     );
 }
 
+/// 視窗比對話框窄（精靈的 600 寬）時對話框跟著縮，按鈕都留在視窗內。
+#[test]
+fn the_dialog_shrinks_to_a_narrower_window() {
+    let ready: Vec<(usize, RepoInfo)> = (0..RECOMMENDED.len())
+        .map(|i| (i, info(Fit::Smooth, false, 2, 3 * G)))
+        .collect();
+    let mut h = harness(DialogMode::Select, Tab::Recommended, snapshot(&ready));
+    let width = 600.0;
+    h.set_size(egui::vec2(width, 760.0));
+    run(&mut h);
+    let buttons: Vec<_> = h.query_all_by(|n| n.role() == Role::Button).collect();
+    assert!(!buttons.is_empty());
+    for button in buttons {
+        let rect = button.rect();
+        assert!(
+            rect.left() >= 0.0 && rect.right() <= width,
+            "{:?} {rect:?}",
+            button.accesskit_node().label()
+        );
+    }
+}
+
 #[test]
 fn single_quant_repo_disables_choose_version() {
     let snap = snapshot(&[(0, info(Fit::Smooth, false, 1, 3 * G))]);

@@ -52,10 +52,24 @@ impl EngineCard {
             EngineState::Ready(i) => Some(i),
             _ => None,
         };
+        let latest = match &snapshot.builds {
+            Some(Ok(builds)) => builds.first(),
+            _ => None,
+        };
+        // 有新版的標籤放標題列：放在下拉框旁邊，窄視窗時會把那一列撐出卡片
+        let update = installed
+            .zip(latest)
+            .filter(|(i, l)| newer(&l.tag, &i.build))
+            .map(|(_, l)| t("local.engine.new_build", &[("tag", l.tag.as_str())]));
         section(
             ui,
             &t("local.engine.title", &[]),
-            |ui| status(ui, &snapshot.engine),
+            |ui| {
+                if let Some(text) = &update {
+                    pill(ui, text);
+                }
+                status(ui, &snapshot.engine);
+            },
             |ui| {
                 padded(ui, |ui| {
                     let picked = self.pickers(ui, env, snapshot, installed);
@@ -100,12 +114,14 @@ impl EngineCard {
             || vec![Variant::Vulkan, Variant::Cpu],
             |b| b.variants.iter().map(|(v, _)| v.clone()).collect(),
         );
+        // 兩個下拉平分可用寬度，最多各 COMBO_WIDTH
+        let combo_width = ((ui.available_width() - 12.0) / 2.0).min(COMBO_WIDTH);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             ui.vertical(|ui| {
                 let label = small_label(ui, &t("local.engine.version", &[]));
                 if build_loading {
-                    skeleton(ui, COMBO_WIDTH, field_height);
+                    skeleton(ui, combo_width, field_height);
                     return;
                 }
                 let text = match &build {
@@ -113,7 +129,7 @@ impl EngineCard {
                     None => t("local.engine.builds_failed", &[]),
                 };
                 let combo = combo_box(ui, "engine_build")
-                    .width(COMBO_WIDTH)
+                    .width(combo_width)
                     .selected_text(text.clone())
                     .show_ui(ui, |ui| {
                         for b in builds {
@@ -131,7 +147,7 @@ impl EngineCard {
             ui.vertical(|ui| {
                 let label = small_label(ui, &t("local.engine.variant", &[]));
                 if variant_loading {
-                    skeleton(ui, COMBO_WIDTH, field_height);
+                    skeleton(ui, combo_width, field_height);
                     return;
                 }
                 let text = if shows_auto {
@@ -140,7 +156,7 @@ impl EngineCard {
                     variant_label(&variant)
                 };
                 let combo = combo_box(ui, "engine_variant")
-                    .width(COMBO_WIDTH)
+                    .width(combo_width)
                     .selected_text(text.clone())
                     .show_ui(ui, |ui| {
                         if ui.selectable_label(shows_auto, auto_label(&auto)).clicked() {
@@ -157,15 +173,6 @@ impl EngineCard {
                 full_text_tip(ui, &response, &text, 0.0);
                 focus_ring(ui, &response, theme::CONTROL_RADIUS);
             });
-            if let (Some(i), Some(latest)) = (installed, builds.first())
-                && newer(&latest.tag, &i.build)
-            {
-                ui.vertical(|ui| {
-                    small_label(ui, " ");
-                    let text = t("local.engine.new_build", &[("tag", latest.tag.as_str())]);
-                    pill(ui, &text);
-                });
-            }
         });
         if let Some(Err(error)) = &snapshot.builds {
             ui.horizontal(|ui| {

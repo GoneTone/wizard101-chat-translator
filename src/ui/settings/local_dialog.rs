@@ -9,7 +9,9 @@ use super::fields::text_field_with_hint;
 use super::local_rows::{Have, basis, have_of, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
-use super::widgets::{error_with_retry, primary_button, right_aligned, secondary_button, skeleton};
+use super::widgets::{
+    error_with_retry, primary_button, secondary_button, skeleton, text_with_controls,
+};
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, Rating, total_size};
@@ -309,22 +311,14 @@ impl DownloadDialog {
         };
         let open = self.expanded.as_deref() == Some(repo);
         let id = ui.scope_id().with(repo);
-        let mut clicks = (false, false);
-        ui.horizontal(|ui| {
-            let reserved = super::widgets::right_aligned_width(ui, id);
-            let width = (ui.available_width() - reserved - 12.0).max(120.0);
-            ui.allocate_ui(vec2(width, 0.0), |ui| row_text(ui, name, &version, have));
-            right_aligned(ui, id, |ui| {
-                clicks = row_buttons(
-                    ui,
-                    rating,
-                    info.catalog.choices.len() > 1 || !info.catalog.mtp.is_empty(),
-                    open,
-                    self.mode,
-                    have,
-                )
-            });
-        });
+        let several = info.catalog.choices.len() > 1 || !info.catalog.mtp.is_empty();
+        let mode = self.mode;
+        let (_, clicks) = text_with_controls(
+            ui,
+            id,
+            |ui| row_text(ui, name, &version, have),
+            |ui| row_buttons(ui, rating, several, open, mode, have),
+        );
         if clicks.0 {
             self.expanded = (!open).then(|| repo.to_owned());
         }
@@ -515,19 +509,15 @@ fn hit_row(ui: &mut Ui, name: RichText, hit: &SearchHit) -> bool {
     Frame::new()
         .inner_margin(Margin::symmetric(0, 8))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                let reserved = super::widgets::right_aligned_width(ui, id);
-                let width = (ui.available_width() - reserved - 12.0).max(120.0);
-                ui.allocate_ui(vec2(width, 0.0), |ui| {
-                    ui.vertical(|ui| {
-                        ui.spacing_mut().item_spacing.y = 4.0;
-                        ui.add(Label::new(name).truncate());
-                        ui.label(RichText::new(downloads).color(theme::TEXT_SECONDARY));
-                    })
+            let text = |ui: &mut Ui| {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 4.0;
+                    ui.add(Label::new(name).truncate());
+                    ui.label(RichText::new(downloads).color(theme::TEXT_SECONDARY));
                 });
-                right_aligned(ui, id, |ui| {
-                    view = secondary_button(ui, &t("local.dialog.view", &[])).clicked();
-                });
+            };
+            (_, view) = text_with_controls(ui, id, text, |ui| {
+                secondary_button(ui, &t("local.dialog.view", &[])).clicked()
             });
         });
     view
@@ -558,23 +548,19 @@ fn grouped(n: u64) -> String {
 
 /// 查詢中（或硬體偵測中）的 repo 列：版面同查好的列，說明、徽章與按鈕都是佔位。
 fn loading_repo(ui: &mut Ui, name: RichText, id: Id) {
-    ui.horizontal(|ui| {
-        let reserved = super::widgets::right_aligned_width(ui, id);
-        let width = (ui.available_width() - reserved - 12.0).max(120.0);
-        ui.allocate_ui(vec2(width, 0.0), |ui| {
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 4.0;
-                ui.add(Label::new(name).truncate());
-                loading_row(ui);
-            })
+    let text = |ui: &mut Ui| {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.add(Label::new(name).truncate());
+            loading_row(ui);
         });
-        right_aligned(ui, id, |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let button = ui.spacing().interact_size.y;
-            skeleton(ui, 64.0, ui.text_style_height(&TextStyle::Body));
-            skeleton(ui, 88.0, button);
-            skeleton(ui, 64.0, button);
-        });
+    };
+    text_with_controls(ui, id, text, |ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        let button = ui.spacing().interact_size.y;
+        skeleton(ui, 64.0, ui.text_style_height(&TextStyle::Body));
+        skeleton(ui, 88.0, button);
+        skeleton(ui, 64.0, button);
     });
 }
 
