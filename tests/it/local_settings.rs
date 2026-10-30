@@ -1266,6 +1266,8 @@ mod page {
             .insert(MODEL.into(), DownloadState::Failed("HTTP 503".into()));
         let mut h = pane_harness(snap, vec![]);
         assert!(has_label(&h, "HTTP 503"));
+        // 失敗時副標題照常顯示量化，錯誤另起一行
+        assert!(has_label(&h, "Q4_K_M · 0.0 GB"));
         click(&mut h, Role::Button, &tr("local.continue_download"));
         assert!(matches!(last(&h), Some(Command::Resume(id)) if id == MODEL));
     }
