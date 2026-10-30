@@ -144,7 +144,7 @@
   "error.need_name": "請輸入名稱。",
   "error.need_service": "請先新增一組翻譯服務。",
   "error.local_model_missing": "找不到翻譯服務「{name}」使用的模型，請改選其他模型或重新下載。",
-  "error.local_over_capacity": "同時用到的本地模型加起來超出可用記憶體（{models}），目前可用視訊記憶體（VRAM）{vram} GB、記憶體（RAM）{ram} GB。請改用同一個模型或較小的版本。",
+  "error.local_over_capacity": "各用途用到的本地模型加起來超出可用記憶體（{models}），目前可用視訊記憶體（VRAM）{vram} GB、記憶體（RAM）{ram} GB。請改用同一個模型或較小的版本。",
   "error.local_over_capacity_item_estimated": "{name} 預估約 {size} GB",
   "error.local_over_capacity_item_measured": "{name} 實測 {size} GB",
   "error.bad_key": "金鑰無效或過期，請確認 API 金鑰。",
