@@ -63,7 +63,7 @@ impl Local {
             Ok(true) if !lock(&self.state).hardware.measured => log(format!(
                 "[local] download {id}: VRAM measurement failed, keeping the requested choice"
             )),
-            // 引擎裝好前量不到 VRAM，使用者看到的相容等級是「未知」；裝好時 refresh_hardware 已重算
+            // 引擎裝好時 refresh_hardware 已依它列出的裝置重算（例如 CPU 版沒有 VRAM），自動挑選可能跟著變
             Ok(true) => {
                 let auto = self.repo_info(repo).and_then(|info| {
                     let pick = info.auto?;

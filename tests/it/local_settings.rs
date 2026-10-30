@@ -1174,6 +1174,34 @@ mod page {
         assert!(has_label(&h, &tr("local.fit.slow")));
     }
 
+    /// 內顯不列 VRAM：它的專用記憶體只是一小塊，相容判斷也只算 RAM。
+    #[test]
+    fn an_integrated_gpu_lists_no_vram() {
+        let mut snap = ready_engine();
+        snap.hardware = Hardware {
+            gpu: Some(Gpu {
+                name: "t".into(),
+                vendor: 0,
+                kind: GpuKind::Integrated,
+                nvidia_driver: None,
+                device: 0,
+            }),
+            vram_total: 128 << 20,
+            vram_free: 128 << 20,
+            ram_total: 16 << 30,
+            ram_free: 16 << 30,
+            measured: true,
+            ..Hardware::default()
+        };
+        let h = pane_harness(snap, vec![]);
+        let vram = t("local.hw.vram", &[("free", "0.1"), ("total", "0.1")]);
+        assert!(!has_label(&h, &vram));
+        assert!(has_label(
+            &h,
+            &t("local.hw.ram", &[("free", "16.0"), ("total", "16.0")])
+        ));
+    }
+
     #[test]
     fn removing_the_engine_confirms_first() {
         let mut h = pane_harness(ready_engine(), vec![]);

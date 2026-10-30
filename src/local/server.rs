@@ -1,6 +1,6 @@
 //! 啟動並監看 `llama-server.exe` 子程序，等它就緒。
 
-use crate::local::hardware::{Gpu, detect_gpu};
+use crate::local::hardware::{self, Gpu, detect_gpu};
 use crate::local::usage::{self, Reading};
 use crate::logs::log;
 use crate::util::{Clock, poll_until};
@@ -121,6 +121,11 @@ pub trait Launcher: Send + Sync {
     /// 偵測 GPU（見 [`detect_gpu`]）。
     fn detect_gpu(&self) -> Option<Gpu> {
         detect_gpu()
+    }
+
+    /// 顯示卡的專用記憶體（見 [`hardware::adapter_memory`]）。
+    fn adapter_memory(&self, gpu: &Gpu) -> Option<(u64, u64)> {
+        hardware::adapter_memory(gpu)
     }
 
     /// 執行 `llama-server --list-devices`（有逾時），回傳 stdout 與 stderr 的內容。

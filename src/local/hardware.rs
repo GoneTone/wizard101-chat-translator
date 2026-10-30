@@ -37,7 +37,7 @@ pub struct Hardware {
     pub vram_free: u64,
     pub ram_total: u64,
     pub ram_free: u64,
-    /// 引擎量過 VRAM（`--list-devices` 成功）；沒量過時相容等級未知。量到 0（只有 CPU）也算量過。
+    /// 量到 VRAM 了（系統計數器或引擎的 `--list-devices`，見 [`vram`]）；沒量過時相容等級未知。量到 0（只有 CPU）也算量過。
     pub measured: bool,
     /// 量測當下本程式自己的 llama-server 實際佔用；可用量照實記，相容判斷（`effective`）才加回去。
     pub own: Usage,
@@ -146,6 +146,27 @@ pub fn adapter_memory(gpu: &Gpu) -> Option<(u64, u64)> {
     }
 }
 
+/// 決定 VRAM `(總量, 可用量)`；`None` 表示還量不到，要等引擎。
+///
+/// `devices` 是引擎 `--list-devices` 列出的裝置，沒裝引擎或執行失敗為 `None`。引擎沒列出任何裝置（CPU 版）時為 0；
+/// 其他情況以系統計數器（`counters`）為準，讀不到才用引擎回報的數字。沒裝引擎時沒有 GPU 或是內顯也量得出來：
+/// 相容判斷不算內顯的 VRAM，當 0。
+pub fn vram(
+    gpu: Option<&Gpu>,
+    counters: Option<(u64, u64)>,
+    devices: Option<Vec<(String, u64, u64)>>,
+) -> Option<(u64, u64)> {
+    match devices {
+        Some(d) if d.is_empty() => Some((0, 0)),
+        Some(d) => counters.or_else(|| pick_device(d, gpu).map(|(_, total, free)| (total, free))),
+        None => match gpu {
+            None => Some((0, 0)),
+            Some(g) if g.kind == GpuKind::Integrated => Some((0, 0)),
+            Some(_) => counters,
+        },
+    }
+}
+
 /// `--list-devices` 的裝置裡取偵測到的 GPU（名稱相同）；對不上時取記憶體最大的。
 ///
 /// Vulkan 版會把內顯也列出來，內顯回報的是共用的系統記憶體，取最大的會選到它。
@@ -244,6 +265,33 @@ mod tests {
         assert_eq!(picked.0, gpu.name);
         assert_eq!(pick_device(devices(), None).unwrap().0, "Intel(R) Graphics");
         assert!(pick_device(vec![], Some(&gpu)).is_none());
+    }
+
+    /// 引擎列出的裝置優先決定有沒有 VRAM（CPU 版為 0），數字以系統計數器為準；沒裝引擎時獨顯靠計數器，
+    /// 沒有 GPU 或內顯不必等引擎。
+    #[test]
+    fn vram_prefers_the_counters_and_needs_no_engine() {
+        const G: u64 = 1 << 30;
+        let gpu = |kind| Gpu {
+            name: "GPU".into(),
+            vendor: NVIDIA,
+            device: 1,
+            kind,
+            nvidia_driver: None,
+        };
+        let discrete = gpu(GpuKind::Discrete);
+        let listed = || Some(vec![("GPU".to_string(), 8 * G, 7 * G)]);
+        let counters = Some((8 * G, 3 * G));
+        assert_eq!(vram(Some(&discrete), counters, listed()), counters);
+        assert_eq!(vram(Some(&discrete), None, listed()), Some((8 * G, 7 * G)));
+        assert_eq!(vram(Some(&discrete), counters, Some(vec![])), Some((0, 0)));
+        assert_eq!(vram(Some(&discrete), counters, None), counters);
+        assert_eq!(vram(Some(&discrete), None, None), None);
+        assert_eq!(
+            vram(Some(&gpu(GpuKind::Integrated)), None, None),
+            Some((0, 0))
+        );
+        assert_eq!(vram(None, None, None), Some((0, 0)));
     }
 
     /// 偵測到 GPU 時讀得到它的專用記憶體，可用量不超過總量；沒有 GPU 的機器略過。

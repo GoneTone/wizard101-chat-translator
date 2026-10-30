@@ -110,6 +110,8 @@ struct Shared {
     unloaded: Arc<Mutex<bool>>,
     /// GPU 計數器讀不到。
     gpu_unreadable: Arc<Mutex<bool>>,
+    /// 系統計數器讀到的顯示卡（總量, 可用量）；`None` 是讀不到。
+    counters: Arc<Mutex<Option<(u64, u64)>>>,
 }
 
 struct FakeLauncher {
@@ -153,6 +155,10 @@ impl Launcher for FakeLauncher {
             nvidia_driver: None,
             device: 0,
         })
+    }
+
+    fn adapter_memory(&self, _gpu: &Gpu) -> Option<(u64, u64)> {
+        *self.shared.counters.lock().unwrap()
     }
 
     fn list_devices(&self, exe: &Path) -> Result<String, String> {
@@ -1213,6 +1219,41 @@ async fn the_snapshot_says_while_hardware_is_being_detected() {
     wait_for("re-detect started", || f.local.snapshot().detecting).await;
     wait_for("re-detect finished", || !f.local.snapshot().detecting).await;
     assert_eq!(f.shared.measured.lock().unwrap().len(), 2);
+}
+
+/// 沒裝引擎也量得到 VRAM：讀系統計數器，不跑 `--list-devices`。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn vram_is_measured_without_an_engine() {
+    const G: u64 = 1 << 30;
+    let f = fixture(|_| {}, |_| false).await;
+    *f.shared.counters.lock().unwrap() = Some((8 * G, 6 * G));
+    f.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !f.local.snapshot().detecting).await;
+    let hw = f.local.snapshot().hardware;
+    assert!(hw.measured);
+    assert_eq!((hw.vram_total, hw.vram_free), (8 * G, 6 * G));
+    assert!(f.shared.measured.lock().unwrap().is_empty());
+}
+
+/// 裝了引擎：數字以系統計數器為準；引擎沒列出任何 GPU（CPU 版）時沒有 VRAM。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_engine_decides_whether_vram_counts() {
+    const G: u64 = 1 << 30;
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.counters.lock().unwrap() = Some((8 * G, 2 * G));
+    *f.shared.devices.lock().unwrap() = Some(FAKE_DEVICES.into());
+    f.local.start(&local_config(&[], json!({})));
+    wait_for("first measurement", || !f.local.snapshot().detecting).await;
+    assert_eq!(f.local.snapshot().hardware.vram_free, 2 * G);
+    *f.shared.devices.lock().unwrap() = Some("Available devices:\n".into());
+    f.local.command(Command::RefreshHardware {
+        redetect_gpu: false,
+    });
+    wait_for("CPU-only engine measured", || {
+        let hw = f.local.snapshot().hardware;
+        !f.local.snapshot().detecting && hw.measured && hw.vram_total == 0
+    })
+    .await;
 }
 
 /// 模型跑著時重新偵測：可用量照實記，量它的 llama-server 實際佔用另外記下、相容判斷時才加回。

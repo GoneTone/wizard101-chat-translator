@@ -435,7 +435,8 @@ impl Local {
         )
     }
 
-    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少。
+    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少；
+    /// VRAM 不必等引擎，見 [`hardware::vram`]。
     async fn refresh_hardware(&self, redetect_gpu: bool) {
         let _detecting = self.detecting();
         let gpu = self.gpu(redetect_gpu);
@@ -450,28 +451,23 @@ impl Local {
                 ram_free,
                 ..Hardware::default()
             };
-            let Some(exe) = exe else {
-                return hw;
-            };
-            match self.launcher.list_devices(&exe) {
-                Ok(out) => {
-                    let devices = hardware::parse_list_devices(&out);
-                    if let Some((_, total, free)) = hardware::pick_device(devices, hw.gpu.as_ref())
-                    {
-                        (hw.vram_total, hw.vram_free) = (total, free);
-                    }
-                    // 引擎回報的可用量可能不扣其他程式的佔用；讀得到系統計數器就以它為準
-                    if let Some((total, free)) = hw.gpu.as_ref().and_then(hardware::adapter_memory)
-                    {
-                        log(format!(
-                            "[local] VRAM from adapter counters: total={total} free={free} (engine reported total={} free={})",
-                            hw.vram_total, hw.vram_free
-                        ));
-                        (hw.vram_total, hw.vram_free) = (total, free);
-                    }
-                    hw.measured = true;
+            let counters = hw
+                .gpu
+                .as_ref()
+                .and_then(|g| self.launcher.adapter_memory(g));
+            let devices = exe.and_then(|exe| match self.launcher.list_devices(&exe) {
+                Ok(out) => Some(hardware::parse_list_devices(&out)),
+                Err(e) => {
+                    log(format!("[local] llama-server --list-devices failed: {e}"));
+                    None
                 }
-                Err(e) => log(format!("[local] llama-server --list-devices failed: {e}")),
+            });
+            log(format!(
+                "[local] VRAM sources: adapter counters={counters:?} engine devices={devices:?}"
+            ));
+            if let Some((total, free)) = hardware::vram(hw.gpu.as_ref(), counters, devices) {
+                (hw.vram_total, hw.vram_free) = (total, free);
+                hw.measured = true;
             }
             hw
         });

@@ -14,6 +14,7 @@ use super::widgets::{
 };
 use crate::i18n::t;
 use crate::local::engine::{Build, EngineInstall, Variant, auto_variant, build_number};
+use crate::local::hardware::GpuKind;
 use crate::local::usage::Usage;
 use crate::local::{Command, EngineState, Snapshot};
 use crate::logs::log;
@@ -367,13 +368,18 @@ fn hardware(ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
             .as_ref()
             .map_or_else(|| t("local.hw.none", &[]), |g| g.name.clone());
         line(ui, t("local.hw.gpu", &[("name", &name)]));
-        if hw.vram_total > 0 {
+        // 內顯的 VRAM 是共用的系統記憶體，相容判斷也只算 RAM，不另列
+        let integrated = hw
+            .gpu
+            .as_ref()
+            .is_some_and(|g| g.kind == GpuKind::Integrated);
+        if !integrated && hw.vram_total > 0 {
             let (free, total) = (gb(hw.vram_free), gb(hw.vram_total));
             line(
                 ui,
                 t("local.hw.vram", &[("free", &free), ("total", &total)]),
             );
-        } else if hw.gpu.is_some() && !hw.measured {
+        } else if !integrated && hw.gpu.is_some() && !hw.measured {
             let key = match snapshot.engine {
                 EngineState::Ready(_) => "local.hw.vram_failed",
                 _ => "local.hw.vram_pending",
