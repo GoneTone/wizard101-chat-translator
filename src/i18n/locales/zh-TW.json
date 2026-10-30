@@ -45,7 +45,7 @@
   "local.fit.smooth": "流暢",
   "local.fit.slow": "會慢",
   "local.fit.offload": "尚可",
-  "local.fit.nofit": "放不下",
+  "local.fit.nofit": "跑不動",
   "local.fit.unknown": "未知",
   "local.fit.estimated": "{fit}（預估）",
   "local.quant.other": "其他",
