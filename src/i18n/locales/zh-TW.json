@@ -43,7 +43,7 @@
   "local.dialog.nofit_confirm": "這個版本超出目前可用的記憶體，可能無法載入或非常慢。仍要下載嗎？",
   "local.downloaded": "已下載",
   "local.fit.smooth": "流暢",
-  "local.fit.slow": "會慢",
+  "local.fit.slow": "偏慢",
   "local.fit.offload": "尚可",
   "local.fit.nofit": "跑不動",
   "local.fit.unknown": "未知",
