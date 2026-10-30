@@ -890,12 +890,13 @@ fn about_tab_shows_the_translators() {
     let mut h = harness(configured_cfg());
     go(&mut h, "settings.tab.about");
     let author = top(&h, Role::Link, "GoneTone");
-    let translators = top(&h, Role::Link, "Claude Code");
+    let credit = h.get_by_role_and_label(Role::Link, "Claude Code").rect();
+    let translators = credit.top();
     let contribute = top(&h, Role::Link, CROWDIN_URL.trim_start_matches("https://"));
     let issues = top(&h, Role::Link, ISSUES_URL.trim_start_matches("https://"));
     assert!(author < translators && translators < contribute && contribute < issues);
     let label = text(&h, &tr("credit.translators")).rect();
-    assert!((label.top() - translators).abs() < 24.0);
+    assert!((label.center().y - credit.center().y).abs() < 1.0);
 }
 
 const UP_TO_DATE_LOG: &str = "[update] manual check: already up to date";

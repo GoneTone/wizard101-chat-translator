@@ -112,7 +112,7 @@ impl SettingsWindow {
             let credit = translators(&current_language());
             if !credit.is_empty() {
                 setting_row(ui, &t("credit.translators", &[]), None, |ui| {
-                    rich(ui, &credit, theme::CONTROL_TEXT_SIZE, theme::TEXT);
+                    ui.vertical(|ui| rich(ui, &credit, theme::CONTROL_TEXT_SIZE, theme::TEXT));
                 });
             }
             setting_row(ui, &t("about.help_translate", &[]), None, |ui| {
