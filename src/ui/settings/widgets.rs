@@ -12,6 +12,7 @@ use eframe::egui::{
     WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
+use crate::i18n::t;
 use crate::input::keys::split_hotkey;
 use crate::py::pystr;
 use crate::ui::overlay::scrollbar;
@@ -220,6 +221,17 @@ pub(super) fn full_text_tip(ui: &Ui, response: &Response, text: &str, leading: f
     if galley.size().x > room {
         hover_tip(ui, response, text);
     }
+}
+
+/// 紅字錯誤原文，下方隔 8 px 放〔重試〕；回傳是否按了重試。
+pub(super) fn error_with_retry(ui: &mut Ui, error: &str) -> bool {
+    ui.vertical(|ui| {
+        // 對話框內文的項目間距是 0，這裡自己定
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
+        secondary_button(ui, &t("local.dialog.retry", &[])).clicked()
+    })
+    .inner
 }
 
 /// 第一項是說明色 `none` 的下拉，其後是 `(值, 顯示文字)`；回傳這一幀選到的值，`Some(None)` 是選了 `none`。

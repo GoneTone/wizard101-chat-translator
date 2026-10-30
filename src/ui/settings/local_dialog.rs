@@ -9,7 +9,7 @@ use super::fields::text_field_with_hint;
 use super::local_rows::{Have, basis, have_of, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
-use super::widgets::{primary_button, right_aligned, secondary_button, skeleton};
+use super::widgets::{error_with_retry, primary_button, right_aligned, secondary_button, skeleton};
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
 use crate::local::fit::{Fit, Rating, total_size};
@@ -277,8 +277,7 @@ impl DownloadDialog {
                 }
                 Some(RepoState::Failed(error)) => {
                     ui.add(Label::new(name));
-                    ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
-                    if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
+                    if error_with_retry(ui, error) {
                         log(format!("[ui] retry repo query: repo={repo}"));
                         env.local_command(Command::QueryRepo(repo.to_owned()));
                     }
@@ -402,8 +401,7 @@ impl DownloadDialog {
                 None
             }
             Some(Err(error)) => {
-                ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
-                if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
+                if error_with_retry(ui, &error) {
                     self.submit_custom(env, snapshot);
                 }
                 None
@@ -493,14 +491,11 @@ fn load_more(ui: &mut Ui, env: &dyn SettingsEnv, search: &Search) {
         loading_repo(ui, RichText::new(""), ui.scope_id().with("search_more"));
         return;
     }
-    if let Some(error) = &search.more_error {
-        ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
-    }
-    let key = match search.more_error {
-        Some(_) => "local.dialog.retry",
-        None => "local.dialog.load_more",
+    let clicked = match &search.more_error {
+        Some(error) => error_with_retry(ui, error),
+        None => secondary_button(ui, &t("local.dialog.load_more", &[])).clicked(),
     };
-    if secondary_button(ui, &t(key, &[])).clicked() {
+    if clicked {
         log(format!(
             "[ui] model search: more results for {:?}",
             search.query

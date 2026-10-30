@@ -504,7 +504,11 @@ fn failed_rows_can_retry() {
         RepoState::Failed("HTTP 500".into()),
     );
     let mut h = harness(DialogMode::Download, Tab::Recommended, snap);
-    assert!(has_label(&h, "HTTP 500"));
+    let error = h.get_by_label("HTTP 500").rect();
+    let retry = h
+        .get_by_role_and_label(Role::Button, &tr("local.dialog.retry"))
+        .rect();
+    assert!(retry.top() - error.bottom() >= 8.0, "{error:?} {retry:?}");
     click(&mut h, Role::Button, &tr("local.dialog.retry"));
     assert!(matches!(&downloads(&h)[..], [Command::QueryRepo(r)] if r == RECOMMENDED[0].repo));
 }

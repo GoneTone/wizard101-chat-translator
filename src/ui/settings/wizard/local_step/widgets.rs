@@ -1,8 +1,7 @@
 //! 一鍵安裝畫面用的小零件：預設選擇、引擎下載量、進度條與錯誤加〔重試〕。
 
-use eframe::egui::{Label, RichText, Ui};
+use eframe::egui::Ui;
 
-use crate::i18n::t;
 use crate::local::catalog::{RECOMMENDED, wizard_pick};
 use crate::local::engine::{Variant, auto_variant};
 use crate::local::fit::Fit;
@@ -11,7 +10,7 @@ use crate::logs::log;
 use crate::ui::settings::local_dialog::Selection;
 use crate::ui::settings::quant_table::{combined, fraction};
 use crate::ui::settings::theme;
-use crate::ui::settings::widgets::{hint, progress_bar, secondary_button};
+use crate::ui::settings::widgets::{self, hint, progress_bar};
 
 /// 六個推薦裡查好的依 `wizard_pick` 挑一個，用該 repo 的自動挑選；等級不明的排最後。
 pub(super) fn default_selection(snapshot: &Snapshot) -> Option<Selection> {
@@ -64,8 +63,7 @@ pub(super) fn progress(ui: &mut Ui, text: &str, done: u64, total: u64) {
 }
 
 pub(super) fn error_with_retry(ui: &mut Ui, error: &str, retry: impl FnOnce()) {
-    ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
-    if secondary_button(ui, &t("local.dialog.retry", &[])).clicked() {
+    if widgets::error_with_retry(ui, error) {
         log(format!("[ui] wizard local retry: error={error}"));
         retry();
     }
