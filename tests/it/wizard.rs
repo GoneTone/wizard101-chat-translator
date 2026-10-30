@@ -708,8 +708,9 @@ mod local_install {
         commands.iter().map(|c| format!("{c:?}")).collect()
     }
 
+    /// 引擎沒裝：先說明並列出引擎大小，使用者按〔下載引擎〕才裝，模型卡片等引擎好了才出現。
     #[test]
-    fn picking_local_shows_the_confirmation_card_with_sizes() {
+    fn picking_local_asks_before_downloading_the_engine() {
         let mut s = ready_snapshot();
         s.engine = EngineState::Missing;
         s.builds = Some(Ok(vec![Build {
@@ -724,14 +725,32 @@ mod local_install {
                 }],
             )],
         }]));
-        let h = on_card(s);
+        let mut h = on_card(s);
+        assert!(has_label(&h, &tr("local.wizard.engine_intro")));
+        assert!(has_label(&h, "Engine (Vulkan): 0.5 GB"));
+        assert!(!has_label(&h, "Model: 2.0 GB"));
+        assert!(!download_button_shown(&h));
+        assert_eq!(installs(&h), 0);
+        click(&mut h, Role::Button, &tr("local.wizard.download_engine"));
+        assert_eq!(installs(&h), 1);
+    }
+
+    /// 引擎裝好後的確認卡片只列模型大小。
+    #[test]
+    fn the_model_card_lists_the_model_size() {
+        let h = on_card(ready_snapshot());
         assert!(has_label(&h, "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M"));
         assert!(has_label(&h, "Model: 2.0 GB"));
-        assert!(has_label(&h, "Engine (Vulkan): 0.5 GB"));
-        assert!(has_label(&h, "Total download: 2.5 GB"));
-        let sent = sent(&h);
-        assert!(sent.iter().any(|c| c.contains("InstallEngine")));
-        assert!(!enabled(&h, &tr("local.wizard.download")));
+        assert!(!has_label(&h, "Total download: 2.0 GB"));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert_eq!(installs(&h), 0);
+    }
+
+    fn installs(h: &WizardHarness) -> usize {
+        sent(h)
+            .iter()
+            .filter(|c| c.contains("InstallEngine"))
+            .count()
     }
 
     #[test]
@@ -836,35 +855,20 @@ mod local_install {
         set_snapshot(&mut h, ready_snapshot());
         assert!(download_button_shown(&h));
         assert!(!has_label(&h, &tr("local.loading")));
-
-        // 引擎還在裝、VRAM 還沒量：推薦之後會依量到的換，先畫佔位
-        let mut s = ready_snapshot();
-        s.engine = EngineState::Missing;
-        s.builds = Some(Ok(vec![]));
-        s.hardware.measured = false;
-        let h = on_card(s);
-        assert!(has_label(&h, &tr("local.loading")));
-        assert!(has_label(&h, &tr("local.wizard.waiting_vram")));
-        assert!(!download_button_shown(&h));
     }
 
-    /// 進來時引擎正在移除：移除完變成未安裝就自動裝一次，不會停在佔位。
+    /// 進來時引擎正在移除：移除完變成未安裝才給〔下載引擎〕，不自動裝。
     #[test]
-    fn an_engine_removed_while_entering_is_installed_once_it_is_missing() {
-        let installs = |h: &WizardHarness| {
-            sent(h)
-                .iter()
-                .filter(|c| c.contains("InstallEngine"))
-                .count()
-        };
+    fn an_engine_being_removed_offers_the_download_once_missing() {
+        let download = tr("local.wizard.download_engine");
         let mut s = ready_snapshot();
         s.engine = EngineState::Removing;
         let mut h = on_card(s.clone());
-        assert_eq!(installs(&h), 0);
+        assert!(!has(&h, Role::Button, &download));
         s.engine = EngineState::Missing;
-        set_snapshot(&mut h, s.clone());
         set_snapshot(&mut h, s);
-        assert_eq!(installs(&h), 1);
+        assert!(has(&h, Role::Button, &download));
+        assert_eq!(installs(&h), 0);
     }
 
     /// 推薦全部查詢失敗：顯示原文與〔重試〕，重試會重新查詢失敗的 repo。
@@ -894,13 +898,9 @@ mod local_install {
         s.engine = EngineState::Failed("boom".into());
         let mut h = on_card(s);
         assert!(has_label(&h, "boom"));
-        assert!(!enabled(&h, &tr("local.wizard.download")));
+        assert!(!download_button_shown(&h));
         click(&mut h, Role::Button, &tr("local.dialog.retry"));
-        let installs = sent(&h)
-            .iter()
-            .filter(|c| c.contains("InstallEngine"))
-            .count();
-        assert_eq!(installs, 1);
+        assert_eq!(installs(&h), 1);
     }
 
     fn download_count(h: &WizardHarness) -> usize {
@@ -919,7 +919,7 @@ mod local_install {
         assert!(!has_label(&h, "Total download: 2.0 GB"));
     }
 
-    /// 推薦的模型早就下載好、引擎還在裝：等引擎裝好才能進下一步，也沒有〔取消下載〕。
+    /// 推薦的模型早就下載好、引擎還在裝：停在引擎那段，等引擎裝好才算完成。
     #[test]
     fn a_downloaded_pick_waits_for_the_engine() {
         let mut s = ready_snapshot();
@@ -932,7 +932,7 @@ mod local_install {
         };
         let mut h = on_card(s);
         assert!(!next_enabled(&h));
-        assert!(has_label(&h, &tr("local.wizard.model_ready")));
+        assert!(has_label(&h, &tr("local.wizard.engine_intro")));
         assert!(!has(&h, Role::Button, &tr("local.wizard.cancel")));
         let mut s = ready_snapshot();
         s.models.push(done_model());

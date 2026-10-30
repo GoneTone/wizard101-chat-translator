@@ -1,4 +1,4 @@
-//! 精靈的本地模型一鍵安裝：確認卡片、換模型、引擎與模型的下載進度。
+//! 精靈的本地模型安裝：先由使用者下載引擎，裝好後再顯示確認卡片、換模型與模型的下載進度。
 
 use std::mem;
 use std::time::Instant;
@@ -27,12 +27,12 @@ mod widgets;
 /// 這一幀安裝流程所處的階段。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InstallState {
+    /// 引擎還沒裝好：先下載引擎才挑模型。
+    Engine,
     Choosing,
     Downloading,
-    /// 所選模型已下載完成、引擎也裝好了（模型 id）。
+    /// 所選模型已下載完成（模型 id）。
     Done(String),
-    /// 模型早就下載好了，還在等引擎裝好。
-    WaitingEngine,
     Failed(String),
 }
 
@@ -61,8 +61,6 @@ pub struct LocalInstall {
     existing: String,
     state: Option<InstallState>,
     rates: Rates,
-    /// 已送過安裝引擎的指令。
-    engine_requested: bool,
 }
 
 impl LocalInstall {
@@ -93,11 +91,10 @@ impl LocalInstall {
     /// 畫一幀；回傳目前階段。`snapshot` 是這一幀唯一的一份狀態。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) -> InstallState {
         self.start(env, snapshot);
-        self.install_engine(env, snapshot);
-        self.adopt(snapshot);
         self.rates.observe(Instant::now(), snapshot);
         let state = self.phase(snapshot);
         match &state {
+            InstallState::Engine => self.engine_step(ui, env, snapshot),
             InstallState::Choosing => self.choosing(ui, env, snapshot),
             _ => self.downloading(ui, env, snapshot, &state),
         }
@@ -117,23 +114,15 @@ impl LocalInstall {
         if snapshot.models.iter().any(|m| m.id == self.existing) {
             self.tracked = Some(self.existing.clone());
         }
+        // 引擎那段要顯示下載量
+        if snapshot.builds.is_none() {
+            env.local_command(Command::ListBuilds);
+        }
         for rec in RECOMMENDED
             .iter()
             .filter(|r| !snapshot.repos.contains_key(r.repo))
         {
             env.local_command(Command::QueryRepo(rec.repo.to_owned()));
-        }
-    }
-
-    /// 引擎沒裝就裝一次；進來時正在移除的，等移除完變成未安裝也會裝。
-    fn install_engine(&mut self, env: &dyn SettingsEnv, snapshot: &Snapshot) {
-        if snapshot.engine == EngineState::Missing
-            && !mem::replace(&mut self.engine_requested, true)
-        {
-            env.local_command(Command::InstallEngine {
-                build: None,
-                variant: None,
-            });
         }
     }
 
@@ -167,16 +156,17 @@ impl LocalInstall {
         }
     }
 
-    fn phase(&self, snapshot: &Snapshot) -> InstallState {
+    /// 這一幀的階段；引擎沒裝好時一律停在引擎那段，連已下載好的模型也要等引擎才算完成。
+    fn phase(&mut self, snapshot: &Snapshot) -> InstallState {
+        if !matches!(snapshot.engine, EngineState::Ready(_)) {
+            return InstallState::Engine;
+        }
+        self.adopt(snapshot);
         let Some(id) = &self.tracked else {
             return InstallState::Choosing;
         };
         if snapshot.ready_model(id).is_some() {
-            // 模型本來就在時不經下載、不會等引擎；引擎沒裝好前不能進下一步
-            return match snapshot.engine {
-                EngineState::Ready(_) => InstallState::Done(id.clone()),
-                _ => InstallState::WaitingEngine,
-            };
+            return InstallState::Done(id.clone());
         }
         match snapshot.downloads.get(id) {
             Some(DownloadState::Failed(e)) => InstallState::Failed(e.clone()),
@@ -213,14 +203,8 @@ impl LocalInstall {
         })
     }
 
-    /// 推薦卡的內容之後還會變：硬體偵測中、引擎還在裝（裝好才量得到 VRAM，推薦依它挑），
-    /// 或自動挑選時還有推薦 repo 沒查完。
+    /// 推薦卡的內容之後還會變：硬體偵測中（裝好引擎後會依它列出的裝置重量），或自動挑選時還有推薦 repo 沒查完。
     fn loading(&self, snapshot: &Snapshot) -> bool {
-        let installing = matches!(
-            snapshot.engine,
-            EngineState::Missing | EngineState::Installing { .. }
-        );
-        let engine_pending = installing && snapshot.builds.is_none() || waiting_for_vram(snapshot);
         let repos_pending = self.selection.is_none()
             && RECOMMENDED.iter().filter(|r| r.wizard).any(|r| {
                 !matches!(
@@ -228,7 +212,7 @@ impl LocalInstall {
                     Some(RepoState::Ready(_) | RepoState::Failed(_))
                 )
             });
-        snapshot.detecting || engine_pending || repos_pending
+        snapshot.detecting || repos_pending
     }
 
     /// 推薦卡要用、但查詢失敗的 repo 與錯誤原文：改選過就只看那個 repo，否則看精靈的推薦。
@@ -267,20 +251,10 @@ impl LocalInstall {
                         skeleton(ui, 96.0, button);
                         skeleton(ui, 72.0, button);
                     });
-                    if waiting_for_vram(snapshot) {
-                        hint(
-                            ui,
-                            &t("local.wizard.waiting_vram", &[]),
-                            theme::TEXT_SECONDARY,
-                        );
-                    }
                 }
             }
-            self.engine_status(ui, env, snapshot);
             return;
         };
-        let engine = engine_download(snapshot);
-        let total = plan.model_bytes + engine.as_ref().map_or(0, |e| e.1);
         card(ui, |ui| {
             Frame::new()
                 .inner_margin(Margin::symmetric(16, 14))
@@ -295,42 +269,14 @@ impl LocalInstall {
                         ),
                         theme::TEXT_SECONDARY,
                     );
-                    if let Some((variant, bytes)) = &engine {
-                        let args = [("variant", variant_label(variant)), ("size", gb(*bytes))];
-                        let args: Vec<_> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
-                        hint(
-                            ui,
-                            &t("local.wizard.engine_size", &args),
-                            theme::TEXT_SECONDARY,
-                        );
-                    }
-                    hint(
-                        ui,
-                        &t("local.wizard.total", &[("size", &gb(total))]),
-                        theme::TEXT_SECONDARY,
-                    );
                 });
         });
-        let ready = matches!(snapshot.engine, EngineState::Ready(_));
         let mut change = false;
         let mut download = false;
         ui.horizontal(|ui| {
-            download = ui
-                .add_enabled_ui(ready, |ui| {
-                    primary_button(ui, &t("local.wizard.download", &[]))
-                })
-                .inner
-                .clicked();
+            download = primary_button(ui, &t("local.wizard.download", &[])).clicked();
             change = secondary_button(ui, &t("local.wizard.change", &[])).clicked();
         });
-        if !ready && !matches!(snapshot.engine, EngineState::Failed(_)) {
-            hint(
-                ui,
-                &t("local.wizard.waiting_engine", &[]),
-                theme::TEXT_SECONDARY,
-            );
-        }
-        self.engine_status(ui, env, snapshot);
         if self.cancelled {
             hint(
                 ui,
@@ -341,7 +287,7 @@ impl LocalInstall {
         if change {
             self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
         }
-        if download && ready {
+        if download {
             log(format!(
                 "[ui] wizard local download requested: repo={} choice={} mtp={:?} id={}",
                 plan.selection.repo, plan.selection.choice, plan.selection.mtp, plan.id
@@ -373,8 +319,16 @@ impl LocalInstall {
         }
     }
 
-    /// 引擎安裝中的進度，或失敗的原文與〔重試〕。
-    fn engine_status(&self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
+    /// 引擎那段：說明與下載量，使用者按〔下載引擎〕才裝；安裝中顯示進度，失敗顯示原文與〔重試〕。
+    fn engine_step(&self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
+        let intro = RichText::new(t("local.wizard.engine_intro", &[])).color(theme::TEXT);
+        ui.add(Label::new(intro).wrap());
+        let install = || {
+            env.local_command(Command::InstallEngine {
+                build: None,
+                variant: None,
+            })
+        };
         match &snapshot.engine {
             EngineState::Installing {
                 done,
@@ -386,15 +340,31 @@ impl LocalInstall {
                 let text = t("local.wizard.engine_installing", &[("status", &status)]);
                 progress(ui, &text, *done, *total);
             }
-            EngineState::Failed(error) => {
-                error_with_retry(ui, error, "engine", || {
-                    env.local_command(Command::InstallEngine {
-                        build: None,
-                        variant: None,
-                    })
-                });
+            EngineState::Failed(error) => error_with_retry(ui, error, "engine", install),
+            // 移除中（設定頁剛按了刪除）：等它變成未安裝再給下載鈕
+            EngineState::Removing => {}
+            EngineState::Missing | EngineState::Ready(_) => {
+                match (&snapshot.builds, engine_download(snapshot)) {
+                    (_, Some((variant, bytes))) => {
+                        let args = [("variant", variant_label(&variant)), ("size", gb(bytes))];
+                        let args: Vec<_> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                        hint(
+                            ui,
+                            &t("local.wizard.engine_size", &args),
+                            theme::TEXT_SECONDARY,
+                        );
+                    }
+                    // 版本清單還沒到：大小先畫佔位；拿不到清單就不列大小，照樣可以下載
+                    (None, None) => {
+                        skeleton(ui, 180.0, ui.text_style_height(&TextStyle::Small));
+                    }
+                    (Some(_), None) => {}
+                }
+                if primary_button(ui, &t("local.wizard.download_engine", &[])).clicked() {
+                    log("[ui] wizard engine download requested");
+                    install();
+                }
             }
-            EngineState::Missing | EngineState::Ready(_) | EngineState::Removing => {}
         }
     }
 
@@ -416,14 +386,9 @@ impl LocalInstall {
                 }
             }
         }
-        self.engine_status(ui, env, snapshot);
         match state {
-            InstallState::Done(_) | InstallState::WaitingEngine => {
-                let key = match state {
-                    InstallState::Done(_) => "local.wizard.done",
-                    _ => "local.wizard.model_ready",
-                };
-                hint(ui, &t(key, &[]), theme::TEXT_SECONDARY);
+            InstallState::Done(_) => {
+                hint(ui, &t("local.wizard.done", &[]), theme::TEXT_SECONDARY);
                 if secondary_button(ui, &t("local.wizard.change", &[])).clicked() {
                     self.dialog = Some(DownloadDialog::new(DialogMode::Select, Tab::Recommended));
                 }
@@ -455,7 +420,7 @@ impl LocalInstall {
                 }
             }
         }
-        if !matches!(state, InstallState::Done(_) | InstallState::WaitingEngine)
+        if !matches!(state, InstallState::Done(_))
             && secondary_button(ui, &t("local.wizard.cancel", &[])).clicked()
         {
             log(format!("[ui] wizard local download cancelled: id={id}"));
@@ -479,14 +444,6 @@ fn title_row(ui: &mut Ui, title: &str, rating: Option<Rating>) {
 
 fn repo_error(error: &str) -> String {
     t("local.error.repo", &[("error", error)])
-}
-
-/// 引擎還在裝、VRAM 還沒量到：推薦要等量到才挑得出來。
-fn waiting_for_vram(snapshot: &Snapshot) -> bool {
-    matches!(
-        snapshot.engine,
-        EngineState::Missing | EngineState::Installing { .. }
-    ) && !snapshot.hardware.measured
 }
 
 /// 推薦卡還在載入時的佔位：標題與三行說明。
