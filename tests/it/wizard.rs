@@ -128,7 +128,10 @@ fn wizard_nav_is_packed_before_the_body() {
     // 內容比視窗高的第二步，導覽鈕仍整顆停在視窗底部，內容區才是捲動的那塊
     let mut h = on_service_step(blank_cfg());
     pick_provider(&mut h, "provider.custom");
-    let window = theme::WIZARD_SIZE;
+    // 比預設矮一點，確保表單一定超出視窗
+    let window = theme::WIZARD_SIZE - eframe::egui::vec2(0.0, 120.0);
+    h.set_size(window);
+    run(&mut h);
     let tail = h
         .get_by_role_and_label(Role::Link, &tr("wizard.skip_test"))
         .rect();
@@ -168,6 +171,7 @@ fn back_is_disabled_on_the_first_step_only() {
 fn the_language_step_shows_the_app_and_the_language_combo() {
     let h = open(blank_cfg());
     assert!(has_label(&h, &tr("app.name")));
+    assert!(has_label(&h, &tr("wizard.intro")));
     assert!(has_label(&h, &tr("wizard.language_hint")));
     h.get_by_role_and_label(Role::ComboBox, &tr("field.ui_language"));
 }
@@ -257,7 +261,10 @@ fn an_existing_service_skips_the_cards() {
 fn the_form_instructions_wait_until_the_form_exists() {
     // 前半只有服務商卡片：叫人填設定、按測試連線是在講畫面上還沒有的東西
     let h = on_service_step(blank_cfg());
-    assert!(has_label(&h, &tr("wizard.intro")));
+    assert!(
+        !has_label(&h, &tr("wizard.intro")),
+        "the intro belongs to the first step"
+    );
     assert!(has_label(&h, &tr("wizard.pick_provider")));
     assert!(!has_label(&h, &tr("wizard.intro_form")));
 }
@@ -266,7 +273,6 @@ fn the_form_instructions_wait_until_the_form_exists() {
 fn the_form_step_explains_what_to_do_with_the_form() {
     let mut h = on_service_step(blank_cfg());
     pick_provider(&mut h, "provider.claude");
-    assert!(has_label(&h, &tr("wizard.intro")));
     assert!(has_label(&h, &tr("wizard.intro_form")));
     assert!(!has_label(&h, &tr("wizard.pick_provider")));
 }

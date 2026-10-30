@@ -109,6 +109,9 @@ impl Wizard {
                 let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                 ui.painter().image(texture, rect, uv, Color32::WHITE);
                 ui.add(Label::new(RichText::new(app_name()).font(theme::bold(22.0))).wrap());
+                // 工具介紹放開場畫面；第二步只講選服務與設定服務
+                let intro = RichText::new(t("wizard.intro", &[])).color(theme::TEXT_SECONDARY);
+                ui.add(Label::new(intro).wrap());
             });
         });
         let label = ui
@@ -131,7 +134,6 @@ impl Wizard {
     }
 
     fn service_step(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
-        ui.add(Label::new(RichText::new(t("wizard.intro", &[])).color(theme::TEXT)).wrap());
         let Some(form) = &mut self.form else {
             heading(ui, &t("wizard.pick_provider", &[]));
             if let Some(key) = provider_cards(ui, CardLayout::Grid) {
