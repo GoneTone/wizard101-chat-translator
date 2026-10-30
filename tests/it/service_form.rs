@@ -1339,6 +1339,15 @@ fn local_harness(models: Vec<Installed>) -> Harness<'static, State> {
     h
 }
 
+/// 本地模型的思考說明不提思考深度（本地沒有這個選項）。
+#[test]
+fn the_local_form_has_its_own_thinking_hint() {
+    let h = local_harness(vec![installed("ready", true, 0)]);
+    let texts = painted_texts(&h);
+    assert!(texts.contains(&tr("local.form.thinking_hint")));
+    assert!(!texts.contains(&tr("hint.thinking")));
+}
+
 #[test]
 fn local_form_has_no_key_or_endpoint_fields() {
     let h = local_harness(vec![]);

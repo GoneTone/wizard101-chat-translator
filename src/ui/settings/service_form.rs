@@ -601,6 +601,10 @@ impl ServiceForm {
             let key = match switch {
                 ThinkingSwitch::Unsupported => "hint.thinking_unsupported",
                 ThinkingSwitch::Always => "hint.thinking_always",
+                // 本地模型沒有思考深度可選，llama-server 也不會因關不掉思考而報錯
+                ThinkingSwitch::Toggle if self.provider.key == LOCAL_PROVIDER => {
+                    "local.form.thinking_hint"
+                }
                 ThinkingSwitch::Toggle => "hint.thinking",
             };
             hint(ui, &t(key, &[]));

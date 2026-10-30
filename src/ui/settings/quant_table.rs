@@ -116,6 +116,10 @@ pub(super) fn show(ui: &mut Ui, info: &RepoInfo, pick: &mut (usize, Option<usize
             }
         });
     }
+    // 沒有 MTP 檔時只剩「不使用」，整列不顯示
+    if info.catalog.mtp.is_empty() {
+        return;
+    }
     row(ui, "MTP", |ui| {
         let none = t("local.quant.mtp_none", &[]);
         if chip(ui, pick.1.is_none(), None, &none, None).clicked() {

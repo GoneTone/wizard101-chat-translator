@@ -453,6 +453,18 @@ fn custom_tab_queries_the_parsed_repo_then_downloads_the_selection() {
     ));
 }
 
+/// 沒有 MTP 檔的 repo 展開版本時不列 MTP 那一列。
+#[test]
+fn a_repo_without_mtp_files_shows_no_mtp_row() {
+    let mut h = harness(
+        DialogMode::Download,
+        Tab::Recommended,
+        snapshot(&[(0, info(Fit::Smooth, false, 2, 3 * G))]),
+    );
+    click(&mut h, Role::Button, &tr("local.dialog.choose_version"));
+    assert!(h.query_by_label(&tr("local.quant.mtp_none")).is_none());
+}
+
 #[test]
 fn mtp_chips_change_the_download() {
     let base = with_mtp(info(Fit::Smooth, false, 2, 3 * G), Some(0), G);
