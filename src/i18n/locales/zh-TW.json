@@ -83,7 +83,7 @@
   "local.hw.note": "以目前可用量估算；遊戲沒開時量到的會偏高。",
   "local.load.title": "模型載入",
   "local.load.preload": "啟動時預先載入模型",
-  "local.load.preload_hint": "本工具開啟時就在背景預先載入翻譯服務用到的本地模型，第一句翻譯不用等待模型載入；關掉的話等第一句翻譯時才會載入模型，會需要等待一點時間。",
+  "local.load.preload_hint": "開啟本工具時就把會實際使用到的模型預先載入，第一句翻譯就不用等待，但模型會從一開始就佔用記憶體；關閉的話，第一句翻譯時會需要等待模型載入。",
   "local.load.idle": "閒置卸載",
   "local.load.idle_hint": "閒置一段時間後卸載模型，把記憶體還給遊戲；下一句翻譯時自動重新載入。",
   "local.load.idle_never": "不卸載",
