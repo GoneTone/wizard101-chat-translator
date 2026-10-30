@@ -406,14 +406,28 @@ pub async fn install(
     Ok(installed)
 }
 
-/// 切到 `new`：原本的 current 變成可回退的 previous。
+/// 切到 `new`：原本的 current 變成可回退的 previous；
+/// 已有 previous（current 還沒確認可用）時保留 previous，刪掉沒確認過的 current。
 pub fn activate(root: &Path, new: EngineInstall) -> io::Result<()> {
     let mut active = read_active(root);
     log(format!(
         "[local] activating engine {}-{}",
         new.build, new.variant
     ));
-    active.previous = active.current.take();
+    match (&active.previous, active.current.take()) {
+        (None, current) => active.previous = current,
+        (Some(prev), Some(unconfirmed)) if unconfirmed != *prev && unconfirmed != new => {
+            log(format!(
+                "[local] removing unconfirmed engine {}-{}",
+                unconfirmed.build, unconfirmed.variant
+            ));
+            // 正在載入模型時 Windows 鎖著檔案刪不掉；只記下來，不擋這次安裝
+            if let Err(e) = remove_dir_if_exists(&engine_dir(root, &unconfirmed)) {
+                log(format!("[local] removing unconfirmed engine failed: {e}"));
+            }
+        }
+        _ => {}
+    }
     active.current = Some(new);
     write_active(root, &active)
 }

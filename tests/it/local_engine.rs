@@ -152,6 +152,46 @@ fn confirm_deletes_the_previous_build() {
     );
 }
 
+/// 新版還沒確認就又換版：刪掉沒確認過的那版，備援留確認過的，不留孤兒資料夾。
+#[test]
+fn switching_again_before_confirming_keeps_the_confirmed_fallback() {
+    let root = tempfile::tempdir().unwrap();
+    let (a, b, c) = (inst("b11871"), inst("b11872"), inst("b11873"));
+    for i in [&a, &b, &c] {
+        make_dir(root.path(), i);
+    }
+    activate(root.path(), a.clone()).unwrap();
+    confirm(root.path()).unwrap();
+    activate(root.path(), b.clone()).unwrap();
+    activate(root.path(), c.clone()).unwrap();
+    assert!(!engine_dir(root.path(), &b).exists());
+    assert_eq!(
+        read_active(root.path()),
+        ActiveFile {
+            current: Some(c.clone()),
+            previous: Some(a.clone())
+        }
+    );
+    confirm(root.path()).unwrap();
+    assert!(!engine_dir(root.path(), &a).exists());
+    assert!(engine_dir(root.path(), &c).exists());
+}
+
+/// 沒確認過的版本重裝自己：資料夾就是剛裝好的，不能刪。
+#[test]
+fn reinstalling_the_unconfirmed_build_keeps_it() {
+    let root = tempfile::tempdir().unwrap();
+    let (a, b) = (inst("b11871"), inst("b11872"));
+    make_dir(root.path(), &a);
+    make_dir(root.path(), &b);
+    activate(root.path(), a.clone()).unwrap();
+    confirm(root.path()).unwrap();
+    activate(root.path(), b.clone()).unwrap();
+    activate(root.path(), b.clone()).unwrap();
+    assert!(engine_dir(root.path(), &b).exists());
+    assert_eq!(read_active(root.path()).previous, Some(a));
+}
+
 #[test]
 fn corrupt_active_file_reads_as_empty() {
     let root = tempfile::tempdir().unwrap();
