@@ -153,7 +153,7 @@ fn add_counter(query: PDH_HQUERY, path: &str) -> Result<PDH_HCOUNTER, String> {
     Ok(counter)
 }
 
-/// 計數器裡名稱以 `prefixes` 任一個開頭的實例加總。
+/// 計數器裡名稱以 `prefixes`（小寫）任一個開頭的實例加總。
 fn sum_for(counter: PDH_HCOUNTER, prefixes: &[String]) -> Result<u64, String> {
     let (mut bytes, mut count) = (0u32, 0u32);
     // SAFETY: 先問需要的緩衝區大小，緩衝區指標可為 null
@@ -188,13 +188,21 @@ fn sum_for(counter: PDH_HCOUNTER, prefixes: &[String]) -> Result<u64, String> {
         // SAFETY: PDH 填了 `count` 個項目，名稱字串放在同一塊緩衝區內
         let item = unsafe { &*items.add(i) };
         let name = unsafe { wide_str(item.szName) };
-        if prefixes.iter().any(|p| name.starts_with(p.as_str())) {
+        if instance_matches(&name, prefixes) {
             // SAFETY: 以 PDH_FMT_LARGE 取值，聯合體內是 largeValue
             let value = unsafe { item.FmtValue.Anonymous.largeValue };
             total += u64::try_from(value).unwrap_or(0);
         }
     }
     Ok(total)
+}
+
+/// 實例名稱是否以 `prefixes`（小寫）任一個開頭。
+///
+/// 名稱裡 LUID 的十六進位在程式內讀到是大寫（PowerShell 的 Get-Counter 顯示小寫），所以不分大小寫。
+fn instance_matches(name: &str, prefixes: &[String]) -> bool {
+    let name = name.to_ascii_lowercase();
+    prefixes.iter().any(|p| name.starts_with(p.as_str()))
 }
 
 /// 以 NUL 結尾的 UTF-16 字串。
@@ -271,6 +279,23 @@ mod tests {
         let (dedicated, shared) = gpu_memory(&[std::process::id()]).unwrap();
         assert!(dedicated.is_some() && shared.is_some());
         assert_eq!(process_usage(&[], false).usage, Usage::default());
+    }
+
+    /// LUID 的十六進位大小寫不同也對得上；pid 前綴不會誤配到更長的 pid。
+    #[test]
+    fn instance_names_match_regardless_of_hex_case() {
+        let adapter = vec!["luid_0x00000000_0x00016a0d_".to_string()];
+        assert!(instance_matches(
+            "luid_0x00000000_0x00016A0D_phys_0",
+            &adapter
+        ));
+        assert!(!instance_matches(
+            "luid_0x00000000_0x000195C8_phys_0",
+            &adapter
+        ));
+        let pid = vec!["pid_12_".to_string()];
+        assert!(instance_matches("pid_12_luid_0x0_0x16A0D_phys_0", &pid));
+        assert!(!instance_matches("pid_123_luid_0x0_0x16A0D_phys_0", &pid));
     }
 
     /// RAM 只算私有的 working set、`resident` 算整體；獨顯不加共享 GPU 記憶體、只要專用的讀得到；內顯的專用＋共享都算 RAM，兩個都要讀得到。
