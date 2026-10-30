@@ -237,12 +237,17 @@ impl EngineCard {
             }
             _ => {}
         }
+        let busy = matches!(
+            snapshot.engine,
+            EngineState::Installing { .. } | EngineState::Removing
+        );
+        let loading = picked.loading && !busy;
+        // 沒有任何按鈕時整列不畫，否則空列仍佔一行高
+        if !loading && primary.is_none() && installed.is_none() {
+            return;
+        }
         ui.horizontal(|ui| {
-            let busy = matches!(
-                snapshot.engine,
-                EngineState::Installing { .. } | EngineState::Removing
-            );
-            if picked.loading && !busy {
+            if loading {
                 skeleton(ui, 96.0, ui.spacing().interact_size.y);
             }
             if let Some((key, build)) = primary

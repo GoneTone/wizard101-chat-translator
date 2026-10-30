@@ -1199,6 +1199,15 @@ mod page {
         let extracting = tr("local.engine.extracting");
         assert!(has_label(&installing(G, true), &extracting));
         assert!(has_label(&installing(2 * G, false), &extracting));
+
+        // 按鈕都藏起來時，狀態文字下面不留一整列空白
+        let status = h.get_by_label(&downloading).rect();
+        let next = h
+            .query_all_by(|n| n.label().or(n.value()).is_some())
+            .map(|n| n.rect().top())
+            .filter(|top| *top > status.bottom())
+            .fold(f32::MAX, f32::min);
+        assert!(next - status.bottom() < 16.0, "{status:?} next={next}");
     }
 
     /// 本工具自己的模型在跑時：可用量照實顯示，另外一行說明它佔了多少。
