@@ -1,4 +1,5 @@
 //! 本程式啟動的 llama-server 實際佔用的記憶體：專用 GPU 記憶體讀 Windows 效能計數器，RAM 讀程序的 working set（私有部分與整體）。
+//! 另外也從同一套計數器讀整張顯示卡目前的專用記憶體用量。
 
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::System::Performance::{
@@ -86,49 +87,74 @@ fn combine(
 
 /// 工作管理員「專用／共享 GPU 記憶體」同一份計數器，實例名稱是 `pid_{pid}_luid_…`；回傳（專用, 共享），讀不到的為 `None`。
 fn gpu_memory(pids: &[u32]) -> Result<(Option<u64>, Option<u64>), String> {
+    with_query(|query| read_gpu_memory(query, pids))
+}
+
+/// 整張顯示卡目前的專用記憶體用量（所有程序合計，同工作管理員）；`luid` 是 DXGI adapter 的 LUID，
+/// 計數器實例名稱是 `luid_0x{高位}_0x{低位}_phys_…`。
+pub fn adapter_dedicated_usage(luid: (u32, u32)) -> Result<u64, String> {
+    let prefix = format!("luid_0x{:08x}_0x{:08x}_", luid.0, luid.1);
+    with_query(|query| {
+        let counter = add_counter(query, "\\GPU Adapter Memory(*)\\Dedicated Usage")?;
+        collect(query)?;
+        sum_for(counter, &[prefix])
+    })
+}
+
+/// 開一個即時資料的 PDH 查詢交給 `f`，用完關掉。
+fn with_query<T>(f: impl FnOnce(PDH_HQUERY) -> Result<T, String>) -> Result<T, String> {
     let mut query: PDH_HQUERY = std::ptr::null_mut();
     // SAFETY: 輸出指標有效；資料來源為 null 表示即時資料
     let status = unsafe { PdhOpenQueryW(std::ptr::null(), 0, &mut query) };
     if status != 0 {
         return Err(format!("PdhOpenQueryW status=0x{status:08x}"));
     }
-    let result = read_gpu_memory(query, pids);
+    let result = f(query);
     // SAFETY: `query` 由 PdhOpenQueryW 開成功
     unsafe { PdhCloseQuery(query) };
     result
 }
 
-fn read_gpu_memory(query: PDH_HQUERY, pids: &[u32]) -> Result<(Option<u64>, Option<u64>), String> {
-    // 一個計數器失敗不影響另一個：獨顯只需要專用的
-    let failed = |e: String| log(format!("[local] reading GPU process memory: {e}"));
-    let dedicated = add_counter(query, "Dedicated Usage").map_err(failed).ok();
-    let shared = add_counter(query, "Shared Usage").map_err(failed).ok();
+fn collect(query: PDH_HQUERY) -> Result<(), String> {
     // SAFETY: `query` 有效；即時計數器收一次就有值
     let status = unsafe { PdhCollectQueryData(query) };
     if status != 0 {
         return Err(format!("PdhCollectQueryData status=0x{status:08x}"));
     }
-    let sum = |c: Option<PDH_HCOUNTER>| c.and_then(|c| sum_for(c, pids).map_err(failed).ok());
+    Ok(())
+}
+
+fn read_gpu_memory(query: PDH_HQUERY, pids: &[u32]) -> Result<(Option<u64>, Option<u64>), String> {
+    // 一個計數器失敗不影響另一個：獨顯只需要專用的
+    let failed = |e: String| log(format!("[local] reading GPU process memory: {e}"));
+    let process = |name: &str| format!("\\GPU Process Memory(*)\\{name}");
+    let dedicated = add_counter(query, &process("Dedicated Usage"))
+        .map_err(failed)
+        .ok();
+    let shared = add_counter(query, &process("Shared Usage"))
+        .map_err(failed)
+        .ok();
+    collect(query)?;
+    let prefixes: Vec<String> = pids.iter().map(|p| format!("pid_{p}_")).collect();
+    let sum = |c: Option<PDH_HCOUNTER>| c.and_then(|c| sum_for(c, &prefixes).map_err(failed).ok());
     Ok((sum(dedicated), sum(shared)))
 }
 
-fn add_counter(query: PDH_HQUERY, name: &str) -> Result<PDH_HCOUNTER, String> {
-    let path: Vec<u16> = format!("\\GPU Process Memory(*)\\{name}\0")
-        .encode_utf16()
-        .collect();
+fn add_counter(query: PDH_HQUERY, path: &str) -> Result<PDH_HCOUNTER, String> {
+    let wide: Vec<u16> = format!("{path}\0").encode_utf16().collect();
     let mut counter: PDH_HCOUNTER = std::ptr::null_mut();
-    // SAFETY: `path` 以 NUL 結尾，輸出指標有效
-    let status = unsafe { PdhAddEnglishCounterW(query, path.as_ptr(), 0, &mut counter) };
+    // SAFETY: `wide` 以 NUL 結尾，輸出指標有效
+    let status = unsafe { PdhAddEnglishCounterW(query, wide.as_ptr(), 0, &mut counter) };
     if status != 0 {
         return Err(format!(
-            "PdhAddEnglishCounterW({name}) status=0x{status:08x}"
+            "PdhAddEnglishCounterW({path}) status=0x{status:08x}"
         ));
     }
     Ok(counter)
 }
 
-/// 計數器裡屬於 `pids` 的實例加總。
-fn sum_for(counter: PDH_HCOUNTER, pids: &[u32]) -> Result<u64, String> {
+/// 計數器裡名稱以 `prefixes` 任一個開頭的實例加總。
+fn sum_for(counter: PDH_HCOUNTER, prefixes: &[String]) -> Result<u64, String> {
     let (mut bytes, mut count) = (0u32, 0u32);
     // SAFETY: 先問需要的緩衝區大小，緩衝區指標可為 null
     let status = unsafe {
@@ -157,7 +183,6 @@ fn sum_for(counter: PDH_HCOUNTER, pids: &[u32]) -> Result<u64, String> {
             "PdhGetFormattedCounterArrayW status=0x{status:08x}"
         ));
     }
-    let prefixes: Vec<String> = pids.iter().map(|p| format!("pid_{p}_")).collect();
     let mut total = 0u64;
     for i in 0..count as usize {
         // SAFETY: PDH 填了 `count` 個項目，名稱字串放在同一塊緩衝區內

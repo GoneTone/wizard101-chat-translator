@@ -455,9 +455,18 @@ impl Local {
             };
             match self.launcher.list_devices(&exe) {
                 Ok(out) => {
-                    // 有獨顯又有內顯時兩個都會列出，取記憶體最大的那個
                     let devices = hardware::parse_list_devices(&out);
-                    if let Some((_, total, free)) = devices.into_iter().max_by_key(|d| d.1) {
+                    if let Some((_, total, free)) = hardware::pick_device(devices, hw.gpu.as_ref())
+                    {
+                        (hw.vram_total, hw.vram_free) = (total, free);
+                    }
+                    // 引擎回報的可用量可能不扣其他程式的佔用；讀得到系統計數器就以它為準
+                    if let Some((total, free)) = hw.gpu.as_ref().and_then(hardware::adapter_memory)
+                    {
+                        log(format!(
+                            "[local] VRAM from adapter counters: total={total} free={free} (engine reported total={} free={})",
+                            hw.vram_total, hw.vram_free
+                        ));
                         (hw.vram_total, hw.vram_free) = (total, free);
                     }
                     hw.measured = true;

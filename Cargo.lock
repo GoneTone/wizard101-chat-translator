@@ -5375,6 +5375,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "wgpu",
+ "windows",
  "windows-capture",
  "windows-sys 0.61.2",
  "winit",
