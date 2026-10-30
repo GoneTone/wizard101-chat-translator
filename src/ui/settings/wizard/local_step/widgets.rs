@@ -62,9 +62,10 @@ pub(super) fn progress(ui: &mut Ui, text: &str, done: u64, total: u64) {
     hint(ui, text, theme::TEXT_SECONDARY);
 }
 
-pub(super) fn error_with_retry(ui: &mut Ui, error: &str, retry: impl FnOnce()) {
+/// 錯誤加〔重試〕；`what` 是 log 用的英文名稱（錯誤原文失敗當下已記過）。
+pub(super) fn error_with_retry(ui: &mut Ui, error: &str, what: &str, retry: impl FnOnce()) {
     if widgets::error_with_retry(ui, error) {
-        log(format!("[ui] wizard local retry: error={error}"));
+        log(format!("[ui] wizard local retry: {what}"));
         retry();
     }
 }

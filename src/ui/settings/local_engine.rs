@@ -310,7 +310,7 @@ fn build_label(tag: &str, build: Option<&Build>) -> String {
     }
 }
 
-fn variant_label(v: &Variant) -> String {
+pub(super) fn variant_label(v: &Variant) -> String {
     match v {
         Variant::Vulkan => "Vulkan".into(),
         Variant::Cpu => "CPU".into(),

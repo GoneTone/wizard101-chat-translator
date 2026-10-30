@@ -494,7 +494,8 @@ impl Local {
         let result = self.try_install_engine(tag, variant).await;
         if let Err(e) = &result {
             log(format!("[local] engine install failed: {e}"));
-            self.update(|s| s.engine = EngineState::Failed(e.clone()));
+            let shown = t("local.error.engine_install", &[("error", e)]);
+            self.update(|s| s.engine = EngineState::Failed(shown));
         }
         result
     }
@@ -603,7 +604,7 @@ impl Local {
             Ok(()) => EngineState::Missing,
             Err(e) => {
                 log(format!("[local] removing engines failed: {e}"));
-                EngineState::Failed(e.to_string())
+                EngineState::Failed(t("local.error.engine_remove", &[("error", &e.to_string())]))
             }
         };
         self.update(|s| s.engine = state);
@@ -646,7 +647,10 @@ impl Local {
         self.update(|s| {
             if let Some(search) = s.search.as_mut().filter(|x| x.query == query) {
                 search.next = page.as_ref().ok().and_then(|p| p.next.clone());
-                search.results = Some(page.map(|p| p.hits));
+                search.results = Some(
+                    page.map(|p| p.hits)
+                        .map_err(|e| t("local.error.search", &[("error", &e)])),
+                );
             }
         });
     }
@@ -666,7 +670,7 @@ impl Local {
                     }
                     search.next = page.next;
                 }
-                Err(e) => search.more_error = Some(e),
+                Err(e) => search.more_error = Some(t("local.error.search", &[("error", &e)])),
             }
         });
     }

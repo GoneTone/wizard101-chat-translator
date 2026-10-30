@@ -727,7 +727,7 @@ mod local_install {
         let h = on_card(s);
         assert!(has_label(&h, "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M"));
         assert!(has_label(&h, "Model: 2.0 GB"));
-        assert!(has_label(&h, "Engine (vulkan): 0.5 GB"));
+        assert!(has_label(&h, "Engine (Vulkan): 0.5 GB"));
         assert!(has_label(&h, "Total download: 2.5 GB"));
         let sent = sent(&h);
         assert!(sent.iter().any(|c| c.contains("InstallEngine")));
@@ -754,6 +754,29 @@ mod local_install {
         click(&mut h, Role::Button, &tr("button.finish"));
         let cfg = finished(&h).expect("wizard finished");
         assert_eq!(cfg["services"][0]["model"], json!(default_id()));
+    }
+
+    /// 下載中與下載完成都還看得到是哪個模型。
+    #[test]
+    fn the_progress_and_done_states_name_the_model() {
+        let title = "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M";
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let mut s = ready_snapshot();
+        s.downloads.insert(
+            default_id(),
+            wizard101_chat_translator::local::DownloadState::Running {
+                done: G,
+                total: 2 * G,
+            },
+        );
+        set_snapshot(&mut h, s);
+        assert!(has_label(&h, title));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        assert!(has_label(&h, title));
     }
 
     #[test]
@@ -853,7 +876,8 @@ mod local_install {
                 .insert(r.repo.into(), RepoState::Failed("HTTP 403".into()));
         }
         let mut h = on_card(s);
-        assert!(has_label(&h, "HTTP 403"));
+        let shown = i18n::t("local.error.repo", &[("error", "HTTP 403")]);
+        assert!(has_label(&h, &shown));
         assert!(!has_label(&h, &tr("local.loading")));
         let before = sent(&h).len();
         click(&mut h, Role::Button, &tr("local.dialog.retry"));

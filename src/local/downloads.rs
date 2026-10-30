@@ -9,6 +9,7 @@ use super::fit;
 use super::hf::{self, RepoFile};
 use super::hub::{DownloadState, Local, PROGRESS_TICK, RepoInfo, rerate};
 use super::store::{self, Manifest, ManifestFile};
+use crate::i18n::t;
 use crate::logs::log;
 use crate::util::lock;
 
@@ -272,9 +273,10 @@ impl Local {
 
     fn download_failed(&self, id: &str, error: String) {
         log(format!("[local] model download failed: id={id}: {error}"));
+        let shown = t("local.error.download", &[("error", &error)]);
         self.update(|s| {
             s.downloads
-                .insert(id.to_owned(), DownloadState::Failed(error));
+                .insert(id.to_owned(), DownloadState::Failed(shown));
         });
     }
 
@@ -296,8 +298,13 @@ impl Local {
                 }
                 Err(e) => {
                     log(format!("[local] deleting model {id} failed: {e}"));
-                    s.downloads
-                        .insert(id.to_owned(), DownloadState::Failed(e.to_string()));
+                    s.downloads.insert(
+                        id.to_owned(),
+                        DownloadState::Failed(t(
+                            "local.error.delete",
+                            &[("error", &e.to_string())],
+                        )),
+                    );
                 }
             }
             s.models = store::list(&self.root);

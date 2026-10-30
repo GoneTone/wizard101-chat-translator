@@ -949,7 +949,11 @@ async fn resume_after_engine_install_failure_completes() {
     wait_for("missing manifest reported", || {
         matches!(
             f.local.snapshot().downloads.get("missing"),
-            Some(DownloadState::Failed(e)) if e.contains("no manifest")
+            Some(DownloadState::Failed(e))
+                if *e == wizard101_chat_translator::i18n::t(
+                    "local.error.download",
+                    &[("error", "model missing has no manifest")],
+                )
         )
     })
     .await;

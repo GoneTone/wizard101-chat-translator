@@ -16,6 +16,7 @@ use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::local_dialog::{
     DialogMode, DialogOutcome, DownloadDialog, Selection, Tab,
 };
+use crate::ui::settings::local_engine::variant_label;
 use crate::ui::settings::local_rate::{ENGINE, Rates, engine_text, paused_text, transfer_text};
 use crate::ui::settings::quant_table::{combined, fit_badge, gb};
 use crate::ui::settings::theme;
@@ -235,7 +236,7 @@ impl LocalInstall {
         let loading = self.loading(snapshot);
         let Some(plan) = self.plan(snapshot).filter(|_| !loading) else {
             match self.failed_repos(snapshot).first().filter(|_| !loading) {
-                Some((_, error)) => error_with_retry(ui, error, || {
+                Some((_, error)) => error_with_retry(ui, &repo_error(error), "repos", || {
                     for (repo, _) in self.failed_repos(snapshot) {
                         env.local_command(Command::QueryRepo(repo.to_owned()));
                     }
@@ -266,12 +267,7 @@ impl LocalInstall {
                 .inner_margin(Margin::symmetric(16, 14))
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 6.0;
-                    ui.horizontal(|ui| {
-                        let title = RichText::new(&plan.title).font(theme::bold(theme::TEXT_SIZE));
-                        ui.add(Label::new(title));
-                        let rating = plan.rating;
-                        fit_badge(ui, rating.fit, rating.need.estimated(), false);
-                    });
+                    title_row(ui, &plan.title, Some(plan.rating));
                     hint(
                         ui,
                         &t(
@@ -281,7 +277,7 @@ impl LocalInstall {
                         theme::TEXT_SECONDARY,
                     );
                     if let Some((variant, bytes)) = &engine {
-                        let args = [("variant", variant.to_string()), ("size", gb(*bytes))];
+                        let args = [("variant", variant_label(variant)), ("size", gb(*bytes))];
                         let args: Vec<_> = args.iter().map(|(k, v)| (*k, v.as_str())).collect();
                         hint(
                             ui,
@@ -372,7 +368,7 @@ impl LocalInstall {
                 progress(ui, &text, *done, *total);
             }
             EngineState::Failed(error) => {
-                error_with_retry(ui, error, || {
+                error_with_retry(ui, error, "engine", || {
                     env.local_command(Command::InstallEngine {
                         build: None,
                         variant: None,
@@ -393,12 +389,13 @@ impl LocalInstall {
         let Some(id) = self.tracked.clone() else {
             return;
         };
-        if matches!(snapshot.engine, EngineState::Ready(_)) {
-            hint(
-                ui,
-                &t("local.wizard.engine_ready", &[]),
-                theme::TEXT_SECONDARY,
-            );
+        match self.plan(snapshot).filter(|p| p.id == id) {
+            Some(plan) => title_row(ui, &plan.title, Some(plan.rating)),
+            None => {
+                if let Some(m) = snapshot.models.iter().find(|m| m.id == id) {
+                    title_row(ui, &m.manifest.display_name(), None);
+                }
+            }
         }
         self.engine_status(ui, env, snapshot);
         match state {
@@ -409,7 +406,9 @@ impl LocalInstall {
                 }
             }
             InstallState::Failed(error) => {
-                error_with_retry(ui, error, || env.local_command(Command::Resume(id.clone())));
+                error_with_retry(ui, error, "download", || {
+                    env.local_command(Command::Resume(id.clone()))
+                });
             }
             _ => {
                 let download = snapshot.downloads.get(&id);
@@ -442,6 +441,21 @@ impl LocalInstall {
             self.cancelled = true;
         }
     }
+}
+
+/// 模型名稱，有相容等級就接在後面。
+fn title_row(ui: &mut Ui, title: &str, rating: Option<Rating>) {
+    ui.horizontal(|ui| {
+        let title = RichText::new(title).font(theme::bold(theme::TEXT_SIZE));
+        ui.add(Label::new(title));
+        if let Some(r) = rating {
+            fit_badge(ui, r.fit, r.need.estimated(), false);
+        }
+    });
+}
+
+fn repo_error(error: &str) -> String {
+    t("local.error.repo", &[("error", error)])
 }
 
 /// 引擎還在裝、VRAM 還沒量到：推薦要等量到才挑得出來。

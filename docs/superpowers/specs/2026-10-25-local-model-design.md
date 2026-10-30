@@ -38,7 +38,7 @@ llama.cpp 與模型都**不包進 exe**（exe 必須維持單一檔案，模型�
 - 新服務商要處理 prompt cache（CLAUDE.md 規則）：llama-server 預設 `cache_prompt` 會重用相同前綴的 KV，等同自動快取，不需要標記；沿用 `[translate] prompt cache:` log —— llama-server 回應的 `timings`／`usage` 若帶快取命中數就記下，沒有就記 n/a。
 - 介面新字串要補進每個有翻譯的語系檔（`src/i18n/locales/*.json`）。
 - log 一律英文、帶足 context（`[local]` 前綴），不得寫入任何金鑰；下載網址的簽章查詢字串（HF CDN 的 `Policy`／`Signature`）不寫進 log。
-- 錯誤訊息只顯示伺服器原文，不加推測（既有原則）。
+- 錯誤訊息只顯示伺服器原文，不加推測（既有原則）；前面標出是哪個動作失敗（如「引擎安裝失敗：」「模型下載失敗：」「搜尋失敗：」），讓人分得出來源（使用者決定）。
 - 推薦清單裡的模型要語言範圍廣（目標語言是使用者自訂）、授權寬鬆、會照 system prompt 走。
 
 ## 做法（考慮過的）
