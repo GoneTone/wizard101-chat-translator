@@ -39,7 +39,7 @@ Please help us translate this software!
 
 ## Download
 
-Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings file `config.json` and the logs `app.log`, `messages.log` are all created next to the exe.
+Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings file `config.json` and the logs `app.log`, `messages.log` are all created next to the exe. If you use local models, the downloaded engine and models also go into the `llama` and `models` folders there (a single model is several GB, so remember them when you move or delete the program).
 
 <https://github.com/GoneTone/wizard101-chat-translator/releases/latest>
 
@@ -52,7 +52,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 ## How to Use
 
 1. Double-click the exe:
-   - When the **translation provider is not set up yet** (first launch, or `config.json` is missing the model, the API key or the self-hosted server URL) a **setup wizard** appears: step 1 picks the UI language, step 2 creates your first translation service, fills in the API key and tests the connection, step 3 picks the target language, the hotkey and whether the translation input box pops up automatically. Once saved, the main flow starts automatically.
+   - When the **translation provider is not set up yet** (first launch, or `config.json` is missing the model, the API key or the self-hosted server URL) a **setup wizard** appears: step 1 picks the UI language, step 2 creates your first translation service, fills in the API key and tests the connection (for a local model it first downloads the engine, then picks a model that suits this computer to download), step 3 picks the target language, the hotkey and whether the translation input box pops up automatically. Once saved, the main flow starts automatically.
    - Once the provider is set up, every later launch goes straight to the main flow — no wizard. The UI language can still be changed at any time in the settings window (gear ⚙); saving applies it immediately, with no restart.
    - Only one copy runs at a time: double-clicking the exe while it is already running brings up the existing window.
 2. Start Wizard101 and **log in, all the way into the game world** — only then can the overlay read chat.
@@ -85,8 +85,8 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **Tabs in sync with the game**: the translation window's tabs mirror the game's chat tabs, with names and unread counts shown just as in the game
 - **On-screen text, translated too**: press a hotkey or a title-bar button and drag a box around NPC dialogue, quest books, item descriptions or anything else — the screen freezes while you aim; the translation sits next to the selection with the recognized text shown for comparison, and it can be highlighted and copied
 - **You choose the language to translate into**: write the language name yourself (`繁體中文（台灣）`, `日本語`, `Español`, …); the language other people use is detected by the AI automatically
-- **Pick the AI you want**: OpenAI, Claude, Gemini, or your own OpenAI-compatible service — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
-- **Run a model on your own PC**: no extra software to install — when you ask, the program downloads llama.cpp (the official prebuilt build) and the models you pick from Hugging Face, choosing from a recommended list or any Hugging Face repository of your own. Each model is rated for compatibility from this computer's free VRAM and RAM (the estimate is higher when the game is not running); models load in the background and can unload when idle, and the first-run wizard can set one up for you. Files go into the `llama` and `models` folders beside the program. Translation then runs on your own GPU or CPU, so speed and quality depend on your hardware and the model
+- **Pick the AI you want**: OpenAI, Claude, Gemini, your own OpenAI-compatible service, or a local model running on your own PC — set up as many named services as you like and switch between them anytime, with incoming chat, outgoing chat and area translation each free to use a different one
+- **Run a model on your own PC**: no extra software to install — when you ask, the program downloads llama.cpp (the official prebuilt build) from GitHub and the models you pick from Hugging Face, choosing from a recommended list or searching Hugging Face for other GGUF models. Each model is rated for compatibility from this computer's free VRAM and RAM (the estimate is higher when the game is not running); you can have models loaded as soon as this tool starts, or unloaded after a period of idle time to give the memory back to the game, and the first-run wizard can set one up for you. Files go into the `llama` and `models` folders beside the program. Translation then runs on your own GPU or CPU, so speed and quality depend on your hardware and the model
 - **Names translated your way**: build glossaries that pin down how place names, monsters, spells or friends' nicknames are translated — keep several and switch anytime; only the terms a line actually uses go to the AI, for incoming chat, outgoing chat, system messages and area translation alike. Export a glossary to a file to share it with friends, or import theirs
 - **System messages, if you want them**: loot, XP, level-up broadcasts and the like are hidden by default — turn them on in the settings and they are shown and translated
 - **Arrange the window once and forget it**: drag to move, resize from an edge or corner, dial the opacity down, shrink it to a small bubble that shows the unread count when you are not reading it; position and size are remembered and it comes back in the same place next time
@@ -101,6 +101,8 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 - **The "Game version not supported" banner**: the software finds the chat control through fixed memory patterns, and a game update can invalidate them. First update **both the game and this software** to the latest version; if both are already up to date and the banner is still there, the software has not caught up with this game version yet and you have to wait for a new release (the *About* tab of the settings window has an update check). While the banner is up the software keeps retrying and may briefly hook into the game, but it undoes every attempt before the next one, so nothing is left behind in the game.
 - **Status stuck at "Connecting to game…", or "Game not ready or disconnected"**: make sure the game is running and that you are logged in, all the way into the game world.
 - **Characters dropped while the translation is typed in**: raise *Typing delay (s)* on the *Advanced* tab of the settings window (⚙), and do not switch windows while it types (typing stops as soon as the game leaves the foreground).
+- **Local model translations are slow**: check the model's compatibility rating in the settings window; if it is not the top rating, switch to a smaller version or model. The game uses video memory too, so the rating is only accurate while the game is running.
+- **The local model engine is blocked by antivirus**: like this software it can be falsely flagged; add the `llama` folder in the program folder to your antivirus allowlist, then reinstall the engine from the settings window.
 
 ## Screenshots
 
@@ -132,7 +134,7 @@ Set up as many translation services as you like — OpenAI, Claude, Gemini or yo
 
 - The game's chat whitelist: English words that are not on the whitelist may be filtered by the game itself, which no translation software can get around.
 - Translations do not appear instantly: the game is checked for new chat every 0.1 seconds, and a line is only shown once the translation service answers — how long that takes depends mostly on the provider and model you picked.
-- Player chat is never cached; every line is really sent for translation (so every line costs an API call). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
+- Player chat is never cached; every line is really sent for translation (so every line costs an API call; local models cost nothing). Two reasons: players hardly ever repeat themselves word for word, so a cache would almost never hit; and every translation carries the preceding lines as context, which means the same sentence can call for a different translation in a different conversation — forcing an old one on it would get it wrong. Only system messages, whose phrasing is fixed, are cached.
 - It depends on fixed memory patterns: a game update can invalidate them (a pattern is no longer found when hooking, or the hook installs but never fires), and it only works again once a new release of this project updates the patterns. Both cases show the "⚠  Game version not supported" banner in the overlay, which is distinct from "the game is not running".
 - Hooking into the game and the global hotkey only need the same elevation when the game itself runs as administrator (integrity levels have to match); otherwise nothing special is required. When privileges are insufficient the banner spells out the fix.
 
@@ -173,7 +175,7 @@ On pushes to `master` and pull requests against it, CI (`.github/workflows/ci.ym
 cargo build --release
 ```
 
-The result is `target\release\Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run (see [Download](#download)).
+The result is `target\release\Wizard101ChatTranslator.exe`, a single windowed exe with no console window. That exe is all you need to distribute — `config.json`, `app.log` and `messages.log` are created next to it on the user's first run, and the `llama` and `models` folders appear only once local models are used (see [Download](#download)).
 
 ### Logs
 
