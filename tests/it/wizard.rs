@@ -745,6 +745,7 @@ mod local_install {
     #[test]
     fn the_model_card_lists_the_model_size() {
         let h = on_card(ready_snapshot());
+        assert!(has_label(&h, &tr("local.wizard.intro")));
         assert!(has_label(&h, "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M"));
         assert!(has_label(&h, "Model: 2.0 GB"));
         assert!(!has_label(&h, "Total download: 2.0 GB"));
@@ -797,11 +798,17 @@ mod local_install {
         );
         set_snapshot(&mut h, s);
         assert!(has_label(&h, title));
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
         let mut s = ready_snapshot();
         s.models.push(done_model());
         set_snapshot(&mut h, s);
         assert!(next_enabled(&h));
         assert!(has_label(&h, title));
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
+        assert!(
+            !has_label(&h, &tr("local.wizard.intro")),
+            "already downloaded"
+        );
     }
 
     #[test]
@@ -1116,6 +1123,9 @@ mod local_install {
         type_into(&mut h, &tr("local.dialog.search_hint"), "org/custom");
         click(&mut h, Role::Button, &tr("local.dialog.search"));
         click(&mut h, Role::Button, &tr("local.dialog.select"));
+        // 自己選的不是依硬體挑的
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
+        assert!(!has_label(&h, &tr("local.wizard.intro")));
         click(&mut h, Role::Button, &tr("local.wizard.download"));
         let want = model_id("org/custom", QUANT);
         let sent = sent(&h);

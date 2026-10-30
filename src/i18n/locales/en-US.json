@@ -120,6 +120,7 @@
   "local.form.thinking_hint": "When on, the model thinks before translating, which is usually much slower. It has no effect on models that can't think.",
   "local.continue_download": "Continue download",
   "local.wizard.intro": "A model was picked for your hardware. Once it is downloaded, translation runs on this computer.",
+  "local.wizard.model_intro": "Translation runs on this computer with this model.",
   "local.wizard.engine_intro": "Local models need the llama.cpp engine, which runs the model on this computer. Once it is installed, a model that suits your hardware is picked for you to download.",
   "local.wizard.download_engine": "Download engine",
   "local.wizard.model_size": "Model: {size} GB",

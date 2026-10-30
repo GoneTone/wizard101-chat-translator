@@ -120,6 +120,7 @@
   "local.form.thinking_hint": "開啟後模型會先思考再翻譯，通常會慢上不少；模型本身不會思考時，開了也沒有作用。",
   "local.continue_download": "繼續下載",
   "local.wizard.intro": "已依你的硬體挑好一個模型，下載後翻譯就在這台電腦上執行。",
+  "local.wizard.model_intro": "翻譯會用這個模型在這台電腦上執行。",
   "local.wizard.engine_intro": "使用本地模型要先下載 llama.cpp 引擎，用來在這台電腦上執行模型；裝好後會再依硬體挑一個合適的模型給你下載。",
   "local.wizard.download_engine": "下載引擎",
   "local.wizard.model_size": "模型：{size} GB",

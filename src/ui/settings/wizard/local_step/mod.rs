@@ -235,7 +235,12 @@ impl LocalInstall {
     }
 
     fn choosing(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
-        ui.add(Label::new(RichText::new(t("local.wizard.intro", &[])).color(theme::TEXT)).wrap());
+        // 自己換過的模型不是依硬體挑的
+        let key = match self.selection {
+            None => "local.wizard.intro",
+            Some(_) => "local.wizard.model_intro",
+        };
+        lead(ui, key);
         let loading = self.loading(snapshot);
         let Some(plan) = self.plan(snapshot).filter(|_| !loading) else {
             match self.failed_repos(snapshot).first().filter(|_| !loading) {
@@ -321,8 +326,7 @@ impl LocalInstall {
 
     /// 引擎那段：說明與下載量，使用者按〔下載引擎〕才裝；安裝中顯示進度，失敗顯示原文與〔重試〕。
     fn engine_step(&self, ui: &mut Ui, env: &dyn SettingsEnv, snapshot: &Snapshot) {
-        let intro = RichText::new(t("local.wizard.engine_intro", &[])).color(theme::TEXT);
-        ui.add(Label::new(intro).wrap());
+        lead(ui, "local.wizard.engine_intro");
         let install = || {
             env.local_command(Command::InstallEngine {
                 build: None,
@@ -378,6 +382,7 @@ impl LocalInstall {
         let Some(id) = self.tracked.clone() else {
             return;
         };
+        lead(ui, "local.wizard.model_intro");
         match self.plan(snapshot).filter(|p| p.id == id) {
             Some(plan) => title_row(ui, &plan.title, Some(plan.rating)),
             None => {
@@ -429,6 +434,11 @@ impl LocalInstall {
             self.cancelled = true;
         }
     }
+}
+
+/// 畫面最上面的說明句。
+fn lead(ui: &mut Ui, key: &str) {
+    ui.add(Label::new(RichText::new(t(key, &[])).color(theme::TEXT)).wrap());
 }
 
 /// 模型名稱，有相容等級就接在後面；太長時換行，不超出卡片。
