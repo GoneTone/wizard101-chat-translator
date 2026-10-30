@@ -35,6 +35,7 @@
   "local.dialog.search_hint": "例如 qwen、gemma",
   "local.dialog.search": "搜索",
   "local.dialog.no_results": "找不到含 GGUF 文件的模型，换个关键词试试。",
+  "local.dialog.no_gguf": "“{repo}”没有 GGUF 模型文件，只能下载 GGUF 格式的模型。",
   "local.dialog.downloads": "{count} 次下载",
   "local.dialog.load_more": "加载更多",
   "local.dialog.view": "查看",

@@ -35,6 +35,7 @@
   "local.dialog.search_hint": "e.g. qwen, gemma",
   "local.dialog.search": "Search",
   "local.dialog.no_results": "No models with GGUF files found. Try another keyword.",
+  "local.dialog.no_gguf": "“{repo}” has no GGUF model files. Only GGUF models can be downloaded.",
   "local.dialog.downloads": "{count} downloads",
   "local.dialog.load_more": "Load more",
   "local.dialog.view": "View",

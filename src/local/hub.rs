@@ -22,6 +22,7 @@ use super::store::{self, Installed};
 use super::{LocalNotice, Notify};
 use crate::config::Config;
 use crate::config::local::LocalSettings;
+use crate::i18n::t;
 use crate::logs::log;
 use crate::util::lock;
 
@@ -678,7 +679,10 @@ impl Local {
             .choices
             .first()
             .and_then(|c| c.files.first())
-            .ok_or_else(|| format!("{repo} has no GGUF model files"))?;
+            .ok_or_else(|| {
+                log(format!("[local] {repo} has no GGUF model files"));
+                t("local.dialog.no_gguf", &[("repo", repo)])
+            })?;
         if let Some(meta) = first
             .sha256
             .as_deref()
