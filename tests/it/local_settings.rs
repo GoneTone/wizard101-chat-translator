@@ -222,6 +222,33 @@ fn the_dialog_shrinks_to_a_narrower_window() {
     }
 }
 
+/// 精靈的 600 寬放不下完整的名稱和按鈕：整份清單把按鈕換到名稱下方；夠寬時都在同一列。
+#[test]
+fn narrow_dialog_rows_put_buttons_under_the_names() {
+    let ready: Vec<(usize, RepoInfo)> = (0..RECOMMENDED.len())
+        .map(|i| (i, info(Fit::Smooth, false, 2, 3 * G)))
+        .collect();
+    let mut h = harness(DialogMode::Select, Tab::Recommended, snapshot(&ready));
+    let stacked = |h: &Harness<State>| {
+        let mut buttons: Vec<_> = h
+            .query_all_by_role_and_label(Role::Button, &tr("local.dialog.choose_version"))
+            .map(|n| n.rect().top())
+            .collect();
+        buttons.sort_by(f32::total_cmp);
+        RECOMMENDED
+            .iter()
+            .zip(buttons)
+            .map(|(rec, top)| top > h.get_by_label(rec.repo).rect().bottom())
+            .collect::<Vec<_>>()
+    };
+    h.set_size(egui::vec2(600.0, 2000.0));
+    run(&mut h);
+    assert!(stacked(&h).iter().all(|&s| s), "{:?}", stacked(&h));
+    h.set_size(egui::vec2(840.0, 2000.0));
+    run(&mut h);
+    assert!(stacked(&h).iter().all(|&s| !s), "{:?}", stacked(&h));
+}
+
 #[test]
 fn single_quant_repo_disables_choose_version() {
     let snap = snapshot(&[(0, info(Fit::Smooth, false, 1, 3 * G))]);

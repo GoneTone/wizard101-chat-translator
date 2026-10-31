@@ -319,7 +319,10 @@ pub(super) fn row_group<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) 
     inner
 }
 
-/// 一列：左邊文字、右邊靠右的控制項。文字剩不到 `MIN_LABEL_WIDTH` 時改成兩層，控制項換到文字下方靠右，
+/// 清單列（模型、repo）的名稱至少留這麼寬：再窄名稱就截得認不出來，改成兩層讓名稱完整顯示。
+const MIN_NAME_WIDTH: f32 = 200.0;
+
+/// 一列：左邊文字、右邊靠右的控制項。文字剩不到 `MIN_NAME_WIDTH` 時改成兩層，控制項換到文字下方靠右，
 /// 不硬撐出容器（窄視窗、縮小的設定視窗）；在 `row_group` 裡時跟整組一起換。
 pub(super) fn text_with_controls<A, B>(
     ui: &mut Ui,
@@ -328,7 +331,7 @@ pub(super) fn text_with_controls<A, B>(
     controls: impl FnOnce(&mut Ui) -> B,
 ) -> (A, B) {
     let room = ui.available_width() - right_aligned_width(ui, id) - 12.0;
-    let fits = room >= MIN_LABEL_WIDTH;
+    let fits = room >= MIN_NAME_WIDTH;
     let group = ui.stack().iter().find_map(|frame| {
         frame
             .tags()
