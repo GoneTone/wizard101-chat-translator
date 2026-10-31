@@ -74,7 +74,7 @@ impl LocalPane {
         self.rates.observe(now, snapshot);
         if !self.opened {
             self.opened = true;
-            // 硬體只在量的當下準：打開這頁就重量一次可用量與本工具模型的實際佔用
+            // 硬體只在量的當下準：打開這頁就重量一次可用量與本軟體模型的實際佔用
             env.local_command(Command::RefreshHardware {
                 redetect_gpu: false,
             });

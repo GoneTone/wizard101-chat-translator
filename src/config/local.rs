@@ -22,7 +22,7 @@ const DEFAULT_PROMPT_CACHE_MIB: u32 = 8192;
 /// `local_models` 區塊的讀出形狀。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalSettings {
-    /// 本工具開啟時就預先載入模型。
+    /// 本軟體開啟時就預先載入模型。
     pub preload: bool,
     /// 閒置幾分鐘後卸載；0 代表不卸載。
     pub idle_minutes: u32,

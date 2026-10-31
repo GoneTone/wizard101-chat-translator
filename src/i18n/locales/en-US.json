@@ -89,7 +89,7 @@
   "local.hw.note": "Estimated from what is available right now; readings taken while the game is closed run high.",
   "local.load.title": "Model loading",
   "local.load.preload": "Preload models on startup",
-  "local.load.preload_hint": "Loads the models that will actually be used as soon as this tool starts, so the first translation does not wait, but the models take up memory from the start. If turned off, the first translation waits for the model to load.",
+  "local.load.preload_hint": "Loads the models that will actually be used as soon as this app starts, so the first translation does not wait, but the models take up memory from the start. If turned off, the first translation waits for the model to load.",
   "local.load.idle": "Unload when idle",
   "local.load.idle_hint": "Unload models after a period of inactivity to give the memory back to the game; they reload automatically on the next translation.",
   "local.load.idle_never": "Never unload",
