@@ -1,9 +1,9 @@
 //! 本地服務：向本地模型 hub 要 llama-server 的位址，再轉給 OpenAI 相容 client。
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use serde_json::Value;
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::{ChatRequest, ModelInfo, OpenAiCompatClient, cancellable};
@@ -47,6 +47,70 @@ impl LocalClient {
         req: ChatRequest<'_>,
         cancel: Option<&CancellationToken>,
     ) -> Result<String, TranslateError> {
+        let (local, url) = self.serve(cancel).await?;
+        // 閒置睡著的模型會在這個請求重新載入：期間顯示載入橫幅，譯文回來（或失敗）才收起
+        let _banner = self
+            .sleeping(&url)
+            .await
+            .then(|| local.waking(&self.model_id));
+        let reply = self.client_for(url).chat(req, cancel).await;
+        if reply.is_ok() {
+            local.measure_after_request(&self.model_id);
+        }
+        reply
+    }
+
+    /// 確保模型載入且醒著；這次有載入（沒在跑、或閒置睡著被叫醒）時回傳花的時間。
+    ///
+    /// 測試連線用來把載入和翻譯分開計時。
+    pub async fn load(
+        &self,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<Option<Duration>, TranslateError> {
+        let started = Instant::now();
+        let running = local::get().is_some_and(|l| l.snapshot().running.contains(&self.model_id));
+        let (local, url) = self.serve(cancel).await?;
+        if !running {
+            return Ok(Some(started.elapsed()));
+        }
+        if !self.sleeping(&url).await {
+            return Ok(None);
+        }
+        let _banner = local.waking(&self.model_id);
+        // 睡著的模型只在收到請求時重新載入：送一個只生成 1 個 token 的請求叫醒它
+        let body = json!({
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1,
+        });
+        let wake = async {
+            let request = self.http.post(format!("{url}/v1/chat/completions"));
+            Ok(match request.json(&body).send().await {
+                Ok(response) if response.status().is_success() => None,
+                Ok(response) => Some(format!("HTTP {}", response.status().as_u16())),
+                Err(e) => Some(error_chain(e)),
+            })
+        };
+        // 叫不醒就照常送測試翻譯，真正的錯誤由翻譯回報
+        if let Some(error) = cancellable(cancel, wake).await? {
+            log(format!(
+                "[local] {} wake-up request failed, testing anyway: {error}",
+                self.model_id
+            ));
+        } else {
+            log(format!(
+                "[local] {} woke up in {:.1}s for a connection test",
+                self.model_id,
+                started.elapsed().as_secs_f64()
+            ));
+        }
+        Ok(Some(started.elapsed()))
+    }
+
+    /// 確保 llama-server 在跑，回傳 hub 與它的 base URL；`cancel` 觸發時不等模型載入完就回 `Cancelled`。
+    async fn serve(
+        &self,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(Arc<local::Local>, String), TranslateError> {
         let local = local::get().ok_or_else(|| config_error("local runtime unavailable"))?;
         let (hub, id) = (Arc::clone(&local), self.model_id.clone());
         // 另開 task：取消翻譯不該連帶中斷載入到一半的模型
@@ -58,16 +122,7 @@ impl LocalClient {
                 .map_err(|e| config_error(&e))
         })
         .await?;
-        // 閒置睡著的模型會在這個請求重新載入：期間顯示載入橫幅，譯文回來（或失敗）才收起
-        let _banner = self
-            .sleeping(&url)
-            .await
-            .then(|| local.waking(&self.model_id));
-        let reply = self.client_for(url).chat(req, cancel).await;
-        if reply.is_ok() {
-            local.measure_after_request(&self.model_id);
-        }
-        reply
+        Ok((local, url))
     }
 
     /// llama-server 是否因閒置睡著；查不到時當作沒睡，不擋翻譯。

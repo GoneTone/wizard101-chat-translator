@@ -10,17 +10,19 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
 use tokio::runtime::Handle;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows_sys::w;
 
-use crate::config::services::ServiceSpec;
+use crate::config::services::{LOCAL_PROVIDER, ServiceSpec};
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::recorder::{Recording, record};
+use crate::local;
 use crate::logs::log;
 use crate::runtime::updater::{LATEST_API, Release, check_for_update, update_client};
 use crate::translation::cache::TranslationCache;
-use crate::translation::clients::ModelInfo;
+use crate::translation::clients::{LocalClient, ModelInfo, cancellable};
 use crate::translation::errors::TranslateError;
 use crate::translation::examples::ExampleStore;
 use crate::translation::translator::{self, TestOutcome, Translator, test_translate};
@@ -30,7 +32,9 @@ use crate::util::{lock, panic_message};
 /// 設定介面要用的外部動作；耗時的在背景跑，結果以 `UiEvent::Settings` 投遞，帶著呼叫時給的 `round`。
 pub trait SettingsEnv {
     /// 用 `spec` 實際翻一句測試文字（目標語言 `target`），完成後投遞 `TestDone`。
-    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String);
+    ///
+    /// 回傳的 guard 放掉就中斷測試（停止鈕、改欄位、表單關閉），被中斷的測試結果會被丟掉。
+    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) -> DropGuard;
     /// 向端點取模型清單，完成後投遞 `ModelsDone`。
     fn list_models(&self, round: u64, spec: ServiceSpec);
     /// 手動檢查更新，完成後投遞 `UpdateChecked`。
@@ -88,6 +92,8 @@ pub struct RealEnv {
     dispatcher: SharedDispatcher,
     cache: Option<Arc<TranslationCache>>,
     recording: Mutex<Option<Recording>>,
+    /// 上一次測試連線在背景產生範例的取消鈕。
+    examples: Mutex<Option<CancellationToken>>,
 }
 
 impl RealEnv {
@@ -104,6 +110,7 @@ impl RealEnv {
             dispatcher,
             cache,
             recording: Mutex::new(None),
+            examples: Mutex::default(),
         }
     }
 
@@ -128,12 +135,56 @@ impl RealEnv {
     }
 }
 
+/// 測試連線的背景工作：本地模型先收掉其他臨時啟動的模型、量載入時間；翻譯成功後另開工作產生範例。
+async fn run_test(
+    spec: ServiceSpec,
+    target: String,
+    cancel: &CancellationToken,
+    examples: CancellationToken,
+) -> Result<TestOutcome, TranslateError> {
+    let hub = (spec.provider == LOCAL_PROVIDER).then(local::get).flatten();
+    if let Some(hub) = &hub {
+        hub.release_unused(Some(&spec.model));
+    }
+    let tr = Translator::new(spec.clone(), target);
+    let test = async {
+        let load = match &hub {
+            Some(_) => {
+                LocalClient::new(&spec.model, spec.thinking)
+                    .load(Some(cancel))
+                    .await?
+            }
+            None => None,
+        };
+        test_translate(&tr, load).await
+    };
+    // 中斷只停翻譯請求：模型照樣載完（只改了思考開關時下次測試不必重載），要不要停模型由表單決定
+    let result = cancellable(Some(cancel), test).await;
+    match &result {
+        Err(TranslateError::Cancelled) => log(format!(
+            "[settings] test connection cancelled in the background (provider={}, model={})",
+            spec.provider, spec.model
+        )),
+        Ok(_) => drop(tokio::spawn(async move {
+            translator::examples_after_test(&tr, &ExampleStore::default(), &examples).await;
+        })),
+        Err(_) => {}
+    }
+    result
+}
+
 impl SettingsEnv for RealEnv {
-    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) {
+    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) -> DropGuard {
+        let cancel = CancellationToken::new();
+        let examples = CancellationToken::new();
+        // 前一次測試的模型不該在背景產生範例、跟這次測試搶 GPU
+        if let Some(previous) = lock(&self.examples).replace(examples.clone()) {
+            previous.cancel();
+        }
+        let token = cancel.clone();
         self.post_later(
             async move {
-                let store = Arc::new(ExampleStore::default());
-                let result = test_translate(Translator::new(spec, target), Some(store)).await;
+                let result = run_test(spec, target, &token, examples).await;
                 SettingsEvent::TestDone { round, result }
             },
             move |message| SettingsEvent::TestDone {
@@ -141,6 +192,7 @@ impl SettingsEnv for RealEnv {
                 result: Err(TranslateError::Unexpected(message)),
             },
         );
+        cancel.drop_guard()
     }
 
     fn list_models(&self, round: u64, spec: ServiceSpec) {

@@ -73,8 +73,13 @@ fn raised() -> Vec<isize> {
 struct SharedEnv(Rc<FakeEnv>);
 
 impl SettingsEnv for SharedEnv {
-    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) {
-        self.0.test_connection(round, spec, target);
+    fn test_connection(
+        &self,
+        round: u64,
+        spec: ServiceSpec,
+        target: String,
+    ) -> tokio_util::sync::DropGuard {
+        self.0.test_connection(round, spec, target)
     }
     fn list_models(&self, round: u64, spec: ServiceSpec) {
         self.0.list_models(round, spec);

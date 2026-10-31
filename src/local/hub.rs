@@ -183,6 +183,8 @@ pub enum Command {
     Resume(String),
     CancelDownload(String),
     Delete(String),
+    /// 停掉已套用設定沒用到的模型（使用者停止了本地模型的測試連線）。
+    ReleaseUnused,
 }
 
 /// 本地模型 hub：持有快照、下載與 llama-server 子程序。
@@ -192,6 +194,8 @@ pub struct Local {
     pub(super) launcher: Arc<dyn Launcher>,
     pub(super) notify: Notify,
     pub(super) settings: Mutex<LocalSettings>,
+    /// 已套用設定引用的模型；不在其中的是測試連線臨時啟動的。
+    pub(super) wanted: Mutex<BTreeSet<String>>,
     pub(super) servers: Servers,
     pub(super) endpoints: Endpoints,
     pub(super) hf_http: reqwest::Client,
@@ -247,6 +251,7 @@ impl Local {
             launcher,
             notify,
             settings: Mutex::default(),
+            wanted: Mutex::default(),
             servers: Servers::default(),
             endpoints,
             state: Mutex::new(snapshot),
@@ -382,6 +387,7 @@ impl Local {
                 return;
             }
             Command::Delete(id) => Box::pin(async move { me.delete(&id).await }),
+            Command::ReleaseUnused => Box::pin(async move { me.release_unused(None) }),
         };
         self.rt.spawn(task);
     }

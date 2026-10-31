@@ -674,6 +674,7 @@ fn test_results_reach_the_open_dialog() {
     let result = Ok(TestOutcome {
         translated: "x".into(),
         elapsed: std::time::Duration::from_millis(1000),
+        load: None,
     });
     h.state_mut()
         .pane
@@ -695,6 +696,7 @@ fn the_service_dialog_stays_put_when_its_content_grows() {
     let result = Ok(TestOutcome {
         translated: "x".into(),
         elapsed: std::time::Duration::from_millis(1000),
+        load: None,
     });
     h.state_mut()
         .pane

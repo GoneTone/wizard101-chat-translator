@@ -11,7 +11,9 @@ use tokio::runtime::Handle;
 use wizard101_chat_translator::config::{Config, ServiceSpec};
 use wizard101_chat_translator::local::{self, Local, LocalNotice, store};
 use wizard101_chat_translator::translation::Turn;
-use wizard101_chat_translator::translation::clients::{ChatBackend, Client, build_client};
+use wizard101_chat_translator::translation::clients::{
+    ChatBackend, Client, LocalClient, build_client,
+};
 use wizard101_chat_translator::translation::errors::TranslateError;
 
 struct Hub {
@@ -159,6 +161,29 @@ async fn an_awake_or_unknown_server_shows_no_banner() {
         assert_eq!(translated, Ok("hola".into()), "{sleeping:?}");
         assert_eq!(h.loading_notices(), [], "{sleeping:?}");
     }
+}
+
+/// 測試連線的載入計時：沒在跑時要啟動、睡著時送 1 個 token 的請求叫醒，都回傳花的時間；醒著時不算載入。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn load_times_a_start_or_a_wake_but_not_an_awake_server() {
+    let h = hub(false).await;
+    *h.launches.sleeping.lock().unwrap() = Some(false);
+    let client = LocalClient::new("m1", false);
+    assert!(client.load(None).await.unwrap().is_some(), "started");
+    assert_eq!(h.launches.started(), 1);
+    assert_eq!(client.load(None).await, Ok(None), "awake");
+    drop(h);
+
+    let h = hub(false).await;
+    *h.launches.sleeping.lock().unwrap() = Some(true);
+    h.local.ensure("m1").await.unwrap();
+    h.notices.lock().unwrap().clear();
+    assert!(client.load(None).await.unwrap().is_some(), "woken");
+    let servers = std::mem::take(&mut *h.launches.servers.lock().unwrap());
+    let bodies = bodies_at(&servers[0], "/v1/chat/completions").await;
+    assert_eq!(bodies.len(), 1);
+    assert_eq!(bodies[0]["max_tokens"], 1);
+    assert_eq!(h.loading_notices().len(), 2, "banner while waking");
 }
 
 /// 測試結束放掉 hub 後，全程序共用的 hub 也一併卸下。

@@ -7,6 +7,7 @@ use eframe::egui::{
     WidgetInfo, pos2, vec2,
 };
 use serde_json::{Map, Value};
+use tokio_util::sync::DropGuard;
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
@@ -23,8 +24,8 @@ use crate::config::services::{
     str_field, unique_name, validate_endpoint_fields, validate_service,
 };
 use crate::i18n::t;
-use crate::local::Snapshot;
 use crate::local::store::{Installed, total_size};
+use crate::local::{Command, Snapshot};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::translation::clients::{ModelInfo, ThinkingCaps};
@@ -60,7 +61,12 @@ enum ModelStatus {
 }
 
 enum TestResult {
-    Passed { seconds: String, translated: String },
+    Passed {
+        seconds: String,
+        /// 本地模型這次先載入時的載入秒數。
+        load: Option<String>,
+        translated: String,
+    },
     Failed(String),
 }
 
@@ -92,6 +98,8 @@ pub struct ServiceForm {
     /// 開啟時那次自動載入的佔位顯示到何時（egui 時間）；載入結束或換服務商就清掉。
     placeholder_until: Option<f64>,
     test_round: Round,
+    /// 進行中的測試；放掉就中斷（表單關閉時也是）。
+    test_handle: Option<DropGuard>,
     /// 測試那一刻的服務商與模型，log 用。
     test_request: (String, String),
     test_result: Option<TestResult>,
@@ -137,6 +145,7 @@ impl ServiceForm {
             opened: false,
             placeholder_until: None,
             test_round: Round::new("test connection"),
+            test_handle: None,
             test_request: Default::default(),
             test_result: None,
             pending_change: false,
@@ -342,7 +351,7 @@ impl ServiceForm {
 
         let after = self.api_values();
         if after != before {
-            self.test_round.invalidate();
+            self.stop_test("fields changed");
             // 失敗原因留著供對照；成功結果已不代表目前的欄位
             if self.test_passed() {
                 self.test_result = None;
@@ -356,7 +365,15 @@ impl ServiceForm {
         }
 
         if self.test_row(ui) {
-            self.start_test(env, target_language);
+            if self.test_round.busy() {
+                self.stop_test("stopped by user");
+                // 使用者停止多半是嫌慢：測試臨時載入的模型不留著佔記憶體
+                if self.test_request.0 == LOCAL_PROVIDER {
+                    env.local_command(Command::ReleaseUnused);
+                }
+            } else {
+                self.start_test(env, target_language);
+            }
         }
         if self.provider.key == LOCAL_PROVIDER {
             hint(ui, &t("local.form.test_hint", &[]));
@@ -380,10 +397,23 @@ impl ServiceForm {
         api
     }
 
-    /// 作廢還沒回來與已顯示的測試結果。
+    /// 中斷進行中的測試並清掉已顯示的結果。
     fn void_test(&mut self) {
-        self.test_round.invalidate();
+        self.stop_test("fields changed");
         self.test_result = None;
+    }
+
+    /// 中斷進行中的測試（放掉 guard），之後回來的結果丟掉；沒在測試時無動作。
+    fn stop_test(&mut self, reason: &str) {
+        if !self.test_round.busy() {
+            return;
+        }
+        self.test_handle = None;
+        self.test_round.cancel();
+        let (provider, model) = &self.test_request;
+        log(format!(
+            "[settings] test connection stopped: {reason} (provider={provider}, model={model})"
+        ));
     }
 
     fn provider_row(&mut self, ui: &mut Ui) -> bool {
@@ -648,23 +678,17 @@ impl ServiceForm {
         });
     }
 
-    /// 分隔線下的〔測試連線〕與結果；回傳是否按了測試。
+    /// 分隔線下的〔測試連線〕（測試中是〔停止測試〕）與結果；回傳是否按了按鈕。
     fn test_row(&mut self, ui: &mut Ui) -> bool {
         ui.add(Separator::default().horizontal().spacing(8.0));
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = COLUMN_GAP;
-            let busy = self.test_round.busy();
-            let text = t(
-                if busy {
-                    "button.testing"
-                } else {
-                    "button.test"
-                },
-                &[],
-            );
-            let button = ui
-                .add_enabled_ui(!busy, |ui| secondary_button(ui, &text))
-                .inner;
+            let key = if self.test_round.busy() {
+                "button.stop_test"
+            } else {
+                "button.test"
+            };
+            let button = secondary_button(ui, &t(key, &[]));
             mark(ui, button.rect, Block::Control);
             let clicked = button.clicked();
             if let Some(result) = &self.test_result {
@@ -674,9 +698,17 @@ impl ServiceForm {
                     match result {
                         TestResult::Passed {
                             seconds,
+                            load,
                             translated,
                         } => {
-                            outcome(ui, true, &t("test.connected", &[("seconds", seconds)]));
+                            let text = match load {
+                                Some(load) => t(
+                                    "test.connected_loaded",
+                                    &[("seconds", seconds), ("load", load)],
+                                ),
+                                None => t("test.connected", &[("seconds", seconds)]),
+                            };
+                            outcome(ui, true, &text);
                             pair(ui, &t("test.source", &[]), TEST_SAMPLE);
                             pair(ui, &t("test.translation", &[]), translated);
                         }
@@ -706,18 +738,23 @@ impl ServiceForm {
         ));
         self.test_request = (spec.provider.clone(), spec.model.clone());
         let round = self.test_round.start();
-        env.test_connection(round, spec, target_language.to_owned());
+        self.test_handle = Some(env.test_connection(round, spec, target_language.to_owned()));
     }
 
     fn tested(&mut self, result: &Result<TestOutcome, TranslateError>) {
+        // 測試已結束，guard 放掉只取消已不需要的權杖
+        self.test_handle = None;
         let (provider, model) = &self.test_request;
         self.test_result = Some(match result {
             Ok(done) => {
                 log(format!(
-                    "[settings] test connection ok (provider={provider}, model={model})"
+                    "[settings] test connection ok (provider={provider}, model={model}, elapsed={:.1}s, load={:?})",
+                    done.elapsed.as_secs_f64(),
+                    done.load.map(|d| format!("{:.1}s", d.as_secs_f64()))
                 ));
                 TestResult::Passed {
                     seconds: format_seconds(done.elapsed),
+                    load: done.load.map(format_seconds),
                     translated: done.translated.clone(),
                 }
             }

@@ -135,6 +135,7 @@ fn service_states() {
         result: Ok(TestOutcome {
             translated: "你好，今天要一起去打王嗎？".into(),
             elapsed: Duration::from_millis(1250),
+            load: None,
         }),
     });
     save(&mut h, "service_form_test_passed");

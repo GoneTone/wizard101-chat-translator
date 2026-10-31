@@ -333,6 +333,34 @@ async fn apply_config_stops_models_no_slot_uses() {
     assert_eq!(f.kills(), ["kill model_dir_exists=true".to_string()]);
 }
 
+/// 收掉測試連線臨時啟動的模型：設定用到的與 `keep` 留著，其他停掉。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn release_unused_keeps_configured_models_and_the_one_under_test() {
+    let f = fixture(
+        |root| {
+            add_engine(root, "b11871");
+            for id in ["m1", "m2", "m3"] {
+                add_model(root, id, false);
+            }
+        },
+        |_| false,
+    )
+    .await;
+    let settings = json!({"preload": false, "idle_minutes": 15, "mtp": {}});
+    f.local.apply_config(&local_config(&["m1"], settings));
+    for id in ["m1", "m2", "m3"] {
+        f.local.ensure(id).await.unwrap();
+    }
+    f.local.release_unused(Some("m3"));
+    let running = |ids: &[&str]| {
+        let s = f.local.snapshot();
+        s.running.iter().map(String::as_str).eq(ids.iter().copied())
+    };
+    wait_for("m2 stopped", || running(&["m1", "m3"])).await;
+    f.local.release_unused(None);
+    wait_for("m3 stopped", || running(&["m1"])).await;
+}
+
 /// 刪除模型前先停掉它的子程序。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delete_stops_the_server_before_removing_files() {

@@ -797,7 +797,14 @@ fn ui_probe() {
 struct NoopEnv;
 
 impl SettingsEnv for NoopEnv {
-    fn test_connection(&self, _round: u64, _spec: ServiceSpec, _target: String) {}
+    fn test_connection(
+        &self,
+        _round: u64,
+        _spec: ServiceSpec,
+        _target: String,
+    ) -> tokio_util::sync::DropGuard {
+        tokio_util::sync::CancellationToken::new().drop_guard()
+    }
     fn list_models(&self, _round: u64, _spec: ServiceSpec) {}
     fn check_update(&self, _round: u64) {}
     fn record_hotkey(&self, _round: u64) {}

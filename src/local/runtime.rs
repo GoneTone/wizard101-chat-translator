@@ -496,6 +496,7 @@ impl Local {
             .map(|s| s.model)
             .collect();
         let old = std::mem::replace(&mut *lock(&self.settings), new.clone());
+        lock(&self.wanted).clone_from(&wanted);
         log(format!(
             "[local] apply config: models={wanted:?} preload={} idle_minutes={} prompt_cache_mib={}",
             new.preload, new.idle_minutes, new.prompt_cache_mib
@@ -522,6 +523,16 @@ impl Local {
         } else {
             restart
         });
+    }
+
+    /// 停掉已套用設定沒用到、也不是 `keep` 的模型（含載入中的）：測試連線臨時啟動的不留著佔記憶體。
+    pub fn release_unused(&self, keep: Option<&str>) {
+        let wanted = lock(&self.wanted).clone();
+        for (id, slot) in self.servers.all() {
+            if !wanted.contains(&id) && keep != Some(id.as_str()) {
+                stop_slot(&id, &slot);
+            }
+        }
     }
 
     /// 停掉跑著的 llama-server 再依序重啟（換引擎後用新版）。

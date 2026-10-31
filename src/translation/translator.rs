@@ -14,7 +14,9 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use super::Turn;
-use super::clients::{ChatBackend, ChatRequest, MAX_TOKENS_REGION, ModelInfo, build_client};
+use super::clients::{
+    ChatBackend, ChatRequest, MAX_TOKENS_REGION, ModelInfo, build_client, cancellable,
+};
 use super::errors::TranslateError;
 use super::examples::{
     ExampleSet, ExampleStore, GAME_LANGUAGE_EXAMPLES, examples_fingerprint, generation_request,
@@ -540,6 +542,8 @@ pub async fn list_models(spec: &ServiceSpec) -> Result<Vec<ModelInfo>, Translate
 pub struct TestOutcome {
     pub translated: String,
     pub elapsed: Duration,
+    /// 本地模型這次要先載入（或喚醒）時，載入花的時間；不算在 `elapsed` 裡。
+    pub load: Option<Duration>,
 }
 
 type GenerationSlots = Mutex<HashMap<(PathBuf, String), Arc<tokio::sync::Mutex<()>>>>;
@@ -597,28 +601,38 @@ pub async fn generate_and_store(
     Ok(Some((fingerprint, examples)))
 }
 
-/// 測試連線：實際翻一句固定文字，與正式翻譯同一條路。
-///
-/// 給 `store` 時翻譯成功後順便生成並快取範例；生成失敗只記 log，不影響回傳的譯文。
+/// 測試連線：實際翻一句固定文字，與正式翻譯同一條路；`load` 是呼叫端先量好的載入時間。
 pub async fn test_translate(
-    tr: Arc<Translator>,
-    store: Option<Arc<ExampleStore>>,
+    tr: &Translator,
+    load: Option<Duration>,
 ) -> Result<TestOutcome, TranslateError> {
     let started = Instant::now();
     let translated = tr.translate_incoming(TEST_SAMPLE, &[]).await?;
-    let elapsed = started.elapsed();
-    if let Some(store) = store
-        && let Err(err) = generate_and_store(&tr, &store).await
-    {
-        log(format!(
-            "[translate] example generation after the connection test failed: {}: {err}",
-            err.kind()
-        ));
-    }
     Ok(TestOutcome {
         translated,
-        elapsed,
+        elapsed: started.elapsed(),
+        load,
     })
+}
+
+/// 測試連線成功後產生並快取範例，儲存設定時直接命中；`cancel` 觸發（下一次測試開始）時中止，失敗只記 log。
+pub async fn examples_after_test(
+    tr: &Translator,
+    store: &ExampleStore,
+    cancel: &CancellationToken,
+) {
+    match cancellable(Some(cancel), generate_and_store(tr, store)).await {
+        Ok(_) => {}
+        Err(TranslateError::Cancelled) => {
+            log(
+                "[translate] example generation after the connection test cancelled by a newer test",
+            );
+        }
+        Err(err) => log(format!(
+            "[translate] example generation after the connection test failed: {}: {err}",
+            err.kind()
+        )),
+    }
 }
 
 /// 背景生成沒走到收尾（panic 或 task 被丟掉）時照失敗收尾，指紋才不會永遠停在「生成中」。

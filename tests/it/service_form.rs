@@ -13,8 +13,8 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
-use wizard101_chat_translator::local::Snapshot;
 use wizard101_chat_translator::local::store::Installed;
+use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::errors::{
     TranslateError, friendly_error, friendly_text,
@@ -102,10 +102,17 @@ fn finish_test(h: &mut Harness<State>, round: u64, result: Result<TestOutcome, T
     run(h);
 }
 
+/// 最近一次測試已被表單中斷（guard 放掉）。
+fn test_cancelled(h: &Harness<State>) -> bool {
+    let tokens = h.state().env.test_tokens.borrow();
+    tokens.last().expect("test started").is_cancelled()
+}
+
 fn translated(text: &str, ms: u64) -> Result<TestOutcome, TranslateError> {
     Ok(TestOutcome {
         translated: text.into(),
         elapsed: Duration::from_millis(ms),
+        load: None,
     })
 }
 
@@ -490,12 +497,56 @@ fn test_connection_sends_the_form_values_and_target() {
 }
 
 #[test]
-fn testing_disables_the_button_until_the_result_arrives() {
+fn testing_turns_the_button_into_stop_until_the_result_arrives() {
     let mut h = harness(form(filled("openai"), vec![]));
     let round = start_test(&mut h);
-    assert!(!button_enabled(&h, &tr("button.testing")));
+    assert!(button_enabled(&h, &tr("button.stop_test")));
     finish_test(&mut h, round, translated("x", 100));
     assert!(button_enabled(&h, &tr("button.test")));
+    assert!(h.state().form.test_passed());
+}
+
+/// 按〔停止測試〕：中斷背景的測試、立刻回到可再測，之後回來的結果丟掉、不顯示錯誤。
+#[test]
+fn stopping_a_test_cancels_it_and_drops_its_result() {
+    capture_logs();
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    assert!(!test_cancelled(&h));
+    click(&mut h, &tr("button.stop_test"));
+    assert!(test_cancelled(&h));
+    assert!(button_enabled(&h, &tr("button.test")));
+    finish_test(&mut h, round, Err(TranslateError::Cancelled));
+    assert!(!h.state().form.test_passed());
+    assert!(!painted_texts(&h).contains(&tr("test.source")));
+    assert!(log_text().contains("[settings] test connection stopped: stopped by user"));
+}
+
+/// 表單被丟掉（對話框關閉、精靈換表單）時，進行中的測試一併中斷。
+#[test]
+fn dropping_the_form_cancels_its_test() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    start_test(&mut h);
+    h.state_mut().form = form(filled("openai"), vec![]);
+    assert!(test_cancelled(&h));
+}
+
+/// 本地模型這次有先載入時，結果另外列出載入時間。
+#[test]
+fn a_test_that_loaded_the_model_shows_the_load_time() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    let result = Ok(TestOutcome {
+        translated: "x".into(),
+        elapsed: Duration::from_millis(2100),
+        load: Some(Duration::from_millis(35_000)),
+    });
+    finish_test(&mut h, round, result);
+    let text = t(
+        "test.connected_loaded",
+        &[("seconds", "2.1"), ("load", "35.0")],
+    );
+    h.get_by_label(&text);
 }
 
 #[test]
@@ -659,6 +710,7 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     let mut h = harness(form(filled("openai"), vec![]));
     let round = start_test(&mut h);
     type_into(&mut h, &tr("field.api_key"), "2");
+    assert!(test_cancelled(&h));
     finish_test(&mut h, round, translated("x", 100));
     assert!(!h.state().form.test_passed());
     assert!(!painted_texts(&h).contains(&TEST_SAMPLE.to_owned()));
@@ -669,6 +721,7 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     let round = start_test(&mut h);
     h.state_mut().form.set_provider("gemini");
     run(&mut h);
+    assert!(test_cancelled(&h));
     finish_test(&mut h, round, translated("x", 100));
     assert!(!h.state().form.test_passed());
     assert!(button_enabled(&h, &tr("button.test")));
@@ -1337,6 +1390,29 @@ fn local_harness(models: Vec<Installed>) -> Harness<'static, State> {
     let h = harness(form(service, vec![]));
     h.state().env.snapshot.borrow_mut().models = models;
     h
+}
+
+/// 本地測試：按停止才請 hub 停掉臨時載入的模型；只切思考開關只中斷請求，模型照樣載完。
+#[test]
+fn only_stopping_a_local_test_releases_the_model() {
+    let released = |h: &Harness<State>| {
+        let commands = h.state().env.commands.borrow();
+        commands
+            .iter()
+            .filter(|c| matches!(c, Command::ReleaseUnused))
+            .count()
+    };
+    let mut h = local_harness(vec![installed("ready", true, 0)]);
+    run(&mut h);
+    start_test(&mut h);
+    click(&mut h, &tr("field.thinking"));
+    assert!(test_cancelled(&h));
+    assert_eq!(released(&h), 0);
+
+    start_test(&mut h);
+    click(&mut h, &tr("button.stop_test"));
+    assert!(test_cancelled(&h));
+    assert_eq!(released(&h), 1);
 }
 
 /// 本地模型的思考說明不提思考深度（本地沒有這個選項）。
