@@ -44,10 +44,10 @@ pub enum Fit {
 
 /// 依可用記憶體判斷等級；內顯 VRAM 為 0，故永不 `Smooth`。
 pub fn fit(required: u64, moe: bool, hw: &Hardware) -> Fit {
-    let (vram, ram) = effective(hw);
+    let (vram, ram) = usable(hw);
     if required <= vram {
         Fit::Smooth
-    } else if required <= vram.saturating_add(ram.saturating_sub(RAM_RESERVE)) {
+    } else if required <= vram.saturating_add(ram) {
         if moe { Fit::Offload } else { Fit::Slow }
     } else {
         Fit::NoFit
@@ -106,6 +106,17 @@ pub struct Rating {
 /// 部分卸載時 `--fit` 以整層擺放、把 VRAM 用到「可用量 − 這個值」為止，所以實測的 VRAM
 /// 本來就比當時可用量少這麼多，再加上最多一層。
 const FIT_TARGET: u64 = 1024 << 20;
+
+/// 判斷等級用的可用量：VRAM 扣掉 `--fit` 一定會留下的 [`FIT_TARGET`]，RAM 扣掉 [`RAM_RESERVE`]。
+///
+/// 載入後剩不到 `FIT_TARGET` 時 `--fit` 會把層移到 RAM，所以 VRAM 只放得下需求、沒多這一截就不算流暢。
+fn usable(hw: &Hardware) -> (u64, u64) {
+    let (vram, ram) = effective(hw);
+    (
+        vram.saturating_sub(FIT_TARGET),
+        ram.saturating_sub(RAM_RESERVE),
+    )
+}
 
 /// 要算需求的模型或量化。
 #[derive(Clone, Copy, Debug)]
@@ -196,13 +207,12 @@ pub fn installed_need(
 
 /// 依需求判斷等級：預估照 [`fit`]；實測（含推算）要每層都在 GPU、VRAM 與 RAM 各自放得下才 `Smooth`，合計放得下為 `Slow`／`Offload`。
 ///
-/// RAM 與預估一樣先扣掉 `RAM_RESERVE`。
+/// 可用量與預估一樣用 [`usable`]。
 pub fn rate(need: &Need, moe: bool, hw: &Hardware) -> Fit {
     if need.basis == Basis::Estimate {
         return fit(need.total(), moe, hw);
     }
-    let (vram, ram) = effective(hw);
-    let ram = ram.saturating_sub(RAM_RESERVE);
+    let (vram, ram) = usable(hw);
     // 內顯（VRAM 為 0）與預估一樣永不 `Smooth`
     if need.all_on_gpu && vram > 0 && need.vram <= vram && need.ram <= ram {
         Fit::Smooth
@@ -597,7 +607,7 @@ mod tests {
             combined_fit(&[(five, false), (five, false)], &hw(8 * G, 3 * G)),
             Fit::NoFit
         );
-        assert_eq!(combined_fit(&[], &hw(G, 3 * G)), Fit::Smooth);
+        assert_eq!(combined_fit(&[], &hw(2 * G, 3 * G)), Fit::Smooth);
         let both = [
             (measured(3 * G, G, true), false),
             (measured(4 * G, G, true), false),
@@ -642,6 +652,18 @@ mod tests {
             rate(&Need::estimate(5 * G), false, &h),
             fit(5 * G, false, &h)
         );
+    }
+
+    /// VRAM 只放得下需求、沒多出 `--fit` 的保留量時，`--fit` 會把層移到 RAM，實測與預估都不算流暢。
+    #[test]
+    fn smooth_needs_room_for_the_fit_target() {
+        let need = measured(7 * G, G, true);
+        let half = hw(7 * G + G / 2, 16 * G);
+        assert_eq!(rate(&need, false, &half), Fit::Slow);
+        assert_eq!(fit(7 * G, false, &half), Fit::Slow);
+        let enough = hw(8 * G, 16 * G);
+        assert_eq!(rate(&need, false, &enough), Fit::Smooth);
+        assert_eq!(fit(7 * G, false, &enough), Fit::Smooth);
     }
 
     fn installed(
