@@ -151,6 +151,63 @@ fn the_services_tab_sits_between_basic_and_advanced() {
     assert_eq!(h.state().win.page(), Page::Basic);
 }
 
+/// 模型清單一起換行：有一列的按鈕放不下名稱旁時，整份清單都把按鈕換到名稱下方；夠寬時都在同一列。
+#[test]
+fn the_model_list_wraps_all_rows_together() {
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
+    let env = FakeEnv::default();
+    {
+        let mut s = env.snapshot.borrow_mut();
+        // a 有 MTP 開關、等級標「預估」，按鈕區比 b 寬：最窄時只有 a 放不下
+        let mut a = installed("a", true, 7 * GB);
+        a.manifest.repo = "unsloth/gemma-4-E4B-it-GGUF".into();
+        a.manifest.has_builtin_mtp = true;
+        let mut b = installed("b", true, 5 * GB);
+        b.manifest.repo = "unsloth/Qwen3.5-9B-GGUF".into();
+        b.manifest.measured = Some(Measured {
+            vram: 5 * GB,
+            ram: 0,
+            all_on_gpu: true,
+            mtp: false,
+            engine: "b11871-cpu".into(),
+            prompt_cache_mib: 8192,
+        });
+        s.models = vec![a, b];
+        s.hardware.gpu = Some(Gpu {
+            name: "GPU".into(),
+            vendor: 0x10de,
+            device: 0,
+            kind: GpuKind::Discrete,
+            nvidia_driver: None,
+        });
+        s.hardware.vram_total = 16 * GB;
+        s.hardware.vram_free = 16 * GB;
+        s.hardware.ram_total = 32 * GB;
+        s.hardware.ram_free = 32 * GB;
+        s.hardware.measured = true;
+    }
+    let cfg = configured("local", json!({"model": "b"}));
+    let mut h = harness_with(cfg, env, theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    go(&mut h, "settings.tab.local");
+    let stacked = |h: &Harness<State>| {
+        let mut deletes: Vec<Rect> = h
+            .query_all_by_role_and_label(Role::Button, &tr("button.delete"))
+            .map(|n| n.rect())
+            .collect();
+        deletes.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        ["unsloth/gemma-4-E4B-it-GGUF", "unsloth/Qwen3.5-9B-GGUF"]
+            .iter()
+            .zip(&deletes)
+            .map(|(name, delete)| delete.top() > h.get_by_label(name).rect().bottom())
+            .collect::<Vec<_>>()
+    };
+    run(&mut h);
+    assert_eq!(stacked(&h), [true, true]);
+    h.set_size(theme::SETTINGS_SIZE + egui::vec2(0.0, 1000.0));
+    run(&mut h);
+    assert_eq!(stacked(&h), [false, false]);
+}
+
 /// 設定視窗縮到最窄時，每一頁的內容都不超出底部按鈕列的右緣。
 #[test]
 fn every_page_fits_the_narrowest_window() {

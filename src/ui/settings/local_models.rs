@@ -8,8 +8,8 @@ use super::local_rate::{Rates, Speed, paused_text, transfer_text};
 use super::quant_table::{fit_badge, fraction, gb};
 use super::theme;
 use super::widgets::{
-    danger_secondary_button, primary_button, progress_bar, secondary_button, text_with_controls,
-    toggle,
+    danger_secondary_button, primary_button, progress_bar, row_group, secondary_button,
+    text_with_controls, toggle,
 };
 use crate::config::local::LocalSettings;
 use crate::i18n::t;
@@ -63,11 +63,13 @@ pub(super) fn ui(
                 if snapshot.models.is_empty() {
                     empty_open = empty(ui);
                 }
-                for model in &snapshot.models {
-                    action = action
-                        .take()
-                        .or(row(ui, env, snapshot, settings, rates, model));
-                }
+                row_group(ui, ui.scope_id().with("model_rows"), |ui| {
+                    for model in &snapshot.models {
+                        action = action
+                            .take()
+                            .or(row(ui, env, snapshot, settings, rates, model));
+                    }
+                });
             });
         },
     );

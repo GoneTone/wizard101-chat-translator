@@ -300,8 +300,27 @@ pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) ->
     shown.inner
 }
 
+const ROW_GROUP_TAG: &str = "settings_row_group";
+
+/// 一組 `text_with_controls` 的列（例如一份模型清單）：任一列放不下就整組換成兩層，同一份清單的排法才一致。
+pub(super) fn row_group<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let stacked = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let narrow = id.with("narrow");
+    ui.data_mut(|d| d.insert_temp(narrow, false));
+    let tag = UiStackInfo::default().with_tag_value(ROW_GROUP_TAG, (id, stacked));
+    let inner = ui
+        .scope_builder(UiBuilder::new().ui_stack_info(tag), add)
+        .inner;
+    let now = ui.data(|d| d.get_temp::<bool>(narrow)).unwrap_or(false);
+    if now != stacked {
+        ui.data_mut(|d| d.insert_temp(id, now));
+        ui.ctx().request_discard("row group restacked");
+    }
+    inner
+}
+
 /// 一列：左邊文字、右邊靠右的控制項。文字剩不到 `MIN_LABEL_WIDTH` 時改成兩層，控制項換到文字下方靠右，
-/// 不硬撐出容器（窄視窗、縮小的設定視窗）。
+/// 不硬撐出容器（窄視窗、縮小的設定視窗）；在 `row_group` 裡時跟整組一起換。
 pub(super) fn text_with_controls<A, B>(
     ui: &mut Ui,
     id: Id,
@@ -309,10 +328,26 @@ pub(super) fn text_with_controls<A, B>(
     controls: impl FnOnce(&mut Ui) -> B,
 ) -> (A, B) {
     let room = ui.available_width() - right_aligned_width(ui, id) - 12.0;
-    if room >= MIN_LABEL_WIDTH {
+    let fits = room >= MIN_LABEL_WIDTH;
+    let group = ui.stack().iter().find_map(|frame| {
+        frame
+            .tags()
+            .get_downcast::<(Id, bool)>(ROW_GROUP_TAG)
+            .copied()
+    });
+    let stacked = match group {
+        Some((group, stacked)) => {
+            if !fits {
+                ui.data_mut(|d| d.insert_temp(group.with("narrow"), true));
+            }
+            stacked
+        }
+        None => !fits,
+    };
+    if !stacked {
         return ui
             .horizontal(|ui| {
-                let a = ui.allocate_ui(vec2(room, 0.0), text).inner;
+                let a = ui.allocate_ui(vec2(room.max(0.0), 0.0), text).inner;
                 (a, right_aligned(ui, id, controls))
             })
             .inner;

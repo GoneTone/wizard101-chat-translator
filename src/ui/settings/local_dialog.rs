@@ -10,7 +10,7 @@ use super::local_rows::{Have, basis, have_of, row_buttons, row_text};
 use super::quant_table::{self, combined, gb};
 use super::theme;
 use super::widgets::{
-    error_with_retry, primary_button, secondary_button, skeleton, text_with_controls,
+    error_with_retry, primary_button, row_group, secondary_button, skeleton, text_with_controls,
 };
 use crate::i18n::t;
 use crate::local::catalog::RECOMMENDED;
@@ -234,7 +234,8 @@ impl DownloadDialog {
             }
         });
         ui.add_space(8.0);
-        let chosen = match self.tab {
+        let rows = ui.scope_id().with("dialog_rows");
+        let chosen = row_group(ui, rows, |ui| match self.tab {
             Tab::Recommended => {
                 if snapshot.detecting {
                     let height = ui.text_style_height(&TextStyle::Small);
@@ -254,7 +255,7 @@ impl DownloadDialog {
                 first
             }
             Tab::Custom => self.custom(ui, env, snapshot),
-        };
+        });
         ui.add_space(12.0);
         chosen
     }
