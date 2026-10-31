@@ -84,7 +84,7 @@
   "local.hw.vram_pending": "显存（VRAM）：安装引擎后才能检测",
   "local.hw.vram_failed": "显存（VRAM）：检测失败",
   "local.hw.ram": "内存（RAM）：可用 {free} / {total} GB",
-  "local.hw.own": "本工具的模型目前占用显存（VRAM）{vram} GB、内存（RAM）{ram} GB；判断兼容等级时会把这部分算进可用量。",
+  "local.hw.own": "本软件使用中的模型目前占用显存（VRAM）{vram} GB、内存（RAM）{ram} GB；判断兼容等级时会把这部分算进可用量。",
   "local.hw.redetect": "重新检测",
   "local.hw.note": "以当前可用量估算；游戏没开时检测到的会偏高。",
   "local.load.title": "模型加载",

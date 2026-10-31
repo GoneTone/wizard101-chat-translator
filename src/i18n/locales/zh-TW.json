@@ -84,7 +84,7 @@
   "local.hw.vram_pending": "視訊記憶體（VRAM）：安裝引擎後才能偵測",
   "local.hw.vram_failed": "視訊記憶體（VRAM）：偵測失敗",
   "local.hw.ram": "記憶體（RAM）：可用 {free} / {total} GB",
-  "local.hw.own": "本工具的模型目前佔用視訊記憶體（VRAM）{vram} GB、記憶體（RAM）{ram} GB；判斷相容等級時會把這部分算進可用量。",
+  "local.hw.own": "本軟體使用中的模型目前佔用視訊記憶體（VRAM）{vram} GB、記憶體（RAM）{ram} GB；判斷相容等級時會把這部分算進可用量。",
   "local.hw.redetect": "重新偵測",
   "local.hw.note": "以目前可用量估算；遊戲沒開時偵測到的會偏高。",
   "local.load.title": "模型載入",
