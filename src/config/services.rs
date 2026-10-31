@@ -49,6 +49,11 @@ impl Provider {
         self.has_field("base_url")
     }
 
+    /// 這家有沒有金鑰欄位（本地模型沒有）。
+    pub fn needs_api_key(&self) -> bool {
+        self.has_field("api_key")
+    }
+
     /// 該家的欄位與預設值，依欄位表順序。
     pub fn defaults(&self) -> Map<String, Value> {
         self.fields
@@ -86,6 +91,9 @@ impl Field {
 pub const EFFORT_AUTO: &str = "auto";
 /// 思考深度「低」。
 pub const EFFORT_LOW: &str = "low";
+
+/// 本地模型服務商的鍵名。
+pub const LOCAL_PROVIDER: &str = "local";
 
 const OPENAI_EFFORTS: &[&str] = &["minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -143,6 +151,15 @@ const PROVIDERS: &[Provider] = &[
             ("effort", Field::Text(EFFORT_LOW)),
         ],
         efforts: &["minimal", "low", "medium", "high"],
+    },
+    Provider {
+        key: LOCAL_PROVIDER,
+        label_key: "provider.local",
+        desc_key: "provider.local_desc",
+        key_url: None,
+        brand: None,
+        fields: &[("model", Field::Text("")), ("thinking", Field::Flag(false))],
+        efforts: &[],
     },
     Provider {
         key: "custom",
@@ -274,9 +291,11 @@ impl ServiceSpec {
 /// 取模型清單時模型欄還沒填，故與 [`validate_service`] 分開。
 pub fn validate_endpoint_fields(service: &Value) -> Vec<String> {
     let text = |k: &str| str_field(service, k);
-    let needs_base_url = provider(text("provider")).is_some_and(Provider::needs_base_url);
+    let p = provider(text("provider"));
+    let needs_base_url = p.is_some_and(Provider::needs_base_url);
+    let needs_api_key = p.is_none_or(Provider::needs_api_key);
     let mut errors = Vec::new();
-    if !needs_base_url && pystr::strip(text("api_key")).is_empty() {
+    if needs_api_key && !needs_base_url && pystr::strip(text("api_key")).is_empty() {
         errors.push("error.need_api_key".to_string());
     }
     if needs_base_url && pystr::strip(text("base_url")).is_empty() {
@@ -403,11 +422,11 @@ pub fn new_service(provider: &str, services: &[Value]) -> Value {
     Value::Object(service_map(p, services))
 }
 
-/// 服務卡片的副標：服務商短名與模型。
-pub fn describe(service: &Value) -> String {
+/// 服務卡片的副標：服務商短名與要顯示的模型名稱。
+pub fn describe(service: &Value, model: &str) -> String {
     let key = str_field(service, "provider");
     let short = provider(key).map_or_else(|| key.to_owned(), Provider::short_name);
-    format!("{short} · {}", str_field(service, "model"))
+    format!("{short} · {model}")
 }
 
 /// 服務清單欄位的取值：非 list 的原值整個當成一筆（最可能是貼歪的金鑰），缺值或 null 為空清單。
@@ -787,6 +806,14 @@ mod tests {
         let text = format!("{spec:?} {spec:#?}");
         assert!(!text.contains("sk-SECRET-KEY"), "{text}");
         assert!(text.contains("has_key: true"), "{text}");
+    }
+
+    #[test]
+    fn local_service_needs_only_a_model() {
+        let mut s = new_service("local", &[]);
+        assert_eq!(validate_service(&s), vec!["error.need_model".to_string()]);
+        s["model"] = "unsloth__Qwen3.5-4B-GGUF__Q4_K_M".into();
+        assert!(validate_service(&s).is_empty());
     }
 
     #[test]

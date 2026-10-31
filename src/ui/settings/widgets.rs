@@ -12,6 +12,7 @@ use eframe::egui::{
     WidgetInfo, WidgetText, lerp, pos2, vec2,
 };
 
+use crate::i18n::t;
 use crate::input::keys::split_hotkey;
 use crate::py::pystr;
 use crate::ui::overlay::scrollbar;
@@ -198,12 +199,39 @@ pub(super) fn paint_chevron(ui: &Ui, center: Pos2) {
 /// 設定介面的唯讀下拉：彈出層用 `popup_style`，箭頭與可輸入的下拉（`fields::editable_combo`）相同。
 pub(super) fn combo_box<'a>(ui: &Ui, id_salt: impl AsIdSalt) -> ComboBox<'a> {
     ComboBox::from_id_salt(id_salt)
+        .truncate()
         .popup_style(StyleModifier::from(popup_style(ui)))
         .icon(|ui: &Ui, rect: Rect, _: &WidgetVisuals, _| {
             // egui 把圖示放在右內距之內；換算回控制項右緣
             let right = rect.right() + ui.spacing().button_padding.x;
             paint_chevron(ui, pos2(right - theme::CHEVRON_INSET, rect.center().y));
         })
+}
+
+/// 下拉框的選取文字被截斷時，滑鼠移上去顯示完整文字；`leading` 是文字前圖示佔的寬度。
+pub(super) fn full_text_tip(ui: &Ui, response: &Response, text: &str, leading: f32) {
+    let s = ui.spacing();
+    let room =
+        response.rect.width() - 2.0 * s.button_padding.x - s.icon_width - s.icon_spacing - leading;
+    // 下拉框的文字實際以內文字型排版，不是按鈕字型
+    let font = TextStyle::Body.resolve(ui.style());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER);
+    if galley.size().x > room {
+        hover_tip(ui, response, text);
+    }
+}
+
+/// 紅字錯誤原文，下方隔 8 px 放〔重試〕；回傳是否按了重試。
+pub(super) fn error_with_retry(ui: &mut Ui, error: &str) -> bool {
+    ui.vertical(|ui| {
+        // 對話框內文的項目間距是 0，這裡自己定
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.add(Label::new(RichText::new(error).color(theme::ERROR)).wrap());
+        secondary_button(ui, &t("local.dialog.retry", &[])).clicked()
+    })
+    .inner
 }
 
 /// 第一項是說明色 `none` 的下拉，其後是 `(值, 顯示文字)`；回傳這一幀選到的值，`Some(None)` 是選了 `none`。
@@ -219,8 +247,7 @@ pub(super) fn optional_combo(
 ) -> Option<Option<String>> {
     let mut chosen = None;
     let combo = combo_box(ui, salt)
-        .selected_text(selected)
-        .truncate()
+        .selected_text(selected.clone())
         .show_ui(ui, |ui| {
             let muted = RichText::new(none).color(theme::TEXT_SECONDARY);
             if ui.selectable_label(current.is_none(), muted).clicked() {
@@ -236,6 +263,7 @@ pub(super) fn optional_combo(
             }
         });
     let response = name_by_row(ui, combo.response);
+    full_text_tip(ui, &response, &selected, 0.0);
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
     chosen
 }
@@ -270,6 +298,67 @@ pub(super) fn right_aligned<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) ->
         ui.ctx().request_discard("right-aligned row resized");
     }
     shown.inner
+}
+
+const ROW_GROUP_TAG: &str = "settings_row_group";
+
+/// 一組 `text_with_controls` 的列（例如一份模型清單）：任一列放不下就整組換成兩層，同一份清單的排法才一致。
+pub(super) fn row_group<R>(ui: &mut Ui, id: Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let stacked = ui.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let narrow = id.with("narrow");
+    ui.data_mut(|d| d.insert_temp(narrow, false));
+    let tag = UiStackInfo::default().with_tag_value(ROW_GROUP_TAG, (id, stacked));
+    let inner = ui
+        .scope_builder(UiBuilder::new().ui_stack_info(tag), add)
+        .inner;
+    let now = ui.data(|d| d.get_temp::<bool>(narrow)).unwrap_or(false);
+    if now != stacked {
+        ui.data_mut(|d| d.insert_temp(id, now));
+        ui.ctx().request_discard("row group restacked");
+    }
+    inner
+}
+
+/// 清單列（模型、repo）的名稱至少留這麼寬：再窄名稱就截得認不出來，改成兩層讓名稱完整顯示。
+const MIN_NAME_WIDTH: f32 = 200.0;
+
+/// 一列：左邊文字、右邊靠右的控制項。文字剩不到 `MIN_NAME_WIDTH` 時改成兩層，控制項換到文字下方靠右，
+/// 不硬撐出容器（窄視窗、縮小的設定視窗）；在 `row_group` 裡時跟整組一起換。
+pub(super) fn text_with_controls<A, B>(
+    ui: &mut Ui,
+    id: Id,
+    text: impl FnOnce(&mut Ui) -> A,
+    controls: impl FnOnce(&mut Ui) -> B,
+) -> (A, B) {
+    let room = ui.available_width() - right_aligned_width(ui, id) - 12.0;
+    let fits = room >= MIN_NAME_WIDTH;
+    let group = ui.stack().iter().find_map(|frame| {
+        frame
+            .tags()
+            .get_downcast::<(Id, bool)>(ROW_GROUP_TAG)
+            .copied()
+    });
+    let stacked = match group {
+        Some((group, stacked)) => {
+            if !fits {
+                ui.data_mut(|d| d.insert_temp(group.with("narrow"), true));
+            }
+            stacked
+        }
+        None => !fits,
+    };
+    if !stacked {
+        return ui
+            .horizontal(|ui| {
+                let a = ui.allocate_ui(vec2(room.max(0.0), 0.0), text).inner;
+                (a, right_aligned(ui, id, controls))
+            })
+            .inner;
+    }
+    let a = text(ui);
+    ui.add_space(STACK_GAP);
+    let b = ui.horizontal(|ui| right_aligned(ui, id, controls)).inner;
+    (a, b)
 }
 
 /// `right_aligned` 上一幀量到的寬度；還沒量過是 0。
@@ -402,26 +491,89 @@ fn name_line(ui: &mut Ui, name: &str, badges: &[String], font: FontId, height: f
             ui.add(Label::new(RichText::new(name).font(font)).truncate());
         });
         for badge in badges {
-            Frame::new()
-                .fill(theme::PILL_BG)
-                .corner_radius(10)
-                .inner_margin(Margin::symmetric(8, 1))
-                .show(ui, |ui| {
-                    ui.add(
-                        Label::new(
-                            RichText::new(badge)
-                                .font(pill_font.clone())
-                                .color(theme::PILL_TEXT),
-                        )
-                        .selectable(false),
-                    );
-                });
+            pill(ui, badge);
         }
     });
 }
 
+/// 資料載入中的佔位：`width`×`height` 的圓角色塊，亮度緩慢起伏；無障礙名稱為「載入中」。
+pub(super) fn skeleton(ui: &mut Ui, width: f32, height: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let label = crate::i18n::t("local.loading", &[]);
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), &label));
+    if ui.is_rect_visible(rect) {
+        let time = ui.input(|i| i.time);
+        let phase = ((time * std::f64::consts::TAU / SKELETON_PERIOD).sin() * 0.5 + 0.5) as f32;
+        let color = theme::CONTROL_BG.lerp_to_gamma(theme::CONTROL_BORDER, phase);
+        ui.painter()
+            .rect_filled(rect, CornerRadius::same(theme::CONTROL_RADIUS), color);
+        ui.ctx().request_repaint();
+    }
+    response
+}
+
+/// 小字說明，可換行。
+pub(super) fn hint(ui: &mut Ui, text: &str, color: Color32) {
+    let text = RichText::new(text).size(theme::HINT_SIZE).color(color);
+    ui.add(Label::new(text).wrap());
+}
+
+/// 細進度條：圓角軌道上以強調色填滿 `fraction`（0–1），變動時平滑移過去。
+pub(super) fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) -> Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, PROGRESS_HEIGHT), Sense::hover());
+    let fraction = fraction.clamp(0.0, 1.0);
+    let shown =
+        ui.ctx()
+            .animate_value_with_time(response.id, fraction, PROGRESS_EASE.as_secs_f32());
+    response.widget_info(|| WidgetInfo::new(Role::ProgressIndicator));
+    ui.ctx().accesskit_node_builder(response.id, |node| {
+        node.set_numeric_value(f64::from(fraction) * 100.0);
+    });
+    if ui.is_rect_visible(rect) {
+        let radius = CornerRadius::same((PROGRESS_HEIGHT / 2.0) as u8);
+        let painter = ui.painter();
+        painter.rect_filled(rect, radius, theme::CONTROL_BORDER);
+        let mut fill = rect;
+        fill.set_width(rect.width() * shown);
+        if fill.width() > 0.0 {
+            painter.rect_filled(fill, radius, theme::ACCENT);
+        }
+    }
+    response
+}
+
+/// 細進度條的高度。
+const PROGRESS_HEIGHT: f32 = 6.0;
+/// 進度條移到新位置的時間：與進度更新間隔相同，移完正好接上下一次。
+const PROGRESS_EASE: std::time::Duration = crate::local::PROGRESS_TICK;
+
+/// 佔位亮度起伏一輪的秒數。
+const SKELETON_PERIOD: f64 = 1.4;
+
+/// 圓角小標籤（`PILL_BG` 底）。
+pub(super) fn pill(ui: &mut Ui, text: &str) {
+    Frame::new()
+        .fill(theme::PILL_BG)
+        .corner_radius(10)
+        .inner_margin(Margin::symmetric(8, 1))
+        .show(ui, |ui| {
+            ui.add(
+                Label::new(
+                    RichText::new(text)
+                        .font(FontId::proportional(11.5))
+                        .color(theme::PILL_TEXT),
+                )
+                .selectable(false),
+            );
+        });
+}
+
 /// 設定列裡下拉最多占整列寬度的比例。
 const MAX_CONTROL_SHARE: f32 = 0.45;
+/// 一列的文字至少留這麼寬；控制項（例如長網址、按鈕組）擠到更窄時改成兩層，控制項換到文字下方。
+const MIN_LABEL_WIDTH: f32 = 120.0;
+/// 換成兩層時上下層的間距。
+pub(super) const STACK_GAP: f32 = 6.0;
 
 /// 卡片裡的一列：左邊名稱與說明（說明可含連結），右邊控制項，兩邊垂直置中；不是第一列時上方畫分隔線。
 ///
@@ -454,13 +606,39 @@ pub fn setting_row_with(
             let (label_h, control_size): (f32, Vec2) = ui
                 .data(|d| d.get_temp(id))
                 .unwrap_or((inner_min, Vec2::ZERO));
-            let height = label_h.max(control_size.y).max(inner_min);
-            let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
             let gap = f32::from(pad_x);
-            let label_rect = Rect::from_min_size(
-                pos2(rect.left(), rect.center().y - label_h / 2.0),
-                vec2((width - control_size.x - gap).max(0.0), label_h),
-            );
+            let stacked = width - control_size.x - gap < MIN_LABEL_WIDTH;
+            let height = if stacked {
+                label_h + STACK_GAP + control_size.y
+            } else {
+                label_h.max(control_size.y)
+            };
+            let (rect, _) =
+                ui.allocate_exact_size(vec2(width, height.max(inner_min)), Sense::hover());
+            let (label_rect, control_rect) = if stacked {
+                let control_width = control_size.x.min(width);
+                (
+                    Rect::from_min_size(rect.min, vec2(width, label_h)),
+                    Rect::from_min_size(
+                        pos2(rect.right() - control_width, rect.bottom() - control_size.y),
+                        vec2(control_width, control_size.y),
+                    ),
+                )
+            } else {
+                (
+                    Rect::from_min_size(
+                        pos2(rect.left(), rect.center().y - label_h / 2.0),
+                        vec2((width - control_size.x - gap).max(0.0), label_h),
+                    ),
+                    Rect::from_min_size(
+                        pos2(
+                            rect.right() - control_size.x,
+                            rect.center().y - control_size.y / 2.0,
+                        ),
+                        control_size,
+                    ),
+                )
+            };
             let label_column = ui.scope_builder(
                 UiBuilder::new()
                     .max_rect(label_rect)
@@ -473,13 +651,6 @@ pub fn setting_row_with(
                 },
             );
             let label_used = label_column.response.rect;
-            let control_rect = Rect::from_min_size(
-                pos2(
-                    rect.right() - control_size.x,
-                    rect.center().y - control_size.y / 2.0,
-                ),
-                control_size,
-            );
             let control_used = ui
                 .scope_builder(
                     UiBuilder::new()
@@ -490,7 +661,12 @@ pub fn setting_row_with(
                                 .with_tag_value(ROW_LABEL_TAG, label_column.inner),
                         ),
                     |ui| {
-                        ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+                        // 並排時量自然寬度；兩層時比整列還寬就換行，不撐出卡片
+                        ui.style_mut().wrap_mode = Some(if stacked {
+                            TextWrapMode::Wrap
+                        } else {
+                            TextWrapMode::Extend
+                        });
                         // 視窗窄時下拉讓出寬度，名稱與說明才不會被擠成一欄幾個字
                         let spacing = ui.spacing_mut();
                         spacing.combo_width = spacing.combo_width.min(width * MAX_CONTROL_SHARE);
@@ -779,14 +955,19 @@ fn icon_button_with(
         );
     }
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
+    hover_tip(ui, &response, tooltip);
+    response
+}
+
+/// 滑過 `response` 時顯示 `text` 的提示框。
+pub(super) fn hover_tip(ui: &Ui, response: &Response, text: &str) {
     // 不用 on_hover_text：提示框的 Ui 從全域樣式建立，要帶上設定視窗自己的樣式
-    let mut tip = Tooltip::for_enabled(&response);
+    let mut tip = Tooltip::for_enabled(response);
     tip.popup = tip.popup.style((**ui.style()).clone());
     tip.show(|ui| {
         ui.set_max_width(ui.spacing().tooltip_width);
-        ui.label(tooltip);
+        ui.label(text);
     });
-    response
 }
 
 /// 可收合的區塊：整列標題（含說明與箭頭）可點，也能用 Tab 走到、Enter／Space 切換；展開狀態依 `id` 記住。

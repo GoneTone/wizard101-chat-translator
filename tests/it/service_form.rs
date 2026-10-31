@@ -6,13 +6,15 @@ use std::time::Duration;
 
 use common::kittest::{has_label, painted_texts, run, settle, themed_harness, tr};
 use common::log_capture::{capture_logs, log_text};
-use common::settings_env::FakeEnv;
+use common::settings_env::{FakeEnv, installed};
 use eframe::egui::{self, Event, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 use wizard101_chat_translator::config::services::{EFFORT_LOW, new_service, provider};
 use wizard101_chat_translator::i18n::{self, t};
+use wizard101_chat_translator::local::store::Installed;
+use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::errors::{
     TranslateError, friendly_error, friendly_text,
@@ -67,7 +69,7 @@ fn opening_harness(form: ServiceForm) -> Harness<'static, State> {
         egui::vec2(540.0, 760.0),
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
-            let response = s.form.ui(ui, &s.env, TARGET);
+            let response = s.form.ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET);
             s.responses.push(response);
         },
         state,
@@ -100,10 +102,17 @@ fn finish_test(h: &mut Harness<State>, round: u64, result: Result<TestOutcome, T
     run(h);
 }
 
+/// 最近一次測試已被表單中斷（guard 放掉）。
+fn test_cancelled(h: &Harness<State>) -> bool {
+    let tokens = h.state().env.test_tokens.borrow();
+    tokens.last().expect("test started").is_cancelled()
+}
+
 fn translated(text: &str, ms: u64) -> Result<TestOutcome, TranslateError> {
     Ok(TestOutcome {
         translated: text.into(),
         elapsed: Duration::from_millis(ms),
+        load: None,
     })
 }
 
@@ -488,12 +497,56 @@ fn test_connection_sends_the_form_values_and_target() {
 }
 
 #[test]
-fn testing_disables_the_button_until_the_result_arrives() {
+fn testing_turns_the_button_into_stop_until_the_result_arrives() {
     let mut h = harness(form(filled("openai"), vec![]));
     let round = start_test(&mut h);
-    assert!(!button_enabled(&h, &tr("button.testing")));
+    assert!(button_enabled(&h, &tr("button.stop_test")));
     finish_test(&mut h, round, translated("x", 100));
     assert!(button_enabled(&h, &tr("button.test")));
+    assert!(h.state().form.test_passed());
+}
+
+/// 按〔停止測試〕：中斷背景的測試、立刻回到可再測，之後回來的結果丟掉、不顯示錯誤。
+#[test]
+fn stopping_a_test_cancels_it_and_drops_its_result() {
+    capture_logs();
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    assert!(!test_cancelled(&h));
+    click(&mut h, &tr("button.stop_test"));
+    assert!(test_cancelled(&h));
+    assert!(button_enabled(&h, &tr("button.test")));
+    finish_test(&mut h, round, Err(TranslateError::Cancelled));
+    assert!(!h.state().form.test_passed());
+    assert!(!painted_texts(&h).contains(&tr("test.source")));
+    assert!(log_text().contains("[settings] test connection stopped: stopped by user"));
+}
+
+/// 表單被丟掉（對話框關閉、精靈換表單）時，進行中的測試一併中斷。
+#[test]
+fn dropping_the_form_cancels_its_test() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    start_test(&mut h);
+    h.state_mut().form = form(filled("openai"), vec![]);
+    assert!(test_cancelled(&h));
+}
+
+/// 本地模型這次有先載入時，結果另外列出載入時間。
+#[test]
+fn a_test_that_loaded_the_model_shows_the_load_time() {
+    let mut h = harness(form(filled("openai"), vec![]));
+    let round = start_test(&mut h);
+    let result = Ok(TestOutcome {
+        translated: "x".into(),
+        elapsed: Duration::from_millis(2100),
+        load: Some(Duration::from_millis(35_000)),
+    });
+    finish_test(&mut h, round, result);
+    let text = t(
+        "test.connected_loaded",
+        &[("seconds", "2.1"), ("load", "35.0")],
+    );
+    h.get_by_label(&text);
 }
 
 #[test]
@@ -642,7 +695,7 @@ fn the_form_leaves_the_callers_spacing_alone() {
         LANGUAGE,
         |ui: &mut Ui, s: &mut (ServiceForm, FakeEnv, Option<(f32, f32)>)| {
             let before = ui.spacing().item_spacing.y;
-            s.0.ui(ui, &s.1, TARGET);
+            s.0.ui(ui, &s.1, &Snapshot::default(), TARGET);
             s.2 = Some((before, ui.spacing().item_spacing.y));
         },
         state,
@@ -657,6 +710,7 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     let mut h = harness(form(filled("openai"), vec![]));
     let round = start_test(&mut h);
     type_into(&mut h, &tr("field.api_key"), "2");
+    assert!(test_cancelled(&h));
     finish_test(&mut h, round, translated("x", 100));
     assert!(!h.state().form.test_passed());
     assert!(!painted_texts(&h).contains(&TEST_SAMPLE.to_owned()));
@@ -667,6 +721,7 @@ fn a_result_after_editing_is_discarded_and_the_button_recovers() {
     let round = start_test(&mut h);
     h.state_mut().form.set_provider("gemini");
     run(&mut h);
+    assert!(test_cancelled(&h));
     finish_test(&mut h, round, translated("x", 100));
     assert!(!h.state().form.test_passed());
     assert!(button_enabled(&h, &tr("button.test")));
@@ -1327,4 +1382,129 @@ fn the_test_error_can_be_selected_and_copied() {
         copied.iter().any(|c| c.contains("invalid argument")),
         "{copied:?}"
     );
+}
+
+fn local_harness(models: Vec<Installed>) -> Harness<'static, State> {
+    let mut service = new_service("local", &[]);
+    service["model"] = json!("ready");
+    let h = harness(form(service, vec![]));
+    h.state().env.snapshot.borrow_mut().models = models;
+    h
+}
+
+/// 本地測試：按停止才請 hub 停掉臨時載入的模型；只切思考開關只中斷請求，模型照樣載完。
+#[test]
+fn only_stopping_a_local_test_releases_the_model() {
+    let released = |h: &Harness<State>| {
+        let commands = h.state().env.commands.borrow();
+        commands
+            .iter()
+            .filter(|c| matches!(c, Command::ReleaseUnused))
+            .count()
+    };
+    let mut h = local_harness(vec![installed("ready", true, 0)]);
+    run(&mut h);
+    start_test(&mut h);
+    click(&mut h, &tr("field.thinking"));
+    assert!(test_cancelled(&h));
+    assert_eq!(released(&h), 0);
+
+    start_test(&mut h);
+    click(&mut h, &tr("button.stop_test"));
+    assert!(test_cancelled(&h));
+    assert_eq!(released(&h), 1);
+}
+
+/// 本地模型的思考說明不提思考深度（本地沒有這個選項）。
+#[test]
+fn the_local_form_has_its_own_thinking_hint() {
+    let h = local_harness(vec![installed("ready", true, 0)]);
+    let texts = painted_texts(&h);
+    assert!(texts.contains(&tr("local.form.thinking_hint")));
+    assert!(!texts.contains(&tr("hint.thinking")));
+}
+
+#[test]
+fn local_form_has_no_key_or_endpoint_fields() {
+    let h = local_harness(vec![]);
+    for key in ["field.api_key", "field.api_key_optional", "field.base_url"] {
+        assert!(!has_label(&h, &tr(key)), "{key}");
+    }
+    assert!(!has_label(&h, &tr("field.effort")));
+    assert!(!has_label(&h, &tr("button.refresh")));
+    assert!(has_label(&h, &tr("field.thinking")));
+    assert!(has_label(&h, &tr("local.form.test_hint")));
+}
+
+#[test]
+fn model_dropdown_lists_only_complete_downloads() {
+    let mut h = local_harness(vec![
+        installed("ready", true, 0),
+        installed("partial", false, 0),
+    ]);
+    run(&mut h);
+    click(&mut h, &tr("field.model"));
+    let option = |id: &str| {
+        t(
+            "local.form.model_option",
+            &[("name", &format!("org/{id} · Q4_K_M")), ("size", "0.0")],
+        )
+    };
+    assert!(has_label(&h, &option("ready")));
+    assert!(!has_label(&h, &option("partial")));
+}
+
+#[test]
+fn picking_a_model_writes_its_id() {
+    let mut h = local_harness(vec![
+        installed("ready", true, 0),
+        installed("other", true, 0),
+    ]);
+    click(&mut h, &tr("field.model"));
+    let name = t(
+        "local.form.model_option",
+        &[("name", "org/other · Q4_K_M"), ("size", "0.0")],
+    );
+    click(&mut h, &name);
+    assert_eq!(h.state().form.values()["model"], json!("other"));
+}
+
+/// 選取的模型名稱被截斷時，滑鼠移上去顯示完整名稱；沒截斷就不顯示（長度跨過截斷邊界逐字檢查）。
+#[test]
+fn a_truncated_model_name_shows_in_full_on_hover() {
+    let mut seen = [false; 2];
+    for extra in 0..16 {
+        let repo = format!("unsloth/gemma-4-12B-it-qat-GGUF{}", "x".repeat(extra));
+        let mut model = installed("ready", true, 0);
+        model.manifest.repo = repo.clone();
+        let mut h = local_harness(vec![model]);
+        h.run();
+        let elided = h.output().shapes.iter().any(|clipped| {
+            matches!(&clipped.shape, egui::Shape::Text(text)
+                if text.galley.elided && text.galley.job.text.contains(&repo))
+        });
+        let name = t(
+            "local.form.model_option",
+            &[("name", &format!("{repo} · Q4_K_M")), ("size", "0.0")],
+        );
+        h.get_by_role(egui::accesskit::Role::ComboBox).hover();
+        settle(&mut h);
+        assert_eq!(has_label(&h, &name), elided, "{repo}");
+        seen[usize::from(elided)] = true;
+    }
+    assert_eq!(
+        seen,
+        [true, true],
+        "the lengths straddle the truncation point"
+    );
+}
+
+#[test]
+fn a_gone_model_is_flagged_and_the_link_asks_for_the_models_page() {
+    let mut h = local_harness(vec![installed("other", true, 0)]);
+    assert!(has_label(&h, &tr("local.form.model_missing")));
+    assert!(has_label(&h, &tr("local.form.model_hint")));
+    h.state_mut().responses.clear();
+    click(&mut h, &tr("local.form.open_models"));
+    assert!(h.state().responses.iter().any(|r| r.open_local_models));
 }

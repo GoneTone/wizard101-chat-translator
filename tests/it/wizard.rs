@@ -128,7 +128,10 @@ fn wizard_nav_is_packed_before_the_body() {
     // 內容比視窗高的第二步，導覽鈕仍整顆停在視窗底部，內容區才是捲動的那塊
     let mut h = on_service_step(blank_cfg());
     pick_provider(&mut h, "provider.custom");
-    let window = theme::WIZARD_SIZE;
+    // 比預設矮一點，確保表單一定超出視窗
+    let window = theme::WIZARD_SIZE - eframe::egui::vec2(0.0, 120.0);
+    h.set_size(window);
+    run(&mut h);
     let tail = h
         .get_by_role_and_label(Role::Link, &tr("wizard.skip_test"))
         .rect();
@@ -168,6 +171,7 @@ fn back_is_disabled_on_the_first_step_only() {
 fn the_language_step_shows_the_app_and_the_language_combo() {
     let h = open(blank_cfg());
     assert!(has_label(&h, &tr("app.name")));
+    assert!(has_label(&h, &tr("wizard.intro")));
     assert!(has_label(&h, &tr("wizard.language_hint")));
     h.get_by_role_and_label(Role::ComboBox, &tr("field.ui_language"));
 }
@@ -257,7 +261,10 @@ fn an_existing_service_skips_the_cards() {
 fn the_form_instructions_wait_until_the_form_exists() {
     // 前半只有服務商卡片：叫人填設定、按測試連線是在講畫面上還沒有的東西
     let h = on_service_step(blank_cfg());
-    assert!(has_label(&h, &tr("wizard.intro")));
+    assert!(
+        !has_label(&h, &tr("wizard.intro")),
+        "the intro belongs to the first step"
+    );
     assert!(has_label(&h, &tr("wizard.pick_provider")));
     assert!(!has_label(&h, &tr("wizard.intro_form")));
 }
@@ -266,7 +273,6 @@ fn the_form_instructions_wait_until_the_form_exists() {
 fn the_form_step_explains_what_to_do_with_the_form() {
     let mut h = on_service_step(blank_cfg());
     pick_provider(&mut h, "provider.claude");
-    assert!(has_label(&h, &tr("wizard.intro")));
     assert!(has_label(&h, &tr("wizard.intro_form")));
     assert!(!has_label(&h, &tr("wizard.pick_provider")));
 }
@@ -590,4 +596,550 @@ fn wizard_service_step_auto_loads() {
     type_into(&mut h, &tr("field.api_key"), "sk-ant");
     type_into(&mut h, &tr("field.model"), "claude-x");
     assert_eq!(h.state().env.lists.borrow().len(), 1);
+}
+
+// --- 本地模型一鍵安裝 ---
+
+mod local_install {
+    use super::*;
+    use wizard101_chat_translator::local::catalog::RECOMMENDED;
+    use wizard101_chat_translator::local::engine::{Asset, Build, EngineInstall, Variant};
+    use wizard101_chat_translator::local::fit::{Fit, Need, Pick, Rating};
+    use wizard101_chat_translator::local::gguf::ModelMeta;
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind, Hardware};
+    use wizard101_chat_translator::local::hf::{Catalog, Choice, MtpChoice, Quant, RepoFile};
+    use wizard101_chat_translator::local::store::{Installed, Manifest, model_id};
+    use wizard101_chat_translator::local::{Command, EngineState, RepoInfo, RepoState, Snapshot};
+
+    const G: u64 = 1 << 30;
+    const QUANT: &str = "Q4_K_M";
+
+    fn repo_info() -> RepoInfo {
+        let choice = Choice {
+            quant: Quant {
+                label: QUANT.into(),
+                bits: Some(4),
+            },
+            files: vec![RepoFile {
+                path: "m.gguf".into(),
+                size: 2 * G,
+                sha256: None,
+            }],
+        };
+        RepoInfo {
+            catalog: Catalog {
+                choices: vec![choice],
+                mtp: vec![],
+            },
+            meta: ModelMeta::default(),
+            fits: vec![vec![Rating {
+                need: Need::estimate(3 * G),
+                fit: Some(Fit::Smooth),
+            }]],
+            auto: Some(Pick {
+                choice: 0,
+                mtp: None,
+                fit: Fit::Smooth,
+                required: 3 * G,
+            }),
+        }
+    }
+
+    /// 六個推薦都查好、硬體量得到；引擎已就緒。
+    fn ready_snapshot() -> Snapshot {
+        let mut s = Snapshot {
+            engine: EngineState::Ready(EngineInstall {
+                build: "b1".into(),
+                variant: Variant::Vulkan,
+            }),
+            hardware: Hardware {
+                gpu: Some(Gpu {
+                    name: "t".into(),
+                    vendor: 0,
+                    kind: GpuKind::Discrete,
+                    nvidia_driver: None,
+                    device: 0,
+                }),
+                vram_total: 24 * G,
+                vram_free: 24 * G,
+                ram_total: 32 * G,
+                ram_free: 32 * G,
+                measured: true,
+                own: Default::default(),
+            },
+            ..Default::default()
+        };
+        for r in RECOMMENDED {
+            s.repos.insert(r.repo.into(), RepoState::Ready(repo_info()));
+        }
+        s
+    }
+
+    fn set_snapshot(h: &mut WizardHarness, s: Snapshot) {
+        *h.state().env.snapshot.borrow_mut() = s;
+        run(h);
+    }
+
+    fn on_card(s: Snapshot) -> WizardHarness {
+        let mut h = on_service_step(blank_cfg());
+        *h.state().env.snapshot.borrow_mut() = s;
+        pick_provider(&mut h, "provider.local");
+        h
+    }
+
+    fn default_id() -> String {
+        model_id("unsloth/gemma-4-12B-it-qat-GGUF", QUANT)
+    }
+
+    fn done_model() -> Installed {
+        Installed {
+            id: default_id(),
+            manifest: Manifest {
+                repo: "unsloth/gemma-4-12B-it-qat-GGUF".into(),
+                quant: QUANT.into(),
+                files: vec![],
+                mtp: None,
+                moe: false,
+                has_builtin_mtp: false,
+                required: 0,
+                measured: None,
+                layers: 0,
+            },
+            complete: true,
+        }
+    }
+
+    fn sent(h: &WizardHarness) -> Vec<String> {
+        let commands = h.state().env.commands.borrow();
+        commands.iter().map(|c| format!("{c:?}")).collect()
+    }
+
+    /// 引擎沒裝：先說明並列出引擎大小，使用者按〔下載引擎〕才裝，模型卡片等引擎好了才出現。
+    #[test]
+    fn picking_local_asks_before_downloading_the_engine() {
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Missing;
+        s.builds = Some(Ok(vec![Build {
+            tag: "b1".into(),
+            published: String::new(),
+            variants: vec![(
+                Variant::Vulkan,
+                vec![Asset {
+                    name: "a.zip".into(),
+                    url: String::new(),
+                    size: G / 2,
+                }],
+            )],
+        }]));
+        let mut h = on_card(s);
+        assert!(has_label(&h, &tr("local.wizard.engine_intro")));
+        assert!(has_label(&h, "Engine (Vulkan): 0.5 GB"));
+        assert!(!has_label(&h, "Model: 2.0 GB"));
+        assert!(!download_button_shown(&h));
+        assert_eq!(installs(&h), 0);
+        click(&mut h, Role::Button, &tr("local.wizard.download_engine"));
+        assert_eq!(installs(&h), 1);
+    }
+
+    /// 引擎裝好後的確認卡片只列模型大小。
+    #[test]
+    fn the_model_card_lists_the_model_size() {
+        let h = on_card(ready_snapshot());
+        assert!(has_label(&h, &tr("local.wizard.intro")));
+        assert!(has_label(&h, "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M"));
+        assert!(has_label(&h, "Model: 2.0 GB"));
+        assert!(!has_label(&h, "Total download: 2.0 GB"));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert_eq!(installs(&h), 0);
+    }
+
+    fn installs(h: &WizardHarness) -> usize {
+        sent(h)
+            .iter()
+            .filter(|c| c.contains("InstallEngine"))
+            .count()
+    }
+
+    #[test]
+    fn next_is_disabled_until_the_download_completes() {
+        let mut h = on_card(ready_snapshot());
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let sent = sent(&h);
+        assert!(
+            sent.iter()
+                .any(|c| c.starts_with("Download") && c.contains("gemma-4-12B"))
+        );
+        assert!(!next_enabled(&h));
+
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        next(&mut h);
+        click(&mut h, Role::Button, &tr("button.finish"));
+        let cfg = finished(&h).expect("wizard finished");
+        assert_eq!(cfg["services"][0]["model"], json!(default_id()));
+    }
+
+    /// 下載中與下載完成都還看得到是哪個模型。
+    #[test]
+    fn the_progress_and_done_states_name_the_model() {
+        let title = "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M";
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let mut s = ready_snapshot();
+        s.downloads.insert(
+            default_id(),
+            wizard101_chat_translator::local::DownloadState::Running {
+                done: G,
+                total: 2 * G,
+            },
+        );
+        set_snapshot(&mut h, s);
+        assert!(has_label(&h, title));
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        assert!(has_label(&h, title));
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
+        assert!(
+            !has_label(&h, &tr("local.wizard.intro")),
+            "already downloaded"
+        );
+    }
+
+    #[test]
+    fn change_model_opens_the_shared_dialog_in_select_mode() {
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.change"));
+        assert!(
+            h.query_all_by_role_and_label(Role::Button, &tr("local.dialog.select"))
+                .next()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn cancel_download_keeps_progress_for_later() {
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        click(&mut h, Role::Button, &tr("local.wizard.cancel"));
+        let want = format!("{:?}", Command::CancelDownload(default_id()));
+        assert!(sent(&h).contains(&want));
+        assert!(has_label(&h, &tr("local.wizard.cancelled_hint")));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+    }
+
+    #[test]
+    fn a_ready_engine_allows_download_even_when_vram_is_unmeasured() {
+        let mut s = ready_snapshot();
+        for repo in s.repos.values_mut() {
+            if let RepoState::Ready(info) = repo {
+                info.fits[0][0].fit = None;
+            }
+        }
+        let h = on_card(s);
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert!(has_label(&h, &tr("local.fit.unknown")));
+    }
+
+    fn download_button_shown(h: &WizardHarness) -> bool {
+        h.query_by_role_and_label(Role::Button, &tr("local.wizard.download"))
+            .is_some()
+    }
+
+    /// 硬體偵測中、或還有推薦沒查完：卡片先畫佔位，不先挑一個之後再換。
+    #[test]
+    fn the_card_waits_for_the_hardware_and_every_recommendation() {
+        let mut s = ready_snapshot();
+        s.detecting = true;
+        let h = on_card(s);
+        assert!(has_label(&h, &tr("local.loading")));
+        assert!(!download_button_shown(&h));
+
+        let mut s = ready_snapshot();
+        s.repos
+            .insert(RECOMMENDED[0].repo.into(), RepoState::Loading);
+        let mut h = on_card(s);
+        assert!(!download_button_shown(&h));
+        set_snapshot(&mut h, ready_snapshot());
+        assert!(download_button_shown(&h));
+        assert!(!has_label(&h, &tr("local.loading")));
+    }
+
+    /// 進來時引擎正在移除：移除完變成未安裝才給〔下載引擎〕，不自動裝。
+    #[test]
+    fn an_engine_being_removed_offers_the_download_once_missing() {
+        let download = tr("local.wizard.download_engine");
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Removing;
+        let mut h = on_card(s.clone());
+        assert!(!has(&h, Role::Button, &download));
+        s.engine = EngineState::Missing;
+        set_snapshot(&mut h, s);
+        assert!(has(&h, Role::Button, &download));
+        assert_eq!(installs(&h), 0);
+    }
+
+    /// 推薦全部查詢失敗：顯示原文與〔重試〕，重試會重新查詢失敗的 repo。
+    #[test]
+    fn failed_recommendations_show_the_error_and_retry() {
+        let mut s = ready_snapshot();
+        for r in RECOMMENDED {
+            s.repos
+                .insert(r.repo.into(), RepoState::Failed("HTTP 403".into()));
+        }
+        let mut h = on_card(s);
+        let shown = i18n::t("local.error.repo", &[("error", "HTTP 403")]);
+        assert!(has_label(&h, &shown));
+        assert!(!has_label(&h, &tr("local.loading")));
+        let before = sent(&h).len();
+        click(&mut h, Role::Button, &tr("local.dialog.retry"));
+        let queries = sent(&h)[before..]
+            .iter()
+            .filter(|c| c.starts_with("QueryRepo"))
+            .count();
+        assert_eq!(queries, RECOMMENDED.iter().filter(|r| r.wizard).count());
+    }
+
+    #[test]
+    fn a_failed_engine_shows_the_error_and_retry_reinstalls() {
+        let mut s = ready_snapshot();
+        s.engine = EngineState::Failed("boom".into());
+        let mut h = on_card(s);
+        assert!(has_label(&h, "boom"));
+        assert!(!download_button_shown(&h));
+        click(&mut h, Role::Button, &tr("local.dialog.retry"));
+        assert_eq!(installs(&h), 1);
+    }
+
+    fn download_count(h: &WizardHarness) -> usize {
+        sent(h).iter().filter(|c| c.starts_with("Download")).count()
+    }
+
+    /// 推薦的模型已經下載好：直接完成，不再列下載量、不必按〔下載〕。
+    #[test]
+    fn an_already_downloaded_pick_is_ready_without_downloading() {
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        let h = on_card(s);
+        assert!(next_enabled(&h));
+        assert_eq!(download_count(&h), 0);
+        assert!(has_label(&h, &tr("local.wizard.done")));
+        assert!(!has_label(&h, "Total download: 2.0 GB"));
+    }
+
+    /// 推薦的模型早就下載好、引擎還在裝：停在引擎那段，等引擎裝好才算完成。
+    #[test]
+    fn a_downloaded_pick_waits_for_the_engine() {
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        s.engine = EngineState::Installing {
+            build: "b1".into(),
+            done: 0,
+            total: G,
+            extracting: false,
+        };
+        let mut h = on_card(s);
+        assert!(!next_enabled(&h));
+        assert!(has_label(&h, &tr("local.wizard.engine_intro")));
+        assert!(!has(&h, Role::Button, &tr("local.wizard.cancel")));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+        assert!(has_label(&h, &tr("local.wizard.done")));
+    }
+
+    /// 推薦帶 MTP 檔：已下載的同量化少了那個 MTP 檔不算好，還要下載；
+    /// 檔名看不出量化的唯一 MTP 只寫「MTP」。
+    #[test]
+    fn a_downloaded_model_without_the_wanted_mtp_still_downloads() {
+        let mut s = ready_snapshot();
+        for repo in s.repos.values_mut() {
+            if let RepoState::Ready(info) = repo {
+                info.catalog.mtp = vec![MtpChoice {
+                    quant: Quant {
+                        label: "mtp-m.gguf".into(),
+                        bits: None,
+                    },
+                    file: RepoFile {
+                        path: "mtp-m.gguf".into(),
+                        size: G / 4,
+                        sha256: None,
+                    },
+                    shared: false,
+                }];
+                info.auto.as_mut().unwrap().mtp = Some(0);
+            }
+        }
+        s.models.push(done_model());
+        let h = on_card(s);
+        assert!(!next_enabled(&h));
+        assert!(enabled(&h, &tr("local.wizard.download")));
+        assert!(has_label(
+            &h,
+            "unsloth/gemma-4-12B-it-qat-GGUF · Q4_K_M + MTP"
+        ));
+    }
+
+    #[test]
+    fn an_existing_complete_model_skips_the_download() {
+        let mut service = new_service("local", &[]);
+        service["model"] = json!(default_id());
+        let cfg = cfg_with(vec![service.clone()], Some(&service));
+        let mut s = ready_snapshot();
+        s.models.push(done_model());
+        let mut h = open(cfg);
+        *h.state().env.snapshot.borrow_mut() = s;
+        next(&mut h);
+        assert!(next_enabled(&h));
+        assert_eq!(download_count(&h), 0);
+        next(&mut h);
+        click(&mut h, Role::Button, &tr("button.finish"));
+        let cfg = finished(&h).expect("wizard finished");
+        assert_eq!(cfg["services"][0]["model"], json!(default_id()));
+    }
+
+    #[test]
+    fn going_back_then_choosing_a_cloud_provider_leaves_nothing_local() {
+        let mut h = on_card(ready_snapshot());
+        back(&mut h);
+        pick_provider(&mut h, "provider.claude");
+        type_into(&mut h, &tr("field.api_key"), "sk-ant");
+        type_into(&mut h, &tr("field.model"), "claude-x");
+        let cfg = walk_to_finish(&mut h);
+        let services = cfg["services"].as_array().unwrap();
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0]["provider"], json!("claude"));
+    }
+
+    #[test]
+    fn re_entering_does_not_repeat_entry_commands_or_the_download() {
+        let mut s = ready_snapshot();
+        s.repos.remove(RECOMMENDED[5].repo);
+        let mut h = on_card(s);
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let mut s = ready_snapshot();
+        s.downloads.insert(
+            default_id(),
+            wizard101_chat_translator::local::DownloadState::Running {
+                done: G,
+                total: 2 * G,
+            },
+        );
+        set_snapshot(&mut h, s);
+        back(&mut h);
+        pick_provider(&mut h, "provider.local");
+        assert!(has(&h, Role::Button, &tr("local.wizard.cancel")));
+        let queries = sent(&h).iter().filter(|c| c.contains("QueryRepo")).count();
+        assert_eq!(queries, 1);
+        assert_eq!(download_count(&h), 1);
+    }
+
+    /// hub 收到下載就把舊的失敗蓋成下載中；之後馬上又失敗也立刻顯示。
+    #[test]
+    fn a_new_failure_right_after_download_is_shown() {
+        use wizard101_chat_translator::local::DownloadState;
+        let failed = |error: &str| {
+            let mut s = ready_snapshot();
+            s.downloads
+                .insert(default_id(), DownloadState::Failed(error.into()));
+            s
+        };
+        let mut h = on_card(failed("old"));
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let mut s = ready_snapshot();
+        s.downloads
+            .insert(default_id(), DownloadState::Running { done: 0, total: 0 });
+        set_snapshot(&mut h, s);
+        assert!(!has_label(&h, "old"));
+        assert!(has(&h, Role::Button, &tr("local.wizard.cancel")));
+        set_snapshot(&mut h, failed("new"));
+        assert!(has_label(&h, "new"));
+    }
+
+    /// 表單原有的模型沒下載完：直接顯示〔繼續下載〕，按了送繼續下載。
+    #[test]
+    fn an_incomplete_existing_model_offers_to_continue() {
+        let mut service = new_service("local", &[]);
+        service["model"] = json!(default_id());
+        let cfg = cfg_with(vec![service.clone()], Some(&service));
+        let mut s = ready_snapshot();
+        let mut model = done_model();
+        model.complete = false;
+        s.models.push(model);
+        let mut h = open(cfg);
+        *h.state().env.snapshot.borrow_mut() = s;
+        next(&mut h);
+        assert!(!next_enabled(&h));
+        assert!(has_label(&h, &tr("local.models.interrupted")));
+        click(&mut h, Role::Button, &tr("local.continue_download"));
+        let want = format!("{:?}", Command::Resume(default_id()));
+        assert!(sent(&h).contains(&want), "{:?}", sent(&h));
+        assert_eq!(download_count(&h), 0);
+    }
+
+    /// 取消後返回再進來：取消提示不留，暫停的下載重新接上並可繼續。
+    #[test]
+    fn re_entering_after_cancel_resumes_the_paused_download() {
+        use wizard101_chat_translator::local::DownloadState;
+        let mut h = on_card(ready_snapshot());
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        click(&mut h, Role::Button, &tr("local.wizard.cancel"));
+        let mut s = ready_snapshot();
+        let mut model = done_model();
+        model.complete = false;
+        s.models.push(model);
+        s.downloads.insert(
+            default_id(),
+            DownloadState::Paused {
+                done: 1,
+                total: 2 * G,
+            },
+        );
+        set_snapshot(&mut h, s);
+        back(&mut h);
+        pick_provider(&mut h, "provider.local");
+        assert!(!has_label(&h, &tr("local.wizard.cancelled_hint")));
+        let paused = i18n::t("local.models.paused", &[("done", "0.0"), ("total", "2.0")]);
+        assert!(has_label(&h, &paused));
+        click(&mut h, Role::Button, &tr("local.continue_download"));
+        let want = format!("{:?}", Command::Resume(default_id()));
+        assert!(sent(&h).contains(&want), "{:?}", sent(&h));
+    }
+
+    #[test]
+    fn a_custom_repo_selection_is_tracked_with_its_own_id() {
+        let mut s = ready_snapshot();
+        s.repos
+            .insert("org/custom".into(), RepoState::Ready(repo_info()));
+        let mut h = on_card(s);
+        click(&mut h, Role::Button, &tr("local.wizard.change"));
+        click(&mut h, Role::Button, &tr("local.dialog.tab_custom"));
+        type_into(&mut h, &tr("local.dialog.search_hint"), "org/custom");
+        click(&mut h, Role::Button, &tr("local.dialog.search"));
+        click(&mut h, Role::Button, &tr("local.dialog.select"));
+        // 自己選的不是依硬體挑的
+        assert!(has_label(&h, &tr("local.wizard.model_intro")));
+        assert!(!has_label(&h, &tr("local.wizard.intro")));
+        click(&mut h, Role::Button, &tr("local.wizard.download"));
+        let want = model_id("org/custom", QUANT);
+        let sent = sent(&h);
+        assert!(
+            sent.iter()
+                .any(|c| c.starts_with("Download") && c.contains("org/custom")),
+            "{sent:?}"
+        );
+        assert!(!next_enabled(&h));
+        let mut s = ready_snapshot();
+        let mut m = done_model();
+        m.id = want;
+        s.models.push(m);
+        set_snapshot(&mut h, s);
+        assert!(next_enabled(&h));
+    }
 }

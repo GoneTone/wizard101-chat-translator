@@ -1,8 +1,8 @@
 //! 設定介面的 modal 對話框外殼：標題列、可捲動的內容與底部按鈕列，以及共用的刪除確認對話框。
 
 use eframe::egui::{
-    Align, Align2, CornerRadius, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, RichText,
-    ScrollArea, Stroke, Ui, UiKind, vec2,
+    Align, Align2, CornerRadius, Frame, Id, Key, Label, Layout, Margin, Modal, Modifiers, Response,
+    RichText, ScrollArea, Stroke, Ui, UiKind, vec2,
 };
 
 use super::theme::{self, icon};
@@ -11,8 +11,9 @@ use crate::i18n::t;
 
 /// 對話框與視窗邊緣的最小距離。
 const MARGIN: f32 = 24.0;
+// 左右與內容、按鈕列同為 20，標題才會和內文對齊
 const HEADER_MARGIN: Margin = Margin {
-    left: 24,
+    left: 20,
     right: 20,
     top: 18,
     bottom: 8,
@@ -58,6 +59,8 @@ pub(super) fn dialog<B, F>(
         .corner_radius(theme::DIALOG_RADIUS)
         .shadow(style.visuals.window_shadow);
     let max_body = ctx.content_rect().height() - 2.0 * MARGIN - HEADER_HEIGHT - FOOTER_HEIGHT;
+    // 視窗比對話框窄時（精靈、縮小的設定視窗）跟著縮，不讓兩側超出視窗
+    let width = spec.width.min(ctx.content_rect().width() - 2.0 * MARGIN);
     let id = Id::unique(("settings_dialog", spec.salt));
     let mut area = Modal::default_area(id);
     if spec.pinned_top {
@@ -70,7 +73,7 @@ pub(super) fn dialog<B, F>(
         .show(&ctx, |ui| {
             ui.set_style(style);
             name_modal(ui, &spec.title);
-            ui.set_width(spec.width - 2.0);
+            ui.set_width(width - 2.0);
             ui.spacing_mut().item_spacing.y = 0.0;
             let close = header(ui, &spec.title, spec.closable);
             let body = ScrollArea::vertical()
@@ -121,10 +124,22 @@ pub(super) enum Choice<T> {
     Done(T),
 }
 
-/// 刪除確認對話框：顯示 `question`，按〔刪除〕才算確定。
-pub(super) fn confirm_delete(ui: &Ui, question: String) -> Choice<()> {
+/// 刪除確認對話框：顯示 `question`，按紅色的〔刪除〕才算確定；`salt` 區分同時存在的不同確認框。
+pub(super) fn confirm_delete(ui: &Ui, salt: &'static str, question: String) -> Choice<()> {
+    confirm(ui, salt, question, |ui| {
+        danger_button(ui, &t("button.delete", &[]))
+    })
+}
+
+/// 確認對話框：顯示 `question`，按 `ok` 畫出的按鈕才算確定；`salt` 區分同時存在的不同確認框。
+pub(super) fn confirm(
+    ui: &Ui,
+    salt: &'static str,
+    question: String,
+    ok: impl FnOnce(&mut Ui) -> Response,
+) -> Choice<()> {
     let spec = DialogSpec {
-        salt: "confirm_delete",
+        salt,
         width: theme::CONFIRM_DIALOG_WIDTH,
         title: t("dialog.confirm_title", &[]),
         closable: false,
@@ -149,12 +164,12 @@ pub(super) fn confirm_delete(ui: &Ui, question: String) -> Choice<()> {
         },
         |ui| {
             let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-            let delete = danger_button(ui, &t("button.delete", &[])).clicked();
-            (delete, cancel)
+            let ok = ok(ui).clicked();
+            (ok, cancel)
         },
     );
-    let (delete, cancel) = shown.footer;
-    if delete {
+    let (ok, cancel) = shown.footer;
+    if ok {
         Choice::Done(())
     } else if cancel || shown.cancel {
         Choice::Cancel

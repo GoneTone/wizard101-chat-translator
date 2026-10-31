@@ -16,6 +16,7 @@ pub fn provider_icon(key: &str) -> Option<&'static [u8]> {
         "openai" => include_bytes!("../../assets/provider_openai_32.png"),
         "claude" => include_bytes!("../../assets/provider_claude_32.png"),
         "gemini" => include_bytes!("../../assets/provider_gemini_32.png"),
+        "local" => include_bytes!("../../assets/provider_local_32.png"),
         "custom" => include_bytes!("../../assets/provider_custom_32.png"),
         _ => return None,
     })
@@ -31,7 +32,7 @@ mod tests {
 
     #[test]
     fn provider_icons_exist_for_all_providers() {
-        for key in ["openai", "claude", "gemini", "custom"] {
+        for key in ["openai", "claude", "gemini", "local", "custom"] {
             assert!(provider_icon(key).unwrap().starts_with(PNG_MAGIC), "{key}");
         }
         assert!(provider_icon("nope").is_none());

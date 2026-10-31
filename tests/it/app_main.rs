@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::time::{Duration, Instant};
 
 use common::fake_backend::{Fake, JA, spec};
+use common::local::{Launches, add_engine, add_model, fake_hub, fake_hub_with, global_hub};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 
@@ -15,9 +16,9 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use wizard101_chat_translator::app_main::{
     InputWiring, Running, SUPERVISOR_JOIN_BUDGET, Translation, apply_settings, build_translation,
-    claim_instance, hotkey_mask, incoming_fingerprint, install_paste, on_paste_hotkey,
-    outgoing_translate, reconfigure_translation, region_runner, register_hotkeys, run_ui_then,
-    shutdown_steps,
+    claim_instance, close_translation, hotkey_mask, incoming_fingerprint, install_local,
+    install_paste, local_notify, on_paste_hotkey, outgoing_translate, reconfigure_translation,
+    region_runner, register_hotkeys, run_ui_then, shutdown_steps,
 };
 use wizard101_chat_translator::composer::paste::{TypingEnv, type_into_window, typing_in_progress};
 use wizard101_chat_translator::config::services::resolve;
@@ -28,6 +29,7 @@ use wizard101_chat_translator::input::dispatcher::testing::{self, code, down, up
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, Pressed, SharedDispatcher};
 use wizard101_chat_translator::input::inject::Injector;
 use wizard101_chat_translator::input::keys::Code;
+use wizard101_chat_translator::local::{self, Command, RepoState};
 use wizard101_chat_translator::reader::supervisor::JOIN_TIMEOUT;
 use wizard101_chat_translator::region::ocr::OcrError;
 use wizard101_chat_translator::region::pipeline::{
@@ -46,6 +48,7 @@ use wizard101_chat_translator::translation::prompts::OUTGOING_LANGUAGE;
 use wizard101_chat_translator::translation::translator::{ExampleCoordinator, Translator};
 use wizard101_chat_translator::ui::events::{UiEvent, UiPoster};
 use wizard101_chat_translator::ui::input_box::OutgoingRequest;
+use wizard101_chat_translator::ui::settings::env::{RealEnv, SettingsEnv};
 use wizard101_chat_translator::util::{self, Clock};
 
 /// 收訊指自訂端點、預設（發話）是 OpenAI、框選另指一筆，三格的模型各不相同。
@@ -1290,6 +1293,7 @@ fn live(tag: &'static str) -> Live {
         hotkeys,
         dispatcher: Arc::clone(&d),
         config_path: dir.path().join("config.json"),
+        local: None,
     };
     Live {
         dir,
@@ -1374,6 +1378,37 @@ fn apply_settings_saves_rebinds_and_reregisters() {
     );
 }
 
+/// 接上假的本地模型 hub 並讓 m1 跑起來。
+fn with_running_local(l: &mut Live) -> Launches {
+    let root = l.dir.path().join("local");
+    add_engine(&root, "b11871");
+    add_model(&root, "m1", false);
+    let (hub, launches) = fake_hub(root, l._rt.handle().clone(), false);
+    let ensure = {
+        let hub = Arc::clone(&hub);
+        l._rt.spawn(async move { hub.ensure("m1").await })
+    };
+    l._rt.block_on(ensure).unwrap().unwrap();
+    l.running.local = Some(hub);
+    launches
+}
+
+#[test]
+fn saving_a_config_without_the_local_model_stops_its_server() {
+    let mut l = live("apply_local");
+    let launches = with_running_local(&mut l);
+    l.apply(partial(&[("max_messages", json!(50))]));
+    assert_eq!(launches.killed(), 1);
+}
+
+#[test]
+fn closing_translation_stops_local_servers() {
+    let mut l = live("close_local");
+    let launches = with_running_local(&mut l);
+    close_translation(&l.running.translation, l.running.local.as_deref());
+    assert_eq!(launches.killed(), 1);
+}
+
 #[test]
 fn apply_settings_merges_the_partial_map_into_the_live_config() {
     let mut l = live("apply_merge");
@@ -1456,4 +1491,33 @@ fn reconfigure_applies_the_active_glossary() {
     for tr in [&built.incoming, &built.outgoing, &built.region] {
         assert_eq!(tr.glossary_key("Hollo"), "Hollo <=> 哈樓");
     }
+}
+
+/// 精靈開窗前就裝好 hub：精靈用的設定 env 指令送得到它，快照變了 UI 收到重繪事件。
+#[test]
+fn the_wizard_env_reaches_the_hub_installed_before_any_window() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _global = rt.block_on(global_hub());
+    let dir = tempfile::tempdir().unwrap();
+    let (ui, rx) = UiPoster::for_test();
+    let (hub, _) = fake_hub_with(
+        dir.path().to_path_buf(),
+        rt.handle().clone(),
+        false,
+        local_notify(&ui),
+    );
+    let installed = install_local(hub, &Config::default());
+    let env = RealEnv::new(rt.handle().clone(), ui, dispatcher(), None);
+    env.local_command(Command::QueryRepo("org/none".into()));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !matches!(
+        env.local_snapshot().repos.get("org/none"),
+        Some(RepoState::Failed(_))
+    ) {
+        assert!(Instant::now() < deadline, "the query never reached the hub");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(Arc::ptr_eq(&local::get().unwrap(), &installed));
+    let events: Vec<UiEvent> = rx.try_iter().collect();
+    assert!(events.contains(&UiEvent::LocalChanged), "{events:?}");
 }

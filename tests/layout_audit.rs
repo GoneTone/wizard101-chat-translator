@@ -86,6 +86,7 @@ fn page_name(page: Page) -> &'static str {
     match page {
         Page::Basic => "basic",
         Page::Services => "services",
+        Page::LocalModels => "local_models",
         Page::Glossaries => "glossaries",
         Page::Advanced => "advanced",
         Page::About => "about",
@@ -96,6 +97,7 @@ fn settings_pages(language: &'static str, size: Vec2, tag: &str) {
     for page in [
         Page::Basic,
         Page::Services,
+        Page::LocalModels,
         Page::Glossaries,
         Page::Advanced,
         Page::About,
@@ -133,6 +135,7 @@ fn service_states() {
         result: Ok(TestOutcome {
             translated: "你好，今天要一起去打王嗎？".into(),
             elapsed: Duration::from_millis(1250),
+            load: None,
         }),
     });
     save(&mut h, "service_form_test_passed");

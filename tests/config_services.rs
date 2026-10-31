@@ -30,7 +30,8 @@ fn valid() -> AdvancedText {
 #[test]
 fn every_provider_has_ui_metadata() {
     let keys: Vec<&str> = providers().iter().map(|p| p.key).collect();
-    assert_eq!(keys, ["openai", "claude", "gemini", "custom"]);
+    assert_eq!(keys, ["openai", "claude", "gemini", "local", "custom"]);
+    assert!(!provider("local").unwrap().needs_api_key());
     assert!(provider("custom").unwrap().needs_base_url());
     assert!(!provider("openai").unwrap().needs_base_url());
     assert!(provider("nope").is_none());
@@ -57,7 +58,7 @@ fn every_provider_has_ui_metadata() {
 fn every_provider_has_thinking_and_effort() {
     for p in providers() {
         assert!(p.has_field("thinking"), "{}", p.key);
-        assert!(p.has_field("effort"), "{}", p.key);
+        assert_eq!(p.has_field("effort"), !p.efforts.is_empty(), "{}", p.key);
     }
 }
 
@@ -73,6 +74,11 @@ fn provider_defaults_keep_current_behavior() {
         let defaults = provider(key).unwrap().defaults();
         assert_eq!(defaults["thinking"], thinking, "{key}");
         assert_eq!(defaults["effort"], effort, "{key}");
+    }
+    let local = provider("local").unwrap().defaults();
+    assert_eq!(local["thinking"], false);
+    for field in ["api_key", "base_url", "effort"] {
+        assert!(!local.contains_key(field), "{field}");
     }
 }
 
@@ -280,9 +286,11 @@ fn is_auto_name_accepts_exactly_the_numbers_unique_name_can_produce() {
 
 #[test]
 fn describe_shows_the_brand_and_the_model() {
-    let mut service = new_service("claude", &[]);
-    service["model"] = "claude-opus-5".into();
-    assert_eq!(describe(&service), "Claude · claude-opus-5");
+    let service = new_service("claude", &[]);
+    assert_eq!(
+        describe(&service, "claude-opus-5"),
+        "Claude · claude-opus-5"
+    );
 }
 
 #[test]

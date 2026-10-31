@@ -77,6 +77,10 @@ pub enum UiEvent {
     },
     /// 設定視窗背景工作的結果。
     Settings(SettingsEvent),
+    /// 本地模型 hub 的快照變了。
+    LocalChanged,
+    /// 本地模型開始載入（`Some(顯示名)`）或載入結束（`None`）。
+    LocalLoading(Option<String>),
     /// 結束程式。
     Quit,
 }

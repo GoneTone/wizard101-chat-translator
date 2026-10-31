@@ -54,6 +54,8 @@ pub struct OpenAiCompatClient {
     thinking: bool,
     effort: String,
     official: bool,
+    /// 串流要求回 usage（官方端點一律要）。
+    include_usage: bool,
     learned: Mutex<Learned>,
     request_timeout: Duration,
 }
@@ -83,6 +85,7 @@ impl OpenAiCompatClient {
             thinking,
             effort: effort.to_owned(),
             official,
+            include_usage: official,
             learned: Mutex::new(Learned {
                 token_param: if official {
                     "max_completion_tokens"
@@ -101,6 +104,12 @@ impl OpenAiCompatClient {
     pub fn with_timeouts(mut self, read: Duration, total: Duration) -> Self {
         self.http = http_client(HeaderMap::new(), &self.base_url, read);
         self.request_timeout = total;
+        self
+    }
+
+    /// 串流要求回 usage（prompt cache 用量）；只給確定認得 `stream_options` 的後端用。
+    pub fn with_usage(mut self) -> Self {
+        self.include_usage = true;
         self
     }
 
@@ -132,10 +141,11 @@ impl OpenAiCompatClient {
         body.insert("messages".into(), Value::Array(messages));
         body.insert(learned.token_param.into(), json!(max_tokens));
         body.insert("stream".into(), json!(true));
-        if self.official {
-            // 串流預設不回 usage；只對官方端點帶，自架後端不一定認得而冒 400 的險
+        // 串流預設不回 usage；自架後端不一定認得而冒 400 的險，只對確定認得的帶
+        if self.include_usage {
             body.insert("stream_options".into(), json!({"include_usage": true}));
-        } else if deterministic {
+        }
+        if !self.official && deterministic {
             body.insert("temperature".into(), json!(0));
         }
         if self.chose_effort() {

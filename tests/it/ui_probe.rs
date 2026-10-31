@@ -797,7 +797,14 @@ fn ui_probe() {
 struct NoopEnv;
 
 impl SettingsEnv for NoopEnv {
-    fn test_connection(&self, _round: u64, _spec: ServiceSpec, _target: String) {}
+    fn test_connection(
+        &self,
+        _round: u64,
+        _spec: ServiceSpec,
+        _target: String,
+    ) -> tokio_util::sync::DropGuard {
+        tokio_util::sync::CancellationToken::new().drop_guard()
+    }
     fn list_models(&self, _round: u64, _spec: ServiceSpec) {}
     fn check_update(&self, _round: u64) {}
     fn record_hotkey(&self, _round: u64) {}
@@ -811,6 +818,10 @@ impl SettingsEnv for NoopEnv {
     }
     fn pick_glossary_file(&self, _round: u64) {}
     fn pick_glossary_save_path(&self, _round: u64, _file_name: String) {}
+    fn local_snapshot(&self) -> wizard101_chat_translator::local::Snapshot {
+        Default::default()
+    }
+    fn local_command(&self, _cmd: wizard101_chat_translator::local::Command) {}
 }
 
 /// 包住 App：檢查執行緒要求時按一次 ⚙，並回報 overlay 的 HWND。
@@ -981,6 +992,7 @@ fn settings_window_has_a_dark_caption_and_a_taskbar_button() {
             host,
             Arc::new(RwLock::new(Config::new())),
             Box::new(|_| None),
+            Box::new(|| {}),
         );
         SettingsProbe {
             app,

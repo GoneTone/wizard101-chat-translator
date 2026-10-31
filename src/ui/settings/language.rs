@@ -3,7 +3,7 @@
 use eframe::egui::Ui;
 
 use super::theme;
-use super::widgets::{combo_box, focus_ring, name_by_row};
+use super::widgets::{combo_box, focus_ring, full_text_tip, name_by_row};
 use crate::i18n::{available_languages, current_language, language_name, t, translators};
 use crate::runtime::updater::CROWDIN_URL;
 
@@ -29,9 +29,9 @@ pub fn common_languages() -> Vec<String> {
 pub fn ui_language_combo(ui: &mut Ui) -> Option<String> {
     let current = current_language();
     let mut chosen = None;
+    let selected = language_name(&current);
     let response = combo_box(ui, "ui_language")
-        .selected_text(language_name(&current))
-        .truncate()
+        .selected_text(selected.clone())
         .show_ui(ui, |ui| {
             for (code, name) in available_languages() {
                 if ui.selectable_label(code == current, name).clicked() {
@@ -41,6 +41,7 @@ pub fn ui_language_combo(ui: &mut Ui) -> Option<String> {
         })
         .response;
     let response = name_by_row(ui, response);
+    full_text_tip(ui, &response, &selected, 0.0);
     focus_ring(ui, &response, theme::CONTROL_RADIUS);
     chosen.filter(|code| *code != current)
 }

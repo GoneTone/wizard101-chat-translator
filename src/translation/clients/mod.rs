@@ -2,6 +2,7 @@
 
 mod claude;
 mod gemini;
+mod local;
 mod openai;
 mod sse;
 
@@ -13,13 +14,14 @@ use tokio_util::sync::CancellationToken;
 
 pub use claude::{CLAUDE_BASE_URL, ClaudeClient};
 pub use gemini::{GEMINI_BASE_URL, GeminiClient};
+pub use local::LocalClient;
 pub use openai::OpenAiCompatClient;
 
 use super::errors::{MAX_RETRY_AFTER, TranslateError, error_detail, status_error};
 use super::postprocess::strip_think;
 use super::{BoxFuture, Turn};
 use crate::config::ServiceSpec;
-use crate::config::services::{EFFORT_AUTO, known_effort, provider};
+use crate::config::services::{EFFORT_AUTO, LOCAL_PROVIDER, known_effort, provider};
 use crate::logs::log;
 use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
 use crate::py::pyrepr::repr_str;
@@ -82,6 +84,7 @@ pub enum Client {
     OpenAiCompat(OpenAiCompatClient),
     Claude(ClaudeClient),
     Gemini(GeminiClient),
+    Local(LocalClient),
 }
 
 impl Client {
@@ -91,6 +94,7 @@ impl Client {
             Self::OpenAiCompat(c) => c.list_models().await,
             Self::Claude(c) => c.list_models().await,
             Self::Gemini(c) => c.list_models().await,
+            Self::Local(c) => Ok(c.list_models()),
         }
     }
 }
@@ -106,6 +110,7 @@ impl ChatBackend for Client {
                 Self::OpenAiCompat(c) => c.chat(req, cancel).await,
                 Self::Claude(c) => c.chat(req, cancel).await,
                 Self::Gemini(c) => c.chat(req, cancel).await,
+                Self::Local(c) => c.chat(req, cancel).await,
             }
         })
     }
@@ -115,6 +120,7 @@ impl ChatBackend for Client {
             Self::OpenAiCompat(c) => c.model(),
             Self::Claude(c) => c.model(),
             Self::Gemini(c) => c.model(),
+            Self::Local(c) => c.model(),
         }
     }
 
@@ -123,6 +129,8 @@ impl ChatBackend for Client {
             Self::OpenAiCompat(c) => (&c.http, &c.base_url),
             Self::Claude(c) => (&c.http, &c.base_url),
             Self::Gemini(c) => (&c.http, &c.base_url),
+            // 預先載入由 hub 的 apply_config 依序啟動；這裡再啟動會讓模型同時載入
+            Self::Local(_) => return Box::pin(async {}),
         };
         Box::pin(warm_up(http, base_url, label))
     }
@@ -178,7 +186,7 @@ impl ThinkingCaps {
     }
 }
 
-/// 依服務設定建立 client：`claude`／`gemini`／`openai` 走各自官方端點，其餘為自訂端點。
+/// 依服務設定建立 client：`claude`／`gemini`／`openai` 走各自官方端點，`local` 走本地模型，其餘為自訂端點。
 pub fn build_client(spec: &ServiceSpec) -> Client {
     let (key, model) = (&spec.api_key, &spec.model);
     let effort = provider(&spec.provider).map_or(EFFORT_AUTO, |p| known_effort(p, &spec.effort));
@@ -197,6 +205,7 @@ pub fn build_client(spec: &ServiceSpec) -> Client {
             effort,
             GEMINI_BASE_URL,
         )),
+        LOCAL_PROVIDER => Client::Local(LocalClient::new(model, spec.thinking)),
         "openai" => Client::OpenAiCompat(OpenAiCompatClient::new(
             OPENAI_BASE_URL,
             key,

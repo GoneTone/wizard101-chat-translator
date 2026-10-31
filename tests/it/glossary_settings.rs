@@ -188,7 +188,7 @@ fn save_blocks_on_glossary_errors() {
 }
 
 #[test]
-fn glossaries_tab_is_listed_after_services() {
+fn glossaries_tab_is_listed_after_local_models() {
     i18n::set_language(LANGUAGE);
     let h = window_harness(
         &custom_cfg(),
@@ -202,7 +202,7 @@ fn glossaries_tab_is_listed_after_services() {
         .iter()
         .filter_map(|n| n.accesskit_node().label())
         .collect();
-    assert_eq!(labels[2], tr("settings.tab.glossaries"));
+    assert_eq!(labels[3], tr("settings.tab.glossaries"));
 }
 
 fn group_labels(h: &Harness<State>) -> Vec<String> {
