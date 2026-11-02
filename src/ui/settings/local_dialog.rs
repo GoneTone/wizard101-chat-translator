@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use eframe::egui::{Frame, Id, Label, Margin, RichText, TextStyle, Ui, vec2};
+use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, RichText, TextStyle, Ui, vec2};
 
 use super::dialog::{Choice, DialogSpec, confirm, dialog};
 use super::fields::text_field_with_hint;
@@ -352,22 +352,16 @@ impl DownloadDialog {
         ui.add(Label::new(intro).wrap());
         ui.add_space(6.0);
         let mut submit = false;
-        ui.horizontal(|ui| {
-            let button = 80.0;
+        let row = vec2(ui.available_width(), theme::CONTROL_HEIGHT);
+        // 由右往左排：按鈕先占好實際寬度，輸入框再吃掉剩下的整段。
+        ui.allocate_ui_with_layout(row, Layout::right_to_left(Align::Center), |ui| {
+            let search = secondary_button(ui, &t("local.dialog.search", &[]));
             let hint = t("local.dialog.search_hint", &[]);
-            let input = ui
-                .allocate_ui(
-                    vec2(
-                        (ui.available_width() - button - 8.0).max(120.0),
-                        theme::CONTROL_HEIGHT,
-                    ),
-                    |ui| text_field_with_hint(ui, &mut self.custom_input, &hint),
-                )
-                .inner;
+            let input = text_field_with_hint(ui, &mut self.custom_input, &hint);
             ui.ctx()
                 .accesskit_node_builder(input.id, |node| node.set_label(hint));
             let enter = input.lost_focus() && ui.input(|i| i.key_pressed(eframe::egui::Key::Enter));
-            submit = secondary_button(ui, &t("local.dialog.search", &[])).clicked() || enter;
+            submit = search.clicked() || enter;
         });
         if submit {
             self.submit_custom(env, snapshot);
