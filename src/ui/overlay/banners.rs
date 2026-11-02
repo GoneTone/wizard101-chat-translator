@@ -2,8 +2,11 @@
 //!
 //! 存的是文案 key 與參數、`Release`，每幀才翻譯，換語言後自然跟著變。
 
+use std::sync::Arc;
+
 use eframe::egui::{
-    CursorIcon, FontId, Id, OpenUrl, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo, pos2, vec2,
+    CursorIcon, FontId, Galley, Id, OpenUrl, Painter, Rect, Role, Sense, Ui, UiBuilder, WidgetInfo,
+    pos2, vec2,
 };
 
 use crate::i18n::t;
@@ -34,10 +37,12 @@ pub struct Banners {
     /// 最近一次存設定失敗；下一次存檔成功才清掉。
     config_unsaved: bool,
     update: Option<Release>,
+    /// 正在載入的本地模型顯示名稱；有值時顯示資訊列。
+    local_loading: Option<String>,
     dismissed: Option<String>,
     error_height: f32,
-    /// 這一幀更新橫幅看得到的範圍；內容區底色要避開它。
-    update_rect: Option<Rect>,
+    /// 這一幀更新與載入橫幅看得到的範圍（兩者的外框）；內容區底色要避開它。
+    body_hole: Option<Rect>,
     /// 錯誤橫幅的右鍵「複製」選單。
     menu: CopyMenu,
     /// 這一幀錯誤橫幅的範圍；訊息框選的右鍵選單要避開它。
@@ -76,6 +81,21 @@ impl Banners {
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
+    /// 本地模型開始載入（`Some(顯示名稱)`）或載入結束（`None`）；只在狀態改變時記 log。
+    pub fn set_local_loading(&mut self, model: Option<String>) {
+        if self.local_loading.is_some() != model.is_some() {
+            let state = if model.is_some() { "shown" } else { "cleared" };
+            log(format!("[ui] local model loading banner {state}"));
+        }
+        self.local_loading = model;
+    }
+
+    /// 載入橫幅目前的文字（不含在錯誤橫幅內）；沒有回 `None`。
+    pub fn info_text(&self) -> Option<String> {
+        let model = self.local_loading.as_ref()?;
+        Some(t("local.banner.loading", &[("model", model)]))
+    }
+
     /// 自動檢查用的入口：使用者按 ✕ 關掉過的版本（或更舊的）不再跳出；手動檢查直接走 `set_update`。
     pub fn offer_update(&mut self, release: Release) {
         if let Some(dismissed) = self
@@ -112,10 +132,16 @@ impl Banners {
         let clip = rect.intersect(ui.clip_rect());
         let on_band = over_resize_band(ui);
         let mut bottom = rect.max.y;
-        self.update_rect = None;
+        self.body_hole = None;
         self.error_rect = None;
         if let Some(release) = self.update.clone() {
             bottom = self.update_row(ui, rect, clip, on_band, &release, alpha);
+        }
+        if let Some(text) = self.info_text() {
+            let row = info_row(ui, rect, clip, bottom, &text, alpha);
+            let seen = row.intersect(clip);
+            self.body_hole = Some(self.body_hole.map_or(seen, |u| u.union(seen)));
+            bottom = row.min.y - PAD_Y;
         }
         if let Some(text) = self.error_text() {
             // 換行後的高度要排完才知道：先用上一輪量到的高度定位，高度變了就重跑這一輪
@@ -155,9 +181,9 @@ impl Banners {
         Rect::from_min_max(rect.min, pos2(rect.max.x, bottom.max(rect.min.y)))
     }
 
-    /// 上一次 [`Self::show`] 畫出的更新橫幅範圍；沒有橫幅時是 `None`。
-    pub fn update_rect(&self) -> Option<Rect> {
-        self.update_rect
+    /// 上一次 [`Self::show`] 畫出的更新與載入橫幅的外框，內容區底色要在此留洞；兩者都沒有是 `None`。
+    pub fn body_hole(&self) -> Option<Rect> {
+        self.body_hole
     }
 
     /// 這一幀錯誤橫幅看得到的範圍；沒有錯誤是 `None`。
@@ -188,11 +214,7 @@ impl Banners {
             FG_UPDATE,
             (width - TEXT_MARGIN - close_w).max(1.0),
         );
-        let height = galley.size().y.max(close.size().y);
-        let row_rect = Rect::from_min_size(
-            pos2(rect.min.x, rect.max.y - PAD_Y - height),
-            vec2(width, height),
-        );
+        let row_rect = strip_rect(rect, rect.max.y, galley.size().y.max(close.size().y));
         // 只在看得到的部分接滑鼠：視窗太矮時被裁掉的上半截不可蓋住分頁列與標題列的按鈕
         let row = ui.interact(
             row_rect.intersect(clip),
@@ -214,16 +236,8 @@ impl Banners {
             Sense::click(),
         );
         dismiss.widget_info(|| WidgetInfo::labeled(Role::Button, true, "✕"));
-        // 橫幅貼著視窗左下角：沿圓角切掉
-        let fill = BG_UPDATE.gamma_multiply(bar_alpha(alpha));
-        painter.add(glass::window_piece(row_rect, ui.max_rect(), fill));
-        self.update_rect = Some(row_rect.intersect(clip));
-        let text_top = row_rect.min.y + (height - galley.size().y) / 2.0;
-        painter.galley(
-            pos2(row_rect.min.x + TEXT_MARGIN, text_top),
-            galley,
-            FG_UPDATE,
-        );
+        paint_strip(ui, &painter, row_rect, galley, alpha);
+        self.body_hole = Some(row_rect.intersect(clip));
         painter.galley(close_rect.min, close, FG_UPDATE);
 
         if on_band {
@@ -245,6 +259,43 @@ impl Banners {
         }
         row_rect.min.y - PAD_Y
     }
+}
+
+/// 在 `bottom` 之上畫不可點的資訊列（更新橫幅的配色），回傳這列的範圍。
+fn info_row(ui: &Ui, rect: Rect, clip: Rect, bottom: f32, text: &str, alpha: f32) -> Rect {
+    let painter = ui.painter_at(clip);
+    let galley = painter.layout(
+        text.to_owned(),
+        FontId::proportional(tk_pt(BANNER_PT)),
+        FG_UPDATE,
+        (rect.width() - GRIP_SIZE - TEXT_MARGIN).max(1.0),
+    );
+    let row_rect = strip_rect(rect, bottom, galley.size().y);
+    // 只讀不接滑鼠：讓輔助技術讀得到
+    let row = ui.interact(
+        row_rect.intersect(clip),
+        ui.scope_id().with("info_banner"),
+        Sense::hover(),
+    );
+    row.widget_info(|| WidgetInfo::labeled(Role::Label, true, text));
+    paint_strip(ui, &painter, row_rect, galley, alpha);
+    row_rect
+}
+
+/// 橫幅列的位置：貼在 `bottom` 之上（留 [`PAD_Y`]）、右側讓出縮放把手。
+fn strip_rect(rect: Rect, bottom: f32, height: f32) -> Rect {
+    Rect::from_min_size(
+        pos2(rect.min.x, bottom - PAD_Y - height),
+        vec2(rect.width() - GRIP_SIZE, height),
+    )
+}
+
+/// 畫橫幅列的底與垂直置中的文字；橫幅貼著視窗左下角，底沿圓角切掉。
+fn paint_strip(ui: &Ui, painter: &Painter, row: Rect, galley: Arc<Galley>, alpha: f32) {
+    let fill = BG_UPDATE.gamma_multiply(bar_alpha(alpha));
+    painter.add(glass::window_piece(row, ui.max_rect(), fill));
+    let top = row.min.y + (row.height() - galley.size().y) / 2.0;
+    painter.galley(pos2(row.min.x + TEXT_MARGIN, top), galley, FG_UPDATE);
 }
 
 /// 游標或按壓起點壓在外框的縮放帶上：橫幅讓給縮放，不換手指游標、不開連結。
@@ -543,5 +594,57 @@ mod tests {
         );
         let harness = harness(banners);
         harness.get_by_label("https://a.example/keys");
+    }
+
+    #[test]
+    fn loading_banner_is_an_info_line_apart_from_the_error_banner() {
+        let mut banners = Banners::default();
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        assert_eq!(
+            banners.info_text(),
+            Some(t("local.banner.loading", &[("model", "Qwen3.5-9B")]))
+        );
+        assert_eq!(banners.error_text(), None);
+        banners.set_local_loading(None);
+        assert_eq!(banners.info_text(), None);
+    }
+
+    #[test]
+    fn loading_banner_stacks_above_the_update_row_and_below_the_list() {
+        let mut banners = Banners::default();
+        banners.set_update(release("0.2.0"));
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        let harness = harness(banners);
+        let loading = harness
+            .get_by_label(&t("local.banner.loading", &[("model", "Qwen3.5-9B")]))
+            .rect();
+        let update = harness
+            .get_by_label(&t("update.available", &[("version", "0.2.0")]))
+            .rect();
+        assert!(loading.max.y <= update.min.y, "{loading:?} {update:?}");
+        assert!(harness.state().rest.max.y <= loading.min.y);
+    }
+
+    #[test]
+    fn body_hole_covers_exactly_the_info_strips() {
+        let label = t("local.banner.loading", &[("model", "Qwen3.5-9B")]);
+        let mut banners = Banners::default();
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        let harness = harness(banners);
+        let loading = harness.get_by_label(&label).rect();
+        assert_eq!(harness.state().banners.body_hole(), Some(loading));
+
+        let mut banners = Banners::default();
+        banners.set_update(release("0.2.0"));
+        banners.set_local_loading(Some("Qwen3.5-9B".into()));
+        let harness = self::harness(banners);
+        let update = harness
+            .get_by_label(&t("update.available", &[("version", "0.2.0")]))
+            .rect();
+        let loading = harness.get_by_label(&label).rect();
+        assert_eq!(
+            harness.state().banners.body_hole(),
+            Some(update.union(loading))
+        );
     }
 }

@@ -14,13 +14,14 @@ use serde_json::{Value, json};
 
 use common::kittest::{click, click_change, has_label, run, settle, text_sections, tr};
 use common::log_capture::{capture_logs, log_lines_with};
-use common::settings_env::FakeEnv;
+use common::settings_env::{FakeEnv, installed};
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, app_dir, default_config};
 use wizard101_chat_translator::i18n::{self, current_language, language_name, t};
 use wizard101_chat_translator::input::dispatcher::Dispatcher;
 use wizard101_chat_translator::input::dispatcher::testing::key;
+use wizard101_chat_translator::local::store::Measured;
 use wizard101_chat_translator::runtime::updater::{
     AUTHOR_URL, CROWDIN_URL, ISSUES_URL, PROJECT_URL, Release,
 };
@@ -141,12 +142,141 @@ fn the_services_tab_sits_between_basic_and_advanced() {
         [
             tr("settings.tab.basic"),
             tr("settings.tab.services"),
+            tr("settings.tab.local"),
             tr("settings.tab.glossaries"),
             tr("settings.tab.advanced"),
             tr("settings.tab.about")
         ]
     );
     assert_eq!(h.state().win.page(), Page::Basic);
+}
+
+/// 模型清單一起換行：有一列的按鈕放不下名稱旁時，整份清單都把按鈕換到名稱下方；夠寬時都在同一列。
+#[test]
+fn the_model_list_wraps_all_rows_together() {
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
+    let env = FakeEnv::default();
+    {
+        let mut s = env.snapshot.borrow_mut();
+        // a 有 MTP 開關、等級標「預估」，按鈕區比 b 寬：最窄時只有 a 放不下
+        let mut a = installed("a", true, 7 * GB);
+        a.manifest.repo = "unsloth/gemma-4-E4B-it-GGUF".into();
+        a.manifest.has_builtin_mtp = true;
+        let mut b = installed("b", true, 5 * GB);
+        b.manifest.repo = "unsloth/Qwen3.5-9B-GGUF".into();
+        b.manifest.measured = Some(Measured {
+            vram: 5 * GB,
+            ram: 0,
+            all_on_gpu: true,
+            mtp: false,
+            engine: "b11871-cpu".into(),
+            prompt_cache_mib: 8192,
+        });
+        s.models = vec![a, b];
+        s.hardware.gpu = Some(Gpu {
+            name: "GPU".into(),
+            vendor: 0x10de,
+            device: 0,
+            kind: GpuKind::Discrete,
+            nvidia_driver: None,
+        });
+        s.hardware.vram_total = 16 * GB;
+        s.hardware.vram_free = 16 * GB;
+        s.hardware.ram_total = 32 * GB;
+        s.hardware.ram_free = 32 * GB;
+        s.hardware.measured = true;
+    }
+    let cfg = configured("local", json!({"model": "b"}));
+    let mut h = harness_with(cfg, env, theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    go(&mut h, "settings.tab.local");
+    let stacked = |h: &Harness<State>| {
+        let mut deletes: Vec<Rect> = h
+            .query_all_by_role_and_label(Role::Button, &tr("button.delete"))
+            .map(|n| n.rect())
+            .collect();
+        deletes.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        ["unsloth/gemma-4-E4B-it-GGUF", "unsloth/Qwen3.5-9B-GGUF"]
+            .iter()
+            .zip(&deletes)
+            .map(|(name, delete)| delete.top() > h.get_by_label(name).rect().bottom())
+            .collect::<Vec<_>>()
+    };
+    run(&mut h);
+    assert_eq!(stacked(&h), [true, true]);
+    h.set_size(theme::SETTINGS_SIZE + egui::vec2(0.0, 1000.0));
+    run(&mut h);
+    assert_eq!(stacked(&h), [false, false]);
+}
+
+/// 設定視窗縮到最窄時，每一頁的內容都不超出底部按鈕列的右緣。
+#[test]
+fn every_page_fits_the_narrowest_window() {
+    use wizard101_chat_translator::local::engine::{Build, EngineInstall, Variant};
+    use wizard101_chat_translator::local::hardware::{Gpu, GpuKind};
+    use wizard101_chat_translator::local::{DownloadState, EngineState};
+    let cfg = configured("local", json!({"model": "a"}));
+    let env = FakeEnv::default();
+    {
+        let mut s = env.snapshot.borrow_mut();
+        let mut a = installed("a", true, 7 * GB);
+        a.manifest.repo = "unsloth/gemma-4-26B-A4B-it-qat-GGUF".into();
+        a.manifest.has_builtin_mtp = true;
+        let mut b = installed("b", false, 5 * GB);
+        b.manifest.repo = "bartowski/Qwen3.8-27B-Instruct-abliterated-GGUF".into();
+        s.models = vec![a, b];
+        let failed = t("local.error.download", &[("error", "HTTP 503")]);
+        s.downloads
+            .insert("b".into(), DownloadState::Failed(failed));
+        s.engine = EngineState::Ready(EngineInstall {
+            build: "b7000".into(),
+            variant: Variant::Vulkan,
+        });
+        let build = |tag: &str| Build {
+            tag: tag.into(),
+            published: "2026-10-01".into(),
+            variants: vec![],
+        };
+        s.builds = Some(Ok(vec![build("b7100"), build("b7000")]));
+        s.hardware.gpu = Some(Gpu {
+            name: "NVIDIA GeForce RTX 4080 SUPER".into(),
+            vendor: 0x10de,
+            device: 0,
+            kind: GpuKind::Discrete,
+            nvidia_driver: None,
+        });
+        s.hardware.measured = true;
+    }
+    let mut h = harness_with(cfg, env, theme::SETTINGS_MIN_SIZE + egui::vec2(0.0, 1000.0));
+    let tabs = [
+        "settings.tab.basic",
+        "settings.tab.services",
+        "settings.tab.local",
+        "settings.tab.glossaries",
+        "settings.tab.advanced",
+        "settings.tab.about",
+    ];
+    for tab in tabs {
+        go(&mut h, tab);
+        run(&mut h);
+        let edge = h
+            .get_by_role_and_label(Role::Button, &tr("button.save"))
+            .rect()
+            .right();
+        let controls = h.query_all_by(|n| {
+            matches!(
+                n.role(),
+                Role::Button | Role::Label | Role::Link | Role::ComboBox
+            )
+        });
+        for node in controls.filter(|n| n.rect().center().x > theme::SIDEBAR_WIDTH) {
+            let rect = node.rect();
+            assert!(
+                rect.right() <= edge + 0.5,
+                "{tab}: {:?} {rect:?}",
+                node.accesskit_node().label()
+            );
+        }
+    }
 }
 
 #[test]
@@ -287,10 +417,11 @@ fn the_footer_stays_visible_in_a_small_window() {
 // --- 儲存 ---
 
 /// 設定視窗管的鍵；儲存只送這些，由 App 併進目前共用的設定。
-const OWNED_KEYS: [&str; 17] = [
+const OWNED_KEYS: [&str; 18] = [
     "services",
     "default_service",
     "service_slots",
+    "local_models",
     "glossaries",
     "active_glossary",
     "target_language",
@@ -816,12 +947,13 @@ fn about_tab_shows_the_translators() {
     let mut h = harness(configured_cfg());
     go(&mut h, "settings.tab.about");
     let author = top(&h, Role::Link, "GoneTone");
-    let translators = top(&h, Role::Link, "Claude Code");
+    let credit = h.get_by_role_and_label(Role::Link, "Claude Code").rect();
+    let translators = credit.top();
     let contribute = top(&h, Role::Link, CROWDIN_URL.trim_start_matches("https://"));
     let issues = top(&h, Role::Link, ISSUES_URL.trim_start_matches("https://"));
     assert!(author < translators && translators < contribute && contribute < issues);
     let label = text(&h, &tr("credit.translators")).rect();
-    assert!((label.top() - translators).abs() < 24.0);
+    assert!((label.center().y - credit.center().y).abs() < 1.0);
 }
 
 const UP_TO_DATE_LOG: &str = "[update] manual check: already up to date";
@@ -1177,4 +1309,211 @@ fn the_target_language_colors_what_was_typed() {
         english.contains(&("Eng".to_owned(), theme::ACCENT)),
         "{english:?}"
     );
+}
+
+const GB: u64 = 1 << 30;
+
+/// 預設服務用模型 `a`，收訊用另一個本地服務指到 `b_model`；每個模型要 8 GB，只有 10 GB RAM 可用。
+fn two_local_services(b_model: &str) -> Harness<'static, State> {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let b = add_service(&mut cfg, "local", json!({"model": b_model}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = b["id"].clone();
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB), installed("b", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+        snapshot.hardware.measured = true;
+    }
+    harness_with(cfg, env, egui::vec2(840.0, 660.0))
+}
+
+/// 放不下時列出的大小標明是實測還是預估。
+#[test]
+fn the_over_capacity_list_says_which_sizes_were_measured() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().models[0]
+        .manifest
+        .measured = Some(Measured {
+        vram: 0,
+        ram: 7 * GB,
+        all_on_gpu: false,
+        mtp: false,
+        engine: "b11871-cpu".into(),
+        prompt_cache_mib: 8192,
+    });
+    run(&mut h);
+    assert!(save(&mut h).is_none());
+    let measured = t(
+        "error.local_over_capacity_item_measured",
+        &[("name", "org/a · Q4_K_M"), ("size", "7.0")],
+    );
+    let estimated = t(
+        "error.local_over_capacity_item_estimated",
+        &[("name", "org/b · Q4_K_M"), ("size", "8.0")],
+    );
+    let models = [estimated, measured].join(&t("local.list_separator", &[]));
+    let message = t(
+        "error.local_over_capacity",
+        &[("models", &models), ("vram", "0.0"), ("ram", "10.0")],
+    );
+    assert!(has_label(&h, &message));
+}
+
+#[test]
+fn two_different_local_models_that_do_not_fit_block_saving() {
+    capture_logs();
+    let mut h = two_local_services("b");
+    assert!(save(&mut h).is_none());
+    assert!(has_label(&h, &tr("dialog.incomplete_title")));
+    let item = |name: &str| {
+        t(
+            "error.local_over_capacity_item_estimated",
+            &[("name", &format!("org/{name} · Q4_K_M")), ("size", "8.0")],
+        )
+    };
+    let models = [item("b"), item("a")].join(&t("local.list_separator", &[]));
+    let message = t(
+        "error.local_over_capacity",
+        &[("models", &models), ("vram", "0.0"), ("ram", "10.0")],
+    );
+    assert!(has_label(&h, &message));
+    assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
+}
+
+/// 兩個模型都已經跑著（實際放得下）時不擋儲存。
+#[test]
+fn two_local_models_that_already_run_do_not_block_saving() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().running = ["a".into(), "b".into()].into();
+    run(&mut h);
+    assert!(save(&mut h).is_some());
+}
+
+/// VRAM 還沒量過時相容等級未知，不拿來擋儲存。
+#[test]
+fn unmeasured_memory_does_not_block_saving() {
+    let mut h = two_local_services("b");
+    h.state().env.snapshot.borrow_mut().hardware.measured = false;
+    run(&mut h);
+    assert!(save(&mut h).is_some());
+}
+
+#[test]
+fn same_local_model_in_two_slots_is_fine() {
+    let mut h = two_local_services("a");
+    assert!(save(&mut h).is_some());
+}
+
+#[test]
+fn a_local_service_whose_model_is_gone_blocks_saving_by_name() {
+    let cfg = configured("local", json!({"model": "a"}));
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+#[test]
+fn the_local_form_link_switches_to_the_local_models_page() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
+    h.get_by_label(&tr("local.form.open_models")).click();
+    run(&mut h);
+    assert_eq!(h.state().win.page(), Page::LocalModels);
+}
+
+#[test]
+fn a_service_card_flags_a_gone_local_model() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    go(&mut h, "settings.tab.services");
+    assert!(has_label(&h, &tr("local.form.model_missing")));
+    h.state().env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    run(&mut h);
+    assert!(!has_label(&h, &tr("local.form.model_missing")));
+}
+
+/// 本地服務卡片的副標用「org/repo · 量化」，不露出內部 id。
+#[test]
+fn a_local_service_card_names_the_model_like_elsewhere() {
+    let mut h = harness(configured("local", json!({"model": "a"})));
+    h.state().env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    go(&mut h, "settings.tab.services");
+    let shown = format!("{} · org/a · Q4_K_M", tr("provider.local_short"));
+    assert!(has_label(&h, &shown));
+}
+
+#[test]
+fn a_gone_default_model_blocks_saving_even_when_every_slot_overrides_it() {
+    let mut cfg = configured("local", json!({"model": "gone"}));
+    let other = add_service(&mut cfg, "openai", json!({}));
+    for slot in ServiceSlot::ALL {
+        cfg["service_slots"][slot.key()] = other["id"].clone();
+    }
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+#[test]
+fn a_dangling_slot_falls_back_to_the_default_for_both_checks() {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = json!("no-such-service");
+    let env = FakeEnv::default();
+    env.snapshot.borrow_mut().models = vec![installed("a", true, 0)];
+    let mut h = harness_with(cfg.clone(), env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_some());
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    assert!(save(&mut h).is_none());
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+}
+
+/// 容量檢查也把指到不存在服務的用途算成預設服務的模型。
+#[test]
+fn a_dangling_slot_counts_the_default_model_toward_capacity() {
+    capture_logs();
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let b = add_service(&mut cfg, "local", json!({"model": "b"}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = json!("no-such-service");
+    for slot in [ServiceSlot::Outgoing, ServiceSlot::Region] {
+        cfg["service_slots"][slot.key()] = b["id"].clone();
+    }
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB), installed("b", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+        snapshot.hardware.measured = true;
+    }
+    let mut h = harness_with(cfg, env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_none());
+    assert!(!log_lines_with("[settings] save blocked: error.local_over_capacity").is_empty());
+}
+
+#[test]
+fn a_cloud_slot_does_not_count_toward_local_capacity() {
+    let mut cfg = configured("local", json!({"model": "a"}));
+    let cloud = add_service(&mut cfg, "openai", json!({}));
+    cfg["service_slots"][ServiceSlot::Incoming.key()] = cloud["id"].clone();
+    let env = FakeEnv::default();
+    {
+        let mut snapshot = env.snapshot.borrow_mut();
+        snapshot.models = vec![installed("a", true, 8 * GB)];
+        snapshot.hardware.ram_free = 10 * GB;
+    }
+    let mut h = harness_with(cfg, env, egui::vec2(840.0, 660.0));
+    assert!(save(&mut h).is_some());
 }

@@ -162,7 +162,7 @@ pub struct Bubble {
 
 impl Bubble {
     /// `foreground` 是當下的前景視窗，當作前景基準：縮小時 overlay 可能正是前景，
-    /// 否則第一輪就會誤判成「使用者切回本工具」。
+    /// 否則第一輪就會誤判成「使用者切回本軟體」。
     pub fn new(hwnd: isize, foreground: isize, now: Instant) -> Self {
         Self {
             hwnd,

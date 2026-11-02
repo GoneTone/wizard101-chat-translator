@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
 use common::fake_backend::{Fake, JA, spec};
-use common::log_capture::{log_lines_with, log_text};
+use common::log_capture::{capture_logs, log_lines_with, log_text};
 use common::reader_fixture::{EXPECTED_PANIC, quiet_panics};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -26,7 +26,8 @@ use wizard101_chat_translator::translation::prompts::{
     fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
 };
 use wizard101_chat_translator::translation::translator::{
-    ExampleCoordinator, TEST_SAMPLE, Translator, generate_and_store, test_translate,
+    ExampleCoordinator, TEST_SAMPLE, Translator, examples_after_test, generate_and_store,
+    test_translate,
 };
 
 const ZH: &str = "繁體中文（台灣）";
@@ -925,45 +926,43 @@ fn fake_with_examples() -> Arc<Fake> {
     Fake::texts(&["[Tester] 你好！", JA])
 }
 
+/// 測試連線只翻那一句（範例另外在背景產生），載入時間原樣帶回。
 #[tokio::test]
-async fn test_translate_times_only_the_sample_translation() {
-    // 門檻等於範例生成的耗時：計到它就一定超過，不計時再慢的機器也遠低於此
-    const GENERATION: std::time::Duration = std::time::Duration::from_secs(1);
+async fn test_translate_only_translates_the_sample() {
     let fake = fake_with_examples();
-    fake.on_call(|n| {
-        if n == 2 {
-            std::thread::sleep(GENERATION);
-        }
-    });
-    let dir = tempfile::tempdir().unwrap();
-    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir)))
+    let load = Some(std::time::Duration::from_secs(3));
+    let out = test_translate(&make_with(&fake, "日本語"), load)
         .await
         .unwrap();
     assert_eq!(out.translated, "[Tester] 你好！");
-    assert!(out.elapsed < GENERATION, "{:?}", out.elapsed);
-    assert_eq!(fake.calls().len(), 2);
-}
-
-#[tokio::test]
-async fn test_translate_generates_and_stores_examples() {
-    let fake = fake_with_examples();
-    let tr = make_with(&fake, "日本語");
-    let dir = tempfile::tempdir().unwrap();
-    let store = store_in(&dir);
-    test_translate(Arc::clone(&tr), Some(Arc::clone(&store)))
-        .await
-        .unwrap();
-    assert!(store.get(&tr.examples_fingerprint()).unwrap().complete());
+    assert_eq!(out.load, load);
+    assert_eq!(fake.calls().len(), 1);
     assert_eq!(fake.calls()[0].turns.last().unwrap().content, TEST_SAMPLE);
 }
 
 #[tokio::test]
-async fn test_translate_without_a_store_skips_examples() {
+async fn examples_after_test_generates_and_stores_examples() {
     let fake = fake_with_examples();
-    test_translate(make_with(&fake, "日本語"), None)
-        .await
-        .unwrap();
-    assert_eq!(fake.calls().len(), 1);
+    let tr = make_with(&fake, "日本語");
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+    examples_after_test(&tr, &store, &CancellationToken::new()).await;
+    assert!(store.get(&tr.examples_fingerprint()).unwrap().complete());
+}
+
+/// 下一次測試開始（權杖取消）時不再產生範例。
+#[tokio::test]
+async fn examples_after_test_stops_when_cancelled() {
+    capture_logs();
+    let fake = fake_with_examples();
+    let tr = make_with(&fake, "日本語");
+    let dir = tempfile::tempdir().unwrap();
+    let store = store_in(&dir);
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    examples_after_test(&tr, &store, &cancel).await;
+    assert!(store.get(&tr.examples_fingerprint()).is_none());
+    assert!(log_text().contains("example generation after the connection test cancelled"));
 }
 
 #[tokio::test]
@@ -979,10 +978,10 @@ async fn example_failure_after_a_good_test_still_returns_the_translation() {
         ],
     );
     let dir = tempfile::tempdir().unwrap();
-    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir)))
-        .await
-        .unwrap();
+    let tr = make_with(&fake, "日本語");
+    let out = test_translate(&tr, None).await.unwrap();
     assert_eq!(out.translated, "[Tester] 你好！");
+    examples_after_test(&tr, &store_in(&dir), &CancellationToken::new()).await;
     assert!(
         log_text().contains(
             "[translate] example generation after the connection test failed: config error"
@@ -994,8 +993,7 @@ async fn example_failure_after_a_good_test_still_returns_the_translation() {
 async fn test_translate_returns_the_translation_error() {
     let err = TranslateError::Unexpected("boom".into());
     let fake = Fake::new("m", vec![Err(err.clone())]);
-    let dir = tempfile::tempdir().unwrap();
-    let out = test_translate(make_with(&fake, "日本語"), Some(store_in(&dir))).await;
+    let out = test_translate(&make_with(&fake, "日本語"), None).await;
     assert_eq!(out, Err(err));
     assert_eq!(fake.calls().len(), 1);
 }
@@ -1046,7 +1044,10 @@ fn race_with_connection_test(
     let (ta, store) = (make_with(fa, "日本語"), Arc::clone(&h.store));
     let test = std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(test_translate(ta, Some(store))).unwrap();
+        rt.block_on(async {
+            test_translate(&ta, None).await.unwrap();
+            examples_after_test(&ta, &store, &CancellationToken::new()).await;
+        });
     });
     entered.recv().unwrap();
 

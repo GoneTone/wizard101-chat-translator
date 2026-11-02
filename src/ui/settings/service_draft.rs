@@ -4,12 +4,21 @@ use serde_json::Value;
 
 use super::widgets::card_label;
 use crate::config::Config;
-use crate::config::services::{ServiceSlot, slot_id, str_field, unique_name};
+use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, slot_id, str_field, unique_name};
 use crate::i18n::t;
+use crate::local::Snapshot;
 use crate::logs::log;
 
 pub(super) fn id_of(service: &Value) -> &str {
     str_field(service, "id")
+}
+
+/// 這筆本地服務指定的模型已不在（沒下載完成或被刪）；非本地服務或還沒選模型為 `false`。
+pub(super) fn local_model_gone(service: &Value, snapshot: &Snapshot) -> bool {
+    let model = str_field(service, "model");
+    str_field(service, "provider") == LOCAL_PROVIDER
+        && !model.is_empty()
+        && snapshot.ready_model(model).is_none()
 }
 
 /// 服務分頁編輯中的三個設定鍵：服務清單、預設服務與各用途指定；`write_into` 寫回設定。

@@ -57,6 +57,8 @@ pub fn channel() -> (UiPoster, Inbox) {
 
 /// 設定視窗按儲存：收到視窗管的那些鍵（不是完整設定），回傳實際生效的框選熱鍵（沒註冊為 `None`）。
 pub type OnSave = Box<dyn FnMut(Config) -> Option<String>>;
+/// 設定視窗按取消或關閉。
+pub type OnCancel = Box<dyn FnMut()>;
 /// 精靈完成後接上其餘功能並開始執行；收到完整設定。
 pub type OnStart = Box<dyn FnOnce(&mut App, Config)>;
 
@@ -65,6 +67,7 @@ struct SettingsWiring {
     host: SettingsHost,
     cfg: Arc<RwLock<Config>>,
     on_save: OnSave,
+    on_cancel: OnCancel,
 }
 
 /// 首次設定精靈與完成後的接線。
@@ -213,17 +216,19 @@ impl App {
         self.on_close = Some(Box::new(on_close));
     }
 
-    /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定。
+    /// 接上設定視窗：⚙ 以 `settings` 當下的內容開窗，按儲存時呼叫 `on_save` 再套用 overlay 端的設定，取消或關閉時呼叫 `on_cancel`。
     pub fn set_settings(
         &mut self,
         host: SettingsHost,
         settings: Arc<RwLock<Config>>,
         on_save: OnSave,
+        on_cancel: OnCancel,
     ) {
         self.settings = Some(SettingsWiring {
             host,
             cfg: settings,
             on_save,
+            on_cancel,
         });
     }
 
@@ -510,6 +515,11 @@ impl App {
                 (_, Some(wiring)) => wiring.host.apply(event),
                 _ => {}
             },
+            UiEvent::LocalChanged => ctx.request_repaint(),
+            UiEvent::LocalLoading(model) => {
+                self.banners.set_local_loading(model);
+                ctx.request_repaint();
+            }
             // 與 ✕ 同一條路：關掉根 viewport
             UiEvent::Quit => ctx.send_viewport_cmd_to(ViewportId::ROOT, ViewportCommand::Close),
         }
@@ -539,7 +549,7 @@ impl App {
         rect.min.y = content.min_rect().max.y.max(rect.min.y);
         let body = rect;
         let rect = self.banners.show(ui, rect, self.frame.alpha());
-        self.frame.fill_body(ui, body, self.banners.update_rect());
+        self.frame.fill_body(ui, body, self.banners.body_hole());
         self.selection.show(
             ui,
             &mut self.list,
@@ -616,7 +626,12 @@ impl App {
                 self.apply_settings(ctx, &cfg, region_hotkey);
                 self.close_settings();
             }
-            SettingsAction::Cancel => self.close_settings(),
+            SettingsAction::Cancel => {
+                if let Some(wiring) = &mut self.settings {
+                    (wiring.on_cancel)();
+                }
+                self.close_settings();
+            }
         }
     }
 

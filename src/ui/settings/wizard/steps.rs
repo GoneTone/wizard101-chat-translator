@@ -5,6 +5,7 @@ use eframe::egui::{
     Response, RichText, Role, Sense, Stroke, TextStyle, Ui, Vec2, WidgetInfo, pos2,
 };
 
+use super::local_step::{InstallState, LocalInstall};
 use super::{Step, Wizard, WizardAction};
 use crate::config::app_name;
 use crate::i18n::{current_language, language_name, t};
@@ -108,6 +109,9 @@ impl Wizard {
                 let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
                 ui.painter().image(texture, rect, uv, Color32::WHITE);
                 ui.add(Label::new(RichText::new(app_name()).font(theme::bold(22.0))).wrap());
+                // 工具介紹放開場畫面；第二步只講選服務與設定服務
+                let intro = RichText::new(t("wizard.intro", &[])).color(theme::TEXT_SECONDARY);
+                ui.add(Label::new(intro).wrap());
             });
         });
         let label = ui
@@ -130,7 +134,6 @@ impl Wizard {
     }
 
     fn service_step(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
-        ui.add(Label::new(RichText::new(t("wizard.intro", &[])).color(theme::TEXT)).wrap());
         let Some(form) = &mut self.form else {
             heading(ui, &t("wizard.pick_provider", &[]));
             if let Some(key) = provider_cards(ui, CardLayout::Grid) {
@@ -138,6 +141,17 @@ impl Wizard {
             }
             return;
         };
+        let snapshot = env.local_snapshot();
+        if form.is_local() {
+            let install = self.local.get_or_insert_with(|| {
+                let model = form.values()["model"].as_str().unwrap_or("").to_owned();
+                LocalInstall::new(model)
+            });
+            if let InstallState::Done(id) = install.ui(ui, env, &snapshot) {
+                form.set_model(&id);
+            }
+            return;
+        }
         // 填設定與測試連線要等表單真的畫出來才說得通，選服務商之前不提
         ui.add(
             Label::new(
@@ -151,7 +165,7 @@ impl Wizard {
         let response = card(ui, |ui| {
             Frame::new()
                 .inner_margin(Margin::symmetric(16, 14))
-                .show(ui, |ui| form.ui(ui, env, &target))
+                .show(ui, |ui| form.ui(ui, env, &snapshot, &target))
                 .inner
         });
         if response.changed {

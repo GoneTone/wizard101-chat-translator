@@ -1,0 +1,849 @@
+//! 本地模型的對外入口：狀態快照，以及在背景執行的引擎、硬體、repo 查詢與下載指令。
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
+
+use tokio::runtime::Handle;
+use tokio::sync::OnceCell;
+use tokio_util::sync::CancellationToken;
+
+use super::download::Progress;
+use super::engine::{self, Build, EngineInstall, Variant};
+use super::fit::{self, Need, Pick, Rating};
+use super::gguf::{self, ModelMeta};
+use super::hardware::{self, Gpu, Hardware};
+use super::hf::{self, Catalog, SearchHit};
+use super::runtime::{EngineUsers, Servers};
+use super::server::Launcher;
+use super::store::{self, Installed};
+use super::{LocalNotice, Notify};
+use crate::config::Config;
+use crate::config::local::LocalSettings;
+use crate::i18n::t;
+use crate::logs::log;
+use crate::util::lock;
+
+/// 下載與安裝進度寫進快照的間隔。
+pub const PROGRESS_TICK: Duration = Duration::from_millis(100);
+
+/// 外部服務根網址；正式為 [`hf::HF_BASE`] 與 [`engine::RELEASES_API`]。
+#[derive(Clone, Debug)]
+pub struct Endpoints {
+    pub hf: String,
+    pub releases: String,
+}
+
+/// llama.cpp 引擎的狀態。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum EngineState {
+    #[default]
+    Missing,
+    Installing {
+        build: String,
+        done: u64,
+        total: u64,
+        /// 正在解壓剛下載完的 zip。
+        extracting: bool,
+    },
+    Ready(EngineInstall),
+    /// 正在停掉子程序並刪除引擎檔案。
+    Removing,
+    Failed(String),
+}
+
+/// 一個模型下載的狀態；下載完成後從快照移除。
+#[derive(Clone, Debug, PartialEq)]
+pub enum DownloadState {
+    Running { done: u64, total: u64 },
+    Paused { done: u64, total: u64 },
+    Failed(String),
+}
+
+/// 一個 repo 的查詢狀態。
+#[derive(Clone, Debug, PartialEq)]
+pub enum RepoState {
+    Loading,
+    Ready(RepoInfo),
+    Failed(String),
+}
+
+/// 一個 repo 的檔案分類、檔頭與相容判斷。
+#[derive(Clone, Debug, PartialEq)]
+pub struct RepoInfo {
+    pub catalog: Catalog,
+    pub meta: ModelMeta,
+    /// 與 `catalog.choices` 對應；每個量化的 `[0]` 是不帶 MTP，`[1 + m]` 是帶 `catalog.mtp[m]`。
+    pub fits: Vec<Vec<Rating>>,
+    pub auto: Option<Pick>,
+}
+
+/// UI 每幀讀取的狀態快照。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Snapshot {
+    pub engine: EngineState,
+    pub builds: Option<Result<Vec<Build>, String>>,
+    pub hardware: Hardware,
+    pub models: Vec<Installed>,
+    pub downloads: BTreeMap<String, DownloadState>,
+    pub repos: BTreeMap<String, RepoState>,
+    /// 目前跑著 llama-server 的模型 id。
+    pub running: BTreeSet<String>,
+    /// 其中要開 MTP、但啟動失敗後退回不帶 MTP 跑的。
+    pub mtp_fallback: BTreeSet<String>,
+    /// 硬體偵測中（啟動後第一次量完以前，或〔重新偵測〕進行中）；這時硬體與相容等級還不能信。
+    pub detecting: bool,
+    /// 最近一次 Hugging Face 搜尋。
+    pub search: Option<Search>,
+}
+
+/// 一次 Hugging Face 搜尋：關鍵字與已列出的結果。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Search {
+    pub query: String,
+    /// 第一頁還沒回來為 `None`，第一頁失敗為 `Some(Err)`；之後載入的頁接在後面。
+    pub results: Option<Result<Vec<SearchHit>, String>>,
+    /// 下一頁的網址；沒有更多為 `None`。
+    pub next: Option<String>,
+    /// 正在載入下一頁。
+    pub loading_more: bool,
+    /// 上次載入下一頁失敗的原因；已列出的結果照留。
+    pub more_error: Option<String>,
+}
+
+impl Snapshot {
+    /// 已下載完成的模型 `id`。
+    pub fn ready_model(&self, id: &str) -> Option<&Installed> {
+        self.models.iter().find(|m| m.id == id && m.complete)
+    }
+
+    /// 已下載的模型照 runtime 實際的 MTP 開關（同 `mtp_mode`：設定開著、有 MTP，且跑著的沒有退回不帶 MTP）載入時要的記憶體。
+    pub fn model_need(&self, model: &Installed, settings: &LocalSettings) -> Need {
+        let mtp = settings.mtp_on(&model.id) && !self.mtp_fallback.contains(&model.id);
+        fit::installed_need(&self.models, model, mtp, &self.hardware)
+    }
+}
+
+/// `Local::detecting` 登記的一筆硬體偵測。
+struct Detecting<'a> {
+    local: &'a Local,
+}
+
+impl Drop for Detecting<'_> {
+    fn drop(&mut self) {
+        self.local.update(|_| {
+            self.local.refreshing.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+}
+
+/// 啟動後第一次量測：放掉時扣掉建立時就算進去的那一筆（只扣一次）。
+struct FirstMeasure<'a> {
+    local: &'a Local,
+}
+
+impl Drop for FirstMeasure<'_> {
+    fn drop(&mut self) {
+        if self.local.first_pending.swap(false, Ordering::SeqCst) {
+            self.local.update(|_| {
+                self.local.refreshing.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    }
+}
+
+/// UI 送給 hub 的指令，全部在背景執行。
+#[derive(Clone, Debug)]
+pub enum Command {
+    /// 重新量硬體；`redetect_gpu` 時也重新列舉顯示卡（〔重新偵測〕），否則只重量可用量（例如打開本地模型頁）。
+    RefreshHardware {
+        redetect_gpu: bool,
+    },
+    ListBuilds,
+    /// `build`／`variant` 為 `None` 時取最新 build／依硬體自動挑。
+    InstallEngine {
+        build: Option<String>,
+        variant: Option<Variant>,
+    },
+    RemoveEngine,
+    QueryRepo(String),
+    /// 以關鍵字搜尋 Hugging Face 上含 GGUF 的 repo。
+    SearchRepos(String),
+    /// 目前的搜尋再載入下一頁。
+    SearchMore,
+    /// `choice`／`mtp` 為 `RepoInfo.catalog` 內的索引；`auto` 表示來自自動挑選（使用者沒手動選量化）。
+    Download {
+        repo: String,
+        choice: usize,
+        mtp: Option<usize>,
+        auto: bool,
+    },
+    Resume(String),
+    CancelDownload(String),
+    Delete(String),
+    /// 停掉已套用設定沒用到的模型（使用者停止了本地模型的測試連線）。
+    ReleaseUnused,
+}
+
+/// 本地模型 hub：持有快照、下載與 llama-server 子程序。
+pub struct Local {
+    pub(super) root: PathBuf,
+    pub(super) rt: Handle,
+    pub(super) launcher: Arc<dyn Launcher>,
+    pub(super) notify: Notify,
+    pub(super) settings: Mutex<LocalSettings>,
+    /// 已套用設定引用的模型；不在其中的是測試連線臨時啟動的。
+    pub(super) wanted: Mutex<BTreeSet<String>>,
+    pub(super) servers: Servers,
+    pub(super) endpoints: Endpoints,
+    pub(super) hf_http: reqwest::Client,
+    gh_http: reqwest::Client,
+    pub(super) state: Mutex<Snapshot>,
+    /// 偵測過的 GPU（外層 `None` 是還沒偵測）；只有使用者按〔重新偵測〕才重新列舉。
+    gpu: Mutex<Option<Option<Gpu>>>,
+    /// 程式啟動後的第一次量硬體；預先載入等它量完才開始。
+    first_measure: OnceCell<()>,
+    /// 進行中的硬體偵測數；啟動後第一次量測從建立起就算一筆，量完（或中途失敗）才扣掉。
+    refreshing: AtomicUsize,
+    /// 第一次量測那一筆還沒扣掉。
+    first_pending: AtomicBool,
+    /// 載入中的模型顯示名（依開始順序）。
+    pub(super) loading: Mutex<Vec<String>>,
+    /// `shutdown` 之後不再啟動任何模型。
+    pub(super) closed: AtomicBool,
+    /// 引擎安裝與移除一次只做一件；等引擎的下載也排在這裡。
+    engine_lock: tokio::sync::Mutex<()>,
+    /// 每次 `ensure` 從檢查前置條件到啟動完成都持有讀鎖；移除引擎時取寫鎖，期間任何模型都啟動不了。
+    pub(super) engine_files: tokio::sync::RwLock<()>,
+    pub(super) engine_users: EngineUsers,
+    pub(super) cancels: Mutex<BTreeMap<String, CancellationToken>>,
+    /// 讀改寫 `manifest.json`（下載寫清單、記實測）一次只做一件。
+    pub(super) manifests: Mutex<()>,
+    me: Weak<Local>,
+}
+
+impl Local {
+    /// 以 `root` 為資料夾建立 hub；引擎與模型清單從磁碟讀出。
+    pub fn new(
+        root: PathBuf,
+        rt: Handle,
+        launcher: Arc<dyn Launcher>,
+        endpoints: Endpoints,
+        notify: Notify,
+    ) -> Arc<Self> {
+        let snapshot = Snapshot {
+            engine: engine_on_disk(&root),
+            models: store::list(&root),
+            ..Snapshot::default()
+        };
+        log(format!(
+            "[local] hub created: engine={:?} models={}",
+            snapshot.engine,
+            snapshot.models.len()
+        ));
+        Arc::new_cyclic(|me| Self {
+            hf_http: hf::hf_client(&endpoints.hf),
+            gh_http: hf::hf_client(&endpoints.releases),
+            root,
+            rt,
+            launcher,
+            notify,
+            settings: Mutex::default(),
+            wanted: Mutex::default(),
+            servers: Servers::default(),
+            endpoints,
+            state: Mutex::new(snapshot),
+            gpu: Mutex::default(),
+            first_measure: OnceCell::new(),
+            refreshing: AtomicUsize::new(1),
+            first_pending: AtomicBool::new(true),
+            loading: Mutex::default(),
+            closed: AtomicBool::new(false),
+            engine_lock: tokio::sync::Mutex::new(()),
+            engine_files: tokio::sync::RwLock::new(()),
+            engine_users: EngineUsers::default(),
+            cancels: Mutex::default(),
+            manifests: Mutex::default(),
+            me: me.clone(),
+        })
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let mut snapshot = {
+            let state = lock(&self.state);
+            // 在狀態鎖內讀：計數只在 `update` 裡變，偵測中與硬體值是同一刻的
+            let mut snapshot = state.clone();
+            snapshot.detecting = self.refreshing.load(Ordering::SeqCst) > 0;
+            snapshot
+        };
+        (snapshot.running, snapshot.mtp_fallback) = self.running_ids();
+        snapshot
+    }
+
+    /// 程式啟動時呼叫一次：背景量硬體並套用設定；預先載入等量完才開始，量到的可用量才不含自己的模型。
+    pub fn start(&self, cfg: &Config) {
+        let me = self.arc();
+        self.rt.spawn(async move { me.measured_once().await });
+        self.apply_config(cfg);
+    }
+
+    /// 等程式啟動後的第一次量硬體完成（還沒開始就由這裡量）。
+    pub(super) async fn measured_once(&self) {
+        self.first_measure
+            .get_or_init(|| async {
+                let _first = FirstMeasure { local: self };
+                self.refresh_hardware(false).await;
+            })
+            .await;
+    }
+
+    /// 最近一次 `apply_config` 收到的設定（之前為預設值）。
+    pub fn settings(&self) -> LocalSettings {
+        lock(&self.settings).clone()
+    }
+
+    /// 在背景執行指令；狀態變了就送 `LocalNotice::Changed`。
+    ///
+    /// 下載與繼續下載在回傳前就登記好，快照立刻是下載中、蓋掉舊的失敗紀錄（repo 還沒查過的下載除外）；
+    /// 搜尋也在回傳前登記關鍵字，連續搜尋時才不會因背景 task 開始的先後，讓舊關鍵字蓋掉新的。
+    pub fn command(&self, cmd: Command) {
+        log(format!("[local] command {cmd:?}"));
+        let me = self.arc();
+        let task: std::pin::Pin<Box<dyn Future<Output = ()> + Send>> = match cmd {
+            Command::RefreshHardware { redetect_gpu } => {
+                Box::pin(async move { me.refresh_hardware(redetect_gpu).await })
+            }
+            Command::ListBuilds => Box::pin(async move { drop(me.list_builds().await) }),
+            Command::InstallEngine { build, variant } => Box::pin(async move {
+                let _engine = me.engine_lock.lock().await;
+                let _ = me.install_engine(build, variant).await;
+            }),
+            Command::RemoveEngine => Box::pin(async move { me.remove_engine().await }),
+            Command::QueryRepo(repo) => Box::pin(async move { me.query_repo(&repo).await }),
+            Command::SearchRepos(query) => {
+                self.update(|s| {
+                    s.search = Some(Search {
+                        query: query.clone(),
+                        ..Search::default()
+                    })
+                });
+                Box::pin(async move { me.search_repos(query).await })
+            }
+            Command::SearchMore => {
+                // 同一頁只載一次：連按時後面的不再送出
+                let mut claimed = None;
+                self.update(|s| {
+                    if let Some(search) = s.search.as_mut().filter(|x| !x.loading_more)
+                        && let Some(next) = search.next.clone()
+                    {
+                        (search.loading_more, search.more_error) = (true, None);
+                        claimed = Some((search.query.clone(), next));
+                    }
+                });
+                let Some((query, next)) = claimed else {
+                    return;
+                };
+                Box::pin(async move { me.search_more(query, next).await })
+            }
+            Command::Download {
+                repo,
+                choice,
+                mtp,
+                auto,
+            } => {
+                let claimed = match self.repo_info(&repo) {
+                    Some(_) => match self.claim_download(&repo, choice, mtp) {
+                        Some(claimed) => Some(claimed),
+                        None => return,
+                    },
+                    None => None,
+                };
+                Box::pin(async move {
+                    let claimed = match claimed {
+                        Some(claimed) => Some(claimed),
+                        None => {
+                            me.query_repo(&repo).await;
+                            me.claim_download(&repo, choice, mtp)
+                        }
+                    };
+                    if let Some(claimed) = claimed {
+                        me.download(&repo, auto, claimed).await;
+                    }
+                })
+            }
+            Command::Resume(id) => {
+                let Some(cancel) = self.claim(&id) else {
+                    log(format!("[local] download {id} already running"));
+                    return;
+                };
+                Box::pin(async move { me.resume(&id, cancel).await })
+            }
+            Command::CancelDownload(id) => {
+                if let Some(cancel) = lock(&self.cancels).get(&id) {
+                    cancel.cancel();
+                }
+                return;
+            }
+            Command::Delete(id) => Box::pin(async move { me.delete(&id).await }),
+            Command::ReleaseUnused => Box::pin(async move { me.release_unused(None) }),
+        };
+        self.rt.spawn(task);
+    }
+
+    pub(super) fn arc(&self) -> Arc<Self> {
+        self.me.upgrade().expect("Local is alive while in use")
+    }
+
+    pub(super) fn update(&self, f: impl FnOnce(&mut Snapshot)) {
+        f(&mut lock(&self.state));
+        (self.notify)(LocalNotice::Changed);
+    }
+
+    /// 執行 `fut`，期間定時把 `progress` 寫進快照。
+    pub(super) async fn track<T>(
+        &self,
+        progress: &Progress,
+        fut: impl Future<Output = T>,
+        set: impl Fn(&mut Snapshot, u64, u64),
+    ) -> T {
+        tokio::pin!(fut);
+        let mut tick = tokio::time::interval(PROGRESS_TICK);
+        loop {
+            tokio::select! {
+                out = &mut fut => return out,
+                _ = tick.tick() => self.update(|s| set(
+                    s,
+                    progress.done.load(Ordering::Relaxed),
+                    progress.total.load(Ordering::Relaxed),
+                )),
+            }
+        }
+    }
+
+    /// 偵測 GPU；偵測過且不要求 `redetect` 時沿用上次的結果。
+    fn gpu(&self, redetect: bool) -> Option<Gpu> {
+        let mut cached = lock(&self.gpu);
+        if redetect || cached.is_none() {
+            *cached = Some(tokio::task::block_in_place(|| self.launcher.detect_gpu()));
+        }
+        cached.clone().flatten()
+    }
+
+    /// 偵測過的 GPU 是不是內顯（共享系統記憶體）；還沒偵測過為 `None`（不會為此去偵測）。
+    pub(super) fn integrated_gpu(&self) -> Option<bool> {
+        let gpu = lock(&self.gpu);
+        let gpu = gpu.as_ref()?;
+        Some(
+            gpu.as_ref()
+                .is_some_and(|g| g.kind == hardware::GpuKind::Integrated),
+        )
+    }
+
+    /// 量 GPU（`redetect_gpu` 時重新列舉）、VRAM 與 RAM，以及本程式跑著的 llama-server 實際佔用多少；
+    /// VRAM 不必等引擎，見 [`hardware::vram`]。
+    async fn refresh_hardware(&self, redetect_gpu: bool) {
+        let _detecting = self.detecting();
+        let gpu = self.gpu(redetect_gpu);
+        // 持讀鎖跑 `--list-devices`：移除引擎要等它結束，才不會刪到執行中的 exe
+        let files = self.engine_files.read().await;
+        let exe = current_exe(&self.root);
+        let mut hw = tokio::task::block_in_place(|| {
+            let (ram_total, ram_free) = hardware::system_memory();
+            let mut hw = Hardware {
+                gpu,
+                ram_total,
+                ram_free,
+                ..Hardware::default()
+            };
+            let counters = hw
+                .gpu
+                .as_ref()
+                .and_then(|g| self.launcher.adapter_memory(g));
+            let devices = exe.and_then(|exe| match self.launcher.list_devices(&exe) {
+                Ok(out) => Some(hardware::parse_list_devices(&out)),
+                Err(e) => {
+                    log(format!("[local] llama-server --list-devices failed: {e}"));
+                    None
+                }
+            });
+            log(format!(
+                "[local] VRAM sources: adapter counters={counters:?} engine devices={devices:?}"
+            ));
+            if let Some((total, free)) = hardware::vram(hw.gpu.as_ref(), counters, devices) {
+                (hw.vram_total, hw.vram_free) = (total, free);
+                hw.measured = true;
+            }
+            hw
+        });
+        drop(files);
+        hw.own = self.measure_running();
+        log(format!(
+            "[local] hardware: gpu={:?} vram_total={} vram_free={} ram_total={} ram_free={} vram_measured={} own_vram={} own_ram={}",
+            hw.gpu,
+            hw.vram_total,
+            hw.vram_free,
+            hw.ram_total,
+            hw.ram_free,
+            hw.measured,
+            hw.own.vram,
+            hw.own.ram
+        ));
+        self.update(|s| {
+            s.hardware = hw;
+            rerate(s);
+        });
+    }
+
+    /// 呼叫端須持有 `engine_lock`；失敗時引擎狀態改為 `Failed`。
+    async fn install_engine(
+        &self,
+        tag: Option<String>,
+        variant: Option<Variant>,
+    ) -> Result<(), String> {
+        let result = self.try_install_engine(tag, variant).await;
+        if let Err(e) = &result {
+            log(format!("[local] engine install failed: {e}"));
+            let shown = t("local.error.engine_install", &[("error", e)]);
+            self.update(|s| s.engine = EngineState::Failed(shown));
+        }
+        result
+    }
+
+    async fn try_install_engine(
+        &self,
+        tag: Option<String>,
+        variant: Option<Variant>,
+    ) -> Result<(), String> {
+        let cached = match &lock(&self.state).builds {
+            Some(Ok(builds)) => Some(builds.clone()),
+            _ => None,
+        };
+        let builds = match cached {
+            Some(builds) => builds,
+            None => self.list_builds().await?,
+        };
+        let build = match &tag {
+            None => builds.first(),
+            Some(t) => builds.iter().find(|b| &b.tag == t),
+        }
+        .ok_or_else(|| {
+            format!(
+                "llama.cpp build {} is not available",
+                tag.as_deref().unwrap_or("latest")
+            )
+        })?;
+        let variant =
+            variant.unwrap_or_else(|| engine::auto_variant(self.gpu(false).as_ref(), Some(build)));
+        let total = build
+            .variants
+            .iter()
+            .find(|(v, _)| *v == variant)
+            .map_or(0, |(_, assets)| assets.iter().map(|a| a.size).sum());
+        let progress = Progress::default();
+        let installing = |done, total| EngineState::Installing {
+            build: build.tag.clone(),
+            done,
+            total,
+            extracting: progress.extracting.load(Ordering::Relaxed),
+        };
+        self.update(|s| s.engine = installing(0, total));
+        let never = CancellationToken::new();
+        let install = engine::install(
+            &self.gh_http,
+            &self.root,
+            build,
+            &variant,
+            &progress,
+            &never,
+        );
+        let installed = self
+            .track(&progress, install, |s, done, total| {
+                s.engine = installing(done, total)
+            })
+            .await?;
+        engine::activate(&self.root, installed.clone()).map_err(|e| {
+            log(format!("[local] activating engine failed: {e}"));
+            e.to_string()
+        })?;
+        // 先登記偵測中再設 Ready，UI 才不會在量測開始前看到「Ready 但沒量過」
+        let detecting = self.detecting();
+        self.update(|s| s.engine = EngineState::Ready(installed));
+        // 先量 VRAM 再重啟子程序，量到的才是模型還沒載入時的可用量
+        self.refresh_hardware(false).await;
+        drop(detecting);
+        self.restart_servers();
+        Ok(())
+    }
+
+    /// 登記一筆硬體偵測；放掉時（含 panic）扣掉並通知 UI。
+    fn detecting(&self) -> Detecting<'_> {
+        self.update(|_| {
+            self.refreshing.fetch_add(1, Ordering::SeqCst);
+        });
+        Detecting { local: self }
+    }
+
+    /// 引擎沒就緒就安裝（有安裝進行中則等它）；回傳這次是否新裝了引擎。
+    pub(super) async fn ensure_engine(&self) -> Result<bool, String> {
+        let _engine = self.engine_lock.lock().await;
+        if matches!(lock(&self.state).engine, EngineState::Ready(_)) {
+            return Ok(false);
+        }
+        log("[local] installing the engine before downloading a model");
+        self.install_engine(None, None).await.map(|()| true)
+    }
+
+    async fn list_builds(&self) -> Result<Vec<Build>, String> {
+        let listed = engine::list_builds(&self.gh_http, &self.endpoints.releases).await;
+        if let Err(e) = &listed {
+            log(format!("[local] listing llama.cpp builds failed: {e}"));
+        }
+        self.update(|s| s.builds = Some(listed.clone()));
+        listed
+    }
+
+    async fn remove_engine(&self) {
+        let _engine = self.engine_lock.lock().await;
+        self.update(|s| s.engine = EngineState::Removing);
+        self.stop_all();
+        let _files = self.engine_files.write().await;
+        // 取寫鎖前剛起跑的啟動不在第一次 stop_all 之內，拿到鎖後再停一次
+        self.stop_all();
+        let state = match engine::remove_all(&self.root) {
+            Ok(()) => EngineState::Missing,
+            Err(e) => {
+                log(format!("[local] removing engines failed: {e}"));
+                EngineState::Failed(t("local.error.engine_remove", &[("error", &e.to_string())]))
+            }
+        };
+        self.update(|s| s.engine = state);
+    }
+
+    pub(super) async fn query_repo(&self, repo: &str) {
+        self.update(|s| {
+            s.repos.insert(repo.to_owned(), RepoState::Loading);
+        });
+        let mut state = match self.fetch_repo(repo).await {
+            Ok((catalog, meta)) => RepoState::Ready(RepoInfo {
+                catalog,
+                meta,
+                fits: vec![],
+                auto: None,
+            }),
+            Err(e) => RepoState::Failed(e),
+        };
+        self.update(|s| {
+            if let RepoState::Ready(info) = &mut state {
+                rate(repo, info, &s.hardware, &s.models);
+                log(format!(
+                    "[local] {repo}: {} choices, fits={:?} auto={:?}",
+                    info.catalog.choices.len(),
+                    info.fits
+                        .iter()
+                        .map(|f| (f[0].need, f[0].fit))
+                        .collect::<Vec<_>>(),
+                    info.auto
+                ));
+            }
+            s.repos.insert(repo.to_owned(), state);
+        });
+    }
+
+    /// 搜尋並寫回結果；關鍵字已由 `command` 先登記。
+    async fn search_repos(&self, query: String) {
+        let page = hf::search(&self.hf_http, &self.endpoints.hf, &query).await;
+        // 搜尋途中又換了關鍵字時，舊的結果不蓋掉新的
+        self.update(|s| {
+            if let Some(search) = s.search.as_mut().filter(|x| x.query == query) {
+                search.next = page.as_ref().ok().and_then(|p| p.next.clone());
+                search.results = Some(
+                    page.map(|p| p.hits)
+                        .map_err(|e| t("local.error.search", &[("error", &e)])),
+                );
+            }
+        });
+    }
+
+    /// 載入下一頁接在已列出的結果後面；載入途中換了關鍵字就丟掉。
+    async fn search_more(&self, query: String, next: String) {
+        let page = hf::search_page(&self.hf_http, &next, &query).await;
+        self.update(|s| {
+            let Some(search) = s.search.as_mut().filter(|x| x.query == query) else {
+                return;
+            };
+            search.loading_more = false;
+            match page {
+                Ok(page) => {
+                    if let Some(Ok(hits)) = &mut search.results {
+                        hits.extend(page.hits);
+                    }
+                    search.next = page.next;
+                }
+                Err(e) => search.more_error = Some(t("local.error.search", &[("error", &e)])),
+            }
+        });
+    }
+
+    /// 列出 repo 檔案並讀第一個主模型檔的檔頭（同 repo 的量化共用模型形狀；讀過的檔案用磁碟上的快取）。
+    async fn fetch_repo(&self, repo: &str) -> Result<(Catalog, ModelMeta), String> {
+        let files = hf::list_files(&self.hf_http, &self.endpoints.hf, repo).await?;
+        let catalog = hf::classify(&files);
+        let first = catalog
+            .choices
+            .first()
+            .and_then(|c| c.files.first())
+            .ok_or_else(|| {
+                log(format!("[local] {repo} has no GGUF model files"));
+                t("local.dialog.no_gguf", &[("repo", repo)])
+            })?;
+        if let Some(meta) = first
+            .sha256
+            .as_deref()
+            .and_then(|sha| store::cached_header(&self.root, sha))
+        {
+            return Ok((catalog, meta));
+        }
+        let url = hf::resolve_url(&self.endpoints.hf, repo, &first.path);
+        let meta = gguf::fetch(&self.hf_http, &url).await?;
+        if let Some(sha) = &first.sha256 {
+            store::cache_header(&self.root, sha, &meta);
+        }
+        Ok((catalog, meta))
+    }
+
+    pub(super) fn repo_info(&self, repo: &str) -> Option<RepoInfo> {
+        match lock(&self.state).repos.get(repo) {
+            Some(RepoState::Ready(info)) => Some(info.clone()),
+            _ => None,
+        }
+    }
+}
+
+/// 依快照的硬體與已下載模型（實測）重算每個查好的 repo。
+pub(super) fn rerate(s: &mut Snapshot) {
+    for (repo, state) in &mut s.repos {
+        if let RepoState::Ready(info) = state {
+            rate(repo, info, &s.hardware, &s.models);
+        }
+    }
+}
+
+/// 重算各量化（帶或不帶各個 MTP）的需求、等級與自動挑選；VRAM 沒量過時等級為 `None`。
+fn rate(repo: &str, info: &mut RepoInfo, hw: &Hardware, models: &[Installed]) {
+    let moe = info.meta.expert_count > 0;
+    let (meta, catalog) = (&info.meta, &info.catalog);
+    info.fits = catalog
+        .choices
+        .iter()
+        .map(|c| {
+            let id = store::choice_id(repo, c);
+            let main = fit::total_size(c);
+            let layer = main.checked_div(u64::from(meta.block_count)).unwrap_or(0);
+            let mtps = std::iter::once(None).chain(catalog.mtp.iter().map(Some));
+            mtps.map(|m| {
+                let extra = m.map_or(0, |m| m.file.size);
+                // 內建 MTP 同 runtime 預設開著（設定可關）
+                let target = fit::Target {
+                    repo,
+                    id: &id,
+                    weights: main + extra,
+                    mtp: m.is_some() || meta.has_mtp,
+                    mtp_file: m.map(|m| m.file.path.as_str()),
+                    estimate: fit::required(meta, main, extra),
+                    layer,
+                };
+                let need = fit::need(models, &target, hw);
+                let fit = hw.measured.then(|| fit::rate(&need, moe, hw));
+                Rating { need, fit }
+            })
+            .collect()
+        })
+        .collect();
+    info.auto = fit::auto_pick(catalog, meta, hw);
+}
+
+fn engine_on_disk(root: &Path) -> EngineState {
+    match engine::read_active(root).current {
+        Some(i) if engine::server_exe(&engine::engine_dir(root, &i)).is_some() => {
+            EngineState::Ready(i)
+        }
+        _ => EngineState::Missing,
+    }
+}
+
+/// 目前啟用引擎的 `llama-server.exe`。
+fn current_exe(root: &Path) -> Option<PathBuf> {
+    let current = engine::read_active(root).current?;
+    engine::server_exe(&engine::engine_dir(root, &current))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::hf::{Choice, Quant, RepoFile};
+    use super::super::store::{Manifest, ManifestFile, Measured};
+    use super::*;
+
+    /// 內建 MTP 的 repo：不帶 MTP 檔的那欄照 runtime 預設算開著，自己開著內建 MTP 量的實測對得上。
+    #[test]
+    fn built_in_mtp_columns_use_the_measurement_with_mtp_on() {
+        let choice = Choice {
+            quant: Quant {
+                label: "Q4_K_M".into(),
+                bits: Some(4),
+            },
+            files: vec![RepoFile {
+                path: "m.gguf".into(),
+                size: 4 << 30,
+                sha256: None,
+            }],
+        };
+        let mut info = RepoInfo {
+            catalog: Catalog {
+                choices: vec![choice.clone()],
+                mtp: vec![],
+            },
+            meta: ModelMeta {
+                block_count: 4,
+                has_mtp: true,
+                ..Default::default()
+            },
+            fits: vec![],
+            auto: None,
+        };
+        let model = Installed {
+            id: store::choice_id("a/b", &choice),
+            manifest: Manifest {
+                repo: "a/b".into(),
+                quant: "Q4_K_M".into(),
+                files: vec![ManifestFile {
+                    path: "m.gguf".into(),
+                    size: 4 << 30,
+                    sha256: None,
+                }],
+                mtp: None,
+                moe: false,
+                has_builtin_mtp: true,
+                required: 9 << 30,
+                measured: Some(Measured {
+                    vram: 5 << 30,
+                    ram: 1 << 30,
+                    all_on_gpu: true,
+                    mtp: true,
+                    engine: "b1-cuda".into(),
+                    prompt_cache_mib: 8192,
+                }),
+                layers: 4,
+            },
+            complete: true,
+        };
+        let hw = Hardware {
+            measured: true,
+            ..Hardware::default()
+        };
+        rate("a/b", &mut info, &hw, &[model]);
+        assert_eq!(info.fits[0][0].need.basis, fit::Basis::Measured);
+        assert_eq!(info.fits[0][0].need.vram, 5 << 30);
+    }
+}

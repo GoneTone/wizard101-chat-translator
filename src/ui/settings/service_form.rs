@@ -7,21 +7,25 @@ use eframe::egui::{
     WidgetInfo, pos2, vec2,
 };
 use serde_json::{Map, Value};
+use tokio_util::sync::DropGuard;
 
 use super::env::{Round, SettingsEnv, SettingsEvent};
 use super::fields::{editable_combo, secret_field, text_field};
 use super::provider_picker::provider_icon;
+use super::quant_table::gb;
 use super::theme::{self, icon};
 use super::widgets::{
-    combo_box, focus_ring, outcome, rich, right_aligned, right_aligned_width, secondary_button,
-    secondary_icon_button, toggle,
+    combo_box, focus_ring, full_text_tip, outcome, rich, right_aligned, right_aligned_width,
+    secondary_button, secondary_icon_button, toggle,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
-    EFFORT_AUTO, Provider, ServiceSpec, is_auto_name, known_effort, provider, str_field,
-    unique_name, validate_endpoint_fields, validate_service,
+    EFFORT_AUTO, LOCAL_PROVIDER, Provider, ServiceSpec, is_auto_name, known_effort, provider,
+    str_field, unique_name, validate_endpoint_fields, validate_service,
 };
 use crate::i18n::t;
+use crate::local::store::{Installed, total_size};
+use crate::local::{Command, Snapshot};
 use crate::logs::log;
 use crate::py::pystr;
 use crate::translation::clients::{ModelInfo, ThinkingCaps};
@@ -45,6 +49,8 @@ pub struct FormResponse {
     pub changed: bool,
     /// 按了〔更改〕，由外層開服務商選擇。
     pub change_provider: bool,
+    /// 按了本地模型下拉旁連到本地模型頁的連結，由外層切頁。
+    pub open_local_models: bool,
 }
 
 enum ModelStatus {
@@ -55,7 +61,12 @@ enum ModelStatus {
 }
 
 enum TestResult {
-    Passed { seconds: String, translated: String },
+    Passed {
+        seconds: String,
+        /// 本地模型這次先載入時的載入秒數。
+        load: Option<String>,
+        translated: String,
+    },
     Failed(String),
 }
 
@@ -87,6 +98,8 @@ pub struct ServiceForm {
     /// 開啟時那次自動載入的佔位顯示到何時（egui 時間）；載入結束或換服務商就清掉。
     placeholder_until: Option<f64>,
     test_round: Round,
+    /// 進行中的測試；放掉就中斷（表單關閉時也是）。
+    test_handle: Option<DropGuard>,
     /// 測試那一刻的服務商與模型，log 用。
     test_request: (String, String),
     test_result: Option<TestResult>,
@@ -132,6 +145,7 @@ impl ServiceForm {
             opened: false,
             placeholder_until: None,
             test_round: Round::new("test connection"),
+            test_handle: None,
             test_request: Default::default(),
             test_result: None,
             pending_change: false,
@@ -210,6 +224,16 @@ impl ServiceForm {
         ));
     }
 
+    /// 是否為本地模型服務。
+    pub fn is_local(&self) -> bool {
+        self.provider.key == LOCAL_PROVIDER
+    }
+
+    /// 直接指定模型（精靈下載完成後寫入）。
+    pub fn set_model(&mut self, model: &str) {
+        model.clone_into(&mut self.model);
+    }
+
     pub fn set_name(&mut self, name: &str) {
         name.clone_into(&mut self.name);
     }
@@ -237,18 +261,27 @@ impl ServiceForm {
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
         target_language: &str,
     ) -> FormResponse {
         // 以服務 id 為作用域：換編輯另一筆服務時，開關動畫與下拉狀態不沿用上一筆的
-        ui.push_id(self.id.clone(), |ui| self.body(ui, env, target_language))
-            .inner
+        ui.push_id(self.id.clone(), |ui| {
+            self.body(ui, env, snapshot, target_language)
+        })
+        .inner
     }
 
-    fn body(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) -> FormResponse {
+    fn body(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) -> FormResponse {
         let before = self.api_values();
         let mut response = FormResponse {
             changed: std::mem::take(&mut self.pending_change),
-            change_provider: false,
+            ..Default::default()
         };
         ui.spacing_mut().item_spacing.y = ROW_GAP;
         let now = ui.input(|i| i.time);
@@ -266,7 +299,7 @@ impl ServiceForm {
                 ui.set_invisible();
                 ui.data_mut(|d| d.insert_temp(placeholder_id(), Vec::<(Rect, Block)>::new()));
             }
-            self.rows(ui, env, target_language, before, &mut response);
+            self.rows(ui, env, snapshot, target_language, before, &mut response);
         });
         if placeholder {
             paint_placeholder(ui, form.response.rect, &t("form.loading", &[]));
@@ -279,6 +312,7 @@ impl ServiceForm {
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
         target_language: &str,
         before: Value,
         response: &mut FormResponse,
@@ -297,23 +331,27 @@ impl ServiceForm {
                 hint(ui, &t("hint.custom_endpoint", &[]));
             });
         }
-        left_endpoint |= self.key_row(ui);
+        if self.provider.needs_api_key() {
+            left_endpoint |= self.key_row(ui);
+        }
         if left_endpoint {
             self.auto_refresh(env);
         }
-        if self.model_row(ui) {
+        if self.provider.key == LOCAL_PROVIDER {
+            response.open_local_models = self.local_model_row(ui, snapshot);
+        } else if self.model_row(ui) {
             self.start_refresh(env, "manual");
         }
         let options = self.reconcile_thinking();
         let switch = self.switch();
         self.thinking_row(ui, switch);
-        if effective_thinking(switch, self.thinking) {
+        if self.provider.has_field("effort") && effective_thinking(switch, self.thinking) {
             self.effort_row(ui, &options);
         }
 
         let after = self.api_values();
         if after != before {
-            self.test_round.invalidate();
+            self.stop_test("fields changed");
             // 失敗原因留著供對照；成功結果已不代表目前的欄位
             if self.test_passed() {
                 self.test_result = None;
@@ -327,7 +365,18 @@ impl ServiceForm {
         }
 
         if self.test_row(ui) {
-            self.start_test(env, target_language);
+            if self.test_round.busy() {
+                self.stop_test("stopped by user");
+                // 使用者停止多半是嫌慢：測試臨時載入的模型不留著佔記憶體
+                if self.test_request.0 == LOCAL_PROVIDER {
+                    env.local_command(Command::ReleaseUnused);
+                }
+            } else {
+                self.start_test(env, target_language);
+            }
+        }
+        if self.provider.key == LOCAL_PROVIDER {
+            hint(ui, &t("local.form.test_hint", &[]));
         }
     }
 
@@ -348,10 +397,23 @@ impl ServiceForm {
         api
     }
 
-    /// 作廢還沒回來與已顯示的測試結果。
+    /// 中斷進行中的測試並清掉已顯示的結果。
     fn void_test(&mut self) {
-        self.test_round.invalidate();
+        self.stop_test("fields changed");
         self.test_result = None;
+    }
+
+    /// 中斷進行中的測試（放掉 guard），之後回來的結果丟掉；沒在測試時無動作。
+    fn stop_test(&mut self, reason: &str) {
+        if !self.test_round.busy() {
+            return;
+        }
+        self.test_handle = None;
+        self.test_round.cancel();
+        let (provider, model) = &self.test_request;
+        log(format!(
+            "[settings] test connection stopped: {reason} (provider={provider}, model={model})"
+        ));
     }
 
     fn provider_row(&mut self, ui: &mut Ui) -> bool {
@@ -450,6 +512,49 @@ impl ServiceForm {
         })
     }
 
+    /// 本地服務的模型欄：只列已下載完成的模型；回傳是否按了連到本地模型頁的連結。
+    fn local_model_row(&mut self, ui: &mut Ui, snapshot: &Snapshot) -> bool {
+        form_row(ui, &t("field.model", &[]), |ui, label| {
+            let option = |m: &Installed| {
+                let size = gb(total_size(std::slice::from_ref(m)));
+                t(
+                    "local.form.model_option",
+                    &[("name", &m.manifest.display_name()), ("size", &size)],
+                )
+            };
+            let selected = snapshot.ready_model(&self.model).map(option);
+            let combo = combo_box(ui, "local_model")
+                .selected_text(selected.clone().unwrap_or_default())
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for m in snapshot.models.iter().filter(|m| m.complete) {
+                        if ui.selectable_label(m.id == self.model, option(m)).clicked() {
+                            self.model.clone_from(&m.id);
+                        }
+                    }
+                });
+            let response = combo.response.labelled_by(label);
+            full_text_tip(ui, &response, selected.as_deref().unwrap_or_default(), 0.0);
+            mark(ui, response.rect, Block::Control);
+            focus_ring(ui, &response, theme::CONTROL_RADIUS);
+            if !self.model.is_empty() && selected.is_none() {
+                rich(
+                    ui,
+                    &t("local.form.model_missing", &[]),
+                    theme::HINT_SIZE,
+                    theme::ERROR,
+                );
+            }
+            hint(ui, &t("local.form.model_hint", &[]));
+            let text = RichText::new(t("local.form.open_models", &[]))
+                .size(theme::HINT_SIZE)
+                .color(theme::LINK);
+            let link = ui.link(text);
+            mark(ui, link.rect, Block::Text);
+            link.clicked()
+        })
+    }
+
     /// 目前模型欄對到清單那一筆的思考能力。
     fn caps(&self) -> Option<&ThinkingCaps> {
         let model = pystr::strip(&self.model);
@@ -526,6 +631,10 @@ impl ServiceForm {
             let key = match switch {
                 ThinkingSwitch::Unsupported => "hint.thinking_unsupported",
                 ThinkingSwitch::Always => "hint.thinking_always",
+                // 本地模型沒有思考深度可選，llama-server 也不會因關不掉思考而報錯
+                ThinkingSwitch::Toggle if self.provider.key == LOCAL_PROVIDER => {
+                    "local.form.thinking_hint"
+                }
                 ThinkingSwitch::Toggle => "hint.thinking",
             };
             hint(ui, &t(key, &[]));
@@ -535,8 +644,9 @@ impl ServiceForm {
     fn effort_row(&mut self, ui: &mut Ui, options: &[&'static str]) {
         form_row(ui, &t("field.effort", &[]), |ui, label| {
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
+            let selected = name(self.effective_effort());
             let combo = combo_box(ui, "effort")
-                .selected_text(name(self.effective_effort()))
+                .selected_text(selected.clone())
                 .width(EFFORT_WIDTH)
                 .show_ui(ui, |ui| {
                     for &code in options {
@@ -549,6 +659,7 @@ impl ServiceForm {
                     }
                 });
             let response = combo.response.labelled_by(label);
+            full_text_tip(ui, &response, &selected, 0.0);
             mark(ui, response.rect, Block::Control);
             focus_ring(ui, &response, theme::CONTROL_RADIUS);
             // 清單列了支援的等級時選單已濾掉不支援的，不必再警告會選錯
@@ -567,23 +678,17 @@ impl ServiceForm {
         });
     }
 
-    /// 分隔線下的〔測試連線〕與結果；回傳是否按了測試。
+    /// 分隔線下的〔測試連線〕（測試中是〔停止測試〕）與結果；回傳是否按了按鈕。
     fn test_row(&mut self, ui: &mut Ui) -> bool {
         ui.add(Separator::default().horizontal().spacing(8.0));
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = COLUMN_GAP;
-            let busy = self.test_round.busy();
-            let text = t(
-                if busy {
-                    "button.testing"
-                } else {
-                    "button.test"
-                },
-                &[],
-            );
-            let button = ui
-                .add_enabled_ui(!busy, |ui| secondary_button(ui, &text))
-                .inner;
+            let key = if self.test_round.busy() {
+                "button.stop_test"
+            } else {
+                "button.test"
+            };
+            let button = secondary_button(ui, &t(key, &[]));
             mark(ui, button.rect, Block::Control);
             let clicked = button.clicked();
             if let Some(result) = &self.test_result {
@@ -593,9 +698,17 @@ impl ServiceForm {
                     match result {
                         TestResult::Passed {
                             seconds,
+                            load,
                             translated,
                         } => {
-                            outcome(ui, true, &t("test.connected", &[("seconds", seconds)]));
+                            let text = match load {
+                                Some(load) => t(
+                                    "test.connected_loaded",
+                                    &[("seconds", seconds), ("load", load)],
+                                ),
+                                None => t("test.connected", &[("seconds", seconds)]),
+                            };
+                            outcome(ui, true, &text);
                             pair(ui, &t("test.source", &[]), TEST_SAMPLE);
                             pair(ui, &t("test.translation", &[]), translated);
                         }
@@ -625,18 +738,23 @@ impl ServiceForm {
         ));
         self.test_request = (spec.provider.clone(), spec.model.clone());
         let round = self.test_round.start();
-        env.test_connection(round, spec, target_language.to_owned());
+        self.test_handle = Some(env.test_connection(round, spec, target_language.to_owned()));
     }
 
     fn tested(&mut self, result: &Result<TestOutcome, TranslateError>) {
+        // 測試已結束，guard 放掉只取消已不需要的權杖
+        self.test_handle = None;
         let (provider, model) = &self.test_request;
         self.test_result = Some(match result {
             Ok(done) => {
                 log(format!(
-                    "[settings] test connection ok (provider={provider}, model={model})"
+                    "[settings] test connection ok (provider={provider}, model={model}, elapsed={:.1}s, load={:?})",
+                    done.elapsed.as_secs_f64(),
+                    done.load.map(|d| format!("{:.1}s", d.as_secs_f64()))
                 ));
                 TestResult::Passed {
                     seconds: format_seconds(done.elapsed),
+                    load: done.load.map(format_seconds),
                     translated: done.translated.clone(),
                 }
             }

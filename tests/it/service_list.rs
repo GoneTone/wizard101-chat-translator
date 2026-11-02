@@ -222,7 +222,7 @@ fn harness_sized(draft: ServiceDraft, size: egui::Vec2) -> Harness<'static, Stat
         size,
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
-            s.pane.ui(ui, &s.env, TARGET);
+            s.pane.ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET);
         },
         state,
     )
@@ -674,6 +674,7 @@ fn test_results_reach_the_open_dialog() {
     let result = Ok(TestOutcome {
         translated: "x".into(),
         elapsed: std::time::Duration::from_millis(1000),
+        load: None,
     });
     h.state_mut()
         .pane
@@ -695,6 +696,7 @@ fn the_service_dialog_stays_put_when_its_content_grows() {
     let result = Ok(TestOutcome {
         translated: "x".into(),
         elapsed: std::time::Duration::from_millis(1000),
+        load: None,
     });
     h.state_mut()
         .pane

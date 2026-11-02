@@ -83,7 +83,10 @@ fn load_matches_python() {
             ],
         );
         let expected = &case["output"];
-        let actual: Value = serde_json::from_str(&texts[0]).unwrap();
+        let mut actual: Value = serde_json::from_str(&texts[0]).unwrap();
+        // Python 版沒有 local_models；單獨驗它的預設值
+        assert_eq!(actual["local_models"], config::local::default_value());
+        actual.as_object_mut().unwrap().shift_remove("local_models");
         assert_eq!(
             ordered(&actual),
             ordered(&expected["config"]),
@@ -95,7 +98,11 @@ fn load_matches_python() {
             "case {i}: {source}"
         );
         if after != raw {
-            let written: Value = serde_json::from_str(&texts[1]).unwrap();
+            let mut written: Value = serde_json::from_str(&texts[1]).unwrap();
+            written
+                .as_object_mut()
+                .unwrap()
+                .shift_remove("local_models");
             assert_eq!(ordered(&written), ordered(&actual), "case {i}: {source}");
         }
     }

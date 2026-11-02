@@ -6,9 +6,9 @@ use super::fields::text_field;
 use super::glossary_draft::{builtin_of, builtin_offered};
 use super::theme::{self, icon};
 use super::widgets::{
-    LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, optional_combo,
-    rich, right_aligned, right_aligned_width, secondary_button, secondary_icon_button,
-    setting_row_with,
+    LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, hint,
+    optional_combo, rich, right_aligned, right_aligned_width, secondary_button,
+    secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{builtin_codes, builtin_creators};
@@ -346,9 +346,4 @@ fn row_hint(issue: &RowIssue) -> Option<(String, Color32)> {
         RowIssue::Incomplete => (t("glossary.row_incomplete", &[]), theme::ERROR),
     };
     Some((text, color))
-}
-
-fn hint(ui: &mut Ui, text: &str, color: Color32) {
-    let text = RichText::new(text).size(theme::HINT_SIZE).color(color);
-    ui.add(Label::new(text).wrap());
 }

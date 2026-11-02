@@ -211,8 +211,17 @@ fn option_label(ui: &Ui, option: &str, query: &str) -> LayoutJob {
 
 /// 單行輸入框，寬度占滿。不在 `setting_row` 裡時，呼叫端要對回傳值命名。
 pub fn text_field(ui: &mut Ui, text: &mut String) -> Response {
+    hinted_field(ui, text, None)
+}
+
+/// 同 [`text_field`]，空白時框內顯示灰色的 `hint`。
+pub fn text_field_with_hint(ui: &mut Ui, text: &mut String, hint: &str) -> Response {
+    hinted_field(ui, text, Some(hint))
+}
+
+fn hinted_field(ui: &mut Ui, text: &mut String, hint: Option<&str>) -> Response {
     let (rect, response) = control_box(ui, ui.available_width(), |ui, rect| {
-        boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, false)
+        boxed_edit(ui, rect.shrink2(vec2(10.0, 0.0)), text, false, hint)
     });
     underline(ui, rect, response.has_focus());
     response
@@ -241,7 +250,7 @@ pub fn secret_field(
             pos2(rect.left() + 10.0, rect.top()),
             pos2(eye.left() - INLINE_ICON_INSET, rect.bottom()),
         );
-        let response = boxed_edit(ui, edit_rect, text, !*revealed);
+        let response = boxed_edit(ui, edit_rect, text, !*revealed, None);
         let (glyph, tooltip) = if *revealed {
             (icon::HIDE_KEY, hide_tooltip)
         } else {
@@ -282,15 +291,22 @@ fn control_box<R>(ui: &mut Ui, width: f32, contents: impl FnOnce(&mut Ui, Rect) 
 }
 
 /// 放在控制項底上的無框輸入框，占滿 `rect`。
-fn boxed_edit(ui: &mut Ui, rect: Rect, text: &mut String, password: bool) -> Response {
-    let response = ui.put(
-        rect,
-        TextEdit::singleline(text)
-            .password(password)
-            .desired_width(f32::INFINITY)
-            .frame(Frame::NONE)
-            .align(Align2::LEFT_CENTER),
-    );
+fn boxed_edit(
+    ui: &mut Ui,
+    rect: Rect,
+    text: &mut String,
+    password: bool,
+    hint: Option<&str>,
+) -> Response {
+    let mut edit = TextEdit::singleline(text)
+        .password(password)
+        .desired_width(f32::INFINITY)
+        .frame(Frame::NONE)
+        .align(Align2::LEFT_CENTER);
+    if let Some(hint) = hint {
+        edit = edit.hint_text(hint);
+    }
+    let response = ui.put(rect, edit);
     finish_edit(ui, response)
 }
 
@@ -336,7 +352,7 @@ pub fn number_field(ui: &mut Ui, text: &mut String, step: f64, range: (f64, f64)
             pos2(rect.left() + 10.0, rect.top()),
             pos2(rect.right() - 2.0 * button_width, rect.bottom()),
         );
-        let mut response = boxed_edit(ui, edit_rect, text, false);
+        let mut response = boxed_edit(ui, edit_rect, text, false, None);
         // 範圍內的值不重排：照 `step` 的位數重寫會把多打的小數位捨掉
         if response.lost_focus()
             && let Some(value) = parse_float(text).filter(|v| *v < min || *v > max)

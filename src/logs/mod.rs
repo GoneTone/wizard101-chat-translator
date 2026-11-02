@@ -10,8 +10,10 @@ pub use files::{
 };
 pub use library::forward_library_logs;
 
+use std::cell::Cell;
 use std::fs::File;
 use std::io::{self, Write};
+use std::panic::UnwindSafe;
 use std::sync::Mutex;
 
 use crate::util::lock;
@@ -57,11 +59,26 @@ fn write_to(sink: &mut Sink, message: &str) {
 /// 低階鍵盤 hook 執行緒的名稱；`input::hook` 以它命名執行緒，panic hook 靠它認出自己跑在 hook 裡。
 pub const KEYBOARD_HOOK_THREAD: &str = "keyboard-hook";
 
+thread_local! {
+    static EXPECTED_PANIC: Cell<bool> = const { Cell::new(false) };
+}
+
+/// 跑 `f` 並接住它的 panic，panic hook 不記 `[app] panic` 與 backtrace；給「panic 是預期中的失敗」的地方用（如解析不可信的檔頭）。
+pub fn catch_expected_panic<T>(f: impl FnOnce() -> T + UnwindSafe) -> std::thread::Result<T> {
+    let outer = EXPECTED_PANIC.replace(true);
+    let result = std::panic::catch_unwind(f);
+    EXPECTED_PANIC.set(outer);
+    result
+}
+
 /// 掛上 panic hook：以 `[app] panic: ...` 與 backtrace 寫進 log。
 ///
 /// 鍵盤 hook 執行緒上的 panic 不抓 backtrace：擷取要花時間，超過系統的 hook 逾時整個 hook 會被拿掉。
 pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
+        if EXPECTED_PANIC.get() {
+            return;
+        }
         if std::thread::current().name() == Some(KEYBOARD_HOOK_THREAD) {
             log(format!(
                 "[app] panic: {info} (backtrace skipped inside the keyboard hook)"
@@ -149,6 +166,22 @@ mod tests {
         assert_eq!(first.as_bytes()[24], b' ');
         assert!(first[25..].starts_with("[app] panic: "), "{first}");
         assert!(text.contains("boom"), "{text}");
+    }
+
+    #[test]
+    fn an_expected_panic_is_caught_without_logging() {
+        let _guard = lock(&GLOBAL_SINK_TESTS);
+        let (_dir, path, sink) = temp_sink();
+        init(sink);
+        install_panic_hook();
+        let caught = catch_expected_panic(|| panic!("quiet boom"));
+        let _ = std::thread::spawn(|| panic!("loud boom")).join();
+        let _ = std::panic::take_hook();
+        init(Sink::Stderr);
+        assert!(caught.is_err());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("quiet boom"), "{text}");
+        assert!(text.contains("loud boom"), "{text}");
     }
 
     #[test]

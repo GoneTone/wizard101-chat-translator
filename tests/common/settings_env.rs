@@ -7,14 +7,19 @@ use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use tokio_util::sync::{CancellationToken, DropGuard};
 use wizard101_chat_translator::config::services::ServiceSpec;
 use wizard101_chat_translator::input::dispatcher::SharedDispatcher;
 use wizard101_chat_translator::input::recorder::{Recording, record};
+use wizard101_chat_translator::local::store::{Installed, Manifest};
+use wizard101_chat_translator::local::{Command, Snapshot};
 use wizard101_chat_translator::ui::settings::env::SettingsEnv;
 
 #[derive(Default)]
 pub struct FakeEnv {
     pub tests: RefCell<Vec<(u64, ServiceSpec, String)>>,
+    /// 每次測試交出去的 guard 對應的權杖；被取消表示表單中斷了那次測試。
+    pub test_tokens: RefCell<Vec<CancellationToken>>,
     pub lists: RefCell<Vec<(u64, ServiceSpec)>>,
     pub checks: RefCell<Vec<u64>>,
     pub recordings: RefCell<Vec<u64>>,
@@ -32,11 +37,18 @@ pub struct FakeEnv {
     pub save_picks: RefCell<Vec<(u64, String)>>,
     /// 選檔與存檔對話框「選到」的路徑；測試自己帶著它把結果送回介面。
     pub picked_path: Option<PathBuf>,
+    /// `local_snapshot` 回傳的內容；測試自己改。
+    pub snapshot: RefCell<Snapshot>,
+    /// 收到的本地模型指令。
+    pub commands: RefCell<Vec<Command>>,
 }
 
 impl SettingsEnv for FakeEnv {
-    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) {
+    fn test_connection(&self, round: u64, spec: ServiceSpec, target: String) -> DropGuard {
         self.tests.borrow_mut().push((round, spec, target));
+        let token = CancellationToken::new();
+        self.test_tokens.borrow_mut().push(token.clone());
+        token.drop_guard()
     }
     fn list_models(&self, round: u64, spec: ServiceSpec) {
         self.lists.borrow_mut().push((round, spec));
@@ -72,5 +84,30 @@ impl SettingsEnv for FakeEnv {
     }
     fn pick_glossary_save_path(&self, round: u64, file_name: String) {
         self.save_picks.borrow_mut().push((round, file_name));
+    }
+    fn local_snapshot(&self) -> Snapshot {
+        self.snapshot.borrow().clone()
+    }
+    fn local_command(&self, cmd: Command) {
+        self.commands.borrow_mut().push(cmd);
+    }
+}
+
+/// 一個已下載（`complete`）或下載中的模型；repo 為 `org/<id>`，量化 Q4_K_M，所需 `required` 位元組。
+pub fn installed(id: &str, complete: bool, required: u64) -> Installed {
+    Installed {
+        id: id.into(),
+        manifest: Manifest {
+            repo: format!("org/{id}"),
+            quant: "Q4_K_M".into(),
+            files: vec![],
+            mtp: None,
+            moe: false,
+            has_builtin_mtp: false,
+            required,
+            measured: None,
+            layers: 0,
+        },
+        complete,
     }
 }

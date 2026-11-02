@@ -670,7 +670,7 @@ pub(crate) mod tests {
                         let mut body = s.area;
                         body.min.y += BAR_HEIGHT;
                         let rect = banners.show(ui, body, s.frame.alpha());
-                        s.frame.fill_body(ui, body, banners.update_rect());
+                        s.frame.fill_body(ui, body, banners.body_hole());
                         list.show(ui, rect, model, None, None);
                     }
                 },
@@ -1176,7 +1176,7 @@ pub(crate) mod tests {
                 .as_ref()
                 .unwrap()
                 .0
-                .update_rect()
+                .body_hole()
                 .unwrap();
             let body = BG.gamma_multiply(alpha);
             assert!(has(body), "body at {alpha}");

@@ -8,16 +8,17 @@ use serde_json::Value;
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::env::{SettingsEnv, SettingsEvent};
 use super::provider_picker::{CardLayout, provider_cards, provider_icon, provider_texture};
-use super::service_draft::{ServiceDraft, id_of};
-use super::service_form::ServiceForm;
+use super::service_draft::{ServiceDraft, id_of, local_model_gone};
+use super::service_form::{FormResponse, ServiceForm};
 use super::theme;
 use super::widgets::{
     callout, card, collapsible, combo_box, danger_secondary_button, dashed_button, focus_ring,
-    list_card, name_by_row, primary_button, secondary_button, setting_row,
+    full_text_tip, list_card, name_by_row, primary_button, secondary_button, setting_row,
 };
 use crate::config::py::py_bool;
-use crate::config::services::{ServiceSlot, describe, new_service, str_field};
+use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, describe, new_service, str_field};
 use crate::i18n::t;
+use crate::local::Snapshot;
 use crate::logs::log;
 
 enum Dialog {
@@ -51,6 +52,8 @@ impl Dialog {
 pub struct ServicePane {
     draft: ServiceDraft,
     dialog: Dialog,
+    /// 表單上按了連到本地模型頁的連結；外層讀走（`take_open_local`）後切頁。
+    open_local: bool,
 }
 
 impl ServicePane {
@@ -58,7 +61,13 @@ impl ServicePane {
         Self {
             draft,
             dialog: Dialog::Closed,
+            open_local: false,
         }
+    }
+
+    /// 這一幀表單有沒有要求切到本地模型頁；讀走就清掉。
+    pub fn take_open_local(&mut self) -> bool {
+        std::mem::take(&mut self.open_local)
     }
 
     pub fn draft(&self) -> &ServiceDraft {
@@ -73,7 +82,13 @@ impl ServicePane {
     }
 
     /// 畫分頁與開著的對話框；測試連線翻成 `target_language`。
-    pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, target_language: &str) {
+    pub fn ui(
+        &mut self,
+        ui: &mut Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
             card(ui, |ui| {
@@ -89,7 +104,7 @@ impl ServicePane {
             let can_delete = self.draft.can_delete();
             let mut action = None;
             for service in &self.draft.services {
-                action = action.or(self.service_card(ui, service, can_delete));
+                action = action.or(self.service_card(ui, service, can_delete, snapshot));
             }
             if !self.draft.services.is_empty() && !can_delete {
                 ui.add(Label::new(
@@ -107,7 +122,7 @@ impl ServicePane {
                 None => {}
             }
         });
-        self.show_dialog(ui, env, target_language);
+        self.show_dialog(ui, env, snapshot, target_language);
     }
 
     fn open_form(&mut self, id: &str) {
@@ -178,15 +193,25 @@ impl ServicePane {
         }
     }
 
-    fn service_card(&self, ui: &mut Ui, service: &Value, can_delete: bool) -> Option<CardAction> {
+    fn service_card(
+        &self,
+        ui: &mut Ui,
+        service: &Value,
+        can_delete: bool,
+        snapshot: &Snapshot,
+    ) -> Option<CardAction> {
         let id = id_of(service);
+        let mut badges = self.draft.badges(service);
+        if local_model_gone(service, snapshot) {
+            badges.push(t("local.form.model_missing", &[]));
+        }
         let (edit, delete) = list_card(
             ui,
             Id::unique(("service_card_buttons", id)),
             |ui| provider_icon(ui, str_field(service, "provider"), 32.0),
             str_field(service, "name"),
-            &self.draft.badges(service),
-            &describe(service),
+            &badges,
+            &describe(service, &model_label(service, snapshot)),
             |ui| {
                 let edit = secondary_button(ui, &t("button.edit", &[])).clicked();
                 let delete = ui
@@ -207,7 +232,13 @@ impl ServicePane {
         }
     }
 
-    fn show_dialog(&mut self, ui: &Ui, env: &dyn SettingsEnv, target_language: &str) {
+    fn show_dialog(
+        &mut self,
+        ui: &Ui,
+        env: &dyn SettingsEnv,
+        snapshot: &Snapshot,
+        target_language: &str,
+    ) {
         match &mut self.dialog {
             Dialog::Closed => {}
             Dialog::Pick => match picker_dialog(ui) {
@@ -224,8 +255,10 @@ impl ServicePane {
                 picking,
                 errors,
             } => {
-                let (choice, change) = form_dialog(ui, form, errors, env, target_language);
-                *picking |= change;
+                let (choice, response) =
+                    form_dialog(ui, form, errors, env, snapshot, target_language);
+                *picking |= response.change_provider;
+                self.open_local |= response.open_local_models;
                 pick_provider_over(ui, form, picking);
                 match choice {
                     Choice::Open => {}
@@ -261,7 +294,7 @@ impl ServicePane {
         } else {
             "service.confirm_delete"
         };
-        confirm_delete(ui, t(question, &[("name", name)]))
+        confirm_delete(ui, "confirm_delete", t(question, &[("name", name)]))
     }
 }
 
@@ -284,7 +317,6 @@ fn service_combo(
     let mut chosen = None;
     let combo = combo_box(ui, salt)
         .selected_text(selected)
-        .truncate()
         .show_ui(ui, |ui| {
             if let Some(follow) = follow {
                 let muted = RichText::new(follow).color(theme::TEXT_SECONDARY);
@@ -300,6 +332,10 @@ fn service_combo(
                 }
             }
         });
+    let name = draft.find(current).map(|s| str_field(s, "name"));
+    // 有服務時名稱前多了服務商圖示與間距
+    let leading = name.map_or(0.0, |_| 18.0 + ui.spacing().icon_spacing);
+    full_text_tip(ui, &combo.response, name.or(follow).unwrap_or(""), leading);
     (combo.response, chosen)
 }
 
@@ -365,14 +401,15 @@ fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
     }
 }
 
-/// 服務表單對話框，另回傳是否按了〔更改〕服務商；〔確定〕時欄位不完整就在表單底部列出，不關閉。
+/// 服務表單對話框，另回傳這一幀表單的回報（〔更改〕服務商、連到本地模型頁）；〔確定〕時欄位不完整就在表單底部列出，不關閉。
 fn form_dialog(
     ui: &Ui,
     form: &mut ServiceForm,
     errors: &mut Vec<String>,
     env: &dyn SettingsEnv,
+    snapshot: &Snapshot,
     target_language: &str,
-) -> (Choice<Value>, bool) {
+) -> (Choice<Value>, FormResponse) {
     if !errors.is_empty() {
         *errors = form.errors();
     }
@@ -390,19 +427,19 @@ fn form_dialog(
         |ui| {
             Frame::new()
                 .inner_margin(Margin {
-                    left: 24,
-                    right: 24,
+                    left: 20,
+                    right: 20,
                     top: 8,
                     bottom: 16,
                 })
                 .show(ui, |ui| {
-                    let response = form.ui(ui, env, target_language);
+                    let response = form.ui(ui, env, snapshot, target_language);
                     if !errors.is_empty() {
                         ui.add_space(12.0);
                         let lines: Vec<String> = errors.iter().map(|e| t(e, &[])).collect();
                         callout(ui, &t("dialog.incomplete_title", &[]), &lines);
                     }
-                    response.change_provider
+                    response
                 })
                 .inner
         },
@@ -441,4 +478,13 @@ fn save(form: &ServiceForm, errors: &mut Vec<String>) -> Choice<Value> {
         py_bool(!str_field(&service, "api_key").is_empty())
     ));
     Choice::Done(service)
+}
+
+/// 本地服務顯示「org/repo · 量化」而不是內部 id；其他服務照存的模型名稱。
+fn model_label(service: &Value, snapshot: &Snapshot) -> String {
+    let model = str_field(service, "model");
+    match snapshot.ready_model(model) {
+        Some(m) if str_field(service, "provider") == LOCAL_PROVIDER => m.manifest.display_name(),
+        _ => model.to_owned(),
+    }
 }

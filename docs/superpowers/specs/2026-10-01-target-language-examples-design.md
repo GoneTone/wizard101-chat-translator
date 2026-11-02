@@ -187,6 +187,7 @@ class ExampleSet:
 - **儲存設定**：`reconfigure_translation` 中 `reconfigure` 回傳 True 的收訊、框選 translator 呼叫 `ensure`。
 - **測試連線**：`test_translate` 成功後，在同一個 `BackgroundButton` 的背景工作裡呼叫 `generate_now`。
   測試連線的總耗時會增加一次生成的時間（輸出異常時最多 6 次請求）。生成失敗只記 log，不改變測試結果。
+  （後來改為翻譯成功就顯示結果、範例在背景產生，見 `2026-10-31-test-connection-stop-design.md`。）
 - **系統訊息快取**：`incoming_fingerprint(cfg)` 加上收訊 translator 目前範例的 `digest()`（`None` 時為固定字串）。
   收訊 translator 的範例被替換時，在 UI 執行緒呼叫 `cache.rebind(...)`，退路期間翻出的譯文因此失效。
 

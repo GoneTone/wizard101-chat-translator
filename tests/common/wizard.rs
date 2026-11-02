@@ -130,6 +130,7 @@ pub fn pass_test(h: &mut WizardHarness) {
         result: Ok(TestOutcome {
             translated: "ok".into(),
             elapsed: Duration::from_millis(500),
+            load: None,
         }),
     });
     run(h);

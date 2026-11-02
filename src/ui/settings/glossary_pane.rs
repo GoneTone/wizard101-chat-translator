@@ -376,7 +376,7 @@ impl GlossaryPane {
                 } else {
                     "glossary.confirm_delete"
                 };
-                match confirm_delete(ui, t(question, &[("name", name)])) {
+                match confirm_delete(ui, "confirm_delete", t(question, &[("name", name)])) {
                     Choice::Open => {}
                     Choice::Cancel => self.dialog = Dialog::Closed,
                     Choice::Done(()) => {

@@ -1,4 +1,4 @@
-//! 設定視窗的內容：側欄五個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
+//! 設定視窗的內容：側欄六個分頁、各頁可捲動的內容與固定的底部按鈕列；視窗本身由 App 托管。
 //!
 //! 介面語言改了就先預覽（呼叫 `set_language`），按儲存才寫進設定，取消則還原成開窗時的語言。
 
@@ -16,7 +16,9 @@ use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::GlossaryDraft;
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
-use super::service_draft::ServiceDraft;
+use super::local_pane::LocalPane;
+use super::quant_table::gb;
+use super::service_draft::{ServiceDraft, local_model_gone};
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
 use super::widgets::{
@@ -24,9 +26,16 @@ use super::widgets::{
     secondary_button,
 };
 use super::{flag_setting, setting, text_setting};
-use crate::config::services::{ServiceSlot, find, slot_id, validate_service};
+use crate::config::local;
+use crate::config::services::{
+    LOCAL_PROVIDER, ServiceSlot, find, resolve, slot_id, str_field, validate_service,
+};
 use crate::config::{AdvancedText, Config, default_config, parse_advanced, py};
 use crate::i18n::{current_language, language_name, set_language, t};
+use crate::local::Snapshot;
+use crate::local::fit::{Fit, combined_fit};
+use crate::local::hardware::effective;
+use crate::local::store::Installed;
 use crate::logs::log;
 use crate::py::pystr;
 use crate::runtime::updater::Release;
@@ -40,15 +49,17 @@ pub type SaveError = (String, Vec<(&'static str, String)>);
 pub enum Page {
     Basic,
     Services,
+    LocalModels,
     Glossaries,
     Advanced,
     About,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [
+    const ALL: [Page; 6] = [
         Self::Basic,
         Self::Services,
+        Self::LocalModels,
         Self::Glossaries,
         Self::Advanced,
         Self::About,
@@ -58,6 +69,7 @@ impl Page {
         match self {
             Self::Basic => "settings.tab.basic",
             Self::Services => "settings.tab.services",
+            Self::LocalModels => "settings.tab.local",
             Self::Glossaries => "settings.tab.glossaries",
             Self::Advanced => "settings.tab.advanced",
             Self::About => "settings.tab.about",
@@ -68,6 +80,7 @@ impl Page {
         match self {
             Self::Basic => icon::BASIC,
             Self::Services => icon::SERVICES,
+            Self::LocalModels => icon::LOCAL,
             Self::Glossaries => icon::GLOSSARIES,
             Self::Advanced => icon::ADVANCED,
             Self::About => icon::ABOUT,
@@ -103,6 +116,9 @@ pub struct SettingsWindow {
     auto_show_input: bool,
     paste_hotkey: bool,
     services: ServicePane,
+    local: LocalPane,
+    /// 這一幀開頭取的本地模型快照；頁面與儲存檢查讀同一份。
+    snapshot: Snapshot,
     glossaries: GlossaryPane,
     advanced: AdvancedText,
     translate_system: bool,
@@ -129,6 +145,8 @@ impl SettingsWindow {
             auto_show_input: flag_setting(cfg, "auto_show_input"),
             paste_hotkey: flag_setting(cfg, "paste_hotkey"),
             services: ServicePane::new(ServiceDraft::from_config(cfg)),
+            local: LocalPane::new(cfg),
+            snapshot: Snapshot::default(),
             glossaries: GlossaryPane::new(GlossaryDraft::from_config(cfg)),
             advanced: AdvancedText {
                 fade_seconds: number("fade_seconds"),
@@ -181,6 +199,7 @@ impl SettingsWindow {
     /// 畫整個視窗內容；回傳這一幀要 App 做的事。
     pub fn ui(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
         self.hotkeys.release(env);
+        self.snapshot = env.local_snapshot();
         let full = ui.available_rect_before_wrap();
         let (side, content) = full.split_left_right_at_x(full.left() + theme::SIDEBAR_WIDTH);
         ui.painter().rect_filled(side, 0, theme::SIDEBAR_BG);
@@ -231,6 +250,7 @@ impl SettingsWindow {
         }
         self.services.draft().write_into(&mut cfg);
         self.glossaries.draft().write_into(&mut cfg);
+        crate::config::local::write_into(&mut cfg, self.local.settings());
         let target = pystr::strip(&self.target_language);
         self.hotkeys.write_into(&mut cfg);
         let values = [
@@ -244,6 +264,7 @@ impl SettingsWindow {
         }
         let plain = |key: String| (key, Vec::new());
         let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
+        errors.extend(local_errors(&cfg, &self.snapshot));
         errors.extend(self.glossaries.draft().errors());
         errors.extend(
             self.hotkeys
@@ -390,7 +411,14 @@ impl SettingsWindow {
                         "" => language_name(&current_language()),
                         target => target.to_owned(),
                     };
-                    self.services.ui(ui, env, &target);
+                    self.services.ui(ui, env, &self.snapshot, &target);
+                    if self.services.take_open_local() {
+                        self.switch_page(Page::LocalModels, env);
+                    }
+                }
+                Page::LocalModels => {
+                    let services = &self.services.draft().services;
+                    self.local.ui(ui, env, &self.snapshot, services);
                 }
                 Page::Glossaries => self.glossaries.ui(ui, env),
                 Page::Advanced => self.advanced_page(ui),
@@ -417,6 +445,72 @@ fn service_errors(cfg: &Config) -> Vec<String> {
                 errors.push(error);
             }
         }
+    }
+    errors
+}
+
+/// 本地服務的儲存檢查：用到的模型已不在；各用途用到的不同模型加總放不下目前的記憶體（沒量過 VRAM 或全都已經跑著時不擋）。
+fn local_errors(cfg: &Config, snapshot: &Snapshot) -> Vec<SaveError> {
+    let mut errors: Vec<SaveError> = Vec::new();
+    let default = cfg.get("default_service").and_then(Value::as_str);
+    let slot_ids = ServiceSlot::ALL.iter().map(|&slot| slot_id(cfg, slot));
+    let mut checked: Vec<&str> = Vec::new();
+    for service in std::iter::once(default)
+        .chain(slot_ids)
+        .filter_map(|id| find(cfg, id))
+    {
+        let id = str_field(service, "id");
+        if local_model_gone(service, snapshot) && !checked.contains(&id) {
+            let name = str_field(service, "name").to_owned();
+            errors.push(("error.local_model_missing".into(), vec![("name", name)]));
+        }
+        checked.push(id);
+    }
+
+    let mut models: Vec<&Installed> = Vec::new();
+    for slot in ServiceSlot::ALL {
+        let spec = resolve(cfg, slot);
+        if let Some(m) = (spec.provider == LOCAL_PROVIDER)
+            .then(|| snapshot.ready_model(&spec.model))
+            .flatten()
+            && !models.iter().any(|seen| seen.id == m.id)
+        {
+            models.push(m);
+        }
+    }
+    let settings = local::settings(cfg);
+    let needs: Vec<_> = models
+        .iter()
+        .map(|m| (snapshot.model_need(m, &settings), m.manifest.moe))
+        .collect();
+    let all_running = models.iter().all(|m| snapshot.running.contains(&m.id));
+    if models.len() >= 2
+        && snapshot.hardware.measured
+        && !all_running
+        && combined_fit(&needs, &snapshot.hardware) == Fit::NoFit
+    {
+        let (vram, ram) = effective(&snapshot.hardware);
+        let list = models
+            .iter()
+            .zip(&needs)
+            .map(|(m, (need, _))| {
+                let size = gb(need.total());
+                let key = if need.estimated() {
+                    "error.local_over_capacity_item_estimated"
+                } else {
+                    "error.local_over_capacity_item_measured"
+                };
+                t(
+                    key,
+                    &[("name", &m.manifest.display_name()), ("size", &size)],
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(&t("local.list_separator", &[]));
+        errors.push((
+            "error.local_over_capacity".into(),
+            vec![("models", list), ("vram", gb(vram)), ("ram", gb(ram))],
+        ));
     }
     errors
 }

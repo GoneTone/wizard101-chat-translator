@@ -33,6 +33,10 @@ use crate::input::dispatch::{
 use crate::input::dispatcher::SharedDispatcher;
 use crate::input::hook::KeyboardHook;
 use crate::input::hotkeys::{Registration, register_hotkey};
+use crate::local::engine::RELEASES_API;
+use crate::local::hf::HF_BASE;
+use crate::local::server::RealLauncher;
+use crate::local::{self, Endpoints, Local, LocalNotice, Notify};
 use crate::logs::log;
 use crate::reader::mem_reader::WizChatReader;
 use crate::reader::message_log::{MessageLog, SharedWriter};
@@ -436,6 +440,9 @@ pub fn apply_settings(
     });
     report_save(ui, saved.is_ok());
     reconfigure_translation(&cfg, &running.translation);
+    if let Some(local) = &running.local {
+        local.apply_config(&cfg);
+    }
     // 新的先註冊再解除舊的：Registration 只能整個交出去 unregister
     let fresh = register_hotkeys(
         settings,
@@ -727,11 +734,45 @@ pub struct Running {
     pub dispatcher: SharedDispatcher,
     /// 套用設定時寫入的設定檔。
     pub config_path: PathBuf,
+    /// 本地模型 hub；測試不建時為 `None`。
+    pub local: Option<Arc<Local>>,
+}
+
+/// 正式的本地模型 hub：資料夾在 `app_dir`，連 Hugging Face 與 GitHub，通知轉成 UI 事件。
+pub fn real_local(rt: &Handle, ui: &UiPoster) -> Arc<Local> {
+    Local::new(
+        crate::config::app_dir(),
+        rt.clone(),
+        Arc::new(RealLauncher),
+        Endpoints {
+            hf: HF_BASE.into(),
+            releases: RELEASES_API.into(),
+        },
+        local_notify(ui),
+    )
+}
+
+/// hub 的通知轉成 UI 事件：快照變了就重繪（設定視窗與精靈都靠它），載入中改橫幅。
+pub fn local_notify(ui: &UiPoster) -> Notify {
+    let ui = ui.clone();
+    Arc::new(move |notice| {
+        ui.post(match notice {
+            LocalNotice::Changed => UiEvent::LocalChanged,
+            LocalNotice::Loading(name) => UiEvent::LocalLoading(name),
+        })
+    })
+}
+
+/// 把 `hub` 裝成全程序共用的並開始（量硬體、套用設定）；精靈與主流程共用這一個，開任何視窗前呼叫。
+pub fn install_local(hub: Arc<Local>, cfg: &Config) -> Arc<Local> {
+    local::install(Arc::clone(&hub));
+    hub.start(cfg);
+    hub
 }
 
 /// 建構翻譯端、在 `dispatcher` 上註冊熱鍵與貼上攔截器、啟動 supervisor 執行緒；`messages` 是 messages.log 的串流，每個客戶端各建一個 `MessageLog` 共寫。
 ///
-/// 鍵盤 hook 由呼叫端先裝好（精靈錄熱鍵也要用），`keyboard` 交給這裡、關閉時卸除。
+/// 鍵盤 hook 與本地模型 hub 由呼叫端先備妥（精靈也要用），`keyboard` 交給這裡、關閉時卸除。
 pub fn build_app(
     settings: Arc<RwLock<Config>>,
     rt: &Handle,
@@ -739,6 +780,7 @@ pub fn build_app(
     messages: SharedWriter,
     dispatcher: SharedDispatcher,
     keyboard: Option<KeyboardHook>,
+    local: Arc<Local>,
 ) -> Running {
     let deliver: ResultFn = {
         let ui = ui.clone();
@@ -828,13 +870,14 @@ pub fn build_app(
         hotkeys,
         dispatcher,
         config_path: crate::config::config_path(),
+        local: Some(local),
     }
 }
 
 /// 等 supervisor 的上限：多 2 秒讓它自己的 `JOIN_TIMEOUT` 先跑完，「still alive」的診斷 log 才寫得出來。
 pub const SUPERVISOR_JOIN_BUDGET: Duration = JOIN_TIMEOUT.saturating_add(Duration::from_secs(2));
 
-/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池 → 卸鍵盤 hook → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
+/// 關閉流程本體（不退出程序）：設停止 → 關翻譯池（與本地模型） → 卸鍵盤 hook → 等 supervisor 收完 reader（最多 `join_budget`）→ 落盤快取。
 pub fn shutdown_steps(
     stop: &CancellationToken,
     close_pools: impl FnOnce(),
@@ -861,6 +904,15 @@ pub fn shutdown_steps(
     log("[app] shutdown complete");
 }
 
+/// 關閉流程裡關翻譯池那一步：兩條翻譯池收工，所有本地模型的 llama-server 停掉。
+pub fn close_translation(translation: &Translation, local: Option<&Local>) {
+    translation.pool.shutdown();
+    translation.system_pool.shutdown();
+    if let Some(local) = local {
+        local.shutdown();
+    }
+}
+
 /// 乾淨關閉後直接結束程序：卡在 HTTP 請求的翻譯 task 不該把程序多留 60 秒。
 pub fn shutdown(running: Running) -> ! {
     let Running {
@@ -868,14 +920,12 @@ pub fn shutdown(running: Running) -> ! {
         translation,
         supervisor,
         keyboard,
+        local,
         ..
     } = running;
     shutdown_steps(
         &stop,
-        || {
-            translation.pool.shutdown();
-            translation.system_pool.shutdown();
-        },
+        || close_translation(&translation, local.as_deref()),
         || {
             if let Some(hook) = keyboard {
                 hook.uninstall();
