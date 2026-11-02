@@ -2,9 +2,10 @@
 
 use crate::common;
 
+use std::collections::BTreeSet;
 use std::time::Duration;
 
-use common::kittest::{has_label, painted_texts, run, settle, themed_harness, tr};
+use common::kittest::{has_label, painted_texts, run, settle, starred_labels, themed_harness, tr};
 use common::log_capture::{capture_logs, log_text};
 use common::settings_env::{FakeEnv, installed};
 use eframe::egui::{self, Event, Ui};
@@ -1507,4 +1508,46 @@ fn a_gone_model_is_flagged_and_the_link_asks_for_the_models_page() {
     h.state_mut().responses.clear();
     click(&mut h, &tr("local.form.open_models"));
     assert!(h.state().responses.iter().any(|r| r.open_local_models));
+}
+
+fn labels(keys: &[&str]) -> BTreeSet<String> {
+    keys.iter().map(|key| tr(key)).collect()
+}
+
+#[test]
+fn official_provider_stars_name_provider_key_and_model() {
+    let h = harness(blank());
+    assert_eq!(
+        starred_labels(&h),
+        labels(&[
+            "field.service_name",
+            "field.provider",
+            "field.api_key",
+            "field.model"
+        ])
+    );
+}
+
+#[test]
+fn custom_endpoint_stars_the_url_but_not_the_optional_key() {
+    let h = harness(form(new_service("custom", &[]), vec![]));
+    assert_eq!(
+        starred_labels(&h),
+        labels(&[
+            "field.service_name",
+            "field.provider",
+            "field.base_url",
+            "field.model"
+        ])
+    );
+    assert!(painted_texts(&h).contains(&tr("field.api_key_optional")));
+}
+
+#[test]
+fn local_form_stars_only_name_provider_and_model() {
+    let h = local_harness(vec![]);
+    assert_eq!(
+        starred_labels(&h),
+        labels(&["field.service_name", "field.provider", "field.model"])
+    );
 }

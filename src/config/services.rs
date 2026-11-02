@@ -54,6 +54,11 @@ impl Provider {
         self.has_field("api_key")
     }
 
+    /// 金鑰是否必填：有金鑰欄、且不是自訂端點（自訂端點的金鑰選填）。
+    pub fn requires_api_key(&self) -> bool {
+        self.needs_api_key() && !self.needs_base_url()
+    }
+
     /// 該家的欄位與預設值，依欄位表順序。
     pub fn defaults(&self) -> Map<String, Value> {
         self.fields
@@ -293,9 +298,9 @@ pub fn validate_endpoint_fields(service: &Value) -> Vec<String> {
     let text = |k: &str| str_field(service, k);
     let p = provider(text("provider"));
     let needs_base_url = p.is_some_and(Provider::needs_base_url);
-    let needs_api_key = p.is_none_or(Provider::needs_api_key);
+    let requires_api_key = p.is_none_or(Provider::requires_api_key);
     let mut errors = Vec::new();
-    if needs_api_key && !needs_base_url && pystr::strip(text("api_key")).is_empty() {
+    if requires_api_key && pystr::strip(text("api_key")).is_empty() {
         errors.push("error.need_api_key".to_string());
     }
     if needs_base_url && pystr::strip(text("base_url")).is_empty() {
