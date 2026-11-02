@@ -1,8 +1,9 @@
 //! 設定介面共用元件、背景工作輪次與 RealEnv 不碰桌面的部分。
 
+use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use crate::common::kittest::{click_at, text_sections, themed_harness};
+use crate::common::kittest::{click_at, starred_labels, text_sections, themed_harness};
 use eframe::egui::accesskit::Role;
 use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
 use egui_kittest::Harness;
@@ -20,8 +21,8 @@ use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
     INLINE_ICON_INSET, best_match, callout, card, collapsible, dashed_button, icon_button, keycaps,
-    match_range, outcome, primary_button, secondary_button, secondary_icon_button, setting_row,
-    toggle,
+    match_range, outcome, primary_button, required_setting_row, secondary_button,
+    secondary_icon_button, setting_row, toggle,
 };
 use wizard101_chat_translator::ui::text_select::find_text_shape;
 
@@ -130,6 +131,32 @@ fn controls_in_a_setting_row_are_named_by_the_row() {
         egui::accesskit::Role::TextInput
     );
     h.get_by_label("Type any language");
+}
+
+#[test]
+fn required_setting_row_stars_the_label_but_keeps_its_name() {
+    let mut h = harness(String::new(), |ui, text: &mut String| {
+        card(ui, |ui| {
+            required_setting_row(ui, "Target language", None, |ui| {
+                editable_combo(ui, Id::unique("target"), text, &[]);
+            });
+            setting_row(ui, "Interface language", None, |ui| {
+                ui.label("English");
+            });
+        });
+    });
+    h.run_steps(2);
+    assert_eq!(
+        starred_labels(&h),
+        BTreeSet::from(["Target language".to_owned()])
+    );
+    let sections = text_sections(&h, "Target language*");
+    assert_eq!(sections.last().unwrap(), &("*".to_owned(), theme::ERROR));
+    assert_eq!(
+        h.get_by_label("Target language").accesskit_node().role(),
+        Role::TextInput
+    );
+    h.get_by(|n| n.role() == Role::Label && n.value().as_deref() == Some("Target language"));
 }
 
 fn collapsible_harness(default_open: bool) -> Harness<'static, ()> {
