@@ -126,7 +126,7 @@ Wizard101 对话翻译助手 —— Wizard101 的聊天对话 AI 翻译软件，
 
 ![设置窗口的基本设置页](docs/images/5.png)
 
-翻译服务可以创建好几组 —— OpenAI、Claude、Gemini 或自己搭的 OpenAI 兼容服务器 —— 选一组当默认，也能让各功能各用不同的一组：
+翻译服务可以创建好几组 —— OpenAI、Claude、Gemini、自己搭的 OpenAI 兼容服务器，或在自己电脑上跑的本地模型 —— 选一组当默认，也能让各功能各用不同的一组：
 
 ![设置窗口的服务页，列出多组翻译服务](docs/images/6.png)
 

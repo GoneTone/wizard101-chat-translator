@@ -126,7 +126,7 @@ Everything is changed in the settings window, and saving applies it right away �
 
 ![The basic page of the settings window](docs/images/5.png)
 
-Set up as many translation services as you like — OpenAI, Claude, Gemini or your own OpenAI-compatible server — pick one as the default, or give each feature its own:
+Set up as many translation services as you like — OpenAI, Claude, Gemini, your own OpenAI-compatible server or a local model on your PC — pick one as the default, or give each feature its own:
 
 ![The services page of the settings window, listing several translation services](docs/images/6.png)
 
