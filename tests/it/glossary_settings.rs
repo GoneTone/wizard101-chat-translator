@@ -919,3 +919,13 @@ fn export_file_name_is_sanitized() {
         assert_eq!(h.state().env.save_picks.borrow()[0].1, expected);
     }
 }
+
+#[test]
+fn glossary_editor_stars_name_and_both_columns() {
+    let h = editing(vec![entry("Hollo", "哈樓")], None);
+    let expected = ["glossary.name", "glossary.source", "glossary.target"].map(tr);
+    assert_eq!(
+        crate::common::kittest::starred_labels(&h),
+        std::collections::BTreeSet::from(expected)
+    );
+}

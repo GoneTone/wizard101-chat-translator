@@ -15,8 +15,8 @@ use super::provider_picker::provider_icon;
 use super::quant_table::gb;
 use super::theme::{self, icon};
 use super::widgets::{
-    combo_box, focus_ring, full_text_tip, outcome, rich, right_aligned, right_aligned_width,
-    secondary_button, secondary_icon_button, toggle,
+    combo_box, focus_ring, full_text_tip, outcome, required_label, rich, right_aligned,
+    right_aligned_width, secondary_button, secondary_icon_button, toggle,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{
@@ -317,14 +317,14 @@ impl ServiceForm {
         before: Value,
         response: &mut FormResponse,
     ) {
-        form_row(ui, &t("field.service_name", &[]), |ui, label| {
+        form_row(ui, &t("field.service_name", &[]), true, |ui, label| {
             let field = text_field(ui, &mut self.name).labelled_by(label);
             mark(ui, field.rect, Block::Control);
         });
         response.change_provider = self.provider_row(ui);
         let mut left_endpoint = false;
         if self.provider.needs_base_url() {
-            form_row(ui, &t("field.base_url", &[]), |ui, label| {
+            form_row(ui, &t("field.base_url", &[]), true, |ui, label| {
                 let field = text_field(ui, &mut self.base_url).labelled_by(label);
                 mark(ui, field.rect, Block::Control);
                 left_endpoint |= field.lost_focus();
@@ -419,7 +419,7 @@ impl ServiceForm {
     fn provider_row(&mut self, ui: &mut Ui) -> bool {
         let key = self.provider.key;
         let label = t(self.provider.label_key, &[]);
-        form_row(ui, &t("field.provider", &[]), |ui, _| {
+        form_row(ui, &t("field.provider", &[]), true, |ui, _| {
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
                 provider_icon(ui, key, 20.0);
@@ -439,12 +439,13 @@ impl ServiceForm {
 
     /// 金鑰欄與取得金鑰連結；回傳金鑰欄是否剛失去焦點。
     fn key_row(&mut self, ui: &mut Ui) -> bool {
-        let label = if self.provider.needs_base_url() {
-            "field.api_key_optional"
-        } else {
+        let required = self.provider.requires_api_key();
+        let label = if required {
             "field.api_key"
+        } else {
+            "field.api_key_optional"
         };
-        form_row(ui, &t(label, &[]), |ui, label| {
+        form_row(ui, &t(label, &[]), required, |ui, label| {
             let (show, hide) = (t("button.show", &[]), t("button.hide", &[]));
             let field = secret_field(ui, &mut self.api_key, &mut self.key_revealed, &show, &hide)
                 .labelled_by(label);
@@ -466,7 +467,7 @@ impl ServiceForm {
 
     /// 模型欄與〔更新清單〕；回傳是否按了更新。
     fn model_row(&mut self, ui: &mut Ui) -> bool {
-        form_row(ui, &t("field.model", &[]), |ui, label| {
+        form_row(ui, &t("field.model", &[]), true, |ui, label| {
             let refresh = ui
                 .horizontal(|ui| {
                     // 按鈕寬取上一幀量到的值，讓下拉吃掉剩下的寬度
@@ -514,7 +515,7 @@ impl ServiceForm {
 
     /// 本地服務的模型欄：只列已下載完成的模型；回傳是否按了連到本地模型頁的連結。
     fn local_model_row(&mut self, ui: &mut Ui, snapshot: &Snapshot) -> bool {
-        form_row(ui, &t("field.model", &[]), |ui, label| {
+        form_row(ui, &t("field.model", &[]), true, |ui, label| {
             let option = |m: &Installed| {
                 let size = gb(total_size(std::slice::from_ref(m)));
                 t(
@@ -607,7 +608,7 @@ impl ServiceForm {
     }
 
     fn thinking_row(&mut self, ui: &mut Ui, switch: ThinkingSwitch) {
-        form_row(ui, "", |ui, _| {
+        form_row(ui, "", false, |ui, _| {
             let label = t("field.thinking", &[]);
             ui.horizontal(|ui| {
                 ui.set_min_height(theme::CONTROL_HEIGHT);
@@ -642,7 +643,7 @@ impl ServiceForm {
     }
 
     fn effort_row(&mut self, ui: &mut Ui, options: &[&'static str]) {
-        form_row(ui, &t("field.effort", &[]), |ui, label| {
+        form_row(ui, &t("field.effort", &[]), false, |ui, label| {
             let name = |code: &str| t(&format!("effort.{code}"), &[]);
             let selected = name(self.effective_effort());
             let combo = combo_box(ui, "effort")
@@ -920,7 +921,12 @@ fn paint_placeholder(ui: &mut Ui, area: Rect, label: &str) {
     ui.ctx().request_repaint();
 }
 
-fn form_row<R>(ui: &mut Ui, label: &str, field: impl FnOnce(&mut Ui, Id) -> R) -> R {
+fn form_row<R>(
+    ui: &mut Ui,
+    label: &str,
+    required: bool,
+    field: impl FnOnce(&mut Ui, Id) -> R,
+) -> R {
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = COLUMN_GAP;
         let size = vec2(LABEL_WIDTH, theme::CONTROL_HEIGHT);
@@ -928,7 +934,11 @@ fn form_row<R>(ui: &mut Ui, label: &str, field: impl FnOnce(&mut Ui, Id) -> R) -
             .allocate_ui_with_layout(size, Layout::left_to_right(Align::Center), |ui| {
                 ui.set_min_size(size);
                 let text = RichText::new(label).size(theme::CONTROL_TEXT_SIZE);
-                let caption = ui.add(Label::new(text).wrap());
+                let caption = if required {
+                    required_label(ui, text)
+                } else {
+                    ui.add(Label::new(text).wrap())
+                };
                 if !label.is_empty() {
                     mark(ui, caption.rect, Block::Text);
                 }

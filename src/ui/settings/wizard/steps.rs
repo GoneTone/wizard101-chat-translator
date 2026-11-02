@@ -17,7 +17,7 @@ use crate::ui::settings::language::{common_languages, ui_language_combo, ui_lang
 use crate::ui::settings::provider_picker::{CardLayout, provider_cards};
 use crate::ui::settings::theme::{self, icon};
 use crate::ui::settings::widgets::{
-    callout, card, extended_galley, focus_ring, named_by, rich, scroll_page,
+    callout, card, extended_galley, focus_ring, named_by, required_label, rich, scroll_page,
 };
 
 /// 步驟條的左右內距、圓點直徑與步驟內容的內距。
@@ -117,7 +117,7 @@ impl Wizard {
         let label = ui
             .scope(|ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
-                let label = heading(ui, &t("field.ui_language", &[]));
+                let label = heading(ui, &t("field.ui_language", &[]), false);
                 let hint = t("wizard.language_hint", &[]);
                 rich(ui, &hint, theme::HINT_SIZE, theme::TEXT_SECONDARY);
                 label
@@ -135,7 +135,7 @@ impl Wizard {
 
     fn service_step(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
         let Some(form) = &mut self.form else {
-            heading(ui, &t("wizard.pick_provider", &[]));
+            heading(ui, &t("wizard.pick_provider", &[]), false);
             if let Some(key) = provider_cards(ui, CardLayout::Grid) {
                 self.pick_provider(key);
             }
@@ -191,7 +191,7 @@ impl Wizard {
     fn prefs_step(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
-            let label = heading(ui, &t("wizard.target_language", &[]));
+            let label = heading(ui, &t("wizard.target_language", &[]), true);
             ui.spacing_mut().combo_width = ui.available_width();
             let id = Id::unique("wizard_target_language");
             editable_combo(ui, id, &mut self.target_language, &common_languages())
@@ -244,10 +244,14 @@ fn step_dot(ui: &Ui, center: Pos2, index: usize, current: usize) {
     painter.text(center, Align2::CENTER_CENTER, number, font, ink);
 }
 
-/// 粗體的段落標題（會換行）；回傳它的 Id，給底下的欄位當無障礙名稱。
-fn heading(ui: &mut Ui, text: &str) -> Id {
+/// 粗體的段落標題（會換行）；`required` 時後接必填星號。回傳它的 Id，給底下的欄位當無障礙名稱。
+fn heading(ui: &mut Ui, text: &str, required: bool) -> Id {
     let text = RichText::new(text).font(theme::bold(theme::TEXT_SIZE));
-    ui.add(Label::new(text).wrap()).id
+    if required {
+        required_label(ui, text).id
+    } else {
+        ui.add(Label::new(text).wrap()).id
+    }
 }
 
 /// 「略過測試」：靠右的底線文字連結，可用 Tab 走到、Enter／Space 觸發。

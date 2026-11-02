@@ -13,7 +13,7 @@ use super::service_form::{FormResponse, ServiceForm};
 use super::theme;
 use super::widgets::{
     callout, card, collapsible, combo_box, danger_secondary_button, dashed_button, focus_ring,
-    full_text_tip, list_card, name_by_row, primary_button, secondary_button, setting_row,
+    full_text_tip, list_card, name_by_row, primary_button, required_setting_row, secondary_button,
 };
 use crate::config::py::py_bool;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, describe, new_service, str_field};
@@ -92,7 +92,7 @@ impl ServicePane {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
             card(ui, |ui| {
-                setting_row(ui, &t("service.default", &[]), None, |ui| {
+                required_setting_row(ui, &t("service.default", &[]), None, |ui| {
                     self.default_combo(ui);
                 });
             });

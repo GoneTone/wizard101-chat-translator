@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use eframe::egui::style::{ScrollStyle, StyleModifier, WidgetVisuals};
 use eframe::egui::{
-    Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, Frame, Galley, Id, Label,
-    Layout, Margin, Pos2, Rect, Response, RichText, Role, ScrollArea, Sense, Shape, Stroke,
-    StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2,
-    WidgetInfo, WidgetText, lerp, pos2, vec2,
+    Align, Align2, AsIdSalt, Color32, ComboBox, CornerRadius, FontId, FontSelection, Frame, Galley,
+    Id, Label, Layout, Margin, Pos2, Rect, Response, RichText, Role, ScrollArea, Sense, Shape,
+    Stroke, StrokeKind, Style, TextStyle, TextWrapMode, Tooltip, Ui, UiBuilder, UiStackInfo, Vec2,
+    WidgetInfo, WidgetText, lerp, pos2, text::LayoutJob, vec2,
 };
 
 use crate::i18n::t;
@@ -580,18 +580,88 @@ pub(super) const STACK_GAP: f32 = 6.0;
 /// 開關與 `fields` 的下拉、數值欄放在這裡時以這一列的名稱當無障礙名稱。
 /// 控制項的寬高與左欄高度取上一幀量到的值排版，變了就重排一次（`request_discard`）。
 pub fn setting_row(ui: &mut Ui, label: &str, hint: Option<&str>, control: impl FnOnce(&mut Ui)) {
-    let details = |ui: &mut Ui| {
-        if let Some(hint) = hint {
-            rich(ui, hint, theme::HINT_SIZE, theme::TEXT_SECONDARY);
-        }
-    };
-    setting_row_with(ui, label, details, control);
+    labeled_row(ui, label, false, hint_details(hint), control);
+}
+
+/// 同 `setting_row`，名稱後接必填星號（[`required_label`]）。
+pub fn required_setting_row(
+    ui: &mut Ui,
+    label: &str,
+    hint: Option<&str>,
+    control: impl FnOnce(&mut Ui),
+) {
+    labeled_row(ui, label, true, hint_details(hint), control);
 }
 
 /// 同 `setting_row`，但名稱下方的內容由 `details` 自己畫（例如路徑加說明兩行）。
 pub fn setting_row_with(
     ui: &mut Ui,
     label: &str,
+    details: impl FnOnce(&mut Ui),
+    control: impl FnOnce(&mut Ui),
+) {
+    labeled_row(ui, label, false, details, control);
+}
+
+/// 同 `setting_row_with`，名稱後接必填星號（[`required_label`]）。
+pub fn required_setting_row_with(
+    ui: &mut Ui,
+    label: &str,
+    details: impl FnOnce(&mut Ui),
+    control: impl FnOnce(&mut Ui),
+) {
+    labeled_row(ui, label, true, details, control);
+}
+
+/// 必填欄位的名稱：`text` 後隔四分之一字寬，接同字型、錯誤紅的 `*`。
+///
+/// 無障礙名稱維持 `text` 原文，螢幕報讀與以名稱找欄位都不會多出星號。
+pub fn required_label(ui: &mut Ui, text: RichText) -> Response {
+    let plain = text.text().to_owned();
+    let mut job = LayoutJob::default();
+    text.append_to(
+        &mut job,
+        ui.style(),
+        FontSelection::Default,
+        ui.text_valign(),
+    );
+    let mut star = job.sections[0].format.clone();
+    star.color = theme::ERROR;
+    // 漢字撐滿字框，星號緊貼會黏在字上
+    let gap = star.font_id.size * 0.25;
+    job.append("*", gap, star);
+    // 漢字後面允許斷行，星號會單獨掉到下一行；落單時讓出星號的寬度重排，帶最後一個字一起換行
+    let width = ui.available_width();
+    let mut trial = job.clone();
+    trial.wrap.max_width = width;
+    let galley = ui.fonts_mut(|f| f.layout_job(trial));
+    let orphan = galley.rows.len() > 1 && galley.rows.last().is_some_and(|r| r.text() == "*");
+    let star_width = galley.rows.last().map_or(0.0, |r| r.rect().width());
+    let response = ui
+        .scope(|ui| {
+            if orphan {
+                ui.set_max_width(width - star_width);
+            }
+            ui.add(Label::new(job).wrap())
+        })
+        .inner;
+    let enabled = ui.is_enabled();
+    response.widget_info(|| WidgetInfo::labeled(Role::Label, enabled, &plain));
+    response
+}
+
+fn hint_details(hint: Option<&str>) -> impl FnOnce(&mut Ui) + '_ {
+    move |ui: &mut Ui| {
+        if let Some(hint) = hint {
+            rich(ui, hint, theme::HINT_SIZE, theme::TEXT_SECONDARY);
+        }
+    }
+}
+
+fn labeled_row(
+    ui: &mut Ui,
+    label: &str,
+    required: bool,
     details: impl FnOnce(&mut Ui),
     control: impl FnOnce(&mut Ui),
 ) {
@@ -645,7 +715,11 @@ pub fn setting_row_with(
                     .layout(Layout::top_down(Align::Min)),
                 |ui| {
                     ui.spacing_mut().item_spacing.y = 3.0;
-                    let label_id = ui.add(Label::new(label).wrap()).id;
+                    let label_id = if required {
+                        required_label(ui, RichText::new(label)).id
+                    } else {
+                        ui.add(Label::new(label).wrap()).id
+                    };
                     details(ui);
                     label_id
                 },

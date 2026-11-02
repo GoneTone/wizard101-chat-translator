@@ -1,6 +1,8 @@
 //! egui_kittest 測試共用的小工具：查詢、點擊、讀畫面輸出，以及全域介面語言的排隊鎖。
 #![allow(dead_code)]
 
+use std::collections::BTreeSet;
+
 use eframe::egui::accesskit::Role;
 use eframe::egui::{Event, Modifiers, PointerButton, Pos2, Shape, Ui, Vec2};
 use egui_kittest::kittest::Queryable;
@@ -38,6 +40,24 @@ pub fn text_sections<S>(h: &Harness<S>, text: &str) -> Vec<(String, eframe::egui
             _ => None,
         })
         .unwrap_or_else(|| panic!("{text:?} not painted"))
+}
+
+/// 畫面上標了必填星號（最後一段是錯誤紅的 `*`）的標籤，去掉星號。
+pub fn starred_labels<S>(h: &Harness<S>) -> BTreeSet<String> {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t) => {
+                let text = t.galley.text();
+                let last = t.galley.job.sections.last()?;
+                let range = last.byte_range.start.0..last.byte_range.end.0;
+                (&text[range] == "*" && last.format.color == theme::ERROR)
+                    .then(|| text[..last.byte_range.start.0].to_owned())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// 跑過服務表單開啟時載入佔位的時間上限（每步 0.25 秒），之後才能操作剛打開的表單。

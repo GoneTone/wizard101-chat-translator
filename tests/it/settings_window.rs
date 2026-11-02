@@ -12,7 +12,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use serde_json::{Value, json};
 
-use common::kittest::{click, click_change, has_label, run, settle, text_sections, tr};
+use common::kittest::{
+    click, click_change, has_label, run, settle, starred_labels, text_sections, tr,
+};
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::{FakeEnv, installed};
 use common::settings_window::{State, custom_cfg, harness as settings_harness};
@@ -1516,4 +1518,23 @@ fn a_cloud_slot_does_not_count_toward_local_capacity() {
     }
     let mut h = harness_with(cfg, env, egui::vec2(840.0, 660.0));
     assert!(save(&mut h).is_some());
+}
+
+#[test]
+fn basic_page_stars_only_the_target_language() {
+    let h = harness(configured_cfg());
+    assert_eq!(
+        starred_labels(&h),
+        std::collections::BTreeSet::from([tr("settings.target_language")])
+    );
+}
+
+#[test]
+fn services_page_stars_the_default_service() {
+    let mut h = harness(configured_cfg());
+    go(&mut h, "settings.tab.services");
+    assert_eq!(
+        starred_labels(&h),
+        std::collections::BTreeSet::from([tr("service.default")])
+    );
 }
