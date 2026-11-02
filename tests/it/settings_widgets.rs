@@ -194,6 +194,32 @@ fn required_label_keeps_the_star_with_the_last_cjk_character() {
     );
 }
 
+#[test]
+fn required_label_leaves_a_gap_before_the_star() {
+    let h = themed_harness(
+        egui::vec2(480.0, 200.0),
+        "zh-TW",
+        |ui, _: &mut ()| {
+            required_label(ui, RichText::new("名稱"));
+        },
+        (),
+    );
+    let galley = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == "名稱*" => Some(t.galley.clone()),
+            _ => None,
+        })
+        .expect("label painted");
+    let glyphs = &galley.rows[0].glyphs;
+    let (name, star) = (&glyphs[glyphs.len() - 2], &glyphs[glyphs.len() - 1]);
+    let gap = star.pos.x - (name.pos.x + name.advance_width);
+    let size = galley.job.sections.last().unwrap().format.font_id.size;
+    assert!(gap >= size * 0.2, "gap {gap} for font size {size}");
+}
+
 fn collapsible_harness(default_open: bool) -> Harness<'static, ()> {
     harness((), move |ui, _| {
         collapsible(

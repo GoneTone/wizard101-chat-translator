@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 星號是 `*`，顏色 `theme::ERROR`，字型與大小沿用該標籤，緊接標籤、不留空格。
+- 星號是 `*`，顏色 `theme::ERROR`，字型與大小沿用該標籤，與標籤隔四分之一字寬。
 - 標籤的無障礙名稱（accesskit Label 的 value）維持原文，不含星號；既有 `get_by_label(tr(...))`／`get_by_role_and_label(Role::Label, ...)` 測試一律不改。
 - 不動語系檔、不改驗證邏輯（`Provider::requires_api_key` 是把既有條件抽出共用，行為不變）。
 - 純畫面改動，不新增 log。

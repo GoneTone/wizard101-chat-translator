@@ -613,7 +613,7 @@ pub fn required_setting_row_with(
     labeled_row(ui, label, true, details, control);
 }
 
-/// 必填欄位的名稱：`text` 後接同字型、錯誤紅的 `*`。
+/// 必填欄位的名稱：`text` 後隔四分之一字寬，接同字型、錯誤紅的 `*`。
 ///
 /// 無障礙名稱維持 `text` 原文，螢幕報讀與以名稱找欄位都不會多出星號。
 pub fn required_label(ui: &mut Ui, text: RichText) -> Response {
@@ -627,7 +627,9 @@ pub fn required_label(ui: &mut Ui, text: RichText) -> Response {
     );
     let mut star = job.sections[0].format.clone();
     star.color = theme::ERROR;
-    job.append("*", 0.0, star);
+    // 漢字撐滿字框，星號緊貼會黏在字上
+    let gap = star.font_id.size * 0.25;
+    job.append("*", gap, star);
     // 漢字後面允許斷行，星號會單獨掉到下一行；落單時讓出星號的寬度重排，帶最後一個字一起換行
     let width = ui.available_width();
     let mut trial = job.clone();
