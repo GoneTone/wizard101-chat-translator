@@ -532,6 +532,22 @@ async fn apply_config_restarts_servers_when_their_settings_change() {
     assert_eq!(f.kills().len(), 3);
 }
 
+/// 載入途中改設定：停掉這次載入，再用新設定重新載入。
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn apply_config_reloads_a_server_that_is_still_loading() {
+    let f = fixture(engine_and_model(false), |_| false).await;
+    *f.shared.health_delay.lock().unwrap() = Duration::from_millis(400);
+    let settings = |idle: u32| json!({"preload": false, "idle_minutes": idle, "mtp": {}});
+    f.local.apply_config(&local_config(&["m1"], settings(15)));
+    let local = Arc::clone(&f.local);
+    let first = tokio::spawn(async move { local.ensure("m1").await });
+    wait_for("first load started", || f.plans().len() == 1).await;
+    f.local.apply_config(&local_config(&["m1"], settings(5)));
+    assert!(first.await.unwrap().is_err());
+    wait_for("reload with the new settings", || f.plans().len() == 2).await;
+    assert_eq!(f.plans()[1].idle_minutes, 5);
+}
+
 /// 預先載入依序啟動：前一個就緒後才啟動下一個。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn preload_starts_models_one_after_another() {

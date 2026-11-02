@@ -510,7 +510,9 @@ impl Local {
                 lock(&slot.state).clear_failures();
                 continue;
             }
-            if wanted.contains(&id) && lock(&slot.state).running.is_some() {
+            // 載入中（啟動鎖被占著）的也要重載：下面停掉它後，沒人會再用新設定啟動
+            let active = lock(&slot.state).running.is_some() || slot.start.try_lock().is_err();
+            if wanted.contains(&id) && active {
                 log(format!(
                     "[local] restarting llama-server[{id}] for new settings"
                 ));
