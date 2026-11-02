@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::common::kittest::{click_at, starred_labels, text_sections, themed_harness};
 use eframe::egui::accesskit::Role;
-use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, Shape, Ui};
+use eframe::egui::{self, Align, Color32, Id, Key, Layout, Rect, RichText, Shape, TextStyle, Ui};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::input::dispatcher::{Dispatcher, testing::key};
@@ -21,7 +21,7 @@ use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::theme::icon;
 use wizard101_chat_translator::ui::settings::widgets::{
     INLINE_ICON_INSET, best_match, callout, card, collapsible, dashed_button, icon_button, keycaps,
-    match_range, outcome, primary_button, required_setting_row, secondary_button,
+    match_range, outcome, primary_button, required_label, required_setting_row, secondary_button,
     secondary_icon_button, setting_row, toggle,
 };
 use wizard101_chat_translator::ui::text_select::find_text_shape;
@@ -157,6 +157,41 @@ fn required_setting_row_stars_the_label_but_keeps_its_name() {
         Role::TextInput
     );
     h.get_by(|n| n.role() == Role::Label && n.value().as_deref() == Some("Target language"));
+}
+
+#[test]
+fn required_label_keeps_the_star_with_the_last_cjk_character() {
+    let label = "翻譯目標語言";
+    let h = themed_harness(
+        egui::vec2(480.0, 200.0),
+        "zh-TW",
+        move |ui, _: &mut ()| {
+            let font = TextStyle::Body.resolve(ui.style());
+            let width = ui
+                .fonts_mut(|f| f.layout_no_wrap(label.to_owned(), font, Color32::WHITE))
+                .size()
+                .x;
+            ui.set_max_width(width + 1.0);
+            required_label(ui, RichText::new(label));
+        },
+        (),
+    );
+    let galley = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == "翻譯目標語言*" => Some(t.galley.clone()),
+            _ => None,
+        })
+        .expect("label painted");
+    let last = galley.rows.last().unwrap().text();
+    assert_ne!(
+        last,
+        "*",
+        "rows: {:?}",
+        galley.rows.iter().map(|r| r.text()).collect::<Vec<_>>()
+    );
 }
 
 fn collapsible_harness(default_open: bool) -> Harness<'static, ()> {

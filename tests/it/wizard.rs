@@ -1147,10 +1147,15 @@ mod local_install {
 #[test]
 fn prefs_step_stars_the_target_language() {
     let h = to_prefs(configured());
-    let starred = starred_labels(&h);
-    assert!(
-        starred.contains(&tr("wizard.target_language")),
-        "{starred:?}"
+    assert_eq!(
+        starred_labels(&h),
+        std::collections::BTreeSet::from([tr("wizard.target_language")])
     );
-    assert!(!starred.contains(&tr("field.ui_language")), "{starred:?}");
+}
+
+#[test]
+fn language_step_stars_nothing() {
+    let h = open(configured());
+    assert!(has_label(&h, &tr("field.ui_language")));
+    assert!(starred_labels(&h).is_empty());
 }

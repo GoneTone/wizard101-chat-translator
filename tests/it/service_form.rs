@@ -1551,3 +1551,19 @@ fn local_form_stars_only_name_provider_and_model() {
         labels(&["field.service_name", "field.provider", "field.model"])
     );
 }
+
+#[test]
+fn switching_to_a_custom_endpoint_moves_the_star_from_the_key_to_the_url() {
+    let mut h = harness(blank());
+    h.state_mut().form.set_provider("custom");
+    run(&mut h);
+    assert_eq!(
+        starred_labels(&h),
+        labels(&[
+            "field.service_name",
+            "field.provider",
+            "field.base_url",
+            "field.model"
+        ])
+    );
+}

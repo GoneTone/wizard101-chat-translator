@@ -616,14 +616,33 @@ pub fn required_setting_row_with(
 /// 必填欄位的名稱：`text` 後接同字型、錯誤紅的 `*`。
 ///
 /// 無障礙名稱維持 `text` 原文，螢幕報讀與以名稱找欄位都不會多出星號。
-pub(super) fn required_label(ui: &mut Ui, text: RichText) -> Response {
+pub fn required_label(ui: &mut Ui, text: RichText) -> Response {
     let plain = text.text().to_owned();
     let mut job = LayoutJob::default();
-    text.append_to(&mut job, ui.style(), FontSelection::Default, Align::Center);
+    text.append_to(
+        &mut job,
+        ui.style(),
+        FontSelection::Default,
+        ui.text_valign(),
+    );
     let mut star = job.sections[0].format.clone();
     star.color = theme::ERROR;
     job.append("*", 0.0, star);
-    let response = ui.add(Label::new(job).wrap());
+    // 漢字後面允許斷行，星號會單獨掉到下一行；落單時讓出星號的寬度重排，帶最後一個字一起換行
+    let width = ui.available_width();
+    let mut trial = job.clone();
+    trial.wrap.max_width = width;
+    let galley = ui.fonts_mut(|f| f.layout_job(trial));
+    let orphan = galley.rows.len() > 1 && galley.rows.last().is_some_and(|r| r.text() == "*");
+    let star_width = galley.rows.last().map_or(0.0, |r| r.rect().width());
+    let response = ui
+        .scope(|ui| {
+            if orphan {
+                ui.set_max_width(width - star_width);
+            }
+            ui.add(Label::new(job).wrap())
+        })
+        .inner;
     let enabled = ui.is_enabled();
     response.widget_info(|| WidgetInfo::labeled(Role::Label, enabled, &plain));
     response
