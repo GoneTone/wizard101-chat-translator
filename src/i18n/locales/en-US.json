@@ -86,7 +86,7 @@
   "local.hw.ram": "RAM: free {free} / {total} GB",
   "local.hw.own": "Models loaded by this app currently use VRAM {vram} GB and RAM {ram} GB; fit ratings count this as available.",
   "local.hw.redetect": "Re-detect",
-  "local.hw.note": "Estimated from what is available right now; readings taken while the game is closed run high.",
+  "local.hw.note": "Estimated from what is available right now; readings detected while the game is closed run high.",
   "local.load.title": "Model loading",
   "local.load.preload": "Preload models on startup",
   "local.load.preload_hint": "Loads the models that will actually be used as soon as this app starts, so the first translation does not wait, but the models take up memory from the start. If turned off, the first translation waits for the model to load.",
