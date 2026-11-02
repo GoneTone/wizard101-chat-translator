@@ -9,7 +9,9 @@ use crate::ui::settings::env::SettingsEnv;
 use crate::ui::settings::fields::editable_combo;
 use crate::ui::settings::language::{common_languages, ui_language_combo, ui_language_hint};
 use crate::ui::settings::provider_picker::provider_icon;
-use crate::ui::settings::widgets::{card, secondary_button, setting_row, toggle};
+use crate::ui::settings::widgets::{
+    card, required_setting_row, secondary_button, setting_row, toggle,
+};
 
 impl SettingsWindow {
     pub(super) fn basic_page(&mut self, ui: &mut Ui, env: &dyn SettingsEnv) {
@@ -21,7 +23,7 @@ impl SettingsWindow {
                 language = ui_language_combo(ui);
             });
             let hint = t("hint.language", &[]);
-            setting_row(ui, &t("settings.target_language", &[]), Some(&hint), |ui| {
+            required_setting_row(ui, &t("settings.target_language", &[]), Some(&hint), |ui| {
                 let id = Id::unique("target_language");
                 editable_combo(ui, id, &mut self.target_language, &common_languages());
             });

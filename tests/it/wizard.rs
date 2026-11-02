@@ -9,7 +9,7 @@ use eframe::egui::accesskit::Role;
 use egui_kittest::kittest::Queryable;
 use serde_json::{Value, json};
 
-use common::kittest::{click, click_change, has_label, run, tr};
+use common::kittest::{click, click_change, has_label, run, starred_labels, tr};
 use common::wizard::*;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service};
 use wizard101_chat_translator::config::{Config, default_config};
@@ -1142,4 +1142,15 @@ mod local_install {
         set_snapshot(&mut h, s);
         assert!(next_enabled(&h));
     }
+}
+
+#[test]
+fn prefs_step_stars_the_target_language() {
+    let h = to_prefs(configured());
+    let starred = starred_labels(&h);
+    assert!(
+        starred.contains(&tr("wizard.target_language")),
+        "{starred:?}"
+    );
+    assert!(!starred.contains(&tr("field.ui_language")), "{starred:?}");
 }

@@ -7,8 +7,8 @@ use super::glossary_draft::{builtin_of, builtin_offered};
 use super::theme::{self, icon};
 use super::widgets::{
     LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, hint,
-    optional_combo, rich, right_aligned, right_aligned_width, secondary_button,
-    secondary_icon_button, setting_row_with,
+    optional_combo, required_label, required_setting_row_with, rich, right_aligned,
+    right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{builtin_codes, builtin_creators};
@@ -71,7 +71,7 @@ impl GlossaryEditor {
                 }
             };
             let size = vec2(ui.spacing().combo_width, theme::CONTROL_HEIGHT);
-            setting_row_with(ui, &t("glossary.name", &[]), notice, |ui| {
+            required_setting_row_with(ui, &t("glossary.name", &[]), notice, |ui| {
                 ui.allocate_ui(size, |ui| text_field(ui, &mut glossary.name));
             });
             // 說明裡的 [名字](網址) 是要照字面顯示的範例，不能走會解析連結的 setting_row
@@ -207,7 +207,7 @@ impl GlossaryEditor {
                                 let text = RichText::new(t(key, &[]))
                                     .size(theme::HINT_SIZE)
                                     .color(theme::TEXT_SECONDARY);
-                                fixed_cell(ui, column, |ui| ui.add(Label::new(text))).id
+                                fixed_cell(ui, column, |ui| required_label(ui, text)).id
                             };
                             (
                                 caption(ui, "glossary.source"),
