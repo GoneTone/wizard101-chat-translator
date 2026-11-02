@@ -651,7 +651,24 @@ async fn stall_next_download(hf: &MockServer, name: &str) {
 }
 
 async fn query(f: &Fixture) -> RepoInfo {
+    let tree_requests = || async {
+        let requests = f.hf.received_requests().await.unwrap_or_default();
+        requests
+            .iter()
+            .filter(|r| r.url.path().ends_with("/tree/main"))
+            .count()
+    };
+    let before = tree_requests().await;
     f.local.command(Command::QueryRepo(REPO.into()));
+    // 重查時快照裡還留著上次的 Ready：等這次的 tree 請求送出（之前已設成 Loading）才看狀態
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while tree_requests().await == before {
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for the tree request"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     wait_for("repo queried", || {
         matches!(
             f.local.snapshot().repos.get(REPO),
