@@ -572,11 +572,49 @@ fn save_writes_the_edited_service_list_into_cfg() {
     h.event(egui::Event::Text(" 2".into()));
     run(&mut h);
     h.get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
-        .get_by_role_and_label(Role::Button, &tr("button.ok"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
         .click();
     run(&mut h);
     let saved = save(&mut h).unwrap();
     assert_eq!(service_name(&saved, 0), format!("{name} 2"));
+}
+
+#[test]
+fn saving_a_service_commits_only_the_service_keys() {
+    let mut h = harness(configured_cfg());
+    h.get_by_role_and_label(Role::TextInput, &tr("settings.target_language"))
+        .click();
+    run(&mut h);
+    h.event(egui::Event::Text("x".into()));
+    run(&mut h);
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
+    h.get_by_label(&tr("field.service_name")).click();
+    run(&mut h);
+    h.event(egui::Event::Text(" 2".into()));
+    run(&mut h);
+    h.get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
+        .click();
+    run(&mut h);
+    let actions = &h.state().actions;
+    let commits: Vec<&Config> = actions
+        .iter()
+        .filter_map(|a| match a {
+            SettingsAction::Commit(cfg) => Some(cfg),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commits.len(), 1);
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, SettingsAction::Save(_) | SettingsAction::Cancel))
+    );
+    let mut keys: Vec<&str> = commits[0].keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["default_service", "service_slots", "services"]);
 }
 
 #[test]

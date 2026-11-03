@@ -25,6 +25,7 @@ use wizard101_chat_translator::ui::settings::provider_picker::{
 use wizard101_chat_translator::ui::settings::service_draft::ServiceDraft;
 use wizard101_chat_translator::ui::settings::service_list::ServicePane;
 use wizard101_chat_translator::ui::settings::theme;
+use wizard101_chat_translator::ui::settings::window::SaveError;
 
 /// 本檔所有測試都用同一個介面語言，不會互相干擾。
 const LANGUAGE: &str = "en-US";
@@ -207,6 +208,8 @@ fn a_saved_name_never_collides() {
 struct State {
     pane: ServicePane,
     env: FakeEnv,
+    /// 視窗層檢查固定回傳的錯誤；空的就是放行。
+    check: Vec<SaveError>,
 }
 
 fn harness(draft: ServiceDraft) -> Harness<'static, State> {
@@ -217,12 +220,17 @@ fn harness_sized(draft: ServiceDraft, size: egui::Vec2) -> Harness<'static, Stat
     let state = State {
         pane: ServicePane::new(draft),
         env: FakeEnv::default(),
+        check: Vec::new(),
     };
     themed_harness(
         size,
         LANGUAGE,
         |ui: &mut Ui, s: &mut State| {
-            s.pane.ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET);
+            let check = s.check.clone();
+            s.pane
+                .ui(ui, &s.env, &s.env.snapshot.borrow(), TARGET, &|_| {
+                    check.clone()
+                });
         },
         state,
     )
@@ -352,7 +360,7 @@ fn the_form_footer_tabs_cancel_before_ok() {
     click_card(&mut h, &tr("button.edit"), 0);
     let labels = tab_through(&mut h, 20);
     let at = |label: String| labels.iter().position(|l| *l == label);
-    let (cancel, ok) = (at(tr("button.cancel")), at(tr("button.ok")));
+    let (cancel, ok) = (at(tr("button.cancel")), at(tr("button.save")));
     assert!(cancel.is_some() && cancel < ok, "{labels:?}");
 }
 
@@ -557,7 +565,7 @@ fn dialog_ok_keeps_the_dialog_open_when_invalid() {
     let (d, _a) = invalid_draft();
     let mut h = harness(d.clone());
     click_card(&mut h, &tr("button.edit"), 0);
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert!(has_dialog(&h, &tr("service.dialog_title")));
     assert!(has_label(&h, &tr("dialog.incomplete_title")));
     assert!(has_label(&h, &tr("error.need_model")));
@@ -572,7 +580,7 @@ fn dialog_ok_refuses_a_base_url_ending_in_v1() {
     let d = draft(vec![a.clone()], Some(&a), [None; 3]);
     let mut h = harness(d.clone());
     click_card(&mut h, &tr("button.edit"), 0);
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert!(has_dialog(&h, &tr("service.dialog_title")));
     assert!(has_label(&h, &tr("error.base_url_v1")));
     assert_eq!(h.state().pane.draft(), &d);
@@ -587,7 +595,7 @@ fn dialog_ok_saves_the_full_service_when_valid() {
     h.get_by_label(&tr("field.service_name")).click();
     run(&mut h);
     type_text(&mut h, " 2");
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert!(!has_dialog(&h, &tr("service.dialog_title")));
     let mut expected = a.clone();
     expected["name"] = json!(format!("{} 2", name(&a)));
@@ -602,9 +610,31 @@ fn saving_never_logs_the_api_key() {
     a["api_key"] = json!("secret-key-d41d8cd98f00b204");
     let mut h = harness(draft(vec![a.clone()], Some(&a), [None; 3]));
     click_card(&mut h, &tr("button.edit"), 0);
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert!(!log_lines_with("[settings] service saved (provider=gemini, has_key=True)").is_empty());
     assert!(!log_text().contains("secret-key-d41d8cd98f00b204"));
+}
+
+#[test]
+fn a_failing_check_keeps_the_dialog_open() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    h.state_mut().check = vec![("error.need_service".into(), vec![])];
+    click_card(&mut h, &tr("button.edit"), 0);
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
+    assert!(has_dialog(&h, &tr("service.dialog_title")));
+    assert!(has_label(&h, &tr("error.need_service")));
+    assert_eq!(h.state_mut().pane.take_committed(), None);
+}
+
+#[test]
+fn saving_hands_the_service_over_once() {
+    let (d, _a, _b) = two();
+    let mut h = harness(d);
+    click_card(&mut h, &tr("button.edit"), 0);
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
+    assert!(h.state_mut().pane.take_committed().is_some());
+    assert_eq!(h.state_mut().pane.take_committed(), None);
 }
 
 #[test]
@@ -718,7 +748,7 @@ fn the_dialog_buttons_stay_visible_in_a_small_window() {
     click_card(&mut h, &tr("button.edit"), 0);
     let ok = h
         .get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
-        .get_by_role_and_label(Role::Button, &tr("button.ok"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
         .rect();
     assert!(ok.bottom() <= 485.0, "{ok:?}");
 }
@@ -772,7 +802,7 @@ fn cancelling_the_provider_pick_changes_nothing() {
     assert!(!has_dialog(&h, &tr("service.pick_provider")));
     assert!(has_dialog(&h, &tr("service.dialog_title")));
     assert!(!has_label(&h, &tr("field.base_url")));
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert_eq!(h.state().pane.draft(), &d);
 }
 
@@ -791,7 +821,7 @@ fn add_service_drafts_the_picked_provider() {
     h.get_by_label(&tr("field.model")).click();
     run(&mut h);
     type_text(&mut h, "qwen3");
-    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.ok"));
+    click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     let services = &h.state().pane.draft().services;
     assert_eq!(services.len(), 3);
     assert_eq!(services[2]["provider"], json!("custom"));

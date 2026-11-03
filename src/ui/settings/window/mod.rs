@@ -423,7 +423,24 @@ impl SettingsWindow {
                         "" => language_name(&current_language()),
                         target => target.to_owned(),
                     };
-                    self.services.ui(ui, env, &self.snapshot, &target);
+                    let (saved, snapshot) = (&self.saved, &self.snapshot);
+                    let check = |service: &Value| {
+                        let cfg = with_service(saved, service);
+                        let plain = |key: String| (key, Vec::new());
+                        let mut errors: Vec<SaveError> =
+                            service_errors(&cfg).into_iter().map(plain).collect();
+                        errors.extend(local_errors(&cfg, snapshot));
+                        errors
+                    };
+                    self.services.ui(ui, env, snapshot, &target, &check);
+                    if let Some(service) = self.services.take_committed() {
+                        log(format!(
+                            "[settings] service {} committed",
+                            str_field(&service, "id")
+                        ));
+                        self.saved = with_service(&self.saved, &service);
+                        self.commit(&["services", "default_service", "service_slots"]);
+                    }
                     if self.services.take_open_local() {
                         self.switch_page(Page::LocalModels, env);
                     }
@@ -438,6 +455,15 @@ impl SettingsWindow {
             }
         });
     }
+}
+
+/// `saved` 併入對話框存好的 `service`（含「清單原本是空的就接手預設」）後會寫進檔案的內容。
+fn with_service(saved: &Config, service: &Value) -> Config {
+    let mut draft = ServiceDraft::from_config(saved);
+    draft.apply_dialog_result(service.clone());
+    let mut cfg = saved.clone();
+    draft.write_into(&mut cfg);
+    cfg
 }
 
 /// 預設服務與三個用途實際指到的服務各自缺哪些必填欄位（錯誤文案 key，去重）；連預設服務都沒有就只回 `error.need_service`。

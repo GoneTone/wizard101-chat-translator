@@ -269,7 +269,6 @@
   "button.add_service": "+ Add a service",
   "button.edit": "Edit",
   "button.delete": "Delete",
-  "button.ok": "OK",
   "button.manage": "Manage",
   "error.advanced_not_number": "Advanced values must be numbers.",
   "error.need_target_language": "Select or enter a target language.",

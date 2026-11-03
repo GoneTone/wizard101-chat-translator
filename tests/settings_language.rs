@@ -171,7 +171,7 @@ fn language_preview_keeps_a_half_added_service() {
     h.event(egui::Event::Text(" half".into()));
     run(&mut h);
     h.get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
-        .get_by_role_and_label(Role::Button, &tr("button.ok"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
         .click();
     run(&mut h);
     click(&mut h, Role::Tab, &tr("settings.tab.basic"));
