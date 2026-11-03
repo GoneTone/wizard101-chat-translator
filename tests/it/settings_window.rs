@@ -1771,3 +1771,26 @@ fn a_new_glossary_counts_as_unsaved() {
     );
     assert!(h.state().win.has_unsaved());
 }
+
+#[test]
+fn escape_closes_only_the_question() {
+    let mut h = harness(configured_cfg());
+    change_target_language(&mut h);
+    assert!(request_close(&mut h).is_empty());
+    run(&mut h);
+    h.key_press(Key::Escape);
+    run(&mut h);
+    assert!(!h.state().actions.contains(&SettingsAction::Cancel));
+    assert!(!has_label(&h, &tr("dialog.discard_changes")));
+    assert!(h.state().win.has_unsaved());
+}
+
+#[test]
+fn asking_again_keeps_the_question() {
+    let mut h = harness(configured_cfg());
+    change_target_language(&mut h);
+    assert!(request_close(&mut h).is_empty());
+    assert!(request_close(&mut h).is_empty());
+    run(&mut h);
+    assert!(has_label(&h, &tr("dialog.discard_changes")));
+}

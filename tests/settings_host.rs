@@ -393,6 +393,25 @@ fn cancel_restores_alpha_and_language() {
 }
 
 #[test]
+fn a_refused_close_keeps_the_window_and_asks() {
+    let _lock = language_lock();
+    i18n::set_language("zh-TW");
+    let (mut h, _wired) = settings_app_with(settings_cfg(), 0.5, Some("ctrl+alt+r"));
+    open_settings(&mut h);
+    click(&mut h, Role::ComboBox, &tr("field.ui_language"));
+    h.get_by_role_and_label(Role::Button, &language_name("en-US"))
+        .click();
+    run(&mut h);
+    close_request(&mut h);
+    run(&mut h);
+    assert!(has_label(&h, &tr("dialog.discard_changes")));
+    assert_eq!(current_language(), "en-US", "preview kept while asking");
+    click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.cancel"));
+    assert!(has_label(&h, &tr("button.save")), "window stays");
+    i18n::set_language("zh-TW");
+}
+
+#[test]
 fn saving_after_a_language_preview_relabels_the_overlay_once() {
     let _lock = language_lock();
     i18n::set_language("zh-TW");

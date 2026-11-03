@@ -289,6 +289,8 @@ impl HostedContent for SettingsWindow {
             actions.extend(self.request_close(env));
             if !actions.contains(&SettingsAction::Cancel) {
                 ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+                // 提問旗標在本幀 ui() 畫完後才設，要補一幀才會出現
+                ui.ctx().request_repaint();
             }
         }
         actions
