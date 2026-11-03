@@ -957,7 +957,8 @@ fn paste_installed_after_the_hotkeys_runs_last() {
     let blocked = Arc::new(Keys::default());
     *blocked.gate.lock().unwrap() = Some(gate);
     let env = typing_env(&blocked);
-    let typing = std::thread::spawn(move || type_into_window(&env, 0x77, "x", Duration::ZERO));
+    let typing =
+        std::thread::spawn(move || type_into_window(&env, 0x77, "x", Duration::ZERO, || false));
     common::wait_until("typing to start", typing_in_progress);
 
     assert!(!press(&d, &["ctrl", "v"]));

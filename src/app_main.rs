@@ -17,7 +17,7 @@ use windows_sys::Win32::Foundation::{FALSE, TRUE};
 use windows_sys::Win32::System::Console::{CTRL_C_EVENT, SetConsoleCtrlHandler};
 use windows_sys::core::BOOL;
 
-use crate::composer::paste::{TypingEnv, paste_clipboard, paste_interceptor};
+use crate::composer::paste::{TypingEnv, early_enter_guard, paste_clipboard, paste_interceptor};
 use crate::config::glossaries;
 use crate::config::services::resolve;
 use crate::config::{
@@ -809,6 +809,7 @@ pub fn build_app(
     };
     let hotkeys = register_hotkeys(&settings, &ui, &dispatcher, &input, hotkey_mask(&typing));
     install_paste(&settings, &dispatcher, &input, Arc::clone(&typing));
+    lock(&dispatcher).add_blocking(Box::new(early_enter_guard()));
     let stop = CancellationToken::new();
     let board = Arc::new(StatusBoard::new(
         ui.clone(),
