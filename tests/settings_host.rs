@@ -15,7 +15,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
-use common::kittest::{click, has_label, run, tr};
+use common::kittest::{click, click_in_dialog, has_label, run, tr};
 use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
@@ -383,9 +383,10 @@ fn cancel_restores_alpha_and_language() {
     // kittest 把視窗嵌成 egui 視窗，標題顯示在它的標題列
     let settings_title = t("settings.title", &[("app", &app_name())]);
     assert!(has_label(&h, &settings_title), "retitled");
-    // ✕ 與 Alt+F4 走同一條路
+    // ✕ 與 Alt+F4 走同一條路；有變更先問，放棄後才關
     close_request(&mut h);
     run(&mut h);
+    click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.discard"));
     assert_eq!(current_language(), "zh-TW");
     assert_eq!(h.state().alpha(), 0.5);
     assert!(!has_label(&h, &tr("button.cancel")), "window closed");

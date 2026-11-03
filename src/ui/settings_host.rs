@@ -286,7 +286,10 @@ impl HostedContent for SettingsWindow {
             .iter()
             .any(|a| matches!(a, SettingsAction::Save(_) | SettingsAction::Cancel));
         if closing && !done {
-            actions.extend(self.cancel(env));
+            actions.extend(self.request_close(env));
+            if !actions.contains(&SettingsAction::Cancel) {
+                ui.ctx().send_viewport_cmd(ViewportCommand::CancelClose);
+            }
         }
         actions
     }

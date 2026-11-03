@@ -12,6 +12,7 @@ use eframe::egui::{
 };
 use serde_json::Value;
 
+use super::dialog::{Choice, confirm};
 use super::env::{SettingsEnv, SettingsEvent};
 use super::glossary_draft::{GlossaryDraft, commit_glossary};
 use super::glossary_pane::GlossaryPane;
@@ -21,7 +22,7 @@ use super::quant_table::gb;
 use super::service_draft::{ServiceDraft, local_model_gone};
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
-use super::widgets::{focus_ring, footer_bar, scroll_page};
+use super::widgets::{danger_button, focus_ring, footer_bar, scroll_page};
 use super::{flag_setting, setting, text_setting};
 use crate::config::local;
 use crate::config::services::{
@@ -128,6 +129,8 @@ pub struct SettingsWindow {
     pending: Vec<SettingsAction>,
     /// 視窗管的鍵上次寫進設定檔的值（開窗、提交、儲存時更新）。
     saved: Config,
+    /// 正在問「放棄未存的變更並關閉？」。
+    confirm_close: bool,
 }
 
 impl SettingsWindow {
@@ -162,6 +165,7 @@ impl SettingsWindow {
             about: about::AboutState::default(),
             pending: Vec::new(),
             saved: Config::new(),
+            confirm_close: false,
         };
         win.saved = win.collect().0;
         win
@@ -217,7 +221,46 @@ impl SettingsWindow {
         }
         self.content(ui, env, content);
         ui.advance_cursor_after_rect(full);
+        if self.confirm_close {
+            self.ask_discard(ui, env);
+        }
         std::mem::take(&mut self.pending)
+    }
+
+    /// 有尚未存下的變更：草稿與上次寫進設定檔的內容不同，或術語表、服務編輯畫面還開著未存的修改。
+    pub fn has_unsaved(&self) -> bool {
+        self.collect().0 != self.saved
+            || self.glossaries.unsaved().is_some()
+            || self.services.unsaved()
+    }
+
+    /// 視窗 ✕ 或 Alt+F4：沒有未存的變更就取消；有的話改問是否放棄（回傳空，視窗留著）。
+    pub fn request_close(&mut self, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
+        if !self.has_unsaved() {
+            return self.cancel(env);
+        }
+        if !self.confirm_close {
+            log("[settings] close blocked: unsaved changes");
+            self.confirm_close = true;
+        }
+        Vec::new()
+    }
+
+    fn ask_discard(&mut self, ui: &Ui, env: &dyn SettingsEnv) {
+        let ok = |ui: &mut Ui| danger_button(ui, &t("button.discard", &[]));
+        match confirm(ui, "confirm_close", t("dialog.discard_changes", &[]), ok) {
+            Choice::Open => {}
+            Choice::Done(()) => {
+                log("[settings] unsaved changes discarded");
+                self.confirm_close = false;
+                let actions = self.cancel(env);
+                self.pending.extend(actions);
+            }
+            Choice::Cancel => {
+                log("[settings] close cancelled");
+                self.confirm_close = false;
+            }
+        }
     }
 
     /// 取消（〔取消〕、視窗 ✕ 或 Alt+F4）：停掉錄製，還原預覽中的透明度與介面語言，最後送 `Cancel`。
