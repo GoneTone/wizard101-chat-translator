@@ -155,6 +155,38 @@ async fn only_whitespace_after_the_sender_is_not_logged_as_altered() {
 }
 
 #[tokio::test]
+async fn incoming_output_without_the_sender_gets_it_back_silently() {
+    let fake = Fake::texts(&["嗨"]);
+    let out = make(&fake)
+        .translate_incoming("[Amy] sender-free-output", &[])
+        .await;
+    assert_eq!(out.unwrap(), "[Amy] 嗨");
+    let lines = log_lines_with("sender-free-output");
+    assert!(
+        !lines.iter().any(|l| l.contains("altered the sender")),
+        "{lines:?}"
+    );
+}
+
+#[tokio::test]
+async fn incoming_example_answer_drops_the_sender() {
+    let fake = Fake::texts(&["嗨"]);
+    let tr = make(&fake);
+    assert!(tr.set_examples(
+        Some(ex_incoming("[Amy] src", "[Amy] out")),
+        &tr.examples_fingerprint()
+    ));
+    tr.translate_incoming("[A] hi", &[]).await.unwrap();
+    assert_eq!(
+        fake.calls()[0].turns[..2],
+        [
+            Turn::user(wrap_message("[Amy] src")),
+            Turn::assistant("out")
+        ]
+    );
+}
+
+#[tokio::test]
 async fn incoming_translation_is_not_retried() {
     let fake = Fake::texts(&["Snowspike Hat"]);
     make(&fake).translate_incoming("雪刺帽", &[]).await.unwrap();
