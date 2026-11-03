@@ -21,10 +21,7 @@ use super::quant_table::gb;
 use super::service_draft::{ServiceDraft, local_model_gone};
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
-use super::widgets::{
-    callout, focus_ring, primary_button, right_aligned, right_aligned_width, scroll_page,
-    secondary_button,
-};
+use super::widgets::{focus_ring, footer_bar, scroll_page};
 use super::{flag_setting, setting, text_setting};
 use crate::config::local;
 use crate::config::services::{
@@ -366,27 +363,15 @@ impl SettingsWindow {
 
     /// 按鈕列：被擋下的儲存提示在左，〔取消〕〔儲存〕靠右。
     fn footer(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, buttons: Id) {
-        ui.spacing_mut().item_spacing.x = 8.0;
         if !self.errors.is_empty() {
             self.errors = self.collect().1;
         }
-        if !self.errors.is_empty() {
-            let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-            let lines: Vec<String> = self
-                .errors
-                .iter()
-                .map(|(key, args)| localized(key, args))
-                .collect();
-            ui.scope(|ui| {
-                ui.set_max_width(room.max(120.0));
-                callout(ui, &t("dialog.incomplete_title", &[]), &lines);
-            });
-        }
-        let (cancel, save) = right_aligned(ui, buttons, |ui| {
-            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-            let save = primary_button(ui, &t("button.save", &[])).clicked();
-            (cancel, save)
-        });
+        let lines: Vec<String> = self
+            .errors
+            .iter()
+            .map(|(key, args)| localized(key, args))
+            .collect();
+        let (cancel, save) = footer_bar(ui, buttons, &lines, |_| {});
         if save {
             self.save(env);
         } else if cancel {

@@ -285,6 +285,35 @@ pub(super) fn centered_column<R>(
     shown.inner
 }
 
+/// 設定視窗與術語表編輯畫面共用的底部按鈕列：`errors` 非空時左側是提示框，否則畫 `idle`；右側〔取消〕〔儲存〕。
+///
+/// 回傳（取消, 儲存）是否按下。
+pub(super) fn footer_bar(
+    ui: &mut Ui,
+    buttons: Id,
+    errors: &[String],
+    idle: impl FnOnce(&mut Ui),
+) -> (bool, bool) {
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if errors.is_empty() {
+            idle(ui);
+        } else {
+            let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
+            ui.scope(|ui| {
+                ui.set_max_width(room.max(120.0));
+                callout(ui, &t("dialog.incomplete_title", &[]), errors);
+            });
+        }
+        right_aligned(ui, buttons, |ui| {
+            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
+            let save = primary_button(ui, &t("button.save", &[])).clicked();
+            (cancel, save)
+        })
+    })
+    .inner
+}
+
 /// 把 `add` 加入的元件推到這一列的右緣；元件依加入順序由左往右排，Tab 順序與畫面一致。
 ///
 /// 寬度取上一幀以 `id` 量到的值（`right_aligned_width`）排版，變了就重排一次（`request_discard`）。

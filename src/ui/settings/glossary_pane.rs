@@ -12,8 +12,8 @@ use super::glossary_merge::MergeDialog;
 use super::provider_picker::{CardIcon, choice_cards};
 use super::theme::{self, icon};
 use super::widgets::{
-    callout, card, danger_secondary_button, dashed_button, list_card, optional_combo,
-    primary_button, right_aligned, right_aligned_width, secondary_button, setting_row,
+    callout, card, danger_secondary_button, dashed_button, footer_bar, list_card, optional_combo,
+    secondary_button, setting_row,
 };
 use super::window::SaveError;
 use crate::config::glossaries::StoredGlossary;
@@ -147,32 +147,20 @@ impl GlossaryPane {
             .iter()
             .position(|g| g.id == edit.copy.id)
             .unwrap_or(self.draft.glossaries.len());
-        ui.spacing_mut().item_spacing.x = 8.0;
         if !edit.errors.is_empty() {
             edit.errors = glossary_errors(&edit.copy, index);
         }
-        if edit.errors.is_empty() {
+        let lines: Vec<String> = edit
+            .errors
+            .iter()
+            .map(|(key, args)| localized(key, args))
+            .collect();
+        let (cancel, save) = footer_bar(ui, buttons, &lines, |ui| {
             let name = match pystr::strip(&edit.copy.name) {
                 "" => t("glossary.default_name", &[]),
                 name => name.to_owned(),
             };
             ui.add(Label::new(t("glossary.editing", &[("name", &name)])).truncate());
-        } else {
-            let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-            let lines: Vec<String> = edit
-                .errors
-                .iter()
-                .map(|(key, args)| localized(key, args))
-                .collect();
-            ui.scope(|ui| {
-                ui.set_max_width(room.max(120.0));
-                callout(ui, &t("dialog.incomplete_title", &[]), &lines);
-            });
-        }
-        let (cancel, save) = right_aligned(ui, buttons, |ui| {
-            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-            let save = primary_button(ui, &t("button.save", &[])).clicked();
-            (cancel, save)
         });
         let id = edit.copy.id.clone();
         if save {

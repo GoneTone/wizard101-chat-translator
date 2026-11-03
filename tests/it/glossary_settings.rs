@@ -1126,3 +1126,32 @@ fn merge_import_changes_only_the_copy() {
         [entry("B", "乙")]
     );
 }
+
+#[test]
+fn blocked_save_errors_clear_once_the_name_is_filled_again() {
+    let mut h = editing(Vec::new(), None);
+    fields_named(&h, &tr("glossary.name"))[0].click();
+    run(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    run(&mut h);
+    save_edit(&mut h);
+    let reason = localized("error.glossary_name_blank", &[("index", "1".into())]);
+    assert!(has_label(&h, &reason));
+    type_into_nth(&mut h, &tr("glossary.name"), 0, "Back");
+    assert!(!has_label(&h, &reason));
+    assert!(h.state().pane.editing());
+}
+
+#[test]
+fn unsaved_with_a_blank_name_uses_the_unnamed_message() {
+    let mut h = editing(Vec::new(), None);
+    fields_named(&h, &tr("glossary.name"))[0].click();
+    run(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    run(&mut h);
+    let (key, args) = h.state().pane.unsaved().unwrap();
+    assert_eq!(key, "error.glossary_unsaved_edit_unnamed");
+    assert!(args.is_empty());
+}
