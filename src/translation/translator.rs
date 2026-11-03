@@ -13,7 +13,6 @@ use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use super::Turn;
 use super::clients::{
     ChatBackend, ChatRequest, MAX_TOKENS_REGION, ModelInfo, build_client, cancellable,
 };
@@ -32,6 +31,7 @@ use super::prompts::{
     example_turns, fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
     glossary_turns, is_game_language,
 };
+use super::{Role, Turn};
 use crate::config::ServiceSpec;
 use crate::glossary::{Entry, Glossary, hits_key};
 use crate::logs::log;
@@ -134,7 +134,10 @@ impl Binding {
         }
         if call.keep_sender {
             let restored = restore_sender(call.source, &translated);
-            if sender_of(&restored) != sender_of(&translated) {
+            // 沒寫發送者（照提示詞）只是補上前綴，不算改動
+            let prepended = sender_of(call.source)
+                .is_some_and(|p| restored == format!("{p} {}", pystr::lstrip(&translated)));
+            if !prepended && sender_of(&restored) != sender_of(&translated) {
                 log(format!(
                     "[translate] model altered the sender prefix, restored: source={} model_output={}",
                     repr_str(call.source),
@@ -317,13 +320,16 @@ impl Translator {
             message_body(text),
             &glossary_keep_original(&b.target_language),
         );
-        let turns = build_turns(
-            context,
-            &glossary,
-            text,
-            CONTEXT_INTRO_INCOMING,
-            &b.examples(|e| e.incoming.as_ref()),
-        );
+        // 模型只輸出譯文、前綴由 restore_sender 補回：自己先寫出簡體的發送者名稱，後面常跟著變簡體
+        let examples: Vec<Turn> = b
+            .examples(|e| e.incoming.as_ref())
+            .into_iter()
+            .map(|t| match t.role {
+                Role::Assistant => Turn::assistant(message_body(&t.content)),
+                Role::User => t,
+            })
+            .collect();
+        let turns = build_turns(context, &glossary, text, CONTEXT_INTRO_INCOMING, &examples);
         let call = Call {
             kind: "incoming",
             source: text,
