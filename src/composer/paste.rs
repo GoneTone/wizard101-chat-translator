@@ -3,6 +3,7 @@
 //! 兩條路徑共用同一個鍵入迴圈但規矩不同：譯文（`type_into_window`）絕不模擬 Enter，由使用者
 //! 自己確認後送出；攔截到的 Ctrl+V（`paste_clipboard`）行為等同原生貼上，只有遊戲聊天框開著時換行改成空格。
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, TryLockError};
 use std::time::Duration;
 
@@ -36,6 +37,44 @@ static TYPING: Mutex<()> = Mutex::new(());
 static PASTE_IN_PROGRESS: Mutex<()> = Mutex::new(());
 
 static LINE_BREAKS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\r\n]+").unwrap());
+
+/// 正在鍵入譯文的執行緒數；貼上不算，它自己會注入 Enter。
+static OUTGOING_TYPING: AtomicUsize = AtomicUsize::new(0);
+
+/// 鍵入譯文期間持有；放掉（含 panic）就不再算數，免得之後的 Enter 一直被吞。
+struct OutgoingTyping;
+
+impl OutgoingTyping {
+    fn start() -> Self {
+        OUTGOING_TYPING.fetch_add(1, Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for OutgoingTyping {
+    fn drop(&mut self) {
+        OUTGOING_TYPING.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// 目前是否正在把譯文鍵入遊戲（不含貼上）。
+pub fn outgoing_typing_in_progress() -> bool {
+    OUTGOING_TYPING.load(Ordering::Relaxed) > 0
+}
+
+/// 鍵入譯文途中吞掉使用者按的 Enter：遊戲會把打到一半的譯文送出。放開照常放行。
+pub fn early_enter_guard() -> HotkeyInterceptor {
+    HotkeyInterceptor::new("enter", Box::new(|| false), Box::new(|| {}))
+        .expect("enter is a valid key name")
+        .expect("enter can be swallowed")
+        .swallow_override(Box::new(|| {
+            let typing = outgoing_typing_in_progress();
+            if typing {
+                log("[composer] enter pressed while typing the translation; swallowed so the half-typed message is not sent");
+            }
+            typing
+        }))
+}
 
 /// 目前是否正在逐字鍵入（譯文或貼上）。
 pub fn typing_in_progress() -> bool {
@@ -72,13 +111,14 @@ impl TypingEnv {
 ///
 /// `hwnd` 為 0 或已關閉就什麼都不打；每個字送出前都確認它仍是前景：打到一半切窗
 /// （或搶焦點失敗）就停，剩下的字不會打進別的視窗。換行在 `chat_open()` 成立時改打空格，
-/// 否則按 Enter。
+/// 否則按 Enter。`stop_if_chat_closes` 時，`chat_open()` 不再成立就停。
 fn type_chars(
     env: &TypingEnv,
     hwnd: isize,
     text: &str,
     delay: Duration,
     chat_open: &dyn Fn() -> bool,
+    stop_if_chat_closes: bool,
 ) -> bool {
     if hwnd == 0 || !(env.is_window)(hwnd) {
         log(format!(
@@ -94,6 +134,12 @@ fn type_chars(
         if (env.foreground)() != hwnd {
             log(format!(
                 "[composer] typing aborted: target lost foreground after {index}/{total} chars (hwnd={hwnd:#x})"
+            ));
+            return true;
+        }
+        if stop_if_chat_closes && !chat_open() {
+            log(format!(
+                "[composer] typing aborted: game chat closed after {index}/{total} chars (hwnd={hwnd:#x})"
             ));
             return true;
         }
@@ -136,16 +182,29 @@ fn tap(env: &TypingEnv, code: Code) {
 }
 
 /// 把譯文送進遊戲：還原前景視窗（`hwnd`）後逐字鍵入 `text`；遊戲漏字就把 `delay` 調大。
-pub fn type_into_window(env: &TypingEnv, hwnd: isize, text: &str, delay: Duration) {
+///
+/// 呼叫當下 `chat_open()`（遊戲聊天框開著）的話，之後聊天框被關掉就停，剩下的字不打進遊戲；
+/// 期間使用者按的 Enter 由 [`early_enter_guard`] 吞掉。
+pub fn type_into_window(
+    env: &TypingEnv,
+    hwnd: isize,
+    text: &str,
+    delay: Duration,
+    chat_open: impl Fn() -> bool,
+) {
+    let _outgoing = OutgoingTyping::start();
+    // 在切窗緩衝之前看：緩衝期間就被關掉的聊天框也要算「原本開著」
+    let watch_chat = chat_open();
     // 絕不送 Enter 的最後防線：模型偶發的多行輸出一律壓成空格
     let text = LINE_BREAKS.replace_all(text, " ");
     let text = text.trim();
     let target_alive = hwnd != 0 && (env.is_window)(hwnd);
     log(format!(
-        "[composer] typing chars={} delay={:?} hwnd={hwnd:#x} target_alive={}",
+        "[composer] typing chars={} delay={:?} hwnd={hwnd:#x} target_alive={} chat_open={}",
         text.chars().count(),
         delay.as_secs_f64(),
-        py_bool(target_alive)
+        py_bool(target_alive),
+        py_bool(watch_chat)
     ));
     if target_alive {
         if !(env.force_foreground)(hwnd) {
@@ -155,7 +214,7 @@ pub fn type_into_window(env: &TypingEnv, hwnd: isize, text: &str, delay: Duratio
         }
         (env.clock.sleep)(FOCUS_DELAY);
     }
-    type_chars(env, hwnd, text, delay, &|| false);
+    type_chars(env, hwnd, text, delay, &chat_open, watch_chat);
 }
 
 /// Ctrl+V 的攔截器：`should_intercept()` 成立（遊戲在前景、設定開啟）才吞掉並呼叫 `on_paste`。
@@ -248,7 +307,7 @@ pub fn paste_clipboard(
         py_bool(chat_open())
     ));
     wait_for_ctrl_released(env);
-    type_chars(env, hwnd, &text, delay, &chat_open)
+    type_chars(env, hwnd, &text, delay, &chat_open, false)
 }
 
 #[cfg(test)]
@@ -275,6 +334,7 @@ mod tests {
     struct Fake {
         calls: Mutex<Vec<Call>>,
         typing_seen: Mutex<Vec<bool>>,
+        outgoing_seen: Mutex<Vec<bool>>,
         paste_locked: Mutex<Vec<bool>>,
     }
 
@@ -287,6 +347,10 @@ mod tests {
         }
         fn unicode(&self, ch: char) {
             self.typing_seen.lock().unwrap().push(typing_in_progress());
+            self.outgoing_seen
+                .lock()
+                .unwrap()
+                .push(outgoing_typing_in_progress());
             self.paste_locked
                 .lock()
                 .unwrap()
@@ -391,7 +455,7 @@ mod tests {
         let (fake, mut env) = setup();
         let held: Pressed = [code("ctrl"), code("shift")].into();
         env.pressed = Arc::new(move || held.clone());
-        type_into_window(&env, TARGET, "ab", Duration::ZERO);
+        type_into_window(&env, TARGET, "ab", Duration::ZERO, || false);
         let (a, b) = (
             code("ctrl").min(code("shift")),
             code("ctrl").max(code("shift")),
@@ -412,7 +476,7 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         let delay = Duration::from_millis(30);
-        type_into_window(&env, TARGET, "wanna team up?", delay);
+        type_into_window(&env, TARGET, "wanna team up?", delay, || false);
         assert_eq!(typed(&fake), "wanna team up?");
         let expected: Vec<Duration> = [FOCUS_DELAY].into_iter().chain([delay; 14]).collect();
         assert_eq!(slept(), expected);
@@ -427,6 +491,7 @@ mod tests {
             TARGET,
             "line one\nline two\r\nline three\n",
             Duration::ZERO,
+            || false,
         );
         assert_eq!(typed(&fake), "line one line two line three");
     }
@@ -437,7 +502,7 @@ mod tests {
         let (fake, env) = setup();
         let target = 0x1234;
         set_foreground(&[target, target, target, 0x9999, target]);
-        type_into_window(&env, target, "hello", Duration::ZERO);
+        type_into_window(&env, target, "hello", Duration::ZERO, || false);
         assert_eq!(typed(&fake), "hel");
         assert_eq!(FORCED.with(|f| f.borrow().clone()), [target]);
         assert_eq!(slept(), [FOCUS_DELAY]);
@@ -449,10 +514,10 @@ mod tests {
         let (fake, mut env) = setup();
         set_clipboard(Ok(Some("hi")));
         let text = crate::logs::capture(|| {
-            type_into_window(&env, 0, "hi", Duration::ZERO);
+            type_into_window(&env, 0, "hi", Duration::ZERO, || false);
             assert!(!paste_clipboard(&env, 0, Duration::ZERO, || false));
             env.is_window = |_| false;
-            type_into_window(&env, TARGET, "hi", Duration::ZERO);
+            type_into_window(&env, TARGET, "hi", Duration::ZERO, || false);
         });
         assert!(fake.calls.lock().unwrap().is_empty());
         assert!(
@@ -469,7 +534,7 @@ mod tests {
     fn type_into_window_never_sends_enter() {
         let _g = serial();
         let (fake, env) = setup();
-        type_into_window(&env, TARGET, "hello\nworld", Duration::ZERO);
+        type_into_window(&env, TARGET, "hello\nworld", Duration::ZERO, || false);
         assert!(
             !fake
                 .calls
@@ -755,9 +820,74 @@ mod tests {
         let _g = serial();
         let (fake, env) = setup();
         assert!(!typing_in_progress());
-        type_into_window(&env, TARGET, "ab", Duration::ZERO);
+        type_into_window(&env, TARGET, "ab", Duration::ZERO, || false);
         assert_eq!(*fake.typing_seen.lock().unwrap(), [true, true]);
         assert!(!typing_in_progress());
+    }
+
+    #[test]
+    fn type_into_window_stops_once_the_open_game_chat_closes() {
+        let _g = serial();
+        let (fake, env) = setup();
+        let checks = Cell::new(0);
+        // 開始時開著，打完兩個字後被關掉
+        let chat_open = || {
+            checks.set(checks.get() + 1);
+            checks.get() <= 3
+        };
+        let text = crate::logs::capture(|| {
+            type_into_window(&env, TARGET, "which portal?", Duration::ZERO, chat_open);
+        });
+        assert_eq!(typed(&fake), "wh");
+        assert!(
+            text.contains(
+                "[composer] typing aborted: game chat closed after 2/13 chars (hwnd=0x42)"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn chat_closed_during_the_focus_delay_types_nothing() {
+        let _g = serial();
+        let (fake, env) = setup();
+        let checks = Cell::new(0);
+        let chat_open = || {
+            checks.set(checks.get() + 1);
+            checks.get() == 1
+        };
+        type_into_window(&env, TARGET, "hi", Duration::ZERO, chat_open);
+        assert_eq!(typed(&fake), "");
+    }
+
+    #[test]
+    fn type_into_window_ignores_the_chat_when_it_was_not_open_to_begin_with() {
+        let _g = serial();
+        let (fake, env) = setup();
+        type_into_window(&env, TARGET, "hi", Duration::ZERO, || false);
+        assert_eq!(typed(&fake), "hi");
+    }
+
+    #[test]
+    fn early_enter_guard_swallows_enter_presses_only_while_typing_a_translation() {
+        let _g = serial();
+        let mut guard = early_enter_guard();
+        assert!(guard.handle(down(code("enter")), &held(&[])));
+        assert!(guard.handle(up(code("enter")), &held(&[])));
+        let _typing = OutgoingTyping::start();
+        assert!(!guard.handle(down(code("enter")), &held(&[])));
+        assert!(guard.handle(up(code("enter")), &held(&[])));
+    }
+
+    #[test]
+    fn only_translation_typing_counts_as_outgoing_typing() {
+        let _g = serial();
+        let (fake, env) = setup();
+        type_into_window(&env, TARGET, "a", Duration::ZERO, || false);
+        set_clipboard(Ok(Some("b")));
+        assert!(paste_clipboard(&env, TARGET, Duration::ZERO, || false));
+        assert_eq!(*fake.outgoing_seen.lock().unwrap(), [true, false]);
+        assert!(!outgoing_typing_in_progress());
     }
 
     #[test]
@@ -777,7 +907,7 @@ mod tests {
     fn astral_char_is_sent_as_one_surrogate_pair() {
         let _g = serial();
         let (fake, env) = setup();
-        type_into_window(&env, TARGET, "a😀", Duration::ZERO);
+        type_into_window(&env, TARGET, "a😀", Duration::ZERO, || false);
         assert_eq!(
             *fake.calls.lock().unwrap(),
             [Call::Unicode('a'), Call::Unicode('😀')]

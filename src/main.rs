@@ -242,13 +242,16 @@ fn start_main(app: &mut App, startup: Startup) {
     let settings = Settings::from_config(&read(&shared_cfg));
     let send = {
         let (input_cfg, typing) = (Arc::clone(&shared_cfg), Arc::clone(&built.typing));
+        let tracker = Arc::clone(&built.input.tracker);
         // 在背景打字，UI 不凍結；TYPING 鎖保證不與貼上交錯
         move |text: String, hwnd: isize| {
             let delay = type_delay(&read(&input_cfg));
-            let typing = Arc::clone(&typing);
+            let (typing, tracker) = (Arc::clone(&typing), Arc::clone(&tracker));
             let _ = std::thread::Builder::new()
                 .name("type-outgoing".into())
-                .spawn(move || type_into_window(&typing, hwnd, &text, delay))
+                .spawn(move || {
+                    type_into_window(&typing, hwnd, &text, delay, || tracker.is_open(hwnd));
+                })
                 .inspect_err(|e| log(format!("[composer] cannot spawn type-outgoing: {e}")));
         }
     };
