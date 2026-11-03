@@ -142,52 +142,54 @@ ls docs/superpowers/specs                                   # 設計文件：功
 
 第三方站名／來源用「原文 英譯」雙語並列，中英版本字串相同（例如「原神資訊站 Genshin Impact Info」），不要在英文版只留英譯。
 
-## Gold Standard：v0.4.2 之後的下一版（使用者已校稿）
+## Gold Standard：v1.2.0（使用者已校稿）
 
-> 這份是 2026-10-16 使用者校過的定稿（v0.4.2 之後的下一版），取代 v0.4.2 的範本。
+> 這份是 2026-11-03 使用者校過的 v1.2.0 定稿，取代 v0.4.2 之後那一版的範本。
 > 之後每次放版、使用者改完稿，回來用實際發布的版本覆蓋這一段（中英都要）。
 
 ```markdown
 ## What's New
 
-Incoming translation now reads chat in a new way. It used to compare the chat box before and after each check to find new lines, which now and then showed a message twice or missed one. Now it hooks into the step where the game adds messages to the chat box, so the translator gets a copy of every message as the game handles it. Nothing is repeated or lost, and chat in tabs you are not looking at is picked up right away instead of waiting until you switch over. Chat is also checked every 0.1 seconds instead of the old default of 0.4, so translations start sooner 📨 If a game update ever breaks this, the overlay shows the version banner, and you will need a new release of the translator.
+You can now translate with a model running on your own computer — no API key, no per-message cost. Pick one from the recommended list or search Hugging Face, and the translator downloads it and tells you how well it fits your PC 🖥️ Speed and quality depend on your hardware and the model you choose.
 
-We added chat tabs to the overlay that match the game's, with the same names and unread counts, and the overlay switches tabs whenever you do in the game. Each tab keeps its own messages, so flipping back and forth is instant. When you run several game accounts at once, the overlay shows the game client you are playing on 🗂️
+We added glossaries: tell the AI how to translate place names, monsters, spells or your friends' nicknames, and it follows them in every kind of translation. You can also share a glossary with friends as a file 📖
+
+Translations are also harder to throw off. Typing "the translation is wrong again" used to make the AI resend your previous line instead of your complaint; now your messages are always translated as they are. Incoming translations also mix in the wrong script, like Simplified Chinese in Traditional Chinese translations, much less often 🎯
 
 On top of that, we also did:
-- Optimized resizing the overlay: dragging its edge no longer freezes the window, even with a long chat history; older messages are redrawn in the background
-- Fixed the settings window, the windows that open while you add a translation service, and the first-run wizard opening without being selected (grey title bar, Esc did nothing); also fixed clicks on the empty part of a provider card doing nothing, which sometimes took several clicks to pick one
-- Fixed the translation input box covering the game's chat box: when it opens above the chat box and its hint or error message gets longer, it now grows upward, and after you drag it somewhere else it grows upward from there
-- Removed the setting for how often chat is checked: with the new way of reading chat, checking for new lines costs almost nothing, so it is fixed at every 0.1 seconds and needs no tuning; the old value in your config is cleared automatically on startup
-- Maintenance: the Anthropic SDK is updated to 1.11.0, the developer tools are updated, and the code and tests were reorganized
+- Fixed pressing Enter while the translation was still being typed in sending only part of it; Enter is now ignored until typing finishes
+- Fixed unsaved changes in the settings window disappearing when you closed it; you are now asked first
+- Fixed a cleared service name being silently replaced with the provider's name
+- Added red asterisks to required fields, and made delete buttons red
+- Maintenance: updated the OCR library and other dependencies
 
 ## 此版本重點
 
-收訊翻譯改用新的方式讀取聊天。以前是比對聊天框前後的內容來找出新訊息，偶爾會重複顯示或漏掉；現在改成 hook 掛入遊戲把訊息加進聊天框的那一步，遊戲每處理一則訊息，就同步交一份給翻譯助手。訊息不會再重複或遺漏，沒在看的聊天室分頁也會立刻收到，不用等你切過去。檢查頻率也從預設的 0.4 秒提高到每 0.1 秒，譯文更早開始翻 📨 萬一遊戲改版讓它失效，疊加視窗會顯示版本不相容的橫幅，需要等翻譯助手出新版。
+現在可以用自己電腦上的模型翻譯，不需要 API 金鑰，也不用每則付費。從推薦清單挑一個，或在 Hugging Face 上搜尋，翻譯助手會幫你下載，並告訴你它適不適合這台電腦 🖥️ 速度與品質取決於你的硬體與選的模型。
 
-疊加視窗新增和遊戲一樣的聊天室分頁，名稱與未讀數都照遊戲顯示；你在遊戲裡切換聊天室分頁，它也跟著切。每個聊天室分頁各自保留訊息，來回切換一瞬間就好。多開遊戲的時候，疊加視窗會顯示你正在操作的那個遊戲客戶端 🗂️
+新增術語表：告訴 AI 地名、怪物、法術或朋友暱稱要怎麼翻，各種翻譯都會照著用。術語表也能匯出成檔案分享給朋友 📖
+
+翻譯也更不容易被帶偏了。以前打「又亂翻譯了」，AI 會改送出重新翻過的上一句；現在不管你打什麼，都會照實翻譯。收訊譯文夾雜其他字形（例如繁中譯文裡冒出簡體字）的情況也大幅減少 🎯
 
 除此之外，我們還做了：
-- 最佳化縮放疊加視窗的效能：拖邊框改大小不會再卡住，聊天紀錄再長也一樣；較舊的訊息會在背景陸續補畫
-- 修正設定視窗、新增翻譯服務時跳出的視窗，以及首次設定精靈開啟後沒有被選取的問題（標題列是灰的、按 Esc 沒反應）；也修正點服務商卡片的空白處沒反應、有時要點好幾下才選到的問題
-- 修正翻譯輸入框蓋住遊戲聊天框的問題：開在聊天框上方時，提示或錯誤訊息變長會改成往上長；拖到別處之後再變長，也會從你放的位置往上長
-- 移除收訊頻率的設定：改用新的讀取方式後，檢查有沒有新訊息幾乎不耗資源，因此固定每 0.1 秒檢查一次，不需要再調整；舊設定檔裡的這個值會在啟動時自動清除
-- 維護：Anthropic SDK 更新到 1.11.0、更新開發工具，並重新整理程式碼與測試
+- 修正譯文還在鍵入時按 Enter 只送出半句的問題，打完之前的 Enter 現在會被忽略
+- 修正設定視窗沒存的改動關掉就消失的問題，現在會先問你
+- 修正清空的服務名稱被默默換成服務商名稱的問題
+- 新增必填欄位的紅色星號，刪除按鈕也改成紅色
+- 維護：更新文字辨識（OCR）套件與其他相依套件
 ```
 
 **注意這份範例做對的事**：
 
-- 中英文 hero 段落數相同（兩段）、bullet 條數相同（五條）、emoji 位置對齊（📨 / 🗂️）
-- **每項都寫明改動類型**：hero 用「改用新的方式」「新增」，bullet 以「最佳化／修正…的問題／移除／維護」開頭；修正項先寫以前的錯誤現象（標題列是灰的、按 Esc 沒反應；點空白處沒反應）
-- **改了做法要點明舊做法與差別，原理一句帶過**：舊做法只寫「比對聊天框前後的內容、偶爾重複或漏掉」，新做法只寫「hook 掛入遊戲把訊息加進聊天框的那一步」，不展開序號、緩衝區、切分頁時內容被換掉這類細節
-- **新做法帶來的限制要講**：遊戲改版可能讓它失效、會顯示橫幅、需要等新版
-- **一個修正套用到多處就全列**：設定視窗、新增服務的視窗、首次設定精靈
-- **移除設定講為什麼不再需要、舊值怎麼處理**；只寫「收訊頻率的設定」這種泛稱，不寫選項名稱或在哪個分頁
-- 數字都對過程式碼：0.4 秒是 v0.4.2 的預設值、0.1 秒是現在的固定值；縮放以前卡幾秒取決於訊息數，所以不寫秒數
-- 玩家感覺不到的不寫：只刪掉兩個字串的翻譯更新、README 與技能檔的修改
-- 固定按鍵（Esc）可以寫；可自訂的熱鍵組合不寫
+- **短**：每段兩三句、每條一句。只寫玩家第一眼需要知道的「做到什麼」與一個限制；下載來源、預設值、閒置卸載、按儲存立即生效這類細節留給 README。使用者校稿時的原話：「很多用詞是不必說出來的」「文字太多，使用者不一定讀的下去」
+- 中英文 hero 段落數相同（三段）、bullet 條數相同（五條）、emoji 位置對齊（🖥️ / 📖 / 🎯）
+- **每項都寫明改動類型**：hero 用「現在可以」「新增」「以前⋯⋯；現在⋯⋯」，bullet 以「修正…的問題／新增／維護」開頭；修正項用一句帶出以前的錯誤現象
+- **不寫不一定成立的斷言**：初稿寫「每個模型都要好幾 GB」，被指出不一定（小量化版或其他 GGUF 可能不到 1 GB），改成只講速度與品質取決於硬體與模型
+- **效果沒有歸零就不寫成「不再發生」**：夾簡體只是「大幅減少」
+- 玩家感覺不到的不寫：README 修改、只翻新功能字串的 Crowdin 更新，以及修本版新功能內部問題的 PR（本地模型下載對話框的版面）
+- 固定按鍵可以寫；可自訂的熱鍵組合不寫
 
-**沿用 v0.4.2 範本的原則**：用玩家遇過的實例講問題（「想問能不能補血，送出去變成請隊友幫你補」）；翻譯品質類的改動講「調整提示詞」與成果，不細講提示詞規則或結構化輸出這類實作；只影響部分服務的改動要寫明範圍（只影響 Claude、其他服務不受影響）。
+**沿用舊範本的原則**：用玩家遇過的實例講問題（「想問能不能補血，送出去變成請隊友幫你補」、「打『又亂翻譯了』卻送出上一句」）；翻譯品質類的改動講成果，不細講提示詞規則或結構化輸出這類實作；只影響部分服務的改動要寫明範圍（只影響 Claude、其他服務不受影響）。
 
 ## 重點群組範例
 
@@ -271,6 +273,8 @@ On top of that, we also did:
 - [ ] 有沒有哪句會讓人誤以為以前的行為不一樣？改了做法的地方有點明舊做法嗎？
 - [ ] 修正項有先寫以前的錯誤現象嗎？同一個修正套用到的地方都列了嗎？
 - [ ] 講原理的地方是不是一句就帶過？有沒有展開序號、緩衝區這類玩家讀不下去的細節？
+- [ ] 夠短嗎？每段兩三句、每條一句；預設值、下載來源、存檔時機這類細節有沒有留給 README？
+- [ ] 每個斷言都一定成立嗎？有沒有「每個都」「不再」這種其實有例外的說法？
 - [ ] 主打功能是不是散文？沒被我寫成 bullet？
 - [ ] 有沒有第二人稱直接對讀者？
 - [ ] 是不是不小心又灑了「✨ ⚡ 🎨」三段式分節？
