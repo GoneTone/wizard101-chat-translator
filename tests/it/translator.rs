@@ -23,7 +23,7 @@ use wizard101_chat_translator::translation::examples::{
 use wizard101_chat_translator::translation::prompts::{
     CONTEXT_ACK, CONTEXT_INTRO_INCOMING, GLOSSARY_ACK, OUTGOING_LANGUAGE, build_incoming_system,
     build_outgoing_system, build_region_system, build_system_message_system, build_turns,
-    fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note,
+    fewshot_outgoing_turns, glossary_keep_original, glossary_outgoing_note, wrap_message,
 };
 use wizard101_chat_translator::translation::translator::{
     ExampleCoordinator, TEST_SAMPLE, Translator, examples_after_test, generate_and_store,
@@ -100,11 +100,11 @@ async fn incoming_uses_context_and_examples() {
     assert_eq!(calls[0].turns.len(), 5);
     assert_eq!(
         calls[0].turns[..2],
-        [Turn::user("src"), Turn::assistant("out")]
+        [Turn::user(wrap_message("src")), Turn::assistant("out")]
     );
     assert!(calls[0].turns[2].content.contains("[B] yo"));
     assert_eq!(calls[0].turns[3], Turn::assistant(CONTEXT_ACK));
-    assert_eq!(calls[0].turns[4], Turn::user("[A] hi"));
+    assert_eq!(calls[0].turns[4], Turn::user(wrap_message("[A] hi")));
     assert!(calls[0].deterministic && calls[0].max_tokens.is_none());
 }
 
@@ -114,7 +114,7 @@ async fn incoming_without_context_is_single_turn_and_keeps_no_history() {
     let tr = make(&fake);
     tr.translate_incoming("[A] one", &[]).await.unwrap();
     tr.translate_incoming("[B] two", &[]).await.unwrap();
-    assert_eq!(fake.calls()[1].turns, [Turn::user("[B] two")]);
+    assert_eq!(fake.calls()[1].turns, [Turn::user(wrap_message("[B] two"))]);
 }
 
 #[tokio::test]
@@ -189,7 +189,8 @@ async fn outgoing_uses_fixed_fewshot_and_english() {
         .unwrap();
     tr.translate_outgoing("在嗎", &[], None).await.unwrap();
     let calls = fake.calls();
-    let fewshot = fewshot_outgoing_turns();
+    let mut fewshot = build_turns(&[], &[], "", "", &fewshot_outgoing_turns());
+    fewshot.pop();
     for call in calls.iter() {
         assert_eq!(call.system, build_outgoing_system(OUTGOING_LANGUAGE));
         assert_eq!(call.turns[..fewshot.len()], fewshot[..]);
@@ -200,8 +201,34 @@ async fn outgoing_uses_fixed_fewshot_and_english() {
             .iter()
             .any(|t| t.content.contains("[A] want to trade?"))
     );
-    assert_eq!(calls[0].turns.last(), Some(&Turn::user("好啊")));
+    assert_eq!(
+        calls[0].turns.last(),
+        Some(&Turn::user(wrap_message("好啊")))
+    );
     assert_eq!(calls[1].turns.len(), fewshot.len() + 1);
+}
+
+#[tokio::test]
+async fn outgoing_drops_copied_message_tags() {
+    let fake = Fake::texts(&["<msg>you there?</msg>"]);
+    let out = make(&fake).translate_outgoing("在嗎", &[], None).await;
+    assert_eq!(out.unwrap(), "you there?");
+}
+
+#[tokio::test]
+async fn incoming_drops_message_tags_after_the_sender() {
+    let fake = Fake::texts(&["[A] <msg>嗨</msg>"]);
+    let out = make(&fake).translate_incoming("[A] hi", &[]).await;
+    assert_eq!(out.unwrap(), "[A] 嗨");
+}
+
+#[tokio::test]
+async fn message_tags_typed_by_the_player_are_kept() {
+    let fake = Fake::texts(&["type <msg> there"]);
+    let out = make(&fake)
+        .translate_outgoing("在那邊打 <msg>", &[], None)
+        .await;
+    assert_eq!(out.unwrap(), "type <msg> there");
 }
 
 #[tokio::test]
@@ -937,7 +964,10 @@ async fn test_translate_only_translates_the_sample() {
     assert_eq!(out.translated, "[Tester] 你好！");
     assert_eq!(out.load, load);
     assert_eq!(fake.calls().len(), 1);
-    assert_eq!(fake.calls()[0].turns.last().unwrap().content, TEST_SAMPLE);
+    assert_eq!(
+        fake.calls()[0].turns.last().unwrap().content,
+        wrap_message(TEST_SAMPLE)
+    );
 }
 
 #[tokio::test]
@@ -1181,7 +1211,7 @@ async fn incoming_hit_inserts_glossary_turns_before_the_message() {
     assert!(turns[n - 3].content.contains(&glossary_keep_original(ZH)));
     assert!(glossary_keep_original(ZH).contains(ZH));
     assert_eq!(turns[n - 2], Turn::assistant(GLOSSARY_ACK));
-    assert_eq!(turns[n - 1], Turn::user("[Bob] hi Hollo"));
+    assert_eq!(turns[n - 1], Turn::user(wrap_message("[Bob] hi Hollo")));
     assert_eq!(calls[0].system, build_incoming_system(ZH));
 }
 
@@ -1191,7 +1221,10 @@ async fn incoming_sender_is_not_matched() {
     let tr = make(&fake);
     tr.set_glossary(hollo_glossary());
     tr.translate_incoming("[Hollo] hi", &[]).await.unwrap();
-    assert_eq!(fake.calls()[0].turns, [Turn::user("[Hollo] hi")]);
+    assert_eq!(
+        fake.calls()[0].turns,
+        [Turn::user(wrap_message("[Hollo] hi"))]
+    );
 }
 
 #[tokio::test]
@@ -1206,7 +1239,7 @@ async fn outgoing_hit_says_to_keep_terms_already_in_the_outgoing_language() {
     assert!(!turns[n - 3].content.contains(&glossary_keep_original(ZH)));
     assert!(turns[n - 3].content.contains(&glossary_outgoing_note()));
     assert!(glossary_outgoing_note().contains(OUTGOING_LANGUAGE));
-    assert_eq!(turns[n - 1], Turn::user("哈樓在嗎"));
+    assert_eq!(turns[n - 1], Turn::user(wrap_message("哈樓在嗎")));
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-//! 譯文後處理與品質判定：去掉 `<think>` 區塊、清除模型自行補上的括號原文、還原發送者，
+//! 譯文後處理與品質判定：去掉 `<think>` 區塊與照抄的 `<msg>` 標籤、清除模型自行補上的括號原文、還原發送者，
 //! 判斷譯文有沒有落回拉丁文字。純字串函式，不碰網路。
 //!
 //! 字元類別刻意對齊 Python `re` 的 Unicode 語意：`\w` 是字母／數字（不含組合記號）加底線，
@@ -10,6 +10,7 @@ use std::sync::LazyLock;
 
 use regex::{Captures, Regex};
 
+use super::prompts::{MESSAGE_CLOSE, MESSAGE_OPEN};
 use crate::py::pystr::{self, casefold, lstrip, rstrip, strip};
 use crate::reader::markup::SENDER_PREFIX;
 
@@ -56,6 +57,20 @@ static DECIMAL: LazyLock<Regex> = LazyLock::new(|| re(r"^\p{Nd}$"));
 pub fn strip_think(text: &str) -> String {
     let text = THINK_BLOCK.replace_all(text, "");
     THINK_PREFIX.replace(&text, "").into_owned()
+}
+
+/// 去掉模型照抄進譯文的 `<msg>` 包裝標籤；原文本來就有這些字時原樣保留，不算照抄。
+pub fn strip_message_tags(source: &str, translated: &str) -> String {
+    let tags = [MESSAGE_OPEN, MESSAGE_CLOSE];
+    if tags.iter().any(|tag| source.contains(tag))
+        || !tags.iter().any(|tag| translated.contains(tag))
+    {
+        return translated.to_string();
+    }
+    let cleaned = translated
+        .replace(MESSAGE_OPEN, "")
+        .replace(MESSAGE_CLOSE, "");
+    strip(&cleaned).to_string()
 }
 
 /// 只留字母與數字並忽略大小寫：模型照抄原文時常換掉撇號、連字號或空白。

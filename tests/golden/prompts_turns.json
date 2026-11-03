@@ -21,7 +21,7 @@
    },
    {
     "role": "user",
-    "content": "[C] 在嗎"
+    "content": "<msg>[C] 在嗎</msg>"
    }
   ]
  },
@@ -36,7 +36,7 @@
   "output": [
    {
     "role": "user",
-    "content": "[C] 在嗎"
+    "content": "<msg>[C] 在嗎</msg>"
    }
   ]
  },
@@ -78,7 +78,7 @@
   "output": [
    {
     "role": "user",
-    "content": "在嗎，一起打王"
+    "content": "<msg>在嗎，一起打王</msg>"
    },
    {
     "role": "assistant",
@@ -86,7 +86,7 @@
    },
    {
     "role": "user",
-    "content": "這隻打得贏嗎?"
+    "content": "<msg>這隻打得贏嗎?</msg>"
    },
    {
     "role": "assistant",
@@ -94,7 +94,7 @@
    },
    {
     "role": "user",
-    "content": "請提供你要的東西"
+    "content": "<msg>請提供你要的東西</msg>"
    },
    {
     "role": "assistant",
@@ -110,7 +110,7 @@
    },
    {
     "role": "user",
-    "content": "b"
+    "content": "<msg>b</msg>"
    }
   ]
  },
@@ -150,7 +150,7 @@
   "output": [
    {
     "role": "user",
-    "content": "在嗎，一起打王"
+    "content": "<msg>在嗎，一起打王</msg>"
    },
    {
     "role": "assistant",
@@ -158,7 +158,7 @@
    },
    {
     "role": "user",
-    "content": "這隻打得贏嗎?"
+    "content": "<msg>這隻打得贏嗎?</msg>"
    },
    {
     "role": "assistant",
@@ -166,7 +166,7 @@
    },
    {
     "role": "user",
-    "content": "請提供你要的東西"
+    "content": "<msg>請提供你要的東西</msg>"
    },
    {
     "role": "assistant",
@@ -174,7 +174,7 @@
    },
    {
     "role": "user",
-    "content": "b"
+    "content": "<msg>b</msg>"
    }
   ]
  },
@@ -201,7 +201,7 @@
   "output": [
    {
     "role": "user",
-    "content": "你好"
+    "content": "<msg>你好</msg>"
    },
    {
     "role": "assistant",
@@ -217,7 +217,7 @@
    },
    {
     "role": "user",
-    "content": "z"
+    "content": "<msg>z</msg>"
    }
   ]
  },
@@ -232,7 +232,7 @@
   "output": [
    {
     "role": "user",
-    "content": "z"
+    "content": "<msg>z</msg>"
    }
   ]
  },
