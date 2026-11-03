@@ -78,9 +78,9 @@
 
 ### 文案與 log
 
-- 新增的字串：「正在編輯「{name}」」、關窗確認的問句、〔放棄〕、擋儲存的「術語表「{name}」還有沒儲存的編輯」（名稱空白時用第幾份稱呼，比照 `error.glossary_*_unnamed`）。〔確定〕改〔儲存〕可直接用現有的 `button.save`。拿掉「返回清單」後，`glossary.back_to_list` 如果沒有別處在用就刪掉。
+- 新增的字串：「正在編輯「{name}」」、關窗確認的問句、〔放棄〕、擋儲存的「術語表「{name}」還有沒儲存的編輯」（名稱空白時改用「編輯中的術語表還有沒儲存的編輯。」，key 為 `error.glossary_unsaved_edit_unnamed`）。〔確定〕改〔儲存〕可直接用現有的 `button.save`。拿掉「返回清單」後，`glossary.back_to_list` 如果沒有別處在用就刪掉。
 - 新字串要補到每個有翻譯的語系檔（`src/i18n/locales/`）；問句結尾的標點在各語言要一致。
-- log 一律英文、帶 id：`[settings] glossary {id} committed`、`[settings] service {id} committed`、`[settings] close blocked: unsaved changes`、放棄或留下的結果。
+- log 一律英文、帶 id：術語表存好時由面板記 `[settings] glossary {id} edit saved`、視窗再記 `[settings] committed <keys>`；服務存好記 `[settings] service {id} committed`、`[settings] close blocked: unsaved changes`、放棄或留下的結果。
 
 ## 限制
 
