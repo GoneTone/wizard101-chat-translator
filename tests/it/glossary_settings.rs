@@ -65,6 +65,8 @@ fn names(d: &GlossaryDraft) -> Vec<String> {
 struct State {
     pane: GlossaryPane,
     env: FakeEnv,
+    /// 編輯畫面〔儲存〕回傳的術語表。
+    committed: Vec<StoredGlossary>,
 }
 
 fn harness(draft: GlossaryDraft) -> Harness<'static, State> {
@@ -75,11 +77,19 @@ fn harness_with(draft: GlossaryDraft, env: FakeEnv) -> Harness<'static, State> {
     let state = State {
         pane: GlossaryPane::new(draft),
         env,
+        committed: Vec::new(),
     };
     themed_harness(
         egui::vec2(620.0, 660.0),
         LANGUAGE,
-        |ui: &mut Ui, s: &mut State| s.pane.ui(ui, &s.env),
+        |ui: &mut Ui, s: &mut State| {
+            s.pane.ui(ui, &s.env);
+            if s.pane.editing() {
+                let id = egui::Id::unique("footer");
+                let saved = ui.horizontal(|ui| s.pane.editor_footer(ui, id)).inner;
+                s.committed.extend(saved);
+            }
+        },
         state,
     )
 }
@@ -87,6 +97,21 @@ fn harness_with(draft: GlossaryDraft, env: FakeEnv) -> Harness<'static, State> {
 fn add_blank(h: &mut Harness<State>) {
     click(h, Role::Button, &tr("button.add_glossary"));
     click_in_dialog(h, &tr("glossary.new_title"), &tr("glossary.start_blank"));
+}
+
+/// 編輯畫面底部的〔儲存〕。
+fn save_edit(h: &mut Harness<State>) {
+    click(h, Role::Button, &tr("button.save"));
+}
+
+/// 編輯畫面底部的〔取消〕。
+fn cancel_edit(h: &mut Harness<State>) {
+    click(h, Role::Button, &tr("button.cancel"));
+}
+
+/// 編輯中的副本。
+fn copy<'a>(h: &'a Harness<State>) -> &'a StoredGlossary {
+    h.state().pane.editing_glossary().unwrap()
 }
 
 #[test]
@@ -122,9 +147,9 @@ fn write_into_trims_nothing_without_a_builtin() {
 fn new_glossary_names_dedupe() {
     let mut h = harness(draft(Vec::new(), None));
     add_blank(&mut h);
-    assert!(has_label(&h, &tr("glossary.back_to_list")));
-    click(&mut h, Role::Button, &tr("glossary.back_to_list"));
+    save_edit(&mut h);
     add_blank(&mut h);
+    save_edit(&mut h);
     let base = tr("glossary.default_name");
     assert_eq!(
         names(h.state().pane.draft()),
@@ -286,7 +311,7 @@ fn editing_with(
 }
 
 fn custom_entries(h: &Harness<State>) -> Vec<Entry> {
-    h.state().pane.draft().glossaries[0].entries.clone()
+    copy(h).entries.clone()
 }
 
 /// 名稱是 `label` 的輸入欄，由上往下排。
@@ -331,6 +356,7 @@ fn scrollable(
     let state = State {
         pane: GlossaryPane::new(d),
         env: FakeEnv::default(),
+        committed: Vec::new(),
     };
     let mut h = themed_harness(
         egui::vec2(620.0, 660.0),
@@ -498,9 +524,9 @@ fn search_filters_custom_rows() {
 }
 
 #[test]
-fn back_returns_to_the_list() {
+fn cancel_returns_to_the_list() {
     let mut h = editing(Vec::new(), None);
-    click(&mut h, Role::Button, &tr("glossary.back_to_list"));
+    cancel_edit(&mut h);
     assert_eq!(group_labels(&h), ["Mine"]);
 }
 
@@ -679,10 +705,15 @@ fn import_from_file_creates_a_glossary_named_after_the_file() {
     let mut h = harness_with(draft(Vec::new(), None), env);
     import_new(&mut h);
     deliver_file_pick(&mut h, 0);
-    let d = h.state().pane.draft();
-    assert_eq!(names(d), ["friends"]);
-    assert_eq!(d.glossaries[0].entries, [entry("Hollo", "哈樓")]);
-    assert!(has_label(&h, &tr("glossary.back_to_list")));
+    assert!(names(h.state().pane.draft()).is_empty());
+    assert_eq!(copy(&h).name, "friends");
+    assert_eq!(copy(&h).entries, [entry("Hollo", "哈樓")]);
+    assert!(has_label(
+        &h,
+        &t("glossary.editing", &[("name", "friends")])
+    ));
+    save_edit(&mut h);
+    assert_eq!(names(h.state().pane.draft()), ["friends"]);
 }
 
 #[test]
@@ -729,15 +760,12 @@ fn import_new_keeps_the_file_creators_and_merge_keeps_ours() {
     let mut h = harness_with(draft(Vec::new(), None), env);
     import_new(&mut h);
     deliver_file_pick(&mut h, 0);
-    assert_eq!(
-        h.state().pane.draft().glossaries[0].creators,
-        "[A](https://a.example)"
-    );
+    assert_eq!(copy(&h).creators, "[A](https://a.example)");
 
     let content = r#"{"glossary.creators": "Someone else", "Fire Elf": "火精靈"}"#;
     let (_dir, mut h) = merging(vec![entry("B", "乙")], content);
     click_in_dialog(&mut h, &tr("glossary.merge_title"), &tr("button.merge"));
-    let glossary = &h.state().pane.draft().glossaries[0];
+    let glossary = copy(&h);
     assert_eq!(glossary.creators, "");
     assert_eq!(
         glossary.entries,
@@ -758,7 +786,7 @@ fn card_shows_creator_names_without_link_markup() {
 fn editor_edits_creators_and_shows_builtin_creators() {
     let mut h = editing(Vec::new(), Some(TEST_BUILTIN));
     type_into_nth(&mut h, &tr("glossary.creators"), 0, "Amy");
-    assert_eq!(h.state().pane.draft().glossaries[0].creators, "Amy");
+    assert_eq!(copy(&h).creators, "Amy");
     assert!(has_label(&h, &tr("glossary.creators_hint")));
     assert!(h.query_by_role_and_label(Role::Link, "Tester").is_some());
 }
@@ -887,9 +915,9 @@ fn stale_file_pick_is_ignored() {
     import_new(&mut h);
     import_new(&mut h);
     deliver_file_pick(&mut h, 0);
-    assert!(names(h.state().pane.draft()).is_empty());
+    assert!(!h.state().pane.editing());
     deliver_file_pick(&mut h, 1);
-    assert_eq!(names(h.state().pane.draft()), ["friends"]);
+    assert_eq!(copy(&h).name, "friends");
 }
 
 #[test]
@@ -899,9 +927,8 @@ fn import_accepts_a_utf8_bom_file() {
     let mut h = harness_with(draft(Vec::new(), None), env);
     import_new(&mut h);
     deliver_file_pick(&mut h, 0);
-    let d = h.state().pane.draft();
-    assert_eq!(names(d), ["bom"]);
-    assert_eq!(d.glossaries[0].entries, [entry("Hollo", "哈樓")]);
+    assert_eq!(copy(&h).name, "bom");
+    assert_eq!(copy(&h).entries, [entry("Hollo", "哈樓")]);
 }
 
 #[test]
@@ -1022,5 +1049,80 @@ fn errors_group_by_kind_across_glossaries() {
             "error.glossary_name_blank",
             "error.glossary_incomplete_entry"
         ]
+    );
+}
+
+#[test]
+fn editing_does_not_touch_the_draft_until_saved() {
+    let mut h = editing(Vec::new(), None);
+    click(&mut h, Role::Button, &tr("button.add_entry"));
+    type_into_nth(&mut h, &tr("glossary.source"), 0, "Hollo");
+    type_into_nth(&mut h, &tr("glossary.target"), 0, "哈樓");
+    assert_eq!(custom_entries(&h), [entry("Hollo", "哈樓")]);
+    assert!(h.state().pane.draft().glossaries[0].entries.is_empty());
+    save_edit(&mut h);
+    assert!(!h.state().pane.editing());
+    let saved = &h.state().pane.draft().glossaries[0];
+    assert_eq!(saved.entries, [entry("Hollo", "哈樓")]);
+    assert_eq!(h.state().committed.as_slice(), std::slice::from_ref(saved));
+}
+
+#[test]
+fn cancel_discards_the_edit() {
+    let mut h = editing(Vec::new(), None);
+    type_into_nth(&mut h, &tr("glossary.name"), 0, "Renamed");
+    assert_ne!(copy(&h).name, "Mine");
+    cancel_edit(&mut h);
+    assert_eq!(names(h.state().pane.draft()), ["Mine"]);
+    assert!(h.state().committed.is_empty());
+}
+
+#[test]
+fn cancelling_a_new_blank_glossary_adds_nothing() {
+    let mut h = harness(draft(two(), None));
+    add_blank(&mut h);
+    assert!(h.state().pane.editing());
+    cancel_edit(&mut h);
+    assert_eq!(h.state().pane.draft().glossaries.len(), 2);
+}
+
+#[test]
+fn save_with_a_blank_name_stays_and_lists_the_reason() {
+    let mut h = editing(Vec::new(), None);
+    fields_named(&h, &tr("glossary.name"))[0].click();
+    run(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.key_press(egui::Key::Backspace);
+    run(&mut h);
+    assert!(copy(&h).name.trim().is_empty());
+    save_edit(&mut h);
+    assert!(h.state().pane.editing());
+    assert!(h.state().committed.is_empty());
+    let reason = localized("error.glossary_name_blank", &[("index", "1".into())]);
+    assert!(has_label(&h, &reason));
+}
+
+#[test]
+fn unsaved_tracks_changes_and_new_glossaries() {
+    let mut h = editing(Vec::new(), None);
+    assert!(h.state().pane.unsaved().is_none());
+    type_into_nth(&mut h, &tr("glossary.name"), 0, "x");
+    let (key, args) = h.state().pane.unsaved().unwrap();
+    assert_eq!(key, "error.glossary_unsaved_edit");
+    assert_eq!(args[0].0, "name");
+    cancel_edit(&mut h);
+    assert!(h.state().pane.unsaved().is_none());
+    add_blank(&mut h);
+    assert!(h.state().pane.unsaved().is_some());
+}
+
+#[test]
+fn merge_import_changes_only_the_copy() {
+    let (_dir, mut h) = merging(vec![entry("B", "乙")], r#"{"C":"丁"}"#);
+    click_in_dialog(&mut h, &tr("glossary.merge_title"), &tr("button.merge"));
+    assert_eq!(custom_entries(&h), [entry("B", "乙"), entry("C", "丁")]);
+    assert_eq!(
+        h.state().pane.draft().glossaries[0].entries,
+        [entry("B", "乙")]
     );
 }

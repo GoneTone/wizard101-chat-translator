@@ -6,26 +6,38 @@ use eframe::egui::{Frame, Id, Label, Margin, RichText, Ui};
 
 use super::dialog::{Choice, DialogSpec, confirm_delete, dialog};
 use super::env::{Round, SettingsEnv, SettingsEvent};
-use super::glossary_draft::{GlossaryDraft, builtin_of, builtin_offered};
+use super::glossary_draft::{GlossaryDraft, builtin_of, builtin_offered, glossary_errors};
 use super::glossary_editor::{EditorAction, GlossaryEditor};
 use super::glossary_merge::MergeDialog;
 use super::provider_picker::{CardIcon, choice_cards};
 use super::theme::{self, icon};
 use super::widgets::{
     callout, card, danger_secondary_button, dashed_button, list_card, optional_combo,
-    secondary_button, setting_row,
+    primary_button, right_aligned, right_aligned_width, secondary_button, setting_row,
 };
+use super::window::SaveError;
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::{Entry, GlossaryFile, ParseError, file_to_json, parse_file, plan_merge};
 use crate::i18n::{language_name, t};
 use crate::logs::log;
 use crate::py::pystr;
+use crate::translation::errors::localized;
 use crate::ui::richtext::strip_link_markup;
 use crate::util::write_atomic;
 
 enum Screen {
     List,
-    Edit(Box<GlossaryEditor>),
+    Edit(Box<EditState>),
+}
+
+/// 編輯畫面的狀態：術語表在副本上改，按〔儲存〕才寫回草稿。
+struct EditState {
+    editor: GlossaryEditor,
+    copy: StoredGlossary,
+    /// 進入時的樣子；新增的術語表沒有。
+    original: Option<StoredGlossary>,
+    /// 〔儲存〕被擋下的原因，之後隨編輯重算。
+    errors: Vec<SaveError>,
 }
 
 enum Dialog {
@@ -92,6 +104,109 @@ impl GlossaryPane {
         &self.draft
     }
 
+    /// 是否在編輯某份術語表。
+    pub fn editing(&self) -> bool {
+        matches!(self.screen, Screen::Edit(_))
+    }
+
+    /// 編輯中的副本。
+    pub fn editing_glossary(&self) -> Option<&StoredGlossary> {
+        match &self.screen {
+            Screen::Edit(edit) => Some(&edit.copy),
+            Screen::List => None,
+        }
+    }
+
+    /// 編輯中且副本與進入時不同（或是新增的）時的提示；視窗要關閉前用來擋下。
+    pub fn unsaved(&self) -> Option<SaveError> {
+        let Screen::Edit(edit) = &self.screen else {
+            return None;
+        };
+        if edit.original.as_ref() == Some(&edit.copy) {
+            return None;
+        }
+        let name = pystr::strip(&edit.copy.name);
+        Some(if name.is_empty() {
+            ("error.glossary_unsaved_edit_unnamed".into(), Vec::new())
+        } else {
+            (
+                "error.glossary_unsaved_edit".into(),
+                vec![("name", name.to_owned())],
+            )
+        })
+    }
+
+    /// 畫編輯畫面的底部按鈕列；〔儲存〕通過檢查時寫進草稿、回到清單，並回傳存好的那份。
+    pub fn editor_footer(&mut self, ui: &mut Ui, buttons: Id) -> Option<StoredGlossary> {
+        let Screen::Edit(edit) = &mut self.screen else {
+            return None;
+        };
+        let index = self
+            .draft
+            .glossaries
+            .iter()
+            .position(|g| g.id == edit.copy.id)
+            .unwrap_or(self.draft.glossaries.len());
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if !edit.errors.is_empty() {
+            edit.errors = glossary_errors(&edit.copy, index);
+        }
+        if edit.errors.is_empty() {
+            let name = match pystr::strip(&edit.copy.name) {
+                "" => t("glossary.default_name", &[]),
+                name => name.to_owned(),
+            };
+            ui.add(Label::new(t("glossary.editing", &[("name", &name)])).truncate());
+        } else {
+            let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
+            let lines: Vec<String> = edit
+                .errors
+                .iter()
+                .map(|(key, args)| localized(key, args))
+                .collect();
+            ui.scope(|ui| {
+                ui.set_max_width(room.max(120.0));
+                callout(ui, &t("dialog.incomplete_title", &[]), &lines);
+            });
+        }
+        let (cancel, save) = right_aligned(ui, buttons, |ui| {
+            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
+            let save = primary_button(ui, &t("button.save", &[])).clicked();
+            (cancel, save)
+        });
+        let id = edit.copy.id.clone();
+        if save {
+            let errors = glossary_errors(&edit.copy, index);
+            if errors.is_empty() {
+                let saved = edit.copy.clone();
+                self.draft.upsert(saved.clone());
+                log(format!("[settings] glossary {id} edit saved"));
+                self.set_screen(Screen::List);
+                return Some(saved);
+            }
+            let keys: Vec<&str> = errors.iter().map(|(key, _)| key.as_str()).collect();
+            log(format!(
+                "[settings] glossary {id} not saved: {}",
+                keys.join(", ")
+            ));
+            edit.errors = errors;
+        } else if cancel {
+            log(format!("[settings] glossary {id} edit cancelled"));
+            self.set_screen(Screen::List);
+        }
+        None
+    }
+
+    fn begin_edit(&mut self, copy: StoredGlossary, original: Option<StoredGlossary>) {
+        let editor = GlossaryEditor::new(&copy.id);
+        self.set_screen(Screen::Edit(Box::new(EditState {
+            editor,
+            copy,
+            original,
+            errors: Vec::new(),
+        })));
+    }
+
     /// 選檔結果：依發起的操作匯入、合併或匯出；過期或取消的結果丟掉。
     pub fn apply(&mut self, event: &SettingsEvent) {
         let (SettingsEvent::GlossaryFilePicked { round, path }
@@ -119,23 +234,17 @@ impl GlossaryPane {
             callout(ui, &t(title, &[]), std::slice::from_ref(error));
             ui.add_space(theme::CARD_GAP);
         }
-        if let Screen::Edit(editor) = &mut self.screen {
-            let id = editor.id().to_owned();
-            let glossary = self.draft.glossaries.iter_mut().find(|g| g.id == id);
-            let action = match glossary {
-                Some(glossary) => editor.ui(ui, glossary),
-                None => EditorAction::Back,
-            };
+        if let Screen::Edit(edit) = &mut self.screen {
+            let action = edit.editor.ui(ui, &mut edit.copy);
+            let id = edit.copy.id.clone();
             match action {
                 EditorAction::None => {}
-                EditorAction::Back => self.set_screen(Screen::List),
                 EditorAction::Import => {
                     let round = self.start(FileTask::Merge(id));
                     env.pick_glossary_file(round);
                 }
                 EditorAction::Export => {
-                    let name = self.draft.find(&id).map_or("", |g| g.name.as_str());
-                    let file_name = export_file_name(name);
+                    let file_name = export_file_name(&edit.copy.name);
                     let round = self.start(FileTask::Export(id));
                     env.pick_glossary_save_path(round, file_name);
                 }
@@ -165,15 +274,15 @@ impl GlossaryPane {
         let name = path
             .file_stem()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
-        let id = self.draft.add_from_file(&name, file);
-        self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))));
+        let copy = self.draft.prepare_from_file(&name, file);
+        self.begin_edit(copy, None);
     }
 
     fn import_merge(&mut self, id: String, path: &Path) {
         let Some(incoming) = self.read(path) else {
             return;
         };
-        let Some(glossary) = self.draft.find(&id) else {
+        let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
             return;
         };
         // 合併只加條目，建立者維持目前這份的
@@ -218,7 +327,7 @@ impl GlossaryPane {
 
     /// 寫出建立者與自訂條目（略過兩側都空白的列）。
     fn export(&mut self, id: &str, path: &Path) {
-        let Some(glossary) = self.draft.find(id) else {
+        let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
             return;
         };
         let entries: Vec<Entry> = glossary
@@ -268,7 +377,9 @@ impl GlossaryPane {
             }
             match action {
                 Some(CardAction::Edit(id)) => {
-                    self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))))
+                    if let Some(original) = self.draft.find(&id).cloned() {
+                        self.begin_edit(original.clone(), Some(original));
+                    }
                 }
                 Some(CardAction::Duplicate(id)) => {
                     self.draft.duplicate(&id);
@@ -344,8 +455,8 @@ impl GlossaryPane {
                 Choice::Open => {}
                 Choice::Cancel => self.dialog = Dialog::Closed,
                 Choice::Done(Start::Blank) => {
-                    let id = self.draft.add_blank();
-                    self.set_screen(Screen::Edit(Box::new(GlossaryEditor::new(&id))));
+                    let copy = self.draft.prepare_blank();
+                    self.begin_edit(copy, None);
                     self.dialog = Dialog::Closed;
                 }
                 Choice::Done(Start::Import) => {
@@ -361,9 +472,10 @@ impl GlossaryPane {
                     self.dialog = Dialog::Closed;
                 }
                 Choice::Done(()) => {
-                    let id = id.clone();
-                    if let Some(glossary) = self.draft.glossaries.iter_mut().find(|g| g.id == id) {
-                        merge.apply(&mut glossary.entries);
+                    if let Screen::Edit(edit) = &mut self.screen
+                        && edit.copy.id == *id
+                    {
+                        merge.apply(&mut edit.copy.entries);
                     }
                     self.dialog = Dialog::Closed;
                 }
