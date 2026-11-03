@@ -717,6 +717,19 @@ fn import_from_file_creates_a_glossary_named_after_the_file() {
 }
 
 #[test]
+fn a_late_import_pick_does_not_replace_an_open_editor_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env_picking(dir.path(), "friends.json", Some(r#"{"Hollo":"哈樓"}"#));
+    let d = draft(vec![glossary("a", "Mine", None, Vec::new())], None);
+    let mut h = harness_with(d, env);
+    import_new(&mut h);
+    click(&mut h, Role::Button, &tr("button.edit"));
+    let before = copy(&h).clone();
+    deliver_file_pick(&mut h, 0);
+    assert_eq!(copy(&h), &before);
+}
+
+#[test]
 fn import_failure_explains_what_is_wrong() {
     let example = format!(r#"{{"Hello World": "{}"}}"#, tr("glossary.example_target"));
     let not_object = t("glossary.error_not_object", &[("example", &example)]);

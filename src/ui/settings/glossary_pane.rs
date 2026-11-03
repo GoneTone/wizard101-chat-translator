@@ -117,7 +117,7 @@ impl GlossaryPane {
         }
     }
 
-    /// 編輯中且副本與進入時不同（或是新增的）時的提示；視窗要關閉前用來擋下。
+    /// 編輯中且副本與進入時不同（或是新增的）時的提示；用來擋下關閉視窗與視窗層級的儲存。
     pub fn unsaved(&self) -> Option<SaveError> {
         let Screen::Edit(edit) = &self.screen else {
             return None;
@@ -256,6 +256,11 @@ impl GlossaryPane {
     }
 
     fn import_new(&mut self, path: &Path) {
+        // 選檔期間視窗仍可操作；晚到的結果不能蓋掉使用者已開始編輯的副本
+        if self.editing() {
+            log("[settings] glossary import dropped: editor already open");
+            return;
+        }
         let Some(file) = self.read(path) else {
             return;
         };
@@ -271,6 +276,7 @@ impl GlossaryPane {
             return;
         };
         let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
+            log(format!("[settings] glossary {id} merge dropped: editor closed"));
             return;
         };
         // 合併只加條目，建立者維持目前這份的
@@ -316,6 +322,7 @@ impl GlossaryPane {
     /// 寫出建立者與自訂條目（略過兩側都空白的列）。
     fn export(&mut self, id: &str, path: &Path) {
         let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
+            log(format!("[settings] glossary {id} export dropped: editor closed"));
             return;
         };
         let entries: Vec<Entry> = glossary
