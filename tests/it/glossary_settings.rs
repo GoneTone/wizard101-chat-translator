@@ -23,7 +23,9 @@ use wizard101_chat_translator::glossary::{Entry, parse_file};
 use wizard101_chat_translator::i18n::{self, language_name, t};
 use wizard101_chat_translator::translation::errors::localized;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
-use wizard101_chat_translator::ui::settings::glossary_draft::GlossaryDraft;
+use wizard101_chat_translator::ui::settings::glossary_draft::{
+    GlossaryDraft, commit_glossary, glossary_errors,
+};
 use wizard101_chat_translator::ui::settings::glossary_pane::GlossaryPane;
 use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::window::SettingsAction;
@@ -928,4 +930,63 @@ fn glossary_editor_stars_name_and_both_columns() {
         crate::common::kittest::starred_labels(&h),
         std::collections::BTreeSet::from(expected)
     );
+}
+
+#[test]
+fn prepare_blank_does_not_add_to_the_list() {
+    let base = tr("glossary.default_name");
+    let d = draft(vec![glossary("a", &base, None, Vec::new())], None);
+    let prepared = d.prepare_blank();
+    assert_eq!(prepared.name, format!("{base} (2)"));
+    assert_ne!(prepared.id, "a");
+    assert_eq!(d.glossaries.len(), 1);
+}
+
+#[test]
+fn upsert_replaces_by_id_or_appends() {
+    let mut d = draft(
+        vec![
+            glossary("a", "A", None, Vec::new()),
+            glossary("b", "B", None, Vec::new()),
+        ],
+        None,
+    );
+    d.upsert(glossary("a", "A2", None, Vec::new()));
+    assert_eq!(names(&d), ["A2", "B"]);
+    d.upsert(glossary("c", "C", None, Vec::new()));
+    assert_eq!(names(&d), ["A2", "B", "C"]);
+}
+
+#[test]
+fn commit_glossary_replaces_only_that_glossary() {
+    i18n::set_language(LANGUAGE);
+    let mut cfg = Config::new();
+    cfg.insert(
+        "glossaries".into(),
+        json!([
+            {"id": "a", "name": "A", "builtin": null, "entries": {}},
+            {"id": "b", "name": "B", "builtin": null, "entries": {}}
+        ]),
+    );
+    cfg.insert("active_glossary".into(), json!("a"));
+    commit_glossary(&mut cfg, &glossary("b", "  B2  ", None, Vec::new()));
+    assert_eq!(cfg["glossaries"][0]["name"], json!("A"));
+    assert_eq!(cfg["glossaries"][1]["name"], json!("B2"));
+    assert_eq!(cfg["active_glossary"], json!("a"));
+}
+
+#[test]
+fn glossary_errors_reports_one_glossary() {
+    i18n::set_language(LANGUAGE);
+    let g = glossary("a", " ", None, vec![entry("Ravenwood", "")]);
+    let errors = glossary_errors(&g, 2);
+    let keys: Vec<&str> = errors.iter().map(|e| e.0.as_str()).collect();
+    assert_eq!(
+        keys,
+        [
+            "error.glossary_name_blank",
+            "error.glossary_incomplete_entry_unnamed"
+        ]
+    );
+    assert!(errors.iter().all(|e| e.1 == [("index", "3".to_string())]));
 }
