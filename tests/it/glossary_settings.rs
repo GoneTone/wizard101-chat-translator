@@ -1155,3 +1155,118 @@ fn unsaved_with_a_blank_name_uses_the_unnamed_message() {
     assert_eq!(key, "error.glossary_unsaved_edit_unnamed");
     assert!(args.is_empty());
 }
+
+fn glossary_window() -> Harness<'static, WindowState> {
+    i18n::set_language(LANGUAGE);
+    let mut cfg = custom_cfg();
+    cfg.insert(
+        "glossaries".into(),
+        json!([
+            {"id": "a", "name": "Alpha", "builtin": null, "entries": {}},
+            {"id": "b", "name": "Beta", "builtin": null, "entries": {}},
+        ]),
+    );
+    let mut h = window_harness(&cfg, FakeEnv::default(), egui::vec2(840.0, 660.0), LANGUAGE);
+    click(&mut h, Role::Tab, &tr("settings.tab.glossaries"));
+    h
+}
+
+/// 清單上的第 `index` 份術語表進入編輯。
+fn edit_nth(h: &mut Harness<WindowState>, index: usize) {
+    click_nth(h, &tr("button.edit"), index);
+}
+
+fn type_into_name(h: &mut Harness<WindowState>, text: &str) {
+    h.get_by_role_and_label(Role::TextInput, &tr("glossary.name"))
+        .click();
+    run(h);
+    h.event(egui::Event::Text(text.into()));
+    run(h);
+}
+
+fn buttons_named(h: &Harness<WindowState>, label: &str) -> usize {
+    h.query_all_by_role_and_label(Role::Button, label).count()
+}
+
+#[test]
+fn saving_an_edit_commits_only_that_glossary() {
+    let mut h = glossary_window();
+    click_nth(&mut h, &tr("button.delete"), 0);
+    click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
+    edit_nth(&mut h, 0);
+    type_into_name(&mut h, "X");
+    click(&mut h, Role::Button, &tr("button.save"));
+    let actions = &h.state().actions;
+    let commits: Vec<&Config> = actions
+        .iter()
+        .filter_map(|a| match a {
+            SettingsAction::Commit(cfg) => Some(cfg),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(commits.len(), 1);
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, SettingsAction::Save(_) | SettingsAction::Cancel))
+    );
+    let mut keys: Vec<&str> = commits[0].keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["active_glossary", "glossaries"]);
+    let names: Vec<&str> = commits[0]["glossaries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names.len(), 2);
+    assert_eq!(names[0], "Alpha");
+    assert!(names[1].contains('X'));
+    assert_ne!(names[1], "Beta");
+}
+
+#[test]
+fn editor_footer_replaces_the_window_buttons() {
+    let mut h = glossary_window();
+    edit_nth(&mut h, 1);
+    assert!(has_label(&h, &t("glossary.editing", &[("name", "Beta")])));
+    assert_eq!(buttons_named(&h, &tr("button.cancel")), 1);
+    assert_eq!(buttons_named(&h, &tr("button.save")), 1);
+    click(&mut h, Role::Tab, &tr("settings.tab.basic"));
+    assert!(!has_label(&h, &t("glossary.editing", &[("name", "Beta")])));
+    assert_eq!(buttons_named(&h, &tr("button.cancel")), 1);
+    assert_eq!(buttons_named(&h, &tr("button.save")), 1);
+}
+
+#[test]
+fn window_save_is_blocked_by_an_unsaved_glossary_edit() {
+    let mut h = glossary_window();
+    edit_nth(&mut h, 1);
+    type_into_name(&mut h, "X");
+    click(&mut h, Role::Tab, &tr("settings.tab.basic"));
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert!(
+        !h.state()
+            .actions
+            .iter()
+            .any(|a| matches!(a, SettingsAction::Save(_)))
+    );
+    assert!(has_label(
+        &h,
+        &localized("error.glossary_unsaved_edit", &[("name", "BetaX".into())])
+    ));
+}
+
+#[test]
+fn window_save_goes_through_when_the_editor_is_unchanged() {
+    let mut h = glossary_window();
+    edit_nth(&mut h, 1);
+    click(&mut h, Role::Tab, &tr("settings.tab.basic"));
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert!(
+        h.state()
+            .actions
+            .iter()
+            .any(|a| matches!(a, SettingsAction::Save(_)))
+    );
+}

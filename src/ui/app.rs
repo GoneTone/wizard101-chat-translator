@@ -626,6 +626,11 @@ impl App {
                 self.apply_settings(ctx, &cfg, region_hotkey);
                 self.close_settings();
             }
+            SettingsAction::Commit(cfg) => {
+                if let Some(wiring) = &mut self.settings {
+                    (wiring.on_save)(cfg);
+                }
+            }
             SettingsAction::Cancel => {
                 if let Some(wiring) = &mut self.settings {
                     (wiring.on_cancel)();

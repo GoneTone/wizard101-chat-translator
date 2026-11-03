@@ -13,7 +13,7 @@ use eframe::egui::{
 use serde_json::Value;
 
 use super::env::{SettingsEnv, SettingsEvent};
-use super::glossary_draft::GlossaryDraft;
+use super::glossary_draft::{GlossaryDraft, commit_glossary};
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
 use super::local_pane::LocalPane;
@@ -97,6 +97,9 @@ pub enum SettingsAction {
     /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
+    /// 只帶這次提交的鍵（如術語表編輯畫面〔儲存〕），視窗不關；App 只呼叫 `on_save`，不呼叫 `App::apply_settings`，
+    /// 因為部分設定會讓 overlay 的透明度等被重設成預設值。
+    Commit(Config),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。
     Cancel,
 }
@@ -123,6 +126,8 @@ pub struct SettingsWindow {
     errors: Vec<SaveError>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
+    /// 視窗管的鍵上次寫進設定檔的值（開窗、提交、儲存時更新）。
+    saved: Config,
 }
 
 impl SettingsWindow {
@@ -132,7 +137,7 @@ impl SettingsWindow {
             .or_else(|| py::number(&default_config()["overlay_alpha"]))
             .unwrap_or_default();
         let number = |key: &str| py::display(&setting(cfg, key));
-        Self {
+        let mut win = Self {
             slots_at_open: cfg.get("service_slots").cloned(),
             page: Page::Basic,
             language_at_open: current_language(),
@@ -156,7 +161,10 @@ impl SettingsWindow {
             errors: Vec::new(),
             about: about::AboutState::default(),
             pending: Vec::new(),
-        }
+            saved: Config::new(),
+        };
+        win.saved = win.collect().0;
+        win
     }
 
     pub fn page(&self) -> Page {
@@ -263,6 +271,7 @@ impl SettingsWindow {
         let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
         errors.extend(local_errors(&cfg, &self.snapshot));
         errors.extend(self.glossaries.draft().errors());
+        errors.extend(self.glossaries.unsaved());
         errors.extend(
             self.hotkeys
                 .errors(self.paste_hotkey)
@@ -289,7 +298,18 @@ impl SettingsWindow {
             return;
         }
         self.hotkeys.abort(env);
+        self.saved = cfg.clone();
         self.pending.push(SettingsAction::Save(cfg));
+    }
+
+    /// 把 `saved` 裡的 `keys` 推出成 `Commit`，視窗不關。
+    fn commit(&mut self, keys: &[&str]) {
+        let cfg: Config = keys
+            .iter()
+            .filter_map(|&key| Some((key.to_owned(), self.saved.get(key)?.clone())))
+            .collect();
+        log(format!("[settings] committed {}", keys.join(", ")));
+        self.pending.push(SettingsAction::Commit(cfg));
     }
 
     /// 側欄：各分頁的導覽項，底部是版本號；回傳這一幀點下的分頁。
@@ -363,6 +383,13 @@ impl SettingsWindow {
 
     /// 按鈕列：被擋下的儲存提示在左，〔取消〕〔儲存〕靠右。
     fn footer(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, buttons: Id) {
+        if self.page == Page::Glossaries && self.glossaries.editing() {
+            if let Some(glossary) = self.glossaries.editor_footer(ui, buttons) {
+                commit_glossary(&mut self.saved, &glossary);
+                self.commit(&["glossaries", "active_glossary"]);
+            }
+            return;
+        }
         if !self.errors.is_empty() {
             self.errors = self.collect().1;
         }

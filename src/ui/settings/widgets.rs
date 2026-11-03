@@ -287,7 +287,7 @@ pub(super) fn centered_column<R>(
 
 /// 設定視窗與術語表編輯畫面共用的底部按鈕列：`errors` 非空時左側是提示框，否則畫 `idle`；右側〔取消〕〔儲存〕。
 ///
-/// 回傳（取消, 儲存）是否按下。
+/// 回傳（取消，儲存）是否按下。
 pub(super) fn footer_bar(
     ui: &mut Ui,
     buttons: Id,
