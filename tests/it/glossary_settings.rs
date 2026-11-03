@@ -1166,6 +1166,7 @@ fn glossary_window() -> Harness<'static, WindowState> {
             {"id": "b", "name": "Beta", "builtin": null, "entries": {}},
         ]),
     );
+    cfg.insert("active_glossary".into(), json!("a"));
     let mut h = window_harness(&cfg, FakeEnv::default(), egui::vec2(840.0, 660.0), LANGUAGE);
     click(&mut h, Role::Tab, &tr("settings.tab.glossaries"));
     h
@@ -1213,6 +1214,7 @@ fn saving_an_edit_commits_only_that_glossary() {
     let mut keys: Vec<&str> = commits[0].keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(keys, ["active_glossary", "glossaries"]);
+    assert_eq!(commits[0]["active_glossary"], json!("a"));
     let names: Vec<&str> = commits[0]["glossaries"]
         .as_array()
         .unwrap()
