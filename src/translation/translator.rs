@@ -23,7 +23,8 @@ use super::examples::{
     parse_generated,
 };
 use super::postprocess::{
-    has_stray_latin, message_body, nonblank_lines, restore_sender, sender_of, tidy_parentheses,
+    has_stray_latin, message_body, nonblank_lines, restore_sender, sender_of, strip_message_tags,
+    tidy_parentheses,
 };
 use super::prompts::{
     CONTEXT_INTRO_INCOMING, CONTEXT_INTRO_OUTGOING, OUTGOING_LANGUAGE, build_incoming_system,
@@ -108,6 +109,17 @@ impl Binding {
             deterministic: true,
         };
         let mut translated = self.client.chat(req, call.cancel).await?;
+        if call.wrapped {
+            let cleaned = strip_message_tags(call.source, &translated);
+            if cleaned != translated {
+                log(format!(
+                    "[translate] model copied the message tags, removed: source={} model_output={}",
+                    repr_str(call.source),
+                    repr_str(&translated)
+                ));
+                translated = cleaned;
+            }
+        }
         if call.strip {
             translated = tidy_parentheses(call.source, &translated);
         }
@@ -156,6 +168,8 @@ struct Call<'a> {
     context_lines: usize,
     strip: bool,
     keep_sender: bool,
+    /// 待翻句經 `wrap_message` 包過，譯文要去掉照抄的標籤。
+    wrapped: bool,
     max_tokens: Option<u32>,
     redact: bool,
     cancel: Option<&'a CancellationToken>,
@@ -316,6 +330,7 @@ impl Translator {
             context_lines: context.len(),
             strip: true,
             keep_sender: true,
+            wrapped: true,
             ..Call::default()
         };
         b.chat(&build_incoming_system(&b.target_language), &turns, call)
@@ -405,6 +420,7 @@ impl Translator {
             kind: "outgoing",
             source: text,
             context_lines: context.len(),
+            wrapped: true,
             cancel,
             ..Call::default()
         };
