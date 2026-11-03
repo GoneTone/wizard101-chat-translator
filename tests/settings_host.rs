@@ -15,7 +15,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
-use common::kittest::{click, click_in_dialog, has_label, run, tr};
+use common::kittest::{click, click_in_dialog, click_nth, has_label, run, tr};
 use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
@@ -390,6 +390,33 @@ fn cancel_restores_alpha_and_language() {
     assert_eq!(current_language(), "zh-TW");
     assert_eq!(h.state().alpha(), 0.5);
     assert!(!has_label(&h, &tr("button.cancel")), "window closed");
+}
+
+#[test]
+fn committing_a_glossary_keeps_the_preview_and_the_window() {
+    let _lock = language_lock();
+    i18n::set_language("en-US");
+    let mut cfg = settings_cfg();
+    cfg.insert(
+        "glossaries".into(),
+        json!([{"id": "b", "name": "b", "builtin": null, "entries": {}}]),
+    );
+    let (mut h, wired) = settings_app_with(cfg, 0.5, Some("ctrl+alt+r"));
+    open_settings(&mut h);
+    click(&mut h, Role::Tab, &tr("settings.tab.advanced"));
+    h.get_by_role(Role::Slider).set_value_accesskit(0.3);
+    run(&mut h);
+    click(&mut h, Role::Tab, &tr("settings.tab.glossaries"));
+    click_nth(&mut h, &tr("button.edit"), 0);
+    h.get_by_role_and_label(Role::TextInput, &tr("glossary.name"))
+        .click();
+    run(&mut h);
+    h.event(egui::Event::Text("2".into()));
+    run(&mut h);
+    click(&mut h, Role::Button, &tr("button.save"));
+    assert_eq!(wired.saved.borrow().len(), 1, "commit reached on_save");
+    assert_eq!(h.state().alpha(), 0.3, "preview survives a commit");
+    assert!(has_label(&h, &tr("button.cancel")), "window stays open");
 }
 
 #[test]

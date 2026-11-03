@@ -94,8 +94,13 @@ impl ServicePane {
 
     /// 測試連線與模型清單的結果轉給開著的服務表單。
     pub fn apply(&mut self, event: &SettingsEvent) {
-        if let Dialog::Form { form, .. } = &mut self.dialog {
+        if let Dialog::Form { form, opened, .. } = &mut self.dialog {
+            let untouched = form.values() == *opened;
             form.apply(event);
+            // 模型清單自動載入會改變有效的思考設定；沒動過的表單不能因此變成「未存」
+            if untouched && matches!(event, SettingsEvent::ModelsDone { .. }) {
+                *opened = form.values();
+            }
         }
     }
 

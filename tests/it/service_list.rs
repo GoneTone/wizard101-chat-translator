@@ -17,6 +17,7 @@ use wizard101_chat_translator::config::Config;
 use wizard101_chat_translator::config::services::{ServiceSlot, new_service, providers};
 use wizard101_chat_translator::i18n::{self, t};
 use wizard101_chat_translator::runtime::resources::provider_icon;
+use wizard101_chat_translator::translation::clients::{ModelInfo, ThinkingCaps};
 use wizard101_chat_translator::translation::translator::TestOutcome;
 use wizard101_chat_translator::ui::settings::env::SettingsEvent;
 use wizard101_chat_translator::ui::settings::provider_picker::{
@@ -192,6 +193,16 @@ fn adding_to_an_empty_list_makes_it_the_default() {
     assert_eq!(d.default, Some(id(&added)));
     let line = format!("[settings] first service added; default={}", id(&added));
     assert_eq!(log_lines_with(&line).len(), 1);
+}
+
+#[test]
+fn previewing_the_merge_does_not_log_the_first_service() {
+    capture_logs();
+    let mut d = draft(vec![], None, [None; 3]);
+    let added = service("openai", &[]);
+    assert!(d.merge_service(added.clone()));
+    assert_eq!(d.default, Some(id(&added)));
+    assert!(log_lines_with(&format!("default={}", id(&added))).is_empty());
 }
 
 #[test]
@@ -613,6 +624,30 @@ fn saving_never_logs_the_api_key() {
     click_in_dialog(&mut h, &tr("service.dialog_title"), &tr("button.save"));
     assert!(!log_lines_with("[settings] service saved (provider=gemini, has_key=True)").is_empty());
     assert!(!log_text().contains("secret-key-d41d8cd98f00b204"));
+}
+
+#[test]
+fn auto_loaded_model_caps_do_not_make_an_untouched_dialog_unsaved() {
+    let mut a = service("openai", &[]);
+    a["model"] = json!("deep");
+    a["thinking"] = json!(false);
+    let mut h = harness(draft(vec![a.clone()], Some(&a), [None; 3]));
+    click_card(&mut h, &tr("button.edit"), 0);
+    let (round, _) = h.state().env.lists.borrow()[0].clone();
+    let deep = ModelInfo {
+        id: "deep".into(),
+        thinking: ThinkingCaps {
+            supported: Some(true),
+            can_disable: Some(false),
+            efforts: None,
+        },
+    };
+    h.state_mut().pane.apply(&SettingsEvent::ModelsDone {
+        round,
+        result: Ok(vec![deep]),
+    });
+    run(&mut h);
+    assert!(!h.state().pane.unsaved());
 }
 
 #[test]

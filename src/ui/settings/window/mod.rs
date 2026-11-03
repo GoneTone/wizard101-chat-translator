@@ -503,7 +503,7 @@ impl SettingsWindow {
 /// `saved` 併入對話框存好的 `service`（含「清單原本是空的就接手預設」）後會寫進檔案的內容。
 fn with_service(saved: &Config, service: &Value) -> Config {
     let mut draft = ServiceDraft::from_config(saved);
-    draft.apply_dialog_result(service.clone());
+    draft.merge_service(service.clone());
     let mut cfg = saved.clone();
     draft.write_into(&mut cfg);
     cfg

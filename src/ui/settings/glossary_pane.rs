@@ -276,7 +276,9 @@ impl GlossaryPane {
             return;
         };
         let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
-            log(format!("[settings] glossary {id} merge dropped: editor closed"));
+            log(format!(
+                "[settings] glossary {id} merge dropped: editor closed"
+            ));
             return;
         };
         // 合併只加條目，建立者維持目前這份的
@@ -322,7 +324,9 @@ impl GlossaryPane {
     /// 寫出建立者與自訂條目（略過兩側都空白的列）。
     fn export(&mut self, id: &str, path: &Path) {
         let Some(glossary) = self.editing_glossary().filter(|g| g.id == id) else {
-            log(format!("[settings] glossary {id} export dropped: editor closed"));
+            log(format!(
+                "[settings] glossary {id} export dropped: editor closed"
+            ));
             return;
         };
         let entries: Vec<Entry> = glossary
