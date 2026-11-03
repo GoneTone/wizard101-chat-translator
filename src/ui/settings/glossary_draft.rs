@@ -83,7 +83,7 @@ impl GlossaryDraft {
         cfg.insert("active_glossary".into(), self.active.clone().into());
     }
 
-    /// 擋下儲存的原因（錯誤文案 key 與變數），依序為各份的名稱空白，再來是來源重複、條目只填一側。
+    /// 擋下儲存的原因（錯誤文案 key 與變數），依類別排：先所有份的名稱空白，再來源重複，最後條目只填一側。
     pub fn errors(&self) -> Vec<SaveError> {
         let mut groups: [Vec<SaveError>; 3] = Default::default();
         for (i, g) in self.glossaries.iter().enumerate() {
@@ -193,9 +193,9 @@ pub fn glossary_errors(glossary: &StoredGlossary, index: usize) -> Vec<SaveError
 fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveError>; 3] {
     let name = pystr::strip(&glossary.name);
     let position = || vec![("index", (index + 1).to_string())];
-    let mut groups: [Vec<SaveError>; 3] = Default::default();
+    let [mut blank, mut duplicate, mut incomplete]: [Vec<SaveError>; 3] = Default::default();
     if name.is_empty() {
-        groups[0].push(("error.glossary_name_blank".into(), position()));
+        blank.push(("error.glossary_name_blank".into(), position()));
     }
     let filled: Vec<Entry> = glossary
         .entries
@@ -213,18 +213,18 @@ fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveEr
         }
     };
     if issues.contains(&RowIssue::DuplicateSource) {
-        groups[1].push(named(
+        duplicate.push(named(
             "error.glossary_duplicate_source",
             "error.glossary_duplicate_source_unnamed",
         ));
     }
     if issues.contains(&RowIssue::Incomplete) {
-        groups[2].push(named(
+        incomplete.push(named(
             "error.glossary_incomplete_entry",
             "error.glossary_incomplete_entry_unnamed",
         ));
     }
-    groups
+    [blank, duplicate, incomplete]
 }
 
 /// 把單一份術語表存進設定：只取代同 id 那份（沒有就加在最後），其餘照舊寫回。
