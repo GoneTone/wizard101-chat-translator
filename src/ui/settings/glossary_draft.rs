@@ -85,19 +85,13 @@ impl GlossaryDraft {
 
     /// 擋下儲存的原因（錯誤文案 key 與變數），依序為各份的名稱空白，再來是來源重複、條目只填一側。
     pub fn errors(&self) -> Vec<SaveError> {
-        let mut errors: Vec<SaveError> = self
-            .glossaries
-            .iter()
-            .enumerate()
-            .flat_map(|(i, g)| glossary_errors(g, i))
-            .collect();
-        let rank = |key: &str| match key {
-            "error.glossary_name_blank" => 0,
-            k if k.starts_with("error.glossary_duplicate_source") => 1,
-            _ => 2,
-        };
-        errors.sort_by_key(|(key, _)| rank(key));
-        errors
+        let mut groups: [Vec<SaveError>; 3] = Default::default();
+        for (i, g) in self.glossaries.iter().enumerate() {
+            for (all, found) in groups.iter_mut().zip(glossary_error_groups(g, i)) {
+                all.extend(found);
+            }
+        }
+        groups.concat()
     }
 
     /// 新增一份空白術語表（名稱用預設名，撞名補序號）；回傳它的 id。
@@ -192,11 +186,16 @@ impl GlossaryDraft {
 
 /// 單一份術語表擋下儲存的原因，依序為名稱空白、來源重複、條目只填一側；`index` 是它在清單中的位置（從 0 起）。
 pub fn glossary_errors(glossary: &StoredGlossary, index: usize) -> Vec<SaveError> {
+    glossary_error_groups(glossary, index).concat()
+}
+
+/// `glossary_errors` 依類別分開的三組：名稱空白、來源重複、條目只填一側。
+fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveError>; 3] {
     let name = pystr::strip(&glossary.name);
     let position = || vec![("index", (index + 1).to_string())];
-    let mut errors = Vec::new();
+    let mut groups: [Vec<SaveError>; 3] = Default::default();
     if name.is_empty() {
-        errors.push(("error.glossary_name_blank".into(), position()));
+        groups[0].push(("error.glossary_name_blank".into(), position()));
     }
     let filled: Vec<Entry> = glossary
         .entries
@@ -214,18 +213,18 @@ pub fn glossary_errors(glossary: &StoredGlossary, index: usize) -> Vec<SaveError
         }
     };
     if issues.contains(&RowIssue::DuplicateSource) {
-        errors.push(named(
+        groups[1].push(named(
             "error.glossary_duplicate_source",
             "error.glossary_duplicate_source_unnamed",
         ));
     }
     if issues.contains(&RowIssue::Incomplete) {
-        errors.push(named(
+        groups[2].push(named(
             "error.glossary_incomplete_entry",
             "error.glossary_incomplete_entry_unnamed",
         ));
     }
-    errors
+    groups
 }
 
 /// 把單一份術語表存進設定：只取代同 id 那份（沒有就加在最後），其餘照舊寫回。

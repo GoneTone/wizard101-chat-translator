@@ -990,3 +990,37 @@ fn glossary_errors_reports_one_glossary() {
     );
     assert!(errors.iter().all(|e| e.1 == [("index", "3".to_string())]));
 }
+
+#[test]
+fn glossary_errors_uses_the_name_for_a_named_duplicate() {
+    i18n::set_language(LANGUAGE);
+    let g = glossary(
+        "a",
+        "Mine",
+        None,
+        vec![entry("Ravenwood", "R"), entry("Ravenwood", "R2")],
+    );
+    let errors = glossary_errors(&g, 0);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].0, "error.glossary_duplicate_source");
+    assert_eq!(errors[0].1, [("name", "Mine".to_string())]);
+}
+
+#[test]
+fn errors_group_by_kind_across_glossaries() {
+    let d = draft(
+        vec![
+            glossary("a", "A", None, vec![entry("x", "")]),
+            glossary("b", " ", None, Vec::new()),
+        ],
+        None,
+    );
+    let keys: Vec<String> = d.errors().into_iter().map(|e| e.0).collect();
+    assert_eq!(
+        keys,
+        [
+            "error.glossary_name_blank",
+            "error.glossary_incomplete_entry"
+        ]
+    );
+}
