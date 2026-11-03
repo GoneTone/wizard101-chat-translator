@@ -83,58 +83,37 @@ impl GlossaryDraft {
         cfg.insert("active_glossary".into(), self.active.clone().into());
     }
 
-    /// 擋下儲存的原因（錯誤文案 key 與變數），依序為各份的名稱空白，再來是來源重複、條目只填一側。
+    /// 擋下儲存的原因（錯誤文案 key 與變數），依類別排：先所有份的名稱空白，再來源重複，最後條目只填一側。
     pub fn errors(&self) -> Vec<SaveError> {
-        let mut blank = Vec::new();
-        let mut duplicate = Vec::new();
-        let mut incomplete = Vec::new();
+        let mut groups: [Vec<SaveError>; 3] = Default::default();
         for (i, g) in self.glossaries.iter().enumerate() {
-            let name = pystr::strip(&g.name);
-            if name.is_empty() {
-                blank.push((
-                    "error.glossary_name_blank".into(),
-                    vec![("index", (i + 1).to_string())],
-                ));
-            }
-            let filled: Vec<Entry> = g
-                .entries
-                .iter()
-                .filter(|e| !e.is_blank())
-                .cloned()
-                .collect();
-            let issues = review(&filled, &builtin_of(g));
-            // 名稱空白時引號裡會是空的，改用第幾份稱呼
-            let named = |key: &str, unnamed: &str| -> SaveError {
-                if name.is_empty() {
-                    (unnamed.into(), vec![("index", (i + 1).to_string())])
-                } else {
-                    (key.into(), vec![("name", name.to_owned())])
-                }
-            };
-            if issues.contains(&RowIssue::DuplicateSource) {
-                duplicate.push(named(
-                    "error.glossary_duplicate_source",
-                    "error.glossary_duplicate_source_unnamed",
-                ));
-            }
-            if issues.contains(&RowIssue::Incomplete) {
-                incomplete.push(named(
-                    "error.glossary_incomplete_entry",
-                    "error.glossary_incomplete_entry_unnamed",
-                ));
+            for (all, found) in groups.iter_mut().zip(glossary_error_groups(g, i)) {
+                all.extend(found);
             }
         }
-        [blank, duplicate, incomplete].concat()
+        groups.concat()
     }
 
     /// 新增一份空白術語表（名稱用預設名，撞名補序號）；回傳它的 id。
     pub fn add_blank(&mut self) -> String {
-        self.add_from_file(&t("glossary.default_name", &[]), GlossaryFile::default())
+        let glossary = self.prepare_blank();
+        self.push(glossary)
     }
 
     /// 新增一份帶 `file` 建立者與條目的術語表（撞名補序號）；回傳它的 id。
     pub fn add_from_file(&mut self, name: &str, file: GlossaryFile) -> String {
-        self.push(StoredGlossary {
+        let glossary = self.prepare_from_file(name, file);
+        self.push(glossary)
+    }
+
+    /// 配好新 id 與去重名稱的空白術語表，不加進清單。
+    pub fn prepare_blank(&self) -> StoredGlossary {
+        self.prepare_from_file(&t("glossary.default_name", &[]), GlossaryFile::default())
+    }
+
+    /// 配好新 id 與去重名稱、帶 `file` 建立者與條目的術語表，不加進清單。
+    pub fn prepare_from_file(&self, name: &str, file: GlossaryFile) -> StoredGlossary {
+        self.prepare(StoredGlossary {
             name: name.into(),
             creators: file.creators,
             entries: file.entries,
@@ -146,7 +125,16 @@ impl GlossaryDraft {
     pub fn duplicate(&mut self, id: &str) -> Option<String> {
         let source = self.find(id)?.clone();
         let name = t("glossary.copy_name", &[("name", &source.name)]);
-        Some(self.push(StoredGlossary { name, ..source }))
+        let glossary = self.prepare(StoredGlossary { name, ..source });
+        Some(self.push(glossary))
+    }
+
+    /// 同 id 就取代，否則加在最後。
+    pub fn upsert(&mut self, glossary: StoredGlossary) {
+        match self.glossaries.iter_mut().find(|g| g.id == glossary.id) {
+            Some(slot) => *slot = glossary,
+            None => self.glossaries.push(glossary),
+        }
     }
 
     /// 刪除一份；刪到啟用中的就改為不使用。
@@ -172,8 +160,8 @@ impl GlossaryDraft {
         self.glossaries.iter().find(|g| g.id == id)
     }
 
-    /// 配新 id、名稱去重後加在最後。
-    fn push(&mut self, mut glossary: StoredGlossary) -> String {
+    /// 配新 id、名稱去重。
+    fn prepare(&self, mut glossary: StoredGlossary) -> StoredGlossary {
         let taken: Vec<Value> = self
             .glossaries
             .iter()
@@ -181,6 +169,10 @@ impl GlossaryDraft {
             .collect();
         glossary.id = new_id(&taken);
         glossary.name = unique_name(&glossary.name, &taken, None);
+        glossary
+    }
+
+    fn push(&mut self, glossary: StoredGlossary) -> String {
         log(format!(
             "[settings] glossary {} added ({} entries)",
             glossary.id,
@@ -190,4 +182,54 @@ impl GlossaryDraft {
         self.glossaries.push(glossary);
         id
     }
+}
+
+/// 單一份術語表擋下儲存的原因，依序為名稱空白、來源重複、條目只填一側；`index` 是它在清單中的位置（從 0 起）。
+pub fn glossary_errors(glossary: &StoredGlossary, index: usize) -> Vec<SaveError> {
+    glossary_error_groups(glossary, index).concat()
+}
+
+/// `glossary_errors` 依類別分開的三組：名稱空白、來源重複、條目只填一側。
+fn glossary_error_groups(glossary: &StoredGlossary, index: usize) -> [Vec<SaveError>; 3] {
+    let name = pystr::strip(&glossary.name);
+    let position = || vec![("index", (index + 1).to_string())];
+    let [mut blank, mut duplicate, mut incomplete]: [Vec<SaveError>; 3] = Default::default();
+    if name.is_empty() {
+        blank.push(("error.glossary_name_blank".into(), position()));
+    }
+    let filled: Vec<Entry> = glossary
+        .entries
+        .iter()
+        .filter(|e| !e.is_blank())
+        .cloned()
+        .collect();
+    let issues = review(&filled, &builtin_of(glossary));
+    // 名稱空白時引號裡會是空的，改用第幾份稱呼
+    let named = |key: &str, unnamed: &str| -> SaveError {
+        if name.is_empty() {
+            (unnamed.into(), position())
+        } else {
+            (key.into(), vec![("name", name.to_owned())])
+        }
+    };
+    if issues.contains(&RowIssue::DuplicateSource) {
+        duplicate.push(named(
+            "error.glossary_duplicate_source",
+            "error.glossary_duplicate_source_unnamed",
+        ));
+    }
+    if issues.contains(&RowIssue::Incomplete) {
+        incomplete.push(named(
+            "error.glossary_incomplete_entry",
+            "error.glossary_incomplete_entry_unnamed",
+        ));
+    }
+    [blank, duplicate, incomplete]
+}
+
+/// 把單一份術語表存進設定：只取代同 id 那份（沒有就加在最後），其餘照舊寫回。
+pub fn commit_glossary(cfg: &mut Config, glossary: &StoredGlossary) {
+    let mut draft = GlossaryDraft::from_config(cfg);
+    draft.upsert(glossary.clone());
+    draft.write_into(cfg);
 }

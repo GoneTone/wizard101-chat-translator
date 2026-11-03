@@ -8,7 +8,7 @@ use super::theme::{self, icon};
 use super::widgets::{
     LazyRows, card, collapsible, danger_icon_button, dashed_button, fixed_cell, hint,
     optional_combo, required_label, required_setting_row_with, rich, right_aligned,
-    right_aligned_width, secondary_button, secondary_icon_button, setting_row_with,
+    right_aligned_width, secondary_button, setting_row_with,
 };
 use crate::config::glossaries::StoredGlossary;
 use crate::glossary::builtin::{builtin_codes, builtin_creators};
@@ -20,7 +20,6 @@ use crate::py::pystr;
 /// 編輯畫面要外層處理的操作。
 pub(super) enum EditorAction {
     None,
-    Back,
     Import,
     Export,
 }
@@ -55,14 +54,9 @@ impl GlossaryEditor {
         }
     }
 
-    pub(super) fn id(&self) -> &str {
-        &self.id
-    }
-
-    /// 畫編輯畫面並直接改 `glossary`；回傳這一幀按下的操作。
+    /// 畫編輯畫面並直接改 `glossary`（呼叫者傳進來的副本）；回傳這一幀按下的操作。
     pub(super) fn ui(&mut self, ui: &mut Ui, glossary: &mut StoredGlossary) -> EditorAction {
         self.refresh(glossary);
-        let back = secondary_icon_button(ui, icon::BACK, &t("glossary.back_to_list", &[]));
         card(ui, |ui| {
             let blank = pystr::strip(&glossary.name).is_empty();
             let notice = |ui: &mut Ui| {
@@ -90,9 +84,7 @@ impl GlossaryEditor {
         if let Some(code) = glossary.builtin.as_deref() {
             self.builtin_card(ui, code);
         }
-        if back.clicked() {
-            EditorAction::Back
-        } else if import {
+        if import {
             EditorAction::Import
         } else if export {
             EditorAction::Export

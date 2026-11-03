@@ -8,7 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use serde_json::json;
 
-use common::kittest::{click, has_label, run, settle, tr};
+use common::kittest::{click, click_in_dialog, has_label, run, settle, tr};
 use common::language_lock;
 use common::log_capture::{capture_logs, log_lines_with};
 use common::settings_env::FakeEnv;
@@ -171,7 +171,7 @@ fn language_preview_keeps_a_half_added_service() {
     h.event(egui::Event::Text(" half".into()));
     run(&mut h);
     h.get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
-        .get_by_role_and_label(Role::Button, &tr("button.ok"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
         .click();
     run(&mut h);
     click(&mut h, Role::Tab, &tr("settings.tab.basic"));
@@ -205,4 +205,21 @@ fn translators_follow_the_previewed_language() {
     assert!(!has_label(&h, "Claude Code"));
     pick_language(&mut h, "en-US");
     h.get_by_role_and_label(Role::Link, "Claude Code");
+}
+
+#[test]
+fn closing_during_a_language_preview_asks_and_discard_restores_it() {
+    let _lock = language_lock();
+    let mut h = harness("zh-TW");
+    pick_language(&mut h, "en-US");
+    let State { win, env, .. } = h.state_mut();
+    assert!(win.request_close(env).is_empty());
+    h.state_mut().actions.clear();
+    run(&mut h);
+    click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.discard"));
+    assert_eq!(
+        h.state().actions,
+        [SettingsAction::PreviewLanguage, SettingsAction::Cancel]
+    );
+    assert_eq!(current_language(), "zh-TW");
 }

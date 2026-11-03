@@ -15,11 +15,13 @@ use super::widgets::{
     callout, card, collapsible, combo_box, danger_secondary_button, dashed_button, focus_ring,
     full_text_tip, list_card, name_by_row, primary_button, required_setting_row, secondary_button,
 };
+use super::window::SaveError;
 use crate::config::py::py_bool;
 use crate::config::services::{LOCAL_PROVIDER, ServiceSlot, describe, new_service, str_field};
 use crate::i18n::t;
 use crate::local::Snapshot;
 use crate::logs::log;
+use crate::translation::errors::localized;
 
 enum Dialog {
     Closed,
@@ -29,8 +31,10 @@ enum Dialog {
         form: Box<ServiceForm>,
         /// 表單上疊著服務商選擇（按了〔更改〕）。
         picking: bool,
-        /// 按〔確定〕時沒過的欄位；顯示後隨編輯即時更新。
-        errors: Vec<String>,
+        /// 按〔儲存〕時沒過的原因；顯示後隨編輯即時更新。
+        errors: Vec<SaveError>,
+        /// 開啟當下的表單值，判斷有沒有未存的修改。
+        opened: Value,
     },
     Confirm {
         id: String,
@@ -41,6 +45,7 @@ impl Dialog {
     /// 剛開啟的服務表單。
     fn form(form: ServiceForm) -> Self {
         Self::Form {
+            opened: form.values(),
             form: Box::new(form),
             picking: false,
             errors: Vec::new(),
@@ -54,6 +59,8 @@ pub struct ServicePane {
     dialog: Dialog,
     /// 表單上按了連到本地模型頁的連結；外層讀走（`take_open_local`）後切頁。
     open_local: bool,
+    /// 這一幀存好的服務；外層讀走（`take_committed`）後寫檔。
+    committed: Option<Value>,
 }
 
 impl ServicePane {
@@ -62,7 +69,18 @@ impl ServicePane {
             draft,
             dialog: Dialog::Closed,
             open_local: false,
+            committed: None,
         }
+    }
+
+    /// 這一幀對話框存好的服務；讀走就清掉。
+    pub fn take_committed(&mut self) -> Option<Value> {
+        self.committed.take()
+    }
+
+    /// 服務表單開著，且有尚未存下的修改。
+    pub fn unsaved(&self) -> bool {
+        matches!(&self.dialog, Dialog::Form { form, opened, .. } if form.values() != *opened)
     }
 
     /// 這一幀表單有沒有要求切到本地模型頁；讀走就清掉。
@@ -76,18 +94,24 @@ impl ServicePane {
 
     /// 測試連線與模型清單的結果轉給開著的服務表單。
     pub fn apply(&mut self, event: &SettingsEvent) {
-        if let Dialog::Form { form, .. } = &mut self.dialog {
+        if let Dialog::Form { form, opened, .. } = &mut self.dialog {
+            let untouched = form.values() == *opened;
             form.apply(event);
+            // 模型清單自動載入會改變有效的思考設定；沒動過的表單不能因此變成「未存」
+            if untouched && matches!(event, SettingsEvent::ModelsDone { .. }) {
+                *opened = form.values();
+            }
         }
     }
 
-    /// 畫分頁與開著的對話框；測試連線翻成 `target_language`。
+    /// 畫分頁與開著的對話框；測試連線翻成 `target_language`，欄位都過了的服務再交給 `check` 檢查。
     pub fn ui(
         &mut self,
         ui: &mut Ui,
         env: &dyn SettingsEnv,
         snapshot: &Snapshot,
         target_language: &str,
+        check: &dyn Fn(&Value) -> Vec<SaveError>,
     ) {
         ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme::CARD_GAP;
@@ -122,7 +146,7 @@ impl ServicePane {
                 None => {}
             }
         });
-        self.show_dialog(ui, env, snapshot, target_language);
+        self.show_dialog(ui, env, snapshot, target_language, check);
     }
 
     fn open_form(&mut self, id: &str) {
@@ -238,6 +262,7 @@ impl ServicePane {
         env: &dyn SettingsEnv,
         snapshot: &Snapshot,
         target_language: &str,
+        check: &dyn Fn(&Value) -> Vec<SaveError>,
     ) {
         match &mut self.dialog {
             Dialog::Closed => {}
@@ -254,9 +279,10 @@ impl ServicePane {
                 form,
                 picking,
                 errors,
+                ..
             } => {
                 let (choice, response) =
-                    form_dialog(ui, form, errors, env, snapshot, target_language);
+                    form_dialog(ui, form, errors, env, snapshot, target_language, check);
                 *picking |= response.change_provider;
                 self.open_local |= response.open_local_models;
                 pick_provider_over(ui, form, picking);
@@ -264,7 +290,8 @@ impl ServicePane {
                     Choice::Open => {}
                     Choice::Cancel => self.dialog = Dialog::Closed,
                     Choice::Done(service) => {
-                        self.draft.apply_dialog_result(service);
+                        self.draft.apply_dialog_result(service.clone());
+                        self.committed = Some(service);
                         self.dialog = Dialog::Closed;
                     }
                 }
@@ -401,17 +428,28 @@ fn picker_dialog(ui: &Ui) -> Choice<&'static str> {
     }
 }
 
-/// 服務表單對話框，另回傳這一幀表單的回報（〔更改〕服務商、連到本地模型頁）；〔確定〕時欄位不完整就在表單底部列出，不關閉。
+/// 欄位沒過就回欄位的錯，欄位都過了才問視窗層的 `check`。
+fn blockers(form: &ServiceForm, check: &dyn Fn(&Value) -> Vec<SaveError>) -> Vec<SaveError> {
+    let fields = form.errors();
+    if fields.is_empty() {
+        check(&form.values())
+    } else {
+        fields.into_iter().map(|key| (key, Vec::new())).collect()
+    }
+}
+
+/// 服務表單對話框，另回傳這一幀表單的回報（〔更改〕服務商、連到本地模型頁）；〔儲存〕時沒過檢查就在表單底部列出，不關閉。
 fn form_dialog(
     ui: &Ui,
     form: &mut ServiceForm,
-    errors: &mut Vec<String>,
+    errors: &mut Vec<SaveError>,
     env: &dyn SettingsEnv,
     snapshot: &Snapshot,
     target_language: &str,
+    check: &dyn Fn(&Value) -> Vec<SaveError>,
 ) -> (Choice<Value>, FormResponse) {
     if !errors.is_empty() {
-        *errors = form.errors();
+        *errors = blockers(form, check);
     }
     // 內容高度會隨測試結果、提示與錯誤變動，釘住上緣，按鈕才不會在游標下跳動
     let spec = DialogSpec {
@@ -436,7 +474,10 @@ fn form_dialog(
                     let response = form.ui(ui, env, snapshot, target_language);
                     if !errors.is_empty() {
                         ui.add_space(12.0);
-                        let lines: Vec<String> = errors.iter().map(|e| t(e, &[])).collect();
+                        let lines: Vec<String> = errors
+                            .iter()
+                            .map(|(key, args)| localized(key, args))
+                            .collect();
                         callout(ui, &t("dialog.incomplete_title", &[]), &lines);
                     }
                     response
@@ -445,7 +486,7 @@ fn form_dialog(
         },
         |ui| {
             let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-            let ok = primary_button(ui, &t("button.ok", &[])).clicked();
+            let ok = primary_button(ui, &t("button.save", &[])).clicked();
             (ok, cancel)
         },
     );
@@ -453,21 +494,23 @@ fn form_dialog(
     let choice = if cancel || shown.cancel {
         Choice::Cancel
     } else if ok {
-        save(form, errors)
+        save(form, errors, check)
     } else {
         Choice::Open
     };
     (choice, shown.body)
 }
 
-/// 〔確定〕：欄位都過了就回傳要存的服務，否則記下沒過的原因。
-fn save(form: &ServiceForm, errors: &mut Vec<String>) -> Choice<Value> {
-    let found = form.errors();
+/// 〔儲存〕：檢查都過了就回傳要存的服務，否則記下沒過的原因。
+fn save(
+    form: &ServiceForm,
+    errors: &mut Vec<SaveError>,
+    check: &dyn Fn(&Value) -> Vec<SaveError>,
+) -> Choice<Value> {
+    let found = blockers(form, check);
     if !found.is_empty() {
-        log(format!(
-            "[settings] service not saved: {}",
-            found.join(", ")
-        ));
+        let keys: Vec<&str> = found.iter().map(|(key, _)| key.as_str()).collect();
+        log(format!("[settings] service not saved: {}", keys.join(", ")));
         *errors = found;
         return Choice::Open;
     }

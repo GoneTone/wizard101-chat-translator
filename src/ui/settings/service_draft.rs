@@ -84,7 +84,15 @@ impl ServiceDraft {
     }
 
     /// 把對話框確定的服務併回清單（同 id 就地取代，否則加在最後）；清單原本是空的就接手預設。
-    pub fn apply_dialog_result(&mut self, mut service: Value) {
+    pub fn apply_dialog_result(&mut self, service: Value) {
+        let id = id_of(&service).to_owned();
+        if self.merge_service(service) {
+            log(format!("[settings] first service added; default={id}"));
+        }
+    }
+
+    /// 同 `apply_dialog_result` 但不記 log；回傳這筆是否成了預設（給只想預覽合併結果的呼叫端）。
+    pub fn merge_service(&mut self, mut service: Value) -> bool {
         let id = id_of(&service).to_owned();
         // 三個用途下拉只顯示名稱，同名會讓人選錯
         service["name"] =
@@ -93,10 +101,11 @@ impl ServiceDraft {
             Some(existing) => *existing = service,
             None => self.services.push(service),
         }
-        if self.default.is_none() {
-            log(format!("[settings] first service added; default={id}"));
+        let first = self.default.is_none();
+        if first {
             self.default = Some(id);
         }
+        first
     }
 
     /// 刪除一筆服務：指到它的用途改回跟隨預設，被刪的是預設就交給清單第一筆。

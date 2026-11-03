@@ -12,8 +12,9 @@ use eframe::egui::{
 };
 use serde_json::Value;
 
+use super::dialog::{Choice, confirm};
 use super::env::{SettingsEnv, SettingsEvent};
-use super::glossary_draft::GlossaryDraft;
+use super::glossary_draft::{GlossaryDraft, commit_glossary};
 use super::glossary_pane::GlossaryPane;
 use super::hotkeys::HotkeyEditor;
 use super::local_pane::LocalPane;
@@ -21,10 +22,7 @@ use super::quant_table::gb;
 use super::service_draft::{ServiceDraft, local_model_gone};
 use super::service_list::ServicePane;
 use super::theme::{self, icon};
-use super::widgets::{
-    callout, focus_ring, primary_button, right_aligned, right_aligned_width, scroll_page,
-    secondary_button,
-};
+use super::widgets::{danger_button, focus_ring, footer_bar, scroll_page};
 use super::{flag_setting, setting, text_setting};
 use crate::config::local;
 use crate::config::services::{
@@ -100,6 +98,9 @@ pub enum SettingsAction {
     /// 這個視窗管的鍵（服務三鍵、術語表兩鍵、目標語言、熱鍵與開關、進階數值、`ui_language`）；不是完整設定，
     /// App 要併進目前共用的設定（`cfg.extend`），其他鍵（如 overlay 位置）不可被開窗時的舊值蓋掉。視窗該關了。
     Save(Config),
+    /// 只帶這次提交的鍵（如術語表編輯畫面〔儲存〕），視窗不關；App 只呼叫 `on_save`，不呼叫 `App::apply_settings`，
+    /// 因為部分設定會讓 overlay 的透明度等被重設成預設值。
+    Commit(Config),
     /// 取消；預覽中的透明度與語言已在這之前的動作還原，視窗該關了。
     Cancel,
 }
@@ -126,6 +127,10 @@ pub struct SettingsWindow {
     errors: Vec<SaveError>,
     about: about::AboutState,
     pending: Vec<SettingsAction>,
+    /// 視窗管的鍵上次寫進設定檔的值（開窗、提交、儲存時更新）。
+    saved: Config,
+    /// 正在問「放棄未存的變更並關閉？」。
+    confirm_close: bool,
 }
 
 impl SettingsWindow {
@@ -135,7 +140,7 @@ impl SettingsWindow {
             .or_else(|| py::number(&default_config()["overlay_alpha"]))
             .unwrap_or_default();
         let number = |key: &str| py::display(&setting(cfg, key));
-        Self {
+        let mut win = Self {
             slots_at_open: cfg.get("service_slots").cloned(),
             page: Page::Basic,
             language_at_open: current_language(),
@@ -159,7 +164,11 @@ impl SettingsWindow {
             errors: Vec::new(),
             about: about::AboutState::default(),
             pending: Vec::new(),
-        }
+            saved: Config::new(),
+            confirm_close: false,
+        };
+        win.saved = win.collect().0;
+        win
     }
 
     pub fn page(&self) -> Page {
@@ -212,7 +221,46 @@ impl SettingsWindow {
         }
         self.content(ui, env, content);
         ui.advance_cursor_after_rect(full);
+        if self.confirm_close {
+            self.ask_discard(ui, env);
+        }
         std::mem::take(&mut self.pending)
+    }
+
+    /// 有尚未存下的變更：草稿與上次寫進設定檔的內容不同，或術語表、服務編輯畫面還開著未存的修改。
+    pub fn has_unsaved(&self) -> bool {
+        self.collect().0 != self.saved
+            || self.glossaries.unsaved().is_some()
+            || self.services.unsaved()
+    }
+
+    /// 視窗 ✕ 或 Alt+F4：沒有未存的變更就取消；有的話改問是否放棄（回傳空，視窗留著）。
+    pub fn request_close(&mut self, env: &dyn SettingsEnv) -> Vec<SettingsAction> {
+        if !self.has_unsaved() {
+            return self.cancel(env);
+        }
+        if !self.confirm_close {
+            log("[settings] close blocked: unsaved changes");
+            self.confirm_close = true;
+        }
+        Vec::new()
+    }
+
+    fn ask_discard(&mut self, ui: &Ui, env: &dyn SettingsEnv) {
+        let ok = |ui: &mut Ui| danger_button(ui, &t("button.discard", &[]));
+        match confirm(ui, "confirm_close", t("dialog.discard_changes", &[]), ok) {
+            Choice::Open => {}
+            Choice::Done(()) => {
+                log("[settings] unsaved changes discarded");
+                self.confirm_close = false;
+                let actions = self.cancel(env);
+                self.pending.extend(actions);
+            }
+            Choice::Cancel => {
+                log("[settings] close cancelled");
+                self.confirm_close = false;
+            }
+        }
     }
 
     /// 取消（〔取消〕、視窗 ✕ 或 Alt+F4）：停掉錄製，還原預覽中的透明度與介面語言，最後送 `Cancel`。
@@ -266,6 +314,7 @@ impl SettingsWindow {
         let mut errors: Vec<SaveError> = service_errors(&cfg).into_iter().map(plain).collect();
         errors.extend(local_errors(&cfg, &self.snapshot));
         errors.extend(self.glossaries.draft().errors());
+        errors.extend(self.glossaries.unsaved());
         errors.extend(
             self.hotkeys
                 .errors(self.paste_hotkey)
@@ -292,7 +341,18 @@ impl SettingsWindow {
             return;
         }
         self.hotkeys.abort(env);
+        self.saved = cfg.clone();
         self.pending.push(SettingsAction::Save(cfg));
+    }
+
+    /// 把 `saved` 裡的 `keys` 推出成 `Commit`，視窗不關。
+    fn commit(&mut self, keys: &[&str]) {
+        let cfg: Config = keys
+            .iter()
+            .filter_map(|&key| Some((key.to_owned(), self.saved.get(key)?.clone())))
+            .collect();
+        log(format!("[settings] committed {}", keys.join(", ")));
+        self.pending.push(SettingsAction::Commit(cfg));
     }
 
     /// 側欄：各分頁的導覽項，底部是版本號；回傳這一幀點下的分頁。
@@ -366,27 +426,22 @@ impl SettingsWindow {
 
     /// 按鈕列：被擋下的儲存提示在左，〔取消〕〔儲存〕靠右。
     fn footer(&mut self, ui: &mut Ui, env: &dyn SettingsEnv, buttons: Id) {
-        ui.spacing_mut().item_spacing.x = 8.0;
+        if self.page == Page::Glossaries && self.glossaries.editing() {
+            if let Some(glossary) = self.glossaries.editor_footer(ui, buttons) {
+                commit_glossary(&mut self.saved, &glossary);
+                self.commit(&["glossaries", "active_glossary"]);
+            }
+            return;
+        }
         if !self.errors.is_empty() {
             self.errors = self.collect().1;
         }
-        if !self.errors.is_empty() {
-            let room = ui.available_width() - right_aligned_width(ui, buttons) - 16.0;
-            let lines: Vec<String> = self
-                .errors
-                .iter()
-                .map(|(key, args)| localized(key, args))
-                .collect();
-            ui.scope(|ui| {
-                ui.set_max_width(room.max(120.0));
-                callout(ui, &t("dialog.incomplete_title", &[]), &lines);
-            });
-        }
-        let (cancel, save) = right_aligned(ui, buttons, |ui| {
-            let cancel = secondary_button(ui, &t("button.cancel", &[])).clicked();
-            let save = primary_button(ui, &t("button.save", &[])).clicked();
-            (cancel, save)
-        });
+        let lines: Vec<String> = self
+            .errors
+            .iter()
+            .map(|(key, args)| localized(key, args))
+            .collect();
+        let (cancel, save) = footer_bar(ui, buttons, &lines, |_| {});
         if save {
             self.save(env);
         } else if cancel {
@@ -411,7 +466,24 @@ impl SettingsWindow {
                         "" => language_name(&current_language()),
                         target => target.to_owned(),
                     };
-                    self.services.ui(ui, env, &self.snapshot, &target);
+                    let (saved, snapshot) = (&self.saved, &self.snapshot);
+                    let check = |service: &Value| {
+                        let cfg = with_service(saved, service);
+                        let plain = |key: String| (key, Vec::new());
+                        let mut errors: Vec<SaveError> =
+                            service_errors(&cfg).into_iter().map(plain).collect();
+                        errors.extend(local_errors(&cfg, snapshot));
+                        errors
+                    };
+                    self.services.ui(ui, env, snapshot, &target, &check);
+                    if let Some(service) = self.services.take_committed() {
+                        log(format!(
+                            "[settings] service {} committed",
+                            str_field(&service, "id")
+                        ));
+                        self.saved = with_service(&self.saved, &service);
+                        self.commit(&["services", "default_service", "service_slots"]);
+                    }
                     if self.services.take_open_local() {
                         self.switch_page(Page::LocalModels, env);
                     }
@@ -426,6 +498,15 @@ impl SettingsWindow {
             }
         });
     }
+}
+
+/// `saved` 併入對話框存好的 `service`（含「清單原本是空的就接手預設」）後會寫進檔案的內容。
+fn with_service(saved: &Config, service: &Value) -> Config {
+    let mut draft = ServiceDraft::from_config(saved);
+    draft.merge_service(service.clone());
+    let mut cfg = saved.clone();
+    draft.write_into(&mut cfg);
+    cfg
 }
 
 /// 預設服務與三個用途實際指到的服務各自缺哪些必填欄位（錯誤文案 key，去重）；連預設服務都沒有就只回 `error.need_service`。
