@@ -617,6 +617,109 @@ fn saving_a_service_commits_only_the_service_keys() {
     assert_eq!(keys, ["default_service", "service_slots", "services"]);
 }
 
+fn commits<'a>(h: &'a Harness<'_, State>) -> Vec<&'a Config> {
+    h.state()
+        .actions
+        .iter()
+        .filter_map(|a| match a {
+            SettingsAction::Commit(cfg) => Some(cfg),
+            _ => None,
+        })
+        .collect()
+}
+
+fn save_in_service_dialog(h: &mut Harness<State>) {
+    h.get_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
+        .get_by_role_and_label(Role::Button, &tr("button.save"))
+        .click();
+    run(h);
+}
+
+#[test]
+fn committing_the_first_service_makes_it_the_default() {
+    let mut cfg = default_config();
+    cfg.insert("services".into(), json!([]));
+    cfg.insert("default_service".into(), Value::Null);
+    let mut h = harness(cfg);
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.add_service"));
+    click(&mut h, Role::Button, &tr("provider.custom"));
+    settle(&mut h);
+    for (field, value) in [
+        ("field.base_url", "http://localhost:1234"),
+        ("field.model", "m"),
+    ] {
+        h.get_by_label(&tr(field)).click();
+        run(&mut h);
+        h.event(egui::Event::Text(value.into()));
+        run(&mut h);
+    }
+    save_in_service_dialog(&mut h);
+    let commits = commits(&h);
+    assert_eq!(commits.len(), 1);
+    let id = commits[0]["services"][0]["id"].clone();
+    assert_eq!(commits[0]["default_service"], id);
+}
+
+#[test]
+fn a_service_commit_keeps_an_unsaved_deletion_out_of_the_file() {
+    let mut cfg = configured_cfg();
+    let b = add_service(
+        &mut cfg,
+        "custom",
+        json!({"base_url": "http://localhost:1"}),
+    );
+    let a = cfg["services"][0].clone();
+    let mut h = harness(cfg);
+    go(&mut h, "settings.tab.services");
+    let label = tr("button.delete");
+    let delete: Vec<_> = h
+        .query_all_by_role_and_label(Role::Button, &label)
+        .collect();
+    delete
+        .into_iter()
+        .min_by(|x, y| x.rect().top().total_cmp(&y.rect().top()))
+        .unwrap()
+        .click();
+    settle(&mut h);
+    common::kittest::click_in_dialog(&mut h, &tr("dialog.confirm_title"), &tr("button.delete"));
+    click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
+    save_in_service_dialog(&mut h);
+    let commits = commits(&h);
+    assert_eq!(commits.len(), 1);
+    let ids: Vec<&Value> = commits[0]["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| &s["id"])
+        .collect();
+    assert!(
+        ids.contains(&&a["id"]) && ids.contains(&&b["id"]),
+        "{ids:?}"
+    );
+}
+
+#[test]
+fn a_window_level_failure_blocks_the_service_save() {
+    let cfg = configured("local", json!({"model": "a"}));
+    let name = service_name(&cfg, 0);
+    let mut h = harness(cfg);
+    go(&mut h, "settings.tab.services");
+    click(&mut h, Role::Button, &tr("button.edit"));
+    settle(&mut h);
+    save_in_service_dialog(&mut h);
+    assert!(
+        h.query_by_role_and_label(Role::Dialog, &tr("service.dialog_title"))
+            .is_some()
+    );
+    assert!(has_label(
+        &h,
+        &t("error.local_model_missing", &[("name", &name)])
+    ));
+    assert!(commits(&h).is_empty());
+}
+
 #[test]
 fn save_writes_the_advanced_values() {
     let mut h = harness(configured_cfg());
