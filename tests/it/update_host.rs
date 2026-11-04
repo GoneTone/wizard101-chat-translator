@@ -213,18 +213,20 @@ fn closing_when_failed_deletes_the_partial_file() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn ready_without_unsaved_restarts_on_the_next_frame() {
+async fn ready_without_unsaved_waits_for_the_user() {
     let dir = TempDir::new().unwrap();
     let (mut host, _server) = downloaded_host(&dir).await;
     let mut frames = Frames::new();
 
-    let (first, _) = frames.run(&mut host, false, false);
+    for _ in 0..3 {
+        let (got, _) = frames.run(&mut host, false, false);
+        assert!(got.is_empty());
+    }
+    assert_eq!(host.phase(), &Phase::Ready);
+
+    host.act(&frames.ctx, UpdateAction::Restart, false);
     assert_eq!(host.phase(), &Phase::Restarting);
-    assert!(first.is_empty());
-    let (second, _) = frames.run(&mut host, false, false);
-    assert_eq!(second, [HostAction::Restart]);
-    let (third, _) = frames.run(&mut host, false, false);
-    assert!(third.is_empty(), "restart is handed over only once");
+    assert_eq!(frames.handoffs(&mut host, false, 3), [HostAction::Restart]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

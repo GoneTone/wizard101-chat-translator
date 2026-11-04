@@ -40,8 +40,6 @@ pub struct UpdateHost {
     rt: Handle,
     http: reqwest::Client,
     ui: UiPoster,
-    /// 剛下載驗證完、還沒做設定檢查；每次下載完成只判斷一次。
-    auto_restart_pending: bool,
     /// 進入 Restarting 的那一幀；之後的一幀才交給 App 替換。
     restart_at: Option<u64>,
 }
@@ -66,7 +64,6 @@ impl UpdateHost {
             rt,
             http,
             ui,
-            auto_restart_pending: false,
             restart_at: None,
         }
     }
@@ -122,7 +119,7 @@ impl UpdateHost {
         let was_downloading = *self.job.phase() == Phase::Downloading;
         self.job.finish(run, result);
         if was_downloading && *self.job.phase() == Phase::Ready {
-            self.auto_restart_pending = true;
+            log("[update] ready; waiting for the user to restart");
         }
     }
 
@@ -141,12 +138,6 @@ impl UpdateHost {
         if self.restart_at.is_some_and(|at| frame > at) {
             self.restart_at = None;
             out.push(HostAction::Restart);
-        }
-        if std::mem::take(&mut self.auto_restart_pending) {
-            log(format!("[update] ready; settings unsaved={unsaved}"));
-            if !unsaved {
-                self.begin_restart(ctx);
-            }
         }
         let Self { job, view, win, .. } = self;
         let Some(view) = view else {
