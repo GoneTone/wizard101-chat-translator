@@ -16,6 +16,13 @@ use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATIO
 
 use crate::logs::log;
 
+/// `path` 後面直接接上 `suffix`（不當副檔名處理）。
+pub fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
 /// 等執行緒結束時的輪詢間隔（std 的 join 沒有逾時）。
 const JOIN_POLL: Duration = Duration::from_millis(10);
 

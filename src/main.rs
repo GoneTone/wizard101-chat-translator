@@ -61,7 +61,7 @@ fn main() {
     }
     // 先搶鎖再開 app.log：第二份程式不可重寫執行中那份正在用的檔案
     let after_update = std::env::args().any(|arg| arg == AFTER_UPDATE_ARG);
-    let waited = Instant::now();
+    let waited = after_update.then(Instant::now);
     let lock = if after_update {
         acquire_waiting(
             &Clock::default(),
@@ -77,16 +77,17 @@ fn main() {
             Err(e) => log(format!("[log] cannot open app.log: {e}")),
         }
     }
-    if after_update {
+    if let Some(waited) = waited {
         match &lock {
             Ok(_) => log(format!(
                 "[update] after-update: instance lock acquired after {} ms",
                 waited.elapsed().as_millis()
             )),
-            Err(_) => log(format!(
+            Err(AcquireError::AlreadyRunning) => log(format!(
                 "[update] after-update: instance lock still held after {} s",
                 AFTER_UPDATE_WAIT.as_secs()
             )),
+            Err(AcquireError::CreateFailed(_)) => {}
         }
     }
     logs::install_panic_hook();

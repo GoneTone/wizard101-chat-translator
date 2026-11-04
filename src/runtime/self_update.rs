@@ -1,6 +1,5 @@
 //! 自我更新的檔案與程序機制：替換執行中的 exe、清除殘留、結束時啟動新版。
 
-use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -8,18 +7,12 @@ use std::sync::Mutex;
 
 use crate::local::download;
 use crate::logs::log;
-use crate::util::lock;
+use crate::util::{lock, with_suffix};
 
 /// 新程序帶這個參數啟動，表示是更新後重啟，要等舊程序放掉單一實例鎖。
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
 
 static RELAUNCH: Mutex<Option<PathBuf>> = Mutex::new(None);
-
-fn with_suffix(exe: &Path, suffix: &str) -> PathBuf {
-    let mut name: OsString = exe.as_os_str().to_owned();
-    name.push(suffix);
-    PathBuf::from(name)
-}
 
 /// 下載完成的新版檔案位置。
 pub fn new_path(exe: &Path) -> PathBuf {
