@@ -250,6 +250,49 @@ fn cards_line_up_with_the_heading_and_buttons_on_both_sides() {
     );
 }
 
+/// 比卡片寬的表格整張排進卡片：每格文字都在卡片內距以內，不會被切掉、也沒有水平捲動。
+#[test]
+fn wide_tables_fit_inside_the_card() {
+    let long = "Area translation: chat box with mixed Chinese and English (620x80)";
+    let body = format!(
+        "Before
+
+| | v0.6.0 (Python) | v1.0.0 (Rust) |
+|---|---|---|
+| {long} | 1,848 ms | 125 ms |
+
+After
+"
+    );
+    let h = window_with(vec![release("1.0.0", &body)], Phase::Idle, (0, 0), false);
+    let card = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == theme::CARD_BG => Some(r.rect),
+            _ => None,
+        })
+        .expect("a card is drawn");
+    let texts: Vec<(String, Rect)> = h
+        .output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t) => Some((t.galley.text().to_owned(), t.visual_bounding_rect())),
+            _ => None,
+        })
+        .collect();
+    let rust = texts.iter().find(|(text, _)| text.contains("125 ms"));
+    assert!(rust.is_some(), "the last column is drawn: {texts:?}");
+    for (text, rect) in texts.iter().filter(|(_, r)| r.top() > card.top()) {
+        assert!(
+            rect.right() <= card.right() - 15.0,
+            "{text:?} {rect:?} vs {card:?}"
+        );
+    }
+}
+
 /// 中文字型下內文排版的捨入誤差不會把卡片撐寬：取自真實版本說明、會多出 0.5 px 的兩段。
 #[test]
 fn rounding_in_the_notes_does_not_widen_the_card() {

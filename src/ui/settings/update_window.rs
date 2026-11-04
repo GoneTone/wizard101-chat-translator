@@ -9,6 +9,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use super::local_rate::{MB, Rates, Speed, format_speed};
 use super::quant_table::fraction;
 use super::release_links::linkify_github;
+use super::release_table::{self, Block, split_tables};
 use super::theme;
 use super::widgets::{
     card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
@@ -137,7 +138,16 @@ impl UpdateView {
                     // 清單項目用 horizontal_wrapped，首列高取 interact_size.y：控制項高會讓連結與項目符號浮在內文上方
                     ui.spacing_mut().interact_size.y = ui.text_style_height(&TextStyle::Body);
                     let body = linkify_github(&flatten_headings(&release.body));
-                    CommonMarkViewer::new().show(ui, &mut self.markdown, &body);
+                    for block in split_tables(&body) {
+                        match block {
+                            Block::Markdown(text) => {
+                                CommonMarkViewer::new().show(ui, &mut self.markdown, text);
+                            }
+                            Block::Table(table) => {
+                                release_table::show(ui, &table, &mut self.markdown)
+                            }
+                        }
+                    }
                 });
         });
     }

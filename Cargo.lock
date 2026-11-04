@@ -5544,6 +5544,7 @@ dependencies = [
  "image",
  "log",
  "num_cpus",
+ "pulldown-cmark",
  "raw-window-handle",
  "regex",
  "reqwest",
