@@ -22,8 +22,10 @@ use crate::runtime::updater::Release;
 const MARKDOWN_HEADING_SIZE: f32 = 15.0;
 /// 更新下載在 `Rates` 裡的鍵。
 const RATE_KEY: &str = "update";
-/// 卡片清單頭尾的留白：第一張卡片離標題、最後一張卡片離底部列的距離。
-const LIST_PADDING: i8 = 16;
+/// 標題區下方固定的空白：捲動中的內容在副標下方這麼遠處被切掉，不會貼著文字。
+const HEADER_GAP: i8 = 12;
+/// 卡片清單頭尾的留白：頂端加上 `HEADER_GAP` 與底端一樣，第一張卡片離副標、最後一張卡片離底部列都是 16 px。
+const LIST_PADDING: (i8, i8) = (16 - HEADER_GAP, 16);
 
 /// 使用者在更新視窗按下的動作，由 host 轉給 `UpdateJob`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,13 +85,18 @@ impl UpdateView {
                 left: 20,
                 right: 20,
                 top: 18,
-                bottom: 0,
+                bottom: HEADER_GAP,
             };
             Panel::top("update_header")
                 .frame(Frame::new().inner_margin(margin))
                 .show(ui, |ui| header(ui, latest, releases.len()));
         }
-        let margin = Margin::symmetric(20, LIST_PADDING);
+        let margin = Margin {
+            left: 20,
+            right: 20,
+            top: LIST_PADDING.0,
+            bottom: LIST_PADDING.1,
+        };
         scroll_page(ui, "update_releases", margin, theme::CARD_GAP, |ui| {
             self.releases(ui, releases);
         });

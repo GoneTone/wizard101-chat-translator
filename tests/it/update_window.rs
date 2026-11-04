@@ -111,7 +111,7 @@ fn header_stays_put_while_the_cards_scroll() {
     assert!(h.get_by_label("v1.1.0").rect().top() > heading_top);
 }
 
-/// 清單頭尾各留 16 px：沒捲動時第一張卡片離副標、捲到底時最後一張卡片離底部列。
+/// 清單頭尾各留 16 px，捲動時內容在副標下方 12 px 處被切掉，不貼著文字。
 #[test]
 fn card_list_has_padding_at_both_ends() {
     let long = "A long paragraph of release notes.
@@ -167,6 +167,19 @@ fn card_list_has_padding_at_both_ends() {
     assert!(
         footer_top - last.bottom() >= 15.5,
         "{last:?} vs {footer_top}"
+    );
+    let clip = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Rect(r) if r.fill == theme::CARD_BG => Some(c.clip_rect),
+            _ => None,
+        })
+        .expect("a card is drawn");
+    assert!(
+        clip.top() - header_bottom >= 11.5,
+        "{clip:?} vs {header_bottom}"
     );
 }
 
