@@ -3,10 +3,11 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, Panel, RichText, Ui, vec2};
+use eframe::egui::{Align, Frame, Id, Label, Layout, Margin, Panel, RichText, TextStyle, Ui, vec2};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use super::local_rate::{MB, Rates, Speed, format_speed};
+use super::quant_table::fraction;
 use super::theme;
 use super::widgets::{
     card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
@@ -16,6 +17,8 @@ use crate::i18n::t;
 use crate::runtime::update_job::Phase;
 use crate::runtime::updater::Release;
 
+/// 內文標題字級（粗體）：比版本號小，略大於內文。
+const MARKDOWN_HEADING_SIZE: f32 = 15.0;
 /// 更新下載在 `Rates` 裡的鍵。
 const RATE_KEY: &str = "update";
 
@@ -128,10 +131,39 @@ impl UpdateView {
                         }
                     });
                     ui.separator();
-                    CommonMarkViewer::new().show(ui, &mut self.markdown, &release.body);
+                    ui.style_mut()
+                        .text_styles
+                        .insert(TextStyle::Heading, theme::bold(MARKDOWN_HEADING_SIZE));
+                    let body = flatten_headings(&release.body);
+                    CommonMarkViewer::new().show(ui, &mut self.markdown, &body);
                 });
         });
     }
+}
+
+/// 各級 ATX 標題都改成一級：egui_commonmark 只有一級標題用 `TextStyle::Heading`（粗體），其餘只放大字級。
+fn flatten_headings(body: &str) -> String {
+    let mut fenced = false;
+    body.lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+                fenced = !fenced;
+            }
+            let hashes = trimmed.len() - trimmed.trim_start_matches('#').len();
+            let rest = &trimmed[hashes..];
+            // 縮排四格以上是程式碼區塊；`#` 超過六個或後面沒接空白就不是標題
+            let heading = line.len() - trimmed.len() < 4
+                && (2..=6).contains(&hashes)
+                && (rest.is_empty() || rest.starts_with([' ', '\t']));
+            if heading && !fenced {
+                format!("#{rest}")
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// 發布日期換成本機時區的 `YYYY-MM-DD`；解析不了就原樣顯示。
@@ -171,12 +203,7 @@ fn footer(
             match phase {
                 Phase::Idle => {}
                 Phase::Downloading if !verifying => {
-                    let fraction = if total > 0 {
-                        done as f32 / total as f32
-                    } else {
-                        0.0
-                    };
-                    progress_bar(ui, fraction, room);
+                    progress_bar(ui, fraction(done, total), room);
                     hint(
                         ui,
                         &transfer_text(done, total, speed),

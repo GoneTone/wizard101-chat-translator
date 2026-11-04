@@ -2,12 +2,13 @@
 
 use crate::common::kittest::{click, themed_harness, tr};
 use eframe::egui::accesskit::Role;
-use eframe::egui::vec2;
+use eframe::egui::{FontFamily, Shape, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use wizard101_chat_translator::i18n::t;
 use wizard101_chat_translator::runtime::update_job::Phase;
 use wizard101_chat_translator::runtime::updater::Release;
+use wizard101_chat_translator::ui::settings::theme;
 use wizard101_chat_translator::ui::settings::update_window::{UpdateAction, UpdateView, can_close};
 
 const MIB: u64 = 1 << 20;
@@ -184,6 +185,81 @@ fn markdown_body_is_rendered() {
     h.get_by_label("What's New");
     h.get_by_label("item");
     assert!(h.query_by_label_contains("##").is_none());
+}
+
+/// 畫面上文字 `text` 的字族。
+fn font_family(h: &Harness<'static, Window>, text: &str) -> FontFamily {
+    h.output()
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == text => {
+                Some(t.galley.job.sections[0].format.font_id.family.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{text:?} not painted"))
+}
+
+/// 各級標題都用粗體；程式碼區塊裡的 `##` 不當標題。
+#[test]
+fn markdown_headings_are_bold() {
+    let body = "## What's New
+
+### Fixes
+
+plain
+
+```
+## not a heading
+```";
+    let h = window_with(vec![release("1.2.0", body)], Phase::Idle, (0, 0), false);
+    let bold = theme::bold(1.0).family;
+    assert_eq!(font_family(&h, "What's New"), bold);
+    assert_eq!(font_family(&h, "Fixes"), bold);
+    assert_ne!(font_family(&h, "plain"), bold);
+    let code = h.output().shapes.iter().any(
+        |c| matches!(&c.shape, Shape::Text(t) if t.galley.text().contains("## not a heading")),
+    );
+    assert!(code);
+}
+
+/// 發布日期換成本機時區的日期；解析不了就顯示原字串。
+#[test]
+fn published_date_is_local_or_raw() {
+    let at = "2026-11-03T23:30:00+08:00";
+    let mut odd = release("1.1.0", "");
+    odd.published_at = "not-a-date".into();
+    let mut newest = release("1.2.0", "");
+    newest.published_at = at.into();
+    let h = window_with(vec![newest, odd], Phase::Idle, (0, 0), false);
+    let local = chrono::DateTime::parse_from_rfc3339(at)
+        .unwrap()
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d")
+        .to_string();
+    h.get_by_label(&t("update.published", &[("date", &local)]));
+    h.get_by_label(&t("update.published", &[("date", "not-a-date")]));
+}
+
+/// 量到速度後，進度文字接上速度。
+#[test]
+fn downloading_appends_the_speed() {
+    let mut h = window(Phase::Downloading, (10 * MIB, 100 * MIB), false);
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    h.state_mut().progress = (20 * MIB, 100 * MIB);
+    h.run_steps(2);
+    let prefix = t(
+        "update.downloading",
+        &[("done", "20.0"), ("total", "100.0")],
+    ) + " · ";
+    let label = h
+        .get_by_label_contains(&prefix)
+        .accesskit_node()
+        .value()
+        .unwrap()
+        .to_string();
+    assert!(label.ends_with(" MB/s"), "{label}");
 }
 
 /// 只有下載中（含驗證）與重新啟動中不能關視窗。
