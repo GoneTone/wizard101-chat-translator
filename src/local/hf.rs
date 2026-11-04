@@ -2,19 +2,16 @@
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
-use std::time::Duration;
 
 use regex::Regex;
 use serde::Deserialize;
 
 use super::download::body_preview;
 use crate::logs::log;
-use crate::net::{bypass_proxy_for_loopback, error_chain, install_crypto_provider};
+use crate::net::{download_client, error_chain};
 
 /// Hugging Face 正式站台根網址。
 pub const HF_BASE: &str = "https://huggingface.co";
-
-const TIMEOUT: Duration = Duration::from_secs(60);
 
 static SHARD_TAIL: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)-(\d{5})-of-(\d{5})$").expect("shard regex"));
@@ -62,18 +59,7 @@ pub struct Catalog {
 
 /// 建立連 `base`（正式為 `HF_BASE`）用的 HTTP client；`base` 是本機位址時不走 proxy。
 pub fn hf_client(base: &str) -> reqwest::Client {
-    install_crypto_provider();
-    let builder = reqwest::Client::builder()
-        .connect_timeout(TIMEOUT)
-        .read_timeout(TIMEOUT)
-        .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent(format!(
-            "wizard101-chat-translator/{}",
-            env!("CARGO_PKG_VERSION")
-        ));
-    bypass_proxy_for_loopback(builder, base)
-        .build()
-        .expect("build HTTP client")
+    download_client(base)
 }
 
 /// 從 `org/repo` 或 Hugging Face 網址取出 `org/repo`；其他輸入回 `None`。

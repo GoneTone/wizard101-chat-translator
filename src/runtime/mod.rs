@@ -3,6 +3,7 @@
 pub mod resources;
 pub mod self_update;
 pub mod single_instance;
+pub mod update_job;
 pub mod updater;
 
 pub use single_instance::{
