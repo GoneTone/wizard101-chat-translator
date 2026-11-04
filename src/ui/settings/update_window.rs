@@ -8,6 +8,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use super::local_rate::{MB, Rates, Speed, format_speed};
 use super::quant_table::fraction;
+use super::release_links::linkify_github;
 use super::theme;
 use super::widgets::{
     card, danger_button, hint, pill, primary_button, progress_bar, right_aligned,
@@ -134,7 +135,7 @@ impl UpdateView {
                     ui.style_mut()
                         .text_styles
                         .insert(TextStyle::Heading, theme::bold(MARKDOWN_HEADING_SIZE));
-                    let body = flatten_headings(&release.body);
+                    let body = linkify_github(&flatten_headings(&release.body));
                     CommonMarkViewer::new().show(ui, &mut self.markdown, &body);
                 });
         });

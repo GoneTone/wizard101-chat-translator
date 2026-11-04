@@ -279,3 +279,109 @@ fn can_close_only_outside_download_and_restart() {
         assert!(can_close(&phase), "{phase:?}");
     }
 }
+
+mod links {
+    use super::*;
+    use wizard101_chat_translator::ui::settings::release_links::linkify_github;
+    use wizard101_chat_translator::ui::text_select::opened_urls;
+
+    const PR: &str = "https://github.com/GoneTone/wizard101-chat-translator/pull/69";
+
+    /// 本專案的 PR 網址改成 `#N` 連結。
+    #[test]
+    fn project_pr_url_becomes_numbered_link() {
+        let line = format!("* fix(settings): require a service name by @GoneTone in {PR}");
+        assert_eq!(
+            linkify_github(&line),
+            format!(
+                "* fix(settings): require a service name by [@GoneTone](https://github.com/GoneTone) in [#69]({PR})"
+            )
+        );
+    }
+
+    /// issue、compare、commit 網址的連結文字。
+    #[test]
+    fn project_issue_compare_and_commit_urls_get_short_labels() {
+        let repo = "https://github.com/GoneTone/wizard101-chat-translator";
+        let compare = format!("**Full Changelog**: {repo}/compare/v1.1.0...v1.2.0");
+        assert_eq!(
+            linkify_github(&compare),
+            format!("**Full Changelog**: [v1.1.0...v1.2.0]({repo}/compare/v1.1.0...v1.2.0)")
+        );
+        assert_eq!(
+            linkify_github(&format!("see {repo}/issues/7.")),
+            format!("see [#7]({repo}/issues/7).")
+        );
+        let sha = "4128e3f0fd086b9aaaaaaaaaaaaaaaaaaaaaaaa";
+        assert_eq!(
+            linkify_github(&format!("{repo}/commit/{sha}")),
+            format!("[4128e3f]({repo}/commit/{sha})")
+        );
+    }
+
+    /// 機器人帳號連到 `apps/`。
+    #[test]
+    fn bot_mention_links_to_apps() {
+        assert_eq!(
+            linkify_github("* chore(deps): bump x by @dependabot[bot] in"),
+            "* chore(deps): bump x by [@dependabot[bot]](https://github.com/apps/dependabot) in"
+        );
+    }
+
+    /// 已是連結、信箱、程式碼的內容不動。
+    #[test]
+    fn existing_links_emails_and_code_are_untouched() {
+        for same in [
+            format!("[#69]({PR})"),
+            format!("<{PR}>"),
+            "mail a@b.com now".to_owned(),
+            "path /x/@user and [@u](https://github.com/u)".to_owned(),
+            format!("`{PR} @GoneTone`"),
+            format!("```\n{PR} @GoneTone\n```"),
+            format!("    {PR}"),
+        ] {
+            assert_eq!(linkify_github(&same), same);
+        }
+    }
+
+    /// 其他裸網址變成自動連結，尾端句讀留在外面。
+    #[test]
+    fn other_bare_urls_become_autolinks_without_trailing_punctuation() {
+        assert_eq!(
+            linkify_github("see https://example.com/a. And (https://example.com/b), ok。"),
+            "see <https://example.com/a>. And (<https://example.com/b>), ok。"
+        );
+    }
+
+    fn body_window(body: &str) -> Harness<'static, Window> {
+        window_with(vec![release("1.2.0", body)], Phase::Idle, (0, 0), false)
+    }
+
+    /// 點內文裡的 PR 連結：視窗輸出要求開啟完整網址。
+    #[test]
+    fn clicking_a_pr_link_opens_the_full_url() {
+        let mut h = body_window(&format!("* fix thing in {PR}"));
+        h.get_by_role_and_label(Role::Link, "#69").click();
+        h.step();
+        let opened = opened_urls(&h.output().platform_output);
+        assert!(opened.contains(&PR.to_owned()), "{opened:?}");
+    }
+
+    /// 內文連結用設定視窗的連結色，不是內文白色。
+    #[test]
+    fn link_text_uses_the_link_color() {
+        let h = body_window(&format!("* fix thing in {PR}"));
+        let shape = h
+            .output()
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                Shape::Text(t) if t.galley.text() == "#69" => Some(t.clone()),
+                _ => None,
+            })
+            .expect("link painted");
+        // 區段色是佔位色，實際色由 override／fallback 決定
+        let color = shape.override_text_color.unwrap_or(shape.fallback_color);
+        assert_eq!(color, theme::LINK);
+    }
+}
