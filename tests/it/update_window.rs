@@ -496,3 +496,93 @@ mod links {
         assert_eq!(color, theme::LINK);
     }
 }
+
+/// 底部列左側狀態（有進度條時連同進度條）的垂直中心，與按鈕的垂直中心對齊。
+#[test]
+fn footer_status_is_vertically_centred_on_the_buttons() {
+    let long_error = "boom ".repeat(60);
+    let failed = |error: &str| Phase::Failed {
+        error: error.into(),
+        replace: false,
+    };
+    let cases = [
+        (
+            Phase::Downloading,
+            (25 * MIB, 61 * MIB),
+            false,
+            "update.downloading",
+            true,
+            "update.cancel",
+        ),
+        (
+            Phase::Downloading,
+            (61 * MIB, 61 * MIB),
+            false,
+            "update.verifying",
+            true,
+            "update.cancel",
+        ),
+        (
+            Phase::Restarting,
+            (61 * MIB, 61 * MIB),
+            false,
+            "update.restarting",
+            true,
+            "update.cancel",
+        ),
+        (failed("boom"), (0, 0), false, "boom", false, "update.retry"),
+        (
+            failed(&long_error),
+            (0, 0),
+            false,
+            "boom boom",
+            false,
+            "update.retry",
+        ),
+        (
+            Phase::Cancelled,
+            (0, 0),
+            false,
+            "update.cancelled",
+            false,
+            "update.redownload",
+        ),
+        (
+            Phase::Ready,
+            (61 * MIB, 61 * MIB),
+            true,
+            "update.unsaved",
+            false,
+            "update.discard_restart",
+        ),
+        (
+            Phase::Ready,
+            (61 * MIB, 61 * MIB),
+            false,
+            "update.ready",
+            false,
+            "update.restart",
+        ),
+    ];
+    for (phase, progress, unsaved, status, bar, button) in cases {
+        let label = match status {
+            "update.downloading" => t(status, &[("done", "25.0"), ("total", "61.0")]),
+            key if key.starts_with("update.") => tr(key),
+            raw => raw.to_owned(),
+        };
+        let h = window(phase, progress, unsaved);
+        let text = h.get_by_label_contains(&label).rect();
+        let (top, bottom) = if bar {
+            let b = h.get_by_role(Role::ProgressIndicator).rect();
+            (b.top().min(text.top()), b.bottom().max(text.bottom()))
+        } else {
+            (text.top(), text.bottom())
+        };
+        let target = h.get_by_role_and_label(Role::Button, &tr(button)).rect();
+        let (status_mid, button_mid) = ((top + bottom) / 2.0, target.center().y);
+        assert!(
+            (status_mid - button_mid).abs() <= 1.0,
+            "{status}: status centre {status_mid} vs button centre {button_mid}"
+        );
+    }
+}

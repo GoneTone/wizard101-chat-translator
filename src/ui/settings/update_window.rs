@@ -201,10 +201,14 @@ fn footer(
         }
     };
     let buttons = Id::unique("update_buttons");
+    let status = Id::unique("update_status");
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         let room = (ui.available_width() - right_aligned_width(ui, buttons) - 16.0).max(120.0);
-        ui.allocate_ui_with_layout(vec2(room, 0.0), Layout::top_down(Align::Min), |ui| {
+        // 零高區塊會被擺在列中線下方，所以用上一幀量到的內容高度預留空間，再把內容置中。
+        let height = ui.data(|d| d.get_temp(status)).unwrap_or(0.0_f32);
+        let column = Layout::top_down(Align::Min).with_main_align(Align::Center);
+        let shown = ui.allocate_ui_with_layout(vec2(room, height), column, |ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
             ui.set_width(room);
             match phase {
@@ -234,6 +238,11 @@ fn footer(
                 Phase::Ready => hint(ui, &t("update.ready", &[]), theme::OK),
             }
         });
+        let used = shown.response.rect.height();
+        if (used - height).abs() > 0.5 {
+            ui.data_mut(|d| d.insert_temp(status, used));
+            ui.ctx().request_discard("footer status resized");
+        }
         right_aligned(ui, buttons, |ui| {
             let label = |key| t(key, &[]);
             match phase {
