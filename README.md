@@ -43,7 +43,7 @@ Download `Wizard101ChatTranslator.exe` and put it in any folder. The settings fi
 
 <https://github.com/GoneTone/wizard101-chat-translator/releases/latest>
 
-**Updating**: click the update banner on the overlay, or go to the *About* tab of the settings window, to download the new version inside the software; restart when the download is done to start using it. Your existing `config.json` is used as it is, so the provider, API key and other settings never have to be entered again. If the in-app update fails, update by hand: close the software (click the ✕ at the top-right of the overlay's title bar), then download the new `Wizard101ChatTranslator.exe` and overwrite the old one in the same folder.
+**Updating**: click the update banner on the overlay (or check for updates in the *About* tab of the settings window) to download the new version inside the software; restart when the download is done to start using it. Your existing `config.json` is used as it is, so the provider, API key and other settings never have to be entered again. If the in-app update fails, update by hand: close the software (click the ✕ at the top-right of the overlay's title bar), then download the new `Wizard101ChatTranslator.exe` and overwrite the old one in the same folder.
 
 **Anti-virus false positives**: this software reads the game's chat memory (by hooking into the game process) and listens for a global hotkey. That behavior pattern resembles some malware, so anti-virus programs may flag it or delete/quarantine it outright. This is a false positive; assess the risk yourself and add the program to your anti-virus allowlist.
 
